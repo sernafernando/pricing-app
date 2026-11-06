@@ -737,6 +737,50 @@ describe('hay_mejores chooser outside MODO', () => {
     expect(screen.getByRole('tablist', { name: 'Secciones de la publicación' })).toBeInTheDocument();
   });
 
+  describe('with a suggested SMART', () => {
+    const smart = {
+      promotion_id: 'P-SUG',
+      promotion_type: 'SMART',
+      status: 'candidate',
+      name: 'Potencia tus ventas',
+      price: 70000,
+      nuestro_markup: 15,
+    };
+
+    beforeEach(() => {
+      promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [smart] } });
+      promocionesAPI.postPromocionItem.mockReset().mockResolvedValue({ data: { status: 'submitted', precio_difiere: false } });
+    });
+
+    it('applies the suggestion through the confirmation and keeps the panel open', async () => {
+      const user = userEvent.setup();
+      const onClose = vi.fn();
+      publicacionesMlAPI.detail.mockResolvedValue({ data: flaggedDetail() });
+      renderPanel({ tab: 'resumen', onClose });
+      await user.click(await screen.findByRole('button', { name: 'Aplicar sugerencia' }));
+      expect(promocionesAPI.postPromocionItem).not.toHaveBeenCalled();
+      await user.click(screen.getByRole('button', { name: 'Sí, aplicar' }));
+      await waitFor(() =>
+        expect(promocionesAPI.postPromocionItem).toHaveBeenCalledWith(
+          'MLA1100000001',
+          expect.objectContaining({ promotion_id: 'P-SUG', precio_visto: 70000 }),
+        ),
+      );
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('marks the suggested row in the Promos tab instead of repeating the banner', async () => {
+      publicacionesMlAPI.detail.mockResolvedValue({ data: flaggedDetail() });
+      renderPanel({ tab: 'promociones' });
+      await screen.findByRole('button', { name: 'Aplicar sugerencia' });
+      const tabRow = (await screen.findAllByText('Potencia tus ventas'))
+        .map((el) => el.closest('li'))
+        .find((li) => li && within(li).queryByRole('button', { name: /^Aplicar$/ }));
+      await waitFor(() => expect(within(tabRow).getByText('Sugerida')).toBeInTheDocument());
+      expect(screen.getAllByText(/Hay candidatas mejores/)).toHaveLength(1);
+    });
+  });
+
   it('does not mount the chooser without promos.escribir', async () => {
     canWritePromos = false;
     publicacionesMlAPI.detail.mockResolvedValue({ data: flaggedDetail() });

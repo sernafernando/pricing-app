@@ -748,4 +748,49 @@ describe('PromoApplyControl', () => {
       expect(screen.queryByTestId('provisional-indicator')).not.toBeInTheDocument();
     });
   });
+
+  describe('trigger label', () => {
+    const smart = { promotion_id: 'P-SMART', promotion_type: 'SMART', name: 'Smart promo', price: 100, nuestro_markup: 12 };
+
+    it('says the given label and keeps the same confirmation and body', async () => {
+      const user = userEvent.setup();
+      promocionesAPI.postPromocionItem.mockResolvedValue({ data: { status: 'submitted', precio_difiere: false } });
+      render(<PromoApplyControl mla="MLA1" promotion={smart} label="Aplicar sugerencia" />);
+
+      expect(screen.queryByRole('button', { name: /^aplicar$/i })).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Aplicar sugerencia' }));
+      expect(promocionesAPI.postPromocionItem).not.toHaveBeenCalled();
+      await user.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+      await waitFor(() =>
+        expect(promocionesAPI.postPromocionItem).toHaveBeenCalledWith('MLA1', {
+          promotion_id: 'P-SMART',
+          promotion_type: 'SMART',
+          precio_visto: 100,
+          markup_visto: 12,
+        }),
+      );
+    });
+
+    it('keeps the row trigger as "Aplicar" without a label (previous behaviour)', async () => {
+      const user = userEvent.setup();
+      promocionesAPI.postPromocionItem.mockResolvedValue({ data: { status: 'submitted', precio_difiere: false } });
+      render(<PromoApplyControl mla="MLA1" promotion={smart} />);
+
+      await user.click(screen.getByRole('button', { name: /^aplicar$/i }));
+      await user.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+      await waitFor(() =>
+        expect(promocionesAPI.postPromocionItem).toHaveBeenCalledWith('MLA1', {
+          promotion_id: 'P-SMART',
+          promotion_type: 'SMART',
+          precio_visto: 100,
+          markup_visto: 12,
+        }),
+      );
+    });
+
+    it('never relabels the Desaplicar trigger of an enrolled promo', () => {
+      render(<PromoApplyControl mla="MLA1" promotion={{ ...smart, status: 'started' }} label="Aplicar sugerencia" />);
+      expect(screen.getByRole('button', { name: /^desaplicar$/i })).toBeInTheDocument();
+    });
+  });
 });

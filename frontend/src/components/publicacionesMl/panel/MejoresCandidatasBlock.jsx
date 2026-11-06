@@ -1,18 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
+import { Sparkles } from 'lucide-react';
 import { formatAmount } from '../../../utils/ventasMlFormat';
 import { errorText } from '../../pricing/priceWrites';
 import { promocionesAPI } from '../../../services/api';
 import { resolvePromoName } from '../../promociones/resolvePromoName';
-import { promoDisplayPrice } from '../../promociones/promoDisplayPrice';
-import {
-  baselineMarkupFromPromos,
-  enrollBodyForPromo,
-  hasPickedSlot,
-  pickMejoresCandidatas,
-} from './pickPonerPreciosPromos';
+import { ML_PRICED_TYPES, promoDisplayPrice } from '../../promociones/promoDisplayPrice';
+import PromoApplyControl from '../../promociones/PromoApplyControl';
+import { baselineMarkupFromPromos, hasPickedSlot, pickMejoresCandidatas } from './pickPonerPreciosPromos';
+import promoStyles from '../../promociones/promociones.module.css';
 import styles from './panel.module.css';
 
 const SLOT_LABELS = { smart: 'SMART', deal: 'DEAL', premium: 'Premium' };
+const SLOT_BADGE = {
+  smart: promoStyles.badgeTypeSmart,
+  deal: promoStyles.badgeTypeDeal,
+  premium: promoStyles.badgeTypeSellerCampaign,
+};
 
 function slotEntries(picked) {
   if (!picked) return [];
@@ -23,10 +26,27 @@ function slotEntries(picked) {
   ].filter(([, promo]) => promo);
 }
 
+function markupTone(value) {
+  return value != null && Number(value) < 0 ? styles.mejoresMarkupNegative : styles.mejoresMarkupPositive;
+}
+
 /**
- * Inline SMART/DEAL/Premium chooser for a pub already flagged hay_mejores.
+ * An apply went through cleanly: sent or confirmed, and (for an ML-priced offer) ML applied the
+ * price the operator confirmed. Anything else keeps the pub open so its feedback stays visible.
+ */
+function appliedCleanly(promo, data) {
+  if (data?.status === 'reconciled_applied') return true;
+  if (data?.status !== 'submitted') return false;
+  return !ML_PRICED_TYPES.has(promo.promotion_type) || data.precio_difiere === false;
+}
+
+/**
+ * The suggested SMART/DEAL/Premium for a pub already flagged hay_mejores, as cards.
  * Mount only when the operator can write promos (discard/apply need it).
- * Calls onUnavailable when baseline markup is missing or load fails hard.
+ * "Aplicar sugerencia" is the row's PromoApplyControl (same confirmation, guards and body);
+ * `onLeavePub` runs only after a clean apply. `onSuggested(ids)` reports the suggested
+ * promotion ids so the Promos tab can mark them. Calls onUnavailable when baseline markup is
+ * missing or load fails hard.
  */
 export default function MejoresCandidatasBlock({
   itemId,
@@ -35,15 +55,17 @@ export default function MejoresCandidatasBlock({
   onLeavePub,
   onDismissed,
   onUnavailable,
+  onSuggested,
 }) {
   const [loading, setLoading] = useState(true);
   const [slots, setSlots] = useState(null);
   const [baselineMarkup, setBaselineMarkup] = useState(null);
   const [message, setMessage] = useState(null);
-  const [enrolling, setEnrolling] = useState(false);
   const [descartando, setDescartando] = useState(false);
   const onUnavailableRef = useRef(onUnavailable);
   onUnavailableRef.current = onUnavailable;
+  const onSuggestedRef = useRef(onSuggested);
+  onSuggestedRef.current = onSuggested;
 
   useEffect(() => {
     let cancelled = false;
@@ -76,6 +98,7 @@ export default function MejoresCandidatasBlock({
           baselineMarkup: markup,
         });
         setSlots(hasPickedSlot(picked) ? picked : null);
+        onSuggestedRef.current?.(slotEntries(picked).map(([, promo]) => promo.promotion_id));
       } catch (err) {
         if (!cancelled) {
           setMessage({ tone: 'error', text: errorText(err, 'No se pudieron cargar las candidatas.') });
@@ -105,71 +128,83 @@ export default function MejoresCandidatasBlock({
     }
   };
 
-  const accept = async (slot) => {
-    const promo = slots?.[slot];
-    if (!promo || enrolling) return;
-    setEnrolling(true);
-    setMessage(null);
-    try {
-      await promocionesAPI.postPromocionItem(itemId, enrollBodyForPromo(promo));
-      onWritten?.();
-      onLeavePub?.();
-    } catch (err) {
-      setMessage({ tone: 'error', text: errorText(err, 'No se pudo activar la promoción.') });
-      setEnrolling(false);
-    }
-  };
-
   const entries = slotEntries(slots);
+  const vigente =
+    baselineMarkup != null ? (
+      <>
+        {' '}
+        Markup vigente ~ <span className={markupTone(baselineMarkup)}>{formatAmount(baselineMarkup)}%</span>.
+      </>
+    ) : null;
+  const discardButton = (
+    <button type="button" className="btn-tesla ghost sm" disabled={descartando} onClick={discard}>
+      {descartando ? 'Descartando…' : 'Descartar sugerencia'}
+    </button>
+  );
 
   return (
     <div className={styles.ponerPreciosMejores} role="region" aria-label="Candidatas mejores">
       {loading ? (
         <p className={styles.ponerPreciosOk} role="status">
           Cargando candidatas…
-          {baselineMarkup != null ? ` Markup vigente ~ ${formatAmount(baselineMarkup)}%.` : ''}
         </p>
       ) : entries.length > 0 ? (
         <>
           <p className={styles.ponerPreciosMejoresLead}>
-            Hay candidatas mejores que el precio vigente en MeLi.
-            {baselineMarkup != null ? ` Markup vigente ~ ${formatAmount(baselineMarkup)}%.` : ''}
+            <Sparkles size={14} aria-hidden="true" className={styles.mejoresIcon} />
+            <span>
+              Hay candidatas mejores que el precio vigente en MeLi.
+              {vigente}
+            </span>
           </p>
           <ul className={styles.ponerPreciosChoices}>
-            {entries.map(([slot, promo]) => (
-              <li key={slot}>
-                <button
-                  type="button"
-                  className="btn-tesla outline sm"
-                  disabled={enrolling}
-                  onClick={() => accept(slot)}
-                >
-                  <span className={styles.ponerPreciosChoiceLabel}>{SLOT_LABELS[slot]}</span>
-                  <span className={styles.ponerPreciosChoiceMeta}>
-                    {resolvePromoName(promo) || promo.promotion_id}
-                    {promoDisplayPrice(promo) != null ? ` · $ ${formatAmount(promoDisplayPrice(promo))}` : ''}
-                    {promo.nuestro_markup != null ? ` · markup ${formatAmount(promo.nuestro_markup)}%` : ''}
+            {entries.map(([slot, promo], index) => {
+              const price = promoDisplayPrice(promo);
+              return (
+                <li key={slot} className={styles.mejoresCard} role="group" aria-label={`Promo sugerida ${SLOT_LABELS[slot]}`}>
+                  <span className={`${promoStyles.badge} ${SLOT_BADGE[slot]}`}>{SLOT_LABELS[slot]}</span>
+                  <span className={styles.mejoresMain}>
+                    <span className={styles.mejoresEyebrow}>Promo sugerida</span>
+                    <span className={styles.mejoresName}>{resolvePromoName(promo) || promo.promotion_id}</span>
                   </span>
-                </button>
-              </li>
-            ))}
+                  <span className={styles.mejoresFigure}>
+                    <span className={styles.mejoresEyebrow}>Precio</span>
+                    <span className={styles.mejoresValue}>{price != null ? `$ ${formatAmount(price)}` : '—'}</span>
+                  </span>
+                  <span className={styles.mejoresFigure}>
+                    <span className={styles.mejoresEyebrow}>Markup</span>
+                    <span className={`${styles.mejoresValue} ${markupTone(promo.nuestro_markup)}`}>
+                      {promo.nuestro_markup != null ? `${formatAmount(promo.nuestro_markup)}%` : '—'}
+                    </span>
+                  </span>
+                  <span className={styles.mejoresActions}>
+                    {index === 0 && discardButton}
+                    <PromoApplyControl
+                      mla={itemId}
+                      promotion={promo}
+                      label="Aplicar sugerencia"
+                      onApplied={(data) => {
+                        onWritten?.();
+                        if (appliedCleanly(promo, data)) onLeavePub?.();
+                      }}
+                      onReloadNeeded={onWritten}
+                    />
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </>
       ) : (
-        <p className={styles.ponerPreciosOk} role="status">
-          No hay candidatas SMART / DEAL / Premium que superen el precio vigente
-          {baselineMarkup != null ? ` (markup vigente ~ ${formatAmount(baselineMarkup)}%)` : ''}.
-          Podés descartar el aviso si quedó desactualizado.
-        </p>
+        <>
+          <p className={styles.ponerPreciosOk} role="status">
+            No hay candidatas SMART / DEAL / Premium que superen el precio vigente
+            {baselineMarkup != null ? ` (markup vigente ~ ${formatAmount(baselineMarkup)}%)` : ''}.
+            Podés descartar el aviso si quedó desactualizado.
+          </p>
+          <span>{discardButton}</span>
+        </>
       )}
-      <button
-        type="button"
-        className="btn-tesla ghost sm"
-        disabled={descartando || enrolling}
-        onClick={discard}
-      >
-        {descartando ? 'Descartando…' : 'Descartar sugerencia'}
-      </button>
       {message && (
         <p className={message.tone === 'error' ? styles.ponerPreciosError : styles.ponerPreciosOk} role="status">
           {message.text}

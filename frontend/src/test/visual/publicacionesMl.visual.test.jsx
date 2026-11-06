@@ -135,7 +135,7 @@ vi.mock('../../services/api', () => ({
   },
   mlItemOverridesAPI: { get: vi.fn(), save: vi.fn(), pushToMl: vi.fn() },
   productoBanlistAPI: { add: vi.fn() },
-  promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn(), getCompetenciaCatalogo: vi.fn(), refreshCompetenciaCatalogo: vi.fn() },
+  promocionesAPI: { getPromocionesItem: vi.fn(), getMarkupParaPrecio: vi.fn(() => Promise.resolve({ data: { nuestro_markup: null } })), descartarHayMejores: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn(), getCompetenciaCatalogo: vi.fn(), refreshCompetenciaCatalogo: vi.fn() },
   productosAPI: {
     getProductoTree: vi.fn(() => Promise.resolve(DEFAULT_TREE)),
     marcas: vi.fn(() => Promise.resolve({ data: { marcas: [] } })),
@@ -2160,6 +2160,54 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
       } finally {
         squeeze.remove();
       }
+    });
+  }
+
+  // S9b: the "Hay candidatas mejores" block is a suggestion card above the tabs; the Promos tab marks its row "Sugerida".
+  for (const theme of THEMES) {
+    it(`1366x768 ${theme}: the suggested promo is a card with Aplicar sugerencia, and its Promos row says Sugerida`, async () => {
+      const suggested = {
+        promotion_id: 'P-SUG',
+        promotion_type: 'SMART',
+        name: 'Potencia tus ventas',
+        status: 'candidate',
+        price: 57920.55,
+        original_price: 86539,
+        nuestro_markup: -28.34,
+        payload: { seller_percentage: 30.4, meli_percentage: 2.7 },
+      };
+      promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { nuestro_markup: -28.74 } });
+      const screen = await renderWithPanel({
+        width: 1366,
+        height: 768,
+        theme,
+        tab: 'promociones',
+        promotions: [suggested, ...PROMOTIONS],
+        rowExtra: { hay_mejores_ofertas: true, price: { ...MANY[0].price, amount: 59999 } },
+      });
+      await expect.element(screen.getByRole('button', { name: 'Aplicar sugerencia' })).toBeVisible();
+      await expect.element(screen.getByText('Sugerida', { exact: true })).toBeVisible();
+      const panel = panelOf();
+      const box = rect(panel);
+      const card = panel.querySelector('[role="group"][aria-label="Promo sugerida SMART"]');
+      expect(card).not.toBeNull();
+      expect(getComputedStyle(card).borderTopColor).toBe(tokenColor('--cf-border-default'));
+      // The card sits above the tab strip, inside the panel, on one row.
+      expect(rect(card).bottom).toBeLessThanOrEqual(rect(panel.querySelector('[role="tablist"]')).top);
+      for (const el of [card, ...card.querySelectorAll('*')]) {
+        const r = rect(el);
+        if (r.width === 0) continue;
+        expect(r.right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(box.right + 0.5);
+      }
+      const markup = [...card.querySelectorAll('span')].find((el) => el.textContent === '-28,34%');
+      expect(getComputedStyle(markup).color).toBe(tokenColor('--tone-danger-fg'));
+      // The tab no longer repeats the banner.
+      const walker = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT);
+      let banners = 0;
+      while (walker.nextNode()) if (walker.currentNode.textContent.includes('Hay candidatas mejores')) banners += 1;
+      expect(banners).toBe(1);
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/sugerencia-1366-${theme}.png`, element: panel });
+      screen.unmount();
     });
   }
 

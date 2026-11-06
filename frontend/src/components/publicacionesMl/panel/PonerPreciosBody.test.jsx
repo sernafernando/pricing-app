@@ -15,6 +15,11 @@ vi.mock('../../../services/api', () => ({
   },
 }));
 
+vi.mock('../../../contexts/PermisosContext', () => ({
+  usePermisos: () => ({ permisos: [], tienePermiso: () => true, cargandoPermisos: false }),
+  PermisosProvider: ({ children }) => children,
+}));
+
 vi.mock('../../ModalTesla', () => ({
   default: ({ isOpen, title, children, footer }) =>
     isOpen ? (
@@ -133,15 +138,16 @@ describe('PonerPreciosBody flagged hay_mejores', () => {
     render(<PonerPreciosBody detail={flaggedDetail} itemId="MLA1" canEditPrice canWritePromos />);
     expect(screen.queryByLabelText('Nuevo precio')).not.toBeInTheDocument();
     await screen.findByRole('region', { name: 'Candidatas mejores' });
-    await screen.findByRole('button', { name: /SMART/i });
+    await screen.findByRole('button', { name: 'Aplicar sugerencia' });
     await user.click(screen.getByRole('button', { name: 'Descartar sugerencia' }));
     await waitFor(() => expect(promocionesAPI.descartarHayMejores).toHaveBeenCalledWith('MLA1'));
     expect(await screen.findByLabelText('Nuevo precio')).toBeInTheDocument();
   });
 
-  it('applies a mejores SMART and leaves the pub without showing Nuevo precio', async () => {
+  it('applies a mejores SMART after confirming and leaves the pub without showing Nuevo precio', async () => {
     const user = userEvent.setup();
     const onLeavePub = vi.fn();
+    promocionesAPI.postPromocionItem.mockResolvedValue({ data: { status: 'submitted', precio_difiere: false } });
     render(
       <PonerPreciosBody
         detail={flaggedDetail}
@@ -152,15 +158,33 @@ describe('PonerPreciosBody flagged hay_mejores', () => {
       />,
     );
     expect(screen.queryByLabelText('Nuevo precio')).not.toBeInTheDocument();
-    await user.click(await screen.findByRole('button', { name: /SMART/i }));
+    await user.click(await screen.findByRole('button', { name: 'Aplicar sugerencia' }));
+    expect(promocionesAPI.postPromocionItem).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Sí, aplicar' }));
     await waitFor(() =>
-      expect(promocionesAPI.postPromocionItem).toHaveBeenCalledWith(
-        'MLA1',
-        expect.objectContaining({ promotion_id: 'P-MLA18137008', promotion_type: 'SMART' }),
-      ),
+      expect(promocionesAPI.postPromocionItem).toHaveBeenCalledWith('MLA1', {
+        promotion_id: 'P-MLA18137008',
+        promotion_type: 'SMART',
+        precio_visto: 74690,
+        markup_visto: 20,
+      }),
     );
-    expect(onLeavePub).toHaveBeenCalled();
+    expect(onLeavePub).toHaveBeenCalledTimes(1);
     expect(screen.queryByLabelText('Nuevo precio')).not.toBeInTheDocument();
+  });
+
+  it('stays on the pub when ML moved the price (409)', async () => {
+    const user = userEvent.setup();
+    const onLeavePub = vi.fn();
+    promocionesAPI.postPromocionItem.mockRejectedValueOnce({
+      response: { status: 409, data: { status: 'rejected_price_changed', precio_actual: 75000, markup_actual: 19 } },
+    });
+    render(<PonerPreciosBody detail={flaggedDetail} itemId="MLA1" canEditPrice canWritePromos onLeavePub={onLeavePub} />);
+    await user.click(await screen.findByRole('button', { name: 'Aplicar sugerencia' }));
+    await user.click(screen.getByRole('button', { name: 'Sí, aplicar' }));
+    expect(await screen.findByText(/ML cambió el precio/)).toBeInTheDocument();
+    expect(onLeavePub).not.toHaveBeenCalled();
+    expect(screen.getByRole('region', { name: 'Candidatas mejores' })).toBeInTheDocument();
   });
 
   it('shows Nuevo precio immediately without promos.escribir', () => {
@@ -177,12 +201,15 @@ describe('PonerPreciosBody flagged hay_mejores', () => {
 
   it('keeps the chooser and shows an error when apply fails', async () => {
     const user = userEvent.setup();
+    const onLeavePub = vi.fn();
     promocionesAPI.postPromocionItem.mockRejectedValueOnce({
-      response: { data: { detail: 'Promoción no disponible' } },
+      response: { status: 422, data: { detail: 'Promoción no disponible' } },
     });
-    render(<PonerPreciosBody detail={flaggedDetail} itemId="MLA1" canEditPrice canWritePromos />);
-    await user.click(await screen.findByRole('button', { name: /SMART/i }));
-    expect(await screen.findByRole('status')).toHaveTextContent(/Promoción no disponible/);
+    render(<PonerPreciosBody detail={flaggedDetail} itemId="MLA1" canEditPrice canWritePromos onLeavePub={onLeavePub} />);
+    await user.click(await screen.findByRole('button', { name: 'Aplicar sugerencia' }));
+    await user.click(screen.getByRole('button', { name: 'Sí, aplicar' }));
+    expect(await screen.findByText('Promoción no disponible')).toBeInTheDocument();
+    expect(onLeavePub).not.toHaveBeenCalled();
     expect(screen.getByRole('region', { name: 'Candidatas mejores' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Nuevo precio')).not.toBeInTheDocument();
   });

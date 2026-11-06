@@ -990,13 +990,81 @@
   list-style: none;
 }
 
-.ponerPreciosChoices button {
+.ponerPreciosChoices > li > button {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
   width: 100%;
   text-align: left;
+}
+
+/* Suggested-promo cards of the "Hay candidatas mejores" block (S9b). */
+.ponerPreciosMejores:has(.mejoresCard) {
+  padding: var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: 8px;
+  background: var(--cf-bg-card);
+}
+
+.ponerPreciosMejoresLead:has(.mejoresIcon) {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  color: var(--cf-text-primary);
+}
+
+.mejoresIcon { flex-shrink: 0; color: var(--tone-warning-fg); }
+
+.mejoresCard {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: 6px;
+}
+
+.mejoresMain {
+  display: flex;
+  flex: 1 1 160px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mejoresFigure {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.mejoresEyebrow {
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cf-text-secondary);
+}
+
+.mejoresName,
+.mejoresValue { font-weight: var(--font-semibold); color: var(--cf-text-primary); }
+
+.mejoresValue.mejoresMarkupNegative,
+.mejoresMarkupNegative { color: var(--tone-danger-fg); }
+
+.mejoresValue.mejoresMarkupPositive,
+.mejoresMarkupPositive { color: var(--tone-success-fg); }
+
+.mejoresActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  margin-left: auto;
 }
 
 .ponerPreciosChoiceLabel { font-weight: var(--font-semibold); color: var(--cf-text-primary); }

@@ -86,14 +86,21 @@ export default function PublicationPanel({
   // Outside MODO: chooser is a block above tabs (never replaces them). Hide after
   // discard / unavailable; reset when switching publication.
   const [mejoresBlockOpen, setMejoresBlockOpen] = useState(true);
+  // The block's suggested promotion ids, marked "Sugerida" in the Promos tab.
+  const [suggestedIds, setSuggestedIds] = useState([]);
   useEffect(() => {
     setMejoresBlockOpen(true);
+    setSuggestedIds([]);
   }, [itemId]);
   const showMejoresBlock =
     !ponerPreciosMode &&
     canWritePromos &&
     Boolean(detail?.row?.hay_mejores_ofertas) &&
     mejoresBlockOpen;
+  const closeMejoresBlock = () => {
+    setMejoresBlockOpen(false);
+    setSuggestedIds([]);
+  };
 
   return (
     <PanelShell
@@ -149,15 +156,15 @@ export default function PublicationPanel({
           itemId={itemId}
           baselinePrice={row?.price?.amount}
           onWritten={handleWritten}
-          onLeavePub={onClose}
-          onDismissed={() => setMejoresBlockOpen(false)}
-          onUnavailable={() => setMejoresBlockOpen(false)}
+          onDismissed={closeMejoresBlock}
+          onUnavailable={closeMejoresBlock}
+          onSuggested={setSuggestedIds}
         />
       )}
 
       {status === 'ready' && !ponerPreciosMode && active && (
         <PanelTabs tabs={available} activeKey={active.key} onTabChange={onTabChange} label="Secciones de la publicación">
-          <active.Component detail={detail} itemId={itemId} canSeeMargin={canSeeMargin} canViewPromos={canViewPromos} dataState={dataState} onPromoApplied={handleWritten} onWritten={handleWritten} priceGroup={priceGroup} />
+          <active.Component detail={detail} itemId={itemId} canSeeMargin={canSeeMargin} canViewPromos={canViewPromos} dataState={dataState} onPromoApplied={handleWritten} onWritten={handleWritten} priceGroup={priceGroup} suggestedPromotionIds={showMejoresBlock ? suggestedIds : undefined} />
         </PanelTabs>
       )}
 

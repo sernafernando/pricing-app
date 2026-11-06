@@ -200,6 +200,8 @@ function CouponRow({ promo, mla }) {
  * Publicaciones ML side panel): the shared type/name filter belongs to the
  * page whose filter bar sets it, and showing "Sin promos del tipo filtrado"
  * there, with no bar to clear it, would hide promotions with no way out.
+ * `suggestedPromotionIds` (optional) are the promotions the host's "Hay candidatas mejores" block
+ * suggests; their rows carry a "Sugerida" chip.
  * `sections` (the same host) splits them into Activa ahora, Disponibles para activar, Otras promociones and, last
  * and quieter, Cupones (S3); a Productos tree keeps its one list.
  * Lazily fetches `GET /promociones/item/{mla}` on first mount (i.e. on
@@ -210,7 +212,7 @@ function MlaPromocionesPanel({
   promosCacheRef,
   pullOnOpen = true,
   ignoreGlobalFilter = false,
-  hayMejoresOfertas = false,
+  suggestedPromotionIds,
   sections = false,
   onApplied,
   onPulled,
@@ -221,26 +223,6 @@ function MlaPromocionesPanel({
   // mirror with no way to know — part of incident 2026-10-05.
   const { tienePermiso } = usePermisos();
   const canPull = tienePermiso('promos.ver');
-  const canDiscardMejores = tienePermiso('promos.escribir');
-  const [descartando, setDescartando] = useState(false);
-  const [showMejores, setShowMejores] = useState(Boolean(hayMejoresOfertas));
-  useEffect(() => {
-    setShowMejores(Boolean(hayMejoresOfertas));
-  }, [hayMejoresOfertas, mla]);
-
-  const descartarMejores = async () => {
-    if (descartando) return;
-    setDescartando(true);
-    try {
-      await promocionesAPI.descartarHayMejores(mla);
-      setShowMejores(false);
-      onApplied?.();
-    } catch {
-      // Keep the banner; the operator can retry.
-    } finally {
-      setDescartando(false);
-    }
-  };
 
   // Opening the panel shows the mirror we ALREADY have, immediately, and pulls fresh state from
   // MercadoLibre in the BACKGROUND (see the effect below). The pull used to run first and block
@@ -494,22 +476,8 @@ function MlaPromocionesPanel({
         </ul>
       </div>
     ) : null;
-  const mejoresNotice =
-    showMejores && canDiscardMejores ? (
-      <div className={styles.staleNotice} role="status">
-        Hay candidatas mejores que el precio vigente en MeLi.{' '}
-        <button type="button" className="btn-tesla ghost sm" disabled={descartando} onClick={descartarMejores}>
-          {descartando ? 'Descartando…' : 'Descartar'}
-        </button>
-      </div>
-    ) : showMejores ? (
-      <div className={styles.staleNotice} role="status">
-        Hay candidatas mejores que el precio vigente en MeLi.
-      </div>
-    ) : null;
   const notices = (
     <>
-      {mejoresNotice}
       {refreshingNotice}
       {readOnlyNotice}
       {staleNotice}
@@ -607,6 +575,9 @@ function MlaPromocionesPanel({
           <span className={`${styles.badge} ${TYPE_BADGE_CLASS[promo.promotion_type] || styles.badgeTypeNeutral}`}>
             {promo.promotion_type || 'N/A'}
           </span>
+          {suggestedPromotionIds?.includes(promo.promotion_id) && (
+            <span className={`${styles.badge} ${styles.badgeSuggested}`}>Sugerida</span>
+          )}
           {promo.application_status === 'active' && (
             <span className={`${styles.badge} ${styles.badgeApplied}`}>Aplicada</span>
           )}

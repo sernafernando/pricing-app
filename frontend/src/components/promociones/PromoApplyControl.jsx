@@ -138,8 +138,10 @@ function feedbackForError(err, actionLabel = 'aplicar') {
  * Renders inline inside `MlaPromocionesPanel`. Triggers a REAL ML price write:
  * requires explicit confirmation, never auto-retries, never claims a confirmed
  * "aplicado" state from the immediate response (eventual consistency).
+ * `label` (optional) renames only the Aplicar trigger (e.g. "Aplicar sugerencia");
+ * confirmation, guards and request body stay the same.
  */
-function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded }) {
+function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded, label }) {
   const { tienePermiso } = usePermisos();
   const [phase, setPhase] = useState('idle'); // idle | confirming | submitting | done
   const [feedback, setFeedback] = useState(null); // { tone, message } | null
@@ -572,7 +574,7 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded }) {
         className={`${styles.applyBtn} ${isEnrolled ? styles.removeBtn : ''}`}
         onClick={handleActionClick}
       >
-        {actionLabelCapitalized}
+        {!isEnrolled && label ? label : actionLabelCapitalized}
       </button>
       {pendingKind && (
         <span className={styles.provisionalPending} data-testid="provisional-indicator">
