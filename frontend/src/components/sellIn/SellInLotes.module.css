@@ -47,7 +47,8 @@
   border-color: var(--cf-accent-blue);
 }
 
-.agotado {
+.agotado,
+.reemplazado {
   color: var(--cf-text-tertiary);
 }
 

@@ -128,7 +128,7 @@ describe('changing the mode', () => {
     expect(within(region).queryByRole('button', { name: 'Ver cómo queda' })).not.toBeInTheDocument();
   });
 
-  it('enables each mode only with its own permission; FIFO with any of them; Manual is not available yet', async () => {
+  it('enables each mode only with its own permission; FIFO with any of them', async () => {
     permisos = new Set(['sell_in.costo_ponderado']);
     renderPanel();
     const modos = within(await panel()).getByRole('group', { name: 'Cambiar a' });
@@ -136,6 +136,23 @@ describe('changing the mode', () => {
     expect(within(modos).getByRole('button', { name: 'Ponderado (PPP)' })).toBeEnabled();
     expect(within(modos).getByRole('button', { name: 'Último precio' })).toBeDisabled();
     expect(within(modos).getByRole('button', { name: 'Manual' })).toBeDisabled();
+  });
+
+  it("shows the server's reason when a preview cannot be made", async () => {
+    sellInLotesAPI.vistaPrevia.mockRejectedValue(
+      Object.assign(new Error('HTTP 422'), {
+        response: { status: 422, data: { error: { message: 'The history cannot be replayed' } } },
+      }),
+    );
+    const user = userEvent.setup();
+    renderPanel();
+    const region = await panel();
+    await user.click(within(region).getByRole('button', { name: 'Ponderado (PPP)' }));
+    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
+
+    expect(await within(region).findByRole('alert')).toHaveTextContent(
+      'No se pudo calcular la vista previa: The history cannot be replayed',
+    );
   });
 
   it('previews the change from today and confirms it with the fingerprint, then reloads the modes and the lots', async () => {
@@ -274,7 +291,8 @@ describe('the default mode', () => {
     expect(elegido(region)).toEqual(['FIFO']);
   });
 
-  it('falls back to FIFO for Manual, which cannot be set yet, and when the setting cannot be read', async () => {
+  it('falls back to FIFO for Manual, never a default (it needs its own figures), and when the setting cannot be read', async () => {
+    permisos.add('sell_in.costo_manual');
     sellInLotesAPI.modoPorDefecto.mockResolvedValue({ data: { modo: 'manual' } });
     const { unmount } = renderPanel();
     expect(elegido(await panel())).toEqual(['FIFO']);
@@ -363,5 +381,191 @@ describe('the default mode', () => {
     expect(await screen.findByText('No tenés permiso para ese cambio.')).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Modo por defecto' })).toBeInTheDocument();
     expect(elegido(region)).toEqual(['FIFO']);
+  });
+});
+
+/**
+ * The manual mode (D6): the user types the quantity and unit cost left (the approved design's "Cantidad" and "Costo
+ * unitario"); the server freezes the product's cost, and each unit carries that cost minus the typed one. Owner: "otro
+ * permiso aparte para poder setear cantidad y costo a mano, por si un sell in quedó defazado al stock actual y se
+ * quiere usar un costo a mano que sea el de reposición por ejemplo".
+ */
+describe('the manual mode', () => {
+  const MANUAL = {
+    ...PREVIEW,
+    unidades_restantes: 30,
+    descuento_unit: '-2000.000000',
+    costo_base_unit: '50000.000000',
+    del_bloque: true,
+  };
+
+  async function elegirManual(user) {
+    const region = await panel();
+    await user.click(within(region).getByRole('button', { name: 'Manual' }));
+    return region;
+  }
+
+  beforeEach(() => {
+    permisos = new Set(['sell_in.costo_manual']);
+    sellInLotesAPI.vistaPrevia.mockResolvedValue({ data: MANUAL });
+  });
+
+  it('is offered only with its own permission', async () => {
+    permisos = new Set(['sell_in.costo_ponderado', 'sell_in.costo_ultimo']);
+    const { unmount } = renderPanel();
+    expect(within(within(await panel()).getByRole('group', { name: 'Cambiar a' })).getByRole('button', { name: 'Manual' })).toBeDisabled();
+    unmount();
+
+    permisos = new Set(['sell_in.costo_manual']);
+    renderPanel();
+    expect(within(within(await panel()).getByRole('group', { name: 'Cambiar a' })).getByRole('button', { name: 'Manual' })).toBeEnabled();
+  });
+
+  it('asks for the quantity and unit cost, and previews only with both', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderPanel();
+    expect(within(await panel()).queryByLabelText('Cantidad')).not.toBeInTheDocument();
+    const region = await elegirManual(user);
+    const ver = within(region).getByRole('button', { name: 'Ver cómo queda' });
+    expect(ver).toBeDisabled();
+    await user.type(within(region).getByLabelText('Cantidad'), '30');
+    expect(ver).toBeDisabled();
+    await user.type(within(region).getByLabelText('Costo unitario'), '52000');
+    expect(ver).toBeEnabled();
+    await user.clear(within(region).getByLabelText('Cantidad'));
+    await user.type(within(region).getByLabelText('Cantidad'), '0');
+    expect(ver).toBeDisabled();
+  });
+
+  it('previews and confirms with the typed figures, showing the frozen cost and the surcharge', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderPanel();
+    const region = await elegirManual(user);
+    await user.type(within(region).getByLabelText('Cantidad'), '30');
+    await user.type(within(region).getByLabelText('Costo unitario'), '52000');
+    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
+
+    const cuerpo = { modo: 'manual', desde: '2026-11-04', cantidad: 30, costo_unit: '52000' };
+    expect(sellInLotesAPI.vistaPrevia).toHaveBeenCalledWith(950, cuerpo);
+    const vista = await screen.findByRole('region', { name: 'Así queda' });
+    expect(vista).toHaveTextContent('Quedan 30 u a $ 52.000,00 c/u (manual)');
+    expect(vista).toHaveTextContent('Costo del producto congelado: $ 50.000,00');
+    expect(vista).toHaveTextContent('Cada unidad suma $ 2.000,00 al costo (recargo de sell in)');
+
+    await user.click(within(vista).getByRole('button', { name: 'Confirmar cambio' }));
+    expect(sellInLotesAPI.confirmarModo).toHaveBeenCalledWith(950, { ...cuerpo, huella: 'a'.repeat(64) });
+  });
+
+  it('a typed cost below the frozen one is a discount per unit', async () => {
+    sellInLotesAPI.vistaPrevia.mockResolvedValue({ data: { ...MANUAL, descuento_unit: '1500.000000' } });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderPanel();
+    const region = await elegirManual(user);
+    await user.type(within(region).getByLabelText('Cantidad'), '30');
+    await user.type(within(region).getByLabelText('Costo unitario'), '48500');
+    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
+
+    expect(await screen.findByRole('region', { name: 'Así queda' })).toHaveTextContent(
+      'Cada unidad descuenta $ 1.500,00 del costo (sell in)',
+    );
+  });
+
+  it('when recorded sales already used the block up, the units left are not said to be at the typed cost', async () => {
+    // A past `desde`: the next sale takes a later purchase, not the manual block, even at the block's own value.
+    sellInLotesAPI.vistaPrevia.mockResolvedValue({
+      data: { ...MANUAL, unidades_restantes: 100, descuento_unit: '-2000.000000', del_bloque: false },
+    });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderPanel();
+    const region = await elegirManual(user);
+    await user.type(within(region).getByLabelText('Cantidad'), '30');
+    await user.type(within(region).getByLabelText('Costo unitario'), '52000');
+    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
+
+    const vista = await screen.findByRole('region', { name: 'Así queda' });
+    expect(vista).toHaveTextContent('Quedan 100 u a -$ 2.000,00 de sell in c/u');
+    expect(vista).not.toHaveTextContent('(manual)');
+  });
+
+  it.each([
+    ['The product has no cost to freeze', 'No se pudo calcular la vista previa: el producto no tiene costo cargado para congelar.'],
+    [
+      "There is no USD rate to freeze the product's cost in pesos",
+      'No se pudo calcular la vista previa: no hay tipo de cambio USD para pasar el costo del producto a pesos.',
+    ],
+  ])('says why it cannot freeze the product cost (%s)', async (mensaje, texto) => {
+    sellInLotesAPI.vistaPrevia.mockRejectedValue(
+      Object.assign(new Error('HTTP 422'), { response: { status: 422, data: { error: { message: mensaje } } } }),
+    );
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderPanel();
+    const region = await elegirManual(user);
+    await user.type(within(region).getByLabelText('Cantidad'), '30');
+    await user.type(within(region).getByLabelText('Costo unitario'), '52000');
+    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
+
+    expect(await within(region).findByRole('alert')).toHaveTextContent(texto);
+  });
+
+  it('shows any other server reason as it comes', async () => {
+    sellInLotesAPI.vistaPrevia.mockRejectedValue(
+      Object.assign(new Error('HTTP 422'), {
+        response: { status: 422, data: { error: { message: 'The history cannot be replayed' } } },
+      }),
+    );
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderPanel();
+    const region = await elegirManual(user);
+    await user.type(within(region).getByLabelText('Cantidad'), '30');
+    await user.type(within(region).getByLabelText('Costo unitario'), '52000');
+    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
+
+    expect(await within(region).findByRole('alert')).toHaveTextContent(
+      'No se pudo calcular la vista previa: The history cannot be replayed',
+    );
+  });
+
+  it('waits for a quantity the server can store', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderPanel();
+    const region = await elegirManual(user);
+    await user.type(within(region).getByLabelText('Cantidad'), '2147483648');
+    await user.type(within(region).getByLabelText('Costo unitario'), '52000');
+
+    expect(within(region).getByRole('button', { name: 'Ver cómo queda' })).toBeDisabled();
+  });
+
+  it.each(['1.0000001', '1234567890123'])('waits for a unit cost the server can store (%s)', async (costo) => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderPanel();
+    const region = await elegirManual(user);
+    await user.type(within(region).getByLabelText('Cantidad'), '30');
+    await user.type(within(region).getByLabelText('Costo unitario'), costo);
+
+    expect(within(region).getByRole('button', { name: 'Ver cómo queda' })).toBeDisabled();
+  });
+
+  it('changing a figure drops the preview', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderPanel();
+    const region = await elegirManual(user);
+    await user.type(within(region).getByLabelText('Cantidad'), '30');
+    await user.type(within(region).getByLabelText('Costo unitario'), '52000');
+    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
+    await screen.findByRole('region', { name: 'Así queda' });
+
+    await user.type(within(region).getByLabelText('Cantidad'), '1');
+    expect(screen.queryByRole('region', { name: 'Así queda' })).not.toBeInTheDocument();
+  });
+
+  it('the history shows a manual row with its figures', async () => {
+    const manual = fila({ modo: 'manual', cantidad: 30, costo_unit: '52000.000000', costo_base_unit: '50000.000000' });
+    sellInLotesAPI.modos.mockResolvedValue({ data: { item_id: 950, vigente: manual, historial: [manual] } });
+    renderPanel();
+    await panel();
+    const historial = within(screen.getByRole('region', { name: 'Historial' })).getByRole('list', { name: 'Historial de modos' });
+    expect(within(historial).getByRole('listitem')).toHaveTextContent(
+      'Manualdesde 01/11/2026 · 30 u a $ 52.000,00 (costo congelado $ 50.000,00) · por Fernando',
+    );
   });
 });

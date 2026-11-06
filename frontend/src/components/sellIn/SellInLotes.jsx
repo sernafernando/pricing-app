@@ -1,13 +1,11 @@
 import { useEffect, useId, useState } from 'react';
 import { sellInLotesAPI } from '../../services/sellInAPI';
 import SellInModoCosto from './SellInModoCosto';
+import { money } from './money';
 import styles from './SellInLotes.module.css';
 
 const TITLE = 'Lotes sell in';
 const PAGE_SIZE = 20;
-
-const MONEY = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const money = (value) => `$ ${MONEY.format(Number(value))}`;
 
 const CHANNELS = { ml: 'ML', fuera: 'Fuera de ML', tn: 'Tienda Nube' };
 
@@ -24,6 +22,7 @@ function statusLabel(lote) {
   if (lote.estado === 'vigente') return 'Vigente';
   if (lote.estado === 'en_cola') return 'En cola';
   if (lote.estado === 'agotado') return 'Agotado';
+  if (lote.estado === 'reemplazado') return 'Reemplazado';
   return `Desde ${day(lote.fecha_desde, { year: false })}`;
 }
 
@@ -36,6 +35,8 @@ function unitsLabel(lote) {
 
 /** Without the purchases permission the supplier and invoices are withheld (`compraVisible`), never "Sin proveedor". */
 function purchaseLabel(lote, compraVisible) {
+  // A manual cost mode's block is no purchase: it is filed under its mode row.
+  if (lote.manual) return `Carga manual #${lote.compra_id}`;
   if (!compraVisible) return `Compra #${lote.compra_id}`;
   return [`#${lote.compra_id}`, lote.proveedor || 'Sin proveedor', ...lote.facturas].join(' · ');
 }

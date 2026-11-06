@@ -187,6 +187,29 @@ it('without the purchases permission, a lot names only its purchase number, neve
   expect(lista).not.toHaveTextContent('Sin proveedor');
 });
 
+describe('a manual cost block', () => {
+  it('is listed in its FIFO place with its figures, and the lots it replaced say so', async () => {
+    sellInLotesAPI.lotes.mockResolvedValue(
+      respuesta({
+        lotes: [
+          lote({ cantidad: 10, consumidas: 4, restantes: 6, estado: 'reemplazado' }),
+          lote({ numero: 2, compra_item_id: -7001, compra_id: 7001, proveedor: null, facturas: [], fecha_desde: '2026-10-25', cantidad: 30, consumidas: 3, restantes: 27, descuento_unit: '-2000.000000', estado: 'vigente', manual: true }),
+        ],
+        proxima: { numero: 2, compra_item_id: -7001, descuento_unit: '-2000.000000', restantes: 27, siguiente: null },
+      }),
+    );
+    renderLotes();
+    const lista = await screen.findByRole('list', { name: 'Lotes en orden FIFO' });
+    const [reemplazado, bloque] = [...lista.children].map((item) => item.textContent);
+
+    expect(reemplazado).toContain('Reemplazado');
+    expect(bloque).toContain('Vigente');
+    expect(bloque).toContain('-$ 2.000,00 por unidad');
+    expect(bloque).toContain('Carga manual #7001');
+    expect(bloque).not.toContain('Sin proveedor');
+  });
+});
+
 describe('with no lot left', () => {
   it('says the cost goes back to normal and that no cost bonus applies', async () => {
     sellInLotesAPI.lotes.mockResolvedValue(respuesta({ lotes: [lote()], proxima: null }));
