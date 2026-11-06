@@ -229,7 +229,28 @@ class TestLightningRealCaptureCases:
         result, mock_enroll = self._enroll_mla("MLA1865080493", [entry], deal_price=23818.35, stock=5)
 
         assert result["status"] == "rejected_price_unresolved"
+        assert result["detail"] == (
+            "ML no informa el rango de precio (mínimo y máximo) de esta oferta relámpago. No se aplicó nada."
+        )
         mock_enroll.assert_not_called()
+
+    def test_mla1865080493_is_decided_on_the_live_read_when_it_brings_the_max(self) -> None:
+        # The stored row came from another listing (id = MLA, no type/max/suggested); the stored row
+        # does not decide. If the LIVE item read brings the full LIGHTNING entry, the enroll goes through.
+        entry = _payload("MLA1865080493")
+        entry.update(id=PROMO_ID, type="LIGHTNING", max_discounted_price=24555.0)
+        result, mock_enroll = self._enroll_mla("MLA1865080493", [entry], deal_price=23818.35, stock=5)
+
+        assert result["status"] == "submitted"
+        assert mock_enroll.call_args.kwargs["deal_price"] == 23818.35
+
+    def test_out_of_range_detail_is_for_the_operator(self) -> None:
+        live = [_payload("MLA3854324204")]
+        result, _ = self._enroll_mla("MLA3854324204", live, deal_price=14631.58, stock=5)
+
+        assert result["detail"] == (
+            "El precio tiene que estar entre $3175.6 y $14290.2 (rango de ML ahora). No se aplicó nada."
+        )
 
     def test_mla3854324204_price_above_max_is_never_sent(self) -> None:
         # ML's `price` 14631.58 is above its own max_discounted_price 14290.2.

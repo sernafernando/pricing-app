@@ -919,14 +919,15 @@ def _enroll_lightning(
             live_status=live_status,
         )
 
-    # No default to ML's `price`: it can sit outside ML's own range (MLA3854324204, 2026-11-06), so the
-    # operator always types the price that is sent.
+    # No default price here: the operator's price is always the one sent. The range is decided on this
+    # LIVE read, never on the stored row (MLA1865080493's stored row came from another listing, no max);
+    # if the live entry has no max either, fail closed.
     min_price = promo.get("min_discounted_price")
     max_price = promo.get("max_discounted_price")
     if deal_price is None or min_price is None or max_price is None:
         return _lightning_rejection(
             "rejected_price_unresolved",
-            "deal_price could not be resolved or the live [min,max] range is unavailable",
+            "ML no informa el rango de precio (mínimo y máximo) de esta oferta relámpago. No se aplicó nada.",
             mla_id,
             promotion_id,
             deal_price=deal_price,
@@ -934,7 +935,7 @@ def _enroll_lightning(
     if not (min_price <= deal_price <= max_price):
         return _lightning_rejection(
             "rejected_out_of_range",
-            f"deal_price={deal_price} outside [{min_price}, {max_price}]",
+            f"El precio tiene que estar entre ${min_price} y ${max_price} (rango de ML ahora). No se aplicó nada.",
             mla_id,
             promotion_id,
         )
