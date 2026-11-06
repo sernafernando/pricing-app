@@ -45,6 +45,7 @@ _MIGRATIONS = [
         "20261227_sell_in_modos_producto",
         "20261105_tacticals",
         "20261106_sell_in_modo_manual",
+        "20261106_combo_consumos_item",
     )
 ]
 TABLES = {"sell_in_compras", "sell_in_compra_items", "sell_in_consumos", "sell_in_modos_producto"}
@@ -62,6 +63,9 @@ _STUBS = [
     "CREATE TABLE sell_out_campanas (id BIGINT PRIMARY KEY)",
     "CREATE TABLE offset_grupos (id INTEGER PRIMARY KEY)",
     "CREATE FUNCTION sell_out_set_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$",
+    # What `20261106_combo_consumos_item` also widens on the sell-out side.
+    "CREATE TABLE sell_out_consumos (id BIGSERIAL PRIMARY KEY, campana_id BIGINT, canal TEXT, venta_ref BIGINT, "
+    "item_id INTEGER, CONSTRAINT uq_sell_out_consumos_campana_canal_venta UNIQUE (campana_id, canal, venta_ref))",
     "INSERT INTO usuarios VALUES (7)",
     "INSERT INTO proveedores VALUES (3)",
     "INSERT INTO pedidos_compra (id) VALUES (900)",

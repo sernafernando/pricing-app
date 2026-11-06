@@ -262,7 +262,9 @@ class SellOutConsumo(Base):
 
     __tablename__ = "sell_out_consumos"
     __table_args__ = (
-        UniqueConstraint("campana_id", "canal", "venta_ref", name="uq_sell_out_consumos_campana_canal_venta"),
+        UniqueConstraint(
+            "campana_id", "canal", "venta_ref", "item_id", name="uq_sell_out_consumos_campana_canal_venta_item"
+        ),
         CheckConstraint("canal IN ('ml', 'fuera', 'tn')", name="ck_sell_out_consumos_canal"),
         CheckConstraint("unidades > 0", name="ck_sell_out_consumos_unidades_positivas"),
         CheckConstraint("tc_venta IS NULL OR tc_venta > 0", name="ck_sell_out_consumos_tc_venta_positivo"),

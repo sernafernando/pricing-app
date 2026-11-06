@@ -366,7 +366,9 @@ class SellInBonoConsumo(Base):
 
     __tablename__ = "sell_in_bono_consumos"
     __table_args__ = (
-        UniqueConstraint("bono_id", "canal", "venta_ref", name="uq_sell_in_bono_consumos_bono_canal_venta"),
+        UniqueConstraint(
+            "bono_id", "canal", "venta_ref", "item_id", name="uq_sell_in_bono_consumos_bono_canal_venta_item"
+        ),
         CheckConstraint("canal IN ('ml', 'fuera', 'tn')", name="ck_sell_in_bono_consumos_canal"),
         CheckConstraint("unidades > 0", name="ck_sell_in_bono_consumos_unidades_positivas"),
         CheckConstraint("descuento_ars >= 0", name="ck_sell_in_bono_consumos_descuento_no_negativo"),
