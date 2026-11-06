@@ -22,6 +22,10 @@ dates ("Asignado sin ventas", net of VAT like the rows it would have written)
 and the remainder nobody was given, total − Σ shares ("Sin asignar", as
 loaded: it has no product, so no VAT rate to strip).
 
+By units (`criterio = 'unidades'`, tactical monto total S2 (b)): no stored share; the whole total spreads over
+every net unit of the campaign's products in its dates (`repartir_por_unidades`), so it follows sales and returns
+as the drain rebuilds it. Nothing is "Asignado sin ventas"; the total is "Sin asignar" only while no sale carries it.
+
 Shares are checked, never repaired (`validar`, also run by `repartir` and
 `resumen_monto_total`): a share must be a % or an amount, a fixed share has the
 total's sign and |Σ shares| <= |total|, compared before rounding so a whole
@@ -48,6 +52,11 @@ class MontoTotal:
     repartos: Mapping[int, Reparto]  # item_id -> its share
     monto_incluye_iva: bool = False
     ivas: Mapping[int, Optional[Decimal]] = field(default_factory=dict)  # item_id -> its VAT rate, in percent
+    # `SellOutCampana.reparto_criterio`; `unidades`: the total spreads over every unit, `repartos` unread.
+    criterio: Optional[str] = None
+
+
+UNIDADES = "unidades"
 
 
 class RepartoInvalido(ValueError):
@@ -83,6 +92,8 @@ def _cargada(c: MontoTotal, item_id: int) -> Decimal:
 
 def validar(c: MontoTotal) -> None:
     """Raises `RepartoInvalido` (a `ValueError`) when the shares cannot be split as they stand (module docstring)."""
+    if c.criterio == UNIDADES:
+        return
     total = Decimal(c.monto_total)
     suma = Decimal(0)
     for item_id in c.repartos:
@@ -109,6 +120,8 @@ def cuota(c: MontoTotal, item_id: int) -> Decimal:
 
 def repartir(c: MontoTotal, consumos: Iterable[Consumo]) -> List[Consumo]:
     """The rows of the campaign: each product's share over its `consumos` (net units, sale order) by units."""
+    if c.criterio == UNIDADES:
+        return repartir_por_unidades(c, consumos)
     validar(c)
     consumos = [x for x in consumos if x.item_id in c.repartos and x.unidades > 0]
     totales: Dict[int, int] = {}
@@ -127,8 +140,33 @@ def repartir(c: MontoTotal, consumos: Iterable[Consumo]) -> List[Consumo]:
     return salida
 
 
+def repartir_por_unidades(c: MontoTotal, consumos: Iterable[Consumo]) -> List[Consumo]:
+    """`reparto_criterio = 'unidades'`: the whole total over every net unit of `consumos`, whatever its product, so
+    each unit gets the same share. Cents by cumulative rounding over all the rows (they add up exactly to the total);
+    with `monto_incluye_iva` each row is then divided by its own product's VAT, like `cuota`."""
+    consumos = [x for x in consumos if x.unidades > 0]
+    total_unidades = sum(x.unidades for x in consumos)
+    total = Decimal(c.monto_total)
+    salida, unidades, dado = [], 0, Decimal("0.00")
+    for x in consumos:
+        unidades += x.unidades
+        acumulado = cents(total * unidades / total_unidades)
+        monto = acumulado - dado
+        dado = acumulado
+        if c.monto_incluye_iva:
+            iva = c.ivas.get(x.item_id)
+            if iva is None:
+                raise RepartoInvalido(f"product {x.item_id} has no VAT rate", causa="sin_iva", item_id=x.item_id)
+            monto = cents(monto / (1 + Decimal(iva) / CIEN))
+        if monto:
+            salida.append(Consumo(x.canal, x.venta_ref, x.item_id, x.fecha_venta, x.unidades, monto))
+    return salida
+
+
 def sin_ventas(c: MontoTotal, con_ventas: Iterable[int]) -> Dict[int, Decimal]:
     """`{item_id: its share}` of the products whose share no row carries ("Asignado sin ventas", `cuota`)."""
+    if c.criterio == UNIDADES:  # no share is fixed per product: none is waiting for its sales
+        return {}
     validar(c)
     con_ventas = set(con_ventas)
     return {i: cuota(c, i) for i in c.repartos if i not in con_ventas}
@@ -136,7 +174,11 @@ def sin_ventas(c: MontoTotal, con_ventas: Iterable[int]) -> Dict[int, Decimal]:
 
 def resumen_monto_total(c: MontoTotal, con_ventas: Iterable[int]) -> Dict[str, Decimal]:
     """`{asignado_sin_ventas, sin_asignar}`: what the campaign's rows do not carry (module docstring).
-    `con_ventas`: the products with sales the campaign reaches in its dates."""
+    `con_ventas`: the products with sales the campaign reaches in its dates. By `unidades`: all of it goes to the
+    rows once any sale carries it, else it is all "Sin asignar"."""
+    if c.criterio == UNIDADES:
+        hay = bool(set(con_ventas))
+        return {"asignado_sin_ventas": Decimal("0.00"), "sin_asignar": Decimal("0.00") if hay else cents(c.monto_total)}
     sin_ventas_ = sum(sin_ventas(c, con_ventas).values(), Decimal("0.00"))
     asignado = sum((_cargada(c, i) for i in c.repartos), Decimal("0.00"))
     return {"asignado_sin_ventas": sin_ventas_, "sin_asignar": cents(Decimal(c.monto_total)) - asignado}
