@@ -625,10 +625,16 @@ def build_board_response(
 # ── Endpoints ────────────────────────────────────────────────────
 
 
+# The most rows one board request answers: a page (25 to 200), or a part of "Todos", which has no cap -- the page asks
+# parts of this size until the total (filas-sin-limite S3). Measured on 26k publications: ~3 s and ~3 MB a part, the
+# same fixed cost as a page of 50 (KPIs, chips and sort run over the whole set), against ~9 s and ~38 MB in one go.
+BOARD_PART = 2000
+
+
 @router.get("/board", response_model=BoardResponse)
 def get_board(
     f: board.BoardFilter = Depends(board_filter_tp),
-    limit: int = Query(default=50, ge=1, le=200),
+    limit: int = Query(default=50, ge=1, le=BOARD_PART),
     offset: int = Query(default=0, ge=0),
     current_user: Usuario = Depends(require_ver),
     db: Session = Depends(get_db),

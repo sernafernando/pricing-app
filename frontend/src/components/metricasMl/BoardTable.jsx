@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronRight, CornerDownRight, Layers, Package } from 'lucide-react';
 import Sparkline from './Sparkline';
 import ListingKindBadge from '../publicacionesMl/ListingKindBadge';
@@ -19,7 +20,10 @@ import { LEVEL_LABELS, LEVEL_NOUNS, nodeId } from '../../utils/metricasMlLevels'
 import { ADS_ROW_BADGES, adsRowKind } from '../../utils/metricasMlAds';
 import { tpCellState, tpIncompleteTitle } from '../../utils/metricasMlTp';
 import { sellOutEstimatedTitle, sellOutPendingTitle } from '../../utils/metricasMlSell';
+import { useVirtualRows } from '../kit/useVirtualRows';
 import styles from './BoardTable.module.css';
+
+const rowKey = (row) => row.key;
 
 /**
  * The Métricas ML "watchlist" table (tablero.png): grouped headers, one row
@@ -513,7 +517,19 @@ export default function BoardTable({
   onSort,
   now,
   dense = false,
+  virtualizeFrom,
+  onEndReached,
 }) {
+  // "Todos" (filas-sin-limite S3): past `virtualizeFrom` rows only the rows in view are in the DOM, each board row
+  // with what it opened into in its own measured `<tbody>`; the page itself scrolls, so the table is the list.
+  const tableRef = useRef(null);
+  const { virtual, items, before, after, measureElement } = useVirtualRows({
+    rows,
+    getRowKey: rowKey,
+    virtualizeFrom,
+    onEndReached,
+    listRef: tableRef,
+  });
   const groups = COLUMN_GROUPS.map((group) => ({
     ...group,
     columns: columns.filter((col) => col.group === group.id),
@@ -602,7 +618,7 @@ export default function BoardTable({
 
   return (
     // "Filas finas" (`dense`): the CSS thins every row; the cells and figures stay the same.
-    <table className={styles.table} data-density={dense ? 'dense' : 'normal'}>
+    <table ref={tableRef} className={styles.table} data-density={dense ? 'dense' : 'normal'} data-virtual={virtual ? '' : undefined}>
       <thead>
         <tr className={styles.groupRow}>
           {groups.map((group) => (
@@ -647,9 +663,27 @@ export default function BoardTable({
           })}
         </tr>
       </thead>
-      <tbody>
-        {rows.flatMap((row) => renderTree(row, [row.key], 0))}
-      </tbody>
+      {virtual ? (
+        <>
+          <tbody aria-hidden="true">
+            <tr>
+              <td colSpan={columns.length} className={styles.spacer} style={{ height: before }} />
+            </tr>
+          </tbody>
+          {items.map((item) => (
+            <tbody key={item.key} ref={measureElement} data-index={item.index}>
+              {renderTree(rows[item.index], [rows[item.index].key], 0)}
+            </tbody>
+          ))}
+          <tbody aria-hidden="true">
+            <tr>
+              <td colSpan={columns.length} className={styles.spacer} style={{ height: after }} />
+            </tr>
+          </tbody>
+        </>
+      ) : (
+        <tbody>{rows.flatMap((row) => renderTree(row, [row.key], 0))}</tbody>
+      )}
     </table>
   );
 }
