@@ -159,6 +159,15 @@ describe('PromoApplyControl — LIGHTNING', () => {
     await waitFor(() => expect(screen.getByRole('status', { name: /tu markup/i })).toHaveTextContent('12.3%'));
   });
 
+  it('shows the markup of the prefilled price on open, before any typing (S1b)', async () => {
+    const user = userEvent.setup({ delay: null });
+    await openConfirm(user, row('MLA1506729443'));
+    await vi.advanceTimersByTimeAsync(400);
+
+    await waitFor(() => expect(promocionesAPI.getMarkupParaPrecio).toHaveBeenCalledWith('MLA1506729443', 73558.15));
+    await waitFor(() => expect(screen.getByRole('status', { name: /tu markup/i })).toHaveTextContent('12.3%'));
+  });
+
   it('flags a typed price above the max and blocks the submit', async () => {
     const user = userEvent.setup({ delay: null });
     await openConfirm(user, row('MLA3854324204'));

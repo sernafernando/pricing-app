@@ -3100,3 +3100,49 @@ describe('Publicaciones ML panel, Promos tab of the S9 design (visual)', () => {
     }
   }
 });
+
+// The whole approved panel at once (S9 + S9b): the "Hay candidatas mejores" card above the tabs, the
+// Promos sections and the LIGHTNING apply card open.
+describe('Publicaciones ML panel, the whole S9 design (visual)', () => {
+  const widthKey = 'split-panel-width:publicaciones-ml';
+  afterEach(() => localStorage.removeItem(widthKey));
+
+  for (const theme of THEMES) {
+    for (const variant of ['wide', 'default']) {
+      it(`1920x2700 ${theme} ${variant}: suggestion card, Promos sections and the LIGHTNING card fit the panel`, async () => {
+        if (variant === 'wide') localStorage.setItem(widthKey, '1040');
+        else localStorage.removeItem(widthKey);
+        // Only the current price's markup is in the capture (-28,74%); the suggestion's is not, so it has none.
+        promocionesAPI.getMarkupParaPrecio.mockImplementation((_mla, price) =>
+          Promise.resolve({ data: { nuestro_markup: Number(price) === 59999 ? -28.74 : null } }),
+        );
+        const screen = await renderWithPanel({
+          width: 1920,
+          height: 2700,
+          theme,
+          tab: '',
+          margin: true,
+          promotions: S9_PROMOTIONS,
+          rowExtra: { ...S9_ROW, hay_mejores_ofertas: true },
+          detailExtra: { can_resync: true, can_change_status: true },
+        });
+        await expect.element(screen.getByRole('button', { name: 'Aplicar sugerencia' }).first()).toBeVisible();
+        await expect.element(screen.getByText('MKP T1 CYBER MONDAY NOV').first()).toBeVisible();
+        const panel = panelOf();
+        const section = panel.querySelector('section[aria-label="Disponibles para activar"]');
+        const lightningRow = [...section.querySelectorAll('li')].find((li) => li.textContent.startsWith('LIGHTNING'));
+        await userEvent.click([...lightningRow.querySelectorAll('button')].find((el) => el.textContent === 'Aplicar'));
+        const card = screen.getByRole('group', { name: 'Aplicar LIGHTNING' });
+        await expect.element(card).toBeVisible();
+        await expect.poll(() => card.element().querySelector('output').textContent, { timeout: 3000 }).toBe('—');
+        await frame();
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        // The suggestion sits above the tab strip.
+        const suggestion = screen.getByRole('button', { name: 'Aplicar sugerencia' }).first().element();
+        expect(rect(suggestion).bottom).toBeLessThanOrEqual(rect(panel.querySelector('[role="tablist"]')).top);
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/s9-completo-${variant}-${theme}.png`, element: panel });
+        screen.unmount();
+      });
+    }
+  }
+});
