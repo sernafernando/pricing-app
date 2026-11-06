@@ -3,7 +3,9 @@
  */
 import { describe, it, expect } from 'vitest';
 import { CAMPANA_MONTO_TOTAL } from './sellOutFixtures';
+import { REPARTOS } from '../tactical/tacticalLineas';
 import {
+  CRITERIOS,
   MODO_MONTO,
   MODO_PORCENTAJE,
   aCentavos,
@@ -12,6 +14,7 @@ import {
   errorDeReparto,
   filasDeCampana,
   totalesDeReparto,
+  nombreDeCriterio,
 } from './sellOutReparto';
 
 const fila = (modo, valor, codigo = 'ABC') => ({ itemId: 1, codigo, descripcion: null, modo, valor });
@@ -117,5 +120,13 @@ describe('sellOutReparto', () => {
     expect(centavosAjenos(CAMPANA_MONTO_TOTAL)).toBe(0);
     const sinMonto = { ...CAMPANA_MONTO_TOTAL, resumen: { ...CAMPANA_MONTO_TOTAL.resumen, reparto: { asignado: null, motivo: 'x' } } };
     expect(centavosAjenos(sinMonto)).toBe(0);
+  });
+});
+
+describe('the split criteria', () => {
+  it("are the tactical line's, one list for both screens", () => {
+    expect(CRITERIOS).toBe(REPARTOS);
+    expect(nombreDeCriterio('unidades')).toBe('Según unidades vendidas');
+    expect(nombreDeCriterio(null)).toBe('Manual');
   });
 });

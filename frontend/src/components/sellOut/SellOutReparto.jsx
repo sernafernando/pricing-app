@@ -149,7 +149,8 @@ function RepartoPorCriterio({ campana, busy, onBusyChange, onGuardado }) {
  * The client guard mirrors the API's; the API's own 422/403 message shows when it refuses. `onGuardado` gets the
  * campaign as read again after saving; `busy` / `onBusyChange` are the panel's: one request at a time. Everyone sees
  * the stored criterion ("Manual" when none); with `porCriterio` (no brand restriction, S6) it can be split again by
- * one (`RepartoPorCriterio`), and the manual rows keep working.
+ * one (`RepartoPorCriterio`), and the manual rows keep working. Without it, a campaign split by criterion is
+ * read-only: changing its shares touches every brand's, which the API refuses to a brand-scoped PM.
  */
 export default function SellOutReparto({
   campana,
@@ -162,6 +163,8 @@ export default function SellOutReparto({
   const [filas, setFilas] = useState(() => filasDeCampana(campana));
   const [error, setError] = useState(null);
   const { moneda } = campana;
+  const criterio = campana.reparto_criterio ?? null;
+  const manual = editable && (porCriterio || !criterio);
   const total = campana.monto_total;
   const resumen = campana.resumen?.reparto;
   const totalCentavos = aCentavos(total);
@@ -244,7 +247,13 @@ export default function SellOutReparto({
         <RepartoPorCriterio campana={campana} busy={busy} onBusyChange={onBusyChange} onGuardado={onGuardado} />
       )}
 
-      {editable ? (
+      {editable && !manual && (
+        <p className={panelStyles.hint}>
+          Repartido por criterio. Solo un administrador o quien gestiona campañas puede cambiarlo.
+        </p>
+      )}
+
+      {manual ? (
         <>
           <SellInBuscador
             label="Agregar producto"
@@ -320,7 +329,13 @@ export default function SellOutReparto({
           </div>
         </>
       ) : filas.length === 0 ? (
-        <p className={panelStyles.hint}>Todavía no se repartió: todo el monto está sin asignar.</p>
+        <p className={panelStyles.hint}>
+          {criterio === 'unidades'
+            ? 'Según unidades vendidas: el reparto sigue las ventas y devoluciones del rango.'
+            : criterio
+              ? `${nombreDeCriterio(criterio)}: todavía no hay productos con parte.`
+              : 'Todavía no se repartió: todo el monto está sin asignar.'}
+        </p>
       ) : (
         <table className={tableStyles.table}>
           <thead>

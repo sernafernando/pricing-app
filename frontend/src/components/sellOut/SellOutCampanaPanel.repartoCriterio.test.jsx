@@ -154,6 +154,33 @@ describe('SellOutReparto — split by criterion (S3, S6)', () => {
     expect(within(reparto()).queryByRole('button', { name: 'Ver reparto' })).not.toBeInTheDocument();
   });
 
+  it('a PM with only sell_out.repartir sees a criterion split read-only: no manual editor, the API would refuse it', async () => {
+    abrir({ ...CAMPANA_MONTO_TOTAL, reparto_criterio: 'costo' }, { permisos: ['sell_out.ver', 'sell_out.repartir'] });
+    await screen.findByRole('region', { name: 'Reparto del monto total' });
+    expect(resumen('Criterio')).toHaveTextContent('Proporcional al costo');
+    expect(within(reparto()).queryByRole('button', { name: 'Guardar reparto' })).not.toBeInTheDocument();
+    expect(within(reparto()).queryByRole('group', { name: 'Agregar producto' })).not.toBeInTheDocument();
+    expect(within(reparto()).queryByLabelText('Repartir según')).not.toBeInTheDocument();
+    expect(within(reparto()).getByText(/Solo un administrador o quien gestiona campañas puede cambiarlo/)).toBeInTheDocument();
+    // The stored shares stay visible, read-only.
+    expect(within(reparto()).getByRole('table')).toHaveTextContent('C13T00R120');
+  });
+
+  it('a split by units sold with no stored shares does not read as "not split yet"', async () => {
+    abrir({ ...CAMPANA_MONTO_TOTAL, reparto_criterio: 'unidades', items: [] }, { permisos: ['sell_out.ver', 'sell_out.repartir'] });
+    await screen.findByRole('region', { name: 'Reparto del monto total' });
+    expect(within(reparto()).queryByText(/Todavía no se repartió/)).not.toBeInTheDocument();
+    expect(within(reparto()).getByText(/sigue las ventas y devoluciones/)).toBeInTheDocument();
+    expect(within(reparto()).queryByRole('button', { name: 'Guardar reparto' })).not.toBeInTheDocument();
+  });
+
+  it('with a criterion stored, a manager keeps both the criterion split and the manual editor', async () => {
+    abrir({ ...CAMPANA_MONTO_TOTAL, reparto_criterio: 'iguales' }, GESTOR);
+    await screen.findByRole('region', { name: 'Reparto del monto total' });
+    expect(within(reparto()).getByLabelText('Repartir según')).toHaveValue('iguales');
+    expect(within(reparto()).getByRole('button', { name: 'Guardar reparto' })).toBeInTheDocument();
+  });
+
   it('a voided campaign offers no criterion split', async () => {
     abrir({ ...CAMPANA_MONTO_TOTAL, estado: 'anulada' }, GESTOR);
     await screen.findByRole('region', { name: 'Reparto del monto total' });
