@@ -29,8 +29,8 @@ N=nice -n 15 ionice -c2 -n7
 
 # --- Nightly (ART time in each comment) ---
 # 01:00 and 01:30 DB backups (pricing_db, then ml-webhook's DB)
-0 4 * * * www-data /srv/apps/pricing-app/scripts/db_backup.sh >> $L/db_backup.log 2>&1
-30 4 * * * www-data /srv/apps/pricing-app/scripts/db_backup.sh /srv/apps/ml-webhook/.env DATABASE_ADMIN_URL >> $L/db_backup_mlwebhook.log 2>&1
+0 4 * * * www-data /bin/bash /srv/apps/pricing-app/scripts/db_backup.sh >> $L/db_backup.log 2>&1
+30 4 * * * www-data /bin/bash /srv/apps/pricing-app/scripts/db_backup.sh /srv/apps/ml-webhook/.env DATABASE_ADMIN_URL >> $L/db_backup_mlwebhook.log 2>&1
 # 02:40 / 02:50 serials full
 40 5 * * * www-data cd $B && $N $PY -m app.scripts.sync_sale_order_serials --full >> $L/sale_order_serials_full.log 2>&1
 50 5 * * * www-data cd $B && $N $PY -m app.scripts.sync_item_transaction_serials --full >> $L/item_transaction_serials_full.log 2>&1
