@@ -6,7 +6,8 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
 
-EstadoLote = Literal["vigente", "en_cola", "agotado", "desde"]
+# 'reemplazado': a manual cost mode's block replaced the units it had left.
+EstadoLote = Literal["vigente", "en_cola", "agotado", "desde", "reemplazado"]
 
 
 class LoteOut(BaseModel):
@@ -22,8 +23,9 @@ class LoteOut(BaseModel):
     cantidad: int
     consumidas: int
     restantes: int
-    descuento_unit: Decimal  # ARS per unit
+    descuento_unit: Decimal  # ARS per unit; a manual block's is signed (negative: it raises the cost)
     estado: EstadoLote
+    manual: bool = False  # a manual cost mode's block: compra_id is its mode row, compra_item_id minus that
 
 
 class SiguienteOut(BaseModel):

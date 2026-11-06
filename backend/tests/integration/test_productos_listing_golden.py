@@ -297,8 +297,10 @@ class TestProductosListingGolden:
 # Statements issued by `listar_productos` for the seeded catalogue. Recorded on
 # the unrefactored endpoint: moving the prefetch into a service must neither add
 # nor drop a query. Sell in / sell out (sell-in-sell-out T9) adds two per page,
-# whatever its size: the current sell-in lots and the sell-out campaign reach.
-EXPECTED_DEFAULT_STATEMENTS = 20
+# whatever its size: the current sell-in lots and the sell-out campaign reach. The manual cost mode (D6) adds one
+# more per page: the products' cost modes and manual blocks, read even for a product without purchase lines (a block
+# typed by hand is stock of its own).
+EXPECTED_DEFAULT_STATEMENTS = 21
 
 
 class TestProductosListingStatementCount:

@@ -105,15 +105,6 @@ def test_mode_permission_without_sell_in_ver(client, rol_admin, admin_auth_heade
     assert resp.status_code == 403 and "sell_in.ver" in resp.text, resp.text
 
 
-@pytest.mark.parametrize("permisos", [[], [PONDERADO, ULTIMO, MANUAL, RETRO]])
-@pytest.mark.parametrize("ruta", ["modos/vista-previa", "modos"])
-def test_manual_is_422(client, rol_admin, lector, grant_permiso, producto, permisos, ruta) -> None:
-    for p in permisos:
-        grant_permiso(rol_admin, p)
-    resp = client.post(f"{BASE}/4512/{ruta}", json=_cuerpo("manual", HOY, huella="0" * 64), headers=lector)
-    assert resp.status_code == 422, resp.text
-
-
 @pytest.mark.parametrize(
     "cuerpo",
     [

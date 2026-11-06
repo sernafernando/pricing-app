@@ -22,6 +22,9 @@ difference against the stored consumptions, so:
 - a line counting from the goods receipt (`cuenta_desde = 'ingreso'`) with no
   `fecha_ingreso` has not started: its units are not available yet (fail-safe;
   the table's check forbids such a row anyway).
+- a manual mode row (D6) is a lot of its own (`fifo.lote_manual`): its
+  consumptions are filed under the row (`modo_id`, no purchase line), and
+  everywhere a line id keys a lot here, the block's is `-modo_id`.
 
 Amounts are compared and written at `sell_in_consumos.descuento_ars`'s scale,
 so a re-run never rewrites a row only because of precision the column drops.
@@ -82,7 +85,7 @@ from datetime import date, datetime, time, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, Iterable, List, Optional, Protocol, Tuple, runtime_checkable
 
-from sqlalchemy import delete, func, insert, text
+from sqlalchemy import ColumnElement, delete, func, insert, or_, text
 from sqlalchemy.orm import Session
 
 from app.models.ml_sale_line import MlSaleLine
@@ -90,7 +93,18 @@ from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo, Se
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.services.combos.ventas import partes_de_combos, unidades_de
-from app.services.sell_in.fifo import Consumo, Dinero, Lote, Periodo, Venta, asignar, orden_fifo, periodo_en
+from app.services.sell_in.fifo import (
+    Consumo,
+    Dinero,
+    Lote,
+    Periodo,
+    Venta,
+    asignar,
+    gobiernan,
+    lote_manual,
+    orden_fifo,
+    periodo_en,
+)
 from app.services.sell_in.split import unit_discount
 
 logger = logging.getLogger(__name__)
@@ -208,12 +222,30 @@ def resolver_objetivos(db: Session, model, devoluciones: List[tuple]) -> Dict[in
 _DESCUENTO_SCALE = Decimal(1).scaleb(-SellInConsumo.__table__.c.descuento_ars.type.scale)
 
 
+def fuente() -> ColumnElement[int]:
+    """A consumption's lot as the allocation keys it: its purchase line, or `-modo_id` for a manual block's."""
+    return func.coalesce(SellInConsumo.compra_item_id, -SellInConsumo.modo_id)
+
+
+def de_lotes(lineas: List[int]) -> ColumnElement[bool]:
+    """The filter for the consumptions of `lineas` (lot ids as `fuente` gives them)."""
+    compras = [linea for linea in lineas if linea > 0]
+    bloques = [-linea for linea in lineas if linea < 0]
+    return or_(SellInConsumo.compra_item_id.in_(compras), SellInConsumo.modo_id.in_(bloques))
+
+
+def reemplazados(lotes: List[Lote], hoy: date) -> int:
+    """How many of a product's lots (`lotes` order), from the oldest, the newest manual block counting by `hoy`
+    replaced: no sale takes their units left any more (none without such a block)."""
+    return max((n for n, x in enumerate(lotes) if x.modo_id is not None and x.fecha <= hoy), default=0)
+
+
 def _a_columna(monto: Decimal) -> Decimal:
     """`monto` at the scale `sell_in_consumos.descuento_ars` stores, rounded half up like Postgres."""
     return Decimal(monto).quantize(_DESCUENTO_SCALE, rounding=ROUND_HALF_UP)
 
 
-_Key = Tuple[str, int, int]  # (canal, venta_ref, compra_item_id)
+_Key = Tuple[str, int, int]  # (canal, venta_ref, lot: compra_item_id, or -modo_id for a manual block)
 
 
 class FifoPurchaseCosting:
@@ -227,10 +259,9 @@ class FifoPurchaseCosting:
         if db.get_bind().dialect.name == "postgresql":
             db.execute(LOCK_SQL, {"ns": LOCK_NAMESPACE, "ids": ids})
 
-        lotes = self._lotes(db, ids)
+        lotes, periodos = self._con_bloques(db, ids)
         ventas = self._ventas(db, lotes)
         guardados = self._guardados(db, ids)
-        periodos = self.periodos(db, ids)
 
         for item_id in ids:
             # The whole per-product work (allocation AND write) runs inside the
@@ -264,15 +295,15 @@ class FifoPurchaseCosting:
 
         A product with cost modes replays its stored consumptions through `fifo.Dinero`, so the value is the one
         the mode governing `hoy` gives (the weighted pool, or the newest lot for every unit left); its line is still
-        the FIFO one the units come from. One more query, only when some product has modes. A product whose modes
-        cannot be replayed here (a manual block, until it lands, or rows read mid-change) keeps its FIFO line at the
+        the FIFO one the units come from (under a manual block, the block: `-modo_id`). One more query, only when some
+        product has modes. A product whose modes cannot be replayed here (rows read mid-change) keeps its FIFO line at the
         line's own value and is logged: it still has units, so it never reads as used up, and never the whole batch."""
-        lotes = self.lotes(db, item_ids)
+        lotes, periodos = self._con_bloques(db, sorted({int(i) for i in item_ids if i is not None}))
         usadas = self.unidades_usadas(db, [lote.compra_item_id for item in lotes.values() for lote in item])
-        periodos = self.periodos(db, sorted(lotes))
         salida: Dict[int, LoteVigente] = {}
         for item_id, item in lotes.items():
-            for lote in item:
+            # The lots before the newest manual block counting by `hoy` were replaced: nothing left on them.
+            for lote in item[reemplazados(item, hoy) :]:
                 restantes = lote.cantidad - usadas.get(lote.compra_item_id, 0)
                 if lote.fecha <= hoy and restantes > 0:
                     descuento = unit_discount(lote.descuento_ars, lote.cantidad)
@@ -290,7 +321,7 @@ class FifoPurchaseCosting:
                 continue
             if proximo is not None:
                 i, monto, sobre, restantes = proximo
-                en_pool = periodo_en(periodos[item_id], dia)[1] != "fifo"
+                en_pool = periodo_en(periodos[item_id], dia)[1] not in ("fifo", "manual")
                 siguiente = self._siguiente(dinero, item, periodos[item_id], dia) if en_pool else None
                 salida[item_id] = LoteVigente(
                     item[i].compra_item_id, unit_discount(monto, sobre), restantes, en_pool, siguiente, dia
@@ -302,15 +333,14 @@ class FifoPurchaseCosting:
         valued as a sale on the replay day would get them (`_replay`): what the mode preview shows (D2, D5). Zero under
         FIFO and `ponderado` but for rounding; `ultimo` and a switch back to FIFO from a pool can leave money unhanded
         (positive) or hand out more than the lots hold (negative). Raises like the replay."""
-        item = self.lotes(db, [item_id]).get(item_id, [])
+        lotes, periodos = self._con_bloques(db, [item_id])
+        item = lotes.get(item_id, [])
         if not item:
             return Decimal("0.00")
         lineas = [lote.compra_item_id for lote in item]
         filas = self._filas_guardadas(db, lineas).get(item_id, [])
-        dinero, dia = self._replay(item, self.periodos(db, [item_id]).get(item_id, []), filas, hoy)
-        dado = db.query(func.coalesce(func.sum(SellInConsumo.descuento_ars), 0)).filter(
-            SellInConsumo.compra_item_id.in_(lineas)
-        )
+        dinero, dia = self._replay(item, periodos.get(item_id, []), filas, hoy)
+        dado = db.query(func.coalesce(func.sum(SellInConsumo.descuento_ars), 0)).filter(de_lotes(lineas))
         total = sum((lote.descuento_ars for lote in item), Decimal(0))
         resto = total - Decimal(dado.scalar()) - dinero.restante(dia)
         return resto.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -332,10 +362,10 @@ class FifoPurchaseCosting:
     @staticmethod
     def _siguiente(dinero: Dinero, item: List[Lote], periodos: List[Periodo], hoy: date) -> Optional[Decimal]:
         """What a sale on the next lot's start date gets once that lot joins the pool; None when no lot starts later,
-        when FIFO governs that date (the lot is then at its own value), or when that date cannot be replayed (a
-        manual row before it): today's value stands either way."""
+        when FIFO or a manual block governs that date (the lot is then at its own value), or when that date cannot be
+        replayed: today's value stands either way."""
         futuro = next((lote for lote in item if lote.fecha > hoy), None)
-        if futuro is None or periodo_en(periodos, futuro.fecha)[1] == "fifo":
+        if futuro is None or periodo_en(periodos, futuro.fecha)[1] in ("fifo", "manual"):
             return None
         try:
             despues = dinero.proximo(futuro.fecha)
@@ -351,9 +381,9 @@ class FifoPurchaseCosting:
             return {}
         t = SellInConsumo
         filas = (
-            db.query(t.item_id, t.compra_item_id, t.fecha_venta, t.unidades)
-            .filter(t.compra_item_id.in_(lineas))
-            .order_by(t.item_id, t.fecha_venta, t.canal, t.venta_ref, t.compra_item_id)
+            db.query(t.item_id, fuente(), t.fecha_venta, t.unidades)
+            .filter(de_lotes(lineas))
+            .order_by(t.item_id, t.fecha_venta, t.canal, t.venta_ref, fuente())
         )
         salida: Dict[int, List[Tuple[int, date, int]]] = defaultdict(list)
         for item_id, linea, fecha, unidades in filas:
@@ -362,10 +392,7 @@ class FifoPurchaseCosting:
 
     def lotes(self, db: Session, item_ids: Iterable[int]) -> Dict[int, List[Lote]]:
         """Each product's lines of active purchases, in the order its sales consume them (`fifo.orden_fifo`)."""
-        ids = sorted({int(i) for i in item_ids if i is not None})
-        return {
-            item_id: sorted(item, key=orden_fifo) for item_id, item in (self._lotes(db, ids) if ids else {}).items()
-        }
+        return self._con_bloques(db, sorted({int(i) for i in item_ids if i is not None}))[0]
 
     @staticmethod
     def unidades_usadas(db: Session, lineas: List[int]) -> Dict[int, int]:
@@ -373,21 +400,49 @@ class FifoPurchaseCosting:
         if not lineas:
             return {}
         t = SellInConsumo
-        filas = db.query(t.compra_item_id, func.sum(t.unidades)).filter(t.compra_item_id.in_(lineas))
-        return {linea: int(unidades) for linea, unidades in filas.group_by(t.compra_item_id)}
+        filas = db.query(fuente(), func.sum(t.unidades)).filter(de_lotes(lineas))
+        return {linea: int(unidades) for linea, unidades in filas.group_by(fuente())}
 
-    @staticmethod
-    def periodos(db: Session, ids: List[int]) -> Dict[int, List[Periodo]]:
+    @classmethod
+    def periodos(cls, db: Session, ids: List[int]) -> Dict[int, List[Periodo]]:
         """`{item_id: its cost modes, oldest first}` (`sell_in_modos_producto`; same `desde`: by id, the one saved
         last after), for the products that have any; a product without is FIFO."""
+        return cls._modos(db, ids)[0]
+
+    @staticmethod
+    def _modos(db: Session, ids: List[int]) -> Tuple[Dict[int, List[Periodo]], Dict[int, List[Lote]]]:
+        """One query: each product's periods (`periodos`), and the block of each manual row that governs some day
+        (`fifo.lote_manual`): its typed units, each at the frozen cost minus the typed cost (signed, unrounded)."""
         if not ids:
-            return {}
+            return {}, {}
         m = SellInModoProducto
-        filas = db.query(m.item_id, m.desde, m.modo).filter(m.item_id.in_(ids)).order_by(m.item_id, m.desde, m.id)
+        filas = (
+            db.query(m.item_id, m.desde, m.modo, m.id, m.cantidad, m.costo_unit, m.costo_base_unit)
+            .filter(m.item_id.in_(ids))
+            .order_by(m.item_id, m.desde, m.id)
+        )
         periodos: Dict[int, List[Periodo]] = defaultdict(list)
-        for item_id, desde, modo in filas:
-            periodos[item_id].append(Periodo(desde, modo))
-        return periodos
+        manuales: Dict[int, tuple] = {}
+        for item_id, desde, modo, modo_id, cantidad, costo, base in filas:
+            periodos[item_id].append(Periodo(desde, modo, modo_id if modo == "manual" else None))
+            if modo == "manual":
+                manuales[modo_id] = (cantidad, Decimal(base) - Decimal(costo))
+        bloques: Dict[int, List[Lote]] = defaultdict(list)
+        for item_id, item in periodos.items():
+            for k in gobiernan(item):
+                if item[k].modo == "manual":
+                    cantidad, valor = manuales[item[k].modo_id]
+                    bloques[item_id].append(lote_manual(item[k].modo_id, item[k].desde, cantidad, valor * cantidad))
+        return periodos, bloques
+
+    @classmethod
+    def _con_bloques(cls, db: Session, ids: List[int]) -> Tuple[Dict[int, List[Lote]], Dict[int, List[Periodo]]]:
+        """Each product's lots (purchase lines and manual blocks, FIFO order) and periods: two queries."""
+        lotes = cls._lotes(db, ids) if ids else {}
+        periodos, bloques = cls._modos(db, ids)
+        for item_id, item in bloques.items():
+            lotes.setdefault(item_id, []).extend(item)
+        return {item_id: sorted(item, key=orden_fifo) for item_id, item in lotes.items()}, periodos
 
     @classmethod
     def _producto(
@@ -489,7 +544,7 @@ class FifoPurchaseCosting:
             SellInConsumo.item_id,
             SellInConsumo.canal,
             SellInConsumo.venta_ref,
-            SellInConsumo.compra_item_id,
+            fuente(),
             SellInConsumo.fecha_venta,
             SellInConsumo.unidades,
             SellInConsumo.descuento_ars,
@@ -510,7 +565,8 @@ class FifoPurchaseCosting:
         borrar = [cid for key, (cid, valores) in guardados.items() if nuevos.get(key) != valores]
         insertar = [
             {
-                "compra_item_id": key[2],
+                "compra_item_id": key[2] if key[2] > 0 else None,
+                "modo_id": -key[2] if key[2] < 0 else None,
                 "canal": key[0],
                 "venta_ref": key[1],
                 "item_id": item_id,

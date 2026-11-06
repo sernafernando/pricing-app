@@ -54,15 +54,6 @@ def test_a_past_date_needs_the_backdating_permission(client, ponderador, product
     assert resp.json()["error"]["message"] == "Missing permission: sell_in.costo_retroactivo"
 
 
-def test_manual_cannot_be_set_yet(client, rol_admin, ponderador, grant_permiso, producto) -> None:
-    grant_permiso(rol_admin, "sell_in.costo_manual")
-
-    resp = client.post(f"{BASE}/4512/modos/vista-previa", json=_cuerpo("manual", HOY), headers=ponderador)
-
-    assert resp.status_code == 422
-    assert resp.json()["error"]["message"] == "Cost mode 'manual' cannot be set yet"
-
-
 def test_an_unknown_product_is_404(client, ponderador) -> None:
     assert (
         client.post(f"{BASE}/9999/modos/vista-previa", json=_cuerpo("ponderado", HOY), headers=ponderador).status_code

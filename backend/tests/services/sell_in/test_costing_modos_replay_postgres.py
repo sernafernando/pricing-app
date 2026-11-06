@@ -74,13 +74,15 @@ def _dos_lotes(engine: Engine) -> tuple[int, int]:
     return diez, ocho
 
 
-def _manual(engine: Engine) -> int:
-    return si.modo(engine, ROUTER, "manual", D(2026, 10, 20), cantidad=30, costo_unit="52000", costo_base_unit="50000")
+def _irreproducible(engine: Engine, monkeypatch) -> int:
+    """A mode row on ROUTER whose replay fails (`_world.modos_irreproducibles`)."""
+    si.modos_irreproducibles(monkeypatch)
+    return si.modo(engine, ROUTER, "ponderado", D(2026, 10, 20))
 
 
-def test_a_failed_replay_is_never_read_as_used_up_by_the_panels(engine: Engine) -> None:
+def test_a_failed_replay_is_never_read_as_used_up_by_the_panels(engine: Engine, monkeypatch) -> None:
     diez, _ = _dos_lotes(engine)
-    _manual(engine)
+    _irreproducible(engine, monkeypatch)
     bw.bono_costo(engine, "3.00", desde=D(2026, 11, 1), hasta=D(2026, 11, 30))
     with _sesion(engine) as db:
         batch = resolver_sell_in_out_batch(db, [ROUTER], HOY)
@@ -171,13 +173,13 @@ def test_a_future_row_governs_nothing_yet(engine: Engine) -> None:
     assert {c[2] for c in filas} == {venta}  # the rows that stayed are that sale's
 
 
-def test_a_refused_recompute_leaves_every_row_alone(engine: Engine) -> None:
+def test_a_refused_recompute_leaves_every_row_alone(engine: Engine, monkeypatch) -> None:
     _dos_lotes(engine)
     (otra,) = si.compra(engine, [(SWITCH, 10, "100.00")], D(2026, 10, 1))
     si.venta(engine, "fuera", ROUTER, 50, D(2026, 10, 20))
     _recompute(engine, ROUTER)
     ids, filas = si.consumo_ids(engine), si.consumos(engine)
-    _manual(engine)
+    _irreproducible(engine, monkeypatch)
     si.venta(engine, "fuera", ROUTER, 5, D(2026, 10, 25))
     si.venta(engine, "fuera", SWITCH, 2, D(2026, 10, 25))
 
