@@ -89,10 +89,14 @@ describe('scopes and amount kinds', () => {
     expect(conAlcance(factura, 'marca').modo).toBe('por_unidad');
   });
 
-  it('on sell in a total amount is an invoice line only', () => {
-    expect(modosNoDisponibles('sell_in', 'productos')).toEqual(['monto_total']);
-    expect(modosNoDisponibles('sell_in', 'factura')).toEqual([]);
-    expect(modosNoDisponibles('sell_out', 'productos')).toEqual([]);
+  it('on sell in a total amount over products, a brand or a category is ARS, or USD with a fixed rate (S4)', () => {
+    expect(modosNoDisponibles('sell_in', 'productos', 'ARS')).toEqual([]);
+    expect(modosNoDisponibles('sell_in', 'marca', 'USD', 'fijo')).toEqual([]);
+    expect(modosNoDisponibles('sell_in', 'categoria', 'USD', 'al_cobro')).toEqual(['monto_total']);
+    expect(modosNoDisponibles('sell_in', 'productos', 'USD', 'dia_venta')).toEqual(['monto_total']);
+    // The invoice total line stays as it was: always a total, whatever the currency.
+    expect(modosNoDisponibles('sell_in', 'factura', 'USD', 'al_cobro')).toEqual([]);
+    expect(modosNoDisponibles('sell_out', 'productos', 'USD', 'al_cobro')).toEqual([]);
   });
 
   it('switching to sell out turns invoice lines into empty product lines and keeps a total amount of products', () => {
@@ -104,18 +108,17 @@ describe('scopes and amount kinds', () => {
     expect(b).toEqual(expect.objectContaining({ modo: 'monto_total', reparto: 'costo' }));
   });
 
-  it('sell out offers a total amount on every scope; sell in still only on an invoice', () => {
+  it('sell out offers a total amount on every scope, in any currency', () => {
     expect(modosDe('sell_out')).toEqual(['por_unidad', 'porcentaje', 'monto_total']);
-    expect(modosNoDisponibles('sell_out', 'marca')).toEqual([]);
-    expect(modosNoDisponibles('sell_in', 'categoria')).toEqual(['monto_total']);
+    expect(modosNoDisponibles('sell_out', 'marca', 'ARS')).toEqual([]);
   });
 
-  it('switching to sell in turns a total amount of products back to per unit, without its split', () => {
+  it('switching to sell in keeps a total amount of products with its split (S4)', () => {
     const [a, b] = lineasPara('sell_in', [
       linea({ alcance: 'productos', modo: 'monto_total', reparto: 'unidades' }),
       linea({ alcance: 'factura', modo: 'monto_total', facturas: [OPERACIONES[0]] }),
     ]);
-    expect(a).toEqual(expect.objectContaining({ modo: 'por_unidad', reparto: '' }));
+    expect(a).toEqual(expect.objectContaining({ modo: 'monto_total', reparto: 'unidades' }));
     expect(b.modo).toBe('monto_total');
   });
 
@@ -152,6 +155,16 @@ describe('what stops a save, first thing only', () => {
     [{}, [{ ...lista, topeUnidades: '1,5' }], 'Hay 1 línea con un tope de unidades que no es entero. Corregila.'],
     [{}, [{ ...lista, modo: 'monto_total', monto: '1200' }], 'Hay 1 línea sin reparto del monto total. Completala o eliminala.'],
   ])('%j with %#', (cambios, lineas, mensaje) => expect(problemaDe({ ...FORM, ...cambios }, lineas)).toBe(mensaje));
+
+  it('a sell in total over products in USD needs a fixed rate, as the backend says (S4)', () => {
+    const total = { ...lista, modo: 'monto_total', monto: '1200', reparto: 'iguales' };
+    const sellIn = { ...FORM, tipo: 'sell_in', moneda: 'USD' };
+    expect(problemaDe({ ...sellIn, tcModo: 'al_cobro' }, [total])).toBe(
+      'Hay 1 línea con un monto total en USD sin tipo de cambio fijo. Corregila o elegí tipo de cambio fijo.',
+    );
+    expect(problemaDe({ ...sellIn, tcModo: 'fijo', tipoCambio: '1000,5' }, [total])).toBeNull();
+    expect(problemaDe({ ...sellIn, moneda: 'ARS' }, [total])).toBeNull();
+  });
 
   it('nothing when it can be sent', () => {
     expect(problemaDe(FORM, [lista])).toBeNull();
@@ -238,5 +251,33 @@ describe('a sell out total amount split among the line\'s products (S1)', () => 
       { alcance: 'productos', item_ids: [103, 104], modo_monto: 'por_unidad', valor: 12, tope_unidades: 300, tope_monto: null, tope_por_producto: true },
       { alcance: 'categoria', categoria: 'Notebooks', modo_monto: 'porcentaje', valor: 3.5, tope_unidades: null, tope_monto: 5000 },
     ]);
+  });
+});
+
+describe('a sell in total amount split among the line\'s products (S4)', () => {
+  const notebooks = [103, 104].map(producto);
+  const SELL_IN = { ...FORM, tipo: 'sell_in', moneda: 'ARS' };
+
+  it.each(['iguales', 'unidades', 'costo'])('%s: products, brand and category send the total and its criterion, no caps', (reparto) => {
+    const total = { modo: 'monto_total', reparto };
+    const lineas = [
+      linea({ productos: notebooks, monto: '1.200.000', topeUnidades: '90', ...total }),
+      linea({ alcance: 'marca', marca: 'HP', monto: '300000', ...total }),
+      linea({ alcance: 'categoria', categoria: 'Notebooks', monto: '50000', ...total }),
+    ];
+    const sinTope = { modo_monto: 'monto_total', tope_unidades: null, tope_monto: null, reparto_criterio: reparto };
+    expect(cuerpoDe(SELL_IN, lineas).body.lineas).toEqual([
+      { alcance: 'productos', item_ids: [103, 104], valor: 1200000, ...sinTope },
+      { alcance: 'marca', marca: 'HP', valor: 300000, ...sinTope },
+      { alcance: 'categoria', categoria: 'Notebooks', valor: 50000, ...sinTope },
+    ]);
+  });
+
+  it('the invoice total line sends no criterion, as before', () => {
+    const factura = linea({ alcance: 'factura', modo: 'monto_total', monto: '850000', facturas: OPERACIONES.slice(0, 1), reparto: 'costo' });
+    expect(cuerpoDe(SELL_IN, [factura]).body.lineas).toEqual([
+      { alcance: 'factura', pedido_compra_id: 9001, modo_monto: 'monto_total', valor: 850000, tope_unidades: null, tope_monto: null },
+    ]);
+    expect(problemaDe(SELL_IN, [{ ...factura, reparto: '' }])).toBeNull();
   });
 });
