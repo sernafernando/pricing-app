@@ -26,10 +26,18 @@ export function promoDisplayPrice(promo) {
   if (!promo) return null;
   // Panel rows carry `promotion_type`, live ML entries `type`: read both, like the backend.
   const type = promo.promotion_type ?? promo.type;
-  // A LIGHTNING candidate's `price` is not its suggestion (MLA1506729443: the SMART candidate's).
+  // A LIGHTNING candidate's `price` is not its suggestion (MLA1506729443: the SMART candidate's); the
+  // suggestion is kept within [min,max] when ML sends them.
   if (type === 'LIGHTNING' && statusText(promo) === 'candidate') {
-    const suggested = positiveNumber(promo.suggested_discounted_price);
-    if (suggested != null) return suggested;
+    let suggested = positiveNumber(promo.suggested_discounted_price);
+    if (suggested != null) {
+      // Guard: never shown outside the range ML accepts (the apply clamps the same way).
+      const min = positiveNumber(promo.min_discounted_price);
+      const max = positiveNumber(promo.max_discounted_price);
+      if (max != null) suggested = Math.min(suggested, max);
+      if (min != null) suggested = Math.max(suggested, min);
+      return suggested;
+    }
   }
   const price = positiveNumber(promo.price);
   if (price != null) return price;

@@ -129,7 +129,8 @@ def precio_de_oferta(promo: Dict[str, Any]) -> Optional[float]:
     (frontend `promoDisplayPrice`, same fallback order), the pre-apply guard,
     the 409's `precio_actual` and every markup computed on an offer.
 
-    For a LIGHTNING candidate, `suggested_discounted_price` when > 0 first
+    For a LIGHTNING candidate, `suggested_discounted_price` when > 0 first,
+    kept within [min,max] when ML sends them
     (its `price` is not the lightning suggestion). Otherwise:
     `price` when > 0; else, for a DEAL, `max_discounted_price` when > 0 (the
     smallest discount ML accepts, the price ML's web proposes; owner
@@ -152,6 +153,13 @@ def precio_de_oferta(promo: Dict[str, Any]) -> Optional[float]:
         # candidate's price, 2026-11-06): the row shows ML's suggested lightning price.
         suggested = _positive_float(promo.get("suggested_discounted_price"))
         if suggested is not None:
+            # Guard: never shown outside the range ML accepts (the apply clamps the same way).
+            min_price = _positive_float(promo.get("min_discounted_price"))
+            max_price = _positive_float(promo.get("max_discounted_price"))
+            if max_price is not None:
+                suggested = min(suggested, max_price)
+            if min_price is not None:
+                suggested = max(suggested, min_price)
             return suggested
     price = _positive_float(promo.get("price"))
     if price is not None:

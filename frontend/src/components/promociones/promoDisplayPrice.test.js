@@ -74,6 +74,27 @@ describe('promoDisplayPrice — the one offer-price rule', () => {
     expect(promoDisplayPrice(capturedLightning)).toBe(73558.15);
   });
 
+  it('reads a live LIGHTNING entry (`type`) like the backend', () => {
+    const { promotion_type: _ignored, ...live } = capturedLightning;
+    expect(promoDisplayPrice({ ...live, type: 'LIGHTNING' })).toBe(73558.15);
+  });
+
+  it('reads the older `{ id }` status of a candidate LIGHTNING', () => {
+    expect(promoDisplayPrice({ ...capturedLightning, status: { id: 'candidate' } })).toBe(73558.15);
+  });
+
+  it('shows a candidate LIGHTNING suggestion above the max at the max', () => {
+    expect(promoDisplayPrice({ ...capturedLightning, suggested_discounted_price: 80000 })).toBe(77885.1);
+  });
+
+  it('shows a candidate LIGHTNING suggestion below the min at the min', () => {
+    expect(promoDisplayPrice({ ...capturedLightning, suggested_discounted_price: 10000 })).toBe(17307.81);
+  });
+
+  it('keeps the suggestion of a candidate LIGHTNING without range', () => {
+    expect(promoDisplayPrice({ ...capturedLightning, min_discounted_price: null, max_discounted_price: null })).toBe(73558.15);
+  });
+
   it('keeps the price of a candidate LIGHTNING without suggestion', () => {
     expect(promoDisplayPrice({ ...capturedLightning, suggested_discounted_price: null })).toBe(57920.55);
   });

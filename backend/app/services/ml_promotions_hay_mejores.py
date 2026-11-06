@@ -99,6 +99,8 @@ def normalizar_entrada_seller_promo(entry: Mapping[str, Any]) -> Dict[str, Any]:
         "suggested_discounted_price": entry.get("suggested_discounted_price"),
         # precio_de_oferta prices a candidate DEAL at its max, as the panel and the apply do.
         "max_discounted_price": entry.get("max_discounted_price"),
+        # ... and keeps a candidate LIGHTNING's suggestion within [min,max].
+        "min_discounted_price": entry.get("min_discounted_price"),
         "name": entry.get("name"),
         "payload": payload,
     }

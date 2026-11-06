@@ -163,6 +163,25 @@ class TestNormalizarEntrada:
         assert promo["max_discounted_price"] == 57920.55
         assert precio_de_oferta(promo) == 57920.55
 
+    # Captured live LIGHTNING candidate, MLA1506729443 (2026-11-06): `price` is the SMART candidate's.
+    CAPTURED_LIGHTNING_ENTRY = {
+        "id": "LGH-MLA1000",
+        "type": "LIGHTNING",
+        "status": "candidate",
+        "price": 57920.55,
+        "original_price": 86539,
+        "min_discounted_price": 17307.81,
+        "max_discounted_price": 77885.1,
+        "suggested_discounted_price": 73558.15,
+    }
+
+    def test_candidate_lightning_is_judged_at_its_suggestion(self) -> None:
+        assert precio_de_oferta(normalizar_entrada_seller_promo(self.CAPTURED_LIGHTNING_ENTRY)) == 73558.15
+
+    def test_candidate_lightning_is_judged_within_its_range(self) -> None:
+        entry = dict(self.CAPTURED_LIGHTNING_ENTRY, suggested_discounted_price=10000)
+        assert precio_de_oferta(normalizar_entrada_seller_promo(entry)) == 17307.81
+
 
 class TestListarMejoresBaselineWiring:
     """Started co-funded baseline (via raw) can suppress a candidate that would beat plain sale."""
