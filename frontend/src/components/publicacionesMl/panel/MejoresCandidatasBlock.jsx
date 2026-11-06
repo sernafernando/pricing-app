@@ -44,9 +44,11 @@ function appliedCleanly(promo, data) {
  * The suggested SMART/DEAL/Premium for a pub already flagged hay_mejores, as cards.
  * Mount only when the operator can write promos (discard/apply need it).
  * "Aplicar sugerencia" is the row's PromoApplyControl (same confirmation, guards and body);
- * `onLeavePub` runs only after a clean apply. `onSuggested(ids)` reports the suggested
- * promotion ids so the Promos tab can mark them. Calls onUnavailable when baseline markup is
- * missing or load fails hard.
+ * `onLeavePub` runs only after a clean apply; without it, a clean apply reloads the candidates
+ * so the applied promo drops out. `onSuggested(ids)` reports the suggested promotion ids so the
+ * Promos tab can mark them. Calls onUnavailable when baseline markup is missing or load fails
+ * hard; the block then keeps a minimal notice with "Descartar sugerencia" (a parent that
+ * unmounts it on onUnavailable, like MODO PONER PRECIOS, never shows it).
  */
 export default function MejoresCandidatasBlock({
   itemId,
@@ -62,6 +64,9 @@ export default function MejoresCandidatasBlock({
   const [baselineMarkup, setBaselineMarkup] = useState(null);
   const [message, setMessage] = useState(null);
   const [descartando, setDescartando] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
+  // Bumped after a clean apply that stays on the pub: re-reads the candidates.
+  const [reloadToken, setReloadToken] = useState(0);
   const onUnavailableRef = useRef(onUnavailable);
   onUnavailableRef.current = onUnavailable;
   const onSuggestedRef = useRef(onSuggested);
@@ -72,6 +77,7 @@ export default function MejoresCandidatasBlock({
     (async () => {
       setLoading(true);
       setMessage(null);
+      setUnavailable(false);
       try {
         const promoRes = await promocionesAPI.getPromocionesItem(itemId);
         if (cancelled) return;
@@ -89,6 +95,7 @@ export default function MejoresCandidatasBlock({
         }
         if (cancelled) return;
         if (markup == null) {
+          setUnavailable(true);
           onUnavailableRef.current?.();
           return;
         }
@@ -102,6 +109,7 @@ export default function MejoresCandidatasBlock({
       } catch (err) {
         if (!cancelled) {
           setMessage({ tone: 'error', text: errorText(err, 'No se pudieron cargar las candidatas.') });
+          setUnavailable(true);
           onUnavailableRef.current?.();
         }
       } finally {
@@ -111,7 +119,7 @@ export default function MejoresCandidatasBlock({
     return () => {
       cancelled = true;
     };
-  }, [itemId, baselinePrice]);
+  }, [itemId, baselinePrice, reloadToken]);
 
   const discard = async () => {
     if (descartando) return;
@@ -129,6 +137,15 @@ export default function MejoresCandidatasBlock({
   };
 
   const entries = slotEntries(slots);
+  const lead = (extra) => (
+    <p className={styles.ponerPreciosMejoresLead}>
+      <Sparkles size={14} aria-hidden="true" className={styles.mejoresIcon} />
+      <span>
+        Hay candidatas mejores que el precio vigente en MeLi.
+        {extra}
+      </span>
+    </p>
+  );
   const vigente =
     baselineMarkup != null ? (
       <>
@@ -148,15 +165,14 @@ export default function MejoresCandidatasBlock({
         <p className={styles.ponerPreciosOk} role="status">
           Cargando candidatas…
         </p>
+      ) : unavailable ? (
+        <>
+          {lead(null)}
+          <span>{discardButton}</span>
+        </>
       ) : entries.length > 0 ? (
         <>
-          <p className={styles.ponerPreciosMejoresLead}>
-            <Sparkles size={14} aria-hidden="true" className={styles.mejoresIcon} />
-            <span>
-              Hay candidatas mejores que el precio vigente en MeLi.
-              {vigente}
-            </span>
-          </p>
+          {lead(vigente)}
           <ul className={styles.ponerPreciosChoices}>
             {entries.map(([slot, promo], index) => {
               const price = promoDisplayPrice(promo);
@@ -185,7 +201,9 @@ export default function MejoresCandidatasBlock({
                       label="Aplicar sugerencia"
                       onApplied={(data) => {
                         onWritten?.();
-                        if (appliedCleanly(promo, data)) onLeavePub?.();
+                        if (!appliedCleanly(promo, data)) return;
+                        if (onLeavePub) onLeavePub();
+                        else setReloadToken((token) => token + 1);
                       }}
                       onReloadNeeded={onWritten}
                     />
