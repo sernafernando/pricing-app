@@ -64,9 +64,23 @@ export function isPremiumCurrentMonth(promo, monthName) {
   return name.includes('premium') && name.includes(String(monthName).toLowerCase());
 }
 
-function markupOf(promo) {
-  const value = promo?.nuestro_markup;
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+const finiteOrNull = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+
+/**
+ * (candidate, status quo) markups on the SAME basis (S5, owner: "va a tener que usar el sell in sell out"): with
+ * sell in / sell out when both have it, else both plain, so a figure with sell in / sell out is never compared
+ * against a plain one. Each side is `{ nuestro_markup, markup_sell_in_out }`.
+ * Keep in sync with backend `markups_comparables` (ml_promotions_hay_mejores.py).
+ */
+export function comparableMarkups(candidate, baseline) {
+  const candidateSellInOut = finiteOrNull(candidate?.markup_sell_in_out);
+  const baselineSellInOut = finiteOrNull(baseline?.markup_sell_in_out);
+  const candidatePlain = finiteOrNull(candidate?.nuestro_markup);
+  const baselinePlain = finiteOrNull(baseline?.nuestro_markup);
+  if (candidatePlain != null && baselinePlain != null && candidateSellInOut != null && baselineSellInOut != null) {
+    return [candidateSellInOut, baselineSellInOut];
+  }
+  return [candidatePlain, baselinePlain];
 }
 
 /**
@@ -85,17 +99,17 @@ export function esMejorOferta(candidatePrice, candidateMarkup, baselinePrice, ba
   return candidateMarkup >= baselineMarkup;
 }
 
-/** Best candidate by `nuestro_markup`. Skips null/non-finite markups (no arbitrary first pick). */
+/**
+ * Best candidate by markup, on one basis for the whole set (the same rule as `comparableMarkups`): with sell in /
+ * sell out when every candidate has it, else all plain. Skips promos without `nuestro_markup` (no arbitrary pick).
+ */
 export function bestByMarkup(promos) {
+  const ranked = promos.filter((promo) => finiteOrNull(promo?.nuestro_markup) != null);
+  const withSellInOut = ranked.every((promo) => finiteOrNull(promo.markup_sell_in_out) != null);
+  const key = withSellInOut ? 'markup_sell_in_out' : 'nuestro_markup';
   let best = null;
-  let bestMarkup = -Infinity;
-  for (const promo of promos) {
-    const markup = markupOf(promo);
-    if (markup == null) continue;
-    if (markup > bestMarkup) {
-      best = promo;
-      bestMarkup = markup;
-    }
+  for (const promo of ranked) {
+    if (best == null || promo[key] > best[key]) best = promo;
   }
   return best;
 }
@@ -115,15 +129,21 @@ export function pickPonerPreciosPromos(promotions, { monthName = currentMonthNam
   return pickSlots(candidates, monthName);
 }
 
-/** Best SMART/DEAL/Premium that beat the MeLi status quo (flagged-pub chooser). */
+/**
+ * Best SMART/DEAL/Premium that beat the MeLi status quo (flagged-pub chooser). The status quo's plain markup is
+ * `baselineMarkup` and its markup with sell in / sell out `baselineSellInOut`; each candidate is compared on the
+ * basis `comparableMarkups` picks.
+ */
 export function pickMejoresCandidatas(
   promotions,
-  { baselinePrice, baselineMarkup, monthName = currentMonthNameEs() } = {},
+  { baselinePrice, baselineMarkup, baselineSellInOut = null, monthName = currentMonthNameEs() } = {},
 ) {
+  const baseline = { nuestro_markup: baselineMarkup, markup_sell_in_out: baselineSellInOut };
   const candidates = (promotions || []).filter((promo) => promo?.status === 'candidate');
-  const better = candidates.filter((promo) =>
-    esMejorOferta(promoDisplayPrice(promo), markupOf(promo), baselinePrice, baselineMarkup),
-  );
+  const better = candidates.filter((promo) => {
+    const [candidateMarkup, statusQuoMarkup] = comparableMarkups(promo, baseline);
+    return esMejorOferta(promoDisplayPrice(promo), candidateMarkup, baselinePrice, statusQuoMarkup);
+  });
   return pickSlots(better, monthName);
 }
 

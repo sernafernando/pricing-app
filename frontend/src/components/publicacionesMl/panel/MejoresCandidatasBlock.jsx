@@ -117,7 +117,9 @@ export default function MejoresCandidatasBlock({
         setBaselineSellInOut(sellInOut);
         const picked = pickMejoresCandidatas(promotions, {
           baselinePrice: Number(baselinePrice),
+          // Compared like the backend flag (S5): with sell in / sell out only when both sides have it.
           baselineMarkup: markup,
+          baselineSellInOut: sellInOut,
         });
         setSlots(hasPickedSlot(picked) ? picked : null);
         onSuggestedRef.current?.(slotEntries(picked).map(([, promo]) => promo.promotion_id));

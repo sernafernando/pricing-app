@@ -8,7 +8,7 @@ Las promociones de una publicación ahora muestran, además del markup, el **mar
 
 - Es la misma cuenta que la columna **c/ sell in/out** de **Precios**: con sell in y sell out cuando hay sell out; si no, solo con sell in.
 - Si el producto no tiene sell in ni sell out hoy, no aparece nada extra.
-- El markup de siempre no cambia, y sigue siendo el que decide qué promo conviene.
+- El markup de siempre no cambia. Para decidir qué promo conviene ahora se usa el markup **c/ sell in/out** cuando lo tienen los dos lados que se comparan; si a alguno le falta, los dos se comparan con el markup de siempre. Así deciden el aviso **Hay candidatas mejores** y la promo que propone **MODO PONER PRECIOS**.
 
 ## Cómo se usa
 
