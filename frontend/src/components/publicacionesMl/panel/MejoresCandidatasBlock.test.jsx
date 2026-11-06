@@ -70,6 +70,59 @@ describe('MejoresCandidatasBlock', () => {
     expect(within(card).getByRole('button', { name: 'Aplicar sugerencia' })).toBeInTheDocument();
   });
 
+  // promos-markup-sell-in-out S2: the box shows the markup with sell in / sell out next to each markup.
+  it('shows the markup with sell in / sell out on the card and on the Markup vigente line', async () => {
+    promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { nuestro_markup: 0.35, markup_sell_in_out: 3.2 } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            status: 'candidate',
+            promotion_type: 'SMART',
+            promotion_id: 'P-MLA2',
+            price: 200000,
+            nuestro_markup: 1.5,
+            markup_sell_in_out: 4.25,
+            name: 'Oferta ok',
+          },
+        ],
+      },
+    });
+    render(<MejoresCandidatasBlock itemId="MLA2" baselinePrice={218299} />);
+
+    const card = await screen.findByRole('group', { name: 'Promo sugerida SMART' });
+    expect(within(card).getByText((_, el) => el?.textContent === 'c/ sell in/out 4,25%')).toBeInTheDocument();
+    expect(screen.getByText(/Markup vigente ~/).textContent).toBe(
+      'Hay candidatas mejores que el precio vigente en MeLi. Markup vigente ~ 0,35% · c/ sell in/out 3,20%.',
+    );
+  });
+
+  it('shows no sell in / sell out figure when the backend sends null', async () => {
+    promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { nuestro_markup: 0.35, markup_sell_in_out: null } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            status: 'candidate',
+            promotion_type: 'SMART',
+            promotion_id: 'P-MLA2',
+            price: 200000,
+            nuestro_markup: 1.5,
+            markup_sell_in_out: null,
+            name: 'Oferta ok',
+          },
+        ],
+      },
+    });
+    render(<MejoresCandidatasBlock itemId="MLA2" baselinePrice={218299} />);
+
+    await screen.findByRole('group', { name: 'Promo sugerida SMART' });
+    expect(screen.queryByText('c/ sell in/out')).not.toBeInTheDocument();
+    expect(screen.getByText(/Markup vigente ~/).textContent).toBe(
+      'Hay candidatas mejores que el precio vigente en MeLi. Markup vigente ~ 0,35%.',
+    );
+  });
+
   it('uses cofunded started markup as vigente and does not call getMarkupParaPrecio', async () => {
     promocionesAPI.getPromocionesItem.mockResolvedValue({
       data: {

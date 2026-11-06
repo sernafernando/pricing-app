@@ -9,6 +9,7 @@ import { resolvePromoName } from './resolvePromoName';
 import PromoApplyControl from './PromoApplyControl';
 import { formatRelativeAge, promoDisplayPrice } from './promoDisplayPrice';
 import { forgetPromoEmptyConfirmed, forgetPromoPull, markPromoEmptyConfirmed, promoEmptyConfirmedRecently, promoPullGeneration } from './promoPullTtl';
+import SellInOutMarkupExtra from './SellInOutMarkupExtra';
 import styles from './promociones.module.css';
 
 const NO_TYPES = [];
@@ -620,6 +621,7 @@ function MlaPromocionesPanel({
         <span className={`${styles.promoMarkup} ${markupToneClass(promo.nuestro_markup)}`}>
           <span className={styles.markupLabel}>Tu markup: </span>
           {formatMarkup(promo.nuestro_markup)}
+          <SellInOutMarkupExtra value={promo.markup_sell_in_out} />
         </span>
         <span className={styles.promoStatusCell}>
           {age && (

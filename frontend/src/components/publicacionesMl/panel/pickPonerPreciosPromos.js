@@ -29,6 +29,18 @@ export function pricesClose(left, right, tolerance = BASELINE_PRICE_TOLERANCE_AR
  * falls back to `getMarkupParaPrecio` (plain sale, no co-funding).
  */
 export function baselineMarkupFromPromos(promotions, baselinePrice) {
+  return baselinePromo(promotions, baselinePrice)?.nuestro_markup ?? null;
+}
+
+/**
+ * The `markup_sell_in_out` of the same status-quo offer `baselineMarkupFromPromos` takes its
+ * markup from (promos-markup-sell-in-out), null when there is none or it has no sell in / sell out.
+ */
+export function baselineSellInOutFromPromos(promotions, baselinePrice) {
+  return baselinePromo(promotions, baselinePrice)?.markup_sell_in_out ?? null;
+}
+
+function baselinePromo(promotions, baselinePrice) {
   if (baselinePrice == null || !Number.isFinite(Number(baselinePrice))) return null;
   const started = (promotions || []).filter(
     (promo) =>
@@ -39,7 +51,8 @@ export function baselineMarkupFromPromos(promotions, baselinePrice) {
       pricesClose(promoDisplayPrice(promo), baselinePrice),
   );
   if (!started.length) return null;
-  return Math.max(...started.map((promo) => promo.nuestro_markup));
+  // The best markup among the matches (backend `markup_baseline_vigente`); the first on a tie.
+  return started.reduce((best, promo) => (promo.nuestro_markup > best.nuestro_markup ? promo : best));
 }
 
 export function currentMonthNameEs(now = new Date()) {
