@@ -121,9 +121,12 @@ def precio_de_oferta(promo: Dict[str, Any]) -> Optional[float]:
     (frontend `promoDisplayPrice`, same fallback order), the pre-apply guard,
     the 409's `precio_actual` and every markup computed on an offer.
 
-    `price` when > 0, else `suggested_discounted_price` when > 0, else None.
-    Works on both shapes: a mirror row and a raw live proxy entry (both use
-    `price` / `suggested_discounted_price`).
+    `price` when > 0; else, for a DEAL, `max_discounted_price` when > 0 (the
+    smallest discount ML accepts, the price ML's web proposes; owner
+    2026-11-06, MLA1506729443); else `suggested_discounted_price` when > 0;
+    else None. Works on both shapes: a mirror row (`promotion_type`) and a
+    raw live proxy entry (`type`); both use `price` /
+    `suggested_discounted_price` / `max_discounted_price`.
 
     Which types legitimately carry `price` 0: candidate SELLER_CAMPAIGN /
     DEAL rows (the seller sets the price; ML only proposes
@@ -136,6 +139,10 @@ def precio_de_oferta(promo: Dict[str, Any]) -> Optional[float]:
     price = _positive_float(promo.get("price"))
     if price is not None:
         return price
+    if (promo.get("promotion_type") or promo.get("type")) == "DEAL":
+        max_price = _positive_float(promo.get("max_discounted_price"))
+        if max_price is not None:
+            return max_price
     return _positive_float(promo.get("suggested_discounted_price"))
 
 
@@ -397,6 +404,8 @@ def markup_de_oferta_live(
         "price": price if price is not None else live_entry.get("price"),
         "original_price": live_entry.get("original_price"),
         "suggested_discounted_price": live_entry.get("suggested_discounted_price"),
+        # precio_de_oferta prices a candidate DEAL at its max, as the panel and the apply do.
+        "max_discounted_price": live_entry.get("max_discounted_price"),
         "payload": live_entry,
     }
     try:

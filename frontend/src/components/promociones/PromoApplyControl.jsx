@@ -36,6 +36,17 @@ function lightningDefaultPrice(promotion) {
   return price;
 }
 
+// Default price of the other range types. A DEAL starts at the price its row shows
+// (promoDisplayPrice: its max for a candidate); the rest at ML's suggestion. A typed
+// price above the max is flagged and blocked by the range check below.
+function rangeDefaultPrice(promotion) {
+  const start =
+    promotion.promotion_type === 'DEAL'
+      ? promoDisplayPrice(promotion)
+      : (promotion.suggested_discounted_price ?? promotion.price);
+  return start ?? promotion.min_discounted_price ?? '';
+}
+
 // ML's `stock: {min, max}` for the units to reserve, or null when it does not report it.
 function lightningStockRange(promotion) {
   const stock = promotion.payload?.stock;
@@ -175,7 +186,7 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded }) {
   const stockRange = isLightning ? lightningStockRange(promotion) : null;
   const defaultPrice = isLightning
     ? lightningDefaultPrice(promotion)
-    : (promotion.suggested_discounted_price ?? promotion.price ?? promotion.min_discounted_price ?? '');
+    : rangeDefaultPrice(promotion);
   const [stock, setStock] = useState('');
   const [dealPrice, setDealPrice] = useState(defaultPrice);
   const [markup, setMarkup] = useState(null);

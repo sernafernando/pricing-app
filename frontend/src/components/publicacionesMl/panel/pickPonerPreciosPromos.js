@@ -126,12 +126,17 @@ export function enrollBodyForPromo(promo) {
     if (promo.nuestro_markup != null) body.markup_visto = promo.nuestro_markup;
     return body;
   }
-  const suggested = Number(promo.suggested_discounted_price ?? promo.price);
+  // A DEAL is applied at the price its row shows (promoDisplayPrice: its max, the smallest discount
+  // ML accepts); other range types keep ML's suggestion. Clamped to [min, max] below.
+  // A missing price stays NaN (never 0), so it is not clamped up to the min and nothing is sent.
+  const startPrice = Number(
+    (type === 'DEAL' ? promoDisplayPrice(promo) : (promo.suggested_discounted_price ?? promo.price)) ?? NaN,
+  );
   const min = promo.min_discounted_price;
   const max = promo.max_discounted_price;
-  let dealPrice = suggested;
-  if (Number.isFinite(min) && Number.isFinite(max) && Number.isFinite(suggested)) {
-    dealPrice = Math.min(max, Math.max(min, suggested));
+  let dealPrice = startPrice;
+  if (Number.isFinite(min) && Number.isFinite(max) && Number.isFinite(startPrice)) {
+    dealPrice = Math.min(max, Math.max(min, startPrice));
   }
   if (Number.isFinite(dealPrice) && dealPrice > 0) body.deal_price = dealPrice;
   return body;

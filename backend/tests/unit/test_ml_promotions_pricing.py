@@ -18,12 +18,50 @@ from app.services.ml_promotions_pricing import (
     _co_funding_amount,
     enriquecer_markup_por_promo,
     markup_para_precio,
+    precio_de_oferta,
 )
 from app.services.pricing_calculator import (
     calcular_comision_ml_total,
     calcular_limpio,
     calcular_markup,
 )
+
+
+# ── precio_de_oferta ─────────────────────────────────────────────────
+
+# Captured live DEAL entry, MLA1506729443 "MKP T1 CYBER MONDAY NOV" (2026-11-06). ML's web proposes it
+# at its max (57920.55, the smallest discount ML accepts); the suggested 49266.65 is a deeper discount.
+CAPTURED_DEAL = {
+    "id": "P-MLA18145042",
+    "type": "DEAL",
+    "price": 0,
+    "status": "candidate",
+    "original_price": 86539,
+    "max_discounted_price": 57920.55,
+    "min_discounted_price": 17307.81,
+    "suggested_discounted_price": 49266.65,
+}
+
+
+class TestPrecioDeOferta:
+    def test_candidate_deal_uses_its_max(self) -> None:
+        assert precio_de_oferta(CAPTURED_DEAL) == 57920.55
+
+    def test_candidate_deal_mirror_row_shape_uses_its_max(self) -> None:
+        row = {k: v for k, v in CAPTURED_DEAL.items() if k != "type"}
+        row["promotion_type"] = "DEAL"
+        assert precio_de_oferta(row) == 57920.55
+
+    def test_candidate_deal_without_max_falls_back_to_suggested(self) -> None:
+        promo = dict(CAPTURED_DEAL, max_discounted_price=None)
+        assert precio_de_oferta(promo) == 49266.65
+
+    def test_deal_with_a_price_keeps_it(self) -> None:
+        assert precio_de_oferta(dict(CAPTURED_DEAL, price=55000)) == 55000
+
+    def test_seller_campaign_keeps_the_suggested(self) -> None:
+        promo = dict(CAPTURED_DEAL, type="SELLER_CAMPAIGN")
+        assert precio_de_oferta(promo) == 49266.65
 
 
 # ── _co_funding_amount ───────────────────────────────────────────────

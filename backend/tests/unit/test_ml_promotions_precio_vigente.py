@@ -301,6 +301,30 @@ class TestMarkupDeOfertaLive:
 
         assert captured["price"] == 350000.0
 
+    def test_carries_the_deal_max_so_it_is_priced_like_the_panel(self) -> None:
+        # Captured live DEAL, MLA1506729443 (2026-11-06): price 0, so precio_de_oferta needs the max.
+        captured: Dict[str, Any] = {}
+        deal = {
+            "id": "P-MLA18145042",
+            "type": "DEAL",
+            "price": 0,
+            "status": "candidate",
+            "original_price": 86539,
+            "max_discounted_price": 57920.55,
+            "min_discounted_price": 17307.81,
+            "suggested_discounted_price": 49266.65,
+        }
+
+        def _fake_enriquecer(db: Any, mla: str, promos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            captured.update(promos[0])
+            promos[0]["nuestro_markup"] = 1.0
+            return promos
+
+        with patch.object(pricing, "enriquecer_markup_por_promo", side_effect=_fake_enriquecer):
+            pricing.markup_de_oferta_live(object(), MLA, "DEAL", deal)
+
+        assert pricing.precio_de_oferta(captured) == 57920.55
+
     def test_never_raises(self) -> None:
         with patch.object(pricing, "enriquecer_markup_por_promo", side_effect=RuntimeError("db down")):
             assert pricing.markup_de_oferta_live(object(), MLA, "SMART", _live_entry()) is None

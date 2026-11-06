@@ -97,6 +97,8 @@ def normalizar_entrada_seller_promo(entry: Mapping[str, Any]) -> Dict[str, Any]:
         "price": entry.get("price"),
         "original_price": entry.get("original_price"),
         "suggested_discounted_price": entry.get("suggested_discounted_price"),
+        # precio_de_oferta prices a candidate DEAL at its max, as the panel and the apply do.
+        "max_discounted_price": entry.get("max_discounted_price"),
         "name": entry.get("name"),
         "payload": payload,
     }

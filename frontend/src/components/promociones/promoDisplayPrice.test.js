@@ -27,6 +27,40 @@ describe('promoDisplayPrice — the one offer-price rule', () => {
   it('accepts numeric strings like the backend does', () => {
     expect(promoDisplayPrice({ price: '372408.72' })).toBe(372408.72);
   });
+
+  // Captured DEAL, MLA1506729443 "MKP T1 CYBER MONDAY NOV" (2026-11-06): ML's web proposes it at its
+  // max, the smallest discount ML accepts. Same cases as backend TestPrecioDeOferta.
+  const capturedDeal = {
+    promotion_id: 'P-MLA18145042',
+    promotion_type: 'DEAL',
+    price: 0,
+    status: 'candidate',
+    original_price: 86539,
+    max_discounted_price: 57920.55,
+    min_discounted_price: 17307.81,
+    suggested_discounted_price: 49266.65,
+  };
+
+  it('uses the max for a candidate DEAL', () => {
+    expect(promoDisplayPrice(capturedDeal)).toBe(57920.55);
+  });
+
+  it('reads the live entry shape (`type`) like the backend', () => {
+    const { promotion_type: _ignored, ...live } = capturedDeal;
+    expect(promoDisplayPrice({ ...live, type: 'DEAL' })).toBe(57920.55);
+  });
+
+  it('falls back to the suggested for a DEAL without max', () => {
+    expect(promoDisplayPrice({ ...capturedDeal, max_discounted_price: null })).toBe(49266.65);
+  });
+
+  it('keeps the price of a DEAL that has one', () => {
+    expect(promoDisplayPrice({ ...capturedDeal, price: 55000 })).toBe(55000);
+  });
+
+  it('keeps the suggested for SELLER_CAMPAIGN', () => {
+    expect(promoDisplayPrice({ ...capturedDeal, promotion_type: 'SELLER_CAMPAIGN' })).toBe(49266.65);
+  });
 });
 
 describe('formatRelativeAge', () => {
