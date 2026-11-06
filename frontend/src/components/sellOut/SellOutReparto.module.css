@@ -55,3 +55,31 @@
 .deduccion {
   color: var(--tone-danger-fg);
 }
+
+/* Split by criterion (S3): the selector and its button on one line, then the preview. */
+.criterio {
+  display: grid;
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.criterioFila {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.criterioCampo {
+  display: grid;
+  flex: 1 1 200px;
+  gap: 4px;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.criterioSelect {
+  composes: select selectSm from '../../styles/forms-tesla.css';
+  width: 100%;
+}
