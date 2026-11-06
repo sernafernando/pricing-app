@@ -30,6 +30,7 @@ from app.models.tb_customer import TBCustomer
 from app.models.tb_storage import TbStorage
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
+from app.services.rma_operaciones import resolver_operaciones
 
 router = APIRouter(prefix="/rma-seguimiento", tags=["rma-seguimiento"])
 
@@ -672,6 +673,19 @@ class ParaBorrarRow(BaseModel):
     borrar_revisado_at: Optional[datetime] = None
     borrar_revisado_por_id: Optional[int] = None
     borrar_revisado_por_nombre: Optional[str] = None
+    articulos: list[str] = []
+
+
+class ParaBorrarOperacion(BaseModel):
+    """One ML operation: every case marked para borrar on the same sale, newest case first. `revisado` only when
+    all its cases are; `numero_envio` is the sale's shipment from our stored ML orders, None without a match."""
+
+    clave: str
+    ml_id: Optional[str] = None
+    numero_envio: Optional[str] = None
+    cliente_nombre: Optional[str] = None
+    revisado: bool
+    casos: list[ParaBorrarRow]
 
 
 class ParaBorrarCounts(BaseModel):
@@ -681,11 +695,16 @@ class ParaBorrarCounts(BaseModel):
 
 
 class ParaBorrarResponse(BaseModel):
-    items: list[ParaBorrarRow]
+    items: list[ParaBorrarOperacion]
     counts: ParaBorrarCounts
 
 
 class BorrarRevisadoUpdate(BaseModel):
+    revisado: bool
+
+
+class BorrarRevisadoOperacionUpdate(BaseModel):
+    caso_ids: list[int] = Field(..., min_length=1)
     revisado: bool
 
 
@@ -702,7 +721,39 @@ def _para_borrar_row(caso: RmaCaso) -> ParaBorrarRow:
         borrar_revisado_at=caso.borrar_revisado_at,
         borrar_revisado_por_id=caso.borrar_revisado_por_id,
         borrar_revisado_por_nombre=caso.borrar_revisado_por.nombre if caso.borrar_revisado_por else None,
+        articulos=[i.producto_desc for i in caso.items if i.producto_desc],
     )
+
+
+def _agrupar_por_operacion(db: Session, casos: list[RmaCaso]) -> list[ParaBorrarOperacion]:
+    """Cases (newest first) grouped by the ML operation their `ml_id` names: the stored sale's pack or order when
+    it matches one, else the `ml_id` itself (two cases typed with the same id are the same sale), else the case
+    alone. Groups keep the order of their newest case."""
+    resueltas = resolver_operaciones(db, {(c.ml_id or "").strip() for c in casos})
+    grupos: dict[str, list[RmaCaso]] = {}
+    envios: dict[str, Optional[str]] = {}
+    for caso in casos:
+        ml_id = (caso.ml_id or "").strip()
+        operacion = resueltas.get(ml_id)
+        if operacion:
+            clave = f"op:{operacion.operacion}"
+            envios[clave] = operacion.numero_envio
+        elif ml_id:
+            clave = f"ml:{ml_id}"
+        else:
+            clave = f"caso:{caso.id}"
+        grupos.setdefault(clave, []).append(caso)
+    return [
+        ParaBorrarOperacion(
+            clave=clave,
+            ml_id=next((c.ml_id for c in grupo if c.ml_id), None),
+            numero_envio=envios.get(clave),
+            cliente_nombre=next((c.cliente_nombre for c in grupo if c.cliente_nombre), None),
+            revisado=all(c.borrar_revisado_at is not None for c in grupo),
+            casos=[_para_borrar_row(c) for c in grupo],
+        )
+        for clave, grupo in grupos.items()
+    ]
 
 
 @router.get("/para-borrar", response_model=ParaBorrarResponse)
@@ -711,25 +762,69 @@ def listar_para_borrar(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> ParaBorrarResponse:
-    """Active cases marked "para borrar pedido". Pendientes = not reviewed yet (the default), revisados = someone
-    ticked "Revisado"; the counts of the three filters come with every answer. Same permission as the RMA list.
-    Not paginated on purpose: only cases flagged "borrar pedido" qualify, a short list; page it if that grows."""
+    """Active cases marked "para borrar pedido", one item per ML operation (owner, 2026-11-06: "si bien son 2 RMA
+    serían una misma operación"). Pendientes = an operation with a case nobody ticked yet (the default), revisados =
+    every case ticked; the counts of the three filters count operations and come with every answer. Same
+    permission as the RMA list. Not paginated on purpose: only cases flagged "borrar pedido" qualify, a short list;
+    page it if that grows. A fixed number of queries: the cases with their items, then the sales in one batch."""
     _check_permiso(db, current_user, "rma.ver")
 
-    marcados = db.query(RmaCaso).filter(RmaCaso.activo == True, RmaCaso.marcado_borrar_pedido == True)  # noqa: E712
-    revisados = func.count(RmaCaso.borrar_revisado_at)
-    todos, con_revision = marcados.with_entities(func.count(RmaCaso.id), revisados).one()
-
-    query = marcados.options(selectinload(RmaCaso.estado_caso), selectinload(RmaCaso.borrar_revisado_por))
-    if estado == "pendientes":
-        query = query.filter(RmaCaso.borrar_revisado_at.is_(None))
-    elif estado == "revisados":
-        query = query.filter(RmaCaso.borrar_revisado_at.isnot(None))
+    casos = (
+        db.query(RmaCaso)
+        .filter(RmaCaso.activo == True, RmaCaso.marcado_borrar_pedido == True)  # noqa: E712
+        .options(
+            selectinload(RmaCaso.estado_caso),
+            selectinload(RmaCaso.borrar_revisado_por),
+            selectinload(RmaCaso.items),
+        )
+        .order_by(RmaCaso.id.desc())
+        .all()
+    )
+    operaciones = _agrupar_por_operacion(db, casos)
+    revisadas = [op for op in operaciones if op.revisado]
+    pendientes = [op for op in operaciones if not op.revisado]
+    items = {"pendientes": pendientes, "revisados": revisadas, "todos": operaciones}[estado]
 
     return ParaBorrarResponse(
-        items=[_para_borrar_row(c) for c in query.order_by(RmaCaso.id.desc()).all()],
-        counts=ParaBorrarCounts(pendientes=todos - con_revision, revisados=con_revision, todos=todos),
+        items=items,
+        counts=ParaBorrarCounts(pendientes=len(pendientes), revisados=len(revisadas), todos=len(operaciones)),
     )
+
+
+@router.put("/para-borrar/revisado", response_model=list[ParaBorrarRow])
+def marcar_operacion_revisada(
+    data: BorrarRevisadoOperacionUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list[ParaBorrarRow]:
+    """The "Revisado" tick of an operation row: ticks or unticks every case it lists, each logged in its history
+    like the single-case tick. A case already in that state keeps who reviewed it and when. Any case that is not
+    active and marked para borrar is 404 and nothing changes. Requires rma.gestionar."""
+    _check_permiso(db, current_user, "rma.gestionar")
+
+    ids = set(data.caso_ids)
+    casos = (
+        db.query(RmaCaso)
+        .filter(RmaCaso.id.in_(ids), RmaCaso.activo == True, RmaCaso.marcado_borrar_pedido == True)  # noqa: E712
+        .options(selectinload(RmaCaso.items))
+        .order_by(RmaCaso.id.desc())
+        .all()
+    )
+    if len(casos) != len(ids):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Caso no encontrado o no marcado para borrar")
+
+    ahora = datetime.now(UTC)
+    for caso in casos:
+        if (caso.borrar_revisado_at is not None) == data.revisado:
+            continue
+        anterior = caso.borrar_revisado_at
+        caso.borrar_revisado_at = ahora if data.revisado else None
+        caso.borrar_revisado_por_id = current_user.id if data.revisado else None
+        _registrar_cambio(db, caso.id, "borrar_revisado_at", anterior, caso.borrar_revisado_at, current_user.id)
+    db.commit()
+    for caso in casos:
+        db.refresh(caso)
+    return [_para_borrar_row(c) for c in casos]
 
 
 @router.put("/{caso_id}/borrar-revisado", response_model=ParaBorrarRow)
