@@ -4,31 +4,25 @@ import { parsePrecioInput } from '../../../utils/precioInput';
 import { publicationListLabel } from '../../../constants/mlPublicationTypes';
 import { LISTS, writePrice, errorText } from '../../pricing/priceWrites';
 import { promocionesAPI } from '../../../services/api';
+import { LIGHTNING_IRREVERSIBLE_WARNING } from '../../promociones/applicablePromoTypes';
 import { resolvePromoName } from '../../promociones/resolvePromoName';
 import { promoDisplayPrice } from '../../promociones/promoDisplayPrice';
 import { sellInOutText } from '../../promociones/sellInOutMarkup';
 import ModalTesla, { ModalFooterButtons } from '../../ModalTesla';
 import MejoresCandidatasBlock from './MejoresCandidatasBlock';
 import {
+  CHOOSER_SLOT_LABELS,
   enrollBodyForPromo,
+  hasPickedSlot,
   listRowForPricelist,
   pickPonerPreciosPromos,
+  slotEntries,
 } from './pickPonerPreciosPromos';
 import styles from './panel.module.css';
 
-const SLOT_LABELS = { smart: 'SMART', deal: 'DEAL', premium: 'Premium' };
 const pct = (value) => `${formatAmount(value)}%`;
 
-function slotEntries(picked) {
-  if (!picked) return [];
-  return [
-    ['smart', picked.smart],
-    ['deal', picked.deal],
-    ['premium', picked.premium],
-  ].filter(([, promo]) => promo);
-}
-
-/** MODO PONER PRECIOS: price write + SMART/DEAL/Premium pick after Enter. */
+/** MODO PONER PRECIOS: price write + MeLi-type promo pick after Enter. */
 export default function PonerPreciosBody({
   detail,
   itemId,
@@ -54,9 +48,12 @@ export default function PonerPreciosBody({
   const [baselineSellInOut, setBaselineSellInOut] = useState(null);
   const [enrolling, setEnrolling] = useState(false);
   const [awaitingMejores, setAwaitingMejores] = useState(canAwaitMejores);
+  const [pendingLightningSlot, setPendingLightningSlot] = useState(null);
 
   const closeSuggestions = () => {
-    if (!enrolling) setSuggestions(null);
+    if (enrolling) return;
+    setPendingLightningSlot(null);
+    setSuggestions(null);
   };
 
   const runEnter = async () => {
@@ -83,8 +80,15 @@ export default function PonerPreciosBody({
     setBusy(true);
     try {
       await writePrice(listRow, productId, precio, product ?? {});
-      onWritten?.();
-      setTypedPrice(precio);
+    } catch (err) {
+      setMessage({ tone: 'error', text: errorText(err, 'No se pudo guardar el precio.') });
+      setBusy(false);
+      return;
+    }
+
+    onWritten?.();
+    setTypedPrice(precio);
+    try {
       try {
         const res = await promocionesAPI.getMarkupParaPrecio(itemId, precio);
         setBaselineMarkup(res?.data?.nuestro_markup ?? null);
@@ -100,23 +104,31 @@ export default function PonerPreciosBody({
       const promoRes = await promocionesAPI.getPromocionesItem(itemId);
       const promotions = promoRes?.data?.promotions ?? promoRes?.data?.promociones ?? [];
       const picked = pickPonerPreciosPromos(promotions);
-      if (!picked.smart && !picked.deal && !picked.premium) {
-        setMessage({ tone: 'ok', text: 'Precio guardado. No hay candidatas SMART / DEAL / Premium este mes.' });
+      if (!hasPickedSlot(picked)) {
+        setMessage({
+          tone: 'ok',
+          text: 'Precio guardado. No hay candidatas aplicables (SMART, DEAL, PRE_NEGOTIATED, PRICE_MATCHING, LIGHTNING, SELLER_CAMPAIGN Premium del mes).',
+        });
         return;
       }
+      setPendingLightningSlot(null);
       setSuggestions(picked);
     } catch (err) {
-      setMessage({ tone: 'error', text: errorText(err, 'No se pudo guardar el precio.') });
+      setMessage({
+        tone: 'error',
+        text: `Precio guardado en Pricing. ${errorText(err, 'No se pudieron cargar las candidatas.')}`,
+      });
     } finally {
       setBusy(false);
     }
   };
 
-  const acceptSlot = async (slot) => {
+  const enrollSlot = async (slot) => {
     const promo = suggestions?.[slot];
     if (!promo || enrolling) return;
     setEnrolling(true);
     setMessage(null);
+    setPendingLightningSlot(null);
     try {
       await promocionesAPI.postPromocionItem(itemId, enrollBodyForPromo(promo));
       setSuggestions(null);
@@ -130,6 +142,16 @@ export default function PonerPreciosBody({
       });
       setEnrolling(false);
     }
+  };
+
+  const requestAcceptSlot = (slot) => {
+    const promo = suggestions?.[slot];
+    if (!promo || enrolling) return;
+    if (promo.promotion_type === 'LIGHTNING') {
+      setPendingLightningSlot(slot);
+      return;
+    }
+    enrollSlot(slot);
   };
 
   const enterSlots = slotEntries(suggestions);
@@ -209,22 +231,59 @@ export default function PonerPreciosBody({
         showCloseButton={!enrolling}
         footer={<ModalFooterButtons onCancel={closeSuggestions} cancelText="Cancelar" cancelDisabled={enrolling} />}
       >
-        <ul className={styles.ponerPreciosChoices}>
-          {enterSlots.map(([slot, promo]) => (
-            <li key={slot}>
-              <button type="button" className="btn-tesla outline sm" disabled={enrolling} onClick={() => acceptSlot(slot)}>
-                <span className={styles.ponerPreciosChoiceLabel}>{SLOT_LABELS[slot]}</span>
-                <span className={styles.ponerPreciosChoiceMeta}>
-                  {resolvePromoName(promo) || promo.promotion_id}
-                  {promoDisplayPrice(promo) != null ? ` · $ ${formatAmount(promoDisplayPrice(promo))}` : ''}
-                  {promo.nuestro_markup != null
-                    ? ` · markup ${formatAmount(promo.nuestro_markup)}%${sellInOutText(promo.markup_sell_in_out, pct)}`
-                    : ''}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
+        {pendingLightningSlot ? (
+          <div role="group" aria-label="Confirmar LIGHTNING">
+            <p className={styles.ponerPreciosOk}>{LIGHTNING_IRREVERSIBLE_WARNING}</p>
+            <p className={styles.ponerPreciosOk}>
+              Se reservará el stock mínimo que informa MeLi (
+              {suggestions?.[pendingLightningSlot]?.payload?.stock?.min ?? '—'} uds).
+            </p>
+            <ul className={styles.ponerPreciosChoices}>
+              <li>
+                <button
+                  type="button"
+                  className="btn-tesla sm"
+                  disabled={enrolling}
+                  onClick={() => enrollSlot(pendingLightningSlot)}
+                >
+                  {enrolling ? 'Aplicando…' : 'Sí, aplicar LIGHTNING'}
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  className="btn-tesla ghost sm"
+                  disabled={enrolling}
+                  onClick={() => setPendingLightningSlot(null)}
+                >
+                  Volver
+                </button>
+              </li>
+            </ul>
+          </div>
+        ) : (
+          <ul className={styles.ponerPreciosChoices}>
+            {enterSlots.map(([slot, promo]) => (
+              <li key={slot}>
+                <button
+                  type="button"
+                  className="btn-tesla outline sm"
+                  disabled={enrolling}
+                  onClick={() => requestAcceptSlot(slot)}
+                >
+                  <span className={styles.ponerPreciosChoiceLabel}>{CHOOSER_SLOT_LABELS[slot] || slot}</span>
+                  <span className={styles.ponerPreciosChoiceMeta}>
+                    {resolvePromoName(promo) || promo.promotion_id}
+                    {promoDisplayPrice(promo) != null ? ` · $ ${formatAmount(promoDisplayPrice(promo))}` : ''}
+                    {promo.nuestro_markup != null
+                      ? ` · markup ${formatAmount(promo.nuestro_markup)}%${sellInOutText(promo.markup_sell_in_out, pct)}`
+                      : ''}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </ModalTesla>
     </div>
   );

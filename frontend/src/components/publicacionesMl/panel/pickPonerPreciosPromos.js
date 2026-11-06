@@ -1,15 +1,40 @@
-/** Pick SMART / DEAL / Premium+month candidates for MODO PONER PRECIOS Enter. */
+/** Pick enrollable candidates for hay_mejores chooser / MODO Enter. */
 
 import { resolvePromoName } from '../../promociones/resolvePromoName';
 import { promoDisplayPrice } from '../../promociones/promoDisplayPrice';
+import {
+  APPLICABLE_PROMOTION_TYPES,
+  COFUNDED_PROMOTION_TYPES,
+  SMART_LIKE_PROMOTION_TYPES,
+} from '../../promociones/applicablePromoTypes';
+
+export { COFUNDED_PROMOTION_TYPES };
 
 const MONTHS_ES = [
   'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
   'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
 ];
 
-/** Keep in sync with backend `COFUNDED_PROMOTION_TYPES` (ml_promotions_pricing). */
-export const COFUNDED_PROMOTION_TYPES = new Set(['SMART', 'PRE_NEGOTIATED', 'PRICE_MATCHING']);
+/**
+ * Chooser / Enter slots keyed by MeLi `promotion_type` (labels = same string).
+ * `SELLER_CAMPAIGN` is Premium+current-month only.
+ * `SMART_LIGHTNING` stays listed for when writables expand; gated by
+ * `APPLICABLE_PROMOTION_TYPES` (not applicable today).
+ */
+export const CHOOSER_SLOT_TYPES = [
+  'SMART',
+  'DEAL',
+  'PRE_NEGOTIATED',
+  'PRICE_MATCHING',
+  'LIGHTNING',
+  'SMART_LIGHTNING',
+  'SELLER_CAMPAIGN',
+];
+
+/** MeLi type name as button label (Premium is still SELLER_CAMPAIGN). */
+export const CHOOSER_SLOT_LABELS = Object.fromEntries(
+  CHOOSER_SLOT_TYPES.map((type) => [type, type]),
+);
 
 /** Pesos: sale vs started offer can differ by cents. Keep in sync with backend tolerance. */
 const BASELINE_PRICE_TOLERANCE_ARS = 1;
@@ -86,8 +111,6 @@ export function comparableMarkups(candidate, baseline) {
 /**
  * Keep in sync with backend `es_mejor_oferta` (ml_promotions_hay_mejores.py):
  * markup↑ same price; markup= lower; markup↑ lower. Higher consumer price never better.
- * Shared cases: same+higher markup ✓; same+same markup ✗; higher price+higher markup ✗;
- * lower price+same markup ✓; lower price+higher markup ✓; lower price+lower markup ✗.
  */
 export function esMejorOferta(candidatePrice, candidateMarkup, baselinePrice, baselineMarkup) {
   if (candidatePrice == null || candidateMarkup == null) return false;
@@ -114,14 +137,35 @@ export function bestByMarkup(promos) {
   return best;
 }
 
-function pickSlots(candidates, monthName) {
-  return {
-    smart: bestByMarkup(candidates.filter((p) => p.promotion_type === 'SMART')),
-    deal: bestByMarkup(candidates.filter((p) => p.promotion_type === 'DEAL')),
-    premium: bestByMarkup(
-      candidates.filter((p) => p.promotion_type === 'SELLER_CAMPAIGN' && isPremiumCurrentMonth(p, monthName)),
-    ),
-  };
+function lightningHasStockRange(promo) {
+  const stock = promo?.payload?.stock;
+  return Number.isInteger(stock?.min) && Number.isInteger(stock?.max);
+}
+
+function matchesChooserSlot(promo, type, monthName) {
+  if (promo?.promotion_type !== type) return false;
+  if (type === 'SELLER_CAMPAIGN') return isPremiumCurrentMonth(promo, monthName);
+  // Same gate as PromoApplyControl: without ML stock range, enroll cannot succeed.
+  if (type === 'LIGHTNING') return lightningHasStockRange(promo);
+  return true;
+}
+
+/**
+ * One best-by-markup promo per MeLi type that is both in the slot table and
+ * currently applicable (writable). Keys are MeLi type strings.
+ */
+export function pickSlots(candidates, monthName, applicableTypes = APPLICABLE_PROMOTION_TYPES) {
+  const picked = {};
+  for (const type of CHOOSER_SLOT_TYPES) {
+    if (!applicableTypes.has(type)) {
+      picked[type] = null;
+      continue;
+    }
+    picked[type] = bestByMarkup(
+      candidates.filter((promo) => matchesChooserSlot(promo, type, monthName)),
+    );
+  }
+  return picked;
 }
 
 export function pickPonerPreciosPromos(promotions, { monthName = currentMonthNameEs() } = {}) {
@@ -130,7 +174,7 @@ export function pickPonerPreciosPromos(promotions, { monthName = currentMonthNam
 }
 
 /**
- * Best SMART/DEAL/Premium that beat the MeLi status quo (flagged-pub chooser). The status quo's plain markup is
+ * Best enrollable slot per type among candidates that beat the MeLi status quo. The status quo's plain markup is
  * `baselineMarkup` and its markup with sell in / sell out `baselineSellInOut`; each candidate is compared on the
  * basis `comparableMarkups` picks.
  */
@@ -148,7 +192,14 @@ export function pickMejoresCandidatas(
 }
 
 export function hasPickedSlot(picked) {
-  return Boolean(picked?.smart || picked?.deal || picked?.premium);
+  if (!picked) return false;
+  return CHOOSER_SLOT_TYPES.some((type) => Boolean(picked[type]));
+}
+
+/** Ordered [type, promo] pairs for UI buttons. */
+export function slotEntries(picked) {
+  if (!picked) return [];
+  return CHOOSER_SLOT_TYPES.filter((type) => picked[type]).map((type) => [type, picked[type]]);
 }
 
 function positiveBound(value) {
@@ -160,9 +211,17 @@ function positiveBound(value) {
 export function enrollBodyForPromo(promo) {
   const type = promo.promotion_type;
   const body = { promotion_id: promo.promotion_id, promotion_type: type };
-  if (type === 'SMART' || type === 'PRE_NEGOTIATED' || type === 'PRICE_MATCHING') {
+  if (SMART_LIKE_PROMOTION_TYPES.has(type)) {
     body.precio_visto = Number(promoDisplayPrice(promo));
     if (promo.nuestro_markup != null) body.markup_visto = promo.nuestro_markup;
+    return body;
+  }
+  if (type === 'LIGHTNING') {
+    const dealPrice = Number(promoDisplayPrice(promo));
+    if (Number.isFinite(dealPrice) && dealPrice > 0) body.deal_price = dealPrice;
+    // Chooser default: reserve the minimum ML allows; panel UI can refine stock.
+    const stockMin = promo.payload?.stock?.min;
+    if (Number.isInteger(stockMin)) body.stock = stockMin;
     return body;
   }
   // A DEAL is applied at the price its row shows (promoDisplayPrice: its max, the smallest discount

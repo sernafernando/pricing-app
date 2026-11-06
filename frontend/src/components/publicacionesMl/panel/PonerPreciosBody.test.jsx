@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event';
 import PonerPreciosBody from './PonerPreciosBody';
 import { preciosAPI, promocionesAPI } from '../../../services/api';
 import capture from './fixtures/ponerPreciosPromos.capture.json';
+// Real LIGHTNING rows (owner capture 2026-11-06), shared with PromoApplyControl.lightning.test.jsx.
+import lightningCapture from '../../promociones/fixtures/lightning_item_promotions_20261106.json';
 
 vi.mock('../../../services/api', () => ({
   preciosAPI: { setRapido: vi.fn(), setCuota: vi.fn() },
@@ -263,5 +265,45 @@ describe('PonerPreciosBody flagged hay_mejores', () => {
     await user.click(await screen.findByRole('button', { name: 'Descartar sugerencia' }));
     expect(await screen.findByRole('status')).toHaveTextContent(/Sin permiso/);
     expect(screen.queryByLabelText('Nuevo precio')).not.toBeInTheDocument();
+  });
+});
+
+// hay-mejores-chooser-slots (#2142): one button per writable MeLi type, each with its own markup.
+describe('PonerPreciosBody MeLi-type slots', () => {
+  const lightning = {
+    ...lightningCapture.rows.find((row) => row.mla === 'MLA1506729443' && row.status === 'candidate'),
+    nuestro_markup: 21,
+    markup_sell_in_out: 25.5,
+  };
+
+  async function openChooser(promotions) {
+    const user = userEvent.setup();
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions } });
+    render(<PonerPreciosBody detail={detail} itemId="MLA1506729443" canEditPrice canWritePromos />);
+    await user.clear(screen.getByLabelText('Nuevo precio'));
+    await user.type(screen.getByLabelText('Nuevo precio'), '1600{Enter}');
+    await screen.findByRole('dialog', { name: 'Elegí una promoción' });
+    return user;
+  }
+
+  it('shows c/ sell in/out on the LIGHTNING button like the other candidates', async () => {
+    await openChooser([...capturedPromotions, lightning]);
+    expect(screen.getByRole('button', { name: /LIGHTNING/ }).textContent).toContain(
+      ' · markup 21,00% · c/ sell in/out 25,50%',
+    );
+  });
+
+  it('asks for confirmation before applying LIGHTNING and reserves ML\'s minimum stock', async () => {
+    const user = await openChooser([lightning]);
+    await user.click(screen.getByRole('button', { name: /LIGHTNING/ }));
+    expect(screen.getByText(/Una vez que empieza no se puede quitar/)).toBeInTheDocument();
+    expect(promocionesAPI.postPromocionItem).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Sí, aplicar LIGHTNING' }));
+    await waitFor(() =>
+      expect(promocionesAPI.postPromocionItem).toHaveBeenCalledWith(
+        'MLA1506729443',
+        expect.objectContaining({ promotion_id: 'LGH-MLA1000', promotion_type: 'LIGHTNING', stock: 5 }),
+      ),
+    );
   });
 });

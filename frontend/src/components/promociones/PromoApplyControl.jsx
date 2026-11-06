@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { promocionesAPI } from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
+import { APPLICABLE_PROMOTION_TYPES as WRITABLE_TYPES } from './applicablePromoTypes';
 import { ML_PRICED_TYPES, promoDisplayPrice } from './promoDisplayPrice';
 import SellInOutMarkupExtra from './SellInOutMarkupExtra';
 import { sellInOutText } from './sellInOutMarkup';
@@ -25,9 +26,6 @@ function formatMarkupPct(value) {
 function markupClass(value) {
   return value !== null && value !== undefined && Number(value) < 0 ? styles.markupNegative : styles.markupNeutral;
 }
-
-// Same writable-type contract as MlaPromocionesPanel's APPLICABLE_TYPES.
-const WRITABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART', 'PRE_NEGOTIATED', 'PRICE_MATCHING', 'LIGHTNING']);
 
 // Ofertas relámpago: the operator sets the price and the stock to reserve.
 const LIGHTNING = 'LIGHTNING';
@@ -147,9 +145,10 @@ function feedbackForError(err, actionLabel = 'aplicar') {
  * requires explicit confirmation, never auto-retries, never claims a confirmed
  * "aplicado" state from the immediate response (eventual consistency).
  * `label` (optional) renames only the Aplicar trigger (e.g. "Aplicar sugerencia");
- * confirmation, guards and request body stay the same.
+ * confirmation, guards and request body stay the same. `initialStock` (optional) prefills the
+ * LIGHTNING units to reserve.
  */
-function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded, label }) {
+function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded, label, initialStock }) {
   const { tienePermiso } = usePermisos();
   const [phase, setPhase] = useState('idle'); // idle | confirming | submitting | done
   const [feedback, setFeedback] = useState(null); // { tone, message } | null
@@ -197,7 +196,10 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded, label })
   const defaultPrice = isLightning
     ? lightningDefaultPrice(promotion)
     : rangeDefaultPrice(promotion);
-  const [stock, setStock] = useState('');
+  // `initialStock` prefills the LIGHTNING units (the hay_mejores chooser passes ML's minimum); the operator
+  // still confirms on the card and can change it.
+  const defaultStock = Number.isInteger(initialStock) ? String(initialStock) : '';
+  const [stock, setStock] = useState(defaultStock);
   const [dealPrice, setDealPrice] = useState(defaultPrice);
   const [markup, setMarkup] = useState(null);
   // The same lookup's markup with today's sell in / sell out (promos-markup-sell-in-out); null hides it.
@@ -308,7 +310,7 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded, label })
     setFeedback(null);
     setPriceAlert(null);
     setDealPrice(defaultPrice);
-    setStock('');
+    setStock(defaultStock);
     setMarkup(null);
     setMarkupSellInOut(null);
     setPhase('confirming');
