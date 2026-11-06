@@ -1016,6 +1016,20 @@
 
 .mejoresIcon { flex-shrink: 0; color: var(--tone-warning-fg); }
 
+/* The same news for a reader who cannot apply or discard (no promos.escribir). */
+.mejoresReadOnly {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: 8px;
+  background: var(--cf-bg-card);
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
 .mejoresCard {
   display: flex;
   flex-wrap: wrap;
