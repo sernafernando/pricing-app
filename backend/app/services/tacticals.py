@@ -168,6 +168,8 @@ def _validar_linea(db: Session, data: TacticalIn, linea: TacticalLineaIn) -> _Al
             raise TacticalError("elegí cómo repartir el monto total")
         if linea.tope_por_producto:
             raise TacticalError("un monto total se reparte entre los productos de la línea: no lleva tope por producto")
+        if linea.tope_unidades is not None or linea.tope_monto is not None:
+            raise TacticalError("un monto total no lleva topes: el total es su tope")
     elif linea.reparto_criterio is not None:
         raise TacticalError("el reparto es solo para un monto total")
     if linea.alcance == "productos":

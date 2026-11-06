@@ -470,3 +470,13 @@ class TestSellOutMontoTotal:
             ("por_unidad", None),
             ("porcentaje", None),
         ]
+
+    @pytest.mark.parametrize("tope", [{"tope_unidades": 5}, {"tope_monto": "100"}])
+    def test_a_monto_total_line_with_a_cap_is_refused(self, db, engine, tope: dict) -> None:
+        linea = {"alcance": "marca", "marca": TPLINK, "modo_monto": "monto_total", "valor": "900",
+                 "reparto_criterio": "iguales", **tope}  # fmt: skip
+        with pytest.raises(
+            service.TacticalError, match="^Línea 1: un monto total no lleva topes: el total es su tope$"
+        ):
+            service.crear(db, _tactical(lineas=[linea]), USUARIO)
+        assert _contar(engine, "sell_out_campanas") == 0
