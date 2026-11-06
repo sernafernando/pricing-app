@@ -18,6 +18,7 @@ from __future__ import annotations
 import importlib.util
 import uuid
 from contextlib import contextmanager
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -43,6 +44,7 @@ _MIGRATIONS = [
         "20261217_drop_sell_in_compras_pedido_compra_id",
         "20261227_sell_in_modos_producto",
         "20261105_tacticals",
+        "20261106_sell_in_modo_manual",
     )
 ]
 TABLES = {"sell_in_compras", "sell_in_compra_items", "sell_in_consumos", "sell_in_modos_producto"}
@@ -489,8 +491,7 @@ class TestCostModes:
         _rejects(engine, _INSERT_CONSUMO_MODO, consumo)  # one row per sale and manual block
         _rejects(engine, _INSERT_CONSUMO_MODO, {**consumo, "ref": 2, "line": line})  # both sources
         _rejects(engine, _INSERT_CONSUMO_MODO, {**consumo, "ref": 3, "modo": None})  # no source
-        # A purchase line's consumption still cannot be negative.
-        _rejects(engine, _INSERT_CONSUMO_MODO, {**consumo, "ref": 4, "line": line, "modo": None})
+        # A purchase line's consumption may be negative only on a product with a manual block: `TestManualSign`.
 
     @pytest.mark.parametrize("modo", ["fifo", "ponderado", "ultimo"])
     @pytest.mark.parametrize("descuento", ["-2000", "100"])
@@ -571,3 +572,58 @@ class TestCostModes:
             assert "modo_id" not in _columns(conn, "sell_in_consumos")
             assert conn.execute(text("SELECT count(*) FROM sell_in_consumos")).scalar_one() == 0
         _rejects(engine, _INSERT_CONSUMO, {"compra_item": None, "canal": "ml", "ref": 9, "unidades": 1})
+
+
+def _linea(conn, item: int = 4512) -> int:
+    compra_id = _new_compra(conn)
+    return conn.execute(
+        text(_INSERT_ITEM), {"compra": compra_id, "item": item, "cantidad": 10, "costo": "25000", "monto": "250000.00"}
+    ).scalar_one()
+
+
+@pytest.mark.postgres
+class TestManualSign:
+    """`20261106_sell_in_modo_manual`: a pool holding a manual surcharge hands purchase lines negative money, so a
+    negative consumption is allowed on a product with a manual mode row, and only there."""
+
+    def test_a_purchase_line_may_go_negative_on_a_product_with_a_manual_block(self, engine) -> None:
+        with engine.begin() as conn:
+            line = _linea(conn)
+            conn.execute(text(_INSERT_MODO), _modo(**_MANUAL))
+            conn.execute(text(_INSERT_CONSUMO_MODO), {"line": line, "modo": None, "ref": 1, "descuento": "-150.00"})
+            assert conn.execute(text("SELECT descuento_ars FROM sell_in_consumos")).scalar_one() == Decimal("-150.00")
+
+    @pytest.mark.parametrize("modo", ["fifo", "ponderado", "ultimo"])
+    def test_without_a_manual_block_it_never_goes_negative(self, engine, modo) -> None:
+        with engine.begin() as conn:
+            line = _linea(conn)
+            conn.execute(text(_INSERT_MODO), _modo(modo=modo))
+            conn.execute(text(_INSERT_CONSUMO_MODO), {"line": line, "modo": None, "ref": 1, "descuento": "0"})
+        _rejects(engine, _INSERT_CONSUMO_MODO, {"line": line, "modo": None, "ref": 2, "descuento": "-0.01"})
+        _rejects(engine, "UPDATE sell_in_consumos SET descuento_ars = -1", {})
+
+    def test_another_products_manual_block_does_not_count(self, engine) -> None:
+        with engine.begin() as conn:
+            line = _linea(conn)
+            conn.execute(text(_INSERT_MODO.replace("VALUES (4512,", "VALUES (4513,")), _modo(**_MANUAL))
+        _rejects(engine, _INSERT_CONSUMO_MODO, {"line": line, "modo": None, "ref": 1, "descuento": "-1"})
+
+    def test_downgrade_drops_the_negative_purchase_rows_and_restores_the_check(self, engine) -> None:
+        with engine.begin() as conn:
+            line = _linea(conn)
+            modo_id = conn.execute(text(_INSERT_MODO), _modo(**_MANUAL)).scalar_one()
+            conn.execute(text(_INSERT_CONSUMO_MODO), {"line": line, "modo": None, "ref": 1, "descuento": "-1"})
+            conn.execute(text(_INSERT_CONSUMO_MODO), {"line": line, "modo": None, "ref": 2, "descuento": "5"})
+            conn.execute(text(_INSERT_CONSUMO_MODO), {"line": None, "modo": modo_id, "ref": 3, "descuento": "-7"})
+        down = _load_migration(_BACKEND_ROOT / "alembic" / "versions" / "20261106_sell_in_modo_manual.py")
+        from alembic.operations import Operations
+        from alembic.runtime.migration import MigrationContext
+
+        with engine.connect() as conn:
+            ctx = MigrationContext.configure(conn)
+            with ctx.begin_transaction(), Operations.context(ctx):
+                down.downgrade()
+        with engine.connect() as conn:
+            filas = conn.execute(text("SELECT venta_ref FROM sell_in_consumos ORDER BY venta_ref")).scalars().all()
+        assert filas == [2, 3]
+        _rejects(engine, _INSERT_CONSUMO_MODO, {"line": line, "modo": None, "ref": 4, "descuento": "-1"})

@@ -385,20 +385,16 @@ def test_ultimo_re_anchors_with_no_sale_in_between() -> None:
     ) == Decimal("880.00")
 
 
-def test_manual_is_refused_only_once_it_governs_or_precedes_a_sale() -> None:
+def test_an_unknown_mode_is_refused_only_once_it_governs_a_sale() -> None:
+    # `manual` is supported now, with its block (test_modos_manual); a mode the engine does not know still fails, and
+    # only once it governs, so a row dated after every sale changes nothing yet.
     o1, o5, o10, o20 = (date(2026, 10, d) for d in (1, 5, 10, 20))
     a = Lote(1, 1, o1, 100, Decimal("1000"))
     v = Venta("fuera", 1, o5, 10)
-    assert asignar([a], [v], [Periodo(o10, "manual")]) == asignar([a], [v])
-    assert asignar([a], [v], [Periodo(o1, "ponderado"), Periodo(o10, "manual")]) == asignar(
-        [a], [v], [Periodo(o1, "ponderado")]
-    )
-    with pytest.raises(ValueError):
-        asignar([a], [Venta("fuera", 1, o20, 10)], [Periodo(o10, "manual")])
+    assert asignar([a], [v], [Periodo(o10, "typo")]) == asignar([a], [v])
     # same date, overwritten by a later row: it never governs.
-    assert asignar([a], [Venta("fuera", 1, o20, 10)], [Periodo(o10, "manual"), Periodo(o10, "fifo")]) == asignar(
+    assert asignar([a], [Venta("fuera", 1, o20, 10)], [Periodo(o10, "typo"), Periodo(o10, "fifo")]) == asignar(
         [a], [Venta("fuera", 1, o20, 10)]
     )
-    # a typo mode stays refused too, only once entered
     with pytest.raises(ValueError):
         asignar([a], [Venta("fuera", 1, o20, 10)], [Periodo(o10, "typo")])
