@@ -11,8 +11,10 @@ Order of operations (`enroll_one_item` / `remove_one_item`):
      any read or proxy call. This is a local gate, independent of the
      proxy's own authorization.
   2. `promotion_type` restricted to the writable types SELLER_CAMPAIGN /
-     DEAL / SMART / PRE_NEGOTIATED. DOD/LIGHTNING stay ML-managed
-     (read-only); PRICE_DISCOUNT is out of write scope (offers array).
+     DEAL / SMART / PRE_NEGOTIATED / PRICE_MATCHING / LIGHTNING. DOD and
+     SMART_LIGHTNING stay read-only; PRICE_DISCOUNT is out of write scope
+     (offers array). LIGHTNING (ofertas relámpago) also reserves stock: see
+     `_enroll_lightning` / `_remove_lightning`.
   3. Fresh LIVE read of the item (`ml_webhook_client.get_item_promotions`)
      to obtain the current pricing for the target promotion. Never a
      cached/stale value. For SELLER_CAMPAIGN/DEAL this yields
@@ -92,7 +94,13 @@ DIVERGENCE_CAPTURE_GRACE_S = 1.0
 # the deny (enroll/remove both fail-close on `not in WRITABLE_PROMOTION_TYPES`)
 # — never add it, and never use startswith/prefix matching against
 # "PRICE_MATCHING" that could accidentally admit it.
-WRITABLE_PROMOTION_TYPES = {"SELLER_CAMPAIGN", "DEAL", "SMART", "PRE_NEGOTIATED", "PRICE_MATCHING"}
+WRITABLE_PROMOTION_TYPES = {"SELLER_CAMPAIGN", "DEAL", "SMART", "PRE_NEGOTIATED", "PRICE_MATCHING", "LIGHTNING"}
+
+# Ofertas relámpago (ML docs, es_ar/ofertas-relampago): the enroll body is
+# `{deal_price, stock, promotion_type}` (no promotion_id), the price must be in
+# the live [min_discounted_price, max_discounted_price] and the stock in the
+# live `stock: {min, max}`. Once started ML does not allow removing it.
+LIGHTNING = "LIGHTNING"
 
 # PRE_NEGOTIATED and PRICE_MATCHING behave identically to SMART in the write
 # path: they use an `offer_id` (from the live entry's `ref_id`, not a
@@ -521,6 +529,7 @@ def enroll_one_item(
     precio_visto: Optional[float] = None,
     markup_visto: Optional[float] = None,
     usuario_id: Optional[int] = None,
+    stock: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Enrolls a single item in a promotion, records who did it
     (`_record_write_log`, `usuario_id` None for system writes), then triggers
@@ -536,6 +545,7 @@ def enroll_one_item(
         top_deal_price=top_deal_price,
         precio_visto=precio_visto,
         markup_visto=markup_visto,
+        stock=stock,
     )
     # Evidence for the write log only: taken off the outcome before anything
     # else (the refresh hook, the API response) sees it.
@@ -556,6 +566,7 @@ def enroll_one_item(
             "markup_visto": markup_visto,
             "precio_aplicado": outcome.get("precio_aplicado"),
             "offer_id": outcome.get("offer_id"),
+            "stock": stock,
             "divergence_capture": divergence_capture,
         },
     )
@@ -585,8 +596,9 @@ def _enroll_one_item(
     top_deal_price: Optional[float] = None,
     precio_visto: Optional[float] = None,
     markup_visto: Optional[float] = None,
+    stock: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Enrolls a single item in a promotion (SELLER_CAMPAIGN, DEAL, SMART, or PRE_NEGOTIATED).
+    """Enrolls a single item in a promotion (SELLER_CAMPAIGN, DEAL, SMART, PRE_NEGOTIATED or LIGHTNING).
 
     Args:
         mla_id: The item ID (e.g. MLA2361127120).
@@ -606,6 +618,8 @@ def _enroll_one_item(
             `precio_visto`/`precio_actual`/`live_promo`). Ignored for
             SELLER_CAMPAIGN/DEAL.
         markup_visto: The markup the operator saw. Audit only (logged).
+        stock: LIGHTNING only, required: units to reserve, within the live
+            `stock: {min, max}`. See `_enroll_lightning`.
 
     SMART specifics: `offer_id` is taken from the live entry's `ref_id`
     (candidate form "CANDIDATE-MLA...-N"), never cached. On success the 201
@@ -663,6 +677,9 @@ def _enroll_one_item(
             "status": "rejected_promotion_not_found",
             "detail": f"promotion_id={promotion_id!r} not present in the live item promotions payload",
         }
+
+    if promotion_type == LIGHTNING:
+        return _enroll_lightning(mla_id, promotion_id, live, deal_price, stock)
 
     if promotion_type in SMART_LIKE_PROMOTION_TYPES:
         # SMART/PRE_NEGOTIATED have no [min,max_discounted_price] to validate against — the
@@ -814,6 +831,140 @@ def _enroll_one_item(
     )
     return _classify_write_outcome(
         write_result, mla_id, promotion_id, price=deal_price, promotion_type=promotion_type, operation="enroll"
+    )
+
+
+def _lightning_rejection(status: str, detail: str, mla_id: str, promotion_id: str, **log: Any) -> Dict[str, Any]:
+    logger.warning("ML promo LIGHTNING %s mla=%s promotion_id=%s %s", status, mla_id, promotion_id, log)
+    return {"submitted": False, "status": status, "detail": detail}
+
+
+def _as_int(value: Any) -> Optional[int]:
+    """An integer that is not a bool, else None. A float like 5.0 is not accepted: stock is a unit count."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def _enroll_lightning(
+    mla_id: str,
+    promotion_id: str,
+    live: List[Dict[str, Any]],
+    deal_price: Optional[float],
+    stock: Optional[int],
+) -> Dict[str, Any]:
+    """LIGHTNING enroll, fail closed against the LIVE entry (S2): exactly one
+    entry with this id, still `candidate`, `deal_price` (default: the entry's
+    suggested `price`) within [min_discounted_price, max_discounted_price] and
+    `stock` within the entry's `stock: {min, max}`. Single POST, then the
+    201 `price` is compared with the submitted one (`_post_apply_price_check`).
+    """
+    matches = [p for p in live if p.get("id") == promotion_id]
+    if len(matches) > 1:
+        return _lightning_rejection(
+            "rejected_promotion_ambiguous",
+            "ML lista más de una oferta relámpago con este id; no se puede saber cuál inscribir. No se aplicó nada.",
+            mla_id,
+            promotion_id,
+            entries=len(matches),
+        )
+    promo = matches[0]
+
+    live_status = promo.get("status")
+    if live_status != "candidate":
+        return _lightning_rejection(
+            "rejected_not_candidate",
+            "La oferta ya no está disponible para aplicar en ML "
+            f"(estado actual: {live_status or 'desconocido'}). No se aplicó nada; actualizá el panel.",
+            mla_id,
+            promotion_id,
+            live_status=live_status,
+        )
+
+    min_price = promo.get("min_discounted_price")
+    max_price = promo.get("max_discounted_price")
+    if deal_price is None:
+        deal_price = promo.get("price")
+    if deal_price is None or min_price is None or max_price is None:
+        return _lightning_rejection(
+            "rejected_price_unresolved",
+            "deal_price could not be resolved or the live [min,max] range is unavailable",
+            mla_id,
+            promotion_id,
+            deal_price=deal_price,
+        )
+    if not (min_price <= deal_price <= max_price):
+        return _lightning_rejection(
+            "rejected_out_of_range",
+            f"deal_price={deal_price} outside [{min_price}, {max_price}]",
+            mla_id,
+            promotion_id,
+        )
+
+    stock_range = promo.get("stock") if isinstance(promo.get("stock"), dict) else {}
+    stock_min = _as_int(stock_range.get("min"))
+    stock_max = _as_int(stock_range.get("max"))
+    if stock_min is None or stock_max is None:
+        return _lightning_rejection(
+            "rejected_stock_unresolved",
+            "ML no informa el rango de stock de esta oferta relámpago. No se aplicó nada.",
+            mla_id,
+            promotion_id,
+            stock_range=promo.get("stock"),
+        )
+    stock_units = _as_int(stock)
+    if stock_units is None or not (stock_min <= stock_units <= stock_max):
+        return _lightning_rejection(
+            "rejected_stock_out_of_range",
+            f"El stock a reservar tiene que estar entre {stock_min} y {stock_max} unidades. No se aplicó nada.",
+            mla_id,
+            promotion_id,
+            stock=stock,
+        )
+
+    write_result = _resolve(
+        ml_webhook_client.enroll_item(mla_id, None, LIGHTNING, deal_price=deal_price, stock=stock_units)
+    )
+    outcome = _classify_write_outcome(
+        write_result, mla_id, promotion_id, price=deal_price, promotion_type=LIGHTNING, operation="enroll"
+    )
+    if outcome["status"] == "submitted":
+        body = write_result.get("body") if isinstance(write_result.get("body"), dict) else {}
+        outcome.update(_post_apply_price_check(mla_id, promotion_id, LIGHTNING, deal_price, body.get("price"), promo))
+    return outcome
+
+
+def _remove_lightning(mla_id: str, promotion_id: str) -> Dict[str, Any]:
+    """LIGHTNING remove (S3): only while `pending` (enrolled, not started).
+    ML does not allow removing a started offer, so a `started` entry is
+    refused with the operator's way out (pause the publication)."""
+    live = _resolve(ml_webhook_client.get_item_promotions(mla_id))
+    if live is None:
+        return _lightning_rejection(
+            "rejected_read_unavailable",
+            "Live get_item_promotions() read failed; refusing to delete without a fresh status check",
+            mla_id,
+            promotion_id,
+        )
+    promo = _find_live_promotion(live, promotion_id)
+    live_status = promo.get("status") if promo is not None else None
+    if live_status == "started":
+        return _lightning_rejection(
+            "rejected_started_not_removable",
+            "ML no permite quitar una oferta relámpago que ya empezó; si necesitás frenarla, pausá la publicación.",
+            mla_id,
+            promotion_id,
+        )
+    if live_status != "pending":
+        return _lightning_rejection(
+            "rejected_not_removable",
+            f"La oferta relámpago no está inscripta (estado actual: {live_status or 'desconocido'}). No se quitó nada.",
+            mla_id,
+            promotion_id,
+        )
+    write_result = _resolve(ml_webhook_client.remove_item(mla_id, LIGHTNING, None))
+    return _classify_write_outcome(
+        write_result, mla_id, promotion_id, price=None, promotion_type=LIGHTNING, operation="remove"
     )
 
 
@@ -1017,6 +1168,9 @@ def _remove_one_item(mla_id: str, promotion_type: str, promotion_id: str) -> Dic
 
     if promotion_type not in WRITABLE_PROMOTION_TYPES:
         return _rejected_unsupported_type(promotion_type)
+
+    if promotion_type == LIGHTNING:
+        return _remove_lightning(mla_id, promotion_id)
 
     if promotion_type in SMART_LIKE_PROMOTION_TYPES:
         # SMART/PRE_NEGOTIATED's ref_id MUTATES on enroll (CANDIDATE-... ->

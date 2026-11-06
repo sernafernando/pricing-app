@@ -1082,11 +1082,12 @@ class MLWebhookClient:
     async def enroll_item(
         self,
         mla_id: str,
-        promotion_id: str,
+        promotion_id: Optional[str],
         promotion_type: str,
         deal_price: Optional[float] = None,
         top_deal_price: Optional[float] = None,
         offer_id: Optional[str] = None,
+        stock: Optional[int] = None,
     ) -> Dict:
         """Inscribe un item en una promoción vía el proxy ml-webhook (POST).
 
@@ -1102,6 +1103,9 @@ class MLWebhookClient:
             offer_id: Requerido por SMART (el `ref_id` de la entrada SMART
                 candidata en la lectura live); ignorado/omitido para
                 SELLER_CAMPAIGN/DEAL, que no lo usan.
+            stock: Unidades a reservar (solo LIGHTNING). LIGHTNING pasa
+                `promotion_id=None`: el body documentado por ML es
+                `{deal_price, stock, promotion_type}`, sin promotion_id.
 
         Returns:
             Dict `{ok, status_code, ambiguous, body}`. `ambiguous=True`
@@ -1111,13 +1115,17 @@ class MLWebhookClient:
             SMART, el body del 201 trae el `offer_id` autoritativo nuevo
             (forma "OFFER-...") — se propaga sin modificar en `body`.
         """
-        payload: Dict = {"promotion_id": promotion_id, "promotion_type": promotion_type}
+        payload: Dict = {"promotion_type": promotion_type}
+        if promotion_id is not None:
+            payload = {"promotion_id": promotion_id, **payload}
         if deal_price is not None:
             payload["deal_price"] = deal_price
         if top_deal_price is not None:
             payload["top_deal_price"] = top_deal_price
         if offer_id is not None:
             payload["offer_id"] = offer_id
+        if stock is not None:
+            payload["stock"] = stock
 
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -1132,7 +1140,7 @@ class MLWebhookClient:
         self,
         mla_id: str,
         promotion_type: str,
-        promotion_id: str,
+        promotion_id: Optional[str],
         offer_id: Optional[str] = None,
     ) -> Dict:
         """Remueve un item de una promoción vía el proxy ml-webhook (DELETE).
@@ -1145,11 +1153,16 @@ class MLWebhookClient:
                 fresco antes del delete — el ref_id muta de CANDIDATE- a
                 OFFER- al iniciar); ignorado/omitido para SELLER_CAMPAIGN/DEAL.
 
+        LIGHTNING pasa `promotion_id=None`: ML documenta solo
+        `promotion_type=LIGHTNING` en la query del DELETE.
+
         Returns:
             Dict `{ok, status_code, ambiguous, body}` (mismo contrato que
             `enroll_item`).
         """
-        params: Dict[str, str] = {"promotion_type": promotion_type, "promotion_id": promotion_id}
+        params: Dict[str, str] = {"promotion_type": promotion_type}
+        if promotion_id is not None:
+            params["promotion_id"] = promotion_id
         if offer_id is not None:
             params["offer_id"] = offer_id
 

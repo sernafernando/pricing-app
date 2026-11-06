@@ -124,7 +124,7 @@ class TestKillSwitch:
 
 
 class TestPromotionTypeRestriction:
-    @pytest.mark.parametrize("bad_type", ["PRICE_DISCOUNT", "DOD", "LIGHTNING"])
+    @pytest.mark.parametrize("bad_type", ["PRICE_DISCOUNT", "DOD", "SMART_LIGHTNING"])
     def test_unsupported_type_rejected_before_proxy(self, monkeypatch: pytest.MonkeyPatch, bad_type: str) -> None:
         monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
 
