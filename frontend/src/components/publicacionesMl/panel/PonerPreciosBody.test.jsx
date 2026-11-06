@@ -21,9 +21,10 @@ vi.mock('../../../contexts/PermisosContext', () => ({
 }));
 
 vi.mock('../../ModalTesla', () => ({
-  default: ({ isOpen, title, children, footer }) =>
+  default: ({ isOpen, title, subtitle, children, footer }) =>
     isOpen ? (
       <div role="dialog" aria-label={title}>
+        {subtitle && <p data-testid="modal-subtitle">{subtitle}</p>}
         {children}
         {footer}
       </div>
@@ -120,6 +121,45 @@ describe('PonerPreciosBody Enter suggest', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(
       /El precio ya está guardado en Pricing\. No se pudo activar la promoción\./,
     );
+  });
+});
+
+// promos-markup-sell-in-out S2: the markup with sell in / sell out next to each markup of the chooser.
+describe('PonerPreciosBody sell in / sell out markup', () => {
+  async function openChooser() {
+    const user = userEvent.setup();
+    render(<PonerPreciosBody detail={detail} itemId="MLA1" canEditPrice canWritePromos />);
+    await user.clear(screen.getByLabelText('Nuevo precio'));
+    await user.type(screen.getByLabelText('Nuevo precio'), '1600{Enter}');
+    return screen.findByRole('dialog', { name: 'Elegí una promoción' });
+  }
+
+  it('shows it next to the typed price markup and each proposed promo markup when the backend sends it', async () => {
+    promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { nuestro_markup: 18, markup_sell_in_out: 22.5 } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: { promotions: capturedPromotions.map((p) => ({ ...p, markup_sell_in_out: p.nuestro_markup + 4 })) },
+    });
+
+    await openChooser();
+
+    expect(screen.getByTestId('modal-subtitle').textContent).toBe(
+      'Precio en Pricing: $ 1.600,00 · markup 18,00% · c/ sell in/out 22,50%',
+    );
+    expect(screen.getByRole('button', { name: /SMART/i }).textContent).toContain(
+      ' · markup 20,00% · c/ sell in/out 24,00%',
+    );
+  });
+
+  it('shows no sell in / sell out figure when the backend sends null', async () => {
+    promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { nuestro_markup: 18, markup_sell_in_out: null } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: { promotions: capturedPromotions.map((p) => ({ ...p, markup_sell_in_out: null })) },
+    });
+
+    const dialog = await openChooser();
+
+    expect(screen.getByTestId('modal-subtitle').textContent).toBe('Precio en Pricing: $ 1.600,00 · markup 18,00%');
+    expect(dialog.textContent).not.toContain('sell in/out');
   });
 });
 

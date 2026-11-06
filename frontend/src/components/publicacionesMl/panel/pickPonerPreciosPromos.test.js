@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   baselineMarkupFromPromos,
+  baselineSellInOutFromPromos,
   bestByMarkup,
   enrollBodyForPromo,
   esMejorOferta,
@@ -174,5 +175,27 @@ describe('esMejorOferta / pickMejoresCandidatas', () => {
     expect(picked.deal).toBeNull();
     expect(picked.premium).toBeNull();
     expect(hasPickedSlot(picked)).toBe(true);
+  });
+});
+
+// promos-markup-sell-in-out S2: the "Markup vigente" line's extra figure comes from the same offer.
+describe('baselineSellInOutFromPromos', () => {
+  const started = (price, markup, sellInOut) => ({
+    status: 'started',
+    promotion_type: 'SMART',
+    price,
+    nuestro_markup: markup,
+    markup_sell_in_out: sellInOut,
+  });
+
+  it('takes the sell in / sell out markup of the offer the vigente markup comes from', () => {
+    expect(
+      baselineSellInOutFromPromos([started(555867.8, 1.2, 9.9), started(555867.5, 1.4, 3.1)], 555867.83),
+    ).toBe(3.1);
+  });
+
+  it('is null when that offer has none, or there is no matching offer', () => {
+    expect(baselineSellInOutFromPromos([started(555867.8, 1.4, null)], 555867.83)).toBeNull();
+    expect(baselineSellInOutFromPromos([started(400000, 1.4, 3.1)], 555867.83)).toBeNull();
   });
 });

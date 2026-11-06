@@ -289,6 +289,52 @@ describe('MlaPromocionesPanel', () => {
     expect(getMarkupCell('N/A')).toBeInTheDocument();
   });
 
+  // promos-markup-sell-in-out S2: the markup with sell in / sell out, as an extra figure in the row.
+  it('shows the markup with sell in / sell out next to the row markup when the backend sends it', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            promotion_id: 'P1',
+            promotion_type: 'SMART',
+            name: 'Smart promo',
+            price: 100,
+            payload: {},
+            nuestro_markup: 18.5,
+            markup_sell_in_out: 24.06,
+          },
+        ],
+      },
+    });
+
+    renderPanel();
+    await waitFor(() => expect(screen.getByText('Smart promo')).toBeInTheDocument());
+    expect(getMarkupCell('18.5%c/ sell in/out 24.1%')).toBeInTheDocument();
+  });
+
+  it('shows no sell in / sell out figure in the row when the backend sends null', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            promotion_id: 'P1',
+            promotion_type: 'SMART',
+            name: 'Smart promo',
+            price: 100,
+            payload: {},
+            nuestro_markup: 18.5,
+            markup_sell_in_out: null,
+          },
+        ],
+      },
+    });
+
+    renderPanel();
+    await waitFor(() => expect(screen.getByText('Smart promo')).toBeInTheDocument());
+    expect(getMarkupCell('18.5%')).toBeInTheDocument();
+    expect(screen.queryByText('c/ sell in/out')).not.toBeInTheDocument();
+  });
+
   it('shows an "Aplicada" badge on promo rows with application_status active', async () => {
     promocionesAPI.getPromocionesItem.mockResolvedValue({
       data: {

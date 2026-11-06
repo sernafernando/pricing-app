@@ -3,6 +3,8 @@ import { AlertTriangle } from 'lucide-react';
 import { promocionesAPI } from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { ML_PRICED_TYPES, promoDisplayPrice } from './promoDisplayPrice';
+import SellInOutMarkupExtra from './SellInOutMarkupExtra';
+import { sellInOutText } from './sellInOutMarkup';
 import styles from './promociones.module.css';
 
 function formatMoney(value) {
@@ -198,6 +200,8 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded, label })
   const [stock, setStock] = useState('');
   const [dealPrice, setDealPrice] = useState(defaultPrice);
   const [markup, setMarkup] = useState(null);
+  // The same lookup's markup with today's sell in / sell out (promos-markup-sell-in-out); null hides it.
+  const [markupSellInOut, setMarkupSellInOut] = useState(null);
   const [markupLoading, setMarkupLoading] = useState(false);
 
   // `started` and `pending` both mean "already enrolled" — pending is
@@ -231,13 +235,20 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded, label })
         (promotion.max_discounted_price != null && numericPrice > promotion.max_discounted_price)
       ) {
         setMarkup(null);
+        setMarkupSellInOut(null);
         setMarkupLoading(false);
         return;
       }
       promocionesAPI
         .getMarkupParaPrecio(mla, numericPrice)
-        .then((res) => setMarkup(res?.data?.nuestro_markup ?? null))
-        .catch(() => setMarkup(null))
+        .then((res) => {
+          setMarkup(res?.data?.nuestro_markup ?? null);
+          setMarkupSellInOut(res?.data?.markup_sell_in_out ?? null);
+        })
+        .catch(() => {
+          setMarkup(null);
+          setMarkupSellInOut(null);
+        })
         .finally(() => setMarkupLoading(false));
     }, MARKUP_DEBOUNCE_MS);
 
@@ -299,6 +310,7 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded, label })
     setDealPrice(defaultPrice);
     setStock('');
     setMarkup(null);
+    setMarkupSellInOut(null);
     setPhase('confirming');
   };
 
@@ -540,6 +552,7 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded, label })
               <output aria-labelledby={markupLabelId} className={`${styles.lightningMarkupValue} ${markupClass(markup)}`}>
                 {markupLoading ? 'Calculando...' : markup != null ? `${markup.toFixed(1)}%` : '—'}
               </output>
+              {!markupLoading && markup != null && <SellInOutMarkupExtra value={markupSellInOut} />}
             </div>
             <div className={styles.lightningField}>
               <label htmlFor={stockInputId} className={styles.lightningLabel}>
@@ -620,7 +633,7 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded, label })
               {markupLoading
                 ? 'Calculando markup...'
                 : markup != null
-                  ? `Tu markup: ${markup.toFixed(1)}%`
+                  ? `Tu markup: ${markup.toFixed(1)}%${sellInOutText(markupSellInOut)}`
                   : null}
             </span>
             {priceOutOfRange && (

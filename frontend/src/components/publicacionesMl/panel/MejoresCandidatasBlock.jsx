@@ -6,7 +6,14 @@ import { promocionesAPI } from '../../../services/api';
 import { resolvePromoName } from '../../promociones/resolvePromoName';
 import { ML_PRICED_TYPES, promoDisplayPrice } from '../../promociones/promoDisplayPrice';
 import PromoApplyControl from '../../promociones/PromoApplyControl';
-import { baselineMarkupFromPromos, hasPickedSlot, pickMejoresCandidatas } from './pickPonerPreciosPromos';
+import SellInOutMarkupExtra from '../../promociones/SellInOutMarkupExtra';
+import { sellInOutText } from '../../promociones/sellInOutMarkup';
+import {
+  baselineMarkupFromPromos,
+  baselineSellInOutFromPromos,
+  hasPickedSlot,
+  pickMejoresCandidatas,
+} from './pickPonerPreciosPromos';
 import promoStyles from '../../promociones/promociones.module.css';
 import styles from './panel.module.css';
 
@@ -25,6 +32,8 @@ function slotEntries(picked) {
     ['premium', picked.premium],
   ].filter(([, promo]) => promo);
 }
+
+const pct = (value) => `${formatAmount(value)}%`;
 
 function markupTone(value) {
   return value != null && Number(value) < 0 ? styles.mejoresMarkupNegative : styles.mejoresMarkupPositive;
@@ -62,6 +71,7 @@ export default function MejoresCandidatasBlock({
   const [loading, setLoading] = useState(true);
   const [slots, setSlots] = useState(null);
   const [baselineMarkup, setBaselineMarkup] = useState(null);
+  const [baselineSellInOut, setBaselineSellInOut] = useState(null);
   const [message, setMessage] = useState(null);
   const [descartando, setDescartando] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
@@ -85,10 +95,12 @@ export default function MejoresCandidatasBlock({
         // Co-funded started (SMART / PRE_NEGOTIATED / PRICE_MATCHING) matching
         // sale → same markup as the promo card; else plain getMarkupParaPrecio.
         let markup = baselineMarkupFromPromos(promotions, baselinePrice);
+        let sellInOut = baselineSellInOutFromPromos(promotions, baselinePrice);
         if (markup == null && baselinePrice != null && Number.isFinite(Number(baselinePrice))) {
           try {
             const res = await promocionesAPI.getMarkupParaPrecio(itemId, Number(baselinePrice));
             markup = res?.data?.nuestro_markup ?? null;
+            sellInOut = res?.data?.markup_sell_in_out ?? null;
           } catch {
             markup = null;
           }
@@ -102,6 +114,7 @@ export default function MejoresCandidatasBlock({
           return;
         }
         setBaselineMarkup(markup);
+        setBaselineSellInOut(sellInOut);
         const picked = pickMejoresCandidatas(promotions, {
           baselinePrice: Number(baselinePrice),
           baselineMarkup: markup,
@@ -153,7 +166,8 @@ export default function MejoresCandidatasBlock({
     baselineMarkup != null ? (
       <>
         {' '}
-        Markup vigente ~ <span className={markupTone(baselineMarkup)}>{formatAmount(baselineMarkup)}%</span>.
+        Markup vigente ~ <span className={markupTone(baselineMarkup)}>{formatAmount(baselineMarkup)}%</span>
+        {sellInOutText(baselineSellInOut, pct)}.
       </>
     ) : null;
   const discardButton = (
@@ -195,6 +209,7 @@ export default function MejoresCandidatasBlock({
                     <span className={`${styles.mejoresValue} ${markupTone(promo.nuestro_markup)}`}>
                       {promo.nuestro_markup != null ? `${formatAmount(promo.nuestro_markup)}%` : '—'}
                     </span>
+                    <SellInOutMarkupExtra value={promo.markup_sell_in_out} format={pct} />
                   </span>
                   <span className={styles.mejoresActions}>
                     {index === 0 && discardButton}
@@ -220,7 +235,10 @@ export default function MejoresCandidatasBlock({
         <>
           <p className={styles.ponerPreciosOk} role="status">
             No hay candidatas SMART / DEAL / Premium que superen el precio vigente
-            {baselineMarkup != null ? ` (markup vigente ~ ${formatAmount(baselineMarkup)}%)` : ''}.
+            {baselineMarkup != null
+              ? ` (markup vigente ~ ${formatAmount(baselineMarkup)}%${sellInOutText(baselineSellInOut, pct)})`
+              : ''}
+            .
             Podés descartar el aviso si quedó desactualizado.
           </p>
           <span>{discardButton}</span>

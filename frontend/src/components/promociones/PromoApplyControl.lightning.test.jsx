@@ -168,6 +168,27 @@ describe('PromoApplyControl — LIGHTNING', () => {
     await waitFor(() => expect(screen.getByRole('status', { name: /tu markup/i })).toHaveTextContent('12.3%'));
   });
 
+  // promos-markup-sell-in-out S2: the card shows the markup with sell in / sell out under its markup.
+  it('shows the markup with sell in / sell out in the card when the backend sends it', async () => {
+    promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { nuestro_markup: 12.3, markup_sell_in_out: 16.04 } });
+    const user = userEvent.setup({ delay: null });
+    await openConfirm(user, row('MLA1506729443'));
+    await vi.advanceTimersByTimeAsync(400);
+
+    const card = screen.getByRole('group', { name: 'Aplicar LIGHTNING' });
+    await waitFor(() => expect(card).toHaveTextContent('c/ sell in/out 16.0%'));
+  });
+
+  it('shows no sell in / sell out figure in the card when the backend sends null', async () => {
+    promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { nuestro_markup: 12.3, markup_sell_in_out: null } });
+    const user = userEvent.setup({ delay: null });
+    await openConfirm(user, row('MLA1506729443'));
+    await vi.advanceTimersByTimeAsync(400);
+
+    await waitFor(() => expect(screen.getByRole('status', { name: /tu markup/i })).toHaveTextContent('12.3%'));
+    expect(screen.getByRole('group', { name: 'Aplicar LIGHTNING' })).not.toHaveTextContent('sell in/out');
+  });
+
   it('flags a typed price above the max and blocks the submit', async () => {
     const user = userEvent.setup({ delay: null });
     await openConfirm(user, row('MLA3854324204'));

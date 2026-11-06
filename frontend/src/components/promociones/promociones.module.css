@@ -1426,3 +1426,28 @@
     padding-top: 0;
   }
 }
+
+/* The markup with today's sell in / sell out, an extra figure under or next to a promo markup
+   (promos-markup-sell-in-out). Same small secondary label as the Precios tab's "c/ sell in/out". */
+.sellInOutExtra {
+  display: block;
+  font-size: 11px;
+  font-weight: var(--font-normal);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+}
+
+.sellInOutLabel {
+  color: var(--cf-text-tertiary);
+}
+
+/* In the row grid the markup column is narrow (5rem): the label sits over its value instead of
+   spilling into the state column. */
+.promoGridRow .sellInOutExtra {
+  white-space: normal;
+}
+
+.promoGridRow .sellInOutLabel {
+  display: block;
+}

@@ -6,6 +6,7 @@ import { LISTS, writePrice, errorText } from '../../pricing/priceWrites';
 import { promocionesAPI } from '../../../services/api';
 import { resolvePromoName } from '../../promociones/resolvePromoName';
 import { promoDisplayPrice } from '../../promociones/promoDisplayPrice';
+import { sellInOutText } from '../../promociones/sellInOutMarkup';
 import ModalTesla, { ModalFooterButtons } from '../../ModalTesla';
 import MejoresCandidatasBlock from './MejoresCandidatasBlock';
 import {
@@ -16,6 +17,7 @@ import {
 import styles from './panel.module.css';
 
 const SLOT_LABELS = { smart: 'SMART', deal: 'DEAL', premium: 'Premium' };
+const pct = (value) => `${formatAmount(value)}%`;
 
 function slotEntries(picked) {
   if (!picked) return [];
@@ -49,6 +51,7 @@ export default function PonerPreciosBody({
   const [suggestions, setSuggestions] = useState(null);
   const [typedPrice, setTypedPrice] = useState(null);
   const [baselineMarkup, setBaselineMarkup] = useState(null);
+  const [baselineSellInOut, setBaselineSellInOut] = useState(null);
   const [enrolling, setEnrolling] = useState(false);
   const [awaitingMejores, setAwaitingMejores] = useState(canAwaitMejores);
 
@@ -85,8 +88,10 @@ export default function PonerPreciosBody({
       try {
         const res = await promocionesAPI.getMarkupParaPrecio(itemId, precio);
         setBaselineMarkup(res?.data?.nuestro_markup ?? null);
+        setBaselineSellInOut(res?.data?.markup_sell_in_out ?? null);
       } catch {
         setBaselineMarkup(null);
+        setBaselineSellInOut(null);
       }
       if (!canWritePromos) {
         setMessage({ tone: 'ok', text: 'Precio guardado en Pricing. Sin permiso para activar promos.' });
@@ -192,7 +197,9 @@ export default function PonerPreciosBody({
         subtitle={
           typedPrice != null
             ? `Precio en Pricing: $ ${formatAmount(typedPrice)}${
-                baselineMarkup != null ? ` · markup ${formatAmount(baselineMarkup)}%` : ''
+                baselineMarkup != null
+                  ? ` · markup ${formatAmount(baselineMarkup)}%${sellInOutText(baselineSellInOut, pct)}`
+                  : ''
               }`
             : undefined
         }
@@ -210,7 +217,9 @@ export default function PonerPreciosBody({
                 <span className={styles.ponerPreciosChoiceMeta}>
                   {resolvePromoName(promo) || promo.promotion_id}
                   {promoDisplayPrice(promo) != null ? ` · $ ${formatAmount(promoDisplayPrice(promo))}` : ''}
-                  {promo.nuestro_markup != null ? ` · markup ${formatAmount(promo.nuestro_markup)}%` : ''}
+                  {promo.nuestro_markup != null
+                    ? ` · markup ${formatAmount(promo.nuestro_markup)}%${sellInOutText(promo.markup_sell_in_out, pct)}`
+                    : ''}
                 </span>
               </button>
             </li>

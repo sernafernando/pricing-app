@@ -3146,3 +3146,48 @@ describe('Publicaciones ML panel, the whole S9 design (visual)', () => {
     }
   }
 });
+
+// promos-markup-sell-in-out: the same panel with the markup with sell in / sell out next to every promo markup
+// (rows, the suggestion card and its "Markup vigente" line, the LIGHTNING card). The figures are the S9 markups
+// plus a sell out credit worth 6.4 points of markup, as the backend sends them.
+describe('Publicaciones ML panel, promo markups with sell in / sell out (visual)', () => {
+  const widthKey = 'split-panel-width:publicaciones-ml';
+  const conSellInOut = (markup) => (markup == null ? null : Math.round((markup + 6.4) * 100) / 100);
+  afterEach(() => localStorage.removeItem(widthKey));
+
+  for (const theme of THEMES) {
+    for (const variant of ['wide', 'default']) {
+      it(`1920x2700 ${theme} ${variant}: the c/ sell in/out figure sits under each markup and fits the panel`, async () => {
+        if (variant === 'wide') localStorage.setItem(widthKey, '1040');
+        else localStorage.removeItem(widthKey);
+        promocionesAPI.getMarkupParaPrecio.mockImplementation((_mla, price) => {
+          const markup = Number(price) === 59999 ? -28.74 : -24.1;
+          return Promise.resolve({ data: { nuestro_markup: markup, markup_sell_in_out: conSellInOut(markup) } });
+        });
+        const screen = await renderWithPanel({
+          width: 1920,
+          height: 2700,
+          theme,
+          tab: '',
+          margin: true,
+          promotions: S9_PROMOTIONS.map((p) => ({ ...p, markup_sell_in_out: conSellInOut(p.nuestro_markup) })),
+          rowExtra: { ...S9_ROW, hay_mejores_ofertas: true },
+          detailExtra: { can_resync: true, can_change_status: true },
+        });
+        await expect.element(screen.getByRole('button', { name: 'Aplicar sugerencia' }).first()).toBeVisible();
+        await expect.element(screen.getByText(/Markup vigente ~ -28,74% · c\/ sell in\/out -22,34%/)).toBeVisible();
+        const panel = panelOf();
+        const section = panel.querySelector('section[aria-label="Disponibles para activar"]');
+        const lightningRow = [...section.querySelectorAll('li')].find((li) => li.textContent.startsWith('LIGHTNING'));
+        await userEvent.click([...lightningRow.querySelectorAll('button')].find((el) => el.textContent === 'Aplicar'));
+        const card = screen.getByRole('group', { name: 'Aplicar LIGHTNING' });
+        await expect.element(card).toBeVisible();
+        await expect.poll(() => card.element().textContent, { timeout: 3000 }).toContain('c/ sell in/out -17.7%');
+        await frame();
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/s9-sell-in-out-${variant}-${theme}.png`, element: panel });
+        screen.unmount();
+      });
+    }
+  }
+});
