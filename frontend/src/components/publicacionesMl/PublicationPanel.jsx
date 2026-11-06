@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, ExternalLink } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Sparkles } from 'lucide-react';
 import { CopyButton } from '../kit';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { buildMlItemUrl } from '../../utils/mlSidePanel';
@@ -84,16 +84,34 @@ export default function PublicationPanel({
   const row = detail?.row;
   const mlUrl = buildMlItemUrl(row?.permalink);
   // Outside MODO: chooser is a block above tabs (never replaces them). Hide after
-  // discard / unavailable; reset when switching publication.
+  // discard; when its candidates are unavailable it stays as a notice that can still
+  // discard the flag. Reset when switching publication.
   const [mejoresBlockOpen, setMejoresBlockOpen] = useState(true);
+  // The block's suggested promotion ids, marked "Sugerida" in the Promos tab.
+  const [suggestedIds, setSuggestedIds] = useState([]);
+  // Once shown for this publication, the block stays until Descartar: a silent refresh after a write
+  // may clear the flag, and unmounting would drop what the block still says (the "price differs" alert).
+  const [mejoresShown, setMejoresShown] = useState(false);
   useEffect(() => {
     setMejoresBlockOpen(true);
+    setSuggestedIds([]);
+    setMejoresShown(false);
   }, [itemId]);
+  const hayMejores = Boolean(detail?.row?.hay_mejores_ofertas);
+  useEffect(() => {
+    if (hayMejores) setMejoresShown(true);
+  }, [hayMejores]);
   const showMejoresBlock =
     !ponerPreciosMode &&
     canWritePromos &&
-    Boolean(detail?.row?.hay_mejores_ofertas) &&
+    (hayMejores || mejoresShown) &&
     mejoresBlockOpen;
+  // Without promos.escribir the flag is still news: a read-only notice, as the old Promos-tab banner.
+  const showMejoresReadOnly = !ponerPreciosMode && !canWritePromos && canViewPromos && hayMejores;
+  const closeMejoresBlock = () => {
+    setMejoresBlockOpen(false);
+    setSuggestedIds([]);
+  };
 
   return (
     <PanelShell
@@ -143,21 +161,27 @@ export default function PublicationPanel({
         />
       )}
 
+      {status === 'ready' && showMejoresReadOnly && (
+        <p className={styles.mejoresReadOnly} role="status" aria-label="Candidatas mejores">
+          <Sparkles size={14} aria-hidden="true" className={styles.mejoresIcon} />
+          Hay candidatas mejores que el precio vigente en MeLi.
+        </p>
+      )}
+
       {status === 'ready' && showMejoresBlock && (
         <MejoresCandidatasBlock
           key={`mejores-${itemId}`}
           itemId={itemId}
           baselinePrice={row?.price?.amount}
           onWritten={handleWritten}
-          onLeavePub={onClose}
-          onDismissed={() => setMejoresBlockOpen(false)}
-          onUnavailable={() => setMejoresBlockOpen(false)}
+          onDismissed={closeMejoresBlock}
+          onSuggested={setSuggestedIds}
         />
       )}
 
       {status === 'ready' && !ponerPreciosMode && active && (
         <PanelTabs tabs={available} activeKey={active.key} onTabChange={onTabChange} label="Secciones de la publicación">
-          <active.Component detail={detail} itemId={itemId} canSeeMargin={canSeeMargin} canViewPromos={canViewPromos} dataState={dataState} onPromoApplied={handleWritten} onWritten={handleWritten} priceGroup={priceGroup} />
+          <active.Component detail={detail} itemId={itemId} canSeeMargin={canSeeMargin} canViewPromos={canViewPromos} dataState={dataState} onPromoApplied={handleWritten} onWritten={handleWritten} priceGroup={priceGroup} suggestedPromotionIds={showMejoresBlock ? suggestedIds : undefined} />
         </PanelTabs>
       )}
 

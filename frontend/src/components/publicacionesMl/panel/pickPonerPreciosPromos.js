@@ -118,6 +118,12 @@ export function hasPickedSlot(picked) {
   return Boolean(picked?.smart || picked?.deal || picked?.premium);
 }
 
+function positiveBound(value) {
+  if (value === null || value === undefined || typeof value === 'boolean') return null;
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
 export function enrollBodyForPromo(promo) {
   const type = promo.promotion_type;
   const body = { promotion_id: promo.promotion_id, promotion_type: type };
@@ -132,11 +138,13 @@ export function enrollBodyForPromo(promo) {
   const startPrice = Number(
     (type === 'DEAL' ? promoDisplayPrice(promo) : (promo.suggested_discounted_price ?? promo.price)) ?? NaN,
   );
-  const min = promo.min_discounted_price;
-  const max = promo.max_discounted_price;
+  // Each bound ML sends clamps on its own, the same way promoDisplayPrice does.
+  const min = positiveBound(promo.min_discounted_price);
+  const max = positiveBound(promo.max_discounted_price);
   let dealPrice = startPrice;
-  if (Number.isFinite(min) && Number.isFinite(max) && Number.isFinite(startPrice)) {
-    dealPrice = Math.min(max, Math.max(min, startPrice));
+  if (Number.isFinite(dealPrice)) {
+    if (max != null) dealPrice = Math.min(dealPrice, max);
+    if (min != null) dealPrice = Math.max(dealPrice, min);
   }
   if (Number.isFinite(dealPrice) && dealPrice > 0) body.deal_price = dealPrice;
   return body;

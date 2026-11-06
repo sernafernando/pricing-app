@@ -141,6 +141,13 @@
   cursor: help;
 }
 
+/* The promotion the "Hay candidatas mejores" block above the tabs suggests: a quiet outlined chip. */
+.badgeSuggested {
+  background: transparent;
+  color: var(--cf-text-primary);
+  border: 1px solid var(--cf-border-default);
+}
+
 .writeWarningList {
   margin: 4px 0 0;
   padding-left: 18px;

@@ -311,6 +311,25 @@ describe('MlaPromocionesPanel', () => {
     expect(screen.getByText(/^aplicada$/i)).toBeInTheDocument();
   });
 
+  it('marks only the suggested promotions with a "Sugerida" chip, without the old banner', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          { promotion_id: 'P1', promotion_type: 'SMART', name: 'Smart sugerida', status: 'candidate', price: 100 },
+          { promotion_id: 'P2', promotion_type: 'SMART', name: 'Smart otra', status: 'candidate', price: 90 },
+        ],
+      },
+    });
+
+    renderPanel({ suggestedPromotionIds: ['P1'], sections: true });
+
+    const suggested = (await screen.findByText('Smart sugerida')).closest('li');
+    expect(within(suggested).getByText('Sugerida')).toBeInTheDocument();
+    const other = screen.getByText('Smart otra').closest('li');
+    expect(within(other).queryByText('Sugerida')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Hay candidatas mejores/)).not.toBeInTheDocument();
+  });
+
   it('shows a "Programada" badge (not "Aplicada") on promo rows with application_status programmed', async () => {
     promocionesAPI.getPromocionesItem.mockResolvedValue({
       data: {

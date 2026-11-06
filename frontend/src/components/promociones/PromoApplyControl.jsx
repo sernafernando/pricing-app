@@ -24,11 +24,11 @@ const WRITABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART', 'PRE_NEGOTIA
 // Ofertas relámpago: the operator sets the price and the stock to reserve.
 const LIGHTNING = 'LIGHTNING';
 
-// Default LIGHTNING price: ML's `suggested_discounted_price` (`price` is not the lightning
-// suggestion: on MLA1506729443 it was the SMART candidate's price, 2026-11-06). Rows without a
-// suggestion fall back to `price`. Clamped to [min, max] only as a guard; with no max, only the min.
+// Default LIGHTNING price: the price its row shows (promoDisplayPrice: a candidate's
+// `suggested_discounted_price` within [min, max], else `price`). Clamped to [min, max] again
+// only as a guard; with no max, only the min.
 function lightningDefaultPrice(promotion) {
-  const price = Number(promotion.suggested_discounted_price ?? promotion.price);
+  const price = Number(promoDisplayPrice(promotion));
   if (!(price > 0)) return '';
   const { min_discounted_price: min, max_discounted_price: max } = promotion;
   if (max != null && price > max) return max;
@@ -138,8 +138,10 @@ function feedbackForError(err, actionLabel = 'aplicar') {
  * Renders inline inside `MlaPromocionesPanel`. Triggers a REAL ML price write:
  * requires explicit confirmation, never auto-retries, never claims a confirmed
  * "aplicado" state from the immediate response (eventual consistency).
+ * `label` (optional) renames only the Aplicar trigger (e.g. "Aplicar sugerencia");
+ * confirmation, guards and request body stay the same.
  */
-function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded }) {
+function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded, label }) {
   const { tienePermiso } = usePermisos();
   const [phase, setPhase] = useState('idle'); // idle | confirming | submitting | done
   const [feedback, setFeedback] = useState(null); // { tone, message } | null
@@ -572,7 +574,7 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded }) {
         className={`${styles.applyBtn} ${isEnrolled ? styles.removeBtn : ''}`}
         onClick={handleActionClick}
       >
-        {actionLabelCapitalized}
+        {!isEnrolled && label ? label : actionLabelCapitalized}
       </button>
       {pendingKind && (
         <span className={styles.provisionalPending} data-testid="provisional-indicator">
