@@ -917,10 +917,16 @@ class TestAmbiguousReconciliation:
         status='candidate' — the row PERSISTS in ml_item_promotions, it does
         NOT disappear. Presence alone must NOT be misread as "not applied";
         only status='started' (still actively enrolled) means the removal
-        did not take effect. A persisted 'candidate' row means removed."""
+        did not take effect. A persisted 'candidate' row, confirmed by the
+        fresh live read, means removed."""
         monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
 
         with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "get_item_promotions",
+                return_value=_fake_live_item_promotions(status="candidate"),
+            ),
             patch.object(
                 write_service.ml_webhook_client,
                 "remove_item",
@@ -941,10 +947,15 @@ class TestAmbiguousReconciliation:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """status='finished' also means no longer actively enrolled ->
-        removal applied."""
+        removal applied, once the fresh live read confirms it."""
         monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
 
         with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "get_item_promotions",
+                return_value=_fake_live_item_promotions(status="finished"),
+            ),
             patch.object(
                 write_service.ml_webhook_client,
                 "remove_item",

@@ -203,6 +203,37 @@ class TestAmbiguousRemoveFailsClosed:
         assert _log_rows(bg_db) == []
         assert _refresh_queued(bg_db)
 
+    @pytest.mark.parametrize("mirror_status", ["candidate", "finished"])
+    def test_not_enrolled_mirror_alone_does_not_prove_removal(
+        self, bg_db, usuario, immediate_refresh, mirror_status
+    ) -> None:
+        """A `candidate`/`finished` row can predate an enroll the mirror never synced; the live read still shows the
+        item enrolled, so the DELETE did not apply."""
+        mirror_row = {"mla": MLA, "promotion_id": "DEAL-1", "promotion_type": "DEAL", "status": mirror_status}
+        with (
+            patch.object(write_service.ml_webhook_client, "remove_item", return_value=_AMBIGUOUS_504),
+            patch.object(write_service.ml_webhook_client, "get_item_promotions", return_value=_LIVE_DEAL_STARTED),
+            patch.object(write_service, "fetch_item_promotions", return_value=[mirror_row]),
+        ):
+            outcome = write_service.remove_one_item(MLA, "DEAL", "DEAL-1", usuario_id=usuario.id)
+
+        assert outcome["status"] == "reconciled_not_applied"
+        assert _log_rows(bg_db) == []
+        assert _refresh_queued(bg_db)
+
+    def test_not_enrolled_mirror_and_no_fresh_read_is_ambiguous(self, bg_db, usuario, immediate_refresh) -> None:
+        mirror_row = {"mla": MLA, "promotion_id": "DEAL-1", "promotion_type": "DEAL", "status": "candidate"}
+        with (
+            patch.object(write_service.ml_webhook_client, "remove_item", return_value=_AMBIGUOUS_504),
+            patch.object(write_service.ml_webhook_client, "get_item_promotions", return_value=None),
+            patch.object(write_service, "fetch_item_promotions", return_value=[mirror_row]),
+        ):
+            outcome = write_service.remove_one_item(MLA, "DEAL", "DEAL-1", usuario_id=usuario.id)
+
+        assert outcome["status"] == "ambiguous"
+        assert _log_rows(bg_db) == []
+        assert _refresh_queued(bg_db)
+
     def test_no_mirror_row_and_live_back_to_candidate_is_applied(self, bg_db, usuario, immediate_refresh) -> None:
         with (
             patch.object(write_service.ml_webhook_client, "remove_item", return_value=_AMBIGUOUS_504),

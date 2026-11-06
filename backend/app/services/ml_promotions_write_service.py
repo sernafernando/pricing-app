@@ -271,12 +271,13 @@ def reconcile_write_outcome(
     """Reconciles an ambiguous write outcome (timeout/5xx) without retrying the write, mirroring the
     `reconciliar_ml_cancelaciones.py` precedent: read the source of truth, then classify.
 
-    1. `ml_item_promotions` (the webhook-fed mirror). It can lag behind ML, so it is trusted only when it PROVES the
-       write took effect: enroll -> status started/pending; remove -> status candidate/finished (a successful DELETE
-       returns the item to `candidate`, the row persists). Anything else, including no row, a row with no status or an
-       unknown status, or a failed mirror read, proves nothing on its own.
+    1. `ml_item_promotions` (the webhook-fed mirror). It can lag behind ML, so it is trusted only when it PROVES an
+       enroll took effect (status started/pending). For a remove it proves nothing on its own: a candidate/finished
+       row can predate an enroll the mirror never synced. Anything else, including no row, a row with no status or an
+       unknown status, or a failed mirror read, proves nothing either.
     2. Otherwise a FRESH live read of the item (`ml_webhook_client.get_item_promotions`, the read the write path
-       already uses) decides with the same statuses: proven applied -> reconciled_applied; proven not applied ->
+       already uses) decides: enroll -> started/pending; remove -> candidate/finished (a successful DELETE returns
+       the item to `candidate`). Proven applied -> reconciled_applied; proven not applied ->
        reconciled_not_applied; read failed, entry missing or duplicated, or status unknown -> ambiguous.
 
     slow_consistency (True for SMART-like types, ~10-18s to settle vs ~2s for SELLER_CAMPAIGN/DEAL): even the fresh
@@ -302,7 +303,7 @@ def reconcile_write_outcome(
             matched_row = row
             break
 
-    if matched_row is not None and _proven_effect(operation, matched_row.get("status")):
+    if operation == "enroll" and matched_row is not None and _proven_effect(operation, matched_row.get("status")):
         effect: Optional[bool] = True
     else:
         effect = _fresh_effect(mla_id, promotion_id, operation)
