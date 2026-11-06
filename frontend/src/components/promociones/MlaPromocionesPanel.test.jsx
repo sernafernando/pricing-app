@@ -215,6 +215,33 @@ describe('MlaPromocionesPanel', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /^aplicar$/i })).toBeEnabled());
   });
 
+  it('offers Aplicar for a LIGHTNING candidate but keeps SMART_LIGHTNING read-only', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            promotion_id: 'LGH-MLA1000',
+            promotion_type: 'LIGHTNING',
+            name: 'Oferta relámpago',
+            status: 'candidate',
+            price: 23280,
+            min_discounted_price: 5664.32,
+            max_discounted_price: 25489.44,
+            payload: { stock: { min: 5, max: 10 } },
+          },
+          { promotion_id: 'SLG-1', promotion_type: 'SMART_LIGHTNING', name: 'Relámpago inteligente', price: 57341 },
+        ],
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('Oferta relámpago')).toBeInTheDocument());
+    expect(screen.getByText('Relámpago inteligente')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: /^aplicar$/i })).toBeEnabled());
+    expect(screen.getAllByRole('button', { name: /^aplicar$/i })).toHaveLength(1);
+  });
+
   it('shows the backend-computed markup when nuestro_markup is a number', async () => {
     promocionesAPI.getPromocionesItem.mockResolvedValue({
       data: {

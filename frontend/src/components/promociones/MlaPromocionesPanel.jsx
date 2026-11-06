@@ -19,12 +19,12 @@ const NO_NAMES = {};
 // candidates daily, so a day-old mirror row may no longer be ML's offer).
 const STALE_ROW_MS = 24 * 60 * 60 * 1000;
 
-// SELLER_CAMPAIGN/DEAL/SMART/PRE_NEGOTIATED/PRICE_MATCHING can be enrolled
-// via the apply control (FE-C). DOD/LIGHTNING/PRICE_DISCOUNT are read-only
+// SELLER_CAMPAIGN/DEAL/SMART/PRE_NEGOTIATED/PRICE_MATCHING/LIGHTNING can be enrolled
+// via the apply control (FE-C). DOD/SMART_LIGHTNING/PRICE_DISCOUNT are read-only
 // informational entries. PRICE_MATCHING_MELI_ALL is intentionally EXCLUDED
 // (ML-autogestionado, never writable) — its absence here is what keeps it
 // read-only; never add it.
-const APPLICABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART', 'PRE_NEGOTIATED', 'PRICE_MATCHING']);
+const APPLICABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART', 'PRE_NEGOTIATED', 'PRICE_MATCHING', 'LIGHTNING']);
 
 // SMART, PRE_NEGOTIATED and PRICE_MATCHING all carry ML co-funding
 // (meli_percentage / seller_percentage in payload); other types don't fund
