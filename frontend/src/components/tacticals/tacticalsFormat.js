@@ -24,10 +24,16 @@ export function formatMontoTactical(value, moneda) {
 
 export const formatUnidades = (value) => (vacio(value) ? '—' : NUMERO.format(Number(value)));
 
-/** The line's amount as it was loaded, in the line's own currency: `USD 220 / u`, `3,5 %` or `USD 3.000`. */
-export function valorDeLinea({ modo_monto: modo, valor, moneda }) {
+/** The line's amount as it was loaded, in the line's own currency: `USD 220 / u`, `3,5 %` or `USD 3.000`;
+ * a sell in total loaded in USD: `USD 1.200,01 → ARS 1.200.610,01 (TC 1.000,5)`. */
+export function valorDeLinea({ modo_monto: modo, valor, moneda, valor_usd: valorUsd }, tipoCambio) {
   if (modo === 'porcentaje') return `${PORCENTAJE.format(Number(valor))} %`;
   const monto = formatMontoTactical(valor, moneda);
+  // A sell in total loaded in USD: its bonus keeps the ARS total at the tactical's fixed rate; both are shown.
+  if (!vacio(valorUsd)) {
+    const tc = vacio(tipoCambio) ? '' : ` (TC ${PORCENTAJE.format(Number(tipoCambio))})`;
+    return `${formatMontoTactical(valorUsd, 'USD')} → ${monto}${tc}`;
+  }
   return modo === 'por_unidad' ? `${monto} / u` : monto;
 }
 

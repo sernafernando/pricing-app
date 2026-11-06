@@ -97,16 +97,24 @@ export function maximoACobrar(linea) {
 /** What all the lines can charge at most together. */
 export const maximoTotal = (lineas) => lineas.reduce((total, linea) => total + (maximoACobrar(linea) || 0), 0);
 
-/** The scope and amount kinds a type offers: invoices are sell in only; both offer a total amount. */
+/** The scope and amount kinds a type offers: invoices are sell in only; both offer a total amount on every scope. */
 export const alcancesDe = (tipo) =>
   tipo === 'sell_in' ? ['productos', 'marca', 'categoria', 'factura'] : ['productos', 'marca', 'categoria'];
 export const modosDe = () => ['por_unidad', 'porcentaje', 'monto_total'];
 
 /**
- * The amount kinds a line shows but cannot use: on sell in a total amount is an invoice's only (Contrato final: a
- * cost reduction over products, a brand or a category takes no `monto_total`).
+ * Whether a sell in total amount over products, a brand or a category cannot go in this currency: the backend takes
+ * it in ARS, or in USD converted at the tactical's fixed rate (S4). The invoice total line keeps its own rules.
  */
-export const modosNoDisponibles = (tipo, alcance) => (tipo === 'sell_in' && alcance !== 'factura' ? ['monto_total'] : []);
+const totalSinTipoDeCambio = (tipo, alcance, moneda, tcModo) =>
+  tipo === 'sell_in' && alcance !== 'factura' && moneda === 'USD' && tcModo !== 'fijo';
+
+/** Why a sell in total amount in USD is off, in the backend's words. */
+export const TOTAL_USD_SIN_TC_FIJO = 'Un monto total en USD necesita tipo de cambio fijo.';
+
+/** The amount kinds a line shows but cannot use: a sell in total amount in USD without a fixed rate (S4). */
+export const modosNoDisponibles = (tipo, alcance, moneda, tcModo) =>
+  totalSinTipoDeCambio(tipo, alcance, moneda, tcModo) ? ['monto_total'] : [];
 
 /**
  * A line with another amount kind: a total amount split by criterion takes no caps (S1), so they are cleared, and
@@ -130,12 +138,12 @@ export function conAlcance(linea, alcance) {
 }
 
 /**
- * The lines a type keeps when the user switches to it: sell out has no invoices; sell in has no total amount split
- * by criterion yet (only an invoice's).
+ * The lines a type keeps when the user switches to it: sell out has no invoices; sell in keeps every line (a total
+ * amount split by criterion included, S4).
  */
 export function lineasPara(tipo, lineas) {
   return lineas.map((linea) => {
-    if (tipo === 'sell_in') return repartePorCriterio(linea) ? conModo(linea, 'por_unidad') : linea;
+    if (tipo === 'sell_in') return linea;
     return linea.alcance === 'factura' ? { ...conAlcance(linea, 'productos'), facturas: [] } : linea;
   });
 }
@@ -169,6 +177,11 @@ export function problemaDe(form, lineas) {
     faltan((l) => l.alcance === 'categoria' && !l.categoria, 'categoría') ||
     faltan((l) => !(numeroDe(l.monto) > 0), 'monto') ||
     faltan((l) => repartePorCriterio(l) && !l.reparto, 'reparto del monto total') ||
+    mal(
+      (l) => repartePorCriterio(l) && totalSinTipoDeCambio(form.tipo, l.alcance, form.moneda, form.tcModo),
+      'un monto total en USD sin tipo de cambio fijo',
+      ' o elegí tipo de cambio fijo',
+    ) ||
     mal((l) => l.modo === 'porcentaje' && numeroDe(l.monto) > 100, 'un porcentaje mayor a 100', '') ||
     mal((l) => ilegible(l.topeUnidades) || ilegible(l.topeMonto), 'un tope que no es un número', ' o borrá el tope') ||
     mal((l) => numeroDe(l.topeUnidades) != null && !Number.isInteger(numeroDe(l.topeUnidades)), 'un tope de unidades que no es entero', '') ||
