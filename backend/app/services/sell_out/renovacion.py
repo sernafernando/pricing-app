@@ -8,7 +8,8 @@ history does not change; a voided campaign can be renewed too, since the draft i
 Copied: the type and its amount (`monto_unit`, `porcentaje` or `monto_total`), `base_porcentaje`, `moneda`,
 `tc_modo` (the fixed rate only when it is `fijo`), the caps, `acumulable`, `monto_incluye_iva`, the groups, the
 per-product amounts or the `monto_total` shares (only of products the groups still reach: an out-of-reach one would
-be refused on create), the program (only while it is active: an archived one takes no campaigns) and the
+be refused on create; a campaign split by a criterion copies its `reparto_criterio` instead, and the copy splits
+again over its own reach), the program (only while it is active: an archived one takes no campaigns) and the
 description. Not copied: the state, what it credited, the `al_cobro` payment rate, the legacy offset and the audit.
 The dates default to the calendar quarter after the one holding the original's end, and the name advances its
 trailing period, when it has one (`nombre_renovado`).
@@ -134,7 +135,9 @@ def borrador(db: Session, campana_id: int) -> Optional[SellOutCampanaIn]:
         acumulable=campana.acumulable,
         monto_incluye_iva=campana.monto_incluye_iva,
         grupo_ids=[g for g in campanas.grupo_ids_de(db, campana.id) if g not in ocultos],
-        items=items,
+        # Split by a criterion: the copy keeps it and splits again over its own reach (no shares copied).
+        items=[] if campana.reparto_criterio else items,
+        reparto_criterio=campana.reparto_criterio,
         programa_id=programa_id,
         renovada_de_id=campana.id,
     )

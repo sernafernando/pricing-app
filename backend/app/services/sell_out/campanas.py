@@ -45,6 +45,7 @@ from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutCamp
 from app.schemas.sell_out import SellOutCampanaIn, SellOutCampanaItemIn
 from app.services.sell_in.compras import contiene
 from app.services.sell_out import alcance, asignacion, programas, queue, reparto
+from app.services.sell_out import criterio as criterio_service
 
 # Each NUMERIC column's scale as a quantum: `monto_unit` 0.01, `porcentaje` 0.0001, ...
 _QUANTUM = {
@@ -403,6 +404,19 @@ def _asignar_items(db: Session, campana: SellOutCampana, data: SellOutCampanaIn)
     group or filter change) is credited nothing: the allocator only reaches the groups' products; re-sending it is
     refused until the user removes it, which the panel shows. A `monto_total` campaign's shares, sent or kept, are
     then checked against its (maybe new) total (`_validar_suma`)."""
+    if data.reparto_criterio is not None and (data.tipo != "monto_total" or data.items):
+        db.rollback()
+        raise SellOutError("El criterio de reparto es solo para una campaña por monto total, sin montos por producto")
+    if data.tipo != "monto_total":
+        campana.reparto_criterio = None
+    elif data.reparto_criterio is not None:
+        _aplicar_criterio(db, campana, data.reparto_criterio)
+        return
+    elif data.items is not None:
+        campana.reparto_criterio = None  # shares sent: a manual split
+    elif campana.reparto_criterio is not None:
+        _aplicar_criterio(db, campana, campana.reparto_criterio)  # kept, over the (maybe new) reach and total
+        return
     if data.items is None:
         _validar_tenidos(db, campana, data.tipo)
     else:
@@ -410,6 +424,26 @@ def _asignar_items(db: Session, campana: SellOutCampana, data: SellOutCampanaIn)
         _guardar_items(db, campana, {item.item_id: _fila(item) for item in data.items})
     if data.tipo == "monto_total":
         _validar_suma(db, campana)
+
+
+def _aplicar_criterio(db: Session, campana: SellOutCampana, criterio: str) -> None:
+    """Store `criterio` and its shares (`criterio.cuotas`; none for `unidades`), replacing the stored ones.
+    `criterio.CriterioError` rolls back as the operator's `SellOutError`."""
+    try:
+        pedidos = (
+            {}
+            if criterio == criterio_service.UNIDADES
+            else {
+                i: {"monto_unit": None, "reparto_porcentaje": None, "reparto_monto": m}
+                for i, m in criterio_service.cuotas(db, campana, criterio).items()
+            }
+        )
+    except criterio_service.CriterioError as exc:
+        db.rollback()
+        raise SellOutError(str(exc)) from exc
+    campana.reparto_criterio = criterio
+    _guardar_items(db, campana, pedidos)
+    db.flush()
 
 
 def _validar_tenidos(db: Session, campana: SellOutCampana, tipo: str) -> None:
@@ -843,7 +877,12 @@ def solo_sus_marcas(db: Session, filas: list[dict], pares: Optional[set]) -> lis
 
 @_deadlock_es_ocupada
 def repartir(
-    db: Session, campana_id: int, repartos: list[SellOutCampanaItemIn], usuario_id: int, pares: Optional[set]
+    db: Session,
+    campana_id: int,
+    repartos: list[SellOutCampanaItemIn],
+    usuario_id: int,
+    pares: Optional[set],
+    criterio: Optional[str] = None,
 ) -> Optional[SellOutCampana]:
     """Set the split of an active `monto_total` campaign among its products (S34). None when it does not exist;
     `SellOutYaAnulada` when voided, like an edit.
@@ -852,13 +891,34 @@ def repartir(
     whole split; else the PM's (MARCA, CATEGORIA) pairs (`pm_scope`): a share of another brand's product is
     refused (`SellOutSinPermiso`, nothing stored) and the stored shares of the products they cannot see are kept,
     so `repartos` replace only theirs. The resulting split is checked as a whole (`_validar_suma`), audited (before
-    and after) and queued for `sell_out.drain`.
+    and after) and queued for `sell_out.drain`. A manual split clears the campaign's `reparto_criterio`.
+
+    `criterio` (`iguales`, `unidades`, `costo`; tactical monto total S2/S3): split the whole total by it instead
+    (`criterio.cuotas`), with no `repartos`; it changes every brand's shares, so a brand-scoped user (`pares`) is
+    refused (`SellOutSinPermiso`, S6).
     """
     campana = bloquear(db, campana_id)
     if campana is None:
         return None
     if campana.tipo != "monto_total":
         raise SellOutError("Solo las campañas por monto total se reparten por producto")
+    if criterio is not None:
+        if repartos:
+            raise SellOutError("Un reparto por criterio no lleva montos por producto")
+        if pares is not None:
+            raise SellOutSinPermiso(
+                "Repartir por un criterio cambia las cuotas de todas las marcas: solo un administrador o "
+                "sell_out.gestionar puede hacerlo"
+            )
+        grupo_ids = grupo_ids_de(db, campana_id)
+        antes = _valores(campana, grupo_ids, items_de(db, [campana_id])[campana_id])
+        _aplicar_criterio(db, campana, criterio)
+        despues = _valores(campana, grupo_ids, items_de(db, [campana_id])[campana_id])
+        _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, despues, "Reparto del monto total")
+        _encolar(db, [campana_id])
+        db.commit()
+        db.refresh(campana)
+        return campana
     _validar_items("monto_total", repartos)
     t = SellOutCampanaItem
     tenidos = [i for (i,) in db.query(t.item_id).filter(t.campana_id == campana_id)]
@@ -874,6 +934,7 @@ def repartir(
     grupo_ids = grupo_ids_de(db, campana_id)
     antes = _valores(campana, grupo_ids, items_de(db, [campana_id])[campana_id])
     _guardar_items(db, campana, {r.item_id: _fila(r) for r in repartos}, conservar)
+    campana.reparto_criterio = None
     _validar_suma(db, campana)
     despues = _valores(campana, grupo_ids, items_de(db, [campana_id])[campana_id])
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, despues, "Reparto del monto total")
@@ -986,6 +1047,7 @@ def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
         fila["items"] = items[c.id]
         fila["programa_id"] = c.programa_id
         fila["renovada_de_id"] = c.renovada_de_id
+        fila["reparto_criterio"] = c.reparto_criterio
         fila["tactical_id"] = c.tactical_id
         fila["programa"] = de_programa.get(c.programa_id)
         salida.append(fila)

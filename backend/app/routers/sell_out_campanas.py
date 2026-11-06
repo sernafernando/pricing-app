@@ -104,13 +104,16 @@ from app.schemas.sell_out import (
     SellOutEdicionPreviaOut,
     SellOutEditarMasivoIn,
     SellOutEditarMasivoOut,
+    RepartoCriterio,
     SellOutRepartoIn,
+    SellOutRepartoPreviaOut,
     SellOutTipoCambioIn,
     Tipo,
 )
 from app.services.permisos_service import verificar_permiso
 from app.services.pm_scope import get_pares_marca_categoria_usuario
 from app.services.sell_out import campanas as service
+from app.services.sell_out import criterio as criterio_service
 from app.services.sell_out import edicion_masiva, programas, renovacion, resumen
 
 router = APIRouter(prefix="/sell-out/campanas", tags=["Sell out"])
@@ -136,6 +139,11 @@ def _pares_reparto(db: Session, user: Usuario) -> Optional[set]:
         return None
     alcance_pm = get_pares_marca_categoria_usuario(db, user)  # None: the user sees every brand
     return None if alcance_pm is None else set(alcance_pm)
+
+
+def _requiere_repartir(db: Session, user: Usuario) -> None:
+    if not verificar_permiso(db, user, "sell_out.gestionar") and not verificar_permiso(db, user, "sell_out.repartir"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso: sell_out.repartir")
 
 
 def _no_existe(campana_id: int) -> HTTPException:
@@ -399,14 +407,40 @@ def repartir_campana(
     user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Set the split of an active `monto_total` campaign among its products (module docstring)."""
-    if not verificar_permiso(db, user, "sell_out.gestionar") and not verificar_permiso(db, user, "sell_out.repartir"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso: sell_out.repartir")
+    """Set the split of an active `monto_total` campaign among its products (module docstring), by hand or, with
+    `criterio`, by a criterion over the whole total (only for a user who sees every brand: 403 otherwise)."""
+    _requiere_repartir(db, user)
     pares = _pares_reparto(db, user)
     try:
-        campana = service.repartir(db, campana_id, data.repartos, user.id, pares)
+        campana = service.repartir(db, campana_id, data.repartos, user.id, pares, criterio=data.criterio)
     except service.SellOutError as exc:
         raise _error(db, exc) from exc
     if campana is None:
         raise _no_existe(campana_id)
     return service.solo_sus_marcas(db, resumen.serializar(db, [campana]), pares)[0]
+
+
+@router.get("/{campana_id}/reparto/vista-previa", response_model=SellOutRepartoPreviaOut)
+def vista_previa_reparto(
+    campana_id: int,
+    criterio: RepartoCriterio = Query(...),
+    user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """What splitting a `monto_total` campaign by `criterio` gives per product, before saving it with
+    `PUT /{id}/reparto` (`app.services.sell_out.criterio.vista_previa`); nothing is stored. Same rule as that
+    split: only a user who sees every brand."""
+    _requiere_repartir(db, user)
+    if _pares_reparto(db, user) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Repartir por un criterio cambia las cuotas de todas las marcas: solo un administrador o "
+            "sell_out.gestionar puede hacerlo",
+        )
+    campana = db.get(SellOutCampana, campana_id)
+    if campana is None:
+        raise _no_existe(campana_id)
+    try:
+        return criterio_service.vista_previa(db, campana, criterio)
+    except criterio_service.CriterioError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

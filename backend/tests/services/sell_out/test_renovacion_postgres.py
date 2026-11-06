@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import threading
 from datetime import date
+from decimal import Decimal
 from typing import Iterator, Optional
 
 import pytest
@@ -235,3 +236,28 @@ def test_a_renewal_waits_for_the_program_lock_and_then_sees_the_copy(engine, Ses
             ).scalar()
             == 1
         )
+
+
+@pytest.mark.parametrize("criterio", ["iguales", "unidades"])
+def test_a_campaign_split_by_a_criterion_renews_with_it_and_splits_again(engine, Sesion, criterio: str) -> None:
+    original = _original(engine, tipo="monto_total", monto_unit=None, monto_total="200.00", reparto_criterio=criterio)
+    if criterio == "iguales":
+        w.reparto(engine, original, 2964, monto="100.00")
+        w.reparto(engine, original, 2270, monto="100.00")
+    with Sesion() as db:
+        draft = renovacion.borrador(db, original)
+        assert (draft.reparto_criterio, draft.items) == (criterio, [])
+        nueva = campanas.crear_campana(db, draft, USUARIO)
+        assert nueva.reparto_criterio == criterio
+        compartidas = {i["item_id"]: i["reparto_monto"] for i in campanas.items_de(db, [nueva.id])[nueva.id]}
+    esperado = {2964: Decimal("100.00"), 2270: Decimal("100.00")} if criterio == "iguales" else {}
+    assert compartidas == esperado
+
+
+def test_a_manual_split_renews_its_shares_as_today(engine, Sesion) -> None:
+    original = _original(engine, tipo="monto_total", monto_unit=None, monto_total="200.00")
+    w.reparto(engine, original, 2964, monto="150.00")
+    with Sesion() as db:
+        draft = renovacion.borrador(db, original)
+    assert draft.reparto_criterio is None
+    assert [(i.item_id, i.reparto_monto) for i in draft.items] == [(2964, Decimal("150.00"))]
