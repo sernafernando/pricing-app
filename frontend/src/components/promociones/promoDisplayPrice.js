@@ -19,7 +19,8 @@ export function promoDisplayPrice(promo) {
   if (!promo) return null;
   const price = positiveNumber(promo.price);
   if (price != null) return price;
-  if (promo.promotion_type === 'DEAL') {
+  // Panel rows carry `promotion_type`, live ML entries `type`: read both, like the backend.
+  if ((promo.promotion_type ?? promo.type) === 'DEAL') {
     const max = positiveNumber(promo.max_discounted_price);
     if (max != null) return max;
   }

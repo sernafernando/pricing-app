@@ -45,6 +45,11 @@ describe('promoDisplayPrice — the one offer-price rule', () => {
     expect(promoDisplayPrice(capturedDeal)).toBe(57920.55);
   });
 
+  it('reads the live entry shape (`type`) like the backend', () => {
+    const { promotion_type: _ignored, ...live } = capturedDeal;
+    expect(promoDisplayPrice({ ...live, type: 'DEAL' })).toBe(57920.55);
+  });
+
   it('falls back to the suggested for a DEAL without max', () => {
     expect(promoDisplayPrice({ ...capturedDeal, max_discounted_price: null })).toBe(49266.65);
   });
