@@ -10,7 +10,7 @@ import {
   pickMejoresCandidatas,
   pickPonerPreciosPromos,
   pricesClose,
-  rankingMarkupOf,
+  comparableMarkups,
 } from './pickPonerPreciosPromos';
 import { LISTS } from '../../pricing/priceWrites';
 import capture from './fixtures/ponerPreciosPromos.capture.json';
@@ -211,11 +211,11 @@ describe('ranking with sell in / sell out (S5)', () => {
     markup_sell_in_out: sellInOut,
   });
 
-  it('ranks by markup_sell_in_out when there is one, else by nuestro_markup', () => {
-    expect(rankingMarkupOf({ nuestro_markup: 20, markup_sell_in_out: 31 })).toBe(31);
-    expect(rankingMarkupOf({ nuestro_markup: 20, markup_sell_in_out: null })).toBe(20);
-    expect(rankingMarkupOf({ nuestro_markup: null, markup_sell_in_out: 31 })).toBeNull();
-    expect(rankingMarkupOf({})).toBeNull();
+  it('compares with sell in / sell out only when both sides have it, else both plain', () => {
+    expect(comparableMarkups({ nuestro_markup: 20, markup_sell_in_out: 31 }, { nuestro_markup: 18, markup_sell_in_out: 29 })).toEqual([31, 29]);
+    expect(comparableMarkups({ nuestro_markup: 20, markup_sell_in_out: null }, { nuestro_markup: 18, markup_sell_in_out: 29 })).toEqual([20, 18]);
+    expect(comparableMarkups({ nuestro_markup: 20, markup_sell_in_out: 31 }, { nuestro_markup: 18, markup_sell_in_out: null })).toEqual([20, 18]);
+    expect(comparableMarkups({ nuestro_markup: null, markup_sell_in_out: 31 }, { nuestro_markup: 18, markup_sell_in_out: 29 })).toEqual([null, 18]);
   });
 
   it('picks B over A when the plain markup favours A but sell in / sell out favours B', () => {
@@ -225,23 +225,27 @@ describe('ranking with sell in / sell out (S5)', () => {
     expect(pickPonerPreciosPromos([a, b]).smart).toBe(b);
   });
 
-  it('compares a candidate without sell in / sell out by its plain markup', () => {
-    const a = candidate('A', 'SMART', 900, 28, null);
-    const b = candidate('B', 'SMART', 900, 20, 27);
+  it('ranks a mixed set plain: one candidate without sell in / sell out puts them all on the plain markup', () => {
+    const a = candidate('A', 'SMART', 900, 22, null);
+    const b = candidate('B', 'SMART', 900, 20, 30);
     expect(bestByMarkup([a, b])).toBe(a);
   });
 
-  it('beats the status quo only by the markups with sell in / sell out on both sides', () => {
-    // Plain: 22 > 21 would beat it; with sell in / sell out: 24 < 25 does not.
-    const promo = candidate('A', 'SMART', 1000, 22, 24);
-    expect(pickMejoresCandidatas([promo], { baselinePrice: 1000, baselineMarkup: 25 }).smart).toBeNull();
-    // Plain: 18 < 21 would not; with sell in / sell out: 26 > 25 does.
+  it('beats the status quo with sell in / sell out when both sides have it', () => {
+    const baseline = { baselinePrice: 1000, baselineMarkup: 21, baselineSellInOut: 25 };
+    // Plain 22 >= 21 would beat it; with sell in / sell out 24 < 25 does not.
+    expect(pickMejoresCandidatas([candidate('A', 'SMART', 1000, 22, 24)], baseline).smart).toBeNull();
     const other = candidate('B', 'SMART', 1000, 18, 26);
-    expect(pickMejoresCandidatas([other], { baselinePrice: 1000, baselineMarkup: 25 }).smart).toBe(other);
+    expect(pickMejoresCandidatas([other], baseline).smart).toBe(other);
   });
 
-  it('uses the candidate plain markup against the baseline when the candidate has no sell in / sell out', () => {
-    const promo = candidate('A', 'SMART', 1000, 26, null);
-    expect(pickMejoresCandidatas([promo], { baselinePrice: 1000, baselineMarkup: 25 }).smart).toBe(promo);
+  it('compares plain on both sides when the candidate or the status quo has no sell in / sell out', () => {
+    const conSellInOut = { baselinePrice: 1000, baselineMarkup: 21, baselineSellInOut: 25 };
+    // The candidate's could not be computed: 22 against the plain 21, never against 25.
+    const sinCandidata = candidate('A', 'SMART', 1000, 22, null);
+    expect(pickMejoresCandidatas([sinCandidata], conSellInOut).smart).toBe(sinCandidata);
+    // The status quo has none: B's 30 is never compared against a plain 21.
+    const b = candidate('B', 'SMART', 1000, 20, 30);
+    expect(pickMejoresCandidatas([b], { baselinePrice: 1000, baselineMarkup: 21, baselineSellInOut: null }).smart).toBeNull();
   });
 });

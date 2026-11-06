@@ -386,3 +386,38 @@ class TestRankingConSellInOut:
         assert una["n"] >= 1
         assert tres["n"] == una["n"]  # the same queries for one publication or three
         assert ranking["n"] == 0  # ranking with the read already done reads nothing more
+
+    def test_a_failed_read_is_read_once_and_compares_both_sides_plain(self, engine) -> None:
+        _lote_y_campana(engine)
+        candidata = {
+            "id": "P-SMART",
+            "type": "SMART",
+            "status": "candidate",
+            "price": 55000,
+            "original_price": 70000,
+            "meli_percentage": 5,
+        }
+        comparados: list = []
+        real = hay_mejores.es_mejor_oferta
+
+        def _espia(*args):
+            comparados.append(args)
+            return real(*args)
+
+        with sessionmaker(bind=engine, autoflush=False)() as db:
+            with patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0):
+                vigente = markup_para_precio_con_sell_in_out(db, MLA, 60500.0)
+                promo = enriquecer_markup_por_promo(
+                    db, MLA, [hay_mejores.normalizar_entrada_seller_promo(candidata)], sell_in_out=True
+                )[0]
+            with (
+                patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0),
+                patch(
+                    "app.services.ml_promotions_pricing.resolver_sell_in_out_batch", side_effect=RuntimeError("caída")
+                ) as lectura,
+                patch.object(hay_mejores, "es_mejor_oferta", side_effect=_espia),
+            ):
+                hay_mejores.listar_mejores_candidatas(db, MLA, [candidata], 60500.0, raw_promotions=[candidata])
+
+        assert lectura.call_count == 1  # the shared read; neither side retries it
+        assert comparados == [(55000.0, promo["nuestro_markup"], 60500.0, vigente.nuestro_markup)]

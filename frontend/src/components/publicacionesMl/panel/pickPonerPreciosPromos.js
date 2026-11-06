@@ -67,14 +67,20 @@ export function isPremiumCurrentMonth(promo, monthName) {
 const finiteOrNull = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
 
 /**
- * The markup a promo is ranked by (S5, owner: "va a tener que usar el sell in sell out"): its
- * `markup_sell_in_out` when there is one, else its `nuestro_markup`; null without `nuestro_markup`.
- * Keep in sync with backend `markup_de_ranking` (ml_promotions_hay_mejores.py).
+ * (candidate, status quo) markups on the SAME basis (S5, owner: "va a tener que usar el sell in sell out"): with
+ * sell in / sell out when both have it, else both plain, so a figure with sell in / sell out is never compared
+ * against a plain one. Each side is `{ nuestro_markup, markup_sell_in_out }`.
+ * Keep in sync with backend `markups_comparables` (ml_promotions_hay_mejores.py).
  */
-export function rankingMarkupOf(promo) {
-  const markup = finiteOrNull(promo?.nuestro_markup);
-  if (markup == null) return null;
-  return finiteOrNull(promo?.markup_sell_in_out) ?? markup;
+export function comparableMarkups(candidate, baseline) {
+  const candidateSellInOut = finiteOrNull(candidate?.markup_sell_in_out);
+  const baselineSellInOut = finiteOrNull(baseline?.markup_sell_in_out);
+  const candidatePlain = finiteOrNull(candidate?.nuestro_markup);
+  const baselinePlain = finiteOrNull(baseline?.nuestro_markup);
+  if (candidatePlain != null && baselinePlain != null && candidateSellInOut != null && baselineSellInOut != null) {
+    return [candidateSellInOut, baselineSellInOut];
+  }
+  return [candidatePlain, baselinePlain];
 }
 
 /**
@@ -93,17 +99,17 @@ export function esMejorOferta(candidatePrice, candidateMarkup, baselinePrice, ba
   return candidateMarkup >= baselineMarkup;
 }
 
-/** Best candidate by its ranking markup (`rankingMarkupOf`). Skips promos without one (no arbitrary first pick). */
+/**
+ * Best candidate by markup, on one basis for the whole set (the same rule as `comparableMarkups`): with sell in /
+ * sell out when every candidate has it, else all plain. Skips promos without `nuestro_markup` (no arbitrary pick).
+ */
 export function bestByMarkup(promos) {
+  const ranked = promos.filter((promo) => finiteOrNull(promo?.nuestro_markup) != null);
+  const withSellInOut = ranked.every((promo) => finiteOrNull(promo.markup_sell_in_out) != null);
+  const key = withSellInOut ? 'markup_sell_in_out' : 'nuestro_markup';
   let best = null;
-  let bestMarkup = -Infinity;
-  for (const promo of promos) {
-    const markup = rankingMarkupOf(promo);
-    if (markup == null) continue;
-    if (markup > bestMarkup) {
-      best = promo;
-      bestMarkup = markup;
-    }
+  for (const promo of ranked) {
+    if (best == null || promo[key] > best[key]) best = promo;
   }
   return best;
 }
@@ -124,17 +130,20 @@ export function pickPonerPreciosPromos(promotions, { monthName = currentMonthNam
 }
 
 /**
- * Best SMART/DEAL/Premium that beat the MeLi status quo (flagged-pub chooser). `baselineMarkup` is the status
- * quo's ranking markup: its markup with sell in / sell out when there is one, else its plain markup.
+ * Best SMART/DEAL/Premium that beat the MeLi status quo (flagged-pub chooser). The status quo's plain markup is
+ * `baselineMarkup` and its markup with sell in / sell out `baselineSellInOut`; each candidate is compared on the
+ * basis `comparableMarkups` picks.
  */
 export function pickMejoresCandidatas(
   promotions,
-  { baselinePrice, baselineMarkup, monthName = currentMonthNameEs() } = {},
+  { baselinePrice, baselineMarkup, baselineSellInOut = null, monthName = currentMonthNameEs() } = {},
 ) {
+  const baseline = { nuestro_markup: baselineMarkup, markup_sell_in_out: baselineSellInOut };
   const candidates = (promotions || []).filter((promo) => promo?.status === 'candidate');
-  const better = candidates.filter((promo) =>
-    esMejorOferta(promoDisplayPrice(promo), rankingMarkupOf(promo), baselinePrice, baselineMarkup),
-  );
+  const better = candidates.filter((promo) => {
+    const [candidateMarkup, statusQuoMarkup] = comparableMarkups(promo, baseline);
+    return esMejorOferta(promoDisplayPrice(promo), candidateMarkup, baselinePrice, statusQuoMarkup);
+  });
   return pickSlots(better, monthName);
 }
 

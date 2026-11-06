@@ -9,15 +9,16 @@ PRICE_MATCHING offer matches sale_price (``markups_baseline_vigente``);
 otherwise plain ``markup_para_precio(sale)``.
 
 Ranking markup (S5, owner: "va a tener que usar el sell in sell out"): the
-markup with today's sell in / sell out (``markup_sell_in_out``) when it is
-known, else the plain markup, on both sides (status quo and each candidate,
-``markup_de_ranking``). The sell in / sell out read is done once per call, or
+markups with today's sell in / sell out (``markup_sell_in_out``) when the
+status quo AND the candidate both have one, else both plain markups: always
+the same basis on both sides (``markups_comparables``). The sell in / sell out read is done once per call, or
 once per batch of items when the caller passes it (``recompute``).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from sqlalchemy.orm import Session
@@ -25,6 +26,7 @@ from sqlalchemy.orm import Session
 from app.core.logging import get_logger
 from app.models.ml_publications import MlItemSalePrice, MlItemSellerPromotions
 from app.services.ml_promotions_pricing import (
+    MarkupsDePrecio,
     enriquecer_markup_por_promo,
     markups_baseline_vigente,
     precio_de_oferta,
@@ -66,10 +68,20 @@ def es_mejor_oferta(
     return candidate_markup >= baseline_markup
 
 
-def markup_de_ranking(nuestro_markup: Optional[float], markup_sell_in_out: Optional[float]) -> Optional[float]:
-    """The markup offers are compared by: with sell in / sell out when known, else the plain one (S5).
-    Mirrored by the frontend's ``rankingMarkupOf`` (pickPonerPreciosPromos.js)."""
-    return markup_sell_in_out if markup_sell_in_out is not None else nuestro_markup
+def markups_comparables(
+    candidato: MarkupsDePrecio, vigente: MarkupsDePrecio
+) -> Tuple[Optional[float], Optional[float]]:
+    """(candidate, status quo) markups on the SAME basis (S5): with sell in / sell out when both have it, else both
+    plain, so a figure with sell in / sell out is never compared against a plain one.
+    Mirrored by the frontend's ``comparableMarkups`` (pickPonerPreciosPromos.js)."""
+    if candidato.markup_sell_in_out is not None and vigente.markup_sell_in_out is not None:
+        return candidato.markup_sell_in_out, vigente.markup_sell_in_out
+    return candidato.nuestro_markup, vigente.nuestro_markup
+
+
+def _sin_sell_in_out() -> SellInOutBatch:
+    """An empty sell in / sell out read: what both sides use when the shared read failed, so neither retries it."""
+    return SellInOutBatch(hoy=date.today(), sell_in={}, campanas={}, bna=None)
 
 
 def _format_fingerprint_price(price: float) -> str:
@@ -130,24 +142,28 @@ def listar_mejores_candidatas(
     sell_in_out_batch: Optional[SellInOutBatch] = None,
 ) -> List[MejorTuple]:
     """Candidates that beat the MeLi status quo (sale_price + correct baseline markup), compared by
-    ``markup_de_ranking`` on both sides.
+    ``markups_comparables``: the same basis on both sides.
 
     ``raw_promotions`` (full mirror, including started) selects co-funded vs
     plain baseline via ``markups_baseline_vigente``. ``sell_in_out_batch``: a
     sell in / sell out read already done for many items; without it, one read
-    for this item feeds both sides.
+    for this item feeds both sides, and a failed read is not retried per side.
     """
+    if not candidates or baseline_price is None or baseline_price <= 0:
+        return []
     batch = sell_in_out_batch if sell_in_out_batch is not None else resolver_sell_in_out_para_mlas(db, [mla])
-    baseline = markups_baseline_vigente(db, mla, baseline_price, raw_promotions=raw_promotions, batch=batch)
-    baseline_markup = markup_de_ranking(baseline.nuestro_markup, baseline.markup_sell_in_out)
-    if baseline_markup is None:
+    if batch is None:
+        batch = _sin_sell_in_out()
+    vigente = markups_baseline_vigente(db, mla, baseline_price, raw_promotions=raw_promotions, batch=batch)
+    if vigente.nuestro_markup is None:
         return []
     promos = [normalizar_entrada_seller_promo(entry) for entry in candidates]
     enriquecer_markup_por_promo(db, mla, promos, sell_in_out=True, batch=batch)
     mejores: List[MejorTuple] = []
     for entry, promo in zip(candidates, promos):
         price = precio_de_oferta(promo)
-        markup = markup_de_ranking(promo.get("nuestro_markup"), promo.get("markup_sell_in_out"))
+        candidato = MarkupsDePrecio(promo.get("nuestro_markup"), promo.get("markup_sell_in_out"))
+        markup, baseline_markup = markups_comparables(candidato, vigente)
         if not es_mejor_oferta(price, markup, baseline_price, baseline_markup):
             continue
         assert price is not None

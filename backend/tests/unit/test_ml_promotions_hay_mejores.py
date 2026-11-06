@@ -199,7 +199,8 @@ class TestListarMejoresBaselineWiring:
         monkeypatch.setattr(hay_mejores, "markups_baseline_vigente", _baseline)
         monkeypatch.setattr(hay_mejores, "enriquecer_markup_por_promo", lambda *_a, **_k: [])
         raw = [{"id": "P-LIVE", "type": "PRICE_MATCHING", "status": "started", "price": 1000}]
-        listar_mejores_candidatas(MagicMock(), "MLA9", [], 1000.0, raw_promotions=raw)
+        candidata = {"id": "P-C", "type": "SMART", "status": "candidate", "price": 900.0}
+        listar_mejores_candidatas(MagicMock(), "MLA9", [candidata], 1000.0, raw_promotions=raw)
         assert seen == {"mla": "MLA9", "price": 1000.0, "raw": raw}
 
     def test_cofunded_baseline_suppresses_candidate_that_beats_plain_sale(self, monkeypatch) -> None:
@@ -302,8 +303,8 @@ class TestActualizarForwardsRawPromotions:
 
 
 class TestRankingConSellInOut:
-    """S5 (owner: "va a tener que usar el sell in sell out"): the comparison markup is `markup_sell_in_out` when
-    non-null, else `nuestro_markup`, on both sides: the status quo price and each candidate."""
+    """S5 (owner: "va a tener que usar el sell in sell out"): a candidate and the status quo are compared by their
+    `markup_sell_in_out` when BOTH have one, else both by `nuestro_markup`: always the same basis on both sides."""
 
     BATCH = object()
 
@@ -337,19 +338,28 @@ class TestRankingConSellInOut:
 
         assert mejores == [("B", 900.0)]
 
-    def test_a_candidate_without_sell_in_out_compares_its_plain_markup(self, monkeypatch) -> None:
-        self._wire(monkeypatch, MarkupsDePrecio(9.0, 12.0), {"A": (13.0, None), "B": (11.0, None)})
+    def test_a_candidate_without_sell_in_out_is_compared_plain_on_both_sides(self, monkeypatch) -> None:
+        # The status quo has sell in / sell out (12) but A's and B's could not be computed: plain against plain 9.
+        self._wire(monkeypatch, MarkupsDePrecio(9.0, 12.0), {"A": (10.0, None), "B": (8.0, None)})
 
         mejores = listar_mejores_candidatas(MagicMock(), "MLA1", self._candidatas("A", "B"), 1000.0)
 
-        assert mejores == [("A", 900.0)]  # 13 >= 12; 11 < 12
+        assert mejores == [("A", 900.0)]  # 10 >= 9; 8 < 9 (never 10 against 12)
 
-    def test_a_status_quo_without_sell_in_out_compares_its_plain_markup(self, monkeypatch) -> None:
-        self._wire(monkeypatch, MarkupsDePrecio(9.0, None), {"A": (8.0, 10.0), "B": (8.5, None)})
+    def test_a_status_quo_without_sell_in_out_compares_every_candidate_plain(self, monkeypatch) -> None:
+        self._wire(monkeypatch, MarkupsDePrecio(9.0, None), {"A": (9.5, 7.0), "B": (8.5, 20.0)})
 
         mejores = listar_mejores_candidatas(MagicMock(), "MLA1", self._candidatas("A", "B"), 1000.0)
 
-        assert mejores == [("A", 900.0)]  # 10 >= 9; 8.5 < 9
+        assert mejores == [("A", 900.0)]  # 9.5 >= 9; 8.5 < 9 (B's 20 is never compared against a plain 9)
+
+    def test_each_candidate_picks_its_own_basis(self, monkeypatch) -> None:
+        # A has sell in / sell out (11 < 12: not better); B has none (10 >= 9: better, plain against plain).
+        self._wire(monkeypatch, MarkupsDePrecio(9.0, 12.0), {"A": (10.0, 11.0), "B": (10.0, None)})
+
+        mejores = listar_mejores_candidatas(MagicMock(), "MLA1", self._candidatas("A", "B"), 1000.0)
+
+        assert mejores == [("B", 900.0)]
 
     def test_without_any_status_quo_markup_nothing_is_better(self, monkeypatch) -> None:
         self._wire(monkeypatch, MarkupsDePrecio(None, None), {"A": (50.0, 60.0)})
@@ -377,3 +387,25 @@ class TestRankingConSellInOut:
 
         assert seen["baseline_batch"] is dado
         assert seen["enrich"] == [(True, dado)]
+
+    def test_a_failed_shared_read_is_not_retried_per_side(self, monkeypatch) -> None:
+        # The one read fails (None): both sides get the same empty read, so neither re-reads on its own.
+        seen = self._wire(monkeypatch, MarkupsDePrecio(9.0, None), {"A": (10.0, None)})
+        monkeypatch.setattr(hay_mejores, "resolver_sell_in_out_para_mlas", lambda _db, _mlas: None)
+
+        mejores = listar_mejores_candidatas(MagicMock(), "MLA1", self._candidatas("A"), 1000.0)
+
+        assert mejores == [("A", 900.0)]
+        assert seen["baseline_batch"] is not None
+        assert seen["enrich"] == [(True, seen["baseline_batch"])]
+
+    def test_nothing_is_read_without_candidates(self, monkeypatch) -> None:
+        seen = self._wire(monkeypatch, MarkupsDePrecio(9.0, 12.0), {})
+        monkeypatch.setattr(
+            hay_mejores,
+            "resolver_sell_in_out_para_mlas",
+            lambda *_a: (_ for _ in ()).throw(AssertionError("read without candidates")),
+        )
+
+        assert listar_mejores_candidatas(MagicMock(), "MLA1", [], 1000.0) == []
+        assert "baseline_batch" not in seen and seen["enrich"] == []

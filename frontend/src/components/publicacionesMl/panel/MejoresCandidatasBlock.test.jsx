@@ -147,6 +147,29 @@ describe('MejoresCandidatasBlock', () => {
     expect(screen.queryByRole('group', { name: 'Promo sugerida SMART' })).not.toBeInTheDocument();
   });
 
+  it('compares a candidate without sell in / sell out plain against the plain vigente markup', async () => {
+    promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { nuestro_markup: 0.35, markup_sell_in_out: 3.2 } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            status: 'candidate',
+            promotion_type: 'SMART',
+            promotion_id: 'P-MLA2',
+            price: 200000,
+            nuestro_markup: 1.5,
+            markup_sell_in_out: null,
+            name: 'Oferta ok',
+          },
+        ],
+      },
+    });
+    render(<MejoresCandidatasBlock itemId="MLA2" baselinePrice={218299} />);
+
+    // 1,5% >= 0,35% (never 1,5% against the 3,20% with sell in / sell out).
+    expect(await screen.findByRole('group', { name: 'Promo sugerida SMART' })).toBeInTheDocument();
+  });
+
   it('uses cofunded started markup as vigente and does not call getMarkupParaPrecio', async () => {
     promocionesAPI.getPromocionesItem.mockResolvedValue({
       data: {
