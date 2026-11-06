@@ -24,10 +24,11 @@ const WRITABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART', 'PRE_NEGOTIA
 // Ofertas relámpago: the operator sets the price and the stock to reserve.
 const LIGHTNING = 'LIGHTNING';
 
-// Default LIGHTNING price: ML's `price` clamped to its [min, max] (ML's own price can sit
-// above its max, MLA3854324204 on 2026-11-06). With no max only the min applies.
+// Default LIGHTNING price: ML's `suggested_discounted_price` (`price` is not the lightning
+// suggestion: on MLA1506729443 it was the SMART candidate's price, 2026-11-06). Rows without a
+// suggestion fall back to `price`. Clamped to [min, max] only as a guard; with no max, only the min.
 function lightningDefaultPrice(promotion) {
-  const price = Number(promotion.price);
+  const price = Number(promotion.suggested_discounted_price ?? promotion.price);
   if (!(price > 0)) return '';
   const { min_discounted_price: min, max_discounted_price: max } = promotion;
   if (max != null && price > max) return max;
@@ -246,10 +247,10 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded }) {
   const needsStock = isLightning && !isEnrolled;
   const stockValid =
     stockRange != null && /^\d+$/.test(String(stock)) && Number(stock) >= stockRange.min && Number(stock) <= stockRange.max;
-  // The backend validates against the live [min, max] and refuses when ML sends no ceiling
-  // (MLA1865080493 on 2026-11-06), so the submit stays blocked here instead of failing there.
-  const lightningRangeMissing = needsStock && !isRangeType;
-  const lightningBlocked = needsStock && (!stockValid || lightningRangeMissing);
+  // A stored row without a max (MLA1865080493 came from another listing, 2026-11-06) does not decide:
+  // the backend re-reads the live entry and refuses only if that one has no max either.
+  const lightningMaxUnknown = needsStock && promotion.max_discounted_price == null;
+  const lightningBlocked = needsStock && !stockValid;
 
   if (isLightning && promotion.status === 'started') {
     return (
@@ -489,10 +490,8 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded }) {
                   : `Precio fuera de rango (mínimo $${promotion.min_discounted_price}).`}
               </span>
             )}
-            {lightningRangeMissing && (
-              <span className={styles.feedbackError}>
-                ML no informa el precio máximo de esta oferta relámpago; no se puede aplicar.
-              </span>
+            {lightningMaxUnknown && (
+              <span className={styles.priceMarkup}>ML no informó el precio máximo; se confirma con ML al aplicar.</span>
             )}
           </span>
         )}

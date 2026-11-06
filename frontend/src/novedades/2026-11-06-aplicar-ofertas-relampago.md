@@ -6,7 +6,7 @@
 
 Las ofertas relámpago (**LIGHTNING**) de Mercado Libre ahora se pueden aplicar desde la pestaña **Promos** del panel de una publicación, con el precio y el stock a reservar.
 
-- El precio viene con el precio de la oferta que informa Mercado Libre; si se pasa del máximo permitido, viene con el máximo (y si queda por debajo del mínimo, con el mínimo).
+- El precio viene con el precio sugerido por Mercado Libre para la oferta relámpago, siempre dentro del mínimo y el máximo permitidos.
 - El markup se actualiza mientras se escribe el precio.
 - Una vez que la oferta empieza no se puede quitar (solo pausando la publicación) y termina cuando se vende el stock reservado.
 

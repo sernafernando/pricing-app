@@ -50,37 +50,54 @@ describe('PromoApplyControl — LIGHTNING', () => {
     expect(screen.queryByText(/lo maneja ml/i)).not.toBeInTheDocument();
   });
 
-  it('defaults the price to ML price when it is inside the range (MLA4161234030)', async () => {
+  // `price` is not the lightning suggestion (MLA1506729443 price 57920.55 is the SMART candidate's):
+  // the default is `suggested_discounted_price`, clamped to [min, max] only as a guard.
+  it.each([
+    ['MLA4161234030', 24073.36],
+    ['MLA3854324204', 13496.3],
+    ['MLA1506729443', 73558.15],
+  ])('defaults the price to ML suggested_discounted_price (%s -> %s)', async (mla, expected) => {
     const user = userEvent.setup({ delay: null });
-    await openConfirm(user, row('MLA4161234030'));
+    await openConfirm(user, row(mla));
 
-    expect(screen.getByLabelText(/^precio/i)).toHaveValue(23280);
+    expect(screen.getByLabelText(/^precio/i)).toHaveValue(expected);
   });
 
-  it('clamps the default to the max when ML price is above it (MLA3854324204: 14631.58 -> 14290.2)', async () => {
+  it('clamps a suggested price above the max to the max (guard)', async () => {
     const user = userEvent.setup({ delay: null });
-    await openConfirm(user, row('MLA3854324204'));
+    await openConfirm(user, row('MLA4161234030', { suggested_discounted_price: 30000 }));
 
-    expect(screen.getByLabelText(/^precio/i)).toHaveValue(14290.2);
+    expect(screen.getByLabelText(/^precio/i)).toHaveValue(25489.44);
   });
 
-  it('clamps the default to the min when ML price is below it', async () => {
+  it('clamps a suggested price below the min to the min (guard)', async () => {
     const user = userEvent.setup({ delay: null });
-    await openConfirm(user, row('MLA4161234030', { price: 5000 }));
+    await openConfirm(user, row('MLA4161234030', { suggested_discounted_price: 5000 }));
 
     expect(screen.getByLabelText(/^precio/i)).toHaveValue(5664.32);
   });
 
-  it('keeps ML price as default when max is null but blocks the submit the backend would refuse (MLA1865080493)', async () => {
+  it('leaves the max to the live read when the stored row has none (MLA1865080493)', async () => {
     const user = userEvent.setup({ delay: null });
+    promocionesAPI.postPromocionItem.mockResolvedValue({ data: { submitted: true, status: 'submitted' } });
     await openConfirm(user, row('MLA1865080493'));
 
+    // No suggested_discounted_price in this row: ML's price is the only reference.
     expect(screen.getByLabelText(/^precio/i)).toHaveValue(23818.35);
     expect(
-      screen.getByText('ML no informa el precio máximo de esta oferta relámpago; no se puede aplicar.'),
+      screen.getByText('ML no informó el precio máximo; se confirma con ML al aplicar.'),
     ).toBeInTheDocument();
     await user.type(screen.getByLabelText(/^stock a reservar/i), '6');
-    expect(screen.getByRole('button', { name: /sí, aplicar/i })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+
+    await waitFor(() =>
+      expect(promocionesAPI.postPromocionItem).toHaveBeenCalledWith('MLA1865080493', {
+        promotion_id: 'LGH-MLA1000',
+        promotion_type: 'LIGHTNING',
+        deal_price: 23818.35,
+        stock: 6,
+      }),
+    );
   });
 
   it('asks for the stock to reserve within ML range and keeps Aplicar disabled until it is valid', async () => {
@@ -112,7 +129,7 @@ describe('PromoApplyControl — LIGHTNING', () => {
       expect(promocionesAPI.postPromocionItem).toHaveBeenCalledWith('MLA4161234030', {
         promotion_id: 'LGH-MLA1000',
         promotion_type: 'LIGHTNING',
-        deal_price: 23280,
+        deal_price: 24073.36,
         stock: 6,
       }),
     );
