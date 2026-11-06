@@ -15,7 +15,7 @@ import SellIn from '../../pages/SellIn';
 import { sellInAPI, sellInBonosAPI } from '../../services/sellInAPI';
 import { BONOS_LISTA, LISTA, RESUMEN } from '../../components/sellIn/sellInFixtures';
 import { sellOutAPI, sellOutProgramasAPI } from '../../services/sellOutAPI';
-import { CAMPANAS_LISTA, PROGRAMAS_VACIO } from '../../components/sellOut/sellOutFixtures';
+import { CAMPANA_MIGRADA, CAMPANAS_LISTA, CONSUMOS_USD, PROGRAMAS_VACIO } from '../../components/sellOut/sellOutFixtures';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
 import { TACTICAL_BPS, TACTICAL_REBATE, lineaDeProducto, pagina } from '../../components/tacticals/tacticalsFixtures';
 
@@ -39,7 +39,7 @@ vi.mock('../../services/sellInAPI', () => ({
 }));
 
 vi.mock('../../services/sellOutAPI', () => ({
-  sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), grupos: vi.fn(), porPrograma: vi.fn() },
+  sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), grupos: vi.fn(), porPrograma: vi.fn(), consumos: vi.fn() },
   sellOutProgramasAPI: { listar: vi.fn(), sugerencias: vi.fn() },
 }));
 
@@ -183,5 +183,27 @@ describe.each([
     expect(caja.top).toBeGreaterThanOrEqual(0);
     expect(caja.bottom).toBeLessThanOrEqual(height + 0.5);
     if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/tacticals-anular-${theme}-${width}.png` });
+  });
+
+  it("opens a line's campaign beside the list with its sales, from Ver ventas", async () => {
+    await page.viewport(width, height);
+    setTheme(theme);
+    document.body.style.background = 'var(--cf-bg-app)';
+    sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MIGRADA });
+    sellOutAPI.consumos.mockResolvedValue({ data: CONSUMOS_USD });
+    const screen = await render(
+      <MemoryRouter initialEntries={['/sell-in?tab=tacticals']}>
+        <Shell>
+          <SellIn />
+        </Shell>
+      </MemoryRouter>,
+    );
+
+    await screen.getByRole('button', { name: `Ver las líneas de ${TACTICAL_BPS.nombre}` }).click();
+    await screen.getByRole('button', { name: 'Ver ventas de la línea 1' }).click();
+    const panel = screen.getByRole('complementary', { name: 'Campaña de sell out' });
+    await expect.element(panel).toBeVisible();
+    await expect.element(panel.getByRole('heading', { name: CAMPANA_MIGRADA.nombre })).toBeVisible();
+    if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/tacticals-ver-ventas-${theme}-${width}.png` });
   });
 });

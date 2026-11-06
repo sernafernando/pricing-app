@@ -215,3 +215,18 @@
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
+
+.verVentas {
+  padding: 2px 0;
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--cf-accent-blue);
+  white-space: nowrap;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.verVentas:hover {
+  text-decoration: underline;
+}

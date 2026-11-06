@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
 import { apiErrorMessage } from '../../utils/apiErrorMessage';
 import { useFocoAtrapado } from '../sellOut/useFocoAtrapado';
-import styles from './TacticalEditar.module.css';
+import styles from './tacticalDialogos.module.css';
 
 /** What voiding reverses, per kind (the old campaign / bonus / purchase texts). */
 const REVIERTE = {

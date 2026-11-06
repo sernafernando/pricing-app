@@ -56,6 +56,8 @@ function notaGeneradas(anulables, generadas) {
 }
 
 const REVIERTE_BONOS = 'Después se anulan las compras que generó cada bono, y un bono sobre el costo deja de aplicarse a sus ventas.';
+/** The panel a tactical line's record opens in, by the line's `origen`. */
+const PANEL_DE_ORIGEN = { sell_out_campana: 'campana', sell_in_bono: 'bono', sell_in_compra: 'detalle' };
 const PANEL_LABELS = { detalle: 'Detalle del sell in', bono: 'Bono de marca', campana: 'Campaña de sell out', producto: 'Costo de sell in' };
 const APLICA_LABELS = { si: 'Aplican', no: 'No aplican' };
 const EMPTY_FILTERS = { aplica: 'si', q: '', marcas: [], moneda: '', estado: '', desde: '', hasta: '', filtro: '', producto: null, proveedor: null };
@@ -312,6 +314,12 @@ export default function SellIn() {
   const verBono = useCallback((id) => setPanel({ tipo: 'bono', id }), []);
   const verCompra = useCallback((id) => setPanel({ tipo: 'detalle', id }), []);
   const verCampana = useCallback((id) => setPanel({ tipo: 'campana', id }), []);
+  // A tactical line's "Ver ventas": its child record (campaign, bonus or purchase) in the panel.
+  // An unknown `origen` opens nothing: its id belongs to no record these panels read.
+  const verLinea = useCallback((linea) => {
+    const tipo = PANEL_DE_ORIGEN[linea.origen];
+    if (tipo) setPanel({ tipo, id: linea.id });
+  }, []);
   // A row's "Renovar" (`sell_out.gestionar`): the campaign's panel, renewing it as soon as it is read. A new `renovar`
   // count remounts the panel, so a second click on the same row renews again.
   const renovaciones = useRef(0);
@@ -527,6 +535,8 @@ export default function SellIn() {
     campanas.recargar();
     setVersionPagina((v) => v + 1);
   };
+  // From Tacticals a record opens read only: a child is changed only with its tactical (Editar / Anular).
+  const soloLectura = tab === TAB_TACTICALS;
   // Nuevo tactical asks only the kind's gestionar, so its button does too.
   const puedeCrearTactical = puedeGestionar || tienePermiso('sell_out.gestionar');
 
@@ -647,7 +657,7 @@ export default function SellIn() {
               key={`bono-${panel.id}`}
               bonoId={panel.id}
               marcas={marcas}
-              puedeGestionar={puedeGestionar}
+              puedeGestionar={puedeGestionar && !soloLectura}
               onSaved={() => {
                 bonos.recargar();
                 bonosVigentes.recargar();
@@ -668,7 +678,7 @@ export default function SellIn() {
               campanaId={panel.id}
               renovarAlAbrir={Boolean(panel.renovar)}
               grupos={gruposOffset}
-              puedeGestionar={puedeGestionarSellOut}
+              puedeGestionar={puedeGestionarSellOut && !soloLectura}
               onSaved={(campana) => {
                 if (campana.id !== panel.id) verCampana(campana.id); // a new one, or a renewal's copy
                 programasCambiaron(); // the list, and the groups and suggestions: a save may move any of them
@@ -679,7 +689,7 @@ export default function SellIn() {
             <SellInDetailPanel
               key={panel.id}
               compraId={panel.id}
-              puedeGestionar={puedeGestionar}
+              puedeGestionar={puedeGestionar && !soloLectura}
               onChanged={() => {
                 cargar();
                 bonosVigentes.recargar();
@@ -700,6 +710,7 @@ export default function SellIn() {
               puedeGestionar={(tipoTactical) => tienePermiso(`${tipoTactical}.gestionar`)}
               onRenovar={(t) => navigate(`/sell-in/tactical/nuevo?tipo=${t.tipo}&renovar=${t.id}`)}
               onCambio={actualizar}
+              onVerLinea={verLinea}
             />
           </div>
         ) : tab === TAB_PRODUCTOS ? (

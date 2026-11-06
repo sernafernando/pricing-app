@@ -340,3 +340,18 @@ describe('TacticalsList Anular', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 });
+
+describe('TacticalsList Ver ventas', () => {
+  it("hands each line's record to onVerLinea, and shows no button without it", async () => {
+    const onVerLinea = vi.fn();
+    const { unmount } = render(<TacticalsList marcas={MARCAS} onVerLinea={onVerLinea} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Ver las líneas de Tacticals BPS Noviembre Q1FY27' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Ver ventas de la línea 3' }));
+
+    expect(onVerLinea).toHaveBeenCalledWith(BPS.lineas[2]);
+    unmount();
+    render(<TacticalsList marcas={MARCAS} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Ver las líneas de Tacticals BPS Noviembre Q1FY27' }));
+    expect(screen.queryByRole('button', { name: /Ver ventas/ })).not.toBeInTheDocument();
+  });
+});
