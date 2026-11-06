@@ -1,0 +1,54 @@
+# /etc/cron.d/pricing-app-faltantes
+# Jobs that ran on the old host's crontab and were missing from /etc/cron.d/pricing-app (crontab_fixed.txt) after
+# the move to /srv/apps (2026-11-04). Install: cp /srv/apps/pricing-app/deploy/cron.d/pricing-app-faltantes /etc/cron.d/
+#
+# The container's clock is UTC: every HOUR below is Argentina time + 3 (06-21 ART = 9-23,0 UTC). TZ only sets the
+# scripts' environment. Same priority as the main file: nice + ionice so PostgreSQL and uvicorn win under load.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+TZ=America/Argentina/Buenos_Aires
+B=/srv/apps/pricing-app/backend
+PY=/srv/apps/pricing-app/backend/venv/bin/python
+L=/var/log/pricing-app
+N=nice -n 15 ionice -c2 -n7
+
+# --- Every few minutes, 06-21 ART ---
+*/5 9-23,0 * * * www-data cd $B && $N $PY -m app.scripts.sync_tipo_cambio >> $L/tipo-cambio.log 2>&1
+4,9,14,19,24,29,34,39,44,49,54,59 9-23,0 * * * www-data cd $B && $N $PY -m app.scripts.sync_item_serials --incremental >> $L/item_serials.log 2>&1
+6,16,26,36,46,56 9-23,0 * * * www-data cd $B && $N $PY -m app.scripts.sync_sale_order_times >> $L/sale_order_times.log 2>&1
+9,24,39,54 9-23,0 * * * www-data cd $B && $N $PY scripts/sync_tiendanube_orders.py >> $L/sync_tiendanube_orders.log 2>&1
+13,28,43,58 9-23,0 * * * www-data cd $B && $N $PY -m app.scripts.reconciliar_ml_cancelaciones --lookback-days 3 >> $L/ml_reconciliacion.log 2>&1
+*/5 9-23,0 * * * www-data flock -n /tmp/sync_sale_order_serials.lock -c "cd $B && $N $PY -m app.scripts.sync_sale_order_serials --incremental" >> $L/sale_order_serials.log 2>&1
+*/4 9-23,0 * * * www-data flock -n /tmp/sync_purchase_orders.lock -c "cd $B && $N $PY -m app.scripts.sync_purchase_orders_all" >> $L/purchase_orders.log 2>&1
+*/5 9-23,0 * * * www-data cd $B && $N $PY app/scripts/agregar_metricas_tplink_incremental.py >> $L/tplink_metricas_incremental.log 2>&1
+
+# --- Hourly, 06-21 ART ---
+45 9-23,0 * * * www-data cd $B && $N $PY -m app.scripts.sync_item_transaction_serials --incremental >> $L/item_transaction_serials.log 2>&1
+50 9-23,0 * * * www-data cd $B && $N $PY -m app.scripts.sync_rma_all --incremental >> $L/rma_sync.log 2>&1
+0 */2 * * * www-data cd $B && $N $PY -m app.scripts.sync_hikvision_fichadas >> $L/hikvision_sync.log 2>&1
+
+# --- Nightly (ART time in each comment) ---
+# 01:00 and 01:30 DB backups (pricing_db, then ml-webhook's DB)
+0 4 * * * www-data /srv/apps/pricing-app/scripts/db_backup.sh >> $L/db_backup.log 2>&1
+30 4 * * * www-data /srv/apps/pricing-app/scripts/db_backup.sh /srv/apps/ml-webhook/.env DATABASE_ADMIN_URL >> $L/db_backup_mlwebhook.log 2>&1
+# 02:40 / 02:50 serials full
+40 5 * * * www-data cd $B && $N $PY -m app.scripts.sync_sale_order_serials --full >> $L/sale_order_serials_full.log 2>&1
+50 5 * * * www-data cd $B && $N $PY -m app.scripts.sync_item_transaction_serials --full >> $L/item_transaction_serials_full.log 2>&1
+# 03:10 RMA full and purchase orders 30 days; 03:15 archived orders; 03:30 ML publications full
+10 6 * * * www-data cd $B && $N $PY -m app.scripts.sync_rma_all --full >> $L/rma_sync_full.log 2>&1
+10 6 * * * www-data cd $B && $N $PY -m app.scripts.sync_purchase_orders_all --days 30 >> $L/purchase_orders_backfill.log 2>&1
+15 6 * * * www-data cd $B && $N $PY -m app.scripts.sync_archived_orders >> $L/sync_archived_orders.log 2>&1
+30 6 * * * www-data cd $B && $N $PY -m app.scripts.sync_ml_publications_full >> $L/ml_publications_full.log 2>&1
+# 04:00 item taxes; 04:30 cancellations 90-day sweep
+0 7 * * * www-data cd $B && $N $PY -m app.scripts.sync_item_taxes >> $L/sync_item_taxes.log 2>&1
+30 7 * * * www-data cd $B && $N $PY -m app.scripts.reconciliar_ml_cancelaciones --lookback-days 90 >> $L/ml_reconciliacion_90d.log 2>&1
+# 05:10 TP-Link metrics 30 days; Sundays 04:10 TP-Link 90 days
+10 8 * * * www-data cd $B && $N $PY -m app.scripts.agregar_metricas_tplink --from-date $(date -d '30 days ago' +\%Y-\%m-\%d) >> $L/tplink_metricas_backfill_30d.log 2>&1
+10 7 * * 0 www-data cd $B && $N $PY -m app.scripts.agregar_metricas_tplink --from-date $(date -d '90 days ago' +\%Y-\%m-\%d) >> $L/tplink_metricas_backfill_90d.log 2>&1
+# 23:45 Flex shipments reprogrammer
+45 2 * * * www-data cd $B && $PY -m app.scripts.cron_reprogramar_envios_no_entregados >> $L/reprogramar_envios.log 2>&1
+
+# --- ml-webhook ---
+# 07:40, 13:40, 19:40 promotions backfill (before pricing's promo price sync at :00); 04:20 PxQ tiers sweep
+40 10,16,22 * * * www-data cd /srv/apps/ml-webhook && $N venv/bin/python -u backfill_promotions.py >> $L/ml_webhook_backfill_promos.log 2>&1
+20 7 * * * www-data cd /srv/apps/ml-webhook && venv/bin/python sweep_pxq_tiers.py --min-age-hours 20 >> $L/sweep-pxq-tiers.log 2>&1
