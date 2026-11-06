@@ -24,11 +24,11 @@ const WRITABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART', 'PRE_NEGOTIA
 // Ofertas relámpago: the operator sets the price and the stock to reserve.
 const LIGHTNING = 'LIGHTNING';
 
-// Default LIGHTNING price: ML's `suggested_discounted_price` (`price` is not the lightning
-// suggestion: on MLA1506729443 it was the SMART candidate's price, 2026-11-06). Rows without a
-// suggestion fall back to `price`. Clamped to [min, max] only as a guard; with no max, only the min.
+// Default LIGHTNING price: the price its row shows (promoDisplayPrice: a candidate's
+// `suggested_discounted_price` within [min, max], else `price`). Clamped to [min, max] again
+// only as a guard; with no max, only the min.
 function lightningDefaultPrice(promotion) {
-  const price = Number(promotion.suggested_discounted_price ?? promotion.price);
+  const price = Number(promoDisplayPrice(promotion));
   if (!(price > 0)) return '';
   const { min_discounted_price: min, max_discounted_price: max } = promotion;
   if (max != null && price > max) return max;

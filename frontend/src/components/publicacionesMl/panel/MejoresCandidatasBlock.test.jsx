@@ -99,6 +99,45 @@ describe('MejoresCandidatasBlock', () => {
     expect(promocionesAPI.getMarkupParaPrecio).not.toHaveBeenCalled();
   });
 
+  describe('when the candidates are unavailable', () => {
+    it('keeps a notice with Descartar sugerencia when the candidates fail to load', async () => {
+      const user = userEvent.setup();
+      const onUnavailable = vi.fn();
+      const onDismissed = vi.fn();
+      const onWritten = vi.fn();
+      promocionesAPI.getPromocionesItem.mockRejectedValue(new Error('boom'));
+      promocionesAPI.descartarHayMejores.mockResolvedValue({ data: {} });
+      render(
+        <MejoresCandidatasBlock
+          itemId="MLA5"
+          baselinePrice={1000}
+          onUnavailable={onUnavailable}
+          onDismissed={onDismissed}
+          onWritten={onWritten}
+        />,
+      );
+      const region = await screen.findByRole('region', { name: 'Candidatas mejores' });
+      expect(await within(region).findByText('Hay candidatas mejores que el precio vigente en MeLi.')).toBeInTheDocument();
+      expect(within(region).getByText('No se pudieron cargar las candidatas.')).toBeInTheDocument();
+      expect(onUnavailable).toHaveBeenCalledTimes(1);
+      await user.click(within(region).getByRole('button', { name: 'Descartar sugerencia' }));
+      expect(promocionesAPI.descartarHayMejores).toHaveBeenCalledWith('MLA5');
+      await waitFor(() => expect(onDismissed).toHaveBeenCalledTimes(1));
+      expect(onWritten).toHaveBeenCalled();
+    });
+
+    it('keeps the notice with Descartar sugerencia when the baseline markup is missing', async () => {
+      const onUnavailable = vi.fn();
+      promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+      promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { nuestro_markup: null } });
+      render(<MejoresCandidatasBlock itemId="MLA6" baselinePrice={1000} onUnavailable={onUnavailable} />);
+      expect(await screen.findByText('Hay candidatas mejores que el precio vigente en MeLi.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Descartar sugerencia' })).toBeInTheDocument();
+      expect(screen.queryByText(/No hay candidatas SMART/)).not.toBeInTheDocument();
+      expect(onUnavailable).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('Aplicar sugerencia', () => {
     const smart = {
       status: 'candidate',
@@ -166,6 +205,54 @@ describe('MejoresCandidatasBlock', () => {
       await user.click(screen.getByRole('button', { name: 'Sí, aplicar' }));
       expect(await screen.findByText(/ML cambió el precio/)).toBeInTheDocument();
       expect(onLeavePub).not.toHaveBeenCalled();
+    });
+
+    it('outside MODO, a clean apply reloads the candidates so the applied promo drops out', async () => {
+      const user = userEvent.setup();
+      const onWritten = vi.fn();
+      promocionesAPI.getPromocionesItem
+        .mockResolvedValueOnce({ data: { promotions: [smart] } })
+        .mockResolvedValueOnce({ data: { promotions: [] } });
+      promocionesAPI.postPromocionItem.mockResolvedValue({ data: { status: 'submitted', precio_difiere: false } });
+      render(<MejoresCandidatasBlock itemId="MLA9" baselinePrice={59999} onWritten={onWritten} />);
+      await user.click(await screen.findByRole('button', { name: 'Aplicar sugerencia' }));
+      await user.click(screen.getByRole('button', { name: 'Sí, aplicar' }));
+      expect(await screen.findByText(/No hay candidatas SMART \/ DEAL \/ Premium/)).toBeInTheDocument();
+      expect(screen.queryByRole('group', { name: 'Promo sugerida SMART' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Descartar sugerencia/ })).toBeInTheDocument();
+      expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(2);
+      expect(onWritten).toHaveBeenCalled();
+    });
+
+    it('keeps the pub open and shows the warning when ML applied another price (precio_difiere)', async () => {
+      const user = userEvent.setup();
+      const onLeavePub = vi.fn();
+      promocionesAPI.postPromocionItem.mockResolvedValue({
+        data: {
+          status: 'submitted',
+          precio_difiere: true,
+          precio_aplicado: 58500,
+          precio_confirmado: 57920.55,
+          markup_aplicado: -27.5,
+        },
+      });
+      render(<MejoresCandidatasBlock itemId="MLA9" baselinePrice={59999} onLeavePub={onLeavePub} />);
+      await user.click(await screen.findByRole('button', { name: 'Aplicar sugerencia' }));
+      await user.click(screen.getByRole('button', { name: 'Sí, aplicar' }));
+      expect(await screen.findByRole('alert')).toHaveTextContent(/ML aplicó \$\s?58\.500/);
+      expect(onLeavePub).not.toHaveBeenCalled();
+      expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(1);
+    });
+
+    it('in MODO, a reconciled apply leaves the pub', async () => {
+      const user = userEvent.setup();
+      const onLeavePub = vi.fn();
+      promocionesAPI.postPromocionItem.mockResolvedValue({ data: { status: 'reconciled_applied' } });
+      render(<MejoresCandidatasBlock itemId="MLA9" baselinePrice={59999} onLeavePub={onLeavePub} />);
+      await user.click(await screen.findByRole('button', { name: 'Aplicar sugerencia' }));
+      await user.click(screen.getByRole('button', { name: 'Sí, aplicar' }));
+      await waitFor(() => expect(onLeavePub).toHaveBeenCalledTimes(1));
+      expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(1);
     });
 
     it('never leaves the pub when the apply could not be verified', async () => {

@@ -737,6 +737,19 @@ describe('hay_mejores chooser outside MODO', () => {
     expect(screen.getByRole('tablist', { name: 'Secciones de la publicación' })).toBeInTheDocument();
   });
 
+  it('keeps a notice with Descartar when the candidates are unavailable, so the flag can still be discarded', async () => {
+    const user = userEvent.setup();
+    promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { nuestro_markup: null } });
+    publicacionesMlAPI.detail.mockResolvedValue({ data: flaggedDetail() });
+    renderPanel({ tab: 'resumen' });
+    const region = await screen.findByRole('region', { name: 'Candidatas mejores' });
+    expect(await within(region).findByText('Hay candidatas mejores que el precio vigente en MeLi.')).toBeInTheDocument();
+    expect(screen.getByRole('tablist', { name: 'Secciones de la publicación' })).toBeInTheDocument();
+    await user.click(within(region).getByRole('button', { name: 'Descartar sugerencia' }));
+    await waitFor(() => expect(promocionesAPI.descartarHayMejores).toHaveBeenCalledWith('MLA1100000001'));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Candidatas mejores' })).not.toBeInTheDocument());
+  });
+
   describe('with a suggested SMART', () => {
     const smart = {
       promotion_id: 'P-SUG',

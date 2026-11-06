@@ -72,6 +72,29 @@ describe('pickPonerPreciosPromos', () => {
     });
   });
 
+  it('clamps the enroll price with each bound ML sends, like the row display', () => {
+    expect(
+      enrollBodyForPromo({ promotion_id: 'P-D', promotion_type: 'DEAL', price: 100, max_discounted_price: 90 }),
+    ).toEqual({ promotion_id: 'P-D', promotion_type: 'DEAL', deal_price: 90 });
+    expect(
+      enrollBodyForPromo({
+        promotion_id: 'P-S',
+        promotion_type: 'SELLER_CAMPAIGN',
+        suggested_discounted_price: 50,
+        min_discounted_price: 60,
+      }),
+    ).toEqual({ promotion_id: 'P-S', promotion_type: 'SELLER_CAMPAIGN', deal_price: 60 });
+    expect(
+      enrollBodyForPromo({
+        promotion_id: 'P-S',
+        promotion_type: 'SELLER_CAMPAIGN',
+        suggested_discounted_price: 70,
+        min_discounted_price: 60,
+        max_discounted_price: 65,
+      }),
+    ).toEqual({ promotion_id: 'P-S', promotion_type: 'SELLER_CAMPAIGN', deal_price: 65 });
+  });
+
   it('maps pricelist ids to Lista ML rows', () => {
     expect(listRowForPricelist(4, LISTS)?.id).toBe('ml-clasica');
     expect(listRowForPricelist(17, LISTS)?.id).toBe('ml-3');
