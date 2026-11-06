@@ -82,19 +82,21 @@ def _fake_live_item_promotions(
     min_price: float = 850.0,
     max_price: float = 950.0,
     suggested: float = 900.0,
+    status: str | None = None,
 ) -> list:
     """Real shape of ml_webhook_client.get_item_promotions: a BARE LIST,
     each entry keyed by `id` (not `promotion_id`, not wrapped in
-    `{"promotions": [...]}`)."""
-    return [
-        {
-            "id": promotion_id,
-            "type": promotion_type,
-            "min_discounted_price": min_price,
-            "max_discounted_price": max_price,
-            "suggested_discounted_price": suggested,
-        }
-    ]
+    `{"promotions": [...]}`). `status` is left out unless given."""
+    entry = {
+        "id": promotion_id,
+        "type": promotion_type,
+        "min_discounted_price": min_price,
+        "max_discounted_price": max_price,
+        "suggested_discounted_price": suggested,
+    }
+    if status is not None:
+        entry["status"] = status
+    return [entry]
 
 
 class TestKillSwitch:
@@ -442,6 +444,7 @@ def _fake_live_smart_promotions(
     promotion_id: str = "P-MLA1",
     ref_id: str = "CANDIDATE-MLA1-1",
     price: float = 900.0,
+    status: str = "candidate",
 ) -> list:
     """Real shape: bare list, entry keyed by `id`."""
     return [
@@ -450,7 +453,7 @@ def _fake_live_smart_promotions(
             "type": "SMART",
             "ref_id": ref_id,
             "price": price,
-            "status": "candidate",
+            "status": status,
         }
     ]
 
@@ -796,7 +799,8 @@ class TestAmbiguousReconciliation:
             patch.object(
                 write_service.ml_webhook_client,
                 "get_item_promotions",
-                return_value=_fake_live_item_promotions(),
+                # Pre-write read, then the fresh reconciliation read: still only a candidate.
+                side_effect=[_fake_live_item_promotions(), _fake_live_item_promotions(status="candidate")],
             ),
             patch.object(
                 write_service.ml_webhook_client,
@@ -853,12 +857,17 @@ class TestAmbiguousReconciliation:
 
     def test_remove_5xx_row_absent_after_ambiguous_delete_means_applied(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """DELETE reconciliation is direction-dependent: for a `remove`, the
-        row being ABSENT after an ambiguous DELETE means the removal DID
-        take effect (the item is no longer discounted) -> reconciled_applied.
-        This is the OPPOSITE of enroll's mapping."""
+        row being ABSENT proves nothing on its own, so the fresh live read
+        decides: the item is back to `candidate`, the removal DID take effect
+        -> reconciled_applied. This is the OPPOSITE of enroll's mapping."""
         monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
 
         with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "get_item_promotions",
+                return_value=_fake_live_item_promotions(status="candidate"),
+            ),
             patch.object(
                 write_service.ml_webhook_client,
                 "remove_item",
@@ -876,10 +885,15 @@ class TestAmbiguousReconciliation:
     ) -> None:
         """Mirror case: the row is still status='started' (still actively
         enrolled) after an ambiguous DELETE -> the removal did NOT take
-        effect -> reconciled_not_applied."""
+        effect, and the fresh live read confirms it -> reconciled_not_applied."""
         monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
 
         with (
+            patch.object(
+                write_service.ml_webhook_client,
+                "get_item_promotions",
+                return_value=_fake_live_item_promotions(status="started"),
+            ),
             patch.object(
                 write_service.ml_webhook_client,
                 "remove_item",
@@ -987,7 +1001,9 @@ class TestSmartAmbiguousReconciliation:
             patch.object(
                 write_service.ml_webhook_client,
                 "get_item_promotions",
-                return_value=_fake_live_smart_promotions(promotion_id="P-MLA1", ref_id="OFFER-MLA1-1"),
+                return_value=_fake_live_smart_promotions(
+                    promotion_id="P-MLA1", ref_id="OFFER-MLA1-1", status="started"
+                ),
             ),
             patch.object(
                 write_service.ml_webhook_client,
@@ -1040,7 +1056,8 @@ class TestSmartAmbiguousReconciliation:
             patch.object(
                 write_service.ml_webhook_client,
                 "get_item_promotions",
-                return_value=_fake_live_item_promotions(),
+                # Pre-write read, then the fresh reconciliation read: still only a candidate.
+                side_effect=[_fake_live_item_promotions(), _fake_live_item_promotions(status="candidate")],
             ),
             patch.object(
                 write_service.ml_webhook_client,
@@ -1093,7 +1110,9 @@ class TestSmartOfferIdAuditLogging:
                 patch.object(
                     write_service.ml_webhook_client,
                     "get_item_promotions",
-                    return_value=_fake_live_smart_promotions(promotion_id="P-MLA1", ref_id="OFFER-MLA1-1"),
+                    return_value=_fake_live_smart_promotions(
+                        promotion_id="P-MLA1", ref_id="OFFER-MLA1-1", status="started"
+                    ),
                 ),
                 patch.object(
                     write_service.ml_webhook_client,
@@ -1115,6 +1134,7 @@ def _fake_live_pre_negotiated_promotions(
     promotion_id: str = "PN-MLA1",
     ref_id: str = "CANDIDATE-MLA1-1",
     price: float = 900.0,
+    status: str = "candidate",
 ) -> list:
     """Real shape: bare list, entry keyed by `id`."""
     return [
@@ -1123,7 +1143,7 @@ def _fake_live_pre_negotiated_promotions(
             "type": "PRE_NEGOTIATED",
             "ref_id": ref_id,
             "price": price,
-            "status": "candidate",
+            "status": status,
         }
     ]
 
@@ -1373,7 +1393,9 @@ class TestPreNegotiatedAmbiguousReconciliation:
             patch.object(
                 write_service.ml_webhook_client,
                 "get_item_promotions",
-                return_value=_fake_live_pre_negotiated_promotions(promotion_id="PN-MLA1", ref_id="OFFER-MLA1-1"),
+                return_value=_fake_live_pre_negotiated_promotions(
+                    promotion_id="PN-MLA1", ref_id="OFFER-MLA1-1", status="started"
+                ),
             ),
             patch.object(
                 write_service.ml_webhook_client,
@@ -1727,7 +1749,7 @@ class TestRefreshHook:
     outcome. Trigger set is WIDER than the recompute trigger set — includes
     'ambiguous' (a truth-revealing refresh matters most there)."""
 
-    @pytest.mark.parametrize("status", ["submitted", "reconciled_applied", "ambiguous"])
+    @pytest.mark.parametrize("status", ["submitted", "reconciled_applied", "reconciled_not_applied", "ambiguous"])
     def test_fires_refresh_and_enqueue_exactly_once_for_trigger_statuses(self, status: str) -> None:
         with (
             patch.object(write_service.ml_webhook_client, "refresh_item_promotions", return_value=True) as mock_refresh,
@@ -1738,9 +1760,7 @@ class TestRefreshHook:
         mock_refresh.assert_called_once_with("MLA123456789")
         mock_enqueue.assert_called_once_with("MLA123456789")
 
-    @pytest.mark.parametrize(
-        "status", ["disabled", "rejected_out_of_range", "rejected_by_proxy", "reconciled_not_applied"]
-    )
+    @pytest.mark.parametrize("status", ["disabled", "rejected_out_of_range", "rejected_by_proxy"])
     def test_skips_non_trigger_statuses(self, status: str) -> None:
         with (
             patch.object(write_service.ml_webhook_client, "refresh_item_promotions") as mock_refresh,
@@ -1929,9 +1949,7 @@ class TestPublicationsRefreshEnqueue:
 
         self._assert_queued_once(mock_enqueue)
 
-    @pytest.mark.parametrize(
-        "status", ["disabled", "rejected_out_of_range", "rejected_by_proxy", "reconciled_not_applied"]
-    )
+    @pytest.mark.parametrize("status", ["disabled", "rejected_out_of_range", "rejected_by_proxy"])
     def test_outcome_outside_trigger_set_does_not_enqueue(self, status: str) -> None:
         with patch(self._QUEUE_ENQUEUE) as mock_enqueue:
             write_service._maybe_refresh_after_write("MLA123456789", {"status": status})
@@ -2017,14 +2035,26 @@ class TestWriteTookEffect:
 
 class TestReconcileEnrollFalseSuccess:
     """An ambiguous enroll whose promo the mirror still shows as `candidate` did NOT apply. Before P3 the row's mere
-    presence counted as applied, so the PM was told the promo was in when ML had not enrolled the item."""
+    presence counted as applied, so the PM was told the promo was in when ML had not enrolled the item. The mirror can
+    lag, so a negative mirror verdict is confirmed by a fresh live read before reporting it."""
+
+    @staticmethod
+    def _live(promotion_id: str, status: str):
+        return patch.object(
+            write_service.ml_webhook_client,
+            "get_item_promotions",
+            return_value=[{"id": promotion_id, "type": "DEAL", "status": status}],
+        )
 
     @pytest.mark.parametrize("mirror_status", ["candidate", "finished"])
     def test_enroll_row_present_but_not_enrolled_is_not_applied(self, mirror_status) -> None:
-        with patch.object(
-            write_service,
-            "fetch_item_promotions",
-            return_value=[{"mla": "MLA1610390994", "promotion_id": "C-MLA1669550", "status": mirror_status}],
+        with (
+            patch.object(
+                write_service,
+                "fetch_item_promotions",
+                return_value=[{"mla": "MLA1610390994", "promotion_id": "C-MLA1669550", "status": mirror_status}],
+            ),
+            self._live("C-MLA1669550", mirror_status),
         ):
             result = write_service.reconcile_write_outcome("MLA1610390994", "C-MLA1669550", "enroll")
 
@@ -2035,8 +2065,8 @@ class TestReconcileEnrollFalseSuccess:
         "row", [{"mla": "MLA1", "promotion_id": "C-1"}, {"mla": "MLA1", "promotion_id": "C-1", "status": None}]
     )
     def test_enroll_row_without_status_is_not_applied(self, row) -> None:
-        """A mirror row that says nothing about its status is no proof ML enrolled the item."""
-        with patch.object(write_service, "fetch_item_promotions", return_value=[row]):
+        """A mirror row that says nothing about its status is no proof ML enrolled the item; the fresh read decides."""
+        with patch.object(write_service, "fetch_item_promotions", return_value=[row]), self._live("C-1", "candidate"):
             result = write_service.reconcile_write_outcome("MLA1", "C-1", "enroll")
 
         assert result["status"] == "reconciled_not_applied"
@@ -2044,30 +2074,41 @@ class TestReconcileEnrollFalseSuccess:
     @pytest.mark.parametrize(("slow", "expected"), [(False, "reconciled_not_applied"), (True, "ambiguous")])
     def test_remove_still_pending_is_not_applied(self, slow, expected) -> None:
         """`pending` is enrolled-and-waiting: a remove whose item the mirror still shows pending did NOT apply."""
-        with patch.object(
-            write_service,
-            "fetch_item_promotions",
-            return_value=[{"mla": "MLA1", "promotion_id": "C-1", "status": "pending"}],
+        with (
+            patch.object(
+                write_service,
+                "fetch_item_promotions",
+                return_value=[{"mla": "MLA1", "promotion_id": "C-1", "status": "pending"}],
+            ),
+            self._live("C-1", "pending"),
         ):
             result = write_service.reconcile_write_outcome("MLA1", "C-1", "remove", slow_consistency=slow)
 
         assert result["status"] == expected
 
     def test_enroll_pending_is_applied(self) -> None:
-        with patch.object(
-            write_service,
-            "fetch_item_promotions",
-            return_value=[{"mla": "MLA1", "promotion_id": "C-1", "status": "pending"}],
+        """A mirror that proves the enroll is trusted without a second live read."""
+        with (
+            patch.object(
+                write_service,
+                "fetch_item_promotions",
+                return_value=[{"mla": "MLA1", "promotion_id": "C-1", "status": "pending"}],
+            ),
+            patch.object(write_service.ml_webhook_client, "get_item_promotions") as live,
         ):
             result = write_service.reconcile_write_outcome("MLA1", "C-1", "enroll")
 
+        live.assert_not_called()
         assert result["status"] == "reconciled_applied"
 
     def test_smart_enroll_still_candidate_is_ambiguous_not_applied(self) -> None:
-        with patch.object(
-            write_service,
-            "fetch_item_promotions",
-            return_value=[{"mla": "MLA1", "promotion_id": "P-1", "status": "candidate"}],
+        with (
+            patch.object(
+                write_service,
+                "fetch_item_promotions",
+                return_value=[{"mla": "MLA1", "promotion_id": "P-1", "status": "candidate"}],
+            ),
+            self._live("P-1", "candidate"),
         ):
             result = write_service.reconcile_write_outcome("MLA1", "P-1", "enroll", slow_consistency=True)
 
