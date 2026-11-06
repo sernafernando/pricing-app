@@ -12,3 +12,8 @@ MAX_EXPLICIT_PRODUCT_IDS = 10000
 # The most publications one bulk pause / activate may name (`view.status_targets`). Every one is a separate write to
 # ML through the proxy's throttle, so the bound is the time an operator waits, not a query limit.
 MAX_STATUS_ITEM_IDS = 500
+
+# Only a ceiling against abusive payloads of checked rows (`/status-item-ids/checked`), never the bulk cap: a "Todos"
+# page lists every publication that matches (~26k today, filas-sin-limite S1), so its header checkbox can check more
+# than any list page size, and the request must still reach the cap check that names the count.
+MAX_CHECKED_IDS = 100_000

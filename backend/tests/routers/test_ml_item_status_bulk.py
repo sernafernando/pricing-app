@@ -17,7 +17,7 @@ from sqlalchemy import event
 
 from app.routers import ml_item_status as status_router
 from app.services import ml_item_status_write_service as write_service
-from app.services.ml_publications.view import listing, status_targets
+from app.services.ml_publications.view import caps, status_targets
 from tests.routers.test_ml_publications_links import grant
 from tests.routers.test_ml_publications_view import VER, seed_rows
 from tests.routers.test_ml_publications_view_kpis import pg, view_pg  # noqa: F401
@@ -288,8 +288,18 @@ class TestCheckedStatusItemIds:
             "no_aplican": status_targets.MAX_STATUS_ITEM_IDS,
         }
 
-    def test_a_request_past_the_listing_ceiling_is_refused(self, client, three, allowed) -> None:
-        item_ids = [f"MLA{n}" for n in range(listing.MAX_LIMIT + 1)]
+    def test_a_todos_page_past_10000_rows_still_reaches_the_cap_check(self, client, three, allowed) -> None:
+        # "Todos" has no 9999 cap anymore (filas-sin-limite S1): a header checkbox can check ~26k loaded rows, and
+        # the operator still gets the count, never a schema error with no message.
+        item_ids = ["MLA1", *(f"MLA{900000 + n}" for n in range(26_000))]
+        assert checked(client, allowed, target="paused", item_ids=item_ids) == {
+            "item_ids": ["MLA1"],
+            "count": 1,
+            "no_aplican": 26_000,
+        }
+
+    def test_a_request_past_the_payload_ceiling_is_refused(self, client, three, allowed) -> None:
+        item_ids = [f"MLA{n}" for n in range(caps.MAX_CHECKED_IDS + 1)]
         assert (
             client.post(CHECKED_URL, headers=allowed, json={"target": "paused", "item_ids": item_ids}).status_code
             == 422

@@ -63,6 +63,13 @@ describe('Pagination', () => {
     expect(screen.getByRole('option', { name: '50' })).toBeInTheDocument();
   });
 
+  it('the "all rows" size is one page with every row, however many there are', () => {
+    setup({ total: 26000, offset: 0, pageSize: 9999, pageSizeOptions: [50, 9999], allRowsSize: 9999 });
+    expect(screen.getByText('mostrando 1-26000 de 26000 ventas')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Página 2' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Siguiente' })).toBeDisabled();
+  });
+
   it('renders no numbered pages for an empty set', () => {
     setup({ total: 0 });
     expect(screen.getByText('mostrando 0-0 de 0 ventas')).toBeInTheDocument();

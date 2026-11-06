@@ -71,6 +71,7 @@ from app.services.ml_daily_metrics.sales import NO_PRODUCT
 from app.services import ml_publication_colors as colors
 from app.services.ml_publications import admin, settings_store
 from app.services.ml_publications.view import (
+    caps,
     detail,
     events_view,
     export,
@@ -1736,10 +1737,10 @@ class CheckedStatusItemIdsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")  # no filter takes part: a stray filter field is refused, not ignored
 
     target: Literal["paused", "active"]
-    # Only a ceiling against abusive payloads (a "Todos" page shows up to `listing.MAX_LIMIT` rows): the bulk cap
-    # counts the publications that can take the status, so going over it is `_over_cap`'s 422 naming the count.
-    item_ids: list[CheckedItemId] = Field(default_factory=list, max_length=listing.MAX_LIMIT)
-    producto_ids: list[CheckedProductId] = Field(default_factory=list, max_length=listing.MAX_LIMIT)
+    # Only a ceiling against abusive payloads (a "Todos" page shows every matching row, `caps.MAX_CHECKED_IDS`): the
+    # bulk cap counts the publications that can take the status, so going over it is `_over_cap`'s 422 naming the count.
+    item_ids: list[CheckedItemId] = Field(default_factory=list, max_length=caps.MAX_CHECKED_IDS)
+    producto_ids: list[CheckedProductId] = Field(default_factory=list, max_length=caps.MAX_CHECKED_IDS)
 
     @model_validator(mode="after")
     def _something_checked(self) -> "CheckedStatusItemIdsRequest":

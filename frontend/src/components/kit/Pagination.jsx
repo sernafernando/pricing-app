@@ -7,7 +7,8 @@ import styles from './Pagination.module.css';
  * `summary` replaces the "mostrando a-b de N ventas" line for a screen that
  * counts something else (Métricas ML counts products). `pageSizeOptions`
  * sets the selector's sizes for another backend cap (Publicaciones ML), and
- * `pageSizeLabel` names a size (Productos' 9999 is "Todos").
+ * `pageSizeLabel` names a size (Productos' 9999 is "Todos"). `allRowsSize` is the size that means every row
+ * ("Todos"): one page holding the whole total, however many rows that is.
  */
 export default function Pagination({
   total,
@@ -18,11 +19,13 @@ export default function Pagination({
   summary,
   pageSizeOptions = PAGE_SIZE_OPTIONS,
   pageSizeLabel = String,
+  allRowsSize,
 }) {
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const currentPage = Math.floor(offset / pageSize) + 1;
-  const rangeFrom = total === 0 ? 0 : offset + 1;
-  const rangeTo = Math.min(offset + pageSize, total);
+  const allRows = allRowsSize !== undefined && pageSize === allRowsSize;
+  const totalPages = allRows ? 1 : Math.max(1, Math.ceil(total / pageSize));
+  const currentPage = allRows ? 1 : Math.floor(offset / pageSize) + 1;
+  const rangeFrom = total === 0 ? 0 : allRows ? 1 : offset + 1;
+  const rangeTo = allRows ? total : Math.min(offset + pageSize, total);
   const goTo = (page) => onOffsetChange((page - 1) * pageSize);
 
   return (
