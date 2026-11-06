@@ -11,15 +11,24 @@ import { ThemeProvider } from '../contexts/ThemeContext';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import api from '../services/api';
+import { businessToday } from '../utils/dateRangePresets';
 import TopBar, { TPLINK_LOGO_SRC } from './TopBar';
 
-const permisosStub = { permisos: [], rol: null, tienePermiso: () => true };
+const permisosStub = {
+  permisos: [],
+  rol: null,
+  tienePermiso: (permiso) => permisosStub.permisos.includes(permiso),
+};
+const weatherStub = { weather: null };
+
+vi.mock('../services/api', () => ({ default: { get: vi.fn() } }));
 
 vi.mock('../contexts/PermisosContext', () => ({
   usePermisos: () => permisosStub,
   PermisosProvider: ({ children }) => children,
 }));
-vi.mock('../hooks/useWeather', () => ({ useWeather: () => ({ weather: null }) }));
+vi.mock('../hooks/useWeather', () => ({ useWeather: () => weatherStub }));
 vi.mock('./NotificationBell', () => ({ default: () => null }));
 vi.mock('./FreeShippingBadge', () => ({ default: () => null }));
 vi.mock('./TicketBadge', () => ({ default: () => null }));
@@ -34,7 +43,10 @@ const renderTopBar = () =>
   );
 
 beforeEach(() => {
+  vi.clearAllMocks();
+  api.get.mockResolvedValue({ data: { kpis: { gross: { value: 0 } } } });
   permisosStub.permisos = [];
+  weatherStub.weather = null;
   document.documentElement.removeAttribute('data-brand');
 });
 
@@ -70,5 +82,57 @@ describe('TopBar — brand logo', () => {
     const publicDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../public');
     expect(TPLINK_LOGO_SRC).toMatch(/^\//);
     expect(fs.existsSync(path.join(publicDir, TPLINK_LOGO_SRC))).toBe(true);
+  });
+});
+
+const WEATHER = {
+  city: 'Buenos Aires',
+  description: 'Despejado',
+  icon_url: '/clima.png',
+  temp: 22,
+  humidity: 40,
+  wind_speed: 10,
+  rain_probability: 0,
+};
+
+describe('TopBar — Facturado hoy', () => {
+  it('reads today from the new Métricas ML board and links to it', async () => {
+    permisosStub.permisos = ['ml_metricas.ver'];
+    api.get.mockResolvedValue({ data: { kpis: { gross: { value: 1234567.4 } } } });
+    renderTopBar();
+    const chip = await screen.findByRole('link', { name: /Facturado ML Hoy/ });
+    expect(chip).toHaveTextContent('$1.234.567');
+    expect(chip.getAttribute('href')).toBe('/metricas-ml');
+    const today = businessToday();
+    expect(api.get).toHaveBeenCalledTimes(1);
+    const [url, config] = api.get.mock.calls[0];
+    expect(url).toBe('/ml-metricas/board');
+    expect(config.params).toMatchObject({
+      date_from: today,
+      date_to: today,
+      comparar_con: 'periodo_anterior',
+      group_by: 'product',
+      solo_con_ventas: true,
+      limit: 1,
+      offset: 0,
+    });
+  });
+
+  it('never asks the old dashboard, and shows the weather without the new screen permission', async () => {
+    permisosStub.permisos = ['ventas_ml.ver_dashboard'];
+    weatherStub.weather = WEATHER;
+    renderTopBar();
+    expect(await screen.findByText('22°')).toBeInTheDocument();
+    expect(screen.queryByText('Facturado ML Hoy')).not.toBeInTheDocument();
+    expect(api.get).not.toHaveBeenCalled();
+  });
+
+  it('keeps showing the weather when the new board bills $0 today', async () => {
+    permisosStub.permisos = ['ml_metricas.ver'];
+    weatherStub.weather = WEATHER;
+    renderTopBar();
+    expect(await screen.findByText('22°')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Facturado ML Hoy/ })).not.toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith('/ml-metricas/board', expect.anything());
   });
 });

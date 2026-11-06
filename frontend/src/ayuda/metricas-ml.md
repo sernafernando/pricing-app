@@ -53,3 +53,6 @@ Muestra el Total TP junto al Total Gauss; el markup usa el costo TP en las opera
 
 **¿Por qué el Sell out del KPI no coincide con la suma de las filas?**
 Porque también suma lo que una campaña de **Monto total** dejó sin asignar a un producto, o asignó a productos sin ventas, en la fecha de fin de la campaña. Ese monto no es de ningún producto, por eso no está en las filas.
+
+**¿De dónde sale el "Facturado ML Hoy" de la barra de arriba?**
+De este tablero: es el **Facturado bruto** de hoy, sin ningún filtro elegido. Tocarlo abre Métricas ML. Lo ve quien tiene acceso a Métricas ML; si no tenés acceso o hoy todavía no hay ventas, la barra muestra el clima.
