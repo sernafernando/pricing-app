@@ -36,8 +36,17 @@ Owner: "agregá el de sell in, es para operaciones viejas que no tienen la factu
   recomputed from scratch for the whole bonus: a late sale dated earlier displaces a later one. Amounts are each
   row's units x the unrounded unit amount, rounded once to cents, half up.
 
+- A total split across products (tactical monto total S4, `tipo = 'monto_total'`): sell out's lump sum
+  (`sell_out.reparto`) over the sales above: `iguales` / `costo` spread each product's fixed share
+  (`sell_in_bono_repartos`) over its net units, `unidades` the whole total over every net unit, cents by cumulative
+  rounding so the rows add up exactly to what the sold products carry (a share whose product sold nothing in the dates
+  is not written). Its units are the ones invoice-based sell in left (rule 5, above), but, like sell out's lump sum,
+  it is not limited by the units other cost bonuses hold, holds none itself, and has no cap: its rows are its total,
+  never cut to the unit cost. With `incluye_iva` each row is divided by its product's VAT rate (`reparto`).
+
 What a call recomputes: the given products, the scope of the given bonuses and every product holding rows of them,
-closed over the scope of every active CAPPED cost bonus reaching any of them (its cap couples its products). An
+closed over the scope of every active CAPPED or TOTAL cost bonus reaching any of them (its cap, or its total, couples
+its products). An
 uncapped bonus is exact per product. The products fall into components linked by those capped bonuses; a
 component whose amounts cannot be computed (a missing VAT rate) is reported in `failed` (per product) and
 `bonos_fallidos` (per bonus reaching it) and keeps its rows as they were; the others are written.
@@ -69,11 +78,11 @@ from sqlalchemy import delete, func, insert, text
 from sqlalchemy.orm import Session
 
 from app.models.producto import ProductoERP
-from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca, SellInConsumo
+from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca, SellInBonoReparto, SellInConsumo
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA
 from app.services.sell_in import bono_queue
 from app.services.sell_in.costing import LOCK_SQL, LOCK_NAMESPACE
-from app.services.sell_out import alcance, tope
+from app.services.sell_out import alcance, reparto, tope
 from app.services.sell_out import queue as sell_out_queue
 
 logger = logging.getLogger(__name__)
@@ -82,6 +91,7 @@ BASE = BASE_COSTO_VENTA
 # How long `seguir_fifo` (an interactive purchase, the invoice reconcile) waits for a product lock.
 LOCK_TIMEOUT = sell_out_queue.LOCK_TIMEOUT
 CIEN = Decimal(100)
+MONTO_TOTAL = "monto_total"
 
 Clave = tope.Clave  # (canal, venta_ref, item_id): a combo sale is one line per component
 _Fila = Tuple[int, date, int, Decimal]  # (item_id, fecha_venta, unidades, descuento_ars)
@@ -124,7 +134,8 @@ def _alcances(db: Session, activos: Dict[int, SellInBonoMarca]) -> Dict[int, Set
 
 
 def _con_tope(bono: SellInBonoMarca) -> bool:
-    return bono.tope_unidades is not None or bono.tope_monto is not None
+    """Whether the bonus couples its products: a cap shared by all of them, or a total split across them."""
+    return bono.tope_unidades is not None or bono.tope_monto is not None or bono.tipo == MONTO_TOTAL
 
 
 def _cerrar(activos: Dict[int, SellInBonoMarca], alcances: Dict[int, Set[int]], productos: Set[int]) -> Set[int]:
@@ -190,7 +201,10 @@ def valor_neto(bono: SellInBonoMarca, valor: Decimal, item_id: int, iva: Optiona
 
 
 def valor_del_bono(bono: SellInBonoMarca, propio: Optional[Decimal]) -> Decimal:
-    """The model's own value of the bonus's kind (`sell_in_bono_items`), else the bonus's: % or ARS per unit."""
+    """The model's own value of the bonus's kind (`sell_in_bono_items`), else the bonus's: % or ARS per unit. A total
+    bonus has no value per unit known beforehand (its rows split the total): 0."""
+    if bono.tipo == MONTO_TOTAL:
+        return Decimal(0)
     if propio is not None:
         return Decimal(propio)
     return Decimal(bono.monto_unit if bono.tipo == "por_unidad" else bono.porcentaje)
@@ -200,7 +214,9 @@ def unitario(
     bono: SellInBonoMarca, valor: Decimal, costo_unit: Decimal, item_id: int, iva: Optional[Decimal], fecha: date
 ) -> Decimal:
     """What one unit gets before the cut to its cost: `valor` (`valor_del_bono`) net of VAT, as a % of `costo_unit`
-    or, on a `por_unidad` bonus, as the amount itself."""
+    or, on a `por_unidad` bonus, as the amount itself; 0 on a total bonus (`valor_del_bono`)."""
+    if bono.tipo == MONTO_TOTAL:
+        return Decimal(0)
     neto = valor_neto(bono, valor, item_id, iva, fecha)
     return neto if bono.tipo == "por_unidad" else costo_unit * neto / CIEN
 
@@ -213,14 +229,18 @@ def _componente(
     ventas: List[alcance.Venta],
     fifo: Dict[Clave, int],
     pendientes: Dict[int, int],
+    repartos: Optional[Dict[int, Dict[int, Decimal]]] = None,
 ) -> Dict[Tuple[int, str, int, int], _Fila]:
     """The desired rows of one component: its bonuses in id order over its sales (module docstring)."""
     deseadas: Dict[Tuple[int, str, int, int], _Fila] = {}
     # Per sale and unit number: what earlier bonuses give that unit.
     usado: Dict[Clave, Dict[int, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
     tenidas: Dict[int, Dict[Clave, List[int]]] = {}  # per bonus and line: the unit numbers it took or freed (S36)
+    repartos = repartos or {}
     for bono in bonos:
-        antes = [p.id for p in bonos if p.id < bono.id and not (p.acumulable and bono.acumulable)]
+        total = bono.tipo == MONTO_TOTAL
+        # A total is not limited by the units other cost bonuses hold (sell out's lump sum, module docstring).
+        antes = [] if total else [p.id for p in bonos if p.id < bono.id and not (p.acumulable and bono.acumulable)]
         lineas: List[tope.Linea] = []
         unitarios: Dict[Clave, Decimal] = {}
         libres: Dict[Clave, List[int]] = {}
@@ -240,7 +260,9 @@ def _componente(
                 ocupado = set()  # the FIFO's rows are net of the return already: it frees its units here in full
             ocupado.update(*(tenidas[p].get(clave, ()) for p in antes))
             libres[clave] = [u for u in range(abs(v.unidades)) if u not in ocupado]
-            if v.unidades > 0:
+            if v.unidades > 0 and total:
+                unitarios[clave] = Decimal(1)  # a unit weight: its money comes from the split below
+            elif v.unidades > 0:
                 valor = valor_del_bono(bono, modelos.get(bono.id, {}).get(v.item_id))
                 monto = unitario(bono, valor, v.costo_unit, v.item_id, iva.get(v.item_id), v.fecha)
                 # A unit never gets more than its cost: cut to what the most loaded unit it may take has left.
@@ -260,6 +282,10 @@ def _componente(
                     objetivo=v.objetivo,
                 )
             )
+        if total:
+            deseadas.update(_total(bono, lineas, repartos.get(bono.id, {}), iva))
+            tenidas[bono.id] = {}  # a lump sum holds no units
+            continue
         campana = tope.Campana(
             tipo="porcentaje",
             moneda="ARS",
@@ -275,6 +301,37 @@ def _componente(
                 usado[clave][u] += unitarios[clave]
         tenidas[bono.id] = {clave: libres[clave][:n] for clave, n in por_linea.items()}
     return deseadas
+
+
+def _total(
+    bono: SellInBonoMarca, lineas: List[tope.Linea], cuotas: Dict[int, Decimal], iva: Dict[int, Optional[Decimal]]
+) -> Dict[Tuple[int, str, int, int], _Fila]:
+    """The rows of a total bonus: its lines' net units (`tope.asignar`, its returns handling, at a unit weight) split
+    by `sell_out.reparto` (its fixed `cuotas`, or every unit for `unidades`). A product without a VAT rate on a
+    VAT-loaded bonus raises `ValueError` (the component fails)."""
+    netas = tope.asignar(tope.Campana(tipo="porcentaje", moneda="ARS", porcentaje=CIEN), lineas)
+    mt = reparto.MontoTotal(
+        monto_total=Decimal(bono.monto_total),
+        repartos={item_id: (None, monto) for item_id, monto in cuotas.items()},
+        monto_incluye_iva=bono.incluye_iva,
+        ivas=iva,
+        criterio=bono.reparto_criterio,
+    )
+    return {
+        (bono.id, x.canal, x.venta_ref, x.item_id): (x.item_id, x.fecha_venta, x.unidades, x.monto)
+        for x in reparto.repartir(mt, netas)
+    }
+
+
+def _repartos(db: Session, activos: Dict[int, SellInBonoMarca]) -> Dict[int, Dict[int, Decimal]]:
+    """`{bono_id: {item_id: fixed share}}` of the active total bonuses split `iguales` / `costo`; no query without one."""
+    ids = sorted(bid for bid, b in activos.items() if b.tipo == MONTO_TOTAL and b.reparto_criterio != reparto.UNIDADES)
+    salida: Dict[int, Dict[int, Decimal]] = defaultdict(dict)
+    if ids:
+        t = SellInBonoReparto
+        for bid, item_id, monto in db.query(t.bono_id, t.item_id, t.monto).filter(t.bono_id.in_(ids)):
+            salida[bid][item_id] = Decimal(monto)
+    return salida
 
 
 def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[int] = ()) -> CostoResult:
@@ -324,6 +381,7 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
         .group_by(SellInConsumo.canal, SellInConsumo.venta_ref, SellInConsumo.item_id)
     }
 
+    repartos = _repartos(db, activos)
     deseadas: Dict[Tuple[int, str, int, int], _Fila] = {}
     fallidos: Set[int] = set()
     for componente in _componentes(activos, alcances, productos):
@@ -338,6 +396,7 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
                     [v for v in ventas if v.item_id in componente],
                     fifo,
                     result.pendientes,
+                    repartos,
                 )
             )
         except ValueError as exc:
