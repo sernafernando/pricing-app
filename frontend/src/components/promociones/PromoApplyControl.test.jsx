@@ -565,6 +565,40 @@ describe('PromoApplyControl', () => {
       await waitFor(() => expect(screen.getByText(/22.5/)).toBeInTheDocument());
     });
 
+    // promos-markup-sell-in-out S2: the same lookup's markup with sell in / sell out, next to the markup.
+    it('shows the markup with sell in / sell out next to the entered price markup when the backend sends it', async () => {
+      const user = userEvent.setup({ delay: null });
+      promocionesAPI.getMarkupParaPrecio.mockResolvedValue({
+        data: { price: 850, nuestro_markup: 22.5, markup_sell_in_out: 26.04 },
+      });
+      render(<PromoApplyControl mla="MLA1" promotion={rangePromo()} />);
+
+      await user.click(screen.getByRole('button', { name: /^aplicar$/i }));
+      const input = screen.getByLabelText(/precio/i);
+      await user.clear(input);
+      await user.type(input, '850');
+      await vi.advanceTimersByTimeAsync(400);
+
+      expect(await screen.findByText('Tu markup: 22.5% · c/ sell in/out 26.0%')).toBeInTheDocument();
+    });
+
+    it('shows no sell in / sell out figure when the backend sends null', async () => {
+      const user = userEvent.setup({ delay: null });
+      promocionesAPI.getMarkupParaPrecio.mockResolvedValue({
+        data: { price: 850, nuestro_markup: 22.5, markup_sell_in_out: null },
+      });
+      render(<PromoApplyControl mla="MLA1" promotion={rangePromo()} />);
+
+      await user.click(screen.getByRole('button', { name: /^aplicar$/i }));
+      const input = screen.getByLabelText(/precio/i);
+      await user.clear(input);
+      await user.type(input, '850');
+      await vi.advanceTimersByTimeAsync(400);
+
+      expect(await screen.findByText('Tu markup: 22.5%')).toBeInTheDocument();
+      expect(screen.queryByText(/sell in\/out/)).not.toBeInTheDocument();
+    });
+
     it('sends the entered deal_price on confirm', async () => {
       const user = userEvent.setup({ delay: null });
       promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { price: 800, nuestro_markup: 20 } });
