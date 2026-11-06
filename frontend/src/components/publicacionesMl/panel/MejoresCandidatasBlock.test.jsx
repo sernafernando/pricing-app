@@ -41,7 +41,7 @@ describe('MejoresCandidatasBlock', () => {
       },
     });
     render(<MejoresCandidatasBlock itemId="MLA1" baselinePrice={218299} />);
-    expect(await screen.findByText(/No hay candidatas SMART \/ DEAL \/ Premium/)).toBeInTheDocument();
+    expect(await screen.findByText(/No hay candidatas aplicables/)).toBeInTheDocument();
     expect(screen.queryByText(/Hay candidatas mejores que el precio vigente/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Descartar sugerencia/ })).toBeInTheDocument();
   });
@@ -143,7 +143,7 @@ describe('MejoresCandidatasBlock', () => {
     });
     render(<MejoresCandidatasBlock itemId="MLA2" baselinePrice={218299} />);
 
-    expect(await screen.findByText(/No hay candidatas SMART \/ DEAL \/ Premium/)).toBeInTheDocument();
+    expect(await screen.findByText(/No hay candidatas aplicables/)).toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Promo sugerida SMART' })).not.toBeInTheDocument();
   });
 
@@ -170,6 +170,16 @@ describe('MejoresCandidatasBlock', () => {
     expect(await screen.findByRole('group', { name: 'Promo sugerida SMART' })).toBeInTheDocument();
   });
 
+  it('shows the load error instead of claiming there are no candidatas', async () => {
+    const onUnavailable = vi.fn();
+    promocionesAPI.getPromocionesItem.mockRejectedValue(new Error('boom'));
+    render(<MejoresCandidatasBlock itemId="MLA-err" baselinePrice={1000} onUnavailable={onUnavailable} />);
+    expect(await screen.findByText(/No se pudieron cargar las candidatas/i)).toBeInTheDocument();
+    expect(screen.queryByText(/No hay candidatas aplicables/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Descartar sugerencia/ })).toBeInTheDocument();
+    expect(onUnavailable).toHaveBeenCalledTimes(1);
+  });
+
   it('uses cofunded started markup as vigente and does not call getMarkupParaPrecio', async () => {
     promocionesAPI.getPromocionesItem.mockResolvedValue({
       data: {
@@ -194,7 +204,7 @@ describe('MejoresCandidatasBlock', () => {
       },
     });
     render(<MejoresCandidatasBlock itemId="MLA3" baselinePrice={555867.83} />);
-    expect(await screen.findByText(/No hay candidatas SMART \/ DEAL \/ Premium/)).toBeInTheDocument();
+    expect(await screen.findByText(/No hay candidatas aplicables/)).toBeInTheDocument();
     expect(screen.getByText(/markup vigente ~ 1,40%/i)).toBeInTheDocument();
     expect(promocionesAPI.getMarkupParaPrecio).not.toHaveBeenCalled();
   });
@@ -233,7 +243,7 @@ describe('MejoresCandidatasBlock', () => {
       render(<MejoresCandidatasBlock itemId="MLA6" baselinePrice={1000} onUnavailable={onUnavailable} />);
       expect(await screen.findByText('Hay candidatas mejores que el precio vigente en MeLi.')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Descartar sugerencia' })).toBeInTheDocument();
-      expect(screen.queryByText(/No hay candidatas SMART/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/No hay candidatas aplicables/)).not.toBeInTheDocument();
       expect(onUnavailable).toHaveBeenCalledTimes(1);
     });
   });
@@ -317,7 +327,7 @@ describe('MejoresCandidatasBlock', () => {
       render(<MejoresCandidatasBlock itemId="MLA9" baselinePrice={59999} onWritten={onWritten} />);
       await user.click(await screen.findByRole('button', { name: 'Aplicar sugerencia' }));
       await user.click(screen.getByRole('button', { name: 'Sí, aplicar' }));
-      expect(await screen.findByText(/No hay candidatas SMART \/ DEAL \/ Premium/)).toBeInTheDocument();
+      expect(await screen.findByText(/No hay candidatas aplicables/)).toBeInTheDocument();
       expect(screen.queryByRole('group', { name: 'Promo sugerida SMART' })).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Descartar sugerencia/ })).toBeInTheDocument();
       expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(2);

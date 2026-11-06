@@ -11,6 +11,7 @@ import {
   pickPonerPreciosPromos,
   pricesClose,
   comparableMarkups,
+  slotEntries,
 } from './pickPonerPreciosPromos';
 import { LISTS } from '../../pricing/priceWrites';
 import capture from './fixtures/ponerPreciosPromos.capture.json';
@@ -38,9 +39,12 @@ const captured = capture.promotions.map((raw) => asApiPromo(raw, markups[raw.typ
 describe('pickPonerPreciosPromos', () => {
   it('picks best SMART/DEAL and Premium of the month from a capture', () => {
     const picked = pickPonerPreciosPromos(captured, { monthName: 'octubre' });
-    expect(picked.smart.promotion_id).toBe('P-MLA18137008');
-    expect(picked.deal.promotion_id).toBe('P-MLA18067012');
-    expect(picked.premium.promotion_id).toBe('C-MLA1669550');
+    expect(picked.SMART.promotion_id).toBe('P-MLA18137008');
+    expect(picked.DEAL.promotion_id).toBe('P-MLA18067012');
+    expect(picked.SELLER_CAMPAIGN.promotion_id).toBe('C-MLA1669550');
+    expect(picked.PRICE_MATCHING).toBeNull();
+    expect(picked.PRE_NEGOTIATED).toBeNull();
+    expect(picked.LIGHTNING).toBeNull();
   });
 
   it('skips candidates without finite nuestro_markup', () => {
@@ -95,6 +99,25 @@ describe('pickPonerPreciosPromos', () => {
         max_discounted_price: 65,
       }),
     ).toEqual({ promotion_id: 'P-S', promotion_type: 'SELLER_CAMPAIGN', deal_price: 65 });
+  });
+
+  it('builds LIGHTNING enroll body with deal_price and stock.min', () => {
+    expect(
+      enrollBodyForPromo({
+        promotion_id: 'L-1',
+        promotion_type: 'LIGHTNING',
+        status: 'candidate',
+        suggested_discounted_price: 12000,
+        price: 15000,
+        nuestro_markup: 5,
+        payload: { stock: { min: 3, max: 10 } },
+      }),
+    ).toEqual({
+      promotion_id: 'L-1',
+      promotion_type: 'LIGHTNING',
+      deal_price: 12000,
+      stock: 3,
+    });
   });
 
   it('maps pricelist ids to Lista ML rows', () => {
@@ -172,10 +195,86 @@ describe('esMejorOferta / pickMejoresCandidatas', () => {
       baselineMarkup: 20,
       monthName: 'octubre',
     });
-    expect(picked.smart.promotion_id).toBe('P-MLA18137008');
-    expect(picked.deal).toBeNull();
-    expect(picked.premium).toBeNull();
+    expect(picked.SMART.promotion_id).toBe('P-MLA18137008');
+    expect(picked.DEAL).toBeNull();
+    expect(picked.SELLER_CAMPAIGN).toBeNull();
     expect(hasPickedSlot(picked)).toBe(true);
+  });
+
+  it('surfaces a PRICE_MATCHING-only better candidate', () => {
+    const picked = pickMejoresCandidatas(
+      [
+        {
+          status: 'candidate',
+          promotion_type: 'PRICE_MATCHING',
+          promotion_id: 'PM-1',
+          price: 90000,
+          nuestro_markup: 15,
+          name: 'Gánale a la competencia',
+        },
+      ],
+      { baselinePrice: 100000, baselineMarkup: 10, monthName: 'noviembre' },
+    );
+    expect(picked.PRICE_MATCHING.promotion_id).toBe('PM-1');
+    expect(picked.SMART).toBeNull();
+    expect(picked.DEAL).toBeNull();
+    expect(slotEntries(picked).map(([type]) => type)).toEqual(['PRICE_MATCHING']);
+  });
+
+  it('fills independent MeLi-type slots without competing across types', () => {
+    const picked = pickMejoresCandidatas(
+      [
+        {
+          status: 'candidate',
+          promotion_type: 'SMART',
+          promotion_id: 'S-1',
+          price: 90000,
+          nuestro_markup: 12,
+        },
+        {
+          status: 'candidate',
+          promotion_type: 'PRE_NEGOTIATED',
+          promotion_id: 'PN-1',
+          price: 88000,
+          nuestro_markup: 14,
+        },
+        {
+          status: 'candidate',
+          promotion_type: 'PRICE_MATCHING',
+          promotion_id: 'PM-1',
+          price: 87000,
+          nuestro_markup: 11,
+        },
+        {
+          status: 'candidate',
+          promotion_type: 'LIGHTNING',
+          promotion_id: 'L-1',
+          price: 85000,
+          suggested_discounted_price: 85000,
+          nuestro_markup: 13,
+          payload: { stock: { min: 2, max: 8 } },
+        },
+        {
+          status: 'candidate',
+          promotion_type: 'LIGHTNING',
+          promotion_id: 'L-NO-STOCK',
+          price: 84000,
+          suggested_discounted_price: 84000,
+          nuestro_markup: 20,
+        },
+      ],
+      { baselinePrice: 100000, baselineMarkup: 10, monthName: 'noviembre' },
+    );
+    expect(picked.SMART.promotion_id).toBe('S-1');
+    expect(picked.PRE_NEGOTIATED.promotion_id).toBe('PN-1');
+    expect(picked.PRICE_MATCHING.promotion_id).toBe('PM-1');
+    expect(picked.LIGHTNING.promotion_id).toBe('L-1');
+    expect(slotEntries(picked).map(([type]) => type)).toEqual([
+      'SMART',
+      'PRE_NEGOTIATED',
+      'PRICE_MATCHING',
+      'LIGHTNING',
+    ]);
   });
 });
 
@@ -222,7 +321,7 @@ describe('ranking with sell in / sell out (S5)', () => {
     const a = candidate('A', 'SMART', 900, 25, 26);
     const b = candidate('B', 'SMART', 900, 20, 30);
     expect(bestByMarkup([a, b])).toBe(b);
-    expect(pickPonerPreciosPromos([a, b]).smart).toBe(b);
+    expect(pickPonerPreciosPromos([a, b]).SMART).toBe(b);
   });
 
   it('ranks a mixed set plain: one candidate without sell in / sell out puts them all on the plain markup', () => {
@@ -234,18 +333,18 @@ describe('ranking with sell in / sell out (S5)', () => {
   it('beats the status quo with sell in / sell out when both sides have it', () => {
     const baseline = { baselinePrice: 1000, baselineMarkup: 21, baselineSellInOut: 25 };
     // Plain 22 >= 21 would beat it; with sell in / sell out 24 < 25 does not.
-    expect(pickMejoresCandidatas([candidate('A', 'SMART', 1000, 22, 24)], baseline).smart).toBeNull();
+    expect(pickMejoresCandidatas([candidate('A', 'SMART', 1000, 22, 24)], baseline).SMART).toBeNull();
     const other = candidate('B', 'SMART', 1000, 18, 26);
-    expect(pickMejoresCandidatas([other], baseline).smart).toBe(other);
+    expect(pickMejoresCandidatas([other], baseline).SMART).toBe(other);
   });
 
   it('compares plain on both sides when the candidate or the status quo has no sell in / sell out', () => {
     const conSellInOut = { baselinePrice: 1000, baselineMarkup: 21, baselineSellInOut: 25 };
     // The candidate's could not be computed: 22 against the plain 21, never against 25.
     const sinCandidata = candidate('A', 'SMART', 1000, 22, null);
-    expect(pickMejoresCandidatas([sinCandidata], conSellInOut).smart).toBe(sinCandidata);
+    expect(pickMejoresCandidatas([sinCandidata], conSellInOut).SMART).toBe(sinCandidata);
     // The status quo has none: B's 30 is never compared against a plain 21.
     const b = candidate('B', 'SMART', 1000, 20, 30);
-    expect(pickMejoresCandidatas([b], { baselinePrice: 1000, baselineMarkup: 21, baselineSellInOut: null }).smart).toBeNull();
+    expect(pickMejoresCandidatas([b], { baselinePrice: 1000, baselineMarkup: 21, baselineSellInOut: null }).SMART).toBeNull();
   });
 });

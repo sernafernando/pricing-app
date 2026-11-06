@@ -9,29 +9,26 @@ import PromoApplyControl from '../../promociones/PromoApplyControl';
 import SellInOutMarkupExtra from '../../promociones/SellInOutMarkupExtra';
 import { sellInOutText } from '../../promociones/sellInOutMarkup';
 import {
+  CHOOSER_SLOT_LABELS,
   baselineMarkupFromPromos,
   baselineSellInOutFromPromos,
   hasPickedSlot,
   pickMejoresCandidatas,
+  slotEntries,
 } from './pickPonerPreciosPromos';
 import promoStyles from '../../promociones/promociones.module.css';
 import styles from './panel.module.css';
 
-const SLOT_LABELS = { smart: 'SMART', deal: 'DEAL', premium: 'Premium' };
+// Same per-type badge hue as the Promos tab rows (MlaPromocionesPanel TYPE_BADGE_CLASS).
 const SLOT_BADGE = {
-  smart: promoStyles.badgeTypeSmart,
-  deal: promoStyles.badgeTypeDeal,
-  premium: promoStyles.badgeTypeSellerCampaign,
+  SMART: promoStyles.badgeTypeSmart,
+  DEAL: promoStyles.badgeTypeDeal,
+  PRE_NEGOTIATED: promoStyles.badgeTypePreNegotiated,
+  PRICE_MATCHING: promoStyles.badgeTypePriceMatching,
+  LIGHTNING: promoStyles.badgeTypeLightning,
+  SMART_LIGHTNING: promoStyles.badgeTypeSmartLightning,
+  SELLER_CAMPAIGN: promoStyles.badgeTypeSellerCampaign,
 };
-
-function slotEntries(picked) {
-  if (!picked) return [];
-  return [
-    ['smart', picked.smart],
-    ['deal', picked.deal],
-    ['premium', picked.premium],
-  ].filter(([, promo]) => promo);
-}
 
 const pct = (value) => `${formatAmount(value)}%`;
 
@@ -50,9 +47,10 @@ function appliedCleanly(promo, data) {
 }
 
 /**
- * The suggested SMART/DEAL/Premium for a pub already flagged hay_mejores, as cards.
+ * The best candidate per writable MeLi type for a pub already flagged hay_mejores, as cards.
  * Mount only when the operator can write promos (discard/apply need it).
- * "Aplicar sugerencia" is the row's PromoApplyControl (same confirmation, guards and body);
+ * "Aplicar sugerencia" is the row's PromoApplyControl (same confirmation, guards and body; a
+ * LIGHTNING opens its irreversible-offer card);
  * `onLeavePub` runs only after a clean apply; without it, a clean apply reloads the candidates
  * so the applied promo drops out. `onSuggested(ids)` reports the suggested promotion ids so the
  * Promos tab can mark them. Calls onUnavailable when baseline markup is missing or load fails
@@ -196,8 +194,10 @@ export default function MejoresCandidatasBlock({
             {entries.map(([slot, promo], index) => {
               const price = promoDisplayPrice(promo);
               return (
-                <li key={slot} className={styles.mejoresCard} role="group" aria-label={`Promo sugerida ${SLOT_LABELS[slot]}`}>
-                  <span className={`${promoStyles.badge} ${SLOT_BADGE[slot]}`}>{SLOT_LABELS[slot]}</span>
+                <li key={slot} className={styles.mejoresCard} role="group" aria-label={`Promo sugerida ${CHOOSER_SLOT_LABELS[slot] || slot}`}>
+                  <span className={`${promoStyles.badge} ${SLOT_BADGE[slot] || promoStyles.badgeTypeNeutral}`}>
+                    {CHOOSER_SLOT_LABELS[slot] || slot}
+                  </span>
                   <span className={styles.mejoresMain}>
                     <span className={styles.mejoresEyebrow}>Promo sugerida</span>
                     <span className={styles.mejoresName}>{resolvePromoName(promo) || promo.promotion_id}</span>
@@ -236,7 +236,8 @@ export default function MejoresCandidatasBlock({
       ) : (
         <>
           <p className={styles.ponerPreciosOk} role="status">
-            No hay candidatas SMART / DEAL / Premium que superen el precio vigente
+            No hay candidatas aplicables (SMART, DEAL, PRE_NEGOTIATED, PRICE_MATCHING, LIGHTNING, SELLER_CAMPAIGN
+            Premium del mes) que superen el precio vigente
             {baselineMarkup != null
               ? ` (markup vigente ~ ${formatAmount(baselineMarkup)}%${sellInOutText(baselineSellInOut, pct)})`
               : ''}

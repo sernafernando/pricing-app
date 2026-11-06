@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { promocionesAPI } from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
+import { APPLICABLE_PROMOTION_TYPES as WRITABLE_TYPES } from './applicablePromoTypes';
 import { ML_PRICED_TYPES, promoDisplayPrice } from './promoDisplayPrice';
 import SellInOutMarkupExtra from './SellInOutMarkupExtra';
 import { sellInOutText } from './sellInOutMarkup';
@@ -25,9 +26,6 @@ function formatMarkupPct(value) {
 function markupClass(value) {
   return value !== null && value !== undefined && Number(value) < 0 ? styles.markupNegative : styles.markupNeutral;
 }
-
-// Same writable-type contract as MlaPromocionesPanel's APPLICABLE_TYPES.
-const WRITABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART', 'PRE_NEGOTIATED', 'PRICE_MATCHING', 'LIGHTNING']);
 
 // Ofertas relámpago: the operator sets the price and the stock to reserve.
 const LIGHTNING = 'LIGHTNING';

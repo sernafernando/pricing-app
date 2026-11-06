@@ -10,6 +10,10 @@ import PromoApplyControl from './PromoApplyControl';
 import { formatRelativeAge, promoDisplayPrice } from './promoDisplayPrice';
 import { forgetPromoEmptyConfirmed, forgetPromoPull, markPromoEmptyConfirmed, promoEmptyConfirmedRecently, promoPullGeneration } from './promoPullTtl';
 import SellInOutMarkupExtra from './SellInOutMarkupExtra';
+import {
+  APPLICABLE_PROMOTION_TYPES as APPLICABLE_TYPES,
+  COFUNDED_PROMOTION_TYPES as CO_FUNDED_TYPES,
+} from './applicablePromoTypes';
 import styles from './promociones.module.css';
 
 const NO_TYPES = [];
@@ -18,18 +22,6 @@ const NO_NAMES = {};
 // A row older than this reads as stale (ML recalculates SMART/PRICE_MATCHING
 // candidates daily, so a day-old mirror row may no longer be ML's offer).
 const STALE_ROW_MS = 24 * 60 * 60 * 1000;
-
-// SELLER_CAMPAIGN/DEAL/SMART/PRE_NEGOTIATED/PRICE_MATCHING/LIGHTNING can be enrolled
-// via the apply control (FE-C). DOD/SMART_LIGHTNING/PRICE_DISCOUNT are read-only
-// informational entries. PRICE_MATCHING_MELI_ALL is intentionally EXCLUDED
-// (ML-autogestionado, never writable) — its absence here is what keeps it
-// read-only; never add it.
-const APPLICABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART', 'PRE_NEGOTIATED', 'PRICE_MATCHING', 'LIGHTNING']);
-
-// SMART, PRE_NEGOTIATED and PRICE_MATCHING all carry ML co-funding
-// (meli_percentage / seller_percentage in payload); other types don't fund
-// the discount.
-const CO_FUNDED_TYPES = new Set(['SMART', 'PRE_NEGOTIATED', 'PRICE_MATCHING']);
 
 // Per-type badge hue so each promotion type is visually distinct (no longer
 // all-blue). Types not listed (PRICE_DISCOUNT/DOD/PRICE_MATCHING_MELI_ALL)
