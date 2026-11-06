@@ -8,6 +8,7 @@ import {
   CAMPANA_PORCENTAJE_ANULADA,
   RENOVACION_MIGRADA,
   RENOVACION_MONTO_TOTAL,
+  RENOVACION_MONTO_TOTAL_CRITERIO,
 } from './sellOutFixtures';
 import { CAMPANA_VACIA, bodyDeCampana, faltantes, valoresDeBorrador, valoresDeCampana } from './sellOutValores';
 
@@ -150,11 +151,29 @@ describe('valoresDeBorrador', () => {
     expect(bodyDeCampana({ ...valores, tipo: 'porcentaje', porcentaje: '2' }).items).toEqual([]);
   });
 
+  it('a monto total draft split by criterion sends the criterion and no shares with the create', () => {
+    const valores = valoresDeBorrador(RENOVACION_MONTO_TOTAL_CRITERIO, CAMPANA_MONTO_TOTAL);
+    expect(valores).toMatchObject({ repartoCriterio: 'unidades', repartosCopiados: [] });
+    const body = bodyDeCampana(valores);
+    expect(body.reparto_criterio).toBe('unidades');
+    expect(body).not.toHaveProperty('items');
+    expect(body.renovada_de_id).toBe(70);
+    // Switched to another type, the criterion is not sent.
+    expect(bodyDeCampana({ ...valores, tipo: 'porcentaje', porcentaje: '2' })).not.toHaveProperty('reparto_criterio');
+  });
+
+  it('a draft split by hand (criterion null) sends no criterion, as before', () => {
+    const body = bodyDeCampana(valoresDeBorrador(RENOVACION_MONTO_TOTAL, CAMPANA_MONTO_TOTAL));
+    expect(body).not.toHaveProperty('reparto_criterio');
+  });
+
   it('a stored campaign read back sends neither a program nor shares, as before', () => {
     const body = bodyDeCampana(valoresDeCampana({ ...CAMPANA_MONTO_TOTAL, programa_id: 12, renovada_de_id: 55 }));
     expect(body).not.toHaveProperty('programa_id');
     expect(body).not.toHaveProperty('renovada_de_id');
     expect(body).not.toHaveProperty('items');
+    expect(body).not.toHaveProperty('reparto_criterio');
+    expect(bodyDeCampana(valoresDeCampana({ ...CAMPANA_MONTO_TOTAL, reparto_criterio: 'costo' }))).not.toHaveProperty('reparto_criterio');
   });
 });
 

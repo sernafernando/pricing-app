@@ -2,6 +2,7 @@ import { useId } from 'react';
 import { SegmentedControl } from '../kit';
 import SellOutCampanaItems from './SellOutCampanaItems';
 import { TC_MODO_LABELS } from './sellOutFormat';
+import { nombreDeCriterio } from './sellOutReparto';
 import styles from '../sellIn/SellInPanel.module.css';
 import formStyles from './SellOutCampanaForm.module.css';
 
@@ -107,6 +108,9 @@ export default function SellOutCampanaForm({ valores, onChange, grupos, copiaDe 
                 No copiar el reparto
               </button>
             </p>
+          )}
+          {valores.repartoCriterio && (
+            <p className={styles.hint}>{`Reparto: ${nombreDeCriterio(valores.repartoCriterio)}`}</p>
           )}
           {valores.repartoDescartado && <p className={styles.hint}>El reparto se carga después, desde la campaña guardada.</p>}
         </>

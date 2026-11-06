@@ -8,6 +8,7 @@ import SellOutMonto from './SellOutMonto';
 import { buscarProductos } from './sellOutBuscar';
 import { nombreDeItem } from './sellOutFormat';
 import {
+  CRITERIOS,
   MODO_MONTO,
   MODO_PORCENTAJE,
   aCentavos,
@@ -15,6 +16,7 @@ import {
   centavosDeFila,
   errorDeReparto,
   filasDeCampana,
+  nombreDeCriterio,
   repartosDeFilas,
   totalesDeReparto,
 } from './sellOutReparto';
@@ -24,6 +26,120 @@ import styles from './SellOutReparto.module.css';
 
 const DIA = { day: '2-digit', month: '2-digit', year: 'numeric' };
 
+/**
+ * Split the campaign by a criterion (S3): pick it, see the API's per-product result (`GET /reparto/vista-previa`),
+ * then apply it with `PUT /reparto` `{ repartos: [], criterio }`, which replaces the current shares. Nothing is saved
+ * until "Aplicar reparto".
+ */
+function RepartoPorCriterio({ campana, busy, onBusyChange, onGuardado }) {
+  const [criterio, setCriterio] = useState(campana.reparto_criterio ?? CRITERIOS[0].value);
+  const [vista, setVista] = useState(null);
+  const [error, setError] = useState(null);
+  const { moneda } = campana;
+
+  const pedir = async (llamada, mensaje) => {
+    onBusyChange(true);
+    setError(null);
+    try {
+      return await llamada();
+    } catch (err) {
+      setError(apiMessage(err, mensaje));
+      return null;
+    } finally {
+      onBusyChange(false);
+    }
+  };
+
+  const verReparto = async () => {
+    const res = await pedir(() => sellOutAPI.vistaPreviaReparto(campana.id, criterio), 'No se pudo calcular el reparto.');
+    if (res) setVista(res.data);
+  };
+
+  const aplicar = async () => {
+    const res = await pedir(async () => {
+      const { data } = await sellOutAPI.repartirPorCriterio(campana.id, vista.criterio);
+      return sellOutAPI
+        .detalle(campana.id)
+        .then((r) => r.data)
+        .catch(() => data);
+    }, 'No se pudo guardar el reparto.');
+    if (res) onGuardado(res);
+  };
+
+  return (
+    <div className={styles.criterio}>
+      <div className={styles.criterioFila}>
+        <label className={styles.criterioCampo}>
+          <span>Repartir según</span>
+          <select
+            className={styles.criterioSelect}
+            value={criterio}
+            onChange={(e) => {
+              setCriterio(e.target.value);
+              setVista(null);
+            }}
+          >
+            {CRITERIOS.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="button" className="btn-tesla secondary sm" onClick={verReparto} disabled={busy}>
+          Ver reparto
+        </button>
+      </div>
+      {vista && (
+        <>
+          <table className={tableStyles.table} aria-label="Vista previa del reparto">
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th className={tableStyles.num}>Unidades</th>
+                <th className={tableStyles.num}>Monto</th>
+              </tr>
+            </thead>
+            <tbody>
+              {vista.items.map((item) => (
+                <tr key={item.item_id}>
+                  <td className={panelStyles.mono}>{item.codigo}</td>
+                  <td className={tableStyles.num}>{item.unidades}</td>
+                  <td className={tableStyles.num}>
+                    <SellOutMonto value={item.monto} moneda={moneda} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className={styles.enVivo} data-testid="vista-sin-asignar">
+            <span>
+              Sin asignar <SellOutMonto value={vista.sin_asignar} moneda={moneda} />
+            </span>
+          </div>
+          <p className={panelStyles.hint}>
+            {vista.criterio === 'unidades'
+              ? 'Según las unidades vendidas hasta hoy: se recalcula con cada venta o devolución del rango.'
+              : 'Reemplaza el reparto actual de la campaña.'}
+          </p>
+          <div className={styles.acciones}>
+            <button type="button" className="btn-tesla secondary sm" onClick={() => setVista(null)} disabled={busy}>
+              Cancelar
+            </button>
+            <button type="button" className="btn-tesla primary sm" onClick={aplicar} disabled={busy}>
+              Aplicar reparto
+            </button>
+          </div>
+        </>
+      )}
+      {error && (
+        <p className={panelStyles.error} role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
 
 /**
  * The split of a `monto_total` campaign among its products (T26d, S34/S35). Everyone who sees the campaign gets
@@ -31,9 +147,18 @@ const DIA = { day: '2-digit', month: '2-digit', year: 'numeric' };
  * cannot be computed) and the shares. With `editable` (`sell_out.repartir` or `sell_out.gestionar`, active campaign)
  * the PM adds products, picks "%" or "Monto fijo" for each, sees the live totals and saves with `PUT /reparto`.
  * The client guard mirrors the API's; the API's own 422/403 message shows when it refuses. `onGuardado` gets the
- * campaign as read again after saving; `busy` / `onBusyChange` are the panel's: one request at a time.
+ * campaign as read again after saving; `busy` / `onBusyChange` are the panel's: one request at a time. Everyone sees
+ * the stored criterion ("Manual" when none); with `porCriterio` (no brand restriction, S6) it can be split again by
+ * one (`RepartoPorCriterio`), and the manual rows keep working.
  */
-export default function SellOutReparto({ campana, editable = false, busy = false, onBusyChange = () => {}, onGuardado }) {
+export default function SellOutReparto({
+  campana,
+  editable = false,
+  porCriterio = false,
+  busy = false,
+  onBusyChange = () => {},
+  onGuardado,
+}) {
   const [filas, setFilas] = useState(() => filasDeCampana(campana));
   const [error, setError] = useState(null);
   const { moneda } = campana;
@@ -89,6 +214,10 @@ export default function SellOutReparto({ campana, editable = false, busy = false
     <section className={panelStyles.section} aria-label="Reparto del monto total">
       <h3>Reparto del monto total</h3>
       <dl className={panelStyles.campos}>
+        <div className={panelStyles.campo}>
+          <dt>Criterio</dt>
+          <dd>{nombreDeCriterio(campana.reparto_criterio)}</dd>
+        </div>
         {[
           ['Asignado', resumen?.asignado],
           ['Asignado sin ventas', resumen?.asignado_sin_ventas],
@@ -110,6 +239,10 @@ export default function SellOutReparto({ campana, editable = false, busy = false
       <p className={panelStyles.hint}>
         {`Lo sin asignar (y lo asignado a productos sin ventas) suma en los totales el ${fechaHasta}, no en la fila de ningún producto.`}
       </p>
+
+      {editable && porCriterio && (
+        <RepartoPorCriterio campana={campana} busy={busy} onBusyChange={onBusyChange} onGuardado={onGuardado} />
+      )}
 
       {editable ? (
         <>

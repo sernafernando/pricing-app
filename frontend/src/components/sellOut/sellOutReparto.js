@@ -10,6 +10,16 @@ import { nombreDeItem } from './sellOutFormat';
 
 const MILES = new Intl.NumberFormat('es-AR');
 
+/** How a `monto_total` campaign can be split by criterion (`reparto_criterio`); none stored is the manual reparto. */
+export const CRITERIOS = [
+  { value: 'iguales', label: 'Partes iguales por modelo' },
+  { value: 'unidades', label: 'Según unidades vendidas' },
+  { value: 'costo', label: 'Proporcional al costo' },
+];
+
+/** The stored criterion as the screen names it: "Manual" when the shares were typed by hand. */
+export const nombreDeCriterio = (criterio) => CRITERIOS.find((c) => c.value === criterio)?.label ?? 'Manual';
+
 export const MODO_PORCENTAJE = 'porcentaje';
 export const MODO_MONTO = 'monto';
 
