@@ -378,3 +378,27 @@ class TestCrearYEditar:
 
         assert _items(engine, campana) == antes
         assert _criterio(engine, campana) == "costo"
+
+
+class TestPmSobreCriterio:
+    @pytest.mark.parametrize("criterio", ["iguales", "unidades", "costo"])
+    def test_a_brand_scoped_manual_split_cannot_drop_a_criterion(self, engine: Engine, criterio: str) -> None:
+        _costos(engine, p2964=(100, "ARS"), p2270=(100, "ARS"), p950=(100, "ARS"))
+        campana = _tres(engine, "300.00")
+        _repartir(engine, campana, criterio)
+        antes = _items(engine, campana)
+        w.clear_queue(engine)
+        share = SellOutCampanaItemIn.model_validate({"item_id": 2964, "reparto_monto": "10.00"})
+
+        with pytest.raises(service.SellOutSinPermiso, match="todas las marcas"):
+            _repartir(engine, campana, None, [share], pares={("TP-LINK", "Routers")})
+
+        assert (_items(engine, campana), _criterio(engine, campana)) == (antes, criterio)
+        assert w.queued(engine) == []
+
+
+class TestVistaPreviaAnulada:
+    def test_the_preview_of_a_voided_campaign_is_refused(self, engine: Engine) -> None:
+        campana = _tres(engine, "100.00", estado="anulada")
+        with _db(engine) as db, pytest.raises(criterio_service.CriterioError, match="anulada"):
+            criterio_service.vista_previa(db, db.get(SellOutCampana, campana), "iguales")

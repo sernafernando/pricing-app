@@ -886,6 +886,12 @@ def solo_sus_marcas(db: Session, filas: list[dict], pares: Optional[set]) -> lis
     ]
 
 
+SOLO_TODAS_LAS_MARCAS = (
+    "Repartir por un criterio, o cambiar un reparto por criterio, toca las cuotas de todas las marcas: solo un "
+    "administrador o sell_out.gestionar puede hacerlo"
+)
+
+
 @_deadlock_es_ocupada
 def repartir(
     db: Session,
@@ -906,7 +912,8 @@ def repartir(
 
     `criterio` (`iguales`, `unidades`, `costo`; tactical monto total S2/S3): split the whole total by it instead
     (`criterio.cuotas`), with no `repartos`; it changes every brand's shares, so a brand-scoped user (`pares`) is
-    refused (`SellOutSinPermiso`, S6).
+    refused (`SellOutSinPermiso`, S6); so is their manual split of a campaign split by a criterion, which would drop
+    it for every brand.
     """
     campana = bloquear(db, campana_id)
     if campana is None:
@@ -917,10 +924,7 @@ def repartir(
         if repartos:
             raise SellOutError("Un reparto por criterio no lleva montos por producto")
         if pares is not None:
-            raise SellOutSinPermiso(
-                "Repartir por un criterio cambia las cuotas de todas las marcas: solo un administrador o "
-                "sell_out.gestionar puede hacerlo"
-            )
+            raise SellOutSinPermiso(SOLO_TODAS_LAS_MARCAS)
         grupo_ids = grupo_ids_de(db, campana_id)
         antes = _valores(campana, grupo_ids, items_de(db, [campana_id])[campana_id])
         _aplicar_criterio(db, campana, criterio)
@@ -930,6 +934,8 @@ def repartir(
         db.commit()
         db.refresh(campana)
         return campana
+    if pares is not None and campana.reparto_criterio is not None:
+        raise SellOutSinPermiso(SOLO_TODAS_LAS_MARCAS)  # a manual split would drop every brand's criterion (S6)
     _validar_items("monto_total", repartos)
     t = SellOutCampanaItem
     tenidos = [i for (i,) in db.query(t.item_id).filter(t.campana_id == campana_id)]

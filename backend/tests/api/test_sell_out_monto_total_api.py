@@ -790,3 +790,13 @@ def test_the_preview_shows_each_product_and_stores_nothing(client, gestor, grupo
 def test_the_preview_of_a_missing_campaign_is_a_404(client, gestor, grupo) -> None:
     resp = client.get(f"{BASE}/999999/reparto/vista-previa", params={"criterio": "iguales"}, headers=gestor)
     assert resp.status_code == 404
+
+
+def test_the_preview_of_a_voided_campaign_is_a_409_like_the_split(client, gestor, grupo, db) -> None:
+    cid = _crear(client, gestor, grupo)["id"]
+    db.get(SellOutCampana, cid).estado = "anulada"
+    db.flush()
+
+    resp = client.get(f"{BASE}/{cid}/reparto/vista-previa", params={"criterio": "iguales"}, headers=gestor)
+
+    assert resp.status_code == 409

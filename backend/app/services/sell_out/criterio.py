@@ -117,6 +117,8 @@ def vista_previa(db: Session, campana: SellOutCampana, criterio: str) -> dict:
     """What splitting the campaign by `criterio` gives, per product of its reach, without storing anything."""
     if campana.tipo != "monto_total":
         raise CriterioError("Solo las campañas por monto total se reparten por producto")
+    if campana.estado == "anulada":
+        raise CriterioError(f"La campaña {campana.id} está anulada")
     unidades, montos = _por_unidades(db, campana)
     if criterio in FIJOS:
         montos = cuotas(db, campana, criterio)

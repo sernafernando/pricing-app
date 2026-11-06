@@ -94,6 +94,7 @@ from app.models.usuario import Usuario
 from app.schemas.sell_out import (
     Estado,
     Moneda,
+    RepartoCriterio,
     SellOutAnularIn,
     SellOutAnularMasivoIn,
     SellOutAnularMasivoOut,
@@ -104,7 +105,6 @@ from app.schemas.sell_out import (
     SellOutEdicionPreviaOut,
     SellOutEditarMasivoIn,
     SellOutEditarMasivoOut,
-    RepartoCriterio,
     SellOutRepartoIn,
     SellOutRepartoPreviaOut,
     SellOutTipoCambioIn,
@@ -432,14 +432,12 @@ def vista_previa_reparto(
     split: only a user who sees every brand."""
     _requiere_repartir(db, user)
     if _pares_reparto(db, user) is not None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Repartir por un criterio cambia las cuotas de todas las marcas: solo un administrador o "
-            "sell_out.gestionar puede hacerlo",
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=service.SOLO_TODAS_LAS_MARCAS)
     campana = db.get(SellOutCampana, campana_id)
     if campana is None:
         raise _no_existe(campana_id)
+    if campana.estado == "anulada":  # like `PUT /reparto`
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"La campaña {campana_id} está anulada")
     try:
         return criterio_service.vista_previa(db, campana, criterio)
     except criterio_service.CriterioError as exc:
