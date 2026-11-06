@@ -163,6 +163,13 @@ def _validar_linea(db: Session, data: TacticalIn, linea: TacticalLineaIn) -> _Al
         raise TacticalError("el monto tiene que ser mayor a 0")
     if linea.modo_monto == "porcentaje" and linea.valor > 100:
         raise TacticalError("el porcentaje no puede superar 100")
+    if data.tipo == "sell_out" and linea.modo_monto == "monto_total":
+        if linea.reparto_criterio is None:
+            raise TacticalError("elegí cómo repartir el monto total")
+        if linea.tope_por_producto:
+            raise TacticalError("un monto total se reparte entre los productos de la línea: no lleva tope por producto")
+    elif linea.reparto_criterio is not None:
+        raise TacticalError("el reparto es solo para un monto total")
     if linea.alcance == "productos":
         ids = tuple(dict.fromkeys(linea.item_ids))
         if not ids:
@@ -250,6 +257,7 @@ def _sell_out(db, tactical, data, linea, numero, parte, codigos, usuario_id) -> 
         # A percentage applies on the net without VAT already: the flag means nothing there (and is refused).
         monto_incluye_iva=data.incluye_iva and linea.modo_monto != "porcentaje",
         grupo_ids=[grupo_id],
+        reparto_criterio=linea.reparto_criterio,
     )
     campanas.crear_campana_sin_commit(db, entrada, usuario_id, tactical=(tactical.id, numero))
 
@@ -749,6 +757,7 @@ def _lineas_campanas(db: Session, ids: list[int]) -> list[dict]:
                 "pedido_numero": None,
                 "modo_monto": c.tipo,
                 "valor": {"por_unidad": c.monto_unit, "porcentaje": c.porcentaje, "monto_total": c.monto_total}[c.tipo],
+                "reparto_criterio": c.reparto_criterio,
                 "moneda": c.moneda,
                 "tope_unidades": c.tope_unidades,
                 "tope_monto": c.tope_monto,
