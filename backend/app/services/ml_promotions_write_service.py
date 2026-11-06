@@ -74,12 +74,12 @@ logger = logging.getLogger(__name__)
 _RECOMPUTE_TRIGGER_STATUSES = {"submitted", "reconciled_applied"}
 
 # Outcomes worth triggering a server-side point-refresh for. Deliberately
-# WIDER than _RECOMPUTE_TRIGGER_STATUSES: "ambiguous" is included here (a
-# truth-revealing refresh matters most when we genuinely don't know the
-# outcome), but must NEVER leak into the recompute trigger set above — a
+# WIDER than _RECOMPUTE_TRIGGER_STATUSES: "ambiguous" and "reconciled_not_applied"
+# are included here (every ambiguous write is followed by a refresh so the
+# mirror catches up with what ML did), but must NEVER leak into the recompute trigger set above — a
 # recompute for an outcome that may not have actually changed anything at
 # ML would be wasted work at best.
-_REFRESH_TRIGGER_STATUSES = {"submitted", "reconciled_applied", "ambiguous"}
+_REFRESH_TRIGGER_STATUSES = {"submitted", "reconciled_applied", "reconciled_not_applied", "ambiguous"}
 
 # Retry queue tuning (see PromoRefreshPending / drain_promo_refresh.py).
 REFRESH_RETRY_DELAY_SECONDS = 60
@@ -236,71 +236,96 @@ def write_took_effect(action: str, mirror_status: Optional[str]) -> bool:
     return status in _ENROLLED_STATUSES
 
 
+# Statuses that say the item is NOT enrolled (eligible, or the promo ended). Together with _ENROLLED_STATUSES they
+# are the only statuses that prove anything; a missing, None or unknown status proves neither.
+_NOT_ENROLLED_STATUSES = frozenset({"candidate", "finished"})
+
+
+def _proven_effect(operation: str, status: Optional[str]) -> Optional[bool]:
+    """Whether `status` proves the write took effect (True), proves it did not (False), or proves nothing (None)."""
+    status = (status or "").lower()
+    if status in _ENROLLED_STATUSES:
+        return operation != "remove"
+    if status in _NOT_ENROLLED_STATUSES:
+        return operation == "remove"
+    return None
+
+
+def _fresh_effect(mla_id: str, promotion_id: str, operation: str) -> Optional[bool]:
+    """The write's effect according to a FRESH live read of the item (the same client read the write path uses
+    before a POST/DELETE), or None when that read fails or does not show exactly one entry with a known status."""
+    try:
+        live = _resolve(ml_webhook_client.get_item_promotions(mla_id))
+        matches = [entry for entry in live or [] if entry.get("id") == promotion_id]
+    except Exception as e:  # noqa: BLE001 - any failure (incl. an unexpected payload shape) proves nothing
+        logger.error("Reconciliation fresh read failed for %s/%s: %s", mla_id, promotion_id, e)
+        return None
+    if len(matches) != 1:
+        return None
+    return _proven_effect(operation, _lightning_status(matches[0]))
+
+
 def reconcile_write_outcome(
     mla_id: str, promotion_id: str, operation: str = "enroll", slow_consistency: bool = False
 ) -> Dict[str, Any]:
-    """Reconciles an ambiguous write outcome by reading `ml_item_promotions`
-    (source of truth), mirroring the `reconciliar_ml_cancelaciones.py`
-    precedent: read-then-classify instead of retrying the original write.
+    """Reconciles an ambiguous write outcome (timeout/5xx) without retrying the write, mirroring the
+    `reconciliar_ml_cancelaciones.py` precedent: read the source of truth, then classify.
 
-    The interpretation is DIRECTION-DEPENDENT:
-      - operation="enroll": status started/pending means the enrollment IS
-        in effect -> reconciled_applied. A candidate/finished row or no row
-        -> reconciled_not_applied (unless slow_consistency, see below).
-        See `write_took_effect`.
-      - operation="remove": keyed on STATUS, not presence. A successful
-        DELETE returns the item to status='candidate' — the row PERSISTS
-        in `ml_item_promotions`, it does NOT disappear. So "removed" means
-        the item is no longer enrolled: status not 'started'/'pending'
-        (row absent, or status 'candidate'/'finished') -> reconciled_applied.
-        'started' or 'pending' means the removal did NOT take effect
-        (still enrolled) -> reconciled_not_applied (unless
-        slow_consistency, see below).
+    1. `ml_item_promotions` (the webhook-fed mirror). It can lag behind ML, so it is trusted only when it PROVES an
+       enroll took effect (status started/pending). For a remove it proves nothing on its own: a candidate/finished
+       row can predate an enroll the mirror never synced. Anything else, including no row, a row with no status or an
+       unknown status, or a failed mirror read, proves nothing either.
+    2. Otherwise a FRESH live read of the item (`ml_webhook_client.get_item_promotions`, the read the write path
+       already uses) decides: enroll -> started/pending; remove -> candidate/finished (a successful DELETE returns
+       the item to `candidate`). Proven applied -> reconciled_applied; proven not applied ->
+       reconciled_not_applied; read failed, entry missing or duplicated, or status unknown -> ambiguous.
 
-    slow_consistency (True for SMART, ~10-18s to settle vs ~2s for
-    SELLER_CAMPAIGN/DEAL): the POSITIVE verdict (started/pending on enroll, neither
-    on remove) stays reconciled_applied — it is trustworthy either
-    way. The NEGATIVE verdict (not enrolled on enroll, still enrolled on remove)
-    becomes "ambiguous" instead of "reconciled_not_applied": an immediate
-    read can still miss a just-applied SMART write, and confidently
-    reporting "not applied" would be a false negative that could make an
-    operator re-apply a price that already changed.
+    slow_consistency (True for SMART-like types, ~10-18s to settle vs ~2s for SELLER_CAMPAIGN/DEAL): even the fresh
+    read can miss a just-applied write, so its negative verdict becomes "ambiguous" instead of
+    "reconciled_not_applied" — a false "not applied" could make an operator re-apply a price that already changed.
+
+    Never returns reconciled_not_applied without a fresh read proving it. Every outcome queues the item refresh
+    (`_REFRESH_TRIGGER_STATUSES`) so the mirror catches up.
 
     Returns:
-        `{status: "reconciled_applied"|"reconciled_not_applied"|"ambiguous", row}`.
-        `status="ambiguous"` when the reconciliation read itself fails
-        (e.g. `ML_WEBHOOK_DB_URL` unset / DB error), or when slow_consistency
-        is True and the read yields the negative verdict — in both cases we
-        genuinely don't have a trustworthy "not applied" outcome.
+        `{status: "reconciled_applied"|"reconciled_not_applied"|"ambiguous", row[, detail]}`, `row` being the trimmed
+        mirror row (None when there is none or the mirror read failed); `detail` is set on every ambiguous outcome.
     """
+    operation = "remove" if operation == "remove" else "enroll"
+    matched_row: Optional[Dict[str, Any]] = None
     try:
         rows = fetch_item_promotions(mla_id)
     except Exception as e:
-        logger.error("Reconciliation read failed for %s/%s: %s", mla_id, promotion_id, e)
-        return {"status": "ambiguous", "row": None}
-
-    matched_row: Optional[Dict[str, Any]] = None
+        logger.error("Reconciliation mirror read failed for %s/%s: %s", mla_id, promotion_id, e)
+        rows = []
     for row in rows:
         if row.get("promotion_id") == promotion_id:
             matched_row = row
             break
 
-    matched_status = matched_row.get("status") if matched_row is not None else None
-    applied = write_took_effect("remove" if operation == "remove" else "enroll", matched_status)
-
-    if applied:
-        status = "reconciled_applied"
-    elif slow_consistency:
-        status = "ambiguous"
+    if operation == "enroll" and matched_row is not None and _proven_effect(operation, matched_row.get("status")):
+        effect: Optional[bool] = True
     else:
+        effect = _fresh_effect(mla_id, promotion_id, operation)
+
+    if effect:
+        status = "reconciled_applied"
+    elif effect is False and not slow_consistency:
         status = "reconciled_not_applied"
+    else:
+        status = "ambiguous"
 
     result: Dict[str, Any] = {"status": status, "row": _trim_reconciled_row(matched_row)}
-    if status == "ambiguous" and slow_consistency:
+    if status == "ambiguous" and effect is False:
         result["detail"] = (
             "SMART consistency is slower (~10-18s) than campaigns; the row "
             "may still be settling. ml_item_promotions is the source of "
             "truth — re-check it before assuming the write did not apply."
+        )
+    elif status == "ambiguous":
+        result["detail"] = (
+            "Neither the promotions mirror nor a fresh read of the item confirmed whether the write applied; "
+            "a refresh was queued. Check the item in ML before writing again."
         )
     return result
 
@@ -1336,7 +1361,7 @@ def _classify_write_outcome(
     )
     if reconciliation["status"] == "ambiguous":
         logger.warning(
-            "ML promo write ambiguous (reconciliation read failed or slow-consistency negative verdict) "
+            "ML promo write ambiguous (neither the mirror nor a fresh read confirmed the outcome) "
             "operation=%s mla=%s promotion_id=%s promotion_type=%s offer_id=%s",
             operation,
             mla_id,

@@ -209,10 +209,12 @@ class TestRemoveWritesLog:
         assert row.usuario_id == usuario.id
 
     def test_ambiguous_remove_reconciled_applied_writes_row(self, bg_db, usuario) -> None:
-        # A successful DELETE returns the item to 'candidate' (the mirror row persists).
+        # A successful DELETE returns the item to 'candidate' (the mirror row persists); the fresh live read confirms it.
         mirror_row = {"mla": MLA, "promotion_id": "DEAL-1", "promotion_type": "DEAL", "status": "candidate"}
+        live = [{**_live_deal()[0], "status": "candidate"}]
         with (
             patch.object(write_service.ml_webhook_client, "remove_item", return_value=_AMBIGUOUS_504),
+            patch.object(write_service.ml_webhook_client, "get_item_promotions", return_value=live),
             patch.object(write_service, "fetch_item_promotions", return_value=[mirror_row]),
         ):
             outcome = write_service.remove_one_item(MLA, "DEAL", "DEAL-1", usuario_id=usuario.id)
