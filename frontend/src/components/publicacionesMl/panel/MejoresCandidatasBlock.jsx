@@ -96,6 +96,8 @@ export default function MejoresCandidatasBlock({
         if (cancelled) return;
         if (markup == null) {
           setUnavailable(true);
+          // Nothing is suggested any more: no row in the Promos tab stays marked Sugerida.
+          onSuggestedRef.current?.([]);
           onUnavailableRef.current?.();
           return;
         }
@@ -110,6 +112,7 @@ export default function MejoresCandidatasBlock({
         if (!cancelled) {
           setMessage({ tone: 'error', text: errorText(err, 'No se pudieron cargar las candidatas.') });
           setUnavailable(true);
+          onSuggestedRef.current?.([]);
           onUnavailableRef.current?.();
         }
       } finally {

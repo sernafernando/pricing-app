@@ -3,8 +3,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PromoApplyControl from './PromoApplyControl';
 import { promocionesAPI } from '../../services/api';
-// One capture for both suites: the backend fixture is the source of truth.
-import capture from '../../../../backend/tests/fixtures/ml_promotions/lightning_item_promotions_20261106.json';
+// Copy of backend/tests/fixtures/ml_promotions/lightning_item_promotions_20261106.json (run_tests.sh frontend syncs only frontend/).
+import capture from './fixtures/lightning_item_promotions_20261106.json';
 
 // LIGHTNING (ofertas relámpago), odd/tasks/promos-aplicar-lightning.md S1, S1b, S1c, S3, S4.
 // Rows are the real ml_item_promotions capture of 2026-11-06 (same shape GET /promociones/item returns).

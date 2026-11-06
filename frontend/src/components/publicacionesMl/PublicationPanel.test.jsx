@@ -731,7 +731,7 @@ describe('hay_mejores chooser outside MODO', () => {
     publicacionesMlAPI.detail.mockResolvedValue({ data: flaggedDetail() });
     renderPanel({ tab: 'resumen' });
     await screen.findByRole('region', { name: 'Candidatas mejores' });
-    await user.click(screen.getByRole('button', { name: 'Descartar sugerencia' }));
+    await user.click(await screen.findByRole('button', { name: 'Descartar sugerencia' }));
     await waitFor(() => expect(promocionesAPI.descartarHayMejores).toHaveBeenCalled());
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Candidatas mejores' })).not.toBeInTheDocument());
     expect(screen.getByRole('tablist', { name: 'Secciones de la publicación' })).toBeInTheDocument();
@@ -800,5 +800,42 @@ describe('hay_mejores chooser outside MODO', () => {
     renderPanel({ tab: 'resumen' });
     await screen.findByRole('tablist', { name: 'Secciones de la publicación' });
     expect(screen.queryByRole('region', { name: 'Candidatas mejores' })).not.toBeInTheDocument();
+  });
+
+  it('still tells a reader without promos.escribir that there are better candidates, read only', async () => {
+    canWritePromos = false;
+    publicacionesMlAPI.detail.mockResolvedValue({ data: flaggedDetail() });
+    renderPanel({ tab: 'resumen' });
+    const notice = await screen.findByRole('status', { name: 'Candidatas mejores' });
+    expect(notice).toHaveTextContent('Hay candidatas mejores que el precio vigente en MeLi.');
+    expect(within(notice).queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('shows no notice to a user who cannot see promotions', async () => {
+    canWritePromos = false;
+    canSeePromos = false;
+    publicacionesMlAPI.detail.mockResolvedValue({ data: flaggedDetail() });
+    renderPanel({ tab: 'resumen' });
+    await screen.findByRole('tablist', { name: 'Secciones de la publicación' });
+    expect(screen.queryByText(/Hay candidatas mejores/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the "price differs" alert after the silent refresh clears the flag', async () => {
+    const user = userEvent.setup();
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: { promotions: [{ promotion_id: 'P-SUG', promotion_type: 'SMART', status: 'candidate', name: 'Potencia tus ventas', price: 70000, nuestro_markup: 15 }] },
+    });
+    promocionesAPI.postPromocionItem.mockReset().mockResolvedValue({
+      data: { status: 'submitted', precio_difiere: true, precio_aplicado: 71500, precio_confirmado: 70000, markup_aplicado: 14 },
+    });
+    const unflagged = makeDetail({ row: { ...flaggedDetail().row, hay_mejores_ofertas: false } });
+    publicacionesMlAPI.detail.mockResolvedValueOnce({ data: flaggedDetail() }).mockResolvedValue({ data: unflagged });
+    renderPanel({ tab: 'resumen' });
+    await user.click(await screen.findByRole('button', { name: 'Aplicar sugerencia' }));
+    await user.click(screen.getByRole('button', { name: 'Sí, aplicar' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/ML aplicó \$\s?71\.500/);
+    await waitFor(() => expect(publicacionesMlAPI.detail.mock.calls.length).toBeGreaterThan(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.getByRole('alert')).toHaveTextContent(/ML aplicó \$\s?71\.500/);
   });
 });

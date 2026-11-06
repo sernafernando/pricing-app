@@ -224,6 +224,22 @@ describe('MejoresCandidatasBlock', () => {
       expect(onWritten).toHaveBeenCalled();
     });
 
+    it('clears the suggested ids when the reload after a clean apply fails, so no row stays Sugerida', async () => {
+      const user = userEvent.setup();
+      const onSuggested = vi.fn();
+      promocionesAPI.getPromocionesItem
+        .mockResolvedValueOnce({ data: { promotions: [smart] } })
+        .mockRejectedValueOnce(new Error('network'));
+      promocionesAPI.postPromocionItem.mockResolvedValue({ data: { status: 'submitted', precio_difiere: false } });
+      render(<MejoresCandidatasBlock itemId="MLA9" baselinePrice={59999} onSuggested={onSuggested} />);
+      await user.click(await screen.findByRole('button', { name: 'Aplicar sugerencia' }));
+      expect(onSuggested).toHaveBeenLastCalledWith([smart.promotion_id]);
+      await user.click(screen.getByRole('button', { name: 'Sí, aplicar' }));
+      expect(await screen.findByRole('button', { name: /Descartar sugerencia/ })).toBeInTheDocument();
+      await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(2));
+      expect(onSuggested).toHaveBeenLastCalledWith([]);
+    });
+
     it('keeps the pub open and shows the warning when ML applied another price (precio_difiere)', async () => {
       const user = userEvent.setup();
       const onLeavePub = vi.fn();
