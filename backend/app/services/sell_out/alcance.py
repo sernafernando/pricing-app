@@ -25,12 +25,20 @@ unknown:
   cost of goods; 0 means unknown), fuera / TN `costo_total / units`;
 - price: ML `gross / qty` (unit price x qty, WITH VAT; 0 means unknown: an
   unsettled or non-ARS order), fuera / TN `monto_total / units` (without VAT).
+
+Combos (owner, 2026-11-05: "cuenta para sus campañas de sell out. En una campaña por % de precio, a la notebook le
+toca la parte del precio del combo proporcional a su costo dentro del combo."): a sale or return of a combo is read
+as one of each component, `qty x cantidad` units under the component's `item_id` and the sale's own `venta_ref`, its
+unit price and cost being the combo line's amount split by the component's share (`combos.ventas.Parte.peso`,
+to the cent: `combos.ventas.repartir`) over the component's units. The
+combo itself is never a sale of its own (never twice), and with the bill of materials unsynced this refuses
+(`CombosNoSincronizados`).
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
@@ -42,6 +50,7 @@ from app.models.ml_sale_line import MlSaleLine
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo
+from app.services.combos.ventas import Parte, partes_de_combos, repartir, unidades_de
 from app.services.sell_in.costing import VENTAS_FACTURADAS, resolver_objetivos, unidades_firmadas, utc_date
 
 
@@ -235,7 +244,8 @@ def ventas(db: Session, item_ids: Set[int], desde: date, hasta: date) -> List[Ve
     channel plus one per channel with returns (their original sales)."""
     if not item_ids:
         return []
-    ids = sorted(item_ids)
+    combos = partes_de_combos(db, item_ids)
+    ids = sorted(set(item_ids) | set(combos))
     salida = [
         Venta(
             "ml",
@@ -286,4 +296,30 @@ def ventas(db: Session, item_ids: Set[int], desde: date, hasta: date) -> List[Ve
         for ref, item_id, fecha, unidades, _ in devoluciones:
             objetivo = objetivos.get(ref)
             salida.append(Venta(canal, ref, item_id, fecha, unidades, (canal, objetivo) if objetivo else None))
-    return salida
+    return [suya for venta in salida for suya in _de_componentes(venta, combos, item_ids)]
+
+
+def _de_componentes(venta: Venta, combos: Dict[int, List[Parte]], item_ids: Set[int]) -> List[Venta]:
+    """A combo's sale as its components' sales among `item_ids` (module docstring); a plain product's sale as is."""
+    if venta.item_id not in combos:
+        return [venta] if venta.item_id in item_ids else []
+    partes = combos[venta.item_id]
+    unidades = [unidades_de(venta.unidades, p) for p in partes]
+    costos = _por_componente(venta.costo_unit, venta.unidades, partes, unidades)
+    precios = _por_componente(venta.precio_unit, venta.unidades, partes, unidades)
+    return [
+        replace(venta, item_id=p.componente, unidades=suyas, costo_unit=costo, precio_unit=precio)
+        for p, suyas, costo, precio in zip(partes, unidades, costos, precios)
+        if p.componente in item_ids
+    ]
+
+
+def _por_componente(
+    valor: Optional[Decimal], unidades: int, partes: List[Parte], suyas: List[int]
+) -> List[Optional[Decimal]]:
+    """Each component's unit value: the combo line's amount (`valor` x `unidades`) split by `combos.ventas.repartir`,
+    so the components' amounts add up to the line's to the cent, over the component's own units."""
+    if valor is None:
+        return [None] * len(partes)
+    montos = repartir(valor * abs(unidades), partes)
+    return [monto / abs(n) for monto, n in zip(montos, suyas)]

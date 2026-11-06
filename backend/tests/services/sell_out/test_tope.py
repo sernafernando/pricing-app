@@ -307,7 +307,7 @@ def test_por_linea_reports_what_each_sale_took_on_its_turn_and_each_return_freed
     ]
     por_linea: dict = {}
     consumos = asignar(_campana(tope_unidades=4), lineas, por_linea=por_linea)
-    assert por_linea == {("ml", 1): 2, ("ml", 2): 2, ("ml", 3): 4, ("ml", 4): 0}
+    assert por_linea == {("ml", 1, 1): 2, ("ml", 2, 1): 2, ("ml", 3, 1): 4, ("ml", 4, 2): 0}
     assert _filas(consumos) == []
 
 
@@ -315,7 +315,7 @@ def test_por_linea_counts_the_units_not_given_back_to_an_exclusive_campaign() ->
     lineas = [_linea(1, 3), _linea(2, -3, dia=2, ocupadas=1, objetivo=("ml", 1))]
     por_linea: dict = {}
     asignar(_campana(), lineas, por_linea=por_linea)
-    assert por_linea == {("ml", 1): 3, ("ml", 2): 2}
+    assert por_linea == {("ml", 1, 1): 3, ("ml", 2, 1): 2}
 
 
 # ── Per-product amounts (T22b S25: legacy grouped offsets) ──────────

@@ -14,6 +14,11 @@ from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.combo_componente import ComboComponente
+from app.models.ml_orders_ops import MlOrderItemOps
+from app.models.ml_sale_line import MlSaleLine
+from app.models.sell_dirty import SellDirty
+from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
+from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.services.combos import fuente_erp
 from app.workers.context import WorkerContext
 from app.workers.handlers import combos_sync
@@ -22,7 +27,15 @@ from app.workers.registry import REGISTRY
 from tests.conftest import POSTGRES_TEST_URL, _postgres_reachable, _restore_pristine_pg_types
 
 D = Decimal
-_TABLES = [ComboComponente.__table__]
+# Plus the sale sources and `sell_dirty`: a changed combo re-queues its sales (`store.apply`).
+_TABLES = [
+    ComboComponente.__table__,
+    VentaFueraMLMetrica.__table__,
+    VentaTiendaNubeMetrica.__table__,
+    MlOrderItemOps.__table__,
+    MlSaleLine.__table__,
+    SellDirty.__table__,
+]
 
 
 @pytest.fixture()

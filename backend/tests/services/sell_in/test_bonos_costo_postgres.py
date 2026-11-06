@@ -428,3 +428,32 @@ class TestPorUnidad:
             (bono, primera, 2964, 2, Decimal("20.00")),
             (bono, segunda, 2964, 1, Decimal("10.00")),
         ]
+
+
+@pytest.mark.postgres
+class TestCombos:
+    def test_a_combo_sale_gives_each_component_its_cost_share_one_row_each(self, engine: Engine) -> None:
+        """Owner, 2026-11-05: the combo counts for its components; each gets its cost share of the sale's cost."""
+        w.combo(engine, 2270, {950: 1, 2964: 2})
+        with engine.begin() as conn:  # 600 and 2 x 200: 60 % and 40 % of the combo
+            conn.execute(text("UPDATE productos_erp SET costo = 600, moneda_costo = 'ARS' WHERE item_id = 950"))
+            conn.execute(text("UPDATE productos_erp SET costo = 200, moneda_costo = 'ARS' WHERE item_id = 2964"))
+        try:
+            bono = b.bono_costo(engine, "3.00", alcance="modelos", marca=None, modelos=(2964, 950))
+            ref = _fuera(engine, 2270, 1, D(2026, 10, 5))  # the combo's recorded cost: 1000.00
+
+            _items(engine, 950, 2964)
+
+            # 3 % of 600.00 for the notebook; 3 % of 200.00 per WH unit, two units.
+            assert sorted(_filas(engine)) == [
+                (bono, ref, 950, 1, Decimal("18.00")),
+                (bono, ref, 2964, 2, Decimal("12.00")),
+            ]
+        finally:
+            with engine.begin() as conn:
+                for item_id, (_, costo, moneda) in b.PRODUCTOS.items():
+                    conn.execute(
+                        text("UPDATE productos_erp SET costo = :c, moneda_costo = :m WHERE item_id = :i"),
+                        {"c": costo, "m": moneda, "i": item_id},
+                    )
+                conn.execute(text("DELETE FROM combo_componentes WHERE combo_item_id <> 999999001"))

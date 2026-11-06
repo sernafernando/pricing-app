@@ -50,7 +50,7 @@ becomes its remaining units' rounded worth. That is never more than it held: a
 capped row holds at most `ceil(money / unit amount)` units, so all but one of
 them are worth less than its money.
 
-`por_linea`, when given, receives `{(canal, venta_ref): units}` for every line
+`por_linea`, when given, receives `{(canal, venta_ref, item_id): units}` for every line
 with units available here: what a sale took when its turn came (a later return
 does not change it) and what a return freed. The allocator passes it on as
 `ocupadas` to the campaigns this one takes precedence over.
@@ -69,7 +69,7 @@ from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 CENT = Decimal("0.01")
 CIEN = Decimal(100)
 
-Clave = Tuple[str, int]  # (canal, venta_ref)
+Clave = Tuple[str, int, int]  # (canal, venta_ref, item_id): a combo sale is one line per component
 
 
 @dataclass(frozen=True)
@@ -99,7 +99,7 @@ class Linea:
     iva_pct: Decimal = Decimal(0)  # the product's own VAT rate, in percent
     base_unit: Optional[Decimal] = None  # `porcentaje` only: per unit, campaign currency, without VAT
     ocupadas: int = 0
-    objetivo: Optional[Clave] = None  # a return's original sale, when the caller resolved one
+    objetivo: Optional[Tuple[str, int]] = None  # a return's original (canal, venta_ref), when the caller resolved one
 
 
 @dataclass(frozen=True)
@@ -153,7 +153,7 @@ def _validar(campana: Campana, lineas: List[Linea]) -> None:
         raise ValueError("tope_monto must be positive")
     vistas = set()
     for linea in lineas:
-        clave = (linea.canal, linea.venta_ref)
+        clave = (linea.canal, linea.venta_ref, linea.item_id)
         if clave in vistas:
             raise ValueError(f"sale {clave} appears more than once")
         vistas.add(clave)
@@ -175,7 +175,7 @@ def asignar(campana: Campana, lineas: Iterable[Linea], por_linea: Optional[Dict[
     tenencia: Dict[Clave, List] = {}
     ventas: Dict[Clave, Linea] = {}
     for linea in lineas:
-        clave = (linea.canal, linea.venta_ref)
+        clave = (linea.canal, linea.venta_ref, linea.item_id)
         disponibles = abs(linea.unidades) - linea.ocupadas
         if disponibles == 0:
             continue
@@ -201,8 +201,9 @@ def asignar(campana: Campana, lineas: Iterable[Linea], por_linea: Optional[Dict[
             continue
         # A return: its target first, then the latest earlier holder of the same product.
         mismo_producto = [c for c in reversed(tenencia) if ventas[c].item_id == linea.item_id]
-        candidatas = [linea.objetivo] if linea.objetivo in mismo_producto else []
-        candidatas += [c for c in mismo_producto if c != linea.objetivo]
+        objetivo = (*linea.objetivo, linea.item_id) if linea.objetivo is not None else None
+        candidatas = [objetivo] if objetivo in mismo_producto else []
+        candidatas += [c for c in mismo_producto if c != objetivo]
         falta = disponibles
         for candidata in candidatas:
             if falta == 0:

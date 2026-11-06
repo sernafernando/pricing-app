@@ -13,6 +13,10 @@ already inserted is skipped (ON CONFLICT DO NOTHING), an update that finds the
 quantity already right or the pair gone counts 0, and so does a delete of a
 pair already gone. A writer that bypasses the lock can therefore make the
 counts smaller than the plan, never wrong, and never make the apply raise.
+
+`apply` also queues every sale line of each combo the plan touches in `sell_dirty`
+(`sell.queue.enqueue_combos`), in the same transaction: a combo's sale counts for its
+components in sell in and sell out, so a new bill of materials re-counts it.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.models.combo_componente import ComboComponente
 from app.services.combos.reconcile import Bom, Componentes, Plan
+from app.services.sell import queue as sell_queue
 
 _T = ComboComponente.__table__
 
@@ -83,4 +88,6 @@ def apply(db: Session, plan: Plan) -> dict[str, int]:
     if plan.deletes:
         c, k = zip(*plan.deletes)
         counts["deleted"] = db.execute(_DELETE, {"c": list(c), "k": list(k)}).rowcount
+    # A combo whose components changed re-counts its sales in sell in and sell out (owner, 2026-11-05).
+    sell_queue.enqueue_combos(db, {fila[0] for fila in (*plan.inserts, *plan.updates, *plan.deletes)})
     return counts

@@ -739,7 +739,7 @@ def _topear(
         anterior = deseadas[par]
         cabecera = {**anterior.cabecera, "monto_total": sum((m for _, m in detalle.values()), Decimal("0"))}
         deseadas[par] = _Deseada(cabecera, detalle)
-    return {origen[ref]: libres[origen[ref]][:n] for (_, ref), n in por_linea.items()}
+    return {origen[ref]: libres[origen[ref]][:n] for (_, ref, _), n in por_linea.items()}
 
 
 def _motivo(pedido: Optional[_Pedido], bono: Optional[SellInBonoMarca]) -> str:

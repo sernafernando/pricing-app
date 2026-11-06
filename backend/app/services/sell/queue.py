@@ -252,6 +252,36 @@ def enqueue_ml(db: Session, lines: Sequence[Tuple[int, int]]) -> None:
     db.execute(_ENQUEUE_ML_SQL, {"refs": [ref for ref, _ in ordered], "items": [item for _, item in ordered]})
 
 
+_ENQUEUE_COMBOS_SQL = text(
+    """
+WITH ventas AS (
+    SELECT 'ml' AS canal, item_row_id AS ref, product AS item FROM ml_sale_lines WHERE product = ANY(:combos)
+    UNION ALL
+    SELECT 'fuera', it_transaction, item_id FROM ventas_fuera_ml_metricas WHERE item_id = ANY(:combos)
+    UNION ALL
+    SELECT 'tn', it_transaction, item_id FROM ventas_tienda_nube_metricas WHERE item_id = ANY(:combos)
+), queued AS (
+    INSERT INTO sell_dirty (canal, venta_ref, item_id)
+    SELECT DISTINCT ON (canal, ref) canal, ref, item FROM ventas WHERE ref IS NOT NULL ORDER BY canal, ref
+    ON CONFLICT (canal, venta_ref) DO UPDATE
+    SET item_id = EXCLUDED.item_id, enqueued_at = now(), attempts = 0, last_error = NULL
+    RETURNING 1
+)
+SELECT pg_notify('sell_dirty', '') WHERE EXISTS (SELECT 1 FROM queued)
+"""
+)
+
+
+def enqueue_combos(db: Session, combo_item_ids: Iterable[int]) -> None:
+    """Queues every sale line of these combos, every channel, under the combo (S4 of combos in sell in / sell out):
+    their bill of materials changed, so the drain recomputes the components they have now (`products_of`), the ones
+    they had (their rows are filed under them) and the sell-out campaigns of both. Does not commit; a no-op for no
+    combos."""
+    combos = sorted({int(c) for c in combo_item_ids})
+    if combos:
+        db.execute(_ENQUEUE_COMBOS_SQL, {"combos": combos})
+
+
 def claim_batch(db: Session, limit: int, excluded: Iterable[Line] = ()) -> List[Tuple[str, int, Optional[int]]]:
     """Claims up to `limit` queued lines (`(canal, venta_ref, item_id)`), locked
     until the transaction ends. Does not commit."""
