@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { promocionesAPI } from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { ML_PRICED_TYPES, promoDisplayPrice } from './promoDisplayPrice';
@@ -7,6 +8,11 @@ import styles from './promociones.module.css';
 function formatMoney(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A';
   return `$${Number(value).toLocaleString('es-AR')}`;
+}
+
+// "$17.307,81": always two decimals, for the LIGHTNING allowed range.
+function formatRangeMoney(value) {
+  return `$${Number(value).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function formatMarkupPct(value) {
@@ -462,9 +468,13 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded, label })
     );
   }
 
-  if (phase === 'confirming') {
-    const priceInputId = `deal-price-${mla}-${promotion.promotion_id}`;
+  const priceInputId = `deal-price-${mla}-${promotion.promotion_id}`;
+
+  // LIGHTNING enroll: a card under its row (approved S9 design), while the row's trigger reads "Cerrar".
+  if (phase === 'confirming' && needsStock) {
     const stockInputId = `stock-${mla}-${promotion.promotion_id}`;
+    const titleId = `lightning-title-${mla}-${promotion.promotion_id}`;
+    const markupLabelId = `lightning-markup-${mla}-${promotion.promotion_id}`;
     const lightningStart = formatDateTime(promotion.start_date);
     const lightningFinish = formatDateTime(promotion.finish_date);
     // ML's optional boost fields live in the stored entry (`payload`), only when boosted_offer is true.
@@ -475,6 +485,123 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded, label })
             mlEntry.total_price_for_boosted_offer,
           )}`
         : null;
+    const rangeText =
+      promotion.max_discounted_price != null
+        ? `Rango permitido: ${formatRangeMoney(promotion.min_discounted_price)} - ${formatRangeMoney(promotion.max_discounted_price)}`
+        : promotion.min_discounted_price != null
+          ? `Mínimo permitido: ${formatRangeMoney(promotion.min_discounted_price)}`
+          : null;
+    return (
+      <>
+        <button type="button" className={`${styles.applyBtn} ${styles.lightningClose}`} onClick={handleCancel}>
+          Cerrar
+        </button>
+        <div role="group" aria-labelledby={titleId} className={styles.lightningCard}>
+          <h5 id={titleId} className={styles.lightningTitle}>
+            Aplicar LIGHTNING
+          </h5>
+          <div className={styles.lightningFields}>
+            <div className={styles.lightningField}>
+              <label htmlFor={priceInputId} className={styles.lightningLabel}>
+                Precio
+              </label>
+              <span className={styles.lightningInputWrap}>
+                <span className={styles.lightningPrefix} aria-hidden="true">
+                  $
+                </span>
+                <input
+                  id={priceInputId}
+                  type="number"
+                  className={styles.lightningInput}
+                  value={dealPrice}
+                  onChange={handlePriceChange}
+                  min={promotion.min_discounted_price}
+                  max={promotion.max_discounted_price}
+                />
+              </span>
+              {rangeText && <span className={styles.lightningHint}>{rangeText}</span>}
+              {priceOutOfRange && (
+                <span className={styles.feedbackError}>
+                  {promotion.max_discounted_price != null
+                    ? `Precio fuera de rango ($${promotion.min_discounted_price} - $${promotion.max_discounted_price}).`
+                    : `Precio fuera de rango (mínimo $${promotion.min_discounted_price}).`}
+                </span>
+              )}
+              {lightningMaxUnknown && (
+                <span className={styles.lightningHint}>
+                  ML no informó el precio máximo; se confirma con ML al aplicar.
+                </span>
+              )}
+            </div>
+            <div className={styles.lightningMarkup}>
+              <span id={markupLabelId} className={styles.lightningMarkupLabel}>
+                Tu markup
+              </span>
+              <output aria-labelledby={markupLabelId} className={`${styles.lightningMarkupValue} ${markupClass(markup)}`}>
+                {markupLoading ? 'Calculando...' : markup != null ? `${markup.toFixed(1)}%` : '—'}
+              </output>
+            </div>
+            <div className={styles.lightningField}>
+              <label htmlFor={stockInputId} className={styles.lightningLabel}>
+                Stock a reservar
+              </label>
+              <span className={styles.lightningInputWrap}>
+                <input
+                  id={stockInputId}
+                  type="number"
+                  step="1"
+                  className={styles.lightningInput}
+                  value={stock}
+                  onChange={(e) => setStock(e.target.value)}
+                  min={stockRange?.min}
+                  max={stockRange?.max}
+                  placeholder="unidades"
+                />
+              </span>
+              {stockRange ? (
+                <span className={styles.lightningHint}>
+                  Entre {stockRange.min} y {stockRange.max} unidades
+                </span>
+              ) : (
+                <span className={styles.feedbackError}>
+                  ML no informa el stock a reservar de esta oferta; no se puede aplicar.
+                </span>
+              )}
+            </div>
+          </div>
+          {lightningStart && lightningFinish && (
+            <span className={styles.lightningHint}>
+              Empieza {lightningStart} · termina {lightningFinish}
+            </span>
+          )}
+          {boostLine && <span className={styles.lightningHint}>{boostLine}</span>}
+          <div role="note" className={styles.lightningWarning}>
+            <AlertTriangle size={16} aria-hidden="true" className={styles.lightningWarningIcon} />
+            <span>
+              Una vez que empieza no se puede quitar (solo pausando la publicación). La oferta termina cuando se vende el
+              stock reservado.
+            </span>
+          </div>
+          <div className={styles.lightningActions}>
+            <button type="button" className={styles.lightningCancelBtn} onClick={handleCancel}>
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className={styles.lightningConfirmBtn}
+              onClick={() => handleConfirm()}
+              disabled={priceOutOfRange || lightningBlocked}
+            >
+              Sí, aplicar
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  // Every other confirmation (and a LIGHTNING Desaplicar): an inline line under the row.
+  if (phase === 'confirming') {
     return (
       <span className={styles.applyConfirm}>
         <span>¿{actionLabelCapitalized} esta promoción?</span>
@@ -503,52 +630,13 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded, label })
                   : `Precio fuera de rango (mínimo $${promotion.min_discounted_price}).`}
               </span>
             )}
-            {lightningMaxUnknown && (
-              <span className={styles.priceMarkup}>ML no informó el precio máximo; se confirma con ML al aplicar.</span>
-            )}
-          </span>
-        )}
-        {needsStock && (
-          <span className={styles.priceInput}>
-            <label htmlFor={stockInputId}>Stock a reservar</label>
-            <input
-              id={stockInputId}
-              type="number"
-              step="1"
-              value={stock}
-              onChange={(e) => setStock(e.target.value)}
-              min={stockRange?.min}
-              max={stockRange?.max}
-              placeholder="unidades"
-            />
-            {stockRange ? (
-              <span className={styles.priceMarkup}>
-                Entre {stockRange.min} y {stockRange.max} unidades
-              </span>
-            ) : (
-              <span className={styles.feedbackError}>
-                ML no informa el stock a reservar de esta oferta; no se puede aplicar.
-              </span>
-            )}
-          </span>
-        )}
-        {needsStock && lightningStart && lightningFinish && (
-          <span>
-            Empieza {lightningStart} · termina {lightningFinish}
-          </span>
-        )}
-        {needsStock && boostLine && <span>{boostLine}</span>}
-        {needsStock && (
-          <span className={styles.feedbackWarn}>
-            Una vez que empieza no se puede quitar (solo pausando la publicación). La oferta termina cuando se vende el
-            stock reservado.
           </span>
         )}
         <button
           type="button"
           className={`${styles.applyConfirmBtn} ${isEnrolled ? styles.removeConfirmBtn : ''}`}
           onClick={() => handleConfirm()}
-          disabled={(showsPriceInput && !isEnrolled && priceOutOfRange) || lightningBlocked}
+          disabled={showsPriceInput && !isEnrolled && priceOutOfRange}
         >
           Sí, {actionLabel}
         </button>

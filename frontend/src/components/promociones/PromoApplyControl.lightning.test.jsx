@@ -156,7 +156,16 @@ describe('PromoApplyControl — LIGHTNING', () => {
     await vi.advanceTimersByTimeAsync(400);
 
     await waitFor(() => expect(promocionesAPI.getMarkupParaPrecio).toHaveBeenCalledWith('MLA4161234030', 22000));
-    await waitFor(() => expect(screen.getByText(/tu markup: 12.3%/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('status', { name: /tu markup/i })).toHaveTextContent('12.3%'));
+  });
+
+  it('shows the markup of the prefilled price on open, before any typing (S1b)', async () => {
+    const user = userEvent.setup({ delay: null });
+    await openConfirm(user, row('MLA1506729443'));
+    await vi.advanceTimersByTimeAsync(400);
+
+    await waitFor(() => expect(promocionesAPI.getMarkupParaPrecio).toHaveBeenCalledWith('MLA1506729443', 73558.15));
+    await waitFor(() => expect(screen.getByRole('status', { name: /tu markup/i })).toHaveTextContent('12.3%'));
   });
 
   it('flags a typed price above the max and blocks the submit', async () => {
@@ -222,6 +231,54 @@ describe('PromoApplyControl — LIGHTNING', () => {
       promotion_id: 'LGH-MLA1000',
       promotion_type: 'LIGHTNING',
     });
+  });
+
+  // Card of the approved design (docs/design/promos-panel-s9/propuesta.png).
+  it('opens the form as an "Aplicar LIGHTNING" card and the trigger reads Cerrar, which closes it', async () => {
+    const user = userEvent.setup({ delay: null });
+    await openConfirm(user, row('MLA1506729443'));
+
+    expect(screen.getByRole('group', { name: 'Aplicar LIGHTNING' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^aplicar$/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^cerrar$/i }));
+
+    expect(screen.queryByRole('group', { name: 'Aplicar LIGHTNING' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^stock a reservar/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^aplicar$/i })).toBeInTheDocument();
+  });
+
+  it('shows the allowed range under the price', async () => {
+    const user = userEvent.setup({ delay: null });
+    await openConfirm(user, row('MLA1506729443'));
+
+    expect(screen.getByText('Rango permitido: $17.307,81 - $77.885,10')).toBeInTheDocument();
+  });
+
+  it('shows only the minimum when ML sends no max', async () => {
+    const user = userEvent.setup({ delay: null });
+    await openConfirm(user, row('MLA1865080493'));
+
+    expect(screen.getByText('Mínimo permitido: $7.366,50')).toBeInTheDocument();
+  });
+
+  it('shows "—" as the markup until it is known', async () => {
+    const user = userEvent.setup({ delay: null });
+    await openConfirm(user, row('MLA1506729443', { suggested_discounted_price: 90000, max_discounted_price: 77885.1 }));
+    const input = screen.getByLabelText(/^precio/i);
+    await user.clear(input);
+    await user.type(input, '1');
+    await vi.advanceTimersByTimeAsync(400);
+
+    await waitFor(() => expect(screen.getByRole('status', { name: /tu markup/i })).toHaveTextContent('—'));
+  });
+
+  it('draws the cannot-remove warning as a note callout', async () => {
+    const user = userEvent.setup({ delay: null });
+    await openConfirm(user, row('MLA4161234030'));
+
+    expect(screen.getByRole('note')).toHaveTextContent(
+      'Una vez que empieza no se puede quitar (solo pausando la publicación). La oferta termina cuando se vende el stock reservado.',
+    );
   });
 
   it('offers no remove once started and says why', () => {
