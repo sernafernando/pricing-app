@@ -276,7 +276,10 @@ class TestLightningRealCaptureCases:
         assert mock_enroll.call_args.kwargs["deal_price"] == 13496.3
 
     def test_object_status_entry_counts_as_another_live_offer(self) -> None:
-        # The old-shape row stores `status: {"id": "candidate"}`; if ML lists it live it is another offer.
+        # Hypothetical, not the captured state: this old-shape row is `finished` in our mirror (ML no longer
+        # lists it), so today it does not block MLA1506729443. Its payload still says `{"id": "candidate"}`;
+        # this pins that IF ML listed such an entry live, the guard reads it and fails closed, since the
+        # enroll body carries no promotion id and ML would pick the target.
         live = [_payload("MLA1506729443"), _payload("MLA1506729443", status="finished")]
         result, mock_enroll = self._enroll_mla("MLA1506729443", live, deal_price=57920.55, stock=5)
 

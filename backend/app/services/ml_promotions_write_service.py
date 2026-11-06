@@ -843,8 +843,10 @@ _LIVE_LIGHTNING_STATUSES = frozenset({"candidate", "pending"})
 
 
 def _lightning_status(entry: Dict[str, Any]) -> Optional[str]:
-    """An entry's status as text. Older stored LIGHTNING entries carry it as
-    `{"id": "candidate"}` instead of a string (capture 2026-11-06)."""
+    """An entry's status as text, or None when it is missing or not text.
+
+    ML sends it as a string ("candidate"), but older LIGHTNING entries carry it as
+    `{"id": "candidate"}` (capture 2026-11-06), so both shapes read the same."""
     status = entry.get("status")
     if isinstance(status, dict):
         status = status.get("id")

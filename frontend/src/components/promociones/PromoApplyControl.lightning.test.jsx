@@ -3,7 +3,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PromoApplyControl from './PromoApplyControl';
 import { promocionesAPI } from '../../services/api';
-import capture from './__fixtures__/lightning_item_promotions_20261106.json';
+// One capture for both suites: the backend fixture is the source of truth.
+import capture from '../../../../backend/tests/fixtures/ml_promotions/lightning_item_promotions_20261106.json';
 
 // LIGHTNING (ofertas relámpago), odd/tasks/promos-aplicar-lightning.md S1, S1b, S1c, S3, S4.
 // Rows are the real ml_item_promotions capture of 2026-11-06 (same shape GET /promociones/item returns).
@@ -190,10 +191,20 @@ describe('PromoApplyControl — LIGHTNING', () => {
     expect(screen.getByText(/ml suma 5% de descuento extra · el comprador paga \$22\.116/i)).toBeInTheDocument();
   });
 
-  it('offers Desaplicar while pending', () => {
+  it('removes a pending offer with Desaplicar, sending only id and type (no price nor stock)', async () => {
+    const user = userEvent.setup({ delay: null });
+    promocionesAPI.deletePromocionItem.mockResolvedValue({ data: { status: 'submitted' } });
     render(<PromoApplyControl mla="MLA4161234030" promotion={row('MLA4161234030', { status: 'pending' })} />);
 
-    expect(screen.getByRole('button', { name: /^desaplicar$/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^desaplicar$/i }));
+    expect(screen.queryByLabelText(/^stock a reservar/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /sí, desaplicar/i }));
+
+    await waitFor(() => expect(promocionesAPI.deletePromocionItem).toHaveBeenCalledTimes(1));
+    expect(promocionesAPI.deletePromocionItem).toHaveBeenCalledWith('MLA4161234030', {
+      promotion_id: 'LGH-MLA1000',
+      promotion_type: 'LIGHTNING',
+    });
   });
 
   it('offers no remove once started and says why', () => {

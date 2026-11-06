@@ -194,8 +194,8 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded }) {
   const missingSeenPrice = isMlPricedApply && !(Number(seenPrice) > 0);
 
   useEffect(() => {
-    // The manual-price markup lookup only applies to the range-type enroll
-    // flow — the price input is rendered only when `isRangeType && !isEnrolled`.
+    // The manual-price markup lookup runs only while the price input is shown:
+    // range-type and LIGHTNING enrolls (`showsPriceInput && !isEnrolled`).
     // Skip it entirely for the Desaplicar flow, where no price is submitted.
     if (!showsPriceInput || isEnrolled || phase !== 'confirming') return undefined;
 
@@ -453,11 +453,12 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded }) {
     const stockInputId = `stock-${mla}-${promotion.promotion_id}`;
     const lightningStart = formatDateTime(promotion.start_date);
     const lightningFinish = formatDateTime(promotion.finish_date);
-    const boost = promotion.payload || {};
+    // ML's optional boost fields live in the stored entry (`payload`), only when boosted_offer is true.
+    const mlEntry = promotion.payload || {};
     const boostLine =
-      boost.boosted_offer === true && boost.total_price_for_boosted_offer != null
-        ? `ML suma ${boost.discount_meli_boosted_percentage ?? '?'}% de descuento extra · el comprador paga ${formatMoney(
-            boost.total_price_for_boosted_offer,
+      mlEntry.boosted_offer === true && mlEntry.total_price_for_boosted_offer != null
+        ? `ML suma ${mlEntry.discount_meli_boosted_percentage ?? '?'}% de descuento extra · el comprador paga ${formatMoney(
+            mlEntry.total_price_for_boosted_offer,
           )}`
         : null;
     return (
