@@ -352,3 +352,29 @@ class TestCrearYEditar:
 
         assert _criterio(engine, campana) is None
         assert _items(engine, campana) == {2964: (None, D("100.00"))}
+
+    def test_an_edit_to_per_unit_clears_the_criterion(self, engine: Engine) -> None:
+        with _db(engine) as db:
+            campana = service.crear_campana(db, self._entrada(engine, reparto_criterio="unidades"), USUARIO).id
+        entrada = self._entrada(engine, tipo="por_unidad", monto_total=None, monto_unit="10.00", items=[])
+
+        with _db(engine) as db:
+            service.editar_campana(db, campana, entrada, USUARIO)
+
+        assert _criterio(engine, campana) is None
+
+    def test_an_edit_that_keeps_total_and_groups_does_not_move_cost_shares(self, engine: Engine) -> None:
+        _costos(engine, p2964=(100, "ARS"), p2270=(100, "ARS"), p950=(200, "ARS"))
+        entrada = self._entrada(engine, reparto_criterio="costo")
+        with _db(engine) as db:
+            campana = service.crear_campana(db, entrada, USUARIO).id
+        antes = _items(engine, campana)
+        _costos(engine, p950=(800, "ARS"))  # costs move after the split
+
+        with _db(engine) as db:
+            service.editar_campana(
+                db, campana, entrada.model_copy(update={"nombre": "Otro", "reparto_criterio": None}), USUARIO
+            )
+
+        assert _items(engine, campana) == antes
+        assert _criterio(engine, campana) == "costo"

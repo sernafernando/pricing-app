@@ -379,6 +379,13 @@ def _audit(
 
 def _asignar(db: Session, campana: SellOutCampana, data: SellOutCampanaIn, grupo_ids: list[int]) -> None:
     previo = (campana.tc_modo, campana.tipo_cambio, campana.tc_definido_en)
+    # A kept criterion splits again only when what it splits changes: the total or the groups (not a rename).
+    resplit = campana.id is None or (
+        _a_escala("monto_total", data.monto_total) != campana.monto_total
+        or set(grupo_ids) != set(grupo_ids_de(db, campana.id))
+    )
+    if data.tipo != "monto_total":
+        campana.reparto_criterio = None  # before the flush: the CHECK allows it on `monto_total` only
     for campo in _CAMPOS:
         setattr(campana, campo, _a_escala(campo, getattr(data, campo)))
     campana.monto_total = _a_escala("monto_total", data.monto_total)
@@ -394,16 +401,18 @@ def _asignar(db: Session, campana: SellOutCampana, data: SellOutCampanaIn, grupo
     tenidos = set(grupo_ids_de(db, campana.id))
     db.add_all(SellOutCampanaGrupo(campana_id=campana.id, grupo_id=g) for g in grupo_ids if g not in tenidos)
     db.flush()
-    _asignar_items(db, campana, data)
+    _asignar_items(db, campana, data, resplit)
 
 
-def _asignar_items(db: Session, campana: SellOutCampana, data: SellOutCampanaIn) -> None:
+def _asignar_items(db: Session, campana: SellOutCampana, data: SellOutCampanaIn, resplit: bool = True) -> None:
     """Replace the per-product amounts or shares with `data.items`, refusing (and rolling back) one SENT outside the
     reach of the groups just stored. `data.items` None keeps the stored ones as they are, unless they no longer fit
     the campaign's type (they must be cleared explicitly with `[]`). A kept amount whose product left the reach (a
     group or filter change) is credited nothing: the allocator only reaches the groups' products; re-sending it is
     refused until the user removes it, which the panel shows. A `monto_total` campaign's shares, sent or kept, are
-    then checked against its (maybe new) total (`_validar_suma`)."""
+    then checked against its (maybe new) total (`_validar_suma`). The split criterion: sent, it replaces the shares
+    (`_aplicar_criterio`); `items` sent make the split manual; neither keeps the stored one, whose fixed shares are
+    split again only when `resplit` (the total or the groups changed), so a rename never moves money."""
     if data.reparto_criterio is not None and (data.tipo != "monto_total" or data.items):
         db.rollback()
         raise SellOutError("El criterio de reparto es solo para una campaña por monto total, sin montos por producto")
@@ -415,7 +424,9 @@ def _asignar_items(db: Session, campana: SellOutCampana, data: SellOutCampanaIn)
     elif data.items is not None:
         campana.reparto_criterio = None  # shares sent: a manual split
     elif campana.reparto_criterio is not None:
-        _aplicar_criterio(db, campana, campana.reparto_criterio)  # kept, over the (maybe new) reach and total
+        if resplit and campana.reparto_criterio != criterio_service.UNIDADES:
+            _aplicar_criterio(db, campana, campana.reparto_criterio)  # kept, over the new total or groups
+        _validar_suma(db, campana)
         return
     if data.items is None:
         _validar_tenidos(db, campana, data.tipo)
