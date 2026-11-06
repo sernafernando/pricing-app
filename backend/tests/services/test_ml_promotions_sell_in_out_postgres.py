@@ -15,7 +15,8 @@ from typing import Iterator
 from unittest.mock import patch
 
 import pytest
-from sqlalchemy import Engine
+from sqlalchemy import Engine, text
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import sessionmaker
 
 from app.models.comision_config import ComisionListaGrupo, SubcategoriaGrupo
@@ -23,6 +24,7 @@ from app.models.comision_versionada import ComisionAdicionalCuota, ComisionBase,
 from app.models.pricing_constants import PricingConstants
 from app.models.publicacion_ml import PublicacionML
 from app.models.sell_in import SellInBonoItem
+from app.routers.ml_promotions import obtener_promociones_item
 from app.services.ml_promotions_pricing import enriquecer_markup_por_promo, markup_para_precio_con_sell_in_out
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _world as si
@@ -195,6 +197,67 @@ class TestPromosDelPanel:
         promos = _enrich(engine, sell_in_out=False)
 
         assert all("markup_sell_in_out" not in p for p in promos)
+
+
+def _resolver_que_falla(db, *args, **kwargs):
+    """A sell in / sell out read that fails INSIDE the database: Postgres aborts the transaction it runs in."""
+    db.execute(text("SELECT * FROM tabla_que_no_existe"))
+
+
+def _lectura_real(db, *args, **kwargs):
+    """Stands in for the router's later reads (`motivo_sin_consulta_ml`, `_marcar_escrituras_no_aplicadas`) with a
+    real statement on the same session: it fails if the sell in / sell out failure left the transaction aborted."""
+    db.query(PublicacionML).filter(PublicacionML.mla == MLA).count()
+
+
+class TestFallaDelSellInOut:
+    """The panel read is fail-soft: a failing sell in / sell out read (in its SAVEPOINT) nulls only the extra figure."""
+
+    def test_the_item_read_still_answers_with_its_markups_and_a_usable_session(self, engine) -> None:
+        _lote_y_campana(engine)
+        sin_falla = [p["nuestro_markup"] for p in _enrich(engine)]
+
+        with sessionmaker(bind=engine, autoflush=False)() as db:
+            with (
+                patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0),
+                patch("app.services.ml_promotions_pricing.resolver_sell_in_out_batch", side_effect=_resolver_que_falla),
+                patch("app.routers.ml_promotions.fetch_item_promotions", return_value=_promos()),
+                patch("app.routers.ml_promotions.motivo_sin_consulta_ml", side_effect=_lectura_real),
+                patch(
+                    "app.routers.ml_promotions._marcar_escrituras_no_aplicadas",
+                    side_effect=lambda db, mla, promos: _lectura_real(db) or [],
+                ),
+            ):
+                respuesta = obtener_promociones_item(MLA, current_user=None, db=db)
+
+            assert db.query(PublicacionML).count() == 1  # the session still serves reads after the savepoint
+
+        assert respuesta.count == 2
+        assert [p.nuestro_markup for p in respuesta.promotions] == sin_falla
+        assert all(p.nuestro_markup is not None for p in respuesta.promotions)
+        assert [p.markup_sell_in_out for p in respuesta.promotions] == [None, None]
+
+    def test_the_failure_really_aborts_a_transaction_without_the_savepoint(self, engine) -> None:
+        """Guards the test above: the stand-in failure does poison a plain transaction."""
+        with sessionmaker(bind=engine, autoflush=False)() as db:
+            with pytest.raises(ProgrammingError):
+                _resolver_que_falla(db)
+            with pytest.raises(Exception, match="current transaction is aborted"):
+                _lectura_real(db)
+
+    def test_the_price_read_keeps_its_markup(self, engine) -> None:
+        _lote_y_campana(engine)
+
+        with sessionmaker(bind=engine, autoflush=False)() as db:
+            with (
+                patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0),
+                patch("app.services.ml_promotions_pricing.resolver_sell_in_out_batch", side_effect=_resolver_que_falla),
+            ):
+                nuestro, con_sio = markup_para_precio_con_sell_in_out(db, MLA, 60500.0)
+            assert db.query(PublicacionML).count() == 1
+
+        assert nuestro is not None
+        assert con_sio is None
 
 
 class TestPrecioManualYVigente:
