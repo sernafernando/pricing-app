@@ -119,13 +119,14 @@ export default function PublicationPanel({
             {detail && <ListingKindBadge kind={row.listing_kind} />}
             <MlSellerLinks itemId={itemId} />
             {detail && <PublicationStatusPill status={row.status} gone={row.gone} subStatus={detail.subStatus} />}
+            {/* On the MLA line, after its badges, as the approved design. */}
+            {mlUrl && (
+              <a className={styles.mlLink} href={mlUrl} target="_blank" rel="noopener noreferrer">
+                Ver en Mercado Libre
+                <ExternalLink size={12} aria-hidden="true" />
+              </a>
+            )}
           </div>
-          {mlUrl && (
-            <a className={styles.mlLink} href={mlUrl} target="_blank" rel="noopener noreferrer">
-              <ExternalLink size={12} aria-hidden="true" />
-              Ver en Mercado Libre
-            </a>
-          )}
         </>
       }
       figures={

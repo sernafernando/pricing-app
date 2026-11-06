@@ -15,7 +15,7 @@
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-md);
   padding: var(--spacing-md);
   border-bottom: 1px solid var(--cf-border-default);
   background: var(--cf-bg-card);
@@ -28,51 +28,61 @@
   gap: var(--spacing-sm);
 }
 
-/* The header's figures: as many equal columns as fit, each label over its
-   value and an optional note. Values never wrap. */
+/* The header's figures (the approved S9 design's KPI cards): as many equal
+   columns as fit, each label over its value and an optional note. Values never wrap. */
 .figureList {
   display: grid;
   /* Wide enough for an eight-digit amount; fewer per line before one would spill. */
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
-  gap: var(--spacing-xs);
+  gap: var(--spacing-sm);
   margin: 0;
 }
 
+/* A card is its own size container: a wide one draws the big figure of the design,
+   a narrow one (the default panel width) keeps an eight-digit amount whole. */
 .figure {
+  container: figure / inline-size;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--spacing-xs);
   min-width: 0;
-  padding: var(--spacing-xs) var(--spacing-sm);
+  padding: var(--space-3) var(--spacing-md);
   border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
 }
 
 .figureLabel {
   font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
   color: var(--cf-text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
 }
 
 .figureValue {
   display: flex;
   flex-direction: column;
+  gap: 2px;
   margin: 0;
 }
 
-/* The figure itself: monospaced so amounts line up; its note keeps the panel's font. */
+/* The figure itself: tabular digits so amounts line up; its note is smaller and quieter. */
 .figureAmount {
-  font-family: var(--font-mono);
   font-size: var(--font-base);
   font-weight: var(--font-semibold);
+  font-variant-numeric: tabular-nums;
   color: var(--cf-text-primary);
   white-space: nowrap;
 }
 
+@container figure (min-width: 13rem) {
+  .figureAmount {
+    font-size: var(--font-xl);
+  }
+}
+
 .figureMarkup {
-  font-family: var(--font-mono);
-  font-size: var(--font-sm);
+  font-variant-numeric: tabular-nums;
   color: var(--tone-success-fg);
 }
 
@@ -103,10 +113,21 @@
   white-space: normal;
 }
 
+/* "Markup -28,7%" (owner, P3: the labels as the approved design): the word the
+   markup names itself with is drawn under the price, in the label's grey. */
+.figureMarkupWord {
+  color: var(--cf-text-secondary);
+}
+
+/* An amount inside a note that may wrap: it wraps whole. */
+.nowrap {
+  white-space: nowrap;
+}
+
 .identity {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-xs);
+  gap: var(--spacing-sm);
   min-width: 0;
 }
 
@@ -114,6 +135,7 @@
   margin: 0;
   font-size: var(--font-base);
   font-weight: var(--font-semibold);
+  line-height: 1.4;
   color: var(--cf-text-primary);
   overflow-wrap: anywhere;
 }
@@ -122,7 +144,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--spacing-xs);
+  gap: var(--spacing-xs) var(--spacing-sm);
 }
 
 .itemId {
@@ -131,13 +153,20 @@
   color: var(--cf-text-secondary);
 }
 
+/* On the MLA line, set apart from the badges by a thin rule. */
 .mlLink {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
-  align-self: flex-start;
+  padding-left: var(--spacing-sm);
+  border-left: 1px solid var(--cf-border-default);
   font-size: var(--font-xs);
   color: var(--cf-accent-blue);
+  text-decoration: none;
+}
+
+.mlLink:hover {
+  text-decoration: underline;
 }
 
 .back {
@@ -208,7 +237,7 @@
 
 .tab {
   flex: none;
-  padding: var(--spacing-sm) var(--spacing-sm);
+  padding: var(--space-3) var(--space-3);
   border: 0;
   border-bottom: 2px solid transparent;
   background: transparent;
@@ -223,7 +252,8 @@
 }
 
 .tab[aria-selected='true'] {
-  border-bottom-color: var(--cf-accent-blue);
+  /* The open tab is underlined in the text colour, as the approved design. */
+  border-bottom-color: var(--cf-text-primary);
   color: var(--cf-text-primary);
   font-weight: var(--font-medium);
 }
@@ -407,22 +437,29 @@
   overflow-wrap: anywhere;
 }
 
+/* The approved design's footer: the freshness in columns of "name ... time",
+   the actions beside it; on a narrow panel the actions go under it. */
 .footer {
   position: sticky;
   bottom: 0;
   display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm) var(--spacing-md);
   margin-top: auto;
-  padding: var(--spacing-sm) var(--spacing-md);
+  padding: var(--space-3) var(--spacing-md);
   border-top: 1px solid var(--cf-border-default);
   background: var(--cf-bg-card);
 }
 
 .freshness {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-xs) var(--spacing-md);
+  display: grid;
+  flex: 1 1 24rem;
+  /* Columns of the design's width, not stretched: a name stays near its time. */
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 10rem), 12rem));
+  gap: 0 var(--spacing-md);
+  min-width: 0;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -430,9 +467,21 @@
   color: var(--cf-text-secondary);
 }
 
+.freshness > li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-xs);
+  padding: 2px 0;
+  border-bottom: 1px solid var(--cf-border-subtle);
+  white-space: nowrap;
+}
+
+/* The name on the left, its time (and state) at the right of its column. */
 .freshnessName {
-  font-weight: var(--font-medium);
-  color: var(--cf-text-primary);
+  margin-right: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--cf-text-tertiary);
 }
 
 .freshnessState {
@@ -450,7 +499,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: var(--spacing-sm) var(--spacing-md);
+  gap: var(--spacing-sm);
+  max-width: 100%;
 }
 
 .statusConfirm {
