@@ -10,9 +10,6 @@ import SellInDetailPanel from '../components/sellIn/SellInDetailPanel';
 import SellInProductoCostoPanel from '../components/sellIn/SellInProductoCostoPanel';
 import SellInProductosCosto from '../components/sellIn/SellInProductosCosto';
 import SellOutCampanaPanel from '../components/sellOut/SellOutCampanaPanel';
-import SellOutSugerencias from '../components/sellOut/SellOutSugerencias';
-import SellOutProgramas from '../components/sellOut/SellOutProgramas';
-import { useProgramas } from '../components/sellOut/useProgramas';
 import GruposTab from '../components/grupos/GruposTab';
 import TacticalsList from '../components/tacticals/TacticalsList';
 import Toast from '../components/Toast';
@@ -21,11 +18,13 @@ import { canViewProductPrices } from '../components/pricing/productPricePermissi
 import styles from './SellIn.module.css';
 
 const TAB_TACTICALS = 'tacticals';
-const TAB_PROGRAMAS = 'programas';
 const TAB_GRUPOS = 'grupos';
 const TAB_PRODUCTOS = 'productos';
-/** The tabs the page had before Tacticals took them over: their links open Tacticals with that Tipo. */
-const TIPO_DE_TAB_VIEJA = { 'sell-in': 'sell_in', 'sell-out': 'sell_out' };
+/**
+ * The tabs the page had before Tacticals took them over: their links open Tacticals with that Tipo. Programas is gone
+ * too (owner, 2026-11-06: "si ahora todo es tactical"); its links open Tacticals with every Tipo.
+ */
+const TIPO_DE_TAB_VIEJA = { 'sell-in': 'sell_in', 'sell-out': 'sell_out', programas: 'todos' };
 /** The panel a tactical line's record opens in, by the line's `origen`. */
 const PANEL_DE_ORIGEN = { sell_out_campana: 'campana', sell_in_bono: 'bono', sell_in_compra: 'detalle' };
 const PANEL_LABELS = { detalle: 'Detalle del sell in', bono: 'Bono de marca', campana: 'Campaña de sell out', producto: 'Costo de sell in' };
@@ -70,16 +69,13 @@ function useMarcas(enabled) {
 /**
  * Sell in / Sell out, one view (owner, 2026-11-05: "trae todo a tacticals"): the Tacticals tab holds the brands'
  * programs of both kinds, with "Nuevo tactical", each tactical's lines and, per line, its record read only ("Ver
- * ventas"). The Programas tab (`sell_out.ver`) holds the sell out programs with the suggestions on top
- * (`sell_out.gestionar`), and Grupos (`grupos.ver`) the product groups, where `config.editar_constantes` also creates,
- * edits and deletes. The tab lives in the URL (`?tab=programas`); the old `?tab=sell-in` / `?tab=sell-out` links open
- * Tacticals with that Tipo (and `?tab=sell-out&seccion=programas`, Programas). `sell_in.ver` reads the page.
+ * ventas"). Grupos (`grupos.ver`) holds the product groups, where `config.editar_constantes` also creates, edits and
+ * deletes. The tab lives in the URL (`?tab=grupos`); the old `?tab=sell-in` / `?tab=sell-out` / `?tab=programas` links
+ * open Tacticals with that Tipo. `sell_in.ver` reads the page.
  */
 export default function SellIn() {
   const { tienePermiso } = usePermisos();
   const puedeVer = tienePermiso('sell_in.ver');
-  const puedeVerSellOut = tienePermiso('sell_out.ver');
-  const puedeGestionarSellOut = puedeVerSellOut && tienePermiso('sell_out.gestionar');
   const puedeVerGrupos = tienePermiso('grupos.ver');
   // Nuevo tactical asks only the kind's gestionar, so its button does too.
   const puedeCrearTactical = tienePermiso('sell_in.gestionar') || tienePermiso('sell_out.gestionar');
@@ -91,24 +87,16 @@ export default function SellIn() {
   const puedeVerProductos = puedeVer && canViewProductPrices(tienePermiso);
   const [versionProductos, setVersionProductos] = useState(0);
   const tacticals = useConteoTacticals(puedeVer, versionPagina);
-  // An assignment or a program created from a suggestion bumps it: programs and suggestions are asked again.
-  const [versionProgramas, setVersionProgramas] = useState(0);
-  const programas = useProgramas(puedeVer && puedeVerSellOut, versionPagina + versionProgramas);
-  // The suggestions "Descartar" hid, for this session only (nothing is stored).
-  const [descartadas, setDescartadas] = useState(() => new Set());
 
   const tabUrl = searchParams.get('tab');
-  const viejaAProgramas = tabUrl === 'sell-out' && searchParams.get('seccion') === 'programas';
-  // The Tipo an old Sell in / Sell out link asked for, read once: the list keeps it after the URL is rewritten.
-  const [tipoDeEnlace] = useState(() => (viejaAProgramas ? 'todos' : (TIPO_DE_TAB_VIEJA[tabUrl] ?? 'todos')));
+  // The Tipo an old link asked for, read once: the list keeps it after the URL is rewritten.
+  const [tipoDeEnlace] = useState(() => TIPO_DE_TAB_VIEJA[tabUrl] ?? 'todos');
   const tabsVisibles = [
     TAB_TACTICALS,
-    ...(puedeVerSellOut ? [TAB_PROGRAMAS] : []),
     ...(puedeVerGrupos ? [TAB_GRUPOS] : []),
     ...(puedeVerProductos ? [TAB_PRODUCTOS] : []),
   ];
-  const pedida = viejaAProgramas ? TAB_PROGRAMAS : tabUrl;
-  const tab = tabsVisibles.includes(pedida) ? pedida : TAB_TACTICALS;
+  const tab = tabsVisibles.includes(tabUrl) ? tabUrl : TAB_TACTICALS;
   // An old link is rewritten to the tab it opened, so a reload or a shared link does not depend on the old names.
   const esVieja = tabUrl in TIPO_DE_TAB_VIEJA;
   useEffect(() => {
@@ -177,7 +165,6 @@ export default function SellIn() {
     document.getElementById(`${next}-tab`)?.focus();
   };
   const actualizar = () => setVersionPagina((v) => v + 1);
-  const programasCambiaron = () => setVersionProgramas((v) => v + 1);
 
   if (!puedeVer) {
     return (
@@ -236,7 +223,6 @@ export default function SellIn() {
           'Tacticals',
           tacticals.total != null ? tacticals.total.toLocaleString('es-AR') : tacticals.error ? '—' : '…',
         )}
-        {puedeVerSellOut && pestana(TAB_PROGRAMAS, 'Programas')}
         {puedeVerGrupos && pestana(TAB_GRUPOS, 'Grupos')}
         {puedeVerProductos && pestana(TAB_PRODUCTOS, 'Productos')}
       </div>
@@ -285,19 +271,7 @@ export default function SellIn() {
           ) : null
         }
       >
-        {tab === TAB_PROGRAMAS ? (
-          <div role="tabpanel" id="programas-panel" aria-labelledby="programas-tab">
-            {puedeGestionarSellOut && (
-              <SellOutSugerencias
-                version={versionPagina + versionProgramas}
-                descartadas={descartadas}
-                onDescartar={(clave) => setDescartadas((actual) => new Set(actual).add(clave))}
-                onCambio={programasCambiaron}
-              />
-            )}
-            <SellOutProgramas programas={programas} puedeGestionar={puedeGestionarSellOut} onCambio={programasCambiaron} />
-          </div>
-        ) : tab === TAB_PRODUCTOS ? (
+        {tab === TAB_PRODUCTOS ? (
           <div role="tabpanel" id="productos-panel" aria-labelledby="productos-tab">
             <SellInProductosCosto
               version={versionPagina + versionProductos}

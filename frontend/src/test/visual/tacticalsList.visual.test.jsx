@@ -14,8 +14,8 @@ import { setTheme } from './visualHelpers';
 import SellIn from '../../pages/SellIn';
 import { sellInAPI, sellInBonosAPI } from '../../services/sellInAPI';
 import { BONOS_LISTA, LISTA, RESUMEN } from '../../components/sellIn/sellInFixtures';
-import { sellOutAPI, sellOutProgramasAPI } from '../../services/sellOutAPI';
-import { CAMPANA_MIGRADA, CAMPANAS_LISTA, CONSUMOS_USD, PROGRAMAS_VACIO } from '../../components/sellOut/sellOutFixtures';
+import { sellOutAPI } from '../../services/sellOutAPI';
+import { CAMPANA_MIGRADA, CAMPANAS_LISTA, CONSUMOS_USD } from '../../components/sellOut/sellOutFixtures';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
 import { TACTICAL_BPS, TACTICAL_REBATE, lineaDeProducto, pagina } from '../../components/tacticals/tacticalsFixtures';
 
@@ -39,8 +39,7 @@ vi.mock('../../services/sellInAPI', () => ({
 }));
 
 vi.mock('../../services/sellOutAPI', () => ({
-  sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), grupos: vi.fn(), porPrograma: vi.fn(), consumos: vi.fn() },
-  sellOutProgramasAPI: { listar: vi.fn(), sugerencias: vi.fn() },
+  sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), grupos: vi.fn(), consumos: vi.fn() },
 }));
 
 vi.mock('../../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn(), editar: vi.fn(), anular: vi.fn() } }));
@@ -80,7 +79,6 @@ beforeEach(() => {
   tacticalsAPI.listar.mockResolvedValue({ data: pagina(TACTICALS) });
   sellOutAPI.listar.mockResolvedValue({ data: CAMPANAS_LISTA });
   sellOutAPI.grupos.mockResolvedValue({ data: [] });
-  sellOutProgramasAPI.listar.mockResolvedValue({ data: PROGRAMAS_VACIO });
   sellInAPI.listar.mockResolvedValue({ data: LISTA });
   sellInAPI.resumen.mockResolvedValue({ data: RESUMEN });
   sellInBonosAPI.listar.mockResolvedValue({ data: BONOS_LISTA });

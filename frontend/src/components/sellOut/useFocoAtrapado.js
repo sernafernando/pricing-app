@@ -7,7 +7,7 @@ const enfocables = (contenedor) =>
   [...contenedor.querySelectorAll(ENFOCABLES)].filter((el) => !el.disabled && el.getAttribute('tabindex') !== '-1');
 
 /**
- * Focus for a dialog that is mounted while open (the "Asignar a programa" modal, the suggestions drawer): on mount
+ * Focus for a dialog that is mounted while open (Descartar, Anular and Editar a tactical): on mount
  * the focus moves inside (to `[data-foco-inicial]`, or the first enabled control), Tab and Shift+Tab wrap inside,
  * and on unmount it goes back to what had it before (the button that opened it). When that is gone, it goes to the
  * first of the `respaldos` selectors that exists, made focusable with `tabindex="-1"` when it is not. Returns the
