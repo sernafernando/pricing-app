@@ -3,6 +3,10 @@
  * marcan parar borrar ... y que tenga un tilde cuando ya se revisó para que no aparezca más" ... "(con un filtro
  * claro)". A Pendientes / Revisados / Todos filter with counts, and a "Revisado" checkbox per row that only users
  * with rma.gestionar see.
+ *
+ * Grouped by ML operation (owner, 2026-11-06): "si pueden traer el número de envío de la operación ... y cuando es
+ * un mismo pedido agruparlo juntos, no mostrar dos líneas, si bien son 2 RMA serían una misma operación". One row
+ * per operation with its cases, articles and shipping number; its tick reviews every case of the row.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
@@ -31,10 +35,24 @@ const REVISADO = {
   borrar_revisado_por_nombre: 'Ana',
 };
 
+// The list answers one item per operation; a case alone is an operation of its own.
+const op = (caso, extra = {}) => ({
+  clave: `caso:${caso.id}`,
+  ml_id: caso.ml_id,
+  numero_envio: null,
+  cliente_nombre: caso.cliente_nombre,
+  revisado: Boolean(caso.borrar_revisado_at),
+  casos: [caso],
+  ...extra,
+});
+const ROW_URL = '/rma-seguimiento/para-borrar/revisado';
+
 beforeEach(() => {
   vi.clearAllMocks();
   api.get.mockImplementation((_url, { params }) => {
-    const items = { pendientes: [PENDIENTE], revisados: [REVISADO], todos: [REVISADO, PENDIENTE] }[params.estado];
+    const items = { pendientes: [op(PENDIENTE)], revisados: [op(REVISADO)], todos: [op(REVISADO), op(PENDIENTE)] }[
+      params.estado
+    ];
     return Promise.resolve({ data: { items, counts: COUNTS } });
   });
 });
@@ -65,18 +83,18 @@ describe('RmaParaBorrar filter', () => {
 
 describe('RmaParaBorrar Revisado checkbox', () => {
   it('ticking it saves the review and reloads the list', async () => {
-    api.put.mockResolvedValue({ data: { ...PENDIENTE, borrar_revisado_at: '2026-11-03T10:00:00Z' } });
+    api.put.mockResolvedValue({ data: [{ ...PENDIENTE, borrar_revisado_at: '2026-11-03T10:00:00Z' }] });
     render(<RmaParaBorrar puedeGestionar />);
     const row = (await screen.findByText('RMA-2026-0001')).closest('tr');
 
     await userEvent.click(within(row).getByRole('checkbox', { name: 'Revisado RMA-2026-0001' }));
 
-    expect(api.put).toHaveBeenCalledWith('/rma-seguimiento/1/borrar-revisado', { revisado: true });
+    expect(api.put).toHaveBeenCalledWith(ROW_URL, { caso_ids: [1], revisado: true });
     await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
   });
 
   it('unticking a reviewed case sends revisado false', async () => {
-    api.put.mockResolvedValue({ data: { ...REVISADO, borrar_revisado_at: null } });
+    api.put.mockResolvedValue({ data: [{ ...REVISADO, borrar_revisado_at: null }] });
     render(<RmaParaBorrar puedeGestionar />);
     await screen.findByText('RMA-2026-0001');
     await userEvent.click(screen.getByRole('button', { name: 'Revisados (1)' }));
@@ -85,7 +103,7 @@ describe('RmaParaBorrar Revisado checkbox', () => {
 
     await userEvent.click(checkbox);
 
-    expect(api.put).toHaveBeenCalledWith('/rma-seguimiento/2/borrar-revisado', { revisado: false });
+    expect(api.put).toHaveBeenCalledWith(ROW_URL, { caso_ids: [2], revisado: false });
   });
 
   it('without rma.gestionar there is no checkbox', async () => {
@@ -103,13 +121,13 @@ describe('RmaParaBorrar stale answers', () => {
         ? new Promise((resolve) => {
             resolvePendientes = resolve;
           })
-        : Promise.resolve({ data: { items: [REVISADO], counts: COUNTS } }),
+        : Promise.resolve({ data: { items: [op(REVISADO)], counts: COUNTS } }),
     );
     render(<RmaParaBorrar puedeGestionar />);
 
     await userEvent.click(screen.getByRole('button', { name: 'Revisados' }));
     await screen.findByText('RMA-2026-0002');
-    resolvePendientes({ data: { items: [PENDIENTE], counts: COUNTS } });
+    resolvePendientes({ data: { items: [op(PENDIENTE)], counts: COUNTS } });
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Revisados (1)' })).toBeInTheDocument());
     expect(screen.getByText('RMA-2026-0002')).toBeInTheDocument();
@@ -132,7 +150,7 @@ describe('RmaParaBorrar tick then filter change', () => {
     await userEvent.click(within(row).getByRole('checkbox', { name: 'Revisado RMA-2026-0001' }));
     await userEvent.click(screen.getByRole('button', { name: 'Revisados (1)' }));
     await screen.findByText('RMA-2026-0002');
-    resolvePut({ data: {} });
+    resolvePut({ data: [] });
 
     await waitFor(() => expect(api.get).toHaveBeenCalledTimes(3));
     expect(api.get).toHaveBeenLastCalledWith('/rma-seguimiento/para-borrar', { params: { estado: 'revisados' } });
@@ -159,7 +177,13 @@ describe('RmaParaBorrar second click before the reload lands', () => {
   it('the row shows the saved tick at once, so a second click unticks it', async () => {
     api.put.mockImplementation((_url, { revisado }) =>
       Promise.resolve({
-        data: { ...PENDIENTE, borrar_revisado_at: revisado ? '2026-11-03T10:00:00Z' : null, borrar_revisado_por_nombre: revisado ? 'Ana' : null },
+        data: [
+          {
+            ...PENDIENTE,
+            borrar_revisado_at: revisado ? '2026-11-03T10:00:00Z' : null,
+            borrar_revisado_por_nombre: revisado ? 'Ana' : null,
+          },
+        ],
       }),
     );
     render(<RmaParaBorrar puedeGestionar />);
@@ -172,8 +196,8 @@ describe('RmaParaBorrar second click before the reload lands', () => {
     await waitFor(() => expect(checkbox).toBeChecked());
     await userEvent.click(checkbox);
 
-    expect(api.put).toHaveBeenNthCalledWith(1, '/rma-seguimiento/1/borrar-revisado', { revisado: true });
-    expect(api.put).toHaveBeenNthCalledWith(2, '/rma-seguimiento/1/borrar-revisado', { revisado: false });
+    expect(api.put).toHaveBeenNthCalledWith(1, ROW_URL, { caso_ids: [1], revisado: true });
+    expect(api.put).toHaveBeenNthCalledWith(2, ROW_URL, { caso_ids: [1], revisado: false });
   });
 });
 
@@ -184,5 +208,72 @@ describe('RmaParaBorrar timestamp format', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Revisados (1)' }));
     const row = (await screen.findByText('RMA-2026-0002')).closest('tr');
     expect(within(row).getByText('Ana · 02/11/2026')).toBeInTheDocument();
+  });
+});
+
+describe('RmaParaBorrar one row per operation', () => {
+  // Two RMAs for the two articles of one ML cart, the second already reviewed: the operation is still pending.
+  const A = { ...PENDIENTE, id: 11, numero_caso: 'RMA-2026-0011', ml_id: '2000000000000002', articulos: ['Router AX1500'] };
+  const B = {
+    ...REVISADO,
+    id: 12,
+    numero_caso: 'RMA-2026-0012',
+    ml_id: '2000000000000003',
+    articulos: ['Repetidor RE200'],
+  };
+  const CARRITO = op(B, {
+    clave: 'op:2000000000000001',
+    ml_id: B.ml_id,
+    numero_envio: '40000000001',
+    revisado: false,
+    casos: [B, A],
+  });
+
+  beforeEach(() => {
+    api.get.mockResolvedValue({ data: { items: [CARRITO], counts: { pendientes: 1, revisados: 0, todos: 1 } } });
+  });
+
+  it('shows the cases, articles and shipping number of the operation in one row', async () => {
+    render(<RmaParaBorrar puedeGestionar />);
+
+    const row = (await screen.findByText('RMA-2026-0011')).closest('tr');
+    expect(within(row).getByText('RMA-2026-0012')).toBeInTheDocument();
+    expect(within(row).getByText('Router AX1500')).toBeInTheDocument();
+    expect(within(row).getByText('Repetidor RE200')).toBeInTheDocument();
+    expect(within(row).getByText('40000000001')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Envío' })).toBeInTheDocument();
+    expect(screen.getAllByRole('row')).toHaveLength(2);
+  });
+
+  it('a row with some cases reviewed is unticked and says how many', async () => {
+    render(<RmaParaBorrar puedeGestionar />);
+
+    const checkbox = await screen.findByRole('checkbox', { name: 'Revisado RMA-2026-0012, RMA-2026-0011' });
+    expect(checkbox).not.toBeChecked();
+    expect(screen.getByText('1 de 2 revisados')).toBeInTheDocument();
+  });
+
+  it('ticking the row reviews all its cases at once', async () => {
+    api.put.mockResolvedValue({ data: [B, { ...A, borrar_revisado_at: '2026-11-06T10:00:00Z' }] });
+    render(<RmaParaBorrar puedeGestionar />);
+    const checkbox = await screen.findByRole('checkbox', { name: 'Revisado RMA-2026-0012, RMA-2026-0011' });
+    // The reload after the tick never answers: the row must show the PUT's answer by itself.
+    api.get.mockImplementation(() => new Promise(() => {}));
+
+    await userEvent.click(checkbox);
+
+    expect(api.put).toHaveBeenCalledWith(ROW_URL, { caso_ids: [12, 11], revisado: true });
+    await waitFor(() =>
+      expect(screen.getByRole('checkbox', { name: 'Revisado RMA-2026-0012, RMA-2026-0011' })).toBeChecked(),
+    );
+  });
+
+  it('a case with no stored sale shows a dash as its shipping number', async () => {
+    api.get.mockResolvedValue({ data: { items: [op(PENDIENTE)], counts: COUNTS } });
+    render(<RmaParaBorrar puedeGestionar />);
+
+    const row = (await screen.findByText('RMA-2026-0001')).closest('tr');
+    const envio = within(row).getAllByRole('cell')[4];
+    expect(envio).toHaveTextContent('—');
   });
 });

@@ -22,3 +22,10 @@
   font-size: var(--font-sm);
   color: var(--tone-danger-fg);
 }
+
+/* The cases and articles of one operation, one per line. */
+.lista {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

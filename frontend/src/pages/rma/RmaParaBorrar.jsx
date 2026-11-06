@@ -3,8 +3,10 @@ import api from '../../services/api';
 import rmaStyles from '../Rma.module.css';
 import styles from './RmaParaBorrar.module.css';
 
-// "Para borrar": cases marked "Marcado para borrar pedido". Pendientes (default) hides the ones someone already ticked
-// as "Revisado"; the tick needs rma.gestionar, so without it the column shows who reviewed and when, read-only.
+// "Para borrar": cases marked "Marcado para borrar pedido", one row per ML operation (two RMAs of the same sale are
+// one row, with its cases, articles and the shipping number from our stored ML orders). Pendientes (default) hides
+// the operations whose cases were all ticked as "Revisado"; the row's tick reviews every case of the row and needs
+// rma.gestionar, so without it the column shows who reviewed and when, read-only.
 const FILTROS = [
   { value: 'pendientes', label: 'Pendientes' },
   { value: 'revisados', label: 'Revisados' },
@@ -13,6 +15,8 @@ const FILTROS = [
 
 // A date-only value ("2026-11-01", fecha_caso) is a calendar day: `new Date` would read it as UTC midnight and show
 // the day before in Argentina, so it is formatted as is. Timestamps (created_at, borrar_revisado_at) go through Date.
+const COLUMNAS = 8;
+
 const DIA = /^(\d{4})-(\d{2})-(\d{2})$/;
 const formatFecha = (iso) => {
   if (!iso) return '—';
@@ -20,6 +24,31 @@ const formatFecha = (iso) => {
   if (dia) return `${dia[3]}/${dia[2]}/${dia[1]}`;
   return new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 };
+
+const numerosDe = (operacion) => operacion.casos.map((c) => c.numero_caso).join(', ');
+
+// The cases' own values, once each and in the row's order: an operation's cases usually share them.
+const distintos = (valores) => [...new Set(valores.filter(Boolean))];
+
+// The newest review of the row, to say who and when once all its cases are reviewed.
+const ultimaRevision = (casos) =>
+  casos
+    .filter((c) => c.borrar_revisado_at)
+    .reduce((ultima, c) => (!ultima || c.borrar_revisado_at > ultima.borrar_revisado_at ? c : ultima), null);
+
+function Revision({ operacion }) {
+  const revisados = operacion.casos.filter((c) => c.borrar_revisado_at).length;
+  if (!revisados) return null;
+  if (revisados < operacion.casos.length) {
+    return <span className={styles.quien}>{`${revisados} de ${operacion.casos.length} revisados`}</span>;
+  }
+  const ultima = ultimaRevision(operacion.casos);
+  return (
+    <span className={styles.quien}>
+      {ultima.borrar_revisado_por_nombre || 'Revisado'} · {formatFecha(ultima.borrar_revisado_at)}
+    </span>
+  );
+}
 
 export default function RmaParaBorrar({ puedeGestionar }) {
   const [estado, setEstado] = useState('pendientes');
@@ -50,18 +79,27 @@ export default function RmaParaBorrar({ puedeGestionar }) {
     cargar();
   }, [cargar, recarga]);
 
-  const toggleRevisado = async (caso) => {
-    setGuardando(caso.id);
+  const toggleRevisado = async (operacion) => {
+    setGuardando(operacion.clave);
     setError(null);
     try {
-      const { data: guardado } = await api.put(`/rma-seguimiento/${caso.id}/borrar-revisado`, {
-        revisado: !caso.borrar_revisado_at,
+      const { data: guardados } = await api.put('/rma-seguimiento/para-borrar/revisado', {
+        caso_ids: operacion.casos.map((c) => c.id),
+        revisado: !operacion.revisado,
       });
       // The row shows the saved tick right away, so a second click before the reload lands toggles it back.
-      setData((prev) => ({ ...prev, items: prev.items.map((c) => (c.id === guardado.id ? { ...c, ...guardado } : c)) }));
+      const porId = new Map(guardados.map((c) => [c.id, c]));
+      setData((prev) => ({
+        ...prev,
+        items: prev.items.map((op) => {
+          if (op.clave !== operacion.clave) return op;
+          const casos = op.casos.map((c) => (porId.has(c.id) ? { ...c, ...porId.get(c.id) } : c));
+          return { ...op, casos, revisado: casos.every((c) => c.borrar_revisado_at) };
+        }),
+      }));
       setRecarga((n) => n + 1);
     } catch {
-      setError(`No se pudo guardar la revisión de ${caso.numero_caso}.`);
+      setError(`No se pudo guardar la revisión de ${numerosDe(operacion)}.`);
     } finally {
       setGuardando(null);
     }
@@ -97,6 +135,8 @@ export default function RmaParaBorrar({ puedeGestionar }) {
               <th>Fecha</th>
               <th>Cliente</th>
               <th>ML ID</th>
+              <th>Envío</th>
+              <th>Artículos</th>
               <th>Estado</th>
               <th>Revisado</th>
             </tr>
@@ -104,44 +144,57 @@ export default function RmaParaBorrar({ puedeGestionar }) {
           <tbody className="table-tesla-body">
             {loading && !data.counts ? (
               <tr>
-                <td colSpan={6} className={rmaStyles.loadingCell}>
+                <td colSpan={COLUMNAS} className={rmaStyles.loadingCell}>
                   Cargando...
                 </td>
               </tr>
             ) : data.items.length === 0 ? (
               <tr>
-                <td colSpan={6} className={rmaStyles.emptyCell}>
+                <td colSpan={COLUMNAS} className={rmaStyles.emptyCell}>
                   No hay casos para borrar en este filtro
                 </td>
               </tr>
             ) : (
-              data.items.map((caso) => (
-                <tr key={caso.id}>
-                  <td className={rmaStyles.cellCaso}>{caso.numero_caso}</td>
-                  <td>{formatFecha(caso.fecha_caso || caso.created_at)}</td>
-                  <td>{caso.cliente_nombre || '—'}</td>
-                  <td>{caso.ml_id || '—'}</td>
-                  <td>{caso.estado || '—'}</td>
-                  <td>
-                    <span className={styles.revisado}>
-                      {puedeGestionar && (
-                        <input
-                          type="checkbox"
-                          checked={Boolean(caso.borrar_revisado_at)}
-                          disabled={guardando === caso.id}
-                          onChange={() => toggleRevisado(caso)}
-                          aria-label={`Revisado ${caso.numero_caso}`}
-                        />
-                      )}
-                      {caso.borrar_revisado_at && (
-                        <span className={styles.quien}>
-                          {caso.borrar_revisado_por_nombre || 'Revisado'} · {formatFecha(caso.borrar_revisado_at)}
-                        </span>
-                      )}
-                    </span>
-                  </td>
-                </tr>
-              ))
+              data.items.map((operacion) => {
+                const primero = operacion.casos[operacion.casos.length - 1];
+                return (
+                  <tr key={operacion.clave}>
+                    <td className={rmaStyles.cellCaso}>
+                      <ul className={styles.lista}>
+                        {operacion.casos.map((c) => (
+                          <li key={c.id}>{c.numero_caso}</li>
+                        ))}
+                      </ul>
+                    </td>
+                    <td>{formatFecha(primero.fecha_caso || primero.created_at)}</td>
+                    <td>{operacion.cliente_nombre || '—'}</td>
+                    <td>{operacion.ml_id || '—'}</td>
+                    <td>{operacion.numero_envio || '—'}</td>
+                    <td>
+                      <ul className={styles.lista}>
+                        {distintos(operacion.casos.flatMap((c) => c.articulos ?? [])).map((articulo) => (
+                          <li key={articulo}>{articulo}</li>
+                        ))}
+                      </ul>
+                    </td>
+                    <td>{distintos(operacion.casos.map((c) => c.estado)).join(', ') || '—'}</td>
+                    <td>
+                      <span className={styles.revisado}>
+                        {puedeGestionar && (
+                          <input
+                            type="checkbox"
+                            checked={operacion.revisado}
+                            disabled={guardando === operacion.clave}
+                            onChange={() => toggleRevisado(operacion)}
+                            aria-label={`Revisado ${numerosDe(operacion)}`}
+                          />
+                        )}
+                        <Revision operacion={operacion} />
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

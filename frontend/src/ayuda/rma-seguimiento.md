@@ -56,7 +56,9 @@ Igual que la anterior, pero agrupado por cliente y con los artículos marcados c
 
 ### Para borrar
 
-Lista los casos que tienen tildado **Marcado para borrar pedido**, para revisarlos de una vez. Arriba hay un filtro con **Pendientes** (el que abre), **Revisados** y **Todos**, cada uno con su cantidad. Cuando terminás de revisar un caso, tildá **Revisado**: queda guardado quién y cuándo lo revisó, y el caso deja de aparecer en **Pendientes**. Si lo destildás, vuelve a **Pendientes**.
+Lista los casos que tienen tildado **Marcado para borrar pedido**, para revisarlos de una vez. Hay una fila por operación de Mercado Libre: si una misma venta tiene dos RMA (por ejemplo, un carrito con dos artículos), aparecen juntos en una sola fila, con sus números de caso y sus artículos. La columna **Envío** trae el número de envío de esa venta desde los pedidos de ML que ya tenemos guardados; si el **ML ID** del caso no coincide con ninguna venta guardada, muestra **—** y el caso sigue en la lista.
+
+Arriba hay un filtro con **Pendientes** (el que abre), **Revisados** y **Todos**, cada uno con la cantidad de filas. Cuando terminás de revisar una fila, tildá **Revisado**: se marcan todos los casos de la fila, queda guardado quién y cuándo, y la fila deja de aparecer en **Pendientes**. Si la destildás, vuelve a **Pendientes**. Una fila con algunos casos revisados y otros no sigue en **Pendientes** y dice cuántos van revisados (por ejemplo, **1 de 2 revisados**).
 
 ### Métricas
 
@@ -99,9 +101,9 @@ Si no hay nada pendiente: **No hay items pendientes de envio a cliente**, con la
 
 ### Para borrar
 
-- **Pendientes** / **Revisados** / **Todos** (con su cantidad): qué casos marcados para borrar se ven. Abre en **Pendientes**.
-- Columnas: **Caso**, **Fecha**, **Cliente**, **ML ID**, **Estado** y **Revisado** (el tilde, y quién y cuándo lo revisó).
-- El tilde **Revisado** solo aparece si tenés permiso para gestionar RMA; sin ese permiso ves quién y cuándo lo revisó, sin poder cambiarlo.
+- **Pendientes** / **Revisados** / **Todos** (con su cantidad de filas): qué operaciones marcadas para borrar se ven. Abre en **Pendientes**.
+- Una fila por operación de ML; columnas: **Caso** (todos los casos de la operación), **Fecha**, **Cliente**, **ML ID**, **Envío** (el número de envío de la venta, o **—** si no se encontró), **Artículos**, **Estado** y **Revisado** (el tilde, y quién y cuándo lo revisó, o cuántos casos van revisados).
+- El tilde **Revisado** marca o desmarca todos los casos de la fila. Solo aparece si tenés permiso para gestionar RMA; sin ese permiso ves quién y cuándo lo revisó, sin poder cambiarlo.
 - Si no hay casos en el filtro elegido: **No hay casos para borrar en este filtro**.
 
 ### Proveedores RMA
