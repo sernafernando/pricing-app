@@ -5,8 +5,14 @@ A higher consumer price is never better. Discard fingerprints block instant
 re-flag; a new better novelty re-marks.
 
 Baseline markup: co-funded when a started SMART / PRE_NEGOTIATED /
-PRICE_MATCHING offer matches sale_price (``markup_baseline_vigente``);
+PRICE_MATCHING offer matches sale_price (``markups_baseline_vigente``);
 otherwise plain ``markup_para_precio(sale)``.
+
+Ranking markup (S5, owner: "va a tener que usar el sell in sell out"): the
+markup with today's sell in / sell out (``markup_sell_in_out``) when it is
+known, else the plain markup, on both sides (status quo and each candidate,
+``markup_de_ranking``). The sell in / sell out read is done once per call, or
+once per batch of items when the caller passes it (``recompute``).
 """
 
 from __future__ import annotations
@@ -20,9 +26,11 @@ from app.core.logging import get_logger
 from app.models.ml_publications import MlItemSalePrice, MlItemSellerPromotions
 from app.services.ml_promotions_pricing import (
     enriquecer_markup_por_promo,
-    markup_baseline_vigente,
+    markups_baseline_vigente,
     precio_de_oferta,
+    resolver_sell_in_out_para_mlas,
 )
+from app.services.productos_sell_in_out import SellInOutBatch
 from app.services.ml_publications.parsers.seller_promotions import STATUS_CANDIDATE, promotion_key
 
 logger = get_logger(__name__)
@@ -56,6 +64,12 @@ def es_mejor_oferta(
     if candidate_price == baseline_price:
         return candidate_markup > baseline_markup
     return candidate_markup >= baseline_markup
+
+
+def markup_de_ranking(nuestro_markup: Optional[float], markup_sell_in_out: Optional[float]) -> Optional[float]:
+    """The markup offers are compared by: with sell in / sell out when known, else the plain one (S5).
+    Mirrored by the frontend's ``rankingMarkupOf`` (pickPonerPreciosPromos.js)."""
+    return markup_sell_in_out if markup_sell_in_out is not None else nuestro_markup
 
 
 def _format_fingerprint_price(price: float) -> str:
@@ -113,21 +127,28 @@ def listar_mejores_candidatas(
     baseline_price: float,
     *,
     raw_promotions: Any = None,
+    sell_in_out_batch: Optional[SellInOutBatch] = None,
 ) -> List[MejorTuple]:
-    """Candidates that beat the MeLi status quo (sale_price + correct baseline markup).
+    """Candidates that beat the MeLi status quo (sale_price + correct baseline markup), compared by
+    ``markup_de_ranking`` on both sides.
 
     ``raw_promotions`` (full mirror, including started) selects co-funded vs
-    plain baseline via ``markup_baseline_vigente``.
+    plain baseline via ``markups_baseline_vigente``. ``sell_in_out_batch``: a
+    sell in / sell out read already done for many items; without it, one read
+    for this item feeds both sides.
     """
-    baseline_markup = markup_baseline_vigente(db, mla, baseline_price, raw_promotions=raw_promotions)
+    batch = sell_in_out_batch if sell_in_out_batch is not None else resolver_sell_in_out_para_mlas(db, [mla])
+    baseline = markups_baseline_vigente(db, mla, baseline_price, raw_promotions=raw_promotions, batch=batch)
+    baseline_markup = markup_de_ranking(baseline.nuestro_markup, baseline.markup_sell_in_out)
     if baseline_markup is None:
         return []
     promos = [normalizar_entrada_seller_promo(entry) for entry in candidates]
-    enriquecer_markup_por_promo(db, mla, promos)
+    enriquecer_markup_por_promo(db, mla, promos, sell_in_out=True, batch=batch)
     mejores: List[MejorTuple] = []
     for entry, promo in zip(candidates, promos):
         price = precio_de_oferta(promo)
-        if not es_mejor_oferta(price, promo.get("nuestro_markup"), baseline_price, baseline_markup):
+        markup = markup_de_ranking(promo.get("nuestro_markup"), promo.get("markup_sell_in_out"))
+        if not es_mejor_oferta(price, markup, baseline_price, baseline_markup):
             continue
         assert price is not None
         mejores.append((promotion_key(entry), float(price)))
@@ -145,6 +166,7 @@ def actualizar_hay_mejores_ofertas(
     item_id: str,
     *,
     raw_promotions: Any = None,
+    sell_in_out_batch: Optional[SellInOutBatch] = None,
 ) -> Optional[FlagDecision]:
     """Persist flag from sale_price vs candidates. Never raises.
 
@@ -174,6 +196,7 @@ def actualizar_hay_mejores_ofertas(
                         candidates,
                         baseline,
                         raw_promotions=raw,
+                        sell_in_out_batch=sell_in_out_batch,
                     ),
                     descartado_fingerprint=row.hay_mejores_descartado_fingerprint,
                 )

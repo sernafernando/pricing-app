@@ -15,7 +15,7 @@ from typing import Iterator
 from unittest.mock import patch
 
 import pytest
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine, event, text
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import sessionmaker
 
@@ -25,7 +25,12 @@ from app.models.pricing_constants import PricingConstants
 from app.models.publicacion_ml import PublicacionML
 from app.models.sell_in import SellInBonoItem
 from app.routers.ml_promotions import obtener_promociones_item
-from app.services.ml_promotions_pricing import enriquecer_markup_por_promo, markup_para_precio_con_sell_in_out
+from app.services import ml_promotions_hay_mejores as hay_mejores
+from app.services.ml_promotions_pricing import (
+    enriquecer_markup_por_promo,
+    markup_para_precio_con_sell_in_out,
+    resolver_sell_in_out_para_mlas,
+)
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _world as si
 from tests.services.sell_out import _world as so
@@ -297,3 +302,87 @@ class TestPrecioManualYVigente:
     def test_an_unknown_publication_gives_neither(self, engine) -> None:
         with sessionmaker(bind=engine, autoflush=False)() as db:
             assert markup_para_precio_con_sell_in_out(db, "MLA0", 60500.0) == (None, None)
+
+
+def _contar(engine: Engine, needle: str):
+    """Counts the statements on `engine` that mention `needle` while the context is open."""
+    conteo = {"n": 0}
+
+    def _antes(conn, cursor, statement, params, context, executemany):
+        if needle in statement:
+            conteo["n"] += 1
+
+    class _Ctx:
+        def __enter__(self):
+            event.listen(engine, "before_cursor_execute", _antes)
+            return conteo
+
+        def __exit__(self, *exc):
+            event.remove(engine, "before_cursor_execute", _antes)
+            return False
+
+    return _Ctx()
+
+
+class TestRankingConSellInOut:
+    """S5 (owner: "va a tener que usar el sell in sell out"): hay_mejores compares the markups with sell in /
+    sell out, read once and shared by the status quo and every candidate."""
+
+    def test_the_real_chain_compares_the_sell_in_out_markups_on_both_sides(self, engine) -> None:
+        _lote_y_campana(engine)
+        candidata = {
+            "id": "P-SMART",
+            "type": "SMART",
+            "status": "candidate",
+            "price": 55000,
+            "original_price": 70000,
+            "meli_percentage": 5,
+        }
+        comparados: list = []
+        real = hay_mejores.es_mejor_oferta
+
+        def _espia(*args):
+            comparados.append(args)
+            return real(*args)
+
+        with sessionmaker(bind=engine, autoflush=False)() as db:
+            with (
+                patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0),
+                patch.object(hay_mejores, "es_mejor_oferta", side_effect=_espia),
+            ):
+                hay_mejores.listar_mejores_candidatas(db, MLA, [candidata], 60500.0, raw_promotions=[candidata])
+                vigente = markup_para_precio_con_sell_in_out(db, MLA, 60500.0)
+                promo = enriquecer_markup_por_promo(
+                    db, MLA, [hay_mejores.normalizar_entrada_seller_promo(candidata)], sell_in_out=True
+                )[0]
+
+        assert vigente.markup_sell_in_out is not None and promo["markup_sell_in_out"] is not None
+        assert comparados == [(55000.0, promo["markup_sell_in_out"], 60500.0, vigente.markup_sell_in_out)]
+
+    def test_one_read_serves_many_publications(self, engine) -> None:
+        _lote_y_campana(engine)
+        with engine.begin() as conn:
+            for mla, item in (("MLA2270", 2270), ("MLA950", 950)):
+                conn.execute(
+                    text("INSERT INTO publicaciones_ml (mla, item_id, pricelist_id, activo) VALUES (:m, :i, 4, true)"),
+                    {"m": mla, "i": item},
+                )
+        try:
+            with sessionmaker(bind=engine, autoflush=False)() as db:
+                with _contar(engine, "sell_out_campanas") as una:
+                    resolver_sell_in_out_para_mlas(db, [MLA])
+                with _contar(engine, "sell_out_campanas") as tres:
+                    batch = resolver_sell_in_out_para_mlas(db, [MLA, "MLA2270", "MLA950"])
+                with (
+                    _contar(engine, "sell_out_campanas") as ranking,
+                    patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0),
+                ):
+                    for mla in (MLA, "MLA2270", "MLA950"):
+                        hay_mejores.listar_mejores_candidatas(db, mla, [], 60500.0, sell_in_out_batch=batch)
+        finally:
+            with engine.begin() as conn:
+                conn.execute(text("DELETE FROM publicaciones_ml WHERE mla IN ('MLA2270', 'MLA950')"))
+
+        assert una["n"] >= 1
+        assert tres["n"] == una["n"]  # the same queries for one publication or three
+        assert ranking["n"] == 0  # ranking with the read already done reads nothing more

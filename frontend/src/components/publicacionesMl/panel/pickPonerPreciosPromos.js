@@ -64,9 +64,17 @@ export function isPremiumCurrentMonth(promo, monthName) {
   return name.includes('premium') && name.includes(String(monthName).toLowerCase());
 }
 
-function markupOf(promo) {
-  const value = promo?.nuestro_markup;
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+const finiteOrNull = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+
+/**
+ * The markup a promo is ranked by (S5, owner: "va a tener que usar el sell in sell out"): its
+ * `markup_sell_in_out` when there is one, else its `nuestro_markup`; null without `nuestro_markup`.
+ * Keep in sync with backend `markup_de_ranking` (ml_promotions_hay_mejores.py).
+ */
+export function rankingMarkupOf(promo) {
+  const markup = finiteOrNull(promo?.nuestro_markup);
+  if (markup == null) return null;
+  return finiteOrNull(promo?.markup_sell_in_out) ?? markup;
 }
 
 /**
@@ -85,12 +93,12 @@ export function esMejorOferta(candidatePrice, candidateMarkup, baselinePrice, ba
   return candidateMarkup >= baselineMarkup;
 }
 
-/** Best candidate by `nuestro_markup`. Skips null/non-finite markups (no arbitrary first pick). */
+/** Best candidate by its ranking markup (`rankingMarkupOf`). Skips promos without one (no arbitrary first pick). */
 export function bestByMarkup(promos) {
   let best = null;
   let bestMarkup = -Infinity;
   for (const promo of promos) {
-    const markup = markupOf(promo);
+    const markup = rankingMarkupOf(promo);
     if (markup == null) continue;
     if (markup > bestMarkup) {
       best = promo;
@@ -115,14 +123,17 @@ export function pickPonerPreciosPromos(promotions, { monthName = currentMonthNam
   return pickSlots(candidates, monthName);
 }
 
-/** Best SMART/DEAL/Premium that beat the MeLi status quo (flagged-pub chooser). */
+/**
+ * Best SMART/DEAL/Premium that beat the MeLi status quo (flagged-pub chooser). `baselineMarkup` is the status
+ * quo's ranking markup: its markup with sell in / sell out when there is one, else its plain markup.
+ */
 export function pickMejoresCandidatas(
   promotions,
   { baselinePrice, baselineMarkup, monthName = currentMonthNameEs() } = {},
 ) {
   const candidates = (promotions || []).filter((promo) => promo?.status === 'candidate');
   const better = candidates.filter((promo) =>
-    esMejorOferta(promoDisplayPrice(promo), markupOf(promo), baselinePrice, baselineMarkup),
+    esMejorOferta(promoDisplayPrice(promo), rankingMarkupOf(promo), baselinePrice, baselineMarkup),
   );
   return pickSlots(better, monthName);
 }

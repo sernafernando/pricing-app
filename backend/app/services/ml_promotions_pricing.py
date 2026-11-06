@@ -22,7 +22,7 @@ changes `nuestro_markup`, which keeps ranking the offers.
 """
 
 from datetime import date
-from typing import Any, Dict, List, Mapping, NamedTuple, Optional
+from typing import Any, Dict, Iterable, List, Mapping, NamedTuple, Optional
 
 from sqlalchemy.orm import Session
 
@@ -272,7 +272,12 @@ def _resolve_pricing_context(db: Session, mla: str) -> Optional[_PricingContext]
 
 
 def enriquecer_markup_por_promo(
-    db: Session, mla: str, promociones: List[Dict[str, Any]], *, sell_in_out: bool = False
+    db: Session,
+    mla: str,
+    promociones: List[Dict[str, Any]],
+    *,
+    sell_in_out: bool = False,
+    batch: Optional[SellInOutBatch] = None,
 ) -> List[Dict[str, Any]]:
     """Adds `nuestro_markup` (Optional[float], percentage) to each promo dict
     in `promociones`, mutating them in place and returning the same list.
@@ -283,8 +288,10 @@ def enriquecer_markup_por_promo(
 
     `sell_in_out` (the panel read only) also adds `markup_sell_in_out`
     (`_markup_sell_in_out`), resolving the product's sell in / sell out once
-    for the whole list. Callers that rank or flag offers leave it off: they
-    need neither the field nor its queries.
+    for the whole list, or using `batch` when the caller already read it for
+    many publications (`resolver_sell_in_out_para_mlas`). Callers that need
+    only the plain markup leave it off: they need neither the field nor its
+    queries.
     """
     if not promociones:
         return promociones
@@ -297,7 +304,8 @@ def enriquecer_markup_por_promo(
                 promo["markup_sell_in_out"] = None
         return promociones
 
-    batch = _sell_in_out_batch(db, context, mla) if sell_in_out else None
+    if sell_in_out and batch is None:
+        batch = _sell_in_out_batch(db, context, mla)
     for promo in promociones:
         promo["nuestro_markup"] = _calcular_nuestro_markup(db=db, promo=promo, context=context)
         if sell_in_out:
@@ -357,18 +365,39 @@ class MarkupsDePrecio(NamedTuple):
     markup_sell_in_out: Optional[float]
 
 
-def markup_para_precio_con_sell_in_out(db: Session, mla: str, price: float) -> MarkupsDePrecio:
+def markup_para_precio_con_sell_in_out(
+    db: Session, mla: str, price: float, *, batch: Optional[SellInOutBatch] = None
+) -> MarkupsDePrecio:
     """`markup_para_precio(price)` plus `markup_sell_in_out` on the same net
     (`_markup_sell_in_out`), with ONE pricing context. Used by the panel's
-    manual price input and its "Markup vigente" line. Never raises."""
+    manual price input and its "Markup vigente" line, and by the hay_mejores
+    status quo. `batch`: an already-resolved sell in / sell out read. Never raises."""
     context = _resolve_pricing_context(db, mla)
     if context is None:
         return MarkupsDePrecio(None, None)
     nuestro = _markup_con_contexto(db, context, price, mla=mla)
     if nuestro is None:
         return MarkupsDePrecio(None, None)
-    batch = _sell_in_out_batch(db, context, mla)
+    if batch is None:
+        batch = _sell_in_out_batch(db, context, mla)
     return MarkupsDePrecio(nuestro, _markup_sell_in_out_seguro(db, context, batch, price, mla))
+
+
+def resolver_sell_in_out_para_mlas(db: Session, mlas: Iterable[str]) -> Optional[SellInOutBatch]:
+    """Today's sell in / sell out of the products of `mlas`, in ONE read for all of them (one
+    publication lookup plus `resolver_sell_in_out_batch`), so ranking many publications does not
+    read it publication by publication. In a SAVEPOINT; None (never raises) when it fails, and the
+    callers then fall back to the plain markups' own read."""
+    unicos = sorted({m for m in mlas if m})
+    if not unicos:
+        return None
+    try:
+        with db.begin_nested():
+            ids = [row[0] for row in db.query(PublicacionML.item_id).filter(PublicacionML.mla.in_(unicos)).distinct()]
+            return resolver_sell_in_out_batch(db, ids, date.today())
+    except Exception as e:
+        logger.warning("Error resolviendo sell in / sell out para %s publicaciones: %s", len(unicos), e)
+        return None
 
 
 # Types where ML co-funds the discount (`_co_funding_amount`). A started
@@ -398,19 +427,42 @@ def markup_baseline_vigente(
     *,
     raw_promotions: Any = None,
 ) -> Optional[float]:
-    """Seller markup for the MeLi status-quo price used by hay_mejores.
+    """The plain markup of `markups_baseline_vigente` (no sell in / sell out read)."""
+    return markups_baseline_vigente(
+        db, mla, baseline_price, raw_promotions=raw_promotions, sell_in_out=False
+    ).nuestro_markup
+
+
+def markups_baseline_vigente(
+    db: Session,
+    mla: str,
+    baseline_price: float,
+    *,
+    raw_promotions: Any = None,
+    sell_in_out: bool = True,
+    batch: Optional[SellInOutBatch] = None,
+) -> MarkupsDePrecio:
+    """Seller markup for the MeLi status-quo price used by hay_mejores, with its sell in / sell out
+    companion (`markup_sell_in_out`, None with `sell_in_out=False`).
 
     - If a **started** SMART / PRE_NEGOTIATED / PRICE_MATCHING entry's offer
       price matches ``baseline_price`` (sale), use the co-funded chain
-      (same as the promo card / ``enriquecer_markup_por_promo``).
+      (same as the promo card / ``enriquecer_markup_por_promo``): the match
+      with the best plain markup, and that same offer's companion.
     - Otherwise use plain ``markup_para_precio`` (no co-funding) — list
       price, DEAL/seller campaigns, or no matching cofunded started offer.
 
     ``raw_promotions`` is the seller-promotions mirror list (store `raw` or
-    the same shape). Never raises: None when markup cannot be computed.
+    the same shape); ``batch`` an already-resolved sell in / sell out read.
+    Never raises: None when markup cannot be computed.
     """
     if baseline_price is None or baseline_price <= 0:
-        return None
+        return MarkupsDePrecio(None, None)
+
+    def _plano() -> MarkupsDePrecio:
+        if sell_in_out:
+            return markup_para_precio_con_sell_in_out(db, mla, baseline_price, batch=batch)
+        return MarkupsDePrecio(markup_para_precio(db, mla, baseline_price), None)
 
     started_cofunded: List[Dict[str, Any]] = []
     if isinstance(raw_promotions, list):
@@ -436,10 +488,10 @@ def markup_baseline_vigente(
 
     if started_cofunded:
         try:
-            enriquecer_markup_por_promo(db, mla, started_cofunded)
+            enriquecer_markup_por_promo(db, mla, started_cofunded, sell_in_out=sell_in_out, batch=batch)
         except Exception as e:
             logger.warning("Error enriqueciendo baseline cofunded mla %s: %s", mla, e)
-            return markup_para_precio(db, mla, baseline_price)
+            return _plano()
 
         matched = [
             promo
@@ -447,10 +499,11 @@ def markup_baseline_vigente(
             if _prices_close(precio_de_oferta(promo), baseline_price) and promo.get("nuestro_markup") is not None
         ]
         if matched:
-            # Same consumer price: pick the best reported markup (ties rare).
-            return max(float(promo["nuestro_markup"]) for promo in matched)
+            # Same consumer price: the best reported markup (ties rare; the first on a tie), with its companion.
+            best = max(matched, key=lambda promo: float(promo["nuestro_markup"]))
+            return MarkupsDePrecio(float(best["nuestro_markup"]), best.get("markup_sell_in_out"))
 
-    return markup_para_precio(db, mla, baseline_price)
+    return _plano()
 
 
 def markup_de_oferta_live(

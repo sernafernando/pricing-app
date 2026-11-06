@@ -32,6 +32,7 @@ from app.core.database import SessionLocal
 from app.core.logging import get_logger
 from app.models.ml_publications import MlItemSellerPromotions
 from app.services.ml_promotions_hay_mejores import FlagDecision, actualizar_hay_mejores_ofertas
+from app.services.ml_promotions_pricing import resolver_sell_in_out_para_mlas
 
 logger = get_logger("scripts.recompute_hay_mejores_ofertas")
 
@@ -105,10 +106,18 @@ def recompute_items(
     dry_run: bool,
     commit_every: int,
 ) -> RecomputeStats:
-    """Recompute each id via `actualizar_hay_mejores_ofertas`; commit in batches unless dry_run."""
+    """Recompute each id via `actualizar_hay_mejores_ofertas`; commit in batches unless dry_run.
+
+    The ranking compares markups with sell in / sell out (S5): it is read once per batch of
+    `commit_every` ids (`resolver_sell_in_out_para_mlas`), never id by id."""
     stats = RecomputeStats()
     pending = 0
-    for item_id in item_ids:
+    ids = list(item_ids)
+    size = max(commit_every, 1)
+    batch = None
+    for index, item_id in enumerate(ids):
+        if index % size == 0:
+            batch = resolver_sell_in_out_para_mlas(db, ids[index : index + size])
         row = db.query(MlItemSellerPromotions).filter(MlItemSellerPromotions.item_id == item_id).one_or_none()
         if row is None:
             logger.warning("hay_mejores recompute: no promotions row for %s", item_id)
@@ -117,7 +126,7 @@ def recompute_items(
             continue
         prev_flag = bool(row.hay_mejores_ofertas)
         prev_fp = row.hay_mejores_fingerprint
-        decision = actualizar_hay_mejores_ofertas(db, item_id)
+        decision = actualizar_hay_mejores_ofertas(db, item_id, sell_in_out_batch=batch)
         stats.record(item_id, prev_flag=prev_flag, prev_fp=prev_fp, decision=decision)
         pending += 1
         if not dry_run and pending >= commit_every:

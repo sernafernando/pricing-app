@@ -68,7 +68,7 @@ class TestRecomputeItems:
         monkeypatch.setattr(
             script,
             "actualizar_hay_mejores_ofertas",
-            lambda _db, _id: FlagDecision(hay_mejores=False, fingerprint=None, descartado_fingerprint=None),
+            lambda _db, _id, **_kw: FlagDecision(hay_mejores=False, fingerprint=None, descartado_fingerprint=None),
         )
         stats = script.recompute_items(db, ["MLA1"], dry_run=True, commit_every=10)
         assert stats.cleared == 1
@@ -82,11 +82,35 @@ class TestRecomputeItems:
         monkeypatch.setattr(
             script,
             "actualizar_hay_mejores_ofertas",
-            lambda _db, _id: FlagDecision(hay_mejores=False, fingerprint=None, descartado_fingerprint=None),
+            lambda _db, _id, **_kw: FlagDecision(hay_mejores=False, fingerprint=None, descartado_fingerprint=None),
         )
         stats = script.recompute_items(db, ["MLA1", "MLA2", "MLA3"], dry_run=False, commit_every=2)
         assert stats.cleared == 3
         assert db.commit.call_count == 2  # after 2, then final flush of 1
+
+    def test_sell_in_out_is_resolved_once_per_commit_batch_not_per_item(self, monkeypatch) -> None:
+        """S5: the ranking reads sell in / sell out; a recompute of many items must not read it item by item."""
+        row = SimpleNamespace(hay_mejores_ofertas=True, hay_mejores_fingerprint="old")
+        db = MagicMock()
+        db.query.return_value.filter.return_value.one_or_none.return_value = row
+        resueltos: list = []
+        usados: list = []
+
+        def _resolver(_db, mlas):
+            resueltos.append(list(mlas))
+            return f"batch-{len(resueltos)}"
+
+        def _actualizar(_db, item_id, *, sell_in_out_batch=None):
+            usados.append((item_id, sell_in_out_batch))
+            return FlagDecision(hay_mejores=False, fingerprint=None, descartado_fingerprint=None)
+
+        monkeypatch.setattr(script, "resolver_sell_in_out_para_mlas", _resolver)
+        monkeypatch.setattr(script, "actualizar_hay_mejores_ofertas", _actualizar)
+
+        script.recompute_items(db, ["MLA1", "MLA2", "MLA3"], dry_run=False, commit_every=2)
+
+        assert resueltos == [["MLA1", "MLA2"], ["MLA3"]]
+        assert usados == [("MLA1", "batch-1"), ("MLA2", "batch-1"), ("MLA3", "batch-2")]
 
     def test_missing_row_counts_failed(self, monkeypatch) -> None:
         db = MagicMock()
