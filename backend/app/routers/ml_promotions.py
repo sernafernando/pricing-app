@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StrictInt
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -210,7 +210,7 @@ class EnrollRequest(BaseModel):
     answers 409 with the new price and markup."""
     markup_visto: Optional[float] = None
     """Markup the operator saw. Audit only (logged with a 409)."""
-    stock: Optional[int] = None
+    stock: Optional[StrictInt] = None
     """LIGHTNING only, required: units to reserve, within the live entry's
     `stock: {min, max}`."""
 

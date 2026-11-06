@@ -138,6 +138,21 @@ class TestLightningEnroll:
         assert result["status"] == "rejected_promotion_ambiguous"
         mock_enroll.assert_not_called()
 
+    @pytest.mark.parametrize("other_status", ["candidate", "pending"])
+    def test_another_live_lightning_offer_fails_closed(self, other_status: str) -> None:
+        # The POST body carries no promotion id: with two live LIGHTNING offers ML, not us, picks one.
+        other = _entry(id="LGH-MLA2000", status=other_status)
+        result, _, mock_enroll = _enroll(_live(_entry(), other), deal_price=23818.35, stock=5)
+
+        assert result["status"] == "rejected_promotion_ambiguous"
+        mock_enroll.assert_not_called()
+
+    def test_a_finished_lightning_offer_does_not_block(self) -> None:
+        other = _entry(id="LGH-MLA2000", status="finished")
+        result, _, _ = _enroll(_live(_entry(), other), deal_price=23818.35, stock=5)
+
+        assert result["status"] == "submitted"
+
     def test_kill_switch_blocks_before_any_read(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", False)
         result, mock_read, mock_enroll = _enroll(_live(), deal_price=23818.35, stock=5)
@@ -204,6 +219,19 @@ class TestLightningRemove:
     @pytest.mark.parametrize("live_status", ["candidate", "finished", None])
     def test_not_enrolled_is_refused(self, live_status: Any) -> None:
         result, mock_remove = _remove(_live(_entry(status=live_status)))
+
+        assert result["status"] == "rejected_not_removable"
+        mock_remove.assert_not_called()
+
+    def test_another_pending_lightning_offer_fails_closed(self) -> None:
+        live = _live(_entry(status="pending"), _entry(id="LGH-MLA2000", status="pending"))
+        result, mock_remove = _remove(live)
+
+        assert result["status"] == "rejected_promotion_ambiguous"
+        mock_remove.assert_not_called()
+
+    def test_entry_of_another_type_with_the_same_id_is_not_removed(self) -> None:
+        result, mock_remove = _remove(_live(_entry(type="DEAL", status="pending")))
 
         assert result["status"] == "rejected_not_removable"
         mock_remove.assert_not_called()
@@ -284,6 +312,17 @@ class TestLightningEndpoints:
 
         assert response.status_code == 200
         assert mock_enroll.call_args.kwargs["stock"] == 5
+
+    @pytest.mark.parametrize("stock", [True, "5", 5.0])
+    def test_stock_must_be_a_json_integer(self, api: TestClient, stock: Any) -> None:
+        with patch("app.routers.ml_promotions.enroll_one_item") as mock_enroll:
+            response = api.post(
+                f"/api/promociones/item/{MLA}",
+                json={"promotion_id": PROMO_ID, "promotion_type": "LIGHTNING", "deal_price": 23818.35, "stock": stock},
+            )
+
+        assert response.status_code == 422
+        mock_enroll.assert_not_called()
 
     @pytest.mark.parametrize(
         "status_name", ["rejected_stock_out_of_range", "rejected_stock_unresolved", "rejected_promotion_ambiguous"]

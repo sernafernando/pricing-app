@@ -839,6 +839,19 @@ def _lightning_rejection(status: str, detail: str, mla_id: str, promotion_id: st
     return {"submitted": False, "status": status, "detail": detail}
 
 
+_LIVE_LIGHTNING_STATUSES = frozenset({"candidate", "pending"})
+
+
+def _other_live_lightning(live: List[Dict[str, Any]], target: Dict[str, Any], statuses: frozenset) -> int:
+    """How many OTHER LIGHTNING entries in `statuses` the live payload lists.
+
+    The enroll body and the DELETE query carry no promotion id, so with more
+    than one live LIGHTNING offer on the item ML picks which one the write
+    hits, not us: callers fail closed when this is not zero.
+    """
+    return sum(1 for p in live if p is not target and p.get("type") == LIGHTNING and p.get("status") in statuses)
+
+
 def _as_int(value: Any) -> Optional[int]:
     """An integer that is not a bool, else None. A float like 5.0 is not accepted: stock is a unit count."""
     if isinstance(value, bool) or not isinstance(value, int):
@@ -869,6 +882,16 @@ def _enroll_lightning(
             entries=len(matches),
         )
     promo = matches[0]
+    others = _other_live_lightning(live, promo, _LIVE_LIGHTNING_STATUSES)
+    if others:
+        return _lightning_rejection(
+            "rejected_promotion_ambiguous",
+            "ML tiene otra oferta relámpago viva para esta publicación y el alta no dice cuál; "
+            "no se puede asegurar cuál inscribiría. No se aplicó nada.",
+            mla_id,
+            promotion_id,
+            others=others,
+        )
 
     live_status = promo.get("status")
     if live_status != "candidate":
@@ -946,7 +969,16 @@ def _remove_lightning(mla_id: str, promotion_id: str) -> Dict[str, Any]:
             mla_id,
             promotion_id,
         )
-    promo = _find_live_promotion(live, promotion_id)
+    matches = [p for p in live if p.get("id") == promotion_id and p.get("type") == LIGHTNING]
+    promo = matches[0] if len(matches) == 1 else None
+    if promo is not None and _other_live_lightning(live, promo, frozenset({"pending"})):
+        return _lightning_rejection(
+            "rejected_promotion_ambiguous",
+            "ML tiene más de una oferta relámpago inscripta en esta publicación y la baja no dice cuál; "
+            "no se quitó nada.",
+            mla_id,
+            promotion_id,
+        )
     live_status = promo.get("status") if promo is not None else None
     if live_status == "started":
         return _lightning_rejection(
