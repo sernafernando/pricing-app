@@ -842,6 +842,15 @@ def _lightning_rejection(status: str, detail: str, mla_id: str, promotion_id: st
 _LIVE_LIGHTNING_STATUSES = frozenset({"candidate", "pending"})
 
 
+def _lightning_status(entry: Dict[str, Any]) -> Optional[str]:
+    """An entry's status as text. Older stored LIGHTNING entries carry it as
+    `{"id": "candidate"}` instead of a string (capture 2026-11-06)."""
+    status = entry.get("status")
+    if isinstance(status, dict):
+        status = status.get("id")
+    return status if isinstance(status, str) else None
+
+
 def _other_live_lightning(live: List[Dict[str, Any]], target: Dict[str, Any], statuses: frozenset) -> int:
     """How many OTHER LIGHTNING entries in `statuses` the live payload lists.
 
@@ -849,7 +858,7 @@ def _other_live_lightning(live: List[Dict[str, Any]], target: Dict[str, Any], st
     than one live LIGHTNING offer on the item ML picks which one the write
     hits, not us: callers fail closed when this is not zero.
     """
-    return sum(1 for p in live if p is not target and p.get("type") == LIGHTNING and p.get("status") in statuses)
+    return sum(1 for p in live if p is not target and p.get("type") == LIGHTNING and _lightning_status(p) in statuses)
 
 
 def _as_int(value: Any) -> Optional[int]:
@@ -867,8 +876,7 @@ def _enroll_lightning(
     stock: Optional[int],
 ) -> Dict[str, Any]:
     """LIGHTNING enroll, fail closed against the LIVE entry (S2): exactly one
-    entry with this id, still `candidate`, `deal_price` (default: the entry's
-    suggested `price`) within [min_discounted_price, max_discounted_price] and
+    entry with this id, still `candidate`, `deal_price` (required) within [min_discounted_price, max_discounted_price] and
     `stock` within the entry's `stock: {min, max}`. Single POST, then the
     201 `price` is compared with the submitted one (`_post_apply_price_check`).
     """
@@ -900,7 +908,7 @@ def _enroll_lightning(
             others=others,
         )
 
-    live_status = promo.get("status")
+    live_status = _lightning_status(promo)
     if live_status != "candidate":
         return _lightning_rejection(
             "rejected_not_candidate",
@@ -911,10 +919,10 @@ def _enroll_lightning(
             live_status=live_status,
         )
 
+    # No default to ML's `price`: it can sit outside ML's own range (MLA3854324204, 2026-11-06), so the
+    # operator always types the price that is sent.
     min_price = promo.get("min_discounted_price")
     max_price = promo.get("max_discounted_price")
-    if deal_price is None:
-        deal_price = promo.get("price")
     if deal_price is None or min_price is None or max_price is None:
         return _lightning_rejection(
             "rejected_price_unresolved",
@@ -986,7 +994,7 @@ def _remove_lightning(mla_id: str, promotion_id: str) -> Dict[str, Any]:
             mla_id,
             promotion_id,
         )
-    live_status = promo.get("status") if promo is not None else None
+    live_status = _lightning_status(promo) if promo is not None else None
     if live_status == "started":
         return _lightning_rejection(
             "rejected_started_not_removable",

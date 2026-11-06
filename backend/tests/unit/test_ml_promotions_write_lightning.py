@@ -5,8 +5,8 @@ ML docs: enroll is `POST /seller-promotions/items/$ITEM_ID?app_version=v2` with
 `{"deal_price", "stock", "promotion_type": "LIGHTNING"}`; remove is
 `DELETE ...?app_version=v2&promotion_type=LIGHTNING`, and a started offer cannot be removed.
 
-The live entry comes from `tests/fixtures/ml_promotions/lightning_candidate_docs_shape.json`
-(docs shape, PENDING a real capture). All proxy/DB calls are mocked.
+Live entries are the real `ml_item_promotions.payload` captures in
+`tests/fixtures/ml_promotions/lightning_item_promotions_20261106.json`. All proxy/DB calls are mocked.
 """
 
 from __future__ import annotations
@@ -29,14 +29,22 @@ from app.models.usuario import Usuario
 from app.services import ml_promotions_write_service as write_service
 from app.services.ml_webhook_client import MLWebhookClient
 
-FIXTURE = Path(__file__).parent.parent / "fixtures" / "ml_promotions" / "lightning_candidate_docs_shape.json"
-MLA = json.loads(FIXTURE.read_text())["mla"]
+FIXTURE = Path(__file__).parent.parent / "fixtures" / "ml_promotions" / "lightning_item_promotions_20261106.json"
+ROWS = json.loads(FIXTURE.read_text())["rows"]
 PROMO_ID = "LGH-MLA1000"
-OK_201 = {"ok": True, "status_code": 201, "ambiguous": False, "body": {"price": 23818.35, "original_price": 27999}}
+# A well-formed candidate: price 23280 in [5664.32, 25489.44], stock {min 5, max 10}.
+MLA = "MLA4161234030"
+OK_201 = {"ok": True, "status_code": 201, "ambiguous": False, "body": {"price": 23280, "original_price": 28322}}
+
+
+def _payload(mla: str, status: str = "candidate") -> Dict[str, Any]:
+    """The captured ML entry (`payload`) of `mla`'s row in `status`."""
+    row = next(r for r in ROWS if r["mla"] == mla and r["status"] == status)
+    return copy.deepcopy(row["payload"])
 
 
 def _entry(**overrides: Any) -> Dict[str, Any]:
-    entry = copy.deepcopy(json.loads(FIXTURE.read_text())["entry"])
+    entry = _payload(MLA)
     entry.update(overrides)
     return entry
 
@@ -65,7 +73,7 @@ def _enroll(live: Any, **kwargs: Any):
 
 class TestLightningEnroll:
     def test_post_carries_price_and_stock_without_promotion_id(self) -> None:
-        result, _, mock_enroll = _enroll(_live(), deal_price=23818.35, stock=5)
+        result, _, mock_enroll = _enroll(_live(), deal_price=23280.0, stock=5)
 
         assert result["status"] == "submitted"
         mock_enroll.assert_called_once()
@@ -73,67 +81,67 @@ class TestLightningEnroll:
         assert args[0] == MLA
         assert args[1] is None  # the docs body has no promotion_id
         assert args[2] == "LIGHTNING"
-        assert kwargs["deal_price"] == 23818.35
+        assert kwargs["deal_price"] == 23280.0
         assert kwargs["stock"] == 5
 
     def test_post_apply_price_check_against_201_price(self) -> None:
-        result, _, _ = _enroll(_live(), deal_price=23818.35, stock=5)
+        result, _, _ = _enroll(_live(), deal_price=23280.0, stock=5)
 
-        assert result["precio_confirmado"] == 23818.35
-        assert result["precio_aplicado"] == 23818.35
+        assert result["precio_confirmado"] == 23280.0
+        assert result["precio_aplicado"] == 23280.0
         assert result["precio_difiere"] is False
 
-    @pytest.mark.parametrize("price", [19599.29, 25199.11])
+    @pytest.mark.parametrize("price", [5664.31, 25489.45])
     def test_price_outside_live_range_sends_nothing(self, price: float) -> None:
         result, _, mock_enroll = _enroll(_live(), deal_price=price, stock=5)
 
         assert result["status"] == "rejected_out_of_range"
         mock_enroll.assert_not_called()
 
-    @pytest.mark.parametrize("price", [19599.3, 25199.1])
+    @pytest.mark.parametrize("price", [5664.32, 25489.44])
     def test_range_bounds_are_inclusive(self, price: float) -> None:
         result, _, _ = _enroll(_live(), deal_price=price, stock=5)
 
         assert result["status"] == "submitted"
 
-    @pytest.mark.parametrize("stock", [None, 0, 13])
+    @pytest.mark.parametrize("stock", [None, 4, 11])
     def test_stock_missing_or_outside_live_range_sends_nothing(self, stock: Any) -> None:
-        result, _, mock_enroll = _enroll(_live(), deal_price=23818.35, stock=stock)
+        result, _, mock_enroll = _enroll(_live(), deal_price=23280.0, stock=stock)
 
         assert result["status"] == "rejected_stock_out_of_range"
         assert result["submitted"] is False
         mock_enroll.assert_not_called()
 
-    @pytest.mark.parametrize("stock", [1, 12])
+    @pytest.mark.parametrize("stock", [5, 10])
     def test_stock_bounds_are_inclusive(self, stock: int) -> None:
-        result, _, mock_enroll = _enroll(_live(), deal_price=23818.35, stock=stock)
+        result, _, mock_enroll = _enroll(_live(), deal_price=23280.0, stock=stock)
 
         assert result["status"] == "submitted"
         assert mock_enroll.call_args.kwargs["stock"] == stock
 
-    @pytest.mark.parametrize("stock_range", [None, {}, {"min": 1}, {"max": 12}])
+    @pytest.mark.parametrize("stock_range", [None, {}, {"min": 5}, {"max": 10}])
     def test_missing_live_stock_range_fails_closed(self, stock_range: Any) -> None:
-        result, _, mock_enroll = _enroll(_live(_entry(stock=stock_range)), deal_price=23818.35, stock=5)
+        result, _, mock_enroll = _enroll(_live(_entry(stock=stock_range)), deal_price=23280.0, stock=5)
 
         assert result["status"] == "rejected_stock_unresolved"
         mock_enroll.assert_not_called()
 
     @pytest.mark.parametrize("live_status", ["pending", "started", "finished", None])
     def test_not_candidate_fails_closed(self, live_status: Any) -> None:
-        result, _, mock_enroll = _enroll(_live(_entry(status=live_status)), deal_price=23818.35, stock=5)
+        result, _, mock_enroll = _enroll(_live(_entry(status=live_status)), deal_price=23280.0, stock=5)
 
         assert result["status"] == "rejected_not_candidate"
         mock_enroll.assert_not_called()
 
     def test_missing_live_price_range_fails_closed(self) -> None:
-        result, _, mock_enroll = _enroll(_live(_entry(min_discounted_price=None)), deal_price=23818.35, stock=5)
+        result, _, mock_enroll = _enroll(_live(_entry(min_discounted_price=None)), deal_price=23280.0, stock=5)
 
         assert result["status"] == "rejected_price_unresolved"
         mock_enroll.assert_not_called()
 
     def test_two_live_entries_with_the_same_id_fail_closed(self) -> None:
-        live = _live(_entry(), _entry(start_date="2026-11-11T09:00:00Z"))
-        result, _, mock_enroll = _enroll(live, deal_price=23818.35, stock=5)
+        live = _live(_entry(), _entry(ref_id="CANDIDATE-MLA4161234030-1"))
+        result, _, mock_enroll = _enroll(live, deal_price=23280.0, stock=5)
 
         assert result["status"] == "rejected_promotion_ambiguous"
         mock_enroll.assert_not_called()
@@ -142,26 +150,26 @@ class TestLightningEnroll:
     def test_another_live_lightning_offer_fails_closed(self, other_status: str) -> None:
         # The POST body carries no promotion id: with two live LIGHTNING offers ML, not us, picks one.
         other = _entry(id="LGH-MLA2000", status=other_status)
-        result, _, mock_enroll = _enroll(_live(_entry(), other), deal_price=23818.35, stock=5)
+        result, _, mock_enroll = _enroll(_live(_entry(), other), deal_price=23280.0, stock=5)
 
         assert result["status"] == "rejected_promotion_ambiguous"
         mock_enroll.assert_not_called()
 
     def test_entry_of_another_type_with_the_same_id_is_not_enrolled(self) -> None:
-        result, _, mock_enroll = _enroll(_live(_entry(type="DEAL")), deal_price=23818.35, stock=5)
+        result, _, mock_enroll = _enroll(_live(_entry(type="DEAL")), deal_price=23280.0, stock=5)
 
         assert result["status"] == "rejected_promotion_not_found"
         mock_enroll.assert_not_called()
 
     def test_a_finished_lightning_offer_does_not_block(self) -> None:
         other = _entry(id="LGH-MLA2000", status="finished")
-        result, _, _ = _enroll(_live(_entry(), other), deal_price=23818.35, stock=5)
+        result, _, _ = _enroll(_live(_entry(), other), deal_price=23280.0, stock=5)
 
         assert result["status"] == "submitted"
 
     def test_kill_switch_blocks_before_any_read(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", False)
-        result, mock_read, mock_enroll = _enroll(_live(), deal_price=23818.35, stock=5)
+        result, mock_read, mock_enroll = _enroll(_live(), deal_price=23280.0, stock=5)
 
         assert result["status"] == "disabled"
         mock_read.assert_not_called()
@@ -181,7 +189,7 @@ class TestLightningEnroll:
                 return_value=[{"promotion_id": PROMO_ID, "status": "pending", "promotion_type": "LIGHTNING"}],
             ),
         ):
-            result = write_service.enroll_one_item(MLA, PROMO_ID, "LIGHTNING", deal_price=23818.35, stock=5)
+            result = write_service.enroll_one_item(MLA, PROMO_ID, "LIGHTNING", deal_price=23280.0, stock=5)
 
         mock_enroll.assert_called_once()
         assert result["status"] == "reconciled_applied"
@@ -189,10 +197,76 @@ class TestLightningEnroll:
     def test_write_log_records_stock(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: List[Dict[str, Any]] = []
         monkeypatch.setattr(write_service, "_record_write_log", lambda *a, **k: calls.append(k["sent"]))
-        _enroll(_live(), deal_price=23818.35, stock=5)
+        _enroll(_live(), deal_price=23280.0, stock=5)
 
         assert calls[0]["stock"] == 5
-        assert calls[0]["deal_price"] == 23818.35
+        assert calls[0]["deal_price"] == 23280.0
+
+
+class TestLightningRealCaptureCases:
+    """Real `ml_item_promotions.payload` shapes that do not match the ML docs (capture 2026-11-06)."""
+
+    def _enroll_mla(self, mla: str, live: List[Dict[str, Any]], **kwargs: Any):
+        with (
+            patch.object(write_service.ml_webhook_client, "get_item_promotions", return_value=live),
+            patch.object(write_service.ml_webhook_client, "enroll_item", return_value=OK_201) as mock_enroll,
+        ):
+            result = write_service.enroll_one_item(mla, PROMO_ID, "LIGHTNING", **kwargs)
+        return result, mock_enroll
+
+    def test_mla1865080493_without_max_price_sends_nothing(self) -> None:
+        # Its entry has no max_discounted_price (and is keyed by the MLA, with no `type`).
+        live = [_payload("MLA1865080493")]
+        result, mock_enroll = self._enroll_mla("MLA1865080493", live, deal_price=23818.35, stock=5)
+
+        assert result["submitted"] is False
+        assert result["status"].startswith("rejected_")
+        mock_enroll.assert_not_called()
+
+    def test_mla1865080493_shape_with_lightning_type_but_no_max_is_unresolved(self) -> None:
+        entry = _payload("MLA1865080493")
+        entry.update(id=PROMO_ID, type="LIGHTNING")
+        result, mock_enroll = self._enroll_mla("MLA1865080493", [entry], deal_price=23818.35, stock=5)
+
+        assert result["status"] == "rejected_price_unresolved"
+        mock_enroll.assert_not_called()
+
+    def test_mla3854324204_price_above_max_is_never_sent(self) -> None:
+        # ML's `price` 14631.58 is above its own max_discounted_price 14290.2.
+        live = [_payload("MLA3854324204")]
+        result, mock_enroll = self._enroll_mla("MLA3854324204", live, deal_price=14631.58, stock=5)
+
+        assert result["status"] == "rejected_out_of_range"
+        mock_enroll.assert_not_called()
+
+    def test_mla3854324204_without_a_typed_price_sends_nothing(self) -> None:
+        # No default to ML's `price`: the operator must type the price they apply.
+        live = [_payload("MLA3854324204")]
+        result, mock_enroll = self._enroll_mla("MLA3854324204", live, stock=5)
+
+        assert result["status"] == "rejected_price_unresolved"
+        mock_enroll.assert_not_called()
+
+    def test_mla3854324204_in_range_price_is_sent(self) -> None:
+        live = [_payload("MLA3854324204")]
+        result, mock_enroll = self._enroll_mla("MLA3854324204", live, deal_price=13496.3, stock=11)
+
+        assert result["status"] == "submitted"
+        assert mock_enroll.call_args.kwargs["deal_price"] == 13496.3
+
+    def test_object_status_entry_counts_as_another_live_offer(self) -> None:
+        # The old-shape row stores `status: {"id": "candidate"}`; if ML lists it live it is another offer.
+        live = [_payload("MLA1506729443"), _payload("MLA1506729443", status="finished")]
+        result, mock_enroll = self._enroll_mla("MLA1506729443", live, deal_price=57920.55, stock=5)
+
+        assert result["status"] == "rejected_promotion_ambiguous"
+        mock_enroll.assert_not_called()
+
+    def test_object_status_finished_entry_does_not_block(self) -> None:
+        finished = _payload("MLA1865080493", status="finished")  # status {"id": "finished"}
+        result, _ = self._enroll_mla(MLA, [_entry(), finished], deal_price=23280.0, stock=5)
+
+        assert result["status"] == "submitted"
 
 
 def _remove(live: Any):
@@ -242,6 +316,12 @@ class TestLightningRemove:
         assert result["status"] == "rejected_not_removable"
         mock_remove.assert_not_called()
 
+    def test_object_status_pending_is_read(self) -> None:
+        result, mock_remove = _remove(_live(_entry(status={"id": "pending"})))
+
+        assert result["status"] == "submitted"
+        mock_remove.assert_called_once_with(MLA, "LIGHTNING", None)
+
     def test_live_read_unavailable_is_refused(self) -> None:
         result, mock_remove = _remove(None)
 
@@ -265,12 +345,12 @@ class TestLightningClientBody:
 
         def handler(request: httpx.Request) -> httpx.Response:
             seen["body"] = json.loads(request.content)
-            return httpx.Response(201, json={"price": 23818.35, "original_price": 27999})
+            return httpx.Response(201, json={"price": 23280, "original_price": 28322})
 
         _patch_httpx(monkeypatch, handler)
-        asyncio.run(MLWebhookClient().enroll_item(MLA, None, "LIGHTNING", 23818.35, stock=5))
+        asyncio.run(MLWebhookClient().enroll_item(MLA, None, "LIGHTNING", 23280.0, stock=5))
 
-        assert seen["body"] == {"promotion_type": "LIGHTNING", "deal_price": 23818.35, "stock": 5}
+        assert seen["body"] == {"promotion_type": "LIGHTNING", "deal_price": 23280.0, "stock": 5}
 
     def test_remove_params_are_the_documented_ones(self, monkeypatch: pytest.MonkeyPatch) -> None:
         seen: Dict[str, Any] = {}
@@ -309,11 +389,11 @@ class TestLightningEndpoints:
     def test_enroll_passes_stock_to_the_service(self, api: TestClient) -> None:
         with patch(
             "app.routers.ml_promotions.enroll_one_item",
-            return_value={"submitted": True, "status": "submitted", "price": 23818.35, "status_code": 201},
+            return_value={"submitted": True, "status": "submitted", "price": 23280.0, "status_code": 201},
         ) as mock_enroll:
             response = api.post(
                 f"/api/promociones/item/{MLA}",
-                json={"promotion_id": PROMO_ID, "promotion_type": "LIGHTNING", "deal_price": 23818.35, "stock": 5},
+                json={"promotion_id": PROMO_ID, "promotion_type": "LIGHTNING", "deal_price": 23280.0, "stock": 5},
             )
 
         assert response.status_code == 200
@@ -324,7 +404,7 @@ class TestLightningEndpoints:
         with patch("app.routers.ml_promotions.enroll_one_item") as mock_enroll:
             response = api.post(
                 f"/api/promociones/item/{MLA}",
-                json={"promotion_id": PROMO_ID, "promotion_type": "LIGHTNING", "deal_price": 23818.35, "stock": stock},
+                json={"promotion_id": PROMO_ID, "promotion_type": "LIGHTNING", "deal_price": 23280.0, "stock": stock},
             )
 
         assert response.status_code == 422
