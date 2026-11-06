@@ -310,15 +310,16 @@ export default function SellInBonoForm({ valores, onChange, marcas, disabled = f
             : 'Un bono sobre el costo es siempre un porcentaje en pesos: el costo de cada venta está en pesos.'}
         </p>
       )}
-      {costo && !total && (
+      {costo && (
         <div className={styles.field}>
           <label className={styles.check}>
             <input type="checkbox" checked={valores.incluyeIva} disabled={disabled} onChange={(e) => set({ incluyeIva: e.target.checked })} />
             Incluye IVA
           </label>
           <p className={styles.hint}>
-            Tildado: el porcentaje cargado incluye IVA y se divide por el IVA de cada producto (3 % con IVA 10,5 % queda 2,71 %). Sin tildar: se usa tal
-            cual.
+            {total
+              ? 'Tildado: el monto total cargado incluye IVA y a la parte de cada producto se le descuenta su IVA. Sin tildar: se reparte tal cual.'
+              : 'Tildado: el porcentaje cargado incluye IVA y se divide por el IVA de cada producto (3 % con IVA 10,5 % queda 2,71 %). Sin tildar: se usa tal cual.'}
           </p>
         </div>
       )}

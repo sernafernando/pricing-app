@@ -101,6 +101,24 @@ describe('SellInBonoForm — a cost bonus by total amount (S4)', () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(BONO_MONTO_TOTAL));
   });
 
+  it('keeps the Incluye IVA box visible on a total, so a ticked one is never sent unseen', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(within(screen.getByRole('group', { name: 'Base del bono' })).getByRole('button', { name: 'Sobre el costo de la venta' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Incluye IVA' }));
+    await user.click(within(forma()).getByRole('button', { name: 'Monto total' }));
+
+    expect(screen.getByRole('checkbox', { name: 'Incluye IVA' })).toBeChecked();
+    expect(screen.getByText(/el monto total cargado incluye IVA/)).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('Marca'), 'HP');
+    await user.type(screen.getByLabelText('Monto total (ARS)'), '1210000');
+    await user.selectOptions(screen.getByLabelText('Repartir el monto total'), 'iguales');
+    await user.type(screen.getByLabelText('Venta desde'), '2026-11-01');
+    await user.type(screen.getByLabelText('Venta hasta'), '2026-11-30');
+    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+    expect(sellInBonosAPI.crear).toHaveBeenCalledWith(expect.objectContaining({ tipo: 'monto_total', incluye_iva: true }));
+  });
+
   it.each(['-500', '0'])('a total of %s goes to the backend and its message shows', async (monto) => {
     const user = userEvent.setup();
     const mensaje = 'El monto total debe ser mayor que cero: en sell in no se descuenta un monto negativo';
