@@ -2,14 +2,15 @@
  * TacticalLinea — one line of the Nuevo tactical grid, as the approved design draws it: its scope (Productos | Marca |
  * Categoría, and Factura on sell in), what it includes (product or invoice chips with their picker, or a brand or
  * category), its amount and kind, its unit and money caps, whether several products share the cap, what it can
- * charge at most, and copy / delete. A sell out total amount asks how it is split among the line's products and has
- * no caps (S1).
+ * charge at most, and copy / delete. A total amount over products, a brand or a category asks how it is split among
+ * the line's products and has no caps (sell out S1, sell in S4); on sell in in USD it needs a fixed exchange rate.
  */
 import { Copy, Trash2, X } from 'lucide-react';
 import TacticalPicker from './TacticalPicker';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
 import {
   REPARTOS,
+  TOTAL_USD_SIN_TC_FIJO,
   alcancesDe,
   conAlcance,
   conModo,
@@ -183,6 +184,7 @@ export default function TacticalLinea({
   n,
   tipo,
   moneda,
+  tcModo,
   marcas,
   categorias,
   abierto,
@@ -246,7 +248,8 @@ export default function TacticalLinea({
           label={`Unidad del monto, línea ${n}`}
           options={modosDe(tipo).map((value) => ({ value, label: MODOS[value] }))}
           value={linea.modo}
-          disabled={modosNoDisponibles(tipo, linea.alcance)}
+          disabled={modosNoDisponibles(tipo, linea.alcance, moneda, tcModo)}
+          motivo={TOTAL_USD_SIN_TC_FIJO}
           onChange={(modo) => onCambiar(conModo(linea, modo))}
         />
       </div>
