@@ -660,6 +660,7 @@ def _editar_hijos(
 class Filtros:
     tipos: list[str]  # the kinds the caller may read (and asked for)
     marca: Optional[str] = None
+    moneda: Optional[str] = None  # ARS | USD: the tactical's own currency
     estado: Optional[str] = None  # vigentes | vencidos | anulados
     desde: Optional[date] = None
     hasta: Optional[date] = None
@@ -671,6 +672,8 @@ def listar(db: Session, filtros: Filtros, page: int, page_size: int, hoy: Option
     query = db.query(Tactical).filter(Tactical.tipo.in_(filtros.tipos))
     if filtros.marca:
         query = query.filter(Tactical.marca == filtros.marca)
+    if filtros.moneda:
+        query = query.filter(Tactical.moneda == filtros.moneda)
     if filtros.estado == "anulados":
         query = query.filter(Tactical.estado == "anulado")
     elif filtros.estado == "vigentes":

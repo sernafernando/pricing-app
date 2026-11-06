@@ -121,13 +121,13 @@ describe('avanceDeTactical', () => {
 describe('paramsDeFiltros', () => {
   it('sends only what is set, with Todos as no tipo', () => {
     expect(
-      paramsDeFiltros({ tipo: 'todos', marca: '', estado: 'vigentes', desde: '', hasta: '', q: '' }, { page: 1, pageSize: 50 }),
+      paramsDeFiltros({ tipo: 'todos', marca: '', moneda: '', estado: 'vigentes', desde: '', hasta: '', q: '' }, { page: 1, pageSize: 50 }),
     ).toEqual({ estado: 'vigentes', page: 1, page_size: 50 });
     expect(
       paramsDeFiltros(
-        { tipo: 'sell_out', marca: 'HP', estado: 'anulados', desde: '2026-11-01', hasta: '2026-11-30', q: ' bps ' },
+        { tipo: 'sell_out', marca: 'HP', moneda: 'USD', estado: 'anulados', desde: '2026-11-01', hasta: '2026-11-30', q: ' bps ' },
         { page: 2, pageSize: 25 },
       ),
-    ).toEqual({ tipo: 'sell_out', marca: 'HP', estado: 'anulados', desde: '2026-11-01', hasta: '2026-11-30', q: 'bps', page: 2, page_size: 25 });
+    ).toEqual({ tipo: 'sell_out', marca: 'HP', moneda: 'USD', estado: 'anulados', desde: '2026-11-01', hasta: '2026-11-30', q: 'bps', page: 2, page_size: 25 });
   });
 });

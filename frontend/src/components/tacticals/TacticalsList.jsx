@@ -22,7 +22,7 @@ const ESTADOS = [
 const FILAS_POR_PAGINA = 50;
 
 /**
- * The Tacticals tab (S7): the brands' programs filtered by tipo, brand, state, dates and a search, one row per
+ * The Tacticals tab (S7): the brands' programs filtered by tipo, brand, currency, state, dates and a search, one row per
  * tactical with its overall progress; expanding a row shows its lines with their caps and usage. A new `version`
  * (the page's "Actualizar") asks the list again. A row of a kind the user manages (`puedeGestionar(tipo)`) has an
  * actions menu (tacticals F1): Editar, on a tactical that is not voided, opens the Editar dialog and asks the list
@@ -106,6 +106,14 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
                 {marca}
               </option>
             ))}
+          </select>
+        </label>
+        <label className={styles.campo}>
+          <span className={styles.label}>Moneda</span>
+          <select className={styles.control} value={filtros.moneda} onChange={(e) => filtrar({ moneda: e.target.value })}>
+            <option value="">Todas</option>
+            <option value="ARS">ARS</option>
+            <option value="USD">USD</option>
           </select>
         </label>
         <div className={styles.campo}>

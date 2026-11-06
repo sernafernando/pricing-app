@@ -101,13 +101,13 @@ export function avanceDeTactical(lineas) {
 /** Columns of a tactical row: the toggle, Nombre, Tipo, Marca, Vigencia, Líneas, Avance, Estado and the actions. */
 export const COLUMNAS_TACTICAL = 9;
 
-export const FILTROS_VACIOS = { tipo: 'todos', marca: '', estado: 'vigentes', desde: '', hasta: '', q: '' };
+export const FILTROS_VACIOS = { tipo: 'todos', marca: '', moneda: '', estado: 'vigentes', desde: '', hasta: '', q: '' };
 
 /** The list's query: only the filters that are set ("Todos" sends no tipo). */
 export function paramsDeFiltros(filtros, { page, pageSize }) {
   const params = {};
   if (filtros.tipo !== 'todos') params.tipo = filtros.tipo;
-  for (const campo of ['marca', 'estado', 'desde', 'hasta']) if (filtros[campo]) params[campo] = filtros[campo];
+  for (const campo of ['marca', 'moneda', 'estado', 'desde', 'hasta']) if (filtros[campo]) params[campo] = filtros[campo];
   const q = filtros.q.trim();
   if (q) params.q = q;
   return { ...params, page, page_size: pageSize };

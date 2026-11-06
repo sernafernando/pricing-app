@@ -276,6 +276,18 @@ class TestListar:
         assert ids(q="hot") == [vigente.id]
         assert ids(desde=date(2026, 10, 15), hasta=date(2026, 10, 20)) == [vencido.id]
 
+    def test_the_currency_filter_keeps_the_tacticals_in_that_currency(self, db) -> None:
+        pesos = service.crear(db, _tactical(nombre="En pesos"), USUARIO)
+        dolares = service.crear(db, _tactical(nombre="En dólares", moneda="USD", tc_modo="al_cobro"), USUARIO)
+
+        def ids(**filtros) -> list[int]:
+            filtros = service.Filtros(**{"tipos": ["sell_in", "sell_out"], **filtros})
+            return sorted(t.id for t in service.listar(db, filtros, 1, 50, hoy=date(2026, 11, 5))[1])
+
+        assert ids(moneda="ARS") == [pesos.id]
+        assert ids(moneda="USD") == [dolares.id]
+        assert ids() == sorted([pesos.id, dolares.id])
+
 
 class TestRefusalsFromGGA:
     def test_an_invoice_bonus_does_not_take_a_fixed_rate(self, db, engine) -> None:

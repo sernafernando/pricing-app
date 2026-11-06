@@ -31,6 +31,7 @@ from app.schemas.tacticals import (
     MARCA_MAX,
     NOMBRE_MAX,
     EstadoFiltro,
+    Moneda,
     TacticalAnularIn,
     TacticalEditarIn,
     TacticalIn,
@@ -81,6 +82,7 @@ def crear_tactical(data: TacticalIn, user: Usuario = Depends(get_current_user), 
 def listar_tacticals(
     tipo: Optional[TipoTactical] = None,
     marca: Optional[str] = Query(None, max_length=MARCA_MAX),
+    moneda: Optional[Moneda] = None,
     estado: Optional[EstadoFiltro] = None,
     desde: Optional[date] = None,
     hasta: Optional[date] = None,
@@ -98,7 +100,7 @@ def listar_tacticals(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="La fecha hasta no puede ser anterior a desde"
         )
-    filtros = service.Filtros(tipos=tipos, marca=marca, estado=estado, desde=desde, hasta=hasta, q=q)
+    filtros = service.Filtros(tipos=tipos, marca=marca, moneda=moneda, estado=estado, desde=desde, hasta=hasta, q=q)
     total, filas = service.listar(db, filtros, page, page_size)
     return {"total": total, "page": page, "page_size": page_size, "items": service.serializar(db, filas)}
 
