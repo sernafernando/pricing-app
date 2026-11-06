@@ -4,7 +4,8 @@ The schema is built by every sell-out migration in order (`_MIGRATIONS`), so the
 parity test also covers `20261108_sell_out_consumos`, `20261207_sell_out_campana_items`,
 `20261214_sell_out_monto_total`, `20261225_sell_out_programas`, `20261230_sell_out_renovada_de` and
 `20261105_tacticals` (`tactical_id`; its own rules in `tests/migrations/test_migration_tacticals_postgres.py`) and
-`20261106_combo_consumos_item` (the consumption key per product); their own rules are proven
+`20261106_combo_consumos_item` (the consumption key per product) and `20261107_sell_out_reparto_criterio` (how a
+`monto_total` campaign is split); their own rules are proven
 in `tests/unit/test_migration_sell_out_consumos.py` and `tests/migrations/`.
 
 Runs the migration inside a throwaway schema of the Postgres test DB, next to
@@ -37,6 +38,7 @@ _MIGRATIONS = [
         "20261230_sell_out_renovada_de",
         "20261105_tacticals",
         "20261106_combo_consumos_item",
+        "20261107_sell_out_reparto_criterio",
     )
 ]
 TABLES = (
