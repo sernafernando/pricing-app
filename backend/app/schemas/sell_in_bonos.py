@@ -200,8 +200,10 @@ class SellInBonoOut(BaseModel):
     acumulable: bool
     offset_origen_id: Optional[int]
 
+    # No return annotation on purpose: a `-> dict` would publish this model's OpenAPI response schema as a bare
+    # object; without one, pydantic keeps the model's own fields.
     @model_serializer(mode="wrap")
-    def _sin_monto_total(self, handler: SerializerFunctionWrapHandler) -> dict:
+    def _sin_monto_total(self, handler: SerializerFunctionWrapHandler):
         """Only a `monto_total` bonus carries its total, criterion and shares: every other bonus's response stays
         exactly as it was."""
         salida = handler(self)

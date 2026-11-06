@@ -9,6 +9,7 @@ import pytest
 
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.sell_in import SellInBonoReparto
+from app.schemas.sell_in_bonos import SellInBonoOut
 
 BASE = "/api/sell-in/bonos"
 
@@ -97,3 +98,11 @@ def test_an_edit_to_equal_parts_resplits(client, gestor, productos):
 
     assert resp.status_code == 200, resp.text
     assert [(r["item_id"], r["monto"]) for r in resp.json()["repartos"]] == [(4512, "600.00"), (4513, "600.00")]
+
+
+def test_the_published_response_schema_keeps_every_bonus_field():
+    # FastAPI publishes a response model with its serialization-mode schema.
+    schema = SellInBonoOut.model_json_schema(mode="serialization")
+    assert {"id", "tipo", "monto_unit", "porcentaje", "monto_total", "reparto_criterio", "repartos"} <= set(
+        schema["properties"]
+    )
