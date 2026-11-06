@@ -872,7 +872,14 @@ def _enroll_lightning(
     `stock` within the entry's `stock: {min, max}`. Single POST, then the
     201 `price` is compared with the submitted one (`_post_apply_price_check`).
     """
-    matches = [p for p in live if p.get("id") == promotion_id]
+    matches = [p for p in live if p.get("id") == promotion_id and p.get("type") == LIGHTNING]
+    if not matches:
+        return _lightning_rejection(
+            "rejected_promotion_not_found",
+            f"promotion_id={promotion_id!r} is not a LIGHTNING entry in the live item promotions payload",
+            mla_id,
+            promotion_id,
+        )
     if len(matches) > 1:
         return _lightning_rejection(
             "rejected_promotion_ambiguous",

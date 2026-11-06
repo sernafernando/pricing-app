@@ -147,6 +147,12 @@ class TestLightningEnroll:
         assert result["status"] == "rejected_promotion_ambiguous"
         mock_enroll.assert_not_called()
 
+    def test_entry_of_another_type_with_the_same_id_is_not_enrolled(self) -> None:
+        result, _, mock_enroll = _enroll(_live(_entry(type="DEAL")), deal_price=23818.35, stock=5)
+
+        assert result["status"] == "rejected_promotion_not_found"
+        mock_enroll.assert_not_called()
+
     def test_a_finished_lightning_offer_does_not_block(self) -> None:
         other = _entry(id="LGH-MLA2000", status="finished")
         result, _, _ = _enroll(_live(_entry(), other), deal_price=23818.35, stock=5)
