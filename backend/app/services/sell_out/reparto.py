@@ -174,8 +174,9 @@ def sin_ventas(c: MontoTotal, con_ventas: Iterable[int]) -> Dict[int, Decimal]:
 
 def resumen_monto_total(c: MontoTotal, con_ventas: Iterable[int]) -> Dict[str, Decimal]:
     """`{asignado_sin_ventas, sin_asignar}`: what the campaign's rows do not carry (module docstring).
-    `con_ventas`: the products with sales the campaign reaches in its dates. By `unidades`: all of it goes to the
-    rows once any sale carries it, else it is all "Sin asignar"."""
+    `con_ventas`: the products with sales the campaign reaches in its dates, as the readers pass them: the products
+    with a written row. By `unidades`: all of it goes to the rows once any row carries it, else (no sale, or every
+    sale returned in the dates, so no row) it is all "Sin asignar"."""
     if c.criterio == UNIDADES:
         hay = bool(set(con_ventas))
         return {"asignado_sin_ventas": Decimal("0.00"), "sin_asignar": Decimal("0.00") if hay else cents(c.monto_total)}
