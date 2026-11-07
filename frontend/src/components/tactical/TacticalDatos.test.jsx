@@ -20,6 +20,9 @@ const FORM = {
   tipoCambio: '',
   incluyeIva: false,
   acumulable: true,
+  todasTiendas: true,
+  topeCompartido: false,
+  tiendaKeys: [],
   nota: '',
 };
 
@@ -70,6 +73,7 @@ describe('TacticalDatos', () => {
     await user.click(screen.getByLabelText('Los montos incluyen IVA'));
     await user.click(screen.getByLabelText('Se acumula con otras campañas'));
     await user.type(screen.getByLabelText('Nota'), 'Acuerdo 77');
+    expect(screen.getByText('Cómo se aplica el tope')).toBeInTheDocument();
     expect(onForm).toHaveBeenLastCalledWith({
       ...FORM,
       nombre: 'Tacticals BPS',
