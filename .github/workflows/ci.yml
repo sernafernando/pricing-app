@@ -295,14 +295,14 @@ jobs:
         run: pnpm build
 
   frontend-test:
-    name: Frontend Tests (${{ matrix.shard }}/2)
+    name: Frontend Tests (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
-    # Shards keep each worker under the heap ceiling that OOM'd the full suite.
+    # Four shards: 1/2 still OOM'd because heavy page tests clustered in shard 1.
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4]
     defaults:
       run:
         working-directory: frontend
@@ -323,17 +323,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run tests (vitest shard ${{ matrix.shard }}/2)
-        # Full unit suite OOMs even at 12GB (398/399 files). Split into two
-        # processes so each resets memory; keep the required check name via the
-        # gate job below. Use `pnpm exec` — `pnpm test -- --flag` was forwarding
-        # a literal `--` and ignoring maxWorkers.
+      - name: Run tests (vitest shard ${{ matrix.shard }}/4)
+        # Full suite and even shard 1/2 OOM near the last file. Four shards
+        # spread the heavy page tests; gate job below keeps the required check
+        # name. Use `pnpm exec` — `pnpm test -- --flag` forwarded a literal `--`.
         env:
-          NODE_OPTIONS: --max-old-space-size=8192
-        run: pnpm exec vitest run --project=unit --shard=${{ matrix.shard }}/2 --maxWorkers=2
+          NODE_OPTIONS: --max-old-space-size=12288
+        run: pnpm exec vitest run --project=unit --shard=${{ matrix.shard }}/4 --maxWorkers=2
 
   # Branch protection expects the check name "Frontend Tests". Matrix jobs are
-  # named "Frontend Tests (N/2)"; this gate collapses them into one status.
+  # named "Frontend Tests (N/4)"; this gate collapses them into one status.
   frontend-test-result:
     name: Frontend Tests
     needs: frontend-test
