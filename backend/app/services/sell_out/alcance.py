@@ -76,16 +76,25 @@ def _stores_por_mla(db: Session, mlas: Set[str]) -> Dict[str, Optional[int]]:
     """
     if not mlas:
         return {}
+    from sqlalchemy.exc import ProgrammingError
+
     from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado as Pub
 
-    latest = (
-        select(func.max(Pub.mlp_id).label("mlp_id"))
-        .where(Pub.mlp_publicationID.isnot(None), Pub.mlp_publicationID.in_(list(mlas)))
-        .group_by(Pub.mlp_publicationID)
-        .subquery()
-    )
-    rows = db.query(Pub.mlp_publicationID, Pub.mlp_official_store_id).join(latest, Pub.mlp_id == latest.c.mlp_id)
-    return {str(mla): (int(store) if store is not None else None) for mla, store in rows}
+    try:
+        with db.begin_nested():
+            latest = (
+                select(func.max(Pub.mlp_id).label("mlp_id"))
+                .where(Pub.mlp_publicationID.isnot(None), Pub.mlp_publicationID.in_(list(mlas)))
+                .group_by(Pub.mlp_publicationID)
+                .subquery()
+            )
+            rows = db.query(Pub.mlp_publicationID, Pub.mlp_official_store_id).join(
+                latest, Pub.mlp_id == latest.c.mlp_id
+            )
+            return {str(mla): (int(store) if store is not None else None) for mla, store in rows}
+    except ProgrammingError:
+        # Throwaway schemas / labs without the publicados table: treat every MLA as sin_tienda.
+        return {}
 
 
 def _positivo(x: Decimal) -> bool:
