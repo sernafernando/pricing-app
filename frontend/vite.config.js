@@ -1,13 +1,23 @@
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { defineConfig, configDefaults } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import { playwright } from '@vitest/browser-playwright'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // Visual tests live in their own folder AND carry their own suffix. The suffix
 // alone is not enough: `foo.visual.test.jsx` also matches vitest's default
 // include glob, so without the explicit `exclude` below the jsdom project would
 // pick these up and run layout assertions in an environment that has no layout.
 const VISUAL_TESTS = 'src/test/visual/**/*.visual.test.jsx'
+
+// Unit-only: real lucide-react is ~1900 icon modules; loading it via
+// importOriginal in setup OOMs CI near the end of the suite. Visual project
+// keeps the real package (screenshots / browser). See
+// docs/vitest-unit-oom-diagnosis.md (Fix A).
+const LUCIDE_UNIT_STUB = path.resolve(__dirname, 'src/test/lucide-react-stub.jsx')
 
 export default defineConfig({
   // TWO projects, never one. The jsdom suite is the repo's existing safety net
@@ -19,6 +29,9 @@ export default defineConfig({
     projects: [
       {
         extends: true,
+        resolve: {
+          alias: [{ find: 'lucide-react', replacement: LUCIDE_UNIT_STUB }],
+        },
         test: {
           name: 'unit',
           environment: 'jsdom',
