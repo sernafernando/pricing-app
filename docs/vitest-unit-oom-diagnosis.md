@@ -161,6 +161,14 @@ Tacticals stack (#2156–#2163) keeps **stock** `Frontend Tests` job (already re
 1. **PR 1 = Fix A + Fix B** — approved. Ship harness fix first; validate with full unit suite / CI without raising heap or sharding.
 2. **Stub = generated file committed** + `frontend/scripts/generate-lucide-react-stub.mjs` (`pnpm run generate:lucide-stub`). Unit project aliases `lucide-react` → stub in `vite.config.js` (visual project keeps real lucide).
 3. **Fix C** — still do it as a **follow-up PR** after A+B are green, even if we can no longer measure impact on the tacticals stack. C benefits the whole repo’s CI (time + headroom), not only one feature branch.
+4. **Fix C delivery (2026-11-07)** — prefer a **boring chain** of ≤400-line PRs that move one (or a few small) `describe` blocks out of `PublicacionesML.test.jsx` into sibling `PublicacionesML.*.test.jsx` files. Each sibling **duplicates** the file’s Vitest preamble (`vi.mock` + helpers + `beforeEach`): shared-mock harness modules lose to `setup.js` / hoist rules and are higher risk. Base each PR on the previous Fix C tip (or on `main` once A+B landed). Do **not** auto-merge; smoke with `vitest -t` on the moved describe only — never the full local unit suite on the WSL/Herdr host.
+
+### Fix C chain (started)
+
+| Slice | Move | Sibling file |
+|-------|------|----------------|
+| **C1** | `"Filas finas" (vistas-tipo-publicacion S5)` | `frontend/src/pages/PublicacionesML.filasFinas.test.jsx` |
+| **C2+** | Next trailing / coherent describes from the same inventory | `PublicacionesML.<topic>.test.jsx` |
 
 ---
 
