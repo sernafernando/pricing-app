@@ -477,9 +477,7 @@ def _cap_restante(
     return True, (max(libres) if libres else None)
 
 
-def _uso_sell_out_por_target(
-    db: Session, campana_ids: List[int]
-) -> Dict[int, Dict[TargetKey, Tuple[int, Decimal]]]:
+def _uso_sell_out_por_target(db: Session, campana_ids: List[int]) -> Dict[int, Dict[TargetKey, Tuple[int, Decimal]]]:
     """Units/money already taken per campaign and store/channel target (for per-target caps)."""
     if not campana_ids:
         return {}
@@ -504,7 +502,8 @@ def _agrupar_uso_por_target(
     stores_por_ref: Dict[int, Optional[int]] = {}
     if ml_refs:
         mla_por_ref = {
-            int(ref): mla for ref, mla in db.query(MlSaleLine.item_row_id, MlSaleLine.mla).filter(MlSaleLine.item_row_id.in_(ml_refs))
+            int(ref): mla
+            for ref, mla in db.query(MlSaleLine.item_row_id, MlSaleLine.mla).filter(MlSaleLine.item_row_id.in_(ml_refs))
         }
         stores = alcance._stores_por_mla(db, {m for m in mla_por_ref.values() if m})
         stores_por_ref = {ref: stores.get(mla) for ref, mla in mla_por_ref.items()}
