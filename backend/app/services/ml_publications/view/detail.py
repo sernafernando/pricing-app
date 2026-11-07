@@ -464,9 +464,15 @@ def _breakdown_product(links: list[Any], found: markup_service.DetailMarkup) -> 
     return next((r for r in links if r.variation_id == LINK_ITEM_LEVEL and r.product_id is not None), None)
 
 
-def _sell_in_out(pricing_db: Session, links: list[Any], found: Optional[markup_service.DetailMarkup]) -> Optional[dict]:
+def _sell_in_out(
+    pricing_db: Session,
+    links: list[Any],
+    found: Optional[markup_service.DetailMarkup],
+    *,
+    store_id: Optional[int] = None,
+) -> Optional[dict]:
     """The sell in / sell out of the breakdown's unit (module docstring, 6); None when nothing was priced or neither
-    applies."""
+    applies. `store_id` is the publication's official store so tactical companions honour store scope."""
     b = None if found is None else found.breakdown
     if b is None:
         return None
@@ -474,9 +480,9 @@ def _sell_in_out(pricing_db: Session, links: list[Any], found: Optional[markup_s
     if row is None:
         return None
     product = _PricedProduct(row.product_id, b.costo_ars, row.iva)
-    accumulator = resolver_sell_in_out_batch(pricing_db, [product.item_id], date.today()).markups(
-        product, precio_lista_ml=b.price
-    )
+    accumulator = resolver_sell_in_out_batch(
+        pricing_db, [product.item_id], date.today(), contextos=[("ml", store_id)]
+    ).markups(product, precio_lista_ml=b.price)
     accumulator.record(SELL_IN_OUT_KEY, b.limpio)
     payload = accumulator.payload()
     return None if payload is None else payload.model_dump()
@@ -530,5 +536,5 @@ def get_detail(db: Session, item_id: str, *, events: bool, markup: Optional[Mark
             out_row["markup"] = listing.markup_out(found.item)
         listing.attach_cost([out_row], [row], markup.pricing_db)  # the same cost block the list row carries
         body["markup_breakdown"] = None if found is None else _breakdown_out(found)
-        body["sell_in_out"] = _sell_in_out(markup.pricing_db, links, found)
+        body["sell_in_out"] = _sell_in_out(markup.pricing_db, links, found, store_id=row.official_store_id)
     return body

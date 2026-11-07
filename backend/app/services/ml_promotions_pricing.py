@@ -383,18 +383,36 @@ def markup_para_precio_con_sell_in_out(
     return MarkupsDePrecio(nuestro, _markup_sell_in_out_seguro(db, context, batch, price, mla))
 
 
+def _contextos_mlas(db: Session, mlas: list[str]) -> Optional[list[tuple[str, Optional[int]]]]:
+    """Store scope for companion markups: one `(ml, store_id)` when every MLA shares the same official store;
+    `None` (global) when the set mixes stores — a single batch cannot be both."""
+    from app.models.ml_publications import MlItem
+
+    stores = {
+        row[0]
+        for row in db.query(MlItem.official_store_id).filter(MlItem.item_id.in_(mlas)).distinct()
+    }
+    if len(stores) != 1:
+        return None
+    return [("ml", next(iter(stores)))]
+
+
 def resolver_sell_in_out_para_mlas(db: Session, mlas: Iterable[str]) -> Optional[SellInOutBatch]:
     """Today's sell in / sell out of the products of `mlas`, in ONE read for all of them (one
     publication lookup plus `resolver_sell_in_out_batch`), so ranking many publications does not
     read it publication by publication. In a SAVEPOINT; None (never raises) when it fails, and the
-    callers then fall back to the plain markups' own read."""
+    callers then fall back to the plain markups' own read.
+
+    When every MLA shares the same official store, the batch is store-scoped; mixed stores keep the
+    global read (ponytail: split per store when a caller needs mixed-store accuracy in one batch).
+    """
     unicos = sorted({m for m in mlas if m})
     if not unicos:
         return None
     try:
         with db.begin_nested():
             ids = [row[0] for row in db.query(PublicacionML.item_id).filter(PublicacionML.mla.in_(unicos)).distinct()]
-            return resolver_sell_in_out_batch(db, ids, date.today())
+            return resolver_sell_in_out_batch(db, ids, date.today(), contextos=_contextos_mlas(db, unicos))
     except Exception as e:
         logger.warning("Error resolviendo sell in / sell out para %s publicaciones: %s", len(unicos), e)
         return None
@@ -576,7 +594,9 @@ def _sell_in_out_batch(db: Session, context: _PricingContext, mla: str) -> Optio
         return None
     try:
         with db.begin_nested():
-            return resolver_sell_in_out_batch(db, [context.producto.item_id], date.today())
+            return resolver_sell_in_out_batch(
+                db, [context.producto.item_id], date.today(), contextos=_contextos_mlas(db, [mla])
+            )
     except Exception as e:
         logger.warning("Error resolviendo sell in / sell out para mla %s: %s", mla, e)
         return None
