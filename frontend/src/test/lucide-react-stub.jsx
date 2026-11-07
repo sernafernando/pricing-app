@@ -9,13 +9,50 @@
  * suite. See docs/vitest-unit-oom-diagnosis.md (Fix A).
  *
  * Each export is a distinct forwardRef component so identity assertions
- * (e.g. getCategoryIcon → Laptop) keep working.
+ * (e.g. getCategoryIcon → Laptop) keep working. Props mirror lucide enough
+ * for a11y queries (`role="img"` + `aria-label`) and `svg.lucide-*` selectors:
+ * map `size` → width/height, default `aria-hidden` only when no a11y props.
  */
 import { forwardRef, createElement } from 'react'
 
+function toKebab(name) {
+  return name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').replace(/([A-Z])([A-Z][a-z])/g, '$1-$2').toLowerCase()
+}
+
 function icon(name) {
   const Comp = forwardRef(function LucideStub(props, ref) {
-    return createElement('svg', { ref, 'aria-hidden': true, ...props })
+    const {
+      size = 24,
+      color = 'currentColor',
+      strokeWidth = 2,
+      absoluteStrokeWidth,
+      className,
+      ...rest
+    } = props
+    const hasA11y =
+      rest['aria-label'] != null ||
+      rest['aria-labelledby'] != null ||
+      rest.role != null
+    const width = size
+    const height = size
+    const resolvedStroke = absoluteStrokeWidth
+      ? (Number(strokeWidth) * 24) / Number(size)
+      : strokeWidth
+    return createElement('svg', {
+      ref,
+      xmlns: 'http://www.w3.org/2000/svg',
+      width,
+      height,
+      viewBox: '0 0 24 24',
+      fill: 'none',
+      stroke: color,
+      strokeWidth: resolvedStroke,
+      strokeLinecap: 'round',
+      strokeLinejoin: 'round',
+      className: ['lucide', `lucide-${toKebab(name)}`, className].filter(Boolean).join(' '),
+      ...(hasA11y ? {} : { 'aria-hidden': true }),
+      ...rest,
+    })
   })
   Comp.displayName = name
   return Comp
