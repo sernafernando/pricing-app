@@ -86,6 +86,31 @@ from app.services.sell_out.tope import cents
 ContextoMarkup = Tuple[str, Optional[int]]
 
 
+def parse_contextos_query(raw: Optional[str]) -> Optional[List[ContextoMarkup]]:
+    """CSV from Productos `markup_contextos`: `ml:<store_id>`, `fuera`, `tn`. Empty / `todas` / None → global."""
+    if raw is None:
+        return None
+    texto = raw.strip()
+    if not texto or texto.lower() == "todas":
+        return None
+    salida: List[ContextoMarkup] = []
+    for token in texto.split(","):
+        tok = token.strip()
+        if not tok:
+            continue
+        if tok in ("fuera", "tn"):
+            salida.append((tok, None))
+            continue
+        if tok.startswith("ml:"):
+            try:
+                salida.append(("ml", int(tok[3:])))
+            except ValueError as exc:
+                raise ValueError(f"markup_contextos store id inválido: {tok}") from exc
+            continue
+        raise ValueError(f"markup_contextos token inválido: {tok}")
+    return salida or None
+
+
 @dataclass(frozen=True)
 class _Campana:
     campana: SellOutCampana

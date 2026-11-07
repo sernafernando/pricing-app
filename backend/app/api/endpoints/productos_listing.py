@@ -16,7 +16,7 @@ from datetime import UTC, date
 from app.api.deps import get_current_user, require_algun_permiso
 from app.api.endpoints.pricing import PERMISOS_EDITAR_PRODUCTOS_O_TIENDA
 from app.services.envio_real_service import resolver_costos_envio_batch
-from app.services.productos_sell_in_out import MarkupCompanions, resolver_sell_in_out_batch
+from app.services.productos_sell_in_out import MarkupCompanions, parse_contextos_query, resolver_sell_in_out_batch
 from app.services.costo_ppp_service import (
     resolver_ppp_batch,
     PppMarkups,
@@ -354,6 +354,10 @@ def listar_productos(
     estado_mla: Optional[str] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
     tienda_oficial: Optional[str] = None,
+    markup_contextos: Optional[str] = Query(
+        None,
+        description="CSV of sell-in/out companion contexts: ml:<store_id>, fuera, tn. Omit/todas = global.",
+    ),
     promo_tipos: Optional[str] = None,
     promo_estado: Optional[str] = None,
     con_promo_aplicada: Optional[bool] = None,
@@ -1045,7 +1049,11 @@ def listar_productos(
 
     # ── Batch-resolve PPP (ERP weighted-average cost, informational only) ────
     ppp_by_item = resolver_ppp_batch(db, all_item_ids_page)
-    sell_in_out_batch = resolver_sell_in_out_batch(db, all_item_ids_page, hoy)
+    try:
+        contextos_markup = parse_contextos_query(markup_contextos)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    sell_in_out_batch = resolver_sell_in_out_batch(db, all_item_ids_page, hoy, contextos=contextos_markup)
     ppp_markups_by_item: dict[int, MarkupCompanions] = {}
 
     _resolve_envio = partial(resolve_envio, ctx, envio_real_by_item)
@@ -2719,6 +2727,10 @@ PERMISOS_VER_PRODUCTO = ["productos.ver", *PERMISOS_EDITAR_PRODUCTOS_O_TIENDA]
 def obtener_producto(
     item_id: int,
     equipo_id: Optional[int] = None,
+    markup_contextos: Optional[str] = Query(
+        None,
+        description="CSV of sell-in/out companion contexts: ml:<store_id>, fuera, tn. Omit/todas = global.",
+    ),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -2763,9 +2775,13 @@ def obtener_producto(
     # product is USD-costed), not with an extra unconditional lookup.
     _ppp_source_d = resolver_ppp_batch(db, [item_id]).get(item_id)
     _tipo_cambio_ppp_d = obtener_tipo_cambio_actual(db, "USD") if producto_erp.moneda_costo == "USD" else None
+    try:
+        contextos_markup_d = parse_contextos_query(markup_contextos)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     ppp_d = MarkupCompanions(
         PppMarkups(_ppp_source_d, moneda_costo=producto_erp.moneda_costo, tipo_cambio=_tipo_cambio_ppp_d),
-        resolver_sell_in_out_batch(db, [item_id], date.today()).markups(
+        resolver_sell_in_out_batch(db, [item_id], date.today(), contextos=contextos_markup_d).markups(
             producto_erp,
             precio_lista_ml=producto_pricing.precio_lista_ml if producto_pricing else None,
             tipo_cambio=_tipo_cambio_ppp_d,
