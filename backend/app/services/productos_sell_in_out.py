@@ -266,7 +266,8 @@ def resolver_sell_in_out_batch(
             .filter(SellOutCampana.id.in_(cids))
         )
         campanas_obj = {c.id: c for c, _, _ in filas}
-        scopes = _scopes_campanas(db, list(campanas_obj.values()))
+        # Scopes only when the caller asked for a store context — keeps the global query count.
+        scopes = _scopes_campanas(db, list(campanas_obj.values())) if contextos is not None else {}
         need_por_target = contextos is not None and any(
             scopes.get(cid) is not None and not scopes[cid].tope_compartido for cid in cids
         )
@@ -274,7 +275,7 @@ def resolver_sell_in_out_batch(
         agotadas = set()
         for c, item_id, monto_item in filas:
             if c.id not in vigentes and c.id not in agotadas:
-                scope = scopes.get(c.id)
+                scope = scopes.get(c.id) if contextos is not None else None
                 if contextos is not None and not alcanza_alguno(scope, contextos):
                     agotadas.add(c.id)
                     continue
@@ -358,14 +359,14 @@ def _bonos_costo(
         .group_by(t.bono_id)
     }
     bonos = {b.id: b for b in db.query(SellInBonoMarca).filter(SellInBonoMarca.id.in_(bids))}
-    scopes = _scopes_bonos(db, list(bonos.values()))
+    scopes = _scopes_bonos(db, list(bonos.values())) if contextos is not None else {}
     need_por_target = contextos is not None and any(
         scopes.get(bid) is not None and not scopes[bid].tope_compartido for bid in bids
     )
     usado_por_target = _uso_bono_por_target(db, bids) if need_por_target else {}
     activos: Dict[int, Tuple[SellInBonoMarca, Optional[Decimal]]] = {}  # bono_id -> (bonus, ARS cap left)
     for bid, bono in bonos.items():
-        scope = scopes.get(bid)
+        scope = scopes.get(bid) if contextos is not None else None
         if contextos is not None and not alcanza_alguno(scope, contextos):
             continue
         activa, libre = _cap_bono(
