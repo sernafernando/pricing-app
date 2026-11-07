@@ -46,6 +46,8 @@ export function useProductosFilters() {
   const [filtroEstadoMLA, setFiltroEstadoMLA] = useState(null); // 'activa', 'pausada'
   const [filtroNuevos, setFiltroNuevos] = useState(null); // ultimos_7_dias
   const [filtroTiendaOficial, setFiltroTiendaOficial] = useState(null); // '57997', '2645', '144', '191942'
+  // Sell-in/out companion context (independent of tienda_oficial listing filter). null = Todas/global.
+  const [markupContextos, setMarkupContextos] = useState(null);
   const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
   const [coloresSeleccionados, setColoresSeleccionados] = useState([]);
   const [equipoActivoId, setEquipoActivoId] = useState(null); // null = global color layer
@@ -122,6 +124,9 @@ export function useProductosFilters() {
     // Tienda Oficial
     if (filtroTiendaOficial) params.set('tienda_oficial', filtroTiendaOficial);
 
+    // Markup companion context (tacticals store scope)
+    if (markupContextos) params.set('markup_ctx', markupContextos);
+
     // Colores
     if (coloresSeleccionados.length > 0) params.set('colores', coloresSeleccionados.join(','));
 
@@ -168,6 +173,7 @@ export function useProductosFilters() {
     const estado_mla = searchParams.get('estado_mla');
     const nuevos = searchParams.get('nuevos');
     const tienda_oficial = searchParams.get('tienda_oficial');
+    const markup_ctx = searchParams.get('markup_ctx');
     const colores = searchParams.get('colores');
     const pxq = searchParams.get('pxq');
     const promoTipos = searchParams.get('promo_tipos');
@@ -199,6 +205,7 @@ export function useProductosFilters() {
     if (estado_mla) setFiltroEstadoMLA(estado_mla);
     if (nuevos) setFiltroNuevos(nuevos);
     if (tienda_oficial) setFiltroTiendaOficial(tienda_oficial);
+    if (markup_ctx) setMarkupContextos(markup_ctx);
     if (colores) setColoresSeleccionados(colores.split(',').map(c => c.trim()).filter(Boolean));
     if (pxq) setFiltroPxq(pxq);
     if (promoTipos) setFiltroPromoTipos(promoTipos.split(',').map(t => t.trim()).filter(Boolean));
@@ -254,6 +261,7 @@ export function useProductosFilters() {
     filtroEstadoMLA,
     filtroNuevos,
     filtroTiendaOficial,
+    markupContextos,
     coloresSeleccionados,
     filtroPromoTipos,
     filtroPromoEstado,
@@ -329,6 +337,7 @@ export function useProductosFilters() {
     setFiltroEstadoMLA(null);
     setFiltroNuevos(null);
     setFiltroTiendaOficial(null);
+    setMarkupContextos(null);
     setFiltroPxq(null);
     setColoresSeleccionados([]);
     setFiltroPromoTipos([]);
@@ -468,6 +477,7 @@ export function useProductosFilters() {
     if (filtroEstadoMLA === 'pausada') params.estado_mla = 'pausada';
     if (filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
     if (filtroTiendaOficial) params.tienda_oficial = filtroTiendaOficial;
+    if (markupContextos) params.markup_contextos = markupContextos;
     if (coloresSeleccionados.length > 0) params.colores = coloresSeleccionados.join(',');
     if (equipoActivoId) params.equipo_id = equipoActivoId;
     if (pmsSeleccionados.length > 0) params.pms = pmsSeleccionados.join(',');
@@ -494,8 +504,8 @@ export function useProductosFilters() {
     filtrosAuditoria, filtroRebate, filtroOferta, filtroWebTransf, filtroTiendaNube,
     filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf,
     filtroOutOfCards, filtroMLA, filtroEstadoMLA, filtroNuevos, filtroTiendaOficial,
-    coloresSeleccionados, equipoActivoId, pmsSeleccionados, filtroPromoTipos, filtroPromoEstado,
-    filtroPxq,
+    markupContextos, coloresSeleccionados, equipoActivoId, pmsSeleccionados, filtroPromoTipos,
+    filtroPromoEstado, filtroPxq,
   ]);
 
   return {
@@ -531,6 +541,7 @@ export function useProductosFilters() {
     filtroEstadoMLA, setFiltroEstadoMLA,
     filtroNuevos, setFiltroNuevos,
     filtroTiendaOficial, setFiltroTiendaOficial,
+    markupContextos, setMarkupContextos,
     // Audit filters
     filtrosAuditoria, setFiltrosAuditoria,
     // UI filter panel state

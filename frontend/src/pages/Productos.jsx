@@ -33,6 +33,8 @@ import { formatDateOnly } from '../utils/dateUtils';
 import { useProductosOffsets } from '../hooks/useProductosOffsets';
 import PppLine from '../components/PppLine';
 import SellInOutLine from '../components/SellInOutLine';
+import MarkupContextoPicker from '../components/productos/MarkupContextoPicker';
+import { paramDesdeSeleccion, seleccionDesdeParam } from '../components/productos/markupContextos';
 import PrecioTransfHint from '../components/PrecioTransfHint';
 import { useProductosAuditoria } from '../hooks/useProductosAuditoria';
 import { useProductosSeleccion } from '../hooks/useProductosSeleccion';
@@ -90,6 +92,7 @@ export default function Productos() {
     filtroOutOfCards, setFiltroOutOfCards,
     filtroMLA, setFiltroMLA, filtroEstadoMLA, setFiltroEstadoMLA,
     filtroNuevos, setFiltroNuevos, filtroTiendaOficial, setFiltroTiendaOficial,
+    markupContextos, setMarkupContextos,
     coloresSeleccionados, setColoresSeleccionados,
     equipoActivoId, setEquipoActivoId,
     filtroPromoTipos, setFiltroPromoTipos, filtroPromoEstado, setFiltroPromoEstado,
@@ -111,6 +114,10 @@ export default function Productos() {
       setFiltroTiendaOficial(grupoDeLaSeleccion);
     }
   }, [filtroTiendaOficial, grupoDeLaSeleccion, setFiltroTiendaOficial]);
+  const markupPicker = useMemo(
+    () => seleccionDesdeParam(markupContextos, tiendasGrupos),
+    [markupContextos, tiendasGrupos],
+  );
   // Color-layer teams (productos-color-teams). Feeds the layer selector.
   // No team selected (equipoActivoId null) === global layer. `recargarEquipos`
   // refreshes the selector after the management modal creates/renames/deletes.
@@ -1491,6 +1498,18 @@ export default function Productos() {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div className="filter-item">
+                  <MarkupContextoPicker
+                    grupos={tiendasGrupos}
+                    todas={markupPicker.todas}
+                    keys={markupPicker.keys}
+                    onChange={({ todas, keys }) => {
+                      setMarkupContextos(paramDesdeSeleccion(todas, keys, tiendasGrupos));
+                      setPage(1);
+                    }}
+                  />
                 </div>
               </div>
             </div>
