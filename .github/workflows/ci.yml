@@ -297,7 +297,8 @@ jobs:
   frontend-test:
     name: Frontend Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 8GB heap avoids OOM but slows GC enough that the suite can exceed 15m.
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: frontend
