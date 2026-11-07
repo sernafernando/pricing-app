@@ -321,7 +321,7 @@ export default function TacticalNuevo() {
             </div>
           </section>
 
-          <div className={styles.stickybar}>
+          <div className={styles.stickybar} data-testid="tactical-stickybar">
             <div className={styles.stickybarIn}>
               <div className={styles.summary} aria-live="polite">
                 <Resumen tipo={form.tipo} form={form} lineas={lineas} />
