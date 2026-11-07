@@ -77,6 +77,32 @@ describe('useColumnSizing — resize persistence round-trip', () => {
     expect(loadColumnSizing(COLUMN_SIZING_STORAGE_KEYS.historial)).toEqual({});
   });
 
+  it('reset drops a pending debounced save so it cannot rewrite localStorage', () => {
+    const { result } = renderHook(() => useColumnSizing(COLUMN_SIZING_STORAGE_KEYS.preguntas));
+    act(() => {
+      result.current.onColumnSizingChange({ pregunta: 300 });
+    });
+    act(() => {
+      result.current.reset();
+    });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(localStorage.getItem(COLUMN_SIZING_STORAGE_KEYS.preguntas)).toBeNull();
+  });
+
+  it('unmount drops a pending debounced save so the next test starts clean', () => {
+    const { result, unmount } = renderHook(() => useColumnSizing(COLUMN_SIZING_STORAGE_KEYS.mensajes));
+    act(() => {
+      result.current.onColumnSizingChange({ mensaje: 400 });
+    });
+    unmount();
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(localStorage.getItem(COLUMN_SIZING_STORAGE_KEYS.mensajes)).toBeNull();
+  });
+
   it('hasCustom is false with no persisted sizing and true once a size is set', () => {
     const { result } = renderHook(() => useColumnSizing(COLUMN_SIZING_STORAGE_KEYS.preguntas));
     expect(result.current.hasCustom).toBe(false);

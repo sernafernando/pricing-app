@@ -10,7 +10,7 @@
  * semantics as the four original blocks (#956, PR1-PR3), just parameterized
  * by `storageKey`.
  */
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 // The four localStorage keys are FROZEN, verbatim. Renaming any of these
 // silently resets every operator's saved column widths on next load with no
@@ -51,18 +51,33 @@ export function saveColumnSizing(state, key = COLUMN_SIZING_STORAGE_KEYS.pregunt
 export function useColumnSizing(storageKey) {
   const [columnSizing, setColumnSizingState] = useState(() => loadColumnSizing(storageKey));
   const saveTimerRef = useRef(null);
+  // Bumped on reset/unmount so a debounce already queued cannot rewrite
+  // localStorage after the operator (or the next test) cleared it.
+  const saveGenRef = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveGenRef.current += 1;
+    };
+  }, []);
 
   const onColumnSizingChange = useCallback((updater) => {
     setColumnSizingState((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = setTimeout(() => saveColumnSizing(next, storageKey), 200);
+      const gen = saveGenRef.current;
+      saveTimerRef.current = setTimeout(() => {
+        if (gen !== saveGenRef.current) return;
+        saveColumnSizing(next, storageKey);
+      }, 200);
       return next;
     });
   }, [storageKey]);
 
   const reset = useCallback(() => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveGenRef.current += 1;
     setColumnSizingState({});
     try {
       localStorage.removeItem(storageKey);
