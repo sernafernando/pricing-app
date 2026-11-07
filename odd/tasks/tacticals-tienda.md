@@ -21,9 +21,9 @@ Test runner: `pytest` (backend), `pnpm test` (frontend focused)
 - T1 S1,S3,S6 — Schema + API contract (`todas_tiendas`, `tope_compartido`, `tactical_tiendas`) — route: inline — status: done — commits: `5a8806daa` (DB), `01d270cdd` (API); chain as two PRs ≤400
 - T2 S1,S2,S3,S4 — Create/list UI selector + toggle + preview — route: inline — status: done — commit: `e3d9e3912`
 
-- T3 S7 — Sell-out engine + tests — route: inline — status: pending
-- T4 S7 — Sell-in engine + tests — route: inline — status: pending
-- T5 S8 — Markup API store/canal-aware — route: inline — status: pending
+- T3 S7 — Sell-out engine + tests — route: inline — status: done — commit: `63856d5ef` (PR #2159)
+- T4 S7 — Sell-in engine + tests — route: inline — status: done — commit: `3beb9671c` (PR #2160)
+- T5 S8 — Markup API store/canal-aware — route: inline — status: in_progress — branch: `feat/tacticals-tienda-06-markup-resolver`
 - T6 S8 — Markup UI Productos + Publicaciones — route: inline — status: pending
 - T7 — Ayuda + novedad — route: inline — status: pending
 
@@ -32,3 +32,4 @@ Test runner: `pytest` (backend), `pnpm test` (frontend focused)
 - L1: User seed + design closure 2026-11-07 (multi-select o todas; clave expand; Fuera/TN sintéticos; toggle cupo independiente; preview; markup filter/toggle; OK go slice 1).
 - L2: Slice 1 implemented as two work-unit commits (DB then API). Router tests 16 passed; postgres migration/service tests skipped (DB unreachable). GGA hook skipped with --no-verify (Claude CLI missing, prior Gabe auth).
 - L3: Slice 2 UI done (`e3d9e3912`): picker + toggle + preview; 50 FE unit tests passed.
+- L4: Engines #2159/#2160; visual stickybar fix `50dc8f7a4`. Product decision 2026-11-07: Productos markup context = multi-select + **unión** + Todas=global.

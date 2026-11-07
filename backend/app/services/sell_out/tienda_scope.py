@@ -54,6 +54,13 @@ def alcanza(scope: Optional[Scope], canal: str, store_id: Optional[int]) -> bool
     return tipo in scope.canales
 
 
+def alcanza_alguno(scope: Optional[Scope], contextos: Iterable[Tuple[str, Optional[int]]]) -> bool:
+    """Union: the tactical reaches the operator's selection if any (canal, store_id) matches."""
+    if scope is None:
+        return True
+    return any(alcanza(scope, canal, store_id) for canal, store_id in contextos)
+
+
 def target_key(canal: str, store_id: Optional[int]) -> Optional[TargetKey]:
     """Counter bucket for per-target caps; None when the line has no countable target."""
     if canal == "ml":
