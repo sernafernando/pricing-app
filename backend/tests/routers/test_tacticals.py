@@ -102,6 +102,65 @@ def test_the_note_is_bounded(client, productos, sell_out) -> None:
     assert client.post(BASE, json=_body(nota="x" * 2001), headers=sell_out).status_code == 422
 
 
+def test_create_defaults_to_all_stores(client, productos, sell_out) -> None:
+    creado = client.post(BASE, json=_body(), headers=sell_out).json()
+    assert (creado["todas_tiendas"], creado["tope_compartido"], creado["tiendas"]) == (True, False, [])
+
+
+def test_create_with_official_stores_and_channels(client, productos, sell_out, db) -> None:
+    from app.models.ml_tienda_oficial import MlTiendaOficial
+
+    db.add(MlTiendaOficial(store_id=57997, nombre="GaussOnline", clave="gauss", orden=1, activa=True))
+    db.add(MlTiendaOficial(store_id=2645, nombre="TP-Link", clave="tplink", orden=2, activa=True))
+    db.flush()
+
+    resp = client.post(
+        BASE,
+        json=_body(
+            todas_tiendas=False,
+            tope_compartido=True,
+            tiendas=[
+                {"tipo": "oficial", "store_id": 57997},
+                {"tipo": "oficial", "store_id": 2645},
+                {"tipo": "fuera"},
+            ],
+        ),
+        headers=sell_out,
+    )
+    assert resp.status_code == 201, resp.text
+    creado = resp.json()
+    assert (creado["todas_tiendas"], creado["tope_compartido"]) == (False, True)
+    assert creado["tiendas"] == [
+        {"tipo": "oficial", "store_id": 57997},
+        {"tipo": "oficial", "store_id": 2645},
+        {"tipo": "fuera", "store_id": None},
+    ]
+    assert client.get(f"{BASE}/{creado['id']}", headers=sell_out).json()["tiendas"] == creado["tiendas"]
+
+
+def test_store_scope_rules(client, productos, sell_out, db) -> None:
+    from app.models.ml_tienda_oficial import MlTiendaOficial
+
+    db.add(MlTiendaOficial(store_id=57997, nombre="GaussOnline", clave="gauss", orden=1, activa=True))
+    db.flush()
+
+    assert client.post(BASE, json=_body(todas_tiendas=False, tiendas=[]), headers=sell_out).status_code == 422
+    resp = client.post(
+        BASE,
+        json=_body(todas_tiendas=True, tiendas=[{"tipo": "oficial", "store_id": 57997}]),
+        headers=sell_out,
+    )
+    assert resp.status_code == 422
+    assert "todas las tiendas" in _message(resp)
+    resp = client.post(
+        BASE,
+        json=_body(todas_tiendas=False, tiendas=[{"tipo": "oficial", "store_id": 999}]),
+        headers=sell_out,
+    )
+    assert resp.status_code == 422
+    assert "999" in _message(resp)
+
+
 def test_a_busy_create_is_a_409_and_stores_nothing(client, productos, sell_out, monkeypatch, db) -> None:
     from app.models.tactical import Tactical
     from app.services.sell_out import campanas
