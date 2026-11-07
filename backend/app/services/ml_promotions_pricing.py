@@ -388,10 +388,7 @@ def _contextos_mlas(db: Session, mlas: list[str]) -> Optional[list[tuple[str, Op
     `None` (global) when the set mixes stores — a single batch cannot be both."""
     from app.models.ml_publications import MlItem
 
-    stores = {
-        row[0]
-        for row in db.query(MlItem.official_store_id).filter(MlItem.item_id.in_(mlas)).distinct()
-    }
+    stores = {row[0] for row in db.query(MlItem.official_store_id).filter(MlItem.item_id.in_(mlas)).distinct()}
     if len(stores) != 1:
         return None
     return [("ml", next(iter(stores)))]
