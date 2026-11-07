@@ -367,9 +367,7 @@ def _bonos_costo(
             .outerjoin(usado, usado.c.bono_id == SellInBonoMarca.id)
             .filter(SellInBonoMarca.id.in_(bids))
         ):
-            activa, libre = _cap_bono(
-                bono, None, None, (int(unidades or 0), Decimal(monto or 0)), {}
-            )
+            activa, libre = _cap_bono(bono, None, None, (int(unidades or 0), Decimal(monto or 0)), {})
             if activa:
                 activos[bono.id] = (bono, libre)
     else:
@@ -381,9 +379,7 @@ def _bonos_costo(
         }
         bonos = {b.id: b for b in db.query(SellInBonoMarca).filter(SellInBonoMarca.id.in_(bids))}
         scopes = _scopes_bonos(db, list(bonos.values()))
-        need_por_target = any(
-            scopes.get(bid) is not None and not scopes[bid].tope_compartido for bid in bids
-        )
+        need_por_target = any(scopes.get(bid) is not None and not scopes[bid].tope_compartido for bid in bids)
         usado_por_target = _uso_bono_por_target(db, bids) if need_por_target else {}
         for bid, bono in bonos.items():
             scope = scopes.get(bid)
