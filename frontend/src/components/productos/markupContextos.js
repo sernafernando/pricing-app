@@ -4,8 +4,6 @@
  */
 import { CANALES_TACTICAL } from '../tactical/tacticalTiendas';
 
-const esCanal = (key) => CANALES_TACTICAL.some((c) => c.value === key);
-
 /** Expand picker selection to resolver contextos: [canal, store_id|null]. null = Todas. */
 export function contextosDeSeleccion(todas, keys = [], grupos = []) {
   if (todas !== false) return null;
