@@ -66,15 +66,17 @@ from decimal import Decimal
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from sqlalchemy import delete, func, insert, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca, SellInConsumo
+from app.models.tactical import Tactical
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA
 from app.services.sell_in import bono_queue
 from app.services.sell_in.costing import LOCK_SQL, LOCK_NAMESPACE
-from app.services.sell_out import alcance, tope
+from app.services.sell_out import alcance, tienda_scope, tope
 from app.services.sell_out import queue as sell_out_queue
+from app.services.sell_out.tienda_scope import Scope
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +207,21 @@ def unitario(
     return neto if bono.tipo == "por_unidad" else costo_unit * neto / CIEN
 
 
+def _scopes(db: Session, bonos: Iterable[SellInBonoMarca]) -> Dict[int, Optional[Scope]]:
+    """Tactical store scope per cost bonus; bonuses without a tactical stay `None` (global)."""
+    bonos = list(bonos)
+    ids = {b.tactical_id for b in bonos if b.tactical_id is not None}
+    if not ids:
+        return {b.id: None for b in bonos}
+    tacticals = {
+        t.id: t for t in db.query(Tactical).options(selectinload(Tactical.tiendas)).filter(Tactical.id.in_(ids))
+    }
+    return {
+        b.id: (tienda_scope.scope_desde_tactical(tacticals[b.tactical_id]) if b.tactical_id in tacticals else None)
+        for b in bonos
+    }
+
+
 def _componente(
     bonos: List[SellInBonoMarca],
     alcances: Dict[int, Set[int]],
@@ -213,19 +230,25 @@ def _componente(
     ventas: List[alcance.Venta],
     fifo: Dict[Clave, int],
     pendientes: Dict[int, int],
+    scopes: Optional[Dict[int, Optional[Scope]]] = None,
 ) -> Dict[Tuple[int, str, int, int], _Fila]:
     """The desired rows of one component: its bonuses in id order over its sales (module docstring)."""
+    scopes = scopes or {}
     deseadas: Dict[Tuple[int, str, int, int], _Fila] = {}
     # Per sale and unit number: what earlier bonuses give that unit.
     usado: Dict[Clave, Dict[int, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
     tenidas: Dict[int, Dict[Clave, List[int]]] = {}  # per bonus and line: the unit numbers it took or freed (S36)
     for bono in bonos:
+        scope = scopes.get(bono.id)
         antes = [p.id for p in bonos if p.id < bono.id and not (p.acumulable and bono.acumulable)]
         lineas: List[tope.Linea] = []
+        targets: List[Optional[tienda_scope.TargetKey]] = []
         unitarios: Dict[Clave, Decimal] = {}
         libres: Dict[Clave, List[int]] = {}
         for v in sorted(ventas, key=lambda x: x.unidades < 0):  # sales first: a return checks its sale
             if v.item_id not in alcances[bono.id] or not (bono.fecha_desde <= v.fecha <= bono.fecha_hasta):
+                continue
+            if not tienda_scope.alcanza(scope, v.canal, v.store_id):
                 continue
             clave = (v.canal, v.venta_ref, v.item_id)
             if v.unidades > 0:
@@ -260,6 +283,7 @@ def _componente(
                     objetivo=v.objetivo,
                 )
             )
+            targets.append(tienda_scope.target_key(v.canal, v.store_id))
         campana = tope.Campana(
             tipo="porcentaje",
             moneda="ARS",
@@ -268,7 +292,19 @@ def _componente(
             tope_monto=Decimal(bono.tope_monto) if bono.tope_monto is not None else None,
         )
         por_linea: Dict[Clave, int] = {}
-        for x in tope.asignar(campana, lineas, por_linea=por_linea):
+        if scope is not None and not scope.tope_compartido and lineas:
+            por_target: Dict[tienda_scope.TargetKey, List[tope.Linea]] = defaultdict(list)
+            for linea, key in zip(lineas, targets):
+                if key is not None:
+                    por_target[key].append(linea)
+            consumos: List[tope.Consumo] = []
+            for key in tienda_scope.orden_targets(por_target):
+                parcial: Dict[Clave, int] = {}
+                consumos.extend(tope.asignar(campana, por_target[key], por_linea=parcial))
+                por_linea.update(parcial)
+        else:
+            consumos = tope.asignar(campana, lineas, por_linea=por_linea)
+        for x in consumos:
             clave = (x.canal, x.venta_ref, x.item_id)
             deseadas[(bono.id, *clave)] = (x.item_id, x.fecha_venta, x.unidades, x.monto)
             for u in libres[clave][: x.unidades]:
@@ -326,6 +362,7 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
 
     deseadas: Dict[Tuple[int, str, int, int], _Fila] = {}
     fallidos: Set[int] = set()
+    scopes = _scopes(db, activos.values())
     for componente in _componentes(activos, alcances, productos):
         suyos = [b for b in activos.values() if alcances[b.id] & componente]
         try:
@@ -338,6 +375,7 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
                     [v for v in ventas if v.item_id in componente],
                     fifo,
                     result.pendientes,
+                    scopes,
                 )
             )
         except ValueError as exc:
