@@ -43,28 +43,47 @@ seven for FIFO and sell out (the cost bonuses' scope rides on the campaigns'
 query; one reads the products' cost modes), one more for the stored
 consumptions only when a product has cost modes, and one for the reached cost
 bonuses' rows and caps, only when a product without a lot has one.
+
+Store scope (`contextos`): when the caller passes `(canal, store_id)` pairs, tactical
+campaigns/bonuses are filtered with `tienda_scope.alcanza_alguno` (union) and
+per-target caps (`tope_compartido=false`) stay active while any matching context
+still has room. `contextos=None` is the pre-scope global read (Productos "Todas").
 """
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from sqlalchemy import Numeric, and_, case, cast, func, literal, null, or_, select, true, union_all
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
+from app.models.ml_sale_line import MlSaleLine
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca
 from app.models.sell_out import SellOutCampana, SellOutCampanaItem, SellOutConsumo
+from app.models.tactical import Tactical
 from app.schemas.sell_in_out_producto import SellInOutProducto, SellInProducto, SellOutProducto
 from app.services.pricing_calculator import calcular_markup, convertir_a_pesos
 from app.services.sell_in import bonos_costo
 from app.services.sell_in.bonos import tasas_bna_por_fecha
 from app.services.sell_in.costing import LoteVigente, get_costing
 from app.services.sell_out import alcance, asignacion
+from app.services.sell_out.tienda_scope import (
+    Scope,
+    TargetKey,
+    alcanza,
+    alcanza_alguno,
+    scope_desde_tactical,
+    target_key,
+)
 from app.services.sell_out.tope import cents
+
+# (canal, store_id) the operator is pricing against; None on the batch = Todas / global (pre-scope).
+ContextoMarkup = Tuple[str, Optional[int]]
 
 
 @dataclass(frozen=True)
@@ -210,19 +229,30 @@ class SellInOutBatch:
 
 
 def resolver_sell_in_out_batch(
-    db: Session, item_ids: Iterable[int], hoy: date, *, sin_lotes: bool = False
+    db: Session,
+    item_ids: Iterable[int],
+    hoy: date,
+    *,
+    sin_lotes: bool = False,
+    contextos: Optional[Sequence[ContextoMarkup]] = None,
 ) -> SellInOutBatch:
     """What `hoy`'s next sale of each product would get (module docstring), for a whole page. `sin_lotes` resolves it
-    as if no FIFO lot had units left (what applies once they run out: the lot viewer's question)."""
+    as if no FIFO lot had units left (what applies once they run out: the lot viewer's question).
+
+    `contextos`: optional (canal, store_id) selection the operator is pricing against. `None` keeps the pre-scope
+    global read (Productos "Todas"). A non-empty list is a **union**: a tactical campaign/bonus is included when it
+    reaches any context (`tienda_scope.alcanza_alguno`); per-target caps (`tope_compartido=false`) stay active while
+    any matching context still has room.
+    """
     ids = sorted({int(i) for i in item_ids if i is not None})
     sell_in = {} if sin_lotes else get_costing().vigentes(db, ids, hoy)
     por_item, pares = _campanas_y_bonos(db, ids, [i for i in ids if i not in sell_in], hoy)
-    cids = sorted(set().union(*por_item.values()))
+    cids = sorted(set().union(*por_item.values())) if por_item else []
     vigentes: Dict[int, _Campana] = {}
     bna = None
     if cids:
         t = SellOutConsumo
-        usado = {
+        usado_global = {
             cid: (int(unidades or 0), Decimal(monto or 0))
             for cid, unidades, monto in db.query(t.campana_id, func.sum(t.unidades), func.sum(t.monto))
             .filter(t.campana_id.in_(cids))
@@ -230,15 +260,28 @@ def resolver_sell_in_out_batch(
         }
         # Each campaign with this page's products' own amounts in it (T22b), in the same query.
         i = SellOutCampanaItem
-        filas = db.query(SellOutCampana, i.item_id, i.monto_unit).outerjoin(
-            i, and_(i.campana_id == SellOutCampana.id, i.item_id.in_(ids))
+        filas = list(
+            db.query(SellOutCampana, i.item_id, i.monto_unit)
+            .outerjoin(i, and_(i.campana_id == SellOutCampana.id, i.item_id.in_(ids)))
+            .filter(SellOutCampana.id.in_(cids))
         )
+        campanas_obj = {c.id: c for c, _, _ in filas}
+        scopes = _scopes_campanas(db, list(campanas_obj.values()))
+        need_por_target = contextos is not None and any(
+            scopes.get(cid) is not None and not scopes[cid].tope_compartido for cid in cids
+        )
+        usado_por_target = _uso_sell_out_por_target(db, cids) if need_por_target else {}
         agotadas = set()
-        for c, item_id, monto_item in filas.filter(SellOutCampana.id.in_(cids)):
+        for c, item_id, monto_item in filas:
             if c.id not in vigentes and c.id not in agotadas:
-                unidades, monto = usado.get(c.id, (0, Decimal(0)))
-                libre = None if c.tope_monto is None else Decimal(c.tope_monto) - monto
-                if (c.tope_unidades is not None and c.tope_unidades <= unidades) or (libre is not None and libre <= 0):
+                scope = scopes.get(c.id)
+                if contextos is not None and not alcanza_alguno(scope, contextos):
+                    agotadas.add(c.id)
+                    continue
+                activa, libre = _cap_campana(
+                    c, scope, contextos, usado_global.get(c.id, (0, Decimal(0))), usado_por_target.get(c.id, {})
+                )
+                if not activa:
                     agotadas.add(c.id)  # the cap is used up: this campaign credits nothing more
                     continue
                 vigentes[c.id] = _Campana(c, libre, {})
@@ -247,7 +290,7 @@ def resolver_sell_in_out_batch(
         if any(x.campana.moneda == "USD" for x in vigentes.values()):
             bna = tasas_bna_por_fecha(db, {hoy})[hoy]
     campanas = {item: [vigentes[c] for c in sorted(cs) if c in vigentes] for item, cs in por_item.items()}
-    return SellInOutBatch(hoy, sell_in, campanas, bna, _bonos_costo(db, pares))
+    return SellInOutBatch(hoy, sell_in, campanas, bna, _bonos_costo(db, pares, contextos=contextos))
 
 
 _Par = Tuple[int, int, Optional[Decimal]]  # (bono_id, item_id, the product's own % or ARS per unit, or None)
@@ -299,32 +342,178 @@ def _campanas_y_bonos(db: Session, ids: List[int], sin_lote: List[int], hoy: dat
     return alcance.campanas_de_filas([r[:4] for r in filas if r[4] == "campana"], ventas), pares
 
 
-def _bonos_costo(db: Session, pares: List[_Par]) -> Dict[int, List[_BonoCosto]]:
+def _bonos_costo(
+    db: Session, pares: List[_Par], *, contextos: Optional[Sequence[ContextoMarkup]] = None
+) -> Dict[int, List[_BonoCosto]]:
     """`{item_id: cost bonuses}` from the (bonus, product) pairs, in id order, without the bonuses whose cap is used
-    up (after `sell_in_bono_consumos`). One query, only when there is a pair."""
+    up (after `sell_in_bono_consumos`). One query, only when there is a pair. Same store-scope rules as sell-out."""
     if not pares:
         return {}
+    bids = sorted({bid for bid, _, _ in pares})
     t = SellInBonoConsumo
-    usado = (
-        select(t.bono_id, func.sum(t.unidades).label("unidades"), func.sum(t.descuento_ars).label("monto"))
+    usado_global = {
+        bid: (int(unidades or 0), Decimal(monto or 0))
+        for bid, unidades, monto in db.query(t.bono_id, func.sum(t.unidades), func.sum(t.descuento_ars))
+        .filter(t.bono_id.in_(bids))
         .group_by(t.bono_id)
-        .subquery()
+    }
+    bonos = {b.id: b for b in db.query(SellInBonoMarca).filter(SellInBonoMarca.id.in_(bids))}
+    scopes = _scopes_bonos(db, list(bonos.values()))
+    need_por_target = contextos is not None and any(
+        scopes.get(bid) is not None and not scopes[bid].tope_compartido for bid in bids
     )
+    usado_por_target = _uso_bono_por_target(db, bids) if need_por_target else {}
     activos: Dict[int, Tuple[SellInBonoMarca, Optional[Decimal]]] = {}  # bono_id -> (bonus, ARS cap left)
-    for bono, unidades, monto in (
-        db.query(SellInBonoMarca, usado.c.unidades, usado.c.monto)
-        .outerjoin(usado, usado.c.bono_id == SellInBonoMarca.id)
-        .filter(SellInBonoMarca.id.in_(sorted({bid for bid, _, _ in pares})))
-    ):
-        libre = None if bono.tope_monto is None else Decimal(bono.tope_monto) - Decimal(monto or 0)
-        if (bono.tope_unidades is not None and bono.tope_unidades <= int(unidades or 0)) or (
-            libre is not None and libre <= 0
-        ):
+    for bid, bono in bonos.items():
+        scope = scopes.get(bid)
+        if contextos is not None and not alcanza_alguno(scope, contextos):
+            continue
+        activa, libre = _cap_bono(
+            bono, scope, contextos, usado_global.get(bid, (0, Decimal(0))), usado_por_target.get(bid, {})
+        )
+        if not activa:
             continue  # the cap is used up: this bonus discounts nothing more
-        activos[bono.id] = (bono, libre)
+        activos[bid] = (bono, libre)
     salida: Dict[int, List[_BonoCosto]] = {}
     for bid, item_id, propio in sorted(pares, key=lambda x: (x[1], x[0])):
         if bid in activos:
             bono, libre = activos[bid]
             salida.setdefault(item_id, []).append(_BonoCosto(bono, bonos_costo.valor_del_bono(bono, propio), libre))
     return salida
+
+
+def _scopes_campanas(db: Session, campanas: List[SellOutCampana]) -> Dict[int, Optional[Scope]]:
+    ids = {c.tactical_id for c in campanas if c.tactical_id is not None}
+    if not ids:
+        return {c.id: None for c in campanas}
+    tacticals = {
+        t.id: t for t in db.query(Tactical).options(selectinload(Tactical.tiendas)).filter(Tactical.id.in_(ids))
+    }
+    return {
+        c.id: (scope_desde_tactical(tacticals[c.tactical_id]) if c.tactical_id in tacticals else None) for c in campanas
+    }
+
+
+def _scopes_bonos(db: Session, bonos: List[SellInBonoMarca]) -> Dict[int, Optional[Scope]]:
+    ids = {b.tactical_id for b in bonos if b.tactical_id is not None}
+    if not ids:
+        return {b.id: None for b in bonos}
+    tacticals = {
+        t.id: t for t in db.query(Tactical).options(selectinload(Tactical.tiendas)).filter(Tactical.id.in_(ids))
+    }
+    return {
+        b.id: (scope_desde_tactical(tacticals[b.tactical_id]) if b.tactical_id in tacticals else None) for b in bonos
+    }
+
+
+def _cap_campana(
+    c: SellOutCampana,
+    scope: Optional[Scope],
+    contextos: Optional[Sequence[ContextoMarkup]],
+    usado_global: Tuple[int, Decimal],
+    usado_target: Dict[TargetKey, Tuple[int, Decimal]],
+) -> Tuple[bool, Optional[Decimal]]:
+    """Whether the campaign still credits a next unit under `contextos`, and the money left to show."""
+    return _cap_restante(
+        tope_unidades=c.tope_unidades,
+        tope_monto=None if c.tope_monto is None else Decimal(c.tope_monto),
+        scope=scope,
+        contextos=contextos,
+        usado_global=usado_global,
+        usado_target=usado_target,
+    )
+
+
+def _cap_bono(
+    bono: SellInBonoMarca,
+    scope: Optional[Scope],
+    contextos: Optional[Sequence[ContextoMarkup]],
+    usado_global: Tuple[int, Decimal],
+    usado_target: Dict[TargetKey, Tuple[int, Decimal]],
+) -> Tuple[bool, Optional[Decimal]]:
+    return _cap_restante(
+        tope_unidades=bono.tope_unidades,
+        tope_monto=None if bono.tope_monto is None else Decimal(bono.tope_monto),
+        scope=scope,
+        contextos=contextos,
+        usado_global=usado_global,
+        usado_target=usado_target,
+    )
+
+
+def _cap_restante(
+    *,
+    tope_unidades: Optional[int],
+    tope_monto: Optional[Decimal],
+    scope: Optional[Scope],
+    contextos: Optional[Sequence[ContextoMarkup]],
+    usado_global: Tuple[int, Decimal],
+    usado_target: Dict[TargetKey, Tuple[int, Decimal]],
+) -> Tuple[bool, Optional[Decimal]]:
+    """Shared / global pool, or per-target: active while any matching context still has room."""
+
+    def _desde(unidades: int, monto: Decimal) -> Tuple[bool, Optional[Decimal]]:
+        libre = None if tope_monto is None else tope_monto - monto
+        if (tope_unidades is not None and tope_unidades <= unidades) or (libre is not None and libre <= 0):
+            return False, libre
+        return True, libre
+
+    if contextos is None or scope is None or scope.tope_compartido:
+        return _desde(*usado_global)
+
+    matching = [(canal, store_id) for canal, store_id in contextos if alcanza(scope, canal, store_id)]
+    if not matching:
+        return False, None if tope_monto is None else Decimal(0)
+    mejores: List[Tuple[bool, Optional[Decimal]]] = []
+    for canal, store_id in matching:
+        key = target_key(canal, store_id)
+        if key is None:
+            continue
+        mejores.append(_desde(*usado_target.get(key, (0, Decimal(0)))))
+    activas = [m for m in mejores if m[0]]
+    if not activas:
+        return False, None if tope_monto is None else Decimal(0)
+    libres = [m[1] for m in activas if m[1] is not None]
+    return True, (max(libres) if libres else None)
+
+
+def _uso_sell_out_por_target(
+    db: Session, campana_ids: List[int]
+) -> Dict[int, Dict[TargetKey, Tuple[int, Decimal]]]:
+    """Units/money already taken per campaign and store/channel target (for per-target caps)."""
+    if not campana_ids:
+        return {}
+    t = SellOutConsumo
+    rows = db.query(t.campana_id, t.canal, t.venta_ref, t.unidades, t.monto).filter(t.campana_id.in_(campana_ids))
+    return _agrupar_uso_por_target(db, rows)
+
+
+def _uso_bono_por_target(db: Session, bono_ids: List[int]) -> Dict[int, Dict[TargetKey, Tuple[int, Decimal]]]:
+    if not bono_ids:
+        return {}
+    t = SellInBonoConsumo
+    rows = db.query(t.bono_id, t.canal, t.venta_ref, t.unidades, t.descuento_ars).filter(t.bono_id.in_(bono_ids))
+    return _agrupar_uso_por_target(db, rows)
+
+
+def _agrupar_uso_por_target(
+    db: Session, rows: Iterable[Tuple[int, str, int, object, object]]
+) -> Dict[int, Dict[TargetKey, Tuple[int, Decimal]]]:
+    filas = list(rows)
+    ml_refs = {int(ref) for _, canal, ref, _, _ in filas if canal == "ml"}
+    stores_por_ref: Dict[int, Optional[int]] = {}
+    if ml_refs:
+        mla_por_ref = {
+            int(ref): mla for ref, mla in db.query(MlSaleLine.item_row_id, MlSaleLine.mla).filter(MlSaleLine.item_row_id.in_(ml_refs))
+        }
+        stores = alcance._stores_por_mla(db, {m for m in mla_por_ref.values() if m})
+        stores_por_ref = {ref: stores.get(mla) for ref, mla in mla_por_ref.items()}
+    salida: Dict[int, Dict[TargetKey, Tuple[int, Decimal]]] = defaultdict(lambda: defaultdict(lambda: (0, Decimal(0))))
+    for oid, canal, ref, unidades, monto in filas:
+        store_id = stores_por_ref.get(int(ref)) if canal == "ml" else None
+        key = target_key(canal, store_id)
+        if key is None:
+            continue
+        u0, m0 = salida[int(oid)][key]
+        salida[int(oid)][key] = (u0 + int(unidades or 0), m0 + Decimal(monto or 0))
+    return {oid: dict(targets) for oid, targets in salida.items()}
