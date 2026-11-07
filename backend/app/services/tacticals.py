@@ -36,7 +36,7 @@ from typing import Any, Iterable, Optional
 
 from pydantic import ValidationError
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.offset_grupo import OffsetGrupo
@@ -46,11 +46,19 @@ from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoMarca, SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo
-from app.models.tactical import Tactical
+from app.models.ml_tienda_oficial import MlTiendaOficial
+from app.models.tactical import Tactical, TacticalTienda
 from app.schemas.sell_in import SellInCompraCreate, SellInLineaIn
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, BASE_FACTURA, SellInBonoIn
 from app.schemas.sell_out import SellOutCampanaIn
-from app.schemas.tacticals import HIJOS_MAX, TacticalEditarIn, TacticalIn, TacticalLineaIn, TacticalLineaTopesIn
+from app.schemas.tacticals import (
+    HIJOS_MAX,
+    TacticalEditarIn,
+    TacticalIn,
+    TacticalLineaIn,
+    TacticalLineaTopesIn,
+    TacticalTiendaIn,
+)
 from app.services.sell_in import bonos_crud, compras
 from app.services.sell_in.compras import contiene
 from app.services.sell_out import campanas
@@ -118,6 +126,7 @@ def _validar_cabecera(db: Session, data: TacticalIn) -> tuple[str, str, Optional
         raise TacticalError(f"No hay productos de la marca {marca}")
     if data.fecha_hasta < data.fecha_desde:
         raise TacticalError("La fecha hasta no puede ser anterior a la fecha desde")
+    _validar_tiendas(db, data)
     if data.moneda == "ARS":
         if data.tc_modo is not None or data.tipo_cambio is not None:
             raise TacticalError("Un tactical en pesos no lleva tipo de cambio")
@@ -129,6 +138,44 @@ def _validar_cabecera(db: Session, data: TacticalIn) -> tuple[str, str, Optional
     elif data.tipo_cambio is not None:
         raise TacticalError("Solo con tipo de cambio fijo se indica el tipo de cambio")
     return nombre, marca, tc_modo
+
+
+def _validar_tiendas(db: Session, data: TacticalIn) -> None:
+    """Store / channel scope: todas XOR oficial rows; channels optional; store_ids must exist."""
+    oficiales = [t for t in data.tiendas if t.tipo == "oficial"]
+    canales = [t for t in data.tiendas if t.tipo != "oficial"]
+    if data.todas_tiendas and oficiales:
+        raise TacticalError("Con todas las tiendas no se listan tiendas oficiales sueltas")
+    if not data.todas_tiendas and not oficiales and not canales:
+        raise TacticalError("Elegí al menos una tienda oficial, Por fuera o Tienda Nube (o todas)")
+    vistos_store: set[int] = set()
+    vistos_canal: set[str] = set()
+    for fila in data.tiendas:
+        if fila.tipo == "oficial":
+            if fila.store_id is None:
+                raise TacticalError("Una tienda oficial necesita store_id")
+            if fila.store_id in vistos_store:
+                raise TacticalError(f"La tienda oficial {fila.store_id} está repetida")
+            vistos_store.add(fila.store_id)
+        else:
+            if fila.store_id is not None:
+                raise TacticalError(f"El canal {fila.tipo} no lleva store_id")
+            if fila.tipo in vistos_canal:
+                raise TacticalError(f"El canal {fila.tipo} está repetido")
+            vistos_canal.add(fila.tipo)
+    if vistos_store:
+        hallados = {
+            sid for (sid,) in db.query(MlTiendaOficial.store_id).filter(MlTiendaOficial.store_id.in_(vistos_store))
+        }
+        faltan = sorted(vistos_store - hallados)
+        if faltan:
+            raise TacticalError(f"No existen las tiendas oficiales {', '.join(str(s) for s in faltan)}")
+
+
+def _guardar_tiendas(tactical: Tactical, tiendas: list[TacticalTiendaIn]) -> None:
+    tactical.tiendas = [
+        TacticalTienda(tipo=fila.tipo, store_id=fila.store_id if fila.tipo == "oficial" else None) for fila in tiendas
+    ]
 
 
 # --- lines --------------------------------------------------------------------------------------------------------
@@ -387,10 +434,13 @@ def _crear(db: Session, data: TacticalIn, usuario_id: int) -> Tactical:
         tipo_cambio=data.tipo_cambio,
         incluye_iva=data.incluye_iva,
         acumulable=data.acumulable,
+        todas_tiendas=data.todas_tiendas,
+        tope_compartido=data.tope_compartido,
         nota=_texto(data.nota),
         estado="activo",
         usuario_id=usuario_id,
     )
+    _guardar_tiendas(tactical, data.tiendas)
     db.add(tactical)
     db.flush()
     todos = {i for linea in data.lineas for i in linea.item_ids}
@@ -689,7 +739,8 @@ def listar(db: Session, filtros: Filtros, page: int, page_size: int, hoy: Option
         query = query.filter(or_(contiene(Tactical.nombre, q), contiene(Tactical.referencia, q)))
     total = query.order_by(None).count()
     filas = (
-        query.order_by(Tactical.fecha_desde.desc(), Tactical.id.desc())
+        query.options(selectinload(Tactical.tiendas))
+        .order_by(Tactical.fecha_desde.desc(), Tactical.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
@@ -869,6 +920,14 @@ def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
         de_tactical[linea.pop("tactical_id")].append(linea)
     columnas = (
         "id", "tipo", "nombre", "marca", "referencia", "fecha_desde", "fecha_hasta", "moneda", "tc_modo",
-        "tipo_cambio", "incluye_iva", "acumulable", "nota", "estado", "usuario_id", "created_at", "updated_at",
+        "tipo_cambio", "incluye_iva", "acumulable", "todas_tiendas", "tope_compartido", "nota", "estado",
+        "usuario_id", "created_at", "updated_at",
     )  # fmt: skip
-    return [{**{c: getattr(t, c) for c in columnas}, "lineas": de_tactical[t.id]} for t in tacticals]
+    return [
+        {
+            **{c: getattr(t, c) for c in columnas},
+            "tiendas": [{"tipo": fila.tipo, "store_id": fila.store_id} for fila in t.tiendas],
+            "lineas": de_tactical[t.id],
+        }
+        for t in tacticals
+    ]
