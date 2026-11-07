@@ -354,10 +354,11 @@ def listar_productos(
     estado_mla: Optional[str] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
     tienda_oficial: Optional[str] = None,
-    markup_contextos: Optional[str] = Query(
-        None,
-        description="CSV of sell-in/out companion contexts: ml:<store_id>, fuera, tn. Omit/todas = global.",
-    ),
+    # Annotated so a direct call (tests call the function) still defaults to None, not to the Query marker.
+    markup_contextos: Annotated[
+        Optional[str],
+        Query(description="CSV of sell-in/out companion contexts: ml:<store_id>, fuera, tn. Omit/todas = global."),
+    ] = None,
     promo_tipos: Optional[str] = None,
     promo_estado: Optional[str] = None,
     con_promo_aplicada: Optional[bool] = None,
@@ -2727,10 +2728,11 @@ PERMISOS_VER_PRODUCTO = ["productos.ver", *PERMISOS_EDITAR_PRODUCTOS_O_TIENDA]
 def obtener_producto(
     item_id: int,
     equipo_id: Optional[int] = None,
-    markup_contextos: Optional[str] = Query(
-        None,
-        description="CSV of sell-in/out companion contexts: ml:<store_id>, fuera, tn. Omit/todas = global.",
-    ),
+    # Annotated so a direct call (tests call the function) still defaults to None, not to the Query marker.
+    markup_contextos: Annotated[
+        Optional[str],
+        Query(description="CSV of sell-in/out companion contexts: ml:<store_id>, fuera, tn. Omit/todas = global."),
+    ] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
