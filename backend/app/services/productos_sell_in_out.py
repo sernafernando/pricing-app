@@ -347,34 +347,55 @@ def _bonos_costo(
     db: Session, pares: List[_Par], *, contextos: Optional[Sequence[ContextoMarkup]] = None
 ) -> Dict[int, List[_BonoCosto]]:
     """`{item_id: cost bonuses}` from the (bonus, product) pairs, in id order, without the bonuses whose cap is used
-    up (after `sell_in_bono_consumos`). One query, only when there is a pair. Same store-scope rules as sell-out."""
+    up (after `sell_in_bono_consumos`). Global (`contextos is None`): one joined query. Store context: scopes +
+    optional per-target usage, same rules as sell-out."""
     if not pares:
         return {}
     bids = sorted({bid for bid, _, _ in pares})
     t = SellInBonoConsumo
-    usado_global = {
-        bid: (int(unidades or 0), Decimal(monto or 0))
-        for bid, unidades, monto in db.query(t.bono_id, func.sum(t.unidades), func.sum(t.descuento_ars))
-        .filter(t.bono_id.in_(bids))
-        .group_by(t.bono_id)
-    }
-    bonos = {b.id: b for b in db.query(SellInBonoMarca).filter(SellInBonoMarca.id.in_(bids))}
-    scopes = _scopes_bonos(db, list(bonos.values())) if contextos is not None else {}
-    need_por_target = contextos is not None and any(
-        scopes.get(bid) is not None and not scopes[bid].tope_compartido for bid in bids
-    )
-    usado_por_target = _uso_bono_por_target(db, bids) if need_por_target else {}
     activos: Dict[int, Tuple[SellInBonoMarca, Optional[Decimal]]] = {}  # bono_id -> (bonus, ARS cap left)
-    for bid, bono in bonos.items():
-        scope = scopes.get(bid) if contextos is not None else None
-        if contextos is not None and not alcanza_alguno(scope, contextos):
-            continue
-        activa, libre = _cap_bono(
-            bono, scope, contextos, usado_global.get(bid, (0, Decimal(0))), usado_por_target.get(bid, {})
+
+    if contextos is None:
+        # Pre-scope path: keep the single join so the page query budget stays put.
+        usado = (
+            select(t.bono_id, func.sum(t.unidades).label("unidades"), func.sum(t.descuento_ars).label("monto"))
+            .group_by(t.bono_id)
+            .subquery()
         )
-        if not activa:
-            continue  # the cap is used up: this bonus discounts nothing more
-        activos[bid] = (bono, libre)
+        for bono, unidades, monto in (
+            db.query(SellInBonoMarca, usado.c.unidades, usado.c.monto)
+            .outerjoin(usado, usado.c.bono_id == SellInBonoMarca.id)
+            .filter(SellInBonoMarca.id.in_(bids))
+        ):
+            activa, libre = _cap_bono(
+                bono, None, None, (int(unidades or 0), Decimal(monto or 0)), {}
+            )
+            if activa:
+                activos[bono.id] = (bono, libre)
+    else:
+        usado_global = {
+            bid: (int(unidades or 0), Decimal(monto or 0))
+            for bid, unidades, monto in db.query(t.bono_id, func.sum(t.unidades), func.sum(t.descuento_ars))
+            .filter(t.bono_id.in_(bids))
+            .group_by(t.bono_id)
+        }
+        bonos = {b.id: b for b in db.query(SellInBonoMarca).filter(SellInBonoMarca.id.in_(bids))}
+        scopes = _scopes_bonos(db, list(bonos.values()))
+        need_por_target = any(
+            scopes.get(bid) is not None and not scopes[bid].tope_compartido for bid in bids
+        )
+        usado_por_target = _uso_bono_por_target(db, bids) if need_por_target else {}
+        for bid, bono in bonos.items():
+            scope = scopes.get(bid)
+            if not alcanza_alguno(scope, contextos):
+                continue
+            activa, libre = _cap_bono(
+                bono, scope, contextos, usado_global.get(bid, (0, Decimal(0))), usado_por_target.get(bid, {})
+            )
+            if not activa:
+                continue  # the cap is used up: this bonus discounts nothing more
+            activos[bid] = (bono, libre)
+
     salida: Dict[int, List[_BonoCosto]] = {}
     for bid, item_id, propio in sorted(pares, key=lambda x: (x[1], x[0])):
         if bid in activos:
