@@ -613,7 +613,10 @@ describe('a stale response never overwrites the list', () => {
     // this used to type into was removed when the shared date range
     // replaced it. The subject here is the sequence guard, not which
     // control fired it.
-    await userEvent.click(screen.getByRole('button', { name: '7d' }));
+    // Use "Ayer", never a rolling Nd preset: on day N of the month the
+    // Nd window equals "Mes actual", so the URL rewrite keeps the same
+    // desde/hasta and cargarVentas does not re-fire (flake on the 7th).
+    await userEvent.click(screen.getByRole('button', { name: 'Ayer' }));
     await waitFor(() => expect(resolvers.length).toBe(2));
 
     const page = (rows) => ({
