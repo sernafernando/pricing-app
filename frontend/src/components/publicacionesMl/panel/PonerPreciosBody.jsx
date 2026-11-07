@@ -183,7 +183,6 @@ export default function PonerPreciosBody({
           onWritten={onWritten}
           onLeavePub={onLeavePub}
           onDismissed={() => setAwaitingMejores(false)}
-          onUnavailable={() => setAwaitingMejores(false)}
         />
       )}
 

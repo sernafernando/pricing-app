@@ -179,7 +179,8 @@ describe('MejoresCandidatasBlock', () => {
     expect(await screen.findByText(/No se pudieron cargar las candidatas/i)).toBeInTheDocument();
     expect(screen.queryByText(/No hay candidatas aplicables/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Descartar sugerencia/ })).toBeInTheDocument();
-    expect(onUnavailable).toHaveBeenCalledTimes(1);
+    // Load failures stay mounted — onUnavailable would let MODO hide the error.
+    expect(onUnavailable).not.toHaveBeenCalled();
   });
 
   it('suggests one card per writable MeLi type, each with its own c/ sell in/out', async () => {
@@ -273,7 +274,7 @@ describe('MejoresCandidatasBlock', () => {
       const region = await screen.findByRole('region', { name: 'Candidatas mejores' });
       expect(await within(region).findByText('Hay candidatas mejores que el precio vigente en MeLi.')).toBeInTheDocument();
       expect(within(region).getByText('No se pudieron cargar las candidatas.')).toBeInTheDocument();
-      expect(onUnavailable).toHaveBeenCalledTimes(1);
+      expect(onUnavailable).not.toHaveBeenCalled();
       await user.click(within(region).getByRole('button', { name: 'Descartar sugerencia' }));
       expect(promocionesAPI.descartarHayMejores).toHaveBeenCalledWith('MLA5');
       await waitFor(() => expect(onDismissed).toHaveBeenCalledTimes(1));

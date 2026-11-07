@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PonerPreciosBody from './PonerPreciosBody';
 import { preciosAPI, promocionesAPI } from '../../../services/api';
@@ -124,6 +124,19 @@ describe('PonerPreciosBody Enter suggest', () => {
       /El precio ya está guardado en Pricing\. No se pudo activar la promoción\./,
     );
   });
+
+  it('says Pricing was saved when loading candidatas fails after a successful price write', async () => {
+    const user = userEvent.setup();
+    promocionesAPI.getPromocionesItem.mockRejectedValueOnce(new Error('boom'));
+    render(<PonerPreciosBody detail={detail} itemId="MLA1" canEditPrice canWritePromos />);
+    await user.clear(screen.getByLabelText('Nuevo precio'));
+    await user.type(screen.getByLabelText('Nuevo precio'), '1600{Enter}');
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      /Precio guardado en Pricing\. No se pudieron cargar las candidatas/,
+    );
+    expect(preciosAPI.setRapido).toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', { name: 'Elegí una promoción' })).not.toBeInTheDocument();
+  });
 });
 
 // promos-markup-sell-in-out S2: the markup with sell in / sell out next to each markup of the chooser.
@@ -235,9 +248,24 @@ describe('PonerPreciosBody flagged hay_mejores', () => {
     expect(screen.queryByRole('region', { name: 'Candidatas mejores' })).not.toBeInTheDocument();
   });
 
-  it('unlocks Nuevo precio when baseline markup cannot be computed', async () => {
+  it('keeps Descartar when baseline markup cannot be computed, then unlocks Nuevo precio', async () => {
+    const user = userEvent.setup();
     promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { nuestro_markup: null } });
     render(<PonerPreciosBody detail={flaggedDetail} itemId="MLA1" canEditPrice canWritePromos />);
+    const region = await screen.findByRole('region', { name: 'Candidatas mejores' });
+    expect(screen.queryByLabelText('Nuevo precio')).not.toBeInTheDocument();
+    await user.click(within(region).getByRole('button', { name: 'Descartar sugerencia' }));
+    expect(await screen.findByLabelText('Nuevo precio')).toBeInTheDocument();
+  });
+
+  it('keeps the load error visible in MODO until Descartar (does not unlock Nuevo precio alone)', async () => {
+    const user = userEvent.setup();
+    promocionesAPI.getPromocionesItem.mockRejectedValue(new Error('boom'));
+    render(<PonerPreciosBody detail={flaggedDetail} itemId="MLA1" canEditPrice canWritePromos />);
+    const region = await screen.findByRole('region', { name: 'Candidatas mejores' });
+    expect(within(region).getByText(/No se pudieron cargar las candidatas/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Nuevo precio')).not.toBeInTheDocument();
+    await user.click(within(region).getByRole('button', { name: 'Descartar sugerencia' }));
     expect(await screen.findByLabelText('Nuevo precio')).toBeInTheDocument();
   });
 
