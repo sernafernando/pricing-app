@@ -319,6 +319,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run tests (vitest)
+        # Unit suite (~5600 tests) has been OOMing the default ~4GB worker heap
+        # on ubuntu-latest (vitest forks); raise the limit so CI does not flake
+        # as "Worker exited unexpectedly" after 398/399 files passed.
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
         run: pnpm test
 
   frontend-visual:
