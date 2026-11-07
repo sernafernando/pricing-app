@@ -295,10 +295,14 @@ jobs:
         run: pnpm build
 
   frontend-test:
-    name: Frontend Tests
+    name: Frontend Tests (${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
-    # Raised heap + capped workers still thrash GC; keep headroom under 25m.
-    timeout-minutes: 25
+    # Shards keep each worker under the heap ceiling that OOM'd the full suite.
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     defaults:
       run:
         working-directory: frontend
@@ -319,13 +323,25 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run tests (vitest)
-        # Unit suite (~5600 tests / ~399 files) still OOMs at 8GB on ubuntu-latest
-        # (vitest forks, "Ineffective mark-compacts" after 398/399). Cap workers
-        # to cut peak RSS and raise the heap past that ceiling.
+      - name: Run tests (vitest shard ${{ matrix.shard }}/2)
+        # Full unit suite OOMs even at 12GB (398/399 files). Split into two
+        # processes so each resets memory; keep the required check name via the
+        # gate job below. Use `pnpm exec` — `pnpm test -- --flag` was forwarding
+        # a literal `--` and ignoring maxWorkers.
         env:
-          NODE_OPTIONS: --max-old-space-size=12288
-        run: pnpm test -- --maxWorkers=2
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: pnpm exec vitest run --project=unit --shard=${{ matrix.shard }}/2 --maxWorkers=2
+
+  # Branch protection expects the check name "Frontend Tests". Matrix jobs are
+  # named "Frontend Tests (N/2)"; this gate collapses them into one status.
+  frontend-test-result:
+    name: Frontend Tests
+    needs: frontend-test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every shard to pass
+        run: test "${{ needs.frontend-test.result }}" = "success"
 
   frontend-visual:
     name: Frontend Visual Tests
