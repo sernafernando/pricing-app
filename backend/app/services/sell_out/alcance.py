@@ -65,6 +65,27 @@ class Venta:
     costo_unit: Optional[Decimal] = None  # ARS, without VAT
     precio_unit: Optional[Decimal] = None  # ARS; with VAT when `precio_con_iva`
     precio_con_iva: bool = False
+    # ML only: current official store of the publication (`mla`); None = sin_tienda / unknown / fuera|tn
+    store_id: Optional[int] = None
+
+
+def _stores_por_mla(db: Session, mlas: Set[str]) -> Dict[str, Optional[int]]:
+    """Current `mlp_official_store_id` per MLA (latest publicado row for that publication id).
+
+    Missing table / empty map → every MLA looks like sin_tienda (store_id None).
+    """
+    if not mlas:
+        return {}
+    from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado as Pub
+
+    latest = (
+        select(func.max(Pub.mlp_id).label("mlp_id"))
+        .where(Pub.mlp_publicationID.isnot(None), Pub.mlp_publicationID.in_(list(mlas)))
+        .group_by(Pub.mlp_publicationID)
+        .subquery()
+    )
+    rows = db.query(Pub.mlp_publicationID, Pub.mlp_official_store_id).join(latest, Pub.mlp_id == latest.c.mlp_id)
+    return {str(mla): (int(store) if store is not None else None) for mla, store in rows}
 
 
 def _positivo(x: Decimal) -> bool:
@@ -246,6 +267,18 @@ def ventas(db: Session, item_ids: Set[int], desde: date, hasta: date) -> List[Ve
         return []
     combos = partes_de_combos(db, item_ids)
     ids = sorted(set(item_ids) | set(combos))
+    ml_rows = list(
+        db.query(
+            MlSaleLine.item_row_id,
+            MlSaleLine.product,
+            MlSaleLine.day,
+            MlSaleLine.qty,
+            MlSaleLine.gross,
+            MlSaleLine.mcosto,
+            MlSaleLine.mla,
+        ).filter(MlSaleLine.product.in_(ids), MlSaleLine.day.between(desde, hasta), MlSaleLine.qty > 0)
+    )
+    stores = _stores_por_mla(db, {mla for *_, mla in ml_rows})
     salida = [
         Venta(
             "ml",
@@ -256,15 +289,9 @@ def ventas(db: Session, item_ids: Set[int], desde: date, hasta: date) -> List[Ve
             costo_unit=_por_unidad(mcosto, qty, _positivo),
             precio_unit=_por_unidad(gross, qty, _positivo),
             precio_con_iva=True,
+            store_id=stores.get(mla),
         )
-        for ref, item_id, dia, qty, gross, mcosto in db.query(
-            MlSaleLine.item_row_id,
-            MlSaleLine.product,
-            MlSaleLine.day,
-            MlSaleLine.qty,
-            MlSaleLine.gross,
-            MlSaleLine.mcosto,
-        ).filter(MlSaleLine.product.in_(ids), MlSaleLine.day.between(desde, hasta), MlSaleLine.qty > 0)
+        for ref, item_id, dia, qty, gross, mcosto, mla in ml_rows
     ]
     inicio = datetime.combine(desde, time(0), tzinfo=timezone.utc)
     fin = datetime.combine(hasta, time.max, tzinfo=timezone.utc)

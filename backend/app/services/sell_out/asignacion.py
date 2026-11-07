@@ -77,18 +77,21 @@ any error propagates and the caller rolls back.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, Iterable, List, Literal, Optional, Tuple
 
 from sqlalchemy import delete, insert, or_, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.sell_out import SellOutCampana, SellOutCampanaItem, SellOutConsumo
+from app.models.tactical import Tactical
 from app.models.tipo_cambio import TipoCambio
 from app.services.sell_in.bonos import tasas_bna_por_fecha
-from app.services.sell_out import alcance, reparto, tope
+from app.services.sell_out import alcance, reparto, tienda_scope, tope
+from app.services.sell_out.tienda_scope import Scope
 
 # First key of the two-key advisory lock; the second is the campaign id. Sell-in costing uses 0x5E11 (item ids)
 # and the brand bonus 0x5E12 (bonus ids).
@@ -335,6 +338,20 @@ def _base(c: SellOutCampana, v: alcance.Venta, iva: Optional[Decimal], tasas: _T
     return base if c.moneda == "ARS" else base / _tasa(c, v.fecha, tasas)
 
 
+def _scopes(db: Session, activas: List[SellOutCampana]) -> Dict[int, Optional[Scope]]:
+    """Tactical store scope per campaign; campaigns without a tactical stay `None` (global)."""
+    ids = {c.tactical_id for c in activas if c.tactical_id is not None}
+    if not ids:
+        return {c.id: None for c in activas}
+    tacticals = {
+        t.id: t for t in db.query(Tactical).options(selectinload(Tactical.tiendas)).filter(Tactical.id.in_(ids))
+    }
+    return {
+        c.id: (tienda_scope.scope_desde_tactical(tacticals[c.tactical_id]) if c.tactical_id in tacticals else None)
+        for c in activas
+    }
+
+
 def _asignar(
     activas: List[SellOutCampana],
     productos: Productos,
@@ -342,23 +359,30 @@ def _asignar(
     tasas: _Tasas,
     montos: Optional[Montos] = None,
     repartos: Optional[Repartos] = None,
+    scopes: Optional[Dict[int, Optional[Scope]]] = None,
 ):
     """`{campana_id: [Consumo]}`, campaigns in id order, each after those taking precedence over it.
-    `montos`: the campaigns' per-product amounts (`montos_item`); `repartos`: their shares (`repartos_item`)."""
+    `montos`: the campaigns' per-product amounts (`montos_item`); `repartos`: their shares (`repartos_item`).
+    `scopes`: tactical store scope per campaign id (`None` = no tactical / global)."""
     montos = montos or {}
     repartos = repartos or {}
+    scopes = scopes or {}
     tenidas: Dict[int, Dict[Clave, List[int]]] = {}  # per campaign and line: the unit numbers it took or freed
     salida: Dict[int, List[tope.Consumo]] = {}
     pendientes: Dict[int, int] = {}
     for c in activas:
         alcance_c = productos.get(c.id, {})
+        scope = scopes.get(c.id)
         total = c.tipo == "monto_total"
         if total:  # only its shared products; it is not limited by the units others hold (module docstring)
             alcance_c = {i: iva for i, iva in alcance_c.items() if i in repartos.get(c.id, {})}
         antes = [] if total else [p.id for p in activas if p.id < c.id and not (p.acumulable and c.acumulable)]
         lineas, libres, admitidas = [], {}, set()
+        targets: List[Optional[tienda_scope.TargetKey]] = []
         for v in sorted(ventas, key=lambda x: x.unidades < 0):  # sales first: a return checks its sale
             if v.item_id not in alcance_c or not alcance.en_campana(c, v):
+                continue
+            if not tienda_scope.alcanza(scope, v.canal, v.store_id):
                 continue
             if v.objetivo is not None and (*v.objetivo, v.item_id) not in admitidas:
                 continue  # it returns a sale this campaign does not count (before it, or waiting for its base)
@@ -392,8 +416,21 @@ def _asignar(
                     objetivo=v.objetivo,
                 )
             )
+            targets.append(tienda_scope.target_key(v.canal, v.store_id))
         por_linea: Dict[Clave, int] = {}
-        consumos = tope.asignar(_tope(c, montos.get(c.id)), lineas, por_linea=por_linea)
+        campana_tope = _tope(c, montos.get(c.id))
+        if scope is not None and not scope.tope_compartido and not total and lineas:
+            por_target: Dict[tienda_scope.TargetKey, List[tope.Linea]] = defaultdict(list)
+            for linea, key in zip(lineas, targets):
+                if key is not None:
+                    por_target[key].append(linea)
+            consumos: List[tope.Consumo] = []
+            for key in tienda_scope.orden_targets(por_target):
+                parcial: Dict[Clave, int] = {}
+                consumos.extend(tope.asignar(campana_tope, por_target[key], por_linea=parcial))
+                por_linea.update(parcial)
+        else:
+            consumos = tope.asignar(campana_tope, lineas, por_linea=por_linea)
         if total:
             mt = reparto.MontoTotal(c.monto_total, repartos.get(c.id, {}), c.monto_incluye_iva, alcance_c)
             try:
@@ -462,7 +499,13 @@ def recalcular(db: Session, campana_ids: Iterable[int]) -> RecomputeResult:
         ventas = alcance.ventas(db, items, desde, max(c.fecha_hasta for c in activas))
     tasas = _tasas(db, activas, ventas)
     deseados, pendientes = _asignar(
-        activas, productos, ventas, tasas, montos_item(db, activas), repartos_item(db, activas)
+        activas,
+        productos,
+        ventas,
+        tasas,
+        montos_item(db, activas),
+        repartos_item(db, activas),
+        _scopes(db, activas),
     )
 
     guardados: Dict[Tuple[int, str, int, int], Tuple[int, tuple]] = {}
