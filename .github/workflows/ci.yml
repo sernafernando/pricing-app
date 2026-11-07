@@ -297,7 +297,7 @@ jobs:
   frontend-test:
     name: Frontend Tests
     runs-on: ubuntu-latest
-    # 8GB heap avoids OOM but slows GC enough that the suite can exceed 15m.
+    # Raised heap + capped workers still thrash GC; keep headroom under 25m.
     timeout-minutes: 25
     defaults:
       run:
@@ -320,12 +320,12 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run tests (vitest)
-        # Unit suite (~5600 tests) has been OOMing the default ~4GB worker heap
-        # on ubuntu-latest (vitest forks); raise the limit so CI does not flake
-        # as "Worker exited unexpectedly" after 398/399 files passed.
+        # Unit suite (~5600 tests / ~399 files) still OOMs at 8GB on ubuntu-latest
+        # (vitest forks, "Ineffective mark-compacts" after 398/399). Cap workers
+        # to cut peak RSS and raise the heap past that ceiling.
         env:
-          NODE_OPTIONS: --max-old-space-size=8192
-        run: pnpm test
+          NODE_OPTIONS: --max-old-space-size=12288
+        run: pnpm test -- --maxWorkers=2
 
   frontend-visual:
     name: Frontend Visual Tests
