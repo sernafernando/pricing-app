@@ -148,6 +148,9 @@ describe('creating a tactical', () => {
         incluye_iva: false,
         acumulable: true,
         nota: null,
+        todas_tiendas: true,
+        tope_compartido: false,
+        tiendas: [],
         lineas: [
           {
             alcance: 'productos',
