@@ -385,10 +385,22 @@ def markup_para_precio_con_sell_in_out(
 
 def _contextos_mlas(db: Session, mlas: list[str]) -> Optional[list[tuple[str, Optional[int]]]]:
     """Store scope for companion markups: one `(ml, store_id)` when every MLA shares the same official store;
-    `None` (global) when the set mixes stores — a single batch cannot be both."""
+    `None` (global) when the set mixes stores — a single batch cannot be both.
+
+    Missing `ml_items` (throwaway schemas / labs) → global, same as mixed stores: companions still resolve.
+    """
+    from sqlalchemy.exc import ProgrammingError
+
     from app.models.ml_publications import MlItem
 
-    stores = {row[0] for row in db.query(MlItem.official_store_id).filter(MlItem.item_id.in_(mlas)).distinct()}
+    if not mlas:
+        return None
+    try:
+        # Own savepoint so a missing table does not abort the caller's sell-in/out SAVEPOINT.
+        with db.begin_nested():
+            stores = {row[0] for row in db.query(MlItem.official_store_id).filter(MlItem.item_id.in_(mlas)).distinct()}
+    except ProgrammingError:
+        return None
     if len(stores) != 1:
         return None
     return [("ml", next(iter(stores)))]
