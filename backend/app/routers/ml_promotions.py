@@ -25,6 +25,7 @@ from app.models.usuario import Usuario
 from app.services.ml_catalog_competition_service import (
     obtener_ultimo_snapshot,
     refrescar_competencia_catalogo,
+    same_bucket_competitors,
     undercutting_competitors,
 )
 from app.services.ml_promotions_pricing import (
@@ -349,6 +350,10 @@ class CatalogCompetitionSnapshot(BaseModel):
     ones that are hidden from `undercutting` — lets the UI say "N
     competitors in other formats, hidden" (product decision #6)."""
     undercutting: List[CatalogCompetitorPrice] = []
+    """Same-bucket AND strictly cheaper only (Productos tree / legacy panel)."""
+    same_bucket: List[CatalogCompetitorPrice] = []
+    """Full same-bucket ranking (any price), sorted cheapest-first — publication
+    panel Ver competencia column 2. Does not replace `undercutting`."""
     error_detail: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -383,6 +388,7 @@ def _snapshot_to_response(mla: str, row: Optional[Any]) -> CatalogCompetitionSna
         our_currency_id=row.our_currency_id,
         competitor_count=row.competitor_count,
         undercutting=[_to_competitor_price(c) for c in undercutting_competitors(row)],
+        same_bucket=[_to_competitor_price(c) for c in same_bucket_competitors(row)],
         error_detail=row.error_detail,
     )
 

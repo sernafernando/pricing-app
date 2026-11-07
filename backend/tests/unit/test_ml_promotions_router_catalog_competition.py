@@ -14,6 +14,8 @@ Spec coverage:
          and the read endpoint makes no fetch (no auto-fetch on open).
   C2.6 — only same-bucket AND strictly-cheaper competitors are returned
          in `undercutting`.
+  same_bucket — all same-bucket competitors (any price), cheapest-first;
+         undercutting remains the cheaper-only list.
   Permissions: promos.ver gates the read, promos.escribir gates the
   refresh — same split as the sibling promo endpoints.
 """
@@ -131,6 +133,7 @@ class TestReadEndpoint:
         assert body["fetch_status"] == "ok"
         assert body["competitor_count"] == 3
         assert [c["item_id"] for c in body["undercutting"]] == ["CHEAPER"]
+        assert [c["item_id"] for c in body["same_bucket"]] == ["CHEAPER", "PRICIER"]
 
     def test_not_catalog_returns_visible_state_not_hidden(self, client: TestClient, db) -> None:
         row = MLCatalogCompetition(

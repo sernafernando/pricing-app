@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import MlaPromocionesPanel from '../../promociones/MlaPromocionesPanel';
+import CatalogCompetitionPanel from '../../promociones/CatalogCompetitionPanel';
 import { markPromoPulled, promoPulledRecently } from '../../promociones/promoPullTtl';
+import styles from './panel.module.css';
 
 /** One MLA's promotions; mounted per MLA, so its pull decision is that MLA's. */
 function ItemPromotions({ itemId, suggestedPromotionIds, promosCacheRef, onPromoApplied }) {
@@ -42,20 +44,65 @@ function ItemPromotions({ itemId, suggestedPromotionIds, promosCacheRef, onPromo
  * `suggestedPromotionIds` are the promotions the "Hay candidatas mejores" block above the tabs suggests;
  * their rows carry a "Sugerida" chip instead of a second banner here.
  *
+ * When the publication is a catalog listing, **Ver competencia** expands the
+ * split panel (`competenciaWide`) and opens column 2 with the same-bucket
+ * ranking (`CatalogCompetitionPanel` variant `ranking`). Promos stay in
+ * column 1 at their compact width — they do not stretch into the extra space.
+ *
  * `key={itemId}` makes a new selection start from scratch, so one
  * publication's promotions are never shown under the next. The cache is
  * private to this tab: the Productos filter bar that reads its entries is not
  * on this page, and the global promo filter is ignored for the same reason.
  */
-export default function PromocionesTab({ itemId, onPromoApplied, suggestedPromotionIds }) {
+export default function PromocionesTab({
+  itemId,
+  detail,
+  onPromoApplied,
+  suggestedPromotionIds,
+  competenciaWide = false,
+  onCompetenciaWideChange,
+}) {
   const [promosCacheRef] = useState(() => ({ current: new Map() }));
+  const [catalogCacheRef] = useState(() => ({ current: new Map() }));
+  const isCatalog = Boolean(detail?.row?.catalog_listing);
+  const showRanking = isCatalog && competenciaWide;
+
+  const toggleCompetencia = () => {
+    onCompetenciaWideChange?.(!competenciaWide);
+  };
+
   return (
-    <ItemPromotions
-      key={itemId}
-      itemId={itemId}
-      suggestedPromotionIds={suggestedPromotionIds}
-      promosCacheRef={promosCacheRef}
-      onPromoApplied={onPromoApplied}
-    />
+    <div className={showRanking ? styles.promosLayoutWide : styles.promosLayout}>
+      <div className={styles.promosCol}>
+        {isCatalog && (
+          <button
+            type="button"
+            className={`btn-tesla outline-subtle-primary sm ${styles.promosCompetenciaToggle}`}
+            onClick={toggleCompetencia}
+            aria-pressed={competenciaWide}
+          >
+            {competenciaWide ? 'Ocultar competencia' : 'Ver competencia'}
+          </button>
+        )}
+        <ItemPromotions
+          key={itemId}
+          itemId={itemId}
+          suggestedPromotionIds={suggestedPromotionIds}
+          promosCacheRef={promosCacheRef}
+          onPromoApplied={onPromoApplied}
+        />
+      </div>
+      {showRanking && (
+        <div className={styles.promosCompetenciaCol}>
+          <h3 className={styles.promosCompetenciaTitle}>Competencia del catálogo</h3>
+          <CatalogCompetitionPanel
+            key={`catalog-${itemId}`}
+            mla={itemId}
+            catalogCompetitionCacheRef={catalogCacheRef}
+            variant="ranking"
+          />
+        </div>
+      )}
+    </div>
   );
 }

@@ -28,6 +28,7 @@ from app.services.ml_catalog_competition_service import (
     _to_ars,
     obtener_ultimo_snapshot,
     refrescar_competencia_catalogo,
+    same_bucket_competitors,
     undercutting_competitors,
 )
 
@@ -580,3 +581,25 @@ class TestUndercuttingCompetitors:
         row = MagicMock()
         row.competitors = None
         assert undercutting_competitors(row) == []
+
+
+class TestSameBucketCompetitors:
+    def test_none_row_returns_empty_list(self) -> None:
+        assert same_bucket_competitors(None) == []
+
+    def test_all_same_bucket_regardless_of_price_sorted_cheapest_first(self) -> None:
+        row = MagicMock()
+        row.competitors = [
+            {"item_id": "PRICIER", "same_bucket": True, "is_cheaper_than_us": False, "price_ars": 1100},
+            {"item_id": "CHEAPER", "same_bucket": True, "is_cheaper_than_us": True, "price_ars": 900},
+            {"item_id": "OTHER", "same_bucket": False, "is_cheaper_than_us": True, "price_ars": 500},
+            {"item_id": "EQUAL", "same_bucket": True, "is_cheaper_than_us": False, "price_ars": 1000},
+            {"item_id": "NO_PRICE", "same_bucket": True, "is_cheaper_than_us": None, "price_ars": None},
+        ]
+        result = same_bucket_competitors(row)
+        assert [c["item_id"] for c in result] == ["CHEAPER", "EQUAL", "PRICIER", "NO_PRICE"]
+
+    def test_competitors_none_degrades_to_empty_list(self) -> None:
+        row = MagicMock()
+        row.competitors = None
+        assert same_bucket_competitors(row) == []

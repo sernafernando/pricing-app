@@ -32,7 +32,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import styles from './SplitPanelLayout.module.css';
 
-const WIDTHS = ['md', 'lg'];
+const WIDTHS = ['md', 'lg', 'xl'];
 
 // Pixels. The minimums keep both sides readable: a panel narrower than 360
 // no longer fits its tab strip and key/value rows, and a table narrower than
@@ -77,13 +77,14 @@ function isEditableElement(el) {
  * @param {boolean} props.open Whether the panel is shown.
  * @param {import('react').ReactNode} props.panel Panel content.
  * @param {() => void} props.onClose Called on Escape.
- * @param {'md'|'lg'} [props.width='md'] 460px / 560px (capped at 42vw).
+ * @param {'md'|'lg'|'xl'} [props.width='md'] 460px / 560px / 920px (capped at 42vw unless `expanded`).
+ * @param {boolean} [props.expanded] Lifts the 42vw cap so `xl` (Ver competencia) can actually grow.
  * @param {string} [props.ariaLabel] Accessible name of the panel.
  * @param {string} [props.resizeKey] Turns on resizing; the width is remembered per browser under this key.
  *   Read once on mount, so keep it constant for the life of the layout.
  * @param {import('react').ReactNode} props.children The list.
  */
-export default function SplitPanelLayout({ open, panel, onClose, width = 'md', ariaLabel, resizeKey, children }) {
+export default function SplitPanelLayout({ open, panel, onClose, width = 'md', expanded = false, ariaLabel, resizeKey, children }) {
   const size = WIDTHS.includes(width) ? width : 'md';
   const resizable = Boolean(resizeKey);
   const gridRef = useRef(null);
@@ -277,10 +278,13 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
     window.addEventListener('blur', finish);
   };
 
-  const resized = resizable && panelWidth !== null;
+  // Ver competencia needs the `xl` token, not a previously dragged narrow width.
+  const resized = resizable && panelWidth !== null && !expanded;
   // A saved width is reported as the CSS draws it, clamped to both bounds.
   const valueNow =
-    panelWidth === null ? measured.width : Math.min(Math.max(panelWidth, measured.min), measured.max);
+    panelWidth === null || expanded
+      ? measured.width
+      : Math.min(Math.max(panelWidth, measured.min), measured.max);
   // The unresized width can sit outside the bounds (a grid narrower than the
   // default panel, or unread stylesheet values); the reported range still contains it.
   const valueMin = Math.min(measured.min, valueNow);
@@ -298,6 +302,7 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
       ref={gridRef}
       className={`${styles.grid} ${open ? styles.open : ''}`}
       data-width={size}
+      data-expanded={expanded || undefined}
       data-split-open={open || undefined}
       data-split-grid
       data-resizable={resizable || undefined}

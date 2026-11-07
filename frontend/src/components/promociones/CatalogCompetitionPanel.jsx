@@ -36,11 +36,16 @@ function formatMarkup(value) {
  * (product decision #4 — the ML throttle is global and shared with
  * sales-webhook processing).
  *
- * The backend already filters `undercutting` to same-bucket AND strictly
- * cheaper competitors (product decision #6, spec C2.6); this component
- * never recomputes bucket membership, currency conversion, or markup.
+ * Variants:
+ *  - `undercutting` (default): same-bucket AND strictly cheaper (product
+ *    decision #6 / Productos tree).
+ *  - `ranking`: full same-bucket list any price (publication Promos col 2).
+ *
+ * This component never recomputes bucket membership, currency conversion,
+ * or markup — those come from the snapshot.
  */
-function CatalogCompetitionPanel({ mla, catalogCompetitionCacheRef }) {
+function CatalogCompetitionPanel({ mla, catalogCompetitionCacheRef, variant = 'undercutting' }) {
+  const ranking = variant === 'ranking';
   const fetcher = (id) => promocionesAPI.getCompetenciaCatalogo(id).then((r) => r.data);
   const { data, loading, error, reload } = useLazyResource(catalogCompetitionCacheRef, mla, fetcher);
   const { tienePermiso } = usePermisos();
@@ -66,7 +71,18 @@ function CatalogCompetitionPanel({ mla, catalogCompetitionCacheRef }) {
     }
   };
 
-  const refreshButton = !canRefresh ? null : (
+  const refreshButton = !canRefresh ? null : ranking ? (
+    <button
+      type="button"
+      className="btn-tesla outline-subtle-primary sm"
+      onClick={handleRefresh}
+      disabled={refreshing}
+      aria-label={`Actualizar competencia de catálogo de ${mla}`}
+    >
+      <RefreshCw size={14} aria-hidden="true" />
+      {refreshing ? 'Actualizando…' : 'Actualizar'}
+    </button>
+  ) : (
     <button
       type="button"
       className="btn-tesla outline-subtle-primary icon-only sm"
@@ -125,30 +141,72 @@ function CatalogCompetitionPanel({ mla, catalogCompetitionCacheRef }) {
     );
   }
 
-  const undercutting = data.undercutting || [];
+  const rows = ranking ? data.same_bucket || [] : data.undercutting || [];
+  const emptyCopy = ranking
+    ? `Sin competidores en tu mismo formato${
+        data.competitor_count > 0
+          ? ` (${data.competitor_count} competidores relevados, ocultos por formato distinto o no comparables)`
+          : ''
+      }.`
+    : `Sin competidores más baratos en tu mismo formato${
+        data.competitor_count > 0
+          ? ` (${data.competitor_count} competidores relevados, ocultos por formato distinto o no comparables)`
+          : ''
+      }.`;
 
   return (
     <div>
-      <div className={styles.filterMessage}>
-        {fechaLabel && <span className={styles.treeNodeSummaryCounts}>Consultado {fechaLabel}</span>}
-        {data.our_price != null && (
-          <span className={styles.treeNodeSummaryCounts}> · Nuestro precio: {formatPrice(data.our_price)}</span>
+      <div className={ranking ? styles.rankingToolbar : styles.filterMessage}>
+        {ranking ? (
+          <>
+            <span className={styles.rankingUpdated}>
+              {fechaLabel
+                ? `Última actualización del catálogo: ${fechaLabel}`
+                : 'Sin fecha de consulta en el snapshot'}
+            </span>
+            {data.our_price != null && (
+              <span className={styles.treeNodeSummaryCounts}>Nuestro precio: {formatPrice(data.our_price)}</span>
+            )}
+          </>
+        ) : (
+          <>
+            {fechaLabel && <span className={styles.treeNodeSummaryCounts}>Consultado {fechaLabel}</span>}
+            {data.our_price != null && (
+              <span className={styles.treeNodeSummaryCounts}> · Nuestro precio: {formatPrice(data.our_price)}</span>
+            )}
+          </>
         )}
         {refreshButton}
-        {refreshing && <span className={styles.provisionalPending}>Consultando…</span>}
+        {!ranking && refreshing && <span className={styles.provisionalPending}>Consultando…</span>}
         {refreshError && <span className={styles.feedbackError}>No se pudo consultar</span>}
       </div>
-      {undercutting.length === 0 ? (
-        <div className={styles.panelState}>
-          Sin competidores más baratos en tu mismo formato
-          {data.competitor_count > 0
-            ? ` (${data.competitor_count} competidores relevados, ocultos por formato distinto o no comparables)`
-            : ''}
-          .
-        </div>
+      {rows.length === 0 ? (
+        <div className={styles.panelState}>{emptyCopy}</div>
+      ) : ranking ? (
+        <ol className={styles.rankingList} aria-label="Ranking del catálogo en este tramo">
+          {rows.map((competitor, index) => {
+            const ours = competitor.item_id === mla;
+            return (
+              <li
+                key={competitor.item_id || competitor.seller_id || `competitor-${index}`}
+                className={`${styles.rankingRow}${ours ? ` ${styles.rankingOurs}` : ''}`}
+              >
+                <span className={styles.rankingPos}>{index + 1}</span>
+                <span className={styles.rankingName}>
+                  {competitor.seller_nickname || competitor.item_id || 'Competidor'}
+                  {ours ? ' (vos)' : ''}
+                </span>
+                <span className={styles.rankingPrice}>{formatPrice(competitor.price_ars ?? competitor.price)}</span>
+                <span className={styles.rankingMarkup} style={{ color: getMarkupColor(competitor.markup) }}>
+                  {formatMarkup(competitor.markup)}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
       ) : (
         <ul className={styles.promoList}>
-          {undercutting.map((competitor, index) => (
+          {rows.map((competitor, index) => (
             // item_id and seller_id are both Optional in the schema, so the
             // index is the last-resort tiebreaker: two competitors missing
             // both would otherwise collide on the same React key.

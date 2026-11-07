@@ -297,6 +297,29 @@ def undercutting_competitors(row: Optional[MLCatalogCompetition]) -> List[Dict[s
     return [c for c in (row.competitors or []) if c.get("same_bucket") and c.get("is_cheaper_than_us") is True]
 
 
+def same_bucket_competitors(row: Optional[MLCatalogCompetition]) -> List[Dict[str, Any]]:
+    """All competitors in the same bucket as the queried MLA, regardless of
+    price — cheaper, equal, or more expensive. Different-bucket rows stay
+    out. Ordered by `price_ars` ascending (`None` last), then `item_id`.
+
+    Reads the persisted snapshot only; does not call MeLi. Sibling of
+    `undercutting_competitors` for the publication-panel ranking (wide
+    Promos column 2); does not replace undercutting for the Productos tree.
+    """
+    if row is None:
+        return []
+    bucket = [c for c in (row.competitors or []) if c.get("same_bucket")]
+
+    def _sort_key(competitor: Dict[str, Any]) -> tuple:
+        price = competitor.get("price_ars")
+        # None prices sort after every known ARS price.
+        price_key = (1, 0.0) if price is None else (0, float(price))
+        item_id = competitor.get("item_id") or ""
+        return (price_key[0], price_key[1], item_id)
+
+    return sorted(bucket, key=_sort_key)
+
+
 async def refrescar_competencia_catalogo(db: Session, mlas: List[str]) -> List[MLCatalogCompetition]:
     """Fetches, buckets, prices and PERSISTS one snapshot row per MLA in
     `mlas`. Called by the manual per-MLA refresh endpoint (slice C2) and by

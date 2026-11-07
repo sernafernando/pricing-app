@@ -119,6 +119,47 @@ describe('CatalogCompetitionPanel', () => {
     expect(screen.getByText(/3 competidores relevados/)).toBeInTheDocument();
   });
 
+  it('ranking variant lists every same_bucket row, including pricier ones, with position', async () => {
+    promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
+      data: {
+        mla: 'MLA001',
+        fetch_status: 'ok',
+        our_price: 1000,
+        competitor_count: 4,
+        undercutting: [{ item_id: 'CHEAP', seller_nickname: 'Barato', price_ars: 900, markup: 40 }],
+        same_bucket: [
+          { item_id: 'CHEAP', seller_nickname: 'Barato', price_ars: 900, markup: 40 },
+          { item_id: 'MLA001', seller_nickname: 'Nosotros', price_ars: 1000, markup: 35 },
+          { item_id: 'PRICEY', seller_nickname: 'Caro', price_ars: 1200, markup: 28 },
+        ],
+      },
+    });
+
+    renderPanel({ variant: 'ranking' });
+    expect(await screen.findByLabelText(/ranking del catálogo/i)).toBeInTheDocument();
+    expect(screen.getByText('Barato')).toBeInTheDocument();
+    expect(screen.getByText(/Nosotros \(vos\)/)).toBeInTheDocument();
+    expect(screen.getByText('Caro')).toBeInTheDocument();
+    expect(screen.queryByText(/Tu markup si igualás/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /actualizar competencia de catálogo/i })).toBeInTheDocument();
+  });
+
+  it('ranking variant shows last-update copy from fecha_consulta', async () => {
+    promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
+      data: {
+        mla: 'MLA001',
+        fetch_status: 'ok',
+        fecha_consulta: '2026-07-30T10:00:00Z',
+        our_price: 1000,
+        undercutting: [],
+        same_bucket: [{ item_id: 'R1', seller_nickname: 'Rival', price_ars: 900, markup: 30 }],
+      },
+    });
+
+    renderPanel({ variant: 'ranking' });
+    expect(await screen.findByText(/Última actualización del catálogo:/i)).toBeInTheDocument();
+  });
+
   it('refresh button triggers exactly one POST, then re-reads the snapshot', async () => {
     promocionesAPI.getCompetenciaCatalogo
       .mockResolvedValueOnce({ data: { mla: 'MLA001', fetch_status: 'never', undercutting: [] } })
