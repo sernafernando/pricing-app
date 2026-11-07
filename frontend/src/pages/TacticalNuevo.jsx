@@ -24,10 +24,12 @@ import {
   lineasPara,
   maximoTotal,
   nuevaLinea,
+  numeroDe,
   problemaDe,
   unidadesDelTope,
 } from '../components/tactical/tacticalLineas';
 import { renovacionDe } from '../components/tactical/tacticalRenovar';
+import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import styles from './TacticalNuevo.module.css';
 
 const TIPOS = {
@@ -124,6 +126,9 @@ export default function TacticalNuevo() {
       tipoCambio: '',
       incluyeIva: false,
       acumulable: true,
+      todasTiendas: true,
+      topeCompartido: false,
+      tiendaKeys: [],
       nota: '',
     };
   });
@@ -134,6 +139,8 @@ export default function TacticalNuevo() {
   const [error, setError] = useState(null);
   const [enviando, setEnviando] = useState(false);
   const [descartar, setDescartar] = useState(false);
+  const { grupos: gruposTiendas } = useTiendasOficiales();
+  const ejemploTope = lineas.map((l) => numeroDe(l.topeUnidades)).find((n) => n != null && n > 0) ?? null;
 
   const renovar = params.get('renovar');
   // Renovar draws no form until the tactical arrives: what the user typed meanwhile would be overwritten.
@@ -145,7 +152,7 @@ export default function TacticalNuevo() {
       .detalle(renovar)
       .then(({ data }) => {
         if (!activo) return;
-        const renovado = renovacionDe(data);
+        const renovado = renovacionDe(data, gruposTiendas);
         setForm(renovado.form);
         setLineas(renovado.lineas.length ? renovado.lineas : [nuevaLinea(renovado.form.marca)]);
       })
@@ -154,7 +161,7 @@ export default function TacticalNuevo() {
     return () => {
       activo = false;
     };
-  }, [renovar]);
+  }, [renovar, gruposTiendas]);
   useEffect(() => {
     let activo = true;
     productosAPI
@@ -198,7 +205,7 @@ export default function TacticalNuevo() {
       setError(problema);
       return;
     }
-    const { body, origen } = cuerpoDe(form, lineas);
+    const { body, origen } = cuerpoDe(form, lineas, gruposTiendas);
     setError(null);
     setEnviando(true);
     try {
@@ -266,6 +273,8 @@ export default function TacticalNuevo() {
             onTipo={cambiarTipo}
             tiposNoDisponibles={Object.keys(TIPOS).filter((t) => !puede(t))}
             marcas={marcasDelSelect}
+            gruposTiendas={gruposTiendas}
+            ejemploTope={ejemploTope}
           />
 
           <section className={styles.card} aria-labelledby="tactical-lineas">

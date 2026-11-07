@@ -187,6 +187,9 @@ describe('the body of POST /tacticals (Contrato final)', () => {
       tc_modo: 'al_cobro',
       incluye_iva: false,
       acumulable: true,
+      todas_tiendas: true,
+      tope_compartido: false,
+      tiendas: [],
       nota: null,
       lineas: [
         {

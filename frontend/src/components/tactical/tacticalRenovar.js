@@ -8,6 +8,7 @@
  * bonus, so the user picks the new one.
  */
 import { nuevaLinea } from './tacticalLineas';
+import { seleccionDesdeDetalle } from './tacticalTiendas';
 
 /** A decimal from the API ("220.00", "3.5") as the screen types it ("220", "3,5"); empty when null. */
 const texto = (valor) => (valor == null ? '' : String(Number(valor)).replace('.', ','));
@@ -33,7 +34,7 @@ function lineaDe(hijos) {
   };
 }
 
-export function renovacionDe(tactical) {
+export function renovacionDe(tactical, gruposTiendas = []) {
   const porLinea = new Map();
   [...tactical.lineas]
     .sort((a, b) => a.linea - b.linea || a.id - b.id)
@@ -51,6 +52,9 @@ export function renovacionDe(tactical) {
       tipoCambio: texto(tactical.tipo_cambio),
       incluyeIva: tactical.incluye_iva,
       acumulable: tactical.acumulable,
+      todasTiendas: tactical.todas_tiendas !== false,
+      topeCompartido: Boolean(tactical.tope_compartido),
+      tiendaKeys: seleccionDesdeDetalle(tactical, gruposTiendas),
       nota: tactical.nota ?? '',
     },
     lineas: [...porLinea.values()].map(lineaDe),
