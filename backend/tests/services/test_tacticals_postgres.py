@@ -12,6 +12,7 @@ from sqlalchemy import Engine, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.offset_grupo import OffsetGrupo
 from app.models.pedido_compra import PedidoCompra
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
@@ -23,6 +24,7 @@ from app.models.sell_out import (
     SellOutDirty,
     SellOutPrograma,
 )
+from app.models.tactical import TacticalTienda
 from app.schemas.sell_out import SellOutCampanaIn
 from app.schemas.tacticals import TacticalIn
 from app.services import tacticals as service
@@ -36,6 +38,8 @@ USUARIO = 7
 TPLINK = bw.TPLINK
 TABLES = [
     *bw.TABLES,
+    MlTiendaOficial.__table__,
+    TacticalTienda.__table__,
     OffsetGrupo.__table__,
     OffsetGrupoFiltro.__table__,
     SellOutPrograma.__table__,
@@ -82,7 +86,9 @@ def db(engine: Engine) -> Iterator[Session]:
         bw.clean(engine)
         with engine.begin() as conn:
             conn.execute(text("UPDATE productos_erp SET categoria = 'Routers', iva = 21"))
+            conn.execute(text("DELETE FROM tactical_tiendas"))
             conn.execute(text("DELETE FROM tacticals"))
+            conn.execute(text("DELETE FROM ml_tiendas_oficiales"))
             conn.execute(text("DELETE FROM sell_out_dirty"))
 
 
@@ -401,3 +407,33 @@ class TestChildrenCap:
             "es uno): partilo en varios tacticals"
         )
         assert _contar(engine, "tacticals") == 0
+
+
+class TestStoreScope:
+    def test_scoped_create_persists_targets_and_shared_cap(self, db, engine) -> None:
+        db.add(MlTiendaOficial(store_id=57997, nombre="GaussOnline", clave="gauss", orden=1, activa=True))
+        db.add(MlTiendaOficial(store_id=2645, nombre="TP-Link", clave="tplink", orden=2, activa=True))
+        db.flush()
+
+        tactical = service.crear(
+            db,
+            _tactical(
+                todas_tiendas=False,
+                tope_compartido=True,
+                tiendas=[
+                    {"tipo": "oficial", "store_id": 57997},
+                    {"tipo": "oficial", "store_id": 2645},
+                    {"tipo": "tienda_nube"},
+                ],
+            ),
+            USUARIO,
+        )
+
+        [salida] = service.serializar(db, [tactical])
+        assert (salida["todas_tiendas"], salida["tope_compartido"]) == (False, True)
+        assert salida["tiendas"] == [
+            {"tipo": "oficial", "store_id": 57997},
+            {"tipo": "oficial", "store_id": 2645},
+            {"tipo": "tienda_nube", "store_id": None},
+        ]
+        assert _contar(engine, "tactical_tiendas") == 3
