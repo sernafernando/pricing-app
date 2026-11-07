@@ -49,10 +49,9 @@ function CatalogCompetitionPanel({ mla, catalogCompetitionCacheRef, variant = 'u
   const fetcher = (id) => promocionesAPI.getCompetenciaCatalogo(id).then((r) => r.data);
   const { data, loading, error, reload } = useLazyResource(catalogCompetitionCacheRef, mla, fetcher);
   const { tienePermiso } = usePermisos();
-  // The read endpoint needs promos.ver, but the refresh writes and needs
-  // promos.escribir. Offering the button to a view-only user only buys
-  // them a 403 — the promo refresh button is gated the same way.
-  const canRefresh = tienePermiso('promos.escribir');
+  // Catalog snapshot refresh is gated on promos.ver (same as the GET): it
+  // pulls MeLi into our DB, it does not enroll/remove a promotion.
+  const canRefresh = tienePermiso('promos.ver');
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState(false);
 

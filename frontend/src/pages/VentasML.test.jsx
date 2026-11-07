@@ -598,40 +598,49 @@ describe('Search box (ventas-ml-rediseno PR14)', () => {
 
 describe('a stale response never overwrites the list', () => {
   it('ignores an older request that resolves last', async () => {
-    const resolvers = [];
-    api.get.mockImplementation((url) => {
-      if (url === '/ml-ventas-ops/sales') {
-        return new Promise((resolve) => resolvers.push(resolve));
-      }
-      return Promise.resolve({ data: {} });
-    });
+    // Freeze mid-month: on day 1–7 of a month, "Mes actual" and "7d" share
+    // the same desde/hasta, so clicking 7d would not fire a second request
+    // and this sequence-guard test would hang (CI flake on 2026-11-07).
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 8, 17, 12, 0, 0)); // 2026-09-17 local
+    try {
+      const resolvers = [];
+      api.get.mockImplementation((url) => {
+        if (url === '/ml-ventas-ops/sales') {
+          return new Promise((resolve) => resolvers.push(resolve));
+        }
+        return Promise.resolve({ data: {} });
+      });
 
-    await renderWithRouter(<VentasML />);
-    await waitFor(() => expect(resolvers.length).toBe(1));
+      await renderWithRouter(<VentasML />);
+      await waitFor(() => expect(resolvers.length).toBe(1));
 
-    // Any filter change triggers the second request; the month picker
-    // this used to type into was removed when the shared date range
-    // replaced it. The subject here is the sequence guard, not which
-    // control fired it.
-    await userEvent.click(screen.getByRole('button', { name: '7d' }));
-    await waitFor(() => expect(resolvers.length).toBe(2));
+      // Any filter change triggers the second request; the month picker
+      // this used to type into was removed when the shared date range
+      // replaced it. The subject here is the sequence guard, not which
+      // control fired it.
+      await userEvent.click(screen.getByRole('button', { name: '7d' }));
+      await waitFor(() => expect(resolvers.length).toBe(2));
 
-    const page = (rows) => ({
-      data: {
-        sales: rows.map((row) => (row.group_key ? row : asGroup(row))),
-        total: rows.length,
-        limit: 50,
-        offset: 0,
-        facets: { operation_status: {}, goods_status: {} },
-      },
-    });
-    resolvers[1](page([PAID_SALE]));
-    await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
+      const page = (rows) => ({
+        data: {
+          sales: rows.map((row) => (row.group_key ? row : asGroup(row))),
+          total: rows.length,
+          limit: 50,
+          offset: 0,
+          facets: { operation_status: {}, goods_status: {} },
+        },
+      });
+      resolvers[1](page([PAID_SALE]));
+      await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
 
-    resolvers[0](page([ML_COVERED_SALE]));
-    await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
+      resolvers[0](page([ML_COVERED_SALE]));
+      await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
 
-    expect(screen.queryByText('comprador2')).not.toBeInTheDocument();
+      expect(screen.queryByText('comprador2')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

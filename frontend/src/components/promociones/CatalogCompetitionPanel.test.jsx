@@ -197,10 +197,8 @@ describe('CatalogCompetitionPanel', () => {
 describe('CatalogCompetitionPanel — refresh permission gate', () => {
   afterEach(() => mockTienePermiso.mockReturnValue(true));
 
-  it('hides the refresh button without promos.escribir', async () => {
-    // The read only needs promos.ver. Showing a refresh a view-only user
-    // cannot use would just hand them a 403.
-    mockTienePermiso.mockImplementation((perm) => perm !== 'promos.escribir');
+  it('hides the refresh button without promos.ver', async () => {
+    mockTienePermiso.mockImplementation((perm) => perm !== 'promos.ver');
     promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
       data: { mla: 'MLA001', fetch_status: 'ok', undercutting: [] },
     });
@@ -210,7 +208,7 @@ describe('CatalogCompetitionPanel — refresh permission gate', () => {
     expect(screen.queryByRole('button', { name: /refrescar competencia de catálogo/i })).not.toBeInTheDocument();
   });
 
-  it('shows the refresh button with promos.escribir', async () => {
+  it('shows the refresh button with promos.ver', async () => {
     promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
       data: { mla: 'MLA001', fetch_status: 'ok', undercutting: [] },
     });

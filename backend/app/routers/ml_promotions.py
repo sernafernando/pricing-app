@@ -902,7 +902,7 @@ def obtener_competencia_catalogo(
 @router.post("/catalogo-competencia/{mla_id}/refresh", response_model=CatalogCompetitionSnapshot)
 def refrescar_competencia_catalogo_item(
     mla_id: str,
-    current_user: Usuario = Depends(require_promos_write()),
+    current_user: Usuario = Depends(require_promos_read()),
     db: Session = Depends(get_db),
 ) -> CatalogCompetitionSnapshot:
     """
@@ -922,7 +922,9 @@ def refrescar_competencia_catalogo_item(
     handlers `def` al threadpool, y `resolve_maybe_async` puentea la parte
     async del cliente — el mismo patrón que `refrescar_promociones_item`.
 
-    Requiere permiso: promos.escribir
+    Requiere permiso: promos.ver — this is a catalog snapshot refresh, not a
+    promo enroll/remove; same read gate as GET (aligned with item-promotions
+    mirror refresh).
     """
     rows = resolve_maybe_async(refrescar_competencia_catalogo(db, [mla_id]))
     row = rows[0] if rows else None

@@ -16,8 +16,8 @@ Spec coverage:
          in `undercutting`.
   same_bucket — all same-bucket competitors (any price), cheapest-first;
          undercutting remains the cheaper-only list.
-  Permissions: promos.ver gates the read, promos.escribir gates the
-  refresh — same split as the sibling promo endpoints.
+  Permissions: promos.ver gates both the read and the catalog refresh
+  (refresh is a snapshot pull, not a promo write).
 """
 
 from __future__ import annotations
@@ -212,7 +212,7 @@ class TestRefreshEndpoint:
         writer.assert_awaited_once()
         called_db, called_mlas = writer.await_args.args
         assert called_mlas == ["MLA444"]
-        assert "promos.escribir" in fake_service.calls
+        assert "promos.ver" in fake_service.calls
 
     def test_missing_permission_returns_403_no_writer_call(self, client: TestClient, db) -> None:
         fake_service = _FakePermisosService(allowed=False)
