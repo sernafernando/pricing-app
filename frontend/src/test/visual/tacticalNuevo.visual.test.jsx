@@ -117,7 +117,8 @@ describe.each([
 
     window.scrollTo(0, document.documentElement.scrollHeight);
     const last = document.querySelector('[role="group"][aria-label="Línea 2"]').getBoundingClientRect();
-    const bar = document.querySelector('[aria-live="polite"]').parentElement;
+    // Sticky summary only — TacticalDatos also has aria-live for the tope preview.
+    const bar = document.querySelector('[data-testid="tactical-stickybar"]');
     expect(last.bottom).toBeLessThanOrEqual(bar.getBoundingClientRect().top + 0.5);
     if (SHOTS_DIR) {
       await page.screenshot({ path: `${SHOTS_DIR}/tactical-${tipo}-lineas-${theme}-${width}.png` });
