@@ -1,8 +1,8 @@
 /**
  * The catalog competition of a product's publications (publicaciones-ml-paridad-productos S12b), as Productos'
  * publication tree shows it ("Competencia catálogo", `GET /promociones/catalogo-competencia/{mla}`): one entry per
- * catalog publication, opened on demand. Only with `promos.ver`, the permission that endpoint requires; refreshing
- * needs `promos.escribir`, as in Productos.
+ * catalog publication, opened on demand. Read and snapshot refresh both need `promos.ver` (refresh is not a
+ * promo enroll/remove).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -100,18 +100,17 @@ describe('opening a publication', () => {
     expect(promocionesAPI.getCompetenciaCatalogo).toHaveBeenCalledTimes(1);
   });
 
-  it('offers no refresh without promos.escribir', async () => {
+  it('offers refresh with only promos.ver', async () => {
     const user = userEvent.setup();
     renderCompetition();
 
     await user.click(screen.getByRole('button', { name: 'Competencia de catálogo de MLA100' }));
     await screen.findByText('COMPETIDOR SA');
 
-    expect(screen.queryByRole('button', { name: 'Refrescar competencia de catálogo de MLA100' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Refrescar competencia de catálogo de MLA100' })).toBeInTheDocument();
   });
 
-  it('refreshes one publication with promos.escribir and shows the new snapshot', async () => {
-    granted = new Set(['promos.ver', 'promos.escribir']);
+  it('refreshes one publication with promos.ver and shows the new snapshot', async () => {
     promocionesAPI.refreshCompetenciaCatalogo.mockResolvedValue({ data: {} });
     const user = userEvent.setup();
     renderCompetition();
