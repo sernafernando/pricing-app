@@ -648,7 +648,8 @@ class TestSellInMontoTotal:
 
 
 class TestStoreScope:
-    def test_scoped_create_persists_targets_and_shared_cap(self, db, engine) -> None:
+    def test_scoped_create_persists_targets_and_shared_cap(self, db, engine, monkeypatch) -> None:
+        monkeypatch.setattr(service, "TIPOS_CON_ALCANCE", frozenset({"sell_out", "sell_in"}))
         db.add(MlTiendaOficial(store_id=57997, nombre="GaussOnline", clave="gauss", orden=1, activa=True))
         db.add(MlTiendaOficial(store_id=2645, nombre="TP-Link", clave="tplink", orden=2, activa=True))
         db.flush()
