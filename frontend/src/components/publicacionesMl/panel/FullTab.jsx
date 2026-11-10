@@ -1,4 +1,4 @@
-import { amount, count, date, day, orNull } from './format';
+import { amount, count, date, day, orNull, units } from './format';
 import { replenishmentDisabled } from './detailModel';
 import { Field, Fields, Section } from './PanelParts';
 import cellStyles from '../cells.module.css';
@@ -17,8 +17,7 @@ function StockSection({ row, detail }) {
   return (
     <Section title="Stock ML">
       <Fields>
-        <Field label="Full">{count(stock.full)}</Field>
-        <Field label="Propio">{count(stock.own)}</Field>
+        <Field label="Full">{units(stock.full)}</Field>
         <Field label="Actualizado">{date(detail.stockAsOf ?? stock.as_of)}</Field>
       </Fields>
     </Section>
@@ -78,7 +77,10 @@ function ReplenishmentSection({ detail, disabled }) {
   );
 }
 
-/** Full: stock in Full and Propio, and the replenishment report of the publication's user product. */
+/**
+ * Full: the stock in Full and the replenishment report of the publication's user product. The published quantity
+ * outside Full is not a stock (owner, 2026-11-10) and is not shown.
+ */
 export default function FullTab({ detail, dataState }) {
   return (
     <>

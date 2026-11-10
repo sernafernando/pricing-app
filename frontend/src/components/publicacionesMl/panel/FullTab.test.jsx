@@ -1,5 +1,5 @@
 /**
- * Full tab (publicaciones-ml-vista P13a.T3): stock in Full and Propio, and the
+ * Full tab (publicaciones-ml-vista P13a.T3): stock in Full, and the
  * replenishment report (sales 7/14/21/30 days, GMV, days out of stock). A
  * partial report is badged; a flag that is off says why instead of showing
  * invented zeros.
@@ -19,10 +19,10 @@ const valueOf = (name, label) => within(section(name)).getByText(label, { select
 const withReplenishment = (overrides) => makeDetail({ replenishment: { ...REPLENISHMENT_OK, ...overrides } });
 
 describe('stock', () => {
-  it('shows Full and Propio and when they were read', () => {
+  it('shows Full and when it was read; the published quantity ("Propio") is not a stock and is not shown (S7)', () => {
     renderTab();
     expect(valueOf('Stock ML', 'Full')).toHaveTextContent('20');
-    expect(valueOf('Stock ML', 'Propio')).toHaveTextContent('14');
+    expect(within(section('Stock ML')).queryByText('Propio')).not.toBeInTheDocument();
     expect(valueOf('Stock ML', 'Actualizado').textContent).toMatch(/\d{2}\/\d{2}\/\d{4}/);
   });
 });

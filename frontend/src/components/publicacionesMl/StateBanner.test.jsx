@@ -40,7 +40,8 @@ describe('StateBanner', () => {
     const banner = screen.getByRole('status');
     expect(banner).toHaveTextContent('Solo se sincronizan los datos básicos');
     expect(banner).toHaveTextContent('precio de oferta');
-    expect(banner).toHaveTextContent('stock Full y Propio');
+    expect(banner).toHaveTextContent('stock Full');
+    expect(banner).not.toHaveTextContent('Propio');
   });
 
   it('S67.3: a status that could not be read is neutral, not an error', () => {

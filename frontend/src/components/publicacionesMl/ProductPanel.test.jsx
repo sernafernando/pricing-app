@@ -123,6 +123,7 @@ const ITEMS = [
     status: 'active',
     price: { amount: 98500, source: 'sale_price', regular_amount: null },
     stock: { available: 34, full: 20, own: 14 },
+    stock_total: 12520,
     metrics: { units_30d: 41 },
     markup: { min: 12.5, max: 12.5, partial: 0 },
   }),
@@ -403,6 +404,10 @@ describe('ProductPanel', () => {
     renderPanel({ productKey: '0', state: hookState({ summary: NO_PRODUCT }) });
     const section = screen.getByRole('region', { name: 'Publicaciones' });
     expect(within(section).getAllByRole('listitem')).toHaveLength(ITEMS.length);
+    // Each publication's Stock is the table's total (ERP + Full), thousands grouped, never the published quantity (S7).
+    const [first, second] = within(section).getAllByRole('listitem');
+    expect(within(first).getByText('Stock').parentElement).toHaveTextContent(/^Stock12\.520$/);
+    expect(within(second).getByText('Stock').parentElement).toHaveTextContent(/^Stock—$/);
     expect(ProductoMLAsPanel).not.toHaveBeenCalled();
     expect(productosAPI.getProductoTree).not.toHaveBeenCalled();
   });
