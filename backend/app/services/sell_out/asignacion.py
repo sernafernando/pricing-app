@@ -58,7 +58,8 @@ Fixed totals (T26b, S34/S35): a `monto_total` campaign's manual shares
 product's sales the campaign reaches in its dates, the same sale set and
 returns as the other kinds (`tope.asignar` keeps the net units, with no money),
 by units (`reparto.repartir`), or, split `unidades`, the whole total over every unit of its reach
-(`reparto.repartir_por_unidades`); the rows may be negative (a deduction). A share
+(`reparto.repartir_por_unidades`), or, split `iguales`, equal parts among the products that sold
+(`reparto.repartir_entre_vendidos`); the rows may be negative (a deduction). A share
 whose product sold nothing there and the unassigned remainder write nothing
 (`reparto.resumen_monto_total`). VAT and currency as for a per-unit amount: a
 share loaded with VAT is divided by its own product's VAT; the share is in the
@@ -362,7 +363,8 @@ def _asignar(
         total = c.tipo == "monto_total"
         # Only its shared products, or its whole reach split by units; it is not limited by the units others hold
         # (module docstring).
-        if total and c.reparto_criterio != reparto.UNIDADES:
+        criterio = reparto.criterio_sell_out(c.reparto_criterio)
+        if total and criterio not in reparto.SIN_CUOTAS:
             alcance_c = {i: iva for i, iva in alcance_c.items() if i in repartos.get(c.id, {})}
         antes = [] if total else [p.id for p in activas if p.id < c.id and not (p.acumulable and c.acumulable)]
         lineas, libres, admitidas = [], {}, set()
@@ -421,7 +423,7 @@ def _asignar(
             consumos = tope.asignar(campana_tope, lineas, por_linea=por_linea)
         if total:
             mt = reparto.MontoTotal(
-                c.monto_total, repartos.get(c.id, {}), c.monto_incluye_iva, alcance_c, criterio=c.reparto_criterio
+                c.monto_total, repartos.get(c.id, {}), c.monto_incluye_iva, alcance_c, criterio=criterio
             )
             try:
                 salida[c.id] = reparto.repartir(mt, consumos)

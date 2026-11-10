@@ -424,7 +424,7 @@ def _asignar_items(db: Session, campana: SellOutCampana, data: SellOutCampanaIn,
     elif data.items is not None:
         campana.reparto_criterio = None  # shares sent: a manual split
     elif campana.reparto_criterio is not None:
-        if resplit and campana.reparto_criterio != criterio_service.UNIDADES:
+        if resplit and campana.reparto_criterio in criterio_service.FIJOS_SELL_OUT:
             _aplicar_criterio(db, campana, campana.reparto_criterio)  # kept, over the new total or groups
         _validar_suma(db, campana)
         return
@@ -438,12 +438,13 @@ def _asignar_items(db: Session, campana: SellOutCampana, data: SellOutCampanaIn,
 
 
 def _aplicar_criterio(db: Session, campana: SellOutCampana, criterio: str) -> None:
-    """Store `criterio` and its shares (`criterio.cuotas`; none for `unidades`), replacing the stored ones.
+    """Store `criterio` and its shares (`criterio.cuotas`; none for `unidades` nor `iguales`, which the allocator
+    splits among the products that sold, tactical iguales sell out S2), replacing the stored ones.
     `criterio.CriterioError` rolls back as the operator's `SellOutError`."""
     try:
         pedidos = (
             {}
-            if criterio == criterio_service.UNIDADES
+            if criterio not in criterio_service.FIJOS_SELL_OUT
             else {
                 i: {"monto_unit": None, "reparto_porcentaje": None, "reparto_monto": m}
                 for i, m in criterio_service.cuotas(db, campana, criterio).items()

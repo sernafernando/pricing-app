@@ -250,8 +250,8 @@ def test_a_campaign_split_by_a_criterion_renews_with_it_and_splits_again(engine,
         nueva = campanas.crear_campana(db, draft, USUARIO)
         assert nueva.reparto_criterio == criterio
         compartidas = {i["item_id"]: i["reparto_monto"] for i in campanas.items_de(db, [nueva.id])[nueva.id]}
-    esperado = {2964: Decimal("100.00"), 2270: Decimal("100.00")} if criterio == "iguales" else {}
-    assert compartidas == esperado
+    # Neither stores a share: sell out equal parts go to the products that sold (tactical iguales sell out S2).
+    assert compartidas == {}
 
 
 def test_a_manual_split_renews_its_shares_as_today(engine, Sesion) -> None:

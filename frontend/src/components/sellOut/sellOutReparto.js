@@ -20,6 +20,24 @@ export const CRITERIOS = REPARTOS;
 /** The stored criterion as the screen names it: "Manual" when the shares were typed by hand. */
 export const nombreDeCriterio = (criterio) => CRITERIOS.find((c) => c.value === criterio)?.label ?? 'Manual';
 
+/** Today as the API's `YYYY-MM-DD`, in local time. */
+const hoyIso = (hoy) =>
+  `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+
+/** Criteria whose total goes only to the products with sales in the range (equal parts, by cost). */
+const SOLO_VENDIDOS = { iguales: 'en partes iguales', costo: 'según el costo' };
+
+/**
+ * The note of a split that can still move because its range is not over, or null: sell out in equal parts or by
+ * cost goes only to the products with sales, so until `fecha_hasta` ends it is split among those that sold so far
+ * (the backend rebuilds it with every sale or return dated in the range).
+ */
+export const notaProvisional = (campana, hoy = new Date()) => {
+  const como = SOLO_VENDIDOS[campana.reparto_criterio];
+  if (!como || !campana.fecha_hasta || campana.fecha_hasta < hoyIso(hoy)) return null;
+  return `Provisional: se reparte ${como} entre los productos con ventas hasta hoy; al terminar el rango queda entre los que vendieron.`;
+};
+
 export const MODO_PORCENTAJE = 'porcentaje';
 export const MODO_MONTO = 'monto';
 

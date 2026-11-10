@@ -28,8 +28,35 @@ const NEGATIVA_CON_REPARTO = {
   },
 };
 
+// Equal parts among the products that sold, range not over yet: the "Provisional" note (tactical iguales sell out S3).
+const IGUALES_PROVISIONAL = {
+  ...CAMPANA_MONTO_TOTAL,
+  reparto_criterio: 'iguales',
+  items: [],
+  fecha_hasta: '2999-12-31',
+  resumen: {
+    ...CAMPANA_MONTO_TOTAL.resumen,
+    reparto: { asignado: '2000000.00', asignado_sin_ventas: '0.00', sin_asignar: '0.00', motivo: null },
+  },
+};
+
+// By cost, range not over: its stored cost shares (reference) under the "Provisional" note (orchestrator L2).
+const COSTO_PROVISIONAL = {
+  ...CAMPANA_MONTO_TOTAL,
+  reparto_criterio: 'costo',
+  fecha_hasta: '2999-12-31',
+  items: CAMPANA_MONTO_TOTAL.items.map((item, i) => ({
+    ...item,
+    reparto_porcentaje: null,
+    reparto_monto: i === 0 ? '1500000.00' : '500000.00',
+  })),
+  resumen: IGUALES_PROVISIONAL.resumen,
+};
+
 const CASOS = [
   ['editable', CAMPANA_MONTO_TOTAL, true],
+  ['iguales-provisional', IGUALES_PROVISIONAL, false],
+  ['costo-provisional', COSTO_PROVISIONAL, false],
   ['negativa', NEGATIVA_CON_REPARTO, true],
   ['lectura', CAMPANA_MONTO_TOTAL, false],
 ];
