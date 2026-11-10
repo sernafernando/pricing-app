@@ -46,6 +46,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 from sqlalchemy import Integer, String, and_, cast, func, literal, or_, select, union_all
 from sqlalchemy.orm import Session
 
+from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado as Pub
 from app.models.ml_sale_line import MlSaleLine
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.producto import ProductoERP
@@ -69,32 +70,21 @@ class Venta:
     store_id: Optional[int] = None
 
 
-def _stores_por_mla(db: Session, mlas: Set[str]) -> Dict[str, Optional[int]]:
-    """Current `mlp_official_store_id` per MLA (latest publicado row for that publication id).
-
-    Missing table / empty map → every MLA looks like sin_tienda (store_id None).
-    """
+def stores_por_mla(db: Session, mlas: Set[str]) -> Dict[str, Optional[int]]:
+    """Current `mlp_official_store_id` per MLA (latest publicado row for that publication id): the store a sale is
+    credited under. The allocators, the cost lines and the markup context all read it here. An MLA with no row, or
+    a row with no store, is sin_tienda (None). A failing read raises: the allocators write only the difference, so
+    an empty map would silently drop the credits of every store-scoped tactical."""
     if not mlas:
         return {}
-    from sqlalchemy.exc import ProgrammingError
-
-    from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado as Pub
-
-    try:
-        with db.begin_nested():
-            latest = (
-                select(func.max(Pub.mlp_id).label("mlp_id"))
-                .where(Pub.mlp_publicationID.isnot(None), Pub.mlp_publicationID.in_(list(mlas)))
-                .group_by(Pub.mlp_publicationID)
-                .subquery()
-            )
-            rows = db.query(Pub.mlp_publicationID, Pub.mlp_official_store_id).join(
-                latest, Pub.mlp_id == latest.c.mlp_id
-            )
-            return {str(mla): (int(store) if store is not None else None) for mla, store in rows}
-    except ProgrammingError:
-        # Throwaway schemas / labs without the publicados table: treat every MLA as sin_tienda.
-        return {}
+    latest = (
+        select(func.max(Pub.mlp_id).label("mlp_id"))
+        .where(Pub.mlp_publicationID.isnot(None), Pub.mlp_publicationID.in_(list(mlas)))
+        .group_by(Pub.mlp_publicationID)
+        .subquery()
+    )
+    rows = db.query(Pub.mlp_publicationID, Pub.mlp_official_store_id).join(latest, Pub.mlp_id == latest.c.mlp_id)
+    return {str(mla): (int(store) if store is not None else None) for mla, store in rows}
 
 
 def _positivo(x: Decimal) -> bool:
@@ -287,7 +277,7 @@ def ventas(db: Session, item_ids: Set[int], desde: date, hasta: date) -> List[Ve
             MlSaleLine.mla,
         ).filter(MlSaleLine.product.in_(ids), MlSaleLine.day.between(desde, hasta), MlSaleLine.qty > 0)
     )
-    stores = _stores_por_mla(db, {mla for *_, mla in ml_rows})
+    stores = stores_por_mla(db, {mla for *_, mla in ml_rows})
     salida = [
         Venta(
             "ml",

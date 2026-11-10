@@ -26,11 +26,6 @@ pytestmark = pytest.mark.postgres
 D = date
 TP_ROUTERS = {"marca": "TP-LINK", "categoria": "Routers"}
 GAUSS, TPLINK = 57997, 2645
-# The publication's official store, as the sell out reach reads it (latest `mlp_official_store_id` per MLA).
-PUBLICADOS = (
-    "CREATE TABLE tb_mercadolibre_items_publicados ("
-    "mlp_id SERIAL PRIMARY KEY, mlp_publicationid VARCHAR(50), mlp_official_store_id INTEGER)"
-)
 
 
 @pytest.fixture(scope="module")
@@ -38,7 +33,7 @@ def engine() -> Iterator[Engine]:
     with throwaway_schema(
         "sell_out_tienda",
         [*w.TABLES, MlTiendaOficial.__table__, TacticalTienda.__table__],
-        [*w.STUBS, PUBLICADOS],
+        w.STUBS,
         after=_install,
     ) as engine:
         yield engine

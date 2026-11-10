@@ -30,10 +30,11 @@ from app.models.sell_in import (
 from app.models.tipo_cambio import TipoCambio
 from app.services.sell import queue as sell_queue
 from app.services.sell_in import bono_queue
-from tests.services.sell._schema import throwaway_schema
+from tests.services.sell._schema import PUBLICADOS, throwaway_schema
 from tests.services.sell_in import _world as w
 
 STUBS = [
+    PUBLICADOS,
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
     "CREATE TABLE proveedores (id INTEGER PRIMARY KEY, nombre TEXT)",
     "CREATE TABLE pedidos_compra (id BIGINT PRIMARY KEY, numero TEXT NOT NULL, proveedor_id INTEGER NOT NULL, "
