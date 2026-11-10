@@ -77,6 +77,7 @@ class TipoAccion(str, enum.Enum):
     GESTION_FULL_LOCKED = "gestion_full_locked"
     GESTION_FULL_CAJA = "gestion_full_caja"
     GESTION_FULL_CAJA_IMPORT = "gestion_full_caja_import"
+    GESTION_FULL_PLAN_RESET = "gestion_full_plan_reset"
 
 
 class Auditoria(Base):

@@ -346,4 +346,23 @@ describe('GestionFull', () => {
     fireEvent.click(tab);
     expect(screen.getByText('Envío tab body')).toBeInTheDocument();
   });
+
+  it('hides plan reset for non-gestor; gestor can confirm wipe', async () => {
+    api.get.mockResolvedValue({ data: { total: 0, items: [], puede_editar_override: false } });
+    render(<GestionFull />);
+    await waitFor(() => expect(api.get).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: /Reset overrides y Qty PM/i })).not.toBeInTheDocument();
+
+    tienePermisoMock.mockImplementation((code) => code === 'gestion_full.gestor');
+    api.post.mockResolvedValue({ data: { overrides_deleted: 2, pm_ready_deleted: 1 } });
+    render(<GestionFull />);
+    await waitFor(() => expect(api.get).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole('button', { name: /Reset overrides y Qty PM/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Resetear todo$/i }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/gestion-full/plan/reset');
+    });
+  });
 });

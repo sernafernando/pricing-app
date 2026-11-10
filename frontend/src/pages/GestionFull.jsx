@@ -3,6 +3,7 @@ import { Search } from 'lucide-react';
 import api from '../services/api';
 import { useDebounce } from '../hooks/useDebounce';
 import { usePermisos } from '../contexts/PermisosContext';
+import ModalTesla, { ModalFooterButtons } from '../components/ModalTesla';
 import ProductFiltersPanel from '../components/shared/ProductFiltersPanel';
 import GestionFullDepositosTab from '../components/gestionFull/GestionFullDepositosTab';
 import GestionFullGestorTab from '../components/gestionFull/GestionFullGestorTab';
@@ -57,6 +58,9 @@ export default function GestionFull() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [saveError, setSaveError] = useState(null);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetMsg, setResetMsg] = useState(null);
   const debouncedQ = useDebounce(q, 300);
   // After Listo/Desbloquear we only need rows; keep panel options and skip the facet DISTINCT.
   const skipFacetsRef = useRef(false);
@@ -120,6 +124,27 @@ export default function GestionFull() {
     setFullMode('en');
     setIncludeZeroStock(false);
     setSoloListo(false);
+  };
+
+  const confirmPlanReset = async () => {
+    if (!puedeGestorPerm || resetBusy) return;
+    setResetBusy(true);
+    setSaveError(null);
+    setResetMsg(null);
+    try {
+      const { data } = await api.post('/gestion-full/plan/reset');
+      setResetOpen(false);
+      setResetMsg(
+        `Reset: ${data.overrides_deleted ?? 0} override(s), ${data.pm_ready_deleted ?? 0} Qty PM`,
+      );
+      skipFacetsRef.current = true;
+      setListNonce((n) => n + 1);
+    } catch {
+      setSaveError('No se pudo resetear Planificación');
+      setResetOpen(false);
+    } finally {
+      setResetBusy(false);
+    }
   };
 
   const onDraftChange = (inventoryId, value) => {
@@ -313,11 +338,22 @@ export default function GestionFull() {
         <button type="button" className={styles.clearBtn} onClick={clearFilters}>
           Limpiar
         </button>
+        {puedeGestorPerm && (
+          <button
+            type="button"
+            className={styles.resetBtn}
+            onClick={() => setResetOpen(true)}
+            disabled={resetBusy}
+          >
+            Reset overrides y Qty PM
+          </button>
+        )}
         <span className={styles.meta}>{total} filas</span>
       </div>
 
       {loadError && <div className={styles.error}>{loadError}</div>}
       {saveError && <div className={styles.error}>{saveError}</div>}
+      {resetMsg && <div className={styles.meta}>{resetMsg}</div>}
       {loading && <div className={styles.loading}>Cargando…</div>}
 
       {!loading && !loadError && (
@@ -437,6 +473,30 @@ export default function GestionFull() {
       )}
       </div>
       )}
+
+      <ModalTesla
+        isOpen={resetOpen}
+        onClose={() => (resetBusy ? null : setResetOpen(false))}
+        title="Resetear Planificación"
+        subtitle="Borra todos los overrides y Qty PM (Listo). No toca el paquete de envío ni U/caja."
+        closeOnOverlay={!resetBusy}
+        closeOnEsc={!resetBusy}
+        size="sm"
+        footer={
+          <ModalFooterButtons
+            cancelText="Cancelar"
+            confirmText="Resetear todo"
+            confirmVariant="outline-subtle-danger"
+            confirmLoading={resetBusy}
+            onCancel={() => setResetOpen(false)}
+            onConfirm={confirmPlanReset}
+          />
+        }
+      >
+        <p className={styles.meta}>
+          Solo el gestor puede hacer esto. Los PMs no tienen esta acción. No se puede deshacer.
+        </p>
+      </ModalTesla>
     </div>
   );
 }

@@ -46,6 +46,7 @@ GESTOR_ENDPOINTS = [
     ("post", f"{BASE}/package/assign-inbound", {"inbound_id": "X", "line_ids": [1]}),
     ("post", f"{BASE}/package/remove-lines", {"line_ids": [1]}),
     ("get", f"{BASE}/package/export/ml", None),
+    ("post", f"{BASE}/plan/reset", None),
 ]
 
 
