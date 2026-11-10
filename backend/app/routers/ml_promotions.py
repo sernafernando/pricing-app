@@ -379,9 +379,7 @@ def _to_competitor_price(competitor: Dict[str, Any]) -> CatalogCompetitorPrice:
     return CatalogCompetitorPrice(**{key: competitor.get(key) for key in CatalogCompetitorPrice.model_fields})
 
 
-def _enrich_competitors_markup_sell_in_out(
-    db: Session, mla: str, competitors: List[CatalogCompetitorPrice]
-) -> None:
+def _enrich_competitors_markup_sell_in_out(db: Session, mla: str, competitors: List[CatalogCompetitorPrice]) -> None:
     """Overwrite each competitor's `markup_sell_in_out` with TODAY's sell in /
     sell out companion (same basis as the promos panel next to this ranking).
 
@@ -403,14 +401,10 @@ def _enrich_competitors_markup_sell_in_out(
         if price is None:
             competitor.markup_sell_in_out = None
             continue
-        competitor.markup_sell_in_out = _markup_sell_in_out_seguro(
-            db, context, batch, float(price), mla
-        )
+        competitor.markup_sell_in_out = _markup_sell_in_out_seguro(db, context, batch, float(price), mla)
 
 
-def _snapshot_to_response(
-    mla: str, row: Optional[Any], db: Optional[Session] = None
-) -> CatalogCompetitionSnapshot:
+def _snapshot_to_response(mla: str, row: Optional[Any], db: Optional[Session] = None) -> CatalogCompetitionSnapshot:
     """Shared row -> response mapping for both the read and refresh
     endpoints, so they can never drift on how `never` / `undercutting`
     are derived. When `db` is provided, competitor `markup_sell_in_out`
