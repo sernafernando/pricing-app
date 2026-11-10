@@ -169,7 +169,12 @@ describe('ModalRma - ML sale from our stored ML sales', () => {
   });
 
   it('keeps showing the serial of a product that has one', async () => {
-    ventaGuardada.seriales = [{ ...ventaGuardada.seriales[0], serial: 'SN-PRUEBA-1', cantidad: null }];
+    const conSerie = { ...ventaGuardada, seriales: [{ ...ventaGuardada.seriales[0], serial: 'SN-PRUEBA-1', cantidad: null }] };
+    api.get.mockImplementation((url) => {
+      if (url === `/seriales/traza/ml/${PACK_GUARDADO}`) return Promise.resolve({ data: conSerie });
+      if (url.startsWith('/seriales/traza/')) return Promise.reject(new Error('404'));
+      return Promise.resolve({ data: [] });
+    });
     render(<ModalRma caso={null} onClose={() => {}} />);
     const input = screen.getByPlaceholderText('Ingresar serie o ID de venta ML...');
     fireEvent.change(input, { target: { value: PACK_GUARDADO } });

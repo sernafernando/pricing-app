@@ -34,3 +34,6 @@ El historial completo del producto con ese número de serie.
 
 **¿Qué puedo consultar por cliente?**
 Las ventas, facturas y pedidos asociados a ese cliente (por número, DNI/CUIT o usuario ML).
+
+**¿Qué puedo consultar por ML ID?**
+La venta de MercadoLibre por su número de venta, de compra (paquete) o de envío, con sus productos, que salen de las ventas guardadas en **Ventas ML**. Cada pedido muestra su número del ERP (#...); si el ERP todavía no tiene pedido para esa venta, aparece como **Venta ML #** seguido del número de venta.

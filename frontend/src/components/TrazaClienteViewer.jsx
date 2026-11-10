@@ -37,6 +37,7 @@ import {
   Calendar,
 } from 'lucide-react';
 import styles from './TrazaClienteViewer.module.css';
+import { pedidoKey, pedidoLabel } from '../utils/trazaPedido';
 
 function formatFecha(fecha) {
   if (!fecha) return '\u2014';
@@ -247,12 +248,12 @@ function PedidosSection({ pedidos }) {
 
   if (!pedidos || pedidos.length === 0) return null;
 
-  const toggleExpand = (sohId) => {
+  const toggleExpand = (key) => {
     const next = new Set(expandedRows);
-    if (next.has(sohId)) {
-      next.delete(sohId);
+    if (next.has(key)) {
+      next.delete(key);
     } else {
-      next.add(sohId);
+      next.add(key);
     }
     setExpandedRows(next);
   };
@@ -273,14 +274,15 @@ function PedidosSection({ pedidos }) {
         </thead>
         <tbody>
           {pedidos.map((p) => {
-            const isExpanded = expandedRows.has(p.soh_id);
+            const key = pedidoKey(p);
+            const isExpanded = expandedRows.has(key);
             const allSeriales = (p.lineas || []).flatMap((l) => l.seriales || []);
 
             return (
-              <Fragment key={p.soh_id}>
+              <Fragment key={key}>
                 <tr
                   className={`${styles.row} ${styles.rowClickable} ${isExpanded ? styles.rowExpanded : ''}`}
-                  onClick={() => toggleExpand(p.soh_id)}
+                  onClick={() => toggleExpand(key)}
                 >
                   <td className={styles.tdExpand}>
                     <ChevronRight
@@ -289,7 +291,7 @@ function PedidosSection({ pedidos }) {
                     />
                   </td>
                   <td>{formatFecha(p.fecha)}</td>
-                  <td className={styles.monoCell}>#{p.soh_id}</td>
+                  <td className={styles.monoCell}>{pedidoLabel(p)}</td>
                   <td>
                     {p.estado && (
                       <span className={styles.estadoBadge}>{p.estado}</span>
