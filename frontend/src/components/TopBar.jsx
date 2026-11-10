@@ -13,6 +13,7 @@ import { useWeather } from '../hooks/useWeather';
 import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
 import { businessToday } from '../utils/dateRangePresets';
+import { toLocalDateString } from '../utils/dateUtils';
 import { defaultView } from '../utils/metricasMlUrl';
 import { buildMetricasMLParams } from '../utils/metricasMlParams';
 import { tpRequestParams } from '../utils/metricasMlTp';
@@ -29,8 +30,10 @@ export const TPLINK_LOGO_SRC = '/brand/tplink-logo-white.png';
  */
 function facturadoHoyParams(tpSolo, today = businessToday()) {
   const view = defaultView(today);
+  // The API reads the day as YYYY-MM-DD: a Date would travel as a UTC timestamp and get a 422.
+  const day = toLocalDateString(today);
   return {
-    ...buildMetricasMLParams({ ...view, fechaDesde: today, fechaHasta: today, tpSolo }),
+    ...buildMetricasMLParams({ ...view, fechaDesde: day, fechaHasta: day, tpSolo }),
     ...tpRequestParams(tpSolo),
     sort: view.sort.key,
     sort_dir: view.sort.desc ? 'desc' : 'asc',
@@ -69,7 +72,8 @@ export default function TopBar({ sidebarExpanded = true, sidebarHidden = false, 
       .then((res) => {
         if (!cancelled) setFacturadoHoy(res.data?.kpis?.gross?.value ?? null);
       })
-      .catch(() => {
+      .catch((error) => {
+        console.error('Facturado ML Hoy: the Métricas ML board request failed', error);
         if (!cancelled) setFacturadoHoy(null);
       })
       .finally(() => {
