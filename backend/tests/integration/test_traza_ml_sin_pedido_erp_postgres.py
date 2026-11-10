@@ -35,6 +35,11 @@ from tests.conftest import POSTGRES_TEST_URL, _postgres_reachable
 pytestmark = pytest.mark.postgres
 
 _TABLES = (
+    # Our stored ML sales, the trace's first source (empty here: these sales are known to the GBP side only).
+    "ml_orders_ops",
+    "ml_order_items_ops",
+    "ml_order_item_costos",
+    "publicaciones_ml",
     "productos_erp",
     "tb_category",
     "tb_commercial_transactions",

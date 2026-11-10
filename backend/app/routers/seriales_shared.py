@@ -242,6 +242,7 @@ class TrazaMLSerialItem(BaseModel):
     articulo: Optional[ArticuloInfo] = None
     movimientos: list[MovimientoSerial] = []
     rma: list[RMASerial] = []
+    cantidad: Optional[int] = None  # units sold, from our stored ML sale (products without serial)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -250,7 +251,7 @@ class TrazaMLResponse(BaseModel):
     """Respuesta completa de traza por venta ML"""
 
     ml_id: str
-    busqueda_por: str = "soh_mlid"  # soh_mlid | ml_pack_id | soh_mlguia | mlshippingid
+    busqueda_por: str = "soh_mlid"  # soh_mlid | ml_pack_id | soh_mlguia | mlshippingid | ventas_ml
     ml_ids_relacionados: list[str] = []
     shipping_ids_relacionados: list[str] = []
     pack_ids_relacionados: list[str] = []

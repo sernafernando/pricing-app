@@ -101,3 +101,86 @@ describe('ModalRma - ML sale without serials nor ERP order', () => {
     expect(screen.getByPlaceholderText('ID del cliente en ERP')).toHaveValue(null);
   });
 });
+
+// Reported 2026-11-10: "te comparto un caso que no me trae los datos en el pricing, numero de ML ..., son unos
+// cartuchos sin serie". The sale now comes from our stored ML sales (busqueda_por ventas_ml) with each product's
+// quantity sold.
+const PACK_GUARDADO = '2000000000000101';
+const ORDER_GUARDADA = '2000000000000102';
+
+const ventaGuardada = {
+  ...ventaSinPedidoErp,
+  ml_id: PACK_GUARDADO,
+  busqueda_por: 'ventas_ml',
+  ml_ids_relacionados: [ORDER_GUARDADA],
+  pack_ids_relacionados: [PACK_GUARDADO],
+  pedidos: [
+    {
+      soh_id: 0,
+      bra_id: 0,
+      fecha: '2026-11-07 14:30:00+00:00',
+      estado: 'paid',
+      cust_id: null,
+      cliente: 'COMPRADORPRUEBA',
+      cliente_dni: null,
+      cliente_telefono: null,
+      cliente_email: null,
+      ml_id: ORDER_GUARDADA,
+      shipping_id: 40000000101,
+    },
+  ],
+  seriales: [
+    {
+      serial: '',
+      articulo: { item_id: 601, codigo: 'CART-NEGRO', descripcion: 'Cartucho negro de prueba', marca: null, categoria: null },
+      movimientos: [],
+      rma: [],
+      cantidad: 2,
+    },
+  ],
+};
+
+describe('ModalRma - ML sale from our stored ML sales', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.get.mockImplementation((url) => {
+      if (url === '/rma-seguimiento/opciones' || url === '/rma-seguimiento/depositos') {
+        return Promise.resolve({ data: [] });
+      }
+      if (url === `/seriales/traza/ml/${PACK_GUARDADO}`) return Promise.resolve({ data: ventaGuardada });
+      return Promise.reject(new Error(`not found: ${url}`));
+    });
+  });
+
+  it('shows a product without serial with its code and quantity, and Agregar adds it', async () => {
+    render(<ModalRma caso={null} onClose={() => {}} />);
+    const input = screen.getByPlaceholderText('Ingresar serie o ID de venta ML...');
+    fireEvent.change(input, { target: { value: PACK_GUARDADO } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await screen.findByText(`Venta ML #${ORDER_GUARDADA}`);
+
+    const producto = screen.getByText('Cartucho negro de prueba').parentElement.parentElement;
+    expect(within(producto).getByText('CART-NEGRO · Cant. 2')).toBeInTheDocument();
+    fireEvent.click(within(producto).getByRole('button', { name: /Agregar/ }));
+
+    expect(screen.getByText('Artículos (1)')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('COMPRADORPRUEBA')).toBeInTheDocument();
+    expect(screen.getByDisplayValue(ORDER_GUARDADA)).toBeInTheDocument();
+  });
+
+  it('keeps showing the serial of a product that has one', async () => {
+    const conSerie = { ...ventaGuardada, seriales: [{ ...ventaGuardada.seriales[0], serial: 'SN-PRUEBA-1', cantidad: null }] };
+    api.get.mockImplementation((url) => {
+      if (url === `/seriales/traza/ml/${PACK_GUARDADO}`) return Promise.resolve({ data: conSerie });
+      if (url.startsWith('/seriales/traza/')) return Promise.reject(new Error('404'));
+      return Promise.resolve({ data: [] });
+    });
+    render(<ModalRma caso={null} onClose={() => {}} />);
+    const input = screen.getByPlaceholderText('Ingresar serie o ID de venta ML...');
+    fireEvent.change(input, { target: { value: PACK_GUARDADO } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await screen.findByText(`Venta ML #${ORDER_GUARDADA}`);
+
+    expect(screen.getByText('SN-PRUEBA-1')).toBeInTheDocument();
+  });
+});

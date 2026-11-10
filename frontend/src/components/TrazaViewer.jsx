@@ -19,6 +19,7 @@ import { ChevronRight, Package, FileText, ArrowRightLeft, Truck, AlertTriangle, 
 import api from '../services/api';
 import ClaimCards from './ClaimCards';
 import styles from './TrazaViewer.module.css';
+import { pedidoKey, pedidoLabel } from '../utils/trazaPedido';
 
 const TIPO_ICONS = {
   PROVEEDOR: Truck,
@@ -226,9 +227,9 @@ function PedidosSection({ pedidos }) {
       </div>
       <div className={styles.pedidosList}>
         {pedidos.map((p) => (
-          <div key={p.soh_id} className={styles.pedidoCard}>
+          <div key={pedidoKey(p)} className={styles.pedidoCard}>
             <div className={styles.pedidoMain}>
-              <span className={styles.codeBadge}>#{p.soh_id}</span>
+              <span className={styles.codeBadge}>{pedidoLabel(p)}</span>
               {p.cliente && <span>{p.cliente}</span>}
               {p.estado && (
                 <span className={styles.estadoBadge}>{p.estado}</span>
@@ -382,8 +383,8 @@ export default function TrazaViewer({ data, variant = 'serial', compact = false 
             </div>
           )}
           <PedidosSection pedidos={pedidos} />
-          {seriales.map((s) => (
-            <div key={s.serial} className={styles.serialBlock}>
+          {seriales.map((s, idx) => (
+            <div key={s.serial || `${s.articulo?.item_id ?? ''}-${idx}`} className={styles.serialBlock}>
               <div className={styles.serialSubheader}>
                 Serial: <strong>{s.serial}</strong>
               </div>
@@ -425,8 +426,8 @@ export default function TrazaViewer({ data, variant = 'serial', compact = false 
               </div>
             </div>
           )}
-          {seriales.map((s) => (
-            <div key={s.serial} className={styles.serialBlock}>
+          {seriales.map((s, idx) => (
+            <div key={s.serial || `${s.articulo?.item_id ?? ''}-${idx}`} className={styles.serialBlock}>
               <div className={styles.serialSubheader}>
                 Serial: <strong>{s.serial}</strong>
               </div>
