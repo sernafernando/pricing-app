@@ -479,7 +479,6 @@ describe('Renovar', () => {
     renderAt('/sell-in/tactical/nuevo?tipo=sell_out&renovar=1');
 
     expect(await screen.findByDisplayValue('Tacticals BPS Noviembre Q1FY27')).toBeInTheDocument();
-    await new Promise((resolve) => setTimeout(resolve, 50));
     expect(api.get.mock.calls.filter(([url]) => url === '/tacticals/1')).toHaveLength(1);
   });
 

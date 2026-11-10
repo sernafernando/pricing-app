@@ -64,4 +64,26 @@ describe('seleccionDesdeDetalle', () => {
       ),
     ).toEqual(['2645,471846', 'fuera']);
   });
+
+  it('keeps a saved store its group no longer covers, on its own, instead of dropping it', () => {
+    const tactical = { tiendas: [{ tipo: 'oficial', store_id: 2645 }, { tipo: 'oficial', store_id: 999 }] };
+
+    expect(seleccionDesdeDetalle(tactical, GRUPOS)).toEqual(['2645', '999']);
+    expect(tiendasDelContrato(false, seleccionDesdeDetalle(tactical, GRUPOS), GRUPOS)).toEqual([
+      { tipo: 'oficial', store_id: 2645 },
+      { tipo: 'oficial', store_id: 999 },
+    ]);
+  });
+
+  it('keeps every saved store when the store list failed to load', () => {
+    const tactical = { tiendas: [{ tipo: 'oficial', store_id: 57997 }, { tipo: 'tienda_nube', store_id: null }] };
+
+    expect(seleccionDesdeDetalle(tactical, [])).toEqual(['57997', 'tienda_nube']);
+  });
+
+  it('does not pick a group with no stores', () => {
+    const tactical = { tiendas: [{ tipo: 'oficial', store_id: 57997 }] };
+
+    expect(seleccionDesdeDetalle(tactical, [{ value: 'vacio', ids: [], label: 'Vacío' }, ...GRUPOS])).toEqual(['57997']);
+  });
 });

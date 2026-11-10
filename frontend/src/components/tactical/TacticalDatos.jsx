@@ -8,7 +8,7 @@
  * `gruposTiendas` are clave-collapsed official stores; `ejemploTope` drives the live cap preview.
  */
 import Seg from './Seg';
-import { CANALES_TACTICAL, previewTope } from './tacticalTiendas';
+import { CANALES_TACTICAL, esCanal, previewTope } from './tacticalTiendas';
 import styles from './TacticalDatos.module.css';
 
 const TIPOS = [
@@ -238,6 +238,16 @@ export default function TacticalDatos({
                     <span>{g.label}</span>
                   </label>
                 ))}
+              {!todasTiendas &&
+                tiendaKeys
+                  .filter((k) => !esCanal(k) && !gruposTiendas.some((g) => g.value === k))
+                  .map((k) => (
+                    // A renewed store no group covers any more: shown so it can be kept or unticked, never dropped.
+                    <label key={k} className={styles.check}>
+                      <input type="checkbox" checked onChange={() => toggleKey(k)} />
+                      <span>{`Tienda ${k}`}</span>
+                    </label>
+                  ))}
               {CANALES_TACTICAL.map((c) => (
                 <label key={c.value} className={styles.check}>
                   <input

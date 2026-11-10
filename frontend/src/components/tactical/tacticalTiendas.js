@@ -8,7 +8,7 @@ export const CANALES_TACTICAL = [
   { value: 'tienda_nube', label: 'Tienda Nube' },
 ];
 
-const esCanal = (key) => CANALES_TACTICAL.some((c) => c.value === key);
+export const esCanal = (key) => CANALES_TACTICAL.some((c) => c.value === key);
 
 /** Payload `tiendas[]` for POST /tacticals from the form selection. */
 export function tiendasDelContrato(todasTiendas, seleccionKeys, grupos = []) {
@@ -29,16 +29,24 @@ export function tiendasDelContrato(todasTiendas, seleccionKeys, grupos = []) {
   return tiendas;
 }
 
-/** Form selection keys from a tactical detail (renovar). */
+/**
+ * Form selection keys from a tactical detail (renovar). A saved store no whole group covers (its clave group changed,
+ * or the store list failed to load) stays as its own key, so renewing never narrows the scope behind the user's back.
+ */
 export function seleccionDesdeDetalle(tactical, grupos = []) {
   const keys = [];
   const storeIds = (tactical.tiendas ?? [])
     .filter((t) => t.tipo === 'oficial' && t.store_id != null)
     .map((t) => String(t.store_id));
+  const cubiertos = new Set();
   for (const grupo of grupos) {
-    if (grupo.ids.every((id) => storeIds.includes(id))) {
+    if (grupo.ids.length > 0 && grupo.ids.every((id) => storeIds.includes(id))) {
       keys.push(grupo.value);
+      grupo.ids.forEach((id) => cubiertos.add(id));
     }
+  }
+  for (const id of storeIds) {
+    if (!cubiertos.has(id)) keys.push(id);
   }
   for (const fila of tactical.tiendas ?? []) {
     if (fila.tipo === 'fuera' || fila.tipo === 'tienda_nube') keys.push(fila.tipo);

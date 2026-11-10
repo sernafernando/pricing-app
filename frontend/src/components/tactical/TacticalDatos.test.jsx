@@ -107,6 +107,18 @@ describe('TacticalDatos', () => {
     expect(within(screen.getByLabelText('Marca')).getAllByRole('option').map((o) => o.textContent)).toEqual(['Elegí una marca']);
   });
 
+  it('shows a renewed store no group covers as its own checked box, which can be unticked', async () => {
+    const user = userEvent.setup();
+    const onForm = vi.fn();
+    render(<Holder inicial={{ todasTiendas: false, tiendaKeys: ['999', 'fuera'] }} onForm={onForm} />);
+
+    const caja = screen.getByRole('checkbox', { name: 'Tienda 999' });
+    expect(caja).toBeChecked();
+    await user.click(caja);
+    expect(onForm).toHaveBeenLastCalledWith(expect.objectContaining({ tiendaKeys: ['fuera'] }));
+    expect(screen.queryByRole('checkbox', { name: 'Tienda 999' })).not.toBeInTheDocument();
+  });
+
   it('asks the exchange-rate mode only in USD, and the value only for a fixed rate', async () => {
     const user = userEvent.setup();
     const onForm = vi.fn();
