@@ -32,7 +32,7 @@ export default function TacticalEditar({ tactical, onCerrar, onGuardado }) {
 
   const guardar = async (e) => {
     e.preventDefault();
-    const problema = problemaDeEdicion(valores);
+    const problema = problemaDeEdicion(valores, tactical.por_factura);
     if (problema) {
       setError(problema);
       return;
@@ -85,16 +85,18 @@ export default function TacticalEditar({ tactical, onCerrar, onGuardado }) {
           <span>Nota</span>
           <textarea className={styles.control} rows={2} value={valores.nota} onChange={(e) => cambiar({ nota: e.target.value })} />
         </label>
-        <label className={styles.campo}>
-          <span>Fecha hasta</span>
-          <input
-            type="date"
-            className={styles.control}
-            min={desde}
-            value={valores.fechaHasta}
-            onChange={(e) => cambiar({ fechaHasta: e.target.value })}
-          />
-        </label>
+        {!tactical.por_factura && (
+          <label className={styles.campo}>
+            <span>Fecha hasta</span>
+            <input
+              type="date"
+              className={styles.control}
+              min={desde}
+              value={valores.fechaHasta}
+              onChange={(e) => cambiar({ fechaHasta: e.target.value })}
+            />
+          </label>
+        )}
 
         <fieldset className={styles.lineas}>
           <legend>Topes por línea</legend>

@@ -410,6 +410,32 @@ describe('what stops a save', () => {
   });
 });
 
+describe('an all-invoice sell in (factura sin fecha S2c)', () => {
+  it('asks no dates, says Por factura and sends none', async () => {
+    const user = userEvent.setup();
+    renderAt('/sell-in/tactical/nuevo?tipo=sell_in');
+    await user.type(screen.getByLabelText('Nombre'), 'Rebate factura');
+    await screen.findByRole('option', { name: 'TP-Link' });
+    await user.selectOptions(screen.getByLabelText('Marca'), 'TP-Link');
+    expect(screen.getByLabelText('Desde')).toBeInTheDocument();
+    await user.click(within(linea(1)).getByRole('button', { name: 'Factura' }));
+    await user.click(within(linea(1)).getByRole('button', { name: '+ Factura' }));
+    const picker = screen.getByRole('dialog', { name: 'Agregar facturas a la línea' });
+    await user.type(within(picker).getByLabelText('Buscar facturas'), '0003');
+    await user.click(await within(picker).findByRole('checkbox', { name: /FC A 0003-00012345/ }));
+    await user.click(within(picker).getByRole('button', { name: 'Agregar a la línea' }));
+    await user.type(within(linea(1)).getByLabelText('Monto de la línea 1'), '1000');
+
+    expect(screen.queryByLabelText('Desde')).not.toBeInTheDocument();
+    expect(screen.getByTestId('tactical-stickybar')).toHaveTextContent('Por factura');
+    await user.click(crear());
+
+    await waitFor(() => expect(api.post).toHaveBeenCalled());
+    expect(api.post.mock.calls[0][1]).toMatchObject({ fecha_desde: null, fecha_hasta: null });
+    expect(await screen.findByText('Listado de sell in?tab=tacticals')).toBeInTheDocument();
+  });
+});
+
 describe('leaving', () => {
   it('asks before discarding and goes back to the Tacticals tab', async () => {
     const user = userEvent.setup();

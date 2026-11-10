@@ -16,6 +16,7 @@ import {
   modosNoDisponibles,
   nuevaLinea,
   numeroDe,
+  porFactura,
   problemaDe,
   puedeCompartir,
   unidadesDelTope,
@@ -304,5 +305,28 @@ describe('a sell in total amount split among the line\'s products (S4)', () => {
       { alcance: 'factura', pedido_compra_id: 9001, modo_monto: 'monto_total', valor: 850000, tope_unidades: null, tope_monto: null },
     ]);
     expect(problemaDe(SELL_IN, [{ ...factura, reparto: '' }])).toBeNull();
+  });
+});
+
+describe('a tactical whose lines are all invoice lines (factura sin fecha S2c)', () => {
+  const SELL_IN = { ...FORM, tipo: 'sell_in', moneda: 'ARS', fechaDesde: '', fechaHasta: '' };
+  const factura = linea({ alcance: 'factura', modo: 'porcentaje', monto: '5', facturas: [OPERACIONES[0]] });
+  const marca = linea({ alcance: 'marca', marca: 'HP', modo: 'porcentaje', monto: '3' });
+
+  it('is por factura only on sell in with every line by invoice', () => {
+    expect(porFactura(SELL_IN, [factura])).toBe(true);
+    expect(porFactura(SELL_IN, [factura, marca])).toBe(false);
+    expect(porFactura(SELL_IN, [])).toBe(false);
+    expect(porFactura({ ...SELL_IN, tipo: 'sell_out' }, [factura])).toBe(false);
+  });
+
+  it('asks no dates and sends none; a mixed one still needs them', () => {
+    expect(problemaDe(SELL_IN, [factura])).toBeNull();
+    expect(cuerpoDe(SELL_IN, [factura]).body).toMatchObject({ fecha_desde: null, fecha_hasta: null });
+    expect(cuerpoDe({ ...SELL_IN, fechaDesde: '2026-11-01', fechaHasta: '2026-11-30' }, [factura]).body).toMatchObject({
+      fecha_desde: null,
+      fecha_hasta: null,
+    });
+    expect(problemaDe(SELL_IN, [factura, marca])).toBe('Completá la vigencia del tactical.');
   });
 });

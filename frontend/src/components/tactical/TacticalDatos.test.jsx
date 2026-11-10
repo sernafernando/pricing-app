@@ -159,3 +159,14 @@ describe('TacticalDescartar', () => {
     expect(onDescartar).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('TacticalDatos por factura (factura sin fecha S2c)', () => {
+  it('shows Por factura instead of the dates when every line is an invoice line', () => {
+    render(<TacticalDatos form={{ ...FORM, tipo: 'sell_in' }} onChange={vi.fn()} onTipo={vi.fn()} porFactura />);
+
+    expect(screen.queryByLabelText('Desde')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Hasta')).not.toBeInTheDocument();
+    expect(screen.getByText('Por factura')).toBeInTheDocument();
+    expect(screen.getByText('Cada factura aplica hasta que se vendan sus unidades.')).toBeInTheDocument();
+  });
+});

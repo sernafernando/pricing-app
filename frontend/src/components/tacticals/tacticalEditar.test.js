@@ -73,3 +73,14 @@ describe('problemaDeEdicion', () => {
     expect(problemaDeEdicion(ilegible)).toBe('La línea 2 tiene un tope de monto que no es un número.');
   });
 });
+
+describe('an invoice tactical (factura sin fecha S4)', () => {
+  it('has no end date to check or send', () => {
+    const tactical = { ...TACTICAL_REBATE, fecha_hasta: '2026-03-10', por_factura: true };
+    const valores = { ...valoresDeEdicion(tactical), fechaHasta: '' };
+
+    expect(problemaDeEdicion(valores, true)).toBeNull();
+    expect(problemaDeEdicion(valores)).toBe('Elegí la fecha hasta.');
+    expect(cuerpoDeEdicion(tactical, { ...valoresDeEdicion(tactical), nombre: 'Otro' })).toEqual({ nombre: 'Otro' });
+  });
+});

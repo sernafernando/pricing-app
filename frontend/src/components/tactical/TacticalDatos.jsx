@@ -32,6 +32,7 @@ export default function TacticalDatos({
   tiendasActivas,
   ejemploTope = null,
   alcancePorTienda = ALCANCE_POR_TIENDA,
+  porFactura = false,
 }) {
   const usd = form.moneda === 'USD';
   const todasTiendas = form.todasTiendas !== false;
@@ -129,39 +130,47 @@ export default function TacticalDatos({
               onChange={campo('referencia')}
             />
           </div>
-          <div className={`${styles.field} ${styles.span2}`}>
-            <span className={styles.lbl}>
-              Vigencia <span className={styles.req} aria-hidden="true">*</span>
-            </span>
-            <div className={styles.dates}>
-              <div className={styles.field}>
-                <label htmlFor="tactical-desde" className={styles.subLabel}>
-                  Desde
-                </label>
-                <input
-                  id="tactical-desde"
-                  aria-required="true"
-                  className={styles.ctl}
-                  type="date"
-                  value={form.fechaDesde}
-                  onChange={campo('fechaDesde')}
-                />
-              </div>
-              <div className={styles.field}>
-                <label htmlFor="tactical-hasta" className={styles.subLabel}>
-                  Hasta
-                </label>
-                <input
-                  id="tactical-hasta"
-                  aria-required="true"
-                  className={styles.ctl}
-                  type="date"
-                  value={form.fechaHasta}
-                  onChange={campo('fechaHasta')}
-                />
+          {porFactura ? (
+            <div className={`${styles.field} ${styles.span2}`}>
+              <span className={styles.lbl}>Vigencia</span>
+              <strong>Por factura</strong>
+              <span className={styles.subLabel}>Cada factura aplica hasta que se vendan sus unidades.</span>
+            </div>
+          ) : (
+            <div className={`${styles.field} ${styles.span2}`}>
+              <span className={styles.lbl}>
+                Vigencia <span className={styles.req} aria-hidden="true">*</span>
+              </span>
+              <div className={styles.dates}>
+                <div className={styles.field}>
+                  <label htmlFor="tactical-desde" className={styles.subLabel}>
+                    Desde
+                  </label>
+                  <input
+                    id="tactical-desde"
+                    aria-required="true"
+                    className={styles.ctl}
+                    type="date"
+                    value={form.fechaDesde}
+                    onChange={campo('fechaDesde')}
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label htmlFor="tactical-hasta" className={styles.subLabel}>
+                    Hasta
+                  </label>
+                  <input
+                    id="tactical-hasta"
+                    aria-required="true"
+                    className={styles.ctl}
+                    type="date"
+                    value={form.fechaHasta}
+                    onChange={campo('fechaHasta')}
+                  />
+                </div>
               </div>
             </div>
-          </div>
+          )}
           <div className={styles.field}>
             <span className={styles.lbl}>Moneda</span>
             <Seg

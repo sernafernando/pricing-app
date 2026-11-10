@@ -150,7 +150,7 @@ export default function TacticalFila({ tactical, abierto, onAlternar, acciones =
           </StatusPill>
         </td>
         <td>{vacio(tactical.marca) ? GUION : tactical.marca}</td>
-        <td className={styles.nowrap}>{vigenciaDe(tactical.fecha_desde, tactical.fecha_hasta)}</td>
+        <td className={styles.nowrap}>{vigenciaDe(tactical.fecha_desde, tactical.fecha_hasta, tactical.por_factura)}</td>
         <td className={styles.num}>{tactical.lineas.length}</td>
         <td>
           <div className={styles.avance}>

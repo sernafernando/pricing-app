@@ -37,13 +37,17 @@ export function valorDeLinea({ modo_monto: modo, valor, moneda, valor_usd: valor
   return modo === 'por_unidad' ? `${monto} / u` : monto;
 }
 
-/** `01/11 al 30/11/2026`. The start is cut from the full date: es-AR does not pad a day-month-only format. */
-export const vigenciaDe = (desde, hasta) =>
-  `${formatDateOnly(desde, DIA_MES_ANIO).slice(0, 5)} al ${formatDateOnly(hasta, DIA_MES_ANIO)}`;
+/**
+ * `01/11 al 30/11/2026`. The start is cut from the full date: es-AR does not pad a day-month-only format. An
+ * all-invoice tactical (`por_factura`) has no range: each invoice applies until its units are sold.
+ */
+export const vigenciaDe = (desde, hasta, porFactura = false) =>
+  porFactura ? 'Por factura' : `${formatDateOnly(desde, DIA_MES_ANIO).slice(0, 5)} al ${formatDateOnly(hasta, DIA_MES_ANIO)}`;
 
-/** The state pill: Anulado, Vencido, Vence hoy / en N días, or Vigente. */
-export function estadoDe({ estado, fecha_hasta: hasta }, hoy = new Date()) {
+/** The state pill: Anulado, Vencido, Vence hoy / en N días, or Vigente (an all-invoice tactical never ends). */
+export function estadoDe({ estado, fecha_hasta: hasta, por_factura: porFactura }, hoy = new Date()) {
   if (estado === 'anulado') return { texto: 'Anulado', tono: 'neutral' };
+  if (porFactura) return { texto: 'Vigente', tono: 'success' };
   const fin = parseDateOnly(hasta);
   const dia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
   const restan = fin ? Math.round((fin - dia) / MS_DIA) : null;
