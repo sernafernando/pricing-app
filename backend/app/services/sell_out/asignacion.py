@@ -85,10 +85,9 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, Iterable, List, Literal, Optional, Tuple
 
 from sqlalchemy import delete, insert, or_, text
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.models.sell_out import SellOutCampana, SellOutCampanaItem, SellOutConsumo
-from app.models.tactical import Tactical
 from app.models.tipo_cambio import TipoCambio
 from app.services.sell_in.bonos import tasas_bna_por_fecha
 from app.services.sell_out import alcance, reparto, tienda_scope, tope
@@ -339,20 +338,6 @@ def _base(c: SellOutCampana, v: alcance.Venta, iva: Optional[Decimal], tasas: _T
     return base if c.moneda == "ARS" else base / _tasa(c, v.fecha, tasas)
 
 
-def _scopes(db: Session, activas: List[SellOutCampana]) -> Dict[int, Optional[Scope]]:
-    """Tactical store scope per campaign; campaigns without a tactical stay `None` (global)."""
-    ids = {c.tactical_id for c in activas if c.tactical_id is not None}
-    if not ids:
-        return {c.id: None for c in activas}
-    tacticals = {
-        t.id: t for t in db.query(Tactical).options(selectinload(Tactical.tiendas)).filter(Tactical.id.in_(ids))
-    }
-    return {
-        c.id: (tienda_scope.scope_desde_tactical(tacticals[c.tactical_id]) if c.tactical_id in tacticals else None)
-        for c in activas
-    }
-
-
 def _asignar(
     activas: List[SellOutCampana],
     productos: Productos,
@@ -522,7 +507,7 @@ def recalcular(db: Session, campana_ids: Iterable[int]) -> RecomputeResult:
         tasas,
         montos_item(db, activas),
         repartos_item(db, activas),
-        _scopes(db, activas),
+        tienda_scope.scopes_de(db, activas),
     )
 
     guardados: Dict[Tuple[int, str, int, int], Tuple[int, tuple]] = {}

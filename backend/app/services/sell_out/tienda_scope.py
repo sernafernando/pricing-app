@@ -10,7 +10,11 @@ each target gets its own run of `tope.asignar` with the same cap numbers.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import FrozenSet, Iterable, Optional, Tuple
+from typing import Dict, FrozenSet, Iterable, Optional, Protocol, Tuple
+
+from sqlalchemy.orm import Session, selectinload
+
+from app.models.tactical import Tactical
 
 # tactical_tiendas.tipo for synthetic channels ↔ sell_out canal
 _CANAL_A_TIPO = {"fuera": "fuera", "tn": "tienda_nube"}
@@ -25,6 +29,26 @@ class Scope:
     tope_compartido: bool
     oficiales: FrozenSet[int]
     canales: FrozenSet[str]  # 'fuera' | 'tienda_nube'
+
+
+class _DeTactical(Protocol):
+    id: int
+    tactical_id: Optional[int]
+
+
+def scopes_de(db: Session, hijos: Iterable[_DeTactical]) -> Dict[int, Optional[Scope]]:
+    """The store scope of each child row (a sell out campaign, a sell in bonus) by its id, from its tactical in one
+    read; a child without a tactical stays `None` (global). Every engine and the markup read scopes here."""
+    hijos = list(hijos)
+    ids = {h.tactical_id for h in hijos if h.tactical_id is not None}
+    if not ids:
+        return {h.id: None for h in hijos}
+    tacticals = {
+        t.id: t for t in db.query(Tactical).options(selectinload(Tactical.tiendas)).filter(Tactical.id.in_(ids))
+    }
+    return {
+        h.id: (scope_desde_tactical(tacticals[h.tactical_id]) if h.tactical_id in tacticals else None) for h in hijos
+    }
 
 
 def scope_desde_tactical(tactical) -> Scope:
