@@ -648,6 +648,35 @@ class TestSellInMontoTotal:
 
 
 class TestStoreScope:
+    def test_scoped_create_persists_targets_and_shared_cap(self, db, engine, monkeypatch) -> None:
+        monkeypatch.setattr(service, "TIPOS_CON_ALCANCE", frozenset({"sell_out", "sell_in"}))
+        db.add(MlTiendaOficial(store_id=57997, nombre="GaussOnline", clave="gauss", orden=1, activa=True))
+        db.add(MlTiendaOficial(store_id=2645, nombre="TP-Link", clave="tplink", orden=2, activa=True))
+        db.flush()
+
+        tactical = service.crear(
+            db,
+            _tactical(
+                todas_tiendas=False,
+                tope_compartido=True,
+                tiendas=[
+                    {"tipo": "oficial", "store_id": 57997},
+                    {"tipo": "oficial", "store_id": 2645},
+                    {"tipo": "tienda_nube"},
+                ],
+            ),
+            USUARIO,
+        )
+
+        [salida] = service.serializar(db, [tactical])
+        assert (salida["todas_tiendas"], salida["tope_compartido"]) == (False, True)
+        assert salida["tiendas"] == [
+            {"tipo": "oficial", "store_id": 57997},
+            {"tipo": "oficial", "store_id": 2645},
+            {"tipo": "tienda_nube", "store_id": None},
+        ]
+        assert _contar(engine, "tactical_tiendas") == 3
+
     def test_create_keeps_todays_reach(self, db, engine) -> None:
         """Before the store picker exists, a new tactical reaches what one reached before the scope did: every
         official store, outside sales and Tienda Nube, with one shared cap (the migration's backfill)."""

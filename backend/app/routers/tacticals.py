@@ -21,7 +21,7 @@ from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
@@ -61,7 +61,7 @@ def _error(exc: service.TacticalError) -> HTTPException:
 
 
 def _buscar(db: Session, user: Usuario, tactical_id: int, accion: str) -> Tactical:
-    tactical = db.get(Tactical, tactical_id)
+    tactical = db.query(Tactical).options(selectinload(Tactical.tiendas)).filter(Tactical.id == tactical_id).first()
     if tactical is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"El tactical {tactical_id} no existe")
     _exigir(db, user, tactical.tipo, accion)

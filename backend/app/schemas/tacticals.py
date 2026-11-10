@@ -11,7 +11,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.sell_out import RepartoCriterio
 
@@ -22,16 +22,32 @@ Moneda = Literal["ARS", "USD"]
 TcModo = Literal["al_cobro", "fijo", "dia_venta"]
 Origen = Literal["sell_out_campana", "sell_in_bono", "sell_in_compra"]
 EstadoFiltro = Literal["vigentes", "vencidos", "anulados"]
+TipoTienda = Literal["oficial", "fuera", "tienda_nube"]
 
 NOMBRE_MAX = 200
 MARCA_MAX = 100  # productos_erp.marca is VARCHAR(100)
 LINEAS_MAX = 100
 ITEMS_MAX = 500
+TIENDAS_MAX = 100  # official stores + synthetic channels on one tactical
 NOTA_MAX = 2000
 HIJOS_MAX = 500  # campaigns or bonuses one create may store: one per-product line over a full product list
 MOTIVO_MAX = 500  # `auditoria.comentario` is VARCHAR(500)
 INT_MAX = 2**31 - 1
 MONTO = {"max_digits": 18, "decimal_places": 2}
+
+
+class TacticalTiendaIn(BaseModel):
+    """One official store or synthetic channel the tactical applies to."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tipo: TipoTienda
+    store_id: Optional[int] = Field(default=None, ge=1, le=2**63 - 1)
+
+
+class TacticalTiendaOut(BaseModel):
+    tipo: TipoTienda
+    store_id: Optional[int] = None
 
 
 class TacticalLineaIn(BaseModel):
@@ -65,8 +81,22 @@ class TacticalIn(BaseModel):
     tipo_cambio: Optional[Decimal] = Field(default=None, max_digits=18, decimal_places=6)  # `fijo` only
     incluye_iva: bool = False
     acumulable: bool = True
+    # Store scope: True = every official store (no `oficial` rows); tiendas may still list channels.
+    todas_tiendas: bool = True
+    tope_compartido: bool = False  # False = per-target counters; True = one pool over the selection
+    tiendas: list[TacticalTiendaIn] = Field(default_factory=list, max_length=TIENDAS_MAX)
     nota: Optional[str] = Field(default=None, max_length=NOTA_MAX)
     lineas: list[TacticalLineaIn] = Field(min_length=1, max_length=LINEAS_MAX)
+
+    @model_validator(mode="after")
+    def _alcance_omitido(self) -> "TacticalIn":
+        """A client that sends no scope at all (none of the three fields) keeps today's reach, as the migration's
+        backfill: every official store plus outside sales and Tienda Nube, with one shared cap. The store picker
+        always sends all three, so a tactical made there keeps per-target caps by default."""
+        if not {"todas_tiendas", "tope_compartido", "tiendas"} & self.model_fields_set:
+            self.tope_compartido = True
+            self.tiendas = [TacticalTiendaIn(tipo="fuera"), TacticalTiendaIn(tipo="tienda_nube")]
+        return self
 
 
 class TacticalLineaTopesIn(BaseModel):
@@ -141,6 +171,9 @@ class TacticalOut(BaseModel):
     tipo_cambio: Optional[Decimal]
     incluye_iva: bool
     acumulable: bool
+    todas_tiendas: bool
+    tope_compartido: bool
+    tiendas: list[TacticalTiendaOut]
     nota: Optional[str]
     estado: Literal["activo", "anulado"]
     usuario_id: int
