@@ -75,11 +75,10 @@ from decimal import Decimal
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from sqlalchemy import delete, func, insert, text
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca, SellInBonoReparto, SellInConsumo
-from app.models.tactical import Tactical
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA
 from app.services.sell_in import bono_queue
 from app.services.sell_in.costing import LOCK_SQL, LOCK_NAMESPACE
@@ -221,21 +220,6 @@ def unitario(
         return Decimal(0)
     neto = valor_neto(bono, valor, item_id, iva, fecha)
     return neto if bono.tipo == "por_unidad" else costo_unit * neto / CIEN
-
-
-def _scopes(db: Session, bonos: Iterable[SellInBonoMarca]) -> Dict[int, Optional[Scope]]:
-    """Tactical store scope per cost bonus; bonuses without a tactical stay `None` (global)."""
-    bonos = list(bonos)
-    ids = {b.tactical_id for b in bonos if b.tactical_id is not None}
-    if not ids:
-        return {b.id: None for b in bonos}
-    tacticals = {
-        t.id: t for t in db.query(Tactical).options(selectinload(Tactical.tiendas)).filter(Tactical.id.in_(ids))
-    }
-    return {
-        b.id: (tienda_scope.scope_desde_tactical(tacticals[b.tactical_id]) if b.tactical_id in tacticals else None)
-        for b in bonos
-    }
 
 
 def _componente(
@@ -420,7 +404,7 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
     repartos = _repartos(db, activos)
     deseadas: Dict[Tuple[int, str, int, int], _Fila] = {}
     fallidos: Set[int] = set()
-    scopes = _scopes(db, activos.values())
+    scopes = tienda_scope.scopes_de(db, activos.values())
     for componente in _componentes(activos, alcances, productos):
         suyos = [b for b in activos.values() if alcances[b.id] & componente]
         try:
