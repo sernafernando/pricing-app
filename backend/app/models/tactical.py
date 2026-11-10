@@ -13,10 +13,15 @@ never deleted, it is voided), so allocation, FIFO and caps are not rewritten:
 `acumulable` are copied to every child, which is what the engines read; the header keeps them to show and filter.
 `tc_modo` / `tipo_cambio` follow `SellOutCampana`'s FX rules (NULL on ARS). A tactical will be voided (`anulado`)
 with all its children, through each engine's own void step. `app.services.tacticals` creates and voids them.
+
+Store scope (tacticals-tienda): `todas_tiendas` means every official store; otherwise `tactical_tiendas` lists the
+official `store_id`s and/or synthetic channels `fuera` / `tienda_nube`. `tope_compartido` is independent: false =
+one counter per target with the same cap; true = one pool over the selection.
 """
 
 from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey, Index, Integer
-from sqlalchemy import Numeric, String, Text
+from sqlalchemy import Numeric, String, Text, text
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import false, func, true
 
 from app.core.database import Base
@@ -32,6 +37,8 @@ TC_MODO = (
     "(tc_modo = 'fijo' AND tipo_cambio IS NOT NULL) OR "
     "(tc_modo IN ('dia_venta', 'al_cobro') AND tipo_cambio IS NULL)))"
 )
+TIENDA_TIPO = "tipo IN ('oficial', 'fuera', 'tienda_nube')"
+TIENDA_STORE = "(tipo = 'oficial' AND store_id IS NOT NULL) OR (tipo IN ('fuera', 'tienda_nube') AND store_id IS NULL)"
 
 
 class Tactical(Base):
@@ -59,9 +66,65 @@ class Tactical(Base):
     tipo_cambio = Column(Numeric(18, 6), nullable=True)  # ARS per USD, `fijo` only
     incluye_iva = Column(Boolean, nullable=False, default=False, server_default=false())
     acumulable = Column(Boolean, nullable=False, default=True, server_default=true())
+    # Official-store / channel scope (tacticals-tienda). Default matches pre-scope behaviour.
+    todas_tiendas = Column(Boolean, nullable=False, default=True, server_default=true())
+    # Cap mode over the selected targets: False = same cap, one counter per target; True = one shared pool.
+    tope_compartido = Column(Boolean, nullable=False, default=False, server_default=false())
     nota = Column(Text, nullable=True)
     estado = Column(String(16), nullable=False, default="activo", server_default="activo")
     usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     # Also kept current by the `tacticals_updated_at` trigger.
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    tiendas = relationship(
+        "TacticalTienda",
+        back_populates="tactical",
+        cascade="all, delete-orphan",
+        order_by="TacticalTienda.id",
+    )
+
+
+class TacticalTienda(Base):
+    """One store or synthetic channel a tactical applies to when `todas_tiendas` is false (or channels with todas).
+
+    `oficial` rows carry `store_id` → `ml_tiendas_oficiales`. `fuera` / `tienda_nube` never carry a store_id.
+    When `todas_tiendas` is true, no `oficial` rows are stored; channel rows may still be present.
+    """
+
+    __tablename__ = "tactical_tiendas"
+    __table_args__ = (
+        CheckConstraint(TIENDA_TIPO, name="ck_tactical_tiendas_tipo"),
+        CheckConstraint(TIENDA_STORE, name="ck_tactical_tiendas_store"),
+        Index("ix_tactical_tiendas_tactical_id", "tactical_id"),
+        Index("ix_tactical_tiendas_store_id", "store_id"),
+        # Partial, as migration `20261107_tacticals_tiendas`: channel rows have a NULL store_id, which a plain UNIQUE
+        # would not collapse.
+        Index(
+            "uq_tactical_tiendas_oficial",
+            "tactical_id",
+            "store_id",
+            unique=True,
+            postgresql_where=text("tipo = 'oficial'"),
+            sqlite_where=text("tipo = 'oficial'"),
+        ),
+        Index(
+            "uq_tactical_tiendas_canal",
+            "tactical_id",
+            "tipo",
+            unique=True,
+            postgresql_where=text("tipo IN ('fuera', 'tienda_nube')"),
+            sqlite_where=text("tipo IN ('fuera', 'tienda_nube')"),
+        ),
+    )
+
+    id = Column(BigInteger, primary_key=True)
+    tactical_id = Column(BigInteger, ForeignKey("tacticals.id", ondelete="CASCADE"), nullable=False)
+    tipo = Column(String(16), nullable=False)
+    store_id = Column(
+        BigInteger,
+        ForeignKey("ml_tiendas_oficiales.store_id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+
+    tactical = relationship("Tactical", back_populates="tiendas")

@@ -39,6 +39,7 @@ _MIGRATIONS = [
         "20261105_tacticals",
         "20261106_combo_consumos_item",
         "20261107_sell_out_reparto_criterio",
+        "20261107_tacticals_tiendas",  # the store scope on tacticals; its own rules in tests/migrations/
     )
 ]
 TABLES = (
@@ -53,6 +54,7 @@ TABLES = (
 
 _STUBS = [
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
+    "CREATE TABLE ml_tiendas_oficiales (store_id BIGINT PRIMARY KEY)",  # `tactical_tiendas.store_id`
     "CREATE TABLE offset_grupos (id INTEGER PRIMARY KEY)",
     "CREATE TABLE offsets_ganancia (id INTEGER PRIMARY KEY)",
     "CREATE TABLE roles (id SERIAL PRIMARY KEY, codigo VARCHAR(50) UNIQUE)",
