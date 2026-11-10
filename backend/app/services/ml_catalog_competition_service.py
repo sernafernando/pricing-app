@@ -167,9 +167,7 @@ def _build_competitor(
         # only when plain markup exists, and only from the batch resolved
         # once per MLA in `_build_ok_row` (never N sell-in/out reads).
         if markup is not None:
-            markup_sell_in_out = _markup_sell_in_out_seguro(
-                db, context, sell_in_out_batch, price_ars, mla
-            )
+            markup_sell_in_out = _markup_sell_in_out_seguro(db, context, sell_in_out_batch, price_ars, mla)
 
     is_cheaper_than_us: Optional[bool] = None
     if same_bucket and price_ars is not None and our_price_ars is not None:
