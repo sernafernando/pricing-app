@@ -14,6 +14,7 @@ from typing import Final
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.logging import get_logger
 from app.models.notificacion import EstadoNotificacion, Notificacion, SeveridadNotificacion
 from app.models.pedido_compra import PedidoCompra
 from app.models.pedido_factura_documento import PedidoFacturaDocumento
@@ -22,6 +23,8 @@ from app.services.notificacion_service import (
     crear_notificaciones_para_permisos,
     resolver_usuarios_con_algun_permiso,
 )
+
+logger = get_logger(__name__)
 
 TIPO_FACTURA_CARGADA: Final[str] = "compras.factura_cargada"
 TIPO_FALTANTES: Final[str] = "compras.faltantes"
@@ -151,12 +154,24 @@ def disparar_alertas_factura_pendientes(session: Session, *, ahora: datetime | N
         )
         .all()
     )
+    from app.services import erp_matching_service  # noqa: PLC0415
+
     fired = 0
     for row in rows:
         pedido = row.pedido
         if pedido is None:
             continue
         notificar_factura_cargada(session, pedido=pedido, factura=row, ahora=stamp)
+        # After the regret window: documental auto-link by constancia numero (M:N).
+        # Failures must not block the alert itself.
+        try:
+            erp_matching_service.auto_vincular_por_constancia_cargada(session, row)
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "auto_vincular_constancia falló para documento_id=%s pedido_id=%s",
+                row.id,
+                pedido.id,
+            )
         row.alerta_disparada_at = stamp
         fired += 1
     if rows:
