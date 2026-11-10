@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import useProductRows from './useProductRows';
+import useProductRows, { readProduct } from './useProductRows';
 import { ALL_ROWS } from '../../hooks/usePublicacionesMLFilters';
 import { publicacionesMlAPI } from '../../services/api';
 import { productsResponse } from '../../test/visual/publicacionesMlFixtures';
@@ -205,5 +205,13 @@ describe('"Todos" in parts of 500 (filtros S4)', () => {
     await waitFor(() => expect(result.current.total).toBe(1200));
     act(() => result.current.loadMoreProducts());
     expect(productCalls()).toEqual([expect.objectContaining({ limit: 50, offset: 0 })]);
+  });
+});
+
+describe('readProduct', () => {
+  it("reads the row's Tipo/Estado/Precio summary, empty when the backend sent none (S6)", () => {
+    const raw = { key: '7', descripcion: 'Kit', kind_counts: { cuotas_6: 3 }, status_counts: { paused: 3 }, price_min: 10, price_max: 10 };
+    expect(readProduct(raw)).toMatchObject({ kindCounts: { cuotas_6: 3 }, statusCounts: { paused: 3 }, priceMin: 10, priceMax: 10 });
+    expect(readProduct({ key: '7' })).toMatchObject({ kindCounts: {}, statusCounts: {}, priceMin: null, priceMax: null });
   });
 });

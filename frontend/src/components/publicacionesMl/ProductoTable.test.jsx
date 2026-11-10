@@ -155,7 +155,7 @@ describe('the product rows', () => {
     render(<Harness />);
     const row = (await screen.findByText('Router Archer AX55')).closest('tr');
     expect(within(row).getAllByText(/ARCHER-AX55/).length).toBeGreaterThan(0); // the title cell, and the Código column
-    expect(within(row).getByText('3')).toBeInTheDocument();
+    expect(within(row).getByText(/3 publicaciones$/)).toBeInTheDocument();
     expect(within(row).getByText('12.345')).toBeInTheDocument(); // units 30d
     expect(screen.getByText('Sin producto')).toBeInTheDocument();
   });
@@ -220,6 +220,35 @@ describe("Productos' prices (S11)", () => {
     expect(within(row).getByText('2.500,00')).toBeInTheDocument();
     expect(within(rowOf(/Sistema Mesh Deco X20/)).queryByText('2.500,00')).not.toBeInTheDocument();
     expect(within(rowOf('Sin producto')).queryByText('2.500,00')).not.toBeInTheDocument();
+  });
+});
+
+describe('a product row (S6)', () => {
+  it('says its publications on its first cell and summarizes them in Tipo, Estado and Precio', async () => {
+    render(<Harness />);
+    await screen.findByText('Router Archer AX55');
+    const row = rowOf('Router Archer AX55');
+    expect(within(row).getByText('Producto · ARCHER-AX55 · 3 publicaciones')).toBeInTheDocument();
+    expect(within(row).queryByText(/markup negativo/)).not.toBeInTheDocument(); // the Producto view has no negatives
+    expect(within(row).getByText('2 Clásica')).toBeInTheDocument();
+    expect(within(row).getByText('1 6 cuotas')).toBeInTheDocument();
+    expect(within(row).getByText('2 activas')).toBeInTheDocument();
+    expect(within(row).getByText('1 pausada')).toBeInTheDocument();
+    expect(within(row).getByText('45.999,00 –')).toBeInTheDocument();
+    expect(within(row).getByText('189.999,50')).toBeInTheDocument();
+  });
+
+  it('leaves its publications as the list draws them: badge, status pill and price', async () => {
+    const item = makeItem({ item_id: 'MLA1', title: 'Publicación MLA1', listing_kind: 'cuotas_6', status: 'active', price: { amount: 98500.5, source: 'item_price' } });
+    publicacionesMlAPI.items.mockResolvedValue({ data: { ...itemsPage(1), items: [item] } });
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(await screen.findByRole('button', { name: /Abrir Router Archer AX55/ }));
+    const row = (await screen.findByText('Publicación MLA1')).closest('tr');
+    expect(within(row).getByTitle('6 cuotas')).toBeInTheDocument(); // the type badge
+    expect(row).toHaveTextContent('Activa');
+    expect(within(row).getByText('98.500,50')).toBeInTheDocument();
+    expect(within(row).queryByText(/publicaciones|\$ /)).not.toBeInTheDocument();
   });
 });
 
@@ -347,8 +376,9 @@ describe('a new product list', () => {
     expect(productCalls()[0]).toMatchObject({ orden: 'titulo', dir: 'asc' });
     const headers = screen.getAllByRole('columnheader').map((th) => th.textContent);
     for (const figure of FIGURE_HEADERS) expect(headers.some((text) => text.includes(figure)), figure).toBe(false);
-    expect(screen.getByRole('columnheader', { name: /Publicaciones/ })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /^Publicaciones$/ })).not.toBeInTheDocument();
     const row = rowOf('Router Archer AX55');
+    expect(within(row).getByText(/3 publicaciones$/)).toBeInTheDocument(); // the count is the first cell's second line
     expect(within(row).queryByText('12.345')).not.toBeInTheDocument(); // the fixture's units 30d
   });
 

@@ -22,6 +22,17 @@ const RAW_BRAND = {
 };
 
 describe('readNode', () => {
+  it('reads the Tipo/Estado/Precio summary of every reader, empty when the backend sent none (S6)', () => {
+    const raw = { ...RAW_BRAND, kind_counts: { clasica: 2 }, status_counts: { active: 2 }, price_min: 900, price_max: 5000 };
+    expect(readNode(raw, { canSeeMargin: false })).toMatchObject({
+      kindCounts: { clasica: 2 },
+      statusCounts: { active: 2 },
+      priceMin: 900,
+      priceMax: 5000,
+    });
+    expect(readNode(RAW_BRAND, { canSeeMargin: false })).toMatchObject({ kindCounts: {}, statusCounts: {}, priceMin: null, priceMax: null });
+  });
+
   it('keeps the key exactly as it came and shows the label', () => {
     const node = readNode(RAW_BRAND, { canSeeMargin: false });
     expect(node.key).toBe('TP%2CLINK');

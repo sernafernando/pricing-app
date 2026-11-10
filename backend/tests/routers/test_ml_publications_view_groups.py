@@ -85,6 +85,11 @@ class TestContract:
             "count": 1,
             "leaf": False,
             "params": {"marcas": "HIKVISION"},
+            # its Tipo/Estado/Precio summary (S6): the seeded publications have no listing type and no price
+            "kind_counts": {},
+            "status_counts": {"active": 1},
+            "price_min": None,
+            "price_max": None,
         }  # no keys that do not apply to a brand (no producto_item_id, family_id, ...)
 
     def test_a_product_node_and_a_family_node_carry_their_own_fields(self, client, pg, reader) -> None:
@@ -100,6 +105,10 @@ class TestContract:
             "params": {"marcas": "TP-LINK", "categorias": "REDES", "subcategorias": "10", "producto": "70"},
             "producto_item_id": 70,
             "codigo": "A1",
+            "kind_counts": {},
+            "status_counts": {"active": 3},
+            "price_min": None,
+            "price_max": None,
         }
         families = get(client, reader, path="TP-LINK,REDES,10,70", familias="true").json()
         assert families["level"] == "familia" and families["path"] == ["TP-LINK", "REDES", "10", "70"]
@@ -272,3 +281,44 @@ class TestSlowQuery:
         monkeypatch.setattr(groups, "build_base_select", real)
         status_block.REPORT.reset()
         assert get(client, reader).status_code == 200
+
+
+def seed_mixed(conn) -> None:
+    """One brand > category > product with more publications than a child page (100), mixed kinds, states, prices."""
+    seed.add_product(conn, 90, "K90", "Kit", marca="Kabel", categoria="Redes")
+    seed.add_item(conn, "MLA100", status="active", listing_type_id="gold_special", price=1000)
+    seed.add_sale_price(conn, "MLA100", 900)  # the price the list shows is the sale price
+    seed.add_item(conn, "MLA101", status="paused", listing_type_id="gold_pro", tags=["12x_campaign"], price=5000)
+    seed.add_item(conn, "MLA102", status="inactive", sub_status=["deleted"], listing_type_id="gold_special", price=2000)
+    seed.add_item(conn, "MLA103", status="closed", listing_type_id="gold_special", price=1)  # out of the filter
+    for n in range(104, 203):
+        seed.add_item(conn, f"MLA{n}", status="active", listing_type_id="gold_pro", price=3000)
+    for n in range(100, 203):
+        seed.add_link(conn, f"MLA{n}", 90)
+
+
+class TestSummary:
+    """S6: every node summarizes ALL its publications under the filters (its children load 100 at a time)."""
+
+    EXPECTED = {
+        "count": 102,
+        "kind_counts": {"clasica": 2, "cuotas_12": 1, "cuotas_6": 99},
+        "status_counts": {"active": 100, "paused": 1, "gone": 1},
+        "price_min": 900.0,
+        "price_max": 5000.0,
+    }
+
+    def test_a_group_node_and_a_product_node_carry_the_summary_of_all_their_publications(
+        self, client, pg, reader
+    ) -> None:
+        seed_rows(pg, seed_mixed)
+        for path in ("", "KABEL", "KABEL,REDES,__none__"):
+            body = get(client, reader, path=path, estado="active,paused,gone").json()
+            (node,) = body["nodes"]
+            assert {k: node[k] for k in self.EXPECTED} == self.EXPECTED, (path, node)
+
+    def test_the_states_of_every_node_add_up_to_its_count(self, client, pg, reader) -> None:
+        seed_rows(pg, seed_catalog)
+        for path in ("", "TP-LINK", "TP-LINK,REDES", "TP-LINK,REDES,10"):
+            for node in get(client, reader, path=path).json()["nodes"]:
+                assert sum(node["status_counts"].values()) == node["count"], node

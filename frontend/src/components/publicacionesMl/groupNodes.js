@@ -36,6 +36,17 @@ function readAggregates(raw, canSeeMargin) {
   };
 }
 
+/** A parent row's Tipo/Estado/Precio summary over ALL its publications (S6), as `/view/groups` and `/view/products`
+ * send it: every reader gets it; empty when the backend sent none. */
+export function readSummary(raw) {
+  return {
+    kindCounts: raw.kind_counts ?? {},
+    statusCounts: raw.status_counts ?? {},
+    priceMin: numberOrNull(raw.price_min),
+    priceMax: numberOrNull(raw.price_max),
+  };
+}
+
 export function readNode(raw, { canSeeMargin }) {
   return {
     kind: raw.kind,
@@ -52,6 +63,7 @@ export function readNode(raw, { canSeeMargin }) {
     colorMarcado: raw.color_marcado ?? null,
     colorHintGlobal: raw.color_hint_global ?? null,
     ...readAggregates(raw, canSeeMargin),
+    ...readSummary(raw),
   };
 }
 

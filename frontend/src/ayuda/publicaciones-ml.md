@@ -40,6 +40,15 @@ Columna **Tipo**: una etiqueta con el tipo de cada publicación (**Clásica**, *
 
 Bajo la columna **Precio** también se ve la lista ERP de esa publicación (**Clásica**, **3 Cuotas**, … o **PVP**), tomada de `publicaciones_ml` (no del tipo de listado de Mercado Libre).
 
+Vistas **Producto** y **Agrupado**: cada fila de producto (y, en Agrupado, cada marca, categoría, subcategoría, familia o publicación suelta) resume todas sus publicaciones con los filtros actuales, también las que todavía no se cargaron al expandirla:
+
+- Debajo del nombre dice cuántas publicaciones tiene, por ejemplo **5 publicaciones**. En **Agrupado**, si ves la ganancia y alguna vende con markup negativo, agrega cuántas, en rojo: **5 publicaciones · 2 con markup negativo**. Ya no hay columnas **Publicaciones** ni **Negativos**.
+- **Tipo** muestra una línea por tipo con su cantidad, en el orden de la lista: **2 Clásica**, **1 6 cuotas**.
+- **Estado** muestra una línea por estado: **4 activas**, **1 pausada**.
+- **Precio** muestra el precio más bajo y el más alto de sus publicaciones (**900,00 – 5.000,00**), sin el signo, igual que en cada publicación, uno solo si todas tienen el mismo, o "—" si ninguna tiene precio.
+
+Al expandir la fila, cada publicación muestra su tipo, estado y precio como en la vista **Publicaciones**. El orden de la vista **Producto** no cambia.
+
 Orden: las publicaciones arrancan ordenadas por tipo (primero las Clásicas, después 3, 6, 9 y 12 cuotas, al final cualquier otro tipo) y, dentro de cada tipo, por facturación de 30 días (o por última actividad si no ves ventas). Al hacer clic en el título de una columna, manda esa columna. Si ordenás por **Código**, las publicaciones de un mismo producto quedan juntas y, entre ellas, salen por tipo (Clásica, 3, 6, 9 y 12 cuotas): **Tipo** aparece como segundo orden. Vale para las vistas Publicaciones y Precios y para MODO PONER PRECIOS. Las publicaciones de un producto, al expandirlo o en su panel lateral, también salen ordenadas por tipo y, dentro de cada tipo, por última actividad.
 
 ## MODO PONER PRECIOS
