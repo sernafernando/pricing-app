@@ -3327,15 +3327,18 @@ describe('Publicaciones ML columns sized by their content (visual)', () => {
       const screen = await renderMarginPage({ width: 1440, height: 900, theme });
       await frame();
       const scroller = scrollerOf();
-      const before = columnWidths(scroller).titulo;
+      const widthsBefore = columnWidths(scroller);
+      const before = widthsBefore.titulo;
       const grip = screen.getByRole('separator', { name: 'Ajustar ancho de Publicación' });
       await expect.element(grip).toBeVisible();
       grip.element().focus();
       for (let i = 0; i < 10; i += 1) await userEvent.keyboard('{ArrowRight}');
       await frame();
-      const after = columnWidths(scroller).titulo;
+      const { titulo: after, ...others } = columnWidths(scroller);
       expect(after).toBeGreaterThanOrEqual(before + 90);
       // Its neighbours keep their width: the table grows, nothing else is squeezed.
+      const { titulo: _before, ...othersBefore } = widthsBefore;
+      expect(others).toEqual(othersBefore);
       screen.unmount();
       await new Promise((resolve) => setTimeout(resolve, 0));
       const again = await renderMarginPage({ width: 1440, height: 900, theme });

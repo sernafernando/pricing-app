@@ -143,6 +143,17 @@ describe('column sizing (fill, resizable)', () => {
     expect(onColumnResize).toHaveBeenCalledTimes(1);
   });
 
+  it('stops following the pointer when the browser cancels the drag', () => {
+    const onColumnResize = vi.fn();
+    renderShell({ columns: SIZED, onColumnResize });
+    const grip = screen.getByRole('separator');
+    grip.closest('th').getBoundingClientRect = () => ({ width: 300 });
+    fireEvent.pointerDown(grip, { clientX: 100 });
+    fireEvent.pointerCancel(document);
+    fireEvent.pointerMove(document, { clientX: 400 });
+    expect(onColumnResize).not.toHaveBeenCalled();
+  });
+
   it('never sorts when the grip of a sortable column is used', () => {
     const onSort = vi.fn();
     renderShell({ columns: [{ ...SIZED[0], sortable: true }, ...SIZED.slice(1)], onSort, onColumnResize: vi.fn() });

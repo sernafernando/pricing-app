@@ -57,10 +57,13 @@ function ResizeGrip({ column, onResize }) {
     const end = () => {
       document.removeEventListener('pointermove', move);
       document.removeEventListener('pointerup', end);
+      document.removeEventListener('pointercancel', end);
       cleanupRef.current = null;
     };
     document.addEventListener('pointermove', move);
     document.addEventListener('pointerup', end);
+    // A drag the browser takes over (a touch scroll, a lost pointer) ends like a release: no listener outlives it.
+    document.addEventListener('pointercancel', end);
     cleanupRef.current = end;
   };
   const onKeyDown = (event) => {
