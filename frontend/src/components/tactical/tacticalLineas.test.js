@@ -56,6 +56,12 @@ describe('what a line can charge at most', () => {
   it('a total amount is itself; a percentage only its money cap', () => {
     expect(maximoACobrar(linea({ alcance: 'factura', modo: 'monto_total', monto: '850.000' }))).toBe(850000);
     expect(maximoACobrar(linea({ modo: 'porcentaje', monto: '3,6', topeMonto: '5000' }))).toBe(5000);
+  });
+
+  it('a cap that applies per store multiplies by its counters, a total never does', () => {
+    expect(maximoACobrar(linea({ modo: 'porcentaje', monto: '3,6', topeMonto: '5000' }), 3)).toBe(15000);
+    expect(maximoACobrar(linea({ alcance: 'factura', modo: 'monto_total', monto: '850.000' }), 3)).toBe(850000);
+    expect(maximoTotal([linea({ modo: 'porcentaje', monto: '3,6', topeMonto: '5000' })], 2)).toBe(10000);
     expect(maximoACobrar(linea({ modo: 'porcentaje', monto: '3,6' }))).toBeNull();
   });
 
@@ -173,6 +179,22 @@ describe('what stops a save, first thing only', () => {
 });
 
 describe('the body of POST /tacticals (Contrato final)', () => {
+  it('sends the store scope only once the engines honour it', () => {
+    const lineas = [linea({ productos: [producto(101)], monto: '220' })];
+    const form = { ...FORM, todasTiendas: false, topeCompartido: true, tiendaKeys: ['57997', 'fuera'] };
+
+    expect(cuerpoDe(form, lineas).body).not.toHaveProperty('todas_tiendas');
+    expect(cuerpoDe(form, lineas).body).not.toHaveProperty('tiendas');
+    expect(cuerpoDe(form, lineas, [], true).body).toMatchObject({
+      todas_tiendas: false,
+      tope_compartido: true,
+      tiendas: [
+        { tipo: 'oficial', store_id: 57997 },
+        { tipo: 'fuera', store_id: null },
+      ],
+    });
+  });
+
   it('USD keeps tc_modo, and tipo_cambio only with a fixed rate', () => {
     const lineas = [linea({ productos: [producto(101)], monto: '220', topeUnidades: '90' })];
     const { body } = cuerpoDe(FORM, lineas);

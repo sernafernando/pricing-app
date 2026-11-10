@@ -193,9 +193,10 @@ export default function TacticalLinea({
   onCambiar,
   onDuplicar,
   onEliminar,
+  contadores = 1, // caps per line: one per store or channel when the cap is not shared (`contadoresDelTope`)
 }) {
   const cambiar = (cambios) => onCambiar({ ...linea, ...cambios });
-  const max = maximoACobrar(linea);
+  const max = maximoACobrar(linea, contadores);
   const compartible = puedeCompartir(linea);
   const compartida = esCompartida(linea);
   const porCriterio = repartePorCriterio(linea);

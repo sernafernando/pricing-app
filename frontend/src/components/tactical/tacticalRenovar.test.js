@@ -23,6 +23,9 @@ describe('renovacionDe', () => {
       tipoCambio: '',
       incluyeIva: true,
       acumulable: true,
+      todasTiendas: true,
+      topeCompartido: false,
+      tiendaKeys: [],
       nota: 'Acuerdo por mail',
     });
   });

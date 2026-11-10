@@ -24,10 +24,13 @@ import {
   lineasPara,
   maximoTotal,
   nuevaLinea,
+  numeroDe,
   problemaDe,
   unidadesDelTope,
 } from '../components/tactical/tacticalLineas';
+import { contadoresDelTope } from '../components/tactical/tacticalTiendas';
 import { renovacionDe } from '../components/tactical/tacticalRenovar';
+import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import styles from './TacticalNuevo.module.css';
 
 const TIPOS = {
@@ -60,7 +63,7 @@ function tipoInicial(pedido, puede) {
 /** Products a line names, as the sell out summary counts them: a shared line counts its products once each too. */
 const productosDe = (linea) => (linea.alcance === 'productos' ? linea.productos.length : 0);
 
-function Resumen({ tipo, form, lineas }) {
+function Resumen({ tipo, form, lineas, contadores = 1 }) {
   const n = lineas.length;
   if (tipo === 'sell_in') {
     return (
@@ -80,8 +83,8 @@ function Resumen({ tipo, form, lineas }) {
     );
   }
   const productos = lineas.reduce((a, l) => a + productosDe(l), 0);
-  const unidades = lineas.reduce((a, l) => a + unidadesDelTope(l), 0);
-  const maximo = maximoTotal(lineas);
+  const unidades = lineas.reduce((a, l) => a + unidadesDelTope(l), 0) * contadores;
+  const maximo = maximoTotal(lineas, contadores);
   return (
     <>
       <span>
@@ -98,6 +101,7 @@ function Resumen({ tipo, form, lineas }) {
       <span className={styles.dot}>·</span>
       <span className={styles.big}>
         Máximo a cobrar <b>{dinero(form.moneda, maximo)}</b>
+        {contadores > 1 && ` (${contadores} topes, uno por tienda o canal)`}
       </span>
     </>
   );
@@ -124,6 +128,9 @@ export default function TacticalNuevo() {
       tipoCambio: '',
       incluyeIva: false,
       acumulable: true,
+      todasTiendas: true,
+      topeCompartido: false,
+      tiendaKeys: [],
       nota: '',
     };
   });
@@ -134,27 +141,44 @@ export default function TacticalNuevo() {
   const [error, setError] = useState(null);
   const [enviando, setEnviando] = useState(false);
   const [descartar, setDescartar] = useState(false);
+  const { grupos: gruposTiendas, activas: tiendasOficialesActivas, loaded: tiendasCargadas } = useTiendasOficiales();
+  const ejemploTope = lineas.map((l) => numeroDe(l.topeUnidades)).find((n) => n != null && n > 0) ?? null;
+  const contadores = contadoresDelTope({
+    todasTiendas: form.todasTiendas !== false,
+    seleccionKeys: form.tiendaKeys ?? [],
+    grupos: gruposTiendas,
+    tiendasActivas: tiendasOficialesActivas.length,
+    topeCompartido: Boolean(form.topeCompartido),
+  });
 
   const renovar = params.get('renovar');
   // Renovar draws no form until the tactical arrives: what the user typed meanwhile would be overwritten.
   const [cargando, setCargando] = useState(Boolean(renovar));
+  const [aRenovar, setARenovar] = useState(null);
+  // The tactical is read once; its stores map to the picker's groups once those arrive too.
   useEffect(() => {
     if (!renovar) return undefined;
     let activo = true;
     tacticalsAPI
       .detalle(renovar)
-      .then(({ data }) => {
+      .then(({ data }) => activo && setARenovar(data))
+      .catch(() => {
         if (!activo) return;
-        const renovado = renovacionDe(data);
-        setForm(renovado.form);
-        setLineas(renovado.lineas.length ? renovado.lineas : [nuevaLinea(renovado.form.marca)]);
-      })
-      .catch(() => activo && setError('No se pudo cargar el tactical a renovar.'))
-      .finally(() => activo && setCargando(false));
+        setError('No se pudo cargar el tactical a renovar.');
+        setCargando(false);
+      });
     return () => {
       activo = false;
     };
   }, [renovar]);
+  useEffect(() => {
+    if (!aRenovar || !tiendasCargadas) return;
+    const renovado = renovacionDe(aRenovar, gruposTiendas);
+    setForm(renovado.form);
+    setLineas(renovado.lineas.length ? renovado.lineas : [nuevaLinea(renovado.form.marca)]);
+    setARenovar(null);
+    setCargando(false);
+  }, [aRenovar, tiendasCargadas, gruposTiendas]);
   useEffect(() => {
     let activo = true;
     productosAPI
@@ -198,7 +222,7 @@ export default function TacticalNuevo() {
       setError(problema);
       return;
     }
-    const { body, origen } = cuerpoDe(form, lineas);
+    const { body, origen } = cuerpoDe(form, lineas, gruposTiendas);
     setError(null);
     setEnviando(true);
     try {
@@ -206,7 +230,7 @@ export default function TacticalNuevo() {
       const aviso =
         form.tipo === 'sell_in'
           ? `Tactical creado: ${body.nombre} · ${lineas.length} ${plural(lineas.length, 'línea', 'líneas')} · baja el costo del ${ddmm(form.fechaDesde)} al ${ddmm(form.fechaHasta)}.`
-          : `Tactical creado: ${body.nombre} · ${lineas.length} ${plural(lineas.length, 'línea', 'líneas')} · máximo a cobrar ${dinero(form.moneda, maximoTotal(lineas))}.`;
+          : `Tactical creado: ${body.nombre} · ${lineas.length} ${plural(lineas.length, 'línea', 'líneas')} · máximo a cobrar ${dinero(form.moneda, maximoTotal(lineas, contadores))}.`;
       navigate(tipo.volver, { state: { aviso } });
     } catch (err) {
       setError(conLineaDeLaPantalla(apiErrorMessage(err, 'No se pudo crear el tactical.'), origen));
@@ -266,6 +290,9 @@ export default function TacticalNuevo() {
             onTipo={cambiarTipo}
             tiposNoDisponibles={Object.keys(TIPOS).filter((t) => !puede(t))}
             marcas={marcasDelSelect}
+            gruposTiendas={gruposTiendas}
+            tiendasActivas={tiendasOficialesActivas.length}
+            ejemploTope={ejemploTope}
           />
 
           <section className={styles.card} aria-labelledby="tactical-lineas">
@@ -302,6 +329,7 @@ export default function TacticalNuevo() {
                     onCambiar={cambiarLinea}
                     onDuplicar={() => duplicar(index)}
                     onEliminar={() => eliminar(linea.id)}
+                    contadores={contadores}
                   />
                 ))}
                 <div className={styles.tblFoot}>
@@ -313,10 +341,10 @@ export default function TacticalNuevo() {
             </div>
           </section>
 
-          <div className={styles.stickybar}>
+          <div className={styles.stickybar} data-testid="tactical-stickybar">
             <div className={styles.stickybarIn}>
               <div className={styles.summary} aria-live="polite">
-                <Resumen tipo={form.tipo} form={form} lineas={lineas} />
+                <Resumen tipo={form.tipo} form={form} lineas={lineas} contadores={contadores} />
               </div>
               {botonCrear}
             </div>

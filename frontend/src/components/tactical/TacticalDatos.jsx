@@ -1,11 +1,14 @@
 /**
  * TacticalDatos — the first card of Nuevo tactical, as the approved design draws it: the type (Sell in | Sell out,
  * the ones the user cannot manage off) and the tactical's data: name, brand, the brand's reference, validity,
- * currency, the exchange-rate mode in USD (a fixed rate asks its value), conditions and a note.
+ * currency, the exchange-rate mode in USD (a fixed rate asks its value), store scope, cap mode preview, conditions
+ * and a note.
  *
  * `form` holds the fields as typed; `onChange(cambios)` merges the changed ones; `onTipo(tipo)` switches the type.
+ * `gruposTiendas` are clave-collapsed official stores (`tiendasActivas`: how many are active); `ejemploTope` drives the live cap preview.
  */
 import Seg from './Seg';
+import { ALCANCE_POR_TIENDA, CANALES_TACTICAL, esCanal, previewTope } from './tacticalTiendas';
 import styles from './TacticalDatos.module.css';
 
 const TIPOS = [
@@ -19,11 +22,36 @@ const TC_MODOS = [
   { value: 'dia_venta', label: 'Día de la venta' },
 ];
 
-export default function TacticalDatos({ form, onChange, onTipo, tiposNoDisponibles = [], marcas = [] }) {
+export default function TacticalDatos({
+  form,
+  onChange,
+  onTipo,
+  tiposNoDisponibles = [],
+  marcas = [],
+  gruposTiendas = [],
+  tiendasActivas,
+  ejemploTope = null,
+  alcancePorTienda = ALCANCE_POR_TIENDA,
+}) {
   const usd = form.moneda === 'USD';
+  const todasTiendas = form.todasTiendas !== false;
+  const tiendaKeys = form.tiendaKeys ?? [];
+  const topeCompartido = Boolean(form.topeCompartido);
+  const preview = previewTope({
+    todasTiendas,
+    seleccionKeys: tiendaKeys,
+    grupos: gruposTiendas,
+    tiendasActivas,
+    topeCompartido,
+    ejemploTope,
+  });
   const campo = (nombre) => (e) => {
     const { type, checked, value } = e.target;
     onChange({ [nombre]: type === 'checkbox' ? checked : value });
+  };
+  const toggleKey = (key) => {
+    const next = tiendaKeys.includes(key) ? tiendaKeys.filter((k) => k !== key) : [...tiendaKeys, key];
+    onChange({ tiendaKeys: next });
   };
 
   return (
@@ -182,6 +210,83 @@ export default function TacticalDatos({ form, onChange, onTipo, tiposNoDisponibl
               </label>
             </div>
           </div>
+          {alcancePorTienda && (
+            <div className={`${styles.field} ${styles.span2}`} data-testid="tactical-tiendas">
+              <span className={styles.lbl} id="tactical-tiendas-label">
+                Tiendas donde aplica
+              </span>
+              <div className={styles.checks} role="group" aria-labelledby="tactical-tiendas-label">
+                <label className={styles.check}>
+                  <input
+                    type="checkbox"
+                    checked={todasTiendas}
+                    onChange={(e) =>
+                      onChange({
+                        todasTiendas: e.target.checked,
+                        tiendaKeys: e.target.checked
+                          ? tiendaKeys.filter((k) => CANALES_TACTICAL.some((c) => c.value === k))
+                          : tiendaKeys,
+                      })
+                    }
+                  />
+                  <span>Todas las tiendas oficiales</span>
+                </label>
+                {!todasTiendas &&
+                  gruposTiendas.map((g) => (
+                    <label key={g.value} className={styles.check}>
+                      <input
+                        type="checkbox"
+                        checked={tiendaKeys.includes(g.value)}
+                        onChange={() => toggleKey(g.value)}
+                      />
+                      <span>{g.label}</span>
+                    </label>
+                  ))}
+                {!todasTiendas &&
+                  tiendaKeys
+                    .filter((k) => !esCanal(k) && !gruposTiendas.some((g) => g.value === k))
+                    .map((k) => (
+                      // A renewed store no group covers any more: shown so it can be kept or unticked, never dropped.
+                      <label key={k} className={styles.check}>
+                        <input type="checkbox" checked onChange={() => toggleKey(k)} />
+                        <span>{`Tienda ${k}`}</span>
+                      </label>
+                    ))}
+                {CANALES_TACTICAL.map((c) => (
+                  <label key={c.value} className={styles.check}>
+                    <input
+                      type="checkbox"
+                      checked={tiendaKeys.includes(c.value)}
+                      onChange={() => toggleKey(c.value)}
+                    />
+                    <span>{c.label}</span>
+                  </label>
+                ))}
+              </div>
+              <label className={`${styles.check} ${styles.topeToggle}`}>
+                <input type="checkbox" checked={topeCompartido} onChange={campo('topeCompartido')} />
+                <span>Tope compartido entre las tiendas elegidas</span>
+              </label>
+              <div className={styles.previewTope} aria-live="polite">
+                <span className={styles.previewTitulo}>Cómo se aplica el tope</span>
+                {preview.filas.length === 0 ? (
+                  <p className={styles.previewAyuda}>{preview.ayuda}</p>
+                ) : (
+                  <>
+                    <ul className={styles.previewLista}>
+                      {preview.filas.map((fila) => (
+                        <li key={fila.label}>
+                          <span>{fila.label}</span>
+                          <span>{fila.valor}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className={styles.previewAyuda}>{preview.ayuda}</p>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
           <div className={`${styles.field} ${styles.span2}`}>
             <label htmlFor="tactical-nota">
               Nota <span className={styles.optional}>(opcional)</span>

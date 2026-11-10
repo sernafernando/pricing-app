@@ -4,7 +4,7 @@
  * It posts the tactical and all its lines at once to `POST /tacticals` (handoffs/tactical-tarea.md, API contract).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within, waitFor } from '@testing-library/react';
+import { act, render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import TacticalNuevo from './TacticalNuevo';
@@ -32,6 +32,14 @@ function renderAt(url) {
       </Routes>
     </MemoryRouter>,
   );
+}
+
+/** `renderAt`, then let the page's own reads (brands, categories, stores) settle, for a test that asserts only what
+ * the first render shows. */
+async function renderCargado(url) {
+  const resultado = renderAt(url);
+  await act(async () => {});
+  return resultado;
 }
 
 const linea = (n) => screen.getByRole('group', { name: `Línea ${n}` });
@@ -74,7 +82,7 @@ beforeEach(() => {
 
 describe('the header', () => {
   it('opens on sell out from the Sell out tab, in USD with the exchange-rate mode, and offers no invoice scope', async () => {
-    renderAt('/sell-in/tactical/nuevo?tipo=sell_out');
+    await renderCargado('/sell-in/tactical/nuevo?tipo=sell_out');
     expect(screen.getByRole('heading', { name: 'Nuevo tactical' })).toBeInTheDocument();
     expect(
       screen.getByText('La marca te paga por cada unidad vendida en el rango. Cargá el tactical y sus líneas en un solo paso.'),
@@ -93,7 +101,7 @@ describe('the header', () => {
   });
 
   it('opens on sell in from the Sell in tab, in ARS without the exchange rate, with the invoice scope and total amount', async () => {
-    renderAt('/sell-in/tactical/nuevo?tipo=sell_in');
+    await renderCargado('/sell-in/tactical/nuevo?tipo=sell_in');
     expect(
       screen.getByText('Baja el costo de lo que vendés en el rango. Cargá el tactical y sus líneas en un solo paso.'),
     ).toBeInTheDocument();
@@ -120,7 +128,7 @@ describe('the header', () => {
 
   it('offers only the type the user can manage', async () => {
     mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.gestionar');
-    renderAt('/sell-in/tactical/nuevo?tipo=sell_out');
+    await renderCargado('/sell-in/tactical/nuevo?tipo=sell_out');
     const tipo = screen.getByRole('group', { name: 'Tipo' });
     expect(within(tipo).getByRole('button', { name: 'Sell in' })).toHaveAttribute('aria-pressed', 'true');
     expect(within(tipo).getByRole('button', { name: 'Sell out' })).toBeDisabled();
@@ -128,7 +136,7 @@ describe('the header', () => {
 
   it('without sell_in.gestionar nor sell_out.gestionar it says so and offers nothing to create', async () => {
     mockTienePermiso.mockImplementation((codigo) => !codigo.endsWith('.gestionar'));
-    renderAt('/sell-in/tactical/nuevo?tipo=sell_in');
+    await renderCargado('/sell-in/tactical/nuevo?tipo=sell_in');
     expect(screen.getByText('No tenés permiso para crear tacticals.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Crear tactical' })).not.toBeInTheDocument();
   });
@@ -467,6 +475,16 @@ describe('Renovar', () => {
 
     expect(await screen.findByDisplayValue('Tacticals BPS Noviembre Q1FY27')).toBeInTheDocument();
     expect(screen.queryByText('Cargando el tactical a renovar…')).not.toBeInTheDocument();
+  });
+
+  it('reads the tactical to renew once, even after the official stores arrive', async () => {
+    api.get.mockImplementation((url) =>
+      url === '/tacticals/1' ? Promise.resolve({ data: TACTICAL_BPS }) : Promise.resolve({ data: {} }),
+    );
+    renderAt('/sell-in/tactical/nuevo?tipo=sell_out&renovar=1');
+
+    expect(await screen.findByDisplayValue('Tacticals BPS Noviembre Q1FY27')).toBeInTheDocument();
+    expect(api.get.mock.calls.filter(([url]) => url === '/tacticals/1')).toHaveLength(1);
   });
 
   it('says so when the tactical to renew cannot be read', async () => {
