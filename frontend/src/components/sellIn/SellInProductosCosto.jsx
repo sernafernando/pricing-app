@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import SearchInput from '../SearchInput';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { sellInLotesAPI } from '../../services/sellInAPI';
@@ -32,6 +33,21 @@ const normalizar = (texto) =>
 
 const comparaTexto = (a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' });
 
+/** The sortable columns: how each one compares two rows; a row with no value goes last in both directions. */
+const COLUMNAS = [
+  { key: 'producto', label: 'Producto', valor: (x) => x.descripcion ?? x.codigo ?? '', compara: comparaTexto },
+  { key: 'modo', label: 'Modo de costo', valor: (x) => modoLabel(x.modo), compara: comparaTexto },
+  { key: 'unidades', label: 'Unidades', num: true, valor: (x) => x.unidades, compara: (a, b) => a - b },
+  {
+    key: 'sell_in_unit',
+    label: 'Sell in por unidad',
+    num: true,
+    valor: (x) => (x.sell_in_unit == null ? null : Number(x.sell_in_unit)),
+    compara: (a, b) => a - b,
+  },
+  { key: 'ultima_compra', label: 'Últ. compra', num: true, valor: (x) => x.ultima_compra, compara: comparaTexto },
+];
+
 function filtrar(productos, filtros) {
   const q = normalizar(filtros.q.trim());
   return productos.filter(
@@ -40,6 +56,18 @@ function filtrar(productos, filtros) {
       (!filtros.marca || x.marca === filtros.marca) &&
       (!filtros.modo || (filtros.modo === SIN_MODO ? x.modo == null : x.modo === filtros.modo)),
   );
+}
+
+function ordenar(productos, orden) {
+  const columna = COLUMNAS.find((c) => c.key === orden?.key);
+  if (!columna) return productos;
+  const signo = orden.dir === 'asc' ? 1 : -1;
+  return [...productos].sort((a, b) => {
+    const va = columna.valor(a);
+    const vb = columna.valor(b);
+    if (va == null || vb == null) return (va == null) - (vb == null);
+    return signo * columna.compara(va, vb);
+  });
 }
 
 /** The saved default mode, read on mount and with each `version`; null while unread or when it cannot be read. */
@@ -63,7 +91,7 @@ function useModoPorDefecto(version) {
  * units left in its lots, with its "Modo de costo", units, what the next sale takes per unit and its latest purchase,
  * and the total units under it. A toolbar searches by código/descripción and filters by Marca and Modo de costo,
  * client side: the endpoint already computes the whole list in a fixed number of queries, so a server filter would not
- * save it work. A row's product opens its lots and cost mode (`onVer(fila)`). The toolbar also
+ * save it work. The headers sort; "Ver lotes" opens a product's lots and cost mode (`onVer(fila)`). The toolbar also
  * shows the default mode and, for an admin, "Cambiar" opens its modal. A new `version` reads both again.
  *
  * @param {object} props
@@ -75,6 +103,7 @@ export default function SellInProductosCosto({ onVer, version = 0 }) {
   const [read, setRead] = useState({ status: 'loading', productos: [] });
   const [attempt, setAttempt] = useState(0);
   const [filtros, setFiltros] = useState(FILTROS_VACIOS);
+  const [orden, setOrden] = useState(null); // null: the server's order (description, then code)
   const [porDefecto, setPorDefecto] = useModoPorDefecto(version);
   const [editandoDefecto, setEditandoDefecto] = useState(false);
 
@@ -90,6 +119,8 @@ export default function SellInProductosCosto({ onVer, version = 0 }) {
   }, [version, attempt]);
 
   const cambiarFiltros = (cambios) => setFiltros((prev) => ({ ...prev, ...cambios }));
+  const ordenarPor = (key) =>
+    setOrden((prev) => (prev?.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
 
   if (read.status === 'loading' && read.productos.length === 0) {
     return (
@@ -120,7 +151,7 @@ export default function SellInProductosCosto({ onVer, version = 0 }) {
   }
 
   const marcas = [...new Set(read.productos.map((x) => x.marca).filter(Boolean))].sort(comparaTexto);
-  const visibles = filtrar(read.productos, filtros);
+  const visibles = ordenar(filtrar(read.productos, filtros), orden);
   const total = visibles.reduce((sum, x) => sum + x.unidades, 0);
 
   return (
@@ -186,16 +217,29 @@ export default function SellInProductosCosto({ onVer, version = 0 }) {
           <table className={styles.table} aria-label="Productos con lotes de sell in">
             <thead>
               <tr>
-                <th scope="col">Producto</th>
-                <th scope="col">Modo de costo</th>
-                <th scope="col" className={styles.num}>
-                  Unidades
-                </th>
-                <th scope="col" className={styles.num}>
-                  Sell in por unidad
-                </th>
-                <th scope="col" className={styles.num}>
-                  Últ. compra
+                {COLUMNAS.map((columna) => {
+                  const activa = orden?.key === columna.key;
+                  return (
+                    <th
+                      key={columna.key}
+                      scope="col"
+                      className={columna.num ? styles.num : undefined}
+                      aria-sort={activa ? (orden.dir === 'asc' ? 'ascending' : 'descending') : undefined}
+                    >
+                      <button type="button" className={styles.sort} onClick={() => ordenarPor(columna.key)}>
+                        {columna.label}
+                        {activa &&
+                          (orden.dir === 'asc' ? (
+                            <ChevronUp size={12} aria-hidden="true" />
+                          ) : (
+                            <ChevronDown size={12} aria-hidden="true" />
+                          ))}
+                      </button>
+                    </th>
+                  );
+                })}
+                <th scope="col" className={styles.acciones}>
+                  <span className={styles.srOnly}>Acciones</span>
                 </th>
               </tr>
             </thead>
@@ -203,15 +247,10 @@ export default function SellInProductosCosto({ onVer, version = 0 }) {
               {visibles.map((fila) => (
                 <tr key={fila.item_id}>
                   <td>
-                    <button
-                      type="button"
-                      className={styles.producto}
-                      aria-label={`Ver lotes y modo de costo de ${fila.descripcion ?? fila.codigo}`}
-                      onClick={() => onVer(fila)}
-                    >
+                    <span className={styles.producto}>
                       <span className={styles.nombre}>{fila.descripcion}</span>
                       <span className={styles.codigo}>{fila.codigo}</span>
-                    </button>
+                    </span>
                   </td>
                   <td>
                     <span className={styles.pill}>{modoLabel(fila.modo)}</span>
@@ -219,6 +258,16 @@ export default function SellInProductosCosto({ onVer, version = 0 }) {
                   <td className={styles.num}>{formatEntero(fila.unidades)} u</td>
                   <td className={styles.num}>{formatMonto(fila.sell_in_unit, 'ARS')}</td>
                   <td className={styles.num}>{fecha(fila.ultima_compra)}</td>
+                  <td className={styles.acciones}>
+                    <button
+                      type="button"
+                      className="btn-tesla outline sm"
+                      aria-label={`Ver lotes y modo de costo de ${fila.descripcion ?? fila.codigo}`}
+                      onClick={() => onVer(fila)}
+                    >
+                      Ver lotes
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
