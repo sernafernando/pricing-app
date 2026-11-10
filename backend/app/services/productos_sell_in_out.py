@@ -54,7 +54,6 @@ out): the same in every context, their cap counted over everything they gave.
 
 from __future__ import annotations
 
-from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -63,7 +62,6 @@ from typing import Dict, Hashable, Iterable, List, Mapping, Optional, Sequence, 
 from sqlalchemy import Numeric, and_, case, cast, func, literal, null, or_, select, true, union_all
 from sqlalchemy.orm import Session
 
-from app.models.ml_sale_line import MlSaleLine
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca
 from app.models.sell_out import SellOutCampana, SellOutCampanaItem, SellOutConsumo
@@ -80,6 +78,7 @@ from app.services.sell_out.tienda_scope import (
     alcanza_alguno,
     scopes_de,
     target_key,
+    usado_por_contador,
 )
 from app.services.sell_out.tope import cents
 
@@ -467,30 +466,11 @@ def _cap_restante(
 
 
 def _uso_sell_out_por_target(db: Session, campana_ids: List[int]) -> Dict[int, Dict[TargetKey, Tuple[int, Decimal]]]:
-    """Units/money already taken per campaign and store/channel target (for per-target caps)."""
-    if not campana_ids:
-        return {}
+    """Units/money already taken per campaign and store/channel counter (per-target caps), read the way the tactical
+    screen reads its "quedan" (`tienda_scope.usado_por_contador`), so both agree on what a store has left."""
     t = SellOutConsumo
-    return _agrupar_uso_por_target(db, t, t.campana_id, t.monto, campana_ids)
-
-
-def _agrupar_uso_por_target(
-    db: Session, tabla, owner, monto, owner_ids: List[int]
-) -> Dict[int, Dict[TargetKey, Tuple[int, Decimal]]]:
-    """Summed in SQL per (owner, canal, MLA): one row per publication, not per consumption. The MLA's official store
-    is the one the allocator credited it under (`alcance.stores_por_mla`, the latest publicado row)."""
-    filas = list(
-        db.query(owner, tabla.canal, MlSaleLine.mla, func.sum(tabla.unidades), func.sum(monto))
-        .outerjoin(MlSaleLine, and_(tabla.canal == "ml", MlSaleLine.item_row_id == tabla.venta_ref))
-        .filter(owner.in_(owner_ids))
-        .group_by(owner, tabla.canal, MlSaleLine.mla)
-    )
-    stores = alcance.stores_por_mla(db, {mla for _, canal, mla, _, _ in filas if canal == "ml" and mla})
-    salida: Dict[int, Dict[TargetKey, Tuple[int, Decimal]]] = defaultdict(lambda: defaultdict(lambda: (0, Decimal(0))))
-    for oid, canal, mla, unidades, total in filas:
-        key = target_key(canal, stores.get(mla) if canal == "ml" else None)
-        if key is None:
-            continue
-        u0, m0 = salida[int(oid)][key]
-        salida[int(oid)][key] = (u0 + int(unidades or 0), m0 + Decimal(total or 0))
-    return {oid: dict(targets) for oid, targets in salida.items()}
+    usados = usado_por_contador(db, (t.campana_id, t.canal, t.venta_ref, t.unidades, t.monto), campana_ids)
+    return {
+        cid: {key: (unidades[key], montos.get(key, Decimal(0))) for key in unidades}
+        for cid, (unidades, montos) in usados.items()
+    }
