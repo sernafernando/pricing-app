@@ -308,7 +308,10 @@ def test_an_invoice_bonus_panel_lists_only_its_own_operation(client, lector, mun
 
     data = _alcance(client, lector, mundo["bono"].id)
 
-    assert [(i["pedido_id"], i["unidades"]) for i in data["fuera_de_rango"]["items"]] == [(suyo.id, 5)]
+    # Tactical factura sin fecha S1/L7: an invoice bonus follows its own invoice whatever its date (the reconcile moves
+    # its range), so its operation is never out of range: before the worker runs it waits as not applied yet.
+    assert data["fuera_de_rango"]["items"] == []
+    assert [(i["pedido_id"], i["unidades"]) for i in data["sin_aplicar"]["items"]] == [(suyo.id, 5)]
     assert data["pendientes"]["total"] == 0
 
 
