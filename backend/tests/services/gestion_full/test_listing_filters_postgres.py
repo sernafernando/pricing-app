@@ -53,6 +53,7 @@ _STUB_DDL = (
       inventory_id TEXT,
       user_product_id TEXT,
       family_id BIGINT,
+      official_store_id INTEGER,
       never_existed BOOLEAN DEFAULT FALSE,
       gone_at TIMESTAMPTZ
     )

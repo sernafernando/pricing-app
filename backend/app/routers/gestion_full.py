@@ -333,6 +333,20 @@ def get_gestion_full(
         False,
         description="When true, only rows with an active PM Listo (pm_ready) freeze",
     ),
+    tiendas: Optional[str] = Query(
+        default=None,
+        description="CSV of official_store_id and/or sin_tienda|none (no official store)",
+    ),
+    sort: Optional[str] = Query(
+        default=None,
+        description="Allowlisted column key (ean, ventas_full_30d, …)",
+    ),
+    sort_dir: str = Query("asc", pattern="^(asc|desc)$"),
+    top_by: Optional[str] = Query(
+        default=None,
+        description="Sales metric for global top-1 after filters "
+        "(ventas_full_7d|ventas_full_30d|ventas_colecta_flex_7d|ventas_colecta_flex_30d)",
+    ),
     include_facets: bool = Query(
         True,
         description="When false, skip product facet DISTINCT (caller already has options)",
@@ -346,6 +360,7 @@ def get_gestion_full(
     marcas_list = parse_csv_strings(marcas, "marcas")
     categorias_list = parse_csv_strings(categorias, "categorias")
     pms_list = parse_csv_ids(pms, "pms")
+    tiendas_list = parse_csv_strings(tiendas, "tiendas")
     # Backward compat: old ?marca= / ?categoria= scalar query params.
     if not marcas_list and (marca or "").strip():
         marcas_list = ((marca or "").strip(),)
@@ -357,9 +372,13 @@ def get_gestion_full(
         marcas=marcas_list,
         categorias=categorias_list,
         pms=pms_list,
+        tiendas=tiendas_list,
         full_mode=full_mode,
         include_zero_stock=include_zero_stock,
         solo_listo=solo_listo,
+        sort=sort,
+        sort_dir=sort_dir,
+        top_by=top_by,
         include_facets=include_facets,
         limit=limit,
         offset=offset,

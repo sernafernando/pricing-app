@@ -15,6 +15,12 @@ vi.mock('../hooks/useDebounce', () => ({
   useDebounce: (value) => value,
 }));
 
+vi.mock('../hooks/useTiendasOficiales', () => ({
+  useTiendasOficiales: () => ({
+    grupos: [{ value: '2645', label: 'TP-Link', ids: ['2645'] }],
+  }),
+}));
+
 const tienePermisoMock = vi.fn(() => false);
 
 vi.mock('../contexts/PermisosContext', () => ({
@@ -345,6 +351,29 @@ describe('GestionFull', () => {
     const tab = await screen.findByRole('tab', { name: 'Envío' });
     fireEvent.click(tab);
     expect(screen.getByText('Envío tab body')).toBeInTheDocument();
+  });
+
+  it('sends tienda and top_by query params', async () => {
+    api.get.mockResolvedValue({ data: { total: 0, items: [], puede_editar_override: false } });
+    render(<GestionFull />);
+    await waitFor(() => expect(api.get).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByLabelText('Tienda'), { target: { value: '2645' } });
+    fireEvent.change(screen.getByLabelText('Top ventas'), {
+      target: { value: 'ventas_full_30d' },
+    });
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(
+        '/gestion-full',
+        expect.objectContaining({
+          params: expect.objectContaining({
+            tiendas: '2645',
+            top_by: 'ventas_full_30d',
+          }),
+        }),
+      );
+    });
   });
 
   it('hides plan reset for non-gestor; gestor can confirm wipe', async () => {

@@ -8,8 +8,10 @@ from unittest.mock import MagicMock, patch
 from app.services.gestion_full.listing import (
     _COUNT_SQL,
     _LIST_SQL,
+    _order_clause,
     _row_dict,
     _sugerido,
+    _tienda_params,
     list_gestion_full,
 )
 
@@ -202,3 +204,52 @@ def test_list_gestion_full_include_facets_false_skips_facet_query() -> None:
     assert db.execute.call_count == 2
     assert payload["facets"]["product"]["marcas"] == []
     assert payload["facets"]["product"]["categorias"] == []
+
+
+def test_tienda_params_ids_and_sin_tienda() -> None:
+    assert _tienda_params(None)["filter_tiendas"] == 0
+    out = _tienda_params(["2645", "sin_tienda", "2645", "none"])
+    assert out["filter_tiendas"] == 1
+    assert out["tienda_ids"] == [2645]
+    assert out["include_sin_tienda"] == 1
+
+
+def test_order_clause_top_by_and_sort() -> None:
+    assert "r.units_30d DESC" in _order_clause(sort=None, sort_dir="asc", top_by="ventas_full_30d")
+    assert "p.codigo DESC" in _order_clause(sort="ean", sort_dir="desc", top_by=None)
+    assert _order_clause(sort="nope", sort_dir="asc", top_by=None) == (
+        "p.codigo ASC, linked.user_product_id ASC"
+    )
+
+
+def test_list_gestion_full_passes_tiendas_and_top_by_limit() -> None:
+    db = _mock_db_for_list([])
+    with patch(
+        "app.services.gestion_full.listing.product_facet_options",
+        return_value=MagicMock(
+            model_dump=lambda: {"marcas": [], "categorias": [], "subcategorias": [], "pms": []}
+        ),
+    ):
+        payload = list_gestion_full(
+            db,
+            tiendas=["2645", "sin_tienda"],
+            top_by="ventas_full_7d",
+            limit=200,
+            offset=10,
+            include_facets=False,
+        )
+    params = db.execute.call_args_list[0].args[1]
+    assert params["filter_tiendas"] == 1
+    assert params["tienda_ids"] == [2645]
+    assert params["include_sin_tienda"] == 1
+    assert params["limit"] == 1
+    assert params["offset"] == 0
+    assert payload["limit"] == 1
+    assert payload["offset"] == 0
+
+
+def test_list_and_count_sql_include_official_store_filter() -> None:
+    for sql in (_LIST_SQL, _COUNT_SQL):
+        text_sql = str(sql)
+        assert "official_store_id" in text_sql
+        assert ":filter_tiendas" in text_sql

@@ -25,6 +25,9 @@ Filtros:
 - **Presencia Full:** En Full (default) = Stock Full > 0 **o** ventas Full 30d > 0. Fuera de Full = ambos en 0. Todos = sin ese filtro.
 - **Mostrar sin stock ERP:** apagado por default; al activarlo incluye filas con Stock ERP 0.
 - **Solo Listo:** muestra solo filas con **Listo** activo (hasta que el gestor complete el envío y se liberen, o se desbloqueen).
+- **Tienda:** filtra MLAUs / códigos ML de esa tienda oficial (o Sin tienda).
+- **Top ventas:** con los demás filtros activos, deja solo la publicación #1 según Full/C+F 7d o 30d.
+- **Orden:** click en la cabecera de una columna ordenable (asc/desc).
 
 Columnas: EAN, Descripción, Código ML (inventory_id), Familia (MLAU), ventas Full 7/14/21/30 días, ventas Colecta+Flex 7 y 30 días, Stock ERP, U/caja (unidades por caja cerrada, por producto ERP), Stock Full, Target (última recepción inbound a Full según ML), Sugerido, Override, Qty PM, Listo.
 
