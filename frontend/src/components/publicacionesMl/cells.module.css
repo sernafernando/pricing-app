@@ -71,19 +71,10 @@
   white-space: nowrap;
 }
 
-.outOfStock {
-  color: var(--tone-danger-fg);
-}
-
 .units {
   font-variant-numeric: tabular-nums;
   font-weight: var(--font-medium);
   color: var(--cf-text-primary);
-}
-
-/* An ERP stock at zero or less: after `.units`, which would otherwise keep the primary text color. */
-.units.outOfStock {
-  color: var(--tone-danger-fg);
 }
 
 /* A node with publications selling under cost. */

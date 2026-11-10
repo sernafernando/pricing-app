@@ -96,7 +96,7 @@ export function AgeingCell({ metrics }) {
 }
 
 /** One stock figure of its own source: unknown is "—", a real zero (or less) is shown and flagged. */
-function StockQuantity({ value }) {
+export function StockQuantity({ value }) {
   if (value == null) return <Empty />;
   const out = value <= 0;
   return (

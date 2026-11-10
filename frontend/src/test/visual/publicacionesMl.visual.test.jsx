@@ -511,6 +511,16 @@ describe('Publicaciones ML (visual)', () => {
         const digits = (key) => first.querySelector(`td[data-column="${key}"]`).textContent.replace(/\D/g, '');
         expect(digits('stock_erp')).toBe('12500');
         expect(digits('stock_total')).toBe('12520');
+        // The three figures read alike: thousands grouped, same font, size and weight.
+        expect(first.querySelector('td[data-column="stock_erp"]').textContent).toBe('12.500');
+        expect(first.querySelector('td[data-column="stock_total"]').textContent).toBe('12.520');
+        const look = (key) => {
+          const figure = [...first.querySelectorAll(`td[data-column="${key}"] span`)].find((el) => el.textContent.trim() && !el.children.length);
+          const style = getComputedStyle(figure);
+          return [style.fontFamily, style.fontSize, style.fontWeight].join(' / ');
+        };
+        expect(look('stock_erp')).toBe(look('stock_total'));
+        expect(look('stock_full')).toBe(look('stock_total'));
         const notes = [...scroller.querySelectorAll('tbody td span')].filter((el) => el.textContent === 'Sin stock ERP');
         expect(notes.length).toBeGreaterThan(0);
         expect(wrapped(notes)).toEqual([]);
