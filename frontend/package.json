@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "test": "vitest run --project=unit",
     "test:watch": "vitest --project=unit",
-    "test:visual": "vitest run --project=visual"
+    "test:visual": "vitest run --project=visual",
+    "generate:lucide-stub": "node scripts/generate-lucide-react-stub.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

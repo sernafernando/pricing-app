@@ -118,12 +118,12 @@ vi.mock('../contexts/PermisosContext', () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mock: lucide-react — use importOriginal to get all real exports
-// (SVG icons render fine in jsdom; we just want the exports to resolve)
+// lucide-react: NOT mocked via importOriginal here.
+// The unit Vitest project aliases `lucide-react` → `./lucide-react-stub.jsx`
+// (see vite.config.js) so workers do not load the full icon catalog.
+// Regenerate the stub: node scripts/generate-lucide-react-stub.mjs
+// Diagnosis: docs/vitest-unit-oom-diagnosis.md (Fix A).
 // ---------------------------------------------------------------------------
-vi.mock('lucide-react', async (importOriginal) => {
-  return await importOriginal();
-});
 
 // ---------------------------------------------------------------------------
 // Stub localStorage (the jsdom environment may initialize without localStorage
@@ -199,4 +199,8 @@ beforeEach(() => {
 afterEach(() => {
   console.error = originalError;
   vi.clearAllMocks();
+  // Module-scoped stub — without this, keys set by one file stay for the rest
+  // of the worker (RSS + cross-test pollution). Fix B in
+  // docs/vitest-unit-oom-diagnosis.md.
+  localStorage.clear();
 });
