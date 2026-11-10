@@ -30,7 +30,11 @@ each sale's amount is divided by its own product's VAT rate (T7,
 A `monto_total` campaign (T26, S34/S35) carries one fixed amount (`monto_total`, in `moneda`, never 0:
 positive = a credit, negative = a deduction from profit) and no cap (the total is its cap); the PM or an admin
 shares it out by hand per product (`SellOutCampanaItem`), and each product's share spreads over its sales in the
-campaign's dates. What nobody was given is "Sin asignar" and counts on `fecha_hasta`.
+campaign's dates. What nobody was given is "Sin asignar" and counts on `fecha_hasta`. `reparto_criterio` (tactical
+monto total, S2) says how the total was split: NULL by hand; `iguales` (equal shares per product) and `costo` (shares
+proportional to each product's cost) are fixed shares stored at split time like manual ones; `unidades` stores no
+share: the allocator spreads the total over every unit sold of the campaign's products in its dates, so it follows
+sales and returns (`app.services.sell_out.reparto.repartir_por_unidades`).
 
 Campaigns on the same product and dates stack unless one of them is not
 `acumulable`. A campaign is never deleted: it is voided (`anulada`).
@@ -148,6 +152,10 @@ class SellOutCampana(Base):
         Index("ix_sell_out_campanas_renovada_de_id", "renovada_de_id"),
         Index("ix_sell_out_campanas_tactical_id", "tactical_id"),
         CheckConstraint(TACTICAL_LINEA, name="ck_sell_out_campanas_tactical_linea"),
+        CheckConstraint(
+            "reparto_criterio IS NULL OR (tipo = 'monto_total' AND reparto_criterio IN ('iguales', 'unidades', 'costo'))",
+            name="ck_sell_out_campanas_reparto_criterio",
+        ),
     )
 
     id = Column(BigInteger, primary_key=True)
@@ -160,6 +168,8 @@ class SellOutCampana(Base):
     porcentaje = Column(Numeric(7, 4), nullable=True)
     # A `monto_total` campaign's whole amount, in `moneda`; negative = a deduction. See the module docstring.
     monto_total = Column(Numeric(18, 2), nullable=True)
+    # How a `monto_total` campaign is split (module docstring): NULL by hand; `iguales`, `unidades`, `costo`.
+    reparto_criterio = Column(String(16), nullable=True)
     base_porcentaje = Column(String(16), nullable=False, default="costo", server_default="costo")
     # Currency of `monto_unit` and `tope_monto`. USD is the usual case, hence the default.
     moneda = Column(String(3), nullable=False, default="USD", server_default="USD")

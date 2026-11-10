@@ -144,3 +144,54 @@ class TestTopeUnidades:
             (1, 1, D("0.00")),
             (2, 1, D("0.00")),
         ]
+
+
+class TestRepartirPorUnidades:
+    """`reparto_criterio = 'unidades'` (tactical monto total, S2 (b)): every unit sold of any product of the campaign
+    in its dates gets the same share of the total; no stored share is read."""
+
+    def test_every_unit_of_any_product_gets_the_same_share_and_the_rows_add_up_exactly(self) -> None:
+        c = MontoTotal(D("1200.00"), {}, criterio="unidades")
+        filas = repartir(c, [_consumo(1, 1, 1), _consumo(2, 2, 2), _consumo(3, 3, 4)])
+        assert _filas(filas) == [(1, 1, 1, D("171.43")), (2, 2, 2, D("342.86")), (3, 3, 4, D("685.71"))]
+        assert sum(f.monto for f in filas) == D("1200.00")
+
+    def test_stored_shares_are_ignored(self) -> None:
+        c = MontoTotal(D("100.00"), {1: (None, D("90.00"))}, criterio="unidades")
+        assert _filas(repartir(c, [_consumo(1, 1, 1), _consumo(2, 2, 1)])) == [
+            (1, 1, 1, D("50.00")),
+            (2, 2, 1, D("50.00")),
+        ]
+
+    def test_a_negative_total_spreads_negative_and_exactly(self) -> None:
+        c = MontoTotal(D("-100.00"), {}, criterio="unidades")
+        filas = repartir(c, [_consumo(1, 1, 1), _consumo(2, 2, 1), _consumo(3, 2, 1)])
+        assert _filas(filas) == [(1, 1, 1, D("-33.33")), (2, 2, 1, D("-33.34")), (3, 2, 1, D("-33.33"))]
+
+    def test_a_return_moves_the_share_to_the_units_kept_through_tope(self) -> None:
+        lineas = [
+            Linea("ml", 1, 1, date(2026, 11, 1), 2),
+            Linea("ml", 2, 2, date(2026, 11, 2), 2),
+            Linea("ml", 3, 2, date(2026, 11, 3), -1, objetivo=("ml", 2)),
+        ]
+        neto = asignar(Campana(tipo="monto_total", moneda="ARS"), lineas)
+        filas = repartir(MontoTotal(D("300.00"), {}, criterio="unidades"), neto)
+        assert sum(f.monto for f in filas) == D("300.00")
+        assert {f.item_id: f.monto for f in filas} == {1: D("200.00"), 2: D("100.00")}
+
+    def test_a_total_loaded_with_vat_is_net_of_each_row_product_vat(self) -> None:
+        c = MontoTotal(D("242.00"), {}, True, {1: D("21"), 2: D("21")}, criterio="unidades")
+        assert _filas(repartir(c, [_consumo(1, 1, 1), _consumo(2, 2, 1)])) == [
+            (1, 1, 1, D("100.00")),
+            (2, 2, 1, D("100.00")),
+        ]
+
+    def test_no_sales_writes_no_row_and_the_whole_total_is_sin_asignar(self) -> None:
+        c = MontoTotal(D("1200.00"), {}, criterio="unidades")
+        assert repartir(c, []) == []
+        assert resumen_monto_total(c, []) == {"asignado_sin_ventas": D("0.00"), "sin_asignar": D("1200.00")}
+
+    def test_with_sales_nothing_is_sin_asignar_nor_asignado_sin_ventas(self) -> None:
+        c = MontoTotal(D("1200.00"), {}, criterio="unidades")
+        assert resumen_monto_total(c, [1]) == {"asignado_sin_ventas": D("0.00"), "sin_asignar": D("0.00")}
+        assert reparto.sin_ventas(c, [1]) == {}
