@@ -716,15 +716,10 @@ def test_an_excess_below_a_cent_is_reported_exactly(client, gestor, grupo) -> No
 # --- Split by a criterion (tactical monto total S2/S3/S6) ---
 
 
-def test_create_with_a_criterion_returns_it_and_its_equal_shares(client, gestor, grupo) -> None:
+def test_create_in_equal_parts_returns_the_criterion_and_no_share(client, gestor, grupo) -> None:
     out = _crear(client, gestor, grupo, monto_total="1000.00", reparto_criterio="iguales")
 
-    assert out["reparto_criterio"] == "iguales"
-    assert sorted(Decimal(i["reparto_monto"]) for i in out["items"]) == [
-        Decimal("333.33"),
-        Decimal("333.33"),
-        Decimal("333.34"),
-    ]
+    assert (out["reparto_criterio"], out["items"]) == ("iguales", [])
 
 
 def test_a_manual_campaign_reads_without_a_criterion(client, gestor, grupo) -> None:
@@ -736,8 +731,7 @@ def test_put_with_a_criterion_splits_and_a_manual_put_clears_it(client, gestor, 
 
     resp = client.put(f"{BASE}/{cid}/reparto", json={"repartos": [], "criterio": "iguales"}, headers=gestor)
     assert resp.status_code == 200, resp.text
-    assert resp.json()["reparto_criterio"] == "iguales"
-    assert sorted(Decimal(i["reparto_monto"]) for i in resp.json()["items"]) == [Decimal("100.00")] * 3
+    assert (resp.json()["reparto_criterio"], resp.json()["items"]) == ("iguales", [])
 
     resp = _repartir(client, gestor, cid, [{"item_id": ROUTER, "reparto_porcentaje": "50"}])
     assert resp.status_code == 200, resp.text
@@ -778,12 +772,13 @@ def test_the_preview_shows_each_product_and_stores_nothing(client, gestor, grupo
     assert resp.status_code == 200, resp.text
     previa = resp.json()
     assert (previa["criterio"], previa["moneda"], Decimal(previa["monto_total"])) == ("iguales", "ARS", Decimal("300"))
+    # No sale yet: in equal parts only the products that sold share the total, so all of it is "Sin asignar".
     assert {i["item_id"]: (i["codigo"], i["unidades"], Decimal(i["monto"])) for i in previa["items"]} == {
-        ROUTER: (f"C{ROUTER}", 0, Decimal("100.00")),
-        SWITCH: (f"C{SWITCH}", 0, Decimal("100.00")),
-        TINTA: (f"C{TINTA}", 0, Decimal("100.00")),
+        ROUTER: (f"C{ROUTER}", 0, Decimal("0.00")),
+        SWITCH: (f"C{SWITCH}", 0, Decimal("0.00")),
+        TINTA: (f"C{TINTA}", 0, Decimal("0.00")),
     }
-    assert Decimal(previa["sin_asignar"]) == 0
+    assert Decimal(previa["sin_asignar"]) == Decimal("300")
     detalle = client.get(f"{BASE}/{cid}", headers=gestor).json()
     assert (detalle["reparto_criterio"], detalle["items"]) == (None, [])
 

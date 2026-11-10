@@ -1,6 +1,8 @@
 """A `monto_total` campaign split by a criterion (tactical monto total, S2/S3): `SellOutCampana.reparto_criterio`.
 
-- `iguales`: the same fixed share for every product of the campaign's reach.
+- `iguales`: equal parts. A sell in bonus stores the same fixed share for every product of its reach
+  (`cuotas_fijas`); a sell out campaign stores none: the allocator splits the total in equal parts among the products
+  with net sales in the dates (`reparto.repartir_entre_vendidos`, tactical iguales sell out S2/S3).
 - `costo`: fixed shares proportional to each product's cost, `productos_erp.costo` converted to the campaign currency
   (a USD cost in an ARS campaign, or the other way round, at the campaign's own rate when it has one, else the
   latest BNA `venta`); a product without a cost gets no share.
@@ -12,7 +14,8 @@ parts, `proporcional` with the cost as weight): cent-exact, the remainder on the
 exactly to the total. A negative total (a deduction) is split by its absolute value and negated.
 
 `vista_previa` computes the same result without storing anything, for the panel's preview: the fixed shares, or for
-`unidades` what the allocator would credit each product now (by its net units sold in the dates so far), always in
+`unidades` / `iguales` what the allocator would credit each product now (by its net units sold in the dates so far,
+or in equal parts among the products sold so far), always in
 the campaign currency as loaded (before any VAT is taken off).
 """
 
@@ -33,7 +36,9 @@ from app.services.sell_out import alcance, asignacion, reparto
 
 IGUALES, UNIDADES, COSTO = "iguales", reparto.UNIDADES, "costo"
 CRITERIOS = (IGUALES, UNIDADES, COSTO)
-FIJOS = (IGUALES, COSTO)
+FIJOS = (IGUALES, COSTO)  # sell in: stored per-product shares
+# Sell out stores only `costo`'s: its `iguales` goes to the products that sold (`reparto.IGUALES_VENDIDOS`).
+FIJOS_SELL_OUT = (COSTO,)
 
 
 class CriterioError(ValueError):
@@ -134,13 +139,15 @@ def cuotas(db: Session, campana: SellOutCampana, criterio: str) -> Dict[int, Dec
     return cuotas_fijas(db, item_ids, Decimal(campana.monto_total), criterio, campana.moneda, tasa)
 
 
-def _por_unidades(db: Session, campana: SellOutCampana) -> Tuple[Dict[int, int], Dict[int, Decimal]]:
+def _dinamico(db: Session, campana: SellOutCampana, criterio: str) -> Tuple[Dict[int, int], Dict[int, Decimal]]:
     """`({item_id: net units}, {item_id: amount})` the allocator would write now if the campaign were split by
-    units, as loaded (no VAT taken off). Reads, never writes."""
+    `criterio` (`unidades`, or a sell out `iguales`; any other reads units only), as loaded (no VAT taken off).
+    Reads, never writes."""
     previa = SellOutCampana(
         **{col.key: getattr(campana, col.key) for col in SellOutCampana.__table__.columns},
     )
-    previa.reparto_criterio, previa.monto_incluye_iva = UNIDADES, False
+    previa.reparto_criterio = criterio if criterio in (UNIDADES, IGUALES) else UNIDADES
+    previa.monto_incluye_iva = False
     filas = asignacion.filas_de(db, previa)
     unidades: Dict[int, int] = {}
     montos: Dict[int, Decimal] = {}
@@ -156,8 +163,8 @@ def vista_previa(db: Session, campana: SellOutCampana, criterio: str) -> dict:
         raise CriterioError("Solo las campañas por monto total se reparten por producto")
     if campana.estado == "anulada":
         raise CriterioError(f"La campaña {campana.id} está anulada")
-    unidades, montos = _por_unidades(db, campana)
-    if criterio in FIJOS:
+    unidades, montos = _dinamico(db, campana, criterio)
+    if criterio in FIJOS_SELL_OUT:
         montos = cuotas(db, campana, criterio)
     item_ids = _alcance(db, campana)
     codigos = dict(db.query(ProductoERP.item_id, ProductoERP.codigo).filter(ProductoERP.item_id.in_(item_ids)))

@@ -31,10 +31,12 @@ A `monto_total` campaign (T26, S34/S35) carries one fixed amount (`monto_total`,
 positive = a credit, negative = a deduction from profit) and no cap (the total is its cap); the PM or an admin
 shares it out by hand per product (`SellOutCampanaItem`), and each product's share spreads over its sales in the
 campaign's dates. What nobody was given is "Sin asignar" and counts on `fecha_hasta`. `reparto_criterio` (tactical
-monto total, S2) says how the total was split: NULL by hand; `iguales` (equal shares per product) and `costo` (shares
-proportional to each product's cost) are fixed shares stored at split time like manual ones; `unidades` stores no
-share: the allocator spreads the total over every unit sold of the campaign's products in its dates, so it follows
-sales and returns (`app.services.sell_out.reparto.repartir_por_unidades`).
+monto total, S2) says how the total was split: NULL by hand; `costo` (shares proportional to each product's cost)
+stores fixed shares at split time like manual ones; `unidades` stores no share: the allocator spreads the total over
+every unit sold of the campaign's products in its dates, so it follows sales and returns
+(`app.services.sell_out.reparto.repartir_por_unidades`); `iguales` stores no share either: the allocator splits the
+total in equal parts among the products that sold in the dates (`reparto.repartir_entre_vendidos`, tactical iguales
+sell out S2/S3).
 
 Campaigns on the same product and dates stack unless one of them is not
 `acumulable`. A campaign is never deleted: it is voided (`anulada`).

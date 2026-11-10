@@ -182,7 +182,7 @@ def _montos_totales(
             repartos.get(c.id, {}),
             c.monto_incluye_iva,
             ivas.get(c.id, {}),
-            criterio=c.reparto_criterio,
+            criterio=reparto.criterio_sell_out(c.reparto_criterio),
         )
         for c in total
     }

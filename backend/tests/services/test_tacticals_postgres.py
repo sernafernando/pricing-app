@@ -536,7 +536,7 @@ class TestSellOutMontoTotal:
     def _campana(self, db: Session) -> SellOutCampana:
         return db.query(SellOutCampana).one()
 
-    def test_equal_parts_split_the_total_among_the_line_products(self, db, engine) -> None:
+    def test_equal_parts_store_the_criterion_and_no_share(self, db, engine) -> None:
         [salida] = service.serializar(
             db, [service.crear(db, _tactical(lineas=[self._linea(reparto_criterio="iguales")]), USUARIO)]
         )
@@ -547,8 +547,8 @@ class TestSellOutMontoTotal:
             Decimal("900"),
             "iguales",
         )
-        items = db.query(SellOutCampanaItem.item_id, SellOutCampanaItem.reparto_monto).order_by("item_id").all()
-        assert items == [(2270, Decimal("450.00")), (2964, Decimal("450.00"))]
+        # Sell out equal parts go only to the products that sell (tactical iguales sell out S2): no fixed share.
+        assert db.query(SellOutCampanaItem.item_id).all() == []
         assert [x["reparto_criterio"] for x in salida["lineas"]] == ["iguales"]
         assert _contar(engine, "sell_out_dirty") >= 1
 

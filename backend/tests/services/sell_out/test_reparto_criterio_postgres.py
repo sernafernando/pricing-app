@@ -1,5 +1,6 @@
-"""A `monto_total` campaign split by a criterion (tactical monto total, S2/S3/S6) on Postgres: `iguales` and `costo`
-store fixed per-product shares, cent-exact; `unidades` stores none and the rebuild spreads the total over every unit
+"""A `monto_total` campaign split by a criterion (tactical monto total, S2/S3/S6) on Postgres: `costo` stores fixed
+per-product shares, cent-exact; `iguales` stores none and the rebuild splits the total in equal parts among the products
+that sold in the dates (tactical iguales sell out S2/S3); `unidades` stores none and the rebuild spreads the total over every unit
 sold in the dates, following returns; the manual split keeps working and clears the criterion; a brand-scoped user
 cannot split by a criterion; the preview stores nothing. `_world`, like the other split tests."""
 
@@ -17,6 +18,7 @@ from app.models.sell_out import SellOutCampana
 from app.schemas.sell_out import SellOutCampanaIn, SellOutCampanaItemIn
 from app.services.sell_out import campanas as service
 from app.services.sell_out import criterio as criterio_service
+from app.services.sell_out import queue
 from app.services.sell_out import resumen
 from app.services.sell_out.asignacion import recalcular
 from tests.services.sell_out import _world as w
@@ -100,41 +102,92 @@ def _reparto_resumen(engine: Engine, campana: int) -> dict:
 
 
 class TestIguales:
-    def test_equal_fixed_shares_per_product_add_up_to_the_total_to_the_cent(self, engine: Engine) -> None:
+    """Sell out "iguales" (tactical iguales sell out S2/S3): no stored share; every rebuild splits the total in equal
+    parts among the products with net sales in the dates, so the rebuild after the range ends is the recalculation."""
+
+    def test_it_stores_the_criterion_and_no_share_and_queues_the_campaign(self, engine: Engine) -> None:
         campana = _tres(engine, "1000.00")
+        w.reparto(engine, campana, 2964, monto="10.00")  # a previous manual split is replaced
         w.clear_queue(engine)
 
         _repartir(engine, campana, "iguales")
 
-        items = _items(engine, campana)
-        assert sorted(m for _, m in items.values()) == [D("333.33"), D("333.33"), D("333.34")]
-        assert sum(m for _, m in items.values()) == D("1000.00")
-        assert all(p is None for p, _ in items.values())
+        assert _items(engine, campana) == {}
         assert _criterio(engine, campana) == "iguales"
         assert [row[0] for row in w.queued(engine)] == [campana]
 
-    def test_a_negative_total_gives_negative_shares_that_add_up_exactly(self, engine: Engine) -> None:
-        campana = _tres(engine, "-100.00")
-
-        _repartir(engine, campana, "iguales")
-
-        montos = [m for _, m in _items(engine, campana).values()]
-        assert sorted(montos) == [D("-33.34"), D("-33.33"), D("-33.33")]
-        assert sum(montos) == D("-100.00")
-
-    def test_a_product_with_no_sales_in_the_dates_is_reported_as_today(self, engine: Engine) -> None:
-        campana = _tres(engine, "300.00")
+    def test_a_product_with_no_sales_gets_no_share_and_the_ones_that_sold_split_it_all(self, engine: Engine) -> None:
+        campana = _tres(engine, "1000.00")
         _repartir(engine, campana, "iguales")
         w.venta(engine, "ml", 2964, 2, date(2026, 11, 2))
+        w.venta(engine, "ml", 2270, 1, date(2026, 11, 3))
         _recalcular(engine, campana)
 
-        assert _filas(engine, campana) == [(2964, 2, D("100.00"))]
+        assert _filas(engine, campana) == [(2964, 2, D("500.00")), (2270, 1, D("500.00"))]
         assert _reparto_resumen(engine, campana) == {
-            "asignado": D("300.00"),
-            "asignado_sin_ventas": D("200.00"),
+            "asignado": D("1000.00"),
+            "asignado_sin_ventas": D("0.00"),
             "sin_asignar": D("0.00"),
             "motivo": None,
         }
+
+    def test_the_parts_add_up_to_the_total_to_the_cent(self, engine: Engine) -> None:
+        campana = _tres(engine, "100.00")
+        _repartir(engine, campana, "iguales")
+        for item_id, dia in ((2964, 2), (2270, 3), (950, 4)):
+            w.venta(engine, "ml", item_id, 1, date(2026, 11, dia))
+        _recalcular(engine, campana)
+
+        montos = [m for _, _, m in _filas(engine, campana)]
+        assert sorted(montos) == [D("33.33"), D("33.33"), D("33.34")]
+        assert sum(montos) == D("100.00")
+
+    def test_a_negative_total_splits_negative_among_the_products_that_sold(self, engine: Engine) -> None:
+        campana = _tres(engine, "-100.00")
+        _repartir(engine, campana, "iguales")
+        w.venta(engine, "ml", 2964, 1, date(2026, 11, 2))
+        w.venta(engine, "ml", 950, 1, date(2026, 11, 3))
+        _recalcular(engine, campana)
+
+        assert _filas(engine, campana) == [(2964, 1, D("-50.00")), (950, 1, D("-50.00"))]
+
+    def test_a_return_after_the_range_ends_requeues_and_moves_its_part(self, engine: Engine) -> None:
+        campana = _tres(engine, "300.00")
+        _repartir(engine, campana, "iguales")
+        w.venta(engine, "fuera", 2964, 1, date(2026, 11, 2), cliente=55)
+        w.venta(engine, "fuera", 2270, 1, date(2026, 11, 3), cliente=56)
+        _recalcular(engine, campana)
+        assert _filas(engine, campana) == [(2964, 1, D("150.00")), (2270, 1, D("150.00"))]
+
+        # The range (Nov 1-30) is over; a return dated inside it arrives late and still queues the campaign.
+        devolucion = w.venta(engine, "fuera", 2270, 1, date(2026, 11, 20), signo=-1, cliente=56)
+        with _db(engine) as db:
+            assert campana in queue.campanas_de_ventas(db, [("fuera", devolucion)])
+        _recalcular(engine, campana)
+
+        assert _filas(engine, campana) == [(2964, 1, D("300.00"))]
+
+    def test_a_late_sale_of_a_product_that_had_none_joins_the_split(self, engine: Engine) -> None:
+        campana = _tres(engine, "300.00")
+        _repartir(engine, campana, "iguales")
+        w.venta(engine, "ml", 2964, 1, date(2026, 11, 2))
+        _recalcular(engine, campana)
+        assert _filas(engine, campana) == [(2964, 1, D("300.00"))]
+
+        tarde = w.venta(engine, "ml", 950, 1, date(2026, 11, 29))
+        with _db(engine) as db:
+            assert campana in queue.campanas_de_ventas(db, [("ml", tarde)])
+        _recalcular(engine, campana)
+
+        assert _filas(engine, campana) == [(2964, 1, D("150.00")), (950, 1, D("150.00"))]
+
+    def test_without_sales_the_whole_total_is_sin_asignar(self, engine: Engine) -> None:
+        campana = _tres(engine, "1200.00")
+        _repartir(engine, campana, "iguales")
+        _recalcular(engine, campana)
+
+        assert _reparto_resumen(engine, campana)["sin_asignar"] == D("1200.00")
+        assert _reparto_resumen(engine, campana)["asignado_sin_ventas"] == D("0.00")
 
 
 class TestCosto:
@@ -283,6 +336,21 @@ class TestVistaPrevia:
         }
         assert previa["sin_asignar"] == D("0.00")
 
+    def test_the_preview_in_equal_parts_splits_among_the_products_sold_so_far(self, engine: Engine) -> None:
+        campana = _tres(engine, "300.00")
+        w.venta(engine, "ml", 2964, 2, date(2026, 11, 2))
+        w.venta(engine, "ml", 2270, 1, date(2026, 11, 3))
+
+        with _db(engine) as db:
+            previa = criterio_service.vista_previa(db, db.get(SellOutCampana, campana), "iguales")
+
+        assert {i["item_id"]: (i["unidades"], i["monto"]) for i in previa["items"]} == {
+            2964: (2, D("150.00")),
+            2270: (1, D("150.00")),
+            950: (0, D("0.00")),
+        }
+        assert previa["sin_asignar"] == D("0.00")
+
     def test_the_preview_of_costo_matches_what_the_split_stores(self, engine: Engine) -> None:
         _costos(engine, p2964=(100, "ARS"), p2270=(300, "ARS"), p950=(600, "ARS"))
         campana = _tres(engine, "1000.00")
@@ -313,11 +381,18 @@ class TestCrearYEditar:
         )
 
     def test_a_campaign_created_with_a_criterion_stores_it_and_its_shares(self, engine: Engine) -> None:
+        _costos(engine, p2964=(100, "ARS"), p2270=(100, "ARS"), p950=(100, "ARS"))
+        with _db(engine) as db:
+            campana = service.crear_campana(db, self._entrada(engine, reparto_criterio="costo"), USUARIO).id
+
+        assert _criterio(engine, campana) == "costo"
+        assert sorted(m for _, m in _items(engine, campana).values()) == [D("400.00")] * 3
+
+    def test_a_campaign_created_split_in_equal_parts_stores_no_share(self, engine: Engine) -> None:
         with _db(engine) as db:
             campana = service.crear_campana(db, self._entrada(engine, reparto_criterio="iguales"), USUARIO).id
 
-        assert _criterio(engine, campana) == "iguales"
-        assert sorted(m for _, m in _items(engine, campana).values()) == [D("400.00")] * 3
+        assert (_criterio(engine, campana), _items(engine, campana)) == ("iguales", {})
 
     def test_a_criterion_with_items_on_create_is_refused(self, engine: Engine) -> None:
         entrada = self._entrada(engine, reparto_criterio="iguales", items=[{"item_id": 2964, "reparto_monto": "10.00"}])
@@ -332,15 +407,25 @@ class TestCrearYEditar:
             service.crear_campana(db, entrada, USUARIO)
 
     def test_an_edit_without_items_keeps_the_criterion_and_resplits_the_new_total(self, engine: Engine) -> None:
+        _costos(engine, p2964=(100, "ARS"), p2270=(100, "ARS"), p950=(100, "ARS"))
         with _db(engine) as db:
-            campana = service.crear_campana(db, self._entrada(engine, reparto_criterio="iguales"), USUARIO).id
+            campana = service.crear_campana(db, self._entrada(engine, reparto_criterio="costo"), USUARIO).id
         grupo = w.grupo(engine, [TP_LINK, MERCUSYS])
 
         with _db(engine) as db:
             service.editar_campana(db, campana, self._entrada(engine, monto_total="300.00", grupo_ids=[grupo]), USUARIO)
 
-        assert _criterio(engine, campana) == "iguales"
+        assert _criterio(engine, campana) == "costo"
         assert sorted(m for _, m in _items(engine, campana).values()) == [D("100.00")] * 3
+
+    def test_an_edit_of_an_equal_parts_campaign_keeps_it_with_no_share(self, engine: Engine) -> None:
+        with _db(engine) as db:
+            campana = service.crear_campana(db, self._entrada(engine, reparto_criterio="iguales"), USUARIO).id
+
+        with _db(engine) as db:
+            service.editar_campana(db, campana, self._entrada(engine, monto_total="300.00"), USUARIO)
+
+        assert (_criterio(engine, campana), _items(engine, campana)) == ("iguales", {})
 
     def test_an_edit_with_items_is_a_manual_split(self, engine: Engine) -> None:
         with _db(engine) as db:
