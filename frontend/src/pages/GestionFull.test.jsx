@@ -359,10 +359,26 @@ describe('GestionFull', () => {
     await waitFor(() => expect(api.get).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole('button', { name: /Reset overrides y Qty PM/i }));
+    expect(screen.getByText(/no solo los filtrados/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^Resetear todo$/i }));
 
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith('/gestion-full/plan/reset');
     });
+  });
+
+  it('shows permission error when plan reset returns 403', async () => {
+    tienePermisoMock.mockImplementation((code) => code === 'gestion_full.gestor');
+    api.get.mockResolvedValue({ data: { total: 0, items: [], puede_editar_override: false } });
+    api.post.mockRejectedValue({ response: { status: 403 } });
+    render(<GestionFull />);
+    await waitFor(() => expect(api.get).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole('button', { name: /Reset overrides y Qty PM/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Resetear todo$/i }));
+
+    expect(
+      await screen.findByText('No tenés permiso para resetear Planificación'),
+    ).toBeInTheDocument();
   });
 });

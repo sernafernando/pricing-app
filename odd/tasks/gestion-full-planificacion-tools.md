@@ -31,3 +31,5 @@ L2. User: "mostrasr el top 1 respecto de tu pregunta, y por las dudas borrar par
 L3. User: "si correcto, el responsable general del proceso completo" (= `gestion_full.gestor`).
 
 L4. Explorer: store filter must be inside `_LINKED_CTE` before DISTINCT ON (`ml_items.official_store_id`); Qty PM clear = delete `pm_ready`; reuse Publicaciones `tiendas` CSV pattern; sort/top_by are list SQL contracts.
+
+L5. 2026-11-10 Fernando #2168 PASS advisories incorporated: DB-backed plan-reset postgres test; modal/ayuda/novedad say global wipe (not filter-scoped); FE distinguishes 403 vs generic reset error.

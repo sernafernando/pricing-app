@@ -139,8 +139,13 @@ export default function GestionFull() {
       );
       skipFacetsRef.current = true;
       setListNonce((n) => n + 1);
-    } catch {
-      setSaveError('No se pudo resetear Planificación');
+    } catch (err) {
+      const status = err?.response?.status;
+      setSaveError(
+        status === 403
+          ? 'No tenés permiso para resetear Planificación'
+          : 'No se pudo resetear Planificación',
+      );
       setResetOpen(false);
     } finally {
       setResetBusy(false);
@@ -478,7 +483,7 @@ export default function GestionFull() {
         isOpen={resetOpen}
         onClose={() => (resetBusy ? null : setResetOpen(false))}
         title="Resetear Planificación"
-        subtitle="Borra todos los overrides y Qty PM (Listo). No toca el paquete de envío ni U/caja."
+        subtitle="Borra todos los overrides y Qty PM (Listo), no solo los filtrados. No toca el paquete de envío ni U/caja."
         closeOnOverlay={!resetBusy}
         closeOnEsc={!resetBusy}
         size="sm"
@@ -494,7 +499,8 @@ export default function GestionFull() {
         }
       >
         <p className={styles.meta}>
-          Solo el gestor puede hacer esto. Los PMs no tienen esta acción. No se puede deshacer.
+          Afecta a toda Planificación (ignora filtros activos). Solo el gestor puede hacer
+          esto. Los PMs no tienen esta acción. No se puede deshacer.
         </p>
       </ModalTesla>
     </div>
