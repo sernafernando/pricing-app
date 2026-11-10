@@ -213,3 +213,9 @@
   background: var(--tone-danger-bg);
   border-color: var(--tone-danger-border);
 }
+
+/* The split criterion of a sell out total amount, under what the line includes. */
+.reparto {
+  max-width: 260px;
+  margin-top: 6px;
+}

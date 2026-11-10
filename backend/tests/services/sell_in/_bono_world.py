@@ -20,7 +20,13 @@ from typing import Dict, Iterator, List, Optional, Tuple
 from sqlalchemy import Engine, text
 
 from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
-from app.models.sell_in import SellInBonoConsumo, SellInBonoDirty, SellInBonoItem, SellInBonoMarca
+from app.models.sell_in import (
+    SellInBonoConsumo,
+    SellInBonoDirty,
+    SellInBonoItem,
+    SellInBonoMarca,
+    SellInBonoReparto,
+)
 from app.models.tipo_cambio import TipoCambio
 from app.services.sell import queue as sell_queue
 from app.services.sell_in import bono_queue
@@ -47,6 +53,7 @@ TABLES = [
     w.ProductoERP.__table__,
     SellInBonoMarca.__table__,
     SellInBonoItem.__table__,
+    SellInBonoReparto.__table__,  # a total bonus's fixed shares (tactical monto total S4)
     SellInBonoConsumo.__table__,
     *_SELL_IN,
     PedidoCompraLineaFacturada.__table__,

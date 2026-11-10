@@ -2,13 +2,28 @@
  * The lines of the Nuevo tactical screen: their state, what each can charge at most, what stops a save, and the
  * body of `POST /tacticals` (handoffs/tactical-tarea.md, API contract). Pure functions, no React.
  *
- * A line is `{ id, alcance, productos, facturas, marca, categoria, monto, modo, topeUnidades, topeMonto, compartido }`:
+ * A line is `{ id, alcance, productos, facturas, marca, categoria, monto, modo, topeUnidades, topeMonto, compartido,
+ * reparto }`:
  * `productos` are catalog rows (`item_id`, `codigo`, `descripcion`), `facturas` Compras operations (`id` is the
  * pedido_compra_id), `monto`/`topeUnidades`/`topeMonto` the text as typed, `modo` `por_unidad` | `porcentaje` |
- * `monto_total`, and `compartido` whether a line with several products shares one cap.
+ * `monto_total`, `compartido` whether a line with several products shares one cap, and `reparto` how a sell out total
+ * amount is split among the line's products (`REPARTOS`, '' until chosen).
  */
 
 let siguienteId = 0;
+
+/**
+ * How a sell out total amount is split among the products of its line, as `reparto_criterio` (S1): equal parts, by
+ * the units sold in the tactical's dates (it follows sales and returns), or by each product's cost.
+ */
+export const REPARTOS = [
+  { value: 'iguales', label: 'Partes iguales por modelo' },
+  { value: 'unidades', label: 'Según unidades vendidas' },
+  { value: 'costo', label: 'Proporcional al costo' },
+];
+
+/** A total amount split among the line's products: any scope but an invoice (whose split is what was invoiced). */
+export const repartePorCriterio = (linea) => linea.modo === 'monto_total' && linea.alcance !== 'factura';
 
 /** An amount as the design writes it: "$ 850.000" in pesos, "USD 19.800" in dollars, rounded to units. */
 export const dinero = (moneda, n) => `${moneda === 'ARS' ? '$' : 'USD'} ${Math.round(n).toLocaleString('es-AR')}`;
@@ -25,6 +40,7 @@ export const nuevaLinea = (marca = '') => ({
   topeUnidades: '',
   topeMonto: '',
   compartido: false,
+  reparto: '',
 });
 
 export const copiarLinea = (linea) => ({
@@ -56,8 +72,12 @@ export const esCompartida = (linea) => puedeCompartir(linea) && linea.compartido
 export const vecesDelTope = (linea) =>
   linea.alcance === 'productos' && !esCompartida(linea) ? Math.max(1, linea.productos.length) : 1;
 
-/** The units a line can reach at most (its unit cap, per product when the caps are), or 0 without a unit cap. */
-export const unidadesDelTope = (linea) => (enteroDe(linea.topeUnidades) || 0) * vecesDelTope(linea);
+/**
+ * The units a line can reach at most (its unit cap, per product when the caps are), or 0 without a unit cap; a total
+ * amount split by criterion has none.
+ */
+export const unidadesDelTope = (linea) =>
+  repartePorCriterio(linea) ? 0 : (enteroDe(linea.topeUnidades) || 0) * vecesDelTope(linea);
 
 /**
  * The most a line can charge, as the design computes it: a total amount is itself; a percentage only its money cap;
@@ -77,32 +97,54 @@ export function maximoACobrar(linea) {
 /** What all the lines can charge at most together. */
 export const maximoTotal = (lineas) => lineas.reduce((total, linea) => total + (maximoACobrar(linea) || 0), 0);
 
-/** The scope and amount kinds a type offers: invoices and total amounts are sell in only. */
+/** The scope and amount kinds a type offers: invoices are sell in only; both offer a total amount on every scope. */
 export const alcancesDe = (tipo) =>
   tipo === 'sell_in' ? ['productos', 'marca', 'categoria', 'factura'] : ['productos', 'marca', 'categoria'];
-export const modosDe = (tipo) =>
-  tipo === 'sell_in' ? ['por_unidad', 'porcentaje', 'monto_total'] : ['por_unidad', 'porcentaje'];
+export const modosDe = () => ['por_unidad', 'porcentaje', 'monto_total'];
 
 /**
- * The amount kinds a line shows but cannot use: on sell in a total amount is an invoice's only (Contrato final: a
- * cost reduction over products, a brand or a category takes no `monto_total`).
+ * Whether a sell in total amount over products, a brand or a category cannot go in this currency: the backend takes
+ * it in ARS, or in USD converted at the tactical's fixed rate (S4). The invoice total line keeps its own rules.
  */
-export const modosNoDisponibles = (tipo, alcance) => (tipo === 'sell_in' && alcance !== 'factura' ? ['monto_total'] : []);
+const totalSinTipoDeCambio = (tipo, alcance, moneda, tcModo) =>
+  tipo === 'sell_in' && alcance !== 'factura' && moneda === 'USD' && tcModo !== 'fijo';
 
-/** A line moved to another scope, as the design does: an invoice is charged as a total amount, nothing else is. */
+/** Why a sell in total amount in USD is off, in the backend's words. */
+export const TOTAL_USD_SIN_TC_FIJO = 'Un monto total en USD necesita tipo de cambio fijo.';
+
+/** The amount kinds a line shows but cannot use: a sell in total amount in USD without a fixed rate (S4). */
+export const modosNoDisponibles = (tipo, alcance, moneda, tcModo) =>
+  totalSinTipoDeCambio(tipo, alcance, moneda, tcModo) ? ['monto_total'] : [];
+
+/**
+ * A line with another amount kind: a total amount split by criterion takes no caps (S1), so they are cleared, and
+ * the criterion goes when it stops being one.
+ */
+export function conModo(linea, modo) {
+  const cambiada = { ...linea, modo };
+  if (repartePorCriterio(cambiada)) return { ...cambiada, topeUnidades: '', topeMonto: '', compartido: false };
+  return { ...cambiada, reparto: '' };
+}
+
+/**
+ * A line moved to another scope, as the design does: an invoice is charged as a total amount, and leaving it goes
+ * back to per unit; a sell out total amount keeps its kind across products, brand and category.
+ */
 export function conAlcance(linea, alcance) {
   let { modo } = linea;
   if (alcance === 'factura') modo = 'monto_total';
-  else if (modo === 'monto_total') modo = 'por_unidad';
-  return { ...linea, alcance, modo };
+  else if (linea.alcance === 'factura') modo = 'por_unidad';
+  return conModo({ ...linea, alcance }, modo);
 }
 
-/** The lines a type keeps when the user switches to it: sell out has no invoices nor total amounts. */
+/**
+ * The lines a type keeps when the user switches to it: sell out has no invoices; sell in keeps every line (a total
+ * amount split by criterion included, S4).
+ */
 export function lineasPara(tipo, lineas) {
-  if (tipo === 'sell_in') return lineas;
   return lineas.map((linea) => {
-    if (linea.alcance === 'factura') return { ...conAlcance(linea, 'productos'), facturas: [] };
-    return linea.modo === 'monto_total' ? { ...linea, modo: 'por_unidad' } : linea;
+    if (tipo === 'sell_in') return linea;
+    return linea.alcance === 'factura' ? { ...conAlcance(linea, 'productos'), facturas: [] } : linea;
   });
 }
 
@@ -134,6 +176,12 @@ export function problemaDe(form, lineas) {
     faltan((l) => l.alcance === 'marca' && !l.marca, 'marca') ||
     faltan((l) => l.alcance === 'categoria' && !l.categoria, 'categoría') ||
     faltan((l) => !(numeroDe(l.monto) > 0), 'monto') ||
+    faltan((l) => repartePorCriterio(l) && !l.reparto, 'reparto del monto total') ||
+    mal(
+      (l) => repartePorCriterio(l) && totalSinTipoDeCambio(form.tipo, l.alcance, form.moneda, form.tcModo),
+      'un monto total en USD sin tipo de cambio fijo',
+      ' o elegí tipo de cambio fijo',
+    ) ||
     mal((l) => l.modo === 'porcentaje' && numeroDe(l.monto) > 100, 'un porcentaje mayor a 100', '') ||
     mal((l) => ilegible(l.topeUnidades) || ilegible(l.topeMonto), 'un tope que no es un número', ' o borrá el tope') ||
     mal((l) => numeroDe(l.topeUnidades) != null && !Number.isInteger(numeroDe(l.topeUnidades)), 'un tope de unidades que no es entero', '') ||
@@ -143,6 +191,16 @@ export function problemaDe(form, lineas) {
 
 /** One line of the contract; an invoice line becomes one per chosen invoice. */
 function lineasDelContrato(linea) {
+  // A total amount split by criterion has no caps (S1): it sends its criterion instead, and no tope_por_producto.
+  if (repartePorCriterio(linea)) {
+    const total = { modo_monto: 'monto_total', valor: numeroDe(linea.monto), tope_unidades: null, tope_monto: null };
+    const criterio = { reparto_criterio: linea.reparto };
+    if (linea.alcance === 'productos') {
+      return [{ alcance: 'productos', item_ids: linea.productos.map((p) => p.item_id), ...total, ...criterio }];
+    }
+    if (linea.alcance === 'marca') return [{ alcance: 'marca', marca: linea.marca, ...total, ...criterio }];
+    return [{ alcance: 'categoria', categoria: linea.categoria, ...total, ...criterio }];
+  }
   const comun = {
     modo_monto: linea.modo,
     valor: numeroDe(linea.monto),

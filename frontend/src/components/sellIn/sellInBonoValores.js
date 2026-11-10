@@ -4,14 +4,28 @@
  * A bonus reaches a brand, a category, some models or one Compras operation (`alcance`) and pays an
  * amount per invoiced unit or a % of the invoiced net (`tipo`); the body carries only the fields of its
  * scope and kind, since the backend refuses the others. A cost bonus (`base`) is instead a % in ARS of each sale's
- * cost, by sale date, for old operations without their invoice loaded.
+ * cost, by sale date, for old operations without their invoice loaded, or an ARS total split across its products by a
+ * criterion (`monto_total`, tactical monto total S4: no caps, no model values).
  */
+
+import { REPARTOS } from '../tactical/tacticalLineas';
 
 export const BASE_FACTURA = 'factura';
 export const BASE_COSTO = 'costo_venta';
 
 /** Whether the values (or a bonus as the API answered it) are a bonus over the sale's cost. */
 export const esBonoCosto = (bono) => bono.base === BASE_COSTO;
+
+export const MONTO_TOTAL = 'monto_total';
+
+/** Whether the values (or a bonus as the API answered it) are a total amount split across the products (S4). */
+export const esMontoTotal = (bono) => bono.tipo === MONTO_TOTAL;
+
+/** How a total is split, as sell out names it: equal parts, by units sold, by cost. */
+export const CRITERIOS = REPARTOS;
+
+/** The stored criterion as the screen names it. */
+export const nombreDeCriterio = (criterio) => CRITERIOS.find((c) => c.value === criterio)?.label ?? '—';
 
 export const BONO_VACIO = {
   alcance: 'marca',
@@ -24,6 +38,9 @@ export const BONO_VACIO = {
   tipo: 'por_unidad',
   montoUnit: '',
   porcentaje: '',
+  // A `monto_total` bonus: its ARS total as typed and how it is split ('' until chosen).
+  montoTotal: '',
+  reparto: '',
   moneda: 'USD',
   fechaDesde: '',
   fechaHasta: '',
@@ -63,6 +80,8 @@ export const valoresDeBono = (bono) => ({
   tipo: bono.tipo ?? 'por_unidad',
   montoUnit: texto(bono.monto_unit),
   porcentaje: texto(bono.porcentaje),
+  montoTotal: texto(bono.monto_total),
+  reparto: bono.reparto_criterio ?? '',
   moneda: bono.moneda,
   fechaDesde: bono.fecha_desde,
   fechaHasta: bono.fecha_hasta,
@@ -79,14 +98,21 @@ export const valoresDeBono = (bono) => ({
 /** The key of the bonus's kind in the API and in a model's form values. */
 const CAMPO_DEL_TIPO = { por_unidad: ['monto_unit', 'montoUnit'], porcentaje: ['porcentaje', 'porcentaje'] };
 
-/** A model's own value of the bonus's kind, trimmed; '' when it uses the bonus's. */
-export const valorDeModelo = (modelo, tipo) => String(modelo[CAMPO_DEL_TIPO[tipo][1]] ?? '').trim();
+/** A model's own value of the bonus's kind, trimmed; '' when it uses the bonus's (a total takes none). */
+export const valorDeModelo = (modelo, tipo) => (CAMPO_DEL_TIPO[tipo] ? String(modelo[CAMPO_DEL_TIPO[tipo][1]] ?? '').trim() : '');
 
-/** The models with a value of the other kind, which the body leaves out (the backend refuses them). */
-export const modelosConOtroTipo = (v) => v.modelos.filter((m) => valorDeModelo(m, v.tipo === 'porcentaje' ? 'por_unidad' : 'porcentaje') !== '');
+/**
+ * The models with a value the body leaves out (the backend refuses them): of the other kind, or any value on a total.
+ */
+export const modelosConOtroTipo = (v) => {
+  const tiene = (m, tipo) => valorDeModelo(m, tipo) !== '';
+  if (esMontoTotal(v)) return v.modelos.filter((m) => tiene(m, 'por_unidad') || tiene(m, 'porcentaje'));
+  return v.modelos.filter((m) => tiene(m, v.tipo === 'porcentaje' ? 'por_unidad' : 'porcentaje'));
+};
 
 /** A model as an object (authoritative on the backend): its value of the bonus's kind, none to use the bonus's. */
 const modeloDelBody = (modelo, tipo) => {
+  if (!CAMPO_DEL_TIPO[tipo]) return { item_id: modelo.itemId };
   const valor = valorDeModelo(modelo, tipo);
   return valor === '' ? { item_id: modelo.itemId } : { item_id: modelo.itemId, [CAMPO_DEL_TIPO[tipo][0]]: valor };
 };
@@ -146,20 +172,30 @@ const camposDeBase = (valores, nuevo) => {
  * only on a create, the only time the base is sent; it defaults to an edit so a caller that leaves it out never sends
  * a base the backend refuses to change.
  */
-export const bodyDeBono = (valores, nuevo = false) => ({
-  alcance: valores.alcance,
-  ...CAMPO_DEL_ALCANCE[valores.alcance](valores),
-  tipo: valores.tipo,
-  ...(valores.tipo === 'porcentaje' ? { porcentaje: valores.porcentaje } : { monto_unit: valores.montoUnit }),
-  moneda: valores.moneda,
-  fecha_desde: valores.fechaDesde,
-  fecha_hasta: valores.fechaHasta,
-  descripcion: valores.descripcion.trim() || null,
-  tope_unidades: normalizarTope(valores.topeUnidades),
-  tope_monto: normalizarTope(valores.topeMonto),
-  acumulable: valores.acumulable,
-  ...camposDeBase(valores, nuevo),
-});
+/** The amount fields of the body: the bonus's kind's only (a total sends its total and its criterion). */
+const camposDelMonto = (valores) => {
+  if (esMontoTotal(valores)) return { monto_total: valores.montoTotal.trim(), reparto_criterio: valores.reparto };
+  return valores.tipo === 'porcentaje' ? { porcentaje: valores.porcentaje } : { monto_unit: valores.montoUnit };
+};
+
+export const bodyDeBono = (valores, nuevo = false) => {
+  // A total has no caps (the total is its cap): null clears any stored one, as the backend requires.
+  const total = esMontoTotal(valores);
+  return {
+    alcance: valores.alcance,
+    ...CAMPO_DEL_ALCANCE[valores.alcance](valores),
+    tipo: valores.tipo,
+    ...camposDelMonto(valores),
+    moneda: valores.moneda,
+    fecha_desde: valores.fechaDesde,
+    fecha_hasta: valores.fechaHasta,
+    descripcion: valores.descripcion.trim() || null,
+    tope_unidades: total ? null : normalizarTope(valores.topeUnidades),
+    tope_monto: total ? null : normalizarTope(valores.topeMonto),
+    acumulable: valores.acumulable,
+    ...camposDeBase(valores, nuevo),
+  };
+};
 
 const ALCANCE_COMPLETO = {
   marca: (v) => Boolean(v.marca),
@@ -168,15 +204,22 @@ const ALCANCE_COMPLETO = {
   factura: (v) => Boolean(v.pedido),
 };
 
-/** Whether the form has everything a bonus needs; the backend still validates the rest. */
+/**
+ * Whether the form has everything a bonus needs; the backend still validates the rest (a total of zero or less goes
+ * to it, so its own message shows).
+ */
 export const bonoCompleto = (v) => {
-  const monto = v.tipo === 'porcentaje' ? Number(v.porcentaje) > 0 : Number(v.montoUnit) > 0;
+  const monto = esMontoTotal(v)
+    ? String(v.montoTotal ?? '').trim() !== '' && Boolean(v.reparto)
+    : v.tipo === 'porcentaje'
+      ? Number(v.porcentaje) > 0
+      : Number(v.montoUnit) > 0;
   return ALCANCE_COMPLETO[v.alcance](v) && monto && Boolean(v.fechaDesde && v.fechaHasta);
 };
 
 /** Why a model's own value cannot be saved (zero or less, a percentage over 100), or null. */
 export const errorDeModelos = (v) => {
-  if (v.alcance !== 'modelos') return null;
+  if (v.alcance !== 'modelos' || esMontoTotal(v)) return null;
   const porcentaje = v.tipo === 'porcentaje';
   for (const modelo of v.modelos) {
     const valor = valorDeModelo(modelo, v.tipo);
@@ -193,6 +236,7 @@ export const errorDeModelos = (v) => {
  * "1e3" is refused here rather than by the backend.
  */
 export const errorDeTope = (v) => {
+  if (esMontoTotal(v)) return null; // a total sends no caps
   const unidades = normalizarTope(v.topeUnidades);
   if (unidades !== null && !(/^\d+$/.test(unidades) && Number(unidades) > 0)) return 'El tope de unidades debe ser un número entero mayor que cero.';
   const monto = normalizarTope(v.topeMonto);
@@ -213,8 +257,10 @@ export const restanteDeTope = (bono, formatEntero, formatMonto) => {
 const FALTA_ALCANCE = { marca: 'marca', categoria: 'categoría', modelos: 'al menos un modelo', factura: 'pedido de compra' };
 
 /** What the operator must fill, for the "Faltan datos" message. */
+const FALTA_MONTO = { porcentaje: 'porcentaje', por_unidad: 'monto por unidad', monto_total: 'monto total, cómo repartirlo' };
+
 export const faltanDatos = (v) =>
-  `Faltan datos: ${FALTA_ALCANCE[v.alcance]}, ${v.tipo === 'porcentaje' ? 'porcentaje' : 'monto por unidad'} y fechas de ${esBonoCosto(v) ? 'venta' : 'factura'}.`;
+  `Faltan datos: ${FALTA_ALCANCE[v.alcance]}, ${FALTA_MONTO[v.tipo] ?? FALTA_MONTO.por_unidad} y fechas de ${esBonoCosto(v) ? 'venta' : 'factura'}.`;
 
 /** "Migrado del offset #9" for a bonus created from a legacy offset, or null. */
 export const origenDeBono = (bono) => (bono.offset_origen_id != null ? `Migrado del offset #${bono.offset_origen_id}` : null);

@@ -193,4 +193,37 @@ export const RENOVACION_MONTO_TOTAL = {
   ],
   programa_id: null,
   renovada_de_id: 70, // CAMPANA_MONTO_TOTAL
+  reparto_criterio: null, // split by hand: the shares above are copied
+};
+
+/**
+ * `GET /{id}/renovacion` of a `monto_total` campaign split by a criterion (DERIVED from the backend contract): the
+ * criterion comes back and no shares (`items: []`); the copy splits again on create.
+ */
+export const RENOVACION_MONTO_TOTAL_CRITERIO = {
+  ...RENOVACION_MONTO_TOTAL,
+  items: [],
+  reparto_criterio: 'unidades',
+};
+
+/**
+ * DERIVED from the API contract (odd/tasks/tactical-monto-total.md, "API contract (sell out)"), not captured: the
+ * backend is built in parallel. `GET /{id}/reparto/vista-previa?criterio=…` of CAMPANA_MONTO_TOTAL ($ 2.000.000 over
+ * its two Epson printers), one per criterion: equal parts, by the units sold so far (12 and 4), by cost.
+ */
+const vistaPrevia = (criterio, montos, sinAsignar = '0.00') => ({
+  criterio,
+  moneda: 'ARS',
+  monto_total: '2000000.00',
+  items: [
+    { item_id: 4172, codigo: 'C13T00R120', unidades: 12, monto: montos[0] },
+    { item_id: 4173, codigo: 'C11CJ21301', unidades: 4, monto: montos[1] },
+  ],
+  sin_asignar: sinAsignar,
+});
+
+export const VISTAS_PREVIAS = {
+  iguales: vistaPrevia('iguales', ['1000000.00', '1000000.00']),
+  unidades: vistaPrevia('unidades', ['1500000.00', '500000.00']),
+  costo: vistaPrevia('costo', ['1296551.72', '703448.28']),
 };

@@ -24,6 +24,10 @@ export const sellOutAPI = {
   // The shares of a `monto_total` campaign: `[{ item_id, reparto_porcentaje | reparto_monto }]`. A brand-scoped PM
   // sends and gets back only their brands' shares; the others are kept by the server.
   repartir: (id, repartos) => api.put(`${CAMPANAS}/${id}/reparto`, { repartos }),
+  // A `monto_total` campaign split by a criterion (`iguales` | `unidades` | `costo`), for a user without brand
+  // restriction: the per-product result before saving, then the same PUT with no shares and the criterion.
+  vistaPreviaReparto: (id, criterio) => api.get(`${CAMPANAS}/${id}/reparto/vista-previa`, { params: { criterio } }),
+  repartirPorCriterio: (id, criterio) => api.put(`${CAMPANAS}/${id}/reparto`, { repartos: [], criterio }),
   // The product groups a campaign reaches: the ones Gestionar Offsets manages (`GET /offset-grupos`).
   grupos: () => api.get('/offset-grupos'),
 };

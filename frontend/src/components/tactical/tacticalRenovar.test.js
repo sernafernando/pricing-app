@@ -45,6 +45,7 @@ describe('renovacionDe', () => {
         topeUnidades: '90',
         topeMonto: '',
         compartido: false,
+        reparto: '',
       },
       {
         alcance: 'productos',
@@ -60,6 +61,7 @@ describe('renovacionDe', () => {
         topeUnidades: '300',
         topeMonto: '3000',
         compartido: true,
+        reparto: '',
       },
     ]);
   });
@@ -77,6 +79,41 @@ describe('renovacionDe', () => {
     const form = { ...renovado.form, fechaDesde: '2027-02-01', fechaHasta: '2027-04-30' };
     expect(cuerpoDe(form, renovado.lineas).body.lineas).toEqual([
       { alcance: 'marca', marca: 'HP', modo_monto: 'porcentaje', valor: 3.5, tope_unidades: null, tope_monto: null },
+    ]);
+  });
+
+  it('keeps the split criterion of a sell out total amount, and posts it again (S1)', () => {
+    const tactical = {
+      ...TACTICAL_BPS,
+      lineas: [{ ...TACTICAL_BPS.lineas[2], modo_monto: 'monto_total', valor: '1200', tope_unidades: null, tope_monto: null, reparto_criterio: 'unidades' }],
+    };
+
+    const renovado = renovacionDe(tactical);
+
+    expect(renovado.lineas[0]).toMatchObject({ modo: 'monto_total', monto: '1200', reparto: 'unidades' });
+    const form = { ...renovado.form, fechaDesde: '2027-02-01', fechaHasta: '2027-04-30' };
+    expect(cuerpoDe(form, renovado.lineas).body.lineas).toEqual([
+      { alcance: 'productos', item_ids: [201, 202], modo_monto: 'monto_total', valor: 1200, tope_unidades: null, tope_monto: null, reparto_criterio: 'unidades' },
+    ]);
+  });
+
+  it('renews a sell in total amount with its criterion, and a USD one with the USD amount it was loaded with (S4)', () => {
+    const total = { ...TACTICAL_REBATE.lineas[0], modo_monto: 'monto_total', valor: '300000', reparto_criterio: 'iguales' };
+    const enPesos = renovacionDe({ ...TACTICAL_REBATE, lineas: [total] });
+    expect(enPesos.lineas[0]).toMatchObject({ alcance: 'marca', modo: 'monto_total', monto: '300000', reparto: 'iguales' });
+
+    const enDolares = renovacionDe({
+      ...TACTICAL_REBATE,
+      moneda: 'USD',
+      tc_modo: 'fijo',
+      tipo_cambio: '1000.5',
+      lineas: [{ ...total, valor: '1200610.01', valor_usd: '1200.01' }],
+    });
+    expect(enDolares.form).toMatchObject({ moneda: 'USD', tcModo: 'fijo', tipoCambio: '1000,5' });
+    expect(enDolares.lineas[0]).toMatchObject({ modo: 'monto_total', monto: '1200,01', reparto: 'iguales' });
+    const form = { ...enDolares.form, fechaDesde: '2027-02-01', fechaHasta: '2027-04-30' };
+    expect(cuerpoDe(form, enDolares.lineas).body.lineas).toEqual([
+      { alcance: 'marca', marca: 'HP', modo_monto: 'monto_total', valor: 1200.01, tope_unidades: null, tope_monto: null, reparto_criterio: 'iguales' },
     ]);
   });
 

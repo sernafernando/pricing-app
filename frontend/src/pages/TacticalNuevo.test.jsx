@@ -89,7 +89,7 @@ describe('the header', () => {
     expect(screen.getByLabelText('Se acumula con otras campañas')).toBeChecked();
     expect(screen.getByLabelText('Los montos incluyen IVA')).not.toBeChecked();
     expect(within(linea(1)).queryByRole('button', { name: 'Factura' })).not.toBeInTheDocument();
-    expect(within(linea(1)).queryByRole('button', { name: 'monto total' })).not.toBeInTheDocument();
+    expect(within(linea(1)).getByRole('button', { name: 'monto total' })).toBeEnabled();
   });
 
   it('opens on sell in from the Sell in tab, in ARS without the exchange rate, with the invoice scope and total amount', async () => {
@@ -103,8 +103,19 @@ describe('the header', () => {
     );
     expect(screen.queryByLabelText('Tipo de cambio')).not.toBeInTheDocument();
     expect(within(linea(1)).getByRole('button', { name: 'Factura' })).toBeInTheDocument();
-    // A total amount is an invoice's: on products, a brand or a category the backend refuses it.
+    // In ARS a total amount is offered on products, a brand or a category too, split by a criterion (S4).
+    expect(within(linea(1)).getByRole('button', { name: 'monto total' })).toBeEnabled();
+  });
+
+  it('on sell in in USD offers a total amount over products only with a fixed exchange rate (S4)', async () => {
+    const user = userEvent.setup();
+    renderAt('/sell-in/tactical/nuevo?tipo=sell_in');
+    await user.click(within(screen.getByRole('group', { name: 'Moneda' })).getByRole('button', { name: 'USD' }));
+    await user.click(within(linea(1)).getByRole('button', { name: 'Productos' }));
     expect(within(linea(1)).getByRole('button', { name: 'monto total' })).toBeDisabled();
+
+    await user.selectOptions(screen.getByLabelText('Tipo de cambio'), 'fijo');
+    expect(within(linea(1)).getByRole('button', { name: 'monto total' })).toBeEnabled();
   });
 
   it('offers only the type the user can manage', async () => {
@@ -162,6 +173,34 @@ describe('creating a tactical', () => {
       }),
     );
     expect(await screen.findByText('Listado de sell in?tab=tacticals')).toBeInTheDocument();
+  });
+
+  it('posts a sell out total amount split among the line\'s products by the chosen criterion (S1)', async () => {
+    const user = userEvent.setup();
+    renderAt('/sell-in/tactical/nuevo?tipo=sell_out');
+    await fillHeader(user);
+    await pickProducts(user, 1, 'notebook hp', ['Notebook HP 250RG10', 'Notebook HP 255r G10']);
+    await user.click(within(linea(1)).getByRole('button', { name: 'monto total' }));
+    await user.type(within(linea(1)).getByLabelText('Monto de la línea 1'), '1200');
+
+    await user.click(crear());
+    expect(await screen.findByText('Hay 1 línea sin reparto del monto total. Completala o eliminala.')).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+
+    await user.selectOptions(within(linea(1)).getByLabelText('Reparto del monto total, línea 1'), 'costo');
+    await user.click(crear());
+    await waitFor(() => expect(api.post).toHaveBeenCalled());
+    expect(api.post.mock.calls[0][1].lineas).toEqual([
+      {
+        alcance: 'productos',
+        item_ids: [103, 104],
+        modo_monto: 'monto_total',
+        valor: 1200,
+        tope_unidades: null,
+        tope_monto: null,
+        reparto_criterio: 'costo',
+      },
+    ]);
   });
 
   it('shares the caps of a line with several products only when asked, and says what it can charge at most', async () => {
@@ -260,6 +299,35 @@ describe('creating a tactical', () => {
       },
       factura(9001),
       factura(9002),
+    ]);
+  });
+
+  it('posts a sell in total amount split among the line\'s products by the chosen criterion (S4)', async () => {
+    const user = userEvent.setup();
+    renderAt('/sell-in/tactical/nuevo?tipo=sell_in');
+    await fillHeader(user);
+    await pickProducts(user, 1, 'notebook hp', ['Notebook HP 250RG10', 'Notebook HP 255r G10']);
+    await user.click(within(linea(1)).getByRole('button', { name: 'monto total' }));
+    await user.type(within(linea(1)).getByLabelText('Monto de la línea 1'), '1.200.000');
+
+    await user.click(crear());
+    expect(await screen.findByText('Hay 1 línea sin reparto del monto total. Completala o eliminala.')).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+
+    await user.selectOptions(within(linea(1)).getByLabelText('Reparto del monto total, línea 1'), 'unidades');
+    await user.click(crear());
+    await waitFor(() => expect(api.post).toHaveBeenCalled());
+    expect(api.post.mock.calls[0][1]).toEqual(expect.objectContaining({ tipo: 'sell_in', moneda: 'ARS' }));
+    expect(api.post.mock.calls[0][1].lineas).toEqual([
+      {
+        alcance: 'productos',
+        item_ids: [103, 104],
+        modo_monto: 'monto_total',
+        valor: 1200000,
+        tope_unidades: null,
+        tope_monto: null,
+        reparto_criterio: 'unidades',
+      },
     ]);
   });
 

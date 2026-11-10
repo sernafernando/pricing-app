@@ -6,7 +6,8 @@ their own create steps (same validation, audit rows and queueing), so allocation
 - sell out (productos | marca | categoria): one `SellOutCampana` over its own hidden group (`OffsetGrupo.oculto`)
   whose filter rows carry the line's scope. `tope_por_producto`: one campaign and group per product.
 - sell in over productos | marca | categoria: one cost bonus (`SellInBonoMarca`, `base = 'costo_venta'`, ARS), a %
-  or an amount per unit of each sale's cost by sale date. `tope_por_producto`: one bonus per product.
+  or an amount per unit of each sale's cost by sale date, or a total split across the line's products by its
+  `reparto_criterio` (tactical monto total S4, `tipo = 'monto_total'`). `tope_por_producto`: one bonus per product.
 - sell in `factura` with % or per unit: one invoice bonus (`alcance = base = 'factura'`) on that operation.
 - sell in `factura` with a fixed total: one sell-in purchase (`SellInCompra`, monto, proporcional) over the invoice's
   invoiced lines.
@@ -46,7 +47,7 @@ from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoMarca, SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo
-from app.models.tactical import Tactical
+from app.models.tactical import Tactical, TacticalTienda
 from app.schemas.sell_in import SellInCompraCreate, SellInLineaIn
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, BASE_FACTURA, SellInBonoIn
 from app.schemas.sell_out import SellOutCampanaIn
@@ -58,6 +59,7 @@ from app.services.sell_out import campanas
 GRUPO_NOMBRE_MAX = 100  # offset_grupos.nombre is VARCHAR(100)
 CAMPANA_NOMBRE_MAX = 200
 CENTAVO = Decimal("0.01")
+TOTAL_USD_SIN_TC_FIJO = "un monto total en USD necesita tipo de cambio fijo"
 COSTO_EN_PESOS = (
     "una reducción de costo por unidad o con tope de monto va en pesos (ARS): el costo de cada venta está en pesos"
 )
@@ -163,6 +165,20 @@ def _validar_linea(db: Session, data: TacticalIn, linea: TacticalLineaIn) -> _Al
         raise TacticalError("el monto tiene que ser mayor a 0")
     if linea.modo_monto == "porcentaje" and linea.valor > 100:
         raise TacticalError("el porcentaje no puede superar 100")
+    if linea.modo_monto == "monto_total" and linea.alcance == "factura":
+        if linea.reparto_criterio is not None:
+            raise TacticalError(
+                "una línea por factura reparte su monto total sobre lo facturado: no lleva criterio de reparto"
+            )
+    elif linea.modo_monto == "monto_total":  # sell out, or a sell in cost bonus over products, brand or category
+        if linea.reparto_criterio is None:
+            raise TacticalError("elegí cómo repartir el monto total")
+        if linea.tope_por_producto:
+            raise TacticalError("un monto total se reparte entre los productos de la línea: no lleva tope por producto")
+        if linea.tope_unidades is not None or linea.tope_monto is not None:
+            raise TacticalError("un monto total no lleva topes: el total es su tope")
+    elif linea.reparto_criterio is not None:
+        raise TacticalError("el reparto es solo para un monto total")
     if linea.alcance == "productos":
         ids = tuple(dict.fromkeys(linea.item_ids))
         if not ids:
@@ -250,6 +266,7 @@ def _sell_out(db, tactical, data, linea, numero, parte, codigos, usuario_id) -> 
         # A percentage applies on the net without VAT already: the flag means nothing there (and is refused).
         monto_incluye_iva=data.incluye_iva and linea.modo_monto != "porcentaje",
         grupo_ids=[grupo_id],
+        reparto_criterio=linea.reparto_criterio,
     )
     campanas.crear_campana_sin_commit(db, entrada, usuario_id, tactical=(tactical.id, numero))
 
@@ -269,8 +286,8 @@ def _sell_in(db, tactical, data, linea, numero, parte, codigos, usuario_id) -> N
             )
         campos = {"alcance": "factura", "pedido_id": parte.pedido.id, "moneda": data.moneda, "base": BASE_FACTURA}
     else:
-        if linea.modo_monto == "monto_total":
-            raise TacticalError("en sell in, el monto total es solo para una línea por factura")
+        if linea.modo_monto == "monto_total" and data.moneda == "USD" and tactical.tc_modo != "fijo":
+            raise TacticalError(TOTAL_USD_SIN_TC_FIJO)
         if data.moneda != "ARS" and (linea.modo_monto == "por_unidad" or linea.tope_monto is not None):
             raise TacticalError(COSTO_EN_PESOS)
         alcance = "modelos" if parte.item_ids else ("marca" if parte.marca else "categoria")
@@ -288,6 +305,8 @@ def _sell_in(db, tactical, data, linea, numero, parte, codigos, usuario_id) -> N
         tipo=linea.modo_monto,
         monto_unit=linea.valor if linea.modo_monto == "por_unidad" else None,
         porcentaje=linea.valor if linea.modo_monto == "porcentaje" else None,
+        monto_total=_total_en_pesos(linea, data, parte) if linea.modo_monto == "monto_total" else None,
+        reparto_criterio=linea.reparto_criterio,
         fecha_desde=data.fecha_desde,
         fecha_hasta=data.fecha_hasta,
         descripcion=descripcion,
@@ -298,12 +317,21 @@ def _sell_in(db, tactical, data, linea, numero, parte, codigos, usuario_id) -> N
     bonos_crud.crear_bono_sin_commit(db, entrada, usuario_id, tactical=(tactical.id, numero))
 
 
+def _total_en_pesos(linea, data, parte) -> Optional[Decimal]:
+    """A cost bonus's total is ARS (each sale's cost is in pesos): a USD line is converted at the tactical's fixed
+    rate (`_sell_in` already refused USD without one) and the bonus stores the ARS total. An invoice total is a
+    purchase in its own currency (`_total_de_factura`), not converted here."""
+    if parte.pedido is not None or data.moneda != "USD":
+        return linea.valor
+    return _cents(Decimal(linea.valor) * Decimal(data.tipo_cambio))
+
+
 def _total_de_factura(db, tactical, data, linea, numero, pedido, descripcion, usuario_id) -> None:
     """An invoice's fixed total: a sell-in purchase split over its invoiced lines (`proporcional`)."""
     if linea.tope_unidades is not None or linea.tope_monto is not None:
         raise TacticalError("un monto total no lleva topes: el monto total es el tope")
     if data.moneda == "USD" and tactical.tc_modo != "fijo":
-        raise TacticalError("un monto total en USD necesita tipo de cambio fijo")
+        raise TacticalError(TOTAL_USD_SIN_TC_FIJO)
     t = PedidoCompraLineaFacturada
     cantidades = [
         (int(item_id), int(cantidad))
@@ -387,10 +415,14 @@ def _crear(db: Session, data: TacticalIn, usuario_id: int) -> Tactical:
         tipo_cambio=data.tipo_cambio,
         incluye_iva=data.incluye_iva,
         acumulable=data.acumulable,
+        # Until the API takes a scope, a new tactical keeps today's reach (as the migration's backfill): every
+        # official store plus outside sales and Tienda Nube, with one shared cap.
+        tope_compartido=True,
         nota=_texto(data.nota),
         estado="activo",
         usuario_id=usuario_id,
     )
+    tactical.tiendas = [TacticalTienda(tipo="fuera"), TacticalTienda(tipo="tienda_nube")]
     db.add(tactical)
     db.flush()
     todos = {i for linea in data.lineas for i in linea.item_ids}
@@ -749,6 +781,7 @@ def _lineas_campanas(db: Session, ids: list[int]) -> list[dict]:
                 "pedido_numero": None,
                 "modo_monto": c.tipo,
                 "valor": {"por_unidad": c.monto_unit, "porcentaje": c.porcentaje, "monto_total": c.monto_total}[c.tipo],
+                "reparto_criterio": c.reparto_criterio,
                 "moneda": c.moneda,
                 "tope_unidades": c.tope_unidades,
                 "tope_monto": c.tope_monto,
@@ -759,8 +792,24 @@ def _lineas_campanas(db: Session, ids: list[int]) -> list[dict]:
     return salida
 
 
+def _valor_usd(bono: SellInBonoMarca, tasas: dict[int, Decimal]) -> Optional[Decimal]:
+    """The USD amount a sell in total line was loaded with, for audit: its bonus keeps the ARS total converted at the
+    tactical's fixed rate (`_total_en_pesos`), and ARS / rate rounds back to it exactly (the conversion's error is at
+    most half a cent of ARS, below half a cent of USD for any rate above 1)."""
+    tasa = tasas.get(bono.tactical_id)
+    if bono.tipo != "monto_total" or tasa is None:
+        return None
+    return _cents(Decimal(bono.monto_total) / tasa)
+
+
 def _lineas_bonos(db: Session, ids: list[int]) -> list[dict]:
     bonos = db.query(SellInBonoMarca).filter(SellInBonoMarca.tactical_id.in_(ids)).all()
+    tasas = {
+        tid: Decimal(tc)
+        for tid, tc in db.query(Tactical.id, Tactical.tipo_cambio).filter(
+            Tactical.id.in_(ids), Tactical.moneda == "USD", Tactical.tipo_cambio.isnot(None)
+        )
+    }
     salida = []
     for bono, fila in zip(bonos, bonos_crud.serializar(db, bonos)):
         salida.append(
@@ -777,7 +826,13 @@ def _lineas_bonos(db: Session, ids: list[int]) -> list[dict]:
                 "pedido_compra_id": bono.pedido_id,
                 "pedido_numero": fila["pedido_numero"],
                 "modo_monto": bono.tipo,
-                "valor": bono.monto_unit if bono.tipo == "por_unidad" else bono.porcentaje,
+                "valor": {
+                    "por_unidad": bono.monto_unit,
+                    "porcentaje": bono.porcentaje,
+                    "monto_total": bono.monto_total,
+                }[bono.tipo],
+                "reparto_criterio": bono.reparto_criterio,
+                "valor_usd": _valor_usd(bono, tasas),
                 "moneda": bono.moneda,
                 "tope_unidades": bono.tope_unidades,
                 "tope_monto": bono.tope_monto,
@@ -829,6 +884,7 @@ def _lineas_compras(db: Session, ids: list[int]) -> list[dict]:
                 "pedido_numero": numero,
                 "modo_monto": "monto_total",
                 "valor": c.monto_total,
+                "reparto_criterio": None,  # split over its invoiced lines (`proporcional`)
                 "moneda": c.moneda,
                 "tope_unidades": None,
                 "tope_monto": None,

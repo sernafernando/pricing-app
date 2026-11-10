@@ -57,7 +57,8 @@ Fixed totals (T26b, S34/S35): a `monto_total` campaign's manual shares
 (`sell_out_campana_items`, read in ONE query per call) spread over each
 product's sales the campaign reaches in its dates, the same sale set and
 returns as the other kinds (`tope.asignar` keeps the net units, with no money),
-by units (`reparto.repartir`); the rows may be negative (a deduction). A share
+by units (`reparto.repartir`), or, split `unidades`, the whole total over every unit of its reach
+(`reparto.repartir_por_unidades`); the rows may be negative (a deduction). A share
 whose product sold nothing there and the unassigned remainder write nothing
 (`reparto.resumen_monto_total`). VAT and currency as for a per-unit amount: a
 share loaded with VAT is divided by its own product's VAT; the share is in the
@@ -353,7 +354,9 @@ def _asignar(
     for c in activas:
         alcance_c = productos.get(c.id, {})
         total = c.tipo == "monto_total"
-        if total:  # only its shared products; it is not limited by the units others hold (module docstring)
+        # Only its shared products, or its whole reach split by units; it is not limited by the units others hold
+        # (module docstring).
+        if total and c.reparto_criterio != reparto.UNIDADES:
             alcance_c = {i: iva for i, iva in alcance_c.items() if i in repartos.get(c.id, {})}
         antes = [] if total else [p.id for p in activas if p.id < c.id and not (p.acumulable and c.acumulable)]
         lineas, libres, admitidas = [], {}, set()
@@ -395,7 +398,9 @@ def _asignar(
         por_linea: Dict[Clave, int] = {}
         consumos = tope.asignar(_tope(c, montos.get(c.id)), lineas, por_linea=por_linea)
         if total:
-            mt = reparto.MontoTotal(c.monto_total, repartos.get(c.id, {}), c.monto_incluye_iva, alcance_c)
+            mt = reparto.MontoTotal(
+                c.monto_total, repartos.get(c.id, {}), c.monto_incluye_iva, alcance_c, criterio=c.reparto_criterio
+            )
             try:
                 salida[c.id] = reparto.repartir(mt, consumos)
             except ValueError as exc:  # shares that cannot be split, a product without VAT: as the other kinds
@@ -439,6 +444,18 @@ def _tc_fila(c: SellOutCampana, x: tope.Consumo, tasas: _Tasas) -> Optional[Deci
         return None
     # Rounded as Postgres stores it (half away from zero), so an unchanged rate compares equal.
     return _tasa(c, x.fecha_venta, tasas).quantize(_TC_ESCALA, rounding=ROUND_HALF_UP)
+
+
+def filas_de(db: Session, campana: SellOutCampana) -> List[tope.Consumo]:
+    """The rows a lone `monto_total` campaign would get now, computed in memory (the split preview,
+    `app.services.sell_out.criterio`). A lump sum holds no units, so the other campaigns do not change them."""
+    productos = alcance.productos(db, [campana.id])
+    items = set(productos.get(campana.id, {}))
+    if not items:
+        return []
+    ventas = alcance.ventas(db, items, campana.fecha_desde, campana.fecha_hasta)
+    salida, _ = _asignar([campana], productos, ventas, _Tasas({}, None), {}, repartos_item(db, [campana]))
+    return salida.get(campana.id, [])
 
 
 def recalcular(db: Session, campana_ids: Iterable[int]) -> RecomputeResult:

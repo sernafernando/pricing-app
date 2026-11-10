@@ -13,7 +13,7 @@ import { CATALOGO } from './tacticalFixtures';
 const onDuplicar = vi.fn();
 const onEliminar = vi.fn();
 
-function Holder({ tipo, moneda = 'USD', inicial = {} }) {
+function Holder({ tipo, moneda = 'USD', tcModo = 'al_cobro', inicial = {} }) {
   const [linea, setLinea] = useState(() => ({ ...nuevaLinea(), ...inicial }));
   const [abierto, setAbierto] = useState(false);
   return (
@@ -22,6 +22,7 @@ function Holder({ tipo, moneda = 'USD', inicial = {} }) {
       n={1}
       tipo={tipo}
       moneda={moneda}
+      tcModo={tcModo}
       marcas={['HP', 'TP-Link']}
       categorias={['Monitores', 'Redes']}
       abierto={abierto}
@@ -45,22 +46,73 @@ beforeEach(() => {
 });
 
 describe('TacticalLinea', () => {
-  it('sell out offers products, brand and category, per unit or %', () => {
+  it('sell out offers products, brand and category, per unit, % or a total amount', () => {
     render(<Holder tipo="sell_out" />);
     const alcance = within(fila()).getByRole('group', { name: 'Alcance de la línea 1' });
     expect(within(alcance).getAllByRole('button').map((b) => b.textContent)).toEqual(['Productos', 'Marca', 'Categoría']);
     const modo = within(fila()).getByRole('group', { name: 'Unidad del monto, línea 1' });
-    expect(within(modo).getAllByRole('button').map((b) => b.textContent)).toEqual(['por unidad', '%']);
+    expect(within(modo).getAllByRole('button').map((b) => b.textContent)).toEqual(['por unidad', '%', 'monto total']);
+    expect(within(modo).getByRole('button', { name: 'monto total' })).toBeEnabled();
+    expect(within(fila()).queryByLabelText('Reparto del monto total, línea 1')).not.toBeInTheDocument();
   });
 
-  it('sell in adds Factura, whose amount is a total; elsewhere a total is shown off', async () => {
+  it('a sell out total amount asks how to split it among the products and drops the caps', async () => {
+    const user = userEvent.setup();
+    render(<Holder tipo="sell_out" inicial={{ productos: monitores, topeUnidades: '300', topeMonto: '5000' }} />);
+    await user.click(within(fila()).getByRole('button', { name: 'monto total' }));
+    const reparto = within(fila()).getByLabelText('Reparto del monto total, línea 1');
+    expect(within(reparto).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Elegí cómo repartir',
+      'Partes iguales por modelo',
+      'Según unidades vendidas',
+      'Proporcional al costo',
+    ]);
+    expect(reparto).toHaveValue('');
+    expect(within(fila()).queryByLabelText('Tope de unidades, línea 1')).not.toBeInTheDocument();
+    expect(within(fila()).queryByLabelText('Tope de monto en USD, línea 1')).not.toBeInTheDocument();
+    expect(within(fila()).queryByRole('button', { name: 'Por producto' })).not.toBeInTheDocument();
+    await user.selectOptions(reparto, 'unidades');
+    expect(reparto).toHaveValue('unidades');
+    expect(within(fila()).getByText(/sigue las ventas y devoluciones/i)).toBeInTheDocument();
+    await user.type(within(fila()).getByLabelText('Monto de la línea 1'), '1.200');
+    expect(within(fila()).getByText('USD 1.200')).toBeInTheDocument();
+    // Back to per unit: the caps come back empty, not the ones typed before.
+    await user.click(within(fila()).getByRole('button', { name: 'por unidad' }));
+    expect(within(fila()).getByLabelText('Tope de unidades, línea 1')).toHaveValue('');
+    expect(within(fila()).queryByLabelText('Reparto del monto total, línea 1')).not.toBeInTheDocument();
+  });
+
+  it('sell in adds Factura, whose amount is a total with no split to choose, as before', async () => {
     const user = userEvent.setup();
     render(<Holder tipo="sell_in" moneda="ARS" />);
-    expect(within(fila()).getByRole('button', { name: 'monto total' })).toBeDisabled();
     await user.click(within(fila()).getByRole('button', { name: 'Factura' }));
     expect(within(fila()).getByRole('button', { name: 'monto total' })).toHaveAttribute('aria-pressed', 'true');
     expect(within(fila()).getByRole('button', { name: '+ Factura' })).toBeInTheDocument();
     expect(within(fila()).queryByRole('button', { name: 'Por producto' })).not.toBeInTheDocument();
+    expect(within(fila()).queryByLabelText('Reparto del monto total, línea 1')).not.toBeInTheDocument();
+  });
+
+  it.each(['productos', 'marca', 'categoria'])('a sell in total amount over %s asks how to split it and drops the caps (S4)', async (alcance) => {
+    const user = userEvent.setup();
+    render(<Holder tipo="sell_in" moneda="ARS" inicial={{ alcance, productos: monitores, topeUnidades: '300' }} />);
+    await user.click(within(fila()).getByRole('button', { name: 'monto total' }));
+    const reparto = within(fila()).getByLabelText('Reparto del monto total, línea 1');
+    expect(within(reparto).getAllByRole('option').map((o) => o.value)).toEqual(['', 'iguales', 'unidades', 'costo']);
+    await user.selectOptions(reparto, 'costo');
+    expect(reparto).toHaveValue('costo');
+    expect(within(fila()).queryByLabelText('Tope de unidades, línea 1')).not.toBeInTheDocument();
+    expect(within(fila()).queryByLabelText('Tope de monto en ARS, línea 1')).not.toBeInTheDocument();
+  });
+
+  it('a sell in total amount in USD needs a fixed exchange rate, and says so (S4)', () => {
+    const { unmount } = render(<Holder tipo="sell_in" moneda="USD" tcModo="al_cobro" />);
+    const total = within(fila()).getByRole('button', { name: 'monto total' });
+    expect(total).toBeDisabled();
+    expect(total).toHaveAttribute('title', 'Un monto total en USD necesita tipo de cambio fijo.');
+    unmount();
+    render(<Holder tipo="sell_in" moneda="USD" tcModo="fijo" />);
+    expect(within(fila()).getByRole('button', { name: 'monto total' })).toBeEnabled();
+    expect(within(fila()).getByRole('button', { name: 'monto total' })).not.toHaveAttribute('title');
   });
 
   it('a brand line picks its brand and says what it covers', async () => {

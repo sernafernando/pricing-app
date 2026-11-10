@@ -22,6 +22,12 @@ describe('valorDeLinea', () => {
     expect(valorDeLinea({ modo_monto: 'porcentaje', valor: '3.5', moneda: 'ARS' })).toBe('3,5 %');
     expect(valorDeLinea({ modo_monto: 'monto_total', valor: '3000', moneda: 'USD' })).toBe('USD 3.000');
   });
+
+  it('shows a sell in total loaded in USD with its ARS total and the fixed rate (S4)', () => {
+    expect(
+      valorDeLinea({ modo_monto: 'monto_total', valor: '1200610.01', moneda: 'ARS', valor_usd: '1200.01' }, '1000.5'),
+    ).toBe(`USD 1.200,01 → ${valorDeLinea({ modo_monto: 'monto_total', valor: '1200610.01', moneda: 'ARS' })} (TC 1.000,5)`);
+  });
 });
 
 describe('formatMontoTactical', () => {

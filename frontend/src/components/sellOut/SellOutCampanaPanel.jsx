@@ -38,7 +38,8 @@ function topes(campana) {
  * place (a full replace), voided after an inline confirmation, and, in USD `al_cobro`, given the rate the brand
  * paid at. The backend's messages (422/409) show inline; a 409 on save reads the campaign again. A `monto_total`
  * campaign (T26d) shows its split per product (`SellOutReparto`), edited with `sell_out.repartir` (read from the
- * permissions context: a PM may split without managing campaigns) or `sell_out.gestionar`. "Renovar" (with
+ * permissions context: a PM may split without managing campaigns) or `sell_out.gestionar`; splitting it by a
+ * criterion (equal parts, units sold, cost) is for `sell_out.gestionar` only, never brand-scoped (S6). "Renovar" (with
  * `sell_out.gestionar`, active or voided) loads the renewal draft (`GET /{id}/renovacion`) into the NEW-campaign form:
  * nothing is saved until "Guardar campaña", which creates the copy (shares included); the original is never edited.
  * `renovarAlAbrir` (a row's "Renovar") does that as soon as the campaign is read.
@@ -152,6 +153,8 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
   const editable = puedeGestionar && (nuevo || campana?.estado === 'activa');
   const montoTotal = campana?.tipo === 'monto_total';
   const repartible = montoTotal && campana.estado === 'activa' && (puedeGestionar || tienePermiso('sell_out.repartir'));
+  // S6: splitting by criterion reaches every brand's products, so only a user without brand restriction gets it.
+  const repartePorCriterio = repartible && (puedeGestionar || tienePermiso('sell_out.gestionar'));
   // Editing shows the form; what the form does not hold (origin, recalculation, caps left) stays below it.
   const soloLectura = new Set(['Topes', 'Origen', 'Recálculo']);
   const campos = campana
@@ -261,6 +264,7 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
                 key={`reparto-${campana.updated_at}`}
                 campana={campana}
                 editable={repartible}
+                porCriterio={repartePorCriterio}
                 busy={busy}
                 onBusyChange={setBusy}
                 onGuardado={(data) => {

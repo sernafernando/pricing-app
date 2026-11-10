@@ -21,12 +21,15 @@ function lineaDe(hijos) {
     productos: primero.alcance === 'productos' ? productos : [],
     marca: primero.marca ?? '',
     categoria: primero.categoria ?? '',
-    monto: texto(primero.valor),
+    // A sell in total of a USD tactical stores its ARS conversion: the renewal loads the USD amount it was typed in.
+    monto: texto(primero.valor_usd ?? primero.valor),
     modo: primero.modo_monto,
     topeUnidades: primero.tope_unidades == null ? '' : String(primero.tope_unidades),
     topeMonto: texto(primero.tope_monto),
     // One child with several products is a shared line; several children are one per product.
     compartido: primero.alcance === 'productos' && hijos.length === 1 && productos.length > 1,
+    // How a total amount was split among the line's products (sell out or sell in); '' for any other line.
+    reparto: primero.reparto_criterio ?? '',
   };
 }
 

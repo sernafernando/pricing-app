@@ -13,6 +13,7 @@ import {
   CONSUMOS_USD,
   RENOVACION_MIGRADA,
   RENOVACION_MONTO_TOTAL,
+  RENOVACION_MONTO_TOTAL_CRITERIO,
 } from './sellOutFixtures';
 import SellOutCampanaPanel from './SellOutCampanaPanel';
 
@@ -120,6 +121,37 @@ describe('SellOutCampanaPanel — Renovar', () => {
       }),
     );
     expect(sellOutAPI.repartir).not.toHaveBeenCalled();
+  });
+
+  it('a monto total campaign split by criterion shows it read-only and sends it with the create, without shares', async () => {
+    const user = userEvent.setup();
+    sellOutAPI.detalle.mockResolvedValue({ data: { ...CAMPANA_MONTO_TOTAL, reparto_criterio: 'unidades' } });
+    sellOutAPI.renovacion.mockResolvedValue({ data: RENOVACION_MONTO_TOTAL_CRITERIO });
+    sellOutAPI.crear.mockResolvedValue({ data: { ...CAMPANA_MONTO_TOTAL, id: 99 } });
+    renderPanel(70);
+
+    await user.click(await screen.findByRole('button', { name: 'Renovar' }));
+    expect(await screen.findByText('Reparto: Según unidades vendidas')).toBeInTheDocument();
+    expect(screen.queryByText(/se copia al guardar/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'No copiar el reparto' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Guardar campaña' }));
+    const body = sellOutAPI.crear.mock.calls[0][0];
+    expect(body).toEqual(expect.objectContaining({ tipo: 'monto_total', reparto_criterio: 'unidades', renovada_de_id: 70 }));
+    expect(body).not.toHaveProperty('items');
+  });
+
+  it('a renewal split by hand shows no criterion and sends none', async () => {
+    const user = userEvent.setup();
+    sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MONTO_TOTAL });
+    sellOutAPI.renovacion.mockResolvedValue({ data: RENOVACION_MONTO_TOTAL });
+    sellOutAPI.crear.mockResolvedValue({ data: { ...CAMPANA_MONTO_TOTAL, id: 97 } });
+    renderPanel(70);
+
+    await user.click(await screen.findByRole('button', { name: 'Renovar' }));
+    await screen.findByText(/se copia al guardar/);
+    expect(screen.queryByText(/^Reparto:/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Guardar campaña' }));
+    expect(sellOutAPI.crear.mock.calls[0][0]).not.toHaveProperty('reparto_criterio');
   });
 
   it('"No copiar el reparto" drops the copied split, so a renewal with other groups or total can still be saved', async () => {

@@ -5,7 +5,16 @@ import { SegmentedControl } from '../kit';
 import SellInBonoModelos from './SellInBonoModelos';
 import SellInBuscador from './SellInBuscador';
 import SellInOperacionPicker from './SellInOperacionPicker';
-import { BASE_COSTO, BASE_FACTURA, conBase, conMoneda, esBonoCosto } from './sellInBonoValores';
+import {
+  BASE_COSTO,
+  BASE_FACTURA,
+  CRITERIOS,
+  MONTO_TOTAL,
+  conBase,
+  conMoneda,
+  esBonoCosto,
+  nombreDeCriterio,
+} from './sellInBonoValores';
 import styles from './SellInPanel.module.css';
 
 const MONEDAS = [
@@ -31,6 +40,18 @@ const TIPOS = [
   { value: 'porcentaje', label: '% de lo facturado' },
 ];
 
+// A cost bonus is a % of each sale's cost or an ARS total split across its products (S4).
+const TIPOS_COSTO = [
+  { value: 'porcentaje', label: '% del costo de la venta' },
+  { value: MONTO_TOTAL, label: 'Monto total' },
+];
+
+const AYUDA_CRITERIO = {
+  iguales: 'Cada producto del bono recibe la misma parte del total.',
+  unidades: 'Cada unidad vendida en el rango recibe la misma parte: sigue las ventas y devoluciones, sin pasar el total.',
+  costo: 'Cada producto recibe una parte según su costo; un producto sin costo no recibe parte.',
+};
+
 const AYUDA = {
   marca: 'Se aplica sola a cada compra de la marca cuya fecha de factura del proveedor cae en el rango, al vincularse la factura.',
   categoria: 'Se aplica sola a cada compra con productos de la categoría cuya fecha de factura del proveedor cae en el rango, al vincularse la factura.',
@@ -47,8 +68,16 @@ const AYUDA_COSTO = {
     'Se aplica sola a cada venta de alguno de los modelos cuya fecha de venta cae en el rango, sobre el costo de esa venta, sin vincular compras ni facturas; cada modelo usa su valor propio o, si no tiene, el del bono.',
 };
 
+// A total takes no model value, so its models line says nothing about one.
+const AYUDA_TOTAL = {
+  ...AYUDA_COSTO,
+  modelos:
+    'Se aplica sola a cada venta de alguno de los modelos cuya fecha de venta cae en el rango, sobre el costo de esa venta, sin vincular compras ni facturas.',
+};
+
 const AYUDA_MONTO = {
   costo: 'Paga el porcentaje del costo sin IVA registrado en cada venta; una venta sin costo conocido queda pendiente.',
+  monto_total: 'Reparte el monto total entre los productos del bono; no lleva topes: el total es su tope.',
   porcentaje:
     'Paga el porcentaje de lo facturado de cada producto, neto de notas de crédito; si se facturó en la otra moneda, se convierte al tipo de cambio de la operación.',
   por_unidad: 'Cuenta las unidades facturadas, netas de notas de crédito.',
@@ -125,8 +154,11 @@ export default function SellInBonoForm({ valores, onChange, marcas, disabled = f
   const categorias = useCategorias(valores.alcance === 'categoria' && !disabled);
   const porcentaje = valores.tipo === 'porcentaje';
   const costo = esBonoCosto(valores);
+  const total = costo && valores.tipo === MONTO_TOTAL;
   // A cost bonus is always a % in ARS (the backend refuses the rest), so its kind and currency are fixed.
   const fijo = disabled || costo;
+  // An editable cost bonus picks a % or a total (S4); one of another kind (per unit, from a tactical) stays as it is.
+  const eligeCosto = costo && !disabled && TIPOS_COSTO.some((t) => t.value === valores.tipo);
   const alcances = costo ? ALCANCES.filter((a) => a.value !== 'factura') : ALCANCES;
   const fechas = costo ? 'Venta' : 'Factura';
 
@@ -185,14 +217,48 @@ export default function SellInBonoForm({ valores, onChange, marcas, disabled = f
         ))}
       <div className={styles.field}>
         <span className={styles.label}>Forma del monto</span>
-        {fijo ? (
-          <span>{costo ? '% del costo de la venta' : TIPOS.find((t) => t.value === valores.tipo)?.label}</span>
+        {fijo && !eligeCosto ? (
+          <span>{costo ? (total ? 'Monto total' : '% del costo de la venta') : TIPOS.find((t) => t.value === valores.tipo)?.label}</span>
         ) : (
-          <SegmentedControl label="Forma del monto" options={TIPOS} value={valores.tipo} onChange={(tipo) => set({ tipo })} />
+          <SegmentedControl label="Forma del monto" options={costo ? TIPOS_COSTO : TIPOS} value={valores.tipo} onChange={(tipo) => set({ tipo })} />
         )}
       </div>
+      {total && (
+        <div className={styles.field}>
+          <label className={styles.label} htmlFor={`${id}-criterio`}>
+            Repartir el monto total
+          </label>
+          {disabled ? (
+            <span>{nombreDeCriterio(valores.reparto)}</span>
+          ) : (
+            <select id={`${id}-criterio`} className={styles.select} value={valores.reparto} onChange={(e) => set({ reparto: e.target.value })}>
+              <option value="">Elegí cómo repartir</option>
+              {CRITERIOS.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          )}
+          {AYUDA_CRITERIO[valores.reparto] && <span className={styles.hint}>{AYUDA_CRITERIO[valores.reparto]}</span>}
+        </div>
+      )}
       <div className={styles.grid2}>
-        {porcentaje ? (
+        {total ? (
+          <label className={styles.field} htmlFor={`${id}-total`}>
+            <span className={styles.label}>Monto total (ARS)</span>
+            {/* No min: a total of zero or less goes to the backend, whose message says why it is refused. */}
+            <input
+              id={`${id}-total`}
+              type="number"
+              step="0.01"
+              className={styles.input}
+              value={valores.montoTotal}
+              disabled={disabled}
+              onChange={(e) => set({ montoTotal: e.target.value })}
+            />
+          </label>
+        ) : porcentaje ? (
           <label className={styles.field} htmlFor={`${id}-pct`}>
             <span className={styles.label}>Porcentaje</span>
             <input
@@ -237,7 +303,13 @@ export default function SellInBonoForm({ valores, onChange, marcas, disabled = f
           )}
         </div>
       </div>
-      {costo && !disabled && <p className={styles.hint}>Un bono sobre el costo es siempre un porcentaje en pesos: el costo de cada venta está en pesos.</p>}
+      {costo && !disabled && (
+        <p className={styles.hint}>
+          {total
+            ? 'Un monto total sobre el costo va en pesos: el costo de cada venta está en pesos.'
+            : 'Un bono sobre el costo es siempre un porcentaje en pesos: el costo de cada venta está en pesos.'}
+        </p>
+      )}
       {costo && (
         <div className={styles.field}>
           <label className={styles.check}>
@@ -245,8 +317,9 @@ export default function SellInBonoForm({ valores, onChange, marcas, disabled = f
             Incluye IVA
           </label>
           <p className={styles.hint}>
-            Tildado: el porcentaje cargado incluye IVA y se divide por el IVA de cada producto (3 % con IVA 10,5 % queda 2,71 %). Sin tildar: se usa tal
-            cual.
+            {total
+              ? 'Tildado: el monto total cargado incluye IVA y a la parte de cada producto se le descuenta su IVA. Sin tildar: se reparte tal cual.'
+              : 'Tildado: el porcentaje cargado incluye IVA y se divide por el IVA de cada producto (3 % con IVA 10,5 % queda 2,71 %). Sin tildar: se usa tal cual.'}
           </p>
         </div>
       )}
@@ -271,43 +344,46 @@ export default function SellInBonoForm({ valores, onChange, marcas, disabled = f
           <input id={`${id}-hasta`} type="date" className={styles.input} value={valores.fechaHasta} disabled={disabled} onChange={(e) => set({ fechaHasta: e.target.value })} />
         </label>
       </div>
-      <div className={styles.grid2}>
-        <label className={styles.field} htmlFor={`${id}-tope-u`}>
-          <span className={styles.label}>Tope de unidades (opcional)</span>
-          <input
-            id={`${id}-tope-u`}
-            type="number"
-            min="1"
-            step="1"
-            className={styles.input}
-            value={valores.topeUnidades}
-            disabled={disabled}
-            onChange={(e) => set({ topeUnidades: e.target.value })}
-          />
-        </label>
-        <label className={styles.field} htmlFor={`${id}-tope-m`}>
-          <span className={styles.label}>{`Tope de monto en ${valores.moneda} (opcional)`}</span>
-          <input
-            id={`${id}-tope-m`}
-            type="number"
-            min="0.01"
-            step="0.01"
-            className={styles.input}
-            value={valores.topeMonto}
-            disabled={disabled}
-            onChange={(e) => set({ topeMonto: e.target.value })}
-          />
-        </label>
-      </div>
+      {/* A total has no caps: the total is its cap. */}
+      {!total && (
+        <div className={styles.grid2}>
+          <label className={styles.field} htmlFor={`${id}-tope-u`}>
+            <span className={styles.label}>Tope de unidades (opcional)</span>
+            <input
+              id={`${id}-tope-u`}
+              type="number"
+              min="1"
+              step="1"
+              className={styles.input}
+              value={valores.topeUnidades}
+              disabled={disabled}
+              onChange={(e) => set({ topeUnidades: e.target.value })}
+            />
+          </label>
+          <label className={styles.field} htmlFor={`${id}-tope-m`}>
+            <span className={styles.label}>{`Tope de monto en ${valores.moneda} (opcional)`}</span>
+            <input
+              id={`${id}-tope-m`}
+              type="number"
+              min="0.01"
+              step="0.01"
+              className={styles.input}
+              value={valores.topeMonto}
+              disabled={disabled}
+              onChange={(e) => set({ topeMonto: e.target.value })}
+            />
+          </label>
+        </div>
+      )}
       <label className={styles.field} htmlFor={`${id}-desc`}>
         <span className={styles.label}>Descripción</span>
         <input id={`${id}-desc`} type="text" className={styles.input} value={valores.descripcion} disabled={disabled} onChange={(e) => set({ descripcion: e.target.value })} />
       </label>
       <p className={styles.hint}>
-        {costo ? AYUDA_COSTO[valores.alcance] : AYUDA[valores.alcance]}{' '}
-        {costo ? AYUDA_MONTO.costo : porcentaje ? AYUDA_MONTO.porcentaje : AYUDA_MONTO.por_unidad}
+        {total ? AYUDA_TOTAL[valores.alcance] : costo ? AYUDA_COSTO[valores.alcance] : AYUDA[valores.alcance]}{' '}
+        {total ? AYUDA_MONTO.monto_total : costo ? AYUDA_MONTO.costo : porcentaje ? AYUDA_MONTO.porcentaje : AYUDA_MONTO.por_unidad}
       </p>
-      {(valores.topeUnidades !== '' || valores.topeMonto !== '') && (
+      {!total && (valores.topeUnidades !== '' || valores.topeMonto !== '') && (
         <p className={styles.hint}>
           {costo
             ? 'El tope es uno solo para todos los productos y ventas del bono: se reparte por fecha de venta, la venta que lo alcanza cobra lo que queda y las siguientes no cobran.'

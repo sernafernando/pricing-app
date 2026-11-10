@@ -268,3 +268,11 @@
   padding: 0 var(--spacing-xs);
   font-size: var(--font-xs);
 }
+
+.resetBtn {
+  composes: btn-secondary from '../styles/buttons-tesla.css';
+  height: 2rem;
+  padding: 0 var(--spacing-sm);
+  font-size: var(--font-sm);
+  color: var(--error-text);
+}

@@ -293,6 +293,7 @@ export default function TacticalNuevo() {
                     n={index + 1}
                     tipo={form.tipo}
                     moneda={form.moneda}
+                    tcModo={form.tcModo}
                     marcas={marcasDelSelect}
                     categorias={categorias}
                     abierto={abierta === linea.id}

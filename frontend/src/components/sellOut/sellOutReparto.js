@@ -6,9 +6,19 @@
  * other brands hidden from the user, only the API, which has them exact, judges the sum.
  */
 import { formatMonto } from '../sellIn/sellInFormat';
+import { REPARTOS } from '../tactical/tacticalLineas';
 import { nombreDeItem } from './sellOutFormat';
 
 const MILES = new Intl.NumberFormat('es-AR');
+
+/**
+ * How a `monto_total` campaign can be split by criterion (`reparto_criterio`): the tactical line's list, one for both
+ * screens. None stored is the manual reparto.
+ */
+export const CRITERIOS = REPARTOS;
+
+/** The stored criterion as the screen names it: "Manual" when the shares were typed by hand. */
+export const nombreDeCriterio = (criterio) => CRITERIOS.find((c) => c.value === criterio)?.label ?? 'Manual';
 
 export const MODO_PORCENTAJE = 'porcentaje';
 export const MODO_MONTO = 'monto';

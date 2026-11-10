@@ -5,7 +5,8 @@ amount or percentage) and `20261114_sell_in_bonos_alcance` (a bonus's scope and
 kind, and its models), so the parity check covers the tables as they are now
 (`20261115_sell_in_bono_queue_alcance` only replaces the queue's triggers), and `20261227_sell_in_modos_producto`
 (a product's dated cost modes, and the manual consumptions that point at one), and `20261105_tacticals`
-(`tactical_id`, and a cost bonus may be per unit).
+(`tactical_id`, and a cost bonus may be per unit), and `20261108_sell_in_bono_monto_total` (a cost bonus over a
+split total, its shares in `sell_in_bono_repartos`).
 
 Runs the migration inside a throwaway schema of the Postgres test DB, next to
 bare stand-ins of the tables it references (usuarios, proveedores,
@@ -46,13 +47,22 @@ _MIGRATIONS = [
         "20261105_tacticals",
         "20261106_sell_in_modo_manual",
         "20261106_combo_consumos_item",
+        "20261108_sell_in_bono_monto_total",
+        "20261107_tacticals_tiendas",  # the store scope on tacticals; it chains on 20261108_sell_in_bono_monto_total
     )
 ]
 TABLES = {"sell_in_compras", "sell_in_compra_items", "sell_in_consumos", "sell_in_modos_producto"}
-BONO_TABLES = {"sell_in_bonos_marca", "sell_in_bono_dirty", "sell_in_bono_items", "sell_in_bono_consumos"}
+BONO_TABLES = {
+    "sell_in_bonos_marca",
+    "sell_in_bono_dirty",
+    "sell_in_bono_items",
+    "sell_in_bono_consumos",
+    "sell_in_bono_repartos",
+}
 
 _STUBS = [
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
+    "CREATE TABLE ml_tiendas_oficiales (store_id BIGINT PRIMARY KEY)",  # `tactical_tiendas.store_id`
     "CREATE TABLE proveedores (id INTEGER PRIMARY KEY)",
     "CREATE TABLE pedidos_compra (id BIGINT PRIMARY KEY, proveedor_id INTEGER, estado VARCHAR(24), "
     "tipo_cambio NUMERIC(18, 6), fecha_factura DATE)",
