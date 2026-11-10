@@ -5,7 +5,8 @@
  * PermisosProvider on every authenticated page.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
+import axios from 'axios';
 import { renderWithRouter } from '../test/renderWithRouter';
 import { ThemeProvider } from '../contexts/ThemeContext';
 import fs from 'node:fs';
@@ -13,6 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import api from '../services/api';
 import { businessToday } from '../utils/dateRangePresets';
+import { toLocalDateString } from '../utils/dateUtils';
 import TopBar, { TPLINK_LOGO_SRC } from './TopBar';
 
 const permisosStub = {
@@ -103,7 +105,8 @@ describe('TopBar — Facturado hoy', () => {
     const chip = await screen.findByRole('link', { name: /Facturado ML Hoy/ });
     expect(chip).toHaveTextContent('$1.234.567');
     expect(chip.getAttribute('href')).toBe('/metricas-ml');
-    const today = businessToday();
+    const today = toLocalDateString(businessToday());
+    expect(today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(api.get).toHaveBeenCalledTimes(1);
     const [url, config] = api.get.mock.calls[0];
     expect(url).toBe('/ml-metricas/board');
@@ -116,6 +119,10 @@ describe('TopBar — Facturado hoy', () => {
       limit: 1,
       offset: 0,
     });
+    // What reaches the API: the backend reads the day as YYYY-MM-DD and answers 422 to a timestamp.
+    const query = new URLSearchParams(axios.getUri({ url, params: config.params }).split('?')[1]);
+    expect(query.get('date_from')).toBe(today);
+    expect(query.get('date_to')).toBe(today);
   });
 
   it('never asks the old dashboard, and shows the weather without the new screen permission', async () => {
@@ -134,5 +141,18 @@ describe('TopBar — Facturado hoy', () => {
     expect(await screen.findByText('22°')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Facturado ML Hoy/ })).not.toBeInTheDocument();
     expect(api.get).toHaveBeenCalledWith('/ml-metricas/board', expect.anything());
+  });
+
+  it('logs a failed request and keeps the weather', async () => {
+    permisosStub.permisos = ['ml_metricas.ver'];
+    weatherStub.weather = WEATHER;
+    const error = new Error('Request failed with status code 422');
+    api.get.mockRejectedValue(error);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    renderTopBar();
+    expect(await screen.findByText('22°')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Facturado ML Hoy/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('Facturado ML Hoy'), error));
+    consoleError.mockRestore();
   });
 });
