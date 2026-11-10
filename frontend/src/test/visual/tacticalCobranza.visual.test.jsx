@@ -103,6 +103,13 @@ describe.each([
       );
 
       await expect.element(screen.getByRole('region', { name: 'Cobranza de los tacticals' })).toBeVisible();
+      // Vigencia's Desde/Hasta are inline prefixes: its date inputs share the other filters' row (owner, as #2177).
+      const marca = screen.getByLabelText('Marca').element().getBoundingClientRect();
+      for (const fecha of document.querySelectorAll('input[type="date"]')) {
+        const caja = fecha.getBoundingClientRect();
+        expect(Math.abs(caja.top - marca.top)).toBeLessThanOrEqual(1);
+        expect(Math.abs(caja.bottom - marca.bottom)).toBeLessThanOrEqual(1);
+      }
       await screen.getByRole('button', { name: 'Editar cobro de Rebate HP Q1FY27' }).click();
       const campo = { nota_credito: 'Número de NC', fondo_distribuidor: 'Distribuidor', otro: 'Detalle' }[medio];
       await expect.element(screen.getByLabelText(campo)).toBeVisible();

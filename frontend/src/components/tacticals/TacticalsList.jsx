@@ -158,17 +158,23 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
           <span className={styles.label}>Cobranza</span>
           <SegmentedControl label="Cobranza" options={COBRANZAS} value={filtros.cobranza} onChange={(cobranza) => filtrar({ cobranza })} />
         </div>
-        <fieldset className={styles.vigencia}>
-          <legend className={styles.label}>Vigencia</legend>
-          <label className={styles.fecha}>
-            <span className={styles.subLabel}>Desde</span>
-            <input type="date" className={styles.control} value={filtros.desde} onChange={(e) => filtrar({ desde: e.target.value })} />
-          </label>
-          <label className={styles.fecha}>
-            <span className={styles.subLabel}>Hasta</span>
-            <input type="date" className={styles.control} value={filtros.hasta} onChange={(e) => filtrar({ hasta: e.target.value })} />
-          </label>
-        </fieldset>
+        {/* Desde/Hasta are inline prefixes (as Nuevo tactical's Vigencia, #2177): one label line like the other filters,
+            so every control shares the same baseline. */}
+        <div className={styles.campo} role="group" aria-labelledby="tacticals-vigencia">
+          <span id="tacticals-vigencia" className={styles.label}>
+            Vigencia
+          </span>
+          <div className={styles.vigencia}>
+            <label className={styles.fecha}>
+              <span className={styles.prefix}>Desde</span>
+              <input type="date" className={`${styles.control} ${styles.fechaControl}`} value={filtros.desde} onChange={(e) => filtrar({ desde: e.target.value })} />
+            </label>
+            <label className={styles.fecha}>
+              <span className={styles.prefix}>Hasta</span>
+              <input type="date" className={`${styles.control} ${styles.fechaControl}`} value={filtros.hasta} onChange={(e) => filtrar({ hasta: e.target.value })} />
+            </label>
+          </div>
+        </div>
         <div className={`${styles.campo} ${styles.buscar}`}>
           <span className={styles.label}>Buscar</span>
           <SearchInput value={filtros.q} onChange={(q) => filtrar({ q })} debounce={300} placeholder="Buscar por nombre o referencia" />
