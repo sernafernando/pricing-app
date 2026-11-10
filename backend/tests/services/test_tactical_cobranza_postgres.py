@@ -58,16 +58,16 @@ def db(engine: Engine) -> Iterator[Session]:
             conn.execute(text("DELETE FROM tacticals"))
 
 
-def _usado(engine: Engine, tactical_id: int, monto: str) -> None:
-    """A sale consumed `monto` of the tactical's only campaign: what the list shows as its money used."""
+def _usado(engine: Engine, tactical_id: int, monto: str, venta_ref: int = 1) -> None:
+    """Sale `venta_ref` consumed `monto` of the tactical's only campaign: what the list shows as its money used."""
     with engine.begin() as conn:
         cid = conn.execute(text("SELECT id FROM sell_out_campanas WHERE tactical_id = :t"), {"t": tactical_id}).scalar()
         conn.execute(
             text(
                 "INSERT INTO sell_out_consumos (campana_id, canal, venta_ref, item_id, fecha_venta, unidades, monto) "
-                "VALUES (:c, 'fuera', :c, 2964, '2026-11-03', 1, :m)"
+                "VALUES (:c, 'fuera', :r, 2964, '2026-11-03', 1, :m)"
             ),
-            {"c": cid, "m": monto},
+            {"c": cid, "r": venta_ref, "m": monto},
         )
 
 
@@ -241,6 +241,19 @@ def _consumo_compra(engine: Engine, compra_item_id: int, ars: str) -> None:
         )
 
 
+def _consumo_bono(engine: Engine, bono_id: int, *ventas: tuple[int, int, str]) -> None:
+    """Sales `(venta_ref, unidades, descuento_ars)` a cost bonus lowered."""
+    with engine.begin() as conn:
+        for ref, unidades, ars in ventas:
+            conn.execute(
+                text(
+                    "INSERT INTO sell_in_bono_consumos (bono_id, canal, venta_ref, item_id, fecha_venta, unidades, "
+                    "descuento_ars) VALUES (:b, 'fuera', :r, 2964, '2026-11-03', :u, :m)"
+                ),
+                {"b": bono_id, "r": ref, "u": unidades, "m": ars},
+            )
+
+
 def _bono_de(engine: Engine, tactical_id: int) -> int:
     with engine.connect() as conn:
         return conn.execute(
@@ -252,28 +265,26 @@ class TestKpisEnSql:
     """Advisory (1) on #2182: the KPIs are one SQL aggregate, with the very numbers the lines show, every engine."""
 
     def test_every_engine_gives_the_numbers_the_lines_show(self, db, engine) -> None:
-        # Sell out campaign, ARS, with usage; and one with no usage at all (a 0 line still names its currency).
+        costo_linea = [{"alcance": "productos", "item_ids": [2964], "modo_monto": "por_unidad", "valor": "36"}]
+
+        def total_usd(nombre: str, pedido_id: int) -> service.Tactical:
+            linea = {"alcance": "factura", "pedido_compra_id": pedido_id, "modo_monto": "monto_total", "valor": "300"}
+            return service.crear(
+                db,
+                _tactical("sell_in", [linea], nombre=nombre, moneda="USD", tc_modo="fijo", tipo_cambio="1000.5",
+                          fecha_desde=None, fecha_hasta=None),
+                USUARIO,
+            )  # fmt: skip
+
+        # Sell out campaign, ARS, with two sales; and one in USD with no usage (a 0 line still names its currency).
         campana = service.crear(db, _tactical(nombre="Campaña"), USUARIO)
-        _usado(engine, campana.id, "123.45")
+        _usado(engine, campana.id, "123.45", venta_ref=1)
+        _usado(engine, campana.id, "7.55", venta_ref=2)
         service.crear(db, _tactical(nombre="Sin uso", moneda="USD", tc_modo="al_cobro"), USUARIO)
         # Sell in cost bonus (ARS) with what its sales got.
-        costo = service.crear(
-            db,
-            _tactical("sell_in", [{"alcance": "productos", "item_ids": [2964], "modo_monto": "por_unidad", "valor": "36"}],
-                      nombre="Costo"),
-            USUARIO,
-        )  # fmt: skip
-        with engine.begin() as conn:
-            conn.execute(
-                text(
-                    "INSERT INTO sell_in_bono_consumos (bono_id, canal, venta_ref, item_id, fecha_venta, unidades, "
-                    "descuento_ars) VALUES (:b, 'fuera', 1, 2964, '2026-11-03', 2, 72.10), "
-                    "(:b, 'fuera', 2, 2964, '2026-11-04', 1, 36.05)"
-                ),
-                {"b": _bono_de(engine, costo.id)},
-            )
-        # Sell in invoice percentage bonus: its active purchases in its own currency count; a voided one and one in
-        # another currency do not.
+        costo = service.crear(db, _tactical("sell_in", costo_linea, nombre="Costo"), USUARIO)
+        # Sell in invoice percentage bonus (the tactical's ARS): its active ARS purchases count; a voided one and one
+        # in USD do not.
         pedido = bw.pedido(engine, {2964: 10}, date(2026, 10, 10))
         factura = service.crear(
             db,
@@ -282,10 +293,8 @@ class TestKpisEnSql:
             USUARIO,
         )  # fmt: skip
         bono = _bono_de(engine, factura.id)
-        moneda_bono = db.get(service.SellInBonoMarca, bono).moneda
-        otra = "ARS" if moneda_bono == "USD" else "USD"
-        for moneda, estado, monto in ((moneda_bono, "activa", "40.50"), (moneda_bono, "anulada", "999"),
-                                      (otra, "activa", "555")):  # fmt: skip
+        assert db.get(service.SellInBonoMarca, bono).moneda == "ARS"
+        for moneda, estado, monto in (("ARS", "activa", "40.50"), ("ARS", "anulada", "999"), ("USD", "activa", "555")):
             [item] = w.compra(engine, [(2964, 1, monto)], moneda=moneda, tipo_cambio="1000" if moneda == "USD" else None,
                               estado=estado)  # fmt: skip
             with engine.begin() as conn:
@@ -294,29 +303,42 @@ class TestKpisEnSql:
                          "WHERE id = (SELECT compra_id FROM sell_in_compra_items WHERE id = :i)"),
                     {"b": bono, "i": item},
                 )  # fmt: skip
-        # Sell in invoice fixed total in USD at a fixed rate: its sales took ARS, shown in USD at its own rate.
-        pedido_total = bw.pedido(engine, {2270: 5}, date(2026, 10, 12))
-        total = service.crear(
-            db,
-            _tactical("sell_in", [{"alcance": "factura", "pedido_compra_id": pedido_total, "modo_monto": "monto_total",
-                                   "valor": "300"}], nombre="Total USD", moneda="USD", tc_modo="fijo",
-                      tipo_cambio="1000.5", fecha_desde=None, fecha_hasta=None),
-            USUARIO,
-        )  # fmt: skip
-        for compra_item in _compras_de(engine, total.id):
-            _consumo_compra(engine, compra_item, "1000.51")
+        # Sell in invoice fixed total in USD at a fixed rate: its sales took ARS, shown in USD at its own rate
+        # (ARS 2.501,25 / 1.000,5 = USD 2,50).
+        total = total_usd("Total USD", bw.pedido(engine, {2270: 5}, date(2026, 10, 12)))
+        # Voided after they were used: a campaign, a cost bonus and an invoice total. The list still shows what each
+        # used, so the KPIs count it too.
+        campana_anulada = service.crear(db, _tactical(nombre="Campaña anulada"), USUARIO)
+        _usado(engine, campana_anulada.id, "10.10")
+        costo_anulado = service.crear(db, _tactical("sell_in", costo_linea, nombre="Costo anulado"), USUARIO)
+        total_anulado = total_usd("Total USD anulado", bw.pedido(engine, {2964: 3}, date(2026, 10, 14)))
+        for anulado in (campana_anulada, costo_anulado, total_anulado):
+            service.anular(db, anulado.id, USUARIO, None)
+        # The sell in usage rows stand in for what the FIFO drain wrote; they go in after the voids, since voiding a
+        # bonus or a purchase queues a recompute that rebuilds them (to nothing here, with no real sales).
+        _consumo_bono(engine, _bono_de(engine, costo.id), (1, 2, "72.10"), (2, 1, "36.05"))
+        _consumo_bono(engine, _bono_de(engine, costo_anulado.id), (3, 1, "20.20"))
+        [compra_item] = _compras_de(engine, total.id)
+        _consumo_compra(engine, compra_item, "2501.25")
+        [compra_item] = _compras_de(engine, total_anulado.id)
+        _consumo_compra(engine, compra_item, "500.25")  # USD 0,50
         service.cobrar(db, costo.id, _cobro(), USUARIO)
         service.cobrar(db, total.id, _cobro(), USUARIO)
+        service.cobrar(db, total_anulado.id, _cobro(), USUARIO)
         db.expire_all()
 
         filtros = service.Filtros(tipos=TODOS)
         kpis = service.kpis(db, filtros, hoy=HOY)
 
         assert kpis == _segun_las_lineas(db, filtros)
-        assert kpis["cobrados"]["cantidad"] == 2
-        assert {m["moneda"] for m in kpis["pendientes"]["montos"]} == {"ARS", "USD"}
-        assert sum(m["monto"] for m in kpis["cobrados"]["montos"] if m["moneda"] == "ARS") == Decimal("108.15")
-        assert sum(m["monto"] for m in kpis["pendientes"]["montos"] if m["moneda"] == "ARS") >= Decimal("123.45")
+        assert kpis == {
+            # Campaña 131,00 + Factura % 40,50 + Campaña anulada 10,10 + Costo anulado 20,20; Sin uso USD 0.
+            "pendientes": {"cantidad": 5, "montos": [{"moneda": "ARS", "monto": Decimal("201.80")},
+                                                     {"moneda": "USD", "monto": Decimal("0.00")}]},
+            # Costo 108,15; Total USD 2,50 + Total USD anulado 0,50.
+            "cobrados": {"cantidad": 3, "montos": [{"moneda": "ARS", "monto": Decimal("108.15")},
+                                                   {"moneda": "USD", "monto": Decimal("3.00")}]},
+        }  # fmt: skip
 
     def test_voided_tacticals_with_the_anulados_filter(self, db, engine) -> None:
         """Advisory (3): `estado=anulados` keeps only voided ones, in the list, the collection filter and the KPIs."""
