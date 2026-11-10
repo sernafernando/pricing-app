@@ -45,6 +45,7 @@ from app.services.gestion_full.package import (
     set_qty_export,
     upsert_package_line,
 )
+from app.services.gestion_full.plan_reset import reset_planificacion
 from app.services.gestion_full.pm_ready import (
     get_pm_ready,
     is_line_locked,
@@ -151,6 +152,13 @@ class GestionFullTargetResponse(BaseModel):
     inventory_id: str
     target: Optional[int] = None
     occurred_at: Optional[str] = None
+
+
+class GestionFullPlanResetResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    overrides_deleted: int
+    pm_ready_deleted: int
 
 
 class GestionFullUnidadesCajaBody(BaseModel):
@@ -456,6 +464,22 @@ def post_pm_unlock(
         "qty_pm": qty_pm,
         "pm_ready": False,
     }
+
+
+@router.post(
+    "/plan/reset",
+    response_model=GestionFullPlanResetResponse,
+    dependencies=[Depends(require_permiso(PERM_GESTOR))],
+)
+def post_plan_reset(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Wipe all overrides and Qty PM (pm_ready) so Planificación starts clean.
+
+    Gestor only. Does not delete package lines, envíos, or U/caja.
+    """
+    return reset_planificacion(db, usuario=current_user)
 
 
 @router.get(
