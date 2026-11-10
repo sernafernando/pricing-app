@@ -1242,13 +1242,24 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome, defaultOpen = f
               pedido, which is the whole point of this row.
               `#{oc_poh_id}` matches how ModalPedidoDetalle and ModalVincularOC
               already name an OC; the ERP header carries no friendlier number. */}
-          {pedido.oc_poh_id != null && (
-            <span className={styles.pedidoOc}>OC #{pedido.oc_poh_id}</span>
-          )}
+          {(() => {
+            const ocs = linkedOcs(pedido);
+            if (ocs.length === 0) return null;
+            return (
+              <span className={styles.pedidoOc}>
+                {ocs.map((oc, i) => (
+                  <span key={`${oc.oc_comp_id}-${oc.oc_bra_id}-${oc.oc_poh_id}`}>
+                    {i > 0 ? ', ' : ''}
+                    OC #{oc.oc_poh_id}
+                  </span>
+                ))}
+              </span>
+            );
+          })()}
           <span className={styles.pedidoProveedor}>{pedido.proveedor_nombre || '—'}</span>
         </button>
         <div className={styles.headerBadges}>
-          {pedido.oc_poh_id != null && itemsBadge(pedido, styles)}
+          {linkedOcs(pedido).length > 0 && itemsBadge(pedido, styles)}
           {identChips(pedido, styles)}
           {facturaCargadaBadge(pedido.factura_cargada, styles)}
           {estadoBadge(pedido.estado, styles)}

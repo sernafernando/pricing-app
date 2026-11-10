@@ -208,6 +208,18 @@ export default function useComprasPedidos() {
     [wrap]
   );
 
+  const syncOcs = useCallback(
+    (id, triple = null) =>
+      wrap(async () => {
+        const { data } = await api.post(
+          `/administracion/compras/pedidos/${id}/ocs/sync`,
+          triple || {}
+        );
+        return data;
+      }),
+    [wrap]
+  );
+
   // ── Feature D — corregir pedido (clonación append-only) ────────────
   const corregir = useCallback(
     (id, payload) =>
@@ -269,6 +281,7 @@ export default function useComprasPedidos() {
     // Batch J — OC link
     desvinculaOc,
     fetchOcDetalle,
+    syncOcs,
     // Cuenta corriente
     marcarCuentaCorriente,
     revertirCuentaCorriente,

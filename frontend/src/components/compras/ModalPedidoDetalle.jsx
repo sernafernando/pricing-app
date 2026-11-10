@@ -140,7 +140,13 @@ const ocDetalleBlocks = (ocDetalle) => {
 
 export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   // Desestructurar función memoizada para evitar loop en useEffect.
-  const { obtener: obtenerPedido, desvincularFactura, desvinculaOc, fetchOcDetalle } = useComprasPedidos();
+  const {
+    obtener: obtenerPedido,
+    desvincularFactura,
+    desvinculaOc,
+    fetchOcDetalle,
+    syncOcs,
+  } = useComprasPedidos();
   const { resolverFaltantes } = useRecepcionDeposito();
   const { tienePermiso } = usePermisos();
 
@@ -158,6 +164,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   // Batch J — OC section state.
   const [showVincularOCModal, setShowVincularOCModal] = useState(false);
   const [desvinculandoOC, setDesvinculandoOC] = useState(false);
+  const [syncingOC, setSyncingOC] = useState(false);
   const [errorOC, setErrorOC] = useState(null);
   const [ocDetalle, setOcDetalle] = useState(null);
   const [loadingOcDetalle, setLoadingOcDetalle] = useState(false);
@@ -205,8 +212,12 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
       const data = await obtenerPedido(pedidoId);
       setPedido(data);
       fetchDocumentos(data?.id);
-      // Batch J — fetch OC detalle if linked
-      if (data?.oc_poh_id && data?.id) {
+      // Batch J — fetch OC detalle if any OC is linked (N-OC via ocs[] or header cache)
+      const hasOc =
+        data?.id &&
+        (data?.oc_poh_id != null ||
+          (Array.isArray(data?.ocs) && data.ocs.length > 0));
+      if (hasOc) {
         setLoadingOcDetalle(true);
         try {
           const detalle = await fetchOcDetalle(data.id);
@@ -291,6 +302,24 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
     },
     [fetchDetalle]
   );
+
+  const handleSyncOC = useCallback(async () => {
+    if (!pedido?.id) return;
+    setSyncingOC(true);
+    setErrorOC(null);
+    try {
+      await syncOcs(pedido.id);
+      await fetchDetalle();
+    } catch (err) {
+      setErrorOC(
+        err.response?.data?.detail ||
+          err.response?.data?.error?.message ||
+          'Error al actualizar la OC desde el ERP.'
+      );
+    } finally {
+      setSyncingOC(false);
+    }
+  }, [syncOcs, pedido?.id, fetchDetalle]);
 
   // Feature D — al corregir se crea un clon. Cierra este modal y propaga el
   // ID del clon al padre para que abra el modal del clon (flujo fluido).
@@ -958,6 +987,22 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                     </span>
                   </div>
                   <div className={styles.ocActionCluster}>
+                    {canGestionar && (
+                      <button
+                        type="button"
+                        className={styles.btnGhost}
+                        onClick={handleSyncOC}
+                        disabled={syncingOC || desvinculandoOC}
+                        title="Actualizar líneas/saldos desde el ERP (no corrige recepciones)"
+                      >
+                        {syncingOC ? (
+                          <Loader2 size={14} className={styles.spin} />
+                        ) : (
+                          <RotateCw size={14} />
+                        )}
+                        Actualizar OC
+                      </button>
+                    )}
                     {canVincularOc && (
                       <button
                         type="button"
@@ -972,7 +1017,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                         type="button"
                         className={styles.btnGhost}
                         onClick={handleDesvinculaOC}
-                        disabled={desvinculandoOC}
+                        disabled={desvinculandoOC || syncingOC}
                         title="Desvincular OC"
                       >
                         {desvinculandoOC ? (
@@ -1002,7 +1047,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
             </div>
 
             {/* OC detalle (read-only): código + descripción; one table per linked OC */}
-            {pedido.oc_poh_id && (
+            {linkedOcs.length > 0 && (
               <>
                 {loadingOcDetalle ? (
                   <div className={styles.centered}>

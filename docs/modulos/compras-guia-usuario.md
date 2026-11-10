@@ -209,12 +209,13 @@ Tab **Recepción / Depósito** (permiso `deposito.recibir_mercaderia`):
   reemplaza. Desde el **detalle** del pedido, **Vincular OC** sigue
   disponible para agregar otra OC (permiso
   `administracion.gestionar_ordenes_compra`, y el pedido no es
-  **servicio**), aunque ya haya una OC vinculada. El detalle lista **todas**
-  las OCs vinculadas, no solo la primera del encabezado. El desglose de
-  ítems muestra **código** y **descripción** (no el item_id interno ni el
-  depósito), con una tablita por OC cuando hay más de una. **Controlado**
-  recién cuando están todas las OCs. Pedido **servicio**: no hay candidatas
-  OC (no se vincula) y el detalle no muestra **Vincular OC**.
+  **servicio**), aunque ya haya una OC vinculada. El detalle y el
+  encabezado de Depósito listan **todas** las OCs vinculadas, no solo la
+  primera. **Actualizar OC** trae de nuevo cabecera/líneas del ERP al
+  espejo local (no corrige recepciones ya cargadas). El desglose de
+  ítems muestra **código** y **descripción**, con una tablita por OC.
+  **Controlado** recién cuando están todas las OCs. Pedido **servicio**:
+  no hay candidatas OC y el detalle no muestra **Vincular OC**.
 - **Desvincular OC** es todo-o-nada: quita **todas** las OCs vinculadas del
   pedido y limpia el cache de OC del encabezado. Hoy no hay desvínculo
   por una sola OC. Si una OC no aparece en el ERP, el bloque sigue
