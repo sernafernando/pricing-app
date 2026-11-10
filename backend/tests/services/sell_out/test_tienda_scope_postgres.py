@@ -17,6 +17,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.tactical import TacticalTienda
+from app.models.sell_out import SellOutCampana
+from app.services.sell_out import criterio, resumen
 from app.services.sell_out.asignacion import recalcular
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_out import _world as w
@@ -76,6 +78,23 @@ def _tactical_existente(engine: Engine) -> int:
     return tid
 
 
+def _tactical_solo_gauss(engine: Engine) -> int:
+    """A tactical narrowed to the GaussOnline store: no other store, no Por fuera, no Tienda Nube."""
+    with engine.begin() as conn:
+        tid = conn.execute(
+            text(
+                "INSERT INTO tacticals (tipo, nombre, marca, fecha_desde, fecha_hasta, moneda, usuario_id, "
+                "todas_tiendas, tope_compartido) VALUES ('sell_out', 'Gauss', 'TP-LINK', '2026-11-01', "
+                "'2026-11-30', 'ARS', 7, false, true) RETURNING id"
+            )
+        ).scalar_one()
+        conn.execute(
+            text("INSERT INTO tactical_tiendas (tactical_id, tipo, store_id) VALUES (:t, 'oficial', :s)"),
+            {"t": tid, "s": GAUSS},
+        )
+    return tid
+
+
 def _venta_ml(engine: Engine, item_id: int, cantidad: int, dia: date, store_id: Optional[int]) -> int:
     ref = w.venta(engine, "ml", item_id, cantidad, dia)
     if store_id is not None:
@@ -130,3 +149,43 @@ class TestExistingTactical:
         _recalcular(engine, campana)
 
         assert _filas(engine, campana) == [("ml", gauss, 2, Decimal("20.00")), ("ml", tplink, 1, Decimal("10.00"))]
+
+
+class TestNarrowedTacticalReads:
+    """The reads around the rebuild count only the sales the scope credits, like the rebuild does."""
+
+    def test_the_preview_by_units_splits_only_over_the_stores_it_credits(self, engine: Engine) -> None:
+        campana = w.monto_total(
+            engine,
+            [w.grupo(engine, [TP_ROUTERS])],
+            "300.00",
+            tactical_id=_tactical_solo_gauss(engine),
+            tactical_linea=1,
+        )
+        _venta_ml(engine, 2964, 2, D(2026, 11, 2), store_id=GAUSS)
+        _venta_ml(engine, 2964, 1, D(2026, 11, 3), store_id=TPLINK)
+        w.venta(engine, "fuera", 2964, 4, D(2026, 11, 4))
+
+        with sessionmaker(bind=engine, autoflush=False)() as db:
+            previa = criterio.vista_previa(db, db.get(SellOutCampana, campana), "unidades")
+
+        assert {i["item_id"]: (i["unidades"], i["monto"]) for i in previa["items"]} == {2964: (2, Decimal("300.00"))}
+
+    def test_the_summary_counts_unknown_base_sales_only_inside_the_scope(self, engine: Engine) -> None:
+        campana = w.campana(
+            engine,
+            [w.grupo(engine, [TP_ROUTERS])],
+            tipo="porcentaje",
+            monto_unit=None,
+            porcentaje="10",
+            tactical_id=_tactical_solo_gauss(engine),
+            tactical_linea=1,
+        )
+        for dia, store in ((D(2026, 11, 2), GAUSS), (D(2026, 11, 3), TPLINK), (D(2026, 11, 4), None)):
+            ref = _venta_ml(engine, 2964, 1, dia, store_id=store)
+            w.execute(engine, "UPDATE ml_sale_lines SET gross = 0, mcosto = 0 WHERE item_row_id = :r", r=ref)
+
+        with sessionmaker(bind=engine, autoflush=False)() as db:
+            r = resumen.resumenes(db, [db.get(SellOutCampana, campana)])
+
+        assert r[campana]["pendientes_base"] == 1

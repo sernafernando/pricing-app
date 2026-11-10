@@ -51,7 +51,7 @@ def scopes_de(db: Session, hijos: Iterable[_DeTactical]) -> Dict[int, Optional[S
     }
 
 
-def scope_desde_tactical(tactical) -> Scope:
+def scope_desde_tactical(tactical: Tactical) -> Scope:
     oficiales = frozenset(
         int(fila.store_id) for fila in tactical.tiendas if fila.tipo == "oficial" and fila.store_id is not None
     )

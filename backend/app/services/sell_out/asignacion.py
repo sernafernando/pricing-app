@@ -476,7 +476,15 @@ def filas_de(db: Session, campana: SellOutCampana) -> List[tope.Consumo]:
     if not items:
         return []
     ventas = alcance.ventas(db, items, campana.fecha_desde, campana.fecha_hasta)
-    salida, _ = _asignar([campana], productos, ventas, _Tasas({}, None), {}, repartos_item(db, [campana]))
+    salida, _ = _asignar(
+        [campana],
+        productos,
+        ventas,
+        _Tasas({}, None),
+        {},
+        repartos_item(db, [campana]),
+        tienda_scope.scopes_de(db, [campana]),
+    )
     return salida.get(campana.id, [])
 
 

@@ -45,7 +45,7 @@ from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutConsumo, SellOutDirty
 from app.models.tipo_cambio import TipoCambio
 from app.services.sell_in.bonos import tasas_bna_por_fecha
-from app.services.sell_out import alcance, asignacion, campanas as campanas_service, queue, reparto
+from app.services.sell_out import alcance, asignacion, campanas as campanas_service, queue, reparto, tienda_scope
 from app.services.sell_out.tope import cents
 
 CANALES = ("ml", "fuera", "tn")
@@ -116,13 +116,18 @@ def _pendientes_base(db: Session, campanas: List[SellOutCampana]) -> Dict[int, i
         return {}
     desde = min(c.fecha_desde for c in porcentaje)
     ventas = alcance.ventas(db, items, desde, max(c.fecha_hasta for c in porcentaje))
+    scopes = tienda_scope.scopes_de(db, porcentaje)
     salida: Dict[int, int] = {}
     for c in porcentaje:
         alcanzados = productos.get(c.id, {})
+        scope = scopes.get(c.id)
         salida[c.id] = sum(
             1
             for v in ventas
-            if v.item_id in alcanzados and alcance.en_campana(c, v) and asignacion.base_desconocida(c, v)
+            if v.item_id in alcanzados
+            and alcance.en_campana(c, v)
+            and tienda_scope.alcanza(scope, v.canal, v.store_id)
+            and asignacion.base_desconocida(c, v)
         )
     return salida
 
