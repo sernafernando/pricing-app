@@ -62,18 +62,27 @@ export function seleccionDesdeDetalle(tactical, grupos = []) {
 }
 
 const idsDe = (key, grupos) => grupos.find((g) => g.value === key)?.ids ?? String(key).split(',').filter(Boolean);
-const idsDeTodas = (grupos) => grupos.reduce((n, g) => n + g.ids.length, 0);
+// With every store, the engines start one counter per ACTIVE official store (`tienda_scope.contadores`); a group's ids
+// also hold the inactive stores of its clave, so the caller passes the active count when it has it.
+const idsDeTodas = (grupos, tiendasActivas) => tiendasActivas ?? grupos.reduce((n, g) => n + g.ids.length, 0);
 
 /**
  * How many cap counters a capped line gets, as the engines split it: one with a shared cap (or while the store scope
  * is off: the API then gives today's shared reach); per store otherwise, one per official store id (plus the ML sales
  * without a store, with every store) and one per channel.
  */
-export function contadoresDelTope({ todasTiendas, seleccionKeys, grupos = [], topeCompartido, alcancePorTienda = ALCANCE_POR_TIENDA }) {
+export function contadoresDelTope({
+  todasTiendas,
+  seleccionKeys,
+  grupos = [],
+  tiendasActivas,
+  topeCompartido,
+  alcancePorTienda = ALCANCE_POR_TIENDA,
+}) {
   if (!alcancePorTienda || topeCompartido) return 1;
   const canales = seleccionKeys.filter(esCanal).length;
   const oficiales = todasTiendas
-    ? idsDeTodas(grupos) + 1
+    ? idsDeTodas(grupos, tiendasActivas) + 1
     : seleccionKeys.filter((k) => !esCanal(k)).reduce((n, k) => n + idsDe(k, grupos).length, 0);
   return Math.max(oficiales + canales, 1);
 }
@@ -82,7 +91,7 @@ export function contadoresDelTope({ todasTiendas, seleccionKeys, grupos = [], to
  * Live preview rows for how the line cap applies to the current selection.
  * `ejemploTope` is the number shown (first line unit cap), or null → "tope".
  */
-export function previewTope({ todasTiendas, seleccionKeys, grupos = [], topeCompartido, ejemploTope }) {
+export function previewTope({ todasTiendas, seleccionKeys, grupos = [], tiendasActivas, topeCompartido, ejemploTope }) {
   const n = ejemploTope == null || ejemploTope === '' ? 'tope' : String(ejemploTope);
   const labels = [];
   if (todasTiendas) {
@@ -110,7 +119,7 @@ export function previewTope({ todasTiendas, seleccionKeys, grupos = [], topeComp
   }
   const filas = [];
   if (todasTiendas) {
-    filas.push({ label: `Cada tienda oficial (${idsDeTodas(grupos)})`, valor: `${n} cada una` });
+    filas.push({ label: `Cada tienda oficial (${idsDeTodas(grupos, tiendasActivas)})`, valor: `${n} cada una` });
     filas.push({ label: 'Ventas sin tienda oficial', valor: String(n) });
   } else {
     for (const key of seleccionKeys) {

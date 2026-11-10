@@ -38,7 +38,8 @@ export function useTiendasOficiales() {
 
   const activas = tiendas.filter((t) => t.activa).sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre));
 
-  // One array per store list: effects that depend on the groups do not re-run on every render.
+  // One array per store list: effects that depend on the groups do not re-run on every render. Kept on purpose:
+  // this project builds without the React Compiler (vite.config.js), so nothing else memoizes it.
   const grupos = useMemo(() => groupStores(tiendas), [tiendas]);
 
   const getLabelForIds = (csv) => labelForIds(tiendas, getLabel, csv);

@@ -141,12 +141,13 @@ export default function TacticalNuevo() {
   const [error, setError] = useState(null);
   const [enviando, setEnviando] = useState(false);
   const [descartar, setDescartar] = useState(false);
-  const { grupos: gruposTiendas, loaded: tiendasCargadas } = useTiendasOficiales();
+  const { grupos: gruposTiendas, activas: tiendasOficialesActivas, loaded: tiendasCargadas } = useTiendasOficiales();
   const ejemploTope = lineas.map((l) => numeroDe(l.topeUnidades)).find((n) => n != null && n > 0) ?? null;
   const contadores = contadoresDelTope({
     todasTiendas: form.todasTiendas !== false,
     seleccionKeys: form.tiendaKeys ?? [],
     grupos: gruposTiendas,
+    tiendasActivas: tiendasOficialesActivas.length,
     topeCompartido: Boolean(form.topeCompartido),
   });
 
@@ -290,6 +291,7 @@ export default function TacticalNuevo() {
             tiposNoDisponibles={Object.keys(TIPOS).filter((t) => !puede(t))}
             marcas={marcasDelSelect}
             gruposTiendas={gruposTiendas}
+            tiendasActivas={tiendasOficialesActivas.length}
             ejemploTope={ejemploTope}
           />
 

@@ -5,7 +5,7 @@
  * and a note.
  *
  * `form` holds the fields as typed; `onChange(cambios)` merges the changed ones; `onTipo(tipo)` switches the type.
- * `gruposTiendas` are clave-collapsed official stores; `ejemploTope` drives the live cap preview.
+ * `gruposTiendas` are clave-collapsed official stores (`tiendasActivas`: how many are active); `ejemploTope` drives the live cap preview.
  */
 import Seg from './Seg';
 import { ALCANCE_POR_TIENDA, CANALES_TACTICAL, esCanal, previewTope } from './tacticalTiendas';
@@ -29,6 +29,7 @@ export default function TacticalDatos({
   tiposNoDisponibles = [],
   marcas = [],
   gruposTiendas = [],
+  tiendasActivas,
   ejemploTope = null,
   alcancePorTienda = ALCANCE_POR_TIENDA,
 }) {
@@ -40,6 +41,7 @@ export default function TacticalDatos({
     todasTiendas,
     seleccionKeys: tiendaKeys,
     grupos: gruposTiendas,
+    tiendasActivas,
     topeCompartido,
     ejemploTope,
   });

@@ -72,6 +72,12 @@ describe('contadoresDelTope', () => {
     expect(contadoresDelTope({ ...base, todasTiendas: true, seleccionKeys: ['fuera'], topeCompartido: false })).toBe(5);
   });
 
+  it('with every store counts only the active ones, as the engines do', () => {
+    expect(contadoresDelTope({ ...base, tiendasActivas: 2, todasTiendas: true, seleccionKeys: ['fuera'], topeCompartido: false })).toBe(4);
+    const preview = previewTope({ grupos: GRUPOS, tiendasActivas: 2, todasTiendas: true, seleccionKeys: [], topeCompartido: false, ejemploTope: 10 });
+    expect(preview.filas[0]).toEqual({ label: 'Cada tienda oficial (2)', valor: '10 cada una' });
+  });
+
   it('is one with a shared cap, or while the store scope is off', () => {
     expect(contadoresDelTope({ ...base, todasTiendas: true, seleccionKeys: [], topeCompartido: true })).toBe(1);
     expect(contadoresDelTope({ ...base, alcancePorTienda: false, todasTiendas: true, seleccionKeys: [], topeCompartido: false })).toBe(1);
