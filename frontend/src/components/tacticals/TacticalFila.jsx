@@ -78,7 +78,7 @@ function Lineas({ tactical, onVerLinea }) {
                 <td>
                   <QueIncluye linea={linea} />
                 </td>
-                <td className={styles.num}>{valorDeLinea(linea)}</td>
+                <td className={styles.num}>{valorDeLinea(linea, tactical.tipo_cambio)}</td>
                 <td className={styles.num}>{vacio(linea.tope_unidades) ? GUION : formatUnidades(linea.tope_unidades)}</td>
                 <td className={styles.num}>{vacio(linea.unidades_usadas) ? GUION : formatUnidades(linea.unidades_usadas)}</td>
                 <td className={styles.num}>{vacio(linea.tope_monto) ? GUION : formatMontoTactical(linea.tope_monto, linea.moneda)}</td>

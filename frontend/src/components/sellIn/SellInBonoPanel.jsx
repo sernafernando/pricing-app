@@ -14,17 +14,57 @@ import {
   errorDeTope,
   faltanDatos,
   esBonoCosto,
+  esMontoTotal,
   origenDeBono,
   restanteDeTope,
   valoresDeBono,
 } from './sellInBonoValores';
 import { apiMessage, formatEntero, formatMonto } from './sellInFormat';
 import styles from './SellInPanel.module.css';
+import tabla from './SellInBonoAlcance.module.css';
 
 const MOTIVO_MAX = 500; // backend `SellInBonoAnularIn.motivo` (auditoria.comentario is VARCHAR(500))
 
 /** What the bonus generated in another currency than its own (a purchase left there before a currency edit). */
 const otrasMonedas = (bono) => (bono.montos_generados ?? []).filter((m) => m.moneda !== bono.moneda);
+
+/**
+ * How a total amount bonus is split (S4): its stored fixed shares (iguales / costo), or a line saying the total
+ * follows the units sold (unidades), which has no fixed shares.
+ */
+function RepartoDelTotal({ bono }) {
+  if (bono.reparto_criterio === 'unidades') {
+    return (
+      <p className={styles.hint}>
+        El total se reparte según las unidades vendidas en las fechas del bono: sigue las ventas y devoluciones, sin pasar el total.
+      </p>
+    );
+  }
+  const repartos = bono.repartos ?? [];
+  if (repartos.length === 0) return <p className={styles.hint}>Ningún producto del bono recibió parte del total.</p>;
+  return (
+    <div className={tabla.scroller}>
+      <table className={tabla.table} aria-label="Reparto del monto total">
+        <thead>
+          <tr>
+            <th>Código</th>
+            <th>Producto</th>
+            <th className={tabla.num}>Monto</th>
+          </tr>
+        </thead>
+        <tbody>
+          {repartos.map((r) => (
+            <tr key={r.item_id}>
+              <td>{r.codigo ?? `Item ${r.item_id}`}</td>
+              <td>{r.descripcion ?? '—'}</td>
+              <td className={tabla.num}>{formatMonto(r.monto, 'ARS')}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 /**
  * A bonus in the right side panel (Stitch `03`), no modals; it reaches a brand, a category, some
@@ -198,6 +238,12 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
           <p className={styles.error} role="alert">
             {alcanceError}
           </p>
+        )}
+        {bono && esMontoTotal(bono) && (
+          <section className={styles.section}>
+            <h3>Reparto del monto total</h3>
+            <RepartoDelTotal bono={bono} />
+          </section>
         )}
         {bono && costo && (
           <section className={styles.section}>

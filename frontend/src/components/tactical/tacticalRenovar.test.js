@@ -97,6 +97,26 @@ describe('renovacionDe', () => {
     ]);
   });
 
+  it('renews a sell in total amount with its criterion, and a USD one with the USD amount it was loaded with (S4)', () => {
+    const total = { ...TACTICAL_REBATE.lineas[0], modo_monto: 'monto_total', valor: '300000', reparto_criterio: 'iguales' };
+    const enPesos = renovacionDe({ ...TACTICAL_REBATE, lineas: [total] });
+    expect(enPesos.lineas[0]).toMatchObject({ alcance: 'marca', modo: 'monto_total', monto: '300000', reparto: 'iguales' });
+
+    const enDolares = renovacionDe({
+      ...TACTICAL_REBATE,
+      moneda: 'USD',
+      tc_modo: 'fijo',
+      tipo_cambio: '1000.5',
+      lineas: [{ ...total, valor: '1200610.01', valor_usd: '1200.01' }],
+    });
+    expect(enDolares.form).toMatchObject({ moneda: 'USD', tcModo: 'fijo', tipoCambio: '1000,5' });
+    expect(enDolares.lineas[0]).toMatchObject({ modo: 'monto_total', monto: '1200,01', reparto: 'iguales' });
+    const form = { ...enDolares.form, fechaDesde: '2027-02-01', fechaHasta: '2027-04-30' };
+    expect(cuerpoDe(form, enDolares.lineas).body.lineas).toEqual([
+      { alcance: 'marca', marca: 'HP', modo_monto: 'monto_total', valor: 1200.01, tope_unidades: null, tope_monto: null, reparto_criterio: 'iguales' },
+    ]);
+  });
+
   it('leaves an invoice line without its invoice: the old one already got its bonus', () => {
     const tactical = {
       ...TACTICAL_REBATE,

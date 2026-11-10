@@ -298,3 +298,34 @@ export const COMPRA_BONO = {
   origen: 'bono_marca',
   bono_id: 3,
 };
+
+// A cost bonus by total amount (tactical monto total S4), as `SellInBonoOut` answers it: ARS, its criterion and the
+// fixed shares of iguales / costo (none for unidades).
+export const BONO_MONTO_TOTAL = {
+  ...BONO,
+  id: 21,
+  alcance: 'modelos',
+  marca: null,
+  modelos: [
+    { item_id: 103, codigo: 'NB-250RG10', descripcion: 'Notebook HP 250RG10', monto_unit: null, porcentaje: null },
+    { item_id: 104, codigo: 'NB-255RG10', descripcion: 'Notebook HP 255r G10', monto_unit: null, porcentaje: null },
+  ],
+  tipo: 'monto_total',
+  monto_unit: null,
+  porcentaje: null,
+  monto_total: '1200000.00',
+  reparto_criterio: 'costo',
+  repartos: [
+    { item_id: 103, codigo: 'NB-250RG10', descripcion: 'Notebook HP 250RG10', monto: '480000.00' },
+    { item_id: 104, codigo: 'NB-255RG10', descripcion: 'Notebook HP 255r G10', monto: '720000.00' },
+  ],
+  moneda: 'ARS',
+  descripcion: 'Notebooks HP total noviembre',
+  compras_activas: 0,
+  unidades: 12,
+  monto_generado: '310000.00',
+  montos_generados: [{ moneda: 'ARS', monto: '310000.00' }],
+  base: 'costo_venta',
+  incluye_iva: false,
+  offset_origen_id: null,
+};
