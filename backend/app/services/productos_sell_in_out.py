@@ -59,13 +59,12 @@ from decimal import Decimal
 from typing import Dict, Hashable, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 from sqlalchemy import Numeric, and_, case, cast, func, literal, null, or_, select, true, union_all
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.models.ml_sale_line import MlSaleLine
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca
 from app.models.sell_out import SellOutCampana, SellOutCampanaItem, SellOutConsumo
-from app.models.tactical import Tactical
 from app.schemas.sell_in_out_producto import SellInOutProducto, SellInProducto, SellOutProducto
 from app.services.pricing_calculator import calcular_markup, convertir_a_pesos
 from app.services.sell_in import bonos_costo
@@ -77,7 +76,7 @@ from app.services.sell_out.tienda_scope import (
     TargetKey,
     alcanza,
     alcanza_alguno,
-    scope_desde_tactical,
+    scopes_de,
     target_key,
 )
 from app.services.sell_out.tope import cents
@@ -283,7 +282,7 @@ def resolver_sell_in_out_por_contexto(
         )
         # Scopes only when a key asked for a store context — keeps the global query count.
         if con_scope:
-            scopes = _scopes_campanas(db, list({c.id: c for c, _, _ in filas}.values()))
+            scopes = scopes_de(db, list({c.id: c for c, _, _ in filas}.values()))
             if any(s is not None and not s.tope_compartido for s in scopes.values()):
                 usado_por_target = _uso_sell_out_por_target(db, cids)
     bonos_por_clave = _bonos_costo_por_contexto(db, pares, contextos_por_clave)
@@ -416,7 +415,7 @@ def _bonos_costo_por_contexto(
             .group_by(t.bono_id)
         }
         bonos = {b.id: b for b in db.query(SellInBonoMarca).filter(SellInBonoMarca.id.in_(bids))}
-        scopes = _scopes_bonos(db, list(bonos.values()))
+        scopes = scopes_de(db, list(bonos.values()))
         need_por_target = any(scopes.get(bid) is not None and not scopes[bid].tope_compartido for bid in bids)
         usado_por_target = _uso_bono_por_target(db, bids) if need_por_target else {}
         for clave, contextos in contextos_por_clave.items():
@@ -444,30 +443,6 @@ def _bonos_costo_por_contexto(
                 )
         salida[clave] = por_item
     return salida
-
-
-def _scopes_campanas(db: Session, campanas: List[SellOutCampana]) -> Dict[int, Optional[Scope]]:
-    ids = {c.tactical_id for c in campanas if c.tactical_id is not None}
-    if not ids:
-        return {c.id: None for c in campanas}
-    tacticals = {
-        t.id: t for t in db.query(Tactical).options(selectinload(Tactical.tiendas)).filter(Tactical.id.in_(ids))
-    }
-    return {
-        c.id: (scope_desde_tactical(tacticals[c.tactical_id]) if c.tactical_id in tacticals else None) for c in campanas
-    }
-
-
-def _scopes_bonos(db: Session, bonos: List[SellInBonoMarca]) -> Dict[int, Optional[Scope]]:
-    ids = {b.tactical_id for b in bonos if b.tactical_id is not None}
-    if not ids:
-        return {b.id: None for b in bonos}
-    tacticals = {
-        t.id: t for t in db.query(Tactical).options(selectinload(Tactical.tiendas)).filter(Tactical.id.in_(ids))
-    }
-    return {
-        b.id: (scope_desde_tactical(tacticals[b.tactical_id]) if b.tactical_id in tacticals else None) for b in bonos
-    }
 
 
 def _cap_campana(
