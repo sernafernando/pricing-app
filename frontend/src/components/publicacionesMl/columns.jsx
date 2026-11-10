@@ -272,7 +272,7 @@ export function buildColumns({
           render: (item) => <TotalGaussCell metrics={item.metrics} />,
         },
       ]),
-      { key: 'last_sale', group: ROTACION, header: 'Última venta', width: 112, render: (item) => <LastSaleCell metrics={item.metrics} /> },
+      { key: 'last_sale', group: ROTACION, header: 'Última venta', width: 96, align: 'center', render: (item) => <LastSaleCell metrics={item.metrics} /> },
       { key: 'ageing', group: ROTACION, header: 'Ageing', width: 64, align: 'center', render: (item) => <AgeingCell metrics={item.metrics} /> },
     ]),
     // ML's own stock and Full stock, and the ERP's: three sources, never one sum.

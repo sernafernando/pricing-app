@@ -3204,6 +3204,7 @@ const FIGURE_COLUMNS = [
   'markup_trend',
   'facturado_30d',
   'total_gauss_30d',
+  'last_sale',
   'ageing',
   'stock_propio',
   'stock_full',
@@ -3247,6 +3248,10 @@ describe('Publicaciones ML columns sized by their content (visual)', () => {
       let screen = await renderMarginPage({ width: 1440, height: 1800, theme });
       await frame();
       await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/tabla-lista-1440-${theme}.png`, element: scrollerOf() });
+      // The figures past the first screen (Resultado, Rotación, Stock): the same table scrolled to its right end.
+      scrollerOf().scrollTo({ left: scrollerOf().scrollWidth });
+      await frame();
+      await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/tabla-lista-derecha-1440-${theme}.png`, element: scrollerOf() });
       screen.unmount();
       screen = await renderProducts({ width: 1440, height: 1800, theme });
       await frame();
@@ -3285,6 +3290,9 @@ describe('Publicaciones ML columns sized by their content (visual)', () => {
       // A centered stack centers its lines too (a markup range over its "(parcial)" note, an ERP stock).
       const stacks = [...scroller.querySelectorAll('tbody td[data-column="markup"] > div, tbody td[data-column="stock_erp"] > div')];
       for (const stack of stacks) expect(getComputedStyle(stack).alignItems).toBe('center');
+      // An ERP stock at zero reads in the danger tone (its note is the tooltip).
+      const erpZero = [...scroller.querySelectorAll('tbody td[data-column="stock_erp"] [title="Sin stock ERP"] span')][0];
+      expect(getComputedStyle(erpZero).color).toBe(tokenColor('--tone-danger-fg'));
       // Stock reads like Ventas: similar figures, no wider columns.
       const ventas = Math.max(widths.unidades_7d, widths.unidades_30d);
       for (const key of ['stock_full', 'stock_erp', 'stock_total', 'stock_propio'].filter((k) => widths[k] != null)) {
