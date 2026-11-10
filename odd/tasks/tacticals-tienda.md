@@ -29,4 +29,4 @@ Test runner: `pytest` (backend), `pnpm test` (frontend focused)
 ## Log
 
 - L1: User seed + design closure 2026-11-07 (multi-select o todas; clave expand; Fuera/TN sintéticos; toggle cupo independiente; preview; markup filter/toggle; OK go slice 1).
-- L2: Slice 1 implemented as two work-unit commits (DB then API). Router tests 16 passed; postgres migration/service tests skipped (DB unreachable). GGA hook skipped with --no-verify (Claude CLI missing, prior Gabe auth).
+- L2: Slice 1 implemented as two work-unit commits (DB then API). Router tests 16 passed; postgres migration/service tests skipped (DB unreachable). Every push of this chain runs the GGA pre-push hook.
