@@ -116,6 +116,9 @@ from app.schemas.orden_pago import (
 from app.schemas.oc_ingreso import (
     OCCandidataResponse,
     OrdenCompraDetalleResponse,
+    SyncOcRequest,
+    SyncOcResponse,
+    SyncOcTripleResult,
     VincularOCRequest,
 )
 from app.schemas.recepcion import DespacharRetiroResponse
@@ -145,6 +148,7 @@ from app.services import (
     imputaciones_service,
     ncs_locales_service,
     oc_ingresos_service,
+    oc_mirror_sync_service,
     ordenes_pago_service,
     pedidos_service,
     recepcion_service,
@@ -4654,6 +4658,46 @@ def orden_compra_detalle(
     Batch J.4.
     """
     return oc_ingresos_service.get_orden_compra_detalle(db, pedido_id=pedido_id)
+
+
+@router.post(
+    "/pedidos/{pedido_id}/ocs/sync",
+    response_model=SyncOcResponse,
+    summary="Sincronizar OC(s) vinculadas al espejo GBP",
+)
+def sync_ocs_pedido(
+    pedido_id: int,
+    body: SyncOcRequest | None = None,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> SyncOcResponse:
+    """Pull linked OC header/detail from gbp-parser into tb_purchase_order_*.
+
+    Body optional: omit to sync every linked OC; pass a triple to sync one.
+    Does not amend recepciones (append-only). Requires gestionar_ordenes_compra.
+    """
+    payload = body or SyncOcRequest()
+    try:
+        synced = oc_mirror_sync_service.sync_ocs_for_pedido(
+            db,
+            pedido_id=pedido_id,
+            oc_comp_id=payload.oc_comp_id,
+            oc_bra_id=payload.oc_bra_id,
+            oc_poh_id=payload.oc_poh_id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.exception("sync_ocs_pedido falló: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al sincronizar la OC.",
+        ) from exc
+
+    _commit_or_rollback(db, operacion="sync_ocs_pedido")
+    return SyncOcResponse(synced=[SyncOcTripleResult.model_validate(row) for row in synced])
 
 
 # ==========================================================================
