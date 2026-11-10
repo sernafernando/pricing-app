@@ -1516,4 +1516,10 @@
   font-family: ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  text-align: right;
+}
+
+.rankingMarkup .sellInOutExtra {
+  display: block;
+  white-space: nowrap;
 }

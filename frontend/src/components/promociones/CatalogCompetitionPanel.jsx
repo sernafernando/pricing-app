@@ -5,6 +5,7 @@ import { useLazyResource } from '../../hooks/useLazyResource';
 import { getMarkupColor } from '../../hooks/useProductosOffsets';
 import styles from './promociones.module.css';
 import { usePermisos } from '../../contexts/PermisosContext';
+import SellInOutMarkupExtra from './SellInOutMarkupExtra';
 
 function formatFechaConsulta(iso) {
   if (!iso) return null;
@@ -198,6 +199,7 @@ function CatalogCompetitionPanel({ mla, catalogCompetitionCacheRef, variant = 'u
                 <span className={styles.rankingPrice}>{formatPrice(competitor.price_ars ?? competitor.price)}</span>
                 <span className={styles.rankingMarkup} style={{ color: getMarkupColor(competitor.markup) }}>
                   {formatMarkup(competitor.markup)}
+                  <SellInOutMarkupExtra value={competitor.markup_sell_in_out} />
                 </span>
               </li>
             );
@@ -219,6 +221,7 @@ function CatalogCompetitionPanel({ mla, catalogCompetitionCacheRef, variant = 'u
               <span className={styles.promoPrice}>{formatPrice(competitor.price_ars ?? competitor.price)}</span>
               <span className={styles.promoMarkup} style={{ color: getMarkupColor(competitor.markup) }}>
                 Tu markup si igualás: {formatMarkup(competitor.markup)}
+                <SellInOutMarkupExtra value={competitor.markup_sell_in_out} />
               </span>
             </li>
           ))}

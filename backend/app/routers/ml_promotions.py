@@ -29,6 +29,9 @@ from app.services.ml_catalog_competition_service import (
     undercutting_competitors,
 )
 from app.services.ml_promotions_pricing import (
+    _markup_sell_in_out_seguro,
+    _resolve_pricing_context,
+    _sell_in_out_batch,
     enriquecer_markup_por_promo,
     markup_de_oferta_live,
     markup_para_precio_con_sell_in_out,
@@ -314,7 +317,8 @@ class CatalogCompetitorPrice(BaseModel):
     """One competitor undercutting our price, same bucket, ARS-normalized
     (design #1210 section 3.6). `markup` is the seller markup THAT price
     would give us — computed server-side (product decision #8), never
-    recomputed in the frontend."""
+    recomputed in the frontend. `markup_sell_in_out` is the same companion
+    figure as the promos panel (today's sell in / sell out on that price)."""
 
     seller_id: Optional[Any] = None
     item_id: Optional[str] = None
@@ -325,6 +329,7 @@ class CatalogCompetitorPrice(BaseModel):
     listing_type_id: Optional[str] = None
     listing_label: Optional[str] = None
     markup: Optional[float] = None
+    markup_sell_in_out: Optional[float] = None
     shipping_free: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -374,12 +379,50 @@ def _to_competitor_price(competitor: Dict[str, Any]) -> CatalogCompetitorPrice:
     return CatalogCompetitorPrice(**{key: competitor.get(key) for key in CatalogCompetitorPrice.model_fields})
 
 
-def _snapshot_to_response(mla: str, row: Optional[Any]) -> CatalogCompetitionSnapshot:
+def _enrich_competitors_markup_sell_in_out(
+    db: Session, mla: str, competitors: List[CatalogCompetitorPrice]
+) -> None:
+    """Overwrite each competitor's `markup_sell_in_out` with TODAY's sell in /
+    sell out companion (same basis as the promos panel next to this ranking).
+
+    Stored snapshot values can be stale vs the panel's live enrich; resolving
+    context + batch once per MLA keeps the GET cheap. Mutates in place.
+    Never raises: leaves prior values alone when context cannot resolve.
+    """
+    if not competitors:
+        return
+    context = _resolve_pricing_context(db, mla)
+    if context is None:
+        return
+    batch = _sell_in_out_batch(db, context, mla)
+    for competitor in competitors:
+        if competitor.markup is None:
+            competitor.markup_sell_in_out = None
+            continue
+        price = competitor.price_ars if competitor.price_ars is not None else competitor.price
+        if price is None:
+            competitor.markup_sell_in_out = None
+            continue
+        competitor.markup_sell_in_out = _markup_sell_in_out_seguro(
+            db, context, batch, float(price), mla
+        )
+
+
+def _snapshot_to_response(
+    mla: str, row: Optional[Any], db: Optional[Session] = None
+) -> CatalogCompetitionSnapshot:
     """Shared row -> response mapping for both the read and refresh
     endpoints, so they can never drift on how `never` / `undercutting`
-    are derived."""
+    are derived. When `db` is provided, competitor `markup_sell_in_out`
+    is refreshed to today's sell in / sell out (promos-panel basis)."""
     if row is None:
         return CatalogCompetitionSnapshot(mla=mla, fetch_status="never")
+    undercutting = [_to_competitor_price(c) for c in undercutting_competitors(row)]
+    same_bucket = [_to_competitor_price(c) for c in same_bucket_competitors(row)]
+    if db is not None:
+        # Deduplicate by object identity across the two lists: same dict can
+        # appear in both undercutting and same_bucket as separate models.
+        _enrich_competitors_markup_sell_in_out(db, mla, undercutting + same_bucket)
     return CatalogCompetitionSnapshot(
         mla=mla,
         fetch_status=row.fetch_status,
@@ -387,8 +430,8 @@ def _snapshot_to_response(mla: str, row: Optional[Any]) -> CatalogCompetitionSna
         our_price=float(row.our_price) if row.our_price is not None else None,
         our_currency_id=row.our_currency_id,
         competitor_count=row.competitor_count,
-        undercutting=[_to_competitor_price(c) for c in undercutting_competitors(row)],
-        same_bucket=[_to_competitor_price(c) for c in same_bucket_competitors(row)],
+        undercutting=undercutting,
+        same_bucket=same_bucket,
         error_detail=row.error_detail,
     )
 
@@ -896,7 +939,7 @@ def obtener_competencia_catalogo(
     Requiere permiso: promos.ver
     """
     row = obtener_ultimo_snapshot(db, mla_id)
-    return _snapshot_to_response(mla_id, row)
+    return _snapshot_to_response(mla_id, row, db=db)
 
 
 @router.post("/catalogo-competencia/{mla_id}/refresh", response_model=CatalogCompetitionSnapshot)
@@ -928,4 +971,4 @@ def refrescar_competencia_catalogo_item(
     """
     rows = resolve_maybe_async(refrescar_competencia_catalogo(db, [mla_id]))
     row = rows[0] if rows else None
-    return _snapshot_to_response(mla_id, row)
+    return _snapshot_to_response(mla_id, row, db=db)

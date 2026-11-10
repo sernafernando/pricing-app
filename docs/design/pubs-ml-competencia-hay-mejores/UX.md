@@ -18,9 +18,9 @@ Dense ranked table from stored snapshot field `same_bucket` (all same-bucket com
 - `#` — position
 - **Nombre** — competitor title / seller (truncated)
 - **Precio** — monospace
-- **Markup %** — monospace
+- **Markup %** — monospace, plus **c/ sell in/out** under it when the product has sell in / sell out today (same basis as promo rows in column 1)
 
-Also show tranche metadata (listing type + installments) and `fecha_consulta`. Highlight our own listing row. Toggle label becomes **Ocultar competencia**.
+Also show `fecha_consulta` and **Actualizar** (`promos.ver`). Highlight our own listing row. Toggle label becomes **Ocultar competencia**.
 
 ## Stitch
 

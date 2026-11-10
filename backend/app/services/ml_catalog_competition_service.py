@@ -40,9 +40,15 @@ from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
 from app.models.ml_catalog_competition import MLCatalogCompetition
-from app.services.ml_promotions_pricing import _markup_con_contexto, _resolve_pricing_context
+from app.services.ml_promotions_pricing import (
+    _markup_con_contexto,
+    _markup_sell_in_out_seguro,
+    _resolve_pricing_context,
+    _sell_in_out_batch,
+)
 from app.services.ml_webhook_client import ml_webhook_client
 from app.services.pricing_calculator import convertir_a_pesos, obtener_tipo_cambio_actual
+from app.services.productos_sell_in_out import SellInOutBatch
 
 logger = get_logger(__name__)
 
@@ -145,6 +151,7 @@ def _build_competitor(
     tc_usd: Optional[float],
     db: Session,
     mla: str,
+    sell_in_out_batch: Optional[SellInOutBatch] = None,
 ) -> Dict[str, Any]:
     price = entry.get("price")
     currency_id = entry.get("currency_id")
@@ -153,8 +160,16 @@ def _build_competitor(
     same_bucket = our_bucket_key is not None and bucket_key == our_bucket_key
 
     markup: Optional[float] = None
+    markup_sell_in_out: Optional[float] = None
     if context is not None and price_ars is not None:
         markup = _markup_con_contexto(db, context, price_ars, mla=mla)
+        # Same companion figure as the promos panel (`markup_sell_in_out`):
+        # only when plain markup exists, and only from the batch resolved
+        # once per MLA in `_build_ok_row` (never N sell-in/out reads).
+        if markup is not None:
+            markup_sell_in_out = _markup_sell_in_out_seguro(
+                db, context, sell_in_out_batch, price_ars, mla
+            )
 
     is_cheaper_than_us: Optional[bool] = None
     if same_bucket and price_ars is not None and our_price_ars is not None:
@@ -174,6 +189,7 @@ def _build_competitor(
         "bucket_key": bucket_key,
         "same_bucket": same_bucket,
         "markup": markup,
+        "markup_sell_in_out": markup_sell_in_out,
         "is_cheaper_than_us": is_cheaper_than_us,
         "shipping_free": bool(entry.get("shipping_free")) if "shipping_free" in entry else None,
     }
@@ -199,9 +215,22 @@ def _build_ok_row(db: Session, mla: str, payload: Dict[str, Any]) -> MLCatalogCo
     context = _resolve_pricing_context(db, mla)
     tc_usd = obtener_tipo_cambio_actual(db, "USD")
     our_price_ars = _to_ars(our_price, our_currency_id, tc_usd)
+    # One sell-in/out batch for every competitor markup companion (same
+    # discipline as resolving pricing context once per MLA).
+    sell_in_out_batch = _sell_in_out_batch(db, context, mla) if context is not None else None
 
     competitors = [
-        _build_competitor(entry, our_bucket_key, our_price_ars, context, tc_usd, db, mla) for entry in raw_competitors
+        _build_competitor(
+            entry,
+            our_bucket_key,
+            our_price_ars,
+            context,
+            tc_usd,
+            db,
+            mla,
+            sell_in_out_batch=sell_in_out_batch,
+        )
+        for entry in raw_competitors
     ]
 
     competitor_count = len(competitors)

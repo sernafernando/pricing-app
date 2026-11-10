@@ -20,6 +20,7 @@ Spec coverage (design #1210 section 3.3-3.6, spec #1209 C1.4-C1.7):
 from __future__ import annotations
 
 import asyncio
+from contextlib import ExitStack, contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.ml_catalog_competition_service import (
@@ -31,6 +32,44 @@ from app.services.ml_catalog_competition_service import (
     same_bucket_competitors,
     undercutting_competitors,
 )
+
+
+@contextmanager
+def _pricing_context_patches(context_return=None, tc_return=None, markup_return=12.5):
+    """Shared patches for refrescar_* unit tests — includes sell-in/out
+    companions so MagicMock sessions never hit the real resolver."""
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch(
+                "app.services.ml_catalog_competition_service._resolve_pricing_context",
+                return_value=context_return,
+            )
+        )
+        stack.enter_context(
+            patch(
+                "app.services.ml_catalog_competition_service.obtener_tipo_cambio_actual",
+                return_value=tc_return,
+            )
+        )
+        stack.enter_context(
+            patch(
+                "app.services.ml_catalog_competition_service._markup_con_contexto",
+                return_value=markup_return,
+            )
+        )
+        stack.enter_context(
+            patch(
+                "app.services.ml_catalog_competition_service._sell_in_out_batch",
+                return_value=None,
+            )
+        )
+        stack.enter_context(
+            patch(
+                "app.services.ml_catalog_competition_service._markup_sell_in_out_seguro",
+                return_value=None,
+            )
+        )
+        yield
 
 
 # ── _to_ars — the money-path guard ───────────────────────────────────
@@ -148,30 +187,13 @@ PAYLOAD_OK = {
 
 
 class TestRefrescarCompetenciaCatalogo:
-    def _patch_context(self, context_return, tc_return=None):
-        return (
-            patch(
-                "app.services.ml_catalog_competition_service._resolve_pricing_context",
-                return_value=context_return,
-            ),
-            patch(
-                "app.services.ml_catalog_competition_service.obtener_tipo_cambio_actual",
-                return_value=tc_return,
-            ),
-            patch(
-                "app.services.ml_catalog_competition_service._markup_con_contexto",
-                return_value=12.5,
-            ),
-        )
-
     def test_ok_payload_persists_row_with_our_row_and_cheaper_competitor(self) -> None:
         db = MagicMock()
         context = MagicMock()
         client = MagicMock()
         client.get_catalog_competition = AsyncMock(return_value={"status": "ok", "payload": PAYLOAD_OK})
 
-        p1, p2, p3 = self._patch_context(context, tc_return=None)
-        with p1, p2, p3:
+        with _pricing_context_patches(context, tc_return=None):
             with patch("app.services.ml_catalog_competition_service.ml_webhook_client", client):
                 rows = _run(refrescar_competencia_catalogo(db, ["MLA_US"]))
 
@@ -210,6 +232,8 @@ class TestRefrescarCompetenciaCatalogo:
             ) as mock_resolve,
             patch("app.services.ml_catalog_competition_service.obtener_tipo_cambio_actual", return_value=None),
             patch("app.services.ml_catalog_competition_service._markup_con_contexto", return_value=12.5),
+            patch("app.services.ml_catalog_competition_service._sell_in_out_batch", return_value=None),
+            patch("app.services.ml_catalog_competition_service._markup_sell_in_out_seguro", return_value=None),
             patch("app.services.ml_catalog_competition_service.ml_webhook_client", client),
         ):
             _run(refrescar_competencia_catalogo(db, ["MLA_US"]))
@@ -235,16 +259,9 @@ class TestRefrescarCompetenciaCatalogo:
         }
         client.get_catalog_competition = AsyncMock(return_value={"status": "ok", "payload": payload})
 
-        with (
-            patch(
-                "app.services.ml_catalog_competition_service._resolve_pricing_context",
-                return_value=context,
-            ),
-            patch("app.services.ml_catalog_competition_service.obtener_tipo_cambio_actual", return_value=None),
-            patch("app.services.ml_catalog_competition_service._markup_con_contexto", return_value=None),
-            patch("app.services.ml_catalog_competition_service.ml_webhook_client", client),
-        ):
-            rows = _run(refrescar_competencia_catalogo(db, ["MLA_NOT_IN_PAYLOAD"]))
+        with _pricing_context_patches(context, markup_return=None):
+            with patch("app.services.ml_catalog_competition_service.ml_webhook_client", client):
+                rows = _run(refrescar_competencia_catalogo(db, ["MLA_NOT_IN_PAYLOAD"]))
 
         row = rows[0]
         assert row.our_item_id is None
@@ -343,22 +360,6 @@ class TestDegradedBucketIsNeverComparable:
     12-cuotas Premium and invite a real price cut.
     """
 
-    def _patch_context(self, context_return):
-        return (
-            patch(
-                "app.services.ml_catalog_competition_service._resolve_pricing_context",
-                return_value=context_return,
-            ),
-            patch(
-                "app.services.ml_catalog_competition_service.obtener_tipo_cambio_actual",
-                return_value=None,
-            ),
-            patch(
-                "app.services.ml_catalog_competition_service._markup_con_contexto",
-                return_value=12.5,
-            ),
-        )
-
     def test_unknown_bucket_on_both_sides_is_not_same_bucket(self) -> None:
         db = MagicMock()
         client = MagicMock()
@@ -366,8 +367,7 @@ class TestDegradedBucketIsNeverComparable:
             return_value={"status": "ok", "payload": PAYLOAD_BOTH_UNKNOWN_BUCKET}
         )
 
-        p1, p2, p3 = self._patch_context(MagicMock())
-        with p1, p2, p3:
+        with _pricing_context_patches(MagicMock()):
             with patch("app.services.ml_catalog_competition_service.ml_webhook_client", client):
                 rows = _run(refrescar_competencia_catalogo(db, ["MLA_US"]))
 
@@ -383,22 +383,6 @@ class TestBatchDurability:
     commit loses the ENTIRE batch.
     """
 
-    def _patch_context(self):
-        return (
-            patch(
-                "app.services.ml_catalog_competition_service._resolve_pricing_context",
-                return_value=MagicMock(),
-            ),
-            patch(
-                "app.services.ml_catalog_competition_service.obtener_tipo_cambio_actual",
-                return_value=None,
-            ),
-            patch(
-                "app.services.ml_catalog_competition_service._markup_con_contexto",
-                return_value=12.5,
-            ),
-        )
-
     def test_client_exception_degrades_to_an_error_row_and_keeps_the_batch(self) -> None:
         db = MagicMock()
         client = MagicMock()
@@ -406,8 +390,7 @@ class TestBatchDurability:
             side_effect=[RuntimeError("boom"), {"status": "ok", "payload": PAYLOAD_OK}]
         )
 
-        p1, p2, p3 = self._patch_context()
-        with p1, p2, p3:
+        with _pricing_context_patches(MagicMock()):
             with patch("app.services.ml_catalog_competition_service.ml_webhook_client", client):
                 rows = _run(refrescar_competencia_catalogo(db, ["MLA_BOOM", "MLA_US"]))
 
@@ -423,8 +406,7 @@ class TestBatchDurability:
         client = MagicMock()
         client.get_catalog_competition = AsyncMock(return_value={"detail": "malformed, no status key"})
 
-        p1, p2, p3 = self._patch_context()
-        with p1, p2, p3:
+        with _pricing_context_patches(MagicMock()):
             with patch("app.services.ml_catalog_competition_service.ml_webhook_client", client):
                 rows = _run(refrescar_competencia_catalogo(db, ["MLA_WEIRD"]))
 
@@ -438,29 +420,12 @@ class TestPersistedColumnTypes:
     commits once after the loop, that failure discards the whole batch.
     """
 
-    def _patch_context(self):
-        return (
-            patch(
-                "app.services.ml_catalog_competition_service._resolve_pricing_context",
-                return_value=MagicMock(),
-            ),
-            patch(
-                "app.services.ml_catalog_competition_service.obtener_tipo_cambio_actual",
-                return_value=None,
-            ),
-            patch(
-                "app.services.ml_catalog_competition_service._markup_con_contexto",
-                return_value=12.5,
-            ),
-        )
-
     def test_our_seller_id_is_coerced_to_str(self) -> None:
         db = MagicMock()
         client = MagicMock()
         client.get_catalog_competition = AsyncMock(return_value={"status": "ok", "payload": PAYLOAD_OK})
 
-        p1, p2, p3 = self._patch_context()
-        with p1, p2, p3:
+        with _pricing_context_patches(MagicMock()):
             with patch("app.services.ml_catalog_competition_service.ml_webhook_client", client):
                 rows = _run(refrescar_competencia_catalogo(db, ["MLA_US"]))
 
@@ -472,8 +437,7 @@ class TestPersistedColumnTypes:
         client = MagicMock()
         client.get_catalog_competition = AsyncMock(return_value={"status": "error", "detail": "x" * 900})
 
-        p1, p2, p3 = self._patch_context()
-        with p1, p2, p3:
+        with _pricing_context_patches(MagicMock()):
             with patch("app.services.ml_catalog_competition_service.ml_webhook_client", client):
                 rows = _run(refrescar_competencia_catalogo(db, ["MLA_LONG"]))
 
@@ -501,8 +465,7 @@ class TestPersistedColumnTypes:
         client = MagicMock()
         client.get_catalog_competition = AsyncMock(return_value={"status": "ok", "payload": hostile})
 
-        p1, p2, p3 = self._patch_context()
-        with p1, p2, p3:
+        with _pricing_context_patches(MagicMock()):
             with patch("app.services.ml_catalog_competition_service.ml_webhook_client", client):
                 rows = _run(refrescar_competencia_catalogo(db, ["MLA_US"]))
 

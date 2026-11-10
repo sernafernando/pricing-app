@@ -226,6 +226,24 @@ class TestRefreshEndpoint:
         assert response.status_code == 403
         writer.assert_not_awaited()
 
+    def test_refresh_requires_promos_ver_not_escribir(self, client: TestClient, db) -> None:
+        """Owner decision: catalog refresh is a snapshot pull gated on
+        promos.ver (same as GET), not promos.escribir."""
+
+        class _SoloEscribir:
+            def tiene_permiso(self, usuario, codigo: str) -> bool:
+                return codigo == "promos.escribir"
+
+        writer = AsyncMock()
+        with (
+            patch("app.routers.ml_promotions.PermisosService", return_value=_SoloEscribir()),
+            patch("app.routers.ml_promotions.refrescar_competencia_catalogo", writer),
+        ):
+            response = client.post("/api/promociones/catalogo-competencia/MLA444/refresh")
+
+        assert response.status_code == 403
+        writer.assert_not_awaited()
+
     def test_unauthenticated_returns_401(self, client: TestClient) -> None:
         app.dependency_overrides[get_current_user] = _unauthenticated
         response = client.post("/api/promociones/catalogo-competencia/MLA444/refresh")
