@@ -30,6 +30,8 @@ from app.routers.seriales_shared import (
     _GBP_TIMEOUT,
     QUERY_FACTURA_ITEMS_BY_SOHID,
 )
+from app.models.ml_orders_ops import MlOrdersOps
+from app.services.rma_venta_ml import VentaML, buscar_venta_ml
 
 logger = logging.getLogger(__name__)
 
@@ -804,6 +806,73 @@ def _build_items_from_ml_order_detail(
     return list(items.values())
 
 
+def _pedidos_erp_de_venta_ml(db: Session, venta: VentaML) -> list[dict]:
+    """The ERP orders of our stored sale's ML orders, when the typed id reached no ERP order by itself."""
+    rows: list[dict] = []
+    for orden in venta.ordenes:
+        rows.extend(dict(r._mapping) for r in db.execute(QUERY_PEDIDOS_BY_MLID, {"ml_id": str(orden.order_id)}))
+    return rows
+
+
+def _pedido_de_orden_ml(orden: MlOrdersOps) -> PedidoSerial:
+    """A stored ML order as a trace order: no ERP order (soh_id 0), the ML buyer, date, status and shipment."""
+    return PedidoSerial(
+        soh_id=0,
+        fecha=str(orden.date_created) if orden.date_created else None,
+        estado=orden.status,
+        cliente=orden.buyer_nickname,
+        ml_id=str(orden.order_id),
+        shipping_id=orden.shipping_id,
+    )
+
+
+def _completar_pedidos_con_venta_ml(pedidos: list[PedidoSerial], venta: VentaML) -> list[PedidoSerial]:
+    """Fill what an ERP order lacks (buyer, date, status, shipment) from its stored ML order, and add the stored
+    orders no ERP order stands for (e.g. the other orders of a pack)."""
+    por_ml_id = {str(o.order_id): _pedido_de_orden_ml(o) for o in venta.ordenes}
+    completos: list[PedidoSerial] = []
+    for pedido in pedidos:
+        guardado = por_ml_id.get(pedido.ml_id or "")
+        if guardado is not None:
+            faltantes = {
+                campo: getattr(guardado, campo)
+                for campo in ("fecha", "estado", "cliente", "shipping_id")
+                if getattr(pedido, campo) in (None, "")
+            }
+            pedido = pedido.model_copy(update=faltantes)
+        completos.append(pedido)
+    presentes = {p.ml_id for p in completos}
+    completos.extend(p for ml_id, p in por_ml_id.items() if ml_id not in presentes)
+    return completos
+
+
+def _agregar_productos_de_venta_ml(seriales: list[TrazaMLSerialItem], venta: VentaML) -> list[TrazaMLSerialItem]:
+    """Every product of our stored sale, once. A product the ERP side already listed keeps its ERP item (serial,
+    invoice movement) and, when it has no serial, takes the quantity sold; the others are added from the stored sale.
+    A line linked to no product cannot be told apart from an ERP item, so it is added only when the ERP gave none."""
+    erp_sin_serial = {s.articulo.item_id: s for s in seriales if s.articulo and not s.serial}
+    erp_ids = {s.articulo.item_id for s in seriales if s.articulo}
+    resultado = list(seriales)
+    for producto in venta.productos:
+        if producto.item_id and producto.item_id in erp_ids:
+            item = erp_sin_serial.get(producto.item_id)
+            if item is not None and item.cantidad is None:
+                resultado[resultado.index(item)] = item.model_copy(update={"cantidad": producto.cantidad})
+            continue
+        if not producto.item_id and seriales:
+            continue
+        resultado.append(
+            TrazaMLSerialItem(
+                serial="",
+                articulo=ArticuloInfo(
+                    item_id=producto.item_id, codigo=producto.codigo, descripcion=producto.descripcion
+                ),
+                cantidad=producto.cantidad,
+            )
+        )
+    return resultado
+
+
 # =============================================================================
 # ENDPOINT
 # =============================================================================
@@ -821,7 +890,13 @@ def traza_ml(
     Si no, busca por mlshippingid (nro de envío).
     Luego trae los seriales vinculados a cada pedido, y para cada serial
     trae movimientos y RMAs. También busca RMAs vía factura.
+
+    The sale and its products come from our stored ML sale (`rma_venta_ml`, what Ventas ML shows) whenever we stored
+    it; the ERP side (order, invoice, serials, RMAs) enriches it and is still what the RMA processes use. The remote
+    gbp-parser lookup only runs for an id our pipeline never stored.
     """
+    venta = buscar_venta_ml(db, ml_id)
+
     # 1. Determinar tipo de búsqueda y buscar pedidos
     # Si empieza con 2000 → nro de venta ML (soh_mlid)
     # Si no y es numérico → soh_mlguia → shipping table → soh_mlid (fallbacks)
@@ -893,7 +968,12 @@ def traza_ml(
             if archivados:
                 busqueda_por = f"{busqueda_por}_sohh"
 
-    if not pedidos_rows:
+    if not pedidos_rows and venta is not None:
+        pedidos_rows = _pedidos_erp_de_venta_ml(db, venta)
+        if pedidos_rows:
+            busqueda_por = "ventas_ml"
+
+    if not pedidos_rows and venta is None:
         pedidos_rows = _fetch_pedidos_rows_from_gbp_fallback(db, ml_id)
         if pedidos_rows:
             busqueda_por = f"{busqueda_por}_fallback_gbp"
@@ -908,7 +988,10 @@ def traza_ml(
         if pedidos_rows:
             busqueda_por = f"{busqueda_por}_fallback_sohh"
 
-    if not pedidos_rows:
+    if not pedidos_rows and venta is not None:
+        busqueda_por = "ventas_ml"
+
+    if not pedidos_rows and venta is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No se encontró la venta ML ni envío: {ml_id}",
@@ -930,6 +1013,9 @@ def traza_ml(
         )
         for row in pedidos_rows
     ]
+    if venta is not None:
+        pedidos = _completar_pedidos_con_venta_ml(pedidos, venta)
+        detected_pack_ids.update(str(o.pack_id) for o in venta.ordenes if o.pack_id)
 
     detected_ml_ids.update({p.ml_id for p in pedidos if p.ml_id})
     detected_shipping_ids.update({str(p.shipping_id) for p in pedidos if p.shipping_id is not None})
@@ -993,6 +1079,9 @@ def traza_ml(
     # 2c. No serials nor invoice (no ERP order, or one not invoiced yet): the products of the ML order detail
     if not seriales_list:
         seriales_list.extend(_build_items_from_ml_order_detail(db, pedidos_rows))
+    # 2d. Every product of our stored ML sale, once (the ERP items above keep their serials and invoice)
+    if venta is not None:
+        seriales_list = _agregar_productos_de_venta_ml(seriales_list, venta)
 
     # 3. Buscar RMAs vía factura (para productos no seriados o RMAs sin serial)
     # Cadena: soh_id → commercial_transactions → item_transactions → rma_detail
