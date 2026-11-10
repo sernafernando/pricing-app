@@ -130,6 +130,38 @@ class TestSellOut:
         ]
         assert _contar(engine, "auditoria", "tipo_accion = 'TACTICAL_EDITADO'") == 0
 
+    def test_a_per_store_cap_may_go_down_to_what_its_most_used_store_used(self, db, engine) -> None:
+        tactical = service.crear(db, _tactical(), USUARIO)
+        with engine.begin() as conn:
+            conn.execute(text(f"UPDATE tacticals SET tope_compartido = false WHERE id = {tactical.id}"))
+            conn.execute(text(
+                "INSERT INTO sell_out_consumos (campana_id, canal, venta_ref, item_id, fecha_venta, unidades, monto) "
+                "SELECT id, 'fuera', 1, 2964, DATE '2026-11-03', 5, 50 FROM sell_out_campanas UNION ALL "
+                "SELECT id, 'tn', 2, 2964, DATE '2026-11-04', 3, 30 FROM sell_out_campanas"
+            ))  # fmt: skip
+
+        _editar(db, tactical.id, lineas=[{"linea": 1, "tope_unidades": 6, "tope_monto": "50"}])
+
+        assert _filas(engine, "SELECT tope_unidades, tope_monto FROM sell_out_campanas") == [(6, Decimal("50.00"))]
+
+    def test_a_per_store_cap_below_what_its_most_used_store_used_is_refused(self, db, engine) -> None:
+        tactical = service.crear(db, _tactical(), USUARIO)
+        with engine.begin() as conn:
+            conn.execute(text(f"UPDATE tacticals SET tope_compartido = false WHERE id = {tactical.id}"))
+            conn.execute(text(
+                "INSERT INTO sell_out_consumos (campana_id, canal, venta_ref, item_id, fecha_venta, unidades, monto) "
+                "SELECT id, 'fuera', 1, 2964, DATE '2026-11-03', 5, 50 FROM sell_out_campanas UNION ALL "
+                "SELECT id, 'tn', 2, 2964, DATE '2026-11-04', 3, 30 FROM sell_out_campanas"
+            ))  # fmt: skip
+
+        with pytest.raises(service.TacticalError) as exc:
+            _editar(db, tactical.id, lineas=[{"linea": 1, "tope_unidades": 4}])
+
+        assert str(exc.value) == (
+            "Línea 1: el tope de unidades (4) no puede quedar debajo de lo ya usado en una tienda o canal (5)"
+        )
+        assert _filas(engine, "SELECT tope_unidades FROM sell_out_campanas") == [(None,)]
+
     def test_a_money_cap_below_what_was_used_is_refused(self, db, engine) -> None:
         tactical = service.crear(db, _tactical(), USUARIO)
         with engine.begin() as conn:

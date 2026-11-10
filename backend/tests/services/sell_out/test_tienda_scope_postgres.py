@@ -95,6 +95,26 @@ def _tactical_solo_gauss(engine: Engine) -> int:
     return tid
 
 
+def _tactical_por_tienda(engine: Engine) -> int:
+    """A tactical over the GaussOnline and TP-Link stores with one cap per store."""
+    with engine.begin() as conn:
+        tid = conn.execute(
+            text(
+                "INSERT INTO tacticals (tipo, nombre, marca, fecha_desde, fecha_hasta, moneda, usuario_id, "
+                "todas_tiendas, tope_compartido) VALUES ('sell_out', 'Por tienda', 'TP-LINK', '2026-11-01', "
+                "'2026-11-30', 'ARS', 7, false, false) RETURNING id"
+            )
+        ).scalar_one()
+        conn.execute(
+            text(
+                "INSERT INTO tactical_tiendas (tactical_id, tipo, store_id) "
+                "VALUES (:t, 'oficial', :g), (:t, 'oficial', :p)"
+            ),
+            {"t": tid, "g": GAUSS, "p": TPLINK},
+        )
+    return tid
+
+
 def _venta_ml(engine: Engine, item_id: int, cantidad: int, dia: date, store_id: Optional[int]) -> int:
     ref = w.venta(engine, "ml", item_id, cantidad, dia)
     if store_id is not None:
@@ -189,3 +209,48 @@ class TestNarrowedTacticalReads:
             r = resumen.resumenes(db, [db.get(SellOutCampana, campana)])
 
         assert r[campana]["pendientes_base"] == 1
+
+
+class TestPerStoreCapLeft:
+    """With one cap per store, what is left adds up what every store can still credit, never below zero."""
+
+    def _resumen(self, engine: Engine, campana: int) -> dict:
+        with sessionmaker(bind=engine, autoflush=False)() as db:
+            return resumen.resumenes(db, [db.get(SellOutCampana, campana)])[campana]
+
+    def test_left_adds_each_store_left_and_a_full_store_adds_zero(self, engine: Engine) -> None:
+        campana = w.campana(
+            engine,
+            [w.grupo(engine, [TP_ROUTERS])],
+            tactical_id=_tactical_por_tienda(engine),
+            tactical_linea=1,
+            tope_unidades=3,
+            tope_monto="30.00",
+        )
+        _venta_ml(engine, 2964, 4, D(2026, 11, 2), store_id=GAUSS)
+        _venta_ml(engine, 2964, 1, D(2026, 11, 3), store_id=TPLINK)
+        _recalcular(engine, campana)
+
+        r = self._resumen(engine, campana)
+
+        assert r["unidades"] == 4  # Gauss credited its whole cap (3), TP-Link 1
+        assert (r["tope_unidades_restantes"], r["tope_monto_restante"], r["tope_por_tienda"]) == (
+            2,
+            Decimal("20.00"),
+            True,
+        )
+
+    def test_a_shared_cap_keeps_the_cap_minus_what_was_credited(self, engine: Engine) -> None:
+        campana = w.campana(
+            engine,
+            [w.grupo(engine, [TP_ROUTERS])],
+            tactical_id=_tactical_existente(engine),
+            tactical_linea=1,
+            tope_unidades=3,
+        )
+        _venta_ml(engine, 2964, 2, D(2026, 11, 2), store_id=GAUSS)
+        _recalcular(engine, campana)
+
+        r = self._resumen(engine, campana)
+
+        assert (r["tope_unidades_restantes"], r["tope_monto_restante"], r["tope_por_tienda"]) == (1, None, False)

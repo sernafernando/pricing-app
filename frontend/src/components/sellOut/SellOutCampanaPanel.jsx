@@ -17,15 +17,18 @@ import tableStyles from '../sellIn/SellInTable.module.css';
 const DIA = { day: '2-digit', month: '2-digit', year: 'numeric' };
 const MOTIVO_MAX = 500; // backend `SellOutAnularIn.motivo` (auditoria.comentario is VARCHAR(500))
 
+// A per-store cap: each store or channel has the whole cap, and what is left adds up what every one can still credit.
 function topes(campana) {
   const { resumen } = campana;
+  const porTienda = resumen?.tope_por_tienda ? ' por tienda' : '';
+  const entre = resumen?.tope_por_tienda ? ' entre todas las tiendas' : '';
   const partes = [];
   if (campana.tope_unidades != null) {
-    partes.push(`${formatEntero(campana.tope_unidades)} u (quedan ${formatEntero(resumen?.tope_unidades_restantes)})`);
+    partes.push(`${formatEntero(campana.tope_unidades)} u${porTienda} (quedan ${formatEntero(resumen?.tope_unidades_restantes)}${entre})`);
   }
   if (campana.tope_monto != null) {
     partes.push(
-      `${formatMonto(campana.tope_monto, campana.moneda)} (quedan ${formatMonto(resumen?.tope_monto_restante, campana.moneda)})`,
+      `${formatMonto(campana.tope_monto, campana.moneda)}${porTienda} (quedan ${formatMonto(resumen?.tope_monto_restante, campana.moneda)}${entre})`,
     );
   }
   return partes.length ? partes.join(' · ') : 'Sin tope';

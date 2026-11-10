@@ -10,10 +10,13 @@ each target gets its own run of `tope.asignar` with the same cap numbers.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, FrozenSet, Iterable, Optional, Protocol, Tuple
+from decimal import Decimal
+from typing import Dict, FrozenSet, Iterable, Optional, Protocol, Set, Tuple, TypeVar
 
 from sqlalchemy.orm import Session, selectinload
 
+from app.models.ml_sale_line import MlSaleLine
+from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.tactical import Tactical
 
 # tactical_tiendas.tipo for synthetic channels ↔ sell_out canal
@@ -88,3 +91,58 @@ def target_key(canal: str, store_id: Optional[int]) -> Optional[TargetKey]:
 
 def orden_targets(keys: Iterable[TargetKey]) -> list[TargetKey]:
     return sorted(keys, key=lambda k: (k[0], k[1] is None, k[1] or 0))
+
+
+def por_tienda(scope: Optional[Scope]) -> bool:
+    """Whether each store or channel has its own cap counter (a tactical with `tope_compartido` false)."""
+    return scope is not None and not scope.tope_compartido
+
+
+def tiendas_activas(db: Session) -> Set[int]:
+    """The active official stores: with every store, each one is a counter before it sells (`contadores`)."""
+    return {int(s) for (s,) in db.query(MlTiendaOficial.store_id).filter(MlTiendaOficial.activa.is_(True))}
+
+
+def contadores(scope: Scope, activas: Set[int]) -> Set[TargetKey]:
+    """The cap counters a per-store scope has before any sale: each listed store (with every store, each active one
+    plus the ML sales without one) and each listed channel. A counter that already credited a sale counts too."""
+    keys: Set[TargetKey] = {(tipo, None) for tipo in scope.canales}
+    if scope.todas_tiendas:
+        keys |= {("oficial", s) for s in activas} | {("sin_tienda", None)}
+    else:
+        keys |= {("oficial", s) for s in scope.oficiales}
+    return keys
+
+
+def targets_de_ventas(db: Session, ventas: Iterable[Tuple[str, int]]) -> Dict[Tuple[str, int], Optional[TargetKey]]:
+    """The counter of each credited sale `(canal, venta_ref)`, keyed as the engines key it: an ML sale by its
+    publication's current official store (`alcance.stores_por_mla`, the store the engines read)."""
+    from app.services.sell_out import alcance  # alcance reaches the sell in engines, which import this module
+
+    ventas = set(ventas)
+    refs = sorted({ref for canal, ref in ventas if canal == "ml"})
+    mlas = (
+        {
+            int(r): m
+            for r, m in db.query(MlSaleLine.item_row_id, MlSaleLine.mla).filter(MlSaleLine.item_row_id.in_(refs))
+        }
+        if refs
+        else {}
+    )
+    stores = alcance.stores_por_mla(db, {m for m in mlas.values() if m})
+    return {
+        (canal, ref): target_key(canal, stores.get(mlas.get(ref)) if canal == "ml" else None) for canal, ref in ventas
+    }
+
+
+N = TypeVar("N", int, Decimal)
+
+
+def maximo_usado(usados: Dict[TargetKey, N], cero: N) -> N:
+    """What the most-used counter took: a per-store cap never goes below it."""
+    return max(usados.values(), default=cero)
+
+
+def restante(tope: N, usados: Dict[TargetKey, N], keys: Set[TargetKey], cero: N) -> N:
+    """How much more a per-store cap can still credit: over every counter, what its cap has left, never below zero."""
+    return sum((max(tope - usados.get(k, cero), cero) for k in keys | set(usados)), cero)

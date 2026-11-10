@@ -62,7 +62,7 @@ from app.schemas.tacticals import (
 )
 from app.services.sell_in import bonos_crud, compras
 from app.services.sell_in.compras import contiene
-from app.services.sell_out import campanas
+from app.services.sell_out import campanas, tienda_scope
 
 GRUPO_NOMBRE_MAX = 100  # offset_grupos.nombre is VARCHAR(100)
 CAMPANA_NOMBRE_MAX = 200
@@ -655,11 +655,13 @@ def _validar_edicion(
             )
         _validar_facturas(db, hijos, fecha_hasta)
     lineas = {h["linea"] for h in hijos}
+    editadas = {t.linea for t in data.lineas}
+    maximos = _maximos_por_tienda(db, tactical, [h for h in hijos if h["linea"] in editadas])
     for tope in data.lineas:
         if tope.linea not in lineas:
             raise TacticalError(f"El tactical no tiene línea {tope.linea}")
         for hijo in (h for h in hijos if h["linea"] == tope.linea and h["estado"] == "activa"):
-            _validar_tope(tope, hijo, tactical.moneda)
+            _validar_tope(tope, hijo, tactical.moneda, maximos.get((hijo["origen"], hijo["id"])))
     return nombre, fecha_hasta
 
 
@@ -678,8 +680,52 @@ def _validar_facturas(db: Session, hijos: list[dict], fecha_hasta: date) -> None
             )
 
 
-def _validar_tope(tope: TacticalLineaTopesIn, hijo: dict, moneda: str) -> None:
-    """The create's cap rules (a cost bonus is ARS), plus never below what the child already used."""
+# The credited rows per sale of each child kind whose cap a per-store scope splits: (owner, canal, venta_ref, units, amount)
+_FILAS_POR_TIENDA = {
+    "sell_out_campana": (
+        SellOutConsumo.campana_id,
+        SellOutConsumo.canal,
+        SellOutConsumo.venta_ref,
+        SellOutConsumo.unidades,
+        SellOutConsumo.monto,
+    ),
+}
+
+
+def _maximos_por_tienda(
+    db: Session, tactical: Tactical, hijos: list[dict]
+) -> dict[tuple[str, int], tuple[int, Decimal]]:
+    """With per-store caps, what the most-used store or channel of each active child took `(units, amount)`: each
+    counter has the whole cap, so a cap never goes below that one, not below the child's total. Empty when shared."""
+    if tactical.tope_compartido:
+        return {}
+    salida: dict[tuple[str, int], tuple[int, Decimal]] = {}
+    for origen, (owner, canal, ref, unidades, monto) in _FILAS_POR_TIENDA.items():
+        ids = sorted({h["id"] for h in hijos if h["origen"] == origen and h["estado"] == "activa"})
+        if not ids:
+            continue
+        filas = list(db.query(owner, canal, ref, unidades, monto).filter(owner.in_(ids)))
+        targets = tienda_scope.targets_de_ventas(db, {(c, r) for _, c, r, _, _ in filas})
+        por_unidades: dict[int, dict] = {i: defaultdict(int) for i in ids}
+        por_monto: dict[int, dict] = {i: defaultdict(Decimal) for i in ids}
+        for hid, c, r, u, m in filas:
+            key = targets.get((c, r))
+            if key is not None:
+                por_unidades[hid][key] += int(u)
+                por_monto[hid][key] += Decimal(m)
+        for i in ids:
+            salida[(origen, i)] = (
+                tienda_scope.maximo_usado(dict(por_unidades[i]), 0),
+                _cents(tienda_scope.maximo_usado(dict(por_monto[i]), Decimal(0))),
+            )
+    return salida
+
+
+def _validar_tope(
+    tope: TacticalLineaTopesIn, hijo: dict, moneda: str, maximo: Optional[tuple[int, Decimal]] = None
+) -> None:
+    """The create's cap rules (a cost bonus is ARS), plus never below what the child already used: with per-store
+    caps (`maximo`), below what its most-used store or channel used."""
     if tope.tope_monto is not None and tope.tope_monto <= 0:
         raise TacticalError(f"Línea {hijo['linea']}: el tope de monto debe ser mayor que cero")
     es_costo = hijo["origen"] == "sell_in_bono" and hijo["alcance"] != "factura"
@@ -687,15 +733,17 @@ def _validar_tope(tope: TacticalLineaTopesIn, hijo: dict, moneda: str) -> None:
         raise TacticalError(f"Línea {hijo['linea']}: {COSTO_EN_PESOS}")
     if hijo["modo_monto"] == "monto_total" and (tope.tope_unidades is not None or tope.tope_monto is not None):
         raise TacticalError(f"Línea {hijo['linea']}: un monto total no lleva topes: el monto total es el tope")
-    if tope.tope_unidades is not None and tope.tope_unidades < hijo["unidades_usadas"]:
+    unidades, monto = maximo if maximo is not None else (hijo["unidades_usadas"], _cents(hijo["monto_usado"]))
+    donde = " en una tienda o canal" if maximo is not None else ""
+    if tope.tope_unidades is not None and tope.tope_unidades < unidades:
         raise TacticalError(
             f"Línea {hijo['linea']}: el tope de unidades ({tope.tope_unidades}) no puede quedar debajo de lo ya "
-            f"usado ({hijo['unidades_usadas']})"
+            f"usado{donde} ({unidades})"
         )
-    if tope.tope_monto is not None and _cents(tope.tope_monto) < _cents(hijo["monto_usado"]):
+    if tope.tope_monto is not None and _cents(tope.tope_monto) < monto:
         raise TacticalError(
             f"Línea {hijo['linea']}: el tope de monto ({_cents(tope.tope_monto)}) no puede quedar debajo de lo ya "
-            f"usado ({_cents(hijo['monto_usado'])})"
+            f"usado{donde} ({monto})"
         )
 
 

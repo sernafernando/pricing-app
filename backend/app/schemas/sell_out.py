@@ -348,6 +348,9 @@ class SellOutResumenOut(BaseModel):
     ars_estimado: bool  # `al_cobro` without its rate: the ARS amount is an estimate at the latest BNA
     tope_unidades_restantes: Optional[int]  # None without a unit cap
     tope_monto_restante: Optional[Decimal]  # None without a money cap
+    tope_por_tienda: bool = (
+        False  # per-store caps: the left amounts add up what every store and channel can still credit
+    )
     por_canal: list[SellOutCanalOut]
     pendientes_base: int  # percentage sales skipped while their base is unknown
     recalculo: SellOutRecalculoOut
