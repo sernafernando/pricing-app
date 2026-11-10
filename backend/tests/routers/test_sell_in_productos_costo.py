@@ -26,7 +26,11 @@ def lector(rol_admin, admin_auth_headers, grant_permiso) -> dict:
 
 @pytest.fixture()
 def producto(db, admin_user) -> int:
-    db.add(ProductoERP(item_id=4512, codigo="SW-8", descripcion="Switch", costo=100.0, moneda_costo=TipoMoneda.ARS))
+    db.add(
+        ProductoERP(
+            item_id=4512, codigo="SW-8", descripcion="Switch", marca="TP-LINK", costo=100.0, moneda_costo=TipoMoneda.ARS
+        )
+    )
     compra = SellInCompra(
         fecha_compra=HOY - timedelta(days=5),
         moneda="ARS",
@@ -61,7 +65,7 @@ def test_it_needs_sell_in_ver_too(client, rol_admin, admin_auth_headers, grant_p
     assert client.get(URL, headers=admin_auth_headers).status_code == 403
 
 
-def test_each_product_comes_with_its_mode_units_sell_in_and_last_purchase(client, lector, producto) -> None:
+def test_each_product_comes_with_its_brand_mode_units_sell_in_and_last_purchase(client, lector, producto) -> None:
     resp = client.get(URL, headers=lector)
 
     assert resp.status_code == 200, resp.text
@@ -70,6 +74,7 @@ def test_each_product_comes_with_its_mode_units_sell_in_and_last_purchase(client
         "item_id": 4512,
         "codigo": "SW-8",
         "descripcion": "Switch",
+        "marca": "TP-LINK",
         "modo": "ultimo",
         "unidades": 3,
         "ultima_compra": (HOY - timedelta(days=5)).isoformat(),

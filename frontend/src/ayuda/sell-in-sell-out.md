@@ -85,6 +85,16 @@ Los lotes son solo lectura. Debajo está la sección **Modo de costo**.
 
 La pestaña **Productos** lista cada producto que todavía tiene unidades en lotes de sell in, con su **Modo de costo** (**FIFO (por defecto)** si nunca se cambió), las **Unidades** que le quedan en los lotes, el **Sell in por unidad** que se lleva la próxima venta (el mismo valor que muestra el visor de lotes; "—" si ningún lote cuenta todavía) y la fecha de su **Últ. compra**. Abajo está el total de unidades.
 
+Arriba de la lista hay una barra:
+
+- **Buscar**: filtra por código o descripción (sin importar mayúsculas ni tildes).
+- **Marca**: muestra solo los productos de esa marca. Ofrece las marcas que aparecen en la lista.
+- **Modo de costo**: muestra solo los productos con ese modo. **FIFO (por defecto)** son los que nunca cambiaron de modo; **FIFO** son los que alguien pasó a FIFO a propósito.
+- **Limpiar filtros**: vuelve a mostrar todos los productos.
+- **Modo por defecto: …** muestra con qué modo abre el selector de modo de costo (ver más abajo). Un administrador ve al lado **Cambiar**, que abre el mismo modal **Modo por defecto** que está en el panel de cada producto.
+
+El total de unidades de abajo suma solo los productos que se ven. Si ningún producto cumple los filtros, la lista lo dice.
+
 Tocá el nombre de un producto para abrir su **Costo de sell in**: sus lotes y la sección **Modo de costo**, donde se cambia el modo. Al confirmar un cambio, la lista se actualiza sola.
 
 ### Modo de costo de un producto
@@ -103,7 +113,7 @@ Para cambiarlo:
 
 Permisos: **Ponderado (PPP)** necesita `sell_in.costo_ponderado`, **Último precio** `sell_in.costo_ultimo` y **Manual** `sell_in.costo_manual`; volver a **FIFO** se puede con cualquiera de los permisos de modo. Una fecha pasada necesita además `sell_in.costo_retroactivo` y recalcula las ventas registradas desde ese día. Sin ningún permiso de modo se ve el modo actual y el historial, sin poder cambiarlo.
 
-**Modo por defecto**: **Cambiar a** abre ya elegido el modo por defecto. Si nadie lo cambió, es **FIFO**. Un administrador lo cambia con el botón **Modo por defecto** de la sección: elige **FIFO**, **Ponderado (PPP)** o **Último precio** en **Abrir en** (**Manual** no, porque necesita la cantidad y el costo de cada producto) y toca **Guardar**. El cambio vale para todos los productos. Solo elige con qué modo abre el selector: no recalcula nada, y los productos sin modo propio siguen en FIFO. Si el usuario no tiene permiso para el modo por defecto, el selector abre en **FIFO**.
+**Modo por defecto**: **Cambiar a** abre ya elegido el modo por defecto. Si nadie lo cambió, es **FIFO**. Un administrador lo cambia con **Cambiar**, al lado de **Modo por defecto** en la barra de la pestaña **Productos**, o con el botón **Modo por defecto** de esta sección: elige **FIFO**, **Ponderado (PPP)** o **Último precio** en **Abrir en** (**Manual** no, porque necesita la cantidad y el costo de cada producto) y toca **Guardar**. El cambio vale para todos los productos. Solo elige con qué modo abre el selector: no recalcula nada, y los productos sin modo propio siguen en FIFO. Si el usuario no tiene permiso para el modo por defecto, el selector abre en **FIFO**.
 
 ### Campañas de sell out: tipos
 
@@ -175,7 +185,7 @@ Un **tactical** es un programa de una marca: sell in baja el costo, sell out sum
 
 ## Filtros y columnas
 
-Tacticals: tipo, marca, moneda, estado, vigencia y búsqueda. Grupos: nombre, filtros, productos alcanzados y campañas que lo usan. Productos: producto, modo de costo, unidades, sell in por unidad y última compra.
+Tacticals: tipo, marca, moneda, estado, vigencia y búsqueda. Grupos: nombre, filtros, productos alcanzados y campañas que lo usan. Productos: búsqueda por código o descripción, marca y modo de costo; columnas producto, modo de costo, unidades, sell in por unidad y última compra.
 
 ## Botones y acciones
 
@@ -186,6 +196,7 @@ Tacticals: tipo, marca, moneda, estado, vigencia y búsqueda. Grupos: nombre, fi
 - **Renovar** (acciones de una fila de Tacticals): abre **Nuevo tactical** cargado con ese tactical, con fechas nuevas por elegir, sus tiendas y su modo de tope.
 - **Anular** (acciones de una fila de Tacticals): anula el tactical con todas sus líneas, después de confirmar.
 - **Ver ventas** (en cada línea de un tactical): abre al costado lo que cargó esa línea, solo para mirar.
+- **Cambiar** (pestaña Productos, al lado de **Modo por defecto**; solo administradores): cambia con qué modo abre el selector de modo de costo.
 - **Actualizar**: recarga datos.
 
 ## Preguntas frecuentes

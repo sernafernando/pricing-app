@@ -91,6 +91,7 @@ class ProductoCostoOut(BaseModel):
     item_id: int
     codigo: Optional[str]
     descripcion: Optional[str]
+    marca: Optional[str]
     modo: Optional[str]  # the mode governing today; None: FIFO, the default
     unidades: int
     sell_in_unit: Optional[Decimal]  # ARS the next sale takes per unit; None: no line counts today
