@@ -142,25 +142,8 @@ def _validar_cabecera(db: Session, data: TacticalIn) -> tuple[str, str, Optional
     return nombre, marca, tc_modo
 
 
-# The tipos whose engine honours a store scope (tacticals-tienda T3 sell out, T4 sell in). Any other tipo takes only
-# today's reach, the migration's backfill: merged alone, the API never saves a scope nothing applies.
-TIPOS_CON_ALCANCE: frozenset[str] = frozenset({"sell_out", "sell_in"})
-_CANALES_DE_HOY = {("fuera", None), ("tienda_nube", None)}
-
-
-def _es_alcance_de_hoy(data: TacticalIn) -> bool:
-    filas = {(t.tipo, t.store_id) for t in data.tiendas}
-    return data.todas_tiendas and data.tope_compartido and filas == _CANALES_DE_HOY and len(data.tiendas) == 2
-
-
 def _validar_tiendas(db: Session, data: TacticalIn) -> None:
-    """Store / channel scope: todas XOR oficial rows; channels optional; store_ids must exist; only today's reach for
-    a tipo whose engine does not honour a scope yet (`TIPOS_CON_ALCANCE`)."""
-    if data.tipo not in TIPOS_CON_ALCANCE and not _es_alcance_de_hoy(data):
-        raise TacticalError(
-            f"El alcance por tienda todavía no se aplica a los tacticals de {data.tipo.replace('_', ' ')}: dejá todas "
-            "las tiendas, Por fuera y Tienda Nube con el tope compartido"
-        )
+    """Store / channel scope: todas XOR oficial rows; channels optional; store_ids must exist."""
     oficiales = [t for t in data.tiendas if t.tipo == "oficial"]
     canales = [t for t in data.tiendas if t.tipo != "oficial"]
     if data.todas_tiendas and oficiales:

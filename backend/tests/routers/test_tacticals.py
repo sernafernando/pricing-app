@@ -6,7 +6,6 @@ from __future__ import annotations
 import pytest
 
 from app.models.producto import ProductoERP
-from app.services import tacticals as service
 
 BASE = "/api/tacticals"
 
@@ -109,12 +108,6 @@ def test_create_without_a_scope_keeps_todays_reach(client, productos, sell_out) 
     assert creado["tiendas"] == [{"tipo": "fuera", "store_id": None}, {"tipo": "tienda_nube", "store_id": None}]
 
 
-@pytest.fixture()
-def alcance_activo(monkeypatch) -> None:
-    """Both engines honour a store scope (tacticals-tienda T3/T4), as they do once the chain is in."""
-    monkeypatch.setattr(service, "TIPOS_CON_ALCANCE", frozenset({"sell_out", "sell_in"}))
-
-
 def test_a_sell_in_scope_is_accepted_now_its_engine_honours_it(
     client, productos, sell_out, grant_permiso, rol_admin
 ) -> None:
@@ -138,12 +131,12 @@ def test_todays_reach_sent_explicitly_is_accepted(client, productos, sell_out) -
     assert client.post(BASE, json=body, headers=sell_out).status_code == 201
 
 
-def test_create_with_a_partial_scope_keeps_per_target_caps(client, productos, sell_out, alcance_activo) -> None:
+def test_create_with_a_partial_scope_keeps_per_target_caps(client, productos, sell_out) -> None:
     creado = client.post(BASE, json=_body(todas_tiendas=True), headers=sell_out).json()
     assert (creado["todas_tiendas"], creado["tope_compartido"], creado["tiendas"]) == (True, False, [])
 
 
-def test_create_with_official_stores_and_channels(client, productos, sell_out, db, alcance_activo) -> None:
+def test_create_with_official_stores_and_channels(client, productos, sell_out, db) -> None:
     from app.models.ml_tienda_oficial import MlTiendaOficial
 
     db.add(MlTiendaOficial(store_id=57997, nombre="GaussOnline", clave="gauss", orden=1, activa=True))
@@ -174,7 +167,7 @@ def test_create_with_official_stores_and_channels(client, productos, sell_out, d
     assert client.get(f"{BASE}/{creado['id']}", headers=sell_out).json()["tiendas"] == creado["tiendas"]
 
 
-def test_store_scope_rules(client, productos, sell_out, db, alcance_activo) -> None:
+def test_store_scope_rules(client, productos, sell_out, db) -> None:
     from app.models.ml_tienda_oficial import MlTiendaOficial
 
     db.add(MlTiendaOficial(store_id=57997, nombre="GaussOnline", clave="gauss", orden=1, activa=True))
