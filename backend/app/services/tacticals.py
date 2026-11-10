@@ -700,23 +700,15 @@ def _maximos_por_tienda(
     if tactical.tope_compartido:
         return {}
     salida: dict[tuple[str, int], tuple[int, Decimal]] = {}
-    for origen, (owner, canal, ref, unidades, monto) in _FILAS_POR_TIENDA.items():
+    for origen, filas in _FILAS_POR_TIENDA.items():
         ids = sorted({h["id"] for h in hijos if h["origen"] == origen and h["estado"] == "activa"})
         if not ids:
             continue
-        filas = list(db.query(owner, canal, ref, unidades, monto).filter(owner.in_(ids)))
-        targets = tienda_scope.targets_de_ventas(db, {(c, r) for _, c, r, _, _ in filas})
-        por_unidades: dict[int, dict] = {i: defaultdict(int) for i in ids}
-        por_monto: dict[int, dict] = {i: defaultdict(Decimal) for i in ids}
-        for hid, c, r, u, m in filas:
-            key = targets.get((c, r))
-            if key is not None:
-                por_unidades[hid][key] += int(u)
-                por_monto[hid][key] += Decimal(m)
+        usados = tienda_scope.usado_por_contador(db, filas, ids)
         for i in ids:
             salida[(origen, i)] = (
-                tienda_scope.maximo_usado(dict(por_unidades[i]), 0),
-                _cents(tienda_scope.maximo_usado(dict(por_monto[i]), Decimal(0))),
+                tienda_scope.maximo_usado(usados[i][0], 0),
+                _cents(tienda_scope.maximo_usado(usados[i][1], Decimal(0))),
             )
     return salida
 

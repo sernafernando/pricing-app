@@ -12,13 +12,14 @@ from decimal import Decimal
 from typing import Iterator, Optional
 
 import pytest
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.tactical import TacticalTienda
 from app.models.sell_out import SellOutCampana
-from app.services.sell_out import criterio, resumen
+from app.models.sell_out import SellOutConsumo
+from app.services.sell_out import criterio, resumen, tienda_scope
 from app.services.sell_out.asignacion import recalcular
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_out import _world as w
@@ -254,3 +255,67 @@ class TestPerStoreCapLeft:
         r = self._resumen(engine, campana)
 
         assert (r["tope_unidades_restantes"], r["tope_monto_restante"], r["tope_por_tienda"]) == (1, None, False)
+
+
+class TestStoreLookup:
+    """The official-store lookup runs only when a scope reads the sale's store."""
+
+    def _lecturas_de_publicados(self, engine: Engine, campana: int) -> int:
+        vistas: list[str] = []
+
+        def _ver(conn, cursor, statement, *args) -> None:
+            if "tb_mercadolibre_items_publicados" in statement:
+                vistas.append(statement)
+
+        event.listen(engine, "before_cursor_execute", _ver)
+        try:
+            _recalcular(engine, campana)
+        finally:
+            event.remove(engine, "before_cursor_execute", _ver)
+        return len(vistas)
+
+    def test_todays_reach_skips_it(self, engine: Engine) -> None:
+        campana = w.campana(
+            engine, [w.grupo(engine, [TP_ROUTERS])], tactical_id=_tactical_existente(engine), tactical_linea=1
+        )
+        ml = _venta_ml(engine, 2964, 2, D(2026, 11, 2), store_id=GAUSS)
+
+        assert self._lecturas_de_publicados(engine, campana) == 0
+        assert _filas(engine, campana) == [("ml", ml, 2, Decimal("20.00"))]
+
+    def test_a_narrowed_scope_reads_it(self, engine: Engine) -> None:
+        campana = w.campana(
+            engine, [w.grupo(engine, [TP_ROUTERS])], tactical_id=_tactical_solo_gauss(engine), tactical_linea=1
+        )
+        gauss = _venta_ml(engine, 2964, 2, D(2026, 11, 2), store_id=GAUSS)
+        _venta_ml(engine, 2964, 1, D(2026, 11, 3), store_id=TPLINK)
+
+        assert self._lecturas_de_publicados(engine, campana) == 1
+        assert _filas(engine, campana) == [("ml", gauss, 2, Decimal("20.00"))]
+
+
+class TestUsedPerCounter:
+    def test_adds_up_each_counter_in_sql_an_ml_sale_under_its_publication_store(self, engine: Engine) -> None:
+        campana = w.campana(
+            engine,
+            [w.grupo(engine, [TP_ROUTERS])],
+            tactical_id=_tactical_por_tienda(engine),
+            tactical_linea=1,
+        )
+        _venta_ml(engine, 2964, 2, D(2026, 11, 2), store_id=GAUSS)
+        _venta_ml(engine, 2964, 1, D(2026, 11, 3), store_id=GAUSS)
+        _venta_ml(engine, 2964, 4, D(2026, 11, 4), store_id=TPLINK)
+        _recalcular(engine, campana)
+        t = SellOutConsumo
+
+        with sessionmaker(bind=engine, autoflush=False)() as db:
+            usados = tienda_scope.usado_por_contador(
+                db, (t.campana_id, t.canal, t.venta_ref, t.unidades, t.monto), [campana]
+            )
+
+        assert usados == {
+            campana: (
+                {("oficial", GAUSS): 3, ("oficial", TPLINK): 4},
+                {("oficial", GAUSS): Decimal("30.00"), ("oficial", TPLINK): Decimal("40.00")},
+            )
+        }

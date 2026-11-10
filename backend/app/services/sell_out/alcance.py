@@ -77,14 +77,25 @@ def stores_por_mla(db: Session, mlas: Set[str]) -> Dict[str, Optional[int]]:
     an empty map would silently drop the credits of every store-scoped tactical."""
     if not mlas:
         return {}
+    tienda = ultima_tienda(list(mlas))
+    rows = db.query(tienda.c.mla, tienda.c.store_id)
+    return {str(mla): (int(store) if store is not None else None) for mla, store in rows}
+
+
+def ultima_tienda(mlas: Any) -> Any:
+    """`(mla, store_id)` of each MLA among `mlas` (a list, or a select of them): its latest publicado row's store
+    (`stores_por_mla`). A subquery, so a read can group by the store in SQL (`tienda_scope.usado_por_contador`)."""
     latest = (
         select(func.max(Pub.mlp_id).label("mlp_id"))
-        .where(Pub.mlp_publicationID.isnot(None), Pub.mlp_publicationID.in_(list(mlas)))
+        .where(Pub.mlp_publicationID.isnot(None), Pub.mlp_publicationID.in_(mlas))
         .group_by(Pub.mlp_publicationID)
         .subquery()
     )
-    rows = db.query(Pub.mlp_publicationID, Pub.mlp_official_store_id).join(latest, Pub.mlp_id == latest.c.mlp_id)
-    return {str(mla): (int(store) if store is not None else None) for mla, store in rows}
+    return (
+        select(Pub.mlp_publicationID.label("mla"), Pub.mlp_official_store_id.label("store_id"))
+        .join(latest, Pub.mlp_id == latest.c.mlp_id)
+        .subquery()
+    )
 
 
 def _positivo(x: Decimal) -> bool:
@@ -259,9 +270,10 @@ def en_campana(campana: SellOutCampana, venta: Venta) -> bool:
     return campana.fecha_desde <= venta.fecha <= campana.fecha_hasta
 
 
-def ventas(db: Session, item_ids: Set[int], desde: date, hasta: date) -> List[Venta]:
+def ventas(db: Session, item_ids: Set[int], desde: date, hasta: date, con_tiendas: bool = True) -> List[Venta]:
     """The sales and returns of `item_ids` dated `desde`..`hasta`, every channel: one query per
-    channel plus one per channel with returns (their original sales)."""
+    channel plus one per channel with returns (their original sales). `con_tiendas` False skips the official-store
+    lookup (`store_id` stays None) when no scope reads it (`tienda_scope.necesita_tiendas`)."""
     if not item_ids:
         return []
     combos = partes_de_combos(db, item_ids)
@@ -277,7 +289,7 @@ def ventas(db: Session, item_ids: Set[int], desde: date, hasta: date) -> List[Ve
             MlSaleLine.mla,
         ).filter(MlSaleLine.product.in_(ids), MlSaleLine.day.between(desde, hasta), MlSaleLine.qty > 0)
     )
-    stores = stores_por_mla(db, {mla for *_, mla in ml_rows})
+    stores = stores_por_mla(db, {mla for *_, mla in ml_rows}) if con_tiendas else {}
     salida = [
         Venta(
             "ml",

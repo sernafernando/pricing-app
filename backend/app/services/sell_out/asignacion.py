@@ -475,16 +475,11 @@ def filas_de(db: Session, campana: SellOutCampana) -> List[tope.Consumo]:
     items = set(productos.get(campana.id, {}))
     if not items:
         return []
-    ventas = alcance.ventas(db, items, campana.fecha_desde, campana.fecha_hasta)
-    salida, _ = _asignar(
-        [campana],
-        productos,
-        ventas,
-        _Tasas({}, None),
-        {},
-        repartos_item(db, [campana]),
-        tienda_scope.scopes_de(db, [campana]),
+    scopes = tienda_scope.scopes_de(db, [campana])
+    ventas = alcance.ventas(
+        db, items, campana.fecha_desde, campana.fecha_hasta, tienda_scope.necesita_tiendas(scopes.values())
     )
+    salida, _ = _asignar([campana], productos, ventas, _Tasas({}, None), {}, repartos_item(db, [campana]), scopes)
     return salida.get(campana.id, [])
 
 
@@ -503,19 +498,15 @@ def recalcular(db: Session, campana_ids: Iterable[int]) -> RecomputeResult:
     cierre = [i for i in vinculadas if i in con_lock]
     activas = [campanas[i] for i in cierre if i in campanas and campanas[i].estado == "activa"]
     items = {item for c in activas for item in productos.get(c.id, {})}
+    scopes = tienda_scope.scopes_de(db, activas)
     ventas = []
     if activas and items:
         desde = min(c.fecha_desde for c in activas)
-        ventas = alcance.ventas(db, items, desde, max(c.fecha_hasta for c in activas))
+        hasta = max(c.fecha_hasta for c in activas)
+        ventas = alcance.ventas(db, items, desde, hasta, tienda_scope.necesita_tiendas(scopes.values()))
     tasas = _tasas(db, activas, ventas)
     deseados, pendientes = _asignar(
-        activas,
-        productos,
-        ventas,
-        tasas,
-        montos_item(db, activas),
-        repartos_item(db, activas),
-        tienda_scope.scopes_de(db, activas),
+        activas, productos, ventas, tasas, montos_item(db, activas), repartos_item(db, activas), scopes
     )
 
     guardados: Dict[Tuple[int, str, int, int], Tuple[int, tuple]] = {}

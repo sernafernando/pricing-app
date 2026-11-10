@@ -115,8 +115,10 @@ def _pendientes_base(db: Session, campanas: List[SellOutCampana]) -> Dict[int, i
     if not items:
         return {}
     desde = min(c.fecha_desde for c in porcentaje)
-    ventas = alcance.ventas(db, items, desde, max(c.fecha_hasta for c in porcentaje))
     scopes = tienda_scope.scopes_de(db, porcentaje)
+    ventas = alcance.ventas(
+        db, items, desde, max(c.fecha_hasta for c in porcentaje), tienda_scope.necesita_tiendas(scopes.values())
+    )
     salida: Dict[int, int] = {}
     for c in porcentaje:
         alcanzados = productos.get(c.id, {})
@@ -358,20 +360,9 @@ def _usado_por_tienda(db: Session, campanas: List[SellOutCampana]) -> Dict[int, 
     if not scopes:
         return {}
     t = SellOutConsumo
-    filas = list(
-        db.query(t.campana_id, t.canal, t.venta_ref, t.unidades, t.monto).filter(t.campana_id.in_(sorted(scopes)))
-    )
-    targets = tienda_scope.targets_de_ventas(db, {(canal, ref) for _, canal, ref, _, _ in filas})
+    usados = tienda_scope.usado_por_contador(db, (t.campana_id, t.canal, t.venta_ref, t.unidades, t.monto), scopes)
     activas = tienda_scope.tiendas_activas(db) if any(s.todas_tiendas for s in scopes.values()) else set()
-    salida = {
-        cid: _PorTienda(tienda_scope.contadores(s, activas), defaultdict(int), defaultdict(Decimal))
-        for cid, s in scopes.items()
-    }
-    for cid, canal, ref, unidades, monto in filas:
-        key = targets.get((canal, ref))
-        if key is not None:
-            salida[cid].unidades[key] += int(unidades)
-            salida[cid].monto[key] += Decimal(monto)
+    salida = {cid: _PorTienda(tienda_scope.contadores(s, activas), *usados[cid]) for cid, s in scopes.items()}
     return salida
 
 
@@ -390,7 +381,7 @@ def _restantes(c: SellOutCampana, unidades: int, monto: Decimal, por_tienda: Opt
         else tienda_scope.restante(c.tope_unidades, dict(por_tienda.unidades), por_tienda.contadores, 0),
         "tope_monto_restante": None
         if c.tope_monto is None
-        else tienda_scope.restante(Decimal(c.tope_monto), dict(por_tienda.monto), por_tienda.contadores, Decimal(0)),
+        else tienda_scope.restante(Decimal(c.tope_monto), por_tienda.monto, por_tienda.contadores, Decimal(0)),
         "tope_por_tienda": True,
     }
 

@@ -11,8 +11,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Dict, FrozenSet, Iterable, Optional, Protocol, Set, Tuple, TypeVar
+from typing import Any, Dict, FrozenSet, Iterable, Optional, Protocol, Set, Tuple, TypeVar
 
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.ml_sale_line import MlSaleLine
@@ -52,6 +53,12 @@ def scopes_de(db: Session, hijos: Iterable[_DeTactical]) -> Dict[int, Optional[S
     return {
         h.id: (scope_desde_tactical(tacticals[h.tactical_id]) if h.tactical_id in tacticals else None) for h in hijos
     }
+
+
+def necesita_tiendas(scopes: Iterable[Optional[Scope]]) -> bool:
+    """Whether any scope reads a sale's official store: one narrowed to some stores, or with a cap per store. With
+    every store and a shared cap (or no tactical) an ML sale is in whatever its store, so its lookup is skipped."""
+    return any(s is not None and (not s.todas_tiendas or not s.tope_compartido) for s in scopes)
 
 
 def scope_desde_tactical(tactical: Tactical) -> Scope:
@@ -114,25 +121,36 @@ def contadores(scope: Scope, activas: Set[int]) -> Set[TargetKey]:
     return keys
 
 
-def targets_de_ventas(db: Session, ventas: Iterable[Tuple[str, int]]) -> Dict[Tuple[str, int], Optional[TargetKey]]:
-    """The counter of each credited sale `(canal, venta_ref)`, keyed as the engines key it: an ML sale by its
-    publication's current official store (`alcance.stores_por_mla`, the store the engines read)."""
+def usado_por_contador(
+    db: Session, filas: Tuple[Any, Any, Any, Any, Any], ids: Iterable[int]
+) -> Dict[int, Tuple[Dict[TargetKey, int], Dict[TargetKey, Decimal]]]:
+    """What each owner among `ids` credited per counter, `({key: units}, {key: amount})`, added up in SQL. `filas` are
+    the credited rows' columns `(owner, canal, venta_ref, unidades, monto)`. An ML sale counts under its
+    publication's current official store (`alcance.ultima_tienda`, the store the engines read)."""
     from app.services.sell_out import alcance  # alcance reaches the sell in engines, which import this module
 
-    ventas = set(ventas)
-    refs = sorted({ref for canal, ref in ventas if canal == "ml"})
-    mlas = (
-        {
-            int(r): m
-            for r, m in db.query(MlSaleLine.item_row_id, MlSaleLine.mla).filter(MlSaleLine.item_row_id.in_(refs))
-        }
-        if refs
-        else {}
+    owner, canal, ref, unidades, monto = filas
+    ids = sorted(set(ids))
+    salida: Dict[int, Tuple[Dict[TargetKey, int], Dict[TargetKey, Decimal]]] = {i: ({}, {}) for i in ids}
+    if not ids:
+        return salida
+    venta_ml = and_(canal == "ml", MlSaleLine.item_row_id == ref)
+    refs_ml = select(ref).where(owner.in_(ids), canal == "ml")
+    tienda = alcance.ultima_tienda(select(MlSaleLine.mla).where(MlSaleLine.item_row_id.in_(refs_ml)))
+    rows = (
+        db.query(owner, canal, tienda.c.store_id, func.sum(unidades), func.sum(monto))
+        .outerjoin(MlSaleLine, venta_ml)
+        .outerjoin(tienda, tienda.c.mla == MlSaleLine.mla)
+        .filter(owner.in_(ids))
+        .group_by(owner, canal, tienda.c.store_id)
     )
-    stores = alcance.stores_por_mla(db, {m for m in mlas.values() if m})
-    return {
-        (canal, ref): target_key(canal, stores.get(mlas.get(ref)) if canal == "ml" else None) for canal, ref in ventas
-    }
+    for oid, c, store, u, m in rows:
+        key = target_key(c, store if c == "ml" else None)
+        if key is not None:
+            por_unidades, por_monto = salida[oid]
+            por_unidades[key] = por_unidades.get(key, 0) + int(u or 0)
+            por_monto[key] = por_monto.get(key, Decimal(0)) + Decimal(m or 0)
+    return salida
 
 
 N = TypeVar("N", int, Decimal)
