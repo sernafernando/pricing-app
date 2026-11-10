@@ -115,7 +115,7 @@ def alcance_activo(monkeypatch) -> None:
     monkeypatch.setattr(service, "TIPOS_CON_ALCANCE", frozenset({"sell_out", "sell_in"}))
 
 
-@pytest.mark.parametrize("tipo", ["sell_out", "sell_in"])
+@pytest.mark.parametrize("tipo", ["sell_in"])
 def test_a_scope_no_engine_applies_yet_is_refused(client, productos, sell_out, grant_permiso, rol_admin, tipo) -> None:
     grant_permiso(rol_admin, "sell_in.ver")
     grant_permiso(rol_admin, "sell_in.gestionar")
@@ -127,6 +127,12 @@ def test_a_scope_no_engine_applies_yet_is_refused(client, productos, sell_out, g
         f"{tipo.replace('_', ' ')}: dejá todas las tiendas, Por fuera y Tienda Nube con el tope compartido"
     )
     assert client.get(BASE, params={"tipo": tipo}, headers=sell_out).json()["total"] == 0
+
+
+def test_a_sell_out_scope_is_accepted_now_its_engine_honours_it(client, productos, sell_out) -> None:
+    creado = client.post(BASE, json=_body(todas_tiendas=True), headers=sell_out).json()
+
+    assert (creado["todas_tiendas"], creado["tope_compartido"], creado["tiendas"]) == (True, False, [])
 
 
 def test_todays_reach_sent_explicitly_is_accepted(client, productos, sell_out) -> None:

@@ -21,7 +21,7 @@ Test runner: `pytest` (backend), `pnpm test` (frontend focused)
 - T1 S1,S3,S6 — Schema + API contract (`todas_tiendas`, `tope_compartido`, `tactical_tiendas`) — route: inline — status: done — commits: `5a8806daa` (DB), `01d270cdd` (API); chain as two PRs ≤400
 - T2 S1,S2,S3,S4 — Create/list UI selector + toggle + preview — route: inline — status: done — commit: `e3d9e3912`
 
-- T3 S7 — Sell-out engine + tests — route: inline — status: pending
+- T3 S7 — Sell-out engine + tests — route: inline — status: done — commit: `63856d5ef` (PR #2159)
 - T4 S7 — Sell-in engine + tests — route: inline — status: pending
 - T5 S8 — Markup API store/canal-aware — route: inline — status: pending
 - T6 S8 — Markup UI Productos + Publicaciones — route: inline — status: pending

@@ -144,7 +144,7 @@ def _validar_cabecera(db: Session, data: TacticalIn) -> tuple[str, str, Optional
 
 # The tipos whose engine honours a store scope (tacticals-tienda T3 sell out, T4 sell in). Any other tipo takes only
 # today's reach, the migration's backfill: merged alone, the API never saves a scope nothing applies.
-TIPOS_CON_ALCANCE: frozenset[str] = frozenset()
+TIPOS_CON_ALCANCE: frozenset[str] = frozenset({"sell_out"})
 _CANALES_DE_HOY = {("fuera", None), ("tienda_nube", None)}
 
 
