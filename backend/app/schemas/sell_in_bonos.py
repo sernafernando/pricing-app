@@ -193,6 +193,9 @@ class SellInBonoOut(BaseModel):
     tope_monto: Optional[Decimal]
     tope_unidades_restantes: Optional[int]
     tope_monto_restante: Optional[Decimal]
+    tope_por_tienda: bool = (
+        False  # per-store caps: the left amounts add up what every store and channel can still credit
+    )
     # T25d: a 'costo_venta' bonus's `unidades` / `monto_generado` (ARS) are what its sales got
     # (`sell_in_bono_consumos`), and `compras_activas` is 0.
     base: BaseBono

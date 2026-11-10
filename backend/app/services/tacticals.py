@@ -45,7 +45,14 @@ from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.pedido_compra import PedidoCompra
 from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP
-from app.models.sell_in import SellInBonoMarca, SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
+from app.models.sell_in import (
+    SellInBonoConsumo,
+    SellInBonoMarca,
+    SellInCompra,
+    SellInCompraItem,
+    SellInCompraPedido,
+    SellInConsumo,
+)
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.tactical import Tactical, TacticalTienda
@@ -672,7 +679,20 @@ _FILAS_POR_TIENDA = {
         SellOutConsumo.unidades,
         SellOutConsumo.monto,
     ),
+    # Only a cost bonus credits sales; an invoice bonus credits its purchase, with no store to split by.
+    "sell_in_bono": (
+        SellInBonoConsumo.bono_id,
+        SellInBonoConsumo.canal,
+        SellInBonoConsumo.venta_ref,
+        SellInBonoConsumo.unidades,
+        SellInBonoConsumo.descuento_ars,
+    ),
 }
+
+
+def _por_tienda(hijo: dict) -> bool:
+    """Whether a per-store scope splits this child's cap: a sell out campaign or a sell in cost bonus."""
+    return hijo["origen"] == "sell_out_campana" or (hijo["origen"] == "sell_in_bono" and hijo["alcance"] != "factura")
 
 
 def _maximos_por_tienda(
@@ -684,7 +704,7 @@ def _maximos_por_tienda(
         return {}
     salida: dict[tuple[str, int], tuple[int, Decimal]] = {}
     for origen, filas in _FILAS_POR_TIENDA.items():
-        ids = sorted({h["id"] for h in hijos if h["origen"] == origen and h["estado"] == "activa"})
+        ids = sorted({h["id"] for h in hijos if h["origen"] == origen and h["estado"] == "activa" and _por_tienda(h)})
         if not ids:
             continue
         usados = tienda_scope.usado_por_contador(db, filas, ids)

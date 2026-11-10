@@ -16,7 +16,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.tactical import TacticalTienda
-from app.services.sell_in import bonos_costo
+from app.models.sell_in import SellInBonoMarca
+from app.services.sell_in import bonos_costo, bonos_crud
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _bono_world as b
 from tests.services.sell_in import _world as w
@@ -73,6 +74,31 @@ def _bono_de_tactical_existente(engine: Engine, **kw) -> int:
         conn.execute(
             text("INSERT INTO tactical_tiendas (tactical_id, tipo) VALUES (:t, 'fuera'), (:t, 'tienda_nube')"),
             {"t": tid},
+        )
+        conn.execute(
+            text("UPDATE sell_in_bonos_marca SET tactical_id = :t, tactical_linea = 1 WHERE id = :b"),
+            {"t": tid, "b": bono},
+        )
+    return bono
+
+
+def _bono_por_tienda(engine: Engine, **kw) -> int:
+    """The same bonus, in a tactical over the GaussOnline and TP-Link stores with one cap per store."""
+    bono = b.bono_costo(engine, monto_unit="10.00", **kw)
+    with engine.begin() as conn:
+        tid = conn.execute(
+            text(
+                "INSERT INTO tacticals (tipo, nombre, marca, fecha_desde, fecha_hasta, moneda, usuario_id, "
+                "todas_tiendas, tope_compartido) VALUES ('sell_in', 'Por tienda', 'TP-LINK', '2026-10-01', "
+                "'2026-10-31', 'ARS', 7, false, false) RETURNING id"
+            )
+        ).scalar_one()
+        conn.execute(
+            text(
+                "INSERT INTO tactical_tiendas (tactical_id, tipo, store_id) "
+                "VALUES (:t, 'oficial', :g), (:t, 'oficial', :p)"
+            ),
+            {"t": tid, "g": GAUSS, "p": TPLINK},
         )
         conn.execute(
             text("UPDATE sell_in_bonos_marca SET tactical_id = :t, tactical_linea = 1 WHERE id = :b"),
@@ -138,3 +164,40 @@ class TestExistingTacticalBonus:
         _recalcular(engine)
 
         assert _filas(engine) == [(bono, "ml", gauss, 1, Decimal("10.00"))]
+
+
+class TestPerStoreCapLeft:
+    """With one cap per store, what is left adds up what every store can still discount, never below zero."""
+
+    def _serializado(self, engine: Engine, bono: int) -> dict:
+        with sessionmaker(bind=engine, autoflush=False)() as db:
+            [fila] = bonos_crud.serializar(db, [db.get(SellInBonoMarca, bono)])
+        return fila
+
+    def test_left_adds_each_store_left_and_a_full_store_adds_zero(self, engine: Engine) -> None:
+        bono = _bono_por_tienda(engine, tope_unidades=2, tope_monto="20.00")
+        _venta_ml(engine, 3, D(2026, 10, 5), store_id=GAUSS)
+        _venta_ml(engine, 1, D(2026, 10, 6), store_id=TPLINK)
+        _recalcular(engine)
+
+        fila = self._serializado(engine, bono)
+
+        assert fila["unidades"] == 3  # GaussOnline took its whole cap (2), TP-Link 1
+        assert (fila["tope_unidades_restantes"], fila["tope_monto_restante"], fila["tope_por_tienda"]) == (
+            1,
+            Decimal("10.00"),
+            True,
+        )
+
+    def test_a_shared_cap_keeps_the_cap_minus_what_was_generated(self, engine: Engine) -> None:
+        bono = _bono_de_tactical_existente(engine, tope_unidades=3)
+        _venta_ml(engine, 1, D(2026, 10, 5), store_id=GAUSS)
+        _recalcular(engine)
+
+        fila = self._serializado(engine, bono)
+
+        assert (fila["tope_unidades_restantes"], fila["tope_monto_restante"], fila["tope_por_tienda"]) == (
+            2,
+            None,
+            False,
+        )

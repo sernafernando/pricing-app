@@ -246,12 +246,17 @@ export const errorDeTope = (v) => {
   return null;
 };
 
-/** What is left of the bonus's cap ("20 u de 100 · USD 500,00 de USD 3.000,00"), or null without a cap. */
+/**
+ * What is left of the bonus's cap ("20 u de 100 · USD 500,00 de USD 3.000,00"), or null without a cap. A per-store
+ * cap (`tope_por_tienda`) is the whole cap for each store or channel, and what is left adds up all of them.
+ */
 export const restanteDeTope = (bono, formatEntero, formatMonto) => {
+  const porTienda = bono.tope_por_tienda ? ' por tienda' : '';
   const partes = [];
-  if (bono.tope_unidades != null) partes.push(`${formatEntero(bono.tope_unidades_restantes)} u de ${formatEntero(bono.tope_unidades)}`);
-  if (bono.tope_monto != null) partes.push(`${formatMonto(bono.tope_monto_restante, bono.moneda)} de ${formatMonto(bono.tope_monto, bono.moneda)}`);
-  return partes.length ? partes.join(' · ') : null;
+  if (bono.tope_unidades != null) partes.push(`${formatEntero(bono.tope_unidades_restantes)} u de ${formatEntero(bono.tope_unidades)}${porTienda}`);
+  if (bono.tope_monto != null) partes.push(`${formatMonto(bono.tope_monto_restante, bono.moneda)} de ${formatMonto(bono.tope_monto, bono.moneda)}${porTienda}`);
+  if (!partes.length) return null;
+  return partes.join(' · ') + (bono.tope_por_tienda ? ', entre todas las tiendas' : '');
 };
 
 const FALTA_ALCANCE = { marca: 'marca', categoria: 'categoría', modelos: 'al menos un modelo', factura: 'pedido de compra' };
