@@ -2677,31 +2677,30 @@ def vincular_factura(
 
     Precondiciones:
       - El pedido existe.
-      - `pedido.ct_transaction_id IS NULL` (si ya está vinculado → 409).
+      - Esta CT aún no está en el pedido (409 si ya está).
       - El proveedor del pedido tiene `supp_id` ERP.
       - La ct aparece en `v_facturas_compra_vigentes` para ese `supp_id`.
 
-    NO ajusta `pedido.monto`. Si el monto de la factura difiere, el caller
-    debe invocar `ajustar_monto_con_factura` (requiere permiso específico
-    + motivo obligatorio).
-
-    Registra evento `factura_vinculada`. NO commit.
+    M:N: puede coexistir con otras CTs del mismo pedido u otros pedidos.
+    NO ajusta `pedido.monto`. Registra evento `factura_vinculada`. NO commit.
 
     Raises:
         HTTPException 404 — pedido inexistente.
-        HTTPException 409 — pedido ya tiene `ct_transaction_id`.
+        HTTPException 409 — esta CT ya está vinculada a este pedido.
         HTTPException 400 — proveedor sin supp_id o ct no vigente para ese proveedor.
     """
     from sqlalchemy import text  # noqa: PLC0415
 
+    from app.models.pedido_compra_factura import cts_for_pedido  # noqa: PLC0415
+
     pedido = _obtener_pedido_o_404(session, pedido_id)
-    if pedido.ct_transaction_id is not None:
+    linked = {ct for ct, _fecha in cts_for_pedido(session, pedido)}
+    if int(ct_transaction) in linked:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
                 f"Pedido id={pedido.id} ya está vinculado a "
-                f"ct_transaction={pedido.ct_transaction_id}. "
-                f"Desvinculalo antes de vincular otra factura."
+                f"ct_transaction={ct_transaction}."
             ),
         )
 
@@ -2760,28 +2759,52 @@ def desvincular_factura(
     *,
     pedido_id: int,
     user_id: int,
+    ct_transaction: int | None = None,
 ) -> PedidoCompra:
     """
-    Desvincula la factura del ERP del pedido.
+    Desvincula una factura del ERP del pedido (M:N).
 
-    Si hubo un ajuste de monto asociado, NO se revierte — el ajuste quedó
-    registrado como movimiento separado en `cc_proveedor_movimientos` y
-    seguir el hilo es responsabilidad del operador (admin puede hacer un
-    ajuste inverso manual si corresponde).
+    Si `ct_transaction` is omitted and the pedido has exactly one link, that
+    CT is removed. With multiple links, `ct_transaction` is required (400).
+
+    Si hubo un ajuste de monto asociado, NO se revierte.
 
     Raises:
         HTTPException 404 — pedido inexistente.
-        HTTPException 400 — pedido no tiene ct_transaction_id seteado.
+        HTTPException 400 — sin links, CT ausente, o falta CT con multi-link.
     """
+    from app.models.pedido_compra_factura import cts_for_pedido  # noqa: PLC0415
+
     pedido = _obtener_pedido_o_404(session, pedido_id)
-    if pedido.ct_transaction_id is None:
+    links = cts_for_pedido(session, pedido)
+    if not links:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Pedido id={pedido.id} no tiene factura vinculada.",
         )
 
-    ct_anterior = int(pedido.ct_transaction_id)
-    erp_matching_service.asignar_factura_erp(session, pedido, None)
+    if ct_transaction is None:
+        if len(links) > 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Pedido id={pedido.id} tiene {len(links)} facturas vinculadas; "
+                    "pasá ct_transaction para desvincular una."
+                ),
+            )
+        ct_anterior = int(links[0][0])
+    else:
+        ct_anterior = int(ct_transaction)
+        if ct_anterior not in {ct for ct, _ in links}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Pedido id={pedido.id} no está vinculado a "
+                    f"ct_transaction={ct_anterior}."
+                ),
+            )
+
+    erp_matching_service.quitar_factura_erp(session, pedido, ct_anterior)
     session.flush()
 
     _registrar_evento(
