@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 """
-Sweep pending factura-cargada alerts after the ERP-check delay.
+Manual sweep of pending factura-cargada alerts after the ERP-check delay.
 
-Calls `disparar_alertas_factura_pendientes`. Durable columns + this cron
-replace in-process sleep. Idempotent: already-fired rows are skipped.
+The scheduled run lives in the worker: handler `compras.factura_cargada_alerts`
+in the main `REGISTRY` (`pricing-worker.service`), every minute. This script is
+only a thin wrapper over `disparar_alertas_factura_pendientes`, useful to fire
+pending rows by hand after a deploy or while debugging.
+
+Cron entry: NONE. Do NOT add this script to any crontab; the worker already
+runs it every minute, and a crontab entry would only duplicate it.
 
 Uso:
     cd /var/www/html/pricing-app/backend
     python -m app.scripts.dispatch_factura_cargada_alerts
-
-Cron (every minute; delay itself is FACTURA_CARGADA_ALERT_DELAY):
-    * * * * * cd /var/www/html/pricing-app/backend && \\
-        /var/www/html/pricing-app/backend/venv/bin/python \\
-        -m app.scripts.dispatch_factura_cargada_alerts \\
-        >> /var/log/pricing-app/factura-cargada-alerts.log 2>&1
 """
 
 import os

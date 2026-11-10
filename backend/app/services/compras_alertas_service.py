@@ -31,6 +31,8 @@ SNOOZE_MARKER: Final[str] = "compras.faltantes.snooze"
 SNOOZE_WINDOW: Final[timedelta] = timedelta(hours=1)
 PERMISO_VER_ALERTAS_FACTURA: Final[str] = "administracion.ver_alertas_factura"
 PERMISO_DEPOSITO_RECEPCION: Final[str] = "deposito.recibir_mercaderia"
+# Belt-and-suspenders: Gabriel DeMarco always receives factura_cargada (brief).
+FACTURA_ALERTA_ALWAYS_USER_IDS: Final[frozenset[int]] = frozenset({3})
 DEEP_LINK_OBSERVACIONES: Final[str] = "/administracion/compras?tab=pedidos&pedido={pedido_id}&focus=observaciones"
 DEEP_LINK_DEPOSITO: Final[str] = "/administracion/compras?tab=deposito&pedido={pedido_id}&eje=faltantes_con_res"
 
@@ -73,11 +75,23 @@ def copy_faltantes_resuelto(*, pedido_numero: str, proveedor_nombre: str, texto:
 
 
 def destinatarios_factura(session: Session) -> list[Usuario]:
-    """Active users who hold administracion.ver_alertas_factura (hybrid resolver)."""
-    return resolver_usuarios_con_algun_permiso(
+    """Active holders of administracion.ver_alertas_factura, plus always-notify ids.
+
+    Permission fan-out stays the primary path. ``FACTURA_ALERTA_ALWAYS_USER_IDS``
+    (Gabe / user id 3) is unioned in when that user is active, even if the
+    hybrid resolver somehow omits them.
+    """
+    holders = resolver_usuarios_con_algun_permiso(
         session,
         permisos_requeridos=[PERMISO_VER_ALERTAS_FACTURA],
     )
+    by_id: dict[int, Usuario] = {int(u.id): u for u in holders}
+    missing = [uid for uid in FACTURA_ALERTA_ALWAYS_USER_IDS if uid not in by_id]
+    if missing:
+        extras = session.query(Usuario).filter(Usuario.id.in_(missing), Usuario.activo.is_(True)).all()
+        for user in extras:
+            by_id[int(user.id)] = user
+    return list(by_id.values())
 
 
 def notificar_factura_cargada(

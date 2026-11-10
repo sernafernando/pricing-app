@@ -336,6 +336,28 @@ class TestFanoutFactura:
         assert fanout_users["superadmin"].id in ids
         assert fanout_users["admin"].id not in ids
 
+    def test_always_includes_user_id_3_without_permiso(self, db, roles_pipeline) -> None:
+        """Gabe (user id 3) is belt-and-suspenders even without ver_alertas_factura."""
+        existing = db.get(Usuario, 3)
+        if existing is not None:
+            db.delete(existing)
+            db.flush()
+        gabe = Usuario(
+            id=3,
+            username="gabe_always",
+            email="gabe_always@example.com",
+            nombre="Gabriel DeMarco",
+            password_hash=get_password_hash("TestPass123!"),
+            rol=RolUsuario.VENTAS,
+            rol_id=roles_pipeline["VENTAS"].id,
+            auth_provider=AuthProvider.LOCAL,
+            activo=True,
+        )
+        db.add(gabe)
+        db.flush()
+        recipients = compras_alertas_service.destinatarios_factura(db)
+        assert any(int(u.id) == 3 for u in recipients)
+
     def test_empty_numero_creates_no_alert(self, db, empresa, proveedor, fanout_users) -> None:
         pedido = _pedido(db, empresa, proveedor, fanout_users["titular"])
         with pytest.raises(HTTPException) as exc_info:
