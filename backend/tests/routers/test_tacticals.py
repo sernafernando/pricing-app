@@ -115,18 +115,15 @@ def alcance_activo(monkeypatch) -> None:
     monkeypatch.setattr(service, "TIPOS_CON_ALCANCE", frozenset({"sell_out", "sell_in"}))
 
 
-@pytest.mark.parametrize("tipo", ["sell_in"])
-def test_a_scope_no_engine_applies_yet_is_refused(client, productos, sell_out, grant_permiso, rol_admin, tipo) -> None:
+def test_a_sell_in_scope_is_accepted_now_its_engine_honours_it(
+    client, productos, sell_out, grant_permiso, rol_admin
+) -> None:
     grant_permiso(rol_admin, "sell_in.ver")
     grant_permiso(rol_admin, "sell_in.gestionar")
-    resp = client.post(BASE, json=_body(tipo=tipo, todas_tiendas=True), headers=sell_out)
+    resp = client.post(BASE, json=_body(tipo="sell_in", todas_tiendas=True), headers=sell_out)
 
-    assert resp.status_code == 422
-    assert _message(resp) == (
-        "El alcance por tienda todavía no se aplica a los tacticals de "
-        f"{tipo.replace('_', ' ')}: dejá todas las tiendas, Por fuera y Tienda Nube con el tope compartido"
-    )
-    assert client.get(BASE, params={"tipo": tipo}, headers=sell_out).json()["total"] == 0
+    assert resp.status_code == 201, resp.text
+    assert (resp.json()["tope_compartido"], resp.json()["tiendas"]) == (False, [])
 
 
 def test_a_sell_out_scope_is_accepted_now_its_engine_honours_it(client, productos, sell_out) -> None:

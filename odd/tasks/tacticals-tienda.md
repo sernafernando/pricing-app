@@ -22,7 +22,7 @@ Test runner: `pytest` (backend), `pnpm test` (frontend focused)
 - T2 S1,S2,S3,S4 — Create/list UI selector + toggle + preview — route: inline — status: done — commit: `e3d9e3912`
 
 - T3 S7 — Sell-out engine + tests — route: inline — status: done — commit: `63856d5ef` (PR #2159)
-- T4 S7 — Sell-in engine + tests — route: inline — status: pending
+- T4 S7 — Sell-in engine + tests — route: inline — status: done — commit: `3beb9671c` (PR #2160)
 - T5 S8 — Markup API store/canal-aware — route: inline — status: pending
 - T6 S8 — Markup UI Productos + Publicaciones — route: inline — status: pending
 - T7 — Ayuda + novedad — route: inline — status: pending
