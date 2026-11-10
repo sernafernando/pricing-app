@@ -29,10 +29,14 @@ describe('previewTope', () => {
       topeCompartido: false,
       ejemploTope: 100,
     });
+    expect(preview.titulo).toBe('Un tope para cada tienda o canal');
     expect(preview.filas).toEqual([
-      { label: 'GaussOnline', valor: '100' },
-      { label: 'TP-Link (2 tiendas)', valor: '100 cada una' },
+      { label: 'GaussOnline', valor: '100 u.' },
+      { label: 'TP-Link (2 tiendas)', valor: '100 u. cada una' },
     ]);
+    expect(preview.ayuda).toBe(
+      'Cada una cuenta sus ventas aparte: cuando una llega a 100 u. vendidas, deja de acreditar solo en esa y las demás siguen hasta sus propias 100 u.',
+    );
   });
 
   it('with every store and per-store caps, says each store, the no-store sales and each channel get their own cap', () => {
@@ -44,10 +48,10 @@ describe('previewTope', () => {
       ejemploTope: 100,
     });
     expect(preview.filas).toEqual([
-      { label: 'Cada tienda oficial (3)', valor: '100 cada una' },
-      { label: 'Ventas sin tienda oficial', valor: '100' },
-      { label: 'Por fuera', valor: '100' },
-      { label: 'Tienda Nube', valor: '100' },
+      { label: 'Cada tienda oficial (3)', valor: '100 u. cada una' },
+      { label: 'Ventas sin tienda oficial', valor: '100 u.' },
+      { label: 'Por fuera', valor: '100 u.' },
+      { label: 'Tienda Nube', valor: '100 u.' },
     ]);
   });
 
@@ -59,7 +63,43 @@ describe('previewTope', () => {
       topeCompartido: true,
       ejemploTope: 100,
     });
-    expect(preview.filas).toEqual([{ label: 'GaussOnline + Por fuera', valor: '100 compartidos' }]);
+    expect(preview.titulo).toBe('Un solo tope entre todas');
+    expect(preview.filas).toEqual([{ label: 'GaussOnline + Por fuera', valor: '100 u. en total' }]);
+    expect(preview.ayuda).toBe(
+      'Las ventas de todas suman al mismo tope: cuando se vendan 100 u. en total, deja de acreditar en todas.',
+    );
+  });
+
+  it('formats the example cap as Argentina does', () => {
+    const preview = previewTope({ todasTiendas: true, seleccionKeys: [], grupos: GRUPOS, topeCompartido: true, ejemploTope: 1500 });
+    expect(preview.filas).toEqual([{ label: 'Todas las tiendas oficiales', valor: '1.500 u. en total' }]);
+  });
+
+  it('without a unit cap in the lines, speaks of the line cap', () => {
+    const base = { todasTiendas: false, seleccionKeys: ['57997', '2645,471846'], grupos: GRUPOS, ejemploTope: null };
+    const compartido = previewTope({ ...base, topeCompartido: true });
+    expect(compartido.filas).toEqual([{ label: 'GaussOnline + TP-Link', valor: 'tope de la línea, en total' }]);
+    expect(compartido.ayuda).toBe(
+      'Las ventas de todas suman al mismo tope: cuando juntas llegan al tope de la línea, deja de acreditar en todas.',
+    );
+    const porTienda = previewTope({ ...base, topeCompartido: false });
+    expect(porTienda.filas).toEqual([
+      { label: 'GaussOnline', valor: 'tope de la línea' },
+      { label: 'TP-Link (2 tiendas)', valor: 'tope de la línea, cada una' },
+    ]);
+    expect(porTienda.ayuda).toBe(
+      'Cada una cuenta sus ventas aparte: cuando una llega al tope de la línea, deja de acreditar solo en esa y las demás siguen.',
+    );
+  });
+
+  it('with nothing chosen, keeps the title of the mode and asks for a store', () => {
+    const preview = previewTope({ todasTiendas: false, seleccionKeys: [], grupos: GRUPOS, topeCompartido: false, ejemploTope: 100 });
+    expect(preview).toEqual({
+      modo: 'por_tienda',
+      titulo: 'Un tope para cada tienda o canal',
+      filas: [],
+      ayuda: 'Elegí al menos una tienda o canal.',
+    });
   });
 });
 
@@ -74,7 +114,7 @@ describe('contadoresDelTope', () => {
   it('with every store counts only the active ones, as the engines do', () => {
     expect(contadoresDelTope({ ...base, tiendasActivas: 2, todasTiendas: true, seleccionKeys: [], topeCompartido: false })).toBe(5);
     const preview = previewTope({ grupos: GRUPOS, tiendasActivas: 2, todasTiendas: true, seleccionKeys: [], topeCompartido: false, ejemploTope: 10 });
-    expect(preview.filas[0]).toEqual({ label: 'Cada tienda oficial (2)', valor: '10 cada una' });
+    expect(preview.filas[0]).toEqual({ label: 'Cada tienda oficial (2)', valor: '10 u. cada una' });
   });
 
   it('is one with a shared cap, or while the store scope is off', () => {

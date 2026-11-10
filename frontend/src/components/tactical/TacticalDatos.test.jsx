@@ -41,6 +41,20 @@ function Holder({ inicial = {}, onTipo = vi.fn(), tiposNoDisponibles, onForm = v
   );
 }
 
+function TacticalDatosConTope() {
+  const [form, setForm] = useState(FORM);
+  return (
+    <TacticalDatos
+      form={form}
+      onChange={(cambios) => setForm((f) => ({ ...f, ...cambios }))}
+      onTipo={vi.fn()}
+      gruposTiendas={[{ value: '57997', ids: ['57997'], label: 'GaussOnline' }]}
+      ejemploTope={100}
+      alcancePorTienda
+    />
+  );
+}
+
 describe('TacticalDatos', () => {
   it('offers the types the user can manage and says which is on', async () => {
     const user = userEvent.setup();
@@ -74,7 +88,7 @@ describe('TacticalDatos', () => {
     await user.click(screen.getByLabelText('Los montos incluyen IVA'));
     await user.click(screen.getByLabelText('Se acumula con otras campañas'));
     await user.type(screen.getByLabelText('Nota'), 'Acuerdo 77');
-    expect(screen.getByText('Cómo se aplica el tope')).toBeInTheDocument();
+    expect(screen.getByText('Un tope para cada tienda o canal')).toBeInTheDocument();
     expect(onForm).toHaveBeenLastCalledWith({
       ...FORM,
       nombre: 'Tacticals BPS',
@@ -115,6 +129,19 @@ describe('TacticalDatos', () => {
     expect(within(tiendas).getByLabelText('Tienda Nube')).toBeChecked();
   });
 
+  it('names the cap mode and says when crediting stops, with the first unit cap (S3)', async () => {
+    const user = userEvent.setup();
+    render(<TacticalDatosConTope />);
+    expect(screen.getByText('Un tope para cada tienda o canal')).toBeInTheDocument();
+    expect(screen.getByText('100 u. cada una')).toBeInTheDocument();
+    await user.click(screen.getByLabelText('Tope compartido entre las tiendas elegidas'));
+    expect(screen.getByText('Un solo tope entre todas')).toBeInTheDocument();
+    expect(screen.getByText('100 u. en total')).toBeInTheDocument();
+    expect(
+      screen.getByText('Las ventas de todas suman al mismo tope: cuando se vendan 100 u. en total, deja de acreditar en todas.'),
+    ).toBeInTheDocument();
+  });
+
   it('caps the texts at what the contract accepts', () => {
     render(<Holder />);
     expect(screen.getByLabelText('Nombre')).toHaveAttribute('maxLength', '200');
@@ -138,7 +165,7 @@ describe('TacticalDatos', () => {
   it('hides the store scope while it is off', () => {
     render(<Holder alcancePorTienda={false} />);
     expect(screen.queryByTestId('tactical-tiendas')).not.toBeInTheDocument();
-    expect(screen.queryByText('Cómo se aplica el tope')).not.toBeInTheDocument();
+    expect(screen.queryByText('Un tope para cada tienda o canal')).not.toBeInTheDocument();
   });
 
   it('shows a renewed store no group covers as its own checked box, which can be unticked', async () => {

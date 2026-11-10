@@ -112,6 +112,53 @@ textarea.ctl {
   gap: 10px;
 }
 
+/* Desde/Hasta read as a prefix on the input's own row, so the field has one label line like its neighbours. */
+.dateCtl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dateCtl .ctl {
+  flex: 1;
+  min-width: 0;
+}
+
+.prefix {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  white-space: nowrap;
+}
+
+/* Moneda keeps its two options' width; the exchange-rate mode fills the rest of the cell. */
+.monedaRow {
+  display: flex;
+  gap: 12px;
+  align-items: start;
+  min-width: 0;
+}
+
+.moneda {
+  flex: none;
+  justify-items: start;
+}
+
+.moneda > [role='group'] {
+  height: 34px;
+}
+
+.tc {
+  flex: 1;
+  min-width: 0;
+}
+
+.checksRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 24px;
+}
+
 .checks {
   display: grid;
   align-content: start;

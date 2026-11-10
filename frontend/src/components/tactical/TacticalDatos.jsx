@@ -164,9 +164,10 @@ export default function TacticalDatos({
               <span className={styles.lbl}>
                 Vigencia <span className={styles.req} aria-hidden="true">*</span>
               </span>
+              {/* Desde/Hasta are inline prefixes, so the date inputs sit on the reference input's row (S1). */}
               <div className={styles.dates}>
-                <div className={styles.field}>
-                  <label htmlFor="tactical-desde" className={styles.subLabel}>
+                <div className={styles.dateCtl}>
+                  <label htmlFor="tactical-desde" className={styles.prefix}>
                     Desde
                   </label>
                   <input
@@ -178,8 +179,8 @@ export default function TacticalDatos({
                     onChange={campo('fechaDesde')}
                   />
                 </div>
-                <div className={styles.field}>
-                  <label htmlFor="tactical-hasta" className={styles.subLabel}>
+                <div className={styles.dateCtl}>
+                  <label htmlFor="tactical-hasta" className={styles.prefix}>
                     Hasta
                   </label>
                   <input
@@ -194,44 +195,47 @@ export default function TacticalDatos({
               </div>
             </div>
           )}
-          <div className={styles.field}>
-            <span className={styles.lbl}>Moneda</span>
-            <Seg
-              label="Moneda"
-              options={[
-                { value: 'USD', label: 'USD' },
-                { value: 'ARS', label: 'ARS' },
-              ]}
-              value={form.moneda}
-              onChange={(moneda) => onChange({ moneda })}
-            />
-          </div>
-          {usd && (
-            <div className={styles.field}>
-              <label htmlFor="tactical-tc">Tipo de cambio</label>
-              <select id="tactical-tc" className={styles.ctl} value={form.tcModo} onChange={campo('tcModo')}>
-                {TC_MODOS.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-              {form.tcModo === 'fijo' && (
-                <input
-                  className={`${styles.ctl} ${styles.tcFijo}`}
-                  type="text"
-                  inputMode="decimal"
-                  aria-label="Tipo de cambio fijo"
-                  placeholder="ARS por USD"
-                  value={form.tipoCambio}
-                  onChange={campo('tipoCambio')}
-                />
-              )}
+          {/* USD | ARS sized to its content; the exchange-rate mode takes the rest of the cell (S2). */}
+          <div className={styles.monedaRow}>
+            <div className={`${styles.field} ${styles.moneda}`}>
+              <span className={styles.lbl}>Moneda</span>
+              <Seg
+                label="Moneda"
+                options={[
+                  { value: 'USD', label: 'USD' },
+                  { value: 'ARS', label: 'ARS' },
+                ]}
+                value={form.moneda}
+                onChange={(moneda) => onChange({ moneda })}
+              />
             </div>
-          )}
-          <div className={styles.field}>
+            {usd && (
+              <div className={`${styles.field} ${styles.tc}`}>
+                <label htmlFor="tactical-tc">Tipo de cambio</label>
+                <select id="tactical-tc" className={styles.ctl} value={form.tcModo} onChange={campo('tcModo')}>
+                  {TC_MODOS.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+                {form.tcModo === 'fijo' && (
+                  <input
+                    className={`${styles.ctl} ${styles.tcFijo}`}
+                    type="text"
+                    inputMode="decimal"
+                    aria-label="Tipo de cambio fijo"
+                    placeholder="ARS por USD"
+                    value={form.tipoCambio}
+                    onChange={campo('tipoCambio')}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+          <div className={`${styles.field} ${styles.span2}`}>
             <span className={styles.lbl}>Condiciones</span>
-            <div className={styles.checks}>
+            <div className={`${styles.checks} ${styles.checksRow}`}>
               <label className={styles.check}>
                 <input type="checkbox" checked={form.incluyeIva} onChange={campo('incluyeIva')} />
                 <span>Los montos incluyen IVA</span>
@@ -302,7 +306,7 @@ export default function TacticalDatos({
                 <span>Tope compartido entre las tiendas elegidas</span>
               </label>
               <div className={styles.previewTope} aria-live="polite">
-                <span className={styles.previewTitulo}>Cómo se aplica el tope</span>
+                <span className={styles.previewTitulo}>{preview.titulo}</span>
                 {preview.filas.length === 0 ? (
                   <p className={styles.previewAyuda}>{preview.ayuda}</p>
                 ) : (
