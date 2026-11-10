@@ -77,6 +77,35 @@ describe('useColumnSizing — resize persistence round-trip', () => {
     expect(loadColumnSizing(COLUMN_SIZING_STORAGE_KEYS.historial)).toEqual({});
   });
 
+  it('flushes a pending save on unmount and writes nothing afterwards', () => {
+    const key = COLUMN_SIZING_STORAGE_KEYS.mensajes;
+    const { result, unmount } = renderHook(() => useColumnSizing(key));
+    act(() => {
+      result.current.onColumnSizingChange({ texto: 320 });
+    });
+    unmount();
+    // The width the operator chose is not lost when the table goes away...
+    expect(loadColumnSizing(key)).toEqual({ texto: 320 });
+    // ...and no timer outlives the component to write over a later reset.
+    localStorage.removeItem(key);
+    vi.advanceTimersByTime(1000);
+    expect(localStorage.getItem(key)).toBeNull();
+  });
+
+  it('reset leaves nothing pending to flush on unmount', () => {
+    const key = COLUMN_SIZING_STORAGE_KEYS.pendientes;
+    const { result, unmount } = renderHook(() => useColumnSizing(key));
+    act(() => {
+      result.current.onColumnSizingChange({ fecha: 150 });
+    });
+    act(() => {
+      result.current.reset();
+    });
+    unmount();
+    vi.advanceTimersByTime(1000);
+    expect(localStorage.getItem(key)).toBeNull();
+  });
+
   it('hasCustom is false with no persisted sizing and true once a size is set', () => {
     const { result } = renderHook(() => useColumnSizing(COLUMN_SIZING_STORAGE_KEYS.preguntas));
     expect(result.current.hasCustom).toBe(false);
