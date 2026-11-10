@@ -54,6 +54,8 @@ from app.services.ml_publications.view.filters import (
     promo_clauses,
     status_value,
     stock_clauses,
+    stock_total,
+    stock_total_of,
 )
 from app.services.ml_publications.view.markup import PublicationMarkup
 from app.services.ml_publications.view.markup_service import (
@@ -76,6 +78,8 @@ from app.services.product_facets import ComboRow, ProductSelection, facet_values
 
 STATEMENT_TIMEOUT = "8s"
 SORT_ACTIVITY = "actividad"
+# The "Stock propio" column left the screen (owner, 2026-11-10): an old link's sort by it is dropped with its direction.
+RETIRED_SORTS = frozenset({"stock_propio"})
 SORT_MARKUP = "markup"  # not a column: the worst variation's markup, computed in Python (see `_list_by_markup`)
 
 
@@ -90,7 +94,7 @@ SORT_COLUMNS: dict[str, tuple[Any, bool]] = {
     "precio": (price_amount, False),
     "titulo": (lambda: func.lower(T.i.title), False),
     "stock_full": (lambda: T.st.full_quantity, True),
-    "stock_propio": (lambda: T.st.own_quantity, True),
+    "stock_total": (stock_total, True),
     "stock_erp": (erp_stock, True),
     "actualizado": (lambda: T.i.ml_last_updated, True),
     # the linked product's, as Productos sorts them; blank is no value, last like a missing product
@@ -212,7 +216,8 @@ def sort_pairs(orden: Optional[str], direction: Optional[str], default: str) -> 
 def parse_sort(orden: Optional[str], direction: Optional[str]) -> Sort:
     """`orden` and `dir` as csv, one direction per key (a missing one is the key's default): Productos'
     multi-column sort, any combination of the known keys."""
-    pairs = sort_pairs(orden, direction, SORT_ACTIVITY)
+    pairs = [pair for pair in sort_pairs(orden, direction, SORT_ACTIVITY) if pair[0] not in RETIRED_SORTS]
+    pairs = pairs or [(SORT_ACTIVITY, "")]
     keys = [key for key, _ in pairs]
     known = [*SORT_COLUMNS, SORT_MARKUP, *METRIC_SORTS]
     for key in keys:
@@ -493,6 +498,7 @@ def _item(row: Any, variations: dict[str, int], labels: dict[int, str], last_eve
             "as_of": row.stock_as_of,
         },
         "erp_stock": {"quantity": row.erp_quantity},  # the linked product's ERP stock, never merged with ML's
+        "stock_total": stock_total_of(row.erp_quantity, row.full_quantity),  # ERP + Full, the only sum shown
         "link": {
             "state": row.link_state,
             "producto_item_id": row.producto_item_id,

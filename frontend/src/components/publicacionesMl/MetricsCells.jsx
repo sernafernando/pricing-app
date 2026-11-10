@@ -106,12 +106,12 @@ function StockQuantity({ value }) {
   );
 }
 
-/** Our own warehouse stock at ML (`stock.own`), never added to Full. */
-export function OwnStockCell({ stock }) {
-  return <StockQuantity value={stock?.own ?? null} />;
-}
-
-/** The Full stock (`stock.full`), never added to our own. */
+/** The Full stock (`stock.full`). */
 export function FullStockCell({ stock }) {
   return <StockQuantity value={stock?.full ?? null} />;
+}
+
+/** The backend's stock total (`stock_total`, ERP + Full); unknown when both are. */
+export function TotalStockCell({ total }) {
+  return <StockQuantity value={total ?? null} />;
 }
