@@ -85,19 +85,21 @@ export const unidadesDelTope = (linea) =>
  * The most a line can charge, as the design computes it: a total amount is itself; a percentage only its money cap;
  * an amount per unit times its unit cap (per product, times the products), never above the money cap.
  */
-export function maximoACobrar(linea) {
+export function maximoACobrar(linea, contadores = 1) {
   const monto = numeroDe(linea.monto);
   const topeU = enteroDe(linea.topeUnidades);
   const topeM = numeroDe(linea.topeMonto);
-  if (linea.modo === 'monto_total') return monto;
-  if (linea.modo === 'porcentaje') return topeM;
-  if (!monto || !topeU) return topeM;
+  if (linea.modo === 'monto_total') return monto; // a total is split once, never per store
+  const porContador = (valor) => (valor == null ? valor : valor * contadores);
+  if (linea.modo === 'porcentaje') return porContador(topeM);
+  if (!monto || !topeU) return porContador(topeM);
   const porUnidades = monto * topeU * vecesDelTope(linea);
-  return topeM != null ? Math.min(porUnidades, topeM) : porUnidades;
+  return porContador(topeM != null ? Math.min(porUnidades, topeM) : porUnidades);
 }
 
-/** What all the lines can charge at most together. */
-export const maximoTotal = (lineas) => lineas.reduce((total, linea) => total + (maximoACobrar(linea) || 0), 0);
+/** What all the lines can charge at most together; `contadores` caps per line (`contadoresDelTope`). */
+export const maximoTotal = (lineas, contadores = 1) =>
+  lineas.reduce((total, linea) => total + (maximoACobrar(linea, contadores) || 0), 0);
 
 /** The scope and amount kinds a type offers: invoices are sell in only; both offer a total amount on every scope. */
 export const alcancesDe = (tipo) =>

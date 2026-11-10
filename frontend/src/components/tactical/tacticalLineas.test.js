@@ -56,6 +56,12 @@ describe('what a line can charge at most', () => {
   it('a total amount is itself; a percentage only its money cap', () => {
     expect(maximoACobrar(linea({ alcance: 'factura', modo: 'monto_total', monto: '850.000' }))).toBe(850000);
     expect(maximoACobrar(linea({ modo: 'porcentaje', monto: '3,6', topeMonto: '5000' }))).toBe(5000);
+  });
+
+  it('a cap that applies per store multiplies by its counters, a total never does', () => {
+    expect(maximoACobrar(linea({ modo: 'porcentaje', monto: '3,6', topeMonto: '5000' }), 3)).toBe(15000);
+    expect(maximoACobrar(linea({ alcance: 'factura', modo: 'monto_total', monto: '850.000' }), 3)).toBe(850000);
+    expect(maximoTotal([linea({ modo: 'porcentaje', monto: '3,6', topeMonto: '5000' })], 2)).toBe(10000);
     expect(maximoACobrar(linea({ modo: 'porcentaje', monto: '3,6' }))).toBeNull();
   });
 

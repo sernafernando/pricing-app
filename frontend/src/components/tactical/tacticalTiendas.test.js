@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { previewTope, seleccionDesdeDetalle, tiendasDelContrato } from './tacticalTiendas';
+import { contadoresDelTope, previewTope, seleccionDesdeDetalle, tiendasDelContrato } from './tacticalTiendas';
 
 const GRUPOS = [
   { value: '57997', ids: ['57997'], label: 'GaussOnline' },
@@ -33,7 +33,22 @@ describe('previewTope', () => {
     });
     expect(preview.filas).toEqual([
       { label: 'GaussOnline', valor: '100' },
-      { label: 'TP-Link', valor: '100' },
+      { label: 'TP-Link (2 tiendas)', valor: '100 cada una' },
+    ]);
+  });
+
+  it('with every store and per-store caps, says each store and the no-store sales get their own cap', () => {
+    const preview = previewTope({
+      todasTiendas: true,
+      seleccionKeys: ['tienda_nube'],
+      grupos: GRUPOS,
+      topeCompartido: false,
+      ejemploTope: 100,
+    });
+    expect(preview.filas).toEqual([
+      { label: 'Cada tienda oficial (3)', valor: '100 cada una' },
+      { label: 'Ventas sin tienda oficial', valor: '100' },
+      { label: 'Tienda Nube', valor: '100' },
     ]);
   });
 
@@ -46,6 +61,20 @@ describe('previewTope', () => {
       ejemploTope: 100,
     });
     expect(preview.filas).toEqual([{ label: 'GaussOnline + Por fuera', valor: '100 compartidos' }]);
+  });
+});
+
+describe('contadoresDelTope', () => {
+  const base = { grupos: GRUPOS, alcancePorTienda: true };
+
+  it('counts one cap per official store and channel, as the engines split it', () => {
+    expect(contadoresDelTope({ ...base, todasTiendas: false, seleccionKeys: ['2645,471846', 'fuera'], topeCompartido: false })).toBe(3);
+    expect(contadoresDelTope({ ...base, todasTiendas: true, seleccionKeys: ['fuera'], topeCompartido: false })).toBe(5);
+  });
+
+  it('is one with a shared cap, or while the store scope is off', () => {
+    expect(contadoresDelTope({ ...base, todasTiendas: true, seleccionKeys: [], topeCompartido: true })).toBe(1);
+    expect(contadoresDelTope({ ...base, alcancePorTienda: false, todasTiendas: true, seleccionKeys: [], topeCompartido: false })).toBe(1);
   });
 });
 

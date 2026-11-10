@@ -61,6 +61,23 @@ export function seleccionDesdeDetalle(tactical, grupos = []) {
   return keys;
 }
 
+const idsDe = (key, grupos) => grupos.find((g) => g.value === key)?.ids ?? String(key).split(',').filter(Boolean);
+const idsDeTodas = (grupos) => grupos.reduce((n, g) => n + g.ids.length, 0);
+
+/**
+ * How many cap counters a capped line gets, as the engines split it: one with a shared cap (or while the store scope
+ * is off: the API then gives today's shared reach); per store otherwise, one per official store id (plus the ML sales
+ * without a store, with every store) and one per channel.
+ */
+export function contadoresDelTope({ todasTiendas, seleccionKeys, grupos = [], topeCompartido, alcancePorTienda = ALCANCE_POR_TIENDA }) {
+  if (!alcancePorTienda || topeCompartido) return 1;
+  const canales = seleccionKeys.filter(esCanal).length;
+  const oficiales = todasTiendas
+    ? idsDeTodas(grupos) + 1
+    : seleccionKeys.filter((k) => !esCanal(k)).reduce((n, k) => n + idsDe(k, grupos).length, 0);
+  return Math.max(oficiales + canales, 1);
+}
+
 /**
  * Live preview rows for how the line cap applies to the current selection.
  * `ejemploTope` is the number shown (first line unit cap), or null → "tope".
@@ -91,9 +108,25 @@ export function previewTope({ todasTiendas, seleccionKeys, grupos = [], topeComp
       ayuda: '1 venta en cualquiera resta del mismo pool.',
     };
   }
+  const filas = [];
+  if (todasTiendas) {
+    filas.push({ label: `Cada tienda oficial (${idsDeTodas(grupos)})`, valor: `${n} cada una` });
+    filas.push({ label: 'Ventas sin tienda oficial', valor: String(n) });
+  } else {
+    for (const key of seleccionKeys) {
+      if (esCanal(key)) continue;
+      const grupo = grupos.find((g) => g.value === key);
+      const ids = idsDe(key, grupos);
+      const label = grupo ? grupo.label : `Tienda ${key}`;
+      filas.push(ids.length > 1 ? { label: `${label} (${ids.length} tiendas)`, valor: `${n} cada una` } : { label, valor: String(n) });
+    }
+  }
+  for (const key of seleccionKeys) {
+    if (esCanal(key)) filas.push({ label: CANALES_TACTICAL.find((c) => c.value === key)?.label ?? key, valor: String(n) });
+  }
   return {
     modo: 'por_tienda',
-    filas: labels.map((label) => ({ label, valor: String(n) })),
+    filas,
     ayuda: 'Cada tienda o canal tiene su propio contador con el mismo tope.',
   };
 }
