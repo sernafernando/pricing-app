@@ -108,15 +108,30 @@ export function avanceDeTactical(lineas) {
   return { unidades, monto };
 }
 
-/** Columns of a tactical row: the toggle, Nombre, Tipo, Marca, Vigencia, Líneas, Avance, Estado and the actions. */
-export const COLUMNAS_TACTICAL = 9;
+/** Columns of a tactical row: the toggle, Nombre, Tipo, Marca, Vigencia, Líneas, Avance, Estado, Cobranza and the
+ * actions. */
+export const COLUMNAS_TACTICAL = 10;
 
-export const FILTROS_VACIOS = { tipo: 'todos', marca: '', moneda: '', estado: 'vigentes', desde: '', hasta: '', q: '' };
+export const FILTROS_VACIOS = {
+  tipo: 'todos',
+  marca: '',
+  moneda: '',
+  estado: 'vigentes',
+  cobranza: 'todos',
+  desde: '',
+  hasta: '',
+  q: '',
+};
 
-/** The list's query: only the filters that are set ("Todos" sends no tipo). */
+/** A KPI amount (`kpis.*.montos` of the list, tactical cobranza S4): `ARS 4.380.250 · USD 1.920`, a dash when none. */
+export const formatMontosKpi = (montos) =>
+  montos?.length ? montos.map(({ moneda, monto }) => formatMontoTactical(monto, moneda)).join(' · ') : '—';
+
+/** The list's query: only the filters that are set ("Todos" sends no tipo nor cobranza). */
 export function paramsDeFiltros(filtros, { page, pageSize }) {
   const params = {};
   if (filtros.tipo !== 'todos') params.tipo = filtros.tipo;
+  if (filtros.cobranza && filtros.cobranza !== 'todos') params.cobranza = filtros.cobranza;
   for (const campo of ['marca', 'moneda', 'estado', 'desde', 'hasta']) if (filtros[campo]) params[campo] = filtros[campo];
   const q = filtros.q.trim();
   if (q) params.q = q;

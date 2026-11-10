@@ -230,3 +230,12 @@
 .verVentas:hover {
   text-decoration: underline;
 }
+
+/* Cobranza cell (tactical cobranza S3): the Pendiente / Cobrado pill and, under it, Cargar / Editar cobro. */
+.cobranza {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  white-space: nowrap;
+}

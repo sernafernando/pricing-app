@@ -13,6 +13,8 @@ import {
   vigenciaDe,
 } from './tacticalsFormat';
 import TacticalAcciones from './TacticalAcciones';
+import TacticalCobranza from './TacticalCobranza';
+import { estadoDeCobranza } from './tacticalCobranza';
 import styles from './TacticalFila.module.css';
 
 const TIPO_PILL = { sell_in: { texto: 'Sell in', tono: 'neutral' }, sell_out: { texto: 'Sell out', tono: 'info' } };
@@ -118,13 +120,17 @@ function Lineas({ tactical, onVerLinea }) {
  * One tactical as a `<tbody>`: its row (type, brand, dates, line count, progress over the caps, state) and, when
  * `abierto`, its lines with amount, caps, usage and a "Tope alcanzado" mark. `acciones` (`{ label, onSelect }`) fill
  * the row's actions menu; none, no menu. With `onVerLinea`, each line has "Ver ventas", which hands that line (its
- * child record: `origen` and `id`) over.
+ * child record: `origen` and `id`) over. Its Cobranza cell says Pendiente or Cobrado with the date; with
+ * `cobranza.puede` (the user manages its kind) it has Cargar / Editar cobro, which toggles the Cobranza box under the
+ * row (`cobranza.abierta`, `cobranza.onAlternar`; `cobranza.onGuardado` after a save or an undo).
  */
 /** Every brand of the tactical (S3); a tactical read before S3 has only `marca`. */
 const marcasDe = (tactical) =>
   (tactical.marcas?.length ? tactical.marcas : [tactical.marca]).filter((m) => !vacio(m)).join(', ');
 
-export default function TacticalFila({ tactical, abierto, onAlternar, acciones = [], onVerLinea }) {
+export default function TacticalFila({ tactical, abierto, onAlternar, acciones = [], onVerLinea, cobranza = {} }) {
+  const cobro = estadoDeCobranza(tactical);
+  const accionCobro = tactical.cobranza ? 'Editar cobro' : 'Cargar cobro';
   const tipo = TIPO_PILL[tactical.tipo] ?? { texto: tactical.tipo, tono: 'neutral' };
   const estado = estadoDe(tactical);
   const { unidades, monto } = avanceDeTactical(tactical.lineas);
@@ -176,8 +182,34 @@ export default function TacticalFila({ tactical, abierto, onAlternar, acciones =
             {estado.texto}
           </StatusPill>
         </td>
+        <td>
+          <div className={styles.cobranza}>
+            <StatusPill tone={cobro.tono} variant="soft">
+              {cobro.texto}
+            </StatusPill>
+            {cobranza.puede && (
+              <button
+                type="button"
+                className={styles.verVentas}
+                aria-expanded={Boolean(cobranza.abierta)}
+                aria-controls={cobranza.abierta ? `tactical-${tactical.id}-cobranza-fila` : undefined}
+                aria-label={`${accionCobro} de ${tactical.nombre}`}
+                onClick={cobranza.onAlternar}
+              >
+                {accionCobro}
+              </button>
+            )}
+          </div>
+        </td>
         <td>{acciones.length > 0 && <TacticalAcciones nombre={tactical.nombre} acciones={acciones} />}</td>
       </tr>
+      {cobranza.abierta && (
+        <tr id={`tactical-${tactical.id}-cobranza-fila`} className={styles.filaLineas}>
+          <td colSpan={COLUMNAS_TACTICAL}>
+            <TacticalCobranza tactical={tactical} onGuardado={cobranza.onGuardado} onCerrar={cobranza.onAlternar} />
+          </td>
+        </tr>
+      )}
       {abierto && (
         <tr id={`tactical-${tactical.id}-lineas`} className={styles.filaLineas}>
           <td colSpan={COLUMNAS_TACTICAL}>

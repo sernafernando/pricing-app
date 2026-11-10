@@ -120,3 +120,42 @@
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* Pendientes / Cobrados (tactical cobranza S4): two compact cards between the filters and the list. */
+.kpis {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 240px;
+  padding: var(--space-3) var(--space-4);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.kpiCantidad {
+  font-size: var(--font-lg);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.kpiMonto {
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.kpiNota {
+  align-self: flex-end;
+  margin: 0;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
