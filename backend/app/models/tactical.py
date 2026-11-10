@@ -20,7 +20,7 @@ one counter per target with the same cap; true = one pool over the selection.
 """
 
 from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey, Index, Integer
-from sqlalchemy import Numeric, String, Text
+from sqlalchemy import Numeric, String, Text, text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import false, func, true
 
@@ -96,10 +96,26 @@ class TacticalTienda(Base):
     __table_args__ = (
         CheckConstraint(TIENDA_TIPO, name="ck_tactical_tiendas_tipo"),
         CheckConstraint(TIENDA_STORE, name="ck_tactical_tiendas_store"),
-        # Uniqueness: partial indexes in migration `20261107_tacticals_tiendas`
-        # (oficial per store_id; fuera/tienda_nube once per tactical — NULL store_id).
         Index("ix_tactical_tiendas_tactical_id", "tactical_id"),
         Index("ix_tactical_tiendas_store_id", "store_id"),
+        # Partial, as migration `20261107_tacticals_tiendas`: channel rows have a NULL store_id, which a plain UNIQUE
+        # would not collapse.
+        Index(
+            "uq_tactical_tiendas_oficial",
+            "tactical_id",
+            "store_id",
+            unique=True,
+            postgresql_where=text("tipo = 'oficial'"),
+            sqlite_where=text("tipo = 'oficial'"),
+        ),
+        Index(
+            "uq_tactical_tiendas_canal",
+            "tactical_id",
+            "tipo",
+            unique=True,
+            postgresql_where=text("tipo IN ('fuera', 'tienda_nube')"),
+            sqlite_where=text("tipo IN ('fuera', 'tienda_nube')"),
+        ),
     )
 
     id = Column(BigInteger, primary_key=True)
