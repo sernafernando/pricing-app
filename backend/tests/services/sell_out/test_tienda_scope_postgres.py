@@ -172,6 +172,53 @@ class TestExistingTactical:
         assert _filas(engine, campana) == [("ml", gauss, 2, Decimal("20.00")), ("ml", tplink, 1, Decimal("10.00"))]
 
 
+def _tactical_todas(engine: Engine) -> int:
+    """A tactical with "Todas las tiendas oficiales" and no channel row: stored as all (S2)."""
+    with engine.begin() as conn:
+        return conn.execute(
+            text(
+                "INSERT INTO tacticals (tipo, nombre, marca, fecha_desde, fecha_hasta, moneda, usuario_id, "
+                "todas_tiendas, tope_compartido) VALUES ('sell_out', 'Todas', 'TP-LINK', '2026-11-01', "
+                "'2026-11-30', 'ARS', 7, true, true) RETURNING id"
+            )
+        ).scalar_one()
+
+
+class TestTodasEsTodasLasVentas:
+    """S2, owner 2026-11-10: "Si es Todas las tiendas oficiales es todas las ventas de ese producto"."""
+
+    def test_todas_credits_ml_without_store_fuera_and_tienda_nube(self, engine: Engine) -> None:
+        campana = w.campana(
+            engine, [w.grupo(engine, [TP_ROUTERS])], tactical_id=_tactical_todas(engine), tactical_linea=1
+        )
+        gauss = _venta_ml(engine, 2964, 1, D(2026, 11, 2), store_id=GAUSS)
+        ml = _venta_ml(engine, 2964, 2, D(2026, 11, 2), store_id=None)
+        fuera = w.venta(engine, "fuera", 2964, 1, D(2026, 11, 3))
+        tn = w.venta(engine, "tn", 2964, 3, D(2026, 11, 4))
+
+        _recalcular(engine, campana)
+
+        assert _filas(engine, campana) == [
+            ("ml", gauss, 1, Decimal("10.00")),
+            ("ml", ml, 2, Decimal("20.00")),
+            ("fuera", fuera, 1, Decimal("10.00")),
+            ("tn", tn, 3, Decimal("30.00")),
+        ]
+
+    def test_a_scoped_tactical_credits_none_of_them(self, engine: Engine) -> None:
+        campana = w.campana(
+            engine, [w.grupo(engine, [TP_ROUTERS])], tactical_id=_tactical_solo_gauss(engine), tactical_linea=1
+        )
+        gauss = _venta_ml(engine, 2964, 1, D(2026, 11, 2), store_id=GAUSS)
+        _venta_ml(engine, 2964, 2, D(2026, 11, 2), store_id=None)
+        w.venta(engine, "fuera", 2964, 1, D(2026, 11, 3))
+        w.venta(engine, "tn", 2964, 3, D(2026, 11, 4))
+
+        _recalcular(engine, campana)
+
+        assert _filas(engine, campana) == [("ml", gauss, 1, Decimal("10.00"))]
+
+
 class TestNarrowedTacticalReads:
     """The reads around the rebuild count only the sales the scope credits, like the rebuild does."""
 

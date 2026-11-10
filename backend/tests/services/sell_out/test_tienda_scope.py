@@ -9,14 +9,24 @@ from types import SimpleNamespace
 from app.models.sell_out import SellOutCampana
 from app.services.sell_out.alcance import Venta
 from app.services.sell_out.asignacion import _asignar, _Tasas
-from app.services.sell_out.tienda_scope import Scope, alcanza, scope_desde_tactical, target_key
+from app.services.sell_out.tienda_scope import Scope, alcanza, contadores, scope_desde_tactical, target_key
 
 
-def test_alcanza_todas_credits_every_ml_sale_but_no_unlisted_channel() -> None:
+def test_alcanza_todas_credits_every_sale_of_every_channel() -> None:
+    """S2: "Todas" is every sale, a channel added later included, with no channel row stored."""
     scope = Scope(todas_tiendas=True, tope_compartido=False, oficiales=frozenset(), canales=frozenset())
     assert alcanza(scope, "ml", 57997) is True
     assert alcanza(scope, "ml", None) is True
-    assert alcanza(scope, "fuera", None) is False
+    assert alcanza(scope, "fuera", None) is True
+    assert alcanza(scope, "tn", None) is True
+    assert alcanza(scope, "un_canal_nuevo", None) is True
+
+
+def test_with_todas_each_channel_has_its_own_counter() -> None:
+    scope = Scope(todas_tiendas=True, tope_compartido=False, oficiales=frozenset(), canales=frozenset())
+    assert contadores(scope, {57997}) == {
+        ("oficial", 57997), ("sin_tienda", None), ("fuera", None), ("tienda_nube", None),
+    }  # fmt: skip
 
 
 def test_alcanza_lista_and_channels() -> None:

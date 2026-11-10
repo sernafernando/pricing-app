@@ -1,9 +1,11 @@
 """Official-store / channel scope for sell-out campaigns that belong to a tactical.
 
 A campaign without `tactical_id` stays global (pre-scope behaviour). With a tactical:
-`todas_tiendas` credits every ML sale, with or without an official store (what a tactical
-credited before the scope existed); `fuera` / `tienda_nube` only when those synthetic rows are listed.
-A tactical that predates the scope got both rows and a shared cap from migration `20261107_tacticals_tiendas`. `tope_compartido` is independent: False means
+`todas_tiendas` credits every sale of every channel: every ML sale with or without an official store, Por fuera,
+Tienda Nube and any channel added later (owner 2026-11-10: "Si es Todas las tiendas oficiales es todas las ventas de
+ese producto"); it is stored as that flag, never as a list of today's channels, so its channel rows do not matter.
+A narrowed tactical credits its listed official stores and `fuera` / `tienda_nube` only when those rows are listed.
+A tactical that predates the scope got todas, both rows and a shared cap from migration `20261107_tacticals_tiendas`. `tope_compartido` is independent: False means
 each target gets its own run of `tope.asignar` with the same cap numbers.
 """
 
@@ -76,11 +78,9 @@ def scope_desde_tactical(tactical: Tactical) -> Scope:
 
 def alcanza(scope: Optional[Scope], canal: str, store_id: Optional[int]) -> bool:
     """Whether a sale line is inside the tactical's store/channel selection."""
-    if scope is None:
-        return True
+    if scope is None or scope.todas_tiendas:
+        return True  # every sale: every ML sale, an official store or not, and every channel
     if canal == "ml":
-        if scope.todas_tiendas:
-            return True  # every ML sale, an official store or not
         return store_id is not None and store_id in scope.oficiales
     tipo = _CANAL_A_TIPO.get(canal)
     if tipo is None:
@@ -119,10 +119,11 @@ def tiendas_activas(db: Session) -> Set[int]:
 
 def contadores(scope: Scope, activas: Set[int]) -> Set[TargetKey]:
     """The cap counters a per-store scope has before any sale: each listed store (with every store, each active one
-    plus the ML sales without one) and each listed channel. A counter that already credited a sale counts too."""
+    plus the ML sales without one, and each channel) and each listed channel. A counter that already credited a sale counts too."""
     keys: Set[TargetKey] = {(tipo, None) for tipo in scope.canales}
     if scope.todas_tiendas:
         keys |= {("oficial", s) for s in activas} | {("sin_tienda", None)}
+        keys |= {(tipo, None) for tipo in _CANAL_A_TIPO.values()}
     else:
         keys |= {("oficial", s) for s in scope.oficiales}
     return keys
