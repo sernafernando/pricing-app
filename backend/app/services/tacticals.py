@@ -42,7 +42,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterable, Optional
 
 from pydantic import ValidationError
-from sqlalchemy import and_, exists, func, or_
+from sqlalchemy import Select, Subquery, and_, case, exists, func, literal, or_, select, union_all
 from sqlalchemy.orm import Query, Session, selectinload
 
 from app.models.auditoria import Auditoria, TipoAccion
@@ -52,6 +52,7 @@ from app.models.pedido_compra import PedidoCompra
 from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP
 from app.models.sell_in import (
+    SellInBonoConsumo,
     SellInBonoMarca,
     SellInCompra,
     SellInCompraItem,
@@ -916,23 +917,107 @@ def listar(db: Session, filtros: Filtros, page: int, page_size: int, hoy: Option
     return total, filas
 
 
+def _usado_por_linea(ids: Select) -> Subquery:
+    """One row per child of the tacticals in `ids` (a subquery of ids): `(tactical_id, moneda, monto)`, `monto` being
+    its `monto_usado` exactly as `serializar` computes it (`_lineas_campanas`, `_lineas_bonos` through
+    `bonos_crud.serializar`, `_lineas_compras`), rounded to cents per child. A child that used nothing is a 0 row."""
+    cero = literal(0)
+    campanas_ = (
+        select(
+            SellOutCampana.tactical_id.label("tactical_id"),
+            SellOutCampana.moneda.label("moneda"),
+            func.round(func.coalesce(func.sum(SellOutConsumo.monto), cero), 2).label("monto"),
+        )
+        .select_from(SellOutCampana)
+        .outerjoin(SellOutConsumo, SellOutConsumo.campana_id == SellOutCampana.id)
+        .where(SellOutCampana.tactical_id.in_(ids))
+        .group_by(SellOutCampana.id)
+    )
+    # A cost bonus: what its sales got (ARS); counted only when the bonus itself is ARS, as `monto_generado`.
+    costo = SellInBonoMarca.base == BASE_COSTO_VENTA
+    bonos_costo = (
+        select(
+            SellInBonoMarca.tactical_id,
+            SellInBonoMarca.moneda,
+            case(
+                (
+                    SellInBonoMarca.moneda == "ARS",
+                    func.round(func.coalesce(func.sum(SellInBonoConsumo.descuento_ars), cero), 2),
+                ),
+                else_=cero,
+            ),
+        )
+        .select_from(SellInBonoMarca)
+        .outerjoin(SellInBonoConsumo, SellInBonoConsumo.bono_id == SellInBonoMarca.id)
+        .where(SellInBonoMarca.tactical_id.in_(ids), costo)
+        .group_by(SellInBonoMarca.id)
+    )
+    # Any other bonus: its active purchases' assigned amounts in the bonus's own currency (another one is not added).
+    bonos_compras = (
+        select(
+            SellInBonoMarca.tactical_id,
+            SellInBonoMarca.moneda,
+            func.round(func.coalesce(func.sum(SellInCompraItem.monto_asignado), cero), 2),
+        )
+        .select_from(SellInBonoMarca)
+        .outerjoin(
+            SellInCompra,
+            and_(
+                SellInCompra.bono_id == SellInBonoMarca.id,
+                SellInCompra.estado == "activa",
+                SellInCompra.moneda == SellInBonoMarca.moneda,
+            ),
+        )
+        .outerjoin(SellInCompraItem, SellInCompraItem.compra_id == SellInCompra.id)
+        .where(SellInBonoMarca.tactical_id.in_(ids), ~costo)
+        .group_by(SellInBonoMarca.id)
+    )
+    # An invoice total: what its sales took (ARS), in a USD purchase's currency at its own rate.
+    ars = func.coalesce(func.sum(SellInConsumo.descuento_ars), cero)
+    en_usd = and_(SellInCompra.moneda == "USD", SellInCompra.tipo_cambio.isnot(None))
+    compras_ = (
+        select(
+            SellInCompra.tactical_id,
+            SellInCompra.moneda,
+            func.round(case((en_usd, ars / SellInCompra.tipo_cambio), else_=ars), 2),
+        )
+        .select_from(SellInCompra)
+        .outerjoin(SellInCompraItem, SellInCompraItem.compra_id == SellInCompra.id)
+        .outerjoin(SellInConsumo, SellInConsumo.compra_item_id == SellInCompraItem.id)
+        .where(SellInCompra.tactical_id.in_(ids))
+        .group_by(SellInCompra.id)
+    )
+    return union_all(campanas_, bonos_costo, bonos_compras, compras_).subquery()
+
+
 def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
     """Pendientes and Cobrados over every tactical the other filters match (S4): how many, and the money they used
-    per currency, summed from their lines' `monto_usado` exactly as the list's Avance column shows it (a USD
-    tactical's cost-reduction lines count in ARS). ARS first, then USD; a currency with no tactical is left out."""
-    leidos = serializar(db, _con_relaciones(_consulta(db, filtros, hoy or date.today())).all())
-    salida = {}
-    for clave, cobrados in (("pendientes", False), ("cobrados", True)):
-        grupo = [t for t in leidos if (t["cobranza"] is not None) == cobrados]
-        montos: dict[str, Decimal] = defaultdict(Decimal)
-        for t in grupo:
-            for linea in t["lineas"]:
-                montos[linea["moneda"]] += Decimal(linea["monto_usado"])
-        salida[clave] = {
-            "cantidad": len(grupo),
-            "montos": [{"moneda": m, "monto": _cents(montos[m])} for m in ("ARS", "USD") if m in montos],
+    per currency, the sum of their lines' `monto_usado` exactly as the list's Avance column shows it (a USD
+    tactical's cost-reduction lines count in ARS). Two SQL aggregates, whatever the number of tacticals. ARS first,
+    then USD; a currency with no line is left out."""
+    cobrado = exists().where(TacticalCobranza.tactical_id == Tactical.id)
+    base = (
+        _consulta(db, filtros, hoy or date.today())
+        .order_by(None)
+        .with_entities(Tactical.id.label("id"), cobrado.label("cobrado"))
+        .subquery()
+    )
+    cantidades = {bool(c): int(n) for c, n in db.query(base.c.cobrado, func.count()).group_by(base.c.cobrado)}
+    lineas = _usado_por_linea(select(base.c.id))
+    montos: dict[bool, dict[str, Decimal]] = defaultdict(dict)
+    for c, moneda, monto in (
+        db.query(base.c.cobrado, lineas.c.moneda, func.sum(lineas.c.monto))
+        .join(lineas, lineas.c.tactical_id == base.c.id)
+        .group_by(base.c.cobrado, lineas.c.moneda)
+    ):
+        montos[bool(c)][moneda] = _cents(monto)
+    return {
+        clave: {
+            "cantidad": cantidades.get(cobrados, 0),
+            "montos": [{"moneda": m, "monto": montos[cobrados][m]} for m in ("ARS", "USD") if m in montos[cobrados]],
         }
-    return salida
+        for clave, cobrados in (("pendientes", False), ("cobrados", True))
+    }
 
 
 # --- collection (tactical cobranza S1, S2) ----------------------------------------------------------------------------

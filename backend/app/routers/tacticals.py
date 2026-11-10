@@ -12,9 +12,9 @@ build against is `handoffs/tactical-tarea.md` "Contrato final".
 - A create stores at most `HIJOS_MAX` (500) campaigns or bonuses (a per-product line counts each product): past it,
   a 422 before anything is stored.
 - Collection (tactical cobranza S2): `PUT /{id}/cobranza` saves the one record (only `fecha_cobro` required, 422
-  without it), `DELETE /{id}/cobranza` undoes it; both need `<tipo>.gestionar`. The list filters by `cobranza`
-  (cobrados | pendientes) and returns `kpis` (Pendientes / Cobrados: count and money used per currency) over the
-  other filters.
+  without it), `DELETE /{id}/cobranza` undoes it (204 when there is nothing to undo); both need `<tipo>.gestionar`.
+  The list filters by `cobranza` (cobrados | pendientes) and returns `kpis` (Pendientes / Cobrados: count and money
+  used per currency) over the other filters.
 - A broken rule is a 422 with one Spanish message ("Línea N: ..." when a line broke it); a campaign being
   recomputed is a 409 (retry; nothing stored); voiding twice is a 409; an unknown tactical is a 404.
 """
@@ -22,9 +22,9 @@ build against is `handoffs/tactical-tarea.md` "Contrato final".
 from __future__ import annotations
 
 from datetime import date
-from typing import Optional
+from typing import Optional, Union
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_current_user
@@ -180,15 +180,17 @@ def cobrar_tactical(
     return service.serializar(db, [tactical])[0]
 
 
-@router.delete("/{tactical_id}/cobranza", response_model=TacticalOut)
+@router.delete(
+    "/{tactical_id}/cobranza",
+    response_model=TacticalOut,
+    responses={status.HTTP_204_NO_CONTENT: {"description": "The tactical had no collection record: nothing to undo"}},
+)
 def deshacer_cobro_tactical(
     tactical_id: int, user: Usuario = Depends(get_current_user), db: Session = Depends(get_db)
-) -> dict:
-    """Undo the collection: the record is deleted and the tactical reads "Pendiente" again; 404 when it had none.
-    Permission `<tipo>.gestionar`."""
+) -> Union[dict, Response]:
+    """Undo the collection: the record is deleted and the tactical reads "Pendiente" again (200 with the tactical).
+    Idempotent: a tactical without a record is a 204 with no body. Permission `<tipo>.gestionar`."""
     tactical = _buscar(db, user, tactical_id, "gestionar")
     if not service.deshacer_cobro(db, tactical_id):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"El tactical {tactical_id} no tiene una cobranza cargada"
-        )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
     return service.serializar(db, [tactical])[0]

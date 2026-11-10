@@ -57,7 +57,8 @@ def test_save_edit_list_and_undo(client, tactical_id, lector) -> None:
     deshecho = client.delete(f"{BASE}/{tactical_id}/cobranza", headers=lector)
     assert deshecho.status_code == 200, deshecho.text
     assert deshecho.json()["cobranza"] is None
-    assert client.delete(f"{BASE}/{tactical_id}/cobranza", headers=lector).status_code == 404
+    otra_vez = client.delete(f"{BASE}/{tactical_id}/cobranza", headers=lector)
+    assert (otra_vez.status_code, otra_vez.content) == (204, b"")  # idempotent: nothing left to undo
 
 
 def test_the_date_is_required(client, tactical_id, lector) -> None:
