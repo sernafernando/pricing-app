@@ -11,7 +11,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.sell_out import RepartoCriterio
 
@@ -87,6 +87,16 @@ class TacticalIn(BaseModel):
     tiendas: list[TacticalTiendaIn] = Field(default_factory=list, max_length=TIENDAS_MAX)
     nota: Optional[str] = Field(default=None, max_length=NOTA_MAX)
     lineas: list[TacticalLineaIn] = Field(min_length=1, max_length=LINEAS_MAX)
+
+    @model_validator(mode="after")
+    def _alcance_omitido(self) -> "TacticalIn":
+        """A client that sends no scope at all (none of the three fields) keeps today's reach, as the migration's
+        backfill: every official store plus outside sales and Tienda Nube, with one shared cap. The store picker
+        always sends all three, so a tactical made there keeps per-target caps by default."""
+        if not {"todas_tiendas", "tope_compartido", "tiendas"} & self.model_fields_set:
+            self.tope_compartido = True
+            self.tiendas = [TacticalTiendaIn(tipo="fuera"), TacticalTiendaIn(tipo="tienda_nube")]
+        return self
 
 
 class TacticalLineaTopesIn(BaseModel):

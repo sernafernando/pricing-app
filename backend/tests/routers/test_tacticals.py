@@ -102,8 +102,14 @@ def test_the_note_is_bounded(client, productos, sell_out) -> None:
     assert client.post(BASE, json=_body(nota="x" * 2001), headers=sell_out).status_code == 422
 
 
-def test_create_defaults_to_all_stores(client, productos, sell_out) -> None:
+def test_create_without_a_scope_keeps_todays_reach(client, productos, sell_out) -> None:
     creado = client.post(BASE, json=_body(), headers=sell_out).json()
+    assert (creado["todas_tiendas"], creado["tope_compartido"]) == (True, True)
+    assert creado["tiendas"] == [{"tipo": "fuera", "store_id": None}, {"tipo": "tienda_nube", "store_id": None}]
+
+
+def test_create_with_a_partial_scope_keeps_per_target_caps(client, productos, sell_out) -> None:
+    creado = client.post(BASE, json=_body(todas_tiendas=True), headers=sell_out).json()
     assert (creado["todas_tiendas"], creado["tope_compartido"], creado["tiendas"]) == (True, False, [])
 
 
