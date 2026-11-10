@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useTiendasOficialesStore } from '../store/tiendasOficialesStore';
 import { groupStores, labelForIds, labelsForIds, groupValueForSelection } from '../constants/tiendasOficiales';
 
@@ -16,12 +16,14 @@ import { groupStores, labelForIds, labelsForIds, groupValueForSelection } from '
  *   single id of a grouped store -> the group's option).
  * - `tiendas`: every store (inactive too: their history still needs a name).
  * - `activas`: active stores ordered by `orden`.
+ * - `loaded`: the stores were read (or their read failed: names fall back).
  * - `grupos`: the picker options (see `groupStores`): stores sharing a `clave`
  *   collapse into one option that selects every id of the clave.
  */
 export function useTiendasOficiales() {
   const tiendas = useTiendasOficialesStore((state) => state.tiendas);
   const loading = useTiendasOficialesStore((state) => state.loading);
+  const loaded = useTiendasOficialesStore((state) => state.loaded);
   const load = useTiendasOficialesStore((state) => state.load);
 
   useEffect(() => {
@@ -36,11 +38,14 @@ export function useTiendasOficiales() {
 
   const activas = tiendas.filter((t) => t.activa).sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre));
 
+  // One array per store list: effects that depend on the groups do not re-run on every render.
+  const grupos = useMemo(() => groupStores(tiendas), [tiendas]);
+
   const getLabelForIds = (csv) => labelForIds(tiendas, getLabel, csv);
   const getLabelsForIds = (csv) => labelsForIds(tiendas, getLabel, csv);
   const getGroupValue = (csv) => groupValueForSelection(tiendas, csv);
 
-  return { tiendas, activas, getLabelForIds, getLabelsForIds, getGroupValue, grupos: groupStores(tiendas), loading, getLabel, reload: () => load(true) };
+  return { tiendas, activas, getLabelForIds, getLabelsForIds, getGroupValue, grupos, loading, loaded, getLabel, reload: () => load(true) };
 }
 
 export default useTiendasOficiales;

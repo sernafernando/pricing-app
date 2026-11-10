@@ -472,6 +472,17 @@ describe('Renovar', () => {
     expect(screen.queryByText('Cargando el tactical a renovar…')).not.toBeInTheDocument();
   });
 
+  it('reads the tactical to renew once, even after the official stores arrive', async () => {
+    api.get.mockImplementation((url) =>
+      url === '/tacticals/1' ? Promise.resolve({ data: TACTICAL_BPS }) : Promise.resolve({ data: {} }),
+    );
+    renderAt('/sell-in/tactical/nuevo?tipo=sell_out&renovar=1');
+
+    expect(await screen.findByDisplayValue('Tacticals BPS Noviembre Q1FY27')).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(api.get.mock.calls.filter(([url]) => url === '/tacticals/1')).toHaveLength(1);
+  });
+
   it('says so when the tactical to renew cannot be read', async () => {
     api.get.mockImplementation((url) => (url === '/tacticals/1' ? Promise.reject(new Error('500')) : Promise.resolve({ data: {} })));
     renderAt('/sell-in/tactical/nuevo?tipo=sell_out&renovar=1');

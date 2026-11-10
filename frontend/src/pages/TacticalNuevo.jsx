@@ -139,29 +139,37 @@ export default function TacticalNuevo() {
   const [error, setError] = useState(null);
   const [enviando, setEnviando] = useState(false);
   const [descartar, setDescartar] = useState(false);
-  const { grupos: gruposTiendas } = useTiendasOficiales();
+  const { grupos: gruposTiendas, loaded: tiendasCargadas } = useTiendasOficiales();
   const ejemploTope = lineas.map((l) => numeroDe(l.topeUnidades)).find((n) => n != null && n > 0) ?? null;
 
   const renovar = params.get('renovar');
   // Renovar draws no form until the tactical arrives: what the user typed meanwhile would be overwritten.
   const [cargando, setCargando] = useState(Boolean(renovar));
+  const [aRenovar, setARenovar] = useState(null);
+  // The tactical is read once; its stores map to the picker's groups once those arrive too.
   useEffect(() => {
     if (!renovar) return undefined;
     let activo = true;
     tacticalsAPI
       .detalle(renovar)
-      .then(({ data }) => {
+      .then(({ data }) => activo && setARenovar(data))
+      .catch(() => {
         if (!activo) return;
-        const renovado = renovacionDe(data, gruposTiendas);
-        setForm(renovado.form);
-        setLineas(renovado.lineas.length ? renovado.lineas : [nuevaLinea(renovado.form.marca)]);
-      })
-      .catch(() => activo && setError('No se pudo cargar el tactical a renovar.'))
-      .finally(() => activo && setCargando(false));
+        setError('No se pudo cargar el tactical a renovar.');
+        setCargando(false);
+      });
     return () => {
       activo = false;
     };
-  }, [renovar, gruposTiendas]);
+  }, [renovar]);
+  useEffect(() => {
+    if (!aRenovar || !tiendasCargadas) return;
+    const renovado = renovacionDe(aRenovar, gruposTiendas);
+    setForm(renovado.form);
+    setLineas(renovado.lineas.length ? renovado.lineas : [nuevaLinea(renovado.form.marca)]);
+    setARenovar(null);
+    setCargando(false);
+  }, [aRenovar, tiendasCargadas, gruposTiendas]);
   useEffect(() => {
     let activo = true;
     productosAPI
