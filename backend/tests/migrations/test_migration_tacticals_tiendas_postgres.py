@@ -42,9 +42,7 @@ _STUBS = [
 
 
 def _step(engine: Engine, step: str) -> None:
-    spec = importlib.util.spec_from_file_location(
-        f"{_REVISION}_migration", os.path.join(_VERSIONS, f"{_REVISION}.py")
-    )
+    spec = importlib.util.spec_from_file_location(f"{_REVISION}_migration", os.path.join(_VERSIONS, f"{_REVISION}.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     with engine.connect() as conn:
@@ -72,13 +70,41 @@ def _columna(engine: Engine, tabla: str, columna: str):
 
 @pytest.mark.postgres
 class TestUpgrade:
-    def test_existing_tacticals_default_to_all_stores(self, engine: Engine) -> None:
+    def test_existing_tacticals_keep_today_s_reach_and_one_shared_cap(self, engine: Engine) -> None:
         _step(engine, "upgrade")
 
         assert tuple(_columna(engine, "tacticals", "todas_tiendas"))[:2] == ("boolean", "NO")
         assert tuple(_columna(engine, "tacticals", "tope_compartido"))[:2] == ("boolean", "NO")
         with engine.connect() as conn:
-            assert conn.execute(text("SELECT todas_tiendas, tope_compartido FROM tacticals")).one() == (True, False)
+            assert conn.execute(text("SELECT todas_tiendas, tope_compartido FROM tacticals")).one() == (True, True)
+            assert conn.execute(text("SELECT tipo, store_id FROM tactical_tiendas ORDER BY tipo")).all() == [
+                ("fuera", None),
+                ("tienda_nube", None),
+            ]
+
+    def test_tacticals_created_after_it_keep_the_new_defaults_on_a_second_run(self, engine: Engine) -> None:
+        _step(engine, "upgrade")
+        with engine.begin() as conn:
+            nuevo = conn.execute(
+                text(
+                    "INSERT INTO tacticals (tipo, nombre, marca, fecha_desde, fecha_hasta, moneda, usuario_id) "
+                    "VALUES ('sell_out', 'Nuevo', 'MARCA A', '2026-12-01', '2026-12-31', 'ARS', 7) RETURNING id"
+                )
+            ).scalar_one()
+
+        _step(engine, "upgrade")
+
+        with engine.connect() as conn:
+            assert conn.execute(
+                text("SELECT todas_tiendas, tope_compartido FROM tacticals WHERE id = :t"), {"t": nuevo}
+            ).one() == (True, False)
+            assert (
+                conn.execute(
+                    text("SELECT count(*) FROM tactical_tiendas WHERE tactical_id = :t"), {"t": nuevo}
+                ).scalar_one()
+                == 0
+            )
+            assert conn.execute(text("SELECT count(*) FROM tactical_tiendas")).scalar_one() == 2
 
     def test_oficial_row_needs_store_id_and_channels_forbid_it(self, engine: Engine) -> None:
         _step(engine, "upgrade")
@@ -94,17 +120,12 @@ class TestUpgrade:
         with pytest.raises(IntegrityError):
             with engine.begin() as conn:
                 conn.execute(
-                    text(
-                        "INSERT INTO tactical_tiendas (tactical_id, tipo, store_id) VALUES (:t, 'fuera', 57997)"
-                    ),
+                    text("INSERT INTO tactical_tiendas (tactical_id, tipo, store_id) VALUES (:t, 'fuera', 57997)"),
                     {"t": tid},
                 )
         with engine.begin() as conn:
             conn.execute(
-                text(
-                    "INSERT INTO tactical_tiendas (tactical_id, tipo, store_id) VALUES "
-                    "(:t, 'oficial', 57997), (:t, 'fuera', NULL)"
-                ),
+                text("INSERT INTO tactical_tiendas (tactical_id, tipo, store_id) VALUES (:t, 'oficial', 57997)"),
                 {"t": tid},
             )
 
@@ -119,9 +140,7 @@ class TestUpgrade:
         with pytest.raises(IntegrityError):
             with engine.begin() as conn:
                 conn.execute(
-                    text(
-                        "INSERT INTO tactical_tiendas (tactical_id, tipo, store_id) VALUES (:t, 'oficial', 57997)"
-                    ),
+                    text("INSERT INTO tactical_tiendas (tactical_id, tipo, store_id) VALUES (:t, 'oficial', 57997)"),
                     {"t": tid},
                 )
 

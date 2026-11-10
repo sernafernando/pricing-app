@@ -1,7 +1,7 @@
 """tacticals: official-store / channel scope and shared-cap flag
 
 Revision ID: 20261107_tacticals_tiendas
-Revises: 20261106_combo_consumos_item
+Revises: 20261108_sell_in_bono_monto_total
 Create Date: 2026-11-07
 
 Tacticals-tienda slice 1. Owner: tacticals choose which official stores (or all) they apply to,
@@ -10,6 +10,10 @@ plus synthetic channels Fuera / Tienda Nube; cap mode is independent (per-target
 - `tacticals.todas_tiendas BOOLEAN NOT NULL DEFAULT true`: existing rows keep today's global behaviour.
 - `tacticals.tope_compartido BOOLEAN NOT NULL DEFAULT false`: same cap value; false = one counter per
   target, true = one pool over the selection.
+- Backfill, only on the run that adds the columns: every tactical that already exists keeps exactly what it
+  credits today, so it gets `tope_compartido = true` (one cap, as before) plus the `fuera` and `tienda_nube`
+  rows (it credited those channels before). `todas_tiendas = true` already covers every ML sale, with or
+  without an official store. Tacticals created later keep the per-target default.
 - `tactical_tiendas`: rows for `oficial` (+ `store_id` → `ml_tiendas_oficiales`) and channels
   `fuera` / `tienda_nube` (no store_id). CASCADE with the header. Partial unique indexes because
   channel rows have NULL `store_id` (a plain UNIQUE would not collapse them in Postgres).
@@ -25,7 +29,7 @@ from typing import Sequence, Union
 from alembic import op
 
 revision: str = "20261107_tacticals_tiendas"
-down_revision: Union[str, None] = "20261106_combo_consumos_item"
+down_revision: Union[str, None] = "20261108_sell_in_bono_monto_total"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -54,6 +58,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_tactical_tiendas_canal
   ON tactical_tiendas (tactical_id, tipo) WHERE tipo IN ('fuera', 'tienda_nube')
 """
 
+# Run once, right after the columns are added (an existing tactical = one that predates them).
+BACKFILL = """
+UPDATE tacticals SET tope_compartido = true;
+INSERT INTO tactical_tiendas (tactical_id, tipo) SELECT id, 'fuera' FROM tacticals;
+INSERT INTO tactical_tiendas (tactical_id, tipo) SELECT id, 'tienda_nube' FROM tacticals
+"""
+
 DOWNGRADE = """
 DROP INDEX IF EXISTS uq_tactical_tiendas_canal;
 DROP INDEX IF EXISTS uq_tactical_tiendas_oficial;
@@ -78,7 +89,15 @@ def _con_lock_timeout(sql: str) -> None:
 
 
 def upgrade() -> None:
-    _con_lock_timeout(UPGRADE)
+    columnas_previas = (
+        op.get_bind()
+        .exec_driver_sql(
+            "SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() "
+            "AND table_name = 'tacticals' AND column_name = 'tope_compartido'"
+        )
+        .first()
+    )
+    _con_lock_timeout(UPGRADE if columnas_previas else UPGRADE + ";" + BACKFILL)
 
 
 def downgrade() -> None:
