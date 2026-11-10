@@ -28,7 +28,7 @@ import {
   problemaDe,
   unidadesDelTope,
 } from '../components/tactical/tacticalLineas';
-import { contadoresDelTope } from '../components/tactical/tacticalTiendas';
+import { ALCANCE_INICIAL, contadoresDelTope } from '../components/tactical/tacticalTiendas';
 import { renovacionDe } from '../components/tactical/tacticalRenovar';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import styles from './TacticalNuevo.module.css';
@@ -128,9 +128,7 @@ export default function TacticalNuevo() {
       tipoCambio: '',
       incluyeIva: false,
       acumulable: true,
-      todasTiendas: true,
-      topeCompartido: false,
-      tiendaKeys: [],
+      ...ALCANCE_INICIAL,
       nota: '',
     };
   });

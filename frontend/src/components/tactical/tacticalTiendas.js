@@ -10,6 +10,12 @@
  */
 export const ALCANCE_POR_TIENDA = true;
 
+/**
+ * A new tactical's scope: today's reach (every ML sale, with or without an official store, outside sales and Tienda
+ * Nube, one shared cap), as an existing one got. Narrowing stores and per-store caps are the user's choice.
+ */
+export const ALCANCE_INICIAL = { todasTiendas: true, topeCompartido: true, tiendaKeys: ['fuera', 'tienda_nube'] };
+
 export const CANALES_TACTICAL = [
   { value: 'fuera', label: 'Por fuera' },
   { value: 'tienda_nube', label: 'Tienda Nube' },

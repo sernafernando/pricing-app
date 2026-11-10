@@ -167,9 +167,13 @@ describe('creating a tactical', () => {
         incluye_iva: false,
         acumulable: true,
         nota: null,
+        // A new tactical starts with today's reach: every ML sale, outside sales and Tienda Nube, one shared cap.
         todas_tiendas: true,
-        tope_compartido: false,
-        tiendas: [],
+        tope_compartido: true,
+        tiendas: [
+          { tipo: 'fuera', store_id: null },
+          { tipo: 'tienda_nube', store_id: null },
+        ],
         lineas: [
           {
             alcance: 'productos',
