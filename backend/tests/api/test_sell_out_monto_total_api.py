@@ -710,3 +710,93 @@ def test_an_excess_below_a_cent_is_reported_exactly(client, gestor, grupo) -> No
 
     assert resp.status_code == 422
     assert "El reparto (100.0001) supera el monto total (100.00) en 0.0001" in resp.text
+
+
+# --- Split by a criterion (tactical monto total S2/S3/S6) ---
+
+
+def test_create_with_a_criterion_returns_it_and_its_equal_shares(client, gestor, grupo) -> None:
+    out = _crear(client, gestor, grupo, monto_total="1000.00", reparto_criterio="iguales")
+
+    assert out["reparto_criterio"] == "iguales"
+    assert sorted(Decimal(i["reparto_monto"]) for i in out["items"]) == [
+        Decimal("333.33"),
+        Decimal("333.33"),
+        Decimal("333.34"),
+    ]
+
+
+def test_a_manual_campaign_reads_without_a_criterion(client, gestor, grupo) -> None:
+    assert _crear(client, gestor, grupo)["reparto_criterio"] is None
+
+
+def test_put_with_a_criterion_splits_and_a_manual_put_clears_it(client, gestor, grupo) -> None:
+    cid = _crear(client, gestor, grupo, monto_total="300.00")["id"]
+
+    resp = client.put(f"{BASE}/{cid}/reparto", json={"repartos": [], "criterio": "iguales"}, headers=gestor)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["reparto_criterio"] == "iguales"
+    assert sorted(Decimal(i["reparto_monto"]) for i in resp.json()["items"]) == [Decimal("100.00")] * 3
+
+    resp = _repartir(client, gestor, cid, [{"item_id": ROUTER, "reparto_porcentaje": "50"}])
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["reparto_criterio"] is None
+    assert [i["item_id"] for i in resp.json()["items"]] == [ROUTER]
+
+
+def test_put_by_units_stores_no_share(client, gestor, grupo) -> None:
+    cid = _crear(client, gestor, grupo, items=[{"item_id": ROUTER, "reparto_monto": "10"}])["id"]
+
+    resp = client.put(f"{BASE}/{cid}/reparto", json={"repartos": [], "criterio": "unidades"}, headers=gestor)
+
+    assert resp.status_code == 200, resp.text
+    assert (resp.json()["reparto_criterio"], resp.json()["items"]) == ("unidades", [])
+
+
+def test_an_unknown_criterion_is_a_422(client, gestor, grupo) -> None:
+    cid = _crear(client, gestor, grupo)["id"]
+    resp = client.put(f"{BASE}/{cid}/reparto", json={"repartos": [], "criterio": "manual"}, headers=gestor)
+    assert resp.status_code == 422
+
+
+def test_a_scoped_pm_cannot_split_or_preview_by_a_criterion(client, gestor, pm, grupo) -> None:
+    cid = _crear(client, gestor, grupo)["id"]
+
+    resp = client.put(f"{BASE}/{cid}/reparto", json={"repartos": [], "criterio": "iguales"}, headers=pm)
+    assert resp.status_code == 403
+    assert "todas las marcas" in resp.text
+    resp = client.get(f"{BASE}/{cid}/reparto/vista-previa", params={"criterio": "iguales"}, headers=pm)
+    assert resp.status_code == 403
+
+
+def test_the_preview_shows_each_product_and_stores_nothing(client, gestor, grupo) -> None:
+    cid = _crear(client, gestor, grupo, monto_total="300.00")["id"]
+
+    resp = client.get(f"{BASE}/{cid}/reparto/vista-previa", params={"criterio": "iguales"}, headers=gestor)
+
+    assert resp.status_code == 200, resp.text
+    previa = resp.json()
+    assert (previa["criterio"], previa["moneda"], Decimal(previa["monto_total"])) == ("iguales", "ARS", Decimal("300"))
+    assert {i["item_id"]: (i["codigo"], i["unidades"], Decimal(i["monto"])) for i in previa["items"]} == {
+        ROUTER: (f"C{ROUTER}", 0, Decimal("100.00")),
+        SWITCH: (f"C{SWITCH}", 0, Decimal("100.00")),
+        TINTA: (f"C{TINTA}", 0, Decimal("100.00")),
+    }
+    assert Decimal(previa["sin_asignar"]) == 0
+    detalle = client.get(f"{BASE}/{cid}", headers=gestor).json()
+    assert (detalle["reparto_criterio"], detalle["items"]) == (None, [])
+
+
+def test_the_preview_of_a_missing_campaign_is_a_404(client, gestor, grupo) -> None:
+    resp = client.get(f"{BASE}/999999/reparto/vista-previa", params={"criterio": "iguales"}, headers=gestor)
+    assert resp.status_code == 404
+
+
+def test_the_preview_of_a_voided_campaign_is_a_409_like_the_split(client, gestor, grupo, db) -> None:
+    cid = _crear(client, gestor, grupo)["id"]
+    db.get(SellOutCampana, cid).estado = "anulada"
+    db.flush()
+
+    resp = client.get(f"{BASE}/{cid}/reparto/vista-previa", params={"criterio": "iguales"}, headers=gestor)
+
+    assert resp.status_code == 409
