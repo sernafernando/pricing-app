@@ -374,7 +374,7 @@ describe('TacticalsList Cobranza (handoffs/tactical-cobranza-tarea.md S3, S4)', 
 
     const kpis = await screen.findByRole('region', { name: 'Cobranza de los tacticals' });
     expect(within(kpis).getByText('Pendientes').closest('div')).toHaveTextContent(
-      'Pendientes12 tacticalsARS 4.380.250 de 6.000.000 · USD 1.9203 sin tope',
+      'Pendientes12 tacticalsARS 4.380.250 de 6.000.000 · USD 1.920 · tope 800 (líneas con tope)3 sin tope',
     );
     expect(within(kpis).getByText('Cobrados').closest('div')).toHaveTextContent(
       /^Cobrados7 tacticalsARS 2\.115\.000 de 2\.500\.000 · USD 640 de 800$/,

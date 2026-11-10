@@ -121,11 +121,17 @@ export const KPIS_COBRANZA = {
   pendientes: {
     cantidad: 12,
     sin_tope: 3,
-    montos: [{ moneda: 'ARS', monto: '4380250.00', tope: '6000000.00' }, { moneda: 'USD', monto: '1920.00', tope: null }],
+    montos: [
+      { moneda: 'ARS', monto: '4380250.00', tope: '6000000.00', tope_parcial: false },
+      { moneda: 'USD', monto: '1920.00', tope: '800.00', tope_parcial: true },
+    ],
   },
   cobrados: {
     cantidad: 7,
     sin_tope: 0,
-    montos: [{ moneda: 'ARS', monto: '2115000.00', tope: '2500000.00' }, { moneda: 'USD', monto: '640.00', tope: '800.00' }],
+    montos: [
+      { moneda: 'ARS', monto: '2115000.00', tope: '2500000.00', tope_parcial: false },
+      { moneda: 'USD', monto: '640.00', tope: '800.00', tope_parcial: false },
+    ],
   },
 };

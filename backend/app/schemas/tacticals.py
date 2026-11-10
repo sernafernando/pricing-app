@@ -238,6 +238,7 @@ class MontoMonedaOut(BaseModel):
     moneda: Moneda
     monto: Decimal
     tope: Optional[Decimal] = None  # the lines' money caps in this currency (S6); None when no line here has one
+    tope_parcial: bool = False  # only some lines in this currency have a cap: `tope` is not comparable to `monto`
 
 
 class CobranzaKpiOut(BaseModel):

@@ -182,10 +182,10 @@ class TestKpis:
 
         assert kpis == {
             "pendientes": {"cantidad": 3, "sin_tope": 3,
-                           "montos": [{"moneda": "ARS", "monto": Decimal("70.50"), "tope": None},
-                                      {"moneda": "USD", "monto": Decimal("7.00"), "tope": None}]},
+                           "montos": [{"moneda": "ARS", "monto": Decimal("70.50"), "tope": None, "tope_parcial": False},
+                                      {"moneda": "USD", "monto": Decimal("7.00"), "tope": None, "tope_parcial": False}]},
             "cobrados": {"cantidad": 1, "sin_tope": 1,
-                         "montos": [{"moneda": "ARS", "monto": Decimal("100.00"), "tope": None}]},
+                         "montos": [{"moneda": "ARS", "monto": Decimal("100.00"), "tope": None, "tope_parcial": False}]},
         }  # fmt: skip
 
     def test_they_follow_the_other_filters_but_not_the_collection_one(self, db, engine) -> None:
@@ -202,7 +202,7 @@ class TestKpis:
             "pendientes": {
                 "cantidad": 1,
                 "sin_tope": 1,
-                "montos": [{"moneda": "ARS", "monto": Decimal("10.00"), "tope": None}],
+                "montos": [{"moneda": "ARS", "monto": Decimal("10.00"), "tope": None, "tope_parcial": False}],
             },
             "cobrados": {"cantidad": 0, "sin_tope": 0, "montos": []},
         }
@@ -225,11 +225,14 @@ def _segun_las_lineas(db: Session, filtros: service.Filtros) -> dict:
         grupo = [t for t in service.serializar(db, tacticals) if (t["cobranza"] is not None) == cobrados]
         montos: dict[str, Decimal] = {}
         topes: dict[str, Decimal] = {}
+        sin_tope: set[str] = set()  # currencies with an uncapped line
         for t in grupo:
             for linea in t["lineas"]:
                 montos[linea["moneda"]] = montos.get(linea["moneda"], Decimal(0)) + Decimal(linea["monto_usado"])
                 if (tope := _tope_de(linea)) is not None:
                     topes[linea["moneda"]] = topes.get(linea["moneda"], Decimal(0)) + tope
+                else:
+                    sin_tope.add(linea["moneda"])
         salida[clave] = {
             "cantidad": len(grupo),
             "sin_tope": sum(1 for t in grupo if all(_tope_de(linea) is None for linea in t["lineas"])),
@@ -238,6 +241,8 @@ def _segun_las_lineas(db: Session, filtros: service.Filtros) -> dict:
                     "moneda": m,
                     "monto": montos[m].quantize(Decimal("0.01")),
                     "tope": topes[m].quantize(Decimal("0.01")) if m in topes else None,
+                    # Advisory on #2195: the cap covers only some of the generated lines.
+                    "tope_parcial": m in topes and m in sin_tope,
                 }
                 for m in ("ARS", "USD")
                 if m in montos
@@ -370,12 +375,14 @@ class TestKpisEnSql:
             # Campaña 131,00 + Factura % 40,50 + Campaña anulada 10,10 + Costo anulado 20,20; Sin uso USD 0. Caps:
             # Tope 500 + Costo total USD 2.001; the other 5 have none.
             "pendientes": {"cantidad": 7, "sin_tope": 5,
-                           "montos": [{"moneda": "ARS", "monto": Decimal("201.80"), "tope": Decimal("2501.00")},
-                                      {"moneda": "USD", "monto": Decimal("0.00"), "tope": None}]},
+                           "montos": [{"moneda": "ARS", "monto": Decimal("201.80"), "tope": Decimal("2501.00"),
+                                       "tope_parcial": True},
+                                      {"moneda": "USD", "monto": Decimal("0.00"), "tope": None, "tope_parcial": False}]},
             # Costo 108,15; Total USD 2,50 + Total USD anulado 0,50, each capped by its USD 300 total; Costo has none.
             "cobrados": {"cantidad": 3, "sin_tope": 1,
-                         "montos": [{"moneda": "ARS", "monto": Decimal("108.15"), "tope": None},
-                                    {"moneda": "USD", "monto": Decimal("3.00"), "tope": Decimal("600.00")}]},
+                         "montos": [{"moneda": "ARS", "monto": Decimal("108.15"), "tope": None, "tope_parcial": False},
+                                    {"moneda": "USD", "monto": Decimal("3.00"), "tope": Decimal("600.00"),
+                                     "tope_parcial": False}]},
         }  # fmt: skip
 
     def test_voided_tacticals_with_the_anulados_filter(self, db, engine) -> None:
@@ -400,12 +407,12 @@ class TestKpisEnSql:
             "pendientes": {
                 "cantidad": 1,
                 "sin_tope": 1,
-                "montos": [{"moneda": "ARS", "monto": Decimal("30.25"), "tope": None}],
+                "montos": [{"moneda": "ARS", "monto": Decimal("30.25"), "tope": None, "tope_parcial": False}],
             },
             "cobrados": {
                 "cantidad": 1,
                 "sin_tope": 1,
-                "montos": [{"moneda": "ARS", "monto": Decimal("70.00"), "tope": None}],
+                "montos": [{"moneda": "ARS", "monto": Decimal("70.00"), "tope": None, "tope_parcial": False}],
             },
         }
         assert service.kpis(db, filtros, hoy=HOY) == _segun_las_lineas(db, filtros)

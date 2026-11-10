@@ -1004,7 +1004,8 @@ def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
     """Pendientes and Cobrados over every tactical the other filters match (S4): how many, and the money they used
     per currency, the sum of their lines' `monto_usado` exactly as the list's Avance column shows it (a USD
     tactical's cost-reduction lines count in ARS), next to the sum of their money caps in that currency (S6, None
-    when no line there has one), and how many have no money cap on any line. Three SQL aggregates, whatever the
+    when no line there has one; `tope_parcial` when only some lines there have one), and how many have no money cap
+    on any line. Three SQL aggregates, whatever the
     number of tacticals. ARS first, then USD; a currency with no line is left out."""
     cobrado = exists().where(TacticalCobranza.tactical_id == Tactical.id)
     base = (
@@ -1016,8 +1017,15 @@ def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
     cantidades = {bool(c): int(n) for c, n in db.query(base.c.cobrado, func.count()).group_by(base.c.cobrado)}
     lineas = _usado_por_linea(select(base.c.id))
     montos: dict[bool, dict[str, dict]] = defaultdict(dict)
-    for c, moneda, monto, tope in (
-        db.query(base.c.cobrado, lineas.c.moneda, func.sum(lineas.c.monto), func.sum(lineas.c.tope))
+    for c, moneda, monto, tope, con_tope_, lineas_ in (
+        db.query(
+            base.c.cobrado,
+            lineas.c.moneda,
+            func.sum(lineas.c.monto),
+            func.sum(lineas.c.tope),
+            func.count(lineas.c.tope),
+            func.count(),
+        )
         .join(lineas, lineas.c.tactical_id == base.c.id)
         .group_by(base.c.cobrado, lineas.c.moneda)
     ):
@@ -1025,6 +1033,8 @@ def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
             "moneda": moneda,
             "monto": _cents(monto),
             "tope": None if tope is None else _cents(tope),
+            # The cap covers only some of the lines `monto` sums: comparing them would read "900 of 500".
+            "tope_parcial": 0 < con_tope_ < lineas_,
         }
     con_tope = (
         select(lineas.c.tactical_id, func.count(lineas.c.tope).label("topes")).group_by(lineas.c.tactical_id).subquery()

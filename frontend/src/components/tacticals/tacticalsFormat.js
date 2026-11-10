@@ -126,13 +126,17 @@ export const FILTROS_VACIOS = {
 /**
  * A KPI amount (`kpis.*.montos` of the list, tactical cobranza S4): what the lines generated per currency, "of" the
  * lines' money caps when that currency has any (S6): `ARS 4.380.250 de 6.000.000 · USD 1.920`; a dash when none.
+ * When only some lines of the currency have a cap (`tope_parcial`), "de" would compare every line's amount with only
+ * some lines' cap (`900 de 500`), so the cap reads apart: `ARS 900 · tope 500 (líneas con tope)`.
  */
 export const formatMontosKpi = (montos) =>
   montos?.length
     ? montos
-        .map(({ moneda, monto, tope }) => {
+        .map(({ moneda, monto, tope, tope_parcial: parcial }) => {
           const generado = formatMontoTactical(monto, moneda);
-          return vacio(tope) ? generado : `${generado} de ${NUMERO.format(Number(tope))}`;
+          if (vacio(tope)) return generado;
+          const cifra = NUMERO.format(Number(tope));
+          return parcial ? `${generado} · tope ${cifra} (líneas con tope)` : `${generado} de ${cifra}`;
         })
         .join(' · ')
     : '—';
