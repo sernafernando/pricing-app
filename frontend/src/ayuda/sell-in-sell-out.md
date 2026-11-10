@@ -22,7 +22,8 @@ Un tactical es un acuerdo con una marca: sus datos y todas sus líneas se cargan
 2. **Datos del tactical**: nombre, marca (sirve para filtrar los tacticals por marca), referencia de la marca (opcional), vigencia **Desde**/**Hasta**, moneda y condiciones. Sell out arranca en USD y sell in en ARS. En USD aparece **Tipo de cambio**: **Al cobro**, **Fijo** (pide el valor) o **Día de la venta**. **Los montos incluyen IVA** y **Se acumula con otras campañas** (marcado de entrada) son las condiciones. La nota es opcional.
 3. **Líneas**: cada línea tiene un alcance y un monto con sus topes.
    - Alcance: **Productos** (uno o varios: **+ Producto** abre el buscador, se tildan los que van y **Agregar a la línea**; cada uno queda como etiqueta con su cruz para quitarlo), **Marca**, **Categoría** y, solo en sell in, **Factura** (**+ Factura** busca las compras por número, proveedor o fecha; se pueden tildar varias). Una línea de factura se cobra siempre como **monto total** y el monto se reparte entre los productos de la factura según lo facturado.
-   - Monto: **por unidad** o **%**; en sell in, una línea de factura también puede ser **monto total** (en productos, marca o categoría no está disponible). Los montos se escriben como en Argentina (3,6 o 1.500).
+   - Monto: **por unidad**, **%** o **monto total**. En sell in, **monto total** es solo para una línea de factura (en productos, marca o categoría no está disponible). Los montos se escriben como en Argentina (3,6 o 1.500).
+   - **Monto total en sell out**: un importe en la moneda del tactical (USD o ARS) que se reparte entre los productos de la línea en las fechas del tactical, sin cargar el monto de cada producto. Debajo de lo que incluye la línea se elige **cómo repartirlo** (es obligatorio): **Partes iguales por modelo** (cada producto recibe la misma parte), **Según unidades vendidas** (cada unidad vendida en el rango recibe la misma parte: el reparto sigue las ventas y las devoluciones de esas fechas, y nunca pasa el total) o **Proporcional al costo** (cada producto según su costo). Una línea de monto total no lleva topes ni la pastilla **Por producto**: el total es el tope. Si falta el criterio, el aviso dice «Hay 1 línea sin reparto del monto total. Completala o eliminala.».
    - Topes: **Tope unidades** y **Tope monto**; corta el que se alcance primero. Con varios productos, la pastilla **Por producto** (cada producto con sus topes) se puede cambiar a **Compartido** (un solo tope para todos).
    - **Máximo a cobrar** es lo más que puede dar la línea: el monto total; con %, el tope de monto; por unidad, monto × tope de unidades (por cada producto si los topes son por producto), sin pasar el tope de monto.
    - Cada línea se puede **duplicar** o **eliminar**. **+ Agregar línea** suma una y abre el buscador de productos.
@@ -109,11 +110,20 @@ Al crear o editar una campaña se elige el **Tipo**:
 
 ### Reparto del monto total
 
-Una campaña por **Monto total** muestra, al abrirla con **Ver campaña**, la sección **Reparto del monto total**. Ahí se elige a qué productos de la campaña se le asigna el monto y cuánto a cada uno. No se reparte en partes iguales ni por unidades: lo decide quien reparte. Dentro de cada producto, su parte se distribuye entre sus ventas en las fechas de la campaña.
+Una campaña por **Monto total** muestra, al abrirla con **Ver campaña**, la sección **Reparto del monto total**. Ahí se ve cómo se reparte el monto entre los productos de la campaña. **Criterio** dice cómo se repartió:
 
-- **Quién puede repartir**: el PM, sobre los productos de sus marcas, y quien gestiona campañas. Los demás ven el reparto sin poder cambiarlo. En el reparto, un PM ve solo los productos de sus marcas. Lo asignado a productos de otras marcas no se ve ni se cambia, pero se respeta al guardar y cuenta en **Asignado** y **Sin asignar**.
+- **Partes iguales por modelo**: cada producto recibe la misma parte del total.
+- **Según unidades vendidas**: cada unidad vendida en las fechas de la campaña recibe la misma parte. Es dinámico: el reparto sigue las ventas y las devoluciones que van entrando en esas fechas, y nunca pasa el total.
+- **Proporcional al costo**: cada producto recibe una parte según su costo.
+- **Manual**: quien reparte elige a qué productos y cuánto a cada uno.
+
+Dentro de cada producto, su parte se distribuye entre sus ventas en las fechas de la campaña. Al **Renovar** una campaña repartida por criterio, la copia muestra **Reparto:** con ese criterio y se vuelve a repartir igual al guardarla; una repartida a mano copia sus partes como siempre.
+
+- **Repartir por criterio**: quien gestiona campañas (`sell_out.gestionar`, o un administrador), sin restricción de marca, elige el criterio en **Repartir según** y toca **Ver reparto**. La vista previa muestra cada producto con sus unidades vendidas hasta hoy y su monto, y lo **Sin asignar**. **Aplicar reparto** lo guarda y reemplaza el reparto actual; **Cancelar** no guarda nada. Un PM que solo tiene `sell_out.repartir` no ve esta opción, porque el reparto por criterio alcanza a productos de todas las marcas: sigue repartiendo a mano los productos de sus marcas, salvo en una campaña ya repartida por criterio, que ve solo para consultar.
+
+- **Quién puede repartir a mano**: el PM, sobre los productos de sus marcas, y quien gestiona campañas. Los demás ven el reparto sin poder cambiarlo. En el reparto, un PM ve solo los productos de sus marcas. Lo asignado a productos de otras marcas no se ve ni se cambia, pero se respeta al guardar y cuenta en **Asignado** y **Sin asignar**.
 - **Cómo se reparte**: en **Agregar producto** se busca el producto por código o descripción. En su fila se elige **%** (un porcentaje del monto total) o **Monto fijo**, y se escribe el valor. Un monto fijo lleva el mismo signo que el total: en una deducción, también va en negativo. Un **%** siempre se escribe en positivo.
-- Debajo de las filas se ven al momento lo **Asignado** y lo **Sin asignar** con los cambios, antes de guardar (marcados **aprox.** cuando incluyen productos de otras marcas que no ves). **Guardar reparto** los guarda. Si el reparto supera el monto total, o un monto fijo no tiene el signo del total, el panel lo dice y no guarda.
+- Debajo de las filas se ven al momento lo **Asignado** y lo **Sin asignar** con los cambios, antes de guardar (marcados **aprox.** cuando incluyen productos de otras marcas que no ves). **Guardar reparto** los guarda y el criterio pasa a **Manual**. Si el reparto supera el monto total, o un monto fijo no tiene el signo del total, el panel lo dice y no guarda.
 
 Arriba de la sección, la campaña muestra:
 

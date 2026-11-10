@@ -34,6 +34,9 @@ export const CAMPANA_VACIA = {
   programaId: null,
   renovadaDeId: null, // the campaign a renewal draft renews (`renovada_de_id`), sent only on create
   repartosCopiados: [],
+  // A renewal of a campaign split by criterion (`iguales` | `unidades` | `costo`): it copies no shares and is sent
+  // with the create, so the copy splits again. null: split by hand (or not a renewal); never sent on an edit.
+  repartoCriterio: null,
 };
 
 const texto = (value) => (value === null || value === undefined ? '' : String(value));
@@ -95,6 +98,7 @@ export function valoresDeBorrador(borrador, original) {
       : [],
     programaId: borrador.programa_id ?? null,
     renovadaDeId: borrador.renovada_de_id ?? null,
+    repartoCriterio: montoTotal ? borrador.reparto_criterio ?? null : null,
   };
 }
 
@@ -104,7 +108,8 @@ export function valoresDeBorrador(borrador, original) {
  * replace): `[]` in a percentage campaign, which takes no per-product amounts. A `monto_total` campaign sends its
  * total and no caps, and no `items` (the API keeps the stored shares, set with `PUT /reparto`), except `[]` to drop
  * the per-unit amounts of a campaign switched to it. A renewal also sends its copied shares, its program
- * (`programa_id`, only when it has one) and the campaign it renews (`renovada_de_id`); an edit sends neither.
+ * (`programa_id`, only when it has one) and the campaign it renews (`renovada_de_id`), and a `monto_total` renewal
+ * split by criterion its `reparto_criterio` (no shares); an edit sends none of them.
  */
 export function bodyDeCampana(v) {
   if (v.tipo === 'monto_total') {
@@ -118,6 +123,7 @@ export function bodyDeCampana(v) {
       tope_monto: null,
       ...(v.items.length ? { items: [] } : {}),
       ...(v.repartosCopiados?.length ? { items: v.repartosCopiados } : {}),
+      ...(v.repartoCriterio ? { reparto_criterio: v.repartoCriterio } : {}),
       ...programa(v),
     };
   }
