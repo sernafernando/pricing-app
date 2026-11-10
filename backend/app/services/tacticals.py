@@ -46,7 +46,6 @@ from app.models.pedido_compra import PedidoCompra
 from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP
 from app.models.sell_in import (
-    SellInBonoConsumo,
     SellInBonoMarca,
     SellInCompra,
     SellInCompraItem,
@@ -149,8 +148,26 @@ def _validar_cabecera(db: Session, data: TacticalIn) -> tuple[str, str, Optional
     return nombre, marca, tc_modo
 
 
+SOLO_SELL_OUT = "Las tiendas solo se eligen en sell out: un tactical de sell in baja el costo de todas las ventas"
+# Sell in's only scope (owner 2026-11-10: "lo de tiendas no aplica a sell in, es solo para sell out"): every store and
+# channel with one cap, what the migration's backfill gave every tactical. Whatever it sends with every store is stored
+# as that; a narrowed scope is refused (`SOLO_SELL_OUT`).
+_CANALES_SELL_IN = ("fuera", "tienda_nube")
+
+
+def _alcance_sell_in(data: TacticalIn) -> None:
+    if data.tipo != "sell_in":
+        return
+    if not data.todas_tiendas or any(t.tipo == "oficial" for t in data.tiendas):
+        raise TacticalError(SOLO_SELL_OUT)
+    data.tope_compartido = True
+    data.tiendas = [TacticalTiendaIn(tipo=canal) for canal in _CANALES_SELL_IN]
+
+
 def _validar_tiendas(db: Session, data: TacticalIn) -> None:
-    """Store / channel scope: todas XOR oficial rows; channels optional; store_ids must exist."""
+    """Store / channel scope: todas XOR oficial rows; channels optional; store_ids must exist. Sell in takes only
+    every store (`_alcance_sell_in`)."""
+    _alcance_sell_in(data)
     oficiales = [t for t in data.tiendas if t.tipo == "oficial"]
     canales = [t for t in data.tiendas if t.tipo != "oficial"]
     if data.todas_tiendas and oficiales:
@@ -679,20 +696,8 @@ _FILAS_POR_TIENDA = {
         SellOutConsumo.unidades,
         SellOutConsumo.monto,
     ),
-    # Only a cost bonus credits sales; an invoice bonus credits its purchase, with no store to split by.
-    "sell_in_bono": (
-        SellInBonoConsumo.bono_id,
-        SellInBonoConsumo.canal,
-        SellInBonoConsumo.venta_ref,
-        SellInBonoConsumo.unidades,
-        SellInBonoConsumo.descuento_ars,
-    ),
+    # Only sell out: sell in ignores stores (S5), so a sell in cap is always one cap over every sale.
 }
-
-
-def _por_tienda(hijo: dict) -> bool:
-    """Whether a per-store scope splits this child's cap: a sell out campaign or a sell in cost bonus."""
-    return hijo["origen"] == "sell_out_campana" or (hijo["origen"] == "sell_in_bono" and hijo["alcance"] != "factura")
 
 
 def _maximos_por_tienda(
@@ -704,7 +709,7 @@ def _maximos_por_tienda(
         return {}
     salida: dict[tuple[str, int], tuple[int, Decimal]] = {}
     for origen, filas in _FILAS_POR_TIENDA.items():
-        ids = sorted({h["id"] for h in hijos if h["origen"] == origen and h["estado"] == "activa" and _por_tienda(h)})
+        ids = sorted({h["id"] for h in hijos if h["origen"] == origen and h["estado"] == "activa"})
         if not ids:
             continue
         usados = tienda_scope.usado_por_contador(db, filas, ids)

@@ -227,7 +227,10 @@ class TestSellIn:
         ]  # fmt: skip
         assert _contar(engine, "auditoria", "tipo_accion = 'SELL_IN_BONO_EDITADO'") == 1
 
-    def test_a_per_store_cost_bonus_cap_is_checked_against_its_most_used_store(self, db, engine) -> None:
+    def test_a_cost_bonus_cap_is_checked_against_everything_it_used_even_with_a_per_store_flag(
+        self, db, engine
+    ) -> None:
+        """S5: sell in has one cap over every store and channel, whatever cap mode its tactical stored."""
         linea = {"alcance": "productos", "item_ids": [2964], "modo_monto": "por_unidad", "valor": "10",
                  "tope_unidades": 10}  # fmt: skip
         tactical = service.crear(db, _tactical("sell_in", [linea]), USUARIO)
@@ -240,14 +243,12 @@ class TestSellIn:
             ))  # fmt: skip
 
         with pytest.raises(service.TacticalError) as exc:
-            _editar(db, tactical.id, lineas=[{"linea": 1, "tope_unidades": 4}])
-        assert str(exc.value) == (
-            "Línea 1: el tope de unidades (4) no puede quedar debajo de lo ya usado en una tienda o canal (5)"
-        )
+            _editar(db, tactical.id, lineas=[{"linea": 1, "tope_unidades": 6}])  # above each store, below the total
+        assert "(8)" in str(exc.value)
 
-        _editar(db, tactical.id, lineas=[{"linea": 1, "tope_unidades": 6}])  # below the total 8, above each store
+        _editar(db, tactical.id, lineas=[{"linea": 1, "tope_unidades": 8}])
 
-        assert _filas(engine, "SELECT tope_unidades FROM sell_in_bonos_marca") == [(6,)]
+        assert _filas(engine, "SELECT tope_unidades FROM sell_in_bonos_marca") == [(8,)]
 
     def test_an_invoice_line_keeps_its_invoice_inside_the_dates(self, db, engine) -> None:
         pedido = bw.pedido(engine, {2964: 10}, date(2026, 11, 20))

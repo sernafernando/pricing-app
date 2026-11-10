@@ -266,7 +266,6 @@ def test_an_invoice_bonus_response_is_unchanged(client, gestor, productos, admin
         "tope_monto": None,
         "tope_unidades_restantes": 6,
         "tope_monto_restante": None,
-        "tope_por_tienda": False,
         "base": "factura",
         "incluye_iva": False,
         "acumulable": True,

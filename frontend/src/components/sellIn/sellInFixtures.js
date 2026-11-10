@@ -212,7 +212,6 @@ export const BONO = {
   tope_monto: null,
   tope_unidades_restantes: null,
   tope_monto_restante: null,
-  tope_por_tienda: false,
   acumulable: true,
 };
 

@@ -284,6 +284,12 @@ describe('creating a tactical', () => {
     await waitFor(() => expect(api.post).toHaveBeenCalled());
     const body = api.post.mock.calls[0][1];
     expect(body).toEqual(expect.objectContaining({ tipo: 'sell_in', moneda: 'ARS', marca: 'TP-Link' }));
+    // S5, owner 2026-11-10: "lo de tiendas no aplica a sell in, es solo para sell out": no store picker, no scope sent
+    // (the server keeps today's reach: every sale, one cap).
+    expect(screen.queryByText('Tiendas donde aplica')).not.toBeInTheDocument();
+    expect(body).not.toHaveProperty('todas_tiendas');
+    expect(body).not.toHaveProperty('tope_compartido');
+    expect(body).not.toHaveProperty('tiendas');
     // ARS sends no exchange-rate fields (Contrato final).
     expect(body).not.toHaveProperty('tc_modo');
     expect(body).not.toHaveProperty('tipo_cambio');

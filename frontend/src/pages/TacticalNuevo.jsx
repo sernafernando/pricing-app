@@ -28,7 +28,7 @@ import {
   problemaDe,
   unidadesDelTope,
 } from '../components/tactical/tacticalLineas';
-import { ALCANCE_INICIAL, contadoresDelTope } from '../components/tactical/tacticalTiendas';
+import { ALCANCE_INICIAL, ALCANCE_POR_TIENDA, contadoresDelTope } from '../components/tactical/tacticalTiendas';
 import { renovacionDe } from '../components/tactical/tacticalRenovar';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import styles from './TacticalNuevo.module.css';
@@ -141,7 +141,10 @@ export default function TacticalNuevo() {
   const [descartar, setDescartar] = useState(false);
   const { grupos: gruposTiendas, activas: tiendasOficialesActivas, loaded: tiendasCargadas } = useTiendasOficiales();
   const ejemploTope = lineas.map((l) => numeroDe(l.topeUnidades)).find((n) => n != null && n > 0) ?? null;
+  // Stores apply only to sell out (owner, 2026-11-10): a sell in tactical lowers the cost of every sale.
+  const alcancePorTienda = ALCANCE_POR_TIENDA && form.tipo === 'sell_out';
   const contadores = contadoresDelTope({
+    alcancePorTienda,
     todasTiendas: form.todasTiendas !== false,
     seleccionKeys: form.tiendaKeys ?? [],
     grupos: gruposTiendas,
@@ -220,7 +223,7 @@ export default function TacticalNuevo() {
       setError(problema);
       return;
     }
-    const { body, origen } = cuerpoDe(form, lineas, gruposTiendas);
+    const { body, origen } = cuerpoDe(form, lineas, gruposTiendas, alcancePorTienda);
     setError(null);
     setEnviando(true);
     try {
@@ -291,6 +294,7 @@ export default function TacticalNuevo() {
             gruposTiendas={gruposTiendas}
             tiendasActivas={tiendasOficialesActivas.length}
             ejemploTope={ejemploTope}
+            alcancePorTienda={alcancePorTienda}
           />
 
           <section className={styles.card} aria-labelledby="tactical-lineas">

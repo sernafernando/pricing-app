@@ -1,6 +1,7 @@
-"""Store scope of an existing sell in cost bonus that belongs to a tactical, against real tables: a tactical
-created before `20261107_tacticals_tiendas` (as that migration's backfill leaves it: all stores, the `fuera` and
-`tienda_nube` rows and one shared cap) discounts exactly what it discounted before the scope existed.
+"""Sell in ignores the tactical store scope (owner 2026-11-10: "lo de tiendas no aplica a sell in, es solo para sell
+out"), against real tables: a cost bonus of a tactical discounts the units sold in every store and channel with one
+cap, whatever stores or cap mode its tactical has stored, and it never looks up a sale's official store. A tactical
+created before `20261107_tacticals_tiendas` discounts exactly what it discounted before.
 
 Postgres only, in a throwaway schema (`_bono_world` plus the store tables)."""
 
@@ -82,23 +83,21 @@ def _bono_de_tactical_existente(engine: Engine, **kw) -> int:
     return bono
 
 
-def _bono_por_tienda(engine: Engine, **kw) -> int:
-    """The same bonus, in a tactical over the GaussOnline and TP-Link stores with one cap per store."""
+def _bono_solo_gauss(engine: Engine, **kw) -> int:
+    """The same bonus, in a tactical stored narrowed to the GaussOnline store with one cap per store (a scope the API
+    no longer takes for sell in, but a row written by the chain before it may still hold)."""
     bono = b.bono_costo(engine, monto_unit="10.00", **kw)
     with engine.begin() as conn:
         tid = conn.execute(
             text(
                 "INSERT INTO tacticals (tipo, nombre, marca, fecha_desde, fecha_hasta, moneda, usuario_id, "
-                "todas_tiendas, tope_compartido) VALUES ('sell_in', 'Por tienda', 'TP-LINK', '2026-10-01', "
+                "todas_tiendas, tope_compartido) VALUES ('sell_in', 'Solo Gauss', 'TP-LINK', '2026-10-01', "
                 "'2026-10-31', 'ARS', 7, false, false) RETURNING id"
             )
         ).scalar_one()
         conn.execute(
-            text(
-                "INSERT INTO tactical_tiendas (tactical_id, tipo, store_id) "
-                "VALUES (:t, 'oficial', :g), (:t, 'oficial', :p)"
-            ),
-            {"t": tid, "g": GAUSS, "p": TPLINK},
+            text("INSERT INTO tactical_tiendas (tactical_id, tipo, store_id) VALUES (:t, 'oficial', :g)"),
+            {"t": tid, "g": GAUSS},
         )
         conn.execute(
             text("UPDATE sell_in_bonos_marca SET tactical_id = :t, tactical_linea = 1 WHERE id = :b"),
@@ -166,47 +165,46 @@ class TestExistingTacticalBonus:
         assert _filas(engine) == [(bono, "ml", gauss, 1, Decimal("10.00"))]
 
 
-class TestPerStoreCapLeft:
-    """With one cap per store, what is left adds up what every store can still discount, never below zero."""
+class TestSellInIgnoresStores:
+    """S5: whatever its tactical stored, a cost bonus discounts every sale with one cap."""
 
-    def _serializado(self, engine: Engine, bono: int) -> dict:
+    def test_a_tactical_narrowed_to_one_store_still_discounts_every_store_and_channel(self, engine: Engine) -> None:
+        bono = _bono_solo_gauss(engine)
+        tplink = _venta_ml(engine, 1, D(2026, 10, 5), store_id=TPLINK)
+        sin_tienda = _venta_ml(engine, 1, D(2026, 10, 5), store_id=None)
+        fuera = _con_costo(engine, "fuera", 1, D(2026, 10, 6))
+        tn = _con_costo(engine, "tn", 2, D(2026, 10, 7))
+
+        _recalcular(engine)
+
+        assert _filas(engine) == sorted(
+            [
+                (bono, "ml", tplink, 1, Decimal("10.00")),
+                (bono, "ml", sin_tienda, 1, Decimal("10.00")),
+                (bono, "fuera", fuera, 1, Decimal("10.00")),
+                (bono, "tn", tn, 2, Decimal("20.00")),
+            ]
+        )
+
+    def test_a_per_store_cap_is_one_cap_over_every_store(self, engine: Engine) -> None:
+        bono = _bono_solo_gauss(engine, tope_unidades=1)
+        gauss = _venta_ml(engine, 1, D(2026, 10, 5), store_id=GAUSS)
+        _venta_ml(engine, 1, D(2026, 10, 6), store_id=TPLINK)
+
+        _recalcular(engine)
+
+        assert _filas(engine) == [(bono, "ml", gauss, 1, Decimal("10.00"))]
         with sessionmaker(bind=engine, autoflush=False)() as db:
             [fila] = bonos_crud.serializar(db, [db.get(SellInBonoMarca, bono)])
-        return fila
-
-    def test_left_adds_each_store_left_and_a_full_store_adds_zero(self, engine: Engine) -> None:
-        bono = _bono_por_tienda(engine, tope_unidades=2, tope_monto="20.00")
-        _venta_ml(engine, 3, D(2026, 10, 5), store_id=GAUSS)
-        _venta_ml(engine, 1, D(2026, 10, 6), store_id=TPLINK)
-        _recalcular(engine)
-
-        fila = self._serializado(engine, bono)
-
-        assert fila["unidades"] == 3  # GaussOnline took its whole cap (2), TP-Link 1
-        assert (fila["tope_unidades_restantes"], fila["tope_monto_restante"], fila["tope_por_tienda"]) == (
-            1,
-            Decimal("10.00"),
-            True,
-        )
-
-    def test_a_shared_cap_keeps_the_cap_minus_what_was_generated(self, engine: Engine) -> None:
-        bono = _bono_de_tactical_existente(engine, tope_unidades=3)
-        _venta_ml(engine, 1, D(2026, 10, 5), store_id=GAUSS)
-        _recalcular(engine)
-
-        fila = self._serializado(engine, bono)
-
-        assert (fila["tope_unidades_restantes"], fila["tope_monto_restante"], fila["tope_por_tienda"]) == (
-            2,
-            None,
-            False,
-        )
+        assert fila["tope_unidades_restantes"] == 0
+        assert "tope_por_tienda" not in fila
 
 
 class TestStoreLookup:
-    def test_todays_reach_skips_the_official_store_lookup(self, engine: Engine) -> None:
-        bono = _bono_de_tactical_existente(engine)
-        ml = _venta_ml(engine, 1, D(2026, 10, 5), store_id=GAUSS)
+    @pytest.mark.parametrize("narrowed", [False, True], ids=["todays_reach", "narrowed"])
+    def test_sell_in_never_looks_up_the_official_store(self, engine: Engine, narrowed: bool) -> None:
+        bono = _bono_solo_gauss(engine) if narrowed else _bono_de_tactical_existente(engine)
+        ml = _venta_ml(engine, 1, D(2026, 10, 5), store_id=TPLINK)
         vistas: list[str] = []
 
         def _ver(conn, cursor, statement, *args) -> None:

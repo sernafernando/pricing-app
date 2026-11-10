@@ -58,7 +58,7 @@ from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, BASE_FACTURA, SellInBono
 from app.services.sell_in import bono_queue
 from app.services.sell_in.bonos_alcance import alcanza_marcas, del_alcance
 from app.services.sell_in.compras import contiene
-from app.services.sell_out import criterio as criterio_reparto, tienda_scope
+from app.services.sell_out import criterio as criterio_reparto
 
 MONTO_TOTAL = "monto_total"
 _TEXTOS_BONO = criterio_reparto.Textos(
@@ -680,7 +680,6 @@ def serializar(db: Session, bonos: list[SellInBonoMarca]) -> list[dict]:
         ):
             unidades[bono_id] = int(cantidad)
             montos[bono_id] = {"ARS": Decimal(str(monto)).quantize(Decimal("0.01"))}
-    por_tienda = _usado_por_tienda(db, [b for b in bonos if b.base == BASE_COSTO_VENTA])
     modelos = _modelos(db, ids)
     repartos = _repartos_de(db, [b.id for b in bonos if b.tipo == MONTO_TOTAL])
     productos = {
@@ -730,7 +729,7 @@ def serializar(db: Session, bonos: list[SellInBonoMarca]) -> list[dict]:
                 # Only the bonus's own currency: a purchase left in another one is listed apart, never added.
                 "monto_generado": monto_generado,
                 "montos_generados": [{"moneda": m, "monto": v} for m, v in sorted(por_moneda.items())],
-                **_restante(bono, unidades.get(bono.id, 0), monto_generado, por_tienda.get(bono.id)),
+                **_restante(bono, unidades.get(bono.id, 0), monto_generado),
             }
         )
     return filas
@@ -748,56 +747,14 @@ def _repartos_de(db: Session, bono_ids: list[int]) -> dict[int, list[tuple[int, 
     return salida
 
 
-@dataclass
-class _PorTienda:
-    contadores: set
-    unidades: dict
-    monto: dict
-
-
-def _usado_por_tienda(db: Session, costo: list[SellInBonoMarca]) -> dict[int, _PorTienda]:
-    """What each capped cost bonus with a per-store cap got per store or channel (`tienda_scope.contadores`); no
-    query without one."""
-    capados = [
-        b for b in costo if b.tactical_id is not None and (b.tope_unidades is not None or b.tope_monto is not None)
-    ]
-    if not capados:
-        return {}
-    scopes = {bid: s for bid, s in tienda_scope.scopes_de(db, capados).items() if tienda_scope.por_tienda(s)}
-    if not scopes:
-        return {}
-    t = SellInBonoConsumo
-    usados = tienda_scope.usado_por_contador(db, (t.bono_id, t.canal, t.venta_ref, t.unidades, t.descuento_ars), scopes)
-    activas = tienda_scope.tiendas_activas(db) if any(s.todas_tiendas for s in scopes.values()) else set()
-    salida = {bid: _PorTienda(tienda_scope.contadores(s, activas), *usados[bid]) for bid, s in scopes.items()}
-    return salida
-
-
-def _restante(bono: SellInBonoMarca, unidades: int, monto: Decimal, por_tienda: Optional[_PorTienda] = None) -> dict:
+def _restante(bono: SellInBonoMarca, unidades: int, monto: Decimal) -> dict:
     """What is left of each cap after what the bonus generated. The reconcile never generates past the cap
-    (`bonos._aplicar_topes`), so it is below zero only between lowering a cap and the worker applying it: shown as 0.
-    With a per-store cap (`por_tienda`), how much more it can still credit between every store and channel
-    (`tienda_scope.restante`)."""
-    if por_tienda is not None:
-        return {
-            "tope_unidades_restantes": tienda_scope.restante(
-                bono.tope_unidades, por_tienda.unidades, por_tienda.contadores, 0
-            )
-            if bono.tope_unidades is not None
-            else None,
-            "tope_monto_restante": tienda_scope.restante(
-                Decimal(bono.tope_monto), por_tienda.monto, por_tienda.contadores, Decimal(0)
-            ).quantize(Decimal("0.01"))
-            if bono.tope_monto is not None
-            else None,
-            "tope_por_tienda": True,
-        }
+    (`bonos._aplicar_topes`), so it is below zero only between lowering a cap and the worker applying it: shown as 0."""
     return {
         "tope_unidades_restantes": max(bono.tope_unidades - unidades, 0) if bono.tope_unidades is not None else None,
         "tope_monto_restante": max(Decimal(bono.tope_monto) - monto, Decimal("0.00")).quantize(Decimal("0.01"))
         if bono.tope_monto is not None
         else None,
-        "tope_por_tienda": False,
     }
 
 

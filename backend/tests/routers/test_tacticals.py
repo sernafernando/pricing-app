@@ -108,15 +108,33 @@ def test_create_without_a_scope_keeps_todays_reach(client, productos, sell_out) 
     assert creado["tiendas"] == [{"tipo": "fuera", "store_id": None}, {"tipo": "tienda_nube", "store_id": None}]
 
 
-def test_a_sell_in_scope_is_accepted_now_its_engine_honours_it(
-    client, productos, sell_out, grant_permiso, rol_admin
-) -> None:
+@pytest.fixture()
+def sell_in(sell_out, grant_permiso, rol_admin):
     grant_permiso(rol_admin, "sell_in.ver")
     grant_permiso(rol_admin, "sell_in.gestionar")
-    resp = client.post(BASE, json=_body(tipo="sell_in", todas_tiendas=True), headers=sell_out)
+    return sell_out
+
+
+def test_a_sell_in_tactical_with_every_store_keeps_todays_reach_and_one_cap(client, productos, sell_in) -> None:
+    """S5, owner 2026-11-10: "lo de tiendas no aplica a sell in, es solo para sell out"."""
+    resp = client.post(BASE, json=_body(tipo="sell_in", todas_tiendas=True, tope_compartido=False), headers=sell_in)
 
     assert resp.status_code == 201, resp.text
-    assert (resp.json()["tope_compartido"], resp.json()["tiendas"]) == (False, [])
+    creado = resp.json()
+    assert (creado["todas_tiendas"], creado["tope_compartido"]) == (True, True)
+    assert creado["tiendas"] == [{"tipo": "fuera", "store_id": None}, {"tipo": "tienda_nube", "store_id": None}]
+
+
+def test_a_sell_in_tactical_narrowed_to_some_stores_or_channels_is_refused(client, productos, sell_in) -> None:
+    resp = client.post(
+        BASE, json=_body(tipo="sell_in", todas_tiendas=False, tiendas=[{"tipo": "fuera"}]), headers=sell_in
+    )
+
+    assert resp.status_code == 422
+    assert _message(resp) == (
+        "Las tiendas solo se eligen en sell out: un tactical de sell in baja el costo de todas las ventas"
+    )
+    assert client.get(BASE, params={"tipo": "sell_in"}, headers=sell_in).json()["total"] == 0
 
 
 def test_a_sell_out_scope_is_accepted_now_its_engine_honours_it(client, productos, sell_out) -> None:
