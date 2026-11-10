@@ -29,3 +29,6 @@ Cada pestaña pide un permiso propio.
 
 **¿Se puede abrir una pestaña específica por link?**
 Sí, usando ?tab= en la URL (por ejemplo ?tab=ordenes-pago).
+
+**¿Se puede vincular más de una factura ERP a un pedido?**
+Sí. En el detalle del pedido, **Facturas del ERP** lista cada `ct_transaction` vinculada, permite **Desvincular** una por una y **Vincular otra**. La misma factura también puede quedar documentada en varios pedidos; el sell-in de líneas solo se arma cuando esa factura queda ligada a un solo pedido.

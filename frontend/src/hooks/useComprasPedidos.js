@@ -178,10 +178,14 @@ export default function useComprasPedidos() {
   );
 
   const desvincularFactura = useCallback(
-    (id) =>
+    (id, ctTransaction = null) =>
       wrap(async () => {
         const { data } = await api.post(
-          `/administracion/compras/pedidos/${id}/desvincular-factura`
+          `/administracion/compras/pedidos/${id}/desvincular-factura`,
+          null,
+          ctTransaction != null
+            ? { params: { ct_transaction: ctTransaction } }
+            : undefined
         );
         return data;
       }),

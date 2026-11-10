@@ -115,6 +115,21 @@ const linkedOcTriples = (pedido) => {
   return [];
 };
 
+/** Linked ERP invoices: relation `facturas[]` when present, else header first-link cache. */
+const linkedFacturas = (pedido) => {
+  if (!pedido) return [];
+  if (Array.isArray(pedido.facturas) && pedido.facturas.length > 0) return pedido.facturas;
+  if (pedido.ct_transaction_id != null) {
+    return [
+      {
+        ct_transaction_id: pedido.ct_transaction_id,
+        fecha_factura: pedido.fecha_factura ?? null,
+      },
+    ];
+  }
+  return [];
+};
+
 /** Group detalle lines into stacked OC blocks (one table per oc_poh_id). */
 const ocDetalleBlocks = (ocDetalle) => {
   const lines = Array.isArray(ocDetalle?.lines) ? ocDetalle.lines : [];
@@ -252,19 +267,22 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
     return undefined;
   }, [pedido]);
 
-  const handleDesvincular = useCallback(async () => {
-    if (!pedido?.id) return;
-    try {
-      setDesvinculando(true);
-      setError(null);
-      await desvincularFactura(pedido.id);
-      await fetchDetalle();
-    } catch (err) {
-      setError(err.response?.data?.detail || 'Error al desvincular la factura.');
-    } finally {
-      setDesvinculando(false);
-    }
-  }, [desvincularFactura, pedido?.id, fetchDetalle]);
+  const handleDesvincular = useCallback(
+    async (ctTransaction) => {
+      if (!pedido?.id) return;
+      try {
+        setDesvinculando(true);
+        setError(null);
+        await desvincularFactura(pedido.id, ctTransaction);
+        await fetchDetalle();
+      } catch (err) {
+        setError(err.response?.data?.detail || 'Error al desvincular la factura.');
+      } finally {
+        setDesvinculando(false);
+      }
+    },
+    [desvincularFactura, pedido?.id, fetchDetalle]
+  );
 
   const handleVincularClose = useCallback(
     (reload) => {
@@ -483,6 +501,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   );
 
   const linkedOcs = linkedOcTriples(pedido);
+  const facturasErp = linkedFacturas(pedido);
   const ocBlocks = ocDetalleBlocks(ocDetalle);
   const canVincularOc = Boolean(pedido && canGestionar && pedido.tipo !== 'servicio');
 
@@ -818,10 +837,16 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                 <span className={styles.infoLabel}>Pedido/s</span>
                 <strong className={styles.infoValue}>{pedido.pedidos_documento || '—'}</strong>
               </div>
-              {pedido.ct_transaction_id && (
+              {facturasErp.length > 0 && (
                 <div>
                   <span className={styles.infoLabel}>ERP ct_transaction</span>
-                  <strong className={styles.infoValue}>#{pedido.ct_transaction_id}</strong>
+                  <strong className={styles.infoValue}>
+                    {facturasErp.map((f, i) => (
+                      <span key={f.ct_transaction_id}>
+                        {i > 0 ? ', ' : ''}#{f.ct_transaction_id}
+                      </span>
+                    ))}
+                  </strong>
                 </div>
               )}
             </div>
@@ -906,37 +931,55 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
               </div>
             )}
 
-            {/* ── Factura del ERP ── */}
+            {/* ── Facturas del ERP (M:N) ── */}
             <h3 className={styles.sectionTitle}>
-              <Link2 size={14} /> Factura del ERP
+              <Link2 size={14} /> Facturas del ERP
             </h3>
             <div className={styles.facturaBlock}>
-              {pedido.ct_transaction_id ? (
+              {facturasErp.length > 0 ? (
                 <div className={styles.facturaVinculada}>
                   <div className={styles.facturaInfo}>
-                    <span className={styles.facturaMain}>
-                      Vinculada a ct_transaction <strong>#{pedido.ct_transaction_id}</strong>
-                    </span>
+                    <ul className={styles.facturaList}>
+                      {facturasErp.map((f) => (
+                        <li key={f.ct_transaction_id} className={styles.facturaListItem}>
+                          <span className={styles.facturaMain}>
+                            ct_transaction <strong>#{f.ct_transaction_id}</strong>
+                            {f.fecha_factura ? (
+                              <span className={styles.facturaSub}> · {f.fecha_factura}</span>
+                            ) : null}
+                          </span>
+                          {canGestionar && (
+                            <button
+                              type="button"
+                              className={styles.btnGhost}
+                              onClick={() => handleDesvincular(f.ct_transaction_id)}
+                              disabled={desvinculando}
+                              title="Desvincular esta factura (no revierte ajustes previos)"
+                            >
+                              {desvinculando ? (
+                                <Loader2 size={14} className={styles.spin} />
+                              ) : (
+                                <Link2Off size={14} />
+                              )}
+                              Desvincular
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
                     {pedido.numero_factura && (
                       <span className={styles.facturaSub}>
-                        Nº factura: {pedido.numero_factura}
+                        Nº factura (legacy): {pedido.numero_factura}
                       </span>
                     )}
                   </div>
                   {canGestionar && (
                     <button
                       type="button"
-                      className={styles.btnGhost}
-                      onClick={handleDesvincular}
-                      disabled={desvinculando}
-                      title="Desvincular factura (no revierte ajustes previos)"
+                      className={styles.btnPrimaryInline}
+                      onClick={() => setShowVincularModal(true)}
                     >
-                      {desvinculando ? (
-                        <Loader2 size={14} className={styles.spin} />
-                      ) : (
-                        <Link2Off size={14} />
-                      )}
-                      Desvincular
+                      <Link2 size={14} /> Vincular otra
                     </button>
                   )}
                 </div>
