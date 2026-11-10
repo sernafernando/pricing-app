@@ -420,6 +420,7 @@ RESUMEN_VACIO = {
     "monto_ars": "0",
     "tope_unidades_restantes": None,
     "tope_monto_restante": None,
+    "tope_por_tienda": False,
     "por_canal": [],
     "pendientes_base": 0,
     "recalculo": {"estado": "al_dia", "intentos": 0, "error": None, "detenida": False, "encolada_en": None},
