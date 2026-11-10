@@ -36,7 +36,10 @@ export function paramDesdeSeleccion(todas, keys, grupos) {
   return serializarContextos(contextosDeSeleccion(todas, keys, grupos));
 }
 
-/** Rebuild picker state from the listing query param (best-effort against `grupos`). */
+/**
+ * Rebuild picker state from the listing query param: a whole store group by its option, and every other store id
+ * (part of a group, or in none) as its own key, so the rebuilt selection asks for the same stores.
+ */
 export function seleccionDesdeParam(param, grupos = []) {
   if (!param) return { todas: true, keys: [] };
   const keys = [];
@@ -47,9 +50,14 @@ export function seleccionDesdeParam(param, grupos = []) {
     else if (tok === 'tn') keys.push('tienda_nube');
     else if (tok.startsWith('ml:')) storeIds.add(tok.slice(3));
   }
+  const cubiertos = new Set();
   for (const grupo of grupos) {
-    if (grupo.ids.every((id) => storeIds.has(String(id)))) keys.push(grupo.value);
+    if (grupo.ids.every((id) => storeIds.has(String(id)))) {
+      keys.push(grupo.value);
+      for (const id of grupo.ids) cubiertos.add(String(id));
+    }
   }
+  for (const id of storeIds) if (!cubiertos.has(id)) keys.push(id);
   return { todas: false, keys: [...new Set(keys)] };
 }
 

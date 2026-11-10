@@ -11,8 +11,8 @@ const GRUPOS = [
 ];
 
 /** The picker as Productos wires it: its state lives only in the `markup_contextos` query param. */
-function ConParametro({ onParam }) {
-  const [param, setParam] = useState(null);
+function ConParametro({ onParam, inicial = null }) {
+  const [param, setParam] = useState(inicial);
   const { todas, keys } = seleccionDesdeParam(param, GRUPOS);
   return (
     <MarkupContextoPicker
@@ -31,6 +31,20 @@ function ConParametro({ onParam }) {
 const todas = () => screen.getByRole('checkbox', { name: 'Todas (como hoy)' });
 
 describe('MarkupContextoPicker', () => {
+  it('a store from the URL that no whole group covers stays ticked, and unticking it drops only it', async () => {
+    const user = userEvent.setup();
+    const params = [];
+    render(<ConParametro inicial="ml:471846,fuera" onParam={(p) => params.push(p)} />);
+
+    expect(screen.getByRole('checkbox', { name: 'Tienda 471846' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'TP-Link' })).not.toBeChecked();
+
+    await user.click(screen.getByRole('checkbox', { name: 'Tienda 471846' }));
+
+    expect(params).toEqual(['fuera']);
+    expect(screen.queryByRole('checkbox', { name: 'Tienda 471846' })).not.toBeInTheDocument();
+  });
+
   it('unticking Todas shows the stores to pick, and picking one sends its context', async () => {
     const user = userEvent.setup();
     const params = [];

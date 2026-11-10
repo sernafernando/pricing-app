@@ -51,6 +51,16 @@ export default function MarkupContextoPicker({
               <span>{g.label}</span>
             </label>
           ))}
+        {!mostrarTodas &&
+          keys
+            .filter((k) => !CANALES_TACTICAL.some((c) => c.value === k) && !grupos.some((g) => g.value === k))
+            .map((k) => (
+              // A store from the URL that no whole group covers: shown so it can be unticked, never hidden.
+              <label key={k} className={styles.check}>
+                <input type="checkbox" checked onChange={() => toggleKey(k)} />
+                <span>{`Tienda ${k}`}</span>
+              </label>
+            ))}
         {CANALES_TACTICAL.map((c) => (
           <label key={c.value} className={styles.check}>
             <input type="checkbox" checked={keys.includes(c.value)} onChange={() => toggleKey(c.value)} />

@@ -35,6 +35,12 @@ describe('serializarContextos / paramDesdeSeleccion', () => {
 });
 
 describe('seleccionDesdeParam', () => {
+  it('keeps a store of a partly selected group, and one in no group, as their own keys', () => {
+    const seleccion = seleccionDesdeParam('ml:471846,ml:999,tn', GRUPOS);
+    expect(seleccion).toEqual({ todas: false, keys: ['tienda_nube', '471846', '999'] });
+    expect(paramDesdeSeleccion(seleccion.todas, seleccion.keys, GRUPOS)).toBe('tn,ml:471846,ml:999');
+  });
+
   it('round-trips a group and a channel', () => {
     expect(seleccionDesdeParam('ml:2645,ml:471846,fuera', GRUPOS)).toEqual({
       todas: false,
