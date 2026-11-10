@@ -26,10 +26,6 @@ D = date
 HOY = D(2026, 11, 10)
 ROUTER = 2964
 GAUSS, TPLINK = 57997, 2645
-PUBLICADOS = (
-    "CREATE TABLE tb_mercadolibre_items_publicados ("
-    "mlp_id SERIAL PRIMARY KEY, mlp_publicationid VARCHAR(50), mlp_official_store_id INTEGER)"
-)
 CONTEXTOS = {GAUSS: [("ml", GAUSS)], TPLINK: [("ml", TPLINK)], "sin_tienda": [("ml", None)], "todas": None}
 
 
@@ -49,7 +45,7 @@ def engine() -> Iterator[Engine]:
     with throwaway_schema(
         "productos_sio_tienda",
         [*TABLES, MlTiendaOficial.__table__, TacticalTienda.__table__],
-        [*STUBS, PUBLICADOS],
+        STUBS,
         after=_install,
     ) as engine:
         yield engine

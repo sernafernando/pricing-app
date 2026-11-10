@@ -560,14 +560,14 @@ def _agrupar_uso_por_target(
     db: Session, tabla, owner, monto, owner_ids: List[int]
 ) -> Dict[int, Dict[TargetKey, Tuple[int, Decimal]]]:
     """Summed in SQL per (owner, canal, MLA): one row per publication, not per consumption. The MLA's official store
-    is the one the allocator credited it under (`alcance._stores_por_mla`, the latest publicado row)."""
+    is the one the allocator credited it under (`alcance.stores_por_mla`, the latest publicado row)."""
     filas = list(
         db.query(owner, tabla.canal, MlSaleLine.mla, func.sum(tabla.unidades), func.sum(monto))
         .outerjoin(MlSaleLine, and_(tabla.canal == "ml", MlSaleLine.item_row_id == tabla.venta_ref))
         .filter(owner.in_(owner_ids))
         .group_by(owner, tabla.canal, MlSaleLine.mla)
     )
-    stores = alcance._stores_por_mla(db, {mla for _, canal, mla, _, _ in filas if canal == "ml" and mla})
+    stores = alcance.stores_por_mla(db, {mla for _, canal, mla, _, _ in filas if canal == "ml" and mla})
     salida: Dict[int, Dict[TargetKey, Tuple[int, Decimal]]] = defaultdict(lambda: defaultdict(lambda: (0, Decimal(0))))
     for oid, canal, mla, unidades, total in filas:
         key = target_key(canal, stores.get(mla) if canal == "ml" else None)
