@@ -87,7 +87,20 @@ _LISTO_FILTER_SQL = """
     )
 """
 
-_LINKED_CTE = """
+# Store filter must live inside the CTE (before DISTINCT ON): one MLAU can
+# span several official stores; filtering after the pick would drop valid rows.
+_STORE_FILTER_SQL = """
+        AND (
+          :filter_tiendas = 0
+          OR i.official_store_id = ANY(:tienda_ids)
+          OR (
+            :include_sin_tienda = 1
+            AND i.official_store_id IS NULL
+          )
+        )
+"""
+
+_LINKED_CTE = f"""
     linked AS (
       SELECT DISTINCT ON (l.producto_item_id, i.user_product_id)
         l.producto_item_id,
@@ -103,9 +116,40 @@ _LINKED_CTE = """
         AND i.user_product_id IS NOT NULL
         AND i.never_existed IS NOT TRUE
         AND i.gone_at IS NULL
+{_STORE_FILTER_SQL}
       ORDER BY l.producto_item_id, i.user_product_id, i.inventory_id, i.item_id
     )
 """
+
+# Allowlisted ORDER BY expressions (never interpolate raw client strings).
+_SORT_EXPR = {
+    "ean": "p.codigo",
+    "descripcion": "p.descripcion",
+    "inventory_id": "linked.inventory_id",
+    "user_product_id": "linked.user_product_id",
+    "ventas_full_7d": "r.units_7d",
+    "ventas_full_14d": "r.units_14d",
+    "ventas_full_21d": "r.units_21d",
+    "ventas_full_30d": "r.units_30d",
+    "ventas_colecta_flex_7d": "cf.ventas_colecta_flex_7d",
+    "ventas_colecta_flex_30d": "cf.ventas_colecta_flex_30d",
+    "stock_erp": "p.stock",
+    "stock_full": "st.full_quantity",
+    "target": "inbound.cantidad",
+    "override": "o.cantidad",
+    "qty_pm": "ready.qty_pm",
+    "unidades_por_caja": "caja.unidades",
+}
+_TOP_BY_KEYS = frozenset(
+    {
+        "ventas_full_7d",
+        "ventas_full_30d",
+        "ventas_colecta_flex_7d",
+        "ventas_colecta_flex_30d",
+    }
+)
+_DEFAULT_ORDER = "p.codigo ASC, linked.user_product_id ASC"
+_SIN_TIENDA_TOKENS = frozenset({"sin_tienda", "none"})
 
 # family_id is exact (bigint as text): partial ILIKE would false-match other families.
 _Q_SQL = """
@@ -158,8 +202,9 @@ def _normalize_labels(values: Sequence[str] | None) -> list[str]:
     return out
 
 
-_LIST_SQL = text(
-    f"""
+def _build_list_sql(order_clause: str) -> Any:
+    return text(
+        f"""
     WITH {_LINKED_CTE},
     colecta_flex AS (
       SELECT
@@ -213,10 +258,13 @@ _LIST_SQL = text(
     {_PRODUCT_FILTER_SQL}
     {_FILTER_SQL}
     {_LISTO_FILTER_SQL}
-    ORDER BY p.codigo ASC, linked.user_product_id ASC
+    ORDER BY {order_clause}
     LIMIT :limit OFFSET :offset
     """
-)
+    )
+
+
+_LIST_SQL = _build_list_sql(_DEFAULT_ORDER)
 
 _COUNT_SQL = text(
     f"""
@@ -292,18 +340,60 @@ def _row_dict(row: Any) -> dict[str, Any]:
     }
 
 
+def _tienda_params(tiendas: Sequence[str] | None) -> dict[str, Any]:
+    """Parse CSV-like tokens: store ids + optional sin_tienda/none sentinel."""
+    ids: list[int] = []
+    seen: set[int] = set()
+    include_sin = False
+    for raw in tiendas or ():
+        token = (raw or "").strip().lower()
+        if not token:
+            continue
+        if token in _SIN_TIENDA_TOKENS:
+            include_sin = True
+            continue
+        try:
+            store_id = int(token)
+        except ValueError:
+            continue
+        if store_id in seen:
+            continue
+        seen.add(store_id)
+        ids.append(store_id)
+    active = bool(ids) or include_sin
+    return {
+        "filter_tiendas": 1 if active else 0,
+        "tienda_ids": ids,
+        "include_sin_tienda": 1 if include_sin else 0,
+    }
+
+
+def _order_clause(*, sort: str | None, sort_dir: str, top_by: str | None) -> str:
+    if top_by and top_by in _TOP_BY_KEYS:
+        expr = _SORT_EXPR[top_by]
+        return f"{expr} DESC NULLS LAST, {_DEFAULT_ORDER}"
+    key = (sort or "").strip()
+    if key in _SORT_EXPR:
+        direction = "DESC" if (sort_dir or "").strip().lower() == "desc" else "ASC"
+        nulls = " NULLS LAST" if direction == "DESC" else " NULLS FIRST"
+        return f"{_SORT_EXPR[key]} {direction}{nulls}, {_DEFAULT_ORDER}"
+    return _DEFAULT_ORDER
+
+
 def _base_params(
     *,
     q: str,
     full_mode: str,
     include_zero_stock: bool,
     solo_listo: bool = False,
+    tiendas: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     return {
         "q": (q or "").strip(),
         "full_mode": _normalize_full_mode(full_mode),
         "include_zero_stock": 1 if include_zero_stock else 0,
         "solo_listo": 1 if solo_listo else 0,
+        **_tienda_params(tiendas),
     }
 
 
@@ -348,6 +438,7 @@ def _build_product_facets(
     marcas: Sequence[str],
     categorias: Sequence[str],
     pms: Sequence[int],
+    tiendas: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """Cross-filtered marca/categoría/PM lists for ProductFiltersPanel."""
     facet_params = _base_params(
@@ -355,6 +446,7 @@ def _build_product_facets(
         full_mode=full_mode,
         include_zero_stock=include_zero_stock,
         solo_listo=solo_listo,
+        tiendas=tiendas,
     )
     pairs = db.execute(_FACET_PAIRS_SQL, facet_params).all()
     rows = [
@@ -384,9 +476,13 @@ def list_gestion_full(
     marcas: Sequence[str] | None = None,
     categorias: Sequence[str] | None = None,
     pms: Sequence[int] | None = None,
+    tiendas: Sequence[str] | None = None,
     full_mode: str = "en",
     include_zero_stock: bool = False,
     solo_listo: bool = False,
+    sort: str | None = None,
+    sort_dir: str = "asc",
+    top_by: str | None = None,
     include_facets: bool = True,
     limit: int = 100,
     offset: int = 0,
@@ -395,14 +491,25 @@ def list_gestion_full(
 
     `include_facets=False` skips the DISTINCT pairs query (e.g. Planificación
     refresh after Listo/Desbloquear when the panel options are already loaded).
+
+    `top_by` (allowlisted sales metric) returns only the single highest row
+    after the other filters; forces limit=1 and offset=0.
     """
     product = _product_filter_params(marcas, categorias, pms)
+    top_key = (top_by or "").strip() or None
+    if top_key and top_key not in _TOP_BY_KEYS:
+        top_key = None
+    order = _order_clause(sort=sort, sort_dir=sort_dir, top_by=top_key)
+    list_sql = _build_list_sql(order) if order != _DEFAULT_ORDER else _LIST_SQL
+    lim = 1 if top_key else max(1, min(limit, 500))
+    off = 0 if top_key else max(0, offset)
     params = {
         **_base_params(
             q=q,
             full_mode=full_mode,
             include_zero_stock=include_zero_stock,
             solo_listo=solo_listo,
+            tiendas=tiendas,
         ),
         "has_marcas": product["has_marcas"],
         "has_categorias": product["has_categorias"],
@@ -410,11 +517,13 @@ def list_gestion_full(
         "marcas_upper": product["marcas_upper"],
         "categorias_upper": product["categorias_upper"],
         "pms": product["pms"],
-        "limit": max(1, min(limit, 500)),
-        "offset": max(0, offset),
+        "limit": lim,
+        "offset": off,
     }
     total: Optional[int] = db.execute(_COUNT_SQL, params).scalar()
-    rows = db.execute(_LIST_SQL, params).mappings().all()
+    rows = db.execute(list_sql, params).mappings().all()
+    if top_key:
+        total = min(int(total or 0), 1)
     if include_facets:
         facets_product = _build_product_facets(
             db,
@@ -425,6 +534,7 @@ def list_gestion_full(
             marcas=product["marcas"],
             categorias=product["categorias"],
             pms=product["pms"],
+            tiendas=tiendas,
         )
     else:
         facets_product = _empty_product_facets()

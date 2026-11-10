@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Search } from 'lucide-react';
+import { ArrowDown, ArrowUp, Search } from 'lucide-react';
 import api from '../services/api';
 import { useDebounce } from '../hooks/useDebounce';
 import { usePermisos } from '../contexts/PermisosContext';
+import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
+import { STORE_NONE } from '../constants/tiendasOficiales';
 import ModalTesla, { ModalFooterButtons } from '../components/ModalTesla';
 import ProductFiltersPanel from '../components/shared/ProductFiltersPanel';
 import GestionFullDepositosTab from '../components/gestionFull/GestionFullDepositosTab';
@@ -13,6 +15,33 @@ import styles from './GestionFull.module.css';
 const GROUP_TONES = ['toneA', 'toneB', 'toneC'];
 const EMPTY_PRODUCT_FILTERS = { marcas: [], categorias: [], subcategorias: [], pms: [] };
 const EMPTY_PRODUCT_OPTIONS = { marcas: [], categorias: [], subcategorias: [], pms: [] };
+const TOP_BY_OPTIONS = [
+  { value: '', label: 'Sin top' },
+  { value: 'ventas_full_7d', label: 'Top 1 Full 7d' },
+  { value: 'ventas_full_30d', label: 'Top 1 Full 30d' },
+  { value: 'ventas_colecta_flex_7d', label: 'Top 1 C+F 7d' },
+  { value: 'ventas_colecta_flex_30d', label: 'Top 1 C+F 30d' },
+];
+const SORTABLE = [
+  { key: 'ean', label: 'EAN' },
+  { key: 'descripcion', label: 'Descripción' },
+  { key: 'inventory_id', label: 'Código ML' },
+  { key: 'user_product_id', label: 'Familia (MLAU)' },
+  { key: 'ventas_full_7d', label: 'Full 7d' },
+  { key: 'ventas_full_14d', label: 'Full 14d' },
+  { key: 'ventas_full_21d', label: 'Full 21d' },
+  { key: 'ventas_full_30d', label: 'Full 30d' },
+  { key: 'ventas_colecta_flex_7d', label: 'C+F 7d' },
+  { key: 'ventas_colecta_flex_30d', label: 'C+F 30d' },
+  { key: 'stock_erp', label: 'Stock ERP' },
+  { key: 'unidades_por_caja', label: 'U/caja' },
+  { key: 'stock_full', label: 'Stock Full' },
+  { key: 'target', label: 'Target' },
+  { key: null, label: 'Sugerido' },
+  { key: 'override', label: 'Override' },
+  { key: 'qty_pm', label: 'Qty PM' },
+  { key: null, label: 'Listo' },
+];
 
 /** Assign a stable tint class per contiguous EAN group. */
 function withGroupTones(items) {
@@ -39,6 +68,7 @@ function overrideDraftValue(value) {
 
 export default function GestionFull() {
   const { tienePermiso } = usePermisos();
+  const { grupos: tiendaGrupos } = useTiendasOficiales();
   const puedeDepositos = tienePermiso('gestion_full.depositos');
   const puedeGestorPerm = tienePermiso('gestion_full.gestor');
   const [tab, setTab] = useState('plan');
@@ -48,6 +78,10 @@ export default function GestionFull() {
   const [fullMode, setFullMode] = useState('en');
   const [includeZeroStock, setIncludeZeroStock] = useState(false);
   const [soloListo, setSoloListo] = useState(false);
+  const [tiendaCsv, setTiendaCsv] = useState('');
+  const [topBy, setTopBy] = useState('');
+  const [sort, setSort] = useState('');
+  const [sortDir, setSortDir] = useState('asc');
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [puedeGestor, setPuedeGestor] = useState(false);
@@ -88,6 +122,10 @@ export default function GestionFull() {
             full_mode: fullMode,
             include_zero_stock: includeZeroStock,
             solo_listo: soloListo,
+            tiendas: tiendaCsv || undefined,
+            sort: sort || undefined,
+            sort_dir: sort ? sortDir : undefined,
+            top_by: topBy || undefined,
             include_facets: wantFacets,
             limit: 200,
             offset: 0,
@@ -116,7 +154,19 @@ export default function GestionFull() {
     return () => {
       cancelled = true;
     };
-  }, [tab, debouncedQ, productFilters, fullMode, includeZeroStock, soloListo, listNonce]);
+  }, [
+    tab,
+    debouncedQ,
+    productFilters,
+    fullMode,
+    includeZeroStock,
+    soloListo,
+    tiendaCsv,
+    topBy,
+    sort,
+    sortDir,
+    listNonce,
+  ]);
 
   const clearFilters = () => {
     setQ('');
@@ -124,6 +174,20 @@ export default function GestionFull() {
     setFullMode('en');
     setIncludeZeroStock(false);
     setSoloListo(false);
+    setTiendaCsv('');
+    setTopBy('');
+    setSort('');
+    setSortDir('asc');
+  };
+
+  const toggleSort = (key) => {
+    if (!key) return;
+    if (sort === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSort(key);
+    setSortDir('asc');
   };
 
   const confirmPlanReset = async () => {
@@ -340,6 +404,38 @@ export default function GestionFull() {
           />
           Solo Listo
         </label>
+        <label className={styles.filterField}>
+          <span className={styles.filterLabel}>Tienda</span>
+          <select
+            className={styles.select}
+            value={tiendaCsv}
+            onChange={(e) => setTiendaCsv(e.target.value)}
+            aria-label="Tienda"
+          >
+            <option value="">Todas</option>
+            {tiendaGrupos.map((g) => (
+              <option key={g.value} value={g.value}>
+                {g.label}
+              </option>
+            ))}
+            <option value={STORE_NONE}>Sin tienda</option>
+          </select>
+        </label>
+        <label className={styles.filterField}>
+          <span className={styles.filterLabel}>Top ventas</span>
+          <select
+            className={styles.select}
+            value={topBy}
+            onChange={(e) => setTopBy(e.target.value)}
+            aria-label="Top ventas"
+          >
+            {TOP_BY_OPTIONS.map((opt) => (
+              <option key={opt.value || 'none'} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <button type="button" className={styles.clearBtn} onClick={clearFilters}>
           Limpiar
         </button>
@@ -366,24 +462,28 @@ export default function GestionFull() {
           <table className={styles.table}>
             <thead>
               <tr>
-                <th>EAN</th>
-                <th>Descripción</th>
-                <th>Código ML</th>
-                <th>Familia (MLAU)</th>
-                <th>Full 7d</th>
-                <th>Full 14d</th>
-                <th>Full 21d</th>
-                <th>Full 30d</th>
-                <th>C+F 7d</th>
-                <th>C+F 30d</th>
-                <th>Stock ERP</th>
-                <th>U/caja</th>
-                <th>Stock Full</th>
-                <th>Target</th>
-                <th>Sugerido</th>
-                <th>Override</th>
-                <th>Qty PM</th>
-                <th>Listo</th>
+                {SORTABLE.map((col) => (
+                  <th key={col.label}>
+                    {col.key ? (
+                      <button
+                        type="button"
+                        className={styles.sortTh}
+                        onClick={() => toggleSort(col.key)}
+                        aria-label={`Ordenar por ${col.label}`}
+                      >
+                        {col.label}
+                        {sort === col.key &&
+                          (sortDir === 'asc' ? (
+                            <ArrowUp size={12} aria-hidden />
+                          ) : (
+                            <ArrowDown size={12} aria-hidden />
+                          ))}
+                      </button>
+                    ) : (
+                      col.label
+                    )}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>

@@ -17,10 +17,10 @@ S4. Top-1 sales filter: on top of already active filters, show only the **top 1*
 
 ## Tasks
 
-- T1 S1 — route: inline — Bulk reset API+UI+tests+ayuda slice — pending
+- T1 S1 — route: inline — Bulk reset API+UI+tests+ayuda slice — done `e052c8b77` (PR 1/2)
 - T2 S2 — route: inline — Tienda filter (CTE + FE chips) — pending
 - T3 S3-S4 — route: inline — Sort + top_by params + FE — pending
-- T4 docs/PR — route: inline — novedad + PR(s) per delivery strategy — pending
+- T4 docs/PR — route: inline — novedad + PR(s) per delivery strategy — pending (PR1 opened)
 
 ## Log
 
