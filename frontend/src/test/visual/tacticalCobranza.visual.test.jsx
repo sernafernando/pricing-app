@@ -103,12 +103,20 @@ describe.each([
       );
 
       await expect.element(screen.getByRole('region', { name: 'Cobranza de los tacticals' })).toBeVisible();
-      // Vigencia's Desde/Hasta are inline prefixes: its date inputs share the other filters' row (owner, as #2177).
-      const marca = screen.getByLabelText('Marca').element().getBoundingClientRect();
+      // Vigencia's Desde/Hasta are inline prefixes (owner, as #2177): one label line like Marca, so its date inputs sit
+      // at Marca's offset within the field and end where it ends. Measured per field: CI fonts can wrap the filter bar.
+      const enCampo = (control, campo) => {
+        const c = control.getBoundingClientRect();
+        const f = campo.getBoundingClientRect();
+        return { top: c.top - f.top, bottom: f.bottom - c.bottom, height: c.height };
+      };
+      const select = screen.getByLabelText('Marca').element();
+      const marca = enCampo(select, select.closest('label'));
       for (const fecha of document.querySelectorAll('input[type="date"]')) {
-        const caja = fecha.getBoundingClientRect();
-        expect(Math.abs(caja.top - marca.top)).toBeLessThanOrEqual(1);
-        expect(Math.abs(caja.bottom - marca.bottom)).toBeLessThanOrEqual(1);
+        const vigencia = enCampo(fecha, fecha.closest('[role="group"], fieldset'));
+        expect(Math.abs(vigencia.top - marca.top)).toBeLessThanOrEqual(1);
+        expect(Math.abs(vigencia.bottom - marca.bottom)).toBeLessThanOrEqual(1);
+        expect(Math.abs(vigencia.height - marca.height)).toBeLessThanOrEqual(1);
       }
       await screen.getByRole('button', { name: 'Editar cobro de Rebate HP Q1FY27' }).click();
       const campo = { nota_credito: 'Número de NC', fondo_distribuidor: 'Distribuidor', otro: 'Detalle' }[medio];
