@@ -43,7 +43,7 @@ Rationale: not only on-hand Full stock — a SKU that sold in Full in the last 3
 | NPAN-like cold | 0 | 0 | fuera de Full |
 | Has Código ML only | 0 | 0 | fuera de Full |
 
-**Listing universe:** still rows with `inventory_id IS NOT NULL` (Código ML). Filter en/fuera applies inside that set. No-Código-ML stays out of Gestión export (see D10).
+**Listing universe:** ERP+MLAU rows linked to alive `ml_items` (with or without Código ML). Filter en/fuera applies inside that set. Without Código ML, override/Listo use synthetic key `NOINV:{MLAU}`; Excel leaves Código ML blank (see D10).
 
 ---
 
@@ -72,7 +72,7 @@ Rationale: not only on-hand Full stock — a SKU that sold in Full in the last 3
 | P2 | After SC returns envío number(s), Pricing stores `inbound_id` on line subsets (assign UI). |
 | P3 | **Roles split:** PM decides/overrides and **closes their part** → lines lock for that PM. **Gestor Full** unlocks PM if needed, prepares Excel / closes the Full package (not PMs). |
 | P4 | Shipments consultation as a **tab** inside Gestión Full (declared vs received). |
-| P5 | Gestión list filters **en Full** vs **fuera de Full** per D1; default open = **en Full**. Universe = rows with Código ML (needed for ML Excel). |
+| P5 | Gestión list filters **en Full** vs **fuera de Full** per D1; default open = **en Full**. List includes rows without Código ML; override/Listo use `NOINV:{MLAU}`; Excel leaves Código ML blank. |
 | P5b | **Row key** = **producto ERP + MLAU** (`producto_item_id` + `user_product_id`), not ERP + `inventory_id`. Código ML remains a column (export). Override / ready / package lines key off that pair (or MLAU if 1:1 with inventory in practice). |
 | P5c | **Stock ERP filter:** by default show only rows with `stock_erp > 0`. Checkbox in filters “mostrar sin stock” **default off**. Independent of en/fuera Full. |
 | P5d | **Second Excel** (ops/depósito): EAN + descripción + cantidad (`qty_export`). In addition to official ML Full Excel. Same package / gestor gates. |
@@ -230,12 +230,13 @@ Rationale: Target/stock Full still come from live stock + Target drip — a prem
 
 Tabs without the matching write perm stay read-only / hidden actions as appropriate.
 
-### D10 — “Alta a Full” / ready check — **DECIDED**
+### D10 — “Alta a Full” / ready check — **DECIDED** (amended 2026-11-10)
 
-- **Ready check** = PM finished deciding qty (“ya decidí cuánto mandar”). **Not** related to Código ML.
-- **Alta operativa** into the send package = qty decided + ready check (for rows the PM can see in the listado).
-- **Código ML** is a separate listing/Excel constraint: rows without `inventory_id` are not in Gestión / cannot use official Excel. Unrelated to what the check means.
-- Cold **fuera de Full** rows (with Código ML): PM can filter fuera/todos, set qty, check → included.
+- **Ready check** = PM finished deciding qty (“ya decidí cuánto mandar”).
+- **Alta operativa** into the send package = qty decided + ready check.
+- **Listing** includes rows **without** Código ML so “Fuera de Full / Todos” covers never-Full MLAUs.
+- Without Código ML: persist override/ready/package under synthetic `NOINV:{user_product_id}`; official Excel writes **empty** Código ML and still fills SKU / MLA digits / qty from available data (SC may reject until Melí assigns a real code).
+- Cold **fuera de Full** rows **with** Código ML: PM can filter fuera/todos, set qty, check → included.
 
 ---
 

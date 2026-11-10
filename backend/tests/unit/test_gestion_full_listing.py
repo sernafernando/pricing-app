@@ -253,3 +253,11 @@ def test_list_and_count_sql_include_official_store_filter() -> None:
         text_sql = str(sql)
         assert "official_store_id" in text_sql
         assert ":filter_tiendas" in text_sql
+
+
+def test_list_sql_allows_rows_without_inventory_id() -> None:
+    """Never-Full MLAUs must enter the linked CTE (fuera/todos)."""
+    text_sql = str(_LIST_SQL)
+    assert "AND i.inventory_id IS NOT NULL" not in text_sql
+    assert "NOINV:" in text_sql
+    assert "(i.inventory_id IS NULL)" in text_sql

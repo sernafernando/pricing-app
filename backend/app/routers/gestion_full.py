@@ -79,7 +79,7 @@ class GestionFullItem(BaseModel):
     descripcion: Optional[str] = None
     marca: Optional[str] = None
     categoria: Optional[str] = None
-    inventory_id: str
+    inventory_id: Optional[str] = None
     user_product_id: Optional[str] = None
     mla: Optional[str] = None
     stock_erp: Optional[int] = None

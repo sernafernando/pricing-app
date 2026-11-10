@@ -15,6 +15,10 @@ Filters (defaults match envio-workflow-decisions D1 / D1b / D1c):
   include_zero_stock — when false, hide stock_erp=0/null
   marcas / categorias — multi-select, case-insensitive (same contract as
   ProductFiltersPanel / product_facets)
+
+Rows without inventory_id (Código ML) are included so fuera/todos can surface
+never-Full MLAUs. Override/Listo persist under NOINV:{MLAU}; Excel leaves
+Código ML blank and fills SKU/MLA/qty from available data.
 """
 
 from __future__ import annotations
@@ -100,6 +104,9 @@ _STORE_FILTER_SQL = """
         )
 """
 
+# Rows may lack Código ML (inventory_id): still list them (fuera/todos). Prefer a
+# non-null inventory_id when the same ERP+MLAU has both. Override/Listo/Excel
+# stay gated on having inventory_id elsewhere.
 _LINKED_CTE = f"""
     linked AS (
       SELECT DISTINCT ON (l.producto_item_id, i.user_product_id)
@@ -112,12 +119,12 @@ _LINKED_CTE = f"""
       JOIN ml_items i ON i.item_id = l.item_id
       WHERE l.producto_item_id IS NOT NULL
         AND l.variation_id = 0
-        AND i.inventory_id IS NOT NULL
         AND i.user_product_id IS NOT NULL
         AND i.never_existed IS NOT TRUE
         AND i.gone_at IS NULL
 {_STORE_FILTER_SQL}
-      ORDER BY l.producto_item_id, i.user_product_id, i.inventory_id, i.item_id
+      ORDER BY l.producto_item_id, i.user_product_id,
+               (i.inventory_id IS NULL), i.inventory_id, i.item_id
     )
 """
 
@@ -157,7 +164,7 @@ _Q_SQL = """
       :q = '' OR
       p.codigo ILIKE '%' || :q || '%' OR
       p.descripcion ILIKE '%' || :q || '%' OR
-      linked.inventory_id ILIKE '%' || :q || '%' OR
+      COALESCE(linked.inventory_id, '') ILIKE '%' || :q || '%' OR
       COALESCE(linked.user_product_id, '') ILIKE '%' || :q || '%' OR
       (
         linked.family_id IS NOT NULL
@@ -249,7 +256,11 @@ def _build_list_sql(order_clause: str) -> Any:
     LEFT JOIN ml_user_product_replenishment r ON r.user_product_id = linked.user_product_id
     LEFT JOIN colecta_flex cf ON cf.producto_item_id = linked.producto_item_id
     LEFT JOIN ml_fulfillment_last_inbound inbound ON inbound.inventory_id = linked.inventory_id
-    LEFT JOIN gestion_full_override o ON o.inventory_id = linked.inventory_id
+    LEFT JOIN gestion_full_override o
+      ON o.inventory_id = COALESCE(
+        linked.inventory_id,
+        'NOINV:' || linked.user_product_id
+      )
     LEFT JOIN gestion_full_unidades_caja caja ON caja.producto_item_id = linked.producto_item_id
     LEFT JOIN gestion_full_pm_ready ready
       ON ready.producto_item_id = linked.producto_item_id
@@ -261,7 +272,7 @@ def _build_list_sql(order_clause: str) -> Any:
     ORDER BY {order_clause}
     LIMIT :limit OFFSET :offset
     """
-    )
+)
 
 
 _LIST_SQL = _build_list_sql(_DEFAULT_ORDER)

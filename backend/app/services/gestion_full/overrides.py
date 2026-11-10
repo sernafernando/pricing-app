@@ -12,6 +12,7 @@ from app.models.auditoria import TipoAccion
 from app.models.gestion_full_override import GestionFullOverride
 from app.models.usuario import Usuario
 from app.services.gestion_full.audit import registrar
+from app.services.gestion_full.inventory_keys import user_product_id_from_synthetic
 from app.services.pm_scope import get_pares_marca_categoria_usuario
 
 _RESOLVE_PRODUCT_SQL = text(
@@ -30,6 +31,26 @@ _RESOLVE_PRODUCT_SQL = text(
       AND i.never_existed IS NOT TRUE
       AND i.gone_at IS NULL
     ORDER BY i.inventory_id, i.item_id
+    LIMIT 1
+    """
+)
+
+_RESOLVE_PRODUCT_BY_MLAU_SQL = text(
+    """
+    SELECT DISTINCT ON (i.user_product_id)
+      l.producto_item_id,
+      p.marca,
+      p.categoria
+    FROM ml_items i
+    JOIN ml_item_product_links l
+      ON l.item_id = i.item_id
+     AND l.producto_item_id IS NOT NULL
+     AND l.variation_id = 0
+    JOIN productos_erp p ON p.item_id = l.producto_item_id
+    WHERE i.user_product_id = :user_product_id
+      AND i.never_existed IS NOT TRUE
+      AND i.gone_at IS NULL
+    ORDER BY i.user_product_id, (i.inventory_id IS NULL), i.inventory_id, i.item_id
     LIMIT 1
     """
 )
@@ -75,8 +96,15 @@ def usuario_puede_editar_algun_override(usuario: Usuario, db: Session) -> bool:
 
 
 def resolve_producto_por_inventory_id(db: Session, inventory_id: str) -> Optional[dict[str, Any]]:
-    """ERP product linked to this Full inventory_id, or None if unknown."""
-    row = db.execute(_RESOLVE_PRODUCT_SQL, {"inventory_id": inventory_id}).mappings().first()
+    """ERP product linked to this Full inventory_id (or NOINV:{MLAU}), or None."""
+    mlau = user_product_id_from_synthetic(inventory_id)
+    if mlau is not None:
+        row = db.execute(
+            _RESOLVE_PRODUCT_BY_MLAU_SQL,
+            {"user_product_id": mlau},
+        ).mappings().first()
+    else:
+        row = db.execute(_RESOLVE_PRODUCT_SQL, {"inventory_id": inventory_id}).mappings().first()
     if row is None:
         return None
     return {

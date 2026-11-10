@@ -20,6 +20,10 @@ from app.models.gestion_full_package import (
 )
 from app.models.gestion_full_unidades_caja import GestionFullUnidadesCaja
 from app.models.producto import ProductoERP
+from app.services.gestion_full.inventory_keys import (
+    excel_codigo_ml,
+    is_synthetic_inventory_id,
+)
 
 _TEMPLATE = Path(__file__).resolve().parents[2] / "assets" / "gestion_full" / "envio-de-stock-full.xlsx"
 _SHEET = " Selección de productos"
@@ -38,6 +42,20 @@ _ENRICH_SQL = text(
     ORDER BY i.inventory_id, i.item_id
     """
 ).bindparams(bindparam("ids", expanding=True))
+
+_ENRICH_BY_MLAU_SQL = text(
+    """
+    SELECT DISTINCT ON (i.user_product_id)
+      i.user_product_id,
+      i.seller_sku,
+      i.item_id AS mla
+    FROM ml_items i
+    WHERE i.user_product_id IN :mlaus
+      AND i.never_existed IS NOT TRUE
+      AND i.gone_at IS NULL
+    ORDER BY i.user_product_id, (i.inventory_id IS NULL), i.inventory_id, i.item_id
+    """
+).bindparams(bindparam("mlaus", expanding=True))
 
 _EAN_SQL = text(
     """
@@ -74,12 +92,25 @@ def _enrich_lines(
     db: Session,
     lines: list[GestionFullPackageLine],
 ) -> list[dict[str, Any]]:
-    inv_ids = [ln.inventory_id for ln in lines]
+    real_inv_ids = [
+        ln.inventory_id
+        for ln in lines
+        if ln.inventory_id and not is_synthetic_inventory_id(ln.inventory_id)
+    ]
+    mlaus = [
+        ln.user_product_id
+        for ln in lines
+        if is_synthetic_inventory_id(ln.inventory_id) or not ln.inventory_id
+    ]
     erp_ids = [ln.producto_item_id for ln in lines]
     by_inv: dict[str, Any] = {}
-    if inv_ids:
-        for row in db.execute(_ENRICH_SQL, {"ids": inv_ids}).mappings():
+    if real_inv_ids:
+        for row in db.execute(_ENRICH_SQL, {"ids": real_inv_ids}).mappings():
             by_inv[row.inventory_id] = row
+    by_mlau: dict[str, Any] = {}
+    if mlaus:
+        for row in db.execute(_ENRICH_BY_MLAU_SQL, {"mlaus": mlaus}).mappings():
+            by_mlau[row.user_product_id] = row
     by_erp: dict[int, Any] = {}
     if erp_ids:
         for row in db.execute(_EAN_SQL, {"ids": erp_ids}).mappings():
@@ -87,13 +118,24 @@ def _enrich_lines(
 
     out: list[dict[str, Any]] = []
     for ln in lines:
-        inv = by_inv.get(ln.inventory_id)
+        inv = (
+            None
+            if is_synthetic_inventory_id(ln.inventory_id)
+            else by_inv.get(ln.inventory_id)
+        )
+        mlau_row = by_mlau.get(ln.user_product_id)
         erp = by_erp.get(ln.producto_item_id)
+        seller_sku = (
+            (inv.seller_sku if inv else None)
+            or (mlau_row.seller_sku if mlau_row else None)
+            or (erp.ean if erp else None)
+        )
+        mla = (inv.mla if inv else None) or (mlau_row.mla if mlau_row else None)
         out.append(
             {
                 "line": ln,
-                "seller_sku": (inv.seller_sku if inv else None) or (erp.ean if erp else None),
-                "mla_digits": _mla_digits(inv.mla if inv else None),
+                "seller_sku": seller_sku,
+                "mla_digits": _mla_digits(mla),
                 "ean": erp.ean if erp else None,
                 "descripcion": erp.descripcion if erp else None,
             }
@@ -155,7 +197,7 @@ def build_ml_full_xlsx(db: Session, package: GestionFullPackage) -> bytes:
         r = _DATA_START_ROW + offset
         ln = e["line"]
         _write_text_cell(ws, r, 1, e["seller_sku"])
-        _write_text_cell(ws, r, 3, ln.inventory_id)
+        _write_text_cell(ws, r, 3, excel_codigo_ml(ln.inventory_id))
         _write_text_cell(ws, r, 4, e["mla_digits"])
         _write_text_cell(ws, r, 6, int(ln.qty_export))
     buf = io.BytesIO()
