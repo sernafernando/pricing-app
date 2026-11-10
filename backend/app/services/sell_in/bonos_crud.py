@@ -24,6 +24,13 @@ A bonus's `base` (T25d) is set on create and never changes: a cost bonus
 into an invoice bonus would keep the sales rows it generated
 (`sell_in_bono_consumos`) and count them twice. What a cost bonus generated, and
 its cap, come from those sales rows; `incluye_iva` exists only on it.
+
+A cost bonus may be a total split across its products (tactical monto total S4, `tipo = 'monto_total'`): an ARS
+total > 0 ("Negative total is rejected for sell in", `descuento_ars >= 0` stays), its `reparto_criterio`, no cap, no
+value per unit nor per model. On load and on every edit its fixed shares (`iguales` / `costo`,
+`sell_out.criterio.cuotas_fijas`, costs in pesos at the latest BNA rate) are written in `sell_in_bono_repartos` over
+its scope as it stands (`unidades`: none), and the bonus is queued for the `sell_in.bono` drain whenever its total,
+criterion or shares change (the bonus update trigger does not watch them).
 """
 
 from __future__ import annotations
@@ -33,16 +40,37 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.pedido_compra import PedidoCompra
 from app.models.producto import ProductoERP
-from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca, SellInCompra, SellInCompraItem
+from app.models.sell_in import (
+    SellInBonoConsumo,
+    SellInBonoItem,
+    SellInBonoMarca,
+    SellInBonoReparto,
+    SellInCompra,
+    SellInCompraItem,
+)
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, BASE_FACTURA, SellInBonoIn, SellInBonoModeloIn
-from app.services.sell_in.bonos_alcance import alcanza_marcas
+from app.services.sell_in import bono_queue
+from app.services.sell_in.bonos_alcance import alcanza_marcas, del_alcance
 from app.services.sell_in.compras import contiene
+from app.services.sell_out import criterio as criterio_reparto
+
+MONTO_TOTAL = "monto_total"
+_TEXTOS_BONO = criterio_reparto.Textos(
+    sin_alcance="El bono no alcanza ningún producto: no hay entre quiénes repartir",
+    sin_costo="Ningún producto del bono tiene costo cargado: no se puede repartir por costo",
+    sin_tasa="No hay tipo de cambio para pasar a pesos los costos en dólares: no se puede repartir por costo",
+)
+# The bonus key the queue's triggers write (`bono_queue`), with the same refresh on conflict.
+_ENCOLAR_BONO = text(
+    "INSERT INTO sell_in_bono_dirty (tipo, ref) VALUES ('bono', :ref) "
+    "ON CONFLICT (tipo, ref) DO UPDATE SET enqueued_at = now(), attempts = 0, last_error = NULL"
+)
 
 _CAMPOS = (
     "alcance",
@@ -52,6 +80,8 @@ _CAMPOS = (
     "tipo",
     "monto_unit",
     "porcentaje",
+    "monto_total",
+    "reparto_criterio",
     "moneda",
     "fecha_desde",
     "fecha_hasta",
@@ -92,6 +122,8 @@ class Campos:
     valores_modelos: dict[int, tuple[Optional[Decimal], Optional[Decimal]]]
     base: str = BASE_FACTURA
     incluye_iva: bool = False
+    monto_total: Optional[Decimal] = None
+    reparto_criterio: Optional[str] = None
 
 
 def _item_id(modelo) -> int:
@@ -154,7 +186,14 @@ def validar(db: Session, data: SellInBonoIn, base: Optional[str] = None, incluye
     incluye_iva = data.incluye_iva if incluye_iva is None else incluye_iva
     _validar_base(data, base, incluye_iva)
     marca, categoria, modelos, pedido_id = _validar_alcance(db, data)
-    if data.tipo == "por_unidad":
+    if data.tipo != MONTO_TOTAL:
+        if data.monto_total is not None:
+            raise SellInBonoError("Solo un bono por monto total lleva monto total")
+        if data.reparto_criterio is not None:
+            raise SellInBonoError("El reparto es solo para un bono por monto total")
+    if data.tipo == MONTO_TOTAL:
+        _validar_total(data, base)
+    elif data.tipo == "por_unidad":
         if data.porcentaje is not None:
             raise SellInBonoError("Un bono por unidad no lleva porcentaje")
         if data.monto_unit is None:
@@ -187,7 +226,29 @@ def validar(db: Session, data: SellInBonoIn, base: Optional[str] = None, incluye
         valores_modelos=valores_modelos,
         base=base,
         incluye_iva=incluye_iva,
+        monto_total=data.monto_total.quantize(Decimal("0.01")) if data.monto_total is not None else None,
+        reparto_criterio=data.reparto_criterio,
     )
+
+
+def _validar_total(data: SellInBonoIn, base: str) -> None:
+    """A total split across products: a cost bonus, ARS (`_validar_base`), a positive total, a criterion, no value per
+    unit, no cap (the total is its cap) and no model's own value (DB CHECK `ck_sell_in_bonos_marca_monto_total`)."""
+    if base != BASE_COSTO_VENTA:
+        raise SellInBonoError("Un bono por monto total es solo sobre el costo de la venta")
+    if data.monto_unit is not None or data.porcentaje is not None:
+        raise SellInBonoError("Un bono por monto total no lleva monto por unidad ni porcentaje")
+    if data.monto_total is None:
+        raise SellInBonoError("Falta el monto total del bono")
+    if data.monto_total <= 0:
+        raise SellInBonoError("El monto total debe ser mayor que cero: en sell in no se descuenta un monto negativo")
+    if data.reparto_criterio is None:
+        raise SellInBonoError("Elegí cómo repartir el monto total")
+    if data.tope_unidades is not None or data.tope_monto is not None:
+        raise SellInBonoError("Un monto total no lleva topes: el total es su tope")
+    if any(isinstance(m, SellInBonoModeloIn) and (m.monto_unit is not None or m.porcentaje is not None)
+           for m in data.modelos):  # fmt: skip
+        raise SellInBonoError("Un bono por monto total no lleva valor propio por modelo")
 
 
 def _validar_valores_modelos(data: SellInBonoIn) -> dict[int, tuple[Optional[Decimal], Optional[Decimal]]]:
@@ -281,10 +342,31 @@ def _audit(
     )
 
 
+def _reparto_de(db: Session, bono: SellInBonoMarca) -> Optional[tuple]:
+    """What a total bonus's fixed shares depend on: the total, its criterion and the reach they split over (None for
+    a bonus not stored yet). Dates, text, currency label and caps are not in it, so editing them keeps the shares."""
+    if bono.id is None:
+        return None
+    modelos = frozenset(i for (i,) in db.query(SellInBonoItem.item_id).filter(SellInBonoItem.bono_id == bono.id))
+    return (
+        bono.tipo,
+        bono.monto_total,
+        bono.reparto_criterio,
+        bono.alcance,
+        bono.marca,
+        bono.categoria,
+        bono.pedido_id,
+        modelos,
+    )
+
+
 def _asignar(db: Session, bono: SellInBonoMarca, data: SellInBonoIn, campos: Campos) -> None:
+    total_antes = (bono.tipo, bono.monto_total, bono.reparto_criterio)
+    reparto_antes = _reparto_de(db, bono)
     for campo in ("alcance", "tipo", "moneda", "fecha_desde", "fecha_hasta", "descripcion"):
         setattr(bono, campo, getattr(data, campo))
-    for campo in ("marca", "categoria", "pedido_id", "monto_unit", "porcentaje", "base", "incluye_iva"):
+    campos_bono = ("marca", "categoria", "pedido_id", "monto_unit", "porcentaje", "base", "incluye_iva")
+    for campo in (*campos_bono, "monto_total", "reparto_criterio"):
         setattr(bono, campo, getattr(campos, campo))
     # A cap left out of the body keeps the stored one (a new bonus has none); an explicit null removes it.
     if "tope_unidades" in data.model_fields_set:
@@ -313,6 +395,52 @@ def _asignar(db: Session, bono: SellInBonoMarca, data: SellInBonoIn, campos: Cam
         if i not in actuales
     )
     db.flush()
+    if MONTO_TOTAL not in (bono.tipo, total_antes[0]):
+        return  # neither is nor was a total: no share to write (and no query)
+    # Shares are fixed when saved (tmt spec): split again only when the total, its criterion or its reach changes,
+    # never with today's costs and rate on a date or text edit (as sell out's `resplit`).
+    cambio = reparto_antes != _reparto_de(db, bono) and _repartir(db, bono)
+    if cambio or (bono.tipo, bono.monto_total, bono.reparto_criterio) != total_antes:
+        _encolar(db, bono)
+
+
+def _repartir(db: Session, bono: SellInBonoMarca) -> bool:
+    """Writes the fixed shares of a total bonus split `iguales` / `costo` over its scope as it stands (none for
+    `unidades` or any other kind), only the difference; True when a share changed."""
+    deseadas: dict[int, Decimal] = {}
+    if bono.tipo == MONTO_TOTAL and bono.reparto_criterio in criterio_reparto.FIJOS:
+        item_ids = sorted(
+            i for (i,) in db.query(ProductoERP.item_id).filter(del_alcance(db, bono, ProductoERP.item_id, None))
+        )
+        tasa = criterio_reparto.tasa_bna(db) if bono.reparto_criterio == criterio_reparto.COSTO else None
+        try:
+            deseadas = criterio_reparto.cuotas_fijas(
+                db, item_ids, Decimal(bono.monto_total), bono.reparto_criterio, "ARS", tasa, _TEXTOS_BONO
+            )
+        except criterio_reparto.CriterioError as exc:
+            raise SellInBonoError(str(exc)) from exc
+    actuales = {r.item_id: r for r in db.query(SellInBonoReparto).filter(SellInBonoReparto.bono_id == bono.id)}
+    cambio = False
+    for item_id, fila in actuales.items():
+        if item_id not in deseadas:
+            db.delete(fila)
+            cambio = True
+        elif Decimal(fila.monto) != deseadas[item_id]:
+            fila.monto = deseadas[item_id]
+            cambio = True
+    nuevas = [SellInBonoReparto(bono_id=bono.id, item_id=i, monto=m) for i, m in deseadas.items() if i not in actuales]
+    db.add_all(nuevas)
+    db.flush()
+    return cambio or bool(nuevas)
+
+
+def _encolar(db: Session, bono: SellInBonoMarca) -> None:
+    """Queues the bonus for the `sell_in.bono` drain (its total, criterion or shares changed), like its triggers. The
+    queue is Postgres's (a new bonus is queued by its insert trigger too)."""
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    db.execute(_ENCOLAR_BONO, {"ref": bono.id})
+    db.execute(text("SELECT pg_notify(:canal, '')"), {"canal": bono_queue.CHANNEL})
 
 
 def _valor_nuevo(campos: Campos, item_id: int) -> dict:
@@ -415,6 +543,8 @@ def entrada_guardada(db: Session, bono: SellInBonoMarca) -> SellInBonoIn:
         tipo=bono.tipo,
         monto_unit=bono.monto_unit,
         porcentaje=bono.porcentaje,
+        monto_total=bono.monto_total,
+        reparto_criterio=bono.reparto_criterio,
         moneda=bono.moneda,
         fecha_desde=bono.fecha_desde,
         fecha_hasta=bono.fecha_hasta,
@@ -551,10 +681,14 @@ def serializar(db: Session, bonos: list[SellInBonoMarca]) -> list[dict]:
             unidades[bono_id] = int(cantidad)
             montos[bono_id] = {"ARS": Decimal(str(monto)).quantize(Decimal("0.01"))}
     modelos = _modelos(db, ids)
+    repartos = _repartos_de(db, [b.id for b in bonos if b.tipo == MONTO_TOTAL])
     productos = {
         p.item_id: p
         for p in db.query(ProductoERP.item_id, ProductoERP.codigo, ProductoERP.descripcion).filter(
-            ProductoERP.item_id.in_({i for items in modelos.values() for i, _, _ in items})
+            ProductoERP.item_id.in_(
+                {i for items in modelos.values() for i, _, _ in items}
+                | {i for items in repartos.values() for i, _ in items}
+            )
         )
     }
     pedido_ids = {b.pedido_id for b in bonos if b.pedido_id is not None}
@@ -580,6 +714,15 @@ def serializar(db: Session, bonos: list[SellInBonoMarca]) -> list[dict]:
                     }
                     for i, monto_unit, porcentaje in modelos.get(bono.id, [])
                 ],
+                "repartos": [
+                    {
+                        "item_id": i,
+                        "codigo": productos[i].codigo if i in productos else None,
+                        "descripcion": productos[i].descripcion if i in productos else None,
+                        "monto": monto,
+                    }
+                    for i, monto in repartos.get(bono.id, [])
+                ],
                 "pedido_numero": numeros.get(bono.pedido_id),
                 "compras_activas": int(compras.get(bono.id, 0)),
                 "unidades": unidades.get(bono.id, 0),
@@ -590,6 +733,18 @@ def serializar(db: Session, bonos: list[SellInBonoMarca]) -> list[dict]:
             }
         )
     return filas
+
+
+def _repartos_de(db: Session, bono_ids: list[int]) -> dict[int, list[tuple[int, Decimal]]]:
+    """Each total bonus's fixed shares as `(item_id, monto)`, by item id; no query without one."""
+    salida: dict[int, list[tuple[int, Decimal]]] = {}
+    if bono_ids:
+        t = SellInBonoReparto
+        for bono_id, item_id, monto in (
+            db.query(t.bono_id, t.item_id, t.monto).filter(t.bono_id.in_(bono_ids)).order_by(t.bono_id, t.item_id)
+        ):
+            salida.setdefault(bono_id, []).append((item_id, monto))
+    return salida
 
 
 def _restante(bono: SellInBonoMarca, unidades: int, monto: Decimal) -> dict:
@@ -612,6 +767,8 @@ _COLUMNAS = (
     "tipo",
     "monto_unit",
     "porcentaje",
+    "monto_total",
+    "reparto_criterio",
     "moneda",
     "fecha_desde",
     "fecha_hasta",

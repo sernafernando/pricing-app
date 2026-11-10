@@ -18,6 +18,7 @@ the campaign currency as loaded (before any VAT is taken off).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Dict, List, Optional, Tuple
 
@@ -43,9 +44,8 @@ def _alcance(db: Session, campana: SellOutCampana) -> List[int]:
     return sorted(alcance.productos(db, [campana.id]).get(campana.id, {}))
 
 
-def _tasa(campana: SellOutCampana, db: Session) -> Optional[Decimal]:
-    if campana.tipo_cambio is not None:
-        return Decimal(campana.tipo_cambio)
+def tasa_bna(db: Session) -> Optional[Decimal]:
+    """The latest BNA USD `venta` rate, None without one."""
     fila = (
         db.query(TipoCambio.venta)
         .filter(TipoCambio.moneda == "USD", TipoCambio.venta > 0)
@@ -55,9 +55,32 @@ def _tasa(campana: SellOutCampana, db: Session) -> Optional[Decimal]:
     return Decimal(str(fila[0])) if fila else None
 
 
-def _costos(db: Session, campana: SellOutCampana, item_ids: List[int]) -> Dict[int, Decimal]:
-    """Each product's cost in the campaign currency; 0 without a cost (it then gets no share)."""
-    tasa = _tasa(campana, db)
+def _tasa(campana: SellOutCampana, db: Session) -> Optional[Decimal]:
+    if campana.tipo_cambio is not None:
+        return Decimal(campana.tipo_cambio)
+    return tasa_bna(db)
+
+
+@dataclass(frozen=True)
+class Textos:
+    """The operator's messages of a split, naming what is split (a campaign, a sell-in bonus)."""
+
+    sin_alcance: str
+    sin_costo: str
+    sin_tasa: str
+
+
+CAMPANA = Textos(
+    sin_alcance="La campaña no alcanza ningún producto: no hay entre quiénes repartir",
+    sin_costo="Ningún producto de la campaña tiene costo cargado: no se puede repartir por costo",
+    sin_tasa="No hay tipo de cambio para pasar los costos a la moneda de la campaña: no se puede repartir por costo",
+)
+
+
+def _costos(
+    db: Session, item_ids: List[int], moneda_destino: str, tasa: Optional[Decimal], textos: Textos
+) -> Dict[int, Decimal]:
+    """Each product's cost in `moneda_destino`; 0 without a cost (it then gets no share)."""
     salida = {}
     rows = db.query(ProductoERP.item_id, ProductoERP.costo, ProductoERP.moneda_costo).filter(
         ProductoERP.item_id.in_(item_ids)
@@ -67,27 +90,33 @@ def _costos(db: Session, campana: SellOutCampana, item_ids: List[int]) -> Dict[i
             salida[item_id] = Decimal(0)
             continue
         try:
-            salida[item_id] = costo_en_moneda(Decimal(str(costo)), moneda(moneda_costo), campana.moneda, tasa)
+            salida[item_id] = costo_en_moneda(Decimal(str(costo)), moneda(moneda_costo), moneda_destino, tasa)
         except SellInError as exc:
-            raise CriterioError(
-                "No hay tipo de cambio para pasar los costos a la moneda de la campaña: no se puede repartir por costo"
-            ) from exc
+            raise CriterioError(textos.sin_tasa) from exc
     return salida
 
 
-def cuotas(db: Session, campana: SellOutCampana, criterio: str) -> Dict[int, Decimal]:
-    """`{item_id: fixed share}` of an `iguales` or `costo` split over the campaign's reach, adding up to its total;
-    products whose share is 0 (no cost, or a total of a few cents over many products) are left out."""
-    item_ids = _alcance(db, campana)
+def cuotas_fijas(
+    db: Session,
+    item_ids: List[int],
+    total: Decimal,
+    criterio: str,
+    moneda_destino: str,
+    tasa: Optional[Decimal],
+    textos: Textos = CAMPANA,
+) -> Dict[int, Decimal]:
+    """`{item_id: fixed share}` of an `iguales` or `costo` split of `total` over `item_ids`, adding up to it; products
+    whose share is 0 (no cost, or a total of a few cents over many products) are left out. `moneda_destino` and
+    `tasa`: the currency of the total and the rate a cost in the other currency converts at."""
     if not item_ids:
-        raise CriterioError("La campaña no alcanza ningún producto: no hay entre quiénes repartir")
-    total = Decimal(campana.monto_total)
+        raise CriterioError(textos.sin_alcance)
+    total = Decimal(total)
     if criterio == IGUALES:
         formula, lineas = "por_unidad", [Line(i, 1, Decimal(0)) for i in item_ids]
     else:
-        costos = _costos(db, campana, item_ids)
+        costos = _costos(db, item_ids, moneda_destino, tasa, textos)
         if not any(costos.values()):
-            raise CriterioError("Ningún producto de la campaña tiene costo cargado: no se puede repartir por costo")
+            raise CriterioError(textos.sin_costo)
         formula, lineas = "proporcional", [Line(i, 1, costos.get(i, Decimal(0))) for i in item_ids]
     try:
         montos = split(formula, abs(total), lineas)
@@ -95,6 +124,14 @@ def cuotas(db: Session, campana: SellOutCampana, criterio: str) -> Dict[int, Dec
         raise CriterioError(str(exc)) from exc
     signo = -1 if total < 0 else 1
     return {linea.item_id: signo * m for linea, m in zip(lineas, montos) if m}
+
+
+def cuotas(db: Session, campana: SellOutCampana, criterio: str) -> Dict[int, Decimal]:
+    """`{item_id: fixed share}` of an `iguales` or `costo` split over the campaign's reach (`cuotas_fijas`), costs in
+    the campaign currency at its own rate, else the latest BNA."""
+    item_ids = _alcance(db, campana)
+    tasa = _tasa(campana, db) if criterio == COSTO and item_ids else None
+    return cuotas_fijas(db, item_ids, Decimal(campana.monto_total), criterio, campana.moneda, tasa)
 
 
 def _por_unidades(db: Session, campana: SellOutCampana) -> Tuple[Dict[int, int], Dict[int, Decimal]]:
