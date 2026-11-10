@@ -8,6 +8,7 @@ import SellOutMonto from './SellOutMonto';
 import { buscarProductos } from './sellOutBuscar';
 import { nombreDeItem } from './sellOutFormat';
 import {
+  esProvisional,
   CRITERIOS,
   MODO_MONTO,
   MODO_PORCENTAJE,
@@ -120,7 +121,9 @@ function RepartoPorCriterio({ campana, busy, onBusyChange, onGuardado }) {
           <p className={panelStyles.hint}>
             {vista.criterio === 'unidades'
               ? 'Según las unidades vendidas hasta hoy: se recalcula con cada venta o devolución del rango.'
-              : 'Reemplaza el reparto actual de la campaña.'}
+              : vista.criterio === 'iguales'
+                ? 'Partes iguales entre los productos con ventas hasta hoy: un producto sin ventas no recibe parte. Se recalcula con cada venta o devolución del rango.'
+                : 'Reemplaza el reparto actual de la campaña.'}
           </p>
           <div className={styles.acciones}>
             <button type="button" className="btn-tesla secondary sm" onClick={() => setVista(null)} disabled={busy}>
@@ -239,6 +242,12 @@ export default function SellOutReparto({
         })}
       </dl>
       {resumen?.motivo && <p className={panelStyles.error}>{resumen.motivo}</p>}
+      {esProvisional(campana) && (
+        <p className={panelStyles.hint} data-testid="reparto-provisional">
+          Provisional: se reparte en partes iguales entre los productos con ventas hasta hoy; al terminar el rango queda
+          entre los que vendieron.
+        </p>
+      )}
       <p className={panelStyles.hint}>
         {`Lo sin asignar (y lo asignado a productos sin ventas) suma en los totales el ${fechaHasta}, no en la fila de ningún producto.`}
       </p>
@@ -332,7 +341,9 @@ export default function SellOutReparto({
         <p className={panelStyles.hint}>
           {criterio === 'unidades'
             ? 'Según unidades vendidas: el reparto sigue las ventas y devoluciones del rango.'
-            : criterio
+            : criterio === 'iguales'
+              ? 'Partes iguales entre los productos que vendieron: el reparto sigue las ventas y devoluciones del rango.'
+              : criterio
               ? `${nombreDeCriterio(criterio)}: todavía no hay productos con parte.`
               : 'Todavía no se repartió: todo el monto está sin asignar.'}
         </p>

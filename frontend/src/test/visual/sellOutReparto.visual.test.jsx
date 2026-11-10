@@ -28,8 +28,21 @@ const NEGATIVA_CON_REPARTO = {
   },
 };
 
+// Equal parts among the products that sold, range not over yet: the "Provisional" note (tactical iguales sell out S3).
+const IGUALES_PROVISIONAL = {
+  ...CAMPANA_MONTO_TOTAL,
+  reparto_criterio: 'iguales',
+  items: [],
+  fecha_hasta: '2999-12-31',
+  resumen: {
+    ...CAMPANA_MONTO_TOTAL.resumen,
+    reparto: { asignado: '2000000.00', asignado_sin_ventas: '0.00', sin_asignar: '0.00', motivo: null },
+  },
+};
+
 const CASOS = [
   ['editable', CAMPANA_MONTO_TOTAL, true],
+  ['iguales-provisional', IGUALES_PROVISIONAL, false],
   ['negativa', NEGATIVA_CON_REPARTO, true],
   ['lectura', CAMPANA_MONTO_TOTAL, false],
 ];

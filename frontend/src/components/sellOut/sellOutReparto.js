@@ -20,6 +20,18 @@ export const CRITERIOS = REPARTOS;
 /** The stored criterion as the screen names it: "Manual" when the shares were typed by hand. */
 export const nombreDeCriterio = (criterio) => CRITERIOS.find((c) => c.value === criterio)?.label ?? 'Manual';
 
+/** Today as the API's `YYYY-MM-DD`, in local time. */
+const hoyIso = (hoy) =>
+  `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+
+/**
+ * Whether the campaign's split can still move because its range is not over: sell out in equal parts goes only to
+ * the products with sales, so until `fecha_hasta` ends it is split among those that sold so far (the backend
+ * rebuilds it with every sale or return dated in the range).
+ */
+export const esProvisional = (campana, hoy = new Date()) =>
+  campana.reparto_criterio === 'iguales' && Boolean(campana.fecha_hasta) && campana.fecha_hasta >= hoyIso(hoy);
+
 export const MODO_PORCENTAJE = 'porcentaje';
 export const MODO_MONTO = 'monto';
 
