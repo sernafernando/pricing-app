@@ -35,10 +35,11 @@ from app.models.sell_out import (
 from app.models.tipo_cambio import TipoCambio
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
-from tests.services.sell._schema import throwaway_schema
+from tests.services.sell._schema import PUBLICADOS, throwaway_schema
 from tests.services.sell_in._world import delete_venta, venta  # noqa: F401 - re-exported for the tests
 
 STUBS = [
+    PUBLICADOS,
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
     "INSERT INTO usuarios VALUES (7)",
     "CREATE TABLE offsets_ganancia (id INTEGER PRIMARY KEY)",  # `sell_out_campanas.offset_origen_id` (T15)

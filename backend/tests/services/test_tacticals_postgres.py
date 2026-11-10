@@ -24,13 +24,15 @@ from app.models.sell_out import (
     SellOutDirty,
     SellOutPrograma,
 )
-from app.models.tactical import TacticalTienda
+from app.models.tactical import TacticalMarca, TacticalTienda
 from app.schemas.sell_out import SellOutCampanaIn
 from app.schemas.tacticals import TacticalIn
 from app.services import tacticals as service
+from app.services.sell_in import bonos
 from app.services.sell_out import edicion_masiva, renovacion
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _bono_world as bw
+from tests.services.sell_in import _world as w
 
 pytestmark = pytest.mark.postgres
 
@@ -40,6 +42,7 @@ TABLES = [
     *bw.TABLES,
     MlTiendaOficial.__table__,
     TacticalTienda.__table__,
+    TacticalMarca.__table__,
     OffsetGrupo.__table__,
     OffsetGrupoFiltro.__table__,
     SellOutPrograma.__table__,
@@ -87,6 +90,7 @@ def db(engine: Engine) -> Iterator[Session]:
         with engine.begin() as conn:
             conn.execute(text("UPDATE productos_erp SET categoria = 'Routers', iva = 21"))
             conn.execute(text("DELETE FROM tactical_tiendas"))
+            conn.execute(text("DELETE FROM tactical_marcas"))
             conn.execute(text("DELETE FROM tacticals"))
             conn.execute(text("DELETE FROM ml_tiendas_oficiales"))
             conn.execute(text("DELETE FROM sell_out_dirty"))
@@ -198,12 +202,112 @@ class TestSellIn:
         with pytest.raises(service.TacticalError, match="^Línea 1: una reducción de costo por unidad .* en pesos"):
             service.crear(db, usd, USUARIO)
 
-    def test_an_invoice_outside_the_dates_is_refused(self, db) -> None:
-        pedido = bw.pedido(db.get_bind(), {2964: 10}, date(2026, 10, 10))
+    def test_an_invoice_tactical_takes_no_dates_and_its_bonus_takes_its_invoice_date(self, db, engine) -> None:
+        """Tactical factura sin fecha S1/S2c: any invoice date; the header spans the oldest to the newest invoice."""
+        vieja = bw.pedido(engine, {2964: 10}, date(2025, 3, 10))
+        nueva = bw.pedido(engine, {2270: 5}, date(2026, 10, 10))
+        lineas = [
+            {"alcance": "factura", "pedido_compra_id": nueva, "modo_monto": "porcentaje", "valor": "5"},
+            {"alcance": "factura", "pedido_compra_id": vieja, "modo_monto": "por_unidad", "valor": "2"},
+        ]
+
+        tactical = service.crear(db, _tactical("sell_in", lineas, fecha_desde=None, fecha_hasta=None), USUARIO)
+
+        assert (tactical.fecha_desde, tactical.fecha_hasta) == (date(2025, 3, 10), date(2026, 10, 10))
+        with engine.connect() as conn:
+            fechas = conn.execute(
+                text("SELECT pedido_id, fecha_desde, fecha_hasta FROM sell_in_bonos_marca ORDER BY tactical_linea")
+            ).all()
+        assert [tuple(f) for f in fechas] == [
+            (nueva, date(2026, 10, 10), date(2026, 10, 10)),
+            (vieja, date(2025, 3, 10), date(2025, 3, 10)),
+        ]
+        assert service.serializar(db, [tactical])[0]["por_factura"] is True
+
+    def test_an_invoice_outside_the_dates_of_a_dated_tactical_is_accepted(self, db, engine) -> None:
+        pedido = bw.pedido(engine, {2964: 10}, date(2026, 10, 10))
         linea = {"alcance": "factura", "pedido_compra_id": pedido, "modo_monto": "porcentaje", "valor": "5"}
 
-        with pytest.raises(service.TacticalError, match="fuera de la vigencia"):
-            service.crear(db, _tactical("sell_in", [linea]), USUARIO)
+        tactical = service.crear(db, _tactical("sell_in", [linea]), USUARIO)
+
+        assert (tactical.fecha_desde, tactical.fecha_hasta) == (date(2026, 10, 10), date(2026, 10, 10))
+        assert _contar(engine, "sell_in_bonos_marca", "fecha_desde = '2026-10-10' AND fecha_hasta = '2026-10-10'") == 1
+
+    def test_a_mixed_tactical_needs_dates_and_keeps_them_for_its_other_lines(self, db, engine) -> None:
+        pedido = bw.pedido(engine, {2964: 10}, date(2026, 10, 10))
+        lineas = [
+            {"alcance": "marca", "marca": TPLINK, "modo_monto": "porcentaje", "valor": "3"},
+            {"alcance": "factura", "pedido_compra_id": pedido, "modo_monto": "porcentaje", "valor": "5"},
+        ]
+
+        with pytest.raises(service.TacticalError) as exc:
+            service.crear(db, _tactical("sell_in", lineas, fecha_desde=None, fecha_hasta=None), USUARIO)
+        assert (
+            str(exc.value)
+            == "Las fechas son obligatorias: solo un tactical con todas sus líneas por factura va sin fechas"
+        )
+
+        tactical = service.crear(db, _tactical("sell_in", lineas), USUARIO)
+
+        assert (tactical.fecha_desde, tactical.fecha_hasta) == (date(2026, 11, 1), date(2026, 11, 30))
+        with engine.connect() as conn:
+            fechas = conn.execute(
+                text("SELECT alcance, fecha_desde, fecha_hasta FROM sell_in_bonos_marca ORDER BY tactical_linea")
+            ).all()
+        assert [tuple(f) for f in fechas] == [
+            ("marca", date(2026, 11, 1), date(2026, 11, 30)),
+            ("factura", date(2026, 10, 10), date(2026, 10, 10)),
+        ]
+        assert service.serializar(db, [tactical])[0]["por_factura"] is False
+
+    def test_a_dated_line_still_needs_its_dates(self, db) -> None:
+        linea = {"alcance": "marca", "marca": TPLINK, "modo_monto": "porcentaje", "valor": "3"}
+
+        with pytest.raises(service.TacticalError, match="^Las fechas son obligatorias"):
+            service.crear(db, _tactical("sell_in", [linea], fecha_hasta=None), USUARIO)
+        with pytest.raises(service.TacticalError, match="^Las fechas son obligatorias"):
+            service.crear(db, _tactical(fecha_desde=None, fecha_hasta=None), USUARIO)
+
+    def test_a_corrected_invoice_date_moves_the_header_of_an_invoice_tactical(self, db, engine) -> None:
+        """Verifier advisory on L6: the header keeps spanning its invoices (oldest..newest) after Compras corrects one;
+        a mixed tactical's header keeps its own dates."""
+        vieja = bw.pedido(engine, {2964: 10}, date(2026, 3, 10))
+        nueva = bw.pedido(engine, {2270: 5}, date(2026, 10, 10))
+        lineas = [
+            {"alcance": "factura", "pedido_compra_id": vieja, "modo_monto": "porcentaje", "valor": "5"},
+            {"alcance": "factura", "pedido_compra_id": nueva, "modo_monto": "por_unidad", "valor": "2"},
+        ]
+        factura = service.crear(db, _tactical("sell_in", lineas, fecha_desde=None, fecha_hasta=None), USUARIO)
+        marca = {"alcance": "marca", "marca": TPLINK, "modo_monto": "porcentaje", "valor": "3"}
+        mixto = service.crear(db, _tactical("sell_in", [marca, lineas[1]], nombre="Mixto"), USUARIO)
+        bonos.reconciliar(db, pedido_ids=[vieja, nueva])
+        db.commit()
+
+        bw.update_pedido(engine, nueva, fecha_factura=date(2026, 12, 5))
+        bonos.reconciliar(db, pedido_ids=[nueva])
+        db.commit()
+
+        with engine.connect() as conn:
+            fechas = dict(
+                (t, (d, h))
+                for t, d, h in conn.execute(text("SELECT id, fecha_desde, fecha_hasta FROM tacticals")).all()
+            )
+        assert fechas[factura.id] == (date(2026, 3, 10), date(2026, 12, 5))
+        assert fechas[mixto.id] == (date(2026, 11, 1), date(2026, 11, 30))
+
+    def test_the_invoice_units_get_the_rebate_whenever_they_are_sold_until_they_run_out(self, db, engine) -> None:
+        pedido = bw.pedido(engine, {2964: 700}, date(2026, 10, 10))
+        linea = {"alcance": "factura", "pedido_compra_id": pedido, "modo_monto": "por_unidad", "valor": "2"}
+        service.crear(db, _tactical("sell_in", [linea], fecha_desde=None, fecha_hasta=None), USUARIO)
+        primera = w.venta(engine, "fuera", 2964, 500, date(2027, 6, 1))
+        segunda = w.venta(engine, "fuera", 2964, 300, date(2028, 1, 15))
+        tercera = w.venta(engine, "fuera", 2964, 10, date(2028, 2, 1))
+
+        bonos.reconciliar(db, pedido_ids=[pedido])
+        db.commit()
+
+        assert [(c[2], c[4]) for c in w.consumos(engine)] == [(primera, 500), (segunda, 200)]
+        assert tercera not in [c[2] for c in w.consumos(engine)]
 
     def test_an_invoice_percentage_is_an_invoice_bonus(self, db, engine) -> None:
         pedido = bw.pedido(engine, {2964: 10}, date(2026, 11, 10), moneda="ARS", tipo_cambio=None)
@@ -282,6 +386,22 @@ class TestListar:
         assert ids(q="hot") == [vigente.id]
         assert ids(desde=date(2026, 10, 15), hasta=date(2026, 10, 20)) == [vencido.id]
 
+    def test_an_invoice_tactical_stays_current_after_its_invoice_dates(self, db, engine) -> None:
+        """S4: an all-invoice tactical has no end: it is vigente until voided, never vencido."""
+        pedido = bw.pedido(engine, {2964: 10}, date(2026, 3, 10))
+        linea = {"alcance": "factura", "pedido_compra_id": pedido, "modo_monto": "porcentaje", "valor": "5"}
+        factura = service.crear(db, _tactical("sell_in", [linea], fecha_desde=None, fecha_hasta=None), USUARIO)
+        vencido = service.crear(
+            db, _tactical(nombre="Octubre", fecha_desde=date(2026, 10, 1), fecha_hasta=date(2026, 10, 31)), USUARIO
+        )
+
+        def ids(**filtros) -> list[int]:
+            filtros = service.Filtros(**{"tipos": ["sell_in", "sell_out"], **filtros})
+            return [t.id for t in service.listar(db, filtros, 1, 50, hoy=date(2026, 11, 5))[1]]
+
+        assert ids(estado="vigentes") == [factura.id]
+        assert ids(estado="vencidos") == [vencido.id]
+
     def test_the_currency_filter_keeps_the_tacticals_in_that_currency(self, db) -> None:
         pesos = service.crear(db, _tactical(nombre="En pesos"), USUARIO)
         dolares = service.crear(db, _tactical(nombre="En dólares", moneda="USD", tc_modo="al_cobro"), USUARIO)
@@ -293,6 +413,69 @@ class TestListar:
         assert ids(moneda="ARS") == [pesos.id]
         assert ids(moneda="USD") == [dolares.id]
         assert ids() == sorted([pesos.id, dolares.id])
+
+
+def _leido(db: Session, tactical_id: int) -> dict:
+    return service.serializar(db, [db.get(service.Tactical, tactical_id)])[0]
+
+
+class TestMarcas:
+    """S3 (owner 2026-11-10): "lo mismo las marcas que se usan para el filtro hay que hacer un selector multiple"."""
+
+    def test_a_tactical_keeps_every_brand_and_its_first_one_as_marca(self, db, engine) -> None:
+        tactical = service.crear(db, _tactical(marca=None, marcas=[bw.MERCUSYS, TPLINK]), USUARIO)
+
+        assert tactical.marca == bw.MERCUSYS  # old readers keep a valid brand
+        leido = _leido(db, tactical.id)
+        assert (leido["marca"], leido["marcas"]) == (bw.MERCUSYS, [bw.MERCUSYS, TPLINK])
+        assert _contar(engine, "tactical_marcas", f"tactical_id = {tactical.id}") == 2
+
+    def test_an_old_client_sending_only_marca_gets_that_one_brand(self, db) -> None:
+        tactical = service.crear(db, _tactical(), USUARIO)
+
+        assert _leido(db, tactical.id)["marcas"] == [TPLINK]
+
+    def test_marca_and_marcas_together_must_agree(self, db, engine) -> None:
+        with pytest.raises(service.TacticalError, match="La marca tiene que ser una de las marcas"):
+            service.crear(db, _tactical(marca=TPLINK, marcas=[bw.MERCUSYS]), USUARIO)
+        assert _contar(engine, "tacticals") == 0
+
+    def test_the_marca_a_client_sends_with_marcas_stays_the_header_s(self, db) -> None:
+        tactical = service.crear(db, _tactical(marca=TPLINK, marcas=[bw.MERCUSYS, TPLINK]), USUARIO)
+
+        leido = _leido(db, tactical.id)
+        assert (leido["marca"], leido["marcas"]) == (TPLINK, [bw.MERCUSYS, TPLINK])
+
+    def test_the_brand_filter_still_finds_a_header_without_brand_rows(self, db, engine) -> None:
+        """A header written by the code before 20261110_tacticals_marcas during a deploy has no `tactical_marcas`."""
+        tactical = service.crear(db, _tactical(), USUARIO)
+        db.commit()
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM tactical_marcas WHERE tactical_id = :t"), {"t": tactical.id})
+
+        filtros = service.Filtros(tipos=["sell_in", "sell_out"], marca=TPLINK)
+        assert [t.id for t in service.listar(db, filtros, 1, 50, hoy=date(2026, 11, 5))[1]] == [tactical.id]
+
+    def test_every_brand_needs_products_and_a_repeated_one_counts_once(self, db, engine) -> None:
+        with pytest.raises(service.TacticalError, match="No hay productos de la marca NO EXISTE"):
+            service.crear(db, _tactical(marca=None, marcas=[TPLINK, "NO EXISTE"]), USUARIO)
+        tactical = service.crear(db, _tactical(marca=None, marcas=[TPLINK, " TP-LINK ", bw.MERCUSYS]), USUARIO)
+        assert _leido(db, tactical.id)["marcas"] == [TPLINK, bw.MERCUSYS]
+
+    def test_no_brand_is_refused(self, db) -> None:
+        with pytest.raises(service.TacticalError, match="La marca es obligatoria"):
+            service.crear(db, _tactical(marca=None, marcas=[]), USUARIO)
+
+    def test_the_brand_filter_matches_any_of_its_brands(self, db) -> None:
+        dos = service.crear(db, _tactical(nombre="Dos", marca=None, marcas=[TPLINK, bw.MERCUSYS]), USUARIO)
+        una = service.crear(db, _tactical(nombre="Una"), USUARIO)
+
+        def ids(marca: str) -> list[int]:
+            filtros = service.Filtros(tipos=["sell_in", "sell_out"], marca=marca)
+            return sorted(t.id for t in service.listar(db, filtros, 1, 50, hoy=date(2026, 11, 5))[1])
+
+        assert ids(bw.MERCUSYS) == [dos.id]
+        assert ids(TPLINK) == sorted([dos.id, una.id])
 
 
 class TestRefusalsFromGGA:
@@ -648,8 +831,7 @@ class TestSellInMontoTotal:
 
 
 class TestStoreScope:
-    def test_scoped_create_persists_targets_and_shared_cap(self, db, engine, monkeypatch) -> None:
-        monkeypatch.setattr(service, "TIPOS_CON_ALCANCE", frozenset({"sell_out", "sell_in"}))
+    def test_scoped_create_persists_targets_and_shared_cap(self, db, engine) -> None:
         db.add(MlTiendaOficial(store_id=57997, nombre="GaussOnline", clave="gauss", orden=1, activa=True))
         db.add(MlTiendaOficial(store_id=2645, nombre="TP-Link", clave="tplink", orden=2, activa=True))
         db.flush()

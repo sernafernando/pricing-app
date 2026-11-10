@@ -120,6 +120,10 @@ function Lineas({ tactical, onVerLinea }) {
  * the row's actions menu; none, no menu. With `onVerLinea`, each line has "Ver ventas", which hands that line (its
  * child record: `origen` and `id`) over.
  */
+/** Every brand of the tactical (S3); a tactical read before S3 has only `marca`. */
+const marcasDe = (tactical) =>
+  (tactical.marcas?.length ? tactical.marcas : [tactical.marca]).filter((m) => !vacio(m)).join(', ');
+
 export default function TacticalFila({ tactical, abierto, onAlternar, acciones = [], onVerLinea }) {
   const tipo = TIPO_PILL[tactical.tipo] ?? { texto: tactical.tipo, tono: 'neutral' };
   const estado = estadoDe(tactical);
@@ -149,8 +153,8 @@ export default function TacticalFila({ tactical, abierto, onAlternar, acciones =
             {tipo.texto}
           </StatusPill>
         </td>
-        <td>{vacio(tactical.marca) ? GUION : tactical.marca}</td>
-        <td className={styles.nowrap}>{vigenciaDe(tactical.fecha_desde, tactical.fecha_hasta)}</td>
+        <td>{marcasDe(tactical) || GUION}</td>
+        <td className={styles.nowrap}>{vigenciaDe(tactical.fecha_desde, tactical.fecha_hasta, tactical.por_factura)}</td>
         <td className={styles.num}>{tactical.lineas.length}</td>
         <td>
           <div className={styles.avance}>

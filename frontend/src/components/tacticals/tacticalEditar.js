@@ -43,9 +43,10 @@ export function valoresDeEdicion(tactical) {
 }
 
 /** What the form cannot send: the server judges the rest (dates against today, caps against what was used). */
-export function problemaDeEdicion(valores) {
+export function problemaDeEdicion(valores, porFactura = false) {
   if (!valores.nombre.trim()) return 'El nombre no puede quedar vacío.';
-  if (!valores.fechaHasta) return 'Elegí la fecha hasta.';
+  // An all-invoice tactical has no end date (factura sin fecha S4): the dialog does not show it.
+  if (!porFactura && !valores.fechaHasta) return 'Elegí la fecha hasta.';
   for (const l of valores.lineas) {
     const unidades = numeroDe(l.topeUnidades);
     if (l.topeUnidades.trim() && (unidades == null || !Number.isInteger(unidades))) {

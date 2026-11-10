@@ -46,6 +46,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 from sqlalchemy import Integer, String, and_, cast, func, literal, or_, select, union_all
 from sqlalchemy.orm import Session
 
+from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado as Pub
 from app.models.ml_sale_line import MlSaleLine
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.producto import ProductoERP
@@ -65,6 +66,36 @@ class Venta:
     costo_unit: Optional[Decimal] = None  # ARS, without VAT
     precio_unit: Optional[Decimal] = None  # ARS; with VAT when `precio_con_iva`
     precio_con_iva: bool = False
+    # ML only: current official store of the publication (`mla`); None = sin_tienda / unknown / fuera|tn
+    store_id: Optional[int] = None
+
+
+def stores_por_mla(db: Session, mlas: Set[str]) -> Dict[str, Optional[int]]:
+    """Current `mlp_official_store_id` per MLA (latest publicado row for that publication id): the store a sale is
+    credited under. The allocators, the cost lines and the markup context all read it here. An MLA with no row, or
+    a row with no store, is sin_tienda (None). A failing read raises: the allocators write only the difference, so
+    an empty map would silently drop the credits of every store-scoped tactical."""
+    if not mlas:
+        return {}
+    tienda = ultima_tienda(list(mlas))
+    rows = db.query(tienda.c.mla, tienda.c.store_id)
+    return {str(mla): (int(store) if store is not None else None) for mla, store in rows}
+
+
+def ultima_tienda(mlas: Any) -> Any:
+    """`(mla, store_id)` of each MLA among `mlas` (a list, or a select of them): its latest publicado row's store
+    (`stores_por_mla`). A subquery, so a read can group by the store in SQL (`tienda_scope.usado_por_contador`)."""
+    latest = (
+        select(func.max(Pub.mlp_id).label("mlp_id"))
+        .where(Pub.mlp_publicationID.isnot(None), Pub.mlp_publicationID.in_(mlas))
+        .group_by(Pub.mlp_publicationID)
+        .subquery()
+    )
+    return (
+        select(Pub.mlp_publicationID.label("mla"), Pub.mlp_official_store_id.label("store_id"))
+        .join(latest, Pub.mlp_id == latest.c.mlp_id)
+        .subquery()
+    )
 
 
 def _positivo(x: Decimal) -> bool:
@@ -239,13 +270,26 @@ def en_campana(campana: SellOutCampana, venta: Venta) -> bool:
     return campana.fecha_desde <= venta.fecha <= campana.fecha_hasta
 
 
-def ventas(db: Session, item_ids: Set[int], desde: date, hasta: date) -> List[Venta]:
+def ventas(db: Session, item_ids: Set[int], desde: date, hasta: date, con_tiendas: bool = True) -> List[Venta]:
     """The sales and returns of `item_ids` dated `desde`..`hasta`, every channel: one query per
-    channel plus one per channel with returns (their original sales)."""
+    channel plus one per channel with returns (their original sales). `con_tiendas` False skips the official-store
+    lookup (`store_id` stays None) when no scope reads it (`tienda_scope.necesita_tiendas`)."""
     if not item_ids:
         return []
     combos = partes_de_combos(db, item_ids)
     ids = sorted(set(item_ids) | set(combos))
+    ml_rows = list(
+        db.query(
+            MlSaleLine.item_row_id,
+            MlSaleLine.product,
+            MlSaleLine.day,
+            MlSaleLine.qty,
+            MlSaleLine.gross,
+            MlSaleLine.mcosto,
+            MlSaleLine.mla,
+        ).filter(MlSaleLine.product.in_(ids), MlSaleLine.day.between(desde, hasta), MlSaleLine.qty > 0)
+    )
+    stores = stores_por_mla(db, {mla for *_, mla in ml_rows}) if con_tiendas else {}
     salida = [
         Venta(
             "ml",
@@ -256,15 +300,9 @@ def ventas(db: Session, item_ids: Set[int], desde: date, hasta: date) -> List[Ve
             costo_unit=_por_unidad(mcosto, qty, _positivo),
             precio_unit=_por_unidad(gross, qty, _positivo),
             precio_con_iva=True,
+            store_id=stores.get(mla),
         )
-        for ref, item_id, dia, qty, gross, mcosto in db.query(
-            MlSaleLine.item_row_id,
-            MlSaleLine.product,
-            MlSaleLine.day,
-            MlSaleLine.qty,
-            MlSaleLine.gross,
-            MlSaleLine.mcosto,
-        ).filter(MlSaleLine.product.in_(ids), MlSaleLine.day.between(desde, hasta), MlSaleLine.qty > 0)
+        for ref, item_id, dia, qty, gross, mcosto, mla in ml_rows
     ]
     inicio = datetime.combine(desde, time(0), tzinfo=timezone.utc)
     fin = datetime.combine(hasta, time.max, tzinfo=timezone.utc)

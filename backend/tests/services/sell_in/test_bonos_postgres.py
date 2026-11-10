@@ -788,3 +788,82 @@ class TestValorPorModelo:
         assert _counts(result) == (0, 1, 0)
         assert b.compra_id(engine, bono, pedido) == compra
         assert b.items_de(engine, bono, pedido) == [(2270, 5, Decimal("5.00")), (2964, 4, Decimal("8.00"))]
+
+
+def _fechas_bono(engine: Engine, bono_id: int) -> tuple:
+    with engine.connect() as conn:
+        return tuple(
+            conn.execute(
+                text("SELECT fecha_desde, fecha_hasta FROM sell_in_bonos_marca WHERE id = :b"), {"b": bono_id}
+            ).one()
+        )
+
+
+def _fecha_compra(engine: Engine, bono_id: int, pedido_id: int) -> tuple:
+    with engine.connect() as conn:
+        return tuple(
+            conn.execute(
+                text("SELECT estado, fecha_compra FROM sell_in_compras WHERE bono_id = :b AND bono_pedido_id = :p"),
+                {"b": bono_id, "p": pedido_id},
+            ).one()
+        )
+
+
+@pytest.mark.postgres
+class TestInvoiceBonusFollowsItsInvoice:
+    """Tactical factura sin fecha L6/L7 (owner: "si cambian la fecha no se debería anular porque está aplicando a una
+    factura"): an invoice bonus has no date of its own; a corrected invoice date moves the bonus's dates with it."""
+
+    def test_a_corrected_invoice_date_moves_the_bonus_and_keeps_its_purchase(self, engine: Engine) -> None:
+        pedido = b.pedido(engine, {2964: 4}, D(2026, 10, 10))
+        bono = b.bono_alcance(engine, "factura", pedido_id=pedido, desde=D(2026, 10, 10), hasta=D(2026, 10, 10))
+        _reconciliar(engine, bono_ids=[bono])
+        b.clear_queue(engine)
+
+        b.update_pedido(engine, pedido, fecha_factura=D(2026, 12, 5))
+        assert ("pedido", pedido) in b.queued(engine)
+        result = _reconciliar(engine, pedido_ids=[pedido])
+
+        assert _counts(result) == (0, 1, 0)
+        assert _fecha_compra(engine, bono, pedido) == ("activa", D(2026, 12, 5))
+        assert _fechas_bono(engine, bono) == (D(2026, 12, 5), D(2026, 12, 5))
+
+        # The moved dates keep the queue's triggers covering the invoice: a second correction is queued too.
+        b.clear_queue(engine)
+        b.update_pedido(engine, pedido, fecha_factura=D(2027, 1, 8))
+        assert ("pedido", pedido) in b.queued(engine)
+        _reconciliar(engine, pedido_ids=[pedido])
+        assert _fecha_compra(engine, bono, pedido) == ("activa", D(2027, 1, 8))
+
+    def test_an_invoice_bonus_with_a_range_keeps_it_while_the_invoice_stays_inside(self, engine: Engine) -> None:
+        pedido = b.pedido(engine, {2964: 4}, D(2026, 10, 10))
+        bono = b.bono_alcance(engine, "factura", pedido_id=pedido)  # 2026-10-01..2026-10-31
+
+        b.update_pedido(engine, pedido, fecha_factura=D(2026, 10, 20))
+        _reconciliar(engine, bono_ids=[bono])
+
+        assert _fecha_compra(engine, bono, pedido) == ("activa", D(2026, 10, 20))
+        assert _fechas_bono(engine, bono) == (D(2026, 10, 1), D(2026, 10, 31))
+
+    def test_a_brand_bonus_still_drops_an_invoice_moved_out_of_its_range(self, engine: Engine) -> None:
+        bono = b.bono(engine, monto="2.00", moneda="USD")
+        pedido = b.pedido(engine, {2964: 4}, D(2026, 10, 10))
+        _reconciliar(engine, bono_ids=[bono])
+
+        b.update_pedido(engine, pedido, fecha_factura=D(2026, 12, 5))
+        result = _reconciliar(engine, pedido_ids=[pedido])
+
+        assert _counts(result) == (0, 0, 1)
+        assert _fecha_compra(engine, bono, pedido)[0] == "anulada"
+
+    def test_the_invoice_units_feed_sales_of_any_later_date_until_they_run_out(self, engine: Engine) -> None:
+        pedido = b.pedido(engine, {2964: 4}, D(2026, 10, 10))
+        bono = b.bono_alcance(engine, "factura", pedido_id=pedido, desde=D(2026, 10, 10), hasta=D(2026, 10, 10))
+        primera = w.venta(engine, "fuera", 2964, 3, D(2027, 3, 1))
+        segunda = w.venta(engine, "fuera", 2964, 3, D(2027, 4, 1))
+        tercera = w.venta(engine, "fuera", 2964, 2, D(2027, 5, 1))
+
+        _reconciliar(engine, bono_ids=[bono])
+
+        assert [(c[2], c[4]) for c in w.consumos(engine)] == [(primera, 3), (segunda, 1)]
+        assert tercera not in [c[2] for c in w.consumos(engine)]

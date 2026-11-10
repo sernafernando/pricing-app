@@ -137,3 +137,14 @@ describe('paramsDeFiltros', () => {
     ).toEqual({ tipo: 'sell_out', marca: 'HP', moneda: 'USD', estado: 'anulados', desde: '2026-11-01', hasta: '2026-11-30', q: 'bps', page: 2, page_size: 25 });
   });
 });
+
+describe('an invoice tactical (factura sin fecha S4)', () => {
+  it('shows Por factura instead of a range and is current until voided', () => {
+    expect(vigenciaDe('2025-03-10', '2026-03-10', true)).toBe('Por factura');
+    expect(estadoDe({ estado: 'activo', fecha_hasta: '2026-03-10', por_factura: true }, HOY)).toEqual({
+      texto: 'Vigente',
+      tono: 'success',
+    });
+    expect(estadoDe({ estado: 'anulado', fecha_hasta: '2026-03-10', por_factura: true }, HOY).texto).toBe('Anulado');
+  });
+});

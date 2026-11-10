@@ -44,6 +44,17 @@ describe('SellOutCampanaPanel', () => {
     expect(within(porCanal).getByText('Fuera de ML').closest('tr')).toHaveTextContent('USD 360,00');
   });
 
+  it('a per-store cap says so, and what is left is between every store', async () => {
+    sellOutAPI.detalle.mockResolvedValue({
+      data: { ...CAMPANA_PORCENTAJE_ANULADA, resumen: { ...CAMPANA_PORCENTAJE_ANULADA.resumen, tope_por_tienda: true } },
+    });
+    render(<SellOutCampanaPanel campanaId={60} onClose={() => {}} />);
+
+    expect(await screen.findByText('Anulada')).toBeInTheDocument();
+    expect(campo('Topes')).toHaveTextContent('500 u por tienda (quedan 470 entre todas las tiendas)');
+    expect(campo('Topes')).toHaveTextContent('$ 1.000.000,00 por tienda (quedan $ 998.920,00 entre todas las tiendas)');
+  });
+
   it('a voided % campaign: base, caps left, VAT flag and a failed recalculation with its error', async () => {
     sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_PORCENTAJE_ANULADA });
     render(<SellOutCampanaPanel campanaId={60} onClose={() => {}} />);

@@ -1,12 +1,13 @@
 /**
  * TacticalDatos — the first card of Nuevo tactical, as the approved design draws it: the type (Sell in | Sell out,
- * the ones the user cannot manage off) and the tactical's data: name, brand, the brand's reference, validity,
+ * the ones the user cannot manage off) and the tactical's data: name, its brands (chips, one or more), the brand's reference, validity,
  * currency, the exchange-rate mode in USD (a fixed rate asks its value), store scope, cap mode preview, conditions
  * and a note.
  *
  * `form` holds the fields as typed; `onChange(cambios)` merges the changed ones; `onTipo(tipo)` switches the type.
  * `gruposTiendas` are clave-collapsed official stores (`tiendasActivas`: how many are active); `ejemploTope` drives the live cap preview.
  */
+import { X } from 'lucide-react';
 import Seg from './Seg';
 import { ALCANCE_POR_TIENDA, CANALES_TACTICAL, esCanal, previewTope } from './tacticalTiendas';
 import styles from './TacticalDatos.module.css';
@@ -32,8 +33,10 @@ export default function TacticalDatos({
   tiendasActivas,
   ejemploTope = null,
   alcancePorTienda = ALCANCE_POR_TIENDA,
+  porFactura = false,
 }) {
   const usd = form.moneda === 'USD';
+  const marcasElegidas = form.marcas ?? [];
   const todasTiendas = form.todasTiendas !== false;
   const tiendaKeys = form.tiendaKeys ?? [];
   const topeCompartido = Boolean(form.topeCompartido);
@@ -95,24 +98,45 @@ export default function TacticalDatos({
             <label htmlFor="tactical-marca">
               Marca <span className={styles.req} aria-hidden="true">*</span>
             </label>
+            {marcasElegidas.length > 0 && (
+              <div className={styles.chips}>
+                {marcasElegidas.map((m) => (
+                  <span key={m} className={styles.chip}>
+                    <span className={styles.chipText} title={m}>
+                      {m}
+                    </span>
+                    <button
+                      type="button"
+                      className={styles.chipX}
+                      aria-label={`Quitar ${m}`}
+                      onClick={() => onChange({ marcas: marcasElegidas.filter((x) => x !== m) })}
+                    >
+                      <X size={10} aria-hidden="true" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             <select
               id="tactical-marca"
               aria-label="Marca"
               aria-required="true"
               className={styles.ctl}
-              value={form.marca}
-              onChange={campo('marca')}
+              value=""
+              onChange={(e) => e.target.value && onChange({ marcas: [...marcasElegidas, e.target.value] })}
               aria-describedby="tactical-marca-help"
             >
-              <option value="">Elegí una marca</option>
-              {marcas.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
+              <option value="">{marcasElegidas.length ? 'Agregar otra marca' : 'Elegí una marca'}</option>
+              {marcas
+                .filter((m) => !marcasElegidas.includes(m))
+                .map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
             </select>
             <span className={styles.help} id="tactical-marca-help">
-              Se usa para filtrar los tacticals por marca.
+              Se usa para filtrar los tacticals por marca. Podés elegir más de una.
             </span>
           </div>
           <div className={styles.field}>
@@ -129,39 +153,47 @@ export default function TacticalDatos({
               onChange={campo('referencia')}
             />
           </div>
-          <div className={`${styles.field} ${styles.span2}`}>
-            <span className={styles.lbl}>
-              Vigencia <span className={styles.req} aria-hidden="true">*</span>
-            </span>
-            <div className={styles.dates}>
-              <div className={styles.field}>
-                <label htmlFor="tactical-desde" className={styles.subLabel}>
-                  Desde
-                </label>
-                <input
-                  id="tactical-desde"
-                  aria-required="true"
-                  className={styles.ctl}
-                  type="date"
-                  value={form.fechaDesde}
-                  onChange={campo('fechaDesde')}
-                />
-              </div>
-              <div className={styles.field}>
-                <label htmlFor="tactical-hasta" className={styles.subLabel}>
-                  Hasta
-                </label>
-                <input
-                  id="tactical-hasta"
-                  aria-required="true"
-                  className={styles.ctl}
-                  type="date"
-                  value={form.fechaHasta}
-                  onChange={campo('fechaHasta')}
-                />
+          {porFactura ? (
+            <div className={`${styles.field} ${styles.span2}`}>
+              <span className={styles.lbl}>Vigencia</span>
+              <strong>Por factura</strong>
+              <span className={styles.subLabel}>Cada factura aplica hasta que se vendan sus unidades.</span>
+            </div>
+          ) : (
+            <div className={`${styles.field} ${styles.span2}`}>
+              <span className={styles.lbl}>
+                Vigencia <span className={styles.req} aria-hidden="true">*</span>
+              </span>
+              <div className={styles.dates}>
+                <div className={styles.field}>
+                  <label htmlFor="tactical-desde" className={styles.subLabel}>
+                    Desde
+                  </label>
+                  <input
+                    id="tactical-desde"
+                    aria-required="true"
+                    className={styles.ctl}
+                    type="date"
+                    value={form.fechaDesde}
+                    onChange={campo('fechaDesde')}
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label htmlFor="tactical-hasta" className={styles.subLabel}>
+                    Hasta
+                  </label>
+                  <input
+                    id="tactical-hasta"
+                    aria-required="true"
+                    className={styles.ctl}
+                    type="date"
+                    value={form.fechaHasta}
+                    onChange={campo('fechaHasta')}
+                  />
+                </div>
               </div>
             </div>
-          </div>
+          )}
           <div className={styles.field}>
             <span className={styles.lbl}>Moneda</span>
             <Seg
@@ -252,7 +284,9 @@ export default function TacticalDatos({
                         <span>{`Tienda ${k}`}</span>
                       </label>
                     ))}
-                {CANALES_TACTICAL.map((c) => (
+                {/* With every store the channels are already in (S2): they show only to narrow, as the stores do. */}
+                {!todasTiendas &&
+                  CANALES_TACTICAL.map((c) => (
                   <label key={c.value} className={styles.check}>
                     <input
                       type="checkbox"

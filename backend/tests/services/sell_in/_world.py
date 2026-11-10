@@ -42,9 +42,10 @@ from app.models.sell_in import (
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.services.sell import queue
-from tests.services.sell._schema import throwaway_schema
+from tests.services.sell._schema import PUBLICADOS, throwaway_schema
 
 STUBS = [
+    PUBLICADOS,
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
     "CREATE TABLE proveedores (id INTEGER PRIMARY KEY, nombre TEXT)",
     "CREATE TABLE pedidos_compra (id BIGINT PRIMARY KEY, numero TEXT, numero_factura TEXT)",

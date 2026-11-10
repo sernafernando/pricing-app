@@ -18,6 +18,13 @@ SEMILLA_COMBOS = (
     "INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (999999001, 999999002, 1)"
 )
 
+# The publication's official store, as the sell out reach reads it (latest `mlp_official_store_id` per MLA,
+# `app.services.sell_out.alcance.stores_por_mla`). Every engine schema needs it: a missing table raises there.
+PUBLICADOS = (
+    "CREATE TABLE tb_mercadolibre_items_publicados ("
+    "mlp_id SERIAL PRIMARY KEY, mlp_publicationid VARCHAR(50), mlp_official_store_id INTEGER)"
+)
+
 
 @contextmanager
 def throwaway_schema(

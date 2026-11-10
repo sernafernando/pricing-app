@@ -25,10 +25,11 @@ import {
   maximoTotal,
   nuevaLinea,
   numeroDe,
+  porFactura,
   problemaDe,
   unidadesDelTope,
 } from '../components/tactical/tacticalLineas';
-import { contadoresDelTope } from '../components/tactical/tacticalTiendas';
+import { ALCANCE_INICIAL, ALCANCE_POR_TIENDA, contadoresDelTope } from '../components/tactical/tacticalTiendas';
 import { renovacionDe } from '../components/tactical/tacticalRenovar';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import styles from './TacticalNuevo.module.css';
@@ -73,11 +74,17 @@ function Resumen({ tipo, form, lineas, contadores = 1 }) {
         </span>
         <span className={styles.dot}>·</span>
         <span>
-          Marca <b>{form.marca || '—'}</b>
+          {form.marcas.length > 1 ? 'Marcas' : 'Marca'} <b>{form.marcas.join(', ') || '—'}</b>
         </span>
         <span className={styles.dot}>·</span>
         <span className={styles.big}>
-          <b>{ddmm(form.fechaDesde)}</b> al <b>{ddmm(form.fechaHasta)}</b>
+          {porFactura(form, lineas) ? (
+            <b>Por factura</b>
+          ) : (
+            <>
+              <b>{ddmm(form.fechaDesde)}</b> al <b>{ddmm(form.fechaHasta)}</b>
+            </>
+          )}
         </span>
       </>
     );
@@ -119,7 +126,7 @@ export default function TacticalNuevo() {
     return {
       tipo,
       nombre: '',
-      marca: '',
+      marcas: [],
       referencia: '',
       fechaDesde: '',
       fechaHasta: '',
@@ -128,9 +135,7 @@ export default function TacticalNuevo() {
       tipoCambio: '',
       incluyeIva: false,
       acumulable: true,
-      todasTiendas: true,
-      topeCompartido: false,
-      tiendaKeys: [],
+      ...ALCANCE_INICIAL,
       nota: '',
     };
   });
@@ -143,7 +148,10 @@ export default function TacticalNuevo() {
   const [descartar, setDescartar] = useState(false);
   const { grupos: gruposTiendas, activas: tiendasOficialesActivas, loaded: tiendasCargadas } = useTiendasOficiales();
   const ejemploTope = lineas.map((l) => numeroDe(l.topeUnidades)).find((n) => n != null && n > 0) ?? null;
+  // Stores apply only to sell out (owner, 2026-11-10): a sell in tactical lowers the cost of every sale.
+  const alcancePorTienda = ALCANCE_POR_TIENDA && form.tipo === 'sell_out';
   const contadores = contadoresDelTope({
+    alcancePorTienda,
     todasTiendas: form.todasTiendas !== false,
     seleccionKeys: form.tiendaKeys ?? [],
     grupos: gruposTiendas,
@@ -175,7 +183,7 @@ export default function TacticalNuevo() {
     if (!aRenovar || !tiendasCargadas) return;
     const renovado = renovacionDe(aRenovar, gruposTiendas);
     setForm(renovado.form);
-    setLineas(renovado.lineas.length ? renovado.lineas : [nuevaLinea(renovado.form.marca)]);
+    setLineas(renovado.lineas.length ? renovado.lineas : [nuevaLinea(renovado.form.marcas[0])]);
     setARenovar(null);
     setCargando(false);
   }, [aRenovar, tiendasCargadas, gruposTiendas]);
@@ -211,7 +219,7 @@ export default function TacticalNuevo() {
     setLineas((ls) => ls.filter((l) => l.id !== id));
   };
   const agregarLinea = () => {
-    const linea = nuevaLinea(form.marca);
+    const linea = nuevaLinea(form.marcas[0]);
     setLineas((ls) => [...ls, linea]);
     setAbierta(linea.id);
   };
@@ -222,14 +230,14 @@ export default function TacticalNuevo() {
       setError(problema);
       return;
     }
-    const { body, origen } = cuerpoDe(form, lineas, gruposTiendas);
+    const { body, origen } = cuerpoDe(form, lineas, gruposTiendas, alcancePorTienda);
     setError(null);
     setEnviando(true);
     try {
       await tacticalsAPI.crear(body);
       const aviso =
         form.tipo === 'sell_in'
-          ? `Tactical creado: ${body.nombre} · ${lineas.length} ${plural(lineas.length, 'línea', 'líneas')} · baja el costo del ${ddmm(form.fechaDesde)} al ${ddmm(form.fechaHasta)}.`
+          ? `Tactical creado: ${body.nombre} · ${lineas.length} ${plural(lineas.length, 'línea', 'líneas')} · ${porFactura(form, lineas) ? 'baja el costo de sus facturas hasta vender sus unidades' : `baja el costo del ${ddmm(form.fechaDesde)} al ${ddmm(form.fechaHasta)}`}.`
           : `Tactical creado: ${body.nombre} · ${lineas.length} ${plural(lineas.length, 'línea', 'líneas')} · máximo a cobrar ${dinero(form.moneda, maximoTotal(lineas, contadores))}.`;
       navigate(tipo.volver, { state: { aviso } });
     } catch (err) {
@@ -293,6 +301,8 @@ export default function TacticalNuevo() {
             gruposTiendas={gruposTiendas}
             tiendasActivas={tiendasOficialesActivas.length}
             ejemploTope={ejemploTope}
+            alcancePorTienda={alcancePorTienda}
+            porFactura={porFactura(form, lineas)}
           />
 
           <section className={styles.card} aria-labelledby="tactical-lineas">

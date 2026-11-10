@@ -36,7 +36,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
@@ -45,7 +45,7 @@ from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutConsumo, SellOutDirty
 from app.models.tipo_cambio import TipoCambio
 from app.services.sell_in.bonos import tasas_bna_por_fecha
-from app.services.sell_out import alcance, asignacion, campanas as campanas_service, queue, reparto
+from app.services.sell_out import alcance, asignacion, campanas as campanas_service, queue, reparto, tienda_scope
 from app.services.sell_out.tope import cents
 
 CANALES = ("ml", "fuera", "tn")
@@ -115,14 +115,21 @@ def _pendientes_base(db: Session, campanas: List[SellOutCampana]) -> Dict[int, i
     if not items:
         return {}
     desde = min(c.fecha_desde for c in porcentaje)
-    ventas = alcance.ventas(db, items, desde, max(c.fecha_hasta for c in porcentaje))
+    scopes = tienda_scope.scopes_de(db, porcentaje)
+    ventas = alcance.ventas(
+        db, items, desde, max(c.fecha_hasta for c in porcentaje), tienda_scope.necesita_tiendas(scopes.values())
+    )
     salida: Dict[int, int] = {}
     for c in porcentaje:
         alcanzados = productos.get(c.id, {})
+        scope = scopes.get(c.id)
         salida[c.id] = sum(
             1
             for v in ventas
-            if v.item_id in alcanzados and alcance.en_campana(c, v) and asignacion.base_desconocida(c, v)
+            if v.item_id in alcanzados
+            and alcance.en_campana(c, v)
+            and tienda_scope.alcanza(scope, v.canal, v.store_id)
+            and asignacion.base_desconocida(c, v)
         )
     return salida
 
@@ -312,6 +319,7 @@ def resumenes(db: Session, campanas: List[SellOutCampana]) -> Dict[int, dict]:
     pendientes = _pendientes_base(db, campanas)
     cola, en_curso = _recalculos(db, ids)
     repartos = _repartos(db, campanas)
+    por_tienda = _usado_por_tienda(db, campanas)
     salida = {}
     for cid, c in por_id.items():
         canales = montos.get(cid, {})
@@ -324,8 +332,7 @@ def resumenes(db: Session, campanas: List[SellOutCampana]) -> Dict[int, dict]:
             "monto": monto,
             "monto_ars": monto_ars(c, monto, (x[3] for x in canales.values()), sum(x[4] for x in canales.values())),
             "ars_estimado": ars_estimado(c),
-            "tope_unidades_restantes": None if c.tope_unidades is None else c.tope_unidades - unidades,
-            "tope_monto_restante": None if c.tope_monto is None else Decimal(c.tope_monto) - monto,
+            **_restantes(c, unidades, monto, por_tienda.get(cid)),
             "por_canal": [
                 {"canal": canal, "lineas": canales[canal][0], "unidades": canales[canal][1], "monto": canales[canal][2]}
                 for canal in CANALES
@@ -337,6 +344,46 @@ def resumenes(db: Session, campanas: List[SellOutCampana]) -> Dict[int, dict]:
         if cid in repartos:
             salida[cid]["reparto"] = repartos[cid]
     return salida
+
+
+class _PorTienda(NamedTuple):
+    contadores: Set[tienda_scope.TargetKey]
+    unidades: Dict[tienda_scope.TargetKey, int]
+    monto: Dict[tienda_scope.TargetKey, Decimal]
+
+
+def _usado_por_tienda(db: Session, campanas: List[SellOutCampana]) -> Dict[int, _PorTienda]:
+    """What each capped campaign with a per-store cap credited per counter (`tienda_scope.contadores`); no query
+    without one."""
+    capadas = [c for c in campanas if c.tope_unidades is not None or c.tope_monto is not None]
+    scopes = {cid: s for cid, s in tienda_scope.scopes_de(db, capadas).items() if tienda_scope.por_tienda(s)}
+    if not scopes:
+        return {}
+    t = SellOutConsumo
+    usados = tienda_scope.usado_por_contador(db, (t.campana_id, t.canal, t.venta_ref, t.unidades, t.monto), scopes)
+    activas = tienda_scope.tiendas_activas(db) if any(s.todas_tiendas for s in scopes.values()) else set()
+    salida = {cid: _PorTienda(tienda_scope.contadores(s, activas), *usados[cid]) for cid, s in scopes.items()}
+    return salida
+
+
+def _restantes(c: SellOutCampana, unidades: int, monto: Decimal, por_tienda: Optional[_PorTienda]) -> dict:
+    """What each cap has left. Shared: the cap minus what the campaign credited. Per store: how much more it can
+    still credit between every store and channel (`tienda_scope.restante`), never below zero."""
+    if por_tienda is None:
+        return {
+            "tope_unidades_restantes": None if c.tope_unidades is None else c.tope_unidades - unidades,
+            "tope_monto_restante": None if c.tope_monto is None else Decimal(c.tope_monto) - monto,
+            "tope_por_tienda": False,
+        }
+    return {
+        "tope_unidades_restantes": None
+        if c.tope_unidades is None
+        else tienda_scope.restante(c.tope_unidades, dict(por_tienda.unidades), por_tienda.contadores, 0),
+        "tope_monto_restante": None
+        if c.tope_monto is None
+        else tienda_scope.restante(Decimal(c.tope_monto), por_tienda.monto, por_tienda.contadores, Decimal(0)),
+        "tope_por_tienda": True,
+    }
 
 
 def serializar(db: Session, campanas: List[SellOutCampana]) -> List[dict]:

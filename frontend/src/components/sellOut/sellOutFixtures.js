@@ -8,6 +8,7 @@ const RESUMEN_BASE = {
   ars_estimado: false,
   tope_unidades_restantes: null,
   tope_monto_restante: null,
+  tope_por_tienda: false,
   pendientes_base: 0,
   por_canal: [
     { canal: 'ml', lineas: 8, unidades: 20, monto: '720.00' },
@@ -68,6 +69,7 @@ export const CAMPANA_PORCENTAJE_ANULADA = {
     ...RESUMEN_BASE,
     tope_unidades_restantes: 470,
     tope_monto_restante: '998920.00',
+    tope_por_tienda: false,
     por_canal: [],
     recalculo: { estado: 'fallida', intentos: 3, error: 'Falta el tipo de cambio', detenida: true, encolada_en: null },
   },

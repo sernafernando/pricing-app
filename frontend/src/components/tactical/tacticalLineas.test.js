@@ -16,6 +16,7 @@ import {
   modosNoDisponibles,
   nuevaLinea,
   numeroDe,
+  porFactura,
   problemaDe,
   puedeCompartir,
   unidadesDelTope,
@@ -27,7 +28,7 @@ const linea = (cambios) => ({ ...nuevaLinea(), ...cambios });
 const FORM = {
   tipo: 'sell_out',
   nombre: ' Tacticals BPS ',
-  marca: 'HP',
+  marcas: ['HP'],
   referencia: '',
   fechaDesde: '2026-11-01',
   fechaHasta: '2026-11-30',
@@ -148,7 +149,7 @@ describe('what stops a save, first thing only', () => {
 
   it.each([
     [{ nombre: ' ' }, [lista], 'Poné un nombre para el tactical antes de crearlo.'],
-    [{ marca: '' }, [lista], 'Elegí la marca del tactical.'],
+    [{ marcas: [] }, [lista], 'Elegí la marca del tactical.'],
     [{ fechaHasta: '' }, [lista], 'Completá la vigencia del tactical.'],
     [{ fechaDesde: '2026-12-01' }, [lista], 'La fecha desde no puede ser posterior a la fecha hasta.'],
     [{ tcModo: 'fijo' }, [lista], 'Completá el tipo de cambio fijo.'],
@@ -183,9 +184,9 @@ describe('the body of POST /tacticals (Contrato final)', () => {
     const lineas = [linea({ productos: [producto(101)], monto: '220' })];
     const form = { ...FORM, todasTiendas: false, topeCompartido: true, tiendaKeys: ['57997', 'fuera'] };
 
-    expect(cuerpoDe(form, lineas).body).not.toHaveProperty('todas_tiendas');
-    expect(cuerpoDe(form, lineas).body).not.toHaveProperty('tiendas');
-    expect(cuerpoDe(form, lineas, [], true).body).toMatchObject({
+    expect(cuerpoDe(form, lineas, [], false).body).not.toHaveProperty('todas_tiendas');
+    expect(cuerpoDe(form, lineas, [], false).body).not.toHaveProperty('tiendas');
+    expect(cuerpoDe(form, lineas).body).toMatchObject({
       todas_tiendas: false,
       tope_compartido: true,
       tiendas: [
@@ -201,7 +202,7 @@ describe('the body of POST /tacticals (Contrato final)', () => {
     expect(body).toEqual({
       tipo: 'sell_out',
       nombre: 'Tacticals BPS',
-      marca: 'HP',
+      marcas: ['HP'],
       referencia: null,
       fecha_desde: '2026-11-01',
       fecha_hasta: '2026-11-30',
@@ -209,6 +210,9 @@ describe('the body of POST /tacticals (Contrato final)', () => {
       tc_modo: 'al_cobro',
       incluye_iva: false,
       acumulable: true,
+      todas_tiendas: true,
+      tope_compartido: false,
+      tiendas: [],
       nota: null,
       lineas: [
         {
@@ -301,5 +305,28 @@ describe('a sell in total amount split among the line\'s products (S4)', () => {
       { alcance: 'factura', pedido_compra_id: 9001, modo_monto: 'monto_total', valor: 850000, tope_unidades: null, tope_monto: null },
     ]);
     expect(problemaDe(SELL_IN, [{ ...factura, reparto: '' }])).toBeNull();
+  });
+});
+
+describe('a tactical whose lines are all invoice lines (factura sin fecha S2c)', () => {
+  const SELL_IN = { ...FORM, tipo: 'sell_in', moneda: 'ARS', fechaDesde: '', fechaHasta: '' };
+  const factura = linea({ alcance: 'factura', modo: 'porcentaje', monto: '5', facturas: [OPERACIONES[0]] });
+  const marca = linea({ alcance: 'marca', marca: 'HP', modo: 'porcentaje', monto: '3' });
+
+  it('is por factura only on sell in with every line by invoice', () => {
+    expect(porFactura(SELL_IN, [factura])).toBe(true);
+    expect(porFactura(SELL_IN, [factura, marca])).toBe(false);
+    expect(porFactura(SELL_IN, [])).toBe(false);
+    expect(porFactura({ ...SELL_IN, tipo: 'sell_out' }, [factura])).toBe(false);
+  });
+
+  it('asks no dates and sends none; a mixed one still needs them', () => {
+    expect(problemaDe(SELL_IN, [factura])).toBeNull();
+    expect(cuerpoDe(SELL_IN, [factura]).body).toMatchObject({ fecha_desde: null, fecha_hasta: null });
+    expect(cuerpoDe({ ...SELL_IN, fechaDesde: '2026-11-01', fechaHasta: '2026-11-30' }, [factura]).body).toMatchObject({
+      fecha_desde: null,
+      fecha_hasta: null,
+    });
+    expect(problemaDe(SELL_IN, [factura, marca])).toBe('Completá la vigencia del tactical.');
   });
 });

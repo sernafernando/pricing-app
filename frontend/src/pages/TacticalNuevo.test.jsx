@@ -158,7 +158,7 @@ describe('creating a tactical', () => {
       expect(api.post).toHaveBeenCalledWith('/tacticals', {
         tipo: 'sell_out',
         nombre: 'Tacticals BPS Noviembre Q1FY27',
-        marca: 'HP',
+        marcas: ['HP'],
         referencia: 'Q1 FY27 · BPS',
         fecha_desde: '2026-11-01',
         fecha_hasta: '2026-11-30',
@@ -167,6 +167,11 @@ describe('creating a tactical', () => {
         incluye_iva: false,
         acumulable: true,
         nota: null,
+        // A new tactical starts with every sale (ML, outside sales, Tienda Nube), one shared cap; "all" is the flag,
+        // with no channel row (S2).
+        todas_tiendas: true,
+        tope_compartido: true,
+        tiendas: [],
         lineas: [
           {
             alcance: 'productos',
@@ -276,7 +281,13 @@ describe('creating a tactical', () => {
     await user.click(crear());
     await waitFor(() => expect(api.post).toHaveBeenCalled());
     const body = api.post.mock.calls[0][1];
-    expect(body).toEqual(expect.objectContaining({ tipo: 'sell_in', moneda: 'ARS', marca: 'TP-Link' }));
+    expect(body).toEqual(expect.objectContaining({ tipo: 'sell_in', moneda: 'ARS', marcas: ['TP-Link'] }));
+    // S5, owner 2026-11-10: "lo de tiendas no aplica a sell in, es solo para sell out": no store picker, no scope sent
+    // (the server keeps today's reach: every sale, one cap).
+    expect(screen.queryByText('Tiendas donde aplica')).not.toBeInTheDocument();
+    expect(body).not.toHaveProperty('todas_tiendas');
+    expect(body).not.toHaveProperty('tope_compartido');
+    expect(body).not.toHaveProperty('tiendas');
     // ARS sends no exchange-rate fields (Contrato final).
     expect(body).not.toHaveProperty('tc_modo');
     expect(body).not.toHaveProperty('tipo_cambio');
@@ -397,6 +408,32 @@ describe('what stops a save', () => {
   });
 });
 
+describe('an all-invoice sell in (factura sin fecha S2c)', () => {
+  it('asks no dates, says Por factura and sends none', async () => {
+    const user = userEvent.setup();
+    renderAt('/sell-in/tactical/nuevo?tipo=sell_in');
+    await user.type(screen.getByLabelText('Nombre'), 'Rebate factura');
+    await screen.findByRole('option', { name: 'TP-Link' });
+    await user.selectOptions(screen.getByLabelText('Marca'), 'TP-Link');
+    expect(screen.getByLabelText('Desde')).toBeInTheDocument();
+    await user.click(within(linea(1)).getByRole('button', { name: 'Factura' }));
+    await user.click(within(linea(1)).getByRole('button', { name: '+ Factura' }));
+    const picker = screen.getByRole('dialog', { name: 'Agregar facturas a la línea' });
+    await user.type(within(picker).getByLabelText('Buscar facturas'), '0003');
+    await user.click(await within(picker).findByRole('checkbox', { name: /FC A 0003-00012345/ }));
+    await user.click(within(picker).getByRole('button', { name: 'Agregar a la línea' }));
+    await user.type(within(linea(1)).getByLabelText('Monto de la línea 1'), '1000');
+
+    expect(screen.queryByLabelText('Desde')).not.toBeInTheDocument();
+    expect(screen.getByTestId('tactical-stickybar')).toHaveTextContent('Por factura');
+    await user.click(crear());
+
+    await waitFor(() => expect(api.post).toHaveBeenCalled());
+    expect(api.post.mock.calls[0][1]).toMatchObject({ fecha_desde: null, fecha_hasta: null });
+    expect(await screen.findByText('Listado de sell in?tab=tacticals')).toBeInTheDocument();
+  });
+});
+
 describe('leaving', () => {
   it('asks before discarding and goes back to the Tacticals tab', async () => {
     const user = userEvent.setup();
@@ -449,7 +486,7 @@ describe('Renovar', () => {
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
     const [url, body] = api.post.mock.calls[0];
     expect(url).toBe('/tacticals');
-    expect(body).toMatchObject({ tipo: 'sell_out', nombre: 'Tacticals BPS Noviembre Q1FY27', marca: 'HP' });
+    expect(body).toMatchObject({ tipo: 'sell_out', nombre: 'Tacticals BPS Noviembre Q1FY27', marcas: ['HP'] });
     expect((({ fecha_desde, fecha_hasta }) => ({ fecha_desde, fecha_hasta }))(body)).toEqual({
       fecha_desde: '2026-12-01',
       fecha_hasta: '2026-12-31',

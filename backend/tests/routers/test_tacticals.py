@@ -6,7 +6,6 @@ from __future__ import annotations
 import pytest
 
 from app.models.producto import ProductoERP
-from app.services import tacticals as service
 
 BASE = "/api/tacticals"
 
@@ -66,6 +65,21 @@ def test_create_read_and_void(client, productos, sell_out) -> None:
     assert client.post(f"{BASE}/{creado['id']}/anular", headers=sell_out).status_code == 409
 
 
+def test_an_old_client_with_one_brand_and_a_new_one_with_several(client, db, productos, sell_out) -> None:
+    """S3: `marca` alone still works and reads back as one brand; `marcas` takes several, `marca` is the first."""
+    db.add(ProductoERP(item_id=4513, codigo="SW-5", descripcion="Switch 5", marca="MERCUSYS", categoria="Switches"))
+    db.flush()
+
+    viejo = client.post(BASE, json=_body(), headers=sell_out)
+    nuevo = client.post(BASE, json=_body(marca=None, marcas=["MERCUSYS", "TP-LINK"]), headers=sell_out)
+
+    assert viejo.status_code == nuevo.status_code == 201, nuevo.text
+    assert (viejo.json()["marca"], viejo.json()["marcas"]) == ("TP-LINK", ["TP-LINK"])
+    assert (nuevo.json()["marca"], nuevo.json()["marcas"]) == ("MERCUSYS", ["MERCUSYS", "TP-LINK"])
+    por_marca = client.get(BASE, params={"marca": "MERCUSYS"}, headers=sell_out).json()
+    assert [t["id"] for t in por_marca["items"]] == [nuevo.json()["id"]]
+
+
 def test_a_broken_rule_is_a_422_naming_its_line(client, productos, sell_out) -> None:
     lineas = [{"alcance": "productos", "item_ids": [999], "modo_monto": "por_unidad", "valor": "10"}]
 
@@ -110,23 +124,38 @@ def test_create_without_a_scope_keeps_todays_reach(client, productos, sell_out) 
 
 
 @pytest.fixture()
-def alcance_activo(monkeypatch) -> None:
-    """Both engines honour a store scope (tacticals-tienda T3/T4), as they do once the chain is in."""
-    monkeypatch.setattr(service, "TIPOS_CON_ALCANCE", frozenset({"sell_out", "sell_in"}))
-
-
-@pytest.mark.parametrize("tipo", ["sell_out", "sell_in"])
-def test_a_scope_no_engine_applies_yet_is_refused(client, productos, sell_out, grant_permiso, rol_admin, tipo) -> None:
+def sell_in(sell_out, grant_permiso, rol_admin):
     grant_permiso(rol_admin, "sell_in.ver")
     grant_permiso(rol_admin, "sell_in.gestionar")
-    resp = client.post(BASE, json=_body(tipo=tipo, todas_tiendas=True), headers=sell_out)
+    return sell_out
+
+
+def test_a_sell_in_tactical_with_every_store_keeps_todays_reach_and_one_cap(client, productos, sell_in) -> None:
+    """S5, owner 2026-11-10: "lo de tiendas no aplica a sell in, es solo para sell out"."""
+    resp = client.post(BASE, json=_body(tipo="sell_in", todas_tiendas=True, tope_compartido=False), headers=sell_in)
+
+    assert resp.status_code == 201, resp.text
+    creado = resp.json()
+    assert (creado["todas_tiendas"], creado["tope_compartido"]) == (True, True)
+    assert creado["tiendas"] == [{"tipo": "fuera", "store_id": None}, {"tipo": "tienda_nube", "store_id": None}]
+
+
+def test_a_sell_in_tactical_narrowed_to_some_stores_or_channels_is_refused(client, productos, sell_in) -> None:
+    resp = client.post(
+        BASE, json=_body(tipo="sell_in", todas_tiendas=False, tiendas=[{"tipo": "fuera"}]), headers=sell_in
+    )
 
     assert resp.status_code == 422
     assert _message(resp) == (
-        "El alcance por tienda todavía no se aplica a los tacticals de "
-        f"{tipo.replace('_', ' ')}: dejá todas las tiendas, Por fuera y Tienda Nube con el tope compartido"
+        "Las tiendas solo se eligen en sell out: un tactical de sell in baja el costo de todas las ventas"
     )
-    assert client.get(BASE, params={"tipo": tipo}, headers=sell_out).json()["total"] == 0
+    assert client.get(BASE, params={"tipo": "sell_in"}, headers=sell_in).json()["total"] == 0
+
+
+def test_a_sell_out_scope_is_accepted_now_its_engine_honours_it(client, productos, sell_out) -> None:
+    creado = client.post(BASE, json=_body(todas_tiendas=True), headers=sell_out).json()
+
+    assert (creado["todas_tiendas"], creado["tope_compartido"], creado["tiendas"]) == (True, False, [])
 
 
 def test_todays_reach_sent_explicitly_is_accepted(client, productos, sell_out) -> None:
@@ -135,12 +164,12 @@ def test_todays_reach_sent_explicitly_is_accepted(client, productos, sell_out) -
     assert client.post(BASE, json=body, headers=sell_out).status_code == 201
 
 
-def test_create_with_a_partial_scope_keeps_per_target_caps(client, productos, sell_out, alcance_activo) -> None:
+def test_create_with_a_partial_scope_keeps_per_target_caps(client, productos, sell_out) -> None:
     creado = client.post(BASE, json=_body(todas_tiendas=True), headers=sell_out).json()
     assert (creado["todas_tiendas"], creado["tope_compartido"], creado["tiendas"]) == (True, False, [])
 
 
-def test_create_with_official_stores_and_channels(client, productos, sell_out, db, alcance_activo) -> None:
+def test_create_with_official_stores_and_channels(client, productos, sell_out, db) -> None:
     from app.models.ml_tienda_oficial import MlTiendaOficial
 
     db.add(MlTiendaOficial(store_id=57997, nombre="GaussOnline", clave="gauss", orden=1, activa=True))
@@ -171,7 +200,7 @@ def test_create_with_official_stores_and_channels(client, productos, sell_out, d
     assert client.get(f"{BASE}/{creado['id']}", headers=sell_out).json()["tiendas"] == creado["tiendas"]
 
 
-def test_store_scope_rules(client, productos, sell_out, db, alcance_activo) -> None:
+def test_store_scope_rules(client, productos, sell_out, db) -> None:
     from app.models.ml_tienda_oficial import MlTiendaOficial
 
     db.add(MlTiendaOficial(store_id=57997, nombre="GaussOnline", clave="gauss", orden=1, activa=True))

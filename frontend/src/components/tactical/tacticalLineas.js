@@ -154,12 +154,21 @@ export function lineasPara(tipo, lineas) {
 
 const cuantas = (n, singular, plural) => `${n} ${n === 1 ? singular : plural}`;
 
+/**
+ * Every line of a sell in tactical is an invoice line (factura sin fecha S2c): it has no dates, each invoice applies
+ * until its units are sold, and the server fills the header from the invoices.
+ */
+export const porFactura = (form, lineas) =>
+  form.tipo === 'sell_in' && lineas.length > 0 && lineas.every((l) => l.alcance === 'factura');
+
 /** What stops a save, the first thing only, in the design's words; null when it can be sent. */
 export function problemaDe(form, lineas) {
   if (!form.nombre.trim()) return 'Poné un nombre para el tactical antes de crearlo.';
-  if (!form.marca) return 'Elegí la marca del tactical.';
-  if (!form.fechaDesde || !form.fechaHasta) return 'Completá la vigencia del tactical.';
-  if (form.fechaDesde > form.fechaHasta) return 'La fecha desde no puede ser posterior a la fecha hasta.';
+  if (!form.marcas?.length) return 'Elegí la marca del tactical.';
+  if (!porFactura(form, lineas)) {
+    if (!form.fechaDesde || !form.fechaHasta) return 'Completá la vigencia del tactical.';
+    if (form.fechaDesde > form.fechaHasta) return 'La fecha desde no puede ser posterior a la fecha hasta.';
+  }
   if (form.moneda === 'USD' && form.tcModo === 'fijo' && !(numeroDe(form.tipoCambio) > 0)) {
     return 'Completá el tipo de cambio fijo.';
   }
@@ -231,10 +240,11 @@ export function cuerpoDe(form, lineas, gruposTiendas = [], alcancePorTienda = AL
   const body = {
     tipo: form.tipo,
     nombre: form.nombre.trim(),
-    marca: form.marca,
+    marcas: form.marcas,
     referencia: form.referencia.trim() || null,
-    fecha_desde: form.fechaDesde,
-    fecha_hasta: form.fechaHasta,
+    // An all-invoice tactical has no dates: the server takes them from its invoices.
+    fecha_desde: porFactura(form, lineas) ? null : form.fechaDesde,
+    fecha_hasta: porFactura(form, lineas) ? null : form.fechaHasta,
     moneda: form.moneda,
     // ARS sends neither exchange-rate field; `tipo_cambio` goes only with a fixed rate (Contrato final).
     ...(usd ? { tc_modo: form.tcModo } : {}),

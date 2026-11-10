@@ -28,7 +28,7 @@ from app.services.ml_daily_metrics.groups import NO_GROUP
 from app.services.ml_publications.links import DIVERGENCE_OTHER_PRODUCT, sku_key
 from app.services.ml_publications.listing_kind import NO_TYPE_RANK, OTHER_RANK, listing_kind, listing_rank
 from app.services.ml_publications.view.display import round_display
-from app.services.ml_publications.view.cost_lines import NO_COST_LINES, cost_lines
+from app.services.ml_publications.view.cost_lines import NO_COST_LINES, cost_lines_by_publication
 from app.services.ml_publications.view.filters import (
     AXES,
     FULFILLMENT,
@@ -596,16 +596,16 @@ def _attach_markup(items: list[dict[str, Any]], computed: Mapping[str, ItemMarku
 def attach_cost(items: list[dict[str, Any]], rows: list[Any], pricing_db: Optional[Session] = None) -> None:
     """Each row's linked product cost, as the panel shows it (only for who sees the margin, as the markup). With
     `pricing_db`, also the PPP and sell in lines under it (`cost_lines`); null on a row without a product, absent
-    when they could not be built."""
-    lines: Optional[dict[int, dict[str, Any]]] = None
+    when they could not be built. Companions follow the publication's official store (`cost_lines_by_publication`),
+    so a tactical scoped to store A does not paint store B's row."""
+    lines: Optional[dict[str, dict[str, Any]]] = None
     if pricing_db is not None:
-        linked = {r.producto_item_id: (r.costo, r.moneda_costo, r.costo_iva) for r in rows if r.producto_item_id}
-        lines = cost_lines(pricing_db, linked)
+        lines = cost_lines_by_publication(pricing_db, rows)
     for item, row in zip(items, rows):
         currency = getattr(row.moneda_costo, "value", row.moneda_costo)
         item["costo"] = None if row.costo is None else {"amount": row.costo, "currency": currency}
         if lines is not None:
-            item.update(lines.get(row.producto_item_id, NO_COST_LINES))
+            item.update(lines.get(str(row.item_id), NO_COST_LINES) if row.producto_item_id else NO_COST_LINES)
 
 
 def _worst_first(computed: Mapping[str, ItemMarkup], descending: bool) -> list[str]:

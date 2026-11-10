@@ -26,6 +26,7 @@ TipoTienda = Literal["oficial", "fuera", "tienda_nube"]
 
 NOMBRE_MAX = 200
 MARCA_MAX = 100  # productos_erp.marca is VARCHAR(100)
+MARCAS_MAX = 50  # brands on one tactical header
 LINEAS_MAX = 100
 ITEMS_MAX = 500
 TIENDAS_MAX = 100  # official stores + synthetic channels on one tactical
@@ -72,10 +73,14 @@ class TacticalLineaIn(BaseModel):
 class TacticalIn(BaseModel):
     tipo: TipoTactical
     nombre: str = Field(max_length=NOMBRE_MAX)
-    marca: str = Field(max_length=MARCA_MAX)
+    # The header's brands (S3, owner 2026-11-10: "selector multiple"). An old client sends only `marca`: it means
+    # `marcas = [marca]`; when both come, `marca` must be one of `marcas` (checked by the service).
+    marca: Optional[str] = Field(default=None, max_length=MARCA_MAX)
+    marcas: list[str] = Field(default_factory=list, max_length=MARCAS_MAX)
     referencia: Optional[str] = Field(default=None, max_length=NOMBRE_MAX)
-    fecha_desde: date
-    fecha_hasta: date  # inclusive
+    # Required unless every line is an invoice line: then the service fills them from the invoices (oldest..newest).
+    fecha_desde: Optional[date] = None
+    fecha_hasta: Optional[date] = None  # inclusive
     moneda: Moneda
     tc_modo: Optional[TcModo] = None  # USD only; None means `al_cobro`
     tipo_cambio: Optional[Decimal] = Field(default=None, max_digits=18, decimal_places=6)  # `fijo` only
@@ -162,7 +167,8 @@ class TacticalOut(BaseModel):
     id: int
     tipo: TipoTactical
     nombre: str
-    marca: str
+    marca: str  # one of `marcas` (the one sent as `marca`, else the first), for a client that reads one brand
+    marcas: list[str]
     referencia: Optional[str]
     fecha_desde: date
     fecha_hasta: date
@@ -179,6 +185,8 @@ class TacticalOut(BaseModel):
     usuario_id: int
     created_at: datetime
     updated_at: datetime
+    # Every line is an invoice line: no dates of its own (each applies until its invoice's units are sold).
+    por_factura: bool
     lineas: list[TacticalLineaOut]
 
 

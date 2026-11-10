@@ -108,6 +108,14 @@ describe('TacticalFila money cap', () => {
   });
 });
 
+describe('TacticalFila brands (S3)', () => {
+  it('shows every brand of a tactical with several, and the one brand of an older read', () => {
+    renderFilas([{ ...REBATE, marcas: ['HP', 'TP-Link'] }]);
+
+    expect(within(filaDe('Rebate HP Q1FY27')).getAllByRole('cell')[3]).toHaveTextContent('HP, TP-Link');
+  });
+});
+
 describe('TacticalFila missing values', () => {
   it('shows a dash for a missing brand and an empty cap, and measures the money cap then', async () => {
     const sinDatos = {

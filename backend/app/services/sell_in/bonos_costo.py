@@ -371,7 +371,8 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
     if alcanzados:
         desde = min(b.fecha_desde for b in activos.values())
         hasta = max(b.fecha_hasta for b in activos.values())
-        ventas = alcance.ventas(db, alcanzados, desde, hasta)
+        # Sell in ignores stores (owner, 2026-11-10: stores are only for sell out): no official-store lookup.
+        ventas = alcance.ventas(db, alcanzados, desde, hasta, con_tiendas=False)
     fifo: Dict[Clave, int] = {
         (canal, int(ref), item_id): int(unidades)
         for canal, ref, item_id, unidades in db.query(

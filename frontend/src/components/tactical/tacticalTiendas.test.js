@@ -15,10 +15,8 @@ describe('tiendasDelContrato', () => {
     ]);
   });
 
-  it('with todas only keeps synthetic channels', () => {
-    expect(tiendasDelContrato(true, ['57997', 'tienda_nube'], GRUPOS)).toEqual([
-      { tipo: 'tienda_nube', store_id: null },
-    ]);
+  it('with todas sends no row: every sale of every channel, stored as all (S2)', () => {
+    expect(tiendasDelContrato(true, ['57997', 'tienda_nube'], GRUPOS)).toEqual([]);
   });
 });
 
@@ -37,10 +35,10 @@ describe('previewTope', () => {
     ]);
   });
 
-  it('with every store and per-store caps, says each store and the no-store sales get their own cap', () => {
+  it('with every store and per-store caps, says each store, the no-store sales and each channel get their own cap', () => {
     const preview = previewTope({
       todasTiendas: true,
-      seleccionKeys: ['tienda_nube'],
+      seleccionKeys: [],
       grupos: GRUPOS,
       topeCompartido: false,
       ejemploTope: 100,
@@ -48,6 +46,7 @@ describe('previewTope', () => {
     expect(preview.filas).toEqual([
       { label: 'Cada tienda oficial (3)', valor: '100 cada una' },
       { label: 'Ventas sin tienda oficial', valor: '100' },
+      { label: 'Por fuera', valor: '100' },
       { label: 'Tienda Nube', valor: '100' },
     ]);
   });
@@ -69,11 +68,11 @@ describe('contadoresDelTope', () => {
 
   it('counts one cap per official store and channel, as the engines split it', () => {
     expect(contadoresDelTope({ ...base, todasTiendas: false, seleccionKeys: ['2645,471846', 'fuera'], topeCompartido: false })).toBe(3);
-    expect(contadoresDelTope({ ...base, todasTiendas: true, seleccionKeys: ['fuera'], topeCompartido: false })).toBe(5);
+    expect(contadoresDelTope({ ...base, todasTiendas: true, seleccionKeys: [], topeCompartido: false })).toBe(6);
   });
 
   it('with every store counts only the active ones, as the engines do', () => {
-    expect(contadoresDelTope({ ...base, tiendasActivas: 2, todasTiendas: true, seleccionKeys: ['fuera'], topeCompartido: false })).toBe(4);
+    expect(contadoresDelTope({ ...base, tiendasActivas: 2, todasTiendas: true, seleccionKeys: [], topeCompartido: false })).toBe(5);
     const preview = previewTope({ grupos: GRUPOS, tiendasActivas: 2, todasTiendas: true, seleccionKeys: [], topeCompartido: false, ejemploTope: 10 });
     expect(preview.filas[0]).toEqual({ label: 'Cada tienda oficial (2)', valor: '10 cada una' });
   });
