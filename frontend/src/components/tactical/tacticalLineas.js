@@ -10,7 +10,7 @@
  * amount is split among the line's products (`REPARTOS`, '' until chosen).
  */
 
-import { tiendasDelContrato } from './tacticalTiendas';
+import { ALCANCE_POR_TIENDA, tiendasDelContrato } from './tacticalTiendas';
 
 let siguienteId = 0;
 
@@ -224,7 +224,7 @@ function lineasDelContrato(linea) {
  * (`origen[i]` is the 1-based screen line of the body's line i + 1), so a message naming a body line can name the
  * line the user sees.
  */
-export function cuerpoDe(form, lineas, gruposTiendas = []) {
+export function cuerpoDe(form, lineas, gruposTiendas = [], alcancePorTienda = ALCANCE_POR_TIENDA) {
   const usd = form.moneda === 'USD';
   const body = {
     tipo: form.tipo,
@@ -239,9 +239,13 @@ export function cuerpoDe(form, lineas, gruposTiendas = []) {
     ...(usd && form.tcModo === 'fijo' ? { tipo_cambio: numeroDe(form.tipoCambio) } : {}),
     incluye_iva: form.incluyeIva,
     acumulable: form.acumulable,
-    todas_tiendas: form.todasTiendas !== false,
-    tope_compartido: Boolean(form.topeCompartido),
-    tiendas: tiendasDelContrato(form.todasTiendas !== false, form.tiendaKeys ?? [], gruposTiendas),
+    ...(alcancePorTienda
+      ? {
+          todas_tiendas: form.todasTiendas !== false,
+          tope_compartido: Boolean(form.topeCompartido),
+          tiendas: tiendasDelContrato(form.todasTiendas !== false, form.tiendaKeys ?? [], gruposTiendas),
+        }
+      : {}),
     nota: form.nota.trim() || null,
     lineas: [],
   };
