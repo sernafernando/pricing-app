@@ -56,7 +56,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Hashable, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 from sqlalchemy import Numeric, and_, case, cast, func, literal, null, or_, select, true, union_all
 from sqlalchemy.orm import Session, selectinload
@@ -244,12 +244,28 @@ def resolver_sell_in_out_batch(
     reaches any context (`tienda_scope.alcanza_alguno`); per-target caps (`tope_compartido=false`) stay active while
     any matching context still has room.
     """
+    return resolver_sell_in_out_por_contexto(db, item_ids, hoy, {None: contextos}, sin_lotes=sin_lotes)[None]
+
+
+def resolver_sell_in_out_por_contexto(
+    db: Session,
+    item_ids: Iterable[int],
+    hoy: date,
+    contextos_por_clave: Mapping[Hashable, Optional[Sequence[ContextoMarkup]]],
+    *,
+    sin_lotes: bool = False,
+) -> Dict[Hashable, SellInOutBatch]:
+    """`resolver_sell_in_out_batch` for several store contexts at once (one per key, e.g. each official store of a
+    Publicaciones page): the database is read ONCE for every key, and only the scope and cap rules run per key."""
     ids = sorted({int(i) for i in item_ids if i is not None})
+    con_scope = any(c is not None for c in contextos_por_clave.values())
     sell_in = {} if sin_lotes else get_costing().vigentes(db, ids, hoy)
     por_item, pares = _campanas_y_bonos(db, ids, [i for i in ids if i not in sell_in], hoy)
     cids = sorted(set().union(*por_item.values())) if por_item else []
-    vigentes: Dict[int, _Campana] = {}
-    bna = None
+    filas: list = []
+    usado_global: Dict[int, Tuple[int, Decimal]] = {}
+    scopes: Dict[int, Optional[Scope]] = {}
+    usado_por_target: Dict[int, Dict[TargetKey, Tuple[int, Decimal]]] = {}
     if cids:
         t = SellOutConsumo
         usado_global = {
@@ -265,33 +281,52 @@ def resolver_sell_in_out_batch(
             .outerjoin(i, and_(i.campana_id == SellOutCampana.id, i.item_id.in_(ids)))
             .filter(SellOutCampana.id.in_(cids))
         )
-        campanas_obj = {c.id: c for c, _, _ in filas}
-        # Scopes only when the caller asked for a store context — keeps the global query count.
-        scopes = _scopes_campanas(db, list(campanas_obj.values())) if contextos is not None else {}
-        need_por_target = contextos is not None and any(
-            scopes.get(cid) is not None and not scopes[cid].tope_compartido for cid in cids
-        )
-        usado_por_target = _uso_sell_out_por_target(db, cids) if need_por_target else {}
-        agotadas = set()
-        for c, item_id, monto_item in filas:
-            if c.id not in vigentes and c.id not in agotadas:
-                scope = scopes.get(c.id) if contextos is not None else None
-                if contextos is not None and not alcanza_alguno(scope, contextos):
-                    agotadas.add(c.id)
-                    continue
-                activa, libre = _cap_campana(
-                    c, scope, contextos, usado_global.get(c.id, (0, Decimal(0))), usado_por_target.get(c.id, {})
-                )
-                if not activa:
-                    agotadas.add(c.id)  # the cap is used up: this campaign credits nothing more
-                    continue
-                vigentes[c.id] = _Campana(c, libre, {})
-            if c.id in vigentes and item_id is not None:
-                vigentes[c.id].montos_item[item_id] = Decimal(monto_item)
-        if any(x.campana.moneda == "USD" for x in vigentes.values()):
-            bna = tasas_bna_por_fecha(db, {hoy})[hoy]
-    campanas = {item: [vigentes[c] for c in sorted(cs) if c in vigentes] for item, cs in por_item.items()}
-    return SellInOutBatch(hoy, sell_in, campanas, bna, _bonos_costo(db, pares, contextos=contextos))
+        # Scopes only when a key asked for a store context — keeps the global query count.
+        if con_scope:
+            scopes = _scopes_campanas(db, list({c.id: c for c, _, _ in filas}.values()))
+            if any(s is not None and not s.tope_compartido for s in scopes.values()):
+                usado_por_target = _uso_sell_out_por_target(db, cids)
+    bonos_por_clave = _bonos_costo_por_contexto(db, pares, contextos_por_clave)
+    campanas_por_clave = {
+        clave: _campanas_vigentes(filas, por_item, contextos, scopes, usado_global, usado_por_target)
+        for clave, contextos in contextos_por_clave.items()
+    }
+    bna = None
+    if any(x.campana.moneda == "USD" for cs in campanas_por_clave.values() for c in cs.values() for x in c):
+        bna = tasas_bna_por_fecha(db, {hoy})[hoy]
+    return {
+        clave: SellInOutBatch(hoy, sell_in, campanas_por_clave[clave], bna, bonos_por_clave[clave])
+        for clave in contextos_por_clave
+    }
+
+
+def _campanas_vigentes(
+    filas: list,
+    por_item: Dict[int, Set[int]],
+    contextos: Optional[Sequence[ContextoMarkup]],
+    scopes: Dict[int, Optional[Scope]],
+    usado_global: Dict[int, Tuple[int, Decimal]],
+    usado_por_target: Dict[int, Dict[TargetKey, Tuple[int, Decimal]]],
+) -> Dict[int, List[_Campana]]:
+    """`{item_id: campaigns with cap left under contextos}`, in id order, from rows already read."""
+    vigentes: Dict[int, _Campana] = {}
+    agotadas = set()
+    for c, item_id, monto_item in filas:
+        if c.id not in vigentes and c.id not in agotadas:
+            scope = scopes.get(c.id) if contextos is not None else None
+            if contextos is not None and not alcanza_alguno(scope, contextos):
+                agotadas.add(c.id)
+                continue
+            activa, libre = _cap_campana(
+                c, scope, contextos, usado_global.get(c.id, (0, Decimal(0))), usado_por_target.get(c.id, {})
+            )
+            if not activa:
+                agotadas.add(c.id)  # the cap is used up: this campaign credits nothing more
+                continue
+            vigentes[c.id] = _Campana(c, libre, {})
+        if c.id in vigentes and item_id is not None:
+            vigentes[c.id].montos_item[item_id] = Decimal(monto_item)
+    return {item: [vigentes[c] for c in sorted(cs) if c in vigentes] for item, cs in por_item.items()}
 
 
 _Par = Tuple[int, int, Optional[Decimal]]  # (bono_id, item_id, the product's own % or ARS per unit, or None)
@@ -343,25 +378,27 @@ def _campanas_y_bonos(db: Session, ids: List[int], sin_lote: List[int], hoy: dat
     return alcance.campanas_de_filas([r[:4] for r in filas if r[4] == "campana"], ventas), pares
 
 
-def _bonos_costo(
-    db: Session, pares: List[_Par], *, contextos: Optional[Sequence[ContextoMarkup]] = None
-) -> Dict[int, List[_BonoCosto]]:
-    """`{item_id: cost bonuses}` from the (bonus, product) pairs, in id order, without the bonuses whose cap is used
-    up (after `sell_in_bono_consumos`). Global (`contextos is None`): one joined query. Store context: scopes +
-    optional per-target usage, same rules as sell-out."""
+def _bonos_costo_por_contexto(
+    db: Session, pares: List[_Par], contextos_por_clave: Mapping[Hashable, Optional[Sequence[ContextoMarkup]]]
+) -> Dict[Hashable, Dict[int, List[_BonoCosto]]]:
+    """Per key, `{item_id: cost bonuses}` from the (bonus, product) pairs, in id order, without the bonuses whose cap
+    is used up (after `sell_in_bono_consumos`). Only global keys (`contextos is None`): one joined query. A store
+    context: the bonuses, their usage, scopes and optional per-target usage, read once for every key; same rules as
+    sell-out."""
     if not pares:
-        return {}
+        return {clave: {} for clave in contextos_por_clave}
     bids = sorted({bid for bid, _, _ in pares})
     t = SellInBonoConsumo
-    activos: Dict[int, Tuple[SellInBonoMarca, Optional[Decimal]]] = {}  # bono_id -> (bonus, ARS cap left)
+    activos_por_clave: Dict[Hashable, Dict[int, Tuple[SellInBonoMarca, Optional[Decimal]]]] = {}
 
-    if contextos is None:
+    if all(c is None for c in contextos_por_clave.values()):
         # Pre-scope path: keep the single join so the page query budget stays put.
         usado = (
             select(t.bono_id, func.sum(t.unidades).label("unidades"), func.sum(t.descuento_ars).label("monto"))
             .group_by(t.bono_id)
             .subquery()
         )
+        activos: Dict[int, Tuple[SellInBonoMarca, Optional[Decimal]]] = {}
         for bono, unidades, monto in (
             db.query(SellInBonoMarca, usado.c.unidades, usado.c.monto)
             .outerjoin(usado, usado.c.bono_id == SellInBonoMarca.id)
@@ -370,6 +407,7 @@ def _bonos_costo(
             activa, libre = _cap_bono(bono, None, None, (int(unidades or 0), Decimal(monto or 0)), {})
             if activa:
                 activos[bono.id] = (bono, libre)
+        activos_por_clave = {clave: activos for clave in contextos_por_clave}
     else:
         usado_global = {
             bid: (int(unidades or 0), Decimal(monto or 0))
@@ -381,22 +419,30 @@ def _bonos_costo(
         scopes = _scopes_bonos(db, list(bonos.values()))
         need_por_target = any(scopes.get(bid) is not None and not scopes[bid].tope_compartido for bid in bids)
         usado_por_target = _uso_bono_por_target(db, bids) if need_por_target else {}
-        for bid, bono in bonos.items():
-            scope = scopes.get(bid)
-            if not alcanza_alguno(scope, contextos):
-                continue
-            activa, libre = _cap_bono(
-                bono, scope, contextos, usado_global.get(bid, (0, Decimal(0))), usado_por_target.get(bid, {})
-            )
-            if not activa:
-                continue  # the cap is used up: this bonus discounts nothing more
-            activos[bid] = (bono, libre)
+        for clave, contextos in contextos_por_clave.items():
+            activos = {}
+            for bid, bono in bonos.items():
+                scope = scopes.get(bid) if contextos is not None else None
+                if contextos is not None and not alcanza_alguno(scope, contextos):
+                    continue
+                activa, libre = _cap_bono(
+                    bono, scope, contextos, usado_global.get(bid, (0, Decimal(0))), usado_por_target.get(bid, {})
+                )
+                if not activa:
+                    continue  # the cap is used up: this bonus discounts nothing more
+                activos[bid] = (bono, libre)
+            activos_por_clave[clave] = activos
 
-    salida: Dict[int, List[_BonoCosto]] = {}
-    for bid, item_id, propio in sorted(pares, key=lambda x: (x[1], x[0])):
-        if bid in activos:
-            bono, libre = activos[bid]
-            salida.setdefault(item_id, []).append(_BonoCosto(bono, bonos_costo.valor_del_bono(bono, propio), libre))
+    salida: Dict[Hashable, Dict[int, List[_BonoCosto]]] = {}
+    for clave, activos in activos_por_clave.items():
+        por_item: Dict[int, List[_BonoCosto]] = {}
+        for bid, item_id, propio in sorted(pares, key=lambda x: (x[1], x[0])):
+            if bid in activos:
+                bono, libre = activos[bid]
+                por_item.setdefault(item_id, []).append(
+                    _BonoCosto(bono, bonos_costo.valor_del_bono(bono, propio), libre)
+                )
+        salida[clave] = por_item
     return salida
 
 
@@ -500,37 +546,33 @@ def _uso_sell_out_por_target(db: Session, campana_ids: List[int]) -> Dict[int, D
     if not campana_ids:
         return {}
     t = SellOutConsumo
-    rows = db.query(t.campana_id, t.canal, t.venta_ref, t.unidades, t.monto).filter(t.campana_id.in_(campana_ids))
-    return _agrupar_uso_por_target(db, rows)
+    return _agrupar_uso_por_target(db, t, t.campana_id, t.monto, campana_ids)
 
 
 def _uso_bono_por_target(db: Session, bono_ids: List[int]) -> Dict[int, Dict[TargetKey, Tuple[int, Decimal]]]:
     if not bono_ids:
         return {}
     t = SellInBonoConsumo
-    rows = db.query(t.bono_id, t.canal, t.venta_ref, t.unidades, t.descuento_ars).filter(t.bono_id.in_(bono_ids))
-    return _agrupar_uso_por_target(db, rows)
+    return _agrupar_uso_por_target(db, t, t.bono_id, t.descuento_ars, bono_ids)
 
 
 def _agrupar_uso_por_target(
-    db: Session, rows: Iterable[Tuple[int, str, int, object, object]]
+    db: Session, tabla, owner, monto, owner_ids: List[int]
 ) -> Dict[int, Dict[TargetKey, Tuple[int, Decimal]]]:
-    filas = list(rows)
-    ml_refs = {int(ref) for _, canal, ref, _, _ in filas if canal == "ml"}
-    stores_por_ref: Dict[int, Optional[int]] = {}
-    if ml_refs:
-        mla_por_ref = {
-            int(ref): mla
-            for ref, mla in db.query(MlSaleLine.item_row_id, MlSaleLine.mla).filter(MlSaleLine.item_row_id.in_(ml_refs))
-        }
-        stores = alcance._stores_por_mla(db, {m for m in mla_por_ref.values() if m})
-        stores_por_ref = {ref: stores.get(mla) for ref, mla in mla_por_ref.items()}
+    """Summed in SQL per (owner, canal, MLA): one row per publication, not per consumption. The MLA's official store
+    is the one the allocator credited it under (`alcance._stores_por_mla`, the latest publicado row)."""
+    filas = list(
+        db.query(owner, tabla.canal, MlSaleLine.mla, func.sum(tabla.unidades), func.sum(monto))
+        .outerjoin(MlSaleLine, and_(tabla.canal == "ml", MlSaleLine.item_row_id == tabla.venta_ref))
+        .filter(owner.in_(owner_ids))
+        .group_by(owner, tabla.canal, MlSaleLine.mla)
+    )
+    stores = alcance._stores_por_mla(db, {mla for _, canal, mla, _, _ in filas if canal == "ml" and mla})
     salida: Dict[int, Dict[TargetKey, Tuple[int, Decimal]]] = defaultdict(lambda: defaultdict(lambda: (0, Decimal(0))))
-    for oid, canal, ref, unidades, monto in filas:
-        store_id = stores_por_ref.get(int(ref)) if canal == "ml" else None
-        key = target_key(canal, store_id)
+    for oid, canal, mla, unidades, total in filas:
+        key = target_key(canal, stores.get(mla) if canal == "ml" else None)
         if key is None:
             continue
         u0, m0 = salida[int(oid)][key]
-        salida[int(oid)][key] = (u0 + int(unidades or 0), m0 + Decimal(monto or 0))
+        salida[int(oid)][key] = (u0 + int(unidades or 0), m0 + Decimal(total or 0))
     return {oid: dict(targets) for oid, targets in salida.items()}
