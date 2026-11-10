@@ -53,9 +53,10 @@ function appliedCleanly(promo, data) {
  * LIGHTNING opens its irreversible-offer card with the stock prefilled at ML's minimum);
  * `onLeavePub` runs only after a clean apply; without it, a clean apply reloads the candidates
  * so the applied promo drops out. `onSuggested(ids)` reports the suggested promotion ids so the
- * Promos tab can mark them. Calls onUnavailable when baseline markup is missing or load fails
- * hard; the block then keeps a minimal notice with "Descartar sugerencia" (a parent that
- * unmounts it on onUnavailable, like MODO PONER PRECIOS, never shows it).
+ * Promos tab can mark them. Calls onUnavailable only when baseline markup cannot be computed
+ * (optional parent signal). A hard load failure stays mounted with the error and
+ * "Descartar sugerencia" and does not call onUnavailable. MODO unlocks Nuevo precio only via
+ * onDismissed (Descartar), so neither path can hide the failure by unmounting early.
  */
 export default function MejoresCandidatasBlock({
   itemId,
@@ -123,10 +124,10 @@ export default function MejoresCandidatasBlock({
         onSuggestedRef.current?.(slotEntries(picked).map(([, promo]) => promo.promotion_id));
       } catch (err) {
         if (!cancelled) {
+          // Keep mounted with the error: do not call onUnavailable (MODO would unmount and hide it).
           setMessage({ tone: 'error', text: errorText(err, 'No se pudieron cargar las candidatas.') });
           setUnavailable(true);
           onSuggestedRef.current?.([]);
-          onUnavailableRef.current?.();
         }
       } finally {
         if (!cancelled) setLoading(false);
