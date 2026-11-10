@@ -74,6 +74,7 @@ describe('TacticalDatos', () => {
     await user.click(screen.getByLabelText('Los montos incluyen IVA'));
     await user.click(screen.getByLabelText('Se acumula con otras campañas'));
     await user.type(screen.getByLabelText('Nota'), 'Acuerdo 77');
+    expect(screen.getByText('Cómo se aplica el tope')).toBeInTheDocument();
     expect(onForm).toHaveBeenLastCalledWith({
       ...FORM,
       nombre: 'Tacticals BPS',
@@ -107,8 +108,8 @@ describe('TacticalDatos', () => {
     expect(within(screen.getByLabelText('Marca')).getAllByRole('option').map((o) => o.textContent)).toEqual(['Elegí una marca']);
   });
 
-  it('hides the store scope until the engines honour it', () => {
-    render(<Holder />);
+  it('hides the store scope while it is off', () => {
+    render(<Holder alcancePorTienda={false} />);
     expect(screen.queryByTestId('tactical-tiendas')).not.toBeInTheDocument();
     expect(screen.queryByText('Cómo se aplica el tope')).not.toBeInTheDocument();
   });

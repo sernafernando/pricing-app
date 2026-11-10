@@ -183,9 +183,9 @@ describe('the body of POST /tacticals (Contrato final)', () => {
     const lineas = [linea({ productos: [producto(101)], monto: '220' })];
     const form = { ...FORM, todasTiendas: false, topeCompartido: true, tiendaKeys: ['57997', 'fuera'] };
 
-    expect(cuerpoDe(form, lineas).body).not.toHaveProperty('todas_tiendas');
-    expect(cuerpoDe(form, lineas).body).not.toHaveProperty('tiendas');
-    expect(cuerpoDe(form, lineas, [], true).body).toMatchObject({
+    expect(cuerpoDe(form, lineas, [], false).body).not.toHaveProperty('todas_tiendas');
+    expect(cuerpoDe(form, lineas, [], false).body).not.toHaveProperty('tiendas');
+    expect(cuerpoDe(form, lineas).body).toMatchObject({
       todas_tiendas: false,
       tope_compartido: true,
       tiendas: [
@@ -209,6 +209,9 @@ describe('the body of POST /tacticals (Contrato final)', () => {
       tc_modo: 'al_cobro',
       incluye_iva: false,
       acumulable: true,
+      todas_tiendas: true,
+      tope_compartido: false,
+      tiendas: [],
       nota: null,
       lineas: [
         {

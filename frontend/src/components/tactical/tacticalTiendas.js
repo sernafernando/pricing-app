@@ -5,10 +5,10 @@
 
 /**
  * The store picker, the shared-cap toggle and their preview are shown, and the scope sent, only once the sell out and
- * sell in engines honour it (tacticals-tienda T3/T4). Until then a new tactical omits the scope and the API gives it
- * today's reach, so merging the UI alone never saves a scope nothing applies.
+ * sell in engines honour it (tacticals-tienda T3/T4, both in). Off, a new tactical omits the scope and the API gives it
+ * today's reach.
  */
-export const ALCANCE_POR_TIENDA = false;
+export const ALCANCE_POR_TIENDA = true;
 
 export const CANALES_TACTICAL = [
   { value: 'fuera', label: 'Por fuera' },
