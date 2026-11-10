@@ -14,8 +14,10 @@ Spec coverage:
          and the read endpoint makes no fetch (no auto-fetch on open).
   C2.6 — only same-bucket AND strictly-cheaper competitors are returned
          in `undercutting`.
-  Permissions: promos.ver gates the read, promos.escribir gates the
-  refresh — same split as the sibling promo endpoints.
+  same_bucket — all same-bucket competitors (any price), cheapest-first;
+         undercutting remains the cheaper-only list.
+  Permissions: promos.ver gates both the read and the catalog refresh
+  (refresh is a snapshot pull, not a promo write).
 """
 
 from __future__ import annotations
@@ -131,6 +133,7 @@ class TestReadEndpoint:
         assert body["fetch_status"] == "ok"
         assert body["competitor_count"] == 3
         assert [c["item_id"] for c in body["undercutting"]] == ["CHEAPER"]
+        assert [c["item_id"] for c in body["same_bucket"]] == ["CHEAPER", "PRICIER"]
 
     def test_not_catalog_returns_visible_state_not_hidden(self, client: TestClient, db) -> None:
         row = MLCatalogCompetition(
@@ -209,13 +212,31 @@ class TestRefreshEndpoint:
         writer.assert_awaited_once()
         called_db, called_mlas = writer.await_args.args
         assert called_mlas == ["MLA444"]
-        assert "promos.escribir" in fake_service.calls
+        assert "promos.ver" in fake_service.calls
 
     def test_missing_permission_returns_403_no_writer_call(self, client: TestClient, db) -> None:
         fake_service = _FakePermisosService(allowed=False)
         writer = AsyncMock()
         with (
             patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
+            patch("app.routers.ml_promotions.refrescar_competencia_catalogo", writer),
+        ):
+            response = client.post("/api/promociones/catalogo-competencia/MLA444/refresh")
+
+        assert response.status_code == 403
+        writer.assert_not_awaited()
+
+    def test_refresh_requires_promos_ver_not_escribir(self, client: TestClient, db) -> None:
+        """Owner decision: catalog refresh is a snapshot pull gated on
+        promos.ver (same as GET), not promos.escribir."""
+
+        class _SoloEscribir:
+            def tiene_permiso(self, usuario, codigo: str) -> bool:
+                return codigo == "promos.escribir"
+
+        writer = AsyncMock()
+        with (
+            patch("app.routers.ml_promotions.PermisosService", return_value=_SoloEscribir()),
             patch("app.routers.ml_promotions.refrescar_competencia_catalogo", writer),
         ):
             response = client.post("/api/promociones/catalogo-competencia/MLA444/refresh")

@@ -59,6 +59,12 @@ describe('width', () => {
     expect(container.firstChild).toHaveAttribute('data-width', 'lg');
   });
 
+  it('accepts xl and marks expanded when asked', () => {
+    const { container } = renderLayout({ width: 'xl', expanded: true });
+    expect(container.firstChild).toHaveAttribute('data-width', 'xl');
+    expect(container.firstChild).toHaveAttribute('data-expanded', 'true');
+  });
+
   it('falls back to md for an unknown width', () => {
     const { container } = renderLayout({ width: 'xxl' });
     expect(container.firstChild).toHaveAttribute('data-width', 'md');

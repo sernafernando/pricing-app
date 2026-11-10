@@ -48,6 +48,8 @@ const describeError = (error) =>
  * @param {string} [props.backLabel] The product's name for that link ("Volver al producto" without it).
  * @param {object} [props.priceGroup] What the Precios tab takes from the list (Calcular, the Tienda Nube price).
  * @param {boolean} [props.ponerPreciosMode] MODO PONER PRECIOS: no tabs, minimal price body (S5).
+ * @param {boolean} [props.competenciaWide] Promos Ver competencia: wide split + ranking col 2.
+ * @param {(open: boolean) => void} [props.onCompetenciaWideChange]
  */
 export default function PublicationPanel({
   itemId,
@@ -61,6 +63,8 @@ export default function PublicationPanel({
   backLabel,
   priceGroup = null,
   ponerPreciosMode = false,
+  competenciaWide = false,
+  onCompetenciaWideChange,
 }) {
   const { tienePermiso } = usePermisos();
   const canSeeMargin = tienePermiso('ml_metricas.ver_ganancia');
@@ -182,7 +186,19 @@ export default function PublicationPanel({
 
       {status === 'ready' && !ponerPreciosMode && active && (
         <PanelTabs tabs={available} activeKey={active.key} onTabChange={onTabChange} label="Secciones de la publicación">
-          <active.Component detail={detail} itemId={itemId} canSeeMargin={canSeeMargin} canViewPromos={canViewPromos} dataState={dataState} onPromoApplied={handleWritten} onWritten={handleWritten} priceGroup={priceGroup} suggestedPromotionIds={showMejoresBlock ? suggestedIds : undefined} />
+          <active.Component
+            detail={detail}
+            itemId={itemId}
+            canSeeMargin={canSeeMargin}
+            canViewPromos={canViewPromos}
+            dataState={dataState}
+            onPromoApplied={handleWritten}
+            onWritten={handleWritten}
+            priceGroup={priceGroup}
+            suggestedPromotionIds={showMejoresBlock ? suggestedIds : undefined}
+            competenciaWide={competenciaWide}
+            onCompetenciaWideChange={onCompetenciaWideChange}
+          />
         </PanelTabs>
       )}
 

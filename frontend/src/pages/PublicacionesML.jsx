@@ -290,6 +290,8 @@ export default function PublicacionesML() {
   );
   // Workflow mode (S1–S3). Local flag — never the URL `modo` / PRICE_MODES.
   const [ponerPreciosMode, setPonerPreciosMode] = useState(false);
+  // Promos Ver competencia: widen the split and show same-bucket ranking col 2.
+  const [competenciaWide, setCompetenciaWide] = useState(false);
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
   const vistaBeforeMode = useRef(null);
   const canPonerPrecios = canUsePonerPreciosMode(tienePermiso);
@@ -674,7 +676,14 @@ export default function PublicacionesML() {
   const [productTab, setProductTab] = useState(null);
   if (!filters.prod && productTab) setProductTab(null);
   // A publication's panel takes the place of its product's (`sel` over `prod`); closing either closes the panel.
-  const closePanel = () => setFilters({ sel: '', tab: '', prod: '' });
+  const closePanel = () => {
+    setCompetenciaWide(false);
+    setFilters({ sel: '', tab: '', prod: '' });
+  };
+
+  useEffect(() => {
+    setCompetenciaWide(false);
+  }, [filters.sel, filters.tab]);
   const selectProduct = (key) => {
     setProductTab(null);
     setFilters({ prod: key, sel: '', tab: '' });
@@ -1173,7 +1182,8 @@ export default function PublicacionesML() {
           <SplitPanelLayout
             open={Boolean(filters.sel || filters.prod)}
             onClose={closePanel}
-            width={ponerPreciosMode ? 'md' : 'lg'}
+            width={ponerPreciosMode ? 'md' : competenciaWide ? 'xl' : 'lg'}
+            expanded={competenciaWide}
             resizeKey={ponerPreciosMode ? 'publicaciones-ml-poner-precios' : 'publicaciones-ml'}
             ariaLabel={filters.sel ? 'Detalle de la publicación' : 'Detalle del producto'}
             panel={
@@ -1189,6 +1199,8 @@ export default function PublicacionesML() {
                   backLabel={backLabel}
                   priceGroup={canSeePrices ? priceGroup : null}
                   ponerPreciosMode={ponerPreciosMode}
+                  competenciaWide={competenciaWide}
+                  onCompetenciaWideChange={setCompetenciaWide}
                 />
               ) : filters.prod ? (
                 <ProductPanel

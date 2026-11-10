@@ -28,6 +28,16 @@
   --split-panel-width: var(--split-panel-width-lg);
 }
 
+.grid[data-width='xl'] {
+  --split-panel-width: var(--split-panel-width-xl);
+}
+
+/* Ver competencia: the default 42vw cap would keep `xl` (~920px) from
+   fitting on typical ops laptops; lift it only while expanded. */
+.grid[data-expanded] {
+  --split-panel-cap: 72vw;
+}
+
 .open {
   grid-template-columns: minmax(0, 1fr) var(--split-panel-default);
 }

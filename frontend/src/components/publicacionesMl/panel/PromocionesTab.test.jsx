@@ -21,6 +21,10 @@ vi.mock('../../../services/api', () => ({
     postPromocionItem: vi.fn(),
     deletePromocionItem: vi.fn(),
     confirmarSinPromosML: vi.fn(() => Promise.resolve({ data: { sin_promos_confirmado: true, promos_en_ml: 0 } })),
+    getCompetenciaCatalogo: vi.fn(() =>
+      Promise.resolve({ data: { mla: 'MLA1100000001', fetch_status: 'never', undercutting: [], same_bucket: [] } }),
+    ),
+    refreshCompetenciaCatalogo: vi.fn(),
   },
 }));
 
@@ -337,5 +341,46 @@ describe('sections (S3)', () => {
     renderTab();
     await screen.findByText('Smart activa');
     expect(screen.queryByRole('region', { name: 'Cupones' })).not.toBeInTheDocument();
+  });
+});
+
+describe('Ver competencia (catalog ranking column)', () => {
+  it('hides Ver competencia when the publication is not a catalog listing', async () => {
+    renderTab();
+    await screen.findByText('Smart promo');
+    expect(screen.queryByRole('button', { name: /ver competencia/i })).not.toBeInTheDocument();
+  });
+
+  it('shows Ver competencia for a catalog listing and opens ranking when wide', async () => {
+    const onCompetenciaWideChange = vi.fn();
+    const detail = readDetail(DETAIL_RESPONSE);
+    detail.row = { ...detail.row, catalog_listing: true };
+    render(
+      <PromocionesTab
+        detail={detail}
+        itemId="MLA1100000001"
+        canSeeMargin={false}
+        dataState={null}
+        competenciaWide={false}
+        onCompetenciaWideChange={onCompetenciaWideChange}
+      />,
+    );
+    await screen.findByText('Smart promo');
+    await userEvent.click(screen.getByRole('button', { name: /ver competencia/i }));
+    expect(onCompetenciaWideChange).toHaveBeenCalledWith(true);
+
+    render(
+      <PromocionesTab
+        detail={detail}
+        itemId="MLA1100000001"
+        canSeeMargin={false}
+        dataState={null}
+        competenciaWide
+        onCompetenciaWideChange={onCompetenciaWideChange}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /ocultar competencia/i })).toBeInTheDocument();
+    expect(screen.getByText('Competencia del catálogo')).toBeInTheDocument();
+    await waitFor(() => expect(promocionesAPI.getCompetenciaCatalogo).toHaveBeenCalled());
   });
 });

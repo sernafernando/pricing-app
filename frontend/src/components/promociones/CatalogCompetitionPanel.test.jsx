@@ -119,6 +119,76 @@ describe('CatalogCompetitionPanel', () => {
     expect(screen.getByText(/3 competidores relevados/)).toBeInTheDocument();
   });
 
+  it('ranking variant lists every same_bucket row, including pricier ones, with position', async () => {
+    promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
+      data: {
+        mla: 'MLA001',
+        fetch_status: 'ok',
+        our_price: 1000,
+        competitor_count: 4,
+        undercutting: [{ item_id: 'CHEAP', seller_nickname: 'Barato', price_ars: 900, markup: 40 }],
+        same_bucket: [
+          { item_id: 'CHEAP', seller_nickname: 'Barato', price_ars: 900, markup: 40, markup_sell_in_out: 44 },
+          { item_id: 'MLA001', seller_nickname: 'Nosotros', price_ars: 1000, markup: 35, markup_sell_in_out: 39 },
+          { item_id: 'PRICEY', seller_nickname: 'Caro', price_ars: 1200, markup: 28 },
+        ],
+      },
+    });
+
+    renderPanel({ variant: 'ranking' });
+    expect(await screen.findByLabelText(/ranking del catálogo/i)).toBeInTheDocument();
+    expect(screen.getByText('Barato')).toBeInTheDocument();
+    const ours = screen.getByText(/Nosotros \(vos\)/).closest('li');
+    expect(ours?.className || '').toMatch(/rankingOurs/);
+    expect(screen.getByText('Caro')).toBeInTheDocument();
+    expect(screen.queryByText(/Tu markup si igualás/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /actualizar competencia de catálogo/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/c\/ sell in\/out/).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('ranking variant shows empty copy with hidden competitor count', async () => {
+    promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
+      data: {
+        mla: 'MLA001',
+        fetch_status: 'ok',
+        our_price: 1000,
+        competitor_count: 5,
+        undercutting: [],
+        same_bucket: [],
+      },
+    });
+
+    renderPanel({ variant: 'ranking' });
+    expect(await screen.findByText(/sin competidores en tu mismo formato/i)).toBeInTheDocument();
+    expect(screen.getByText(/5 competidores relevados/)).toBeInTheDocument();
+  });
+
+  it('ranking variant shows not_catalog without a refresh button', async () => {
+    promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
+      data: { mla: 'MLA001', fetch_status: 'not_catalog', undercutting: [], same_bucket: [] },
+    });
+
+    renderPanel({ variant: 'ranking' });
+    expect(await screen.findByText(/no aplica/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /actualizar/i })).not.toBeInTheDocument();
+  });
+
+  it('ranking variant shows last-update copy from fecha_consulta', async () => {
+    promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
+      data: {
+        mla: 'MLA001',
+        fetch_status: 'ok',
+        fecha_consulta: '2026-07-30T10:00:00Z',
+        our_price: 1000,
+        undercutting: [],
+        same_bucket: [{ item_id: 'R1', seller_nickname: 'Rival', price_ars: 900, markup: 30 }],
+      },
+    });
+
+    renderPanel({ variant: 'ranking' });
+    expect(await screen.findByText(/Última actualización del catálogo:/i)).toBeInTheDocument();
+  });
+
   it('refresh button triggers exactly one POST, then re-reads the snapshot', async () => {
     promocionesAPI.getCompetenciaCatalogo
       .mockResolvedValueOnce({ data: { mla: 'MLA001', fetch_status: 'never', undercutting: [] } })
@@ -156,10 +226,8 @@ describe('CatalogCompetitionPanel', () => {
 describe('CatalogCompetitionPanel — refresh permission gate', () => {
   afterEach(() => mockTienePermiso.mockReturnValue(true));
 
-  it('hides the refresh button without promos.escribir', async () => {
-    // The read only needs promos.ver. Showing a refresh a view-only user
-    // cannot use would just hand them a 403.
-    mockTienePermiso.mockImplementation((perm) => perm !== 'promos.escribir');
+  it('hides the refresh button without promos.ver', async () => {
+    mockTienePermiso.mockImplementation((perm) => perm !== 'promos.ver');
     promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
       data: { mla: 'MLA001', fetch_status: 'ok', undercutting: [] },
     });
@@ -169,7 +237,18 @@ describe('CatalogCompetitionPanel — refresh permission gate', () => {
     expect(screen.queryByRole('button', { name: /refrescar competencia de catálogo/i })).not.toBeInTheDocument();
   });
 
-  it('shows the refresh button with promos.escribir', async () => {
+  it('hides refresh when the user only has promos.escribir (not promos.ver)', async () => {
+    mockTienePermiso.mockImplementation((perm) => perm === 'promos.escribir');
+    promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
+      data: { mla: 'MLA001', fetch_status: 'ok', undercutting: [] },
+    });
+
+    renderPanel();
+    await waitFor(() => expect(promocionesAPI.getCompetenciaCatalogo).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: /refrescar competencia de catálogo/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the refresh button with promos.ver', async () => {
     promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
       data: { mla: 'MLA001', fetch_status: 'ok', undercutting: [] },
     });

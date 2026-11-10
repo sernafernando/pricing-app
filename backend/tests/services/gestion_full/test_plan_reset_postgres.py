@@ -86,9 +86,7 @@ def _session(engine: Engine) -> Session:
 
 @pytest.mark.postgres
 class TestPlanResetPostgres:
-    def test_reset_empties_overrides_and_pm_ready_keeps_package_and_audits(
-        self, pg_engine: Engine
-    ) -> None:
+    def test_reset_empties_overrides_and_pm_ready_keeps_package_and_audits(self, pg_engine: Engine) -> None:
         db = _session(pg_engine)
         try:
             db.execute(text("INSERT INTO usuarios (id, nombre) VALUES (7, 'gestor')"))

@@ -126,9 +126,12 @@
      ============================================ */
 
   /* Side-panel widths. The panel is capped at 42vw by the layout itself, so
-     at 1366px the table keeps ~58% instead of being covered. */
+     at 1366px the table keeps ~58% instead of being covered. `xl` is for
+     Ver competencia (Promos col1 + catalog ranking col2); the layout lifts
+     the vw cap while `data-expanded` is set. */
   --split-panel-width-md: 460px;
   --split-panel-width-lg: 560px;
+  --split-panel-width-xl: 920px;
   --split-panel-gap: var(--spacing-lg);
 
   /* Space the page spends ABOVE the table (header, filters, KPI strip) and
