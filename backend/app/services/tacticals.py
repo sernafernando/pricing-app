@@ -47,7 +47,7 @@ from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoMarca, SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo
-from app.models.tactical import Tactical
+from app.models.tactical import Tactical, TacticalTienda
 from app.schemas.sell_in import SellInCompraCreate, SellInLineaIn
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, BASE_FACTURA, SellInBonoIn
 from app.schemas.sell_out import SellOutCampanaIn
@@ -415,10 +415,14 @@ def _crear(db: Session, data: TacticalIn, usuario_id: int) -> Tactical:
         tipo_cambio=data.tipo_cambio,
         incluye_iva=data.incluye_iva,
         acumulable=data.acumulable,
+        # Until the API takes a scope, a new tactical keeps today's reach (as the migration's backfill): every
+        # official store plus outside sales and Tienda Nube, with one shared cap.
+        tope_compartido=True,
         nota=_texto(data.nota),
         estado="activo",
         usuario_id=usuario_id,
     )
+    tactical.tiendas = [TacticalTienda(tipo="fuera"), TacticalTienda(tipo="tienda_nube")]
     db.add(tactical)
     db.flush()
     todos = {i for linea in data.lineas for i in linea.item_ids}

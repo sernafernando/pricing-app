@@ -12,6 +12,7 @@ from sqlalchemy import Engine, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.offset_grupo import OffsetGrupo
 from app.models.pedido_compra import PedidoCompra
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
@@ -23,6 +24,7 @@ from app.models.sell_out import (
     SellOutDirty,
     SellOutPrograma,
 )
+from app.models.tactical import TacticalTienda
 from app.schemas.sell_out import SellOutCampanaIn
 from app.schemas.tacticals import TacticalIn
 from app.services import tacticals as service
@@ -36,6 +38,8 @@ USUARIO = 7
 TPLINK = bw.TPLINK
 TABLES = [
     *bw.TABLES,
+    MlTiendaOficial.__table__,
+    TacticalTienda.__table__,
     OffsetGrupo.__table__,
     OffsetGrupoFiltro.__table__,
     SellOutPrograma.__table__,
@@ -82,7 +86,9 @@ def db(engine: Engine) -> Iterator[Session]:
         bw.clean(engine)
         with engine.begin() as conn:
             conn.execute(text("UPDATE productos_erp SET categoria = 'Routers', iva = 21"))
+            conn.execute(text("DELETE FROM tactical_tiendas"))
             conn.execute(text("DELETE FROM tacticals"))
+            conn.execute(text("DELETE FROM ml_tiendas_oficiales"))
             conn.execute(text("DELETE FROM sell_out_dirty"))
 
 
@@ -639,3 +645,20 @@ class TestSellInMontoTotal:
 
         assert self._bono(engine, tactical.id)[4:6] == (Decimal("1200.00"), "iguales")
         assert self._repartos(engine) == [(2270, Decimal("600.00")), (2964, Decimal("600.00"))]
+
+
+class TestStoreScope:
+    def test_create_keeps_todays_reach(self, db, engine) -> None:
+        """Before the store picker exists, a new tactical reaches what one reached before the scope did: every
+        official store, outside sales and Tienda Nube, with one shared cap (the migration's backfill)."""
+        tactical = service.crear(db, _tactical(), USUARIO)
+
+        assert (tactical.todas_tiendas, tactical.tope_compartido) == (True, True)
+        assert sorted(_filas(engine, tactical.id)) == [("fuera", None), ("tienda_nube", None)]
+
+
+def _filas(engine: Engine, tactical_id: int) -> list[tuple]:
+    with engine.connect() as conn:
+        return [tuple(r) for r in conn.execute(
+            text("SELECT tipo, store_id FROM tactical_tiendas WHERE tactical_id = :t"), {"t": tactical_id}
+        )]  # fmt: skip
