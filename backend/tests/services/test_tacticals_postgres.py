@@ -24,7 +24,7 @@ from app.models.sell_out import (
     SellOutDirty,
     SellOutPrograma,
 )
-from app.models.tactical import TacticalMarca, TacticalTienda
+from app.models.tactical import TacticalCobranza, TacticalMarca, TacticalTienda
 from app.schemas.sell_out import SellOutCampanaIn
 from app.schemas.tacticals import TacticalIn
 from app.services import tacticals as service
@@ -43,6 +43,7 @@ TABLES = [
     MlTiendaOficial.__table__,
     TacticalTienda.__table__,
     TacticalMarca.__table__,
+    TacticalCobranza.__table__,
     OffsetGrupo.__table__,
     OffsetGrupoFiltro.__table__,
     SellOutPrograma.__table__,

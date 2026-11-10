@@ -11,6 +11,10 @@ build against is `handoffs/tactical-tarea.md` "Contrato final".
   start) and the lines' caps (never below what a child already used); a voided tactical is a 409.
 - A create stores at most `HIJOS_MAX` (500) campaigns or bonuses (a per-product line counts each product): past it,
   a 422 before anything is stored.
+- Collection (tactical cobranza S2): `PUT /{id}/cobranza` saves the one record (only `fecha_cobro` required, 422
+  without it), `DELETE /{id}/cobranza` undoes it; both need `<tipo>.gestionar`. The list filters by `cobranza`
+  (cobrados | pendientes) and returns `kpis` (Pendientes / Cobrados: count and money used per currency) over the
+  other filters.
 - A broken rule is a 422 with one Spanish message ("Línea N: ..." when a line broke it); a campaign being
   recomputed is a 409 (retry; nothing stored); voiding twice is a 409; an unknown tactical is a 404.
 """
@@ -30,9 +34,11 @@ from app.models.usuario import Usuario
 from app.schemas.tacticals import (
     MARCA_MAX,
     NOMBRE_MAX,
+    CobranzaFiltro,
     EstadoFiltro,
     Moneda,
     TacticalAnularIn,
+    TacticalCobranzaIn,
     TacticalEditarIn,
     TacticalIn,
     TacticalListOut,
@@ -87,6 +93,7 @@ def listar_tacticals(
     desde: Optional[date] = None,
     hasta: Optional[date] = None,
     q: Optional[str] = Query(None, max_length=NOMBRE_MAX),
+    cobranza: Optional[CobranzaFiltro] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=PAGE_SIZE_MAX),
     user: Usuario = Depends(get_current_user),
@@ -100,9 +107,17 @@ def listar_tacticals(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="La fecha hasta no puede ser anterior a desde"
         )
-    filtros = service.Filtros(tipos=tipos, marca=marca, moneda=moneda, estado=estado, desde=desde, hasta=hasta, q=q)
+    filtros = service.Filtros(
+        tipos=tipos, marca=marca, moneda=moneda, estado=estado, desde=desde, hasta=hasta, q=q, cobranza=cobranza
+    )
     total, filas = service.listar(db, filtros, page, page_size)
-    return {"total": total, "page": page, "page_size": page_size, "items": service.serializar(db, filas)}
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "items": service.serializar(db, filas),
+        "kpis": service.kpis(db, filtros),
+    }
 
 
 @router.get("/{tactical_id}", response_model=TacticalOut)
@@ -146,4 +161,34 @@ def anular_tactical(
         raise _error(exc) from exc
     if tactical is None:  # gone between the check and the lock
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"El tactical {tactical_id} no existe")
+    return service.serializar(db, [tactical])[0]
+
+
+@router.put("/{tactical_id}/cobranza", response_model=TacticalOut)
+def cobrar_tactical(
+    tactical_id: int,
+    data: TacticalCobranzaIn,
+    user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Save (create or replace) the tactical's collection record: it reads "Cobrado" (tactical cobranza S2). Only
+    `fecha_cobro` is required (422 without it). Same permission as editing the tactical: `<tipo>.gestionar`."""
+    _buscar(db, user, tactical_id, "gestionar")
+    tactical = service.cobrar(db, tactical_id, data, user.id)
+    if tactical is None:  # gone between the check and the lock
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"El tactical {tactical_id} no existe")
+    return service.serializar(db, [tactical])[0]
+
+
+@router.delete("/{tactical_id}/cobranza", response_model=TacticalOut)
+def deshacer_cobro_tactical(
+    tactical_id: int, user: Usuario = Depends(get_current_user), db: Session = Depends(get_db)
+) -> dict:
+    """Undo the collection: the record is deleted and the tactical reads "Pendiente" again; 404 when it had none.
+    Permission `<tipo>.gestionar`."""
+    tactical = _buscar(db, user, tactical_id, "gestionar")
+    if not service.deshacer_cobro(db, tactical_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"El tactical {tactical_id} no tiene una cobranza cargada"
+        )
     return service.serializar(db, [tactical])[0]
