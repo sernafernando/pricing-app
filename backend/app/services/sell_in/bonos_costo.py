@@ -387,11 +387,12 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
             SellInBonoItem.bono_id, SellInBonoItem.item_id, SellInBonoItem.porcentaje, SellInBonoItem.monto_unit
         ).filter(SellInBonoItem.bono_id.in_(sorted(activos))):
             modelos[bid][item_id] = monto if activos[bid].tipo == "por_unidad" else pct
+    scopes = tienda_scope.scopes_de(db, activos.values())
     ventas: List[alcance.Venta] = []
     if alcanzados:
         desde = min(b.fecha_desde for b in activos.values())
         hasta = max(b.fecha_hasta for b in activos.values())
-        ventas = alcance.ventas(db, alcanzados, desde, hasta)
+        ventas = alcance.ventas(db, alcanzados, desde, hasta, tienda_scope.necesita_tiendas(scopes.values()))
     fifo: Dict[Clave, int] = {
         (canal, int(ref), item_id): int(unidades)
         for canal, ref, item_id, unidades in db.query(
@@ -404,7 +405,6 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
     repartos = _repartos(db, activos)
     deseadas: Dict[Tuple[int, str, int, int], _Fila] = {}
     fallidos: Set[int] = set()
-    scopes = tienda_scope.scopes_de(db, activos.values())
     for componente in _componentes(activos, alcances, productos):
         suyos = [b for b in activos.values() if alcances[b.id] & componente]
         try:

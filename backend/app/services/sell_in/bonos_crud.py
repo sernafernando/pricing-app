@@ -767,18 +767,9 @@ def _usado_por_tienda(db: Session, costo: list[SellInBonoMarca]) -> dict[int, _P
     if not scopes:
         return {}
     t = SellInBonoConsumo
-    filas = list(
-        db.query(t.bono_id, t.canal, t.venta_ref, t.unidades, t.descuento_ars).filter(t.bono_id.in_(sorted(scopes)))
-    )
-    targets = tienda_scope.targets_de_ventas(db, {(canal, ref) for _, canal, ref, _, _ in filas})
+    usados = tienda_scope.usado_por_contador(db, (t.bono_id, t.canal, t.venta_ref, t.unidades, t.descuento_ars), scopes)
     activas = tienda_scope.tiendas_activas(db) if any(s.todas_tiendas for s in scopes.values()) else set()
-    salida = {bid: _PorTienda(tienda_scope.contadores(s, activas), {}, {}) for bid, s in scopes.items()}
-    for bid, canal, ref, unidades, monto in filas:
-        key = targets.get((canal, ref))
-        if key is not None:
-            p = salida[bid]
-            p.unidades[key] = p.unidades.get(key, 0) + int(unidades)
-            p.monto[key] = p.monto.get(key, Decimal(0)) + Decimal(monto)
+    salida = {bid: _PorTienda(tienda_scope.contadores(s, activas), *usados[bid]) for bid, s in scopes.items()}
     return salida
 
 

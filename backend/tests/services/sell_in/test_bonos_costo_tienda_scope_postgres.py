@@ -11,7 +11,7 @@ from decimal import Decimal
 from typing import Iterator, Optional
 
 import pytest
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.ml_tienda_oficial import MlTiendaOficial
@@ -201,3 +201,23 @@ class TestPerStoreCapLeft:
             None,
             False,
         )
+
+
+class TestStoreLookup:
+    def test_todays_reach_skips_the_official_store_lookup(self, engine: Engine) -> None:
+        bono = _bono_de_tactical_existente(engine)
+        ml = _venta_ml(engine, 1, D(2026, 10, 5), store_id=GAUSS)
+        vistas: list[str] = []
+
+        def _ver(conn, cursor, statement, *args) -> None:
+            if "tb_mercadolibre_items_publicados" in statement:
+                vistas.append(statement)
+
+        event.listen(engine, "before_cursor_execute", _ver)
+        try:
+            _recalcular(engine)
+        finally:
+            event.remove(engine, "before_cursor_execute", _ver)
+
+        assert vistas == []
+        assert _filas(engine) == [(bono, "ml", ml, 1, Decimal("10.00"))]
