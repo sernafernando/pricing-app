@@ -9,7 +9,6 @@ here, as `view/detail.py` does for one publication.
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Mapping, Optional, Sequence
@@ -19,7 +18,8 @@ from sqlalchemy.orm import Session
 
 from app.services.costo_ppp_service import PppMarkups, resolver_ppp_batch
 from app.services.pricing_calculator import obtener_tipo_cambio_actual
-from app.services.productos_sell_in_out import ContextoMarkup, resolver_sell_in_out_batch
+from app.services.productos_sell_in_out import resolver_sell_in_out_batch, resolver_sell_in_out_por_contexto
+from app.services.sell_out import alcance
 
 logger = logging.getLogger(__name__)
 
@@ -38,18 +38,12 @@ NO_COST_LINES: dict[str, Any] = {"ppp": None, "sell_in_out": None}
 
 
 def cost_lines(
-    pricing_db: Session,
-    products: Mapping[int, tuple[Any, Any, Any]],
-    *,
-    contextos: Optional[Sequence[ContextoMarkup]] = None,
+    pricing_db: Session, products: Mapping[int, tuple[Any, Any, Any]]
 ) -> Optional[dict[int, dict[str, Any]]]:
     """The two lines Productos draws under a product's cost, per product id of `products` (id -> cost, currency,
     VAT): `ppp` (`resolver_ppp_batch` + `PppMarkups`, null without a qualifying row) and `sell_in_out`
     (`resolver_sell_in_out_batch`, null when neither applies). No markup is recorded: the cost cell shows neither.
     Both resolvers read the pricing database, once for the whole page.
-
-    `contextos`: optional store/channel selection for tactical companions (Publicaciones: the row's official store).
-    `None` keeps the pre-scope global read (product rows without a publication store).
 
     None when one of those reads fails (a database error, logged): the lines are informative, so the page answers as it did before they
     existed, each row with its cost and without the line keys, instead of failing whole. The reads run in a
@@ -58,71 +52,59 @@ def cost_lines(
         return {}
     try:
         with pricing_db.begin_nested():
-            return _cost_lines(pricing_db, products, contextos=contextos)
+            return _cost_lines(pricing_db, products)
     except SQLAlchemyError:  # a failed read; a programming error still surfaces
         logger.exception("Publicaciones ML: no se pudieron armar las líneas de PPP / sell in del costo")
         return None
 
 
-def cost_lines_by_store(
-    pricing_db: Session, by_store: Mapping[Optional[int], Mapping[int, tuple[Any, Any, Any]]]
-) -> Optional[dict[tuple[Optional[int], int], dict[str, Any]]]:
-    """Like `cost_lines`, keyed by `(official_store_id, product_id)` so two publications of the same product on
-    different stores each get the tactical companions that reach that store."""
-    if not by_store:
+def cost_lines_by_publication(pricing_db: Session, rows: Sequence[Any]) -> Optional[dict[str, dict[str, Any]]]:
+    """Like `cost_lines`, per publication (`row.item_id`, its MLA): two publications of the same product on different
+    official stores each get the tactical companions that reach their store. The store is the publication's
+    `mlp_official_store_id` (`alcance._stores_por_mla`), the one the sell out and sell in allocators credit its sales
+    under, so the row shows what the money would be; a publication without one is `("ml", None)`, which every
+    all-stores tactical reaches. Every store of the page is resolved from ONE read (`resolver_sell_in_out_por_contexto`),
+    PPP and the rate once. None when a read fails, as `cost_lines`."""
+    linked = [r for r in rows if getattr(r, "producto_item_id", None)]
+    if not linked:
         return {}
     try:
         with pricing_db.begin_nested():
-            out: dict[tuple[Optional[int], int], dict[str, Any]] = {}
-            for store_id, products in by_store.items():
-                partial = _cost_lines(pricing_db, products, contextos=[("ml", store_id)])
-                for product_id, payload in partial.items():
-                    out[(store_id, product_id)] = payload
-            return out
+            stores = alcance._stores_por_mla(pricing_db, {str(r.item_id) for r in linked})
+            products = {r.producto_item_id: (r.costo, r.moneda_costo, r.costo_iva) for r in linked}
+            store_of = {str(r.item_id): stores.get(str(r.item_id)) for r in linked}
+            contextos = {store: [("ml", store)] for store in set(store_of.values())}
+            ids = sorted(products)
+            batches = resolver_sell_in_out_por_contexto(pricing_db, ids, date.today(), contextos)
+            ppp = resolver_ppp_batch(pricing_db, ids)
+            rate = obtener_tipo_cambio_actual(pricing_db, "USD")
+            return {
+                str(r.item_id): _lines(r.producto_item_id, products, ppp, batches[store_of[str(r.item_id)]], rate)
+                for r in linked
+            }
     except SQLAlchemyError:
         logger.exception("Publicaciones ML: no se pudieron armar las líneas de PPP / sell in del costo")
         return None
 
 
-def _cost_lines(
-    pricing_db: Session,
-    products: Mapping[int, tuple[Any, Any, Any]],
-    *,
-    contextos: Optional[Sequence[ContextoMarkup]] = None,
-) -> dict[int, dict[str, Any]]:
+def _cost_lines(pricing_db: Session, products: Mapping[int, tuple[Any, Any, Any]]) -> dict[int, dict[str, Any]]:
     ids = sorted(products)
     ppp = resolver_ppp_batch(pricing_db, ids)
-    sell_in_out = resolver_sell_in_out_batch(pricing_db, ids, date.today(), contextos=contextos)
+    sell_in_out = resolver_sell_in_out_batch(pricing_db, ids, date.today())
     rate = obtener_tipo_cambio_actual(pricing_db, "USD")
-    out: dict[int, dict[str, Any]] = {}
-    for item_id in ids:
-        costo, moneda, iva = products[item_id]
-        moneda = getattr(moneda, "value", moneda) or "ARS"
-        ppp_payload = PppMarkups(ppp.get(item_id), moneda_costo=moneda, tipo_cambio=rate).payload()
-        product = _CostedProduct(item_id, _as_float(costo), moneda, _as_float(iva))
-        sio_payload = sell_in_out.markups(product, tipo_cambio=rate).payload()
-        out[item_id] = {
-            "ppp": None if ppp_payload is None else ppp_payload.model_dump(),
-            "sell_in_out": None if sio_payload is None else sio_payload.model_dump(),
-        }
-    return out
+    return {item_id: _lines(item_id, products, ppp, sell_in_out, rate) for item_id in ids}
 
 
-def group_products_by_store(
-    rows: Sequence[Any],
-) -> dict[Optional[int], dict[int, tuple[Any, Any, Any]]]:
-    """`official_store_id -> {producto_item_id: (costo, moneda, iva)}` for `cost_lines_by_store`."""
-    by_store: dict[Optional[int], dict[int, tuple[Any, Any, Any]]] = defaultdict(dict)
-    for row in rows:
-        product_id = getattr(row, "producto_item_id", None)
-        if not product_id:
-            continue
-        by_store[getattr(row, "official_store_id", None)][product_id] = (
-            row.costo,
-            row.moneda_costo,
-            getattr(row, "costo_iva", getattr(row, "iva", None)),
-        )
-    return by_store
+def _lines(item_id: int, products: Mapping[int, tuple[Any, Any, Any]], ppp, sell_in_out, rate) -> dict[str, Any]:
+    costo, moneda, iva = products[item_id]
+    moneda = getattr(moneda, "value", moneda) or "ARS"
+    ppp_payload = PppMarkups(ppp.get(item_id), moneda_costo=moneda, tipo_cambio=rate).payload()
+    product = _CostedProduct(item_id, _as_float(costo), moneda, _as_float(iva))
+    sio_payload = sell_in_out.markups(product, tipo_cambio=rate).payload()
+    return {
+        "ppp": None if ppp_payload is None else ppp_payload.model_dump(),
+        "sell_in_out": None if sio_payload is None else sio_payload.model_dump(),
+    }
 
 
 def _as_float(value: Any) -> Optional[float]:

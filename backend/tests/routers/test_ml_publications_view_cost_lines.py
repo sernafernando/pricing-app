@@ -140,6 +140,8 @@ def falla(monkeypatch, nombre: str) -> None:
         raise OperationalError("SELECT", {}, Exception(f"{nombre} down"))
 
     monkeypatch.setattr(module, nombre, roto)
+    if nombre == "resolver_sell_in_out_batch":  # the publication rows read every store's sell in / out at once
+        monkeypatch.setattr(module, "resolver_sell_in_out_por_contexto", roto)
 
 
 class TestAFailingLineRead:

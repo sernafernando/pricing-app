@@ -26,6 +26,7 @@ from typing import Any, Dict, Iterable, List, Mapping, NamedTuple, Optional
 
 from sqlalchemy.orm import Session
 
+from app.services.sell_out import alcance
 from app.core.logging import get_logger
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
@@ -384,23 +385,13 @@ def markup_para_precio_con_sell_in_out(
 
 
 def _contextos_mlas(db: Session, mlas: list[str]) -> Optional[list[tuple[str, Optional[int]]]]:
-    """Store scope for companion markups: one `(ml, store_id)` when every MLA shares the same official store;
-    `None` (global) when the set mixes stores — a single batch cannot be both.
-
-    Missing `ml_items` (throwaway schemas / labs) → global, same as mixed stores: companions still resolve.
-    """
-    from sqlalchemy.exc import ProgrammingError
-
-    from app.models.ml_publications import MlItem
-
+    """Store scope for companion markups: one `(ml, store_id)` when every MLA shares the same official store (as the
+    allocators credit its sales: `alcance._stores_por_mla`; no official store is `None`, which every all-stores
+    tactical reaches); `None` (global) when the set mixes stores, since a single batch cannot be both."""
     if not mlas:
         return None
-    try:
-        # Own savepoint so a missing table does not abort the caller's sell-in/out SAVEPOINT.
-        with db.begin_nested():
-            stores = {row[0] for row in db.query(MlItem.official_store_id).filter(MlItem.item_id.in_(mlas)).distinct()}
-    except ProgrammingError:
-        return None
+    por_mla = alcance._stores_por_mla(db, set(mlas))
+    stores = {por_mla.get(mla) for mla in mlas}
     if len(stores) != 1:
         return None
     return [("ml", next(iter(stores)))]

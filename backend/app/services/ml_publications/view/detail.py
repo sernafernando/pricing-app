@@ -43,6 +43,7 @@ from app.services.ml_publications.view.filters import FULFILLMENT, LINK_ITEM_LEV
 from app.services.ml_publications.view.markup_service import MarkupQuery
 from app.services.ml_publications.view.variations import link_state_of
 from app.services.pricing_columns import PRICELIST_TO_CAMPO
+from app.services.sell_out import alcance
 from app.services.productos_sell_in_out import resolver_sell_in_out_batch
 
 STATEMENT_TIMEOUT = "3s"
@@ -469,10 +470,11 @@ def _sell_in_out(
     links: list[Any],
     found: Optional[markup_service.DetailMarkup],
     *,
-    store_id: Optional[int] = None,
+    mla: str,
 ) -> Optional[dict]:
     """The sell in / sell out of the breakdown's unit (module docstring, 6); None when nothing was priced or neither
-    applies. `store_id` is the publication's official store so tactical companions honour store scope."""
+    applies. Tactical companions follow the publication's official store as the allocators credit it
+    (`alcance._stores_por_mla`, `cost_lines_by_publication`); without one, `("ml", None)`."""
     b = None if found is None else found.breakdown
     if b is None:
         return None
@@ -480,6 +482,7 @@ def _sell_in_out(
     if row is None:
         return None
     product = _PricedProduct(row.product_id, b.costo_ars, row.iva)
+    store_id = alcance._stores_por_mla(pricing_db, {mla}).get(mla)
     accumulator = resolver_sell_in_out_batch(
         pricing_db, [product.item_id], date.today(), contextos=[("ml", store_id)]
     ).markups(product, precio_lista_ml=b.price)
@@ -536,5 +539,5 @@ def get_detail(db: Session, item_id: str, *, events: bool, markup: Optional[Mark
             out_row["markup"] = listing.markup_out(found.item)
         listing.attach_cost([out_row], [row], markup.pricing_db)  # the same cost block the list row carries
         body["markup_breakdown"] = None if found is None else _breakdown_out(found)
-        body["sell_in_out"] = _sell_in_out(markup.pricing_db, links, found, store_id=row.official_store_id)
+        body["sell_in_out"] = _sell_in_out(markup.pricing_db, links, found, mla=str(row.item_id))
     return body
