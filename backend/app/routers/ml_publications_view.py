@@ -307,6 +307,7 @@ class ItemRowOut(BaseModel):
     hay_mejores_ofertas: bool = False
     stock: StockOut
     erp_stock: ErpStockOut
+    stock_total: Optional[int] = None  # ERP + Full; null only when both are unknown
     link: LinkOut
     sku_divergence: SkuDivergenceOut | None = None  # only when the SKU disagrees with the linked product
     last_activity_at: Optional[datetime] = None

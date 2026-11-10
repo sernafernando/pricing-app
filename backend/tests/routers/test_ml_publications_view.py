@@ -188,6 +188,8 @@ class TestContract:
             "lista_nombre": None,
         }
         assert first["stock"]["full"] == 3 and first["stock"]["own"] == 1 and first["stock"]["available"] == 4
+        # Stock total (ERP + Full) reaches the client: the table's Total column and the panel read it.
+        assert first["stock_total"] == (first["erp_stock"]["quantity"] or 0) + 3
         assert first["link"] == {
             "state": "auto",
             "producto_item_id": 70,
@@ -197,6 +199,7 @@ class TestContract:
         }
         assert first["store_label"] == "TP-Link" and first["gone"] is False
         assert second["link"]["state"] == "no_evaluado" and second["stock"]["full"] is None
+        assert second["stock_total"] is None  # neither ERP nor Full known
         assert "markup" not in first and "facets" not in body
 
     def test_filters_sort_and_paging_reach_the_query(self, client, pg, reader) -> None:
