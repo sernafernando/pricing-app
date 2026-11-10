@@ -10,7 +10,7 @@
  * semantics as the four original blocks (#956, PR1-PR3), just parameterized
  * by `storageKey`.
  */
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 // The four localStorage keys are FROZEN, verbatim. Renaming any of these
 // silently resets every operator's saved column widths on next load with no
@@ -51,25 +51,46 @@ export function saveColumnSizing(state, key = COLUMN_SIZING_STORAGE_KEYS.pregunt
 export function useColumnSizing(storageKey) {
   const [columnSizing, setColumnSizingState] = useState(() => loadColumnSizing(storageKey));
   const saveTimerRef = useRef(null);
+  const pendingRef = useRef(null);
+
+  const cancelPendingSave = useCallback(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = null;
+    pendingRef.current = null;
+  }, []);
 
   const onColumnSizingChange = useCallback((updater) => {
     setColumnSizingState((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = setTimeout(() => saveColumnSizing(next, storageKey), 200);
+      pendingRef.current = next;
+      saveTimerRef.current = setTimeout(() => {
+        saveTimerRef.current = null;
+        pendingRef.current = null;
+        saveColumnSizing(next, storageKey);
+      }, 200);
       return next;
     });
   }, [storageKey]);
 
+  // A debounced save must not outlive the table: write it now on unmount
+  // (or key change) instead of letting the timer land later, where it would
+  // overwrite whatever happened to the key since (e.g. a reset).
+  useEffect(() => () => {
+    const pending = pendingRef.current;
+    cancelPendingSave();
+    if (pending) saveColumnSizing(pending, storageKey);
+  }, [storageKey, cancelPendingSave]);
+
   const reset = useCallback(() => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    cancelPendingSave();
     setColumnSizingState({});
     try {
       localStorage.removeItem(storageKey);
     } catch {
       // no-op — disabled/private-mode localStorage
     }
-  }, [storageKey]);
+  }, [storageKey, cancelPendingSave]);
 
   const hasCustom = Object.keys(columnSizing).length > 0;
 

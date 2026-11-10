@@ -4,7 +4,7 @@
  * `useColumnSizing` hook, never go under each column's minimum and can be reset.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor, fireEvent } from '@testing-library/react';
+import { screen, waitFor, fireEvent, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import VentasML from './VentasML';
@@ -84,6 +84,17 @@ describe('column resize grips', () => {
     await user.click(reset);
     await waitFor(() => expect(localStorage.getItem('ventasml:colsizing')).toBeNull());
     expect(screen.queryByRole('button', { name: /Restablecer columnas/ })).not.toBeInTheDocument();
+  });
+
+  it('a resize still pending when the page unmounts never writes after it is gone', async () => {
+    // Regression for the CI flake: the keyboard test left its 200ms debounced
+    // save alive, and it landed in a later test after Restablecer columnas.
+    const [producto] = await grips();
+    fireEvent.keyDown(producto, { key: 'ArrowRight' });
+    cleanup();
+    localStorage.clear();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(localStorage.getItem('ventasml:colsizing')).toBeNull();
   });
 
   it('survives a corrupted saved-width payload', async () => {
