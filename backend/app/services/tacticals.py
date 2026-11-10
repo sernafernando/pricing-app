@@ -60,7 +60,7 @@ from app.models.sell_in import (
 )
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo
 from app.models.ml_tienda_oficial import MlTiendaOficial
-from app.models.tactical import Tactical, TacticalTienda
+from app.models.tactical import Tactical, TacticalMarca, TacticalTienda
 from app.schemas.sell_in import SellInCompraCreate, SellInLineaIn
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, BASE_FACTURA, SellInBonoIn
 from app.schemas.sell_out import SellOutCampanaIn
@@ -136,15 +136,32 @@ def _por_factura(data: TacticalIn) -> bool:
     return data.tipo == "sell_in" and all(linea.alcance == "factura" for linea in data.lineas)
 
 
-def _validar_cabecera(db: Session, data: TacticalIn) -> tuple[str, str, Optional[str]]:
-    """The header's rules; returns `(nombre, marca, tc_modo)` normalized (USD without a mode is `al_cobro`)."""
-    nombre, marca = _texto(data.nombre), _texto(data.marca)
+def _marcas(db: Session, data: TacticalIn) -> list[str]:
+    """The header's brands, trimmed, without repeats, in the order given (S3). Only `marca` (an old client) means
+    that one brand; with both, `marca` must be one of `marcas`. Every brand needs products, as one did before."""
+    marcas = list(dict.fromkeys(m for m in (_texto(x) for x in data.marcas) if m is not None))
+    marca = _texto(data.marca)
+    if not marcas and marca is not None:
+        marcas = [marca]
+    if not marcas:
+        raise TacticalError("La marca es obligatoria")
+    if marca is not None and marca not in marcas:
+        raise TacticalError("La marca tiene que ser una de las marcas del tactical")
+    con_productos = {
+        m for (m,) in db.query(ProductoERP.marca).filter(ProductoERP.marca.in_(marcas)).distinct()
+    }  # fmt: skip
+    faltan = [m for m in marcas if m not in con_productos]
+    if faltan:
+        raise TacticalError(f"No hay productos de la marca {', '.join(faltan)}")
+    return marcas
+
+
+def _validar_cabecera(db: Session, data: TacticalIn) -> tuple[str, list[str], Optional[str]]:
+    """The header's rules; returns `(nombre, marcas, tc_modo)` normalized (USD without a mode is `al_cobro`)."""
+    nombre = _texto(data.nombre)
     if nombre is None:
         raise TacticalError("El nombre es obligatorio")
-    if marca is None:
-        raise TacticalError("La marca es obligatoria")
-    if not db.query(ProductoERP.item_id).filter(ProductoERP.marca == marca).limit(1).first():
-        raise TacticalError(f"No hay productos de la marca {marca}")
+    marcas = _marcas(db, data)
     if not _por_factura(data):
         if data.fecha_desde is None or data.fecha_hasta is None:
             raise TacticalError(SIN_FECHAS)
@@ -154,14 +171,14 @@ def _validar_cabecera(db: Session, data: TacticalIn) -> tuple[str, str, Optional
     if data.moneda == "ARS":
         if data.tc_modo is not None or data.tipo_cambio is not None:
             raise TacticalError("Un tactical en pesos no lleva tipo de cambio")
-        return nombre, marca, None
+        return nombre, marcas, None
     tc_modo = data.tc_modo or "al_cobro"
     if tc_modo == "fijo":
         if data.tipo_cambio is None or data.tipo_cambio <= 0:
             raise TacticalError("Con tipo de cambio fijo hay que indicar el tipo de cambio, mayor a 0")
     elif data.tipo_cambio is not None:
         raise TacticalError("Solo con tipo de cambio fijo se indica el tipo de cambio")
-    return nombre, marca, tc_modo
+    return nombre, marcas, tc_modo
 
 
 SOLO_SELL_OUT = "Las tiendas solo se eligen en sell out: un tactical de sell in baja el costo de todas las ventas"
@@ -501,14 +518,14 @@ def _fechas_de_facturas(db: Session, data: TacticalIn) -> tuple[date, date]:
 
 def _crear(db: Session, data: TacticalIn, usuario_id: int) -> Tactical:
     _validar_hijos(data)
-    nombre, marca, tc_modo = _validar_cabecera(db, data)
+    nombre, marcas, tc_modo = _validar_cabecera(db, data)
     fecha_desde, fecha_hasta = (
         _fechas_de_facturas(db, data) if _por_factura(data) else (data.fecha_desde, data.fecha_hasta)
     )
     tactical = Tactical(
         tipo=data.tipo,
         nombre=nombre,
-        marca=marca,
+        marca=marcas[0],
         referencia=_texto(data.referencia),
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
@@ -524,6 +541,7 @@ def _crear(db: Session, data: TacticalIn, usuario_id: int) -> Tactical:
         usuario_id=usuario_id,
     )
     _guardar_tiendas(tactical, data.tiendas)
+    tactical.marcas = [TacticalMarca(marca=m) for m in marcas]
     db.add(tactical)
     db.flush()
     todos = {i for linea in data.lineas for i in linea.item_ids}
@@ -554,6 +572,7 @@ def _cabecera(t: Tactical) -> dict:
         "tipo": t.tipo,
         "nombre": t.nombre,
         "marca": t.marca,
+        "marcas": [fila.marca for fila in t.marcas],
         "fecha_desde": t.fecha_desde.isoformat(),
         "fecha_hasta": t.fecha_hasta.isoformat(),
         "moneda": t.moneda,
@@ -848,8 +867,10 @@ class Filtros:
 def listar(db: Session, filtros: Filtros, page: int, page_size: int, hoy: Optional[date] = None) -> tuple[int, list]:
     hoy = hoy or date.today()
     query = db.query(Tactical).filter(Tactical.tipo.in_(filtros.tipos))
-    if filtros.marca:
-        query = query.filter(Tactical.marca == filtros.marca)
+    if filtros.marca:  # any of the tactical's brands (S3)
+        query = query.filter(
+            exists().where(TacticalMarca.tactical_id == Tactical.id, TacticalMarca.marca == filtros.marca)
+        )
     if filtros.moneda:
         query = query.filter(Tactical.moneda == filtros.moneda)
     if filtros.estado == "anulados":
@@ -867,7 +888,7 @@ def listar(db: Session, filtros: Filtros, page: int, page_size: int, hoy: Option
         query = query.filter(or_(contiene(Tactical.nombre, q), contiene(Tactical.referencia, q)))
     total = query.order_by(None).count()
     filas = (
-        query.options(selectinload(Tactical.tiendas))
+        query.options(selectinload(Tactical.tiendas), selectinload(Tactical.marcas))
         .order_by(Tactical.fecha_desde.desc(), Tactical.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
@@ -1079,6 +1100,7 @@ def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
         {
             **{c: getattr(t, c) for c in columnas},
             "tiendas": [{"tipo": fila.tipo, "store_id": fila.store_id} for fila in t.tiendas],
+            "marcas": [fila.marca for fila in t.marcas],
             "por_factura": _hijos_por_factura(t, de_tactical[t.id]),
             "lineas": de_tactical[t.id],
         }

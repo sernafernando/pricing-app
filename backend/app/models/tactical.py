@@ -9,7 +9,9 @@ never deleted, it is voided), so allocation, FIFO and caps are not rewritten:
 - `tipo = 'sell_in'`: each line is a `SellInBonoMarca` (`base = 'costo_venta'` over products, a brand or a category;
   `base = 'factura'` over one invoice), or a `SellInCompra` for an invoice's fixed total.
 
-`marca` is the `productos_erp.marca` text the list filters by. The header's dates, currency, FX, VAT flag and
+`marca` is the first of the tactical's brands (`tactical_marcas`, `productos_erp.marca` text the list filters by,
+owner 2026-11-10: "las marcas que se usan para el filtro hay que hacer un selector multiple"); it stays so a reader
+that knows one brand still gets a valid one. The header's dates, currency, FX, VAT flag and
 `acumulable` are copied to every child, which is what the engines read; the header keeps them to show and filter.
 `tc_modo` / `tipo_cambio` follow `SellOutCampana`'s FX rules (NULL on ARS). A tactical will be voided (`anulado`)
 with all its children, through each engine's own void step. `app.services.tacticals` creates and voids them.
@@ -20,7 +22,7 @@ one counter per target with the same cap; true = one pool over the selection.
 """
 
 from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey, Index, Integer
-from sqlalchemy import Numeric, String, Text, text
+from sqlalchemy import Numeric, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import false, func, true
 
@@ -83,6 +85,12 @@ class Tactical(Base):
         cascade="all, delete-orphan",
         order_by="TacticalTienda.id",
     )
+    marcas = relationship(
+        "TacticalMarca",
+        back_populates="tactical",
+        cascade="all, delete-orphan",
+        order_by="TacticalMarca.id",
+    )
 
 
 class TacticalTienda(Base):
@@ -128,3 +136,20 @@ class TacticalTienda(Base):
     )
 
     tactical = relationship("Tactical", back_populates="tiendas")
+
+
+class TacticalMarca(Base):
+    """One brand (`productos_erp.marca`, exact) of a tactical's header, in the order it was entered; the list filter
+    matches a tactical when any of them is the filtered brand. Migration `20261110_tacticals_marcas`."""
+
+    __tablename__ = "tactical_marcas"
+    __table_args__ = (
+        UniqueConstraint("tactical_id", "marca", name="uq_tactical_marcas"),
+        Index("ix_tactical_marcas_marca", "marca"),
+    )
+
+    id = Column(BigInteger, primary_key=True)
+    tactical_id = Column(BigInteger, ForeignKey("tacticals.id", ondelete="CASCADE"), nullable=False)
+    marca = Column(String(100), nullable=False)
+
+    tactical = relationship("Tactical", back_populates="marcas")

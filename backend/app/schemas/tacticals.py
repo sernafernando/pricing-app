@@ -26,6 +26,7 @@ TipoTienda = Literal["oficial", "fuera", "tienda_nube"]
 
 NOMBRE_MAX = 200
 MARCA_MAX = 100  # productos_erp.marca is VARCHAR(100)
+MARCAS_MAX = 50  # brands on one tactical header
 LINEAS_MAX = 100
 ITEMS_MAX = 500
 TIENDAS_MAX = 100  # official stores + synthetic channels on one tactical
@@ -72,7 +73,10 @@ class TacticalLineaIn(BaseModel):
 class TacticalIn(BaseModel):
     tipo: TipoTactical
     nombre: str = Field(max_length=NOMBRE_MAX)
-    marca: str = Field(max_length=MARCA_MAX)
+    # The header's brands (S3, owner 2026-11-10: "selector multiple"). An old client sends only `marca`: it means
+    # `marcas = [marca]`; when both come, `marca` must be one of `marcas` (checked by the service).
+    marca: Optional[str] = Field(default=None, max_length=MARCA_MAX)
+    marcas: list[str] = Field(default_factory=list, max_length=MARCAS_MAX)
     referencia: Optional[str] = Field(default=None, max_length=NOMBRE_MAX)
     # Required unless every line is an invoice line: then the service fills them from the invoices (oldest..newest).
     fecha_desde: Optional[date] = None
@@ -163,7 +167,8 @@ class TacticalOut(BaseModel):
     id: int
     tipo: TipoTactical
     nombre: str
-    marca: str
+    marca: str  # the first of `marcas`, for a client that reads one brand
+    marcas: list[str]
     referencia: Optional[str]
     fecha_desde: date
     fecha_hasta: date

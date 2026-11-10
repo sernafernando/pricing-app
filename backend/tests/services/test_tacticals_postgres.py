@@ -24,7 +24,7 @@ from app.models.sell_out import (
     SellOutDirty,
     SellOutPrograma,
 )
-from app.models.tactical import TacticalTienda
+from app.models.tactical import TacticalMarca, TacticalTienda
 from app.schemas.sell_out import SellOutCampanaIn
 from app.schemas.tacticals import TacticalIn
 from app.services import tacticals as service
@@ -42,6 +42,7 @@ TABLES = [
     *bw.TABLES,
     MlTiendaOficial.__table__,
     TacticalTienda.__table__,
+    TacticalMarca.__table__,
     OffsetGrupo.__table__,
     OffsetGrupoFiltro.__table__,
     SellOutPrograma.__table__,
@@ -89,6 +90,7 @@ def db(engine: Engine) -> Iterator[Session]:
         with engine.begin() as conn:
             conn.execute(text("UPDATE productos_erp SET categoria = 'Routers', iva = 21"))
             conn.execute(text("DELETE FROM tactical_tiendas"))
+            conn.execute(text("DELETE FROM tactical_marcas"))
             conn.execute(text("DELETE FROM tacticals"))
             conn.execute(text("DELETE FROM ml_tiendas_oficiales"))
             conn.execute(text("DELETE FROM sell_out_dirty"))
@@ -411,6 +413,53 @@ class TestListar:
         assert ids(moneda="ARS") == [pesos.id]
         assert ids(moneda="USD") == [dolares.id]
         assert ids() == sorted([pesos.id, dolares.id])
+
+
+def _leido(db: Session, tactical_id: int) -> dict:
+    return service.serializar(db, [db.get(service.Tactical, tactical_id)])[0]
+
+
+class TestMarcas:
+    """S3 (owner 2026-11-10): "lo mismo las marcas que se usan para el filtro hay que hacer un selector multiple"."""
+
+    def test_a_tactical_keeps_every_brand_and_its_first_one_as_marca(self, db, engine) -> None:
+        tactical = service.crear(db, _tactical(marca=None, marcas=[bw.MERCUSYS, TPLINK]), USUARIO)
+
+        assert tactical.marca == bw.MERCUSYS  # old readers keep a valid brand
+        leido = _leido(db, tactical.id)
+        assert (leido["marca"], leido["marcas"]) == (bw.MERCUSYS, [bw.MERCUSYS, TPLINK])
+        assert _contar(engine, "tactical_marcas", f"tactical_id = {tactical.id}") == 2
+
+    def test_an_old_client_sending_only_marca_gets_that_one_brand(self, db) -> None:
+        tactical = service.crear(db, _tactical(), USUARIO)
+
+        assert _leido(db, tactical.id)["marcas"] == [TPLINK]
+
+    def test_marca_and_marcas_together_must_agree(self, db, engine) -> None:
+        with pytest.raises(service.TacticalError, match="La marca tiene que ser una de las marcas"):
+            service.crear(db, _tactical(marca=TPLINK, marcas=[bw.MERCUSYS]), USUARIO)
+        assert _contar(engine, "tacticals") == 0
+
+    def test_every_brand_needs_products_and_a_repeated_one_counts_once(self, db, engine) -> None:
+        with pytest.raises(service.TacticalError, match="No hay productos de la marca NO EXISTE"):
+            service.crear(db, _tactical(marca=None, marcas=[TPLINK, "NO EXISTE"]), USUARIO)
+        tactical = service.crear(db, _tactical(marca=None, marcas=[TPLINK, " TP-LINK ", bw.MERCUSYS]), USUARIO)
+        assert _leido(db, tactical.id)["marcas"] == [TPLINK, bw.MERCUSYS]
+
+    def test_no_brand_is_refused(self, db) -> None:
+        with pytest.raises(service.TacticalError, match="La marca es obligatoria"):
+            service.crear(db, _tactical(marca=None, marcas=[]), USUARIO)
+
+    def test_the_brand_filter_matches_any_of_its_brands(self, db) -> None:
+        dos = service.crear(db, _tactical(nombre="Dos", marca=None, marcas=[TPLINK, bw.MERCUSYS]), USUARIO)
+        una = service.crear(db, _tactical(nombre="Una"), USUARIO)
+
+        def ids(marca: str) -> list[int]:
+            filtros = service.Filtros(tipos=["sell_in", "sell_out"], marca=marca)
+            return sorted(t.id for t in service.listar(db, filtros, 1, 50, hoy=date(2026, 11, 5))[1])
+
+        assert ids(bw.MERCUSYS) == [dos.id]
+        assert ids(TPLINK) == sorted([dos.id, una.id])
 
 
 class TestRefusalsFromGGA:

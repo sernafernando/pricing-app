@@ -65,6 +65,21 @@ def test_create_read_and_void(client, productos, sell_out) -> None:
     assert client.post(f"{BASE}/{creado['id']}/anular", headers=sell_out).status_code == 409
 
 
+def test_an_old_client_with_one_brand_and_a_new_one_with_several(client, db, productos, sell_out) -> None:
+    """S3: `marca` alone still works and reads back as one brand; `marcas` takes several, `marca` is the first."""
+    db.add(ProductoERP(item_id=4513, codigo="SW-5", descripcion="Switch 5", marca="MERCUSYS", categoria="Switches"))
+    db.flush()
+
+    viejo = client.post(BASE, json=_body(), headers=sell_out)
+    nuevo = client.post(BASE, json=_body(marca=None, marcas=["MERCUSYS", "TP-LINK"]), headers=sell_out)
+
+    assert viejo.status_code == nuevo.status_code == 201, nuevo.text
+    assert (viejo.json()["marca"], viejo.json()["marcas"]) == ("TP-LINK", ["TP-LINK"])
+    assert (nuevo.json()["marca"], nuevo.json()["marcas"]) == ("MERCUSYS", ["MERCUSYS", "TP-LINK"])
+    por_marca = client.get(BASE, params={"marca": "MERCUSYS"}, headers=sell_out).json()
+    assert [t["id"] for t in por_marca["items"]] == [nuevo.json()["id"]]
+
+
 def test_a_broken_rule_is_a_422_naming_its_line(client, productos, sell_out) -> None:
     lineas = [{"alcance": "productos", "item_ids": [999], "modo_monto": "por_unidad", "valor": "10"}]
 
