@@ -635,7 +635,8 @@ def _seguir_factura(bonos: Iterable[SellInBonoMarca], pedidos: Mapping[int, _Ped
     debería anular porque está aplicando a una factura"): when its operation's invoice date leaves the bonus's range
     (Compras corrected it), the bonus's range moves to that one date. It keeps the queue's triggers
     (`bono_queue.sell_in_bono_cubre*`, which read the bonus's range) covering the invoice; an invoice inside the
-    range leaves the stored range as it is."""
+    range leaves the stored range as it is. The UPDATE queues the bonus again through its own trigger: the next drain
+    finds the invoice inside the moved range and changes nothing (one extra pass, no loop)."""
     for bono in bonos:
         pedido = pedidos.get(bono.pedido_id) if bono.alcance == "factura" else None
         fecha = pedido.fecha_factura if pedido is not None else None
