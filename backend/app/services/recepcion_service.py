@@ -98,6 +98,15 @@ def _alertar_faltantes_si_corresponde(session: Session, pedido: PedidoCompra, te
     compras_alertas_service.notificar_faltantes(session, pedido=pedido, texto=texto)
 
 
+def _retractar_faltantes_si_ya_no_admite(session: Session, pedido: PedidoCompra) -> None:
+    """Drop stuck compras.faltantes when logistics left con_faltantes (e.g. controlado)."""
+    from app.services import compras_alertas_service
+
+    if compras_alertas_service.pedido_admite_alerta_faltantes(pedido):
+        return
+    compras_alertas_service.retractar_faltantes(session, pedido_id=int(pedido.id))
+
+
 def _asignar_responsable_en_faltantes(
     session: Session,
     pedido: PedidoCompra,
@@ -550,6 +559,8 @@ def registrar_ingresos(
             )
         _asignar_responsable_en_faltantes(session, pedido, request.responsable_id)
         _alertar_faltantes_si_corresponde(session, pedido, texto)
+    else:
+        _retractar_faltantes_si_ya_no_admite(session, pedido)
 
     return RegistrarIngresosResponse(
         pedido_id=pedido.id,
@@ -666,6 +677,8 @@ def confirmar_pedido_sin_oc(
             )
         _asignar_responsable_en_faltantes(session, pedido, request.responsable_id)
         _alertar_faltantes_si_corresponde(session, pedido, texto)
+    else:
+        _retractar_faltantes_si_ya_no_admite(session, pedido)
 
     return ConfirmarPedidoResponse(
         pedido_id=pedido.id,

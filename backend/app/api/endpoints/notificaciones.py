@@ -14,6 +14,7 @@ from app.services.compras_alertas_service import (
     filtrar_visibles,
     marcar_ok,
     rechazar_cierre_faltantes,
+    retractar_faltantes_obsoletas,
     snooze_faltantes,
 )
 
@@ -154,7 +155,11 @@ def listar_notificaciones(
         .all()
     )
 
-    return filtrar_visibles(notificaciones, ahora=_ahora_listado())
+    ahora = _ahora_listado()
+    if retractar_faltantes_obsoletas(db, ahora=ahora):
+        db.commit()
+        notificaciones = [n for n in notificaciones if n.estado != EstadoNotificacion.DESCARTADA]
+    return filtrar_visibles(notificaciones, ahora=ahora)
 
 
 @router.get("/notificaciones/agrupadas", response_model=List[NotificacionAgrupada])
@@ -178,10 +183,13 @@ def listar_notificaciones_agrupadas(
     if tipo:
         query = query.filter(Notificacion.tipo == tipo)
 
+    ahora = _ahora_listado()
+    if retractar_faltantes_obsoletas(db, ahora=ahora):
+        db.commit()
     # Obtener todas las notificaciones que cumplen el filtro
     notificaciones = filtrar_visibles(
         query.order_by(desc(Notificacion.fecha_creacion)).all(),
-        ahora=_ahora_listado(),
+        ahora=ahora,
     )
 
     # Agrupar en memoria por (item_id, tipo, markup_real_redondeado)
@@ -533,7 +541,7 @@ async def descartar_notificacion(
     if not notificacion:
         raise HTTPException(404, "Notificación no encontrada")
 
-    rechazar_cierre_faltantes(notificacion)
+    rechazar_cierre_faltantes(db, notificacion)
 
     # Crear regla de ignorar si se solicitó y tenemos los datos necesarios
     if crear_regla_ignorar and notificacion.item_id and notificacion.markup_real is not None:
@@ -589,7 +597,7 @@ async def descartar_notificaciones_bulk(
         .all()
     )
     for notif in candidatas:
-        rechazar_cierre_faltantes(notif)
+        rechazar_cierre_faltantes(db, notif)
 
     # Si se solicitan reglas de ignorar, obtener las notificaciones primero
     if crear_reglas_ignorar:

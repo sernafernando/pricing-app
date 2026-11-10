@@ -220,6 +220,20 @@ function AppLayoutInner() {
     }
   };
 
+  // Stale faltantes (pedido already controlado/resolved) accept /ok; active ones 409 → snooze.
+  const handleDismissFaltantesAlerta = async (notifId) => {
+    try {
+      await api.patch(`/notificaciones/${notifId}/ok`);
+      setComprasAlertas((prev) => prev.filter((n) => n.id !== notifId));
+    } catch (err) {
+      if (err?.response?.status === 409) {
+        await handleSnoozeComprasAlerta(notifId);
+        return;
+      }
+      // Keep banner; next SSE/list refresh will reconcile.
+    }
+  };
+
   // Escuchar cambios en localStorage para sincronizar
   useEffect(() => {
     const handleStorageChange = () => {
@@ -292,7 +306,7 @@ function AppLayoutInner() {
               persistent
               onDismiss={
                 isFaltantes
-                  ? () => handleSnoozeComprasAlerta(notif.id)
+                  ? () => handleDismissFaltantesAlerta(notif.id)
                   : () => handleOkComprasAlerta(notif.id)
               }
             />
