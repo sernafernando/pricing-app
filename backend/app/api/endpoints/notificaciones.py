@@ -156,7 +156,10 @@ def listar_notificaciones(
     )
 
     ahora = _ahora_listado()
-    if retractar_faltantes_obsoletas(db, ahora=ahora):
+    faltantes_pedido_ids = {
+        int(n.item_id) for n in notificaciones if n.tipo == "compras.faltantes" and n.item_id is not None
+    }
+    if retractar_faltantes_obsoletas(db, ahora=ahora, pedido_ids=faltantes_pedido_ids):
         db.commit()
         notificaciones = [n for n in notificaciones if n.estado != EstadoNotificacion.DESCARTADA]
     return filtrar_visibles(notificaciones, ahora=ahora)
@@ -184,13 +187,15 @@ def listar_notificaciones_agrupadas(
         query = query.filter(Notificacion.tipo == tipo)
 
     ahora = _ahora_listado()
-    if retractar_faltantes_obsoletas(db, ahora=ahora):
+    candidatas = query.order_by(desc(Notificacion.fecha_creacion)).all()
+    faltantes_pedido_ids = {
+        int(n.item_id) for n in candidatas if n.tipo == "compras.faltantes" and n.item_id is not None
+    }
+    if retractar_faltantes_obsoletas(db, ahora=ahora, pedido_ids=faltantes_pedido_ids):
         db.commit()
+        candidatas = [n for n in candidatas if n.estado != EstadoNotificacion.DESCARTADA]
     # Obtener todas las notificaciones que cumplen el filtro
-    notificaciones = filtrar_visibles(
-        query.order_by(desc(Notificacion.fecha_creacion)).all(),
-        ahora=ahora,
-    )
+    notificaciones = filtrar_visibles(candidatas, ahora=ahora)
 
     # Agrupar en memoria por (item_id, tipo, markup_real_redondeado)
     grupos = {}

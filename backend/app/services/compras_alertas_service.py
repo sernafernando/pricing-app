@@ -253,28 +253,30 @@ def retractar_faltantes_obsoletas(
     session: Session,
     *,
     ahora: datetime | None = None,
+    pedido_ids: set[int] | None = None,
 ) -> int:
     """Discard open compras.faltantes whose pedido no longer admits resolve.
 
     Covers controlado / already-resolved / missing pedido so snoozed banners
     do not revive after the logistics deadlock (resolver requires con_faltantes).
+
+    When ``pedido_ids`` is provided, only those pedidos are inspected (list
+    self-heal). Omit it for a full sweep (tests / one-shot repair).
     """
     stamp = _ahora_utc(ahora)
-    notifs = (
-        session.query(Notificacion)
-        .filter(
-            Notificacion.tipo == TIPO_FALTANTES,
-            Notificacion.estado != EstadoNotificacion.DESCARTADA,
-        )
-        .all()
+    query = session.query(Notificacion).filter(
+        Notificacion.tipo == TIPO_FALTANTES,
+        Notificacion.estado != EstadoNotificacion.DESCARTADA,
     )
-    pedido_ids = {int(n.item_id) for n in notifs if n.item_id is not None}
+    if pedido_ids is not None:
+        if not pedido_ids:
+            return 0
+        query = query.filter(Notificacion.item_id.in_(pedido_ids))
+    notifs = query.all()
+    ids = {int(n.item_id) for n in notifs if n.item_id is not None}
     pedidos_by_id: dict[int, PedidoCompra] = {}
-    if pedido_ids:
-        pedidos_by_id = {
-            int(p.id): p
-            for p in session.query(PedidoCompra).filter(PedidoCompra.id.in_(pedido_ids)).all()
-        }
+    if ids:
+        pedidos_by_id = {int(p.id): p for p in session.query(PedidoCompra).filter(PedidoCompra.id.in_(ids)).all()}
     closed = 0
     for notif in notifs:
         pedido = pedidos_by_id.get(int(notif.item_id)) if notif.item_id is not None else None
