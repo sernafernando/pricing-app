@@ -31,6 +31,8 @@ export default function AgrupadoTable({
   colorOverlay,
   ownColorOverlay,
   emptyMessage = 'Ninguna publicación coincide con los filtros',
+  columnWidths,
+  onColumnResize,
 }) {
   const { rows, toggle, loadMore } = useGroupTree({ filters, familias, dimension, canSeeMargin });
 
@@ -83,6 +85,8 @@ export default function AgrupadoTable({
       offset={offset}
       emptyMessage={emptyMessage}
       ariaLabel="Publicaciones de Mercado Libre agrupadas"
+      columnWidths={columnWidths}
+      onColumnResize={onColumnResize}
     />
   );
 }

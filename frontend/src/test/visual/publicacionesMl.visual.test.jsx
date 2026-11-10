@@ -400,7 +400,7 @@ describe('Publicaciones ML (visual)', () => {
       it(`${width}x${height} ${theme}: money, stock and chips stay on one line and nothing pokes out of its cell`, async () => {
         const screen = await renderPage({ width, height, theme });
         const scroller = scrollerOf();
-        const figures = [...scroller.querySelectorAll('td[data-align="right"] span')].filter((el) =>
+        const figures = [...scroller.querySelectorAll('td[data-align] span')].filter((el) =>
           /^[\d.,]+$/.test(el.textContent.trim()),
         );
         expect(figures.length).toBeGreaterThan(0);
@@ -582,9 +582,9 @@ const MARGIN_ITEMS = [
 ];
 const MARGIN_RESPONSE = { ...RESPONSE, can_see_margin: true, items: MARGIN_ITEMS };
 
-const renderMarginPage = async ({ width, height, theme, entry = '/ml-publicaciones' }) => {
+const renderMarginPage = async ({ width, height, theme, entry = '/ml-publicaciones', response = MARGIN_RESPONSE }) => {
   canSeeMargin = true;
-  publicacionesMlAPI.items.mockResolvedValue({ data: MARGIN_RESPONSE });
+  publicacionesMlAPI.items.mockResolvedValue({ data: response });
   publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
   await page.viewport(width, height);
   setTheme(theme);
@@ -619,7 +619,7 @@ describe('Publicaciones ML with markup and an expanded row (visual)', () => {
         expect(wrapped([header.querySelector('button')])).toEqual([]);
         expect(scroller.querySelectorAll('tbody td[data-column="markup_trend"] svg').length).toBeGreaterThan(0);
         // The range sits on one line and inside its cell.
-        const ranges = [...scroller.querySelectorAll('tbody td[data-align="right"] span')].filter((el) => /%/.test(el.textContent) && !/parcial/.test(el.textContent));
+        const ranges = [...scroller.querySelectorAll('tbody td[data-align] span')].filter((el) => /%/.test(el.textContent) && !/parcial/.test(el.textContent));
         expect(ranges.length).toBeGreaterThan(0);
         expect(wrapped(ranges)).toEqual([]);
         expect(overflowingCells(scroller)).toEqual([]);
@@ -668,7 +668,7 @@ describe('Publicaciones ML with markup and an expanded row (visual)', () => {
         expect(rect(scroller).right).toBeLessThanOrEqual(width + 0.5);
         expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
         // SKU/EAN, cost and markup are on one line each.
-        const figures = subRows.flatMap((row) => [...row.querySelectorAll('td[data-align="right"] span')]).filter((el) => /^[-\d.,%]+$/.test(el.textContent.trim()));
+        const figures = subRows.flatMap((row) => [...row.querySelectorAll('td[data-align] span')]).filter((el) => /^[-\d.,%]+$/.test(el.textContent.trim()));
         expect(figures.length).toBeGreaterThan(0);
         expect(wrapped(figures)).toEqual([]);
         screen.unmount();
@@ -804,13 +804,13 @@ describe('Publicaciones ML Agrupado tree (visual)', () => {
     it(`${width}x${height} ${theme}: node figures stay on one line, negatives take the danger tone, nothing pokes out`, async () => {
       const screen = await renderTree({ width, height, theme });
       const scroller = scrollerOf();
-      const figures = [...scroller.querySelectorAll('tbody td[data-align="right"] span')].filter((el) => /^[-\d.,%\s–—]+$/.test(el.textContent.trim()));
+      const figures = [...scroller.querySelectorAll('tbody td[data-align] span')].filter((el) => /^[-\d.,%\s–—]+$/.test(el.textContent.trim()));
       expect(figures.length).toBeGreaterThan(0);
       expect(wrapped(figures)).toEqual([]);
       expect(overflowingCells(scroller)).toEqual([]);
-      const negatives = [...rowWith(scroller, 'TP-LINK').querySelectorAll('td[data-align="right"] span')].find((el) => el.textContent === '4');
+      const negatives = [...rowWith(scroller, 'TP-LINK').querySelectorAll('td[data-align] span')].find((el) => el.textContent === '4');
       expect(getComputedStyle(negatives).color).toBe(tokenColor('--tone-danger-fg'));
-      const clean = [...rowWith(scroller, 'EPSON').querySelectorAll('td[data-align="right"] span')].find((el) => el.textContent === '0');
+      const clean = [...rowWith(scroller, 'EPSON').querySelectorAll('td[data-align] span')].find((el) => el.textContent === '0');
       expect(getComputedStyle(clean).color).not.toBe(tokenColor('--tone-danger-fg'));
       screen.unmount();
     });
@@ -980,7 +980,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
       it(`${width}x${height} ${theme}: a product's figures, money and sparklines stay on one line inside their cells`, async () => {
         const screen = await renderProducts({ width, height, theme });
         const scroller = scrollerOf();
-        const figures = [...scroller.querySelectorAll('tbody td[data-align="right"] span')].filter((el) => el.textContent.trim());
+        const figures = [...scroller.querySelectorAll('tbody td[data-align] span')].filter((el) => el.textContent.trim());
         expect(figures.length).toBeGreaterThan(0);
         expect(wrapped(figures)).toEqual([]);
         expect(overflowingCells(scroller)).toEqual([]);
@@ -2800,14 +2800,14 @@ describe('Publicaciones ML "Filas finas" (visual, vistas-tipo-publicacion S5)', 
       expect(rect(firstRow()).height).toBeLessThan(normalHeight * 0.75);
       expect(rect(firstRow()).height).toBeLessThanOrEqual(44);
 
-      // Anything cut in the Publicación cell (title or meta line) is readable in its own tooltip.
+      // Anything cut in the Publicación cell (title or meta line) is readable in its own tooltip. At 1920 px the
+      // column takes the room the figures leave (pubml-tabla-columnas S5), so a title may well fit whole.
       const cut = [...scroller.querySelectorAll('td[data-column="titulo"] span')].filter((el) => el.scrollWidth > el.clientWidth + 1);
-      expect(cut.length).toBeGreaterThan(0);
       for (const el of cut) expect(el.getAttribute('title'), el.textContent).toBeTruthy();
       const titles = [...scroller.querySelectorAll('td[data-column="titulo"] span[title]')];
       expect(titles.length).toBeGreaterThan(0);
       expect(wrapped(titles)).toEqual([]);
-      const figures = [...scroller.querySelectorAll('td[data-align="right"] span')].filter((el) =>
+      const figures = [...scroller.querySelectorAll('td[data-align] span')].filter((el) =>
         /^[\d.,]+$/.test(el.textContent.trim()),
       );
       expect(figures.length).toBeGreaterThan(0);
@@ -3189,5 +3189,199 @@ describe('Publicaciones ML panel, promo markups with sell in / sell out (visual)
         screen.unmount();
       });
     }
+  }
+});
+
+// Columns sized by their content (pubml-tabla-columnas S1, S2, S5): the measured width of each figure column against
+// what its header and widest value need, their alignment, and the Publicación column taking the room left.
+const FIGURE_COLUMNS = [
+  'precio',
+  'unidades_7d',
+  'unidades_30d',
+  'units_trend',
+  'markup',
+  'markup_30d',
+  'markup_trend',
+  'facturado_30d',
+  'total_gauss_30d',
+  'ageing',
+  'stock_propio',
+  'stock_full',
+  'stock_erp',
+  'stock_total',
+];
+const COLUMN_SLACK = 12;
+// What a cell's or header's content needs on one line: a copy of it laid out at max-content inside the same cell
+// (same classes, same inherited font), plus the cell's own horizontal padding.
+const neededWidth = (cell) => {
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:absolute;left:0;top:0;width:max-content;visibility:hidden;';
+  for (const child of cell.childNodes) probe.appendChild(child.cloneNode(true));
+  cell.appendChild(probe);
+  const width = probe.getBoundingClientRect().width;
+  probe.remove();
+  const style = getComputedStyle(cell);
+  return width + Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
+};
+const columnWidths = (scroller) =>
+  Object.fromEntries(
+    [...scroller.querySelectorAll('thead th[data-column]')].map((th) => [th.dataset.column, Math.round(rect(th).width)]),
+  );
+const LONG_TITLE =
+  'Router Inalámbrico TP-Link Archer AX55 Wi-Fi 6 AX3000 Doble Banda Gigabit con OneMesh y HomeShield, Negro, Garantía Oficial';
+
+describe('Publicaciones ML columns sized by their content (visual)', () => {
+  beforeEach(() => {
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.variations.mockReset();
+    try {
+      localStorage.clear();
+    } catch {
+      // no storage: nothing saved
+    }
+  });
+
+  // Before/after captures for the PR (only with VITE_PUBLICACIONES_SHOTS_DIR): the list, the Producto view, the tree.
+  for (const theme of THEMES) {
+    it.runIf(PRODUCT_SHOTS_DIR)(`1440x900 ${theme}: captures of the three views`, async () => {
+      let screen = await renderMarginPage({ width: 1440, height: 1800, theme });
+      await frame();
+      await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/tabla-lista-1440-${theme}.png`, element: scrollerOf() });
+      screen.unmount();
+      screen = await renderProducts({ width: 1440, height: 1800, theme });
+      await frame();
+      await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/tabla-producto-1440-${theme}.png`, element: scrollerOf() });
+      screen.unmount();
+    });
+  }
+
+  for (const theme of THEMES) {
+    it(`1440x900 ${theme}: figure columns no wider than their content, centered with their header`, async () => {
+      // Four-digit Full and own stock, as the units columns already carry (1.234): the widest figure each column holds.
+      const wide = MARGIN_RESPONSE.items.map((item, i) =>
+        i === 2 ? { ...item, stock: { ...item.stock, available: 2468, full: 1234, own: 1234 } } : item,
+      );
+      const screen = await renderMarginPage({ width: 1440, height: 900, theme, response: { ...MARGIN_RESPONSE, items: wide } });
+      await frame();
+      const scroller = scrollerOf();
+      const widths = columnWidths(scroller);
+      const visible = FIGURE_COLUMNS.filter((key) => widths[key] != null);
+      expect(visible.length).toBeGreaterThan(8);
+      const tooWide = [];
+      const misaligned = [];
+      for (const key of visible) {
+        const header = scroller.querySelector(`thead th[data-column="${key}"]`);
+        const cells = [...scroller.querySelectorAll(`tbody td[data-column="${key}"]`)];
+        const need = Math.max(neededWidth(header), ...cells.map(neededWidth));
+        if (widths[key] > need + COLUMN_SLACK) tooWide.push(`${key}: ${widths[key]} > ${Math.round(need)} + ${COLUMN_SLACK}`);
+        const align = getComputedStyle(header).textAlign;
+        const cellAligns = new Set(cells.map((td) => getComputedStyle(td).textAlign));
+        if (align !== 'center' || cellAligns.size !== 1 || !cellAligns.has('center')) {
+          misaligned.push(`${key}: header ${align}, cells ${[...cellAligns].join('/')}`);
+        }
+      }
+      expect(tooWide).toEqual([]);
+      expect(misaligned).toEqual([]);
+      // A centered stack centers its lines too (a markup range over its "(parcial)" note, an ERP stock).
+      const stacks = [...scroller.querySelectorAll('tbody td[data-column="markup"] > div, tbody td[data-column="stock_erp"] > div')];
+      for (const stack of stacks) expect(getComputedStyle(stack).alignItems).toBe('center');
+      // Stock reads like Ventas: similar figures, no wider columns.
+      const ventas = Math.max(widths.unidades_7d, widths.unidades_30d);
+      for (const key of ['stock_full', 'stock_erp', 'stock_total', 'stock_propio'].filter((k) => widths[k] != null)) {
+        expect(widths[key], key).toBeLessThanOrEqual(ventas + 1);
+      }
+      expect(overflowingCells(scroller)).toEqual([]);
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/columnas-1440-${theme}.png` });
+      screen.unmount();
+    });
+
+    it(`1440x900 ${theme}: Publicación takes the room left and reads a long title whole`, async () => {
+      canSeeMargin = true;
+      publicacionesMlAPI.items.mockResolvedValue({
+        data: { ...MARGIN_RESPONSE, items: MARGIN_RESPONSE.items.map((item, i) => (i === 1 ? { ...item, title: LONG_TITLE } : item)) },
+      });
+      publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
+      await page.viewport(1440, 900);
+      setTheme(theme);
+      const screen = await render(
+        <MemoryRouter initialEntries={['/ml-publicaciones']}>
+          <Shell>
+            <PublicacionesML />
+          </Shell>
+        </MemoryRouter>,
+      );
+      await expect.element(screen.getByText('MLA1100000005')).toBeVisible();
+      await frame();
+      const scroller = scrollerOf();
+      const widths = columnWidths(scroller);
+      // Before: 360 px from <colgroup>, stretched by the table's leftover share.
+      expect(widths.titulo).toBeGreaterThan(400);
+      const title = [...scroller.querySelectorAll('tbody td[data-column="titulo"] span')].find((el) => el.textContent === LONG_TITLE);
+      expect(title).toBeDefined();
+      expect(title.scrollHeight).toBeLessThanOrEqual(title.clientHeight + 1);
+      expect(title.title).toContain(LONG_TITLE);
+      screen.unmount();
+    });
+
+    it(`1440x900 ${theme}: the Publicación grip widens the column and the width survives a reload`, async () => {
+      const screen = await renderMarginPage({ width: 1440, height: 900, theme });
+      await frame();
+      const scroller = scrollerOf();
+      const before = columnWidths(scroller).titulo;
+      const grip = screen.getByRole('separator', { name: 'Ajustar ancho de Publicación' });
+      await expect.element(grip).toBeVisible();
+      grip.element().focus();
+      for (let i = 0; i < 10; i += 1) await userEvent.keyboard('{ArrowRight}');
+      await frame();
+      const after = columnWidths(scroller).titulo;
+      expect(after).toBeGreaterThanOrEqual(before + 90);
+      // Its neighbours keep their width: the table grows, nothing else is squeezed.
+      screen.unmount();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const again = await renderMarginPage({ width: 1440, height: 900, theme });
+      await frame();
+      expect(Math.abs(columnWidths(scrollerOf()).titulo - after)).toBeLessThanOrEqual(1);
+      again.unmount();
+    });
+
+    it(`1440x900 ${theme}: the Agrupado tree's first column has its own grip and key`, async () => {
+      const screen = await renderTree({ width: 1440, height: 900, theme });
+      await frame();
+      const before = columnWidths(scrollerOf()).titulo;
+      const grip = screen.getByRole('separator', { name: 'Ajustar ancho de Publicación' });
+      grip.element().focus();
+      for (let i = 0; i < 5; i += 1) await userEvent.keyboard('{ArrowRight}');
+      await frame();
+      const after = columnWidths(scrollerOf()).titulo;
+      expect(after).toBeGreaterThanOrEqual(before + 40);
+      screen.unmount();
+      expect(JSON.parse(localStorage.getItem('pubml:colsizing:agrupado') ?? '{}').titulo).toBe(after);
+      expect(localStorage.getItem('pubml:colsizing:lista')).toBeNull();
+    });
+
+    it(`1440x900 ${theme}: the Producto view's first column has its own grip and reads a long product name whole`, async () => {
+      const screen = await renderProducts({ width: 1440, height: 900, theme });
+      await frame();
+      const scroller = scrollerOf();
+      const before = columnWidths(scroller).titulo;
+      expect(before).toBeGreaterThan(400);
+      const name = [...scroller.querySelectorAll('tbody td[data-column="titulo"] [title]')].find((el) =>
+        el.textContent.startsWith('Sistema Mesh Deco X20'),
+      );
+      expect(name).toBeDefined();
+      expect(name.scrollWidth).toBeLessThanOrEqual(name.clientWidth + 1);
+      expect(name.scrollHeight).toBeLessThanOrEqual(name.clientHeight + 1);
+      const grip = screen.getByRole('separator', { name: 'Ajustar ancho de Producto' });
+      grip.element().focus();
+      for (let i = 0; i < 5; i += 1) await userEvent.keyboard('{ArrowRight}');
+      await frame();
+      const after = columnWidths(scroller).titulo;
+      expect(after).toBeGreaterThanOrEqual(before + 40);
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/columnas-producto-1440-${theme}.png` });
+      screen.unmount();
+      // Saved under the Producto view's own key (written at the latest on unmount): the list keeps its width.
+      expect(JSON.parse(localStorage.getItem('pubml:colsizing:producto') ?? '{}').titulo).toBe(after);
+      expect(localStorage.getItem('pubml:colsizing:lista')).toBeNull();
+    });
   }
 });

@@ -46,8 +46,8 @@ export function MarkupTrendCell({ metrics }) {
   return (
     <Sparkline
       values={metrics.series_markup_90d}
-      width={120}
-      height={32}
+      width={96}
+      height={28}
       tone={deltaTone(metrics.markup_delta_pp)}
       className={styles.sparkline}
       label="Markup diario, 90 días"

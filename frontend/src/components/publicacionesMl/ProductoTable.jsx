@@ -30,7 +30,7 @@ import CatalogStatusBadge from '../CatalogStatusBadge';
  *
  * A click (or Enter/Space) on a product row opens its panel (`onSelectProduct(key)`); its chevron opens it into
  * its publications. The highlighted row is the selected publication (`selectedKey`) or, with none, the product
- * whose panel is open (`selectedProductKey`).
+ * whose panel is open (`selectedProductKey`). `columnWidths` / `onColumnResize` size the first column (TableShell).
  *
  * Beside a product's name, Productos' badges: its prearmadas (`prearmadasStats`, by product id, from the page) and its
  * wholesale (PxQ) tiers (the row's `pxq_tramos` / `pxq_precio_desde`), and its catalog competition (from `listingById`:
@@ -77,6 +77,8 @@ export default function ProductoTable({
   listingById = NO_LISTING,
   virtualizeFrom,
   onEndReached,
+  columnWidths,
+  onColumnResize,
 }) {
   const { rows, toggle, loadMore } = tree;
 
@@ -153,6 +155,8 @@ export default function ProductoTable({
       ariaLabel="Publicaciones de Mercado Libre por producto"
       virtualizeFrom={virtualizeFrom}
       onEndReached={onEndReached}
+      columnWidths={columnWidths}
+      onColumnResize={onColumnResize}
     />
   );
 }
