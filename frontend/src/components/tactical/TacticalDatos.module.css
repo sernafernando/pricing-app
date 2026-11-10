@@ -191,3 +191,21 @@ textarea.ctl {
     grid-column: span 1;
   }
 }
+
+/* The header's brands, as the line's product chips. */
+.chips {
+  composes: chips from './TacticalLinea.module.css';
+  margin-bottom: 5px;
+}
+
+.chip {
+  composes: chip from './TacticalLinea.module.css';
+}
+
+.chipText {
+  composes: chipText from './TacticalLinea.module.css';
+}
+
+.chipX {
+  composes: chipX from './TacticalLinea.module.css';
+}

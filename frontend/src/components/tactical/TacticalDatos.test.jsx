@@ -11,7 +11,7 @@ import TacticalDescartar from './TacticalDescartar';
 const FORM = {
   tipo: 'sell_out',
   nombre: '',
-  marca: '',
+  marcas: [],
   referencia: '',
   fechaDesde: '',
   fechaHasta: '',
@@ -78,7 +78,7 @@ describe('TacticalDatos', () => {
     expect(onForm).toHaveBeenLastCalledWith({
       ...FORM,
       nombre: 'Tacticals BPS',
-      marca: 'HP',
+      marcas: ['HP'],
       referencia: 'Q1 FY27',
       fechaDesde: '2026-11-01',
       fechaHasta: '2026-11-30',
@@ -86,6 +86,33 @@ describe('TacticalDatos', () => {
       acumulable: false,
       nota: 'Acuerdo 77',
     });
+  });
+
+  it('takes several brands as chips and drops one with its X (owner: "selector multiple")', async () => {
+    const user = userEvent.setup();
+    const onForm = vi.fn();
+    render(<Holder onForm={onForm} />);
+    await user.selectOptions(screen.getByLabelText('Marca'), 'HP');
+    await user.selectOptions(screen.getByLabelText('Marca'), 'TP-Link');
+    expect(onForm).toHaveBeenLastCalledWith(expect.objectContaining({ marcas: ['HP', 'TP-Link'] }));
+    expect(screen.getByRole('button', { name: 'Quitar HP' })).toBeInTheDocument();
+    // A chosen brand is no longer offered; the select goes back to its prompt.
+    expect(within(screen.getByLabelText('Marca')).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Agregar otra marca',
+    ]);
+    await user.click(screen.getByRole('button', { name: 'Quitar HP' }));
+    expect(onForm).toHaveBeenLastCalledWith(expect.objectContaining({ marcas: ['TP-Link'] }));
+    expect(screen.getByText('Se usa para filtrar los tacticals por marca. Podés elegir más de una.')).toBeInTheDocument();
+  });
+
+  it('with every store, Por fuera and Tienda Nube are already in: they show only to narrow (S2)', async () => {
+    const user = userEvent.setup();
+    render(<Holder inicial={{ tiendaKeys: ['fuera', 'tienda_nube'] }} alcancePorTienda />);
+    const tiendas = screen.getByRole('group', { name: 'Tiendas donde aplica' });
+    expect(within(tiendas).queryByLabelText('Por fuera')).not.toBeInTheDocument();
+    await user.click(within(tiendas).getByLabelText('Todas las tiendas oficiales'));
+    expect(within(tiendas).getByLabelText('Por fuera')).toBeChecked();
+    expect(within(tiendas).getByLabelText('Tienda Nube')).toBeChecked();
   });
 
   it('caps the texts at what the contract accepts', () => {

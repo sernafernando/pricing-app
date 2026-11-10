@@ -28,7 +28,7 @@ const linea = (cambios) => ({ ...nuevaLinea(), ...cambios });
 const FORM = {
   tipo: 'sell_out',
   nombre: ' Tacticals BPS ',
-  marca: 'HP',
+  marcas: ['HP'],
   referencia: '',
   fechaDesde: '2026-11-01',
   fechaHasta: '2026-11-30',
@@ -149,7 +149,7 @@ describe('what stops a save, first thing only', () => {
 
   it.each([
     [{ nombre: ' ' }, [lista], 'Poné un nombre para el tactical antes de crearlo.'],
-    [{ marca: '' }, [lista], 'Elegí la marca del tactical.'],
+    [{ marcas: [] }, [lista], 'Elegí la marca del tactical.'],
     [{ fechaHasta: '' }, [lista], 'Completá la vigencia del tactical.'],
     [{ fechaDesde: '2026-12-01' }, [lista], 'La fecha desde no puede ser posterior a la fecha hasta.'],
     [{ tcModo: 'fijo' }, [lista], 'Completá el tipo de cambio fijo.'],
@@ -202,7 +202,7 @@ describe('the body of POST /tacticals (Contrato final)', () => {
     expect(body).toEqual({
       tipo: 'sell_out',
       nombre: 'Tacticals BPS',
-      marca: 'HP',
+      marcas: ['HP'],
       referencia: null,
       fecha_desde: '2026-11-01',
       fecha_hasta: '2026-11-30',

@@ -23,17 +23,22 @@ export const CANALES_TACTICAL = [
 
 export const esCanal = (key) => CANALES_TACTICAL.some((c) => c.value === key);
 
+// "Todas las tiendas oficiales" is every sale of every channel (S2, owner 2026-11-10: "es todas las ventas de ese
+// producto"): it reaches each channel whatever the selection says, and the server stores it as all, with no row.
+const canalesDe = (todasTiendas, seleccionKeys) =>
+  todasTiendas ? CANALES_TACTICAL.map((c) => c.value) : seleccionKeys.filter(esCanal);
+const nombreCanal = (key) => CANALES_TACTICAL.find((c) => c.value === key)?.label ?? key;
+
 /** Payload `tiendas[]` for POST /tacticals from the form selection. */
 export function tiendasDelContrato(todasTiendas, seleccionKeys, grupos = []) {
   const tiendas = [];
-  if (!todasTiendas) {
-    for (const key of seleccionKeys) {
-      if (esCanal(key)) continue;
-      const grupo = grupos.find((g) => g.value === key);
-      const ids = grupo ? grupo.ids : String(key).split(',').filter(Boolean);
-      for (const id of ids) {
-        tiendas.push({ tipo: 'oficial', store_id: Number(id) });
-      }
+  if (todasTiendas) return tiendas;
+  for (const key of seleccionKeys) {
+    if (esCanal(key)) continue;
+    const grupo = grupos.find((g) => g.value === key);
+    const ids = grupo ? grupo.ids : String(key).split(',').filter(Boolean);
+    for (const id of ids) {
+      tiendas.push({ tipo: 'oficial', store_id: Number(id) });
     }
   }
   for (const key of seleccionKeys) {
@@ -86,7 +91,7 @@ export function contadoresDelTope({
   alcancePorTienda = ALCANCE_POR_TIENDA,
 }) {
   if (!alcancePorTienda || topeCompartido) return 1;
-  const canales = seleccionKeys.filter(esCanal).length;
+  const canales = canalesDe(todasTiendas, seleccionKeys).length;
   const oficiales = todasTiendas
     ? idsDeTodas(grupos, tiendasActivas) + 1
     : seleccionKeys.filter((k) => !esCanal(k)).reduce((n, k) => n + idsDe(k, grupos).length, 0);
@@ -109,10 +114,7 @@ export function previewTope({ todasTiendas, seleccionKeys, grupos = [], tiendasA
       labels.push(grupo ? grupo.label : `Tienda ${key}`);
     }
   }
-  for (const key of seleccionKeys) {
-    if (!esCanal(key)) continue;
-    labels.push(CANALES_TACTICAL.find((c) => c.value === key)?.label ?? key);
-  }
+  if (!todasTiendas) labels.push(...seleccionKeys.filter(esCanal).map(nombreCanal));
   if (labels.length === 0) {
     return { modo: topeCompartido ? 'compartido' : 'por_tienda', filas: [], ayuda: 'Elegí al menos una tienda o canal.' };
   }
@@ -136,9 +138,7 @@ export function previewTope({ todasTiendas, seleccionKeys, grupos = [], tiendasA
       filas.push(ids.length > 1 ? { label: `${label} (${ids.length} tiendas)`, valor: `${n} cada una` } : { label, valor: String(n) });
     }
   }
-  for (const key of seleccionKeys) {
-    if (esCanal(key)) filas.push({ label: CANALES_TACTICAL.find((c) => c.value === key)?.label ?? key, valor: String(n) });
-  }
+  for (const key of canalesDe(todasTiendas, seleccionKeys)) filas.push({ label: nombreCanal(key), valor: String(n) });
   return {
     modo: 'por_tienda',
     filas,

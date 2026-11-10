@@ -14,7 +14,7 @@ describe('renovacionDe', () => {
     expect(form).toEqual({
       tipo: 'sell_out',
       nombre: 'Tacticals BPS Noviembre Q1FY27',
-      marca: 'HP',
+      marcas: ['HP'], // a tactical read before S3 has only `marca`
       referencia: 'Q1 FY27 · BPS',
       fechaDesde: '',
       fechaHasta: '',
@@ -67,6 +67,12 @@ describe('renovacionDe', () => {
         reparto: '',
       },
     ]);
+  });
+
+  it('copies every brand of a tactical with several (S3)', () => {
+    const { form } = renovacionDe({ ...TACTICAL_BPS, marca: 'HP', marcas: ['HP', 'TP-Link'] });
+
+    expect(form.marcas).toEqual(['HP', 'TP-Link']);
   });
 
   it('writes decimals the way the screen reads them, so the POST sends the same values', () => {

@@ -164,7 +164,7 @@ export const porFactura = (form, lineas) =>
 /** What stops a save, the first thing only, in the design's words; null when it can be sent. */
 export function problemaDe(form, lineas) {
   if (!form.nombre.trim()) return 'Poné un nombre para el tactical antes de crearlo.';
-  if (!form.marca) return 'Elegí la marca del tactical.';
+  if (!form.marcas?.length) return 'Elegí la marca del tactical.';
   if (!porFactura(form, lineas)) {
     if (!form.fechaDesde || !form.fechaHasta) return 'Completá la vigencia del tactical.';
     if (form.fechaDesde > form.fechaHasta) return 'La fecha desde no puede ser posterior a la fecha hasta.';
@@ -240,7 +240,7 @@ export function cuerpoDe(form, lineas, gruposTiendas = [], alcancePorTienda = AL
   const body = {
     tipo: form.tipo,
     nombre: form.nombre.trim(),
-    marca: form.marca,
+    marcas: form.marcas,
     referencia: form.referencia.trim() || null,
     // An all-invoice tactical has no dates: the server takes them from its invoices.
     fecha_desde: porFactura(form, lineas) ? null : form.fechaDesde,

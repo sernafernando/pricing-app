@@ -158,7 +158,7 @@ describe('creating a tactical', () => {
       expect(api.post).toHaveBeenCalledWith('/tacticals', {
         tipo: 'sell_out',
         nombre: 'Tacticals BPS Noviembre Q1FY27',
-        marca: 'HP',
+        marcas: ['HP'],
         referencia: 'Q1 FY27 · BPS',
         fecha_desde: '2026-11-01',
         fecha_hasta: '2026-11-30',
@@ -167,13 +167,11 @@ describe('creating a tactical', () => {
         incluye_iva: false,
         acumulable: true,
         nota: null,
-        // A new tactical starts with today's reach: every ML sale, outside sales and Tienda Nube, one shared cap.
+        // A new tactical starts with every sale (ML, outside sales, Tienda Nube), one shared cap; "all" is the flag,
+        // with no channel row (S2).
         todas_tiendas: true,
         tope_compartido: true,
-        tiendas: [
-          { tipo: 'fuera', store_id: null },
-          { tipo: 'tienda_nube', store_id: null },
-        ],
+        tiendas: [],
         lineas: [
           {
             alcance: 'productos',
@@ -283,7 +281,7 @@ describe('creating a tactical', () => {
     await user.click(crear());
     await waitFor(() => expect(api.post).toHaveBeenCalled());
     const body = api.post.mock.calls[0][1];
-    expect(body).toEqual(expect.objectContaining({ tipo: 'sell_in', moneda: 'ARS', marca: 'TP-Link' }));
+    expect(body).toEqual(expect.objectContaining({ tipo: 'sell_in', moneda: 'ARS', marcas: ['TP-Link'] }));
     // S5, owner 2026-11-10: "lo de tiendas no aplica a sell in, es solo para sell out": no store picker, no scope sent
     // (the server keeps today's reach: every sale, one cap).
     expect(screen.queryByText('Tiendas donde aplica')).not.toBeInTheDocument();
@@ -488,7 +486,7 @@ describe('Renovar', () => {
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
     const [url, body] = api.post.mock.calls[0];
     expect(url).toBe('/tacticals');
-    expect(body).toMatchObject({ tipo: 'sell_out', nombre: 'Tacticals BPS Noviembre Q1FY27', marca: 'HP' });
+    expect(body).toMatchObject({ tipo: 'sell_out', nombre: 'Tacticals BPS Noviembre Q1FY27', marcas: ['HP'] });
     expect((({ fecha_desde, fecha_hasta }) => ({ fecha_desde, fecha_hasta }))(body)).toEqual({
       fecha_desde: '2026-12-01',
       fecha_hasta: '2026-12-31',

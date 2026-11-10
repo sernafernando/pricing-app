@@ -74,7 +74,7 @@ function Resumen({ tipo, form, lineas, contadores = 1 }) {
         </span>
         <span className={styles.dot}>·</span>
         <span>
-          Marca <b>{form.marca || '—'}</b>
+          {form.marcas.length > 1 ? 'Marcas' : 'Marca'} <b>{form.marcas.join(', ') || '—'}</b>
         </span>
         <span className={styles.dot}>·</span>
         <span className={styles.big}>
@@ -126,7 +126,7 @@ export default function TacticalNuevo() {
     return {
       tipo,
       nombre: '',
-      marca: '',
+      marcas: [],
       referencia: '',
       fechaDesde: '',
       fechaHasta: '',
@@ -183,7 +183,7 @@ export default function TacticalNuevo() {
     if (!aRenovar || !tiendasCargadas) return;
     const renovado = renovacionDe(aRenovar, gruposTiendas);
     setForm(renovado.form);
-    setLineas(renovado.lineas.length ? renovado.lineas : [nuevaLinea(renovado.form.marca)]);
+    setLineas(renovado.lineas.length ? renovado.lineas : [nuevaLinea(renovado.form.marcas[0])]);
     setARenovar(null);
     setCargando(false);
   }, [aRenovar, tiendasCargadas, gruposTiendas]);
@@ -219,7 +219,7 @@ export default function TacticalNuevo() {
     setLineas((ls) => ls.filter((l) => l.id !== id));
   };
   const agregarLinea = () => {
-    const linea = nuevaLinea(form.marca);
+    const linea = nuevaLinea(form.marcas[0]);
     setLineas((ls) => [...ls, linea]);
     setAbierta(linea.id);
   };

@@ -43,7 +43,8 @@ export function renovacionDe(tactical, gruposTiendas = []) {
     form: {
       tipo: tactical.tipo,
       nombre: tactical.nombre,
-      marca: tactical.marca,
+      // A tactical read before S3 has only `marca`.
+      marcas: tactical.marcas?.length ? [...tactical.marcas] : [tactical.marca].filter(Boolean),
       referencia: tactical.referencia ?? '',
       fechaDesde: '',
       fechaHasta: '',
