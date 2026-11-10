@@ -153,6 +153,14 @@ def _error_legible(error: str) -> str:
     return texto if len(texto) <= MOTIVO_ERROR_MAX else texto[: MOTIVO_ERROR_MAX - 1] + "…"
 
 
+def _en_rango(bono: SellInBonoMarca):
+    """Whether an operation's invoice date is in the bonus's range; an invoice bonus follows its invoice whatever its
+    date (`bonos._seguir_factura`), so its operation is never out of range."""
+    if bono.alcance == "factura":
+        return true()
+    return and_(PedidoCompra.fecha_factura >= bono.fecha_desde, PedidoCompra.fecha_factura <= bono.fecha_hasta)
+
+
 def _sin_aplicar(db: Session, bono: SellInBonoMarca, facturadas, recibidas, limite: int) -> dict:
     """In-range operations of the scope with no active generated purchase, each with its `motivo`.
 
@@ -184,8 +192,7 @@ def _sin_aplicar(db: Session, bono: SellInBonoMarca, facturadas, recibidas, limi
         _pedidos_de_marca(db, unidades)
         .filter(
             PedidoCompra.fecha_factura.isnot(None),
-            PedidoCompra.fecha_factura >= bono.fecha_desde,
-            PedidoCompra.fecha_factura <= bono.fecha_hasta,
+            _en_rango(bono),
             ~aplicada,
         )
         .order_by(PedidoCompra.fecha_factura.desc(), PedidoCompra.id.desc())
@@ -296,7 +303,7 @@ def alcance(db: Session, bono: SellInBonoMarca, limite: int) -> dict:
         _pedidos_de_marca(db, facturadas)
         .filter(
             PedidoCompra.fecha_factura.isnot(None),
-            or_(PedidoCompra.fecha_factura < bono.fecha_desde, PedidoCompra.fecha_factura > bono.fecha_hasta),
+            ~_en_rango(bono),
         )
         .order_by(PedidoCompra.fecha_factura.desc(), PedidoCompra.id.desc())
     )

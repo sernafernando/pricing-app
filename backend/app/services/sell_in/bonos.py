@@ -7,7 +7,7 @@ supplier invoice date (`pedidos_compra.fecha_factura`) falls in its range.
 Its `alcance` says which items it reaches: its brand (`productos_erp.marca`,
 exact, like the list's brand filter), its category (`productos_erp.categoria`,
 exact), its models (`sell_in_bono_items`, of any brand) or every line of ONE
-operation (`pedido_id`; the invoice still has to fall in the range). Lines
+operation (`pedido_id`, whatever its invoice date: an invoice bonus's range follows its invoice, `_seguir_factura`). Lines
 whose item is not in the catalog are never read. Its `tipo` says how much:
 `monto_unit` per unit, or `porcentaje` of each line's invoiced net
 (`pedido_compra_lineas_facturadas.importe_neto`, net of credit notes).
@@ -25,7 +25,7 @@ Desired state of a pair, recomputed from scratch on every call:
 
 - it applies when the bonus is `activa`, the operation exists, is not
   `cancelado`/`rechazado`, has an invoice date inside the bonus's inclusive
-  range, and has invoiced units (`pedido_compra_lineas_facturadas`, net of
+  range (an invoice bonus: any invoice date), and has invoiced units (`pedido_compra_lineas_facturadas`, net of
   credit notes) of items the bonus reaches;
 - then its purchase holds one line per such item: `cantidad` = invoiced units,
   `monto_asignado` = units x `monto_unit` (`formula = 'por_unidad'`) or the %
@@ -200,10 +200,19 @@ def _pares(db: Session, bono_ids: Set[int], pedido_ids: Set[int]) -> Set[Par]:
 
 def _en_rango() -> ColumnElement[bool]:
     return and_(
-        PedidoCompra.fecha_factura >= SellInBonoMarca.fecha_desde,
-        PedidoCompra.fecha_factura <= SellInBonoMarca.fecha_hasta,
-        # An invoice bonus reaches its own operation only.
-        or_(SellInBonoMarca.alcance != "factura", SellInBonoMarca.pedido_id == PedidoCompra.id),
+        or_(
+            and_(
+                SellInBonoMarca.alcance != "factura",
+                PedidoCompra.fecha_factura >= SellInBonoMarca.fecha_desde,
+                PedidoCompra.fecha_factura <= SellInBonoMarca.fecha_hasta,
+            ),
+            # An invoice bonus reaches its own operation only, whatever its invoice date (`_seguir_factura`).
+            and_(
+                SellInBonoMarca.alcance == "factura",
+                SellInBonoMarca.pedido_id == PedidoCompra.id,
+                PedidoCompra.fecha_factura.isnot(None),
+            ),
+        ),
         # A % of the sale's cost bonus (T25) never generates a purchase (`bonos_costo`).
         SellInBonoMarca.base == BASE_FACTURA,
     )
@@ -362,7 +371,10 @@ def _deseada(
     if bono.estado != "activa" or bono.base != BASE_FACTURA or pedido is None or pedido.estado in ESTADOS_EXCLUIDOS:
         return None
     fecha = pedido.fecha_factura
-    if fecha is None or not (bono.fecha_desde <= fecha <= bono.fecha_hasta):
+    if fecha is None:
+        return None
+    # An invoice bonus follows its own invoice whatever its date (`_seguir_factura`); the others need it in range.
+    if bono.alcance != "factura" and not (bono.fecha_desde <= fecha <= bono.fecha_hasta):
         return None
     propias = _alcanzadas(bono, pedido, lineas, modelos)
     if not propias:
@@ -553,6 +565,8 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
     for item in db.query(SellInCompraItem).filter(SellInCompraItem.compra_id.in_(compra_ids or [-1])):
         items_por_compra[item.compra_id].append(item)
 
+    _seguir_factura(bonos.values(), pedidos)
+
     tocados: Set[int] = set()
     tasas_bna = tasas_bna_por_fecha(
         db, {p.fecha_factura for p in pedidos.values() if p.tipo_cambio is None and p.fecha_factura is not None}
@@ -614,6 +628,19 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
         # The % of cost bonuses (T25b) take only the units the FIFO leaves: they follow at once too.
         bonos_costo.seguir_fifo(db, tocados)
     return result
+
+
+def _seguir_factura(bonos: Iterable[SellInBonoMarca], pedidos: Mapping[int, _Pedido]) -> None:
+    """An invoice bonus has no dates of its own (tactical factura sin fecha L6/L7, owner: "si cambian la fecha no se
+    debería anular porque está aplicando a una factura"): when its operation's invoice date leaves the bonus's range
+    (Compras corrected it), the bonus's range moves to that one date. It keeps the queue's triggers
+    (`bono_queue.sell_in_bono_cubre*`, which read the bonus's range) covering the invoice; an invoice inside the
+    range leaves the stored range as it is."""
+    for bono in bonos:
+        pedido = pedidos.get(bono.pedido_id) if bono.alcance == "factura" else None
+        fecha = pedido.fecha_factura if pedido is not None else None
+        if fecha is not None and not (bono.fecha_desde <= fecha <= bono.fecha_hasta):
+            bono.fecha_desde = bono.fecha_hasta = fecha
 
 
 def _orden(pedido: _Pedido) -> Tuple[date, int]:

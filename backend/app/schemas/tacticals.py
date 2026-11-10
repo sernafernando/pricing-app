@@ -74,8 +74,9 @@ class TacticalIn(BaseModel):
     nombre: str = Field(max_length=NOMBRE_MAX)
     marca: str = Field(max_length=MARCA_MAX)
     referencia: Optional[str] = Field(default=None, max_length=NOMBRE_MAX)
-    fecha_desde: date
-    fecha_hasta: date  # inclusive
+    # Required unless every line is an invoice line: then the service fills them from the invoices (oldest..newest).
+    fecha_desde: Optional[date] = None
+    fecha_hasta: Optional[date] = None  # inclusive
     moneda: Moneda
     tc_modo: Optional[TcModo] = None  # USD only; None means `al_cobro`
     tipo_cambio: Optional[Decimal] = Field(default=None, max_digits=18, decimal_places=6)  # `fijo` only
@@ -179,6 +180,8 @@ class TacticalOut(BaseModel):
     usuario_id: int
     created_at: datetime
     updated_at: datetime
+    # Every line is an invoice line: no dates of its own (each applies until its invoice's units are sold).
+    por_factura: bool
     lineas: list[TacticalLineaOut]
 
 

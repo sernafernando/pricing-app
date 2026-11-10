@@ -250,18 +250,40 @@ class TestSellIn:
 
         assert _filas(engine, "SELECT tope_unidades FROM sell_in_bonos_marca") == [(8,)]
 
-    def test_an_invoice_line_keeps_its_invoice_inside_the_dates(self, db, engine) -> None:
+    def test_an_invoice_tactical_has_no_end_date_to_edit(self, db, engine) -> None:
+        """Tactical factura sin fecha S2c/S4: its dates are its invoices' own; only the safe fields move."""
         pedido = bw.pedido(engine, {2964: 10}, date(2026, 11, 20))
         linea = {"alcance": "factura", "pedido_compra_id": pedido, "modo_monto": "porcentaje", "valor": "5"}
-        tactical = service.crear(db, _tactical("sell_in", [linea]), USUARIO)
-        numero = _filas(engine, f"SELECT numero FROM pedidos_compra WHERE id = {pedido}")[0][0]
+        tactical = service.crear(db, _tactical("sell_in", [linea], fecha_desde=None, fecha_hasta=None), USUARIO)
 
         with pytest.raises(service.TacticalError) as exc:
-            _editar(db, tactical.id, fecha_hasta=date(2026, 11, 15))
+            _editar(db, tactical.id, fecha_hasta=date(2026, 12, 15))
 
         assert str(exc.value) == (
-            f"Línea 1: la factura de la operación {numero} es del 20/11/2026: la fecha hasta no puede quedar antes"
+            "Un tactical por factura no tiene fecha hasta: cada factura aplica hasta que se venden sus unidades"
         )
+        assert _editar(db, tactical.id, nombre="Factura renombrada").nombre == "Factura renombrada"
+        assert _filas(engine, "SELECT fecha_desde, fecha_hasta FROM sell_in_bonos_marca") == [
+            (date(2026, 11, 20), date(2026, 11, 20))
+        ]
+
+    def test_a_mixed_tactical_end_date_moves_only_its_non_invoice_lines(self, db, engine) -> None:
+        """S4: `_validar_facturas` no longer applies: the invoice line keeps its invoice's date."""
+        pedido = bw.pedido(engine, {2964: 10}, date(2026, 11, 20))
+        lineas = [
+            {"alcance": "marca", "marca": bw.TPLINK, "modo_monto": "porcentaje", "valor": "3"},
+            {"alcance": "factura", "pedido_compra_id": pedido, "modo_monto": "porcentaje", "valor": "5"},
+        ]
+        tactical = service.crear(db, _tactical("sell_in", lineas), USUARIO)
+
+        _editar(db, tactical.id, fecha_hasta=date(2026, 11, 15))
+
+        assert _filas(
+            engine, "SELECT alcance, fecha_desde, fecha_hasta FROM sell_in_bonos_marca ORDER BY tactical_linea"
+        ) == [
+            ("marca", date(2026, 11, 1), date(2026, 11, 15)),
+            ("factura", date(2026, 11, 20), date(2026, 11, 20)),
+        ]
 
     def test_an_invoice_total_takes_no_caps(self, db, engine) -> None:
         pedido = bw.pedido(engine, {2964: 10}, date(2026, 11, 10))

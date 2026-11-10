@@ -16,6 +16,12 @@ Every child carries `tactical_id` and `tactical_linea` (its 1-based line). The h
 and `acumulable` are copied to every child, which is what the engines read, except where an engine has its own: an
 invoice line converts at its operation's rate (a fixed rate is refused there) and a cost bonus is ARS.
 
+An invoice line has no dates of its own (tactical factura sin fecha S1, S2c): any invoice date is accepted, and its
+bonus's range is its invoice's date, so its rebate follows that invoice's units through the FIFO until they are sold;
+the reconcile moves it with a corrected invoice date. A tactical whose every line is an invoice line (`por_factura`)
+asks no dates: its header spans its oldest to newest invoice, its end date is not editable and it is current until
+voided. With any other line the header's dates are required and reach only the other lines.
+
 One atomic create: the header and every child in one transaction; the first refused line rolls everything back and
 comes back as `TacticalError` with "Línea N: ..." (the engine's own message after it). A campaign whose queue row a
 running drain holds is `TacticalOcupado` (retry). Voiding a tactical voids every active child through its engine's
@@ -36,7 +42,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterable, Optional
 
 from pydantic import ValidationError
-from sqlalchemy import func, or_
+from sqlalchemy import and_, exists, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.auditoria import Auditoria, TipoAccion
@@ -73,6 +79,8 @@ from app.services.sell_out import campanas, tienda_scope
 GRUPO_NOMBRE_MAX = 100  # offset_grupos.nombre is VARCHAR(100)
 CAMPANA_NOMBRE_MAX = 200
 CENTAVO = Decimal("0.01")
+SIN_FECHAS = "Las fechas son obligatorias: solo un tactical con todas sus líneas por factura va sin fechas"
+SIN_FECHA_HASTA = "Un tactical por factura no tiene fecha hasta: cada factura aplica hasta que se venden sus unidades"
 TOTAL_USD_SIN_TC_FIJO = "un monto total en USD necesita tipo de cambio fijo"
 COSTO_EN_PESOS = (
     "una reducción de costo por unidad o con tope de monto va en pesos (ARS): el costo de cada venta está en pesos"
@@ -123,6 +131,11 @@ def _audit(
 # --- header -------------------------------------------------------------------------------------------------------
 
 
+def _por_factura(data: TacticalIn) -> bool:
+    """Every line is an invoice line (tactical factura sin fecha S2c): the tactical asks no dates."""
+    return data.tipo == "sell_in" and all(linea.alcance == "factura" for linea in data.lineas)
+
+
 def _validar_cabecera(db: Session, data: TacticalIn) -> tuple[str, str, Optional[str]]:
     """The header's rules; returns `(nombre, marca, tc_modo)` normalized (USD without a mode is `al_cobro`)."""
     nombre, marca = _texto(data.nombre), _texto(data.marca)
@@ -132,8 +145,11 @@ def _validar_cabecera(db: Session, data: TacticalIn) -> tuple[str, str, Optional
         raise TacticalError("La marca es obligatoria")
     if not db.query(ProductoERP.item_id).filter(ProductoERP.marca == marca).limit(1).first():
         raise TacticalError(f"No hay productos de la marca {marca}")
-    if data.fecha_hasta < data.fecha_desde:
-        raise TacticalError("La fecha hasta no puede ser anterior a la fecha desde")
+    if not _por_factura(data):
+        if data.fecha_desde is None or data.fecha_hasta is None:
+            raise TacticalError(SIN_FECHAS)
+        if data.fecha_hasta < data.fecha_desde:
+            raise TacticalError("La fecha hasta no puede ser anterior a la fecha desde")
     _validar_tiendas(db, data)
     if data.moneda == "ARS":
         if data.tc_modo is not None or data.tipo_cambio is not None:
@@ -284,10 +300,7 @@ def _validar_linea(db: Session, data: TacticalIn, linea: TacticalLineaIn) -> _Al
         raise TacticalError(f"no existe la factura {linea.pedido_compra_id}")
     if pedido.fecha_factura is None:
         raise TacticalError(f"la operación {pedido.numero} no tiene fecha de factura")
-    if not data.fecha_desde <= pedido.fecha_factura <= data.fecha_hasta:
-        raise TacticalError(
-            f"la factura de la operación {pedido.numero} es del {_fecha(pedido.fecha_factura)}, fuera de la vigencia"
-        )
+    # Any invoice date: an invoice line has no dates of its own (S1), its bonus takes its invoice's (`_sell_in`).
     return _Alcance(pedido=pedido)
 
 
@@ -378,8 +391,10 @@ def _sell_in(db, tactical, data, linea, numero, parte, codigos, usuario_id) -> N
         porcentaje=linea.valor if linea.modo_monto == "porcentaje" else None,
         monto_total=_total_en_pesos(linea, data, parte) if linea.modo_monto == "monto_total" else None,
         reparto_criterio=linea.reparto_criterio,
-        fecha_desde=data.fecha_desde,
-        fecha_hasta=data.fecha_hasta,
+        # An invoice bonus's range is its own invoice's date (S2c): it applies to that invoice's units until they
+        # are sold, and the reconcile moves it with a corrected invoice date (`bonos._seguir_factura`).
+        fecha_desde=parte.pedido.fecha_factura if parte.pedido is not None else data.fecha_desde,
+        fecha_hasta=parte.pedido.fecha_factura if parte.pedido is not None else data.fecha_hasta,
         descripcion=descripcion,
         tope_unidades=linea.tope_unidades,
         tope_monto=linea.tope_monto,
@@ -471,16 +486,32 @@ def _validar_hijos(data: TacticalIn) -> None:
         )
 
 
+def _fechas_de_facturas(db: Session, data: TacticalIn) -> tuple[date, date]:
+    """An all-invoice tactical's dates: its oldest and newest invoice date (S2c). A line whose invoice is missing or
+    undated is refused by `_validar_linea` before commit, so today's date only stands in until that rollback."""
+    ids = [linea.pedido_compra_id for linea in data.lineas if linea.pedido_compra_id is not None]
+    desde, hasta = (
+        db.query(func.min(PedidoCompra.fecha_factura), func.max(PedidoCompra.fecha_factura))
+        .filter(PedidoCompra.id.in_(ids or [-1]))
+        .one()
+    )
+    hoy = date.today()
+    return desde or hoy, hasta or hoy
+
+
 def _crear(db: Session, data: TacticalIn, usuario_id: int) -> Tactical:
     _validar_hijos(data)
     nombre, marca, tc_modo = _validar_cabecera(db, data)
+    fecha_desde, fecha_hasta = (
+        _fechas_de_facturas(db, data) if _por_factura(data) else (data.fecha_desde, data.fecha_hasta)
+    )
     tactical = Tactical(
         tipo=data.tipo,
         nombre=nombre,
         marca=marca,
         referencia=_texto(data.referencia),
-        fecha_desde=data.fecha_desde,
-        fecha_hasta=data.fecha_hasta,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
         moneda=data.moneda,
         tc_modo=tc_modo,
         tipo_cambio=data.tipo_cambio,
@@ -653,6 +684,8 @@ def _validar_edicion(
             raise TacticalError("El nombre no puede quedar vacío")
     fecha_hasta = tactical.fecha_hasta
     if data.fecha_hasta is not None and data.fecha_hasta != tactical.fecha_hasta:
+        if _hijos_por_factura(tactical, hijos):
+            raise TacticalError(SIN_FECHA_HASTA)
         fecha_hasta = data.fecha_hasta
         if fecha_hasta < hoy:
             raise TacticalError(f"La fecha hasta no puede ser anterior a hoy ({_fecha(hoy)})")
@@ -660,7 +693,6 @@ def _validar_edicion(
             raise TacticalError(
                 f"La fecha hasta no puede ser anterior a la fecha desde ({_fecha(tactical.fecha_desde)})"
             )
-        _validar_facturas(db, hijos, fecha_hasta)
     lineas = {h["linea"] for h in hijos}
     editadas = {t.linea for t in data.lineas}
     maximos = _maximos_por_tienda(db, tactical, [h for h in hijos if h["linea"] in editadas])
@@ -672,19 +704,21 @@ def _validar_edicion(
     return nombre, fecha_hasta
 
 
-def _validar_facturas(db: Session, hijos: list[dict], fecha_hasta: date) -> None:
-    """An invoice line's invoice must stay inside the tactical's dates, as on create."""
-    pedidos = {h["pedido_compra_id"]: h for h in hijos if h["pedido_compra_id"] is not None and h["estado"] == "activa"}
-    if not pedidos:
-        return
-    fechas = dict(db.query(PedidoCompra.id, PedidoCompra.fecha_factura).filter(PedidoCompra.id.in_(list(pedidos))))
-    for pedido_id, hijo in sorted(pedidos.items(), key=lambda p: p[1]["linea"]):
-        fecha = fechas.get(pedido_id)
-        if fecha is not None and fecha > fecha_hasta:
-            raise TacticalError(
-                f"Línea {hijo['linea']}: la factura de la operación {hijo['pedido_numero']} es del {_fecha(fecha)}: "
-                "la fecha hasta no puede quedar antes"
-            )
+def _hijos_por_factura(tactical: Tactical, hijos: list[dict]) -> bool:
+    """A stored tactical whose every line is an invoice line (S2c): no dates of its own."""
+    return tactical.tipo == "sell_in" and bool(hijos) and all(h["alcance"] == "factura" for h in hijos)
+
+
+def _es_por_factura():
+    """`_hijos_por_factura` in SQL: a sell in tactical with no child other than an invoice bonus or an invoice total
+    (an invoice total is its only `SellInCompra`)."""
+    de_tactical = SellInBonoMarca.tactical_id == Tactical.id
+    hay_hijos = or_(
+        exists().where(de_tactical),
+        exists().where(SellInCompra.tactical_id == Tactical.id),
+    )
+    otro = exists().where(de_tactical, SellInBonoMarca.alcance != "factura")
+    return and_(Tactical.tipo == "sell_in", hay_hijos, ~otro)
 
 
 # The credited rows per sale of each child kind whose cap a per-store scope splits: (owner, canal, venta_ref, units, amount)
@@ -783,7 +817,8 @@ def _editar_hijos(
                 bono = db.get(SellInBonoMarca, hijo["id"])
                 cambios = {
                     "descripcion": _renombrado(bono.descripcion, tactical.nombre, nombre, CAMPANA_NOMBRE_MAX),
-                    "fecha_hasta": fecha_hasta,
+                    # An invoice bonus keeps its invoice's date (S2c, S4): the header's end date is not its own.
+                    **({} if bono.alcance == "factura" else {"fecha_hasta": fecha_hasta}),
                     **topes.get(numero, {}),
                 }
                 if all(getattr(bono, campo) == valor for campo, valor in cambios.items()):
@@ -819,10 +854,10 @@ def listar(db: Session, filtros: Filtros, page: int, page_size: int, hoy: Option
         query = query.filter(Tactical.moneda == filtros.moneda)
     if filtros.estado == "anulados":
         query = query.filter(Tactical.estado == "anulado")
-    elif filtros.estado == "vigentes":
-        query = query.filter(Tactical.estado == "activo", Tactical.fecha_hasta >= hoy)
+    elif filtros.estado == "vigentes":  # an all-invoice tactical has no end (S4): current until voided
+        query = query.filter(Tactical.estado == "activo", or_(Tactical.fecha_hasta >= hoy, _es_por_factura()))
     elif filtros.estado == "vencidos":
-        query = query.filter(Tactical.estado == "activo", Tactical.fecha_hasta < hoy)
+        query = query.filter(Tactical.estado == "activo", Tactical.fecha_hasta < hoy, ~_es_por_factura())
     if filtros.desde is not None:
         query = query.filter(Tactical.fecha_hasta >= filtros.desde)
     if filtros.hasta is not None:
@@ -1044,6 +1079,7 @@ def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
         {
             **{c: getattr(t, c) for c in columnas},
             "tiendas": [{"tipo": fila.tipo, "store_id": fila.store_id} for fila in t.tiendas],
+            "por_factura": _hijos_por_factura(t, de_tactical[t.id]),
             "lineas": de_tactical[t.id],
         }
         for t in tacticals
