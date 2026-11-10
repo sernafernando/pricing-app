@@ -98,12 +98,22 @@ export function contadoresDelTope({
   return Math.max(oficiales + canales, 1);
 }
 
+const TITULO_COMPARTIDO = 'Un solo tope entre todas';
+const TITULO_POR_TIENDA = 'Un tope para cada tienda o canal';
+
 /**
- * Live preview rows for how the line cap applies to the current selection.
- * `ejemploTope` is the number shown (first line unit cap), or null → "tope".
+ * Live preview of what the line cap does with the current selection (owner, 2026-11-10: "«Cómo se aplica el tope» no
+ * se entiende"): a title naming the mode, one row per counter and a sentence saying when crediting stops.
+ * `ejemploTope` is the first line unit cap, shown as "100 u."; null speaks of "the line cap" instead.
  */
 export function previewTope({ todasTiendas, seleccionKeys, grupos = [], tiendasActivas, topeCompartido, ejemploTope }) {
-  const n = ejemploTope == null || ejemploTope === '' ? 'tope' : String(ejemploTope);
+  const conTope = !(ejemploTope == null || ejemploTope === '');
+  const unidades = conTope
+    ? `${Number.isFinite(Number(ejemploTope)) ? Number(ejemploTope).toLocaleString('es-AR') : ejemploTope} u.`
+    : null;
+  const uno = unidades ?? 'tope de la línea';
+  const cadaUna = unidades ? `${unidades} cada una` : 'tope de la línea, cada una';
+  const titulo = topeCompartido ? TITULO_COMPARTIDO : TITULO_POR_TIENDA;
   const labels = [];
   if (todasTiendas) {
     labels.push('Todas las tiendas oficiales');
@@ -116,32 +126,38 @@ export function previewTope({ todasTiendas, seleccionKeys, grupos = [], tiendasA
   }
   if (!todasTiendas) labels.push(...seleccionKeys.filter(esCanal).map(nombreCanal));
   if (labels.length === 0) {
-    return { modo: topeCompartido ? 'compartido' : 'por_tienda', filas: [], ayuda: 'Elegí al menos una tienda o canal.' };
+    return { modo: topeCompartido ? 'compartido' : 'por_tienda', titulo, filas: [], ayuda: 'Elegí al menos una tienda o canal.' };
   }
   if (topeCompartido) {
     return {
       modo: 'compartido',
-      filas: [{ label: labels.join(' + '), valor: `${n} compartidos` }],
-      ayuda: '1 venta en cualquiera resta del mismo pool.',
+      titulo,
+      filas: [{ label: labels.join(' + '), valor: unidades ? `${unidades} en total` : 'tope de la línea, en total' }],
+      ayuda: unidades
+        ? `Las ventas de todas suman al mismo tope: cuando se vendan ${unidades} en total, deja de acreditar en todas.`
+        : 'Las ventas de todas suman al mismo tope: cuando juntas llegan al tope de la línea, deja de acreditar en todas.',
     };
   }
   const filas = [];
   if (todasTiendas) {
-    filas.push({ label: `Cada tienda oficial (${idsDeTodas(grupos, tiendasActivas)})`, valor: `${n} cada una` });
-    filas.push({ label: 'Ventas sin tienda oficial', valor: String(n) });
+    filas.push({ label: `Cada tienda oficial (${idsDeTodas(grupos, tiendasActivas)})`, valor: cadaUna });
+    filas.push({ label: 'Ventas sin tienda oficial', valor: uno });
   } else {
     for (const key of seleccionKeys) {
       if (esCanal(key)) continue;
       const grupo = grupos.find((g) => g.value === key);
       const ids = idsDe(key, grupos);
       const label = grupo ? grupo.label : `Tienda ${key}`;
-      filas.push(ids.length > 1 ? { label: `${label} (${ids.length} tiendas)`, valor: `${n} cada una` } : { label, valor: String(n) });
+      filas.push(ids.length > 1 ? { label: `${label} (${ids.length} tiendas)`, valor: cadaUna } : { label, valor: uno });
     }
   }
-  for (const key of canalesDe(todasTiendas, seleccionKeys)) filas.push({ label: nombreCanal(key), valor: String(n) });
+  for (const key of canalesDe(todasTiendas, seleccionKeys)) filas.push({ label: nombreCanal(key), valor: uno });
   return {
     modo: 'por_tienda',
+    titulo,
     filas,
-    ayuda: 'Cada tienda o canal tiene su propio contador con el mismo tope.',
+    ayuda: unidades
+      ? `Cada una cuenta sus ventas aparte: cuando una llega a ${unidades} vendidas, deja de acreditar solo en esa y las demás siguen hasta sus propias ${unidades}`
+      : 'Cada una cuenta sus ventas aparte: cuando una llega al tope de la línea, deja de acreditar solo en esa y las demás siguen.',
   };
 }
