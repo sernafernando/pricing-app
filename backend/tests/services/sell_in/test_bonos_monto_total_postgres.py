@@ -191,6 +191,30 @@ class TestEditar:
         assert _repartos(db, bono_id) == {2270: Decimal("300.00"), 2964: Decimal("300.00")}
         assert b.queued(engine) == [("bono", bono_id)]
 
+    def test_an_edit_that_keeps_total_criterion_and_reach_keeps_the_shares(self, db, engine) -> None:
+        """Shares are fixed when saved: a date or text edit does not split again with today's costs and rate."""
+        b.tipo_cambio(engine, D(2026, 10, 1), 1000)
+        bono_id = _crear(db, monto_total="10000.00", reparto_criterio="costo")
+        b.tipo_cambio(engine, D(2026, 10, 2), 2000)  # 2964 now ARS 83000: a resplit would move its share
+        b.clear_queue(engine)
+
+        bonos_crud.editar_bono(
+            db, bono_id, _entrada(monto_total="10000.00", reparto_criterio="costo", fecha_hasta=D(2026, 11, 30)), 7
+        )
+
+        assert _repartos(db, bono_id) == {2270: Decimal("2242.99"), 2964: Decimal("7757.01")}
+        # Queued once, by its row trigger: the new dates change which sales it credits, its shares stay.
+        assert b.queued(engine) == [("bono", bono_id)]
+
+    def test_a_new_reach_resplits_the_shares(self, db) -> None:
+        bono_id = _crear(db, alcance="modelos", marca=None, modelos=[2964, 950], monto_total="90.00")
+
+        bonos_crud.editar_bono(
+            db, bono_id, _entrada(alcance="modelos", marca=None, modelos=[2964, 950, 2270], monto_total="90.00"), 7
+        )
+
+        assert _repartos(db, bono_id) == {950: Decimal("30.00"), 2270: Decimal("30.00"), 2964: Decimal("30.00")}
+
     def test_switching_to_units_drops_the_shares(self, db) -> None:
         bono_id = _crear(db)
 

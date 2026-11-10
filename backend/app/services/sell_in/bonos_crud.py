@@ -342,8 +342,27 @@ def _audit(
     )
 
 
+def _reparto_de(db: Session, bono: SellInBonoMarca) -> Optional[tuple]:
+    """What a total bonus's fixed shares depend on: the total, its criterion and the reach they split over (None for
+    a bonus not stored yet). Dates, text, currency label and caps are not in it, so editing them keeps the shares."""
+    if bono.id is None:
+        return None
+    modelos = frozenset(i for (i,) in db.query(SellInBonoItem.item_id).filter(SellInBonoItem.bono_id == bono.id))
+    return (
+        bono.tipo,
+        bono.monto_total,
+        bono.reparto_criterio,
+        bono.alcance,
+        bono.marca,
+        bono.categoria,
+        bono.pedido_id,
+        modelos,
+    )
+
+
 def _asignar(db: Session, bono: SellInBonoMarca, data: SellInBonoIn, campos: Campos) -> None:
     total_antes = (bono.tipo, bono.monto_total, bono.reparto_criterio)
+    reparto_antes = _reparto_de(db, bono)
     for campo in ("alcance", "tipo", "moneda", "fecha_desde", "fecha_hasta", "descripcion"):
         setattr(bono, campo, getattr(data, campo))
     campos_bono = ("marca", "categoria", "pedido_id", "monto_unit", "porcentaje", "base", "incluye_iva")
@@ -378,7 +397,9 @@ def _asignar(db: Session, bono: SellInBonoMarca, data: SellInBonoIn, campos: Cam
     db.flush()
     if MONTO_TOTAL not in (bono.tipo, total_antes[0]):
         return  # neither is nor was a total: no share to write (and no query)
-    cambio = _repartir(db, bono)
+    # Shares are fixed when saved (tmt spec): split again only when the total, its criterion or its reach changes,
+    # never with today's costs and rate on a date or text edit (as sell out's `resplit`).
+    cambio = reparto_antes != _reparto_de(db, bono) and _repartir(db, bono)
     if cambio or (bono.tipo, bono.monto_total, bono.reparto_criterio) != total_antes:
         _encolar(db, bono)
 
