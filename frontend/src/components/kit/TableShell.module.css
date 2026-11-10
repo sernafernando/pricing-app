@@ -270,3 +270,9 @@
   padding: 0;
   border: 0;
 }
+
+/* A `fit` column is sized to its content (`useFitColumnWidths`): its figures stay on one line to be measured. */
+.cell[data-fit],
+.headCell[data-fit] {
+  white-space: nowrap;
+}

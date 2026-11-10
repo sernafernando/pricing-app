@@ -3242,6 +3242,25 @@ describe('Publicaciones ML columns sized by their content (visual)', () => {
     }
   });
 
+  // The app uses the system's fonts: a browser with a wider one (CI's runner, another OS) must not push a figure out
+  // of its column. Wider letters stand in for that font here.
+  it('1440x900 light: in a wider font every figure column grows to hold its values, none pokes out of its cell', async () => {
+    const wider = document.createElement('style');
+    wider.textContent = '[data-table-shell-scroller] td, [data-table-shell-scroller] th { letter-spacing: 0.12em; }';
+    document.head.append(wider);
+    try {
+      const screen = await renderMarginPage({ width: 1440, height: 900, theme: 'light' });
+      await frame();
+      const scroller = scrollerOf();
+      const widths = columnWidths(scroller);
+      expect(widths.facturado_30d).toBeGreaterThan(140);
+      expect(overflowingCells(scroller)).toEqual([]);
+      screen.unmount();
+    } finally {
+      wider.remove();
+    }
+  });
+
   // Before/after captures for the PR (only with VITE_PUBLICACIONES_SHOTS_DIR): the list, the Producto view, the tree.
   for (const theme of THEMES) {
     it.runIf(PRODUCT_SHOTS_DIR)(`1440x900 ${theme}: captures of the three views`, async () => {

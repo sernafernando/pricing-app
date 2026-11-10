@@ -172,9 +172,9 @@ export function buildColumns({
       ? [{ key: 'sku_divergencia', header: 'SKU distinto', width: 260, render: (item) => <SkuDivergenceCell item={item} /> }]
       : []),
     ...(agrupado || producto
-      ? [{ key: 'publicaciones', header: 'Publicaciones', width: 120, align: 'center', render: () => null }]
+      ? [{ key: 'publicaciones', header: 'Publicaciones', width: 120, align: 'center', fit: true, render: () => null }]
       : []),
-    ...(agrupado ? withMargin([{ key: 'negativos', header: 'Negativos', width: 100, align: 'center', render: () => null }]) : []),
+    ...(agrupado ? withMargin([{ key: 'negativos', header: 'Negativos', width: 100, align: 'center', fit: true, render: () => null }]) : []),
     // The listing type at a glance, before its state: the list's default order (Clásica, then 3, 6, 9, 12 cuotas).
     { key: 'tipo', header: 'Tipo', width: 110, sortable: true, render: (item) => <ListingKindBadge kind={item.listing_kind} /> },
     {
@@ -183,7 +183,7 @@ export function buildColumns({
       width: 104,
       render: (item) => <PublicationStatusPill status={item.status} gone={item.gone} subStatus={item.sub_status} />,
     },
-    { key: 'precio', header: 'Precio', width: 136, sortable: true, align: 'center', render: (item) => <PriceCell price={item.price} /> },
+    { key: 'precio', header: 'Precio', width: 136, sortable: true, align: 'center', fit: true, render: (item) => <PriceCell price={item.price} /> },
     ...(prices && !agrupado
       ? priceColumns(priceMode, { prices, canSeeMargin, edit: priceEdit, onCalculate: onCalculatePrice, offsets: priceOffsets, tnCardPercent })
       : []),
@@ -196,6 +196,7 @@ export function buildColumns({
         width: 60,
         sortable: true,
         align: 'center',
+        fit: true,
         render: (item) => <UnitsCell value={item.metrics?.units_7d} />,
       },
       {
@@ -206,6 +207,7 @@ export function buildColumns({
         width: 68,
         sortable: true,
         align: 'center',
+        fit: true,
         render: (item) => <UnitsCell value={item.metrics?.units_30d} strong />,
       },
       {
@@ -215,6 +217,7 @@ export function buildColumns({
         label: 'Tendencia de ventas',
         width: 112,
         align: 'center',
+        fit: true,
         render: (item) => <UnitsTrendCell metrics={item.metrics} />,
       },
     ]),
@@ -227,6 +230,7 @@ export function buildColumns({
         width: 110,
         sortable: true,
         align: 'center',
+        fit: true,
         render: (item) => <MarkupCell markup={item.markup} />,
       },
       ...withSales([
@@ -238,6 +242,7 @@ export function buildColumns({
           width: 72,
           sortable: true,
           align: 'center',
+          fit: true,
           render: (item) => <MarkupRealCell metrics={item.metrics} />,
         },
         {
@@ -247,6 +252,7 @@ export function buildColumns({
           label: 'Tendencia de markup',
           width: 112,
           align: 'center',
+          fit: true,
           render: (item) => <MarkupTrendCell metrics={item.metrics} />,
         },
       ]),
@@ -259,6 +265,7 @@ export function buildColumns({
         width: 140,
         sortable: true,
         align: 'center',
+        fit: true,
         render: (item) => <GrossCell metrics={item.metrics} />,
       },
       ...withMargin([
@@ -269,11 +276,12 @@ export function buildColumns({
           width: 140,
           sortable: true,
           align: 'center',
+          fit: true,
           render: (item) => <TotalGaussCell metrics={item.metrics} />,
         },
       ]),
-      { key: 'last_sale', group: ROTACION, header: 'Última venta', width: 96, align: 'center', render: (item) => <LastSaleCell metrics={item.metrics} /> },
-      { key: 'ageing', group: ROTACION, header: 'Ageing', width: 64, align: 'center', render: (item) => <AgeingCell metrics={item.metrics} /> },
+      { key: 'last_sale', group: ROTACION, header: 'Última venta', width: 96, align: 'center', fit: true, render: (item) => <LastSaleCell metrics={item.metrics} /> },
+      { key: 'ageing', group: ROTACION, header: 'Ageing', width: 64, align: 'center', fit: true, render: (item) => <AgeingCell metrics={item.metrics} /> },
     ]),
     // ML's own stock and Full stock, and the ERP's: three sources, never one sum.
     {
@@ -284,6 +292,7 @@ export function buildColumns({
       width: 60,
       sortable: true,
       align: 'center',
+      fit: true,
       render: (item) => <OwnStockCell stock={item.stock} />,
     },
     {
@@ -294,6 +303,7 @@ export function buildColumns({
       width: 60,
       sortable: true,
       align: 'center',
+      fit: true,
       render: (item) => <FullStockCell stock={item.stock} />,
     },
     {
@@ -304,13 +314,14 @@ export function buildColumns({
       width: 68,
       sortable: true,
       align: 'center',
+      fit: true,
       render: (item) => <ErpStockCell erpStock={item.erp_stock} />,
     },
     // Hidden by default (`defaultColumnVisibility`): the picker brings them back.
     { key: 'codigo', header: 'Código', width: 130, sortable: true, render: (item) => orDash(item.link?.codigo) },
     { key: 'marca', header: 'Marca', width: 130, sortable: true, render: (item) => orDash(item.link?.marca) },
     ...withMargin([
-      { key: 'costo', header: 'Costo', width: 130, sortable: true, align: 'center', render: costCell },
+      { key: 'costo', header: 'Costo', width: 130, sortable: true, align: 'center', fit: true, render: costCell },
     ]),
     { key: 'vinculo', header: 'Vínculo', width: 170, render: (item) => <LinkBadge link={item.link} /> },
     { key: 'tienda', header: 'Tienda', width: 140, render: (item) => <StoreCell item={item} /> },

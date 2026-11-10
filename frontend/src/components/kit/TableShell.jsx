@@ -23,7 +23,9 @@
  * others leave (its `width` is then its minimum); with `columnWidths` and
  * `onColumnResize`, a `resizable` column gets a grip in its header (drag, or
  * ←/→ by 10 px; a double click goes back to the default) and the width the user
- * chose replaces the fill: the table is then exactly as wide as its columns.
+ * chose replaces the fill: the table is then exactly as wide as its columns. A `fit` column is as wide as its
+ * header and widest cell need, measured in the browser (`useFitColumnWidths`), its `width` the least it takes: a
+ * figure never pokes out of its cell, whatever font the browser has.
  *
  * Grouped, it reads like Métricas ML's board: a labelled group spans its
  * columns, a column of no group spans both header rows, and the first column
@@ -33,6 +35,7 @@
 import { Fragment, useEffect, useRef } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useVirtualRows } from './useVirtualRows';
+import { useFitColumnWidths } from './useFitColumnWidths';
 import styles from './TableShell.module.css';
 
 const toCssWidth = (width) => (typeof width === 'number' ? `${width}px` : width);
@@ -97,8 +100,12 @@ function ResizeGrip({ column, onResize }) {
  * sized it, and the table is at least as wide as every column at its width (the fill at its minimum). With the fill
  * sized by hand, the table is exactly that wide, so no column is stretched past what was chosen.
  */
-function layoutOf(columns, columnWidths) {
-  const widthOf = (column) => columnWidths?.[column.key] ?? column.width;
+function layoutOf(columns, columnWidths, fitWidths = {}) {
+  const widthOf = (column) => {
+    if (columnWidths?.[column.key] != null) return columnWidths[column.key];
+    const measured = column.fit ? fitWidths[column.key] : undefined;
+    return measured ? Math.max(column.width ?? 0, measured) : column.width;
+  };
   const fill = columns.find((column) => column.fill);
   const sized = fill && columnWidths?.[fill.key] != null;
   const colWidths = columns.map((column) => (column === fill && !sized ? undefined : widthOf(column)));
@@ -161,6 +168,7 @@ function HeadCell({ column, index, sort, onSort, onResize, groupStart, rowSpan, 
       data-column={column.key}
       data-pinned={index === 0 ? '' : undefined}
       data-align={column.align}
+      data-fit={column.fit ? '' : undefined}
       data-group-start={groupStart ? '' : undefined}
       aria-sort={active ? ARIA_SORT[sort.dir] : undefined}
     >
@@ -240,7 +248,7 @@ export default function TableShell({
   const hasGroups = columns.some((column) => column.group);
   const scrollerStyle = offset ? { '--table-shell-offset': offset } : undefined;
   const scrollerRef = useRef(null);
-  const { colWidths, tableStyle } = layoutOf(columns, columnWidths);
+  const tableRef = useRef(null);
   const { virtual, items, before, after, measureElement } = useVirtualRows({
     rows,
     getRowKey,
@@ -248,6 +256,10 @@ export default function TableShell({
     onEndReached,
     scrollerRef,
   });
+  // The rows in the DOM, by key: `items` is a new array on every render, its keys change only when the window moves.
+  const windowKeys = virtual ? items.map((item) => item.key).join(',') : '';
+  const fitWidths = useFitColumnWidths(tableRef, columns, [rows, windowKeys]);
+  const { colWidths, tableStyle } = layoutOf(columns, columnWidths, fitWidths);
 
   const renderRow = (row) => {
     const key = getRowKey(row);
@@ -279,6 +291,7 @@ export default function TableShell({
               className={styles.cell}
               data-pinned={index === 0 ? '' : undefined}
               data-align={column.align}
+              data-fit={column.fit ? '' : undefined}
               data-group-start={hasGroups && startsGroup(columns, index) ? '' : undefined}
               data-column={column.key}
             >
@@ -315,7 +328,7 @@ export default function TableShell({
 
   return (
     <div ref={scrollerRef} className={styles.scroller} style={scrollerStyle} data-table-shell-scroller>
-      <table className={styles.table} style={tableStyle} aria-label={ariaLabel} data-virtual={virtual ? '' : undefined}>
+      <table ref={tableRef} className={styles.table} style={tableStyle} aria-label={ariaLabel} data-virtual={virtual ? '' : undefined}>
         <colgroup>
           {columns.map((column, index) => (
             <col key={column.key} style={colWidths[index] ? { width: toCssWidth(colWidths[index]) } : undefined} />
