@@ -18,7 +18,8 @@ from app.services.sell_out import asignacion
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _world as si
 from tests.services.sell_out import _world as so
-from tests.services.test_productos_sell_in_out_postgres import STUBS, TABLES, _install as _install_base
+from tests.services.test_productos_sell_in_out_postgres import STUBS, TABLES, _bono_costo, _consumido
+from tests.services.test_productos_sell_in_out_postgres import _install as _install_base
 
 pytestmark = pytest.mark.postgres
 
@@ -58,6 +59,7 @@ def _clean(engine: Engine) -> Iterator[None]:
     so.clean(engine)
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM tb_mercadolibre_items_publicados"))
+        conn.execute(text("DELETE FROM sell_in_bonos_marca"))  # items and consumptions cascade
         conn.execute(text("DELETE FROM tacticals"))
 
 
@@ -91,6 +93,33 @@ def _venta_ml(engine: Engine, dia: date, store_id: Optional[int]) -> None:
                 ),
                 {"mla": f"MLA{ref}", "s": store_id},
             )
+
+
+def _bono_solo_gauss(engine: Engine, tope_unidades: int) -> int:
+    """A cost bonus in a sell in tactical stored narrowed to GaussOnline with one cap per store: a scope the API no
+    longer takes for sell in (owner, 2026-11-10: stores are only for sell out), but a row the chain wrote may hold."""
+    bono = _bono_costo(engine, tope_unidades=tope_unidades)
+    with engine.begin() as conn:
+        tid = conn.execute(
+            text(
+                "INSERT INTO tacticals (tipo, nombre, marca, fecha_desde, fecha_hasta, moneda, usuario_id, "
+                "todas_tiendas, tope_compartido) VALUES ('sell_in', 'Solo Gauss', 'TP-LINK', '2026-11-01', "
+                "'2026-11-30', 'ARS', 7, false, false) RETURNING id"
+            )
+        ).scalar_one()
+        conn.execute(
+            text("INSERT INTO tactical_tiendas (tactical_id, tipo, store_id) VALUES (:t, 'oficial', :g)"),
+            {"t": tid, "g": GAUSS},
+        )
+        conn.execute(
+            text("UPDATE sell_in_bonos_marca SET tactical_id = :t, tactical_linea = 1 WHERE id = :b"),
+            {"t": tid, "b": bono},
+        )
+    return bono
+
+
+def _bonos(batch) -> list:
+    return [x.bono.id for x in batch.bonos_costo.get(ROUTER, [])]
 
 
 def _campanas(batch) -> list:
@@ -128,3 +157,18 @@ class TestPorContexto:
         _venta_ml(engine, D(2026, 11, 5), GAUSS)
 
         assert _statements(engine, CONTEXTOS) == _statements(engine, {GAUSS: [("ml", GAUSS)]})
+
+
+class TestSellInIgnoresStores:
+    """Owner, 2026-11-10: "lo de tiendas no aplica a sell in, es solo para sell out". A cost bonus is the same in
+    every store context, its cap counted over everything it gave, whatever scope its tactical row holds."""
+
+    @pytest.mark.parametrize("tope, activo", [(2, True), (1, False)], ids=["cap_left", "cap_used_up"])
+    def test_a_cost_bonus_is_the_same_in_every_store_context(self, engine: Engine, tope: int, activo: bool) -> None:
+        bono = _bono_solo_gauss(engine, tope_unidades=tope)
+        _consumido(engine, bono, 1, "1500.00")  # one unit already given to a sale por fuera
+
+        with sessionmaker(bind=engine, autoflush=False)() as db:
+            juntos = resolver_sell_in_out_por_contexto(db, [ROUTER], HOY, CONTEXTOS)
+
+        assert {k: _bonos(b) for k, b in juntos.items()} == {k: [bono] if activo else [] for k in CONTEXTOS}
