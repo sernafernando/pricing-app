@@ -1502,7 +1502,8 @@ describe('the Agrupado view (P12a)', () => {
       expect(await screen.findByText('Switches · REDES')).toBeInTheDocument();
       expect(groupCalls()[0].dimension).toBe('subcategoria');
       expect(screen.getByRole('columnheader', { name: /^Subcategoría › Producto/ })).toBeInTheDocument();
-      expect(screen.getByText('Subcategoría', { selector: 'span' })).toBeInTheDocument();
+      // The node's second line: its level, then its count ("Subcategoría · 2 publicaciones").
+      expect(screen.getByText(/^Subcategoría · /, { selector: 'span' })).toBeInTheDocument();
     });
 
     it('groups by tienda: the stores on top, tagged Tienda, and the header starts at the store', async () => {
@@ -1518,7 +1519,7 @@ describe('the Agrupado view (P12a)', () => {
       expect(
         screen.getByRole('columnheader', { name: /^Tienda › Marca › Categoría › Subcategoría › Producto › Publicación/ }),
       ).toBeInTheDocument();
-      expect(screen.getAllByText('Tienda', { selector: 'span' })).toHaveLength(2);
+      expect(screen.getAllByText(/^Tienda · /, { selector: 'span' })).toHaveLength(2);
     });
 
     it('groups by PM: the PMs on top, tagged PM, and the header starts at the PM', async () => {
@@ -1534,7 +1535,7 @@ describe('the Agrupado view (P12a)', () => {
       expect(
         screen.getByRole('columnheader', { name: /^PM › Marca › Categoría › Subcategoría › Producto › Familia › Publicación/ }),
       ).toBeInTheDocument();
-      expect(screen.getAllByText('PM', { selector: 'span' })).toHaveLength(2);
+      expect(screen.getAllByText(/^PM · /, { selector: 'span' })).toHaveLength(2);
     });
 
     it('keeps the family toggle working under another dimension', async () => {
