@@ -629,7 +629,12 @@ export default function ModalRma({ caso, onClose }) {
                         <div key={idx} className={styles.trazaItem}>
                           <div>
                             <div className={styles.trazaItemDesc}>{s.articulo?.descripcion || 'Sin descripción'}</div>
-                            <div className={styles.trazaItemMeta}>{s.serial}</div>
+                            <div className={styles.trazaItemMeta}>
+                              {s.serial ||
+                                [s.articulo?.codigo, s.cantidad != null && `Cant. ${s.cantidad}`]
+                                  .filter(Boolean)
+                                  .join(' · ')}
+                            </div>
                           </div>
                           <button className="btn-tesla outline-subtle-success sm" onClick={() => agregarItemDesdeTraza(s.serial, s.articulo, trazaResult.pedidos?.[0], s.movimientos)}>
                             <Plus size={14} /> Agregar
