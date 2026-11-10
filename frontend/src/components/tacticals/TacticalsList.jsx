@@ -28,7 +28,8 @@ const FILAS_POR_PAGINA = 50;
 
 const cantidadDe = (n) => `${n} ${n === 1 ? 'tactical' : 'tacticals'}`;
 
-/** Pendientes and Cobrados over every tactical the other filters match (tactical cobranza S4): count and amount. */
+/** Pendientes and Cobrados over every tactical the other filters match (tactical cobranza S4): count, generated of
+ * cap per currency and how many have no money cap (S6). */
 function KpisCobranza({ kpis }) {
   return (
     <section className={styles.kpis} aria-label="Cobranza de los tacticals">
@@ -40,9 +41,10 @@ function KpisCobranza({ kpis }) {
           <span className={styles.label}>{titulo}</span>
           <div className={styles.kpiCantidad}>{cantidadDe(grupo.cantidad)}</div>
           <div className={styles.kpiMonto}>{formatMontosKpi(grupo.montos)}</div>
+          {grupo.sin_tope > 0 && <div className={styles.kpiSinTope}>{grupo.sin_tope} sin tope</div>}
         </div>
       ))}
-      <p className={styles.kpiNota}>Monto: lo que generaron las líneas de cada tactical, por moneda.</p>
+      <p className={styles.kpiNota}>Monto: lo que generaron las líneas de cada tactical de su tope, por moneda.</p>
     </section>
   );
 }

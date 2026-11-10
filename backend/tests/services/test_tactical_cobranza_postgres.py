@@ -181,9 +181,11 @@ class TestKpis:
         kpis = service.kpis(db, service.Filtros(tipos=TODOS), hoy=HOY)
 
         assert kpis == {
-            "pendientes": {"cantidad": 3, "montos": [{"moneda": "ARS", "monto": Decimal("70.50")},
-                                                     {"moneda": "USD", "monto": Decimal("7.00")}]},
-            "cobrados": {"cantidad": 1, "montos": [{"moneda": "ARS", "monto": Decimal("100.00")}]},
+            "pendientes": {"cantidad": 3, "sin_tope": 3,
+                           "montos": [{"moneda": "ARS", "monto": Decimal("70.50"), "tope": None},
+                                      {"moneda": "USD", "monto": Decimal("7.00"), "tope": None}]},
+            "cobrados": {"cantidad": 1, "sin_tope": 1,
+                         "montos": [{"moneda": "ARS", "monto": Decimal("100.00"), "tope": None}]},
         }  # fmt: skip
 
     def test_they_follow_the_other_filters_but_not_the_collection_one(self, db, engine) -> None:
@@ -197,27 +199,48 @@ class TestKpis:
         solo_cobrados = service.kpis(db, service.Filtros(tipos=TODOS, cobranza="cobrados"), hoy=HOY)
 
         assert por_texto == {
-            "pendientes": {"cantidad": 1, "montos": [{"moneda": "ARS", "monto": Decimal("10.00")}]},
-            "cobrados": {"cantidad": 0, "montos": []},
+            "pendientes": {
+                "cantidad": 1,
+                "sin_tope": 1,
+                "montos": [{"moneda": "ARS", "monto": Decimal("10.00"), "tope": None}],
+            },
+            "cobrados": {"cantidad": 0, "sin_tope": 0, "montos": []},
         }
         assert (solo_cobrados["pendientes"]["cantidad"], solo_cobrados["cobrados"]["cantidad"]) == (1, 1)
 
 
+def _tope_de(linea: dict) -> Decimal | None:
+    """A line's money cap as the list shows it: its `tope_monto`, or the total of a Monto total line (its own cap)."""
+    if linea["tope_monto"] is not None:
+        return Decimal(linea["tope_monto"])
+    return Decimal(linea["valor"]) if linea["modo_monto"] == "monto_total" else None
+
+
 def _segun_las_lineas(db: Session, filtros: service.Filtros) -> dict:
     """The KPIs the slow way: every filtered tactical serialized, its lines' `monto_usado` summed per currency (what
-    the list's Avance column shows). The SQL aggregate must give exactly these numbers."""
+    the list's Avance column shows) and their money caps (S6). The SQL aggregate must give exactly these numbers."""
     tacticals = service.listar(db, filtros, 1, 500, hoy=HOY)[1]
     salida = {}
     for clave, cobrados in (("pendientes", False), ("cobrados", True)):
         grupo = [t for t in service.serializar(db, tacticals) if (t["cobranza"] is not None) == cobrados]
         montos: dict[str, Decimal] = {}
+        topes: dict[str, Decimal] = {}
         for t in grupo:
             for linea in t["lineas"]:
                 montos[linea["moneda"]] = montos.get(linea["moneda"], Decimal(0)) + Decimal(linea["monto_usado"])
+                if (tope := _tope_de(linea)) is not None:
+                    topes[linea["moneda"]] = topes.get(linea["moneda"], Decimal(0)) + tope
         salida[clave] = {
             "cantidad": len(grupo),
+            "sin_tope": sum(1 for t in grupo if all(_tope_de(linea) is None for linea in t["lineas"])),
             "montos": [
-                {"moneda": m, "monto": montos[m].quantize(Decimal("0.01"))} for m in ("ARS", "USD") if m in montos
+                {
+                    "moneda": m,
+                    "monto": montos[m].quantize(Decimal("0.01")),
+                    "tope": topes[m].quantize(Decimal("0.01")) if m in topes else None,
+                }
+                for m in ("ARS", "USD")
+                if m in montos
             ],
         }
     return salida
@@ -306,6 +329,18 @@ class TestKpisEnSql:
         # Sell in invoice fixed total in USD at a fixed rate: its sales took ARS, shown in USD at its own rate
         # (ARS 2.501,25 / 1.000,5 = USD 2,50).
         total = total_usd("Total USD", bw.pedido(engine, {2270: 5}, date(2026, 10, 12)))
+        # Caps (S6): a sell out line with a money cap, and a sell in cost total loaded in USD, whose bonus keeps the
+        # ARS total at the fixed rate (USD 2 x 1.000,5 = ARS 2.001), so its cap counts in ARS as its usage does.
+        service.crear(db, _tactical(nombre="Tope", lineas=[{"alcance": "marca", "marca": bw.TPLINK,
+                                                           "modo_monto": "por_unidad", "valor": "10", "tope_monto": "500"}]),
+                      USUARIO)  # fmt: skip
+        service.crear(
+            db,
+            _tactical("sell_in", [{"alcance": "productos", "item_ids": [2964], "modo_monto": "monto_total", "valor": "2",
+                                   "reparto_criterio": "iguales"}], nombre="Costo total USD", moneda="USD",
+                      tc_modo="fijo", tipo_cambio="1000.5"),
+            USUARIO,
+        )  # fmt: skip
         # Voided after they were used: a campaign, a cost bonus and an invoice total. The list still shows what each
         # used, so the KPIs count it too.
         campana_anulada = service.crear(db, _tactical(nombre="Campaña anulada"), USUARIO)
@@ -332,12 +367,15 @@ class TestKpisEnSql:
 
         assert kpis == _segun_las_lineas(db, filtros)
         assert kpis == {
-            # Campaña 131,00 + Factura % 40,50 + Campaña anulada 10,10 + Costo anulado 20,20; Sin uso USD 0.
-            "pendientes": {"cantidad": 5, "montos": [{"moneda": "ARS", "monto": Decimal("201.80")},
-                                                     {"moneda": "USD", "monto": Decimal("0.00")}]},
-            # Costo 108,15; Total USD 2,50 + Total USD anulado 0,50.
-            "cobrados": {"cantidad": 3, "montos": [{"moneda": "ARS", "monto": Decimal("108.15")},
-                                                   {"moneda": "USD", "monto": Decimal("3.00")}]},
+            # Campaña 131,00 + Factura % 40,50 + Campaña anulada 10,10 + Costo anulado 20,20; Sin uso USD 0. Caps:
+            # Tope 500 + Costo total USD 2.001; the other 5 have none.
+            "pendientes": {"cantidad": 7, "sin_tope": 5,
+                           "montos": [{"moneda": "ARS", "monto": Decimal("201.80"), "tope": Decimal("2501.00")},
+                                      {"moneda": "USD", "monto": Decimal("0.00"), "tope": None}]},
+            # Costo 108,15; Total USD 2,50 + Total USD anulado 0,50, each capped by its USD 300 total; Costo has none.
+            "cobrados": {"cantidad": 3, "sin_tope": 1,
+                         "montos": [{"moneda": "ARS", "monto": Decimal("108.15"), "tope": None},
+                                    {"moneda": "USD", "monto": Decimal("3.00"), "tope": Decimal("600.00")}]},
         }  # fmt: skip
 
     def test_voided_tacticals_with_the_anulados_filter(self, db, engine) -> None:
@@ -359,7 +397,15 @@ class TestKpisEnSql:
         assert ids(estado="anulados", cobranza="pendientes") == [anulado_pendiente.id]
         filtros = service.Filtros(tipos=TODOS, estado="anulados")
         assert service.kpis(db, filtros, hoy=HOY) == {
-            "pendientes": {"cantidad": 1, "montos": [{"moneda": "ARS", "monto": Decimal("30.25")}]},
-            "cobrados": {"cantidad": 1, "montos": [{"moneda": "ARS", "monto": Decimal("70.00")}]},
+            "pendientes": {
+                "cantidad": 1,
+                "sin_tope": 1,
+                "montos": [{"moneda": "ARS", "monto": Decimal("30.25"), "tope": None}],
+            },
+            "cobrados": {
+                "cantidad": 1,
+                "sin_tope": 1,
+                "montos": [{"moneda": "ARS", "monto": Decimal("70.00"), "tope": None}],
+            },
         }
         assert service.kpis(db, filtros, hoy=HOY) == _segun_las_lineas(db, filtros)

@@ -237,10 +237,12 @@ class TacticalOut(BaseModel):
 class MontoMonedaOut(BaseModel):
     moneda: Moneda
     monto: Decimal
+    tope: Optional[Decimal] = None  # the lines' money caps in this currency (S6); None when no line here has one
 
 
 class CobranzaKpiOut(BaseModel):
     cantidad: int
+    sin_tope: int = 0  # how many have no money cap on any line (S6)
     montos: list[MontoMonedaOut]  # money used per currency, as the list's Avance column (ARS first)
 
 

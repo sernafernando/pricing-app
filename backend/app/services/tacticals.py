@@ -918,15 +918,22 @@ def listar(db: Session, filtros: Filtros, page: int, page_size: int, hoy: Option
 
 
 def _usado_por_linea(ids: Select) -> Subquery:
-    """One row per child of the tacticals in `ids` (a subquery of ids): `(tactical_id, moneda, monto)`, `monto` being
-    its `monto_usado` exactly as `serializar` computes it (`_lineas_campanas`, `_lineas_bonos` through
-    `bonos_crud.serializar`, `_lineas_compras`), rounded to cents per child. A child that used nothing is a 0 row."""
+    """One row per child of the tacticals in `ids` (a subquery of ids): `(tactical_id, moneda, monto, tope)`, `monto`
+    being its `monto_usado` exactly as `serializar` computes it (`_lineas_campanas`, `_lineas_bonos` through
+    `bonos_crud.serializar`, `_lineas_compras`), rounded to cents per child. A child that used nothing is a 0 row.
+    `tope` is its money cap in that same currency (S6): its `tope_monto`, or the total of a Monto total child (the
+    total is its cap; a cost bonus keeps it in ARS, converted at the tactical's fixed rate); NULL without one."""
     cero = literal(0)
+
+    def tope(modelo):
+        return func.coalesce(modelo.tope_monto, case((modelo.tipo == "monto_total", modelo.monto_total))).label("tope")
+
     campanas_ = (
         select(
             SellOutCampana.tactical_id.label("tactical_id"),
             SellOutCampana.moneda.label("moneda"),
             func.round(func.coalesce(func.sum(SellOutConsumo.monto), cero), 2).label("monto"),
+            tope(SellOutCampana),
         )
         .select_from(SellOutCampana)
         .outerjoin(SellOutConsumo, SellOutConsumo.campana_id == SellOutCampana.id)
@@ -946,6 +953,7 @@ def _usado_por_linea(ids: Select) -> Subquery:
                 ),
                 else_=cero,
             ),
+            tope(SellInBonoMarca),
         )
         .select_from(SellInBonoMarca)
         .outerjoin(SellInBonoConsumo, SellInBonoConsumo.bono_id == SellInBonoMarca.id)
@@ -958,6 +966,7 @@ def _usado_por_linea(ids: Select) -> Subquery:
             SellInBonoMarca.tactical_id,
             SellInBonoMarca.moneda,
             func.round(func.coalesce(func.sum(SellInCompraItem.monto_asignado), cero), 2),
+            tope(SellInBonoMarca),
         )
         .select_from(SellInBonoMarca)
         .outerjoin(
@@ -980,6 +989,7 @@ def _usado_por_linea(ids: Select) -> Subquery:
             SellInCompra.tactical_id,
             SellInCompra.moneda,
             func.round(case((en_usd, ars / SellInCompra.tipo_cambio), else_=ars), 2),
+            SellInCompra.monto_total,  # an invoice total: in the purchase's own currency, its own cap
         )
         .select_from(SellInCompra)
         .outerjoin(SellInCompraItem, SellInCompraItem.compra_id == SellInCompra.id)
@@ -993,8 +1003,9 @@ def _usado_por_linea(ids: Select) -> Subquery:
 def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
     """Pendientes and Cobrados over every tactical the other filters match (S4): how many, and the money they used
     per currency, the sum of their lines' `monto_usado` exactly as the list's Avance column shows it (a USD
-    tactical's cost-reduction lines count in ARS). Two SQL aggregates, whatever the number of tacticals. ARS first,
-    then USD; a currency with no line is left out."""
+    tactical's cost-reduction lines count in ARS), next to the sum of their money caps in that currency (S6, None
+    when no line there has one), and how many have no money cap on any line. Three SQL aggregates, whatever the
+    number of tacticals. ARS first, then USD; a currency with no line is left out."""
     cobrado = exists().where(TacticalCobranza.tactical_id == Tactical.id)
     base = (
         _consulta(db, filtros, hoy or date.today())
@@ -1004,17 +1015,32 @@ def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
     )
     cantidades = {bool(c): int(n) for c, n in db.query(base.c.cobrado, func.count()).group_by(base.c.cobrado)}
     lineas = _usado_por_linea(select(base.c.id))
-    montos: dict[bool, dict[str, Decimal]] = defaultdict(dict)
-    for c, moneda, monto in (
-        db.query(base.c.cobrado, lineas.c.moneda, func.sum(lineas.c.monto))
+    montos: dict[bool, dict[str, dict]] = defaultdict(dict)
+    for c, moneda, monto, tope in (
+        db.query(base.c.cobrado, lineas.c.moneda, func.sum(lineas.c.monto), func.sum(lineas.c.tope))
         .join(lineas, lineas.c.tactical_id == base.c.id)
         .group_by(base.c.cobrado, lineas.c.moneda)
     ):
-        montos[bool(c)][moneda] = _cents(monto)
+        montos[bool(c)][moneda] = {
+            "moneda": moneda,
+            "monto": _cents(monto),
+            "tope": None if tope is None else _cents(tope),
+        }
+    con_tope = (
+        select(lineas.c.tactical_id, func.count(lineas.c.tope).label("topes")).group_by(lineas.c.tactical_id).subquery()
+    )
+    sin_tope = {
+        bool(c): int(n)
+        for c, n in db.query(base.c.cobrado, func.count())
+        .outerjoin(con_tope, con_tope.c.tactical_id == base.c.id)
+        .filter(func.coalesce(con_tope.c.topes, 0) == 0)
+        .group_by(base.c.cobrado)
+    }
     return {
         clave: {
             "cantidad": cantidades.get(cobrados, 0),
-            "montos": [{"moneda": m, "monto": montos[cobrados][m]} for m in ("ARS", "USD") if m in montos[cobrados]],
+            "sin_tope": sin_tope.get(cobrados, 0),
+            "montos": [montos[cobrados][m] for m in ("ARS", "USD") if m in montos[cobrados]],
         }
         for clave, cobrados in (("pendientes", False), ("cobrados", True))
     }

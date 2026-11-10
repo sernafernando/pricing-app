@@ -169,7 +169,7 @@ Un **tactical** es un programa de una marca: sell in baja el costo, sell out sum
   - **Vigencia**: Desde y Hasta.
   - **Buscar**: por nombre o referencia.
   - **Limpiar filtros** vuelve a los vigentes de todas las marcas, con Cobranza en Todos.
-- Arriba de la lista, **Pendientes** y **Cobrados** dicen cuántos tacticals hay de cada uno y su monto por moneda: lo que generaron sus líneas, el mismo monto que muestra **Avance**. Cuentan todos los tacticals que cumplen los otros filtros (no solo la página que estás viendo); el filtro **Cobranza** no los cambia.
+- Arriba de la lista, **Pendientes** y **Cobrados** dicen cuántos tacticals hay de cada uno y su monto por moneda: lo que generaron sus líneas (el mismo monto que muestra **Avance**) **de** su tope, por ejemplo `ARS 4.380.250 de 6.000.000`. El tope es la suma de los topes de monto de las líneas; en una línea de **Monto total**, el total es su tope. Las líneas sin tope de monto no suman al tope, y **N sin tope** dice cuántos tacticals no tienen tope de monto en ninguna línea. Cuentan todos los tacticals que cumplen los otros filtros (no solo la página que estás viendo); el filtro **Cobranza** no los cambia.
 - Columnas:
   - **Nombre**, con la referencia debajo.
   - **Tipo**, **Marca** (todas las del tactical, separadas por coma), **Vigencia** y **Líneas**.
@@ -235,7 +235,7 @@ Sell in baja el costo de la compra; sell out suma ganancia por campaña (o la de
 Repartir pide permiso de reparto (lo tienen los PM y los administradores) o de gestión de campañas, y la campaña tiene que estar activa. Un PM solo puede repartir productos de sus marcas.
 
 **¿Qué monto suman Pendientes y Cobrados?**
-Lo que generaron las líneas de esos tacticals, por moneda: el mismo monto de la columna **Avance**. Un tactical en USD puede sumar a ARS si tiene líneas de costo, que van en pesos.
+Lo que generaron las líneas de esos tacticals, por moneda: el mismo monto de la columna **Avance**, seguido de **de** y la suma de sus topes de monto en esa moneda. Un tactical en USD puede sumar a ARS si tiene líneas de costo, que van en pesos; su tope también (un monto total de costo cargado en USD se guarda en pesos al tipo de cambio fijo). Si ninguna línea de una moneda tiene tope, esa moneda muestra solo lo generado.
 
 **¿Un tactical anulado puede marcarse cobrado?**
 Sí: la marca pudo haber pagado lo que se generó antes de anularlo. Con **Estado** en Anulados ves sus Pendientes y Cobrados.

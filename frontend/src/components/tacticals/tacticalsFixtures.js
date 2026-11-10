@@ -118,6 +118,14 @@ export const COBRANZA_FONDO = {
 
 /** `kpis` of `GET /api/tacticals` (PR #2182): count and money used per currency, ARS first. */
 export const KPIS_COBRANZA = {
-  pendientes: { cantidad: 12, montos: [{ moneda: 'ARS', monto: '4380250.00' }, { moneda: 'USD', monto: '1920.00' }] },
-  cobrados: { cantidad: 7, montos: [{ moneda: 'ARS', monto: '2115000.00' }, { moneda: 'USD', monto: '640.00' }] },
+  pendientes: {
+    cantidad: 12,
+    sin_tope: 3,
+    montos: [{ moneda: 'ARS', monto: '4380250.00', tope: '6000000.00' }, { moneda: 'USD', monto: '1920.00', tope: null }],
+  },
+  cobrados: {
+    cantidad: 7,
+    sin_tope: 0,
+    montos: [{ moneda: 'ARS', monto: '2115000.00', tope: '2500000.00' }, { moneda: 'USD', monto: '640.00', tope: '800.00' }],
+  },
 };

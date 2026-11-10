@@ -123,9 +123,19 @@ export const FILTROS_VACIOS = {
   q: '',
 };
 
-/** A KPI amount (`kpis.*.montos` of the list, tactical cobranza S4): `ARS 4.380.250 · USD 1.920`, a dash when none. */
+/**
+ * A KPI amount (`kpis.*.montos` of the list, tactical cobranza S4): what the lines generated per currency, "of" the
+ * lines' money caps when that currency has any (S6): `ARS 4.380.250 de 6.000.000 · USD 1.920`; a dash when none.
+ */
 export const formatMontosKpi = (montos) =>
-  montos?.length ? montos.map(({ moneda, monto }) => formatMontoTactical(monto, moneda)).join(' · ') : '—';
+  montos?.length
+    ? montos
+        .map(({ moneda, monto, tope }) => {
+          const generado = formatMontoTactical(monto, moneda);
+          return vacio(tope) ? generado : `${generado} de ${NUMERO.format(Number(tope))}`;
+        })
+        .join(' · ')
+    : '—';
 
 /** The list's query: only the filters that are set ("Todos" sends no tipo nor cobranza). */
 export function paramsDeFiltros(filtros, { page, pageSize }) {
