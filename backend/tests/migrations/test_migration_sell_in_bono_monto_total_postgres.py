@@ -88,14 +88,14 @@ def before() -> Iterator[Engine]:
         yield engine
 
 
-def test_this_revision_chains_on_the_sell_out_split_criterion_and_is_the_only_head() -> None:
+def test_this_revision_chains_on_the_sell_out_split_criterion_and_leaves_one_head() -> None:
     config = Config(os.path.join(_BACKEND_ROOT, "alembic.ini"))
     config.set_main_option("script_location", os.path.join(_BACKEND_ROOT, "alembic"))
     script = ScriptDirectory.from_config(config)
     revision = script.get_revision(_REVISION)
     assert revision is not None
     assert revision.down_revision == "20261107_sell_out_reparto_criterio"
-    assert script.get_heads() == [_REVISION]
+    assert len(script.get_heads()) == 1  # no divergent heads; a later revision may sit on top of this one
 
 
 @pytest.mark.postgres

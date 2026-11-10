@@ -7,8 +7,10 @@ import os
 from typing import Iterator
 
 import pytest
+from alembic.config import Config
 from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError
 
@@ -18,6 +20,7 @@ _VERSIONS = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "alembic", "versions"
 )
 _REVISION = "20261107_tacticals_tiendas"
+_BACKEND = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _STUBS = [
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
     "CREATE FUNCTION sell_out_set_updated_at() RETURNS trigger LANGUAGE plpgsql AS "
@@ -160,3 +163,13 @@ class TestDowngrade:
         assert _columna(engine, "tacticals", "tope_compartido") is None
         with engine.connect() as conn:
             assert conn.execute(text("SELECT to_regclass('tactical_tiendas')")).scalar() is None
+
+
+def test_it_chains_on_the_sell_in_total_bonus_and_leaves_one_head() -> None:
+    config = Config(os.path.join(_BACKEND, "alembic.ini"))
+    config.set_main_option("script_location", os.path.join(_BACKEND, "alembic"))
+    script = ScriptDirectory.from_config(config)
+    revision = script.get_revision(_REVISION)
+    assert revision is not None
+    assert revision.down_revision == "20261108_sell_in_bono_monto_total"
+    assert len(script.get_heads()) == 1  # no divergent heads; a later revision may sit on top of this one
