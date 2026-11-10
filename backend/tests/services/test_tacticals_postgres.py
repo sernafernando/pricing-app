@@ -266,6 +266,33 @@ class TestSellIn:
         with pytest.raises(service.TacticalError, match="^Las fechas son obligatorias"):
             service.crear(db, _tactical(fecha_desde=None, fecha_hasta=None), USUARIO)
 
+    def test_a_corrected_invoice_date_moves_the_header_of_an_invoice_tactical(self, db, engine) -> None:
+        """Verifier advisory on L6: the header keeps spanning its invoices (oldest..newest) after Compras corrects one;
+        a mixed tactical's header keeps its own dates."""
+        vieja = bw.pedido(engine, {2964: 10}, date(2026, 3, 10))
+        nueva = bw.pedido(engine, {2270: 5}, date(2026, 10, 10))
+        lineas = [
+            {"alcance": "factura", "pedido_compra_id": vieja, "modo_monto": "porcentaje", "valor": "5"},
+            {"alcance": "factura", "pedido_compra_id": nueva, "modo_monto": "por_unidad", "valor": "2"},
+        ]
+        factura = service.crear(db, _tactical("sell_in", lineas, fecha_desde=None, fecha_hasta=None), USUARIO)
+        marca = {"alcance": "marca", "marca": TPLINK, "modo_monto": "porcentaje", "valor": "3"}
+        mixto = service.crear(db, _tactical("sell_in", [marca, lineas[1]], nombre="Mixto"), USUARIO)
+        bonos.reconciliar(db, pedido_ids=[vieja, nueva])
+        db.commit()
+
+        bw.update_pedido(engine, nueva, fecha_factura=date(2026, 12, 5))
+        bonos.reconciliar(db, pedido_ids=[nueva])
+        db.commit()
+
+        with engine.connect() as conn:
+            fechas = dict(
+                (t, (d, h))
+                for t, d, h in conn.execute(text("SELECT id, fecha_desde, fecha_hasta FROM tacticals")).all()
+            )
+        assert fechas[factura.id] == (date(2026, 3, 10), date(2026, 12, 5))
+        assert fechas[mixto.id] == (date(2026, 11, 1), date(2026, 11, 30))
+
     def test_the_invoice_units_get_the_rebate_whenever_they_are_sold_until_they_run_out(self, db, engine) -> None:
         pedido = bw.pedido(engine, {2964: 700}, date(2026, 10, 10))
         linea = {"alcance": "factura", "pedido_compra_id": pedido, "modo_monto": "por_unidad", "valor": "2"}

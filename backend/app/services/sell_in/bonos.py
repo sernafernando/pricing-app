@@ -114,6 +114,7 @@ from app.models.pedido_compra import PedidoCompra
 from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoItem, SellInBonoMarca, SellInCompra, SellInCompraItem, SellInCompraPedido
+from app.models.tactical import Tactical
 from app.models.tipo_cambio import TipoCambio
 from app.schemas.sell_in_bonos import BASE_FACTURA
 from app.services.sell_in import bonos_costo
@@ -565,7 +566,7 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
     for item in db.query(SellInCompraItem).filter(SellInCompraItem.compra_id.in_(compra_ids or [-1])):
         items_por_compra[item.compra_id].append(item)
 
-    _seguir_factura(bonos.values(), pedidos)
+    _cabeceras_por_factura(db, _seguir_factura(bonos.values(), pedidos))
 
     tocados: Set[int] = set()
     tasas_bna = tasas_bna_por_fecha(
@@ -630,18 +631,51 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
     return result
 
 
-def _seguir_factura(bonos: Iterable[SellInBonoMarca], pedidos: Mapping[int, _Pedido]) -> None:
+def _seguir_factura(bonos: Iterable[SellInBonoMarca], pedidos: Mapping[int, _Pedido]) -> Set[int]:
     """An invoice bonus has no dates of its own (tactical factura sin fecha L6/L7, owner: "si cambian la fecha no se
     debería anular porque está aplicando a una factura"): when its operation's invoice date leaves the bonus's range
     (Compras corrected it), the bonus's range moves to that one date. It keeps the queue's triggers
     (`bono_queue.sell_in_bono_cubre*`, which read the bonus's range) covering the invoice; an invoice inside the
     range leaves the stored range as it is. The UPDATE queues the bonus again through its own trigger: the next drain
-    finds the invoice inside the moved range and changes nothing (one extra pass, no loop)."""
+    finds the invoice inside the moved range and changes nothing (one extra pass, no loop). Returns the tacticals
+    of the moved bonuses."""
+    tacticals: Set[int] = set()
     for bono in bonos:
         pedido = pedidos.get(bono.pedido_id) if bono.alcance == "factura" else None
         fecha = pedido.fecha_factura if pedido is not None else None
         if fecha is not None and not (bono.fecha_desde <= fecha <= bono.fecha_hasta):
             bono.fecha_desde = bono.fecha_hasta = fecha
+            if bono.tactical_id is not None:
+                tacticals.add(bono.tactical_id)
+    return tacticals
+
+
+def _cabeceras_por_factura(db: Session, tactical_ids: Set[int]) -> None:
+    """An all-invoice tactical's header spans its invoices, oldest to newest (tactical factura sin fecha S2c): after
+    `_seguir_factura` moved one of its bonuses, the header follows the corrected invoice date. A tactical with any
+    other child (a mixed one) keeps its own dates: they belong to its other lines."""
+    for tactical_id in sorted(tactical_ids):
+        tactical = db.get(Tactical, tactical_id)
+        otra = (
+            db.query(SellInBonoMarca.id)
+            .filter(SellInBonoMarca.tactical_id == tactical_id, SellInBonoMarca.alcance != "factura")
+            .first()
+        )
+        if tactical is None or tactical.tipo != "sell_in" or otra is not None:
+            continue
+        de_bonos = db.query(SellInBonoMarca.pedido_id).filter(SellInBonoMarca.tactical_id == tactical_id)
+        de_totales = (
+            db.query(SellInCompraPedido.pedido_compra_id)
+            .join(SellInCompra, SellInCompra.id == SellInCompraPedido.compra_id)
+            .filter(SellInCompra.tactical_id == tactical_id)
+        )
+        desde, hasta = (
+            db.query(func.min(PedidoCompra.fecha_factura), func.max(PedidoCompra.fecha_factura))
+            .filter(or_(PedidoCompra.id.in_(de_bonos), PedidoCompra.id.in_(de_totales)))
+            .one()
+        )
+        if desde is not None and (tactical.fecha_desde, tactical.fecha_hasta) != (desde, hasta):
+            tactical.fecha_desde, tactical.fecha_hasta = desde, hasta
 
 
 def _orden(pedido: _Pedido) -> Tuple[date, int]:
