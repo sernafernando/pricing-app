@@ -20,6 +20,9 @@ Un tactical es un acuerdo con una marca: sus datos y todas sus líneas se cargan
 
 1. **Tipo**: **Sell out** (la marca te paga por cada unidad vendida en el rango) o **Sell in** (baja el costo de lo que vendés en el rango). Solo se puede elegir el tipo que tu permiso deja gestionar.
 2. **Datos del tactical**: nombre, marca (sirve para filtrar los tacticals por marca), referencia de la marca (opcional), vigencia **Desde**/**Hasta**, moneda y condiciones. Sell out arranca en USD y sell in en ARS. En USD aparece **Tipo de cambio**: **Al cobro**, **Fijo** (pide el valor) o **Día de la venta**. **Los montos incluyen IVA** y **Se acumula con otras campañas** (marcado de entrada) son las condiciones. La nota es opcional.
+   - **Tiendas donde aplica**: **Todas las tiendas oficiales** (marcado de entrada) alcanza todas las ventas de Mercado Libre, también las de publicaciones sin tienda oficial. Al destildarlo aparecen las tiendas oficiales para elegir una o varias; entonces solo cuentan las ventas de publicaciones de esas tiendas. **Por fuera** y **Tienda Nube** se tildan aparte y suman las ventas de esos canales. La tienda de una venta es la tienda oficial de su publicación. En sell in, una línea por factura no mira las tiendas: baja el costo de esa factura como antes.
+   - **Tope compartido entre las tiendas elegidas**: destildado (de entrada), cada tienda o canal tiene su propio contador con el mismo tope; tildado, todas las tiendas y canales elegidos restan de un solo tope. **Cómo se aplica el tope** muestra cómo queda con el primer tope de unidades de las líneas.
+   - Los tacticals que ya existían antes de que estuviera esta opción siguen acreditando igual que siempre: quedaron con **Todas las tiendas oficiales**, **Por fuera**, **Tienda Nube** y **Tope compartido** tildados. **Renovar** los abre así.
 3. **Líneas**: cada línea tiene un alcance y un monto con sus topes.
    - Alcance: **Productos** (uno o varios: **+ Producto** abre el buscador, se tildan los que van y **Agregar a la línea**; cada uno queda como etiqueta con su cruz para quitarlo), **Marca**, **Categoría** y, solo en sell in, **Factura** (**+ Factura** busca las compras por número, proveedor o fecha; se pueden tildar varias). Una línea de factura se cobra siempre como **monto total** y el monto se reparte entre los productos de la factura según lo facturado.
    - Monto: **por unidad**, **%** o **monto total**. Los montos se escriben como en Argentina (3,6 o 1.500).
@@ -178,7 +181,7 @@ Tacticals: tipo, marca, moneda, estado, vigencia y búsqueda. Grupos: nombre, fi
 - **Nuevo grupo**: crea un grupo (según permiso).
 - **Crear tactical**: crea el tactical con todas sus líneas; **Cancelar** lo descarta después de confirmar.
 - **Editar** (acciones de una fila de Tacticals): cambia nombre, nota, fecha hasta y topes; **Guardar cambios** manda solo lo que cambiaste.
-- **Renovar** (acciones de una fila de Tacticals): abre **Nuevo tactical** cargado con ese tactical, con fechas nuevas por elegir.
+- **Renovar** (acciones de una fila de Tacticals): abre **Nuevo tactical** cargado con ese tactical, con fechas nuevas por elegir, sus tiendas y su modo de tope.
 - **Anular** (acciones de una fila de Tacticals): anula el tactical con todas sus líneas, después de confirmar.
 - **Ver ventas** (en cada línea de un tactical): abre al costado lo que cargó esa línea, solo para mirar.
 - **Actualizar**: recarga datos.
