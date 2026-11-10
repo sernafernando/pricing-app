@@ -29,10 +29,6 @@ pytestmark = pytest.mark.postgres
 ROUTER = 2964  # cost 50000 ARS, VAT 21
 GAUSS, TPLINK = 57997, 2645
 DESDE, HASTA = date(2020, 1, 1), date(2099, 12, 31)  # current whatever day the test runs
-PUBLICADOS = (
-    "CREATE TABLE tb_mercadolibre_items_publicados ("
-    "mlp_id SERIAL PRIMARY KEY, mlp_publicationid VARCHAR(50), mlp_official_store_id INTEGER)"
-)
 
 
 def _install(engine: Engine) -> None:
@@ -57,7 +53,7 @@ def engine() -> Iterator[Engine]:
     with throwaway_schema(
         "cost_lines_tienda",
         [*TABLES, MlTiendaOficial.__table__, TacticalTienda.__table__, ItemCostListHistory.__table__],
-        [*STUBS, PUBLICADOS],
+        STUBS,
         after=_install,
     ) as engine:
         yield engine

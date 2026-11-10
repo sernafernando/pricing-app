@@ -474,7 +474,7 @@ def _sell_in_out(
 ) -> Optional[dict]:
     """The sell in / sell out of the breakdown's unit (module docstring, 6); None when nothing was priced or neither
     applies. Tactical companions follow the publication's official store as the allocators credit it
-    (`alcance._stores_por_mla`, `cost_lines_by_publication`); without one, `("ml", None)`."""
+    (`alcance.stores_por_mla`, `cost_lines_by_publication`); without one, `("ml", None)`."""
     b = None if found is None else found.breakdown
     if b is None:
         return None
@@ -482,7 +482,7 @@ def _sell_in_out(
     if row is None:
         return None
     product = _PricedProduct(row.product_id, b.costo_ars, row.iva)
-    store_id = alcance._stores_por_mla(pricing_db, {mla}).get(mla)
+    store_id = alcance.stores_por_mla(pricing_db, {mla}).get(mla)
     accumulator = resolver_sell_in_out_batch(
         pricing_db, [product.item_id], date.today(), contextos=[("ml", store_id)]
     ).markups(product, precio_lista_ml=b.price)

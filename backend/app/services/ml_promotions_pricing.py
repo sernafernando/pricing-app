@@ -386,11 +386,11 @@ def markup_para_precio_con_sell_in_out(
 
 def _contextos_mlas(db: Session, mlas: list[str]) -> Optional[list[tuple[str, Optional[int]]]]:
     """Store scope for companion markups: one `(ml, store_id)` when every MLA shares the same official store (as the
-    allocators credit its sales: `alcance._stores_por_mla`; no official store is `None`, which every all-stores
+    allocators credit its sales: `alcance.stores_por_mla`; no official store is `None`, which every all-stores
     tactical reaches); `None` (global) when the set mixes stores, since a single batch cannot be both."""
     if not mlas:
         return None
-    por_mla = alcance._stores_por_mla(db, set(mlas))
+    por_mla = alcance.stores_por_mla(db, set(mlas))
     stores = {por_mla.get(mla) for mla in mlas}
     if len(stores) != 1:
         return None

@@ -61,7 +61,7 @@ def cost_lines(
 def cost_lines_by_publication(pricing_db: Session, rows: Sequence[Any]) -> Optional[dict[str, dict[str, Any]]]:
     """Like `cost_lines`, per publication (`row.item_id`, its MLA): two publications of the same product on different
     official stores each get the tactical companions that reach their store. The store is the publication's
-    `mlp_official_store_id` (`alcance._stores_por_mla`), the one the sell out and sell in allocators credit its sales
+    `mlp_official_store_id` (`alcance.stores_por_mla`), the one the sell out and sell in allocators credit its sales
     under, so the row shows what the money would be; a publication without one is `("ml", None)`, which every
     all-stores tactical reaches. Every store of the page is resolved from ONE read (`resolver_sell_in_out_por_contexto`),
     PPP and the rate once. None when a read fails, as `cost_lines`."""
@@ -70,7 +70,7 @@ def cost_lines_by_publication(pricing_db: Session, rows: Sequence[Any]) -> Optio
         return {}
     try:
         with pricing_db.begin_nested():
-            stores = alcance._stores_por_mla(pricing_db, {str(r.item_id) for r in linked})
+            stores = alcance.stores_por_mla(pricing_db, {str(r.item_id) for r in linked})
             products = {r.producto_item_id: (r.costo, r.moneda_costo, r.costo_iva) for r in linked}
             store_of = {str(r.item_id): stores.get(str(r.item_id)) for r in linked}
             contextos = {store: [("ml", store)] for store in set(store_of.values())}
