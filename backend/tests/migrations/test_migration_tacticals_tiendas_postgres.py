@@ -155,6 +155,30 @@ class TestUpgrade:
 
 @pytest.mark.postgres
 class TestDowngrade:
+    @pytest.mark.parametrize(
+        "elegido",
+        [
+            "UPDATE tacticals SET todas_tiendas = false",
+            "UPDATE tacticals SET tope_compartido = false",
+            "DELETE FROM tactical_tiendas WHERE tipo = 'fuera'",
+            "INSERT INTO tactical_tiendas (tactical_id, tipo, store_id) SELECT id, 'oficial', 57997 FROM tacticals",
+        ],
+    )
+    def test_it_is_refused_while_a_tactical_has_a_store_scope_and_changes_nothing(
+        self, engine: Engine, elegido: str
+    ) -> None:
+        _step(engine, "upgrade")
+        with engine.begin() as conn:
+            conn.execute(text(elegido))
+            antes = conn.execute(text("SELECT count(*) FROM tactical_tiendas")).scalar_one()
+
+        with pytest.raises(Exception, match="downgrade of 20261107_tacticals_tiendas refused"):
+            _step(engine, "downgrade")
+
+        assert _columna(engine, "tacticals", "tope_compartido") is not None
+        with engine.connect() as conn:
+            assert conn.execute(text("SELECT count(*) FROM tactical_tiendas")).scalar_one() == antes
+
     def test_it_drops_the_scope(self, engine: Engine) -> None:
         _step(engine, "upgrade")
         _step(engine, "downgrade")

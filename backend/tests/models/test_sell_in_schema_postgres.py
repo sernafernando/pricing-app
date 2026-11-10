@@ -48,6 +48,7 @@ _MIGRATIONS = [
         "20261106_sell_in_modo_manual",
         "20261106_combo_consumos_item",
         "20261108_sell_in_bono_monto_total",
+        "20261107_tacticals_tiendas",  # the store scope on tacticals; it chains on 20261108_sell_in_bono_monto_total
     )
 ]
 TABLES = {"sell_in_compras", "sell_in_compra_items", "sell_in_consumos", "sell_in_modos_producto"}
@@ -61,6 +62,7 @@ BONO_TABLES = {
 
 _STUBS = [
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
+    "CREATE TABLE ml_tiendas_oficiales (store_id BIGINT PRIMARY KEY)",  # `tactical_tiendas.store_id`
     "CREATE TABLE proveedores (id INTEGER PRIMARY KEY)",
     "CREATE TABLE pedidos_compra (id BIGINT PRIMARY KEY, proveedor_id INTEGER, estado VARCHAR(24), "
     "tipo_cambio NUMERIC(18, 6), fecha_factura DATE)",

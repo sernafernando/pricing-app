@@ -21,7 +21,8 @@ plus synthetic channels Fuera / Tienda Nube; cap mode is independent (per-target
 LOCK NOTE: ADD COLUMN with constant default does not rewrite; CREATE TABLE takes SHARE ROW EXCLUSIVE
 on `tacticals` / `ml_tiendas_oficiales` until commit. Indexes are small (new empty table). Run with
 `lock_timeout = '5s'` and restore the previous value with `set_config` (same pattern as `20261105_tacticals`).
-Idempotent.
+Idempotent. DOWNGRADE refuses (RAISE, nothing changed) while a tactical has a store scope other than the one the
+backfill gives (all stores, both channels, one shared cap): the code before this revision would widen it.
 """
 
 from typing import List, Sequence, Union
@@ -71,6 +72,23 @@ END $$""",
 ]
 
 DOWNGRADE = [
+    # Refused (RAISE, nothing changed) while a tactical has a store scope the code before this revision cannot hold:
+    # dropping it would silently widen that tactical to every store and channel, and its caps to one pool.
+    """DO $$
+BEGIN
+  IF to_regclass('tactical_tiendas') IS NOT NULL AND EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema() AND table_name = 'tacticals' AND column_name = 'tope_compartido'
+  ) AND EXISTS (
+    SELECT 1 FROM tacticals t
+    WHERE NOT t.todas_tiendas OR NOT t.tope_compartido
+      OR EXISTS (SELECT 1 FROM tactical_tiendas s WHERE s.tactical_id = t.id AND s.tipo = 'oficial')
+      OR NOT EXISTS (SELECT 1 FROM tactical_tiendas s WHERE s.tactical_id = t.id AND s.tipo = 'fuera')
+      OR NOT EXISTS (SELECT 1 FROM tactical_tiendas s WHERE s.tactical_id = t.id AND s.tipo = 'tienda_nube')
+  ) THEN
+    RAISE EXCEPTION 'downgrade of 20261107_tacticals_tiendas refused: tacticals with a store scope exist';
+  END IF;
+END $$""",
     "DROP INDEX IF EXISTS uq_tactical_tiendas_canal",
     "DROP INDEX IF EXISTS uq_tactical_tiendas_oficial",
     "DROP INDEX IF EXISTS ix_tactical_tiendas_store_id",
