@@ -333,9 +333,12 @@ const lineHeightOf = (el) => {
   const style = getComputedStyle(el);
   return Number.parseFloat(style.lineHeight) || Number.parseFloat(style.fontSize) * 1.3;
 };
+// On more than one line: its boxes sit at different heights. A line can hold several boxes of one element (a font
+// fallback or letter spacing splits the text into runs), so the count of boxes alone is not a wrap.
+const linesOf = (el) => new Set([...el.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top))).size;
 const wrapped = (elements) =>
   [...elements]
-    .filter((el) => el.getClientRects().length > 1 || rect(el).height > lineHeightOf(el) * 1.6)
+    .filter((el) => linesOf(el) > 1 || rect(el).height > lineHeightOf(el) * 1.6)
     .map((el) => el.textContent.trim());
 
 // Every suite shows the strip unless it says otherwise.
@@ -3255,6 +3258,7 @@ describe('Publicaciones ML columns sized by their content (visual)', () => {
       const widths = columnWidths(scroller);
       expect(widths.facturado_30d).toBeGreaterThan(140);
       expect(overflowingCells(scroller)).toEqual([]);
+      expect(wrapped(scroller.querySelectorAll('tbody [data-money]'))).toEqual([]);
       screen.unmount();
     } finally {
       wider.remove();
