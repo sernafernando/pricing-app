@@ -1,8 +1,9 @@
 """Official-store / channel scope for sell-out campaigns that belong to a tactical.
 
 A campaign without `tactical_id` stays global (pre-scope behaviour). With a tactical:
-`todas_tiendas` credits every ML sale that has an official store; `fuera` / `tienda_nube`
-only when those synthetic rows are listed. `tope_compartido` is independent: False means
+`todas_tiendas` credits every ML sale, with or without an official store (what a tactical
+credited before the scope existed); `fuera` / `tienda_nube` only when those synthetic rows are listed.
+A tactical that predates the scope got both rows and a shared cap from migration `20261107_tacticals_tiendas`. `tope_compartido` is independent: False means
 each target gets its own run of `tope.asignar` with the same cap numbers.
 """
 
@@ -14,7 +15,8 @@ from typing import FrozenSet, Iterable, Optional, Tuple
 # tactical_tiendas.tipo for synthetic channels ↔ sell_out canal
 _CANAL_A_TIPO = {"fuera": "fuera", "tn": "tienda_nube"}
 
-TargetKey = Tuple[str, Optional[int]]  # ('oficial', store_id) | ('fuera'|'tienda_nube', None)
+# ('oficial', store_id) | ('sin_tienda', None) for ML without official store | ('fuera'|'tienda_nube', None)
+TargetKey = Tuple[str, Optional[int]]
 
 
 @dataclass(frozen=True)
@@ -43,11 +45,9 @@ def alcanza(scope: Optional[Scope], canal: str, store_id: Optional[int]) -> bool
     if scope is None:
         return True
     if canal == "ml":
-        if store_id is None:
-            return False  # sin_tienda is not an official store and not a synthetic channel
         if scope.todas_tiendas:
-            return True
-        return store_id in scope.oficiales
+            return True  # every ML sale, an official store or not
+        return store_id is not None and store_id in scope.oficiales
     tipo = _CANAL_A_TIPO.get(canal)
     if tipo is None:
         return False
@@ -57,9 +57,7 @@ def alcanza(scope: Optional[Scope], canal: str, store_id: Optional[int]) -> bool
 def target_key(canal: str, store_id: Optional[int]) -> Optional[TargetKey]:
     """Counter bucket for per-target caps; None when the line has no countable target."""
     if canal == "ml":
-        if store_id is None:
-            return None
-        return ("oficial", int(store_id))
+        return ("sin_tienda", None) if store_id is None else ("oficial", int(store_id))
     tipo = _CANAL_A_TIPO.get(canal)
     return (tipo, None) if tipo else None
 

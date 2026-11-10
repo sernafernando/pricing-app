@@ -1,0 +1,137 @@
+"""Store scope of an existing sell out tactical against real tables: a tactical created before
+`20261107_tacticals_tiendas` (as that migration's backfill leaves it: all stores, the `fuera` and
+`tienda_nube` rows and one shared cap) credits exactly what it credited before the scope existed.
+
+Postgres only (the rebuild takes an advisory lock). Runs in a throwaway schema.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+from decimal import Decimal
+from typing import Iterator, Optional
+
+import pytest
+from sqlalchemy import Engine, text
+from sqlalchemy.orm import sessionmaker
+
+from app.models.ml_tienda_oficial import MlTiendaOficial
+from app.models.tactical import TacticalTienda
+from app.services.sell_out.asignacion import recalcular
+from tests.services.sell._schema import throwaway_schema
+from tests.services.sell_out import _world as w
+
+pytestmark = pytest.mark.postgres
+
+D = date
+TP_ROUTERS = {"marca": "TP-LINK", "categoria": "Routers"}
+GAUSS, TPLINK = 57997, 2645
+# The publication's official store, as the sell out reach reads it (latest `mlp_official_store_id` per MLA).
+PUBLICADOS = (
+    "CREATE TABLE tb_mercadolibre_items_publicados ("
+    "mlp_id SERIAL PRIMARY KEY, mlp_publicationid VARCHAR(50), mlp_official_store_id INTEGER)"
+)
+
+
+@pytest.fixture(scope="module")
+def engine() -> Iterator[Engine]:
+    with throwaway_schema(
+        "sell_out_tienda",
+        [*w.TABLES, MlTiendaOficial.__table__, TacticalTienda.__table__],
+        [*w.STUBS, PUBLICADOS],
+        after=_install,
+    ) as engine:
+        yield engine
+
+
+def _install(engine: Engine) -> None:
+    w._install(engine)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO ml_tiendas_oficiales (store_id, nombre, clave, orden, activa) "
+                "VALUES (57997, 'GaussOnline', 'gauss', 1, true), (2645, 'TP-Link', 'tplink', 2, true)"
+            )
+        )
+
+
+@pytest.fixture(autouse=True)
+def _clean(engine: Engine) -> Iterator[None]:
+    yield
+    w.clean(engine)
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM tb_mercadolibre_items_publicados"))
+        conn.execute(text("DELETE FROM tacticals"))  # its store rows cascade
+
+
+def _tactical_existente(engine: Engine) -> int:
+    """A tactical that predates the store scope, as the migration's backfill leaves it."""
+    with engine.begin() as conn:
+        tid = conn.execute(
+            text(
+                "INSERT INTO tacticals (tipo, nombre, marca, fecha_desde, fecha_hasta, moneda, usuario_id, "
+                "todas_tiendas, tope_compartido) VALUES ('sell_out', 'Viejo', 'TP-LINK', '2026-11-01', "
+                "'2026-11-30', 'ARS', 7, true, true) RETURNING id"
+            )
+        ).scalar_one()
+        conn.execute(
+            text("INSERT INTO tactical_tiendas (tactical_id, tipo) VALUES (:t, 'fuera'), (:t, 'tienda_nube')"),
+            {"t": tid},
+        )
+    return tid
+
+
+def _venta_ml(engine: Engine, item_id: int, cantidad: int, dia: date, store_id: Optional[int]) -> int:
+    ref = w.venta(engine, "ml", item_id, cantidad, dia)
+    if store_id is not None:
+        w.execute(
+            engine,
+            "INSERT INTO tb_mercadolibre_items_publicados (mlp_publicationid, mlp_official_store_id) VALUES (:mla, :s)",
+            mla=f"MLA{ref}",
+            s=store_id,
+        )
+    return ref
+
+
+def _recalcular(engine: Engine, campana: int) -> None:
+    with sessionmaker(bind=engine, autoflush=False)() as db:
+        recalcular(db, [campana])
+        db.commit()
+
+
+def _filas(engine: Engine, campana: int) -> list:
+    return [(r[1], r[2], r[5], r[6]) for r in w.consumos(engine, campana)]
+
+
+class TestExistingTactical:
+    def test_it_keeps_its_fuera_tienda_nube_and_no_store_ml_credits(self, engine: Engine) -> None:
+        campana = w.campana(
+            engine, [w.grupo(engine, [TP_ROUTERS])], tactical_id=_tactical_existente(engine), tactical_linea=1
+        )
+        ml = _venta_ml(engine, 2964, 2, D(2026, 11, 2), store_id=None)
+        fuera = w.venta(engine, "fuera", 2964, 1, D(2026, 11, 3))
+        tn = w.venta(engine, "tn", 2964, 3, D(2026, 11, 4))
+
+        _recalcular(engine, campana)
+        _recalcular(engine, campana)  # the next recalculation keeps them too
+
+        assert _filas(engine, campana) == [
+            ("ml", ml, 2, Decimal("20.00")),
+            ("fuera", fuera, 1, Decimal("10.00")),
+            ("tn", tn, 3, Decimal("30.00")),
+        ]
+
+    def test_its_cap_stays_one_pool_over_two_stores(self, engine: Engine) -> None:
+        campana = w.campana(
+            engine,
+            [w.grupo(engine, [TP_ROUTERS])],
+            tactical_id=_tactical_existente(engine),
+            tactical_linea=1,
+            tope_unidades=3,
+        )
+        gauss = _venta_ml(engine, 2964, 2, D(2026, 11, 2), store_id=GAUSS)
+        tplink = _venta_ml(engine, 2964, 2, D(2026, 11, 3), store_id=TPLINK)
+
+        _recalcular(engine, campana)
+
+        assert _filas(engine, campana) == [("ml", gauss, 2, Decimal("20.00")), ("ml", tplink, 1, Decimal("10.00"))]

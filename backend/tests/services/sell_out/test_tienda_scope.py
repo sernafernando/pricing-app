@@ -12,10 +12,10 @@ from app.services.sell_out.asignacion import _asignar, _Tasas
 from app.services.sell_out.tienda_scope import Scope, alcanza, scope_desde_tactical, target_key
 
 
-def test_alcanza_todas_credits_any_official_store_but_not_sin_tienda_or_channels() -> None:
+def test_alcanza_todas_credits_every_ml_sale_but_no_unlisted_channel() -> None:
     scope = Scope(todas_tiendas=True, tope_compartido=False, oficiales=frozenset(), canales=frozenset())
     assert alcanza(scope, "ml", 57997) is True
-    assert alcanza(scope, "ml", None) is False
+    assert alcanza(scope, "ml", None) is True
     assert alcanza(scope, "fuera", None) is False
 
 
@@ -28,6 +28,7 @@ def test_alcanza_lista_and_channels() -> None:
     )
     assert alcanza(scope, "ml", 57997) is True
     assert alcanza(scope, "ml", 2645) is False
+    assert alcanza(scope, "ml", None) is False
     assert alcanza(scope, "fuera", None) is True
     assert alcanza(scope, "tn", None) is False
 
@@ -51,6 +52,7 @@ def test_scope_desde_tactical_reads_rows() -> None:
 
 def test_target_key_buckets() -> None:
     assert target_key("ml", 57997) == ("oficial", 57997)
+    assert target_key("ml", None) == ("sin_tienda", None)
     assert target_key("fuera", None) == ("fuera", None)
     assert target_key("tn", None) == ("tienda_nube", None)
 
