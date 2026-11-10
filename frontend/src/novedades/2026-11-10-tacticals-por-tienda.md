@@ -6,7 +6,9 @@
 
 Ahora un tactical puede aplicar solo a algunas tiendas oficiales de Mercado Libre, y sumar o no las ventas por fuera y de Tienda Nube. El tope de cada línea puede ser uno por tienda o uno compartido entre todas las elegidas.
 
-- **Todas las tiendas oficiales** (de entrada) cuenta todas las ventas de Mercado Libre, como hasta ahora.
+- **Todas las tiendas oficiales** (de entrada) cuenta todas las ventas de Mercado Libre, también las de publicaciones sin tienda oficial.
+- Un tactical nuevo, de entrada, no suma Por fuera ni Tienda Nube y tiene un tope por tienda. Para que acredite como antes, tildar **Por fuera**, **Tienda Nube** y **Tope compartido entre las tiendas elegidas**.
+- Con un tope por tienda, **Máximo a cobrar** suma un tope por cada tienda o canal.
 - Los tacticals que ya existían siguen acreditando exactamente igual: todas las tiendas, por fuera, Tienda Nube y un solo tope.
 - En sell in, una línea por factura no mira las tiendas.
 
