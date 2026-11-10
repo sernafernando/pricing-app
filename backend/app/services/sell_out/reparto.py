@@ -31,10 +31,12 @@ Sell out in equal parts (`criterio = 'iguales'` on a sell out campaign, mapped b
 consumió otro por ende no, el % no es para ese producto es para el que lo vendió". No stored share: every rebuild
 splits the total in equal parts among the products with net units in `consumos` (`repartir_entre_vendidos`, cent-exact
 through `sell_in.split`, a negative total by its absolute value), then each part spreads over its product's units like
-a fixed share. A return that leaves a product without net units moves its part to the others on the next rebuild, so
+a fixed share. Sell out `costo` (`COSTO_VENDIDOS`, orchestrator L2: the same owner rule) keeps its stored cost shares,
+fixed when split, but only as weights: the total is split by them among the products that sold. A return that leaves a
+product without net units moves its part to the others on the next rebuild, so
 the rebuild of the last change dated inside the range is the end-of-range recalculation. Like `unidades`, nothing is
-"Asignado sin ventas". Sell in's `iguales` (a cost discount, "por más que no tenga venta se descuenta el costo") keeps
-its fixed shares: `sell_in.bonos_costo` passes the criterion unmapped.
+"Asignado sin ventas". Sell in's `iguales` and `costo` (a cost discount, "por más que no tenga venta se descuenta el
+costo") keep their fixed shares: `sell_in.bonos_costo` passes the criterion unmapped.
 
 Shares are checked, never repaired (`validar`, also run by `repartir` and
 `resumen_monto_total`): a share must be a % or an amount, a fixed share has the
@@ -69,14 +71,18 @@ class MontoTotal:
 
 UNIDADES = "unidades"
 IGUALES = "iguales"
+COSTO = "costo"
 IGUALES_VENDIDOS = "iguales_vendidos"  # sell out's `iguales`: only the products that sold (module docstring)
-DINAMICOS = (UNIDADES, IGUALES_VENDIDOS)  # no stored share is read: the split follows the sales
+COSTO_VENDIDOS = "costo_vendidos"  # sell out's `costo`: its stored cost shares weigh the products that sold
+SIN_CUOTAS = (UNIDADES, IGUALES_VENDIDOS)  # no stored share is read
+DINAMICOS = SIN_CUOTAS + (COSTO_VENDIDOS,)  # the split follows the sales: nothing waits for a product's sales
+_DE_SELL_OUT = {IGUALES: IGUALES_VENDIDOS, COSTO: COSTO_VENDIDOS}
 
 
 def criterio_sell_out(criterio: Optional[str]) -> Optional[str]:
-    """The criterion a sell out campaign's `reparto_criterio` is split by here: `iguales` among the products that
-    sold (`IGUALES_VENDIDOS`), any other as is."""
-    return IGUALES_VENDIDOS if criterio == IGUALES else criterio
+    """The criterion a sell out campaign's `reparto_criterio` is split by here: `iguales` and `costo` among the
+    products that sold (`IGUALES_VENDIDOS`, `COSTO_VENDIDOS`), any other as is."""
+    return _DE_SELL_OUT.get(criterio, criterio)
 
 
 class RepartoInvalido(ValueError):
@@ -142,7 +148,7 @@ def repartir(c: MontoTotal, consumos: Iterable[Consumo]) -> List[Consumo]:
     """The rows of the campaign: each product's share over its `consumos` (net units, sale order) by units."""
     if c.criterio == UNIDADES:
         return repartir_por_unidades(c, consumos)
-    if c.criterio == IGUALES_VENDIDOS:
+    if c.criterio in (IGUALES_VENDIDOS, COSTO_VENDIDOS):
         return repartir_entre_vendidos(c, consumos)
     validar(c)
     consumos = [x for x in consumos if x.item_id in c.repartos and x.unidades > 0]
@@ -196,11 +202,29 @@ def partes_iguales(total: Decimal, item_ids: Iterable[int]) -> Dict[int, Decimal
     return {i: signo * m for i, m in zip(ids, montos)}
 
 
+def partes_por_peso(total: Decimal, pesos: Mapping[int, Decimal]) -> Dict[int, Decimal]:
+    """`{item_id: its part}` of `total` proportional to `pesos` (positive weights; a product without one gets no
+    part), adding up exactly to it (`sell_in.split` `proporcional`); a negative total is split by its absolute value
+    and negated."""
+    ids, total = sorted(i for i, p in pesos.items() if p > 0), cents(Decimal(total))
+    if not ids or not total:
+        return {}
+    montos = split("proporcional", abs(total), [Line(i, 1, Decimal(pesos[i])) for i in ids])
+    signo = -1 if total < 0 else 1
+    return {i: signo * m for i, m in zip(ids, montos)}
+
+
 def repartir_entre_vendidos(c: MontoTotal, consumos: Iterable[Consumo]) -> List[Consumo]:
-    """Sell out `iguales` (module docstring): the total in equal parts among the products with net units in
-    `consumos`, each part spread over its product's units by `repartir` as a fixed share."""
+    """Sell out `iguales` / `costo` (module docstring): the total among the products with net units in `consumos`, in
+    equal parts or weighted by each one's stored cost share, each part spread over its product's units by `repartir`
+    as a fixed share."""
     consumos = [x for x in consumos if x.unidades > 0]
-    partes = partes_iguales(Decimal(c.monto_total), {x.item_id for x in consumos})
+    vendidos = {x.item_id for x in consumos}
+    if c.criterio == COSTO_VENDIDOS:
+        pesos = {i: abs(_exacta(c, i)) for i in vendidos if i in c.repartos}
+        partes = partes_por_peso(Decimal(c.monto_total), pesos)
+    else:
+        partes = partes_iguales(Decimal(c.monto_total), vendidos)
     fijo = replace(c, repartos={i: (None, m) for i, m in partes.items()}, criterio=None)
     return repartir(fijo, consumos)
 

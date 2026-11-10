@@ -24,13 +24,19 @@ export const nombreDeCriterio = (criterio) => CRITERIOS.find((c) => c.value === 
 const hoyIso = (hoy) =>
   `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
 
+/** Criteria whose total goes only to the products with sales in the range (equal parts, by cost). */
+const SOLO_VENDIDOS = { iguales: 'en partes iguales', costo: 'según el costo' };
+
 /**
- * Whether the campaign's split can still move because its range is not over: sell out in equal parts goes only to
- * the products with sales, so until `fecha_hasta` ends it is split among those that sold so far (the backend
- * rebuilds it with every sale or return dated in the range).
+ * The note of a split that can still move because its range is not over, or null: sell out in equal parts or by
+ * cost goes only to the products with sales, so until `fecha_hasta` ends it is split among those that sold so far
+ * (the backend rebuilds it with every sale or return dated in the range).
  */
-export const esProvisional = (campana, hoy = new Date()) =>
-  campana.reparto_criterio === 'iguales' && Boolean(campana.fecha_hasta) && campana.fecha_hasta >= hoyIso(hoy);
+export const notaProvisional = (campana, hoy = new Date()) => {
+  const como = SOLO_VENDIDOS[campana.reparto_criterio];
+  if (!como || !campana.fecha_hasta || campana.fecha_hasta < hoyIso(hoy)) return null;
+  return `Provisional: se reparte ${como} entre los productos con ventas hasta hoy; al terminar el rango queda entre los que vendieron.`;
+};
 
 export const MODO_PORCENTAJE = 'porcentaje';
 export const MODO_MONTO = 'monto';

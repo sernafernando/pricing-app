@@ -137,6 +137,24 @@ describe('SellOutReparto — split by criterion (S3, S6)', () => {
     expect(within(reparto()).getByText(/entre los productos que vendieron/)).toBeInTheDocument();
   });
 
+  it('a split by cost is provisional until the range ends: only the products that sold share it', async () => {
+    abrir({ ...CAMPANA_MONTO_TOTAL, reparto_criterio: 'costo', fecha_hasta: '2999-12-31' }, GESTOR);
+    await screen.findByRole('region', { name: 'Reparto del monto total' });
+    expect(within(reparto()).getByTestId('reparto-provisional')).toHaveTextContent(
+      'Provisional: se reparte según el costo entre los productos con ventas hasta hoy; al terminar el rango queda entre los que vendieron.',
+    );
+  });
+
+  it('by cost, the preview says only the products with sales get a part', async () => {
+    const user = userEvent.setup();
+    abrir(CAMPANA_MONTO_TOTAL, GESTOR);
+    await screen.findByRole('region', { name: 'Reparto del monto total' });
+    await user.selectOptions(within(reparto()).getByLabelText('Repartir según'), 'costo');
+    await user.click(within(reparto()).getByRole('button', { name: 'Ver reparto' }));
+    await within(reparto()).findByRole('table', { name: 'Vista previa del reparto' });
+    expect(within(reparto()).getByText(/Según el costo, entre los productos con ventas hasta hoy/)).toBeInTheDocument();
+  });
+
   it('a split by units sold is never labeled provisional', async () => {
     abrir({ ...CAMPANA_MONTO_TOTAL, reparto_criterio: 'unidades', items: [], fecha_hasta: '2999-12-31' }, GESTOR);
     await screen.findByRole('region', { name: 'Reparto del monto total' });

@@ -364,7 +364,7 @@ def _asignar(
         # Only its shared products, or its whole reach split by units; it is not limited by the units others hold
         # (module docstring).
         criterio = reparto.criterio_sell_out(c.reparto_criterio)
-        if total and criterio not in reparto.DINAMICOS:
+        if total and criterio not in reparto.SIN_CUOTAS:
             alcance_c = {i: iva for i, iva in alcance_c.items() if i in repartos.get(c.id, {})}
         antes = [] if total else [p.id for p in activas if p.id < c.id and not (p.acumulable and c.acumulable)]
         lineas, libres, admitidas = [], {}, set()

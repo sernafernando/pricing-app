@@ -225,6 +225,54 @@ class TestCosto:
         assert _criterio(engine, campana) is None
 
 
+class TestCostoEntreVendidos:
+    """Sell out "costo" (orchestrator L2): the stored cost shares are weights; the rebuild splits the total by them
+    among the products that sold in the dates, like "iguales"."""
+
+    def test_a_product_with_no_sales_gets_no_share_and_the_ones_that_sold_split_it_by_cost(
+        self, engine: Engine
+    ) -> None:
+        _costos(engine, p2964=(100, "ARS"), p2270=(300, "ARS"), p950=(600, "ARS"))
+        campana = _tres(engine, "1000.00")
+        _repartir(engine, campana, "costo")
+        w.venta(engine, "ml", 2964, 2, date(2026, 11, 2))
+        w.venta(engine, "ml", 2270, 1, date(2026, 11, 3))
+        _recalcular(engine, campana)
+
+        assert _filas(engine, campana) == [(2964, 2, D("250.00")), (2270, 1, D("750.00"))]
+        assert _reparto_resumen(engine, campana) == {
+            "asignado": D("1000.00"),
+            "asignado_sin_ventas": D("0.00"),
+            "sin_asignar": D("0.00"),
+            "motivo": None,
+        }
+
+    def test_a_return_after_the_range_ends_requeues_and_moves_its_part(self, engine: Engine) -> None:
+        _costos(engine, p2964=(100, "ARS"), p2270=(300, "ARS"), p950=(600, "ARS"))
+        campana = _tres(engine, "1000.00")
+        _repartir(engine, campana, "costo")
+        w.venta(engine, "fuera", 2964, 1, date(2026, 11, 2), cliente=55)
+        w.venta(engine, "fuera", 950, 1, date(2026, 11, 3), cliente=56)
+        _recalcular(engine, campana)
+        assert _filas(engine, campana) == [(2964, 1, D("142.86")), (950, 1, D("857.14"))]
+
+        devolucion = w.venta(engine, "fuera", 950, 1, date(2026, 11, 20), signo=-1, cliente=56)
+        with _db(engine) as db:
+            assert campana in queue.campanas_de_ventas(db, [("fuera", devolucion)])
+        _recalcular(engine, campana)
+
+        assert _filas(engine, campana) == [(2964, 1, D("1000.00"))]
+
+    def test_without_sales_the_whole_total_is_sin_asignar(self, engine: Engine) -> None:
+        _costos(engine, p2964=(100, "ARS"), p2270=(300, "ARS"), p950=(600, "ARS"))
+        campana = _tres(engine, "1000.00")
+        _repartir(engine, campana, "costo")
+        _recalcular(engine, campana)
+
+        resumen_ = _reparto_resumen(engine, campana)
+        assert (resumen_["asignado_sin_ventas"], resumen_["sin_asignar"]) == (D("0.00"), D("1000.00"))
+
+
 class TestUnidades:
     def test_every_unit_sold_gets_the_same_share_and_a_return_moves_it(self, engine: Engine) -> None:
         campana = _tres(engine, "1200.00")
@@ -351,17 +399,23 @@ class TestVistaPrevia:
         }
         assert previa["sin_asignar"] == D("0.00")
 
-    def test_the_preview_of_costo_matches_what_the_split_stores(self, engine: Engine) -> None:
+    def test_the_preview_by_cost_splits_among_the_products_sold_so_far(self, engine: Engine) -> None:
         _costos(engine, p2964=(100, "ARS"), p2270=(300, "ARS"), p950=(600, "ARS"))
         campana = _tres(engine, "1000.00")
+        w.venta(engine, "ml", 2964, 1, date(2026, 11, 2))
+        w.venta(engine, "ml", 2270, 1, date(2026, 11, 3))
+
         with _db(engine) as db:
             previa = criterio_service.vista_previa(db, db.get(SellOutCampana, campana), "costo")
-
         _repartir(engine, campana, "costo")
+        _recalcular(engine, campana)
 
         assert {i["item_id"]: i["monto"] for i in previa["items"]} == {
-            i: m for i, (_, m) in _items(engine, campana).items()
+            2964: D("250.00"),
+            2270: D("750.00"),
+            950: D("0.00"),
         }
+        assert {i: m for i, _, m in _filas(engine, campana)} == {2964: D("250.00"), 2270: D("750.00")}
         assert previa["sin_asignar"] == D("0.00")
 
 

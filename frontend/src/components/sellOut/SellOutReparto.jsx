@@ -8,7 +8,7 @@ import SellOutMonto from './SellOutMonto';
 import { buscarProductos } from './sellOutBuscar';
 import { nombreDeItem } from './sellOutFormat';
 import {
-  esProvisional,
+  notaProvisional,
   CRITERIOS,
   MODO_MONTO,
   MODO_PORCENTAJE,
@@ -123,7 +123,9 @@ function RepartoPorCriterio({ campana, busy, onBusyChange, onGuardado }) {
               ? 'Según las unidades vendidas hasta hoy: se recalcula con cada venta o devolución del rango.'
               : vista.criterio === 'iguales'
                 ? 'Partes iguales entre los productos con ventas hasta hoy: un producto sin ventas no recibe parte. Se recalcula con cada venta o devolución del rango.'
-                : 'Reemplaza el reparto actual de la campaña.'}
+                : vista.criterio === 'costo'
+                  ? 'Según el costo, entre los productos con ventas hasta hoy: un producto sin ventas no recibe parte. Se recalcula con cada venta o devolución del rango.'
+                  : 'Reemplaza el reparto actual de la campaña.'}
           </p>
           <div className={styles.acciones}>
             <button type="button" className="btn-tesla secondary sm" onClick={() => setVista(null)} disabled={busy}>
@@ -242,10 +244,15 @@ export default function SellOutReparto({
         })}
       </dl>
       {resumen?.motivo && <p className={panelStyles.error}>{resumen.motivo}</p>}
-      {esProvisional(campana) && (
+      {notaProvisional(campana) && (
         <p className={panelStyles.hint} data-testid="reparto-provisional">
-          Provisional: se reparte en partes iguales entre los productos con ventas hasta hoy; al terminar el rango queda
-          entre los que vendieron.
+          {notaProvisional(campana)}
+        </p>
+      )}
+      {criterio === 'costo' && (
+        <p className={panelStyles.hint}>
+          Las partes por costo son de referencia: la de un producto sin ventas en el rango se reparte entre los que
+          vendieron.
         </p>
       )}
       <p className={panelStyles.hint}>

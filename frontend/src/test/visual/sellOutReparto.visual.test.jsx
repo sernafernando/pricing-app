@@ -40,9 +40,23 @@ const IGUALES_PROVISIONAL = {
   },
 };
 
+// By cost, range not over: its stored cost shares (reference) under the "Provisional" note (orchestrator L2).
+const COSTO_PROVISIONAL = {
+  ...CAMPANA_MONTO_TOTAL,
+  reparto_criterio: 'costo',
+  fecha_hasta: '2999-12-31',
+  items: CAMPANA_MONTO_TOTAL.items.map((item, i) => ({
+    ...item,
+    reparto_porcentaje: null,
+    reparto_monto: i === 0 ? '1500000.00' : '500000.00',
+  })),
+  resumen: IGUALES_PROVISIONAL.resumen,
+};
+
 const CASOS = [
   ['editable', CAMPANA_MONTO_TOTAL, true],
   ['iguales-provisional', IGUALES_PROVISIONAL, false],
+  ['costo-provisional', COSTO_PROVISIONAL, false],
   ['negativa', NEGATIVA_CON_REPARTO, true],
   ['lectura', CAMPANA_MONTO_TOTAL, false],
 ];

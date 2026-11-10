@@ -3,7 +3,8 @@
 - `iguales`: equal parts. A sell in bonus stores the same fixed share for every product of its reach
   (`cuotas_fijas`); a sell out campaign stores none: the allocator splits the total in equal parts among the products
   with net sales in the dates (`reparto.repartir_entre_vendidos`, tactical iguales sell out S2/S3).
-- `costo`: fixed shares proportional to each product's cost, `productos_erp.costo` converted to the campaign currency
+- `costo`: shares proportional to each product's cost (in sell out only the weights of the products that sold,
+  `reparto.COSTO_VENDIDOS`), `productos_erp.costo` converted to the campaign currency
   (a USD cost in an ARS campaign, or the other way round, at the campaign's own rate when it has one, else the
   latest BNA `venta`); a product without a cost gets no share.
 - `unidades`: no stored share; the allocator spreads the total over every unit sold of the reach in the dates
@@ -14,8 +15,8 @@ parts, `proporcional` with the cost as weight): cent-exact, the remainder on the
 exactly to the total. A negative total (a deduction) is split by its absolute value and negated.
 
 `vista_previa` computes the same result without storing anything, for the panel's preview: the fixed shares, or for
-`unidades` / `iguales` what the allocator would credit each product now (by its net units sold in the dates so far,
-or in equal parts among the products sold so far), always in
+`unidades` / `iguales` / `costo` what the allocator would credit each product now (by its net units sold in the dates
+so far, or in equal parts or by cost among the products sold so far), always in
 the campaign currency as loaded (before any VAT is taken off).
 """
 
@@ -37,7 +38,8 @@ from app.services.sell_out import alcance, asignacion, reparto
 IGUALES, UNIDADES, COSTO = "iguales", reparto.UNIDADES, "costo"
 CRITERIOS = (IGUALES, UNIDADES, COSTO)
 FIJOS = (IGUALES, COSTO)  # sell in: stored per-product shares
-# Sell out stores only `costo`'s: its `iguales` goes to the products that sold (`reparto.IGUALES_VENDIDOS`).
+# Sell out stores only `costo`'s, as weights of the products that sold (`reparto.COSTO_VENDIDOS`); its `iguales`
+# stores none and goes to the products that sold in equal parts (`reparto.IGUALES_VENDIDOS`).
 FIJOS_SELL_OUT = (COSTO,)
 
 
@@ -164,8 +166,9 @@ def vista_previa(db: Session, campana: SellOutCampana, criterio: str) -> dict:
     if campana.estado == "anulada":
         raise CriterioError(f"La campaña {campana.id} está anulada")
     unidades, montos = _dinamico(db, campana, criterio)
-    if criterio in FIJOS_SELL_OUT:
-        montos = cuotas(db, campana, criterio)
+    if criterio in FIJOS_SELL_OUT:  # cost shares weigh the products sold so far (`reparto.repartir_entre_vendidos`)
+        pesos = {i: abs(m) for i, m in cuotas(db, campana, criterio).items() if unidades.get(i, 0) > 0}
+        montos = reparto.partes_por_peso(Decimal(campana.monto_total), pesos)
     item_ids = _alcance(db, campana)
     codigos = dict(db.query(ProductoERP.item_id, ProductoERP.codigo).filter(ProductoERP.item_id.in_(item_ids)))
     items = [

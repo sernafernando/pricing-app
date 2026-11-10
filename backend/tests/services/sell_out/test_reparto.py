@@ -205,7 +205,7 @@ class TestIgualesEntreVendidos:
 
     def test_sell_out_maps_iguales_to_the_split_among_products_that_sold_and_sell_in_does_not(self) -> None:
         assert reparto.criterio_sell_out("iguales") == reparto.IGUALES_VENDIDOS
-        assert [reparto.criterio_sell_out(x) for x in ("unidades", "costo", None)] == ["unidades", "costo", None]
+        assert [reparto.criterio_sell_out(x) for x in ("unidades", None)] == ["unidades", None]
 
     def test_only_the_products_that_sold_share_the_total_in_equal_parts_to_the_cent(self) -> None:
         c = MontoTotal(D("100.00"), {}, criterio=reparto.IGUALES_VENDIDOS)
@@ -258,3 +258,51 @@ class TestIgualesEntreVendidos:
         c = MontoTotal(D("300.00"), {1: (None, D("150.00")), 2: (None, D("150.00"))}, criterio="iguales")
         assert _filas(repartir(c, [_consumo(1, 1, 1)])) == [(1, 1, 1, D("150.00"))]
         assert resumen_monto_total(c, [1]) == {"asignado_sin_ventas": D("150.00"), "sin_asignar": D("0.00")}
+
+
+class TestCostoEntreVendidos:
+    """Sell out "costo" (tactical iguales sell out, orchestrator L2): the same owner rule as "iguales". The stored cost
+    shares (fixed when split, proportional to each product's cost) are only weights: the total is split by them among
+    the products with net sales in `consumos`; a product with no sale gets nothing. Sell in "costo" is unchanged."""
+
+    def test_sell_out_maps_costo_to_the_split_among_products_that_sold(self) -> None:
+        assert reparto.criterio_sell_out("costo") == reparto.COSTO_VENDIDOS
+
+    def test_the_products_that_sold_split_the_whole_total_by_their_cost_shares(self) -> None:
+        c = MontoTotal(
+            D("1000.00"),
+            {1: (None, D("100.00")), 2: (None, D("300.00")), 3: (None, D("600.00"))},
+            criterio=reparto.COSTO_VENDIDOS,
+        )
+        filas = repartir(c, [_consumo(1, 1, 1), _consumo(2, 2, 2)])
+        assert _filas(filas) == [(1, 1, 1, D("250.00")), (2, 2, 2, D("750.00"))]
+        assert resumen_monto_total(c, [1, 2]) == {"asignado_sin_ventas": D("0.00"), "sin_asignar": D("0.00")}
+        assert reparto.sin_ventas(c, [1, 2]) == {}
+
+    def test_the_parts_add_up_to_the_total_to_the_cent(self) -> None:
+        c = MontoTotal(
+            D("100.00"),
+            {1: (None, D("33.33")), 2: (None, D("33.33")), 3: (None, D("33.34")), 4: (None, D("1.00"))},
+            criterio=reparto.COSTO_VENDIDOS,
+        )
+        filas = repartir(c, [_consumo(1, 1, 1), _consumo(2, 2, 1), _consumo(3, 3, 1)])
+        assert sum(f.monto for f in filas) == D("100.00")
+
+    def test_a_product_without_a_cost_share_gets_nothing_even_if_it_sold(self) -> None:
+        c = MontoTotal(D("300.00"), {1: (None, D("300.00"))}, criterio=reparto.COSTO_VENDIDOS)
+        assert _filas(repartir(c, [_consumo(1, 1, 1), _consumo(2, 2, 1)])) == [(1, 1, 1, D("300.00"))]
+
+    def test_a_negative_total_splits_negative_and_exactly(self) -> None:
+        c = MontoTotal(D("-100.00"), {1: (None, D("-25.00")), 2: (None, D("-75.00"))}, criterio=reparto.COSTO_VENDIDOS)
+        filas = repartir(c, [_consumo(1, 1, 1), _consumo(2, 2, 1)])
+        assert _filas(filas) == [(1, 1, 1, D("-25.00")), (2, 2, 1, D("-75.00"))]
+
+    def test_no_sales_writes_no_row_and_the_whole_total_is_sin_asignar(self) -> None:
+        c = MontoTotal(D("1000.00"), {1: (None, D("1000.00"))}, criterio=reparto.COSTO_VENDIDOS)
+        assert repartir(c, []) == []
+        assert resumen_monto_total(c, []) == {"asignado_sin_ventas": D("0.00"), "sin_asignar": D("1000.00")}
+
+    def test_sell_in_costo_keeps_its_fixed_shares(self) -> None:
+        c = MontoTotal(D("1000.00"), {1: (None, D("250.00")), 2: (None, D("750.00"))}, criterio="costo")
+        assert _filas(repartir(c, [_consumo(1, 1, 1)])) == [(1, 1, 1, D("250.00"))]
+        assert resumen_monto_total(c, [1]) == {"asignado_sin_ventas": D("750.00"), "sin_asignar": D("0.00")}
