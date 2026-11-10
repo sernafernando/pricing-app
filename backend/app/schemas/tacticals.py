@@ -167,7 +167,7 @@ class TacticalOut(BaseModel):
     id: int
     tipo: TipoTactical
     nombre: str
-    marca: str  # the first of `marcas`, for a client that reads one brand
+    marca: str  # one of `marcas` (the one sent as `marca`, else the first), for a client that reads one brand
     marcas: list[str]
     referencia: Optional[str]
     fecha_desde: date

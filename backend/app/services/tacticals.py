@@ -525,7 +525,7 @@ def _crear(db: Session, data: TacticalIn, usuario_id: int) -> Tactical:
     tactical = Tactical(
         tipo=data.tipo,
         nombre=nombre,
-        marca=marcas[0],
+        marca=_texto(data.marca) or marcas[0],  # the one an old client sent (one of `marcas`), else the first
         referencia=_texto(data.referencia),
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
@@ -867,9 +867,12 @@ class Filtros:
 def listar(db: Session, filtros: Filtros, page: int, page_size: int, hoy: Optional[date] = None) -> tuple[int, list]:
     hoy = hoy or date.today()
     query = db.query(Tactical).filter(Tactical.tipo.in_(filtros.tipos))
-    if filtros.marca:  # any of the tactical's brands (S3)
+    if filtros.marca:  # any of the tactical's brands (S3), or its header brand (a header without brand rows yet)
         query = query.filter(
-            exists().where(TacticalMarca.tactical_id == Tactical.id, TacticalMarca.marca == filtros.marca)
+            or_(
+                Tactical.marca == filtros.marca,
+                exists().where(TacticalMarca.tactical_id == Tactical.id, TacticalMarca.marca == filtros.marca),
+            )
         )
     if filtros.moneda:
         query = query.filter(Tactical.moneda == filtros.moneda)

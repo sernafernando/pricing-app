@@ -440,6 +440,22 @@ class TestMarcas:
             service.crear(db, _tactical(marca=TPLINK, marcas=[bw.MERCUSYS]), USUARIO)
         assert _contar(engine, "tacticals") == 0
 
+    def test_the_marca_a_client_sends_with_marcas_stays_the_header_s(self, db) -> None:
+        tactical = service.crear(db, _tactical(marca=TPLINK, marcas=[bw.MERCUSYS, TPLINK]), USUARIO)
+
+        leido = _leido(db, tactical.id)
+        assert (leido["marca"], leido["marcas"]) == (TPLINK, [bw.MERCUSYS, TPLINK])
+
+    def test_the_brand_filter_still_finds_a_header_without_brand_rows(self, db, engine) -> None:
+        """A header written by the code before 20261110_tacticals_marcas during a deploy has no `tactical_marcas`."""
+        tactical = service.crear(db, _tactical(), USUARIO)
+        db.commit()
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM tactical_marcas WHERE tactical_id = :t"), {"t": tactical.id})
+
+        filtros = service.Filtros(tipos=["sell_in", "sell_out"], marca=TPLINK)
+        assert [t.id for t in service.listar(db, filtros, 1, 50, hoy=date(2026, 11, 5))[1]] == [tactical.id]
+
     def test_every_brand_needs_products_and_a_repeated_one_counts_once(self, db, engine) -> None:
         with pytest.raises(service.TacticalError, match="No hay productos de la marca NO EXISTE"):
             service.crear(db, _tactical(marca=None, marcas=[TPLINK, "NO EXISTE"]), USUARIO)
