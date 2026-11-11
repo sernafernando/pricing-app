@@ -14,7 +14,7 @@ from app.services.compras_alertas_service import (
     filtrar_visibles,
     marcar_ok,
     rechazar_cierre_faltantes,
-    retractar_faltantes_obsoletas,
+    faltantes_obsoletas_ids,
     snooze_faltantes,
 )
 
@@ -156,12 +156,9 @@ def listar_notificaciones(
     )
 
     ahora = _ahora_listado()
-    faltantes_pedido_ids = {
-        int(n.item_id) for n in notificaciones if n.tipo == "compras.faltantes" and n.item_id is not None
-    }
-    if retractar_faltantes_obsoletas(db, ahora=ahora, pedido_ids=faltantes_pedido_ids):
-        db.commit()
-        notificaciones = [n for n in notificaciones if n.estado != EstadoNotificacion.DESCARTADA]
+    # Read-only: never write/commit on this hot GET (incident 2026-11-11, pool starvation).
+    obsoletas = faltantes_obsoletas_ids(db, notificaciones)
+    notificaciones = [n for n in notificaciones if n.id not in obsoletas]
     return filtrar_visibles(notificaciones, ahora=ahora)
 
 
@@ -188,12 +185,9 @@ def listar_notificaciones_agrupadas(
 
     ahora = _ahora_listado()
     candidatas = query.order_by(desc(Notificacion.fecha_creacion)).all()
-    faltantes_pedido_ids = {
-        int(n.item_id) for n in candidatas if n.tipo == "compras.faltantes" and n.item_id is not None
-    }
-    if retractar_faltantes_obsoletas(db, ahora=ahora, pedido_ids=faltantes_pedido_ids):
-        db.commit()
-        candidatas = [n for n in candidatas if n.estado != EstadoNotificacion.DESCARTADA]
+    # Read-only: never write/commit on this hot GET (incident 2026-11-11, pool starvation).
+    obsoletas = faltantes_obsoletas_ids(db, candidatas)
+    candidatas = [n for n in candidatas if n.id not in obsoletas]
     # Obtener todas las notificaciones que cumplen el filtro
     notificaciones = filtrar_visibles(candidatas, ahora=ahora)
 
