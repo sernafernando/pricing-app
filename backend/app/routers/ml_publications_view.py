@@ -307,6 +307,7 @@ class ItemRowOut(BaseModel):
     hay_mejores_ofertas: bool = False
     stock: StockOut
     erp_stock: ErpStockOut
+    stock_total: Optional[int] = None  # ERP + Full; null only when both are unknown
     link: LinkOut
     sku_divergence: SkuDivergenceOut | None = None  # only when the SKU disagrees with the linked product
     last_activity_at: Optional[datetime] = None
@@ -810,7 +811,7 @@ def filter_query(
         None, description="csv of auto,manual,sin_producto,conflicto,no_evaluado,sku_divergente"
     ),
     stock: Optional[str] = Query(
-        None, description="csv of sin_stock,full_sin_stock,erp_sin_stock,erp_con_stock,propio_sin_stock"
+        None, description="csv of sin_stock,full_sin_stock,erp_sin_stock,erp_con_stock (propio_sin_stock: ignored)"
     ),
     evento: Optional[str] = Query(None, description="csv of event types; needs events.enabled"),
     evento_desde: Optional[str] = Query(None, description="24h, 7d or 30d"),
@@ -1147,7 +1148,7 @@ def items_ask(
     orden: Optional[str] = Query(
         None,
         description=(
-            "actividad (default), precio, titulo, stock_full, stock_propio, stock_erp, actualizado, codigo, marca, "
+            "actividad (default), precio, titulo, stock_full, stock_erp, stock_total (ERP + Full), actualizado, codigo, marca, "
             "tipo (Clásica, 3, 6, 9, 12 cuotas), costo and the list headers lista_clasica, lista_rebate, "
             "lista_oferta, lista_web (ver_ganancia), markup (ver_ganancia); Métricas ML's figures over the whole "
             "filtered set (ml_metricas.ver): facturado_30d, "

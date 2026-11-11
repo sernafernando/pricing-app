@@ -210,7 +210,7 @@ class TestCsvParams:
         [
             ("tipo", "listing", "clasica,premium,catalogo,full"),
             ("vinculo", "link", "auto,manual,sin_producto,conflicto,no_evaluado,sku_divergente"),
-            ("stock", "stock", "sin_stock,full_sin_stock,erp_sin_stock,propio_sin_stock"),
+            ("stock", "stock", "sin_stock,full_sin_stock,erp_sin_stock,erp_con_stock"),
         ],
     )
     def test_closed_vocabularies_accept_every_documented_value_and_reject_the_rest(
@@ -220,6 +220,14 @@ class TestCsvParams:
         with pytest.raises(FilterError) as caught:
             parse_filter(**{param: "nope"})
         assert caught.value.field == param
+
+
+class TestRetiredStockValue:
+    def test_the_retired_own_stock_value_is_dropped_never_refused(self) -> None:
+        assert parse_filter(stock="propio_sin_stock").stock == ()
+        assert parse_filter(stock="propio_sin_stock,erp_sin_stock").stock == ("erp_sin_stock",)
+        with pytest.raises(FilterError):
+            parse_filter(stock="propio_sin_stock,nope")
 
 
 class TestCsvSize:

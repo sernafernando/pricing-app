@@ -1,4 +1,5 @@
 import styles from './cells.module.css';
+import { StockQuantity } from './MetricsCells';
 
 /**
  * ERP stock of the linked product (depósito 1, the figure Productos shows),
@@ -13,7 +14,8 @@ export default function ErpStockCell({ erpStock }) {
   const out = quantity <= 0;
   return (
     <div className={`${styles.stack} ${styles.stackEnd} ${styles.srHost}`} title={out ? 'Sin stock ERP' : undefined}>
-      <span className={`${styles.units} ${out ? styles.outOfStock : ''}`}>{quantity}</span>
+      {/* The same figure as the Full and total stock beside it: mono, thousands grouped, red at zero. */}
+      <StockQuantity value={quantity} />
       {out && <span className={styles.srOnly}>Sin stock ERP</span>}
     </div>
   );

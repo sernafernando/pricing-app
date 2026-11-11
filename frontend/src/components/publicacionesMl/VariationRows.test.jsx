@@ -61,7 +61,7 @@ describe('VariationRows', () => {
     await screen.findByText('Router Archer AX55 negro');
     const columns = buildColumns({ eventsEnabled: false, canSeeMargin: true });
     const row = rowOf('Router Archer AX55 negro');
-    for (const key of ['stock_propio', 'stock_full', 'stock_erp']) {
+    for (const key of ['stock_erp', 'stock_full', 'stock_total']) {
       const index = columns.findIndex((c) => c.key === key);
       expect(index).toBeGreaterThan(0);
       expect(row.children[index]).toBeEmptyDOMElement();

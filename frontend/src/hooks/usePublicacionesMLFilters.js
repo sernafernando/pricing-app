@@ -167,9 +167,9 @@ export const DEFAULT_DIRECTION = {
   tipo: 'asc',
   titulo: 'asc',
   precio: 'asc',
-  stock_propio: 'desc',
-  stock_full: 'desc',
   stock_erp: 'desc',
+  stock_full: 'desc',
+  stock_total: 'desc',
   // The linked product's, as Productos sorts them: A to Z, the cheapest first.
   codigo: 'asc',
   marca: 'asc',
@@ -210,12 +210,15 @@ const resolved = ({ key, dir }) => ({ key, dir: dir || DEFAULT_DIRECTION[key] ||
  * The URL's sort (`orden` and `dir` as csv, Productos' multi-column sort) as `[{key, dir}]`, paired by position: a
  * blank key takes its direction with it, a repeated key counts once, `dir` is '' where the URL names none.
  */
+// "Stock propio" (the published quantity, not a stock) left the table: an old link sorted by it opens without it.
+const RETIRED_SORTS = new Set(['stock_propio']);
+
 function askedSort(filters) {
   const dirs = (filters.dir ?? '').split(',');
   const sort = [];
   (filters.orden ?? '').split(',').forEach((raw, index) => {
     const key = raw.trim();
-    if (!key || sort.some((entry) => entry.key === key)) return; // a repeated key counts once
+    if (!key || RETIRED_SORTS.has(key) || sort.some((entry) => entry.key === key)) return; // a repeated key counts once
     sort.push({ key, dir: DIRECTIONS.includes(dirs[index]) ? dirs[index] : '' });
   });
   return sort;
@@ -302,12 +305,12 @@ export function effectiveProductSort(filters, permissions = {}) {
 
 const csv = (value) => (value ? value.split(',').filter(Boolean) : []);
 
-// The old "Sin stock ML" chip (`sin_stock`, ML's available, a sum) left the screen with the summed column: a saved
-// or shared link that still carries it opens with the closest chip of today, "Sin stock propio", active.
-const LEGACY_STOCK = { sin_stock: 'propio_sin_stock' };
+// "Sin stock ML" (`sin_stock`, ML's available, a sum) and "Sin stock propio" (`propio_sin_stock`, the published
+// quantity) left the screen: a saved or shared link that still carries them opens without them, never an error.
+const RETIRED_STOCK = new Set(['sin_stock', 'propio_sin_stock']);
 
 function currentStockValues(values) {
-  return [...new Set(values.map((value) => LEGACY_STOCK[value] ?? value))];
+  return [...new Set(values.filter((value) => !RETIRED_STOCK.has(value)))];
 }
 
 function readFilters(params, { canSeeMargin = false } = {}) {

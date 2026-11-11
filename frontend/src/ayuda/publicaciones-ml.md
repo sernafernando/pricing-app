@@ -32,6 +32,8 @@ Columnas: configurables con el selector de columnas (incluye código, descripci�
 
 Ancho de las columnas: cada columna de números (precio, ventas, markups, facturado, ageing, stocks) ocupa lo que necesitan su título y sus valores, y tanto el título como los números van centrados. El lugar que sobra es para **Publicación**, que muestra el título completo (si es largo, baja a otra línea). Para darle más o menos lugar, arrastrá el borde derecho del título **Publicación** (o enfocalo con Tab y usá ← →); doble clic vuelve al ancho original. En las vistas **Producto** y **Agrupado** pasa lo mismo con su primera columna. Cada vista guarda su ancho en este navegador.
 
+Stock: el grupo **Stock** tiene tres columnas, **ERP** (el stock del producto vinculado en el ERP), **Full** (lo que hay en Full de Mercado Libre) y **Total** (ERP + Full; si falta uno, suma el que hay, y muestra "—" solo si faltan los dos). Las tres se ordenan con un clic en su título. La cantidad publicada en Mercado Libre no es un stock real y no aparece como columna. Los botones de stock son **Full sin stock**, **Sin stock ERP** y **Con stock ERP**; un enlace guardado con el viejo **Sin stock propio** abre igual, sin ese filtro.
+
 Un stock ERP en 0 (o menos) se ve en rojo; al pasar el mouse dice "Sin stock ERP".
 
 Columna **Tipo**: una etiqueta con el tipo de cada publicación (**Clásica**, **3 cuotas**, **6 cuotas**, **9 cuotas**, **12 cuotas**). Una Clásica con cuotas cofinanciadas por Mercado Libre dice **Clásica**; al pasar el mouse se aclara. Otros tipos muestran su nombre (por ejemplo, **Gratuita**).
@@ -59,7 +61,7 @@ Al abrir una de esas publicaciones fuera de MODO PONER PRECIOS (y con permiso pa
 ## Botones y acciones
 
 - **MODO PONER PRECIOS**: activa o sale del flujo rápido de precios (hace falta permiso de editar precio y de escribir promociones).
-- **Exportar CSV / Exportar a Sheets**: descarga el conjunto filtrado. La columna **Tipo** del archivo dice lo mismo que la de la pantalla (**Clásica**, **3 cuotas**, …), no el código de Mercado Libre.
+- **Exportar CSV / Exportar a Sheets**: descarga el conjunto filtrado. La columna **Tipo** del archivo dice lo mismo que la de la pantalla (**Clásica**, **3 cuotas**, …), no el código de Mercado Libre. El stock sale en **Stock ERP**, **Stock Full** y **Stock total**.
 - Selector de columnas: elige qué columnas mostrar.
 - **Indicadores**: elige qué tarjetas de KPI mostrar (todas visibles por defecto). Lista solo las que se ven en la pantalla; ocultar una no cambia ningún número. La elección queda guardada en este navegador.
 - **Filas finas**: muestra la tabla con filas más bajas, al estilo de una planilla, para ver muchas publicaciones a la vez. El título y la línea de abajo (MLA, SKU, vínculo, tienda, Full, Catálogo, variaciones) quedan en una sola línea cada uno: al pasar el mouse sobre el título se ven el título completo y toda esa línea. El precio tachado y la promoción pasan al cartel que aparece al pasar el mouse sobre el precio, "hace N días" al de la fecha de la última venta. El cartel "precio de Productos" y los detalles de precio de la vista **Precios** siguen a la vista. En la vista **Producto**, el nombre se corta con "…" y se ve completo al pasar el mouse; si sus etiquetas no le dejan lugar, bajan a una segunda línea en vez de taparlo. Se apaga con el mismo botón y la elección queda guardada en este navegador.

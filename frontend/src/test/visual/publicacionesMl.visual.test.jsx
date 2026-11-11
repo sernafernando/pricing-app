@@ -262,10 +262,13 @@ const METRICS = [
   },
   null,
 ];
+const stockTotal = (erp, full) => (erp == null && full == null ? null : (erp ?? 0) + (full ?? 0));
 const MANY = Array.from({ length: 50 }, (_, i) => ({
   ...ITEMS[i % ITEMS.length],
   item_id: `MLA${1100000100 + i}`,
   erp_stock: { quantity: ERP_QUANTITIES[i % ERP_QUANTITIES.length] },
+  // The backend's ERP + Full (`filters.stock_total_of`), unknown when both are.
+  stock_total: stockTotal(ERP_QUANTITIES[i % ERP_QUANTITIES.length], ITEMS[i % ITEMS.length].stock?.full),
   metrics: METRICS[i % METRICS.length],
 }));
 const RESPONSE = {
@@ -492,24 +495,38 @@ describe('Publicaciones ML (visual)', () => {
         });
       }
 
-      it(`${width}x${height} ${theme}: our own, Full and ERP stock sit in three columns under STOCK, headers and figures on one line`, async () => {
+      it(`${width}x${height} ${theme}: ERP, Full and total stock sit in three columns under STOCK, headers and figures on one line`, async () => {
         const screen = await renderPage({ width, height, theme });
         const scroller = scrollerOf();
-        const headers = ['stock_propio', 'stock_full', 'stock_erp'].map((key) => scroller.querySelector(`thead th[data-column="${key}"]`));
-        expect(headers.map((th) => th.textContent)).toEqual(['Propio', 'Full', 'ERP']);
+        const headers = ['stock_erp', 'stock_full', 'stock_total'].map((key) => scroller.querySelector(`thead th[data-column="${key}"]`));
+        expect(headers.map((th) => th.textContent)).toEqual(['ERP', 'Full', 'Total']);
+        expect(scroller.querySelector('thead th[data-column="stock_propio"]')).toBeNull();
         const group = [...scroller.querySelectorAll('thead th[scope="colgroup"]')].find((th) => th.textContent === 'Stock');
         expect(group.colSpan).toBe(3);
         expect(wrapped(headers.map((th) => th.querySelector('button')))).toEqual([]);
-        // Never the available sum: the first fixture row has 34 available, 20 Full and 14 of our own.
+        // Never the available sum nor our own quantity: the first fixture row has 34 available, 20 Full, 14 of our own.
         const first = scroller.querySelector('tbody tr');
-        expect(first.querySelector('td[data-column="stock_propio"]').textContent).toBe('14');
         expect(first.querySelector('td[data-column="stock_full"]').textContent).toBe('20');
+        // 12.500 in the ERP + 20 in Full.
+        const digits = (key) => first.querySelector(`td[data-column="${key}"]`).textContent.replace(/\D/g, '');
+        expect(digits('stock_erp')).toBe('12500');
+        expect(digits('stock_total')).toBe('12520');
+        // The three figures read alike: thousands grouped, same font, size and weight.
+        expect(first.querySelector('td[data-column="stock_erp"]').textContent).toBe('12.500');
+        expect(first.querySelector('td[data-column="stock_total"]').textContent).toBe('12.520');
+        const look = (key) => {
+          const figure = [...first.querySelectorAll(`td[data-column="${key}"] span`)].find((el) => el.textContent.trim() && !el.children.length);
+          const style = getComputedStyle(figure);
+          return [style.fontFamily, style.fontSize, style.fontWeight].join(' / ');
+        };
+        expect(look('stock_erp')).toBe(look('stock_total'));
+        expect(look('stock_full')).toBe(look('stock_total'));
         const notes = [...scroller.querySelectorAll('tbody td span')].filter((el) => el.textContent === 'Sin stock ERP');
         expect(notes.length).toBeGreaterThan(0);
         expect(wrapped(notes)).toEqual([]);
         expect(overflowingCells(scroller)).toEqual([]);
         await expect.element(screen.getByRole('button', { name: /Sin stock ERP/ })).toBeVisible();
-        await expect.element(screen.getByRole('button', { name: /Sin stock propio/ })).toBeVisible();
+        expect([...document.querySelectorAll('button')].some((b) => /Sin stock propio/.test(b.textContent))).toBe(false);
         screen.unmount();
       });
 
@@ -3209,9 +3226,8 @@ const FIGURE_COLUMNS = [
   'total_gauss_30d',
   'last_sale',
   'ageing',
-  'stock_propio',
-  'stock_full',
   'stock_erp',
+  'stock_full',
   'stock_total',
 ];
 const COLUMN_SLACK = 12;
@@ -3271,6 +3287,8 @@ describe('Publicaciones ML columns sized by their content (visual)', () => {
       let screen = await renderMarginPage({ width: 1440, height: 1800, theme });
       await frame();
       await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/tabla-lista-1440-${theme}.png`, element: scrollerOf() });
+      // The stock filter chips, above the table.
+      await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/filtros-stock-1440-${theme}.png`, element: document.querySelector('[role="group"][aria-label="Filtrar por stock"]') });
       // The figures past the first screen (Resultado, Rotación, Stock): the same table scrolled to its right end.
       scrollerOf().scrollTo({ left: scrollerOf().scrollWidth });
       await frame();
@@ -3318,7 +3336,7 @@ describe('Publicaciones ML columns sized by their content (visual)', () => {
       expect(getComputedStyle(erpZero).color).toBe(tokenColor('--tone-danger-fg'));
       // Stock reads like Ventas: similar figures, no wider columns.
       const ventas = Math.max(widths.unidades_7d, widths.unidades_30d);
-      for (const key of ['stock_full', 'stock_erp', 'stock_total', 'stock_propio'].filter((k) => widths[k] != null)) {
+      for (const key of ['stock_erp', 'stock_full', 'stock_total']) {
         expect(widths[key], key).toBeLessThanOrEqual(ventas + 1);
       }
       expect(overflowingCells(scroller)).toEqual([]);

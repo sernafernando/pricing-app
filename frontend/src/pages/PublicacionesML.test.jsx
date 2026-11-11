@@ -319,7 +319,7 @@ describe('chip counts', () => {
     ['Filtrar por estado', /Eliminadas/, 300, /Activas.*180/],
     ['Filtrar por tipo', /Premium/, 320, /Clásica.*120/],
     ['Filtrar por vínculo', /Manual/, 330, /Automático.*150/],
-    ['Filtrar por stock', /Sin stock propio/, 340, /Full sin stock.*6/],
+    ['Filtrar por stock', /Sin stock ERP/, 340, /Full sin stock.*6/],
     ['Filtrar por tienda oficial', /Sin tienda/, 310, /Sin tienda.*35/],
   ])('%s: "Todas" counts what there is, not what its own chip leaves', async (group, chip, total, sibling) => {
     await page();
@@ -440,15 +440,15 @@ describe('sorting and paging', () => {
     await page('/ml-publicaciones?orden=precio&dir=asc');
     const header = (name) => screen.getByRole('columnheader', { name });
     const shiftClick = (name) => fireEvent.click(within(header(name)).getByRole('button'), { shiftKey: true });
-    shiftClick(/^Propio/);
-    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'precio,stock_propio', dir: 'asc,desc' }));
-    expect(within(header(/^Propio/)).getByTestId('sort-order')).toHaveTextContent('2');
+    shiftClick(/^Total(?! Gauss)/);
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'precio,stock_total', dir: 'asc,desc' }));
+    expect(within(header(/^Total(?! Gauss)/)).getByTestId('sort-order')).toHaveTextContent('2');
     expect(within(header(/^Precio(?!s| [A-Z])/)).getByTestId('sort-order')).toHaveTextContent('1');
-    shiftClick(/^Propio/);
-    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'precio,stock_propio', dir: 'asc,asc' }));
+    shiftClick(/^Total(?! Gauss)/);
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'precio,stock_total', dir: 'asc,asc' }));
     shiftClick(/^Facturado 30D/);
     await waitFor(() =>
-      expect(lastParams()).toMatchObject({ orden: 'precio,stock_propio,facturado_30d', dir: 'asc,asc,desc' }),
+      expect(lastParams()).toMatchObject({ orden: 'precio,stock_total,facturado_30d', dir: 'asc,asc,desc' }),
     );
     expect(within(header(/^Facturado 30D/)).getByTestId('sort-order')).toHaveTextContent('3');
   });
@@ -534,44 +534,48 @@ describe('stock: our own, Full and the ERP, three columns never summed', () => {
   const cellUnder = (key, itemId) => screen.getByText(itemId).closest('tr').querySelector(`td[data-column="${key}"]`);
   const sortButton = (name) => within(screen.getByRole('columnheader', { name })).getByRole('button');
 
-  it('shows each stock under STOCK in its own column, never the available sum', async () => {
+  it('shows the ERP stock, the Full stock and their total under STOCK, never our own (published) quantity', async () => {
     respond({
       ...ITEMS_RESPONSE,
       facets: FACETS,
-      items: ITEMS.map((item, i) => ({ ...item, erp_stock: { quantity: i === 0 ? 12 : null } })),
+      // `stock_total` is the backend's ERP + Full (`filters.stock_total_of`).
+      items: ITEMS.map((item, i) => ({ ...item, erp_stock: { quantity: i === 0 ? 12 : null }, stock_total: i === 0 ? 32 : null })),
     });
     await page();
     expect(screen.getByRole('columnheader', { name: 'Stock' })).toHaveAttribute('colspan', '3');
-    expect(cellUnder('stock_propio', 'MLA1100000001')).toHaveTextContent('14');
-    expect(cellUnder('stock_full', 'MLA1100000001')).toHaveTextContent('20');
+    expect(screen.queryByRole('columnheader', { name: /Propio/ })).not.toBeInTheDocument();
     expect(cellUnder('stock_erp', 'MLA1100000001')).toHaveTextContent('12');
+    expect(cellUnder('stock_full', 'MLA1100000001')).toHaveTextContent('20');
+    expect(cellUnder('stock_total', 'MLA1100000001')).toHaveTextContent('32');
+    // Neither ML's available sum (34) nor our own quantity (14).
     expect(screen.getByText('MLA1100000001').closest('tr')).not.toHaveTextContent('34');
-    // The cartridge: a real zero of our own, no Full figure, no product.
-    expect(cellUnder('stock_propio', ITEMS[1].item_id)).toHaveTextContent('0');
+    expect(screen.getByText('MLA1100000001').closest('tr')).not.toHaveTextContent(/\b14\b/);
+    // The cartridge: no Full figure, no product, no total.
     expect(cellUnder('stock_full', ITEMS[1].item_id)).toHaveTextContent('—');
     expect(cellUnder('stock_erp', ITEMS[1].item_id)).toHaveTextContent('—');
+    expect(cellUnder('stock_total', ITEMS[1].item_id)).toHaveTextContent('—');
     expect(screen.queryByRole('columnheader', { name: /Stock ML/ })).not.toBeInTheDocument();
   });
 
   it('each stock column sorts by its own figure, highest first', async () => {
     await page();
-    await userEvent.click(sortButton(/^Propio/));
-    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'stock_propio', dir: 'desc' }));
+    await userEvent.click(sortButton(/^Total(?! Gauss)/));
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'stock_total', dir: 'desc' }));
     await userEvent.click(sortButton(/^Full/));
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'stock_full', dir: 'desc' }));
     await userEvent.click(sortButton(/^ERP/));
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'stock_erp', dir: 'desc' }));
   });
 
-  it('offers "Sin stock propio", "Full sin stock" and "Sin stock ERP", each with its count', async () => {
-    respond({ ...ITEMS_RESPONSE, facets: { ...FACETS, stock: { propio_sin_stock: 3, full_sin_stock: 6, erp_sin_stock: 9 } } });
+  it('offers "Full sin stock" and "Sin stock ERP", each with its count, and no "Sin stock propio"', async () => {
+    respond({ ...ITEMS_RESPONSE, facets: { ...FACETS, stock: { full_sin_stock: 6, erp_sin_stock: 9 } } });
     await page();
     const stock = screen.getByRole('group', { name: 'Filtrar por stock' });
     expect(within(stock).queryByRole('button', { name: /Sin stock ML/ })).not.toBeInTheDocument();
-    expect(within(stock).getByRole('button', { name: /Full sin stock.*6/ })).toBeInTheDocument();
+    expect(within(stock).queryByRole('button', { name: /Sin stock propio/ })).not.toBeInTheDocument();
     expect(within(stock).getByRole('button', { name: /Sin stock ERP.*9/ })).toBeInTheDocument();
-    await userEvent.click(within(stock).getByRole('button', { name: /Sin stock propio.*3/ }));
-    await waitFor(() => expect(lastParams().stock).toBe('propio_sin_stock'));
+    await userEvent.click(within(stock).getByRole('button', { name: /Full sin stock.*6/ }));
+    await waitFor(() => expect(lastParams().stock).toBe('full_sin_stock'));
   });
 
   it('offers "Con stock ERP" (Productos\' "Con stock") with its count and asks for it (P6)', async () => {
@@ -582,11 +586,12 @@ describe('stock: our own, Full and the ERP, three columns never summed', () => {
     await waitFor(() => expect(lastParams().stock).toBe('erp_con_stock'));
   });
 
-  it('an old link with the "Sin stock ML" value opens with "Sin stock propio" active and asks for it', async () => {
-    await page('/ml-publicaciones?stock=sin_stock');
-    expect(lastParams().stock).toBe('propio_sin_stock');
+  it('an old link with "Sin stock ML" or "Sin stock propio" and their sort opens without them, never an error', async () => {
+    await page('/ml-publicaciones?stock=sin_stock,propio_sin_stock,erp_sin_stock&orden=stock_propio');
+    expect(lastParams().stock).toBe('erp_sin_stock');
+    expect(lastParams().orden).not.toContain('stock_propio');
     const stock = screen.getByRole('group', { name: 'Filtrar por stock' });
-    expect(within(stock).getByRole('button', { name: /Sin stock propio/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(stock).getByRole('button', { name: /Sin stock ERP/ })).toHaveAttribute('aria-pressed', 'true');
   });
 });
 

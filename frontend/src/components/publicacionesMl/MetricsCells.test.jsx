@@ -13,7 +13,7 @@ import {
   LastSaleCell,
   MarkupRealCell,
   MarkupTrendCell,
-  OwnStockCell,
+  TotalStockCell,
   TotalGaussCell,
   UnitsCell,
   UnitsTrendCell,
@@ -137,22 +137,23 @@ describe('rotation', () => {
 describe('stock, never summed', () => {
   const STOCK = { available: 34, full: 20, own: 14 };
 
-  it('shows our own stock and the Full stock each on its own, never the available sum', () => {
+  it('shows the Full stock and the total it is given, never the available sum nor our own quantity', () => {
     render(
       <>
-        <OwnStockCell stock={STOCK} />
         <FullStockCell stock={STOCK} />
+        <TotalStockCell total={1234} />
       </>,
     );
-    expect(screen.getByText('14')).toBeInTheDocument();
     expect(screen.getByText('20')).toBeInTheDocument();
+    expect(screen.getByText('1.234')).toBeInTheDocument();
     expect(screen.queryByText('34')).not.toBeInTheDocument();
+    expect(screen.queryByText('14')).not.toBeInTheDocument();
   });
 
   it('flags a real zero and reads "—" when the figure is unknown', () => {
     render(
       <>
-        <OwnStockCell stock={{ available: 5, full: 5, own: 0 }} />
+        <TotalStockCell total={0} />
         <FullStockCell stock={{ available: 5, full: null, own: 5 }} />
       </>,
     );

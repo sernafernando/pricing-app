@@ -190,6 +190,18 @@ class TestItems:
         header, _ = read_csv(client.get(ITEMS_CSV, headers=admin_auth_headers))
         assert not (METRIC_COLUMNS | MARGIN_ITEM_COLUMNS) & set(header)
 
+    def test_the_stock_columns_are_erp_full_and_their_total_never_our_own(
+        self, client, sold, db, rol_admin, admin_auth_headers
+    ):
+        grant(db, rol_admin, VER)
+        header, rows = read_csv(client.get(ITEMS_CSV, headers=admin_auth_headers))
+        assert "Stock propio" not in header
+        at = header.index("Stock ERP")
+        assert header[at : at + 3] == ["Stock ERP", "Stock Full", "Stock total"]
+        # MLA1 links product 77 (ERP 4) and has no stock row: its total is the ERP alone; MLA2 has no product.
+        totals = dict(zip(column(header, rows, "Publicación"), column(header, rows, "Stock total")))
+        assert (totals["MLA1"], totals["MLA2"]) == ("4", "")
+
     def test_metricas_adds_the_sales_columns_but_not_the_margin(self, client, sold, db, rol_admin, admin_auth_headers):
         grant(db, rol_admin, VER, METRICAS)
         header, rows = read_csv(client.get(ITEMS_CSV, headers=admin_auth_headers))
