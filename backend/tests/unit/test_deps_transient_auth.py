@@ -28,14 +28,10 @@ was invisible here. This fixture now `expire_all()`s on success — exactly
 what the real commit does to attribute state — before closing, so a `Rol`
 left attached expires just as it does in production.
 
-This module is deliberately synchronous and drives the coroutine with
-`asyncio.run`: the project has NO pytest-asyncio configured (CI installs only
-`requirements.txt` plus `pytest httpx`), so `@pytest.mark.asyncio` is silently
-skipped locally and fails on CI with "async def functions are not natively
-supported". Other test modules in this repo carry the same warning.
+`get_current_user_transient` is a plain ``def`` (auth dependencies run in
+the threadpool, never on the event loop), so this module calls it directly.
 """
 
-import asyncio
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
@@ -107,7 +103,7 @@ class TestTransientAuthEagerLoadsRolObj:
         credentials = MagicMock(credentials=token)
 
         with patch("app.api.deps.get_background_db", lambda: _fake_background_db(db.connection())):
-            usuario = asyncio.run(get_current_user_transient(credentials=credentials))
+            usuario = get_current_user_transient(credentials=credentials)
 
         # The background session has committed-then-closed (see the fixture),
         # so both the Usuario and its Rol are detached. Reading rol-derived
