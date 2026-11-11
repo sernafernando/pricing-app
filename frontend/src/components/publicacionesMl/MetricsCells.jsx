@@ -46,8 +46,8 @@ export function MarkupTrendCell({ metrics }) {
   return (
     <Sparkline
       values={metrics.series_markup_90d}
-      width={120}
-      height={32}
+      width={96}
+      height={28}
       tone={deltaTone(metrics.markup_delta_pp)}
       className={styles.sparkline}
       label="Markup diario, 90 días"
@@ -96,7 +96,7 @@ export function AgeingCell({ metrics }) {
 }
 
 /** One stock figure of its own source: unknown is "—", a real zero (or less) is shown and flagged. */
-function StockQuantity({ value }) {
+export function StockQuantity({ value }) {
   if (value == null) return <Empty />;
   const out = value <= 0;
   return (
@@ -106,12 +106,12 @@ function StockQuantity({ value }) {
   );
 }
 
-/** Our own warehouse stock at ML (`stock.own`), never added to Full. */
-export function OwnStockCell({ stock }) {
-  return <StockQuantity value={stock?.own ?? null} />;
-}
-
-/** The Full stock (`stock.full`), never added to our own. */
+/** The Full stock (`stock.full`). */
 export function FullStockCell({ stock }) {
   return <StockQuantity value={stock?.full ?? null} />;
+}
+
+/** The backend's stock total (`stock_total`, ERP + Full); unknown when both are. */
+export function TotalStockCell({ total }) {
+  return <StockQuantity value={total ?? null} />;
 }

@@ -622,13 +622,15 @@ class TestFilters:
         assert sorted(ids(run(db, stock="erp_sin_stock"))) == ["MLA6", "MLA7"]
         assert sorted(ids(run(db, stock="sin_stock,erp_sin_stock"))) == ["MLA5", "MLA6", "MLA7"]
 
-    def test_own_without_stock_is_a_real_zero_of_our_own_stock_never_the_full_one(self, conn, db) -> None:
+    def test_the_retired_own_without_stock_filter_is_ignored(self, conn, db) -> None:
+        # The "Sin stock propio" chip is gone (owner, 2026-11-10): an old link that carries it lists as if it did not.
         seed.add_item(conn, "MLA6", available_quantity=4, user_product_id="MLAU6")
-        seed.add_stock(conn, "MLAU6", full=4, own=0)  # Full has stock, ours is out: it matches
-        seed.add_item(conn, "MLA7", available_quantity=3, user_product_id="MLAU7")  # no stock row: unknown, not zero
-        # MLA5 has Full at 0 but 3 of our own: it does not match
-        assert ids(run(db, stock="propio_sin_stock")) == ["MLA6"]
-        assert listing.facets(db, parse_filter())["stock"]["propio_sin_stock"] == 1
+        seed.add_stock(conn, "MLAU6", full=4, own=0)
+        assert sorted(ids(run(db, stock="propio_sin_stock"))) == sorted(ids(run(db)))
+        assert sorted(ids(run(db, stock="propio_sin_stock,full_sin_stock"))) == sorted(
+            ids(run(db, stock="full_sin_stock"))
+        )
+        assert "propio_sin_stock" not in listing.facets(db, parse_filter())["stock"]
 
     def test_full_without_stock_does_not_match_an_item_with_no_stock_row(self, conn, db) -> None:
         seed.add_item(conn, "MLA6", available_quantity=3, user_product_id="MLAU6")  # no stock row: unknown, not zero
@@ -953,13 +955,29 @@ class TestSorting:
         assert ids(run(db, orden="stock_full", direction="desc")) == ["MLA3", "MLA1", "MLA2", "MLA4"]
         assert ids(run(db, orden="stock_full", direction="asc")) == ["MLA2", "MLA1", "MLA3", "MLA4"]
 
-    def test_own_stock_puts_unknown_last_and_a_real_zero_before_it(self, conn, db) -> None:
-        for item_id, up, own in (("MLA1", "MLAU1", 5), ("MLA2", "MLAU2", 0), ("MLA3", "MLAU3", 9)):
-            seed.add_item(conn, item_id, user_product_id=up)
-            seed.add_stock(conn, up, full=0, own=own)
-        seed.add_item(conn, "MLA4", user_product_id="MLAU4")  # no stock row: unknown
-        assert ids(run(db, orden="stock_propio")) == ["MLA3", "MLA1", "MLA2", "MLA4"]
-        assert ids(run(db, orden="stock_propio", direction="asc")) == ["MLA2", "MLA1", "MLA3", "MLA4"]
+    def test_total_stock_is_erp_plus_full_highest_first_and_unknown_last(self, conn, db) -> None:
+        # ERP 5 + Full 9 = 14; ERP 0 + no stock row = 0; no product + Full 3 = 3; nothing known: last.
+        seed.add_product(conn, 70, "C70", "P", stock=5)
+        seed.add_product(conn, 71, "C71", "P", stock=0)
+        seed.add_item(conn, "MLA1", user_product_id="MLAU1")
+        seed.add_stock(conn, "MLAU1", full=9, own=40)  # our own (published) quantity never counts
+        seed.add_link(conn, "MLA1", 70)
+        seed.add_item(conn, "MLA2")
+        seed.add_link(conn, "MLA2", 71)
+        seed.add_item(conn, "MLA3", user_product_id="MLAU3")
+        seed.add_stock(conn, "MLAU3", full=3, own=0)
+        seed.add_item(conn, "MLA4")
+        assert ids(run(db, orden="stock_total")) == ["MLA1", "MLA3", "MLA2", "MLA4"]
+        assert ids(run(db, orden="stock_total", direction="asc")) == ["MLA2", "MLA3", "MLA1", "MLA4"]
+        totals = {row["item_id"]: row["stock_total"] for row in run(db).items}
+        assert totals == {"MLA1": 14, "MLA2": 0, "MLA3": 3, "MLA4": None}
+
+    def test_the_retired_own_stock_sort_is_ignored_with_its_direction(self, conn, db) -> None:
+        # An old link still carries `orden=stock_propio`: it opens with the rest of its sort, never a 422.
+        seed.add_item(conn, "MLA1", title="b")
+        seed.add_item(conn, "MLA2", title="a")
+        assert ids(run(db, orden="stock_propio,titulo", direction="desc,asc")) == ["MLA2", "MLA1"]
+        assert listing.parse_sort("stock_propio", "desc") == listing.parse_sort(None, None)
 
     def test_updated_orders_by_the_ml_last_update_newest_first_by_default(self, conn, db) -> None:
         seed.add_item(conn, "MLA1", ml_last_updated=seed.hours_ago(9))
@@ -1127,7 +1145,6 @@ class TestFacets:
                 "full_sin_stock": 1,
                 "erp_sin_stock": 0,
                 "erp_con_stock": 0,
-                "propio_sin_stock": 0,
             },
             # each chip group's "Todos": the live rows (MLA6 is gone), the status axis' `gone` left out
             "totals": {"status": 5, "stores": 5, "listing": 5, "link": 5, "stock": 5},
@@ -1209,7 +1226,6 @@ class TestFacets:
                 "full_sin_stock": 0,
                 "erp_sin_stock": 0,
                 "erp_con_stock": 0,
-                "propio_sin_stock": 0,
             },
             "totals": {"status": 0, "stores": 0, "listing": 0, "link": 0, "stock": 0},
         }

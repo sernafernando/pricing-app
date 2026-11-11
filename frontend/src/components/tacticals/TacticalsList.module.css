@@ -31,11 +31,6 @@
   color: var(--cf-text-secondary);
 }
 
-.subLabel {
-  font-size: var(--font-xs);
-  color: var(--cf-text-secondary);
-}
-
 .control {
   min-height: 32px;
   padding: 4px 8px;
@@ -46,24 +41,29 @@
   border-radius: var(--radius-sm);
 }
 
+/* Vigencia: Desde/Hasta read as prefixes on the inputs' own row (as Nuevo tactical, #2177), so the field has one label
+   line and its inputs sit on the other filters' baseline. */
 .vigencia {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-2);
-  padding: 0;
-  margin: 0;
-  border: 0;
-}
-
-.vigencia > legend {
-  margin-bottom: var(--space-1);
-  padding: 0;
+  display: flex;
+  gap: var(--space-3);
 }
 
 .fecha {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.prefix {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  white-space: nowrap;
+}
+
+/* A date input is taller than a select in Chromium (its calendar button): held to the other controls' height. */
+.fechaControl {
+  box-sizing: border-box;
+  height: 32px;
 }
 
 .limpiar {
@@ -119,4 +119,49 @@
   border: 0;
   clip: rect(0 0 0 0);
   white-space: nowrap;
+}
+
+/* Pendientes / Cobrados (tactical cobranza S4): two compact cards between the filters and the list. */
+.kpis {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 240px;
+  padding: var(--space-3) var(--space-4);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.kpiCantidad {
+  font-size: var(--font-lg);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.kpiMonto {
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+/* How many tacticals add nothing to the cap (S6). */
+.kpiSinTope {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.kpiNota {
+  align-self: flex-end;
+  margin: 0;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
 }

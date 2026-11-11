@@ -3,7 +3,7 @@ import { TableShell } from '../kit';
 import { PRODUCT_FIGURES } from './productFigures';
 import VariationRows from './VariationRows';
 import { treeRowTone } from './rowColor';
-import { BranchState, NodeCount, NodeTitle } from './NodeCells';
+import { BranchState, NodeSummary, NodeTitle } from './NodeCells';
 import { SelectionCheckbox } from './RowCheckbox';
 import { selectionRow } from './useRowSelection';
 import { PRODUCT_SORTS } from '../../hooks/usePublicacionesMLFilters';
@@ -18,8 +18,9 @@ import CatalogStatusBadge from '../CatalogStatusBadge';
  * sub-rows of a publication).
  *
  * `columns` are the page's visible ones (`buildColumns({producto: true})`): a
- * product fills its name, its publication count, its code, brand, ERP stock and
- * cost (`PRODUCT_FIELDS`), and the sum of its publications' Métricas ML figures
+ * product fills its name with its publication count on a second line, its Tipo,
+ * Estado and Precio with a summary of its publications, its code, brand, ERP
+ * stock and cost (`PRODUCT_FIELDS`), and the sum of its publications' Métricas ML figures
  * (the row's `metrics` has the publications' shape, so the same cells draw it;
  * null reads "—"); a
  * publication fills them all, exactly like the list. Only the product figures
@@ -30,7 +31,7 @@ import CatalogStatusBadge from '../CatalogStatusBadge';
  *
  * A click (or Enter/Space) on a product row opens its panel (`onSelectProduct(key)`); its chevron opens it into
  * its publications. The highlighted row is the selected publication (`selectedKey`) or, with none, the product
- * whose panel is open (`selectedProductKey`).
+ * whose panel is open (`selectedProductKey`). `columnWidths` / `onColumnResize` size the first column (TableShell).
  *
  * Beside a product's name, Productos' badges: its prearmadas (`prearmadasStats`, by product id, from the page) and its
  * wholesale (PxQ) tiers (the row's `pxq_tramos` / `pxq_precio_desde`), and its catalog competition (from `listingById`:
@@ -39,6 +40,10 @@ import CatalogStatusBadge from '../CatalogStatusBadge';
 // The columns a product row fills from its own product, as Productos' rows carry it: drawn by the publications' own
 // cells over the product read in their shape (`productAsItem`).
 const PRODUCT_FIELDS = new Set(['codigo', 'marca', 'costo', 'stock_erp']);
+
+// A product's Tipo, Estado and Precio: the summary of ALL its publications (S6); its count is its first cell's second
+// line.
+const SUMMARY_COLUMNS = new Set(['tipo', 'estado', 'precio']);
 
 // No prearmadas stats given: one stable object, so the columns are not rebuilt on every render.
 const NO_PREARMADAS = {};
@@ -77,6 +82,8 @@ export default function ProductoTable({
   listingById = NO_LISTING,
   virtualizeFrom,
   onEndReached,
+  columnWidths,
+  onColumnResize,
 }) {
   const { rows, toggle, loadMore } = tree;
 
@@ -103,7 +110,7 @@ export default function ProductoTable({
               );
               return <NodeTitle row={row} onToggle={toggle} after={after} badges={badges} />;
             }
-            if (column.key === 'publicaciones') return <NodeCount node={row.node} />;
+            if (SUMMARY_COLUMNS.has(column.key)) return <NodeSummary column={column.key} node={row.node} />;
             if (PRODUCT_FIGURES.has(column.key)) return column.render({ metrics: row.node.metrics });
             if (PRODUCT_FIELDS.has(column.key)) return column.render(productAsItem(row.node));
             if (column.renderProduct) return column.renderProduct(row.node.productoItemId);
@@ -153,6 +160,8 @@ export default function ProductoTable({
       ariaLabel="Publicaciones de Mercado Libre por producto"
       virtualizeFrom={virtualizeFrom}
       onEndReached={onEndReached}
+      columnWidths={columnWidths}
+      onColumnResize={onColumnResize}
     />
   );
 }

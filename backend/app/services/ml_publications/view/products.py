@@ -64,6 +64,7 @@ from app.services.ml_publications.view.filters import (
     build_base_select,
     erp_stock,
     has_product,
+    joined,
     linked_product_conditions,
     product_colors_only,
     product_links,
@@ -71,7 +72,13 @@ from app.services.ml_publications.view.filters import (
     publication_filter_in,
 )
 from app.services.ml_publications.view.cost_lines import NO_COST_LINES, cost_lines
-from app.services.ml_publications.view.listing import markup_accepted, resolve_pm_pairs
+from app.services.ml_publications.view.listing import (
+    Summary,
+    markup_accepted,
+    resolve_pm_pairs,
+    summaries,
+    summary_columns,
+)
 from app.services.ml_publications.view.markup_service import MarkupQuery, MarkupResult, product_markup
 
 # `orden` -> (the summed row's column, whether it is a margin figure: `ml_metricas.ver_ganancia` only, whether it is a
@@ -121,6 +128,9 @@ class ProductsPage:
     costs: dict[str, Optional[dict[str, Any]]] = field(default_factory=dict)
     # key -> the PPP and sell in lines under that cost (`cost_lines.cost_lines`); only when asked
     lines: Optional[dict[str, dict[str, Any]]] = field(default_factory=dict)  # None: they could not be built
+    # key -> what the row shows in Tipo, Estado and Precio (`listing.summaries`), over ALL its publications; a row
+    # missing here (no publication: "Sin MLA") reads `listing.EMPTY_SUMMARY`
+    summaries: dict[str, Summary] = field(default_factory=dict)
 
 
 def product_pairs(f: PublicationFilter, mlas: Any, *columns: Any) -> Any:
@@ -313,6 +323,21 @@ def _series(b: board.Board, members: Any, by_key: dict[str, board.Row]) -> None:
     b.read_series(by_key, series)
 
 
+def _summaries(db: Session, members: Any, rows: Sequence[board.Row]) -> dict[str, Summary]:
+    """The page's rows' `Summary`: ONE statement over every publication of each row (`members`: the same
+    (publication, product) pairs its count reads), whatever page of its publications the screen has loaded."""
+    if not rows:
+        return {}
+    pubs = (
+        select(members.c.product.label("k"), *summary_columns())
+        .select_from(joined())
+        .join(members, members.c.mla == T.i.item_id)
+        .where(members.c.product == any_(literal([row.product_item_id for row in rows], ARRAY(Integer))))
+        .subquery("summary_pubs")
+    )
+    return {str(key): summary for key, summary in summaries(db, pubs).items()}
+
+
 @contextmanager
 def _product_rows(db: Session, f: PublicationFilter, only: Optional[Sequence[int]] = None) -> Iterator[tuple]:
     """The Board over the MLAs `f` selects and the summed product rows over it: `(board, members, rows)`. `only`
@@ -400,9 +425,10 @@ def list_products(
             found = list(db.execute(page).mappings())
         out = [_row(r, b.today) for r in found]
         _series(b, members, {row.key: row for row in out})
+        summary = _summaries(db, members, out)
     without = frozenset(str(r["product"]) for r in found if not r["board_rows"])
     costs, lines = _costs(db, out, pricing_db) if cost else ({}, {})
-    return ProductsPage(out, int(total), int(mla_count), without, costs, lines)
+    return ProductsPage(out, int(total), int(mla_count), without, costs, lines, summary)
 
 
 def ordered_product_keys(

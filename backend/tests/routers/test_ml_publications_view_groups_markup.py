@@ -62,8 +62,14 @@ class TestContract:
     def test_the_figures_are_the_only_addition_to_the_p7a_node(self, client, pg, analyst, pricing) -> None:
         seed_rows(pg, seed_catalog)
         p7a = {"kind", "key", "label", "count", "leaf", "params"}
+        summary = {"kind_counts", "status_counts", "price_min", "price_max"}  # S6, for every reader
         for node in get(client, analyst).json()["nodes"]:
-            assert set(node) == p7a | FIGURES
+            assert set(node) == p7a | summary | FIGURES
+
+    def test_a_publication_of_two_products_of_one_brand_is_summarized_once(self, client, pg, analyst, pricing):
+        seed_rows(pg, seed_catalog)
+        node = node_of(get(client, analyst), "ALFA")  # MLA4 is linked per variation to 70 and 71, both ALFA
+        assert sum(node["status_counts"].values()) == node["count"] == 3
 
     def test_the_figures_come_with_every_level_of_the_tree(self, client, pg, analyst, pricing) -> None:
         seed_rows(pg, seed_catalog)

@@ -646,13 +646,13 @@ describe('header figures (S1)', () => {
   });
 
   it('shows the price, Stock and Ventas 30 días from the row; without ver_ganancia, no markup under the price', async () => {
-    publicacionesMlAPI.detail.mockResolvedValue({ data: withRow(SALES) });
+    publicacionesMlAPI.detail.mockResolvedValue({ data: withRow({ ...SALES, erp_stock: { quantity: 12500 }, stock_total: 12520 }) });
     renderPanel({ tab: 'resumen' });
     await screen.findByRole('region', { name: 'Cifras de la publicación' });
     expect(labels()).toEqual(['Precio', 'Stock', 'Ventas 30 días']);
     expect(figure('Precio')).toBe('$ 98.500,50');
-    // The total only: Full and propio are the Resumen's stock breakdown, not repeated here.
-    expect(figure('Stock')).toBe('34unidades');
+    // The stock total as the table's (ERP + Full), never the published quantity (34); ERP and Full are the Resumen's.
+    expect(figure('Stock')).toBe('12.520ERP + Full');
     expect(figure('Ventas 30 días')).toContain('12');
     expect(figure('Ventas 30 días')).toContain('1.500,00');
   });

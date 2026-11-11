@@ -85,7 +85,19 @@ Los lotes son solo lectura. Debajo está la sección **Modo de costo**.
 
 La pestaña **Productos** lista cada producto que todavía tiene unidades en lotes de sell in, con su **Modo de costo** (**FIFO (por defecto)** si nunca se cambió), las **Unidades** que le quedan en los lotes, el **Sell in por unidad** que se lleva la próxima venta (el mismo valor que muestra el visor de lotes; "—" si ningún lote cuenta todavía) y la fecha de su **Últ. compra**. Abajo está el total de unidades.
 
-Tocá el nombre de un producto para abrir su **Costo de sell in**: sus lotes y la sección **Modo de costo**, donde se cambia el modo. Al confirmar un cambio, la lista se actualiza sola.
+Arriba de la lista hay una barra:
+
+- **Buscar**: filtra por código o descripción (sin importar mayúsculas ni tildes).
+- **Marca**: muestra solo los productos de esa marca. Ofrece las marcas que aparecen en la lista.
+- **Modo de costo**: muestra solo los productos con ese modo. **FIFO (por defecto)** son los que nunca cambiaron de modo; **FIFO** son los que alguien pasó a FIFO a propósito.
+- **Limpiar filtros**: vuelve a mostrar todos los productos.
+- **Modo por defecto: …** muestra con qué modo abre el selector de modo de costo (ver más abajo). Un administrador ve al lado **Cambiar**, que abre el mismo modal **Modo por defecto** que está en el panel de cada producto.
+
+El total de unidades de abajo suma solo los productos que se ven. Si ningún producto cumple los filtros, la lista lo dice.
+
+Tocá el título de una columna (**Producto**, **Modo de costo**, **Unidades**, **Sell in por unidad** o **Últ. compra**) para ordenar por ella; un segundo toque invierte el orden. Los productos sin **Sell in por unidad** van siempre al final.
+
+**Ver lotes**, al final de cada fila, abre el **Costo de sell in** del producto: sus lotes y la sección **Modo de costo**, donde se cambia el modo. Al confirmar un cambio, la lista se actualiza sola.
 
 ### Modo de costo de un producto
 
@@ -103,7 +115,7 @@ Para cambiarlo:
 
 Permisos: **Ponderado (PPP)** necesita `sell_in.costo_ponderado`, **Último precio** `sell_in.costo_ultimo` y **Manual** `sell_in.costo_manual`; volver a **FIFO** se puede con cualquiera de los permisos de modo. Una fecha pasada necesita además `sell_in.costo_retroactivo` y recalcula las ventas registradas desde ese día. Sin ningún permiso de modo se ve el modo actual y el historial, sin poder cambiarlo.
 
-**Modo por defecto**: **Cambiar a** abre ya elegido el modo por defecto. Si nadie lo cambió, es **FIFO**. Un administrador lo cambia con el botón **Modo por defecto** de la sección: elige **FIFO**, **Ponderado (PPP)** o **Último precio** en **Abrir en** (**Manual** no, porque necesita la cantidad y el costo de cada producto) y toca **Guardar**. El cambio vale para todos los productos. Solo elige con qué modo abre el selector: no recalcula nada, y los productos sin modo propio siguen en FIFO. Si el usuario no tiene permiso para el modo por defecto, el selector abre en **FIFO**.
+**Modo por defecto**: **Cambiar a** abre ya elegido el modo por defecto. Si nadie lo cambió, es **FIFO**. Un administrador lo cambia con **Cambiar**, al lado de **Modo por defecto** en la barra de la pestaña **Productos**, o con el botón **Modo por defecto** de esta sección: elige **FIFO**, **Ponderado (PPP)** o **Último precio** en **Abrir en** (**Manual** no, porque necesita la cantidad y el costo de cada producto) y toca **Guardar**. El cambio vale para todos los productos. Solo elige con qué modo abre el selector: no recalcula nada, y los productos sin modo propio siguen en FIFO. Si el usuario no tiene permiso para el modo por defecto, el selector abre en **FIFO**.
 
 ### Campañas de sell out: tipos
 
@@ -153,14 +165,17 @@ Un **tactical** es un programa de una marca: sell in baja el costo, sell out sum
   - **Marca**: muestra los tacticals que tienen esa marca entre las suyas.
   - **Moneda**: ARS o USD, la moneda del tactical.
   - **Estado**: Vigentes (al abrir), Vencidos o Anulados.
+  - **Cobranza**: Todos (al abrir), Pendientes (sin cobro cargado) o Cobrados.
   - **Vigencia**: Desde y Hasta.
   - **Buscar**: por nombre o referencia.
-  - **Limpiar filtros** vuelve a los vigentes de todas las marcas.
+  - **Limpiar filtros** vuelve a los vigentes de todas las marcas, con Cobranza en Todos.
+- Arriba de la lista, **Pendientes** y **Cobrados** dicen cuántos tacticals hay de cada uno y su monto por moneda: lo que generaron sus líneas (el mismo monto que muestra **Avance**) **de** su tope, por ejemplo `ARS 4.380.250 de 6.000.000`. El tope es la suma de los topes de monto de las líneas; en una línea de **Monto total**, el total es su tope. Las líneas sin tope de monto no suman al tope; si en una moneda hay líneas con y sin tope, el tope se muestra aparte, por ejemplo `ARS 900 · tope 500 (líneas con tope)`, porque lo generado incluye también las líneas sin tope. Además, **N sin tope** dice cuántos tacticals no tienen tope de monto en ninguna línea. Cuentan todos los tacticals que cumplen los otros filtros (no solo la página que estás viendo); el filtro **Cobranza** no los cambia.
 - Columnas:
   - **Nombre**, con la referencia debajo.
   - **Tipo**, **Marca** (todas las del tactical, separadas por coma), **Vigencia** y **Líneas**.
   - **Avance**: unidades usadas sobre la suma de los topes de unidades de sus líneas, con la barra, y debajo el monto usado. El monto dice «de» el total solo cuando todas las líneas tienen tope de monto.
   - **Estado**: Vigente, «Vence en N días» (cuando faltan 7 días o menos), «Vence hoy» (el último día), Vencido o Anulado.
+  - **Cobranza**: «Pendiente», o «Cobrado» con la fecha en que se cobró.
   - Un tactical con todas sus líneas por factura dice «Por factura» en **Vigencia** y queda Vigente hasta que se anule.
 - La flecha de cada fila muestra sus líneas:
   - **Qué incluye**: los productos, o la marca, la categoría o la factura.
@@ -168,6 +183,11 @@ Un **tactical** es un programa de una marca: sell in baja el costo, sell out sum
   - **Tope unidades**, **Usadas**, **Tope monto** y **Usado**.
   - **Avance**: la barra del tope de unidades o, si no tiene, del tope de monto. Al llegar al tope dice «Tope alcanzado».
   - **Ver ventas** abre al costado lo que cargó esa línea, solo para mirar. En una línea de sell out es su campaña, con la lista de ventas que acreditó. En sell in es su bono, con las unidades vendidas y lo aplicado, o su compra, con el costo de cada producto antes y después. Desde ahí no se edita ni se anula: eso se hace con **Editar** o **Anular** en el tactical.
+- Si podés gestionar ese tipo de tactical (sell_in.gestionar o sell_out.gestionar), la columna **Cobranza** tiene **Cargar cobro** (o **Editar cobro**, si ya está cobrado). Abre debajo de la fila el cuadro **Cobranza**:
+  - **Fecha de cobro**: el único dato obligatorio.
+  - **Medio**: **Nota de crédito** pide el **Número de NC**; **Fondo en distribuidor** pide el **Distribuidor**; **Otro** pide un **Detalle**.
+  - **Observaciones**: texto libre.
+  - **Guardar** lo marca «Cobrado» con esa fecha. **Deshacer cobro** borra el cobro y el tactical vuelve a «Pendiente». **Cancelar** (o Escape) cierra sin guardar.
 - Si podés gestionar ese tipo de tactical (sell_in.gestionar o sell_out.gestionar), cada fila tiene el botón de acciones (⋮) al final:
   - **Editar** (en tacticals no anulados) cambia solo el nombre, la nota, la fecha hasta y los topes de cada línea. La fecha hasta no puede quedar antes de hoy ni antes de la fecha desde, y un tope no puede quedar debajo de lo que la línea ya usó (cada línea muestra «Ya usó N u · monto»); con un tope por tienda, debajo de lo que usó la tienda o canal que más usó. Un tope vacío lo saca. Una línea de monto total no lleva topes. Un tactical por factura no tiene fecha hasta para editar, y en uno mixto la fecha hasta no mueve las líneas por factura. Las líneas, los montos y el alcance no se editan: para cambiarlos, anulá el tactical y renovalo. El cambio pasa a las campañas y bonos del tactical y queda en la auditoría.
   - **Renovar** abre **Nuevo tactical** con todo lo del tactical cargado: tipo, datos, líneas, montos y topes. Las fechas quedan vacías para que elijas las nuevas. **Crear tactical** crea un tactical NUEVO y el anterior queda como estaba. Una línea por factura vuelve sin la factura, porque esa factura ya tuvo su bono: elegí la nueva o eliminá la línea. Una línea de monto total vuelve con su criterio de reparto; en sell in en USD, con el importe en USD que se cargó (no con el total en pesos).
@@ -175,7 +195,7 @@ Un **tactical** es un programa de una marca: sell in baja el costo, sell out sum
 
 ## Filtros y columnas
 
-Tacticals: tipo, marca, moneda, estado, vigencia y búsqueda. Grupos: nombre, filtros, productos alcanzados y campañas que lo usan. Productos: producto, modo de costo, unidades, sell in por unidad y última compra.
+Tacticals: tipo, marca, moneda, estado, cobranza, vigencia y búsqueda; columna Cobranza (Pendiente o Cobrado con la fecha). Grupos: nombre, filtros, productos alcanzados y campañas que lo usan. Productos: búsqueda por código o descripción, marca y modo de costo; columnas producto, modo de costo, unidades, sell in por unidad y última compra, todas ordenables.
 
 ## Botones y acciones
 
@@ -185,7 +205,10 @@ Tacticals: tipo, marca, moneda, estado, vigencia y búsqueda. Grupos: nombre, fi
 - **Editar** (acciones de una fila de Tacticals): cambia nombre, nota, fecha hasta y topes; **Guardar cambios** manda solo lo que cambiaste.
 - **Renovar** (acciones de una fila de Tacticals): abre **Nuevo tactical** cargado con ese tactical, con fechas nuevas por elegir, sus tiendas y su modo de tope.
 - **Anular** (acciones de una fila de Tacticals): anula el tactical con todas sus líneas, después de confirmar.
+- **Cargar cobro** / **Editar cobro** (columna Cobranza de una fila de Tacticals): abre el cuadro **Cobranza**; **Guardar** lo marca cobrado y **Deshacer cobro** lo vuelve a pendiente (según permiso).
 - **Ver ventas** (en cada línea de un tactical): abre al costado lo que cargó esa línea, solo para mirar.
+- **Ver lotes** (pestaña Productos, en cada fila): abre los lotes y el modo de costo del producto.
+- **Cambiar** (pestaña Productos, al lado de **Modo por defecto**; solo administradores): cambia con qué modo abre el selector de modo de costo.
 - **Actualizar**: recarga datos.
 
 ## Preguntas frecuentes
@@ -210,3 +233,9 @@ Sell in baja el costo de la compra; sell out suma ganancia por campaña (o la de
 
 **¿Por qué no puedo cambiar el reparto de una campaña?**
 Repartir pide permiso de reparto (lo tienen los PM y los administradores) o de gestión de campañas, y la campaña tiene que estar activa. Un PM solo puede repartir productos de sus marcas.
+
+**¿Qué monto suman Pendientes y Cobrados?**
+Lo que generaron las líneas de esos tacticals, por moneda: el mismo monto de la columna **Avance**, seguido de **de** y la suma de sus topes de monto en esa moneda. Un tactical en USD puede sumar a ARS si tiene líneas de costo, que van en pesos; su tope también (un monto total de costo cargado en USD se guarda en pesos al tipo de cambio fijo). Si ninguna línea de una moneda tiene tope, esa moneda muestra solo lo generado.
+
+**¿Un tactical anulado puede marcarse cobrado?**
+Sí: la marca pudo haber pagado lo que se generó antes de anularlo. Con **Estado** en Anulados ves sus Pendientes y Cobrados.

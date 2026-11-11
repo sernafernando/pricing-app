@@ -1,0 +1,39 @@
+/* The Cobranza box under a tactical row (TacticalCobranza): the fields of tacticalDialogos.module.css on a card that
+   sits inside the row's full-width cell, like the row's lines. */
+
+.caja {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 880px;
+  margin: var(--space-2) var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.titulo {
+  margin: 0;
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cf-text-secondary);
+}
+
+.fila {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-3) var(--space-4);
+}
+
+.detalle {
+  flex: 1 1 220px;
+}
+
+/* Undo sits apart, on the left, away from Guardar. */
+.deshacer {
+  margin-right: auto;
+}

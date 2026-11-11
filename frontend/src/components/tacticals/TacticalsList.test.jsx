@@ -8,9 +8,11 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TacticalsList from './TacticalsList';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
-import { TACTICAL_BPS, TACTICAL_REBATE, pagina } from './tacticalsFixtures';
+import { COBRANZA_FONDO, KPIS_COBRANZA, TACTICAL_BPS, TACTICAL_REBATE, pagina } from './tacticalsFixtures';
 
-vi.mock('../../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn(), editar: vi.fn(), anular: vi.fn() } }));
+vi.mock('../../services/tacticalsAPI', () => ({
+  tacticalsAPI: { listar: vi.fn(), editar: vi.fn(), anular: vi.fn(), cobrar: vi.fn(), deshacerCobro: vi.fn() },
+}));
 
 const BPS = TACTICAL_BPS;
 const REBATE = TACTICAL_REBATE;
@@ -356,5 +358,86 @@ describe('TacticalsList Ver ventas', () => {
     render(<TacticalsList marcas={MARCAS} />);
     await userEvent.click(await screen.findByRole('button', { name: 'Ver las líneas de Tacticals BPS Noviembre Q1FY27' }));
     expect(screen.queryByRole('button', { name: /Ver ventas/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('TacticalsList Cobranza (handoffs/tactical-cobranza-tarea.md S3, S4)', () => {
+  const COBRADO = { ...REBATE, cobranza: COBRANZA_FONDO };
+
+  beforeEach(() => {
+    tacticalsAPI.listar.mockResolvedValue({ data: { ...pagina([BPS, COBRADO], 2), kpis: KPIS_COBRANZA } });
+    tacticalsAPI.cobrar.mockResolvedValue({ data: COBRADO });
+  });
+
+  it('shows Pendientes and Cobrados with their count, generated of cap per currency and how many have no cap', async () => {
+    render(<TacticalsList marcas={MARCAS} />);
+
+    const kpis = await screen.findByRole('region', { name: 'Cobranza de los tacticals' });
+    expect(within(kpis).getByText('Pendientes').closest('div')).toHaveTextContent(
+      'Pendientes12 tacticalsARS 4.380.250 de 6.000.000 · USD 1.920 · tope 800 (líneas con tope)3 sin tope',
+    );
+    expect(within(kpis).getByText('Cobrados').closest('div')).toHaveTextContent(
+      /^Cobrados7 tacticalsARS 2\.115\.000 de 2\.500\.000 · USD 640 de 800$/,
+    );
+    expect(kpis).toHaveTextContent('Monto: lo que generaron las líneas de cada tactical de su tope, por moneda.');
+  });
+
+  it('a currency-less group reads a dash, and a single tactical reads singular', async () => {
+    const kpis = { pendientes: { cantidad: 1, montos: [] }, cobrados: { cantidad: 0, montos: [] } };
+    tacticalsAPI.listar.mockResolvedValue({ data: { ...pagina([BPS], 1), kpis } });
+    render(<TacticalsList marcas={MARCAS} />);
+
+    const region = await screen.findByRole('region', { name: 'Cobranza de los tacticals' });
+    expect(within(region).getByText('Pendientes').closest('div')).toHaveTextContent('Pendientes1 tactical—');
+  });
+
+  it('filters Pendientes / Cobrados / Todos, and Limpiar filtros goes back to Todos', async () => {
+    render(<TacticalsList marcas={MARCAS} />);
+    await screen.findByText('Tacticals BPS Noviembre Q1FY27');
+    const cobranza = screen.getByRole('group', { name: 'Cobranza' });
+
+    await userEvent.click(within(cobranza).getByRole('button', { name: 'Cobrados' }));
+    await waitFor(() => expect(ultimaConsulta()).toMatchObject({ cobranza: 'cobrados' }));
+    await userEvent.click(within(cobranza).getByRole('button', { name: 'Pendientes' }));
+    await waitFor(() => expect(ultimaConsulta()).toMatchObject({ cobranza: 'pendientes' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Limpiar filtros' }));
+    await waitFor(() => expect(ultimaConsulta()).toEqual({ estado: 'vigentes', page: 1, page_size: 50 }));
+    expect(within(cobranza).getByRole('button', { name: 'Todos' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('each row says Pendiente or Cobrado with its date', async () => {
+    render(<TacticalsList marcas={MARCAS} />);
+    await screen.findByText('Tacticals BPS Noviembre Q1FY27');
+
+    expect(within(filaDe('Tacticals BPS')).getByText('Pendiente')).toBeInTheDocument();
+    expect(within(filaDe('Rebate HP Q1FY27')).getByText('Cobrado 09/11/2026')).toBeInTheDocument();
+  });
+
+  it('opens the box under the row, saves and asks the list again; without the permission there is no button', async () => {
+    render(<TacticalsList marcas={MARCAS} puedeGestionar={(tipo) => tipo === 'sell_out'} />);
+    await screen.findByText('Tacticals BPS Noviembre Q1FY27');
+    expect(within(filaDe('Rebate HP Q1FY27')).queryByRole('button', { name: /cobro/ })).not.toBeInTheDocument();
+    const pedidos = tacticalsAPI.listar.mock.calls.length;
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cargar cobro de Tacticals BPS Noviembre Q1FY27' }));
+    const caja = screen.getByRole('form', { name: 'Cobranza de Tacticals BPS Noviembre Q1FY27' });
+    await userEvent.type(within(caja).getByLabelText('Fecha de cobro *'), '2026-11-09');
+    await userEvent.click(within(caja).getByRole('button', { name: 'Guardar' }));
+
+    expect(tacticalsAPI.cobrar).toHaveBeenCalledWith(1, expect.objectContaining({ fecha_cobro: '2026-11-09' }));
+    await waitFor(() => expect(tacticalsAPI.listar.mock.calls.length).toBeGreaterThan(pedidos));
+    expect(screen.queryByRole('form', { name: /Cobranza de/ })).not.toBeInTheDocument();
+  });
+
+  it('a collected row offers Editar cobro, and the box toggles closed', async () => {
+    render(<TacticalsList marcas={MARCAS} puedeGestionar={() => true} />);
+    await screen.findByText('Tacticals BPS Noviembre Q1FY27');
+
+    const boton = screen.getByRole('button', { name: 'Editar cobro de Rebate HP Q1FY27' });
+    await userEvent.click(boton);
+    expect(boton).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByLabelText('Distribuidor')).toHaveValue('Grupo Núcleo');
+    await userEvent.click(boton);
+    expect(screen.queryByRole('form', { name: /Cobranza de/ })).not.toBeInTheDocument();
   });
 });

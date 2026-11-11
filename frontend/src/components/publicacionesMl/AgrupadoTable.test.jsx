@@ -137,8 +137,8 @@ describe('the roots', () => {
   it('shows "Sin marca" like any node, and the count of each', async () => {
     render(<Harness />);
     const none = (await screen.findByText('Sin marca')).closest('tr');
-    expect(within(none).getByText('25')).toBeInTheDocument();
-    expect(within(rowOf('EPSON')).getByText('60')).toBeInTheDocument();
+    expect(within(none).getByText(/25 publicaciones/)).toBeInTheDocument();
+    expect(within(rowOf('EPSON')).getByText(/60 publicaciones/)).toBeInTheDocument();
   });
 
   it('says so when there is nothing', async () => {
@@ -379,19 +379,32 @@ describe('a page that overlaps the last one', () => {
 });
 
 describe('node figures', () => {
-  it('shows count, negativos and the markup range with ver_ganancia', async () => {
+  it('puts the count and the negatives on the first cell and the markup range with ver_ganancia (S6)', async () => {
     render(<Harness />);
     const row = (await screen.findByText('TP-LINK')).closest('tr');
-    expect(within(row).getByText('90')).toBeInTheDocument();
-    expect(within(row).getByText('4')).toBeInTheDocument();
+    expect(within(row).getByText(/90 publicaciones/)).toBeInTheDocument();
+    expect(within(row).getByText('4 con markup negativo')).toBeInTheDocument();
     expect(within(row).getByText(/-6,5%.*38,2%/)).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: /Negativos/ })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /Negativos/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /^Publicaciones$/ })).not.toBeInTheDocument();
   });
 
-  it('shows a real 0 negativos as 0 and a range with nothing to compute as "—"', async () => {
+  it('summarizes the node in Tipo, Estado and Precio (S6)', async () => {
+    render(<Harness />);
+    const row = (await screen.findByText('TP-LINK')).closest('tr');
+    expect(within(row).getByText('60 Clásica')).toBeInTheDocument();
+    expect(within(row).getByText('30 6 cuotas')).toBeInTheDocument();
+    expect(within(row).getByText('89 activas')).toBeInTheDocument();
+    expect(within(row).getByText('1 pausada')).toBeInTheDocument();
+    expect(within(row).getByText('45.999,00 –')).toBeInTheDocument();
+    expect(within(row).getByText('189.999,50')).toBeInTheDocument();
+  });
+
+  it('leaves 0 negativos out of the count line and shows a range with nothing to compute as "—"', async () => {
     render(<Harness />);
     const row = (await screen.findByText('TP,LINK')).closest('tr');
-    expect(within(row).getByText('0')).toBeInTheDocument();
+    expect(within(row).getByText(/7 publicaciones$/)).toBeInTheDocument();
+    expect(within(row).queryByText(/markup negativo/)).not.toBeInTheDocument();
     expect(within(row).getAllByText('—').length).toBeGreaterThanOrEqual(1);
   });
 
@@ -399,14 +412,14 @@ describe('node figures', () => {
     publicacionesMlAPI.groups.mockResolvedValue({ data: groupsResponse('marca', [makeNode()]) });
     render(<Harness />);
     const row = (await screen.findByText('TP-LINK')).closest('tr');
-    expect(within(row).getAllByText('—').length).toBeGreaterThanOrEqual(2);
-    expect(within(row).queryByText('0')).not.toBeInTheDocument();
+    expect(within(row).getAllByText('—').length).toBeGreaterThanOrEqual(1);
+    expect(within(row).queryByText(/markup negativo/)).not.toBeInTheDocument();
   });
 
-  it('has no negativos and no markup without ver_ganancia, even if the payload carried them', async () => {
+  it('has no negatives and no markup without ver_ganancia, even if the payload carried them', async () => {
     render(<Harness canSeeMargin={false} />);
-    await screen.findByText('TP-LINK');
-    expect(screen.queryByRole('columnheader', { name: /Negativos/ })).not.toBeInTheDocument();
+    const row = (await screen.findByText('TP-LINK')).closest('tr');
+    expect(within(row).queryByText(/markup negativo/)).not.toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: /Markup/ })).not.toBeInTheDocument();
     expect(screen.queryByText(/38,2%/)).not.toBeInTheDocument();
   });

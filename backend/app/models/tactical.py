@@ -91,6 +91,7 @@ class Tactical(Base):
         cascade="all, delete-orphan",
         order_by="TacticalMarca.id",
     )
+    cobranza = relationship("TacticalCobranza", back_populates="tactical", uselist=False, cascade="all, delete-orphan")
 
 
 class TacticalTienda(Base):
@@ -153,3 +154,35 @@ class TacticalMarca(Base):
     marca = Column(String(100), nullable=False)
 
     tactical = relationship("Tactical", back_populates="marcas")
+
+
+MEDIO = "medio IS NULL OR medio IN ('nota_credito', 'fondo_distribuidor', 'otro')"
+
+
+class TacticalCobranza(Base):
+    """How the brand paid a tactical (tactical cobranza S1, owner 2026-11-10: "fecha de cuando se cobro, si es Nota de
+    crédito (ahí número) o si es fondo en distribuidor (ahí un panel para aclarar el distri) u otro ... que obligatorio
+    sea la fecha no más"). At most one per tactical: a tactical with a row is "Cobrado", without one "Pendiente"; undo
+    deletes the row. Only `fecha_cobro` is required; `nc_numero` / `distribuidor` / `otro_detalle` go with their
+    `medio`. Migration `20261110_tactical_cobranza`."""
+
+    __tablename__ = "tactical_cobranzas"
+    __table_args__ = (
+        UniqueConstraint("tactical_id", name="uq_tactical_cobranzas_tactical"),
+        CheckConstraint(MEDIO, name="ck_tactical_cobranzas_medio"),
+        Index("ix_tactical_cobranzas_usuario_id", "usuario_id"),
+    )
+
+    id = Column(BigInteger, primary_key=True)
+    tactical_id = Column(BigInteger, ForeignKey("tacticals.id", ondelete="CASCADE"), nullable=False)
+    fecha_cobro = Column(Date, nullable=False)
+    medio = Column(String(32), nullable=True)
+    nc_numero = Column(String(100), nullable=True)
+    distribuidor = Column(String(200), nullable=True)
+    otro_detalle = Column(String(500), nullable=True)
+    observaciones = Column(Text, nullable=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=False)  # last to save it
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    tactical = relationship("Tactical", back_populates="cobranza")

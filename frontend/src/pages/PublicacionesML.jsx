@@ -39,6 +39,7 @@ import useColorOverlay from '../components/publicacionesMl/useColorOverlay';
 import { useSSEChannel } from '../hooks/useSSEChannel';
 import useHiddenKpis from '../hooks/useHiddenKpis';
 import useRowDensity from '../hooks/useRowDensity';
+import useResizableColumns, { PUBML_COLUMN_SIZING_KEYS } from '../components/publicacionesMl/useResizableColumns';
 import { PREARMADAS_LIMITE, usePrearmadasStats } from '../hooks/usePrearmadasStats';
 import { useEquipos } from '../hooks/useEquipos';
 import EquiposModal from '../components/EquiposModal';
@@ -163,10 +164,9 @@ const VINCULO_LABELS = {
   // Not a link state: the automatic links whose ML seller SKU names another product (or none), to fix in ML.
   sku_divergente: 'SKU distinto del producto',
 };
-// One chip per stock column, each filtering its own source: our own stock at ML, Full and the ERP's -- never a sum.
-const STOCK_OPTIONS = ['propio_sin_stock', 'full_sin_stock', 'erp_sin_stock', 'erp_con_stock'];
+// One chip per stock source, each filtering its own: Full and the ERP's -- never a sum.
+const STOCK_OPTIONS = ['full_sin_stock', 'erp_sin_stock', 'erp_con_stock'];
 const STOCK_LABELS = {
-  propio_sin_stock: 'Sin stock propio',
   full_sin_stock: 'Full sin stock',
   erp_sin_stock: 'Sin stock ERP',
   erp_con_stock: 'Con stock ERP',
@@ -480,6 +480,10 @@ export default function PublicacionesML() {
   const { isVisible: kpiVisible, pickerTable: kpiPicker } = useHiddenKpis('publicaciones-ml.kpis-ocultos', kpiOptions);
   // "Filas finas": the tables' Sheets-like density, remembered per browser; only the look changes.
   const { dense, toggleDense } = useRowDensity('publicaciones-ml.filas-finas');
+  // The first column's width, dragged by the user (S5): the list and the Producto view each keep their own.
+  const listSizing = useResizableColumns(PUBML_COLUMN_SIZING_KEYS.lista);
+  const productSizing = useResizableColumns(PUBML_COLUMN_SIZING_KEYS.producto);
+  const treeSizing = useResizableColumns(PUBML_COLUMN_SIZING_KEYS.agrupado);
   const stats = usePublicationStats(buildStatsParams(rowFilters), !layerPending && !publicacion);
   const productRows = useProductRows({
     filters: rowFilters,
@@ -1241,6 +1245,8 @@ export default function PublicacionesML() {
                   onSort={handleSort}
                   offset={TABLE_OFFSET}
                   emptyMessage={hasActiveFilters ? 'Ningún producto coincide con los filtros' : 'No hay productos'}
+                  columnWidths={productSizing.columnWidths}
+                  onColumnResize={productSizing.onColumnResize}
                 />
               ) : agrupado ? (
                 // The tree asks on mount: it waits for the layer like the other views.
@@ -1258,6 +1264,8 @@ export default function PublicacionesML() {
                   selectedKey={filters.sel || undefined}
                   offset={TABLE_OFFSET}
                   emptyMessage={emptyMessage}
+                  columnWidths={treeSizing.columnWidths}
+                  onColumnResize={treeSizing.onColumnResize}
                 />
                 )
               ) : (
@@ -1278,6 +1286,8 @@ export default function PublicacionesML() {
                   offset={TABLE_OFFSET}
                   emptyMessage={emptyMessage}
                   ariaLabel="Publicaciones de Mercado Libre"
+                  columnWidths={listSizing.columnWidths}
+                  onColumnResize={listSizing.onColumnResize}
                   virtualizeFrom={virtualizeFrom}
                   onEndReached={lazy ? loadMoreItems : undefined}
                 />

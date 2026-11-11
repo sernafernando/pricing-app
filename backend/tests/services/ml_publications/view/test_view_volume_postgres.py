@@ -457,7 +457,8 @@ class TestGroupsVolume:
         finally:
             event.remove(session.get_bind(), "before_cursor_execute", record)
         print(f"\nstatements per level: {counts}")
-        assert set(counts.values()) == {1}
+        # The level's nodes, then their Tipo/Estado/Precio summaries: two statements, whatever the level.
+        assert set(counts.values()) == {2}
 
     def test_timings(self, session) -> None:
         path = self.deepest(session)

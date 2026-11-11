@@ -87,6 +87,81 @@ describe('structure', () => {
   });
 });
 
+describe('column sizing (fill, resizable)', () => {
+  const SIZED = [
+    { key: 'title', header: 'Publicación', width: 300, minWidth: 200, fill: true, resizable: true, render: (r) => r.title },
+    { key: 'price', header: 'Precio', width: 120, render: (r) => r.price },
+    { key: 'stock', header: 'Stock', width: 60, render: (r) => r.stock },
+  ];
+  const cols = (container) => [...container.querySelectorAll('col')].map((col) => col.style.width);
+
+  it('leaves the fill column without a width and makes the table at least as wide as every column', () => {
+    const { container } = renderShell({ columns: SIZED });
+    expect(cols(container)).toEqual(['', '120px', '60px']);
+    expect(container.querySelector('table').style.minWidth).toBe('480px');
+    expect(container.querySelector('table').style.width).toBe('');
+  });
+
+  it("gives the fill column the user's width and the table exactly the columns' width", () => {
+    const { container } = renderShell({ columns: SIZED, columnWidths: { title: 500 }, onColumnResize: vi.fn() });
+    expect(cols(container)).toEqual(['500px', '120px', '60px']);
+    expect(container.querySelector('table').style.width).toBe('680px');
+  });
+
+  it('draws a grip only on resizable columns, and only with onColumnResize', () => {
+    const { unmount } = renderShell({ columns: SIZED });
+    expect(screen.queryByRole('separator')).toBeNull();
+    unmount();
+    renderShell({ columns: SIZED, onColumnResize: vi.fn() });
+    expect(screen.getAllByRole('separator')).toHaveLength(1);
+    expect(screen.getByRole('separator', { name: 'Ajustar ancho de Publicación' })).toHaveAttribute('aria-orientation', 'vertical');
+  });
+
+  it('resizes with the arrows (never under minWidth) and goes back to default on a double click', () => {
+    const onColumnResize = vi.fn();
+    renderShell({ columns: SIZED, onColumnResize });
+    const grip = screen.getByRole('separator', { name: 'Ajustar ancho de Publicación' });
+    fireEvent.keyDown(grip, { key: 'ArrowRight' });
+    // jsdom lays out nothing (width 0): the minimum wins.
+    expect(onColumnResize).toHaveBeenLastCalledWith('title', 200);
+    fireEvent.keyDown(grip, { key: 'Enter' });
+    expect(onColumnResize).toHaveBeenCalledTimes(1);
+    fireEvent.doubleClick(grip);
+    expect(onColumnResize).toHaveBeenLastCalledWith('title', null);
+  });
+
+  it('drags the grip: the width follows the pointer from where it started', () => {
+    const onColumnResize = vi.fn();
+    renderShell({ columns: SIZED, onColumnResize });
+    const grip = screen.getByRole('separator');
+    grip.closest('th').getBoundingClientRect = () => ({ width: 300 });
+    fireEvent.pointerDown(grip, { clientX: 100 });
+    fireEvent.pointerMove(document, { clientX: 160 });
+    expect(onColumnResize).toHaveBeenLastCalledWith('title', 360);
+    fireEvent.pointerUp(document);
+    fireEvent.pointerMove(document, { clientX: 400 });
+    expect(onColumnResize).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops following the pointer when the browser cancels the drag', () => {
+    const onColumnResize = vi.fn();
+    renderShell({ columns: SIZED, onColumnResize });
+    const grip = screen.getByRole('separator');
+    grip.closest('th').getBoundingClientRect = () => ({ width: 300 });
+    fireEvent.pointerDown(grip, { clientX: 100 });
+    fireEvent.pointerCancel(document);
+    fireEvent.pointerMove(document, { clientX: 400 });
+    expect(onColumnResize).not.toHaveBeenCalled();
+  });
+
+  it('never sorts when the grip of a sortable column is used', () => {
+    const onSort = vi.fn();
+    renderShell({ columns: [{ ...SIZED[0], sortable: true }, ...SIZED.slice(1)], onSort, onColumnResize: vi.fn() });
+    fireEvent.click(screen.getByRole('separator'));
+    expect(onSort).not.toHaveBeenCalled();
+  });
+});
+
 describe('column groups', () => {
   // Like Métricas ML's board: a labelled group spans its columns; a column of no group spans both header rows.
   const GROUPED = [

@@ -256,6 +256,19 @@ export const VARIATION_ITEM = makeItem({
  * node aggregates of P7b (only with `ver_ganancia`; not built yet when this was
  * written, shaped after the design).
  */
+/** A parent row's Tipo/Estado/Precio summary over its `count` publications (S6), as the backend sends it: two kinds,
+ * one paused publication, and a price range (one price when it holds a single publication). */
+export const summaryOf = (count) => {
+  const clasica = Math.ceil((count * 2) / 3);
+  const pick = (entries) => Object.fromEntries(entries.filter(([, n]) => n > 0));
+  return {
+    kind_counts: pick([['clasica', clasica], ['cuotas_6', count - clasica]]),
+    status_counts: pick([['active', count > 1 ? count - 1 : count], ['paused', count > 1 ? 1 : 0]]),
+    price_min: count > 0 ? 45999 : null,
+    price_max: count > 1 ? 189999.5 : count > 0 ? 45999 : null,
+  };
+};
+
 export const makeNode = (overrides) => ({
   kind: 'marca',
   key: 'TP-LINK',
@@ -263,6 +276,7 @@ export const makeNode = (overrides) => ({
   count: 90,
   leaf: false,
   params: { marcas: 'TP-LINK' },
+  ...summaryOf(overrides?.count ?? 90),
   ...overrides,
 });
 
@@ -593,6 +607,7 @@ export const makeProductRow = (overrides = {}) => ({
   costo: { amount: 45.5, currency: 'USD' },
   params: { producto: '4101' },
   metrics: productMetrics(),
+  ...summaryOf(overrides.publications_count ?? 3),
   ...overrides,
 });
 

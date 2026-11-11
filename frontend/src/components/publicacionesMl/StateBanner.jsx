@@ -19,7 +19,7 @@ const FLAG_MESSAGES = {
 
 const RESOURCE_NAMES = {
   sale_price: 'precio de oferta',
-  stock: 'stock Full y Propio',
+  stock: 'stock Full',
 };
 
 /**

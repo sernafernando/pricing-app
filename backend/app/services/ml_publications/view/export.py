@@ -105,9 +105,9 @@ ITEM_COLUMNS: tuple[Column, ...] = (
     Column("Total Gauss 30D", _metric(lambda m: _money(round_money(m.tg))), sales=True, margin=True),
     Column("Última venta", _metric(lambda m: _iso(m.last_sale_at)), sales=True),
     Column("Ageing (días)", _metric(lambda m: m.ageing_days), sales=True),
-    Column("Stock propio", lambda i, m: _blank(i["stock"]["own"])),
-    Column("Stock Full", lambda i, m: _blank(i["stock"]["full"])),
     Column("Stock ERP", lambda i, m: _blank(i["erp_stock"]["quantity"])),
+    Column("Stock Full", lambda i, m: _blank(i["stock"]["full"])),
+    Column("Stock total", lambda i, m: _blank(i["stock_total"])),
     Column("Última actividad", lambda i, m: _iso(i["last_activity_at"])),
 )
 

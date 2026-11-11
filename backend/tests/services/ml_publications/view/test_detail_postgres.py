@@ -425,6 +425,8 @@ class TestLinksAndProduct:
         seed_rows(pg, stocked)
         body = body_of(client, reader, "MLA11")
         assert body["product"]["stock"] == 7 and body["row"]["erp_stock"] == {"quantity": 7}
+        # The panel's header reads the row's stock total (ERP + Full), as the table does (S7).
+        assert body["row"]["stock_total"] == 7 + (body["row"]["stock"]["full"] or 0)
         assert body_of(client, reader, "MLA12")["row"]["erp_stock"] == {"quantity": None}
 
     def test_a_product_without_pricing_row_has_empty_lists(self, client, rows, reader, pricing) -> None:

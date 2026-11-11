@@ -1,7 +1,7 @@
 import { formatPct } from '../../../utils/metricasMlFormat';
 import { MARKUP_REASONS, UNKNOWN_REASON } from '../markupReasons';
 import cellStyles from '../cells.module.css';
-import { amount, count, date, orNull } from './format';
+import { amount, count, date, orNull, units } from './format';
 import { BodySection, MercadoLibreSection } from './ResumenMl';
 import { Field, Fields, Section } from './PanelParts';
 import {
@@ -11,7 +11,6 @@ import {
   LOGISTIC_TYPE_LABELS,
   PRICE_SOURCE_LABELS,
   SHIPPING_SOURCE_LABELS,
-  STOCK_LOCATION_LABELS,
   label,
 } from './labels';
 import styles from './panel.module.css';
@@ -44,20 +43,17 @@ function AttentionSection({ detail, canSeeMargin }) {
   );
 }
 
-/** The breakdown of the stock; its total is in the panel header. */
+/**
+ * The parts of the stock, as the table's Stock group: ERP and Full; their total is in the panel header. The published
+ * quantity (and where ML places it) is not a stock (owner, 2026-11-10) and is not shown.
+ */
 function StockSection({ detail }) {
   const stock = detail.row.stock ?? {};
   return (
     <Section title="Stock">
       <Fields shortValues>
-        <Field label="Full">{count(stock.full)}</Field>
-        <Field label="Propio">{count(stock.own)}</Field>
-        {(detail.stockLocations ?? []).map((place) => (
-          <Field key={place.type} label={label(STOCK_LOCATION_LABELS, place.type)}>
-            {count(place.quantity)}
-          </Field>
-        ))}
-        <Field label="Stock ERP">{count(detail.row.erp_stock?.quantity)}</Field>
+        <Field label="Stock ERP">{units(detail.row.erp_stock?.quantity)}</Field>
+        <Field label="Full">{units(stock.full)}</Field>
         <Field label="Actualizado">{date(detail.stockAsOf ?? stock.as_of)}</Field>
       </Fields>
     </Section>

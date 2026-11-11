@@ -1,5 +1,5 @@
 import HeaderMarkup from './HeaderMarkup';
-import { amount, count } from './format';
+import { amount, count, units } from './format';
 import styles from './panel.module.css';
 
 const money = (value) => {
@@ -16,7 +16,6 @@ const money = (value) => {
  * them (`sales_30d`, absent from an older backend).
  */
 export function publicationFigures(row, { canSeeMargin, canSeeSales }) {
-  const stock = row.stock ?? {};
   const price = money(row.price?.amount);
   const figures = [
     {
@@ -25,8 +24,8 @@ export function publicationFigures(row, { canSeeMargin, canSeeSales }) {
       value: price && <span title="Precio">{price}</span>,
       note: canSeeMargin ? <HeaderMarkup markup={row.markup} /> : null,
     },
-    // The total only: Full and propio are the Resumen's stock breakdown (each datum once).
-    { key: 'stock', label: 'Stock', value: count(stock.available), note: stock.available == null ? null : 'unidades' },
+    // The table's stock total (ERP + Full), never the published quantity; its parts are the Resumen's (each datum once).
+    { key: 'stock', label: 'Stock', value: units(row.stock_total), note: row.stock_total == null ? null : 'ERP + Full' },
   ];
   if (canSeeSales && row.sales_30d !== undefined) {
     const sales = row.sales_30d;

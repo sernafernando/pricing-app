@@ -25,6 +25,7 @@ class ProductoCosto:
     item_id: int
     codigo: Optional[str]
     descripcion: Optional[str]
+    marca: Optional[str]  # the product's brand (the list filters by it)
     modo: Optional[str]  # the mode governing today; None: FIFO, the default
     unidades: int  # the units its lines have left, counting from today or later
     sell_in_unit: Optional[Decimal]  # ARS the next sale takes per unit; None: no line counts today
@@ -54,8 +55,8 @@ def productos(db: Session, hoy: date) -> List[ProductoCosto]:
     vigentes = costing.vigentes(db, con_unidades, hoy)
     periodos = costing.periodos(db, con_unidades)
     datos = {
-        p.item_id: (p.codigo, p.descripcion)
-        for p in db.query(ProductoERP.item_id, ProductoERP.codigo, ProductoERP.descripcion).filter(
+        p.item_id: (p.codigo, p.descripcion, p.marca)
+        for p in db.query(ProductoERP.item_id, ProductoERP.codigo, ProductoERP.descripcion, ProductoERP.marca).filter(
             ProductoERP.item_id.in_(con_unidades)
         )
     }
@@ -64,12 +65,13 @@ def productos(db: Session, hoy: date) -> List[ProductoCosto]:
         # `periodos` comes oldest first: the last one started by today governs.
         modo = next((p.modo for p in reversed(periodos.get(item_id, [])) if p.desde <= hoy), None)
         vigente = vigentes.get(item_id)
-        codigo, descripcion = datos.get(item_id, (None, None))
+        codigo, descripcion, marca = datos.get(item_id, (None, None, None))
         filas.append(
             ProductoCosto(
                 item_id=item_id,
                 codigo=codigo,
                 descripcion=descripcion,
+                marca=marca,
                 modo=modo,
                 unidades=restantes[item_id],
                 sell_in_unit=vigente.descuento_unit_ars if vigente is not None else None,

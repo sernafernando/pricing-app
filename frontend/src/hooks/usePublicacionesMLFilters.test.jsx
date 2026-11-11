@@ -368,19 +368,21 @@ describe('sorting by Métricas ML figures', () => {
   });
 });
 
-describe('the legacy stock chip value', () => {
-  // `sin_stock` (ML's available, a sum) was the old "Sin stock ML" chip; the chips are now one per stock column.
-  it('reads an old link\'s `sin_stock` as "Sin stock propio", so its chip shows active', () => {
-    expect(setup('/?stock=sin_stock,erp_sin_stock').result.current.hook.filters.stock).toEqual(['propio_sin_stock', 'erp_sin_stock']);
+describe('the retired stock chip values', () => {
+  // "Sin stock ML" (`sin_stock`, ML's available, a sum) and "Sin stock propio" (`propio_sin_stock`, the published
+  // quantity) left the screen: an old link that carries them opens without them, the other values kept.
+  it('drops `sin_stock` and `propio_sin_stock` from an old link and keeps the rest', () => {
+    expect(setup('/?stock=sin_stock,propio_sin_stock,erp_sin_stock').result.current.hook.filters.stock).toEqual(['erp_sin_stock']);
   });
 
-  it('never repeats a value an old link also carried in the new form', () => {
-    expect(setup('/?stock=propio_sin_stock,sin_stock').result.current.hook.filters.stock).toEqual(['propio_sin_stock']);
+  it('asks /items for no stock filter when the link carried only retired values', () => {
+    const filters = setup('/?stock=propio_sin_stock').result.current.hook.filters;
+    expect(buildItemsParams(filters).stock).toBeUndefined();
   });
 
-  it('sends the new value to /items', () => {
-    const filters = setup('/?stock=sin_stock').result.current.hook.filters;
-    expect(buildItemsParams(filters).stock).toBe('propio_sin_stock');
+  it('drops the retired `stock_propio` sort with its direction, keeping the other keys', () => {
+    const { filters } = setup('/?orden=stock_propio,precio&dir=asc,desc').result.current.hook;
+    expect(effectiveSortKeys(filters)).toEqual([{ key: 'precio', dir: 'desc' }]);
   });
 });
 
@@ -811,11 +813,11 @@ describe('sorting by several columns (S12e, Shift+click like Productos)', () => 
     });
 
     it('Shift+click adds the column, flips it, then takes it out', () => {
-      const added = nextSort(precio, 'stock_propio', { shift: true });
-      expect(added).toEqual([...precio, { key: 'stock_propio', dir: 'desc' }]);
-      const flipped = nextSort(added, 'stock_propio', { shift: true });
-      expect(flipped).toEqual([...precio, { key: 'stock_propio', dir: 'asc' }]);
-      expect(nextSort(flipped, 'stock_propio', { shift: true })).toEqual(precio);
+      const added = nextSort(precio, 'stock_total', { shift: true });
+      expect(added).toEqual([...precio, { key: 'stock_total', dir: 'desc' }]);
+      const flipped = nextSort(added, 'stock_total', { shift: true });
+      expect(flipped).toEqual([...precio, { key: 'stock_total', dir: 'asc' }]);
+      expect(nextSort(flipped, 'stock_total', { shift: true })).toEqual(precio);
       expect(nextSort(precio, 'precio', { shift: true })).toEqual([{ key: 'precio', dir: 'desc' }]);
       expect(nextSort([{ key: 'precio', dir: 'desc' }], 'precio', { shift: true })).toEqual([]);
     });

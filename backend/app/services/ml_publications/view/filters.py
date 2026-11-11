@@ -77,7 +77,10 @@ LISTING_VALUES = ("clasica", "premium", "catalogo", "full")
 LINK_SKU_DIVERGENT = "sku_divergente"
 LINK_STATES = ("auto", "manual", "sin_producto", "conflicto", "no_evaluado")
 LINK_VALUES = (*LINK_STATES, LINK_SKU_DIVERGENT)
-STOCK_VALUES = ("sin_stock", "full_sin_stock", "erp_sin_stock", "erp_con_stock", "propio_sin_stock")
+STOCK_VALUES = ("sin_stock", "full_sin_stock", "erp_sin_stock", "erp_con_stock")
+# "Sin stock propio" left the screen (owner, 2026-11-10: our own stock at ML is the published quantity, not real
+# stock): a saved view or shared link that still carries it lists as if it did not, never a 422.
+RETIRED_STOCK_VALUES = frozenset({"propio_sin_stock"})
 # Productos' row colors (`productos_colors.COLORES_VALIDOS`) and its "no color" sentinel.
 COLOR_VALUES = ("rojo", "naranja", "amarillo", "verde", "azul", "purpura", "gris")
 NO_COLOR = "sin_color"
@@ -290,6 +293,13 @@ def _tokens(raw: Optional[str], field: str) -> list[str]:
     return list(seen)
 
 
+def _without_retired(raw: Optional[str], retired: frozenset[str]) -> Optional[str]:
+    """`raw` csv without the values a screen no longer offers (an old link's), so they are ignored, not refused."""
+    if not raw:
+        return raw
+    return ",".join(token for token in raw.split(",") if token.strip() not in retired)
+
+
 def _vocabulary(field: str, raw: Optional[str], allowed: tuple[str, ...] | frozenset[str]) -> tuple[str, ...]:
     tokens = _tokens(raw, field)
     unknown = [t for t in tokens if t not in allowed]
@@ -450,7 +460,7 @@ def parse_filter(
         sin_producto=bool(sin_producto),
         listing=_vocabulary("tipo", tipo, LISTING_VALUES),
         link=_vocabulary("vinculo", vinculo, LINK_VALUES),
-        stock=_vocabulary("stock", stock, STOCK_VALUES),
+        stock=_vocabulary("stock", _without_retired(stock, RETIRED_STOCK_VALUES), STOCK_VALUES),
         event_types=event_types,
         event_since=_event_since(evento_desde, bool(event_types)),
         rebate=con_rebate,
@@ -932,14 +942,25 @@ def erp_stock(linked: Optional[ColumnElement] = None) -> ColumnElement:
 def stock_clauses() -> dict[str, ColumnElement]:
     # `full_sin_stock` is a real zero: a user product without a stock row has an unknown Full stock, not none.
     # `erp_sin_stock` likewise: a row without a linked product (unknown ERP stock) never matches.
-    # `propio_sin_stock` is our own warehouse stock at ML (never the Full one, never the sum): a real zero too.
     return {
         "sin_stock": T.i.available_quantity == 0,
         "full_sin_stock": T.st.full_quantity == 0,
         "erp_sin_stock": erp_stock() <= 0,
         "erp_con_stock": erp_stock() > 0,
-        "propio_sin_stock": T.st.own_quantity == 0,
     }
+
+
+def stock_total() -> ColumnElement:
+    """The ERP stock plus the Full one (owner, 2026-11-10: "el stock del erp, el de full y si querés el total de los
+    dos"): the sum of the parts that are known -- a publication with no Full stock row has none there -- and NULL
+    (unknown, sorted last) only when neither is. Never our own stock at ML: that is the published quantity."""
+    erp, full = erp_stock(), T.st.full_quantity
+    return case((and_(erp.is_(None), full.is_(None)), None), else_=func.coalesce(erp, 0) + func.coalesce(full, 0))
+
+
+def stock_total_of(erp: Optional[int], full: Optional[int]) -> Optional[int]:
+    """`stock_total` of one row's figures, as the list and the export show it."""
+    return None if erp is None and full is None else (erp or 0) + (full or 0)
 
 
 def _any_of(clauses: dict[str, ColumnElement], values: tuple[str, ...]) -> ColumnElement:

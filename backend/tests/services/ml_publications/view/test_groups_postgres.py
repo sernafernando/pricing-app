@@ -415,14 +415,15 @@ class TestStatementCount:
             seed.add_item(conn, f"MLC{n:04d}", title="t")
             seed.add_link(conn, f"MLC{n:04d}", 2000 + n)
         many = self.count_statements(env, lambda: tree(db, "TP-LINK", "REDES", "10"))
-        assert few == many and many == 1  # the page query carries the count of the level
+        # the page query carries the count of the level; one more reads every node's Tipo/Estado/Precio summary (S6)
+        assert few == many and many == 2
         assert len(tree(db, "TP-LINK", "REDES", "10").nodes) == 100
 
     def test_every_level_costs_the_same_fixed_number_of_statements(self, env, conn, db) -> None:  # noqa: F811
         seed_catalog(conn)
         paths = [(), ("TP-LINK",), ("TP-LINK", "REDES"), ("TP-LINK", "REDES", "10"), ("TP-LINK", "REDES", "10", "70")]
         counts = {path: self.count_statements(env, lambda p=path: tree(db, *p, familias=True)) for path in paths}
-        assert set(counts.values()) == {1}, counts
+        assert set(counts.values()) == {2}, counts  # the page and the nodes' summaries (S6)
 
     def test_a_page_past_the_end_still_reports_the_total_of_the_level(self, env, conn, db) -> None:  # noqa: F811
         """The total comes with the rows of the page; an empty page has none, so it is counted on its own."""

@@ -19,7 +19,7 @@ import {
   LastSaleCell,
   MarkupRealCell,
   MarkupTrendCell,
-  OwnStockCell,
+  TotalStockCell,
   TotalGaussCell,
   UnitsCell,
   UnitsTrendCell,
@@ -99,11 +99,11 @@ export function columnChoicesOver(visibility, defaults) {
  * (ML) and the ERP's.
  * `expandedIds` / `onToggleVariations` drive the expand toggle of publications
  * with more than one variation; without `onToggleVariations` there is none.
- * `agrupado` (the tree view) adds the node figures -- publication count and,
- * with the margin, negatives; the page makes the tree unsortable.
- * Its first column names the chain of levels of `dimension`, like Métricas ML.
- * `producto` (the Producto view) adds the products' publication count and
- * names the first column "Producto › Publicación".
+ * `agrupado` (the tree view): the page makes the tree unsortable; its first
+ * column names the chain of levels of `dimension`, like Métricas ML.
+ * `producto` (the Producto view) names the first column "Producto › Publicación".
+ * Neither adds a column of its own (S6): a parent row's count and negatives sit
+ * in its first cell and its Tipo, Estado and Precio summarize its publications.
  * `skuDivergence` (the `sku_divergente` link filter is on) adds, right after
  * Publicación, the publication's SKU next to the product it names and the
  * linked product (`SkuDivergenceCell`).
@@ -143,7 +143,12 @@ export function buildColumns({
           ? 'Producto › Publicación'
           : 'Publicación',
       label: 'Publicación',
-      width: 360,
+      // The room the figure columns leave goes here (`fill`); the user can drag it wider or narrower (`resizable`).
+      width: 440,
+      minWidth: 240,
+      fill: true,
+      resizable: true,
+      resizeLabel: producto ? 'Producto' : 'Publicación',
       sortable: true,
       // `after` (the product checkbox, when selecting) goes after the variations toggle: the toggle leads the
       // pinned cell at the row's depth, where the variations' sub-rows and state row line up one level in.
@@ -166,10 +171,8 @@ export function buildColumns({
     ...(skuDivergence
       ? [{ key: 'sku_divergencia', header: 'SKU distinto', width: 260, render: (item) => <SkuDivergenceCell item={item} /> }]
       : []),
-    ...(agrupado || producto
-      ? [{ key: 'publicaciones', header: 'Publicaciones', width: 120, align: 'right', render: () => null }]
-      : []),
-    ...(agrupado ? withMargin([{ key: 'negativos', header: 'Negativos', width: 100, align: 'right', render: () => null }]) : []),
+    // No column a level leaves empty (S6): a parent row's publication count (and, Agrupado, its negatives) is its first
+    // cell's second line, and its Tipo, Estado and Precio summarize its publications (`NodeCells`).
     // The listing type at a glance, before its state: the list's default order (Clásica, then 3, 6, 9, 12 cuotas).
     { key: 'tipo', header: 'Tipo', width: 110, sortable: true, render: (item) => <ListingKindBadge kind={item.listing_kind} /> },
     {
@@ -178,7 +181,7 @@ export function buildColumns({
       width: 104,
       render: (item) => <PublicationStatusPill status={item.status} gone={item.gone} subStatus={item.sub_status} />,
     },
-    { key: 'precio', header: 'Precio', width: 150, sortable: true, align: 'right', render: (item) => <PriceCell price={item.price} /> },
+    { key: 'precio', header: 'Precio', width: 136, sortable: true, align: 'center', fit: true, render: (item) => <PriceCell price={item.price} /> },
     ...(prices && !agrupado
       ? priceColumns(priceMode, { prices, canSeeMargin, edit: priceEdit, onCalculate: onCalculatePrice, offsets: priceOffsets, tnCardPercent })
       : []),
@@ -190,7 +193,8 @@ export function buildColumns({
         label: 'Ventas 7D',
         width: 60,
         sortable: true,
-        align: 'right',
+        align: 'center',
+        fit: true,
         render: (item) => <UnitsCell value={item.metrics?.units_7d} />,
       },
       {
@@ -200,7 +204,8 @@ export function buildColumns({
         label: 'Ventas 30D',
         width: 68,
         sortable: true,
-        align: 'right',
+        align: 'center',
+        fit: true,
         render: (item) => <UnitsCell value={item.metrics?.units_30d} strong />,
       },
       {
@@ -210,6 +215,7 @@ export function buildColumns({
         label: 'Tendencia de ventas',
         width: 112,
         align: 'center',
+        fit: true,
         render: (item) => <UnitsTrendCell metrics={item.metrics} />,
       },
     ]),
@@ -219,9 +225,10 @@ export function buildColumns({
         group: MARKUP,
         header: 'Actual',
         label: 'Markup actual',
-        width: 128,
+        width: 110,
         sortable: true,
-        align: 'right',
+        align: 'center',
+        fit: true,
         render: (item) => <MarkupCell markup={item.markup} />,
       },
       ...withSales([
@@ -230,9 +237,10 @@ export function buildColumns({
           group: MARKUP,
           header: 'Real 30D',
           label: 'Markup real 30D',
-          width: 92,
+          width: 72,
           sortable: true,
-          align: 'right',
+          align: 'center',
+          fit: true,
           render: (item) => <MarkupRealCell metrics={item.metrics} />,
         },
         {
@@ -240,8 +248,9 @@ export function buildColumns({
           group: MARKUP,
           header: 'Tendencia',
           label: 'Tendencia de markup',
-          width: 140,
+          width: 112,
           align: 'center',
+          fit: true,
           render: (item) => <MarkupTrendCell metrics={item.metrics} />,
         },
       ]),
@@ -251,9 +260,10 @@ export function buildColumns({
         key: 'facturado_30d',
         group: RESULTADO,
         header: 'Facturado 30D',
-        width: 170,
+        width: 140,
         sortable: true,
-        align: 'right',
+        align: 'center',
+        fit: true,
         render: (item) => <GrossCell metrics={item.metrics} />,
       },
       ...withMargin([
@@ -261,51 +271,55 @@ export function buildColumns({
           key: 'total_gauss_30d',
           group: RESULTADO,
           header: 'Total Gauss 30D',
-          width: 170,
+          width: 140,
           sortable: true,
-          align: 'right',
+          align: 'center',
+          fit: true,
           render: (item) => <TotalGaussCell metrics={item.metrics} />,
         },
       ]),
-      { key: 'last_sale', group: ROTACION, header: 'Última venta', width: 112, render: (item) => <LastSaleCell metrics={item.metrics} /> },
-      { key: 'ageing', group: ROTACION, header: 'Ageing', width: 72, align: 'right', render: (item) => <AgeingCell metrics={item.metrics} /> },
+      { key: 'last_sale', group: ROTACION, header: 'Última venta', width: 96, align: 'center', fit: true, render: (item) => <LastSaleCell metrics={item.metrics} /> },
+      { key: 'ageing', group: ROTACION, header: 'Ageing', width: 64, align: 'center', fit: true, render: (item) => <AgeingCell metrics={item.metrics} /> },
     ]),
-    // ML's own stock and Full stock, and the ERP's: three sources, never one sum.
+    // The ERP stock, the Full stock and their total. Never ML's published quantity (not a stock) nor its available sum.
     {
-      key: 'stock_propio',
+      key: 'stock_erp',
       group: STOCK,
-      header: 'Propio',
-      label: 'Stock propio',
-      width: 72,
+      header: 'ERP',
+      label: 'Stock ERP',
+      width: 68,
       sortable: true,
-      align: 'right',
-      render: (item) => <OwnStockCell stock={item.stock} />,
+      align: 'center',
+      fit: true,
+      render: (item) => <ErpStockCell erpStock={item.erp_stock} />,
     },
     {
       key: 'stock_full',
       group: STOCK,
       header: 'Full',
       label: 'Stock Full',
-      width: 64,
+      width: 60,
       sortable: true,
-      align: 'right',
+      align: 'center',
+      fit: true,
       render: (item) => <FullStockCell stock={item.stock} />,
     },
     {
-      key: 'stock_erp',
+      key: 'stock_total',
       group: STOCK,
-      header: 'ERP',
-      label: 'Stock ERP',
-      width: 104,
+      header: 'Total',
+      label: 'Stock total',
+      width: 60,
       sortable: true,
-      align: 'right',
-      render: (item) => <ErpStockCell erpStock={item.erp_stock} />,
+      align: 'center',
+      fit: true,
+      render: (item) => <TotalStockCell total={item.stock_total} />,
     },
     // Hidden by default (`defaultColumnVisibility`): the picker brings them back.
     { key: 'codigo', header: 'Código', width: 130, sortable: true, render: (item) => orDash(item.link?.codigo) },
     { key: 'marca', header: 'Marca', width: 130, sortable: true, render: (item) => orDash(item.link?.marca) },
     ...withMargin([
-      { key: 'costo', header: 'Costo', width: 130, sortable: true, align: 'right', render: costCell },
+      { key: 'costo', header: 'Costo', width: 130, sortable: true, align: 'center', fit: true, render: costCell },
     ]),
     { key: 'vinculo', header: 'Vínculo', width: 170, render: (item) => <LinkBadge link={item.link} /> },
     { key: 'tienda', header: 'Tienda', width: 140, render: (item) => <StoreCell item={item} /> },

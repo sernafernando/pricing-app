@@ -307,6 +307,7 @@ class ItemRowOut(BaseModel):
     hay_mejores_ofertas: bool = False
     stock: StockOut
     erp_stock: ErpStockOut
+    stock_total: Optional[int] = None  # ERP + Full; null only when both are unknown
     link: LinkOut
     sku_divergence: SkuDivergenceOut | None = None  # only when the SKU disagrees with the linked product
     last_activity_at: Optional[datetime] = None
@@ -632,6 +633,11 @@ class GroupNodeOut(BaseModel):
     negative_count: Optional[int] = None  # publications with ANY negative variation (= /items markup_neg total)
     markup_min: Optional[float] = None  # lowest unit markup of the node; null when no publication has a value
     markup_max: Optional[float] = None
+    # S6: the node's Tipo, Estado and Precio, over ALL its publications under the filters (`listing.Summary`)
+    kind_counts: dict[str, int] = {}  # listing kind -> publications (one with no listing type is left out)
+    status_counts: dict[str, int] = {}  # status token -> publications (`gone` for a deleted one)
+    price_min: Optional[float] = None  # the shown price's range; null when no publication has a price
+    price_max: Optional[float] = None
 
 
 class GroupsResponse(BaseModel):
@@ -674,6 +680,11 @@ class ProductRowOut(BaseModel):
     # publications and the lowest tier price of any; present only when the product has tiers (fail-open).
     pxq_tramos: Optional[int] = None
     pxq_precio_desde: Optional[float] = None
+    # S6: the row's Tipo, Estado and Precio, over ALL its publications under the filters (`listing.Summary`)
+    kind_counts: dict[str, int] = {}  # listing kind -> publications (one with no listing type is left out)
+    status_counts: dict[str, int] = {}  # status token -> publications (`gone` for a deleted one)
+    price_min: Optional[float] = None  # the shown price's range; null when no publication has a price
+    price_max: Optional[float] = None
 
 
 class ProductsResponse(BaseModel):
@@ -810,7 +821,7 @@ def filter_query(
         None, description="csv of auto,manual,sin_producto,conflicto,no_evaluado,sku_divergente"
     ),
     stock: Optional[str] = Query(
-        None, description="csv of sin_stock,full_sin_stock,erp_sin_stock,erp_con_stock,propio_sin_stock"
+        None, description="csv of sin_stock,full_sin_stock,erp_sin_stock,erp_con_stock (propio_sin_stock: ignored)"
     ),
     evento: Optional[str] = Query(None, description="csv of event types; needs events.enabled"),
     evento_desde: Optional[str] = Query(None, description="24h, 7d or 30d"),
@@ -1147,7 +1158,7 @@ def items_ask(
     orden: Optional[str] = Query(
         None,
         description=(
-            "actividad (default), precio, titulo, stock_full, stock_propio, stock_erp, actualizado, codigo, marca, "
+            "actividad (default), precio, titulo, stock_full, stock_erp, stock_total (ERP + Full), actualizado, codigo, marca, "
             "tipo (Clásica, 3, 6, 9, 12 cuotas), costo and the list headers lista_clasica, lista_rebate, "
             "lista_oferta, lista_web (ver_ganancia), markup (ver_ganancia); Métricas ML's figures over the whole "
             "filtered set (ml_metricas.ver): facturado_30d, "
@@ -1308,6 +1319,16 @@ def get_items(
     return body
 
 
+def _summary_out(summary: listing.Summary) -> dict[str, Any]:
+    """A parent row's Tipo, Estado and Precio (S6), as both the products and the groups answers carry them."""
+    return {
+        "kind_counts": summary.kind_counts,
+        "status_counts": summary.status_counts,
+        "price_min": summary.price_min,
+        "price_max": summary.price_max,
+    }
+
+
 def _node_out(node: groups.Node) -> dict[str, Any]:
     out: dict[str, Any] = {
         "kind": node.kind,
@@ -1320,6 +1341,7 @@ def _node_out(node: groups.Node) -> dict[str, Any]:
     for name in ("producto_item_id", "codigo", "family_id", "item_id"):
         if getattr(node, name) is not None:
             out[name] = getattr(node, name)
+    out.update(_summary_out(node.summary))
     if node.negative_count is not None:  # the figures travel together, and only for a caller who may see margins
         out["negative_count"] = node.negative_count
         out["markup_min"] = None if node.markup_min is None else round(node.markup_min, 2)
@@ -1412,6 +1434,7 @@ def _product_out(
     color_filter: bool,
     costs: Optional[dict[str, Any]] = None,
     lines: Optional[dict[str, Any]] = None,
+    summary: listing.Summary = listing.EMPTY_SUMMARY,
 ) -> dict[str, Any]:
     no_product = row.product_item_id == NO_PRODUCT
     params = {groups.PARAM_NO_PRODUCT: "true"} if no_product else {groups.PARAM_PRODUCT: str(row.product_item_id)}
@@ -1428,6 +1451,7 @@ def _product_out(
         "publications_count": row.publications_count,
         "stock": row.stock,
         "params": params,
+        **_summary_out(summary),
     }
     if with_margin and costs is not None:
         out["costo"] = costs.get(row.key)  # the product's cost, as a publication row carries it
@@ -1564,6 +1588,7 @@ def get_products(
             bool(f.colors or f.no_color),
             page.costs,
             page.lines,
+            page.summaries.get(row.key, listing.EMPTY_SUMMARY),
         )
         for row in page.rows
     ]
