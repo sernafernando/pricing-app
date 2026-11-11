@@ -164,11 +164,13 @@ Un **tactical** es un programa de una marca: sell in baja el costo, sell out sum
   - **Tipo**: Todos, Sell in o Sell out.
   - **Marca**: muestra los tacticals que tienen esa marca entre las suyas.
   - **Moneda**: ARS o USD, la moneda del tactical.
+  - **Contiene**: Todas (al abrir), Productos, Marca, Categoría o Factura. Muestra los tacticals que tienen al menos una línea de ese tipo; un tactical con líneas de varios tipos aparece en cada uno.
   - **Estado**: Vigentes (al abrir), Vencidos o Anulados.
   - **Cobranza**: Todos (al abrir), Pendientes (sin cobro cargado) o Cobrados.
   - **Vigencia**: Desde y Hasta.
   - **Buscar**: por nombre o referencia.
-  - **Limpiar filtros** vuelve a los vigentes de todas las marcas, con Cobranza en Todos.
+  - **Producto**: escribí el código o parte de la descripción (sin importar mayúsculas) y muestra los tacticals con alguna línea que alcance ese producto: porque lo tiene cargado, por su **marca**, por su **categoría** o por una **factura** donde está facturado. Por ejemplo, `RE200` trae también los tacticals cargados solo por la marca TP-Link. Si el texto coincide con varios productos, trae los tacticals de cualquiera de ellos.
+  - **Limpiar filtros** vuelve a los vigentes de todas las marcas, con Cobranza en Todos y sin Contiene ni Producto.
 - Arriba de la lista, **Pendientes** y **Cobrados** dicen cuántos tacticals hay de cada uno y su monto por moneda: lo que generaron sus líneas (el mismo monto que muestra **Avance**) **de** su tope, por ejemplo `ARS 4.380.250 de 6.000.000`. El tope es la suma de los topes de monto de las líneas; en una línea de **Monto total**, el total es su tope. Las líneas sin tope de monto no suman al tope; si en una moneda hay líneas con y sin tope, el tope se muestra aparte, por ejemplo `ARS 900 · tope 500 (líneas con tope)`, porque lo generado incluye también las líneas sin tope. Además, **N sin tope** dice cuántos tacticals no tienen tope de monto en ninguna línea. Cuentan todos los tacticals que cumplen los otros filtros (no solo la página que estás viendo); el filtro **Cobranza** no los cambia.
 - Columnas:
   - **Nombre**, con la referencia debajo.
@@ -195,7 +197,7 @@ Un **tactical** es un programa de una marca: sell in baja el costo, sell out sum
 
 ## Filtros y columnas
 
-Tacticals: tipo, marca, moneda, estado, cobranza, vigencia y búsqueda; columna Cobranza (Pendiente o Cobrado con la fecha). Grupos: nombre, filtros, productos alcanzados y campañas que lo usan. Productos: búsqueda por código o descripción, marca y modo de costo; columnas producto, modo de costo, unidades, sell in por unidad y última compra, todas ordenables.
+Tacticals: tipo, marca, moneda, contiene (tipo de línea), estado, cobranza, vigencia, búsqueda y producto; columna Cobranza (Pendiente o Cobrado con la fecha). Grupos: nombre, filtros, productos alcanzados y campañas que lo usan. Productos: búsqueda por código o descripción, marca y modo de costo; columnas producto, modo de costo, unidades, sell in por unidad y última compra, todas ordenables.
 
 ## Botones y acciones
 
