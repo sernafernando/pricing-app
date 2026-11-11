@@ -23,6 +23,8 @@ TcModo = Literal["al_cobro", "fijo", "dia_venta"]
 Origen = Literal["sell_out_campana", "sell_in_bono", "sell_in_compra"]
 EstadoFiltro = Literal["vigentes", "vencidos", "anulados"]
 TipoTienda = Literal["oficial", "fuera", "tienda_nube"]
+MedioCobro = Literal["nota_credito", "fondo_distribuidor", "otro"]
+CobranzaFiltro = Literal["cobrados", "pendientes"]
 
 NOMBRE_MAX = 200
 MARCA_MAX = 100  # productos_erp.marca is VARCHAR(100)
@@ -163,6 +165,46 @@ class TacticalLineaOut(BaseModel):
     monto_usado: Decimal
 
 
+# Only the detail of the chosen `medio` may come (tactical cobranza S1, S2): one Spanish message per field.
+_DETALLE_DE_MEDIO = (
+    ("nc_numero", "nota_credito", "El número de NC va solo con el medio Nota de crédito"),
+    ("distribuidor", "fondo_distribuidor", "El distribuidor va solo con el medio Fondo en distribuidor"),
+    ("otro_detalle", "otro", "El detalle va solo con el medio Otro"),
+)
+
+
+class TacticalCobranzaIn(BaseModel):
+    """Owner 2026-11-10: "pida, fecha de cuando se cobro, si es Nota de crédito (ahí número) o si es fondo en
+    distribuidor (ahí un panel para aclarar el distri) u otro ... observaciones libre, que obligatorio sea la fecha no
+    más". Blank texts are stored as NULL by the service."""
+
+    fecha_cobro: date
+    medio: Optional[MedioCobro] = None
+    nc_numero: Optional[str] = Field(default=None, max_length=100)
+    distribuidor: Optional[str] = Field(default=None, max_length=200)
+    otro_detalle: Optional[str] = Field(default=None, max_length=500)
+    observaciones: Optional[str] = Field(default=None, max_length=NOTA_MAX)
+
+    @model_validator(mode="after")
+    def _detalle_del_medio(self) -> "TacticalCobranzaIn":
+        for campo, medio, mensaje in _DETALLE_DE_MEDIO:
+            if (getattr(self, campo) or "").strip() and self.medio != medio:
+                raise ValueError(mensaje)
+        return self
+
+
+class TacticalCobranzaOut(BaseModel):
+    fecha_cobro: date
+    medio: Optional[MedioCobro]
+    nc_numero: Optional[str]
+    distribuidor: Optional[str]
+    otro_detalle: Optional[str]
+    observaciones: Optional[str]
+    usuario_id: int  # the last user to save it
+    created_at: datetime
+    updated_at: datetime
+
+
 class TacticalOut(BaseModel):
     id: int
     tipo: TipoTactical
@@ -188,6 +230,23 @@ class TacticalOut(BaseModel):
     # Every line is an invoice line: no dates of its own (each applies until its invoice's units are sold).
     por_factura: bool
     lineas: list[TacticalLineaOut]
+    # The collection record (tactical cobranza S1): None = "Pendiente", a record = "Cobrado".
+    cobranza: Optional[TacticalCobranzaOut] = None
+
+
+class MontoMonedaOut(BaseModel):
+    moneda: Moneda
+    monto: Decimal
+
+
+class CobranzaKpiOut(BaseModel):
+    cantidad: int
+    montos: list[MontoMonedaOut]  # money used per currency, as the list's Avance column (ARS first)
+
+
+class TacticalKpisOut(BaseModel):
+    pendientes: CobranzaKpiOut
+    cobrados: CobranzaKpiOut
 
 
 class TacticalListOut(BaseModel):
@@ -195,3 +254,5 @@ class TacticalListOut(BaseModel):
     page: int
     page_size: int
     items: list[TacticalOut]
+    # Over every tactical the other filters match (not only this page, not the collection filter): S4.
+    kpis: TacticalKpisOut

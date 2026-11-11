@@ -42,8 +42,8 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterable, Optional
 
 from pydantic import ValidationError
-from sqlalchemy import and_, exists, func, or_
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import Select, Subquery, and_, case, exists, func, literal, or_, select, union_all
+from sqlalchemy.orm import Query, Session, selectinload
 
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.offset_grupo import OffsetGrupo
@@ -52,6 +52,7 @@ from app.models.pedido_compra import PedidoCompra
 from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP
 from app.models.sell_in import (
+    SellInBonoConsumo,
     SellInBonoMarca,
     SellInCompra,
     SellInCompraItem,
@@ -60,12 +61,13 @@ from app.models.sell_in import (
 )
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo
 from app.models.ml_tienda_oficial import MlTiendaOficial
-from app.models.tactical import Tactical, TacticalMarca, TacticalTienda
+from app.models.tactical import Tactical, TacticalCobranza, TacticalMarca, TacticalTienda
 from app.schemas.sell_in import SellInCompraCreate, SellInLineaIn
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, BASE_FACTURA, SellInBonoIn
 from app.schemas.sell_out import SellOutCampanaIn
 from app.schemas.tacticals import (
     HIJOS_MAX,
+    TacticalCobranzaIn,
     TacticalEditarIn,
     TacticalIn,
     TacticalLineaIn,
@@ -862,10 +864,11 @@ class Filtros:
     desde: Optional[date] = None
     hasta: Optional[date] = None
     q: Optional[str] = None
+    cobranza: Optional[str] = None  # cobrados | pendientes (tactical cobranza S4)
 
 
-def listar(db: Session, filtros: Filtros, page: int, page_size: int, hoy: Optional[date] = None) -> tuple[int, list]:
-    hoy = hoy or date.today()
+def _consulta(db: Session, filtros: Filtros, hoy: date) -> Query:
+    """Every filter but the collection one: the KPIs (S4) count over this."""
     query = db.query(Tactical).filter(Tactical.tipo.in_(filtros.tipos))
     if filtros.marca:  # any of the tactical's brands (S3), or its header brand (a header without brand rows yet)
         query = query.filter(
@@ -889,15 +892,173 @@ def listar(db: Session, filtros: Filtros, page: int, page_size: int, hoy: Option
     if _texto(filtros.q):
         q = _texto(filtros.q)
         query = query.filter(or_(contiene(Tactical.nombre, q), contiene(Tactical.referencia, q)))
+    return query
+
+
+def _con_relaciones(query: Query) -> Query:
+    return query.options(selectinload(Tactical.tiendas), selectinload(Tactical.marcas), selectinload(Tactical.cobranza))
+
+
+def listar(db: Session, filtros: Filtros, page: int, page_size: int, hoy: Optional[date] = None) -> tuple[int, list]:
+    query = _consulta(db, filtros, hoy or date.today())
+    cobrado = exists().where(TacticalCobranza.tactical_id == Tactical.id)
+    if filtros.cobranza == "cobrados":
+        query = query.filter(cobrado)
+    elif filtros.cobranza == "pendientes":
+        query = query.filter(~cobrado)
     total = query.order_by(None).count()
     filas = (
-        query.options(selectinload(Tactical.tiendas), selectinload(Tactical.marcas))
+        _con_relaciones(query)
         .order_by(Tactical.fecha_desde.desc(), Tactical.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
     )
     return total, filas
+
+
+def _usado_por_linea(ids: Select) -> Subquery:
+    """One row per child of the tacticals in `ids` (a subquery of ids): `(tactical_id, moneda, monto)`, `monto` being
+    its `monto_usado` exactly as `serializar` computes it (`_lineas_campanas`, `_lineas_bonos` through
+    `bonos_crud.serializar`, `_lineas_compras`), rounded to cents per child. A child that used nothing is a 0 row."""
+    cero = literal(0)
+    campanas_ = (
+        select(
+            SellOutCampana.tactical_id.label("tactical_id"),
+            SellOutCampana.moneda.label("moneda"),
+            func.round(func.coalesce(func.sum(SellOutConsumo.monto), cero), 2).label("monto"),
+        )
+        .select_from(SellOutCampana)
+        .outerjoin(SellOutConsumo, SellOutConsumo.campana_id == SellOutCampana.id)
+        .where(SellOutCampana.tactical_id.in_(ids))
+        .group_by(SellOutCampana.id)
+    )
+    # A cost bonus: what its sales got (ARS); counted only when the bonus itself is ARS, as `monto_generado`.
+    costo = SellInBonoMarca.base == BASE_COSTO_VENTA
+    bonos_costo = (
+        select(
+            SellInBonoMarca.tactical_id,
+            SellInBonoMarca.moneda,
+            case(
+                (
+                    SellInBonoMarca.moneda == "ARS",
+                    func.round(func.coalesce(func.sum(SellInBonoConsumo.descuento_ars), cero), 2),
+                ),
+                else_=cero,
+            ),
+        )
+        .select_from(SellInBonoMarca)
+        .outerjoin(SellInBonoConsumo, SellInBonoConsumo.bono_id == SellInBonoMarca.id)
+        .where(SellInBonoMarca.tactical_id.in_(ids), costo)
+        .group_by(SellInBonoMarca.id)
+    )
+    # Any other bonus: its active purchases' assigned amounts in the bonus's own currency (another one is not added).
+    bonos_compras = (
+        select(
+            SellInBonoMarca.tactical_id,
+            SellInBonoMarca.moneda,
+            func.round(func.coalesce(func.sum(SellInCompraItem.monto_asignado), cero), 2),
+        )
+        .select_from(SellInBonoMarca)
+        .outerjoin(
+            SellInCompra,
+            and_(
+                SellInCompra.bono_id == SellInBonoMarca.id,
+                SellInCompra.estado == "activa",
+                SellInCompra.moneda == SellInBonoMarca.moneda,
+            ),
+        )
+        .outerjoin(SellInCompraItem, SellInCompraItem.compra_id == SellInCompra.id)
+        .where(SellInBonoMarca.tactical_id.in_(ids), ~costo)
+        .group_by(SellInBonoMarca.id)
+    )
+    # An invoice total: what its sales took (ARS), in a USD purchase's currency at its own rate.
+    ars = func.coalesce(func.sum(SellInConsumo.descuento_ars), cero)
+    en_usd = and_(SellInCompra.moneda == "USD", SellInCompra.tipo_cambio.isnot(None))
+    compras_ = (
+        select(
+            SellInCompra.tactical_id,
+            SellInCompra.moneda,
+            func.round(case((en_usd, ars / SellInCompra.tipo_cambio), else_=ars), 2),
+        )
+        .select_from(SellInCompra)
+        .outerjoin(SellInCompraItem, SellInCompraItem.compra_id == SellInCompra.id)
+        .outerjoin(SellInConsumo, SellInConsumo.compra_item_id == SellInCompraItem.id)
+        .where(SellInCompra.tactical_id.in_(ids))
+        .group_by(SellInCompra.id)
+    )
+    return union_all(campanas_, bonos_costo, bonos_compras, compras_).subquery()
+
+
+def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
+    """Pendientes and Cobrados over every tactical the other filters match (S4): how many, and the money they used
+    per currency, the sum of their lines' `monto_usado` exactly as the list's Avance column shows it (a USD
+    tactical's cost-reduction lines count in ARS). Two SQL aggregates, whatever the number of tacticals. ARS first,
+    then USD; a currency with no line is left out."""
+    cobrado = exists().where(TacticalCobranza.tactical_id == Tactical.id)
+    base = (
+        _consulta(db, filtros, hoy or date.today())
+        .order_by(None)
+        .with_entities(Tactical.id.label("id"), cobrado.label("cobrado"))
+        .subquery()
+    )
+    cantidades = {bool(c): int(n) for c, n in db.query(base.c.cobrado, func.count()).group_by(base.c.cobrado)}
+    lineas = _usado_por_linea(select(base.c.id))
+    montos: dict[bool, dict[str, Decimal]] = defaultdict(dict)
+    for c, moneda, monto in (
+        db.query(base.c.cobrado, lineas.c.moneda, func.sum(lineas.c.monto))
+        .join(lineas, lineas.c.tactical_id == base.c.id)
+        .group_by(base.c.cobrado, lineas.c.moneda)
+    ):
+        montos[bool(c)][moneda] = _cents(monto)
+    return {
+        clave: {
+            "cantidad": cantidades.get(cobrados, 0),
+            "montos": [{"moneda": m, "monto": montos[cobrados][m]} for m in ("ARS", "USD") if m in montos[cobrados]],
+        }
+        for clave, cobrados in (("pendientes", False), ("cobrados", True))
+    }
+
+
+# --- collection (tactical cobranza S1, S2) ----------------------------------------------------------------------------
+
+_COBRANZA_TEXTOS = ("nc_numero", "distribuidor", "otro_detalle", "observaciones")
+
+
+def cobrar(db: Session, tactical_id: int, data: TacticalCobranzaIn, usuario_id: int) -> Optional[Tactical]:
+    """Save the tactical's one collection record (create or replace every field): it reads "Cobrado". None when the
+    tactical does not exist. The tactical row is locked so two saves never race into a duplicate."""
+    try:
+        tactical = db.query(Tactical).filter(Tactical.id == tactical_id).populate_existing().with_for_update().first()
+        if tactical is None:
+            return None
+        cobranza = db.query(TacticalCobranza).filter(TacticalCobranza.tactical_id == tactical_id).first()
+        if cobranza is None:
+            cobranza = TacticalCobranza(tactical_id=tactical_id)
+            db.add(cobranza)
+        cobranza.fecha_cobro = data.fecha_cobro
+        cobranza.medio = data.medio
+        for campo in _COBRANZA_TEXTOS:
+            setattr(cobranza, campo, _texto(getattr(data, campo)))
+        cobranza.usuario_id = usuario_id
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(tactical)
+    return tactical
+
+
+def deshacer_cobro(db: Session, tactical_id: int) -> bool:
+    """Undo: delete the tactical's collection record, so it reads "Pendiente" again. False when it had none."""
+    try:
+        borradas = db.query(TacticalCobranza).filter(TacticalCobranza.tactical_id == tactical_id).delete()
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    db.expire_all()
+    return borradas > 0
 
 
 def _cents(valor) -> Decimal:
@@ -1066,6 +1227,13 @@ def _lineas_compras(db: Session, ids: list[int]) -> list[dict]:
     return salida
 
 
+def _cobranza(cobranza: Optional[TacticalCobranza]) -> Optional[dict]:
+    if cobranza is None:
+        return None
+    columnas = ("fecha_cobro", "medio", *_COBRANZA_TEXTOS, "usuario_id", "created_at", "updated_at")
+    return {c: getattr(cobranza, c) for c in columnas}
+
+
 def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
     """Each tactical with its lines, one per child, in line order (module docstring): a few queries per page."""
     tacticals = list(tacticals)
@@ -1106,6 +1274,7 @@ def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
             "marcas": [fila.marca for fila in t.marcas],
             "por_factura": _hijos_por_factura(t, de_tactical[t.id]),
             "lineas": de_tactical[t.id],
+            "cobranza": _cobranza(t.cobranza),
         }
         for t in tacticals
     ]
