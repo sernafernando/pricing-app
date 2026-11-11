@@ -26,7 +26,7 @@ import ProductPurchases from './panel/ProductPurchases';
 import SellInLotes from '../sellIn/SellInLotes';
 import ProductPxq from './panel/ProductPxq';
 import { Field, Fields, Section } from './panel/PanelParts';
-import { amount, count } from './panel/format';
+import { amount, units } from './panel/format';
 import useProductPanel, { NO_PRODUCT_KEY } from './panel/useProductPanel';
 import panelStyles from './panel/panel.module.css';
 import styles from './ProductPanel.module.css';
@@ -287,7 +287,7 @@ export default function ProductPanel({
                               </span>
                               <span className={styles.figure}>
                                 <span className={styles.figureLabel}>Stock</span>
-                                {count(item.stock?.available) ?? '—'}
+                                {units(item.stock_total) ?? '—'}
                               </span>
                               {canSeeSales && (
                                 <span className={styles.figure}>

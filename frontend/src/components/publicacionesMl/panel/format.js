@@ -1,3 +1,4 @@
+import { formatUnits } from '../../../utils/metricasMlFormat';
 import { formatAmount, formatDateTime } from '../../../utils/ventasMlFormat';
 
 /** Money as the list writes it; a missing figure stays `null` so `Field` shows the dash. */
@@ -9,6 +10,9 @@ export const orNull = (value) => (value == null ? null : value);
 
 /** A quantity as text; `null` stays null so `Field` shows the dash and a real 0 stays "0". */
 export const count = (value) => (value == null ? null : String(value));
+
+/** Stock units with the thousands grouped, as the list's stock columns (12.500); `null` stays null for the dash. */
+export const units = (value) => (value == null ? null : formatUnits(value));
 
 /** A calendar day (`2026-10-05`) as `05/10/2026`, without the time-zone shift a Date would add. */
 export const day = (value) => {

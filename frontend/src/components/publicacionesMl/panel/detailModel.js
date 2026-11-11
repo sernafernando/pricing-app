@@ -65,7 +65,6 @@ export function readDetail(raw, { canSeeMargin = false } = {}) {
     dateCreated: raw.date_created ?? null,
     mlLastUpdated: raw.ml_last_updated ?? null,
     fetchedAt: raw.fetched_at ?? null,
-    stockLocations: raw.stock_locations ?? null,
     stockAsOf: raw.stock_as_of ?? null,
     replenishment: readReplenishment(raw.replenishment),
     links: raw.links ?? [],

@@ -14,12 +14,6 @@ export const CONDITION_LABELS = { new: 'Nueva', used: 'Usada', not_specified: 'N
 // Only the modes whose Mercado Libre name is unambiguous are translated.
 export const LOGISTIC_TYPE_LABELS = { fulfillment: 'Full', self_service: 'Flex', cross_docking: 'Colecta' };
 
-export const STOCK_LOCATION_LABELS = {
-  meli_facility: 'Depósito de Mercado Libre',
-  selling_address: 'Dirección del vendedor',
-  seller_warehouse: 'Depósito del vendedor',
-};
-
 export const SHIPPING_SOURCE_LABELS = { real: 'Real', erp: 'ERP', grupo_promedio: 'Promedio del grupo' };
 
 export const LINK_STATE_LABELS = {

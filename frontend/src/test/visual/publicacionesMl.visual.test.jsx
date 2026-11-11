@@ -1835,6 +1835,34 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
     }
   }
 
+  // The panel shows the table's stock (owner, 2026-11-10, S7): the header the total ERP + Full, Resumen ERP and Full,
+  // the Full tab Full; the published quantity ("Propio", 12.514 here) nowhere. Captured before asserting, for the PR.
+  const STOCK_ROW = {
+    stock: { available: 12534, full: 20, own: 12514, as_of: '2026-10-08T09:30:00Z' },
+    erp_stock: { quantity: 12500 },
+    stock_total: 12520,
+  };
+  for (const theme of THEMES) {
+    it(`1440x900 ${theme}: the panel's stock is the table's: total in the header, ERP and Full below, no Propio (S7)`, async () => {
+      const screen = await renderWithPanel({ width: 1440, height: 900, theme, rowExtra: STOCK_ROW });
+      await frame();
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/panel-resumen-stock-1440-${theme}.png`, element: panelOf() });
+      const figures = screen.getByRole('region', { name: 'Cifras de la publicación' }).element();
+      expect(figures.textContent).toContain('12.520');
+      expect(figures.textContent).not.toContain('12534');
+      const stock = screen.getByRole('region', { name: 'Stock', exact: true }).element();
+      expect([...stock.querySelectorAll('dt')].map((el) => el.textContent)).toEqual(['Stock ERP', 'Full', 'Actualizado']);
+      expect(stock.textContent).toContain('12.500');
+      expect(panelOf().textContent).not.toContain('Propio');
+      await screen.getByRole('tab', { name: 'Full' }).click();
+      await expect.element(screen.getByRole('region', { name: 'Stock ML' })).toBeVisible();
+      await frame();
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/panel-full-stock-1440-${theme}.png`, element: panelOf() });
+      expect(panelOf().textContent).not.toContain('Propio');
+      screen.unmount();
+    });
+  }
+
   for (const { width, height } of PANEL_VIEWPORTS) {
     for (const theme of THEMES) {
       it(`${width}x${height} ${theme}: the header keeps the price over its markup, and stays while Resumen scrolls (S1)`, async () => {
