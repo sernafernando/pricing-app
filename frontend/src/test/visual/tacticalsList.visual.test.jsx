@@ -17,7 +17,13 @@ import { BONOS_LISTA, LISTA, RESUMEN } from '../../components/sellIn/sellInFixtu
 import { sellOutAPI } from '../../services/sellOutAPI';
 import { CAMPANA_MIGRADA, CAMPANAS_LISTA, CONSUMOS_USD } from '../../components/sellOut/sellOutFixtures';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
-import { TACTICAL_BPS, TACTICAL_REBATE, lineaDeProducto, pagina } from '../../components/tacticals/tacticalsFixtures';
+import {
+  COBRANZA_FONDO,
+  TACTICAL_BPS,
+  TACTICAL_REBATE,
+  lineaDeProducto,
+  pagina,
+} from '../../components/tacticals/tacticalsFixtures';
 
 const SHOTS_DIR = import.meta.env.VITE_SELLINOUT_SHOTS_DIR;
 
@@ -138,6 +144,8 @@ describe.each([
   });
 
   it('opens the Editar dialog whole inside the window, with every line', async () => {
+    // The dialog is the collected tactical's edit (SISO S8, D1); one not collected opens the full Editar tactical.
+    tacticalsAPI.listar.mockResolvedValue({ data: pagina([{ ...TACTICALS[0], cobranza: COBRANZA_FONDO }, ...TACTICALS.slice(1)]) });
     await page.viewport(width, height);
     setTheme(theme);
     document.body.style.background = 'var(--cf-bg-app)';
