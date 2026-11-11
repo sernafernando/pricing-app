@@ -264,7 +264,8 @@ def resolver_costos_envio_publicaciones(db: Session, item_ids: list[int], mla_id
     An asked MLA is read even when its publication is inactive (it still has a shipping cost of its own), but only
     the ACTIVE MLAs of a product count for its MAX, exactly as `resolver_costos_envio_batch`.
 
-    This function NEVER raises: on any failure both mappings are empty and callers fall back to the ERP envio.
+    A failed mlwebhook read never raises: both mappings come back empty and callers fall back to the ERP envio. A
+    failure of the main-DB read of the active MLAs propagates, as in `resolver_costos_envio_batch`.
     """
     if not item_ids and not mla_ids:
         return CostosEnvio()
