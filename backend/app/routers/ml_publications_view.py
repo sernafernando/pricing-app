@@ -2266,6 +2266,8 @@ def get_kpis(
 
 
 # ── Shipping cost of a product (S7b) ─────────────────────────────
+# Backend only for now: no screen calls these routes yet (the panel UI waits on the owner's Stitch approval), so
+# nothing is visible and there is no help page or novedad until that UI ships with them.
 
 
 @router.get("/products/{item_id}/envio", response_model=OpcionesEnvioResponse)

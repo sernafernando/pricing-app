@@ -365,6 +365,19 @@ def _resolve_by_item(
     return result
 
 
+def costo_envio_producto(
+    db: Session, item_id: int, active_mlas: Sequence[str], costs: Mapping[str, float]
+) -> tuple[Optional[float], str]:
+    """The product's shipping cost from its active MLAs' `costs`, exactly as `resolver_costos_envio_batch` resolves
+    it (the PM's choice, else the MAX), and the stored mode (`max` without a choice). `None` when no MLA has a cost.
+
+    For a caller that already read the costs (`precio_variantes_envio`) and must not read mlwebhook twice."""
+    value = _resolve_by_item(db, {item_id: list(active_mlas)}, costs).get(item_id)
+    if value is None:
+        return None, MODO_DEFAULT
+    return value, elecciones_por_item(db, [item_id]).get(item_id, (MODO_DEFAULT, None))[0]
+
+
 @dataclass(frozen=True)
 class CostosEnvio:
     """The real shipping costs of a request: the product's cost (its PM choice, else the MAX) and each publication's
