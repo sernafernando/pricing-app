@@ -83,3 +83,24 @@ class OrdenCompraDetalleResponse(BaseModel):
     lines: List[OrdenCompraLineaResponse]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SyncOcRequest(BaseModel):
+    """Optional triple for POST /pedidos/{id}/ocs/sync. Omit all → sync every linked OC."""
+
+    oc_comp_id: int | None = None
+    oc_bra_id: int | None = None
+    oc_poh_id: int | None = None
+
+
+class SyncOcTripleResult(BaseModel):
+    oc_comp_id: int
+    oc_bra_id: int
+    oc_poh_id: int
+    header: dict[str, int]
+    detail: dict[str, int]
+    detail_lines: int
+
+
+class SyncOcResponse(BaseModel):
+    synced: List[SyncOcTripleResult]
