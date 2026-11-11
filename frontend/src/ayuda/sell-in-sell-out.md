@@ -59,12 +59,13 @@ Las campañas de sell out alcanzan productos a través de **grupos**. En la pest
 Al crear un bono de marca, **Base del bono** define cómo se calcula. Se elige una sola vez: después de guardarlo no se cambia.
 
 - **Sobre facturas**: paga por las unidades facturadas de la marca, en el rango de fechas de factura del proveedor.
-- **Marca con categoría**: una línea por marca de sell in con categoría, cargada en un tactical, se lista como «Marca TP-LINK · Routers» y alcanza solo los productos de la marca en esa categoría. Al abrirla, debajo de la marca dice «Solo la categoría Routers de la marca (se elige en el tactical).». Editarla desde acá conserva la categoría; la categoría se elige o se cambia solo en el tactical.
 - **Sobre el costo de la venta**: para operaciones viejas que no tienen la factura cargada. Va en pesos sobre el costo de cada venta, y alcanza una **Marca**, una **Categoría** o algunos **Modelos**. Las fechas **Venta desde** y **Venta hasta** son fechas de venta, no de factura. En **Forma del monto** se elige **% del costo de la venta** o **Monto total**.
 - **Monto total** (solo sobre el costo de la venta): un importe en pesos (ARS) que se reparte entre los productos del bono según **Repartir el monto total**: **Partes iguales por modelo**, **Según unidades vendidas** o **Proporcional al costo**. No lleva topes ni valores propios por modelo: el total es el tope. Si el total es cero o negativo, el bono no se guarda y el panel muestra el motivo. Al abrir el bono, la sección **Reparto del monto total** muestra la parte de cada producto (código, producto y monto) en **Partes iguales por modelo** y **Proporcional al costo**; en **Según unidades vendidas** dice que el total sigue las unidades vendidas en las fechas del bono. Cargar o editar un bono pide `sell_in.gestionar`, sin restricción de marca, así que el criterio está disponible para todo el que puede editarlo.
 - **Incluye IVA** (solo sobre el costo): tildado, el porcentaje cargado incluye IVA y se divide por el IVA de cada producto (por ejemplo, 3 % en un producto con IVA 10,5 % queda 2,71 %). Sin tildar, el porcentaje se usa tal cual. En un **Monto total**, tildado significa que el total incluye IVA: a la parte de cada producto se le descuenta su IVA. Esta casilla sí se puede cambiar después.
 
 > Cuando se carga la factura de una operación, el sell in de esa factura toma sus unidades y el bono sobre el costo deja de aplicarse a ellas: no se cuenta dos veces.
+
+**Marca con categoría:** una línea por marca de sell in con categoría, cargada en un tactical, se lista como «Marca TP-LINK · Routers» y alcanza solo los productos de la marca en esa categoría. Al abrirla, debajo de la marca dice «Solo la categoría Routers de la marca (se elige en el tactical).». Editarla desde acá conserva la categoría; la categoría se elige o se cambia solo en el tactical.
 
 ### Bonos de marca: acumulables o no
 
