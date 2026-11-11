@@ -204,6 +204,24 @@
   flex: 1 1 12rem;
 }
 
+.facturaList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  width: 100%;
+}
+
+.facturaListItem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
 .ocActionCluster {
   display: flex;
   flex-wrap: wrap;

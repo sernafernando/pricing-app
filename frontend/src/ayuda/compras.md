@@ -32,3 +32,6 @@ Sí, usando ?tab= en la URL (por ejemplo ?tab=ordenes-pago).
 
 **¿Qué hace Actualizar OC?**
 En el detalle del pedido, **Actualizar OC** vuelve a traer del ERP el contenido de las órdenes de compra ya vinculadas (líneas y cantidades del espejo). No corrige ni borra recepciones ya cargadas en Depósito: si la OC cambió en GBP, el saldo pendiente se recalcula sobre lo que ya ingresó.
+
+**¿Se puede vincular más de una factura ERP a un pedido?**
+Sí. En el detalle del pedido, **Facturas del ERP** lista cada `ct_transaction` vinculada, permite **Desvincular** una por una y **Vincular otra**. La misma factura también puede quedar documentada en varios pedidos; el sell-in de líneas solo se arma cuando esa factura queda ligada a un solo pedido.
