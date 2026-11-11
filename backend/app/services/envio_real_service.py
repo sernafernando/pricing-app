@@ -287,6 +287,24 @@ def unidades_vendidas_por_mla(db: Session, mlas: Sequence[str], date_from: date,
     return UnitsSoldProvider().units_by_mla(db, list(mlas), date_from, date_to)
 
 
+def _unidades_aisladas(db: Session, mlas: Sequence[str], date_from: date, date_to: date) -> Mapping[str, int]:
+    """`unidades_vendidas_por_mla` inside a CONNECTION-level savepoint, with autoflush off: a failed read must not
+    abort the caller's transaction (Productos keeps working) and, being a read, must not flush the caller's pending
+    objects (`Session.begin_nested` would flush them on entry). A failure is the rule for no sales: `{}`, so a
+    `ponderado` product resolves to `promedio`."""
+    connection = db.connection()  # the session's own connection; getting it does not flush
+    savepoint = connection.begin_nested()
+    try:
+        with db.no_autoflush:
+            units = unidades_vendidas_por_mla(db, mlas, date_from, date_to)
+    except SQLAlchemyError as exc:
+        savepoint.rollback()
+        logger.warning("No se pudieron leer las ventas para el envio ponderado: %s", exc)
+        return {}
+    savepoint.commit()
+    return units
+
+
 def elecciones_por_item(db: Session, item_ids: Sequence[int]) -> dict[int, tuple[str, Optional[str]]]:
     """{item_id: (modo, mla)} of the stored choices of `item_ids`, in ONE statement; products without one are
     absent (they resolve to `max`)."""
@@ -356,14 +374,7 @@ def _resolve_by_item(
     if ponderados:
         first, last = periodo_ponderado()
         mlas = sorted({mla for item_id in ponderados for mla in item_to_active_mlas[item_id]})
-        try:
-            # A savepoint: a failed read must not abort the caller's transaction (Productos keeps working).
-            with db.begin_nested():
-                units = unidades_vendidas_por_mla(db, mlas, first, last)
-        except SQLAlchemyError as exc:
-            # Same rule as a product without sales: `ponderado` resolves to `promedio`.
-            logger.warning("No se pudieron leer las ventas para el envio ponderado: %s", exc)
-            units = {}
+        units = _unidades_aisladas(db, mlas, first, last)
     result: dict[int, float] = {}
     for item_id, item_costs in per_item.items():
         modo, mla = choices.get(item_id, (MODO_DEFAULT, None))

@@ -2288,7 +2288,12 @@ def get_product_envio(
     if first > last:
         raise _unprocessable(FilterError("date_from", "is after date_to"))
     try:
+        listing.bound(db)  # the list's own `statement_timeout`, as every read of this router
         found = envio_producto.opciones_envio(db, item_id, first, last)
+    except DBAPIError as exc:  # over `statement_timeout`: the controlled 503, never a bare 500
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
     except envio_producto.CostosNoDisponibles as exc:
         logger.warning("Opciones de envío del producto %s: mlwebhook no disponible: %s", item_id, exc)
         raise api_error(

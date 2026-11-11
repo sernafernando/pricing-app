@@ -16,6 +16,7 @@ from sqlalchemy import text
 from app.api.endpoints.pricing import PERMISOS_EDITAR_PRODUCTOS
 from app.routers import ml_publications_view
 from app.services import envio_real_service
+from app.services.ml_publications.view import listing
 from tests.routers.test_ml_publications_links import grant
 from tests.routers.test_ml_publications_view import VER, pg as view_pg, seed_rows  # noqa: F401
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
@@ -182,3 +183,19 @@ class TestSaveChoice:
 
     def test_an_unknown_product_is_404(self, client, pg, editor, units) -> None:
         assert client.put(URL.format(404), headers=editor, json={"modo": "max"}).status_code == 404
+
+
+class TestSlowQuery:
+    def test_a_statement_timeout_in_the_sales_read_is_a_controlled_503(self, client, pg, editor, monkeypatch) -> None:
+        """As every read of this router: the list's `statement_timeout` bounds it and a timeout answers the
+        controlled 503 `consulta_lenta`, never a bare 500; the connection goes back to the pool."""
+        seed_rows(pg, fill)
+
+        def slow(db, mlas, date_from, date_to):
+            db.execute(text("SELECT pg_sleep(1)"))  # a real statement_timeout from Postgres
+
+        monkeypatch.setattr(listing, "STATEMENT_TIMEOUT", "50ms")
+        monkeypatch.setattr(envio_real_service, "unidades_vendidas_por_mla", slow)
+        response = client.get(URL.format(22), headers=editor)
+        assert response.status_code == 503 and response.json()["error"]["code"] == "consulta_lenta"
+        assert pg.pool.checkedout() == 0

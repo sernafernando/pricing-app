@@ -237,6 +237,19 @@ class TestEachMode:
         assert resolver_costo_envio(db, product(db)) == 9090.0
         assert db.execute(text("SELECT 1")).scalar() == 1
 
+    def test_a_ponderado_read_does_not_flush_the_callers_pending_objects(self, conn, db, costs, units) -> None:
+        """A read-only lookup never flushes what the caller has pending (the resolvers' rule), on the `ponderado`
+        path too: its savepoint must not flush on entry."""
+        from app.models.producto import ProductoERP
+
+        seed_re200(conn)
+        choose(conn, RE200, "ponderado")
+        units.sold = {OWN: 3, OUTLIER: 1}
+        db.add(ProductoERP(item_id=9999, codigo="PEND", descripcion="pendiente"))
+        assert resolver_costos_envio_batch(db, [RE200]) == {RE200: 8190.0}
+        assert conn.execute(text("SELECT count(*) FROM productos_erp WHERE item_id = 9999")).scalar() == 0
+        assert len(db.new) == 1
+
 
 class TestChosenMlaFallsBackToMax:
     """S6: a chosen MLA that is inactive or has no cost resolves to the MAX."""
@@ -290,6 +303,12 @@ class TestTheBatchStaysConstant:
             envio_real_service, "_query_list_cost_by_mla", lambda mlas: {m: 7290.0 for m in mlas if m.endswith("X")}
         )
         recorded = statements_of(db, lambda: resolver_costos_envio_batch(db, ids))
+        # The sales read is stubbed; around it, its savepoint (transaction control, the same two whatever the count).
+        assert [s for s in recorded if "SAVEPOINT" in s] == [
+            "SAVEPOINT sa_savepoint_1",
+            "RELEASE SAVEPOINT sa_savepoint_1",
+        ]
+        recorded = [s for s in recorded if "SAVEPOINT" not in s]
         assert len(recorded) == 2  # the active MLAs and the choices
         assert "producto_envio_eleccion" in recorded[1] and "ANY" in recorded[1].upper()
         assert len(units.calls) == 1  # one sales read, only for the ponderado products' MLAs
