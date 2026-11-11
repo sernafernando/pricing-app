@@ -95,7 +95,7 @@ CREATE OR REPLACE FUNCTION sell_in_bono_cubre_producto(
         SELECT 1 FROM sell_in_bonos_marca AS b
         WHERE b.estado = 'activa' AND p_fecha BETWEEN b.fecha_desde AND b.fecha_hasta
           AND (
-            (b.alcance = 'marca' AND b.marca = p_marca)
+            (b.alcance = 'marca' AND b.marca = p_marca AND (b.categoria IS NULL OR b.categoria = p_categoria))
             OR (b.alcance = 'categoria' AND b.categoria = p_categoria)
             OR (b.alcance = 'modelos'
                 AND EXISTS (SELECT 1 FROM sell_in_bono_items AS i WHERE i.bono_id = b.id AND i.item_id = p_item))
@@ -220,9 +220,13 @@ BEGIN
       AND ((b.alcance = 'modelos'
             AND EXISTS (SELECT 1 FROM sell_in_bono_items AS i WHERE i.bono_id = b.id AND i.item_id = item))
            OR (TG_OP <> 'DELETE'
-               AND ((b.alcance = 'marca' AND b.marca = NEW.marca) OR (b.alcance = 'categoria' AND b.categoria = NEW.categoria)))
+               AND ((b.alcance = 'marca' AND b.marca = NEW.marca
+                     AND (b.categoria IS NULL OR b.categoria = NEW.categoria))
+                    OR (b.alcance = 'categoria' AND b.categoria = NEW.categoria)))
            OR (TG_OP <> 'INSERT'
-               AND ((b.alcance = 'marca' AND b.marca = OLD.marca) OR (b.alcance = 'categoria' AND b.categoria = OLD.categoria))))
+               AND ((b.alcance = 'marca' AND b.marca = OLD.marca
+                     AND (b.categoria IS NULL OR b.categoria = OLD.categoria))
+                    OR (b.alcance = 'categoria' AND b.categoria = OLD.categoria))))
     ORDER BY 2
     ON CONFLICT (tipo, ref) DO UPDATE SET enqueued_at = now(), attempts = 0, last_error = NULL;
     IF encolado OR FOUND THEN
