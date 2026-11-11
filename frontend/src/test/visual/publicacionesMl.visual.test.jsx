@@ -1744,6 +1744,35 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
 
   for (const { width, height } of PANEL_VIEWPORTS) {
     for (const theme of THEMES) {
+      it(`${width}x${height} ${theme}: the header's Costo card and the markup with sell in / sell out fit inside the panel (S6, S9)`, async () => {
+        const sellIn = { compra_item_id: 7, descuento_unit: 1500, costo: 62500, unidades_restantes: 12 };
+        const screen = await renderWithPanel({
+          width,
+          height,
+          theme,
+          margin: true,
+          detailExtra: {
+            sell_in_out: {
+              sell_in: sellIn,
+              sell_out: { monto_unit: 2000, campana_ids: [3] },
+              markups_sell_in: { publicacion: 29.6 },
+              markups_sell_in_out: { publicacion: -2.4 },
+            },
+          },
+        });
+        const figures = screen.getByRole('region', { name: 'Cifras de la publicación' });
+        await expect.element(figures.getByText('Costo', { exact: true })).toBeVisible();
+        await expect.element(figures.getByText('c/ sell in/out', { exact: false })).toBeVisible();
+        const region = figures.element();
+        const panel = panelOf();
+        expect(rect(region).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        for (const card of region.querySelectorAll('dl > div')) {
+          expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth + 1);
+          expect(rect(card).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        }
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/header-costo-sellin-${width}-${theme}.png`, element: panel });
+      });
+
       it(`${width}x${height} ${theme}: the panel shrinks the table beside it, 460-560px wide, and nothing overlaps (S61.1)`, async () => {
         const screen = await renderWithPanel({ width, height, theme });
         const panel = panelOf();

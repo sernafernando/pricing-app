@@ -669,6 +669,77 @@ describe('header figures (S1)', () => {
     expect(within(figures()).getByTitle('Markup')).not.toHaveAttribute('data-negative');
   });
 
+  describe('cost and markup with sell in / sell out (S6, S9: ver_ganancia only)', () => {
+    const SELL_IN = { compra_item_id: 7, descuento_unit: 1500, costo: 62500, unidades_restantes: 12 };
+    const withCosts = (sellInOut) => ({
+      ...withRow({ ...SALES, markup: MARKUP }),
+      markup_breakdown: DETAIL_RESPONSE_MARGIN.markup_breakdown,
+      sell_in_out: sellInOut,
+    });
+
+    it('S9: the price card shows the markup with sell in and sell out under the markup', async () => {
+      canSeeMargin = true;
+      publicacionesMlAPI.detail.mockResolvedValue({
+        data: withCosts({
+          sell_in: SELL_IN,
+          sell_out: { monto_unit: 2000, campana_ids: [3] },
+          markups_sell_in: { publicacion: 29.6 },
+          markups_sell_in_out: { publicacion: -2.4 },
+        }),
+      });
+      renderPanel({ tab: 'resumen' });
+      await screen.findByRole('region', { name: 'Cifras de la publicación' });
+      expect(figure('Precio')).toBe('$ 98.500,50Markup 15,0%c/ sell in/out -2,4%');
+    });
+
+    it('S9: with sell in only, the markup with sell in', async () => {
+      canSeeMargin = true;
+      publicacionesMlAPI.detail.mockResolvedValue({
+        data: withCosts({ sell_in: SELL_IN, sell_out: null, markups_sell_in: { publicacion: 29.6 }, markups_sell_in_out: {} }),
+      });
+      renderPanel({ tab: 'resumen' });
+      await screen.findByRole('region', { name: 'Cifras de la publicación' });
+      expect(figure('Precio')).toBe('$ 98.500,50Markup 15,0%c/ sell in/out 29,6%');
+    });
+
+    it('S9: no sell in nor sell out today, no extra line under the markup', async () => {
+      canSeeMargin = true;
+      publicacionesMlAPI.detail.mockResolvedValue({ data: withCosts(null) });
+      renderPanel({ tab: 'resumen' });
+      await screen.findByRole('region', { name: 'Cifras de la publicación' });
+      expect(figure('Precio')).toBe('$ 98.500,50Markup 15,0%');
+    });
+
+    it('S6: a Costo card after Precio with the cost in pesos and the cost with sell in under it', async () => {
+      canSeeMargin = true;
+      publicacionesMlAPI.detail.mockResolvedValue({
+        data: withCosts({ sell_in: SELL_IN, sell_out: null, markups_sell_in: { publicacion: 29.6 }, markups_sell_in_out: {} }),
+      });
+      renderPanel({ tab: 'resumen' });
+      await screen.findByRole('region', { name: 'Cifras de la publicación' });
+      expect(labels()).toEqual(['Precio', 'Costo', 'Stock', 'Ventas 30 días']);
+      expect(figure('Costo')).toBe('$ 64.000,00c/ sell in $ 62.500,00');
+    });
+
+    it('S6: without sell in, the Costo card has the cost alone', async () => {
+      canSeeMargin = true;
+      publicacionesMlAPI.detail.mockResolvedValue({ data: withCosts(null) });
+      renderPanel({ tab: 'resumen' });
+      await screen.findByRole('region', { name: 'Cifras de la publicación' });
+      expect(figure('Costo')).toBe('$ 64.000,00');
+    });
+
+    it('S6/S9: without ver_ganancia, neither the Costo card nor the sell in/out markup', async () => {
+      publicacionesMlAPI.detail.mockResolvedValue({
+        data: withCosts({ sell_in: SELL_IN, sell_out: null, markups_sell_in: { publicacion: 29.6 }, markups_sell_in_out: {} }),
+      });
+      renderPanel({ tab: 'resumen' });
+      await screen.findByRole('region', { name: 'Cifras de la publicación' });
+      expect(labels()).toEqual(['Precio', 'Stock', 'Ventas 30 días']);
+      expect(figure('Precio')).toBe('$ 98.500,50');
+    });
+  });
+
   it('colours a negative markup apart', async () => {
     canSeeMargin = true;
     const negative = { ...MARKUP, min: -4, max: -4, worst: -4, any_negative: true };
