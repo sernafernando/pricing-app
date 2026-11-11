@@ -3091,8 +3091,8 @@ describe('Publicaciones ML panel, Promos tab of the S9 design (visual)', () => {
       await frame();
       const panel = panelOf();
       const cards = [...strip.element().querySelectorAll('dl > div')];
-      // PRECIO, STOCK and VENTAS 30 DÍAS side by side, each label drawn over its value.
-      expect(cards.map((card) => card.querySelector('dt').textContent)).toEqual(['Precio', 'Stock', 'Ventas 30 días']);
+      // PRECIO, COSTO (S6), STOCK and VENTAS 30 DÍAS side by side, each label drawn over its value.
+      expect(cards.map((card) => card.querySelector('dt').textContent)).toEqual(['Precio', 'Costo', 'Stock', 'Ventas 30 días']);
       expect(new Set(cards.map((card) => Math.round(rect(card).top))).size).toBe(1);
       for (const card of cards) {
         const term = card.querySelector('dt');
@@ -3110,7 +3110,7 @@ describe('Publicaciones ML panel, Promos tab of the S9 design (visual)', () => {
       expect(rect(word).width).toBeGreaterThan(10);
       expect(getComputedStyle(word).color).toBe(tokenColor('--cf-text-secondary'));
       expect(getComputedStyle(markup).color).toBe(tokenColor('--tone-danger-fg'));
-      expect(cards[2].textContent).toContain('Facturado $ 4.693.617,16');
+      expect(cards[3].textContent).toContain('Facturado $ 4.693.617,16'); // VENTAS 30 DÍAS, after the Costo card
       // MLA, its badges and "Ver en Mercado Libre" on one line under the title.
       const mla = [...panel.querySelectorAll('header span')].find((el) => el.textContent === SELECTED);
       const link = [...panel.querySelectorAll('header a[href]')].find((el) => el.textContent.includes('Ver en Mercado Libre'));
