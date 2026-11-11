@@ -1,6 +1,6 @@
 /**
  * Sell in's Productos list -- real CSS, real Chromium: at desktop width the toolbar (search, Marca, Modo de costo,
- * Limpiar filtros and the default mode with "Cambiar") is one row and the five columns fit the card
+ * Limpiar filtros and the default mode with "Cambiar") is one row and the columns with "Ver lotes" fit the card
  * without a horizontal scroll, in light and dark, and "Cambiar" opens the default-mode modal; at phone width only the
  * table scrolls, never the page.
  *

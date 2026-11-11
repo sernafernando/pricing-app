@@ -3,7 +3,7 @@
  * its "Modo de costo" (FIFO by default), units, the next sale's sell in per unit and its latest purchase, read in one
  * request for the whole list. Owner, 2026-11-10: "No tengo botones, filtros, nada, cómo lo uso?" / "no tengo el modal
  * para setear el fifo, ppp, o ultimo ingreso como default": a toolbar with the default mode, search, Marca and Modo
- * filters (client side: the endpoint already reads the whole list).
+ * filters (client side: the endpoint already reads the whole list), sortable columns and a visible "Ver lotes".
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within, waitFor } from '@testing-library/react';
@@ -73,9 +73,9 @@ describe('SellInProductosCosto', () => {
     const t = await tabla();
     const filas = within(t).getAllByRole('row').slice(1);
     expect(filas.map((x) => within(x).getAllByRole('cell').map((c) => c.textContent))).toEqual([
-      ['Router TP-Link Archer AX55TPL-AX55', 'FIFO (por defecto)', '200 u', '$ 5.472,00', '02/11/2026'],
-      ['Access Point TP-Link EAP225TPL-EAP225', 'Ponderado (PPP)', '312 u', '$ 1.200,00', '15/10/2026'],
-      ['Switch Mercusys MS108MER-MS108', 'Último precio', '57 u', '—', '05/11/2026'],
+      ['Router TP-Link Archer AX55TPL-AX55', 'FIFO (por defecto)', '200 u', '$ 5.472,00', '02/11/2026', 'Ver lotes'],
+      ['Access Point TP-Link EAP225TPL-EAP225', 'Ponderado (PPP)', '312 u', '$ 1.200,00', '15/10/2026', 'Ver lotes'],
+      ['Switch Mercusys MS108MER-MS108', 'Último precio', '57 u', '—', '05/11/2026', 'Ver lotes'],
     ]);
     expect(within(t).getAllByRole('columnheader').map((x) => x.textContent)).toEqual([
       'Producto',
@@ -83,16 +83,19 @@ describe('SellInProductosCosto', () => {
       'Unidades',
       'Sell in por unidad',
       'Últ. compra',
+      'Acciones',
     ]);
     expect(screen.getByText('569 u')).toBeInTheDocument();
     expect(sellInLotesAPI.productos).toHaveBeenCalledTimes(1);
   });
 
-  it('opens a product from its row', async () => {
+  it('opens a product from its visible "Ver lotes" action', async () => {
     const onVer = vi.fn();
     render(<SellInProductosCosto onVer={onVer} />);
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Ver lotes y modo de costo de Switch Mercusys MS108' }));
+    const boton = await screen.findByRole('button', { name: 'Ver lotes y modo de costo de Switch Mercusys MS108' });
+    expect(boton).toHaveTextContent('Ver lotes');
+    await userEvent.click(boton);
 
     expect(onVer).toHaveBeenCalledWith(PRODUCTOS[2]);
   });
@@ -161,6 +164,29 @@ describe('SellInProductosCosto', () => {
 
       await user.click(screen.getByRole('button', { name: 'Limpiar filtros' }));
       expect(nombres(await tabla())).toHaveLength(3);
+    });
+  });
+
+  describe('sorting', () => {
+    it.each([
+      ['Producto', ['Access Point', 'Router', 'Switch'], ['Switch', 'Router', 'Access Point']],
+      ['Modo de costo', ['Router', 'Access Point', 'Switch'], ['Switch', 'Access Point', 'Router']],
+      ['Unidades', ['Switch', 'Router', 'Access Point'], ['Access Point', 'Router', 'Switch']],
+      ['Sell in por unidad', ['Access Point', 'Router', 'Switch'], ['Router', 'Access Point', 'Switch']],
+      ['Últ. compra', ['Access Point', 'Router', 'Switch'], ['Switch', 'Router', 'Access Point']],
+    ])('sorts by %s, ascending then descending (no sell in last)', async (columna, asc, desc) => {
+      const user = userEvent.setup();
+      render(<SellInProductosCosto onVer={vi.fn()} />);
+      const t = await tabla();
+      const primeras = () => nombres(t).map((x) => x.split(' ').slice(0, x.startsWith('Access') ? 2 : 1).join(' '));
+
+      await user.click(within(t).getByRole('button', { name: columna }));
+      expect(primeras()).toEqual(asc);
+      expect(within(t).getByRole('columnheader', { name: columna })).toHaveAttribute('aria-sort', 'ascending');
+
+      await user.click(within(t).getByRole('button', { name: columna }));
+      expect(primeras()).toEqual(desc);
+      expect(within(t).getByRole('columnheader', { name: columna })).toHaveAttribute('aria-sort', 'descending');
     });
   });
 
