@@ -53,8 +53,9 @@ function KpisCobranza({ kpis }) {
  * The Tacticals tab (S7): the brands' programs filtered by tipo, brand, currency, state, dates and a search, one row per
  * tactical with its overall progress; expanding a row shows its lines with their caps and usage. A new `version`
  * (the page's "Actualizar") asks the list again. A row of a kind the user manages (`puedeGestionar(tipo)`) has an
- * actions menu (tacticals F1): Editar, on a tactical that is not voided, opens the Editar dialog and asks the list
- * again after saving; Renovar hands the tactical to `onRenovar`; Anular, on a tactical that is not voided, asks for
+ * actions menu (tacticals F1): Editar, on a tactical that is not voided, hands it to `onEditar` (the full edit, S8);
+ * a collected one (or without `onEditar`) opens the Editar dialog instead (only name, note, end date and caps) and
+ * asks the list again after saving; Renovar hands the tactical to `onRenovar`; Anular, on a tactical that is not voided, asks for
  * confirmation, voids it and its children, asks the list again and tells `onCambio` (the page's tab count). An
  * expanded line's "Ver ventas" hands that line to `onVerLinea` (the page opens its record). `tipoInicial` (`todos`,
  * `sell_in` or `sell_out`) is the Tipo the list opens with; Limpiar filtros goes back to Todos.
@@ -63,7 +64,7 @@ function KpisCobranza({ kpis }) {
  * Pendientes / Cobrados KPIs the list answers over the other filters, and on each row a Pendiente / Cobrado pill; a
  * row the user manages opens its Cobranza box under it (one at a time), and a save or an undo asks the list again.
  */
-export default function TacticalsList({ marcas = [], version = 0, puedeGestionar = () => false, onRenovar, onCambio, onVerLinea, tipoInicial = 'todos' }) {
+export default function TacticalsList({ marcas = [], version = 0, puedeGestionar = () => false, onRenovar, onEditar, onCambio, onVerLinea, tipoInicial = 'todos' }) {
   const [filtros, setFiltros] = useState(() => ({ ...FILTROS_VACIOS, tipo: tipoInicial }));
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(FILAS_POR_PAGINA);
@@ -120,7 +121,9 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
   const accionesDe = (tactical) => {
     if (!puedeGestionar(tactical.tipo)) return [];
     const acciones = [];
-    if (tactical.estado !== 'anulado') acciones.push({ label: 'Editar', onSelect: () => setEditando(tactical) });
+    // A collected tactical changes no money until its collection is undone (S8, D1): only the safe fields' dialog.
+    const editar = () => (onEditar && !tactical.cobranza ? onEditar(tactical) : setEditando(tactical));
+    if (tactical.estado !== 'anulado') acciones.push({ label: 'Editar', onSelect: editar });
     if (onRenovar) acciones.push({ label: 'Renovar', onSelect: () => onRenovar(tactical) });
     if (tactical.estado !== 'anulado') acciones.push({ label: 'Anular', onSelect: () => setAnulando(tactical) });
     return acciones;

@@ -211,6 +211,13 @@ class TestTipoDeCambioAlCobro:
             conn.execute(text("UPDATE sell_out_campanas SET tipo_cambio = 1450, tc_definido_en = now()"))
         return tactical
 
+    def test_the_read_shows_the_rate_already_set(self, db, engine) -> None:
+        tactical = self._con_tasa(db, engine)
+
+        [linea] = service.serializar(db, [tactical])[0]["lineas"]
+
+        assert linea["tc_al_cobro"] == Decimal("1450.000000")
+
     def test_a_set_rate_carries_while_the_currency_and_mode_stay(self, db, engine) -> None:
         tactical = self._con_tasa(db, engine)
 

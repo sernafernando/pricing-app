@@ -290,6 +290,7 @@ export default function SellIn() {
               tipoInicial={tipoDeEnlace}
               puedeGestionar={(tipoTactical) => tienePermiso(`${tipoTactical}.gestionar`)}
               onRenovar={(t) => navigate(`/sell-in/tactical/nuevo?tipo=${t.tipo}&renovar=${t.id}`)}
+              onEditar={(t) => navigate(`/sell-in/tactical/nuevo?tipo=${t.tipo}&editar=${t.id}`)}
               onCambio={actualizar}
               onVerLinea={verLinea}
             />

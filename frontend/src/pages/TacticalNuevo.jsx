@@ -6,6 +6,9 @@
  * with `POST /tacticals`. `?tipo=sell_in|sell_out` picks the type it opens on; a type the user cannot manage is off.
  * `?renovar=<id>` (Renovar, tacticals F1) opens it prefilled from that tactical (`renovacionDe`), dates empty: saving
  * creates a NEW tactical and leaves the old one as it is.
+ * `?editar=<id>` (Editar, SISO S8) opens it prefilled from that tactical with its dates and invoices (`edicionDe`):
+ * after a confirmation that names what is recomputed (`impactoDe`), saving replaces that same tactical
+ * (`PUT /tacticals/{id}`), as if it were loaded again from scratch.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -14,6 +17,7 @@ import { productosAPI } from '../services/api';
 import { tacticalsAPI } from '../services/tacticalsAPI';
 import { apiErrorMessage } from '../utils/apiErrorMessage';
 import TacticalDatos from '../components/tactical/TacticalDatos';
+import TacticalConfirmarEdicion from '../components/tactical/TacticalConfirmarEdicion';
 import TacticalDescartar from '../components/tactical/TacticalDescartar';
 import TacticalLinea from '../components/tactical/TacticalLinea';
 import {
@@ -30,7 +34,7 @@ import {
   unidadesDelTope,
 } from '../components/tactical/tacticalLineas';
 import { ALCANCE_INICIAL, ALCANCE_POR_TIENDA, contadoresDelTope } from '../components/tactical/tacticalTiendas';
-import { renovacionDe } from '../components/tactical/tacticalRenovar';
+import { conFacturas, edicionDe, impactoDe, renovacionDe } from '../components/tactical/tacticalRenovar';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import styles from './TacticalNuevo.module.css';
 
@@ -159,34 +163,54 @@ export default function TacticalNuevo() {
     topeCompartido: Boolean(form.topeCompartido),
   });
 
-  const renovar = params.get('renovar');
-  // Renovar draws no form until the tactical arrives: what the user typed meanwhile would be overwritten.
-  const [cargando, setCargando] = useState(Boolean(renovar));
+  const editar = params.get('editar');
+  const renovar = editar ? null : params.get('renovar');
+  const desde = editar ?? renovar;
+  // Renovar and Editar draw no form until the tactical arrives: what the user typed meanwhile would be overwritten.
+  const [cargando, setCargando] = useState(Boolean(desde));
   const [aRenovar, setARenovar] = useState(null);
+  const [original, setOriginal] = useState(null); // the tactical being edited, for the confirmation
+  const [confirmar, setConfirmar] = useState(false);
   // The tactical is read once; its stores map to the picker's groups once those arrive too.
   useEffect(() => {
-    if (!renovar) return undefined;
+    if (!desde) return undefined;
     let activo = true;
     tacticalsAPI
-      .detalle(renovar)
+      .detalle(desde)
       .then(({ data }) => activo && setARenovar(data))
       .catch(() => {
         if (!activo) return;
-        setError('No se pudo cargar el tactical a renovar.');
+        setError(editar ? 'No se pudo cargar el tactical a editar.' : 'No se pudo cargar el tactical a renovar.');
         setCargando(false);
       });
     return () => {
       activo = false;
     };
-  }, [renovar]);
+  }, [desde, editar]);
   useEffect(() => {
     if (!aRenovar || !tiendasCargadas) return;
-    const renovado = renovacionDe(aRenovar, gruposTiendas);
-    setForm(renovado.form);
-    setLineas(renovado.lineas.length ? renovado.lineas : [nuevaLinea(renovado.form.marcas[0])]);
+    const cargado = (editar ? edicionDe : renovacionDe)(aRenovar, gruposTiendas);
+    setForm(cargado.form);
+    setLineas(cargado.lineas.length ? cargado.lineas : [nuevaLinea(cargado.form.marcas[0])]);
+    if (editar) setOriginal(aRenovar);
     setARenovar(null);
     setCargando(false);
-  }, [aRenovar, tiendasCargadas, gruposTiendas]);
+  }, [aRenovar, tiendasCargadas, gruposTiendas, editar]);
+  // An edited invoice line shows its invoice with the picker's details (provider, date) once the search answers.
+  const numerosDeFactura = original
+    ? original.lineas.filter((l) => l.alcance === 'factura' && l.pedido_numero).map((l) => l.pedido_numero)
+    : [];
+  const claveFacturas = numerosDeFactura.join('|');
+  useEffect(() => {
+    if (!claveFacturas) return undefined;
+    let activo = true;
+    Promise.all(claveFacturas.split('|').map((n) => tacticalsAPI.buscarFacturas(n).catch(() => [])))
+      .then((resultados) => activo && setLineas((ls) => conFacturas(ls, resultados.flat())))
+      .catch(() => {});
+    return () => {
+      activo = false;
+    };
+  }, [claveFacturas]);
   useEffect(() => {
     let activo = true;
     productosAPI
@@ -230,8 +254,12 @@ export default function TacticalNuevo() {
       setError(problema);
       return;
     }
-    const { body, origen } = cuerpoDe(form, lineas, gruposTiendas, alcancePorTienda);
     setError(null);
+    if (editar) {
+      setConfirmar(true);
+      return;
+    }
+    const { body, origen } = cuerpoDe(form, lineas, gruposTiendas, alcancePorTienda);
     setEnviando(true);
     try {
       await tacticalsAPI.crear(body);
@@ -242,6 +270,20 @@ export default function TacticalNuevo() {
       navigate(tipo.volver, { state: { aviso } });
     } catch (err) {
       setError(conLineaDeLaPantalla(apiErrorMessage(err, 'No se pudo crear el tactical.'), origen));
+      setEnviando(false);
+    }
+  };
+
+  const guardar = async () => {
+    const { body, origen } = cuerpoDe(form, lineas, gruposTiendas, alcancePorTienda);
+    setEnviando(true);
+    try {
+      await tacticalsAPI.reemplazar(editar, body);
+      const aviso = `Tactical actualizado: ${body.nombre} · ${lineas.length} ${plural(lineas.length, 'línea', 'líneas')}.`;
+      navigate(tipo.volver, { state: { aviso } });
+    } catch (err) {
+      setConfirmar(false);
+      setError(conLineaDeLaPantalla(apiErrorMessage(err, 'No se pudieron guardar los cambios.'), origen));
       setEnviando(false);
     }
   };
@@ -261,7 +303,7 @@ export default function TacticalNuevo() {
 
   const botonCrear = (
     <button type="button" className={styles.primary} onClick={crear} disabled={enviando || cargando}>
-      {enviando ? 'Creando…' : 'Crear tactical'}
+      {editar ? (enviando ? 'Guardando…' : 'Guardar cambios') : enviando ? 'Creando…' : 'Crear tactical'}
     </button>
   );
 
@@ -269,8 +311,12 @@ export default function TacticalNuevo() {
     <div className={styles.shell}>
       <header className={styles.pageHead}>
         <div>
-          <h1>Nuevo tactical</h1>
-          <p>{tipo.subtitulo}</p>
+          <h1>{editar ? 'Editar tactical' : 'Nuevo tactical'}</h1>
+          <p>
+            {editar
+              ? 'Cambiá lo que necesites, también el tipo: al guardar se vuelve a cargar como si lo crearas de cero.'
+              : tipo.subtitulo}
+          </p>
         </div>
         <div className={styles.headActions}>
           <button type="button" className={styles.ghost} onClick={() => setDescartar(true)}>
@@ -288,7 +334,7 @@ export default function TacticalNuevo() {
 
       {cargando ? (
         <div className={styles.cargando} role="status">
-          Cargando el tactical a renovar…
+          {editar ? 'Cargando el tactical a editar…' : 'Cargando el tactical a renovar…'}
         </div>
       ) : (
         <>
@@ -362,7 +408,21 @@ export default function TacticalNuevo() {
         </>
       )}
 
-      {descartar && <TacticalDescartar onSeguir={() => setDescartar(false)} onDescartar={() => navigate(tipo.volver)} />}
+      {descartar && (
+        <TacticalDescartar
+          edicion={Boolean(editar)}
+          onSeguir={() => setDescartar(false)}
+          onDescartar={() => navigate(tipo.volver)}
+        />
+      )}
+      {confirmar && original && (
+        <TacticalConfirmarEdicion
+          impacto={impactoDe(original, form)}
+          enviando={enviando}
+          onSeguir={() => setConfirmar(false)}
+          onGuardar={guardar}
+        />
+      )}
     </div>
   );
 }

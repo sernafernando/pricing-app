@@ -531,3 +531,74 @@ describe('Renovar', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo cargar el tactical a renovar.');
   });
 });
+
+describe('Editar (SISO S8)', () => {
+  const guardar = () => screen.getAllByRole('button', { name: 'Guardar cambios' })[0];
+  const conDetalle = (detalle) =>
+    api.get.mockImplementation((url) =>
+      url === '/tacticals/1' ? Promise.resolve({ data: detalle }) : Promise.resolve({ data: {} }),
+    );
+
+  it('opens with its dates, confirms what is recomputed and replaces the same tactical', async () => {
+    const user = userEvent.setup();
+    conDetalle(TACTICAL_BPS);
+    api.put.mockResolvedValue({ data: TACTICAL_BPS });
+    renderAt('/sell-in/tactical/nuevo?tipo=sell_out&editar=1');
+
+    expect(await screen.findByDisplayValue('Tacticals BPS Noviembre Q1FY27')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Editar tactical');
+    expect(screen.getByLabelText('Desde')).toHaveValue('2026-11-01');
+    expect(screen.getByLabelText('Hasta')).toHaveValue('2026-11-30');
+    await user.click(guardar());
+
+    const dialogo = screen.getByRole('dialog', { name: '¿Guardar los cambios?' });
+    expect(dialogo).toHaveTextContent('Ya aplicó USD 20.544 en 252 unidades: se recalcula con los datos nuevos');
+    expect(api.put).not.toHaveBeenCalled();
+    await user.click(within(dialogo).getByRole('button', { name: 'Guardar cambios' }));
+
+    await waitFor(() => expect(api.put).toHaveBeenCalledTimes(1));
+    const [url, body] = api.put.mock.calls[0];
+    expect(url).toBe('/tacticals/1');
+    expect(body).toMatchObject({ tipo: 'sell_out', fecha_desde: '2026-11-01', fecha_hasta: '2026-11-30' });
+    expect(api.post).not.toHaveBeenCalled();
+    expect(await screen.findByText('Listado de sell in?tab=tacticals')).toBeInTheDocument();
+  });
+
+  it('a sell out loaded by mistake is saved as sell in, warning that the set al_cobro rate is discarded', async () => {
+    const user = userEvent.setup();
+    conDetalle({ ...TACTICAL_BPS, lineas: TACTICAL_BPS.lineas.map((l) => ({ ...l, tc_al_cobro: '1450.000000' })) });
+    renderAt('/sell-in/tactical/nuevo?tipo=sell_out&editar=1');
+    await screen.findByDisplayValue('Tacticals BPS Noviembre Q1FY27');
+
+    await user.click(within(screen.getByRole('group', { name: 'Tipo' })).getByRole('button', { name: 'Sell in' }));
+    await user.click(guardar());
+
+    expect(screen.getByRole('dialog', { name: '¿Guardar los cambios?' })).toHaveTextContent(
+      'Se descarta el tipo de cambio al cobro cargado (1.450): vas a tener que cargarlo de nuevo.',
+    );
+  });
+
+  it("keeps editing with the server's refusal on screen (a collected tactical)", async () => {
+    const user = userEvent.setup();
+    conDetalle(TACTICAL_BPS);
+    api.put.mockRejectedValue({
+      response: { status: 409, data: { error: { message: 'El tactical está cobrado: primero deshacé el cobro' } } },
+    });
+    renderAt('/sell-in/tactical/nuevo?tipo=sell_out&editar=1');
+    await screen.findByDisplayValue('Tacticals BPS Noviembre Q1FY27');
+
+    await user.click(guardar());
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Guardar cambios' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('primero deshacé el cobro');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue('Tacticals BPS Noviembre Q1FY27')).toBeInTheDocument();
+  });
+
+  it('says so when the tactical to edit cannot be read', async () => {
+    api.get.mockImplementation((url) => (url === '/tacticals/1' ? Promise.reject(new Error('500')) : Promise.resolve({ data: {} })));
+    renderAt('/sell-in/tactical/nuevo?tipo=sell_out&editar=1');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo cargar el tactical a editar.');
+  });
+});
