@@ -24,7 +24,7 @@ from app.services.envio_real_service import (
     CostosEnvio,
     resolver_costo_envio,
     resolver_costos_envio_batch,
-    resolver_costos_envio_publicaciones,
+    resolver_costos_envio_mlas,
 )
 from app.services import envio_producto_eleccion as envio_producto
 from tests.services.ml_publications.conftest import env, mlpub_pg  # noqa: F401
@@ -163,7 +163,7 @@ class TestNoChoiceIsTodaysMax:
 
     def test_publicaciones(self, conn, db, costs, units) -> None:
         seed_re200(conn)
-        assert resolver_costos_envio_publicaciones(db, [RE200], [OWN]) == CostosEnvio(
+        assert resolver_costos_envio_mlas(db, [RE200], [OWN]) == CostosEnvio(
             por_producto={RE200: 10890.0}, por_mla={OWN: 7290.0}
         )
 
@@ -188,7 +188,7 @@ class TestEachMode:
         choose(conn, RE200, "mla", OWN)
         assert resolver_costo_envio(db, product(db)) == 7290.0
         assert resolver_costos_envio_batch(db, [RE200]) == {RE200: 7290.0}
-        assert resolver_costos_envio_publicaciones(db, [RE200], [OUTLIER]) == CostosEnvio(
+        assert resolver_costos_envio_mlas(db, [RE200], [OUTLIER]) == CostosEnvio(
             por_producto={RE200: 7290.0},
             por_mla={OUTLIER: 10890.0},  # each publication keeps its own cost
         )
