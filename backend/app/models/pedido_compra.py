@@ -59,10 +59,9 @@ class PedidoCompra(Base):
     fecha_pago_estimada = Column(Date, nullable=True)
     requiere_envio = Column(Boolean, nullable=False, default=False, server_default="false")
     numero_factura = Column(String(50), nullable=True)
+    # First-link cache of ERP invoice (SoT is pedido_compra_facturas M:N).
     ct_transaction_id = Column(BigInteger, nullable=True)
-    # Supplier invoice date (`ct_date` date part) of the linked ERP invoice, kept
-    # app-side so the sell in reads no ERP table. Written only together with
-    # ct_transaction_id by erp_matching_service.asignar_factura_erp.
+    # Supplier invoice date of the first-link CT; kept with ct_transaction_id.
     fecha_factura = Column(Date, nullable=True)
     # F1 — Immutable snapshot of tipo_cambio at approval time. Set once when the
     # pedido transitions to 'aprobado' and never overwritten. NULL for ARS pedidos
@@ -163,6 +162,11 @@ class PedidoCompra(Base):
     )
     ocs = relationship(
         "PedidoCompraOc",
+        back_populates="pedido",
+        cascade="all, delete-orphan",
+    )
+    facturas = relationship(
+        "PedidoCompraFactura",
         back_populates="pedido",
         cascade="all, delete-orphan",
     )

@@ -111,6 +111,15 @@ class PedidoCompraOcLink(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PedidoCompraFacturaLink(BaseModel):
+    """One linked ERP invoice CT (relation SoT; header is first-link cache)."""
+
+    ct_transaction_id: int
+    fecha_factura: date | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class PedidoCompraResponse(PedidoCompraBase):
     """Representación plana del pedido de compra (listados)."""
 
@@ -123,6 +132,7 @@ class PedidoCompraResponse(PedidoCompraBase):
     oc_bra_id: int | None = None
     oc_poh_id: int | None = None
     ocs: list[PedidoCompraOcLink] = Field(default_factory=list)
+    facturas: list[PedidoCompraFacturaLink] = Field(default_factory=list)
     estado: str
     creado_por_id: int
     aprobado_por_id: int | None = None

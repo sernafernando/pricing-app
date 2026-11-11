@@ -128,6 +128,7 @@ from app.schemas.pedido_compra import (
     FacturaCandidataResponse,
     PedidoCompraCreate,
     PedidoCompraDetalle,
+    PedidoCompraFacturaLink,
     PedidoCompraOcLink,
     PedidoCompraPaginated,
     PedidoCompraResponse,
@@ -320,6 +321,27 @@ def _ocs_payload(p: PedidoCompra) -> list[PedidoCompraOcLink]:
     return []
 
 
+def _facturas_payload(p: PedidoCompra) -> list[PedidoCompraFacturaLink]:
+    """Serialize linked ERP CTs (relation SoT, else header first-link cache)."""
+    rel = list(getattr(p, "facturas", None) or [])
+    if rel:
+        return [
+            PedidoCompraFacturaLink(
+                ct_transaction_id=int(row.ct_transaction_id),
+                fecha_factura=row.fecha_factura,
+            )
+            for row in rel
+        ]
+    if getattr(p, "ct_transaction_id", None) is not None:
+        return [
+            PedidoCompraFacturaLink(
+                ct_transaction_id=int(p.ct_transaction_id),
+                fecha_factura=getattr(p, "fecha_factura", None),
+            )
+        ]
+    return []
+
+
 def _pedido_response(
     p: PedidoCompra,
     *,
@@ -380,6 +402,7 @@ def _pedido_response(
             ),
             "oc_vinculada": getattr(p, "oc_poh_id", None) is not None or bool(getattr(p, "ocs", None)),
             "ocs": _ocs_payload(p),
+            "facturas": _facturas_payload(p),
             "factura_cargada": factura_flag,
             "tiene_numero_factura": tiene_numero_flag,
             "oc_match_status": oc_match_status,
@@ -549,6 +572,7 @@ def listar_pedidos(
                     joinedload(PedidoCompra.empresa),
                     joinedload(PedidoCompra.proveedor),
                     selectinload(PedidoCompra.ocs),
+                    selectinload(PedidoCompra.facturas),
                 )
                 .where(PedidoCompra.id.in_(page_ids))
             )
@@ -630,6 +654,7 @@ def listar_pedidos(
         joinedload(PedidoCompra.empresa),
         joinedload(PedidoCompra.proveedor),
         selectinload(PedidoCompra.ocs),
+        selectinload(PedidoCompra.facturas),
     )
     if condiciones:
         stmt = stmt.where(*condiciones)
@@ -724,6 +749,7 @@ def listar_pedidos_pendientes_pago(
             joinedload(PedidoCompra.empresa),
             joinedload(PedidoCompra.proveedor),
             selectinload(PedidoCompra.ocs),
+            selectinload(PedidoCompra.facturas),
         )
         .where(PedidoCompra.estado.in_(["aprobado", "pagado_parcial"]))
     )
@@ -770,6 +796,7 @@ def obtener_pedido(
             joinedload(PedidoCompra.empresa),
             joinedload(PedidoCompra.proveedor),
             selectinload(PedidoCompra.ocs),
+            selectinload(PedidoCompra.facturas),
             selectinload(PedidoCompra.factura_documentos),
         )
         .where(PedidoCompra.id == pedido_id)

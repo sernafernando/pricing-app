@@ -92,6 +92,7 @@ from app.models.ml_group_metrics import MlGroupMetrics  # noqa: F401 — registe
 from app.models.worker_job_state import WorkerJobState  # noqa: F401 — registers table for create_all
 from app.models.pedido_factura_documento import PedidoFacturaDocumento  # noqa: F401 — registers table for create_all
 from app.models.pedido_compra_oc import PedidoCompraOc  # noqa: F401 — registers table for create_all
+from app.models.pedido_compra_factura import PedidoCompraFactura  # noqa: F401 — registers table for create_all
 from app.models.item_transaction import ItemTransaction  # noqa: F401 — registers table for create_all
 from app.models.ml_venta_impuesto_tratamiento import ImpuestoTratamientoVenta  # noqa: F401 — registers table for create_all
 
