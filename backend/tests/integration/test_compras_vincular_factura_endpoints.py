@@ -205,7 +205,7 @@ class TestFacturasCandidatas:
         cts = {row["ct_transaction"] for row in data}
         assert cts == {111, 112}
 
-    def test_excluye_cts_ya_vinculadas_a_otros_pedidos(
+    def test_incluye_cts_vinculadas_a_otros_pedidos_mn(
         self,
         client,
         auth_headers,
@@ -219,7 +219,7 @@ class TestFacturasCandidatas:
     ):
         _mk_ct(db, ct_transaction=201, supp_id=proveedor.supp_id, ct_total=Decimal("100"))
         _mk_ct(db, ct_transaction=202, supp_id=proveedor.supp_id, ct_total=Decimal("200"), docnum="D2")
-        # otro pedido ya vinculado a 202
+        # otro pedido ya vinculado a 202 — M:N: sigue candidata para este pedido
         p2 = PedidoCompra(
             numero="P-E2E-00002",
             empresa_id=empresa.id,
@@ -238,7 +238,7 @@ class TestFacturasCandidatas:
             headers=auth_headers,
         )
         cts = {row["ct_transaction"] for row in r.json()}
-        assert cts == {201}
+        assert cts == {201, 202}
 
 
 # ══════════════════════════════════════════════════════════════════════════
