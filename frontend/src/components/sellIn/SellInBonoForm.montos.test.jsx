@@ -50,7 +50,7 @@ const nuevoConSw8 = async (user) => {
   await user.type(screen.getByLabelText('Factura hasta'), '2026-11-30');
 };
 
-const guardar = (user) => user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+const guardar = (user) => user.click(screen.getByRole('button', { name: 'Guardar línea' }));
 
 describe('SellInBonoForm — a value for each model (T23b)', () => {
   it('sends a model with its own amount per unit as an object', async () => {

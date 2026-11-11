@@ -52,7 +52,7 @@ describe('SellInBonoPanel — new bonus', () => {
     const { onSaved, onClose } = renderPanel({ bonoId: null });
     await llenar(user);
 
-    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar línea' }));
 
     expect(screen.getByRole('button', { name: 'Cancelar' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Cerrar' })).toBeDisabled();
@@ -64,10 +64,10 @@ describe('SellInBonoPanel — new bonus', () => {
   it('creates a bonus in USD by default with the brand, amount per unit and invoice range', async () => {
     const user = userEvent.setup();
     const { onSaved } = renderPanel({ bonoId: null });
-    expect(screen.getByRole('heading', { name: 'Nuevo sell in · Bono de marca' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Nuevo sell in · Línea por marca' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'USD' })).toHaveAttribute('aria-pressed', 'true');
     await llenar(user);
-    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar línea' }));
     expect(sellInBonosAPI.crear).toHaveBeenCalledWith({
       alcance: 'marca',
       marca: 'TP-LINK',
@@ -96,7 +96,7 @@ describe('SellInBonoPanel — new bonus', () => {
     sellInBonosAPI.crear.mockRejectedValue(apiError(422, 'La fecha desde no puede ser posterior a la fecha hasta'));
     const { onSaved } = renderPanel({ bonoId: null });
     await llenar(user);
-    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar línea' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('La fecha desde no puede ser posterior a la fecha hasta');
     expect(onSaved).not.toHaveBeenCalled();
   });
@@ -104,7 +104,7 @@ describe('SellInBonoPanel — new bonus', () => {
   it('asks for the missing data before calling the backend', async () => {
     const user = userEvent.setup();
     renderPanel({ bonoId: null });
-    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar línea' }));
     expect(screen.getByRole('alert')).toHaveTextContent('Faltan datos');
     expect(sellInBonosAPI.crear).not.toHaveBeenCalled();
   });
@@ -126,7 +126,7 @@ describe('SellInBonoPanel — scope and kind (T3e)', () => {
     await user.type(screen.getByLabelText('Monto por unidad'), '3');
     await fechas(user);
 
-    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar línea' }));
 
     expect(sellInBonosAPI.crear).toHaveBeenCalledWith({ alcance: 'categoria', categoria: 'Switches', tipo: 'por_unidad', monto_unit: '3', ...BASE_BODY });
     expect(screen.queryByLabelText('Marca')).not.toBeInTheDocument();
@@ -147,7 +147,7 @@ describe('SellInBonoPanel — scope and kind (T3e)', () => {
     await user.type(screen.getByLabelText('Monto por unidad'), '3');
     await fechas(user);
 
-    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar línea' }));
 
     expect(sellInBonosAPI.crear).toHaveBeenCalledWith({ alcance: 'modelos', modelos: [{ item_id: 4512 }], tipo: 'por_unidad', monto_unit: '3', ...BASE_BODY });
   });
@@ -162,7 +162,7 @@ describe('SellInBonoPanel — scope and kind (T3e)', () => {
     await user.type(screen.getByLabelText('Monto por unidad'), '3');
     await fechas(user);
 
-    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar línea' }));
 
     expect(sellInBonosAPI.crear).toHaveBeenCalledWith({ alcance: 'factura', pedido_id: 20, tipo: 'por_unidad', monto_unit: '3', ...BASE_BODY });
   });
@@ -176,7 +176,7 @@ describe('SellInBonoPanel — scope and kind (T3e)', () => {
     await user.type(screen.getByLabelText('Porcentaje'), '2.5');
     await fechas(user);
 
-    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar línea' }));
 
     expect(sellInBonosAPI.crear).toHaveBeenCalledWith({ alcance: 'marca', marca: 'TP-LINK', tipo: 'porcentaje', porcentaje: '2.5', ...BASE_BODY });
   });
@@ -186,7 +186,7 @@ describe('SellInBonoPanel — scope and kind (T3e)', () => {
     renderPanel({ bonoId: null });
     await user.click(screen.getByRole('button', { name: 'Modelos' }));
     await user.click(screen.getByRole('button', { name: '% de lo facturado' }));
-    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar línea' }));
     expect(screen.getByRole('alert')).toHaveTextContent('Faltan datos: al menos un modelo, porcentaje y fechas de factura.');
     expect(sellInBonosAPI.crear).not.toHaveBeenCalled();
   });
@@ -220,7 +220,7 @@ describe('SellInBonoPanel — existing bonus', () => {
     expect(await screen.findByRole('heading', { name: 'Bono TP-Link USD 3/u' })).toBeInTheDocument();
     expect(sellInBonosAPI.detalle).toHaveBeenCalledWith(3);
     expect(sellInBonosAPI.alcance).toHaveBeenCalledWith(3);
-    expect(screen.getByText('Bono de marca')).toBeInTheDocument();
+    expect(screen.getByText('Línea por marca')).toBeInTheDocument();
     expect(screen.getByText('18 compras · 1.040 u · USD 3.120,00 aplicados')).toBeInTheDocument();
 
     const alcanzadas = await screen.findByRole('region', { name: 'Compras alcanzadas (18)' });
@@ -329,21 +329,21 @@ describe('SellInBonoPanel — existing bonus', () => {
   it('voids after an inline confirmation with the reason, and shows the 409 if it was already voided', async () => {
     const user = userEvent.setup();
     const { onSaved } = renderPanel();
-    await user.click(await screen.findByRole('button', { name: 'Anular bono' }));
+    await user.click(await screen.findByRole('button', { name: 'Anular línea' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     await user.type(screen.getByLabelText('Motivo (opcional)'), 'Acuerdo caído');
     await user.click(screen.getByRole('button', { name: 'Confirmar anulación' }));
     expect(sellInBonosAPI.anular).toHaveBeenCalledWith(3, 'Acuerdo caído');
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ ...BONO, estado: 'anulada' }));
     expect(await screen.findByText('Anulado')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Anular bono' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Anular línea' })).not.toBeInTheDocument();
   });
 
   it('shows the backend message when voiding is refused', async () => {
     const user = userEvent.setup();
     sellInBonosAPI.anular.mockRejectedValue(apiError(409, 'El bono 3 ya está anulado'));
     renderPanel();
-    await user.click(await screen.findByRole('button', { name: 'Anular bono' }));
+    await user.click(await screen.findByRole('button', { name: 'Anular línea' }));
     await user.click(screen.getByRole('button', { name: 'Confirmar anulación' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('El bono 3 ya está anulado');
   });
@@ -352,7 +352,7 @@ describe('SellInBonoPanel — existing bonus', () => {
     renderPanel({ puedeGestionar: false });
     expect(await screen.findByLabelText('Monto por unidad')).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Guardar cambios' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Anular bono' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Anular línea' })).not.toBeInTheDocument();
   });
 
   it('a voided bonus is read-only', async () => {
@@ -384,10 +384,10 @@ describe('SellInBonoPanel — existing bonus', () => {
   it('cancelling the void confirmation clears the reason', async () => {
     const user = userEvent.setup();
     renderPanel();
-    await user.click(await screen.findByRole('button', { name: 'Anular bono' }));
+    await user.click(await screen.findByRole('button', { name: 'Anular línea' }));
     await user.type(screen.getByLabelText('Motivo (opcional)'), 'Acuerdo caído');
     await user.click(screen.getByRole('button', { name: 'Cancelar' }));
-    await user.click(screen.getByRole('button', { name: 'Anular bono' }));
+    await user.click(screen.getByRole('button', { name: 'Anular línea' }));
     expect(screen.getByLabelText('Motivo (opcional)')).toHaveValue('');
   });
 
