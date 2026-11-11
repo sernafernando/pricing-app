@@ -99,6 +99,7 @@ const SALDOS_ARRIBO = {
 
 const LISTADO_ENDPOINT = '/administracion/compras/pedidos';
 const POOL_ENDPOINT = '/administracion/compras/usuarios-responsable-faltantes';
+const CREADORES_ENDPOINT = '/administracion/compras/usuarios-filtro-creado-por';
 const saldosUrlFor = (pedidoId) =>
   `/administracion/compras/pedidos/${pedidoId}/recepcion/saldos`;
 
@@ -114,6 +115,9 @@ function mockListado(items) {
     }
     if (url === POOL_ENDPOINT) {
       return Promise.resolve({ data: POOL_DEFAULT });
+    }
+    if (url === CREADORES_ENDPOINT) {
+      return Promise.resolve({ data: [] });
     }
     return Promise.resolve({
       data: { items, total: items.length, page: 1, page_size: 200 },
@@ -136,6 +140,9 @@ function mockListadoAndSaldos(items, saldosByPedidoId = {}) {
     }
     if (url === POOL_ENDPOINT) {
       return Promise.resolve({ data: POOL_DEFAULT });
+    }
+    if (url === CREADORES_ENDPOINT) {
+      return Promise.resolve({ data: [] });
     }
     const match = url.match(/\/pedidos\/(\d+)\/recepcion\/saldos$/);
     if (match) {
@@ -611,6 +618,9 @@ describe('TabRecepcionDeposito — arrival item list (CON-OC, D5a)', () => {
           data: { items: [PEDIDO_CON_OC_PAGADO], total: 1, page: 1, page_size: 200 },
         });
       }
+      if (url === CREADORES_ENDPOINT) {
+        return Promise.resolve({ data: [] });
+      }
       if (url === saldosUrlFor(PEDIDO_CON_OC_PAGADO.id)) {
         return new Promise((resolve) => {
           resolveSaldos = resolve;
@@ -967,6 +977,9 @@ describe('TabRecepcionDeposito — Phase 3 depósito', () => {
           data: { items: [PEDIDO_PAGADO], total: 1, page: 1, page_size: 200 },
         });
       }
+      if (url === CREADORES_ENDPOINT) {
+        return Promise.resolve({ data: [] });
+      }
       if (url === `/administracion/compras/pedidos/${PEDIDO_PAGADO.id}/adjuntos`) {
         return Promise.resolve({
           data: [{ id: 7, nombre_archivo: 'remito.pdf', tipo: 'otro' }],
@@ -992,7 +1005,7 @@ describe('TabRecepcionDeposito — Phase 3 depósito', () => {
     render(<TabRecepcionDeposito />);
     await screen.findByText('#PC-0001');
     await user.click(screen.getByRole('button', { name: 'Con faltantes' }));
-    expect(document.getElementById('pedido-observaciones')).toHaveFocus();
+    expect(document.getElementById(`faltantes-sinoc-${recibido.id}`)).toHaveFocus();
     window.history.pushState({}, '', '/');
   });
 
