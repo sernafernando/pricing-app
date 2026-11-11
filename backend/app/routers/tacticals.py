@@ -35,6 +35,7 @@ from app.schemas.tacticals import (
     MARCA_MAX,
     NOMBRE_MAX,
     CobranzaFiltro,
+    ContieneFiltro,
     EstadoFiltro,
     Moneda,
     TacticalAnularIn,
@@ -94,6 +95,8 @@ def listar_tacticals(
     hasta: Optional[date] = None,
     q: Optional[str] = Query(None, max_length=NOMBRE_MAX),
     cobranza: Optional[CobranzaFiltro] = None,
+    contiene: Optional[ContieneFiltro] = None,
+    producto: Optional[str] = Query(None, max_length=NOMBRE_MAX),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=PAGE_SIZE_MAX),
     user: Usuario = Depends(get_current_user),
@@ -108,7 +111,16 @@ def listar_tacticals(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="La fecha hasta no puede ser anterior a desde"
         )
     filtros = service.Filtros(
-        tipos=tipos, marca=marca, moneda=moneda, estado=estado, desde=desde, hasta=hasta, q=q, cobranza=cobranza
+        tipos=tipos,
+        marca=marca,
+        moneda=moneda,
+        estado=estado,
+        desde=desde,
+        hasta=hasta,
+        q=q,
+        cobranza=cobranza,
+        contiene=contiene,
+        producto=producto,
     )
     total, filas = service.listar(db, filtros, page, page_size)
     return {

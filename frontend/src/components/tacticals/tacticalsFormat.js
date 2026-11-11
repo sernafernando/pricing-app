@@ -121,6 +121,8 @@ export const FILTROS_VACIOS = {
   desde: '',
   hasta: '',
   q: '',
+  contiene: '',
+  producto: '',
 };
 
 /**
@@ -149,5 +151,8 @@ export function paramsDeFiltros(filtros, { page, pageSize }) {
   for (const campo of ['marca', 'moneda', 'estado', 'desde', 'hasta']) if (filtros[campo]) params[campo] = filtros[campo];
   const q = filtros.q.trim();
   if (q) params.q = q;
+  if (filtros.contiene) params.contiene = filtros.contiene;
+  const producto = (filtros.producto ?? '').trim();
+  if (producto) params.producto = producto;
   return { ...params, page, page_size: pageSize };
 }

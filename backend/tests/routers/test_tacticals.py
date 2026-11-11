@@ -292,3 +292,16 @@ def test_patch_needs_the_kind_s_gestionar(client, productos, sell_out, admin_aut
     db.flush()
 
     assert client.patch(f"{BASE}/{creado['id']}", json={"nombre": "X"}, headers=sell_out).status_code == 403
+
+
+def test_the_list_filters_by_what_the_tactical_holds(client, productos, sell_out) -> None:
+    """SISO S1 (`contiene`, a kind of line) and S2 (`producto`, code or description of a product a line reaches)."""
+    creado = client.post(BASE, json=_body(), headers=sell_out).json()
+
+    def ids(**params) -> list[int]:
+        return [t["id"] for t in client.get(BASE, params=params, headers=sell_out).json()["items"]]
+
+    assert (ids(contiene="productos"), ids(contiene="marca")) == ([creado["id"]], [])
+    assert (ids(producto="sw-8"), ids(producto="Switch"), ids(producto="otro")) == ([creado["id"]], [creado["id"]], [])
+    assert client.get(BASE, params={"contiene": "tiendas"}, headers=sell_out).status_code == 422
+    assert client.get(BASE, params={"producto": "x" * 201}, headers=sell_out).status_code == 422
