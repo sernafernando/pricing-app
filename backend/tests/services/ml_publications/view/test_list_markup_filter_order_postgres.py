@@ -50,7 +50,7 @@ def stubs(monkeypatch):
     monkeypatch.setattr(markup_service, "build_pricing_context", lambda session: make_ctx())
     monkeypatch.setattr(
         markup_service,
-        "resolver_costos_envio_publicaciones",
+        "resolver_costos_envio_mlas",
         lambda session, ids, mlas, **kw: CostosEnvio({70: 1500.0}, {}),
     )
 

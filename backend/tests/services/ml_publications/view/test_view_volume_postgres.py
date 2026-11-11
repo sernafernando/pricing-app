@@ -348,7 +348,7 @@ def priced(monkeypatch):
     """The pricing context is hand-built and the shipping batch is stubbed: the database cost of the markup is
     what is measured here (the cross-database shipping lookup can only be measured on production)."""
     monkeypatch.setattr(markup_service, "build_pricing_context", lambda db: PRICING_CTX)
-    monkeypatch.setattr(markup_service, "resolver_costos_envio_publicaciones", lambda db, ids, mlas, **k: CostosEnvio())
+    monkeypatch.setattr(markup_service, "resolver_costos_envio_mlas", lambda db, ids, mlas, **k: CostosEnvio())
 
 
 def markup_page(session: Session, limit: int = 50, offset: int = 0, **params):

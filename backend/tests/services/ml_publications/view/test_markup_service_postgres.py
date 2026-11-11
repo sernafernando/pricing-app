@@ -61,7 +61,7 @@ def envio_calls(monkeypatch, own_costs):
             por_mla={m: own_costs[m] for m in mla_ids if m in own_costs},
         )
 
-    monkeypatch.setattr(markup_service, "resolver_costos_envio_publicaciones", fake)
+    monkeypatch.setattr(markup_service, "resolver_costos_envio_mlas", fake)
     return calls
 
 
@@ -197,7 +197,7 @@ class TestEnvioBatch:
     def test_a_missing_envio_falls_back_exactly_like_productos(self, conn, db, monkeypatch) -> None:
         seed_catalog(conn)
         ctx = make_ctx()
-        monkeypatch.setattr(markup_service, "resolver_costos_envio_publicaciones", lambda *a, **k: CostosEnvio({}, {}))
+        monkeypatch.setattr(markup_service, "resolver_costos_envio_mlas", lambda *a, **k: CostosEnvio({}, {}))
         got = markup_service.compute_markups(db, db, ctx=ctx, item_ids=["MLA1"]).items["MLA1"].markup
         assert got.worst == unit_markup(ctx, make_inputs(producto_item_id=70), {}).value
 

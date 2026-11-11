@@ -8,7 +8,7 @@ One entry point, `compute_markups`, for both paths:
   and filtering by markup.
 
 Either way the cost is a fixed number of statements: three or four for the inputs (`markup_inputs`), one shipping read
-(`resolver_costos_envio_publicaciones`, once per request: the MAX of the distinct priceable products and the own
+(`resolver_costos_envio_mlas`, once per request: the MAX of the distinct priceable products and the own
 cost of each priceable publication, which wins over that MAX) and the pricing context
 (`build_pricing_context`, built by the caller or here), then a Python loop over the pure functions
 (`markup.unit_markup`, `markup.aggregate_publication`). Nothing here names the product catalog.
@@ -30,7 +30,7 @@ from typing import Iterable, Iterator, Mapping, Optional, Sequence
 
 from sqlalchemy.orm import Session
 
-from app.services.envio_real_service import CostosEnvio, resolver_costos_envio_publicaciones
+from app.services.envio_real_service import CostosEnvio, resolver_costos_envio_mlas
 from app.services.ml_publications.view.ads import AdsCostProvider, ads_row, apply_ads
 from app.services.ml_publications.view.filters import MarkupFilter, PublicationFilter
 from app.services.ml_publications.view.markup import (
@@ -208,7 +208,7 @@ def _shipping(pricing_db: Session, publications: Sequence[PublicationInputs]) ->
     products = _priceable_products(publications)
     if not products:
         return CostosEnvio()
-    return resolver_costos_envio_publicaciones(pricing_db, products, _priceable_mlas(publications))
+    return resolver_costos_envio_mlas(pricing_db, products, _priceable_mlas(publications))
 
 
 def price_publication(

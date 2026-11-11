@@ -59,7 +59,7 @@ def pricing(monkeypatch):
         calls.append(list(product_ids))
         return CostosEnvio()
 
-    monkeypatch.setattr(markup_service, "resolver_costos_envio_publicaciones", envio)
+    monkeypatch.setattr(markup_service, "resolver_costos_envio_mlas", envio)
     return calls
 
 

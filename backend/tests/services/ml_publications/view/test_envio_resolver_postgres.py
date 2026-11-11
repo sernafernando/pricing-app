@@ -16,7 +16,7 @@ from app.services import envio_real_service
 from app.services.envio_real_service import (
     CostosEnvio,
     resolver_costos_envio_batch,
-    resolver_costos_envio_publicaciones,
+    resolver_costos_envio_mlas,
 )
 from tests.services.ml_publications.conftest import env, mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
@@ -122,7 +122,7 @@ class TestOwnCostPerPublication:
 
     def test_each_mla_gets_its_own_cost_beside_the_product_max(self, conn, db, requested) -> None:
         seed_publications(conn)
-        result = resolver_costos_envio_publicaciones(db, [70, 74], ["MLA1", "MLA2", "MLA6"])
+        result = resolver_costos_envio_mlas(db, [70, 74], ["MLA1", "MLA2", "MLA6"])
         assert result == CostosEnvio(
             por_producto={70: 3000.0, 74: 800.0}, por_mla={"MLA1": 1000.0, "MLA2": 3000.0, "MLA6": 800.0}
         )
@@ -131,7 +131,7 @@ class TestOwnCostPerPublication:
         self, conn, db, requested
     ) -> None:
         seed_publications(conn)
-        result = resolver_costos_envio_publicaciones(db, [70], ["MLA3"])
+        result = resolver_costos_envio_mlas(db, [70], ["MLA3"])
         assert result == CostosEnvio(por_producto={70: 3000.0}, por_mla={"MLA3": 9999.0})
         assert requested == [["MLA1", "MLA2", "MLA3"]]
 
@@ -143,16 +143,16 @@ class TestOwnCostPerPublication:
         for mla in prod:
             add_publication(conn, mla, 22)
         monkeypatch.setattr(envio_real_service, "_fetch_list_cost_by_mla", lambda ids: {m: prod[m] for m in ids})
-        result = resolver_costos_envio_publicaciones(db, [22], ["MLA1173065146"])
+        result = resolver_costos_envio_mlas(db, [22], ["MLA1173065146"])
         assert result == CostosEnvio(por_producto={22: 10890.0}, por_mla={"MLA1173065146": 7290.0})
 
     def test_an_mla_without_a_cost_is_absent(self, conn, db, requested) -> None:
         seed_publications(conn)
-        result = resolver_costos_envio_publicaciones(db, [71], ["MLA4"])
+        result = resolver_costos_envio_mlas(db, [71], ["MLA4"])
         assert result == CostosEnvio(por_producto={}, por_mla={})
 
     def test_nothing_asked_reads_nothing(self, conn, db, requested) -> None:
-        assert resolver_costos_envio_publicaciones(db, [], []) == CostosEnvio(por_producto={}, por_mla={})
+        assert resolver_costos_envio_mlas(db, [], []) == CostosEnvio(por_producto={}, por_mla={})
         assert requested == []
 
     def test_mlwebhook_down_is_an_empty_result_never_an_error(self, conn, db, monkeypatch) -> None:
@@ -162,7 +162,7 @@ class TestOwnCostPerPublication:
             raise RuntimeError("mlwebhook unreachable")
 
         monkeypatch.setattr(envio_real_service, "_query_list_cost_by_mla", down)
-        assert resolver_costos_envio_publicaciones(db, [70], ["MLA1"]) == CostosEnvio(por_producto={}, por_mla={})
+        assert resolver_costos_envio_mlas(db, [70], ["MLA1"]) == CostosEnvio(por_producto={}, por_mla={})
 
 
 def statements_of(db, run) -> list[str]:

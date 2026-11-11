@@ -97,9 +97,7 @@ class TestItemKeysByMarkup:
     @pytest.fixture()
     def priced(self, conn, db, monkeypatch):
         monkeypatch.setattr(markup_service, "build_pricing_context", lambda db: make_ctx())
-        monkeypatch.setattr(
-            markup_service, "resolver_costos_envio_publicaciones", lambda db, ids, mlas, **kw: CostosEnvio()
-        )
+        monkeypatch.setattr(markup_service, "resolver_costos_envio_mlas", lambda db, ids, mlas, **kw: CostosEnvio())
         markup_fill(conn)
         return db
 

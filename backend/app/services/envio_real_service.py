@@ -256,7 +256,7 @@ class CostosEnvio:
     por_mla: dict[str, float] = field(default_factory=dict)
 
 
-def resolver_costos_envio_publicaciones(db: Session, item_ids: list[int], mla_ids: Sequence[str]) -> CostosEnvio:
+def resolver_costos_envio_mlas(db: Session, item_ids: list[int], mla_ids: Sequence[str]) -> CostosEnvio:
     """
     `resolver_costos_envio_batch` for `item_ids` plus the own list_cost of each MLA in `mla_ids`, in ONE
     cross-DB read.
