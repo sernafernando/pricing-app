@@ -23,8 +23,17 @@ router = APIRouter()
 
 
 @router.get("/categorias")
-def listar_categorias(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
-    categorias = db.query(ProductoERP.categoria).distinct().order_by(ProductoERP.categoria).all()
+def listar_categorias(
+    marca: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Every product category; with `marca`, only the ones that brand has products in (a tactical brand line picks
+    one of them, SISO S3)."""
+    query = db.query(ProductoERP.categoria)
+    if marca:
+        query = query.filter(ProductoERP.marca == marca)
+    categorias = query.distinct().order_by(ProductoERP.categoria).all()
     return {"categorias": [c[0] for c in categorias if c[0]]}
 
 

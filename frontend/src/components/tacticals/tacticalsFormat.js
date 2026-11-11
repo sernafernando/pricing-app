@@ -59,6 +59,9 @@ export function estadoDe({ estado, fecha_hasta: hasta, por_factura: porFactura }
 
 /** What a brand, category or invoice line reaches; product lines are shown as chips instead. */
 export function alcanceDe(linea) {
+  if (linea.alcance === 'marca' && linea.categoria) {
+    return { titulo: `Marca ${linea.marca} · ${linea.categoria}`, detalle: 'Los productos de la marca en esa categoría' };
+  }
   if (linea.alcance === 'marca') return { titulo: `Marca ${linea.marca}`, detalle: 'Todos los productos de la marca' };
   if (linea.alcance === 'categoria') {
     return { titulo: `Categoría ${linea.categoria}`, detalle: 'Todos los productos de la categoría' };

@@ -80,7 +80,7 @@ describe('SellInBonoForm — a cost bonus by total amount (S4)', () => {
     await user.selectOptions(screen.getByLabelText('Repartir el monto total'), 'iguales');
     await user.type(screen.getByLabelText('Venta desde'), '2026-11-01');
     await user.type(screen.getByLabelText('Venta hasta'), '2026-11-30');
-    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar línea' }));
 
     expect(sellInBonosAPI.crear).toHaveBeenCalledWith({
       alcance: 'marca',
@@ -115,7 +115,7 @@ describe('SellInBonoForm — a cost bonus by total amount (S4)', () => {
     await user.selectOptions(screen.getByLabelText('Repartir el monto total'), 'iguales');
     await user.type(screen.getByLabelText('Venta desde'), '2026-11-01');
     await user.type(screen.getByLabelText('Venta hasta'), '2026-11-30');
-    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar línea' }));
     expect(sellInBonosAPI.crear).toHaveBeenCalledWith(expect.objectContaining({ tipo: 'monto_total', incluye_iva: true }));
   });
 
@@ -126,7 +126,7 @@ describe('SellInBonoForm — a cost bonus by total amount (S4)', () => {
     await nuevoTotal(user);
     await user.type(screen.getByLabelText('Monto total (ARS)'), monto);
     await user.selectOptions(screen.getByLabelText('Repartir el monto total'), 'costo');
-    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar línea' }));
 
     expect(sellInBonosAPI.crear).toHaveBeenCalledWith(expect.objectContaining({ tipo: 'monto_total', monto_total: monto }));
     expect(await screen.findByRole('alert')).toHaveTextContent(mensaje);
@@ -135,7 +135,7 @@ describe('SellInBonoForm — a cost bonus by total amount (S4)', () => {
   it('asks for the total and the criterion before sending', async () => {
     const user = userEvent.setup();
     await nuevoTotal(user);
-    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar línea' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Faltan datos: marca, monto total, cómo repartirlo y fechas de venta.');
     expect(sellInBonosAPI.crear).not.toHaveBeenCalled();
   });
@@ -179,7 +179,7 @@ describe('SellInBonoPanel — the split of a bonus by total amount (S4)', () => 
   it('says a split by units follows the units sold, with no table', async () => {
     sellInBonosAPI.detalle.mockResolvedValue({ data: { ...BONO_MONTO_TOTAL, reparto_criterio: 'unidades', repartos: [] } });
     renderPanel({ bonoId: 21, puedeGestionar: false });
-    expect(await screen.findByText(/El total se reparte según las unidades vendidas en las fechas del bono/)).toBeInTheDocument();
+    expect(await screen.findByText(/El total se reparte según las unidades vendidas en las fechas de la línea/)).toBeInTheDocument();
     expect(screen.queryByRole('table', { name: 'Reparto del monto total' })).not.toBeInTheDocument();
   });
 });

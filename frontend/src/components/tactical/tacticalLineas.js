@@ -136,6 +136,8 @@ export function conModo(linea, modo) {
  */
 export function conAlcance(linea, alcance) {
   let { modo } = linea;
+  // A brand line's category narrows that brand (SISO S3): it means something else on any other scope.
+  if ((alcance === 'marca') !== (linea.alcance === 'marca')) linea = { ...linea, categoria: '' };
   if (alcance === 'factura') modo = 'monto_total';
   else if (linea.alcance === 'factura') modo = 'por_unidad';
   return conModo({ ...linea, alcance }, modo);
@@ -202,6 +204,13 @@ export function problemaDe(form, lineas) {
   );
 }
 
+/** A brand line's scope: its brand, and the category it narrows to when one is chosen (SISO S3). */
+const deMarca = (linea) => ({
+  alcance: 'marca',
+  marca: linea.marca,
+  ...(linea.categoria ? { categoria: linea.categoria } : {}),
+});
+
 /** One line of the contract; an invoice line becomes one per chosen invoice. */
 function lineasDelContrato(linea) {
   // A total amount split by criterion has no caps (S1): it sends its criterion instead, and no tope_por_producto.
@@ -211,7 +220,7 @@ function lineasDelContrato(linea) {
     if (linea.alcance === 'productos') {
       return [{ alcance: 'productos', item_ids: linea.productos.map((p) => p.item_id), ...total, ...criterio }];
     }
-    if (linea.alcance === 'marca') return [{ alcance: 'marca', marca: linea.marca, ...total, ...criterio }];
+    if (linea.alcance === 'marca') return [{ ...deMarca(linea), ...total, ...criterio }];
     return [{ alcance: 'categoria', categoria: linea.categoria, ...total, ...criterio }];
   }
   const comun = {
@@ -225,7 +234,7 @@ function lineasDelContrato(linea) {
     const item_ids = linea.productos.map((p) => p.item_id);
     return [{ alcance: 'productos', item_ids, ...comun, tope_por_producto: !esCompartida(linea) }];
   }
-  if (linea.alcance === 'marca') return [{ alcance: 'marca', marca: linea.marca, ...comun }];
+  if (linea.alcance === 'marca') return [{ ...deMarca(linea), ...comun }];
   if (linea.alcance === 'categoria') return [{ alcance: 'categoria', categoria: linea.categoria, ...comun }];
   return linea.facturas.map((f) => ({ alcance: 'factura', pedido_compra_id: f.id, ...comun }));
 }

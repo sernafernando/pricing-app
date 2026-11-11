@@ -7,7 +7,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TacticalLinea from './TacticalLinea';
 import { nuevaLinea } from './tacticalLineas';
-import api from '../../services/api';
+import api, { productosAPI } from '../../services/api';
 import { CATALOGO } from './tacticalFixtures';
 
 const onDuplicar = vi.fn();
@@ -43,6 +43,7 @@ beforeEach(() => {
   api.get.mockImplementation((url, config) =>
     Promise.resolve({ data: CATALOGO.filter((p) => p.descripcion.toLowerCase().includes(config.params.q.toLowerCase())) }),
   );
+  productosAPI.categorias.mockResolvedValue({ data: { categorias: ['Routers', 'Switches'] } });
 });
 
 describe('TacticalLinea', () => {
@@ -122,6 +123,28 @@ describe('TacticalLinea', () => {
     await user.selectOptions(within(fila()).getByLabelText('Marca de la línea'), 'TP-Link');
     expect(within(fila()).getByLabelText('Marca de la línea')).toHaveValue('TP-Link');
     expect(within(fila()).getByText('Aplica a todos los productos de la marca.')).toBeInTheDocument();
+  });
+
+  it('a brand line may narrow to one of its brand\'s categories (SISO S3)', async () => {
+    const user = userEvent.setup();
+    render(<Holder tipo="sell_out" />);
+    await user.click(within(fila()).getByRole('button', { name: 'Marca' }));
+    await user.selectOptions(within(fila()).getByLabelText('Marca de la línea'), 'TP-Link');
+    const categoria = within(fila()).getByLabelText('Categoría de la marca, línea 1');
+    expect(productosAPI.categorias).toHaveBeenCalledWith({ marca: 'TP-Link' });
+    expect(await within(categoria).findByRole('option', { name: 'Routers' })).toBeInTheDocument();
+    expect(within(categoria).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Todas las categorías',
+      'Routers',
+      'Switches',
+    ]);
+
+    await user.selectOptions(categoria, 'Routers');
+
+    expect(categoria).toHaveValue('Routers');
+    expect(within(fila()).getByText('Aplica a los productos de la marca en esa categoría.')).toBeInTheDocument();
+    await user.selectOptions(within(fila()).getByLabelText('Marca de la línea'), 'HP');
+    expect(within(fila()).getByLabelText('Categoría de la marca, línea 1')).toHaveValue('');
   });
 
   it('adds products as chips, removes one, and its button toggles the picker', async () => {

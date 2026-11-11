@@ -6,7 +6,9 @@
  * the line's products and has no caps (sell out S1, sell in S4); on sell in in USD it needs a fixed exchange rate.
  */
 import { Copy, Trash2, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import TacticalPicker from './TacticalPicker';
+import { productosAPI } from '../../services/api';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
 import {
   REPARTOS,
@@ -94,7 +96,55 @@ const FACTURAS = {
   plural: 'seleccionadas',
 };
 
-function Incluye({ linea, marcas, categorias, abierto, onAbrir, onCerrar, cambiar }) {
+/** The categories a brand has products in (SISO S3); empty while loading, on an error or without a brand. */
+function useCategoriasDe(marca) {
+  const [categorias, setCategorias] = useState({ marca: '', lista: [] });
+  useEffect(() => {
+    if (!marca) return undefined;
+    let activo = true;
+    productosAPI
+      .categorias({ marca })
+      .then(({ data }) => activo && setCategorias({ marca, lista: data?.categorias ?? [] }))
+      .catch(() => activo && setCategorias({ marca, lista: [] }));
+    return () => {
+      activo = false;
+    };
+  }, [marca]);
+  return categorias.marca === marca ? categorias.lista : [];
+}
+
+/** A brand line's optional category: empty is the whole brand (SISO S3: "los routers solo de tp-link"). */
+function CategoriaDeMarca({ linea, n, cambiar }) {
+  const opciones = useCategoriasDe(linea.marca);
+  return (
+    <select
+      className={styles.select}
+      aria-label={`Categoría de la marca, línea ${n}`}
+      value={linea.categoria}
+      disabled={!linea.marca}
+      onChange={(e) => cambiar({ categoria: e.target.value })}
+    >
+      <option value="">Todas las categorías</option>
+      {linea.categoria && !opciones.includes(linea.categoria) && (
+        <option value={linea.categoria}>{linea.categoria}</option>
+      )}
+      {opciones.map((o) => (
+        <option key={o} value={o}>
+          {o}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function ayudaDe(linea) {
+  if (linea.alcance === 'categoria') return 'Aplica a todos los productos de la categoría.';
+  return linea.categoria
+    ? 'Aplica a los productos de la marca en esa categoría.'
+    : 'Aplica a todos los productos de la marca.';
+}
+
+function Incluye({ linea, n, marcas, categorias, abierto, onAbrir, onCerrar, cambiar }) {
   if (linea.alcance === 'marca' || linea.alcance === 'categoria') {
     const marca = linea.alcance === 'marca';
     const opciones = marca ? marcas : categorias;
@@ -105,7 +155,7 @@ function Incluye({ linea, marcas, categorias, abierto, onAbrir, onCerrar, cambia
           className={styles.select}
           aria-label={marca ? 'Marca de la línea' : 'Categoría de la línea'}
           value={valor}
-          onChange={(e) => cambiar({ [marca ? 'marca' : 'categoria']: e.target.value })}
+          onChange={(e) => cambiar(marca ? { marca: e.target.value, categoria: '' } : { categoria: e.target.value })}
         >
           <option value="">{marca ? 'Elegí una marca' : 'Elegí una categoría'}</option>
           {valor && !opciones.includes(valor) && <option value={valor}>{valor}</option>}
@@ -115,9 +165,8 @@ function Incluye({ linea, marcas, categorias, abierto, onAbrir, onCerrar, cambia
             </option>
           ))}
         </select>
-        <span className={styles.help}>
-          {marca ? 'Aplica a todos los productos de la marca.' : 'Aplica a todos los productos de la categoría.'}
-        </span>
+        {marca && <CategoriaDeMarca linea={linea} n={n} cambiar={cambiar} />}
+        <span className={styles.help}>{ayudaDe(linea)}</span>
       </div>
     );
   }
@@ -221,6 +270,7 @@ export default function TacticalLinea({
       <div className={styles.includes}>
         <Incluye
           linea={linea}
+          n={n}
           marcas={marcas}
           categorias={categorias}
           abierto={abierto}

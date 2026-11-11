@@ -330,3 +330,27 @@ describe('a tactical whose lines are all invoice lines (factura sin fecha S2c)',
     expect(problemaDe(SELL_IN, [factura, marca])).toBe('Completá la vigencia del tactical.');
   });
 });
+
+describe('a brand line narrowed to one category (SISO S3: "los routers solo de tp-link")', () => {
+  const sinTope = { tope_unidades: null, tope_monto: null };
+
+  it('sends the category with the brand, and none when it is empty', () => {
+    const { body } = cuerpoDe({ ...FORM, tipo: 'sell_in', moneda: 'ARS' }, [
+      linea({ alcance: 'marca', marca: 'TP-Link', categoria: 'Routers', modo: 'porcentaje', monto: '3' }),
+      linea({ alcance: 'marca', marca: 'HP', categoria: 'Routers', modo: 'monto_total', monto: '300', reparto: 'iguales' }),
+      linea({ alcance: 'marca', marca: 'HP', modo: 'porcentaje', monto: '3' }),
+    ]);
+    expect(body.lineas).toEqual([
+      { alcance: 'marca', marca: 'TP-Link', categoria: 'Routers', modo_monto: 'porcentaje', valor: 3, ...sinTope },
+      { alcance: 'marca', marca: 'HP', categoria: 'Routers', modo_monto: 'monto_total', valor: 300, ...sinTope,
+        reparto_criterio: 'iguales' },
+      { alcance: 'marca', marca: 'HP', modo_monto: 'porcentaje', valor: 3, ...sinTope },
+    ]);
+  });
+
+  it('switching to or from a brand line clears the category', () => {
+    expect(conAlcance(linea({ alcance: 'categoria', categoria: 'Routers' }), 'marca').categoria).toBe('');
+    expect(conAlcance(linea({ alcance: 'marca', marca: 'HP', categoria: 'Routers' }), 'categoria').categoria).toBe('');
+    expect(conAlcance(linea({ alcance: 'marca', categoria: 'Routers' }), 'marca').categoria).toBe('Routers');
+  });
+});

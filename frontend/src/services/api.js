@@ -258,7 +258,8 @@ export const productosAPI = {
   statsDinamicos: (params) => api.get('/stats-dinamicos', { params }),
   marcas: (params) => api.get('/marcas', { params }),
   subcategorias: (params) => api.get('/subcategorias', { params }),
-  categorias: () => api.get('/categorias'),
+  // `{ marca }` lists only that brand's categories (SISO S3); without it, every category, as before.
+  categorias: (params) => (params ? api.get('/categorias', { params }) : api.get('/categorias')),
   // The PMs a product filter offers: only users that hold a brand, like Productos.
   pms: () => api.get('/usuarios/pms', { params: { solo_con_marcas: true } }),
   obtenerMarcasPorPMs: (pm_ids) => api.get(`/pms/marcas?pm_ids=${pm_ids}`),

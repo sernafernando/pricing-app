@@ -31,6 +31,8 @@ export const BONO_VACIO = {
   alcance: 'marca',
   marca: '',
   categoria: '',
+  // A brand bonus's category (SISO S3): loaded from a tactical, shown and kept on an edit, never offered here.
+  categoriaDeMarca: '',
   // [{ itemId, label, montoUnit, porcentaje }]: a model's own value of each kind, '' when it uses the bonus's.
   // Both are kept so switching the kind back restores them; only the bonus's kind is sent.
   modelos: [],
@@ -75,6 +77,7 @@ export const valoresDeBono = (bono) => ({
   alcance: bono.alcance ?? 'marca',
   marca: bono.marca ?? '',
   categoria: bono.categoria ?? '',
+  categoriaDeMarca: bono.alcance === 'marca' ? (bono.categoria ?? '') : '',
   modelos: (bono.modelos ?? []).map((m) => ({ itemId: m.item_id, label: etiquetaModelo(m), montoUnit: texto(m.monto_unit), porcentaje: texto(m.porcentaje) })),
   pedido: bono.pedido_id ? { id: bono.pedido_id, numero: bono.pedido_numero ?? String(bono.pedido_id) } : null,
   tipo: bono.tipo ?? 'por_unidad',
@@ -118,7 +121,7 @@ const modeloDelBody = (modelo, tipo) => {
 };
 
 const CAMPO_DEL_ALCANCE = {
-  marca: (v) => ({ marca: v.marca }),
+  marca: (v) => ({ marca: v.marca, ...(v.categoriaDeMarca ? { categoria: v.categoriaDeMarca } : {}) }),
   categoria: (v) => ({ categoria: v.categoria }),
   modelos: (v) => ({ modelos: v.modelos.map((m) => modeloDelBody(m, v.tipo)) }),
   factura: (v) => ({ pedido_id: v.pedido?.id ?? null }),
@@ -275,6 +278,6 @@ export const alcanceDeBono = (bono) => {
     case 'factura':
       return bono.pedido_id ? `Factura N° ${bono.pedido_numero ?? bono.pedido_id}` : 'Factura (operación borrada)';
     default:
-      return `Marca ${bono.marca}`;
+      return bono.categoria ? `Marca ${bono.marca} · ${bono.categoria}` : `Marca ${bono.marca}`;
   }
 };
