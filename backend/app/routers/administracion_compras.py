@@ -644,11 +644,7 @@ def listar_pedidos(
             q_producto=q_producto,
         )
         if q_condiciones:
-            kept = set(
-                db.scalars(
-                    select(PedidoCompra.id).where(PedidoCompra.id.in_(survivors), *q_condiciones)
-                ).all()
-            )
+            kept = set(db.scalars(select(PedidoCompra.id).where(PedidoCompra.id.in_(survivors), *q_condiciones)).all())
             survivors = [pid for pid in survivors if pid in kept]
             if not survivors:
                 return PedidoCompraPaginated(items=[], total=0, page=page, page_size=page_size)
