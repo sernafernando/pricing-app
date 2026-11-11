@@ -16,6 +16,13 @@ from sqlalchemy import Engine, create_engine, text
 
 ERP_DDL = """
 CREATE TABLE pedidos_compra (id BIGINT PRIMARY KEY, ct_transaction_id BIGINT, corregido_desde_id BIGINT);
+CREATE TABLE pedido_compra_facturas (
+  id BIGSERIAL PRIMARY KEY,
+  pedido_id BIGINT NOT NULL REFERENCES pedidos_compra (id) ON DELETE CASCADE,
+  ct_transaction_id BIGINT NOT NULL,
+  fecha_factura DATE,
+  UNIQUE (pedido_id, ct_transaction_id)
+);
 CREATE TABLE notas_credito_local (id BIGINT PRIMARY KEY, ct_transaction_id BIGINT);
 CREATE TABLE imputaciones (
   id BIGINT PRIMARY KEY, origen_tipo TEXT, origen_id BIGINT, destino_tipo TEXT, destino_id BIGINT,
