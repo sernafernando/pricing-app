@@ -48,6 +48,7 @@ _STUB_DDL = (
     CREATE TABLE ml_items (
       item_id TEXT PRIMARY KEY,
       inventory_id TEXT,
+      user_product_id TEXT,
       seller_sku TEXT,
       never_existed BOOLEAN DEFAULT FALSE,
       gone_at TIMESTAMPTZ
@@ -102,10 +103,7 @@ def _seed_product(
     stock: int = 50,
 ) -> None:
     db.execute(
-        text(
-            "INSERT INTO productos_erp (item_id, codigo, descripcion, stock) "
-            "VALUES (:id, :codigo, :desc, :stock)"
-        ),
+        text("INSERT INTO productos_erp (item_id, codigo, descripcion, stock) VALUES (:id, :codigo, :desc, :stock)"),
         {"id": item_id, "codigo": codigo, "desc": descripcion, "stock": stock},
     )
 
@@ -114,15 +112,21 @@ def _seed_ml_item(
     db: Session,
     *,
     item_id: str = "MLA999",
-    inventory_id: str = "INV-1",
+    inventory_id: str | None = "INV-1",
+    user_product_id: str = "MLAU1",
     seller_sku: str = "SKU-101",
 ) -> None:
     db.execute(
         text(
-            "INSERT INTO ml_items (item_id, inventory_id, seller_sku, never_existed, gone_at) "
-            "VALUES (:item_id, :inv, :sku, FALSE, NULL)"
+            "INSERT INTO ml_items (item_id, inventory_id, user_product_id, seller_sku, "
+            "never_existed, gone_at) VALUES (:item_id, :inv, :mlau, :sku, FALSE, NULL)"
         ),
-        {"item_id": item_id, "inv": inventory_id, "sku": seller_sku},
+        {
+            "item_id": item_id,
+            "inv": inventory_id,
+            "mlau": user_product_id,
+            "sku": seller_sku,
+        },
     )
 
 
@@ -197,6 +201,82 @@ class TestExcelStringCells:
             assert sku_cell.data_type == "s"
             assert inv_cell.value == "INV-1"
             assert inv_cell.data_type == "s"
+        finally:
+            db.close()
+
+    def test_ml_full_xlsx_synthetic_line_fills_live_codigo_when_available(self, pg_engine: Engine) -> None:
+        """NOINV package key still exports live Código ML if Melí assigned it later."""
+        db = _session(pg_engine)
+        try:
+            _seed_product(db, codigo="EAN-NOINV")
+            _seed_ml_item(
+                db,
+                item_id="MLA1914044247",
+                inventory_id="XYZ-NEW",
+                user_product_id="MLAU4380845993",
+                seller_sku="EAN-NOINV",
+            )
+            db.add(GestionFullUnidadesCaja(producto_item_id=101, unidades=1))
+            pkg = GestionFullPackage(week_monday=date(2026, 10, 26), status="open")
+            db.add(pkg)
+            db.flush()
+            db.add(
+                GestionFullPackageLine(
+                    package_id=pkg.id,
+                    producto_item_id=101,
+                    user_product_id="MLAU4380845993",
+                    inventory_id="NOINV:MLAU4380845993",
+                    qty_pm=2,
+                    qty_export=2,
+                )
+            )
+            db.commit()
+            db.refresh(pkg)
+
+            raw = build_ml_full_xlsx(db, pkg)
+            wb = load_workbook(io.BytesIO(raw))
+            ws = wb[" Selección de productos"]
+            assert ws.cell(6, 1).value == "EAN-NOINV"
+            assert ws.cell(6, 3).value == "XYZ-NEW"
+            assert ws.cell(6, 4).value == "1914044247"
+            assert ws.cell(6, 6).value == "2"
+        finally:
+            db.close()
+
+    def test_ml_full_xlsx_synthetic_line_leaves_codigo_blank_when_still_missing(self, pg_engine: Engine) -> None:
+        db = _session(pg_engine)
+        try:
+            _seed_product(db, codigo="EAN-NOINV")
+            _seed_ml_item(
+                db,
+                item_id="MLA1914044247",
+                inventory_id=None,
+                user_product_id="MLAU4380845993",
+                seller_sku="EAN-NOINV",
+            )
+            db.add(GestionFullUnidadesCaja(producto_item_id=101, unidades=1))
+            pkg = GestionFullPackage(week_monday=date(2026, 10, 26), status="open")
+            db.add(pkg)
+            db.flush()
+            db.add(
+                GestionFullPackageLine(
+                    package_id=pkg.id,
+                    producto_item_id=101,
+                    user_product_id="MLAU4380845993",
+                    inventory_id="NOINV:MLAU4380845993",
+                    qty_pm=2,
+                    qty_export=2,
+                )
+            )
+            db.commit()
+            db.refresh(pkg)
+
+            raw = build_ml_full_xlsx(db, pkg)
+            wb = load_workbook(io.BytesIO(raw))
+            ws = wb[" Selección de productos"]
+            assert ws.cell(6, 1).value == "EAN-NOINV"
+            assert ws.cell(6, 3).value == ""
+            assert ws.cell(6, 4).value == "1914044247"
         finally:
             db.close()
 

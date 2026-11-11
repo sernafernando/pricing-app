@@ -155,7 +155,7 @@ def _seed_linked_row(
     marca: str,
     categoria: str,
     mla: str,
-    inventory_id: str,
+    inventory_id: str | None,
     user_product_id: str,
     stock: int = 10,
     full_quantity: int = 5,
@@ -183,17 +183,11 @@ def _seed_linked_row(
         {"mla": mla, "inv": inventory_id, "mlau": user_product_id, "fid": family_id},
     )
     db.execute(
-        text(
-            "INSERT INTO ml_item_product_links (item_id, variation_id, producto_item_id) "
-            "VALUES (:mla, 0, :pid)"
-        ),
+        text("INSERT INTO ml_item_product_links (item_id, variation_id, producto_item_id) VALUES (:mla, 0, :pid)"),
         {"mla": mla, "pid": producto_item_id},
     )
     db.execute(
-        text(
-            "INSERT INTO ml_user_product_stock (user_product_id, full_quantity) "
-            "VALUES (:mlau, :fq)"
-        ),
+        text("INSERT INTO ml_user_product_stock (user_product_id, full_quantity) VALUES (:mlau, :fq)"),
         {"mlau": user_product_id, "fq": full_quantity},
     )
     db.execute(
@@ -353,5 +347,51 @@ class TestGestionFullListingFiltersPostgres:
             assert [r["inventory_id"] for r in payload["items"]] == ["INV1"]
             # Partial / wrong id must not match via family_id.
             assert list_gestion_full(db, q="413529", full_mode="en")["items"] == []
+        finally:
+            db.close()
+
+    def test_null_inventory_id_appears_fuera_and_keeps_noinv_override(self, pg_engine: Engine) -> None:
+        db = _session(pg_engine)
+        try:
+            _seed_linked_row(
+                db,
+                producto_item_id=1,
+                ean="EAN-1",
+                marca="TP-LINK",
+                categoria="Camaras",
+                mla="MLA1",
+                inventory_id=None,
+                user_product_id="MLAU4380845993",
+                full_quantity=0,
+            )
+            db.add(
+                GestionFullOverride(
+                    inventory_id="NOINV:MLAU4380845993",
+                    cantidad=4,
+                    updated_by_id=None,
+                )
+            )
+            db.commit()
+
+            fuera = list_gestion_full(db, full_mode="fuera", include_facets=False)
+            assert len(fuera["items"]) == 1
+            row = fuera["items"][0]
+            assert row["user_product_id"] == "MLAU4380845993"
+            assert row["inventory_id"] is None
+            assert row["override"] == 4
+
+            # Prefer the publication that already has Código ML.
+            db.execute(
+                text(
+                    "INSERT INTO ml_items (item_id, inventory_id, user_product_id, family_id, "
+                    "never_existed, gone_at) VALUES ('MLA2', 'INV-REAL', 'MLAU4380845993', NULL, FALSE, NULL)"
+                )
+            )
+            db.commit()
+            after = list_gestion_full(db, full_mode="fuera", include_facets=False)
+            assert len(after["items"]) == 1
+            assert after["items"][0]["inventory_id"] == "INV-REAL"
+            # NOINV override still resolves via LATERAL even after Código ML appears.
+            assert after["items"][0]["override"] == 4
         finally:
             db.close()

@@ -261,3 +261,4 @@ def test_list_sql_allows_rows_without_inventory_id() -> None:
     assert "AND i.inventory_id IS NOT NULL" not in text_sql
     assert "NOINV:" in text_sql
     assert "(i.inventory_id IS NULL)" in text_sql
+    assert "LEFT JOIN LATERAL" in text_sql

@@ -47,6 +47,7 @@ _ENRICH_BY_MLAU_SQL = text(
     """
     SELECT DISTINCT ON (i.user_product_id)
       i.user_product_id,
+      i.inventory_id,
       i.seller_sku,
       i.item_id AS mla
     FROM ml_items i
@@ -121,11 +122,17 @@ def _enrich_lines(
             or (erp.ean if erp else None)
         )
         mla = (inv.mla if inv else None) or (mlau_row.mla if mlau_row else None)
+        # Synthetic package keys stay NOINV:… even after Melí assigns Código ML;
+        # prefer the live inventory_id from ml_items when enriching by MLAU.
+        codigo_ml = excel_codigo_ml(ln.inventory_id)
+        if not codigo_ml and mlau_row is not None and mlau_row.inventory_id:
+            codigo_ml = str(mlau_row.inventory_id)
         out.append(
             {
                 "line": ln,
                 "seller_sku": seller_sku,
                 "mla_digits": _mla_digits(mla),
+                "codigo_ml": codigo_ml,
                 "ean": erp.ean if erp else None,
                 "descripcion": erp.descripcion if erp else None,
             }
@@ -187,7 +194,7 @@ def build_ml_full_xlsx(db: Session, package: GestionFullPackage) -> bytes:
         r = _DATA_START_ROW + offset
         ln = e["line"]
         _write_text_cell(ws, r, 1, e["seller_sku"])
-        _write_text_cell(ws, r, 3, excel_codigo_ml(ln.inventory_id))
+        _write_text_cell(ws, r, 3, e["codigo_ml"])
         _write_text_cell(ws, r, 4, e["mla_digits"])
         _write_text_cell(ws, r, 6, int(ln.qty_export))
     buf = io.BytesIO()

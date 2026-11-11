@@ -55,11 +55,16 @@ _ROW_FOR_READY_SQL = text(
     JOIN productos_erp p ON p.item_id = linked.producto_item_id
     LEFT JOIN ml_user_product_stock st ON st.user_product_id = linked.user_product_id
     LEFT JOIN ml_fulfillment_last_inbound inbound ON inbound.inventory_id = linked.inventory_id
-    LEFT JOIN gestion_full_override o
-      ON o.inventory_id = COALESCE(
+    LEFT JOIN LATERAL (
+      SELECT o2.cantidad
+      FROM gestion_full_override o2
+      WHERE o2.inventory_id IN (
         linked.inventory_id,
         'NOINV:' || linked.user_product_id
       )
+      ORDER BY (o2.inventory_id LIKE 'NOINV:%')
+      LIMIT 1
+    ) o ON TRUE
     """
 )
 

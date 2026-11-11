@@ -256,11 +256,16 @@ def _build_list_sql(order_clause: str) -> Any:
     LEFT JOIN ml_user_product_replenishment r ON r.user_product_id = linked.user_product_id
     LEFT JOIN colecta_flex cf ON cf.producto_item_id = linked.producto_item_id
     LEFT JOIN ml_fulfillment_last_inbound inbound ON inbound.inventory_id = linked.inventory_id
-    LEFT JOIN gestion_full_override o
-      ON o.inventory_id = COALESCE(
+    LEFT JOIN LATERAL (
+      SELECT o2.cantidad
+      FROM gestion_full_override o2
+      WHERE o2.inventory_id IN (
         linked.inventory_id,
         'NOINV:' || linked.user_product_id
       )
+      ORDER BY (o2.inventory_id LIKE 'NOINV:%')
+      LIMIT 1
+    ) o ON TRUE
     LEFT JOIN gestion_full_unidades_caja caja ON caja.producto_item_id = linked.producto_item_id
     LEFT JOIN gestion_full_pm_ready ready
       ON ready.producto_item_id = linked.producto_item_id
