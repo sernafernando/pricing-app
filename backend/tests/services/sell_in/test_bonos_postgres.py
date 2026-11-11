@@ -595,6 +595,22 @@ class TestAlcance:
             f"Bono de categoría Routers (bono {bono})",
         )
 
+    def test_a_brand_bonus_with_a_category_reaches_only_that_brand_s_items_of_it(self, engine: Engine) -> None:
+        """SISO S3: "si quiero aplicar a los routers solo de tp-link"."""
+        b.set_categoria(engine, 2964, "Routers")
+        b.set_categoria(engine, 2270, "Switches")
+        b.set_categoria(engine, 950, "Routers")
+        bono = b.bono_alcance(engine, "categoria", categoria="Routers", monto="3.00")
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE sell_in_bonos_marca SET alcance = 'marca', marca = 'TP-LINK' WHERE id = :b"),
+                         {"b": bono})  # fmt: skip
+        pedido = b.pedido(engine, {2964: 4, 2270: 5, 950: 6})
+
+        _reconciliar(engine, bono_ids=[bono])
+
+        assert b.items_de(engine, bono, pedido) == [(2964, 4, Decimal("12.00"))]
+        assert _cabecera(engine, bono, pedido)[3] == f"Bono de marca TP-LINK · Routers (bono {bono})"
+
     def test_a_models_bonus_reaches_its_listed_items_of_any_brand(self, engine: Engine) -> None:
         bono = b.bono_alcance(engine, "modelos", modelos=(2270, 950), monto="1.00")
         pedido = b.pedido(engine, {2964: 4, 2270: 5, 950: 6})

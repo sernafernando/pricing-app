@@ -263,7 +263,8 @@ def _validar_linea(db: Session, data: TacticalIn, linea: TacticalLineaIn) -> _Al
     }
     propio = _CAMPO[linea.alcance]
     for campo, valor in dados.items():
-        if campo != propio and valor:
+        # A brand line may narrow to one of its categories (SISO S3, L7 D1: "los routers solo de tp-link").
+        if campo != propio and valor and not (linea.alcance == "marca" and campo == "categoria"):
             raise TacticalError(f"una línea por {linea.alcance} no lleva {_NOMBRE_CAMPO[campo]}")
     if linea.tope_por_producto and linea.alcance != "productos":
         raise TacticalError("el tope por producto es solo para una línea de productos")
@@ -297,9 +298,15 @@ def _validar_linea(db: Session, data: TacticalIn, linea: TacticalLineaIn) -> _Al
     if linea.alcance == "marca":
         if dados["marca"] is None:
             raise TacticalError("falta la marca")
-        if not db.query(ProductoERP.item_id).filter(ProductoERP.marca == dados["marca"]).limit(1).first():
+        de_marca = db.query(ProductoERP.item_id).filter(ProductoERP.marca == dados["marca"])
+        if dados["categoria"] is not None:
+            if not de_marca.filter(ProductoERP.categoria == dados["categoria"]).limit(1).first():
+                raise TacticalError(
+                    f"no hay productos de la marca {dados['marca']} en la categoría {dados['categoria']}"
+                )
+        elif not de_marca.limit(1).first():
             raise TacticalError(f"no hay productos de la marca {dados['marca']}")
-        return _Alcance(marca=dados["marca"])
+        return _Alcance(marca=dados["marca"], categoria=dados["categoria"])
     if linea.alcance == "categoria":
         if dados["categoria"] is None:
             raise TacticalError("falta la categoría")

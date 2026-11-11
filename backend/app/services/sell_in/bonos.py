@@ -319,7 +319,11 @@ def _alcanzadas(bono: SellInBonoMarca, pedido: _Pedido, lineas: List[_Linea], mo
         return [linea for linea in lineas if linea.item_id in modelos]
     if bono.alcance == "factura":
         return list(lineas) if bono.pedido_id == pedido.id else []
-    return [linea for linea in lineas if linea.marca == bono.marca]
+    return [
+        linea
+        for linea in lineas
+        if linea.marca == bono.marca and (bono.categoria is None or linea.categoria == bono.categoria)
+    ]
 
 
 def _monto_porcentaje(
@@ -353,7 +357,8 @@ def _descripcion(bono: SellInBonoMarca) -> str:
     if bono.alcance == "categoria":
         return f"{_etiqueta(bono)} {bono.categoria} (bono {bono.id})"
     if bono.alcance == "marca":
-        return f"{_etiqueta(bono)} {bono.marca} (bono {bono.id})"
+        alcance = f"{bono.marca} · {bono.categoria}" if bono.categoria is not None else bono.marca
+        return f"{_etiqueta(bono)} {alcance} (bono {bono.id})"
     return f"{_etiqueta(bono)} (bono {bono.id})"
 
 

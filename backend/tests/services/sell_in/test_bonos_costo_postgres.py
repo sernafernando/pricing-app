@@ -457,3 +457,22 @@ class TestCombos:
                         {"c": costo, "m": moneda, "i": item_id},
                     )
                 conn.execute(text("DELETE FROM combo_componentes WHERE combo_item_id <> 999999001"))
+
+
+@pytest.mark.postgres
+class TestMarcaYCategoria:
+    """SISO S3 (owner): "si quiero aplicar a los routers solo de tp-link no puedo". A brand bonus with a category
+    reaches only the brand's products of that category."""
+
+    def test_a_brand_bonus_with_a_category_reaches_only_that_category(self, engine: Engine) -> None:
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE productos_erp SET categoria = 'Routers' WHERE item_id IN (2964, 950)"))
+            conn.execute(text("UPDATE productos_erp SET categoria = 'Switches' WHERE item_id = 2270"))
+        bono = b.bono_costo(engine, "3.00", categoria="Routers")
+        router = _fuera(engine, 2964, 1, D(2026, 10, 5))
+        _fuera(engine, 2270, 1, D(2026, 10, 5))  # TP-LINK, Switches
+        _fuera(engine, 950, 1, D(2026, 10, 5))  # Routers, MERCUSYS
+
+        _items(engine, 2964, 2270, 950)
+
+        assert _filas(engine) == [(bono, router, 2964, 1, Decimal("30.00"))]

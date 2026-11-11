@@ -188,6 +188,13 @@ class TestCostBonus:
         }
         assert payload.markups_sell_in["clasica"] == round((60000 / 48500 - 1) * 100, 2)
 
+    def test_a_brand_bonus_of_another_category_does_not_reach_the_product(self, engine):
+        """SISO S3: a brand bonus with a category reaches only that brand's products of it (ROUTER is Routers)."""
+        _bono_costo(engine, categoria="Switches")
+        bono = _bono_costo(engine, categoria="Routers")
+
+        assert _payload(engine).sell_in.bono_ids == [bono]
+
     def test_a_per_unit_cost_bonus_gives_its_fixed_amount_capped_at_the_cost(self, engine):
         # Tacticals T1: `tipo = 'por_unidad'` gives its ARS amount per unit, never above the cost (50000).
         fijo = _bono_costo(engine, monto_unit="2000.00")

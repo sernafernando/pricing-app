@@ -874,3 +874,55 @@ def _filas(engine: Engine, tactical_id: int) -> list[tuple]:
         return [tuple(r) for r in conn.execute(
             text("SELECT tipo, store_id FROM tactical_tiendas WHERE tactical_id = :t"), {"t": tactical_id}
         )]  # fmt: skip
+
+
+class TestMarcaYCategoria:
+    """SISO S3 (owner): "Que se puedan combinar marca y categoría porque hoy no se puede, si quiero aplicar a los
+    routers solo de tp-link no puedo." A brand line may carry a category (L7 D1): it reaches only the brand's
+    products of that category, in sell out and in sell in."""
+
+    @pytest.fixture(autouse=True)
+    def _switch(self, engine: Engine) -> None:
+        with engine.begin() as conn:  # 2964 TP-LINK Routers, 2270 TP-LINK Switches, 950 MERCUSYS Routers
+            conn.execute(text("UPDATE productos_erp SET categoria = 'Switches' WHERE item_id = 2270"))
+
+    def _linea(self, **values) -> dict:
+        return {"alcance": "marca", "marca": TPLINK, "categoria": "Routers", "modo_monto": "por_unidad",
+                "valor": "10", **values}  # fmt: skip
+
+    def test_a_sell_out_line_reaches_only_the_brand_s_products_of_the_category(self, db) -> None:
+        from app.services.sell_out import alcance
+
+        tactical = service.crear(db, _tactical(lineas=[self._linea()]), USUARIO)
+
+        campana = db.query(SellOutCampana).one()
+        assert set(alcance.productos(db, [campana.id])[campana.id]) == {2964}
+        [salida] = service.serializar(db, [tactical])[0]["lineas"]
+        assert (salida["alcance"], salida["marca"], salida["categoria"]) == ("marca", TPLINK, "Routers")
+
+    def test_a_sell_in_total_line_splits_only_among_the_brand_s_products_of_the_category(self, db, engine) -> None:
+        linea = self._linea(modo_monto="monto_total", valor="1200", reparto_criterio="iguales")
+
+        tactical = service.crear(db, _tactical("sell_in", [linea]), USUARIO)
+
+        with engine.connect() as conn:
+            bono = conn.execute(
+                text("SELECT alcance, marca, categoria FROM sell_in_bonos_marca WHERE tactical_id = :t"),
+                {"t": tactical.id},
+            ).one()
+            repartos = [tuple(r) for r in conn.execute(text("SELECT item_id, monto FROM sell_in_bono_repartos"))]
+        assert tuple(bono) == ("marca", TPLINK, "Routers")
+        assert repartos == [(2964, Decimal("1200.00"))]
+        [salida] = service.serializar(db, [tactical])[0]["lineas"]
+        assert (salida["alcance"], salida["marca"], salida["categoria"]) == ("marca", TPLINK, "Routers")
+
+    def test_a_brand_without_products_in_the_category_is_refused(self, db, engine) -> None:
+        with pytest.raises(
+            service.TacticalError, match="^Línea 1: no hay productos de la marca TP-LINK en la categoría Notebooks$"
+        ):
+            service.crear(db, _tactical(lineas=[self._linea(categoria="Notebooks")]), USUARIO)
+        assert _contar(engine, "tacticals") == 0
+
+    def test_a_category_line_still_takes_no_brand(self, db) -> None:
+        with pytest.raises(service.TacticalError, match="^Línea 1: una línea por categoria no lleva marca$"):
+            service.crear(db, _tactical(lineas=[self._linea(alcance="categoria")]), USUARIO)

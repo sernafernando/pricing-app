@@ -96,7 +96,8 @@ def del_alcance(db: Session, bono: SellInBonoMarca, item_id, pedido_id):
         return item_id.in_(db.query(SellInBonoItem.item_id).filter(SellInBonoItem.bono_id == bono.id))
     if bono.alcance == "factura":
         return pedido_id == bono.pedido_id if bono.pedido_id is not None else ~true()
-    return ProductoERP.marca == bono.marca
+    de_marca = ProductoERP.marca == bono.marca
+    return and_(de_marca, ProductoERP.categoria == bono.categoria) if bono.categoria is not None else de_marca
 
 
 def alcanza_marcas(marcas: list[str]):

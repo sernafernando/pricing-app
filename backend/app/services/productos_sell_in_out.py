@@ -387,7 +387,7 @@ def _campanas_y_bonos(db: Session, ids: List[int], sin_lote: List[int], hoy: dat
             b.fecha_desde <= hoy,
             b.fecha_hasta >= hoy,
             or_(
-                and_(b.alcance == "marca", b.marca == p.marca),
+                and_(b.alcance == "marca", b.marca == p.marca, or_(b.categoria.is_(None), b.categoria == p.categoria)),
                 and_(b.alcance == "categoria", b.categoria == p.categoria),
                 and_(b.alcance == "modelos", i.item_id.isnot(None)),
             ),
