@@ -8,13 +8,12 @@ simulan la inyección de dependencias de FastAPI llamando directo al
   - Usuario sin permiso → HTTPException 403 con code INSUFFICIENT_PERMISSIONS.
   - El mensaje incluye el código del permiso (debug friendly).
 
-Nota: no usamos `pytest-asyncio` (no está en requirements del proyecto, rompe CI).
-Corremos las corrutinas con `asyncio.run()` directo — más simple y sin deps extra.
+Nota: las dependencies de auth son `def` (corren en el threadpool, no en el
+event loop), así que los tests llaman al check directamente.
 """
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -47,7 +46,7 @@ class TestRequirePermiso:
         with patch("app.services.permisos_service.PermisosService") as svc_cls:
             svc_cls.return_value.tiene_permiso.return_value = True
             dep = require_permiso("administracion.gestionar_ordenes_compra")
-            result = asyncio.run(dep(current_user=user, db=db_mock))
+            result = dep(current_user=user, db=db_mock)
 
         assert result is user
         svc_cls.return_value.tiene_permiso.assert_called_once_with(user, "administracion.gestionar_ordenes_compra")
@@ -61,7 +60,7 @@ class TestRequirePermiso:
             dep = require_permiso("administracion.aprobar_ordenes_compra")
 
             with pytest.raises(HTTPException) as exc_info:
-                asyncio.run(dep(current_user=user, db=db_mock))
+                dep(current_user=user, db=db_mock)
 
         assert exc_info.value.status_code == 403
         detail = exc_info.value.detail
@@ -82,8 +81,8 @@ class TestRequirePermiso:
             dep_a = require_permiso("compras.leer")
             dep_b = require_permiso("compras.escribir")
 
-            asyncio.run(dep_a(current_user=user, db=db_mock))
-            asyncio.run(dep_b(current_user=user, db=db_mock))
+            dep_a(current_user=user, db=db_mock)
+            dep_b(current_user=user, db=db_mock)
 
         llamadas = svc_cls.return_value.tiene_permiso.call_args_list
         codigos = [c.args[1] for c in llamadas]
