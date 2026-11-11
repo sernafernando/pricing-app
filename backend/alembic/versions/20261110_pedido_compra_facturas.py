@@ -1,7 +1,7 @@
 """pedido_compra_facturas M:N ERP invoice links
 
 Revision ID: 20261110_pedido_compra_facturas
-Revises: 20261110_tacticals_marcas
+Revises: 20261110_tactical_cobranza
 Create Date: 2026-11-10
 
 Compras multi-factura: relation table is SoT for N CTs per pedido (and shared
@@ -18,7 +18,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261110_pedido_compra_facturas"
-down_revision: Union[str, None] = "20261110_tacticals_marcas"
+down_revision: Union[str, None] = "20261110_tactical_cobranza"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
