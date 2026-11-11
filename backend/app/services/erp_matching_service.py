@@ -289,11 +289,7 @@ def _seed_factura_junction_from_header(session: Session, pedido: PedidoCompra) -
 
     if pedido.id is None or getattr(pedido, "ct_transaction_id", None) is None:
         return
-    has_row = (
-        session.query(PedidoCompraFactura.id)
-        .filter(PedidoCompraFactura.pedido_id == pedido.id)
-        .first()
-    )
+    has_row = session.query(PedidoCompraFactura.id).filter(PedidoCompraFactura.pedido_id == pedido.id).first()
     if has_row is not None:
         return
     session.add(
@@ -336,9 +332,7 @@ def _pedido_ids_for_ct(session: Session, ct_transaction: int) -> list[int]:
     }
     ids.update(
         int(pid)
-        for (pid,) in session.query(PedidoCompra.id)
-        .filter(PedidoCompra.ct_transaction_id == int(ct_transaction))
-        .all()
+        for (pid,) in session.query(PedidoCompra.id).filter(PedidoCompra.ct_transaction_id == int(ct_transaction)).all()
     )
     return sorted(ids)
 

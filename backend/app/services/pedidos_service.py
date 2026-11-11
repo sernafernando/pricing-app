@@ -2698,10 +2698,7 @@ def vincular_factura(
     if int(ct_transaction) in linked:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"Pedido id={pedido.id} ya está vinculado a "
-                f"ct_transaction={ct_transaction}."
-            ),
+            detail=(f"Pedido id={pedido.id} ya está vinculado a ct_transaction={ct_transaction}."),
         )
 
     supp_id = session.execute(
@@ -2798,10 +2795,7 @@ def desvincular_factura(
         if ct_anterior not in {ct for ct, _ in links}:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    f"Pedido id={pedido.id} no está vinculado a "
-                    f"ct_transaction={ct_anterior}."
-                ),
+                detail=(f"Pedido id={pedido.id} no está vinculado a ct_transaction={ct_anterior}."),
             )
 
     erp_matching_service.quitar_factura_erp(session, pedido, ct_anterior)
