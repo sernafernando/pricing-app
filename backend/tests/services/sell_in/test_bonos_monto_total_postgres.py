@@ -335,3 +335,25 @@ class TestMotor:
 
         assert bonos_costo.valor_del_bono(bono, None) == Decimal(0)
         assert bonos_costo.unitario(bono, Decimal(0), Decimal("1000"), 2964, None, D(2026, 10, 5)) == Decimal(0)
+
+
+class TestCombos:
+    """Owner, 2026-11-11 (S4): "si cargo por Marca, no me contabilice 2 veces los productos que están en un combo [...]
+    me tome la parte que lo componga y no el combo persé como parte". A combo whose own row carries the brand is never
+    a product of the split: its sales count under its components (2026-11-05), so a share of its own is never paid."""
+
+    def test_a_combo_of_the_brand_gets_no_share_of_its_own(self, db, engine) -> None:
+        w.combo(engine, 2270, {950: 1, 2964: 2})  # 2270 is TP-LINK: the brand reaches the combo and the WH
+
+        bono_id = _crear(db)
+
+        assert _repartos(db, bono_id) == {2964: Decimal("1000.00")}
+
+    def test_a_combo_sale_pays_the_whole_total_through_its_component(self, db, engine) -> None:
+        w.combo(engine, 2270, {950: 1, 2964: 2})
+        bono_id = _crear(db)
+        ref = _fuera(engine, 2270, 1, D(2026, 10, 5))
+
+        _recalcular(engine, 2964)
+
+        assert _filas(engine) == [(bono_id, ref, 2964, 2, Decimal("1000.00"))]
