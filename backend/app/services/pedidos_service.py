@@ -3534,8 +3534,8 @@ def corregir_pedido(
     erp_matching_service.copiar_lineas_facturadas(session, origen_id=original.id, destino_id=clon.id)
     erp_matching_service.copiar_facturas_erp(session, origen_id=original.id, destino_id=clon.id)
     erp_matching_service.asignar_factura_erp(session, original, None)
-    if clon.ct_transaction_id is not None:
-        erp_matching_service.reconciliar_lineas_facturadas(session, clon.id)
+    # Lines already moved by copiar_lineas_facturadas; clearing the original restores
+    # CT exclusivity on the clone without a reconcile (SQLite unit tests have no ERP view).
     original.estado = "cancelado"
     original.corregido_a_id = clon.id
     session.flush()
