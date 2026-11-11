@@ -32,6 +32,13 @@ pytestmark = pytest.mark.postgres
 
 _DDL = """
 CREATE TABLE pedidos_compra (id BIGINT PRIMARY KEY, ct_transaction_id BIGINT, corregido_desde_id BIGINT);
+CREATE TABLE pedido_compra_facturas (
+  id BIGSERIAL PRIMARY KEY,
+  pedido_id BIGINT NOT NULL REFERENCES pedidos_compra (id) ON DELETE CASCADE,
+  ct_transaction_id BIGINT NOT NULL,
+  fecha_factura DATE,
+  UNIQUE (pedido_id, ct_transaction_id)
+);
 CREATE TABLE notas_credito_local (id BIGINT PRIMARY KEY, ct_transaction_id BIGINT);
 CREATE TABLE imputaciones (
   id BIGINT PRIMARY KEY, origen_tipo TEXT, origen_id BIGINT, destino_tipo TEXT, destino_id BIGINT,
@@ -212,3 +219,91 @@ def test_clone_subtracts_a_credit_note_frozen_on_its_corrected_from_pedido(pg_lf
     with pg_lf_engine.connect() as conn:
         filas = conn.execute(text("SELECT pedido_id, item_id, cantidad FROM pedido_compra_lineas_facturadas")).all()
     assert [tuple(f) for f in filas] == [(3, 501, 9)]
+
+
+def test_shared_ct_yields_no_sell_in_lines(pg_lf_engine):
+    with pg_lf_engine.begin() as conn:
+        conn.execute(text("INSERT INTO pedidos_compra (id, ct_transaction_id) VALUES (1, 100), (2, 100)"))
+        conn.execute(
+            text(
+                "INSERT INTO pedido_compra_facturas (pedido_id, ct_transaction_id) "
+                "VALUES (1, 100), (2, 100)"
+            )
+        )
+        conn.execute(text("INSERT INTO v_facturas_compra_vigentes VALUES (100, 1, 'FACTURA')"))
+        conn.execute(
+            text(
+                "INSERT INTO tb_item_transactions (it_transaction, ct_transaction, item_id, it_qty) "
+                "VALUES (1, 100, 501, 5)"
+            )
+        )
+
+    with Session(pg_lf_engine) as session:
+        reconciliar_lineas_facturadas(session, 1)
+        reconciliar_lineas_facturadas(session, 2)
+        session.commit()
+
+    assert _lineas(pg_lf_engine) == []
+
+
+def test_two_exclusive_cts_sum_units(pg_lf_engine):
+    with pg_lf_engine.begin() as conn:
+        conn.execute(text("INSERT INTO pedidos_compra (id, ct_transaction_id) VALUES (1, 100)"))
+        conn.execute(
+            text(
+                "INSERT INTO pedido_compra_facturas (pedido_id, ct_transaction_id) "
+                "VALUES (1, 100), (1, 200)"
+            )
+        )
+        conn.execute(text("INSERT INTO v_facturas_compra_vigentes VALUES (100, 1, 'FACTURA'), (200, 1, 'FACTURA')"))
+        conn.execute(
+            text(
+                "INSERT INTO tb_item_transactions (it_transaction, ct_transaction, item_id, it_qty) VALUES "
+                "(1, 100, 501, 3), (2, 200, 501, 4)"
+            )
+        )
+
+    with Session(pg_lf_engine) as session:
+        reconciliar_lineas_facturadas(session, 1)
+        session.commit()
+
+    assert _lineas(pg_lf_engine) == [(501, 7)]
+
+
+def test_unlinking_shared_ct_restores_other_pedido_lines(pg_lf_engine):
+    with pg_lf_engine.begin() as conn:
+        conn.execute(text("INSERT INTO pedidos_compra (id, ct_transaction_id) VALUES (1, 100), (2, 100)"))
+        conn.execute(
+            text(
+                "INSERT INTO pedido_compra_facturas (pedido_id, ct_transaction_id) "
+                "VALUES (1, 100), (2, 100)"
+            )
+        )
+        conn.execute(text("INSERT INTO v_facturas_compra_vigentes VALUES (100, 1, 'FACTURA')"))
+        conn.execute(
+            text(
+                "INSERT INTO tb_item_transactions (it_transaction, ct_transaction, item_id, it_qty) "
+                "VALUES (1, 100, 501, 5)"
+            )
+        )
+
+    with Session(pg_lf_engine) as session:
+        reconciliar_lineas_facturadas(session, 1)
+        session.commit()
+    assert _lineas(pg_lf_engine) == []
+
+    # Simulate desvincular CT 100 from pedido 1 only (junction + header).
+    with pg_lf_engine.begin() as conn:
+        conn.execute(text("DELETE FROM pedido_compra_facturas WHERE pedido_id = 1 AND ct_transaction_id = 100"))
+        conn.execute(text("UPDATE pedidos_compra SET ct_transaction_id = NULL WHERE id = 1"))
+
+    with Session(pg_lf_engine) as session:
+        reconciliar_lineas_facturadas(session, 1)
+        reconciliar_lineas_facturadas(session, 2)
+        session.commit()
+
+    with pg_lf_engine.connect() as conn:
+        filas = conn.execute(
+            text("SELECT pedido_id, item_id, cantidad FROM pedido_compra_lineas_facturadas ORDER BY pedido_id")
+        ).all()
+    assert [tuple(f) for f in filas] == [(2, 501, 5)]

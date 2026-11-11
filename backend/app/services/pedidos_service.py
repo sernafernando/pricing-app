@@ -2677,32 +2677,28 @@ def vincular_factura(
 
     Precondiciones:
       - El pedido existe.
-      - `pedido.ct_transaction_id IS NULL` (si ya está vinculado → 409).
+      - Esta CT aún no está en el pedido (409 si ya está).
       - El proveedor del pedido tiene `supp_id` ERP.
       - La ct aparece en `v_facturas_compra_vigentes` para ese `supp_id`.
 
-    NO ajusta `pedido.monto`. Si el monto de la factura difiere, el caller
-    debe invocar `ajustar_monto_con_factura` (requiere permiso específico
-    + motivo obligatorio).
-
-    Registra evento `factura_vinculada`. NO commit.
+    M:N: puede coexistir con otras CTs del mismo pedido u otros pedidos.
+    NO ajusta `pedido.monto`. Registra evento `factura_vinculada`. NO commit.
 
     Raises:
         HTTPException 404 — pedido inexistente.
-        HTTPException 409 — pedido ya tiene `ct_transaction_id`.
+        HTTPException 409 — esta CT ya está vinculada a este pedido.
         HTTPException 400 — proveedor sin supp_id o ct no vigente para ese proveedor.
     """
     from sqlalchemy import text  # noqa: PLC0415
 
+    from app.models.pedido_compra_factura import cts_for_pedido  # noqa: PLC0415
+
     pedido = _obtener_pedido_o_404(session, pedido_id)
-    if pedido.ct_transaction_id is not None:
+    linked = {ct for ct, _fecha in cts_for_pedido(session, pedido)}
+    if int(ct_transaction) in linked:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"Pedido id={pedido.id} ya está vinculado a "
-                f"ct_transaction={pedido.ct_transaction_id}. "
-                f"Desvinculalo antes de vincular otra factura."
-            ),
+            detail=(f"Pedido id={pedido.id} ya está vinculado a ct_transaction={ct_transaction}."),
         )
 
     supp_id = session.execute(
@@ -2760,28 +2756,49 @@ def desvincular_factura(
     *,
     pedido_id: int,
     user_id: int,
+    ct_transaction: int | None = None,
 ) -> PedidoCompra:
     """
-    Desvincula la factura del ERP del pedido.
+    Desvincula una factura del ERP del pedido (M:N).
 
-    Si hubo un ajuste de monto asociado, NO se revierte — el ajuste quedó
-    registrado como movimiento separado en `cc_proveedor_movimientos` y
-    seguir el hilo es responsabilidad del operador (admin puede hacer un
-    ajuste inverso manual si corresponde).
+    Si `ct_transaction` is omitted and the pedido has exactly one link, that
+    CT is removed. With multiple links, `ct_transaction` is required (400).
+
+    Si hubo un ajuste de monto asociado, NO se revierte.
 
     Raises:
         HTTPException 404 — pedido inexistente.
-        HTTPException 400 — pedido no tiene ct_transaction_id seteado.
+        HTTPException 400 — sin links, CT ausente, o falta CT con multi-link.
     """
+    from app.models.pedido_compra_factura import cts_for_pedido  # noqa: PLC0415
+
     pedido = _obtener_pedido_o_404(session, pedido_id)
-    if pedido.ct_transaction_id is None:
+    links = cts_for_pedido(session, pedido)
+    if not links:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Pedido id={pedido.id} no tiene factura vinculada.",
         )
 
-    ct_anterior = int(pedido.ct_transaction_id)
-    erp_matching_service.asignar_factura_erp(session, pedido, None)
+    if ct_transaction is None:
+        if len(links) > 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Pedido id={pedido.id} tiene {len(links)} facturas vinculadas; "
+                    "pasá ct_transaction para desvincular una."
+                ),
+            )
+        ct_anterior = int(links[0][0])
+    else:
+        ct_anterior = int(ct_transaction)
+        if ct_anterior not in {ct for ct, _ in links}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(f"Pedido id={pedido.id} no está vinculado a ct_transaction={ct_anterior}."),
+            )
+
+    erp_matching_service.quitar_factura_erp(session, pedido, ct_anterior)
     session.flush()
 
     _registrar_evento(
@@ -3081,8 +3098,9 @@ def ajustar_monto_con_factura(
     Precondiciones:
       - Pedido existe.
       - Pedido NO está vinculado a OTRA factura distinta (si ya tiene
-        `ct_transaction_id` != `ct_transaction` → 409; si está vinculado a
-        la MISMA `ct_transaction` sigue, porque puede ser un reajuste).
+        otras CTs en junction/header y `ct_transaction` no está entre ellas
+        → 409; si ya está vinculada la misma CT sigue, porque puede ser un
+        reajuste).
       - `nuevo_monto > 0`.
       - `motivo` no vacío.
       - La ct existe en `v_facturas_compra_vigentes` para el proveedor del pedido.
@@ -3110,12 +3128,15 @@ def ajustar_monto_con_factura(
 
     pedido = _obtener_pedido_o_404(session, pedido_id)
 
-    if pedido.ct_transaction_id is not None and int(pedido.ct_transaction_id) != int(ct_transaction):
+    from app.models.pedido_compra_factura import cts_for_pedido  # noqa: PLC0415
+
+    linked_cts = {ct for ct, _fecha in cts_for_pedido(session, pedido)}
+    if linked_cts and int(ct_transaction) not in linked_cts:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
                 f"Pedido id={pedido.id} ya está vinculado a "
-                f"ct_transaction={pedido.ct_transaction_id} (distinta a la solicitada "
+                f"ct_transaction={sorted(linked_cts)} (distinta a la solicitada "
                 f"{ct_transaction}). Desvinculá primero."
             ),
         )
@@ -3475,7 +3496,6 @@ def corregir_pedido(
         tipo="pedido",
         empresa_id=original.empresa_id,
     )
-    ct_transaction_heredado = original.ct_transaction_id
     clon = PedidoCompra(
         numero=nuevo_numero,
         empresa_id=original.empresa_id,
@@ -3498,9 +3518,9 @@ def corregir_pedido(
         pedidos_documento=cambios.get("pedidos_documento", original.pedidos_documento),
         tipo=original.tipo,
         responsable_id=original.responsable_id,
-        # The clone inherits the original's invoice link as-is (no ERP re-read).
-        ct_transaction_id=ct_transaction_heredado,
-        fecha_factura=original.fecha_factura,
+        # Invoice links move via junction copy below; header stays first-link cache.
+        ct_transaction_id=None,
+        fecha_factura=None,
         corregido_desde_id=original.id,
         estado=estado_clon,
         creado_por_id=user_id,
@@ -3509,10 +3529,13 @@ def corregir_pedido(
     session.add(clon)
     session.flush()  # → obtenemos clon.id
 
-    # 7. Transferir ct_transaction y marcar original cancelado + ref cruzada
+    # 7. Transferir facturas M:N + sell-in lines; marcar original cancelado + ref cruzada
     original_estado_anterior = original.estado
     erp_matching_service.copiar_lineas_facturadas(session, origen_id=original.id, destino_id=clon.id)
+    erp_matching_service.copiar_facturas_erp(session, origen_id=original.id, destino_id=clon.id)
     erp_matching_service.asignar_factura_erp(session, original, None)
+    # Lines already moved by copiar_lineas_facturadas; clearing the original restores
+    # CT exclusivity on the clone without a reconcile (SQLite unit tests have no ERP view).
     original.estado = "cancelado"
     original.corregido_a_id = clon.id
     session.flush()
@@ -3556,7 +3579,7 @@ def corregir_pedido(
             "clon_numero": clon.numero,
             "motivo": motivo_correccion,
             "estado_anterior": original_estado_anterior,
-            "ct_transaction_transferida": ct_transaction_heredado,
+            "ct_transaction_transferida": clon.ct_transaction_id,
             "imputaciones_pendientes_reaplicar": (ids_imputaciones_vigentes if cambios_financieros_reales else []),
             "adjuntos_clonados": n_adjuntos,
         },

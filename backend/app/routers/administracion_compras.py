@@ -4386,8 +4386,8 @@ def listar_facturas_candidatas(
 ) -> list[FacturaCandidataResponse]:
     """
     Devuelve facturas vigentes del ERP (v_facturas_compra_vigentes) para el
-    `supp_id` del proveedor del pedido, excluyendo las que ya están vinculadas
-    a OTRO pedido.
+    `supp_id` del proveedor del pedido, excluyendo solo las ya vinculadas a
+    ESTE pedido (M:N: CTs de otros pedidos siguen siendo candidatas).
 
     Si el proveedor no tiene `supp_id` ERP → lista vacía (y log WARNING).
 
@@ -4415,10 +4415,14 @@ def listar_facturas_candidatas(
         FROM v_facturas_compra_vigentes v
         WHERE v.supp_id = :supp_id
           AND v.ct_transaction NOT IN (
-              SELECT ct_transaction_id
-              FROM pedidos_compra
-              WHERE ct_transaction_id IS NOT NULL
-                AND id <> :pedido_id
+              SELECT f.ct_transaction_id
+              FROM pedido_compra_facturas f
+              WHERE f.pedido_id = :pedido_id
+              UNION
+              SELECT p.ct_transaction_id
+              FROM pedidos_compra p
+              WHERE p.id = :pedido_id
+                AND p.ct_transaction_id IS NOT NULL
           )
         ORDER BY v.ct_date DESC NULLS LAST, v.ct_transaction DESC
         LIMIT 100
@@ -4521,12 +4525,21 @@ def vincular_factura_pedido(
 )
 def desvincular_factura_pedido(
     pedido_id: int,
+    ct_transaction: Optional[int] = Query(
+        None,
+        description="CT to unlink; required when the pedido has more than one factura",
+    ),
     db: Session = Depends(get_db),
     user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
 ) -> PedidoCompraResponse:
-    """Limpia `ct_transaction_id`. Los ajustes de CC NO se revierten. Batch I.4."""
+    """Remove one ERP invoice link (M:N). CC adjustments are NOT reverted. Batch I.4."""
     try:
-        pedido = pedidos_service.desvincular_factura(db, pedido_id=pedido_id, user_id=user.id)
+        pedido = pedidos_service.desvincular_factura(
+            db,
+            pedido_id=pedido_id,
+            user_id=user.id,
+            ct_transaction=ct_transaction,
+        )
     except HTTPException:
         db.rollback()
         raise

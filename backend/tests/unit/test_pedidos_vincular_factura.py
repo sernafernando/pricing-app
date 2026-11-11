@@ -212,8 +212,8 @@ class TestVincularFactura:
         assert ev.payload["ct_transaction"] == 700001
         assert ev.payload["modo"] == "manual"
 
-    def test_pedido_ya_vinculado_409(self, db, empresa, proveedor, sd_factura, active_user):
-        pedido = _crear_pedido(db, empresa, proveedor, active_user, ct_id=123456)
+    def test_misma_ct_ya_vinculada_409(self, db, empresa, proveedor, sd_factura, active_user):
+        pedido = _crear_pedido(db, empresa, proveedor, active_user, ct_id=700001)
         _crear_ct(
             db,
             ct_transaction=700001,
@@ -231,6 +231,35 @@ class TestVincularFactura:
                 user_id=active_user.id,
             )
         assert exc.value.status_code == 409
+
+    def test_segunda_ct_distinta_ok(self, db, empresa, proveedor, sd_factura, active_user):
+        from app.models.pedido_compra_factura import PedidoCompraFactura, cts_for_pedido
+
+        pedido = _crear_pedido(db, empresa, proveedor, active_user, ct_id=700001)
+        _crear_ct(
+            db,
+            ct_transaction=700001,
+            supp_id=proveedor.supp_id,
+            ct_total=Decimal("1000"),
+        )
+        _crear_ct(
+            db,
+            ct_transaction=700002,
+            supp_id=proveedor.supp_id,
+            ct_total=Decimal("500"),
+            ct_docnumber="F-700002",
+        )
+
+        pedidos_service.vincular_factura(
+            db,
+            pedido_id=pedido.id,
+            ct_transaction=700002,
+            user_id=active_user.id,
+        )
+        db.refresh(pedido)
+        links = {ct for ct, _ in cts_for_pedido(db, pedido)}
+        assert links == {700001, 700002}
+        assert db.query(PedidoCompraFactura).filter_by(pedido_id=pedido.id).count() == 2
 
     def test_ct_no_vigente_400(self, db, empresa, proveedor, sd_factura, active_user):
         pedido = _crear_pedido(db, empresa, proveedor, active_user)

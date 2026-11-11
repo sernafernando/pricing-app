@@ -283,24 +283,180 @@ _FECHA_FACTURA_SQL = text(
 ).columns(fecha=Date)
 
 
-def asignar_factura_erp(session: Session, pedido: PedidoCompra, ct_transaction: Optional[int]) -> None:
-    """Single write path for a pedido's ERP invoice link.
+def _seed_factura_junction_from_header(session: Session, pedido: PedidoCompra) -> None:
+    """If header has a CT but junction is empty, materialize the first-link row."""
+    from app.models.pedido_compra_factura import PedidoCompraFactura  # noqa: PLC0415
 
-    Sets `ct_transaction_id` and its app-side `fecha_factura` together (None
-    clears both) and reconciles the invoiced-units snapshot of a persisted
-    pedido (flushes). A ct missing from `v_facturas_compra_vigentes` still
-    links, with `fecha_factura` NULL and no lines. NO commit.
+    if pedido.id is None or getattr(pedido, "ct_transaction_id", None) is None:
+        return
+    has_row = session.query(PedidoCompraFactura.id).filter(PedidoCompraFactura.pedido_id == pedido.id).first()
+    if has_row is not None:
+        return
+    session.add(
+        PedidoCompraFactura(
+            pedido_id=pedido.id,
+            ct_transaction_id=int(pedido.ct_transaction_id),
+            fecha_factura=getattr(pedido, "fecha_factura", None),
+        )
+    )
+    session.flush()
+
+
+def _sync_header_factura_cache(session: Session, pedido: PedidoCompra) -> None:
+    """Refresh header first-link cache from junction rows only (never header fallback)."""
+    from app.models.pedido_compra_factura import PedidoCompraFactura  # noqa: PLC0415
+
+    rows = (
+        session.query(PedidoCompraFactura)
+        .filter(PedidoCompraFactura.pedido_id == pedido.id)
+        .order_by(PedidoCompraFactura.id)
+        .all()
+    )
+    if rows:
+        pedido.ct_transaction_id = int(rows[0].ct_transaction_id)
+        pedido.fecha_factura = rows[0].fecha_factura
+    else:
+        pedido.ct_transaction_id = None
+        pedido.fecha_factura = None
+
+
+def _pedido_ids_for_ct(session: Session, ct_transaction: int) -> list[int]:
+    """Pedidos that documentally own this CT (junction SoT ∪ header cache)."""
+    from app.models.pedido_compra_factura import PedidoCompraFactura  # noqa: PLC0415
+
+    ids = {
+        int(pid)
+        for (pid,) in session.query(PedidoCompraFactura.pedido_id)
+        .filter(PedidoCompraFactura.ct_transaction_id == int(ct_transaction))
+        .all()
+    }
+    ids.update(
+        int(pid)
+        for (pid,) in session.query(PedidoCompra.id).filter(PedidoCompra.ct_transaction_id == int(ct_transaction)).all()
+    )
+    return sorted(ids)
+
+
+def copiar_facturas_erp(session: Session, *, origen_id: int, destino_id: int) -> int:
+    """Copy junction invoice links from origen to destino; refresh destino header.
+
+    Seeds origen from its header if the junction is still empty. Does not touch
+    origen rows or sell-in. Returns how many links were copied. NO commit.
     """
+    from app.models.pedido_compra_factura import PedidoCompraFactura  # noqa: PLC0415
+
+    origen = session.get(PedidoCompra, origen_id)
+    destino = session.get(PedidoCompra, destino_id)
+    if origen is None or destino is None:
+        return 0
+    _seed_factura_junction_from_header(session, origen)
+    n = 0
+    for row in (
+        session.query(PedidoCompraFactura)
+        .filter(PedidoCompraFactura.pedido_id == origen_id)
+        .order_by(PedidoCompraFactura.id)
+        .all()
+    ):
+        exists = (
+            session.query(PedidoCompraFactura.id)
+            .filter(
+                PedidoCompraFactura.pedido_id == destino_id,
+                PedidoCompraFactura.ct_transaction_id == int(row.ct_transaction_id),
+            )
+            .first()
+        )
+        if exists is not None:
+            continue
+        session.add(
+            PedidoCompraFactura(
+                pedido_id=destino_id,
+                ct_transaction_id=int(row.ct_transaction_id),
+                fecha_factura=row.fecha_factura,
+            )
+        )
+        n += 1
+    session.flush()
+    _sync_header_factura_cache(session, destino)
+    return n
+
+
+def _aplicar_sell_in_por_ct(session: Session, ct_transaction: int) -> None:
+    """Reconcile sell-in for every pedido that owns this CT.
+
+    Exclusivity is decided per CT inside `reconciliar_lineas_facturadas`
+    (`_DOCUMENTOS_SQL`): shared CTs drop out of the snapshot, exclusive ones
+    stay. Never wipe all lines of a pedido that still has other exclusive CTs.
+    """
+    for pid in _pedido_ids_for_ct(session, ct_transaction):
+        reconciliar_lineas_facturadas(session, pid)
+
+
+def asignar_factura_erp(session: Session, pedido: PedidoCompra, ct_transaction: Optional[int]) -> None:
+    """Write path for ERP invoice links (M:N junction + header first-link cache).
+
+    `ct_transaction` set: add a junction row if missing; refresh header cache;
+    sell-in snapshot only when that CT is linked to exactly one pedido.
+    `ct_transaction` None: remove every junction row for the pedido, clear
+    header, and drop its sell-in lines. A ct missing from
+    `v_facturas_compra_vigentes` still links, with `fecha_factura` NULL.
+    NO commit.
+    """
+    from app.models.pedido_compra_factura import PedidoCompraFactura  # noqa: PLC0415
+
+    if pedido.id is None:
+        session.flush()
+
     if ct_transaction is None:
+        session.query(PedidoCompraFactura).filter(PedidoCompraFactura.pedido_id == pedido.id).delete(
+            synchronize_session=False
+        )
         pedido.ct_transaction_id = None
         pedido.fecha_factura = None
         if pedido.id is not None:
             session.execute(_BORRAR_LINEAS_SQL, {"pid": pedido.id})
         return
-    pedido.ct_transaction_id = int(ct_transaction)
-    pedido.fecha_factura = session.execute(_FECHA_FACTURA_SQL, {"ct": int(ct_transaction)}).scalar()
-    if pedido.id is not None:
+
+    _seed_factura_junction_from_header(session, pedido)
+    ct = int(ct_transaction)
+    fecha = session.execute(_FECHA_FACTURA_SQL, {"ct": ct}).scalar()
+    exists = (
+        session.query(PedidoCompraFactura.id)
+        .filter(
+            PedidoCompraFactura.pedido_id == pedido.id,
+            PedidoCompraFactura.ct_transaction_id == ct,
+        )
+        .first()
+    )
+    if exists is None:
+        session.add(
+            PedidoCompraFactura(
+                pedido_id=pedido.id,
+                ct_transaction_id=ct,
+                fecha_factura=fecha,
+            )
+        )
+        session.flush()
+    _sync_header_factura_cache(session, pedido)
+    _aplicar_sell_in_por_ct(session, ct)
+
+
+def quitar_factura_erp(session: Session, pedido: PedidoCompra, ct_transaction: int) -> None:
+    """Remove one CT link from a pedido; refresh header + sell-in gate. NO commit."""
+    from app.models.pedido_compra_factura import PedidoCompraFactura  # noqa: PLC0415
+
+    _seed_factura_junction_from_header(session, pedido)
+    ct = int(ct_transaction)
+    session.query(PedidoCompraFactura).filter(
+        PedidoCompraFactura.pedido_id == pedido.id,
+        PedidoCompraFactura.ct_transaction_id == ct,
+    ).delete(synchronize_session=False)
+    session.flush()
+    _sync_header_factura_cache(session, pedido)
+    if pedido.id is not None and pedido.ct_transaction_id is None:
+        session.execute(_BORRAR_LINEAS_SQL, {"pid": pedido.id})
+    elif pedido.id is not None and pedido.ct_transaction_id is not None:
         reconciliar_lineas_facturadas(session, pedido.id)
+    _aplicar_sell_in_por_ct(session, ct)
 
 
 _FECHA_VISTA_SQL = (
@@ -347,23 +503,59 @@ def refrescar_fechas_factura(session: Session) -> int:
 # not one hop, because `crear_imputacion` does not guard the destination
 # pedido's estado, so a credit note can still land on a cancelled ancestor.
 # The cancelled original keeps no lines: it has no ct_transaction_id.
-_DOCUMENTOS_SQL = """
+# Sell-in gate: each CT contributes units only when linked to exactly one
+# pedido (junction SoT ∪ header-only fallback). Shared CTs stay documental.
+# Links: every junction row for the scoped pedido; if the pedido has no
+# junction rows yet, fall back to the header cache (pre-migration / seed).
+_CT_OWNERS_EQ_1 = """(
+  SELECT COUNT(*) FROM (
+    SELECT f.pedido_id AS pid FROM pedido_compra_facturas f
+    WHERE f.ct_transaction_id = links.ct
+    UNION
+    SELECT px.id FROM pedidos_compra px
+    WHERE px.ct_transaction_id = links.ct
+  ) owners
+) = 1"""
+
+_LINKS_SQL = """
+SELECT f.pedido_id AS pedido_id, f.ct_transaction_id AS ct
+FROM pedido_compra_facturas f
+JOIN pedidos_compra p ON p.id = f.pedido_id
+WHERE {scope_pedido}
+UNION
 SELECT p.id AS pedido_id, p.ct_transaction_id AS ct
 FROM pedidos_compra p
 WHERE p.ct_transaction_id IS NOT NULL AND {scope_pedido}
+  AND NOT EXISTS (
+    SELECT 1 FROM pedido_compra_facturas f2 WHERE f2.pedido_id = p.id
+  )
+"""
+
+_DOCUMENTOS_SQL = (
+    "SELECT links.pedido_id AS pedido_id, links.ct AS ct FROM ("
+    + _LINKS_SQL
+    + ") links WHERE "
+    + _CT_OWNERS_EQ_1
+    + """
 UNION
-SELECT p.id, n.ct
-FROM pedidos_compra p
+SELECT links.pedido_id, n.ct
+FROM ("""
+    + _LINKS_SQL
+    + """) links
 JOIN (
   WITH RECURSIVE cadena(pedido_id, ancestro_id) AS (
-    SELECT p.id, p.id FROM pedidos_compra p WHERE p.ct_transaction_id IS NOT NULL AND {scope_pedido}
+    SELECT links.pedido_id, links.pedido_id FROM ("""
+    + _LINKS_SQL
+    + ") links WHERE "
+    + _CT_OWNERS_EQ_1
+    + """
     UNION
     SELECT c.pedido_id, a.corregido_desde_id
     FROM cadena c JOIN pedidos_compra a ON a.id = c.ancestro_id
     WHERE a.corregido_desde_id IS NOT NULL
   )
   SELECT pedido_id, ancestro_id FROM cadena
-) cad ON cad.pedido_id = p.id
+) cad ON cad.pedido_id = links.pedido_id
 JOIN (
   SELECT i.destino_tipo, i.destino_id,
          CASE WHEN i.origen_tipo = 'nota_credito_erp' THEN i.origen_id ELSE ncl.ct_transaction_id END AS ct
@@ -373,10 +565,11 @@ JOIN (
     AND i.es_reversal = false
     AND NOT EXISTS (SELECT 1 FROM imputaciones r WHERE r.es_reversal = true AND r.reimputada_desde_id = i.id)
 ) n ON (n.destino_tipo = 'pedido_compra' AND n.destino_id = cad.ancestro_id)
-    OR (n.destino_tipo = 'factura_erp' AND n.destino_id = p.ct_transaction_id)
+    OR (n.destino_tipo = 'factura_erp' AND n.destino_id = links.ct)
 JOIN v_facturas_compra_vigentes vn ON vn.ct_transaction = n.ct AND vn.clasificacion = 'NC'
-WHERE p.ct_transaction_id IS NOT NULL AND {scope_pedido}
-"""
+WHERE """
+    + _CT_OWNERS_EQ_1
+)
 # Net units per item: it_qty is stored positive, the sign is the document's
 # sd_plusorminus (what sale_document_classifier.signo_contable returns; -1 for
 # credit notes). Only documents still in v_facturas_compra_vigentes count
@@ -1054,10 +1247,12 @@ def _cancelar_ncs_locales_por_erp_cancelado(
 
 __all__ = [
     "asignar_factura_erp",
+    "copiar_facturas_erp",
     "copiar_lineas_facturadas",
     "match_backward",
     "match_forward",
     "match_ncs_backward",
+    "quitar_factura_erp",
     "reconciliar_lineas_facturadas",
     "refrescar_fechas_factura",
     "validar_catalogo_populado",
