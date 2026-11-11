@@ -29,6 +29,7 @@ from datetime import date, timedelta
 from typing import Any, Mapping, Optional, Sequence
 
 from sqlalchemy import ARRAY, Integer, any_, literal, select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_mlwebhook_engine
@@ -279,7 +280,8 @@ def periodo_ponderado() -> tuple[date, date]:
 
 def unidades_vendidas_por_mla(db: Session, mlas: Sequence[str], date_from: date, date_to: date) -> Mapping[str, int]:
     """Units sold per MLA in `[date_from, date_to]`, from Métricas ML's own base (`UnitsSoldProvider`, the source the
-    Publicaciones screen spreads Ads over). One statement; a failure propagates (it is our own database)."""
+    Publicaciones screen spreads Ads over). One statement; a failure propagates (the resolvers catch it inside a
+    savepoint and resolve `ponderado` as `promedio`; the options endpoint lets it fail)."""
     from app.services.ml_publications.view.units_sold import UnitsSoldProvider  # lazy: avoids an import cycle
 
     return UnitsSoldProvider().units_by_mla(db, list(mlas), date_from, date_to)
@@ -353,9 +355,15 @@ def _resolve_by_item(
     units: Mapping[str, int] = {}
     if ponderados:
         first, last = periodo_ponderado()
-        units = unidades_vendidas_por_mla(
-            db, sorted({mla for item_id in ponderados for mla in item_to_active_mlas[item_id]}), first, last
-        )
+        mlas = sorted({mla for item_id in ponderados for mla in item_to_active_mlas[item_id]})
+        try:
+            # A savepoint: a failed read must not abort the caller's transaction (Productos keeps working).
+            with db.begin_nested():
+                units = unidades_vendidas_por_mla(db, mlas, first, last)
+        except SQLAlchemyError as exc:
+            # Same rule as a product without sales: `ponderado` resolves to `promedio`.
+            logger.warning("No se pudieron leer las ventas para el envio ponderado: %s", exc)
+            units = {}
     result: dict[int, float] = {}
     for item_id, item_costs in per_item.items():
         modo, mla = choices.get(item_id, (MODO_DEFAULT, None))

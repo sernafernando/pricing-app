@@ -218,6 +218,20 @@ class TestEachMode:
         assert resolver_costo_envio(db, product(db)) == 9090.0
         assert resolver_costos_envio_batch(db, [RE200]) == {RE200: 9090.0}
 
+    def test_a_failed_sales_read_is_promedio_and_the_session_stays_usable(self, conn, db, costs, monkeypatch) -> None:
+        """A real database error in the sales read must not take Productos down: the product falls back to promedio
+        (the same rule as no sales) and the caller's session keeps working."""
+        seed_re200(conn)
+        choose(conn, RE200, "ponderado")
+
+        def failing(session, mlas, date_from, date_to):
+            session.execute(text("SELECT 1 / 0"))  # a real error from Postgres, not a mock
+
+        monkeypatch.setattr(envio_real_service, "unidades_vendidas_por_mla", failing)
+        assert resolver_costos_envio_batch(db, [RE200]) == {RE200: 9090.0}
+        assert resolver_costo_envio(db, product(db)) == 9090.0
+        assert db.execute(text("SELECT 1")).scalar() == 1
+
 
 class TestChosenMlaFallsBackToMax:
     """S6: a chosen MLA that is inactive or has no cost resolves to the MAX."""
