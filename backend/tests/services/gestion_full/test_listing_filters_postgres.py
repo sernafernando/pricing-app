@@ -380,11 +380,11 @@ class TestGestionFullListingFiltersPostgres:
             assert row["inventory_id"] is None
             assert row["override"] == 4
 
-            # Prefer the publication that already has Código ML.
+            # Melí assigns Código ML on the existing publication (same link).
             db.execute(
                 text(
-                    "INSERT INTO ml_items (item_id, inventory_id, user_product_id, family_id, "
-                    "never_existed, gone_at) VALUES ('MLA2', 'INV-REAL', 'MLAU4380845993', NULL, FALSE, NULL)"
+                    "UPDATE ml_items SET inventory_id = 'INV-REAL' "
+                    "WHERE user_product_id = 'MLAU4380845993'"
                 )
             )
             db.commit()

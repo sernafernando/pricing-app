@@ -275,7 +275,8 @@ class TestExcelStringCells:
             wb = load_workbook(io.BytesIO(raw))
             ws = wb[" Selección de productos"]
             assert ws.cell(6, 1).value == "EAN-NOINV"
-            assert ws.cell(6, 3).value == ""
+            # openpyxl may round-trip an empty string cell as None.
+            assert (ws.cell(6, 3).value or "") == ""
             assert ws.cell(6, 4).value == "1914044247"
         finally:
             db.close()
