@@ -776,11 +776,12 @@ _FILAS_POR_TIENDA = {
 
 
 def _maximos_por_tienda(
-    db: Session, tactical: Tactical, hijos: list[dict]
+    db: Session, tactical: Tactical, hijos: list[dict], compartido: Optional[bool] = None
 ) -> dict[tuple[str, int], tuple[int, Decimal]]:
     """With per-store caps, what the most-used store or channel of each active child took `(units, amount)`: each
-    counter has the whole cap, so a cap never goes below that one, not below the child's total. Empty when shared."""
-    if tactical.tope_compartido:
+    counter has the whole cap, so a cap never goes below that one, not below the child's total. Empty when shared
+    (`compartido`, the tactical's own unless a new definition sets it)."""
+    if tactical.tope_compartido if compartido is None else compartido:
         return {}
     salida: dict[tuple[str, int], tuple[int, Decimal]] = {}
     for origen, filas in _FILAS_POR_TIENDA.items():
@@ -808,6 +809,14 @@ def _validar_tope(
         raise TacticalError(f"Línea {hijo['linea']}: {COSTO_EN_PESOS}")
     if hijo["modo_monto"] == "monto_total" and (tope.tope_unidades is not None or tope.tope_monto is not None):
         raise TacticalError(f"Línea {hijo['linea']}: un monto total no lleva topes: el monto total es el tope")
+    _validar_usado(tope, hijo, maximo)
+
+
+def _validar_usado(
+    tope: TacticalLineaTopesIn | TacticalLineaIn, hijo: dict, maximo: Optional[tuple[int, Decimal]] = None
+) -> None:
+    """A cap never below what the child already used; with per-store caps (`maximo`), below what its most-used store
+    or channel used."""
     unidades, monto = maximo if maximo is not None else (hijo["unidades_usadas"], _cents(hijo["monto_usado"]))
     donde = " en una tienda o canal" if maximo is not None else ""
     if tope.tope_unidades is not None and tope.tope_unidades < unidades:
@@ -915,6 +924,7 @@ def reemplazar(
         hijos = serializar(db, [tactical])[0]["lineas"]
         antes = {**_cabecera(tactical), "tactical_id": tactical.id, "lineas": _definicion_de(hijos)}
         conservadas = _conservables(tactical, data, hijos)
+        _validar_topes_usados(db, tactical, data, [h for h in hijos if h["linea"] not in conservadas])
         _sin_modo_manual(db, [h for h in hijos if h["linea"] not in conservadas])
         tasas = _tasas_al_cobro(db, tactical, data)
         reemplazados = _reemplazar_hijos(db, tactical_id, conservadas, usuario_id)
@@ -978,6 +988,45 @@ def _conservables(tactical: Tactical, data: TacticalIn, hijos: list[dict]) -> se
         ):
             conservadas.add(numero)
     return conservadas
+
+
+def _validar_topes_usados(db: Session, tactical: Tactical, data: TacticalIn, hijos: list[dict]) -> None:
+    """Rule 1 keeps the PATCH edit's guard (L16): a line whose type and scope stay (`_mismo_alcance`) cannot get a cap
+    below what its active children already used. The amount is compared only while the currency stays: a used
+    amount in another currency says nothing about the new cap."""
+    if data.tipo != tactical.tipo:
+        return
+    por_linea: dict[int, list[dict]] = defaultdict(list)
+    for h in hijos:
+        if h["estado"] == "activa":
+            por_linea[h["linea"]].append(h)
+    iguales = {
+        numero: (linea, por_linea[numero])
+        for numero, linea in enumerate(data.lineas, start=1)
+        if por_linea.get(numero) and _mismo_alcance(linea, por_linea[numero])
+    }
+    if not iguales:
+        return
+    activos = [h for _, actuales in iguales.values() for h in actuales]
+    maximos = _maximos_por_tienda(db, tactical, activos, compartido=data.tope_compartido)
+    for linea, actuales in iguales.values():
+        tope = linea if data.moneda == tactical.moneda else linea.model_copy(update={"tope_monto": None})
+        for hijo in actuales:
+            _validar_usado(tope, hijo, maximos.get((hijo["origen"], hijo["id"])))
+
+
+def _mismo_alcance(linea: TacticalLineaIn, actuales: list[dict]) -> bool:
+    """The new line targets what the line's current children target: the same scope and, by scope, the same brand and
+    category, invoice, or products (a per-product line has one child per product)."""
+    if any(h["alcance"] != linea.alcance for h in actuales):
+        return False
+    if linea.alcance == "marca":
+        return all((h["marca"], h["categoria"] or None) == (linea.marca, linea.categoria or None) for h in actuales)
+    if linea.alcance == "categoria":
+        return all(h["categoria"] == linea.categoria for h in actuales)
+    if linea.alcance == "factura":
+        return all(h["pedido_compra_id"] == linea.pedido_compra_id for h in actuales)
+    return {p["item_id"] for h in actuales for p in h["productos"]} == set(linea.item_ids)
 
 
 def _sin_modo_manual(db: Session, hijos: list[dict]) -> None:

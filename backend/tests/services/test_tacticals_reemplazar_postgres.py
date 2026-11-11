@@ -159,6 +159,62 @@ class TestBloqueos:
             )
 
 
+class TestTopeDebajoDeLoUsado:
+    """Rule 1 keeps today's guards on every tactical not voided (L16, B1): a line whose type and scope stay cannot
+    get a cap below what its children already used, the same refusal as the PATCH edit."""
+
+    @staticmethod
+    def _usar(engine: Engine, *filas: tuple[str, int, int, int]) -> None:
+        with engine.begin() as conn:
+            for canal, venta, unidades, monto in filas:
+                conn.execute(text(
+                    "INSERT INTO sell_out_consumos (campana_id, canal, venta_ref, item_id, fecha_venta, unidades, "
+                    f"monto) SELECT id, '{canal}', {venta}, 2964, DATE '2026-11-03', {unidades}, {monto} "
+                    "FROM sell_out_campanas"
+                ))  # fmt: skip
+
+    def test_the_same_line_with_a_cap_below_what_was_used_is_refused_and_nothing_changes(self, db, engine) -> None:
+        tactical = service.crear(db, _tactical(), USUARIO)
+        self._usar(engine, ("fuera", 1, 5, 50))
+        antes = _filas(engine, "SELECT id, estado, tactical_id, tope_unidades FROM sell_out_campanas ORDER BY id")
+
+        with pytest.raises(service.TacticalError) as exc:
+            _reemplazar(db, tactical.id, _tactical(lineas=[{**MARCA, "tope_unidades": 4}]))
+
+        assert str(exc.value) == "Línea 1: el tope de unidades (4) no puede quedar debajo de lo ya usado (5)"
+        with pytest.raises(service.TacticalError) as exc:
+            _reemplazar(db, tactical.id, _tactical(lineas=[{**MARCA, "tope_monto": "49"}]))
+
+        assert str(exc.value) == "Línea 1: el tope de monto (49.00) no puede quedar debajo de lo ya usado (50.00)"
+        assert (
+            _filas(engine, "SELECT id, estado, tactical_id, tope_unidades FROM sell_out_campanas ORDER BY id") == antes
+        )
+        assert _contar(engine, "auditoria", "tipo_accion = 'TACTICAL_EDITADO'") == 0
+
+    def test_a_per_store_cap_may_go_down_to_what_its_most_used_store_used(self, db, engine) -> None:
+        tactical = service.crear(db, _tactical(), USUARIO)
+        self._usar(engine, ("fuera", 1, 5, 50), ("tn", 2, 3, 30))
+        por_tienda = {"tope_compartido": False, "tiendas": [{"tipo": "fuera"}, {"tipo": "tienda_nube"}]}
+
+        with pytest.raises(service.TacticalError) as exc:
+            _reemplazar(db, tactical.id, _tactical(lineas=[{**MARCA, "tope_unidades": 4}], **por_tienda))
+        assert str(exc.value) == (
+            "Línea 1: el tope de unidades (4) no puede quedar debajo de lo ya usado en una tienda o canal (5)"
+        )
+
+        _reemplazar(db, tactical.id, _tactical(lineas=[{**MARCA, "tope_unidades": 6}], **por_tienda))
+
+        assert _filas(engine, "SELECT tope_unidades FROM sell_out_campanas WHERE estado = 'activa'") == [(6,)]
+
+    def test_a_line_whose_type_changes_starts_from_zero(self, db, engine) -> None:
+        tactical = service.crear(db, _tactical(), USUARIO)
+        self._usar(engine, ("fuera", 1, 5, 50))
+
+        _reemplazar(db, tactical.id, _tactical("sell_in", [{**MARCA, "tope_unidades": 4}]))
+
+        assert _filas(engine, "SELECT tope_unidades FROM sell_in_bonos_marca WHERE estado = 'activa'") == [(4,)]
+
+
 class TestFacturaConMontoTotal:
     def _linea(self, engine: Engine) -> dict:
         pedido = bw.pedido(engine, {2964: 10}, date(2026, 11, 10), moneda="ARS")
