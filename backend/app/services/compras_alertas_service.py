@@ -280,6 +280,26 @@ def retractar_faltantes(
     return len(notifs)
 
 
+def faltantes_obsoletas_ids(session: Session, notifs: list[Notificacion]) -> set[int]:
+    """Ids of open compras.faltantes in ``notifs`` whose pedido no longer admits resolve.
+
+    Read-only: safe on GET hot paths (listings hide these without writing).
+    """
+    faltantes = [n for n in notifs if n.tipo == TIPO_FALTANTES and n.estado != EstadoNotificacion.DESCARTADA]
+    if not faltantes:
+        return set()
+    ids = {int(n.item_id) for n in faltantes if n.item_id is not None}
+    pedidos_by_id: dict[int, PedidoCompra] = {}
+    if ids:
+        pedidos_by_id = {int(p.id): p for p in session.query(PedidoCompra).filter(PedidoCompra.id.in_(ids)).all()}
+    obsoletas: set[int] = set()
+    for notif in faltantes:
+        pedido = pedidos_by_id.get(int(notif.item_id)) if notif.item_id is not None else None
+        if not pedido_admite_alerta_faltantes(pedido):
+            obsoletas.add(int(notif.id))
+    return obsoletas
+
+
 def retractar_faltantes_obsoletas(
     session: Session,
     *,
@@ -304,14 +324,10 @@ def retractar_faltantes_obsoletas(
             return 0
         query = query.filter(Notificacion.item_id.in_(pedido_ids))
     notifs = query.all()
-    ids = {int(n.item_id) for n in notifs if n.item_id is not None}
-    pedidos_by_id: dict[int, PedidoCompra] = {}
-    if ids:
-        pedidos_by_id = {int(p.id): p for p in session.query(PedidoCompra).filter(PedidoCompra.id.in_(ids)).all()}
+    obsoletas = faltantes_obsoletas_ids(session, notifs)
     closed = 0
     for notif in notifs:
-        pedido = pedidos_by_id.get(int(notif.item_id)) if notif.item_id is not None else None
-        if pedido_admite_alerta_faltantes(pedido):
+        if notif.id not in obsoletas:
             continue
         notif.estado = EstadoNotificacion.DESCARTADA
         notif.fecha_descarte = stamp

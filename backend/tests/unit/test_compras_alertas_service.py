@@ -672,3 +672,66 @@ class TestOkSnoozeRoutes:
         db.refresh(notif)
         assert closed == 1
         assert notif.estado == EstadoNotificacion.DESCARTADA
+
+
+class TestListadoSinEscrituras:
+    """GET listings hide stale compras.faltantes read-only (incident 2026-11-11).
+
+    A commit inside a GET released and re-checked out a pooled connection while the
+    request still held the auth session, starving the pool under a reload storm.
+    """
+
+    def _stale_faltantes(self, db, empresa, proveedor, responsable) -> Notificacion:
+        pedido = _pedido(
+            db,
+            empresa,
+            proveedor,
+            responsable,
+            responsable_id=responsable.id,
+            estado="con_faltantes",
+        )
+        [notif] = compras_alertas_service.notificar_faltantes(db, pedido=pedido, texto="Faltan 2 cajas", ahora=MARK)
+        pedido.estado = "controlado"
+        db.commit()
+        return notif
+
+    @pytest.mark.parametrize("path", ["/api/notificaciones", "/api/notificaciones/agrupadas"])
+    def test_get_hides_stale_faltantes_without_writing(
+        self, db, empresa, proveedor, fanout_users, client, path: str
+    ) -> None:
+        responsable = fanout_users["titular"]
+        notif = self._stale_faltantes(db, empresa, proveedor, responsable)
+        estado_antes = notif.estado
+
+        with patch("app.api.endpoints.notificaciones._ahora_listado", return_value=AT_REOPEN):
+            listed = client.get(path, headers=_auth_headers(responsable), params={"solo_no_leidas": True})
+
+        assert listed.status_code == 200
+        ids = {item["id"] for item in listed.json()}
+        for item in listed.json():
+            ids |= set(item.get("notificaciones_ids", []))
+        assert notif.id not in ids
+        db.expire_all()
+        db.refresh(notif)
+        assert notif.estado == estado_antes
+        assert notif.leida is False
+        assert notif.fecha_descarte is None
+
+    def test_get_keeps_active_faltantes(self, db, empresa, proveedor, fanout_users, client) -> None:
+        responsable = fanout_users["titular"]
+        pedido = _pedido(
+            db,
+            empresa,
+            proveedor,
+            responsable,
+            responsable_id=responsable.id,
+            estado="con_faltantes",
+        )
+        [notif] = compras_alertas_service.notificar_faltantes(db, pedido=pedido, texto="Faltan 2 cajas", ahora=MARK)
+        db.commit()
+
+        with patch("app.api.endpoints.notificaciones._ahora_listado", return_value=AT_REOPEN):
+            listed = client.get("/api/notificaciones", headers=_auth_headers(responsable))
+
+        assert listed.status_code == 200
+        assert notif.id in {item["id"] for item in listed.json()}
