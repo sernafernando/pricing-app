@@ -126,7 +126,8 @@ describe('SellIn page — one view: Tacticals and Grupos', () => {
     );
 
     expect(await screen.findByRole('tab', { name: /Tacticals/ })).toHaveAttribute('aria-selected', 'true');
-    expect(await screen.findByRole('button', { name: tipo })).toHaveAttribute('aria-pressed', 'true');
+    // Within Tipo: Cobranza has its own Todos (tactical cobranza S4).
+    expect(within(await screen.findByRole('group', { name: 'Tipo' })).getByRole('button', { name: tipo })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByRole('tab', { name: 'Programas' })).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('ubicacion')).toHaveTextContent(/^$/));
   });

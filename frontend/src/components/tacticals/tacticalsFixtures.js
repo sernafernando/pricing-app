@@ -102,3 +102,22 @@ export const TACTICAL_REBATE = {
 };
 
 export const pagina = (items, total = items.length, page = 1, pageSize = 50) => ({ total, page, page_size: pageSize, items });
+
+/** A collection record as `PUT /api/tacticals/{id}/cobranza` answers it (tactical cobranza, PR #2182 router test). */
+export const COBRANZA_FONDO = {
+  fecha_cobro: '2026-11-09',
+  medio: 'fondo_distribuidor',
+  nc_numero: null,
+  distribuidor: 'Grupo Núcleo',
+  otro_detalle: null,
+  observaciones: 'Acreditado en la cuenta corriente de noviembre',
+  usuario_id: 3,
+  created_at: '2026-11-09T15:20:00Z',
+  updated_at: '2026-11-09T15:20:00Z',
+};
+
+/** `kpis` of `GET /api/tacticals` (PR #2182): count and money used per currency, ARS first. */
+export const KPIS_COBRANZA = {
+  pendientes: { cantidad: 12, montos: [{ moneda: 'ARS', monto: '4380250.00' }, { moneda: 'USD', monto: '1920.00' }] },
+  cobrados: { cantidad: 7, montos: [{ moneda: 'ARS', monto: '2115000.00' }, { moneda: 'USD', monto: '640.00' }] },
+};

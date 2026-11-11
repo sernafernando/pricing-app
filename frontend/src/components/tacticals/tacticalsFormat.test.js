@@ -7,8 +7,10 @@ import {
   alcanceDe,
   avanceDeLinea,
   avanceDeTactical,
+  FILTROS_VACIOS,
   estadoDe,
   formatMontoTactical,
+  formatMontosKpi,
   paramsDeFiltros,
   valorDeLinea,
   vigenciaDe,
@@ -146,5 +148,18 @@ describe('an invoice tactical (factura sin fecha S4)', () => {
       tono: 'success',
     });
     expect(estadoDe({ estado: 'anulado', fecha_hasta: '2026-03-10', por_factura: true }, HOY).texto).toBe('Anulado');
+  });
+});
+
+describe('cobranza filter and KPIs (tactical cobranza S4)', () => {
+  it('sends cobranza only when it is not Todos', () => {
+    expect(FILTROS_VACIOS.cobranza).toBe('todos');
+    expect(paramsDeFiltros(FILTROS_VACIOS, { page: 1, pageSize: 50 })).not.toHaveProperty('cobranza');
+    expect(paramsDeFiltros({ ...FILTROS_VACIOS, cobranza: 'cobrados' }, { page: 1, pageSize: 50 })).toMatchObject({ cobranza: 'cobrados' });
+  });
+
+  it('formats a KPI amount per currency, a dash when there is none', () => {
+    expect(formatMontosKpi([{ moneda: 'ARS', monto: '4380250.00' }, { moneda: 'USD', monto: '1920.50' }])).toBe('ARS 4.380.250 · USD 1.920,5');
+    expect(formatMontosKpi([])).toBe('—');
   });
 });

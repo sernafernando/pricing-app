@@ -5,7 +5,7 @@ import { tacticalsAPI } from '../../services/tacticalsAPI';
 import TacticalAnular from './TacticalAnular';
 import TacticalEditar from './TacticalEditar';
 import TacticalFila from './TacticalFila';
-import { COLUMNAS_TACTICAL, FILTROS_VACIOS, paramsDeFiltros } from './tacticalsFormat';
+import { COLUMNAS_TACTICAL, FILTROS_VACIOS, formatMontosKpi, paramsDeFiltros } from './tacticalsFormat';
 import tablaStyles from './TacticalFila.module.css';
 import styles from './TacticalsList.module.css';
 
@@ -19,7 +19,33 @@ const ESTADOS = [
   { value: 'vencidos', label: 'Vencidos' },
   { value: 'anulados', label: 'Anulados' },
 ];
+const COBRANZAS = [
+  { value: 'todos', label: 'Todos' },
+  { value: 'pendientes', label: 'Pendientes' },
+  { value: 'cobrados', label: 'Cobrados' },
+];
 const FILAS_POR_PAGINA = 50;
+
+const cantidadDe = (n) => `${n} ${n === 1 ? 'tactical' : 'tacticals'}`;
+
+/** Pendientes and Cobrados over every tactical the other filters match (tactical cobranza S4): count and amount. */
+function KpisCobranza({ kpis }) {
+  return (
+    <section className={styles.kpis} aria-label="Cobranza de los tacticals">
+      {[
+        ['Pendientes', kpis.pendientes],
+        ['Cobrados', kpis.cobrados],
+      ].map(([titulo, grupo]) => (
+        <div key={titulo} className={styles.kpi}>
+          <span className={styles.label}>{titulo}</span>
+          <div className={styles.kpiCantidad}>{cantidadDe(grupo.cantidad)}</div>
+          <div className={styles.kpiMonto}>{formatMontosKpi(grupo.montos)}</div>
+        </div>
+      ))}
+      <p className={styles.kpiNota}>Monto: lo que generaron las líneas de cada tactical, por moneda.</p>
+    </section>
+  );
+}
 
 /**
  * The Tacticals tab (S7): the brands' programs filtered by tipo, brand, currency, state, dates and a search, one row per
@@ -30,6 +56,10 @@ const FILAS_POR_PAGINA = 50;
  * confirmation, voids it and its children, asks the list again and tells `onCambio` (the page's tab count). An
  * expanded line's "Ver ventas" hands that line to `onVerLinea` (the page opens its record). `tipoInicial` (`todos`,
  * `sell_in` or `sell_out`) is the Tipo the list opens with; Limpiar filtros goes back to Todos.
+ *
+ * Cobranza (handoffs/tactical-cobranza-tarea.md S3, S4): a Cobranza filter (Todos | Pendientes | Cobrados), the
+ * Pendientes / Cobrados KPIs the list answers over the other filters, and on each row a Pendiente / Cobrado pill; a
+ * row the user manages opens its Cobranza box under it (one at a time), and a save or an undo asks the list again.
  */
 export default function TacticalsList({ marcas = [], version = 0, puedeGestionar = () => false, onRenovar, onCambio, onVerLinea, tipoInicial = 'todos' }) {
   const [filtros, setFiltros] = useState(() => ({ ...FILTROS_VACIOS, tipo: tipoInicial }));
@@ -42,6 +72,8 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
   const [editando, setEditando] = useState(null);
   const [anulando, setAnulando] = useState(null);
   const [guardados, setGuardados] = useState(0);
+  // The tactical whose Cobranza box is open under its row (one at a time), or null.
+  const [cobrando, setCobrando] = useState(null);
 
   const claveDe = (f, desde) => JSON.stringify(paramsDeFiltros(f, { page: Math.floor(desde / pageSize) + 1, pageSize }));
   const clave = claveDe(filtros, offset);
@@ -73,6 +105,7 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
     if (claveDe(nuevos, offset) === clave) return;
     setOffset(0);
     setAbiertos(new Set());
+    setCobrando(null);
   };
   const alternar = (id) =>
     setAbiertos((actual) => {
@@ -121,17 +154,27 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
           <span className={styles.label}>Estado</span>
           <SegmentedControl label="Estado" options={ESTADOS} value={filtros.estado} onChange={(estado) => filtrar({ estado })} />
         </div>
-        <fieldset className={styles.vigencia}>
-          <legend className={styles.label}>Vigencia</legend>
-          <label className={styles.fecha}>
-            <span className={styles.subLabel}>Desde</span>
-            <input type="date" className={styles.control} value={filtros.desde} onChange={(e) => filtrar({ desde: e.target.value })} />
-          </label>
-          <label className={styles.fecha}>
-            <span className={styles.subLabel}>Hasta</span>
-            <input type="date" className={styles.control} value={filtros.hasta} onChange={(e) => filtrar({ hasta: e.target.value })} />
-          </label>
-        </fieldset>
+        <div className={styles.campo}>
+          <span className={styles.label}>Cobranza</span>
+          <SegmentedControl label="Cobranza" options={COBRANZAS} value={filtros.cobranza} onChange={(cobranza) => filtrar({ cobranza })} />
+        </div>
+        {/* Desde/Hasta are inline prefixes (as Nuevo tactical's Vigencia, #2177): one label line like the other filters,
+            so every control shares the same baseline. */}
+        <div className={styles.campo} role="group" aria-labelledby="tacticals-vigencia">
+          <span id="tacticals-vigencia" className={styles.label}>
+            Vigencia
+          </span>
+          <div className={styles.vigencia}>
+            <label className={styles.fecha}>
+              <span className={styles.prefix}>Desde</span>
+              <input type="date" className={`${styles.control} ${styles.fechaControl}`} value={filtros.desde} onChange={(e) => filtrar({ desde: e.target.value })} />
+            </label>
+            <label className={styles.fecha}>
+              <span className={styles.prefix}>Hasta</span>
+              <input type="date" className={`${styles.control} ${styles.fechaControl}`} value={filtros.hasta} onChange={(e) => filtrar({ hasta: e.target.value })} />
+            </label>
+          </div>
+        </div>
         <div className={`${styles.campo} ${styles.buscar}`}>
           <span className={styles.label}>Buscar</span>
           <SearchInput value={filtros.q} onChange={(q) => filtrar({ q })} debounce={300} placeholder="Buscar por nombre o referencia" />
@@ -147,6 +190,7 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
         </div>
       )}
       {!error && !datos && <div className={styles.aviso}>Cargando tacticals…</div>}
+      {!error && datos?.kpis && <KpisCobranza kpis={datos.kpis} />}
       {!error && datos && (
         <div className={styles.lista}>
           <div className={styles.scroller}>
@@ -163,6 +207,7 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
                   <th scope="col" className={tablaStyles.num}>Líneas</th>
                   <th scope="col">Avance</th>
                   <th scope="col">Estado</th>
+                  <th scope="col">Cobranza</th>
                   <th scope="col">
                     <span className={styles.srOnly}>Acciones</span>
                   </th>
@@ -185,6 +230,15 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
                   onAlternar={() => alternar(tactical.id)}
                   acciones={accionesDe(tactical)}
                   onVerLinea={onVerLinea}
+                  cobranza={{
+                    puede: puedeGestionar(tactical.tipo),
+                    abierta: cobrando === tactical.id,
+                    onAlternar: () => setCobrando((actual) => (actual === tactical.id ? null : tactical.id)),
+                    onGuardado: () => {
+                      setCobrando(null);
+                      setGuardados((n) => n + 1);
+                    },
+                  }}
                 />
               ))}
             </table>
