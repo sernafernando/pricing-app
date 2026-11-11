@@ -151,7 +151,9 @@ def test_the_copy_to_a_corrected_clone_carries_amount_and_currency(eng):
         pedido_con_factura(conn)
         linea(conn, 1, 100, 501, "2", "10", USD)
         linea(conn, 2, 100, 502, "1", None, USD)
-        conn.execute(text("INSERT INTO pedidos_compra (id, ct_transaction_id, corregido_desde_id) VALUES (2, 100, 1)"))
+        # Clone without CT yet: a shared header CT would fail the M:N sell-in
+        # exclusivity gate and leave the original with no snapshot to copy.
+        conn.execute(text("INSERT INTO pedidos_compra (id, ct_transaction_id, corregido_desde_id) VALUES (2, NULL, 1)"))
     _reconciliar(eng)
 
     with Session(eng) as session:
