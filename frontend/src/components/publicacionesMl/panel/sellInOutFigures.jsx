@@ -48,12 +48,14 @@ export function SellInOutMarkup({ sellInOut }) {
  * `SellInOutMarkup` with its "c/ sell in/out" label, or nothing at all when there is nothing to show (no sell in nor
  * sell out today), so the label never stands alone.
  */
-export function SellInOutMarkupLine({ sellInOut, className, labelClassName }) {
+export function SellInOutMarkupLine({ sellInOut, className, labelClassName, labelTitle }) {
   const value = sellInOutMarkup(sellInOut);
   if (value == null) return null;
   return (
     <span className={className}>
-      <span className={labelClassName}>c/ sell in/out </span>
+      <span className={labelClassName} title={labelTitle}>
+        c/ sell in/out{' '}
+      </span>
       {value}
     </span>
   );

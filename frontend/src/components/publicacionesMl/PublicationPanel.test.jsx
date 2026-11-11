@@ -671,8 +671,11 @@ describe('header figures (S1)', () => {
 
   describe('cost and markup with sell in / sell out (S6, S9: ver_ganancia only)', () => {
     const SELL_IN = { compra_item_id: 7, descuento_unit: 1500, costo: 62500, unidades_restantes: 12 };
+    // One consistent set (L11): the unit of the breakdown (limpio 81.002,93, costo 64.000) is the publication's only
+    // one, so the range is its 26,5%; with sell in the cost is 62.500 (+29,6%), and a 2.000 sell out raises it (+32,8%).
+    const UNIT_MARKUP = { min: 26.5, max: 26.5, worst: 26.5, any_negative: false, reason: 'ok', partial: 0 };
     const withCosts = (sellInOut) => ({
-      ...withRow({ ...SALES, markup: MARKUP }),
+      ...withRow({ ...SALES, markup: UNIT_MARKUP }),
       markup_breakdown: DETAIL_RESPONSE_MARGIN.markup_breakdown,
       sell_in_out: sellInOut,
     });
@@ -684,12 +687,12 @@ describe('header figures (S1)', () => {
           sell_in: SELL_IN,
           sell_out: { monto_unit: 2000, campana_ids: [3] },
           markups_sell_in: { publicacion: 29.6 },
-          markups_sell_in_out: { publicacion: -2.4 },
+          markups_sell_in_out: { publicacion: 32.8 },
         }),
       });
       renderPanel({ tab: 'resumen' });
       await screen.findByRole('region', { name: 'Cifras de la publicación' });
-      expect(figure('Precio')).toBe('$ 98.500,50Markup 15,0%c/ sell in/out -2,4%');
+      expect(figure('Precio')).toBe('$ 98.500,50Markup 26,5%c/ sell in/out 32,8%');
     });
 
     it('S9: with sell in only, the markup with sell in', async () => {
@@ -699,7 +702,7 @@ describe('header figures (S1)', () => {
       });
       renderPanel({ tab: 'resumen' });
       await screen.findByRole('region', { name: 'Cifras de la publicación' });
-      expect(figure('Precio')).toBe('$ 98.500,50Markup 15,0%c/ sell in/out 29,6%');
+      expect(figure('Precio')).toBe('$ 98.500,50Markup 26,5%c/ sell in/out 29,6%');
     });
 
     it('S9: no sell in nor sell out today, no extra line under the markup', async () => {
@@ -707,7 +710,7 @@ describe('header figures (S1)', () => {
       publicacionesMlAPI.detail.mockResolvedValue({ data: withCosts(null) });
       renderPanel({ tab: 'resumen' });
       await screen.findByRole('region', { name: 'Cifras de la publicación' });
-      expect(figure('Precio')).toBe('$ 98.500,50Markup 15,0%');
+      expect(figure('Precio')).toBe('$ 98.500,50Markup 26,5%');
     });
 
     it('S6: a Costo card after Precio with the cost in pesos and the cost with sell in under it', async () => {
@@ -719,6 +722,21 @@ describe('header figures (S1)', () => {
       await screen.findByRole('region', { name: 'Cifras de la publicación' });
       expect(labels()).toEqual(['Precio', 'Costo', 'Stock', 'Ventas 30 días']);
       expect(figure('Costo')).toBe('$ 64.000,00c/ sell in $ 62.500,00');
+    });
+
+    it('L11: the Costo card and the sell in/out line name the unit they come from, as Rentabilidad does', async () => {
+      canSeeMargin = true;
+      publicacionesMlAPI.detail.mockResolvedValue({
+        data: {
+          ...withCosts({ sell_in: SELL_IN, sell_out: null, markups_sell_in: { publicacion: 29.6 }, markups_sell_in_out: {} }),
+          markup_breakdown: { ...DETAIL_RESPONSE_MARGIN.markup_breakdown, variation_id: 77 },
+        },
+      });
+      renderPanel({ tab: 'resumen' });
+      await screen.findByRole('region', { name: 'Cifras de la publicación' });
+      const hint = 'Unidad calculada: variación 77, la de peor markup';
+      expect(within(figures()).getByText('$ 64.000,00')).toHaveAttribute('title', `Costo del producto en pesos. ${hint}`);
+      expect(within(figures()).getByText('c/ sell in/out', { exact: false })).toHaveAttribute('title', hint);
     });
 
     it('S6: without sell in, the Costo card has the cost alone', async () => {

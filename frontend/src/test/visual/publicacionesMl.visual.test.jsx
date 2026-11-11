@@ -1751,12 +1751,15 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
           height,
           theme,
           margin: true,
+          // One consistent set (L11): the breakdown's unit (limpio 81.002,93, costo 64.000 -> 26,5%) is the only one,
+          // sell in 62.500 -> 29,6%, plus a 2.000 sell out -> 32,8%.
+          rowExtra: { markup: { min: 26.5, max: 26.5, worst: 26.5, any_negative: false, reason: 'ok', partial: 0 } },
           detailExtra: {
             sell_in_out: {
               sell_in: sellIn,
               sell_out: { monto_unit: 2000, campana_ids: [3] },
               markups_sell_in: { publicacion: 29.6 },
-              markups_sell_in_out: { publicacion: -2.4 },
+              markups_sell_in_out: { publicacion: 32.8 },
             },
           },
         });

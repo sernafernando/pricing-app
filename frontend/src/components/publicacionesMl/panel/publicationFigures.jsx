@@ -17,8 +17,14 @@ const money = (value) => {
  * them (`sales_30d`, absent from an older backend). With `ml_metricas.ver_ganancia`, the markup with sell in /
  * sell out under the markup (S9) and a Costo card (S6) from the detail's `markup_breakdown` and `sell_in_out`.
  */
+/** Which unit the breakdown explains (L11): the cost and the sell in/out markup are that unit's, the markup above is
+ * the publication's range. Same wording as Rentabilidad's "Unidad calculada". */
+const unitHint = (breakdown) =>
+  breakdown?.variation_id == null ? 'Unidad calculada: la publicación' : `Unidad calculada: variación ${breakdown.variation_id}, la de peor markup`;
+
 export function publicationFigures(row, { canSeeMargin, canSeeSales, breakdown = null, sellInOut = null }) {
   const price = money(row.price?.amount);
+  const hint = unitHint(breakdown);
   const figures = [
     {
       key: 'price',
@@ -28,7 +34,7 @@ export function publicationFigures(row, { canSeeMargin, canSeeSales, breakdown =
         <>
           <HeaderMarkup markup={row.markup} />
           {/* S9: the markup with the product's sell in / sell out today, as Rentabilidad shows it. */}
-          <SellInOutMarkupLine sellInOut={sellInOut} className={styles.figureSubnote} labelClassName={styles.figureMarkupWord} />
+          <SellInOutMarkupLine sellInOut={sellInOut} className={styles.figureSubnote} labelClassName={styles.figureMarkupWord} labelTitle={hint} />
         </>
       ) : null,
     },
@@ -39,7 +45,7 @@ export function publicationFigures(row, { canSeeMargin, canSeeSales, breakdown =
     figures.push({
       key: 'cost',
       label: 'Costo',
-      value: <span title="Costo del producto en pesos">{money(breakdown.costo_ars)}</span>,
+      value: <span title={`Costo del producto en pesos. ${hint}`}>{money(breakdown.costo_ars)}</span>,
       note: sellIn ? (
         <>
           c/ sell in <SellInCost sellIn={sellIn} format={money} />
