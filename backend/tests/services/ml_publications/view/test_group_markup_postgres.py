@@ -16,6 +16,7 @@ import pytest
 from sqlalchemy import event, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.services.envio_real_service import CostosEnvio
 from app.models.comision_config import SubcategoriaGrupo
 from app.services.ml_daily_metrics.groups import NO_GROUP
 from app.services.ml_publications.view import groups, listing, markup_service
@@ -63,11 +64,11 @@ def envio_calls(monkeypatch):
     calls: list[list[int]] = []
     monkeypatch.setattr(markup_service, "build_pricing_context", lambda db: make_ctx())
 
-    def fake(session, product_ids, **kwargs):
+    def fake(session, product_ids, mla_ids, **kwargs):
         calls.append(list(product_ids))
-        return {}
+        return CostosEnvio()
 
-    monkeypatch.setattr(markup_service, "resolver_costos_envio_batch", fake)
+    monkeypatch.setattr(markup_service, "resolver_costos_envio_publicaciones", fake)
     return calls
 
 

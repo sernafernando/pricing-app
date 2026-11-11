@@ -24,6 +24,7 @@ from alembic.operations import Operations
 from sqlalchemy import event, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.services.envio_real_service import CostosEnvio
 from app.models.comision_config import SubcategoriaGrupo
 from app.services.ml_publications.view import groups, listing, markup_inputs, markup_service, products, stats
 from app.services.ml_publications.view.filters import MarkupFilter, build_base_select, parse_filter
@@ -347,7 +348,7 @@ def priced(monkeypatch):
     """The pricing context is hand-built and the shipping batch is stubbed: the database cost of the markup is
     what is measured here (the cross-database shipping lookup can only be measured on production)."""
     monkeypatch.setattr(markup_service, "build_pricing_context", lambda db: PRICING_CTX)
-    monkeypatch.setattr(markup_service, "resolver_costos_envio_batch", lambda db, ids, **k: {})
+    monkeypatch.setattr(markup_service, "resolver_costos_envio_publicaciones", lambda db, ids, mlas, **k: CostosEnvio())
 
 
 def markup_page(session: Session, limit: int = 50, offset: int = 0, **params):

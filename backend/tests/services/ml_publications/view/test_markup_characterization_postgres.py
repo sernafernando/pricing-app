@@ -16,6 +16,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
+from app.services.envio_real_service import CostosEnvio
 from app.models.comision_config import SubcategoriaGrupo
 from app.services.ml_publications.view.markup import UnitBreakdown
 from app.services.ml_publications.view import groups, listing, markup_service
@@ -53,7 +54,11 @@ def db(env, conn):  # noqa: F811
 @pytest.fixture(autouse=True)
 def stubs(monkeypatch):
     monkeypatch.setattr(markup_service, "build_pricing_context", lambda db: make_ctx())
-    monkeypatch.setattr(markup_service, "resolver_costos_envio_batch", lambda session, ids, **kw: dict(ENVIO))
+    monkeypatch.setattr(
+        markup_service,
+        "resolver_costos_envio_publicaciones",
+        lambda session, ids, mlas, **kw: CostosEnvio(dict(ENVIO), {}),
+    )
 
 
 def terms(campaign: str) -> str:

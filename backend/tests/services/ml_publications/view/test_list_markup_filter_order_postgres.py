@@ -12,6 +12,7 @@ import pytest
 from sqlalchemy import event, text
 from sqlalchemy.orm import sessionmaker
 
+from app.services.envio_real_service import CostosEnvio
 from app.models.comision_config import SubcategoriaGrupo
 from app.services.ml_publications.view import listing, markup_service
 from app.services.ml_publications.view.filters import MarkupFilter, parse_filter
@@ -47,7 +48,11 @@ def db(env, conn):  # noqa: F811
 @pytest.fixture(autouse=True)
 def stubs(monkeypatch):
     monkeypatch.setattr(markup_service, "build_pricing_context", lambda session: make_ctx())
-    monkeypatch.setattr(markup_service, "resolver_costos_envio_batch", lambda session, ids, **kw: {70: 1500.0})
+    monkeypatch.setattr(
+        markup_service,
+        "resolver_costos_envio_publicaciones",
+        lambda session, ids, mlas, **kw: CostosEnvio({70: 1500.0}, {}),
+    )
 
 
 def titled(connection) -> None:

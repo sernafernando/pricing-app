@@ -7,8 +7,9 @@ One entry point, `compute_markups`, for both paths:
 * set-wide path: `f` (a PM-resolved filter): the inputs of every publication of the filtered set, for sorting
   and filtering by markup.
 
-Either way the cost is a fixed number of statements: three or four for the inputs (`markup_inputs`), one shipping batch
-(`resolver_costos_envio_batch`, once per request, for the distinct priceable products) and the pricing context
+Either way the cost is a fixed number of statements: three or four for the inputs (`markup_inputs`), one shipping read
+(`resolver_costos_envio_publicaciones`, once per request: the MAX of the distinct priceable products and the own
+cost of each priceable publication, which wins over that MAX) and the pricing context
 (`build_pricing_context`, built by the caller or here), then a Python loop over the pure functions
 (`markup.unit_markup`, `markup.aggregate_publication`). Nothing here names the product catalog.
 
@@ -29,7 +30,7 @@ from typing import Iterable, Iterator, Mapping, Optional, Sequence
 
 from sqlalchemy.orm import Session
 
-from app.services.envio_real_service import resolver_costos_envio_batch
+from app.services.envio_real_service import CostosEnvio, resolver_costos_envio_publicaciones
 from app.services.ml_publications.view.ads import AdsCostProvider, ads_row, apply_ads
 from app.services.ml_publications.view.filters import MarkupFilter, PublicationFilter
 from app.services.ml_publications.view.markup import (
@@ -186,30 +187,40 @@ def gc_paused() -> Iterator[None]:
             gc.enable()
 
 
+def _priceable_units(publication: PublicationInputs) -> list[UnitInputs]:
+    """The units of a publication whose cost is usable: only those are priced."""
+    units = [publication.item_unit, *(u for u in publication.variation_units if u is not None)]
+    return [u for u in units if u.producto_item_id is not None and u.costo is not None and u.costo > 0]
+
+
 def _priceable_products(publications: Sequence[PublicationInputs]) -> list[int]:
     """Distinct products whose cost is usable: only those are priced, so only their shipping is looked up."""
-    found: set[int] = set()
-    for pub in publications:
-        unit = pub.item_unit
-        if unit.producto_item_id is not None and unit.costo is not None and unit.costo > 0:
-            found.add(unit.producto_item_id)
-        for unit in pub.variation_units:
-            if unit is not None and unit.producto_item_id is not None and unit.costo is not None and unit.costo > 0:
-                found.add(unit.producto_item_id)
-    return sorted(found)
+    return sorted({unit.producto_item_id for pub in publications for unit in _priceable_units(pub)})
 
 
-def _shipping(pricing_db: Session, products: Sequence[int]) -> Mapping[int, float]:
-    """The real shipping cost of each priceable product (absent when it has none)."""
+def _priceable_mlas(publications: Sequence[PublicationInputs]) -> list[str]:
+    """The publications with at least one priceable unit: only their own shipping cost is looked up."""
+    return sorted({pub.item_id for pub in publications if _priceable_units(pub)})
+
+
+def _shipping(pricing_db: Session, publications: Sequence[PublicationInputs]) -> CostosEnvio:
+    """The real shipping costs of the priceable publications: each one's own and its products' MAX (one read)."""
+    products = _priceable_products(publications)
     if not products:
-        return {}
-    return resolver_costos_envio_batch(pricing_db, list(products))
+        return CostosEnvio()
+    return resolver_costos_envio_publicaciones(pricing_db, products, _priceable_mlas(publications))
 
 
-def price_publication(ctx: PricingContext, inputs: PublicationInputs, envio: Mapping[int, float]) -> PublicationMarkup:
-    """One publication: its item-level unit and each variation, priced and aggregated."""
-    item_unit = unit_markup(ctx, inputs.item_unit, envio)
-    own = [unit_markup(ctx, unit, envio) if unit is not None else None for unit in inputs.variation_units]
+def price_publication(
+    ctx: PricingContext, inputs: PublicationInputs, envio: Mapping[int, float], envio_propio: Optional[float] = None
+) -> PublicationMarkup:
+    """One publication: its item-level unit and each variation, priced and aggregated. `envio_propio`, the
+    publication's own real shipping cost, wins over the product MAX in `envio` for every unit."""
+    item_unit = unit_markup(ctx, inputs.item_unit, envio, envio_propio=envio_propio)
+    own = [
+        unit_markup(ctx, unit, envio, envio_propio=envio_propio) if unit is not None else None
+        for unit in inputs.variation_units
+    ]
     return aggregate_publication(item_unit, own)
 
 
@@ -253,12 +264,14 @@ def compute_markups(
     with gc_paused():
         inputs = fetch_inputs(db, item_ids=item_ids, f=f)
         publications = list(inputs.values())
-        products = _priceable_products(publications)
     # Not inside the pause: these read the database and build few objects.
-    envio = _shipping(pricing_db, products)
+    envio = _shipping(pricing_db, publications)
     ctx = ctx or build_pricing_context(pricing_db)
     with gc_paused():
-        plain = {pub.item_id: price_publication(ctx, pub, envio) for pub in publications}
+        plain = {
+            pub.item_id: price_publication(ctx, pub, envio.por_producto, envio.por_mla.get(pub.item_id))
+            for pub in publications
+        }
     with_ads = _with_ads(pricing_db, ads, plain, item_ids) if ads is not None else None
     if with_ads is None:
         items = {
@@ -324,10 +337,10 @@ def compute_detail(
     publication = fetch_inputs(db, item_ids=[item_id]).get(item_id)
     if publication is None:
         return None
-    products = _priceable_products([publication])
-    envio = _shipping(pricing_db, products)
+    envio = _shipping(pricing_db, [publication])
+    own = envio.por_mla.get(publication.item_id)
     ctx = ctx or build_pricing_context(pricing_db)
-    markup = price_publication(ctx, publication, envio)
+    markup = price_publication(ctx, publication, envio.por_producto, own)
     unit, variation_id = _worst_unit(publication, markup)
-    breakdown = unit_breakdown(ctx, unit, envio) if unit is not None else None
+    breakdown = unit_breakdown(ctx, unit, envio.por_producto, envio_propio=own) if unit is not None else None
     return DetailMarkup(ItemMarkup(markup, variation_ids=publication.variation_ids), breakdown, variation_id)
