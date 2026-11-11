@@ -3,7 +3,10 @@ import { TableShell } from '../kit';
 import VariationRows from './VariationRows';
 import { treeRowTone } from './rowColor';
 import useGroupTree from './useGroupTree';
-import { BranchState, NodeCount, NodeMarkup, NodeNegatives, NodeTitle } from './NodeCells';
+import { BranchState, NodeMarkup, NodeSummary, NodeTitle } from './NodeCells';
+
+// A node's Tipo, Estado and Precio: the summary of ALL its publications (S6); its count is its first cell's second line.
+const SUMMARY_COLUMNS = new Set(['tipo', 'estado', 'precio']);
 
 /**
  * Agrupado view of Publicaciones ML (publicaciones-ml-vista P12a):
@@ -13,8 +16,9 @@ import { BranchState, NodeCount, NodeMarkup, NodeNegatives, NodeTitle } from './
  * variation sub-rows of a leaf publication).
  *
  * `columns` are the page's visible ones (`buildColumns({agrupado: true})`):
- * a node fills the columns it has a figure for -- name, count, negatives,
- * markup range -- and a publication fills them all, exactly like the list.
+ * a node fills its name with its count (and negatives) on a second line, its
+ * Tipo, Estado and Precio with a summary of its publications, and its markup
+ * range; a publication fills them all, exactly like the list.
  * The tree has no sort. The user's filters (the store included) reach every
  * level; the markup filters do not (`/groups` does not apply them).
  */
@@ -45,8 +49,7 @@ export default function AgrupadoTable({
           if (row.type === 'item') return column.render(row.item);
           if (row.type === 'node') {
             if (column.key === 'titulo') return <NodeTitle row={row} onToggle={toggle} />;
-            if (column.key === 'publicaciones') return <NodeCount node={row.node} />;
-            if (column.key === 'negativos') return <NodeNegatives node={row.node} />;
+            if (SUMMARY_COLUMNS.has(column.key)) return <NodeSummary column={column.key} node={row.node} />;
             if (column.key === 'markup') return <NodeMarkup node={row.node} />;
             return null;
           }

@@ -209,15 +209,19 @@ describe('permissions', () => {
 });
 
 describe('the tree', () => {
-  it('keeps the node figures right after Publicación, ungrouped', () => {
-    const got = buildColumns({ eventsEnabled: false, canSeeSales: true, canSeeMargin: true, agrupado: true });
-    expect(got.slice(0, 5).map((column) => [column.key, column.group])).toEqual([
-      ['titulo', undefined],
-      ['publicaciones', undefined],
-      ['negativos', undefined],
-      ['tipo', undefined],
-      ['estado', undefined],
-    ]);
+  it('has no column a level leaves empty: the count lives in the first cell, Tipo/Estado/Precio follow it (S6)', () => {
+    for (const view of [{ agrupado: true }, { producto: true }]) {
+      const got = buildColumns({ eventsEnabled: false, canSeeSales: true, canSeeMargin: true, ...view });
+      expect(got.slice(0, 4).map((column) => [column.key, column.group])).toEqual([
+        ['titulo', undefined],
+        ['tipo', undefined],
+        ['estado', undefined],
+        ['precio', undefined],
+      ]);
+      const keys = got.map((column) => column.key);
+      expect(keys).not.toContain('publicaciones');
+      expect(keys).not.toContain('negativos');
+    }
   });
 });
 

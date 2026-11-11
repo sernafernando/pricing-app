@@ -37,6 +37,9 @@ Rules worth knowing before reading the code:
   family with no other publication of the product stay as `item` nodes (an MLA is not a family of one).
 * The statement count is fixed whatever the number of nodes: one page query, which carries the count of the level in
   a window column; a second, count-only statement runs only when the page is empty (an offset past the end).
+* Every node also carries its `summary` (`listing.Summary`: publications by kind and by status, and the shown price's
+  range), read by ONE more statement over all the page's nodes' publications, so a parent row's Tipo, Estado and
+  Precio cover every publication it counts, not the children loaded so far.
 * With a `MarkupQuery` (the caller may see margins) each node also carries `negative_count`, `markup_min` and
   `markup_max` (owner decision 7: no average, no Ads sum). They are aggregated in Python from P6's
   computation (`compute_markups`: one inputs pass and one shipping batch, Ads applied when asked) over the
@@ -77,7 +80,13 @@ from app.services.ml_publications.view.filters import (
     linked_product_conditions,
     product_links,
 )
-from app.services.ml_publications.view.listing import resolve_pm_pairs
+from app.services.ml_publications.view.listing import (
+    EMPTY_SUMMARY,
+    Summary,
+    resolve_pm_pairs,
+    summaries,
+    summary_columns,
+)
 from app.services.ml_publications.view.markup_service import MarkupQuery, aggregate_nodes, compute_markups, gc_paused
 
 KIND_PRODUCT = "producto"
@@ -122,6 +131,8 @@ class Node:
     negative_count: Optional[int] = None
     markup_min: Optional[float] = None
     markup_max: Optional[float] = None
+    # what the node shows in Tipo, Estado and Precio, over ALL its publications (`_with_summary`)
+    summary: Summary = EMPTY_SUMMARY
 
 
 @dataclass(frozen=True)
@@ -495,6 +506,34 @@ def _family_members(
     return [(item_id, item_id if item_id in lone else k) for item_id, k in rows if item_id in lone or k in grouped]
 
 
+def _node_key(tree: Tree, page: GroupsPage) -> tuple[Any, Any]:
+    """The key column a publication sits under at the page's level, and the condition keeping only the page's
+    nodes: the same choice `_members` / `_family_members` make (a lone publication of the family level is keyed by its
+    MLA, a family by its family id)."""
+    if page.level == KIND_FAMILY:
+        families = [node.key for node in page.nodes if node.kind == KIND_FAMILY]
+        items = [node.key for node in page.nodes if node.kind == KIND_ITEM]
+        fk = family_key()
+        return case((T.i.item_id.in_(items), T.i.item_id), else_=fk), or_(fk.in_(families), T.i.item_id.in_(items))
+    key = product_key() if page.level not in tree.dimensions else tree.dimensions[page.level].key
+    return key, key.in_([_raw_key(page.level, node.key) for node in page.nodes])
+
+
+def _with_summary(db: Session, f: PublicationFilter, tree: Tree, path: list[str], page: GroupsPage) -> GroupsPage:
+    """The page with each node's `Summary` (kinds, states, price range) over ALL its publications under the
+    filters: ONE statement whatever the number of nodes, each publication once per node (as its `count`)."""
+    key, wanted = _node_key(tree, page)
+    pubs = (
+        _scoped(f, path, tree, T.i.item_id.label("item"), key.label("k"), *summary_columns())
+        .where(wanted)
+        .distinct()  # a group node holds a publication once, whatever the number of its products in it
+        .subquery("summary_pubs")
+    )
+    found = {_wire_key(page.level, raw): summary for raw, summary in summaries(db, pubs).items()}
+    nodes = [replace(node, summary=found.get(node.key, EMPTY_SUMMARY)) for node in page.nodes]
+    return replace(page, nodes=nodes)
+
+
 def _path_product(tree: Tree, path: list[str], page: GroupsPage) -> Optional[int]:
     """The product a family page hangs from (its path's product key), so its nodes read that product's units;
     None above the product level and under "Sin producto"."""
@@ -564,6 +603,8 @@ def list_groups(
         page = _group_level(db, f, tree, path, level, limit, offset)
     if KIND_STORE in tree.levels and page.nodes:
         page = _with_store_ids(db, f, page)
+    if page.nodes:
+        page = _with_summary(db, f, tree, path, page)
     if markup is None or not page.nodes:
         return page
     return _with_markup(db, f, tree, path, page, markup)

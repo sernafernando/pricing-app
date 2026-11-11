@@ -7,7 +7,7 @@ import {
   effectiveProductSortKeys,
   headerSort,
 } from '../../hooks/usePublicacionesMLFilters';
-import { buildLeafParams } from './groupNodes';
+import { buildLeafParams, readSummary } from './groupNodes';
 import { flattenTree } from './groupTree';
 import { appendPage } from '../../utils/appendPage';
 
@@ -59,6 +59,7 @@ export function readProduct(raw) {
     // Productos' wholesale quick view (`PxqTramosBadge`); absent when the product has no tiers.
     pxqTramos: raw.pxq_tramos ?? null,
     pxqPrecioDesde: raw.pxq_precio_desde ?? null,
+    ...readSummary(raw),
   };
 }
 

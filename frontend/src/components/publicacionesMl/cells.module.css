@@ -77,9 +77,18 @@
   color: var(--cf-text-primary);
 }
 
-/* A node with publications selling under cost. */
-.units[data-negative] {
+/* A parent row's "M con markup negativo", on its title's second line. */
+.negativeNote {
   color: var(--tone-danger-fg);
+  font-weight: var(--font-medium);
+}
+
+/* One line of a parent row's Tipo / Estado summary ("2 Clásica", "4 activas"): never wider than its cell. */
+.summaryLine {
+  font-size: var(--font-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-primary);
+  overflow-wrap: anywhere;
 }
 
 .code {

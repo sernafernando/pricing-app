@@ -99,11 +99,11 @@ export function columnChoicesOver(visibility, defaults) {
  * (ML) and the ERP's.
  * `expandedIds` / `onToggleVariations` drive the expand toggle of publications
  * with more than one variation; without `onToggleVariations` there is none.
- * `agrupado` (the tree view) adds the node figures -- publication count and,
- * with the margin, negatives; the page makes the tree unsortable.
- * Its first column names the chain of levels of `dimension`, like Métricas ML.
- * `producto` (the Producto view) adds the products' publication count and
- * names the first column "Producto › Publicación".
+ * `agrupado` (the tree view): the page makes the tree unsortable; its first
+ * column names the chain of levels of `dimension`, like Métricas ML.
+ * `producto` (the Producto view) names the first column "Producto › Publicación".
+ * Neither adds a column of its own (S6): a parent row's count and negatives sit
+ * in its first cell and its Tipo, Estado and Precio summarize its publications.
  * `skuDivergence` (the `sku_divergente` link filter is on) adds, right after
  * Publicación, the publication's SKU next to the product it names and the
  * linked product (`SkuDivergenceCell`).
@@ -171,10 +171,8 @@ export function buildColumns({
     ...(skuDivergence
       ? [{ key: 'sku_divergencia', header: 'SKU distinto', width: 260, render: (item) => <SkuDivergenceCell item={item} /> }]
       : []),
-    ...(agrupado || producto
-      ? [{ key: 'publicaciones', header: 'Publicaciones', width: 120, align: 'center', fit: true, render: () => null }]
-      : []),
-    ...(agrupado ? withMargin([{ key: 'negativos', header: 'Negativos', width: 100, align: 'center', fit: true, render: () => null }]) : []),
+    // No column a level leaves empty (S6): a parent row's publication count (and, Agrupado, its negatives) is its first
+    // cell's second line, and its Tipo, Estado and Precio summarize its publications (`NodeCells`).
     // The listing type at a glance, before its state: the list's default order (Clásica, then 3, 6, 9, 12 cuotas).
     { key: 'tipo', header: 'Tipo', width: 110, sortable: true, render: (item) => <ListingKindBadge kind={item.listing_kind} /> },
     {

@@ -383,3 +383,43 @@ class TestSinMla:
         assert csv.status_code == 200, csv.text
         lines = [line for line in csv.text.splitlines() if line.strip()]
         assert len(lines) == 2 and "S79" in lines[1]
+
+
+def fill_mixed(conn) -> None:
+    """One product with more publications than a child page (100) of mixed kinds, states and prices, one
+    publication left out by the filter, and one publication with no product."""
+    seed.add_product(conn, 90, "K90", "Kit", marca="Kabel")
+    seed.add_item(conn, "MLA100", status="active", listing_type_id="gold_special", price=1000)
+    seed.add_sale_price(conn, "MLA100", 900)  # the price the list shows is the sale price
+    seed.add_item(conn, "MLA101", status="paused", listing_type_id="gold_pro", tags=["12x_campaign"], price=5000)
+    seed.add_item(conn, "MLA102", status="inactive", sub_status=["deleted"], listing_type_id="gold_special", price=2000)
+    seed.add_item(conn, "MLA103", status="closed", listing_type_id="gold_special", price=1)  # out of the filter
+    for n in range(104, 203):  # 99 more: the product holds 102 publications under the filter
+        seed.add_item(conn, f"MLA{n}", status="active", listing_type_id="gold_pro", price=3000)
+    for n in range(100, 203):
+        seed.add_link(conn, f"MLA{n}", 90)
+    seed.add_item(conn, "MLA300", status="active")  # no link, no listing type, no price: "Sin producto"
+
+
+class TestSummary:
+    """S6: a product row summarizes ALL its publications under the filters (its children load 100 at a time)."""
+
+    def test_a_product_row_carries_its_kinds_states_and_price_range(
+        self, client, pg, db, rol_admin, admin_auth_headers
+    ):
+        seed_rows(pg, fill_mixed)
+        grant(db, rol_admin, VER)
+        rows = by_key(body(client, admin_auth_headers, estado="active,paused,gone")["rows"])
+        row = rows["90"]
+        assert row["publications_count"] == 102
+        assert row["kind_counts"] == {"clasica": 2, "cuotas_12": 1, "cuotas_6": 99}
+        assert row["status_counts"] == {"active": 100, "paused": 1, "gone": 1}
+        assert (row["price_min"], row["price_max"]) == (900.0, 5000.0)
+        assert sum(row["status_counts"].values()) == row["publications_count"]
+
+    def test_a_row_without_kinds_or_prices_reads_empty_and_null(self, client, pg, db, rol_admin, admin_auth_headers):
+        seed_rows(pg, fill_mixed)
+        grant(db, rol_admin, VER)
+        row = by_key(body(client, admin_auth_headers, estado="active")["rows"])["0"]
+        assert (row["kind_counts"], row["status_counts"]) == ({}, {"active": 1})
+        assert (row["price_min"], row["price_max"]) == (None, None)

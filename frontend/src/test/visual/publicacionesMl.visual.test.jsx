@@ -828,10 +828,31 @@ describe('Publicaciones ML Agrupado tree (visual)', () => {
       expect(figures.length).toBeGreaterThan(0);
       expect(wrapped(figures)).toEqual([]);
       expect(overflowingCells(scroller)).toEqual([]);
-      const negatives = [...rowWith(scroller, 'TP-LINK').querySelectorAll('td[data-align] span')].find((el) => el.textContent === '4');
+      // S6: the count and the negatives are the first cell's second line; no column is left for them.
+      const negatives = [...rowWith(scroller, 'TP-LINK').querySelectorAll('td[data-pinned] span')].find((el) => el.textContent === '4 con markup negativo');
       expect(getComputedStyle(negatives).color).toBe(tokenColor('--tone-danger-fg'));
-      const clean = [...rowWith(scroller, 'EPSON').querySelectorAll('td[data-align] span')].find((el) => el.textContent === '0');
-      expect(getComputedStyle(clean).color).not.toBe(tokenColor('--tone-danger-fg'));
+      expect(rowWith(scroller, 'TP-LINK').querySelector('td[data-pinned]').textContent).toContain('90 publicaciones');
+      expect(rowWith(scroller, 'EPSON').textContent).not.toContain('markup negativo');
+      expect(scroller.querySelector('thead th[data-column="publicaciones"], thead th[data-column="negativos"]')).toBeNull();
+      screen.unmount();
+    });
+
+    it(`${width}x${height} ${theme}: a node summarizes its publications in Tipo, Estado and Precio, each line inside its cell`, async () => {
+      const screen = await renderTree({ width, height, theme });
+      await openToLeaf(screen);
+      const scroller = scrollerOf();
+      const cell = (row, key) => row.querySelector(`td[data-column="${key}"]`);
+      for (const label of ['TP-LINK', 'ROUTERS', 'Routers WiFi', 'Router Archer AX55']) {
+        const row = rowWith(scroller, label);
+        expect(cell(row, 'tipo').textContent, label).toMatch(/\d+ Clásica/);
+        expect(cell(row, 'estado').textContent, label).toMatch(/\d+ activas?/);
+        expect(cell(row, 'precio').textContent, label).toMatch(/^[\d.,]+( –[\d.,]+)?$/);
+      }
+      expect(cell(rowWith(scroller, 'TP-LINK'), 'estado').textContent).toBe('89 activas1 pausada');
+      // Each summary line is one line, and nothing pokes out of its cell; the publication rows stay as the list's.
+      expect(wrapped(scroller.querySelectorAll('[data-summary-line]'))).toEqual([]);
+      expect(overflowingCells(scroller)).toEqual([]);
+      expect(cell(rowWith(scroller, 'Router TP-Link Archer AX55 por color'), 'tipo').querySelector('[data-summary-line]')).toBeNull();
       screen.unmount();
     });
 
@@ -1004,6 +1025,26 @@ describe('Publicaciones ML Producto view (visual)', () => {
         expect(figures.length).toBeGreaterThan(0);
         expect(wrapped(figures)).toEqual([]);
         expect(overflowingCells(scroller)).toEqual([]);
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: a product row says its publications and summarizes them in Tipo, Estado and Precio`, async () => {
+        const screen = await renderProducts({ width, height, theme });
+        await screen.getByRole('button', { name: /Abrir Router Archer AX55/ }).click();
+        await expect.element(screen.getByText('Router TP-Link Archer AX55 por color')).toBeVisible();
+        const scroller = scrollerOf();
+        const row = rowWith(scroller, 'Router Archer AX55');
+        const cell = (key) => row.querySelector(`td[data-column="${key}"]`);
+        expect(cell('titulo').textContent).toContain('3 publicaciones');
+        expect(cell('tipo').textContent).toBe('2 Clásica1 6 cuotas');
+        expect(cell('estado').textContent).toBe('2 activas1 pausada');
+        expect(cell('precio').textContent).toBe('45.999,00 –189.999,50');
+        expect(scroller.querySelector('thead th[data-column="publicaciones"]')).toBeNull();
+        // Each summary line is one line inside its cell; the opened publications keep the list's own cells.
+        expect(wrapped(scroller.querySelectorAll('[data-summary-line]'))).toEqual([]);
+        expect(overflowingCells(scroller)).toEqual([]);
+        const publication = rowWith(scroller, 'Router TP-Link Archer AX55 por color');
+        expect(publication.querySelector('td[data-column="tipo"] [data-summary-line]')).toBeNull();
         screen.unmount();
       });
 
@@ -3297,6 +3338,17 @@ describe('Publicaciones ML columns sized by their content (visual)', () => {
       screen = await renderProducts({ width: 1440, height: 1800, theme });
       await frame();
       await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/tabla-producto-1440-${theme}.png`, element: scrollerOf() });
+      // A product opened into its publications: the parent row and its children, column by column.
+      await screen.getByRole('button', { name: /Abrir Router Archer AX55/ }).click();
+      await expect.element(screen.getByText('Router TP-Link Archer AX55 por color')).toBeVisible();
+      await frame();
+      await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/tabla-producto-abierta-1440-${theme}.png`, element: scrollerOf() });
+      screen.unmount();
+      // The Agrupado tree opened down to a product's publications.
+      screen = await renderTree({ width: 1440, height: 1800, theme });
+      await openToLeaf(screen);
+      await frame();
+      await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/tabla-agrupado-1440-${theme}.png`, element: scrollerOf() });
       screen.unmount();
     });
   }
