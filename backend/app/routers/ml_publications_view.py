@@ -44,9 +44,8 @@ joins it).
   the last 30 days; the most sold flagged), `promedio`, `ponderado` (null without sales) and `max`, plus the stored
   choice, what it resolves to now and a `warning` when a chosen publication fell back to the MAX. 503
   (`envio_no_disponible`) when the mlwebhook costs cannot be read.
-- `PUT /ml-publications/view/products/{item_id}/envio` (`productos.editar_precio_clasica`, the permission of
-  Productos' main price edit): stores the choice (`max` too, as a row) with the user and the time. The only write
-  of this router besides `/status-item-ids/checked`; every pricing caller applies it through `envio_real_service`.
+  The choice itself is written by `PUT /ml-publications/products/{item_id}/envio` (`ml_publications_envio.py`):
+  this router only reads.
 - A query over `statement_timeout` answers 503 with the error code `consulta_lenta` (never a partial page) and
   the connection is released. Errors use the app's envelope: `{"error": {"code", "message"}}`, plus `field` on a
   422 that names the offending query parameter. Nothing here calls Mercado Libre.
@@ -73,17 +72,17 @@ from app.core.database import get_background_db, get_db
 from app.core.exceptions import ErrorCode, api_error
 from app.models.usuario import Usuario
 from app.schemas.costo_ppp import PppPayload
-from app.schemas.ml_publications_view import EleccionEnvioGuardada, EleccionEnvioIn, OpcionesEnvioResponse
+from app.schemas.ml_publications_view import OpcionesEnvioResponse
 from app.schemas.sell_in_out_producto import SellInOutProducto
 from app.services.ml_daily_metrics import board, kpi_strip
 from app.services.ml_daily_metrics.sales import NO_PRODUCT
+from app.services import envio_producto_eleccion as envio_producto
 from app.services import envio_real_service
 from app.services import ml_publication_colors as colors
 from app.services.ml_publications import admin, settings_store
 from app.services.ml_publications.view import (
     caps,
     detail,
-    envio_producto,
     events_view,
     export,
     groups,
@@ -131,7 +130,6 @@ PERMISO_GESTIONAR = "ml_ops.gestionar"  # what lets the screen offer "Resincroni
 PERMISO_PAUSAR = "ml_publicaciones.pausar"  # what lets the screen offer "Pausar" / "Activar"
 # Choosing a product's shipping cost changes its prices' markups: the permission of Productos' main price edit
 # (Productos.jsx `puedeEditarPrecioClasica`, one of `/precios/set-rapido`'s PERMISOS_EDITAR_PRODUCTOS).
-PERMISO_ELEGIR_ENVIO = "productos.editar_precio_clasica"
 ENVIO_NO_DISPONIBLE = "envio_no_disponible"
 QUERY_CANCELED = "57014"  # Postgres' SQLSTATE for statement_timeout
 logger = logging.getLogger(__name__)
@@ -2306,28 +2304,3 @@ def get_product_envio(
     if found is None:
         raise api_error(status.HTTP_404_NOT_FOUND, ErrorCode.NOT_FOUND, f"El producto {item_id} no existe")
     return found
-
-
-@router.put("/products/{item_id}/envio", response_model=EleccionEnvioGuardada)
-def put_product_envio(
-    body: EleccionEnvioIn,
-    item_id: int = Path(..., ge=1),
-    user: Usuario = Depends(require_permiso(PERMISO_ELEGIR_ENVIO)),
-    db: Session = Depends(get_view_db),
-) -> dict[str, Any]:
-    """Store which shipping cost the product uses (`max`, `mla` + one of ITS publications, `promedio`,
-    `ponderado`), with the user and the time; it replaces the previous choice. `max` is stored as a row, so who chose
-    it stays recorded. From the next read on, every pricing caller resolves the product with it
-    (`envio_real_service`). 422 (`field: mla`) for a publication of another product."""
-    try:
-        saved = envio_producto.guardar_eleccion(db, item_id, body.modo, body.mla, usuario_id=user.id)
-    except envio_producto.EleccionInvalida as exc:
-        db.rollback()
-        error = api_error(status.HTTP_422_UNPROCESSABLE_CONTENT, ErrorCode.VALIDATION_ERROR, exc.message)
-        error.detail["field"] = exc.field
-        raise error from exc
-    if saved is None:
-        db.rollback()
-        raise api_error(status.HTTP_404_NOT_FOUND, ErrorCode.NOT_FOUND, f"El producto {item_id} no existe")
-    db.commit()
-    return saved

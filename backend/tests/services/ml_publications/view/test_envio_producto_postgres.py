@@ -26,7 +26,7 @@ from app.services.envio_real_service import (
     resolver_costos_envio_batch,
     resolver_costos_envio_publicaciones,
 )
-from app.services.ml_publications.view import envio_producto
+from app.services import envio_producto_eleccion as envio_producto
 from tests.services.ml_publications.conftest import env, mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
 

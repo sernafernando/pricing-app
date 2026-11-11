@@ -1,4 +1,5 @@
-"""S1, S5-S7: `GET/PUT /api/ml-publications/view/products/{item_id}/envio`, the shipping-cost choice of a product.
+"""S1, S5-S7: the shipping-cost choice of a product, read by `GET /api/ml-publications/view/products/{item_id}/envio`
+and written by `PUT /api/ml-publications/products/{item_id}/envio`.
 
 Same harness as `test_ml_publications_view.py`: permissions in the SQLite test database, the store (products,
 publications, choices) in a throwaway Postgres schema. The mlwebhook costs and the units sold are stubbed; the
@@ -14,7 +15,7 @@ import pytest
 from sqlalchemy import text
 
 from app.api.endpoints.pricing import PERMISOS_EDITAR_PRODUCTOS
-from app.routers import ml_publications_view
+from app.routers import ml_publications_envio
 from app.services import envio_real_service
 from app.services.ml_publications.view import listing
 from tests.routers.test_ml_publications_links import grant
@@ -26,6 +27,7 @@ from tests.services.ml_publications.view.test_envio_producto_postgres import CHO
 pytestmark = pytest.mark.postgres
 
 URL = "/api/ml-publications/view/products/{}/envio"
+PUT_URL = "/api/ml-publications/products/{}/envio"  # the write lives outside the read-only view router
 EDITAR = "productos.editar_precio_clasica"
 OWN, OUTLIER = "MLA1173065146", "MLA2517958828"
 COSTS = {OWN: 7290.0, OUTLIER: 10890.0}
@@ -132,12 +134,12 @@ class TestOptions:
 
 class TestSaveChoice:
     def test_the_permission_is_the_productos_clasica_price_edit(self) -> None:
-        assert ml_publications_view.PERMISO_ELEGIR_ENVIO == EDITAR
+        assert ml_publications_envio.PERMISO_ELEGIR_ENVIO == EDITAR
         assert EDITAR in PERMISOS_EDITAR_PRODUCTOS
 
     def test_it_stores_the_choice_and_who(self, client, pg, editor, units, admin_user) -> None:
         seed_rows(pg, fill)
-        response = client.put(URL.format(22), headers=editor, json={"modo": "mla", "mla": OWN})
+        response = client.put(PUT_URL.format(22), headers=editor, json={"modo": "mla", "mla": OWN})
         assert response.status_code == 200, response.text
         body = response.json()
         assert (body["modo"], body["mla"], body["usuario_id"]) == ("mla", OWN, admin_user.id)
@@ -155,19 +157,19 @@ class TestSaveChoice:
 
     def test_max_is_stored_as_max(self, client, pg, editor, units) -> None:
         seed_rows(pg, fill)
-        client.put(URL.format(22), headers=editor, json={"modo": "mla", "mla": OWN})
-        assert client.put(URL.format(22), headers=editor, json={"modo": "max"}).status_code == 200
+        client.put(PUT_URL.format(22), headers=editor, json={"modo": "mla", "mla": OWN})
+        assert client.put(PUT_URL.format(22), headers=editor, json={"modo": "max"}).status_code == 200
         assert stored(pg) == [(22, "max", None)]
 
     def test_without_the_permission_is_403(self, client, pg, reader, units) -> None:
         seed_rows(pg, fill)
-        response = client.put(URL.format(22), headers=reader, json={"modo": "promedio"})
+        response = client.put(PUT_URL.format(22), headers=reader, json={"modo": "promedio"})
         assert response.status_code == 403
         assert stored(pg) == []
 
     def test_an_mla_of_another_product_is_422(self, client, pg, editor, units) -> None:
         seed_rows(pg, fill)
-        response = client.put(URL.format(22), headers=editor, json={"modo": "mla", "mla": "MLA_OTHER"})
+        response = client.put(PUT_URL.format(22), headers=editor, json={"modo": "mla", "mla": "MLA_OTHER"})
         assert response.status_code == 422
         assert response.json()["error"]["field"] == "mla"
         assert stored(pg) == []
@@ -178,11 +180,11 @@ class TestSaveChoice:
     )
     def test_an_inconsistent_body_is_422(self, client, pg, editor, units, payload) -> None:
         seed_rows(pg, fill)
-        assert client.put(URL.format(22), headers=editor, json=payload).status_code == 422
+        assert client.put(PUT_URL.format(22), headers=editor, json=payload).status_code == 422
         assert stored(pg) == []
 
     def test_an_unknown_product_is_404(self, client, pg, editor, units) -> None:
-        assert client.put(URL.format(404), headers=editor, json={"modo": "max"}).status_code == 404
+        assert client.put(PUT_URL.format(404), headers=editor, json={"modo": "max"}).status_code == 404
 
 
 class TestSlowQuery:
