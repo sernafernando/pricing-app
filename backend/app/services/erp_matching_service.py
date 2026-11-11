@@ -33,12 +33,13 @@ Referencias:
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, Optional
 
 from fastapi import HTTPException
 from sqlalchemy import Date, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.compras_empresa_erp_map import resolver_comp_bra
 from app.core.logging import get_logger
@@ -1245,8 +1246,118 @@ def _cancelar_ncs_locales_por_erp_cancelado(
     session.flush()
 
 
+def auto_vincular_por_constancia_cargada(
+    session: Session,
+    documento: Any,
+    *,
+    usuario_id: Optional[int] = None,
+    ahora: Optional[datetime] = None,
+) -> Optional[int]:
+    """Link ERP CT by `documento.numero` after the cargada regret window.
+
+    Resolves a unique vigente CT for the documento's pedido empresa+supp+numero,
+    then adds that CT to every same-empresa/proveedor pedido whose cargada
+    constancia with that numero already left its regret window (or is this
+    row). M:N documental; does not change monto. Skips pedidos that already
+    link the CT. Returns the CT id, or None if no unique match. NO commit.
+    """
+    from datetime import UTC, datetime as dt  # noqa: PLC0415
+
+    from sqlalchemy import and_, or_  # noqa: PLC0415
+
+    from app.models.pedido_compra_factura import cts_for_pedido  # noqa: PLC0415
+    from app.models.pedido_factura_documento import PedidoFacturaDocumento  # noqa: PLC0415
+
+    numero = (getattr(documento, "numero", None) or "").strip()
+    if not numero:
+        return None
+    pedido = getattr(documento, "pedido", None) or session.get(PedidoCompra, documento.pedido_id)
+    if pedido is None:
+        return None
+
+    try:
+        comp_id, bra_id = resolver_comp_bra(pedido.empresa_id)
+    except KeyError:
+        logger.warning(
+            "auto_vincular_constancia: pedido_id=%s empresa_id=%s sin mapeo ERP",
+            pedido.id,
+            pedido.empresa_id,
+        )
+        return None
+    supp_id = _resolver_supp_id(session, pedido.proveedor_id)
+    if supp_id is None:
+        logger.warning(
+            "auto_vincular_constancia: pedido_id=%s proveedor_id=%s sin supp_id",
+            pedido.id,
+            pedido.proveedor_id,
+        )
+        return None
+
+    ct_transaction = _buscar_ct_vigente(
+        session,
+        comp_id=comp_id,
+        bra_id=bra_id,
+        supp_id=supp_id,
+        ct_docnumber=numero,
+    )
+    if ct_transaction is None:
+        logger.info(
+            "auto_vincular_constancia: sin match único para numero=%s (pedido_id=%s)",
+            numero,
+            pedido.id,
+        )
+        return None
+
+    stamp = ahora if ahora is not None else dt.now(UTC)
+    docs = (
+        session.query(PedidoFacturaDocumento)
+        .options(joinedload(PedidoFacturaDocumento.pedido))
+        .filter(
+            PedidoFacturaDocumento.numero == numero,
+            PedidoFacturaDocumento.cargada.is_(True),
+            or_(
+                PedidoFacturaDocumento.id == documento.id,
+                PedidoFacturaDocumento.alerta_disparada_at.isnot(None),
+                and_(
+                    PedidoFacturaDocumento.alerta_pendiente_hasta.isnot(None),
+                    PedidoFacturaDocumento.alerta_pendiente_hasta <= stamp,
+                ),
+            ),
+        )
+        .all()
+    )
+    for doc in docs:
+        target = doc.pedido or session.get(PedidoCompra, doc.pedido_id)
+        if target is None:
+            continue
+        if target.proveedor_id != pedido.proveedor_id:
+            continue
+        if target.empresa_id != pedido.empresa_id:
+            continue
+        linked = {ct for ct, _ in cts_for_pedido(session, target)}
+        if int(ct_transaction) in linked:
+            continue
+        asignar_factura_erp(session, target, ct_transaction)
+        _registrar_evento_match(
+            session,
+            pedido=target,
+            ct_transaction=ct_transaction,
+            origen="auto_constancia_cargada",
+            usuario_id=usuario_id,
+        )
+        logger.info(
+            "auto_vincular_constancia: pedido_id=%s ↔ ct=%s (numero=%s)",
+            target.id,
+            ct_transaction,
+            numero,
+        )
+    session.flush()
+    return int(ct_transaction)
+
+
 __all__ = [
     "asignar_factura_erp",
+    "auto_vincular_por_constancia_cargada",
     "copiar_facturas_erp",
     "copiar_lineas_facturadas",
     "match_backward",
