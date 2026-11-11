@@ -1,10 +1,20 @@
 import { useEffect, useState } from 'react';
+import SearchInput from '../SearchInput';
+import { usePermisos } from '../../contexts/PermisosContext';
 import { sellInLotesAPI } from '../../services/sellInAPI';
 import { formatEntero, formatMonto } from './sellInFormat';
+import SellInModoPorDefecto from './SellInModoPorDefecto';
 import styles from './SellInProductosCosto.module.css';
 
 /** The labels the cost-mode panel (`SellInModoCosto`) uses; no mode row is FIFO, the default. */
 const MODOS = { fifo: 'FIFO', ponderado: 'Ponderado (PPP)', ultimo: 'Último precio', manual: 'Manual' };
+// The modes a default may be (never Manual: it needs its own figures), in the panel selector's order.
+const MODOS_DEFECTO = ['fifo', 'ponderado', 'ultimo'].map((value) => ({ value, label: MODOS[value] }));
+// Only an admin changes the default (the endpoint asks for one), as in the product panel.
+const ADMINS = ['ADMIN', 'SUPERADMIN'];
+// The Modo filter: "FIFO (por defecto)" is a product without a mode of its own, "FIFO" one set to FIFO.
+const SIN_MODO = 'sin-modo';
+const FILTROS_VACIOS = { q: '', marca: '', modo: '' };
 
 const modoLabel = (modo) => (modo ? (MODOS[modo] ?? modo) : 'FIFO (por defecto)');
 
@@ -13,19 +23,60 @@ const fecha = (iso) => {
   return `${d}/${m}/${y}`;
 };
 
+// Search ignores case and accents.
+const normalizar = (texto) =>
+  String(texto ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase();
+
+const comparaTexto = (a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' });
+
+function filtrar(productos, filtros) {
+  const q = normalizar(filtros.q.trim());
+  return productos.filter(
+    (x) =>
+      (!q || normalizar(x.codigo).includes(q) || normalizar(x.descripcion).includes(q)) &&
+      (!filtros.marca || x.marca === filtros.marca) &&
+      (!filtros.modo || (filtros.modo === SIN_MODO ? x.modo == null : x.modo === filtros.modo)),
+  );
+}
+
+/** The saved default mode, read on mount and with each `version`; null while unread or when it cannot be read. */
+function useModoPorDefecto(version) {
+  const [modo, setModo] = useState(null);
+  useEffect(() => {
+    let current = true;
+    sellInLotesAPI
+      .modoPorDefecto()
+      .then(({ data }) => current && setModo(data.modo))
+      .catch(() => current && setModo(null));
+    return () => {
+      current = false;
+    };
+  }, [version]);
+  return [modo, setModo];
+}
+
 /**
  * Sell in's Productos list (`GET /sell-in/productos/costos`, one request for the whole list): every product with
  * units left in its lots, with its "Modo de costo", units, what the next sale takes per unit and its latest purchase,
- * and the total units under it. A row's product opens its lots and cost mode (`onVer(fila)`). A new `version` reads
- * the list again.
+ * and the total units under it. A toolbar searches by código/descripción and filters by Marca and Modo de costo,
+ * client side: the endpoint already computes the whole list in a fixed number of queries, so a server filter would not
+ * save it work. A row's product opens its lots and cost mode (`onVer(fila)`). The toolbar also
+ * shows the default mode and, for an admin, "Cambiar" opens its modal. A new `version` reads both again.
  *
  * @param {object} props
  * @param {(fila: object) => void} props.onVer
  * @param {number} [props.version]
  */
 export default function SellInProductosCosto({ onVer, version = 0 }) {
+  const { rol } = usePermisos();
   const [read, setRead] = useState({ status: 'loading', productos: [] });
   const [attempt, setAttempt] = useState(0);
+  const [filtros, setFiltros] = useState(FILTROS_VACIOS);
+  const [porDefecto, setPorDefecto] = useModoPorDefecto(version);
+  const [editandoDefecto, setEditandoDefecto] = useState(false);
 
   useEffect(() => {
     let current = true;
@@ -37,6 +88,8 @@ export default function SellInProductosCosto({ onVer, version = 0 }) {
       current = false;
     };
   }, [version, attempt]);
+
+  const cambiarFiltros = (cambios) => setFiltros((prev) => ({ ...prev, ...cambios }));
 
   if (read.status === 'loading' && read.productos.length === 0) {
     return (
@@ -66,52 +119,129 @@ export default function SellInProductosCosto({ onVer, version = 0 }) {
     return <p className={styles.nota}>Ningún producto tiene unidades en lotes de sell in.</p>;
   }
 
-  const total = read.productos.reduce((sum, x) => sum + x.unidades, 0);
+  const marcas = [...new Set(read.productos.map((x) => x.marca).filter(Boolean))].sort(comparaTexto);
+  const visibles = filtrar(read.productos, filtros);
+  const total = visibles.reduce((sum, x) => sum + x.unidades, 0);
+
   return (
-    <section className={styles.card}>
-      <div className={styles.scroller}>
-        <table className={styles.table} aria-label="Productos con lotes de sell in">
-          <thead>
-            <tr>
-              <th scope="col">Producto</th>
-              <th scope="col">Modo de costo</th>
-              <th scope="col" className={styles.num}>
-                Unidades
-              </th>
-              <th scope="col" className={styles.num}>
-                Sell in por unidad
-              </th>
-              <th scope="col" className={styles.num}>
-                Últ. compra
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {read.productos.map((fila) => (
-              <tr key={fila.item_id}>
-                <td>
-                  <button
-                    type="button"
-                    className={styles.producto}
-                    aria-label={`Ver lotes y modo de costo de ${fila.descripcion ?? fila.codigo}`}
-                    onClick={() => onVer(fila)}
-                  >
-                    <span className={styles.nombre}>{fila.descripcion}</span>
-                    <span className={styles.codigo}>{fila.codigo}</span>
-                  </button>
-                </td>
-                <td>
-                  <span className={styles.pill}>{modoLabel(fila.modo)}</span>
-                </td>
-                <td className={styles.num}>{formatEntero(fila.unidades)} u</td>
-                <td className={styles.num}>{formatMonto(fila.sell_in_unit, 'ARS')}</td>
-                <td className={styles.num}>{fecha(fila.ultima_compra)}</td>
-              </tr>
+    <>
+      <section className={styles.filtros} aria-label="Filtros de productos">
+        <div className={`${styles.campo} ${styles.buscar}`}>
+          <span className={styles.label}>Buscar</span>
+          <SearchInput
+            value={filtros.q}
+            onChange={(q) => cambiarFiltros({ q })}
+            debounce={200}
+            size="sm"
+            placeholder="Buscar por código o descripción"
+          />
+        </div>
+        <label className={styles.campo}>
+          <span className={styles.label}>Marca</span>
+          <select className={styles.control} value={filtros.marca} onChange={(e) => cambiarFiltros({ marca: e.target.value })}>
+            <option value="">Todas</option>
+            {marcas.map((marca) => (
+              <option key={marca} value={marca}>
+                {marca}
+              </option>
             ))}
-          </tbody>
-        </table>
-      </div>
-      <div className={`${styles.total} ${styles.num}`}>{formatEntero(total)} u</div>
-    </section>
+          </select>
+        </label>
+        <label className={styles.campo}>
+          <span className={styles.label}>Modo de costo</span>
+          <select className={styles.control} value={filtros.modo} onChange={(e) => cambiarFiltros({ modo: e.target.value })}>
+            <option value="">Todos</option>
+            <option value={SIN_MODO}>FIFO (por defecto)</option>
+            {Object.entries(MODOS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="button" className={styles.limpiar} onClick={() => setFiltros(FILTROS_VACIOS)}>
+          Limpiar filtros
+        </button>
+        {porDefecto && (
+          <div className={styles.defecto}>
+            <span className={styles.defectoTexto}>
+              <span>Modo por defecto:</span> <strong>{MODOS[porDefecto] ?? porDefecto}</strong>
+            </span>
+            {ADMINS.includes(rol) && (
+              <button
+                type="button"
+                className="btn-tesla outline sm"
+                aria-label="Cambiar modo por defecto"
+                onClick={() => setEditandoDefecto(true)}
+              >
+                Cambiar
+              </button>
+            )}
+          </div>
+        )}
+      </section>
+
+      <section className={styles.card}>
+        <div className={styles.scroller}>
+          <table className={styles.table} aria-label="Productos con lotes de sell in">
+            <thead>
+              <tr>
+                <th scope="col">Producto</th>
+                <th scope="col">Modo de costo</th>
+                <th scope="col" className={styles.num}>
+                  Unidades
+                </th>
+                <th scope="col" className={styles.num}>
+                  Sell in por unidad
+                </th>
+                <th scope="col" className={styles.num}>
+                  Últ. compra
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibles.map((fila) => (
+                <tr key={fila.item_id}>
+                  <td>
+                    <button
+                      type="button"
+                      className={styles.producto}
+                      aria-label={`Ver lotes y modo de costo de ${fila.descripcion ?? fila.codigo}`}
+                      onClick={() => onVer(fila)}
+                    >
+                      <span className={styles.nombre}>{fila.descripcion}</span>
+                      <span className={styles.codigo}>{fila.codigo}</span>
+                    </button>
+                  </td>
+                  <td>
+                    <span className={styles.pill}>{modoLabel(fila.modo)}</span>
+                  </td>
+                  <td className={styles.num}>{formatEntero(fila.unidades)} u</td>
+                  <td className={styles.num}>{formatMonto(fila.sell_in_unit, 'ARS')}</td>
+                  <td className={styles.num}>{fecha(fila.ultima_compra)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {visibles.length === 0 ? (
+          <p className={styles.nota}>Ningún producto coincide con los filtros.</p>
+        ) : (
+          <div className={`${styles.total} ${styles.num}`}>{formatEntero(total)} u</div>
+        )}
+      </section>
+
+      {editandoDefecto && (
+        <SellInModoPorDefecto
+          actual={porDefecto}
+          options={MODOS_DEFECTO}
+          onClose={() => setEditandoDefecto(false)}
+          onSaved={(value) => {
+            setPorDefecto(value);
+            setEditandoDefecto(false);
+          }}
+        />
+      )}
+    </>
   );
 }
