@@ -135,6 +135,17 @@ class TestOwnCostPerPublication:
         assert result == CostosEnvio(por_producto={70: 3000.0}, por_mla={"MLA3": 9999.0})
         assert requested == [["MLA1", "MLA2", "MLA3"]]
 
+    def test_the_re200_production_case_gets_its_own_7290_not_the_outlier_10890(self, conn, db, monkeypatch) -> None:
+        """L9 (prod read 2026-11-11): RE200 has 166 MLAs at 7290 (MLA1173065146 among them), 41 at 8290 and ONE at
+        10890 (MLA2517958828, billable weight ~8x). The publication gets its own 7290; the product MAX stays 10890."""
+        seed.add_product(conn, 22, "C22", "RE200")
+        prod = {"MLA1173065146": 7290.0, "MLA2517958828": 10890.0}
+        for mla in prod:
+            add_publication(conn, mla, 22)
+        monkeypatch.setattr(envio_real_service, "_fetch_list_cost_by_mla", lambda ids: {m: prod[m] for m in ids})
+        result = resolver_costos_envio_publicaciones(db, [22], ["MLA1173065146"])
+        assert result == CostosEnvio(por_producto={22: 10890.0}, por_mla={"MLA1173065146": 7290.0})
+
     def test_an_mla_without_a_cost_is_absent(self, conn, db, requested) -> None:
         seed_publications(conn)
         result = resolver_costos_envio_publicaciones(db, [71], ["MLA4"])
