@@ -51,10 +51,7 @@ class PedidoCompraFactura(Base):
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<PedidoCompraFactura(id={self.id}, pedido_id={self.pedido_id}, "
-            f"ct={self.ct_transaction_id})>"
-        )
+        return f"<PedidoCompraFactura(id={self.id}, pedido_id={self.pedido_id}, ct={self.ct_transaction_id})>"
 
 
 def cts_for_pedido(session: Session, pedido: "PedidoCompra") -> list[tuple[int, date | None]]:
@@ -84,8 +81,4 @@ def count_pedidos_for_ct(session: Session, ct_transaction_id: int) -> int:
         return int(junction)
     from app.models.pedido_compra import PedidoCompra
 
-    return (
-        session.query(PedidoCompra.id)
-        .filter(PedidoCompra.ct_transaction_id == int(ct_transaction_id))
-        .count()
-    )
+    return session.query(PedidoCompra.id).filter(PedidoCompra.ct_transaction_id == int(ct_transaction_id)).count()
