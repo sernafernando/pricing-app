@@ -33,6 +33,7 @@ Referencias:
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -1250,14 +1251,20 @@ def auto_vincular_por_constancia_cargada(
     documento: Any,
     *,
     usuario_id: Optional[int] = None,
+    ahora: Optional[datetime] = None,
 ) -> Optional[int]:
     """Link ERP CT by `documento.numero` after the cargada regret window.
 
     Resolves a unique vigente CT for the documento's pedido empresa+supp+numero,
-    then adds that CT to every pedido that still has a cargada constancia with
-    the same numero (M:N documental; does not change monto). Skips pedidos that
-    already link the CT. Returns the CT id, or None if no unique match. NO commit.
+    then adds that CT to every same-empresa/proveedor pedido whose cargada
+    constancia with that numero already left its regret window (or is this
+    row). M:N documental; does not change monto. Skips pedidos that already
+    link the CT. Returns the CT id, or None if no unique match. NO commit.
     """
+    from datetime import UTC, datetime as dt  # noqa: PLC0415
+
+    from sqlalchemy import and_, or_  # noqa: PLC0415
+
     from app.models.pedido_compra_factura import cts_for_pedido  # noqa: PLC0415
     from app.models.pedido_factura_documento import PedidoFacturaDocumento  # noqa: PLC0415
 
@@ -1301,12 +1308,21 @@ def auto_vincular_por_constancia_cargada(
         )
         return None
 
+    stamp = ahora if ahora is not None else dt.now(UTC)
     docs = (
         session.query(PedidoFacturaDocumento)
         .options(joinedload(PedidoFacturaDocumento.pedido))
         .filter(
             PedidoFacturaDocumento.numero == numero,
             PedidoFacturaDocumento.cargada.is_(True),
+            or_(
+                PedidoFacturaDocumento.id == documento.id,
+                PedidoFacturaDocumento.alerta_disparada_at.isnot(None),
+                and_(
+                    PedidoFacturaDocumento.alerta_pendiente_hasta.isnot(None),
+                    PedidoFacturaDocumento.alerta_pendiente_hasta <= stamp,
+                ),
+            ),
         )
         .all()
     )
@@ -1315,6 +1331,8 @@ def auto_vincular_por_constancia_cargada(
         if target is None:
             continue
         if target.proveedor_id != pedido.proveedor_id:
+            continue
+        if target.empresa_id != pedido.empresa_id:
             continue
         linked = {ct for ct, _ in cts_for_pedido(session, target)}
         if int(ct_transaction) in linked:

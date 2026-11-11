@@ -140,6 +140,7 @@ def test_auto_vincular_links_unique_ct(db, empresa, proveedor, sd_factura, activ
 def test_auto_vincular_shared_numero_across_pedidos(db, empresa, proveedor, sd_factura, active_user):
     a = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-A")
     b = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-B")
+    ventana_vencida = datetime(2026, 4, 2, 11, 0, tzinfo=timezone.utc)
     for p in (a, b):
         db.add(
             PedidoFacturaDocumento(
@@ -147,6 +148,7 @@ def test_auto_vincular_shared_numero_across_pedidos(db, empresa, proveedor, sd_f
                 numero="FA-SHARED",
                 created_by_id=active_user.id,
                 cargada=True,
+                alerta_pendiente_hasta=ventana_vencida,
             )
         )
     db.add(
@@ -172,6 +174,50 @@ def test_auto_vincular_shared_numero_across_pedidos(db, empresa, proveedor, sd_f
     assert a.ct_transaction_id == 9002
     assert b.ct_transaction_id == 9002
     assert db.query(PedidoCompraFactura).filter_by(ct_transaction_id=9002).count() == 2
+
+
+def test_auto_vincular_skips_sister_still_in_regret_window(
+    db, empresa, proveedor, sd_factura, active_user
+):
+    a = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-WIN-A")
+    b = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-WIN-B")
+    ahora = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
+    doc_a = PedidoFacturaDocumento(
+        pedido_id=a.id,
+        numero="FA-WIN",
+        created_by_id=active_user.id,
+        cargada=True,
+        alerta_pendiente_hasta=ahora - timedelta(minutes=1),
+    )
+    doc_b = PedidoFacturaDocumento(
+        pedido_id=b.id,
+        numero="FA-WIN",
+        created_by_id=active_user.id,
+        cargada=True,
+        alerta_pendiente_hasta=ahora + timedelta(minutes=4),
+    )
+    db.add_all([doc_a, doc_b])
+    db.add(
+        CommercialTransaction(
+            ct_transaction=9004,
+            comp_id=1,
+            bra_id=1,
+            supp_id=proveedor.supp_id,
+            ct_docNumber="FA-WIN",
+            sd_id=sd_factura.sd_id,
+            ct_total=Decimal("100"),
+            curr_id_transaction=1,
+            ct_date=datetime(2026, 4, 4, 12, 0, 0),
+            ct_isCancelled=False,
+        )
+    )
+    db.flush()
+
+    erp_matching_service.auto_vincular_por_constancia_cargada(db, doc_a, ahora=ahora)
+    db.refresh(a)
+    db.refresh(b)
+    assert a.ct_transaction_id == 9004
+    assert b.ct_transaction_id is None
 
 
 def test_disparar_alertas_also_auto_links(db, empresa, proveedor, sd_factura, active_user):
@@ -215,3 +261,38 @@ def test_disparar_alertas_also_auto_links(db, empresa, proveedor, sd_factura, ac
     assert pedido.ct_transaction_id == 9003
     db.refresh(doc)
     assert doc.alerta_disparada_at is not None
+
+
+def test_disparar_alertas_marks_fired_when_auto_vincular_raises(
+    db, empresa, proveedor, sd_factura, active_user
+):
+    pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-FAIL")
+    ahora = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
+    doc = PedidoFacturaDocumento(
+        pedido_id=pedido.id,
+        numero="FA-FAIL",
+        created_by_id=active_user.id,
+        cargada=True,
+        alerta_pendiente_hasta=ahora - timedelta(minutes=1),
+        alerta_disparada_at=None,
+    )
+    db.add(doc)
+    db.flush()
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            compras_alertas_service,
+            "notificar_factura_cargada",
+            lambda *a, **k: [],
+        )
+        mp.setattr(
+            erp_matching_service,
+            "auto_vincular_por_constancia_cargada",
+            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+        fired = compras_alertas_service.disparar_alertas_factura_pendientes(db, ahora=ahora)
+    assert fired == 1
+    db.refresh(doc)
+    assert doc.alerta_disparada_at is not None
+    db.refresh(pedido)
+    assert pedido.ct_transaction_id is None

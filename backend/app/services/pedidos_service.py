@@ -3014,7 +3014,7 @@ def desvincular_oc(
     # and leaves the outer transaction usable for the unlink. Without the savepoint,
     # the failed SELECT would abort the whole transaction on PostgreSQL and the
     # subsequent unlink would fail too.
-    # TODO(Slice 2): drop the guard's table-missing tolerance once the table exists.
+    # ponytail: table-missing tolerance for PedidoCompraIngreso — drop once Slice 2 deploy is universal
     ingresos_count = 0
     try:
         with session.begin_nested():

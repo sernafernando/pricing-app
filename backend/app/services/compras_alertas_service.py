@@ -35,6 +35,7 @@ SNOOZE_WINDOW: Final[timedelta] = timedelta(hours=1)
 PERMISO_VER_ALERTAS_FACTURA: Final[str] = "administracion.ver_alertas_factura"
 PERMISO_DEPOSITO_RECEPCION: Final[str] = "deposito.recibir_mercaderia"
 # Belt-and-suspenders: Gabriel DeMarco always receives factura_cargada (brief).
+# ponytail: Gabe user id hardcoded for factura_cargada belt-and-suspenders — move to config/env when multi-env needs it
 FACTURA_ALERTA_ALWAYS_USER_IDS: Final[frozenset[int]] = frozenset({3})
 DEEP_LINK_OBSERVACIONES: Final[str] = "/administracion/compras?tab=pedidos&pedido={pedido_id}&focus=observaciones"
 DEEP_LINK_DEPOSITO: Final[str] = "/administracion/compras?tab=deposito&pedido={pedido_id}&eje=faltantes_con_res"
@@ -163,9 +164,10 @@ def disparar_alertas_factura_pendientes(session: Session, *, ahora: datetime | N
             continue
         notificar_factura_cargada(session, pedido=pedido, factura=row, ahora=stamp)
         # After the regret window: documental auto-link by constancia numero (M:N).
-        # Failures must not block the alert itself.
+        # Failures must not abort the outer transaction (alert still marks fired).
         try:
-            erp_matching_service.auto_vincular_por_constancia_cargada(session, row)
+            with session.begin_nested():
+                erp_matching_service.auto_vincular_por_constancia_cargada(session, row, ahora=stamp)
         except Exception:  # noqa: BLE001
             logger.exception(
                 "auto_vincular_constancia falló para documento_id=%s pedido_id=%s",
