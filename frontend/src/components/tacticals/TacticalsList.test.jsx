@@ -434,6 +434,12 @@ describe('TacticalsList Cobranza (handoffs/tactical-cobranza-tarea.md S3, S4)', 
     await screen.findByText('Tacticals BPS Noviembre Q1FY27');
 
     const boton = screen.getByRole('button', { name: 'Editar cobro de Rebate HP Q1FY27' });
+    expect(boton).toHaveClass('btn-tesla', 'outline-subtle-success', 'sm');
+    expect(screen.getByRole('button', { name: 'Cargar cobro de Tacticals BPS Noviembre Q1FY27' })).toHaveClass(
+      'btn-tesla',
+      'outline-subtle-success',
+      'sm',
+    );
     await userEvent.click(boton);
     expect(boton).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByLabelText('Distribuidor')).toHaveValue('Grupo Núcleo');

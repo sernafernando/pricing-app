@@ -231,6 +231,12 @@
   text-decoration: underline;
 }
 
+/* Cargar / Editar cobro (tactical cobranza S7): the Compras payment button pattern (Ejecutar
+ * pago: outline-subtle-success sm + Wallet), as tall as the row's actions button (three classes, above `.btn-tesla.sm`). */
+.cobranza :global(.btn-tesla).cobro {
+  height: 28px;
+}
+
 /* Cobranza cell (tactical cobranza S3): the Pendiente / Cobrado pill and, under it, Cargar / Editar cobro. */
 .cobranza {
   display: flex;
