@@ -992,27 +992,29 @@ def _conservables(tactical: Tactical, data: TacticalIn, hijos: list[dict]) -> se
 
 def _validar_topes_usados(db: Session, tactical: Tactical, data: TacticalIn, hijos: list[dict]) -> None:
     """Rule 1 keeps the PATCH edit's guard (L16): a line whose type and scope stay (`_mismo_alcance`) cannot get a cap
-    below what its active children already used. The amount is compared only while the currency stays: a used
-    amount in another currency says nothing about the new cap."""
+    below what its active children already used. A new line is paired with the old line of the same scope whatever
+    its number (L18: a deleted or moved line renumbers the rest), and the refusal names the new line's number. The
+    amount is compared only while the currency stays: a used amount in another currency says nothing about the new
+    cap."""
     if data.tipo != tactical.tipo:
         return
     por_linea: dict[int, list[dict]] = defaultdict(list)
     for h in hijos:
         if h["estado"] == "activa":
             por_linea[h["linea"]].append(h)
-    iguales = {
-        numero: (linea, por_linea[numero])
-        for numero, linea in enumerate(data.lineas, start=1)
-        if por_linea.get(numero) and _mismo_alcance(linea, por_linea[numero])
-    }
-    if not iguales:
+    pares: list[tuple[int, TacticalLineaIn, list[dict]]] = []
+    for numero, linea in enumerate(data.lineas, start=1):
+        viejo = next((n for n, actuales in por_linea.items() if _mismo_alcance(linea, actuales)), None)
+        if viejo is not None:
+            pares.append((numero, linea, por_linea.pop(viejo)))
+    if not pares:
         return
-    activos = [h for _, actuales in iguales.values() for h in actuales]
+    activos = [h for _, _, actuales in pares for h in actuales]
     maximos = _maximos_por_tienda(db, tactical, activos, compartido=data.tope_compartido)
-    for linea, actuales in iguales.values():
+    for numero, linea, actuales in pares:
         tope = linea if data.moneda == tactical.moneda else linea.model_copy(update={"tope_monto": None})
         for hijo in actuales:
-            _validar_usado(tope, hijo, maximos.get((hijo["origen"], hijo["id"])))
+            _validar_usado(tope, {**hijo, "linea": numero}, maximos.get((hijo["origen"], hijo["id"])))
 
 
 def _mismo_alcance(linea: TacticalLineaIn, actuales: list[dict]) -> bool:

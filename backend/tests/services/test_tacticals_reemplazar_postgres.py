@@ -164,13 +164,13 @@ class TestTopeDebajoDeLoUsado:
     get a cap below what its children already used, the same refusal as the PATCH edit."""
 
     @staticmethod
-    def _usar(engine: Engine, *filas: tuple[str, int, int, int]) -> None:
+    def _usar(engine: Engine, *filas: tuple[str, int, int, int], linea: int | None = None) -> None:
         with engine.begin() as conn:
             for canal, venta, unidades, monto in filas:
                 conn.execute(text(
                     "INSERT INTO sell_out_consumos (campana_id, canal, venta_ref, item_id, fecha_venta, unidades, "
                     f"monto) SELECT id, '{canal}', {venta}, 2964, DATE '2026-11-03', {unidades}, {monto} "
-                    "FROM sell_out_campanas"
+                    "FROM sell_out_campanas" + ("" if linea is None else f" WHERE tactical_linea = {linea}")
                 ))  # fmt: skip
 
     def test_the_same_line_with_a_cap_below_what_was_used_is_refused_and_nothing_changes(self, db, engine) -> None:
@@ -205,6 +205,19 @@ class TestTopeDebajoDeLoUsado:
         _reemplazar(db, tactical.id, _tactical(lineas=[{**MARCA, "tope_unidades": 6}], **por_tienda))
 
         assert _filas(engine, "SELECT tope_unidades FROM sell_out_campanas WHERE estado = 'activa'") == [(6,)]
+
+    def test_a_line_is_paired_by_its_scope_not_by_its_position(self, db, engine) -> None:
+        # L18: deleting line 1 makes the used line 2 the new line 1; reordering the lines does the same.
+        producto = {"alcance": "productos", "item_ids": [2270], "modo_monto": "por_unidad", "valor": "5"}
+        tactical = service.crear(db, _tactical(lineas=[producto, MARCA]), USUARIO)
+        self._usar(engine, ("fuera", 1, 5, 50), linea=2)
+
+        for lineas in ([{**MARCA, "tope_monto": "49"}], [{**MARCA, "tope_monto": "49"}, producto]):
+            with pytest.raises(service.TacticalError) as exc:
+                _reemplazar(db, tactical.id, _tactical(lineas=lineas))
+
+            assert str(exc.value) == "Línea 1: el tope de monto (49.00) no puede quedar debajo de lo ya usado (50.00)"
+        assert _contar(engine, "auditoria", "tipo_accion = 'TACTICAL_EDITADO'") == 0
 
     def test_a_line_whose_type_changes_starts_from_zero(self, db, engine) -> None:
         tactical = service.crear(db, _tactical(), USUARIO)
