@@ -95,13 +95,29 @@ class TestOptions:
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["publicaciones"] == [
-            {"mla": OWN, "costo": 7290.0, "unidades": 3, "mas_vendida": True},
-            {"mla": OUTLIER, "costo": 10890.0, "unidades": 1, "mas_vendida": False},
+            {"mla": OWN, "costo": 7290.0, "unidades": 3, "mas_vendida": True, "tipo": None, "logistica": None},
+            {"mla": OUTLIER, "costo": 10890.0, "unidades": 1, "mas_vendida": False, "tipo": None, "logistica": None},
         ]
         assert (body["promedio"], body["ponderado"], body["max"]) == (9090.0, 8190.0, 10890.0)
         assert body["eleccion"]["modo"] == "max" and body["eleccion"]["costo"] == 10890.0
         assert body["eleccion"]["warning"] is None
         assert units[0] == (date(2026, 10, 1), date(2026, 10, 30))
+
+    def test_each_publication_has_its_listing_and_logistic_type_and_the_choice_who_by_name(
+        self, client, pg, editor, units
+    ) -> None:
+        def fill_with_store(conn) -> None:
+            fill(conn)
+            seed.add_item(conn, OWN, listing_type_id="gold_special", logistic_type="self_service")
+
+        seed_rows(pg, fill_with_store)
+        assert client.put(PUT_URL.format(22), headers=editor, json={"modo": "promedio"}).status_code == 200
+        body = client.get(URL.format(22), headers=editor).json()
+        assert [(row["mla"], row["tipo"], row["logistica"]) for row in body["publicaciones"]] == [
+            (OWN, "gold_special", "self_service"),
+            (OUTLIER, None, None),
+        ]
+        assert (body["eleccion"]["modo"], body["eleccion"]["usuario_nombre"]) == ("promedio", "PM")
 
     def test_the_default_period_is_the_last_30_days(self, client, pg, reader, units) -> None:
         seed_rows(pg, fill)

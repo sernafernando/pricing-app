@@ -17,9 +17,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 
 from app.models.auditoria import Auditoria, TipoAccion
+from app.models.ml_publications import MlItem
 from app.models.producto import ProductoERP
 from app.models.producto_envio_eleccion import ProductoEnvioEleccion
 from app.models.publicacion_ml import PublicacionML
+from app.models.usuario import Usuario
 from app.services import envio_real_service as envio
 
 
@@ -40,6 +42,17 @@ def _envio_erp(db: Session, item_id: int) -> tuple[bool, Optional[float]]:
     """(the product exists, its ERP envio)."""
     row = db.execute(select(ProductoERP.envio).where(ProductoERP.item_id == item_id)).first()
     return (row is not None, None if row is None else row[0])
+
+
+def _store_kinds(db: Session, mlas: list[str]) -> dict[str, tuple[Optional[str], Optional[str]]]:
+    """(listing type, logistic type) of each MLA the publications store has read, in ONE statement."""
+    if not mlas:
+        return {}
+    with db.no_autoflush:  # a read-only lookup: never flush the caller's pending objects
+        rows = db.execute(
+            select(MlItem.item_id, MlItem.listing_type_id, MlItem.logistic_type).where(MlItem.item_id.in_(mlas))
+        ).all()
+    return {mla: (tipo, logistica) for mla, tipo, logistica in rows}
 
 
 def _warning(mla: Optional[str]) -> str:
@@ -71,15 +84,29 @@ def opciones_envio(db: Session, item_id: int, date_from: date, date_to: date) ->
     costs = {mla: own[mla] for mla in mlas if mla in own}
     units = envio.unidades_vendidas_por_mla(db, mlas, date_from, date_to) if mlas else {}
     top = max(units.values(), default=0)
+    kinds = _store_kinds(db, mlas)
     publicaciones = sorted(
         (
-            {"mla": mla, "costo": own.get(mla), "unidades": units.get(mla, 0), "mas_vendida": 0 < top == units.get(mla)}
+            {
+                "mla": mla,
+                "costo": own.get(mla),
+                "unidades": units.get(mla, 0),
+                "mas_vendida": 0 < top == units.get(mla),
+                "tipo": kinds.get(mla, (None, None))[0],
+                "logistica": kinds.get(mla, (None, None))[1],
+            }
             for mla in mlas
         ),
         key=lambda row: (-row["unidades"], row["mla"]),
     )
 
-    stored = db.get(ProductoEnvioEleccion, item_id)
+    with db.no_autoflush:
+        row = db.execute(
+            select(ProductoEnvioEleccion, Usuario.nombre)
+            .outerjoin(Usuario, Usuario.id == ProductoEnvioEleccion.usuario_id)
+            .where(ProductoEnvioEleccion.item_id == item_id)
+        ).first()
+    stored, usuario_nombre = (row[0], row[1]) if row is not None else (None, None)
     modo = stored.modo if stored is not None else envio.MODO_DEFAULT
     mla = stored.mla if stored is not None else None
     units_now = units
@@ -100,6 +127,7 @@ def opciones_envio(db: Session, item_id: int, date_from: date, date_to: date) ->
             "costo": resolved if resolved is not None else float(envio_erp or 0.0),
             "warning": _warning(mla) if costs and envio.eleccion_cae_a_maximo(modo, mla, costs) else None,
             "usuario_id": stored.usuario_id if stored is not None else None,
+            "usuario_nombre": usuario_nombre,
             "updated_at": stored.updated_at if stored is not None else None,
         },
     }

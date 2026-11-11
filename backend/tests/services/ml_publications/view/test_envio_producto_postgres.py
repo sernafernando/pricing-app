@@ -120,10 +120,10 @@ def seed_re200(conn, *, mid: bool = False) -> None:
         add_publication(conn, MID, RE200)
 
 
-def choose(conn, item_id: int, modo: str, mla: str | None = None) -> None:
+def choose(conn, item_id: int, modo: str, mla: str | None = None, usuario_id: int = 1) -> None:
     conn.execute(
-        text("INSERT INTO producto_envio_eleccion (item_id, modo, mla, usuario_id) VALUES (:i, :m, :mla, 1)"),
-        {"i": item_id, "m": modo, "mla": mla},
+        text("INSERT INTO producto_envio_eleccion (item_id, modo, mla, usuario_id) VALUES (:i, :m, :mla, :u)"),
+        {"i": item_id, "m": modo, "mla": mla, "u": usuario_id},
     )
 
 
@@ -345,9 +345,9 @@ class TestOptions:
         found = envio_producto.opciones_envio(db, RE200, *self.PERIOD)
         assert found is not None
         assert found["publicaciones"] == [
-            {"mla": OWN, "costo": 7290.0, "unidades": 3, "mas_vendida": True},
-            {"mla": OUTLIER, "costo": 10890.0, "unidades": 1, "mas_vendida": False},
-            {"mla": MID, "costo": 8290.0, "unidades": 0, "mas_vendida": False},
+            {"mla": OWN, "costo": 7290.0, "unidades": 3, "mas_vendida": True, "tipo": None, "logistica": None},
+            {"mla": OUTLIER, "costo": 10890.0, "unidades": 1, "mas_vendida": False, "tipo": None, "logistica": None},
+            {"mla": MID, "costo": 8290.0, "unidades": 0, "mas_vendida": False, "tipo": None, "logistica": None},
         ]
         assert found["promedio"] == round((7290.0 + 10890.0 + 8290.0) / 3, 2)
         assert found["ponderado"] == 8190.0
@@ -370,8 +370,35 @@ class TestOptions:
             "costo": 10890.0,
             "warning": None,
             "usuario_id": None,
+            "usuario_nombre": None,
             "updated_at": None,
         }
+
+    def test_each_publication_carries_its_listing_and_logistic_type_from_the_store(
+        self, conn, db, costs, units
+    ) -> None:
+        seed_re200(conn)
+        seed.add_item(conn, OWN, listing_type_id="gold_special", logistic_type="cross_docking")
+        seed.add_item(conn, OUTLIER, listing_type_id="gold_pro", logistic_type="fulfillment")
+        add_publication(conn, "MLA_NOT_IN_STORE", RE200)  # a publication the store has not read yet
+        found = envio_producto.opciones_envio(db, RE200, *self.PERIOD)
+        assert {row["mla"]: (row["tipo"], row["logistica"]) for row in found["publicaciones"]} == {
+            OWN: ("gold_special", "cross_docking"),
+            OUTLIER: ("gold_pro", "fulfillment"),
+            "MLA_NOT_IN_STORE": (None, None),
+        }
+
+    def test_the_stored_choice_names_who_made_it(self, conn, db, costs, units) -> None:
+        seed_re200(conn)
+        choose(conn, RE200, "promedio", usuario_id=8)
+        eleccion = envio_producto.opciones_envio(db, RE200, *self.PERIOD)["eleccion"]
+        assert (eleccion["usuario_id"], eleccion["usuario_nombre"]) == (8, "PM2")
+
+    def test_a_choice_by_a_user_that_no_longer_exists_has_no_name(self, conn, db, costs, units) -> None:
+        seed_re200(conn)
+        choose(conn, RE200, "promedio", usuario_id=1)  # no `usuarios` row 1 in this schema
+        eleccion = envio_producto.opciones_envio(db, RE200, *self.PERIOD)["eleccion"]
+        assert (eleccion["usuario_id"], eleccion["usuario_nombre"]) == (1, None)
 
     def test_a_stored_ponderado_resolves_with_the_last_30_days_not_the_period(self, conn, db, costs, units) -> None:
         seed_re200(conn)

@@ -76,6 +76,17 @@ vi.mock('./panel/ProductCuotasConfig', () => ({
   ),
 }));
 
+vi.mock('./panel/ProductEnvioChoice', () => ({
+  default: ({ productItemId, onSaved }) => (
+    <div data-testid="product-envio">
+      {`envio of ${productItemId}`}
+      <button type="button" onClick={onSaved}>
+        Simular guardar envío
+      </button>
+    </div>
+  ),
+}));
+
 vi.mock('./panel/ProductCatalogCompetition', () => ({
   default: ({ publications }) => (
     <div data-testid="product-catalog-competition">{`competition of ${publications.map((p) => p.item_id).join(',')}`}</div>
@@ -529,6 +540,25 @@ describe('ProductPanel', () => {
       const cuotas = screen.getByTestId('product-cuotas');
       expect(cuotas).toHaveTextContent('cuotas of 4101');
       expect(prices.compareDocumentPosition(cuotas) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("shows the product's shipping choice on Precios, between its prices and its instalment settings", async () => {
+      renderPanel();
+      await userEvent.click(tab('Precios'));
+      const prices = screen.getByTestId('product-prices');
+      const envio = screen.getByTestId('product-envio');
+      const cuotas = screen.getByTestId('product-cuotas');
+      expect(envio).toHaveTextContent('envio of 4101');
+      expect(prices.compareDocumentPosition(envio) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(envio.compareDocumentPosition(cuotas) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('a saved shipping choice reloads the list, so its markups follow', async () => {
+      const onListReload = vi.fn();
+      renderPanel({ onListReload });
+      await userEvent.click(tab('Precios'));
+      await userEvent.click(screen.getByRole('button', { name: 'Simular guardar envío' }));
+      expect(onListReload).toHaveBeenCalledTimes(1);
     });
 
     it("a recalculation from the instalment settings reads the product's prices again, without remounting them, and reloads the list", async () => {

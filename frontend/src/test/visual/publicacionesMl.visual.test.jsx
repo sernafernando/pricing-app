@@ -122,7 +122,7 @@ vi.mock('../../services/api', () => ({
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
   pxqAPI: { getLive: vi.fn(), getMarkup: vi.fn(), createTier: vi.fn(), updateTier: vi.fn(), deleteTier: vi.fn(), sync: vi.fn(), adoptLive: vi.fn() },
-  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), setItemStatus: vi.fn(), statusItemIds: vi.fn(), statusBulk: vi.fn(), kpis: vi.fn(), stats: vi.fn(() => Promise.resolve({ data: { stats: { total: 40, con_stock: 30, con_precio: 35, con_stock_sin_precio: 3, nuevos: 5, nuevos_sin_precio: 2, oferta_sin_rebate: 4 }, can_see_margin: false } })), productIds: vi.fn(() => Promise.resolve({ data: { item_ids: [4101, 4102], count: 2, sin_producto: 1 } })), productLinks: vi.fn(() => Promise.resolve({ data: { units: [] } })), setProductLink: vi.fn(), setProductLinkNone: vi.fn(), revertProductLinkAuto: vi.fn(), searchProducts: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), setItemStatus: vi.fn(), statusItemIds: vi.fn(), statusBulk: vi.fn(), kpis: vi.fn(), stats: vi.fn(() => Promise.resolve({ data: { stats: { total: 40, con_stock: 30, con_precio: 35, con_stock_sin_precio: 3, nuevos: 5, nuevos_sin_precio: 2, oferta_sin_rebate: 4 }, can_see_margin: false } })), productIds: vi.fn(() => Promise.resolve({ data: { item_ids: [4101, 4102], count: 2, sin_producto: 1 } })), productEnvio: vi.fn(() => new Promise(() => {})), saveProductEnvio: vi.fn(), productLinks: vi.fn(() => Promise.resolve({ data: { units: [] } })), setProductLink: vi.fn(), setProductLinkNone: vi.fn(), revertProductLinkAuto: vi.fn(), searchProducts: vi.fn() },
   productosPropiosAPI: {
     get: vi.fn(() =>
       Promise.resolve({
@@ -967,6 +967,27 @@ const renderProducts = async ({ width, height, theme, rows, entry = '/ml-publica
 // Screenshots of the product panel only with `VITE_PUBLICACIONES_SHOTS_DIR` (checked by hand, never committed).
 const PRODUCT_SHOTS_DIR = import.meta.env.VITE_PUBLICACIONES_SHOTS_DIR;
 
+// The shipping-cost options of RE200 (S7b): its production costs (MLA1173065146 = 7290, MLA2517958828 = 10890, one
+// publication at 8290 whose id is unknown); the other ids, the units and the 9450 cost are synthetic. Ponderado stored.
+const ENVIO_OPTIONS = {
+  item_id: 4101,
+  date_from: '2026-10-13',
+  date_to: '2026-11-11',
+  publicaciones: [
+    { mla: 'MLA1173065146', costo: 7290, unidades: 42, mas_vendida: true, tipo: 'gold_special', logistica: 'drop_off' },
+    { mla: 'MLA_A', costo: 8290, unidades: 18, mas_vendida: false, tipo: 'gold_pro', logistica: 'drop_off' },
+    { mla: 'MLA_B', costo: 9450, unidades: 6, mas_vendida: false, tipo: 'gold_special', logistica: 'self_service' },
+    { mla: 'MLA2517958828', costo: 10890, unidades: 4, mas_vendida: false, tipo: 'gold_special', logistica: 'cross_docking' },
+    { mla: 'MLA_C', costo: null, unidades: 0, mas_vendida: false, tipo: 'gold_pro', logistica: 'fulfillment' },
+  ],
+  promedio: 8980,
+  ponderado: 7969.43,
+  max: 10890,
+  eleccion: {
+    modo: 'ponderado', mla: null, costo: 7969.43, warning: null, usuario_id: 7, usuario_nombre: 'Ana Pérez', updated_at: '2026-11-10T16:42:00',
+  },
+};
+
 describe('Publicaciones ML Producto view (visual)', () => {
   beforeEach(() => {
     publicacionesMlAPI.items.mockReset();
@@ -1494,6 +1515,41 @@ describe('Publicaciones ML Producto view (visual)', () => {
         } finally {
           preciosAPI.obtenerProducto.mockImplementation(() => new Promise(() => {}));
           offsetsGananciaAPI.vigentes.mockImplementation(() => new Promise(() => {}));
+        }
+      });
+
+      it(`${width}x${height} ${theme}: the product's shipping-cost choice (S7b) fits the panel, amounts on one line`, async () => {
+        preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, sell_in_out: SELL_IN_OUT } });
+        offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [] });
+        publicacionesMlAPI.productEnvio.mockResolvedValue({ data: ENVIO_OPTIONS });
+        try {
+          const screen = await renderProducts({ width, height, theme });
+          await openProductResumen(screen);
+          const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+          await aside.getByRole('tab', { name: 'Precios' }).click();
+          await expect.element(aside.getByText('Ponderado por ventas')).toBeVisible();
+          const panel = document.querySelector('[data-split-panel]');
+          const card = aside.getByText('Ponderado por ventas').element().closest('section');
+          card.scrollIntoView();
+          expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+          expect(getComputedStyle(card).backgroundColor).toBe(tokenColor('--cf-bg-card'));
+          const figures = [...card.querySelectorAll('label > span:last-child')];
+          expect(figures.length).toBe(7);
+          expect(wrapped(figures)).toEqual([]);
+          for (const control of card.querySelectorAll('label, button')) {
+            expect(rect(control).right, control.textContent).toBeLessThanOrEqual(rect(card).right + 0.5);
+          }
+          if (PRODUCT_SHOTS_DIR) {
+            // A taller window, so the whole card shows below the panel's pinned header.
+            await page.viewport(width, 1600);
+            card.scrollIntoView({ block: 'end' });
+            await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-envio-${width}-${theme}.png`, element: card });
+          }
+          screen.unmount();
+        } finally {
+          preciosAPI.obtenerProducto.mockImplementation(() => new Promise(() => {}));
+          offsetsGananciaAPI.vigentes.mockImplementation(() => new Promise(() => {}));
+          publicacionesMlAPI.productEnvio.mockImplementation(() => new Promise(() => {}));
         }
       });
 

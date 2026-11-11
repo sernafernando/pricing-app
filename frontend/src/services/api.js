@@ -932,6 +932,13 @@ export const publicacionesMlAPI = {
   groups: (params) => api.get('/ml-publications/view/groups', { params }),
   // One page of the Producto view: Métricas ML's product rows over the selected publications (see `buildProductsParams`).
   products: (params) => api.get('/ml-publications/view/products', { params }),
+  // The shipping costs a PM chooses the product's from (S7b): each active publication's own cost, their promedio,
+  // ponderado and max, and the stored choice. `params`: optional `{ date_from, date_to }` (default: the last 30 days).
+  productEnvio: (productItemId, params) =>
+    api.get(`/ml-publications/view/products/${productItemId}/envio`, params ? { params } : undefined),
+  // Stores the product's choice: `{ modo }` (max | promedio | ponderado) or `{ modo: 'mla', mla }`
+  // (`productos.editar_precio_clasica`).
+  saveProductEnvio: (productItemId, body) => api.put(`/ml-publications/products/${productItemId}/envio`, body),
   // The variations of one publication, for its expanded row. Fetched when the
   // row is opened, never with the page.
   variations: (itemId) => api.get(`/ml-publications/view/items/${encodeURIComponent(itemId)}/variations`),

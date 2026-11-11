@@ -16,6 +16,8 @@ class PublicacionEnvioOut(BaseModel):
     costo: Optional[float] = Field(None, description="Its own ML list_cost (ARS, with IVA); null without one")
     unidades: int = Field(description="Units sold in the period (Métricas ML's base)")
     mas_vendida: bool = Field(description="The most sold of the period (every one tied at the top)")
+    tipo: Optional[str] = Field(None, description="ML listing_type_id (gold_special, gold_pro); null if not stored")
+    logistica: Optional[str] = Field(None, description="ML shipping logistic_type (drop_off, cross_docking, ...)")
 
 
 class EleccionEnvioOut(BaseModel):
@@ -24,6 +26,7 @@ class EleccionEnvioOut(BaseModel):
     costo: float = Field(description="What the product resolves to now (a ponderado with the last 30 days)")
     warning: Optional[str] = Field(None, description="A chosen publication fell back to the MAX")
     usuario_id: Optional[int] = None
+    usuario_nombre: Optional[str] = Field(None, description="Who made the stored choice (`usuarios.nombre`)")
     updated_at: Optional[datetime] = None
 
 
