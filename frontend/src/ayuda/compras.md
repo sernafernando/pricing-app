@@ -29,3 +29,6 @@ Cada pestaña pide un permiso propio.
 
 **¿Se puede abrir una pestaña específica por link?**
 Sí, usando ?tab= en la URL (por ejemplo ?tab=ordenes-pago).
+
+**¿Qué hace Actualizar OC?**
+En el detalle del pedido, **Actualizar OC** vuelve a traer del ERP el contenido de las órdenes de compra ya vinculadas (líneas y cantidades del espejo). No corrige ni borra recepciones ya cargadas en Depósito: si la OC cambió en GBP, el saldo pendiente se recalcula sobre lo que ya ingresó.
