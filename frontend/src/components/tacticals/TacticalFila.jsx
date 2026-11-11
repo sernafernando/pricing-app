@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Wallet } from 'lucide-react';
 import { StatusPill } from '../kit';
 import {
   COLUMNAS_TACTICAL,
@@ -190,12 +190,13 @@ export default function TacticalFila({ tactical, abierto, onAlternar, acciones =
             {cobranza.puede && (
               <button
                 type="button"
-                className={styles.verVentas}
+                className={`btn-tesla outline-subtle-success sm ${styles.cobro}`}
                 aria-expanded={Boolean(cobranza.abierta)}
                 aria-controls={cobranza.abierta ? `tactical-${tactical.id}-cobranza-fila` : undefined}
                 aria-label={`${accionCobro} de ${tactical.nombre}`}
                 onClick={cobranza.onAlternar}
               >
+                <Wallet size={14} aria-hidden="true" />
                 {accionCobro}
               </button>
             )}
