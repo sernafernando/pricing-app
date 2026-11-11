@@ -53,6 +53,7 @@ from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP
 from app.models.sell_in import (
     SellInBonoConsumo,
+    SellInBonoItem,
     SellInBonoMarca,
     SellInCompra,
     SellInCompraItem,
@@ -77,7 +78,7 @@ from app.schemas.tacticals import (
 )
 from app.services.sell_in import bonos_crud, compras
 from app.services.sell_in.compras import contiene
-from app.services.sell_out import campanas, tienda_scope
+from app.services.sell_out import alcance as sell_out_alcance, campanas, tienda_scope
 
 GRUPO_NOMBRE_MAX = 100  # offset_grupos.nombre is VARCHAR(100)
 CAMPANA_NOMBRE_MAX = 200
@@ -1140,6 +1141,71 @@ class Filtros:
     hasta: Optional[date] = None
     q: Optional[str] = None
     cobranza: Optional[str] = None  # cobrados | pendientes (tactical cobranza S4)
+    contiene: Optional[str] = None  # productos | marca | categoria | factura: a kind of line it holds (SISO S1)
+    producto: Optional[str] = None  # código or descripción of a product one of its lines reaches (SISO S2)
+
+
+def _filtros_sell_out(campana_ids: Any):
+    """The tactical has a sell out campaign among `campana_ids`."""
+    return exists().where(SellOutCampana.tactical_id == Tactical.id, SellOutCampana.id.in_(campana_ids))
+
+
+def _contiene(tipo: str):
+    """The tactical has a line of kind `tipo` (SISO S1), told apart the way `serializar` names a line's `alcance`."""
+    bono = SellInBonoMarca.tactical_id == Tactical.id
+    filas = select(SellOutCampanaGrupo.campana_id).join(
+        OffsetGrupoFiltro, OffsetGrupoFiltro.grupo_id == SellOutCampanaGrupo.grupo_id
+    )
+    if tipo == "factura":
+        return or_(
+            exists().where(bono, SellInBonoMarca.alcance == "factura"),
+            exists().where(SellInCompra.tactical_id == Tactical.id),
+        )
+    if tipo == "productos":
+        de_campana = filas.where(OffsetGrupoFiltro.item_id.isnot(None))
+        return or_(_filtros_sell_out(de_campana), exists().where(bono, SellInBonoMarca.alcance == "modelos"))
+    # A campaign's scope row without a product is its brand when it has one, else its category (`_lineas_campanas`).
+    con_marca = func.coalesce(OffsetGrupoFiltro.marca, "") != ""
+    de_campana = filas.where(OffsetGrupoFiltro.item_id.is_(None), con_marca if tipo == "marca" else ~con_marca)
+    return or_(_filtros_sell_out(de_campana), exists().where(bono, SellInBonoMarca.alcance == tipo))
+
+
+def _alcanza_producto(db: Session, q: str):
+    """One of the tactical's lines reaches a product whose code or description contains `q` (SISO S2), with each
+    engine's own rule: a sell out campaign through its groups' filter rows (`alcance.campanas_que_alcanzan`); a sell in
+    bonus by brand, category, its models or its invoice's invoiced lines (`bonos._alcanzadas`); an invoice total by
+    its purchase's lines."""
+    coincide = or_(contiene(ProductoERP.codigo, q), contiene(ProductoERP.descripcion, q))
+    productos = select(ProductoERP.item_id).where(coincide)
+    por_bono = or_(
+        and_(SellInBonoMarca.alcance == "marca", SellInBonoMarca.marca.in_(select(ProductoERP.marca).where(coincide))),
+        and_(
+            SellInBonoMarca.alcance == "categoria",
+            SellInBonoMarca.categoria.in_(select(ProductoERP.categoria).where(coincide)),
+        ),
+        and_(
+            SellInBonoMarca.alcance == "modelos",
+            exists().where(SellInBonoItem.bono_id == SellInBonoMarca.id, SellInBonoItem.item_id.in_(productos)),
+        ),
+        and_(
+            SellInBonoMarca.alcance == "factura",
+            exists().where(
+                PedidoCompraLineaFacturada.pedido_id == SellInBonoMarca.pedido_id,
+                PedidoCompraLineaFacturada.item_id.in_(productos),
+            ),
+        ),
+    )
+    por_compra = exists().where(
+        SellInCompra.tactical_id == Tactical.id,
+        SellInCompraItem.compra_id == SellInCompra.id,
+        SellInCompraItem.item_id.in_(productos),
+    )
+    campanas_ = sell_out_alcance.campanas_que_alcanzan(db, productos).subquery()
+    return or_(
+        _filtros_sell_out(select(campanas_.c.campana_id)),
+        exists().where(SellInBonoMarca.tactical_id == Tactical.id, por_bono),
+        por_compra,
+    )
 
 
 def _consulta(db: Session, filtros: Filtros, hoy: date) -> Query:
@@ -1167,6 +1233,10 @@ def _consulta(db: Session, filtros: Filtros, hoy: date) -> Query:
     if _texto(filtros.q):
         q = _texto(filtros.q)
         query = query.filter(or_(contiene(Tactical.nombre, q), contiene(Tactical.referencia, q)))
+    if filtros.contiene:
+        query = query.filter(_contiene(filtros.contiene))
+    if _texto(filtros.producto):
+        query = query.filter(_alcanza_producto(db, _texto(filtros.producto)))
     return query
 
 

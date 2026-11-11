@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
+from app.services.envio_real_service import CostosEnvio
 from app.services.ml_publications.view import markup_service
 from app.services.ml_publications.view.filters import parse_filter
 from app.services.ml_publications.view.markup import aggregate_publication, unit_markup
@@ -43,15 +44,24 @@ def db(env, conn):  # noqa: F811
 
 
 @pytest.fixture()
-def envio_calls(monkeypatch):
-    """The real-shipping batch, counted: (db, product ids) per call."""
+def own_costs() -> dict[str, float]:
+    """Each publication's own list cost in the stubbed mlwebhook table (none unless a test adds it)."""
+    return {}
+
+
+@pytest.fixture()
+def envio_calls(monkeypatch, own_costs):
+    """The real-shipping read, counted: (db, product ids, MLAs) per call."""
     calls: list[tuple] = []
 
-    def fake(session, product_ids, **kwargs):
-        calls.append((session, list(product_ids)))
-        return {k: v for k, v in ENVIO.items() if k in product_ids}
+    def fake(session, product_ids, mla_ids, **kwargs):
+        calls.append((session, list(product_ids), list(mla_ids)))
+        return CostosEnvio(
+            por_producto={k: v for k, v in ENVIO.items() if k in product_ids},
+            por_mla={m: own_costs[m] for m in mla_ids if m in own_costs},
+        )
 
-    monkeypatch.setattr(markup_service, "resolver_costos_envio_batch", fake)
+    monkeypatch.setattr(markup_service, "resolver_costos_envio_mlas", fake)
     return calls
 
 
@@ -173,9 +183,10 @@ class TestEnvioBatch:
         seed_catalog(conn)
         markup_service.compute_markups(db, db, ctx=make_ctx(), f=parse_filter())
         assert len(envio_calls) == 1
-        session, product_ids = envio_calls[0]
+        session, product_ids, mla_ids = envio_calls[0]
         assert session is db
         assert product_ids == [70, 72]  # distinct, sorted; the product without cost is never priced
+        assert mla_ids == ["MLA1", "MLA4", "MLA5", "MLA6", "MLA7"]  # the publications with a priceable unit
 
     def test_the_pricing_session_is_the_one_the_batch_and_the_context_use(self, conn, db, envio_calls) -> None:
         seed_catalog(conn)
@@ -186,15 +197,58 @@ class TestEnvioBatch:
     def test_a_missing_envio_falls_back_exactly_like_productos(self, conn, db, monkeypatch) -> None:
         seed_catalog(conn)
         ctx = make_ctx()
-        monkeypatch.setattr(markup_service, "resolver_costos_envio_batch", lambda *a, **k: {})
+        monkeypatch.setattr(markup_service, "resolver_costos_envio_mlas", lambda *a, **k: CostosEnvio({}, {}))
         got = markup_service.compute_markups(db, db, ctx=ctx, item_ids=["MLA1"]).items["MLA1"].markup
         assert got.worst == unit_markup(ctx, make_inputs(producto_item_id=70), {}).value
 
     def test_no_priceable_product_makes_no_batch_call_with_ids(self, conn, db, envio_calls) -> None:
         seed_catalog(conn)
         markup_service.compute_markups(db, db, ctx=make_ctx(), item_ids=["MLA2"])
-        assert all(ids == [] for _, ids in envio_calls)
+        assert all(ids == [] and mlas == [] for _, ids, mlas in envio_calls)
         assert len(envio_calls) <= 1
+
+
+class TestOwnShippingCost:
+    """S7 (L2): "cada publicación está trayendo mal el costo del envío" -> each publication is priced with its
+    OWN list cost; the product MAX (and then the ERP figure) only when the publication has none."""
+
+    def test_the_publication_own_cost_wins_over_the_product_max(self, conn, db, envio_calls, own_costs) -> None:
+        seed_catalog(conn)
+        own_costs["MLA1"] = 900.0
+        ctx = make_ctx()
+        got = markup_service.compute_markups(db, db, ctx=ctx, item_ids=["MLA1"]).items["MLA1"].markup
+        expected = unit_markup(ctx, make_inputs(producto_item_id=70), {70: 900.0})
+        assert got.worst == expected.value
+        assert got.worst != unit_markup(ctx, make_inputs(producto_item_id=70), ENVIO).value
+
+    def test_every_variation_of_the_publication_uses_its_own_cost(self, conn, db, envio_calls, own_costs) -> None:
+        seed_catalog(conn)
+        own_costs["MLA7"] = 900.0
+        ctx = make_ctx()
+        got = markup_service.compute_markups(db, db, ctx=ctx, item_ids=["MLA7"]).items["MLA7"].markup
+        common = dict(item_id="MLA7", sale_price=None, item_price=120000.0, tags=(), sale_terms_campaign="12x_campaign")
+        low = unit_markup(ctx, make_inputs(producto_item_id=72, costo=80000.0, **common), {72: 900.0})
+        high = unit_markup(ctx, make_inputs(producto_item_id=70, costo=50000.0, **common), {70: 900.0})
+        assert got.value_min == low.value and got.value_max == high.value
+
+    def test_another_publication_of_the_same_product_keeps_the_max(self, conn, db, envio_calls, own_costs) -> None:
+        seed_catalog(conn)
+        seed.add_item(conn, "MLA8", listing_type_id="gold_pro", tags=["9x_campaign"], price=90000)
+        seed.add_sale_price(conn, "MLA8", 100000)
+        seed.add_link(conn, "MLA8", 70)
+        own_costs["MLA1"] = 900.0
+        ctx = make_ctx()
+        items = markup_service.compute_markups(db, db, ctx=ctx, item_ids=["MLA1", "MLA8"]).items
+        assert items["MLA1"].markup.worst == unit_markup(ctx, make_inputs(producto_item_id=70), {70: 900.0}).value
+        assert items["MLA8"].markup.worst == unit_markup(ctx, make_inputs(producto_item_id=70), ENVIO).value
+
+    def test_the_detail_breakdown_shows_the_own_cost(self, conn, db, envio_calls, own_costs) -> None:
+        seed_catalog(conn)
+        own_costs["MLA1"] = 900.0
+        detail = markup_service.compute_detail(db, db, "MLA1", ctx=make_ctx())
+        assert detail is not None and detail.breakdown is not None
+        assert detail.breakdown.costo_envio == 900.0
+        assert detail.item.markup.worst == detail.breakdown.markup
 
 
 class TestStats:

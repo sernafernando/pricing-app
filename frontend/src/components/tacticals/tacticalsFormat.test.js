@@ -142,6 +142,16 @@ describe('paramsDeFiltros', () => {
       ),
     ).toEqual({ tipo: 'sell_out', marca: 'HP', moneda: 'USD', estado: 'anulados', desde: '2026-11-01', hasta: '2026-11-30', q: 'bps', page: 2, page_size: 25 });
   });
+
+  it('sends Contiene and the product search only when set, the search trimmed (SISO S1, S2)', () => {
+    const base = { tipo: 'todos', marca: '', moneda: '', estado: 'vigentes', desde: '', hasta: '', q: '' };
+    expect(paramsDeFiltros({ ...base, contiene: '', producto: '  ' }, { page: 1, pageSize: 50 })).toEqual({
+      estado: 'vigentes', page: 1, page_size: 50,
+    });
+    expect(paramsDeFiltros({ ...base, contiene: 'factura', producto: ' RE200 ' }, { page: 1, pageSize: 50 })).toEqual({
+      estado: 'vigentes', contiene: 'factura', producto: 'RE200', page: 1, page_size: 50,
+    });
+  });
 });
 
 describe('an invoice tactical (factura sin fecha S4)', () => {

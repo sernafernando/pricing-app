@@ -110,7 +110,7 @@ describe.each([
         const f = campo.getBoundingClientRect();
         return { top: c.top - f.top, bottom: f.bottom - c.bottom, height: c.height };
       };
-      const select = screen.getByLabelText('Marca').element();
+      const select = screen.getByRole('combobox', { name: /^Marca/ }).element();
       const marca = enCampo(select, select.closest('label'));
       for (const fecha of document.querySelectorAll('input[type="date"]')) {
         const vigencia = enCampo(fecha, fecha.closest('[role="group"], fieldset'));

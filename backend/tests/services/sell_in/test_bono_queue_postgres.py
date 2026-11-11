@@ -524,3 +524,60 @@ class TestAlcance:
         _sql(engine, "DELETE FROM pedidos_compra WHERE id = :p", p=pedido)
 
         assert ("bono", bono_id) in b.queued(engine)  # its pedido_id went NULL: the worker voids what it generated
+
+
+@pytest.mark.postgres
+class TestMarcaConCategoria:
+    """SISO S3: a brand line with a category reaches only that brand's products of that category, so a product change
+    queues it (or the operations invoicing the product) only when the product is, or was, in that category."""
+
+    def test_a_brand_change_of_a_product_outside_the_lines_category_queues_nothing(self, engine: Engine) -> None:
+        factura = b.bono(engine)
+        b.update_bono(engine, factura, categoria="Routers")
+        b.bono_costo(engine, categoria="Routers")
+        b.set_categoria(engine, 2964, "Switches")
+        b.pedido(engine, {2964: 1})
+        b.clear_queue(engine)
+
+        _sql(engine, "UPDATE productos_erp SET marca = 'OTRA' WHERE item_id = 2964")
+
+        assert b.queued(engine) == []
+
+    def test_a_brand_change_of_a_product_in_the_lines_category_queues_it(self, engine: Engine) -> None:
+        factura = b.bono(engine)
+        b.update_bono(engine, factura, categoria="Routers")
+        costo = b.bono_costo(engine, categoria="Routers")
+        b.set_categoria(engine, 2964, "Routers")
+        pedido = b.pedido(engine, {2964: 1})
+        b.clear_queue(engine)
+
+        _sql(engine, "UPDATE productos_erp SET marca = 'OTRA' WHERE item_id = 2964")
+
+        assert b.queued(engine) == sorted([("bono", costo), ("pedido", pedido)])
+
+    def test_a_product_entering_or_leaving_the_lines_category_queues_it(self, engine: Engine) -> None:
+        factura = b.bono(engine)
+        b.update_bono(engine, factura, categoria="Routers")
+        costo = b.bono_costo(engine, categoria="Routers")
+        b.set_categoria(engine, 2964, "Switches")
+        pedido = b.pedido(engine, {2964: 1})
+        b.clear_queue(engine)
+
+        b.set_categoria(engine, 2964, "Routers")
+        assert b.queued(engine) == sorted([("bono", costo), ("pedido", pedido)])
+
+        b.clear_queue(engine)
+        b.set_categoria(engine, 2964, "Cables")
+        assert b.queued(engine) == sorted([("bono", costo), ("pedido", pedido)])
+
+    def test_a_category_change_between_two_other_categories_queues_nothing(self, engine: Engine) -> None:
+        factura = b.bono(engine)
+        b.update_bono(engine, factura, categoria="Routers")
+        b.bono_costo(engine, categoria="Routers")
+        b.set_categoria(engine, 2964, "Switches")
+        b.pedido(engine, {2964: 1})
+        b.clear_queue(engine)
+
+        b.set_categoria(engine, 2964, "Cables")
+
+        assert b.queued(engine) == []

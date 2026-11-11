@@ -148,10 +148,12 @@ def _norm(sql: str) -> str:
 
 
 def test_the_live_module_statements_are_this_revisions() -> None:
-    """What the test worlds install (the modules) is what this revision installs; what its downgrade restores is what
-    20261115 and 20261031 installed."""
+    """What the test worlds install (the modules) is what this revision installs, except the product function that
+    20261111_sell_in_bono_marca_categoria replaced later (its downgrade restores this revision's copy); what its
+    downgrade restores is what 20261115 and 20261031 installed."""
     module = _module()
     vivos = {_norm(s) for s in bono_queue.UPGRADE_SQL + sell_queue.UPGRADE_SQL}
+    vivos |= {_norm(s) for s in _module("20261111_sell_in_bono_marca_categoria").FUNCIONES_DOWN}
     assert {_norm(s) for s in module.PRODUCTO_UP + module.SELL_DIRTY_UP} <= vivos
     previos = {_norm(s) for s in _module("20261115_sell_in_bono_queue_alcance")._TRIGGERS_UP}
     previos |= {_norm(s) for s in _module("20261031_sell_dirty_queue")._TRIGGERS_UP}

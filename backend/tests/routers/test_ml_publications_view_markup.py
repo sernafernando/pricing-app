@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import event
 
+from app.services.envio_real_service import CostosEnvio
 from app.services.ml_publications.view import markup_service
 from app.services.ml_publications.view.markup import unit_markup
 from tests.routers.test_ml_publications_links import grant
@@ -54,11 +55,11 @@ def pricing(monkeypatch):
     calls: list[list[int]] = []
     monkeypatch.setattr(markup_service, "build_pricing_context", lambda db: make_ctx())
 
-    def envio(db, product_ids, **kwargs):
+    def envio(db, product_ids, mla_ids, **kwargs):
         calls.append(list(product_ids))
-        return {}
+        return CostosEnvio()
 
-    monkeypatch.setattr(markup_service, "resolver_costos_envio_batch", envio)
+    monkeypatch.setattr(markup_service, "resolver_costos_envio_mlas", envio)
     return calls
 
 
