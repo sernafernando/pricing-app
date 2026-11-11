@@ -58,6 +58,7 @@ from app.models.sell_in import (
     SellInCompraItem,
     SellInCompraPedido,
     SellInConsumo,
+    SellInModoProducto,
 )
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo
 from app.models.ml_tienda_oficial import MlTiendaOficial
@@ -525,38 +526,52 @@ def _fechas_de_facturas(db: Session, data: TacticalIn) -> tuple[date, date]:
     return desde or hoy, hasta or hoy
 
 
-def _crear(db: Session, data: TacticalIn, usuario_id: int) -> Tactical:
+def _aplicar_cabecera(db: Session, tactical: Tactical, data: TacticalIn) -> None:
+    """Validate the header (`_validar_cabecera`) and write it on `tactical`, its stores and brands included: the
+    create's header, and the edit's full replace (S8)."""
     _validar_hijos(data)
     nombre, marcas, tc_modo = _validar_cabecera(db, data)
     fecha_desde, fecha_hasta = (
         _fechas_de_facturas(db, data) if _por_factura(data) else (data.fecha_desde, data.fecha_hasta)
     )
-    tactical = Tactical(
-        tipo=data.tipo,
-        nombre=nombre,
-        marca=_texto(data.marca) or marcas[0],  # the one an old client sent (one of `marcas`), else the first
-        referencia=_texto(data.referencia),
-        fecha_desde=fecha_desde,
-        fecha_hasta=fecha_hasta,
-        moneda=data.moneda,
-        tc_modo=tc_modo,
-        tipo_cambio=data.tipo_cambio,
-        incluye_iva=data.incluye_iva,
-        acumulable=data.acumulable,
-        todas_tiendas=data.todas_tiendas,
-        tope_compartido=data.tope_compartido,
-        nota=_texto(data.nota),
-        estado="activo",
-        usuario_id=usuario_id,
-    )
+    tactical.tipo = data.tipo
+    tactical.nombre = nombre
+    tactical.marca = _texto(data.marca) or marcas[0]  # the one an old client sent (one of `marcas`), else the first
+    tactical.referencia = _texto(data.referencia)
+    tactical.fecha_desde, tactical.fecha_hasta = fecha_desde, fecha_hasta
+    tactical.moneda, tactical.tc_modo, tactical.tipo_cambio = data.moneda, tc_modo, data.tipo_cambio
+    tactical.incluye_iva, tactical.acumulable = data.incluye_iva, data.acumulable
+    tactical.todas_tiendas, tactical.tope_compartido = data.todas_tiendas, data.tope_compartido
+    tactical.nota = _texto(data.nota)
+    if tactical.id is not None:  # an edit: the old rows go first (`uq_tactical_marcas` would see a kept brand twice)
+        tactical.tiendas.clear()
+        tactical.marcas.clear()
+        db.flush()
     _guardar_tiendas(tactical, data.tiendas)
     tactical.marcas = [TacticalMarca(marca=m) for m in marcas]
+
+
+def _crear(db: Session, data: TacticalIn, usuario_id: int) -> Tactical:
+    tactical = Tactical(estado="activo", usuario_id=usuario_id)
+    _aplicar_cabecera(db, tactical, data)
     db.add(tactical)
     db.flush()
+    _crear_hijos(db, tactical, data, usuario_id)
+    _audit(db, TipoAccion.TACTICAL_CREADO, usuario_id, {"tactical_id": tactical.id, **_cabecera(tactical)})
+    return tactical
+
+
+def _crear_hijos(
+    db: Session, tactical: Tactical, data: TacticalIn, usuario_id: int, conservadas: frozenset[int] = frozenset()
+) -> None:
+    """Every line's children through the engines' create steps; a line in `conservadas` keeps the child it has (an
+    edit's unchanged invoice total, `_conservables`)."""
     todos = {i for linea in data.lineas for i in linea.item_ids}
     codigos = dict(db.query(ProductoERP.item_id, ProductoERP.codigo).filter(ProductoERP.item_id.in_(todos)))
     crear_hijo = _sell_out if data.tipo == "sell_out" else _sell_in
     for numero, linea in enumerate(data.lineas, start=1):
+        if numero in conservadas:
+            continue
         try:
             alcance = _validar_linea(db, data, linea)
             for parte in _partes(linea, alcance):
@@ -568,8 +583,6 @@ def _crear(db: Session, data: TacticalIn, usuario_id: int) -> Tactical:
             raise TacticalError(f"Línea {numero}: {_sin_mayuscula(mensaje)}") from exc
         except ValueError as exc:  # TacticalError and every engine's refusal (SellOutError, SellInBonoError, ...)
             raise TacticalError(f"Línea {numero}: {_sin_mayuscula(str(exc))}") from exc
-    _audit(db, TipoAccion.TACTICAL_CREADO, usuario_id, {"tactical_id": tactical.id, **_cabecera(tactical)})
-    return tactical
 
 
 def _sin_mayuscula(mensaje: str) -> str:
@@ -857,6 +870,210 @@ def _editar_hijos(
             raise TacticalOcupado(f"Línea {numero}: {exc}") from exc
         except ValueError as exc:  # every engine's refusal (SellOutError, SellInBonoError, ...)
             raise TacticalError(f"Línea {numero}: {_sin_mayuscula(str(exc))}") from exc
+
+
+# --- full edit (S8) -----------------------------------------------------------------------------------------------
+
+COBRADO = (
+    "El tactical está cobrado: para cambiar sus montos o líneas, primero deshacé el cobro (nombre, nota, fecha hasta "
+    "y topes se editan igual)"
+)
+MOTIVO_REEMPLAZO = "Reemplazado al editar el tactical"
+
+
+class TacticalCobrado(TacticalError):
+    """A collected tactical's money is not replaced: 409 (`COBRADO`)."""
+
+
+@_ocupado_si_deadlock
+def reemplazar(
+    db: Session, tactical_id: int, data: TacticalIn, usuario_id: int, hoy: Optional[date] = None
+) -> Optional[Tactical]:
+    """Replace the whole definition, as if the tactical were loaded again from scratch (S8), keeping its id.
+
+    In one transaction: every active child is voided through its engine's void step and detached from the tactical
+    (its audit rows and the `TACTICAL_EDITADO` row keep the trace), the header takes the new values, and every line
+    is created again through the engines' create steps, so what the tactical already applied is recomputed with the
+    new definition by the queues the engines already feed. An unchanged invoice-total line keeps its purchase.
+
+    Refused: a voided tactical (`TacticalYaAnulado`), a collected one (`TacticalCobrado`: undo the collection first),
+    an invoice-total purchase a manual cost mode names that would be voided, and a changed end date before today (an
+    unchanged past one stays). A sell out `al_cobro` rate already set carries to the line's new campaigns while the
+    currency and the FX mode do not change; otherwise it is discarded. None when it does not exist."""
+    hoy = hoy or date.today()
+    try:
+        tactical = db.query(Tactical).filter(Tactical.id == tactical_id).populate_existing().with_for_update().first()
+        if tactical is None:
+            return None
+        if tactical.estado == "anulado":
+            raise TacticalYaAnulado(f"El tactical {tactical_id} está anulado")
+        if tactical.cobranza is not None:
+            raise TacticalCobrado(COBRADO)
+        if not _por_factura(data) and data.fecha_hasta is not None and data.fecha_hasta != tactical.fecha_hasta:
+            if data.fecha_hasta < hoy:
+                raise TacticalError(f"La fecha hasta no puede ser anterior a hoy ({_fecha(hoy)})")
+        hijos = serializar(db, [tactical])[0]["lineas"]
+        antes = {**_cabecera(tactical), "tactical_id": tactical.id, "lineas": _definicion_de(hijos)}
+        conservadas = _conservables(tactical, data, hijos)
+        _sin_modo_manual(db, [h for h in hijos if h["linea"] not in conservadas])
+        tasas = _tasas_al_cobro(db, tactical, data)
+        reemplazados = _reemplazar_hijos(db, tactical_id, conservadas, usuario_id)
+        _aplicar_cabecera(db, tactical, data)
+        db.flush()
+        _crear_hijos(db, tactical, data, usuario_id, frozenset(conservadas))
+        _poner_tasas(db, tactical_id, tasas)
+        despues = {
+            **_cabecera(tactical),
+            "tactical_id": tactical.id,
+            "definicion": data.model_dump(mode="json"),
+            "reemplazados": reemplazados,
+        }
+        _audit(db, TipoAccion.TACTICAL_EDITADO, usuario_id, despues, antes=antes)
+        db.commit()
+    except campanas.SellOutRecalculando as exc:
+        db.rollback()
+        raise TacticalOcupado(str(exc)) from exc
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(tactical)
+    return tactical
+
+
+def _definicion_de(hijos: list[dict]) -> list[dict]:
+    """What each child was, for the audit row's `valores_anteriores`."""
+    campos = ("linea", "origen", "id", "estado", "alcance", "marca", "categoria", "pedido_compra_id", "modo_monto",
+              "valor", "reparto_criterio", "moneda", "tope_unidades", "tope_monto")  # fmt: skip
+    return [
+        {
+            **{c: (str(h[c]) if isinstance(h[c], Decimal) else h[c]) for c in campos},
+            "item_ids": [p["item_id"] for p in h["productos"]],
+        }
+        for h in hijos
+    ]
+
+
+def _conservables(tactical: Tactical, data: TacticalIn, hijos: list[dict]) -> set[int]:
+    """The lines whose only child is an active invoice total the new definition repeats as is (same line number,
+    invoice, total, currency and rate): their purchase stays, so its FIFO units are not released and taken again."""
+    if data.tipo != "sell_in":
+        return set()
+    por_linea: dict[int, list[dict]] = defaultdict(list)
+    for h in hijos:
+        if h["estado"] == "activa":
+            por_linea[h["linea"]].append(h)
+    conservadas = set()
+    for numero, linea in enumerate(data.lineas, start=1):
+        actuales = por_linea.get(numero, [])
+        if len(actuales) != 1 or actuales[0]["origen"] != "sell_in_compra":
+            continue
+        actual = actuales[0]
+        if (
+            linea.alcance == "factura"
+            and linea.modo_monto == "monto_total"
+            and linea.pedido_compra_id == actual["pedido_compra_id"]
+            and _cents(linea.valor) == _cents(actual["valor"])
+            and data.moneda == actual["moneda"] == tactical.moneda
+            and (data.moneda == "ARS" or data.tipo_cambio == tactical.tipo_cambio)
+        ):
+            conservadas.add(numero)
+    return conservadas
+
+
+def _sin_modo_manual(db: Session, hijos: list[dict]) -> None:
+    """An invoice-total purchase a manual cost mode names (`sell_in_modos_producto.compra_id`, append-only) cannot
+    be voided by an edit: that mode would point at a voided load."""
+    compra_ids = {h["id"]: h["linea"] for h in hijos if h["origen"] == "sell_in_compra" and h["estado"] == "activa"}
+    if not compra_ids:
+        return
+    usadas = {
+        cid
+        for (cid,) in db.query(SellInModoProducto.compra_id)
+        .filter(SellInModoProducto.compra_id.in_(compra_ids))
+        .distinct()
+    }
+    if usadas:
+        numero = min(compra_ids[c] for c in usadas)
+        raise TacticalError(
+            f"Línea {numero}: el monto total de esta factura ya se usó en un modo de costo manual: esa línea no se "
+            "puede cambiar ni quitar"
+        )
+
+
+def _sufijo(nombre: str, numero: int) -> str:
+    """What follows "línea N" in a child's name (`_nombre`): empty, or the product's code of a per-product line."""
+    marca = f"línea {numero}"
+    return nombre.split(marca, 1)[1] if marca in nombre else ""
+
+
+def _tasas_al_cobro(db: Session, tactical: Tactical, data: TacticalIn) -> dict[tuple[int, str], tuple]:
+    """The rates already set on the active `al_cobro` campaigns, by (line, name suffix), when the new definition
+    keeps sell out in USD `al_cobro`: those carry to the new campaigns (D2). Any other change discards them."""
+    sigue = (
+        tactical.tipo == data.tipo == "sell_out"
+        and tactical.moneda == data.moneda == "USD"
+        and tactical.tc_modo == "al_cobro"
+        and (data.tc_modo or "al_cobro") == "al_cobro"
+    )
+    if not sigue:
+        return {}
+    c = SellOutCampana
+    return {
+        (linea, _sufijo(nombre, linea)): (tasa, definido)
+        for linea, nombre, tasa, definido in db.query(c.tactical_linea, c.nombre, c.tipo_cambio, c.tc_definido_en)
+        .filter(c.tactical_id == tactical.id, c.estado == "activa", c.tc_definido_en.isnot(None))
+        .order_by(c.id)
+    }
+
+
+def _poner_tasas(db: Session, tactical_id: int, tasas: dict[tuple[int, str], tuple]) -> None:
+    if not tasas:
+        return
+    for campana in db.query(SellOutCampana).filter(
+        SellOutCampana.tactical_id == tactical_id, SellOutCampana.estado == "activa"
+    ):
+        tasa = tasas.get((campana.tactical_linea, _sufijo(campana.nombre, campana.tactical_linea)))
+        if tasa is not None:
+            campana.tipo_cambio, campana.tc_definido_en = tasa  # the create already queued the campaign
+    db.flush()
+
+
+def _reemplazar_hijos(db: Session, tactical_id: int, conservadas: set[int], usuario_id: int) -> dict:
+    """Void every active child but the kept lines' (`_anular_hijos`'s engine steps) and detach them from the tactical:
+    the new children take their line numbers, and the read shows only the current definition."""
+    anuladas = {"campana_ids": [], "bono_ids": [], "compra_ids": []}
+    for (cid,) in (
+        db.query(SellOutCampana.id)
+        .filter(SellOutCampana.tactical_id == tactical_id, SellOutCampana.estado == "activa")
+        .order_by("id")
+    ):
+        campana = campanas.bloquear(db, cid)
+        campanas.anular_sin_commit(db, campana, usuario_id, MOTIVO_REEMPLAZO, masivo=True)
+        anuladas["campana_ids"].append(cid)
+    for (bid,) in (
+        db.query(SellInBonoMarca.id)
+        .filter(SellInBonoMarca.tactical_id == tactical_id, SellInBonoMarca.estado == "activa")
+        .order_by("id")
+    ):
+        bonos_crud.anular_bono_sin_commit(db, bid, usuario_id, MOTIVO_REEMPLAZO, es_masivo=True)
+        anuladas["bono_ids"].append(bid)
+    for (cid,) in (
+        db.query(SellInCompra.id)
+        .filter(
+            SellInCompra.tactical_id == tactical_id,
+            SellInCompra.estado == "activa",
+            SellInCompra.tactical_linea.notin_(conservadas or {0}),
+        )
+        .order_by("id")
+    ):
+        compras.anular_compra_sin_commit(db, cid, usuario_id, MOTIVO_REEMPLAZO, es_masivo=True)
+        anuladas["compra_ids"].append(cid)
+    db.flush()
+    sueltos = {"tactical_id": None, "tactical_linea": None}
+    for modelo, clave in ((SellOutCampana, "campana_ids"), (SellInBonoMarca, "bono_ids"), (SellInCompra, "compra_ids")):
+        if anuladas[clave]:
+            db.query(modelo).filter(modelo.id.in_(anuladas[clave])).update(sueltos, synchronize_session="fetch")
+    return anuladas
 
 
 # --- read ---------------------------------------------------------------------------------------------------------
