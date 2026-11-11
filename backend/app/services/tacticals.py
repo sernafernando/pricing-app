@@ -53,6 +53,7 @@ from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP
 from app.models.sell_in import (
     SellInBonoConsumo,
+    SellInBonoItem,
     SellInBonoMarca,
     SellInCompra,
     SellInCompraItem,
@@ -77,7 +78,7 @@ from app.schemas.tacticals import (
 )
 from app.services.sell_in import bonos_crud, compras
 from app.services.sell_in.compras import contiene
-from app.services.sell_out import campanas, tienda_scope
+from app.services.sell_out import alcance as sell_out_alcance, campanas, tienda_scope
 
 GRUPO_NOMBRE_MAX = 100  # offset_grupos.nombre is VARCHAR(100)
 CAMPANA_NOMBRE_MAX = 200
@@ -776,11 +777,12 @@ _FILAS_POR_TIENDA = {
 
 
 def _maximos_por_tienda(
-    db: Session, tactical: Tactical, hijos: list[dict]
+    db: Session, tactical: Tactical, hijos: list[dict], compartido: Optional[bool] = None
 ) -> dict[tuple[str, int], tuple[int, Decimal]]:
     """With per-store caps, what the most-used store or channel of each active child took `(units, amount)`: each
-    counter has the whole cap, so a cap never goes below that one, not below the child's total. Empty when shared."""
-    if tactical.tope_compartido:
+    counter has the whole cap, so a cap never goes below that one, not below the child's total. Empty when shared
+    (`compartido`, the tactical's own unless a new definition sets it)."""
+    if tactical.tope_compartido if compartido is None else compartido:
         return {}
     salida: dict[tuple[str, int], tuple[int, Decimal]] = {}
     for origen, filas in _FILAS_POR_TIENDA.items():
@@ -808,6 +810,14 @@ def _validar_tope(
         raise TacticalError(f"Línea {hijo['linea']}: {COSTO_EN_PESOS}")
     if hijo["modo_monto"] == "monto_total" and (tope.tope_unidades is not None or tope.tope_monto is not None):
         raise TacticalError(f"Línea {hijo['linea']}: un monto total no lleva topes: el monto total es el tope")
+    _validar_usado(tope, hijo, maximo)
+
+
+def _validar_usado(
+    tope: TacticalLineaTopesIn | TacticalLineaIn, hijo: dict, maximo: Optional[tuple[int, Decimal]] = None
+) -> None:
+    """A cap never below what the child already used; with per-store caps (`maximo`), below what its most-used store
+    or channel used."""
     unidades, monto = maximo if maximo is not None else (hijo["unidades_usadas"], _cents(hijo["monto_usado"]))
     donde = " en una tienda o canal" if maximo is not None else ""
     if tope.tope_unidades is not None and tope.tope_unidades < unidades:
@@ -915,6 +925,7 @@ def reemplazar(
         hijos = serializar(db, [tactical])[0]["lineas"]
         antes = {**_cabecera(tactical), "tactical_id": tactical.id, "lineas": _definicion_de(hijos)}
         conservadas = _conservables(tactical, data, hijos)
+        _validar_topes_usados(db, tactical, data, [h for h in hijos if h["linea"] not in conservadas])
         _sin_modo_manual(db, [h for h in hijos if h["linea"] not in conservadas])
         tasas = _tasas_al_cobro(db, tactical, data)
         reemplazados = _reemplazar_hijos(db, tactical_id, conservadas, usuario_id)
@@ -978,6 +989,47 @@ def _conservables(tactical: Tactical, data: TacticalIn, hijos: list[dict]) -> se
         ):
             conservadas.add(numero)
     return conservadas
+
+
+def _validar_topes_usados(db: Session, tactical: Tactical, data: TacticalIn, hijos: list[dict]) -> None:
+    """Rule 1 keeps the PATCH edit's guard (L16): a line whose type and scope stay (`_mismo_alcance`) cannot get a cap
+    below what its active children already used. A new line is paired with the old line of the same scope whatever
+    its number (L18: a deleted or moved line renumbers the rest), and the refusal names the new line's number. The
+    amount is compared only while the currency stays: a used amount in another currency says nothing about the new
+    cap."""
+    if data.tipo != tactical.tipo:
+        return
+    por_linea: dict[int, list[dict]] = defaultdict(list)
+    for h in hijos:
+        if h["estado"] == "activa":
+            por_linea[h["linea"]].append(h)
+    pares: list[tuple[int, TacticalLineaIn, list[dict]]] = []
+    for numero, linea in enumerate(data.lineas, start=1):
+        viejo = next((n for n, actuales in por_linea.items() if _mismo_alcance(linea, actuales)), None)
+        if viejo is not None:
+            pares.append((numero, linea, por_linea.pop(viejo)))
+    if not pares:
+        return
+    activos = [h for _, _, actuales in pares for h in actuales]
+    maximos = _maximos_por_tienda(db, tactical, activos, compartido=data.tope_compartido)
+    for numero, linea, actuales in pares:
+        tope = linea if data.moneda == tactical.moneda else linea.model_copy(update={"tope_monto": None})
+        for hijo in actuales:
+            _validar_usado(tope, {**hijo, "linea": numero}, maximos.get((hijo["origen"], hijo["id"])))
+
+
+def _mismo_alcance(linea: TacticalLineaIn, actuales: list[dict]) -> bool:
+    """The new line targets what the line's current children target: the same scope and, by scope, the same brand and
+    category, invoice, or products (a per-product line has one child per product)."""
+    if any(h["alcance"] != linea.alcance for h in actuales):
+        return False
+    if linea.alcance == "marca":
+        return all((h["marca"], h["categoria"] or None) == (linea.marca, linea.categoria or None) for h in actuales)
+    if linea.alcance == "categoria":
+        return all(h["categoria"] == linea.categoria for h in actuales)
+    if linea.alcance == "factura":
+        return all(h["pedido_compra_id"] == linea.pedido_compra_id for h in actuales)
+    return {p["item_id"] for h in actuales for p in h["productos"]} == set(linea.item_ids)
 
 
 def _sin_modo_manual(db: Session, hijos: list[dict]) -> None:
@@ -1089,6 +1141,71 @@ class Filtros:
     hasta: Optional[date] = None
     q: Optional[str] = None
     cobranza: Optional[str] = None  # cobrados | pendientes (tactical cobranza S4)
+    contiene: Optional[str] = None  # productos | marca | categoria | factura: a kind of line it holds (SISO S1)
+    producto: Optional[str] = None  # código or descripción of a product one of its lines reaches (SISO S2)
+
+
+def _filtros_sell_out(campana_ids: Any):
+    """The tactical has a sell out campaign among `campana_ids`."""
+    return exists().where(SellOutCampana.tactical_id == Tactical.id, SellOutCampana.id.in_(campana_ids))
+
+
+def _contiene(tipo: str):
+    """The tactical has a line of kind `tipo` (SISO S1), told apart the way `serializar` names a line's `alcance`."""
+    bono = SellInBonoMarca.tactical_id == Tactical.id
+    filas = select(SellOutCampanaGrupo.campana_id).join(
+        OffsetGrupoFiltro, OffsetGrupoFiltro.grupo_id == SellOutCampanaGrupo.grupo_id
+    )
+    if tipo == "factura":
+        return or_(
+            exists().where(bono, SellInBonoMarca.alcance == "factura"),
+            exists().where(SellInCompra.tactical_id == Tactical.id),
+        )
+    if tipo == "productos":
+        de_campana = filas.where(OffsetGrupoFiltro.item_id.isnot(None))
+        return or_(_filtros_sell_out(de_campana), exists().where(bono, SellInBonoMarca.alcance == "modelos"))
+    # A campaign's scope row without a product is its brand when it has one, else its category (`_lineas_campanas`).
+    con_marca = func.coalesce(OffsetGrupoFiltro.marca, "") != ""
+    de_campana = filas.where(OffsetGrupoFiltro.item_id.is_(None), con_marca if tipo == "marca" else ~con_marca)
+    return or_(_filtros_sell_out(de_campana), exists().where(bono, SellInBonoMarca.alcance == tipo))
+
+
+def _alcanza_producto(db: Session, q: str):
+    """One of the tactical's lines reaches a product whose code or description contains `q` (SISO S2), with each
+    engine's own rule: a sell out campaign through its groups' filter rows (`alcance.campanas_que_alcanzan`); a sell in
+    bonus by brand, category, its models or its invoice's invoiced lines (`bonos._alcanzadas`); an invoice total by
+    its purchase's lines."""
+    coincide = or_(contiene(ProductoERP.codigo, q), contiene(ProductoERP.descripcion, q))
+    productos = select(ProductoERP.item_id).where(coincide)
+    por_bono = or_(
+        and_(SellInBonoMarca.alcance == "marca", SellInBonoMarca.marca.in_(select(ProductoERP.marca).where(coincide))),
+        and_(
+            SellInBonoMarca.alcance == "categoria",
+            SellInBonoMarca.categoria.in_(select(ProductoERP.categoria).where(coincide)),
+        ),
+        and_(
+            SellInBonoMarca.alcance == "modelos",
+            exists().where(SellInBonoItem.bono_id == SellInBonoMarca.id, SellInBonoItem.item_id.in_(productos)),
+        ),
+        and_(
+            SellInBonoMarca.alcance == "factura",
+            exists().where(
+                PedidoCompraLineaFacturada.pedido_id == SellInBonoMarca.pedido_id,
+                PedidoCompraLineaFacturada.item_id.in_(productos),
+            ),
+        ),
+    )
+    por_compra = exists().where(
+        SellInCompra.tactical_id == Tactical.id,
+        SellInCompraItem.compra_id == SellInCompra.id,
+        SellInCompraItem.item_id.in_(productos),
+    )
+    campanas_ = sell_out_alcance.campanas_que_alcanzan(db, productos).subquery()
+    return or_(
+        _filtros_sell_out(select(campanas_.c.campana_id)),
+        exists().where(SellInBonoMarca.tactical_id == Tactical.id, por_bono),
+        por_compra,
+    )
 
 
 def _consulta(db: Session, filtros: Filtros, hoy: date) -> Query:
@@ -1116,6 +1233,10 @@ def _consulta(db: Session, filtros: Filtros, hoy: date) -> Query:
     if _texto(filtros.q):
         q = _texto(filtros.q)
         query = query.filter(or_(contiene(Tactical.nombre, q), contiene(Tactical.referencia, q)))
+    if filtros.contiene:
+        query = query.filter(_contiene(filtros.contiene))
+    if _texto(filtros.producto):
+        query = query.filter(_alcanza_producto(db, _texto(filtros.producto)))
     return query
 
 

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional, Sequence
 
 from sqlalchemy import ARRAY, Integer, any_, literal, select, text
@@ -231,10 +232,51 @@ def resolver_costos_envio_batch(
         return {}
 
     # Step 3: compute MAX per item
+    return _max_by_item(item_to_active_mlas, costs)
+
+
+def _max_by_item(item_to_active_mlas: Mapping[int, Sequence[str]], costs: Mapping[str, float]) -> dict[int, float]:
+    """{item_id: MAX list_cost of its active MLAs}; items whose MLAs have no cost are absent."""
     result: dict[int, float] = {}
     for item_id, mla_ids in item_to_active_mlas.items():
         item_costs = [costs[mla] for mla in mla_ids if mla in costs]
         if item_costs:
             result[item_id] = max(item_costs)
-
     return result
+
+
+@dataclass(frozen=True)
+class CostosEnvio:
+    """The real shipping costs of a request: the MAX per product and each publication's own list_cost.
+
+    `por_producto` is `resolver_costos_envio_batch`'s answer; `por_mla` holds the own cost of each asked MLA.
+    Both omit what has no usable cost (callers fall back: own -> product MAX -> ERP)."""
+
+    por_producto: dict[int, float] = field(default_factory=dict)
+    por_mla: dict[str, float] = field(default_factory=dict)
+
+
+def resolver_costos_envio_mlas(db: Session, item_ids: list[int], mla_ids: Sequence[str]) -> CostosEnvio:
+    """
+    `resolver_costos_envio_batch` for `item_ids` plus the own list_cost of each MLA in `mla_ids`, in ONE
+    cross-DB read.
+
+    An asked MLA is read even when its publication is inactive (it still has a shipping cost of its own), but only
+    the ACTIVE MLAs of a product count for its MAX, exactly as `resolver_costos_envio_batch`.
+
+    A failed mlwebhook read never raises: both mappings come back empty and callers fall back to the ERP envio. A
+    failure of the main-DB read of the active MLAs propagates, as in `resolver_costos_envio_batch`.
+    """
+    if not item_ids and not mla_ids:
+        return CostosEnvio()
+    item_to_active_mlas = _active_mlas_by_item(db, item_ids) if item_ids else {}
+    wanted = set(mla_ids)
+    for mlas in item_to_active_mlas.values():
+        wanted.update(mlas)
+    if not wanted:
+        return CostosEnvio()
+    costs = _fetch_list_cost_by_mla(sorted(wanted))
+    return CostosEnvio(
+        por_producto=_max_by_item(item_to_active_mlas, costs),
+        por_mla={mla: costs[mla] for mla in mla_ids if mla in costs},
+    )

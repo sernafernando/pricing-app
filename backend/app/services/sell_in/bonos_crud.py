@@ -29,7 +29,8 @@ A cost bonus may be a total split across its products (tactical monto total S4, 
 total > 0 ("Negative total is rejected for sell in", `descuento_ars >= 0` stays), its `reparto_criterio`, no cap, no
 value per unit nor per model. On load and on every edit its fixed shares (`iguales` / `costo`,
 `sell_out.criterio.cuotas_fijas`, costs in pesos at the latest BNA rate) are written in `sell_in_bono_repartos` over
-its scope as it stands (`unidades`: none), and the bonus is queued for the `sell_in.bono` drain whenever its total,
+its scope as it stands (`unidades`: none), combos left out (owner, S4: "me tome la parte que lo componga y no el combo
+persé como parte": a combo's sales count under its components, so a share of its own would never be paid), and the bonus is queued for the `sell_in.bono` drain whenever its total,
 criterion or shares change (the bonus update trigger does not watch them).
 """
 
@@ -55,6 +56,7 @@ from app.models.sell_in import (
     SellInCompraItem,
 )
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, BASE_FACTURA, SellInBonoIn, SellInBonoModeloIn
+from app.services.combos.componentes import componentes_de
 from app.services.sell_in import bono_queue
 from app.services.sell_in.bonos_alcance import alcanza_marcas, del_alcance
 from app.services.sell_in.compras import contiene
@@ -414,9 +416,10 @@ def _repartir(db: Session, bono: SellInBonoMarca) -> bool:
     `unidades` or any other kind), only the difference; True when a share changed."""
     deseadas: dict[int, Decimal] = {}
     if bono.tipo == MONTO_TOTAL and bono.reparto_criterio in criterio_reparto.FIJOS:
-        item_ids = sorted(
+        alcanzados = {
             i for (i,) in db.query(ProductoERP.item_id).filter(del_alcance(db, bono, ProductoERP.item_id, None))
-        )
+        }
+        item_ids = sorted(alcanzados - set(componentes_de(db, alcanzados)))
         tasa = criterio_reparto.tasa_bna(db) if bono.reparto_criterio == criterio_reparto.COSTO else None
         try:
             deseadas = criterio_reparto.cuotas_fijas(

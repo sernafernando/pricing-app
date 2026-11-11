@@ -24,6 +24,14 @@ const COBRANZAS = [
   { value: 'pendientes', label: 'Pendientes' },
   { value: 'cobrados', label: 'Cobrados' },
 ];
+// The kind of line a tactical holds (SISO S1): the list keeps the tacticals with at least one line of that kind.
+const CONTIENE = [
+  { value: '', label: 'Todas' },
+  { value: 'productos', label: 'Productos' },
+  { value: 'marca', label: 'Marca' },
+  { value: 'categoria', label: 'Categoría' },
+  { value: 'factura', label: 'Factura' },
+];
 const FILAS_POR_PAGINA = 50;
 
 const cantidadDe = (n) => `${n} ${n === 1 ? 'tactical' : 'tacticals'}`;
@@ -155,6 +163,16 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
             <option value="USD">USD</option>
           </select>
         </label>
+        <label className={styles.campo}>
+          <span className={styles.label}>Contiene</span>
+          <select className={styles.control} value={filtros.contiene} onChange={(e) => filtrar({ contiene: e.target.value })}>
+            {CONTIENE.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
         <div className={styles.campo}>
           <span className={styles.label}>Estado</span>
           <SegmentedControl label="Estado" options={ESTADOS} value={filtros.estado} onChange={(estado) => filtrar({ estado })} />
@@ -183,6 +201,12 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
         <div className={`${styles.campo} ${styles.buscar}`}>
           <span className={styles.label}>Buscar</span>
           <SearchInput value={filtros.q} onChange={(q) => filtrar({ q })} debounce={300} placeholder="Buscar por nombre o referencia" />
+        </div>
+        {/* SISO S2: the tacticals one of whose lines reaches a product with this code or description, however the line
+            reaches it (the product itself, its brand, its category or an invoice that has it). */}
+        <div className={`${styles.campo} ${styles.buscar}`}>
+          <span className={styles.label}>Producto</span>
+          <SearchInput value={filtros.producto} onChange={(producto) => filtrar({ producto })} debounce={300} placeholder="Buscar por código o descripción" />
         </div>
         <button type="button" className={styles.limpiar} onClick={() => filtrar(FILTROS_VACIOS)}>
           Limpiar filtros

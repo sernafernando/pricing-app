@@ -17,6 +17,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
+from app.services.envio_real_service import CostosEnvio
 from app.models.comision_config import SubcategoriaGrupo
 from app.services.ml_publications.view import listing, markup_service, products
 from app.services.ml_publications.view.filters import parse_filter, parse_markup_filter
@@ -96,7 +97,7 @@ class TestItemKeysByMarkup:
     @pytest.fixture()
     def priced(self, conn, db, monkeypatch):
         monkeypatch.setattr(markup_service, "build_pricing_context", lambda db: make_ctx())
-        monkeypatch.setattr(markup_service, "resolver_costos_envio_batch", lambda db, ids, **kwargs: {})
+        monkeypatch.setattr(markup_service, "resolver_costos_envio_mlas", lambda db, ids, mlas, **kw: CostosEnvio())
         markup_fill(conn)
         return db
 

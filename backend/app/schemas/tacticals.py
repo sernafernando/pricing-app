@@ -25,6 +25,7 @@ EstadoFiltro = Literal["vigentes", "vencidos", "anulados"]
 TipoTienda = Literal["oficial", "fuera", "tienda_nube"]
 MedioCobro = Literal["nota_credito", "fondo_distribuidor", "otro"]
 CobranzaFiltro = Literal["cobrados", "pendientes"]
+ContieneFiltro = Literal["productos", "marca", "categoria", "factura"]  # a kind of line (SISO S1)
 
 NOMBRE_MAX = 200
 MARCA_MAX = 100  # productos_erp.marca is VARCHAR(100)

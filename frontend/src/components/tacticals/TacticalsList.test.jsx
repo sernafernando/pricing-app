@@ -87,6 +87,25 @@ describe('TacticalsList filters', () => {
     expect(screen.getByRole('button', { name: 'Vigentes' })).toHaveAttribute('aria-pressed', 'true');
   });
 
+  it('filters by the kind of line the tactical holds and by a product its lines reach (SISO S1, S2)', async () => {
+    render(<TacticalsList marcas={MARCAS} />);
+    await screen.findByText('Tacticals BPS Noviembre Q1FY27');
+
+    const contiene = screen.getByLabelText('Contiene');
+    expect(within(contiene).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Todas', 'Productos', 'Marca', 'Categoría', 'Factura',
+    ]);
+    await userEvent.selectOptions(contiene, 'Factura');
+    await waitFor(() => expect(ultimaConsulta()).toMatchObject({ contiene: 'factura' }));
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Buscar por código o descripción' }), 'RE200');
+    await waitFor(() => expect(ultimaConsulta()).toMatchObject({ contiene: 'factura', producto: 'RE200' }));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Limpiar filtros' }));
+    await waitFor(() => expect(ultimaConsulta()).toEqual({ estado: 'vigentes', page: 1, page_size: 50 }));
+    expect(screen.getByLabelText('Contiene')).toHaveValue('');
+    expect(screen.getByRole('searchbox', { name: 'Buscar por código o descripción' })).toHaveValue('');
+  });
+
   it('a filter change that leaves the same query keeps the list and its open rows', async () => {
     render(<TacticalsList marcas={MARCAS} />);
     const buscar = screen.getByRole('searchbox', { name: 'Buscar por nombre o referencia' });
