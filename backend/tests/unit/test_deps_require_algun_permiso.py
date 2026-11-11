@@ -46,9 +46,7 @@ def test_require_algun_permiso_user_has_first_code() -> None:
         "app.services.permisos_service.PermisosService.tiene_algun_permiso",
         return_value=True,
     ):
-        import asyncio
-
-        result = asyncio.run(dep_fn(current_user=user, db=mock_db))
+        result = dep_fn(current_user=user, db=mock_db)
 
     assert result is user
 
@@ -66,9 +64,7 @@ def test_require_algun_permiso_user_has_second_code() -> None:
         "app.services.permisos_service.PermisosService.tiene_algun_permiso",
         return_value=True,
     ):
-        import asyncio
-
-        result = asyncio.run(dep_fn(current_user=user, db=mock_db))
+        result = dep_fn(current_user=user, db=mock_db)
 
     assert result is user
 
@@ -91,10 +87,8 @@ def test_require_algun_permiso_user_has_none_raises_403() -> None:
         "app.services.permisos_service.PermisosService.tiene_algun_permiso",
         return_value=False,
     ):
-        import asyncio
-
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.run(dep_fn(current_user=user, db=mock_db))
+            dep_fn(current_user=user, db=mock_db)
 
     assert exc_info.value.status_code == 403
 
@@ -113,10 +107,8 @@ def test_require_algun_permiso_error_detail_contains_codes() -> None:
         "app.services.permisos_service.PermisosService.tiene_algun_permiso",
         return_value=False,
     ):
-        import asyncio
-
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.run(dep_fn(current_user=user, db=mock_db))
+            dep_fn(current_user=user, db=mock_db)
 
     # The detail should mention the codes somehow (implementation detail)
     detail = str(exc_info.value.detail)

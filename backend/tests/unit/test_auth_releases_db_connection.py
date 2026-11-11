@@ -6,8 +6,6 @@ concurrent requests holds one connection each while waiting for the second,
 and the pool deadlocks until pool_timeout (prod incident 2026-09-25).
 """
 
-import asyncio
-
 import pytest
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import inspect
@@ -20,7 +18,7 @@ from app.core.security import create_access_token
 def _call(db, username):
     token = create_access_token({"sub": username})
     creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
-    return asyncio.run(get_current_user(credentials=creds, db=db))
+    return get_current_user(credentials=creds, db=db)
 
 
 def test_get_current_user_ends_its_transaction(db, active_user):

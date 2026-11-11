@@ -15,10 +15,17 @@ security_optional = HTTPBearer(auto_error=False)
 LOCALHOST_IPS = {"127.0.0.1", "::1", "localhost"}
 
 
-async def get_current_user(
+def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_async_db)
 ) -> Usuario:
-    """Obtiene el usuario actual desde el token JWT"""
+    """Obtiene el usuario actual desde el token JWT.
+
+    Plain ``def`` on purpose, like every auth dependency in this module: the
+    queries below are synchronous, so FastAPI must run them in the threadpool.
+    As ``async def`` they ran on the event loop, and with the pool exhausted the
+    connection checkout froze the whole worker for up to ``pool_timeout``
+    (incident 2026-11-11).
+    """
     token = credentials.credentials
     payload = decode_token(token)
 
@@ -76,7 +83,7 @@ def _release_connection(db: Session) -> None:
         db.expire_on_commit = expire_on_commit
 
 
-async def get_current_user_transient(
+def get_current_user_transient(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> Usuario:
     """
@@ -156,7 +163,7 @@ def require_dev_or_test() -> None:
 def require_role(allowed_roles: list[RolUsuario]):
     """Decorator para requerir roles específicos"""
 
-    async def role_checker(current_user: Usuario = Depends(get_current_user)) -> Usuario:
+    def role_checker(current_user: Usuario = Depends(get_current_user)) -> Usuario:
         if current_user.rol not in allowed_roles:
             raise api_error(403, ErrorCode.INSUFFICIENT_PERMISSIONS, "No tienes permisos para realizar esta acción")
         return current_user
@@ -188,14 +195,14 @@ def require_permiso(codigo: str):
             "administracion.gestionar_ordenes_compra").
 
     Returns:
-        Callable async que FastAPI inyectará como dependency.
+        Callable que FastAPI inyectará como dependency.
     """
     from sqlalchemy.orm import Session
 
     from app.core.database import get_async_db
     from app.services.permisos_service import PermisosService
 
-    async def _check(
+    def _check(
         current_user: Usuario = Depends(get_current_user),
         db: Session = Depends(get_async_db),
     ) -> Usuario:
@@ -229,14 +236,14 @@ def require_algun_permiso(codigos: list[str]):
         codigos: List of permission codes; the user must have at least one.
 
     Returns:
-        Callable async that FastAPI will inject as a dependency.
+        Callable that FastAPI will inject as a dependency.
     """
     from sqlalchemy.orm import Session
 
     from app.core.database import get_async_db
     from app.services.permisos_service import PermisosService
 
-    async def _check(
+    def _check(
         current_user: Usuario = Depends(get_current_user),
         db: Session = Depends(get_async_db),
     ) -> Usuario:
@@ -253,19 +260,19 @@ def require_algun_permiso(codigos: list[str]):
 
 
 # Dependencias específicas por rol
-async def get_current_admin(current_user: Usuario = Depends(get_current_user)) -> Usuario:
+def get_current_admin(current_user: Usuario = Depends(get_current_user)) -> Usuario:
     if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.SUPERADMIN]:
         raise api_error(403, ErrorCode.INSUFFICIENT_PERMISSIONS, "Solo administradores pueden realizar esta acción")
     return current_user
 
 
-async def get_current_pricing_manager(current_user: Usuario = Depends(get_current_user)) -> Usuario:
+def get_current_pricing_manager(current_user: Usuario = Depends(get_current_user)) -> Usuario:
     if current_user.rol not in [RolUsuario.ADMIN, RolUsuario.PRICING_MANAGER]:
         raise api_error(403, ErrorCode.INSUFFICIENT_PERMISSIONS, "Necesitas permisos de pricing manager")
     return current_user
 
 
-async def get_user_or_localhost(
+def get_user_or_localhost(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_optional),
     db: Session = Depends(get_async_db),
@@ -315,7 +322,7 @@ async def get_user_or_localhost(
     return usuario
 
 
-async def get_admin_or_localhost(
+def get_admin_or_localhost(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_optional),
     db: Session = Depends(get_async_db),
@@ -326,7 +333,7 @@ async def get_admin_or_localhost(
 
     Retorna el Usuario admin autenticado o None si es localhost sin token.
     """
-    usuario = await get_user_or_localhost(request, credentials, db)
+    usuario = get_user_or_localhost(request, credentials, db)
 
     # Localhost sin token: pasá
     if usuario is None:
