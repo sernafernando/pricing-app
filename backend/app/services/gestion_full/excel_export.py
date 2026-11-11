@@ -93,15 +93,9 @@ def _enrich_lines(
     lines: list[GestionFullPackageLine],
 ) -> list[dict[str, Any]]:
     real_inv_ids = [
-        ln.inventory_id
-        for ln in lines
-        if ln.inventory_id and not is_synthetic_inventory_id(ln.inventory_id)
+        ln.inventory_id for ln in lines if ln.inventory_id and not is_synthetic_inventory_id(ln.inventory_id)
     ]
-    mlaus = [
-        ln.user_product_id
-        for ln in lines
-        if is_synthetic_inventory_id(ln.inventory_id) or not ln.inventory_id
-    ]
+    mlaus = [ln.user_product_id for ln in lines if is_synthetic_inventory_id(ln.inventory_id) or not ln.inventory_id]
     erp_ids = [ln.producto_item_id for ln in lines]
     by_inv: dict[str, Any] = {}
     if real_inv_ids:
@@ -118,11 +112,7 @@ def _enrich_lines(
 
     out: list[dict[str, Any]] = []
     for ln in lines:
-        inv = (
-            None
-            if is_synthetic_inventory_id(ln.inventory_id)
-            else by_inv.get(ln.inventory_id)
-        )
+        inv = None if is_synthetic_inventory_id(ln.inventory_id) else by_inv.get(ln.inventory_id)
         mlau_row = by_mlau.get(ln.user_product_id)
         erp = by_erp.get(ln.producto_item_id)
         seller_sku = (

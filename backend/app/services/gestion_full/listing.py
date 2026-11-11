@@ -272,7 +272,7 @@ def _build_list_sql(order_clause: str) -> Any:
     ORDER BY {order_clause}
     LIMIT :limit OFFSET :offset
     """
-)
+    )
 
 
 _LIST_SQL = _build_list_sql(_DEFAULT_ORDER)

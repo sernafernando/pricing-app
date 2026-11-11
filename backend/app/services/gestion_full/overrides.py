@@ -99,10 +99,14 @@ def resolve_producto_por_inventory_id(db: Session, inventory_id: str) -> Optiona
     """ERP product linked to this Full inventory_id (or NOINV:{MLAU}), or None."""
     mlau = user_product_id_from_synthetic(inventory_id)
     if mlau is not None:
-        row = db.execute(
-            _RESOLVE_PRODUCT_BY_MLAU_SQL,
-            {"user_product_id": mlau},
-        ).mappings().first()
+        row = (
+            db.execute(
+                _RESOLVE_PRODUCT_BY_MLAU_SQL,
+                {"user_product_id": mlau},
+            )
+            .mappings()
+            .first()
+        )
     else:
         row = db.execute(_RESOLVE_PRODUCT_SQL, {"inventory_id": inventory_id}).mappings().first()
     if row is None:
