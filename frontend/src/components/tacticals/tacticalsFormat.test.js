@@ -162,4 +162,14 @@ describe('cobranza filter and KPIs (tactical cobranza S4)', () => {
     expect(formatMontosKpi([{ moneda: 'ARS', monto: '4380250.00' }, { moneda: 'USD', monto: '1920.50' }])).toBe('ARS 4.380.250 · USD 1.920,5');
     expect(formatMontosKpi([])).toBe('—');
   });
+
+  it('formats a KPI amount as generated of cap when its currency has a cap (S6)', () => {
+    const montos = [{ moneda: 'ARS', monto: '4380250.00', tope: '6000000.00' }, { moneda: 'USD', monto: '1920.00', tope: null }];
+    expect(formatMontosKpi(montos)).toBe('ARS 4.380.250 de 6.000.000 · USD 1.920');
+  });
+
+  it('shows the cap apart when only some lines of the currency have one (advisory on #2195)', () => {
+    const montos = [{ moneda: 'ARS', monto: '900.00', tope: '500.00', tope_parcial: true }];
+    expect(formatMontosKpi(montos)).toBe('ARS 900 · tope 500 (líneas con tope)');
+  });
 });

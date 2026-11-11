@@ -369,12 +369,17 @@ describe('TacticalsList Cobranza (handoffs/tactical-cobranza-tarea.md S3, S4)', 
     tacticalsAPI.cobrar.mockResolvedValue({ data: COBRADO });
   });
 
-  it('shows Pendientes and Cobrados with their count and amount per currency', async () => {
+  it('shows Pendientes and Cobrados with their count, generated of cap per currency and how many have no cap', async () => {
     render(<TacticalsList marcas={MARCAS} />);
 
     const kpis = await screen.findByRole('region', { name: 'Cobranza de los tacticals' });
-    expect(within(kpis).getByText('Pendientes').closest('div')).toHaveTextContent('Pendientes12 tacticalsARS 4.380.250 · USD 1.920');
-    expect(within(kpis).getByText('Cobrados').closest('div')).toHaveTextContent('Cobrados7 tacticalsARS 2.115.000 · USD 640');
+    expect(within(kpis).getByText('Pendientes').closest('div')).toHaveTextContent(
+      'Pendientes12 tacticalsARS 4.380.250 de 6.000.000 · USD 1.920 · tope 800 (líneas con tope)3 sin tope',
+    );
+    expect(within(kpis).getByText('Cobrados').closest('div')).toHaveTextContent(
+      /^Cobrados7 tacticalsARS 2\.115\.000 de 2\.500\.000 · USD 640 de 800$/,
+    );
+    expect(kpis).toHaveTextContent('Monto: lo que generaron las líneas de cada tactical de su tope, por moneda.');
   });
 
   it('a currency-less group reads a dash, and a single tactical reads singular', async () => {
