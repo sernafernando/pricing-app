@@ -92,14 +92,21 @@ def test_sync_upserts_header_and_detail(db, empresa, proveedor, active_user) -> 
         "pod_isProcessed": False,
     }
 
+    seen_params: list[dict] = []
+
     def _fake_fetch(params):
+        seen_params.append(dict(params))
         if params.get("strScriptLabel") == "scriptPurchaseOrderHeader":
-            return [header_row]
+            # Simulate exclusive pohID floor: caller must pass poh_id-1.
+            floor = int(params.get("pohID") or -1)
+            return [header_row] if header_row["poh_id"] > floor else []
         return [detail_row]
 
     with patch.object(oc_mirror_sync_service, "_fetch_gbp", side_effect=_fake_fetch):
         synced = oc_mirror_sync_service.sync_ocs_for_pedido(db, pedido_id=pedido.id)
     db.flush()
+    header_calls = [p for p in seen_params if p.get("strScriptLabel") == "scriptPurchaseOrderHeader"]
+    assert header_calls and header_calls[0]["pohID"] == 499
     assert len(synced) == 1
     assert synced[0]["detail_lines"] == 1
     assert db.query(PurchaseOrderHeader).filter_by(comp_id=1, bra_id=45, poh_id=500).one()
@@ -114,3 +121,50 @@ def test_sync_404_when_gbp_header_missing(db, empresa, proveedor, active_user) -
         with pytest.raises(HTTPException) as exc:
             oc_mirror_sync_service.sync_ocs_for_pedido(db, pedido_id=1)
     assert exc.value.status_code == 404
+
+
+def test_sync_header_pohid_exclusive_floor_finds_target(db, empresa, proveedor, active_user) -> None:
+    """Header script returns poh_id > pohID; exact triple still syncs (P-02-2026-00281 case)."""
+    pedido = _pedido(db, empresa, proveedor, active_user)
+    # Re-point to the live-broken triple shape (1,45,503).
+    pedido.oc_poh_id = 503
+    db.query(PedidoCompraOc).filter_by(pedido_id=pedido.id).update({"oc_poh_id": 503})
+    db.flush()
+
+    target = {
+        "comp_id": 1,
+        "bra_id": 45,
+        "poh_id": 503,
+        "supp_id": 19,
+        "poh_total": 140634975.89,
+        "poh_cd": "2026-11-10T15:41:08",
+    }
+    neighbor = {
+        "comp_id": 1,
+        "bra_id": 45,
+        "poh_id": 504,
+        "supp_id": 219,
+        "poh_total": 1,
+        "poh_cd": "2026-11-11T12:43:16",
+    }
+
+    def _fake_fetch(params):
+        if params.get("strScriptLabel") == "scriptPurchaseOrderHeader":
+            floor = int(params["pohID"])
+            return [r for r in (target, neighbor) if r["poh_id"] > floor]
+        return [
+            {
+                "comp_id": 1,
+                "bra_id": 45,
+                "poh_id": 503,
+                "pod_id": 25823,
+                "item_id": 628,
+                "pod_qty": 150,
+            }
+        ]
+
+    with patch.object(oc_mirror_sync_service, "_fetch_gbp", side_effect=_fake_fetch):
+        synced = oc_mirror_sync_service.sync_ocs_for_pedido(db, pedido_id=pedido.id)
+    assert synced[0]["oc_poh_id"] == 503
+    assert db.query(PurchaseOrderHeader).filter_by(comp_id=1, bra_id=45, poh_id=503).one()
+    assert db.query(PurchaseOrderHeader).filter_by(poh_id=504).count() == 0
