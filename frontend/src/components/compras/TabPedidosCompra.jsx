@@ -42,7 +42,7 @@ import DataTable from './_shared/DataTable';
 import EstadoBadge from './_shared/EstadoBadge';
 import LoadingBlock from './_shared/LoadingBlock';
 import FiltersBar from './_shared/FiltersBar';
-import { equivalenteEnArs } from './_shared/formatMoneda';
+import { equivalenteEnArs, formatMoneda } from './_shared/formatMoneda';
 import styles from './TabPedidosCompra.module.css';
 
 const PAGE_SIZE = 50;
@@ -151,12 +151,6 @@ const renderPedidoChips = (p) => {
   );
 };
 
-const formatCurrency = (value, moneda = 'ARS') => {
-  const num = Number(value) || 0;
-  const prefix = moneda === 'USD' ? 'US$' : '$';
-  return `${prefix}${num.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-};
-
 // Formateo consistente de fechas DATE (YYYY-MM-DD) al locale es-AR (dd/mm/yyyy).
 const formatDate = (isoDate) => {
   if (!isoDate) return '—';
@@ -239,9 +233,15 @@ export default function TabPedidosCompra() {
   const [filtroHasta, setFiltroHasta] = useState('');
   const [filtroDiferencial, setFiltroDiferencial] = useState(false);
   const [busqueda, setBusqueda] = useState('');
+  const [qOc, setQOc] = useState('');
+  const [qProducto, setQProducto] = useState('');
+  const [filtroCreadoPorId, setFiltroCreadoPorId] = useState('');
   const debouncedBusqueda = useDebounce(busqueda, 300);
+  const debouncedQOc = useDebounce(qOc, 300);
+  const debouncedQProducto = useDebounce(qProducto, 300);
 
   const [empresas, setEmpresas] = useState([]);
+  const [creadores, setCreadores] = useState([]);
 
   // ── Modals ──
   const [showModalForm, setShowModalForm] = useState(false);
@@ -266,16 +266,16 @@ export default function TabPedidosCompra() {
     if (filtroDesde) params.desde = filtroDesde;
     if (filtroHasta) params.hasta = filtroHasta;
     if (filtroDiferencial) params.diferencial_cambio_pendiente = true;
+    if (debouncedBusqueda.trim()) params.q_numero = debouncedBusqueda.trim();
+    const oc = debouncedQOc.trim();
+    if (oc) params.q_oc = oc;
+    if (filtroCreadoPorId) params.creado_por_id = Number(filtroCreadoPorId);
+    const prod = debouncedQProducto.trim();
+    if (prod.length >= 2) params.q_producto = prod;
 
     try {
       const data = await listarPedidos(params);
-      let list = data.items || [];
-      // Búsqueda por número en cliente (el backend todavía no la soporta).
-      if (debouncedBusqueda.trim()) {
-        const q = debouncedBusqueda.trim().toLowerCase();
-        list = list.filter((p) => (p.numero || '').toLowerCase().includes(q));
-      }
-      setItems(list);
+      setItems(data.items || []);
       setTotal(data.total || 0);
     } catch {
       setItems([]);
@@ -291,6 +291,9 @@ export default function TabPedidosCompra() {
     filtroHasta,
     filtroDiferencial,
     debouncedBusqueda,
+    debouncedQOc,
+    debouncedQProducto,
+    filtroCreadoPorId,
   ]);
 
   const fetchEmpresas = useCallback(async () => {
@@ -302,9 +305,19 @@ export default function TabPedidosCompra() {
     }
   }, []);
 
+  const fetchCreadores = useCallback(async () => {
+    try {
+      const { data } = await api.get('/administracion/compras/usuarios-filtro-creado-por');
+      setCreadores(Array.isArray(data) ? data : []);
+    } catch {
+      setCreadores([]);
+    }
+  }, []);
+
   useEffect(() => {
     fetchEmpresas();
-  }, [fetchEmpresas]);
+    fetchCreadores();
+  }, [fetchEmpresas, fetchCreadores]);
 
   useEffect(() => {
     fetchPedidos();
@@ -323,7 +336,18 @@ export default function TabPedidosCompra() {
   // Reset page on filters
   useEffect(() => {
     setPage(1);
-  }, [filtroEstado, filtroEmpresa, filtroProveedorId, filtroDesde, filtroHasta, filtroDiferencial, debouncedBusqueda]);
+  }, [
+    filtroEstado,
+    filtroEmpresa,
+    filtroProveedorId,
+    filtroDesde,
+    filtroHasta,
+    filtroDiferencial,
+    debouncedBusqueda,
+    debouncedQOc,
+    debouncedQProducto,
+    filtroCreadoPorId,
+  ]);
 
   // ── Actions ──
   const handleOpenCrear = () => {
@@ -719,7 +743,7 @@ export default function TabPedidosCompra() {
           return (
             <div className={styles.montoDual}>
               <span className={styles.montoArsPrincipal}>
-                {formatCurrency(varNeta, 'ARS')}
+                {formatMoneda(varNeta, 'ARS')}
                 {' '}
                 <span className={styles.monedaVarianzaLabel}>ARS</span>
               </span>
@@ -743,12 +767,12 @@ export default function TabPedidosCompra() {
           return (
             <div className={styles.montoDual}>
               <span className={styles.montoArsPrincipal}>
-                {formatCurrency(equivSaldoArs, 'ARS')}
+                {formatMoneda(equivSaldoArs, 'ARS')}
               </span>
               <span className={styles.montoUsdSecundario}>
-                {formatCurrency(saldo, 'USD')} pend.
+                {formatMoneda(saldo, 'USD')} pend.
                 {equivTotalArs !== null && saldo !== Number(p.monto)
-                  ? ` · total ${formatCurrency(equivTotalArs, 'ARS')}`
+                  ? ` · total ${formatMoneda(equivTotalArs, 'ARS')}`
                   : ''}
               </span>
             </div>
@@ -758,14 +782,14 @@ export default function TabPedidosCompra() {
         if (saldo !== Number(p.monto)) {
           return (
             <div className={styles.montoDual}>
-              <span className={styles.montoArsPrincipal}>{formatCurrency(saldo, p.moneda)}</span>
+              <span className={styles.montoArsPrincipal}>{formatMoneda(saldo, p.moneda)}</span>
               <span className={styles.montoUsdSecundario}>
-                pend. · total {formatCurrency(p.monto, p.moneda)}
+                pend. · total {formatMoneda(p.monto, p.moneda)}
               </span>
             </div>
           );
         }
-        return formatCurrency(p.monto, p.moneda);
+        return formatMoneda(p.monto, p.moneda);
       }
       case 'plazo':
         return <span className={styles.tdSecondary}>{p.fecha_pago_texto || '—'}</span>;
@@ -879,10 +903,37 @@ export default function TabPedidosCompra() {
         <SearchInput
           value={busqueda}
           onChange={setBusqueda}
-          placeholder="Buscar por número..."
+          placeholder="Nº pedido…"
           size="sm"
           className={styles.searchWrapper}
         />
+        <SearchInput
+          value={qOc}
+          onChange={(v) => setQOc(v.replace(/\D/g, ''))}
+          placeholder="Nº OC…"
+          size="sm"
+          className={styles.searchWrapper}
+        />
+        <SearchInput
+          value={qProducto}
+          onChange={setQProducto}
+          placeholder="Producto / EAN en OC…"
+          size="sm"
+          className={styles.searchWrapper}
+        />
+        <select
+          className={styles.select}
+          value={filtroCreadoPorId}
+          onChange={(e) => setFiltroCreadoPorId(e.target.value)}
+          aria-label="Filtrar por usuario que creó el pedido"
+        >
+          <option value="">Creado por (todos)</option>
+          {creadores.map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.nombre}
+            </option>
+          ))}
+        </select>
         {/* REQ-FX-006: filter toggle for FX differential pending orders */}
         <label className={styles.filtroToggle}>
           <input

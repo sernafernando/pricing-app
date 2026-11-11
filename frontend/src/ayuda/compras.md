@@ -18,6 +18,8 @@ Cada pestaña carga su propio contenido. La pestaña activa se puede cambiar por
 
 Varían por pestaña.
 
+En **Pedidos** y **Depósito** podés filtrar por número de pedido, **Nº OC** (poh_id, campo aparte), **Producto / EAN** en líneas de la OC vinculada, y **Creado por** (selector de usuarios que ya crearon pedidos). El número de pedido y el de OC no se mezclan: un `503` en OC no trae el pedido `P-…-00503`.
+
 ## Botones y acciones
 
 Varían por pestaña.
