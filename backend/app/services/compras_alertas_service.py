@@ -216,13 +216,22 @@ def notificar_faltantes(
     return [notif]
 
 
+def pedido_admite_alerta_faltantes(pedido: PedidoCompra | None) -> bool:
+    """True while the pedido still needs a faltantes resolve (banner must stick)."""
+    if pedido is None:
+        return False
+    if pedido.faltantes_resuelto_en is not None:
+        return False
+    return pedido.estado == "con_faltantes"
+
+
 def retractar_faltantes(
     session: Session,
     *,
     pedido_id: int,
     ahora: datetime | None = None,
 ) -> int:
-    """Mark open compras.faltantes for this pedido DESCARTADA (resolve only)."""
+    """Mark open compras.faltantes for this pedido DESCARTADA (resolve / leave faltantes)."""
     stamp = _ahora_utc(ahora)
     notifs = (
         session.query(Notificacion)
@@ -238,6 +247,46 @@ def retractar_faltantes(
         notif.fecha_descarte = stamp
         notif.leida = True
     return len(notifs)
+
+
+def retractar_faltantes_obsoletas(
+    session: Session,
+    *,
+    ahora: datetime | None = None,
+    pedido_ids: set[int] | None = None,
+) -> int:
+    """Discard open compras.faltantes whose pedido no longer admits resolve.
+
+    Covers controlado / already-resolved / missing pedido so snoozed banners
+    do not revive after the logistics deadlock (resolver requires con_faltantes).
+
+    When ``pedido_ids`` is provided, only those pedidos are inspected (list
+    self-heal). Omit it for a full sweep (tests / one-shot repair).
+    """
+    stamp = _ahora_utc(ahora)
+    query = session.query(Notificacion).filter(
+        Notificacion.tipo == TIPO_FALTANTES,
+        Notificacion.estado != EstadoNotificacion.DESCARTADA,
+    )
+    if pedido_ids is not None:
+        if not pedido_ids:
+            return 0
+        query = query.filter(Notificacion.item_id.in_(pedido_ids))
+    notifs = query.all()
+    ids = {int(n.item_id) for n in notifs if n.item_id is not None}
+    pedidos_by_id: dict[int, PedidoCompra] = {}
+    if ids:
+        pedidos_by_id = {int(p.id): p for p in session.query(PedidoCompra).filter(PedidoCompra.id.in_(ids)).all()}
+    closed = 0
+    for notif in notifs:
+        pedido = pedidos_by_id.get(int(notif.item_id)) if notif.item_id is not None else None
+        if pedido_admite_alerta_faltantes(pedido):
+            continue
+        notif.estado = EstadoNotificacion.DESCARTADA
+        notif.fecha_descarte = stamp
+        notif.leida = True
+        closed += 1
+    return closed
 
 
 def notificar_faltantes_resuelto(
@@ -264,18 +313,27 @@ def notificar_faltantes_resuelto(
     )
 
 
-def rechazar_cierre_faltantes(notificacion: Notificacion) -> None:
-    """OK/dismiss of compras.faltantes is rejected; only resolve retracts it."""
-    if notificacion.tipo == TIPO_FALTANTES:
+def rechazar_cierre_faltantes(session: Session, notificacion: Notificacion) -> None:
+    """Block OK/dismiss of compras.faltantes only while the pedido still admits resolve.
+
+    If the pedido left con_faltantes (controlado / already resolved / missing),
+    allow dismiss so the banner is not stuck behind snooze.
+    """
+    if notificacion.tipo != TIPO_FALTANTES:
+        return
+    pedido = None
+    if notificacion.item_id is not None:
+        pedido = session.get(PedidoCompra, int(notificacion.item_id))
+    if pedido_admite_alerta_faltantes(pedido):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="La alerta de faltantes solo se cierra al resolver.",
         )
 
 
-def marcar_ok(_session: Session, notificacion: Notificacion, *, ahora: datetime | None = None) -> Notificacion:
-    """Per-user OK → DESCARTADA. compras.faltantes → 409."""
-    rechazar_cierre_faltantes(notificacion)
+def marcar_ok(session: Session, notificacion: Notificacion, *, ahora: datetime | None = None) -> Notificacion:
+    """Per-user OK → DESCARTADA. Active compras.faltantes → 409; stale → allow."""
+    rechazar_cierre_faltantes(session, notificacion)
     stamp = _ahora_utc(ahora)
     notificacion.estado = EstadoNotificacion.DESCARTADA
     notificacion.fecha_descarte = stamp

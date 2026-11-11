@@ -187,7 +187,7 @@ describe('AppLayout — compras banners', () => {
     });
   });
 
-  it('faltantes X snoozes; Ver navigates without /ok or snooze', async () => {
+  it('faltantes X tries /ok first (stale controlado clears); active 409 falls back to snooze', async () => {
     const user = userEvent.setup();
     const faltantesNotif = {
       id: 77,
@@ -219,9 +219,50 @@ describe('AppLayout — compras banners', () => {
 
     await user.click(screen.getByRole('button', { name: 'Cerrar alerta' }));
     await waitFor(() => {
+      expect(api.patch).toHaveBeenCalledWith('/notificaciones/77/ok');
+    });
+    expect(api.patch).not.toHaveBeenCalledWith('/notificaciones/77/snooze');
+    await waitFor(() => {
+      expect(screen.queryByText(/Faltantes en P-01-2026-00012/)).not.toBeInTheDocument();
+    });
+  });
+
+  it('faltantes X falls back to snooze when /ok returns 409', async () => {
+    const user = userEvent.setup();
+    const faltantesNotif = {
+      id: 77,
+      tipo: 'compras.faltantes',
+      estado: 'PENDIENTE',
+      mensaje: 'Faltantes en P-01-2026-00012 (Acme). Resolver en Pedidos.',
+      item_id: 42,
+      leida: false,
+    };
+    api.get.mockImplementation((url) => {
+      if (url === '/notificaciones') {
+        return Promise.resolve({ data: [faltantesNotif] });
+      }
+      if (url === '/alertas/activas') {
+        return Promise.resolve({ data: [] });
+      }
+      if (url === '/alertas/configuracion') {
+        return Promise.resolve({ data: { max_alertas_visibles: 1 } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    api.patch.mockImplementation((url) => {
+      if (url === '/notificaciones/77/ok') {
+        return Promise.reject({ response: { status: 409 } });
+      }
+      return Promise.resolve({ data: { mensaje: 'ok' } });
+    });
+
+    renderWithRouter(<AppLayout />, { initialEntries: ['/'] });
+    expect(await screen.findByText(/Faltantes en P-01-2026-00012/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cerrar alerta' }));
+    await waitFor(() => {
+      expect(api.patch).toHaveBeenCalledWith('/notificaciones/77/ok');
       expect(api.patch).toHaveBeenCalledWith('/notificaciones/77/snooze');
     });
-    expect(api.patch).not.toHaveBeenCalledWith('/notificaciones/77/ok');
     await waitFor(() => {
       expect(screen.queryByText(/Faltantes en P-01-2026-00012/)).not.toBeInTheDocument();
     });

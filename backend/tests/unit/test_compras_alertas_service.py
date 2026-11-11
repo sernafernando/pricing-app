@@ -169,6 +169,8 @@ def _pedido(
     numero: str = "P-01-2026-00012",
     responsable_id: int | None = None,
     pedidos_documento: str | None = "DOC-ERP-NO-USAR",
+    estado: str = "recibido",
+    faltantes_resuelto_en: datetime | None = None,
 ) -> PedidoCompra:
     pedido = PedidoCompra(
         numero=numero,
@@ -176,10 +178,11 @@ def _pedido(
         proveedor_id=proveedor.id,
         moneda="ARS",
         monto=Decimal("1000.00"),
-        estado="recibido",
+        estado=estado,
         creado_por_id=user.id,
         responsable_id=responsable_id or user.id,
         pedidos_documento=pedidos_documento,
+        faltantes_resuelto_en=faltantes_resuelto_en,
     )
     db.add(pedido)
     db.flush()
@@ -453,7 +456,14 @@ class TestFaltantes:
 class TestSnoozeClock:
     def test_hide_until_mark_plus_one_hour(self, db, empresa, proveedor, fanout_users, client) -> None:
         responsable = fanout_users["titular"]
-        pedido = _pedido(db, empresa, proveedor, responsable, responsable_id=responsable.id)
+        pedido = _pedido(
+            db,
+            empresa,
+            proveedor,
+            responsable,
+            responsable_id=responsable.id,
+            estado="con_faltantes",
+        )
         [notif] = compras_alertas_service.notificar_faltantes(db, pedido=pedido, texto="Faltan 2 cajas", ahora=MARK)
         db.flush()
         compras_alertas_service.snooze_faltantes(db, notif, ahora=SNOOZE_AT)
@@ -529,7 +539,14 @@ class TestResolucionG31:
 class TestOkSnoozeRoutes:
     def test_snooze_allowed_ok_and_dismiss_409(self, db, empresa, proveedor, fanout_users, client) -> None:
         responsable = fanout_users["titular"]
-        pedido = _pedido(db, empresa, proveedor, responsable, responsable_id=responsable.id)
+        pedido = _pedido(
+            db,
+            empresa,
+            proveedor,
+            responsable,
+            responsable_id=responsable.id,
+            estado="con_faltantes",
+        )
         [notif] = compras_alertas_service.notificar_faltantes(db, pedido=pedido, texto="Faltan 2 cajas", ahora=MARK)
         db.commit()
         headers = _auth_headers(responsable)
@@ -559,9 +576,73 @@ class TestOkSnoozeRoutes:
         db.refresh(notif)
         assert notif.estado == EstadoNotificacion.REVISADA
 
+    def test_ok_allowed_when_pedido_already_controlado(self, db, empresa, proveedor, fanout_users, client) -> None:
+        """Deadlock Ignacio: controlado + snoozed faltantes → OK must clear, not 409."""
+        responsable = fanout_users["titular"]
+        pedido = _pedido(
+            db,
+            empresa,
+            proveedor,
+            responsable,
+            responsable_id=responsable.id,
+            estado="controlado",
+        )
+        [notif] = compras_alertas_service.notificar_faltantes(db, pedido=pedido, texto="Faltan 2 cajas", ahora=MARK)
+        compras_alertas_service.snooze_faltantes(db, notif, ahora=SNOOZE_AT)
+        db.commit()
+        headers = _auth_headers(responsable)
+
+        ok = client.patch(f"/api/notificaciones/{notif.id}/ok", headers=headers)
+        assert ok.status_code == 200
+        db.refresh(notif)
+        assert notif.estado == EstadoNotificacion.DESCARTADA
+
+    def test_retractar_obsoletas_clears_stale_controlado_and_list_hides(
+        self, db, empresa, proveedor, fanout_users, client
+    ) -> None:
+        responsable = fanout_users["titular"]
+        pedido = _pedido(
+            db,
+            empresa,
+            proveedor,
+            responsable,
+            responsable_id=responsable.id,
+            estado="con_faltantes",
+        )
+        [notif] = compras_alertas_service.notificar_faltantes(db, pedido=pedido, texto="Faltan 2 cajas", ahora=MARK)
+        compras_alertas_service.snooze_faltantes(db, notif, ahora=SNOOZE_AT)
+        pedido.estado = "controlado"
+        db.commit()
+
+        closed = compras_alertas_service.retractar_faltantes_obsoletas(db, ahora=AT_REOPEN)
+        db.commit()
+        db.refresh(notif)
+        assert closed == 1
+        assert notif.estado == EstadoNotificacion.DESCARTADA
+
+        with patch("app.api.endpoints.notificaciones._ahora_listado", return_value=AT_REOPEN):
+            listed = client.get(
+                "/api/notificaciones",
+                headers=_auth_headers(responsable),
+                params={"solo_no_leidas": True},
+            )
+        assert listed.status_code == 200
+        # Banner query (solo_no_leidas) must hide retracted faltantes.
+        assert all(item["id"] != notif.id for item in listed.json())
+        db.refresh(notif)
+        assert notif.estado == EstadoNotificacion.DESCARTADA
+        assert notif.leida is True
+
     def test_retractar_faltantes_clears_alert(self, db, empresa, proveedor, fanout_users) -> None:
         responsable = fanout_users["titular"]
-        pedido = _pedido(db, empresa, proveedor, responsable, responsable_id=responsable.id)
+        pedido = _pedido(
+            db,
+            empresa,
+            proveedor,
+            responsable,
+            responsable_id=responsable.id,
+            estado="con_faltantes",
+        )
         [notif] = compras_alertas_service.notificar_faltantes(db, pedido=pedido, texto="Faltan 2 cajas", ahora=MARK)
         db.flush()
         closed = compras_alertas_service.retractar_faltantes(db, pedido_id=pedido.id, ahora=AT_REOPEN)
