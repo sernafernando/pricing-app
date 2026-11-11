@@ -181,6 +181,9 @@ export default function SellInBonoForm({ valores, onChange, marcas, disabled = f
       {valores.alcance === 'marca' && (
         <Opciones id={`${id}-marca`} label="Marca" vacio="Elegir marca…" valor={valores.marca} opciones={marcas} disabled={disabled} onChange={(marca) => set({ marca })} />
       )}
+      {valores.alcance === 'marca' && valores.categoriaDeMarca && (
+        <p className={styles.hint}>Solo la categoría {valores.categoriaDeMarca} de la marca (se elige en el tactical).</p>
+      )}
       {valores.alcance === 'categoria' && (
         <Opciones
           id={`${id}-categoria`}

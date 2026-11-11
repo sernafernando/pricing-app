@@ -61,6 +61,10 @@ describe('estadoDe', () => {
 describe('alcanceDe', () => {
   it('names a brand, a category or an invoice line; product lines are chips', () => {
     expect(alcanceDe({ alcance: 'marca', marca: 'HP' })).toEqual({ titulo: 'Marca HP', detalle: 'Todos los productos de la marca' });
+    expect(alcanceDe({ alcance: 'marca', marca: 'TP-LINK', categoria: 'Routers' })).toEqual({
+      titulo: 'Marca TP-LINK · Routers',
+      detalle: 'Los productos de la marca en esa categoría',
+    });
     expect(alcanceDe({ alcance: 'categoria', categoria: 'Monitores' })).toEqual({
       titulo: 'Categoría Monitores',
       detalle: 'Todos los productos de la categoría',

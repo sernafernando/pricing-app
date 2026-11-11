@@ -303,6 +303,21 @@ describe('SellInBonoPanel — existing bonus', () => {
     expect(sellInBonosAPI.alcance).toHaveBeenCalledTimes(2);
   });
 
+  it('a brand bonus with a category (from a tactical, SISO S3) shows it and keeps it on an edit', async () => {
+    const user = userEvent.setup();
+    sellInBonosAPI.detalle.mockResolvedValue({ data: { ...BONO, categoria: 'Routers' } });
+    renderPanel();
+    expect(await screen.findByText('Solo la categoría Routers de la marca (se elige en el tactical).')).toBeInTheDocument();
+    const monto = screen.getByLabelText('Monto por unidad');
+    await user.clear(monto);
+    await user.type(monto, '4');
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+    expect(sellInBonosAPI.editar).toHaveBeenCalledWith(
+      3,
+      expect.objectContaining({ alcance: 'marca', marca: 'TP-LINK', categoria: 'Routers' }),
+    );
+  });
+
   it('shows the backend message inline when an edit is refused', async () => {
     const user = userEvent.setup();
     sellInBonosAPI.editar.mockRejectedValue(apiError(409, 'El bono 3 está anulado'));
