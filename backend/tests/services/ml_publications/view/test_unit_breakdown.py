@@ -47,6 +47,25 @@ class TestShippingSource:
         )
 
 
+class TestOwnPublicationCost:
+    """S7 (L2): the publication's own list cost wins over the product MAX and the ERP figure."""
+
+    def test_the_own_cost_wins_over_the_product_max(self) -> None:
+        inputs = make_inputs(envio=500.0)
+        got = unit_breakdown(make_ctx(), inputs, {555: 10890.0}, envio_propio=6790.0)
+        assert got is not None and got.costo_envio == 6790.0 and got.envio_source == ENVIO_REAL
+
+    def test_the_markup_uses_the_same_own_cost(self) -> None:
+        ctx, inputs = make_ctx(), make_inputs()
+        own = unit_markup(ctx, inputs, {555: 10890.0}, envio_propio=6790.0)
+        assert own.value == unit_markup(ctx, inputs, {555: 6790.0}).value
+        assert own.value != unit_markup(ctx, inputs, {555: 10890.0}).value
+
+    def test_without_an_own_cost_the_product_max_still_applies(self) -> None:
+        ctx, inputs = make_ctx(), make_inputs()
+        assert unit_markup(ctx, inputs, {555: 10890.0}, envio_propio=None) == unit_markup(ctx, inputs, {555: 10890.0})
+
+
 class TestBreakdown:
     def test_every_figure_is_the_one_unit_markup_computed(self) -> None:
         ctx, inputs = make_ctx(), make_inputs()

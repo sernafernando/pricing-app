@@ -28,7 +28,7 @@ from typing import Mapping, Optional, Sequence
 from app.services.ml_publications.pricelist_resolver import resolve_pricelist
 from app.services.pricing_calculator import calcular_comision_ml_total, calcular_limpio, calcular_markup
 from app.services.pricing_columns import campo_for_pricelist, cuotas_for_pricelist
-from app.services.pricing_context import PricingContext, resolve_envio, resolve_envio_source
+from app.services.pricing_context import ENVIO_REAL, PricingContext, resolve_envio, resolve_envio_source
 
 REASON_OK = "ok"
 REASON_SIN_VINCULO = "sin_vinculo"
@@ -119,10 +119,18 @@ class UnitBreakdown:
 
 
 def _evaluate(
-    ctx: PricingContext, inputs: UnitInputs, envio: Mapping[int, float], *, detail: bool = False
+    ctx: PricingContext,
+    inputs: UnitInputs,
+    envio: Mapping[int, float],
+    *,
+    detail: bool = False,
+    envio_propio: Optional[float] = None,
 ) -> tuple[UnitMarkup, Optional[UnitBreakdown]]:
     """The single pipeline behind both answers: the unit's markup and, with `detail`, its breakdown (the list
-    never asks for it, so its path builds nothing extra)."""
+    never asks for it, so its path builds nothing extra).
+
+    `envio_propio` is the publication's own real shipping cost: when present it wins over the product's MAX
+    (`envio`) and the ERP fallback."""
     if inputs.producto_item_id is None:
         return _unusable(REASON_SIN_VINCULO), None
     if not _positive(inputs.costo):
@@ -144,7 +152,9 @@ def _evaluate(
 
     costo_ars = ctx.costo_en_pesos(inputs.costo, inputs.moneda_costo)
     comisiones = calcular_comision_ml_total(price, comision_base, inputs.iva, constantes=ctx.constantes)
-    if detail:  # the one resolution, with where the figure came from
+    if envio_propio is not None:  # the publication's own real cost
+        costo_envio, envio_source = envio_propio, (ENVIO_REAL if detail else None)
+    elif detail:  # the one resolution, with where the figure came from
         costo_envio, envio_source = resolve_envio_source(
             ctx, envio, inputs.producto_item_id, inputs.envio or 0, grupo_id, price
         )
@@ -176,18 +186,22 @@ def _evaluate(
     return unit, breakdown
 
 
-def unit_markup(ctx: PricingContext, inputs: UnitInputs, envio: Mapping[int, float]) -> UnitMarkup:
+def unit_markup(
+    ctx: PricingContext, inputs: UnitInputs, envio: Mapping[int, float], *, envio_propio: Optional[float] = None
+) -> UnitMarkup:
     """Markup (percent) of one publication unit.
 
     `envio` is `envio_real_by_item` (real shipping cost by the linked product's `item_id`),
-    the mapping `resolve_envio` consumes.
+    the mapping `resolve_envio` consumes. `envio_propio`, the publication's own real cost, wins over it.
     """
-    return _evaluate(ctx, inputs, envio)[0]
+    return _evaluate(ctx, inputs, envio, envio_propio=envio_propio)[0]
 
 
-def unit_breakdown(ctx: PricingContext, inputs: UnitInputs, envio: Mapping[int, float]) -> Optional[UnitBreakdown]:
-    """The figures behind `unit_markup(ctx, inputs, envio)`, or None when that unit has no value."""
-    return _evaluate(ctx, inputs, envio, detail=True)[1]
+def unit_breakdown(
+    ctx: PricingContext, inputs: UnitInputs, envio: Mapping[int, float], *, envio_propio: Optional[float] = None
+) -> Optional[UnitBreakdown]:
+    """The figures behind `unit_markup(ctx, inputs, envio, envio_propio=...)`, or None when that unit has no value."""
+    return _evaluate(ctx, inputs, envio, detail=True, envio_propio=envio_propio)[1]
 
 
 @dataclass(frozen=True)

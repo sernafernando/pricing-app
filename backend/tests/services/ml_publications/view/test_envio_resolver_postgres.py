@@ -13,7 +13,11 @@ from sqlalchemy.orm import sessionmaker
 
 from app.models.publicacion_ml import PublicacionML
 from app.services import envio_real_service
-from app.services.envio_real_service import resolver_costos_envio_batch
+from app.services.envio_real_service import (
+    CostosEnvio,
+    resolver_costos_envio_batch,
+    resolver_costos_envio_mlas,
+)
 from tests.services.ml_publications.conftest import env, mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
 
@@ -111,6 +115,54 @@ class TestResolverOutput:
         result = resolver_costos_envio_batch(db, [70, 74], pubs_by_item={70: [Pub("MLA3")], 74: [Pub("MLA6")]})
         assert result == {70: 9999.0, 74: 800.0}  # the caller said MLA3 is its active one
         assert requested  # the mapping, not the table, decided what was asked for
+
+
+class TestOwnCostPerPublication:
+    """S7 (L2): each publication is priced with its OWN list cost; the product MAX stays the fallback."""
+
+    def test_each_mla_gets_its_own_cost_beside_the_product_max(self, conn, db, requested) -> None:
+        seed_publications(conn)
+        result = resolver_costos_envio_mlas(db, [70, 74], ["MLA1", "MLA2", "MLA6"])
+        assert result == CostosEnvio(
+            por_producto={70: 3000.0, 74: 800.0}, por_mla={"MLA1": 1000.0, "MLA2": 3000.0, "MLA6": 800.0}
+        )
+
+    def test_one_mlwebhook_read_also_covers_an_inactive_publication_without_counting_it_in_the_max(
+        self, conn, db, requested
+    ) -> None:
+        seed_publications(conn)
+        result = resolver_costos_envio_mlas(db, [70], ["MLA3"])
+        assert result == CostosEnvio(por_producto={70: 3000.0}, por_mla={"MLA3": 9999.0})
+        assert requested == [["MLA1", "MLA2", "MLA3"]]
+
+    def test_the_re200_production_case_gets_its_own_7290_not_the_outlier_10890(self, conn, db, monkeypatch) -> None:
+        """L9 (prod read 2026-11-11): RE200 has 166 MLAs at 7290 (MLA1173065146 among them), 41 at 8290 and ONE at
+        10890 (MLA2517958828, billable weight ~8x). The publication gets its own 7290; the product MAX stays 10890."""
+        seed.add_product(conn, 22, "C22", "RE200")
+        prod = {"MLA1173065146": 7290.0, "MLA2517958828": 10890.0}
+        for mla in prod:
+            add_publication(conn, mla, 22)
+        monkeypatch.setattr(envio_real_service, "_fetch_list_cost_by_mla", lambda ids: {m: prod[m] for m in ids})
+        result = resolver_costos_envio_mlas(db, [22], ["MLA1173065146"])
+        assert result == CostosEnvio(por_producto={22: 10890.0}, por_mla={"MLA1173065146": 7290.0})
+
+    def test_an_mla_without_a_cost_is_absent(self, conn, db, requested) -> None:
+        seed_publications(conn)
+        result = resolver_costos_envio_mlas(db, [71], ["MLA4"])
+        assert result == CostosEnvio(por_producto={}, por_mla={})
+
+    def test_nothing_asked_reads_nothing(self, conn, db, requested) -> None:
+        assert resolver_costos_envio_mlas(db, [], []) == CostosEnvio(por_producto={}, por_mla={})
+        assert requested == []
+
+    def test_mlwebhook_down_is_an_empty_result_never_an_error(self, conn, db, monkeypatch) -> None:
+        seed_publications(conn)
+
+        def down(mla_ids):
+            raise RuntimeError("mlwebhook unreachable")
+
+        monkeypatch.setattr(envio_real_service, "_query_list_cost_by_mla", down)
+        assert resolver_costos_envio_mlas(db, [70], ["MLA1"]) == CostosEnvio(por_producto={}, por_mla={})
 
 
 def statements_of(db, run) -> list[str]:
