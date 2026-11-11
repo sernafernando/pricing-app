@@ -127,9 +127,21 @@ def sync_oc_triple(
     oc_bra_id: int,
     oc_poh_id: int,
 ) -> dict[str, Any]:
-    """Pull one OC from GBP and upsert header + detail for that triple."""
+    """Pull one OC from GBP and upsert header + detail for that triple.
+
+    GBP quirks (verified live):
+    - ``scriptPurchaseOrderHeader`` treats ``pohID`` as exclusive lower bound
+      (``poh_id > pohID``), so we pass ``poh_id - 1`` and then filter exact.
+    - ``scriptPurchaseOrderDetail`` treats ``pohID`` as inclusive
+      (``poh_id >= pohID``); exact filter still applied.
+    """
+    header_poh_floor = max(int(oc_poh_id) - 1, 0)
     raw_headers = _fetch_gbp(
-        {"strScriptLabel": "scriptPurchaseOrderHeader", "braID": int(oc_bra_id), "pohID": int(oc_poh_id)}
+        {
+            "strScriptLabel": "scriptPurchaseOrderHeader",
+            "braID": int(oc_bra_id),
+            "pohID": header_poh_floor,
+        }
     )
     raw_details = _fetch_gbp(
         {"strScriptLabel": "scriptPurchaseOrderDetail", "braID": int(oc_bra_id), "pohID": int(oc_poh_id)}
