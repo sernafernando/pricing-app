@@ -60,9 +60,9 @@ describe('ErpStockCell', () => {
   it('keeps a real zero (or less) as the figure and marks it as out of ERP stock', () => {
     render(<ErpStockCell erpStock={{ quantity: 0 }} />);
     expect(screen.getByText('0')).toBeInTheDocument();
-    expect(screen.getByText('Sin stock ERP')).toBeInTheDocument();
-    // "Filas finas" hides the note: the tooltip still says it.
+    // No note under the figure (it would widen the column): the tooltip says it, and screen readers read it.
     expect(screen.getByText('0').closest('[title]')).toHaveAttribute('title', 'Sin stock ERP');
+    expect(screen.getByText('Sin stock ERP').className).toMatch(/srOnly/);
   });
 
   it('renders "—" without a linked product, and for a backend that does not send it yet', () => {

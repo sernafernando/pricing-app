@@ -19,19 +19,101 @@
  * spanning header cell above the leaf row), `align`, `render(row)`.
  * The first column is pinned.
  *
+ * Sizing (pubml-tabla-columnas S1/S5): a column with `fill` takes the room the
+ * others leave (its `width` is then its minimum); with `columnWidths` and
+ * `onColumnResize`, a `resizable` column gets a grip in its header (drag, or
+ * ←/→ by 10 px; a double click goes back to the default) and the width the user
+ * chose replaces the fill: the table is then exactly as wide as its columns. A `fit` column is as wide as its
+ * header and widest cell need, measured in the browser (`useFitColumnWidths`), its `width` the least it takes: a
+ * figure never pokes out of its cell, whatever font the browser has.
+ *
  * Grouped, it reads like Métricas ML's board: a labelled group spans its
  * columns, a column of no group spans both header rows, and the first column
  * of each group (`data-group-start`, header and body) carries the divider.
  * Every header and body cell names its column (`data-column`).
  */
-import { Fragment, useRef } from 'react';
+import { Fragment, useEffect, useRef } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useVirtualRows } from './useVirtualRows';
+import { useFitColumnWidths } from './useFitColumnWidths';
 import styles from './TableShell.module.css';
 
 const toCssWidth = (width) => (typeof width === 'number' ? `${width}px` : width);
 
 const ARIA_SORT = { asc: 'ascending', desc: 'descending' };
+
+const RESIZE_STEP = 10;
+const DEFAULT_MIN_WIDTH = 80;
+
+/** The header grip of a `resizable` column: pointer drag and ←/→, its width reported in px (null = default). */
+function ResizeGrip({ column, onResize }) {
+  const cleanupRef = useRef(null);
+  useEffect(() => () => cleanupRef.current?.(), []);
+  const min = column.minWidth ?? DEFAULT_MIN_WIDTH;
+  const widthOf = (event) => event.currentTarget.closest('th').getBoundingClientRect().width;
+  const startDrag = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const start = widthOf(event);
+    const move = (e) => onResize(column.key, Math.max(min, Math.round(start + e.clientX - startX)));
+    const end = () => {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', end);
+      document.removeEventListener('pointercancel', end);
+      cleanupRef.current = null;
+    };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', end);
+    // A drag the browser takes over (a touch scroll, a lost pointer) ends like a release: no listener outlives it.
+    document.addEventListener('pointercancel', end);
+    cleanupRef.current = end;
+  };
+  const onKeyDown = (event) => {
+    const direction = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+    if (!direction) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onResize(column.key, Math.max(min, Math.round(widthOf(event) + direction * RESIZE_STEP)));
+  };
+  return (
+    <span
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={`Ajustar ancho de ${column.resizeLabel ?? column.label ?? column.header}`}
+      title="Arrastrá para cambiar el ancho (doble clic: ancho original)"
+      tabIndex={0}
+      className={styles.resizeGrip}
+      onPointerDown={startDrag}
+      onKeyDown={onKeyDown}
+      onClick={(event) => event.stopPropagation()}
+      onDoubleClick={(event) => {
+        event.stopPropagation();
+        onResize(column.key, null);
+      }}
+    />
+  );
+}
+
+/**
+ * The `<col>` widths and the table's own width: a `fill` column has no width (it takes what is left) unless the user
+ * sized it, and the table is at least as wide as every column at its width (the fill at its minimum). With the fill
+ * sized by hand, the table is exactly that wide, so no column is stretched past what was chosen.
+ */
+function layoutOf(columns, columnWidths, fitWidths = {}) {
+  const widthOf = (column) => {
+    if (columnWidths?.[column.key] != null) return columnWidths[column.key];
+    const measured = column.fit ? fitWidths[column.key] : undefined;
+    return measured ? Math.max(column.width ?? 0, measured) : column.width;
+  };
+  const fill = columns.find((column) => column.fill);
+  const sized = fill && columnWidths?.[fill.key] != null;
+  const colWidths = columns.map((column) => (column === fill && !sized ? undefined : widthOf(column)));
+  const widths = columns.map(widthOf);
+  if (!fill || widths.some((width) => typeof width !== 'number')) return { colWidths, tableStyle: undefined };
+  const total = widths.reduce((sum, width) => sum + width, 0);
+  return { colWidths, tableStyle: sized ? { width: total, minWidth: total } : { minWidth: total } };
+}
 
 /**
  * Enter/Space on the ROW itself opens it. Keys typed inside a control the row
@@ -72,7 +154,7 @@ function startsGroup(columns, index) {
   return Boolean(group || previous) && group !== previous;
 }
 
-function HeadCell({ column, index, sort, onSort, groupStart, rowSpan, className }) {
+function HeadCell({ column, index, sort, onSort, onResize, groupStart, rowSpan, className }) {
   const active = sort?.key === column.key;
   // A sort by several keys (`sort.keys`) numbers its columns, each with its own arrow.
   const keys = sort?.keys ?? (sort ? [sort] : []);
@@ -86,6 +168,7 @@ function HeadCell({ column, index, sort, onSort, groupStart, rowSpan, className 
       data-column={column.key}
       data-pinned={index === 0 ? '' : undefined}
       data-align={column.align}
+      data-fit={column.fit ? '' : undefined}
       data-group-start={groupStart ? '' : undefined}
       aria-sort={active ? ARIA_SORT[sort.dir] : undefined}
     >
@@ -111,6 +194,7 @@ function HeadCell({ column, index, sort, onSort, groupStart, rowSpan, className 
       ) : (
         column.header
       )}
+      {column.resizable && onResize && <ResizeGrip column={column} onResize={onResize} />}
     </th>
   );
 }
@@ -137,6 +221,8 @@ function HeadCell({ column, index, sort, onSort, groupStart, rowSpan, className 
  * @param {string} [props.ariaLabel]
  * @param {number} [props.virtualizeFrom] With more rows than this, only the rows in view are in the DOM, inside the
  *   table's own scroller (`useVirtualRows`). Unset, every row renders.
+ * @param {Record<string, number>} [props.columnWidths] Widths (px) the user gave `resizable` columns.
+ * @param {(key: string, width: number|null) => void} [props.onColumnResize] A grip moved (null: back to default).
  * @param {() => void} [props.onEndReached] A virtualized table calls it when its last rows come into view, once per
  *   `rows` (`useVirtualRows`): a page that loads its list in parts asks the next one.
  */
@@ -156,10 +242,13 @@ export default function TableShell({
   ariaLabel,
   virtualizeFrom,
   onEndReached,
+  columnWidths,
+  onColumnResize,
 }) {
   const hasGroups = columns.some((column) => column.group);
   const scrollerStyle = offset ? { '--table-shell-offset': offset } : undefined;
   const scrollerRef = useRef(null);
+  const tableRef = useRef(null);
   const { virtual, items, before, after, measureElement } = useVirtualRows({
     rows,
     getRowKey,
@@ -167,6 +256,10 @@ export default function TableShell({
     onEndReached,
     scrollerRef,
   });
+  // The rows in the DOM, by key: `items` is a new array on every render, its keys change only when the window moves.
+  const windowKeys = virtual ? items.map((item) => item.key).join(',') : '';
+  const fitWidths = useFitColumnWidths(tableRef, columns, [rows, windowKeys]);
+  const { colWidths, tableStyle } = layoutOf(columns, columnWidths, fitWidths);
 
   const renderRow = (row) => {
     const key = getRowKey(row);
@@ -198,6 +291,7 @@ export default function TableShell({
               className={styles.cell}
               data-pinned={index === 0 ? '' : undefined}
               data-align={column.align}
+              data-fit={column.fit ? '' : undefined}
               data-group-start={hasGroups && startsGroup(columns, index) ? '' : undefined}
               data-column={column.key}
             >
@@ -234,10 +328,10 @@ export default function TableShell({
 
   return (
     <div ref={scrollerRef} className={styles.scroller} style={scrollerStyle} data-table-shell-scroller>
-      <table className={styles.table} aria-label={ariaLabel} data-virtual={virtual ? '' : undefined}>
+      <table ref={tableRef} className={styles.table} style={tableStyle} aria-label={ariaLabel} data-virtual={virtual ? '' : undefined}>
         <colgroup>
-          {columns.map((column) => (
-            <col key={column.key} style={column.width ? { width: toCssWidth(column.width) } : undefined} />
+          {columns.map((column, index) => (
+            <col key={column.key} style={colWidths[index] ? { width: toCssWidth(colWidths[index]) } : undefined} />
           ))}
         </colgroup>
         <thead>
@@ -262,6 +356,7 @@ export default function TableShell({
                       index={group.index}
                       sort={sort}
                       onSort={onSort}
+                      onResize={onColumnResize}
                       groupStart={startsGroup(columns, group.index)}
                       rowSpan={2}
                       className={`${styles.headCell} ${styles.headCellSpanning}`}
@@ -278,6 +373,7 @@ export default function TableShell({
                       index={index}
                       sort={sort}
                       onSort={onSort}
+                      onResize={onColumnResize}
                       groupStart={startsGroup(columns, index)}
                       className={styles.headCell}
                     />
@@ -288,7 +384,15 @@ export default function TableShell({
           ) : (
             <tr>
               {columns.map((column, index) => (
-                <HeadCell key={column.key} column={column} index={index} sort={sort} onSort={onSort} className={styles.headCell} />
+                <HeadCell
+                  key={column.key}
+                  column={column}
+                  index={index}
+                  sort={sort}
+                  onSort={onSort}
+                  onResize={onColumnResize}
+                  className={styles.headCell}
+                />
               ))}
             </tr>
           )}

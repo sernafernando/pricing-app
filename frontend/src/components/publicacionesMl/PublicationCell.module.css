@@ -30,13 +30,8 @@
   min-width: 0;
 }
 
-/* Two lines at most; the full title is in the tooltip. */
+/* The whole title, wrapped to the column's width (a wider column, fewer lines); also in the tooltip. */
 .title {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
   font-weight: var(--font-medium);
   line-height: 1.35;
   color: var(--cf-text-primary);

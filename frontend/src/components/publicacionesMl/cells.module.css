@@ -15,6 +15,30 @@
   align-items: flex-end;
 }
 
+/* A figure column centered with its header (TableShell's `data-align`): its stacked lines center too. */
+:global(td[data-align='center']) .stackEnd {
+  align-items: center;
+}
+
+:global(td[data-align='center']) .costLines :global(.ppp-line),
+:global(td[data-align='center']) .costLines :global(.sell-in-out-line) {
+  text-align: center;
+}
+
+/* Read by screen readers, not drawn. Its host is positioned, so it stays inside the table's scroller. */
+.srHost {
+  position: relative;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 .amount {
   font-variant-numeric: tabular-nums;
   font-weight: var(--font-medium);
@@ -55,6 +79,11 @@
   font-variant-numeric: tabular-nums;
   font-weight: var(--font-medium);
   color: var(--cf-text-primary);
+}
+
+/* An ERP stock at zero or less: after `.units`, which would otherwise keep the primary text color. */
+.units.outOfStock {
+  color: var(--tone-danger-fg);
 }
 
 /* A node with publications selling under cost. */
