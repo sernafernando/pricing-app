@@ -272,12 +272,48 @@ describe('GestionFull', () => {
 
     render(<GestionFull />);
 
-    const input = await screen.findByLabelText('Override INV1');
+    const input = await screen.findByLabelText('Override MLAU1');
     fireEvent.change(input, { target: { value: '9' } });
     fireEvent.blur(input);
 
     await waitFor(() => {
       expect(api.patch).toHaveBeenCalledWith('/gestion-full/INV1', { cantidad: 9 });
+    });
+  });
+
+  it('patches override with NOINV key when Código ML is missing', async () => {
+    api.get.mockResolvedValue({
+      data: {
+        total: 1,
+        items: [
+          {
+            producto_item_id: 1,
+            ean: 'EAN-A',
+            descripcion: 'Producto A',
+            inventory_id: null,
+            user_product_id: 'MLAU4380845993',
+            override: null,
+            puede_editar_override: true,
+          },
+        ],
+        puede_editar_override: true,
+      },
+    });
+    api.patch.mockResolvedValue({
+      data: { inventory_id: 'NOINV:MLAU4380845993', override: 4 },
+    });
+
+    render(<GestionFull />);
+
+    const input = await screen.findByLabelText('Override MLAU4380845993');
+    fireEvent.change(input, { target: { value: '4' } });
+    fireEvent.blur(input);
+
+    await waitFor(() => {
+      expect(api.patch).toHaveBeenCalledWith(
+        '/gestion-full/NOINV%3AMLAU4380845993',
+        { cantidad: 4 },
+      );
     });
   });
 

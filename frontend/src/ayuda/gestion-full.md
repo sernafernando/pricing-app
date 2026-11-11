@@ -22,7 +22,7 @@ Filtros:
 
 - Búsqueda libre: EAN, descripción, Código ML (`inventory_id`), MLAU o **family_id** exacto (el id numérico de familia de ML).
 - **Marca / Categoría / PM:** multi-selección con listas que se cruzan (mismo panel que Métricas/Ventas ML). No hay Subcategoría.
-- **Presencia Full:** En Full (default) = Stock Full > 0 **o** ventas Full 30d > 0. Fuera de Full = ambos en 0. Todos = sin ese filtro.
+- **Presencia Full:** En Full (default) = Stock Full > 0 **o** ventas Full 30d > 0. Fuera de Full = ambos en 0 (incluye MLAUs que todavía no tienen Código ML). Todos = sin ese filtro. Sin Código ML igual se puede override / Listo / exportar: el Excel oficial deja vacía la columna Código ML y completa SKU / MLA / qty con lo disponible (Seller Center puede rechazar esas filas hasta que Melí asigne código).
 - **Mostrar sin stock ERP:** apagado por default; al activarlo incluye filas con Stock ERP 0.
 - **Solo Listo:** muestra solo filas con **Listo** activo (hasta que el gestor complete el envío y se liberen, o se desbloqueen).
 - **Tienda:** filtra MLAUs / códigos ML de esa tienda oficial (o Sin tienda).

@@ -15,6 +15,7 @@ from app.core.database import get_db
 from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
 from app.services.gestion_full.inbound import refresh_last_inbound
+from app.services.gestion_full.inventory_keys import is_synthetic_inventory_id
 from app.services.gestion_full.listing import list_gestion_full
 from app.services.gestion_full.overrides import (
     clear_override,
@@ -79,7 +80,7 @@ class GestionFullItem(BaseModel):
     descripcion: Optional[str] = None
     marca: Optional[str] = None
     categoria: Optional[str] = None
-    inventory_id: str
+    inventory_id: Optional[str] = None
     user_product_id: Optional[str] = None
     mla: Optional[str] = None
     stock_erp: Optional[int] = None
@@ -1039,6 +1040,12 @@ def post_refresh_inbound(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo admin/full-view puede refrescar inbound",
+        )
+
+    if is_synthetic_inventory_id(inventory_id):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Clave sintética NOINV no tiene Código ML para refrescar inbound",
         )
 
     producto = resolve_producto_por_inventory_id(db, inventory_id)

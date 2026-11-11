@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
+from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy import Engine, create_engine, text
@@ -18,6 +19,7 @@ from app.models.gestion_full_pm_ready import GestionFullPmReady
 from app.models.gestion_full_unidades_caja import GestionFullUnidadesCaja
 from app.models.producto import ProductoERP
 from app.services.gestion_full.listing import list_gestion_full
+from app.services.gestion_full.overrides import clear_override
 from tests.conftest import (
     POSTGRES_TEST_URL,
     _patch_pg_types_for_sqlite,
@@ -155,7 +157,7 @@ def _seed_linked_row(
     marca: str,
     categoria: str,
     mla: str,
-    inventory_id: str,
+    inventory_id: str | None,
     user_product_id: str,
     stock: int = 10,
     full_quantity: int = 5,
@@ -183,17 +185,11 @@ def _seed_linked_row(
         {"mla": mla, "inv": inventory_id, "mlau": user_product_id, "fid": family_id},
     )
     db.execute(
-        text(
-            "INSERT INTO ml_item_product_links (item_id, variation_id, producto_item_id) "
-            "VALUES (:mla, 0, :pid)"
-        ),
+        text("INSERT INTO ml_item_product_links (item_id, variation_id, producto_item_id) VALUES (:mla, 0, :pid)"),
         {"mla": mla, "pid": producto_item_id},
     )
     db.execute(
-        text(
-            "INSERT INTO ml_user_product_stock (user_product_id, full_quantity) "
-            "VALUES (:mlau, :fq)"
-        ),
+        text("INSERT INTO ml_user_product_stock (user_product_id, full_quantity) VALUES (:mlau, :fq)"),
         {"mlau": user_product_id, "fq": full_quantity},
     )
     db.execute(
@@ -353,5 +349,91 @@ class TestGestionFullListingFiltersPostgres:
             assert [r["inventory_id"] for r in payload["items"]] == ["INV1"]
             # Partial / wrong id must not match via family_id.
             assert list_gestion_full(db, q="413529", full_mode="en")["items"] == []
+        finally:
+            db.close()
+
+    def test_null_inventory_id_appears_fuera_and_keeps_noinv_override(self, pg_engine: Engine) -> None:
+        db = _session(pg_engine)
+        try:
+            _seed_linked_row(
+                db,
+                producto_item_id=1,
+                ean="EAN-1",
+                marca="TP-LINK",
+                categoria="Camaras",
+                mla="MLA1",
+                inventory_id=None,
+                user_product_id="MLAU4380845993",
+                full_quantity=0,
+            )
+            db.add(
+                GestionFullOverride(
+                    inventory_id="NOINV:MLAU4380845993",
+                    cantidad=4,
+                    updated_by_id=None,
+                )
+            )
+            db.commit()
+
+            fuera = list_gestion_full(db, full_mode="fuera", include_facets=False)
+            assert len(fuera["items"]) == 1
+            row = fuera["items"][0]
+            assert row["user_product_id"] == "MLAU4380845993"
+            assert row["inventory_id"] is None
+            assert row["override"] == 4
+
+            # Melí assigns Código ML on the existing publication (same link).
+            db.execute(text("UPDATE ml_items SET inventory_id = 'INV-REAL' WHERE user_product_id = 'MLAU4380845993'"))
+            db.commit()
+            after = list_gestion_full(db, full_mode="fuera", include_facets=False)
+            assert len(after["items"]) == 1
+            assert after["items"][0]["inventory_id"] == "INV-REAL"
+            # NOINV override still resolves via LATERAL even after Código ML appears.
+            assert after["items"][0]["override"] == 4
+        finally:
+            db.close()
+
+    def test_clear_override_by_real_key_drops_legacy_noinv(
+        self,
+        pg_engine: Engine,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Grid clears by live inventory_id; must also drop NOINV:{MLAU} twin."""
+        monkeypatch.setattr(
+            "app.services.gestion_full.overrides.registrar",
+            lambda *args, **kwargs: None,
+        )
+        db = _session(pg_engine)
+        try:
+            _seed_linked_row(
+                db,
+                producto_item_id=1,
+                ean="EAN-1",
+                marca="TP-LINK",
+                categoria="Camaras",
+                mla="MLA1",
+                inventory_id=None,
+                user_product_id="MLAU4380845993",
+                full_quantity=0,
+            )
+            db.add(
+                GestionFullOverride(
+                    inventory_id="NOINV:MLAU4380845993",
+                    cantidad=4,
+                    updated_by_id=None,
+                )
+            )
+            db.commit()
+            db.execute(text("UPDATE ml_items SET inventory_id = 'INV-REAL' WHERE user_product_id = 'MLAU4380845993'"))
+            db.commit()
+
+            usuario = MagicMock(id=1)
+            assert clear_override(db, inventory_id="INV-REAL", usuario=usuario) is True
+
+            after = list_gestion_full(db, full_mode="fuera", include_facets=False)
+            assert len(after["items"]) == 1
+            assert after["items"][0]["override"] is None
+            assert db.get(GestionFullOverride, "NOINV:MLAU4380845993") is None
+            assert db.get(GestionFullOverride, "INV-REAL") is None
         finally:
             db.close()

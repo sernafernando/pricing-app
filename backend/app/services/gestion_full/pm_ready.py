@@ -16,6 +16,10 @@ from app.models.auditoria import TipoAccion
 from app.models.gestion_full_pm_ready import GestionFullPmReady
 from app.models.usuario import Usuario
 from app.services.gestion_full.audit import registrar
+from app.services.gestion_full.inventory_keys import (
+    package_inventory_id,
+    user_product_id_from_synthetic,
+)
 from app.services.gestion_full.listing import _sugerido
 
 _ROW_FOR_READY_SQL = text(
@@ -30,11 +34,11 @@ _ROW_FOR_READY_SQL = text(
       WHERE l.producto_item_id = :producto_item_id
         AND i.user_product_id = :user_product_id
         AND l.variation_id = 0
-        AND i.inventory_id IS NOT NULL
         AND i.user_product_id IS NOT NULL
         AND i.never_existed IS NOT TRUE
         AND i.gone_at IS NULL
-      ORDER BY l.producto_item_id, i.user_product_id, i.inventory_id, i.item_id
+      ORDER BY l.producto_item_id, i.user_product_id,
+               (i.inventory_id IS NULL), i.inventory_id, i.item_id
       LIMIT 1
     )
     SELECT
@@ -51,7 +55,16 @@ _ROW_FOR_READY_SQL = text(
     JOIN productos_erp p ON p.item_id = linked.producto_item_id
     LEFT JOIN ml_user_product_stock st ON st.user_product_id = linked.user_product_id
     LEFT JOIN ml_fulfillment_last_inbound inbound ON inbound.inventory_id = linked.inventory_id
-    LEFT JOIN gestion_full_override o ON o.inventory_id = linked.inventory_id
+    LEFT JOIN LATERAL (
+      SELECT o2.cantidad
+      FROM gestion_full_override o2
+      WHERE o2.inventory_id IN (
+        linked.inventory_id,
+        'NOINV:' || linked.user_product_id
+      )
+      ORDER BY (o2.inventory_id LIKE 'NOINV:%')
+      LIMIT 1
+    ) o ON TRUE
     """
 )
 
@@ -73,6 +86,28 @@ _RESOLVE_KEY_BY_INVENTORY_SQL = text(
       AND i.never_existed IS NOT TRUE
       AND i.gone_at IS NULL
     ORDER BY i.inventory_id, i.item_id
+    LIMIT 1
+    """
+)
+
+_RESOLVE_KEY_BY_MLAU_SQL = text(
+    """
+    SELECT DISTINCT ON (i.user_product_id)
+      l.producto_item_id,
+      i.user_product_id,
+      p.marca,
+      p.categoria
+    FROM ml_items i
+    JOIN ml_item_product_links l
+      ON l.item_id = i.item_id
+     AND l.producto_item_id IS NOT NULL
+     AND l.variation_id = 0
+    JOIN productos_erp p ON p.item_id = l.producto_item_id
+    WHERE i.user_product_id = :user_product_id
+      AND i.user_product_id IS NOT NULL
+      AND i.never_existed IS NOT TRUE
+      AND i.gone_at IS NULL
+    ORDER BY i.user_product_id, (i.inventory_id IS NULL), i.inventory_id, i.item_id
     LIMIT 1
     """
 )
@@ -152,15 +187,26 @@ def resolve_ready_key_por_inventory_id(
     db: Session,
     inventory_id: str,
 ) -> Optional[dict[str, Any]]:
-    """ERP + MLAU (+ marca/categoria) for an inventory_id, or None."""
-    row = (
-        db.execute(
-            _RESOLVE_KEY_BY_INVENTORY_SQL,
-            {"inventory_id": inventory_id},
+    """ERP + MLAU (+ marca/categoria) for an inventory_id / NOINV key, or None."""
+    mlau = user_product_id_from_synthetic(inventory_id)
+    if mlau is not None:
+        row = (
+            db.execute(
+                _RESOLVE_KEY_BY_MLAU_SQL,
+                {"user_product_id": mlau},
+            )
+            .mappings()
+            .first()
         )
-        .mappings()
-        .first()
-    )
+    else:
+        row = (
+            db.execute(
+                _RESOLVE_KEY_BY_INVENTORY_SQL,
+                {"inventory_id": inventory_id},
+            )
+            .mappings()
+            .first()
+        )
     if row is None:
         return None
     return {
@@ -204,10 +250,14 @@ def mark_pm_ready(
     if qty is None:
         raise ValueError("sin cantidad decidida (override o sugerido)")
 
+    inv_key = package_inventory_id(
+        row.get("inventory_id"),
+        user_product_id=user_product_id,
+    )
     ready = GestionFullPmReady(
         producto_item_id=producto_item_id,
         user_product_id=user_product_id,
-        inventory_id=row["inventory_id"],
+        inventory_id=inv_key,
         qty_pm=qty,
         ready_by_id=usuario.id,
         ready_at=datetime.now(UTC),
@@ -221,7 +271,7 @@ def mark_pm_ready(
         despues={
             "producto_item_id": int(producto_item_id),
             "user_product_id": str(user_product_id),
-            "inventory_id": str(row["inventory_id"]),
+            "inventory_id": inv_key,
             "qty_pm": int(qty),
         },
     )

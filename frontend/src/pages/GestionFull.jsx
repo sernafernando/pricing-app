@@ -99,7 +99,10 @@ export default function GestionFull() {
   // After Listo/Desbloquear we only need rows; keep panel options and skip the facet DISTINCT.
   const skipFacetsRef = useRef(false);
 
-  const rowKey = (row) => `${row.producto_item_id}-${row.user_product_id || row.inventory_id}`;
+  const rowKey = (row) => `${row.producto_item_id}-${row.user_product_id || row.inventory_id || ''}`;
+  // Real Código ML, or synthetic key so override/Listo work before Melí assigns one.
+  const overrideKey = (row) => row.inventory_id || `NOINV:${row.user_product_id}`;
+  const draftKey = (row) => overrideKey(row);
 
   useEffect(() => {
     if (tab !== 'plan') return undefined;
@@ -141,7 +144,7 @@ export default function GestionFull() {
         }
         const nextDrafts = {};
         nextItems.forEach((row) => {
-          nextDrafts[row.inventory_id] = overrideDraftValue(row.override);
+          nextDrafts[draftKey(row)] = overrideDraftValue(row.override);
         });
         setDrafts(nextDrafts);
       } catch {
@@ -222,40 +225,41 @@ export default function GestionFull() {
 
   const saveOverride = async (row) => {
     if (!row.puede_editar_override) return;
-    const raw = (drafts[row.inventory_id] ?? '').trim();
+    const key = draftKey(row);
+    const raw = (drafts[key] ?? '').trim();
     const next =
       raw === '' ? null : Number.parseInt(raw, 10);
     if (raw !== '' && (Number.isNaN(next) || next < 0)) {
       setDrafts((prev) => ({
         ...prev,
-        [row.inventory_id]: overrideDraftValue(row.override),
+        [key]: overrideDraftValue(row.override),
       }));
       return;
     }
     if (next === (row.override ?? null)) return;
 
-    setSavingId(row.inventory_id);
+    setSavingId(key);
     setSaveError(null);
     try {
-      const { data } = await api.patch(`/gestion-full/${encodeURIComponent(row.inventory_id)}`, {
+      const { data } = await api.patch(`/gestion-full/${encodeURIComponent(overrideKey(row))}`, {
         cantidad: next,
       });
       setItems((prev) =>
         prev.map((item) =>
-          item.inventory_id === row.inventory_id
+          rowKey(item) === rowKey(row)
             ? { ...item, override: data.override ?? null }
             : item,
         ),
       );
       setDrafts((prev) => ({
         ...prev,
-        [row.inventory_id]: overrideDraftValue(data.override),
+        [key]: overrideDraftValue(data.override),
       }));
     } catch {
-      setSaveError(`No se pudo guardar override de ${row.inventory_id}`);
+      setSaveError(`No se pudo guardar override de ${row.user_product_id || key}`);
       setDrafts((prev) => ({
         ...prev,
-        [row.inventory_id]: overrideDraftValue(row.override),
+        [key]: overrideDraftValue(row.override),
       }));
     } finally {
       setSavingId(null);
@@ -275,7 +279,7 @@ export default function GestionFull() {
       skipFacetsRef.current = true;
       setListNonce((n) => n + 1);
     } catch {
-      setSaveError(`No se pudo cerrar la línea ${row.inventory_id}`);
+      setSaveError(`No se pudo cerrar la línea ${row.user_product_id || row.inventory_id}`);
     } finally {
       setReadyBusyKey(null);
     }
@@ -294,7 +298,7 @@ export default function GestionFull() {
       skipFacetsRef.current = true;
       setListNonce((n) => n + 1);
     } catch {
-      setSaveError(`No se pudo desbloquear ${row.inventory_id}`);
+      setSaveError(`No se pudo desbloquear ${row.user_product_id || row.inventory_id}`);
     } finally {
       setReadyBusyKey(null);
     }
@@ -517,16 +521,16 @@ export default function GestionFull() {
                         inputMode="numeric"
                         min={0}
                         step={1}
-                        value={drafts[row.inventory_id] ?? ''}
-                        disabled={savingId === row.inventory_id}
-                        onChange={(e) => onDraftChange(row.inventory_id, e.target.value)}
+                        value={drafts[draftKey(row)] ?? ''}
+                        disabled={savingId === draftKey(row)}
+                        onChange={(e) => onDraftChange(draftKey(row), e.target.value)}
                         onBlur={() => saveOverride(row)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             e.currentTarget.blur();
                           }
                         }}
-                        aria-label={`Override ${row.inventory_id}`}
+                        aria-label={`Override ${row.user_product_id || row.inventory_id || ''}`}
                       />
                     ) : (
                       <span className={styles.muted}>{cell(row.override)}</span>
