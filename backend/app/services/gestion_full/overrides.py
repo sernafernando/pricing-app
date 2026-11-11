@@ -12,8 +12,25 @@ from app.models.auditoria import TipoAccion
 from app.models.gestion_full_override import GestionFullOverride
 from app.models.usuario import Usuario
 from app.services.gestion_full.audit import registrar
-from app.services.gestion_full.inventory_keys import user_product_id_from_synthetic
+from app.services.gestion_full.inventory_keys import (
+    is_synthetic_inventory_id,
+    synthetic_inventory_id,
+    user_product_id_from_synthetic,
+)
 from app.services.pm_scope import get_pares_marca_categoria_usuario
+
+_RESOLVE_MLAU_BY_INVENTORY_SQL = text(
+    """
+    SELECT user_product_id
+    FROM ml_items
+    WHERE inventory_id = :inventory_id
+      AND never_existed IS NOT TRUE
+      AND gone_at IS NULL
+      AND user_product_id IS NOT NULL
+    ORDER BY item_id
+    LIMIT 1
+    """
+)
 
 _RESOLVE_PRODUCT_SQL = text(
     """
@@ -118,6 +135,39 @@ def resolve_producto_por_inventory_id(db: Session, inventory_id: str) -> Optiona
     }
 
 
+def _legacy_noinv_key_for_real(db: Session, inventory_id: str) -> Optional[str]:
+    """NOINV:{MLAU} twin when ``inventory_id`` is a real Código ML, else None."""
+    if is_synthetic_inventory_id(inventory_id):
+        return None
+    row = (
+        db.execute(
+            _RESOLVE_MLAU_BY_INVENTORY_SQL,
+            {"inventory_id": inventory_id},
+        )
+        .mappings()
+        .first()
+    )
+    if row is None or not row.user_product_id:
+        return None
+    return synthetic_inventory_id(str(row.user_product_id))
+
+
+def _delete_override_row(
+    db: Session,
+    *,
+    inventory_id: str,
+    usuario: Usuario,
+    cantidad_antes: Optional[int],
+) -> None:
+    registrar(
+        db,
+        tipo=TipoAccion.GESTION_FULL_OVERRIDE,
+        usuario_id=int(usuario.id),
+        antes=(None if cantidad_antes is None else {"inventory_id": inventory_id, "cantidad": int(cantidad_antes)}),
+        despues={"inventory_id": inventory_id, "cantidad": None},
+    )
+
+
 def upsert_override(
     db: Session,
     *,
@@ -125,7 +175,11 @@ def upsert_override(
     cantidad: int,
     usuario: Usuario,
 ) -> GestionFullOverride:
-    """Create or update the override qty for inventory_id."""
+    """Create or update the override qty for inventory_id.
+
+    When writing under a real Código ML, drop any leftover ``NOINV:{MLAU}`` twin
+    so the listing LATERAL join cannot resurrect a stale synthetic override.
+    """
     row = db.get(GestionFullOverride, inventory_id)
     now = datetime.now(UTC)
     antes = None if row is None else {"inventory_id": inventory_id, "cantidad": int(row.cantidad)}
@@ -148,24 +202,49 @@ def upsert_override(
         despues={"inventory_id": inventory_id, "cantidad": int(cantidad)},
         antes=antes,
     )
+    legacy = _legacy_noinv_key_for_real(db, inventory_id)
+    if legacy is not None and legacy != inventory_id:
+        twin = db.get(GestionFullOverride, legacy)
+        if twin is not None:
+            cantidad_antes = int(twin.cantidad)
+            db.delete(twin)
+            _delete_override_row(
+                db,
+                inventory_id=legacy,
+                usuario=usuario,
+                cantidad_antes=cantidad_antes,
+            )
     db.commit()
     db.refresh(row)
     return row
 
 
 def clear_override(db: Session, *, inventory_id: str, usuario: Usuario) -> bool:
-    """Delete override row. Returns True when a row was removed."""
-    row = db.get(GestionFullOverride, inventory_id)
-    if row is None:
-        return False
-    antes = {"inventory_id": inventory_id, "cantidad": int(row.cantidad)}
-    db.delete(row)
-    registrar(
-        db,
-        tipo=TipoAccion.GESTION_FULL_OVERRIDE,
-        usuario_id=int(usuario.id),
-        antes=antes,
-        despues={"inventory_id": inventory_id, "cantidad": None},
-    )
-    db.commit()
-    return True
+    """Delete override row(s). Returns True when at least one row was removed.
+
+    Clearing by real Código ML also removes ``NOINV:{MLAU}`` for that MLAU, so a
+    pre-Full override cannot stick after Melí assigns inventory_id.
+    """
+    removed = False
+    keys = [inventory_id]
+    legacy = _legacy_noinv_key_for_real(db, inventory_id)
+    if legacy is not None and legacy not in keys:
+        keys.append(legacy)
+
+    for key in keys:
+        row = db.get(GestionFullOverride, key)
+        if row is None:
+            continue
+        cantidad_antes = int(row.cantidad)
+        db.delete(row)
+        _delete_override_row(
+            db,
+            inventory_id=key,
+            usuario=usuario,
+            cantidad_antes=cantidad_antes,
+        )
+        removed = True
+
+    if removed:
+        db.commit()
+    return removed
