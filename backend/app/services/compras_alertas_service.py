@@ -32,6 +32,10 @@ TIPO_FALTANTES_RESUELTO: Final[str] = "compras.faltantes_resuelto"
 
 SNOOZE_MARKER: Final[str] = "compras.faltantes.snooze"
 SNOOZE_WINDOW: Final[timedelta] = timedelta(hours=1)
+# Windows that became due longer ago than this are drained silently (mark
+# disparada, no Notificacion / auto-vínculo). Prevents a first worker run (or a
+# long outage) from fan-out-notifying the whole historical cargada backlog.
+MAX_FACTURA_ALERT_LAG: Final[timedelta] = timedelta(hours=1)
 PERMISO_VER_ALERTAS_FACTURA: Final[str] = "administracion.ver_alertas_factura"
 PERMISO_DEPOSITO_RECEPCION: Final[str] = "deposito.recibir_mercaderia"
 # Belt-and-suspenders: Gabriel DeMarco always receives factura_cargada (brief).
@@ -142,8 +146,13 @@ def disparar_alertas_factura_pendientes(session: Session, *, ahora: datetime | N
     Selects `cargada AND alerta_pendiente_hasta <= ahora AND alerta_disparada_at IS NULL`.
     Persist / Match / manual alta never call this. Uncheck before fire cancels
     by nulling `alerta_pendiente_hasta`.
+
+    Stale due rows (`alerta_pendiente_hasta` older than `MAX_FACTURA_ALERT_LAG`)
+    are marked disparada without notifying or auto-linking — historical backlog
+    must not fan-out when the worker first comes up.
     """
     stamp = _ahora_utc(ahora)
+    lag_floor = stamp - MAX_FACTURA_ALERT_LAG
     rows = (
         session.query(PedidoFacturaDocumento)
         .options(joinedload(PedidoFacturaDocumento.pedido).joinedload(PedidoCompra.proveedor))
@@ -158,9 +167,16 @@ def disparar_alertas_factura_pendientes(session: Session, *, ahora: datetime | N
     from app.services import erp_matching_service  # noqa: PLC0415
 
     fired = 0
+    drained = 0
     for row in rows:
         pedido = row.pedido
         if pedido is None:
+            continue
+        pending_until = _as_aware_utc(row.alerta_pendiente_hasta)
+        if pending_until < lag_floor:
+            # Historical / long-outage backlog: close the queue, no fan-out.
+            row.alerta_disparada_at = stamp
+            drained += 1
             continue
         notificar_factura_cargada(session, pedido=pedido, factura=row, ahora=stamp)
         # After the regret window: documental auto-link by constancia numero (M:N).
@@ -178,6 +194,13 @@ def disparar_alertas_factura_pendientes(session: Session, *, ahora: datetime | N
         fired += 1
     if rows:
         session.flush()
+    if drained:
+        logger.warning(
+            "disparar_alertas_factura_pendientes: drained %s stale cargada alert(s) without notify "
+            "(lag > %s)",
+            drained,
+            MAX_FACTURA_ALERT_LAG,
+        )
     return fired
 
 

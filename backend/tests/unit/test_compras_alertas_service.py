@@ -287,6 +287,22 @@ class TestFanoutFactura:
         assert row.alerta_pendiente_hasta is not None
         assert row.alerta_disparada_at is None
 
+    def test_stale_due_window_drains_without_notify(self, db, empresa, proveedor, fanout_users) -> None:
+        """Backlog older than MAX_FACTURA_ALERT_LAG must not fan-out."""
+        pedido = _pedido(db, empresa, proveedor, fanout_users["titular"])
+        row = _alta_constancia(db, pedido, fanout_users["titular"])
+        db.flush()
+        old_mark = T0 - timedelta(days=30)
+        _check_erp(db, pedido, row, fanout_users["titular"], ahora=old_mark)
+        db.flush()
+        fired = _fire_at(db, ahora=T0)
+        db.flush()
+        db.refresh(row)
+        assert fired == 0
+        assert db.query(Notificacion).filter(Notificacion.tipo == "compras.factura_cargada").count() == 0
+        assert row.alerta_disparada_at is not None
+        assert row.alerta_disparada_at.replace(tzinfo=timezone.utc) == T0
+
     def test_uncheck_before_fire_cancels_pending(self, db, empresa, proveedor, fanout_users) -> None:
         pedido = _pedido(db, empresa, proveedor, fanout_users["titular"])
         row = _alta_constancia(db, pedido, fanout_users["titular"])
