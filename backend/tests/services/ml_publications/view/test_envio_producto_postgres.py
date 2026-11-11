@@ -52,6 +52,11 @@ def conn(env):  # noqa: F811  (`env` builds `publicaciones_ml` beside `productos
     with env.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
         connection.execute(text(seed.PRICING_DDL))
         connection.execute(text(CHOICE_DDL))
+        for statement in seed.AUDIT_DDL:  # `auditoria` (and the `usuarios` it references), production's shape
+            connection.execute(text(statement))
+        connection.execute(
+            text("INSERT INTO usuarios (id, nombre, username) VALUES (7, 'PM', 'pm'), (8, 'PM2', 'pm2')")
+        )
         yield connection
 
 
@@ -387,6 +392,45 @@ class TestSaveChoice:
         assert (saved["modo"], saved["mla"], saved["usuario_id"]) == ("mla", OWN, 7)
         assert saved["updated_at"] is not None
         assert resolver_costo_envio(db, product(db)) == 7290.0
+
+    def test_every_change_is_audited_with_who_and_from_to(self, conn, db, costs, units) -> None:
+        """L12: each change of the choice writes one `auditoria` row (who, when, before -> after), in the same
+        transaction as the choice."""
+        seed_re200(conn)
+        envio_producto.guardar_eleccion(db, RE200, "mla", OWN, usuario_id=7)
+        db.commit()
+        envio_producto.guardar_eleccion(db, RE200, "promedio", None, usuario_id=7)
+        db.commit()
+        rows = conn.execute(
+            text(
+                "SELECT item_id, usuario_id, tipo_accion, valores_anteriores, valores_nuevos, fecha "
+                "FROM auditoria ORDER BY id"
+            )
+        ).all()
+        assert [(r.item_id, r.usuario_id, r.tipo_accion) for r in rows] == [
+            (RE200, 7, "ENVIO_PRODUCTO_ELECCION"),
+            (RE200, 7, "ENVIO_PRODUCTO_ELECCION"),
+        ]
+        assert rows[0].valores_anteriores == {"modo": "max", "mla": None}  # no stored choice reads as the MAX
+        assert rows[0].valores_nuevos == {"modo": "mla", "mla": OWN}
+        assert rows[1].valores_anteriores == {"modo": "mla", "mla": OWN}
+        assert rows[1].valores_nuevos == {"modo": "promedio", "mla": None}
+        assert all(r.fecha is not None for r in rows)
+
+    def test_saving_the_same_choice_again_is_not_a_change(self, conn, db, costs, units) -> None:
+        seed_re200(conn)
+        envio_producto.guardar_eleccion(db, RE200, "promedio", None, usuario_id=7)
+        db.commit()
+        envio_producto.guardar_eleccion(db, RE200, "promedio", None, usuario_id=7)
+        db.commit()
+        assert conn.execute(text("SELECT count(*) FROM auditoria")).scalar() == 1
+
+    def test_the_audit_row_rolls_back_with_the_choice(self, conn, db, costs, units) -> None:
+        seed_re200(conn)
+        envio_producto.guardar_eleccion(db, RE200, "promedio", None, usuario_id=7)
+        db.rollback()
+        assert conn.execute(text("SELECT count(*) FROM auditoria")).scalar() == 0
+        assert conn.execute(text("SELECT count(*) FROM producto_envio_eleccion")).scalar() == 0
 
     def test_it_replaces_the_previous_choice(self, conn, db, costs, units) -> None:
         seed_re200(conn)

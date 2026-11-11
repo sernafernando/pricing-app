@@ -8,7 +8,7 @@ lays them out for the Publicaciones ML product view and records the choice. Ever
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -16,6 +16,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 
+from app.models.auditoria import Auditoria, TipoAccion
 from app.models.producto import ProductoERP
 from app.models.producto_envio_eleccion import ProductoEnvioEleccion
 from app.models.publicacion_ml import PublicacionML
@@ -108,7 +109,8 @@ def guardar_eleccion(
     db: Session, item_id: int, modo: str, mla: Optional[str], *, usuario_id: int
 ) -> Optional[dict[str, Any]]:
     """Store the choice of `item_id` (one row per product, replaced), with who and when; None for an unknown
-    product. `max` is stored as a row too, so who chose it and when stays recorded. The caller commits.
+    product. `max` is stored as a row too, so who chose it and when stays recorded. Every change also writes one
+    `auditoria` row (before -> after) in the same transaction (L12). The caller commits.
 
     Raises `EleccionInvalida` for an `mla` that is not a publication of the product (active or not: a paused one
     may come back; while it is inactive the product resolves to the MAX and the options warn)."""
@@ -125,6 +127,26 @@ def guardar_eleccion(
         ).first()
         if belongs is None:
             raise EleccionInvalida("mla", f"La publicación {mla} no es de este producto")
+    previous = db.execute(
+        select(ProductoEnvioEleccion.modo, ProductoEnvioEleccion.mla).where(ProductoEnvioEleccion.item_id == item_id)
+    ).first()
+    before = (
+        {"modo": previous.modo, "mla": previous.mla}
+        if previous is not None
+        else {"modo": envio.MODO_DEFAULT, "mla": None}
+    )
+    after = {"modo": modo, "mla": mla}
+    if before != after:  # L12: every change, who and when, in the choice's own transaction
+        db.add(
+            Auditoria(
+                item_id=item_id,
+                usuario_id=usuario_id,
+                tipo_accion=TipoAccion.ENVIO_PRODUCTO_ELECCION,
+                valores_anteriores=before,
+                valores_nuevos=after,
+                fecha=datetime.now(timezone.utc).replace(tzinfo=None),  # naive UTC, like the column's default
+            )
+        )
     values = {"item_id": item_id, "modo": modo, "mla": mla, "usuario_id": usuario_id, "updated_at": func.now()}
     statement = insert(ProductoEnvioEleccion).values(**values)
     statement = statement.on_conflict_do_update(

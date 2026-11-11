@@ -64,6 +64,9 @@ class TipoAccion(str, enum.Enum):
     ML_ADS_APORTE_BORRADO = "ml_ads_aporte_borrado"
     # Gestión Full: one row per human mutation (same VARCHAR(50) column — no DDL).
     # Destructive ops (remove lines) store a denormalized snapshot so history survives CASCADE.
+    # S7b: one row per change of a product's shipping-cost choice (`item_id` the product; {modo, mla} before and
+    # after, a product without a stored choice reads as `max`). Same VARCHAR(50) column: no DDL.
+    ENVIO_PRODUCTO_ELECCION = "envio_producto_eleccion"
     GESTION_FULL_OVERRIDE = "gestion_full_override"
     GESTION_FULL_PM_READY = "gestion_full_pm_ready"
     GESTION_FULL_PM_UNLOCK = "gestion_full_pm_unlock"

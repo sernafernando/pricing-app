@@ -31,9 +31,14 @@ COSTS = {OWN: 7290.0, OUTLIER: 10890.0}
 
 
 @pytest.fixture()
-def pg(view_pg, monkeypatch):  # noqa: F811
+def pg(view_pg, monkeypatch, admin_user):  # noqa: F811
     with view_pg.begin() as conn:
         conn.execute(text(CHOICE_DDL))
+        for statement in seed.AUDIT_DDL:  # each change of the choice is audited (L12), production's shape
+            conn.execute(text(statement))
+        conn.execute(
+            text("INSERT INTO usuarios (id, nombre, username) VALUES (:id, 'PM', 'pm')"), {"id": admin_user.id}
+        )
     monkeypatch.setattr(
         envio_real_service, "_query_list_cost_by_mla", lambda mlas: {m: COSTS[m] for m in mlas if m in COSTS}
     )
@@ -137,6 +142,13 @@ class TestSaveChoice:
         assert (body["modo"], body["mla"], body["usuario_id"]) == ("mla", OWN, admin_user.id)
         assert body["updated_at"]
         assert stored(pg) == [(22, "mla", OWN)]
+        with pg.connect() as conn:
+            audit = conn.execute(
+                text("SELECT item_id, usuario_id, tipo_accion, valores_anteriores, valores_nuevos FROM auditoria")
+            ).all()
+        assert [tuple(r) for r in audit] == [
+            (22, admin_user.id, "ENVIO_PRODUCTO_ELECCION", {"modo": "max", "mla": None}, {"modo": "mla", "mla": OWN})
+        ]
         eleccion = client.get(URL.format(22), headers=editor).json()["eleccion"]
         assert (eleccion["modo"], eleccion["costo"]) == ("mla", 7290.0)
 
