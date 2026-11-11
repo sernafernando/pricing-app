@@ -148,8 +148,9 @@ def disparar_alertas_factura_pendientes(session: Session, *, ahora: datetime | N
     by nulling `alerta_pendiente_hasta`.
 
     Stale due rows (`alerta_pendiente_hasta` older than `MAX_FACTURA_ALERT_LAG`)
-    are marked disparada without notifying or auto-linking — historical backlog
-    must not fan-out when the worker first comes up.
+    skip the Notificacion fan-out but still auto-link and mark disparada —
+    historical backlog must not spam the bell when the worker first comes up,
+    yet a late sweep must not permanently skip the ERP vínculo.
     """
     stamp = _ahora_utc(ahora)
     lag_floor = stamp - MAX_FACTURA_ALERT_LAG
@@ -173,13 +174,15 @@ def disparar_alertas_factura_pendientes(session: Session, *, ahora: datetime | N
         if pedido is None:
             continue
         pending_until = _as_aware_utc(row.alerta_pendiente_hasta)
-        if pending_until < lag_floor:
-            # Historical / long-outage backlog: close the queue, no fan-out.
-            row.alerta_disparada_at = stamp
+        is_stale = pending_until < lag_floor
+        if is_stale:
+            # Historical / long-outage backlog: no bell spam.
             drained += 1
-            continue
-        notificar_factura_cargada(session, pedido=pedido, factura=row, ahora=stamp)
-        # After the regret window: documental auto-link by constancia numero (M:N).
+        else:
+            notificar_factura_cargada(session, pedido=pedido, factura=row, ahora=stamp)
+            fired += 1
+        # After the regret window: documental auto-link by constancia numero (M:N),
+        # including drained rows (otherwise the vínculo is lost forever).
         # Failures must not abort the outer transaction (alert still marks fired).
         try:
             with session.begin_nested():
@@ -191,13 +194,11 @@ def disparar_alertas_factura_pendientes(session: Session, *, ahora: datetime | N
                 pedido.id,
             )
         row.alerta_disparada_at = stamp
-        fired += 1
     if rows:
         session.flush()
     if drained:
         logger.warning(
-            "disparar_alertas_factura_pendientes: drained %s stale cargada alert(s) without notify "
-            "(lag > %s)",
+            "disparar_alertas_factura_pendientes: drained %s stale cargada alert(s) without notify (lag > %s)",
             drained,
             MAX_FACTURA_ALERT_LAG,
         )

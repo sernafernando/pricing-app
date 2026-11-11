@@ -40,7 +40,7 @@ def main() -> None:
         WHERE tipo = 'compras.factura_cargada'
           AND fecha_creacion >= :from_ts
           AND fecha_creacion < :to_ts
-          AND estado <> 'DESCARTADA'
+          AND estado = 'PENDIENTE'
         """
     )
     sql_update = text(
@@ -50,14 +50,14 @@ def main() -> None:
         WHERE tipo = 'compras.factura_cargada'
           AND fecha_creacion >= :from_ts
           AND fecha_creacion < :to_ts
-          AND estado <> 'DESCARTADA'
+          AND estado = 'PENDIENTE'
         """
     )
     params = {"from_ts": STORM_FROM, "to_ts": STORM_TO}
 
     with SessionLocal() as db:
         n = int(db.execute(sql_count, params).scalar() or 0)
-        print(f"matching non-DESCARTADA factura_cargada notifs in storm window: {n}")
+        print(f"matching PENDIENTE factura_cargada notifs in storm window: {n}")
         if args.dry_run:
             print("dry-run: no update")
             return

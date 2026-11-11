@@ -287,21 +287,102 @@ class TestFanoutFactura:
         assert row.alerta_pendiente_hasta is not None
         assert row.alerta_disparada_at is None
 
-    def test_stale_due_window_drains_without_notify(self, db, empresa, proveedor, fanout_users) -> None:
-        """Backlog older than MAX_FACTURA_ALERT_LAG must not fan-out."""
+    def test_stale_due_window_drains_without_notify_but_still_auto_vincula(
+        self, db, empresa, proveedor, fanout_users, monkeypatch
+    ) -> None:
+        """Backlog older than MAX_FACTURA_ALERT_LAG skips bell, keeps auto-vínculo."""
         pedido = _pedido(db, empresa, proveedor, fanout_users["titular"])
         row = _alta_constancia(db, pedido, fanout_users["titular"])
         db.flush()
         old_mark = T0 - timedelta(days=30)
         _check_erp(db, pedido, row, fanout_users["titular"], ahora=old_mark)
         db.flush()
+        linked: list[int] = []
+
+        def _fake_auto(session, documento, *, usuario_id=None, ahora=None):  # noqa: ANN001
+            linked.append(int(documento.id))
+            return 42
+
+        monkeypatch.setattr(
+            "app.services.erp_matching_service.auto_vincular_por_constancia_cargada",
+            _fake_auto,
+        )
+        fired = _fire_at(db, ahora=T0)
+        db.flush()
+        db.refresh(row)
+        assert fired == 0
+        assert db.query(Notificacion).filter(Notificacion.tipo == "compras.factura_cargada").count() == 0
+        assert linked == [int(row.id)]
+        assert row.alerta_disparada_at is not None
+        assert row.alerta_disparada_at.replace(tzinfo=timezone.utc) == T0
+
+    def test_lag_floor_exact_hour_still_notifies(self, db, empresa, proveedor, fanout_users) -> None:
+        """`alerta_pendiente_hasta == ahora - 1h` is not stale (`<` is strict)."""
+        pedido = _pedido(db, empresa, proveedor, fanout_users["titular"])
+        row = _alta_constancia(db, pedido, fanout_users["titular"])
+        db.flush()
+        mark = T0 - compras_alertas_service.MAX_FACTURA_ALERT_LAG - timedelta(minutes=5)
+        _check_erp(db, pedido, row, fanout_users["titular"], ahora=mark)
+        db.flush()
+        # Force pending_until exactly at lag_floor.
+        row.alerta_pendiente_hasta = T0 - compras_alertas_service.MAX_FACTURA_ALERT_LAG
+        db.flush()
+        fired = _fire_at(db, ahora=T0)
+        db.flush()
+        assert fired == 1
+        assert db.query(Notificacion).filter(Notificacion.tipo == "compras.factura_cargada").count() >= 1
+
+    def test_lag_floor_plus_one_second_drains(self, db, empresa, proveedor, fanout_users, monkeypatch) -> None:
+        pedido = _pedido(db, empresa, proveedor, fanout_users["titular"])
+        row = _alta_constancia(db, pedido, fanout_users["titular"])
+        db.flush()
+        mark = T0 - timedelta(days=1)
+        _check_erp(db, pedido, row, fanout_users["titular"], ahora=mark)
+        db.flush()
+        row.alerta_pendiente_hasta = T0 - compras_alertas_service.MAX_FACTURA_ALERT_LAG - timedelta(seconds=1)
+        db.flush()
+        monkeypatch.setattr(
+            "app.services.erp_matching_service.auto_vincular_por_constancia_cargada",
+            lambda *a, **k: None,
+        )
         fired = _fire_at(db, ahora=T0)
         db.flush()
         db.refresh(row)
         assert fired == 0
         assert db.query(Notificacion).filter(Notificacion.tipo == "compras.factura_cargada").count() == 0
         assert row.alerta_disparada_at is not None
-        assert row.alerta_disparada_at.replace(tzinfo=timezone.utc) == T0
+
+    def test_mixed_stale_and_fresh_same_sweep(self, db, empresa, proveedor, fanout_users, monkeypatch) -> None:
+        stale_pedido = _pedido(db, empresa, proveedor, fanout_users["titular"], numero="P-STALE")
+        fresh_pedido = _pedido(db, empresa, proveedor, fanout_users["titular"], numero="P-FRESH")
+        stale = _alta_constancia(db, stale_pedido, fanout_users["titular"], numero="FA-OLD")
+        fresh = _alta_constancia(db, fresh_pedido, fanout_users["titular"], numero="FA-NEW")
+        db.flush()
+        _check_erp(db, stale_pedido, stale, fanout_users["titular"], ahora=T0 - timedelta(days=2))
+        _check_erp(db, fresh_pedido, fresh, fanout_users["titular"], ahora=T0)
+        db.flush()
+        linked: list[int] = []
+
+        def _fake_auto(session, documento, *, usuario_id=None, ahora=None):  # noqa: ANN001
+            linked.append(int(documento.id))
+            return None
+
+        monkeypatch.setattr(
+            "app.services.erp_matching_service.auto_vincular_por_constancia_cargada",
+            _fake_auto,
+        )
+        fired = _fire_at(db, ahora=T_5)
+        db.flush()
+        assert fired == 1
+        notifs = db.query(Notificacion).filter(Notificacion.tipo == "compras.factura_cargada").all()
+        assert notifs
+        assert all("FA-NEW" in n.mensaje for n in notifs)
+        assert all("FA-OLD" not in n.mensaje for n in notifs)
+        assert set(linked) == {int(stale.id), int(fresh.id)}
+        db.refresh(stale)
+        db.refresh(fresh)
+        assert stale.alerta_disparada_at is not None
+        assert fresh.alerta_disparada_at is not None
 
     def test_uncheck_before_fire_cancels_pending(self, db, empresa, proveedor, fanout_users) -> None:
         pedido = _pedido(db, empresa, proveedor, fanout_users["titular"])
