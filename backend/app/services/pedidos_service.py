@@ -3098,8 +3098,9 @@ def ajustar_monto_con_factura(
     Precondiciones:
       - Pedido existe.
       - Pedido NO está vinculado a OTRA factura distinta (si ya tiene
-        `ct_transaction_id` != `ct_transaction` → 409; si está vinculado a
-        la MISMA `ct_transaction` sigue, porque puede ser un reajuste).
+        otras CTs en junction/header y `ct_transaction` no está entre ellas
+        → 409; si ya está vinculada la misma CT sigue, porque puede ser un
+        reajuste).
       - `nuevo_monto > 0`.
       - `motivo` no vacío.
       - La ct existe en `v_facturas_compra_vigentes` para el proveedor del pedido.
@@ -3127,12 +3128,15 @@ def ajustar_monto_con_factura(
 
     pedido = _obtener_pedido_o_404(session, pedido_id)
 
-    if pedido.ct_transaction_id is not None and int(pedido.ct_transaction_id) != int(ct_transaction):
+    from app.models.pedido_compra_factura import cts_for_pedido  # noqa: PLC0415
+
+    linked_cts = {ct for ct, _fecha in cts_for_pedido(session, pedido)}
+    if linked_cts and int(ct_transaction) not in linked_cts:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
                 f"Pedido id={pedido.id} ya está vinculado a "
-                f"ct_transaction={pedido.ct_transaction_id} (distinta a la solicitada "
+                f"ct_transaction={sorted(linked_cts)} (distinta a la solicitada "
                 f"{ct_transaction}). Desvinculá primero."
             ),
         )
@@ -3492,7 +3496,6 @@ def corregir_pedido(
         tipo="pedido",
         empresa_id=original.empresa_id,
     )
-    ct_transaction_heredado = original.ct_transaction_id
     clon = PedidoCompra(
         numero=nuevo_numero,
         empresa_id=original.empresa_id,
@@ -3515,9 +3518,9 @@ def corregir_pedido(
         pedidos_documento=cambios.get("pedidos_documento", original.pedidos_documento),
         tipo=original.tipo,
         responsable_id=original.responsable_id,
-        # The clone inherits the original's invoice link as-is (no ERP re-read).
-        ct_transaction_id=ct_transaction_heredado,
-        fecha_factura=original.fecha_factura,
+        # Invoice links move via junction copy below; header stays first-link cache.
+        ct_transaction_id=None,
+        fecha_factura=None,
         corregido_desde_id=original.id,
         estado=estado_clon,
         creado_por_id=user_id,
@@ -3526,10 +3529,13 @@ def corregir_pedido(
     session.add(clon)
     session.flush()  # → obtenemos clon.id
 
-    # 7. Transferir ct_transaction y marcar original cancelado + ref cruzada
+    # 7. Transferir facturas M:N + sell-in lines; marcar original cancelado + ref cruzada
     original_estado_anterior = original.estado
     erp_matching_service.copiar_lineas_facturadas(session, origen_id=original.id, destino_id=clon.id)
+    erp_matching_service.copiar_facturas_erp(session, origen_id=original.id, destino_id=clon.id)
     erp_matching_service.asignar_factura_erp(session, original, None)
+    if clon.ct_transaction_id is not None:
+        erp_matching_service.reconciliar_lineas_facturadas(session, clon.id)
     original.estado = "cancelado"
     original.corregido_a_id = clon.id
     session.flush()
@@ -3573,7 +3579,7 @@ def corregir_pedido(
             "clon_numero": clon.numero,
             "motivo": motivo_correccion,
             "estado_anterior": original_estado_anterior,
-            "ct_transaction_transferida": ct_transaction_heredado,
+            "ct_transaction_transferida": clon.ct_transaction_id,
             "imputaciones_pendientes_reaplicar": (ids_imputaciones_vigentes if cambios_financieros_reales else []),
             "adjuntos_clonados": n_adjuntos,
         },
