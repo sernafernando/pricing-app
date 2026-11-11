@@ -124,6 +124,15 @@ def test_a_category_bonus_is_stored_with_only_its_field(client, gestor, producto
     assert (bono.alcance, bono.categoria, bono.marca) == ("categoria", "Switches", None)
 
 
+def test_a_brand_bonus_may_narrow_to_one_of_its_categories(client, gestor, productos, db):
+    """SISO S3: "si quiero aplicar a los routers solo de tp-link"."""
+    data = _crear(client, gestor, alcance="marca", marca="TP-LINK", categoria="Routers")
+
+    assert (data["alcance"], data["marca"], data["categoria"]) == ("marca", "TP-LINK", "Routers")
+    bono = db.get(SellInBonoMarca, data["id"])
+    assert (bono.alcance, bono.marca, bono.categoria) == ("marca", "TP-LINK", "Routers")
+
+
 def test_a_models_bonus_stores_its_items_once_each(client, gestor, productos, db):
     data = _crear(client, gestor, alcance="modelos", categoria=None, modelos=[4513, 4512, 4513])
 
@@ -173,7 +182,10 @@ def test_a_body_without_scope_and_kind_is_a_brand_bonus_per_unit(client, gestor,
         ({"alcance": "factura", "categoria": None, "pedido_id": 424242}, "No existe el pedido de compra 424242"),
         ({"marca": "TP-LINK"}, "Un bono por categoría no lleva marca"),
         ({"modelos": [4512]}, "Un bono por categoría no lleva modelos"),
-        ({"alcance": "marca", "categoria": "Switches", "marca": "TP-LINK"}, "Un bono por marca no lleva categoría"),
+        (
+            {"alcance": "marca", "categoria": "Heladeras", "marca": "TP-LINK"},
+            "No hay productos de la marca TP-LINK en la categoría Heladeras",
+        ),
         ({"tipo": "porcentaje", "monto_unit": None}, "Falta el porcentaje del bono"),
         ({"tipo": "porcentaje", "porcentaje": "2"}, "Un bono por porcentaje no lleva monto por unidad"),
         ({"tipo": "porcentaje", "monto_unit": None, "porcentaje": "0"}, "El porcentaje debe ser mayor que cero"),

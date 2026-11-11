@@ -58,7 +58,7 @@ class SellInBonoMarca(Base):
             "alcance IN ('marca', 'categoria', 'modelos', 'factura')", name="ck_sell_in_bonos_marca_alcance"
         ),
         CheckConstraint(
-            "(alcance = 'marca' AND marca IS NOT NULL AND categoria IS NULL AND pedido_id IS NULL) "
+            "(alcance = 'marca' AND marca IS NOT NULL AND pedido_id IS NULL) "
             "OR (alcance = 'categoria' AND categoria IS NOT NULL AND marca IS NULL AND pedido_id IS NULL) "
             "OR (alcance = 'modelos' AND marca IS NULL AND categoria IS NULL AND pedido_id IS NULL) "
             "OR (alcance = 'factura' AND marca IS NULL AND categoria IS NULL)",
@@ -95,7 +95,8 @@ class SellInBonoMarca(Base):
     id = Column(BigInteger, primary_key=True)
     alcance = Column(String(16), nullable=False, default="marca", server_default="marca")
     marca = Column(String(100), nullable=True, index=True)  # productos_erp.marca, exact ('marca' scope)
-    categoria = Column(String(100), nullable=True)  # productos_erp.categoria, exact ('categoria' scope)
+    # productos_erp.categoria, exact: the 'categoria' scope, or on a 'marca' scope only that brand's category (S3)
+    categoria = Column(String(100), nullable=True)
     # The operation of a 'factura' bonus. Deleting it keeps the bonus (NULL); the worker voids what it generated.
     pedido_id = Column(
         BigInteger,

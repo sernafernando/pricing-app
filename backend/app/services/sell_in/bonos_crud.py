@@ -142,12 +142,17 @@ def _validar_alcance(db: Session, data: SellInBonoIn) -> tuple[Optional[str], Op
     dados = {"marca": marca, "categoria": categoria, "modelos": modelos, "pedido_id": data.pedido_id}
     propio = _CAMPO_DE_ALCANCE[data.alcance]
     for campo, valor in dados.items():
-        if campo != propio and valor:
+        # A brand bonus may narrow to one of its categories (SISO S3: "los routers solo de tp-link").
+        if campo != propio and valor and not (data.alcance == "marca" and campo == "categoria"):
             raise SellInBonoError(f"Un bono {_ALCANCES[data.alcance]} no lleva {_NOMBRE_CAMPO[campo]}")
     if data.alcance == "marca":
         if marca is None:
             raise SellInBonoError("Falta la marca del bono")
-        if not db.query(ProductoERP.item_id).filter(ProductoERP.marca == marca).limit(1).first():
+        de_marca = db.query(ProductoERP.item_id).filter(ProductoERP.marca == marca)
+        if categoria is not None:
+            if not de_marca.filter(ProductoERP.categoria == categoria).limit(1).first():
+                raise SellInBonoError(f"No hay productos de la marca {marca} en la categoría {categoria}")
+        elif not de_marca.limit(1).first():
             raise SellInBonoError(f"No hay productos de la marca {marca}")
     elif data.alcance == "categoria":
         if categoria is None:

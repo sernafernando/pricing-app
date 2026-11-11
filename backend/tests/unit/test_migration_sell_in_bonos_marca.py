@@ -104,16 +104,21 @@ class TestFrozenTriggerCopy:
     def test_the_latest_upgrade_installs_exactly_the_module_trigger_sql(self) -> None:
         # 20261211_sell_in_bono_tope, then 20261212_sell_in_bono_costo, replaced the bonus update trigger alone (it also
         # watches the caps, then the cost base), and 20261213_sell_in_bono_costo_triggers the product function and its
-        # update trigger (they also queue the cost bonuses): the module is 20261115's set with those statements
-        # swapped for 20261212's and 20261213's.
+        # update trigger (they also queue the cost bonuses), and 20261111_sell_in_bono_marca_categoria the two product
+        # functions (a brand line may carry a category): the module is 20261115's set with those statements swapped
+        # for 20261212's, 20261213's and 20261111's.
         versions = _BACKEND_ROOT / "alembic" / "versions"
         acumulable = base._load_migration(versions / "20261215_sell_in_bono_acumulable.py")
         disparadores = base._load_migration(versions / "20261213_sell_in_bono_costo_triggers.py")
-        producto_fn, producto_trg = disparadores.PRODUCTO_UP
+        _, producto_trg = disparadores.PRODUCTO_UP
+        marca_categoria = base._load_migration(versions / "20261111_sell_in_bono_marca_categoria.py")
+        cubre_fn, producto_fn = marca_categoria.FUNCIONES_UP
 
         def _vigente(s: str) -> str:
             if "CREATE TRIGGER trg_sell_in_bono_bonos_update" in s:
                 return acumulable._trigger(con_acumulable=True)
+            if "CREATE OR REPLACE FUNCTION sell_in_bono_cubre_producto" in s:
+                return cubre_fn
             if "CREATE OR REPLACE FUNCTION sell_in_bono_enqueue_producto" in s:
                 return producto_fn
             if "CREATE TRIGGER trg_sell_in_bono_productos_marca" in s:
@@ -124,7 +129,8 @@ class TestFrozenTriggerCopy:
         assert [" ".join(s.split()) for s in instalado] == [" ".join(s.split()) for s in bono_queue.UPGRADE_SQL], (
             self._DRIFT.format(
                 "UPGRADE_SQL",
-                f"{_LATEST_TRIGGERS} + 20261213_sell_in_bono_costo_triggers + 20261215_sell_in_bono_acumulable",
+                f"{_LATEST_TRIGGERS} + 20261213_sell_in_bono_costo_triggers + 20261215_sell_in_bono_acumulable"
+                " + 20261111_sell_in_bono_marca_categoria",
             )
         )
 
