@@ -21,8 +21,8 @@ Out of scope: P-02-2026-00250 reception correction; explicit sell-in proration; 
 
 ## Tasks
 
-- T1 [S1] — Fix faltantes retract/close when estado no longer admits resolver; repair path for notif 364200 — route: inline — status: done (pending commit) — commit:
-- T2 [S2] — Migrate factura_cargada alerts to worker REGISTRY; ensure user id 3 always notified — route: inline — status: pending — commit:
+- T1 [S1] — Fix faltantes retract/close when estado no longer admits resolver; repair path for notif 364200 — route: inline — status: done — commit: 3538a813c — PR: https://github.com/sernafernando/pricing-app/pull/2183
+- T2 [S2] — Migrate factura_cargada alerts to worker REGISTRY; ensure user id 3 always notified — route: inline — status: done — commit: 35b6047ed — PR: https://github.com/sernafernando/pricing-app/pull/2184
 - T3 [S3] — Per-OC GBP mirror refresh API+UI; light multi-OC depósito UX polish — route: inline — status: pending — commit:
 - T4 [S4] — Junction M:N pedido↔CT; sell-in snapshot only when CT has exactly 1 pedido; UI/candidatas — route: inline — status: pending — commit:
 - T5 [S5] — Auto-link ERP invoice on alert sweep by documento.numero (depends T4) — route: inline — status: pending — commit:

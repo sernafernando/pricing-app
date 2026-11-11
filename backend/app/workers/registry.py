@@ -16,6 +16,9 @@ from typing import List, Optional, Protocol, Tuple
 
 from app.workers.context import JobResult, WorkerContext
 from app.workers.handlers.combos_sync import sync as _combos_sync
+from app.workers.handlers.compras_factura_cargada import (
+    factura_cargada_alerts as _compras_factura_cargada_alerts,
+)
 from app.workers.handlers.ml_orders_quarantine import quarantine_retry as _ml_orders_quarantine_retry
 from app.workers.handlers.order_metrics import divergence as _order_metrics_divergence
 from app.workers.handlers.order_metrics import drain as _order_metrics_drain
@@ -62,6 +65,7 @@ class JobHandler(Protocol):
 # remove-ml-divergences appends `ml_orders.quarantine_retry` (notify-driven; retries failed ML order writes).
 # sell-in-sell-out T3c-3 appends `sell_in.bono` (notify-driven; applies brand bonuses to invoiced purchases).
 # sell-in-sell-out T7 S3 appends `sell_out.drain` (notify-driven; rebuilds the queued sell-out campaigns).
+# compras-oc-facturas-alertas appends `compras.factura_cargada_alerts` (every 1 min; replaces crontab).
 REGISTRY: List[JobHandler] = [
     _order_metrics_drain,
     _order_metrics_reconcile,
@@ -73,6 +77,7 @@ REGISTRY: List[JobHandler] = [
     _ml_orders_quarantine_retry,
     _sell_in_bono,
     _sell_out_drain,
+    _compras_factura_cargada_alerts,
 ]
 
 # The ML publications store runs in its OWN process (`pricing-worker-ml.service`,
