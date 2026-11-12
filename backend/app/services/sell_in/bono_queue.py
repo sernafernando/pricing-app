@@ -14,7 +14,8 @@ exists (and a key is only queued when some active bonus can care about it):
   UPDATE queues its bonus while it is active;
 - `pedidos_compra`: an UPDATE of `fecha_factura`, `estado`, `tipo_cambio` or
   `proveedor_id` that changes it, and an INSERT or DELETE, queue the operation
-  when its old or new invoice date falls in an active bonus's range;
+  when its old or new invoice date falls in an active bonus's range, or it
+  has an invoice date and an active invoice bonus of its own;
 - `pedido_compra_lineas_facturadas` (invoiced units and net amount): an INSERT or
   DELETE, or an UPDATE that changes `pedido_id`, `item_id`, `cantidad`,
   `importe_neto` or `moneda` (the base of a percentage bonus), queue the operation
@@ -37,8 +38,12 @@ not on the brands of the operation's items: a deliberate over-queue (an
 operation covered by some active bonus but holding none of its brands is
 queued) that keeps those triggers cheap; the worker reconciles it as a no-op.
 
-The gates are `sell_in_bono_cubre(fecha[, marca])` (date only, any scope, for
-the operation and line triggers; with a brand, brand bonuses only) and
+The gates are `sell_in_bono_cubre(fecha[, marca])` (date only, any scope; with a
+brand, brand bonuses only), `sell_in_bono_cubre_pedido(fecha, pedido)` (the
+operation and line triggers: the date gate, or an active invoice bonus of that
+very operation once it has an invoice date, whatever the bonus's range: an
+invoice line saved before the invoice holds a placeholder day until the
+reconcile moves it to the invoice's, sell in factura pendiente) and
 `sell_in_bono_cubre_producto(fecha, pedido, item, marca, categoria)`: one EXISTS
 over the (few) bonuses each. A trigger does no reconcile work.
 `UPGRADE_SQL`/`DOWNGRADE_SQL` are the live definition; the migration
@@ -47,8 +52,9 @@ one `20261107_sell_in_bonos_marca` installed, which owns the table,
 `app.models.sell_in.SellInBonoDirty`); later migrations replaced single
 statements and carry their frozen copies: the bonus update trigger
 (`20261211_sell_in_bono_tope`, `20261212_sell_in_bono_costo`,
-`20261215_sell_in_bono_acumulable`) and the product
-function and update trigger (`20261213_sell_in_bono_costo_triggers`).
+`20261215_sell_in_bono_acumulable`), the product
+function and update trigger (`20261213_sell_in_bono_costo_triggers`) and the
+operation and line functions (`20261112_sell_in_bono_cubre_pedido`).
 
 The `sell_in.bono` worker drains it. A claimed row is locked (`FOR UPDATE SKIP
 LOCKED`) for the drain's short transaction: a trigger re-queueing it waits and
@@ -88,6 +94,14 @@ CREATE OR REPLACE FUNCTION sell_in_bono_cubre(p_fecha DATE, p_marca TEXT DEFAULT
 $fn$ LANGUAGE sql STABLE
 """,
     """
+CREATE OR REPLACE FUNCTION sell_in_bono_cubre_pedido(p_fecha DATE, p_pedido BIGINT) RETURNS BOOLEAN AS $fn$
+    SELECT sell_in_bono_cubre(p_fecha) OR (p_fecha IS NOT NULL AND EXISTS (
+        SELECT 1 FROM sell_in_bonos_marca AS b
+        WHERE b.estado = 'activa' AND b.alcance = 'factura' AND b.pedido_id = p_pedido
+    ))
+$fn$ LANGUAGE sql STABLE
+""",
+    """
 CREATE OR REPLACE FUNCTION sell_in_bono_cubre_producto(
     p_fecha DATE, p_pedido BIGINT, p_item INTEGER, p_marca TEXT, p_categoria TEXT
 ) RETURNS BOOLEAN AS $fn$
@@ -120,11 +134,11 @@ CREATE OR REPLACE FUNCTION sell_in_bono_enqueue_pedido() RETURNS TRIGGER AS $trg
 DECLARE
     encolado BOOLEAN := false;
 BEGIN
-    IF TG_OP <> 'INSERT' AND sell_in_bono_cubre(OLD.fecha_factura) THEN
+    IF TG_OP <> 'INSERT' AND sell_in_bono_cubre_pedido(OLD.fecha_factura, OLD.id) THEN
         {_UPSERT.format(tipo="'pedido'", ref="OLD.id")};
         encolado := true;
     END IF;
-    IF TG_OP <> 'DELETE' AND sell_in_bono_cubre(NEW.fecha_factura) THEN
+    IF TG_OP <> 'DELETE' AND sell_in_bono_cubre_pedido(NEW.fecha_factura, NEW.id) THEN
         {_UPSERT.format(tipo="'pedido'", ref="NEW.id")};
         encolado := true;
     END IF;
@@ -149,7 +163,7 @@ BEGIN
     END IF;
     INSERT INTO sell_in_bono_dirty (tipo, ref)
     SELECT DISTINCT 'pedido', p.id FROM pedidos_compra AS p
-    WHERE p.id = ANY(pedidos) AND sell_in_bono_cubre(p.fecha_factura)
+    WHERE p.id = ANY(pedidos) AND sell_in_bono_cubre_pedido(p.fecha_factura, p.id)
     ORDER BY 2
     ON CONFLICT (tipo, ref) DO UPDATE SET enqueued_at = now(), attempts = 0, last_error = NULL;
     IF FOUND THEN
@@ -323,6 +337,7 @@ DOWNGRADE_SQL: List[str] = [
     "DROP FUNCTION IF EXISTS sell_in_bono_enqueue_pedido()",
     "DROP FUNCTION IF EXISTS sell_in_bono_enqueue_bono()",
     "DROP FUNCTION IF EXISTS sell_in_bono_cubre_producto(DATE, BIGINT, INTEGER, TEXT, TEXT)",
+    "DROP FUNCTION IF EXISTS sell_in_bono_cubre_pedido(DATE, BIGINT)",
     "DROP FUNCTION IF EXISTS sell_in_bono_cubre(DATE, TEXT)",
 ]
 
