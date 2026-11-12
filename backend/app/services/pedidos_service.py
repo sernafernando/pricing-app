@@ -3001,7 +3001,7 @@ def desvincular_oc(
 
     Raises:
         HTTPException 404 — pedido not found.
-        HTTPException 409 — no OC linked, or active ingresos exist
+        HTTPException 409 — no OC linked, active ingresos exist, or partial arribo/retiro progress exists
                             (table pedido_compra_ingresos — guarded defensively;
                             Slice 2 creates the table).
     """
@@ -3041,6 +3041,19 @@ def desvincular_oc(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=("Cannot unlink OC: confirmed ingresos exist. Anular ingresos first."),
+        )
+
+    # Partial arrival progress is keyed to the linked OC's lines: unlinking would orphan it.
+    from app.models.pedido_compra_arribo_progreso import PedidoCompraArriboProgreso  # noqa: PLC0415
+
+    tiene_arribo_parcial = (
+        session.query(PedidoCompraArriboProgreso.id).filter(PedidoCompraArriboProgreso.pedido_id == pedido_id).first()
+        is not None
+    )
+    if tiene_arribo_parcial:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot unlink OC: partial arribo/retiro progress exists for its lines.",
         )
 
     oc_anterior = {
