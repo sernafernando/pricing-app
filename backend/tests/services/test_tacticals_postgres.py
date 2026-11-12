@@ -926,3 +926,99 @@ class TestMarcaYCategoria:
     def test_a_category_line_still_takes_no_brand(self, db) -> None:
         with pytest.raises(service.TacticalError, match="^Línea 1: una línea por categoria no lleva marca$"):
             service.crear(db, _tactical(lineas=[self._linea(alcance="categoria")]), USUARIO)
+
+
+class TestFacturaPendiente:
+    """Sell in factura pendiente S2-S6: an invoice line is saved before its operation has the supplier invoice, applies
+    nothing while it waits, and once Compras links the invoice it applies exactly as if it was loaded with it."""
+
+    def _bono(self, engine: Engine, tactical_id: int) -> tuple:
+        with engine.connect() as conn:
+            return tuple(
+                conn.execute(
+                    text("SELECT id, fecha_desde, fecha_hasta FROM sell_in_bonos_marca WHERE tactical_id = :t"),
+                    {"t": tactical_id},
+                ).one()
+            )
+
+    def _cabecera(self, engine: Engine, tactical_id: int) -> tuple:
+        with engine.connect() as conn:
+            return tuple(
+                conn.execute(text("SELECT fecha_desde, fecha_hasta FROM tacticals WHERE id = :t"), {"t": tactical_id})
+                .one()
+            )  # fmt: skip
+
+    def _crear(self, db: Session, pedido: int, modo: str = "por_unidad", valor: str = "2", **cabecera):
+        linea = {"alcance": "factura", "pedido_compra_id": pedido, "modo_monto": modo, "valor": valor}
+        return service.crear(db, _tactical("sell_in", [linea], fecha_desde=None, fecha_hasta=None, **cabecera), USUARIO)
+
+    def test_an_invoice_line_is_saved_without_the_invoice_and_waits_for_it(self, db, engine) -> None:
+        pendiente = bw.pedido(engine, {}, None)
+
+        tactical = self._crear(db, pendiente)
+
+        [salida] = service.serializar(db, [tactical])[0]["lineas"]
+        assert (salida["alcance"], salida["pedido_compra_id"], salida["esperando_factura"]) == (
+            "factura",
+            pendiente,
+            True,
+        )
+        assert service.serializar(db, [tactical])[0]["por_factura"] is True
+
+    def test_nothing_applies_while_the_invoice_is_missing(self, db, engine) -> None:
+        pendiente = bw.pedido(engine, {}, None)
+        self._crear(db, pendiente)
+
+        bonos.reconciliar(db, pedido_ids=[pendiente])
+        db.commit()
+
+        assert bw.generadas(engine) == []
+
+    def test_linking_the_invoice_applies_it_exactly_as_if_it_was_loaded_with_it(self, db, engine) -> None:
+        factura = date(2026, 10, 10)
+        con = bw.pedido(engine, {2964: 10, 950: 5}, factura)
+        cargado = self._crear(db, con, nombre="Con factura")
+        pendiente = bw.pedido(engine, {}, None)
+        esperando = self._crear(db, pendiente, nombre="Sin factura")
+
+        bw.update_pedido(engine, pendiente, fecha_factura=factura)
+        bw.set_lineas(engine, pendiente, {2964: 10, 950: 5})
+        bonos.reconciliar(db, pedido_ids=[con, pendiente])
+        db.commit()
+
+        bono_con, *rango_con = self._bono(engine, cargado.id)
+        bono_esp, *rango_esp = self._bono(engine, esperando.id)
+        assert rango_esp == rango_con == [factura, factura]
+        assert self._cabecera(engine, esperando.id) == self._cabecera(engine, cargado.id) == (factura, factura)
+        assert bw.items_de(engine, bono_esp, pendiente) == bw.items_de(engine, bono_con, con) != []
+        generadas = {g[0]: g[2:] for g in bw.generadas(engine)}
+        assert generadas[bono_esp] == generadas[bono_con]
+        [salida] = service.serializar(db, [esperando])[0]["lineas"]
+        assert salida["esperando_factura"] is False
+
+    def test_a_corrected_invoice_date_still_moves_the_dates_after_it_arrived(self, db, engine) -> None:
+        pendiente = bw.pedido(engine, {}, None)
+        esperando = self._crear(db, pendiente)
+        bw.update_pedido(engine, pendiente, fecha_factura=date(2026, 10, 10))
+        bw.set_lineas(engine, pendiente, {2964: 10})
+        bonos.reconciliar(db, pedido_ids=[pendiente])
+        db.commit()
+
+        bw.update_pedido(engine, pendiente, fecha_factura=date(2026, 12, 5))
+        bonos.reconciliar(db, pedido_ids=[pendiente])
+        db.commit()
+
+        bono_id, *rango = self._bono(engine, esperando.id)
+        assert rango == [date(2026, 12, 5), date(2026, 12, 5)]
+        assert [(g[2], g[6]) for g in bw.generadas(engine)] == [("activa", date(2026, 12, 5))]
+
+    def test_an_invoice_total_still_needs_the_invoice(self, db, engine) -> None:
+        pendiente = bw.pedido(engine, {}, None)
+
+        with pytest.raises(
+            service.TacticalError,
+            match=f"^Línea 1: la operación OC-{pendiente} no tiene la factura vinculada: un monto total se reparte "
+            "sobre lo facturado$",
+        ):
+            self._crear(db, pendiente, modo="monto_total", valor="15000")
+        assert _contar(engine, "tacticals") == 0
