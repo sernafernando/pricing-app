@@ -146,8 +146,10 @@ def guardar_eleccion(
         raise EleccionInvalida("modo", f"modo debe ser uno de {', '.join(envio.MODOS_ENVIO)}")
     if (modo == "mla") != (mla is not None):
         raise EleccionInvalida("mla", "mla va solo, y siempre, con modo = mla")
-    exists, _ = _envio_erp(db, item_id)
-    if not exists:
+    # The product's row, locked until the caller commits: saves of the same product run one after the other, so the
+    # audit's `before` below is always the previous save's choice (also when neither had a stored row yet), L22.
+    locked = db.execute(select(ProductoERP.item_id).where(ProductoERP.item_id == item_id).with_for_update()).first()
+    if locked is None:
         return None
     if mla is not None:
         belongs = db.execute(

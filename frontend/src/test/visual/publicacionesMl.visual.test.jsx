@@ -981,10 +981,10 @@ const ENVIO_OPTIONS = {
     { mla: 'MLA_C', costo: null, unidades: 0, mas_vendida: false, tipo: 'gold_pro', logistica: 'fulfillment' },
   ],
   promedio: 8980,
-  ponderado: 7969.43,
+  ponderado: 7938, // (7290·42 + 8290·18 + 9450·6 + 10890·4) / 70: the visible rows weighted
   max: 10890,
   eleccion: {
-    modo: 'ponderado', mla: null, costo: 7969.43, warning: null, usuario_id: 7, usuario_nombre: 'Ana Pérez', updated_at: '2026-11-10T16:42:00',
+    modo: 'ponderado', mla: null, costo: 7938, warning: null, usuario_id: 7, usuario_nombre: 'Ana Pérez', updated_at: '2026-11-10T16:42:00',
   },
 };
 

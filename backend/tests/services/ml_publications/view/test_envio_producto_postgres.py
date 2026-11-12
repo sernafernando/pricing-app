@@ -11,6 +11,7 @@ SYNTHETIC weights: no production sales figures were captured for these publicati
 
 from __future__ import annotations
 
+import threading
 from datetime import date, timedelta
 
 import pytest
@@ -462,6 +463,37 @@ class TestSaveChoice:
         assert rows[1].valores_anteriores == {"modo": "mla", "mla": OWN}
         assert rows[1].valores_nuevos == {"modo": "promedio", "mla": None}
         assert all(r.fecha is not None for r in rows)
+
+    def test_concurrent_saves_audit_the_real_previous_choice(self, env, conn, db, costs, units) -> None:  # noqa: F811
+        """L22: a second save that starts while the first is still open waits for it, so its audit `before` is the
+        first save's choice, never the stale one both read before either committed."""
+        seed_re200(conn)
+        envio_producto.guardar_eleccion(db, RE200, "mla", OWN, usuario_id=7)  # open: not committed yet
+        other = sessionmaker(bind=env, autocommit=False, autoflush=False)()
+        errors: list[BaseException] = []
+
+        def second() -> None:
+            try:
+                envio_producto.guardar_eleccion(other, RE200, "promedio", None, usuario_id=8)
+                other.commit()
+            except BaseException as exc:  # surfaced below: a thread's failure must fail the test
+                errors.append(exc)
+                other.rollback()
+
+        worker = threading.Thread(target=second)
+        worker.start()
+        worker.join(timeout=1.0)
+        still_waiting = worker.is_alive()  # it waits on the first save's lock
+        db.commit()
+        worker.join(timeout=10.0)
+        other.close()
+        assert errors == []
+        assert still_waiting
+        rows = conn.execute(text("SELECT valores_anteriores, valores_nuevos FROM auditoria ORDER BY id")).all()
+        assert [(r.valores_anteriores, r.valores_nuevos) for r in rows] == [
+            ({"modo": "max", "mla": None}, {"modo": "mla", "mla": OWN}),
+            ({"modo": "mla", "mla": OWN}, {"modo": "promedio", "mla": None}),
+        ]
 
     def test_saving_the_same_choice_again_is_not_a_change(self, conn, db, costs, units) -> None:
         seed_re200(conn)
