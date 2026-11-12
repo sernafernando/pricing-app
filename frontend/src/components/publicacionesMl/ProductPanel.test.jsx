@@ -113,11 +113,18 @@ vi.mock('./panel/ProductPxq', () => ({
 }));
 
 vi.mock('./panel/ProductPurchases', () => ({
-  default: ({ productItemId }) => <div data-testid="product-purchases">{`purchases of ${productItemId}`}</div>,
+  default: ({ productItemId, container }) =>
+    container({ title: 'Últimas compras', children: <div data-testid="product-purchases">{`purchases of ${productItemId}`}</div> }),
 }));
 
+// The real viewer hands its parts to the panel's layout (S5): the lots, and the cost mode collapsed.
 vi.mock('../sellIn/SellInLotes', () => ({
-  default: ({ productItemId }) => <div data-testid="sell-in-lotes">{`lotes of ${productItemId}`}</div>,
+  default: ({ productItemId, layout, collapseModo }) =>
+    layout({
+      nextSale: <p data-testid="sell-in-next">next sale</p>,
+      lots: <div data-testid="sell-in-lotes">{`lotes of ${productItemId}`}</div>,
+      modo: <div data-testid="sell-in-modo">{collapseModo ? 'modo collapsed' : 'modo open'}</div>,
+    }),
 }));
 
 vi.mock('./panel/ProductBanAction', () => ({
@@ -311,6 +318,23 @@ describe('ProductPanel', () => {
     const lotes = screen.getByTestId('sell-in-lotes');
     expect(lotes).toHaveTextContent(`lotes of ${SUMMARY.productoItemId}`);
     expect(purchases.compareDocumentPosition(lotes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('reads Ficha, Cifras, Compras y sell in, Publicaciones, then the banlist last (S5)', () => {
+    granted = new Set(['productos.ver_info_compras']);
+    renderPanel();
+    const titles = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
+    const order = ['Cifras', 'Compras y sell in', 'Últimas compras', 'Lotes sell in', 'Publicaciones'].map((title) => titles.indexOf(title));
+    expect(order.every((index) => index >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    const compras = screen.getByRole('region', { name: 'Compras y sell in' });
+    // The next sale on top, the cost mode collapsed below the lots.
+    expect(within(compras).getByTestId('sell-in-next')).toBeInTheDocument();
+    expect(within(compras).getByTestId('sell-in-modo')).toHaveTextContent('modo collapsed');
+    const identity = screen.getByTestId('product-identity');
+    expect(identity.compareDocumentPosition(screen.getByRole('region', { name: 'Cifras' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const ban = screen.getByTestId('product-ban');
+    expect(screen.getByRole('region', { name: 'Publicaciones' }).compareDocumentPosition(ban) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('has no sell-in lots for "Sin producto"', () => {

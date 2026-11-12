@@ -24,13 +24,13 @@ export function Block({ title, aside, children }) {
   );
 }
 
-/** A bordered card with its own small title; `badge` sits at the right of the title. */
-export function Card({ title, badge, children }) {
+/** A bordered card with its own title (small, or block size with `prominent`); `badge` sits at its right. */
+export function Card({ title, badge, prominent = false, children }) {
   const id = useId();
   return (
     <section className={styles.card} aria-labelledby={id}>
       <div className={styles.cardHead}>
-        <h3 id={id} className={styles.cardTitle}>
+        <h3 id={id} className={prominent ? styles.blockTitle : styles.cardTitle}>
           {title}
         </h3>
         {badge}

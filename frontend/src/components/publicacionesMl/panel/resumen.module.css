@@ -542,3 +542,90 @@
   height: 100%;
   object-fit: cover;
 }
+
+/* Product panel (S5.2). The Ficha's EAN and SKU, side by side. */
+.idPair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-md);
+  margin: 0;
+}
+
+.figureSmall {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.figureSmall dt {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.figureSmall dd {
+  margin: 0;
+  min-width: 0;
+  font-weight: var(--font-medium);
+  color: var(--cf-text-primary);
+  overflow-wrap: anywhere;
+}
+
+/* The copied product data under the Ficha's codes. */
+.cardDivider {
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--cf-border-default);
+}
+
+/* Cifras: one bordered tile per figure, sparklines inside. */
+.figureTiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--spacing-sm);
+  margin: 0;
+}
+
+.figureTile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-width: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+}
+
+.figureTile dt {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.figureTile dd {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  margin: 0;
+  min-width: 0;
+  font-size: var(--font-lg);
+  font-weight: var(--font-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-primary);
+}
+
+/* Compras y sell in: the purchases beside the lots; stacked when the panel is narrow. */
+.pairWide {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--spacing-md);
+  align-items: start;
+}
+
+/* Banlist last: a quiet danger action under a divider. */
+.dangerZone {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--cf-border-default);
+}

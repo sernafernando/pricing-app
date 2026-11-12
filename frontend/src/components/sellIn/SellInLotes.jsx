@@ -174,8 +174,11 @@ function DefaultSection({ title, children }) {
  * @param {number} props.productItemId The ERP product.
  * @param {Function} [props.container] The host's section (`{ title, children }`), so the viewer looks like its siblings.
  * @param {Function} [props.onChanged] Runs after the cost mode changed (the viewer reads its lots again by itself).
+ * @param {Function} [props.layout] Places the parts itself: `({ nextSale, lots, modo }) => node` (each part may be
+ *   null; all three are null without the permission). Without it they go in that order inside `container`.
+ * @param {boolean} [props.collapseModo] Shows the cost mode collapsed behind its current mode (product panel, S5).
  */
-export default function SellInLotes({ productItemId, container = DefaultSection, onChanged }) {
+export default function SellInLotes({ productItemId, container = DefaultSection, onChanged, layout, collapseModo = false }) {
   const Container = container;
   const [read, setRead] = useState({ status: 'loading', data: null });
   const [attempt, setAttempt] = useState(0);
@@ -192,7 +195,7 @@ export default function SellInLotes({ productItemId, container = DefaultSection,
     };
   }, [productItemId, attempt]);
 
-  if (read.status === 'forbidden') return null;
+  if (read.status === 'forbidden') return layout ? layout({ nextSale: null, lots: null, modo: null }) : null;
 
   const toggle = (compraItemId) =>
     setOpen((prev) => {
@@ -202,15 +205,17 @@ export default function SellInLotes({ productItemId, container = DefaultSection,
       return next;
     });
 
-  let body;
+  let lots;
+  let nextSale = null;
+  let modo = null;
   if (read.status === 'loading') {
-    body = (
+    lots = (
       <p className={styles.note} role="status">
         Cargando lotes…
       </p>
     );
   } else if (read.status === 'error') {
-    body = (
+    lots = (
       <div className={styles.error} role="alert">
         <span>No se pudieron cargar los lotes.</span>
         <button
@@ -227,53 +232,66 @@ export default function SellInLotes({ productItemId, container = DefaultSection,
     );
   } else {
     const { lotes = [], proxima = null, bono_costo: bonoCosto = null, compra_visible: compraVisible = false } = read.data ?? {};
-    body = (
-      <div className={styles.wrap}>
-        <NextSale proxima={proxima} bonoCosto={bonoCosto} lotes={lotes} />
-        {lotes.length > 0 && (
-          <ol className={styles.lots} aria-label="Lotes en orden FIFO">
-            {lotes.map((lote) => {
-              const abierto = open.has(lote.compra_item_id);
-              return (
-                <li key={lote.compra_item_id} className={`${styles.lot} ${styles[lote.estado] ?? ''}`}>
-                  <div className={styles.lotHead}>
-                    <span className={styles.lotNumber}>{`Lote ${lote.numero}`}</span>
-                    <span className={`${styles.status} ${lote.estado === 'desde' ? styles.statusDesde : ''}`}>{statusLabel(lote)}</span>
-                    <span className={styles.discount}>
-                      {`${money(lote.descuento_unit)} por unidad${lote.moneda === 'ARS' ? '' : ` (compra en ${lote.moneda})`}`}
-                    </span>
-                  </div>
-                  <div className={styles.lotLine}>{unitsLabel(lote)}</div>
-                  <div className={styles.lotLine}>
-                    <span>{purchaseLabel(lote, compraVisible)}</span>
-                    <button
-                      type="button"
-                      className={styles.toggle}
-                      aria-expanded={abierto}
-                      aria-label={`${abierto ? 'Ocultar' : 'Ver'} ventas del lote ${lote.numero}`}
-                      onClick={() => toggle(lote.compra_item_id)}
-                    >
-                      {abierto ? 'Ocultar ventas' : 'Ver ventas'}
-                    </button>
-                  </div>
-                  {abierto && <LotSales productItemId={productItemId} lote={lote} />}
-                </li>
-              );
-            })}
-          </ol>
-        )}
-        <SellInModoCosto
-          productItemId={productItemId}
-          lotes={lotes}
-          proxima={proxima}
-          onChanged={() => {
-            setAttempt((n) => n + 1);
-            onChanged?.();
-          }}
-        />
-      </div>
+    nextSale = <NextSale proxima={proxima} bonoCosto={bonoCosto} lotes={lotes} />;
+    lots =
+      lotes.length > 0 ? (
+        <ol className={styles.lots} aria-label="Lotes en orden FIFO">
+          {lotes.map((lote) => {
+            const abierto = open.has(lote.compra_item_id);
+            return (
+              <li key={lote.compra_item_id} className={`${styles.lot} ${styles[lote.estado] ?? ''}`}>
+                <div className={styles.lotHead}>
+                  <span className={styles.lotNumber}>{`Lote ${lote.numero}`}</span>
+                  <span className={`${styles.status} ${lote.estado === 'desde' ? styles.statusDesde : ''}`}>{statusLabel(lote)}</span>
+                  <span className={styles.discount}>
+                    {`${money(lote.descuento_unit)} por unidad${lote.moneda === 'ARS' ? '' : ` (compra en ${lote.moneda})`}`}
+                  </span>
+                </div>
+                <div className={styles.lotLine}>{unitsLabel(lote)}</div>
+                <div className={styles.lotLine}>
+                  <span>{purchaseLabel(lote, compraVisible)}</span>
+                  <button
+                    type="button"
+                    className={styles.toggle}
+                    aria-expanded={abierto}
+                    aria-label={`${abierto ? 'Ocultar' : 'Ver'} ventas del lote ${lote.numero}`}
+                    onClick={() => toggle(lote.compra_item_id)}
+                  >
+                    {abierto ? 'Ocultar ventas' : 'Ver ventas'}
+                  </button>
+                </div>
+                {abierto && <LotSales productItemId={productItemId} lote={lote} />}
+              </li>
+            );
+          })}
+        </ol>
+      ) : null;
+    modo = (
+      <SellInModoCosto
+        productItemId={productItemId}
+        lotes={lotes}
+        proxima={proxima}
+        collapsible={collapseModo}
+        onChanged={() => {
+          setAttempt((n) => n + 1);
+          onChanged?.();
+        }}
+      />
     );
   }
 
-  return <Container title={TITLE}>{body}</Container>;
+  if (layout) return layout({ nextSale, lots, modo });
+  return (
+    <Container title={TITLE}>
+      {modo ? (
+        <div className={styles.wrap}>
+          {nextSale}
+          {lots}
+          {modo}
+        </div>
+      ) : (
+        lots
+      )}
+    </Container>
+  );
 }

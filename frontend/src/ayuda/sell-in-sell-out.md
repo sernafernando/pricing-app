@@ -103,7 +103,7 @@ Tocá el título de una columna (**Producto**, **Modo de costo**, **Unidades**, 
 
 ### Modo de costo de un producto
 
-La sección **Modo de costo**, dentro de **Lotes sell in**, muestra con qué modo descuentan hoy las unidades del producto ("Modo actual": **FIFO (por defecto)** si nunca se cambió, o el modo y desde qué fecha) y el **Historial** de cambios, el más nuevo primero, con quién lo hizo.
+La sección **Modo de costo**, dentro de **Lotes sell in**, muestra con qué modo descuentan hoy las unidades del producto ("Modo actual": **FIFO (por defecto)** si nunca se cambió, o el modo y desde qué fecha) y el **Historial** de cambios, el más nuevo primero, con quién lo hizo. En el panel de un producto de **Publicaciones ML** la sección empieza cerrada, en una línea con el modo actual: **Cambiar** (o **Ver**) la abre y **Ocultar** la cierra.
 
 Para cambiarlo:
 

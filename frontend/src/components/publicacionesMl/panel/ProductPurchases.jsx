@@ -57,8 +57,10 @@ function Purchase({ purchase }) {
  *
  * @param {object} props
  * @param {number} props.productItemId The ERP product.
+ * @param {Function} [props.container] The host's wrapper (`{ title, children }`); a titled section by default.
  */
-export default function ProductPurchases({ productItemId }) {
+export default function ProductPurchases({ productItemId, container = Section }) {
+  const Container = container;
   const { tienePermiso } = usePermisos();
   const allowed = tienePermiso(VIEW_PERMISSION);
   const [read, setRead] = useState({ status: 'loading', purchases: [] });
@@ -111,5 +113,5 @@ export default function ProductPurchases({ productItemId }) {
     );
   }
 
-  return <Section title="Últimas compras">{body}</Section>;
+  return <Container title="Últimas compras">{body}</Container>;
 }
