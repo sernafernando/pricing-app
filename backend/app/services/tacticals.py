@@ -603,19 +603,20 @@ def crear(db: Session, data: TacticalIn, usuario_id: int) -> Tactical:
     """The header and every child, all or nothing (module docstring); commits."""
     try:
         tactical = _crear(db, data, usuario_id)
-        esperando = _pedidos_sin_factura(db, tactical.id)
+        facturas = _pedidos_de_facturas(db, tactical.id)
         db.commit()
     except Exception:
         db.rollback()
         raise
-    _encolar_si_llego_la_factura(db, esperando)
+    _encolar_si_llego_la_factura(db, facturas)
     db.refresh(tactical)
     return tactical
 
 
-def _pedidos_sin_factura(db: Session, tactical_id: int) -> list[int]:
-    """The operations of the tactical's invoice lines (a %/per unit invoice bonus or a waiting invoice total) still
-    without their supplier invoice, as this transaction reads them."""
+def _pedidos_de_facturas(db: Session, tactical_id: int) -> list[int]:
+    """The operations of the tactical's invoice lines (a %/per unit invoice bonus or a waiting invoice total), with or
+    without their invoice as this transaction reads them: Compras may link one at any point of the save, after its
+    lines read it without it, and the queue's own gate decides after the commit (`_encolar_si_llego_la_factura`)."""
     bonos_ = select(SellInBonoMarca.pedido_id).where(
         SellInBonoMarca.tactical_id == tactical_id,
         SellInBonoMarca.alcance == "factura",
@@ -624,19 +625,15 @@ def _pedidos_sin_factura(db: Session, tactical_id: int) -> list[int]:
     totales = select(TacticalFacturaPendiente.pedido_id).where(
         TacticalFacturaPendiente.tactical_id == tactical_id, TacticalFacturaPendiente.estado == "pendiente"
     )
-    return [
-        pid
-        for (pid,) in db.query(PedidoCompra.id)
-        .filter(PedidoCompra.id.in_(union_all(bonos_, totales)), PedidoCompra.fecha_factura.is_(None))
-        .order_by(PedidoCompra.id)
-    ]
+    return sorted({pid for (pid,) in db.execute(union_all(bonos_, totales)) if pid is not None})
 
 
 def _encolar_si_llego_la_factura(db: Session, pedido_ids: list[int]) -> None:
-    """After a save commits, re-read the operations its invoice lines were waiting for and queue the ones Compras
-    linked meanwhile (sell in factura pendiente total): a link committed while the save was still open ran the
-    operation triggers before the new lines were visible to them, so nothing queued it. Its own transaction; the save
-    is already committed, so a failure here is logged and the line waits for the operation's next change."""
+    """After a save commits, re-read the operations of its invoice lines and queue the invoiced ones under the
+    triggers' gate (sell in factura pendiente total): a link committed while the save was still open ran the operation
+    triggers before the new lines were visible to them, so nothing queued it. One already invoiced before the save is
+    queued again, which reconciles to the same result. Its own transaction; the save is already committed, so a
+    failure here is logged and the line waits for the operation's next change."""
     if not pedido_ids:
         return
     try:
@@ -1096,7 +1093,7 @@ def reemplazar(
             "reemplazados": reemplazados,
         }
         _audit(db, TipoAccion.TACTICAL_EDITADO, usuario_id, despues, antes=antes)
-        esperando = _pedidos_sin_factura(db, tactical_id)
+        facturas = _pedidos_de_facturas(db, tactical_id)
         db.commit()
     except campanas.SellOutRecalculando as exc:
         db.rollback()
@@ -1104,7 +1101,7 @@ def reemplazar(
     except Exception:
         db.rollback()
         raise
-    _encolar_si_llego_la_factura(db, esperando)
+    _encolar_si_llego_la_factura(db, facturas)
     db.refresh(tactical)
     return tactical
 

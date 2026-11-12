@@ -947,6 +947,30 @@ def _vincular_al_commitear(db: Session, engine: Engine, pedido: int, fecha: date
     event.listen(db, "before_commit", _vincular, once=True)
 
 
+def _vincular_tras_leer(monkeypatch, engine: Engine, pedido: int, fecha: date, lineas: dict) -> None:
+    """Compras links the invoice from another session after the save read the operation without it (its lines are
+    validated and stored, the audit row written) and before the save collects what to queue after its commit."""
+    original = service._audit
+    hecho: list[bool] = []
+
+    def _audit(*args, **kwargs):
+        original(*args, **kwargs)
+        if hecho:
+            return
+        hecho.append(True)
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE pedidos_compra SET fecha_factura = :f WHERE id = :p"), {"f": fecha, "p": pedido})
+            for item_id, cantidad in sorted(lineas.items()):
+                conn.execute(
+                    text(
+                        "INSERT INTO pedido_compra_lineas_facturadas (pedido_id, item_id, cantidad) VALUES (:p, :i, :q)"
+                    ),
+                    {"p": pedido, "i": item_id, "q": cantidad},
+                )
+
+    monkeypatch.setattr(service, "_audit", _audit)
+
+
 def _una_corrida_del_worker(monkeypatch, engine: Engine) -> None:
     from datetime import datetime, timedelta, timezone
 
@@ -1000,6 +1024,22 @@ class TestFacturaPendiente:
         db.expire_all()
         [salida] = service.serializar(db, [tactical])[0]["lineas"]
         assert salida["esperando_factura"] is False
+
+    def test_an_invoice_linked_before_the_save_collects_its_queue_still_applies(self, db, engine, monkeypatch) -> None:
+        """Verifier #2234: the invoice arrives after the line was read without it but before the save collects the
+        operations to queue after its commit; it is queued anyway and one worker run applies it."""
+        factura = date(2026, 10, 10)
+        pendiente = bw.pedido(engine, {}, None)
+        bw.clear_queue(engine)
+        _vincular_tras_leer(monkeypatch, engine, pendiente, factura, {2964: 10, 950: 5})
+
+        tactical = self._crear(db, pendiente, nombre="Carrera")
+
+        assert ("pedido", pendiente) in bw.queued(engine)
+        _una_corrida_del_worker(monkeypatch, engine)
+        bono, *rango = self._bono(engine, tactical.id)
+        assert rango == [factura, factura]
+        assert bw.items_de(engine, bono, pendiente) != []
 
     def test_an_invoice_line_is_saved_without_the_invoice_and_waits_for_it(self, db, engine) -> None:
         pendiente = bw.pedido(engine, {}, None)
@@ -1194,6 +1234,20 @@ class TestFacturaPendienteTotal:
         pendiente = bw.pedido(engine, {}, None, moneda="ARS")
         bw.clear_queue(engine)
         _vincular_al_commitear(db, engine, pendiente, date(2026, 10, 10), {2964: 10, 950: 5})
+
+        tactical = self._crear(db, pendiente)
+
+        assert ("pedido", pendiente) in bw.queued(engine)
+        _una_corrida_del_worker(monkeypatch, engine)
+        assert self._pendientes(engine, tactical.id) == [(1, pendiente, "aplicada")]
+        assert len(self._compras(engine, tactical.id)) == 1
+
+    def test_an_invoice_linked_before_the_save_collects_its_queue_still_applies(self, db, engine, monkeypatch) -> None:
+        """Verifier #2234, monto total: linked after the line was read without its invoice, before the save collects
+        what to queue; queued anyway, applied after one worker run."""
+        pendiente = bw.pedido(engine, {}, None, moneda="ARS")
+        bw.clear_queue(engine)
+        _vincular_tras_leer(monkeypatch, engine, pendiente, date(2026, 10, 10), {2964: 10, 950: 5})
 
         tactical = self._crear(db, pendiente)
 
