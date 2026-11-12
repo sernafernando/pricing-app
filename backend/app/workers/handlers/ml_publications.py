@@ -503,7 +503,8 @@ class RefreshHandler:
             if work.claim.entity_id not in fresh or work.claim.kind != ITEM_KIND:
                 remaining.append(work)
                 continue
-            self._skipped_core_fresh += 1
+            with self._counters_lock:  # several runners skip at once
+                self._skipped_core_fresh += 1
             work.core_status = 404 if fresh[work.claim.entity_id] else 200
             if not work.plan.wanted:
                 self._finish(work)

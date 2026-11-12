@@ -9,7 +9,11 @@ changes or deletes a queue entry: the refresh still processes it for its sub-res
 (`fresh_cores`), so no item is read twice.
 
 The rule both sides share: a stored core covers an entry when the store's latest observation of the item was
-requested at or after the entry's last enqueue (`ml_items.fetched_request_started_at >= q.last_enqueued_at`).
+requested at least `CLOCK_SKEW_MARGIN_SECONDS` after the entry's last enqueue
+(`ml_items.fetched_request_started_at - margin >= q.last_enqueued_at`). The worker clock stamps the request and
+Postgres `now()` stamps the enqueue: the margin keeps a worker clock ahead (up to the margin) from passing off a read
+made before a notification as covering it. To make its own reads count, this handler waits until an entry has been
+queued for the margin before reading it.
 `source_received_at` is not used: it keeps the OLDEST notification of the entry, so a newer one would be missed.
 `last_enqueued_at` is bumped by every enqueue and is never earlier than the notification it carries.
 
@@ -46,6 +50,9 @@ BULK_FAMILY = "items_bulk"  # the refresh's pacer family for `/items/bulk`: one 
 MAX_GROUPS_PER_TICK = 3
 # How long an item whose core could not be applied is left to the refresh before this handler tries it again.
 TRIED_TTL_SECONDS = 600.0
+# Worker clock vs Postgres clock: how far ahead the worker clock may be without a read before a notification being
+# taken as covering it. Costs this handler a wait of that long after an enqueue (the status target is 2 minutes).
+CLOCK_SKEW_MARGIN_SECONDS = 5.0
 _SETTING_KEYS = (
     "core_first.enabled",
     "refresh.enabled",
@@ -64,8 +71,12 @@ _STALE_SQL = text(
     LEFT JOIN ml_items i ON i.item_id = q.entity_id
     WHERE q.kind = :kind AND q.lane = :lane
       AND q.claimed_at IS NULL AND q.parked_at IS NULL AND q.not_before <= now()
+      AND q.last_enqueued_at <= now() - make_interval(secs => :margin)
       AND q.resources && CAST(:core_resources AS text[])
-      AND (i.fetched_request_started_at IS NULL OR i.fetched_request_started_at < q.last_enqueued_at)
+      AND (
+          i.fetched_request_started_at IS NULL
+          OR i.fetched_request_started_at - make_interval(secs => :margin) < q.last_enqueued_at
+      )
       AND NOT EXISTS (
           SELECT 1 FROM unnest(CAST(:tried_ids AS text[]), CAST(:tried_at AS timestamptz[])) AS t(id, at)
           WHERE t.id = q.entity_id AND t.at = q.last_enqueued_at
@@ -81,7 +92,7 @@ _FRESH_SQL = text(
     FROM ml_pub_refresh_queue q
     JOIN ml_items i ON i.item_id = q.entity_id
     WHERE q.kind = :kind AND q.lane = :lane AND q.entity_id = ANY(CAST(:ids AS text[]))
-      AND i.fetched_request_started_at >= q.last_enqueued_at
+      AND i.fetched_request_started_at - make_interval(secs => :margin) >= q.last_enqueued_at
     """
 )
 
@@ -92,7 +103,12 @@ def fresh_cores(item_ids: Sequence[str]) -> Dict[str, bool]:
     backfill or sweep entry asks for a read of its own and always gets it. One short session."""
     if not item_ids:
         return {}
-    params = {"kind": ITEM_KIND, "lane": queue.LANE_NOTIFICATION, "ids": list(item_ids)}
+    params = {
+        "kind": ITEM_KIND,
+        "lane": queue.LANE_NOTIFICATION,
+        "ids": list(item_ids),
+        "margin": CLOCK_SKEW_MARGIN_SECONDS,
+    }
     with database.get_background_db() as session:
         return {row.entity_id: bool(row.gone) for row in session.execute(_FRESH_SQL, params)}
 
@@ -190,6 +206,7 @@ class CoreFirstHandler:
             "tried_ids": [item_id for item_id, _ in tried],
             "tried_at": [at for _, (at, _) in tried],
             "limit": limit,
+            "margin": CLOCK_SKEW_MARGIN_SECONDS,
         }
         with database.get_background_db() as session:
             return list(session.execute(_STALE_SQL, params))

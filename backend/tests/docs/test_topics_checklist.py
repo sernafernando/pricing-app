@@ -259,6 +259,9 @@ def test_the_refresh_throughput_settings_are_documented(doc) -> None:
 
 
 def test_the_core_first_job_is_documented_with_its_rule_flag_bounds_and_rollback(doc) -> None:
+    from app.workers.handlers import ml_core_first
+
+    assert ml_core_first.CLOCK_SKEW_MARGIN_SECONDS == 5.0  # the "5 s" the section states
     start = doc.index("## Core-first reads of a notification burst")
     section = " ".join(doc[start : doc.index("\n## ", start + 1)].split())
     for needle in (
@@ -266,7 +269,8 @@ def test_the_core_first_job_is_documented_with_its_rule_flag_bounds_and_rollback
         "`core_first.enabled`",
         "default **on**",
         "refresh.enabled",
-        "fetched_request_started_at >= ml_pub_refresh_queue.last_enqueued_at",
+        "fetched_request_started_at - 5 s >= ml_pub_refresh_queue.last_enqueued_at",
+        "`CLOCK_SKEW_MARGIN_SECONDS`",
         "at most 3 calls per tick",
         "skipped_core_fresh",
         "Rollback",

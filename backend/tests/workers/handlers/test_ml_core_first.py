@@ -30,6 +30,7 @@ from tests.workers.handlers.test_ml_publications_refresh import (
     ScriptedTransport,
     bulk_responder,
     context,
+    counters_of,
     enable_refresh,
     enqueue_items,
     json_response,
@@ -55,6 +56,8 @@ def env(mlpub_pg, monkeypatch):
     monkeypatch.setattr(settings, "ML_USER_ID", "1")
     monkeypatch.setattr(settings, "ML_CLIENT_ID", "1")
     monkeypatch.setattr(settings, "ML_PUB_KILL_SWITCH", False)
+    # Same clock here: the tests below read right after enqueueing. `TestClockSkewMargin` pins the real margin.
+    monkeypatch.setattr(ml_core_first, "CLOCK_SKEW_MARGIN_SECONDS", 0.0)
     return mlpub_pg
 
 
@@ -267,3 +270,78 @@ class TestTheRefreshAfterCoreFirst:
 
         assert transport.requests == []
         assert queue_row(env, "MLA1") is None
+
+
+def shift_core_read(engine, item_id: str, seconds_after_enqueue: float) -> None:
+    """The stored core of `item_id` as if requested `seconds_after_enqueue` after its entry's last enqueue."""
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE ml_items SET fetched_request_started_at = q.last_enqueued_at + make_interval(secs => :s) "
+                "FROM ml_pub_refresh_queue q WHERE q.entity_id = ml_items.item_id AND ml_items.item_id = :i"
+            ),
+            {"i": item_id, "s": seconds_after_enqueue},
+        )
+
+
+class TestClockSkewMargin:
+    """Verifier (#2246): the worker clock stamps `fetched_request_started_at`, Postgres stamps `last_enqueued_at`.
+    A worker clock ahead must never make a core read before a notification look like it covers it."""
+
+    def test_a_core_requested_within_the_margin_of_the_enqueue_does_not_cover_it(self, env, monkeypatch) -> None:
+        enable_refresh(bundle_resources=["core", "prices"])
+        burst(ITEM)
+        make_core_first(ScriptedTransport(bulk_responder)).run(context())
+        monkeypatch.setattr(ml_core_first, "CLOCK_SKEW_MARGIN_SECONDS", 5.0)
+        shift_core_read(env, ITEM, 3)  # a worker clock 3 s ahead could stamp a read made before the notification
+        transport = ScriptedTransport(responder_with())
+
+        make_handler(transport).run(context())
+
+        assert paths(transport) == ["/items/bulk", f"/items/{ITEM}/prices"]
+
+    def test_a_core_requested_past_the_margin_covers_it(self, env, monkeypatch) -> None:
+        enable_refresh(bundle_resources=["core", "prices"])
+        burst(ITEM)
+        make_core_first(ScriptedTransport(bulk_responder)).run(context())
+        monkeypatch.setattr(ml_core_first, "CLOCK_SKEW_MARGIN_SECONDS", 5.0)
+        shift_core_read(env, ITEM, 6)
+        transport = ScriptedTransport(responder_with())
+
+        make_handler(transport).run(context())
+
+        assert paths(transport) == [f"/items/{ITEM}/prices"]
+
+    def test_core_first_waits_out_the_margin_so_its_read_covers_the_entry(self, env, monkeypatch) -> None:
+        enable_refresh()
+        monkeypatch.setattr(ml_core_first, "CLOCK_SKEW_MARGIN_SECONDS", 5.0)
+        burst(ITEM)
+        transport = ScriptedTransport(bulk_responder)
+
+        make_core_first(transport).run(context())
+        assert transport.requests == []  # enqueued less than the margin ago: its read could not cover it yet
+
+        with env.begin() as conn:
+            conn.execute(
+                text("UPDATE ml_pub_refresh_queue SET last_enqueued_at = last_enqueued_at - interval '6 seconds'")
+            )
+        make_core_first(transport).run(context())
+        assert paths(transport) == ["/items/bulk"]
+        assert set(ml_core_first.fresh_cores([ITEM])) == {ITEM}  # and the refresh will skip it
+
+
+class TestSkippedCoreFreshCounter:
+    def test_every_skip_is_counted_when_several_runners_skip_at_once(self, env) -> None:
+        """Verifier (#2246): with #2245 the skip runs on several runner threads; the counter goes through the
+        counters lock and loses no skip."""
+        ids = [f"MLA{n}" for n in range(700, 712)]
+        enable_refresh(bundle_resources=["core"], refresh__runners=3)
+        burst(*ids)
+        make_core_first(ScriptedTransport(bulk_responder)).run(context())  # one group of 20 reads them all
+        enable_refresh(bundle_resources=["core"], bulk_max_ids=1, refresh__runners=3)  # one entry per batch
+        transport = NoCallTransport()
+
+        make_handler(transport).run(context(seconds=60))
+
+        assert transport.requests == []
+        assert counters_of(env)["skipped_core_fresh"] == len(ids)

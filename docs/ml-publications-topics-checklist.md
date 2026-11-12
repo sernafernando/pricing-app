@@ -416,8 +416,12 @@ while a burst of `items` notifications waits in the notification lane (1). A bur
 
 How it works:
 
-* The rule: a stored core covers an entry when the store's latest observation of the item was requested at or after
-  the entry's last enqueue (`ml_items.fetched_request_started_at >= ml_pub_refresh_queue.last_enqueued_at`).
+* The rule: a stored core covers an entry when the store's latest observation of the item was requested at least
+  5 seconds after the entry's last enqueue
+  (`ml_items.fetched_request_started_at - 5 s >= ml_pub_refresh_queue.last_enqueued_at`, `CLOCK_SKEW_MARGIN_SECONDS`).
+  The worker clock stamps the request and Postgres stamps the enqueue: the margin keeps a worker clock up to 5 s
+  ahead from passing off a read made before a notification as covering it. So that its own reads count, the job
+  waits until an entry has been queued for 5 seconds before reading it.
   `source_received_at` keeps the oldest notification of an entry, so it cannot tell a newer one apart.
 * The cores go through the same `/items/bulk` request, parser and `store.apply_fetch` as the refresh; the row lock
   and the stale check of `apply_fetch` order two writes of one item, whoever lands first.
