@@ -1201,8 +1201,15 @@ def _hay_mejores_ofertas() -> ColumnElement:
 
 
 def _item_in(mlas: frozenset[str]) -> ColumnElement:
-    """The publication is one of `mlas`: one array parameter, as `_colors` (a promo can hold thousands of MLAs)."""
-    return T.i.item_id == any_(literal(sorted(mlas), ARRAY(String))) if mlas else false()
+    """The publication is one of `mlas`: one array parameter, as `_colors` (a promo can hold thousands of MLAs).
+
+    Compared on `item_id || ''`, never on the bare column: a bare `item_id = ANY(...)` is an index condition of
+    `ml_items_pkey`, which prices it as one btree descent per MLA for every probe. When a product filter (PM,
+    brand, category) underestimates its rows, the planner then probes `ml_items` once per linked publication
+    through `ix_ml_items_last_trigger` by its non-leading `item_id` instead, a whole-index walk per row: PM + a
+    promo DEAL went over the list's `statement_timeout` (2026-11-12). As an expression it is a plain hashed filter
+    (a constant array of 9 or more values is hashed once), so the probe stays `ml_items_pkey` by `item_id`."""
+    return T.i.item_id.concat("") == any_(literal(sorted(mlas), ARRAY(String))) if mlas else false()
 
 
 def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnElement]:
