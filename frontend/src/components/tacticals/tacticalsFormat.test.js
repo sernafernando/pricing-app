@@ -187,3 +187,21 @@ describe('cobranza filter and KPIs (tactical cobranza S4)', () => {
     expect(formatMontosKpi(montos)).toBe('ARS 900 · tope 500 (líneas con tope)');
   });
 });
+
+describe('an invoice line waiting for its invoice (sell in factura pendiente S4)', () => {
+  it('shows Esperando factura on the tactical until the invoice is linked, then the normal state', () => {
+    const esperando = { estado: 'activo', fecha_hasta: '2026-11-12', por_factura: true, esperando_factura: true };
+    expect(estadoDe(esperando, HOY)).toEqual({ texto: 'Esperando factura', tono: 'warning' });
+    expect(estadoDe({ ...esperando, esperando_factura: false }, HOY)).toEqual({ texto: 'Vigente', tono: 'success' });
+    expect(estadoDe({ ...esperando, estado: 'anulado' }, HOY).texto).toBe('Anulado');
+  });
+
+  it('says on the line that it waits for the invoice', () => {
+    const linea = { alcance: 'factura', pedido_compra_id: 9, pedido_numero: 'OC-9', esperando_factura: true };
+    expect(alcanceDe(linea)).toEqual({
+      titulo: 'Factura del pedido OC-9',
+      detalle: 'Esperando factura: se aplica cuando Compras vincule la factura del proveedor',
+    });
+    expect(alcanceDe({ ...linea, esperando_factura: false }).detalle).toBeNull();
+  });
+});

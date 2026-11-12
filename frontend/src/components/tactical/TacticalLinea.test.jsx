@@ -93,6 +93,28 @@ describe('TacticalLinea', () => {
     expect(within(fila()).queryByLabelText('Reparto del monto total, línea 1')).not.toBeInTheDocument();
   });
 
+  it('an operation without its supplier invoice can be picked and says it waits for it (sell in factura pendiente S4)', async () => {
+    api.get.mockResolvedValue({
+      data: {
+        items: [
+          { id: 9, numero: 'OC-9', proveedor_nombre: 'TP-Link', fecha: '2026-11-10', moneda: 'ARS', monto: '100',
+            numero_factura: null, fecha_factura: null },
+          { id: 8, numero: 'OC-8', proveedor_nombre: 'TP-Link', fecha: '2026-11-01', moneda: 'ARS', monto: '100',
+            numero_factura: 'A-1', fecha_factura: '2026-11-05' },
+        ],
+      },
+    });
+    const user = userEvent.setup();
+    render(<Holder tipo="sell_in" moneda="ARS" />);
+    await user.click(within(fila()).getByRole('button', { name: 'Factura' }));
+    await user.click(within(fila()).getByRole('button', { name: '+ Factura' }));
+    const picker = screen.getByRole('dialog', { name: 'Agregar facturas a la línea' });
+    const pendiente = await within(picker).findByRole('checkbox', { name: /OC-9/ });
+    expect(pendiente).toBeEnabled();
+    expect(within(picker).getByText(/Operación OC-9 · Esperando factura/)).toBeInTheDocument();
+    expect(within(picker).queryByText(/Operación OC-8 · Esperando factura/)).not.toBeInTheDocument();
+  });
+
   it.each(['productos', 'marca', 'categoria'])('a sell in total amount over %s asks how to split it and drops the caps (S4)', async (alcance) => {
     const user = userEvent.setup();
     render(<Holder tipo="sell_in" moneda="ARS" inicial={{ alcance, productos: monitores, topeUnidades: '300' }} />);
