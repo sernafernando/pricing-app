@@ -2,7 +2,8 @@
 PedidoCompraIngreso — registro append-only de recepción de mercadería.
 
 Cada fila representa una tanda (batch) de recepción de una línea OC específica
-(pod_id). La tabla es append-only: el servicio nunca emite UPDATE ni DELETE.
+(pod_id). Append-only en el flujo normal (solo INSERT). La única DELETE
+permitida es `recepcion_service.revertir_control` (deshace tandas de control).
 
 Modo SIN-OC: se permite una fila centinela con pod_id=NULL, oc_*=NULL,
 cantidad_recibida=1 (placeholder > 0) para auditar quién/cuándo confirmó

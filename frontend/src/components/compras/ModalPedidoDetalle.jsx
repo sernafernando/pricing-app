@@ -510,7 +510,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   const syncOcBloqueado =
     pedido?.estado === 'controlado' || pedido?.estado === 'con_faltantes';
   const syncOcTitle = syncOcBloqueado
-    ? 'No se puede actualizar la OC: el pedido ya tiene control de depósito'
+    ? 'No se puede actualizar la OC: el pedido ya tiene control de depósito. Revertí el control desde Depósito primero.'
     : 'Actualizar líneas/saldos desde el ERP (no corrige recepciones)';
 
   return (

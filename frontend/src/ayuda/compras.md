@@ -33,7 +33,7 @@ Cada pestaña pide un permiso propio.
 Sí, usando ?tab= en la URL (por ejemplo ?tab=ordenes-pago).
 
 **¿Qué hace Actualizar OC?**
-En el detalle del pedido, **Actualizar OC** vuelve a traer del ERP el contenido de las órdenes de compra ya vinculadas (líneas y cantidades del espejo). Se puede usar mientras el pedido está pendiente de controlar (p. ej. `recibido`). Si ya hay control de depósito (`con_faltantes` o `controlado`), el botón queda bloqueado: refrescar el espejo dejaría inconsistentes los ingresos ya cargados.
+En el detalle del pedido, **Actualizar OC** vuelve a traer del ERP el contenido de las órdenes de compra ya vinculadas (líneas y cantidades del espejo). Se puede usar mientras el pedido está pendiente de controlar (p. ej. `recibido`). Si ya hay control de depósito (`con_faltantes` o `controlado`), el botón queda bloqueado: refrescar el espejo dejaría inconsistentes los ingresos ya cargados. En Depósito, **Revertir control** (mismo permiso `deposito.recibir_mercaderia`) vuelve el pedido a `recibido`, borra las tandas de control y habilita de nuevo Actualizar OC / recontrolar.
 
 **¿Se puede vincular más de una factura ERP a un pedido?**
 Sí. En el detalle del pedido, **Facturas del ERP** lista cada `ct_transaction` vinculada, permite **Desvincular** una por una y **Vincular otra**. La misma factura también puede quedar documentada en varios pedidos; el sell-in de líneas solo se arma cuando esa factura queda ligada a un solo pedido.

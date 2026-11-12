@@ -2393,7 +2393,6 @@ class TestDeshacerRecibido:
             recepcion_service.deshacer_recibido(db, p, active_user)
         assert exc.value.status_code == 409
         assert p.estado == "controlado"
-
     def test_undo_second_undo_409(
         self, client, auth_headers, db, empresa, proveedor, active_user, con_permiso_deposito
     ):
@@ -2497,6 +2496,124 @@ class TestDeshacerRecibido:
         req = ConfirmarPedidoRequest(completo=True)
         result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
         assert result.estado_nuevo == "controlado"
+
+
+class TestRevertirControl:
+    def test_revert_controlado_con_oc_keeps_arribo_sentinel(self, db, empresa, proveedor, active_user):
+        from app.models.pedido_compra_ingresos import PedidoCompraIngreso
+        from app.models.pedido_compra_oc import PedidoCompraOc
+
+        p = PedidoCompra(
+            numero="P-REV-CTRL-OC",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="controlado",
+            creado_por_id=active_user.id,
+            oc_comp_id=1,
+            oc_bra_id=45,
+            oc_poh_id=900,
+        )
+        db.add(p)
+        db.flush()
+        db.add(PedidoCompraOc(pedido_id=p.id, oc_comp_id=1, oc_bra_id=45, oc_poh_id=900))
+        db.add(
+            PedidoCompraIngreso(
+                pedido_id=p.id,
+                pod_id=None,
+                oc_comp_id=1,
+                oc_bra_id=45,
+                oc_poh_id=900,
+                cantidad_recibida=Decimal("1"),
+                usuario_id=active_user.id,
+            )
+        )
+        db.add(
+            PedidoCompraIngreso(
+                pedido_id=p.id,
+                pod_id=7,
+                oc_comp_id=1,
+                oc_bra_id=45,
+                oc_poh_id=900,
+                item_id=10,
+                cantidad_recibida=Decimal("3"),
+                usuario_id=active_user.id,
+            )
+        )
+        db.flush()
+
+        result = recepcion_service.revertir_control(db, p, active_user)
+        assert result.estado_nuevo == "recibido"
+        assert result.ingresos_eliminados == 1
+        assert p.estado == "recibido"
+        remaining = db.query(PedidoCompraIngreso).filter_by(pedido_id=p.id).all()
+        assert len(remaining) == 1
+        assert remaining[0].pod_id is None
+        evento = (
+            db.query(CompraEvento)
+            .filter_by(entidad_id=p.id, entidad_tipo="pedido_compra", tipo="recepcion_undo_control")
+            .first()
+        )
+        assert evento is not None
+
+    def test_revert_con_faltantes_clears_resuelto(self, db, empresa, proveedor, active_user):
+        from datetime import UTC, datetime
+
+        p = PedidoCompra(
+            numero="P-REV-FALT",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="con_faltantes",
+            faltantes_resuelto_en=datetime.now(UTC),
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        result = recepcion_service.revertir_control(db, p, active_user)
+        assert result.estado_nuevo == "recibido"
+        assert p.faltantes_resuelto_en is None
+
+    def test_revert_from_recibido_409(self, db, empresa, proveedor, active_user):
+        from fastapi import HTTPException
+
+        p = PedidoCompra(
+            numero="P-REV-BAD",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        with pytest.raises(HTTPException) as exc:
+            recepcion_service.revertir_control(db, p, active_user)
+        assert exc.value.status_code == 409
+
+    def test_revert_endpoint_requires_deposito_permiso(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_permiso_deposito
+    ):
+        p = PedidoCompra(
+            numero="P-REV-API",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="controlado",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        r = client.post(
+            f"{BASE}/pedidos/{p.id}/recepcion/revertir-control",
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["estado_nuevo"] == "recibido"
 
 
 class TestRecepcionServicio409:

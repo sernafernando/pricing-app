@@ -5963,6 +5963,7 @@ from app.schemas.recepcion import (  # noqa: E402
     RegistrarIngresosResponse,
     ResolverFaltantesRequest,
     ResolverFaltantesResponse,
+    RevertirControlResponse,
     SaldosResponse,
     UsuarioResponsableFaltantesItem,
 )
@@ -6167,6 +6168,33 @@ def post_deshacer_recibido(
         raise HTTPException(status_code=500, detail="Error al deshacer recibido.") from exc
 
     _commit_or_rollback(db, operacion="deshacer_recibido")
+    return result
+
+
+@router.post(
+    "/pedidos/{pedido_id}/recepcion/revertir-control",
+    response_model=RevertirControlResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Revertir control de depósito → recibido",
+)
+def post_revertir_control(
+    pedido_id: int,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso(recepcion_service.PERMISO_RECEPCION)),
+) -> RevertirControlResponse:
+    """Undo controlado/con_faltantes back to recibido. Permission: deposito.recibir_mercaderia."""
+    pedido = _obtener_pedido_recepcion_o_404(db, pedido_id)
+    try:
+        result = recepcion_service.revertir_control(db, pedido, user)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("revertir_control falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al revertir el control.") from exc
+
+    _commit_or_rollback(db, operacion="revertir_control")
     return result
 
 

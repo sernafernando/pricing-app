@@ -160,6 +160,16 @@ class DeshacerRecibidoResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class RevertirControlResponse(BaseModel):
+    """Response for POST /pedidos/{id}/recepcion/revertir-control."""
+
+    pedido_id: int
+    estado_nuevo: str
+    ingresos_eliminados: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ResolverFaltantesRequest(BaseModel):
     """Required note when marking faltantes as resolved (G31)."""
 

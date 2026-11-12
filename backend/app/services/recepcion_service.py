@@ -9,7 +9,8 @@ Responsibilities:
   - get_eventos_recepcion: list reception events for a pedido.
 
 ERP tables (tb_purchase_order_*, productos_erp) are READ-ONLY throughout.
-All writes target only: pedidos_compra (estado), pedido_compra_ingresos (INSERT),
+Writes target: pedidos_compra (estado / faltantes_resuelto_en),
+pedido_compra_ingresos (INSERT; DELETE only in revertir_control),
 compras_eventos (INSERT).
 """
 
@@ -40,6 +41,7 @@ from app.schemas.recepcion import (
     RegistrarIngresosRequest,
     RegistrarIngresosResponse,
     ResolverFaltantesResponse,
+    RevertirControlResponse,
     SaldoLineaResponse,
     SaldoPostIngreso,
     SaldosResponse,
@@ -823,7 +825,8 @@ def deshacer_recibido(
 
     Restores `en_cuenta_corriente` when the CC OP is still open
     (`op_cuenta_corriente_id` set and `pagado_en` empty); otherwise `pagado`.
-    `controlado` is terminal (409). Servicio is rejected (409).
+    `controlado` is terminal for this endpoint (409) — use `revertir_control`.
+    Servicio is rejected (409).
     """
     _validar_no_servicio(pedido)
     if pedido.estado == "controlado":
@@ -855,6 +858,82 @@ def deshacer_recibido(
     )
     session.flush()
     return DeshacerRecibidoResponse(pedido_id=pedido.id, estado_nuevo=nuevo_estado)
+
+
+def revertir_control(
+    session: Session,
+    pedido: PedidoCompra,
+    user: Usuario,
+) -> RevertirControlResponse:
+    """Undo depósito control back to `recibido` so OC sync / re-control can run.
+
+    From `controlado` or `con_faltantes` only. Deletes control ingresos
+    (`pod_id IS NOT NULL`); keeps arribo sentinels (`pod_id IS NULL`) on CON-OC.
+    SIN-OC (no linked OC): deletes all ingresos and writes one arribo sentinel.
+    Clears `faltantes_resuelto_en` and retracts `compras.faltantes` banners.
+    Permission: deposito.recibir_mercaderia (router).
+    """
+    _validar_no_servicio(pedido)
+    if pedido.estado not in {"controlado", "con_faltantes"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(f"Revertir control solo desde estado='controlado' o 'con_faltantes' (estado='{pedido.estado}')"),
+        )
+
+    estado_anterior = pedido.estado
+    linked = triples_for_pedido(session, pedido)
+    tiene_oc = bool(linked) or pedido.oc_poh_id is not None
+
+    if tiene_oc:
+        deleted = (
+            session.query(PedidoCompraIngreso)
+            .filter(
+                PedidoCompraIngreso.pedido_id == pedido.id,
+                PedidoCompraIngreso.pod_id.is_not(None),
+            )
+            .delete(synchronize_session=False)
+        )
+    else:
+        deleted = (
+            session.query(PedidoCompraIngreso)
+            .filter(PedidoCompraIngreso.pedido_id == pedido.id)
+            .delete(synchronize_session=False)
+        )
+        session.add(
+            PedidoCompraIngreso(
+                pedido_id=pedido.id,
+                pod_id=None,
+                oc_comp_id=None,
+                oc_bra_id=None,
+                oc_poh_id=None,
+                item_id=None,
+                stor_id=None,
+                cantidad_recibida=Decimal("1"),
+                usuario_id=user.id,
+                observaciones=None,
+            )
+        )
+
+    pedido.estado = "recibido"
+    pedido.faltantes_resuelto_en = None
+    _retractar_faltantes_si_ya_no_admite(session, pedido)
+    _emit_evento(
+        session,
+        pedido=pedido,
+        user=user,
+        tipo="recepcion_undo_control",
+        payload={
+            "estado_anterior": estado_anterior,
+            "estado_nuevo": "recibido",
+            "ingresos_eliminados": int(deleted or 0),
+        },
+    )
+    session.flush()
+    return RevertirControlResponse(
+        pedido_id=pedido.id,
+        estado_nuevo="recibido",
+        ingresos_eliminados=int(deleted or 0),
+    )
 
 
 def _puede_resolver_faltantes(session: Session, user: Usuario, pedido: PedidoCompra) -> bool:
