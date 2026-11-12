@@ -326,9 +326,12 @@ def _validar_linea(db: Session, data: TacticalIn, linea: TacticalLineaIn) -> _Al
     )
     if pedido is None:
         raise TacticalError(f"no existe la factura {linea.pedido_compra_id}")
-    if pedido.fecha_factura is None:
-        raise TacticalError(f"la operación {pedido.numero} no tiene fecha de factura")
-    # Any invoice date: an invoice line has no dates of its own (S1), its bonus takes its invoice's (`_sell_in`).
+    if pedido.fecha_factura is None and linea.modo_monto == "monto_total":
+        raise TacticalError(
+            f"la operación {pedido.numero} no tiene la factura vinculada: un monto total se reparte sobre lo facturado"
+        )
+    # Any invoice date: an invoice line has no dates of its own (S1), its bonus takes its invoice's (`_sell_in`). A %
+    # or per unit line may wait for its invoice (sell in factura pendiente S2): it applies when Compras links it.
     return _Alcance(pedido=pedido)
 
 
@@ -420,15 +423,22 @@ def _sell_in(db, tactical, data, linea, numero, parte, codigos, usuario_id) -> N
         monto_total=_total_en_pesos(linea, data, parte) if linea.modo_monto == "monto_total" else None,
         reparto_criterio=linea.reparto_criterio,
         # An invoice bonus's range is its own invoice's date (S2c): it applies to that invoice's units until they
-        # are sold, and the reconcile moves it with a corrected invoice date (`bonos._seguir_factura`).
-        fecha_desde=parte.pedido.fecha_factura if parte.pedido is not None else data.fecha_desde,
-        fecha_hasta=parte.pedido.fecha_factura if parte.pedido is not None else data.fecha_hasta,
+        # are sold, and the reconcile moves it with a corrected invoice date (`bonos._seguir_factura`). A line
+        # waiting for its invoice takes today as a placeholder: the reconcile moves it to the invoice's date when
+        # Compras links it (sell in factura pendiente S3), and nothing applies before.
+        fecha_desde=_fecha_de_factura(parte.pedido) if parte.pedido is not None else data.fecha_desde,
+        fecha_hasta=_fecha_de_factura(parte.pedido) if parte.pedido is not None else data.fecha_hasta,
         descripcion=descripcion,
         tope_unidades=linea.tope_unidades,
         tope_monto=linea.tope_monto,
         acumulable=data.acumulable,
     )
     bonos_crud.crear_bono_sin_commit(db, entrada, usuario_id, tactical=(tactical.id, numero))
+
+
+def _fecha_de_factura(pedido: Any) -> date:
+    """An invoice bonus's one-day range: its invoice's date, or today while it waits for the invoice."""
+    return pedido.fecha_factura or date.today()
 
 
 def _total_en_pesos(linea, data, parte) -> Optional[Decimal]:
@@ -515,8 +525,9 @@ def _validar_hijos(data: TacticalIn) -> None:
 
 
 def _fechas_de_facturas(db: Session, data: TacticalIn) -> tuple[date, date]:
-    """An all-invoice tactical's dates: its oldest and newest invoice date (S2c). A line whose invoice is missing or
-    undated is refused by `_validar_linea` before commit, so today's date only stands in until that rollback."""
+    """An all-invoice tactical's dates: its oldest and newest invoice date (S2c). With every invoice still missing
+    (sell in factura pendiente) today stands in, like its bonuses' placeholder; the reconcile spans the invoices once
+    Compras links them (`bonos._cabeceras_por_factura`)."""
     ids = [linea.pedido_compra_id for linea in data.lineas if linea.pedido_compra_id is not None]
     desde, hasta = (
         db.query(func.min(PedidoCompra.fecha_factura), func.max(PedidoCompra.fecha_factura))
@@ -1525,6 +1536,18 @@ def _lineas_bonos(db: Session, ids: list[int]) -> list[dict]:
             Tactical.id.in_(ids), Tactical.moneda == "USD", Tactical.tipo_cambio.isnot(None)
         )
     }
+    # An invoice line whose operation has no supplier invoice yet waits for it (sell in factura pendiente S4).
+    pids = {b.pedido_id for b in bonos if b.alcance == "factura" and b.pedido_id is not None}
+    sin_factura = (
+        {
+            pid
+            for (pid,) in db.query(PedidoCompra.id).filter(
+                PedidoCompra.id.in_(pids), PedidoCompra.fecha_factura.is_(None)
+            )
+        }
+        if pids
+        else set()
+    )
     salida = []
     for bono, fila in zip(bonos, bonos_crud.serializar(db, bonos)):
         salida.append(
@@ -1553,6 +1576,7 @@ def _lineas_bonos(db: Session, ids: list[int]) -> list[dict]:
                 "tope_monto": bono.tope_monto,
                 "unidades_usadas": fila["unidades"],
                 "monto_usado": _cents(fila["monto_generado"]),
+                "esperando_factura": bono.alcance == "factura" and bono.pedido_id in sin_factura,
             }
         )
     return salida
@@ -1644,6 +1668,7 @@ def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
             for i in item_ids_
         ]
         linea["tope_por_producto"] = por_linea[(linea["tactical_id"], linea["linea"])] > 1
+        linea.setdefault("esperando_factura", False)
         de_tactical[linea.pop("tactical_id")].append(linea)
     columnas = (
         "id", "tipo", "nombre", "marca", "referencia", "fecha_desde", "fecha_hasta", "moneda", "tc_modo",
@@ -1656,6 +1681,8 @@ def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
             "tiendas": [{"tipo": fila.tipo, "store_id": fila.store_id} for fila in t.tiendas],
             "marcas": [fila.marca for fila in t.marcas],
             "por_factura": _hijos_por_factura(t, de_tactical[t.id]),
+            # Some active invoice line still waits for its operation's invoice (sell in factura pendiente S4).
+            "esperando_factura": any(h["esperando_factura"] and h["estado"] == "activa" for h in de_tactical[t.id]),
             "lineas": de_tactical[t.id],
             "cobranza": _cobranza(t.cobranza),
         }
