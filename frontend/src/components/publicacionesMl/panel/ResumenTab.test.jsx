@@ -521,6 +521,12 @@ describe('Más datos de Mercado Libre: collapsed by default (S5)', () => {
     expect(within(section(MORE_ML)).queryByText(DASH)).not.toBeInTheDocument();
   });
 
+  it('an attribute without its value is left out, as any empty field', () => {
+    renderOpen(makeDetail({ extra: { ...EXTRA_FIELDS, attributes: [...EXTRA_FIELDS.attributes, { id: 'COLOR', name: 'Color', value_name: null }] } }));
+    expect(lineOf('Modelo')).toHaveTextContent('Archer AX55');
+    absent('Color');
+  });
+
   it('an empty list is left out too', () => {
     renderOpen(makeDetail({ extra: { ...EXTRA_FIELDS, channels: [], attributes: [] } }));
     expect(within(section(MORE_ML)).queryByRole('group', { name: 'Canales' })).not.toBeInTheDocument();

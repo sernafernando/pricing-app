@@ -43,7 +43,7 @@ function OptionChip({ label, value }) {
   const shown = typeof value === 'boolean' || !on ? label : `${label}: ${plain(value)}`;
   return (
     <Chip tone={on ? 'success' : undefined}>
-      {on ? <Check size={12} aria-label="Sí" /> : <X size={12} aria-label="No" />}
+      {on ? <Check size={12} role="img" aria-label="Sí" /> : <X size={12} role="img" aria-label="No" />}
       {shown}
     </Chip>
   );
@@ -76,7 +76,8 @@ function Pictures({ pictures }) {
 }
 
 function Attributes({ attributes }) {
-  const rows = Array.isArray(attributes) ? attributes.filter((entry) => (entry.name ?? entry.id) != null) : [];
+  // An attribute without its value is an empty field: left out, as the rest of the block.
+  const rows = Array.isArray(attributes) ? attributes.filter((entry) => (entry.name ?? entry.id) != null && !isBlank(entry.value_name)) : [];
   if (rows.length === 0) return null;
   return (
     <div className={styles.group}>
@@ -85,7 +86,7 @@ function Attributes({ attributes }) {
         {rows.map((entry, index) => (
           <div key={`${entry.id ?? entry.name}-${index}`} className={styles.attribute}>
             <dt>{entry.name ?? entry.id}</dt>
-            <dd>{entry.value_name ?? '—'}</dd>
+            <dd>{entry.value_name}</dd>
           </div>
         ))}
       </dl>

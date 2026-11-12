@@ -4,12 +4,6 @@ import { formatPct } from '../../../utils/metricasMlFormat';
 import { MARKUP_REASONS, UNKNOWN_REASON } from '../markupReasons';
 import cellStyles from '../cells.module.css';
 import { amount, count, date, units } from './format';
-
-/** Money with its sign, as the panel header writes it ("$ 98.500,50"); a missing figure stays `null`. */
-const money = (value) => {
-  const text = amount(value);
-  return text == null ? null : `$ ${text}`;
-};
 import { MoreMercadoLibre } from './ResumenMl';
 import { Block, Card, Chip, ChipRow, Group, Line } from './ResumenParts';
 import {
@@ -24,6 +18,12 @@ import {
 import panelStyles from './panel.module.css';
 import styles from './resumen.module.css';
 import { MarkupValue, SellInCost, SellInOutMarkupLine } from './sellInOutFigures';
+
+/** Money with its sign, as the panel header writes it ("$ 98.500,50"); a missing figure stays `null`. */
+const money = (value) => {
+  const text = amount(value);
+  return text == null ? null : `$ ${text}`;
+};
 
 /**
  * What needs the operator now, only from real signals (orchestrator 2026-11-02): ML took the
