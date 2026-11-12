@@ -75,7 +75,7 @@ def test_every_optional_topic_has_a_pattern_fixed_from_a_real_row() -> None:
 
 def test_enabling_the_price_fetchers_is_documented_with_its_gate_ages_and_rollback(doc) -> None:
     assert "## Enabling the description, prices and sale_price fetchers" in doc
-    for needle in ("bundle_resources", "min_age_seconds", "description", "6 h", "reference_date", "Rollback"):
+    for needle in ("bundle_resources", "min_age_seconds", "description", "24 h", "reference_date", "Rollback"):
         assert needle in doc, needle
 
 

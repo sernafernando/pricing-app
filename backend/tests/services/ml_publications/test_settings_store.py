@@ -326,3 +326,32 @@ class TestPostgresJsonb:
         with mlpub_pg.connect() as conn:
             kind = conn.execute(text("SELECT jsonb_typeof(value) FROM ml_pub_settings WHERE key='bundle_resources'"))
             assert kind.scalar() == "array"
+
+
+class TestMinAgeSeconds:
+    """Owner, 2026-11-12: the description is fetched once a day, not on every pass."""
+
+    def test_description_default_is_one_day(self, settings_db) -> None:
+        assert get_setting("min_age_seconds").value["description"] == 86400
+
+    def test_a_db_row_naming_some_resources_keeps_the_defaults_of_the_others(self, settings_db) -> None:
+        set_setting("min_age_seconds", {"prices": 60}, updated_by="tester")
+        got = get_setting("min_age_seconds")
+        assert got.source == "db"
+        assert got.value["prices"] == 60
+        assert got.value["description"] == 86400
+        assert got.value["promotions"] == 300
+
+    def test_a_db_row_still_overrides_a_default(self, settings_db) -> None:
+        set_setting("min_age_seconds", {"description": 172800}, updated_by="tester")
+        assert get_setting("min_age_seconds").value["description"] == 172800
+
+    def test_an_env_value_naming_some_resources_keeps_the_defaults_of_the_others(self) -> None:
+        configured = type(settings)(ML_PUB_MIN_AGE_SECONDS={"prices": 60}).ML_PUB_MIN_AGE_SECONDS
+        assert configured["prices"] == 60
+        assert configured["description"] == 86400
+
+
+class TestFreshnessTargets:
+    def test_description_target_is_one_day(self) -> None:
+        assert settings.ML_PUB_FRESHNESS_TARGET_SECONDS["description"] == 86400
