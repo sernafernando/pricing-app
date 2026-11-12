@@ -886,6 +886,16 @@ describe('Publicaciones ML Agrupado tree (visual)', () => {
           expect(names(tpLink, 'estado')).toEqual(['89 activas', '1 pausada']);
           expect(cell(tpLink, 'estado').textContent).toBe('891');
           const routers = rowWith(scroller, 'ROUTERS');
+          // Real margin for a wider fallback font (CI's Chromium has DejaVu, ~8% wider): the owner's five kinds and three
+          // states take at most 85% of their cell's content box, so they stay on one line there too.
+          for (const key of ['tipo', 'estado']) {
+            const td = cell(routers, key);
+            const chipsOf = [...td.querySelectorAll('[data-summary-chip]')];
+            const used = rect(chipsOf.at(-1)).right - rect(chipsOf[0]).left;
+            const style = getComputedStyle(td);
+            const room = td.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight);
+            expect(used, `ROUTERS ${key}`).toBeLessThanOrEqual(room * 0.85);
+          }
           expect(cell(routers, 'tipo').textContent).toBe('C 333 306 269 2412 24');
           expect(names(routers, 'estado')).toEqual(['111 activas', '7 en revisión', '19 cerradas']);
           // Every badge on one line, inside its cell.

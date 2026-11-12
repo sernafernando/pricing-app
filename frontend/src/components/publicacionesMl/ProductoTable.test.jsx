@@ -232,10 +232,10 @@ describe('a product row (S6)', () => {
     const row = rowOf('Router Archer AX55');
     expect(within(row).getByText('Producto · ARCHER-AX55 · 3 publicaciones')).toBeInTheDocument();
     expect(within(row).queryByText(/markup negativo/)).not.toBeInTheDocument(); // the Producto view has no negatives
-    expect(within(row).getByText('2 Clásica')).toBeInTheDocument();
-    expect(within(row).getByText('1 6 cuotas')).toBeInTheDocument();
-    expect(within(row).getByText('2 activas')).toBeInTheDocument();
-    expect(within(row).getByText('1 pausada')).toBeInTheDocument();
+    expect(within(row).getByRole('img', { name: '2 Clásica' })).toBeInTheDocument();
+    expect(within(row).getByRole('img', { name: '1 6 cuotas' })).toBeInTheDocument();
+    expect(within(row).getByRole('img', { name: '2 activas' })).toBeInTheDocument();
+    expect(within(row).getByRole('img', { name: '1 pausada' })).toBeInTheDocument();
     expect(within(row).getByText('45.999,00 –')).toBeInTheDocument();
     expect(within(row).getByText('189.999,50')).toBeInTheDocument();
   });

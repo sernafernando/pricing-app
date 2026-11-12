@@ -392,10 +392,10 @@ describe('node figures', () => {
   it('summarizes the node in Tipo, Estado and Precio (S6)', async () => {
     render(<Harness />);
     const row = (await screen.findByText('TP-LINK')).closest('tr');
-    expect(within(row).getByText('60 Clásica')).toBeInTheDocument();
-    expect(within(row).getByText('30 6 cuotas')).toBeInTheDocument();
-    expect(within(row).getByText('89 activas')).toBeInTheDocument();
-    expect(within(row).getByText('1 pausada')).toBeInTheDocument();
+    expect(within(row).getByRole('img', { name: '60 Clásica' })).toBeInTheDocument();
+    expect(within(row).getByRole('img', { name: '30 6 cuotas' })).toBeInTheDocument();
+    expect(within(row).getByRole('img', { name: '89 activas' })).toBeInTheDocument();
+    expect(within(row).getByRole('img', { name: '1 pausada' })).toBeInTheDocument();
     expect(within(row).getByText('45.999,00 –')).toBeInTheDocument();
     expect(within(row).getByText('189.999,50')).toBeInTheDocument();
   });

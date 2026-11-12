@@ -177,9 +177,9 @@ export function buildColumns({
     // cell's second line, and its Tipo, Estado and Precio summarize its publications (`NodeCells`).
     // The listing type at a glance, before its state: the list's default order (Clásica, then 3, 6, 9, 12 cuotas).
     // Agrupado's parent rows sum up whole brands and categories in compact badges on one line ("C 33", "3 30", … "12 24";
-    // "● 111" per state), so the tree starts Tipo and Estado wide enough to hold them. Producto's rows hold a product's
+    // "● 111" per state), so the tree starts Tipo and Estado wide enough to hold them, with room left for a wider fallback font (CI's DejaVu). Producto's rows hold a product's
     // few publications: the list's widths fit them and leave the money columns their room.
-    { key: 'tipo', header: 'Tipo', width: agrupado ? 200 : 110, sortable: true, render: (item) => <ListingKindBadge kind={item.listing_kind} /> },
+    { key: 'tipo', header: 'Tipo', width: agrupado ? 216 : 110, sortable: true, render: (item) => <ListingKindBadge kind={item.listing_kind} /> },
     {
       key: 'estado',
       header: 'Estado',

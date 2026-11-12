@@ -89,15 +89,15 @@
 .chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px 3px;
+  gap: 2px;
   min-width: 0;
 }
 
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 0 4px;
+  gap: 2px;
+  padding: 0 3px;
   border: 1px solid var(--tone-neutral-border);
   border-radius: var(--radius-base);
   background: var(--tone-neutral-bg);
