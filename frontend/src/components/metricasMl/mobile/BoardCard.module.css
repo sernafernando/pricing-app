@@ -1,0 +1,211 @@
+/* A board row as a card on a phone (design `Main.dc.html`). */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: 10px;
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+}
+
+.open {
+  border-color: var(--cf-accent-blue);
+}
+
+.nested {
+  padding: 10px;
+  background: var(--cf-bg-app);
+}
+
+/* The whole summary is the tap target that opens the card. */
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.title {
+  font-weight: var(--font-semibold);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.subtitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.figures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.figure {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.figureLabel {
+  font-size: 11px;
+  color: var(--cf-text-secondary);
+}
+
+.figureValue {
+  font-weight: var(--font-semibold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--cf-border-default);
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+}
+
+.footerText {
+  min-width: 0;
+}
+
+.outOfStock {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: var(--font-medium);
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+}
+
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.sectionTitle {
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.windows {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  text-align: center;
+}
+
+.windows .figureValue {
+  font-weight: var(--font-medium);
+}
+
+.pairs {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: 6px 12px;
+  font-size: 13px;
+}
+
+.pairLabel {
+  color: var(--cf-text-secondary);
+}
+
+.pairValue {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.small {
+  display: block;
+  font-size: 11px;
+  color: var(--cf-text-secondary);
+}
+
+.secondary {
+  min-height: 44px;
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 8px;
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font: inherit;
+  font-weight: var(--font-medium);
+  cursor: pointer;
+}
+
+.less {
+  min-height: 44px;
+  border: 0;
+  background: none;
+  color: var(--cf-accent-blue);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.subRows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--cf-text-secondary);
+}
+
+.tone_good,
+.tone_positive {
+  color: var(--money-positive);
+}
+
+.tone_low {
+  color: var(--tone-warning-fg);
+}
+
+.tone_negative {
+  color: var(--money-negative);
+}

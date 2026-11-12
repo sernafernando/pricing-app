@@ -59,6 +59,10 @@ import SheetsNotice from '../components/sheets/SheetsNotice';
 import useWarnBeforeUnload from '../hooks/useWarnBeforeUnload';
 import useHiddenKpis from '../hooks/useHiddenKpis';
 import useRowDensity from '../hooks/useRowDensity';
+import useIsPhone from '../hooks/useIsPhone';
+import MetricasPhone from '../components/metricasMl/mobile/MetricasPhone';
+import FilterSheet, { SheetFold, SheetSection } from '../components/metricasMl/mobile/FilterSheet';
+import { activeFilterChips, phoneSortOptions } from '../components/metricasMl/mobile/phoneBoard';
 import styles from './MetricasML.module.css';
 
 /**
@@ -80,6 +84,9 @@ const DEFAULT_PAGE_SIZE = 50;
 const ALL_ROWS = 9999;
 const BOARD_PART = 2000;
 const VIRTUALIZE_FROM = 100;
+// A phone shows the board as cards, 20 at a time: "Cargar 20 más" appends the next 20, the way "Todos" appends its
+// parts (handoffs `mobile-metricas-pubml-tarea` T1).
+const PHONE_PAGE = 20;
 const BOARD_PAGE_SIZES = [...PAGE_SIZE_OPTIONS, ALL_ROWS];
 const boardSizeLabel = (size) => (size === ALL_ROWS ? 'Todos' : String(size));
 const boardRowKey = (row) => row.key;
@@ -207,11 +214,16 @@ export default function MetricasML() {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   const [board, setBoard] = useState(null);
-  // "Todos" in parts: the request they belong to, its params, the next offset and the board's total.
+  // "Todos" in parts (and a phone's pages of 20): the request they belong to, its params, the next offset, the step
+  // and the board's total.
   const partsRef = useRef(null);
   // A part of "Todos" that failed: said under the table with its own "Reintentar", never a list cut short in silence.
   const [moreError, setMoreError] = useState(false);
-  const allRows = pageSize === ALL_ROWS;
+  // A phone's "Cargar 20 más" while its part is on the way.
+  const [loadingMore, setLoadingMore] = useState(false);
+  const isPhone = useIsPhone();
+  const allRows = !isPhone && pageSize === ALL_ROWS;
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [errorKind, setErrorKind] = useState(null);
   // A 422 (a period or filter the board refuses) is the operator's to fix:
@@ -402,15 +414,19 @@ export default function MetricasML() {
       ...filterParams,
       sort: sortKey,
       sort_dir: sort.desc ? 'desc' : 'asc',
-      limit: allRows ? BOARD_PART : pageSize,
-      offset: allRows ? 0 : offset,
+      limit: isPhone ? PHONE_PAGE : allRows ? BOARD_PART : pageSize,
+      offset: allRows || isPhone ? 0 : offset,
     };
     partsRef.current = null;
     setMoreError(false);
+    setLoadingMore(false);
     try {
       const { data } = await api.get('/ml-metricas/board', { params });
       if (requestId !== latestRequestRef.current) return;
-      if (allRows) partsRef.current = { request: requestId, params, next: BOARD_PART, end: data.total ?? 0, busy: false };
+      if (allRows || isPhone) {
+        const step = isPhone ? PHONE_PAGE : BOARD_PART;
+        partsRef.current = { request: requestId, params, next: step, step, end: data.total ?? 0, busy: false };
+      }
       setBoard(data);
       setExpanded(new Set());
       setSubRows({});
@@ -429,7 +445,7 @@ export default function MetricasML() {
     } finally {
       if (requestId === latestRequestRef.current) setLoading(false);
     }
-  }, [puedeVer, filterParams, sortKey, sort.desc, pageSize, allRows, offset, rejectTp]);
+  }, [puedeVer, filterParams, sortKey, sort.desc, pageSize, allRows, isPhone, offset, rejectTp]);
 
   // The next part of "Todos": the same params from the next offset, its rows appended (once each, by key). The KPIs,
   // the chips and the total stay the first part's, and so do the open rows. A part of a board that is no longer the
@@ -439,18 +455,22 @@ export default function MetricasML() {
     if (!current || current.busy || current.next >= current.end || current.request !== latestRequestRef.current) return;
     current.busy = true;
     const partOffset = current.next;
+    if (current.step === PHONE_PAGE) setLoadingMore(true);
     api
       .get('/ml-metricas/board', { params: { ...current.params, offset: partOffset } })
       .then(({ data }) => {
         if (current.request !== latestRequestRef.current) return;
-        current.next = partOffset + BOARD_PART;
+        current.next = partOffset + current.step;
         current.busy = false;
         setMoreError(false);
+        setLoadingMore(false);
         setBoard((shown) => (shown ? { ...shown, rows: appendPage(shown.rows ?? [], data?.rows ?? [], boardRowKey) } : shown));
       })
       .catch(() => {
         current.busy = false;
-        if (current.request === latestRequestRef.current) setMoreError(true);
+        if (current.request !== latestRequestRef.current) return;
+        setMoreError(true);
+        setLoadingMore(false);
       });
   }, []);
 
@@ -640,6 +660,166 @@ export default function MetricasML() {
   const total = board?.total ?? 0;
   const freshness = timeAgo(board?.refreshed_at);
 
+  // The filter controls, built once: the desktop bands and the phone's filter sheet show these same elements, so
+  // both screens filter exactly alike.
+  const groupControl = (
+    <SegmentedControl label="Agrupar por" options={GROUP_OPTIONS} value={groupBy} onChange={withReset(changeGroupBy)} />
+  );
+  const dimensionControl = groupBy === 'group' && (
+    <SegmentedControl label="Dimensión" options={dimensionOptions} value={shownDimension} onChange={withReset(setDimension)} />
+  );
+  const adsControl = puedeVerGanancia && <AdsModeControl value={publicidad} onChange={withReset(setPublicidad)} tpSolo={tpSolo} />;
+  const costosTpControl = puedeVerGanancia && !tpSolo && (
+    <SwitchChip
+      label="Costos TP"
+      checked={costosTp}
+      onChange={withReset((next) => {
+        setCostosTp(next);
+        if (next) {
+          setTpError(null);
+          setSort((prev) => withoutSellTpSort(prev, groupBy));
+        } else setSort((prev) => withoutTpSort(prev, groupBy));
+      })}
+      title="Muestra el Total TP junto al Total Gauss; el markup usa el costo TP en las operaciones de la tienda TP-Link"
+    />
+  );
+  const compareControl = (
+    <SegmentedControl label="Comparar con" options={COMPARE_OPTIONS} value={compararCon} onChange={withReset(setCompararCon)} />
+  );
+  const storeControl = (
+    <FacetChips
+      label="Filtrar por tienda oficial"
+      {...storeChips}
+      hints={storeChipHints(storeChips, facets)}
+      total={facets?.stores_total}
+      onChange={withReset(setStoreFilter)}
+    />
+  );
+  const soloConVentasControl = (
+    <SwitchChip
+      label="Solo con ventas en el período"
+      checked={soloConVentas}
+      onChange={withReset(setSoloConVentas)}
+      title="Muestra sólo las filas con ventas en el período elegido; sus ventanas 24h a 30D no cambian"
+    />
+  );
+  const staleHint = hidesStale && (
+    <span className={styles.toggleHint} role="status">
+      Ocultando {noun} sin ventas en el período
+    </span>
+  );
+  const stockControl = (
+    <ToggleChips
+      label="Filtrar por stock"
+      options={STOCK_OPTIONS}
+      labels={STOCK_LABELS}
+      counts={facets?.stock}
+      selected={stock}
+      excluded={stockExclude}
+      onChange={withReset((nextSelected, nextExcluded) => {
+        setStock(nextSelected);
+        setStockExclude(nextExcluded);
+      })}
+    />
+  );
+  const ageingControl = (
+    <ToggleChips
+      label="Filtrar por ageing"
+      options={AGEING_OPTIONS}
+      labels={AGEING_LABELS}
+      counts={facets?.ageing}
+      selected={ageing}
+      excluded={ageingExclude}
+      onChange={withReset((nextSelected, nextExcluded) => {
+        setAgeing(nextSelected);
+        setAgeingExclude(nextExcluded);
+      })}
+      dotFor={(value) => AGEING_BUCKET_TONES[value]}
+    />
+  );
+  const productControl = (
+    <ProductFiltersPanel value={productFilters} onChange={withReset(setProductFilters)} options={facets?.product} hidePm={tpSolo} />
+  );
+  const pubStatusControl = (
+    <ToggleChips
+      label="Filtrar por estado de publicación"
+      options={PUB_STATUS_OPTIONS}
+      labels={PUB_STATUS_LABELS}
+      counts={facets?.pub_status}
+      selected={pubStatus}
+      excluded={pubStatusExclude}
+      onChange={withReset((nextSelected, nextExcluded) => {
+        setPubStatus(nextSelected);
+        setPubStatusExclude(nextExcluded);
+      })}
+      dotFor={(value) => (value === 'active' ? 'good' : null)}
+    />
+  );
+  const pubTypeControl = (
+    <ToggleChips
+      label="Filtrar por tipo de publicación"
+      options={PUB_TYPE_OPTIONS}
+      labels={PUB_TYPE_LABELS}
+      counts={facets?.pub_type}
+      selected={pubType}
+      excluded={pubTypeExclude}
+      onChange={withReset((nextSelected, nextExcluded) => {
+        setPubType(nextSelected);
+        setPubTypeExclude(nextExcluded);
+      })}
+    />
+  );
+  const alertChips = ALERTS.filter((alert) => !alert.margin || canSeeMargin).map(({ value, label, icon, tone }) => {
+    const Icon = icon;
+    const active = alerts.includes(value);
+    const count = facets?.alerts?.[value];
+    return (
+      <button
+        key={value}
+        type="button"
+        className={`${styles.alertChip} ${active ? styles.alertActive : ''}`}
+        data-tone={tone}
+        aria-pressed={active}
+        onClick={() => withReset(setAlerts)(active ? alerts.filter((a) => a !== value) : [...alerts, value])}
+      >
+        <Icon size={12} aria-hidden="true" />
+        {label}
+        {count !== undefined && count !== null && ` (${formatUnits(count)})`}
+      </button>
+    );
+  });
+
+  const banners = (
+    <>
+      {errorKind === 'forbidden' && (
+        <div className={styles.errorBar}>
+          <ShieldAlert size={16} /> No tenés permiso para ver Métricas ML.
+        </div>
+      )}
+      {errorKind === 'rejected' && (
+        <div className={styles.errorBar} role="alert">
+          <ShieldAlert size={16} /> {typeof rejectedMessage === 'string' ? rejectedMessage : PERIOD_LIMIT_MESSAGE}
+        </div>
+      )}
+      {errorKind === 'generic' && (
+        <div className={styles.errorBar}>
+          <ShieldAlert size={16} /> Error al cargar las métricas.
+        </div>
+      )}
+      {tpError && (
+        <div className={styles.errorBar} role="alert">
+          <ShieldAlert size={16} /> {tpError}
+        </div>
+      )}
+      {exportError && (
+        <div className={styles.errorBar} role="alert">
+          <ShieldAlert size={16} /> {exportError}
+        </div>
+      )}
+      <SheetsNotice notice={exportingSheets ? { processing: true } : sheetsNotice} onClose={() => setSheetsNotice(null)} />
+    </>
+  );
+
   if (!puedeVer) {
     return (
       <div className={styles.container}>
@@ -647,6 +827,100 @@ export default function MetricasML() {
           <ShieldAlert size={16} /> No tenés permiso para ver Métricas ML.
         </div>
       </div>
+    );
+  }
+
+  if (isPhone) {
+    const { chips: filterChips, count: filterCount } = activeFilterChips({
+      groupBy,
+      storeLabel: storeFilter ? (storeChips.labels?.[storeFilter] ?? getLabel(storeFilter)) : null,
+      stock,
+      stockExclude,
+      ageing,
+      ageingExclude,
+      alerts,
+      soloConVentas,
+      pubStatus,
+      pubStatusExclude,
+      pubType,
+      pubTypeExclude,
+      productFilters,
+    });
+    const actions = [
+      { label: 'Exportar CSV', busyLabel: 'Exportando…', busy: exporting, onSelect: handleExport },
+      ...(sheetsEnabled
+        ? [{ label: 'Exportar a Sheets', busyLabel: 'Exportando a Sheets…', busy: exportingSheets, onSelect: handleSheetsExport }]
+        : []),
+    ];
+    const filterSheet = filtersOpen && (
+      <FilterSheet onClose={() => setFiltersOpen(false)} onClear={clearFilters} applyLabel={`Ver ${formatUnits(total)} ${noun}`}>
+        <SheetSection legend="Agrupar por">
+          {groupControl}
+          {dimensionControl}
+        </SheetSection>
+        <SheetSection legend="Tienda">{storeControl}</SheetSection>
+        <SheetSection legend="Stock y ventas">
+          {stockControl}
+          {soloConVentasControl}
+          {staleHint}
+        </SheetSection>
+        <SheetSection legend="Ageing">{ageingControl}</SheetSection>
+        <SheetSection legend="Alertas">
+          <div className={styles.filterGroup} role="group" aria-label="Alertas">
+            {alertChips}
+          </div>
+        </SheetSection>
+        <SheetFold title="Producto" hint={tpSolo ? 'Marcas, categorías, subcategorías' : 'Marcas, categorías, subcategorías, PMs'}>
+          {productControl}
+        </SheetFold>
+        <SheetFold title="Publicación" hint="Estado y tipo (Clásica, Premium, Catálogo, Full)">
+          {pubStatusControl}
+          {pubTypeControl}
+        </SheetFold>
+        <SheetFold title="Cálculo" hint={puedeVerGanancia ? 'Publicidad, Costos TP, Comparar con' : 'Comparar con'}>
+          {adsControl}
+          {costosTpControl}
+          {compareControl}
+        </SheetFold>
+      </FilterSheet>
+    );
+    return (
+      <MetricasPhone
+        freshness={freshness}
+        banners={banners}
+        range={range}
+        maxDays={MAX_PERIOD_DAYS}
+        maxDaysMessage={PERIOD_LIMIT_MESSAGE}
+        onRangeChange={withReset(setRange)}
+        searchQuery={searchQuery}
+        onSearchChange={withReset(setSearchQuery)}
+        filterChips={filterChips}
+        filterCount={filterCount}
+        onOpenFilters={() => setFiltersOpen(true)}
+        filterSheet={filterSheet}
+        sortOptions={phoneSortOptions({ canSeeMargin, tpOn, tpSolo })}
+        sort={{ key: sortKey, desc: sort.desc }}
+        onSortChange={withReset(setSort)}
+        actions={actions}
+        kpis={board?.kpis}
+        kpiVisible={kpiVisible}
+        canSeeMargin={canSeeMargin}
+        tpOn={tpOn}
+        tpSolo={tpSolo}
+        groupBy={groupBy}
+        noun={noun}
+        rows={rows}
+        total={total}
+        withSalesCount={board?.with_sales_count ?? 0}
+        loading={loading}
+        errorKind={errorKind}
+        expanded={expanded}
+        subRows={subRows}
+        onToggleExpand={toggleExpand}
+        onLoadMore={loadMoreRows}
+        loadingMore={loadingMore}
+        moreError={moreError}
+      />
     );
   }
 
@@ -685,32 +959,7 @@ export default function MetricasML() {
         </div>
       </header>
 
-      {errorKind === 'forbidden' && (
-        <div className={styles.errorBar}>
-          <ShieldAlert size={16} /> No tenés permiso para ver Métricas ML.
-        </div>
-      )}
-      {errorKind === 'rejected' && (
-        <div className={styles.errorBar} role="alert">
-          <ShieldAlert size={16} /> {typeof rejectedMessage === 'string' ? rejectedMessage : PERIOD_LIMIT_MESSAGE}
-        </div>
-      )}
-      {errorKind === 'generic' && (
-        <div className={styles.errorBar}>
-          <ShieldAlert size={16} /> Error al cargar las métricas.
-        </div>
-      )}
-      {tpError && (
-        <div className={styles.errorBar} role="alert">
-          <ShieldAlert size={16} /> {tpError}
-        </div>
-      )}
-      {exportError && (
-        <div className={styles.errorBar} role="alert">
-          <ShieldAlert size={16} /> {exportError}
-        </div>
-      )}
-      <SheetsNotice notice={exportingSheets ? { processing: true } : sheetsNotice} onClose={() => setSheetsNotice(null)} />
+      {banners}
 
       <section className={styles.filterCard} aria-label="Filtros">
         <div className={styles.filterBand}>
@@ -733,37 +982,19 @@ export default function MetricasML() {
           <div className={styles.segments}>
             <div className={styles.filterGroup}>
               <span className={styles.filterLabel}>Agrupar por:</span>
-              <SegmentedControl label="Agrupar por" options={GROUP_OPTIONS} value={groupBy} onChange={withReset(changeGroupBy)} />
+              {groupControl}
             </div>
             {groupBy === 'group' && (
               <div className={styles.filterGroup}>
                 <span className={styles.filterLabel}>Dimensión:</span>
-                <SegmentedControl
-                  label="Dimensión"
-                  options={dimensionOptions}
-                  value={shownDimension}
-                  onChange={withReset(setDimension)}
-                />
+                {dimensionControl}
               </div>
             )}
-            {puedeVerGanancia && <AdsModeControl value={publicidad} onChange={withReset(setPublicidad)} tpSolo={tpSolo} />}
-            {puedeVerGanancia && !tpSolo && (
-              <SwitchChip
-                label="Costos TP"
-                checked={costosTp}
-                onChange={withReset((next) => {
-                  setCostosTp(next);
-                  if (next) {
-                    setTpError(null);
-                    setSort((prev) => withoutSellTpSort(prev, groupBy));
-                  } else setSort((prev) => withoutTpSort(prev, groupBy));
-                })}
-                title="Muestra el Total TP junto al Total Gauss; el markup usa el costo TP en las operaciones de la tienda TP-Link"
-              />
-            )}
+            {adsControl}
+            {costosTpControl}
             <div className={styles.filterGroup}>
               <span className={styles.filterLabel}>Comparar con:</span>
-              <SegmentedControl label="Comparar con" options={COMPARE_OPTIONS} value={compararCon} onChange={withReset(setCompararCon)} />
+              {compareControl}
             </div>
           </div>
         </div>
@@ -776,46 +1007,20 @@ export default function MetricasML() {
             >
               Tienda:
             </span>
-            <FacetChips
-              label="Filtrar por tienda oficial"
-              {...storeChips}
-              hints={storeChipHints(storeChips, facets)}
-              total={facets?.stores_total}
-              onChange={withReset(setStoreFilter)}
-            />
+            {storeControl}
           </div>
         </div>
 
         <div className={styles.filterBand}>
           <div className={styles.filterGroup}>
-            <SwitchChip
-              label="Solo con ventas en el período"
-              checked={soloConVentas}
-              onChange={withReset(setSoloConVentas)}
-              title="Muestra sólo las filas con ventas en el período elegido; sus ventanas 24h a 30D no cambian"
-            />
-            {hidesStale && (
-              <span className={styles.toggleHint} role="status">
-                Ocultando {noun} sin ventas en el período
-              </span>
-            )}
+            {soloConVentasControl}
+            {staleHint}
           </div>
           <div className={styles.filterGroup}>
             <span className={styles.filterLabel} title="Stock del ERP (depósito 1), el mismo que muestra Productos">
               Stock:
             </span>
-            <ToggleChips
-              label="Filtrar por stock"
-              options={STOCK_OPTIONS}
-              labels={STOCK_LABELS}
-              counts={facets?.stock}
-              selected={stock}
-              excluded={stockExclude}
-              onChange={withReset((nextSelected, nextExcluded) => {
-                setStock(nextSelected);
-                setStockExclude(nextExcluded);
-              })}
-            />
+            {stockControl}
           </div>
           <div className={styles.filterGroup}>
             <span
@@ -824,90 +1029,30 @@ export default function MetricasML() {
             >
               Ageing:
             </span>
-            <ToggleChips
-              label="Filtrar por ageing"
-              options={AGEING_OPTIONS}
-              labels={AGEING_LABELS}
-              counts={facets?.ageing}
-              selected={ageing}
-              excluded={ageingExclude}
-              onChange={withReset((nextSelected, nextExcluded) => {
-                setAgeing(nextSelected);
-                setAgeingExclude(nextExcluded);
-              })}
-              dotFor={(value) => AGEING_BUCKET_TONES[value]}
-            />
+            {ageingControl}
           </div>
         </div>
 
         <div className={styles.filterBand}>
           <div className={styles.filterGroup}>
             <span className={styles.filterLabel}>Producto:</span>
-            <ProductFiltersPanel
-              value={productFilters}
-              onChange={withReset(setProductFilters)}
-              options={facets?.product}
-              hidePm={tpSolo}
-            />
+            {productControl}
           </div>
           <span className={styles.divider} aria-hidden="true" />
           <div className={styles.filterGroup}>
             <span className={styles.filterLabel} title="Último estado informado por el ERP">
               Publicación:
             </span>
-            <ToggleChips
-              label="Filtrar por estado de publicación"
-              options={PUB_STATUS_OPTIONS}
-              labels={PUB_STATUS_LABELS}
-              counts={facets?.pub_status}
-              selected={pubStatus}
-              excluded={pubStatusExclude}
-              onChange={withReset((nextSelected, nextExcluded) => {
-                setPubStatus(nextSelected);
-                setPubStatusExclude(nextExcluded);
-              })}
-              dotFor={(value) => (value === 'active' ? 'good' : null)}
-            />
+            {pubStatusControl}
             <span className={styles.subLabel}>Tipo:</span>
-            <ToggleChips
-              label="Filtrar por tipo de publicación"
-              options={PUB_TYPE_OPTIONS}
-              labels={PUB_TYPE_LABELS}
-              counts={facets?.pub_type}
-              selected={pubType}
-              excluded={pubTypeExclude}
-              onChange={withReset((nextSelected, nextExcluded) => {
-                setPubType(nextSelected);
-                setPubTypeExclude(nextExcluded);
-              })}
-            />
+            {pubTypeControl}
           </div>
         </div>
 
         <div className={styles.filterBand}>
           <div className={styles.filterGroup} role="group" aria-label="Alertas">
             <span className={styles.filterLabel}>Alertas:</span>
-            {ALERTS.filter((alert) => !alert.margin || canSeeMargin).map(({ value, label, icon, tone }) => {
-              const Icon = icon;
-              const active = alerts.includes(value);
-              const count = facets?.alerts?.[value];
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  className={`${styles.alertChip} ${active ? styles.alertActive : ''}`}
-                  data-tone={tone}
-                  aria-pressed={active}
-                  onClick={() =>
-                    withReset(setAlerts)(active ? alerts.filter((a) => a !== value) : [...alerts, value])
-                  }
-                >
-                  <Icon size={12} aria-hidden="true" />
-                  {label}
-                  {count !== undefined && count !== null && ` (${formatUnits(count)})`}
-                </button>
-              );
-            })}
+            {alertChips}
           </div>
           <div className={styles.spacer} />
           {hasActiveFilters && (
