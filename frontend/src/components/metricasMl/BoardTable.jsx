@@ -32,9 +32,11 @@ const rowKey = (row) => row.key;
  * set and the sort; this renders the columns the page says are visible
  * (`columns`, from the TanStack visibility state the ColumnPicker drives).
  *
- * Layout promises (pinned by the visual suite): the table scrolls sideways
- * INSIDE its card, the Producto column stays pinned to the left while it
- * does, and money never wraps.
+ * Layout promises (pinned by the visual suite): the table scrolls on BOTH
+ * axes INSIDE its card (same sticky model as Publicaciones ML's TableShell),
+ * the header stays pinned at the top of that scroller, the Producto column
+ * stays pinned to the left, and money never wraps. Pass `scrollerRef` so
+ * "Todos" virtualization scrolls with that card, not the page.
  */
 
 
@@ -519,15 +521,18 @@ export default function BoardTable({
   dense = false,
   virtualizeFrom,
   onEndReached,
+  scrollerRef,
 }) {
   // "Todos" (filas-sin-limite S3): past `virtualizeFrom` rows only the rows in view are in the DOM, each board row
-  // with what it opened into in its own measured `<tbody>`; the page itself scrolls, so the table is the list.
+  // with what it opened into in its own measured `<tbody>`. With `scrollerRef` (the page's `.tableScroll`) the
+  // card owns the scroll, like TableShell; without it the page itself scrolls (unit tests).
   const tableRef = useRef(null);
   const { virtual, items, before, after, measureElement } = useVirtualRows({
     rows,
     getRowKey: rowKey,
     virtualizeFrom,
     onEndReached,
+    scrollerRef,
     listRef: tableRef,
   });
   const groups = COLUMN_GROUPS.map((group) => ({

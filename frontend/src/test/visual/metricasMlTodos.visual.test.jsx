@@ -1,7 +1,8 @@
 /**
- * Métricas ML "Todos" (filas-sin-limite S3) in real Chromium: the board is scrolled by the page, so its
- * virtualization (`kit/useVirtualRows` on the window) must keep the rows in view in the DOM with no blank gap, and
- * the next part must come in when the table's end is reached. jsdom lays nothing out, so this cannot be a unit test.
+ * Métricas ML "Todos" (filas-sin-limite S3) in real Chromium: the board scrolls INSIDE its card scroller
+ * (same sticky model as Publicaciones ML), so virtualization (`kit/useVirtualRows` on that scroller) must keep
+ * the rows in view in the DOM with no blank gap, and the next part must come in when the table's end is reached.
+ * jsdom lays nothing out, so this cannot be a unit test.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render } from 'vitest-browser-react';
@@ -74,14 +75,17 @@ const frames = (n = 3) =>
   });
 
 const boardRows = () => [...document.querySelectorAll('tbody[data-index]')];
+const scrollerOf = () => document.querySelector('[data-table-scroll]');
 
-// The rows in the DOM cover the viewport with no gap: the first one starts at or above the viewport's top and the
-// last one ends at or below its bottom (when there are rows left), so the page scrolls over real rows, never blanks.
-const coversViewport = () => {
+// The rows in the DOM cover the scroller with no gap: the first one starts at or above the scroller's top and the
+// last one ends at or below its bottom (when there are rows left), so scrolling lands on real rows, never blanks.
+const coversScroller = () => {
+  const scroller = scrollerOf();
+  const box = scroller.getBoundingClientRect();
   const blocks = boardRows();
   const top = blocks[0].getBoundingClientRect().top;
   const bottom = blocks.at(-1).getBoundingClientRect().bottom;
-  return top <= 0 && bottom >= window.innerHeight;
+  return top <= box.top + 1 && bottom >= box.bottom - 1;
 };
 
 describe('Métricas ML "Todos" in real Chromium (filas-sin-limite S3)', () => {
@@ -90,7 +94,7 @@ describe('Métricas ML "Todos" in real Chromium (filas-sin-limite S3)', () => {
     api.get.mockImplementation((url, config) => Promise.resolve(routeGet(url, config)));
   });
 
-  it('renders only the rows in view while the page scrolls, and loads the next part at the end', async () => {
+  it('renders only the rows in view while the card scroller moves, and loads the next part at the end', async () => {
     await page.viewport(1440, 900);
     setTheme('light');
     document.body.style.background = 'var(--cf-bg-app)';
@@ -104,24 +108,26 @@ describe('Métricas ML "Todos" in real Chromium (filas-sin-limite S3)', () => {
     await expect.element(screen.getByText('Producto de prueba 0').first()).toBeVisible();
     expect(boardRows().length).toBeLessThan(80);
 
-    // Halfway through the first part: the rows there are in the DOM and cover the screen.
-    const table = document.querySelector('table[data-virtual]');
-    const tableTop = table.getBoundingClientRect().top + window.scrollY;
-    window.scrollTo(0, tableTop + 1000 * 40);
+    const scroller = scrollerOf();
+    expect(getComputedStyle(scroller).overflowY).toBe('auto');
+    expect(scroller.scrollHeight).toBeGreaterThan(scroller.clientHeight);
+
+    // Halfway through the first part: the rows there are in the DOM and cover the scroller.
+    scroller.scrollTop = 1000 * 40;
     await frames();
     await frames();
     expect(boardRows().length).toBeLessThan(80);
-    expect(coversViewport()).toBe(true);
+    expect(coversScroller()).toBe(true);
     if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/metricas-todos-mitad.png` });
 
     // To the end: the last part comes in, and its last row is reachable.
     for (let i = 0; i < 6; i += 1) {
-      window.scrollTo(0, document.documentElement.scrollHeight);
+      scroller.scrollTop = scroller.scrollHeight;
       await frames();
     }
     await expect.poll(() => api.get.mock.calls.some(([, config]) => config?.params?.offset === 2000)).toBe(true);
     for (let i = 0; i < 6; i += 1) {
-      window.scrollTo(0, document.documentElement.scrollHeight);
+      scroller.scrollTop = scroller.scrollHeight;
       await frames();
     }
     await expect.element(screen.getByText('Producto de prueba 2499').first()).toBeInTheDocument();
