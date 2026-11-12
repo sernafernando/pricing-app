@@ -101,6 +101,7 @@ def __getattr__(name: str) -> List[JobHandler]:
             from app.workers.handlers.catalog_competition_refresh import catalog_competition_refresh
             from app.workers.handlers.ml_promo_refresh import promo_refresh
             from app.workers.handlers.ml_publications import (
+                core_first,
                 freshness,
                 intake,
                 missed_feeds,
@@ -139,6 +140,8 @@ def __getattr__(name: str) -> List[JobHandler]:
                 # publicaciones-repair: conditional envio/sku ticks under the shared Pacer.
                 envio_repair,
                 sku_repair,
+                # ml-freshness S1c: item cores of a notification burst read ahead of the sub-resources (own thread).
+                core_first,
             ]
         return _ml_publications_registry
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

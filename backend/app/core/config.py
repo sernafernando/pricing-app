@@ -206,6 +206,9 @@ class Settings(BaseSettings):
     # ml_pub_settings or ML_PUB_KILL_SWITCH. See settings_store module docstring.
     ML_PUB_CATALOG_COMPETITION_REFRESH_ENABLED: bool = True
     ML_PUB_CATALOG_COMPETITION_REFRESH_RATE_PER_MIN: int = Field(default=10, ge=1, le=120)
+    # Core-first read of the notification lane's item cores (`ml_publications.core_first`, S1c). A kill switch,
+    # ON by default (owner: nothing ships off); it also needs `refresh.enabled`, so a fresh deploy stays inert.
+    ML_PUB_CORE_FIRST_ENABLED: bool = True
     ML_PUB_LINKS_ENABLED: bool = False
     ML_PUB_VERIFY_ENABLED: bool = False
     ML_PUB_DIVERGENCE_ENABLED: bool = False

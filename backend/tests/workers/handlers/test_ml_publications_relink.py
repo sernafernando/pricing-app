@@ -511,4 +511,5 @@ class TestRegistry:
             "ml_publications.promo_refresh",
             "ml_publications.freshness",
             "ml_publications.catalog_competition_refresh",
+            "ml_publications.core_first",
         ]

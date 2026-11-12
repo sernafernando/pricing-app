@@ -256,3 +256,19 @@ def test_the_refresh_throughput_settings_are_documented(doc) -> None:
         "Rollback: `refresh.runners = 1`",
     ):
         assert needle in section, needle
+
+
+def test_the_core_first_job_is_documented_with_its_rule_flag_bounds_and_rollback(doc) -> None:
+    start = doc.index("## Core-first reads of a notification burst")
+    section = " ".join(doc[start : doc.index("\n## ", start + 1)].split())
+    for needle in (
+        "`ml_publications.core_first`",
+        "`core_first.enabled`",
+        "default **on**",
+        "refresh.enabled",
+        "fetched_request_started_at >= ml_pub_refresh_queue.last_enqueued_at",
+        "at most 3 calls per tick",
+        "skipped_core_fresh",
+        "Rollback",
+    ):
+        assert needle in section, needle

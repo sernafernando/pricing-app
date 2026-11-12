@@ -74,6 +74,7 @@ class TestMlPublicationsRegistry:
             "ml_publications.catalog_competition_refresh",
             "publicacion_repair.envio",
             "publicacion_repair.sku",
+            "ml_publications.core_first",
         ]
         assert registry.ML_PUBLICATIONS_REGISTRY[0] is ml_publications.refresh
         assert registry.ML_PUBLICATIONS_REGISTRY[1] is ml_publications.intake
@@ -93,6 +94,15 @@ class TestMlPublicationsRegistry:
         assert registry.ML_PUBLICATIONS_REGISTRY[15].name == "ml_publications.catalog_competition_refresh"
         assert registry.ML_PUBLICATIONS_REGISTRY[16] is envio_repair
         assert registry.ML_PUBLICATIONS_REGISTRY[17] is sku_repair
+        assert registry.ML_PUBLICATIONS_REGISTRY[18] is ml_publications.core_first
+
+    def test_core_first_runs_in_its_own_thread_five_seconds_apart_on_the_refresh_pacer(self) -> None:
+        handler = registry.ML_PUBLICATIONS_REGISTRY[18]
+        assert handler.own_thread is True
+        assert handler.interval == timedelta(seconds=5)
+        assert handler.run_at_local is None
+        assert handler.channels == ()
+        assert handler.pacer is ml_publications.refresh.pacer
 
     def test_order_discounts_runs_in_its_own_thread_five_seconds_apart_and_is_not_notify_driven(self) -> None:
         handler = registry.ML_PUBLICATIONS_REGISTRY[12]
@@ -152,5 +162,5 @@ class TestProcessIsolation:
             "'ml_publications.verify', 'ml_publications.promo_refresh', 'ml_ads.ingest', 'promo_write.refresh', "
             "'ml_publications.freshness', 'ml_billing.sweep', 'ml_orders.discounts', 'gestion_full.inbound', "
             "'gestion_full.reconcile', 'ml_publications.catalog_competition_refresh', "
-            "'publicacion_repair.envio', 'publicacion_repair.sku'] True"
+            "'publicacion_repair.envio', 'publicacion_repair.sku', 'ml_publications.core_first'] True"
         )

@@ -235,6 +235,23 @@ class TestKillSwitch:
         assert is_enabled("refresh") is False
 
 
+class TestCoreFirstFlag:
+    """S1c: `core_first.enabled` is a kill switch, ON unless an operator or the kill switch turns it off."""
+
+    def test_it_defaults_on(self, settings_db) -> None:
+        got = get_setting("core_first.enabled")
+        assert (got.value, got.source) == (True, "env")
+
+    def test_a_db_row_turns_it_off(self, settings_db) -> None:
+        set_setting("core_first.enabled", False, updated_by="tester")
+        assert is_enabled("core_first") is False
+
+    def test_the_kill_switch_turns_it_off(self, settings_db, monkeypatch) -> None:
+        monkeypatch.setattr(settings, "ML_PUB_KILL_SWITCH", True)
+        got = get_setting("core_first.enabled")
+        assert (got.value, got.source) == (False, "kill_switch")
+
+
 class TestFailClosed:
     @pytest.fixture()
     def unreadable(self, monkeypatch):
