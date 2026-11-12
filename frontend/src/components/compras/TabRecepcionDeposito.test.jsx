@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import api from '../../services/api';
 import TabRecepcionDeposito from './TabRecepcionDeposito';
@@ -1287,6 +1287,104 @@ describe('TabRecepcionDeposito — responsable picker on mark faltantes', () => 
         faltantes_texto: 'Falta SSD',
         responsable_id: 8,
       }),
+    );
+  });
+});
+
+describe('TabRecepcionDeposito — OC, producto/EAN and creado por filters', () => {
+  const CREADORES = [
+    { id: 11, nombre: 'Ana Compras' },
+    { id: 12, nombre: 'Beto Compras' },
+  ];
+
+  async function renderWithCreadores() {
+    mockListado([PEDIDO_PAGADO]);
+    const base = api.get.getMockImplementation();
+    api.get.mockImplementation((url, config) => {
+      if (url === CREADORES_ENDPOINT) return Promise.resolve({ data: CREADORES });
+      return base(url, config);
+    });
+    render(<TabRecepcionDeposito />);
+    await screen.findByText(`#${PEDIDO_PAGADO.numero}`);
+    await screen.findByRole('option', { name: 'Ana Compras' });
+  }
+
+  const lastListParams = () => {
+    const calls = api.get.mock.calls.filter(([url]) => url === LISTADO_ENDPOINT);
+    return calls[calls.length - 1][1].params;
+  };
+
+  it('renders the three filters, empty, with the creator options from the endpoint', async () => {
+    await renderWithCreadores();
+
+    expect(screen.getByLabelText('Filtrar por número de OC')).toHaveValue('');
+    expect(screen.getByLabelText('Filtrar por producto o EAN en OC')).toHaveValue('');
+    expect(screen.getByLabelText('Filtrar por usuario que creó el pedido')).toHaveValue('');
+    expect(screen.getByRole('option', { name: 'Beto Compras' })).toBeInTheDocument();
+    expect(lastListParams()).toEqual({
+      estado: 'pagado,en_cuenta_corriente',
+      page_size: 200,
+      tipo: 'mercaderia',
+    });
+  });
+
+  it('sends q_oc with digits only', async () => {
+    const user = userEvent.setup();
+    await renderWithCreadores();
+
+    await user.type(screen.getByLabelText('Filtrar por número de OC'), '45/503');
+
+    expect(screen.getByLabelText('Filtrar por número de OC')).toHaveValue('45503');
+    await waitFor(() => expect(lastListParams()).toMatchObject({ q_oc: '45503' }));
+  });
+
+  it('sends q_producto only from 2 characters on', async () => {
+    const user = userEvent.setup();
+    await renderWithCreadores();
+    const input = screen.getByLabelText('Filtrar por producto o EAN en OC');
+
+    await user.type(input, '7');
+    // Let the 300 ms debounce settle on the 1-character value.
+    await act(() => new Promise((r) => setTimeout(r, 400)));
+    expect(lastListParams()).not.toHaveProperty('q_producto');
+
+    await user.type(input, '79');
+    await waitFor(() => expect(lastListParams()).toMatchObject({ q_producto: '779' }));
+  });
+
+  it('sends creado_por_id as a number for the chosen creator', async () => {
+    const user = userEvent.setup();
+    await renderWithCreadores();
+
+    await user.selectOptions(screen.getByLabelText('Filtrar por usuario que creó el pedido'), '12');
+
+    await waitFor(() => expect(lastListParams()).toMatchObject({ creado_por_id: 12 }));
+  });
+
+  it('clearing the filters drops their params from the next request', async () => {
+    const user = userEvent.setup();
+    await renderWithCreadores();
+    const oc = screen.getByLabelText('Filtrar por número de OC');
+    const producto = screen.getByLabelText('Filtrar por producto o EAN en OC');
+    const select = screen.getByLabelText('Filtrar por usuario que creó el pedido');
+
+    await user.type(oc, '503');
+    await user.type(producto, 'TAPO');
+    await user.selectOptions(select, '11');
+    await waitFor(() =>
+      expect(lastListParams()).toMatchObject({ q_oc: '503', q_producto: 'TAPO', creado_por_id: 11 })
+    );
+
+    await user.clear(oc);
+    await user.clear(producto);
+    await user.selectOptions(select, '');
+
+    await waitFor(() =>
+      expect(lastListParams()).toEqual({
+        estado: 'pagado,en_cuenta_corriente',
+        page_size: 200,
+        tipo: 'mercaderia',
+      })
     );
   });
 });
