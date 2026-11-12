@@ -89,7 +89,8 @@ const FACTURAS = {
   fila: (f) => ({
     codigo: numeroFactura(f),
     descripcion: f.proveedor_nombre || `Proveedor ${f.proveedor_id}`,
-    meta: `${dia(f.fecha)} · Operación ${f.numero}`,
+    // Without its supplier invoice yet: a % or per unit line waits for it (sell in factura pendiente S4).
+    meta: `${dia(f.fecha)} · Operación ${f.numero}${f.fecha_factura === null ? ' · Esperando factura' : ''}`,
     importe: dinero(f.moneda, Number(f.monto)),
   }),
   singular: 'seleccionada',
