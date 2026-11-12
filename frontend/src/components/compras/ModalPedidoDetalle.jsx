@@ -523,6 +523,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
           </button>
         </div>
 
+        <div className={styles.modalBody}>
         {loading && (
           <div className={styles.centered}>
             <Loader2 size={20} className={styles.spin} /> Cargando...
@@ -1309,6 +1310,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
             )}
           </div>
         )}
+        </div>
 
         <div className={styles.formActions}>
           {/* F2 — Show resolver button when variance is pending and user can manage */}

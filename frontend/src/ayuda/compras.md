@@ -40,3 +40,6 @@ Sí, en pedidos **con OC** todavía en *Por recibir* / *Por retirar* (chip de Pr
 
 **¿Se puede vincular más de una factura ERP a un pedido?**
 Sí. En el detalle del pedido, **Facturas del ERP** lista cada `ct_transaction` vinculada, permite **Desvincular** una por una y **Vincular otra**. La misma factura también puede quedar documentada en varios pedidos; el sell-in de líneas solo se arma cuando esa factura queda ligada a un solo pedido.
+
+**¿Por qué el botón Cerrar del detalle del pedido queda siempre a la vista?**
+En **Ver detalle**, el contenido largo (líneas, facturas, OC) hace scroll adentro del modal; la barra de acciones con **Cerrar** queda fija abajo del diálogo para no tener que bajar hasta el final.
