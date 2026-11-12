@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import bindparam, func, text, update
@@ -712,7 +712,7 @@ def _arribo_lineas_cubiertas(session: Session, pedido: PedidoCompra) -> bool:
     progress rows the one-click confirm keeps working as before. Pedidos with no readable OC lines return
     True (nothing to cover).
     """
-    acumulado = _acumulado_arribo_por_pod(session, int(pedido.id))
+    acumulado = _acumulado_arribo_por_linea(session, int(pedido.id))
     if not acumulado:
         return True
     saldos = computar_saldos(session, pedido)
@@ -1068,19 +1068,31 @@ def resolver_faltantes(
 # ──────────────────────────────────────────────────────────────────────────
 
 
-def _acumulado_arribo_por_pod(session: Session, pedido_id: int) -> dict[int, Decimal]:
+LineaOcKey = tuple[Optional[int], Optional[int], Optional[int], int]
+
+
+def _linea_oc_key(oc_comp_id: Any, oc_bra_id: Any, oc_poh_id: Any, pod_id: Any) -> LineaOcKey:
+    """An OC line's identity: its OC triple plus `pod_id` (the same `pod_id` can exist in two linked OCs)."""
+
+    def _int(value: Any) -> Optional[int]:
+        return None if value is None else int(value)
+
+    return (_int(oc_comp_id), _int(oc_bra_id), _int(oc_poh_id), int(pod_id))
+
+
+def _acumulado_arribo_por_linea(session: Session, pedido_id: int) -> dict[LineaOcKey, Decimal]:
     rows = session.execute(
         text(
             """
-            SELECT pod_id, COALESCE(SUM(cantidad), 0) AS acumulado
+            SELECT oc_comp_id, oc_bra_id, oc_poh_id, pod_id, COALESCE(SUM(cantidad), 0) AS acumulado
             FROM pedido_compra_arribo_progreso
             WHERE pedido_id = :pedido_id
-            GROUP BY pod_id
+            GROUP BY oc_comp_id, oc_bra_id, oc_poh_id, pod_id
             """
         ),
         {"pedido_id": pedido_id},
     ).fetchall()
-    return {int(r[0]): Decimal(str(r[1] or 0)) for r in rows}
+    return {_linea_oc_key(r[0], r[1], r[2], r[3]): Decimal(str(r[4] or 0)) for r in rows}
 
 
 def pedidos_con_arribo_en_curso(session: Session, pedido_ids: list[int]) -> set[int]:
@@ -1102,12 +1114,14 @@ def pedidos_con_arribo_en_curso(session: Session, pedido_ids: list[int]) -> set[
 
 def _lineas_arribo_desde_saldos(
     saldos: SaldosResponse,
-    acumulado: dict[int, Decimal],
+    acumulado: dict[LineaOcKey, Decimal],
 ) -> list[ArriboProgresoLineaResponse]:
     lineas: list[ArriboProgresoLineaResponse] = []
     for linea in saldos.lineas:
         qty = Decimal(str(linea.pod_qty or 0))
-        done = acumulado.get(int(linea.pod_id), Decimal("0"))
+        done = acumulado.get(
+            _linea_oc_key(linea.oc_comp_id, linea.oc_bra_id, linea.oc_poh_id, linea.pod_id), Decimal("0")
+        )
         pendiente = qty - done
         if pendiente < 0:
             pendiente = Decimal("0")
@@ -1144,7 +1158,7 @@ def get_arribo_progreso(session: Session, pedido: PedidoCompra) -> ArriboProgres
         )
 
     saldos = computar_saldos(session, pedido)
-    acumulado = _acumulado_arribo_por_pod(session, int(pedido.id))
+    acumulado = _acumulado_arribo_por_linea(session, int(pedido.id))
     lineas = _lineas_arribo_desde_saldos(saldos, acumulado)
     en_curso = bool(acumulado) and pedido.estado in ESTADOS_ARRIBO
     return ArriboProgresoResponse(
@@ -1181,20 +1195,27 @@ def registrar_arribo_progreso(
         )
 
     saldos = computar_saldos(session, pedido)
-    by_pod = {int(l.pod_id): l for l in saldos.lineas}
-    acumulado = _acumulado_arribo_por_pod(session, int(pedido.id))
+    acumulado = _acumulado_arribo_por_linea(session, int(pedido.id))
 
     creados: list[ArriboProgresoCreadoResponse] = []
     for linea_req in request.lineas:
         pod_id = int(linea_req.pod_id)
-        saldo_linea = by_pod.get(pod_id)
-        if saldo_linea is None:
+        # Same rule as registrar_ingresos: the request names a line by `pod_id` alone.
+        matches = [linea for linea in saldos.lineas if int(linea.pod_id) == pod_id]
+        if not matches:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"pod_id {pod_id} not found in linked OC",
             )
+        if len(matches) > 1:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"pod_id {pod_id} is ambiguous across linked OCs",
+            )
+        saldo_linea = matches[0]
+        key = _linea_oc_key(saldo_linea.oc_comp_id, saldo_linea.oc_bra_id, saldo_linea.oc_poh_id, pod_id)
         qty = Decimal(str(saldo_linea.pod_qty or 0))
-        prev = acumulado.get(pod_id, Decimal("0"))
+        prev = acumulado.get(key, Decimal("0"))
         nueva = Decimal(str(linea_req.cantidad))
         if prev + nueva > qty:
             raise HTTPException(
@@ -1214,7 +1235,7 @@ def registrar_arribo_progreso(
         )
         session.add(row)
         session.flush()
-        acumulado[pod_id] = prev + nueva
+        acumulado[key] = prev + nueva
         creados.append(ArriboProgresoCreadoResponse(id=int(row.id), pod_id=pod_id, cantidad=nueva))
 
     lineas_out = _lineas_arribo_desde_saldos(saldos, acumulado)

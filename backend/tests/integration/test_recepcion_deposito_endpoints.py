@@ -2183,15 +2183,6 @@ class TestArriboEntryStatesInvariant:
         )
         db.add(p_con_oc)
         db.flush()
-        # Mark-complete requires covering every OC line via arribo progress first.
-        from app.schemas.recepcion import ArriboProgresoLineaRequest, RegistrarArriboProgresoRequest
-
-        recepcion_service.registrar_arribo_progreso(
-            db,
-            p_con_oc,
-            active_user,
-            RegistrarArriboProgresoRequest(lineas=[ArriboProgresoLineaRequest(pod_id=1, cantidad=Decimal("100"))]),
-        )
         result_con_oc = recepcion_service.confirmar_arribo_con_oc(db, p_con_oc, active_user)
         assert result_con_oc.estado_nuevo == "recibido", f"CON-OC arrival must accept estado='{estado}'"
         assert p_con_oc.estado == "recibido"
@@ -3252,3 +3243,50 @@ class TestArriboParcialGuards:
         r = getattr(client, method)(url, headers=auth_headers, **kwargs)
 
         assert r.status_code == 403
+
+
+class TestArriboParcialVariasOc:
+    """Two linked OCs that both have a line `pod_id=1`: each OC line is its own line (GGA on #2224)."""
+
+    @pytest.fixture
+    def dos_oc(self, db, pedido_pagado_con_oc):
+        from app.models.pedido_compra_oc import PedidoCompraOc
+
+        for poh_id in (9001, 9002):
+            _mk_oc_header(db, poh_id=poh_id, supp_id=55)
+            _mk_oc_detail(db, poh_id=poh_id, pod_id=1, qty=10.0, item_id=101)
+            db.add(PedidoCompraOc(pedido_id=pedido_pagado_con_oc.id, oc_comp_id=1, oc_bra_id=1, oc_poh_id=poh_id))
+        _mk_oc_detail(db, poh_id=9002, pod_id=2, qty=5.0, item_id=102)
+        _mk_storage(db, stor_id=1)
+        db.flush()
+        return pedido_pagado_con_oc
+
+    def test_an_ambiguous_pod_id_is_422_like_registrar_ingresos(self, db, dos_oc, active_user):
+        with pytest.raises(HTTPException) as exc:
+            _arribo(db, dos_oc, active_user, "10")
+
+        assert exc.value.status_code == 422
+        assert "ambiguous" in exc.value.detail
+
+    def test_covering_one_ocs_line_does_not_cover_the_other_ocs_same_pod_id(self, db, dos_oc, active_user):
+        from app.models.pedido_compra_arribo_progreso import PedidoCompraArriboProgreso
+
+        db.add(
+            PedidoCompraArriboProgreso(
+                pedido_id=dos_oc.id,
+                oc_comp_id=1,
+                oc_bra_id=1,
+                oc_poh_id=9001,
+                pod_id=1,
+                cantidad=Decimal("10"),
+                usuario_id=active_user.id,
+            )
+        )
+        db.flush()
+
+        lineas = {(l.oc_poh_id, l.pod_id): l for l in recepcion_service.get_arribo_progreso(db, dos_oc).lineas}
+        assert lineas[(9001, 1)].pendiente_arribo == 0
+        assert lineas[(9002, 1)].pendiente_arribo == 10
+        with pytest.raises(HTTPException) as exc:
+            recepcion_service.confirmar_arribo_con_oc(db, dos_oc, active_user)
+        assert exc.value.status_code == 409
