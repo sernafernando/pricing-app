@@ -179,11 +179,11 @@ export function buildColumns({
     // Agrupado's parent rows sum up whole brands and categories in compact badges on one line ("C 33", "3 30", … "12 24";
     // "● 111" per state), so the tree starts Tipo and Estado wide enough to hold them, with room left for a wider fallback font (CI's DejaVu). Producto's rows hold a product's
     // few publications: the list's widths fit them and leave the money columns their room.
-    { key: 'tipo', header: 'Tipo', width: agrupado ? 216 : 110, sortable: true, render: (item) => <ListingKindBadge kind={item.listing_kind} /> },
+    { key: 'tipo', header: 'Tipo', width: agrupado ? 240 : 110, sortable: true, render: (item) => <ListingKindBadge kind={item.listing_kind} /> },
     {
       key: 'estado',
       header: 'Estado',
-      width: agrupado ? 128 : 104,
+      width: agrupado ? 144 : 104,
       render: (item) => <PublicationStatusPill status={item.status} gone={item.gone} subStatus={item.sub_status} />,
     },
     { key: 'precio', header: 'Precio', width: 136, sortable: true, align: 'center', fit: true, render: (item) => <PriceCell price={item.price} /> },

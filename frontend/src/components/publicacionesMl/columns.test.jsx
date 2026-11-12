@@ -125,7 +125,7 @@ describe('listing type', () => {
       const columns = byKey(options);
       return [columns.tipo.width, columns.estado.width];
     };
-    expect(widths({ agrupado: true })).toEqual([216, 128]);
+    expect(widths({ agrupado: true })).toEqual([240, 144]);
     expect(widths({})).toEqual([110, 104]);
     expect(widths({ producto: true })).toEqual([110, 104]);
   });
