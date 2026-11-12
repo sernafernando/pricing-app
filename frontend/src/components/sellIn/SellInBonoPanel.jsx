@@ -36,12 +36,12 @@ function RepartoDelTotal({ bono }) {
   if (bono.reparto_criterio === 'unidades') {
     return (
       <p className={styles.hint}>
-        El total se reparte según las unidades vendidas en las fechas del bono: sigue las ventas y devoluciones, sin pasar el total.
+        El total se reparte según las unidades vendidas en las fechas de la línea: sigue las ventas y devoluciones, sin pasar el total.
       </p>
     );
   }
   const repartos = bono.repartos ?? [];
-  if (repartos.length === 0) return <p className={styles.hint}>Ningún producto del bono recibió parte del total.</p>;
+  if (repartos.length === 0) return <p className={styles.hint}>Ningún producto de la línea recibió parte del total.</p>;
   return (
     <div className={tabla.scroller}>
       <table className={tabla.table} aria-label="Reparto del monto total">
@@ -105,7 +105,7 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
       return sellInBonosAPI
         .alcance(bonoId)
         .then(({ data }) => activo() && setAlcance(data))
-        .catch((err) => activo() && setAlcanceError(apiMessage(err, 'No se pudo leer qué compras alcanza el bono.')));
+        .catch((err) => activo() && setAlcanceError(apiMessage(err, 'No se pudo leer qué compras alcanza la línea.')));
     },
     [bonoId],
   );
@@ -113,7 +113,7 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
   useEffect(() => {
     if (nuevo) return undefined;
     let active = true;
-    leerBono(() => active).catch((err) => active && setError(apiMessage(err, 'No se pudo cargar el bono.')));
+    leerBono(() => active).catch((err) => active && setError(apiMessage(err, 'No se pudo cargar la línea.')));
     leerAlcance(() => active);
     return () => {
       active = false;
@@ -153,7 +153,7 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
       aplicar(data);
       leerAlcance();
     } catch (err) {
-      setError(apiMessage(err, 'No se pudo guardar el bono.'));
+      setError(apiMessage(err, 'No se pudo guardar la línea.'));
       if (!nuevo && err?.response?.status === 409) leerBono().catch(() => {});
     } finally {
       setBusy(false);
@@ -169,7 +169,7 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
       aplicar(data);
       leerAlcance();
     } catch (err) {
-      setError(apiMessage(err, 'No se pudo anular el bono.'));
+      setError(apiMessage(err, 'No se pudo anular la línea.'));
     } finally {
       setBusy(false);
     }
@@ -180,7 +180,7 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
   const editable = puedeGestionar && (nuevo || activo);
   const costo = bono ? esBonoCosto(bono) : false;
   const origen = bono ? origenDeBono(bono) : null;
-  const titulo = nuevo ? 'Nuevo sell in · Bono de marca' : bono ? bono.descripcion || `Bono · ${alcanceDeBono(bono)}` : 'Bono de marca';
+  const titulo = nuevo ? 'Nuevo sell in · Línea por marca' : bono ? bono.descripcion || `Línea · ${alcanceDeBono(bono)}` : 'Línea por marca';
 
   return (
     <div className={styles.panel}>
@@ -188,7 +188,7 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
         <div>
           {bono && (
             <div className={styles.pills}>
-              <StatusPill tone="purple">Bono de marca</StatusPill>
+              <StatusPill tone="purple">Línea por marca</StatusPill>
               <StatusPill tone={activo ? 'success' : 'danger'}>{activo ? 'Activo' : 'Anulado'}</StatusPill>
             </div>
           )}
@@ -264,7 +264,7 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
                 <span className={styles.label}>Motivo (opcional)</span>
                 <textarea id={`${id}-motivo`} className={styles.textarea} maxLength={MOTIVO_MAX} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
               </label>
-              <p className={styles.hint}>Al anular el bono se anulan las compras que generó.</p>
+              <p className={styles.hint}>Al anular la línea se anulan las compras que generó.</p>
               <div className={styles.confirmActions}>
                 <button
                   type="button"
@@ -288,13 +288,13 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
                 Cancelar
               </button>
               <button type="button" className="btn-tesla primary sm" onClick={guardar} disabled={busy}>
-                Guardar bono
+                Guardar línea
               </button>
             </>
           ) : (
             <>
               <button type="button" className="btn-tesla outline sm" onClick={() => setConfirmando(true)} disabled={busy}>
-                Anular bono
+                Anular línea
               </button>
               <button type="button" className="btn-tesla primary sm" onClick={guardar} disabled={busy}>
                 Guardar cambios

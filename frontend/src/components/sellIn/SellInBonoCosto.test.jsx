@@ -98,7 +98,7 @@ describe('SellInBonoForm — base of a new bonus', () => {
     await user.type(screen.getByLabelText('Venta desde'), '2026-01-01');
     await user.type(screen.getByLabelText('Venta hasta'), '2026-12-31');
     await user.click(screen.getByRole('checkbox', { name: 'Incluye IVA' }));
-    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar línea' }));
 
     expect(sellInBonosAPI.crear).toHaveBeenCalledWith({
       alcance: 'marca',

@@ -42,7 +42,7 @@ describe('SellInBonoForm — acumulable (T27c)', () => {
     expect(screen.getByLabelText(CHECK)).toBeChecked();
 
     await user.click(screen.getByLabelText(CHECK));
-    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar línea' }));
 
     expect(sellInBonosAPI.crear).toHaveBeenCalledWith(expect.objectContaining({ acumulable: false }));
   });
