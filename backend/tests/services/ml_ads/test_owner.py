@@ -100,3 +100,42 @@ def test_a_duplicated_requested_mla_still_has_one_owner(db):
     _publish(db, 1, "MLA1", 10)
     asked = union_all(select(literal("MLA1")), select(literal("MLA1")))
     assert db.execute(ads_owner_select(sqlite=True, mlas=select(asked.c[0]))).all() == [("MLA1", 10)]
+
+
+def test_a_requested_mla_without_publication_still_falls_back_to_its_last_sale(db):
+    from sqlalchemy import literal, union_all
+
+    _sell(db, 900, 10, "MLA2", 31)
+    _sell(db, 901, 20, "MLA2", 32)
+    _sell(db, 902, 25, "MLA3", 40)
+    asked = union_all(select(literal("MLA2")), select(literal("MLA8")))
+    rows = db.execute(ads_owner_select(sqlite=True, mlas=select(asked.c[0]))).all()
+    assert sorted(rows) == [("MLA2", 32), ("MLA8", NO_PRODUCT)]
+
+
+def _subquery_sql(sql: str, alias: str) -> str:
+    """The text of the parenthesised subquery named `alias` in `sql`."""
+    end = sql.index(f") AS {alias}")
+    depth = 0
+    for start in range(end, -1, -1):
+        depth += {")": 1, "(": -1}.get(sql[start], 0)
+        if depth == 0:
+            return sql[start : end + 1]
+    raise AssertionError(f"unbalanced subquery {alias}")
+
+
+def test_the_last_sale_fallback_reads_only_the_requested_mlas_history():
+    """With `mlas`, the last-sale aggregate is restricted BEFORE its GROUP BY: Postgres does not push a filter on
+    the windowed fallback down into it, and every MLA's whole sales history was aggregated to keep a few."""
+    from sqlalchemy.dialects import postgresql
+
+    from app.models.ml_orders_ops import MlOrderItemOps
+
+    sql = str(
+        ads_owner_select(sqlite=False, mlas=select(MlOrderItemOps.item_id).where(MlOrderItemOps.order_id == 1)).compile(
+            dialect=postgresql.dialect()
+        )
+    )
+    last_sale = _subquery_sql(sql, "ads_last_sale")
+    assert "GROUP BY" in last_sale
+    assert "ml_order_items_ops.item_id IN (SELECT" in last_sale, last_sale
