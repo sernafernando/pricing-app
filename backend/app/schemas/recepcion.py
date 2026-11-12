@@ -247,3 +247,94 @@ class DespacharRetiroResponse(BaseModel):
     manual_phone: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# GET/POST /recepcion/arribo-progreso (pre-control partial arribo/retiro)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class ArriboProgresoLineaResponse(BaseModel):
+    """One OC line with ordered qty vs accumulated arribo/retiro progress."""
+
+    pod_id: int
+    item_id: int | None = None
+    item_code: str | None = None
+    item_nombre: str | None = None
+    deposito_nombre: str | None = None
+    pod_qty: Decimal
+    cantidad_arribada: Decimal
+    pendiente_arribo: Decimal
+    oc_comp_id: int | None = None
+    oc_bra_id: int | None = None
+    oc_poh_id: int | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ArriboProgresoResponse(BaseModel):
+    """Response for GET /pedidos/{id}/recepcion/arribo-progreso."""
+
+    pedido_id: int
+    estado: str
+    requiere_envio: bool
+    arribo_en_curso: bool
+    lineas: list[ArriboProgresoLineaResponse]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ArriboProgresoLineaRequest(BaseModel):
+    """One line in a partial arribo/retiro batch."""
+
+    pod_id: int
+    cantidad: Decimal
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("cantidad")
+    @classmethod
+    def _cantidad_entera_positiva(cls, v: Decimal) -> Decimal:
+        if v <= 0:
+            raise ValueError("cantidad debe ser mayor a 0.")
+        if v != v.to_integral_value():
+            raise ValueError("cantidad debe ser un número entero (sin decimales).")
+        return v
+
+
+class RegistrarArriboProgresoRequest(BaseModel):
+    """Request body for POST /pedidos/{id}/recepcion/arribo-progreso."""
+
+    lineas: list[ArriboProgresoLineaRequest]
+    observaciones: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="after")
+    def _lineas_nonempty(self) -> "RegistrarArriboProgresoRequest":
+        if not self.lineas:
+            raise ValueError("lineas no puede estar vacío.")
+        return self
+
+
+class ArriboProgresoCreadoResponse(BaseModel):
+    """Summary of one created arribo progress row."""
+
+    id: int
+    pod_id: int
+    cantidad: Decimal
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RegistrarArriboProgresoResponse(BaseModel):
+    """Response for POST /pedidos/{id}/recepcion/arribo-progreso."""
+
+    pedido_id: int
+    estado_nuevo: str
+    cerrado: bool
+    arribo_en_curso: bool
+    creados: list[ArriboProgresoCreadoResponse]
+    lineas: list[ArriboProgresoLineaResponse]
+
+    model_config = ConfigDict(from_attributes=True)

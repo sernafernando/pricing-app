@@ -52,7 +52,10 @@ describe('VentasPorDiaChart (visual)', () => {
             expect(el.scrollWidth).toBeLessThanOrEqual(el.clientWidth + 1);
           }
         }
-        const visibles = dias.filter((d) => getComputedStyle(d.querySelector('span[class*="value"]')).visibility === 'visible');
+        // A bar under the pointer also shows its amount (:hover); the rule is about the bars nobody hovers.
+        const visibles = dias.filter(
+          (d) => !d.matches(':hover') && getComputedStyle(d.querySelector('span[class*="value"]')).visibility === 'visible',
+        );
         expect(visibles.map((d) => d.dataset.extremo).sort()).toEqual(['max', 'min']);
         for (const d of visibles) {
           const valor = d.querySelector('span[class*="value"]');

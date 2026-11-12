@@ -43,3 +43,15 @@ class SellInOutProducto(BaseModel):
     sell_out: Optional[SellOutProducto] = None
     markups_sell_in: Dict[str, float] = {}
     markups_sell_in_out: Dict[str, float] = {}
+
+
+class SellInOutTienda(BaseModel):
+    """The Tienda listing's sell in / sell out (`app.services.tienda_sell_in_out`). Sell in ignores stores, so it is
+    one figure; sell out depends on the channel each price sells through, so it is one per markup key (`gremio`,
+    `sugerido`: off-ML; `web_transf`: Tienda Nube), each with its own price as the percentage base. Null as a whole
+    when neither applies."""
+
+    sell_in: Optional[SellInProducto] = None
+    sell_out: Dict[str, SellOutProducto] = {}
+    markups_sell_in: Dict[str, float] = {}
+    markups_sell_in_out: Dict[str, float] = {}

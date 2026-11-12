@@ -17,6 +17,15 @@ from app.api.deps import get_current_user, require_algun_permiso
 from app.api.endpoints.pricing import PERMISOS_EDITAR_PRODUCTOS_O_TIENDA
 from app.services.envio_real_service import resolver_costos_envio_batch
 from app.services.productos_sell_in_out import MarkupCompanions, parse_contextos_query, resolver_sell_in_out_batch
+from app.services.tienda_sell_in_out import (
+    CLAVE_GREMIO,
+    CLAVE_SUGERIDO,
+    CLAVE_WEB_TRANSF,
+    PrecioTienda,
+    limpio_lista,
+    resolver_tienda_batches,
+    sell_in_out_tienda,
+)
 from app.services.costo_ppp_service import (
     resolver_ppp_batch,
     PppMarkups,
@@ -1770,7 +1779,11 @@ def listar_productos_tienda(
 ):
     """Endpoint específico para la página de Tienda con precio_gremio."""
     from app.models.markup_tienda import MarkupTiendaBrand, MarkupTiendaProducto
-    from app.services.pricing_calculator import obtener_constantes_pricing, obtener_tipo_cambio_actual
+    from app.services.pricing_calculator import (
+        limpio_web_transferencia,
+        obtener_constantes_pricing,
+        obtener_tipo_cambio_actual,
+    )
     from sqlalchemy import text
 
     global_layer_id_t = get_global_equipo_id(db)
@@ -2390,6 +2403,8 @@ def listar_productos_tienda(
 
     # ── Batch-resolve PPP (ERP weighted-average cost, informational only) ────
     ppp_by_item_t = resolver_ppp_batch(db, item_ids_results)
+    # Sell in / sell out per channel context (gremio / sugerido: off-ML; web_transf: Tienda Nube), one read.
+    sell_in_out_batches_t = resolver_tienda_batches(db, item_ids_results, hoy)
 
     def _resolve_envio_t(item_id: int, producto_envio: float, grupo_id: int, precio: float) -> float:
         # Real cost from mlwebhook DB (already resolved as batch)
@@ -2561,6 +2576,38 @@ def listar_productos_tienda(
                     except Exception:
                         pass
 
+        precio_web_t = (
+            float(producto_pricing.precio_web_transferencia)
+            if producto_pricing and producto_pricing.precio_web_transferencia
+            else None
+        )
+        sell_in_out_t = sell_in_out_tienda(
+            sell_in_out_batches_t,
+            producto_erp,
+            {
+                CLAVE_GREMIO: PrecioTienda(
+                    precio_gremio_con_iva, limpio_lista(precio_gremio_sin_iva, varios_porcentaje)
+                )
+                if precio_gremio_sin_iva and precio_gremio_con_iva
+                else None,
+                CLAVE_SUGERIDO: PrecioTienda(
+                    precio_sugerido_con_iva, limpio_lista(precio_sugerido_sin_iva, varios_porcentaje)
+                )
+                if precio_sugerido_sin_iva and precio_sugerido_con_iva
+                else None,
+                CLAVE_WEB_TRANSF: PrecioTienda(
+                    precio_web_t,
+                    limpio_web_transferencia(
+                        precio_web_t, iva_producto, constantes_pricing["comision_tienda_nube"], varios_porcentaje
+                    ),
+                )
+                if precio_web_t
+                else None,
+            },
+            tipo_cambio=tipo_cambio_usd_t,
+            iva=iva_producto,
+        )
+
         productos.append(
             ProductoTiendaResponse(
                 item_id=producto_erp.item_id,
@@ -2655,6 +2702,7 @@ def listar_productos_tienda(
                 catalog_status=None,
                 has_catalog=None,
                 ppp=ppp_t.payload(),
+                sell_in_out=sell_in_out_t,
             )
         )
 

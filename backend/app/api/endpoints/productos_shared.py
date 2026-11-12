@@ -26,7 +26,7 @@ from app.services.ml_publications.view.caps import MAX_EXPLICIT_PRODUCT_IDS
 from app.services.ml_pxq_tiers_read_service import fetch_mlas_with_pxq_tiers
 from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
 from app.schemas.costo_ppp import PppPayload
-from app.schemas.sell_in_out_producto import SellInOutProducto
+from app.schemas.sell_in_out_producto import SellInOutProducto, SellInOutTienda
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +210,8 @@ class ProductoTiendaResponse(BaseModel):
 
     # PPP (ERP weighted-average cost) — informational only, never persisted.
     ppp: Optional[PppPayload] = None
+    # Sell in / sell out on Tienda's own nets (app.services.tienda_sell_in_out); None when neither applies.
+    sell_in_out: Optional[SellInOutTienda] = None
 
     model_config = ConfigDict(from_attributes=True)
 

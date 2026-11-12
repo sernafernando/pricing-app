@@ -27,6 +27,7 @@ from app.models.sell_in import (
     SellInBonoMarca,
     SellInBonoReparto,
 )
+from app.models.tactical import TacticalFacturaPendiente
 from app.models.tipo_cambio import TipoCambio
 from app.services.sell import queue as sell_queue
 from app.services.sell_in import bono_queue
@@ -57,6 +58,7 @@ TABLES = [
     SellInBonoReparto.__table__,  # a total bonus's fixed shares (tactical monto total S4)
     SellInBonoConsumo.__table__,
     *_SELL_IN,
+    TacticalFacturaPendiente.__table__,  # read by the queue gate (sell in factura pendiente)
     PedidoCompraLineaFacturada.__table__,
     TipoCambio.__table__,
     SellInBonoDirty.__table__,
@@ -95,6 +97,8 @@ def world(prefix: str) -> Iterator[Engine]:
 
 def clean(engine: Engine) -> None:
     """Empties what the tests write; the queues go LAST, since deletes fire their triggers."""
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM tactical_facturas_pendientes"))  # it names purchases (RESTRICT)
     w.clean(engine)
     with engine.begin() as conn:
         for table in (

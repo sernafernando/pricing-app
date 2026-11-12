@@ -581,3 +581,59 @@ class TestMarcaConCategoria:
         b.set_categoria(engine, 2964, "Cables")
 
         assert b.queued(engine) == []
+
+
+@pytest.mark.postgres
+class TestFacturaPendiente:
+    """Sell in factura pendiente S3/S5: an invoice bonus saved while its operation has no invoice yet (its range is a
+    placeholder day) queues that operation when Compras links the invoice, whatever the invoice's date."""
+
+    @pytest.fixture()
+    def esperando(self, engine: Engine) -> tuple[int, int]:
+        pedido = b.pedido(engine, {}, None)
+        bono_id = b.bono_alcance(engine, "factura", pedido_id=pedido, desde=D(2026, 11, 12), hasta=D(2026, 11, 12))
+        b.clear_queue(engine)
+        return bono_id, pedido
+
+    def test_linking_the_invoice_queues_its_operation_outside_the_placeholder_day(self, engine: Engine, esperando):
+        _, pedido = esperando
+
+        b.update_pedido(engine, pedido, fecha_factura=D(2026, 10, 10))
+
+        assert b.queued(engine) == [("pedido", pedido)]
+
+    def test_invoiced_units_arriving_after_the_invoice_date_queue_its_operation(self, engine: Engine, esperando):
+        _, pedido = esperando
+        _sql(engine, "ALTER TABLE pedidos_compra DISABLE TRIGGER USER")
+        try:
+            b.update_pedido(engine, pedido, fecha_factura=D(2026, 10, 10))
+        finally:
+            _sql(engine, "ALTER TABLE pedidos_compra ENABLE TRIGGER USER")
+
+        b.set_lineas(engine, pedido, {2964: 3})
+
+        assert b.queued(engine) == [("pedido", pedido)]
+
+    def test_changes_while_the_invoice_is_missing_queue_nothing(self, engine: Engine, esperando):
+        _, pedido = esperando
+
+        b.update_pedido(engine, pedido, estado="cancelado")
+
+        assert b.queued(engine) == []
+
+    def test_other_operations_keep_the_date_gate(self, engine: Engine, esperando):
+        """Regression: only the waiting bonus's own operation skips the date gate."""
+        otra = b.pedido(engine, {2964: 3}, D(2026, 10, 10))
+        b.update_pedido(engine, otra, estado="cancelado")
+        b.set_lineas(engine, otra, {2964: 1})
+
+        assert b.queued(engine) == []
+
+    def test_a_voided_invoice_bonus_gates_nothing_in(self, engine: Engine, esperando):
+        bono_id, pedido = esperando
+        b.update_bono(engine, bono_id, estado="anulada")
+        b.clear_queue(engine)
+
+        b.update_pedido(engine, pedido, fecha_factura=D(2026, 10, 10))
+
+        assert b.queued(engine) == []

@@ -286,8 +286,13 @@ def parse_sort(orden: Optional[str], direction: Optional[str]) -> Sort:
 
 def bound(db: Session, timeout: Optional[str] = None) -> None:
     """Bound the rest of the request's transaction in time (released by the commit or rollback that ends it); the
-    list's own `STATEMENT_TIMEOUT` unless the caller (the detail) names a tighter one."""
-    db.execute(text(f"SET LOCAL statement_timeout = '{timeout or STATEMENT_TIMEOUT}'"))
+    list's own `STATEMENT_TIMEOUT` unless the caller (the detail) names a tighter one.
+
+    JIT is off for the same transaction: these statements run in tens or hundreds of milliseconds, but their
+    correlated product subqueries price them near a million, past `jit_optimize_above_cost`, and the compile
+    alone took about 1.1 s of a 1.3 s count with a brand or PM filter (5 to 8 s per screen of facets)."""
+    # one round trip, as before: the statement counts the view pins stay what they were
+    db.execute(text(f"SET LOCAL statement_timeout = '{timeout or STATEMENT_TIMEOUT}'; SET LOCAL jit = off"))
 
 
 def resolve_pm_pairs(db: Session, f: PublicationFilter) -> PublicationFilter:

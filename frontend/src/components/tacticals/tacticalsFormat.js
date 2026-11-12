@@ -44,9 +44,16 @@ export function valorDeLinea({ modo_monto: modo, valor, moneda, valor_usd: valor
 export const vigenciaDe = (desde, hasta, porFactura = false) =>
   porFactura ? 'Por factura' : `${formatDateOnly(desde, DIA_MES_ANIO).slice(0, 5)} al ${formatDateOnly(hasta, DIA_MES_ANIO)}`;
 
-/** The state pill: Anulado, Vencido, Vence hoy / en N días, or Vigente (an all-invoice tactical never ends). */
-export function estadoDe({ estado, fecha_hasta: hasta, por_factura: porFactura }, hoy = new Date()) {
+/**
+ * The state pill: Anulado, Esperando factura (an invoice line saved before Compras linked its invoice: it applies
+ * nothing until then), Vencido, Vence hoy / en N días, or Vigente (an all-invoice tactical never ends).
+ */
+export function estadoDe(
+  { estado, fecha_hasta: hasta, por_factura: porFactura, esperando_factura: esperandoFactura },
+  hoy = new Date(),
+) {
   if (estado === 'anulado') return { texto: 'Anulado', tono: 'neutral' };
+  if (esperandoFactura) return { texto: 'Esperando factura', tono: 'warning' };
   if (porFactura) return { texto: 'Vigente', tono: 'success' };
   const fin = parseDateOnly(hasta);
   const dia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
@@ -57,6 +64,8 @@ export function estadoDe({ estado, fecha_hasta: hasta, por_factura: porFactura }
   return { texto: `Vence en ${restan} ${restan === 1 ? 'día' : 'días'}`, tono: 'warning' };
 }
 
+const ESPERANDO_FACTURA = 'Esperando factura: se aplica cuando Compras vincule la factura del proveedor';
+
 /** What a brand, category or invoice line reaches; product lines are shown as chips instead. */
 export function alcanceDe(linea) {
   if (linea.alcance === 'marca' && linea.categoria) {
@@ -66,7 +75,10 @@ export function alcanceDe(linea) {
   if (linea.alcance === 'categoria') {
     return { titulo: `Categoría ${linea.categoria}`, detalle: 'Todos los productos de la categoría' };
   }
-  return { titulo: `Factura del pedido ${linea.pedido_numero ?? `#${linea.pedido_compra_id}`}`, detalle: null };
+  return {
+    titulo: `Factura del pedido ${linea.pedido_numero ?? `#${linea.pedido_compra_id}`}`,
+    detalle: linea.esperando_factura ? ESPERANDO_FACTURA : null,
+  };
 }
 
 function medir(usado, tope) {

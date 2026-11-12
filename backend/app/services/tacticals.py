@@ -34,6 +34,8 @@ consumed an invoice total (converted to its currency at its own rate).
 
 from __future__ import annotations
 
+import logging
+
 import functools
 from collections import defaultdict
 from dataclasses import dataclass
@@ -43,6 +45,7 @@ from typing import Any, Iterable, Optional
 
 from pydantic import ValidationError
 from sqlalchemy import Select, Subquery, and_, case, exists, func, literal, or_, select, union_all
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Query, Session, selectinload
 
 from app.models.auditoria import Auditoria, TipoAccion
@@ -63,7 +66,7 @@ from app.models.sell_in import (
 )
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo
 from app.models.ml_tienda_oficial import MlTiendaOficial
-from app.models.tactical import Tactical, TacticalCobranza, TacticalMarca, TacticalTienda
+from app.models.tactical import Tactical, TacticalCobranza, TacticalFacturaPendiente, TacticalMarca, TacticalTienda
 from app.schemas.sell_in import SellInCompraCreate, SellInLineaIn
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, BASE_FACTURA, SellInBonoIn
 from app.schemas.sell_out import SellOutCampanaIn
@@ -76,13 +79,18 @@ from app.schemas.tacticals import (
     TacticalLineaTopesIn,
     TacticalTiendaIn,
 )
-from app.services.sell_in import bonos_crud, compras
+from app.services.sell_in import bono_queue, bonos, bonos_crud, compras
 from app.services.sell_in.compras import contiene
 from app.services.sell_out import alcance as sell_out_alcance, campanas, tienda_scope
+
+logger = logging.getLogger(__name__)
 
 GRUPO_NOMBRE_MAX = 100  # offset_grupos.nombre is VARCHAR(100)
 CAMPANA_NOMBRE_MAX = 200
 CENTAVO = Decimal("0.01")
+# A line's child that is an invoice total: its purchase, or the row it waits as before the invoice.
+ORIGEN_PENDIENTE = "sell_in_factura_pendiente"
+TOTALES_DE_FACTURA = ("sell_in_compra", ORIGEN_PENDIENTE)
 SIN_FECHAS = "Las fechas son obligatorias: solo un tactical con todas sus líneas por factura va sin fechas"
 SIN_FECHA_HASTA = "Un tactical por factura no tiene fecha hasta: cada factura aplica hasta que se venden sus unidades"
 TOTAL_USD_SIN_TC_FIJO = "un monto total en USD necesita tipo de cambio fijo"
@@ -326,9 +334,9 @@ def _validar_linea(db: Session, data: TacticalIn, linea: TacticalLineaIn) -> _Al
     )
     if pedido is None:
         raise TacticalError(f"no existe la factura {linea.pedido_compra_id}")
-    if pedido.fecha_factura is None:
-        raise TacticalError(f"la operación {pedido.numero} no tiene fecha de factura")
-    # Any invoice date: an invoice line has no dates of its own (S1), its bonus takes its invoice's (`_sell_in`).
+    # Any invoice date: an invoice line has no dates of its own (S1), its bonus takes its invoice's (`_sell_in`). Any
+    # invoice line may wait for its invoice (sell in factura pendiente): a % or per unit one as its invoice bonus, a
+    # total as a `TacticalFacturaPendiente`; each applies when Compras links the invoice.
     return _Alcance(pedido=pedido)
 
 
@@ -420,15 +428,22 @@ def _sell_in(db, tactical, data, linea, numero, parte, codigos, usuario_id) -> N
         monto_total=_total_en_pesos(linea, data, parte) if linea.modo_monto == "monto_total" else None,
         reparto_criterio=linea.reparto_criterio,
         # An invoice bonus's range is its own invoice's date (S2c): it applies to that invoice's units until they
-        # are sold, and the reconcile moves it with a corrected invoice date (`bonos._seguir_factura`).
-        fecha_desde=parte.pedido.fecha_factura if parte.pedido is not None else data.fecha_desde,
-        fecha_hasta=parte.pedido.fecha_factura if parte.pedido is not None else data.fecha_hasta,
+        # are sold, and the reconcile moves it with a corrected invoice date (`bonos._seguir_factura`). A line
+        # waiting for its invoice takes today as a placeholder: the reconcile moves it to the invoice's date when
+        # Compras links it (sell in factura pendiente S3), and nothing applies before.
+        fecha_desde=_fecha_de_factura(parte.pedido) if parte.pedido is not None else data.fecha_desde,
+        fecha_hasta=_fecha_de_factura(parte.pedido) if parte.pedido is not None else data.fecha_hasta,
         descripcion=descripcion,
         tope_unidades=linea.tope_unidades,
         tope_monto=linea.tope_monto,
         acumulable=data.acumulable,
     )
     bonos_crud.crear_bono_sin_commit(db, entrada, usuario_id, tactical=(tactical.id, numero))
+
+
+def _fecha_de_factura(pedido: Any) -> date:
+    """An invoice bonus's one-day range: its invoice's date, or today while it waits for the invoice."""
+    return pedido.fecha_factura or date.today()
 
 
 def _total_en_pesos(linea, data, parte) -> Optional[Decimal]:
@@ -441,36 +456,128 @@ def _total_en_pesos(linea, data, parte) -> Optional[Decimal]:
 
 
 def _total_de_factura(db, tactical, data, linea, numero, pedido, descripcion, usuario_id) -> None:
-    """An invoice's fixed total: a sell-in purchase split over its invoiced lines (`proporcional`)."""
+    """An invoice's fixed total: a sell-in purchase split over its invoiced lines (`proporcional`). Before Compras
+    links the operation's invoice it waits as a `TacticalFacturaPendiente` (sell in factura pendiente), which the
+    `sell_in.bono` worker turns into the same purchase (`aplicar_facturas_pendientes`)."""
     if linea.tope_unidades is not None or linea.tope_monto is not None:
         raise TacticalError("un monto total no lleva topes: el monto total es el tope")
     if data.moneda == "USD" and tactical.tc_modo != "fijo":
         raise TacticalError(TOTAL_USD_SIN_TC_FIJO)
+    tasa_usd = data.tipo_cambio if data.moneda == "USD" else None
+    if pedido.fecha_factura is None:
+        db.add(
+            TacticalFacturaPendiente(
+                tactical_id=tactical.id,
+                tactical_linea=numero,
+                pedido_id=pedido.id,
+                valor=linea.valor,
+                moneda=data.moneda,
+                tipo_cambio=tasa_usd,
+                descripcion=descripcion,
+                usuario_id=usuario_id,
+            )
+        )
+        db.flush()
+        return
+    _compra_de_factura(db, (tactical.id, numero), pedido, linea.valor, data.moneda, tasa_usd, descripcion, usuario_id)
+
+
+def _facturado(db: Session, pedido_id: int) -> list[tuple[int, int]]:
+    """An operation's invoiced units per item, net of credit notes, the items with none left out."""
     t = PedidoCompraLineaFacturada
-    cantidades = [
+    return [
         (int(item_id), int(cantidad))
         for item_id, cantidad in db.query(t.item_id, func.sum(t.cantidad))
-        .filter(t.pedido_id == pedido.id)
+        .filter(t.pedido_id == pedido_id)
         .group_by(t.item_id)
         .having(func.sum(t.cantidad) > 0)
         .order_by(t.item_id)
     ]
+
+
+def _compra_de_factura(
+    db: Session,
+    tactical: tuple[int, int],
+    pedido: Any,
+    valor: Decimal,
+    moneda: str,
+    tasa_usd: Optional[Decimal],
+    descripcion: Optional[str],
+    usuario_id: int,
+) -> SellInCompra:
+    """The purchase of an invoice total, at save (`_total_de_factura`) or when its invoice arrives
+    (`aplicar_facturas_pendientes`): one code path, so both give the same rows."""
+    cantidades = _facturado(db, pedido.id)
     if not cantidades:
         raise TacticalError(f"la factura de la operación {pedido.numero} no tiene líneas facturadas")
     entrada = SellInCompraCreate(
-        moneda=data.moneda,
+        moneda=moneda,
         tipo="monto",
-        monto_total=linea.valor,
+        monto_total=valor,
         # USD: the tactical's fixed rate. ARS: the operation's own rate, which converts a product cost kept in USD
         # (the engine refuses a USD cost without one).
-        tipo_cambio=data.tipo_cambio if data.moneda == "USD" else pedido.tipo_cambio,
+        tipo_cambio=tasa_usd if moneda == "USD" else pedido.tipo_cambio,
         formula="proporcional",
         lineas=[SellInLineaIn(item_id=i, cantidad=c) for i, c in cantidades],
         pedido_compra_ids=[pedido.id],
         fecha_compra=pedido.fecha_factura,
         descripcion=descripcion,
     )
-    compras.crear_compra_sin_commit(db, entrada, usuario_id, tactical=(tactical.id, numero))
+    return compras.crear_compra_sin_commit(db, entrada, usuario_id, tactical=tactical)
+
+
+def aplicar_facturas_pendientes(db: Session, pedido_ids: Iterable[int]) -> int:
+    """Turn the waiting invoice totals of these operations into their purchases (sell in factura pendiente): each one
+    whose operation now has its invoice date and invoiced units gets the purchase `_total_de_factura` would have made
+    with the invoice already there, authored by whoever saved the line, and becomes `aplicada`. One still without
+    them keeps waiting (a later change to the operation queues it again). An all-invoice tactical's header then spans
+    its invoices (`bonos._cabeceras_por_factura`). Called by the `sell_in.bono` worker; does not commit. Returns how
+    many were applied."""
+    ids = sorted(set(pedido_ids))
+    if not ids:
+        return 0
+    # Lock order of a tactical's writers (anular, editar): the tactical, then its waiting rows. The purchase's FK
+    # takes the tactical FOR KEY SHARE anyway; taking it first waits for a void in progress instead of deadlocking
+    # with it while holding its waiting row.
+    duenos = (
+        db.query(TacticalFacturaPendiente.tactical_id)
+        .filter(TacticalFacturaPendiente.pedido_id.in_(ids), TacticalFacturaPendiente.estado == "pendiente")
+        .distinct()
+    )
+    db.query(Tactical.id).filter(Tactical.id.in_(duenos)).order_by(Tactical.id).with_for_update(key_share=True).all()
+    filas = (
+        db.query(TacticalFacturaPendiente)
+        .filter(TacticalFacturaPendiente.pedido_id.in_(ids), TacticalFacturaPendiente.estado == "pendiente")
+        .order_by(TacticalFacturaPendiente.id)
+        .with_for_update()
+        .all()
+    )
+    tacticals_: set[int] = set()
+    aplicadas = 0
+    for fila in filas:
+        pedido = (
+            db.query(PedidoCompra.id, PedidoCompra.numero, PedidoCompra.fecha_factura, PedidoCompra.tipo_cambio)
+            .filter(PedidoCompra.id == fila.pedido_id)
+            .first()
+        )
+        if pedido is None or pedido.fecha_factura is None or not _facturado(db, pedido.id):
+            continue
+        compra = _compra_de_factura(
+            db,
+            (fila.tactical_id, fila.tactical_linea),
+            pedido,
+            Decimal(fila.valor),
+            fila.moneda,
+            fila.tipo_cambio,
+            fila.descripcion,
+            fila.usuario_id,
+        )
+        fila.estado, fila.compra_id, fila.aplicada_en = "aplicada", compra.id, func.now()
+        tacticals_.add(fila.tactical_id)
+        aplicadas += 1
+    db.flush()
+    bonos._cabeceras_por_factura(db, tacticals_)
+    return aplicadas
 
 
 def _ocupado_si_deadlock(operacion):
@@ -496,12 +603,45 @@ def crear(db: Session, data: TacticalIn, usuario_id: int) -> Tactical:
     """The header and every child, all or nothing (module docstring); commits."""
     try:
         tactical = _crear(db, data, usuario_id)
+        facturas = _pedidos_de_facturas(db, tactical.id)
         db.commit()
     except Exception:
         db.rollback()
         raise
+    _encolar_si_llego_la_factura(db, facturas)
     db.refresh(tactical)
     return tactical
+
+
+def _pedidos_de_facturas(db: Session, tactical_id: int) -> list[int]:
+    """The operations of the tactical's invoice lines (a %/per unit invoice bonus or a waiting invoice total), with or
+    without their invoice as this transaction reads them: Compras may link one at any point of the save, after its
+    lines read it without it, and the queue's own gate decides after the commit (`_encolar_si_llego_la_factura`)."""
+    bonos_ = select(SellInBonoMarca.pedido_id).where(
+        SellInBonoMarca.tactical_id == tactical_id,
+        SellInBonoMarca.alcance == "factura",
+        SellInBonoMarca.estado == "activa",
+    )
+    totales = select(TacticalFacturaPendiente.pedido_id).where(
+        TacticalFacturaPendiente.tactical_id == tactical_id, TacticalFacturaPendiente.estado == "pendiente"
+    )
+    return sorted({pid for (pid,) in db.execute(union_all(bonos_, totales)) if pid is not None})
+
+
+def _encolar_si_llego_la_factura(db: Session, pedido_ids: list[int]) -> None:
+    """After a save commits, re-read the operations of its invoice lines and queue the invoiced ones under the
+    triggers' gate (sell in factura pendiente total): a link committed while the save was still open ran the operation
+    triggers before the new lines were visible to them, so nothing queued it. One already invoiced before the save is
+    queued again, which reconciles to the same result. Its own transaction; the save is already committed, so a
+    failure here is logged and the line waits for the operation's next change."""
+    if not pedido_ids:
+        return
+    try:
+        bono_queue.encolar_pedidos_facturados(db, pedido_ids)
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("tacticals: could not queue operations %s whose invoice arrived during the save", pedido_ids)
 
 
 def _validar_hijos(data: TacticalIn) -> None:
@@ -515,8 +655,9 @@ def _validar_hijos(data: TacticalIn) -> None:
 
 
 def _fechas_de_facturas(db: Session, data: TacticalIn) -> tuple[date, date]:
-    """An all-invoice tactical's dates: its oldest and newest invoice date (S2c). A line whose invoice is missing or
-    undated is refused by `_validar_linea` before commit, so today's date only stands in until that rollback."""
+    """An all-invoice tactical's dates: its oldest and newest invoice date (S2c). With every invoice still missing
+    (sell in factura pendiente) today stands in, like its bonuses' placeholder; the reconcile spans the invoices once
+    Compras links them (`bonos._cabeceras_por_factura`)."""
     ids = [linea.pedido_compra_id for linea in data.lineas if linea.pedido_compra_id is not None]
     desde, hasta = (
         db.query(func.min(PedidoCompra.fecha_factura), func.max(PedidoCompra.fecha_factura))
@@ -651,6 +792,17 @@ def _anular_hijos(db: Session, tactical_id: int, usuario_id: int, motivo: Option
         except compras.SellInYaAnulada:
             continue
         anuladas["compra_ids"].append(cid)
+    # A waiting invoice total never becomes a purchase once its tactical is voided.
+    pendientes = (
+        db.query(TacticalFacturaPendiente)
+        .filter(TacticalFacturaPendiente.tactical_id == tactical_id, TacticalFacturaPendiente.estado == "pendiente")
+        .order_by(TacticalFacturaPendiente.id)
+        .all()
+    )
+    for fila in pendientes:
+        fila.estado = "anulada"
+    if pendientes:
+        anuladas["factura_pendiente_ids"] = [f.id for f in pendientes]
     return anuladas
 
 
@@ -758,6 +910,7 @@ def _es_por_factura():
     hay_hijos = or_(
         exists().where(de_tactical),
         exists().where(SellInCompra.tactical_id == Tactical.id),
+        exists().where(TacticalFacturaPendiente.tactical_id == Tactical.id),
     )
     otro = exists().where(de_tactical, SellInBonoMarca.alcance != "factura")
     return and_(Tactical.tipo == "sell_in", hay_hijos, ~otro)
@@ -849,7 +1002,7 @@ def _editar_hijos(
     usuario_id: int,
 ) -> None:
     for hijo in hijos:
-        if hijo["estado"] != "activa" or hijo["origen"] == "sell_in_compra":
+        if hijo["estado"] != "activa" or hijo["origen"] in TOTALES_DE_FACTURA:
             continue
         numero = hijo["linea"]
         try:
@@ -940,6 +1093,7 @@ def reemplazar(
             "reemplazados": reemplazados,
         }
         _audit(db, TipoAccion.TACTICAL_EDITADO, usuario_id, despues, antes=antes)
+        facturas = _pedidos_de_facturas(db, tactical_id)
         db.commit()
     except campanas.SellOutRecalculando as exc:
         db.rollback()
@@ -947,6 +1101,7 @@ def reemplazar(
     except Exception:
         db.rollback()
         raise
+    _encolar_si_llego_la_factura(db, facturas)
     db.refresh(tactical)
     return tactical
 
@@ -976,7 +1131,7 @@ def _conservables(tactical: Tactical, data: TacticalIn, hijos: list[dict]) -> se
     conservadas = set()
     for numero, linea in enumerate(data.lineas, start=1):
         actuales = por_linea.get(numero, [])
-        if len(actuales) != 1 or actuales[0]["origen"] != "sell_in_compra":
+        if len(actuales) != 1 or actuales[0]["origen"] not in TOTALES_DE_FACTURA:
             continue
         actual = actuales[0]
         if (
@@ -1120,6 +1275,18 @@ def _reemplazar_hijos(db: Session, tactical_id: int, conservadas: set[int], usua
     ):
         compras.anular_compra_sin_commit(db, cid, usuario_id, MOTIVO_REEMPLAZO, es_masivo=True)
         anuladas["compra_ids"].append(cid)
+    # A waiting invoice total of a line not kept goes away: it applied nothing, the new line holds its own.
+    borradas = (
+        db.query(TacticalFacturaPendiente)
+        .filter(
+            TacticalFacturaPendiente.tactical_id == tactical_id,
+            TacticalFacturaPendiente.estado == "pendiente",
+            TacticalFacturaPendiente.tactical_linea.notin_(conservadas or {0}),
+        )
+        .delete(synchronize_session="fetch")
+    )
+    if borradas:
+        anuladas["facturas_pendientes_borradas"] = borradas
     db.flush()
     sueltos = {"tactical_id": None, "tactical_linea": None}
     for modelo, clave in ((SellOutCampana, "campana_ids"), (SellInBonoMarca, "bono_ids"), (SellInCompra, "compra_ids")):
@@ -1160,6 +1327,7 @@ def _contiene(tipo: str):
         return or_(
             exists().where(bono, SellInBonoMarca.alcance == "factura"),
             exists().where(SellInCompra.tactical_id == Tactical.id),
+            exists().where(TacticalFacturaPendiente.tactical_id == Tactical.id),
         )
     if tipo == "productos":
         de_campana = filas.where(OffsetGrupoFiltro.item_id.isnot(None))
@@ -1525,6 +1693,18 @@ def _lineas_bonos(db: Session, ids: list[int]) -> list[dict]:
             Tactical.id.in_(ids), Tactical.moneda == "USD", Tactical.tipo_cambio.isnot(None)
         )
     }
+    # An invoice line whose operation has no supplier invoice yet waits for it (sell in factura pendiente S4).
+    pids = {b.pedido_id for b in bonos if b.alcance == "factura" and b.pedido_id is not None}
+    sin_factura = (
+        {
+            pid
+            for (pid,) in db.query(PedidoCompra.id).filter(
+                PedidoCompra.id.in_(pids), PedidoCompra.fecha_factura.is_(None)
+            )
+        }
+        if pids
+        else set()
+    )
     salida = []
     for bono, fila in zip(bonos, bonos_crud.serializar(db, bonos)):
         salida.append(
@@ -1553,6 +1733,7 @@ def _lineas_bonos(db: Session, ids: list[int]) -> list[dict]:
                 "tope_monto": bono.tope_monto,
                 "unidades_usadas": fila["unidades"],
                 "monto_usado": _cents(fila["monto_generado"]),
+                "esperando_factura": bono.alcance == "factura" and bono.pedido_id in sin_factura,
             }
         )
     return salida
@@ -1610,6 +1791,42 @@ def _lineas_compras(db: Session, ids: list[int]) -> list[dict]:
     return salida
 
 
+def _lineas_pendientes(db: Session, ids: list[int]) -> list[dict]:
+    """The invoice totals still waiting for their invoice (or voided while waiting), shaped like `_lineas_compras`:
+    nothing used yet. An applied one is read as the purchase it became."""
+    salida = []
+    for fila, numero in (
+        db.query(TacticalFacturaPendiente, PedidoCompra.numero)
+        .join(PedidoCompra, PedidoCompra.id == TacticalFacturaPendiente.pedido_id)
+        .filter(TacticalFacturaPendiente.tactical_id.in_(ids), TacticalFacturaPendiente.estado != "aplicada")
+    ):
+        salida.append(
+            {
+                "tactical_id": fila.tactical_id,
+                "id": fila.id,
+                "linea": fila.tactical_linea,
+                "origen": ORIGEN_PENDIENTE,
+                "estado": "activa" if fila.estado == "pendiente" else "anulada",
+                "alcance": "factura",
+                "item_ids": [],
+                "marca": None,
+                "categoria": None,
+                "pedido_compra_id": fila.pedido_id,
+                "pedido_numero": numero,
+                "modo_monto": "monto_total",
+                "valor": fila.valor,
+                "reparto_criterio": None,
+                "moneda": fila.moneda,
+                "tope_unidades": None,
+                "tope_monto": None,
+                "unidades_usadas": 0,
+                "monto_usado": _cents(0),
+                "esperando_factura": fila.estado == "pendiente",
+            }
+        )
+    return salida
+
+
 def _cobranza(cobranza: Optional[TacticalCobranza]) -> Optional[dict]:
     if cobranza is None:
         return None
@@ -1621,7 +1838,11 @@ def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
     """Each tactical with its lines, one per child, in line order (module docstring): a few queries per page."""
     tacticals = list(tacticals)
     ids = [t.id for t in tacticals]
-    lineas = (_lineas_campanas(db, ids) + _lineas_bonos(db, ids) + _lineas_compras(db, ids)) if ids else []
+    lineas = (
+        (_lineas_campanas(db, ids) + _lineas_bonos(db, ids) + _lineas_compras(db, ids) + _lineas_pendientes(db, ids))
+        if ids
+        else []
+    )
     item_ids = {i for linea in lineas for i in linea["item_ids"]}
     productos = {
         p.item_id: p
@@ -1644,6 +1865,7 @@ def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
             for i in item_ids_
         ]
         linea["tope_por_producto"] = por_linea[(linea["tactical_id"], linea["linea"])] > 1
+        linea.setdefault("esperando_factura", False)
         de_tactical[linea.pop("tactical_id")].append(linea)
     columnas = (
         "id", "tipo", "nombre", "marca", "referencia", "fecha_desde", "fecha_hasta", "moneda", "tc_modo",
@@ -1656,6 +1878,8 @@ def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
             "tiendas": [{"tipo": fila.tipo, "store_id": fila.store_id} for fila in t.tiendas],
             "marcas": [fila.marca for fila in t.marcas],
             "por_factura": _hijos_por_factura(t, de_tactical[t.id]),
+            # Some active invoice line still waits for its operation's invoice (sell in factura pendiente S4).
+            "esperando_factura": any(h["esperando_factura"] and h["estado"] == "activa" for h in de_tactical[t.id]),
             "lineas": de_tactical[t.id],
             "cobranza": _cobranza(t.cobranza),
         }

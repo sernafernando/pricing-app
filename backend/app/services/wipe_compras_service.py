@@ -19,6 +19,8 @@ Las tablas se borran en orden FK-safe (hijos antes que padres):
   - notas_credito_local → tabla de documentos; sin hijos en el módulo compras.
   - pedido_compra_ingresos → líneas de recepción de depósito; pedido_id → pedidos_compra.id
     (RESTRICT). Debe ir ANTES de pedidos_compra.
+  - pedido_compra_arribo_progreso → tandas pre-control de arribo/retiro; pedido_id →
+    pedidos_compra.id (RESTRICT). Debe ir ANTES de pedidos_compra.
   - pedidos_compra → tabla cabecera; va al final del bloque compras.
   - caja_documentos, caja_movimientos, banco_movimientos → últimas, ya sin hijos.
 
@@ -72,6 +74,7 @@ TABLAS_COMPRAS_SIEMPRE = [
     "ordenes_pago",
     "notas_credito_local",
     "pedido_compra_ingresos",
+    "pedido_compra_arribo_progreso",
     "pedidos_compra",
 ]
 

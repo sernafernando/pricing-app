@@ -20,7 +20,8 @@ Alcance = Literal["productos", "marca", "categoria", "factura"]
 ModoMonto = Literal["por_unidad", "porcentaje", "monto_total"]
 Moneda = Literal["ARS", "USD"]
 TcModo = Literal["al_cobro", "fijo", "dia_venta"]
-Origen = Literal["sell_out_campana", "sell_in_bono", "sell_in_compra"]
+# `sell_in_factura_pendiente`: an invoice total still waiting for its invoice (`TacticalFacturaPendiente`).
+Origen = Literal["sell_out_campana", "sell_in_bono", "sell_in_compra", "sell_in_factura_pendiente"]
 EstadoFiltro = Literal["vigentes", "vencidos", "anulados"]
 TipoTienda = Literal["oficial", "fuera", "tienda_nube"]
 MedioCobro = Literal["nota_credito", "fondo_distribuidor", "otro"]
@@ -166,6 +167,8 @@ class TacticalLineaOut(BaseModel):
     tc_al_cobro: Optional[Decimal] = None
     unidades_usadas: int
     monto_usado: Decimal
+    # An invoice line saved before Compras linked its operation's supplier invoice: it applies nothing until then.
+    esperando_factura: bool = False
 
 
 # Only the detail of the chosen `medio` may come (tactical cobranza S1, S2): one Spanish message per field.
@@ -232,6 +235,8 @@ class TacticalOut(BaseModel):
     updated_at: datetime
     # Every line is an invoice line: no dates of its own (each applies until its invoice's units are sold).
     por_factura: bool
+    # Some active invoice line waits for its operation's supplier invoice ("Esperando factura" until Compras links it).
+    esperando_factura: bool = False
     lineas: list[TacticalLineaOut]
     # The collection record (tactical cobranza S1): None = "Pendiente", a record = "Cobrado".
     cobranza: Optional[TacticalCobranzaOut] = None

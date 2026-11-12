@@ -150,3 +150,33 @@ describe('TacticalFila line order', () => {
     expect(productos).toEqual(['Producto A', 'Producto B', 'Producto C']);
   });
 });
+
+describe('TacticalFila invoice total waiting for its invoice', () => {
+  it('a waiting invoice total has no sales to show, the other lines keep Ver ventas', async () => {
+    const pendiente = {
+      ...REBATE,
+      lineas: [
+        { ...REBATE.lineas[0], linea: 1 },
+        {
+          ...REBATE.lineas[0],
+          id: 9,
+          linea: 2,
+          origen: 'sell_in_factura_pendiente',
+          alcance: 'factura',
+          pedido_numero: '12345',
+          modo_monto: 'monto_total',
+          esperando_factura: true,
+        },
+      ],
+    };
+    const onVerLinea = vi.fn();
+    render(
+      <table>
+        <TacticalFila tactical={pendiente} abierto onAlternar={() => {}} onVerLinea={onVerLinea} />
+      </table>,
+    );
+
+    expect(screen.getByRole('button', { name: 'Ver ventas de la línea 1' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Ver ventas de la línea 2' })).not.toBeInTheDocument();
+  });
+});

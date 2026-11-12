@@ -240,8 +240,9 @@ RECORDED_ROWS = json.loads(
 """
 )
 # Statements the tienda listing issued for this catalogue, recorded alongside; plus one per page for the PM's shipping
-# choices (S7b), read once by `resolver_costos_envio_batch`.
-RECORDED_STATEMENTS = 27
+# choices (S7b), read once by `resolver_costos_envio_batch`; plus three per page for the sell in / sell out of every
+# channel context (`resolver_tienda_batches`: FIFO lots, cost modes, campaigns and bonuses, read once for the page).
+RECORDED_STATEMENTS = 30
 
 
 def _snapshot() -> dict:

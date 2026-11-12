@@ -113,8 +113,19 @@ class TestFrozenTriggerCopy:
         _, producto_trg = disparadores.PRODUCTO_UP
         marca_categoria = base._load_migration(versions / "20261111_sell_in_bono_marca_categoria.py")
         cubre_fn, producto_fn = marca_categoria.FUNCIONES_UP
+        # 20261112_sell_in_bono_cubre_pedido adds the operation gate (after the date gate) and swaps the operation and
+        # line functions (sell in factura pendiente).
+        cubre_pedido = base._load_migration(versions / "20261112_sell_in_bono_cubre_pedido.py")
+        _, pedido_fn, linea_fn = cubre_pedido.FUNCIONES_UP
+        # 20261112_tactical_facturas_pendientes widened that gate to the waiting invoice totals.
+        pendientes = base._load_migration(versions / "20261112_tactical_facturas_pendientes.py")
+        [gate_pedido] = pendientes.FUNCIONES_UP
 
         def _vigente(s: str) -> str:
+            if "CREATE OR REPLACE FUNCTION sell_in_bono_enqueue_pedido" in s:
+                return pedido_fn
+            if "CREATE OR REPLACE FUNCTION sell_in_bono_enqueue_linea" in s:
+                return linea_fn
             if "CREATE TRIGGER trg_sell_in_bono_bonos_update" in s:
                 return acumulable._trigger(con_acumulable=True)
             if "CREATE OR REPLACE FUNCTION sell_in_bono_cubre_producto" in s:
@@ -125,18 +136,30 @@ class TestFrozenTriggerCopy:
                 return producto_trg
             return s
 
-        instalado = [_vigente(s) for s in self._latest()._TRIGGERS_UP]
+        instalado = []
+        for s in self._latest()._TRIGGERS_UP:
+            instalado.append(_vigente(s))
+            if "CREATE OR REPLACE FUNCTION sell_in_bono_cubre(" in s:
+                instalado.append(gate_pedido)
         assert [" ".join(s.split()) for s in instalado] == [" ".join(s.split()) for s in bono_queue.UPGRADE_SQL], (
             self._DRIFT.format(
                 "UPGRADE_SQL",
                 f"{_LATEST_TRIGGERS} + 20261213_sell_in_bono_costo_triggers + 20261215_sell_in_bono_acumulable"
-                " + 20261111_sell_in_bono_marca_categoria",
+                " + 20261111_sell_in_bono_marca_categoria + 20261112_sell_in_bono_cubre_pedido"
+                " + 20261112_tactical_facturas_pendientes",
             )
         )
 
     def test_the_latest_downgrade_drops_exactly_the_module_trigger_sql(self) -> None:
-        assert self._latest()._TRIGGERS_DOWN == bono_queue.DOWNGRADE_SQL, self._DRIFT.format(
-            "DOWNGRADE_SQL", _LATEST_TRIGGERS
+        # The module also drops 20261112_sell_in_bono_cubre_pedido's gate, before the date gate it calls.
+        gate = "DROP FUNCTION IF EXISTS sell_in_bono_cubre(DATE, TEXT)"
+        esperado = []
+        for s in self._latest()._TRIGGERS_DOWN:
+            if s == gate:
+                esperado.append("DROP FUNCTION IF EXISTS sell_in_bono_cubre_pedido(DATE, BIGINT)")
+            esperado.append(s)
+        assert esperado == bono_queue.DOWNGRADE_SQL, self._DRIFT.format(
+            "DOWNGRADE_SQL", f"{_LATEST_TRIGGERS} + 20261112_sell_in_bono_cubre_pedido"
         )
 
     def test_the_latest_one_restores_exactly_what_this_one_installed(self) -> None:

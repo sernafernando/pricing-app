@@ -214,6 +214,10 @@ class PedidoCompraResponse(PedidoCompraBase):
     # haría que la API mienta sobre el dato de origen. El front formatea.
     oc_unidades_total: Decimal | None = None
 
+    # Pre-control arribo/retiro progress exists (por recibir + batches > 0).
+    # Derived for list badges ("Recibiendo"/"Retirando"); default False.
+    arribo_en_curso: bool = False
+
     @model_validator(mode="after")
     def _compute_tipo_cambio_es_manual(self) -> "PedidoCompraResponse":
         self.tipo_cambio_es_manual = self.tipo_cambio_manual is not None

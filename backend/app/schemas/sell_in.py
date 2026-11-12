@@ -201,6 +201,8 @@ class SellInOperacionOut(BaseModel):
     monto: Decimal
     estado: str
     numero_factura: Optional[str]
+    # The supplier invoice's date; None while Compras has not linked it (an invoice line may wait for it).
+    fecha_factura: Optional[date] = None
 
 
 class SellInOperacionesOut(BaseModel):

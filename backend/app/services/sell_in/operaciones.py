@@ -67,6 +67,7 @@ def buscar_operaciones(
             "monto": pedido.monto,
             "estado": pedido.estado,
             "numero_factura": pedido.numero_factura,
+            "fecha_factura": pedido.fecha_factura,  # None: its supplier invoice is not linked yet
         }
         for pedido, nombre in filas
     ]
