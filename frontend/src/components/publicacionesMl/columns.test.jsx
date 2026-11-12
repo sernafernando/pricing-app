@@ -119,6 +119,17 @@ describe('listing type', () => {
     expect(screen.getByText('3 cuotas')).toBeInTheDocument();
   });
 
+  // Owner (2026-11-12): Agrupado's parent rows sum up a brand in compact badges on one line ("C 33" … "12 24").
+  it('gives Tipo and Estado room for the tree badges in Agrupado only; the list and Producto keep their widths', () => {
+    const widths = (options) => {
+      const columns = byKey(options);
+      return [columns.tipo.width, columns.estado.width];
+    };
+    expect(widths({ agrupado: true })).toEqual([200, 128]);
+    expect(widths({})).toEqual([110, 104]);
+    expect(widths({ producto: true })).toEqual([110, 104]);
+  });
+
   it('leaves the cell empty for a row the backend sends no listing kind for', () => {
     const { container } = render(<>{byKey({}).tipo.render({})}</>);
     expect(container).toBeEmptyDOMElement();
