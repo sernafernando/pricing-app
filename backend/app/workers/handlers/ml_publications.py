@@ -356,10 +356,26 @@ class RefreshHandler:
                 self._start_runner(ctx, runners, config)
             run.claimed += len(claims)
             run.batches += 1
-            self._process_batch(ctx, claims, config, run)
+            try:
+                self._process_batch(ctx, claims, config, run)
+            except BaseException as exc:
+                self._charge_unsettled(claims, exc)
+                raise
             if run.error or run.stopped:
                 break
             config = settings_store.get_settings(_SETTING_KEYS)
+
+    @staticmethod
+    def _charge_unsettled(claims: Sequence[queue.QueueClaim], exc: BaseException) -> None:
+        """A batch raised: give its still-claimed entries back now, charged one attempt (the failure is real),
+        instead of leaving them leased until the lease expires. An entry already settled is no longer owned by
+        its claim token, so `complete` leaves it alone."""
+        error = f"runner failed: {type(exc).__name__}: {exc}"[:300]
+        for claim in claims:
+            try:
+                queue.complete(claim, succeeded=set(), failed={name: error for name in claim.resources})
+            except Exception:  # noqa: BLE001 -- the lease expiry still recovers it; the original error is raised
+                logger.exception("could not give back the claim of %s %s", claim.kind, claim.entity_id)
 
     def _start_runner(self, ctx: WorkerContext, runners: _Runners, config: Dict[str, settings_store.Setting]) -> None:
         with runners.lock:

@@ -180,6 +180,30 @@ class TestBatchRunners:
         assert peak[0] == 1
 
 
+class TestRunnerFailure:
+    def test_an_unexpected_error_releases_the_runner_claims_at_once_charging_the_attempt(
+        self, env, monkeypatch
+    ) -> None:
+        """Verifier (#2245): a runner that raises must not leave its claimed entries leased for the 300 s lease."""
+        from app.workers.handlers import ml_publications as handler_module
+
+        enable_refresh(refresh__runners=1)
+        enqueue_items(ITEM, OTHER)
+
+        def boom(self, *args, **kwargs):
+            raise RuntimeError("store exploded")
+
+        monkeypatch.setattr(handler_module.RefreshHandler, "_handle_core_response", boom)
+
+        with pytest.raises(RuntimeError, match="store exploded"):
+            make_handler(ScriptedTransport(bulk_responder)).run(context())
+
+        for item in (ITEM, OTHER):
+            row = queue_row(env, item)
+            assert (row["claimed_at"], row["attempts"]) == (None, 1), item
+            assert "store exploded" in row["last_error"], item
+
+
 class TestNoResourceBarrier:
     def test_a_slow_call_does_not_hold_back_the_next_resource_of_another_entry(self, env) -> None:
         enable_refresh(bundle_resources=["core", "prices", "description"], refresh__runners=1)

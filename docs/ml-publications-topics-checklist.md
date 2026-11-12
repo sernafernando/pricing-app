@@ -297,7 +297,9 @@ idle half the time):
   the previous one to finish; a run cut short still leaves the slow data pending, never the fast data stored before
   it.
 - `ML_PUB_MAX_IN_FLIGHT` (env only, default 20, max 20): ML calls in flight at once for all the runners together,
-  sized as rate x worst-case latency (10/s x 2 s = 20), so a few slow calls never starve the others.
+  sized as rate x worst-case latency (10/s x 2 s = 20), so a few slow calls never starve the others. It bounds the
+  sub-resource calls; each runner's core `/items/bulk` call runs on the runner itself (still paced), so up to
+  `ML_PUB_MAX_IN_FLIGHT` + `refresh.runners` HTTP calls can be in flight at once (23 with the defaults).
 - Database: each runner holds at most one short session at a time and never across an ML call; the call threads
   open none (only the short ml-webhook token read). Worst case for `pricing-worker-ml`: 8 runners + the runtime
   pass + `ml_orders.discounts` + the heartbeat = 11 pooled main-database sessions at once (6 with the default 3

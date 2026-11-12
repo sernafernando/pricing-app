@@ -219,7 +219,9 @@ class Settings(BaseSettings):
     ML_PUB_REPLENISHMENT_RATE_PER_MIN: int = Field(default=30, ge=1, le=100)
     # Refresh: ML calls in flight at once for the whole handler (one pool shared by its batch runners; every call
     # still paced by the rate above). Sized as rate x worst-case latency so a few slow calls never starve the
-    # others: 10/s (prod `rate_per_sec`) x 2 s => 20; at the usual ~100-300 ms only 1-3 are busy.
+    # others: 10/s (prod `rate_per_sec`) x 2 s => 20; at the usual ~100-300 ms only 1-3 are busy. The pool holds the
+    # sub-resource calls only: each runner's core `/items/bulk` call runs on the runner thread (still paced), so up
+    # to this + `refresh.runners` HTTP calls can be in flight at once.
     ML_PUB_MAX_IN_FLIGHT: int = Field(default=20, ge=1, le=20)
     # Refresh: batch runners, each its own claim -> process -> settle loop over the SKIP LOCKED claim, all on the
     # one shared pacer (runtime setting `refresh.runners`; this is its default).
