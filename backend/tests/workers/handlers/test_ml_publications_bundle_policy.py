@@ -257,6 +257,21 @@ class TestMinimumAges:
         assert counters_of(env)["skipped_min_age"] == {"description": 1}
         assert queue_row(env, ITEM) is None
 
+    def test_a_bundle_notification_for_a_description_checked_an_hour_ago_does_not_fetch_it(self, env) -> None:
+        """Prod 2026-11-12: ~517 description calls per 10 min for ~625 items with no min-age override."""
+        self.enable_all()
+        enqueue_items(ITEM)
+        make_handler(ScriptedTransport(responder_with())).run(context())
+        with env.begin() as conn:
+            conn.execute(text("UPDATE ml_item_descriptions SET last_checked_at = now() - interval '1 hour'"))
+
+        enqueue_items(ITEM)
+        transport = ScriptedTransport(responder_with())
+        make_handler(transport).run(context())
+
+        assert f"/items/{ITEM}/description" not in paths(transport)
+        assert counters_of(env)["skipped_min_age"] == {"description": 1}
+
     def test_a_description_older_than_its_minimum_age_is_fetched_again(self, env) -> None:
         self.enable_all()
         enqueue_items(ITEM)
