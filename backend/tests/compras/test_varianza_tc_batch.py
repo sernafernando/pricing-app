@@ -631,6 +631,57 @@ class TestFilterDiferencialCambioPendiente:
         ids2 = [i["id"] for i in d2["items"]]
         assert set(ids1).isdisjoint(ids2)  # sin solapamiento entre páginas
 
+    def test_filter_applies_q_proveedor(
+        self, db, client, con_permisos, empresa, proveedor, active_user, auth_headers, caja_ars, tipos_doc, tc_usd
+    ):
+        """Two pending pedidos from different providers: q_proveedor keeps only one, total=1."""
+        otro = Proveedor(nombre="Otro Prov Diferencial", activo=True, origen=OrigenProveedor.ERP.value, supp_id=9902)
+        db.add(otro)
+        db.flush()
+        hit = self._make_pedido_con_varianza(
+            db, empresa=empresa, proveedor=proveedor, user=active_user, numero_suffix="QPROV-HIT"
+        )
+        miss = self._make_pedido_con_varianza(
+            db, empresa=empresa, proveedor=otro, user=active_user, numero_suffix="QPROV-MISS"
+        )
+
+        resp = client.get(
+            f"{BASE}/pedidos",
+            headers=auth_headers,
+            params={"diferencial_cambio_pendiente": "true", "q_proveedor": "Varianza Batch"},
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert [i["id"] for i in data["items"]] == [hit.id]
+        assert data["total"] == 1
+        assert miss.id not in {i["id"] for i in data["items"]}
+
+    def test_filter_applies_q_oc(
+        self, db, client, con_permisos, empresa, proveedor, active_user, auth_headers, caja_ars, tipos_doc, tc_usd
+    ):
+        """Two pending pedidos linked to different OCs: q_oc keeps only the exact poh_id, total=1."""
+        hit = self._make_pedido_con_varianza(
+            db, empresa=empresa, proveedor=proveedor, user=active_user, numero_suffix="QOC-HIT"
+        )
+        miss = self._make_pedido_con_varianza(
+            db, empresa=empresa, proveedor=proveedor, user=active_user, numero_suffix="QOC-MISS"
+        )
+        for pedido, poh_id in ((hit, 503), (miss, 504)):
+            pedido.oc_comp_id = 1
+            pedido.oc_bra_id = 45
+            pedido.oc_poh_id = poh_id
+        db.flush()
+
+        resp = client.get(
+            f"{BASE}/pedidos",
+            headers=auth_headers,
+            params={"diferencial_cambio_pendiente": "true", "q_oc": "503"},
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert [i["id"] for i in data["items"]] == [hit.id]
+        assert data["total"] == 1
+
     def test_filter_ignores_non_settled_estados(
         self, db, client, con_permisos, empresa, proveedor, active_user, auth_headers, tc_usd
     ):
