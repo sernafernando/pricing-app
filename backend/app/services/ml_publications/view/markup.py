@@ -189,7 +189,7 @@ def _evaluate(
         markup=value,
         costo=float(inputs.costo),
         moneda_costo=moneda_de(inputs.moneda_costo),
-        tipo_cambio=ctx.tipo_cambio_usd if inputs.moneda_costo == "USD" else None,
+        tipo_cambio=ctx.tipo_cambio_usd if moneda_de(inputs.moneda_costo) == "USD" else None,
     )
     return unit, breakdown
 

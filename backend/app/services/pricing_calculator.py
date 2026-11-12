@@ -86,8 +86,8 @@ def moneda_de(raw: object) -> str:
 
 
 def convertir_a_pesos(costo: float, moneda: str, tipo_cambio: Optional[float]) -> float:
-    """Convierte costo a pesos argentinos"""
-    if moneda == "ARS":
+    """Convierte costo a pesos argentinos (la moneda normalizada con `moneda_de`)."""
+    if moneda_de(moneda) == "ARS":
         return costo
     if tipo_cambio:
         return costo * tipo_cambio
