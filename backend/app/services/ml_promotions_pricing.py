@@ -240,9 +240,10 @@ def enriquecer_markup_por_promo(
     """Adds `nuestro_markup` (Optional[float], percentage) to each promo dict
     in `promociones`, mutating them in place and returning the same list.
 
-    Resolves item/pricelist/cost/commission context ONCE per request from
-    `mla`. If the publication or the product cost cannot be resolved, every
-    promo in the list gets `nuestro_markup = None` (no exception).
+    Resolves the header unit of `mla` ONCE per request (`_resolve_pricing_context`).
+    If the publication has no header markup (not in the store, no cost, no
+    list or commission), every promo in the list gets `nuestro_markup = None`
+    (no exception).
 
     `sell_in_out` (the panel read only) also adds `markup_sell_in_out`
     (`_markup_sell_in_out`), resolving the product's sell in / sell out once
@@ -286,8 +287,8 @@ def _markup_con_contexto(
     the markup for MANY prices under the same MLA (e.g. one price per
     catalog competitor) resolves the pricing context ONCE and loops here,
     instead of calling `markup_para_precio` per price — which would
-    re-resolve `_resolve_pricing_context` (a publication + product +
-    commission lookup) on every single call.
+    re-resolve `_resolve_pricing_context` (the header unit: store inputs,
+    shipping and pricing context) on every single call.
 
     `mla` is optional and used ONLY for the warning log message on
     failure; it carries no behaviour. Never raises: returns None when the
@@ -302,12 +303,12 @@ def _markup_con_contexto(
 
 def markup_para_precio(db: Session, mla: str, price: float) -> Optional[float]:
     """Seller markup percentage for a candidate `price` on `mla`, reusing
-    the SAME cost/pricelist/commission resolution and price->markup chain
-    as `enriquecer_markup_por_promo`, but on the plain `price` (no
+    the SAME header unit and price->markup chain as
+    `enriquecer_markup_por_promo`, but on the plain `price` (no
     co-funding — used for SELLER_CAMPAIGN/DEAL, which are seller-funded).
 
-    Never raises: returns None when the cost/publication context is
-    unresolvable, or when the markup computation itself fails.
+    Never raises: returns None when the header unit is unresolvable, or
+    when the markup computation itself fails.
     """
     context = _resolve_pricing_context(db, mla)
     if context is None:
