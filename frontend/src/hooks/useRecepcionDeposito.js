@@ -132,6 +132,39 @@ export default function useRecepcionDeposito() {
   );
 
   /**
+   * GET /pedidos/{id}/recepcion/arribo-progreso
+   * @returns {Promise<ArriboProgresoResponse>}
+   */
+  const getArriboProgreso = useCallback(
+    (pedidoId) =>
+      wrap(async () => {
+        const { data } = await api.get(
+          `/administracion/compras/pedidos/${pedidoId}/recepcion/arribo-progreso`
+        );
+        return data;
+      }),
+    [wrap]
+  );
+
+  /**
+   * POST /pedidos/{id}/recepcion/arribo-progreso
+   * @param {number} pedidoId
+   * @param {{ lineas: Array<{pod_id: number, cantidad: number}>, observaciones?: string }} payload
+   * @returns {Promise<RegistrarArriboProgresoResponse>}
+   */
+  const registrarArriboProgreso = useCallback(
+    (pedidoId, payload) =>
+      wrap(async () => {
+        const { data } = await api.post(
+          `/administracion/compras/pedidos/${pedidoId}/recepcion/arribo-progreso`,
+          payload
+        );
+        return data;
+      }),
+    [wrap]
+  );
+
+  /**
    * POST /pedidos/{id}/recepcion/deshacer-recibido
    * @returns {Promise<{pedido_id: number, estado_nuevo: string}>}
    */
@@ -193,14 +226,6 @@ export default function useRecepcionDeposito() {
   );
 
   /**
-   * POST /pedidos/{id}/recepcion/despachar-retiro
-   * Endpoint de depósito (permiso deposito.despachar_retiro), NO el de compras
-   * generar-etiqueta-envio. Reusa el servicio de retiro: la etiqueta cae en TabEnviosFlex.
-   * @param {number} pedidoId
-   * @param {{ proveedor_direccion_id: number }} payload
-   * @returns {Promise<EtiquetaEnvioResponse>}
-   */
-  /**
    * POST /pedidos/{id}/faltantes/resolver
    * @param {number} pedidoId
    * @param {{ texto: string }} payload
@@ -233,6 +258,14 @@ export default function useRecepcionDeposito() {
     [wrap]
   );
 
+  /**
+   * POST /pedidos/{id}/recepcion/despachar-retiro
+   * Endpoint de depósito (permiso deposito.despachar_retiro), NO el de compras
+   * generar-etiqueta-envio. Reusa el servicio de retiro: la etiqueta cae en TabEnviosFlex.
+   * @param {number} pedidoId
+   * @param {{ proveedor_direccion_id: number }} payload
+   * @returns {Promise<EtiquetaEnvioResponse>}
+   */
   const generarRetiro = useCallback(
     (pedidoId, payload) =>
       wrap(async () => {
@@ -251,6 +284,8 @@ export default function useRecepcionDeposito() {
     getSaldos,
     registrarIngresos,
     confirmarPedido,
+    getArriboProgreso,
+    registrarArriboProgreso,
     deshacerRecibido,
     revertirControl,
     getEventos,

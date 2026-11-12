@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import bindparam, func, text, update
@@ -27,10 +27,14 @@ from sqlalchemy.orm import Session
 from app.core.logging import get_logger
 from app.models.compra_evento import CompraEvento
 from app.models.pedido_compra import PedidoCompra
+from app.models.pedido_compra_arribo_progreso import PedidoCompraArriboProgreso
 from app.models.pedido_compra_ingresos import PedidoCompraIngreso
 from app.models.pedido_compra_oc import triples_for_pedido
 from app.models.usuario import Usuario
 from app.schemas.recepcion import (
+    ArriboProgresoCreadoResponse,
+    ArriboProgresoLineaResponse,
+    ArriboProgresoResponse,
     ConfirmarPedidoRequest,
     ConfirmarPedidoResponse,
     DeshacerRecibidoResponse,
@@ -38,6 +42,8 @@ from app.schemas.recepcion import (
     EventosRecepcionResponse,
     IngresoCreadoResponse,
     IngresoLinea,
+    RegistrarArriboProgresoRequest,
+    RegistrarArriboProgresoResponse,
     RegistrarIngresosRequest,
     RegistrarIngresosResponse,
     ResolverFaltantesResponse,
@@ -693,6 +699,29 @@ def confirmar_pedido_sin_oc(
 # ──────────────────────────────────────────────────────────────────────────
 
 
+def _lock_pedido_recepcion(session: Session, pedido: PedidoCompra) -> PedidoCompra:
+    """Read the pedido row FOR UPDATE (as `revertir_control` does) and refresh it, so concurrent arrival/undo
+    requests serialize and every check below reads the estado committed by the request that went first."""
+    return session.query(PedidoCompra).filter(PedidoCompra.id == pedido.id).populate_existing().with_for_update().one()
+
+
+def _arribo_lineas_cubiertas(session: Session, pedido: PedidoCompra) -> bool:
+    """True when every OC line has cumulative arribo/retiro >= pod_qty.
+
+    Only a pedido whose partial arrival is IN PROGRESS (at least one progress row) is checked: without
+    progress rows the one-click confirm keeps working as before. Pedidos with no readable OC lines return
+    True (nothing to cover).
+    """
+    acumulado = _acumulado_arribo_por_linea(session, int(pedido.id))
+    if not acumulado:
+        return True
+    saldos = computar_saldos(session, pedido)
+    if not saldos.lineas:
+        return True
+    lineas = _lineas_arribo_desde_saldos(saldos, acumulado)
+    return all(l.pendiente_arribo <= 0 for l in lineas)
+
+
 def confirmar_arribo_con_oc(
     session: Session,
     pedido: PedidoCompra,
@@ -704,11 +733,17 @@ def confirmar_arribo_con_oc(
     at the control step). Writes a sentinel row for WHO/WHEN auditing and
     emits 'recepcion_arribo'.
 
+    When partial arribo/retiro is in progress (progress rows exist), it must
+    cover every OC line first; without progress rows it confirms as before.
+    Saving progress never closes. The pedido row is locked first.
+
     Raises:
         HTTPException 409 — pedido has no OC linked (use confirmar_pedido_sin_oc).
         HTTPException 409 — pedido estado not in ESTADOS_ARRIBO ('pagado' /
             'en_cuenta_corriente') — only the arrival step is accepted here.
+        HTTPException 409 — partial arribo/retiro in progress and still under total.
     """
+    pedido = _lock_pedido_recepcion(session, pedido)
     if pedido.oc_poh_id is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -724,6 +759,16 @@ def confirmar_arribo_con_oc(
             detail=(
                 f"CON-OC arrival only valid from {estados_validos} "
                 f"(current estado='{pedido.estado}'). Use /recepcion/ingresos for the control step."
+            ),
+        )
+
+    # Coverage gate only when the operator already started partial arrival.
+    if not _arribo_lineas_cubiertas(session, pedido):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "No se puede marcar completo: aún hay cantidades pendientes "
+                "de arribo/retiro. Guardá el progreso hasta cubrir el total."
             ),
         )
 
@@ -827,7 +872,11 @@ def deshacer_recibido(
     (`op_cuenta_corriente_id` set and `pagado_en` empty); otherwise `pagado`.
     `controlado` is terminal for this endpoint (409) — use `revertir_control`.
     Servicio is rejected (409).
+
+    Also wipes pre-control arribo/retiro progress so por-recibir starts clean.
+    The pedido row is locked first; estado is re-read under the lock.
     """
+    pedido = _lock_pedido_recepcion(session, pedido)
     _validar_no_servicio(pedido)
     if pedido.estado == "controlado":
         raise HTTPException(
@@ -845,6 +894,12 @@ def deshacer_recibido(
     else:
         nuevo_estado = "pagado"
 
+    wiped = (
+        session.query(PedidoCompraArriboProgreso)
+        .filter(PedidoCompraArriboProgreso.pedido_id == pedido.id)
+        .delete(synchronize_session=False)
+    )
+
     pedido.estado = nuevo_estado
     _emit_evento(
         session,
@@ -854,6 +909,7 @@ def deshacer_recibido(
         payload={
             "estado_anterior": "recibido",
             "estado_nuevo": nuevo_estado,
+            "arribo_progreso_eliminado": int(wiped or 0),
         },
     )
     session.flush()
@@ -1006,3 +1062,206 @@ def resolver_faltantes(
     compras_alertas_service.notificar_faltantes_resuelto(session, pedido=pedido, texto=texto_norm)
     session.flush()
     return ResolverFaltantesResponse(pedido_id=pedido.id, faltantes_resuelto_en=stamp)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Pre-control arribo/retiro progress (separate from control ingresos)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+LineaOcKey = tuple[Optional[int], Optional[int], Optional[int], int]
+
+
+def _linea_oc_key(oc_comp_id: Any, oc_bra_id: Any, oc_poh_id: Any, pod_id: Any) -> LineaOcKey:
+    """An OC line's identity: its OC triple plus `pod_id` (the same `pod_id` can exist in two linked OCs)."""
+
+    def _int(value: Any) -> Optional[int]:
+        return None if value is None else int(value)
+
+    return (_int(oc_comp_id), _int(oc_bra_id), _int(oc_poh_id), int(pod_id))
+
+
+def _acumulado_arribo_por_linea(session: Session, pedido_id: int) -> dict[LineaOcKey, Decimal]:
+    rows = session.execute(
+        text(
+            """
+            SELECT oc_comp_id, oc_bra_id, oc_poh_id, pod_id, COALESCE(SUM(cantidad), 0) AS acumulado
+            FROM pedido_compra_arribo_progreso
+            WHERE pedido_id = :pedido_id
+            GROUP BY oc_comp_id, oc_bra_id, oc_poh_id, pod_id
+            """
+        ),
+        {"pedido_id": pedido_id},
+    ).fetchall()
+    return {_linea_oc_key(r[0], r[1], r[2], r[3]): Decimal(str(r[4] or 0)) for r in rows}
+
+
+def pedidos_con_arribo_en_curso(session: Session, pedido_ids: list[int]) -> set[int]:
+    """Batch: pedido ids that already have at least one arribo progress row."""
+    if not pedido_ids:
+        return set()
+    rows = session.execute(
+        text(
+            """
+            SELECT DISTINCT pedido_id
+            FROM pedido_compra_arribo_progreso
+            WHERE pedido_id IN :ids
+            """
+        ).bindparams(bindparam("ids", expanding=True)),
+        {"ids": list(pedido_ids)},
+    ).fetchall()
+    return {int(r[0]) for r in rows}
+
+
+def _lineas_arribo_desde_saldos(
+    saldos: SaldosResponse,
+    acumulado: dict[LineaOcKey, Decimal],
+) -> list[ArriboProgresoLineaResponse]:
+    lineas: list[ArriboProgresoLineaResponse] = []
+    for linea in saldos.lineas:
+        qty = Decimal(str(linea.pod_qty or 0))
+        done = acumulado.get(
+            _linea_oc_key(linea.oc_comp_id, linea.oc_bra_id, linea.oc_poh_id, linea.pod_id), Decimal("0")
+        )
+        pendiente = qty - done
+        if pendiente < 0:
+            pendiente = Decimal("0")
+        lineas.append(
+            ArriboProgresoLineaResponse(
+                pod_id=int(linea.pod_id),
+                item_id=linea.item_id,
+                item_code=linea.item_code,
+                item_nombre=linea.item_nombre,
+                deposito_nombre=linea.deposito_nombre,
+                pod_qty=qty,
+                cantidad_arribada=done,
+                pendiente_arribo=pendiente,
+                oc_comp_id=linea.oc_comp_id,
+                oc_bra_id=linea.oc_bra_id,
+                oc_poh_id=linea.oc_poh_id,
+            )
+        )
+    return lineas
+
+
+def get_arribo_progreso(session: Session, pedido: PedidoCompra) -> ArriboProgresoResponse:
+    """Return per-line arribo/retiro progress for a CON-OC pedido in arrival states."""
+    _validar_no_servicio(pedido)
+    if pedido.oc_poh_id is None and not triples_for_pedido(session, pedido):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Arribo parcial por línea requiere OC vinculada.",
+        )
+    if pedido.estado not in ESTADOS_CONSULTA_SALDOS:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Pedido not in an arribo-readable state (estado='{pedido.estado}')",
+        )
+
+    saldos = computar_saldos(session, pedido)
+    acumulado = _acumulado_arribo_por_linea(session, int(pedido.id))
+    lineas = _lineas_arribo_desde_saldos(saldos, acumulado)
+    en_curso = bool(acumulado) and pedido.estado in ESTADOS_ARRIBO
+    return ArriboProgresoResponse(
+        pedido_id=int(pedido.id),
+        estado=pedido.estado,
+        requiere_envio=bool(pedido.requiere_envio),
+        arribo_en_curso=en_curso,
+        lineas=lineas,
+    )
+
+
+def registrar_arribo_progreso(
+    session: Session,
+    pedido: PedidoCompra,
+    user: Usuario,
+    request: RegistrarArriboProgresoRequest,
+) -> RegistrarArriboProgresoResponse:
+    """Append arribo/retiro progress. Never closes the pedido — mark-complete is separate.
+
+    The pedido row is locked first: two operators posting the last units of a line at once serialize, and the
+    second one reads the first one's progress in the over-arribo check."""
+    pedido = _lock_pedido_recepcion(session, pedido)
+    _validar_no_servicio(pedido)
+    if pedido.oc_poh_id is None and not triples_for_pedido(session, pedido):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Arribo parcial por línea requiere OC vinculada. Use /recepcion/confirmar-pedido.",
+        )
+    if pedido.estado not in ESTADOS_ARRIBO:
+        estados_validos = " or ".join(f"'{e}'" for e in sorted(ESTADOS_ARRIBO))
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(f"Arribo parcial solo desde {estados_validos} (current estado='{pedido.estado}')."),
+        )
+
+    saldos = computar_saldos(session, pedido)
+    acumulado = _acumulado_arribo_por_linea(session, int(pedido.id))
+
+    creados: list[ArriboProgresoCreadoResponse] = []
+    for linea_req in request.lineas:
+        pod_id = int(linea_req.pod_id)
+        # Same rule as registrar_ingresos: the request names a line by `pod_id` alone.
+        matches = [linea for linea in saldos.lineas if int(linea.pod_id) == pod_id]
+        if not matches:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"pod_id {pod_id} not found in linked OC",
+            )
+        if len(matches) > 1:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"pod_id {pod_id} is ambiguous across linked OCs",
+            )
+        saldo_linea = matches[0]
+        key = _linea_oc_key(saldo_linea.oc_comp_id, saldo_linea.oc_bra_id, saldo_linea.oc_poh_id, pod_id)
+        qty = Decimal(str(saldo_linea.pod_qty or 0))
+        prev = acumulado.get(key, Decimal("0"))
+        nueva = Decimal(str(linea_req.cantidad))
+        if prev + nueva > qty:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(f"Over-arribo: pod_id {pod_id} — pedida={qty}, ya={prev}, intento={nueva}"),
+            )
+        row = PedidoCompraArriboProgreso(
+            pedido_id=pedido.id,
+            oc_comp_id=saldo_linea.oc_comp_id,
+            oc_bra_id=saldo_linea.oc_bra_id,
+            oc_poh_id=saldo_linea.oc_poh_id,
+            pod_id=pod_id,
+            item_id=saldo_linea.item_id,
+            cantidad=nueva,
+            usuario_id=user.id,
+            observaciones=request.observaciones,
+        )
+        session.add(row)
+        session.flush()
+        acumulado[key] = prev + nueva
+        creados.append(ArriboProgresoCreadoResponse(id=int(row.id), pod_id=pod_id, cantidad=nueva))
+
+    lineas_out = _lineas_arribo_desde_saldos(saldos, acumulado)
+    completo = bool(lineas_out) and all(l.pendiente_arribo <= 0 for l in lineas_out)
+
+    _emit_evento(
+        session,
+        pedido=pedido,
+        user=user,
+        tipo="recepcion_arribo_parcial",
+        payload={
+            "modo": "con_oc",
+            "requiere_envio": bool(pedido.requiere_envio),
+            "lineas": [{"pod_id": c.pod_id, "cantidad": str(c.cantidad)} for c in creados],
+            "completo": completo,
+        },
+    )
+
+    session.flush()
+    return RegistrarArriboProgresoResponse(
+        pedido_id=int(pedido.id),
+        estado_nuevo=pedido.estado,
+        # Never auto-closes; operator must call confirmar_arribo_con_oc.
+        cerrado=False,
+        arribo_en_curso=bool(acumulado),
+        creados=creados,
+        lineas=lineas_out,
+    )

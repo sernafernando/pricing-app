@@ -35,5 +35,8 @@ Sí, usando ?tab= en la URL (por ejemplo ?tab=ordenes-pago).
 **¿Qué hace Actualizar OC?**
 En el detalle del pedido, **Actualizar OC** vuelve a traer del ERP el contenido de las órdenes de compra ya vinculadas (líneas y cantidades del espejo). Se puede usar mientras el pedido está pendiente de controlar (p. ej. `recibido`). Si ya hay control de depósito (`con_faltantes` o `controlado`), el botón queda bloqueado: refrescar el espejo dejaría inconsistentes los ingresos ya cargados. En Depósito, **Revertir control** (mismo permiso `deposito.recibir_mercaderia`) vuelve el pedido a `recibido`, borra las tandas de control y habilita de nuevo Actualizar OC / recontrolar.
 
+**¿Se pueden registrar retiros/recepciones parciales en Depósito?**
+Sí, en pedidos **con OC** todavía en *Por recibir* / *Por retirar* (chip de Proceso en Pedidos, según `requiere_envio`). Por cada línea cargás cuánto se retiró/recibió y confirmás con **Guardar este retiro** / **Guardar esta recepción** (no cierra el pedido). Con parciales guardados, el chip de Proceso en Pedidos y el badge de Depósito pasan a verde **Recibiendo** / **Retirando**. Cuando el acumulado cubre el total, Guardar se deshabilita y hay que pulsar **Marcar pedido como recibido/retirado completo** para pasar a *Sin controlar*. **Deshacer recibido/retiro** vuelve al eje por recibir/retirar y borra ese progreso.
+
 **¿Se puede vincular más de una factura ERP a un pedido?**
 Sí. En el detalle del pedido, **Facturas del ERP** lista cada `ct_transaction` vinculada, permite **Desvincular** una por una y **Vincular otra**. La misma factura también puede quedar documentada en varios pedidos; el sell-in de líneas solo se arma cuando esa factura queda ligada a un solo pedido.

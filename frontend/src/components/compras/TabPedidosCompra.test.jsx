@@ -72,6 +72,51 @@ function renderTab(pedido, { initialEntries = ['/'] } = {}) {
   );
 }
 
+describe('TabPedidosCompra — eje procesal retiro copy', () => {
+  it('shows Por retirar when requiere_envio and eje=por_recibir', async () => {
+    renderTab({
+      ...PEDIDO_CON_NUMERO,
+      requiere_envio: true,
+      eje_procesal: 'por_recibir',
+    });
+    expect(await screen.findByTestId('chip-eje-procesal')).toHaveTextContent('Por retirar');
+  });
+
+  it('shows Retirando when requiere_envio and arribo_en_curso', async () => {
+    renderTab({
+      ...PEDIDO_CON_NUMERO,
+      requiere_envio: true,
+      eje_procesal: 'por_recibir',
+      arribo_en_curso: true,
+    });
+    expect(await screen.findByTestId('chip-eje-procesal')).toHaveTextContent('Retirando');
+  });
+
+  it('shows Recibiendo when arribo_en_curso without requiere_envio', async () => {
+    renderTab({
+      ...PEDIDO_CON_NUMERO,
+      requiere_envio: false,
+      eje_procesal: 'por_recibir',
+      arribo_en_curso: true,
+    });
+    expect(await screen.findByTestId('chip-eje-procesal')).toHaveTextContent('Recibiendo');
+  });
+
+  it('shows Retirado when requiere_envio and eje=recibido', async () => {
+    renderTab({
+      ...PEDIDO_CON_NUMERO,
+      requiere_envio: true,
+      eje_procesal: 'recibido',
+    });
+    expect(await screen.findByTestId('chip-eje-procesal')).toHaveTextContent('Retirado');
+  });
+
+  it('keeps Por recibir when requiere_envio is false', async () => {
+    renderTab({ ...PEDIDO_CON_NUMERO, requiere_envio: false });
+    expect(await screen.findByTestId('chip-eje-procesal')).toHaveTextContent('Por recibir');
+  });
+});
+
 describe('TabPedidosCompra — Factura chip from ERP cargada', () => {
   it('chip-off-with-numbers: muted Número only; Factura chip stays off', async () => {
     renderTab(PEDIDO_CON_NUMERO);

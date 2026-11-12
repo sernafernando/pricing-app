@@ -40,6 +40,7 @@ import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
 import SearchInput from '../SearchInput';
 import DataTable from './_shared/DataTable';
 import EstadoBadge from './_shared/EstadoBadge';
+import { ejeProcesalLabel } from './_shared/ejeProcesalLabel';
 import LoadingBlock from './_shared/LoadingBlock';
 import FiltersBar from './_shared/FiltersBar';
 import { equivalenteEnArs, formatMoneda } from './_shared/formatMoneda';
@@ -74,14 +75,6 @@ const COLUMNS = [
   { key: 'acciones', label: '', align: 'right', width: '104px' },
 ];
 
-const EJES_PROCESAL_LABEL = {
-  n_a_servicio: 'N/A servicio',
-  por_recibir: 'Por recibir',
-  recibido: 'Recibido',
-  faltantes_sin_res: 'Faltantes',
-  faltantes_con_res: 'Faltantes con resolución',
-  controlado: 'Controlado',
-};
 
 const MATCH_STATUS_LABEL = {
   queued: 'Match en cola',
@@ -98,6 +91,13 @@ const PROCESAL_TONE_CLASS = {
   faltantes_con_res: 'procesalWarning',
   por_recibir: 'procesalInfo',
 };
+
+function procesalToneClass(pedido) {
+  if (pedido.arribo_en_curso && pedido.eje_procesal === 'por_recibir') {
+    return 'procesalEnCurso';
+  }
+  return PROCESAL_TONE_CLASS[pedido.eje_procesal] || '';
+}
 
 const renderPedidoChips = (p) => {
   const ocs = Array.isArray(p.ocs) ? p.ocs : [];
@@ -821,10 +821,14 @@ export default function TabPedidosCompra() {
           <div className={styles.procesoCell} data-testid="proceso-cell" data-layout="no-clip">
             {p.eje_procesal ? (
               <span
-                className={`${styles.procesalBadge} ${styles[PROCESAL_TONE_CLASS[p.eje_procesal]] || ''}`}
+                className={`${styles.procesalBadge} ${styles[procesalToneClass(p)] || ''}`}
                 data-testid="chip-eje-procesal"
               >
-                {EJES_PROCESAL_LABEL[p.eje_procesal] || p.eje_procesal}
+                {ejeProcesalLabel(
+                  p.eje_procesal,
+                  Boolean(p.requiere_envio),
+                  Boolean(p.arribo_en_curso),
+                )}
               </span>
             ) : (
               <span className={styles.tdSecondary}>—</span>

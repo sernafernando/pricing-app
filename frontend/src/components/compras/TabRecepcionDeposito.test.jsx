@@ -107,8 +107,34 @@ const SALDOS_ARRIBO = {
 const LISTADO_ENDPOINT = '/administracion/compras/pedidos';
 const POOL_ENDPOINT = '/administracion/compras/usuarios-responsable-faltantes';
 const CREADORES_ENDPOINT = '/administracion/compras/usuarios-filtro-creado-por';
-const saldosUrlFor = (pedidoId) =>
-  `/administracion/compras/pedidos/${pedidoId}/recepcion/saldos`;
+const arriboProgresoUrlFor = (pedidoId) =>
+  `/administracion/compras/pedidos/${pedidoId}/recepcion/arribo-progreso`;
+
+function toArriboProgreso(entry) {
+  if (!entry || entry.reject) return entry;
+  if (entry.lineas && entry.lineas[0] && 'cantidad_arribada' in entry.lineas[0]) {
+    return entry;
+  }
+  return {
+    pedido_id: entry.pedido_id,
+    estado: entry.estado,
+    requiere_envio: entry.requiere_envio,
+    arribo_en_curso: false,
+    lineas: (entry.lineas || []).map((l) => ({
+      pod_id: l.pod_id,
+      item_id: l.item_id,
+      item_code: l.item_code,
+      item_nombre: l.item_nombre,
+      deposito_nombre: l.deposito_nombre,
+      pod_qty: l.pod_qty,
+      cantidad_arribada: '0',
+      pendiente_arribo: l.pod_qty,
+      oc_comp_id: l.oc_comp_id ?? null,
+      oc_bra_id: l.oc_bra_id ?? null,
+      oc_poh_id: l.oc_poh_id ?? null,
+    })),
+  };
+}
 
 const POOL_DEFAULT = [
   { id: 7, nombre: 'PM Pool' },
@@ -151,14 +177,23 @@ function mockListadoAndSaldos(items, saldosByPedidoId = {}) {
     if (url === CREADORES_ENDPOINT) {
       return Promise.resolve({ data: [] });
     }
-    const match = url.match(/\/pedidos\/(\d+)\/recepcion\/saldos$/);
-    if (match) {
-      const entry = saldosByPedidoId[Number(match[1])];
+    const matchSaldos = url.match(/\/pedidos\/(\d+)\/recepcion\/saldos$/);
+    if (matchSaldos) {
+      const entry = saldosByPedidoId[Number(matchSaldos[1])];
       if (entry?.reject) {
         return Promise.reject({ response: { data: { detail: entry.reject } } });
       }
       if (entry) return Promise.resolve({ data: entry });
-      return Promise.reject(new Error(`no saldos mock for pedido ${match[1]}`));
+      return Promise.reject(new Error(`no saldos mock for pedido ${matchSaldos[1]}`));
+    }
+    const matchArribo = url.match(/\/pedidos\/(\d+)\/recepcion\/arribo-progreso$/);
+    if (matchArribo) {
+      const entry = saldosByPedidoId[Number(matchArribo[1])];
+      if (entry?.reject) {
+        return Promise.reject({ response: { data: { detail: entry.reject } } });
+      }
+      if (entry) return Promise.resolve({ data: toArriboProgreso(entry) });
+      return Promise.reject(new Error(`no arribo progreso mock for pedido ${matchArribo[1]}`));
     }
     return Promise.reject(new Error(`unexpected GET ${url}`));
   });
@@ -253,7 +288,7 @@ describe('TabRecepcionDeposito — "Por recibir" merged filter', () => {
     // Five warehouse tabs; payment mode is not a separate warehouse filter.
     expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
       'Por recibir',
-      'Recibidos sin controlar',
+      'Sin controlar',
       'Con faltantes',
       'Faltantes con resolución',
       'Controlados',
@@ -283,7 +318,7 @@ describe('TabRecepcionDeposito — eje_procesal tabs and ?pedido=', () => {
     const user = userEvent.setup();
     await renderTab();
 
-    await user.click(screen.getByRole('tab', { name: 'Recibidos sin controlar' }));
+    await user.click(screen.getByRole('tab', { name: 'Sin controlar' }));
 
     expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
       params: { eje_procesal: 'recibido', page_size: 200, tipo: 'mercaderia' },
@@ -539,6 +574,32 @@ describe('TabRecepcionDeposito — retiro action', () => {
     expect(screen.getByText('Coordinar retiro')).toBeInTheDocument();
     expect(screen.queryByText('Despachar retiro')).not.toBeInTheDocument();
   });
+
+  it('uses retiro badge/undo copy when requiere_envio', async () => {
+    const enCurso = {
+      ...PEDIDO_CON_OC_PAGADO,
+      id: 168,
+      numero: 'PC-0168',
+      requiere_envio: true,
+      arribo_en_curso: true,
+    };
+    const cerrado = {
+      ...PEDIDO_CON_OC_PAGADO,
+      id: 169,
+      numero: 'PC-0169',
+      estado: 'recibido',
+      requiere_envio: true,
+    };
+    await renderTab([enCurso, cerrado]);
+
+    expect(screen.getByText('Retirando')).toBeInTheDocument();
+    expect(screen.getByText('Retirado')).toBeInTheDocument();
+    expect(screen.queryByText('Recibiendo')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Deshacer retiro del pedido #PC-0169' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Deshacer recibido')).not.toBeInTheDocument();
+  });
 });
 
 // ── Phase 4 (D5a) — read-only arrival item list ──────────────────
@@ -557,68 +618,77 @@ describe('TabRecepcionDeposito — arrival item list (CON-OC, D5a)', () => {
   it.each([
     ['pagado', PEDIDO_CON_OC_PAGADO],
     ['en_cuenta_corriente', PEDIDO_CON_OC_CUENTA_CORRIENTE],
-  ])('renders read-only item rows with zero editable controls for estado=%s', async (_estado, pedido) => {
+  ])('renders per-line arribo inputs for estado=%s', async (_estado, pedido) => {
     await renderArribo(pedido, { [pedido.id]: SALDOS_ARRIBO });
 
     await screen.findByText('Memoria RAM 16GB');
     expect(screen.getByText('Disco SSD 1TB')).toBeInTheDocument();
     expect(screen.getByText('Depósito Central')).toBeInTheDocument();
     expect(screen.getByText('Depósito Norte')).toBeInTheDocument();
-    // The fixture feeds the raw serialized Decimal ("10.000000") exactly as the
-    // backend sends it; the cell must render the OPERATOR-facing form. Asserting
-    // the raw string here is what let "10.000000" reach a column whose whole job
-    // is to be read at a glance.
     expect(screen.getByText('10')).toBeInTheDocument();
     expect(screen.getByText('5')).toBeInTheDocument();
     expect(screen.queryByText('10.000000')).not.toBeInTheDocument();
 
-    // ZERO editable controls in the arrival table (page filters stay outside).
     const tabla = screen.getByRole('table');
-    expect(tabla.querySelectorAll('input')).toHaveLength(0);
-    expect(tabla.querySelectorAll('[type="checkbox"]')).toHaveLength(0);
-    expect(screen.queryAllByRole('spinbutton')).toHaveLength(0);
+    expect(tabla.querySelectorAll('input')).toHaveLength(2);
     expect(
       screen.queryByRole('button', { name: /marcar (con faltantes|como controlado)/i }),
     ).not.toBeInTheDocument();
 
-    // Banner + "Marcar como recibido" stay reachable.
-    const arriboBtn = screen.getByRole('button', { name: 'Marcar como recibido' });
+    const arriboBtn = screen.getByRole('button', { name: 'Guardar esta recepción' });
     expect(arriboBtn).toBeInTheDocument();
     expect(arriboBtn).not.toBeDisabled();
   });
 
-  it('"Marcar como recibido" still works with the item list present', async () => {
+  it('"Guardar esta recepción" posts arribo-progreso and does not auto-close', async () => {
     api.post.mockResolvedValue({
-      data: { pedido_id: PEDIDO_CON_OC_PAGADO.id, estado_nuevo: 'recibido' },
+      data: {
+        pedido_id: PEDIDO_CON_OC_PAGADO.id,
+        estado_nuevo: 'pagado',
+        cerrado: false,
+        arribo_en_curso: true,
+        creados: [],
+        lineas: [
+          { ...SALDOS_ARRIBO.lineas[0], cantidad_arribada: 10, pendiente_arribo: 0 },
+          { ...SALDOS_ARRIBO.lineas[1], cantidad_arribada: 5, pendiente_arribo: 0 },
+        ],
+      },
     });
     const user = await renderArribo(PEDIDO_CON_OC_PAGADO, { [PEDIDO_CON_OC_PAGADO.id]: SALDOS_ARRIBO });
     await screen.findByText('Memoria RAM 16GB');
 
-    await user.click(screen.getByRole('button', { name: 'Marcar como recibido' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar esta recepción' }));
 
-    await screen.findByText(/Arribo registrado/);
+    await screen.findByText(/Ya cubriste el total/);
     expect(api.post).toHaveBeenCalledWith(
-      `/administracion/compras/pedidos/${PEDIDO_CON_OC_PAGADO.id}/recepcion/confirmar-pedido`,
-      { completo: true },
+      `/administracion/compras/pedidos/${PEDIDO_CON_OC_PAGADO.id}/recepcion/arribo-progreso`,
+      {
+        lineas: [
+          { pod_id: 1001, cantidad: 10 },
+          { pod_id: 1002, cantidad: 5 },
+        ],
+      },
     );
+    expect(screen.getByRole('button', { name: 'Guardar esta recepción' })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Marcar pedido como recibido completo' }),
+    ).not.toBeDisabled();
   });
 
-  it('keeps the banner and "Marcar como recibido" reachable when /saldos fails', async () => {
+  it('keeps the banner and register button reachable when /arribo-progreso fails', async () => {
     await renderArribo(PEDIDO_CON_OC_PAGADO, {
-      [PEDIDO_CON_OC_PAGADO.id]: { reject: 'saldos no disponibles' },
+      [PEDIDO_CON_OC_PAGADO.id]: { reject: 'progreso no disponible' },
     });
 
     await screen.findByRole('alert');
-    expect(screen.getByText('saldos no disponibles')).toBeInTheDocument();
+    expect(screen.getByText('progreso no disponible')).toBeInTheDocument();
 
-    // The deliberate divergence from AccordionBodyConOc: a failed /saldos
-    // fetch must NOT early-return the body.
-    expect(screen.getByRole('button', { name: 'Marcar como recibido' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Guardar esta recepción' })).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 
-  it('shows a loading indicator while /saldos is pending, without hiding the banner', async () => {
-    let resolveSaldos;
+  it('shows a loading indicator while /arribo-progreso is pending, without hiding the banner', async () => {
+    let resolveProgreso;
     const user = userEvent.setup();
     api.get.mockImplementation((url) => {
       if (url === LISTADO_ENDPOINT) {
@@ -629,9 +699,9 @@ describe('TabRecepcionDeposito — arrival item list (CON-OC, D5a)', () => {
       if (url === CREADORES_ENDPOINT) {
         return Promise.resolve({ data: [] });
       }
-      if (url === saldosUrlFor(PEDIDO_CON_OC_PAGADO.id)) {
+      if (url === arriboProgresoUrlFor(PEDIDO_CON_OC_PAGADO.id)) {
         return new Promise((resolve) => {
-          resolveSaldos = resolve;
+          resolveProgreso = resolve;
         });
       }
       return Promise.reject(new Error(`unexpected GET ${url}`));
@@ -641,18 +711,17 @@ describe('TabRecepcionDeposito — arrival item list (CON-OC, D5a)', () => {
     await user.click(screen.getByRole('button', { name: /Proveedor Tres/ }));
 
     expect(await screen.findByText(/Cargando/)).toBeInTheDocument();
-    // Not an early return: the banner/button render even while /saldos is pending.
-    expect(screen.getByRole('button', { name: 'Marcar como recibido' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Guardar esta recepción' })).toBeInTheDocument();
 
-    resolveSaldos({ data: SALDOS_ARRIBO });
+    resolveProgreso({ data: toArriboProgreso(SALDOS_ARRIBO) });
     await screen.findByText('Memoria RAM 16GB');
   });
 
-  it('does not render the table when /saldos returns zero lineas', async () => {
+  it('does not render the table when /arribo-progreso returns zero lineas', async () => {
     await renderArribo(PEDIDO_CON_OC_PAGADO, {
       [PEDIDO_CON_OC_PAGADO.id]: { ...SALDOS_ARRIBO, lineas: [] },
     });
-    await screen.findByRole('button', { name: 'Marcar como recibido' });
+    await screen.findByRole('button', { name: 'Guardar esta recepción' });
 
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });

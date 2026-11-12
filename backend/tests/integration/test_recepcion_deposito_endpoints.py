@@ -1263,7 +1263,7 @@ class TestConfirmarPedidoEndpoint:
     def test_confirmar_pedido_con_oc_pagado_da_recibido(
         self, client, auth_headers, db, pedido_pagado_con_oc, con_permiso_deposito
     ):
-        # REQ-EC-002: CON-OC + pagado → arrival via confirmar-pedido endpoint → recibido
+        # REQ-EC-002: CON-OC + pagado → one-click arrival (no partial progress) → recibido
         _mk_oc_header(db, poh_id=9001, supp_id=55)
         _mk_oc_detail(db, poh_id=9001, pod_id=1, qty=100.0, item_id=101)
         _mk_storage(db, stor_id=1)
@@ -3139,3 +3139,154 @@ class TestListarPedidosEjeTipo:
         assert "P-LIST-REC" not in nums_con
         assert "P-LIST-SIN" not in nums_con
         assert "P-LIST-SRV" not in nums_con
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Arribo/retiro parcial (#2224): coverage only while in progress, row locks, permission
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _arribo(db, pedido: PedidoCompra, user, cantidad: str) -> None:
+    from app.schemas.recepcion import ArriboProgresoLineaRequest, RegistrarArriboProgresoRequest
+
+    recepcion_service.registrar_arribo_progreso(
+        db,
+        pedido,
+        user,
+        RegistrarArriboProgresoRequest(lineas=[ArriboProgresoLineaRequest(pod_id=1, cantidad=Decimal(cantidad))]),
+    )
+
+
+def _locks_pedido(db, action) -> bool:
+    """Whether `action` reads a PedidoCompra row FOR UPDATE (same spy as `test_revert_locks_pedido_row`)."""
+    from sqlalchemy import event
+
+    locked: list[bool] = []
+
+    def _spy(state) -> None:
+        if state.is_select and state.statement._for_update_arg is not None:
+            if any(m.class_ is PedidoCompra for m in state.all_mappers):
+                locked.append(True)
+
+    event.listen(db, "do_orm_execute", _spy)
+    try:
+        action()
+    finally:
+        event.remove(db, "do_orm_execute", _spy)
+    return bool(locked)
+
+
+class TestArriboParcialGuards:
+    @pytest.fixture
+    def con_oc(self, db, pedido_pagado_con_oc):
+        _mk_oc_header(db, poh_id=9001, supp_id=55)
+        _mk_oc_detail(db, poh_id=9001, pod_id=1, qty=10.0, item_id=101)
+        _mk_storage(db, stor_id=1)
+        return pedido_pagado_con_oc
+
+    def test_confirmar_with_arribo_in_progress_under_total_is_409(self, db, con_oc, active_user):
+        _arribo(db, con_oc, active_user, "4")
+
+        with pytest.raises(HTTPException) as exc:
+            recepcion_service.confirmar_arribo_con_oc(db, con_oc, active_user)
+
+        assert exc.value.status_code == 409
+        assert con_oc.estado == "pagado"
+
+    def test_confirmar_with_arribo_covering_every_line_is_recibido(self, db, con_oc, active_user):
+        _arribo(db, con_oc, active_user, "4")
+        _arribo(db, con_oc, active_user, "6")
+
+        result = recepcion_service.confirmar_arribo_con_oc(db, con_oc, active_user)
+
+        assert result.estado_nuevo == "recibido"
+
+    def test_confirmar_without_any_arribo_row_is_recibido(self, db, con_oc, active_user):
+        result = recepcion_service.confirmar_arribo_con_oc(db, con_oc, active_user)
+
+        assert result.estado_nuevo == "recibido"
+
+    def test_registrar_arribo_progreso_locks_the_pedido(self, db, con_oc, active_user):
+        assert _locks_pedido(db, lambda: _arribo(db, con_oc, active_user, "5"))
+
+    def test_confirmar_arribo_con_oc_locks_the_pedido(self, db, con_oc, active_user):
+        assert _locks_pedido(db, lambda: recepcion_service.confirmar_arribo_con_oc(db, con_oc, active_user))
+
+    def test_deshacer_recibido_locks_the_pedido(self, db, con_oc, active_user):
+        con_oc.estado = "recibido"
+        db.flush()
+
+        assert _locks_pedido(db, lambda: recepcion_service.deshacer_recibido(db, con_oc, active_user))
+
+    def test_a_stale_estado_is_rechecked_under_the_lock(self, db, con_oc, active_user):
+        """Another request already closed the pedido: the caller's stale `pagado` must not let it arrive twice."""
+        from sqlalchemy import update
+
+        db.execute(
+            update(PedidoCompra)
+            .where(PedidoCompra.id == con_oc.id)
+            .values(estado="recibido")
+            .execution_options(synchronize_session=False)
+        )
+        assert con_oc.estado == "pagado"  # the caller's copy is stale
+
+        with pytest.raises(HTTPException) as exc:
+            _arribo(db, con_oc, active_user, "5")
+
+        assert exc.value.status_code == 409
+
+    @pytest.mark.parametrize("method", ["get", "post"])
+    def test_arribo_progreso_403_without_recibir_mercaderia(self, client, auth_headers, con_oc, sin_permiso, method):
+        url = f"{BASE}/pedidos/{con_oc.id}/recepcion/arribo-progreso"
+        kwargs = {"json": {"lineas": [{"pod_id": 1, "cantidad": 5}]}} if method == "post" else {}
+
+        r = getattr(client, method)(url, headers=auth_headers, **kwargs)
+
+        assert r.status_code == 403
+
+
+class TestArriboParcialVariasOc:
+    """Two linked OCs that both have a line `pod_id=1`: each OC line is its own line (GGA on #2224)."""
+
+    @pytest.fixture
+    def dos_oc(self, db, pedido_pagado_con_oc):
+        from app.models.pedido_compra_oc import PedidoCompraOc
+
+        for poh_id in (9001, 9002):
+            _mk_oc_header(db, poh_id=poh_id, supp_id=55)
+            _mk_oc_detail(db, poh_id=poh_id, pod_id=1, qty=10.0, item_id=101)
+            db.add(PedidoCompraOc(pedido_id=pedido_pagado_con_oc.id, oc_comp_id=1, oc_bra_id=1, oc_poh_id=poh_id))
+        _mk_oc_detail(db, poh_id=9002, pod_id=2, qty=5.0, item_id=102)
+        _mk_storage(db, stor_id=1)
+        db.flush()
+        return pedido_pagado_con_oc
+
+    def test_an_ambiguous_pod_id_is_422_like_registrar_ingresos(self, db, dos_oc, active_user):
+        with pytest.raises(HTTPException) as exc:
+            _arribo(db, dos_oc, active_user, "10")
+
+        assert exc.value.status_code == 422
+        assert "ambiguous" in exc.value.detail
+
+    def test_covering_one_ocs_line_does_not_cover_the_other_ocs_same_pod_id(self, db, dos_oc, active_user):
+        from app.models.pedido_compra_arribo_progreso import PedidoCompraArriboProgreso
+
+        db.add(
+            PedidoCompraArriboProgreso(
+                pedido_id=dos_oc.id,
+                oc_comp_id=1,
+                oc_bra_id=1,
+                oc_poh_id=9001,
+                pod_id=1,
+                cantidad=Decimal("10"),
+                usuario_id=active_user.id,
+            )
+        )
+        db.flush()
+
+        lineas = {(l.oc_poh_id, l.pod_id): l for l in recepcion_service.get_arribo_progreso(db, dos_oc).lineas}
+        assert lineas[(9001, 1)].pendiente_arribo == 0
+        assert lineas[(9002, 1)].pendiente_arribo == 10
+        with pytest.raises(HTTPException) as exc:
+            recepcion_service.confirmar_arribo_con_oc(db, dos_oc, active_user)
+        assert exc.value.status_code == 409

@@ -69,7 +69,8 @@ const ESTADO_BADGE_CLASS = {
 // The badge still distinguishes them — that information is useful, the filter is not.
 const FILTER_TABS = [
   { id: 'pagado', label: 'Por recibir' },
-  { id: 'recibido', label: 'Recibidos sin controlar' },
+  // Neutral label: covers recepción and retiro (estado interno sigue siendo recibido).
+  { id: 'recibido', label: 'Sin controlar' },
   { id: 'con_faltantes', label: 'Con faltantes' },
   { id: 'faltantes_con_res', label: 'Faltantes con resolución' },
   { id: 'controlado', label: 'Controlados' },
@@ -213,23 +214,61 @@ const CHIP_MAX_CHARS = 60;
 const truncarChip = (t) =>
   t.length > CHIP_MAX_CHARS ? `${t.slice(0, CHIP_MAX_CHARS).trimEnd()}…` : t;
 
-// Banner de arribo. Se CONSERVA con un solo cambio: "control de ítems" →
-// "control de cantidades". La primera oración sigue siendo cierta en TODAS las
-// ramas de render (incluida la de error de /saldos) y nombra el estado, no la
-// tabla. La segunda es la que más se gana ahora: con los ítems a la vista, el
-// operario necesita saber POR QUÉ no puede contarlos, y "control de ítems" al
-// lado de ítems visibles se leía como una contradicción.
-const ARRIBO_BANNER_TEXT =
-  'El pedido aún no fue recibido en depósito. Confirme el arribo para habilitar el control de cantidades.';
+function arriboVocab(requiereEnvio) {
+  return requiereEnvio
+    ? {
+        gerundio: 'Retirando',
+        estadoCerrado: 'Retirado',
+        marcarCompleto: 'Marcar pedido como retirado completo',
+        registrar: 'Guardar este retiro',
+        deshacer: 'Deshacer retiro',
+        marcadoSuccess: 'Pedido marcado como retirado.',
+        banner:
+          'Cargá y guardá cuánto retiraste por línea. Al cubrir el total, “Guardar este retiro” se deshabilita y tenés que marcar el pedido como retirado completo.',
+        successParcial: 'Retiro parcial guardado. El pedido sigue en por retirar.',
+        successCubierto:
+          'Ya cubriste el total. Marcá el pedido como retirado completo para pasarlo a Sin controlar.',
+        successCierre: 'Retiro completo. El pedido está listo para el control de ítems.',
+        colProgreso: 'Ya retirado',
+        colEstaTanda: 'A retirar ahora',
+      }
+    : {
+        gerundio: 'Recibiendo',
+        estadoCerrado: 'Recibido',
+        marcarCompleto: 'Marcar pedido como recibido completo',
+        registrar: 'Guardar esta recepción',
+        deshacer: 'Deshacer recibido',
+        marcadoSuccess: 'Pedido marcado como recibido.',
+        banner:
+          'Cargá y guardá cuánto recibiste por línea. Al cubrir el total, “Guardar esta recepción” se deshabilita y tenés que marcar el pedido como recibido completo.',
+        successParcial: 'Recepción parcial guardada. El pedido sigue en por recibir.',
+        successCubierto:
+          'Ya cubriste el total. Marcá el pedido como recibido completo para pasarlo a Sin controlar.',
+        successCierre: 'Recepción completa. El pedido está listo para el control de ítems.',
+        colProgreso: 'Ya recibido',
+        colEstaTanda: 'A recibir ahora',
+      };
+}
 
 // Linked OC whose ERP header/lines are missing must still occupy one block.
 // Hiding it made the vínculo look gone. Same Spanish copy in arribo + control.
 const OC_ERP_MISSING_COPY = 'OC no encontrada en ERP';
 
-function estadoBadge(estado, stylesMap) {
+function estadoBadge(pedidoOrEstado, stylesMap) {
+  const estado = typeof pedidoOrEstado === 'string' ? pedidoOrEstado : pedidoOrEstado?.estado;
+  const pedido = typeof pedidoOrEstado === 'object' && pedidoOrEstado ? pedidoOrEstado : null;
+  const vocab = arriboVocab(Boolean(pedido?.requiere_envio));
+  const enCurso =
+    pedido?.arribo_en_curso &&
+    (estado === 'pagado' || estado === 'en_cuenta_corriente');
+  if (enCurso) {
+    return <span className={stylesMap.badgeRecibiendo}>{vocab.gerundio}</span>;
+  }
   const badgeClass = ESTADO_BADGE_CLASS[estado];
   if (!badgeClass) return <span className={stylesMap.badge}>{estado}</span>;
-  return <span className={stylesMap[badgeClass]}>{ESTADO_LABELS[estado]}</span>;
+  const label =
+    estado === 'recibido' && pedido ? vocab.estadoCerrado : ESTADO_LABELS[estado];
+  return <span className={stylesMap[badgeClass]}>{label}</span>;
 }
 
 /**
@@ -363,69 +402,125 @@ function buildPedidoClipboardText(pedido) {
 // ── Accordion body — CON OC — arrival panel (estado=pagado) ──────
 
 function AccordionBodyConOcArribo({ pedido, onRefreshList }) {
-  const { confirmarPedido, getSaldos } = useRecepcionDeposito();
+  const { getArriboProgreso, registrarArriboProgreso, confirmarPedido } = useRecepcionDeposito();
+  const vocab = arriboVocab(Boolean(pedido.requiere_envio));
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [submitSuccess, setSubmitSuccess] = useState(null);
+  const [progreso, setProgreso] = useState(null);
+  const [loadingProgreso, setLoadingProgreso] = useState(false);
+  const [errorProgreso, setErrorProgreso] = useState(null);
+  const [tanda, setTanda] = useState({});
 
-  // Read-only item list (D5a). Mirrors AccordionBodyConOc's fetch shape, with
-  // ONE deliberate divergence: loading/error render as inline blocks instead
-  // of early-returning the body, so the banner + "Marcar como recibido" stay
-  // reachable even when /saldos fails. No refetch after handleArribo —
-  // onRefreshList() moves the row out of this tab entirely.
-  const [saldos, setSaldos] = useState(null);
-  const [loadingSaldos, setLoadingSaldos] = useState(false);
-  const [errorSaldos, setErrorSaldos] = useState(null);
+  const applyProgreso = useCallback((data) => {
+    setProgreso(data);
+    const init = {};
+    (data.lineas || []).forEach((l) => {
+      const pendiente = Number(l.pendiente_arribo) || 0;
+      init[l.pod_id] = pendiente > 0 ? String(pendiente) : '0';
+    });
+    setTanda(init);
+  }, []);
 
-  const fetchSaldos = useCallback(async () => {
-    setLoadingSaldos(true);
-    setErrorSaldos(null);
+  const fetchProgreso = useCallback(async () => {
+    setLoadingProgreso(true);
+    setErrorProgreso(null);
     try {
-      const data = await getSaldos(pedido.id);
-      setSaldos(data);
+      const data = await getArriboProgreso(pedido.id);
+      applyProgreso(data);
     } catch (err) {
-      setErrorSaldos(
-        err.response?.data?.detail || err.message || 'Error al cargar saldos.'
+      setErrorProgreso(
+        err.response?.data?.detail || err.message || 'Error al cargar progreso de arribo.'
       );
     } finally {
-      setLoadingSaldos(false);
+      setLoadingProgreso(false);
     }
-  }, [getSaldos, pedido.id]);
+  }, [applyProgreso, getArriboProgreso, pedido.id]);
 
   useEffect(() => {
-    fetchSaldos();
-  }, [fetchSaldos]);
+    fetchProgreso();
+  }, [fetchProgreso]);
 
-  const handleArribo = async () => {
+  const lineas = progreso?.lineas ?? [];
+  const ocs = linkedOcs(pedido, lineas);
+  const arriboEnCurso = Boolean(progreso?.arribo_en_curso);
+  const arriboCubierto =
+    lineas.length > 0 && lineas.every((l) => Number(l.pendiente_arribo) <= 0);
+  // One-click confirm stays available until the operator starts partial tandas;
+  // once in progress, mark-complete needs full coverage.
+  const canMarcarCompleto = !loadingProgreso && (!arriboEnCurso || arriboCubierto);
+
+  const hasInputError = (podId) => {
+    const linea = lineas.find((l) => l.pod_id === podId);
+    if (!linea) return false;
+    const val = parseFloat(tanda[podId] || '0');
+    return val > Number(linea.pendiente_arribo);
+  };
+  const anyInputError = lineas.some((l) => hasInputError(l.pod_id));
+  const tandaLineas = lineas
+    .map((l) => ({ pod_id: l.pod_id, cantidad: parseFloat(tanda[l.pod_id] || '0') }))
+    .filter((l) => l.cantidad > 0);
+  const canSubmit = !arriboCubierto && tandaLineas.length > 0 && !anyInputError;
+
+  const handleInputChange = (podId, value) => {
+    if (value !== '' && !/^\d+$/.test(value)) return;
+    setTanda((prev) => ({ ...prev, [podId]: value }));
+  };
+
+  const handleRegistrar = async () => {
+    if (!canSubmit) return;
     setSubmitting(true);
     setSubmitError(null);
     setSubmitSuccess(null);
     try {
-      // CON-OC + pagado → confirmar-pedido routes to confirmar_arribo_con_oc (state-only)
-      await confirmarPedido(pedido.id, { completo: true });
-      setSubmitSuccess('Arribo registrado. El pedido está listo para el control de items.');
+      const result = await registrarArriboProgreso(pedido.id, { lineas: tandaLineas });
+      const nextLineas = result.lineas || [];
+      const cubierto =
+        nextLineas.length > 0 && nextLineas.every((l) => Number(l.pendiente_arribo) <= 0);
+      setSubmitSuccess(cubierto ? vocab.successCubierto : vocab.successParcial);
+      applyProgreso({
+        ...result,
+        requiere_envio: pedido.requiere_envio,
+        arribo_en_curso: result.arribo_en_curso,
+        estado: result.estado_nuevo,
+        pedido_id: result.pedido_id,
+      });
       onRefreshList();
     } catch (err) {
       const detail = err.response?.data?.detail;
-      setSubmitError(typeof detail === 'string' ? detail : 'Error al registrar arribo.');
+      setSubmitError(typeof detail === 'string' ? detail : 'Error al registrar arribo/retiro.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const lineas = saldos?.lineas ?? [];
-  const ocs = linkedOcs(pedido, lineas);
+  const handleMarcarCompleto = async () => {
+    if (!canMarcarCompleto) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    setSubmitSuccess(null);
+    try {
+      await confirmarPedido(pedido.id, { completo: true });
+      setSubmitSuccess(vocab.successCierre);
+      onRefreshList();
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      setSubmitError(typeof detail === 'string' ? detail : 'Error al marcar completo.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <>
-      {loadingSaldos && (
+      {loadingProgreso && (
         <div className={styles.centered}>
           <Loader2 size={16} className={styles.spin} /> Cargando ítems…
         </div>
       )}
-      {errorSaldos && (
+      {errorProgreso && (
         <div className={styles.inlineError} role="alert">
-          <AlertCircle size={14} /> {errorSaldos}
+          <AlertCircle size={14} /> {errorProgreso}
         </div>
       )}
       {submitError && (
@@ -440,17 +535,38 @@ function AccordionBodyConOcArribo({ pedido, onRefreshList }) {
       )}
       <div className={styles.noOcBanner} role="status">
         <AlertTriangle size={16} className={styles.noOcBannerIcon} />
-        <p className={styles.noOcBannerText}>{ARRIBO_BANNER_TEXT}</p>
+        <p className={styles.noOcBannerText}>{vocab.banner}</p>
       </div>
       <div className={styles.noOcActions}>
         <button
           type="button"
-          className={styles.btnPrimary}
-          disabled={submitting}
-          onClick={handleArribo}
+          className={arriboCubierto ? styles.btnSecondary : styles.btnPrimary}
+          disabled={submitting || !canSubmit}
+          onClick={handleRegistrar}
+          title={
+            arriboCubierto
+              ? 'Ya está cubierto el total; no hay más cantidades para guardar'
+              : 'Guarda las cantidades de esta tanda (no cierra el pedido)'
+          }
         >
-          {submitting ? <Loader2 size={14} className={styles.spin} /> : null}
-          Marcar como recibido
+          {submitting && !arriboCubierto ? <Loader2 size={14} className={styles.spin} /> : null}
+          {vocab.registrar}
+        </button>
+        <button
+          type="button"
+          className={canMarcarCompleto ? styles.btnPrimary : styles.btnSecondary}
+          disabled={submitting || !canMarcarCompleto}
+          onClick={handleMarcarCompleto}
+          title={
+            !arriboEnCurso
+              ? 'Confirma el arribo/retiro completo sin tandas parciales'
+              : arriboCubierto
+                ? 'Pasa el pedido a Sin controlar'
+                : 'Disponible cuando el acumulado cubre el total pedido'
+          }
+        >
+          {submitting && canMarcarCompleto ? <Loader2 size={14} className={styles.spin} /> : null}
+          {vocab.marcarCompleto}
         </button>
       </div>
       {(ocs.length > 0 ? ocs : [null]).map((oc) => {
@@ -467,18 +583,21 @@ function AccordionBodyConOcArribo({ pedido, onRefreshList }) {
             <div className={styles.tableWrapper}>
               <table className={styles.itemTable}>
                 <caption className="sr-only">
-                  Ítems de la orden de compra{oc ? ` #${oc.oc_poh_id}` : ''} (solo lectura)
+                  Progreso de arribo/retiro OC{oc ? ` #${oc.oc_poh_id}` : ''}
                 </caption>
                 <thead>
                   <tr>
                     <th>Ítem</th>
                     <th>Depósito</th>
                     <th className={styles.thRight}>Cant. pedida</th>
+                    <th className={styles.thRight}>{vocab.colProgreso}</th>
+                    <th className={styles.thRight}>{vocab.colEstaTanda}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {blockLineas.map((linea) => {
                     const nombre = linea.item_nombre || `Ítem #${linea.item_id}`;
+                    const err = hasInputError(linea.pod_id);
                     return (
                       <tr key={`${ocKey}-${linea.pod_id}`}>
                         <td>
@@ -487,6 +606,23 @@ function AccordionBodyConOcArribo({ pedido, onRefreshList }) {
                         </td>
                         <td>{linea.deposito_nombre || '—'}</td>
                         <td className={styles.tdRight}>{formatUnidades(linea.pod_qty)}</td>
+                        <td className={styles.tdRight}>
+                          {formatUnidades(linea.cantidad_arribada)}
+                          <span className={styles.itemCodigo}>
+                            {' '}/ pendiente {formatUnidades(linea.pendiente_arribo)}
+                          </span>
+                        </td>
+                        <td className={styles.tdRight}>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            className={err ? `${styles.inputCantidad} ${styles.inputError}` : styles.inputCantidad}
+                            value={tanda[linea.pod_id] ?? '0'}
+                            disabled={Number(linea.pendiente_arribo) <= 0 || submitting}
+                            onChange={(e) => handleInputChange(linea.pod_id, e.target.value)}
+                            aria-label={`${vocab.colEstaTanda} ${nombre}`}
+                          />
+                        </td>
                       </tr>
                     );
                   })}
@@ -975,7 +1111,7 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
       // D-SINOC messages based on source estado
       let msg;
       if (pedido.estado === 'pagado' || pedido.estado === 'en_cuenta_corriente') {
-        msg = 'Pedido marcado como recibido.';
+        msg = arriboVocab(Boolean(pedido.requiere_envio)).marcadoSuccess;
       } else if (completo) {
         msg = 'Pedido marcado como controlado.';
       } else {
@@ -1053,7 +1189,7 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
             onClick={() => handleConfirmar(true)}
           >
             {submitting ? <Loader2 size={14} className={styles.spin} /> : null}
-            Marcar como recibido
+            {arriboVocab(Boolean(pedido.requiere_envio)).marcarCompleto}
           </button>
         )}
         {showControladoBtn && (
@@ -1212,7 +1348,10 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome, defaultOpen = f
     } catch (err) {
       const detail = err?.response?.data?.detail;
       setUndoError(
-        typeof detail === 'string' ? detail : err?.message || 'No se pudo deshacer el recibido.'
+        typeof detail === 'string'
+          ? detail
+          : err?.message ||
+            `No se pudo ${arriboVocab(Boolean(pedido.requiere_envio)).deshacer.toLowerCase()}.`
       );
     } finally {
       setUndoing(false);
@@ -1286,7 +1425,7 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome, defaultOpen = f
           {linkedOcs(pedido).length > 0 && itemsBadge(pedido, styles)}
           {identChips(pedido, styles)}
           {facturaCargadaBadge(pedido.factura_cargada, styles)}
-          {estadoBadge(pedido.estado, styles)}
+          {estadoBadge(pedido, styles)}
           <button
             type="button"
             className={styles.docsButton}
@@ -1302,10 +1441,10 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome, defaultOpen = f
               className={styles.btnSecondary}
               onClick={handleDeshacer}
               disabled={undoing}
-              aria-label={`Deshacer recibido del pedido #${pedido.numero}`}
+              aria-label={`${arriboVocab(Boolean(pedido.requiere_envio)).deshacer} del pedido #${pedido.numero}`}
             >
               {undoing ? <Loader2 size={12} className={styles.spin} /> : <Undo2 size={12} aria-hidden="true" />}
-              Deshacer recibido
+              {arriboVocab(Boolean(pedido.requiere_envio)).deshacer}
             </button>
           )}
           {canRevertirControl && (
@@ -1314,7 +1453,7 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome, defaultOpen = f
               className={styles.btnSecondary}
               onClick={handleRevertirControl}
               disabled={undoing}
-              title="Vuelve el pedido a recibido y borra las tandas de control (habilita Actualizar OC)"
+              title={`Vuelve el pedido a ${arriboVocab(Boolean(pedido.requiere_envio)).estadoCerrado.toLowerCase()} y borra las tandas de control (habilita Actualizar OC)`}
               aria-label={`Revertir control del pedido #${pedido.numero}`}
             >
               {undoing ? <Loader2 size={12} className={styles.spin} /> : <Undo2 size={12} aria-hidden="true" />}
