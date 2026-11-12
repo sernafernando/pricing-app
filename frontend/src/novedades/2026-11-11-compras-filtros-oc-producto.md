@@ -12,4 +12,4 @@ En Compras → **Pedidos** y **Depósito** hay filtros nuevos, cada uno en su ca
 
 1. Abrí **Administración → Compras**.
 2. En Pedidos o Depósito, usá los campos nuevos de la barra de filtros.
-3. Combinálos con proveedor / estado / fechas como hasta ahora.
+3. Combinalos con proveedor / estado / fechas como hasta ahora.
