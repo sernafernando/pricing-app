@@ -171,12 +171,14 @@ describe('the product rows', () => {
     expect(within(none).queryByText(/USD/)).not.toBeInTheDocument();
   });
 
-  it("shows the product's PPP and cost with sell in under its cost", async () => {
+  it("shows the product's cost with sell in in the cost's currency on the cost's line, the PPP in its tooltip", async () => {
     publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse([{ ...PRODUCT_ROWS[0], ...COST_LINES }, PRODUCT_ROWS[2]]) });
     render(<Harness />);
     const row = (await screen.findByText('Router Archer AX55')).closest('tr');
-    expect(within(row).getByText(/^ppp: USD \$41\.20/)).toBeInTheDocument();
-    expect(within(row).getByText('c/ sell in: ARS $63000.00')).toBeInTheDocument();
+    const cell = within(row).getByText('c/ sell in USD 43,27').parentElement;
+    expect(cell.textContent).toBe('USD 45,50 c/ sell in USD 43,27');
+    expect(cell.getAttribute('title')).toContain('ppp: USD $41.20 (30/09/26)');
+    expect(cell.getAttribute('title')).toContain('c/ sell in en pesos: ARS 63.000,00');
   });
 
   it('has no cost on a product row without ver_ganancia', async () => {

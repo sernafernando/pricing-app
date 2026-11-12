@@ -739,6 +739,25 @@ describe('header figures (S1)', () => {
       expect(within(figures()).getByText('c/ sell in/out', { exact: false })).toHaveAttribute('title', hint);
     });
 
+    it("S10: a USD cost reads in USD, its cost with sell in in USD too, the pesos only in the cost's tooltip", async () => {
+      // 40 USD at 1600 = the breakdown's 64.000 ARS; the backend's sell in in USD at that same rate.
+      const sellInUsd = { ...SELL_IN, moneda_costo: 'USD', costo_moneda: 39.0625, descuento_unit_moneda: 0.9375 };
+      canSeeMargin = true;
+      publicacionesMlAPI.detail.mockResolvedValue({
+        data: {
+          ...withCosts({ sell_in: sellInUsd, sell_out: null, markups_sell_in: { publicacion: 29.6 }, markups_sell_in_out: {} }),
+          markup_breakdown: { ...DETAIL_RESPONSE_MARGIN.markup_breakdown, costo: 40, moneda_costo: 'USD' },
+        },
+      });
+      renderPanel({ tab: 'resumen' });
+      await screen.findByRole('region', { name: 'Cifras de la publicación' });
+      expect(figure('Costo')).toBe('USD 40,00c/ sell in USD 39,06');
+      expect(within(figures()).getByText('USD 40,00')).toHaveAttribute(
+        'title',
+        'Costo del producto en USD (en pesos: $ 64.000,00). Unidad calculada: la publicación',
+      );
+    });
+
     it('S6: without sell in, the Costo card has the cost alone', async () => {
       canSeeMargin = true;
       publicacionesMlAPI.detail.mockResolvedValue({ data: withCosts(null) });

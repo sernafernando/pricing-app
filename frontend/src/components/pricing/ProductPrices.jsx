@@ -63,7 +63,33 @@ const NoSellInOut = ({ title }) => (
 function SellInCost({ sellIn }) {
   if (!sellIn) return <NoSellInOut title="Sin sell in vigente" />;
   const origen = sellInOrigen(sellIn); // a purchase lot or the % of cost bonuses (T25c)
-  const detalle = `Descuento por unidad: $ ${formatAmount(sellIn.descuento_unit)}\n${origen}`;
+  const pesos = `$ ${formatAmount(sellIn.descuento_unit)}`;
+  // S10: in the cost's own currency (the backend converts it at the rate it converted the cost with), pesos aside.
+  const moneda = sellIn.moneda_costo;
+  if (moneda && moneda !== 'ARS') {
+    const lines = [];
+    if (!isBlank(sellIn.descuento_unit_moneda)) {
+      lines.push(`Descuento por unidad: ${moneda} ${formatAmount(sellIn.descuento_unit_moneda)} (${pesos})`);
+    } else {
+      lines.push(`Descuento por unidad: ${pesos}`);
+    }
+    if (!isBlank(sellIn.costo)) lines.push(`c/ sell in en pesos: $ ${formatAmount(sellIn.costo)}`);
+    lines.push(origen);
+    const detalleMoneda = lines.join('\n');
+    if (isBlank(sellIn.costo_moneda)) {
+      return (
+        <span className={styles.muted} title={detalleMoneda}>
+          Sin tipo de cambio
+        </span>
+      );
+    }
+    return (
+      <span className={styles.sellInCost} title={detalleMoneda}>
+        {moneda} {formatAmount(sellIn.costo_moneda)}
+      </span>
+    );
+  }
+  const detalle = `Descuento por unidad: ${pesos}\n${origen}`;
   if (isBlank(sellIn.costo)) {
     return (
       <span className={styles.muted} title={detalle}>
@@ -142,10 +168,20 @@ function ProductFacts({ product, showCost, isUsd, needsRate, rate, offsets, cost
 
   let cost = <Empty />;
   if (isUsd) {
+    // S10: the cost in its own currency first (USD 17,04); its pesos only as a small secondary figure.
     const original = `USD ${formatAmount(product.costo)}`;
     if (rate === undefined) cost = original;
     else if (rate === null) cost = `${original} (sin tipo de cambio)`;
-    else cost = `$ ${formatAmount(product.costo * rate)} (${original} × ${formatAmount(rate)})`;
+    else {
+      cost = (
+        <>
+          <span>{original}</span>{' '}
+          <span className={styles.muted}>
+            $ {formatAmount(product.costo * rate)} (× {formatAmount(rate)})
+          </span>
+        </>
+      );
+    }
   } else if (!isBlank(product.costo_ars ?? product.costo)) {
     cost = `$ ${formatAmount(product.costo_ars ?? product.costo)}`;
   }

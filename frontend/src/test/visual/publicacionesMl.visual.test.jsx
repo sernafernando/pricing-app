@@ -1089,16 +1089,33 @@ describe('Publicaciones ML Producto view (visual)', () => {
     }
 
     for (const { width, height } of VIEWPORTS) {
-      it(`${width}x${height} ${theme}: the PPP and sell in lines stay inside the cost cell of a product row`, async () => {
+      it(`${width}x${height} ${theme}: the cost cell of a product row is one line, as tall as a row without sell in (S10b)`, async () => {
+        const showCost = async (screen) => {
+          await screen.getByRole('button', { name: 'Columnas' }).click();
+          await screen.getByRole('checkbox', { name: 'Costo' }).click();
+          await screen.getByRole('button', { name: 'Columnas' }).click();
+        };
+        // The same row without PPP nor sell in first: the height the cost cell must not add to.
+        const plain = await renderProducts({ width, height, theme, rows: PRODUCT_ROWS });
+        await showCost(plain);
+        const plainHeight = rowWith(scrollerOf(), 'Router Archer AX55').getBoundingClientRect().height;
+        plain.unmount();
+
         const rows = [{ ...PRODUCT_ROWS[0], ...COST_LINES }, ...PRODUCT_ROWS.slice(1)];
         const screen = await renderProducts({ width, height, theme, rows });
-        await screen.getByRole('button', { name: 'Columnas' }).click();
-        await screen.getByRole('checkbox', { name: 'Costo' }).click();
-        await screen.getByRole('button', { name: 'Columnas' }).click();
+        await showCost(screen);
         const row = rowWith(scrollerOf(), 'Router Archer AX55');
         const cell = [...row.querySelectorAll('td')].find((td) => td.textContent.includes('USD 45,50'));
-        expect(cell.textContent).toContain('ppp: USD $41.20');
-        expect(cell.textContent).toContain('c/ sell in: ARS $63000.00');
+        // The owner's case: a USD cost, its cost with sell in in USD too, inline; the PPP and pesos in the tooltip.
+        expect(cell.textContent).toBe('USD 45,50 c/ sell in USD 43,27');
+        // The whole line shows: the cell is as wide as its content, no ellipsis cuts the cost with sell in.
+        const content = cell.firstElementChild.getBoundingClientRect();
+        const box = cell.getBoundingClientRect();
+        const padding = parseFloat(getComputedStyle(cell).paddingLeft);
+        expect(content.left).toBeGreaterThanOrEqual(box.left + padding - 0.5);
+        expect(content.right).toBeLessThanOrEqual(box.right - padding + 0.5);
+        expect(cell.querySelector('[title]').getAttribute('title')).toContain('ppp: USD $41.20');
+        expect(row.getBoundingClientRect().height).toBeCloseTo(plainHeight, 0);
         expect(overflowingCells(scrollerOf())).toEqual([]);
         if (PRODUCT_SHOTS_DIR) {
           cell.scrollIntoView({ inline: 'center' });

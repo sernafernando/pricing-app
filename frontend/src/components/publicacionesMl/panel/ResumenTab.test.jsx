@@ -319,6 +319,25 @@ describe('the markup with sell in / sell out (ver_ganancia only)', () => {
     expect(markup.querySelector('[title]').getAttribute('title')).toBe('Con sell in');
   });
 
+  it('S10: a USD cost reads in USD with the pesos small beside it, and its cost with sell in in USD', () => {
+    // 40 USD at 1600 = the breakdown's 64.000 ARS; the backend's sell in in USD at that same rate.
+    const sellInUsd = { ...SELL_IN, moneda_costo: 'USD', costo_moneda: 39.0625, descuento_unit_moneda: 0.9375 };
+    renderTab(
+      makeDetail({
+        markup_breakdown: { ...DETAIL_RESPONSE_MARGIN.markup_breakdown, costo: 40, moneda_costo: 'USD' },
+        sell_in_out: { sell_in: sellInUsd, sell_out: null, markups_sell_in: { publicacion: 29.6 }, markups_sell_in_out: {} },
+      }),
+      { canSeeMargin: true },
+    );
+    const costo = valueOf('Rentabilidad', 'Costo');
+    expect(within(costo).getByText('USD 40,00')).toBeInTheDocument();
+    expect(within(costo).getByText('$ 64.000,00')).toBeInTheDocument(); // the pesos the markup divides by, small
+    expect(sellInCost()).toHaveTextContent('USD 39,06');
+    expect(sellInCost().querySelector('[title]').getAttribute('title')).toBe(
+      'Descuento por unidad: USD 0,94 ($ 1.500,00)\nc/ sell in en pesos: $ 62.500,00\nUnidades restantes del lote: 12',
+    );
+  });
+
   it('names the % of cost bonus in the tooltip when the sell in has no lot (T25c)', () => {
     const bono = { ...SELL_IN, compra_item_id: null, bono_id: 4, unidades_restantes: null };
     renderTab(withSellInOut({ sell_in: bono, sell_out: null, markups_sell_in: {}, markups_sell_in_out: {} }), { canSeeMargin: true });

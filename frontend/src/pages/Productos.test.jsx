@@ -1167,7 +1167,16 @@ describe('CS-13: sell in / sell out companion lines', () => {
       productos: [
         makeProducto({
           sell_in_out: {
-            sell_in: { compra_item_id: 7, descuento_unit: 150, costo: 850.5, unidades_restantes: 12 },
+            // A USD cost: the backend also sends its sell in in USD, at the rate it converted the cost with (S10)
+            sell_in: {
+              compra_item_id: 7,
+              descuento_unit: 150,
+              costo: 850.5,
+              unidades_restantes: 12,
+              moneda_costo: 'USD',
+              costo_moneda: 8.5007,
+              descuento_unit_moneda: 1.4993,
+            },
             sell_out: { monto_unit: 40, campana_ids: [3] },
             markups_sell_in: { clasica: 20.5 },
             markups_sell_in_out: { clasica: 25.25 },
@@ -1182,7 +1191,9 @@ describe('CS-13: sell in / sell out companion lines', () => {
     });
 
     await waitFor(() => expect(screen.getByText('Producto Test')).toBeInTheDocument());
-    expect(screen.getByText('c/ sell in: ARS $850.50')).toBeInTheDocument();
+    const costo = screen.getByText('c/ sell in USD $8.50').parentElement;
+    expect(costo.textContent).toBe('USD $10.00 c/ sell in USD $8.50'); // one line, in the cost's currency (S10b)
+    expect(costo.getAttribute('title')).toContain('c/ sell in en pesos: ARS $850.50');
     expect(screen.getByText('c/ sell in: 20.50%')).toBeInTheDocument();
     expect(screen.getByText('c/ sell in + sell out: 25.25%')).toBeInTheDocument();
   });

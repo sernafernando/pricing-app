@@ -293,6 +293,8 @@ EXPECTED_DETAIL = (
         limpio=49743.80165289255,
         costo_ars=400000.0,
         markup=-87.56404958677686,
+        costo=400000.0,  # S10: the same ARS cost in its own currency; every money figure above is unchanged
+        moneda_costo="ARS",
     ),
 )
 
