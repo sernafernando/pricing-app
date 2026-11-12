@@ -5,6 +5,7 @@ from app.models.comision_config import SubcategoriaGrupo, ComisionListaGrupo
 from app.models.comision_versionada import ComisionVersion, ComisionBase, ComisionAdicionalCuota
 from app.models.pricing_constants import PricingConstants
 from app.models.producto import ProductoERP, ProductoPricing
+from app.services.envio_tramos import costo_envio_para
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from datetime import date
@@ -340,6 +341,8 @@ def calcular_limpio(
     if envio_cuenta(precio, constantes):
         # Si el producto no tiene costo de envío asignado pero tenemos grupo_id,
         # usar el envío promedio del grupo
+        # ML charges by price bracket: a bracketed cost resolves to the bracket of THIS price
+        costo_envio = costo_envio_para(costo_envio, precio)
         if costo_envio == 0 and grupo_id is not None and db is not None:
             costo_envio = obtener_envio_promedio_grupo(db, grupo_id)
 

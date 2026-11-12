@@ -18,6 +18,10 @@ Design decisions (ADR):
      the last 30 days (`ponderado`; no sales -> `promedio`). No row, or `max`, is the MAX above. A chosen MLA that is
      inactive or has no cost falls back to the MAX. Applied inside both resolvers, so every product-pricing caller
      gets it; the choices are read in ONE statement and the units sold in ONE more, only for `ponderado` products.
+  7. ML charges the seller by item-price bracket. ml-webhook stores list_cost at the sale price and every
+     bracket's cost (`cost_by_bracket`); a cost read with brackets is a `CostoEnvioTramos` (envio_tramos): the
+     same float for display, which `calcular_limpio` resolves at the price it evaluates. Every aggregation here
+     (MAX, choice, means) also runs bracket by bracket, so no caller needs the price to get the right bracket.
 """
 
 from __future__ import annotations
@@ -36,6 +40,7 @@ from app.core.database import get_mlwebhook_engine
 from app.models.producto import ProductoERP
 from app.models.producto_envio_eleccion import ProductoEnvioEleccion
 from app.models.publicacion_ml import PublicacionML
+from app.services.envio_tramos import CostoEnvioTramos, por_tramo
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +58,10 @@ def _query_list_cost_by_mla(mla_ids: list[str]) -> dict[str, float]:
     """
     Query ml_seller_shipping_costs in the mlwebhook DB for the given MLA IDs; RAISES on any error.
 
-    Returns {mla_id: list_cost} for rows where list_cost > 0 and currency_id = 'ARS'.
+    Returns {mla_id: list_cost} for rows where list_cost > 0 and currency_id = 'ARS'. list_cost is the cost at the
+    publication's sale price; a row with `cost_by_bracket` comes back as a `CostoEnvioTramos` (still that float)
+    that `calcular_limpio` evaluates at the price it prices. `cost_by_bracket` is read through `to_jsonb(row)`, so
+    the query also works before ml-webhook's migration adds the column (it is then NULL: a plain float).
 
     list_cost is stored WITH IVA — returned as-is; caller decides what to do with it.
 
@@ -69,8 +77,8 @@ def _query_list_cost_by_mla(mla_ids: list[str]) -> dict[str, float]:
         rows = conn.execute(
             text(
                 """
-                SELECT mla_id, list_cost
-                FROM ml_seller_shipping_costs
+                SELECT mla_id, list_cost, to_jsonb(s) -> 'cost_by_bracket' AS tramos
+                FROM ml_seller_shipping_costs s
                 WHERE mla_id = ANY(ARRAY(SELECT jsonb_array_elements_text(CAST(:ids AS jsonb))))
                   AND list_cost IS NOT NULL
                   AND list_cost > 0
@@ -80,7 +88,7 @@ def _query_list_cost_by_mla(mla_ids: list[str]) -> dict[str, float]:
             {"ids": json.dumps(mla_ids)},
         ).fetchall()
     for row in rows:
-        result[row.mla_id] = float(row.list_cost)
+        result[row.mla_id] = CostoEnvioTramos.desde_fila(float(row.list_cost), row.tramos)
     return result
 
 
@@ -158,7 +166,7 @@ def costo_envio_maximo(costs: Mapping[str, float], fallback: Optional[float]) ->
     """The resolved shipping cost of a product from its active MLAs' costs: their MAX, else the ERP `envio`."""
     if not costs:
         return float(fallback or 0.0)
-    return max(costs.values())
+    return por_tramo(lambda cs: max(cs.values()), costs)  # type: ignore[return-value]  # costs is not empty
 
 
 def _in_item_ids(db: Session, column: Any, item_ids: Sequence[int]) -> Any:
@@ -317,18 +325,19 @@ def elecciones_por_item(db: Session, item_ids: Sequence[int]) -> dict[int, tuple
 
 
 def costo_promedio(costs: Mapping[str, float]) -> Optional[float]:
-    """The simple mean of the given MLAs' costs; None without any."""
+    """The simple mean of the given MLAs' costs; None without any. Bracket by bracket too (`por_tramo`)."""
     if not costs:
         return None
-    return round(sum(costs.values()) / len(costs), 2)
+    return por_tramo(lambda cs: round(sum(cs.values()) / len(cs), 2), costs)
 
 
 def costo_ponderado(costs: Mapping[str, float], units: Mapping[str, int]) -> Optional[float]:
-    """The mean of the given MLAs' costs weighted by their units sold; None when none of them sold."""
+    """The mean of the given MLAs' costs weighted by their units sold; None when none of them sold. Bracket by
+    bracket too (`por_tramo`), with the same weights."""
     total = sum(units.get(mla, 0) for mla in costs)
     if total <= 0:
         return None
-    return round(sum(cost * units.get(mla, 0) for mla, cost in costs.items()) / total, 2)
+    return por_tramo(lambda cs: round(sum(cost * units.get(mla, 0) for mla, cost in cs.items()) / total, 2), costs)
 
 
 def eleccion_cae_a_maximo(modo: str, mla: Optional[str], costs: Mapping[str, float]) -> bool:
@@ -343,9 +352,17 @@ def costo_envio_elegido(
     units sold (read only for `ponderado`). None when no MLA has a cost (callers fall back to the ERP envio).
 
     `mla`: that publication's cost, else MAX. `promedio`: the simple mean. `ponderado`: the sales-weighted mean,
-    `promedio` without sales. Anything else (`max`, no choice): MAX."""
+    `promedio` without sales. Anything else (`max`, no choice): MAX. Bracketed costs resolve bracket by bracket
+    (`por_tramo`): a product's MAX at 41999 is the MAX of its MLAs' costs at 41999."""
     if not costs:
         return None
+    return por_tramo(lambda cs: _costo_elegido(modo, mla, cs, units), costs)
+
+
+def _costo_elegido(
+    modo: str, mla: Optional[str], costs: Mapping[str, float], units: Mapping[str, int]
+) -> Optional[float]:
+    """`costo_envio_elegido` on plain floats."""
     if modo == "mla" and not eleccion_cae_a_maximo(modo, mla, costs):
         return costs[mla]  # type: ignore[index]  # not None: checked above
     if modo == "promedio":
