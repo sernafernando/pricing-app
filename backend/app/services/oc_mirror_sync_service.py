@@ -22,6 +22,10 @@ from app.models.purchase_order_header import PurchaseOrderHeader
 
 logger = logging.getLogger(__name__)
 
+# After depósito control started/finished, refreshing the OC mirror would drift
+# saldos vs locked ingresos (controlado is terminal; con_faltantes still has counts).
+ESTADOS_SYNC_OC_BLOQUEADOS: frozenset[str] = frozenset({"controlado", "con_faltantes"})
+
 # Minimal columns for link validation + detalle/saldos (pod_qty / confirmed / item / stor).
 _HEADER_PLAIN = {
     "supp_id": "supp_id",
@@ -198,10 +202,23 @@ def sync_ocs_for_pedido(
     oc_bra_id: int | None = None,
     oc_poh_id: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Sync all linked OCs for a pedido, or one triple if provided."""
+    """Sync all linked OCs for a pedido, or one triple if provided.
+
+    Blocked when the pedido is already under depósito control (`con_faltantes`
+    or terminal `controlado`): mirror refresh would desync live saldos from
+    append-only ingresos. `recibido` (arrival only) remains allowed.
+    """
     pedido = db.get(PedidoCompra, pedido_id)
     if pedido is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
+
+    if pedido.estado in ESTADOS_SYNC_OC_BLOQUEADOS:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"No se puede actualizar la OC: el pedido ya tiene control de depósito (estado='{pedido.estado}')."
+            ),
+        )
 
     triples = triples_for_pedido(db, pedido)
     if not triples:

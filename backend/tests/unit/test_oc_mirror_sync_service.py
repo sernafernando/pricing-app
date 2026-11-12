@@ -123,6 +123,52 @@ def test_sync_404_when_gbp_header_missing(db, empresa, proveedor, active_user) -
     assert exc.value.status_code == 404
 
 
+@pytest.mark.parametrize("estado", ["controlado", "con_faltantes"])
+def test_sync_blocked_after_deposito_control(db, empresa, proveedor, active_user, estado: str) -> None:
+    pedido = _pedido(db, empresa, proveedor, active_user)
+    pedido.estado = estado
+    db.flush()
+    with patch.object(oc_mirror_sync_service, "_fetch_gbp") as fetch:
+        with pytest.raises(HTTPException) as exc:
+            oc_mirror_sync_service.sync_ocs_for_pedido(db, pedido_id=pedido.id)
+    assert exc.value.status_code == 409
+    assert "control de depósito" in str(exc.value.detail)
+    fetch.assert_not_called()
+
+
+def test_sync_allowed_when_recibido_pending_control(db, empresa, proveedor, active_user) -> None:
+    pedido = _pedido(db, empresa, proveedor, active_user)
+    pedido.estado = "recibido"
+    db.flush()
+    header_row = {
+        "comp_id": 1,
+        "bra_id": 45,
+        "poh_id": 500,
+        "supp_id": 99,
+        "poh_total": 1500,
+        "poh_cd": "2026-03-10T12:00:00",
+    }
+    detail_row = {
+        "comp_id": 1,
+        "bra_id": 45,
+        "poh_id": 500,
+        "pod_id": 7,
+        "item_id": 100,
+        "pod_qty": 3,
+        "pod_confirmedQTY": 1,
+        "pod_isProcessed": False,
+    }
+
+    def _fake_fetch(params):
+        if params.get("strScriptLabel") == "scriptPurchaseOrderHeader":
+            return [header_row]
+        return [detail_row]
+
+    with patch.object(oc_mirror_sync_service, "_fetch_gbp", side_effect=_fake_fetch):
+        synced = oc_mirror_sync_service.sync_ocs_for_pedido(db, pedido_id=pedido.id)
+    assert len(synced) == 1
+
+
 def test_sync_header_pohid_exclusive_floor_finds_target(db, empresa, proveedor, active_user) -> None:
     """Header script returns poh_id > pohID; exact triple still syncs (P-02-2026-00281 case)."""
     pedido = _pedido(db, empresa, proveedor, active_user)

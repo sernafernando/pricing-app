@@ -323,6 +323,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
 
   const handleSyncOC = useCallback(async () => {
     if (!pedido?.id) return;
+    if (pedido.estado === 'controlado' || pedido.estado === 'con_faltantes') return;
     setSyncingOC(true);
     setErrorOC(null);
     try {
@@ -337,7 +338,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
     } finally {
       setSyncingOC(false);
     }
-  }, [syncOcs, pedido?.id, fetchDetalle]);
+  }, [syncOcs, pedido?.id, pedido?.estado, fetchDetalle]);
 
   // Feature D — al corregir se crea un clon. Cierra este modal y propaga el
   // ID del clon al padre para que abra el modal del clon (flujo fluido).
@@ -504,6 +505,13 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   const facturasErp = linkedFacturas(pedido);
   const ocBlocks = ocDetalleBlocks(ocDetalle);
   const canVincularOc = Boolean(pedido && canGestionar && pedido.tipo !== 'servicio');
+  // Mirror sync is blocked once depósito control started/finished — ingresos would
+  // drift vs live OC qty. `recibido` (arrival only) stays allowed.
+  const syncOcBloqueado =
+    pedido?.estado === 'controlado' || pedido?.estado === 'con_faltantes';
+  const syncOcTitle = syncOcBloqueado
+    ? 'No se puede actualizar la OC: el pedido ya tiene control de depósito'
+    : 'Actualizar líneas/saldos desde el ERP (no corrige recepciones)';
 
   return (
     <div className={styles.modalOverlay}>
@@ -1035,8 +1043,8 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                         type="button"
                         className={styles.btnGhost}
                         onClick={handleSyncOC}
-                        disabled={syncingOC || desvinculandoOC}
-                        title="Actualizar líneas/saldos desde el ERP (no corrige recepciones)"
+                        disabled={syncingOC || desvinculandoOC || syncOcBloqueado}
+                        title={syncOcTitle}
                       >
                         {syncingOC ? (
                           <Loader2 size={14} className={styles.spin} />
