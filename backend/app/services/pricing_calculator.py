@@ -78,6 +78,13 @@ def obtener_tipo_cambio_actual(db: Session, moneda: str = "USD") -> Optional[flo
     return tc.venta if tc else None
 
 
+def moneda_de(raw: object) -> str:
+    """A cost currency as the screens compare it: an enum's value, trimmed and upper case; none or blank is ARS
+    (the markup path's `moneda_costo or "ARS"`)."""
+    texto = str(getattr(raw, "value", raw) or "").strip().upper()
+    return texto or "ARS"
+
+
 def convertir_a_pesos(costo: float, moneda: str, tipo_cambio: Optional[float]) -> float:
     """Convierte costo a pesos argentinos"""
     if moneda == "ARS":

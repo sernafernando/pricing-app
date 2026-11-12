@@ -66,7 +66,7 @@ from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca
 from app.models.sell_out import SellOutCampana, SellOutCampanaItem, SellOutConsumo
 from app.schemas.sell_in_out_producto import SellInOutProducto, SellInProducto, SellOutProducto
-from app.services.pricing_calculator import calcular_markup, convertir_a_pesos
+from app.services.pricing_calculator import calcular_markup, convertir_a_pesos, moneda_de
 from app.services.sell_in import bonos_costo
 from app.services.sell_in.bonos import tasas_bna_por_fecha
 from app.services.sell_in.costing import LoteVigente, get_costing
@@ -169,13 +169,6 @@ class MarkupCompanions:
     def record(self, key: str, limpio: float, *, percent: bool = True) -> None:
         self.ppp.record(key, limpio, percent=percent)
         self.sell_in_out.record(key, limpio, percent=percent)
-
-
-def moneda_de(raw: object) -> str:
-    """A cost currency as the screens compare it: an enum's value, trimmed and upper case; none or blank is ARS
-    (the markup path's `moneda_costo or "ARS"`)."""
-    texto = str(getattr(raw, "value", raw) or "").strip().upper()
-    return texto or "ARS"
 
 
 def en_moneda_costo(sell_in: SellInProducto, moneda: object, tipo_cambio: Optional[float]) -> SellInProducto:
