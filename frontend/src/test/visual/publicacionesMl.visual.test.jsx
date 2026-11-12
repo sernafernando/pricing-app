@@ -2357,21 +2357,25 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
   // Precios: the reference line with the cost, each plan's markups as chips by the app scale (markupTone).
   for (const { width, height } of PANEL_VIEWPORTS) {
     for (const theme of THEMES) {
-      it(`${width}x${height} ${theme}: the Precios tab shows cost with offset and with sell in, every markup of each plan as toned chips and fits the panel`, async () => {
+      it(`${width}x${height} ${theme}: the Precios tab shows the cost with sell in, every markup of each plan as toned chips and fits the panel`, async () => {
         preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, sell_in_out: SELL_IN_OUT } });
         offsetsGananciaAPI.vigentes.mockResolvedValue({
           data: [{ id: 7, marca: 'TP-LINK', tipo_offset: 'porcentaje_costo', porcentaje: 10, descripcion: 'Rebate TP-Link con una descripción larga', grupo_id: null }],
         });
         try {
           const screen = await renderWithPanel({ width, height, theme, tab: 'precios', linked: true, margin: true });
-          await expect.element(screen.getByText('$ 57.600,00')).toBeVisible();
+          await expect.element(screen.getByRole('table', { name: 'Precios por plan' })).toBeVisible();
           const panel = panelOf();
-          expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
-
           const facts = panel.querySelector('[aria-label="Referencias del producto"]');
           const table = panel.querySelector('table[aria-label="Precios por plan"]');
-
           const chip = (label, col) => table.querySelector(`[data-entry-label="${label}"] [data-col="${col}"] [data-tone]`);
+          // The offsets load after the prices: wait for the markup with offset before measuring.
+          await expect.poll(() => chip('Clásica', 'markup-offset')?.textContent).toBe('31,56%');
+          expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+          // The "Costo con offset" fact is gone; the cost with sell in stays.
+          expect(facts).not.toHaveTextContent('Costo con offset');
+          expect(facts).toHaveTextContent('Costo c/ sell in');
+
           expect(getComputedStyle(chip('Clásica', 'markup')).color).toBe(tokenColor('--tone-success-fg'));
           expect(getComputedStyle(chip('12 cuotas', 'markup')).color).toBe(tokenColor('--tone-danger-fg'));
           expect(getComputedStyle(chip('12 cuotas', 'markup')).backgroundColor).toBe(tokenColor('--tone-danger-bg'));
