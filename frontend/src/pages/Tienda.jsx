@@ -23,7 +23,13 @@ import SetupMarkups from '../components/SetupMarkups';
 import StatCard from '../components/StatCard';
 import SearchInput from '../components/SearchInput';
 import PrecioTransfHint from '../components/PrecioTransfHint';
+import CostoCell from '../components/CostoCell';
+import SellInOutLine from '../components/SellInOutLine';
+import { tiendaSellInOutDe } from '../utils/tiendaSellInOut';
 import { DollarSign, BarChart3, Check, X, RotateCcw, Ban, CreditCard } from 'lucide-react';
+
+// The list cost in its own currency, as Productos writes it (CostoCell adds the cost with sell in).
+const formatCostoLista = (monto, moneda) => `${moneda} $${monto?.toFixed(2)}`;
 
 export default function Tienda() {
   const { tienePermiso } = usePermisos();
@@ -1584,7 +1590,13 @@ export default function Tienda() {
                     </td>
                     <td>{p.marca}</td>
                     <td>{p.stock}</td>
-                    <td>{p.moneda_costo} ${p.costo?.toFixed(2)}</td>
+                    <td>
+                      {p.costo === null || p.costo === undefined ? (
+                        <span className="text-muted">-</span>
+                      ) : (
+                        <CostoCell monto={p.costo} moneda={p.moneda_costo} sellInOut={p.sell_in_out} format={formatCostoLista} />
+                      )}
+                    </td>
                     <td className={isRowActive && celdaActiva?.colIndex === 0 ? 'keyboard-cell-active' : ''}>
                       {/* Precio solo lectura en Tienda */}
                       <div>
@@ -1676,6 +1688,7 @@ export default function Tienda() {
                               ) : null}
                             </div>
                           )}
+                          <SellInOutLine sellInOut={tiendaSellInOutDe(p.sell_in_out, 'sugerido')} markupKey="sugerido" />
                         </div>
                       ) : (
                         <div className="text-muted">
@@ -1869,6 +1882,7 @@ export default function Tienda() {
                                   Markup: {p.markup_gremio.toFixed(1)}%
                                 </div>
                               )}
+                              <SellInOutLine sellInOut={tiendaSellInOutDe(p.sell_in_out, 'gremio')} markupKey="gremio" />
                             </div>
                           ) : (
                             <div className="text-muted">
@@ -1988,6 +2002,7 @@ export default function Tienda() {
                                   ${p.precio_web_transferencia.toLocaleString('es-AR')}
                                 </div>
                               )}
+                              <SellInOutLine sellInOut={tiendaSellInOutDe(p.sell_in_out, 'web_transf')} markupKey="web_transf" />
                             </div>
                           ) : (
                             <span className="text-muted">-</span>

@@ -606,6 +606,15 @@ def calcular_precio_producto(
     }
 
 
+def limpio_web_transferencia(precio: float, iva: float, comision_web: float, iibb: float) -> float:
+    """Net ARS without VAT of a Web Transferencia (Tienda Nube) price: the price without VAT, less the Tienda Nube
+    commission on the price WITH VAT and the IIBB (`varios`) on the price without VAT, both at nominal value. The
+    same net `calcular_precio_web_transferencia` solves the price for; `comision_web` and `iibb` are percentages."""
+    iva_decimal = iva / 100 if iva > 1 else iva
+    precio_sin_iva = precio / (1 + iva_decimal)
+    return precio_sin_iva - precio * (comision_web / 100) - precio_sin_iva * (iibb / 100)
+
+
 def calcular_precio_web_transferencia(
     costo_ars: float,
     iva: float,
