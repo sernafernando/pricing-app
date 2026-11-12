@@ -11,6 +11,23 @@ Asserted on `EXPLAIN (ANALYZE, FORMAT JSON)` of every statement those reads send
 - no JIT section.
 
 Timings are printed (`-s`), never asserted (a shared CI box). The plan shape is what regresses loudly.
+
+The oracle (`assert_previous_answers`) patches back the shapes main had before (#2233, #2249) and asserts every read
+still answers the same.
+
+CI runs a sample, split over four modules so the volume job (`--dist loadfile`) spreads them over its workers:
+
+- each filter once, alone (`test_filter_matrix_each_{a,b}_volume_postgres.py`): the flat reads (list page, facets,
+  Producto ids, KPIs), each read sent once, its statements' plans checked and its answers compared with the oracle;
+- every Agrupado tree, walked to the products, with all the filters at once, all + the promo set, the promo set alone
+  and no filter (this module);
+- the oracle of all the filters at once, with and without the promo set, over every tree
+  (`test_filter_matrix_oracle_volume_postgres.py`).
+
+The full matrix (every tree under every filter, every filter with the promo set; plans and oracle, about 47 min on the
+test server) runs on demand:
+
+    PUBML_FILTER_MATRIX_FULL=1 pytest -m volume tests/services/ml_publications/view/test_filter_matrix_*_volume_postgres.py
 """
 
 from __future__ import annotations
@@ -126,15 +143,12 @@ ALL = dict(
     hay_mejores_ofertas=None,
 )
 TREES = ("marca", "categoria", "subcategoria", "pm", "tienda")
-# CI walks one Agrupado tree per filter, in turn, so every tree is walked under every kind of filter; the full matrix
-# (every tree for every filter, about 47 min on the test server) runs on demand with PUBML_FILTER_MATRIX_FULL=1.
+# The full matrix: every tree under every filter, every filter with the promo set (see the module docstring).
 FULL = pytest.mark.skipif(
     not os.environ.get("PUBML_FILTER_MATRIX_FULL"), reason="the full matrix: run it with PUBML_FILTER_MATRIX_FULL=1"
 )
-TREE_OF = {name: (TREES[index % len(TREES)],) for index, name in enumerate(FILTERS)}
 # (name, filter, promo set on top, Agrupado trees walked)
 SCENARIOS = [
-    *(pytest.param(name, kwargs, False, TREE_OF[name], id=name) for name, kwargs in FILTERS.items()),
     pytest.param("all", ALL, False, TREES, id="all"),
     pytest.param("all + promo", ALL, True, TREES, id="all + promo"),
     pytest.param("promo", {}, True, TREES, id="promo"),
@@ -143,11 +157,14 @@ SCENARIOS = [
         pytest.param(f"{name} every tree", kwargs, False, TREES, marks=FULL, id=f"{name} every tree")
         for name, kwargs in FILTERS.items()
     ),
+    *(
+        pytest.param(f"{name} + promo", kwargs, True, ("marca",), marks=FULL, id=f"{name} + promo")
+        for name, kwargs in FILTERS.items()
+    ),
 ]
-# Each filter with the promo set on top (the #2233 incident's shape), in its own module so CI runs it on another worker.
-PROMO_SCENARIOS = [
-    pytest.param(f"{name} + promo", kwargs, True, ("marca",), id=f"{name} + promo") for name, kwargs in FILTERS.items()
-]
+# Each filter once, alone, in CI: its flat reads, plans and oracle in one pass (`assert_each_filter`), in two halves.
+EACH = [pytest.param(name, kwargs, id=name) for name, kwargs in FILTERS.items()]
+EACH_A, EACH_B = EACH[: len(EACH) // 2], EACH[len(EACH) // 2 :]
 PM_DDL = (
     "CREATE TABLE marcas_pm (id serial PRIMARY KEY, marca varchar(100) NOT NULL, categoria varchar(100) NOT NULL, "
     "usuario_id integer, fecha_asignacion timestamptz, fecha_modificacion timestamptz)",
@@ -321,6 +338,11 @@ def reads(session: Session, f: PublicationFilter, trees: tuple[str, ...] = ("mar
 
 
 def statements(session: Session, call: Callable[[], Any]) -> list[tuple[str, Any]]:
+    return captured(session, call)[0]
+
+
+def captured(session: Session, call: Callable[[], Any]) -> tuple[list[tuple[str, Any]], Any]:
+    """`call()`'s answer and the SELECT statements it sent."""
     sent: list[tuple[str, Any]] = []
 
     def record(conn, cursor, statement, parameters, context, executemany) -> None:
@@ -330,10 +352,10 @@ def statements(session: Session, call: Callable[[], Any]) -> list[tuple[str, Any
     bind = session.get_bind()
     event.listen(bind, "before_cursor_execute", record)
     try:
-        call()
+        answer = call()
     finally:
         event.remove(bind, "before_cursor_execute", record)
-    return sent
+    return sent, answer
 
 
 def analyzed(session: Session, statement: str, parameters: Any) -> tuple[dict[str, Any], float]:
@@ -441,18 +463,16 @@ def previous_shape(monkeypatch) -> None:
         monkeypatch.setattr(module, "resolve_pm_pairs", unresolved_group)
 
 
-# The oracle runs in `test_filter_matrix_oracle_volume_postgres.py` (another CI worker). Each filter + promo set
-# costs about 6 min there, so it runs with the full matrix only.
+# The oracle module's cases (each filter alone runs in `assert_each_filter`).
 ORACLE = [
-    *(pytest.param(name, kwargs, False, TREE_OF[name], id=name) for name, kwargs in FILTERS.items()),
     pytest.param("all", ALL, False, TREES, id="all"),
     pytest.param("all + promo", ALL, True, TREES, id="all + promo"),
     *(
-        pytest.param(f"{name} + promo", kwargs, True, ("marca",), marks=FULL, id=f"{name} + promo")
+        pytest.param(f"{name} every tree", kwargs, False, TREES, marks=FULL, id=f"{name} every tree")
         for name, kwargs in FILTERS.items()
     ),
     *(
-        pytest.param(f"{name} every tree", kwargs, False, TREES, marks=FULL, id=f"{name} every tree")
+        pytest.param(f"{name} + promo", kwargs, True, ("marca",), marks=FULL, id=f"{name} + promo")
         for name, kwargs in FILTERS.items()
     ),
 ]
@@ -464,3 +484,22 @@ def assert_previous_answers(session: Session, monkeypatch, kwargs: dict[str, Any
     now = answers(session, build(session, kwargs, promo), trees)
     previous_shape(monkeypatch)
     assert now == answers(session, build(session, kwargs, promo), trees)
+
+
+def assert_each_filter(session: Session, monkeypatch, kwargs: dict[str, Any]) -> None:
+    """One filter alone, its flat reads sent once: no per-row plan in what they send, and the previous shapes answer
+    the same."""
+    f = build(session, kwargs, False)
+    found: dict[str, list[str]] = {}
+    now: dict[str, Any] = {}
+    for label, read in reads(session, f, ()):
+        sent, answer = captured(session, read)
+        now[label] = comparable(answer)
+        for statement, parameters in sent:
+            bad = per_row_plans(analyzed(session, statement, parameters)[0])
+            if bad:
+                found.setdefault(label, []).extend(bad)
+    assert found == {}
+    session.execute(text("SET LOCAL statement_timeout = '120s'"))  # the previous shapes are the slow ones
+    previous_shape(monkeypatch)
+    assert now == {label: comparable(read()) for label, read in reads(session, build(session, kwargs, False), ())}
