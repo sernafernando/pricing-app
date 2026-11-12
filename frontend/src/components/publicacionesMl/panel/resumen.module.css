@@ -1,0 +1,544 @@
+/*
+ * The Resumen tabs of the publication and product panels (S5): grouped blocks instead of one long label/value list.
+ * Tokens only, so both themes follow.
+ */
+
+/* A block of the tab with its title in body size (the older Section titles are small caps). */
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  min-width: 0;
+}
+
+.blockHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.blockTitle {
+  margin: 0;
+  font-size: var(--font-base);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.caption {
+  margin: 0;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+/* A bordered card. */
+.card {
+  font-size: var(--font-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  min-width: 0;
+  padding: var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+/* Atención: an alert box with its icon. */
+.alert {
+  display: flex;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--tone-warning-border);
+  border-radius: var(--radius-md);
+  background: var(--tone-warning-bg);
+  color: var(--tone-warning-fg);
+  /* A long unbroken last error (a URL, a JSON body) wraps instead of overflowing the panel. */
+  overflow-wrap: anywhere;
+}
+
+.alertIcon {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.alertBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+.alertTitle {
+  margin: 0;
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+}
+
+.alertList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-sm);
+}
+
+/* Rentabilidad: the sum as a waterfall, the markup as its result band. */
+.waterfall {
+  overflow: hidden;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: var(--spacing-xs) var(--spacing-md);
+  font-size: var(--font-sm);
+}
+
+.step {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) 0;
+}
+
+.step dt,
+.step dd {
+  margin: 0;
+}
+
+.step dd {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--spacing-xs) var(--spacing-md);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* The sign of a step, outside the label's text: "− Comisión", "= Precio limpio". */
+.stepMinus dt::before {
+  content: '− ';
+}
+
+.stepTotal dt::before {
+  content: '= ';
+}
+
+.step dt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--spacing-xs);
+}
+
+.stepMinus {
+  color: var(--cf-text-secondary);
+}
+
+.stepTotal {
+  border-top: 1px solid var(--cf-border-default);
+  font-weight: var(--font-semibold);
+}
+
+.stepCost {
+  border-top: 1px dashed var(--cf-border-default);
+}
+
+.stepAside {
+  font-size: var(--font-xs);
+  font-weight: var(--font-normal);
+  color: var(--cf-text-secondary);
+}
+
+.sourceTag {
+  padding: 0 var(--spacing-xs);
+  border-radius: var(--radius-sm);
+  background: var(--tone-neutral-bg);
+  color: var(--tone-neutral-fg);
+  font-size: var(--font-xs);
+}
+
+.markupBand {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-xs) var(--spacing-md);
+  margin: 0;
+  padding: var(--spacing-md);
+  border-top: 1px solid var(--tone-info-border);
+  background: var(--tone-info-bg);
+  color: var(--tone-info-fg);
+}
+
+.markupBand dt {
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.markupBand dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-xs) var(--spacing-lg);
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.markupMain {
+  font-size: var(--font-2xl);
+  font-weight: var(--font-bold);
+}
+
+/* The markup takes the band's tone; a negative one keeps the danger tone. */
+.markupBand dd [title] > span:not([data-negative]),
+.markupMain > span:not([data-negative]) {
+  color: inherit;
+  font-weight: inherit;
+}
+
+.markupSecondaryLine > :last-child {
+  font-size: var(--font-lg);
+  font-weight: var(--font-semibold);
+}
+
+/* Two cards side by side; stacked when the panel is narrow. */
+.pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: var(--spacing-md);
+}
+
+/* Big figures: Stock's parts, Cifras' tiles. */
+.figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm) var(--spacing-xl);
+  margin: 0;
+}
+
+.figure {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.figure dt {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.figure dd {
+  margin: 0;
+  font-size: var(--font-xl);
+  font-weight: var(--font-semibold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--cf-text-primary);
+}
+
+.strong {
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: var(--cf-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* Chips: a state, a tag, an option. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.chipsLabel {
+  margin-right: var(--spacing-xs);
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px var(--spacing-sm);
+  border-radius: var(--radius-full);
+  background: var(--tone-neutral-bg);
+  color: var(--tone-neutral-fg);
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  white-space: nowrap;
+}
+
+.chip[data-tone='success'] {
+  background: var(--tone-success-bg);
+  color: var(--tone-success-fg);
+}
+
+.chip[data-tone='warning'] {
+  background: var(--tone-warning-bg);
+  color: var(--tone-warning-fg);
+}
+
+.chip[data-tone='danger'] {
+  background: var(--tone-danger-bg);
+  color: var(--tone-danger-fg);
+}
+
+/* Groups of label / value lines: three (Ficha) or two (ML data) per line when the panel is wide. */
+.groupsContainer {
+  container-type: inline-size;
+}
+
+.groups {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--spacing-md) var(--spacing-lg);
+}
+
+@container (min-width: 30rem) {
+  .groupsTwo {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 40rem) {
+  .groupsThree {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 30rem) and (max-width: 39.99rem) {
+  .groupsThree {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+.groupTitle {
+  margin: 0 0 2px;
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cf-text-secondary);
+}
+
+.lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  margin: 0;
+  font-size: var(--font-sm);
+}
+
+.line {
+  display: flex;
+  /* Each side as tall as its own text: a label on two lines does not stretch the value. */
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.line dt {
+  color: var(--cf-text-secondary);
+}
+
+.line dd {
+  margin: 0;
+  min-width: 0;
+  text-align: right;
+  color: var(--cf-text-primary);
+  overflow-wrap: anywhere;
+}
+
+/* A short value (a date) stays on one line; the label wraps if the column is narrow. */
+.lineShort dd {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.lineList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Más datos de Mercado Libre: collapsed by default. */
+.disclosure {
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+}
+
+.disclosureToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.disclosureToggle:hover {
+  background: var(--cf-bg-hover);
+}
+
+.disclosureText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.disclosureTitle {
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.disclosureAction {
+  flex: 0 0 auto;
+  font-size: var(--font-sm);
+  color: var(--cf-accent-blue);
+}
+
+.disclosureBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-md);
+  border-top: 1px solid var(--cf-border-default);
+}
+
+/* Stat tiles. */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: var(--spacing-sm);
+  margin: 0;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-hover);
+}
+
+.tile dt {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.tile dd {
+  margin: 0;
+  font-size: var(--font-lg);
+  font-weight: var(--font-semibold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--cf-text-primary);
+}
+
+/* Atributos: a striped two-column table. */
+.attributes {
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+}
+
+.attribute {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+.attribute:nth-child(even) {
+  background: var(--cf-bg-hover);
+}
+
+.attribute dt {
+  color: var(--cf-text-secondary);
+}
+
+.attribute dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--cf-text-primary);
+  overflow-wrap: anywhere;
+}
+
+/* Imágenes: a strip of thumbnails, each a link to the full picture. */
+.images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.thumb {
+  display: block;
+  width: 72px;
+  height: 72px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-hover);
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
