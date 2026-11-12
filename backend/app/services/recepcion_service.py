@@ -699,7 +699,7 @@ def confirmar_pedido_sin_oc(
 # ──────────────────────────────────────────────────────────────────────────
 
 
-def _lock_pedido(session: Session, pedido: PedidoCompra) -> PedidoCompra:
+def _lock_pedido_recepcion(session: Session, pedido: PedidoCompra) -> PedidoCompra:
     """Read the pedido row FOR UPDATE (as `revertir_control` does) and refresh it, so concurrent arrival/undo
     requests serialize and every check below reads the estado committed by the request that went first."""
     return session.query(PedidoCompra).filter(PedidoCompra.id == pedido.id).populate_existing().with_for_update().one()
@@ -743,7 +743,7 @@ def confirmar_arribo_con_oc(
             'en_cuenta_corriente') — only the arrival step is accepted here.
         HTTPException 409 — partial arribo/retiro in progress and still under total.
     """
-    pedido = _lock_pedido(session, pedido)
+    pedido = _lock_pedido_recepcion(session, pedido)
     if pedido.oc_poh_id is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -762,6 +762,7 @@ def confirmar_arribo_con_oc(
             ),
         )
 
+    # Coverage gate only when the operator already started partial arrival.
     if not _arribo_lineas_cubiertas(session, pedido):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -875,7 +876,7 @@ def deshacer_recibido(
     Also wipes pre-control arribo/retiro progress so por-recibir starts clean.
     The pedido row is locked first; estado is re-read under the lock.
     """
-    pedido = _lock_pedido(session, pedido)
+    pedido = _lock_pedido_recepcion(session, pedido)
     _validar_no_servicio(pedido)
     if pedido.estado == "controlado":
         raise HTTPException(
@@ -1180,7 +1181,7 @@ def registrar_arribo_progreso(
 
     The pedido row is locked first: two operators posting the last units of a line at once serialize, and the
     second one reads the first one's progress in the over-arribo check."""
-    pedido = _lock_pedido(session, pedido)
+    pedido = _lock_pedido_recepcion(session, pedido)
     _validar_no_servicio(pedido)
     if pedido.oc_poh_id is None and not triples_for_pedido(session, pedido):
         raise HTTPException(

@@ -1263,7 +1263,7 @@ class TestConfirmarPedidoEndpoint:
     def test_confirmar_pedido_con_oc_pagado_da_recibido(
         self, client, auth_headers, db, pedido_pagado_con_oc, con_permiso_deposito
     ):
-        # REQ-EC-002: CON-OC + pagado → arrival via confirmar-pedido endpoint → recibido
+        # REQ-EC-002: CON-OC + pagado → one-click arrival (no partial progress) → recibido
         _mk_oc_header(db, poh_id=9001, supp_id=55)
         _mk_oc_detail(db, poh_id=9001, pod_id=1, qty=100.0, item_id=101)
         _mk_storage(db, stor_id=1)
@@ -1304,6 +1304,14 @@ class TestConfirmarPedidoEndpoint:
         )
         assert r.status_code == 200
         assert r.json()["estado_nuevo"] == "recibido"
+
+    def test_arribo_progreso_403_sin_permiso(self, client, auth_headers, pedido_pagado_con_oc, sin_permiso):
+        r = client.post(
+            f"{BASE}/pedidos/{pedido_pagado_con_oc.id}/recepcion/arribo-progreso",
+            json={"lineas": [{"pod_id": 1, "cantidad": 1}]},
+            headers=auth_headers,
+        )
+        assert r.status_code == 403
 
     def test_confirmar_pedido_sin_oc_en_cuenta_corriente_da_recibido(
         self, client, auth_headers, db, empresa, proveedor, active_user, con_permiso_deposito
