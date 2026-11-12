@@ -19,7 +19,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.models.comision_config import SubcategoriaGrupo
 from app.models.comision_versionada import ComisionAdicionalCuota, ComisionBase, ComisionVersion
-from app.services.pxq_pricing_context import resolve_pxq_pricing_context
+from app.services.pxq_pricing_context import PxqPricingContext, PxqPricingUnavailable, resolve_pxq_pricing_context
 from tests.services.ml_publications.conftest import env, mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
 
@@ -64,6 +64,7 @@ def _seed(conn, db, stored_pricelist: int, in_store: bool = True, **item) -> Non
     )
     if in_store:
         seed.add_item(conn, MLA, **item)
+        seed.add_link(conn, MLA, PRODUCT)
     version = ComisionVersion(nombre="S11b", fecha_desde=date(2000, 1, 1), activo=True)
     db.add(version)
     db.flush()
@@ -88,25 +89,48 @@ def test_commission_follows_the_list_ml_charges_the_item(conn, db, stored, item,
 
     context = resolve_pxq_pricing_context(db, MLA)
 
-    assert context is not None
+    assert isinstance(context, PxqPricingContext)
     assert context.comision_base_pct == pytest.approx(expected)
     assert context.costo_ars == pytest.approx(40000.0)
 
 
 @pytest.mark.parametrize(
-    "item",
-    [dict(listing_type_id="gold_special", tags=["pcj-co-funded"]), dict(listing_type_id="free")],
+    "item, reason",
+    [
+        (dict(listing_type_id="gold_special", tags=["pcj-co-funded"]), "cofinanciada"),
+        (dict(listing_type_id="free"), "sin_lista"),
+    ],
     ids=["cofinanciada", "sin_lista"],
 )
-def test_an_item_with_no_list_of_ours_has_no_context(conn, db, item) -> None:
-    """No list of ours for the item (`resolve_pricelist` gives none): never the stored list instead."""
+def test_an_item_with_no_list_of_ours_reports_the_header_reason(conn, db, item, reason) -> None:
+    """No list of ours for the item (`resolve_pricelist` gives none): its reason, never the stored list instead."""
     _seed(conn, db, 4, **item)
 
-    assert resolve_pxq_pricing_context(db, MLA) is None
+    context = resolve_pxq_pricing_context(db, MLA)
+
+    assert isinstance(context, PxqPricingUnavailable)
+    assert context.reason == reason
 
 
-def test_a_publication_not_in_the_store_has_no_context(conn, db) -> None:
+def test_a_publication_not_in_the_store_reports_sin_item_ml(conn, db) -> None:
     """Without the ML item there is no list to price: never the stored list instead."""
     _seed(conn, db, 4, in_store=False)
 
-    assert resolve_pxq_pricing_context(db, MLA) is None
+    assert resolve_pxq_pricing_context(db, MLA) == PxqPricingUnavailable("sin_item_ml")
+
+
+def test_cost_iva_and_subcategory_come_from_the_product_the_store_links(conn, db) -> None:
+    """S11b: `publicaciones_ml.item_id` names product 70, the item-level store link product 71 (another cost, IVA
+    and subcategory group): the PxQ context prices product 71, as the header does."""
+    _seed(conn, db, 4, listing_type_id="gold_special")
+    seed.add_product(conn, 71, "C71", "Producto 71", subcategoria_id=3845)
+    seed.add_cost(conn, 71, 65000.0, iva=10.5)
+    conn.execute(text("UPDATE ml_item_product_links SET producto_item_id = 71 WHERE item_id = :m"), {"m": MLA})
+    db.add(SubcategoriaGrupo(subcat_id=3845, grupo_id=2))
+    version = db.query(ComisionVersion).one()
+    db.add(ComisionBase(version_id=version.id, grupo_id=2, comision_base=12.0))
+    db.flush()
+
+    context = resolve_pxq_pricing_context(db, MLA)
+
+    assert context == PxqPricingContext(costo_ars=65000.0, comision_base_pct=12.0, iva=10.5, grupo_id=2)

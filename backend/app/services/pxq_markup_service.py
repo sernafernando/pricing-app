@@ -33,12 +33,23 @@ from app.models.ml_pxq_tier import MlPxqTier
 from app.services.ml_webhook_client import ml_webhook_client
 from app.services.pricing_calculator import obtener_constantes_pricing
 from app.services.pxq_markup import calcular_markup_pxq, resolve_order_cost, resolve_tier_shipping
-from app.services.pxq_pricing_context import resolve_pxq_pricing_context
+from app.services.pxq_pricing_context import PxqPricingUnavailable, resolve_pxq_pricing_context
 from app.utils.async_bridge import resolve_maybe_async
 
 logger = logging.getLogger(__name__)
 
-PxqMarkupReason = Literal["shipping_unavailable", "product_data_missing"]
+# `shipping_unavailable` is the tier's own; the rest are the publication's context reasons
+# (`pxq_pricing_context.py`), the header's own for the same cases.
+PxqMarkupReason = Literal[
+    "shipping_unavailable",
+    "product_data_missing",
+    "sin_item_ml",
+    "sin_vinculo",
+    "sin_costo",
+    "cofinanciada",
+    "sin_lista",
+    "sin_comision",
+]
 
 # 24h TTL, slice B design. Anything fresher than this makes ZERO calls to the
 # ml-webhook proxy; NULL (never fetched) or older always calls it.
@@ -208,19 +219,20 @@ def markup_for_tiers(db: Session, item_id: str) -> Dict[int, TierMarkup]:
 
     context = resolve_pxq_pricing_context(db, item_id)
     # Only fetched when at least one tier could possibly use it -- when the
-    # context itself is unresolved, every tier reports product_data_missing
+    # context itself is unresolved, every tier reports its reason
     # regardless, so the query would be pure waste.
-    constantes = obtener_constantes_pricing(db) if context is not None else None
+    unavailable = context if isinstance(context, PxqPricingUnavailable) else None
+    constantes = obtener_constantes_pricing(db) if unavailable is None else None
 
     result: Dict[int, TierMarkup] = {}
     for tier in tiers:
         shipping = resolve_tier_shipping(tier)
 
-        # Precedence when both are unresolved: product_data_missing wins --
+        # Precedence when both are unresolved: the context reason wins --
         # it is unrelated to fetch timing and more actionable than a
         # shipping-availability reason.
-        if context is None:
-            result[tier.id] = TierMarkup(tier_id=tier.id, reason="product_data_missing")
+        if unavailable is not None:
+            result[tier.id] = TierMarkup(tier_id=tier.id, reason=unavailable.reason)
             continue
         if shipping is None:
             result[tier.id] = TierMarkup(tier_id=tier.id, reason="shipping_unavailable")

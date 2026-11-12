@@ -16,7 +16,7 @@ import pytest
 
 from app.core.security import get_password_hash
 from app.models.comision_versionada import ComisionBase, ComisionVersion
-from app.models.ml_publications import MlItem
+from tests.services.pxq_store import store_rows
 from app.models.ml_pxq_tier import MlPxqTier
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
@@ -70,7 +70,7 @@ def _make_publicacion(db, *, item_id_suffix: int, pricelist_id: int = 4, moneda_
         pricelist_id=pricelist_id,
     )
     db.add(pub)
-    db.add(MlItem(item_id=pub.mla, listing_type_id="gold_special"))  # the list the markup prices (classic)
+    db.add_all(store_rows(pub.mla, pub.item_id))  # the header's inputs the markup prices
     db.flush()
     return pub
 
@@ -130,10 +130,10 @@ class TestShippingMissing:
         assert set(payload.keys()) == {"tier_id", "reason"}
 
 
-class TestProductDataMissing:
-    def test_product_data_missing_reports_product_data_missing(self, db, pxq_user, comision_fixtures) -> None:
-        # No ProductoERP/PublicacionML for this MLA at all -- context is
-        # unresolvable, independent of shipping being present.
+class TestContextReason:
+    def test_zero_cost_reports_the_header_reason_sin_costo(self, db, pxq_user, comision_fixtures) -> None:
+        # The linked product has no cost -- context is unresolvable,
+        # independent of shipping being present; the header's reason (S11b).
         producto = ProductoERP(
             item_id=92099,
             codigo="SKU-PXQ-MKT-NOCOST",
@@ -146,19 +146,41 @@ class TestProductDataMissing:
         db.flush()
         publicacion = PublicacionML(mla="MLA9200099", item_id=producto.item_id, codigo=producto.codigo, pricelist_id=4)
         db.add(publicacion)
-        db.add(MlItem(item_id=publicacion.mla, listing_type_id="gold_special"))
+        db.add_all(store_rows(publicacion.mla, producto.item_id))
         db.flush()
         tier = _make_tier(db, publicacion, pxq_user, costo_envio_total="200.00")
 
         result = markup_for_tiers(db, publicacion.mla)
 
         entry = result[tier.id]
-        assert entry.reason == "product_data_missing"
+        assert entry.reason == "sin_costo"
         assert not markup_resolved(entry)
+
+    def test_a_publication_not_in_the_store_reports_sin_item_ml(self, db, pxq_user, comision_fixtures) -> None:
+        """No `ml_items` row: no list to price on, every tier says so (S11b)."""
+        producto = ProductoERP(
+            item_id=92097,
+            codigo="SKU-PXQ-MKT-NOITEM",
+            descripcion="Sin item",
+            costo=1000.0,
+            moneda_costo="ARS",
+            iva=21.0,
+        )
+        db.add(producto)
+        db.flush()
+        publicacion = PublicacionML(mla="MLA9200097", item_id=producto.item_id, codigo=producto.codigo, pricelist_id=4)
+        db.add(publicacion)
+        db.flush()
+        tier = _make_tier(db, publicacion, pxq_user, costo_envio_total="200.00")
+
+        entry = markup_for_tiers(db, publicacion.mla)[tier.id]
+
+        assert entry.reason == "sin_item_ml"
+        assert entry.markup is None
 
 
 class TestBothMissingPrecedence:
-    def test_both_missing_reports_product_data_missing_not_shipping(self, db, pxq_user, comision_fixtures) -> None:
+    def test_both_missing_reports_the_context_reason_not_shipping(self, db, pxq_user, comision_fixtures) -> None:
         producto = ProductoERP(
             item_id=92098,
             codigo="SKU-PXQ-MKT-BOTHMISSING",
@@ -171,14 +193,14 @@ class TestBothMissingPrecedence:
         db.flush()
         publicacion = PublicacionML(mla="MLA9200098", item_id=producto.item_id, codigo=producto.codigo, pricelist_id=4)
         db.add(publicacion)
-        db.add(MlItem(item_id=publicacion.mla, listing_type_id="gold_special"))
+        db.add_all(store_rows(publicacion.mla, producto.item_id))
         db.flush()
         tier = _make_tier(db, publicacion, pxq_user, costo_envio_total=None)
 
         result = markup_for_tiers(db, publicacion.mla)
 
         entry = result[tier.id]
-        assert entry.reason == "product_data_missing"
+        assert entry.reason == "sin_costo"
 
 
 class TestRegressionGuardNeverFabricated:

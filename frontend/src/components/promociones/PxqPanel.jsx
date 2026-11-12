@@ -4,6 +4,7 @@ import { pxqAPI } from '../../services/api';
 import { useLazyResource } from '../../hooks/useLazyResource';
 import { usePxqMarkup } from '../../hooks/usePxqMarkup';
 import { usePermisos } from '../../contexts/PermisosContext';
+import { MARKUP_REASONS } from '../publicacionesMl/markupReasons';
 import { formatRelativeAge } from './promoDisplayPrice';
 import styles from './promociones.module.css';
 
@@ -522,9 +523,17 @@ function formatMoney(value) {
 // treatment as `ESTADO_LABELS` below, including the `Map` (never a bare
 // object literal) and the raw-value fallback for a reason this map does not
 // yet know about.
+// The publication-level reasons the header also gives (`sin_vinculo`, `sin_costo`, `sin_comision`) reuse the
+// header's own copy (`MARKUP_REASONS`), so both read the same for the same case (S11b).
 const MARKUP_REASON_LABELS = new Map([
   ['shipping_unavailable', 'Falta el costo de envío del bulto'],
   ['product_data_missing', 'Faltan datos del producto para calcular el markup'],
+  ['sin_vinculo', MARKUP_REASONS.sin_vinculo],
+  ['sin_costo', MARKUP_REASONS.sin_costo],
+  ['sin_comision', MARKUP_REASONS.sin_comision],
+  ['cofinanciada', 'Cuotas cofinanciadas por Mercado Libre: no hay lista de precios nuestra'],
+  ['sin_lista', 'El tipo de publicación no tiene lista de precios nuestra'],
+  ['sin_item_ml', 'La publicación todavía no está en la tienda sincronizada'],
 ]);
 
 function formatMarkupReason(reason) {

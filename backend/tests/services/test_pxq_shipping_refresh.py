@@ -31,7 +31,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.security import get_password_hash
 from app.models.comision_versionada import ComisionBase, ComisionVersion
-from app.models.ml_publications import MlItem
+from tests.services.pxq_store import store_rows
 from app.models.ml_pxq_tier import MlPxqTier
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
@@ -88,7 +88,7 @@ def _make_publicacion(db, *, item_id_suffix: int) -> PublicacionML:
         pricelist_id=4,
     )
     db.add(pub)
-    db.add(MlItem(item_id=pub.mla, listing_type_id="gold_special"))  # the list the markup prices (classic)
+    db.add_all(store_rows(pub.mla, pub.item_id))  # the header's inputs the markup prices
     db.flush()
     return pub
 
@@ -458,7 +458,7 @@ class TestRealPersistenceAcrossASession:
             setup.flush()
             pub = PublicacionML(mla="MLA9399901", item_id=producto.item_id, codigo=producto.codigo, pricelist_id=4)
             setup.add(pub)
-            setup.add(MlItem(item_id=pub.mla, listing_type_id="gold_special"))
+            setup.add_all(store_rows(pub.mla, pub.item_id))
             setup.flush()
             tier = MlPxqTier(
                 publicacion_ml_id=pub.id,
