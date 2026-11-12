@@ -1275,6 +1275,37 @@ describe('Publicaciones ML Producto view (visual)', () => {
       });
     }
 
+    // Resumen of a product in blocks (S5, design approved 2026-11-11): Ficha, Cifras as tiles, Compras y sell in with
+    // the cost mode collapsed behind its chip, Publicaciones, the banlist last. Captured whole, then with the mode open.
+    it(`1440x2600 ${theme}: the product Resumen reads as blocks, the cost mode opens from its chip, nothing pokes out (S5)`, async () => {
+      const screen = await renderProducts({ width: 1440, height: 2600, theme });
+      await openProductResumen(screen);
+      const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+      await expect.element(aside.getByText(/^La próxima venta descuenta/)).toBeVisible();
+      await expect.element(aside.getByText('Distribuidora Norte')).toBeVisible();
+      const panel = document.querySelector('[data-split-panel]');
+      const modo = aside.getByRole('region', { name: 'Modo de costo' });
+      await expect.element(modo.getByRole('button', { name: /^(Cambiar|Ver)$/ })).toBeVisible();
+      await frame();
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-resumen-s5-${theme}.png`, element: panel });
+      const titles = [...panel.querySelectorAll('[role="tabpanel"] h3')].map((h) => h.textContent);
+      const order = ['Ficha', 'Cifras', 'Compras y sell in', 'Publicaciones'].map((title) => titles.indexOf(title));
+      expect(order.every((index) => index >= 0), titles.join(' | ')).toBe(true);
+      expect([...order].sort((a, b) => a - b)).toEqual(order);
+      const box = rect(panel);
+      expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+      for (const el of panel.querySelectorAll('[role="tabpanel"] section, [role="tabpanel"] dd, [role="tabpanel"] button')) {
+        if (rect(el).width === 0) continue;
+        expect(rect(el).right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(box.right + 0.5);
+      }
+      await modo.getByRole('button', { name: /^(Cambiar|Ver)$/ }).click();
+      await expect.element(aside.getByText('Modo actual')).toBeVisible();
+      await frame();
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-resumen-s5-modo-${theme}.png`, element: panel });
+      expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+      screen.unmount();
+    });
+
     for (const { width, height } of VIEWPORTS) {
       it(`${width}x${height} ${theme}: the catalog competition of a product's publication fits inside the panel`, async () => {
         promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({

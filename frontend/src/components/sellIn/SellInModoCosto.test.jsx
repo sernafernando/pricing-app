@@ -569,3 +569,62 @@ describe('the manual mode', () => {
     );
   });
 });
+
+describe('collapsed behind its current mode (product panel, S5)', () => {
+  const renderCollapsed = () => render(<SellInLotes productItemId={950} collapseModo />);
+
+  it('starts as one line with the current mode and "Cambiar", which opens the card and "Ocultar" closes it', async () => {
+    sellInLotesAPI.modos.mockResolvedValue({ data: { item_id: 950, vigente: fila(), historial: [fila()] } });
+    renderCollapsed();
+    const region = await screen.findByRole('region', { name: 'Modo de costo' });
+    await within(region).findByText('Último precio desde 01/11/2026');
+    expect(within(region).queryByRole('group', { name: 'Cambiar a' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Historial' })).not.toBeInTheDocument();
+    const open = within(region).getByRole('button', { name: 'Cambiar' });
+    expect(open).toHaveAttribute('aria-expanded', 'false');
+    open.click();
+    const card = await panel();
+    expect(within(card).getByRole('group', { name: 'Cambiar a' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Historial' })).toBeInTheDocument();
+    within(card).getByRole('button', { name: 'Ocultar' }).click();
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Cambiar a' })).not.toBeInTheDocument());
+  });
+
+  it('says "Ver" instead of "Cambiar" without a mode permission', async () => {
+    permisos = new Set();
+    renderCollapsed();
+    const region = await screen.findByRole('region', { name: 'Modo de costo' });
+    await within(region).findByText('FIFO (por defecto)');
+    expect(within(region).getByRole('button', { name: 'Ver' })).toBeInTheDocument();
+  });
+
+  it('a failed preview keeps the card open with its error: no "Ocultar" hides it', async () => {
+    sellInLotesAPI.vistaPrevia.mockRejectedValue(httpError(500));
+    const user = userEvent.setup();
+    renderCollapsed();
+    const line = await screen.findByRole('region', { name: 'Modo de costo' });
+    await user.click(await within(line).findByRole('button', { name: 'Cambiar' }));
+    const region = await panel();
+    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
+    await within(region).findByRole('alert');
+    expect(within(region).queryByRole('button', { name: 'Ocultar' })).not.toBeInTheDocument();
+  });
+
+  it('a pending preview keeps the card open: no "Ocultar" while it waits for its confirmation', async () => {
+    const user = userEvent.setup();
+    renderCollapsed();
+    const line = await screen.findByRole('region', { name: 'Modo de costo' });
+    await user.click(await within(line).findByRole('button', { name: 'Cambiar' }));
+    const region = await panel();
+    expect(within(region).getByRole('button', { name: 'Ocultar' })).toBeInTheDocument();
+    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
+    await waitFor(() => expect(sellInLotesAPI.vistaPrevia).toHaveBeenCalled());
+    await waitFor(() => expect(within(region).queryByRole('button', { name: 'Ocultar' })).not.toBeInTheDocument());
+  });
+
+  it('a load error keeps the card open with its retry', async () => {
+    sellInLotesAPI.modos.mockRejectedValue(httpError(500));
+    renderCollapsed();
+    expect(await screen.findByText('No se pudo cargar el modo de costo.')).toBeInTheDocument();
+  });
+});

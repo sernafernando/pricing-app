@@ -26,11 +26,82 @@ import ProductPromos from './panel/ProductPromos';
 import ProductPurchases from './panel/ProductPurchases';
 import SellInLotes from '../sellIn/SellInLotes';
 import ProductPxq from './panel/ProductPxq';
-import { Field, Fields, Section } from './panel/PanelParts';
+import { Block, Card } from './panel/ResumenParts';
 import { amount, units } from './panel/format';
 import useProductPanel, { NO_PRODUCT_KEY } from './panel/useProductPanel';
 import panelStyles from './panel/panel.module.css';
+import resumenStyles from './panel/resumen.module.css';
 import styles from './ProductPanel.module.css';
+
+/** The sales trend goes inside the "Ventas 7D" tile, under its figure (S5), when both are shown. */
+const TILE_SPARKLINES = { unidades_7d: 'units_trend' };
+
+/**
+ * Cifras (S5): the list's figures not already in the header, one tile each, moved up under the Ficha. The sales
+ * sparkline sits in the "Ventas 7D" tile; the permissions hide exactly what the list hides.
+ */
+function ProductFigureTiles({ figures, metrics }) {
+  const byKey = new Map(figures.map((column) => [column.key, column]));
+  const merged = new Set(Object.entries(TILE_SPARKLINES).filter(([key, trend]) => byKey.has(key) && byKey.has(trend)).map(([, trend]) => trend));
+  return (
+    <Block title="Cifras" aside={<span className={resumenStyles.caption}>Con los filtros actuales</span>}>
+      <dl className={resumenStyles.figureTiles}>
+        {figures
+          .filter((column) => !merged.has(column.key))
+          .map((column) => {
+            const trend = merged.has(TILE_SPARKLINES[column.key]) ? byKey.get(TILE_SPARKLINES[column.key]) : null;
+            return (
+              <div key={column.key} className={resumenStyles.figureTile}>
+                <dt>{column.label ?? column.header}</dt>
+                <dd>
+                  {column.render({ metrics })}
+                  {trend && trend.render({ metrics })}
+                </dd>
+              </div>
+            );
+          })}
+      </dl>
+    </Block>
+  );
+}
+
+/**
+ * Compras y sell in (S5): what the next sale discounts, the last purchases beside the sell-in lots, then the cost
+ * mode collapsed behind its current mode. Each part keeps its own permission; with neither, nothing is drawn.
+ */
+function ComprasYSellIn({ productItemId }) {
+  const { tienePermiso } = usePermisos();
+  const canSeePurchases = tienePermiso('productos.ver_info_compras');
+  return (
+    <SellInLotes
+      productItemId={productItemId}
+      collapseModo
+      // Without the purchases permission, nothing is drawn until the lots answer: a viewer who may see neither never
+      // sees the block flash while they load.
+      layout={({ nextSale, lots, modo, status }) =>
+        canSeePurchases || status === 'ready' || status === 'error' ? (
+          <Block title="Compras y sell in">
+            {nextSale}
+            <div className={resumenStyles.pairWide}>
+              <ProductPurchases productItemId={productItemId} container={Card} />
+              {lots && <Card title="Lotes sell in">{lots}</Card>}
+            </div>
+            {modo}
+          </Block>
+        ) : null
+      }
+    />
+  );
+}
+
+/** Banlist last (S5): a quiet danger action under a divider, without a title of its own. */
+function DangerZone({ title, children }) {
+  return (
+    <section className={resumenStyles.dangerZone} aria-label={title}>
+      {children}
+    </section>
+  );
+}
 
 /** What to tell the operator when the product cannot be loaded. */
 const describeError = (error) =>
@@ -241,22 +312,10 @@ export default function ProductPanel({
           ) : (
             <>
               {productItemId != null && <ProductIdentity key={`identity-${productItemId}`} productItemId={productItemId} publications={items} />}
-              {productItemId != null && <ProductPurchases key={`purchases-${productItemId}`} productItemId={productItemId} />}
-              {productItemId != null && <SellInLotes key={`lotes-${productItemId}`} productItemId={productItemId} container={Section} />}
-              {figures.length > 0 && (
-                <Section title="Cifras">
-                  <p className={panelStyles.note}>Con los filtros actuales</p>
-                  <Fields>
-                    {figures.map((column) => (
-                      <Field key={column.key} label={column.label ?? column.header}>
-                        {column.render({ metrics: summary.metrics })}
-                      </Field>
-                    ))}
-                  </Fields>
-                </Section>
-              )}
+              {figures.length > 0 && <ProductFigureTiles figures={figures} metrics={summary.metrics} />}
+              {productItemId != null && <ComprasYSellIn key={`compras-${productItemId}`} productItemId={productItemId} />}
 
-              <Section title="Publicaciones">
+              <Block title="Publicaciones">
                 {productItemId != null ? (
                   <div className={styles.tree}>
                     <ProductoMLAsPanel
@@ -313,10 +372,10 @@ export default function ProductPanel({
                   {listState}
                   </>
                 )}
-              </Section>
+              </Block>
 
               {productItemId != null && (
-                <ProductBanAction key={`ban-${productItemId}`} productItemId={productItemId} description={summary.label} />
+                <ProductBanAction key={`ban-${productItemId}`} productItemId={productItemId} description={summary.label} container={DangerZone} />
               )}
             </>
           )}

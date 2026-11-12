@@ -808,10 +808,6 @@
   color: var(--cf-text-secondary);
 }
 
-.identityEdit {
-  align-self: flex-start;
-}
-
 .subTitle {
   margin: var(--spacing-sm) 0 0;
   font-size: var(--font-sm);

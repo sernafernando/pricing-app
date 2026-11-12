@@ -113,11 +113,26 @@ vi.mock('./panel/ProductPxq', () => ({
 }));
 
 vi.mock('./panel/ProductPurchases', () => ({
-  default: ({ productItemId }) => <div data-testid="product-purchases">{`purchases of ${productItemId}`}</div>,
+  default: ({ productItemId, container }) => {
+    const Container = container;
+    return (
+      <Container title="Últimas compras">
+        <div data-testid="product-purchases">{`purchases of ${productItemId}`}</div>
+      </Container>
+    );
+  },
 }));
 
+// The real viewer hands its parts to the panel's layout (S5): the lots, and the cost mode collapsed.
+let lotesStatus = 'ready';
 vi.mock('../sellIn/SellInLotes', () => ({
-  default: ({ productItemId }) => <div data-testid="sell-in-lotes">{`lotes of ${productItemId}`}</div>,
+  default: ({ productItemId, layout, collapseModo }) =>
+    layout({
+      status: lotesStatus,
+      nextSale: <p data-testid="sell-in-next">next sale</p>,
+      lots: <div data-testid="sell-in-lotes">{`lotes of ${productItemId}`}</div>,
+      modo: <div data-testid="sell-in-modo">{collapseModo ? 'modo collapsed' : 'modo open'}</div>,
+    }),
 }));
 
 vi.mock('./panel/ProductBanAction', () => ({
@@ -202,6 +217,17 @@ describe('ProductPanel', () => {
     expect(within(region).getByText('Con los filtros actuales')).toBeInTheDocument();
     expect(within(region).getByText('Ventas 7D')).toBeInTheDocument();
     expect(within(region).getByText('Total Gauss 30D')).toBeInTheDocument();
+  });
+
+  it('puts the sales trend inside the Ventas 7D tile instead of a tile of its own (S5)', () => {
+    renderPanel();
+    const terms = within(figures())
+      .getAllByRole('term')
+      .map((dt) => dt.textContent);
+    expect(terms).toContain('Ventas 7D');
+    expect(terms).not.toContain('Tendencia de ventas');
+    expect(terms).toContain('Tendencia de markup');
+    expect(terms).toHaveLength(new Set(terms).size);
   });
 
   it('hides the margin figures without the margin permission', () => {
@@ -311,6 +337,37 @@ describe('ProductPanel', () => {
     const lotes = screen.getByTestId('sell-in-lotes');
     expect(lotes).toHaveTextContent(`lotes of ${SUMMARY.productoItemId}`);
     expect(purchases.compareDocumentPosition(lotes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('reads Ficha, Cifras, Compras y sell in, Publicaciones, then the banlist last (S5)', () => {
+    granted = new Set(['productos.ver_info_compras']);
+    renderPanel();
+    const titles = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
+    const order = ['Cifras', 'Compras y sell in', 'Últimas compras', 'Lotes sell in', 'Publicaciones'].map((title) => titles.indexOf(title));
+    expect(order.every((index) => index >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    const compras = screen.getByRole('region', { name: 'Compras y sell in' });
+    // The next sale on top, the cost mode collapsed below the lots.
+    expect(within(compras).getByTestId('sell-in-next')).toBeInTheDocument();
+    expect(within(compras).getByTestId('sell-in-modo')).toHaveTextContent('modo collapsed');
+    const identity = screen.getByTestId('product-identity');
+    expect(identity.compareDocumentPosition(screen.getByRole('region', { name: 'Cifras' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const ban = screen.getByTestId('product-ban');
+    expect(screen.getByRole('region', { name: 'Publicaciones' }).compareDocumentPosition(ban) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('draws no Compras y sell in while the lots load for a viewer without the purchases permission (S5)', () => {
+    lotesStatus = 'loading';
+    try {
+      renderPanel();
+      expect(screen.queryByRole('region', { name: 'Compras y sell in' })).not.toBeInTheDocument();
+      cleanup();
+      granted = new Set(['productos.ver_info_compras']);
+      renderPanel();
+      expect(screen.getByRole('region', { name: 'Compras y sell in' })).toBeInTheDocument();
+    } finally {
+      lotesStatus = 'ready';
+    }
   });
 
   it('has no sell-in lots for "Sin producto"', () => {

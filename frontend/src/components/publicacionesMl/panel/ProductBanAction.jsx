@@ -33,8 +33,10 @@ function describeError(error) {
  * @param {object} props
  * @param {number} props.productItemId The ERP product.
  * @param {string} [props.description] The product's description, where the word to type back comes from.
+ * @param {Function} [props.container] The host's wrapper (`{ title, children }`); a titled section by default.
  */
-export default function ProductBanAction({ productItemId, description }) {
+export default function ProductBanAction({ productItemId, description, container = Section }) {
+  const Container = container;
   const { rol, tienePermiso } = usePermisos();
   const [state, setState] = useState({ status: 'idle', message: null });
   const [word, setWord] = useState('');
@@ -66,17 +68,17 @@ export default function ProductBanAction({ productItemId, description }) {
 
   if (state.status === 'done') {
     return (
-      <Section title="Banlist">
+      <Container title="Banlist">
         <div className={styles.feedback} role="status">
           {state.message}
         </div>
-      </Section>
+      </Container>
     );
   }
 
   const confirming = state.status !== 'idle';
   return (
-    <Section title="Banlist">
+    <Container title="Banlist">
       <div className={styles.resync}>
         {confirming ? (
           <div className={styles.banConfirm}>
@@ -133,6 +135,6 @@ export default function ProductBanAction({ productItemId, description }) {
           </div>
         )}
       </div>
-    </Section>
+    </Container>
   );
 }

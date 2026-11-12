@@ -1,9 +1,11 @@
 import { useEffect, useId, useState } from 'react';
 import { Pencil } from 'lucide-react';
 import { productosPropiosAPI } from '../../../services/api';
-import { Field, Fields, Section } from './PanelParts';
+import { Card } from './ResumenParts';
 import ProductData from './ProductData';
+import cellStyles from '../cells.module.css';
 import styles from './panel.module.css';
+import resumenStyles from './resumen.module.css';
 
 /** What to tell the operator when the save did not go through. */
 function describeSaveError(error) {
@@ -80,7 +82,7 @@ export default function ProductIdentity({ productItemId, publications = [] }) {
 
   if (loadError) {
     return (
-      <Section title="Identificación">
+      <Card title="Ficha">
         <div className={styles.resync}>
           <p className={styles.feedback} role="alert">
             No se pudieron cargar el SKU y el EAN.
@@ -89,14 +91,14 @@ export default function ProductIdentity({ productItemId, publications = [] }) {
             Reintentar
           </button>
         </div>
-      </Section>
+      </Card>
     );
   }
   if (!product) {
     return (
-      <Section title="Identificación">
+      <Card title="Ficha">
         <p className={styles.note}>Cargando SKU y EAN…</p>
-      </Section>
+      </Card>
     );
   }
 
@@ -126,77 +128,83 @@ export default function ProductIdentity({ productItemId, publications = [] }) {
 
   const computed = computedValues(product);
 
+  const editButton = !form && product.can_edit && (
+    <button type="button" className="btn-tesla outline sm" onClick={edit}>
+      <Pencil size={14} aria-hidden="true" />
+      Editar
+    </button>
+  );
+  const dash = <span className={cellStyles.empty}>—</span>;
+
   return (
-    <>
-      <Section title="Identificación">
-        {form ? (
-          <form className={styles.identityForm} onSubmit={save}>
-            <label className={styles.identityField}>
-              <span>SKU</span>
-              <input
-                className={styles.identityInput}
-                value={form.sku}
-                placeholder={computed.sku}
-                list={listId}
-                maxLength={100}
-                disabled={form.status === 'saving'}
-                onChange={(event) => setForm({ ...form, sku: event.target.value })}
-              />
-            </label>
-            <datalist id={listId}>
-              {product.sku_candidatos.map((sku) => (
-                <option key={sku} value={sku} />
-              ))}
-            </datalist>
-            <label className={styles.identityField}>
-              <span>EAN</span>
-              <input
-                className={styles.identityInput}
-                value={form.ean}
-                placeholder={computed.ean}
-                maxLength={100}
-                disabled={form.status === 'saving'}
-                onChange={(event) => setForm({ ...form, ean: event.target.value })}
-              />
-            </label>
-            <p className={styles.note}>Vacío: el SKU de las publicaciones y el EAN del ERP.</p>
-            <div className={styles.statusConfirm}>
-              <button type="submit" className="btn-tesla primary sm" disabled={form.status === 'saving'}>
-                Guardar
-              </button>
-              <button type="button" className="btn-tesla outline sm" onClick={() => setForm(null)} disabled={form.status === 'saving'}>
-                Cancelar
-              </button>
+    <Card title="Ficha" badge={editButton} prominent>
+      {form ? (
+        <form className={styles.identityForm} onSubmit={save}>
+          <label className={styles.identityField}>
+            <span>SKU</span>
+            <input
+              className={styles.identityInput}
+              value={form.sku}
+              placeholder={computed.sku}
+              list={listId}
+              maxLength={100}
+              disabled={form.status === 'saving'}
+              onChange={(event) => setForm({ ...form, sku: event.target.value })}
+            />
+          </label>
+          <datalist id={listId}>
+            {product.sku_candidatos.map((sku) => (
+              <option key={sku} value={sku} />
+            ))}
+          </datalist>
+          <label className={styles.identityField}>
+            <span>EAN</span>
+            <input
+              className={styles.identityInput}
+              value={form.ean}
+              placeholder={computed.ean}
+              maxLength={100}
+              disabled={form.status === 'saving'}
+              onChange={(event) => setForm({ ...form, ean: event.target.value })}
+            />
+          </label>
+          <p className={styles.note}>Vacío: el SKU de las publicaciones y el EAN del ERP.</p>
+          <div className={styles.statusConfirm}>
+            <button type="submit" className="btn-tesla primary sm" disabled={form.status === 'saving'}>
+              Guardar
+            </button>
+            <button type="button" className="btn-tesla outline sm" onClick={() => setForm(null)} disabled={form.status === 'saving'}>
+              Cancelar
+            </button>
+          </div>
+          {form.error && (
+            <p className={styles.feedback} role="alert">
+              {form.error}
+            </p>
+          )}
+        </form>
+      ) : (
+        <>
+          <dl className={resumenStyles.idPair}>
+            <div className={resumenStyles.figureSmall}>
+              <dt>EAN</dt>
+              <dd>{product.ean != null ? <Value value={product.ean} manual={product.ean_manual} /> : dash}</dd>
             </div>
-            {form.error && (
-              <p className={styles.feedback} role="alert">
-                {form.error}
-              </p>
-            )}
-          </form>
-        ) : (
-          <>
-            <Fields>
-              <Field label="EAN">{product.ean != null && <Value value={product.ean} manual={product.ean_manual} />}</Field>
-              <Field label="SKU">
-                {(product.sku != null || product.sku_candidatos.length > 1) && <SkuValue product={product} />}
-              </Field>
-            </Fields>
-            {product.can_edit && (
-              <button type="button" className={`btn-tesla outline sm ${styles.identityEdit}`} onClick={edit}>
-                <Pencil size={14} aria-hidden="true" />
-                Editar
-              </button>
-            )}
-            {saved && (
-              <p className={styles.feedback} role="status">
-                Guardado.
-              </p>
-            )}
-          </>
-        )}
-      </Section>
-      <ProductData product={product} publications={publications} onSaved={setProduct} />
-    </>
+            <div className={resumenStyles.figureSmall}>
+              <dt>SKU</dt>
+              <dd>{product.sku != null || product.sku_candidatos.length > 1 ? <SkuValue product={product} /> : dash}</dd>
+            </div>
+          </dl>
+          {saved && (
+            <p className={styles.feedback} role="status">
+              Guardado.
+            </p>
+          )}
+        </>
+      )}
+      <div className={resumenStyles.cardDivider}>
+        <ProductData product={product} publications={publications} onSaved={setProduct} />
+      </div>
+    </Card>
   );
 }

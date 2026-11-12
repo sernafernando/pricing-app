@@ -174,8 +174,9 @@ function errorText(error, accion) {
  * @param {object[]} props.lotes The viewer's lots, for the "before" unit values of the preview.
  * @param {object|null} props.proxima The viewer's next sale.
  * @param {Function} props.onChanged Called after a change is saved, so the viewer reloads its lots.
+ * @param {boolean} [props.collapsible] Starts as one line (the current mode and "Cambiar") that opens the card.
  */
-export default function SellInModoCosto({ productItemId, lotes, proxima, onChanged }) {
+export default function SellInModoCosto({ productItemId, lotes, proxima, onChanged, collapsible = false }) {
   const { tienePermiso, rol } = usePermisos();
   const headingId = useId();
   const desdeId = useId();
@@ -195,6 +196,7 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
   const [pedido, setPedido] = useState(null); // what the preview was asked for: the confirm sends the same
   const [busy, setBusy] = useState(null); // 'preview' | 'confirm'
   const [error, setError] = useState(null);
+  const [expanded, setExpanded] = useState(false); // `collapsible` only: the full card is open
 
   useEffect(() => {
     let current = true;
@@ -220,6 +222,9 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
   }, []);
 
   if (read.status === 'forbidden') return null;
+
+  const vigente = read.data?.vigente ?? null;
+  const actual = vigente ? `${MODOS[vigente.modo]?.label ?? vigente.modo} desde ${day(vigente.desde)}` : 'FIFO (por defecto)';
 
   const puede = {
     ponderado: tienePermiso(PERMISO.ponderado),
@@ -315,8 +320,7 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
       </div>
     );
   } else {
-    const { vigente = null, historial = [] } = read.data ?? {};
-    const actual = vigente ? `${MODOS[vigente.modo]?.label ?? vigente.modo} desde ${day(vigente.desde)}` : 'FIFO (por defecto)';
+    const { historial = [] } = read.data ?? {};
     const conUnidades = lotes.filter((lote) => lote.restantes > 0);
     const antes = {
       proxima: proxima?.descuento_unit ?? null,
@@ -484,6 +488,26 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
     }
   }
 
+  // Collapsed (product panel, S5): the current mode as a chip and the button that opens the card. A pending preview or
+  // a load error keeps the card open, so nothing in flight is hidden.
+  if (collapsible && !expanded && vista == null && error == null && read.status !== 'error') {
+    return (
+      <section className={styles.collapsed} aria-labelledby={headingId}>
+        <span className={styles.collapsedText}>
+          <h4 id={headingId} className={styles.collapsedTitle}>
+            Modo de costo
+          </h4>
+          <StatusPill tone={vigente ? 'info' : 'neutral'} variant="soft">
+            {read.status === 'loading' ? 'Cargando…' : actual}
+          </StatusPill>
+        </span>
+        <button type="button" className="btn-tesla outline sm" aria-expanded="false" onClick={() => setExpanded(true)}>
+          {puedeCambiar ? 'Cambiar' : 'Ver'}
+        </button>
+      </section>
+    );
+  }
+
   return (
     <>
       <section className={styles.card} aria-labelledby={headingId}>
@@ -497,6 +521,12 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
           {esAdmin && (
             <button type="button" className="btn-tesla outline sm" onClick={() => setEditandoDefecto(true)}>
               Modo por defecto
+            </button>
+          )}
+          {/* Only when it can close: a pending preview or an error keeps the card open. */}
+          {collapsible && error == null && vista == null && (
+            <button type="button" className="btn-tesla outline sm" aria-expanded="true" onClick={() => setExpanded(false)} disabled={busy != null}>
+              Ocultar
             </button>
           )}
         </header>
