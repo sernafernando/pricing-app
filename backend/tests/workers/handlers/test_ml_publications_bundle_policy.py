@@ -102,8 +102,8 @@ def sub_row(engine, table: str, item: str = ITEM):
     return sql_one(engine, f"SELECT * FROM {table} WHERE item_id = :i", i=item)
 
 
-# The description is sweep-only (`bundle.SWEEP_ONLY`): a bundle never fetches it, a request that names it does. The
-# tests that use it as "a slow sub-resource" name it next to the bundle.
+# The description is first-fetch-only (`bundle.FIRST_FETCH_ONLY`): a bundle fetches it only for an item never checked,
+# a request that names it always does. The tests that use it as "a slow sub-resource" name it next to the bundle.
 WITH_DESCRIPTION = ("bundle", "description")
 
 

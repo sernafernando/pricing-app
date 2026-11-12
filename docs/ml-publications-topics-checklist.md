@@ -77,7 +77,7 @@ The refresh handler ships these three fetchers dark: they run only for resources
 1. Enable one group at a time, watching the per-endpoint 429 counter in `worker_job_state.detail`:
    `bundle_resources = ["core", "prices", "sale_price"]` first, `description` afterwards.
 2. A `bundle` request fetches every enabled resource whose minimum age (`min_age_seconds`) has
-   passed since its last check (`description` is swept-only, not part of the bundle), `prices` and `sale_price` have no minimum. A `min_age_seconds` row that names only some resources keeps the default of the others.
+   passed since its last check (`description` only for an item never checked; the daily sweep refreshes it), `prices` and `sale_price` have no minimum. A `min_age_seconds` row that names only some resources keeps the default of the others.
    A request that names the resource (`prices`, `sale_price` from a price topic, or a manual
    enqueue) bypasses the minimum age. `skipped_min_age` counts what the age skipped.
 3. `sale_price.reference_date` is the response time, so it is excluded from the change log (a fetch
