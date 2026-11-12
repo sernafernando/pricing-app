@@ -241,3 +241,18 @@ def test_the_sweeps_section_lists_replenishment_beside_performance_and_visits(do
     start = doc.index("### Sweeps")
     section = doc[start : doc.index("### Turning it on", start)]
     assert "`replenishment`" in section and "user product" in section
+
+
+def test_the_refresh_throughput_settings_are_documented(doc) -> None:
+    start = doc.index("## Refresh throughput: batch runners and calls in flight")
+    section = doc[start : doc.index("\n## ", start + 1)]
+    for needle in (
+        "`refresh.runners`",
+        "`ML_PUB_REFRESH_RUNNERS` = 3",
+        "int 1..8",
+        "`ML_PUB_MAX_IN_FLIGHT` (env only, default 20",
+        "10/s x 2 s = 20",
+        "never the fast data",
+        "Rollback: `refresh.runners = 1`",
+    ):
+        assert needle in section, needle
