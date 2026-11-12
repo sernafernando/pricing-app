@@ -296,6 +296,14 @@
   border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
 }
 
+/* Partial arribo/retiro in progress while still in por recibir */
+.badgeRecibiendo {
+  composes: badge;
+  background: var(--success-bg);
+  color: var(--success);
+  border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
+}
+
 /* 'controlado' = fully controlled → green tone (terminal/success) */
 .badgeControlado {
   composes: badge;
