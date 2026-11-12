@@ -146,7 +146,7 @@ export default function PublicationPanel({
       }
       figures={
         !ponerPreciosMode &&
-        detail && <PanelFigures label="Cifras de la publicación" figures={publicationFigures(row, { canSeeMargin, canSeeSales })} />
+        detail && <PanelFigures label="Cifras de la publicación" figures={publicationFigures(row, { canSeeMargin, canSeeSales, breakdown: detail.markupBreakdown, sellInOut: detail.sellInOut })} />
       }
       onClose={onClose}
       loading={status === 'loading'}

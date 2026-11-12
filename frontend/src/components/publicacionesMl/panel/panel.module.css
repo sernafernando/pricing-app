@@ -119,6 +119,11 @@
   color: var(--cf-text-secondary);
 }
 
+/* A second line under a figure's note (the markup with sell in / sell out under the markup). */
+.figureSubnote {
+  display: block;
+}
+
 /* An amount inside a note that may wrap: it wraps whole. */
 .nowrap {
   white-space: nowrap;
