@@ -21,30 +21,31 @@ const formatCount = (count) => count.toLocaleString('es-AR');
 
 const publications = (count) => `${formatCount(count)} ${count === 1 ? 'publicación' : 'publicaciones'}`;
 
-/** The second line's count: "N publicaciones", and " · M con markup negativo" when some sell under cost (the
- * negatives come only with ver_ganancia, and never on the Producto view). */
-function NodeCountLine({ node }) {
+/** The second line's pieces: kind and code ("Producto · AX55"), the count ("3 publicaciones"), and the negatives
+ * ("1 con markup negativo") when some sell under cost (they come only with ver_ganancia, never on the Producto view).
+ * The line and its tooltip both read them, so they never say different things. */
+function noteParts(node) {
   const negatives = node.negativeCount ?? 0;
-  return (
-    <>
-      {publications(node.count ?? 0)}
-      {negatives > 0 && (
-        <>
-          {' · '}
-          <span className={cellStyles.negativeNote}>{formatCount(negatives)} con markup negativo</span>
-        </>
-      )}
-    </>
-  );
+  return {
+    head: `${KIND_LABELS[node.kind] ?? node.kind}${node.codigo ? ` · ${node.codigo}` : ''} · ${publications(node.count ?? 0)}`,
+    negatives: negatives > 0 ? `${formatCount(negatives)} con markup negativo` : null,
+  };
 }
 
-/** The second line in words, for its tooltip ("Filas finas" cuts it to one line). */
-function noteText(node) {
-  const negatives = node.negativeCount ?? 0;
-  const kind = KIND_LABELS[node.kind] ?? node.kind;
-  const code = node.codigo ? ` · ${node.codigo}` : '';
-  const cut = negatives > 0 ? ` · ${formatCount(negatives)} con markup negativo` : '';
-  return `${kind}${code} · ${publications(node.count ?? 0)}${cut}`;
+/** A node's second line, the negatives in the danger tone; whole in its tooltip ("Filas finas" cuts it to one line). */
+function NodeNote({ node }) {
+  const { head, negatives } = noteParts(node);
+  return (
+    <span className={`${cellStyles.note} ${styles.nodeNote}`} title={negatives ? `${head} · ${negatives}` : head} data-node-note="">
+      {head}
+      {negatives && (
+        <>
+          {' · '}
+          <span className={cellStyles.negativeNote}>{negatives}</span>
+        </>
+      )}
+    </span>
+  );
 }
 
 /** Pinned cell of a node: open/close toggle, name, what kind of node it is, and its code. `badges` sit beside the name. */
@@ -75,12 +76,7 @@ export function NodeTitle({ row, onToggle, after = null, badges = null }) {
           </span>
           {badges}
         </span>
-        <span className={`${cellStyles.note} ${styles.nodeNote}`} title={noteText(node)} data-node-note="">
-          {KIND_LABELS[node.kind] ?? node.kind}
-          {node.codigo ? ` · ${node.codigo}` : ''}
-          {' · '}
-          <NodeCountLine node={node} />
-        </span>
+        <NodeNote node={node} />
       </div>
     </div>
   );

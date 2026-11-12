@@ -102,6 +102,8 @@
   border-radius: var(--radius-base);
   background: var(--tone-neutral-bg);
   color: var(--tone-badge-fg, var(--tone-neutral-fg));
+  /* Below the smallest text token (--font-xs, 12px), like the list's status pills (10.5px): five badges fit the
+     column on one line, each no taller than a line of the row's title. */
   font-size: 11px;
   font-weight: var(--font-semibold);
   font-variant-numeric: tabular-nums;
