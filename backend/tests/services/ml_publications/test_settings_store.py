@@ -267,6 +267,32 @@ class TestViewAdsFormula:
             set_setting("view.ads_formula", "nope", updated_by="tester")
 
 
+class TestRefreshRunners:
+    """ml-freshness S1a: the number of refresh batch runners is a runtime setting (no deploy to change it)."""
+
+    def test_defaults_to_three_from_the_env(self, settings_db) -> None:
+        got = get_setting("refresh.runners")
+        assert (got.value, got.source) == (3, "env")
+        assert settings.ML_PUB_REFRESH_RUNNERS == 3
+
+    @pytest.mark.parametrize("value", [1, 5, 8])
+    def test_one_to_eight_is_read_back_from_the_database(self, settings_db, value) -> None:
+        set_setting("refresh.runners", value, updated_by="tester")
+        got = get_setting("refresh.runners")
+        assert (got.value, got.source) == (value, "db")
+
+    @pytest.mark.parametrize("value", [0, 9, -1, 2.5, "3", True])
+    def test_anything_else_is_rejected_and_nothing_is_written(self, settings_db, engine, value) -> None:
+        with pytest.raises(ValueError):
+            set_setting("refresh.runners", value, updated_by="tester")
+        with engine.connect() as conn:
+            assert conn.execute(text("SELECT count(*) FROM ml_pub_settings")).scalar() == 0
+
+    def test_an_invalid_stored_value_falls_back_to_the_env_default(self, settings_db, engine) -> None:
+        _insert_raw(engine, "refresh.runners", "20")
+        assert get_setting("refresh.runners").value == 3
+
+
 class TestInvalidValues:
     @pytest.mark.parametrize(
         ("key", "literal", "expected"),

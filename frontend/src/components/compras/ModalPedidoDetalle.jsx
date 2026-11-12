@@ -174,6 +174,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   const [desvinculandoOC, setDesvinculandoOC] = useState(false);
   const [syncingOC, setSyncingOC] = useState(false);
   const [errorOC, setErrorOC] = useState(null);
+  const [successOC, setSuccessOC] = useState(null);
   const [ocDetalle, setOcDetalle] = useState(null);
   const [loadingOcDetalle, setLoadingOcDetalle] = useState(false);
 
@@ -319,9 +320,41 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
     if (pedido.estado === 'controlado' || pedido.estado === 'con_faltantes') return;
     setSyncingOC(true);
     setErrorOC(null);
+    setSuccessOC(null);
     try {
-      await syncOcs(pedido.id);
+      const result = await syncOcs(pedido.id);
       await fetchDetalle();
+      const synced = Array.isArray(result?.synced) ? result.synced : [];
+      // _upsert reports every existing row as "updated", so only line
+      // additions/removals count as real changes.
+      const lineChanges = synced.reduce((acc, row) => {
+        const d = row?.detail || {};
+        return acc + Number(d.created || 0) + Number(d.deleted || 0);
+      }, 0);
+      // Per-OC warnings: a skipped prune (GBP gave no line with pod_id) or
+      // pruned lines that already had local arribos/ingresos.
+      const warnings = [];
+      synced.forEach((row) => {
+        const oc = `OC #${row?.oc_poh_id}`;
+        if (row?.prune_skipped) {
+          warnings.push(`${oc}: el ERP no devolvió líneas válidas; no se quitaron líneas del detalle.`);
+        }
+        const orphanedPods = row?.deleted_pod_ids_with_local_activity || [];
+        if (orphanedPods.length > 0) {
+          warnings.push(
+            `${oc}: se quitaron líneas que ya tenían arribos/ingresos cargados (pod_id: ${orphanedPods.join(', ')}). Revisá el progreso de esas líneas en Depósito.`
+          );
+        }
+      });
+      if (warnings.length > 0) {
+        setErrorOC(warnings.join(' '));
+      } else {
+        setSuccessOC(
+          lineChanges > 0
+            ? `OC actualizada desde el ERP (${lineChanges} línea${lineChanges === 1 ? '' : 's'} agregada${lineChanges === 1 ? '' : 's'} o quitada${lineChanges === 1 ? '' : 's'}).`
+            : 'OC actualizada desde el ERP (sin altas ni bajas de líneas; revisá saldo si la línea quedó procesada en GBP).'
+        );
+      }
     } catch (err) {
       setErrorOC(
         err.response?.data?.detail ||
@@ -504,7 +537,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
     pedido?.estado === 'controlado' || pedido?.estado === 'con_faltantes';
   const syncOcTitle = syncOcBloqueado
     ? 'No se puede actualizar la OC: el pedido ya tiene control de depósito. Revertí el control desde Depósito primero.'
-    : 'Actualizar líneas/saldos desde el ERP (no corrige recepciones)';
+    : 'Actualizar líneas/saldos desde el ERP (incluye procesado en GBP; no corrige recepciones locales)';
 
   return (
     <div className={styles.modalOverlay}>
@@ -1014,6 +1047,11 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                 <AlertCircle size={14} /> {errorOC}
               </div>
             )}
+            {successOC && (
+              <div className={styles.successBanner} role="status">
+                {successOC}
+              </div>
+            )}
             <div className={styles.facturaBlock}>
               {linkedOcs.length > 0 ? (
                 <div className={styles.facturaVinculada}>
@@ -1115,6 +1153,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                               <th>Descripción</th>
                               <th className={styles.thCenter}>Qty OC</th>
                               <th className={styles.thCenter}>Saldo pendiente</th>
+                              <th className={styles.thCenter}>GBP</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1133,6 +1172,15 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                                 </td>
                                 <td className={styles.tdCenter}>
                                   {Number(line.saldo_pendiente ?? 0).toLocaleString('es-AR')}
+                                </td>
+                                <td className={styles.tdCenter}>
+                                  {line.pod_isprocessed ? (
+                                    <span className={styles.chipProcesadoGbp} title="Línea procesada en GBP">
+                                      Procesada
+                                    </span>
+                                  ) : (
+                                    '—'
+                                  )}
                                 </td>
                               </tr>
                             ))}

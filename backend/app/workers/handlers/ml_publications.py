@@ -89,6 +89,7 @@ _SETTING_KEYS = (
     "stock_rate_per_min",
     "replenishment_rate_per_min",
     "low_lane_min_share",
+    "refresh.runners",
 )
 # Every kind of entry the refresh handler claims: an item (core, sub-resources, and through its row the user
 # product and family), a user product (stock/user product notifications) or a family.
@@ -122,9 +123,11 @@ def _time_up(ctx: WorkerContext) -> Optional[str]:
 
 
 class _Run:
-    """Tallies of one run; `error`/`stopped` end the claim loop."""
+    """Tallies of one batch runner; `error`/`stopped` end its claim loop. Only its own runner thread touches it (the
+    call threads never do), so it needs no lock; `_Runners.merged` adds the runners' tallies up once they ended."""
 
-    def __init__(self) -> None:
+    def __init__(self, runners: "_Runners") -> None:
+        self.runners = runners
         self.claimed = 0
         self.batches = 0
         self.applied = 0
@@ -132,6 +135,10 @@ class _Run:
         self.called = False
         self.error: Optional[str] = None
         self.stopped: Optional[str] = None
+        # `events.enabled` / `links.enabled` as of this runner's current batch boundary.
+        self.events_enabled = False
+        self.links_enabled = False
+        self.apply_counters = store.ApplyCounters()  # the store mutates it: one per runner, summed after the run
 
     def as_detail(self) -> Dict[str, Any]:
         detail: Dict[str, Any] = {"claimed": self.claimed, "batches": self.batches, "applied": self.applied}
@@ -141,6 +148,65 @@ class _Run:
         if self.stopped:
             detail["stopped"] = self.stopped
         return detail
+
+
+class _Runners:
+    """The batch runners of one run and what they share (ml-freshness S1a).
+
+    Runner 0 is the handler's own thread; a runner whose claim came back full starts another one, up to
+    `refresh.runners`, so a short queue keeps a single runner and a backlog gets every runner. Each runner claims ->
+    processes -> settles its own batches over the SKIP LOCKED claim (no two runners ever hold one entry), on the
+    handler's one pacer, HTTP client and call pool (`pool`, at most `ML_PUB_MAX_IN_FLIGHT` calls for all of them).
+    The first interruption that ends a runner's run (429, bad token, stop) halts the others too (`halt`): their calls
+    still waiting in the pacer give up and they claim nothing more. Everything here is guarded by `lock`."""
+
+    def __init__(self, pool: ThreadPoolExecutor) -> None:
+        self.pool = pool
+        self.lock = threading.Lock()
+        self.halt = threading.Event()
+        self.halted_by: Optional[_Interruption] = None
+        self.failure: Optional[BaseException] = None  # what a runner thread raised; `run` raises it again
+        self.runs: List[_Run] = [_Run(self)]
+        self.threads: List[threading.Thread] = []
+
+    def stop_all(self, interruption: _Interruption) -> None:
+        with self.lock:
+            self.halted_by = _worse(self.halted_by, interruption)
+            self.halt.set()
+
+    def fail(self, exc: BaseException) -> None:
+        with self.lock:
+            self.failure = self.failure or exc
+            self.halt.set()
+
+    def join(self) -> None:
+        """Wait for every started runner, including the ones started while waiting."""
+        joined = 0
+        while True:
+            with self.lock:
+                if joined == len(self.threads):
+                    return
+                thread = self.threads[joined]
+            thread.join()
+            joined += 1
+
+    def merged(self) -> _Run:
+        """The run's tallies: the runners' sums; the interruption that halted them, else the first runner's."""
+        total = _Run(self)
+        for run in self.runs:
+            total.claimed += run.claimed
+            total.batches += run.batches
+            total.applied += run.applied
+            total.failed += run.failed
+            total.called = total.called or run.called
+        halted = self.halted_by
+        total.error = next((run.error for run in self.runs if run.error), None)
+        total.stopped = next((run.stopped for run in self.runs if run.stopped), None)
+        if halted is not None and halted.kind == "error":
+            total.error = halted.reason
+        elif halted is not None:
+            total.stopped = halted.reason
+        return total
 
 
 @dataclass
@@ -183,8 +249,11 @@ class RefreshHandler:
     one user product in a batch fetch it once (`skipped_shared`).
 
     It runs in its own thread of worker-ml (`own_thread`, ml-sync-pipeline S4) with a deadline of half the claim
-    lease, and a batch's calls of one resource are in flight together (at most `ML_PUB_MAX_IN_FLIGHT`, paced by the
-    shared pacer, S3); each answer is stored by this thread in its own short session.
+    lease. Up to `refresh.runners` batch runners process batches at once (`_Runners`, ml-freshness S1a); a batch
+    submits all its sub-resource calls at once in `bundle.FETCH_ORDER` to the call pool the runners share (at most
+    `ML_PUB_MAX_IN_FLIGHT` in flight, all paced by the shared pacer), and its runner stores each answer, in that
+    order, in its own short session. A runner holds at most one database session at a time and never across an ML
+    call; the call threads open none (only the HTTP client's short ml-webhook token read).
 
     A sub-resource runs only when it is enabled in `bundle_resources` (default: the core only); promotions
     also need `promotions.enabled`. Performance and visits are sweep-only: a bundle never asks for them.
@@ -221,7 +290,11 @@ class RefreshHandler:
         self._executor_size = 0
         self._fairness: Optional[queue.LaneFairness] = None
         self._fairness_share: Optional[float] = None
-        # Cumulative since process start, flushed into `worker_job_state.detail.counters`.
+        # Guards the lazily built client, the call pool and the lane fairness the batch runners share.
+        self._lock = threading.Lock()
+        # Cumulative since process start, flushed into `worker_job_state.detail.counters`. The batch runners all
+        # count into them: every update goes through `_count` (or holds `_counters_lock`).
+        self._counters_lock = threading.Lock()
         self._elements: Counter = Counter()
         self._skipped_no_fetcher: Counter = Counter()
         self._skipped_disabled: Counter = Counter()
@@ -232,9 +305,6 @@ class RefreshHandler:
         self._skipped_item_gone = 0
         self._sub_outcomes: Dict[str, Counter] = defaultdict(Counter)
         self._apply_counters = store.ApplyCounters()
-        # `events.enabled` / `links.enabled` as of the current batch boundary (read with the other settings).
-        self._events_enabled = False
-        self._links_enabled = False
 
     # --- run ---------------------------------------------------------------------------
 
@@ -242,35 +312,94 @@ class RefreshHandler:
         config = settings_store.get_settings(_SETTING_KEYS)
         if config["refresh.enabled"].value is not True:
             return disabled_outcome()
-        self._events_enabled = config["events.enabled"].value is True
-        self._links_enabled = config["links.enabled"].value is True
-        run = _Run()
+        runners = _Runners(self._calls())  # sized here, before any runner submits to it
         try:
-            while _time_up(ctx) is None:
-                if config["refresh.enabled"].value is not True:
-                    run.stopped = "disabled"
-                    break
-                self._apply_budget(config)
-                claims = queue.claim(
-                    limit=config["bulk_max_ids"].value,
-                    worker_id=ctx.worker_name,
-                    kinds=list(CLAIMED_KINDS),
-                    favored_lane=self._lane_fairness(config["low_lane_min_share"].value).next_favored_lane(),
-                )
-                if not claims:
-                    break
-                run.claimed += len(claims)
-                run.batches += 1
-                self._process_batch(ctx, claims, config, run)
-                if run.error or run.stopped:
-                    break
-                config = settings_store.get_settings(_SETTING_KEYS)
-                self._events_enabled = config["events.enabled"].value is True
-                self._links_enabled = config["links.enabled"].value is True
+            self._run_batches(ctx, runners, 0, config)
+        except BaseException:
+            runners.halt.set()  # the other runners stop at their next call or batch boundary
+            raise
         finally:
+            runners.join()
+            run = runners.merged()
+            self._add_apply_counters(runners.runs)
             if run.claimed or run.called:
                 self._flush_counters(run)
+        if runners.failure is not None:
+            raise runners.failure
         return JobResult(success=run.error is None, detail=run.as_detail(), error=run.error)
+
+    def _run_batches(
+        self, ctx: WorkerContext, runners: _Runners, index: int, config: Dict[str, settings_store.Setting]
+    ) -> None:
+        """One batch runner: claim -> process -> settle until the queue is empty, time is up or the run is halted.
+        The settings are re-read at every batch boundary; lowering `refresh.runners` retires the extra runners there."""
+        run = runners.runs[index]
+        while _time_up(ctx) is None and not runners.halt.is_set():
+            if config["refresh.enabled"].value is not True:
+                run.stopped = "disabled"
+                break
+            if index >= config["refresh.runners"].value:
+                break
+            run.events_enabled = config["events.enabled"].value is True
+            run.links_enabled = config["links.enabled"].value is True
+            self._apply_budget(config)
+            limit = config["bulk_max_ids"].value
+            claims = queue.claim(
+                limit=limit,
+                worker_id=ctx.worker_name,
+                kinds=list(CLAIMED_KINDS),
+                favored_lane=self._favored_lane(config["low_lane_min_share"].value),
+            )
+            if not claims:
+                break
+            if len(claims) == limit:  # a full batch: more is likely waiting, so another runner may help
+                self._start_runner(ctx, runners, config)
+            run.claimed += len(claims)
+            run.batches += 1
+            try:
+                self._process_batch(ctx, claims, config, run)
+            except BaseException as exc:
+                self._charge_unsettled(claims, exc)
+                raise
+            if run.error or run.stopped:
+                break
+            config = settings_store.get_settings(_SETTING_KEYS)
+
+    @staticmethod
+    def _charge_unsettled(claims: Sequence[queue.QueueClaim], exc: BaseException) -> None:
+        """A batch raised: give its still-claimed entries back now, charged one attempt (the failure is real),
+        instead of leaving them leased until the lease expires. An entry already settled is no longer owned by
+        its claim token, so `complete` leaves it alone."""
+        error = f"runner failed: {type(exc).__name__}: {exc}"[:300]
+        for claim in claims:
+            try:
+                queue.complete(claim, succeeded=set(), failed={name: error for name in claim.resources})
+            except Exception:  # noqa: BLE001 -- the lease expiry still recovers it; the original error is raised
+                logger.exception("could not give back the claim of %s %s", claim.kind, claim.entity_id)
+
+    def _start_runner(self, ctx: WorkerContext, runners: _Runners, config: Dict[str, settings_store.Setting]) -> None:
+        with runners.lock:
+            if len(runners.runs) >= config["refresh.runners"].value or runners.halt.is_set():
+                return
+            index = len(runners.runs)
+            runners.runs.append(_Run(runners))
+            thread = threading.Thread(
+                target=self._runner_thread,
+                args=(ctx, runners, index, config),
+                name=f"ml-refresh-runner-{index}",
+                daemon=True,
+            )
+            runners.threads.append(thread)
+            thread.start()  # under the lock, so `join` never meets a thread that was not started
+
+    def _runner_thread(
+        self, ctx: WorkerContext, runners: _Runners, index: int, config: Dict[str, settings_store.Setting]
+    ) -> None:
+        try:
+            self._run_batches(ctx, runners, index, config)
+        except BaseException as exc:  # noqa: BLE001 -- handed to the handler's thread, which raises it
+            logger.exception("ml refresh runner %s failed", index)
+            runners.fail(exc)
 
     def _apply_budget(self, config: Dict[str, settings_store.Setting]) -> None:
         self.pacer.configure(
@@ -279,27 +408,44 @@ class RefreshHandler:
             replenishment_rate_per_min=config["replenishment_rate_per_min"].value,
         )
 
-    def _lane_fairness(self, share: float) -> queue.LaneFairness:
-        if self._fairness is None or self._fairness_share != share:
-            self._fairness = queue.LaneFairness(share)
-            self._fairness_share = share
-        return self._fairness
+    def _favored_lane(self, share: float) -> Optional[int]:
+        """The lane the next claim favors: one rotation for all the runners, so the low-lane share holds overall."""
+        with self._lock:
+            if self._fairness is None or self._fairness_share != share:
+                self._fairness = queue.LaneFairness(share)
+                self._fairness_share = share
+            return self._fairness.next_favored_lane()
 
     def _http(self) -> MlHttpClient:
-        if self._client is None:
-            self._client = self._client_factory(self.pacer)
-        return self._client
+        with self._lock:
+            if self._client is None:
+                self._client = self._client_factory(self.pacer)
+            return self._client
 
     def _calls(self) -> ThreadPoolExecutor:
-        """The threads a batch's calls run in: they call ML (paced) and store nothing; the only database they may
-        touch is the short token read of the ml-webhook DB, never while waiting for ML."""
+        """The threads the calls of every runner run in: they call ML (paced) and store nothing; the only database
+        they may touch is the short token read of the ml-webhook DB, never while waiting for ML. One pool for all
+        the runners, so the calls in flight never exceed `ML_PUB_MAX_IN_FLIGHT` whatever `refresh.runners` is. It is
+        (re)sized only at the start of a run, before any runner submits to it."""
         size = settings.ML_PUB_MAX_IN_FLIGHT
-        if self._executor is None or self._executor_size != size:
-            if self._executor is not None:
-                self._executor.shutdown(wait=False)
-            self._executor = ThreadPoolExecutor(max_workers=size, thread_name_prefix="ml-refresh-call")
-            self._executor_size = size
-        return self._executor
+        with self._lock:
+            if self._executor is None or self._executor_size != size:
+                if self._executor is not None:
+                    self._executor.shutdown(wait=False)
+                self._executor = ThreadPoolExecutor(max_workers=size, thread_name_prefix="ml-refresh-call")
+                self._executor_size = size
+            return self._executor
+
+    def _count(self, counter: Counter, key: Any, amount: int = 1) -> None:
+        with self._counters_lock:
+            counter[key] += amount
+
+    def _add_apply_counters(self, runs: Sequence[_Run]) -> None:
+        with self._counters_lock:
+            for run in runs:
+                self._apply_counters.stale_discarded += run.apply_counters.stale_discarded
+                self._apply_counters.noise_suppressed.update(run.apply_counters.noise_suppressed)
+                run.apply_counters = store.ApplyCounters()
 
     # --- one batch ---------------------------------------------------------------------
 
@@ -328,8 +474,13 @@ class RefreshHandler:
                 return
             run.called = True
             ids = [w.claim.entity_id for w in core_works]
-            response = self._http().get("items_bulk", f"/items/bulk?ids={','.join(ids)}", deadline=ctx.deadline)
-            interruption = self._interruption(ctx, response)
+            response = self._http().get(
+                "items_bulk",
+                f"/items/bulk?ids={','.join(ids)}",
+                deadline=ctx.deadline,
+                should_stop=run.runners.halt.is_set,
+            )
+            interruption = self._interruption(ctx, response, run)
             if interruption:
                 self._end_run(run, interruption)
                 self._release(works, interruption.not_before)
@@ -337,8 +488,11 @@ class RefreshHandler:
             self._handle_core_response(ctx, core_works, response, run)
         self._fetch_subresources(ctx, [w for w in works if not w.settled], config, run)
 
-    def _interruption(self, ctx: WorkerContext, response: MlResponse) -> Optional[_Interruption]:
+    def _interruption(self, ctx: WorkerContext, response: MlResponse, run: _Run) -> Optional[_Interruption]:
         if response.error == DEADLINE:  # the deadline passed, or the wait was ended (`should_stop`)
+            halted = run.runners.halted_by
+            if halted is not None:  # another runner ended the run: its claims wait as long as that one's
+                return halted
             return _Interruption("stopped", "stopping" if ctx.stop_requested() else "deadline", _utcnow())
         if response.error in (OUTCOME_NOT_CONFIGURED, OUTCOME_NO_TOKEN) or response.status == 401:
             reason = "unauthorized" if response.status == 401 else str(response.error)
@@ -354,6 +508,7 @@ class RefreshHandler:
             run.error = interruption.reason
         else:
             run.stopped = interruption.reason
+        run.runners.stop_all(interruption)
 
     def _handle_core_response(self, ctx: WorkerContext, works: List[_Work], response: MlResponse, run: _Run) -> None:
         if response.error in (ERROR_TIMEOUT, ERROR_NETWORK, ERROR_INVALID_JSON) or not 200 <= response.status < 300:
@@ -375,7 +530,7 @@ class RefreshHandler:
             if reason:
                 unprocessed.append(work)
                 continue
-            error = self._apply_one(spec, work.claim, element, response)
+            error = self._apply_one(spec, work.claim, element, response, run)
             if error is None:
                 run.applied += 1
                 work.core_status = element.status
@@ -389,10 +544,12 @@ class RefreshHandler:
             self._release(unprocessed, _utcnow())
             run.stopped = reason
 
-    def _apply_one(self, spec, claim: queue.QueueClaim, element: BulkElement, response: MlResponse) -> Optional[str]:
+    def _apply_one(
+        self, spec, claim: queue.QueueClaim, element: BulkElement, response: MlResponse, run: _Run
+    ) -> Optional[str]:
         """Write one element through the store; returns the failure to charge, or None."""
         if element.status not in (200, 404):
-            self._elements["failed"] += 1
+            self._count(self._elements, "failed")
             error: Optional[str] = f"HTTP {element.status}"
         else:
             error = None
@@ -410,20 +567,20 @@ class RefreshHandler:
                 (claim.entity_id,),
                 item_response,
                 trigger_received_at=claim.source_received_at,
-                counters=self._apply_counters,
-                events_enabled=self._events_enabled,
-                links_enabled=self._links_enabled,
+                counters=run.apply_counters,
+                events_enabled=run.events_enabled,
+                links_enabled=run.links_enabled,
             )
         except Exception as exc:  # noqa: BLE001 -- one item's failure must not lose the batch
             logger.exception("apply_fetch failed for %s", claim.entity_id)
             if error is None:
-                self._elements["failed"] += 1
+                self._count(self._elements, "failed")
             return f"apply failed: {type(exc).__name__}: {exc}"[:300]
         if error is None and outcome.kind == "error_recorded":
-            self._elements["failed"] += 1
+            self._count(self._elements, "failed")
             return "item body rejected"
         if error is None:
-            self._elements[str(element.status)] += 1
+            self._count(self._elements, str(element.status))
         return error
 
     # --- sub-resources -----------------------------------------------------------------------
@@ -435,12 +592,13 @@ class RefreshHandler:
         config: Dict[str, settings_store.Setting],
         run: _Run,
     ) -> None:
-        """Walk the remaining entries' sub-resources, resource by resource in `bundle.FETCH_ORDER` across the
-        entries; every entry settles once the whole batch was tried."""
+        """Fetch the remaining entries' sub-resources, resource by resource in `bundle.FETCH_ORDER` across the
+        entries (`_fetch_calls`); every entry settles once the whole batch was tried."""
         walking: List[_Work] = []
         for work in works:
             if work.core_status == 404:  # the item is gone: its sub-resources would only answer 404
-                self._skipped_item_gone += 1
+                with self._counters_lock:
+                    self._skipped_item_gone += 1
                 self._finish(work)
             else:
                 walking.append(work)
@@ -449,20 +607,22 @@ class RefreshHandler:
         for work in walking:  # settled up front, so an interruption never keeps a resource that is too recent
             for resource in sorted(work.pending):
                 if resource not in due[work.claim.key]:
-                    self._skipped_min_age[resource] += 1
+                    self._count(self._skipped_min_age, resource)
                     work.done.add(resource)
         self._settle_not_applicable(walking)
-        fetched: Dict[Tuple[str, str], Optional[str]] = {}  # (resource, id) -> failure, for this batch
         # Resource by resource in `bundle.FETCH_ORDER`, across the entries: every entry's fast data first.
-        for resource in bundle.FETCH_ORDER:
-            phase = [work for work in walking if resource in work.pending]
-            if not phase:
-                continue
+        calls = [
+            (work, resource, targets[work.claim.key][resource])
+            for resource in bundle.FETCH_ORDER
+            for work in walking
+            if resource in work.pending
+        ]
+        if calls:
             reason = _time_up(ctx)
             if reason:
                 interruption: Optional[_Interruption] = _Interruption("stopped", reason, _utcnow())
             else:
-                interruption = self._fetch_resource(ctx, phase, resource, targets, fetched, run)
+                interruption = self._fetch_calls(ctx, calls, run)
             if interruption:
                 self._end_run(run, interruption)
                 self._stop_walking(walking, interruption)
@@ -493,7 +653,7 @@ class RefreshHandler:
                     else linked.get(work.claim.entity_id, {}).get(entity)
                 )
                 if key is None:
-                    self._skipped_not_applicable[resource] += 1
+                    self._count(self._skipped_not_applicable, resource)
                     work.done.add(resource)
                 elif not bundle.is_valid_key(resource, key):  # a hand-loaded id: fails this entry, not the batch
                     work.failed[resource] = f"invalid {entity} id"
@@ -526,12 +686,12 @@ class RefreshHandler:
                 self._requeue_core(work)
                 work.done.update(work.pending)
                 for resource in undecided:
-                    self._requeued_for_core[resource] += 1
+                    self._count(self._requeued_for_core, resource)
                 continue
             for resource in sorted(work.pending & bundle.SIGNAL_RESOURCES):
                 if not bundle.is_applicable(resource, known, explicit=work.plan.wanted[resource]):
                     work.done.add(resource)
-                    self._skipped_not_applicable[resource] += 1
+                    self._count(self._skipped_not_applicable, resource)
 
     @staticmethod
     def _requeue_core(work: _Work) -> None:
@@ -570,68 +730,81 @@ class RefreshHandler:
             for work in works
         }
 
-    def _fetch_resource(
-        self,
-        ctx: WorkerContext,
-        works: Sequence[_Work],
-        resource: str,
-        targets: Dict[Tuple[str, str], Dict[str, str]],
-        fetched: Dict[Tuple[str, str], Optional[str]],
-        run: _Run,
+    def _fetch_calls(
+        self, ctx: WorkerContext, calls: Sequence[Tuple[_Work, str, str]], run: _Run
     ) -> Optional[_Interruption]:
-        """Fetch and store `resource` for every entry of `works`; returns an interruption that ends the run.
+        """Fetch and store every (entry, resource, id) of `calls`; returns an interruption that ends the run.
 
-        The calls are in flight together (one per id: entries sharing a user product or family fetch it once and
-        share the outcome, `fetched` holds (resource, id) -> failure to charge). Every answer is awaited and stored
-        here in entry order, so an interruption (deadline, 429, bad token) still keeps the answers that arrived;
-        the entries it hit stay pending. The first interruption makes the calls still waiting in the pacer give up
-        (a 429 would otherwise have them wait out its cooldown, then call anyway), and so does a stopping worker;
-        the run ends with the worst of them (`_worse`)."""
-        fetcher = bundle.FETCHERS[resource]
+        No resource waits for the previous one (ml-freshness S1a: the per-resource barrier left the call threads
+        idle): every call is submitted at once, in `calls` order (`bundle.FETCH_ORDER` across the entries), to the
+        pool the runners share, which starts them in that order, so every entry's fast data reaches the pacer before
+        any slow data. One call per (resource, id): entries sharing a user product or family share its outcome.
+
+        This runner stores the answers in that same order, each in its own short session, while the later calls are
+        still in flight. The first interruption (the deadline or a stop seen before a store, a 429, a bad token) ends
+        the storing: what was stored stays, everything after it stays pending (an interrupted run leaves the slow
+        data pending, never the fast data before it), the calls still waiting in the pacer give up (`ended`), and the
+        ones in flight are awaited only to end the run with the worst interruption (`_worse`)."""
         client = self._http()
         ended = threading.Event()  # set by the first call that ends the run: the calls still waiting give up
+        halt = run.runners.halt
 
         def should_stop() -> bool:
-            return ended.is_set() or ctx.stop_requested()
+            return ended.is_set() or halt.is_set() or ctx.stop_requested()
 
-        def call(path: str, params: Any) -> MlResponse:
+        def call(resource: str, path: str, params: Any) -> MlResponse:
             try:
                 response = client.get(resource, path, params, deadline=ctx.deadline, should_stop=should_stop)
             except BaseException:  # not an ML answer: the run fails, the calls still waiting must not go on
                 ended.set()
                 raise
-            if self._interruption(ctx, response):
+            interruption = self._interruption(ctx, response, run)
+            if interruption:
+                # Halt every runner now, not after this runner has awaited its futures: their calls queued in the
+                # shared pool would otherwise wait out a 429 cooldown and then call ML anyway.
                 ended.set()
+                run.runners.stop_all(interruption)
             return response
 
-        calls: Dict[str, Future] = {}
-        for work in works:
-            key = targets[work.claim.key][resource]
-            if key not in calls:
-                calls[key] = self._calls().submit(call, *fetcher.request(key))
+        futures: Dict[Tuple[str, str], Future] = {}
+        for _work, resource, key in calls:
+            if (resource, key) not in futures:
+                futures[(resource, key)] = run.runners.pool.submit(
+                    call, resource, *bundle.FETCHERS[resource].request(key)
+                )
         run.called = True
+        fetched: Dict[Tuple[str, str], Optional[str]] = {}  # (resource, id) -> failure to charge
         interruption: Optional[_Interruption] = None
         try:
-            for work in works:
-                key = targets[work.claim.key][resource]
+            for work, resource, key in calls:
                 if (resource, key) in fetched:
-                    self._skipped_shared[resource] += 1
+                    self._count(self._skipped_shared, resource)
                     self._settle(work, resource, fetched[(resource, key)])
                     continue
-                response = calls[key].result()
-                stop = self._interruption(ctx, response)
-                if stop:
-                    interruption = _worse(interruption, stop)
-                    continue
-                failure = self._store_one(resource, key, response)
+                reason = _time_up(ctx)
+                if reason:
+                    interruption = _Interruption("stopped", reason, _utcnow())
+                    break
+                response = futures[(resource, key)].result()
+                interruption = self._interruption(ctx, response, run)
+                if interruption:
+                    break
+                failure = self._store_one(resource, key, response, run)
                 fetched[(resource, key)] = failure
                 self._settle(work, resource, failure)
+            if interruption:
+                ended.set()
+                run.runners.stop_all(interruption)
+                for future in futures.values():  # in flight or giving up: only the worst interruption is kept
+                    stop = self._interruption(ctx, future.result(), run)
+                    if stop:
+                        interruption = _worse(interruption, stop)
         except BaseException:  # the run fails here: the calls still waiting would only spend the ML budget
             ended.set()
             raise
         return interruption
 
-    def _store_one(self, resource: str, key: str, response: MlResponse) -> Optional[str]:
+    def _store_one(self, resource: str, key: str, response: MlResponse, run: _Run) -> Optional[str]:
         """Apply one fetched response; returns the failure to charge to the resource, or None."""
         if response.error in (ERROR_TIMEOUT, ERROR_NETWORK, ERROR_INVALID_JSON):
             return response.error
@@ -640,13 +813,14 @@ class RefreshHandler:
                 RESOURCES[resource],
                 (key,),
                 response,
-                counters=self._apply_counters,
-                events_enabled=self._events_enabled,
+                counters=run.apply_counters,
+                events_enabled=run.events_enabled,
             )
         except Exception as exc:  # noqa: BLE001 -- one resource's failure must not lose the others
             logger.exception("apply_subresource failed for %s %s", resource, key)
             return f"apply failed: {type(exc).__name__}: {exc}"[:300]
-        self._sub_outcomes[resource][outcome.kind] += 1
+        with self._counters_lock:  # the defaultdict creates the Counter: keep that inside the lock too
+            self._sub_outcomes[resource][outcome.kind] += 1
         if outcome.kind == "error_recorded":
             return "malformed body" if 200 <= response.status < 300 else f"HTTP {response.status}"
         return None
@@ -687,7 +861,7 @@ class RefreshHandler:
         work.settled = True
         if outcome != queue.OUTCOME_NOT_OWNER:
             for resource in dropped:
-                self._dropped_counter(claim.kind, resource)[resource] += 1
+                self._count(self._dropped_counter(claim.kind, resource), resource)
 
     def _dropped_counter(self, kind: str, resource: str) -> Counter:
         """Why a dropped resource was dropped: not meant for this entry's entity, it has no fetcher yet, or it
@@ -716,8 +890,14 @@ class RefreshHandler:
     # --- counters -------------------------------------------------------------------------
 
     def _flush_counters(self, run: _Run) -> None:
+        with self._counters_lock:
+            counters = self._counters_snapshot()
+        detail = {"counters": counters, "last_run": {**run.as_detail(), "at": _utcnow().isoformat()}}
+        _persist_detail(self.name, detail)
+
+    def _counters_snapshot(self) -> Dict[str, Any]:
         elements = {"200": 0, "404": 0, "failed": 0, **self._elements}
-        counters = {
+        return {
             "endpoints": self._client.counters.snapshot() if self._client else {},
             "elements": elements,
             "stale_discarded": self._apply_counters.stale_discarded,
@@ -731,8 +911,6 @@ class RefreshHandler:
             "skipped_item_gone": self._skipped_item_gone,
             "subresources": {resource: dict(kinds) for resource, kinds in self._sub_outcomes.items()},
         }
-        detail = {"counters": counters, "last_run": {**run.as_detail(), "at": _utcnow().isoformat()}}
-        _persist_detail(self.name, detail)
 
 
 def _persist_detail(name: str, detail: Dict[str, Any]) -> None:

@@ -135,7 +135,12 @@ def get_orden_compra_detalle(
     Returns the line breakdown for every OC linked to the pedido.
 
     Reads live from tb_purchase_order_detail JOIN tb_storage / productos_erp
-    (read-only). saldo_pendiente = pod_qty - COALESCE(pod_confirmedqty, 0).
+    (read-only).
+
+    ``saldo_pendiente`` mirrors GBP reception truth for the pedido detalle UI:
+    - if ``pod_isprocessed`` → 0 (administrative process in ERP already closed
+      the line; ``pod_confirmedqty`` alone is unreliable in compras and often 0)
+    - else ``pod_qty - COALESCE(pod_confirmedqty, 0)``
 
     Top-level oc_* is the first linked triple. Each line carries its own
     oc_* so the UI can stack one table per OC.
@@ -166,7 +171,8 @@ def get_orden_compra_detalle(
                d.pod_id, d.item_id, d.stor_id, s.stor_desc,
                d.pod_qty, d.pod_confirmedqty, d.pod_price,
                p.descripcion AS item_nombre,
-               p.codigo AS item_code
+               p.codigo AS item_code,
+               COALESCE(d.pod_isprocessed, FALSE) AS pod_isprocessed
         FROM tb_purchase_order_detail d
         LEFT JOIN tb_storage s
           ON s.comp_id = d.comp_id AND s.stor_id = d.stor_id
@@ -192,7 +198,12 @@ def get_orden_compra_detalle(
         pod_price = Decimal(str(row[9] or 0)) if row[9] is not None else None
         raw_nombre = row[10]
         item_code = row[11]
+        pod_isprocessed = bool(row[12])
         item_nombre = raw_nombre if raw_nombre is not None else (str(item_id) if item_id is not None else None)
+        # ERP saldo on purpose: processed in GBP => 0. Depósito
+        # (recepcion_service.computar_saldos) keeps the physical saldo instead,
+        # because it gates over-receipt and recalcular_estado.
+        saldo_pendiente = Decimal("0") if pod_isprocessed else (pod_qty - pod_confirmedqty)
         lines.append(
             OrdenCompraLineaResponse(
                 pod_id=pod_id,
@@ -203,8 +214,9 @@ def get_orden_compra_detalle(
                 deposito_nombre=deposito_nombre,
                 pod_qty=pod_qty,
                 pod_confirmedqty=pod_confirmedqty,
-                saldo_pendiente=pod_qty - pod_confirmedqty,
+                saldo_pendiente=saldo_pendiente,
                 pod_price=pod_price,
+                pod_isprocessed=pod_isprocessed,
                 oc_comp_id=oc_comp_id,
                 oc_bra_id=oc_bra_id,
                 oc_poh_id=oc_poh_id,

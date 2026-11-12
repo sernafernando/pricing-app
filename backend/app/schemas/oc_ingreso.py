@@ -63,6 +63,8 @@ class OrdenCompraLineaResponse(BaseModel):
     pod_confirmedqty: Decimal | None = None
     saldo_pendiente: Decimal | None = None
     pod_price: Decimal | None = None
+    # GBP administrative receipt flag (distinct from pricing-app ingresos).
+    pod_isprocessed: bool | None = None
     oc_comp_id: int | None = None
     oc_bra_id: int | None = None
     oc_poh_id: int | None = None
@@ -100,6 +102,12 @@ class SyncOcTripleResult(BaseModel):
     header: dict[str, int]
     detail: dict[str, int]
     detail_lines: int
+    # pod_ids pruned from the mirror; the second list flags those that already
+    # had local arribos/ingresos (orphaned by value).
+    deleted_pod_ids: List[int] = []
+    deleted_pod_ids_with_local_activity: List[int] = []
+    # True when GBP gave no detail line with a pod_id, so stale lines were kept.
+    prune_skipped: bool = False
 
 
 class SyncOcResponse(BaseModel):

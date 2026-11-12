@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.pedido_compra import PedidoCompra
+from app.models.pedido_compra_arribo_progreso import PedidoCompraArriboProgreso
+from app.models.pedido_compra_ingresos import PedidoCompraIngreso
 from app.models.pedido_compra_oc import triples_for_pedido
 from app.models.purchase_order_detail import PurchaseOrderDetail
 from app.models.purchase_order_header import PurchaseOrderHeader
@@ -93,7 +95,11 @@ def _map_record(
     for src, dest in dts.items():
         out[dest] = _parse_dt(record.get(src))
     for src, dest in bools.items():
-        out[dest] = _parse_bool(record.get(src))
+        parsed = _parse_bool(record.get(src))
+        # Missing/unparseable flag: leave the stored value alone instead of
+        # overwriting e.g. a processed=True with NULL.
+        if parsed is not None:
+            out[dest] = parsed
     return out
 
 
@@ -124,6 +130,64 @@ def _upsert(db: Session, *, model: type, filters: dict[str, Any], datos: dict[st
     return "updated" if existente else "created"
 
 
+def _pod_ids_with_local_activity(db: Session, *, pk: dict[str, Any], pod_ids: list[int]) -> list[int]:
+    """pod_ids that already have local arribos or ingresos (they reference pod_id by value)."""
+    found: set[int] = set()
+    for model in (PedidoCompraArriboProgreso, PedidoCompraIngreso):
+        rows = (
+            db.query(model.pod_id)
+            .filter(
+                model.oc_comp_id == pk["comp_id"],
+                model.oc_bra_id == pk["bra_id"],
+                model.oc_poh_id == pk["poh_id"],
+                model.pod_id.in_(pod_ids),
+            )
+            .distinct()
+            .all()
+        )
+        found.update(int(r[0]) for r in rows)
+    return sorted(found)
+
+
+def _prune_stale_pods(
+    db: Session,
+    *,
+    pk: dict[str, Any],
+    seen_pod_ids: set[int],
+    detail_counts: dict[str, int],
+) -> tuple[list[int], list[int]]:
+    """Delete mirror detail rows whose pod_id GBP no longer returns.
+
+    GBP item swaps often retire the old pod_id and insert a new one; upsert
+    alone would leave the stale item visible in the mirror forever.
+    """
+    stale_q = db.query(PurchaseOrderDetail).filter_by(**pk).filter(PurchaseOrderDetail.pod_id.notin_(seen_pod_ids))
+    stale_ids = sorted(int(row.pod_id) for row in stale_q.with_entities(PurchaseOrderDetail.pod_id).all())
+    if not stale_ids:
+        return [], []
+    with_activity = _pod_ids_with_local_activity(db, pk=pk, pod_ids=stale_ids)
+    if with_activity:
+        logger.warning(
+            "oc_mirror_sync: pruned pod_ids with local arribos/ingresos for OC (%s,%s,%s): %s",
+            pk["comp_id"],
+            pk["bra_id"],
+            pk["poh_id"],
+            with_activity,
+        )
+    deleted = stale_q.delete(synchronize_session=False)
+    db.flush()
+    logger.info(
+        "oc_mirror_sync: pruned %s stale pod_ids for OC (%s,%s,%s): %s",
+        deleted,
+        pk["comp_id"],
+        pk["bra_id"],
+        pk["poh_id"],
+        stale_ids,
+    )
+    detail_counts["deleted"] = int(deleted or 0)
+    return stale_ids, with_activity
+
+
 def sync_oc_triple(
     db: Session,
     *,
@@ -132,6 +196,12 @@ def sync_oc_triple(
     oc_poh_id: int,
 ) -> dict[str, Any]:
     """Pull one OC from GBP and upsert header + detail for that triple.
+
+    After upserting, deletes local detail rows whose ``pod_id`` is absent from
+    the GBP payload so item replacements (new pod, old pod gone) do not leave
+    stale products in the mirror. The prune is skipped when GBP returns no
+    detail lines, and pruned pod_ids are reported (flagging those with local
+    arribos/ingresos).
 
     GBP quirks (verified live):
     - ``scriptPurchaseOrderHeader`` treats ``pohID`` as exclusive lower bound
@@ -173,16 +243,38 @@ def sync_oc_triple(
         key = _upsert(db, model=PurchaseOrderHeader, filters=pk, datos=datos)
         header_counts[key] = header_counts.get(key, 0) + 1
 
-    detail_counts = {"created": 0, "updated": 0, "error": 0}
+    detail_counts = {"created": 0, "updated": 0, "deleted": 0, "error": 0}
+    seen_pod_ids: set[int] = set()
     for record in details:
         pod_id = record.get("pod_id")
         if pod_id is None:
             detail_counts["error"] += 1
             continue
-        detail_pk = {**pk, "pod_id": pod_id}
+        pod_id_int = int(pod_id)
+        seen_pod_ids.add(pod_id_int)
+        detail_pk = {**pk, "pod_id": pod_id_int}
         datos = _map_record(record, pk=detail_pk, plain=_DETAIL_PLAIN, dts=_DETAIL_DT, bools=_DETAIL_BOOL)
         key = _upsert(db, model=PurchaseOrderDetail, filters=detail_pk, datos=datos)
         detail_counts[key] = detail_counts.get(key, 0) + 1
+
+    deleted_pod_ids: list[int] = []
+    with_activity: list[int] = []
+    prune_skipped = not seen_pod_ids
+    if prune_skipped:
+        # Header found but no usable detail lines (empty payload, or lines
+        # without pod_id). Pruning here would wipe the whole OC detail, so
+        # keep the mirror as is and flag it for the UI.
+        logger.warning(
+            "oc_mirror_sync: GBP returned 0 detail lines with pod_id for OC (%s,%s,%s) (raw lines=%s); skipping prune",
+            oc_comp_id,
+            oc_bra_id,
+            oc_poh_id,
+            len(details),
+        )
+    else:
+        deleted_pod_ids, with_activity = _prune_stale_pods(
+            db, pk=pk, seen_pod_ids=seen_pod_ids, detail_counts=detail_counts
+        )
 
     return {
         "oc_comp_id": int(oc_comp_id),
@@ -191,6 +283,9 @@ def sync_oc_triple(
         "header": header_counts,
         "detail": detail_counts,
         "detail_lines": len(details),
+        "deleted_pod_ids": deleted_pod_ids,
+        "deleted_pod_ids_with_local_activity": with_activity,
+        "prune_skipped": prune_skipped,
     }
 
 
