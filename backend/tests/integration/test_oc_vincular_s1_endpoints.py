@@ -343,6 +343,35 @@ class TestVincularOC:
         assert pedido.oc_comp_id is None
         assert pedido.oc_bra_id is None
 
+    def test_desvincular_oc_409_con_arribo_parcial(self, client, auth_headers, db, pedido, proveedor, con_permiso_oc):
+        """Partial arrival progress is keyed to the linked OC's lines: unlinking would orphan it (#2224)."""
+        from decimal import Decimal
+
+        from app.models.pedido_compra_arribo_progreso import PedidoCompraArriboProgreso
+
+        _mk_oc_header(db, poh_id=77777, supp_id=proveedor.supp_id)
+        pedido.oc_comp_id = 1
+        pedido.oc_bra_id = 1
+        pedido.oc_poh_id = 77777
+        db.add(
+            PedidoCompraArriboProgreso(
+                pedido_id=pedido.id,
+                oc_comp_id=1,
+                oc_bra_id=1,
+                oc_poh_id=77777,
+                pod_id=1,
+                cantidad=Decimal("3"),
+                usuario_id=pedido.creado_por_id,
+            )
+        )
+        db.flush()
+
+        r = client.delete(f"{BASE}/pedidos/{pedido.id}/desvincular-oc", headers=auth_headers)
+
+        assert r.status_code == 409
+        db.refresh(pedido)
+        assert pedido.oc_poh_id == 77777
+
     def test_desvincular_oc_409_sin_oc_vinculada(self, client, auth_headers, pedido, con_permiso_oc):
         """REQ-OC-004: 409 when pedido has no linked OC."""
         r = client.delete(
