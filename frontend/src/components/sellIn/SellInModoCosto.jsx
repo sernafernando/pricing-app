@@ -490,7 +490,7 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
 
   // Collapsed (product panel, S5): the current mode as a chip and the button that opens the card. A pending preview or
   // a load error keeps the card open, so nothing in flight is hidden.
-  if (collapsible && !expanded && vista == null && read.status !== 'error') {
+  if (collapsible && !expanded && vista == null && error == null && read.status !== 'error') {
     return (
       <section className={styles.collapsed} aria-labelledby={headingId}>
         <span className={styles.collapsedText}>
@@ -523,7 +523,7 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
               Modo por defecto
             </button>
           )}
-          {collapsible && (
+          {collapsible && error == null && (
             <button type="button" className="btn-tesla outline sm" aria-expanded="true" onClick={() => setExpanded(false)} disabled={busy != null}>
               Ocultar
             </button>

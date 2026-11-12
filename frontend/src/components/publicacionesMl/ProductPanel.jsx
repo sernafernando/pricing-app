@@ -76,8 +76,10 @@ function ComprasYSellIn({ productItemId }) {
     <SellInLotes
       productItemId={productItemId}
       collapseModo
-      layout={({ nextSale, lots, modo }) =>
-        canSeePurchases || nextSale || lots || modo ? (
+      // Without the purchases permission, nothing is drawn until the lots answer: a viewer who may see neither never
+      // sees the block flash while they load.
+      layout={({ nextSale, lots, modo, status }) =>
+        canSeePurchases || status === 'ready' || status === 'error' ? (
           <Block title="Compras y sell in">
             {nextSale}
             <div className={resumenStyles.pairWide}>

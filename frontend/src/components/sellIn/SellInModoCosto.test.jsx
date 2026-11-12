@@ -598,6 +598,18 @@ describe('collapsed behind its current mode (product panel, S5)', () => {
     expect(within(region).getByRole('button', { name: 'Ver' })).toBeInTheDocument();
   });
 
+  it('a failed preview keeps the card open with its error: no "Ocultar" hides it', async () => {
+    sellInLotesAPI.vistaPrevia.mockRejectedValue(httpError(500));
+    const user = userEvent.setup();
+    renderCollapsed();
+    const line = await screen.findByRole('region', { name: 'Modo de costo' });
+    await user.click(await within(line).findByRole('button', { name: 'Cambiar' }));
+    const region = await panel();
+    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
+    await within(region).findByRole('alert');
+    expect(within(region).queryByRole('button', { name: 'Ocultar' })).not.toBeInTheDocument();
+  });
+
   it('a load error keeps the card open with its retry', async () => {
     sellInLotesAPI.modos.mockRejectedValue(httpError(500));
     renderCollapsed();

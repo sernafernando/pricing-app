@@ -113,14 +113,22 @@ vi.mock('./panel/ProductPxq', () => ({
 }));
 
 vi.mock('./panel/ProductPurchases', () => ({
-  default: ({ productItemId, container }) =>
-    container({ title: 'Últimas compras', children: <div data-testid="product-purchases">{`purchases of ${productItemId}`}</div> }),
+  default: ({ productItemId, container }) => {
+    const Container = container;
+    return (
+      <Container title="Últimas compras">
+        <div data-testid="product-purchases">{`purchases of ${productItemId}`}</div>
+      </Container>
+    );
+  },
 }));
 
 // The real viewer hands its parts to the panel's layout (S5): the lots, and the cost mode collapsed.
+let lotesStatus = 'ready';
 vi.mock('../sellIn/SellInLotes', () => ({
   default: ({ productItemId, layout, collapseModo }) =>
     layout({
+      status: lotesStatus,
       nextSale: <p data-testid="sell-in-next">next sale</p>,
       lots: <div data-testid="sell-in-lotes">{`lotes of ${productItemId}`}</div>,
       modo: <div data-testid="sell-in-modo">{collapseModo ? 'modo collapsed' : 'modo open'}</div>,
@@ -335,6 +343,20 @@ describe('ProductPanel', () => {
     expect(identity.compareDocumentPosition(screen.getByRole('region', { name: 'Cifras' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const ban = screen.getByTestId('product-ban');
     expect(screen.getByRole('region', { name: 'Publicaciones' }).compareDocumentPosition(ban) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('draws no Compras y sell in while the lots load for a viewer without the purchases permission (S5)', () => {
+    lotesStatus = 'loading';
+    try {
+      renderPanel();
+      expect(screen.queryByRole('region', { name: 'Compras y sell in' })).not.toBeInTheDocument();
+      cleanup();
+      granted = new Set(['productos.ver_info_compras']);
+      renderPanel();
+      expect(screen.getByRole('region', { name: 'Compras y sell in' })).toBeInTheDocument();
+    } finally {
+      lotesStatus = 'ready';
+    }
   });
 
   it('has no sell-in lots for "Sin producto"', () => {

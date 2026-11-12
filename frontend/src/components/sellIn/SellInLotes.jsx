@@ -174,8 +174,9 @@ function DefaultSection({ title, children }) {
  * @param {number} props.productItemId The ERP product.
  * @param {Function} [props.container] The host's section (`{ title, children }`), so the viewer looks like its siblings.
  * @param {Function} [props.onChanged] Runs after the cost mode changed (the viewer reads its lots again by itself).
- * @param {Function} [props.layout] Places the parts itself: `({ nextSale, lots, modo }) => node` (each part may be
- *   null; all three are null without the permission). Without it they go in that order inside `container`.
+ * @param {Function} [props.layout] Places the parts itself: `({ nextSale, lots, modo, status }) => node` (each part
+ *   may be null; all three are null without the permission; `status` is loading, error, ready or forbidden). Without
+ *   it they go in that order inside `container`.
  * @param {boolean} [props.collapseModo] Shows the cost mode collapsed behind its current mode (product panel, S5).
  */
 export default function SellInLotes({ productItemId, container = DefaultSection, onChanged, layout, collapseModo = false }) {
@@ -195,7 +196,7 @@ export default function SellInLotes({ productItemId, container = DefaultSection,
     };
   }, [productItemId, attempt]);
 
-  if (read.status === 'forbidden') return layout ? layout({ nextSale: null, lots: null, modo: null }) : null;
+  if (read.status === 'forbidden') return layout ? layout({ nextSale: null, lots: null, modo: null, status: 'forbidden' }) : null;
 
   const toggle = (compraItemId) =>
     setOpen((prev) => {
@@ -280,7 +281,7 @@ export default function SellInLotes({ productItemId, container = DefaultSection,
     );
   }
 
-  if (layout) return layout({ nextSale, lots, modo });
+  if (layout) return layout({ nextSale, lots, modo, status: read.status });
   return (
     <Container title={TITLE}>
       {modo ? (
