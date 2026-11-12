@@ -5,6 +5,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 from app.services import ml_promotions_hay_mejores as hay_mejores
 from app.services.ml_promotions_hay_mejores import (
     decidir_flag_hay_mejores,
@@ -14,6 +16,22 @@ from app.services.ml_promotions_hay_mejores import (
     normalizar_entrada_seller_promo,
 )
 from app.services.ml_promotions_pricing import MarkupsDePrecio, precio_de_oferta
+
+# The MLA's header unit as `resolver_contexto_promos` returns it (S11): opaque to the ranking, passed to both sides.
+CONTEXT = object()
+
+
+@pytest.fixture(autouse=True)
+def header_context(monkeypatch) -> list:
+    """The header unit lookup, counted: one call per ranked MLA."""
+    calls: list = []
+
+    def _resolve(_db, mla):
+        calls.append(mla)
+        return CONTEXT
+
+    monkeypatch.setattr(hay_mejores, "resolver_contexto_promos", _resolve)
+    return calls
 
 
 class TestEsMejorOferta:
@@ -189,7 +207,7 @@ class TestListarMejoresBaselineWiring:
     def test_passes_raw_promotions_into_baseline_resolver(self, monkeypatch) -> None:
         seen: dict = {}
 
-        def _baseline(_db, mla, price, *, raw_promotions=None, batch=None):
+        def _baseline(_db, mla, price, *, raw_promotions=None, batch=None, context=None):
             seen["mla"] = mla
             seen["price"] = price
             seen["raw"] = raw_promotions
@@ -311,12 +329,14 @@ class TestRankingConSellInOut:
     def _wire(self, monkeypatch, baseline: MarkupsDePrecio, markups: dict) -> dict:
         seen: dict = {"enrich": []}
 
-        def _baseline(_db, _mla, _price, *, raw_promotions=None, batch=None):
+        def _baseline(_db, _mla, _price, *, raw_promotions=None, batch=None, context=None):
             seen["baseline_batch"] = batch
+            seen["baseline_context"] = context
             return baseline
 
-        def _enrich(_db, _mla, promos, *, sell_in_out=False, batch=None):
+        def _enrich(_db, _mla, promos, *, sell_in_out=False, batch=None, context=None):
             seen["enrich"].append((sell_in_out, batch))
+            seen["enrich_context"] = context
             for promo in promos:
                 promo["nuestro_markup"], promo["markup_sell_in_out"] = markups[promo["promotion_id"]]
             return promos
@@ -373,6 +393,22 @@ class TestRankingConSellInOut:
 
         assert seen["baseline_batch"] is self.BATCH
         assert seen["enrich"] == [(True, self.BATCH)]
+
+    def test_the_header_unit_is_resolved_once_and_prices_both_sides(self, monkeypatch, header_context) -> None:
+        """S11 perf: one header-unit resolution per MLA, shared by the status quo and every candidate."""
+        seen = self._wire(monkeypatch, MarkupsDePrecio(9.0, 12.0), {"A": (10.0, 13.0), "B": (8.0, 14.0)})
+
+        listar_mejores_candidatas(MagicMock(), "MLA1", self._candidatas("A", "B"), 1000.0)
+
+        assert header_context == ["MLA1"]
+        assert seen["baseline_context"] is CONTEXT and seen["enrich_context"] is CONTEXT
+
+    def test_without_a_header_unit_nothing_is_better_and_nothing_else_is_read(self, monkeypatch) -> None:
+        seen = self._wire(monkeypatch, MarkupsDePrecio(9.0, 12.0), {"A": (10.0, 13.0)})
+        monkeypatch.setattr(hay_mejores, "resolver_contexto_promos", lambda _db, _mla: None)
+
+        assert listar_mejores_candidatas(MagicMock(), "MLA1", self._candidatas("A"), 1000.0) == []
+        assert "baseline_batch" not in seen and seen["enrich"] == []
 
     def test_a_given_batch_is_used_and_nothing_is_resolved_again(self, monkeypatch) -> None:
         seen = self._wire(monkeypatch, MarkupsDePrecio(9.0, 12.0), {"A": (10.0, 13.0)})

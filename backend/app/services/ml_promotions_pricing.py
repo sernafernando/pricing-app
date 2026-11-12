@@ -22,6 +22,7 @@ the same promo net with today's sell in / sell out of the product
 changes `nuestro_markup`, which keeps ranking the offers.
 """
 
+import time
 from dataclasses import dataclass, replace
 from datetime import date
 from typing import Any, Dict, Iterable, List, Mapping, NamedTuple, Optional
@@ -32,6 +33,7 @@ from app.services.sell_out import alcance
 from app.core.logging import get_logger
 from app.services.ml_publications.view.markup import UnitInputs, UnitMarkup, unit_markup
 from app.services.ml_publications.view.markup_inputs import fetch_inputs
+from app.services.ml_publications.view import markup_service
 from app.services.ml_publications.view.markup_service import detail_unit
 from app.services.pricing_context import PricingContext
 from app.services.productos_sell_in_out import SellInOutBatch, resolver_sell_in_out_batch
@@ -215,18 +217,55 @@ class _PricingContext:
         return priced
 
 
+_PRICING_CONTEXT_KEY = "ml_promotions_pricing.pricing_context"
+# How long one session reuses its pricing context: a request or a run reads it once, a long-lived worker session
+# re-reads the rate, constants and commissions at most this often (they change a few times a day at most).
+PRICING_CONTEXT_TTL_SECONDS = 300.0
+
+
+def pricing_context_de_sesion(db: Session) -> PricingContext:
+    """The header's pricing context (`build_pricing_context`: rate, constants, grupos, commissions, group shipping
+    averages), built ONCE per session and reused for `PRICING_CONTEXT_TTL_SECONDS` the same day. Pricing many MLAs
+    in one request or run (hay_mejores, its recompute, the promotions sync) builds it once, not once per MLA."""
+    now = time.monotonic()
+    cached = db.info.get(_PRICING_CONTEXT_KEY)
+    if cached is not None:
+        built_at, ctx = cached
+        if now - built_at < PRICING_CONTEXT_TTL_SECONDS and ctx.hoy == date.today():
+            return ctx
+    ctx = markup_service.build_pricing_context(db)  # the very builder the header's `detail_unit` uses
+    db.info[_PRICING_CONTEXT_KEY] = (now, ctx)
+    return ctx
+
+
 def _resolve_pricing_context(db: Session, mla: str) -> Optional[_PricingContext]:
-    """The header unit of `mla` (`detail_unit`), ONCE. None (never raises) when the publication is not in the
-    store or none of its units has a markup in the header."""
+    """The header unit of `mla` (`detail_unit`), ONCE, priced with the session's pricing context
+    (`pricing_context_de_sesion`). None (never raises) when the publication is not in the store or none of its
+    units has a markup in the header: the promos of such a publication show no markup, like its header."""
     try:
         with db.begin_nested():  # a failed read leaves the request session usable
-            found = detail_unit(db, db, mla)
+            found = detail_unit(db, db, mla, ctx=pricing_context_de_sesion(db))
     except Exception as e:
         logger.warning("Error resolving pricing context for mla %s: %s", mla, e)
         return None
     if found is None or found.unit is None:
         return None
     return _PricingContext(found.ctx, found.unit, found.envio, found.envio_propio)
+
+
+# `context` default of the public entry points: resolve the MLA's header unit here. A caller that already resolved
+# it (`resolver_contexto_promos`) passes it, None included (no header markup), so one MLA is resolved once.
+_RESOLVER: Any = object()
+
+
+def resolver_contexto_promos(db: Session, mla: str) -> Optional[_PricingContext]:
+    """`mla`'s header unit, for a caller that prices it several times (hay_mejores: the status quo and every
+    candidate) and passes it as `context=` to `markups_baseline_vigente` / `enriquecer_markup_por_promo`."""
+    return _resolve_pricing_context(db, mla)
+
+
+def _contexto(db: Session, mla: str, context: Any) -> Optional[_PricingContext]:
+    return _resolve_pricing_context(db, mla) if context is _RESOLVER else context
 
 
 def enriquecer_markup_por_promo(
@@ -236,6 +275,7 @@ def enriquecer_markup_por_promo(
     *,
     sell_in_out: bool = False,
     batch: Optional[SellInOutBatch] = None,
+    context: Any = _RESOLVER,
 ) -> List[Dict[str, Any]]:
     """Adds `nuestro_markup` (Optional[float], percentage) to each promo dict
     in `promociones`, mutating them in place and returning the same list.
@@ -255,7 +295,7 @@ def enriquecer_markup_por_promo(
     if not promociones:
         return promociones
 
-    context = _resolve_pricing_context(db, mla)
+    context = _contexto(db, mla, context)
     if context is None:
         for promo in promociones:
             promo["nuestro_markup"] = None
@@ -301,7 +341,7 @@ def _markup_con_contexto(
         return None
 
 
-def markup_para_precio(db: Session, mla: str, price: float) -> Optional[float]:
+def markup_para_precio(db: Session, mla: str, price: float, *, context: Any = _RESOLVER) -> Optional[float]:
     """Seller markup percentage for a candidate `price` on `mla`, reusing
     the SAME header unit and price->markup chain as
     `enriquecer_markup_por_promo`, but on the plain `price` (no
@@ -310,7 +350,7 @@ def markup_para_precio(db: Session, mla: str, price: float) -> Optional[float]:
     Never raises: returns None when the header unit is unresolvable, or
     when the markup computation itself fails.
     """
-    context = _resolve_pricing_context(db, mla)
+    context = _contexto(db, mla, context)
     if context is None:
         return None
 
@@ -325,13 +365,18 @@ class MarkupsDePrecio(NamedTuple):
 
 
 def markup_para_precio_con_sell_in_out(
-    db: Session, mla: str, price: float, *, batch: Optional[SellInOutBatch] = None
+    db: Session,
+    mla: str,
+    price: float,
+    *,
+    batch: Optional[SellInOutBatch] = None,
+    context: Any = _RESOLVER,
 ) -> MarkupsDePrecio:
     """`markup_para_precio(price)` plus `markup_sell_in_out` on the same net
     (`_markup_sell_in_out`), with ONE pricing context. Used by the panel's
     manual price input and its "Markup vigente" line, and by the hay_mejores
     status quo. `batch`: an already-resolved sell in / sell out read. Never raises."""
-    context = _resolve_pricing_context(db, mla)
+    context = _contexto(db, mla, context)
     if context is None:
         return MarkupsDePrecio(None, None)
     nuestro = _markup_con_contexto(db, context, price, mla=mla)
@@ -410,10 +455,11 @@ def markup_baseline_vigente(
     baseline_price: float,
     *,
     raw_promotions: Any = None,
+    context: Any = _RESOLVER,
 ) -> Optional[float]:
     """The plain markup of `markups_baseline_vigente` (no sell in / sell out read)."""
     return markups_baseline_vigente(
-        db, mla, baseline_price, raw_promotions=raw_promotions, sell_in_out=False
+        db, mla, baseline_price, raw_promotions=raw_promotions, sell_in_out=False, context=context
     ).nuestro_markup
 
 
@@ -425,6 +471,7 @@ def markups_baseline_vigente(
     raw_promotions: Any = None,
     sell_in_out: bool = True,
     batch: Optional[SellInOutBatch] = None,
+    context: Any = _RESOLVER,
 ) -> MarkupsDePrecio:
     """Seller markup for the MeLi status-quo price used by hay_mejores, with its sell in / sell out
     companion (`markup_sell_in_out`, None with `sell_in_out=False`).
@@ -437,16 +484,19 @@ def markups_baseline_vigente(
       price, DEAL/seller campaigns, or no matching cofunded started offer.
 
     ``raw_promotions`` is the seller-promotions mirror list (store `raw` or
-    the same shape); ``batch`` an already-resolved sell in / sell out read.
+    the same shape); ``batch`` an already-resolved sell in / sell out read;
+    ``context`` the MLA's already-resolved header unit (else resolved here,
+    ONCE, for both the co-funded and the plain chain).
     Never raises: None when markup cannot be computed.
     """
     if baseline_price is None or baseline_price <= 0:
         return MarkupsDePrecio(None, None)
+    context = _contexto(db, mla, context)
 
     def _plano() -> MarkupsDePrecio:
         if sell_in_out:
-            return markup_para_precio_con_sell_in_out(db, mla, baseline_price, batch=batch)
-        return MarkupsDePrecio(markup_para_precio(db, mla, baseline_price), None)
+            return markup_para_precio_con_sell_in_out(db, mla, baseline_price, batch=batch, context=context)
+        return MarkupsDePrecio(markup_para_precio(db, mla, baseline_price, context=context), None)
 
     started_cofunded: List[Dict[str, Any]] = []
     if isinstance(raw_promotions, list):
@@ -472,7 +522,9 @@ def markups_baseline_vigente(
 
     if started_cofunded:
         try:
-            enriquecer_markup_por_promo(db, mla, started_cofunded, sell_in_out=sell_in_out, batch=batch)
+            enriquecer_markup_por_promo(
+                db, mla, started_cofunded, sell_in_out=sell_in_out, batch=batch, context=context
+            )
         except Exception as e:
             logger.warning("Error enriqueciendo baseline cofunded mla %s: %s", mla, e)
             return _plano()

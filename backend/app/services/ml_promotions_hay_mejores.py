@@ -30,6 +30,7 @@ from app.services.ml_promotions_pricing import (
     enriquecer_markup_por_promo,
     markups_baseline_vigente,
     precio_de_oferta,
+    resolver_contexto_promos,
     resolver_sell_in_out_para_mlas,
 )
 from app.services.productos_sell_in_out import SellInOutBatch
@@ -148,17 +149,24 @@ def listar_mejores_candidatas(
     plain baseline via ``markups_baseline_vigente``. ``sell_in_out_batch``: a
     sell in / sell out read already done for many items; without it, one read
     for this item feeds both sides, and a failed read is not retried per side.
+    The MLA's header unit is resolved ONCE and prices both sides
+    (``resolver_contexto_promos``); without one, nothing beats the status quo.
     """
     if not candidates or baseline_price is None or baseline_price <= 0:
+        return []
+    context = resolver_contexto_promos(db, mla)
+    if context is None:
         return []
     batch = sell_in_out_batch if sell_in_out_batch is not None else resolver_sell_in_out_para_mlas(db, [mla])
     if batch is None:
         batch = _sin_sell_in_out()
-    vigente = markups_baseline_vigente(db, mla, baseline_price, raw_promotions=raw_promotions, batch=batch)
+    vigente = markups_baseline_vigente(
+        db, mla, baseline_price, raw_promotions=raw_promotions, batch=batch, context=context
+    )
     if vigente.nuestro_markup is None:
         return []
     promos = [normalizar_entrada_seller_promo(entry) for entry in candidates]
-    enriquecer_markup_por_promo(db, mla, promos, sell_in_out=True, batch=batch)
+    enriquecer_markup_por_promo(db, mla, promos, sell_in_out=True, batch=batch, context=context)
     mejores: List[MejorTuple] = []
     for entry, promo in zip(candidates, promos):
         price = precio_de_oferta(promo)

@@ -237,6 +237,13 @@ ENVIO: dict[int, float] = {}
 DETAIL_UNIT = "app.services.ml_promotions_pricing.detail_unit"
 
 
+@pytest.fixture(autouse=True)
+def session_pricing_context():
+    """The session's pricing context (`pricing_context_de_sesion`): the hand-built one (the `db` here is a mock)."""
+    with patch("app.services.ml_promotions_pricing.pricing_context_de_sesion", return_value=CTX):
+        yield
+
+
 def _header_unit(ctx=CTX, unit=UNIT) -> DetailUnit:
     return DetailUnit(ctx, MagicMock(), MagicMock(), unit, None, ENVIO, None)
 
@@ -614,7 +621,8 @@ class TestMarkupBaselineVigente:
             return_value=-5.1,
         ) as plain:
             assert markup_baseline_vigente(db, "MLA1", 555867.83, raw_promotions=raw) == -5.1
-            plain.assert_called_once_with(db, "MLA1", 555867.83)
+            plain.assert_called_once()
+            assert plain.call_args.args == (db, "MLA1", 555867.83)
 
     def test_falls_back_when_started_cofunded_price_does_not_match_sale(self) -> None:
         from app.services.ml_promotions_pricing import markup_baseline_vigente

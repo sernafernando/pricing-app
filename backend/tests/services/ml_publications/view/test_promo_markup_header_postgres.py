@@ -130,6 +130,61 @@ def test_own_shipping_moves_the_promo_markup_like_the_header(conn, db, own_costs
     assert with_own == pytest.approx(_header(db)[1])
 
 
+def test_variations_on_two_products_price_the_promo_on_the_headers_worst_unit(conn, db) -> None:
+    """The header's breakdown ("Unidad calculada" / Rentabilidad) explains the worst variation: the promo prices
+    that same unit, never the item-level product or the cheaper sibling."""
+    seed.add_product(conn, PRODUCT, "C70", "Producto 70", subcategoria_id=3845)
+    seed.add_cost(conn, PRODUCT, 40000.0)
+    seed.add_product(conn, 72, "C72", "Producto 72", subcategoria_id=3845)
+    seed.add_cost(conn, 72, 46000.0)  # the dearer product: the worst variation
+    seed.add_item(conn, MLA, price=HEADER_PRICE + 5000, **LISTS["nine_by_tag"])
+    seed.add_sale_price(conn, MLA, HEADER_PRICE)
+    seed.add_link(conn, MLA, PRODUCT)  # item level
+    seed.add_variation(conn, MLA, 11)
+    seed.add_variation(conn, MLA, 12)
+    seed.add_link(conn, MLA, PRODUCT, variation_id=11)
+    seed.add_link(conn, MLA, 72, variation_id=12)
+
+    found = markup_service.compute_detail(db, db, MLA)
+    promo = enriquecer_markup_por_promo(db, MLA, [_seller_campaign(HEADER_PRICE)])[0]
+
+    assert found.item.markup.is_range and found.variation_id == 12
+    assert found.breakdown.markup == pytest.approx(found.item.markup.worst)
+    assert promo["nuestro_markup"] == pytest.approx(found.item.markup.worst)
+    assert promo["nuestro_markup"] < found.item.markup.value_max
+
+
+@pytest.mark.parametrize(
+    "item, link, cost",
+    [
+        (dict(listing_type_id="free"), True, 40000.0),  # no list of ours: header "sin_lista"
+        (LISTS["nine_by_tag"], True, None),  # product without cost: header "sin_costo"
+        (LISTS["nine_by_tag"], False, 40000.0),  # no linked product: header "sin_vinculo"
+    ],
+    ids=["sin_lista", "sin_costo", "sin_vinculo"],
+)
+def test_a_publication_without_header_markup_gets_no_promo_markup(conn, db, item, link, cost) -> None:
+    seed.add_product(conn, PRODUCT, "C70", "Producto 70", subcategoria_id=3845)
+    if cost is not None:
+        seed.add_cost(conn, PRODUCT, cost)
+    seed.add_item(conn, MLA, price=HEADER_PRICE + 5000, **item)
+    seed.add_sale_price(conn, MLA, HEADER_PRICE)
+    if link:
+        seed.add_link(conn, MLA, PRODUCT)
+    assert markup_service.compute_detail(db, db, MLA).breakdown is None  # the header shows no markup
+
+    promo = enriquecer_markup_por_promo(db, MLA, [_seller_campaign(HEADER_PRICE)], sell_in_out=True)[0]
+
+    assert promo["nuestro_markup"] is None and promo["markup_sell_in_out"] is None
+    assert markup_para_precio_con_sell_in_out(db, MLA, HEADER_PRICE) == (None, None)
+    assert db.execute(text("SELECT 1")).scalar() == 1  # the session is still usable
+
+
+def test_an_mla_not_in_the_store_gets_no_promo_markup(db) -> None:
+    assert enriquecer_markup_por_promo(db, "MLA404", [_seller_campaign(HEADER_PRICE)])[0]["nuestro_markup"] is None
+    assert markup_para_precio(db, "MLA404", HEADER_PRICE) is None
+
+
 def test_co_funding_still_adds_to_the_revenue(conn, db) -> None:
     _seed(conn, LISTS["nine_by_tag"])
     smart = {
