@@ -259,7 +259,7 @@ class TestRefreshCorePath:
         result = make_handler(transport).run(context())
 
         assert result.success is True
-        assert [len(batch) for batch in transport.ids()] == [20, 20, 5]
+        assert sorted(len(batch) for batch in transport.ids()) == [5, 20, 20]  # batch runners may finish in any order
         assert sorted(i for batch in transport.ids() for i in batch) == sorted(ids)
         assert sql_scalar(env, "SELECT count(*) FROM ml_pub_refresh_queue") == 0
 
@@ -383,7 +383,7 @@ class TestRefreshCorePath:
         assert queue_row(env, "MLA935110613") is None  # applied, nothing charged
 
     def test_a_flag_change_takes_effect_at_the_next_batch_boundary(self, env, monkeypatch) -> None:
-        enable_refresh(bulk_max_ids=1)
+        enable_refresh(bulk_max_ids=1, refresh__runners=1)  # one runner: pins its own batch boundary
         enqueue_items("MLA935110613", "MLA934406852")
         passed = []
         original = store.apply_fetch
@@ -447,7 +447,7 @@ class TestRefreshCorePath:
         assert queue_row(env, "MLA935110613")["parked_at"] is not None  # never claimed again
 
     def test_manual_lane_is_served_before_backfill(self, env) -> None:
-        enable_refresh(bulk_max_ids=1)
+        enable_refresh(bulk_max_ids=1, refresh__runners=1)  # one runner: pins the claim order
         enqueue_items("MLA935110613", lane=3)
         enqueue_items("MLA934406852", lane=1)
         transport = ScriptedTransport(bulk_responder)
@@ -457,7 +457,7 @@ class TestRefreshCorePath:
         assert transport.ids() == [["MLA934406852"], ["MLA935110613"]]
 
     def test_turning_the_flag_off_mid_run_stops_claiming_at_the_next_batch(self, env) -> None:
-        enable_refresh(bulk_max_ids=1)
+        enable_refresh(bulk_max_ids=1, refresh__runners=1)  # one runner: pins its own batch boundary
         enqueue_items("MLA935110613", "MLA934406852")
 
         def responder(request, call):
@@ -515,7 +515,8 @@ class TestRefreshCorePath:
         assert (row["claimed_at"], row["attempts"]) == (None, 0)
 
     def test_a_429_releases_uncharged_with_the_retry_after_cooldown_and_stops(self, env) -> None:
-        enable_refresh(bulk_max_ids=1)
+        # one runner; with several, the others stop too (test_ml_publications_runners.py)
+        enable_refresh(bulk_max_ids=1, refresh__runners=1)
         enqueue_items("MLA935110613", "MLA934406852")
         transport = ScriptedTransport(
             lambda r, n: json_response({"message": "too many"}, status=429, headers={"Retry-After": "30"})
