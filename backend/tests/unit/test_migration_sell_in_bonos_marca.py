@@ -116,7 +116,10 @@ class TestFrozenTriggerCopy:
         # 20261112_sell_in_bono_cubre_pedido adds the operation gate (after the date gate) and swaps the operation and
         # line functions (sell in factura pendiente).
         cubre_pedido = base._load_migration(versions / "20261112_sell_in_bono_cubre_pedido.py")
-        gate_pedido, pedido_fn, linea_fn = cubre_pedido.FUNCIONES_UP
+        _, pedido_fn, linea_fn = cubre_pedido.FUNCIONES_UP
+        # 20261112_tactical_facturas_pendientes widened that gate to the waiting invoice totals.
+        pendientes = base._load_migration(versions / "20261112_tactical_facturas_pendientes.py")
+        [gate_pedido] = pendientes.FUNCIONES_UP
 
         def _vigente(s: str) -> str:
             if "CREATE OR REPLACE FUNCTION sell_in_bono_enqueue_pedido" in s:
@@ -142,7 +145,8 @@ class TestFrozenTriggerCopy:
             self._DRIFT.format(
                 "UPGRADE_SQL",
                 f"{_LATEST_TRIGGERS} + 20261213_sell_in_bono_costo_triggers + 20261215_sell_in_bono_acumulable"
-                " + 20261111_sell_in_bono_marca_categoria + 20261112_sell_in_bono_cubre_pedido",
+                " + 20261111_sell_in_bono_marca_categoria + 20261112_sell_in_bono_cubre_pedido"
+                " + 20261112_tactical_facturas_pendientes",
             )
         )
 
