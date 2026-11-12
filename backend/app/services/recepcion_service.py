@@ -1047,6 +1047,8 @@ def resolver_faltantes(
     compras_alertas_service.notificar_faltantes_resuelto(session, pedido=pedido, texto=texto_norm)
     session.flush()
     return ResolverFaltantesResponse(pedido_id=pedido.id, faltantes_resuelto_en=stamp)
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Pre-control arribo/retiro progress (separate from control ingresos)
 # ──────────────────────────────────────────────────────────────────────────
@@ -1157,10 +1159,7 @@ def registrar_arribo_progreso(
         estados_validos = " or ".join(f"'{e}'" for e in sorted(ESTADOS_ARRIBO))
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"Arribo parcial solo desde {estados_validos} "
-                f"(current estado='{pedido.estado}')."
-            ),
+            detail=(f"Arribo parcial solo desde {estados_validos} (current estado='{pedido.estado}')."),
         )
 
     saldos = computar_saldos(session, pedido)
@@ -1182,10 +1181,7 @@ def registrar_arribo_progreso(
         if prev + nueva > qty:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f"Over-arribo: pod_id {pod_id} — "
-                    f"pedida={qty}, ya={prev}, intento={nueva}"
-                ),
+                detail=(f"Over-arribo: pod_id {pod_id} — pedida={qty}, ya={prev}, intento={nueva}"),
             )
         row = PedidoCompraArriboProgreso(
             pedido_id=pedido.id,
@@ -1201,9 +1197,7 @@ def registrar_arribo_progreso(
         session.add(row)
         session.flush()
         acumulado[pod_id] = prev + nueva
-        creados.append(
-            ArriboProgresoCreadoResponse(id=int(row.id), pod_id=pod_id, cantidad=nueva)
-        )
+        creados.append(ArriboProgresoCreadoResponse(id=int(row.id), pod_id=pod_id, cantidad=nueva))
 
     lineas_out = _lineas_arribo_desde_saldos(saldos, acumulado)
     completo = bool(lineas_out) and all(l.pendiente_arribo <= 0 for l in lineas_out)
