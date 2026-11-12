@@ -1143,6 +1143,9 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome, defaultOpen = f
   const { deshacerRecibido, revertirControl } = useRecepcionDeposito();
   const { tienePermiso } = usePermisos();
   const canDespacharRetiro = tienePermiso('deposito.despachar_retiro');
+  const canRevertirControl =
+    tienePermiso('deposito.recibir_mercaderia') &&
+    (pedido.estado === 'controlado' || pedido.estado === 'con_faltantes');
   const [open, setOpen] = useState(defaultOpen);
   const [retiroOpen, setRetiroOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
@@ -1305,7 +1308,7 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome, defaultOpen = f
               Deshacer recibido
             </button>
           )}
-          {(pedido.estado === 'controlado' || pedido.estado === 'con_faltantes') && (
+          {canRevertirControl && (
             <button
               type="button"
               className={styles.btnSecondary}

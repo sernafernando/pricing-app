@@ -4,6 +4,13 @@ import userEvent from '@testing-library/user-event';
 import api from '../../services/api';
 import TabRecepcionDeposito from './TabRecepcionDeposito';
 
+// Permissions the current test denies; empty = every permission granted.
+const mockPermisos = vi.hoisted(() => ({ denied: new Set() }));
+vi.mock('../../contexts/PermisosContext', () => ({
+  usePermisos: () => ({ tienePermiso: (codigo) => !mockPermisos.denied.has(codigo) }),
+  PermisosProvider: ({ children }) => children,
+}));
+
 // NOTE: vite.config.js sets `css: false` for the test run, so CSS Module class
 // names do NOT resolve. Never assert on className — assert on text and roles.
 
@@ -216,6 +223,7 @@ async function copiarPedido(pedido) {
 
 afterEach(() => {
   delete navigator.clipboard;
+  mockPermisos.denied.clear();
 });
 
 describe('TabRecepcionDeposito — "Por recibir" merged filter', () => {
@@ -1388,5 +1396,26 @@ describe('TabRecepcionDeposito — OC, producto/EAN and creado por filters', () 
         tipo: 'mercaderia',
       })
     );
+  });
+});
+
+describe('TabRecepcionDeposito — Revertir control permission', () => {
+  const PEDIDO_CONTROLADO = { ...PEDIDO_PAGADO, id: 9, numero: 'PC-0009', estado: 'controlado' };
+
+  it('shows Revertir control to users with deposito.recibir_mercaderia', async () => {
+    await renderTab([PEDIDO_CONTROLADO]);
+
+    expect(
+      screen.getByRole('button', { name: 'Revertir control del pedido #PC-0009' })
+    ).toBeInTheDocument();
+  });
+
+  it('hides Revertir control from users without deposito.recibir_mercaderia', async () => {
+    mockPermisos.denied.add('deposito.recibir_mercaderia');
+    await renderTab([PEDIDO_CONTROLADO]);
+
+    expect(
+      screen.queryByRole('button', { name: 'Revertir control del pedido #PC-0009' })
+    ).not.toBeInTheDocument();
   });
 });

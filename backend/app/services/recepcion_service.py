@@ -21,7 +21,7 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import bindparam, text, update
+from sqlalchemy import bindparam, func, text, update
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -869,10 +869,16 @@ def revertir_control(
 
     From `controlado` or `con_faltantes` only. Deletes control ingresos
     (`pod_id IS NOT NULL`); keeps arribo sentinels (`pod_id IS NULL`) on CON-OC.
-    SIN-OC (no linked OC): deletes all ingresos and writes one arribo sentinel.
+    SIN-OC (no linked OC): keeps the oldest sentinel (the arrival, whose date
+    sell_in prefill reads) and deletes the later control sentinels.
     Clears `faltantes_resuelto_en` and retracts `compras.faltantes` banners.
+    Locks the pedido row first so it cannot interleave with registrar_ingresos
+    or a second revert; estado is re-read under the lock.
     Permission: deposito.recibir_mercaderia (router).
     """
+    pedido = (
+        session.query(PedidoCompra).filter(PedidoCompra.id == pedido.id).populate_existing().with_for_update().one()
+    )
     _validar_no_servicio(pedido)
     if pedido.estado not in {"controlado", "con_faltantes"}:
         raise HTTPException(
@@ -894,25 +900,18 @@ def revertir_control(
             .delete(synchronize_session=False)
         )
     else:
-        deleted = (
-            session.query(PedidoCompraIngreso)
-            .filter(PedidoCompraIngreso.pedido_id == pedido.id)
-            .delete(synchronize_session=False)
-        )
-        session.add(
-            PedidoCompraIngreso(
-                pedido_id=pedido.id,
-                pod_id=None,
-                oc_comp_id=None,
-                oc_bra_id=None,
-                oc_poh_id=None,
-                item_id=None,
-                stor_id=None,
-                cantidad_recibida=Decimal("1"),
-                usuario_id=user.id,
-                observaciones=None,
+        arribo_id = (
+            session.query(func.min(PedidoCompraIngreso.id))
+            .filter(
+                PedidoCompraIngreso.pedido_id == pedido.id,
+                PedidoCompraIngreso.pod_id.is_(None),
             )
+            .scalar()
         )
+        control = session.query(PedidoCompraIngreso).filter(PedidoCompraIngreso.pedido_id == pedido.id)
+        if arribo_id is not None:
+            control = control.filter(PedidoCompraIngreso.id != arribo_id)
+        deleted = control.delete(synchronize_session=False)
 
     pedido.estado = "recibido"
     pedido.faltantes_resuelto_en = None
