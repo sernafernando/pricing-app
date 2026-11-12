@@ -523,7 +523,8 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
               Modo por defecto
             </button>
           )}
-          {collapsible && error == null && (
+          {/* Only when it can close: a pending preview or an error keeps the card open. */}
+          {collapsible && error == null && vista == null && (
             <button type="button" className="btn-tesla outline sm" aria-expanded="true" onClick={() => setExpanded(false)} disabled={busy != null}>
               Ocultar
             </button>

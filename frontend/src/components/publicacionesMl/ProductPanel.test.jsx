@@ -219,6 +219,17 @@ describe('ProductPanel', () => {
     expect(within(region).getByText('Total Gauss 30D')).toBeInTheDocument();
   });
 
+  it('puts the sales trend inside the Ventas 7D tile instead of a tile of its own (S5)', () => {
+    renderPanel();
+    const terms = within(figures())
+      .getAllByRole('term')
+      .map((dt) => dt.textContent);
+    expect(terms).toContain('Ventas 7D');
+    expect(terms).not.toContain('Tendencia de ventas');
+    expect(terms).toContain('Tendencia de markup');
+    expect(terms).toHaveLength(new Set(terms).size);
+  });
+
   it('hides the margin figures without the margin permission', () => {
     renderPanel({ canSeeMargin: false });
     const region = figures();
