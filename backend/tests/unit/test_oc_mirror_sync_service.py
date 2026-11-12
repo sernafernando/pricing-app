@@ -214,3 +214,104 @@ def test_sync_header_pohid_exclusive_floor_finds_target(db, empresa, proveedor, 
     assert synced[0]["oc_poh_id"] == 503
     assert db.query(PurchaseOrderHeader).filter_by(comp_id=1, bra_id=45, poh_id=503).one()
     assert db.query(PurchaseOrderHeader).filter_by(poh_id=504).count() == 0
+
+
+def test_sync_updates_item_id_on_same_pod(db, empresa, proveedor, active_user) -> None:
+    """Same pod_id with a new item_id must overwrite the mirror row."""
+    pedido = _pedido(db, empresa, proveedor, active_user)
+    db.add(
+        PurchaseOrderDetail(
+            comp_id=1,
+            bra_id=45,
+            poh_id=500,
+            pod_id=7,
+            item_id=100,
+            pod_qty=Decimal("3"),
+            pod_confirmedqty=Decimal("0"),
+            pod_isprocessed=False,
+        )
+    )
+    db.flush()
+
+    header_row = {
+        "comp_id": 1,
+        "bra_id": 45,
+        "poh_id": 500,
+        "supp_id": 99,
+        "poh_total": 1500,
+        "poh_cd": "2026-03-10T12:00:00",
+    }
+    detail_row = {
+        "comp_id": 1,
+        "bra_id": 45,
+        "poh_id": 500,
+        "pod_id": 7,
+        "item_id": 999,
+        "pod_qty": 3,
+        "pod_confirmedQTY": 0,
+        "pod_isProcessed": False,
+    }
+
+    def _fake_fetch(params):
+        if params.get("strScriptLabel") == "scriptPurchaseOrderHeader":
+            return [header_row]
+        return [detail_row]
+
+    with patch.object(oc_mirror_sync_service, "_fetch_gbp", side_effect=_fake_fetch):
+        synced = oc_mirror_sync_service.sync_ocs_for_pedido(db, pedido_id=pedido.id)
+    db.flush()
+    assert synced[0]["detail"]["updated"] == 1
+    detail = db.query(PurchaseOrderDetail).filter_by(comp_id=1, bra_id=45, poh_id=500, pod_id=7).one()
+    assert int(detail.item_id) == 999
+
+
+def test_sync_deletes_stale_pods_when_gbp_replaces_item_line(db, empresa, proveedor, active_user) -> None:
+    """Item swap in GBP that retires pod_id must drop the old mirror row."""
+    pedido = _pedido(db, empresa, proveedor, active_user)
+    db.add(
+        PurchaseOrderDetail(
+            comp_id=1,
+            bra_id=45,
+            poh_id=500,
+            pod_id=10,
+            item_id=100,
+            pod_qty=Decimal("5"),
+            pod_confirmedqty=Decimal("0"),
+            pod_isprocessed=False,
+        )
+    )
+    db.flush()
+
+    header_row = {
+        "comp_id": 1,
+        "bra_id": 45,
+        "poh_id": 500,
+        "supp_id": 99,
+        "poh_total": 1500,
+        "poh_cd": "2026-03-10T12:00:00",
+    }
+    new_line = {
+        "comp_id": 1,
+        "bra_id": 45,
+        "poh_id": 500,
+        "pod_id": 99,
+        "item_id": 777,
+        "pod_qty": 5,
+        "pod_confirmedQTY": 0,
+        "pod_isProcessed": False,
+    }
+
+    def _fake_fetch(params):
+        if params.get("strScriptLabel") == "scriptPurchaseOrderHeader":
+            return [header_row]
+        return [new_line]
+
+    with patch.object(oc_mirror_sync_service, "_fetch_gbp", side_effect=_fake_fetch):
+        synced = oc_mirror_sync_service.sync_ocs_for_pedido(db, pedido_id=pedido.id)
+    db.flush()
+    assert synced[0]["detail"]["created"] == 1
+    assert synced[0]["detail"]["deleted"] == 1
+    rows = db.query(PurchaseOrderDetail).filter_by(comp_id=1, bra_id=45, poh_id=500).all()
+    assert len(rows) == 1
+    assert int(rows[0].pod_id) == 99
+    assert int(rows[0].item_id) == 777

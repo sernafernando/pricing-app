@@ -174,6 +174,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   const [desvinculandoOC, setDesvinculandoOC] = useState(false);
   const [syncingOC, setSyncingOC] = useState(false);
   const [errorOC, setErrorOC] = useState(null);
+  const [successOC, setSuccessOC] = useState(null);
   const [ocDetalle, setOcDetalle] = useState(null);
   const [loadingOcDetalle, setLoadingOcDetalle] = useState(false);
 
@@ -319,9 +320,25 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
     if (pedido.estado === 'controlado' || pedido.estado === 'con_faltantes') return;
     setSyncingOC(true);
     setErrorOC(null);
+    setSuccessOC(null);
     try {
-      await syncOcs(pedido.id);
+      const result = await syncOcs(pedido.id);
       await fetchDetalle();
+      const synced = Array.isArray(result?.synced) ? result.synced : [];
+      const detailTouched = synced.reduce((acc, row) => {
+        const d = row?.detail || {};
+        return (
+          acc +
+          Number(d.updated || 0) +
+          Number(d.created || 0) +
+          Number(d.deleted || 0)
+        );
+      }, 0);
+      setSuccessOC(
+        detailTouched > 0
+          ? `OC actualizada desde el ERP (${detailTouched} cambio${detailTouched === 1 ? '' : 's'} en líneas).`
+          : 'Sync OK: el espejo ya coincidía con el ERP (revisá saldo si la línea quedó procesada en GBP).'
+      );
     } catch (err) {
       setErrorOC(
         err.response?.data?.detail ||
@@ -504,7 +521,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
     pedido?.estado === 'controlado' || pedido?.estado === 'con_faltantes';
   const syncOcTitle = syncOcBloqueado
     ? 'No se puede actualizar la OC: el pedido ya tiene control de depósito. Revertí el control desde Depósito primero.'
-    : 'Actualizar líneas/saldos desde el ERP (no corrige recepciones)';
+    : 'Actualizar líneas/saldos desde el ERP (incluye procesado en GBP; no corrige recepciones locales)';
 
   return (
     <div className={styles.modalOverlay}>
@@ -1014,6 +1031,11 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                 <AlertCircle size={14} /> {errorOC}
               </div>
             )}
+            {successOC && (
+              <div className={styles.successBanner} role="status">
+                {successOC}
+              </div>
+            )}
             <div className={styles.facturaBlock}>
               {linkedOcs.length > 0 ? (
                 <div className={styles.facturaVinculada}>
@@ -1115,6 +1137,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                               <th>Descripción</th>
                               <th className={styles.thCenter}>Qty OC</th>
                               <th className={styles.thCenter}>Saldo pendiente</th>
+                              <th className={styles.thCenter}>GBP</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1133,6 +1156,15 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                                 </td>
                                 <td className={styles.tdCenter}>
                                   {Number(line.saldo_pendiente ?? 0).toLocaleString('es-AR')}
+                                </td>
+                                <td className={styles.tdCenter}>
+                                  {line.pod_isprocessed ? (
+                                    <span className={styles.chipProcesadoGbp} title="Línea procesada en GBP">
+                                      Procesada
+                                    </span>
+                                  ) : (
+                                    '—'
+                                  )}
                                 </td>
                               </tr>
                             ))}

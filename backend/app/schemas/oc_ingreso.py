@@ -63,6 +63,8 @@ class OrdenCompraLineaResponse(BaseModel):
     pod_confirmedqty: Decimal | None = None
     saldo_pendiente: Decimal | None = None
     pod_price: Decimal | None = None
+    # GBP administrative receipt flag (distinct from pricing-app ingresos).
+    pod_isprocessed: bool | None = None
     oc_comp_id: int | None = None
     oc_bra_id: int | None = None
     oc_poh_id: int | None = None

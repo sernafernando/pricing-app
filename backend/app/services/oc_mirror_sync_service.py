@@ -133,6 +133,10 @@ def sync_oc_triple(
 ) -> dict[str, Any]:
     """Pull one OC from GBP and upsert header + detail for that triple.
 
+    After upserting, deletes local detail rows whose ``pod_id`` is absent from
+    the GBP payload so item replacements (new pod, old pod gone) do not leave
+    stale products in the mirror.
+
     GBP quirks (verified live):
     - ``scriptPurchaseOrderHeader`` treats ``pohID`` as exclusive lower bound
       (``poh_id > pohID``), so we pass ``poh_id - 1`` and then filter exact.
@@ -173,16 +177,29 @@ def sync_oc_triple(
         key = _upsert(db, model=PurchaseOrderHeader, filters=pk, datos=datos)
         header_counts[key] = header_counts.get(key, 0) + 1
 
-    detail_counts = {"created": 0, "updated": 0, "error": 0}
+    detail_counts = {"created": 0, "updated": 0, "deleted": 0, "error": 0}
+    seen_pod_ids: set[int] = set()
     for record in details:
         pod_id = record.get("pod_id")
         if pod_id is None:
             detail_counts["error"] += 1
             continue
-        detail_pk = {**pk, "pod_id": pod_id}
+        pod_id_int = int(pod_id)
+        seen_pod_ids.add(pod_id_int)
+        detail_pk = {**pk, "pod_id": pod_id_int}
         datos = _map_record(record, pk=detail_pk, plain=_DETAIL_PLAIN, dts=_DETAIL_DT, bools=_DETAIL_BOOL)
         key = _upsert(db, model=PurchaseOrderDetail, filters=detail_pk, datos=datos)
         detail_counts[key] = detail_counts.get(key, 0) + 1
+
+    # GBP item swaps often retire the old pod_id and insert a new one. Upsert
+    # alone would leave the stale item visible in the mirror forever.
+    orphan_q = db.query(PurchaseOrderDetail).filter_by(**pk)
+    if seen_pod_ids:
+        orphan_q = orphan_q.filter(PurchaseOrderDetail.pod_id.notin_(seen_pod_ids))
+    deleted = orphan_q.delete(synchronize_session=False)
+    detail_counts["deleted"] = int(deleted or 0)
+    if deleted:
+        db.flush()
 
     return {
         "oc_comp_id": int(oc_comp_id),

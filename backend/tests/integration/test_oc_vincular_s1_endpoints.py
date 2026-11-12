@@ -507,3 +507,25 @@ class TestOrdenCompraDetalle:
         assert by_poh[100]["item_nombre"] == "Item A"
         assert by_poh[200]["item_code"] == "SKU-9002"
         assert by_poh[200]["item_nombre"] == "Item B"
+
+    def test_orden_compra_detalle_saldo_cero_si_linea_procesada_en_gbp(
+        self, client, auth_headers, db, pedido, proveedor, con_permiso_oc
+    ):
+        """GBP pod_isprocessed closes saldo even when pod_confirmedqty is still 0."""
+        _mk_oc_header(db, poh_id=503, supp_id=proveedor.supp_id)
+        _mk_oc_detail(db, poh_id=503, pod_id=1, qty=40.0, is_processed=False)
+        _mk_oc_detail(db, poh_id=503, pod_id=2, qty=60.0, is_processed=True)
+
+        pedido.oc_comp_id = 1
+        pedido.oc_bra_id = 1
+        pedido.oc_poh_id = 503
+        db.flush()
+
+        r = client.get(f"{BASE}/pedidos/{pedido.id}/orden-compra/detalle", headers=auth_headers)
+        assert r.status_code == 200
+        by_pod = {line["pod_id"]: line for line in r.json()["lines"]}
+        assert by_pod[1]["pod_isprocessed"] is False
+        assert Decimal(str(by_pod[1]["saldo_pendiente"])) == Decimal("40")
+        assert by_pod[2]["pod_isprocessed"] is True
+        assert Decimal(str(by_pod[2]["saldo_pendiente"])) == Decimal("0")
+        assert Decimal(str(by_pod[2]["pod_confirmedqty"])) == Decimal("0")
