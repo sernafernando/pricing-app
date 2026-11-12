@@ -4,8 +4,9 @@
 Every tick (the handler runs every 10 minutes) takes, per resource, the K entities whose state is oldest
 (`last_checked_at`, never-checked first) among the eligible ones and enqueues them in the sweep lane with the
 resource NAMED (`{description}` / `{performance}` / `{visits}` / `{replenishment}`: a bundle never refreshes them,
-see `bundle.SWEEP_ONLY` and `bundle.FIRST_FETCH_ONLY`, so only a named request does). K = ceil(eligible / 144): 144 ticks a day cover every eligible entity once a day. The sweep
-makes no ML call and spends no budget of its own: the refresh handler fetches what it enqueued, under the shared
+see `bundle.SWEEP_ONLY` and `bundle.FIRST_FETCH_ONLY`, so only a named request does). K = ceil(eligible / 144):
+144 ticks a day cover every eligible entity once a day. The sweep makes no ML call and spends no budget of its own:
+the refresh handler fetches what it enqueued, under the shared
 pacer (replenishment also under its own sub-gate) and the lane order.
 
 Performance and visits are ITEM-keyed. Replenishment is USER-PRODUCT-keyed: its eligible set is the DISTINCT user
@@ -13,8 +14,8 @@ product of the stored fulfillment (Full) items with a sweep status, not gone, an
 `user_product`. An item with no user product is simply not eligible (nothing to fetch, no error).
 
 Eligible: status in `sweep.statuses` (never `closed`), not gone, never-existed excluded, no parked queue entry; visits
-and description only of an item active now or seen leaving `active` within `VISITS_ACTIVE_WINDOW` of the tick; a performance state
-stored as `applicable = false` (a catalog product item answers "not supported") only after
+and description only of an item active now or seen leaving `active` within `VISITS_ACTIVE_WINDOW` of the tick; a
+performance state stored as `applicable = false` (a catalog product item answers "not supported") only after
 `ML_PUB_NOT_APPLICABLE_RECHECK_DAYS`. Only resources named in `bundle_resources` are swept: a name that is not
 listed would be dropped by the refresh handler and the item selected again on every tick.
 
