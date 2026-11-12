@@ -356,3 +356,85 @@ describe('ModalPedidoDetalle — OC breakdown table', () => {
     expect(screen.getByText('Linea OC 200')).toBeInTheDocument();
   });
 });
+
+describe('ModalPedidoDetalle — Actualizar OC banner', () => {
+  const PEDIDO_OC = {
+    ...PEDIDO_BASE,
+    estado: 'pagado',
+    oc_vinculada: true,
+    oc_poh_id: 100,
+    oc_comp_id: 1,
+    oc_bra_id: 1,
+    ocs: [
+      { oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 100 },
+      { oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 200 },
+    ],
+  };
+
+  const syncRow = (pohId, overrides = {}) => ({
+    oc_comp_id: 1,
+    oc_bra_id: 1,
+    oc_poh_id: pohId,
+    header: { created: 0, updated: 1, error: 0 },
+    detail: { created: 0, updated: 3, deleted: 0, error: 0 },
+    detail_lines: 3,
+    deleted_pod_ids: [],
+    deleted_pod_ids_with_local_activity: [],
+    prune_skipped: false,
+    ...overrides,
+  });
+
+  async function clickSync(synced) {
+    api.post.mockResolvedValueOnce({ data: { synced } });
+    await renderDetalleWithOc(PEDIDO_OC);
+    await userEvent.click(await screen.findByRole('button', { name: /Actualizar OC/ }));
+  }
+
+  it('counts only created + deleted lines, not updated rows', async () => {
+    await clickSync([
+      syncRow(100, { detail: { created: 1, updated: 5, deleted: 1, error: 0 } }),
+      syncRow(200),
+    ]);
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'OC actualizada desde el ERP (2 líneas agregadas o quitadas).',
+    );
+  });
+
+  it('warns for the OC whose prune was skipped even when another OC synced fine', async () => {
+    await clickSync([syncRow(100), syncRow(200, { prune_skipped: true, detail_lines: 2 })]);
+    expect(
+      await screen.findByText(/OC #200: el ERP no devolvió líneas válidas; no se quitaron líneas del detalle\./),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/OC #100:/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('warns with the pruned pod_ids that had local arribos/ingresos', async () => {
+    await clickSync([
+      syncRow(100, {
+        detail: { created: 0, updated: 1, deleted: 2, error: 0 },
+        deleted_pod_ids: [10, 11],
+        deleted_pod_ids_with_local_activity: [10, 11],
+      }),
+    ]);
+    expect(
+      await screen.findByText(/OC #100: se quitaron líneas que ya tenían arribos\/ingresos cargados \(pod_id: 10, 11\)/),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('shows success for an older response without the new fields', async () => {
+    const legacy = {
+      oc_comp_id: 1,
+      oc_bra_id: 1,
+      oc_poh_id: 100,
+      header: { created: 0, updated: 1, error: 0 },
+      detail: { created: 0, updated: 3, deleted: 0, error: 0 },
+      detail_lines: 3,
+    };
+    await clickSync([legacy]);
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'OC actualizada desde el ERP (sin altas ni bajas de líneas',
+    );
+  });
+});

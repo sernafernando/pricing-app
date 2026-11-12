@@ -579,6 +579,28 @@
   margin-bottom: var(--spacing-md);
 }
 
+.successBanner {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--cf-accent-green);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  margin-bottom: var(--spacing-md);
+}
+
+.chipProcesadoGbp {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  border: 1px solid var(--cf-border-default);
+}
+
 .formActions {
   display: flex;
   justify-content: flex-end;
