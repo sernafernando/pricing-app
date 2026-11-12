@@ -294,6 +294,44 @@ def test_patch_needs_the_kind_s_gestionar(client, productos, sell_out, admin_aut
     assert client.patch(f"{BASE}/{creado['id']}", json={"nombre": "X"}, headers=sell_out).status_code == 403
 
 
+SELL_IN_MARCA = {"alcance": "marca", "marca": "TP-LINK", "modo_monto": "porcentaje", "valor": "3"}
+
+
+def test_put_replaces_the_whole_definition_under_the_same_id(client, productos, sell_in) -> None:
+    creado = client.post(BASE, json=_body(), headers=sell_in).json()
+
+    resp = client.put(f"{BASE}/{creado['id']}", json=_body(tipo="sell_in", lineas=[SELL_IN_MARCA]), headers=sell_in)
+
+    assert resp.status_code == 200, resp.text
+    editado = resp.json()
+    assert (editado["id"], editado["tipo"], len(editado["lineas"])) == (creado["id"], "sell_in", 1)
+    assert (editado["lineas"][0]["origen"], editado["lineas"][0]["modo_monto"]) == ("sell_in_bono", "porcentaje")
+    assert client.get(f"{BASE}/{creado['id']}", headers=sell_in).json() == editado
+
+
+def test_put_needs_the_manage_permission_of_the_new_kind_too(client, productos, sell_out) -> None:
+    creado = client.post(BASE, json=_body(), headers=sell_out).json()
+
+    resp = client.put(f"{BASE}/{creado['id']}", json=_body(tipo="sell_in", lineas=[SELL_IN_MARCA]), headers=sell_out)
+
+    assert resp.status_code == 403
+    assert client.get(f"{BASE}/{creado['id']}", headers=sell_out).json()["tipo"] == "sell_out"
+
+
+def test_put_status_codes(client, productos, sell_out) -> None:
+    creado = client.post(BASE, json=_body(), headers=sell_out).json()
+    url = f"{BASE}/{creado['id']}"
+
+    assert client.put(f"{BASE}/999", json=_body(), headers=sell_out).status_code == 404
+    assert client.put(url, json=_body(nombre=" "), headers=sell_out).status_code == 422
+    assert client.put(f"{url}/cobranza", json={"fecha_cobro": "2026-11-10"}, headers=sell_out).status_code == 200
+    resp = client.put(url, json=_body(nombre="Otro"), headers=sell_out)
+    assert (resp.status_code, "primero deshacé el cobro" in _message(resp)) == (409, True)
+    client.delete(f"{url}/cobranza", headers=sell_out)
+    client.post(f"{url}/anular", headers=sell_out)
+    assert client.put(url, json=_body(nombre="Otro"), headers=sell_out).status_code == 409
+
+
 def test_the_list_filters_by_what_the_tactical_holds(client, productos, sell_out) -> None:
     """SISO S1 (`contiene`, a kind of line) and S2 (`producto`, code or description of a product a line reaches)."""
     creado = client.post(BASE, json=_body(), headers=sell_out).json()

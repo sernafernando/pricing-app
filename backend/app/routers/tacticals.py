@@ -62,7 +62,7 @@ def _exigir(db: Session, user: Usuario, tipo: str, accion: str) -> None:
 
 
 def _error(exc: service.TacticalError) -> HTTPException:
-    if isinstance(exc, (service.TacticalOcupado, service.TacticalYaAnulado)):
+    if isinstance(exc, (service.TacticalOcupado, service.TacticalYaAnulado, service.TacticalCobrado)):
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
 
@@ -151,6 +151,27 @@ def editar_tactical(
     _buscar(db, user, tactical_id, "gestionar")
     try:
         tactical = service.editar(db, tactical_id, data, user.id)
+    except service.TacticalError as exc:
+        raise _error(exc) from exc
+    if tactical is None:  # gone between the check and the lock
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"El tactical {tactical_id} no existe")
+    return service.serializar(db, [tactical])[0]
+
+
+@router.put("/{tactical_id}", response_model=TacticalOut)
+def reemplazar_tactical(
+    tactical_id: int,
+    data: TacticalIn,
+    user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Replace the whole definition as if it were loaded again (S8): its children are voided and created again, so
+    what it applied is recomputed. Needs the manage permission of its current kind and of the new one. 409 when it is
+    voided, collected (undo the collection first) or a campaign is being recomputed."""
+    _buscar(db, user, tactical_id, "gestionar")
+    _exigir(db, user, data.tipo, "gestionar")
+    try:
+        tactical = service.reemplazar(db, tactical_id, data, user.id)
     except service.TacticalError as exc:
         raise _error(exc) from exc
     if tactical is None:  # gone between the check and the lock
