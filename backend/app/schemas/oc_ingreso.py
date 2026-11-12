@@ -106,6 +106,8 @@ class SyncOcTripleResult(BaseModel):
     # had local arribos/ingresos (orphaned by value).
     deleted_pod_ids: List[int] = []
     deleted_pod_ids_with_local_activity: List[int] = []
+    # True when GBP gave no detail line with a pod_id, so stale lines were kept.
+    prune_skipped: bool = False
 
 
 class SyncOcResponse(BaseModel):

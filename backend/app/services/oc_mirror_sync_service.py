@@ -259,14 +259,17 @@ def sync_oc_triple(
 
     deleted_pod_ids: list[int] = []
     with_activity: list[int] = []
-    if not seen_pod_ids:
-        # Header found but no usable detail lines: GBP glitch or empty payload.
-        # Pruning here would wipe the whole OC detail, so keep the mirror as is.
+    prune_skipped = not seen_pod_ids
+    if prune_skipped:
+        # Header found but no usable detail lines (empty payload, or lines
+        # without pod_id). Pruning here would wipe the whole OC detail, so
+        # keep the mirror as is and flag it for the UI.
         logger.warning(
-            "oc_mirror_sync: GBP returned 0 detail lines for OC (%s,%s,%s); skipping prune",
+            "oc_mirror_sync: GBP returned 0 detail lines with pod_id for OC (%s,%s,%s) (raw lines=%s); skipping prune",
             oc_comp_id,
             oc_bra_id,
             oc_poh_id,
+            len(details),
         )
     else:
         deleted_pod_ids, with_activity = _prune_stale_pods(
@@ -282,6 +285,7 @@ def sync_oc_triple(
         "detail_lines": len(details),
         "deleted_pod_ids": deleted_pod_ids,
         "deleted_pod_ids_with_local_activity": with_activity,
+        "prune_skipped": prune_skipped,
     }
 
 

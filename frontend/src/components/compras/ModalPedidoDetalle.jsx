@@ -331,13 +331,23 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
         const d = row?.detail || {};
         return acc + Number(d.created || 0) + Number(d.deleted || 0);
       }, 0);
-      const orphanedPods = synced.flatMap((row) => row?.deleted_pod_ids_with_local_activity || []);
-      if (orphanedPods.length > 0) {
-        setErrorOC(
-          `OC actualizada, pero se quitaron líneas que ya tenían arribos/ingresos cargados (pod_id: ${orphanedPods.join(', ')}). Revisá el progreso de esas líneas en Depósito.`
-        );
-      } else if (synced.length > 0 && synced.every((row) => Number(row?.detail_lines || 0) === 0)) {
-        setErrorOC('El ERP no devolvió líneas de detalle para la OC; no se modificó el detalle. Reintentá más tarde.');
+      // Per-OC warnings: a skipped prune (GBP gave no line with pod_id) or
+      // pruned lines that already had local arribos/ingresos.
+      const warnings = [];
+      synced.forEach((row) => {
+        const oc = `OC #${row?.oc_poh_id}`;
+        if (row?.prune_skipped) {
+          warnings.push(`${oc}: el ERP no devolvió líneas válidas; no se quitaron líneas del detalle.`);
+        }
+        const orphanedPods = row?.deleted_pod_ids_with_local_activity || [];
+        if (orphanedPods.length > 0) {
+          warnings.push(
+            `${oc}: se quitaron líneas que ya tenían arribos/ingresos cargados (pod_id: ${orphanedPods.join(', ')}). Revisá el progreso de esas líneas en Depósito.`
+          );
+        }
+      });
+      if (warnings.length > 0) {
+        setErrorOC(warnings.join(' '));
       } else {
         setSuccessOC(
           lineChanges > 0

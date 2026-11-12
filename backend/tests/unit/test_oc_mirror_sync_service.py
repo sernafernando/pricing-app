@@ -369,8 +369,9 @@ def test_sync_keeps_detail_when_gbp_returns_no_detail_lines(db, empresa, proveed
 
     assert synced[0]["detail"]["deleted"] == 0
     assert synced[0]["deleted_pod_ids"] == []
+    assert synced[0]["prune_skipped"] is True
     assert db.query(PurchaseOrderDetail).filter_by(comp_id=1, bra_id=45, poh_id=500).count() == 2
-    assert any("0 detail lines" in r.getMessage() for r in caplog.records)
+    assert any("skipping prune" in r.getMessage() for r in caplog.records)
 
 
 def test_sync_prune_reports_deleted_pods_and_warns_on_local_activity(
@@ -414,6 +415,7 @@ def test_sync_prune_reports_deleted_pods_and_warns_on_local_activity(
     assert synced[0]["detail"]["deleted"] == 3
     assert synced[0]["deleted_pod_ids"] == [10, 11, 12]
     assert synced[0]["deleted_pod_ids_with_local_activity"] == [10, 11]
+    assert synced[0]["prune_skipped"] is False
     # Endpoint response model must accept the enriched result.
     assert SyncOcTripleResult.model_validate(synced[0]).deleted_pod_ids == [10, 11, 12]
     warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
@@ -432,3 +434,33 @@ def test_sync_missing_processed_flag_keeps_stored_value(db, empresa, proveedor, 
 
     detail = db.query(PurchaseOrderDetail).filter_by(comp_id=1, bra_id=45, poh_id=500, pod_id=7).one()
     assert detail.pod_isprocessed is True
+
+
+def test_sync_skips_prune_when_gbp_lines_lack_pod_id(db, empresa, proveedor, active_user) -> None:
+    """Lines without pod_id count as detail_lines but cannot drive a prune: flag it."""
+    pedido = _pedido(db, empresa, proveedor, active_user)
+    _seed_detail(db, pod_id=7)
+    line = {"comp_id": 1, "bra_id": 45, "poh_id": 500, "item_id": 100, "pod_qty": 5}
+
+    with patch.object(oc_mirror_sync_service, "_fetch_gbp", side_effect=_fetch_with_details([line])):
+        synced = oc_mirror_sync_service.sync_ocs_for_pedido(db, pedido_id=pedido.id)
+    db.flush()
+
+    assert synced[0]["detail_lines"] == 1
+    assert synced[0]["detail"]["error"] == 1
+    assert synced[0]["prune_skipped"] is True
+    assert SyncOcTripleResult.model_validate(synced[0]).prune_skipped is True
+    assert db.query(PurchaseOrderDetail).filter_by(comp_id=1, bra_id=45, poh_id=500, pod_id=7).count() == 1
+
+
+def test_sync_result_without_prune_skipped_defaults_false() -> None:
+    """Older result dicts (no prune_skipped) still validate, defaulting to False."""
+    row = {
+        "oc_comp_id": 1,
+        "oc_bra_id": 45,
+        "oc_poh_id": 500,
+        "header": {"created": 0, "updated": 1, "error": 0},
+        "detail": {"created": 0, "updated": 1, "deleted": 0, "error": 0},
+        "detail_lines": 1,
+    }
+    assert SyncOcTripleResult.model_validate(row).prune_skipped is False
