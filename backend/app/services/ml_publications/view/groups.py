@@ -56,6 +56,7 @@ from typing import Any, Optional
 
 from sqlalchemy import String, and_, case, cast, func, literal, or_, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.services.ml_daily_metrics.groups import (
@@ -275,8 +276,21 @@ def _scoped(f: PublicationFilter, path: list[str], tree: Tree, *columns: Any) ->
     for dimension in tree.dimensions.values():
         for target, onclause in dimension.joins:
             query = query.join(target, onclause, isouter=True)
-    keys = [tree.dimensions[name].key for name in tree.group_levels] + [product_key()]
-    return query.where(*(keys[depth] == _raw_key(tree.levels[depth], key) for depth, key in enumerate(path)))
+    return query.where(*(_key_is(tree, depth, key) for depth, key in enumerate(path)))
+
+
+def _key_is(tree: Tree, depth: int, key: str) -> ColumnElement:
+    """The ancestor at `depth` is `key`: on the dimension's own columns when it says how (`Dimension.matches`), so
+    the planner can estimate the branch's rows; else on its key. A "Sin ..." key (`NO_GROUP`, alone or in a
+    subcategory pair) stays on the key: it also matches the rows with no product (the outer join's NULLs), which the
+    columns' statistics do not see, and `normalized = ''` there was 10x slower than the key."""
+    if depth < len(tree.group_levels):
+        dimension = tree.dimensions[tree.group_levels[depth]]
+        raw = _raw_key(tree.levels[depth], key)
+        if dimension.matches is not None and NO_GROUP not in raw.split(SUBCATEGORIA_KEY_SEPARATOR):
+            return dimension.matches(raw)
+        return dimension.key == raw
+    return product_key() == key
 
 
 def _group_level(

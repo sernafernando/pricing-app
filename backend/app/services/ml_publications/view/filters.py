@@ -141,6 +141,9 @@ class PublicationFilter:
     # (the lowest id of the pair, `pm_pairs`), or `NO_GROUP` for the products with no PM. Unlike `pms`, a pair listed
     # for several PMs belongs to exactly ONE of them, so the node and its publications agree.
     pm_group: Optional[str] = None
+    # The pairs `pm_group` selects (the node's own, or every PM's pair for `NO_GROUP`), as `pm_pairs` gives them,
+    # resolved once by `listing.resolve_pm_pairs`; `None` while unresolved (the query then reads `pm_pairs` itself).
+    pm_group_pairs: Optional[tuple[tuple[str, str], ...]] = None
     family_id: Optional[int] = None
     # A node of the Agrupado tree (P7a) or a Producto row: one linked product -- the LINK's product id, even when the
     # product is gone from the catalog -- or the publications with no linked product at all (`has_product`: the
@@ -710,7 +713,7 @@ def catalog_conditions(f: PublicationFilter, p: Any) -> list[ColumnElement]:
     if f.pms:
         conditions.append(_pm(f, p))
     if f.pm_group is not None:
-        conditions.append(pm_group_in(f.pm_group, p))
+        conditions.append(pm_group_in(f.pm_group, p, f.pm_group_pairs))
     return conditions
 
 
@@ -1028,9 +1031,19 @@ def _pm(f: PublicationFilter, p: Any = T.p) -> ColumnElement:
     return tuple_(normalized_text(p.marca), normalized_text(p.categoria)).in_(list(f.pm_pairs))
 
 
-def pm_group_in(group: str, p: Any = T.p) -> ColumnElement:
+def pm_group_in(group: str, p: Any = T.p, resolved: Optional[tuple[tuple[str, str], ...]] = None) -> ColumnElement:
     """`pm_grupo`: the rule of the tree's PM level (`ml_daily_metrics.groups.pm_pairs`, the very same subquery), so
-    a PM node's filter selects exactly the publications the node counts."""
+    a PM node's filter selects exactly the publications the node counts.
+
+    With its pairs `resolved` (`listing.resolve_pm_pairs`), a list of constants: the correlated EXISTS over the
+    `pm_pairs` aggregate is estimated at one row, and the planner then re-ran the whole facets join once per pair
+    (10 s for a 12-pair PM on the 25k seed)."""
+    if resolved is not None:
+        owned = tuple_(func.upper(p.marca), func.upper(p.categoria)).in_(list(resolved)) if resolved else false()
+        if group == NO_GROUP:
+            # NOT EXISTS of a NULL brand or category is true: so is NOT of an unknown IN
+            return not_(func.coalesce(owned, false()))
+        return owned
     pairs = pm_pairs("pm_group_pairs")
     owns = select(1).where(
         pairs.c.marca == func.upper(p.marca),
@@ -1352,7 +1365,7 @@ def product_conditions(f: PublicationFilter) -> list[ColumnElement]:
     if f.pms:
         where.append(_pm(f))
     if f.pm_group is not None:
-        where.append(pm_group_in(f.pm_group))
+        where.append(pm_group_in(f.pm_group, T.p, f.pm_group_pairs))
     if f.stock:
         where.append(or_(*(PRODUCT_STOCK[value]() for value in f.stock)))
     if f.colors or f.no_color:

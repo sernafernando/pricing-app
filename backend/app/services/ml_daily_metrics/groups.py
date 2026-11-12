@@ -40,9 +40,9 @@ Level semantics (one KEY per pair, `NO_GROUP` for "Sin ..."):
 
 from __future__ import annotations
 
-from typing import Any, NamedTuple, Optional
+from typing import Any, Callable, NamedTuple, Optional
 
-from sqlalchemy import String, case, cast, func, literal, select
+from sqlalchemy import String, and_, case, cast, false, func, literal, select
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -152,17 +152,41 @@ class Dimension(NamedTuple):
     label: ColumnElement
     # `(target, onclause)` pairs to LEFT JOIN onto the pair source.
     joins: list
+    # `matches(key)`: `key == <key>` written on the dimension's own columns, so Postgres can estimate how many rows
+    # it keeps (it has no statistics for the CASE of `key`; a "1 row" guess there sized a tree branch's plan for one
+    # row and ran it for thousands). `None`: compare `key` itself.
+    matches: Optional[Callable[[str], ColumnElement]] = None
+
+
+def _id_matches(column: Any) -> Callable[[str], ColumnElement]:
+    """`case((column IS NULL, NO_GROUP), else_=cast(column, String)) == key`, on `column`."""
+
+    def matches(key: str) -> ColumnElement:
+        if key == NO_GROUP:
+            return column.is_(None)
+        if not (key.isascii() and key.isdigit()) or str(int(key)) != key:
+            return false()  # never the text of an id
+        return column == int(key)
+
+    return matches
 
 
 def _text_dimension(column: ColumnElement) -> Dimension:
     normalized = func.upper(func.trim(func.coalesce(column, "")))
-    return Dimension(case((normalized == "", literal(NO_GROUP)), else_=normalized), column, [])
+    return Dimension(
+        case((normalized == "", literal(NO_GROUP)), else_=normalized),
+        column,
+        [],
+        lambda key: normalized == ("" if key == NO_GROUP else key),
+    )
 
 
 def _subcategoria_dimension(subcategoria_id: Any) -> Dimension:
     names = aliased(SubcategoriaGrupo)
     key = case((subcategoria_id.is_(None), literal(NO_GROUP)), else_=cast(subcategoria_id, String))
-    return Dimension(key, names.nombre_subcategoria, [(names, names.subcat_id == subcategoria_id)])
+    return Dimension(
+        key, names.nombre_subcategoria, [(names, names.subcat_id == subcategoria_id)], _id_matches(subcategoria_id)
+    )
 
 
 def _subcategoria_categoria_dimension(subcategoria_id: Any, categoria: Any) -> Dimension:
@@ -174,10 +198,18 @@ def _subcategoria_categoria_dimension(subcategoria_id: Any, categoria: Any) -> D
         else_=func.coalesce(names.nombre_subcategoria, literal("Subcategoría #") + cast(subcategoria_id, String)),
     )
     category_label = case((category.key == NO_GROUP, literal(NO_LABELS["categoria"])), else_=categoria)
+    sub_matches = _id_matches(subcategoria_id)
+
+    def matches(key: str) -> ColumnElement:
+        # the subcategory part is an id or NO_GROUP, never the separator: the first one splits the two
+        sub, separator, category_key = key.partition(SUBCATEGORIA_KEY_SEPARATOR)
+        return and_(sub_matches(sub), category.matches(category_key)) if separator else false()
+
     return Dimension(
         sub_key + literal(SUBCATEGORIA_KEY_SEPARATOR) + category.key,
         sub_label + literal(SUBCATEGORIA_LABEL_SEPARATOR) + category_label,
         [(names, names.subcat_id == subcategoria_id)],
+        matches,
     )
 
 
@@ -233,6 +265,8 @@ def _pm_dimension(marca: Any, categoria: Any) -> Dimension:
             (pairs, (pairs.c.marca == func.upper(marca)) & (pairs.c.categoria == func.upper(categoria))),
             (pms, pms.id == pairs.c.usuario_id),
         ],
+        # no `matches`: `usuario_id` of the LEFT JOINed `pm_pairs` aggregate estimates WORSE than the CASE key
+        # (a PM branch with a presence filter went from 0.7 s to 29 s on the 25k seed)
     )
 
 
