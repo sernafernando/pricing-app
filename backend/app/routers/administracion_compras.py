@@ -301,18 +301,20 @@ def _exists_producto_en_oc(q_producto: str) -> Any:
 
 
 _BIGINT_MAX = 2**63 - 1
+_BIGINT_MAX_DIGITS = len(str(_BIGINT_MAX))
 
 
 def _parse_q_oc(q_oc: str | None) -> int | None:
     """Validate ``q_oc`` as an ASCII-digit BIGINT (``oc_poh_id``); 422 otherwise.
 
     ``str.isdigit()`` alone accepts '²' or Arabic-Indic digits and lets values
-    past BIGINT reach Postgres, which surfaced as a 500.
+    past BIGINT reach Postgres, which surfaced as a 500. The length check runs
+    before ``int()``, which raises ValueError past 4300 digits.
     """
     if q_oc is None or not str(q_oc).strip():
         return None
     raw_oc = str(q_oc).strip()
-    if not (raw_oc.isascii() and raw_oc.isdigit()) or int(raw_oc) > _BIGINT_MAX:
+    if not (raw_oc.isascii() and raw_oc.isdigit()) or len(raw_oc) > _BIGINT_MAX_DIGITS or int(raw_oc) > _BIGINT_MAX:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="q_oc debe ser el número de OC (solo dígitos, ej. poh_id).",

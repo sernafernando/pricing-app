@@ -183,7 +183,7 @@ def test_q_oc_rejects_non_digits(client, auth_headers, con_ver_oc):
     assert r.status_code == 422
 
 
-@pytest.mark.parametrize("q_oc", ["\u00b2", "\u0663", "9223372036854775808", "9" * 40])
+@pytest.mark.parametrize("q_oc", ["\u00b2", "\u0663", "9223372036854775808", "9" * 40, "9" * 5000])
 def test_q_oc_rejects_unicode_digits_and_out_of_range(client, auth_headers, con_ver_oc, q_oc):
     """str.isdigit() accepts '²' / Arabic-Indic digits and int() overflows BIGINT: both must be 422, not 500."""
     r = client.get(f"{BASE}/pedidos", headers=auth_headers, params={"q_oc": q_oc})
