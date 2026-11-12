@@ -1939,7 +1939,8 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
       expect(figures.textContent).toContain('12.520');
       expect(figures.textContent).not.toContain('12534');
       const stock = screen.getByRole('region', { name: 'Stock', exact: true }).element();
-      expect([...stock.querySelectorAll('dt')].map((el) => el.textContent)).toEqual(['Stock ERP', 'Full', 'Actualizado']);
+      expect([...stock.querySelectorAll('dt')].map((el) => el.textContent)).toEqual(['ERP', 'Full']);
+      expect(stock.textContent).toContain('Actualizado');
       expect(stock.textContent).toContain('12.500');
       expect(panelOf().textContent).not.toContain('Propio');
       await screen.getByRole('tab', { name: 'Full' }).click();
@@ -1947,6 +1948,47 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
       await frame();
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/panel-full-stock-1440-${theme}.png`, element: panelOf() });
       expect(panelOf().textContent).not.toContain('Propio');
+      screen.unmount();
+    });
+  }
+
+  // Resumen as grouped blocks (S5, design approved 2026-11-11): attention box, Rentabilidad waterfall with its Markup
+  // band, Stock and Producto vinculado cards, the Ficha in three groups, then "Más datos de Mercado Libre" collapsed;
+  // opened, its tiles, groups, chips, attributes and pictures. Captured closed and open, for the PR.
+  const RESUMEN_SELL_IN = {
+    sell_in: { compra_item_id: 7, descuento_unit: 1500, costo: 62500, unidades_restantes: 12 },
+    sell_out: { monto_unit: 2000, campana_ids: [3] },
+    markups_sell_in: { publicacion: 29.6 },
+    markups_sell_in_out: { publicacion: 32.8 },
+  };
+  for (const theme of THEMES) {
+    it(`1440x2400 ${theme}: Resumen reads as grouped blocks and the ML data opens inside the panel, nothing pokes out (S5)`, async () => {
+      const screen = await renderWithPanel({
+        width: 1440,
+        height: 2400,
+        theme,
+        margin: true,
+        linked: true,
+        rowExtra: STOCK_ROW,
+        detailExtra: { sub_status: ['out_of_stock'], sell_in_out: RESUMEN_SELL_IN },
+      });
+      await expect.element(screen.getByRole('region', { name: 'Rentabilidad' })).toBeVisible();
+      await frame();
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/panel-resumen-s5-${theme}.png`, element: panelOf() });
+      const toggle = screen.getByRole('button', { name: /Más datos de Mercado Libre/ });
+      await expect.element(toggle).toHaveAttribute('aria-expanded', 'false');
+      await toggle.click();
+      await expect.element(screen.getByRole('list', { name: 'Opciones' })).toBeVisible();
+      await frame();
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/panel-resumen-s5-ml-${theme}.png`, element: panelOf() });
+      const panel = rect(panelOf());
+      const blocks = [...panelOf().querySelectorAll('[role="tabpanel"] section')];
+      expect(blocks.length).toBeGreaterThan(5);
+      expect(blocks.filter((el) => rect(el).right > panel.right + 0.5 || rect(el).left < panel.left - 0.5).map((el) => el.textContent.slice(0, 40))).toEqual([]);
+      // The figures of the waterfall, the Markup band and the stock never wrap.
+      const figures = [...panelOf().querySelectorAll('[role="tabpanel"] dd')].filter((el) => /^[\d.,$ %]+$/.test(el.textContent.trim()));
+      expect(figures.length).toBeGreaterThan(4);
+      expect(wrapped(figures)).toEqual([]);
       screen.unmount();
     });
   }

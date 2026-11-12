@@ -320,12 +320,12 @@ describe('tabs', () => {
 
   it('leaves the promotion out of Resumen for whoever has the Promos tab, and keeps it for whoever has not', async () => {
     renderPanel({ tab: 'resumen' });
-    const data = await screen.findByRole('region', { name: 'Datos de la publicación' });
+    const data = await screen.findByRole('region', { name: 'Ficha de la publicación' });
     expect(within(data).queryByText('Promoción')).not.toBeInTheDocument();
     cleanup();
     canSeePromos = false;
     renderPanel({ tab: 'resumen' });
-    expect(within(await screen.findByRole('region', { name: 'Datos de la publicación' })).getByText('Promoción')).toBeInTheDocument();
+    expect(within(await screen.findByRole('region', { name: 'Ficha de la publicación' })).getByText('Promoción')).toBeInTheDocument();
   });
 
   it('a tab in the URL keeps winning over the default (S1)', async () => {
