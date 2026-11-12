@@ -95,43 +95,9 @@
   margin-left: auto;
 }
 
-.offsetCost {
-  color: var(--tone-success-fg);
-}
-
 .sellInCost {
   color: var(--tone-success-fg);
   cursor: help;
-}
-
-.offsetList {
-  display: flex;
-  white-space: normal;
-  flex-direction: column;
-  gap: 2px;
-  margin: var(--spacing-xs) 0 0;
-  padding: 0;
-  list-style: none;
-  font-size: var(--font-xs);
-  font-weight: var(--font-normal);
-}
-
-.offsetItem {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--spacing-sm);
-}
-
-.offsetName {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--cf-text-secondary);
-}
-
-.offsetAmount {
-  flex-shrink: 0;
-  color: var(--tone-success-fg);
 }
 
 .muted {
