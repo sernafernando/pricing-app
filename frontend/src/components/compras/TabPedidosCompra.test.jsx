@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useSearchParams } from 'react-router-dom';
 import api from '../../services/api';
@@ -376,4 +376,121 @@ describe('TabPedidosCompra — Fecha pago col width', () => {
       expect(colWidthByHeader('Fecha pago')).toBe('110px');
     }
   );
+});
+
+describe('TabPedidosCompra — OC, producto/EAN and creado por filters', () => {
+  const LISTADO = '/administracion/compras/pedidos';
+  const CREADORES = [
+    { id: 11, nombre: 'Ana Compras' },
+    { id: 12, nombre: 'Beto Compras' },
+  ];
+
+  function renderWithCreadores() {
+    mockPedidosApis(PEDIDO_CON_NUMERO);
+    const base = api.get.getMockImplementation();
+    api.get.mockImplementation((url, config) => {
+      if (url === '/administracion/compras/usuarios-filtro-creado-por') {
+        return Promise.resolve({ data: CREADORES });
+      }
+      return base(url, config);
+    });
+    return render(
+      <MemoryRouter>
+        <TabPedidosCompra />
+      </MemoryRouter>
+    );
+  }
+
+  const lastListParams = () => {
+    const calls = api.get.mock.calls.filter(([url]) => url === LISTADO);
+    return calls[calls.length - 1][1].params;
+  };
+
+  it('renders the three filters with the creator options from the endpoint', async () => {
+    renderWithCreadores();
+
+    expect(await screen.findByText('P-01-2026-00001')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Nº OC…')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Producto / EAN en OC…')).toBeInTheDocument();
+    const select = screen.getByLabelText('Filtrar por usuario que creó el pedido');
+    expect(await screen.findByRole('option', { name: 'Ana Compras' })).toBeInTheDocument();
+    expect(select).toHaveValue('');
+    expect(lastListParams()).not.toHaveProperty('q_oc');
+    expect(lastListParams()).not.toHaveProperty('q_producto');
+    expect(lastListParams()).not.toHaveProperty('creado_por_id');
+  });
+
+  it('sends q_numero to the backend instead of filtering the page client-side', async () => {
+    const user = userEvent.setup();
+    renderWithCreadores();
+    await screen.findByText('P-01-2026-00001');
+
+    await user.type(screen.getByPlaceholderText('Nº pedido…'), 'zzz');
+
+    await waitFor(() => expect(lastListParams()).toMatchObject({ q_numero: 'zzz' }));
+    // The backend answered with this pedido, so it stays listed.
+    expect(screen.getByText('P-01-2026-00001')).toBeInTheDocument();
+  });
+
+  it('sends q_oc with digits only', async () => {
+    const user = userEvent.setup();
+    renderWithCreadores();
+    await screen.findByText('P-01-2026-00001');
+
+    await user.type(screen.getByPlaceholderText('Nº OC…'), '45/503');
+
+    expect(screen.getByPlaceholderText('Nº OC…')).toHaveValue('45503');
+    await waitFor(() => expect(lastListParams()).toMatchObject({ q_oc: '45503' }));
+  });
+
+  it('sends q_producto only from 2 characters on', async () => {
+    const user = userEvent.setup();
+    renderWithCreadores();
+    await screen.findByText('P-01-2026-00001');
+    const input = screen.getByPlaceholderText('Producto / EAN en OC…');
+
+    await user.type(input, 'T');
+    // Let the 300 ms debounce settle on the 1-character value.
+    await act(() => new Promise((r) => setTimeout(r, 400)));
+    expect(lastListParams()).not.toHaveProperty('q_producto');
+
+    await user.type(input, 'A');
+    await waitFor(() => expect(lastListParams()).toMatchObject({ q_producto: 'TA' }));
+  });
+
+  it('sends creado_por_id as a number for the chosen creator', async () => {
+    const user = userEvent.setup();
+    renderWithCreadores();
+    await screen.findByRole('option', { name: 'Beto Compras' });
+
+    await user.selectOptions(screen.getByLabelText('Filtrar por usuario que creó el pedido'), '12');
+
+    await waitFor(() => expect(lastListParams()).toMatchObject({ creado_por_id: 12 }));
+  });
+
+  it('clearing the filters drops their params from the next request', async () => {
+    const user = userEvent.setup();
+    renderWithCreadores();
+    await screen.findByRole('option', { name: 'Ana Compras' });
+    const select = screen.getByLabelText('Filtrar por usuario que creó el pedido');
+
+    await user.type(screen.getByPlaceholderText('Nº OC…'), '503');
+    await user.type(screen.getByPlaceholderText('Producto / EAN en OC…'), 'TAPO');
+    await user.selectOptions(select, '11');
+    await waitFor(() =>
+      expect(lastListParams()).toMatchObject({ q_oc: '503', q_producto: 'TAPO', creado_por_id: 11 })
+    );
+
+    for (const btn of screen.getAllByRole('button', { name: 'Limpiar búsqueda' })) {
+      await user.click(btn);
+    }
+    await user.selectOptions(select, '');
+
+    await waitFor(() => {
+      const params = lastListParams();
+      expect(params).not.toHaveProperty('q_oc');
+      expect(params).not.toHaveProperty('q_producto');
+      expect(params).not.toHaveProperty('creado_por_id');
+    });
+  });
 });

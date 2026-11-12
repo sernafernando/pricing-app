@@ -1005,9 +1005,9 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
 
   useEffect(() => {
     if (!showFaltantes || readFocusQuery() !== 'observaciones') return undefined;
-    document.getElementById('pedido-observaciones')?.focus();
+    document.getElementById(`faltantes-sinoc-${pedido.id}`)?.focus();
     return undefined;
-  }, [showFaltantes]);
+  }, [showFaltantes, pedido.id]);
 
   useEffect(() => {
     if (!showFaltantes) return undefined;
@@ -1091,13 +1091,13 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
       {showFaltantes && (
         <div className={styles.observacionesInline}>
           <label
-            htmlFor="pedido-observaciones"
+            htmlFor={`faltantes-sinoc-${pedido.id}`}
             className={styles.observacionesLabel}
           >
             Texto de faltantes (requerido)
           </label>
           <textarea
-            id="pedido-observaciones"
+            id={`faltantes-sinoc-${pedido.id}`}
             className={`${styles.observacionesTextarea} ${faltantesError ? styles.textareaError : ''}`}
             placeholder="Describa los ítems faltantes…"
             value={faltantesTexto}
@@ -1147,6 +1147,7 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome, defaultOpen = f
   const [retiroOpen, setRetiroOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
   const [undoing, setUndoing] = useState(false);
+  const [undoError, setUndoError] = useState(null);
   // 'idle' | 'copied' | 'error'. A boolean could not tell "never clicked" apart
   // from "clicked and failed", which is exactly the state the operator needs.
   // This state is VISUAL only (icon swap + .copyButtonError); the announcement
@@ -1201,11 +1202,15 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome, defaultOpen = f
   // "what this button does" affordances, not a status channel.
   const handleDeshacer = async () => {
     setUndoing(true);
+    setUndoError(null);
     try {
       await deshacerRecibido(pedido.id);
       onRefreshList();
-    } catch {
-      /* error surface lives in the hook; list stays as-is */
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setUndoError(
+        typeof detail === 'string' ? detail : err?.message || 'No se pudo deshacer el recibido.'
+      );
     } finally {
       setUndoing(false);
     }
@@ -1283,6 +1288,11 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome, defaultOpen = f
               {undoing ? <Loader2 size={12} className={styles.spin} /> : <Undo2 size={12} aria-hidden="true" />}
               Deshacer recibido
             </button>
+          )}
+          {undoError && (
+            <span className={styles.inlineError} role="alert">
+              <AlertCircle size={12} aria-hidden="true" /> {undoError}
+            </span>
           )}
           <button
             type="button"
@@ -1386,10 +1396,16 @@ export default function TabRecepcionDeposito() {
   const [incluirCC, setIncluirCC] = useState(true);
   const [qProveedor, setQProveedor] = useState('');
   const [qNumero, setQNumero] = useState('');
+  const [qOc, setQOc] = useState('');
+  const [qProducto, setQProducto] = useState('');
   const [qFactura, setQFactura] = useState('');
   const [qEmpresa, setQEmpresa] = useState('');
+  const [creadoPorId, setCreadoPorId] = useState('');
+  const [creadores, setCreadores] = useState([]);
   const dqProveedor = useDebounce(qProveedor, 300);
   const dqNumero = useDebounce(qNumero, 300);
+  const dqOc = useDebounce(qOc, 300);
+  const dqProducto = useDebounce(qProducto, 300);
   const dqFactura = useDebounce(qFactura, 300);
   const dqEmpresa = useDebounce(qEmpresa, 300);
   const [pedidos, setPedidos] = useState([]);
@@ -1438,6 +1454,9 @@ export default function TabRecepcionDeposito() {
       params.tipo = 'mercaderia';
       if (dqProveedor.trim()) params.q_proveedor = dqProveedor.trim();
       if (dqNumero.trim()) params.q_numero = dqNumero.trim();
+      if (dqOc.trim()) params.q_oc = dqOc.trim();
+      if (creadoPorId) params.creado_por_id = Number(creadoPorId);
+      if (dqProducto.trim().length >= 2) params.q_producto = dqProducto.trim();
       if (dqFactura.trim()) params.q_factura = dqFactura.trim();
       if (dqEmpresa.trim()) params.q_empresa = dqEmpresa.trim();
 
@@ -1454,21 +1473,46 @@ export default function TabRecepcionDeposito() {
     } finally {
       setLoading(false);
     }
-  }, [filtro, incluirCC, dqProveedor, dqNumero, dqFactura, dqEmpresa, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [
+    filtro,
+    incluirCC,
+    dqProveedor,
+    dqNumero,
+    dqOc,
+    dqProducto,
+    creadoPorId,
+    dqFactura,
+    dqEmpresa,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await api.get('/administracion/compras/usuarios-filtro-creado-por');
+        if (!cancelled) setCreadores(Array.isArray(data) ? data : []);
+      } catch {
+        if (!cancelled) setCreadores([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     fetchPedidos();
-  }, [fetchPedidos]);
+  }, [fetchPedidos, refreshKey]);
 
   useEffect(() => {
-    if (!focusObservaciones || loading) return undefined;
-    const node = document.getElementById('pedido-observaciones');
+    if (!focusObservaciones || loading || !focusPedidoId) return undefined;
+    const node = document.getElementById(`faltantes-sinoc-${focusPedidoId}`);
     if (node) {
       node.focus();
       return undefined;
     }
     return undefined;
-  }, [focusObservaciones, loading, pedidos]);
+  }, [focusObservaciones, loading, pedidos, focusPedidoId]);
 
   const handleRefreshList = useCallback(() => {
     setRefreshKey((k) => k + 1);
@@ -1539,6 +1583,43 @@ export default function TabRecepcionDeposito() {
             onChange={(e) => setQNumero(e.target.value)}
             placeholder="P-…"
           />
+        </label>
+        <label className={styles.filterField}>
+          <span className={styles.filterLabel}>OC</span>
+          <input
+            className={styles.filterInput}
+            value={qOc}
+            onChange={(e) => setQOc(e.target.value.replace(/\D/g, ''))}
+            placeholder="Nº OC…"
+            inputMode="numeric"
+            aria-label="Filtrar por número de OC"
+          />
+        </label>
+        <label className={styles.filterField}>
+          <span className={styles.filterLabel}>Producto / EAN</span>
+          <input
+            className={styles.filterInput}
+            value={qProducto}
+            onChange={(e) => setQProducto(e.target.value)}
+            placeholder="En líneas OC…"
+            aria-label="Filtrar por producto o EAN en OC"
+          />
+        </label>
+        <label className={styles.filterField}>
+          <span className={styles.filterLabel}>Creado por</span>
+          <select
+            className={styles.filterInput}
+            value={creadoPorId}
+            onChange={(e) => setCreadoPorId(e.target.value)}
+            aria-label="Filtrar por usuario que creó el pedido"
+          >
+            <option value="">Todos</option>
+            {creadores.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.nombre}
+              </option>
+            ))}
+          </select>
         </label>
         <label className={styles.filterField}>
           <span className={styles.filterLabel}>Factura</span>

@@ -58,8 +58,11 @@ from app.models.imputacion import Imputacion
 from app.models.orden_pago import OrdenPago
 from app.models.empresa import Empresa
 from app.models.pedido_compra import PedidoCompra
+from app.models.pedido_compra_oc import PedidoCompraOc
 from app.models.pedido_factura_documento import PedidoFacturaDocumento
 from app.models.proveedor import Proveedor
+from app.models.purchase_order_detail import PurchaseOrderDetail
+from app.models.tb_item import TBItem
 from app.models.tb_sale_document import SaleDocument
 from app.models.usuario import Usuario
 from app.schemas.cc_proveedor import (  # noqa: I001
@@ -261,6 +264,77 @@ def _ilike_contains(column: Any, raw: str) -> Any:
     return column.ilike(f"%{escaped}%", escape="\\")
 
 
+def _producto_match_clause(q_producto: str) -> Any:
+    """item_code (EAN/código ERP) or item_desc contains q (escaped ILIKE)."""
+    return or_(
+        _ilike_contains(TBItem.item_code, q_producto),
+        _ilike_contains(TBItem.item_desc, q_producto),
+    )
+
+
+def _exists_producto_en_oc(q_producto: str) -> Any:
+    """Pedido linked to an OC whose mirror detail has a matching item.
+
+    Covers junction SoT (`pedido_compra_ocs`) and header first-link cache.
+    Joins detail→item on (comp_id, item_id).
+    """
+    item_match = _producto_match_clause(q_producto)
+    via_rel = exists().where(
+        PedidoCompraOc.pedido_id == PedidoCompra.id,
+        PurchaseOrderDetail.comp_id == PedidoCompraOc.oc_comp_id,
+        PurchaseOrderDetail.bra_id == PedidoCompraOc.oc_bra_id,
+        PurchaseOrderDetail.poh_id == PedidoCompraOc.oc_poh_id,
+        TBItem.comp_id == PurchaseOrderDetail.comp_id,
+        TBItem.item_id == PurchaseOrderDetail.item_id,
+        item_match,
+    )
+    via_header = exists().where(
+        PedidoCompra.oc_poh_id.is_not(None),
+        PurchaseOrderDetail.comp_id == PedidoCompra.oc_comp_id,
+        PurchaseOrderDetail.bra_id == PedidoCompra.oc_bra_id,
+        PurchaseOrderDetail.poh_id == PedidoCompra.oc_poh_id,
+        TBItem.comp_id == PurchaseOrderDetail.comp_id,
+        TBItem.item_id == PurchaseOrderDetail.item_id,
+        item_match,
+    )
+    return or_(via_rel, via_header)
+
+
+_BIGINT_MAX = 2**63 - 1
+_BIGINT_MAX_DIGITS = len(str(_BIGINT_MAX))
+
+
+def _parse_q_oc(q_oc: str | None) -> int | None:
+    """Validate ``q_oc`` as an ASCII-digit BIGINT (``oc_poh_id``); 422 otherwise.
+
+    ``str.isdigit()`` alone accepts '²' or Arabic-Indic digits and lets values
+    past BIGINT reach Postgres, which surfaced as a 500. The length check runs
+    before ``int()``, which raises ValueError past 4300 digits.
+    """
+    if q_oc is None or not str(q_oc).strip():
+        return None
+    raw_oc = str(q_oc).strip()
+    if not (raw_oc.isascii() and raw_oc.isdigit()) or len(raw_oc) > _BIGINT_MAX_DIGITS or int(raw_oc) > _BIGINT_MAX:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="q_oc debe ser el número de OC (solo dígitos, ej. poh_id).",
+        )
+    return int(raw_oc)
+
+
+def _parse_q_producto(q_producto: str | None) -> str | None:
+    """Validate ``q_producto`` (min 2 chars once stripped); 422 otherwise."""
+    if q_producto is None or not str(q_producto).strip():
+        return None
+    raw_prod = str(q_producto).strip()
+    if len(raw_prod) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="q_producto requiere al menos 2 caracteres.",
+        )
+    return raw_prod
+
+
 def _apply_q_contains_filters(
     condiciones: list[Any],
     *,
@@ -268,8 +342,15 @@ def _apply_q_contains_filters(
     q_numero: str | None,
     q_factura: str | None,
     q_empresa: str | None,
+    q_oc: str | None = None,
+    creado_por_id: int | None = None,
+    q_producto: str | None = None,
 ) -> None:
-    """AND-combine optional ILIKE contains filters (empty values ignored)."""
+    """AND-combine optional list filters (empty values ignored).
+
+    ``q_oc`` is exact ``oc_poh_id`` (digits only) — never mixed into ``q_numero``.
+    ``q_producto`` matches EAN/código or descripción on OC mirror lines.
+    """
     if q_proveedor and q_proveedor.strip():
         condiciones.append(
             exists().where(
@@ -296,6 +377,22 @@ def _apply_q_contains_filters(
                 _ilike_contains(Empresa.nombre, q_empresa),
             )
         )
+    poh = _parse_q_oc(q_oc)
+    if poh is not None:
+        condiciones.append(
+            or_(
+                PedidoCompra.oc_poh_id == poh,
+                exists().where(
+                    PedidoCompraOc.pedido_id == PedidoCompra.id,
+                    PedidoCompraOc.oc_poh_id == poh,
+                ),
+            )
+        )
+    if creado_por_id is not None:
+        condiciones.append(PedidoCompra.creado_por_id == int(creado_por_id))
+    raw_prod = _parse_q_producto(q_producto)
+    if raw_prod is not None:
+        condiciones.append(_exists_producto_en_oc(raw_prod))
 
 
 def _ocs_payload(p: PedidoCompra) -> list[PedidoCompraOcLink]:
@@ -480,6 +577,15 @@ def listar_pedidos(
     q_numero: Optional[str] = Query(None, description="Contains filter on Pricing P-… / pedido numero"),
     q_factura: Optional[str] = Query(None, description="Contains filter on factura number"),
     q_empresa: Optional[str] = Query(None, description="Contains filter on empresa name"),
+    q_oc: Optional[str] = Query(
+        None,
+        description="Exact ERP OC number (poh_id digits only). Separate from q_numero.",
+    ),
+    creado_por_id: Optional[int] = Query(None, ge=1, description="Filter by pedido creator user id"),
+    q_producto: Optional[str] = Query(
+        None,
+        description="Contains filter on OC line item_code (EAN) or item_desc (min 2 chars)",
+    ),
     desde: Optional[date] = Query(None, description="created_at >= desde"),
     hasta: Optional[date] = Query(None, description="created_at <= hasta"),
     diferencial_cambio_pendiente: Optional[bool] = Query(
@@ -505,6 +611,10 @@ def listar_pedidos(
                  total = len(survivors); paginate the id list, load only the page.
     Correct pagination: total reflects the full filtered set, not the current page.
     """
+    # Validate user-typed filters before any early return, so an invalid value is
+    # a 422 on every branch (the FX branch used to return 200 empty first).
+    _parse_q_oc(q_oc)
+    _parse_q_producto(q_producto)
     # Warehouse-only access is scoped to the estados they actually receive.
     # Without this, deposito.recibir_mercaderia would grant read access to the
     # whole purchasing ledger — saldos and FX variance of every pedido.
@@ -548,6 +658,24 @@ def listar_pedidos(
 
         if not survivors:
             return PedidoCompraPaginated(items=[], total=0, page=page, page_size=page_size)
+
+        # Same text/identity filters as the standard list path (FX branch used to ignore them).
+        q_condiciones: list[Any] = []
+        _apply_q_contains_filters(
+            q_condiciones,
+            q_proveedor=q_proveedor,
+            q_numero=q_numero,
+            q_factura=q_factura,
+            q_empresa=q_empresa,
+            q_oc=q_oc,
+            creado_por_id=creado_por_id,
+            q_producto=q_producto,
+        )
+        if q_condiciones:
+            kept = set(db.scalars(select(PedidoCompra.id).where(PedidoCompra.id.in_(survivors), *q_condiciones)).all())
+            survivors = [pid for pid in survivors if pid in kept]
+            if not survivors:
+                return PedidoCompraPaginated(items=[], total=0, page=page, page_size=page_size)
 
         # Stable order matching the default list (created_at desc, id desc).
         # Load created_at for the survivors to sort in memory (one query).
@@ -648,6 +776,9 @@ def listar_pedidos(
         q_numero=q_numero,
         q_factura=q_factura,
         q_empresa=q_empresa,
+        q_oc=q_oc,
+        creado_por_id=creado_por_id,
+        q_producto=q_producto,
     )
 
     stmt = select(PedidoCompra).options(
@@ -5873,6 +6004,37 @@ def get_usuarios_responsable_faltantes(
         )
         for u in usuarios
     ]
+
+
+@router.get(
+    "/usuarios-filtro-creado-por",
+    response_model=list[UsuarioResponsableFaltantesItem],
+    summary="Usuarios que crearon pedidos (filtro Creado por)",
+)
+def get_usuarios_filtro_creado_por(
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(
+        require_algun_permiso(["administracion.ver_ordenes_compra", recepcion_service.PERMISO_RECEPCION])
+    ),
+) -> list[UsuarioResponsableFaltantesItem]:
+    """Distinct creators of pedidos_compra still present in usuarios.
+
+    Same read gate as GET /pedidos. Ordered by display name.
+    """
+    rows = db.execute(
+        select(Usuario.id, Usuario.nombre, Usuario.username)
+        .where(
+            Usuario.id.in_(select(PedidoCompra.creado_por_id).where(PedidoCompra.creado_por_id.is_not(None))),
+        )
+        .order_by(Usuario.nombre.asc(), Usuario.username.asc())
+    ).all()
+    out: list[UsuarioResponsableFaltantesItem] = []
+    for uid, nombre, username in rows:
+        label = (nombre or "").strip() or (username or "").strip() or str(uid)
+        if username and nombre and username.strip() and username.strip().lower() not in label.lower():
+            label = f"{label} ({username.strip()})"
+        out.append(UsuarioResponsableFaltantesItem(id=int(uid), nombre=label))
+    return out
 
 
 @router.get(
