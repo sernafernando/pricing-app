@@ -18,6 +18,8 @@ import MejoresCandidatasBlock from './panel/MejoresCandidatasBlock';
 import PonerPreciosBody from './panel/PonerPreciosBody';
 import { publicationFigures } from './panel/publicationFigures';
 import { pricePermissions } from '../pricing/productPricePermissions';
+import useIsPhone from '../../hooks/useIsPhone';
+import PhonePanelActions from './mobile/PhonePanelActions';
 import styles from './panel/panel.module.css';
 
 /** What to tell the operator when the detail cannot be loaded. */
@@ -87,6 +89,8 @@ export default function PublicationPanel({
 
   const row = detail?.row;
   const mlUrl = buildMlItemUrl(row?.permalink);
+  // On a phone the ML link and the seller panel's links are the top bar's icons, not the MLA line's (PubDetalle design).
+  const phone = useIsPhone();
   // Outside MODO: chooser is a block above tabs (never replaces them). Hide after
   // discard; when its candidates are unavailable it stays as a notice that can still
   // discard the flag. Reset when switching publication.
@@ -132,10 +136,10 @@ export default function PublicationPanel({
             <span className={styles.itemId}>{itemId}</span>
             <CopyButton value={itemId} label="Copiar MLA" compact />
             {detail && <ListingKindBadge kind={row.listing_kind} />}
-            <MlSellerLinks itemId={itemId} />
+            {!phone && <MlSellerLinks itemId={itemId} />}
             {detail && <PublicationStatusPill status={row.status} gone={row.gone} subStatus={detail.subStatus} />}
             {/* On the MLA line, after its badges, as the approved design. */}
-            {mlUrl && (
+            {mlUrl && !phone && (
               <a className={styles.mlLink} href={mlUrl} target="_blank" rel="noopener noreferrer">
                 Ver en Mercado Libre
                 <ExternalLink size={12} aria-hidden="true" />
@@ -149,6 +153,7 @@ export default function PublicationPanel({
         detail && <PanelFigures label="Cifras de la publicación" figures={publicationFigures(row, { canSeeMargin, canSeeSales, breakdown: detail.markupBreakdown, sellInOut: detail.sellInOut })} />
       }
       onClose={onClose}
+      phoneActions={phone ? <PhonePanelActions itemId={itemId} mlUrl={mlUrl} /> : null}
       loading={status === 'loading'}
       loadingLabel="Cargando publicación"
       error={status === 'error' ? describeError(error) : null}

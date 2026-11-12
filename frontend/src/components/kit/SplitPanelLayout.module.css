@@ -4,7 +4,8 @@
    Ventas ML's layout switches to a sheet over the table below 1600px, which
    is exactly what this component exists NOT to do. The panel column is
    `min(<token>, 42vw)`, so even at 1000px the table keeps its share and the
-   panel never covers a row. */
+   panel never covers a row. The one exception is a phone (`data-phone`, at
+   the end), where no column fits beside the list. */
 
 /* The default panel's cap. One source: SplitPanelLayout.jsx reads it back to
    keep the keyboard and drag bounds equal to the track below, so it must stay
@@ -127,4 +128,21 @@
   border-radius: var(--radius-md);
   box-shadow: var(--cf-card-shadow);
   z-index: var(--z-sticky);
+}
+
+/* Phone (`data-phone`, set by `useIsPhone` -- still no `@media` here): the list keeps one column and the panel takes
+   the whole screen over it and over the TopBar, scrolling on its own. Under a Tesla modal opened from the panel. */
+.grid[data-phone].open {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.panel[data-phone] {
+  position: fixed;
+  inset: 0;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  overscroll-behavior: contain;
+  z-index: var(--z-fixed);
 }

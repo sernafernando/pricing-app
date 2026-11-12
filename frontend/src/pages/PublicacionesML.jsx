@@ -84,6 +84,7 @@ import {
   pageOffset,
   pageSizeLabel,
   PRICE_MODES,
+  PRODUCT_SORTS,
   SIN_MLA,
   buildExportParams,
   buildItemsParams,
@@ -110,6 +111,12 @@ import { isSheetsExportEnabled, loadGoogleIdentity } from '../utils/googleSheets
 import { DIMENSION_OPTIONS } from '../utils/metricasMlLevels';
 import SheetsNotice from '../components/sheets/SheetsNotice';
 import useWarnBeforeUnload from '../hooks/useWarnBeforeUnload';
+import useIsPhone from '../hooks/useIsPhone';
+import { formatUnits } from '../utils/metricasMlFormat';
+import PhoneSheet from '../components/publicacionesMl/mobile/PhoneSheet';
+import PhoneToolbar from '../components/publicacionesMl/mobile/PhoneToolbar';
+import PhoneList from '../components/publicacionesMl/mobile/PhoneList';
+import phoneStyles from '../components/publicacionesMl/mobile/PhoneLayout.module.css';
 import styles from './PublicacionesML.module.css';
 
 /**
@@ -187,6 +194,30 @@ const VISTA_OPTIONS = [
 // Métricas ML's dimension picker, limited to the dimensions the tree's `/groups` takes.
 const AGRUPAR_OPTIONS = DIMENSION_OPTIONS.filter((option) => AGRUPAR_DIMENSIONS.includes(option.value));
 
+// The phone's "Cargar 20 más" (mobile-metricas-pubml S2): the next publications after the page, 20 at a time.
+const PHONE_CHUNK = 20;
+
+// The phone's sort picker: the table headers' sortable figures a card shows, each with the permission it needs.
+const PHONE_SORTS = [
+  { value: 'unidades_30d', label: 'Ventas 30D', sales: true },
+  { value: 'facturado_30d', label: 'Facturado 30D', sales: true },
+  { value: 'markup', label: 'Markup', margin: true, list: true },
+  { value: 'markup_30d', label: 'Markup 30D', sales: true, margin: true, product: true },
+  { value: 'stock_erp', label: 'Stock ERP', list: true },
+  { value: 'tipo', label: 'Tipo', list: true },
+  { value: 'actividad', label: 'Última actividad', list: true },
+  { value: 'titulo', label: 'Título' },
+];
+
+function phoneSortOptions({ producto, canSeeSales, canSeeMargin }) {
+  return PHONE_SORTS.filter(
+    (option) =>
+      (!option.sales || canSeeSales) &&
+      (!option.margin || canSeeMargin) &&
+      (producto ? !option.list && PRODUCT_SORTS.includes(option.value) : !option.product),
+  );
+}
+
 /** What to tell the operator when a request fails (S69.1). */
 function describeError(error) {
   const status = error?.response?.status;
@@ -241,6 +272,11 @@ function withoutSort({ orden, dir, ...params }) {
 
 export default function PublicacionesML() {
   const { tienePermiso } = usePermisos();
+  // Phones (<= 768px) get their own layout: cards, a filters sheet and the panel full screen (mobile-metricas-pubml).
+  const isPhone = useIsPhone();
+  // The phone's open bottom sheet: 'filtros', 'acciones' or none.
+  const [phoneSheet, setPhoneSheet] = useState(null);
+  const closePhoneSheet = () => setPhoneSheet(null);
   // The markup column, filters and sort exist only for this permission (S68.1).
   const canSeeMargin = tienePermiso('ml_metricas.ver_ganancia');
   const { filters, filterKey, setFilters, resetFilters } = usePublicacionesMLFilters({ canSeeMargin });
@@ -375,11 +411,10 @@ export default function PublicacionesML() {
       .then((response) => {
         if (request !== latestRequest.current) return;
         setData(response.data);
-        if (lazy) {
-          // "Todos" ends at the list's total, however many rows that is (filas-sin-limite S1).
-          const end = Math.max(asked.offset, response.data.total ?? 0);
-          parts.current = { request, params: asked, next: asked.offset + asked.limit, end, busy: false };
-        }
+        // "Todos" ends at the list's total, however many rows that is (filas-sin-limite S1). Any other page can be
+        // continued too: the phone's "Cargar 20 más" asks for the rows after it (mobile-metricas-pubml S2).
+        const end = Math.max(asked.offset, response.data.total ?? 0);
+        parts.current = { request, params: asked, next: asked.offset + asked.limit, end, busy: false };
         // A new list (page, sort, filter) starts with every row collapsed.
         if (keepExpanded.current !== request) setExpandedIds(new Set());
         keepExpanded.current = 0;
@@ -401,12 +436,12 @@ export default function PublicacionesML() {
   // total, the data state and the facets stay the first part's. A part of a list that is no longer the current one
   // (a filter, sort or reload asked again) is dropped; a failed part leaves the rows as they are and says so
   // (`moreError`), and its "Reintentar" calls this again for the same offset.
-  const loadMoreItems = useCallback(() => {
+  const loadNextItems = useCallback((chunk) => {
     const current = parts.current;
     if (!current || current.busy || current.next >= current.end || current.request !== latestRequest.current) return;
     current.busy = true;
     const offset = current.next;
-    const limit = Math.min(LAZY_CHUNK, current.end - offset);
+    const limit = Math.min(chunk, current.end - offset);
     publicacionesMlAPI
       .items({ ...current.params, offset, limit })
       .then((response) => {
@@ -421,6 +456,8 @@ export default function PublicacionesML() {
         if (current.request === latestRequest.current) setMoreError(true);
       });
   }, []);
+  const loadMoreItems = useCallback(() => loadNextItems(LAZY_CHUNK), [loadNextItems]);
+  const loadMoreCards = () => loadNextItems(PHONE_CHUNK);
 
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
@@ -740,7 +777,10 @@ export default function PublicacionesML() {
   // The markup filters are invisible (and not sent) without the permission, or in the tree, so they do not count either.
   const showMarkupFilters = canSeeMargin && !ownRows;
   const activeKeys = showMarkupFilters ? FILTER_KEYS : FILTER_KEYS.filter((key) => !key.startsWith('markup_'));
-  const hasActiveFilters = activeKeys.some((key) => (Array.isArray(filters[key]) ? filters[key].length > 0 : filters[key] !== ''));
+  const activeFilterKeys = activeKeys.filter((key) => (Array.isArray(filters[key]) ? filters[key].length > 0 : filters[key] !== ''));
+  const hasActiveFilters = activeFilterKeys.length > 0;
+  // The phone's "Filtros (n)": the filters on, the search apart (it has its own box).
+  const filterCount = activeFilterKeys.filter((key) => key !== 'q').length;
 
   const items = data?.items ?? EMPTY_ROWS;
   // The copy shortcuts act on the focused publication of the list (the Producto and Agrupado rows load their own).
@@ -871,6 +911,386 @@ export default function PublicacionesML() {
       onChange={csvChange(key)}
     />
   );
+
+  const estadoGroup = (
+    <div className={styles.filterGroup}>
+      <span className={styles.filterLabel}>Estado:</span>
+      {chipGroup('Filtrar por estado', 'estado', STATUS_OPTIONS, STATUS_LABELS, 'status')}
+    </div>
+  );
+  // The layer and what paints on it wrap together.
+  const layerGroup = (
+    <div className={styles.filterGroup}>
+      <ColorLayerSelect
+        value={filters.equipo}
+        onChange={(equipo) => setFilters({ equipo })}
+        equipos={equipos}
+        loaded={equiposLoaded}
+        labelClassName={styles.filterLabel}
+      />
+      <PaintColorMenu
+        checked={checkedStatus}
+        offPageCount={agrupado ? 0 : rowSelection.offPageCount}
+        equipo={rowFilters.equipo}
+        onPainted={colorOverlay.apply}
+        onPaintedOwn={colorOverlay.applyOwn}
+        onClearChecked={clearChecked}
+      />
+      {/* Icon-only: the toolbar's first row has no room for a label at 1366 px. The phone's filters sheet has room
+          for its word. */}
+      <button
+        type="button"
+        className={`btn-tesla outline-subtle-primary ${isPhone ? '' : 'icon-only '}sm`}
+        onClick={() => setEquiposOpen(true)}
+        aria-label="Equipos"
+        title="Equipos: crear y administrar tus equipos"
+      >
+        <Users size={14} aria-hidden="true" />
+        {isPhone && 'Equipos'}
+      </button>
+      {/* Closing reloads the teams, so the layer offers what was just created, renamed or deleted. */}
+      <EquiposModal
+        isOpen={equiposOpen}
+        onClose={() => {
+          setEquiposOpen(false);
+          recargarEquipos();
+        }}
+      />
+    </div>
+  );
+  const filterBands = (
+    <>
+      <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
+        <div className={styles.filterGroup}>
+          <span className={styles.filterLabel}>Tipo:</span>
+          {chipGroup('Filtrar por tipo', 'tipo', TIPO_OPTIONS, TIPO_LABELS, 'listing')}
+        </div>
+        <div className={styles.filterGroup}>
+          <span className={styles.filterLabel}>Vínculo:</span>
+          {chipGroup('Filtrar por vínculo', 'vinculo', VINCULO_OPTIONS, VINCULO_LABELS, 'link')}
+        </div>
+        <div className={styles.filterGroup}>
+          <span className={styles.filterLabel}>Stock:</span>
+          {chipGroup('Filtrar por stock', 'stock', STOCK_OPTIONS, STOCK_LABELS, 'stock')}
+        </div>
+      </div>
+      <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
+        <div className={styles.filterGroup}>
+          <span className={styles.filterLabel}>Tienda:</span>
+          <FacetChips
+            label="Filtrar por tienda oficial"
+            {...storeChips}
+            total={facets?.totals?.stores}
+            onChange={csvChange('tiendas')}
+          />
+        </div>
+        {/* Productos' color filter, on the layer on show (Capa). */}
+        <div className={styles.filterGroup}>
+          <span className={styles.filterLabel}>Color:</span>
+          <ColorFilterChips value={filters.colores} onChange={(colores) => setFilters({ colores })} />
+        </div>
+      </div>
+      <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
+        <ProductFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} facet={facets?.product ?? null} />
+        {/* Same band as the product filters, behind a button: a band of its own pushed the list's header below
+            the fold at 1366x768. */}
+        <PresenceFilters
+          filters={filters}
+          setFilters={setFilters}
+          labelClassName={styles.filterLabel}
+          canSeeMargin={canSeeMargin}
+        />
+        <AuditFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
+        <PromoFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
+        {/* Productos' price columns (S11): how the rows are looked at, like the Capa; the header has no room left. */}
+        {canSeePrices && precios && (
+          <PriceModeSelect
+            value={filters.modo}
+            onChange={(value) => setFilters({ modo: value === PRICE_MODES[0] ? '' : value })}
+            labelClassName={styles.filterLabel}
+          />
+        )}
+      </div>
+      {showMarkupFilters && (
+        <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
+          <div className={styles.filterGroup}>
+            <span className={styles.filterLabel}>Markup:</span>
+            <MarkupFilters
+              negative={filters.markup_neg === '1'}
+              min={filters.markup_min}
+              max={filters.markup_max}
+              onChange={setFilters}
+            />
+          </div>
+        </div>
+      )}
+    </>
+  );
+  const detailPanel = filters.sel ? (
+      <PublicationPanel
+        itemId={filters.sel}
+        tab={filters.tab}
+        onTabChange={changeTab}
+        onClose={closePanel}
+        onListReload={reloadList}
+        dataState={data?.data_state}
+        onBack={filters.prod ? backToProduct : undefined}
+        backLabel={backLabel}
+        priceGroup={canSeePrices ? priceGroup : null}
+        ponerPreciosMode={ponerPreciosMode}
+        competenciaWide={competenciaWide}
+        onCompetenciaWideChange={setCompetenciaWide}
+      />
+    ) : filters.prod ? (
+      <ProductPanel
+        filters={rowFilters}
+        productKey={filters.prod}
+        onClose={closePanel}
+        onSelectItem={selectProductItem}
+        canSeeSales={canSeeSales}
+        canSeeMargin={canSeeMargin}
+        onListReload={reloadList}
+        priceGroup={canSeePrices ? priceGroup : null}
+        tabState={productTab}
+        onTabStateChange={setProductTab}
+      />
+    ) : null;
+  // The tree asks on mount: it waits for the layer like the other views.
+  const agrupadoTable = !layerPending && (
+    <AgrupadoTable
+      columns={selectableColumns}
+      filters={rowFilters}
+      familias={filters.familias === '1'}
+      dimension={filters.agrupar}
+      colorOverlay={colorOverlay.colors}
+      ownColorOverlay={colorOverlay.own}
+      canSeeMargin={canSeeMargin}
+      expandedIds={expandedIds}
+      onSelectItem={handleRowClick}
+      selectedKey={filters.sel || undefined}
+      offset={TABLE_OFFSET}
+      emptyMessage={emptyMessage}
+      columnWidths={treeSizing.columnWidths}
+      onColumnResize={treeSizing.onColumnResize}
+    />
+  );
+  const overlays = (
+    <>
+      {showShortcuts && <ShortcutsHelp onClose={() => setShowShortcuts(false)} />}
+      {navigating && (
+        <div className={styles.navigationBanner} role="status">
+          Modo Navegación Activo - Presiona <kbd>Esc</kbd> para salir o <kbd>?</kbd> para ayuda
+        </div>
+      )}
+      <ModalInfoProducto isOpen={infoProductId != null} itemId={infoProductId} onClose={() => setInfoProductId(null)} />
+      {priceEditor.pending && (
+        <ModalTesla
+          isOpen
+          onClose={priceEditor.saving ? () => {} : priceEditor.cancel}
+          title={priceEditor.pending.kind === 'zero' ? 'Borrar precio' : 'Markup negativo'}
+          size="sm"
+          footer={
+            <ModalFooterButtons
+              // A write on its way finishes anyway: the confirmation stays until it does.
+              onCancel={priceEditor.saving ? () => {} : priceEditor.cancel}
+              onConfirm={priceEditor.confirm}
+              confirmText={priceEditor.pending.kind === 'zero' ? 'Borrar el precio' : 'Guardar igual'}
+              confirmLoading={priceEditor.saving}
+            />
+          }
+        >
+          <p>{priceEditor.warning}</p>
+        </ModalTesla>
+      )}
+      <PricingModalTesla
+        isOpen={Boolean(pricingProduct)}
+        producto={pricingProduct}
+        onClose={() => setPricingProduct(null)}
+        onSave={() => {
+          setPricingProduct(null);
+          reloadList();
+        }}
+      />
+      {priceListsOpen && (
+        <ExportModal
+          onClose={() => setPriceListsOpen(false)}
+          filtrosActivos={{}}
+          showToast={showToast}
+          resolverProductos={resolvePriceListProducts}
+          descripcionConjunto={PRICE_LIST_SET}
+        />
+      )}
+      <Toast toast={toast} onClose={hideToast} />
+    </>
+  );
+
+  const listErrorBar = error && (
+    <div className={styles.errorBar} role="alert">
+      <ShieldAlert size={16} aria-hidden="true" />
+      <span className={styles.errorText}>{describeError(error)}</span>
+      <button type="button" className="btn-tesla outline sm" onClick={() => setReloadToken((token) => token + 1)}>
+        Reintentar
+      </button>
+    </div>
+  );
+  const pagination = (
+      <Pagination
+        total={total}
+        offset={offset}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        pageSizeLabel={pageSizeLabel}
+        allRowsSize={ALL_ROWS}
+        summary={
+          <span>
+            mostrando {total === 0 ? 0 : offset + 1}-{pageSize === ALL_ROWS ? total : Math.min(offset + pageSize, total)}{' '}
+            de {total} {unit}
+          </span>
+        }
+        onOffsetChange={(next) => setFilters({ pagina: Math.floor(next / pageSize) + 1 })}
+        onPageSizeChange={(size) => setFilters({ limite: size === PAGE_SIZE ? '' : size })}
+      />
+  );
+
+  if (isPhone) {
+    const phoneRows = producto ? productRows.rows.filter((row) => row.type === 'node').map((row) => row.node) : items;
+    const remaining = producto ? 0 : total - offset - items.length;
+    const listPhase = error && !ownRows ? 'error' : !data && !ownRows ? 'loading' : 'ready';
+    return (
+      <div className={phoneStyles.page}>
+        <PhoneToolbar
+          ref={searchRef}
+          filters={filters}
+          setFilters={setFilters}
+          filterCount={filterCount}
+          showMarkupFilters={showMarkupFilters}
+          onOpenFilters={() => setPhoneSheet('filtros')}
+          onOpenMenu={() => setPhoneSheet('acciones')}
+          searchPlaceholder="Título, MLA, SKU/EAN o producto"
+        />
+        <div className={phoneStyles.banners}>
+          {exportError && (
+            <div className={styles.errorBar} role="alert">
+              <ShieldAlert size={16} aria-hidden="true" />
+              <span className={styles.errorText}>{exportError}</span>
+            </div>
+          )}
+          <SheetsNotice notice={exportingSheets ? { processing: true } : sheetsNotice} onClose={() => setSheetsNotice(null)} />
+          <StateBanner dataState={data?.data_state} />
+          {listErrorBar}
+        </div>
+        {canSeeKpis && !sinMla && (
+          <div className={phoneStyles.kpis}>
+            <PublicationKpiStrip
+              state={kpis}
+              periodo={periodo}
+              onPeriodChange={setPeriodo}
+              isVisible={kpiVisible}
+              markupNotice={showMarkupFilters && hasMarkupFilter(filters)}
+            />
+          </div>
+        )}
+        <SplitPanelLayout
+          open={Boolean(filters.sel || filters.prod)}
+          onClose={closePanel}
+          ariaLabel={filters.sel ? 'Detalle de la publicación' : 'Detalle del producto'}
+          panel={detailPanel}
+        >
+          {agrupado ? (
+            <div className={phoneStyles.wideTable}>{agrupadoTable}</div>
+          ) : listPhase === 'loading' ? (
+            <ListSkeleton />
+          ) : listPhase === 'ready' ? (
+            <PhoneList
+              mode={producto ? 'producto' : 'publicacion'}
+              rows={phoneRows}
+              total={total}
+              sort={sort}
+              sortOptions={phoneSortOptions({ producto, canSeeSales, canSeeMargin })}
+              onSort={(key) => handleSort(key)}
+              canSeeSales={canSeeSales}
+              canSeeMargin={canSeeMargin}
+              selectedKey={producto ? filters.prod : filters.sel}
+              onSelect={producto ? selectProduct : handleRowClick}
+              emptyMessage={producto ? (hasActiveFilters ? 'Ningún producto coincide con los filtros' : 'No hay productos') : emptyMessage}
+              loading={loading || (producto && productRows.loading)}
+              footer={
+                producto ? (
+                  pagination
+                ) : (
+                  <>
+                    {moreError && (
+                      <div className={styles.errorBar} role="alert">
+                        <ShieldAlert size={16} aria-hidden="true" />
+                        <span className={styles.errorText}>No se pudieron traer más publicaciones.</span>
+                      </div>
+                    )}
+                    {remaining > 0 && (
+                      <button type="button" className={phoneStyles.more} onClick={loadMoreCards}>
+                        Cargar {Math.min(PHONE_CHUNK, remaining)} más
+                      </button>
+                    )}
+                  </>
+                )
+              }
+            />
+          ) : null}
+        </SplitPanelLayout>
+        <PhoneSheet
+          open={phoneSheet === 'filtros'}
+          title="Filtros"
+          onClose={closePhoneSheet}
+          headerAction={
+            <button type="button" className="btn-tesla ghost sm" onClick={resetFilters} disabled={!hasActiveFilters}>
+              Limpiar
+            </button>
+          }
+          footer={
+            <button type="button" className={`btn-tesla primary ${phoneStyles.sheetFooter}`} onClick={closePhoneSheet}>
+              Ver {formatUnits(total)} {unit}
+            </button>
+          }
+        >
+          <div className={styles.phoneFilters}>
+            {estadoGroup}
+            {layerGroup}
+            {filterBands}
+          </div>
+        </PhoneSheet>
+        <PhoneSheet open={phoneSheet === 'acciones'} title="Acciones" onClose={closePhoneSheet}>
+          <div className={phoneStyles.menu}>
+            {!sinMla && (
+              <BulkStatusActions filters={rowFilters} canSeeMargin={canSeeMargin} onDone={reloadList} checked={checkedStatus} />
+            )}
+            <BulkActions
+              filters={rowFilters}
+              checkedIds={checkedIds}
+              checkedPublications={checkedItemIds.length}
+              checkedRowCount={checkedRows.size}
+              offPageCount={agrupado ? 0 : rowSelection.offPageCount}
+              onClearChecked={clearChecked}
+              canSeeMargin={canSeeMargin}
+              onDone={reloadList}
+              openRequest={bulkRequest}
+            />
+            {canExportVista(filters.vista) && (
+              <button type="button" className="btn-tesla outline sm" onClick={handleExport} disabled={exporting}>
+                <Download size={14} />
+                {exporting ? 'Exportando…' : 'Exportar CSV'}
+              </button>
+            )}
+            {sheetsEnabled && canExportVista(filters.vista) && (
+              <button type="button" className="btn-tesla outline sm" onClick={handleSheetsExport} disabled={exportingSheets}>
+                <FileSpreadsheet size={14} />
+                {exportingSheets ? 'Exportando a Sheets…' : 'Exportar a Sheets'}
+              </button>
+            )}
+          </div>
+        </PhoneSheet>
+        {overlays}
+      </div>
+    );
+  }
 
   return (
     <div className={styles.container}>
@@ -1018,46 +1438,8 @@ export default function PublicacionesML() {
               placeholder="Buscar por título, MLA, SKU/EAN o producto…"
             />
           </div>
-          <div className={styles.filterGroup}>
-            <span className={styles.filterLabel}>Estado:</span>
-            {chipGroup('Filtrar por estado', 'estado', STATUS_OPTIONS, STATUS_LABELS, 'status')}
-          </div>
-          {/* The layer and what paints on it wrap together. */}
-          <div className={styles.filterGroup}>
-            <ColorLayerSelect
-              value={filters.equipo}
-              onChange={(equipo) => setFilters({ equipo })}
-              equipos={equipos}
-              loaded={equiposLoaded}
-              labelClassName={styles.filterLabel}
-            />
-            <PaintColorMenu
-              checked={checkedStatus}
-              offPageCount={agrupado ? 0 : rowSelection.offPageCount}
-              equipo={rowFilters.equipo}
-              onPainted={colorOverlay.apply}
-              onPaintedOwn={colorOverlay.applyOwn}
-              onClearChecked={clearChecked}
-            />
-            {/* Icon-only: the toolbar's first row has no room for a label at 1366 px. */}
-            <button
-              type="button"
-              className="btn-tesla outline-subtle-primary icon-only sm"
-              onClick={() => setEquiposOpen(true)}
-              aria-label="Equipos"
-              title="Equipos: crear y administrar tus equipos"
-            >
-              <Users size={14} aria-hidden="true" />
-            </button>
-            {/* Closing reloads the teams, so the layer offers what was just created, renamed or deleted. */}
-            <EquiposModal
-              isOpen={equiposOpen}
-              onClose={() => {
-                setEquiposOpen(false);
-                recargarEquipos();
-              }}
-            />
-          </div>
+          {estadoGroup}
+          {layerGroup}
           <span className={styles.spacer} />
           {ponerPreciosMode && (
             <button
@@ -1102,81 +1484,10 @@ export default function PublicacionesML() {
             </button>
           )}
         </div>
-        <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
-          <div className={styles.filterGroup}>
-            <span className={styles.filterLabel}>Tipo:</span>
-            {chipGroup('Filtrar por tipo', 'tipo', TIPO_OPTIONS, TIPO_LABELS, 'listing')}
-          </div>
-          <div className={styles.filterGroup}>
-            <span className={styles.filterLabel}>Vínculo:</span>
-            {chipGroup('Filtrar por vínculo', 'vinculo', VINCULO_OPTIONS, VINCULO_LABELS, 'link')}
-          </div>
-          <div className={styles.filterGroup}>
-            <span className={styles.filterLabel}>Stock:</span>
-            {chipGroup('Filtrar por stock', 'stock', STOCK_OPTIONS, STOCK_LABELS, 'stock')}
-          </div>
-        </div>
-        <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
-          <div className={styles.filterGroup}>
-            <span className={styles.filterLabel}>Tienda:</span>
-            <FacetChips
-              label="Filtrar por tienda oficial"
-              {...storeChips}
-              total={facets?.totals?.stores}
-              onChange={csvChange('tiendas')}
-            />
-          </div>
-          {/* Productos' color filter, on the layer on show (Capa). */}
-          <div className={styles.filterGroup}>
-            <span className={styles.filterLabel}>Color:</span>
-            <ColorFilterChips value={filters.colores} onChange={(colores) => setFilters({ colores })} />
-          </div>
-        </div>
-        <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
-          <ProductFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} facet={facets?.product ?? null} />
-          {/* Same band as the product filters, behind a button: a band of its own pushed the list's header below
-              the fold at 1366x768. */}
-          <PresenceFilters
-            filters={filters}
-            setFilters={setFilters}
-            labelClassName={styles.filterLabel}
-            canSeeMargin={canSeeMargin}
-          />
-          <AuditFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
-          <PromoFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
-          {/* Productos' price columns (S11): how the rows are looked at, like the Capa; the header has no room left. */}
-          {canSeePrices && precios && (
-            <PriceModeSelect
-              value={filters.modo}
-              onChange={(value) => setFilters({ modo: value === PRICE_MODES[0] ? '' : value })}
-              labelClassName={styles.filterLabel}
-            />
-          )}
-        </div>
-        {showMarkupFilters && (
-          <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
-            <div className={styles.filterGroup}>
-              <span className={styles.filterLabel}>Markup:</span>
-              <MarkupFilters
-                negative={filters.markup_neg === '1'}
-                min={filters.markup_min}
-                max={filters.markup_max}
-                onChange={setFilters}
-              />
-            </div>
-          </div>
-        )}
+        {filterBands}
       </section>
 
-      {error && (
-        <div className={styles.errorBar} role="alert">
-          <ShieldAlert size={16} aria-hidden="true" />
-          <span className={styles.errorText}>{describeError(error)}</span>
-          <button type="button" className="btn-tesla outline sm" onClick={() => setReloadToken((token) => token + 1)}>
-            Reintentar
-          </button>
-        </div>
-      )}
+      {listErrorBar}
 
       {/* In the tree and the Producto view `/items` only brings the state and the facets: its failure leaves their rows (which have their own errors) on screen. */}
       {error && !ownRows ? null : !data && !ownRows ? (
@@ -1190,37 +1501,7 @@ export default function PublicacionesML() {
             expanded={competenciaWide}
             resizeKey={ponerPreciosMode ? 'publicaciones-ml-poner-precios' : 'publicaciones-ml'}
             ariaLabel={filters.sel ? 'Detalle de la publicación' : 'Detalle del producto'}
-            panel={
-              filters.sel ? (
-                <PublicationPanel
-                  itemId={filters.sel}
-                  tab={filters.tab}
-                  onTabChange={changeTab}
-                  onClose={closePanel}
-                  onListReload={reloadList}
-                  dataState={data?.data_state}
-                  onBack={filters.prod ? backToProduct : undefined}
-                  backLabel={backLabel}
-                  priceGroup={canSeePrices ? priceGroup : null}
-                  ponerPreciosMode={ponerPreciosMode}
-                  competenciaWide={competenciaWide}
-                  onCompetenciaWideChange={setCompetenciaWide}
-                />
-              ) : filters.prod ? (
-                <ProductPanel
-                  filters={rowFilters}
-                  productKey={filters.prod}
-                  onClose={closePanel}
-                  onSelectItem={selectProductItem}
-                  canSeeSales={canSeeSales}
-                  canSeeMargin={canSeeMargin}
-                  onListReload={reloadList}
-                  priceGroup={canSeePrices ? priceGroup : null}
-                  tabState={productTab}
-                  onTabStateChange={setProductTab}
-                />
-              ) : null
-            }
+            panel={detailPanel}
           >
             {/* The kit's TableShell takes no density: this box marks the table inside it ("Filas finas"). */}
             <div className={styles.tableDensity} data-density={dense ? 'dense' : 'normal'}>
@@ -1249,25 +1530,7 @@ export default function PublicacionesML() {
                   onColumnResize={productSizing.onColumnResize}
                 />
               ) : agrupado ? (
-                // The tree asks on mount: it waits for the layer like the other views.
-                !layerPending && (
-                <AgrupadoTable
-                  columns={selectableColumns}
-                  filters={rowFilters}
-                  familias={filters.familias === '1'}
-                  dimension={filters.agrupar}
-                  colorOverlay={colorOverlay.colors}
-                  ownColorOverlay={colorOverlay.own}
-                  canSeeMargin={canSeeMargin}
-                  expandedIds={expandedIds}
-                  onSelectItem={handleRowClick}
-                  selectedKey={filters.sel || undefined}
-                  offset={TABLE_OFFSET}
-                  emptyMessage={emptyMessage}
-                  columnWidths={treeSizing.columnWidths}
-                  onColumnResize={treeSizing.onColumnResize}
-                />
-                )
+                agrupadoTable
               ) : (
                 <TableShell
                   columns={selectableColumns}
@@ -1305,71 +1568,12 @@ export default function PublicacionesML() {
           </SplitPanelLayout>
           {!agrupado && (
             <div className={styles.pager}>
-              <Pagination
-                total={total}
-                offset={offset}
-                pageSize={pageSize}
-                pageSizeOptions={PAGE_SIZES}
-                pageSizeLabel={pageSizeLabel}
-                allRowsSize={ALL_ROWS}
-                summary={
-                  <span>
-                    mostrando {total === 0 ? 0 : offset + 1}-{pageSize === ALL_ROWS ? total : Math.min(offset + pageSize, total)}{' '}
-                    de {total} {unit}
-                  </span>
-                }
-                onOffsetChange={(next) => setFilters({ pagina: Math.floor(next / pageSize) + 1 })}
-                onPageSizeChange={(size) => setFilters({ limite: size === PAGE_SIZE ? '' : size })}
-              />
+              {pagination}
             </div>
           )}
         </div>
       )}
-      {showShortcuts && <ShortcutsHelp onClose={() => setShowShortcuts(false)} />}
-      {navigating && (
-        <div className={styles.navigationBanner} role="status">
-          Modo Navegación Activo - Presiona <kbd>Esc</kbd> para salir o <kbd>?</kbd> para ayuda
-        </div>
-      )}
-      <ModalInfoProducto isOpen={infoProductId != null} itemId={infoProductId} onClose={() => setInfoProductId(null)} />
-      {priceEditor.pending && (
-        <ModalTesla
-          isOpen
-          onClose={priceEditor.saving ? () => {} : priceEditor.cancel}
-          title={priceEditor.pending.kind === 'zero' ? 'Borrar precio' : 'Markup negativo'}
-          size="sm"
-          footer={
-            <ModalFooterButtons
-              // A write on its way finishes anyway: the confirmation stays until it does.
-              onCancel={priceEditor.saving ? () => {} : priceEditor.cancel}
-              onConfirm={priceEditor.confirm}
-              confirmText={priceEditor.pending.kind === 'zero' ? 'Borrar el precio' : 'Guardar igual'}
-              confirmLoading={priceEditor.saving}
-            />
-          }
-        >
-          <p>{priceEditor.warning}</p>
-        </ModalTesla>
-      )}
-      <PricingModalTesla
-        isOpen={Boolean(pricingProduct)}
-        producto={pricingProduct}
-        onClose={() => setPricingProduct(null)}
-        onSave={() => {
-          setPricingProduct(null);
-          reloadList();
-        }}
-      />
-      {priceListsOpen && (
-        <ExportModal
-          onClose={() => setPriceListsOpen(false)}
-          filtrosActivos={{}}
-          showToast={showToast}
-          resolverProductos={resolvePriceListProducts}
-          descripcionConjunto={PRICE_LIST_SET}
-        />
-      )}
-      <Toast toast={toast} onClose={hideToast} />
+      {overlays}
     </div>
   );
 }

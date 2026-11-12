@@ -1148,3 +1148,66 @@
 .promosCompetenciaToggle {
   align-self: flex-start;
 }
+
+/* Phone (mobile-metricas-pubml S2, S5): the panel is the whole screen. "‹ Publicaciones" on top with the panel's own
+   icons at its right, the figures in two columns, tabs and actions of 44px, the footer's actions side by side. */
+.phoneBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-xs);
+  margin: calc(-1 * var(--spacing-sm)) calc(-1 * var(--spacing-sm)) calc(-1 * var(--spacing-xs));
+}
+
+.phoneBack {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 4px;
+  min-height: 44px;
+  padding: 0 var(--spacing-sm);
+  border: 0;
+  background: none;
+  color: var(--cf-accent-blue);
+  font: inherit;
+  font-weight: var(--font-medium);
+  cursor: pointer;
+}
+
+@media (max-width: 768px) {
+  .figureList {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tab {
+    min-height: 44px;
+  }
+
+  .footer {
+    padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* The freshness above the footer, as the end of the content. */
+  .panel > .freshness {
+    flex: none;
+    padding: 0 var(--spacing-md) var(--spacing-md);
+  }
+
+  .footerActions {
+    display: grid;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
+    gap: var(--spacing-sm);
+    width: 100%;
+  }
+
+  .footerActions > * {
+    min-width: 0;
+  }
+
+  .footerActions :global(.btn-tesla) {
+    width: 100%;
+    min-height: 48px;
+    justify-content: center;
+  }
+}

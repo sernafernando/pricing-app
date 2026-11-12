@@ -28,8 +28,13 @@
  *    width is remembered in this browser under that key, and
  *    until someone resizes, the panel keeps its usual token width. Without
  *    the prop nothing changes: no handle, same columns.
+ *  - On a phone (`useIsPhone`, <= 768px) there is no room beside the list:
+ *    the panel takes the whole screen over it, with no divider, and the list
+ *    keeps its scroll underneath for when the panel closes
+ *    (mobile-metricas-pubml S2). Everything else above still holds.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import useIsPhone from '../../hooks/useIsPhone';
 import styles from './SplitPanelLayout.module.css';
 
 const WIDTHS = ['md', 'lg', 'xl'];
@@ -86,7 +91,8 @@ function isEditableElement(el) {
  */
 export default function SplitPanelLayout({ open, panel, onClose, width = 'md', expanded = false, ariaLabel, resizeKey, children }) {
   const size = WIDTHS.includes(width) ? width : 'md';
-  const resizable = Boolean(resizeKey);
+  const phone = useIsPhone();
+  const resizable = Boolean(resizeKey) && !phone;
   const gridRef = useRef(null);
   const handleRef = useRef(null);
   // `null` until the operator resizes: the panel keeps its token width.
@@ -307,6 +313,7 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', e
       data-split-grid
       data-resizable={resizable || undefined}
       data-resized={resized || undefined}
+      data-phone={phone || undefined}
       style={gridStyle}
     >
       <div className={styles.main}>{children}</div>
@@ -326,7 +333,7 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', e
         />
       )}
       {open && (
-        <aside ref={panelRef} className={styles.panel} aria-label={ariaLabel} data-split-panel>
+        <aside ref={panelRef} className={styles.panel} aria-label={ariaLabel} data-split-panel data-phone={phone || undefined}>
           {panel}
         </aside>
       )}
