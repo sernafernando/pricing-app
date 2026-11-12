@@ -699,6 +699,17 @@ def confirmar_pedido_sin_oc(
 # ──────────────────────────────────────────────────────────────────────────
 
 
+def _lock_pedido_recepcion(session: Session, pedido: PedidoCompra) -> PedidoCompra:
+    """Row-lock the pedido so arribo/undo/confirm cannot interleave."""
+    return (
+        session.query(PedidoCompra)
+        .filter(PedidoCompra.id == pedido.id)
+        .populate_existing()
+        .with_for_update()
+        .one()
+    )
+
+
 def _arribo_lineas_cubiertas(session: Session, pedido: PedidoCompra) -> bool:
     """True when every OC line has cumulative arribo/retiro >= pod_qty.
 
@@ -723,15 +734,17 @@ def confirmar_arribo_con_oc(
     at the control step). Writes a sentinel row for WHO/WHEN auditing and
     emits 'recepcion_arribo'.
 
-    Requires cumulative arribo/retiro progress to cover every OC line — the
-    operator must press mark-complete explicitly; saving progress never closes.
+    One-click confirm (no progress rows yet) still works. If partial
+    arribo/retiro was started, every OC line must be covered before close.
 
     Raises:
         HTTPException 409 — pedido has no OC linked (use confirmar_pedido_sin_oc).
         HTTPException 409 — pedido estado not in ESTADOS_ARRIBO ('pagado' /
             'en_cuenta_corriente') — only the arrival step is accepted here.
-        HTTPException 409 — arribo/retiro progress still under total.
+        HTTPException 409 — partial progress started but still under total.
     """
+    pedido = _lock_pedido_recepcion(session, pedido)
+
     if pedido.oc_poh_id is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -750,7 +763,10 @@ def confirmar_arribo_con_oc(
             ),
         )
 
-    if not _arribo_lineas_cubiertas(session, pedido):
+    # Coverage gate only when the operator already started partial arrival.
+    if _acumulado_arribo_por_pod(session, int(pedido.id)) and not _arribo_lineas_cubiertas(
+        session, pedido
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
@@ -862,6 +878,7 @@ def deshacer_recibido(
 
     Also wipes pre-control arribo/retiro progress so por-recibir starts clean.
     """
+    pedido = _lock_pedido_recepcion(session, pedido)
     _validar_no_servicio(pedido)
     if pedido.estado == "controlado":
         raise HTTPException(
@@ -1149,6 +1166,7 @@ def registrar_arribo_progreso(
     request: RegistrarArriboProgresoRequest,
 ) -> RegistrarArriboProgresoResponse:
     """Append arribo/retiro progress. Never closes the pedido — mark-complete is separate."""
+    pedido = _lock_pedido_recepcion(session, pedido)
     _validar_no_servicio(pedido)
     if pedido.oc_poh_id is None and not triples_for_pedido(session, pedido):
         raise HTTPException(
