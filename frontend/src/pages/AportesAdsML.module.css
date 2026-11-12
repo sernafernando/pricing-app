@@ -304,9 +304,9 @@
 
 .chip {
   /* Fixed tracks: amount, settlement, range, actions sit on the same verticals in every row.
-     An amount wider than its track grows the track instead of overlapping the settlement. */
+     An amount or settlement wider than its track grows the track instead of overlapping the next one. */
   display: grid;
-  grid-template-columns: minmax(7rem, max-content) 4rem max-content auto;
+  grid-template-columns: minmax(7rem, max-content) minmax(4rem, max-content) max-content auto;
   align-items: center;
   column-gap: var(--spacing-sm);
   height: 28px;

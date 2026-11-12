@@ -180,7 +180,7 @@ describe('Aportes de marcas (Ads ML) (visual)', () => {
           expect(name.getBoundingClientRect().height).toBeLessThanOrEqual(42);
         }
         const states = [...document.querySelectorAll('td > span[class*="state"]')];
-        expect(states.length).toBeGreaterThan(0);
+        expect(states.length).toBe(document.querySelectorAll('tbody tr').length);
         for (const state of states) expect(state.getBoundingClientRect().height).toBeLessThanOrEqual(24);
         // The add button has its own column, level with the row's first line.
         for (const add of document.querySelectorAll('button[aria-label^="Agregar aporte a"]')) {
@@ -193,13 +193,17 @@ describe('Aportes de marcas (Ads ML) (visual)', () => {
           new Set(chips.map((chip) => Math.round(chip.querySelector(selector).getBoundingClientRect()[side])));
         expect(edges('span[class*="chipValue"]', 'right').size).toBe(1);
         expect(edges('span[class*="kind"]', 'left').size).toBe(1);
+        for (const kind of document.querySelectorAll('li span[class*="kind"]')) {
+          expect(kind.scrollWidth).toBeLessThanOrEqual(kind.clientWidth + 1);
+        }
         expect(edges('span[class*="chipRange"]', 'left').size).toBe(1);
         for (const cell of document.querySelectorAll('td[class*="num"]')) {
           expect(cell.scrollWidth).toBeLessThanOrEqual(cell.clientWidth + 1);
         }
         expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
         // The whole table fits its card from 1280 up: no sideways scroll inside it either.
-        const card = document.querySelector('table').parentElement;
+        const card = document.querySelector('table').closest('div[class*="tableCard"]');
+        expect(card).not.toBeNull();
         expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth + 1);
         await shot(`page-${width}-${theme}`);
       });
