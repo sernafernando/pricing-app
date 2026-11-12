@@ -1012,6 +1012,61 @@ class TestFacturaPendiente:
         assert rango == [date(2026, 12, 5), date(2026, 12, 5)]
         assert [(g[2], g[6]) for g in bw.generadas(engine)] == [("activa", date(2026, 12, 5))]
 
+    def test_end_to_end_the_queue_worker_applies_a_linked_invoice_like_one_loaded_with_it(
+        self, db, engine, monkeypatch
+    ) -> None:
+        """Verifier ask on #2229: pending line saved -> Compras links the invoice (header date and invoiced lines in
+        one transaction, like `erp_matching_service`) -> the live triggers queue it -> one `sell_in.bono` run ->
+        the persisted rows equal those of a tactical loaded with the invoice."""
+        from datetime import datetime, timedelta, timezone
+
+        from app.workers.context import WorkerContext
+        from app.workers.handlers.sell_in_bono import bono as handler
+
+        monkeypatch.setattr("app.core.database.SessionLocal", sessionmaker(bind=engine))
+
+        def _worker() -> None:
+            hasta = datetime.now(timezone.utc) + timedelta(seconds=30)
+            assert handler.run(WorkerContext(deadline=hasta, worker_name="t")).success
+
+        factura = date(2026, 10, 10)
+        pendiente = bw.pedido(engine, {}, None)
+        esperando = self._crear(db, pendiente, nombre="Sin factura")
+        _worker()
+        assert bw.generadas(engine) == []  # nothing while the invoice is missing
+        bw.clear_queue(engine)
+
+        # Compras links the invoice; no other bonus covers its date, so only the new gate can queue it.
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE pedidos_compra SET fecha_factura = :f WHERE id = :p"), {"f": factura, "p": pendiente}
+            )
+            for item_id, cantidad in ((950, 5), (2964, 10)):
+                conn.execute(
+                    text(
+                        "INSERT INTO pedido_compra_lineas_facturadas (pedido_id, item_id, cantidad) VALUES (:p, :i, :q)"
+                    ),
+                    {"p": pendiente, "i": item_id, "q": cantidad},
+                )
+        assert ("pedido", pendiente) in bw.queued(engine)
+        _worker()
+
+        # The same invoice loaded with a tactical that already has it.
+        con = bw.pedido(engine, {2964: 10, 950: 5}, factura)
+        cargado = self._crear(db, con, nombre="Con factura")
+        _worker()
+
+        bono_con, *rango_con = self._bono(engine, cargado.id)
+        bono_esp, *rango_esp = self._bono(engine, esperando.id)
+        assert rango_esp == rango_con == [factura, factura]
+        assert self._cabecera(engine, esperando.id) == self._cabecera(engine, cargado.id) == (factura, factura)
+        assert bw.items_de(engine, bono_esp, pendiente) == bw.items_de(engine, bono_con, con) != []
+        generadas = {g[0]: g[2:] for g in bw.generadas(engine)}
+        assert generadas[bono_esp] == generadas[bono_con]
+        db.expire_all()
+        [salida] = service.serializar(db, [esperando])[0]["lineas"]
+        assert salida["esperando_factura"] is False
+
     def test_an_invoice_total_still_needs_the_invoice(self, db, engine) -> None:
         pendiente = bw.pedido(engine, {}, None)
 
