@@ -102,6 +102,10 @@ class SyncOcTripleResult(BaseModel):
     header: dict[str, int]
     detail: dict[str, int]
     detail_lines: int
+    # pod_ids pruned from the mirror; the second list flags those that already
+    # had local arribos/ingresos (orphaned by value).
+    deleted_pod_ids: List[int] = []
+    deleted_pod_ids_with_local_activity: List[int] = []
 
 
 class SyncOcResponse(BaseModel):

@@ -10,11 +10,14 @@ from fastapi import HTTPException
 
 from app.models.empresa import Empresa
 from app.models.pedido_compra import PedidoCompra
+from app.models.pedido_compra_arribo_progreso import PedidoCompraArriboProgreso
+from app.models.pedido_compra_ingresos import PedidoCompraIngreso
 from app.models.pedido_compra_oc import PedidoCompraOc
 from app.models.proveedor import OrigenProveedor, Proveedor
 from app.models.purchase_order_detail import PurchaseOrderDetail
 from app.models.purchase_order_header import PurchaseOrderHeader
 from app.models.usuario import Usuario
+from app.schemas.oc_ingreso import SyncOcTripleResult
 from app.services import oc_mirror_sync_service
 
 
@@ -315,3 +318,117 @@ def test_sync_deletes_stale_pods_when_gbp_replaces_item_line(db, empresa, provee
     assert len(rows) == 1
     assert int(rows[0].pod_id) == 99
     assert int(rows[0].item_id) == 777
+
+
+_HEADER_500 = {
+    "comp_id": 1,
+    "bra_id": 45,
+    "poh_id": 500,
+    "supp_id": 99,
+    "poh_total": 1500,
+    "poh_cd": "2026-03-10T12:00:00",
+}
+
+
+def _seed_detail(db, *, pod_id: int, processed: bool = False) -> None:
+    db.add(
+        PurchaseOrderDetail(
+            comp_id=1,
+            bra_id=45,
+            poh_id=500,
+            pod_id=pod_id,
+            item_id=100,
+            pod_qty=Decimal("5"),
+            pod_confirmedqty=Decimal("0"),
+            pod_isprocessed=processed,
+        )
+    )
+    db.flush()
+
+
+def _fetch_with_details(details: list[dict]):
+    def _fake_fetch(params):
+        if params.get("strScriptLabel") == "scriptPurchaseOrderHeader":
+            return [_HEADER_500]
+        return details
+
+    return _fake_fetch
+
+
+def test_sync_keeps_detail_when_gbp_returns_no_detail_lines(db, empresa, proveedor, active_user, caplog) -> None:
+    """Header found but 0 detail lines must not wipe the OC detail mirror."""
+    pedido = _pedido(db, empresa, proveedor, active_user)
+    pedido.estado = "recibido"
+    _seed_detail(db, pod_id=7)
+    _seed_detail(db, pod_id=8)
+
+    with caplog.at_level("WARNING", logger=oc_mirror_sync_service.logger.name):
+        with patch.object(oc_mirror_sync_service, "_fetch_gbp", side_effect=_fetch_with_details([])):
+            synced = oc_mirror_sync_service.sync_ocs_for_pedido(db, pedido_id=pedido.id)
+    db.flush()
+
+    assert synced[0]["detail"]["deleted"] == 0
+    assert synced[0]["deleted_pod_ids"] == []
+    assert db.query(PurchaseOrderDetail).filter_by(comp_id=1, bra_id=45, poh_id=500).count() == 2
+    assert any("0 detail lines" in r.getMessage() for r in caplog.records)
+
+
+def test_sync_prune_reports_deleted_pods_and_warns_on_local_activity(
+    db, empresa, proveedor, active_user, caplog
+) -> None:
+    """Pruned pod_ids are returned; pods with local arribos/ingresos are flagged."""
+    pedido = _pedido(db, empresa, proveedor, active_user)
+    _seed_detail(db, pod_id=10)
+    _seed_detail(db, pod_id=11)
+    _seed_detail(db, pod_id=12)
+    db.add(
+        PedidoCompraArriboProgreso(
+            pedido_id=pedido.id,
+            oc_comp_id=1,
+            oc_bra_id=45,
+            oc_poh_id=500,
+            pod_id=10,
+            cantidad=Decimal("1"),
+            usuario_id=active_user.id,
+        )
+    )
+    db.add(
+        PedidoCompraIngreso(
+            pedido_id=pedido.id,
+            oc_comp_id=1,
+            oc_bra_id=45,
+            oc_poh_id=500,
+            pod_id=11,
+            cantidad_recibida=Decimal("2"),
+            usuario_id=active_user.id,
+        )
+    )
+    db.flush()
+    keep = {"comp_id": 1, "bra_id": 45, "poh_id": 500, "pod_id": 99, "item_id": 777, "pod_qty": 5}
+
+    with caplog.at_level("WARNING", logger=oc_mirror_sync_service.logger.name):
+        with patch.object(oc_mirror_sync_service, "_fetch_gbp", side_effect=_fetch_with_details([keep])):
+            synced = oc_mirror_sync_service.sync_ocs_for_pedido(db, pedido_id=pedido.id)
+    db.flush()
+
+    assert synced[0]["detail"]["deleted"] == 3
+    assert synced[0]["deleted_pod_ids"] == [10, 11, 12]
+    assert synced[0]["deleted_pod_ids_with_local_activity"] == [10, 11]
+    # Endpoint response model must accept the enriched result.
+    assert SyncOcTripleResult.model_validate(synced[0]).deleted_pod_ids == [10, 11, 12]
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert any("[10, 11]" in m for m in warnings)
+
+
+def test_sync_missing_processed_flag_keeps_stored_value(db, empresa, proveedor, active_user) -> None:
+    """A payload without pod_isProcessed must not overwrite a stored True with None."""
+    pedido = _pedido(db, empresa, proveedor, active_user)
+    _seed_detail(db, pod_id=7, processed=True)
+    line = {"comp_id": 1, "bra_id": 45, "poh_id": 500, "pod_id": 7, "item_id": 100, "pod_qty": 5}
+
+    with patch.object(oc_mirror_sync_service, "_fetch_gbp", side_effect=_fetch_with_details([line])):
+        oc_mirror_sync_service.sync_ocs_for_pedido(db, pedido_id=pedido.id)
+    db.flush()
+
+    detail = db.query(PurchaseOrderDetail).filter_by(comp_id=1, bra_id=45, poh_id=500, pod_id=7).one()
+    assert detail.pod_isprocessed is True
