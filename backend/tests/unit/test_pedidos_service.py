@@ -1209,6 +1209,24 @@ class TestRevertirCuentaCorriente:
         db.refresh(p)
         assert p.estado == "en_cuenta_corriente"
 
+    def test_revertir_bloqueada_si_existe_arribo_parcial(self, db, empresa, proveedor, active_user) -> None:
+        """Partial arrival progress is goods that physically arrived too: reverting CC must refuse it (#2224)."""
+        from app.models.pedido_compra_arribo_progreso import PedidoCompraArriboProgreso  # noqa: PLC0415
+
+        p = _crear_pedido_aprobado(db, empresa, proveedor, active_user, monto=Decimal("1000"))
+        pedidos_service.marcar_cuenta_corriente(db, pedido_id=p.id, user_id=active_user.id)
+        db.refresh(p)
+        db.add(PedidoCompraArriboProgreso(pedido_id=p.id, pod_id=1, cantidad=Decimal("30"), usuario_id=active_user.id))
+        db.flush()
+
+        with pytest.raises(HTTPException) as exc:
+            pedidos_service.revertir_cuenta_corriente(
+                db, pedido_id=p.id, motivo="intento invalido", user_id=active_user.id
+            )
+        assert exc.value.status_code == 409
+        db.refresh(p)
+        assert p.estado == "en_cuenta_corriente"
+
     def test_revertir_no_toca_caja_ni_banco(self, db, empresa, proveedor, active_user) -> None:
         from app.models.orden_pago import OrdenPago  # noqa: PLC0415
 
