@@ -350,7 +350,7 @@ export default function AportesAdsML() {
           )}
 
           <div className={styles.tableCard}>
-            <table className={styles.table}>
+            <table className={`${styles.table} ${styles.campaignTable}`}>
               <thead>
                 <tr>
                   <th>Campaña</th>

@@ -239,7 +239,7 @@
   align-items: center;
   gap: var(--spacing-sm);
   /* Keeps a long campaign name to two lines; on a narrow screen the table card scrolls instead. */
-  min-width: 200px;
+  min-width: 160px;
 }
 
 .campaignName {
@@ -306,7 +306,7 @@
   /* Fixed tracks: amount, settlement, range, actions sit on the same verticals in every row.
      An amount or settlement wider than its track grows the track instead of overlapping the next one. */
   display: grid;
-  grid-template-columns: minmax(7rem, max-content) minmax(4rem, max-content) max-content auto;
+  grid-template-columns: minmax(6.5rem, max-content) minmax(4rem, max-content) max-content auto;
   align-items: center;
   column-gap: var(--spacing-sm);
   height: 28px;
@@ -346,6 +346,30 @@
 /* The aportes cell's own right padding already separates the button. */
 .table .addCell {
   padding-left: 0;
+}
+
+/* The add column is only as wide as its button. */
+.addCell .addLink {
+  padding: 0 var(--space-2);
+}
+
+/*
+ * Campaign table only (the other tabs share `.table`): 8px cell sides and wrapping money headers,
+ * so the table fits its card at 1280 with real margin even under wider fallback fonts (CI's DejaVu).
+ */
+.campaignTable th,
+.campaignTable td {
+  padding-left: var(--space-2);
+  padding-right: var(--space-2);
+}
+
+.campaignTable th:first-child,
+.campaignTable td:first-child {
+  padding-left: var(--space-3);
+}
+
+.campaignTable th.num {
+  white-space: normal;
 }
 
 .addLink {
