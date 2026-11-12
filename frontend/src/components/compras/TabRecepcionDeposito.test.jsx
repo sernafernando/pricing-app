@@ -1467,3 +1467,24 @@ describe('TabRecepcionDeposito — OC, producto/EAN and creado por filters', () 
     );
   });
 });
+
+describe('TabRecepcionDeposito — Revertir control permission', () => {
+  const PEDIDO_CONTROLADO = { ...PEDIDO_PAGADO, id: 9, numero: 'PC-0009', estado: 'controlado' };
+
+  it('shows Revertir control to users with deposito.recibir_mercaderia', async () => {
+    await renderTab([PEDIDO_CONTROLADO]);
+
+    expect(
+      screen.getByRole('button', { name: 'Revertir control del pedido #PC-0009' })
+    ).toBeInTheDocument();
+  });
+
+  it('hides Revertir control from users without deposito.recibir_mercaderia', async () => {
+    mockPermisos.denied.add('deposito.recibir_mercaderia');
+    await renderTab([PEDIDO_CONTROLADO]);
+
+    expect(
+      screen.queryByRole('button', { name: 'Revertir control del pedido #PC-0009' })
+    ).not.toBeInTheDocument();
+  });
+});
