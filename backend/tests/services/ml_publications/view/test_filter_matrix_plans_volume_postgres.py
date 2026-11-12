@@ -21,11 +21,11 @@ CI runs a sample, split over four modules so the volume job (`--dist loadfile`) 
   Producto ids, KPIs), each read sent once, its statements' plans checked and its answers compared with the oracle;
 - every Agrupado tree, walked to the products, with all the filters at once, all + the promo set, the promo set alone
   and no filter (this module);
-- the oracle of all the filters at once, with and without the promo set, over every tree
-  (`test_filter_matrix_oracle_volume_postgres.py`).
+- the oracle of all the filters at once over the `marca` and `subcategoria` trees, and with the promo set over the
+  `marca` tree (`test_filter_matrix_oracle_volume_postgres.py`).
 
-The full matrix (every tree under every filter, every filter with the promo set; plans and oracle, about 47 min on the
-test server) runs on demand:
+The full matrix (every tree under every filter, every filter with the promo set, the oracle of all the filters over every
+tree; plans and oracle, about 47 min on the test server) runs on demand:
 
     PUBML_FILTER_MATRIX_FULL=1 pytest -m volume tests/services/ml_publications/view/test_filter_matrix_*_volume_postgres.py
 """
@@ -465,8 +465,11 @@ def previous_shape(monkeypatch) -> None:
 
 # The oracle module's cases (each filter alone runs in `assert_each_filter`).
 ORACLE = [
-    pytest.param("all", ALL, False, TREES, id="all"),
-    pytest.param("all + promo", ALL, True, TREES, id="all + promo"),
+    # the two shapes of `Dimension.matches` (a text level, a subcategory id): the other trees in the full matrix
+    pytest.param("all", ALL, False, ("marca", "subcategoria"), id="all"),
+    pytest.param("all + promo", ALL, True, ("marca",), id="all + promo"),
+    pytest.param("all every tree", ALL, False, TREES, marks=FULL, id="all every tree"),
+    pytest.param("all + promo every tree", ALL, True, TREES, marks=FULL, id="all + promo every tree"),
     *(
         pytest.param(f"{name} every tree", kwargs, False, TREES, marks=FULL, id=f"{name} every tree")
         for name, kwargs in FILTERS.items()
