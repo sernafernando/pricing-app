@@ -94,9 +94,7 @@ def test_parcial_queda_en_por_recibir(db, pedido_oc, active_user):
         db,
         pedido_oc,
         active_user,
-        RegistrarArriboProgresoRequest(
-            lineas=[ArriboProgresoLineaRequest(pod_id=1, cantidad=Decimal("30"))]
-        ),
+        RegistrarArriboProgresoRequest(lineas=[ArriboProgresoLineaRequest(pod_id=1, cantidad=Decimal("30"))]),
     )
     assert result.cerrado is False
     assert result.estado_nuevo == "pagado"
@@ -134,9 +132,7 @@ def test_marcar_completo_con_progreso_parcial_requiere_cobertura(db, pedido_oc, 
         db,
         pedido_oc,
         active_user,
-        RegistrarArriboProgresoRequest(
-            lineas=[ArriboProgresoLineaRequest(pod_id=1, cantidad=Decimal("30"))]
-        ),
+        RegistrarArriboProgresoRequest(lineas=[ArriboProgresoLineaRequest(pod_id=1, cantidad=Decimal("30"))]),
     )
     with pytest.raises(HTTPException) as exc:
         recepcion_service.confirmar_arribo_con_oc(db, pedido_oc, active_user)
@@ -164,9 +160,7 @@ def test_over_arribo_409(db, pedido_oc, active_user):
             db,
             pedido_oc,
             active_user,
-            RegistrarArriboProgresoRequest(
-                lineas=[ArriboProgresoLineaRequest(pod_id=1, cantidad=Decimal("101"))]
-            ),
+            RegistrarArriboProgresoRequest(lineas=[ArriboProgresoLineaRequest(pod_id=1, cantidad=Decimal("101"))]),
         )
     assert exc.value.status_code == 409
 

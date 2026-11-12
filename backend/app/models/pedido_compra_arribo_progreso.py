@@ -1,9 +1,10 @@
 """
-PedidoCompraArriboProgreso — append-only arribo/retiro progress (pre-control).
+PedidoCompraArriboProgreso — arribo/retiro progress batches (pre-control).
 
-Separate from `pedido_compra_ingresos` (control tandas). While cumulative
-progress per OC line is under `pod_qty`, the pedido stays in ESTADOS_ARRIBO
-(por recibir). When every line is covered, reception closes to `recibido`.
+Separate from `pedido_compra_ingresos` (control tandas). Saving progress never
+closes the pedido: it stays in ESTADOS_ARRIBO (por recibir) until the operator
+confirms arrival, which requires every OC line covered once progress exists.
+Rows are only added while arriving; `deshacer_recibido` deletes them.
 """
 
 from sqlalchemy import (
@@ -28,7 +29,7 @@ class PedidoCompraArriboProgreso(Base):
 
     __tablename__ = "pedido_compra_arribo_progreso"
 
-    id = Column(BigInteger, primary_key=True, index=True)
+    id = Column(BigInteger, primary_key=True)
     pedido_id = Column(
         BigInteger,
         ForeignKey("pedidos_compra.id", ondelete="RESTRICT"),
