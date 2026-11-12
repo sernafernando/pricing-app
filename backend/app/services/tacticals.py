@@ -531,6 +531,15 @@ def aplicar_facturas_pendientes(db: Session, pedido_ids: Iterable[int]) -> int:
     ids = sorted(set(pedido_ids))
     if not ids:
         return 0
+    # Lock order of a tactical's writers (anular, editar): the tactical, then its waiting rows. The purchase's FK
+    # takes the tactical FOR KEY SHARE anyway; taking it first waits for a void in progress instead of deadlocking
+    # with it while holding its waiting row.
+    duenos = (
+        db.query(TacticalFacturaPendiente.tactical_id)
+        .filter(TacticalFacturaPendiente.pedido_id.in_(ids), TacticalFacturaPendiente.estado == "pendiente")
+        .distinct()
+    )
+    db.query(Tactical.id).filter(Tactical.id.in_(duenos)).order_by(Tactical.id).with_for_update(key_share=True).all()
     filas = (
         db.query(TacticalFacturaPendiente)
         .filter(TacticalFacturaPendiente.pedido_id.in_(ids), TacticalFacturaPendiente.estado == "pendiente")

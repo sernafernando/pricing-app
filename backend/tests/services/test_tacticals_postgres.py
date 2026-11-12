@@ -1230,6 +1230,119 @@ class TestFacturaPendienteTotal:
         assert self._compras(engine, tactical.id) == []
         assert self._pendientes(engine, tactical.id) == [(1, pendiente, "anulada")]
 
+    def test_one_failing_pending_total_does_not_block_the_others(self, db, engine, monkeypatch) -> None:
+        """A pending total whose purchase cannot be built charges its own operation and keeps waiting; the other
+        operation claimed with it still applies (the handler retries a failed batch key by key)."""
+        factura = date(2026, 10, 10)
+        falla, sana = bw.pedido(engine, {}, None, moneda="ARS"), bw.pedido(engine, {}, None, moneda="ARS")
+        t_falla, t_sana = self._crear(db, falla, nombre="Falla"), self._crear(db, sana, nombre="Sana")
+        bw.clear_queue(engine)
+        original = service._compra_de_factura
+
+        def _compra(db_, clave, pedido, *args):
+            if pedido.id == falla:
+                raise service.compras.SellInError("La compra no se pudo armar")
+            return original(db_, clave, pedido, *args)
+
+        monkeypatch.setattr(service, "_compra_de_factura", _compra)
+        self._vincular(engine, falla, factura, {2964: 10})
+        self._vincular(engine, sana, factura, {950: 5})
+        self._worker()
+
+        assert self._pendientes(engine, t_falla.id) == [(1, falla, "pendiente")]
+        assert self._pendientes(engine, t_sana.id) == [(1, sana, "aplicada")]
+        assert len(self._compras(engine, t_sana.id)) == 1
+        [(tipo, ref, intentos, error)] = [r for r in bw.queue_rows(engine) if r[:2] == ("pedido", falla)]
+        assert intentos == 1 and "La compra no se pudo armar" in error
+        assert ("pedido", sana) not in bw.queued(engine)
+
+    def test_voiding_after_the_invoice_applied_voids_its_purchase(self, db, engine) -> None:
+        """A total the worker already applied is voided as the purchase it became, and its row stays `aplicada`."""
+        pendiente = bw.pedido(engine, {}, None, moneda="ARS")
+        tactical = self._crear(db, pendiente)
+        self._vincular(engine, pendiente, date(2026, 10, 10), {2964: 10})
+        self._worker()
+
+        db.expire_all()
+        service.anular(db, tactical.id, USUARIO, "Se cayó el acuerdo")
+
+        [(cabecera, _)] = self._compras(engine, tactical.id)
+        assert cabecera[0] == "anulada"
+        assert self._pendientes(engine, tactical.id) == [(1, pendiente, "aplicada")]
+
+    def test_voiding_while_the_worker_applies_waits_and_voids_the_new_purchase(self, db, engine) -> None:
+        """The worker holds the tactical (FK) and the waiting row while it builds the purchase; anular waits for it and
+        then voids that purchase, instead of missing it and leaving a voided tactical with an active purchase."""
+        import threading
+
+        pendiente = bw.pedido(engine, {}, None, moneda="ARS")
+        tactical = self._crear(db, pendiente)
+        self._vincular(engine, pendiente, date(2026, 10, 10), {2964: 10})
+        worker = sessionmaker(bind=engine)()
+        assert service.aplicar_facturas_pendientes(worker, [pendiente]) == 1  # row locked, purchase not committed
+        errores: list[BaseException] = []
+
+        def _anular() -> None:
+            otra = sessionmaker(bind=engine)()
+            try:
+                service.anular(otra, tactical.id, USUARIO, "Se cayó el acuerdo")
+            except BaseException as exc:  # noqa: BLE001 - surfaced by the assert below
+                errores.append(exc)
+            finally:
+                otra.close()
+
+        hilo = threading.Thread(target=_anular)
+        hilo.start()
+        hilo.join(timeout=1)
+        assert hilo.is_alive()  # anular waits on the worker's lock
+        worker.commit()
+        worker.close()
+        hilo.join(timeout=10)
+
+        assert not hilo.is_alive() and errores == []
+        [(cabecera, _)] = self._compras(engine, tactical.id)
+        assert cabecera[0] == "anulada"
+        assert self._pendientes(engine, tactical.id) == [(1, pendiente, "aplicada")]
+
+    def test_the_worker_waits_for_a_void_that_locked_the_tactical_first(self, db, engine) -> None:
+        """The other order: anular holds the tactical (FOR UPDATE) and is about to void the waiting row; the worker
+        must wait for it without locking that row first (no deadlock), then find nothing left to apply."""
+        import threading
+
+        pendiente = bw.pedido(engine, {}, None, moneda="ARS")
+        tactical = self._crear(db, pendiente)
+        self._vincular(engine, pendiente, date(2026, 10, 10), {2964: 10})
+        anulando = engine.connect()
+        tx = anulando.begin()
+        anulando.execute(text("SELECT id FROM tacticals WHERE id = :t FOR UPDATE"), {"t": tactical.id})
+        resultado: list = []
+
+        def _aplicar() -> None:
+            worker = sessionmaker(bind=engine)()
+            try:
+                resultado.append(service.aplicar_facturas_pendientes(worker, [pendiente]))
+                worker.commit()
+            except BaseException as exc:  # noqa: BLE001 - surfaced by the assert below
+                resultado.append(exc)
+            finally:
+                worker.close()
+
+        hilo = threading.Thread(target=_aplicar)
+        hilo.start()
+        hilo.join(timeout=1)
+        anulando.execute(text("SET LOCAL lock_timeout = '3s'"))
+        anulando.execute(
+            text("UPDATE tactical_facturas_pendientes SET estado = 'anulada' WHERE tactical_id = :t"),
+            {"t": tactical.id},
+        )
+        tx.commit()
+        anulando.close()
+        hilo.join(timeout=10)
+
+        assert resultado == [0]
+        assert self._compras(engine, tactical.id) == []
+        assert self._pendientes(engine, tactical.id) == [(1, pendiente, "anulada")]
+
     def test_editing_the_name_keeps_the_pending_total(self, db, engine) -> None:
         from app.schemas.tacticals import TacticalEditarIn
 
