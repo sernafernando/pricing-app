@@ -200,9 +200,7 @@ def get_orden_compra_detalle(
         item_code = row[11]
         pod_isprocessed = bool(row[12])
         item_nombre = raw_nombre if raw_nombre is not None else (str(item_id) if item_id is not None else None)
-        saldo_pendiente = (
-            Decimal("0") if pod_isprocessed else (pod_qty - pod_confirmedqty)
-        )
+        saldo_pendiente = Decimal("0") if pod_isprocessed else (pod_qty - pod_confirmedqty)
         lines.append(
             OrdenCompraLineaResponse(
                 pod_id=pod_id,
