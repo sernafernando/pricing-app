@@ -214,15 +214,6 @@ const CHIP_MAX_CHARS = 60;
 const truncarChip = (t) =>
   t.length > CHIP_MAX_CHARS ? `${t.slice(0, CHIP_MAX_CHARS).trimEnd()}…` : t;
 
-// Banner de arribo. Se CONSERVA con un solo cambio: "control de ítems" →
-// "control de cantidades". La primera oración sigue siendo cierta en TODAS las
-// ramas de render (incluida la de error de /saldos) y nombra el estado, no la
-// tabla. La segunda es la que más se gana ahora: con los ítems a la vista, el
-// operario necesita saber POR QUÉ no puede contarlos, y "control de ítems" al
-// lado de ítems visibles se leía como una contradicción.
-const ARRIBO_BANNER_TEXT =
-  'El pedido aún no fue recibido en depósito. Confirme el arribo para habilitar el control de cantidades.';
-
 function arriboVocab(requiereEnvio) {
   return requiereEnvio
     ? {
