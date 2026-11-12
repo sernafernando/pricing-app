@@ -328,12 +328,27 @@ def _worst_unit(
     return (None, None) if best is None else (best[2], best[1])
 
 
-def compute_detail(
+@dataclass(frozen=True)
+class DetailUnit:
+    """Everything the detail priced ONE publication with: the pricing context, the publication's markup, the unit its
+    breakdown explains (`unit` None when no unit has a value) and the shipping that unit was priced with (the
+    products' MAX in `envio`, the publication's own cost in `envio_propio`, which wins). Repricing `unit` at another
+    price with these same inputs (`unit_markup`) is the header's markup at that price."""
+
+    ctx: PricingContext
+    publication: PublicationInputs
+    markup: PublicationMarkup
+    unit: Optional[UnitInputs]
+    variation_id: Optional[int]
+    envio: Mapping[int, float]
+    envio_propio: Optional[float]
+
+
+def detail_unit(
     db: Session, pricing_db: Session, item_id: str, *, ctx: Optional[PricingContext] = None
-) -> Optional[DetailMarkup]:
-    """Markup and breakdown of ONE publication: the inputs (three or four statements), one shipping batch for its
-    priceable products and the pure functions of the list (`price_publication`, `unit_breakdown`). `None` when the
-    publication is not in the store. No Ads: the detail explains the plain markup."""
+) -> Optional[DetailUnit]:
+    """The inputs of `compute_detail` for `item_id` (three or four statements, one shipping batch and the pricing
+    context unless given). `None` when the publication is not in the store."""
     publication = fetch_inputs(db, item_ids=[item_id]).get(item_id)
     if publication is None:
         return None
@@ -342,5 +357,23 @@ def compute_detail(
     ctx = ctx or build_pricing_context(pricing_db)
     markup = price_publication(ctx, publication, envio.por_producto, own)
     unit, variation_id = _worst_unit(publication, markup)
-    breakdown = unit_breakdown(ctx, unit, envio.por_producto, envio_propio=own) if unit is not None else None
-    return DetailMarkup(ItemMarkup(markup, variation_ids=publication.variation_ids), breakdown, variation_id)
+    return DetailUnit(ctx, publication, markup, unit, variation_id, envio.por_producto, own)
+
+
+def compute_detail(
+    db: Session, pricing_db: Session, item_id: str, *, ctx: Optional[PricingContext] = None
+) -> Optional[DetailMarkup]:
+    """Markup and breakdown of ONE publication: the inputs (three or four statements), one shipping batch for its
+    priceable products and the pure functions of the list (`price_publication`, `unit_breakdown`). `None` when the
+    publication is not in the store. No Ads: the detail explains the plain markup."""
+    found = detail_unit(db, pricing_db, item_id, ctx=ctx)
+    if found is None:
+        return None
+    breakdown = (
+        unit_breakdown(found.ctx, found.unit, found.envio, envio_propio=found.envio_propio)
+        if found.unit is not None
+        else None
+    )
+    return DetailMarkup(
+        ItemMarkup(found.markup, variation_ids=found.publication.variation_ids), breakdown, found.variation_id
+    )

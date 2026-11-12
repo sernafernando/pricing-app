@@ -13,13 +13,18 @@ Layout:
     from `origin/main` BEFORE the change and must not move.
   * RED structural — pricing constants and the group shipping average are
     resolved at most once per item request, however many promos it lists.
+
+S11 (2026-11-12): the context is now the publication's header unit
+(`markup_service.detail_unit`). Its store read (`fetch_inputs`, Postgres SQL) and
+the mlwebhook shipping read are stubbed with the same publication (classic list,
+no shipping cost of its own); the pricing context is the real
+`build_pricing_context` over this world, so the pinned markups still hold.
 """
 
 from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import date
-from unittest.mock import patch
 
 import pytest
 from sqlalchemy import event
@@ -28,15 +33,43 @@ from app.models.comision_config import SubcategoriaGrupo
 from app.models.comision_versionada import ComisionBase, ComisionVersion
 from app.models.pricing_constants import PricingConstants
 from app.models.producto import ProductoERP
-from app.models.publicacion_ml import PublicacionML
 from app.models.tipo_cambio import TipoCambio
+from app.services.envio_real_service import CostosEnvio
 from app.services.ml_promotions_pricing import (
     _markup_con_contexto,
     _resolve_pricing_context,
     enriquecer_markup_por_promo,
 )
+from app.services.ml_publications.view import markup_service
+from app.services.ml_publications.view.markup import UnitInputs
+from app.services.ml_publications.view.markup_inputs import PublicationInputs
 
 SUBCAT = 77
+
+# MLA1 as the store gives it: the classic list (pricelist 4), product 1 (10 USD, no shipping cost of its own).
+UNIT = UnitInputs(
+    item_id="MLA1",
+    listing_type_id="gold_special",
+    tags=(),
+    sale_terms_campaign=None,
+    sale_price=None,
+    item_price=30000.0,
+    producto_item_id=1,
+    costo=10.0,
+    moneda_costo="USD",
+    iva=21.0,
+    envio=0.0,
+    subcategoria_id=SUBCAT,
+)
+
+
+@pytest.fixture(autouse=True)
+def header_reads(monkeypatch):
+    """The store and mlwebhook reads of the header unit (Postgres-only SQL / another database)."""
+    monkeypatch.setattr(
+        markup_service, "fetch_inputs", lambda db, item_ids=None, f=None: {"MLA1": PublicationInputs("MLA1", UNIT, ())}
+    )
+    monkeypatch.setattr(markup_service, "resolver_costos_envio_mlas", lambda db, products, mlas: CostosEnvio())
 
 
 def _promo(kind: str, status: str, price, original, suggested=None, payload=None) -> dict:
@@ -120,7 +153,6 @@ def world(db):
             activo=True,
         )
     )
-    db.add(PublicacionML(mla="MLA1", item_id=1, pricelist_id=4, activo=True))
     db.commit()
     return db
 
@@ -144,8 +176,7 @@ def _count_statements(db, *needles: str):
 
 def _run(db, promos=None):
     promos = [dict(p) for p in (PROMOS if promos is None else promos)]
-    with patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0):
-        return enriquecer_markup_por_promo(db, "MLA1", promos)
+    return enriquecer_markup_por_promo(db, "MLA1", promos)
 
 
 # USD cost 10 * 1200 = 12000 ARS, IVA 21, commission base 13 %, shipping 0 -> group average 2000, varios 7.5 %.
@@ -171,8 +202,7 @@ class TestCharacterization:
         ]
 
     def test_plain_price_markups_with_a_resolved_context_are_pinned(self, world) -> None:
-        with patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0):
-            context = _resolve_pricing_context(world, "MLA1")
+        context = _resolve_pricing_context(world, "MLA1")
         assert context is not None
 
         for price, expected in PINNED_PLAIN:
@@ -201,8 +231,7 @@ class TestStatementsPerItemRequest:
         assert many["SELECT"] == few["SELECT"]
 
     def test_markup_con_contexto_reuses_the_context_constants(self, world) -> None:
-        with patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0):
-            context = _resolve_pricing_context(world, "MLA1")
+        context = _resolve_pricing_context(world, "MLA1")
         with _count_statements(world, "pricing_constants") as counts:
             for price in (5000.0, 20000.0, 40000.0):
                 _markup_con_contexto(world, context, price)

@@ -10,27 +10,34 @@ rule: with sell in + sell out when there is sell out, else with sell in only). N
 
 from __future__ import annotations
 
+from contextlib import ExitStack, contextmanager
 from datetime import date, timedelta
-from typing import Iterator
+from types import SimpleNamespace
+from typing import Iterator, Optional
 from unittest.mock import patch
 
 import pytest
 from sqlalchemy import Engine, event, text
 from sqlalchemy.exc import ProgrammingError
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.comision_config import ComisionListaGrupo, SubcategoriaGrupo
 from app.models.comision_versionada import ComisionAdicionalCuota, ComisionBase, ComisionVersion
 from app.models.pricing_constants import PricingConstants
+from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
 from app.models.sell_in import SellInBonoItem
 from app.routers.ml_promotions import obtener_promociones_item
 from app.services import ml_promotions_hay_mejores as hay_mejores
+from app.services.envio_real_service import CostosEnvio
 from app.services.ml_promotions_pricing import (
     enriquecer_markup_por_promo,
     markup_para_precio_con_sell_in_out,
     resolver_sell_in_out_para_mlas,
 )
+from app.services.ml_publications.view import detail, markup_service
+from app.services.ml_publications.view.markup import UnitInputs
+from app.services.ml_publications.view.markup_inputs import PublicationInputs
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _world as si
 from tests.services.sell_out import _world as so
@@ -121,9 +128,49 @@ def _promos() -> list[dict]:
     ]
 
 
+HEADER_PRICE = 60500.0  # the publication's sale price: the header prices it, the seller promo matches it
+
+
+def _store_inputs(db: Session, item_ids: Optional[list[str]] = None, f=None) -> dict[str, PublicationInputs]:
+    """Stands in for the publication store read (`fetch_inputs`, S11): each `publicaciones_ml` row of this world is
+    a classic-list publication of its product, at `HEADER_PRICE`, with the product's own ERP fields."""
+    out: dict[str, PublicationInputs] = {}
+    for mla in item_ids or []:
+        publicacion = db.query(PublicacionML).filter(PublicacionML.mla == mla).first()
+        if publicacion is None:
+            continue
+        producto = db.query(ProductoERP).filter(ProductoERP.item_id == publicacion.item_id).first()
+        unit = UnitInputs(
+            item_id=mla,
+            listing_type_id="gold_special",
+            tags=(),
+            sale_terms_campaign=None,
+            sale_price=HEADER_PRICE,
+            item_price=None,
+            producto_item_id=producto.item_id,
+            costo=None if producto.costo is None else float(producto.costo),
+            moneda_costo=producto.moneda_costo,
+            iva=float(producto.iva),
+            envio=0.0,
+            subcategoria_id=producto.subcategoria_id,
+        )
+        out[mla] = PublicationInputs(mla, unit, ())
+    return out
+
+
+@contextmanager
+def _tienda() -> Iterator[None]:
+    """The header unit's reads: the store stand-in above and no real shipping cost (mlwebhook is another DB)."""
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(markup_service, "fetch_inputs", _store_inputs))
+        stack.enter_context(patch("app.services.ml_promotions_pricing.fetch_inputs", _store_inputs))
+        stack.enter_context(patch.object(markup_service, "resolver_costos_envio_mlas", lambda *a, **k: CostosEnvio()))
+        yield
+
+
 def _enrich(engine: Engine, *, sell_in_out: bool = True) -> list[dict]:
     with sessionmaker(bind=engine, autoflush=False)() as db:
-        with patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0):
+        with _tienda():
             return enriquecer_markup_por_promo(db, MLA, _promos(), sell_in_out=sell_in_out)
 
 
@@ -136,6 +183,24 @@ def _lote_y_campana(engine: Engine, **campana) -> None:
     si.compra(engine, [(ROUTER, 2, "2000.00")], HOY - timedelta(days=30))  # 1000 ARS of sell in per unit
     gid = so.grupo(engine, [{"item_id": ROUTER}])
     so.campana(engine, [gid], DESDE, HASTA, **({"monto_unit": "500.00"} | campana))
+
+
+class TestPromoIgualAlHeader:
+    """S11 (owner, 2026-11-12): "se están contradiciendo los markups". A promo at the header's price shows the
+    header's "Markup" and "c/ sell in/out" (`view.detail`: `compute_detail` and `_sell_in_out`)."""
+
+    def test_a_promo_at_the_header_price_shows_both_header_markups(self, engine) -> None:
+        _lote_y_campana(engine)
+        links = [SimpleNamespace(variation_id=0, product_id=ROUTER, iva=21.0, match_status="linked")]
+        with sessionmaker(bind=engine, autoflush=False)() as db, _tienda():
+            found = markup_service.compute_detail(db, db, MLA)
+            header = detail._sell_in_out(db, links, found, mla=MLA)
+            promo = enriquecer_markup_por_promo(db, MLA, [_promos()[0]], sell_in_out=True)[0]
+
+        assert found.breakdown.price == promo["price"] == HEADER_PRICE
+        assert header is not None and header["markups_sell_in_out"][detail.SELL_IN_OUT_KEY] is not None
+        assert promo["nuestro_markup"] == pytest.approx(found.breakdown.markup)
+        assert promo["markup_sell_in_out"] == pytest.approx(header["markups_sell_in_out"][detail.SELL_IN_OUT_KEY])
 
 
 class TestPromosDelPanel:
@@ -205,7 +270,7 @@ class TestPromosDelPanel:
         """The extra figure goes with the markup: never "N/A" next to "c/ sell in/out X%" (review advisory)."""
         _lote_y_campana(engine)
 
-        with patch("app.services.ml_promotions_pricing.calcular_markup", side_effect=ValueError("sin markup")):
+        with patch("app.services.ml_promotions_pricing.unit_markup", side_effect=ValueError("sin markup")):
             promos = _enrich(engine)
 
         assert [p["nuestro_markup"] for p in promos] == [None, None]
@@ -239,7 +304,7 @@ class TestFallaDelSellInOut:
 
         with sessionmaker(bind=engine, autoflush=False)() as db:
             with (
-                patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0),
+                _tienda(),
                 patch("app.services.ml_promotions_pricing.resolver_sell_in_out_batch", side_effect=_resolver_que_falla),
                 patch("app.routers.ml_promotions.fetch_item_promotions", return_value=_promos()),
                 patch("app.routers.ml_promotions.motivo_sin_consulta_ml", side_effect=_lectura_real),
@@ -270,7 +335,7 @@ class TestFallaDelSellInOut:
 
         with sessionmaker(bind=engine, autoflush=False)() as db:
             with (
-                patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0),
+                _tienda(),
                 patch("app.services.ml_promotions_pricing.resolver_sell_in_out_batch", side_effect=_resolver_que_falla),
             ):
                 nuestro, con_sio = markup_para_precio_con_sell_in_out(db, MLA, 60500.0)
@@ -285,7 +350,7 @@ class TestPrecioManualYVigente:
         _lote_y_campana(engine)
 
         with sessionmaker(bind=engine, autoflush=False)() as db:
-            with patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0):
+            with _tienda():
                 nuestro, con_sio = markup_para_precio_con_sell_in_out(db, MLA, 60500.0)
 
         assert nuestro is not None
@@ -293,7 +358,7 @@ class TestPrecioManualYVigente:
 
     def test_without_sell_in_or_sell_out_only_the_markup_comes(self, engine) -> None:
         with sessionmaker(bind=engine, autoflush=False)() as db:
-            with patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0):
+            with _tienda():
                 nuestro, con_sio = markup_para_precio_con_sell_in_out(db, MLA, 60500.0)
 
         assert nuestro is not None
@@ -347,7 +412,7 @@ class TestRankingConSellInOut:
 
         with sessionmaker(bind=engine, autoflush=False)() as db:
             with (
-                patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0),
+                _tienda(),
                 patch.object(hay_mejores, "es_mejor_oferta", side_effect=_espia),
             ):
                 hay_mejores.listar_mejores_candidatas(db, MLA, [candidata], 60500.0, raw_promotions=[candidata])
@@ -368,14 +433,14 @@ class TestRankingConSellInOut:
                     {"m": mla, "i": item},
                 )
         try:
-            with sessionmaker(bind=engine, autoflush=False)() as db:
+            with sessionmaker(bind=engine, autoflush=False)() as db, _tienda():
                 with _contar(engine, "sell_out_campanas") as una:
                     resolver_sell_in_out_para_mlas(db, [MLA])
                 with _contar(engine, "sell_out_campanas") as tres:
                     batch = resolver_sell_in_out_para_mlas(db, [MLA, "MLA2270", "MLA950"])
                 with (
                     _contar(engine, "sell_out_campanas") as ranking,
-                    patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0),
+                    _tienda(),
                 ):
                     for mla in (MLA, "MLA2270", "MLA950"):
                         hay_mejores.listar_mejores_candidatas(db, mla, [], 60500.0, sell_in_out_batch=batch)
@@ -405,13 +470,13 @@ class TestRankingConSellInOut:
             return real(*args)
 
         with sessionmaker(bind=engine, autoflush=False)() as db:
-            with patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0):
+            with _tienda():
                 vigente = markup_para_precio_con_sell_in_out(db, MLA, 60500.0)
                 promo = enriquecer_markup_por_promo(
                     db, MLA, [hay_mejores.normalizar_entrada_seller_promo(candidata)], sell_in_out=True
                 )[0]
             with (
-                patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0),
+                _tienda(),
                 patch(
                     "app.services.ml_promotions_pricing.resolver_sell_in_out_batch", side_effect=RuntimeError("caída")
                 ) as lectura,
