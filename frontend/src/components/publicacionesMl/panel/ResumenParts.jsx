@@ -52,13 +52,14 @@ export function Group({ title, children }) {
 
 /**
  * One label / value line. A value the backend does not have is "—" (S4.1); with `hideEmpty` the line is left out
- * instead (the ML data, where most fields are often empty).
+ * instead (the ML data, where most fields are often empty). `short` keeps the value on one line (a date) and lets the
+ * label wrap instead.
  */
-export function Line({ label, children, hideEmpty = false }) {
+export function Line({ label, children, hideEmpty = false, short = false }) {
   const blank = isBlank(children);
   if (blank && hideEmpty) return null;
   return (
-    <div className={styles.line}>
+    <div className={short ? `${styles.line} ${styles.lineShort}` : styles.line}>
       <dt>{label}</dt>
       <dd>{blank ? <span className={cellStyles.empty}>—</span> : children}</dd>
     </div>

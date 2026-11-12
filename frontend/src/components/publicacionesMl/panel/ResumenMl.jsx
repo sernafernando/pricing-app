@@ -149,10 +149,10 @@ function Body({ item, extra, shownPrices }) {
             <Line hideEmpty label="Retiro en tienda">{yesNo(shipping.store_pick_up)}</Line>
           </Group>
           <Group title="Fechas en ML">
-            <Line hideEmpty label="Inicio">{date(item.start_time)}</Line>
-            <Line hideEmpty label="Fin">{date(item.stop_time)}</Line>
-            <Line hideEmpty label="Finalizada">{date(item.end_time)}</Line>
-            <Line hideEmpty label="Vencimiento">{date(item.expiration_time)}</Line>
+            <Line hideEmpty short label="Inicio">{date(item.start_time)}</Line>
+            <Line hideEmpty short label="Fin">{date(item.stop_time)}</Line>
+            <Line hideEmpty short label="Finalizada">{date(item.end_time)}</Line>
+            <Line hideEmpty short label="Vencimiento">{date(item.expiration_time)}</Line>
           </Group>
         </div>
       </div>

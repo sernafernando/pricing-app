@@ -136,9 +136,9 @@ function FichaSection({ detail, canViewPromos }) {
             {!canViewPromos && <Line label="Promoción">{promotion || null}</Line>}
           </Group>
           <Group title="Fechas">
-            <Line label="Creada">{date(detail.dateCreated)}</Line>
-            <Line label="Modificada en ML">{date(detail.mlLastUpdated)}</Line>
-            <Line label="Sincronizada">{date(detail.fetchedAt)}</Line>
+            <Line short label="Creada">{date(detail.dateCreated)}</Line>
+            <Line short label="Modificada en ML">{date(detail.mlLastUpdated)}</Line>
+            <Line short label="Sincronizada">{date(detail.fetchedAt)}</Line>
           </Group>
         </div>
       </div>

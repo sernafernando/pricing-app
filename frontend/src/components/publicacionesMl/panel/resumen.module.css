@@ -384,6 +384,12 @@
   overflow-wrap: anywhere;
 }
 
+/* A short value (a date) stays on one line; the label wraps if the column is narrow. */
+.lineShort dd {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .lineList {
   display: flex;
   flex-direction: column;
