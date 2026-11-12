@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Mapping, Optional, Sequence
 
-from sqlalchemy import ARRAY, Integer, any_, literal, select, text
+from sqlalchemy import ARRAY, Integer, String, any_, literal, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -179,7 +179,7 @@ def _precios_vigentes(db: Session, mlas: Sequence[str]) -> dict[str, float]:
         with db.no_autoflush:
             rows = (
                 db.query(MlItemSalePrice.item_id, MlItemSalePrice.amount)
-                .filter(MlItemSalePrice.item_id.in_(list(mlas)), MlItemSalePrice.amount > 0)
+                .filter(_in_item_ids(db, MlItemSalePrice.item_id, mlas, String), MlItemSalePrice.amount > 0)
                 .all()
             )
     except SQLAlchemyError as exc:
@@ -214,11 +214,11 @@ def costo_envio_maximo(costs: Mapping[str, float], fallback: Optional[float]) ->
     return por_tramo(lambda cs: max(cs.values()), costs)  # type: ignore[return-value]  # costs is not empty
 
 
-def _in_item_ids(db: Session, column: Any, item_ids: Sequence[int]) -> Any:
+def _in_item_ids(db: Session, column: Any, item_ids: Sequence[Any], element_type: Any = Integer) -> Any:
     """`column IN item_ids` as ONE array parameter on PostgreSQL (not N binds); an expanding bind elsewhere."""
     ids = list(item_ids)
     if db.get_bind().dialect.name == "postgresql":
-        return column == any_(literal(ids, ARRAY(Integer)))
+        return column == any_(literal(ids, ARRAY(element_type)))
     return column.in_(ids)  # portable (SQLite in tests): expanding bind, still one statement
 
 
