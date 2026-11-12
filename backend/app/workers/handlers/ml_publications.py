@@ -819,7 +819,8 @@ class RefreshHandler:
         except Exception as exc:  # noqa: BLE001 -- one resource's failure must not lose the others
             logger.exception("apply_subresource failed for %s %s", resource, key)
             return f"apply failed: {type(exc).__name__}: {exc}"[:300]
-        self._count(self._sub_outcomes[resource], outcome.kind)
+        with self._counters_lock:  # the defaultdict creates the Counter: keep that inside the lock too
+            self._sub_outcomes[resource][outcome.kind] += 1
         if outcome.kind == "error_recorded":
             return "malformed body" if 200 <= response.status < 300 else f"HTTP {response.status}"
         return None
