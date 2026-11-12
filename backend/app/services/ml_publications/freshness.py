@@ -58,7 +58,6 @@ MEASURED: Dict[str, _Measured] = {
     COMPETITION_RESOURCE: _Measured(
         "ml_item_competition", "item_id", _ITEM, (ITEM_KIND,), "AND i.catalog_listing IS TRUE"
     ),
-    "description": _Measured("ml_item_descriptions", "item_id", _ITEM, (ITEM_KIND,)),
     "family": _Measured(
         "ml_user_product_families",
         "family_id",
@@ -86,13 +85,18 @@ def _late_sql(measured: _Measured) -> Any:
     )
 
 
-_VISITS_SQL = text(
-    "SELECT count(*) AS late, max(age) AS oldest FROM ("
-    " SELECT CAST(extract(epoch FROM now() - v.last_checked_at) AS double precision) AS age"
-    " FROM ml_items i JOIN ml_item_visits v ON v.item_id = i.item_id"
-    " WHERE i.status = 'active' AND i.gone_at IS NULL"
-    ") x WHERE age > :target"
-)
+# Swept resources (no notification refetches them): the age of the last check on active items. Fixed table names.
+SWEPT: Dict[str, str] = {"description": "ml_item_descriptions", VISITS: "ml_item_visits"}
+
+
+def _swept_sql(table: str) -> Any:
+    return text(
+        "SELECT count(*) AS late, max(age) AS oldest FROM ("
+        " SELECT CAST(extract(epoch FROM now() - v.last_checked_at) AS double precision) AS age"
+        f" FROM ml_items i JOIN {table} v ON v.item_id = i.item_id"
+        " WHERE i.status = 'active' AND i.gone_at IS NULL"
+        ") x WHERE age > :target"
+    )
 
 
 def _number(value: Any) -> Any:
@@ -127,10 +131,12 @@ def measure(db: Session) -> Dict[str, Any]:
             "late": row.late,
             "oldest_late_seconds": _number(row.oldest),
         }
-    if VISITS in collected and config["sweep.enabled"].value is True:
-        row = db.execute(_VISITS_SQL, {"target": targets[VISITS] * LATE_TOLERANCE}).one()
-        resources[VISITS] = {
-            "target_seconds": targets[VISITS],
+    for name, table in SWEPT.items():
+        if name not in collected or config["sweep.enabled"].value is not True:
+            continue
+        row = db.execute(_swept_sql(table), {"target": targets[name] * LATE_TOLERANCE}).one()
+        resources[name] = {
+            "target_seconds": targets[name],
             "late": row.late,
             "oldest_late_seconds": _number(row.oldest),
         }

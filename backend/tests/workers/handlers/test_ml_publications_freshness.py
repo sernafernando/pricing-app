@@ -244,6 +244,30 @@ class TestVisits:
         assert visits["late"] == 1
 
 
+class TestDescription:
+    """2026-11-12: swept once a day, so measured like visits: the age of the last check on active items."""
+
+    def test_a_description_unchecked_for_more_than_a_day_is_late_while_the_sweep_collects_it(self, env) -> None:
+        put_item(env, "MLA1", checked=ago(1))
+        put_checked(env, "ml_item_descriptions", "MLA1", ago(60 * 26))
+        put_item(env, "MLA2", checked=ago(1))
+        put_checked(env, "ml_item_descriptions", "MLA2", ago(60 * 23))
+        settings_store.set_setting("bundle_resources", ["core", "description"], "test")
+        assert "description" not in measure(env)["resources"]
+
+        settings_store.set_setting("sweep.enabled", True, "test")
+        description = measure(env)["resources"]["description"]
+        assert (description["late"], description["target_seconds"]) == (1, 86400)
+
+    def test_a_bundle_notification_does_not_make_the_description_late(self, env) -> None:
+        put_item(env, "MLA1", checked=ago(1))
+        put_checked(env, "ml_item_descriptions", "MLA1", ago(60 * 2))
+        notify(env, "MLA1", received=ago(60 * 3))
+        settings_store.set_setting("bundle_resources", ["core", "description"], "test")
+        settings_store.set_setting("sweep.enabled", True, "test")
+        assert measure(env)["resources"]["description"]["late"] == 0
+
+
 class TestQueueLag:
     def test_the_oldest_wait_of_each_lane_is_reported(self, env) -> None:
         notify(env, "MLA1", received=ago(3), lane=2)

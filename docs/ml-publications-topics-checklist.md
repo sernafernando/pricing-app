@@ -77,7 +77,7 @@ The refresh handler ships these three fetchers dark: they run only for resources
 1. Enable one group at a time, watching the per-endpoint 429 counter in `worker_job_state.detail`:
    `bundle_resources = ["core", "prices", "sale_price"]` first, `description` afterwards.
 2. A `bundle` request fetches every enabled resource whose minimum age (`min_age_seconds`) has
-   passed since its last check: `description` waits 24 h, `prices` and `sale_price` have no minimum. A `min_age_seconds` row that names only some resources keeps the default of the others.
+   passed since its last check (`description` is swept-only, not part of the bundle), `prices` and `sale_price` have no minimum. A `min_age_seconds` row that names only some resources keeps the default of the others.
    A request that names the resource (`prices`, `sale_price` from a price topic, or a manual
    enqueue) bypasses the minimum age. `skipped_min_age` counts what the age skipped.
 3. `sale_price.reference_date` is the response time, so it is excluded from the change log (a fetch
@@ -190,7 +190,8 @@ Notes, all from the 2026-10-06 captures:
   as a failure, and raises no `item_gone`. Any other 404 body is a missing resource and marks the row gone.
 - Performance of a catalog product item answers `400 "Entity not calculated: Product items are not supported"`: stored
   as `applicable = false`, the queue entry completes without a charged attempt. Any other 400 is a failure.
-- Performance and visits are sweep-only (no ML notification, high cost per sale-triggered event). Listing them in
+- Description, performance and visits are sweep-only (no ML notification of their own, high cost per sale-triggered
+  event; the description since 2026-11-12, when it was ~17 % of the ML calls and changed 12 times a day). Listing them in
   `bundle_resources` only allows a NAMED request; a `bundle` entry skips them. The sweep (see "Missed feeds and
   sweeps" below) is what names them.
 - Visits `results` are diffed by `date`: a daily refetch logs the day that entered or left the 30-day window, never the
@@ -325,6 +326,8 @@ and of every other flag). Neither adds a cron, a timer or a LISTEN/NOTIFY: the s
   non-closed status: `active`, `paused`, `under_review`, `inactive`, `pending`; `closed` is never swept and is
   rejected by the setting), not gone. A performance state stored as `not_applicable` (a catalog product item) is
   rechecked only after `ML_PUB_NOT_APPLICABLE_RECHECK_DAYS` (30 days). Visits are one item per call.
+* `description` is swept like visits (same active-or-recently-active eligibility below), once a day per item. A request
+  that names it (the override push) still fetches it at once.
 * Visits narrow that set further: an item is eligible for visits only while it is `active`, or when the item change
   log (`ml_change_log`, `resource_type = 'item'`, `context.status_old = 'active'`) saw it leave `active` within the
   24 h before the tick (`VISITS_ACTIVE_WINDOW`). An item paused before that cannot gain visits, so it is not

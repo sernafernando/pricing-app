@@ -15,11 +15,11 @@ later: waiting out the minimum age is the store's choice, not a delay.
 | Publication status (`items`) | 2 min |
 | Prices, sale price, promotions | 5 min |
 | Competition (catalog listings only) | 5 min |
-| Description | 24 h |
+| Description | 24 h (age of the last check on active items; the sweep laps them once a day) |
 | Family | 24 h |
 | Visits | 25 h (age of the last check on active items; the sweep laps them once a day) |
 
-Only the resources in `bundle_resources` are measured; visits only while `sweep.enabled` is on. Stock (the
+Only the resources in `bundle_resources` are measured; description and visits only while `sweep.enabled` is on. Stock (the
 publication's available quantity) is not measured. Targets live in `ML_PUB_FRESHNESS_TARGET_SECONDS`. A delay
 counts as late only past its target plus 5 % (`LATE_TOLERANCE`): 2 min 5 s is not late against a 2 min target.
 

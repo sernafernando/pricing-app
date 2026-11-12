@@ -20,6 +20,7 @@ from app.services.ml_publications.resources import (
     BUNDLE_RESOURCE,
     COMPETITION_RESOURCE,
     CORE_RESOURCE,
+    DESCRIPTION_RESOURCE,
     FAMILY_KIND,
     ITEM_KIND,
     MODERATION_RESOURCE,
@@ -102,8 +103,10 @@ FETCH_ORDER: tuple = FAST_RESOURCES + SLOW_RESOURCES
 
 # Never part of the bundle (design D12: no notification topic, too costly per sale-triggered event): an entry
 # reaches them only by naming them, which the sweeps do. Listing them in `bundle_resources` enables the named
-# request; the bundle itself skips them.
-SWEEP_ONLY: frozenset = frozenset({PERFORMANCE_RESOURCE, VISITS_RESOURCE, REPLENISHMENT_RESOURCE})
+# request; the bundle itself skips them. The description joined them on 2026-11-12: an `items` notification says
+# nothing about the description, and fetching it on every one spent ~17 % of the ML calls; the daily sweep laps it
+# ("una vez por día", owner) and a request that names it (override push) still fetches it at once.
+SWEEP_ONLY: frozenset = frozenset({DESCRIPTION_RESOURCE, PERFORMANCE_RESOURCE, VISITS_RESOURCE, REPLENISHMENT_RESOURCE})
 
 # Resources that need their own flag on top of being listed in `bundle_resources` (design D14: the
 # promotions endpoint is shared with the bridge's ML application, so it has a separate kill point).
