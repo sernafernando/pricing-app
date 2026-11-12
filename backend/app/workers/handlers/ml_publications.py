@@ -742,8 +742,12 @@ class RefreshHandler:
             except BaseException:  # not an ML answer: the run fails, the calls still waiting must not go on
                 ended.set()
                 raise
-            if self._interruption(ctx, response, run):
+            interruption = self._interruption(ctx, response, run)
+            if interruption:
+                # Halt every runner now, not after this runner has awaited its futures: their calls queued in the
+                # shared pool would otherwise wait out a 429 cooldown and then call ML anyway.
                 ended.set()
+                run.runners.stop_all(interruption)
             return response
 
         futures: Dict[Tuple[str, str], Future] = {}
@@ -774,6 +778,7 @@ class RefreshHandler:
                 self._settle(work, resource, failure)
             if interruption:
                 ended.set()
+                run.runners.stop_all(interruption)
                 for future in futures.values():  # in flight or giving up: only the worst interruption is kept
                     stop = self._interruption(ctx, future.result(), run)
                     if stop:

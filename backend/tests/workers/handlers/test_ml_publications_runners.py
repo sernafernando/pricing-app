@@ -126,6 +126,41 @@ class TestBatchRunners:
         assert len(waiting) == 2 and all((r["attempts"], r["claimed_at"]) == (0, None) for r in waiting)
         assert any(r["not_before"] > datetime.now(timezone.utc) + timedelta(seconds=20) for r in waiting)
 
+    def test_a_sub_resource_429_halts_every_runner_before_its_other_calls_are_awaited(self, env, monkeypatch) -> None:
+        """Gentle review R4 (resilience): the 429 must set the shared halt at once. Before, it was set only after the
+        runner had awaited all its futures, so calls of other runners queued in the shared pool waited out the
+        cooldown and then called ML anyway."""
+        from app.workers.handlers import ml_publications as handler_module
+
+        enable_refresh(bundle_resources=["core", "prices", "description"], refresh__runners=1)
+        enqueue_items(ITEM, OTHER)
+        halted = threading.Event()
+        original = handler_module._Runners.stop_all
+
+        def spy(self, interruption):
+            halted.set()
+            return original(self, interruption)
+
+        monkeypatch.setattr(handler_module._Runners, "stop_all", spy)
+        serve = responder_with()
+        saw_halt: list[bool] = []
+
+        other_in_flight = threading.Event()
+
+        def limited(request, call):
+            if request.url.path == f"/items/{ITEM}/prices":
+                other_in_flight.wait(WAIT_SECONDS)
+                return json_response({"message": "too many"}, status=429, headers={"Retry-After": "30"})
+            if request.url.path == f"/items/{OTHER}/description":
+                other_in_flight.set()
+                saw_halt.append(halted.wait(WAIT_SECONDS))  # still in flight when the 429 arrives
+            return serve(request, call)
+
+        result = make_handler(ScriptedTransport(limited)).run(context(seconds=60))
+
+        assert result.detail["stopped"] == "rate_limited"
+        assert saw_halt == [True]
+
     def test_one_runner_claims_one_batch_at_a_time(self, env) -> None:
         enable_refresh(bulk_max_ids=1, refresh__runners=1)
         enqueue_items(ITEM, OTHER)
