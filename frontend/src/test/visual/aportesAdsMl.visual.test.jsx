@@ -179,9 +179,9 @@ describe('Aportes de marcas (Ads ML) (visual)', () => {
         for (const name of document.querySelectorAll('span[class*="campaignName"]')) {
           expect(name.getBoundingClientRect().height).toBeLessThanOrEqual(42);
         }
-        for (const pill of document.querySelectorAll('span[class*="keep"]')) {
-          expect(pill.getBoundingClientRect().height).toBeLessThanOrEqual(24);
-        }
+        const states = [...document.querySelectorAll('td > span[class*="state"]')];
+        expect(states.length).toBe(6);
+        for (const state of states) expect(state.getBoundingClientRect().height).toBeLessThanOrEqual(24);
         // The add button has its own column, level with the row's first line.
         for (const add of document.querySelectorAll('button[aria-label^="Agregar aporte a"]')) {
           const first = add.closest('tr').querySelector('li, span[class*="none"]').getBoundingClientRect();
