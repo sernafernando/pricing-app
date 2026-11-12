@@ -1,6 +1,7 @@
 /**
  * Sell in factura pendiente S4, in real Chromium: the invoice picker offers an operation still without its supplier
- * invoice marked «Esperando factura», and a saved tactical waiting for it says so in its state and on its line.
+ * invoice marked «Esperando factura», and a saved tactical waiting for it says so in its state and on its line; an
+ * invoice total waiting for its invoice has no «Ver ventas» (sell in factura pendiente total).
  *
  * Screenshots are written only when `VITE_TACTICAL_SHOTS_DIR` is set (PR evidence).
  */
@@ -64,6 +65,16 @@ const ESPERANDO = {
   ],
 };
 
+// A monto total line waiting for its invoice (follow-up of S4): stored apart, so it has no sales to open yet.
+const TOTAL_ESPERANDO = {
+  ...ESPERANDO,
+  id: 8,
+  nombre: 'Rebate TP-Link total OC 12410',
+  lineas: [
+    { ...ESPERANDO.lineas[0], id: 81, origen: 'sell_in_factura_pendiente', modo_monto: 'monto_total', valor: '850000' },
+  ],
+};
+
 beforeEach(() => {
   productosAPI.marcas.mockResolvedValue({ data: { marcas: ['HP', 'TP-Link'] } });
   productosAPI.categorias.mockResolvedValue({ data: { categorias: ['Monitores', 'Notebooks', 'Redes'] } });
@@ -120,5 +131,23 @@ describe.each([
       .element(screen.getByText('Esperando factura: se aplica cuando Compras vincule la factura del proveedor'))
       .toBeVisible();
     if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/factura-pendiente-lista-${theme}-${width}.png` });
+  });
+
+  it('shows an invoice total waiting for its invoice without Ver ventas', async () => {
+    await page.viewport(width, height);
+    setTheme(theme);
+    document.body.style.background = 'var(--cf-bg-app)';
+    const screen = await render(
+      <Shell>
+        <table>
+          <TacticalFila tactical={TOTAL_ESPERANDO} abierto onAlternar={() => {}} onVerLinea={() => {}} />
+        </table>
+      </Shell>,
+    );
+
+    await expect.element(screen.getByText('Esperando factura', { exact: true })).toBeVisible();
+    await expect.element(screen.getByRole('columnheader', { name: 'Ventas' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Ver ventas de la línea 1' }).query()).toBeNull();
+    if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/factura-pendiente-total-${theme}-${width}.png` });
   });
 });

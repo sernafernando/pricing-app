@@ -19,6 +19,8 @@ import styles from './TacticalFila.module.css';
 
 const TIPO_PILL = { sell_in: { texto: 'Sell in', tono: 'neutral' }, sell_out: { texto: 'Sell out', tono: 'info' } };
 const PORCENTAJE = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 });
+/** An invoice total still waiting for its invoice: no purchase yet, so no sales to open. */
+const SIN_VENTAS = 'sell_in_factura_pendiente';
 const GUION = <span className={styles.guion}>—</span>;
 
 function Barra({ avance, etiqueta }) {
@@ -97,14 +99,18 @@ function Lineas({ tactical, onVerLinea }) {
                 </td>
                 {onVerLinea && (
                   <td>
-                    <button
-                      type="button"
-                      className={styles.verVentas}
-                      aria-label={`Ver ventas de la línea ${i + 1}`}
-                      onClick={() => onVerLinea(linea)}
-                    >
-                      Ver ventas
-                    </button>
+                    {linea.origen === SIN_VENTAS ? (
+                      GUION
+                    ) : (
+                      <button
+                        type="button"
+                        className={styles.verVentas}
+                        aria-label={`Ver ventas de la línea ${i + 1}`}
+                        onClick={() => onVerLinea(linea)}
+                      >
+                        Ver ventas
+                      </button>
+                    )}
                   </td>
                 )}
               </tr>
@@ -120,7 +126,8 @@ function Lineas({ tactical, onVerLinea }) {
  * One tactical as a `<tbody>`: its row (type, brand, dates, line count, progress over the caps, state) and, when
  * `abierto`, its lines with amount, caps, usage and a "Tope alcanzado" mark. `acciones` (`{ label, onSelect }`) fill
  * the row's actions menu; none, no menu. With `onVerLinea`, each line has "Ver ventas", which hands that line (its
- * child record: `origen` and `id`) over. Its Cobranza cell says Pendiente or Cobrado with the date; with
+ * child record: `origen` and `id`) over; an invoice total still waiting for its invoice has none (no sales yet). Its
+ * Cobranza cell says Pendiente or Cobrado with the date; with
  * `cobranza.puede` (the user manages its kind) it has Cargar / Editar cobro, which toggles the Cobranza box under the
  * row (`cobranza.abierta`, `cobranza.onAlternar`; `cobranza.onGuardado` after a save or an undo).
  */
