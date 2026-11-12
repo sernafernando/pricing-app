@@ -1,5 +1,6 @@
 import HeaderMarkup from './HeaderMarkup';
 import { amount, count, units } from './format';
+import { costoEnMoneda, formatMoneda, sinTipoDeCambio } from './costoMoneda';
 import { SellInCost, SellInOutMarkupLine } from './sellInOutFigures';
 import styles from './panel.module.css';
 
@@ -39,13 +40,19 @@ export function publicationFigures(row, { canSeeMargin, canSeeSales, breakdown =
       ) : null,
     },
   ];
-  // S6: the product's cost in pesos (the one the markup divides by) and, under it, the cost with sell in.
+  // S6: the product's cost and, under it, the cost with sell in, both in the cost's own currency (S10: USD 17,04
+  // for a USD cost); the pesos the markup divides by go in the tooltip.
   if (canSeeMargin && breakdown?.costo_ars != null) {
     const sellIn = sellInOut?.sell_in;
+    const costo = costoEnMoneda(breakdown);
+    // A USD cost with no rate today has no pesos figure: `costo_ars` is then not pesos, so it is never shown as such.
+    const pesos = sinTipoDeCambio(breakdown) ? 'sin tipo de cambio' : `en pesos: ${money(breakdown.costo_ars)}`;
+    const title =
+      costo.moneda === 'ARS' ? `Costo del producto en pesos. ${hint}` : `Costo del producto en ${costo.moneda} (${pesos}). ${hint}`;
     figures.push({
       key: 'cost',
       label: 'Costo',
-      value: <span title={`Costo del producto en pesos. ${hint}`}>{money(breakdown.costo_ars)}</span>,
+      value: <span title={title}>{formatMoneda(costo.monto, costo.moneda, money)}</span>,
       note: sellIn ? (
         <>
           c/ sell in <SellInCost sellIn={sellIn} format={money} />

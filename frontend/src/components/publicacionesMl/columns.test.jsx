@@ -127,7 +127,15 @@ describe('listing type', () => {
 
 const PPP = { costo: 850, moneda: 'ARS', fecha: '2026-02-14', markups: {} };
 const SELL_IN = {
-  sell_in: { compra_item_id: 1, descuento_unit: 100, costo: 39900, unidades_restantes: 2 },
+  sell_in: {
+    compra_item_id: 1,
+    descuento_unit: 100,
+    costo: 39900,
+    unidades_restantes: 2,
+    moneda_costo: 'ARS',
+    costo_moneda: 39900,
+    descuento_unit_moneda: 100,
+  },
   sell_out: null,
   markups_sell_in: {},
   markups_sell_in_out: {},
@@ -156,19 +164,22 @@ describe('product columns', () => {
     expect(screen.getAllByText('—')).toHaveLength(2);
   });
 
-  it('shows the PPP and the cost with sell in under the cost, as Productos does', () => {
+  it('shows the cost with sell in inline on one line, the PPP in the tooltip (S10b)', () => {
     const columns = byKey({ canSeeMargin: true });
-    render(columns.costo.render({ costo: { amount: 40000, currency: 'ARS' }, ppp: PPP, sell_in_out: SELL_IN }));
-    expect(screen.getByText('ARS 40.000,00')).toBeInTheDocument();
-    expect(screen.getByText(/^ppp: ARS \$850\.00/)).toBeInTheDocument();
-    expect(screen.getByText('c/ sell in: ARS $39900.00')).toBeInTheDocument();
+    const { container } = render(
+      columns.costo.render({ costo: { amount: 40000, currency: 'ARS' }, ppp: PPP, sell_in_out: SELL_IN }),
+    );
+    expect(container.textContent).toBe('ARS 40.000,00 c/ sell in ARS 39.900,00');
+    expect(container.firstChild.getAttribute('title')).toContain('ppp: ARS $850.00 (14/02/26)');
   });
 
-  it('a product without a PPP row reads "sin PPP", and no sell in line without one', () => {
+  it('a product without a PPP row says "sin PPP" in the tooltip, and no sell in without one', () => {
     const columns = byKey({ canSeeMargin: true });
-    render(columns.costo.render({ costo: { amount: 40000, currency: 'ARS' }, ppp: null, sell_in_out: null }));
-    expect(screen.getByText('sin PPP')).toBeInTheDocument();
-    expect(screen.queryByText(/sell in/)).not.toBeInTheDocument();
+    const { container } = render(
+      columns.costo.render({ costo: { amount: 40000, currency: 'ARS' }, ppp: null, sell_in_out: null }),
+    );
+    expect(container.textContent).toBe('ARS 40.000,00');
+    expect(container.firstChild.getAttribute('title')).toBe('sin PPP');
   });
 
   it('without the margin fields the cell is the cost alone', () => {

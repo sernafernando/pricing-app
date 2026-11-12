@@ -1,5 +1,5 @@
 /**
- * The cost with offset and every price's markup with offset, as Productos
+ * Every price's markup with offset, as Productos
  * computes its "markup con offsets aplicados" (utils/offsetsGanancia), shown
  * only to who may see the cost (ml_metricas.ver_ganancia); and every markup
  * painted by the app's markup scale (utils/ventasMlTone.markupTone).
@@ -46,18 +46,13 @@ beforeEach(() => {
 });
 
 describe('cost and markup with offset', () => {
-  it('shows the cost with the offsets that apply, each with its description and amount', async () => {
+  it('no longer shows a "Costo con offset" fact (the cost with sell in replaced it)', async () => {
     render(<ProductPrices productItemId={4101} showCost />);
     const group = await facts();
-    // 64.000 - 6.400 (10%) - 600 = 57.000
-    await waitFor(() => expect(group).toHaveTextContent('$ 57.000,00'));
-    expect(group).toHaveTextContent('Costo con offset');
-    const aplicados = within(group).getByRole('list', { name: 'Offsets aplicados' });
-    expect(aplicados).toHaveTextContent('Rebate TP-Link');
-    expect(aplicados).toHaveTextContent('$ 6.400,00');
-    expect(aplicados).toHaveTextContent('Offset #8');
-    expect(aplicados).toHaveTextContent('$ 600,00');
-    expect(aplicados).not.toHaveTextContent('No aplica');
+    await waitFor(async () => expect(offsetCell(await priceOf('Clásica'))).toHaveTextContent('32,94%'));
+    expect(group).not.toHaveTextContent('Costo con offset');
+    expect(within(group).queryByRole('list', { name: 'Offsets aplicados' })).not.toBeInTheDocument();
+    expect(group).toHaveTextContent('Costo c/ sell in');
     expect(offsetsGananciaAPI.vigentes).toHaveBeenCalled();
   });
 
@@ -79,57 +74,49 @@ describe('cost and markup with offset', () => {
     expect(offsetCell(await priceOf('9 cuotas'))).toHaveTextContent('—');
   });
 
-  it('says there are no offsets when none applies, and shows "—" as markup with offset', async () => {
+  it('shows "—" as markup with offset when no offset applies', async () => {
     offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [OFFSETS[2]] });
     render(<ProductPrices productItemId={4101} showCost />);
-    const group = await facts();
-    await waitFor(() => expect(group).toHaveTextContent('Sin offsets vigentes'));
-    expect(offsetCell(await priceOf('Clásica'))).toHaveTextContent('—');
+    await waitFor(() => expect(offsetsGananciaAPI.vigentes).toHaveBeenCalled());
+    await waitFor(async () => expect(offsetCell(await priceOf('Clásica'))).toHaveTextContent('—'));
   });
 
   it('a failed offsets read does not break the prices', async () => {
     offsetsGananciaAPI.vigentes.mockRejectedValue(new Error('Network Error'));
     render(<ProductPrices productItemId={4101} showCost />);
-    const group = await facts();
-    await waitFor(() => expect(group).toHaveTextContent('No se pudieron leer los offsets'));
     expect(await priceOf('Clásica')).toHaveTextContent('98.500,50');
+    await waitFor(() => expect(offsetsGananciaAPI.vigentes).toHaveBeenCalled());
     expect(offsetCell(await priceOf('Clásica'))).toHaveTextContent('—');
   });
 
   it('counts only the offsets that apply to Mercado Libre (aplica_ml)', async () => {
     offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [OFFSETS[0], { ...OFFSETS[1], aplica_ml: false, descripcion: 'Solo fuera de ML' }] });
     render(<ProductPrices productItemId={4101} showCost />);
-    const group = await facts();
-    // 64.000 - 6.400 (only the 10%)
-    await waitFor(() => expect(group).toHaveTextContent('$ 57.600,00'));
-    expect(group).not.toHaveTextContent('Solo fuera de ML');
-    expect(offsetCell(await priceOf('Clásica'))).toHaveTextContent('31,56%');
+    // 64.000 - 6.400 (only the 10%): clásica 18,4% -> 31,56%
+    await waitFor(async () => expect(offsetCell(await priceOf('Clásica'))).toHaveTextContent('31,56%'));
   });
 
   describe('a USD cost', () => {
     const USD_PRODUCT = { ...PRODUCTO, moneda_costo: 'USD', costo: 50, costo_ars: null };
 
-    it('converts the cost and the cost with offset with the SAME rate (venta), not the offsets one', async () => {
+    it('converts the cost for the markup with offset with the SAME rate (venta), not the offsets one', async () => {
       preciosAPI.obtenerProducto.mockResolvedValue({ data: USD_PRODUCT });
       preciosAPI.tipoCambioActual.mockResolvedValue({ data: { moneda: 'USD', compra: 1250, venta: 1280, fecha: '2026-10-14' } });
-          offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [OFFSETS[0]] });
+      offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [OFFSETS[0]] });
       render(<ProductPrices productItemId={4101} showCost />);
       const group = await facts();
       // USD 50 x 1280 = 64.000; minus 10% = 57.600 (with the offsets rate it would be 45.000)
-      await waitFor(() => expect(group).toHaveTextContent('$ 57.600,00'));
+      await waitFor(async () => expect(offsetCell(await priceOf('Clásica'))).toHaveTextContent('31,56%'));
       expect(group).toHaveTextContent('$ 64.000,00');
-      expect(within(group).getByRole('list', { name: 'Offsets aplicados' })).toHaveTextContent('$ 6.400,00');
-      expect(offsetCell(await priceOf('Clásica'))).toHaveTextContent('31,56%');
     });
 
-    it('without that rate shows no cost with offset nor markup with offset', async () => {
+    it('without that rate shows no markup with offset', async () => {
       preciosAPI.obtenerProducto.mockResolvedValue({ data: USD_PRODUCT });
       preciosAPI.tipoCambioActual.mockResolvedValue({ data: { error: 'No hay tipo de cambio disponible' } });
       offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [OFFSETS[0]] });
       render(<ProductPrices productItemId={4101} showCost />);
       const group = await facts();
-      await waitFor(() => expect(group).toHaveTextContent('Sin tipo de cambio para el offset'));
-      expect(within(group).queryByRole('list', { name: 'Offsets aplicados' })).not.toBeInTheDocument();
+      await waitFor(() => expect(group).toHaveTextContent('sin tipo de cambio'));
       expect(offsetCell(await priceOf('Clásica'))).toHaveTextContent('—');
     });
 
@@ -138,12 +125,8 @@ describe('cost and markup with offset', () => {
       preciosAPI.tipoCambioActual.mockResolvedValue({ data: { moneda: 'USD', compra: 1250, venta: 1280, fecha: '2026-10-14' } });
       offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [USD_PER_UNIT] });
       render(<ProductPrices productItemId={4101} showCost />);
-      const group = await facts();
-      // USD 50 x 1280 = 64.000; USD 2 x 1280 = 2.560; 64.000 - 2.560 = 61.440
-      await waitFor(() => expect(group).toHaveTextContent('$ 61.440,00'));
-      expect(within(group).getByRole('list', { name: 'Offsets aplicados' })).toHaveTextContent('$ 2.560,00');
-      // clásica 18,4% -> 1.184 x 64.000 / 61.440 - 1 = 23,33%
-      expect(offsetCell(await priceOf('Clásica'))).toHaveTextContent('23,33%');
+      // USD 50 x 1280 = 64.000; USD 2 x 1280 = 2.560; clásica 18,4% -> 1.184 x 64.000 / 61.440 - 1 = 23,33%
+      await waitFor(async () => expect(offsetCell(await priceOf('Clásica'))).toHaveTextContent('23,33%'));
     });
   });
 
@@ -152,19 +135,16 @@ describe('cost and markup with offset', () => {
       preciosAPI.tipoCambioActual.mockResolvedValue({ data: { moneda: 'USD', compra: 1250, venta: 1280, fecha: '2026-10-14' } });
       offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [USD_PER_UNIT] });
       render(<ProductPrices productItemId={4101} showCost />);
-      const group = await facts();
-      await waitFor(() => expect(group).toHaveTextContent('$ 61.440,00'));
-      expect(offsetCell(await priceOf('Clásica'))).toHaveTextContent('23,33%');
+      await waitFor(async () => expect(offsetCell(await priceOf('Clásica'))).toHaveTextContent('23,33%'));
     });
 
-    it('never falls back to an assumed rate: without venta it says so and shows no markup with offset', async () => {
+    it('never falls back to an assumed rate: without venta it shows no markup with offset', async () => {
       preciosAPI.tipoCambioActual.mockResolvedValue({ data: { error: 'No hay tipo de cambio disponible' } });
       offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [USD_PER_UNIT] });
       render(<ProductPrices productItemId={4101} showCost />);
       const group = await facts();
-      await waitFor(() => expect(group).toHaveTextContent('Sin tipo de cambio para el offset'));
+      await waitFor(() => expect(preciosAPI.tipoCambioActual).toHaveBeenCalled());
       expect(group).toHaveTextContent('$ 64.000,00');
-      expect(within(group).queryByRole('list', { name: 'Offsets aplicados' })).not.toBeInTheDocument();
       expect(offsetCell(await priceOf('Clásica'))).toHaveTextContent('—');
     });
 

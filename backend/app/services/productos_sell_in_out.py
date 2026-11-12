@@ -66,7 +66,7 @@ from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca
 from app.models.sell_out import SellOutCampana, SellOutCampanaItem, SellOutConsumo
 from app.schemas.sell_in_out_producto import SellInOutProducto, SellInProducto, SellOutProducto
-from app.services.pricing_calculator import calcular_markup, convertir_a_pesos
+from app.services.pricing_calculator import calcular_markup, convertir_a_pesos, moneda_de
 from app.services.sell_in import bonos_costo
 from app.services.sell_in.bonos import tasas_bna_por_fecha
 from app.services.sell_in.costing import LoteVigente, get_costing
@@ -171,6 +171,25 @@ class MarkupCompanions:
         self.sell_in_out.record(key, limpio, percent=percent)
 
 
+def en_moneda_costo(sell_in: SellInProducto, moneda: object, tipo_cambio: Optional[float]) -> SellInProducto:
+    """`sell_in` with its cost and discount also in the product's cost currency (S10, display only): divided by
+    `tipo_cambio`, the rate its cost was converted to ARS with, for a USD cost; the ARS figures for an ARS cost
+    (`moneda_de`: none, blank or `ars` is ARS). Without the ARS figure or the rate, None: never a guess. The ARS
+    fields and every markup stay as they are."""
+    moneda = moneda_de(moneda)
+    if moneda == "ARS":
+        costo, descuento = sell_in.costo, sell_in.descuento_unit
+    elif tipo_cambio:
+        tasa = Decimal(str(tipo_cambio))
+        costo = None if sell_in.costo is None else float(Decimal(str(sell_in.costo)) / tasa)
+        descuento = float(Decimal(str(sell_in.descuento_unit)) / tasa)
+    else:
+        costo, descuento = None, None
+    return sell_in.model_copy(
+        update={"moneda_costo": moneda, "costo_moneda": costo, "descuento_unit_moneda": descuento}
+    )
+
+
 @dataclass(frozen=True)
 class SellInOutBatch:
     hoy: date
@@ -181,7 +200,7 @@ class SellInOutBatch:
 
     def markups(self, producto, *, precio_lista_ml=None, tipo_cambio: Optional[float] = None) -> SellInOutMarkups:
         """`producto` is a `ProductoERP`; `tipo_cambio` the USD rate its cost converts at, as `PppMarkups`."""
-        moneda = getattr(producto.moneda_costo, "value", producto.moneda_costo) or "ARS"
+        moneda = moneda_de(producto.moneda_costo)
         costo = None
         if producto.costo is not None and (moneda == "ARS" or tipo_cambio):
             costo = float(convertir_a_pesos(producto.costo, moneda, tipo_cambio))
@@ -197,6 +216,8 @@ class SellInOutBatch:
             )
         elif costo is not None:
             sell_in = self._sell_in_costo(producto.item_id, Decimal(str(costo)), iva)
+        if sell_in is not None:
+            sell_in = en_moneda_costo(sell_in, moneda, tipo_cambio)
         neto = None
         if precio_lista_ml and iva is not None:
             neto = Decimal(str(precio_lista_ml)) / (1 + iva / 100)

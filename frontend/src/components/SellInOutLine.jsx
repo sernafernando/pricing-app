@@ -17,7 +17,13 @@ function sellOutTitle(sellOut) {
 
 function sellInTitle(sellIn) {
   const origen = sellInOrigen(sellIn); // a purchase lot or the % of cost bonuses (T25c)
-  return `Descuento de sell in por unidad: ${ars(sellIn.descuento_unit)} · ${origen}`;
+  const moneda = sellIn.moneda_costo;
+  // S10: in the cost's own currency (the backend converts it at the cost's rate), the pesos beside it.
+  const descuento =
+    moneda && moneda !== 'ARS' && sellIn.descuento_unit_moneda != null
+      ? `${moneda} $${sellIn.descuento_unit_moneda.toFixed(2)} (${ars(sellIn.descuento_unit)})`
+      : ars(sellIn.descuento_unit);
+  return `Descuento de sell in por unidad: ${descuento} · ${origen}`;
 }
 
 /**
@@ -26,10 +32,8 @@ function sellInTitle(sellIn) {
  * line under the real cost/markup value, never replacing it.
  *
  * - `sellInOut` null/undefined → renders nothing: the row stays as it was.
- * - Without `markupKey` (cost cell): the cost with sell in, in ARS, with the
- *   discount per unit and the remaining units of the purchase lot as tooltip.
- *   Nothing when only sell out applies (the cost does not change).
- * - With `markupKey`: the markup with sell in (`markups_sell_in`) and with
+ * - The cost cell is `CostoCell` (S10b: one line, in the cost's currency).
+ * - `markupKey`: the markup with sell in (`markups_sell_in`) and with
  *   sell in + sell out (`markups_sell_in_out`; labelled "c/ sell out" when
  *   there is no sell in), same keys and scale as the PPP markups.
  * - An unknown amount (no ARS cost, or a sell out without rate/base) shows as
@@ -41,15 +45,7 @@ export default function SellInOutLine({ sellInOut, markupKey }) {
   const sellIn = sellInOut.sell_in ?? null;
   const sellOut = sellInOut.sell_out ?? null;
 
-  if (!markupKey) {
-    if (!sellIn) return null;
-    const costo = sellIn.costo === null || sellIn.costo === undefined ? PENDIENTE : ars(sellIn.costo);
-    return (
-      <div className="sell-in-out-line" title={sellInTitle(sellIn)}>
-        {`c/ sell in: ${costo}`}
-      </div>
-    );
-  }
+  if (!sellIn && !sellOut) return null;
 
   const partes = [];
 

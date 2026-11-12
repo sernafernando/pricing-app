@@ -1,6 +1,7 @@
 import { formatPct } from '../../../utils/metricasMlFormat';
 import { sellInOrigen } from '../../../utils/sellInOrigen';
 import cellStyles from '../cells.module.css';
+import { formatMoneda, isForeign } from './costoMoneda';
 import { amount } from './format';
 
 /*
@@ -26,13 +27,27 @@ export const MarkupValue = ({ value }) => (
   </span>
 );
 
-/** The cost of the purchase lot the next sale takes its sell in from, with its discount and units left. */
+/**
+ * The cost of the purchase lot the next sale takes its sell in from, with its discount and units left, in the cost's
+ * own currency (S10: the backend converts it at the rate it converted the cost with); the pesos in the tooltip.
+ */
 export function SellInCost({ sellIn, format = amount }) {
   if (!sellIn) return <Muted title="Sin sell in vigente">-</Muted>;
   const origen = sellInOrigen(sellIn); // a purchase lot or the % of cost bonuses (T25c)
-  const detalle = `Descuento por unidad: $ ${amount(sellIn.descuento_unit)}\n${origen}`;
-  if (isBlank(sellIn.costo)) return <Muted title={detalle}>Sin tipo de cambio</Muted>;
-  return <span title={detalle}>{format(sellIn.costo)}</span>;
+  const pesos = `$ ${amount(sellIn.descuento_unit)}`;
+  const enMoneda = isForeign(sellIn.moneda_costo);
+  const lines = [];
+  if (enMoneda && !isBlank(sellIn.descuento_unit_moneda)) {
+    lines.push(`Descuento por unidad: ${formatMoneda(sellIn.descuento_unit_moneda, sellIn.moneda_costo)} (${pesos})`);
+    if (!isBlank(sellIn.costo)) lines.push(`c/ sell in en pesos: $ ${amount(sellIn.costo)}`);
+  } else {
+    lines.push(`Descuento por unidad: ${pesos}`);
+  }
+  lines.push(origen);
+  const detalle = lines.join('\n');
+  const costo = enMoneda ? sellIn.costo_moneda : sellIn.costo;
+  if (isBlank(costo)) return <Muted title={detalle}>Sin tipo de cambio</Muted>;
+  return <span title={detalle}>{formatMoneda(costo, enMoneda ? sellIn.moneda_costo : 'ARS', format)}</span>;
 }
 
 /**

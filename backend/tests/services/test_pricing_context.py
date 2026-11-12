@@ -242,3 +242,13 @@ class TestBuildPricingContext:
         ctx = _ctx(comision_base=source)
         source[1] = 99.0
         assert ctx.comision(4, 1) == 12.5
+
+
+class TestCostoEnPesosNormalisesTheCurrency:
+    @pytest.mark.parametrize("moneda", ["USD", "usd", " usd ", TipoMoneda.USD])
+    def test_usd_in_any_spelling_converts_at_the_usd_rate(self, moneda) -> None:
+        assert _ctx().costo_en_pesos(10.0, moneda) == 10000.0
+
+    @pytest.mark.parametrize("moneda", ["ARS", "ars", None, ""])
+    def test_ars_or_no_currency_stays_in_pesos(self, moneda) -> None:
+        assert _ctx().costo_en_pesos(10.0, moneda) == 10.0

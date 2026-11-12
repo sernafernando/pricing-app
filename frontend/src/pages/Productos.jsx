@@ -33,6 +33,7 @@ import { formatDateOnly } from '../utils/dateUtils';
 import { useProductosOffsets } from '../hooks/useProductosOffsets';
 import PppLine from '../components/PppLine';
 import SellInOutLine from '../components/SellInOutLine';
+import CostoCell from '../components/CostoCell';
 import MarkupContextoPicker from '../components/productos/MarkupContextoPicker';
 import { paramDesdeSeleccion, seleccionDesdeParam } from '../components/productos/markupContextos';
 import PrecioTransfHint from '../components/PrecioTransfHint';
@@ -47,6 +48,9 @@ import { useEquipos } from '../hooks/useEquipos';
 import { useProductosData } from '../hooks/useProductosData';
 import { useProductosKeyboard } from '../hooks/useProductosKeyboard';
 import { useSSEChannel } from '../hooks/useSSEChannel';
+
+// The list's way to write a cost (`USD $17.04`), for the cost and its cost with sell in alike (S10b).
+const formatCostoLista = (monto, moneda) => `${moneda} $${monto?.toFixed(2)}`;
 
 export default function Productos() {
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
@@ -1754,9 +1758,13 @@ export default function Productos() {
                     <td>{p.marca}</td>
                     <td>{p.stock}</td>
                     <td>
-                      {p.moneda_costo} ${p.costo?.toFixed(2)}
-                      <PppLine ppp={p.ppp} />
-                      <SellInOutLine sellInOut={p.sell_in_out} />
+                      <CostoCell
+                        monto={p.costo}
+                        moneda={p.moneda_costo}
+                        ppp={p.ppp}
+                        sellInOut={p.sell_in_out}
+                        format={formatCostoLista}
+                      />
                     </td>
                     <td className={isRowActive && celdaActiva?.colIndex === 0 ? 'keyboard-cell-active' : ''}>
                       {editandoPrecio === p.item_id ? (

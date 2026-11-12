@@ -134,6 +134,43 @@ class TestSellIn:
         assert payload.sell_in.descuento_unit == 5000.0
         assert payload.sell_in.costo == 45000.0
 
+    def test_an_ars_cost_shows_its_sell_in_in_ars(self, engine):
+        # S10: the cost with sell in is shown in the cost's own currency; for an ARS cost it is the ARS figure.
+        si.compra(engine, [(ROUTER, 2, "200.00")], D(2026, 10, 1))
+
+        sell_in = _payload(engine).sell_in
+
+        assert (sell_in.moneda_costo, sell_in.costo_moneda, sell_in.descuento_unit_moneda) == ("ARS", 49900.0, 100.0)
+
+    def test_a_usd_cost_shows_its_sell_in_in_usd_at_the_rate_it_converted_at(self, engine):
+        # S10 (owner): "si son 17,04 USD, mostrame 17,04 USD ... y con sell in también me lo estás poniendo en pesos".
+        # 40 USD at 1250 = 50000 ARS; the lot gives 5000 ARS per unit: 45000 ARS = 36 USD at that same rate, 4 USD off.
+        si.compra(engine, [(ROUTER, 2, "10.00")], D(2026, 10, 1), moneda="USD", tipo_cambio="1000")
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE productos_erp SET costo = 40, moneda_costo = 'USD' WHERE item_id = :i"), {"i": ROUTER}
+            )
+        try:
+            con_tasa = _payload(engine, tc=1250.0)
+            sin_tasa = _payload(engine, tc=None)
+        finally:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("UPDATE productos_erp SET costo = 50000, moneda_costo = 'ARS' WHERE item_id = :i"),
+                    {"i": ROUTER},
+                )
+
+        sell_in = con_tasa.sell_in
+        assert (sell_in.costo, sell_in.descuento_unit) == (45000.0, 5000.0)  # the ARS figures stay as they were
+        assert sell_in.moneda_costo == "USD"
+        assert sell_in.costo_moneda == pytest.approx(36.0)
+        assert sell_in.descuento_unit_moneda == pytest.approx(4.0)
+        assert con_tasa.markups_sell_in["clasica"] == round((60000 / 45000 - 1) * 100, 2)  # markups unchanged
+        # No rate: no ARS cost, so no cost with sell in in any currency, never a guess.
+        assert (sin_tasa.sell_in.costo, sin_tasa.sell_in.costo_moneda) == (None, None)
+        assert sin_tasa.sell_in.moneda_costo == "USD"
+        assert sin_tasa.sell_in.descuento_unit_moneda is None
+
 
 def _bono_costo(engine, porcentaje: str = "3.00", **kw) -> int:
     """A % of cost bonus (T25) over TP-LINK, current on `HOY`."""
@@ -171,6 +208,9 @@ class TestCostBonus:
             "descuento_unit": 100.0,
             "costo": 49900.0,
             "unidades_restantes": 2,
+            "moneda_costo": "ARS",
+            "costo_moneda": 49900.0,
+            "descuento_unit_moneda": 100.0,
         }
 
     def test_with_no_lot_left_an_active_cost_bonus_is_the_sell_in(self, engine):
@@ -185,6 +225,9 @@ class TestCostBonus:
             "descuento_unit": 1500.0,  # 3 % of 50000
             "costo": 48500.0,
             "unidades_restantes": None,
+            "moneda_costo": "ARS",
+            "costo_moneda": 48500.0,
+            "descuento_unit_moneda": 1500.0,
         }
         assert payload.markups_sell_in["clasica"] == round((60000 / 48500 - 1) * 100, 2)
 

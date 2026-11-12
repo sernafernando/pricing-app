@@ -1089,16 +1089,33 @@ describe('Publicaciones ML Producto view (visual)', () => {
     }
 
     for (const { width, height } of VIEWPORTS) {
-      it(`${width}x${height} ${theme}: the PPP and sell in lines stay inside the cost cell of a product row`, async () => {
+      it(`${width}x${height} ${theme}: the cost cell of a product row is one line, as tall as a row without sell in (S10b)`, async () => {
+        const showCost = async (screen) => {
+          await screen.getByRole('button', { name: 'Columnas' }).click();
+          await screen.getByRole('checkbox', { name: 'Costo' }).click();
+          await screen.getByRole('button', { name: 'Columnas' }).click();
+        };
+        // The same row without PPP nor sell in first: the height the cost cell must not add to.
+        const plain = await renderProducts({ width, height, theme, rows: PRODUCT_ROWS });
+        await showCost(plain);
+        const plainHeight = rowWith(scrollerOf(), 'Router Archer AX55').getBoundingClientRect().height;
+        plain.unmount();
+
         const rows = [{ ...PRODUCT_ROWS[0], ...COST_LINES }, ...PRODUCT_ROWS.slice(1)];
         const screen = await renderProducts({ width, height, theme, rows });
-        await screen.getByRole('button', { name: 'Columnas' }).click();
-        await screen.getByRole('checkbox', { name: 'Costo' }).click();
-        await screen.getByRole('button', { name: 'Columnas' }).click();
+        await showCost(screen);
         const row = rowWith(scrollerOf(), 'Router Archer AX55');
         const cell = [...row.querySelectorAll('td')].find((td) => td.textContent.includes('USD 45,50'));
-        expect(cell.textContent).toContain('ppp: USD $41.20');
-        expect(cell.textContent).toContain('c/ sell in: ARS $63000.00');
+        // The owner's case: a USD cost, its cost with sell in in USD too, inline; the PPP and pesos in the tooltip.
+        expect(cell.textContent).toBe('USD 45,50 c/ sell in USD 43,27');
+        // The whole line shows: the cell is as wide as its content, no ellipsis cuts the cost with sell in.
+        const content = cell.firstElementChild.getBoundingClientRect();
+        const box = cell.getBoundingClientRect();
+        const padding = parseFloat(getComputedStyle(cell).paddingLeft);
+        expect(content.left).toBeGreaterThanOrEqual(box.left + padding - 0.5);
+        expect(content.right).toBeLessThanOrEqual(box.right - padding + 0.5);
+        expect(cell.querySelector('[title]').getAttribute('title')).toContain('ppp: USD $41.20');
+        expect(row.getBoundingClientRect().height).toBeCloseTo(plainHeight, 0);
         expect(overflowingCells(scrollerOf())).toEqual([]);
         if (PRODUCT_SHOTS_DIR) {
           cell.scrollIntoView({ inline: 'center' });
@@ -2340,21 +2357,25 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
   // Precios: the reference line with the cost, each plan's markups as chips by the app scale (markupTone).
   for (const { width, height } of PANEL_VIEWPORTS) {
     for (const theme of THEMES) {
-      it(`${width}x${height} ${theme}: the Precios tab shows cost with offset and with sell in, every markup of each plan as toned chips and fits the panel`, async () => {
+      it(`${width}x${height} ${theme}: the Precios tab shows the cost with sell in, every markup of each plan as toned chips and fits the panel`, async () => {
         preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, sell_in_out: SELL_IN_OUT } });
         offsetsGananciaAPI.vigentes.mockResolvedValue({
           data: [{ id: 7, marca: 'TP-LINK', tipo_offset: 'porcentaje_costo', porcentaje: 10, descripcion: 'Rebate TP-Link con una descripción larga', grupo_id: null }],
         });
         try {
           const screen = await renderWithPanel({ width, height, theme, tab: 'precios', linked: true, margin: true });
-          await expect.element(screen.getByText('$ 57.600,00')).toBeVisible();
+          await expect.element(screen.getByRole('table', { name: 'Precios por plan' })).toBeVisible();
           const panel = panelOf();
-          expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
-
           const facts = panel.querySelector('[aria-label="Referencias del producto"]');
           const table = panel.querySelector('table[aria-label="Precios por plan"]');
-
           const chip = (label, col) => table.querySelector(`[data-entry-label="${label}"] [data-col="${col}"] [data-tone]`);
+          // The offsets load after the prices: wait for the markup with offset before measuring.
+          await expect.poll(() => chip('Clásica', 'markup-offset')?.textContent).toBe('31,56%');
+          expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+          // The "Costo con offset" fact is gone; the cost with sell in stays.
+          expect(facts).not.toHaveTextContent('Costo con offset');
+          expect(facts).toHaveTextContent('Costo c/ sell in');
+
           expect(getComputedStyle(chip('Clásica', 'markup')).color).toBe(tokenColor('--tone-success-fg'));
           expect(getComputedStyle(chip('12 cuotas', 'markup')).color).toBe(tokenColor('--tone-danger-fg'));
           expect(getComputedStyle(chip('12 cuotas', 'markup')).backgroundColor).toBe(tokenColor('--tone-danger-bg'));

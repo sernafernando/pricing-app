@@ -1,0 +1,13 @@
+/* A list cell's unit cost (S10b): one line like the other cells, never a stack. */
+/* inline-block: its box is as wide as the whole line, so a table that sizes a column to its content sees all of it. */
+.cell {
+  display: inline-block;
+  white-space: nowrap;
+  cursor: help;
+}
+
+/* The cost with sell in, inline and subordinate: same currency as the cost, smaller and dimmer. */
+.sellIn {
+  font-size: 0.8em;
+  color: var(--text-tertiary);
+}

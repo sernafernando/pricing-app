@@ -16,47 +16,6 @@ describe('SellInOutLine — sell in / sell out companion line', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  describe('cost mode (no markupKey)', () => {
-    it('shows the cost with sell in, in ARS', () => {
-      render(<SellInOutLine sellInOut={{ sell_in: SELL_IN, sell_out: null }} />);
-      expect(screen.getByText('c/ sell in: ARS $850.50')).toBeTruthy();
-    });
-
-    it('names the discount per unit and the remaining units of the lot in the tooltip', () => {
-      render(<SellInOutLine sellInOut={{ sell_in: SELL_IN, sell_out: null }} />);
-      const line = screen.getByText('c/ sell in: ARS $850.50');
-      expect(line.getAttribute('title')).toBe(
-        'Descuento de sell in por unidad: ARS $150.00 · Unidades restantes del lote: 12'
-      );
-    });
-
-    it('names the % of cost bonus instead of a lot when the sell in has no units left (T25c)', () => {
-      const bono = { ...SELL_IN, compra_item_id: null, bono_id: 4, unidades_restantes: null };
-      render(<SellInOutLine sellInOut={{ sell_in: bono, sell_out: null }} />);
-      const line = screen.getByText('c/ sell in: ARS $850.50');
-      expect(line.getAttribute('title')).toBe('Descuento de sell in por unidad: ARS $150.00 · Bono #4 sobre el costo');
-    });
-
-    it('names every stacked % of cost bonus (T25c)', () => {
-      const bonos = { ...SELL_IN, compra_item_id: null, bono_id: 4, bono_ids: [4, 7], unidades_restantes: null };
-      render(<SellInOutLine sellInOut={{ sell_in: bonos, sell_out: null }} />);
-      const line = screen.getByText('c/ sell in: ARS $850.50');
-      expect(line.getAttribute('title')).toBe(
-        'Descuento de sell in por unidad: ARS $150.00 · Bonos #4, #7 sobre el costo',
-      );
-    });
-
-    it('shows the cost with sell in as pending when it has no ARS value, never a number', () => {
-      render(<SellInOutLine sellInOut={{ sell_in: { ...SELL_IN, costo: null }, sell_out: null }} />);
-      expect(screen.getByText('c/ sell in: pendiente')).toBeTruthy();
-    });
-
-    it('renders nothing when only sell out applies (cost with sell in = cost)', () => {
-      const { container } = render(<SellInOutLine sellInOut={{ sell_in: null, sell_out: SELL_OUT }} />);
-      expect(container.innerHTML).toBe('');
-    });
-  });
-
   describe('markup mode', () => {
     it('shows the markup with sell in and with sell in + sell out for the key', () => {
       render(
@@ -172,6 +131,19 @@ describe('SellInOutLine — sell in / sell out companion line', () => {
       );
       expect(screen.getByText('c/ sell in: pendiente')).toBeTruthy();
       expect(screen.getByText('c/ sell in + sell out: pendiente')).toBeTruthy();
+    });
+
+    it("names the sell in discount in the cost's currency, the pesos beside it, for a USD cost (S10)", () => {
+      const usd = { ...SELL_IN, moneda_costo: 'USD', costo_moneda: 8.5, descuento_unit_moneda: 1.5 };
+      render(
+        <SellInOutLine
+          sellInOut={{ sell_in: usd, sell_out: null, markups_sell_in: { clasica: 20.5 }, markups_sell_in_out: {} }}
+          markupKey="clasica"
+        />
+      );
+      expect(screen.getByText('c/ sell in: 20.50%').getAttribute('title')).toBe(
+        'Descuento de sell in por unidad: USD $1.50 (ARS $150.00) · Unidades restantes del lote: 12'
+      );
     });
 
     it('omits a figure whose key was not recorded, without falling back to a sibling key', () => {

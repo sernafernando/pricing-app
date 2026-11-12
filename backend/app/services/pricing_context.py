@@ -32,6 +32,7 @@ from app.models.producto import ProductoERP
 from app.services.pricing_calculator import (
     GRUPO_DEFAULT,
     convertir_a_pesos,
+    moneda_de,
     obtener_constantes_pricing,
     obtener_tipo_cambio_actual,
 )
@@ -87,7 +88,7 @@ class PricingContext:
 
     def costo_en_pesos(self, costo: float, moneda) -> float:
         """`convertir_a_pesos` with the prefetched USD rate (only used for USD)."""
-        tipo_cambio = self.tipo_cambio_usd if moneda == "USD" else None
+        tipo_cambio = self.tipo_cambio_usd if moneda_de(moneda) == "USD" else None
         return convertir_a_pesos(costo, moneda, tipo_cambio)
 
 

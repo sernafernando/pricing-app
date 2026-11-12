@@ -9,8 +9,7 @@ import LastEventCell from './LastEventCell';
 import ActivityCell from './ActivityCell';
 import StoreCell from './StoreCell';
 import MarkupCell from './MarkupCell';
-import PppLine from '../PppLine';
-import SellInOutLine from '../SellInOutLine';
+import CostoCell from '../CostoCell';
 import { priceColumns } from './priceColumns';
 import {
   AgeingCell,
@@ -53,16 +52,19 @@ const dash = <span className={styles.empty}>—</span>;
 const orDash = (value) => (value ? value : dash);
 // The cost in its own currency, as the panel's "Costo" reads it; the sort compares it in pesos.
 const costText = (costo) => (costo?.amount == null ? dash : `${costo.currency ?? ''} ${formatAmount(costo.amount)}`.trim());
-// Under a cost, the PPP and the cost with sell in, as Productos' cost cell draws them (`ppp` and `sell_in_out` come
-// next to `costo`, only with ver_ganancia; a row without them, or without a cost, is the cost alone).
+// The cost and its cost with sell in on one line, the PPP and the pesos in its tooltip, as Productos' cost cell
+// (S10b; `ppp` and `sell_in_out` come next to `costo`, only with ver_ganancia; a row without them is the cost alone).
+const costAmount = (monto, moneda) => `${moneda ?? ''} ${formatAmount(monto)}`.trim();
 const costCell = (item) => {
   if (item.ppp === undefined || item.costo?.amount == null) return costText(item.costo);
   return (
-    <div className={`${styles.stack} ${styles.stackEnd} ${styles.costLines}`}>
-      <span>{costText(item.costo)}</span>
-      <PppLine ppp={item.ppp} />
-      <SellInOutLine sellInOut={item.sell_in_out} />
-    </div>
+    <CostoCell
+      monto={item.costo.amount}
+      moneda={item.costo.currency}
+      ppp={item.ppp}
+      sellInOut={item.sell_in_out}
+      format={costAmount}
+    />
   );
 };
 

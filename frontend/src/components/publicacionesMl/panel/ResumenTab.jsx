@@ -17,6 +17,7 @@ import {
 } from './labels';
 import panelStyles from './panel.module.css';
 import styles from './resumen.module.css';
+import { costoEnMoneda, formatMoneda, sinTipoDeCambio } from './costoMoneda';
 import { MarkupValue, SellInCost, SellInOutMarkupLine } from './sellInOutFigures';
 
 /** Money with its sign, as the panel header writes it ("$ 98.500,50"); a missing figure stays `null`. */
@@ -189,6 +190,7 @@ function RentabilidadSection({ breakdown, reason, sellInOut, publicationPriceSou
   // say): never repeated, never lost.
   const priceOrigin = breakdown.price_source === publicationPriceSource ? null : label(PRICE_SOURCE_LABELS, breakdown.price_source);
   const shippingSource = label(SHIPPING_SOURCE_LABELS, breakdown.envio_source);
+  const costo = costoEnMoneda(breakdown);
   const aside = (text) => text && <span className={styles.stepAside}>{text}</span>;
   return (
     <Block title="Rentabilidad">
@@ -207,15 +209,21 @@ function RentabilidadSection({ breakdown, reason, sellInOut, publicationPriceSou
             {money(breakdown.limpio)}
           </Step>
           <Step label="Costo" className={styles.stepCost}>
-            {sellInOut ? (
-              <>
-                <span>{money(breakdown.costo_ars) ?? <span className={cellStyles.empty}>—</span>}</span>
-                <span className={styles.muted}>
-                  c/ sell in <SellInCost sellIn={sellInOut.sell_in} format={money} />
-                </span>
-              </>
-            ) : (
+            {/* S10: the cost in its own currency (USD 17,04), the pesos the markup divides by small under it. */}
+            {costo.moneda === 'ARS' && !sellInOut ? (
               money(breakdown.costo_ars)
+            ) : (
+              <>
+                <span>{formatMoneda(costo.monto, costo.moneda, money) ?? <span className={cellStyles.empty}>—</span>}</span>
+                {costo.moneda !== 'ARS' && (
+                  <span className={styles.muted}>{sinTipoDeCambio(breakdown) ? 'Sin tipo de cambio' : money(breakdown.costo_ars)}</span>
+                )}
+                {sellInOut && (
+                  <span className={styles.muted}>
+                    c/ sell in <SellInCost sellIn={sellInOut.sell_in} format={money} />
+                  </span>
+                )}
+              </>
             )}
           </Step>
         </dl>

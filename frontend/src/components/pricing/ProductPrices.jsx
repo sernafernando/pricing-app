@@ -17,37 +17,6 @@ import { sellInOrigen } from '../../utils/sellInOrigen';
 const editorValue = (row, product, mode) =>
   mode === 'markup' ? formatMarkupInput(product[row.markup]) : formatPrecioInput(product[row.precio]);
 
-/** "Rebate TP-Link" or, without a description, the offset's id. */
-const offsetLabel = (aplicado) => aplicado.descripcion || `Offset #${aplicado.id}`;
-
-/**
- * The cost with the profit offsets that reach the product discounted, as
- * Productos applies them to its "markup con offsets": the amount and, below,
- * each offset that applied with its discount in ARS.
- */
-function OffsetCost({ product, offsets, needsRate, rate, costo }) {
-  if (isBlank(product.costo)) return <Empty />;
-  if (offsets === undefined || (needsRate && rate === undefined)) return <span className={styles.muted}>Cargando offsets…</span>;
-  if (offsets === null) return <span className={styles.muted}>No se pudieron leer los offsets</span>;
-  if (needsRate && rate === null) return <span className={styles.muted}>Sin tipo de cambio para el offset</span>;
-  if (!costo) return <span className={styles.muted}>Sin offsets vigentes</span>;
-  const detalle = costo.aplicados.map((a) => `${offsetLabel(a)}: -$ ${formatAmount(a.monto)}`).join('\n');
-  return (
-    <>
-      <span className={styles.offsetCost} title={detalle}>
-        $ {formatAmount(costo.costoAjustado)}
-      </span>
-      <ul className={styles.offsetList} aria-label="Offsets aplicados">
-        {costo.aplicados.map((a) => (
-          <li key={a.id} className={styles.offsetItem}>
-            <span className={styles.offsetName}>{offsetLabel(a)}</span>
-            <span className={styles.offsetAmount}>-$ {formatAmount(a.monto)}</span>
-          </li>
-        ))}
-      </ul>
-    </>
-  );
-}
 
 /** "-": the product has no sell in (or no sell out) today. */
 const NoSellInOut = ({ title }) => (
@@ -63,7 +32,33 @@ const NoSellInOut = ({ title }) => (
 function SellInCost({ sellIn }) {
   if (!sellIn) return <NoSellInOut title="Sin sell in vigente" />;
   const origen = sellInOrigen(sellIn); // a purchase lot or the % of cost bonuses (T25c)
-  const detalle = `Descuento por unidad: $ ${formatAmount(sellIn.descuento_unit)}\n${origen}`;
+  const pesos = `$ ${formatAmount(sellIn.descuento_unit)}`;
+  // S10: in the cost's own currency (the backend converts it at the rate it converted the cost with), pesos aside.
+  const moneda = sellIn.moneda_costo;
+  if (moneda && moneda !== 'ARS') {
+    const lines = [];
+    if (!isBlank(sellIn.descuento_unit_moneda)) {
+      lines.push(`Descuento por unidad: ${moneda} ${formatAmount(sellIn.descuento_unit_moneda)} (${pesos})`);
+    } else {
+      lines.push(`Descuento por unidad: ${pesos}`);
+    }
+    if (!isBlank(sellIn.costo)) lines.push(`c/ sell in en pesos: $ ${formatAmount(sellIn.costo)}`);
+    lines.push(origen);
+    const detalleMoneda = lines.join('\n');
+    if (isBlank(sellIn.costo_moneda)) {
+      return (
+        <span className={styles.muted} title={detalleMoneda}>
+          Sin tipo de cambio
+        </span>
+      );
+    }
+    return (
+      <span className={styles.sellInCost} title={detalleMoneda}>
+        {moneda} {formatAmount(sellIn.costo_moneda)}
+      </span>
+    );
+  }
+  const detalle = `Descuento por unidad: ${pesos}\n${origen}`;
   if (isBlank(sellIn.costo)) {
     return (
       <span className={styles.muted} title={detalle}>
@@ -132,20 +127,29 @@ function SellInOutMarkup({ row, price, sellInOut }) {
 /**
  * What to keep in mind while setting a price: the product's IVA rate
  * (anyone who sees the prices) and, only for `showCost` (the caller's
- * ml_metricas.ver_ganancia), its cost in ARS and its cost with offset. A USD
- * cost is converted with the current rate (`rate`, venta) and keeps its
- * original amount beside it; the cost with offset uses that same rate.
- * Beside them, the cost with sell in and the sell out per unit, as the
+ * ml_metricas.ver_ganancia), its cost in its own currency. A USD cost shows
+ * its pesos at the current rate (`rate`, venta) as a small secondary figure.
+ * Beside it, the cost with sell in and the sell out per unit, as the
  * backend computes them (`sell_in_out`). `action` (the panel's Calcular) closes the line.
  */
-function ProductFacts({ product, showCost, isUsd, needsRate, rate, offsets, costo, action }) {
+function ProductFacts({ product, showCost, isUsd, rate, action }) {
 
   let cost = <Empty />;
   if (isUsd) {
+    // S10: the cost in its own currency first (USD 17,04); its pesos only as a small secondary figure.
     const original = `USD ${formatAmount(product.costo)}`;
     if (rate === undefined) cost = original;
     else if (rate === null) cost = `${original} (sin tipo de cambio)`;
-    else cost = `$ ${formatAmount(product.costo * rate)} (${original} × ${formatAmount(rate)})`;
+    else {
+      cost = (
+        <>
+          <span>{original}</span>{' '}
+          <span className={styles.muted}>
+            $ {formatAmount(product.costo * rate)} (× {formatAmount(rate)})
+          </span>
+        </>
+      );
+    }
   } else if (!isBlank(product.costo_ars ?? product.costo)) {
     cost = `$ ${formatAmount(product.costo_ars ?? product.costo)}`;
   }
@@ -158,12 +162,6 @@ function ProductFacts({ product, showCost, isUsd, needsRate, rate, offsets, cost
             <div className={styles.fact}>
               <dt className={styles.factLabel}>Costo</dt>
               <dd className={styles.factValue}>{cost}</dd>
-            </div>
-            <div className={styles.fact}>
-              <dt className={styles.factLabel}>Costo con offset</dt>
-              <dd className={styles.factValue}>
-                <OffsetCost product={product} offsets={offsets} needsRate={needsRate} rate={rate} costo={costo} />
-              </dd>
             </div>
             <div className={styles.fact}>
               <dt className={styles.factLabel}>Costo c/ sell in</dt>
@@ -569,7 +567,7 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
             <span className={styles.code}>{product.codigo}</span>
             <span>{product.descripcion}</span>
           </div>
-          <ProductFacts product={product} showCost={showCost} isUsd={isUsd} needsRate={needsRate} rate={rate} offsets={offsets} costo={costo} action={referenceAction} />
+          <ProductFacts product={product} showCost={showCost} isUsd={isUsd} rate={rate} action={referenceAction} />
           {editable && (
             <p className={styles.hint}>
               <Percent size={14} aria-hidden="true" />

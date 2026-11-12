@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from typing import Mapping, Optional, Sequence
 
 from app.services.ml_publications.pricelist_resolver import resolve_pricelist
-from app.services.pricing_calculator import calcular_comision_ml_total, calcular_limpio, calcular_markup
+from app.services.pricing_calculator import calcular_comision_ml_total, calcular_limpio, calcular_markup, moneda_de
 from app.services.pricing_columns import campo_for_pricelist, cuotas_for_pricelist
 from app.services.pricing_context import ENVIO_REAL, PricingContext, resolve_envio, resolve_envio_source
 
@@ -116,6 +116,11 @@ class UnitBreakdown:
     limpio: float
     costo_ars: float
     markup: float
+    # S10: the cost in its own currency and the rate `costo_ars` was converted with (None for an ARS cost), so the
+    # panel shows the cost, and its cost with sell in, in that currency without a second rate.
+    costo: Optional[float] = None
+    moneda_costo: str = "ARS"
+    tipo_cambio: Optional[float] = None
 
 
 def _evaluate(
@@ -182,6 +187,9 @@ def _evaluate(
         limpio=limpio,
         costo_ars=costo_ars,
         markup=value,
+        costo=float(inputs.costo),
+        moneda_costo=moneda_de(inputs.moneda_costo),
+        tipo_cambio=ctx.tipo_cambio_usd if moneda_de(inputs.moneda_costo) == "USD" else None,
     )
     return unit, breakdown
 
