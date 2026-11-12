@@ -156,9 +156,9 @@ class TestSelection:
     def test_among_checked_items_the_least_recently_checked_goes_first(self, env) -> None:
         ids = put_items(env, 150)
         for n, item_id in enumerate(ids):
-            put_state(env, "ml_item_performance", item_id, checked_ago_days=1 + n * 0.01)
+            put_state(env, "ml_item_performance", item_id, checked_ago_days=0.1 + n * 0.001)
         run(bundle=["core", "performance"])
-        assert set(queue_rows(env)) == {ids[-1], ids[-2]}  # K = 2, the oldest two
+        assert set(queue_rows(env)) == {ids[-1], ids[-2]}  # K = 2, the oldest two (none overdue)
 
     def test_each_resource_carries_only_its_own_name(self, env) -> None:
         ids = put_items(env, 3)
@@ -342,44 +342,55 @@ class TestWhatTheBundleEnables:
         assert queue_rows(env) == {} and result.outcome == sweeps.OUTCOME_NO_RESOURCES
 
 
-class TestYieldsToLiveTraffic:
-    def test_it_enqueues_nothing_while_notification_lane_work_is_claimable(self, env) -> None:
+class TestLiveTrafficDoesNotStopTheTick:
+    """S2 (2026-11-12): visits went 39 h without a check because every tick yielded while notifications kept
+    arriving. Sweep entries take the lowest lane, so the refresh already serves live work first."""
+
+    def test_it_enqueues_while_notification_lane_work_is_claimable(self, env) -> None:
         put_items(env, 2)
         queue_put(env, "MLA999", queue.LANE_NOTIFICATION)
         result = run()
-        assert result.outcome == sweeps.OUTCOME_YIELDED and result.enqueued == 0
-        assert set(queue_rows(env)) == {"MLA999"}
+        assert result.outcome == sweeps.OUTCOME_SUCCESS and result.enqueued == 2  # K = 1 per resource
+        assert queue_rows(env)["MLA999"]["lane"] == queue.LANE_NOTIFICATION
 
-    def test_a_manual_lane_entry_also_stops_the_sweep(self, env) -> None:
+    def test_a_manual_lane_entry_does_not_stop_it_either(self, env) -> None:
         put_items(env, 1)
         queue_put(env, "MLA999", queue.LANE_MANUAL)
-        assert run().outcome == sweeps.OUTCOME_YIELDED
-
-    def test_once_the_live_work_is_drained_the_next_tick_sweeps(self, env) -> None:
-        put_items(env, 1)
-        queue_put(env, "MLA999", queue.LANE_NOTIFICATION)
-        assert run().outcome == sweeps.OUTCOME_YIELDED
-        with env.begin() as conn:
-            conn.execute(text("DELETE FROM ml_pub_refresh_queue WHERE entity_id = 'MLA999'"))
-        assert run().outcome == sweeps.OUTCOME_SUCCESS and len(queue_rows(env)) == 1
-
-    def test_a_debounced_notification_entry_is_not_claimable_yet_and_does_not_block(self, env) -> None:
-        put_items(env, 1)
-        queue_put(env, "MLA999", queue.LANE_NOTIFICATION, not_before_hours=1)
         assert run().outcome == sweeps.OUTCOME_SUCCESS
 
-    def test_reconcile_and_backfill_work_do_not_block_the_sweep(self, env) -> None:
-        put_items(env, 1)
-        queue_put(env, "MLA997", queue.LANE_RECONCILE)
-        queue_put(env, "MLA998", queue.LANE_BACKFILL)
-        assert run().outcome == sweeps.OUTCOME_SUCCESS
 
-    def test_a_parked_live_entry_does_not_block_it_forever(self, env) -> None:
-        put_items(env, 1)
-        queue_put(env, "MLA999", queue.LANE_NOTIFICATION)
-        with env.begin() as conn:
-            conn.execute(text("UPDATE ml_pub_refresh_queue SET parked_at = now()"))
-        assert run().outcome == sweeps.OUTCOME_SUCCESS
+class TestCatchUp:
+    """S2: "visits must lap every active item within 25 h". K = eligible / 144 assumed 144 successful ticks a
+    day; a tick that was lost was never made up. Every tick now also takes every item overdue (not checked for
+    `DUE_AGE`), up to `MAX_TICK_BATCH` per resource."""
+
+    def test_every_overdue_item_is_enqueued_in_one_tick(self, env) -> None:
+        ids = put_items(env, 300)
+        for item in ids:
+            put_state(env, "ml_item_visits", item, checked_ago_days=23 / 24)
+        result = run(bundle=["core", "visits"])
+        assert sweeps.batch_size(300) == 3
+        assert result.resources["visits"].batch == 300 and result.resources["visits"].selected == 300
+        assert len(queue_rows(env)) == 300
+
+    def test_items_checked_recently_still_get_only_k(self, env) -> None:
+        ids = put_items(env, 300)
+        for item in ids:
+            put_state(env, "ml_item_visits", item, checked_ago_days=1 / 24)
+        result = run(bundle=["core", "visits"])
+        assert result.resources["visits"].batch == 3 and len(queue_rows(env)) == 3
+
+    def test_never_checked_items_still_come_in_by_k_so_enabling_a_resource_does_not_flood(self, env) -> None:
+        put_items(env, 300)
+        result = run(bundle=["core", "visits"])
+        assert result.resources["visits"].batch == 3 and len(queue_rows(env)) == 3
+
+    def test_the_catch_up_of_one_tick_is_capped(self, env, monkeypatch) -> None:
+        monkeypatch.setattr(sweeps, "MAX_TICK_BATCH", 50)
+        for item in put_items(env, 120):
+            put_state(env, "ml_item_visits", item, checked_ago_days=2)
+        result = run(bundle=["core", "visits"])
+        assert result.resources["visits"].batch == 50 and len(queue_rows(env)) == 50
 
 
 class TestBacklogGuard:
@@ -407,23 +418,6 @@ class TestRunRecord:
         assert counts["resources"]["performance"] == {"eligible": 150, "batch": 2, "selected": 2}
         assert counts["calls_per_day"] == 2 * 2 * 144  # 2 resources x K = 2 x 144 ticks
         assert counts["requests_per_second"] == round(576 / 86_400, 4)
-
-    def test_a_yielded_tick_is_recorded_too(self, env) -> None:
-        put_items(env, 1)
-        queue_put(env, "MLA999", queue.LANE_NOTIFICATION)
-        run()
-        assert run_records(env)[0]["outcome"] == "yielded"
-
-    def test_consecutive_yielded_ticks_are_counted_so_a_starved_sweep_is_visible(self, env) -> None:
-        put_items(env, 1)
-        queue_put(env, "MLA999", queue.LANE_NOTIFICATION)
-        for _ in range(3):
-            run()
-        assert [r["counts"]["yielded_in_a_row"] for r in run_records(env)] == [1, 2, 3]
-        with env.begin() as conn:
-            conn.execute(text("DELETE FROM ml_pub_refresh_queue"))
-        run()
-        assert run_records(env)[-1]["counts"]["yielded_in_a_row"] == 0
 
     def test_an_unexpected_error_is_recorded_and_never_raised(self, env, monkeypatch) -> None:
         def boom(*args, **kwargs):

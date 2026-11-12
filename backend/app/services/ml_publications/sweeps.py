@@ -18,7 +18,11 @@ stored as `applicable = false` (a catalog product item answers "not supported") 
 `ML_PUB_NOT_APPLICABLE_RECHECK_DAYS`. Only resources named in `bundle_resources` are swept: a name that is not
 listed would be dropped by the refresh handler and the item selected again on every tick.
 
-The tick yields while live work exists (manual or notification lane entries ready to be claimed), skips
+Catch-up (S2, 2026-11-12: visits reached 39 h without a check because ticks were lost and never made up): each
+resource takes max(K, the eligible entities last checked more than `DUE_AGE` ago), at most `MAX_TICK_BATCH`, so a lost
+tick is made up by the next one. Never-checked entities still come first within K, so enabling a resource does not
+flood the queue. The tick does not yield to live work: its entries take the lowest lane, so the refresh
+already serves manual and notification work first. It skips
 items that already have a queue entry (a re-enqueue would bump a claim in flight) and stops adding work while
 earlier sweep entries have not been fetched (`BACKLOG_TICKS` ticks' worth), so a stopped refresh handler cannot
 make the queue grow without bound. Every tick leaves a run record.
@@ -55,14 +59,17 @@ TICKS_PER_DAY = 144
 # Sweep entries allowed to wait unfetched, in ticks' worth of the current batch size.
 BACKLOG_TICKS = 3
 STATEMENT_TIMEOUT = "20s"
-# Yielded ticks in a row (10 minutes each) after which the sweep logs that live work is starving it: 6 hours.
-STARVATION_TICKS = 36
+# An entity last checked longer ago than this is overdue: the next tick takes it whatever K is. Below the 24-25 h targets,
+# so the refresh has a couple of hours to fetch it before it reads as late.
+DUE_AGE = timedelta(hours=22)
+# At most this many entities per resource per tick (one ML call each): a never-swept table catches up over a few
+# ticks instead of flooding the queue at once.
+MAX_TICK_BATCH = 500
 # Visits only: an item not active now is swept while it was active within this window of the tick (owner: an item
 # paused before it cannot change its visits).
 VISITS_ACTIVE_WINDOW = timedelta(hours=24)
 
 OUTCOME_SUCCESS = "success"
-OUTCOME_YIELDED = "yielded"
 OUTCOME_BACKLOG = "backlog"
 OUTCOME_NO_RESOURCES = "no_resources"
 OUTCOME_FAILED = "failed"
@@ -131,21 +138,17 @@ _RECENTLY_ACTIVE = (
 _ACTIVE_ONLY_RESOURCES = frozenset({VISITS_RESOURCE, DESCRIPTION_RESOURCE})
 _NOT_QUEUED = "AND NOT EXISTS (SELECT 1 FROM ml_pub_refresh_queue q WHERE q.kind = '{kind}' AND q.entity_id = {id})"
 
-# Lanes are ordered by priority number (`queue`: manual 0, notification 1, ...): `lane <= LANE_NOTIFICATION` is the
-# live work the sweep yields to. `not_before` is NOT NULL (default now()), so every entry is compared.
-_LIVE_WORK = text(
-    "SELECT 1 FROM ml_pub_refresh_queue WHERE lane <= :lane AND claimed_at IS NULL AND parked_at IS NULL "
-    "AND not_before <= now() LIMIT 1"
-)
-_PREVIOUS_STREAK = text(
-    "SELECT counts ->> 'yielded_in_a_row' FROM ml_pub_job_runs WHERE job = :job ORDER BY id DESC LIMIT 1"
-)
 _SWEEP_BACKLOG = text("SELECT count(*) FROM ml_pub_refresh_queue WHERE lane = :lane AND parked_at IS NULL")
 
 
 def batch_size(eligible: int) -> int:
     """K: items per resource per tick so that a day of ticks covers every eligible item once."""
     return math.ceil(eligible / TICKS_PER_DAY) if eligible > 0 else 0
+
+
+def tick_batch(eligible: int, overdue: int) -> int:
+    """K, or every overdue entity when more are overdue (a lost tick is made up), capped at `MAX_TICK_BATCH`."""
+    return min(max(batch_size(eligible), overdue), MAX_TICK_BATCH)
 
 
 def daily_calls(*eligible_per_resource: int) -> int:
@@ -179,14 +182,12 @@ class SweepResult:
     outcome: str = OUTCOME_SUCCESS
     error: Optional[str] = None
     enqueued: int = 0
-    yielded_in_a_row: int = 0
     resources: Dict[str, ResourceTick] = field(default_factory=dict)
 
     def counts(self) -> Dict[str, Any]:
         calls = daily_calls(*(t.eligible for t in self.resources.values()))
         return {
             "enqueued": self.enqueued,
-            "yielded_in_a_row": self.yielded_in_a_row,
             "resources": {name: tick.as_dict() for name, tick in self.resources.items()},
             "calls_per_day": calls,
             "requests_per_second": round(requests_per_second(calls), 4),
@@ -230,17 +231,21 @@ def _tick(
     resources: Sequence[str],
     recheck_before: datetime,
     active_since: datetime,
+    due_before: datetime,
     result: SweepResult,
 ) -> Optional[str]:
-    """Selects and enqueues one tick. Returns an outcome that ends it early (yielded, backlog) or None."""
+    """Selects and enqueues one tick. Returns an outcome that ends it early (backlog) or None."""
     with database.get_background_db() as session:
         session.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
-        if session.execute(_LIVE_WORK, {"lane": queue.LANE_NOTIFICATION}).first() is not None:
-            return OUTCOME_YIELDED
         params = {"statuses": list(statuses), "recheck_before": recheck_before, "active_since": active_since}
         for resource in resources:
-            eligible = session.execute(text("SELECT count(*) " + _eligible_sql(resource)), params).scalar() or 0
-            result.resources[resource] = ResourceTick(eligible=eligible, batch=batch_size(eligible))
+            eligible, overdue = session.execute(
+                text("SELECT count(*), count(*) FILTER (WHERE s.last_checked_at < :due) " + _eligible_sql(resource)),
+                {**params, "due": due_before},
+            ).one()
+            result.resources[resource] = ResourceTick(
+                eligible=eligible or 0, batch=tick_batch(eligible or 0, overdue or 0)
+            )
         wanted = sum(tick.batch for tick in result.resources.values())
         if session.execute(_SWEEP_BACKLOG, {"lane": queue.LANE_SWEEP}).scalar() >= BACKLOG_TICKS * wanted > 0:
             return OUTCOME_BACKLOG
@@ -266,15 +271,6 @@ def _tick(
         queue.enqueue(entries, session=session)
         result.enqueued = len(entries)
     return None
-
-
-def _yield_streak(outcome: str) -> int:
-    """Consecutive ticks that yielded to live work, this one included: the signal that the sweep is starving."""
-    if outcome != OUTCOME_YIELDED:
-        return 0
-    with database.get_background_db() as session:
-        previous = session.execute(_PREVIOUS_STREAK, {"job": JOB}).scalar()
-    return (int(previous) if previous and str(previous).isdigit() else 0) + 1
 
 
 def _record(result: SweepResult, resources: Sequence[str], started: datetime, finished: datetime) -> None:
@@ -308,12 +304,14 @@ def run_sweep(
             result.outcome = OUTCOME_NO_RESOURCES
         else:
             early = _tick(
-                statuses, resources, started - timedelta(days=recheck_days), started - VISITS_ACTIVE_WINDOW, result
+                statuses,
+                resources,
+                started - timedelta(days=recheck_days),
+                started - VISITS_ACTIVE_WINDOW,
+                started - DUE_AGE,
+                result,
             )
             result.outcome = early or OUTCOME_SUCCESS
-        result.yielded_in_a_row = _yield_streak(result.outcome)
-        if result.yielded_in_a_row == STARVATION_TICKS:
-            logger.warning("the sweep has yielded to live work for %s ticks in a row", STARVATION_TICKS)
     except Exception as exc:  # noqa: BLE001 -- the next tick retries
         logger.exception("sweep tick failed")
         result.outcome, result.error = OUTCOME_FAILED, f"internal_error: {type(exc).__name__}: {exc}"[:300]

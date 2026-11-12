@@ -334,12 +334,17 @@ and of every other flag). Neither adds a cron, a timer or a LISTEN/NOTIFY: the s
   24 h before the tick (`VISITS_ACTIVE_WINDOW`). An item paused before that cannot gain visits, so it is not
   refetched. An item that leaves `active` gets one last read within the day it stopped. The freshness measure
   (`late` for visits) counts active items only, a subset of this set, so nothing it counts is left out of the sweep.
-* With `refresh.enabled` off the entries only wait in the queue (nothing fetches them), and while live entries wait
-  (intake keeps enqueuing) the tick records `yielded`: expected, not a fault (each tick's run record
-  carries `yielded_in_a_row`; a long streak, logged as a warning at 36 ticks, means live work is starving the sweep).
+* With `refresh.enabled` off the entries only wait in the queue (nothing fetches them). Since 2026-11-12 the tick no
+  longer yields to live work (visits had gone 39 h unchecked because busy hours lost every tick): its entries take
+  the lowest lane, so the refresh serves manual and notification work first anyway. Run records written before that
+  may still carry `yielded` and `yielded_in_a_row`.
+* Catch-up: each resource takes max(K, the eligible entities last checked more than 22 h ago, `DUE_AGE`), at most
+  500 per tick (`MAX_TICK_BATCH`), so a lost or short tick is made up by the next one and every active item is checked
+  within the 25 h visits target. Never-checked entities still come in by K (first), so enabling a resource does not
+  flood the queue.
 * Only the resources listed in `bundle_resources` are swept: add `performance` and/or `visits` first, or the tick
   records `no_resources` and does nothing.
-* The tick enqueues nothing while manual or notification-lane work is ready to be claimed (it yields), skips
+* The tick skips
   items that already have a queue entry (an item whose entry is parked, that is, failed past its attempts, is not
   eligible at all until it is enqueued by hand in the manual lane), and stops adding work while 3 ticks' worth of sweep entries wait unfetched
   (a stopped `refresh.enabled` cannot make the queue grow).
@@ -464,7 +469,7 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 - `backfill`: progress per scan status (`enumerated`, `enqueued`, `restarts`, `complete`).
 - `missed_feeds`: last completed run and its age, the last run, and `coverage_gap` (`resolved: true` once a later run
   completed).
-- `sweep.last_run`: read **`outcome`** and `yielded_in_a_row` here; the sweep reports success to the runtime even
+- `sweep.last_run`: read **`outcome`** here (`yielded_in_a_row` only on records written before 2026-11-12); the sweep reports success to the runtime even
   when a tick fails, so its `last_success_at` says nothing.
 - `verification`: `divergence` (the latest spot-check: `rate`, `below_target`, `sampled`, the diverging pairs and how
   many items changed after sampling) and `snapshot` (the latest freshness snapshot). Both are null until the jobs ran.
