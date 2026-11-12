@@ -234,10 +234,13 @@
   box-shadow: var(--cf-card-shadow);
 }
 
-/* The table is wider than any screen (design: 1720px+): it scrolls
-   sideways HERE, inside the card, never the page. */
+/* Same sticky model as Publicaciones ML's TableShell: a bounded scroller
+   on BOTH axes. Horizontal scroll stays inside the card; vertical scroll
+   owns the sticky context so `thead th` can pin at `top: 0` (and the leaf
+   row under the group height) without hitching to the page or TopBar. */
 .tableScroll {
-  overflow-x: auto;
+  overflow: auto;
+  max-height: calc(100vh - var(--cf-topbar-height) - var(--table-shell-offset));
 }
 
 .empty {

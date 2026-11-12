@@ -1,11 +1,10 @@
 /* Métricas ML watchlist table (tablero.png / tablero.html).
 
-   The card around it (`MetricasML.module.css` `.tableScroll`) scrolls
-   sideways; the Producto column is `position: sticky; left: 0` so it stays
-   while the numbers move. Because the card is the horizontal scroll
-   container, the header is NOT sticky vertically (a sticky `<th>` pins to its
-   nearest scrolling ancestor -- the card, not the page). Money is
-   `white-space: nowrap` everywhere: "$" never sits alone on a line. */
+   The card around it (`MetricasML.module.css` `.tableScroll`) is a bounded
+   scroller on BOTH axes (same model as Publicaciones ML's TableShell): the
+   header pins at `top: 0` / under the group row, and Producto pins at
+   `left: 0`. Money is `white-space: nowrap` everywhere: "$" never sits alone
+   on a line. */
 
 .table {
   width: 100%;
@@ -27,19 +26,27 @@
 /* ── Header ─────────────────────────────────────────────── */
 
 .table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   font-size: 11px;
   font-weight: var(--font-semibold);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--cf-text-tertiary);
   background: var(--metricas-head-bg);
+  /* Travels with the sticky cell (a collapsed border would stay behind). */
+  border-bottom: none;
+  box-shadow: inset 0 -1px 0 var(--ventas-divider);
   white-space: nowrap;
   text-align: left;
 }
 
-.groupRow th {
-  padding-top: 9px;
-  padding-bottom: 9px;
+.table thead .groupRow th {
+  top: 0;
+  height: var(--table-shell-group-height);
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 .groupHead {
@@ -47,7 +54,9 @@
   border-left: 1px solid var(--ventas-divider);
 }
 
-.leafRow th {
+/* Beats `.table thead th { top: 0 }` so the leaf row pins under the group row. */
+.table thead .leafRow th {
+  top: var(--table-shell-group-height);
   /* Tighter tracking than the group row: the column names set most widths, so they waste the least room. */
   letter-spacing: 0.03em;
   font-size: 10px;
@@ -116,8 +125,9 @@
   box-shadow: inset -1px 0 0 var(--ventas-divider);
 }
 
+/* Corner cells: above body Producto and above other sticky headers. */
 thead .colProducto {
-  z-index: 3;
+  z-index: 4;
 }
 
 /* Full HD has room for whole titles (tablero.png); 1366 keeps the column
@@ -604,10 +614,7 @@ thead .colProducto {
   line-height: 1.25;
 }
 
-.table[data-density='dense'] .groupRow th {
-  padding-top: 5px;
-  padding-bottom: 5px;
-}
+/* Dense keeps the fixed group-row height so the leaf sticky offset still matches. */
 
 .table[data-density='dense'] .product {
   gap: 6px;
