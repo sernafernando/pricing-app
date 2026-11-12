@@ -162,6 +162,8 @@ class TacticalLineaOut(BaseModel):
     # A sell in total line of a USD tactical: the USD amount it was loaded with (`valor` is the bonus's ARS total,
     # converted at the tactical's fixed `tipo_cambio`); None on every other line.
     valor_usd: Optional[Decimal] = None
+    # A sell out `al_cobro` campaign: the rate already set when the brand paid; None on every other line (S8).
+    tc_al_cobro: Optional[Decimal] = None
     unidades_usadas: int
     monto_usado: Decimal
 

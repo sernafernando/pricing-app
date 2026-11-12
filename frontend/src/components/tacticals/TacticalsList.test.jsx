@@ -253,6 +253,30 @@ describe('TacticalsList row actions', () => {
   });
 });
 
+describe('TacticalsList Editar opens the full edit (SISO S8)', () => {
+  it('hands a tactical that is not collected to onEditar', async () => {
+    const onEditar = vi.fn();
+    render(<TacticalsList marcas={MARCAS} puedeGestionar={() => true} onRenovar={vi.fn()} onEditar={onEditar} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Acciones de Tacticals BPS Noviembre Q1FY27' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Editar' }));
+
+    expect(onEditar).toHaveBeenCalledWith(BPS);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('opens only the safe fields dialog on a collected tactical', async () => {
+    const COBRADO = { ...BPS, cobranza: COBRANZA_FONDO };
+    tacticalsAPI.listar.mockResolvedValue({ data: pagina([COBRADO, REBATE], 2) });
+    const onEditar = vi.fn();
+    render(<TacticalsList marcas={MARCAS} puedeGestionar={() => true} onRenovar={vi.fn()} onEditar={onEditar} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Acciones de Tacticals BPS Noviembre Q1FY27' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Editar' }));
+
+    expect(onEditar).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: 'Editar Tacticals BPS Noviembre Q1FY27' })).toBeInTheDocument();
+  });
+});
+
 describe('TacticalsList Editar', () => {
   const abrirEditar = async () => {
     render(<TacticalsList marcas={MARCAS} puedeGestionar={() => true} onRenovar={vi.fn()} />);

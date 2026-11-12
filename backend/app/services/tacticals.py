@@ -1500,6 +1500,8 @@ def _lineas_campanas(db: Session, ids: list[int]) -> list[dict]:
                 "tope_monto": c.tope_monto,
                 "unidades_usadas": unidades,
                 "monto_usado": monto,
+                # The rate an `al_cobro` campaign already took when the brand paid (S8: an edit warns it is discarded).
+                "tc_al_cobro": c.tipo_cambio if c.tc_modo == "al_cobro" and c.tc_definido_en is not None else None,
             }
         )
     return salida

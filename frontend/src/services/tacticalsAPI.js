@@ -13,6 +13,8 @@ const TACTICALS = '/tacticals';
  *   names the line ("Línea 3: …").
  * - `editar(id, body)`: `PATCH /tacticals/{id}`, only nombre, nota, fecha_hasta and each line's caps
  *   (`lineas: [{linea, tope_unidades?, tope_monto?}]`, a null cap removes it); a 422 names the line.
+ * - `reemplazar(id, body)`: `PUT /tacticals/{id}`, the create's body: the whole definition is loaded again under the
+ *   same id and what it applied is recomputed (S8); a 409 when it is voided or collected, a 422 names the line.
  * - `anular(id, motivo)`: `POST /tacticals/{id}/anular`, voids the tactical and every child (the reason, or null,
  *   goes to the audit rows); a 409 when it is already voided.
  * - `cobrar(id, body)`: `PUT /tacticals/{id}/cobranza`, saves its one collection record (`fecha_cobro` required; medio
@@ -28,6 +30,7 @@ export const tacticalsAPI = {
   detalle: (id) => api.get(`${TACTICALS}/${id}`),
   crear: (body) => api.post(TACTICALS, body),
   editar: (id, body) => api.patch(`${TACTICALS}/${id}`, body),
+  reemplazar: (id, body) => api.put(`${TACTICALS}/${id}`, body),
   anular: (id, motivo) => api.post(`${TACTICALS}/${id}/anular`, { motivo }),
   cobrar: (id, body) => api.put(`${TACTICALS}/${id}/cobranza`, body),
   deshacerCobro: (id) => api.delete(`${TACTICALS}/${id}/cobranza`),

@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { TACTICAL_BPS, TACTICAL_REBATE } from '../tacticals/tacticalsFixtures';
 import { cuerpoDe, problemaDe } from './tacticalLineas';
-import { renovacionDe } from './tacticalRenovar';
+import { conFacturas, edicionDe, impactoDe, renovacionDe } from './tacticalRenovar';
 
 describe('renovacionDe', () => {
   it('copies the header but the dates, which the user picks again', () => {
@@ -136,5 +136,51 @@ describe('renovacionDe', () => {
 
     expect(lineas[0]).toMatchObject({ alcance: 'factura', facturas: [] });
     expect(problemaDe({ ...form, fechaDesde: '2027-02-01', fechaHasta: '2027-04-30' }, lineas)).toMatch(/sin factura/);
+  });
+});
+
+describe('edicionDe (S8)', () => {
+  it('keeps the dates, which the edit replaces in the same tactical', () => {
+    const { form, lineas } = edicionDe(TACTICAL_BPS);
+
+    expect([form.fechaDesde, form.fechaHasta]).toEqual(['2026-11-01', '2026-11-30']);
+    expect(lineas).toHaveLength(2);
+    expect(lineas.map((l) => l.facturas)).toEqual([[], []]);
+  });
+
+  it("keeps each invoice line's invoice, and Renovar still leaves it out", () => {
+    const factura = { ...TACTICAL_REBATE.lineas[0], alcance: 'factura', pedido_compra_id: 5001, pedido_numero: 'OC-77' };
+    const tactical = { ...TACTICAL_REBATE, lineas: [factura] };
+
+    expect(edicionDe(tactical).lineas[0].facturas).toEqual([{ id: 5001, numero: 'OC-77' }]);
+    expect(renovacionDe(tactical).lineas[0].facturas).toEqual([]);
+  });
+
+  it('fills an invoice with what the Compras search found, by id', () => {
+    const lineas = [{ id: 'a', facturas: [{ id: 5001, numero: 'OC-77' }] }];
+    const encontrada = { id: 5001, numero: 'OC-77', numero_factura: 'A-0001-123', proveedor_nombre: 'TP-Link', fecha: '2026-11-03' };
+
+    expect(conFacturas(lineas, [encontrada, { id: 9 }])[0].facturas).toEqual([encontrada]);
+    expect(conFacturas(lineas, [])[0].facturas).toEqual([{ id: 5001, numero: 'OC-77' }]);
+  });
+});
+
+describe('impactoDe (S8)', () => {
+  const form = (cambios = {}) => ({ ...edicionDe(TACTICAL_BPS).form, ...cambios });
+
+  it('adds up what the active lines already applied, per currency', () => {
+    const anulada = { ...TACTICAL_BPS.lineas[0], id: 99, estado: 'anulada', monto_usado: '500', unidades_usadas: 5 };
+    const tactical = { ...TACTICAL_BPS, lineas: [...TACTICAL_BPS.lineas, anulada] };
+
+    expect(impactoDe(tactical, form())).toEqual({ aplicado: { USD: 20544 }, unidades: 252, tcDescartado: null });
+  });
+
+  it('warns that a set al_cobro rate is discarded only when type, currency or FX mode change', () => {
+    const conTasa = { ...TACTICAL_BPS, lineas: [{ ...TACTICAL_BPS.lineas[0], tc_al_cobro: '1450.000000' }] };
+
+    expect(impactoDe(conTasa, form()).tcDescartado).toBeNull();
+    expect(impactoDe(conTasa, form({ moneda: 'ARS' })).tcDescartado).toBe(1450);
+    expect(impactoDe(conTasa, form({ tcModo: 'fijo' })).tcDescartado).toBe(1450);
+    expect(impactoDe(conTasa, form({ tipo: 'sell_in' })).tcDescartado).toBe(1450);
   });
 });
