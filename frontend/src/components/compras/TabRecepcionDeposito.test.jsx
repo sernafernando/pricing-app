@@ -107,117 +107,6 @@ const SALDOS_ARRIBO = {
 const LISTADO_ENDPOINT = '/administracion/compras/pedidos';
 const POOL_ENDPOINT = '/administracion/compras/usuarios-responsable-faltantes';
 const CREADORES_ENDPOINT = '/administracion/compras/usuarios-filtro-creado-por';
-const saldosUrlFor = (pedidoId) =>
-  `/administracion/compras/pedidos/${pedidoId}/recepcion/saldos`;
-
-const POOL_DEFAULT = [
-  { id: 7, nombre: 'PM Pool' },
-  { id: 8, nombre: 'PM Dos' },
-];
-
-function mockListado(items) {
-  api.get.mockImplementation((url) => {
-    if (typeof url === 'string' && url.includes('/adjuntos')) {
-      return Promise.resolve({ data: [] });
-
-// NOTE: vite.config.js sets `css: false` for the test run, so CSS Module class
-// names do NOT resolve. Never assert on className — assert on text and roles.
-
-const PEDIDO_PAGADO = {
-  id: 1,
-  numero: 'PC-0001',
-  proveedor_id: 10,
-  proveedor_nombre: 'Proveedor Uno',
-  estado: 'pagado',
-  numero_factura: 'A-0001-00000001',
-  observaciones: 'Entregar en el portón 3',
-  requiere_envio: false,
-  oc_poh_id: null,
-  // Money fields are part of the payload but must never reach the clipboard.
-  monto: '123456.78',
-  moneda: 'ARS',
-};
-
-const PEDIDO_CUENTA_CORRIENTE = {
-  id: 2,
-  numero: 'PC-0002',
-  proveedor_id: 20,
-  proveedor_nombre: 'Proveedor Dos',
-  estado: 'en_cuenta_corriente',
-  numero_factura: null,
-  observaciones: null,
-  requiere_envio: true,
-  oc_poh_id: null,
-  monto: '999999.99',
-  moneda: 'USD',
-};
-
-// CON-OC fixtures (oc_poh_id set) — Phase 4/5 (D5a, D5b/D6). The two existing
-// fixtures above are deliberately SIN-OC (oc_poh_id: null); these cover the
-// arrival read-only table and the closed-header items badge.
-const PEDIDO_CON_OC_PAGADO = {
-  id: 3,
-  numero: 'PC-0003',
-  proveedor_id: 30,
-  proveedor_nombre: 'Proveedor Tres',
-  estado: 'pagado',
-  numero_factura: null,
-  observaciones: null,
-  requiere_envio: false,
-  oc_poh_id: 500,
-  oc_lineas_total: 2,
-  oc_unidades_total: '15.000000',
-  monto: '5000.00',
-  moneda: 'ARS',
-};
-
-const PEDIDO_CON_OC_CUENTA_CORRIENTE = {
-  ...PEDIDO_CON_OC_PAGADO,
-  id: 4,
-  numero: 'PC-0004',
-  estado: 'en_cuenta_corriente',
-  oc_lineas_total: 1,
-  oc_unidades_total: '1.000000',
-};
-
-// Two OC lines, split across two depositos — matches the pod_id = item×destino
-// granularity the design's copy locks ("2 líneas", never "productos distintos").
-const SALDOS_ARRIBO = {
-  pedido_id: PEDIDO_CON_OC_PAGADO.id,
-  tiene_oc: true,
-  estado: 'pagado',
-  requiere_envio: false,
-  lineas: [
-    {
-      pod_id: 1001,
-      item_id: 55,
-      item_code: 'SKU-55',
-      item_nombre: 'Memoria RAM 16GB',
-      stor_id: 1,
-      deposito_nombre: 'Depósito Central',
-      pod_qty: '10.000000',
-      cantidad_recibida_total: '0.000000',
-      saldo_pendiente: '10.000000',
-    },
-    {
-      pod_id: 1002,
-      item_id: 56,
-      item_code: 'SKU-56',
-      item_nombre: 'Disco SSD 1TB',
-      stor_id: 2,
-      deposito_nombre: 'Depósito Norte',
-      pod_qty: '5.000000',
-      cantidad_recibida_total: '0.000000',
-      saldo_pendiente: '5.000000',
-    },
-  ],
-};
-
-const LISTADO_ENDPOINT = '/administracion/compras/pedidos';
-const POOL_ENDPOINT = '/administracion/compras/usuarios-responsable-faltantes';
-const CREADORES_ENDPOINT = '/administracion/compras/usuarios-filtro-creado-por';
-const saldosUrlFor = (pedidoId) =>
-  `/administracion/compras/pedidos/${pedidoId}/recepcion/saldos`;
 const arriboProgresoUrlFor = (pedidoId) =>
   `/administracion/compras/pedidos/${pedidoId}/recepcion/arribo-progreso`;
 
@@ -369,6 +258,7 @@ async function copiarPedido(pedido) {
 
 afterEach(() => {
   delete navigator.clipboard;
+  mockPermisos.denied.clear();
 });
 
 describe('TabRecepcionDeposito — "Por recibir" merged filter', () => {
