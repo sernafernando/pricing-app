@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -165,6 +165,7 @@ def calcular_por_markup(
 
 @router.get("/precios/calcular-markup")
 def calcular_markup_get(
+    request: Request,
     precio: float,
     item_id: Optional[int] = None,
     item_code: Optional[str] = None,
@@ -185,6 +186,16 @@ def calcular_markup_get(
         producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
     else:
         producto = db.query(ProductoERP).filter(ProductoERP.codigo == item_code).first()
+        # TEMPORARY diagnostic: identify the external Google Sheet (Apps Script) and the browser
+        # that call this endpoint with non-EAN codes. Logs only username, User-Agent and item_code;
+        # never tokens or any other header. Remove once the callers are identified.
+        logger.info(
+            "calcular-markup caller: user=%s user_agent=%r item_code=%r result=%s",
+            current_user.username,
+            request.headers.get("user-agent"),
+            item_code,
+            "found" if producto else "404",
+        )
 
     if not producto:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
