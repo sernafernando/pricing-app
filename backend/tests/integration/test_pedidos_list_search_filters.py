@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
 
+from app.core.security import get_password_hash
 from app.models.empresa import Empresa
+from app.models.imputacion import Imputacion
+from app.models.orden_pago import OrdenPago
 from app.models.pedido_compra import PedidoCompra
 from app.models.pedido_compra_oc import PedidoCompraOc
 from app.models.proveedor import OrigenProveedor, Proveedor
 from app.models.purchase_order_detail import PurchaseOrderDetail
 from app.models.purchase_order_header import PurchaseOrderHeader
-from app.core.security import get_password_hash
 from app.models.tb_item import TBItem
+from app.models.tipo_cambio import TipoCambio
 from app.models.usuario import Usuario
 
 BASE = "/api/administracion/compras"
@@ -250,3 +254,121 @@ def test_q_producto_matches_ean_and_desc(client, auth_headers, db, empresa, prov
 def test_q_producto_min_length(client, auth_headers, con_ver_oc):
     r = client.get(f"{BASE}/pedidos", headers=auth_headers, params={"q_producto": "a"})
     assert r.status_code == 422
+
+
+def _pedido_usd_con_diferencial(
+    db,
+    *,
+    empresa: Empresa,
+    proveedor: Proveedor,
+    user: Usuario,
+    numero: str,
+    oc_poh_id: int,
+) -> PedidoCompra:
+    """USD pagado with Caso-B imputación and TC gap > threshold (FX filter survivor)."""
+    if db.query(TipoCambio).filter(TipoCambio.moneda == "USD").first() is None:
+        db.add(TipoCambio(fecha=date(2026, 1, 1), moneda="USD", compra=Decimal("1000"), venta=Decimal("1010")))
+        db.flush()
+    p = _pedido(
+        db,
+        empresa=empresa,
+        proveedor=proveedor,
+        user=user,
+        numero=numero,
+        estado="pagado",
+        oc_poh_id=oc_poh_id,
+    )
+    p.moneda = "USD"
+    p.monto = Decimal("1")
+    p.tipo_cambio = Decimal("1000")
+    p.tipo_cambio_original = Decimal("1000")
+    p.tipo_cambio_manual = Decimal("1500")
+    db.flush()
+    op = OrdenPago(
+        numero=f"OP-{numero}",
+        empresa_id=empresa.id,
+        proveedor_id=proveedor.id,
+        moneda="ARS",
+        monto_total=Decimal("1000"),
+        tipo_cambio=Decimal("1000"),
+        modo_imputacion="especifica",
+        actualizar_tc_pedido=False,
+        estado="pagado",
+        creado_por_id=user.id,
+    )
+    db.add(op)
+    db.flush()
+    db.add(
+        Imputacion(
+            origen_tipo="orden_pago",
+            origen_id=op.id,
+            destino_tipo="pedido_compra",
+            destino_id=p.id,
+            monto_imputado=Decimal("1"),
+            moneda_imputada="USD",
+            tipo_cambio=Decimal("1000"),
+            proveedor_id=proveedor.id,
+            creado_por_id=user.id,
+            es_reversal=False,
+        )
+    )
+    db.flush()
+    return p
+
+
+def test_diferencial_cambio_applies_q_proveedor_and_q_oc(
+    client, auth_headers, db, empresa, proveedor, active_user, con_ver_oc
+):
+    """FX branch used to ignore text filters; survivors must still honor q_proveedor / q_oc."""
+    prov_b = Proveedor(
+        id=2,
+        nombre="Prov Otro FX",
+        activo=True,
+        origen=OrigenProveedor.ERP.value,
+        supp_id=29,
+    )
+    db.add(prov_b)
+    db.flush()
+
+    hit = _pedido_usd_con_diferencial(
+        db,
+        empresa=empresa,
+        proveedor=proveedor,
+        user=active_user,
+        numero="P-FX-HIT",
+        oc_poh_id=503,
+    )
+    other = _pedido_usd_con_diferencial(
+        db,
+        empresa=empresa,
+        proveedor=prov_b,
+        user=active_user,
+        numero="P-FX-OTHER",
+        oc_poh_id=504,
+    )
+
+    by_prov = client.get(
+        f"{BASE}/pedidos",
+        headers=auth_headers,
+        params={"diferencial_cambio_pendiente": "true", "q_proveedor": "Prov Filtros"},
+    )
+    assert by_prov.status_code == 200, by_prov.text
+    assert by_prov.json()["total"] == 1
+    assert {i["id"] for i in by_prov.json()["items"]} == {hit.id}
+
+    by_oc = client.get(
+        f"{BASE}/pedidos",
+        headers=auth_headers,
+        params={"diferencial_cambio_pendiente": "true", "q_oc": "503"},
+    )
+    assert by_oc.status_code == 200, by_oc.text
+    assert by_oc.json()["total"] == 1
+    assert {i["id"] for i in by_oc.json()["items"]} == {hit.id}
+
+    both = client.get(
+        f"{BASE}/pedidos",
+        headers=auth_headers,
+        params={"diferencial_cambio_pendiente": "true"},
+    )
+    assert both.status_code == 200, both.text
+    assert {hit.id, other.id}.issubset({i["id"] for i in both.json()["items"]})
