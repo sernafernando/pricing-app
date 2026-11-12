@@ -365,7 +365,8 @@
 }
 
 .chipSuccess,
-.procesalSuccess {
+.procesalSuccess,
+.procesalEnCurso {
   color: var(--cf-accent-green);
   background: color-mix(in srgb, var(--cf-accent-green) 16%, transparent);
   border-color: color-mix(in srgb, var(--cf-accent-green) 38%, transparent);

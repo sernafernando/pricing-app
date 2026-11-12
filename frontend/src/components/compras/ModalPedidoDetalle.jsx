@@ -35,6 +35,7 @@ import api from '../../services/api';
 import useRecepcionDeposito, { readFocusQuery } from '../../hooks/useRecepcionDeposito';
 import AdjuntosPanel from './AdjuntosPanel';
 import EstadoBadge from './_shared/EstadoBadge';
+import { ejeProcesalLabel } from './_shared/ejeProcesalLabel';
 import ModalVincularFactura from './ModalVincularFactura';
 import ModalVincularOC from './ModalVincularOC';
 import ModalCorregirPedido from './ModalCorregirPedido';
@@ -43,14 +44,6 @@ import styles from './ModalPedidoDetalle.module.css';
 // Estados desde los que se puede corregir un pedido (feature D).
 const ESTADOS_CORREGIBLES = new Set(['aprobado', 'pagado_parcial', 'pagado']);
 
-const EJES_PROCESAL_LABEL = {
-  n_a_servicio: 'N/A servicio',
-  por_recibir: 'Por recibir',
-  recibido: 'Recibido',
-  faltantes_sin_res: 'Faltantes',
-  faltantes_con_res: 'Faltantes con resolución',
-  controlado: 'Controlado',
-};
 
 const MATCH_STATUS_LABEL = {
   queued: 'Match en cola',
@@ -550,9 +543,11 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
               <div>
                 <span className={styles.infoLabel}>Proceso</span>
                 <div className={styles.infoValue}>
-                  {pedido.eje_procesal
-                    ? (EJES_PROCESAL_LABEL[pedido.eje_procesal] || pedido.eje_procesal)
-                    : '—'}
+                  {ejeProcesalLabel(
+                    pedido.eje_procesal,
+                    Boolean(pedido.requiere_envio),
+                    Boolean(pedido.arribo_en_curso),
+                  )}
                 </div>
                 <div className={styles.chipRow}>
                   {pedido.oc_vinculada && (
