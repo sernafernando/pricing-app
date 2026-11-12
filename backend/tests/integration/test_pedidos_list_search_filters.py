@@ -183,6 +183,31 @@ def test_q_oc_rejects_non_digits(client, auth_headers, con_ver_oc):
     assert r.status_code == 422
 
 
+@pytest.mark.parametrize("q_oc", ["\u00b2", "\u0663", "9223372036854775808", "9" * 40, "9" * 5000])
+def test_q_oc_rejects_unicode_digits_and_out_of_range(client, auth_headers, con_ver_oc, q_oc):
+    """str.isdigit() accepts '²' / Arabic-Indic digits and int() overflows BIGINT: both must be 422, not 500."""
+    r = client.get(f"{BASE}/pedidos", headers=auth_headers, params={"q_oc": q_oc})
+    assert r.status_code == 422, r.text
+    assert r.json()["error"]["message"].startswith("q_oc debe ser el número de OC"), r.text
+
+
+def test_q_oc_accepts_bigint_max(client, auth_headers, con_ver_oc):
+    r = client.get(f"{BASE}/pedidos", headers=auth_headers, params={"q_oc": "9223372036854775807"})
+    assert r.status_code == 200, r.text
+    assert r.json()["items"] == []
+
+
+def test_diferencial_cambio_invalid_q_oc_is_422_without_survivors(client, auth_headers, con_ver_oc):
+    """The FX branch returned 200 empty before validating q_oc when nothing survived."""
+    r = client.get(
+        f"{BASE}/pedidos",
+        headers=auth_headers,
+        params={"diferencial_cambio_pendiente": "true", "q_oc": "45/503"},
+    )
+    assert r.status_code == 422, r.text
+    assert r.json()["error"]["message"].startswith("q_oc debe ser el número de OC"), r.text
+
+
 def test_creado_por_id_filter(client, auth_headers, db, empresa, proveedor, active_user, con_ver_oc):
     other = Usuario(
         username="otro_creador",

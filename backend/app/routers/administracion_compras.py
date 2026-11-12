@@ -300,6 +300,41 @@ def _exists_producto_en_oc(q_producto: str) -> Any:
     return or_(via_rel, via_header)
 
 
+_BIGINT_MAX = 2**63 - 1
+_BIGINT_MAX_DIGITS = len(str(_BIGINT_MAX))
+
+
+def _parse_q_oc(q_oc: str | None) -> int | None:
+    """Validate ``q_oc`` as an ASCII-digit BIGINT (``oc_poh_id``); 422 otherwise.
+
+    ``str.isdigit()`` alone accepts '²' or Arabic-Indic digits and lets values
+    past BIGINT reach Postgres, which surfaced as a 500. The length check runs
+    before ``int()``, which raises ValueError past 4300 digits.
+    """
+    if q_oc is None or not str(q_oc).strip():
+        return None
+    raw_oc = str(q_oc).strip()
+    if not (raw_oc.isascii() and raw_oc.isdigit()) or len(raw_oc) > _BIGINT_MAX_DIGITS or int(raw_oc) > _BIGINT_MAX:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="q_oc debe ser el número de OC (solo dígitos, ej. poh_id).",
+        )
+    return int(raw_oc)
+
+
+def _parse_q_producto(q_producto: str | None) -> str | None:
+    """Validate ``q_producto`` (min 2 chars once stripped); 422 otherwise."""
+    if q_producto is None or not str(q_producto).strip():
+        return None
+    raw_prod = str(q_producto).strip()
+    if len(raw_prod) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="q_producto requiere al menos 2 caracteres.",
+        )
+    return raw_prod
+
+
 def _apply_q_contains_filters(
     condiciones: list[Any],
     *,
@@ -342,14 +377,8 @@ def _apply_q_contains_filters(
                 _ilike_contains(Empresa.nombre, q_empresa),
             )
         )
-    if q_oc is not None and str(q_oc).strip():
-        raw_oc = str(q_oc).strip()
-        if not raw_oc.isdigit():
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="q_oc debe ser el número de OC (solo dígitos, ej. poh_id).",
-            )
-        poh = int(raw_oc)
+    poh = _parse_q_oc(q_oc)
+    if poh is not None:
         condiciones.append(
             or_(
                 PedidoCompra.oc_poh_id == poh,
@@ -361,13 +390,8 @@ def _apply_q_contains_filters(
         )
     if creado_por_id is not None:
         condiciones.append(PedidoCompra.creado_por_id == int(creado_por_id))
-    if q_producto is not None and str(q_producto).strip():
-        raw_prod = str(q_producto).strip()
-        if len(raw_prod) < 2:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="q_producto requiere al menos 2 caracteres.",
-            )
+    raw_prod = _parse_q_producto(q_producto)
+    if raw_prod is not None:
         condiciones.append(_exists_producto_en_oc(raw_prod))
 
 
@@ -587,6 +611,10 @@ def listar_pedidos(
                  total = len(survivors); paginate the id list, load only the page.
     Correct pagination: total reflects the full filtered set, not the current page.
     """
+    # Validate user-typed filters before any early return, so an invalid value is
+    # a 422 on every branch (the FX branch used to return 200 empty first).
+    _parse_q_oc(q_oc)
+    _parse_q_producto(q_producto)
     # Warehouse-only access is scoped to the estados they actually receive.
     # Without this, deposito.recibir_mercaderia would grant read access to the
     # whole purchasing ledger — saldos and FX variance of every pedido.
