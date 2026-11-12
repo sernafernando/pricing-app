@@ -20,6 +20,11 @@ class SellInProducto(BaseModel):
     descuento_unit: float  # ARS per unit
     costo: Optional[float]  # ARS per unit with sell in; None when the cost has no ARS value (no rate)
     unidades_restantes: Optional[int] = None  # the lot's units left; None for a cost bonus (no stock)
+    # S10: the same two figures in the product's cost currency, converted back at the very rate the cost was turned
+    # into ARS with (never another one), for display only; equal to the ARS ones for an ARS cost, None without it.
+    moneda_costo: str = "ARS"
+    costo_moneda: Optional[float] = None
+    descuento_unit_moneda: Optional[float] = None
 
 
 class SellOutProducto(BaseModel):

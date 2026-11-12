@@ -44,7 +44,7 @@ from app.services.ml_publications.view.markup_service import MarkupQuery
 from app.services.ml_publications.view.variations import link_state_of
 from app.services.pricing_columns import PRICELIST_TO_CAMPO
 from app.services.sell_out import alcance
-from app.services.productos_sell_in_out import resolver_sell_in_out_batch
+from app.services.productos_sell_in_out import en_moneda_costo, resolver_sell_in_out_batch
 
 STATEMENT_TIMEOUT = "3s"
 # Not shown: the whole body (a whitelisted part of it is) and its hash, which is bytes with no meaning to a person.
@@ -429,6 +429,8 @@ def _breakdown_out(found: markup_service.DetailMarkup) -> Optional[dict[str, Any
         "envio_source": b.envio_source,
         "limpio": round_display(b.limpio),
         "costo_ars": round_display(b.costo_ars),
+        "costo": round_display(b.costo),  # S10: in its own currency, the one the panel shows
+        "moneda_costo": b.moneda_costo,
         "markup": round_display(b.markup),
     }
 
@@ -488,7 +490,12 @@ def _sell_in_out(
     ).markups(product, precio_lista_ml=b.price)
     accumulator.record(SELL_IN_OUT_KEY, b.limpio)
     payload = accumulator.payload()
-    return None if payload is None else payload.model_dump()
+    if payload is None:
+        return None
+    if payload.sell_in is not None:  # S10: also in the cost's currency, at the rate `costo_ars` was converted with
+        sell_in = en_moneda_costo(payload.sell_in, b.moneda_costo, b.tipo_cambio)
+        payload = payload.model_copy(update={"sell_in": sell_in})
+    return payload.model_dump()
 
 
 # ── entry point ──────────────────────────────────────────────────

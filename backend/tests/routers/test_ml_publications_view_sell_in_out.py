@@ -29,6 +29,7 @@ from tests.routers.test_ml_publications_view_markup import (  # noqa: F401
     view_pg,
 )
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
+from tests.services.ml_publications.view import seed
 from tests.services.ml_publications.view.test_detail_postgres import body_of, rows  # noqa: F401
 from tests.services.ml_publications.view.test_unit_markup import make_ctx, make_inputs
 
@@ -78,12 +79,38 @@ class TestPayload:
                 "descuento_unit": 100.0,
                 "costo": COST[70] - 100.0,
                 "unidades_restantes": 2,
+                "moneda_costo": "ARS",
+                "costo_moneda": COST[70] - 100.0,
+                "descuento_unit_moneda": 100.0,
             },
             "sell_out": None,
             "markups_sell_in": {"publicacion": round(calcular_markup(limpio_of(70), COST[70] - 100.0) * 100, 2)},
             "markups_sell_in_out": {},
         }
         assert body["markup_breakdown"]["costo_ars"] == COST[70]  # the plain cost stays as it was
+
+    def test_a_usd_cost_shows_the_cost_and_its_sell_in_in_usd_at_the_breakdowns_rate(
+        self, client, rows, pg, analyst, pricing, db, admin_user
+    ) -> None:
+        # S10 (owner): "si son 17,04 USD, mostrame 17,04 USD". 40 USD at the context's 1000 ARS/USD is the same
+        # 40000 ARS the ARS case prices, so every ARS figure and markup is the ARS case's own.
+        with pg.begin() as conn:
+            seed.add_cost(conn, 70, 40.0, moneda_costo="USD", iva=10.5, envio=120.0)
+        linea = sell_in(db, admin_user, 70)
+
+        body = body_of(client, analyst, "MLA11")
+
+        breakdown = body["markup_breakdown"]
+        assert (breakdown["costo_ars"], breakdown["costo"], breakdown["moneda_costo"]) == (COST[70], 40.0, "USD")
+        sell_in_usd = body["sell_in_out"]["sell_in"]
+        assert sell_in_usd["compra_item_id"] == linea
+        assert (sell_in_usd["costo"], sell_in_usd["descuento_unit"]) == (COST[70] - 100.0, 100.0)  # ARS, as before
+        assert sell_in_usd["moneda_costo"] == "USD"
+        assert sell_in_usd["costo_moneda"] == pytest.approx(39.9)  # 39900 ARS at the same 1000 ARS/USD
+        assert sell_in_usd["descuento_unit_moneda"] == pytest.approx(0.1)
+        assert body["sell_in_out"]["markups_sell_in"] == {
+            "publicacion": round(calcular_markup(limpio_of(70), COST[70] - 100.0) * 100, 2)
+        }
 
     def test_the_markup_with_sell_in_is_on_the_resumen_scale(
         self, client, rows, analyst, pricing, db, admin_user

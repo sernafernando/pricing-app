@@ -497,6 +497,8 @@ class MarkupBreakdownOut(BaseModel):
     envio_source: str
     limpio: float
     costo_ars: float
+    costo: Optional[float] = None  # S10: the same cost in its own currency (`moneda_costo`), the one the panel shows
+    moneda_costo: str = "ARS"
     markup: float
 
 

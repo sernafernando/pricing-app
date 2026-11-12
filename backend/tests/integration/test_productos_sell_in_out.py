@@ -116,6 +116,9 @@ class TestPayload:
             "descuento_unit": 100.0,
             "costo": 900.0,
             "unidades_restantes": 2,
+            "moneda_costo": "ARS",
+            "costo_moneda": 900.0,
+            "descuento_unit_moneda": 100.0,
         }
         assert sio["sell_out"] is None
         assert "clasica" in sio["markups_sell_in"]

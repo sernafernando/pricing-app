@@ -171,6 +171,23 @@ class MarkupCompanions:
         self.sell_in_out.record(key, limpio, percent=percent)
 
 
+def en_moneda_costo(sell_in: SellInProducto, moneda: str, tipo_cambio: Optional[float]) -> SellInProducto:
+    """`sell_in` with its cost and discount also in the product's cost currency (S10, display only): divided by
+    `tipo_cambio`, the rate its cost was converted to ARS with, for a USD cost; the ARS figures for an ARS cost.
+    Without the ARS figure or the rate, None: never a guess. The ARS fields and every markup stay as they are."""
+    if moneda == "ARS":
+        costo, descuento = sell_in.costo, sell_in.descuento_unit
+    elif tipo_cambio:
+        tasa = Decimal(str(tipo_cambio))
+        costo = None if sell_in.costo is None else float(Decimal(str(sell_in.costo)) / tasa)
+        descuento = float(Decimal(str(sell_in.descuento_unit)) / tasa)
+    else:
+        costo, descuento = None, None
+    return sell_in.model_copy(
+        update={"moneda_costo": moneda, "costo_moneda": costo, "descuento_unit_moneda": descuento}
+    )
+
+
 @dataclass(frozen=True)
 class SellInOutBatch:
     hoy: date
@@ -197,6 +214,8 @@ class SellInOutBatch:
             )
         elif costo is not None:
             sell_in = self._sell_in_costo(producto.item_id, Decimal(str(costo)), iva)
+        if sell_in is not None:
+            sell_in = en_moneda_costo(sell_in, moneda, tipo_cambio)
         neto = None
         if precio_lista_ml and iva is not None:
             neto = Decimal(str(precio_lista_ml)) / (1 + iva / 100)

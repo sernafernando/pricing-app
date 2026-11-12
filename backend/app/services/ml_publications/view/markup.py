@@ -116,6 +116,11 @@ class UnitBreakdown:
     limpio: float
     costo_ars: float
     markup: float
+    # S10: the cost in its own currency and the rate `costo_ars` was converted with (None for an ARS cost), so the
+    # panel shows the cost, and its cost with sell in, in that currency without a second rate.
+    costo: Optional[float] = None
+    moneda_costo: str = "ARS"
+    tipo_cambio: Optional[float] = None
 
 
 def _evaluate(
@@ -182,6 +187,9 @@ def _evaluate(
         limpio=limpio,
         costo_ars=costo_ars,
         markup=value,
+        costo=float(inputs.costo),
+        moneda_costo=inputs.moneda_costo or "ARS",
+        tipo_cambio=ctx.tipo_cambio_usd if inputs.moneda_costo == "USD" else None,
     )
     return unit, breakdown
 
