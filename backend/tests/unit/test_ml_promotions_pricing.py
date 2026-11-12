@@ -10,6 +10,8 @@ Spec coverage:
 
 from __future__ import annotations
 
+from dataclasses import replace
+from typing import Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,11 +22,9 @@ from app.services.ml_promotions_pricing import (
     markup_para_precio,
     precio_de_oferta,
 )
-from app.services.pricing_calculator import (
-    calcular_comision_ml_total,
-    calcular_limpio,
-    calcular_markup,
-)
+from app.services.ml_publications.view.markup import unit_markup
+from app.services.ml_publications.view.markup_service import DetailUnit
+from tests.services.ml_publications.view.test_unit_markup import make_ctx, make_inputs
 
 
 # ── precio_de_oferta ─────────────────────────────────────────────────
@@ -229,37 +229,42 @@ class TestCoFundingAmount:
 # ── enriquecer_markup_por_promo ───────────────────────────────────────
 
 
-def _make_producto(costo: float = 1000.0, moneda: str = "ARS", iva: float = 21.0, subcategoria_id: int = 1):
-    producto = MagicMock()
-    producto.item_id = 555
-    producto.costo = costo
-    producto.moneda_costo = moneda
-    producto.iva = iva
-    producto.subcategoria_id = subcategoria_id
-    return producto
+# The pricing context is the publication's header unit (`markup_service.detail_unit`, S11): stubbed with the
+# header's own pure inputs, the hand-built context of `test_unit_markup.py` and a unit costing 1000 ARS.
+CTX = make_ctx()
+UNIT = make_inputs(costo=1000.0, moneda_costo="ARS", iva=21.0)
+ENVIO: dict[int, float] = {}
+DETAIL_UNIT = "app.services.ml_promotions_pricing.detail_unit"
 
 
-def _make_publicacion(item_id: int = 555, pricelist_id: int = 4):
-    pub = MagicMock()
-    pub.item_id = item_id
-    pub.pricelist_id = pricelist_id
-    return pub
+@pytest.fixture(autouse=True)
+def session_pricing_context():
+    """The session's pricing context (`pricing_context_de_sesion`): the hand-built one (the `db` here is a mock)."""
+    with patch("app.services.ml_promotions_pricing.pricing_context_de_sesion", return_value=CTX):
+        yield
+
+
+def _header_unit(ctx=CTX, unit=UNIT) -> DetailUnit:
+    return DetailUnit(ctx, MagicMock(), MagicMock(), unit, None, ENVIO, None)
+
+
+def _header(found: Optional[DetailUnit] = None):
+    """Stubs the header unit lookup; `found` None stands for the default unit."""
+    return patch(DETAIL_UNIT, return_value=found if found is not None else _header_unit())
+
+
+def _expected_markup(revenue: float) -> float:
+    """The header's markup of its unit at `revenue` (`unit_markup`, the header's own function)."""
+    return unit_markup(CTX, replace(UNIT, sale_price=revenue), ENVIO).value
 
 
 class TestEnriquecerMarkupPorPromo:
     def _run(self, db, mla, promos):
-        with (
-            patch("app.services.ml_promotions_pricing.obtener_comision_base", return_value=20.0),
-            patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0),
-            patch("app.services.ml_promotions_pricing.obtener_grupo_subcategoria", return_value=1),
-        ):
+        with _header():
             return enriquecer_markup_por_promo(db, mla, promos)
 
     def test_smart_promo_markup_higher_than_ignoring_co_funding(self) -> None:
         db = MagicMock()
-        producto = _make_producto()
-        publicacion = _make_publicacion()
-        db.query.return_value.filter.return_value.first.side_effect = [publicacion, producto]
 
         smart_promo = {
             "promotion_type": "SMART",
@@ -286,9 +291,6 @@ class TestEnriquecerMarkupPorPromo:
 
     def test_seller_campaign_promo_markup_on_plain_price(self) -> None:
         db = MagicMock()
-        producto = _make_producto()
-        publicacion = _make_publicacion()
-        db.query.return_value.filter.return_value.first.side_effect = [publicacion, producto]
 
         promo = {
             "promotion_type": "SELLER_CAMPAIGN",
@@ -304,9 +306,6 @@ class TestEnriquecerMarkupPorPromo:
 
     def test_candidate_promo_uses_suggested_discounted_price_as_base(self) -> None:
         db = MagicMock()
-        producto = _make_producto()
-        publicacion = _make_publicacion()
-        db.query.return_value.filter.return_value.first.side_effect = [publicacion, producto]
 
         candidate_promo = {
             "promotion_type": "DEAL",
@@ -322,8 +321,6 @@ class TestEnriquecerMarkupPorPromo:
 
     def test_no_resolvable_publicacion_sets_all_none(self) -> None:
         db = MagicMock()
-        db.query.return_value.filter.return_value.first.side_effect = [None]
-
         promo = {
             "promotion_type": "DEAL",
             "status": "started",
@@ -333,15 +330,13 @@ class TestEnriquecerMarkupPorPromo:
             "payload": {},
         }
 
-        result = enriquecer_markup_por_promo(db, "MLA_UNKNOWN", [promo])
+        with patch(DETAIL_UNIT, return_value=None):
+            result = enriquecer_markup_por_promo(db, "MLA_UNKNOWN", [promo])
         assert result[0]["nuestro_markup"] is None
 
     def test_producto_without_costo_sets_all_none(self) -> None:
+        """No unit of the publication has a header markup (e.g. no cost): no promo markup either."""
         db = MagicMock()
-        producto = _make_producto(costo=None)
-        publicacion = _make_publicacion()
-        db.query.return_value.filter.return_value.first.side_effect = [publicacion, producto]
-
         promo = {
             "promotion_type": "DEAL",
             "status": "started",
@@ -351,14 +346,12 @@ class TestEnriquecerMarkupPorPromo:
             "payload": {},
         }
 
-        result = enriquecer_markup_por_promo(db, "MLA1", [promo])
+        with patch(DETAIL_UNIT, return_value=replace(_header_unit(), unit=None)):
+            result = enriquecer_markup_por_promo(db, "MLA1", [promo])
         assert result[0]["nuestro_markup"] is None
 
     def test_promo_with_no_effective_price_sets_none_without_crash(self) -> None:
         db = MagicMock()
-        producto = _make_producto()
-        publicacion = _make_publicacion()
-        db.query.return_value.filter.return_value.first.side_effect = [publicacion, producto]
 
         promo = {
             "promotion_type": "DEAL",
@@ -378,9 +371,6 @@ class TestEnriquecerMarkupPorPromo:
 
     def test_no_comision_base_sets_all_none(self) -> None:
         db = MagicMock()
-        producto = _make_producto()
-        publicacion = _make_publicacion()
-        db.query.return_value.filter.return_value.first.side_effect = [publicacion, producto]
 
         promo = {
             "promotion_type": "DEAL",
@@ -391,65 +381,31 @@ class TestEnriquecerMarkupPorPromo:
             "payload": {},
         }
 
-        with (
-            patch("app.services.ml_promotions_pricing.obtener_comision_base", return_value=None),
-            patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0),
-            patch("app.services.ml_promotions_pricing.obtener_grupo_subcategoria", return_value=1),
-        ):
+        with _header(_header_unit(ctx=make_ctx(comision_base={}))):
             result = enriquecer_markup_por_promo(db, "MLA1", [promo])
 
         assert result[0]["nuestro_markup"] is None
 
 
-# ── Numeric parity with the canonical /precios/calcular-markup chain ───
+# ── Numeric parity with the header markup (S11) ───────────────────────
 #
-# These tests lock the FORMULA, not just "is not None". They compute the
-# expected markup by calling the same canonical functions
-# (`calcular_comision_ml_total` -> `calcular_limpio` -> `calcular_markup`)
-# directly in the test, with the same resolved inputs (comision_base,
-# iva, costo_envio, grupo_id, costo_ars) and the same `db` mock instance,
-# then assert the service's `nuestro_markup` equals that value exactly.
-# A wrong arg order, wrong base, or an extra *100 would break these.
+# These tests lock the FORMULA, not just "is not None": the expected markup is
+# the header's own `unit_markup` of the same unit at the promo's revenue. A
+# wrong revenue (co-funding dropped or applied on the markup) breaks them.
 
 
 class TestNuestroMarkupNumericParity:
-    COMISION_BASE = 20.0
-    COSTO_ENVIO = 0.0
-    GRUPO_ID = 1
-    COSTO = 1000.0
-    IVA = 21.0
-
     def _run(self, db, mla, promos):
-        with (
-            patch("app.services.ml_promotions_pricing.obtener_comision_base", return_value=self.COMISION_BASE),
-            patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=self.COSTO_ENVIO),
-            patch("app.services.ml_promotions_pricing.obtener_grupo_subcategoria", return_value=self.GRUPO_ID),
-        ):
+        with _header():
             return enriquecer_markup_por_promo(db, mla, promos)
 
     def _expected_markup(self, db, effective_revenue: float) -> float:
-        """Canonical chain used by `/precios/calcular-markup`, invoked directly
-        with the same resolved inputs the service uses. Uses the SAME `db`
-        mock instance so both the service call and this expectation resolve
-        pricing constants identically (deterministic given the same mock)."""
-        comisiones = calcular_comision_ml_total(effective_revenue, self.COMISION_BASE, self.IVA, db=db)
-        limpio = calcular_limpio(
-            effective_revenue,
-            self.IVA,
-            self.COSTO_ENVIO,
-            comisiones["comision_total"],
-            db=db,
-            grupo_id=self.GRUPO_ID,
-        )
-        return calcular_markup(limpio, self.COSTO) * 100
+        return _expected_markup(effective_revenue)
 
     def test_non_smart_promo_matches_canonical_markup_on_effective_price(self) -> None:
         """No co-funding: nuestro_markup must equal the canonical markup
         computed on the plain effective (discounted) price."""
         db = MagicMock()
-        producto = _make_producto(costo=self.COSTO, moneda="ARS", iva=self.IVA)
-        publicacion = _make_publicacion()
-        db.query.return_value.filter.return_value.first.side_effect = [publicacion, producto]
 
         effective_price = 800.0
         promo = {
@@ -468,9 +424,6 @@ class TestNuestroMarkupNumericParity:
 
     def test_candidate_promo_matches_canonical_markup_on_suggested_price(self) -> None:
         db = MagicMock()
-        producto = _make_producto(costo=self.COSTO, moneda="ARS", iva=self.IVA)
-        publicacion = _make_publicacion()
-        db.query.return_value.filter.return_value.first.side_effect = [publicacion, producto]
 
         suggested_price = 900.0
         promo = {
@@ -493,9 +446,6 @@ class TestNuestroMarkupNumericParity:
         co-funding is ADDED to the base fed into the formula, not ignored and
         not applied on top of the resulting markup."""
         db = MagicMock()
-        producto = _make_producto(costo=self.COSTO, moneda="ARS", iva=self.IVA)
-        publicacion = _make_publicacion()
-        db.query.return_value.filter.return_value.first.side_effect = [publicacion, producto]
 
         effective_price = 850.0
         original_price = 1000.0
@@ -528,9 +478,6 @@ class TestNuestroMarkupNumericParity:
         effective_price + ML co-funding (meli_percentage * original_price),
         never on price alone."""
         db = MagicMock()
-        producto = _make_producto(costo=self.COSTO, moneda="ARS", iva=self.IVA)
-        publicacion = _make_publicacion()
-        db.query.return_value.filter.return_value.first.side_effect = [publicacion, producto]
 
         effective_price = 850.0
         original_price = 1000.0
@@ -565,73 +512,43 @@ class TestNuestroMarkupNumericParity:
 
 
 class TestMarkupParaPrecio:
-    COMISION_BASE = 20.0
-    COSTO_ENVIO = 0.0
-    GRUPO_ID = 1
-    COSTO = 1000.0
-    IVA = 21.0
-
     def _run(self, db, mla, price):
-        with (
-            patch("app.services.ml_promotions_pricing.obtener_comision_base", return_value=self.COMISION_BASE),
-            patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=self.COSTO_ENVIO),
-            patch("app.services.ml_promotions_pricing.obtener_grupo_subcategoria", return_value=self.GRUPO_ID),
-        ):
+        with _header():
             return markup_para_precio(db, mla, price)
 
     def test_matches_canonical_markup_chain_for_a_known_price(self) -> None:
         db = MagicMock()
-        producto = _make_producto(costo=self.COSTO, moneda="ARS", iva=self.IVA)
-        publicacion = _make_publicacion()
-        db.query.return_value.filter.return_value.first.side_effect = [publicacion, producto]
-
         price = 850.0
         result = self._run(db, "MLA1", price)
 
-        comisiones = calcular_comision_ml_total(price, self.COMISION_BASE, self.IVA, db=db)
-        limpio = calcular_limpio(
-            price, self.IVA, self.COSTO_ENVIO, comisiones["comision_total"], db=db, grupo_id=self.GRUPO_ID
-        )
-        expected = calcular_markup(limpio, self.COSTO) * 100
-        assert result == pytest.approx(expected)
+        assert result == pytest.approx(_expected_markup(price))
 
     def test_unresolvable_publicacion_returns_none(self) -> None:
         db = MagicMock()
-        db.query.return_value.filter.return_value.first.side_effect = [None]
-        assert markup_para_precio(db, "MLA_UNKNOWN", 850.0) is None
+        with patch(DETAIL_UNIT, return_value=None):
+            assert markup_para_precio(db, "MLA_UNKNOWN", 850.0) is None
 
     def test_producto_without_costo_returns_none(self) -> None:
         db = MagicMock()
-        producto = _make_producto(costo=None)
-        publicacion = _make_publicacion()
-        db.query.return_value.filter.return_value.first.side_effect = [publicacion, producto]
-        assert markup_para_precio(db, "MLA1", 850.0) is None
+        with patch(DETAIL_UNIT, return_value=replace(_header_unit(), unit=None)):
+            assert markup_para_precio(db, "MLA1", 850.0) is None
 
     def test_no_comision_base_returns_none(self) -> None:
         db = MagicMock()
-        producto = _make_producto()
-        publicacion = _make_publicacion()
-        db.query.return_value.filter.return_value.first.side_effect = [publicacion, producto]
-
-        with (
-            patch("app.services.ml_promotions_pricing.obtener_comision_base", return_value=None),
-            patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0),
-            patch("app.services.ml_promotions_pricing.obtener_grupo_subcategoria", return_value=1),
-        ):
+        with _header(_header_unit(ctx=make_ctx(comision_base={}))):
             assert markup_para_precio(db, "MLA1", 850.0) is None
 
     def test_exception_in_calculation_returns_none_never_raises(self) -> None:
         db = MagicMock()
-        producto = _make_producto()
-        publicacion = _make_publicacion()
-        db.query.return_value.filter.return_value.first.side_effect = [publicacion, producto]
-
         with (
-            patch("app.services.ml_promotions_pricing.obtener_comision_base", return_value=self.COMISION_BASE),
-            patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=self.COSTO_ENVIO),
-            patch("app.services.ml_promotions_pricing.obtener_grupo_subcategoria", return_value=self.GRUPO_ID),
-            patch("app.services.ml_promotions_pricing.calcular_comision_ml_total", side_effect=RuntimeError("boom")),
+            _header(),
+            patch("app.services.ml_promotions_pricing.unit_markup", side_effect=RuntimeError("boom")),
         ):
+            assert markup_para_precio(db, "MLA1", 850.0) is None
+
+    def test_a_failed_header_lookup_returns_none_never_raises(self) -> None:
+        db = MagicMock()
+        with patch(DETAIL_UNIT, side_effect=RuntimeError("store down")):
             assert markup_para_precio(db, "MLA1", 850.0) is None
 
 
@@ -646,31 +563,13 @@ class TestMarkupBaselineVigente:
     payload is absent (same as ``normalizar_entrada_seller_promo``).
     """
 
-    COMISION_BASE = 20.0
-    COSTO_ENVIO = 0.0
-    GRUPO_ID = 1
-    COSTO = 1000.0
-    IVA = 21.0
-
     def _expected_markup(self, db, effective_revenue: float) -> float:
-        comisiones = calcular_comision_ml_total(effective_revenue, self.COMISION_BASE, self.IVA, db=db)
-        limpio = calcular_limpio(
-            effective_revenue,
-            self.IVA,
-            self.COSTO_ENVIO,
-            comisiones["comision_total"],
-            db=db,
-            grupo_id=self.GRUPO_ID,
-        )
-        return calcular_markup(limpio, self.COSTO) * 100
+        return _expected_markup(effective_revenue)
 
     def test_uses_real_cofunded_chain_when_started_price_matches_sale(self) -> None:
         from app.services.ml_promotions_pricing import markup_baseline_vigente
 
         db = MagicMock()
-        producto = _make_producto(costo=self.COSTO, moneda="ARS", iva=self.IVA)
-        publicacion = _make_publicacion()
-        db.query.return_value.filter.return_value.first.side_effect = [publicacion, producto]
 
         sale = 850.0
         original = 1000.0
@@ -696,11 +595,7 @@ class TestMarkupBaselineVigente:
         co_funding = (meli_percentage / 100) * original
         expected = self._expected_markup(db, sale + co_funding)
 
-        with (
-            patch("app.services.ml_promotions_pricing.obtener_comision_base", return_value=self.COMISION_BASE),
-            patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=self.COSTO_ENVIO),
-            patch("app.services.ml_promotions_pricing.obtener_grupo_subcategoria", return_value=self.GRUPO_ID),
-        ):
+        with _header():
             assert markup_baseline_vigente(db, "MLA1", sale + 0.5, raw_promotions=raw) == pytest.approx(expected)
 
     def test_falls_back_to_plain_markup_without_cofunded_started(self) -> None:
@@ -726,7 +621,8 @@ class TestMarkupBaselineVigente:
             return_value=-5.1,
         ) as plain:
             assert markup_baseline_vigente(db, "MLA1", 555867.83, raw_promotions=raw) == -5.1
-            plain.assert_called_once_with(db, "MLA1", 555867.83)
+            plain.assert_called_once()
+            assert plain.call_args.args == (db, "MLA1", 555867.83)
 
     def test_falls_back_when_started_cofunded_price_does_not_match_sale(self) -> None:
         from app.services.ml_promotions_pricing import markup_baseline_vigente

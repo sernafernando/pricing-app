@@ -13,13 +13,19 @@ Layout:
     from `origin/main` BEFORE the change and must not move.
   * RED structural — pricing constants and the group shipping average are
     resolved at most once per item request, however many promos it lists.
+
+S11 (2026-11-12): the context is now the publication's header unit
+(`markup_service.detail_unit`). Its store read (`fetch_inputs`, Postgres SQL) and
+the mlwebhook shipping read are stubbed with the same publication (classic list,
+no shipping cost of its own); the pricing context is the real
+`build_pricing_context` over this world, so the pinned markups still hold.
 """
 
 from __future__ import annotations
 
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import date
-from unittest.mock import patch
 
 import pytest
 from sqlalchemy import event
@@ -28,15 +34,49 @@ from app.models.comision_config import SubcategoriaGrupo
 from app.models.comision_versionada import ComisionBase, ComisionVersion
 from app.models.pricing_constants import PricingConstants
 from app.models.producto import ProductoERP
-from app.models.publicacion_ml import PublicacionML
 from app.models.tipo_cambio import TipoCambio
+from app.services import ml_promotions_hay_mejores as hay_mejores
+from app.services import ml_promotions_pricing as pricing
+from app.services.envio_real_service import CostosEnvio
 from app.services.ml_promotions_pricing import (
+    _PRICING_CONTEXT_KEY,
     _markup_con_contexto,
     _resolve_pricing_context,
     enriquecer_markup_por_promo,
 )
+from app.services.ml_publications.view import markup_service
+from app.services.ml_publications.view.markup import UnitInputs
+from app.services.ml_publications.view.markup_inputs import PublicationInputs
 
 SUBCAT = 77
+
+# MLA1 as the store gives it: the classic list (pricelist 4), product 1 (10 USD, no shipping cost of its own).
+UNIT = UnitInputs(
+    item_id="MLA1",
+    listing_type_id="gold_special",
+    tags=(),
+    sale_terms_campaign=None,
+    sale_price=None,
+    item_price=30000.0,
+    producto_item_id=1,
+    costo=10.0,
+    moneda_costo="USD",
+    iva=21.0,
+    envio=0.0,
+    subcategoria_id=SUBCAT,
+)
+
+
+@pytest.fixture(autouse=True)
+def header_reads(monkeypatch):
+    """The store and mlwebhook reads of the header unit (Postgres-only SQL / another database)."""
+
+    def _fetch(db, item_ids=None, f=None):
+        # Any asked MLA is a publication of product 1 (the N-MLAs statement test prices many of them).
+        return {mla: PublicationInputs(mla, replace(UNIT, item_id=mla), ()) for mla in item_ids or []}
+
+    monkeypatch.setattr(markup_service, "fetch_inputs", _fetch)
+    monkeypatch.setattr(markup_service, "resolver_costos_envio_mlas", lambda db, products, mlas: CostosEnvio())
 
 
 def _promo(kind: str, status: str, price, original, suggested=None, payload=None) -> dict:
@@ -120,7 +160,6 @@ def world(db):
             activo=True,
         )
     )
-    db.add(PublicacionML(mla="MLA1", item_id=1, pricelist_id=4, activo=True))
     db.commit()
     return db
 
@@ -143,9 +182,10 @@ def _count_statements(db, *needles: str):
 
 
 def _run(db, promos=None):
+    """One item request: a fresh session pricing context (`pricing_context_de_sesion`), as each request has."""
+    db.info.pop(_PRICING_CONTEXT_KEY, None)
     promos = [dict(p) for p in (PROMOS if promos is None else promos)]
-    with patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0):
-        return enriquecer_markup_por_promo(db, "MLA1", promos)
+    return enriquecer_markup_por_promo(db, "MLA1", promos)
 
 
 # USD cost 10 * 1200 = 12000 ARS, IVA 21, commission base 13 %, shipping 0 -> group average 2000, varios 7.5 %.
@@ -171,8 +211,7 @@ class TestCharacterization:
         ]
 
     def test_plain_price_markups_with_a_resolved_context_are_pinned(self, world) -> None:
-        with patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0):
-            context = _resolve_pricing_context(world, "MLA1")
+        context = _resolve_pricing_context(world, "MLA1")
         assert context is not None
 
         for price, expected in PINNED_PLAIN:
@@ -201,10 +240,69 @@ class TestStatementsPerItemRequest:
         assert many["SELECT"] == few["SELECT"]
 
     def test_markup_con_contexto_reuses_the_context_constants(self, world) -> None:
-        with patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=0.0):
-            context = _resolve_pricing_context(world, "MLA1")
+        context = _resolve_pricing_context(world, "MLA1")
         with _count_statements(world, "pricing_constants") as counts:
             for price in (5000.0, 20000.0, 40000.0):
                 _markup_con_contexto(world, context, price)
 
         assert counts["pricing_constants"] == 0
+
+
+# The reads of `build_pricing_context`: the grupos scan, the active commission version, the group shipping averages.
+PRICING_CONTEXT_READS = ("subcategorias_grupos", "comisiones_versiones", "avg(productos_erp.envio)")
+
+
+def _rank(db, mlas) -> None:
+    """hay_mejores over `mlas` in one run (one session), as the recompute script and the promotions sync do."""
+    candidate = {"id": "C-1", "type": "SELLER_CAMPAIGN", "status": "candidate", "price": 25000.0}
+    for mla in mlas:
+        hay_mejores.listar_mejores_candidatas(
+            db, mla, [candidate], 30000.0, sell_in_out_batch=hay_mejores._sin_sell_in_out()
+        )
+
+
+class TestPricingContextOncePerRun:
+    """Orchestrator (pool-exhaustion incident): the header's pricing context is built once per run/request, not per
+    MLA, and each MLA's header unit is resolved once for the status quo and its candidates."""
+
+    MLAS = [f"MLA{n}" for n in range(1, 11)]
+
+    def test_the_pricing_context_is_built_once_for_many_mlas(self, world) -> None:
+        with _count_statements(world, *PRICING_CONTEXT_READS) as counts:
+            _rank(world, self.MLAS)
+
+        assert counts == {needle: 1 for needle in PRICING_CONTEXT_READS}
+
+    def test_statements_do_not_grow_with_the_number_of_mlas(self, world) -> None:
+        _rank(world, ["MLA0"])  # warms the run's pricing context
+        with _count_statements(world, "SELECT") as one:
+            _rank(world, self.MLAS[:1])
+        with _count_statements(world, "SELECT") as ten:
+            _rank(world, self.MLAS)
+
+        assert ten["SELECT"] == one["SELECT"]
+
+    def test_each_mla_resolves_its_header_unit_once(self, world, monkeypatch) -> None:
+        calls: list = []
+        real = markup_service.detail_unit
+
+        def _counted(*args, **kwargs):
+            calls.append(args[2])
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr("app.services.ml_promotions_pricing.detail_unit", _counted)
+        _rank(world, self.MLAS)
+
+        assert calls == self.MLAS
+
+    def test_a_long_session_rebuilds_it_after_the_ttl(self, world, monkeypatch) -> None:
+        clock = [1000.0]
+        monkeypatch.setattr(pricing.time, "monotonic", lambda: clock[0])
+        with _count_statements(world, "comisiones_versiones") as counts:
+            _rank(world, ["MLA1"])
+            clock[0] += pricing.PRICING_CONTEXT_TTL_SECONDS - 1
+            _rank(world, ["MLA2"])
+            clock[0] += 2
+            _rank(world, ["MLA3"])
+
+        assert counts["comisiones_versiones"] == 2
