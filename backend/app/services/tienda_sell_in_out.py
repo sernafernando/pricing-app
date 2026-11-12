@@ -59,15 +59,29 @@ def resolver_tienda_batches(db: Session, item_ids: Iterable[int], hoy: date) -> 
     return resolver_sell_in_out_por_contexto(db, item_ids, hoy, CONTEXTOS_TIENDA)
 
 
+@dataclass(frozen=True)
+class _ProductoConIva:
+    """The product as `SellInOutBatch.markups` reads it, with the VAT rate Tienda's prices were built with."""
+
+    item_id: int
+    costo: Optional[float]
+    moneda_costo: Optional[str]
+    iva: float
+
+
 def sell_in_out_tienda(
     batches: Mapping[str, SellInOutBatch],
     producto,
     precios: Mapping[str, Optional[PrecioTienda]],
     *,
     tipo_cambio: Optional[float],
+    iva: float,
 ) -> Optional[SellInOutTienda]:
     """`producto` is a `ProductoERP`; `tipo_cambio` the USD rate its list cost converts at. `precios` maps each key
-    to its price, None when the row has none (no markup, no sell out for that key)."""
+    to its price, None when the row has none (no markup, no sell out for that key). `iva` is the VAT rate Tienda's
+    price formula used (the product's, or its default when the product has none): the percentage of price base
+    and the VAT-loaded amounts read that SAME rate, never the product's raw empty one."""
+    producto = _ProductoConIva(producto.item_id, producto.costo, producto.moneda_costo, iva)
     base = batches[_FUERA].markups(producto, tipo_cambio=tipo_cambio).payload()
     sell_in = base.sell_in if base else None
     sell_out: Dict[str, SellOutProducto] = {}

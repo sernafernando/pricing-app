@@ -2605,6 +2605,7 @@ def listar_productos_tienda(
                 else None,
             },
             tipo_cambio=tipo_cambio_usd_t,
+            iva=iva_producto,
         )
 
         productos.append(

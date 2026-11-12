@@ -126,7 +126,7 @@ def _sell_in_out(engine: Engine, item_id: int = ROUTER, precios=PRECIOS):
     with sessionmaker(bind=engine)() as db:
         producto = db.get(ProductoERP, item_id)
         batches = resolver_tienda_batches(db, [item_id], HOY)
-        return sell_in_out_tienda(batches, producto, precios, tipo_cambio=None)
+        return sell_in_out_tienda(batches, producto, precios, tipo_cambio=None, iva=producto.iva or 21.0)
 
 
 @pytest.fixture()
@@ -176,6 +176,22 @@ def test_a_key_without_a_price_has_no_markup_and_no_sell_out(engine, mundo):
     assert set(sio.sell_out) == {CLAVE_GREMIO, CLAVE_WEB_TRANSF}
     assert CLAVE_SUGERIDO not in sio.markups_sell_in
     assert CLAVE_SUGERIDO not in sio.markups_sell_in_out
+
+
+def test_a_product_without_a_vat_rate_uses_the_one_its_tienda_prices_were_built_with(engine, mundo):
+    # Tienda prices a product without VAT at 21% (`listar_productos_tienda`), so the percentage of price bases
+    # read that same 21%: the figures are the ones of the router with its own 21% rate.
+    con_iva = _sell_in_out(engine)
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE productos_erp SET iva = NULL WHERE item_id = :i"), {"i": ROUTER})
+    try:
+        sin_iva = _sell_in_out(engine)
+    finally:
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE productos_erp SET iva = 21.0 WHERE item_id = :i"), {"i": ROUTER})
+
+    assert sin_iva.sell_out[CLAVE_WEB_TRANSF].monto_unit == 7611.57
+    assert sin_iva == con_iva
 
 
 def test_a_product_without_sell_in_or_sell_out_has_none(engine, mundo):
