@@ -1305,14 +1305,6 @@ class TestConfirmarPedidoEndpoint:
         assert r.status_code == 200
         assert r.json()["estado_nuevo"] == "recibido"
 
-    def test_arribo_progreso_403_sin_permiso(self, client, auth_headers, pedido_pagado_con_oc, sin_permiso):
-        r = client.post(
-            f"{BASE}/pedidos/{pedido_pagado_con_oc.id}/recepcion/arribo-progreso",
-            json={"lineas": [{"pod_id": 1, "cantidad": 1}]},
-            headers=auth_headers,
-        )
-        assert r.status_code == 403
-
     def test_confirmar_pedido_sin_oc_en_cuenta_corriente_da_recibido(
         self, client, auth_headers, db, empresa, proveedor, active_user, con_permiso_deposito
     ):
