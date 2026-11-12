@@ -28,7 +28,7 @@ class PedidoCompraArriboProgreso(Base):
 
     __tablename__ = "pedido_compra_arribo_progreso"
 
-    id = Column(BigInteger, primary_key=True, index=True)
+    id = Column(BigInteger, primary_key=True)
     pedido_id = Column(
         BigInteger,
         ForeignKey("pedidos_compra.id", ondelete="RESTRICT"),
