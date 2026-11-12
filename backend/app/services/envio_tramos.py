@@ -45,11 +45,24 @@ class CostoEnvioTramos(float):
         """Whether any bracket costs something: a 0 at the sale price can still cost at a higher price."""
         return any(costo > 0 for _, costo in self.tramos)
 
+    def en(self, precio: float) -> float:
+        """What ML charges at `precio`: its bracket's cost as stored (0 in the floor-0 bracket), else the value."""
+        return next((c for piso, c in reversed(self.tramos) if piso <= precio), float(self))
+
+    def al_precio(self, precio: float) -> "CostoEnvioTramos":
+        """The same brackets, valued (displayed) at `precio`: the cost of an MLA at its current sale price."""
+        return CostoEnvioTramos(self.en(precio), self.tramos)
+
     def para(self, precio: float) -> float:
-        """The cost at `precio`: its bracket's cost when that is > 0, else the float value (a bracket without a
-        cost is one where ML charges nothing; `calcular_limpio` already skips shipping below its threshold)."""
-        costo = next((c for piso, c in reversed(self.tramos) if piso <= precio), None)
-        return costo if costo is not None and costo > 0 else float(self)
+        """The cost to subtract at `precio`: its bracket's cost when that is > 0, else the float value.
+
+        The floor-0 bracket costs 0 (ML charges no shipping under its first floor, 33000 on 2026-11-12), and so
+        does every bracket of an MLA ML never charges. `calcular_limpio` subtracts no shipping below
+        `monto_tier3` (also 33000) anyway, so a 0 bracket is only reached under that threshold. If ML's floor
+        and `monto_tier3` ever diverge (ml-webhook's SHIPPING_COST_BRACKET_FLOORS vs the pricing constants),
+        revisit this: a price between them would subtract the float value instead of ML's real 0."""
+        costo = self.en(precio)
+        return costo if costo > 0 else float(self)
 
 
 def _tramos_validos(raw: Any) -> Optional[list[tuple[float, float]]]:

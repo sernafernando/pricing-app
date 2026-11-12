@@ -223,3 +223,102 @@ class TestReviewGaps:
 
         assert costo_envio_para(costo, 41999) == 7000.0  # max(6790, 7000)
         assert costo_envio_para(costo, 65472) == 7290.0  # max(7290, 7000)
+
+
+class TestDisplayedCostAtTheCurrentSalePrice:
+    """ml-webhook's list_cost is quoted at the sale price it saw on its last quote; a promo that starts or ends
+    without an items webhook leaves it stale. Pricing's own `ml_item_sale_prices` mirror is the current price:
+    with brackets, the displayed cost is the bracket of THAT price."""
+
+    def _sale_price(self, db, mla: str, amount: float) -> None:
+        from app.models.ml_publications import MlItemSalePrice
+
+        db.add(MlItemSalePrice(item_id=mla, amount=amount, regular_amount=65472, currency_id="ARS"))
+        db.flush()
+
+    def test_promo_ended_without_webhook_shows_the_list_price_bracket(self, db) -> None:
+        from app.services.envio_real_service import costos_envio_por_mla
+
+        self._sale_price(db, "MLA1173065146", 65472)  # the promo ended: sells at list price again
+        engine = _engine_returning([_row("MLA1173065146", MLA1173065146)])  # stored at the 41999 promo: 6790
+        with patch("app.services.envio_real_service.get_mlwebhook_engine", return_value=engine):
+            costs = costos_envio_por_mla(["MLA1173065146"], db=db)
+
+        assert float(costs["MLA1173065146"]) == 7290.0
+        assert costs["MLA1173065146"].para(41999) == 6790.0  # brackets untouched
+
+    def test_promo_started_under_the_floor_shows_zero(self, db) -> None:
+        from app.services.envio_real_service import costos_envio_por_mla
+
+        self._sale_price(db, "MLA1173065146", 31500)
+        engine = _engine_returning([_row("MLA1173065146", MLA1173065146)])
+        with patch("app.services.envio_real_service.get_mlwebhook_engine", return_value=engine):
+            costs = costos_envio_por_mla(["MLA1173065146"], db=db)
+
+        assert float(costs["MLA1173065146"]) == 0.0
+
+    def test_without_a_mirrored_price_or_brackets_the_stored_cost_stands(self, db) -> None:
+        from app.services.envio_real_service import costos_envio_por_mla
+
+        engine = _engine_returning([_row("MLA1173065146", MLA1173065146), _row("MLA1", (9000.0, None))])
+        self._sale_price(db, "MLA1", 99999)
+        with patch("app.services.envio_real_service.get_mlwebhook_engine", return_value=engine):
+            costs = costos_envio_por_mla(["MLA1173065146", "MLA1"], db=db)
+
+        assert float(costs["MLA1173065146"]) == 6790.0  # no mirror row: ml-webhook's value
+        assert type(costs["MLA1"]) is float and costs["MLA1"] == 9000.0  # flat: as before
+
+    def test_the_product_resolvers_display_the_current_price_too(self, db) -> None:
+        from app.services.envio_real_service import resolver_costos_envio_batch
+
+        self._sale_price(db, "MLA1173065146", 65472)
+        pub = MagicMock()
+        pub.mla, pub.activo, pub.item_id = "MLA1173065146", True, 22
+        engine = _engine_returning([_row("MLA1173065146", MLA1173065146)])
+        with (
+            patch("app.services.envio_real_service.get_mlwebhook_engine", return_value=engine),
+            patch("app.services.envio_real_service.elecciones_por_item", return_value={}),
+        ):
+            costo = resolver_costos_envio_batch(db, [22], pubs_by_item={22: [pub]})[22]
+
+        assert float(costo) == 7290.0
+
+
+class TestGoalseekAtThe50000Step:
+    """Shipping rises 500 at 50000 (6790 -> 7290 for MLA1173065146), so limpio drops ~413 there and only climbs back
+    to its 49999 level at 50499. Limpio targets in that band are met by TWO prices (one under 50000, one over);
+    the bisection settles on the higher one, within its usual rounding tolerance. Measured 2026-11-12."""
+
+    BASE = 30000.0
+
+    def _seek(self, target_limpio: float) -> tuple[float, float]:
+        costo = CostoEnvioTramos.desde_fila(*MLA1173065146)
+        markup = (target_limpio - self.BASE) / self.BASE * 100
+        with (
+            patch("app.services.pricing_calculator.obtener_constantes_pricing", return_value=CONSTANTES),
+            patch("app.services.pricing_calculator.calcular_comision_ml_total", return_value={"comision_total": 0.0}),
+        ):
+            precio = precio_por_markup_goalseek(self.BASE, markup, 21, 0, 0, costo, db=MagicMock())
+        obtenido = calcular_markup(calcular_limpio(precio, 21, costo, 0, constantes=CONSTANTES), self.BASE) * 100
+        return precio, obtenido - markup
+
+    def test_the_step_is_413_and_recovers_at_50499(self) -> None:
+        costo = CostoEnvioTramos.desde_fila(*MLA1173065146)
+        limpio = lambda p: calcular_limpio(p, 21, costo, 0, constantes=CONSTANTES)  # noqa: E731
+
+        assert limpio(49999) - limpio(50000) == pytest.approx(412.4, abs=0.1)
+        assert limpio(50499) == pytest.approx(limpio(49999))
+
+    def test_a_target_inside_the_band_settles_above_50000_within_tolerance(self) -> None:
+        precio, diff = self._seek(35400)  # also met at 49624, under the step
+
+        assert 50000 <= precio < 50499
+        assert abs(diff) < 0.1  # percentage points, the same rounding slack as anywhere else
+        costo = CostoEnvioTramos.desde_fila(*MLA1173065146)
+        assert calcular_limpio(49624, 21, costo, 0, constantes=CONSTANTES) == pytest.approx(35400, abs=1)
+
+    def test_a_target_under_the_band_stays_under_50000(self) -> None:
+        precio, diff = self._seek(35290)
+
+        assert 33000 <= precio < 50000
+        assert abs(diff) < 0.1

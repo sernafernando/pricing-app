@@ -493,6 +493,11 @@ def precio_por_markup_goalseek(
     """Goal seek: dado un markup objetivo, encuentra el precio necesario
 
     Funciona con markups positivos y negativos.
+
+    Con un costo de envío por tramos (`CostoEnvioTramos`) el limpio no es monótono: al cruzar un piso de tramo
+    (p.ej. 50000, donde el envío sube ~500) cae ~413 y recién vuelve a su nivel ~500 pesos más arriba. Un markup
+    objetivo dentro de esa banda lo cumplen DOS precios (uno debajo del piso y otro encima); la bisección se queda
+    con el de arriba, dentro de su tolerancia de redondeo habitual. Ver `TestGoalseekAtThe50000Step`.
     """
 
     if costo <= 0:

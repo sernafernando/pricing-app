@@ -140,10 +140,10 @@ def _motivo(comision: Optional[float], costo_envio: Optional[float]) -> Optional
     return None
 
 
-def _costos(mlas: list[str], item_id: int) -> dict[str, float]:
+def _costos(db: Session, mlas: list[str], item_id: int) -> dict[str, float]:
     """Each MLA's list_cost; on a failed mlwebhook read, `{}` and a warning, so it is not mistaken for no data."""
     try:
-        return costos_envio_por_mla(mlas)
+        return costos_envio_por_mla(mlas, db=db)
     except Exception as exc:
         logger.warning("No se pudo consultar ml_seller_shipping_costs (producto %s): %s", item_id, exc)
         return {}
@@ -191,7 +191,7 @@ def calcular_variantes_envio(
 
     publicaciones = _publicaciones_activas(db, producto.item_id)
     mlas = [mla for mla, _ in publicaciones]
-    costos = _costos(mlas, producto.item_id) if mlas else {}
+    costos = _costos(db, mlas, producto.item_id) if mlas else {}
     datos = _datos_ml(db, mlas) if mlas else {}
     unidades = _unidades_vendidas(db, producto.item_id, ahora - timedelta(days=VENTANA_DIAS)) if mlas else {}
 

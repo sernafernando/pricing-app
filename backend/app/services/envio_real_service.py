@@ -37,6 +37,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_mlwebhook_engine
+from app.models.ml_publications import MlItemSalePrice
 from app.models.producto import ProductoERP
 from app.models.producto_envio_eleccion import ProductoEnvioEleccion
 from app.models.publicacion_ml import PublicacionML
@@ -149,7 +150,7 @@ def resolver_costo_envio(
         return float(producto.envio or 0.0)
 
     # Step 2: fetch shipping costs from mlwebhook DB
-    costs = _fetch_list_cost_by_mla(active_mla_ids)
+    costs = al_precio_vigente(db, _fetch_list_cost_by_mla(active_mla_ids))
     if not costs:
         return float(producto.envio or 0.0)
 
@@ -158,12 +159,52 @@ def resolver_costo_envio(
     return resolved.get(producto.item_id, costo_envio_maximo(costs, producto.envio))
 
 
-def costos_envio_por_mla(mla_ids: Sequence[str]) -> dict[str, float]:
+def costos_envio_por_mla(mla_ids: Sequence[str], *, db: Optional[Session] = None) -> dict[str, float]:
     """{mla: list_cost} (ARS, with IVA) for the given MLAs, in ONE cross-DB read; RAISES when the read fails.
 
     MLAs without a usable cost are absent. Public face of the read `resolver_costo_envio` does, for a caller that
-    needs each publication's own cost instead of the MAX and must tell a failed read from missing data."""
-    return _query_list_cost_by_mla(list(mla_ids))
+    needs each publication's own cost instead of the MAX and must tell a failed read from missing data. With `db`,
+    bracketed costs are valued at the current sale price (`al_precio_vigente`)."""
+    costs = _query_list_cost_by_mla(list(mla_ids))
+    return al_precio_vigente(db, costs) if db is not None else costs
+
+
+def _precios_vigentes(db: Session, mlas: Sequence[str]) -> dict[str, float]:
+    """{mla: the price it sells at now} from pricing's `ml_item_sale_prices` mirror (kept fresh by the publications
+    sync, not by ml-webhook's items webhook), inside a connection-level savepoint like `_unidades_aisladas`: a
+    failed read is no data (`{}`), never an aborted caller transaction."""
+    connection = db.connection()
+    savepoint = connection.begin_nested()
+    try:
+        with db.no_autoflush:
+            rows = (
+                db.query(MlItemSalePrice.item_id, MlItemSalePrice.amount)
+                .filter(MlItemSalePrice.item_id.in_(list(mlas)), MlItemSalePrice.amount > 0)
+                .all()
+            )
+    except SQLAlchemyError as exc:
+        savepoint.rollback()
+        logger.warning("No se pudieron leer los precios de venta vigentes: %s", exc)
+        return {}
+    savepoint.commit()
+    return {item_id: float(amount) for item_id, amount in rows}
+
+
+def al_precio_vigente(db: Session, costs: Mapping[str, float]) -> dict[str, float]:
+    """`costs` with every bracketed cost valued at its MLA's CURRENT sale price (`CostoEnvioTramos.al_precio`).
+
+    ml-webhook's list_cost is the cost at the sale price of its last quote; a promo that starts or ends without an
+    items webhook would leave it stale. Brackets do not go stale, so the displayed cost is re-read from them at the
+    price pricing's mirror holds now. Flat costs, and MLAs without a mirrored price, keep the stored value. One
+    read, only when some cost has brackets."""
+    bracketed = [mla for mla, cost in costs.items() if isinstance(cost, CostoEnvioTramos)]
+    if not bracketed:
+        return dict(costs)
+    precios = _precios_vigentes(db, bracketed)
+    return {
+        mla: cost.al_precio(precios[mla]) if isinstance(cost, CostoEnvioTramos) and mla in precios else cost
+        for mla, cost in costs.items()
+    }
 
 
 def costo_envio_maximo(costs: Mapping[str, float], fallback: Optional[float]) -> float:
@@ -259,7 +300,7 @@ def resolver_costos_envio_batch(
 
     # Step 2: one cross-DB query for all MLAs
     try:
-        costs = _fetch_list_cost_by_mla(list(set(all_active_mlas)))
+        costs = al_precio_vigente(db, _fetch_list_cost_by_mla(list(set(all_active_mlas))))
     except Exception as exc:
         # _fetch already catches internally, but guard here for safety
         logger.warning("resolver_costos_envio_batch: error inesperado: %s", exc)
@@ -449,7 +490,7 @@ def resolver_costos_envio_mlas(db: Session, item_ids: list[int], mla_ids: Sequen
         wanted.update(mlas)
     if not wanted:
         return CostosEnvio()
-    costs = _fetch_list_cost_by_mla(sorted(wanted))
+    costs = al_precio_vigente(db, _fetch_list_cost_by_mla(sorted(wanted)))
     return CostosEnvio(
         por_producto=_resolve_by_item(db, item_to_active_mlas, costs),
         por_mla={mla: costs[mla] for mla in mla_ids if mla in costs},
