@@ -4846,6 +4846,7 @@ def sync_ocs_pedido(
 
     Body optional: omit to sync every linked OC; pass a triple to sync one.
     Does not amend recepciones (append-only). Requires gestionar_ordenes_compra.
+    Blocked with 409 when pedido.estado is con_faltantes or controlado.
     """
     payload = body or SyncOcRequest()
     try:
