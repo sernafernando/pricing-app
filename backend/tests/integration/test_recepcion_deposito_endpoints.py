@@ -1264,16 +1264,9 @@ class TestConfirmarPedidoEndpoint:
         self, client, auth_headers, db, pedido_pagado_con_oc, con_permiso_deposito
     ):
         # REQ-EC-002: CON-OC + pagado → arrival via confirmar-pedido endpoint → recibido
-        # Mark-complete requires full arribo/retiro coverage first.
         _mk_oc_header(db, poh_id=9001, supp_id=55)
         _mk_oc_detail(db, poh_id=9001, pod_id=1, qty=100.0, item_id=101)
         _mk_storage(db, stor_id=1)
-        prog = client.post(
-            f"{BASE}/pedidos/{pedido_pagado_con_oc.id}/recepcion/arribo-progreso",
-            json={"lineas": [{"pod_id": 1, "cantidad": 100}]},
-            headers=auth_headers,
-        )
-        assert prog.status_code == 200
         r = client.post(
             f"{BASE}/pedidos/{pedido_pagado_con_oc.id}/recepcion/confirmar-pedido",
             json={"completo": True},
@@ -1304,12 +1297,6 @@ class TestConfirmarPedidoEndpoint:
         _mk_oc_header(db, poh_id=9002, supp_id=55)
         _mk_oc_detail(db, poh_id=9002, pod_id=1, qty=100.0, item_id=101)
         _mk_storage(db, stor_id=1)
-        prog = client.post(
-            f"{BASE}/pedidos/{p.id}/recepcion/arribo-progreso",
-            json={"lineas": [{"pod_id": 1, "cantidad": 100}]},
-            headers=auth_headers,
-        )
-        assert prog.status_code == 200
         r = client.post(
             f"{BASE}/pedidos/{p.id}/recepcion/confirmar-pedido",
             json={"completo": True},
