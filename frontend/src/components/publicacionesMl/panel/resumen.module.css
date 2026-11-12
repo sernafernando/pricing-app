@@ -368,6 +368,8 @@
 
 .line {
   display: flex;
+  /* Each side as tall as its own text: a label on two lines does not stretch the value. */
+  align-items: baseline;
   justify-content: space-between;
   gap: var(--spacing-sm);
 }
