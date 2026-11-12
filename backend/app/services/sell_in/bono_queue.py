@@ -398,6 +398,36 @@ _CHARGE_SQL = text(
 )
 
 
+_ENCOLAR_FACTURADOS_SQL = text(
+    """
+    INSERT INTO sell_in_bono_dirty (tipo, ref)
+    SELECT 'pedido', p.id FROM pedidos_compra AS p
+    WHERE p.id = ANY(:ids) AND sell_in_bono_cubre_pedido(p.fecha_factura, p.id)
+      AND (EXISTS (SELECT 1 FROM sell_in_bonos_marca AS b
+                   WHERE b.estado = 'activa' AND b.alcance = 'factura' AND b.pedido_id = p.id)
+           OR EXISTS (SELECT 1 FROM pedido_compra_lineas_facturadas AS l WHERE l.pedido_id = p.id))
+    ORDER BY 2
+    ON CONFLICT (tipo, ref) DO UPDATE SET enqueued_at = now(), attempts = 0, last_error = NULL
+    RETURNING ref
+    """
+)
+
+
+def encolar_pedidos_facturados(db: Session, pedido_ids: Iterable[int]) -> List[int]:
+    """Queues the operations that already have their supplier invoice, under the same gate as the operation triggers
+    (`sell_in_bono_cubre_pedido`); a waiting invoice total also needs the invoiced lines. For a tactical save whose
+    invoice lines waited for an invoice that Compras linked while the save was still open: the triggers ran before
+    the lines were committed and could not see them (sell in factura pendiente total). Returns the queued ids; does
+    not commit."""
+    ids = sorted(set(pedido_ids))
+    if not ids:
+        return []
+    encolados = [int(r[0]) for r in db.execute(_ENCOLAR_FACTURADOS_SQL, {"ids": ids})]
+    if encolados:
+        db.execute(text("SELECT pg_notify(:canal, '')"), {"canal": CHANNEL})
+    return encolados
+
+
 def _arrays(keys: Iterable[Key]) -> Tuple[list, list]:
     ordered = sorted(set(keys))
     return [t for t, _ in ordered], [r for _, r in ordered]

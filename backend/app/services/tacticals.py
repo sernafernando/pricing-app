@@ -34,6 +34,8 @@ consumed an invoice total (converted to its currency at its own rate).
 
 from __future__ import annotations
 
+import logging
+
 import functools
 from collections import defaultdict
 from dataclasses import dataclass
@@ -43,6 +45,7 @@ from typing import Any, Iterable, Optional
 
 from pydantic import ValidationError
 from sqlalchemy import Select, Subquery, and_, case, exists, func, literal, or_, select, union_all
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Query, Session, selectinload
 
 from app.models.auditoria import Auditoria, TipoAccion
@@ -76,9 +79,11 @@ from app.schemas.tacticals import (
     TacticalLineaTopesIn,
     TacticalTiendaIn,
 )
-from app.services.sell_in import bonos, bonos_crud, compras
+from app.services.sell_in import bono_queue, bonos, bonos_crud, compras
 from app.services.sell_in.compras import contiene
 from app.services.sell_out import alcance as sell_out_alcance, campanas, tienda_scope
+
+logger = logging.getLogger(__name__)
 
 GRUPO_NOMBRE_MAX = 100  # offset_grupos.nombre is VARCHAR(100)
 CAMPANA_NOMBRE_MAX = 200
@@ -598,12 +603,48 @@ def crear(db: Session, data: TacticalIn, usuario_id: int) -> Tactical:
     """The header and every child, all or nothing (module docstring); commits."""
     try:
         tactical = _crear(db, data, usuario_id)
+        esperando = _pedidos_sin_factura(db, tactical.id)
         db.commit()
     except Exception:
         db.rollback()
         raise
+    _encolar_si_llego_la_factura(db, esperando)
     db.refresh(tactical)
     return tactical
+
+
+def _pedidos_sin_factura(db: Session, tactical_id: int) -> list[int]:
+    """The operations of the tactical's invoice lines (a %/per unit invoice bonus or a waiting invoice total) still
+    without their supplier invoice, as this transaction reads them."""
+    bonos_ = select(SellInBonoMarca.pedido_id).where(
+        SellInBonoMarca.tactical_id == tactical_id,
+        SellInBonoMarca.alcance == "factura",
+        SellInBonoMarca.estado == "activa",
+    )
+    totales = select(TacticalFacturaPendiente.pedido_id).where(
+        TacticalFacturaPendiente.tactical_id == tactical_id, TacticalFacturaPendiente.estado == "pendiente"
+    )
+    return [
+        pid
+        for (pid,) in db.query(PedidoCompra.id)
+        .filter(PedidoCompra.id.in_(union_all(bonos_, totales)), PedidoCompra.fecha_factura.is_(None))
+        .order_by(PedidoCompra.id)
+    ]
+
+
+def _encolar_si_llego_la_factura(db: Session, pedido_ids: list[int]) -> None:
+    """After a save commits, re-read the operations its invoice lines were waiting for and queue the ones Compras
+    linked meanwhile (sell in factura pendiente total): a link committed while the save was still open ran the
+    operation triggers before the new lines were visible to them, so nothing queued it. Its own transaction; the save
+    is already committed, so a failure here is logged and the line waits for the operation's next change."""
+    if not pedido_ids:
+        return
+    try:
+        bono_queue.encolar_pedidos_facturados(db, pedido_ids)
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("tacticals: could not queue operations %s whose invoice arrived during the save", pedido_ids)
 
 
 def _validar_hijos(data: TacticalIn) -> None:
@@ -1055,6 +1096,7 @@ def reemplazar(
             "reemplazados": reemplazados,
         }
         _audit(db, TipoAccion.TACTICAL_EDITADO, usuario_id, despues, antes=antes)
+        esperando = _pedidos_sin_factura(db, tactical_id)
         db.commit()
     except campanas.SellOutRecalculando as exc:
         db.rollback()
@@ -1062,6 +1104,7 @@ def reemplazar(
     except Exception:
         db.rollback()
         raise
+    _encolar_si_llego_la_factura(db, esperando)
     db.refresh(tactical)
     return tactical
 

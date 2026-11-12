@@ -928,6 +928,36 @@ class TestMarcaYCategoria:
             service.crear(db, _tactical(lineas=[self._linea(alcance="categoria")]), USUARIO)
 
 
+def _vincular_al_commitear(db: Session, engine: Engine, pedido: int, fecha: date, lineas: dict) -> None:
+    """Compras links the operation's invoice from another session while the save's transaction is still open: right
+    before it commits, after it read the operation without its invoice (the window the triggers cannot see)."""
+    from sqlalchemy import event
+
+    def _vincular(_session: Session) -> None:
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE pedidos_compra SET fecha_factura = :f WHERE id = :p"), {"f": fecha, "p": pedido})
+            for item_id, cantidad in sorted(lineas.items()):
+                conn.execute(
+                    text(
+                        "INSERT INTO pedido_compra_lineas_facturadas (pedido_id, item_id, cantidad) VALUES (:p, :i, :q)"
+                    ),
+                    {"p": pedido, "i": item_id, "q": cantidad},
+                )
+
+    event.listen(db, "before_commit", _vincular, once=True)
+
+
+def _una_corrida_del_worker(monkeypatch, engine: Engine) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from app.workers.context import WorkerContext
+    from app.workers.handlers.sell_in_bono import bono as handler
+
+    monkeypatch.setattr("app.core.database.SessionLocal", sessionmaker(bind=engine))
+    hasta = datetime.now(timezone.utc) + timedelta(seconds=30)
+    assert handler.run(WorkerContext(deadline=hasta, worker_name="t")).success
+
+
 class TestFacturaPendiente:
     """Sell in factura pendiente S2-S6: an invoice line is saved before its operation has the supplier invoice, applies
     nothing while it waits, and once Compras links the invoice it applies exactly as if it was loaded with it."""
@@ -951,6 +981,25 @@ class TestFacturaPendiente:
     def _crear(self, db: Session, pedido: int, modo: str = "por_unidad", valor: str = "2", **cabecera):
         linea = {"alcance": "factura", "pedido_compra_id": pedido, "modo_monto": modo, "valor": valor}
         return service.crear(db, _tactical("sell_in", [linea], fecha_desde=None, fecha_hasta=None, **cabecera), USUARIO)
+
+    def test_an_invoice_linked_while_the_save_commits_still_applies(self, db, engine, monkeypatch) -> None:
+        """Orchestrator (factura pendiente total, window c): Compras links the invoice between the save's read and its
+        commit; the save re-reads the operation after committing and queues it, so one worker run applies it."""
+        factura = date(2026, 10, 10)
+        pendiente = bw.pedido(engine, {}, None)
+        bw.clear_queue(engine)
+        _vincular_al_commitear(db, engine, pendiente, factura, {2964: 10, 950: 5})
+
+        tactical = self._crear(db, pendiente, nombre="Carrera")
+
+        assert ("pedido", pendiente) in bw.queued(engine)
+        _una_corrida_del_worker(monkeypatch, engine)
+        bono, *rango = self._bono(engine, tactical.id)
+        assert rango == [factura, factura]
+        assert bw.items_de(engine, bono, pendiente) != []
+        db.expire_all()
+        [salida] = service.serializar(db, [tactical])[0]["lineas"]
+        assert salida["esperando_factura"] is False
 
     def test_an_invoice_line_is_saved_without_the_invoice_and_waits_for_it(self, db, engine) -> None:
         pendiente = bw.pedido(engine, {}, None)
@@ -1138,6 +1187,28 @@ class TestFacturaPendienteTotal:
                     {"t": tactical_id},
                 )
             ]
+
+    def test_an_invoice_linked_while_the_save_commits_still_applies(self, db, engine, monkeypatch) -> None:
+        """Orchestrator (window c): Compras links the invoice between the save's read and its commit; the save
+        re-reads the operation after committing and queues it, so one worker run applies the total."""
+        pendiente = bw.pedido(engine, {}, None, moneda="ARS")
+        bw.clear_queue(engine)
+        _vincular_al_commitear(db, engine, pendiente, date(2026, 10, 10), {2964: 10, 950: 5})
+
+        tactical = self._crear(db, pendiente)
+
+        assert ("pedido", pendiente) in bw.queued(engine)
+        _una_corrida_del_worker(monkeypatch, engine)
+        assert self._pendientes(engine, tactical.id) == [(1, pendiente, "aplicada")]
+        assert len(self._compras(engine, tactical.id)) == 1
+
+    def test_an_operation_still_without_its_invoice_is_not_queued_by_the_save(self, db, engine) -> None:
+        pendiente = bw.pedido(engine, {}, None, moneda="ARS")
+        bw.clear_queue(engine)
+
+        self._crear(db, pendiente)
+
+        assert ("pedido", pendiente) not in bw.queued(engine)
 
     def test_a_total_line_is_saved_without_the_invoice_and_waits_for_it(self, db, engine) -> None:
         pendiente = bw.pedido(engine, {}, None, moneda="ARS")
@@ -1377,6 +1448,22 @@ class TestFacturaPendienteTotal:
             assert conn.execute(text("SELECT id FROM tactical_facturas_pendientes")).scalars().all() != antes
         self._vincular(engine, pendiente, date(2026, 10, 10), {2964: 10})
         self._worker()
+        [(cabecera, _)] = self._compras(engine, tactical.id)
+        assert (cabecera[0], cabecera[3]) == ("activa", Decimal("9000.00"))
+
+    def test_an_invoice_linked_while_a_replace_commits_still_applies(self, db, engine, monkeypatch) -> None:
+        """Window c on the other save that creates lines: Editar moves the line to another operation (reemplazar),
+        so no committed row the triggers could see points at the one Compras links."""
+        anterior, pendiente = bw.pedido(engine, {}, None, moneda="ARS"), bw.pedido(engine, {}, None, moneda="ARS")
+        tactical = self._crear(db, anterior)
+        bw.clear_queue(engine)
+        linea = {"alcance": "factura", "pedido_compra_id": pendiente, "modo_monto": "monto_total", "valor": "9000"}
+        _vincular_al_commitear(db, engine, pendiente, date(2026, 10, 10), {2964: 10})
+
+        service.reemplazar(db, tactical.id, _tactical("sell_in", [linea], fecha_desde=None, fecha_hasta=None), USUARIO)
+
+        assert ("pedido", pendiente) in bw.queued(engine)
+        _una_corrida_del_worker(monkeypatch, engine)
         [(cabecera, _)] = self._compras(engine, tactical.id)
         assert (cabecera[0], cabecera[3]) == ("activa", Decimal("9000.00"))
 
