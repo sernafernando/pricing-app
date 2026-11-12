@@ -17,7 +17,10 @@ from datetime import date
 import pytest
 
 from app.models.producto import ProductoERP
+from sqlalchemy import update
+
 from app.models.sell_in import SellInCompra, SellInCompraItem
+from app.services.ml_publications.view import markup_service
 from app.services.ml_publications.view.markup import unit_breakdown
 from app.services.pricing_calculator import calcular_markup
 from tests.routers.test_ml_publications_view_markup import (  # noqa: F401
@@ -111,6 +114,47 @@ class TestPayload:
         assert body["sell_in_out"]["markups_sell_in"] == {
             "publicacion": round(calcular_markup(limpio_of(70), COST[70] - 100.0) * 100, 2)
         }
+
+    def test_a_usd_purchase_at_its_own_rate_still_reads_at_the_costs_one_rate(
+        self, client, rows, pg, analyst, pricing, db, admin_user
+    ) -> None:
+        # Review R3-detail-rate-overwrite: the lot's discount is in ARS at ITS purchase's rate (0.10 USD x 1500 = 150
+        # ARS per unit); the cost with sell in in USD is that ARS figure back at the COST's rate (the context's 1000),
+        # the one the breakdown's `costo_ars` used: one rate for the cost, never the purchase's.
+        with pg.begin() as conn:
+            seed.add_cost(conn, 70, 40.0, moneda_costo="USD", iva=10.5, envio=120.0)
+        linea = sell_in(db, admin_user, 70)
+        compra = db.get(SellInCompraItem, linea).compra_id
+        db.execute(
+            update(SellInCompra)
+            .where(SellInCompra.id == compra)
+            .values(moneda="USD", tipo_cambio=1500, monto_total=0.2)
+        )
+        db.execute(update(SellInCompraItem).where(SellInCompraItem.id == linea).values(monto_asignado=0.2))
+        db.commit()
+
+        sell_in_usd = body_of(client, analyst, "MLA11")["sell_in_out"]["sell_in"]
+
+        assert (sell_in_usd["costo"], sell_in_usd["descuento_unit"]) == (COST[70] - 150.0, 150.0)
+        assert sell_in_usd["costo_moneda"] == pytest.approx((COST[70] - 150.0) / 1000)  # 39.85, not at 1500
+        assert sell_in_usd["descuento_unit_moneda"] == pytest.approx(0.15)
+
+    def test_a_usd_cost_without_a_rate_says_so_and_has_no_cost_with_sell_in_in_usd(
+        self, client, rows, pg, analyst, pricing, db, admin_user, monkeypatch
+    ) -> None:
+        # No USD rate today: the breakdown says it (`tipo_cambio` null), so the panel never calls its cost "pesos";
+        # the cost with sell in has no USD figure (never a guess).
+        monkeypatch.setattr(markup_service, "build_pricing_context", lambda db: make_ctx(tipo_cambio_usd=None))
+        with pg.begin() as conn:
+            seed.add_cost(conn, 70, 40.0, moneda_costo="USD", iva=10.5, envio=120.0)
+        sell_in(db, admin_user, 70)
+
+        body = body_of(client, analyst, "MLA11")
+
+        assert (body["markup_breakdown"]["moneda_costo"], body["markup_breakdown"]["tipo_cambio"]) == ("USD", None)
+        sell_in_usd = body["sell_in_out"]["sell_in"]
+        assert (sell_in_usd["moneda_costo"], sell_in_usd["costo_moneda"]) == ("USD", None)
+        assert sell_in_usd["descuento_unit_moneda"] is None
 
     def test_the_markup_with_sell_in_is_on_the_resumen_scale(
         self, client, rows, analyst, pricing, db, admin_user

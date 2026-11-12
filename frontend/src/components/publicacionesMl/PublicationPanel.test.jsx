@@ -758,6 +758,24 @@ describe('header figures (S1)', () => {
       );
     });
 
+    it('S10: a USD cost without a rate today never calls its figure pesos, and its cost with sell in says so', async () => {
+      const sellInSinTasa = { ...SELL_IN, costo: 38.5, moneda_costo: 'USD', costo_moneda: null, descuento_unit_moneda: null };
+      canSeeMargin = true;
+      publicacionesMlAPI.detail.mockResolvedValue({
+        data: {
+          ...withCosts({ sell_in: sellInSinTasa, sell_out: null, markups_sell_in: {}, markups_sell_in_out: {} }),
+          markup_breakdown: { ...DETAIL_RESPONSE_MARGIN.markup_breakdown, costo_ars: 40, costo: 40, moneda_costo: 'USD', tipo_cambio: null },
+        },
+      });
+      renderPanel({ tab: 'resumen' });
+      await screen.findByRole('region', { name: 'Cifras de la publicación' });
+      expect(figure('Costo')).toBe('USD 40,00c/ sell in Sin tipo de cambio');
+      expect(within(figures()).getByText('USD 40,00')).toHaveAttribute(
+        'title',
+        'Costo del producto en USD (sin tipo de cambio). Unidad calculada: la publicación',
+      );
+    });
+
     it('S6: without sell in, the Costo card has the cost alone', async () => {
       canSeeMargin = true;
       publicacionesMlAPI.detail.mockResolvedValue({ data: withCosts(null) });

@@ -28,6 +28,7 @@ from typing import Mapping, Optional, Sequence
 from app.services.ml_publications.pricelist_resolver import resolve_pricelist
 from app.services.pricing_calculator import calcular_comision_ml_total, calcular_limpio, calcular_markup
 from app.services.pricing_columns import campo_for_pricelist, cuotas_for_pricelist
+from app.services.productos_sell_in_out import moneda_de
 from app.services.pricing_context import ENVIO_REAL, PricingContext, resolve_envio, resolve_envio_source
 
 REASON_OK = "ok"
@@ -188,7 +189,7 @@ def _evaluate(
         costo_ars=costo_ars,
         markup=value,
         costo=float(inputs.costo),
-        moneda_costo=inputs.moneda_costo or "ARS",
+        moneda_costo=moneda_de(inputs.moneda_costo),
         tipo_cambio=ctx.tipo_cambio_usd if inputs.moneda_costo == "USD" else None,
     )
     return unit, breakdown

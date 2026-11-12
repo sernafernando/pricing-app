@@ -17,7 +17,7 @@ import {
 } from './labels';
 import panelStyles from './panel.module.css';
 import styles from './resumen.module.css';
-import { costoEnMoneda, formatMoneda } from './costoMoneda';
+import { costoEnMoneda, formatMoneda, sinTipoDeCambio } from './costoMoneda';
 import { MarkupValue, SellInCost, SellInOutMarkupLine } from './sellInOutFigures';
 
 /** Money with its sign, as the panel header writes it ("$ 98.500,50"); a missing figure stays `null`. */
@@ -215,7 +215,9 @@ function RentabilidadSection({ breakdown, reason, sellInOut, publicationPriceSou
             ) : (
               <>
                 <span>{formatMoneda(costo.monto, costo.moneda, money) ?? <span className={cellStyles.empty}>—</span>}</span>
-                {costo.moneda !== 'ARS' && <span className={styles.muted}>{money(breakdown.costo_ars)}</span>}
+                {costo.moneda !== 'ARS' && (
+                  <span className={styles.muted}>{sinTipoDeCambio(breakdown) ? 'Sin tipo de cambio' : money(breakdown.costo_ars)}</span>
+                )}
                 {sellInOut && (
                   <span className={styles.muted}>
                     c/ sell in <SellInCost sellIn={sellInOut.sell_in} format={money} />

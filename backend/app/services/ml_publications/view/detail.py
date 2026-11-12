@@ -431,6 +431,7 @@ def _breakdown_out(found: markup_service.DetailMarkup) -> Optional[dict[str, Any
         "costo_ars": round_display(b.costo_ars),
         "costo": round_display(b.costo),  # S10: in its own currency, the one the panel shows
         "moneda_costo": b.moneda_costo,
+        "tipo_cambio": b.tipo_cambio,  # the rate `costo_ars` used; None for ARS, or a USD cost with no rate today
         "markup": round_display(b.markup),
     }
 

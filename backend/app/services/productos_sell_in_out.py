@@ -171,10 +171,19 @@ class MarkupCompanions:
         self.sell_in_out.record(key, limpio, percent=percent)
 
 
-def en_moneda_costo(sell_in: SellInProducto, moneda: str, tipo_cambio: Optional[float]) -> SellInProducto:
+def moneda_de(raw: object) -> str:
+    """A cost currency as the screens compare it: an enum's value, trimmed and upper case; none or blank is ARS
+    (the markup path's `moneda_costo or "ARS"`)."""
+    texto = str(getattr(raw, "value", raw) or "").strip().upper()
+    return texto or "ARS"
+
+
+def en_moneda_costo(sell_in: SellInProducto, moneda: object, tipo_cambio: Optional[float]) -> SellInProducto:
     """`sell_in` with its cost and discount also in the product's cost currency (S10, display only): divided by
-    `tipo_cambio`, the rate its cost was converted to ARS with, for a USD cost; the ARS figures for an ARS cost.
-    Without the ARS figure or the rate, None: never a guess. The ARS fields and every markup stay as they are."""
+    `tipo_cambio`, the rate its cost was converted to ARS with, for a USD cost; the ARS figures for an ARS cost
+    (`moneda_de`: none, blank or `ars` is ARS). Without the ARS figure or the rate, None: never a guess. The ARS
+    fields and every markup stay as they are."""
+    moneda = moneda_de(moneda)
     if moneda == "ARS":
         costo, descuento = sell_in.costo, sell_in.descuento_unit
     elif tipo_cambio:
@@ -198,7 +207,7 @@ class SellInOutBatch:
 
     def markups(self, producto, *, precio_lista_ml=None, tipo_cambio: Optional[float] = None) -> SellInOutMarkups:
         """`producto` is a `ProductoERP`; `tipo_cambio` the USD rate its cost converts at, as `PppMarkups`."""
-        moneda = getattr(producto.moneda_costo, "value", producto.moneda_costo) or "ARS"
+        moneda = moneda_de(producto.moneda_costo)
         costo = None
         if producto.costo is not None and (moneda == "ARS" or tipo_cambio):
             costo = float(convertir_a_pesos(producto.costo, moneda, tipo_cambio))

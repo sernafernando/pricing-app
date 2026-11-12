@@ -499,6 +499,7 @@ class MarkupBreakdownOut(BaseModel):
     costo_ars: float
     costo: Optional[float] = None  # S10: the same cost in its own currency (`moneda_costo`), the one the panel shows
     moneda_costo: str = "ARS"
+    tipo_cambio: Optional[float] = None  # the rate `costo_ars` used; null for ARS or a USD cost without a rate today
     markup: float
 
 

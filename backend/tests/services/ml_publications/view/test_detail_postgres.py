@@ -479,6 +479,7 @@ class TestMargin:
             "costo_ars": COST[70],
             "costo": COST[70],  # S10: the cost in its own currency, an ARS one here
             "moneda_costo": "ARS",
+            "tipo_cambio": None,  # an ARS cost converts at no rate
             "markup": round(expected.markup, 2),
         }
 

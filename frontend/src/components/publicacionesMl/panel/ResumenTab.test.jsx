@@ -338,6 +338,21 @@ describe('the markup with sell in / sell out (ver_ganancia only)', () => {
     );
   });
 
+  it('S10: a USD cost without a rate today shows no pesos figure, it says there is no rate', () => {
+    const sellInSinTasa = { ...SELL_IN, costo: 38.5, moneda_costo: 'USD', costo_moneda: null, descuento_unit_moneda: null };
+    renderTab(
+      makeDetail({
+        markup_breakdown: { ...DETAIL_RESPONSE_MARGIN.markup_breakdown, costo_ars: 40, costo: 40, moneda_costo: 'USD', tipo_cambio: null },
+        sell_in_out: { sell_in: sellInSinTasa, sell_out: null, markups_sell_in: {}, markups_sell_in_out: {} },
+      }),
+      { canSeeMargin: true },
+    );
+    const costo = valueOf('Rentabilidad', 'Costo');
+    expect(within(costo).getByText('USD 40,00')).toBeInTheDocument();
+    expect(within(costo).queryByText('$ 40,00')).not.toBeInTheDocument();
+    expect(within(costo).getAllByText('Sin tipo de cambio')).toHaveLength(2); // the pesos and the cost with sell in
+  });
+
   it('names the % of cost bonus in the tooltip when the sell in has no lot (T25c)', () => {
     const bono = { ...SELL_IN, compra_item_id: null, bono_id: 4, unidades_restantes: null };
     renderTab(withSellInOut({ sell_in: bono, sell_out: null, markups_sell_in: {}, markups_sell_in_out: {} }), { canSeeMargin: true });

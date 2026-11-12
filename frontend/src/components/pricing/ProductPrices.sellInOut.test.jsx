@@ -75,6 +75,41 @@ describe('cost with sell in and sell out per unit', () => {
     );
   });
 
+  it('S10: a USD cost whose sell in has no USD figure (no rate) says so, with the discount in pesos', async () => {
+    // Review R3-productprices-usd-norate-untested: the backend had no rate, so no cost or discount in USD.
+    const sellIn = {
+      ...SELL_IN_OUT.sell_in,
+      costo: null,
+      moneda_costo: 'USD',
+      costo_moneda: null,
+      descuento_unit_moneda: null,
+    };
+    preciosAPI.obtenerProducto.mockResolvedValue({
+      data: { ...PRODUCTO, moneda_costo: 'USD', costo: 40, costo_ars: null, sell_in_out: { ...SELL_IN_OUT, sell_in: sellIn } },
+    });
+    preciosAPI.tipoCambioActual.mockResolvedValue({ data: { moneda: 'USD', compra: 1550, venta: 1600, fecha: '2026-11-11' } });
+    render(<ProductPrices productItemId={4101} showCost />);
+    const conSellIn = factOf(await facts(), 'Costo c/ sell in');
+    expect(conSellIn).toHaveTextContent(/^Sin tipo de cambio$/);
+    expect(conSellIn.querySelector('[title]').getAttribute('title')).toBe(
+      'Descuento por unidad: $ 4.000,00\nUnidades restantes del lote: 12',
+    );
+  });
+
+  it('S10: a USD cost with its cost with sell in in USD but no USD discount names the discount in pesos', async () => {
+    const sellIn = { ...SELL_IN_OUT.sell_in, moneda_costo: 'USD', costo_moneda: 37.5, descuento_unit_moneda: null };
+    preciosAPI.obtenerProducto.mockResolvedValue({
+      data: { ...PRODUCTO, moneda_costo: 'USD', costo: 40, costo_ars: null, sell_in_out: { ...SELL_IN_OUT, sell_in: sellIn } },
+    });
+    preciosAPI.tipoCambioActual.mockResolvedValue({ data: { moneda: 'USD', compra: 1550, venta: 1600, fecha: '2026-11-11' } });
+    render(<ProductPrices productItemId={4101} showCost />);
+    const conSellIn = factOf(await facts(), 'Costo c/ sell in');
+    expect(conSellIn).toHaveTextContent(/^USD 37,50$/);
+    expect(conSellIn.querySelector('[title]').getAttribute('title')).toBe(
+      'Descuento por unidad: $ 4.000,00\nc/ sell in en pesos: $ 60.000,00\nUnidades restantes del lote: 12',
+    );
+  });
+
   it('names the % of cost bonus in the tooltip when the sell in has no lot (T25c)', async () => {
     const bono = { compra_item_id: null, bono_id: 4, descuento_unit: 4000, costo: 60000, unidades_restantes: null };
     preciosAPI.obtenerProducto.mockResolvedValue({

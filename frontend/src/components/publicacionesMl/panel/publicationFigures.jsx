@@ -1,6 +1,6 @@
 import HeaderMarkup from './HeaderMarkup';
 import { amount, count, units } from './format';
-import { costoEnMoneda, formatMoneda } from './costoMoneda';
+import { costoEnMoneda, formatMoneda, sinTipoDeCambio } from './costoMoneda';
 import { SellInCost, SellInOutMarkupLine } from './sellInOutFigures';
 import styles from './panel.module.css';
 
@@ -45,10 +45,10 @@ export function publicationFigures(row, { canSeeMargin, canSeeSales, breakdown =
   if (canSeeMargin && breakdown?.costo_ars != null) {
     const sellIn = sellInOut?.sell_in;
     const costo = costoEnMoneda(breakdown);
+    // A USD cost with no rate today has no pesos figure: `costo_ars` is then not pesos, so it is never shown as such.
+    const pesos = sinTipoDeCambio(breakdown) ? 'sin tipo de cambio' : `en pesos: ${money(breakdown.costo_ars)}`;
     const title =
-      costo.moneda === 'ARS'
-        ? `Costo del producto en pesos. ${hint}`
-        : `Costo del producto en ${costo.moneda} (en pesos: ${money(breakdown.costo_ars)}). ${hint}`;
+      costo.moneda === 'ARS' ? `Costo del producto en pesos. ${hint}` : `Costo del producto en ${costo.moneda} (${pesos}). ${hint}`;
     figures.push({
       key: 'cost',
       label: 'Costo',
