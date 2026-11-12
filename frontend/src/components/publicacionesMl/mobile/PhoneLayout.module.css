@@ -156,14 +156,14 @@
   color: var(--cf-text-secondary);
 }
 
+/* The shared select (rule 2: controls compose their box), narrowed to fit beside the count at 44px. */
 .sortSelect {
+  composes: select from '../../../styles/forms-tesla.css';
+  width: auto;
   min-width: 0;
   max-width: 160px;
   min-height: 44px;
-  border: 0;
-  background: none;
   color: var(--cf-accent-blue);
-  font: inherit;
 }
 
 .empty {
