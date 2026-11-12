@@ -147,6 +147,21 @@ export default function useRecepcionDeposito() {
   );
 
   /**
+   * POST /pedidos/{id}/recepcion/revertir-control
+   * @returns {Promise<{pedido_id: number, estado_nuevo: string, ingresos_eliminados: number}>}
+   */
+  const revertirControl = useCallback(
+    (pedidoId) =>
+      wrap(async () => {
+        const { data } = await api.post(
+          `/administracion/compras/pedidos/${pedidoId}/recepcion/revertir-control`
+        );
+        return data;
+      }),
+    [wrap]
+  );
+
+  /**
    * GET /pedidos/{id}/recepcion/eventos
    * @returns {Promise<EventosRecepcionResponse>}
    */
@@ -237,6 +252,7 @@ export default function useRecepcionDeposito() {
     registrarIngresos,
     confirmarPedido,
     deshacerRecibido,
+    revertirControl,
     getEventos,
     getDireccionesProveedor,
     generarRetiro,

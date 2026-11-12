@@ -200,8 +200,9 @@ Tab **Recepción / Depósito** (permiso `deposito.recibir_mercaderia`):
   (aunque el saldo sea 0) en **solo lectura**: no se editan cantidades ni
   se vuelve a controlar desde ahí.
 - **Docs** abre los **adjuntos del pedido** (no un dump de documentos ERP).
-- Se puede **deshacer recibido** (vuelve a pagado o a CC). **Controlado**
-  no se deshace.
+- Se puede **deshacer recibido** (vuelve a pagado o a CC). Con
+  **Revertir control** se puede salir de **controlado** / **con faltantes**
+  hacia **recibido** (borra tandas de control; el arribo queda).
 - Faltantes en control: texto obligatorio. Observación y foto de control
   son opcionales: controlar OK **sin** evidencia sigue valiendo. La foto
   se sube como adjunto **antes** de confirmar el control.

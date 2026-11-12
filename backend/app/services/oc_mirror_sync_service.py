@@ -216,7 +216,8 @@ def sync_ocs_for_pedido(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                f"No se puede actualizar la OC: el pedido ya tiene control de depósito (estado='{pedido.estado}')."
+                f"No se puede actualizar la OC: el pedido ya tiene control de depósito "
+                f"(estado='{pedido.estado}'). Revertí el control desde Depósito primero."
             ),
         )
 

@@ -1140,9 +1140,12 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
 // ── Single accordion card ─────────────────────────────────────────
 
 function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome, defaultOpen = false }) {
-  const { deshacerRecibido } = useRecepcionDeposito();
+  const { deshacerRecibido, revertirControl } = useRecepcionDeposito();
   const { tienePermiso } = usePermisos();
   const canDespacharRetiro = tienePermiso('deposito.despachar_retiro');
+  const canRevertirControl =
+    tienePermiso('deposito.recibir_mercaderia') &&
+    (pedido.estado === 'controlado' || pedido.estado === 'con_faltantes');
   const [open, setOpen] = useState(defaultOpen);
   const [retiroOpen, setRetiroOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
@@ -1210,6 +1213,22 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome, defaultOpen = f
       const detail = err?.response?.data?.detail;
       setUndoError(
         typeof detail === 'string' ? detail : err?.message || 'No se pudo deshacer el recibido.'
+      );
+    } finally {
+      setUndoing(false);
+    }
+  };
+
+  const handleRevertirControl = async () => {
+    setUndoing(true);
+    setUndoError(null);
+    try {
+      await revertirControl(pedido.id);
+      onRefreshList();
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setUndoError(
+        typeof detail === 'string' ? detail : err?.message || 'No se pudo revertir el control.'
       );
     } finally {
       setUndoing(false);
@@ -1287,6 +1306,19 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome, defaultOpen = f
             >
               {undoing ? <Loader2 size={12} className={styles.spin} /> : <Undo2 size={12} aria-hidden="true" />}
               Deshacer recibido
+            </button>
+          )}
+          {canRevertirControl && (
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={handleRevertirControl}
+              disabled={undoing}
+              title="Vuelve el pedido a recibido y borra las tandas de control (habilita Actualizar OC)"
+              aria-label={`Revertir control del pedido #${pedido.numero}`}
+            >
+              {undoing ? <Loader2 size={12} className={styles.spin} /> : <Undo2 size={12} aria-hidden="true" />}
+              Revertir control
             </button>
           )}
           {undoError && (

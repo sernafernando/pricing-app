@@ -2499,6 +2499,308 @@ class TestDeshacerRecibido:
         assert result.estado_nuevo == "controlado"
 
 
+class TestRevertirControl:
+    def test_revert_controlado_con_oc_keeps_arribo_sentinel(self, db, empresa, proveedor, active_user):
+        from app.models.pedido_compra_ingresos import PedidoCompraIngreso
+        from app.models.pedido_compra_oc import PedidoCompraOc
+
+        p = PedidoCompra(
+            numero="P-REV-CTRL-OC",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="controlado",
+            creado_por_id=active_user.id,
+            oc_comp_id=1,
+            oc_bra_id=45,
+            oc_poh_id=900,
+        )
+        db.add(p)
+        db.flush()
+        db.add(PedidoCompraOc(pedido_id=p.id, oc_comp_id=1, oc_bra_id=45, oc_poh_id=900))
+        db.add(
+            PedidoCompraIngreso(
+                pedido_id=p.id,
+                pod_id=None,
+                oc_comp_id=1,
+                oc_bra_id=45,
+                oc_poh_id=900,
+                cantidad_recibida=Decimal("1"),
+                usuario_id=active_user.id,
+            )
+        )
+        db.add(
+            PedidoCompraIngreso(
+                pedido_id=p.id,
+                pod_id=7,
+                oc_comp_id=1,
+                oc_bra_id=45,
+                oc_poh_id=900,
+                item_id=10,
+                cantidad_recibida=Decimal("3"),
+                usuario_id=active_user.id,
+            )
+        )
+        db.flush()
+
+        result = recepcion_service.revertir_control(db, p, active_user)
+        assert result.estado_nuevo == "recibido"
+        assert result.ingresos_eliminados == 1
+        assert p.estado == "recibido"
+        remaining = db.query(PedidoCompraIngreso).filter_by(pedido_id=p.id).all()
+        assert len(remaining) == 1
+        assert remaining[0].pod_id is None
+        evento = (
+            db.query(CompraEvento)
+            .filter_by(entidad_id=p.id, entidad_tipo="pedido_compra", tipo="recepcion_undo_control")
+            .first()
+        )
+        assert evento is not None
+
+    def test_revert_con_faltantes_clears_resuelto(self, db, empresa, proveedor, active_user):
+        from datetime import UTC, datetime
+
+        p = PedidoCompra(
+            numero="P-REV-FALT",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="con_faltantes",
+            faltantes_resuelto_en=datetime.now(UTC),
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        result = recepcion_service.revertir_control(db, p, active_user)
+        assert result.estado_nuevo == "recibido"
+        assert p.faltantes_resuelto_en is None
+
+    def test_revert_from_recibido_409(self, db, empresa, proveedor, active_user):
+        from fastapi import HTTPException
+
+        p = PedidoCompra(
+            numero="P-REV-BAD",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        with pytest.raises(HTTPException) as exc:
+            recepcion_service.revertir_control(db, p, active_user)
+        assert exc.value.status_code == 409
+
+    def test_revert_endpoint_requires_deposito_permiso(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_permiso_deposito
+    ):
+        p = PedidoCompra(
+            numero="P-REV-API",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="controlado",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        r = client.post(
+            f"{BASE}/pedidos/{p.id}/recepcion/revertir-control",
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["estado_nuevo"] == "recibido"
+
+    def test_revert_endpoint_403_sin_permiso(
+        self, client, auth_headers, db, empresa, proveedor, active_user, sin_permiso
+    ):
+        """HTTP 403 when the actor lacks deposito.recibir_mercaderia; estado untouched."""
+        p = PedidoCompra(
+            numero="P-REV-403",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="controlado",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        r = client.post(
+            f"{BASE}/pedidos/{p.id}/recepcion/revertir-control",
+            headers=auth_headers,
+        )
+        assert r.status_code == 403
+        db.refresh(p)
+        assert p.estado == "controlado"
+
+    def test_revert_endpoint_404(self, client, auth_headers, con_permiso_deposito):
+        r = client.post(
+            f"{BASE}/pedidos/987654321/recepcion/revertir-control",
+            headers=auth_headers,
+        )
+        assert r.status_code == 404
+
+    def test_revert_servicio_409(self, db, empresa, proveedor, active_user):
+        p = PedidoCompra(
+            numero="P-REV-SRV",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="controlado",
+            tipo="servicio",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        with pytest.raises(HTTPException) as exc:
+            recepcion_service.revertir_control(db, p, active_user)
+        assert exc.value.status_code == 409
+        assert "n_a_servicio" in exc.value.detail
+        assert p.estado == "controlado"
+
+    def test_revert_sin_oc_keeps_original_arrival_sentinel(self, db, empresa, proveedor, active_user):
+        """SIN-OC: the arrival sentinel (and its date, read by sell_in prefill) survives."""
+        from app.services.sell_in.prefill import _fecha_ingreso
+
+        p = PedidoCompra(
+            numero="P-REV-SINOC",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="controlado",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        arribo = PedidoCompraIngreso(
+            pedido_id=p.id,
+            pod_id=None,
+            cantidad_recibida=Decimal("1"),
+            usuario_id=active_user.id,
+            created_at=datetime(2026, 1, 10, 15, 0, tzinfo=timezone.utc),
+        )
+        db.add(arribo)
+        db.flush()
+        db.add(
+            PedidoCompraIngreso(
+                pedido_id=p.id,
+                pod_id=None,
+                cantidad_recibida=Decimal("1"),
+                usuario_id=active_user.id,
+                created_at=datetime(2026, 1, 20, 15, 0, tzinfo=timezone.utc),
+            )
+        )
+        db.flush()
+        arribo_id = arribo.id
+
+        result = recepcion_service.revertir_control(db, p, active_user)
+
+        assert result.estado_nuevo == "recibido"
+        assert result.ingresos_eliminados == 1
+        remaining = db.query(PedidoCompraIngreso).filter_by(pedido_id=p.id).all()
+        assert [r.id for r in remaining] == [arribo_id]
+        assert _fecha_ingreso(db, [p.id]).isoformat() == "2026-01-10"
+
+    def test_revert_retracts_faltantes_banner(self, db, empresa, proveedor, active_user):
+        from app.models.notificacion import EstadoNotificacion, Notificacion
+        from app.services import compras_alertas_service
+
+        p = PedidoCompra(
+            numero="P-REV-BANNER",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="con_faltantes",
+            responsable_id=active_user.id,
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        compras_alertas_service.notificar_faltantes(db, pedido=p, texto="Faltan 2 cajas")
+        db.flush()
+
+        recepcion_service.revertir_control(db, p, active_user)
+        db.flush()
+
+        notifs = (
+            db.query(Notificacion)
+            .filter(
+                Notificacion.tipo == compras_alertas_service.TIPO_FALTANTES,
+                Notificacion.item_id == p.id,
+            )
+            .all()
+        )
+        assert len(notifs) == 1
+        assert notifs[0].estado == EstadoNotificacion.DESCARTADA
+
+    def test_revert_locks_pedido_row(self, db, empresa, proveedor, active_user):
+        """The pedido row is read FOR UPDATE so revert cannot interleave with ingresos or a second revert."""
+        from sqlalchemy import event
+
+        p = PedidoCompra(
+            numero="P-REV-LOCK",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="controlado",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+
+        locked: list[bool] = []
+
+        def _spy(state) -> None:
+            if not state.is_select or state.statement._for_update_arg is None:
+                return
+            if any(m.class_ is PedidoCompra for m in state.all_mappers):
+                locked.append(True)
+
+        event.listen(db, "do_orm_execute", _spy)
+        try:
+            recepcion_service.revertir_control(db, p, active_user)
+        finally:
+            event.remove(db, "do_orm_execute", _spy)
+        assert locked
+
+    def test_revert_rechecks_estado_after_lock(self, db, empresa, proveedor, active_user):
+        """A second revert that read a stale `controlado` sees the locked, fresh `recibido` → 409."""
+        from sqlalchemy import update
+
+        p = PedidoCompra(
+            numero="P-REV-STALE",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="controlado",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        db.execute(
+            update(PedidoCompra)
+            .where(PedidoCompra.id == p.id)
+            .values(estado="recibido")
+            .execution_options(synchronize_session=False)
+        )
+        assert p.estado == "controlado"  # stale in-memory copy
+
+        with pytest.raises(HTTPException) as exc:
+            recepcion_service.revertir_control(db, p, active_user)
+        assert exc.value.status_code == 409
+
+
 class TestRecepcionServicio409:
     def test_servicio_confirmar_409(self, db, empresa, proveedor, active_user):
         from fastapi import HTTPException
