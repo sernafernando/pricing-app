@@ -30,7 +30,7 @@ En una pantalla angosta (celular, hasta 768 px de ancho) Métricas ML tiene su p
 - **Filtros** abre los filtros desde abajo: Agrupar por, Tienda, Stock y ventas, Ageing y Alertas a la vista, y **Producto**, **Publicación** y **Cálculo** (Publicidad, Costos TP, Comparar con) plegados, se abren con un toque. Cada filtro se aplica al tocarlo; **Ver N productos** cierra la hoja y **Limpiar** vuelve a los valores por defecto. El número de **Filtros** dice cuántos hay activos, y debajo se ven como etiquetas.
 - El botón de orden (por ejemplo **Facturado ↓**) elige por qué ordenar y en qué sentido.
 - Las tarjetas KPI van de a dos por fila.
-- Cada producto es una tarjeta: nombre, SKU · marca · publicaciones, **Unid. período**, **Markup** y **Facturado**, y al pie stock, ageing, última venta y la tendencia (o **Sin stock**). Al tocarla se abre con las ventas de 24H a 30D, el markup (vs anterior, mín / máx 90D, con sell in/out), Total Gauss, Costo, stock, ageing y última venta; **Ver sus n publicaciones** las lista debajo y **Menos datos** la cierra.
+- Cada producto es una tarjeta: nombre, SKU · marca · publicaciones, **Unid. período**, **Markup** y **Facturado**, y al pie stock, ageing, última venta y la tendencia (o **Sin stock**). Al tocarla se abre con las ventas de 24H a 30D, el markup (vs anterior, mín / máx 90D, con sell in/out), Total Gauss, **Costo del período** (el costo de lo vendido en el período, en pesos, como la columna Costo de la computadora; no es el costo unitario), stock, ageing y última venta; **Ver sus n publicaciones** las lista debajo y **Menos datos** la cierra.
 - Se muestran 20 tarjetas; **Cargar 20 más** trae las siguientes con los mismos filtros.
 
 ## Filtros y columnas

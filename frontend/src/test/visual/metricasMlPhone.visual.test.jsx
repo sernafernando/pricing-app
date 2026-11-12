@@ -162,6 +162,18 @@ describe('Métricas ML on a phone (visual, 390x844)', () => {
       expect(apply.getBoundingClientRect().bottom).toBeLessThanOrEqual(HEIGHT);
       expect(smallTargets(dialog)).toEqual([]);
       noPageScroll();
+
+      // Below Alertas, scrolling inside the sheet: the folded Producto / Publicación / Cálculo rows.
+      const body = dialog.querySelector('[class*="body"]');
+      body.scrollTop = body.scrollHeight;
+      const folds = [...dialog.querySelectorAll('button[aria-expanded] [class*="foldTitle"]')].map((el) => el.textContent);
+      expect(folds).toEqual(['Producto', 'Publicación', 'Cálculo']);
+      for (const fold of dialog.querySelectorAll('button[aria-expanded]')) {
+        const r = fold.getBoundingClientRect();
+        expect(r.top).toBeGreaterThanOrEqual(box.top);
+        expect(r.bottom).toBeLessThanOrEqual(apply.getBoundingClientRect().top + 0.5);
+      }
+      await shot(`metricas-phone-${theme}-filtros-abajo`);
       screen.unmount();
     });
   }

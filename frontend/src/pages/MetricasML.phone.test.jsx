@@ -97,6 +97,12 @@ describe('MetricasML on a phone', () => {
     expect(within(card).getByText('Ventas (unidades)')).toBeInTheDocument();
     expect(within(card).getByText('Mín / Máx 90D')).toBeInTheDocument();
     expect(within(card).getByText('Total Gauss')).toBeInTheDocument();
+    // The board's cost is the period's total in pesos (the markup's denominator), as the desktop Costo column
+    // shows it -- never presented as a unit cost.
+    expect(within(card).getByText('Costo del período')).toBeInTheDocument();
+    expect(within(card).queryByText('Costo')).not.toBeInTheDocument();
+    expect(within(card).getByText('$ 160.181.992,06')).toBeInTheDocument();
+    expect(within(card).getByText('c/ sell in $ 156.941.992,06')).toBeInTheDocument();
 
     await userEvent.click(within(card).getByRole('button', { name: 'Ver sus 3 publicaciones' }));
     expect(await within(card).findByText(/MLA2060835678/)).toBeInTheDocument();

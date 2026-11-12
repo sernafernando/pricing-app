@@ -129,8 +129,10 @@ function Details({ row, canSeeMargin, tpOn, tpSolo, now }) {
             {formatSignedMoney(row.total_tp)}
           </Pair>
         )}
+        {/* The board's cost is the period's total in pesos (the markup's denominator), exactly the desktop Costo
+            column -- labelled so it never reads as a unit cost. The board carries no unit cost nor its currency. */}
         {sell && sell.costo != null && (
-          <Pair label="Costo">
+          <Pair label="Costo del período">
             {formatSignedMoney(sell.costo)}
             {sell.costo_sell_in != null && <span className={styles.small}> c/ sell in {formatSignedMoney(sell.costo_sell_in)}</span>}
           </Pair>

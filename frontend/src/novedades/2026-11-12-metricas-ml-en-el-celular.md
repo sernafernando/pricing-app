@@ -12,7 +12,7 @@
 2. Arriba buscá por producto, SKU, MLA o marca, y elegí el período tocando **Hoy**, **7d**, **Mes actual**, **30d**, **3m** o **Rango…** (deslizá de costado para verlos todos).
 3. Tocá **Filtros** para agrupar, elegir tienda, stock, ageing y alertas. **Producto**, **Publicación** y **Cálculo** se abren con un toque. Los filtros se aplican al tocarlos; **Ver N productos** cierra la hoja y **Limpiar** los borra.
 4. Con el botón de orden (por ejemplo **Facturado ↓**) elegí por qué ordenar.
-5. Tocá una tarjeta para ver todo: ventas de 24H a 30D, markup, Total Gauss, costo, stock y última venta. **Ver sus n publicaciones** las muestra debajo; **Menos datos** la cierra.
+5. Tocá una tarjeta para ver todo: ventas de 24H a 30D, markup, Total Gauss, costo del período (lo vendido en el período, en pesos), stock y última venta. **Ver sus n publicaciones** las muestra debajo; **Menos datos** la cierra.
 6. Al final de la lista, **Cargar 20 más** trae los siguientes productos.
 
 > Para exportar, tocá **⋯** arriba a la derecha: **Exportar CSV** o **Exportar a Sheets**.
