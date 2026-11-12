@@ -163,3 +163,63 @@ class TestFlatCostsUnchanged:
         costo = CostoEnvioTramos.desde_fila(*MLA1173065146)
 
         assert calcular_limpio(30000, 21, costo, 0, constantes=CONSTANTES) == pytest.approx(30000 / 1.21)
+
+
+class TestPromoBelowTheFreeShippingFloor:
+    """List price >= 33000 with a promo under it: ml-webhook stores list_cost 0 (ML charges nothing at the sale
+    price) but every bracket's cost. Pricing must keep the row: priced at >= 33000 it costs that bracket."""
+
+    ROW = (
+        0.0,
+        [
+            {"min_price": 0, "list_cost": 0},
+            {"min_price": 33000, "list_cost": 6790},
+            {"min_price": 50000, "list_cost": 7290},
+        ],
+    )
+
+    def test_query_keeps_a_zero_list_cost_row_with_priced_brackets(self) -> None:
+        from app.services.envio_real_service import _query_list_cost_by_mla
+
+        zero_flat = _row("MLA_FLAT_ZERO", (0.0, None))
+        with patch(
+            "app.services.envio_real_service.get_mlwebhook_engine",
+            return_value=_engine_returning([_row("MLA_PROMO", self.ROW), zero_flat]),
+        ):
+            costs = _query_list_cost_by_mla(["MLA_PROMO", "MLA_FLAT_ZERO"])
+
+        assert list(costs) == ["MLA_PROMO"]  # a 0 without brackets is still "no cost", as before
+        assert float(costs["MLA_PROMO"]) == 0.0  # displayed at its 31500 sale price: ML charges nothing
+        assert costo_envio_para(costs["MLA_PROMO"], 35000) == 6790.0
+        assert calcular_limpio(35000, 21, costs["MLA_PROMO"], 0, constantes=CONSTANTES) == pytest.approx(
+            (35000 - 6790) / 1.21
+        )
+
+    def test_it_still_counts_in_the_product_max_per_bracket(self) -> None:
+        costs = {"A": CostoEnvioTramos.desde_fila(*self.ROW), "B": CostoEnvioTramos.desde_fila(*MLA3489206948)}
+        from app.services.envio_real_service import costo_envio_maximo
+
+        costo = costo_envio_maximo(costs, None)
+
+        assert costo_envio_para(costo, 41999) == 7790.0
+        assert costo_envio_para(costo, 65472) == 8290.0
+
+
+class TestReviewGaps:
+    def test_ponderado_is_taken_per_bracket_with_the_same_weights(self) -> None:
+        from app.services.envio_real_service import costo_ponderado
+
+        costs = {"A": CostoEnvioTramos.desde_fila(*MLA1173065146), "B": CostoEnvioTramos.desde_fila(*MLA3489206948)}
+        costo = costo_ponderado(costs, {"A": 3, "B": 1})
+
+        assert float(costo) == pytest.approx((6790 * 3 + 8290) / 4)
+        assert costo_envio_para(costo, 41999) == pytest.approx((6790 * 3 + 7790) / 4)
+        assert costo_envio_para(costo, 65472) == pytest.approx((7290 * 3 + 8290) / 4)
+
+    def test_a_flat_cost_stays_constant_across_the_brackets_of_the_others(self) -> None:
+        from app.services.envio_real_service import costo_envio_maximo
+
+        costo = costo_envio_maximo({"A": CostoEnvioTramos.desde_fila(*MLA1173065146), "LEGACY": 7000.0}, None)
+
+        assert costo_envio_para(costo, 41999) == 7000.0  # max(6790, 7000)
+        assert costo_envio_para(costo, 65472) == 7290.0  # max(7290, 7000)

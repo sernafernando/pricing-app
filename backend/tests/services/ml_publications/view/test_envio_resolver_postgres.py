@@ -270,6 +270,25 @@ class TestTheMlwebhookQuery:
         assert costs["MLA1173065146"].para(65472) == 7290.0
         assert type(costs["MLA1"]) is float  # a row without brackets stays a plain cost
 
+    def test_it_keeps_a_promo_under_the_floor_for_its_priced_brackets(self, conn, shipping_table) -> None:  # noqa: F811
+        """List price 35000, promo 31500: ML charges nothing at the sale price (list_cost 0), 6790 from 33000."""
+        conn.execute(text("ALTER TABLE ml_seller_shipping_costs ADD COLUMN cost_by_bracket jsonb"))
+        conn.execute(
+            text(
+                "INSERT INTO ml_seller_shipping_costs VALUES ('MLA_PROMO', 0, 'ARS', 'cross_docking', CAST(:b AS jsonb))"
+            ),
+            {
+                "b": '[{"min_price": 0, "list_cost": 0}, {"min_price": 33000, "list_cost": 6790}, '
+                '{"min_price": 50000, "list_cost": 7290}]'
+            },
+        )
+
+        costs = envio_real_service._fetch_list_cost_by_mla(["MLA_PROMO", "MLA2"])
+
+        assert list(costs) == ["MLA_PROMO"]  # MLA2 (0, no brackets) is still excluded
+        assert costs["MLA_PROMO"] == 0.0
+        assert costs["MLA_PROMO"].para(35000) == 6790.0
+
     def test_it_returns_nothing_when_mlwebhook_is_down(self, monkeypatch) -> None:
         def down():
             raise RuntimeError("no mlwebhook")

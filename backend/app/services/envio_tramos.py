@@ -41,6 +41,10 @@ class CostoEnvioTramos(float):
         tramos = _tramos_validos(cost_by_bracket)
         return cls(list_cost, tramos) if tramos else float(list_cost)
 
+    def cobra(self) -> bool:
+        """Whether any bracket costs something: a 0 at the sale price can still cost at a higher price."""
+        return any(costo > 0 for _, costo in self.tramos)
+
     def para(self, precio: float) -> float:
         """The cost at `precio`: its bracket's cost when that is > 0, else the float value (a bracket without a
         cost is one where ML charges nothing; `calcular_limpio` already skips shipping below its threshold)."""

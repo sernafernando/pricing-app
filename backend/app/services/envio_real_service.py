@@ -58,7 +58,8 @@ def _query_list_cost_by_mla(mla_ids: list[str]) -> dict[str, float]:
     """
     Query ml_seller_shipping_costs in the mlwebhook DB for the given MLA IDs; RAISES on any error.
 
-    Returns {mla_id: list_cost} for rows where list_cost > 0 and currency_id = 'ARS'. list_cost is the cost at the
+    Returns {mla_id: list_cost} for rows where list_cost > 0 (or with a bracket that costs > 0) and
+    currency_id = 'ARS'. list_cost is the cost at the
     publication's sale price; a row with `cost_by_bracket` comes back as a `CostoEnvioTramos` (still that float)
     that `calcular_limpio` evaluates at the price it prices. `cost_by_bracket` is read through `to_jsonb(row)`, so
     the query also works before ml-webhook's migration adds the column (it is then NULL: a plain float).
@@ -81,14 +82,17 @@ def _query_list_cost_by_mla(mla_ids: list[str]) -> dict[str, float]:
                 FROM ml_seller_shipping_costs s
                 WHERE mla_id = ANY(ARRAY(SELECT jsonb_array_elements_text(CAST(:ids AS jsonb))))
                   AND list_cost IS NOT NULL
-                  AND list_cost > 0
+                  AND list_cost >= 0
                   AND currency_id = 'ARS'
                 """
             ),
             {"ids": json.dumps(mla_ids)},
         ).fetchall()
     for row in rows:
-        result[row.mla_id] = CostoEnvioTramos.desde_fila(float(row.list_cost), row.tramos)
+        cost = CostoEnvioTramos.desde_fila(float(row.list_cost), row.tramos)
+        # A 0 at the sale price (a promo under the free-shipping floor) still has its brackets' costs
+        if cost > 0 or (isinstance(cost, CostoEnvioTramos) and cost.cobra()):
+            result[row.mla_id] = cost
     return result
 
 
