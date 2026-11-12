@@ -14,10 +14,17 @@ import pytest
 from sqlalchemy import text
 
 from app.models.comision_versionada import ComisionBase, ComisionVersion
+from app.models.ml_publications import MlItem
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
 from app.models.tipo_cambio import TipoCambio
 from app.services.pxq_pricing_context import PxqPricingContext, resolve_pxq_pricing_context
+
+
+def _classic_item(mla: str) -> MlItem:
+    """The ML item behind `mla`, on the classic list (4): the list the commission is priced on (S11b). Which list
+    ML charges is pinned against real Postgres in `test_pxq_pricing_context_postgres.py`."""
+    return MlItem(item_id=mla, listing_type_id="gold_special")
 
 
 @pytest.fixture()
@@ -39,6 +46,7 @@ def producto(db) -> ProductoERP:
 def publicacion(db, producto) -> PublicacionML:
     pub = PublicacionML(mla="MLA9100001", item_id=producto.item_id, codigo="SKU-PXQ-CTX", pricelist_id=4)
     db.add(pub)
+    db.add(_classic_item(pub.mla))
     db.flush()
     return pub
 
@@ -90,6 +98,7 @@ class TestMissingCost:
         db.flush()
         pub = PublicacionML(mla="MLA9100002", item_id=producto.item_id, codigo="SKU-PXQ-CTX-ZERO", pricelist_id=4)
         db.add(pub)
+        db.add(_classic_item(pub.mla))
         db.flush()
 
         context = resolve_pxq_pricing_context(db, pub.mla)
@@ -120,6 +129,7 @@ class TestUsdCostConversion:
         db.flush()
         pub = PublicacionML(mla="MLA9100003", item_id=producto.item_id, codigo="SKU-PXQ-CTX-USD", pricelist_id=4)
         db.add(pub)
+        db.add(_classic_item(pub.mla))
         db.flush()
         db.add(TipoCambio(fecha=date.today(), moneda="USD", compra=990.0, venta=1000.0))
         db.flush()
@@ -155,6 +165,7 @@ class TestUsdCostWithoutTipoCambio:
         db.flush()
         pub = PublicacionML(mla="MLA9100004", item_id=producto.item_id, codigo="SKU-PXQ-CTX-USD-NOTC", pricelist_id=4)
         db.add(pub)
+        db.add(_classic_item(pub.mla))
         db.flush()
         # Deliberately no TipoCambio row at all -- not even for another date.
 
@@ -190,6 +201,7 @@ class TestMissingIva:
         db.flush()
         pub = PublicacionML(mla="MLA9100005", item_id=producto.item_id, codigo="SKU-PXQ-CTX-NOIVA", pricelist_id=4)
         db.add(pub)
+        db.add(_classic_item(pub.mla))
         db.flush()
         db.execute(text("UPDATE productos_erp SET iva = NULL WHERE item_id = :item_id"), {"item_id": producto.item_id})
         db.flush()
@@ -226,6 +238,7 @@ class TestUnresolvableCurrency:
         db.flush()
         pub = PublicacionML(mla="MLA9100006", item_id=producto.item_id, codigo="SKU-PXQ-CTX-NOMONEDA", pricelist_id=4)
         db.add(pub)
+        db.add(_classic_item(pub.mla))
         db.flush()
         db.execute(
             text("UPDATE productos_erp SET moneda_costo = NULL WHERE item_id = :item_id"), {"item_id": producto.item_id}

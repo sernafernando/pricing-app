@@ -20,6 +20,11 @@ being `None` would instead pass validation here and raise a `TypeError`
 later inside `calcular_markup_pxq`. Both collapse to `None` here, before
 either can happen.
 
+The commission list is the one ML charges the item (`resolve_pricelist` on
+`ml_items` listing type, campaign tag, installments sale term), the same the
+publication header prices with; the stored `publicaciones_ml.pricelist_id`
+is not read (S11b).
+
 Deliberately does NOT call `resolver_costo_envio`: that resolves the
 PER-UNIT `producto.envio` field, and feeding a per-unit shipping figure to a
 PxQ tier (an N-unit order) is exactly the unit-vs-order confusion
@@ -36,8 +41,10 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
+from app.models.ml_publications import MlItem
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
+from app.services.ml_publications.pricelist_resolver import resolve_pricelist
 from app.services.pricing_calculator import (
     convertir_a_pesos,
     obtener_comision_base,
@@ -96,9 +103,22 @@ def resolve_pxq_pricing_context(db: Session, mla: str) -> Optional[PxqPricingCon
             # fall through to its unconverted-passthrough branch.
             return None
 
+        # The list ML charges the item, as the publication header prices it (`view/markup.py`), never the stored
+        # `publicaciones_ml.pricelist_id` (S11b, 2026-11-12). No ML item or no list of ours: no context.
+        item = (
+            db.query(MlItem.listing_type_id, MlItem.tags, MlItem.installments_campaign)
+            .filter(MlItem.item_id == mla)
+            .one_or_none()
+        )
+        if item is None:
+            return None
+        pricelist_id = resolve_pricelist(item.listing_type_id, item.tags or (), item.installments_campaign).pricelist_id
+        if pricelist_id is None:
+            return None
+
         costo_ars = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
         grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
-        comision_base = obtener_comision_base(db, publicacion.pricelist_id, grupo_id)
+        comision_base = obtener_comision_base(db, pricelist_id, grupo_id)
     except Exception as e:
         logger.warning("Error resolving PxQ pricing context for mla %s: %s", mla, e)
         return None

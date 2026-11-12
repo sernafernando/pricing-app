@@ -16,6 +16,7 @@ import pytest
 
 from app.core.security import get_password_hash
 from app.models.comision_versionada import ComisionBase, ComisionVersion
+from app.models.ml_publications import MlItem
 from app.models.ml_pxq_tier import MlPxqTier
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
@@ -69,6 +70,7 @@ def _make_publicacion(db, *, item_id_suffix: int, pricelist_id: int = 4, moneda_
         pricelist_id=pricelist_id,
     )
     db.add(pub)
+    db.add(MlItem(item_id=pub.mla, listing_type_id="gold_special"))  # the list the markup prices (classic)
     db.flush()
     return pub
 
@@ -144,6 +146,7 @@ class TestProductDataMissing:
         db.flush()
         publicacion = PublicacionML(mla="MLA9200099", item_id=producto.item_id, codigo=producto.codigo, pricelist_id=4)
         db.add(publicacion)
+        db.add(MlItem(item_id=publicacion.mla, listing_type_id="gold_special"))
         db.flush()
         tier = _make_tier(db, publicacion, pxq_user, costo_envio_total="200.00")
 
@@ -168,6 +171,7 @@ class TestBothMissingPrecedence:
         db.flush()
         publicacion = PublicacionML(mla="MLA9200098", item_id=producto.item_id, codigo=producto.codigo, pricelist_id=4)
         db.add(publicacion)
+        db.add(MlItem(item_id=publicacion.mla, listing_type_id="gold_special"))
         db.flush()
         tier = _make_tier(db, publicacion, pxq_user, costo_envio_total=None)
 

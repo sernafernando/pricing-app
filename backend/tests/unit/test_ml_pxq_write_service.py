@@ -29,6 +29,7 @@ from fastapi import HTTPException
 
 from app.core.security import get_password_hash
 from app.models.comision_versionada import ComisionBase, ComisionVersion
+from app.models.ml_publications import MlItem
 from app.models.ml_pxq_tier import ESTADO_DESCONOCIDO, ESTADO_LISTO, ESTADO_SINCRONIZADO, MlPxqTier
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
@@ -100,6 +101,7 @@ def producto(db) -> ProductoERP:
 def publicacion(db, producto, comision_fixtures) -> PublicacionML:
     pub = PublicacionML(mla="MLA920001", item_id=producto.item_id, codigo="SKU-PXQ-WRITE", pricelist_id=4)
     db.add(pub)
+    db.add(MlItem(item_id=pub.mla, listing_type_id="gold_special"))  # the list the markup prices (classic)
     db.flush()
     return pub
 
@@ -795,6 +797,7 @@ class TestOverridePublicarSinMarkup:
         db.flush()
         pub = PublicacionML(mla="MLA940001", item_id=producto.item_id, codigo="SKU-PXQ-OVERRIDE", pricelist_id=4)
         db.add(pub)
+        db.add(MlItem(item_id=pub.mla, listing_type_id="gold_special"))
         db.flush()
         tier = MlPxqTier(
             publicacion_ml_id=pub.id,
@@ -1017,6 +1020,7 @@ class TestAuditTrailForPublishedPrices:
         db.flush()
         pub = PublicacionML(mla="MLA940002", item_id=producto.item_id, codigo="SKU-PXQ-OVERRIDE-AUDIT", pricelist_id=4)
         db.add(pub)
+        db.add(MlItem(item_id=pub.mla, listing_type_id="gold_special"))
         db.flush()
         tier = MlPxqTier(
             publicacion_ml_id=pub.id,
