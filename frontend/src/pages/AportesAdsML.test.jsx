@@ -210,6 +210,18 @@ describe('quiet table', () => {
     expect(addCell.querySelector('li')).toBeNull();
     expect(screen.getAllByRole('columnheader')).toHaveLength(7);
   });
+
+  it('drops the add column without ml_metricas.gestionar_aportes_ads', async () => {
+    permisosDenegados.add('ml_metricas.gestionar_aportes_ads');
+    render(<AportesAdsML />);
+    await screen.findByText('Routers');
+    expect(screen.getAllByRole('columnheader')).toHaveLength(6);
+    expect(screen.queryByRole('button', { name: /^Agregar aporte a/ })).toBeNull();
+    for (const row of screen.getAllByRole('row').slice(1)) {
+      const span = [...row.cells].reduce((n, cell) => n + cell.colSpan, 0);
+      expect(span).toBe(6);
+    }
+  });
 });
 
 describe('summary tiles', () => {
