@@ -44,7 +44,7 @@ const nuevo = async (user) => {
   await user.type(screen.getByLabelText('Factura hasta'), '2026-11-30');
 };
 
-const guardar = (user, name = 'Guardar bono') => user.click(screen.getByRole('button', { name }));
+const guardar = (user, name = 'Guardar línea') => user.click(screen.getByRole('button', { name }));
 
 describe('SellInBonoForm — the shared cap (T24d)', () => {
   it('sends both caps, and no cap as null', async () => {
