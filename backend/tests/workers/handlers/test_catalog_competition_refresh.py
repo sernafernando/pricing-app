@@ -58,10 +58,7 @@ def session_factory(engine):
 def put(engine, mla: str, *, due_in: float = -1, attempts: int = 0) -> None:
     with engine.begin() as conn:
         conn.execute(
-            text(
-                "INSERT INTO catalog_competition_refresh_pending (mla, due_at, attempts) "
-                "VALUES (:m, :d, :a)"
-            ),
+            text("INSERT INTO catalog_competition_refresh_pending (mla, due_at, attempts) VALUES (:m, :d, :a)"),
             {"m": mla, "d": now() + timedelta(seconds=due_in), "a": attempts},
         )
 
@@ -83,9 +80,7 @@ class TestRegistration:
 class TestDrain:
     def test_due_row_refreshed_and_dropped(self, env) -> None:
         put(env, "MLA1")
-        handler = CatalogCompetitionRefreshHandler(
-            session_factory=session_factory(env), pacer=Pacer(rate_per_sec=20)
-        )
+        handler = CatalogCompetitionRefreshHandler(session_factory=session_factory(env), pacer=Pacer(rate_per_sec=20))
         with (
             mock.patch(
                 "app.workers.handlers.catalog_competition_refresh.refrescar_competencia_catalogo",
@@ -103,9 +98,7 @@ class TestDrain:
 
     def test_error_fetch_status_reschedules(self, env) -> None:
         put(env, "MLA2")
-        handler = CatalogCompetitionRefreshHandler(
-            session_factory=session_factory(env), pacer=Pacer(rate_per_sec=20)
-        )
+        handler = CatalogCompetitionRefreshHandler(session_factory=session_factory(env), pacer=Pacer(rate_per_sec=20))
         with (
             mock.patch(
                 "app.workers.handlers.catalog_competition_refresh.refrescar_competencia_catalogo",
@@ -122,9 +115,7 @@ class TestDrain:
 
     def test_not_catalog_is_dropped(self, env) -> None:
         put(env, "MLA3")
-        handler = CatalogCompetitionRefreshHandler(
-            session_factory=session_factory(env), pacer=Pacer(rate_per_sec=20)
-        )
+        handler = CatalogCompetitionRefreshHandler(session_factory=session_factory(env), pacer=Pacer(rate_per_sec=20))
         with (
             mock.patch(
                 "app.workers.handlers.catalog_competition_refresh.refrescar_competencia_catalogo",
@@ -141,9 +132,7 @@ class TestDrain:
 
     def test_inactive_mla_dropped_without_refresh(self, env) -> None:
         put(env, "MLA4")
-        handler = CatalogCompetitionRefreshHandler(
-            session_factory=session_factory(env), pacer=Pacer(rate_per_sec=20)
-        )
+        handler = CatalogCompetitionRefreshHandler(session_factory=session_factory(env), pacer=Pacer(rate_per_sec=20))
         with (
             mock.patch(
                 "app.workers.handlers.catalog_competition_refresh.refrescar_competencia_catalogo",
@@ -158,3 +147,35 @@ class TestDrain:
         assert result.detail["dropped"] == 1
         assert refresh.await_count == 0
         assert pending_mlas(env) == set()
+
+
+class TestRealPersistence:
+    """Regression: the real `refrescar_competencia_catalogo` persists ORM rows that the
+    session commit expires; reading them after the session closes raised
+    DetachedInstanceError, which settled as `error` and quarantined the MLA."""
+
+    def test_status_read_from_persisted_row_settles(self, env) -> None:
+        from app.models.ml_catalog_competition import MLCatalogCompetition
+
+        MLCatalogCompetition.__table__.create(bind=env, checkfirst=True)
+        put(env, "MLA5")
+        handler = CatalogCompetitionRefreshHandler(session_factory=session_factory(env), pacer=Pacer(rate_per_sec=20))
+        with (
+            mock.patch(
+                "app.services.ml_catalog_competition_service.ml_webhook_client.get_catalog_competition",
+                new=mock.AsyncMock(return_value={"status": "not_catalog"}),
+            ),
+            mock.patch(
+                "app.workers.handlers.catalog_competition_refresh.is_active",
+                return_value=True,
+            ),
+        ):
+            result = handler.run(ctx())
+        assert result.detail["failed"] == 0
+        assert result.detail["dropped"] == 1
+        assert pending_mlas(env) == set()
+        with env.connect() as conn:
+            stored = conn.execute(
+                text("SELECT fetch_status FROM ml_catalog_competition WHERE mla = 'MLA5'")
+            ).scalar_one()
+        assert stored == "not_catalog"

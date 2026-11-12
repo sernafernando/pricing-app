@@ -113,11 +113,15 @@ class CatalogCompetitionRefreshHandler:
         success; `not_catalog` is dropped (retry cannot help); `error` reschedules.
         """
         try:
+            # Read the status while the session is open: the factory commits on exit,
+            # which expires the ORM rows, and touching them detached raises
+            # DetachedInstanceError (it settled as `error` and quarantined the MLA).
             with self._session_factory() as db:
                 rows = resolve_maybe_async(refrescar_competencia_catalogo(db, [mla]))
+                raw_status = rows[0].fetch_status if rows else None
             if not rows:
                 return _ERROR
-            status = (rows[0].fetch_status or _ERROR).lower()
+            status = (raw_status or _ERROR).lower()
             if status == _OK:
                 return _OK
             if status == _NOT_CATALOG:
