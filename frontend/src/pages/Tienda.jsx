@@ -1591,7 +1591,11 @@ export default function Tienda() {
                     <td>{p.marca}</td>
                     <td>{p.stock}</td>
                     <td>
-                      <CostoCell monto={p.costo} moneda={p.moneda_costo} sellInOut={p.sell_in_out} format={formatCostoLista} />
+                      {p.costo === null || p.costo === undefined ? (
+                        <span className="text-muted">-</span>
+                      ) : (
+                        <CostoCell monto={p.costo} moneda={p.moneda_costo} sellInOut={p.sell_in_out} format={formatCostoLista} />
+                      )}
                     </td>
                     <td className={isRowActive && celdaActiva?.colIndex === 0 ? 'keyboard-cell-active' : ''}>
                       {/* Precio solo lectura en Tienda */}

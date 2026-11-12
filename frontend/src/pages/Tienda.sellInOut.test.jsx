@@ -92,6 +92,54 @@ describe('Tienda sell in / sell out', () => {
     expect(within(fila).getAllByText(/c\/ sell in \+ sell out/)).toHaveLength(2);
   });
 
+  it('labels the markup "c/ sell out" when the row has sell out but no sell in', async () => {
+    const fila = await renderFila({
+      ...BASE,
+      item_id: 3,
+      codigo: 'SKU-SO',
+      descripcion: 'Solo campañas',
+      sell_in_out: {
+        sell_in: null,
+        sell_out: { gremio: { monto_unit: 500, campana_ids: [3] } },
+        markups_sell_in: {},
+        markups_sell_in_out: { gremio: 25.5 },
+      },
+    });
+
+    expect(within(fila).getByText('c/ sell out: 25.50%')).toBeInTheDocument();
+    expect(within(fila).queryByText(/c\/ sell in/)).not.toBeInTheDocument();
+    expect(within(fila).getByText('USD $10.00')).toBeInTheDocument();
+  });
+
+  it('shows a Tienda Nube sell out only under Web Transf. when only that key has one', async () => {
+    const fila = await renderFila({
+      ...BASE,
+      item_id: 4,
+      codigo: 'SKU-TN',
+      descripcion: 'Solo Tienda Nube',
+      sell_in_out: {
+        sell_in: null,
+        sell_out: { web_transf: { monto_unit: 800, campana_ids: [9] } },
+        markups_sell_in: {},
+        markups_sell_in_out: { web_transf: 26.5 },
+      },
+    });
+
+    const lineas = within(fila).getAllByText(/c\/ sell out/);
+    expect(lineas).toHaveLength(1);
+    expect(lineas[0]).toHaveTextContent('c/ sell out: 26.50%');
+    expect(lineas[0].closest('.web-transf-info')).not.toBeNull();
+  });
+
+  it('shows the empty marker, never "undefined", for a row without a cost', async () => {
+    const fila = await renderFila({ ...SIN_SELL_IN_OUT, item_id: 5, descripcion: 'Sin costo', costo: null });
+
+    expect(fila).not.toHaveTextContent('undefined');
+    // Marca, stock, then the cost cell.
+    const costo = within(fila).getByText('BRAND_X').closest('td').nextElementSibling.nextElementSibling;
+    expect(costo).toHaveTextContent(/^-$/);
+  });
+
   it('keeps a row without sell in or sell out as it was', async () => {
     const fila = await renderFila(SIN_SELL_IN_OUT);
 
