@@ -182,10 +182,18 @@ describe('Aportes de marcas (Ads ML) (visual)', () => {
         for (const pill of document.querySelectorAll('span[class*="keep"]')) {
           expect(pill.getBoundingClientRect().height).toBeLessThanOrEqual(24);
         }
+        // The add button has its own column, level with the row's first line.
         for (const add of document.querySelectorAll('button[aria-label^="Agregar aporte a"]')) {
-          const first = add.parentElement.firstElementChild.getBoundingClientRect();
+          const first = add.closest('tr').querySelector('li, span[class*="none"]').getBoundingClientRect();
           expect(add.getBoundingClientRect().top).toBeLessThan(first.bottom);
+          expect(add.getBoundingClientRect().left).toBeGreaterThanOrEqual(first.right);
         }
+        // Every aporte row puts amount, settlement and range on the same verticals.
+        const edges = (selector, side) =>
+          new Set(chips.map((chip) => Math.round(chip.querySelector(selector).getBoundingClientRect()[side])));
+        expect(edges('span[class*="chipValue"]', 'right').size).toBe(1);
+        expect(edges('span[class*="kind"]', 'left').size).toBe(1);
+        expect(edges('span[class*="chipRange"]', 'left').size).toBe(1);
         for (const cell of document.querySelectorAll('td[class*="num"]')) {
           expect(cell.scrollWidth).toBeLessThanOrEqual(cell.clientWidth + 1);
         }

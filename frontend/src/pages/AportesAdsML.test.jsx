@@ -200,6 +200,18 @@ describe('total row', () => {
   });
 });
 
+describe('quiet table', () => {
+  it('prints a row aporte like its neto and puts the add button in its own column', async () => {
+    render(<AportesAdsML />);
+    await screen.findByText('Routers');
+    const routers = within(rowOf('Routers'));
+    expect(routers.getByText('$ 50.000,00')).toHaveClass(routers.getByText('$ 48.765,40').className, { exact: true });
+    const addCell = routers.getByRole('button', { name: 'Agregar aporte a Routers' }).closest('td');
+    expect(addCell.querySelector('li')).toBeNull();
+    expect(screen.getAllByRole('columnheader')).toHaveLength(7);
+  });
+});
+
 describe('summary tiles', () => {
   it('shows a dash, not $ 0,00, while the range loads', async () => {
     api.get.mockImplementation(() => new Promise(() => {}));

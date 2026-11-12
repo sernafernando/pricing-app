@@ -28,7 +28,7 @@ const SETTLEMENT_BADGES = {
   full: { text: 'Todo', tone: 'info' },
   refund_difference: { text: 'Diferencia', tone: 'warning' },
 };
-const STATUS_PILLS = { active: { text: 'Activa', tone: 'success' }, paused: { text: 'Pausada', tone: 'neutral' } };
+const STATUS_LABELS = { active: { text: 'Activa', live: true }, paused: { text: 'Pausada', live: false } };
 // Stitch 55853ac1: the same aportes by campaign (the loading screen) or one row per aporte, both channels.
 const VIEWS = [
   { value: 'campaign', label: 'Por campaña' },
@@ -69,13 +69,10 @@ function ContributionItem({ c, canManage, onEdit, onDelete }) {
     <li className={styles.chip} title={details || undefined}>
       <span className={styles.chipValue}>{value}</span>
       {details && <span className={styles.srOnly}>{details}</span>}
-      {badge && (
-        <span className={styles.keep}>
-          <StatusPill tone={badge.tone} title={SETTLEMENT_LABELS[c.settlement]}>
-            {badge.text}
-          </StatusPill>
-        </span>
-      )}
+      {/* Always rendered, empty for a percentage, so every column lines up across rows. */}
+      <span className={styles.kind} title={badge ? SETTLEMENT_LABELS[c.settlement] : undefined}>
+        {badge?.text}
+      </span>
       <span className={styles.chipRange}>
         {formatDay(c.date_from)} → {formatDay(c.date_to)}
       </span>
@@ -130,6 +127,8 @@ export default function AportesAdsML() {
   const { tienePermiso } = usePermisos();
   const puedeVerGanancia = tienePermiso('ml_metricas.ver_ganancia');
   const canManage = tienePermiso('ml_metricas.gestionar_aportes_ads');
+  // The add button gets its own column, so the loaded aportes line up across rows.
+  const columnCount = canManage ? 7 : 6;
   const today = new Date();
   const [range, setRange] = useState({
     from: isoDay(new Date(today.getFullYear(), today.getMonth(), 1)),
@@ -360,83 +359,86 @@ export default function AportesAdsML() {
                   <th className={styles.num}>Aporte</th>
                   <th className={styles.num}>Neto</th>
                   <th>Aportes cargados</th>
+                  {canManage && (
+                    <th>
+                      <span className={styles.srOnly}>Agregar aporte</span>
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={6} className={styles.muted}>Cargando...</td>
+                    <td colSpan={columnCount} className={styles.muted}>Cargando...</td>
                   </tr>
                 )}
                 {!loading && campaigns.length > 0 && visible.length === 0 && (
                   <tr>
-                    <td colSpan={6} className={styles.muted}>Ninguna campaña coincide con los filtros.</td>
+                    <td colSpan={columnCount} className={styles.muted}>Ninguna campaña coincide con los filtros.</td>
                   </tr>
                 )}
                 {!loading && campaigns.length === 0 && !loadError && (
                   <tr>
-                    <td colSpan={6} className={styles.muted}>Todavía no hay campañas de Product Ads sincronizadas.</td>
+                    <td colSpan={columnCount} className={styles.muted}>Todavía no hay campañas de Product Ads sincronizadas.</td>
                   </tr>
                 )}
                 {!loading &&
                   visible.map((c) => {
-                    const status = STATUS_PILLS[c.status];
+                    const status = STATUS_LABELS[c.status];
                     return (
                       <tr key={`${c.advertiser_id}-${c.campaign_id}`}>
                         <td>
                           <div className={styles.campaign}>
                             <span className={styles.campaignName}>{c.name || `Campaña ${c.campaign_id}`}</span>
-                            <span className={styles.keep}>
-                              <StatusPill tone="info">{advertiserLabel(c)}</StatusPill>
-                            </span>
                           </div>
-                          <span className={styles.campaignId}>{c.campaign_id}</span>
+                          <span className={styles.campaignMeta}>
+                            <span>{advertiserLabel(c)}</span> · <span>{c.campaign_id}</span>
+                          </span>
                         </td>
                         <td>
                           {status ? (
-                            <span className={styles.keep}>
-                              <StatusPill tone={status.tone} dot>
-                                {status.text}
-                              </StatusPill>
+                            <span className={styles.state}>
+                              <span className={status.live ? styles.dot : styles.dotIdle} aria-hidden="true" />
+                              {status.text}
                             </span>
                           ) : (
                             <span className={styles.muted}>{c.status || '—'}</span>
                           )}
                         </td>
                         <td className={styles.num}>{formatSignedMoney(c.cost)}</td>
-                        <td className={`${styles.num} ${c.contribution > 0 ? styles.positive : styles.muted}`}>
+                        <td className={c.contribution > 0 ? styles.num : `${styles.num} ${styles.muted}`}>
                           {formatSignedMoney(c.contribution)}
                         </td>
                         <td className={styles.num}>{formatSignedMoney(c.cost - c.contribution)}</td>
                         <td>
-                          <div className={styles.chips}>
-                            {c.contributions.length === 0 ? (
-                              <span className={styles.none}>Sin aportes</span>
-                            ) : (
-                              <ul className={styles.chipList}>
-                                {c.contributions.map((k) => (
-                                  <ContributionItem
-                                    key={k.id}
-                                    c={k}
-                                    canManage={canManage}
-                                    onEdit={setEditing}
-                                    onDelete={(contribution) => setDeleteTarget({ contribution, campaign: c })}
-                                  />
-                                ))}
-                              </ul>
-                            )}
-                            {canManage && (
-                              <button
-                                type="button"
-                                className={styles.addLink}
-                                aria-label={`Agregar aporte a ${c.name || `Campaña ${c.campaign_id}`}`}
-                                onClick={() => setCreatingFor(c)}
-                              >
-                                <Plus size={14} /> Aporte
-                              </button>
-                            )}
-                          </div>
+                          {c.contributions.length === 0 ? (
+                            <span className={styles.none}>Sin aportes</span>
+                          ) : (
+                            <ul className={styles.chipList}>
+                              {c.contributions.map((k) => (
+                                <ContributionItem
+                                  key={k.id}
+                                  c={k}
+                                  canManage={canManage}
+                                  onEdit={setEditing}
+                                  onDelete={(contribution) => setDeleteTarget({ contribution, campaign: c })}
+                                />
+                              ))}
+                            </ul>
+                          )}
                         </td>
+                        {canManage && (
+                          <td className={styles.addCell}>
+                            <button
+                              type="button"
+                              className={styles.addLink}
+                              aria-label={`Agregar aporte a ${c.name || `Campaña ${c.campaign_id}`}`}
+                              onClick={() => setCreatingFor(c)}
+                            >
+                              <Plus size={14} /> Aporte
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
@@ -448,11 +450,12 @@ export default function AportesAdsML() {
                       Total ({visible.length} de {campaigns.length} {campaigns.length === 1 ? 'campaña' : 'campañas'})
                     </td>
                     <td className={styles.num}>{formatSignedMoney(totals.cost)}</td>
-                    <td className={`${styles.num} ${totals.contribution > 0 ? styles.positive : styles.muted}`}>
+                    <td className={totals.contribution > 0 ? styles.num : `${styles.num} ${styles.muted}`}>
                       {formatSignedMoney(totals.contribution)}
                     </td>
                     <td className={styles.num}>{formatSignedMoney(totals.cost - totals.contribution)}</td>
                     <td />
+                    {canManage && <td />}
                   </tr>
                 </tfoot>
               )}

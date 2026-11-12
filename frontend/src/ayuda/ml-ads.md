@@ -20,7 +20,7 @@ Arriba de la pestaña dice **Aportes de marcas (Ads ML)** y aclara que lo que un
 
 Elegí el rango de fechas (Desde/Hasta). Se muestran tarjetas KPI: Costo Ads del período, Aporte de marcas, Costo neto y Campañas con aporte.
 
-Debajo hay un buscador por campaña, un filtro **Todas / Con aporte / Sin aporte** y un filtro por anunciante. La tabla lista las campañas con costo del período, aporte, neto y los aportes cargados (con valor, rango y liquidación). Si tenés permiso de gestión, podés agregar, editar o borrar aportes desde cada fila.
+Debajo hay un buscador por campaña, un filtro **Todas / Con aporte / Sin aporte** y un filtro por anunciante. La tabla lista las campañas con costo del período, aporte, neto y los aportes cargados. Debajo del nombre de cada campaña van su anunciante y su ID; el estado es un punto verde (**Activa**) o gris (**Pausada**). Cada aporte cargado ocupa una línea con valor, liquidación (**Todo** o **Diferencia**), rango y, si tenés permiso de gestión, editar y borrar; esas partes quedan alineadas entre filas. El botón **Aporte** de la última columna agrega un aporte a esa campaña.
 
 El botón **Agregar aporte** (si tenés permiso) crea un aporte nuevo.
 
@@ -50,7 +50,7 @@ Debajo de la descripción hay un selector **Por campaña / Por aporte**. **Por c
 
 Filtros: rango de fechas, búsqueda por campaña, segmento (todas/con aporte/sin aporte), anunciante.
 
-Columnas: Campaña, Estado, Costo del período, Aporte, Neto, Aportes cargados.
+Columnas: Campaña, Estado, Costo del período, Aporte, Neto, Aportes cargados y, con permiso de gestión, una última columna con el botón **Aporte**.
 
 **Costo del período** suma el gasto de los anuncios de la campaña, el mismo que usa Métricas ML; así el **Neto** coincide con lo que Métricas ML descuenta.
 

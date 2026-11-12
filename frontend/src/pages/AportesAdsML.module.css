@@ -234,13 +234,6 @@
   color: var(--cf-text-tertiary);
 }
 
-/* The kit's pill wraps inside a narrow column; a campaign's anunciante and estado are one word and stay whole. */
-.keep {
-  display: inline-block;
-  flex-shrink: 0;
-  min-width: max-content;
-}
-
 .campaign {
   display: flex;
   align-items: center;
@@ -253,6 +246,42 @@
   font-weight: var(--font-semibold);
 }
 
+/* Display's pills stay whole inside a narrow column. */
+.keep {
+  display: inline-block;
+  flex-shrink: 0;
+  min-width: max-content;
+}
+
+.campaignMeta {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+}
+
+.dot,
+.dotIdle {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cf-accent-green);
+}
+
+.dotIdle {
+  background: var(--cf-text-tertiary);
+}
+
 .campaignId {
   font-family: var(--font-mono);
   font-size: var(--font-xs);
@@ -261,12 +290,6 @@
 
 .muted {
   color: var(--cf-text-tertiary);
-}
-
-.chips {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--spacing-sm);
 }
 
 .chipList {
@@ -280,14 +303,22 @@
 }
 
 .chip {
-  display: inline-flex;
+  /* Fixed tracks: amount, settlement, range, actions sit on the same verticals in every row. */
+  display: grid;
+  grid-template-columns: 8rem 5.5rem max-content auto;
   align-items: center;
-  gap: var(--spacing-sm);
+  column-gap: var(--spacing-sm);
   height: 28px;
-  padding: 0 var(--space-1) 0 var(--space-2);
   white-space: nowrap;
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-md);
+}
+
+.chip .chipValue {
+  text-align: right;
+}
+
+.kind {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
 }
 
 .chipValue {
@@ -302,9 +333,13 @@
 }
 
 .none {
-  font-style: italic;
   color: var(--cf-text-tertiary);
   line-height: 28px;
+}
+
+.addCell {
+  width: 1%;
+  white-space: nowrap;
 }
 
 .addLink {
@@ -349,6 +384,12 @@
   gap: 2px;
   padding-left: var(--space-1);
   border-left: 1px solid var(--cf-border-subtle);
+}
+
+/* Inside an aporte row the grid already separates the actions. */
+.chip .actions {
+  padding-left: 0;
+  border-left: 0;
 }
 
 .btnDanger {
