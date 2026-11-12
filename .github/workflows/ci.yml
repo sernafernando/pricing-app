@@ -197,6 +197,10 @@ jobs:
     # `--dist loadfile`: a few heavy modules, each with one expensive seed.
     # The default distribution would scatter a module's tests over workers
     # and every worker would rebuild that module's seed.
+    #
+    # `--shm-size`: Docker gives containers 64 MB of /dev/shm, too little for
+    # parallel hash/sort plans over the volume seeds (psycopg2 DiskFull "could
+    # not resize shared memory segment", run 43283212665).
     services:
       postgres:
         image: postgres:16
@@ -207,6 +211,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
+          --shm-size=1g
           --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
