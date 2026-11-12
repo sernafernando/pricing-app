@@ -325,20 +325,26 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
       const result = await syncOcs(pedido.id);
       await fetchDetalle();
       const synced = Array.isArray(result?.synced) ? result.synced : [];
-      const detailTouched = synced.reduce((acc, row) => {
+      // _upsert reports every existing row as "updated", so only line
+      // additions/removals count as real changes.
+      const lineChanges = synced.reduce((acc, row) => {
         const d = row?.detail || {};
-        return (
-          acc +
-          Number(d.updated || 0) +
-          Number(d.created || 0) +
-          Number(d.deleted || 0)
-        );
+        return acc + Number(d.created || 0) + Number(d.deleted || 0);
       }, 0);
-      setSuccessOC(
-        detailTouched > 0
-          ? `OC actualizada desde el ERP (${detailTouched} cambio${detailTouched === 1 ? '' : 's'} en líneas).`
-          : 'Sync OK: el espejo ya coincidía con el ERP (revisá saldo si la línea quedó procesada en GBP).'
-      );
+      const orphanedPods = synced.flatMap((row) => row?.deleted_pod_ids_with_local_activity || []);
+      if (orphanedPods.length > 0) {
+        setErrorOC(
+          `OC actualizada, pero se quitaron líneas que ya tenían arribos/ingresos cargados (pod_id: ${orphanedPods.join(', ')}). Revisá el progreso de esas líneas en Depósito.`
+        );
+      } else if (synced.length > 0 && synced.every((row) => Number(row?.detail_lines || 0) === 0)) {
+        setErrorOC('El ERP no devolvió líneas de detalle para la OC; no se modificó el detalle. Reintentá más tarde.');
+      } else {
+        setSuccessOC(
+          lineChanges > 0
+            ? `OC actualizada desde el ERP (${lineChanges} línea${lineChanges === 1 ? '' : 's'} agregada${lineChanges === 1 ? '' : 's'} o quitada${lineChanges === 1 ? '' : 's'}).`
+            : 'OC actualizada desde el ERP (sin altas ni bajas de líneas; revisá saldo si la línea quedó procesada en GBP).'
+        );
+      }
     } catch (err) {
       setErrorOC(
         err.response?.data?.detail ||

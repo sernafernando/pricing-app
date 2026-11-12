@@ -581,7 +581,7 @@
 
 .successBanner {
   background: rgba(34, 197, 94, 0.1);
-  color: var(--cf-accent-green, #16a34a);
+  color: var(--cf-accent-green);
   padding: var(--spacing-sm) var(--spacing-md);
   border-radius: var(--radius-md);
   font-size: var(--font-sm);
