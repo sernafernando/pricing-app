@@ -1,7 +1,7 @@
 """pedido_compra_arribo_progreso: pre-control arribo/retiro batches.
 
 Revision ID: 20261112_pedido_compra_arribo_progreso
-Revises: 20261112_producto_envio_eleccion
+Revises: 20261112_sell_in_bono_cubre_pedido
 Create Date: 2026-11-12
 """
 
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261112_pedido_compra_arribo_progreso"
-down_revision: Union[str, None] = "20261112_producto_envio_eleccion"
+down_revision: Union[str, None] = "20261112_sell_in_bono_cubre_pedido"
 branch_labels = None
 depends_on = None
 
