@@ -200,6 +200,9 @@ def get_orden_compra_detalle(
         item_code = row[11]
         pod_isprocessed = bool(row[12])
         item_nombre = raw_nombre if raw_nombre is not None else (str(item_id) if item_id is not None else None)
+        # ERP saldo on purpose: processed in GBP => 0. Depósito
+        # (recepcion_service.computar_saldos) keeps the physical saldo instead,
+        # because it gates over-receipt and recalcular_estado.
         saldo_pendiente = Decimal("0") if pod_isprocessed else (pod_qty - pod_confirmedqty)
         lines.append(
             OrdenCompraLineaResponse(
