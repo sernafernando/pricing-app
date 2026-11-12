@@ -249,14 +249,20 @@ class TestMinimumAges:
     def enable_all(self) -> None:
         enable_refresh(bundle_resources=["core", "description", "prices"])
 
-    def test_a_bundle_never_fetches_the_description_but_prices_always_are(self, env) -> None:
-        """Prod 2026-11-12: ~517 description calls per 10 min for ~625 notified items. The daily sweep fetches it."""
+    def test_a_bundle_fetches_the_description_of_a_new_item_only(self, env) -> None:
+        """Prod 2026-11-12: ~517 description calls per 10 min for ~625 notified items. The daily sweep refreshes a
+        description; a bundle fetches it only for an item never checked, so a new publication has it at once."""
         self.enable_all()
         enqueue_items(ITEM)
-        transport = ScriptedTransport(responder_with())
-        make_handler(transport).run(context())
+        first = ScriptedTransport(responder_with())
+        make_handler(first).run(context())
+        assert paths(first) == ["/items/bulk", f"/items/{ITEM}/prices", f"/items/{ITEM}/description"]
+        assert sub_row(env, "ml_item_descriptions")["raw"] == BODIES["description"]
 
-        assert paths(transport) == ["/items/bulk", f"/items/{ITEM}/prices"]
+        enqueue_items(ITEM)
+        again = ScriptedTransport(responder_with())
+        make_handler(again).run(context())
+        assert paths(again) == ["/items/bulk", f"/items/{ITEM}/prices"]
         assert queue_row(env, ITEM) is None
 
     def test_a_bundle_notification_does_not_fetch_a_description_checked_a_day_ago(self, env) -> None:

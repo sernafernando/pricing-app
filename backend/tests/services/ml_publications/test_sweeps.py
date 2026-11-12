@@ -440,8 +440,10 @@ class TestFetchedByNameThroughTheBundleGate:
     def test_both_resources_are_sweep_only_so_only_a_named_entry_reaches_them(self) -> None:
         from app.services.ml_publications import bundle
 
-        assert bundle.SWEEP_ONLY == set(sweeps.SWEEP_RESOURCES)
-        assert bundle.plan(["bundle"], ["core", *sweeps.SWEEP_RESOURCES]).wanted == {}
+        assert bundle.SWEEP_ONLY | bundle.FIRST_FETCH_ONLY == set(sweeps.SWEEP_RESOURCES)
+        assert bundle.plan(["bundle"], ["core", *sweeps.SWEEP_RESOURCES]).wanted == {
+            name: False for name in bundle.FIRST_FETCH_ONLY
+        }  # first fetch only
         for name in sweeps.SWEEP_RESOURCES:
             assert bundle.plan([name], ["core", *sweeps.SWEEP_RESOURCES]).wanted == {name: True}
 

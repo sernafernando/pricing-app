@@ -216,7 +216,7 @@ class TestGate:
 
     def test_it_is_one_of_the_swept_resources_and_sweep_only(self) -> None:
         assert "replenishment" in sweeps.SWEEP_RESOURCES
-        assert bundle.SWEEP_ONLY == set(sweeps.SWEEP_RESOURCES)
+        assert "replenishment" in bundle.SWEEP_ONLY
 
     def test_it_yields_to_live_work_like_the_other_resources(self, env) -> None:
         put_ups(env, 1)

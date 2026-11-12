@@ -89,14 +89,37 @@ def _late_sql(measured: _Measured) -> Any:
 SWEPT: Dict[str, str] = {"description": "ml_item_descriptions", VISITS: "ml_item_visits"}
 
 
-def _swept_sql(table: str) -> Any:
+# Swept resources that joined the sweep recently: the age counts from their first successful sweep tick at the
+# latest, so the first lap after the change gets its whole target before anything reads as late (no false alert the
+# day the description moved to the sweep). Visits have been swept since the start and keep the plain age.
+SWEEP_GRACE = frozenset({"description"})
+
+_FIRST_SWEEP_TICK = text(
+    "SELECT min(started_at) FROM ml_pub_job_runs WHERE job = 'sweep' AND outcome = 'success'"
+    " AND (',' || scope || ',') LIKE :scope"
+)
+
+
+def _swept_sql(table: str, *, since_first_tick: bool) -> Any:
+    checked = "GREATEST(v.last_checked_at, :first_tick)" if since_first_tick else "v.last_checked_at"
     return text(
         "SELECT count(*) AS late, max(age) AS oldest FROM ("
-        " SELECT CAST(extract(epoch FROM now() - v.last_checked_at) AS double precision) AS age"
+        f" SELECT CAST(extract(epoch FROM now() - {checked}) AS double precision) AS age"
         f" FROM ml_items i JOIN {table} v ON v.item_id = i.item_id"
         " WHERE i.status = 'active' AND i.gone_at IS NULL"
         ") x WHERE age > :target"
     )
+
+
+def _measure_swept(db: Session, name: str, table: str, target: int) -> Dict[str, Any]:
+    params: Dict[str, Any] = {"target": target * LATE_TOLERANCE}
+    if name in SWEEP_GRACE:
+        first_tick = db.execute(_FIRST_SWEEP_TICK, {"scope": f"%,{name},%"}).scalar()
+        if first_tick is None:  # never swept yet: nothing can be late
+            return {"target_seconds": target, "late": 0, "oldest_late_seconds": None}
+        params["first_tick"] = first_tick
+    row = db.execute(_swept_sql(table, since_first_tick=name in SWEEP_GRACE), params).one()
+    return {"target_seconds": target, "late": row.late, "oldest_late_seconds": _number(row.oldest)}
 
 
 def _number(value: Any) -> Any:
@@ -134,12 +157,7 @@ def measure(db: Session) -> Dict[str, Any]:
     for name, table in SWEPT.items():
         if name not in collected or config["sweep.enabled"].value is not True:
             continue
-        row = db.execute(_swept_sql(table), {"target": targets[name] * LATE_TOLERANCE}).one()
-        resources[name] = {
-            "target_seconds": targets[name],
-            "late": row.late,
-            "oldest_late_seconds": _number(row.oldest),
-        }
+        resources[name] = _measure_swept(db, name, table, targets[name])
     return {"resources": resources, "lanes": status.queue_lanes(db)}
 
 

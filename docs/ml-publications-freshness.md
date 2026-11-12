@@ -15,7 +15,7 @@ later: waiting out the minimum age is the store's choice, not a delay.
 | Publication status (`items`) | 2 min |
 | Prices, sale price, promotions | 5 min |
 | Competition (catalog listings only) | 5 min |
-| Description | 24 h (age of the last check on active items; the sweep laps them once a day) |
+| Description | 24 h (age of the last check on active items; the sweep laps them once a day; counted from the first successful sweep tick of the description at the latest, so its first lap raises no alert) |
 | Family | 24 h |
 | Visits | 25 h (age of the last check on active items; the sweep laps them once a day) |
 

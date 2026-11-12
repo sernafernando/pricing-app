@@ -552,7 +552,7 @@ class RefreshHandler:
         """Per entry, the wanted resources whose minimum age allows a fetch now."""
         checked: Dict[str, Dict[str, datetime]] = {}
         for resource in {name for w in works for name, explicit in w.plan.wanted.items() if not explicit}:
-            if bundle.min_age_seconds(resource, min_ages) > 0:
+            if bundle.min_age_seconds(resource, min_ages) > 0 or resource in bundle.FIRST_FETCH_ONLY:
                 keys = [targets[w.claim.key][resource] for w in works if resource in targets[w.claim.key]]
                 checked[resource] = bundle.last_checked(resource, keys)
         return {
@@ -565,6 +565,7 @@ class RefreshHandler:
                     min_age=bundle.min_age_seconds(resource, min_ages),
                     last_checked_at=checked.get(resource, {}).get(targets[work.claim.key][resource]),
                     now=now,
+                    first_fetch_only=resource in bundle.FIRST_FETCH_ONLY,
                 )
             }
             for work in works

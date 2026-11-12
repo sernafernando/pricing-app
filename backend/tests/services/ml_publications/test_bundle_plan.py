@@ -140,12 +140,14 @@ class TestPlan:
         assert plan.needs_core is True
         assert dict(plan.wanted) == {"family": False, "prices": False}  # False = not explicit
 
-    def test_a_bundle_skips_the_description_which_only_a_named_request_fetches(self) -> None:
-        """2026-11-12: the description is swept once a day, never refetched by an `items` notification."""
-        plan = bundle.plan(("bundle",), ["core", "description", "prices"])
-        assert dict(plan.wanted) == {"prices": False} and plan.dropped == {"description"}
-        named = bundle.plan(("bundle", "description"), ["core", "description", "prices"])
-        assert dict(named.wanted) == {"description": True, "prices": False}
+    def test_a_bundle_fetches_the_description_only_when_never_checked(self) -> None:
+        """2026-11-12: the description is swept once a day; a bundle fetches it only for a new publication."""
+        assert bundle.is_due(explicit=False, min_age=86400, last_checked_at=None, now=NOW, first_fetch_only=True)
+        long_ago = NOW - timedelta(days=30)
+        assert not bundle.is_due(
+            explicit=False, min_age=86400, last_checked_at=long_ago, now=NOW, first_fetch_only=True
+        )
+        assert bundle.is_due(explicit=True, min_age=86400, last_checked_at=NOW, now=NOW, first_fetch_only=True)
 
     def test_an_enabled_resource_without_a_fetcher_is_dropped_not_wanted(self) -> None:
         plan = bundle.plan(("bundle",), ["core", "prices", "visits"])

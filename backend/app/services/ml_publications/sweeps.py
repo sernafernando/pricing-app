@@ -1,10 +1,10 @@
 """Sweeps of the resources with no notification topic: description, performance, visits and replenishment
-(design D17; the description since 2026-11-12, see `bundle.SWEEP_ONLY`).
+(design D17; the description since 2026-11-12, see `bundle.FIRST_FETCH_ONLY`).
 
 Every tick (the handler runs every 10 minutes) takes, per resource, the K entities whose state is oldest
 (`last_checked_at`, never-checked first) among the eligible ones and enqueues them in the sweep lane with the
-resource NAMED (`{description}` / `{performance}` / `{visits}` / `{replenishment}`: they are `bundle.SWEEP_ONLY`, so only a named
-request fetches them). K = ceil(eligible / 144): 144 ticks a day cover every eligible entity once a day. The sweep
+resource NAMED (`{description}` / `{performance}` / `{visits}` / `{replenishment}`: a bundle never refreshes them,
+see `bundle.SWEEP_ONLY` and `bundle.FIRST_FETCH_ONLY`, so only a named request does). K = ceil(eligible / 144): 144 ticks a day cover every eligible entity once a day. The sweep
 makes no ML call and spends no budget of its own: the refresh handler fetches what it enqueued, under the shared
 pacer (replenishment also under its own sub-gate) and the lane order.
 

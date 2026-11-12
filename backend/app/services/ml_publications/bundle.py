@@ -103,10 +103,14 @@ FETCH_ORDER: tuple = FAST_RESOURCES + SLOW_RESOURCES
 
 # Never part of the bundle (design D12: no notification topic, too costly per sale-triggered event): an entry
 # reaches them only by naming them, which the sweeps do. Listing them in `bundle_resources` enables the named
-# request; the bundle itself skips them. The description joined them on 2026-11-12: an `items` notification says
-# nothing about the description, and fetching it on every one spent ~17 % of the ML calls; the daily sweep laps it
-# ("una vez por día", owner) and a request that names it (override push) still fetches it at once.
-SWEEP_ONLY: frozenset = frozenset({DESCRIPTION_RESOURCE, PERFORMANCE_RESOURCE, VISITS_RESOURCE, REPLENISHMENT_RESOURCE})
+# request; the bundle itself skips them.
+SWEEP_ONLY: frozenset = frozenset({PERFORMANCE_RESOURCE, VISITS_RESOURCE, REPLENISHMENT_RESOURCE})
+
+# Fetched by a bundle only for an entity never checked (a new publication gets it at once); afterwards the daily
+# sweep refreshes it. The description moved here on 2026-11-12: an `items` notification says nothing about it, and
+# fetching it on every one spent ~17 % of the ML calls for ~12 real changes a day ("una vez por día", owner). A
+# request that names it (override push, the sweep) still fetches it at once.
+FIRST_FETCH_ONLY: frozenset = frozenset({DESCRIPTION_RESOURCE})
 
 # Resources that need their own flag on top of being listed in `bundle_resources` (design D14: the
 # promotions endpoint is shared with the bridge's ML application, so it has a separate kill point).
@@ -233,8 +237,14 @@ def min_age_seconds(resource: str, configured: Mapping[str, Any]) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
 
 
-def is_due(*, explicit: bool, min_age: int, last_checked_at: Optional[datetime], now: datetime) -> bool:
-    if explicit or min_age <= 0 or last_checked_at is None:
+def is_due(
+    *, explicit: bool, min_age: int, last_checked_at: Optional[datetime], now: datetime, first_fetch_only: bool = False
+) -> bool:
+    if explicit or last_checked_at is None:
+        return True
+    if first_fetch_only:
+        return False
+    if min_age <= 0:
         return True
     return now - last_checked_at >= timedelta(seconds=min_age)
 

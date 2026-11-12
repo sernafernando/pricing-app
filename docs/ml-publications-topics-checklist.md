@@ -190,8 +190,9 @@ Notes, all from the 2026-10-06 captures:
   as a failure, and raises no `item_gone`. Any other 404 body is a missing resource and marks the row gone.
 - Performance of a catalog product item answers `400 "Entity not calculated: Product items are not supported"`: stored
   as `applicable = false`, the queue entry completes without a charged attempt. Any other 400 is a failure.
-- Description, performance and visits are sweep-only (no ML notification of their own, high cost per sale-triggered
-  event; the description since 2026-11-12, when it was ~17 % of the ML calls and changed 12 times a day). Listing them in
+- Description, performance and visits are swept (no ML notification of their own, high cost per sale-triggered
+  event; the description since 2026-11-12, when it was ~17 % of the ML calls and changed 12 times a day). A `bundle`
+  still fetches the description of an item never checked (a new publication has it at once), never again. Listing them in
   `bundle_resources` only allows a NAMED request; a `bundle` entry skips them. The sweep (see "Missed feeds and
   sweeps" below) is what names them.
 - Visits `results` are diffed by `date`: a daily refetch logs the day that entered or left the 30-day window, never the
