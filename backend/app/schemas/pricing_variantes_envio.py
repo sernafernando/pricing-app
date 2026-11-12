@@ -43,10 +43,10 @@ class PromedioPonderado(BaseModel):
 
 
 class MarkupActual(BaseModel):
-    """Today's value: the markup every screen shows, with MAX(list_cost) or the ERP fallback."""
+    """Today's value: the markup every screen shows, with the product's cost (the PM's choice, else MAX(list_cost)) or the ERP fallback."""
 
     costo_envio: float
-    origen: str  # max_publicaciones | erp | grupo_promedio
+    origen: str  # max_publicaciones | eleccion_pm | erp | grupo_promedio
     pricelist_id: int
     comision_base_pct: Optional[float]
     markup_pct: Optional[float]

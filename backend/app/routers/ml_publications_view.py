@@ -39,9 +39,16 @@ joins it).
 - `/items` also sorts by Métricas ML's figures (`orden` facturado_30d, unidades_7d, unidades_30d, with
   `ml_metricas.ver`; markup_30d and total_gauss_30d also with `ml_metricas.ver_ganancia`; 403 otherwise): the WHOLE
   filtered set ranked by the Board over the last 30 business days, then paged; no sales (or no cost) last.
+- `GET /ml-publications/view/products/{item_id}/envio` (screen): the shipping costs a PM chooses the product's from
+  (S7b): every active publication with its own cost and units sold in the period (`date_from`/`date_to`, default
+  the last 30 days; the most sold flagged), `promedio`, `ponderado` (null without sales) and `max`, plus the stored
+  choice, what it resolves to now and a `warning` when a chosen publication fell back to the MAX. 503
+  (`envio_no_disponible`) when the mlwebhook costs cannot be read.
+  The choice itself is written by `PUT /ml-publications/products/{item_id}/envio` (`ml_publications_envio.py`):
+  this router only reads.
 - A query over `statement_timeout` answers 503 with the error code `consulta_lenta` (never a partial page) and
   the connection is released. Errors use the app's envelope: `{"error": {"code", "message"}}`, plus `field` on a
-  422 that names the offending query parameter. Nothing here calls Mercado Libre and nothing writes.
+  422 that names the offending query parameter. Nothing here calls Mercado Libre.
 """
 
 from __future__ import annotations
@@ -65,9 +72,12 @@ from app.core.database import get_background_db, get_db
 from app.core.exceptions import ErrorCode, api_error
 from app.models.usuario import Usuario
 from app.schemas.costo_ppp import PppPayload
+from app.schemas.ml_publications_view import OpcionesEnvioResponse
 from app.schemas.sell_in_out_producto import SellInOutProducto
 from app.services.ml_daily_metrics import board, kpi_strip
 from app.services.ml_daily_metrics.sales import NO_PRODUCT
+from app.services import envio_producto_eleccion as envio_producto
+from app.services import envio_real_service
 from app.services import ml_publication_colors as colors
 from app.services.ml_publications import admin, settings_store
 from app.services.ml_publications.view import (
@@ -118,6 +128,9 @@ COLOR_OF_PRODUCT = "color_por_producto"  # the one they carry with `colores` / `
 PERMISO_METRICAS = "ml_metricas.ver"  # the KPI strip is Métricas' numbers: seeing them needs seeing Métricas
 PERMISO_GESTIONAR = "ml_ops.gestionar"  # what lets the screen offer "Resincronizar"
 PERMISO_PAUSAR = "ml_publicaciones.pausar"  # what lets the screen offer "Pausar" / "Activar"
+# Choosing a product's shipping cost changes its prices' markups: the permission of Productos' main price edit
+# (Productos.jsx `puedeEditarPrecioClasica`, one of `/precios/set-rapido`'s PERMISOS_EDITAR_PRODUCTOS).
+ENVIO_NO_DISPONIBLE = "envio_no_disponible"
 QUERY_CANCELED = "57014"  # Postgres' SQLSTATE for statement_timeout
 logger = logging.getLogger(__name__)
 
@@ -2248,3 +2261,45 @@ def get_kpis(
         "mla_count": strip.mla_count,
         "can_see_margin": can_see_margin,
     }
+
+
+# ── Shipping cost of a product (S7b) ─────────────────────────────
+# Read by the product panel's "Costo de envío del producto" block (Precios tab).
+
+
+@router.get("/products/{item_id}/envio", response_model=OpcionesEnvioResponse)
+def get_product_envio(
+    item_id: int = Path(..., ge=1),
+    date_from: Optional[date] = Query(None, description="First day of the sales period (default: 30 days to date_to)"),
+    date_to: Optional[date] = Query(None, description="Last day of the sales period (default: today)"),
+    user: Usuario = Depends(require_algun_permiso(PERMISOS_PUBLICACIONES_ML)),
+    db: Session = Depends(get_view_db),
+) -> dict[str, Any]:
+    """The shipping costs a PM chooses the product's from: each active publication's own cost and units sold in the
+    period (the most sold flagged), their `promedio`, `ponderado` (sales-weighted, null without sales) and `max`, and
+    the stored choice with the cost it resolves to now (a `ponderado` choice always with the last 30 days, as every
+    pricing caller resolves it) and a `warning` when a chosen publication is inactive or has no cost (it uses the
+    MAX). No choice is `max`, today's behavior."""
+    last = date_to or envio_real_service.hoy()
+    first = date_from or last - timedelta(days=envio_real_service.DIAS_PONDERADO - 1)
+    if first > last:
+        raise _unprocessable(FilterError("date_from", "is after date_to"))
+    try:
+        listing.bound(db)  # the list's own `statement_timeout`, as every read of this router
+        found = envio_producto.opciones_envio(db, item_id, first, last)
+    except DBAPIError as exc:  # over `statement_timeout`: the controlled 503, never a bare 500
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    except envio_producto.CostosNoDisponibles as exc:
+        logger.warning("Opciones de envío del producto %s: mlwebhook no disponible: %s", item_id, exc)
+        raise api_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            ENVIO_NO_DISPONIBLE,
+            "No se pudieron leer los costos de envío de Mercado Libre; reintentá.",
+        ) from exc
+    finally:
+        db.rollback()  # a read: ends its transaction
+    if found is None:
+        raise api_error(status.HTTP_404_NOT_FOUND, ErrorCode.NOT_FOUND, f"El producto {item_id} no existe")
+    return found

@@ -13,6 +13,11 @@ Design decisions (ADR):
   4. list_cost is stored WITH IVA in ml_seller_shipping_costs → returned AS-IS.
      calcular_limpio performs the /1.21 division; this module must NOT do it.
   5. Broad try/except on every cross-DB call → graceful ERP fallback, never raises.
+  6. A PM may choose another cost for a product (`producto_envio_eleccion`, S7b): one publication's own cost
+     (`mla`), the simple mean of the active MLAs' costs (`promedio`) or their mean weighted by the units each sold in
+     the last 30 days (`ponderado`; no sales -> `promedio`). No row, or `max`, is the MAX above. A chosen MLA that is
+     inactive or has no cost falls back to the MAX. Applied inside both resolvers, so every product-pricing caller
+     gets it; the choices are read in ONE statement and the units sold in ONE more, only for `ponderado` products.
 """
 
 from __future__ import annotations
@@ -20,16 +25,23 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from typing import Any, Mapping, Optional, Sequence
 
 from sqlalchemy import ARRAY, Integer, any_, literal, select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_mlwebhook_engine
 from app.models.producto import ProductoERP
+from app.models.producto_envio_eleccion import ProductoEnvioEleccion
 from app.models.publicacion_ml import PublicacionML
 
 logger = logging.getLogger(__name__)
+
+MODOS_ENVIO = ("max", "mla", "promedio", "ponderado")
+MODO_DEFAULT = "max"
+DIAS_PONDERADO = 30  # the sales window a stored `ponderado` resolves with
 
 
 # ---------------------------------------------------------------------------
@@ -98,8 +110,8 @@ def resolver_costo_envio(
     Resolution strategy:
       1. Load active PublicacionML rows for the product (uses mlas_activas if provided).
       2. Query ml_seller_shipping_costs for those MLA IDs via _fetch_list_cost_by_mla.
-      3. Compute MAX(list_cost) across all results.
-      4. If MAX is available, return it.
+      3. Apply the product's stored choice (`producto_envio_eleccion`); without one, MAX(list_cost).
+      4. If a cost is available, return it.
       5. Otherwise return ProductoERP.envio (ERP fallback).
 
     This function NEVER raises. All cross-DB exceptions are caught internally.
@@ -126,9 +138,12 @@ def resolver_costo_envio(
 
     # Step 2: fetch shipping costs from mlwebhook DB
     costs = _fetch_list_cost_by_mla(active_mla_ids)
+    if not costs:
+        return float(producto.envio or 0.0)
 
-    # Step 3: MAX in Python (cross-DB GROUP BY is not possible)
-    return costo_envio_maximo(costs, producto.envio)
+    # Step 3: the PM's choice, else MAX, in Python (cross-DB GROUP BY is not possible)
+    resolved = _resolve_by_item(db, {producto.item_id: active_mla_ids}, costs)
+    return resolved.get(producto.item_id, costo_envio_maximo(costs, producto.envio))
 
 
 def costos_envio_por_mla(mla_ids: Sequence[str]) -> dict[str, float]:
@@ -146,6 +161,19 @@ def costo_envio_maximo(costs: Mapping[str, float], fallback: Optional[float]) ->
     return max(costs.values())
 
 
+def _in_item_ids(db: Session, column: Any, item_ids: Sequence[int]) -> Any:
+    """`column IN item_ids` as ONE array parameter on PostgreSQL (not N binds); an expanding bind elsewhere."""
+    ids = list(item_ids)
+    if db.get_bind().dialect.name == "postgresql":
+        return column == any_(literal(ids, ARRAY(Integer)))
+    return column.in_(ids)  # portable (SQLite in tests): expanding bind, still one statement
+
+
+def mlas_activas(db: Session, item_id: int) -> list[str]:
+    """The MLAs of the active publications of one product (the read the resolvers use)."""
+    return _active_mlas_by_item(db, [item_id]).get(item_id, [])
+
+
 def _active_mlas_by_item(db: Session, item_ids: Sequence[int]) -> dict[int, list[str]]:
     """
     The MLAs of the ACTIVE publications of each product, read as two plain columns in ONE statement.
@@ -155,11 +183,7 @@ def _active_mlas_by_item(db: Session, item_ids: Sequence[int]) -> dict[int, list
     """
     found: dict[int, list[str]] = {}
     # A read-only lookup: it must not flush the caller's pending objects as a side effect.
-    ids = list(item_ids)
-    if db.get_bind().dialect.name == "postgresql":
-        in_ids = PublicacionML.item_id == any_(literal(ids, ARRAY(Integer)))  # ONE array parameter, not N binds
-    else:
-        in_ids = PublicacionML.item_id.in_(ids)  # portable (SQLite in tests): expanding bind, still one statement
+    in_ids = _in_item_ids(db, PublicacionML.item_id, item_ids)
     with db.no_autoflush:
         rows = db.execute(
             select(PublicacionML.item_id, PublicacionML.mla).where(in_ids, PublicacionML.activo.is_(True))
@@ -194,10 +218,11 @@ def resolver_costos_envio_batch(
         db: Main application DB session.
         item_ids: List of item IDs to resolve.
         pubs_by_item: Pre-computed {item_id: [publication, ...]} mapping; each publication needs
-                      `mla` and `activo`. When provided, no main-DB query is issued.
+                      `mla` and `activo`. When provided, the publications are not read again (the stored
+                      choices still are, in one statement).
 
     Returns:
-        {item_id: max_list_cost} for items that have a resolvable real cost.
+        {item_id: cost} for items that have a resolvable real cost: the PM's chosen cost, else the MAX list_cost.
     """
     if not item_ids:
         return {}
@@ -231,23 +256,151 @@ def resolver_costos_envio_batch(
     if not costs:
         return {}
 
-    # Step 3: compute MAX per item
-    return _max_by_item(item_to_active_mlas, costs)
+    # Step 3: the PM's choice per item, else MAX
+    return _resolve_by_item(db, item_to_active_mlas, costs)
 
 
-def _max_by_item(item_to_active_mlas: Mapping[int, Sequence[str]], costs: Mapping[str, float]) -> dict[int, float]:
-    """{item_id: MAX list_cost of its active MLAs}; items whose MLAs have no cost are absent."""
-    result: dict[int, float] = {}
+# ---------------------------------------------------------------------------
+# The PM's choice (S7b)
+# ---------------------------------------------------------------------------
+
+
+def hoy() -> date:
+    """Today in the business timezone (Métricas ML's own day)."""
+    from app.services.ml_daily_metrics.board import today_business  # lazy: keeps this module's imports light
+
+    return today_business()
+
+
+def periodo_ponderado() -> tuple[date, date]:
+    """The last `DIAS_PONDERADO` business days, today included: the window a stored `ponderado` resolves with."""
+    last = hoy()
+    return last - timedelta(days=DIAS_PONDERADO - 1), last
+
+
+def unidades_vendidas_por_mla(db: Session, mlas: Sequence[str], date_from: date, date_to: date) -> Mapping[str, int]:
+    """Units sold per MLA in `[date_from, date_to]`, from Métricas ML's own base (`UnitsSoldProvider`, the source the
+    Publicaciones screen spreads Ads over). One statement; a failure propagates (the resolvers catch it inside a
+    savepoint and resolve `ponderado` as `promedio`; the options endpoint lets it fail)."""
+    from app.services.ml_publications.view.units_sold import UnitsSoldProvider  # lazy: avoids an import cycle
+
+    return UnitsSoldProvider().units_by_mla(db, list(mlas), date_from, date_to)
+
+
+def _unidades_aisladas(db: Session, mlas: Sequence[str], date_from: date, date_to: date) -> Mapping[str, int]:
+    """`unidades_vendidas_por_mla` inside a CONNECTION-level savepoint, with autoflush off: a failed read must not
+    abort the caller's transaction (Productos keeps working) and, being a read, must not flush the caller's pending
+    objects (`Session.begin_nested` would flush them on entry). A failure is the rule for no sales: `{}`, so a
+    `ponderado` product resolves to `promedio`."""
+    connection = db.connection()  # the session's own connection; getting it does not flush
+    savepoint = connection.begin_nested()
+    try:
+        with db.no_autoflush:
+            units = unidades_vendidas_por_mla(db, mlas, date_from, date_to)
+    except SQLAlchemyError as exc:
+        savepoint.rollback()
+        logger.warning("No se pudieron leer las ventas para el envio ponderado: %s", exc)
+        return {}
+    savepoint.commit()
+    return units
+
+
+def elecciones_por_item(db: Session, item_ids: Sequence[int]) -> dict[int, tuple[str, Optional[str]]]:
+    """{item_id: (modo, mla)} of the stored choices of `item_ids`, in ONE statement; products without one are
+    absent (they resolve to `max`)."""
+    in_ids = _in_item_ids(db, ProductoEnvioEleccion.item_id, item_ids)
+    with db.no_autoflush:
+        rows = db.execute(
+            select(ProductoEnvioEleccion.item_id, ProductoEnvioEleccion.modo, ProductoEnvioEleccion.mla).where(in_ids)
+        ).all()
+    return {item_id: (modo, mla) for item_id, modo, mla in rows}
+
+
+def costo_promedio(costs: Mapping[str, float]) -> Optional[float]:
+    """The simple mean of the given MLAs' costs; None without any."""
+    if not costs:
+        return None
+    return round(sum(costs.values()) / len(costs), 2)
+
+
+def costo_ponderado(costs: Mapping[str, float], units: Mapping[str, int]) -> Optional[float]:
+    """The mean of the given MLAs' costs weighted by their units sold; None when none of them sold."""
+    total = sum(units.get(mla, 0) for mla in costs)
+    if total <= 0:
+        return None
+    return round(sum(cost * units.get(mla, 0) for mla, cost in costs.items()) / total, 2)
+
+
+def eleccion_cae_a_maximo(modo: str, mla: Optional[str], costs: Mapping[str, float]) -> bool:
+    """A stored `mla` choice whose publication is not among the active ones with a cost: it resolves to the MAX."""
+    return modo == "mla" and (mla is None or mla not in costs)
+
+
+def costo_envio_elegido(
+    modo: str, mla: Optional[str], costs: Mapping[str, float], units: Mapping[str, int]
+) -> Optional[float]:
+    """The cost of a product under a choice. `costs` holds ONLY its active MLAs that have a cost; `units` their
+    units sold (read only for `ponderado`). None when no MLA has a cost (callers fall back to the ERP envio).
+
+    `mla`: that publication's cost, else MAX. `promedio`: the simple mean. `ponderado`: the sales-weighted mean,
+    `promedio` without sales. Anything else (`max`, no choice): MAX."""
+    if not costs:
+        return None
+    if modo == "mla" and not eleccion_cae_a_maximo(modo, mla, costs):
+        return costs[mla]  # type: ignore[index]  # not None: checked above
+    if modo == "promedio":
+        return costo_promedio(costs)
+    if modo == "ponderado":
+        ponderado = costo_ponderado(costs, units)
+        return ponderado if ponderado is not None else costo_promedio(costs)
+    return max(costs.values())
+
+
+def _resolve_by_item(
+    db: Session, item_to_active_mlas: Mapping[int, Sequence[str]], costs: Mapping[str, float]
+) -> dict[int, float]:
+    """{item_id: the cost its stored choice resolves to, else MAX list_cost of its active MLAs}; items whose MLAs
+    have no cost are absent. One read of the choices, one sales read for the `ponderado` products (if any)."""
+    per_item: dict[int, dict[str, float]] = {}
     for item_id, mla_ids in item_to_active_mlas.items():
-        item_costs = [costs[mla] for mla in mla_ids if mla in costs]
+        item_costs = {mla: costs[mla] for mla in mla_ids if mla in costs}
         if item_costs:
-            result[item_id] = max(item_costs)
+            per_item[item_id] = item_costs
+    if not per_item:
+        return {}
+    choices = elecciones_por_item(db, list(per_item))
+    ponderados = [item_id for item_id, (modo, _) in choices.items() if modo == "ponderado"]
+    units: Mapping[str, int] = {}
+    if ponderados:
+        first, last = periodo_ponderado()
+        mlas = sorted({mla for item_id in ponderados for mla in item_to_active_mlas[item_id]})
+        units = _unidades_aisladas(db, mlas, first, last)
+    result: dict[int, float] = {}
+    for item_id, item_costs in per_item.items():
+        modo, mla = choices.get(item_id, (MODO_DEFAULT, None))
+        value = costo_envio_elegido(modo, mla, item_costs, units)
+        if value is not None:
+            result[item_id] = value
     return result
+
+
+def costo_envio_producto(
+    db: Session, item_id: int, active_mlas: Sequence[str], costs: Mapping[str, float]
+) -> tuple[Optional[float], str]:
+    """The product's shipping cost from its active MLAs' `costs`, exactly as `resolver_costos_envio_batch` resolves
+    it (the PM's choice, else the MAX), and the stored mode (`max` without a choice). `None` when no MLA has a cost.
+
+    For a caller that already read the costs (`precio_variantes_envio`) and must not read mlwebhook twice."""
+    value = _resolve_by_item(db, {item_id: list(active_mlas)}, costs).get(item_id)
+    if value is None:
+        return None, MODO_DEFAULT
+    return value, elecciones_por_item(db, [item_id]).get(item_id, (MODO_DEFAULT, None))[0]
 
 
 @dataclass(frozen=True)
 class CostosEnvio:
-    """The real shipping costs of a request: the MAX per product and each publication's own list_cost.
+    """The real shipping costs of a request: the product's cost (its PM choice, else the MAX) and each publication's
+    own list_cost.
 
     `por_producto` is `resolver_costos_envio_batch`'s answer; `por_mla` holds the own cost of each asked MLA.
     Both omit what has no usable cost (callers fall back: own -> product MAX -> ERP)."""
@@ -262,7 +415,7 @@ def resolver_costos_envio_mlas(db: Session, item_ids: list[int], mla_ids: Sequen
     cross-DB read.
 
     An asked MLA is read even when its publication is inactive (it still has a shipping cost of its own), but only
-    the ACTIVE MLAs of a product count for its MAX, exactly as `resolver_costos_envio_batch`.
+    the ACTIVE MLAs of a product count for its cost (choice or MAX), exactly as `resolver_costos_envio_batch`.
 
     A failed mlwebhook read never raises: both mappings come back empty and callers fall back to the ERP envio. A
     failure of the main-DB read of the active MLAs propagates, as in `resolver_costos_envio_batch`.
@@ -277,6 +430,6 @@ def resolver_costos_envio_mlas(db: Session, item_ids: list[int], mla_ids: Sequen
         return CostosEnvio()
     costs = _fetch_list_cost_by_mla(sorted(wanted))
     return CostosEnvio(
-        por_producto=_max_by_item(item_to_active_mlas, costs),
+        por_producto=_resolve_by_item(db, item_to_active_mlas, costs),
         por_mla={mla: costs[mla] for mla in mla_ids if mla in costs},
     )

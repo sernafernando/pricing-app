@@ -239,8 +239,9 @@ RECORDED_ROWS = json.loads(
 }
 """
 )
-# Statements the tienda listing issued for this catalogue, recorded alongside.
-RECORDED_STATEMENTS = 26
+# Statements the tienda listing issued for this catalogue, recorded alongside; plus one per page for the PM's shipping
+# choices (S7b), read once by `resolver_costos_envio_batch`.
+RECORDED_STATEMENTS = 27
 
 
 def _snapshot() -> dict:

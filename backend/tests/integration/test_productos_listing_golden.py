@@ -299,8 +299,9 @@ class TestProductosListingGolden:
 # nor drop a query. Sell in / sell out (sell-in-sell-out T9) adds two per page,
 # whatever its size: the current sell-in lots and the sell-out campaign reach. The manual cost mode (D6) adds one
 # more per page: the products' cost modes and manual blocks, read even for a product without purchase lines (a block
-# typed by hand is stock of its own).
-EXPECTED_DEFAULT_STATEMENTS = 21
+# typed by hand is stock of its own). The PM's shipping choice (S7b) adds one more per page: the stored choices of the
+# page's products, read once by `resolver_costos_envio_batch` (never once per product).
+EXPECTED_DEFAULT_STATEMENTS = 22
 
 
 class TestProductosListingStatementCount:

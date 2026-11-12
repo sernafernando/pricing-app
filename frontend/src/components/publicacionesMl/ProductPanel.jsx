@@ -19,6 +19,7 @@ import ProductBanAction from './panel/ProductBanAction';
 import ProductCatalogCompetition from './panel/ProductCatalogCompetition';
 import ProductChangesTab from './panel/ProductChangesTab';
 import ProductCuotasConfig from './panel/ProductCuotasConfig';
+import ProductEnvioChoice from './panel/ProductEnvioChoice';
 import ProductIdentity from './panel/ProductIdentity';
 import ProductPrearmadas from './panel/ProductPrearmadas';
 import ProductPromos from './panel/ProductPromos';
@@ -101,7 +102,8 @@ const CAMBIOS = { key: 'cambios', label: 'Cambios' };
  * Promos (`promos.ver`) lists the publications' promotions, one entry each opening the publication panel's Promos
  * tab (`ProductPromos`), then the catalog competition of those in a catalog (`ProductCatalogCompetition`); PxQ
  * (`pxq.ver`) their wholesale prices (`ProductPxq`). "Sin producto" has both, since they belong to each publication.
- * Precios mounts the product's prices (the same `PanelPrices` a publication's Precios tab mounts), and under them
+ * Precios mounts the product's prices (the same `PanelPrices` a publication's Precios tab mounts), under them the
+ * shipping cost the product uses (`ProductEnvioChoice`, whose save reloads the list: the markups depend on it), and
  * its instalment settings (`ProductCuotasConfig`, whose save recalculates the instalments: the prices are read
  * again and the list reloaded), for whoever may see them, and Cambios the changes made to the
  * product in the app, with who made each one (`ProductChangesTab`); "Sin producto" has neither. The panel opens on
@@ -233,6 +235,7 @@ export default function ProductPanel({
                 onWritten={onListReload}
                 showCost={canSeeMargin}
               />
+              {productItemId != null && <ProductEnvioChoice key={`envio-${productItemId}`} productItemId={productItemId} onSaved={onListReload} />}
               <ProductCuotasConfig key={productItemId} productItemId={productItemId} onRecalculated={onCuotasRecalculated} />
             </>
           ) : (

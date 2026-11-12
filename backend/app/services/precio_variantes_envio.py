@@ -29,7 +29,7 @@ from app.models.ml_publications import MlItem
 from app.models.ml_sale_line import MlSaleLine
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
-from app.services.envio_real_service import costo_envio_maximo, costos_envio_por_mla
+from app.services.envio_real_service import MODO_DEFAULT, costo_envio_producto, costos_envio_por_mla
 from app.services.pricing_calculator import (
     calcular_comision_ml_total,
     calcular_limpio,
@@ -48,6 +48,7 @@ PONDERACION = "unidades_vendidas"
 PRICELIST_CLASICA = 4
 MOTIVO_SIN_COMISION = "sin_comision"
 ORIGEN_MAX = "max_publicaciones"
+ORIGEN_ELECCION = "eleccion_pm"  # the PM chose another cost for the product (S7b)
 ORIGEN_ERP = "erp"
 ORIGEN_GRUPO_PROMEDIO = "grupo_promedio"
 MOTIVO_SIN_COSTO_ENVIO = "sin_costo_envio"
@@ -149,13 +150,21 @@ def _costos(mlas: list[str], item_id: int) -> dict[str, float]:
 
 
 def _envio_actual(
-    db: Session, costos: Mapping[str, float], envio_erp: Optional[float], envio_aplica: bool, grupo_id: int
+    db: Session,
+    item_id: int,
+    mlas: list[str],
+    costos: Mapping[str, float],
+    envio_erp: Optional[float],
+    envio_aplica: bool,
+    grupo_id: int,
 ) -> tuple[float, str]:
-    """Today's shipping cost and its origin: MAX(list_cost), else the ERP `envio`, else (a zero cost where shipping
-    counts) the group average `calcular_limpio` would look up, the same `obtener_envio_promedio_grupo`."""
-    envio = costo_envio_maximo(costos, envio_erp)
-    if costos:
-        return envio, ORIGEN_MAX
+    """Today's shipping cost and its origin: the product's cost as every pricing caller resolves it (the PM's choice,
+    else MAX(list_cost)), else the ERP `envio`, else (a zero cost where shipping counts) the group average
+    `calcular_limpio` would look up, the same `obtener_envio_promedio_grupo`."""
+    real, modo = costo_envio_producto(db, item_id, mlas, costos) if costos else (None, MODO_DEFAULT)
+    if real is not None:
+        return real, ORIGEN_MAX if modo == MODO_DEFAULT else ORIGEN_ELECCION
+    envio = float(envio_erp or 0.0)
     if envio == 0 and envio_aplica:
         return obtener_envio_promedio_grupo(db, grupo_id), ORIGEN_GRUPO_PROMEDIO
     return envio, ORIGEN_ERP
@@ -190,7 +199,9 @@ def calcular_variantes_envio(
     comisiones = {pl: obtener_comision_base(db, pl, grupo_id) for pl in sorted(listas)}
 
     envio_aplica = envio_cuenta(precio, constantes)
-    envio_actual, origen_actual = _envio_actual(db, costos, producto.envio, envio_aplica, grupo_id)
+    envio_actual, origen_actual = _envio_actual(
+        db, producto.item_id, mlas, costos, producto.envio, envio_aplica, grupo_id
+    )
     comun = {"precio": precio, "iva": iva, "costo_ars": costo_ars, "constantes": constantes}
 
     variantes: list[dict[str, Any]] = []

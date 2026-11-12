@@ -21,6 +21,7 @@ from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_publications import MlItem
 from app.models.ml_sale_line import MlSaleLine
 from app.models.producto import ProductoERP
+from app.models.producto_envio_eleccion import ProductoEnvioEleccion
 from app.models.publicacion_ml import PublicacionML
 from app.services import envio_real_service
 from app.services.pricing_calculator import calcular_comision_ml_total, calcular_limpio, calcular_markup
@@ -230,6 +231,23 @@ class TestActual:
         rows = by_mla(body)  # each publication at today's MAX too, with its own commission
         assert rows["MLA-FLEX"]["markup_pct_actual"] == round(markup, 2)
         assert rows["MLA-CUOTAS"]["markup_pct_actual"] == round(expected(ABOVE, 17.0, max(COSTS.values()))[0], 2)
+
+    def test_todays_value_follows_the_pm_choice_like_calcular_markup(self, client, auth_headers, producto, db, asked):
+        """S7b (L10 D1): the product's cost is the PM's choice everywhere, so today's value here uses it too and
+        still matches /calcular-markup; each publication's own variant is unchanged."""
+        seed_three(db)
+        db.add(ProductoEnvioEleccion(item_id=ITEM, modo="mla", mla="MLA-FLEX"))
+        db.flush()
+        body = get(client, auth_headers, ABOVE).json()
+        hoy = client.get(
+            "/api/precios/calcular-markup", params={"item_id": ITEM, "precio": ABOVE}, headers=auth_headers
+        ).json()
+
+        markup, _ = expected(ABOVE, 12.0, COSTS["MLA-FLEX"])
+        assert body["actual"]["costo_envio"] == COSTS["MLA-FLEX"]
+        assert body["actual"]["origen"] == "eleccion_pm"
+        assert body["actual"]["markup_pct"] == hoy["markup"] == round(markup, 2)
+        assert by_mla(body)["MLA-COLECTA"]["costo_envio"] == COSTS["MLA-COLECTA"]
 
     def test_without_publications_today_falls_back_to_erp_envio(self, client, auth_headers, producto, asked):
         body = get(client, auth_headers, ABOVE).json()

@@ -20,6 +20,7 @@ from app.services.envio_real_service import (
 )
 from tests.services.ml_publications.conftest import env, mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
+from tests.services.ml_publications.view.test_envio_producto_postgres import CHOICE_DDL
 
 pytestmark = pytest.mark.postgres
 
@@ -30,6 +31,7 @@ COSTS = {"MLA1": 1000.0, "MLA2": 3000.0, "MLA3": 9999.0, "MLA5": 700.0, "MLA6": 
 def conn(env):  # noqa: F811  (`env` builds `publicaciones_ml` beside `productos_erp`)
     with env.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
         connection.execute(text(seed.PRICING_DDL))
+        connection.execute(text(CHOICE_DDL))  # the PM's shipping choices (S7b), read beside the publications
         yield connection
 
 
@@ -180,12 +182,14 @@ def statements_of(db, run) -> list[str]:
 
 
 class TestWhatTheResolverReads:
-    """Structural: the publications come as plain columns, in a constant number of statements."""
+    """Structural: the publications come as plain columns, in a constant number of statements (the active MLAs,
+    then the PM's stored choices of the products that have a cost)."""
 
     def test_it_selects_only_the_columns_it_reads(self, conn, db, requested) -> None:
         seed_publications(conn)
         recorded = statements_of(db, lambda: resolver_costos_envio_batch(db, [70, 71, 72]))
-        assert len(recorded) == 1
+        assert len(recorded) == 2
+        assert "producto_envio_eleccion" in recorded[1]
         select_list = recorded[0].upper().split(" FROM ")[0]
         assert "ITEM_TITLE" not in select_list and "CODIGO" not in select_list and "PRICELIST_ID" not in select_list
         assert "MLA" in select_list and "ITEM_ID" in select_list
@@ -194,8 +198,9 @@ class TestWhatTheResolverReads:
     def test_the_statement_count_does_not_grow_with_the_products(self, conn, db, requested, products) -> None:
         seed_publications(conn)
         recorded = statements_of(db, lambda: resolver_costos_envio_batch(db, list(range(70, 70 + products))))
-        assert len(recorded) == 1
-        assert "ANY" in recorded[0].upper()  # the ids travel as ONE array parameter, not one bind per product
+        assert len(recorded) == 2
+        # the ids travel as ONE array parameter, not one bind per product, in both reads
+        assert all("ANY" in statement.upper() for statement in recorded)
 
 
 class TestTheMlwebhookQuery:

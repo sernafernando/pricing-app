@@ -304,6 +304,63 @@ class TestBatchResolver:
 
 
 # ---------------------------------------------------------------------------
+# S7b: the cost a stored choice resolves to (pure rule; RE200 production costs, synthetic units)
+# ---------------------------------------------------------------------------
+
+RE200_COSTS = {"MLA1173065146": 7290.0, "MLA2517958828": 10890.0}
+
+
+class TestCostoEnvioElegido:
+    @pytest.mark.parametrize("modo", ["max", "unknown"])
+    def test_max_and_anything_unknown_is_the_max(self, modo: str) -> None:
+        from app.services.envio_real_service import costo_envio_elegido
+
+        assert costo_envio_elegido(modo, None, RE200_COSTS, {}) == 10890.0
+
+    def test_mla_is_its_own_cost(self) -> None:
+        from app.services.envio_real_service import costo_envio_elegido
+
+        assert costo_envio_elegido("mla", "MLA1173065146", RE200_COSTS, {}) == 7290.0
+
+    @pytest.mark.parametrize("mla", ["MLA_A", None])
+    def test_an_mla_without_an_active_cost_is_the_max(self, mla) -> None:
+        from app.services.envio_real_service import costo_envio_elegido, eleccion_cae_a_maximo
+
+        assert costo_envio_elegido("mla", mla, RE200_COSTS, {}) == 10890.0
+        assert eleccion_cae_a_maximo("mla", mla, RE200_COSTS)
+
+    def test_promedio_is_the_simple_mean(self) -> None:
+        from app.services.envio_real_service import costo_envio_elegido
+
+        assert costo_envio_elegido("promedio", None, RE200_COSTS, {}) == 9090.0
+
+    def test_ponderado_weights_by_units(self) -> None:
+        from app.services.envio_real_service import costo_envio_elegido
+
+        units = {"MLA1173065146": 3, "MLA2517958828": 1}
+        assert costo_envio_elegido("ponderado", None, RE200_COSTS, units) == 8190.0
+
+    def test_ponderado_without_sales_is_promedio(self) -> None:
+        from app.services.envio_real_service import costo_envio_elegido
+
+        assert costo_envio_elegido("ponderado", None, RE200_COSTS, {"MLA_A": 5}) == 9090.0
+
+    def test_no_cost_is_none_so_callers_fall_back_to_the_erp_envio(self) -> None:
+        from app.services.envio_real_service import costo_envio_elegido
+
+        assert costo_envio_elegido("promedio", None, {}, {}) is None
+
+    def test_without_a_stored_choice_the_single_resolver_is_still_the_max(self, db: MagicMock) -> None:
+        """S4: a session with no stored choice resolves exactly as before."""
+        from app.services.envio_real_service import resolver_costo_envio
+
+        db.execute.return_value.all.return_value = []  # no row in producto_envio_eleccion
+        pubs = [_make_publicacion(mla) for mla in RE200_COSTS]
+        with patch("app.services.envio_real_service._fetch_list_cost_by_mla", return_value=dict(RE200_COSTS)):
+            assert resolver_costo_envio(db, _make_producto(item_id=22, envio=0.0), mlas_activas=pubs) == 10890.0
+
+
+# ---------------------------------------------------------------------------
 # Pytest fixture: lightweight mock db for pure-unit tests
 # ---------------------------------------------------------------------------
 
