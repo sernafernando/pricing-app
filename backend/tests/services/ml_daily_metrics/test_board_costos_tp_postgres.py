@@ -310,3 +310,52 @@ class TestSortByTotalTp:
     def test_without_costos_tp_it_fails_closed(self, catalog) -> None:
         with pytest.raises(ValueError, match="total_tp"):
             _sorted_keys(catalog, dataclasses.replace(OFF, sort="total_tp"))
+
+
+MOVED_MLA = "MLA9000000031"
+
+
+@pytest.fixture(params=["live", "persisted"])
+def moved_out_of_tp(request, board_pg, monkeypatch):
+    """Product 31, ONE MLA with two publications: the older (mlp_id 9101) in TP 2645, the newer (9102) in Gauss
+    57997. Its sale (tg20/c100) has a TP cost (80, Total TP 40). The CURRENT store -- the newest publication's -- is
+    Gauss, so the MLA is not in the TP group."""
+    db = board_pg
+    db.execute(
+        text(
+            "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria, subcategoria_id, stock) "
+            "VALUES (31, 'S31', 'Router', 'TP-Link', 'Redes', 1, 1);"
+            "INSERT INTO tb_mercadolibre_items_publicados (mlp_id, mlp_publicationid, item_id, mlp_official_store_id) "
+            "VALUES (9101, :mla, 31, 2645), (9102, :mla, 31, 57997)"
+        ),
+        {"mla": MOVED_MLA},
+    )
+    order_id = 2000012345678931
+    _order(db, order_id, [(31, MOVED_MLA, 1, Decimal("100"))], tg="20", costo="100")
+    db.execute(
+        text("UPDATE ml_order_metrics SET costo_tp = 80, total_tp = 40, tp_incompleto = false WHERE order_id = :o"),
+        {"o": order_id},
+    )
+    _group(db, f"o:{order_id}", [order_id], NOW - timedelta(hours=3))
+    db.flush()
+    if request.param == "persisted":
+        lines = sale_lines(sqlite=False, queue=False, keyed=True, tp=True)
+        db.execute(
+            insert(MlSaleLine.__table__).from_select(
+                list(STORED_COLUMNS), select(*(lines.c[n] for n in STORED_COLUMNS))
+            )
+        )
+        monkeypatch.setattr(settings, "METRICAS_SALE_LINES_ENABLED", True)
+    db.flush()
+    return db
+
+
+@pytest.mark.postgres
+def test_an_mla_whose_newest_publication_left_the_tp_group_keeps_the_gauss_cost(moved_out_of_tp) -> None:
+    """Pins the current rule (#2230 swapped `mla IN (...)` for a join): only the NEWEST publication's store counts."""
+    off, on = _rows(moved_out_of_tp, OFF)["31"], _rows(moved_out_of_tp, ON)["31"]
+
+    assert (on.tg, on.mtg, on.costo) == (_d("20.00"), _d("20.00"), _d("100.00"))
+    assert on.markup == off.markup == _d("20")
+    assert on.total_tp is None and on.tp_incompletos == 0
+    assert on.units == 1  # the second publication of the same MLA never doubles its line

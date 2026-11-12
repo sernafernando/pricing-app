@@ -1084,11 +1084,11 @@ class Board:
         # `test_row_metrics_postgres.TestAPackPartlyInsideTheMlaSet`.
         lines = self._read_lines(self._ranges(), tp=self.tp, keyed=self.sell)
         markup = [func.sum(lines.c.mtg).label("mtg"), func.sum(lines.c.mcosto).label("mcosto")]
-        if self.tp:
-            markup = self._tp_line_sums(lines)
         source, sell = lines, []
         if self.sell:
             source, sell = self._sell_line_sums(lines)
+        if self.tp:
+            source, markup = self._tp_line_sums(lines, source)
         return self._in_mla_set(
             select(
                 lines.c.product,
@@ -1175,13 +1175,19 @@ class Board:
         """The MLAs whose CURRENT publication is in the TP store group (`mlas_in_stores`)."""
         return mlas_in_stores(self.f.tp_store_ids)
 
-    def _tp_line_sums(self, lines: Any) -> List[Any]:
+    def _tp_line_sums(self, lines: Any, source: Any) -> Tuple[Any, List[Any]]:
         """ "Costos TP": the markup sums of a TP-store MLA come from its TP shares, everyone else's stay. A TP
         line without a TP cost (NULL share) leaves the markup population, like a group without Total Gauss
         does; `tg_tp` sums only the KNOWN Total TP of TP-store lines (NULL when there is none) and
-        `tp_incompletos` counts the TP-store lines that lack it."""
-        is_tp = lines.c.mla.in_(self._tp_mlas())
-        return [
+        `tp_incompletos` counts the TP-store lines that lack it. `(source joined to the TP MLAs, the sums)`.
+
+        The TP MLAs are a hashed LEFT JOIN (one row per MLA: the newest publication), never `mla IN (...)` in
+        the sums: inside an aggregate's CASE that subquery is not hashed and is re-scanned for EVERY sold line,
+        four times (`test_board_filter_plans_postgres`)."""
+        tp = self._tp_mlas().distinct().subquery("tp_mlas")
+        tp_mla = list(tp.c)[0]
+        is_tp = tp_mla.isnot(None)
+        return source.outerjoin(tp, tp_mla == lines.c.mla), [
             func.coalesce(func.sum(case((is_tp, lines.c.mtg_tp), else_=lines.c.mtg)), 0).label("mtg"),
             func.coalesce(func.sum(case((is_tp, lines.c.mcosto_tp), else_=lines.c.mcosto)), 0).label("mcosto"),
             func.sum(case((is_tp, lines.c.tg_tp))).label("tg_tp"),

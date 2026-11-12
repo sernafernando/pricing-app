@@ -18,6 +18,7 @@ from sqlalchemy import func, select, union
 from sqlalchemy.sql import Select
 
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado as M
+from app.models.ml_orders_ops import MlOrderItemOps
 from app.services.ml_daily_metrics.sales import NO_PRODUCT, last_sales
 
 __all__ = ["NO_PRODUCT", "ads_owner_select"]
@@ -36,7 +37,12 @@ def ads_owner_select(*, sqlite: bool, mlas: Optional[Select] = None) -> Select:
         .subquery("ads_published")
     )
 
-    last = last_sales(sqlite=sqlite).subquery("ads_last_sale")
+    last_query = last_sales(sqlite=sqlite)
+    if mlas is not None:
+        # Restricted BEFORE the aggregation (same answer: the MLA is a grouping column). Filtering the ranked rows
+        # afterwards made Postgres aggregate every MLA's whole sales history to keep a few.
+        last_query = last_query.where(MlOrderItemOps.item_id.in_(mlas))
+    last = last_query.subquery("ads_last_sale")
     ranked = select(
         last.c.mla,
         last.c.product,
@@ -44,8 +50,6 @@ def ads_owner_select(*, sqlite: bool, mlas: Optional[Select] = None) -> Select:
         .over(partition_by=last.c.mla, order_by=(last.c.last_at.desc(), last.c.product.desc()))
         .label("rn"),
     ).where(last.c.mla.notin_(select(published.c.mla)))  # only MLAs that reach the fallback
-    if mlas is not None:
-        ranked = ranked.where(last.c.mla.in_(mlas))
     sold = select(ranked.c.mla, ranked.c.product).where(ranked.c.rn == 1).subquery("ads_sold")
 
     universe = (mlas.distinct() if mlas is not None else union(select(published.c.mla), select(sold.c.mla))).subquery(
