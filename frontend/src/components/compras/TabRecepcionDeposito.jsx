@@ -452,8 +452,12 @@ function AccordionBodyConOcArribo({ pedido, onRefreshList }) {
 
   const lineas = progreso?.lineas ?? [];
   const ocs = linkedOcs(pedido, lineas);
+  const arriboEnCurso = Boolean(progreso?.arribo_en_curso);
   const arriboCubierto =
     lineas.length > 0 && lineas.every((l) => Number(l.pendiente_arribo) <= 0);
+  // One-click confirm stays available until the operator starts partial tandas;
+  // once in progress, mark-complete needs full coverage.
+  const canMarcarCompleto = !loadingProgreso && (!arriboEnCurso || arriboCubierto);
 
   const hasInputError = (podId) => {
     const linea = lineas.find((l) => l.pod_id === podId);
@@ -500,7 +504,7 @@ function AccordionBodyConOcArribo({ pedido, onRefreshList }) {
   };
 
   const handleMarcarCompleto = async () => {
-    if (!arriboCubierto) return;
+    if (!canMarcarCompleto) return;
     setSubmitting(true);
     setSubmitError(null);
     setSubmitSuccess(null);
@@ -559,16 +563,18 @@ function AccordionBodyConOcArribo({ pedido, onRefreshList }) {
         </button>
         <button
           type="button"
-          className={arriboCubierto ? styles.btnPrimary : styles.btnSecondary}
-          disabled={submitting || !arriboCubierto}
+          className={canMarcarCompleto ? styles.btnPrimary : styles.btnSecondary}
+          disabled={submitting || !canMarcarCompleto}
           onClick={handleMarcarCompleto}
           title={
-            arriboCubierto
-              ? 'Pasa el pedido a Sin controlar'
-              : 'Disponible cuando el acumulado cubre el total pedido'
+            !arriboEnCurso
+              ? 'Confirma el arribo/retiro completo sin tandas parciales'
+              : arriboCubierto
+                ? 'Pasa el pedido a Sin controlar'
+                : 'Disponible cuando el acumulado cubre el total pedido'
           }
         >
-          {submitting && arriboCubierto ? <Loader2 size={14} className={styles.spin} /> : null}
+          {submitting && canMarcarCompleto ? <Loader2 size={14} className={styles.spin} /> : null}
           {vocab.marcarCompleto}
         </button>
       </div>
