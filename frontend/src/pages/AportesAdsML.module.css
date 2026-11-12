@@ -239,7 +239,7 @@
   align-items: center;
   gap: var(--spacing-sm);
   /* Keeps a long campaign name to two lines; on a narrow screen the table card scrolls instead. */
-  min-width: 260px;
+  min-width: 200px;
 }
 
 .campaignName {
@@ -306,7 +306,7 @@
   /* Fixed tracks: amount, settlement, range, actions sit on the same verticals in every row.
      An amount wider than its track grows the track instead of overlapping the settlement. */
   display: grid;
-  grid-template-columns: minmax(8rem, max-content) 5.5rem max-content auto;
+  grid-template-columns: minmax(7rem, max-content) 4rem max-content auto;
   align-items: center;
   column-gap: var(--spacing-sm);
   height: 28px;
@@ -341,6 +341,11 @@
 .addCell {
   width: 1%;
   white-space: nowrap;
+}
+
+/* The aportes cell's own right padding already separates the button. */
+.table .addCell {
+  padding-left: 0;
 }
 
 .addLink {

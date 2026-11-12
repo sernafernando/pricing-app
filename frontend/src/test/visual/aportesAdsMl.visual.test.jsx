@@ -198,6 +198,9 @@ describe('Aportes de marcas (Ads ML) (visual)', () => {
           expect(cell.scrollWidth).toBeLessThanOrEqual(cell.clientWidth + 1);
         }
         expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+        // The whole table fits its card from 1280 up: no sideways scroll inside it either.
+        const card = document.querySelector('table').parentElement;
+        expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth + 1);
         await shot(`page-${width}-${theme}`);
       });
     }
