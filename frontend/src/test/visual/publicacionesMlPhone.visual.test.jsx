@@ -14,7 +14,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { setTheme } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
 import { promocionesAPI, publicacionesMlAPI } from '../../services/api';
-import { DETAIL_RESPONSE_MARGIN, FACETS, ITEMS, ITEMS_RESPONSE, KPIS_RESPONSE_MARGIN } from './publicacionesMlFixtures';
+import { FACETS, ITEMS, ITEMS_RESPONSE, KPIS_RESPONSE_MARGIN, MARKUP_BREAKDOWN, makeDetail } from './publicacionesMlFixtures';
 
 
 // The markup column, its filters and the sub-rows' cost are for `ver_ganancia` only.
@@ -188,7 +188,7 @@ vi.mock('../../services/api', () => ({
 }));
 
 const SHOTS_DIR = import.meta.env.VITE_PUBLICACIONES_PHONE_SHOTS_DIR;
-const shot = async (name) => SHOTS_DIR && page.screenshot({ path: `${SHOTS_DIR}/${name}.png` });
+const shot = async (name, element) => SHOTS_DIR && page.screenshot({ path: `${SHOTS_DIR}/${name}.png`, ...(element && { element }) });
 
 // The list's rows with Métricas' figures, their ERP stock and markup, as a user with every permission sees them.
 const FIGURES = [
@@ -207,6 +207,30 @@ const PHONE_ITEMS = ITEMS.map((item, index) => {
     erp_stock: { quantity: erp },
     markup: markup == null ? null : { min: markup, max: markup, any_negative: markup < 0, partial: 0 },
   };
+});
+
+// The design's publication (PubDetalle): a USD cost with its sell in, the stock total, the 30-day sales, and a
+// publication that can be paused and resynced. The cost comes in its own currency as the backend sends it (#2216).
+const DETAIL_ROW = { ...PHONE_ITEMS[0], stock_total: 791, sales_30d: { units: 14, gross: 709755 } };
+const PHONE_DETAIL = makeDetail({
+  row: DETAIL_ROW,
+  markup_breakdown: { ...MARKUP_BREAKDOWN, moneda_costo: 'USD', costo: 17.04, tipo_cambio: 1050 },
+  sell_in_out: {
+    sell_in: {
+      compra_item_id: 7,
+      descuento_unit: 640.5,
+      costo: 17251.5,
+      unidades_restantes: 140,
+      moneda_costo: 'USD',
+      costo_moneda: 16.43,
+      descuento_unit_moneda: 0.61,
+    },
+    sell_out: null,
+    markups_sell_in: {},
+    markups_sell_in_out: {},
+  },
+  can_resync: true,
+  can_change_status: true,
 });
 
 // The app's main area on a phone: the fixed TopBar above, 16px around, no sidebar.
@@ -244,7 +268,7 @@ beforeEach(() => {
   canSeeKpis = true;
   publicacionesMlAPI.items.mockResolvedValue({ data: { ...ITEMS_RESPONSE, items: PHONE_ITEMS, can_see_margin: true, facets: FACETS } });
   publicacionesMlAPI.kpis.mockResolvedValue({ data: KPIS_RESPONSE_MARGIN });
-  publicacionesMlAPI.detail.mockResolvedValue({ data: { ...DETAIL_RESPONSE_MARGIN, row: PHONE_ITEMS[0] } });
+  publicacionesMlAPI.detail.mockResolvedValue({ data: PHONE_DETAIL });
   promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
   promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
 });
@@ -273,6 +297,9 @@ describe.each(['light', 'dark'])('Publicaciones ML at 390x844 (%s)', (theme) => 
     expect(box.bottom).toBeCloseTo(844, 0);
     expect(box.width).toBeCloseTo(390, 0);
     noSidewaysScroll();
+    // "Limpiar" beside the close button, and the team button with its word (no orphan icon).
+    await expect.element(sheet.getByRole('button', { name: 'Limpiar' })).toBeVisible();
+    await expect.element(sheet.getByRole('button', { name: 'Equipos' })).toHaveTextContent('Equipos');
     await shot(`pubml-phone-filtros-${theme}`);
   });
 
@@ -283,6 +310,32 @@ describe.each(['light', 'dark'])('Publicaciones ML at 390x844 (%s)', (theme) => 
     const box = panel.element().getBoundingClientRect();
     expect([box.left, box.top, box.width, box.height]).toEqual([0, 0, 390, 844]);
     noSidewaysScroll();
-    await shot(`pubml-phone-detalle-${theme}`);
+    // The desktop header's four cards, the cost in its own currency.
+    const figures = panel.element().querySelectorAll('[aria-label="Cifras de la publicación"] dt');
+    expect([...figures].map((dt) => dt.textContent.trim())).toEqual(['Precio', 'Costo', 'Stock', 'Ventas 30 días']);
+    expect(panel.element().querySelector('[aria-label="Cifras de la publicación"]').textContent).toContain('USD 17,04');
+    // The top bar's icons: Mercado Libre and "⋯" with the seller panel's links.
+    await expect.element(panel.getByRole('link', { name: 'Ver en Mercado Libre' })).toBeVisible();
+    await expect.element(panel.getByRole('button', { name: /^Más acciones/ })).toBeVisible();
+    // Pausar and Resincronizar side by side, at the bottom of the screen.
+    const pause = panel.getByRole('button', { name: 'Pausar' }).element().getBoundingClientRect();
+    const resync = panel.getByRole('button', { name: 'Resincronizar' }).element().getBoundingClientRect();
+    expect(pause.top).toBeCloseTo(resync.top, 0);
+    expect(pause.right).toBeLessThanOrEqual(resync.left);
+    const footer = panel.element().querySelector('footer').getBoundingClientRect();
+    expect(footer.bottom).toBeCloseTo(844, 0);
+    expect(Math.min(pause.height, resync.height)).toBeGreaterThanOrEqual(44);
+    await shot(`pubml-phone-detalle-${theme}`, panel.element());
+  });
+
+  it('keeps the footer at the bottom of the screen while the panel scrolls', async () => {
+    const screen = await renderPhone({ theme, entry: '/ml-publicaciones?sel=MLA1100000001&tab=resumen' });
+    const panel = screen.getByRole('complementary', { name: 'Detalle de la publicación' });
+    await expect.element(panel.getByRole('button', { name: 'Resincronizar' })).toBeVisible();
+    const scroller = panel.element();
+    scroller.scrollTop = scroller.scrollHeight;
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    expect(scroller.querySelector('footer').getBoundingClientRect().bottom).toBeCloseTo(844, 0);
+    scroller.scrollTop = 0;
   });
 });

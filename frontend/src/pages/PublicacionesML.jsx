@@ -936,15 +936,17 @@ export default function PublicacionesML() {
         onPaintedOwn={colorOverlay.applyOwn}
         onClearChecked={clearChecked}
       />
-      {/* Icon-only: the toolbar's first row has no room for a label at 1366 px. */}
+      {/* Icon-only: the toolbar's first row has no room for a label at 1366 px. The phone's filters sheet has room
+          for its word. */}
       <button
         type="button"
-        className="btn-tesla outline-subtle-primary icon-only sm"
+        className={`btn-tesla outline-subtle-primary ${isPhone ? '' : 'icon-only '}sm`}
         onClick={() => setEquiposOpen(true)}
         aria-label="Equipos"
         title="Equipos: crear y administrar tus equipos"
       >
         <Users size={14} aria-hidden="true" />
+        {isPhone && 'Equipos'}
       </button>
       {/* Closing reloads the teams, so the layer offers what was just created, renamed or deleted. */}
       <EquiposModal
@@ -1239,11 +1241,9 @@ export default function PublicacionesML() {
           title="Filtros"
           onClose={closePhoneSheet}
           headerAction={
-            hasActiveFilters && (
-              <button type="button" className="btn-tesla ghost sm" onClick={resetFilters}>
-                Limpiar
-              </button>
-            )
+            <button type="button" className="btn-tesla ghost sm" onClick={resetFilters} disabled={!hasActiveFilters}>
+              Limpiar
+            </button>
           }
           footer={
             <button type="button" className={`btn-tesla primary ${phoneStyles.sheetFooter}`} onClick={closePhoneSheet}>

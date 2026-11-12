@@ -17,19 +17,34 @@ import styles from './panel.module.css';
  * @param {string} [props.loadingLabel] Accessible name of the skeleton.
  * @param {string|null} [props.error] What to tell the operator; shows the error block when set.
  * @param {() => void} [props.onRetry] Shows "Reintentar" in the error block.
+ * @param {import('react').ReactNode} [props.phoneActions] On a phone, beside "‹ Publicaciones" at the top right.
  * @param {import('react').ReactNode} [props.children] The panel's content.
  */
-export default function PanelShell({ title, meta, figures, onClose, loading = false, loadingLabel, error = null, onRetry, children }) {
+export default function PanelShell({
+  title,
+  meta,
+  figures,
+  onClose,
+  loading = false,
+  loadingLabel,
+  error = null,
+  onRetry,
+  phoneActions = null,
+  children,
+}) {
   // On a phone the panel is the whole screen (mobile-metricas-pubml S2): "‹ Publicaciones" goes back to the list.
   const phone = useIsPhone();
   return (
     <div className={styles.panel}>
       <header className={styles.header}>
         {phone && (
-          <button type="button" className={styles.phoneBack} onClick={onClose}>
-            <ChevronLeft size={18} aria-hidden="true" />
-            Publicaciones
-          </button>
+          <div className={styles.phoneBar}>
+            <button type="button" className={styles.phoneBack} onClick={onClose}>
+              <ChevronLeft size={18} aria-hidden="true" />
+              Publicaciones
+            </button>
+            {phoneActions}
+          </div>
         )}
         <div className={styles.headerTop}>
           <div className={styles.identity}>

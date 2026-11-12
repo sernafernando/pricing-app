@@ -260,4 +260,40 @@ describe('Publicaciones ML on a phone (mobile-metricas-pubml S2)', () => {
     await userEvent.click(within(panel).getByRole('button', { name: 'Publicaciones' }));
     expect(screen.queryByRole('complementary', { name: 'Detalle de la publicación' })).not.toBeInTheDocument();
   });
+
+  it('puts "Ver en Mercado Libre" and the seller links ("⋯") at the top right of the full-screen panel', async () => {
+    await page('/ml-publicaciones?sel=MLA1100000001&tab=resumen');
+    const panel = await screen.findByRole('complementary', { name: 'Detalle de la publicación' });
+    await within(panel).findByText('MLA1100000001');
+    expect(within(panel).getByRole('link', { name: 'Ver en Mercado Libre' })).toHaveAttribute('href', expect.stringContaining('MLA-1100000001'));
+    // Not twice: the MLA line keeps none of them on a phone.
+    expect(within(panel).queryByText('Ver en Mercado Libre')).not.toBeInTheDocument();
+    expect(within(panel).queryByRole('link', { name: 'Ver en el panel de ML' })).not.toBeInTheDocument();
+    await userEvent.click(within(panel).getByRole('button', { name: /^Más acciones/ }));
+    const menu = within(panel).getByRole('menu', { name: 'Panel del vendedor' });
+    expect(within(menu).getByRole('menuitem', { name: 'Ver en el panel de ML' })).toBeInTheDocument();
+    expect(within(menu).getByRole('menuitem', { name: 'Ver promociones en ML' })).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+    expect(within(panel).queryByRole('menu')).not.toBeInTheDocument();
+    // The menu took that Escape: the panel is still open.
+    expect(screen.getByRole('complementary', { name: 'Detalle de la publicación' })).toBeInTheDocument();
+  });
+
+  it('keeps only Pausar and Resincronizar in the panel footer, the freshness above it', async () => {
+    publicacionesMlAPI.detail.mockResolvedValue({ data: { ...DETAIL_RESPONSE, row: ITEMS[0], can_resync: true, can_change_status: true } });
+    await page('/ml-publicaciones?sel=MLA1100000001&tab=resumen');
+    const panel = await screen.findByRole('complementary', { name: 'Detalle de la publicación' });
+    const footer = (await within(panel).findByRole('button', { name: 'Resincronizar' })).closest('footer');
+    expect(within(footer).getByRole('button', { name: 'Pausar' })).toBeInTheDocument();
+    expect(within(footer).queryByRole('list', { name: 'Actualización de los datos' })).not.toBeInTheDocument();
+    expect(within(panel).getByRole('list', { name: 'Actualización de los datos' })).toBeInTheDocument();
+  });
+
+  it('shows "Limpiar" in the filters sheet, off without filters, and the team button with its word', async () => {
+    await page();
+    await userEvent.click(screen.getByRole('button', { name: /^Filtros/ }));
+    const sheet = screen.getByRole('dialog', { name: 'Filtros' });
+    expect(within(sheet).getByRole('button', { name: 'Limpiar' })).toBeDisabled();
+    expect(within(sheet).getByRole('button', { name: 'Equipos' })).toHaveTextContent('Equipos');
+  });
 });

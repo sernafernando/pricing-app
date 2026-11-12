@@ -25,6 +25,10 @@
   outline: none;
 }
 
+.header :global(.btn-tesla) {
+  min-height: 44px;
+}
+
 .header {
   display: flex;
   align-items: center;

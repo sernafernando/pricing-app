@@ -1149,15 +1149,22 @@
   align-self: flex-start;
 }
 
-/* Phone (mobile-metricas-pubml S2, S5): the panel is the whole screen. "‹ Publicaciones" on top, the figures in two
-   columns, tabs and actions of 44px, the footer's actions side by side. */
+/* Phone (mobile-metricas-pubml S2, S5): the panel is the whole screen. "‹ Publicaciones" on top with the panel's own
+   icons at its right, the figures in two columns, tabs and actions of 44px, the footer's actions side by side. */
+.phoneBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-xs);
+  margin: calc(-1 * var(--spacing-sm)) calc(-1 * var(--spacing-sm)) calc(-1 * var(--spacing-xs));
+}
+
 .phoneBack {
   display: inline-flex;
   align-items: center;
   align-self: flex-start;
   gap: 4px;
   min-height: 44px;
-  margin: calc(-1 * var(--spacing-sm)) 0 calc(-1 * var(--spacing-xs)) calc(-1 * var(--spacing-sm));
   padding: 0 var(--spacing-sm);
   border: 0;
   background: none;
@@ -1180,10 +1187,22 @@
     padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
   }
 
+  /* The freshness above the footer, as the end of the content. */
+  .panel > .freshness {
+    flex: none;
+    padding: 0 var(--spacing-md) var(--spacing-md);
+  }
+
   .footerActions {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
+    gap: var(--spacing-sm);
     width: 100%;
+  }
+
+  .footerActions > * {
+    min-width: 0;
   }
 
   .footerActions :global(.btn-tesla) {
