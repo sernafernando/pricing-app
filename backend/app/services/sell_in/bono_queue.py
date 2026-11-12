@@ -15,7 +15,8 @@ exists (and a key is only queued when some active bonus can care about it):
 - `pedidos_compra`: an UPDATE of `fecha_factura`, `estado`, `tipo_cambio` or
   `proveedor_id` that changes it, and an INSERT or DELETE, queue the operation
   when its old or new invoice date falls in an active bonus's range, or it
-  has an invoice date and an active invoice bonus of its own;
+  has an invoice date and an active invoice bonus or a waiting invoice total
+  of its own;
 - `pedido_compra_lineas_facturadas` (invoiced units and net amount): an INSERT or
   DELETE, or an UPDATE that changes `pedido_id`, `item_id`, `cantidad`,
   `importe_neto` or `moneda` (the base of a percentage bonus), queue the operation
@@ -40,10 +41,12 @@ queued) that keeps those triggers cheap; the worker reconciles it as a no-op.
 
 The gates are `sell_in_bono_cubre(fecha[, marca])` (date only, any scope; with a
 brand, brand bonuses only), `sell_in_bono_cubre_pedido(fecha, pedido)` (the
-operation and line triggers: the date gate, or an active invoice bonus of that
-very operation once it has an invoice date, whatever the bonus's range: an
-invoice line saved before the invoice holds a placeholder day until the
-reconcile moves it to the invoice's, sell in factura pendiente) and
+operation and line triggers: the date gate, or an active invoice bonus or a
+waiting invoice total (`tactical_facturas_pendientes`) of that very operation
+once it has an invoice date, whatever the bonus's range: an invoice line saved
+before the invoice holds a placeholder day until the reconcile moves it to the
+invoice's, and a waiting total is applied by the worker, sell in factura
+pendiente) and
 `sell_in_bono_cubre_producto(fecha, pedido, item, marca, categoria)`: one EXISTS
 over the (few) bonuses each. A trigger does no reconcile work.
 `UPGRADE_SQL`/`DOWNGRADE_SQL` are the live definition; the migration
@@ -54,7 +57,8 @@ statements and carry their frozen copies: the bonus update trigger
 (`20261211_sell_in_bono_tope`, `20261212_sell_in_bono_costo`,
 `20261215_sell_in_bono_acumulable`), the product
 function and update trigger (`20261213_sell_in_bono_costo_triggers`) and the
-operation and line functions (`20261112_sell_in_bono_cubre_pedido`).
+operation and line functions (`20261112_sell_in_bono_cubre_pedido`), whose gate
+`20261112_tactical_facturas_pendientes` widened to the waiting totals.
 
 The `sell_in.bono` worker drains it. A claimed row is locked (`FOR UPDATE SKIP
 LOCKED`) for the drain's short transaction: a trigger re-queueing it waits and
@@ -95,9 +99,15 @@ $fn$ LANGUAGE sql STABLE
 """,
     """
 CREATE OR REPLACE FUNCTION sell_in_bono_cubre_pedido(p_fecha DATE, p_pedido BIGINT) RETURNS BOOLEAN AS $fn$
-    SELECT sell_in_bono_cubre(p_fecha) OR (p_fecha IS NOT NULL AND EXISTS (
-        SELECT 1 FROM sell_in_bonos_marca AS b
-        WHERE b.estado = 'activa' AND b.alcance = 'factura' AND b.pedido_id = p_pedido
+    SELECT sell_in_bono_cubre(p_fecha) OR (p_fecha IS NOT NULL AND (
+        EXISTS (
+            SELECT 1 FROM sell_in_bonos_marca AS b
+            WHERE b.estado = 'activa' AND b.alcance = 'factura' AND b.pedido_id = p_pedido
+        )
+        OR EXISTS (
+            SELECT 1 FROM tactical_facturas_pendientes AS t
+            WHERE t.estado = 'pendiente' AND t.pedido_id = p_pedido
+        )
     ))
 $fn$ LANGUAGE sql STABLE
 """,

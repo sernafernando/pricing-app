@@ -1067,13 +1067,225 @@ class TestFacturaPendiente:
         [salida] = service.serializar(db, [esperando])[0]["lineas"]
         assert salida["esperando_factura"] is False
 
-    def test_an_invoice_total_still_needs_the_invoice(self, db, engine) -> None:
-        pendiente = bw.pedido(engine, {}, None)
 
-        with pytest.raises(
-            service.TacticalError,
-            match=f"^Línea 1: la operación OC-{pendiente} no tiene la factura vinculada: un monto total se reparte "
-            "sobre lo facturado$",
-        ):
-            self._crear(db, pendiente, modo="monto_total", valor="15000")
+class TestFacturaPendienteTotal:
+    """Sell in factura pendiente, monto total (orchestrator: "pending table, worker applies with the SAME
+    _total_de_factura, exact parity; existing totals untouched"): a total line is saved before its operation's invoice,
+    applies nothing while it waits, and once Compras links the invoice the queue worker creates the same purchase a
+    tactical loaded with the invoice has."""
+
+    @pytest.fixture(autouse=True)
+    def _worker_db(self, engine, monkeypatch) -> None:
+        monkeypatch.setattr("app.core.database.SessionLocal", sessionmaker(bind=engine))
+
+    def _worker(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        from app.workers.context import WorkerContext
+        from app.workers.handlers.sell_in_bono import bono as handler
+
+        hasta = datetime.now(timezone.utc) + timedelta(seconds=30)
+        assert handler.run(WorkerContext(deadline=hasta, worker_name="t")).success
+
+    def _crear(self, db: Session, pedido: int, valor: str = "15000", **cabecera):
+        linea = {"alcance": "factura", "pedido_compra_id": pedido, "modo_monto": "monto_total", "valor": valor}
+        return service.crear(db, _tactical("sell_in", [linea], fecha_desde=None, fecha_hasta=None, **cabecera), USUARIO)
+
+    def _vincular(self, engine: Engine, pedido: int, fecha: date, lineas: dict) -> None:
+        """What Compras does when it links the supplier invoice: the header's date and the invoiced lines, one tx."""
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE pedidos_compra SET fecha_factura = :f WHERE id = :p"), {"f": fecha, "p": pedido})
+            for item_id, cantidad in sorted(lineas.items()):
+                conn.execute(
+                    text(
+                        "INSERT INTO pedido_compra_lineas_facturadas (pedido_id, item_id, cantidad) VALUES (:p, :i, :q)"
+                    ),
+                    {"p": pedido, "i": item_id, "q": cantidad},
+                )
+
+    def _compras(self, engine: Engine, tactical_id: int) -> list[tuple]:
+        """What a tactical's invoice totals persisted, without ids: header and items of each purchase."""
+        with engine.connect() as conn:
+            filas = conn.execute(
+                text(
+                    "SELECT c.id, c.estado, c.moneda, c.tipo, c.monto_total, c.tipo_cambio, c.formula, c.fecha_compra, "
+                    "c.descripcion, c.tactical_linea, p.pedido_compra_id FROM sell_in_compras c "
+                    "JOIN sell_in_compra_pedidos p ON p.compra_id = c.id WHERE c.tactical_id = :t ORDER BY c.id"
+                ),
+                {"t": tactical_id},
+            ).all()
+            salida = []
+            for fila in filas:
+                items = conn.execute(
+                    text(
+                        "SELECT item_id, cantidad, monto_asignado FROM sell_in_compra_items WHERE compra_id = :c "
+                        "ORDER BY item_id"
+                    ),
+                    {"c": fila[0]},
+                ).all()
+                salida.append((tuple(fila[1:]), [tuple(i) for i in items]))
+            return salida
+
+    def _pendientes(self, engine: Engine, tactical_id: int) -> list[tuple]:
+        with engine.connect() as conn:
+            return [
+                tuple(r)
+                for r in conn.execute(
+                    text(
+                        "SELECT tactical_linea, pedido_id, estado FROM tactical_facturas_pendientes "
+                        "WHERE tactical_id = :t ORDER BY id"
+                    ),
+                    {"t": tactical_id},
+                )
+            ]
+
+    def test_a_total_line_is_saved_without_the_invoice_and_waits_for_it(self, db, engine) -> None:
+        pendiente = bw.pedido(engine, {}, None, moneda="ARS")
+
+        tactical = self._crear(db, pendiente)
+
+        assert self._compras(engine, tactical.id) == []
+        assert self._pendientes(engine, tactical.id) == [(1, pendiente, "pendiente")]
+        leido = service.serializar(db, [tactical])[0]
+        [salida] = leido["lineas"]
+        assert (salida["origen"], salida["estado"], salida["alcance"], salida["modo_monto"]) == (
+            "sell_in_factura_pendiente",
+            "activa",
+            "factura",
+            "monto_total",
+        )
+        assert (salida["pedido_compra_id"], salida["pedido_numero"], salida["valor"]) == (
+            pendiente,
+            f"OC-{pendiente}",
+            Decimal("15000"),
+        )
+        assert (salida["esperando_factura"], leido["esperando_factura"], leido["por_factura"]) == (True, True, True)
+
+    def test_nothing_applies_while_the_invoice_is_missing(self, db, engine) -> None:
+        pendiente = bw.pedido(engine, {}, None, moneda="ARS")
+        tactical = self._crear(db, pendiente)
+
+        bw.update_pedido(engine, pendiente, estado="aprobado")
+        self._worker()
+
+        assert self._compras(engine, tactical.id) == []
+        assert self._pendientes(engine, tactical.id) == [(1, pendiente, "pendiente")]
+
+    def test_linking_the_invoice_applies_it_exactly_as_if_it_was_loaded_with_it(self, db, engine) -> None:
+        factura = date(2026, 10, 10)
+        pendiente = bw.pedido(engine, {}, None, moneda="ARS")
+        esperando = self._crear(db, pendiente, nombre="Rebate")
+        bw.clear_queue(engine)
+
+        self._vincular(engine, pendiente, factura, {2964: 10, 950: 5})
+        assert ("pedido", pendiente) in bw.queued(engine)  # no bonus covers it: only the pending row gates it in
+        self._worker()
+
+        con = bw.pedido(engine, {2964: 10, 950: 5}, factura, moneda="ARS")
+        cargado = self._crear(db, con, nombre="Rebate")
+
+        [(cabecera_esp, items_esp)] = self._compras(engine, esperando.id)
+        [(cabecera_con, items_con)] = self._compras(engine, cargado.id)
+        assert cabecera_esp[:-1] == cabecera_con[:-1]  # all but the operation
+        assert (cabecera_esp[-1], cabecera_con[-1]) == (pendiente, con)
+        assert items_esp == items_con != []
+        assert self._pendientes(engine, esperando.id) == [(1, pendiente, "aplicada")]
+        with engine.connect() as conn:
+            cabeceras = dict(
+                (t, (d, h)) for t, d, h in conn.execute(text("SELECT id, fecha_desde, fecha_hasta FROM tacticals"))
+            )
+        assert cabeceras[esperando.id] == cabeceras[cargado.id] == (factura, factura)
+        db.expire_all()
+        leido = service.serializar(db, [esperando])[0]
+        [salida] = leido["lineas"]
+        assert (salida["origen"], salida["esperando_factura"], leido["esperando_factura"]) == (
+            "sell_in_compra",
+            False,
+            False,
+        )
+
+    def test_invoiced_lines_arriving_after_the_date_still_apply_it(self, db, engine) -> None:
+        pendiente = bw.pedido(engine, {}, None, moneda="ARS")
+        tactical = self._crear(db, pendiente)
+        self._vincular(engine, pendiente, date(2026, 10, 10), {})
+        self._worker()
+        assert self._compras(engine, tactical.id) == []  # a date without invoiced lines: still waiting
+
+        bw.set_lineas(engine, pendiente, {2964: 10})
+        self._worker()
+
+        assert [c[0][0] for c in self._compras(engine, tactical.id)] == ["activa"]
+        assert self._pendientes(engine, tactical.id) == [(1, pendiente, "aplicada")]
+
+    def test_a_voided_tactical_never_applies_its_pending_total(self, db, engine) -> None:
+        pendiente = bw.pedido(engine, {}, None, moneda="ARS")
+        tactical = self._crear(db, pendiente)
+
+        anulado = service.anular(db, tactical.id, USUARIO, "Se cayó el acuerdo")
+        [salida] = service.serializar(db, [anulado])[0]["lineas"]
+        assert (salida["origen"], salida["estado"]) == ("sell_in_factura_pendiente", "anulada")
+        self._vincular(engine, pendiente, date(2026, 10, 10), {2964: 10})
+        self._worker()
+
+        assert self._compras(engine, tactical.id) == []
+        assert self._pendientes(engine, tactical.id) == [(1, pendiente, "anulada")]
+
+    def test_editing_the_name_keeps_the_pending_total(self, db, engine) -> None:
+        from app.schemas.tacticals import TacticalEditarIn
+
+        pendiente = bw.pedido(engine, {}, None, moneda="ARS")
+        tactical = self._crear(db, pendiente)
+
+        service.editar(db, tactical.id, TacticalEditarIn(nombre="Rebate nuevo"), USUARIO)
+
+        assert self._pendientes(engine, tactical.id) == [(1, pendiente, "pendiente")]
+        self._vincular(engine, pendiente, date(2026, 10, 10), {2964: 10})
+        self._worker()
+        assert [c[0][0] for c in self._compras(engine, tactical.id)] == ["activa"]
+
+    def test_replacing_keeps_an_unchanged_pending_total_and_replaces_a_changed_one(self, db, engine) -> None:
+        pendiente = bw.pedido(engine, {}, None, moneda="ARS")
+        tactical = self._crear(db, pendiente)
+        linea = {"alcance": "factura", "pedido_compra_id": pendiente, "modo_monto": "monto_total", "valor": "15000"}
+        igual = _tactical("sell_in", [linea], fecha_desde=None, fecha_hasta=None)
+
+        service.reemplazar(db, tactical.id, igual, USUARIO)
+        with engine.connect() as conn:
+            antes = conn.execute(text("SELECT id FROM tactical_facturas_pendientes")).scalars().all()
+        assert self._pendientes(engine, tactical.id) == [(1, pendiente, "pendiente")]
+
+        otro = _tactical("sell_in", [{**linea, "valor": "9000"}], fecha_desde=None, fecha_hasta=None)
+        service.reemplazar(db, tactical.id, otro, USUARIO)
+
+        assert self._pendientes(engine, tactical.id) == [(1, pendiente, "pendiente")]
+        [salida] = service.serializar(db, [db.get(type(tactical), tactical.id)])[0]["lineas"]
+        assert salida["valor"] == Decimal("9000")
+        with engine.connect() as conn:
+            assert conn.execute(text("SELECT id FROM tactical_facturas_pendientes")).scalars().all() != antes
+        self._vincular(engine, pendiente, date(2026, 10, 10), {2964: 10})
+        self._worker()
+        [(cabecera, _)] = self._compras(engine, tactical.id)
+        assert (cabecera[0], cabecera[3]) == ("activa", Decimal("9000.00"))
+
+    def test_a_renewal_of_a_voided_tactical_gets_its_own_pending_total(self, db, engine) -> None:
+        """Renovar is the new-tactical form filled from the old one (frontend `tacticalRenovar.js`): a new create."""
+        pendiente = bw.pedido(engine, {}, None, moneda="ARS")
+        viejo = self._crear(db, pendiente)
+        service.anular(db, viejo.id, USUARIO, None)
+
+        nuevo = self._crear(db, pendiente, nombre="Rebate renovado")
+        self._vincular(engine, pendiente, date(2026, 10, 10), {2964: 10})
+        self._worker()
+
+        assert self._compras(engine, viejo.id) == []
+        assert [c[0][0] for c in self._compras(engine, nuevo.id)] == ["activa"]
+        assert self._pendientes(engine, nuevo.id) == [(1, pendiente, "aplicada")]
+
+    def test_a_total_still_takes_no_caps_while_it_waits(self, db, engine) -> None:
+        pendiente = bw.pedido(engine, {}, None, moneda="ARS")
+        linea = {"alcance": "factura", "pedido_compra_id": pendiente, "modo_monto": "monto_total", "valor": "15000",
+                 "tope_unidades": 5}  # fmt: skip
+
+        with pytest.raises(service.TacticalError, match="^Línea 1: un monto total no lleva topes"):
+            service.crear(db, _tactical("sell_in", [linea], fecha_desde=None, fecha_hasta=None), USUARIO)
         assert _contar(engine, "tacticals") == 0

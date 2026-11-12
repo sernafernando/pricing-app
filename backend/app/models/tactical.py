@@ -186,3 +186,51 @@ class TacticalCobranza(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
     tactical = relationship("Tactical", back_populates="cobranza")
+
+
+FACTURA_PENDIENTE_ESTADO = "estado IN ('pendiente', 'aplicada', 'anulada')"
+# Applied: it names the purchase it became; otherwise it has none.
+FACTURA_PENDIENTE_COMPRA = "(estado = 'aplicada') = (compra_id IS NOT NULL)"
+
+
+class TacticalFacturaPendiente(Base):
+    """A sell in invoice line with a fixed total saved before Compras linked its operation's supplier invoice (sell in
+    factura pendiente, owner 2026-11-12: "la carga con factura de sell in tiene que poder cargarse y aplicar recién
+    cuando se agregue una factura no al revés"). It applies nothing while `pendiente`; once the operation has its
+    invoice date and invoiced lines, the `sell_in.bono` worker builds the purchase with the same code a tactical loaded
+    with the invoice uses (`app.services.tacticals.aplicar_facturas_pendientes`) and the row becomes `aplicada`, naming
+    it. Voiding the tactical makes it `anulada`; a full replace deletes the lines it does not keep. It keeps what that
+    purchase needs from the line: total, currency, the tactical's fixed rate (USD) and description. Migration
+    `20261112_tactical_facturas_pendientes`."""
+
+    __tablename__ = "tactical_facturas_pendientes"
+    __table_args__ = (
+        CheckConstraint(FACTURA_PENDIENTE_ESTADO, name="ck_tactical_facturas_pendientes_estado"),
+        CheckConstraint(FACTURA_PENDIENTE_COMPRA, name="ck_tactical_facturas_pendientes_compra"),
+        CheckConstraint("tactical_linea >= 1", name="ck_tactical_facturas_pendientes_linea"),
+        CheckConstraint("valor > 0", name="ck_tactical_facturas_pendientes_valor"),
+        CheckConstraint("moneda IN ('ARS', 'USD')", name="ck_tactical_facturas_pendientes_moneda"),
+        Index("ix_tactical_facturas_pendientes_tactical_id", "tactical_id"),
+        # The queue gate and the worker look for an operation's waiting rows.
+        Index(
+            "ix_tactical_facturas_pendientes_pedido_pendiente",
+            "pedido_id",
+            postgresql_where=text("estado = 'pendiente'"),
+        ),
+        Index("ix_tactical_facturas_pendientes_compra_id", "compra_id"),
+        Index("ix_tactical_facturas_pendientes_usuario_id", "usuario_id"),
+    )
+
+    id = Column(BigInteger, primary_key=True)
+    tactical_id = Column(BigInteger, ForeignKey("tacticals.id", ondelete="CASCADE"), nullable=False)
+    tactical_linea = Column(Integer, nullable=False)
+    pedido_id = Column(BigInteger, ForeignKey("pedidos_compra.id", ondelete="CASCADE"), nullable=False)
+    valor = Column(Numeric(18, 2), nullable=False)
+    moneda = Column(String(3), nullable=False)
+    tipo_cambio = Column(Numeric(18, 6), nullable=True)  # the tactical's fixed rate of a USD line; NULL on ARS
+    descripcion = Column(Text, nullable=True)
+    estado = Column(String(16), nullable=False, server_default=text("'pendiente'"))
+    compra_id = Column(BigInteger, ForeignKey("sell_in_compras.id", ondelete="RESTRICT"), nullable=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    aplicada_en = Column(DateTime(timezone=True), nullable=True)

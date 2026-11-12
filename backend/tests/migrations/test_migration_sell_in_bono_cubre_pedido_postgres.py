@@ -124,7 +124,10 @@ def test_the_live_module_functions_are_this_revisions_and_the_downgrade_restores
     from app.services.sell_in import bono_queue
 
     vivos = {_norm(s) for s in bono_queue.UPGRADE_SQL}
-    assert {_norm(s) for s in _module().FUNCIONES_UP} <= vivos
+    gate, *funciones = _module().FUNCIONES_UP
+    assert {_norm(s) for s in funciones} <= vivos
+    # The gate was widened later (20261112_tactical_facturas_pendientes), whose downgrade restores this one.
+    assert _norm(gate) in {_norm(s) for s in _module("20261112_tactical_facturas_pendientes").FUNCIONES_DOWN}
     previos = {_norm(s) for s in _module("20261115_sell_in_bono_queue_alcance")._TRIGGERS_UP}
     assert {_norm(s) for s in _module().FUNCIONES_DOWN} <= previos
 

@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_background_db
 from app.services.sell_in import bono_queue, bonos, bonos_costo
+from app.services import tacticals
 from app.workers.context import JobResult, WorkerContext
 from app.workers.handlers.sell_drain import is_transient
 
@@ -50,6 +51,9 @@ def _cap(error: str) -> str:
 
 def _reconciliar(db: Session, keys: Sequence[Key]) -> Tuple[bonos.ReconcileResult, Dict[Key, str], List[Key]]:
     """Reconciles the claimed keys, acks them and charges the ones in a failed pair. Does not commit."""
+    # A queued operation may hold a tactical's invoice total waiting for its invoice (sell in factura pendiente):
+    # applied first, in the same transaction, so its purchase is there for the rest of the reconcile.
+    tacticals.aplicar_facturas_pendientes(db, [ref for tipo, ref in keys if tipo == "pedido"])
     result = bonos.reconciliar(
         db,
         bono_ids=[ref for tipo, ref in keys if tipo == "bono"],
