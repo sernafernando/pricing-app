@@ -1803,6 +1803,25 @@ describe('PxqPanel — per-tier markup display (slice A2)', () => {
     expect(await screen.findByText(/datos del producto/i)).toBeInTheDocument();
   });
 
+  // S11b: the publication-level reasons are the header's; each one gets a label, never the raw value.
+  it.each([
+    ['sin_vinculo', 'La publicación no está vinculada a un producto'],
+    ['sin_costo', 'El producto vinculado no tiene costo'],
+    ['sin_comision', 'No hay comisión para la lista de precios de la publicación'],
+    ['cofinanciada', 'Cuotas cofinanciadas por Mercado Libre: no hay lista de precios nuestra'],
+    ['sin_lista', 'El tipo de publicación no tiene lista de precios nuestra'],
+    ['sin_item_ml', 'La publicación todavía no está en la tienda sincronizada'],
+  ])('labels the %s reason', async (reason, label) => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier() }));
+    pxqAPI.getMarkup.mockResolvedValue(mockMarkup([{ tier_id: 1, reason }]));
+
+    renderPanel();
+
+    await screen.findByText('Precios mayoristas');
+    expect(await screen.findByText(label)).toBeInTheDocument();
+    expect(screen.queryByText(reason)).not.toBeInTheDocument();
+  });
+
   it('shows a neutral placeholder while the markup fetch is still in flight', async () => {
     pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier() }));
     let resolveMarkup;

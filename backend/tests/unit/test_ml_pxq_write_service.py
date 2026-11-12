@@ -29,6 +29,7 @@ from fastapi import HTTPException
 
 from app.core.security import get_password_hash
 from app.models.comision_versionada import ComisionBase, ComisionVersion
+from tests.services.pxq_store import store_rows
 from app.models.ml_pxq_tier import ESTADO_DESCONOCIDO, ESTADO_LISTO, ESTADO_SINCRONIZADO, MlPxqTier
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
@@ -100,6 +101,7 @@ def producto(db) -> ProductoERP:
 def publicacion(db, producto, comision_fixtures) -> PublicacionML:
     pub = PublicacionML(mla="MLA920001", item_id=producto.item_id, codigo="SKU-PXQ-WRITE", pricelist_id=4)
     db.add(pub)
+    db.add_all(store_rows(pub.mla, pub.item_id))  # the header's inputs the markup prices
     db.flush()
     return pub
 
@@ -795,6 +797,7 @@ class TestOverridePublicarSinMarkup:
         db.flush()
         pub = PublicacionML(mla="MLA940001", item_id=producto.item_id, codigo="SKU-PXQ-OVERRIDE", pricelist_id=4)
         db.add(pub)
+        db.add_all(store_rows(pub.mla, pub.item_id))
         db.flush()
         tier = MlPxqTier(
             publicacion_ml_id=pub.id,
@@ -1017,6 +1020,7 @@ class TestAuditTrailForPublishedPrices:
         db.flush()
         pub = PublicacionML(mla="MLA940002", item_id=producto.item_id, codigo="SKU-PXQ-OVERRIDE-AUDIT", pricelist_id=4)
         db.add(pub)
+        db.add_all(store_rows(pub.mla, pub.item_id))
         db.flush()
         tier = MlPxqTier(
             publicacion_ml_id=pub.id,
@@ -1190,18 +1194,17 @@ class TestAuditPublicacionLookupFailureIsIsolatedToo:
         ]
 
         # `resolve_pxq_pricing_context` (via `markup_for_tiers`, called EARLY in
-        # the gate) also queries `PublicacionML` -- so the failure has to be
-        # scoped to the SECOND such query (the audit lookup), not the first,
-        # or the sync would refuse before it ever reaches the write path and
-        # prove nothing about the bug under test.
+        # the gate) no longer reads `PublicacionML` (S11b: it prices the
+        # store's item and link), so the audit lookup is the ONLY such query
+        # in the sync: failing it proves the bug under test, and the gate
+        # still resolves the markup.
         real_query = db.query
         publicacion_query_count = {"n": 0}
 
         def failing_query(model, *args, **kwargs):
             if model is write_service.PublicacionML:
                 publicacion_query_count["n"] += 1
-                if publicacion_query_count["n"] >= 2:
-                    raise SQLAlchemyError("pool exhausted")
+                raise SQLAlchemyError("pool exhausted")
             return real_query(model, *args, **kwargs)
 
         monkeypatch.setattr(db, "query", failing_query)
@@ -1213,6 +1216,7 @@ class TestAuditPublicacionLookupFailureIsIsolatedToo:
         assert outcome["synced"] is True
         assert outcome["status"] == "sincronizado"
         assert outcome.get("audit_warning")
+        assert publicacion_query_count["n"] == 1  # the audit lookup, the one that failed
         # `db.query` is monkeypatched for the whole test, so re-reading via a
         # fresh query would recurse into the same failure -- use `db.get`
         # instead, exactly as the OTHER D6 failure-isolation test does.

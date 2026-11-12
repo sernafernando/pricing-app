@@ -32,6 +32,7 @@ from fastapi import HTTPException
 
 from app.core.security import get_password_hash
 from app.models.comision_versionada import ComisionBase, ComisionVersion
+from tests.services.pxq_store import store_rows
 from app.models.ml_pxq_tier import MlPxqTier
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
@@ -77,6 +78,7 @@ def producto(db) -> ProductoERP:
 def publicacion(db, producto) -> PublicacionML:
     pub = PublicacionML(mla="MLA9300001", item_id=producto.item_id, codigo=producto.codigo, pricelist_id=4)
     db.add(pub)
+    db.add_all(store_rows(pub.mla, pub.item_id))  # the header's inputs the markup prices
     db.flush()
     return pub
 
