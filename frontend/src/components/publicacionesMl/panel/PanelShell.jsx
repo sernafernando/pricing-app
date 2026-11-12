@@ -1,4 +1,5 @@
-import { X } from 'lucide-react';
+import { ChevronLeft, X } from 'lucide-react';
+import useIsPhone from '../../../hooks/useIsPhone';
 import styles from './panel.module.css';
 
 /**
@@ -19,17 +20,27 @@ import styles from './panel.module.css';
  * @param {import('react').ReactNode} [props.children] The panel's content.
  */
 export default function PanelShell({ title, meta, figures, onClose, loading = false, loadingLabel, error = null, onRetry, children }) {
+  // On a phone the panel is the whole screen (mobile-metricas-pubml S2): "‹ Publicaciones" goes back to the list.
+  const phone = useIsPhone();
   return (
     <div className={styles.panel}>
       <header className={styles.header}>
+        {phone && (
+          <button type="button" className={styles.phoneBack} onClick={onClose}>
+            <ChevronLeft size={18} aria-hidden="true" />
+            Publicaciones
+          </button>
+        )}
         <div className={styles.headerTop}>
           <div className={styles.identity}>
             <h2 className={styles.title}>{title}</h2>
             {meta}
           </div>
-          <button type="button" className={styles.close} aria-label="Cerrar panel" onClick={onClose}>
-            <X size={16} aria-hidden="true" />
-          </button>
+          {!phone && (
+            <button type="button" className={styles.close} aria-label="Cerrar panel" onClick={onClose}>
+              <X size={16} aria-hidden="true" />
+            </button>
+          )}
         </div>
         {figures}
       </header>

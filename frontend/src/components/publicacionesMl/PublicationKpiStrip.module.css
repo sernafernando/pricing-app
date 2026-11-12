@@ -209,3 +209,29 @@
 .segBad {
   background: var(--money-negative);
 }
+
+/* Phone (mobile-metricas-pubml S2): the period scrolls sideways if it must, and the cards are a sideways row. */
+@media (max-width: 768px) {
+  .toolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .toolbar button {
+    min-height: 44px;
+  }
+
+  .cards {
+    display: flex;
+    min-height: 0;
+    margin: 0 calc(-1 * var(--spacing-md));
+    padding: 0 var(--spacing-md);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .card {
+    flex: 0 0 148px;
+  }
+}

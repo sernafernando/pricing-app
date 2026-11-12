@@ -1,0 +1,70 @@
+/* The phone layout's bottom sheet: over the page and the TopBar, under a Tesla modal opened from it. */
+.layer {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-fixed);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-overlay);
+}
+
+.sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-height: 88dvh;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  outline: none;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-xs) var(--spacing-xs) var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.title {
+  flex-grow: 1;
+  margin: 0;
+  font-size: var(--font-lg);
+  font-weight: var(--font-semibold);
+}
+
+.close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cf-text-primary);
+  cursor: pointer;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  min-height: 0;
+  padding: var(--spacing-md);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.footer {
+  padding: var(--space-3) var(--spacing-md) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--cf-border-default);
+  background: var(--cf-bg-card);
+}

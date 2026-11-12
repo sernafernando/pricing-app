@@ -1,0 +1,211 @@
+/* Publicaciones ML's phone layout (mobile-metricas-pubml S2, S5): touch targets of 44px, nothing wider than 390px. */
+.page {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: calc(-1 * var(--spacing-md));
+  overflow-x: clip;
+  background: var(--cf-bg-app);
+  color: var(--cf-text-primary);
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--spacing-xs) var(--spacing-md) var(--space-3);
+  border-bottom: 1px solid var(--cf-border-default);
+  background: var(--cf-bg-card);
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.heading {
+  flex-grow: 1;
+  margin: 0;
+  font-size: var(--font-lg);
+  font-weight: var(--font-semibold);
+}
+
+.iconButton {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-base);
+  background: none;
+  color: var(--cf-text-primary);
+  cursor: pointer;
+}
+
+.titleRow .iconButton {
+  margin-right: -10px;
+}
+
+.search input {
+  min-height: 44px;
+  font-size: var(--font-base);
+}
+
+/* The kit's SegmentedControl, stretched to three equal segments. */
+.vista [role='group'] {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+}
+
+.vista button {
+  min-height: 44px;
+}
+
+.chips {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin: 0 calc(-1 * var(--spacing-md));
+  padding: 0 var(--spacing-md);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.chip {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 999px;
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font: inherit;
+  font-size: var(--font-sm);
+  cursor: pointer;
+}
+
+.chip[aria-pressed='true'] {
+  border-color: var(--cf-accent-blue);
+  background: var(--tone-info-bg);
+  color: var(--tone-info-fg);
+  font-weight: var(--font-medium);
+}
+
+.count {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--cf-accent-blue);
+  color: var(--text-inverse);
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+}
+
+.kpis {
+  padding: var(--space-3) var(--spacing-md) 0;
+}
+
+.banners {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--space-3) var(--spacing-md) 0;
+}
+
+.banners:empty {
+  display: none;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--space-3) var(--spacing-md) var(--spacing-md);
+}
+
+.listBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.listCount {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.sort {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.sortLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.sortSelect {
+  min-width: 0;
+  max-width: 160px;
+  min-height: 44px;
+  border: 0;
+  background: none;
+  color: var(--cf-accent-blue);
+  font: inherit;
+}
+
+.empty {
+  margin: var(--spacing-md) 0;
+  text-align: center;
+  color: var(--cf-text-secondary);
+}
+
+.more {
+  min-height: 44px;
+  border: 1px solid var(--cf-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font: inherit;
+  font-weight: var(--font-medium);
+  cursor: pointer;
+}
+
+.more:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.wideTable {
+  min-width: 0;
+  padding: var(--space-3) var(--spacing-md);
+}
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--spacing-sm);
+}
+
+.menu :global(.btn-tesla) {
+  justify-content: flex-start;
+  min-height: 44px;
+}
+
+.sheetFooter {
+  width: 100%;
+  min-height: 48px;
+}

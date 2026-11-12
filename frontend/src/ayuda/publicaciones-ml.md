@@ -20,6 +20,18 @@ Los números de los botones de filtro (estado, tipo, vínculo, stock y tienda) c
 
 **Limpiar filtros** vuelve al punto de partida.
 
+### En el celular
+
+En una pantalla de celular (hasta 768 px de ancho) la pantalla cambia para poder usarse con el dedo. Los datos, los filtros y el link son los mismos que en la computadora:
+
+- Arriba: la búsqueda, la vista (**Producto**, **Publicaciones** o **Agrupado**; **Precios** queda para la computadora) y una fila de botones que se desliza de costado: **Filtros** (con cuántos hay puestos) y los atajos **Activas**, **Pausadas**, **Markup negativo** (con permiso para ver la ganancia), **Sin stock ERP** y **Full**.
+- **Filtros** abre una hoja desde abajo con todos los filtros de la computadora. **Limpiar** los saca y **Ver N publicaciones** cierra la hoja.
+- El botón **⋯** de arriba a la derecha tiene **Pausar / activar**, las acciones masivas y la exportación a CSV o Sheets.
+- Los indicadores se deslizan de costado, con el período arriba.
+- Cada publicación es una tarjeta: foto, título, MLA, tipo, tienda y estado; **Ventas 30D**, **Markup**, **Stock** (el del ERP, con el de Full al lado) y **Ageing**, y cuántas variaciones tiene. Los precios no están en la tarjeta: se ven en el panel. En la vista **Producto**, una tarjeta por producto.
+- **Ordenar** elige la columna y la flecha de al lado cambia el sentido. **Cargar 20 más**, abajo de todo, trae las 20 publicaciones siguientes.
+- Al tocar una tarjeta, la publicación (o el producto) se abre en pantalla completa, con las mismas pestañas que en la computadora. **‹ Publicaciones** vuelve a la lista, donde estaba.
+
 **Filas por página** (abajo de la tabla) elige cuántas filas trae cada página. Con 200, 500 o **Todos**, la tabla dibuja solo las filas que se ven y va dibujando las demás al desplazarse, así la pantalla no se traba con miles de filas. Con **Todos**, además, las filas llegan de a 500: al acercarse al final de la lista se traen las 500 siguientes, hasta completarla. **Todos** trae todas las publicaciones que coinciden con los filtros, sin tope de cantidad, en una sola página. Las flechas, Inicio y Fin del teclado recorren las filas ya traídas.
 
 ## Filtros y columnas
