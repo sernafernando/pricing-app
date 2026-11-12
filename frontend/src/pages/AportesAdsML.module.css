@@ -238,7 +238,7 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  /* Keeps a long campaign name to two lines; on a narrow screen the table card scrolls instead. */
+  /* A long campaign name wraps instead of squeezing the column; on a narrow screen the table card scrolls. */
   min-width: 160px;
 }
 
@@ -303,10 +303,11 @@
 }
 
 .chip {
-  /* Fixed tracks: amount, settlement, range, actions sit on the same verticals in every row.
-     An amount or settlement wider than its track grows the track instead of overlapping the next one. */
+  /* Amount, settlement, range and actions sit on the same verticals in every row: the amount is at
+     least 14 characters of its own mono font (up to $ 9.999.999,99) and the settlement at least 4rem.
+     Anything wider grows its track instead of overlapping the next one. */
   display: grid;
-  grid-template-columns: minmax(6.5rem, max-content) minmax(4rem, max-content) max-content auto;
+  grid-template-columns: max-content minmax(4rem, max-content) max-content auto;
   align-items: center;
   column-gap: var(--spacing-sm);
   height: 28px;
@@ -314,6 +315,7 @@
 }
 
 .chip .chipValue {
+  min-width: 14ch;
   text-align: right;
 }
 

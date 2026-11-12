@@ -68,7 +68,8 @@ const CAMPAIGNS = [
   ]),
   campaign(353110945, 'Logitech MX Master & Periféricos', 650000, 321000, [
     contribution(4, 353110945, { value: 50, date_to: '2026-10-15' }),
-    contribution(5, 353110945, { kind: 'fixed_amount', value: 150000, settlement: 'full', date_from: '2026-10-16' }),
+    // A million-scale amount: the widest the amount column has to hold and still line up.
+    contribution(5, 353110945, { kind: 'fixed_amount', value: 1150000, settlement: 'full', date_from: '2026-10-16' }),
   ]),
   campaign(354029112, 'Samsung Monitores Essential 24"', 612300, 0, []),
   campaign(349102830, 'Brother Rotuladoras & Cintas P-Touch', 220000, 0, [], { status: 'paused' }),
@@ -180,6 +181,7 @@ describe('Aportes de marcas (Ads ML) (visual)', () => {
           expect(name.getBoundingClientRect().height).toBeLessThanOrEqual(42);
         }
         const states = [...document.querySelectorAll('td > span[class*="state"]')];
+        expect(states.length).toBeGreaterThan(0);
         expect(states.length).toBe(document.querySelectorAll('tbody tr').length);
         for (const state of states) expect(state.getBoundingClientRect().height).toBeLessThanOrEqual(24);
         // The add button has its own column, level with the row's first line.
