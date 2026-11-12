@@ -12,7 +12,7 @@ SQLite test database, like `test_sell_in_operaciones.py`.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -97,8 +97,22 @@ def test_each_option_carries_what_identifies_the_operation(client, gestor, prove
             "monto": "5000.50",
             "estado": "aprobado",
             "numero_factura": "A-0001-00001234",
+            "fecha_factura": None,
         }
     ]
+
+
+def test_an_option_says_whether_its_supplier_invoice_is_linked(client, gestor, proveedores, nuevo_pedido, db):
+    """Sell in factura pendiente S4: an invoice line may pick an operation still without its invoice; the picker
+    tells it apart by its invoice date."""
+    sin = nuevo_pedido(proveedores[0])
+    con = nuevo_pedido(proveedores[0], numero_factura="A-0001-00000009")
+    con.fecha_factura = date(2026, 10, 20)
+    db.flush()
+
+    items = {op["id"]: op["fecha_factura"] for op in client.get(URL, headers=gestor).json()["items"]}
+
+    assert items == {sin.id: None, con.id: "2026-10-20"}
 
 
 def test_without_text_lists_the_newest_first(client, gestor, proveedores, nuevo_pedido):
