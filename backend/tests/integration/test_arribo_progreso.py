@@ -122,7 +122,22 @@ def test_cubrir_total_no_cierra_solo_guardar(db, pedido_oc, active_user):
     assert all(l.pendiente_arribo == 0 for l in result.lineas)
 
 
-def test_marcar_completo_requiere_cobertura(db, pedido_oc, active_user):
+def test_one_click_confirmar_sin_progreso(db, pedido_oc, active_user):
+    """Without partial rows, confirmar still closes (legacy one-click arrival)."""
+    closed = recepcion_service.confirmar_arribo_con_oc(db, pedido_oc, active_user)
+    assert closed.estado_nuevo == "recibido"
+    assert pedido_oc.estado == "recibido"
+
+
+def test_marcar_completo_con_progreso_parcial_requiere_cobertura(db, pedido_oc, active_user):
+    recepcion_service.registrar_arribo_progreso(
+        db,
+        pedido_oc,
+        active_user,
+        RegistrarArriboProgresoRequest(
+            lineas=[ArriboProgresoLineaRequest(pod_id=1, cantidad=Decimal("30"))]
+        ),
+    )
     with pytest.raises(HTTPException) as exc:
         recepcion_service.confirmar_arribo_con_oc(db, pedido_oc, active_user)
     assert exc.value.status_code == 409
@@ -133,7 +148,7 @@ def test_marcar_completo_requiere_cobertura(db, pedido_oc, active_user):
         active_user,
         RegistrarArriboProgresoRequest(
             lineas=[
-                ArriboProgresoLineaRequest(pod_id=1, cantidad=Decimal("100")),
+                ArriboProgresoLineaRequest(pod_id=1, cantidad=Decimal("70")),
                 ArriboProgresoLineaRequest(pod_id=2, cantidad=Decimal("40")),
             ]
         ),
