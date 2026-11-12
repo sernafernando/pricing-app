@@ -1318,6 +1318,8 @@ describe('TabRecepcionDeposito — OC, producto/EAN and creado por filters', () 
     await renderWithCreadores();
 
     expect(screen.getByLabelText('Filtrar por número de OC')).toHaveValue('');
+    // Same human placeholder as Pedidos, never the internal column name.
+    expect(screen.getByLabelText('Filtrar por número de OC')).toHaveAttribute('placeholder', 'Nº OC…');
     expect(screen.getByLabelText('Filtrar por producto o EAN en OC')).toHaveValue('');
     expect(screen.getByLabelText('Filtrar por usuario que creó el pedido')).toHaveValue('');
     expect(screen.getByRole('option', { name: 'Beto Compras' })).toBeInTheDocument();

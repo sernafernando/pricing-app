@@ -1590,7 +1590,7 @@ export default function TabRecepcionDeposito() {
             className={styles.filterInput}
             value={qOc}
             onChange={(e) => setQOc(e.target.value.replace(/\D/g, ''))}
-            placeholder="poh_id…"
+            placeholder="Nº OC…"
             inputMode="numeric"
             aria-label="Filtrar por número de OC"
           />
