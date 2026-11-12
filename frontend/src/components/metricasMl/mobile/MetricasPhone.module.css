@@ -1,0 +1,346 @@
+/* Métricas ML on a phone (design `Main.dc.html`). Sized for 390px: nothing runs sideways but the period chips,
+   which scroll inside their own row; every tap target is at least 44px tall. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  /* The app shell pads its content 16px on a phone: the header and lists bleed to the screen edge like the design. */
+  margin: -16px;
+  background: var(--cf-bg-app);
+  color: var(--cf-text-primary);
+  font-size: 14px;
+}
+
+.header {
+  position: sticky;
+  top: var(--cf-topbar-height);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 16px 12px;
+  border-bottom: 1px solid var(--cf-border-default);
+  background: var(--cf-bg-card);
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.title {
+  flex-grow: 1;
+  margin: 0;
+  font-size: 18px;
+  font-weight: var(--font-semibold);
+}
+
+.freshness {
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+}
+
+.menuWrap {
+  position: relative;
+  margin-right: -10px;
+}
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: none;
+  color: var(--cf-text-primary);
+  cursor: pointer;
+}
+
+.menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  padding: 4px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: 10px;
+  background: var(--cf-bg-card);
+  box-shadow: var(--cf-card-shadow);
+}
+
+.menuItem {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--cf-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menuItem:hover,
+.menuItem:focus-visible {
+  background: var(--cf-bg-hover);
+}
+
+.search {
+  width: 100%;
+}
+
+.search input {
+  min-height: 44px;
+  font-size: 16px; /* 16px keeps iOS from zooming the page on focus. */
+}
+
+.periods {
+  display: flex;
+  gap: 8px;
+  margin: 0 -16px;
+  padding: 0 16px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.chip {
+  position: relative;
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 999px;
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* 36px drawn, 44px tapped. */
+.chip::after {
+  content: '';
+  position: absolute;
+  inset: -4px 0;
+}
+
+.chip[aria-pressed='true'] {
+  border-color: var(--cf-text-primary);
+  background: var(--cf-text-primary);
+  color: var(--cf-bg-card);
+  font-weight: var(--font-medium);
+}
+
+.customRange {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.dateField {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+}
+
+.dateField input {
+  min-height: 44px;
+  min-width: 0;
+  padding: 0 8px;
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 8px;
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font: inherit;
+  font-size: 16px;
+}
+
+.applyRange {
+  grid-column: 1 / -1;
+  min-height: 44px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--cf-accent-blue);
+  color: var(--text-inverse);
+  font: inherit;
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+}
+
+.applyRange:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.rangeProblem {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 12px;
+  color: var(--tone-danger-fg);
+}
+
+.toolbar {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.toolButton {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 8px;
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 10px;
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font: inherit;
+  font-weight: var(--font-medium);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.toolButton:focus-within {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+}
+
+/* The native select covers the whole sort button: the phone's own picker, no custom list to build. */
+.sortSelect {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--cf-accent-blue);
+  color: var(--text-inverse);
+  font-size: 12px;
+  font-weight: var(--font-semibold);
+}
+
+.activeChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activeChip {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--cf-accent-blue-light);
+  color: var(--cf-accent-blue);
+  font-size: 12px;
+}
+
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px 16px;
+}
+
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: 10px;
+  background: var(--cf-bg-card);
+}
+
+.kpiLabel,
+.kpiNote {
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+}
+
+.kpiValue {
+  font-size: 20px;
+  font-weight: var(--font-semibold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 16px 16px;
+}
+
+.listHead {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.listTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: var(--font-semibold);
+}
+
+.listCount {
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+}
+
+.empty,
+.moreError {
+  margin: 0;
+  padding: 16px 0;
+  font-size: 13px;
+  text-align: center;
+  color: var(--cf-text-secondary);
+}
+
+.moreError {
+  color: var(--tone-danger-fg);
+}
+
+.loadMore {
+  min-height: 44px;
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 10px;
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font: inherit;
+  font-weight: var(--font-medium);
+  cursor: pointer;
+}
+
+.tone_good {
+  color: var(--money-positive);
+}
+
+.tone_negative {
+  color: var(--money-negative);
+}

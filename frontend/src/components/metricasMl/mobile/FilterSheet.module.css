@@ -1,0 +1,190 @@
+/* The filters bottom sheet of a phone screen (design `MetricasFiltros.dc.html`). */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal-backdrop);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: var(--bg-overlay);
+}
+
+.sheet {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 64px);
+  overflow: hidden;
+  border-radius: 16px 16px 0 0;
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  outline: none;
+}
+
+.grip {
+  display: flex;
+  justify-content: center;
+  padding-top: 8px;
+}
+
+.grip span {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--cf-border-strong);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 8px 16px;
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: var(--font-semibold);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+}
+
+.clear {
+  min-height: 44px;
+  padding: 0 10px;
+  border: 0;
+  background: none;
+  color: var(--cf-accent-blue);
+  font: inherit;
+  cursor: pointer;
+}
+
+.close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: none;
+  color: var(--cf-text-primary);
+  cursor: pointer;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 14px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.legend {
+  margin-bottom: 8px;
+  padding: 0;
+  font-weight: var(--font-semibold);
+}
+
+/* The shared filter controls, wrapping instead of running sideways, with 44px touch targets. */
+.controls,
+.foldPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.controls > *,
+.foldPanel > * {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.controls button,
+.foldPanel button {
+  min-height: 44px;
+}
+
+.fold {
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.foldButton {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 16px;
+  border: 0;
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.foldText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.foldTitle {
+  font-weight: var(--font-semibold);
+}
+
+.foldHint {
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+}
+
+.chevron,
+.chevronOpen {
+  flex-shrink: 0;
+  color: var(--cf-text-secondary);
+  transition: transform 0.15s ease;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.foldPanel {
+  padding: 4px 16px 16px;
+}
+
+.footer {
+  padding: 12px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--cf-border-default);
+  background: var(--cf-bg-card);
+}
+
+.apply {
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--cf-accent-blue);
+  color: var(--text-inverse);
+  font: inherit;
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+}

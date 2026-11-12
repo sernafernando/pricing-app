@@ -22,6 +22,17 @@ La tabla lista los productos/publicaciones con sus métricas; al expandir una fi
 
 Si un filtro es rechazado por el tablero, aparece un aviso con el motivo.
 
+## En el celular
+
+En una pantalla angosta (celular, hasta 768 px de ancho) Métricas ML tiene su propia vista, con los mismos datos y los mismos filtros que en la computadora:
+
+- Arriba: el título, cuándo se actualizó y **⋯** con **Exportar CSV** y **Exportar a Sheets** (si está habilitado). Debajo, la búsqueda y los períodos (**Hoy**, **7d**, **Mes actual**, **30d**, **3m** y **Rango…** para elegir fechas); los períodos se deslizan de costado.
+- **Filtros** abre los filtros desde abajo: Agrupar por, Tienda, Stock y ventas, Ageing y Alertas a la vista, y **Producto**, **Publicación** y **Cálculo** (Publicidad, Costos TP, Comparar con) plegados, se abren con un toque. Cada filtro se aplica al tocarlo; **Ver N productos** cierra la hoja y **Limpiar** vuelve a los valores por defecto. El número de **Filtros** dice cuántos hay activos, y debajo se ven como etiquetas.
+- El botón de orden (por ejemplo **Facturado ↓**) elige por qué ordenar y en qué sentido.
+- Las tarjetas KPI van de a dos por fila.
+- Cada producto es una tarjeta: nombre, SKU · marca · publicaciones, **Unid. período**, **Markup** y **Facturado**, y al pie stock, ageing, última venta y la tendencia (o **Sin stock**). Al tocarla se abre con las ventas de 24H a 30D, el markup (vs anterior, mín / máx 90D, con sell in/out), Total Gauss, Costo, stock, ageing y última venta; **Ver sus n publicaciones** las lista debajo y **Menos datos** la cierra.
+- Se muestran 20 tarjetas; **Cargar 20 más** trae las siguientes con los mismos filtros.
+
 ## Filtros y columnas
 
 Filtros: fecha, búsqueda, tienda, producto, publicación (estado/tipo), stock, ageing, alertas, solo con ventas, agrupación, dimensión (en agrupado), publicidad, costos TP, comparación.
