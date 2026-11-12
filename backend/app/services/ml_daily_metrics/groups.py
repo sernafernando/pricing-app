@@ -158,14 +158,17 @@ class Dimension(NamedTuple):
     matches: Optional[Callable[[str], ColumnElement]] = None
 
 
+MAX_ID = 2**31 - 1  # the ids `_id_matches` compares are Postgres `integer` columns
+
+
 def _id_matches(column: Any) -> Callable[[str], ColumnElement]:
     """`case((column IS NULL, NO_GROUP), else_=cast(column, String)) == key`, on `column`."""
 
     def matches(key: str) -> ColumnElement:
         if key == NO_GROUP:
             return column.is_(None)
-        if not (key.isascii() and key.isdigit()) or str(int(key)) != key:
-            return false()  # never the text of an id
+        if not (key.isascii() and key.isdigit()) or str(int(key)) != key or int(key) > MAX_ID:
+            return false()  # never the text of an id (nor an id past `integer`: no row has it)
         return column == int(key)
 
     return matches

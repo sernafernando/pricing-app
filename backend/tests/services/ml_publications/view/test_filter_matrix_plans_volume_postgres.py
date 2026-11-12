@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -125,14 +126,27 @@ ALL = dict(
     hay_mejores_ofertas=None,
 )
 TREES = ("marca", "categoria", "subcategoria", "pm", "tienda")
-# (name, filter, promo set on top, Agrupado trees walked): every tree for a filter alone, the default one otherwise
+# CI walks one Agrupado tree per filter, in turn, so every tree is walked under every kind of filter; the full matrix
+# (every tree for every filter, about 47 min on the test server) runs on demand with PUBML_FILTER_MATRIX_FULL=1.
+FULL = pytest.mark.skipif(
+    not os.environ.get("PUBML_FILTER_MATRIX_FULL"), reason="the full matrix: run it with PUBML_FILTER_MATRIX_FULL=1"
+)
+TREE_OF = {name: (TREES[index % len(TREES)],) for index, name in enumerate(FILTERS)}
+# (name, filter, promo set on top, Agrupado trees walked)
 SCENARIOS = [
-    *((name, kwargs, False, TREES) for name, kwargs in FILTERS.items()),
-    *((f"{name} + promo", kwargs, True, ("marca",)) for name, kwargs in FILTERS.items()),
-    ("all", ALL, False, TREES),
-    ("all + promo", ALL, True, TREES),
-    ("promo", {}, True, TREES),
-    ("none", {}, False, TREES),
+    *(pytest.param(name, kwargs, False, TREE_OF[name], id=name) for name, kwargs in FILTERS.items()),
+    pytest.param("all", ALL, False, TREES, id="all"),
+    pytest.param("all + promo", ALL, True, TREES, id="all + promo"),
+    pytest.param("promo", {}, True, TREES, id="promo"),
+    pytest.param("none", {}, False, TREES, id="none"),
+    *(
+        pytest.param(f"{name} every tree", kwargs, False, TREES, marks=FULL, id=f"{name} every tree")
+        for name, kwargs in FILTERS.items()
+    ),
+]
+# Each filter with the promo set on top (the #2233 incident's shape), in its own module so CI runs it on another worker.
+PROMO_SCENARIOS = [
+    pytest.param(f"{name} + promo", kwargs, True, ("marca",), id=f"{name} + promo") for name, kwargs in FILTERS.items()
 ]
 PM_DDL = (
     "CREATE TABLE marcas_pm (id serial PRIMARY KEY, marca varchar(100) NOT NULL, categoria varchar(100) NOT NULL, "
@@ -363,8 +377,12 @@ def per_row_plans(document: dict[str, Any]) -> list[str]:
     return found
 
 
-@pytest.mark.parametrize("name, kwargs, promo, trees", SCENARIOS, ids=[s[0] for s in SCENARIOS])
+@pytest.mark.parametrize("name, kwargs, promo, trees", SCENARIOS)
 def test_no_read_runs_a_per_row_plan(session, name, kwargs, promo, trees) -> None:
+    assert_no_per_row_plan(session, name, kwargs, promo, trees)
+
+
+def assert_no_per_row_plan(session: Session, name: str, kwargs: dict[str, Any], promo: bool, trees: tuple) -> None:
     f = build(session, kwargs, promo)
     found: dict[str, list[str]] = {}
     worst, where = 0.0, ""
@@ -399,8 +417,8 @@ def comparable(value: Any) -> Any:
     return value
 
 
-def answers(session: Session, f: PublicationFilter) -> dict[str, Any]:
-    return {label: comparable(read()) for label, read in reads(session, f, TREES)}
+def answers(session: Session, f: PublicationFilter, trees: tuple[str, ...]) -> dict[str, Any]:
+    return {label: comparable(read()) for label, read in reads(session, f, trees)}
 
 
 def previous_shape(monkeypatch) -> None:
@@ -423,12 +441,26 @@ def previous_shape(monkeypatch) -> None:
         monkeypatch.setattr(module, "resolve_pm_pairs", unresolved_group)
 
 
-ORACLE = [*((name, kwargs, False) for name, kwargs in FILTERS.items()), ("all", ALL, False), ("all + promo", ALL, True)]
+# The oracle runs in `test_filter_matrix_oracle_volume_postgres.py` (another CI worker). Each filter + promo set
+# costs about 6 min there, so it runs with the full matrix only.
+ORACLE = [
+    *(pytest.param(name, kwargs, False, TREE_OF[name], id=name) for name, kwargs in FILTERS.items()),
+    pytest.param("all", ALL, False, TREES, id="all"),
+    pytest.param("all + promo", ALL, True, TREES, id="all + promo"),
+    *(
+        pytest.param(f"{name} + promo", kwargs, True, ("marca",), marks=FULL, id=f"{name} + promo")
+        for name, kwargs in FILTERS.items()
+    ),
+    *(
+        pytest.param(f"{name} every tree", kwargs, False, TREES, marks=FULL, id=f"{name} every tree")
+        for name, kwargs in FILTERS.items()
+    ),
+]
 
 
-@pytest.mark.parametrize("name, kwargs, promo", ORACLE, ids=[o[0] for o in ORACLE])
-def test_every_read_answers_what_the_previous_shapes_answered(session, monkeypatch, name, kwargs, promo) -> None:
+def assert_previous_answers(session: Session, monkeypatch, kwargs: dict[str, Any], promo: bool, trees: tuple) -> None:
+    """Every read answers what the previous shapes answered."""
     session.execute(text("SET LOCAL statement_timeout = '120s'"))  # the previous shapes are the slow ones
-    now = answers(session, build(session, kwargs, promo))
+    now = answers(session, build(session, kwargs, promo), trees)
     previous_shape(monkeypatch)
-    assert now == answers(session, build(session, kwargs, promo))
+    assert now == answers(session, build(session, kwargs, promo), trees)
