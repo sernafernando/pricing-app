@@ -2183,6 +2183,17 @@ class TestArriboEntryStatesInvariant:
         )
         db.add(p_con_oc)
         db.flush()
+        # Mark-complete requires covering every OC line via arribo progress first.
+        from app.schemas.recepcion import ArriboProgresoLineaRequest, RegistrarArriboProgresoRequest
+
+        recepcion_service.registrar_arribo_progreso(
+            db,
+            p_con_oc,
+            active_user,
+            RegistrarArriboProgresoRequest(
+                lineas=[ArriboProgresoLineaRequest(pod_id=1, cantidad=Decimal("100"))]
+            ),
+        )
         result_con_oc = recepcion_service.confirmar_arribo_con_oc(db, p_con_oc, active_user)
         assert result_con_oc.estado_nuevo == "recibido", f"CON-OC arrival must accept estado='{estado}'"
         assert p_con_oc.estado == "recibido"

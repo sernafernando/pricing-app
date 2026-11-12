@@ -455,6 +455,7 @@ def _pedido_response(
     factura_cargada: Optional[bool] = None,
     tiene_numero_factura: Optional[bool] = None,
     oc_match_status: Optional[str] = None,
+    arribo_en_curso: bool = False,
 ) -> PedidoCompraResponse:
     """Serializa PedidoCompra incluyendo empresa_nombre / proveedor_nombre.
 
@@ -503,6 +504,7 @@ def _pedido_response(
             "factura_cargada": factura_flag,
             "tiene_numero_factura": tiene_numero_flag,
             "oc_match_status": oc_match_status,
+            "arribo_en_curso": bool(arribo_en_curso),
             # F2 — varianza_tc_neta = None → fields stay at schema defaults (False/0).
             # Detail endpoint populates; list endpoints leave as defaults to avoid N+1.
             **(
@@ -724,6 +726,7 @@ def listar_pedidos(
             {p.id: (p.oc_comp_id, p.oc_bra_id, p.oc_poh_id) for p in items_page if p.oc_poh_id is not None},
         )
         chips_map = pedidos_service.chips_visibilidad_batch(db, page_ids)
+        arribo_curso_ids = recepcion_service.pedidos_con_arribo_en_curso(db, page_ids)
 
         return PedidoCompraPaginated(
             items=[
@@ -737,6 +740,7 @@ def listar_pedidos(
                     factura_cargada=chips_map.get(p.id, {}).get("factura_cargada"),
                     tiene_numero_factura=chips_map.get(p.id, {}).get("tiene_numero_factura"),
                     oc_match_status=chips_map.get(p.id, {}).get("oc_match_status"),
+                    arribo_en_curso=p.id in arribo_curso_ids and p.estado in recepcion_service.ESTADOS_ARRIBO,
                 )
                 for p in items_page
             ],
@@ -803,6 +807,7 @@ def listar_pedidos(
         {p.id: (p.oc_comp_id, p.oc_bra_id, p.oc_poh_id) for p in items if p.oc_poh_id is not None},
     )
     chips_map = pedidos_service.chips_visibilidad_batch(db, pedido_ids)
+    arribo_curso_ids = recepcion_service.pedidos_con_arribo_en_curso(db, pedido_ids)
     # These three aggregates feed the accounting fields only, so a warehouse-only
     # listing skips them entirely instead of computing and discarding them.
     if solo_deposito:
@@ -831,6 +836,7 @@ def listar_pedidos(
                 factura_cargada=chips_map.get(p.id, {}).get("factura_cargada"),
                 tiene_numero_factura=chips_map.get(p.id, {}).get("tiene_numero_factura"),
                 oc_match_status=chips_map.get(p.id, {}).get("oc_match_status"),
+                arribo_en_curso=p.id in arribo_curso_ids and p.estado in recepcion_service.ESTADOS_ARRIBO,
             )
             for p in items
         ],
@@ -989,6 +995,10 @@ def obtener_pedido(
             "factura_cargada": bool(chips.get("factura_cargada")),
             "tiene_numero_factura": bool(chips.get("tiene_numero_factura")),
             "oc_match_status": chips.get("oc_match_status"),
+            "arribo_en_curso": (
+                pedido.id in recepcion_service.pedidos_con_arribo_en_curso(db, [pedido.id])
+                and pedido.estado in recepcion_service.ESTADOS_ARRIBO
+            ),
             "factura_documentos": [
                 PedidoFacturaDocumentoResponse.model_validate(row)
                 for row in pedidos_service.listar_factura_documentos(db, pedido.id)
@@ -5956,9 +5966,12 @@ def obtener_saldo_a_favor_breakdown(
 
 from app.schemas.recepcion import (  # noqa: E402
     ConfirmarPedidoRequest,
+    ArriboProgresoResponse,
     ConfirmarPedidoResponse,
     DeshacerRecibidoResponse,
     EventosRecepcionResponse,
+    RegistrarArriboProgresoRequest,
+    RegistrarArriboProgresoResponse,
     RegistrarIngresosRequest,
     RegistrarIngresosResponse,
     ResolverFaltantesRequest,
@@ -6141,6 +6154,49 @@ def post_confirmar_pedido_recepcion(
         raise HTTPException(status_code=500, detail="Error al confirmar pedido.") from exc
 
     _commit_or_rollback(db, operacion="confirmar_pedido")
+    return result
+
+
+@router.get(
+    "/pedidos/{pedido_id}/recepcion/arribo-progreso",
+    response_model=ArriboProgresoResponse,
+    summary="Progreso de arribo/retiro pre-control por línea OC",
+)
+def get_arribo_progreso(
+    pedido_id: int,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso(recepcion_service.PERMISO_RECEPCION)),
+) -> ArriboProgresoResponse:
+    """Per-line arribo/retiro progress (separate from control tandas)."""
+    pedido = _obtener_pedido_recepcion_o_404(db, pedido_id)
+    return recepcion_service.get_arribo_progreso(db, pedido)
+
+
+@router.post(
+    "/pedidos/{pedido_id}/recepcion/arribo-progreso",
+    response_model=RegistrarArriboProgresoResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Registrar tanda de arribo/retiro parcial (CON OC)",
+)
+def post_arribo_progreso(
+    pedido_id: int,
+    request: RegistrarArriboProgresoRequest,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso(recepcion_service.PERMISO_RECEPCION)),
+) -> RegistrarArriboProgresoResponse:
+    """Append arribo/retiro qty; never auto-closes — mark-complete is separate."""
+    pedido = _obtener_pedido_recepcion_o_404(db, pedido_id)
+    try:
+        result = recepcion_service.registrar_arribo_progreso(db, pedido, user, request)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("registrar_arribo_progreso falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al registrar arribo/retiro.") from exc
+
+    _commit_or_rollback(db, operacion="registrar_arribo_progreso")
     return result
 
 
