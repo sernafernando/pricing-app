@@ -88,20 +88,78 @@ describe('reading the promotions', () => {
   });
 });
 
-describe('the Promociones page filter', () => {
-  it('does not leak into the tab: a type or name filter left in the store hides nothing here', async () => {
-    usePromoFilterStore.setState({ selectedTypes: ['LIGHTNING'], selectedNames: { DEAL: ['2x1'] } });
+describe('the promo filter (one setting for the user, shared with Productos)', () => {
+  it('applies a type or name filter left in the store and says so, so no promotion looks missing', async () => {
+    usePromoFilterStore.setState({ selectedTypes: ['SMART', 'DEAL'], selectedNames: { SMART: ['Smart promo'], DEAL: ['2x1', '3x2'] } });
     renderTab();
-    await waitFor(() => expect(screen.getByText('Smart promo')).toBeInTheDocument());
-    expect(screen.getByText('Deal of the day')).toBeInTheDocument();
-    expect(screen.queryByText(/sin promos del tipo filtrado/i)).not.toBeInTheDocument();
+    expect(await screen.findByText('Smart promo')).toBeInTheDocument();
+    expect(screen.queryByText('Deal of the day')).not.toBeInTheDocument();
+    expect(screen.getByText('Filtro: 2 tipos · 3 nombres')).toBeInTheDocument();
   });
 
-  it('leaves the global filter untouched', async () => {
-    usePromoFilterStore.setState({ selectedTypes: ['LIGHTNING'] });
+  it('shows no summary and hides nothing while no filter is set', async () => {
+    renderTab();
+    expect(await screen.findByText('Smart promo')).toBeInTheDocument();
+    expect(screen.getByText('Deal of the day')).toBeInTheDocument();
+    expect(screen.queryByText(/^Filtro:/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Quitar filtro' })).not.toBeInTheDocument();
+  });
+
+  it('is set from the tab header: the chips of the Productos filter bar narrow the list', async () => {
+    const user = userEvent.setup();
+    renderTab();
+    await screen.findByText('Deal of the day');
+    const toggle = screen.getByRole('button', { name: 'Filtrar promos' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await user.click(screen.getByRole('button', { name: 'Smart' }));
+    expect(screen.queryByText('Deal of the day')).not.toBeInTheDocument();
+    expect(screen.getByText('Smart promo')).toBeInTheDocument();
+    expect(screen.getByText('Filtro: 1 tipo')).toBeInTheDocument();
+    expect(usePromoFilterStore.getState().selectedTypes).toEqual(['SMART']);
+  });
+
+  it('keeps applying when the selected publication changes', async () => {
+    usePromoFilterStore.setState({ selectedTypes: ['DOD'] });
+    const { rerender } = renderTab('MLA1100000001');
+    expect(await screen.findByText('Deal of the day')).toBeInTheDocument();
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          { promotion_id: 'P8', promotion_type: 'SMART', name: 'Other smart', price: 10 },
+          { promotion_id: 'P9', promotion_type: 'DOD', name: 'Other deal', price: 10 },
+        ],
+      },
+    });
+    rerender(<PromocionesTab detail={readDetail(DETAIL_RESPONSE)} itemId="MLA1100000002" canSeeMargin={false} dataState={null} />);
+    expect(await screen.findByText('Other deal')).toBeInTheDocument();
+    expect(screen.queryByText('Other smart')).not.toBeInTheDocument();
+    expect(screen.getByText('Filtro: 1 tipo')).toBeInTheDocument();
+    expect(usePromoFilterStore.getState().selectedTypes).toEqual(['DOD']);
+  });
+
+  it('"Quitar filtro" clears it in one click and every promotion shows again', async () => {
+    const user = userEvent.setup();
+    usePromoFilterStore.setState({ selectedTypes: ['SMART'], selectedNames: { SMART: ['Smart promo'] } });
     renderTab();
     await screen.findByText('Smart promo');
-    expect(usePromoFilterStore.getState().selectedTypes).toEqual(['LIGHTNING']);
+    expect(screen.queryByText('Deal of the day')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Quitar filtro' }));
+    expect(await screen.findByText('Deal of the day')).toBeInTheDocument();
+    expect(screen.queryByText(/^Filtro:/)).not.toBeInTheDocument();
+    expect(usePromoFilterStore.getState()).toMatchObject({ selectedTypes: [], selectedNames: {} });
+  });
+
+  it('lists the names of the promotions loaded here in the "Nombres" modal', async () => {
+    const user = userEvent.setup();
+    renderTab();
+    await screen.findByText('Deal of the day');
+    await user.click(screen.getByRole('button', { name: 'Filtrar promos' }));
+    await user.click(screen.getByRole('button', { name: 'Nombres' }));
+    expect(await screen.findByText('Filtrar promos por nombre')).toBeInTheDocument();
+    expect(screen.getByLabelText('Smart promo')).toBeInTheDocument();
+    expect(screen.getByLabelText('Deal of the day')).toBeInTheDocument();
   });
 });
 

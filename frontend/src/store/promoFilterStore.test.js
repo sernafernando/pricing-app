@@ -84,4 +84,21 @@ describe('promoFilterStore', () => {
     expect(usePromoFilterStore.getState().selectedTypes).toEqual([]);
     expect(usePromoFilterStore.getState().selectedNames).toEqual({});
   });
+
+  it('persists the filter in this browser under a namespaced key, so it survives a reload', () => {
+    usePromoFilterStore.getState().toggleType('SMART');
+    usePromoFilterStore.getState().toggleName('SMART', 'Promo Smart');
+    const stored = JSON.parse(localStorage.getItem('promo-filter-store'));
+    expect(stored.state).toEqual({ selectedTypes: ['SMART'], selectedNames: { SMART: ['Promo Smart'] } });
+  });
+
+  it('restores a stored filter on rehydrate (a reload)', async () => {
+    localStorage.setItem(
+      'promo-filter-store',
+      JSON.stringify({ state: { selectedTypes: ['DEAL'], selectedNames: { DEAL: ['2x1'] } }, version: 0 }),
+    );
+    await usePromoFilterStore.persist.rehydrate();
+    expect(usePromoFilterStore.getState()).toMatchObject({ selectedTypes: ['DEAL'], selectedNames: { DEAL: ['2x1'] } });
+    expect(typeof usePromoFilterStore.getState().toggleType).toBe('function');
+  });
 });

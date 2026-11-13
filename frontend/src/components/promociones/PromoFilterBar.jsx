@@ -6,9 +6,10 @@ import PromoNameFilterModal from './PromoNameFilterModal';
 import { derivePromosByType } from './derivePromosByType';
 
 /**
- * GLOBAL filter bar — rendered once at the page level (not per-panel).
- * Toggling a chip filters the promo list of EVERY expanded MLA panel.
- * `promosCacheRef` (optional) is the Productos-owned promos cache; it's read
+ * GLOBAL filter bar — rendered once per page (Productos page, Publicaciones ML
+ * Promos tab header), not per MLA panel.
+ * Toggling a chip filters the promo list of EVERY MLA panel that shows promos.
+ * `promosCacheRef` (optional) is the host-owned promos cache; it's read
  * open-time only, to build the name universe for the "Nombres" mini-modal.
  */
 function PromoFilterBar({ promosCacheRef }) {
@@ -23,10 +24,17 @@ function PromoFilterBar({ promosCacheRef }) {
 
   // Local (component-specific) modal visibility; the snapshot is derived
   // only while the modal is open, since promosCacheRef is not reactive.
-  const promosByType = useMemo(
-    () => (nameModalOpen ? derivePromosByType(promosCacheRef) : {}),
-    [nameModalOpen, promosCacheRef],
-  );
+  // The filter is persisted, so a chosen name may belong to no promotion
+  // loaded right now: it is listed too, so it can still be unchecked.
+  const promosByType = useMemo(() => {
+    if (!nameModalOpen) return {};
+    const byType = derivePromosByType(promosCacheRef);
+    for (const [type, names] of Object.entries(selectedNames)) {
+      const loaded = byType[type] || [];
+      byType[type] = [...loaded, ...names.filter((name) => !loaded.includes(name))];
+    }
+    return byType;
+  }, [nameModalOpen, promosCacheRef, selectedNames]);
 
   return (
     <div className={styles.filterBar}>

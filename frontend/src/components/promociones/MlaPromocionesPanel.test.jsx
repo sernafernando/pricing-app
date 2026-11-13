@@ -1571,7 +1571,7 @@ describe('promotion rows on the column grid (redesign P1)', () => {
       { promotion_id: 'C1', promotion_type: 'DEAL', name: 'Deal candidata', status: 'candidate', price: 90 },
     ];
     promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions } });
-    const { unmount } = renderPanel({ pullOnOpen: false, sections: true, ignoreGlobalFilter: true });
+    const { unmount } = renderPanel({ pullOnOpen: false, sections: true });
     await screen.findByText('Deal activa');
     const headers = screen.getAllByTestId('promo-columns');
     expect(headers).toHaveLength(1);

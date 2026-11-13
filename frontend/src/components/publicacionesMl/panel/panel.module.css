@@ -1171,6 +1171,26 @@
   align-self: flex-start;
 }
 
+/* Promos tab header: the global promo filter (its toggle, the active-filter summary and its clear). */
+.promosFilter {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: var(--spacing-sm);
+}
+
+.promosFilterRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+}
+
+.promosFilterSummary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--brand-primary);
+}
+
 /* Phone (mobile-metricas-pubml S2, S5): the panel is the whole screen. "‹ Publicaciones" on top with the panel's own
    icons at its right, the figures in two columns, tabs and actions of 44px, the footer's actions side by side. */
 .phoneBar {
@@ -1194,6 +1214,13 @@
   font: inherit;
   font-weight: var(--font-medium);
   cursor: pointer;
+}
+
+/* Phone: the filter's toggle, clear and chips are touch targets of 44px, like the panel's other actions. */
+@media (max-width: 768px) {
+  .promosFilter button {
+    min-height: 44px;
+  }
 }
 
 @media (max-width: 768px) {

@@ -13,6 +13,7 @@ import { page, userEvent } from 'vitest/browser';
 import { MemoryRouter } from 'react-router-dom';
 import { setTheme, tokenColor } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
+import { usePromoFilterStore } from '../../store/promoFilterStore';
 import { promocionesAPI, publicacionesMlAPI } from '../../services/api';
 import { FACETS, ITEMS, ITEMS_RESPONSE, KPIS_RESPONSE_MARGIN, MARKUP_BREAKDOWN, makeDetail } from './publicacionesMlFixtures';
 
@@ -378,4 +379,33 @@ describe.each(['light', 'dark'])('Publicaciones ML at 390x844 (%s)', (theme) => 
     expect(scroller.querySelector('footer').getBoundingClientRect().bottom).toBeCloseTo(844, 0);
     scroller.scrollTop = 0;
   });
+
+  it('shows the promo filter in the Promos tab: summary, clear and chips fit the screen at 44px', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          { promotion_id: 'P1', promotion_type: 'SMART', name: 'Potencia tus ventas', price: 100 },
+          { promotion_id: 'P2', promotion_type: 'SMART', name: 'Ofertas compartidas CM', price: 95 },
+          { promotion_id: 'P3', promotion_type: 'DEAL', name: 'MKP T1 CYBER MONDAY NOV', price: 90 },
+        ],
+      },
+    });
+    usePromoFilterStore.setState({ selectedTypes: ['SMART', 'DEAL'], selectedNames: { SMART: ['Potencia tus ventas'] } });
+    try {
+      const screen = await renderPhone({ theme, entry: '/ml-publicaciones?sel=MLA1100000001' });
+      const panel = screen.getByRole('complementary', { name: 'Detalle de la publicación' });
+      await expect.element(panel.getByText('Potencia tus ventas')).toBeVisible();
+      await expect.element(panel.getByText('Filtro: 2 tipos · 1 nombre')).toBeVisible();
+      expect(panel.element().textContent).not.toContain('Ofertas compartidas CM');
+      await panel.getByRole('button', { name: 'Filtrar promos' }).click();
+      await expect.element(panel.getByRole('button', { name: 'Smart' })).toBeVisible();
+      const filter = panel.getByRole('button', { name: 'Quitar filtro' }).element().parentElement.parentElement;
+      expect(shortTargets(filter)).toEqual([]);
+      noSidewaysScroll();
+      await shot(`pubml-phone-promo-filter-${theme}`);
+    } finally {
+      usePromoFilterStore.getState().clear();
+    }
+  });
 });
+

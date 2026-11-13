@@ -20,6 +20,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { contrastRatio, rgba, setTheme, tokenColor } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
 import { useTreeViewStore } from '../../store/treeViewStore';
+import { usePromoFilterStore } from '../../store/promoFilterStore';
 import { resetPromoPulls } from '../../components/promociones/promoPullTtl';
 import { equiposAPI, mlItemOverridesAPI, offsetsGananciaAPI, preciosAPI, productosAPI, productosPropiosAPI, promocionesAPI, publicacionesMlAPI, pxqAPI } from '../../services/api';
 import { PRODUCTO_CON_REBATE_Y_OFERTA, SELL_IN_OUT } from '../../components/pricing/ProductPrices.fixtures';
@@ -4078,6 +4079,37 @@ describe('Publicaciones ML, Ver competencia open (visual)', () => {
       expect(rect(scrollerOf()).right).toBeLessThanOrEqual(rect(panelOf()).left + 0.5);
       fitsSideways(1440);
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/competencia-1440-angosto-${theme}.png`, element: document.querySelector('[data-split-grid]') });
+      screen.unmount();
+    });
+  }
+});
+
+// The global promo filter in the Promos tab header (pubml-filtro-promos S3): a filter set in Productos or here
+// applies to the panel, says so with a one-click clear, and its bar fits the panel.
+describe('Publicaciones ML panel, the promo filter in the Promos tab (visual)', () => {
+  afterEach(() => usePromoFilterStore.getState().clear());
+
+  for (const theme of THEMES) {
+    it(`1440x900 ${theme}: with a filter active the tab says so, hides what it filters and its bar fits the panel`, async () => {
+      usePromoFilterStore.setState({ selectedTypes: ['SMART', 'DEAL'], selectedNames: { SMART: ['Potencia tus ventas'] } });
+      const screen = await renderWithPanel({ width: 1440, height: 900, theme, tab: '', margin: true, promotions: S9_PROMOTIONS });
+      await expect.element(screen.getByText('MKP T1 CYBER MONDAY NOV')).toBeVisible();
+      const panel = panelOf();
+      const summary = screen.getByText('Filtro: 2 tipos · 1 nombre');
+      await expect.element(summary).toBeVisible();
+      expect(getComputedStyle(summary.element()).color).toBe(tokenColor('--brand-primary'));
+      expect(panel.textContent).not.toContain('Ofertas compartidas CM');
+      expect(panel.textContent).not.toContain('PVP LYONN');
+      expect(panel.textContent).toContain('Potencia tus ventas');
+      const clear = screen.getByRole('button', { name: 'Quitar filtro' });
+      const toggle = screen.getByRole('button', { name: 'Filtrar promos' });
+      const middle = (el) => rect(el).top + rect(el).height / 2;
+      expect(Math.abs(middle(clear.element()) - middle(toggle.element()))).toBeLessThan(2);
+      await userEvent.click(toggle);
+      await expect.element(screen.getByRole('button', { name: 'Smart' })).toHaveAttribute('aria-pressed', 'true');
+      await frame();
+      expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/promo-filter-1440-${theme}.png`, element: panel });
       screen.unmount();
     });
   }
