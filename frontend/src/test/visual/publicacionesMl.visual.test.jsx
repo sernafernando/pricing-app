@@ -3488,6 +3488,53 @@ describe('Publicaciones ML panel, the whole S9 design (visual)', () => {
   }
 });
 
+// pubml-promo-mejor S5: the "promo mejor" card compares each candidate with the applied promo (same figures, the
+// markup delta as the one accent), or with the sale price when nothing is applied ("Sin promo aplicada").
+describe('Publicaciones ML panel, promo mejor vs the applied promo (visual)', () => {
+  const sinAplicada = S9_PROMOTIONS.filter((promo) => promo.application_status !== 'active');
+
+  for (const { width, height } of [
+    { width: 1440, height: 1100 },
+    { width: 390, height: 1400 },
+  ]) {
+    for (const theme of THEMES) {
+      for (const [variant, promotions] of [
+        ['aplicada', S9_PROMOTIONS],
+        ['sin-aplicada', sinAplicada],
+      ]) {
+        it(`${width}x${height} ${theme} ${variant}: the reference row and the candidates line up and fit`, async () => {
+          promocionesAPI.getMarkupParaPrecio.mockImplementation((_mla, price) =>
+            Promise.resolve({ data: { nuestro_markup: Number(price) === 59999 ? -28.74 : null } }),
+          );
+          const screen = await renderWithPanel({
+            width,
+            height,
+            theme,
+            tab: '',
+            margin: true,
+            promotions,
+            rowExtra: { ...S9_ROW, hay_mejores_ofertas: true },
+            detailExtra: { can_resync: true, can_change_status: true },
+          });
+          await expect.element(screen.getByRole('button', { name: 'Aplicar sugerencia' }).first()).toBeVisible();
+          const reference = screen.getByRole('group', { name: variant === 'aplicada' ? 'Promo aplicada' : 'Sin promo aplicada' });
+          await expect.element(reference).toBeVisible();
+          await expect.element(screen.getByText(/pp vs (aplicada|actual)/).first()).toBeVisible();
+          await frame();
+          const panel = panelOf();
+          expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+          const region = panel.querySelector('[role="region"][aria-label="Candidatas mejores"]');
+          expect(region.scrollWidth).toBeLessThanOrEqual(region.clientWidth + 1);
+          if (PRODUCT_SHOTS_DIR) {
+            await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/promo-mejor-${variant}-${width}-${theme}.png`, element: region });
+          }
+          screen.unmount();
+        });
+      }
+    }
+  }
+});
+
 // promos-markup-sell-in-out: the same panel with the markup with sell in / sell out next to every promo markup
 // (rows, the suggestion card and its "Markup vigente" line, the LIGHTNING card). The figures are the S9 markups
 // plus a sell out credit worth 6.4 points of markup, as the backend sends them.

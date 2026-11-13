@@ -1056,14 +1056,23 @@
   color: var(--cf-text-primary);
 }
 
+/* A grid with the same four figure columns on every row, so the applied promo and each candidate line up. */
 .mejoresCard {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--spacing-md);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--spacing-sm) var(--spacing-md);
   padding: var(--spacing-sm) var(--spacing-md);
   border: 1px solid var(--cf-border-default);
   border-radius: 6px;
+}
+
+.mejoresHead {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: var(--spacing-md);
+  min-width: 0;
 }
 
 .mejoresMain {
@@ -1077,8 +1086,33 @@
 .mejoresFigure {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: 2px;
+  min-width: 0;
+}
+
+/* One line per figure: the four columns read across rows without a wrapped date or share. */
+.mejoresFigure .mejoresValue {
+  font-size: var(--font-sm);
+  white-space: nowrap;
+}
+
+/* The applied promo (or the sale price without one): the comparison's reference row, quieter than the candidates. */
+.mejoresCardApplied {
+  background: var(--cf-bg-hover);
+  border-style: dashed;
+}
+
+/* The one accent of the card: how much each candidate beats the reference row by. */
+.mejoresDelta {
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--cf-accent-blue);
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .mejoresCard { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .mejoresEyebrow {
@@ -1104,7 +1138,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: var(--spacing-sm);
-  margin-left: auto;
+  grid-column: 1 / -1;
 }
 
 .ponerPreciosChoiceLabel { font-weight: var(--font-semibold); color: var(--cf-text-primary); }

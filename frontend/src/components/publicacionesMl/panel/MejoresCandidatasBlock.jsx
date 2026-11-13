@@ -12,7 +12,9 @@ import {
   CHOOSER_SLOT_LABELS,
   baselineMarkupFromPromos,
   baselineSellInOutFromPromos,
+  comparableMarkups,
   hasPickedSlot,
+  parsePromoInstant,
   pickMejoresCandidatas,
   slotEntries,
 } from './pickPonerPreciosPromos';
@@ -31,6 +33,68 @@ const SLOT_BADGE = {
 };
 
 const pct = (value) => `${formatAmount(value)}%`;
+
+// dd/mm of an ML promotion date; naive values are UTC (parsePromoInstant), shown in the operator's time zone.
+function shortDate(value) {
+  const ms = parsePromoInstant(value);
+  if (ms == null) return null;
+  const date = new Date(ms);
+  return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function dateRange(promo) {
+  const start = shortDate(promo?.start_date);
+  const finish = shortDate(promo?.finish_date);
+  if (start && finish) return `${start} – ${finish}`;
+  if (finish) return `hasta ${finish}`;
+  if (start) return `desde ${start}`;
+  return 'Sin fecha';
+}
+
+function shares(promo) {
+  const seller = promo?.payload?.seller_percentage;
+  const meli = promo?.payload?.meli_percentage;
+  if (seller == null && meli == null) return '—';
+  return `${seller != null ? pct(seller) : '—'} / ${meli != null ? pct(meli) : '—'}`;
+}
+
+/** Markup delta of a candidate vs the applied promo (or the sale price), on the basis `comparableMarkups` picks. */
+function markupDelta(promo, statusQuo) {
+  const [candidate, current] = comparableMarkups(promo, statusQuo);
+  if (candidate == null || current == null) return null;
+  const delta = candidate - current;
+  return `${delta >= 0 ? '+' : '−'}${formatAmount(Math.abs(delta))} pp`;
+}
+
+/** The figures every row shows, the applied promo and each candidate alike, so they compare like for like. */
+function PromoFigures({ price, markup, sellInOut, sharesText, dates, delta, deltaLabel }) {
+  return (
+    <>
+      <span className={styles.mejoresFigure}>
+        <span className={styles.mejoresEyebrow}>Precio</span>
+        <span className={styles.mejoresValue}>{price != null ? `$ ${formatAmount(price)}` : '—'}</span>
+      </span>
+      <span className={styles.mejoresFigure}>
+        <span className={styles.mejoresEyebrow}>Markup</span>
+        <span className={`${styles.mejoresValue} ${markupTone(markup)}`}>{markup != null ? pct(markup) : '—'}</span>
+        <SellInOutMarkupExtra value={sellInOut} format={pct} />
+        {delta && (
+          <span className={styles.mejoresDelta} aria-label={`${delta} ${deltaLabel}`}>
+            {delta} {deltaLabel}
+          </span>
+        )}
+      </span>
+      <span className={styles.mejoresFigure}>
+        <span className={styles.mejoresEyebrow}>Vend. / ML</span>
+        <span className={styles.mejoresValue}>{sharesText}</span>
+      </span>
+      <span className={styles.mejoresFigure}>
+        <span className={styles.mejoresEyebrow}>Vigencia</span>
+        <span className={styles.mejoresValue}>{dates}</span>
+      </span>
+    </>
+  );
+}
 
 function markupTone(value) {
   return value != null && Number(value) < 0 ? styles.mejoresMarkupNegative : styles.mejoresMarkupPositive;
@@ -71,6 +135,8 @@ export default function MejoresCandidatasBlock({
   const [slots, setSlots] = useState(null);
   const [baselineMarkup, setBaselineMarkup] = useState(null);
   const [baselineSellInOut, setBaselineSellInOut] = useState(null);
+  // The promo ML applies today (`application_status === 'active'`), null when none: the comparison's left side.
+  const [applied, setApplied] = useState(null);
   const [message, setMessage] = useState(null);
   const [descartando, setDescartando] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
@@ -114,6 +180,7 @@ export default function MejoresCandidatasBlock({
         }
         setBaselineMarkup(markup);
         setBaselineSellInOut(sellInOut);
+        setApplied(promotions.find((promo) => promo?.application_status === 'active') ?? null);
         const picked = pickMejoresCandidatas(promotions, {
           baselinePrice: Number(baselinePrice),
           // Compared like the backend flag (S5): with sell in / sell out only when both sides have it.
@@ -171,6 +238,49 @@ export default function MejoresCandidatasBlock({
         {sellInOutText(baselineSellInOut, pct)}.
       </>
     ) : null;
+  // What each candidate is compared against: the applied promo, else today's sale price with its markup.
+  const statusQuo = applied
+    ? { nuestro_markup: applied.nuestro_markup, markup_sell_in_out: applied.markup_sell_in_out }
+    : { nuestro_markup: baselineMarkup, markup_sell_in_out: baselineSellInOut };
+  const deltaLabel = applied ? 'vs aplicada' : 'vs actual';
+  const appliedCard = applied ? (
+    <li className={`${styles.mejoresCard} ${styles.mejoresCardApplied}`} role="group" aria-label="Promo aplicada">
+      <span className={styles.mejoresHead}>
+        <span className={`${promoStyles.badge} ${SLOT_BADGE[applied.promotion_type] || promoStyles.badgeTypeNeutral}`}>
+          {applied.promotion_type}
+        </span>
+        <span className={styles.mejoresMain}>
+          <span className={styles.mejoresEyebrow}>Promo aplicada</span>
+          <span className={styles.mejoresName}>{resolvePromoName(applied) || applied.promotion_id}</span>
+        </span>
+      </span>
+      <PromoFigures
+        price={promoDisplayPrice(applied)}
+        markup={applied.nuestro_markup}
+        sellInOut={applied.markup_sell_in_out}
+        sharesText={shares(applied)}
+        dates={dateRange(applied)}
+      />
+    </li>
+  ) : (
+    <li className={`${styles.mejoresCard} ${styles.mejoresCardApplied}`} role="group" aria-label="Sin promo aplicada">
+      <span className={styles.mejoresHead}>
+        <span className={`${promoStyles.badge} ${promoStyles.badgeTypeNeutral}`}>Actual</span>
+        <span className={styles.mejoresMain}>
+          <span className={styles.mejoresEyebrow}>Sin promo aplicada</span>
+          <span className={styles.mejoresName}>Precio de venta actual</span>
+        </span>
+      </span>
+      <PromoFigures
+        price={baselinePrice != null && Number.isFinite(Number(baselinePrice)) ? Number(baselinePrice) : null}
+        markup={baselineMarkup}
+        sellInOut={baselineSellInOut}
+        sharesText="—"
+        dates="—"
+      />
+    </li>
+  );
+
   const discardButton = (
     <button type="button" className="btn-tesla ghost sm" disabled={descartando} onClick={discard}>
       {descartando ? 'Descartando…' : 'Descartar sugerencia'}
@@ -192,28 +302,29 @@ export default function MejoresCandidatasBlock({
         <>
           {lead(vigente)}
           <ul className={styles.ponerPreciosChoices}>
+            {appliedCard}
             {entries.map(([slot, promo], index) => {
               const price = promoDisplayPrice(promo);
               return (
                 <li key={slot} className={styles.mejoresCard} role="group" aria-label={`Promo sugerida ${CHOOSER_SLOT_LABELS[slot] || slot}`}>
-                  <span className={`${promoStyles.badge} ${SLOT_BADGE[slot] || promoStyles.badgeTypeNeutral}`}>
-                    {CHOOSER_SLOT_LABELS[slot] || slot}
-                  </span>
-                  <span className={styles.mejoresMain}>
-                    <span className={styles.mejoresEyebrow}>Promo sugerida</span>
-                    <span className={styles.mejoresName}>{resolvePromoName(promo) || promo.promotion_id}</span>
-                  </span>
-                  <span className={styles.mejoresFigure}>
-                    <span className={styles.mejoresEyebrow}>Precio</span>
-                    <span className={styles.mejoresValue}>{price != null ? `$ ${formatAmount(price)}` : '—'}</span>
-                  </span>
-                  <span className={styles.mejoresFigure}>
-                    <span className={styles.mejoresEyebrow}>Markup</span>
-                    <span className={`${styles.mejoresValue} ${markupTone(promo.nuestro_markup)}`}>
-                      {promo.nuestro_markup != null ? `${formatAmount(promo.nuestro_markup)}%` : '—'}
+                  <span className={styles.mejoresHead}>
+                    <span className={`${promoStyles.badge} ${SLOT_BADGE[slot] || promoStyles.badgeTypeNeutral}`}>
+                      {CHOOSER_SLOT_LABELS[slot] || slot}
                     </span>
-                    <SellInOutMarkupExtra value={promo.markup_sell_in_out} format={pct} />
+                    <span className={styles.mejoresMain}>
+                      <span className={styles.mejoresEyebrow}>Promo sugerida</span>
+                      <span className={styles.mejoresName}>{resolvePromoName(promo) || promo.promotion_id}</span>
+                    </span>
                   </span>
+                  <PromoFigures
+                    price={price}
+                    markup={promo.nuestro_markup}
+                    sellInOut={promo.markup_sell_in_out}
+                    sharesText={shares(promo)}
+                    dates={dateRange(promo)}
+                    delta={markupDelta(promo, statusQuo)}
+                    deltaLabel={deltaLabel}
+                  />
                   <span className={styles.mejoresActions}>
                     {index === 0 && discardButton}
                     <PromoApplyControl

@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { cwd } from 'node:process';
 import { describe, it, expect } from 'vitest';
 import {
   baselineMarkupFromPromos,
@@ -6,8 +9,10 @@ import {
   enrollBodyForPromo,
   esMejorOferta,
   hasPickedSlot,
+  isApplicableNow,
   listRowForPricelist,
   pickMejoresCandidatas,
+  parsePromoInstant,
   pickPonerPreciosPromos,
   pricesClose,
   comparableMarkups,
@@ -359,5 +364,48 @@ describe('ranking with sell in / sell out (S5)', () => {
     // The status quo has none: B's 30 is never compared against a plain 21.
     const b = candidate('B', 'SMART', 1000, 20, 30);
     expect(pickMejoresCandidatas([b], { baselinePrice: 1000, baselineMarkup: 21, baselineSellInOut: null }).SMART).toBeNull();
+  });
+});
+
+/**
+ * The applicable-now rule (pubml-promo-mejor S2) on the SAME cases the backend runs: read from the backend's fixture
+ * (vitest runs from `frontend/`), so a case added there runs here too.
+ */
+const applicableCases = JSON.parse(
+  readFileSync(resolve(cwd(), '../backend/tests/fixtures/candidata_aplicable_cases.json'), 'utf8'),
+);
+
+describe('isApplicableNow (shared with backend candidata_aplicable_ahora)', () => {
+  const now = new Date(applicableCases.now);
+  it.each(applicableCases.cases)('$name', ({ entry, applicable }) => {
+    const { type, ...rest } = entry;
+    const promo = { status: 'candidate', promotion_type: type, ...rest };
+    expect(isApplicableNow(promo, { now, monthName: 'noviembre' })).toBe(applicable);
+  });
+
+  it('reads naive dates as UTC, not as local time', () => {
+    expect(parsePromoInstant('2026-11-13T10:00:00')).toBe(Date.UTC(2026, 10, 13, 10));
+    expect(parsePromoInstant('2026-11-13', { endOfDay: true })).toBe(Date.UTC(2026, 10, 14));
+    expect(parsePromoInstant('soon')).toBeNull();
+  });
+});
+
+describe('pickMejoresCandidatas drops candidates not applicable now', () => {
+  const now = new Date('2026-11-13T15:00:00Z');
+  const base = { baselinePrice: 100000, baselineMarkup: 10, now, monthName: 'noviembre' };
+  const smart = (id, extra) => ({ status: 'candidate', promotion_type: 'SMART', promotion_id: id, price: 90000, nuestro_markup: 15, ...extra });
+
+  it('drops a candidate that starts in 10 days', () => {
+    expect(pickMejoresCandidatas([smart('FUT', { start_date: '2026-11-23T00:00:00' })], base).SMART).toBeNull();
+  });
+
+  it('drops an expired candidate', () => {
+    expect(pickMejoresCandidatas([smart('EXP', { finish_date: '2026-11-12T23:59:59' })], base).SMART).toBeNull();
+  });
+
+  it('keeps the applicable one when a better future one exists', () => {
+    const later = smart('FUT', { start_date: '2026-11-23T00:00:00', nuestro_markup: 30 });
+    const today = smart('NOW', { start_date: '2026-11-01T00:00:00', finish_date: '2026-11-30T23:59:59' });
+    expect(pickMejoresCandidatas([later, today], base).SMART.promotion_id).toBe('NOW');
   });
 });
