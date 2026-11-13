@@ -8,6 +8,7 @@ import { COLORES_DISPONIBLES } from '../../utils/productosConstants';
 import { apiErrorMessage } from '../../utils/apiErrorMessage';
 import { paintPublications } from './paintPublications';
 import styles from './PaintColorMenu.module.css';
+import buttonStyles from './toolbarButton.module.css';
 
 const plural = (n, one, many) => (n === 1 ? one : many);
 
@@ -113,7 +114,7 @@ export default function PaintColorMenu({ checked, offPageCount = 0, equipo, onPa
       <button
         ref={triggerRef}
         type="button"
-        className="btn-tesla outline-subtle-primary sm"
+        className={`btn-tesla sm ${buttonStyles.quiet}`}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={label}

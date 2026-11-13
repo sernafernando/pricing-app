@@ -83,7 +83,7 @@ vi.mock('../contexts/PermisosContext', () => ({
   PermisosProvider: ({ children }) => children,
 }));
 
-const modeButton = () => screen.getByRole('button', { name: 'MODO PONER PRECIOS' });
+const modeButton = () => screen.getByRole('button', { name: 'Poner precios' });
 
 async function page(entry = '/ml-publicaciones') {
   renderWithRouter(<PublicacionesML />, { initialEntries: [entry] });
@@ -122,7 +122,7 @@ describe('MODO PONER PRECIOS shell', () => {
   it('hides the button without promos.escribir', async () => {
     canWritePromos = false;
     await page();
-    expect(screen.queryByRole('button', { name: 'MODO PONER PRECIOS' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Poner precios' })).not.toBeInTheDocument();
   });
 
   it('activates: hides vista, forces publicacion, applies column preset, collapses filters', async () => {

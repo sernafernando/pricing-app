@@ -22,8 +22,8 @@ export default function ProductFilters({ filters, setFilters, labelClassName, fa
 
   return (
     <div className={styles.group}>
-      <span className={labelClassName}>Producto:</span>
-      <ProductFiltersPanel value={value} onChange={(next) => setFilters(fromPanelValue(next))} options={options} />
+      <span className={labelClassName}>Producto</span>
+      <ProductFiltersPanel compact value={value} onChange={(next) => setFilters(fromPanelValue(next))} options={options} />
       {chips.length > 0 && (
         <ul className={styles.chips} aria-label="Filtros de producto activos">
           {chips.map((chip) => (

@@ -3,9 +3,10 @@ import { FilterX, SlidersHorizontal, X } from 'lucide-react';
 import { EMPTY_PRESENCE_FILTERS, MARKUP_SIGN_FILTERS, PRESENCE_FILTERS, activePresenceChips } from './presenceFilters';
 import chipStyles from './ProductFilters.module.css';
 import styles from './PresenceFilters.module.css';
+import buttonStyles from './toolbarButton.module.css';
 
 /**
- * The "Presencia:" group of the Publicaciones ML filter card: Productos' "Filtros de Presencia" (rebate, mejor
+ * The "Presencia" button of the Publicaciones ML filter card: Productos' "Filtros de Presencia" (rebate, mejor
  * oferta, web transferencia, Tienda Nube, out of cards) plus its Precio and Productos Nuevos selects, each a
  * Todos / con / sin select as in Productos. Like Productos keeps them behind "Filtros Avanzados", they sit in a
  * panel behind one button, so the filter card does not grow a row (the list's table must keep its header on screen at 1366x768). One removable chip per active
@@ -14,9 +15,9 @@ import styles from './PresenceFilters.module.css';
  *
  * With `canSeeMargin` the panel also offers Productos' four markup selects.
  *
- * @param {{filters: object, setFilters: (updates: object) => void, labelClassName?: string, canSeeMargin?: boolean}} props
+ * @param {{filters: object, setFilters: (updates: object) => void, canSeeMargin?: boolean}} props
  */
-export default function PresenceFilters({ filters, setFilters, labelClassName, canSeeMargin = false }) {
+export default function PresenceFilters({ filters, setFilters, canSeeMargin = false }) {
   const [open, setOpen] = useState(false);
   const offered = canSeeMargin ? [...PRESENCE_FILTERS, ...MARKUP_SIGN_FILTERS] : PRESENCE_FILTERS;
   const containerRef = useRef(null);
@@ -43,11 +44,10 @@ export default function PresenceFilters({ filters, setFilters, labelClassName, c
 
   return (
     <div className={chipStyles.group}>
-      <span className={labelClassName}>Presencia:</span>
       <div className={styles.anchor} ref={containerRef} onKeyDown={closeOnEscape}>
         <button
           type="button"
-          className="btn-tesla outline sm"
+          className={`btn-tesla sm ${buttonStyles.quiet} ${buttonStyles.chipSize}`}
           data-filter="presencia"
           aria-expanded={open}
           aria-label={label}
@@ -55,7 +55,7 @@ export default function PresenceFilters({ filters, setFilters, labelClassName, c
           onClick={() => setOpen((was) => !was)}
         >
           <SlidersHorizontal size={14} aria-hidden="true" />
-          Filtros
+          Presencia
           {chips.length > 0 && <span className={styles.count}>{chips.length}</span>}
         </button>
         {open && (

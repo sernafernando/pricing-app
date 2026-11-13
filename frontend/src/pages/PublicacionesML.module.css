@@ -6,17 +6,17 @@
   padding: var(--spacing-lg);
 }
 
+/* The title, then the actions in one row under it: the view on the left, the tools and "Poner precios" on the
+   right. */
 .header {
   display: flex;
-  align-items: flex-end;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: var(--spacing-md);
   margin-bottom: var(--spacing-md);
 }
 
 .headerLeft {
   display: flex;
-  flex: 1 1 360px;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
@@ -38,7 +38,6 @@
 }
 
 .headerActions {
-  margin-left: auto;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -65,7 +64,7 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--space-2) var(--spacing-lg);
+  gap: var(--space-2) var(--spacing-md);
   padding: var(--space-3) var(--spacing-md);
 }
 
@@ -73,9 +72,11 @@
   border-top: 1px solid var(--ventas-divider);
 }
 
+/* Grows up to 420px when the row has room; starts small (an MLA fits) so the state chips, Auto-recalcular and the
+   "?" key share the first row at 1366 and 1440. */
 .searchSlot {
-  flex: 1 1 260px;
-  min-width: 220px;
+  flex: 1 1 160px;
+  min-width: 160px;
   max-width: 420px;
 }
 
@@ -87,17 +88,59 @@
   min-width: 0;
 }
 
+/* A filter's name: sentence case, no colon, in the muted ink (the table and the cards keep their uppercase
+   titles). */
 .filterLabel {
   flex-shrink: 0;
   font-size: var(--font-xs);
-  font-weight: var(--font-semibold);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-weight: var(--font-medium);
   color: var(--cf-text-tertiary);
+}
+
+/* The "?" key that opens the shortcuts; lit while a row has the keyboard. */
+.shortcutsKey kbd {
+  min-width: 16px;
+  padding: 0 4px;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  line-height: 16px;
+  text-align: center;
+  border: 1px solid var(--cf-border-default);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.shortcutsKey[data-navigating] {
+  color: var(--cf-accent-blue);
+  border-color: var(--cf-accent-blue);
+}
+
+.shortcutsKey[data-navigating] kbd {
+  border-color: currentColor;
+}
+
+/* Kept for a screen reader, off the screen. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .spacer {
   flex-grow: 1;
+}
+
+.filterTools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
 }
 
 /* ── Errors ── */
@@ -160,36 +203,6 @@
   }
 }
 
-/* Productos' "Modo Navegación" banner (`.navigation-indicator`): shown while a list row has the focus. */
-.navigationBanner {
-  position: fixed;
-  bottom: var(--space-5);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: var(--z-fixed);
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--spacing-lg);
-  background: var(--cf-bg-card);
-  color: var(--cf-text-primary);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--cf-card-shadow);
-  font-size: var(--font-sm);
-  font-weight: var(--font-semibold);
-  pointer-events: none;
-}
-
-.navigationBanner kbd {
-  padding: 0 var(--space-1);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-md);
-  background: var(--cf-bg-hover);
-  font-family: monospace;
-  font-size: var(--font-xs);
-}
-
 /* ── Table spacing and "Filas finas" ──
    The kit's TableShell pads every cell 12px on each side; here the columns sit 8px apart so the figures stop
    floating in empty space. The pinned first cell keeps its own (more specific) left padding: the tree's indent. */
@@ -214,20 +227,6 @@
 .tableDensity[data-density='dense'] :global(thead th) {
   padding-top: var(--space-1);
   padding-bottom: var(--space-1);
-}
-
-/* Above `.btn-tesla.outline:hover`, so the pressed look shows right after the click (as on Métricas ML). */
-.headerActions :global(.btn-tesla).densityToggle[aria-pressed='true'] {
-  color: var(--cf-accent-blue);
-  background: var(--cf-accent-blue-light);
-  border-color: var(--cf-accent-blue);
-}
-
-/* The header's buttons stay on one line on narrower screens: the density toggle keeps only its icon there. */
-@media (max-width: 1599px) {
-  .densityLabel {
-    display: none;
-  }
 }
 
 /* The phone's filters sheet (mobile-metricas-pubml S2): the same groups as the filter card, one under the other,

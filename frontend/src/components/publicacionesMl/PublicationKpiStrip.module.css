@@ -134,6 +134,21 @@
   color: var(--tone-warning-fg);
 }
 
+/* The change and what it compares to, kept together when the row stacks. */
+.deltaGroup {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  min-width: 0;
+}
+
+.vs {
+  font-size: 11px;
+  color: var(--cf-text-tertiary);
+  white-space: nowrap;
+}
+
 .delta,
 .note,
 .warn {

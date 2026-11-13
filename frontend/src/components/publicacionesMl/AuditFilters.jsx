@@ -4,6 +4,7 @@ import api from '../../services/api';
 import { EMPTY_AUDIT_FILTERS, activeAuditChips, hasAuditFilter, kindLabel } from './auditFilters';
 import chipStyles from './ProductFilters.module.css';
 import styles from './AuditFilters.module.css';
+import buttonStyles from './toolbarButton.module.css';
 
 /** The URL's moment as a `datetime-local` value: a bare date is the whole day (from 00:00, or until 23:59). */
 const inputMoment = (value, endOfDay) => {
@@ -16,14 +17,14 @@ const inputMoment = (value, endOfDay) => {
 const PANEL_MARGIN = 16;
 
 /**
- * The "Auditoría:" group of the Publicaciones ML filter card: Productos' "Filtros de Auditoría" (user who changed
+ * The "Auditoría" button of the Publicaciones ML filter card: Productos' "Filtros de Auditoría" (user who changed
  * the product, kind of change, date range), behind one button like the presence filters, so the card does not grow
  * a row. The users and kinds are asked when the panel opens, or when the URL already names a user (its chip needs
  * the name). One removable chip per active value and a control that clears them all stay in the row.
  *
- * @param {{filters: object, setFilters: (updates: object) => void, labelClassName?: string}} props
+ * @param {{filters: object, setFilters: (updates: object) => void}} props
  */
-export default function AuditFilters({ filters, setFilters, labelClassName }) {
+export default function AuditFilters({ filters, setFilters }) {
   const [open, setOpen] = useState(false);
   const [options, setOptions] = useState(null);
   const containerRef = useRef(null);
@@ -78,11 +79,10 @@ export default function AuditFilters({ filters, setFilters, labelClassName }) {
 
   return (
     <div className={chipStyles.group}>
-      <span className={labelClassName}>Auditoría:</span>
       <div className={styles.anchor} ref={containerRef} onKeyDown={closeOnEscape}>
         <button
           type="button"
-          className="btn-tesla outline sm"
+          className={`btn-tesla sm ${buttonStyles.quiet} ${buttonStyles.chipSize}`}
           data-filter="auditoria"
           aria-expanded={open}
           aria-label={label}

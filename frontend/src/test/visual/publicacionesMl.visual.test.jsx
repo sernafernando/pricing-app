@@ -314,6 +314,8 @@ const renderPage = async ({ width, height, theme, entry = '/ml-publicaciones' })
 const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 const scrollerOf = () => document.querySelector('[data-table-shell-scroller]');
 const rect = (el) => el.getBoundingClientRect();
+// The filter card's names ("Tienda", "Markup"), sentence case without a colon.
+const filterLabels = () => [...document.querySelectorAll('section[aria-label="Filtros"] [class*="filterLabel"]')].map((el) => el.textContent);
 
 // A cell's content horizontally inside its own <td>.
 // Inside a box of the cell that cuts what overflows it (a line cut with "…", whole in its tooltip): never drawn outside.
@@ -479,12 +481,12 @@ describe('Publicaciones ML (visual)', () => {
       // Owner, 2026-11-04: "en la vista de poner precios ... también tienen que estar los badges de Clásica, 3 cuotas,
       // etc y el orden también cuando estan varias publis del mismo producto juntas".
       for (const highContrast of width === 1366 ? [false, true] : []) {
-        it(`${width}x${height} ${theme}${highContrast ? ', high contrast' : ''}: MODO PONER PRECIOS shows the Tipo badges, sorted by Código then Tipo`, async () => {
+        it(`${width}x${height} ${theme}${highContrast ? ', high contrast' : ''}: Poner precios shows the Tipo badges, sorted by Código then Tipo`, async () => {
           document.documentElement.classList.toggle('high-contrast', highContrast);
           let screen;
           try {
             screen = await renderPage({ width, height, theme, entry: '/ml-publicaciones?orden=codigo&dir=asc' });
-            await screen.getByRole('button', { name: 'MODO PONER PRECIOS' }).click();
+            await screen.getByRole('button', { name: 'Poner precios' }).click();
             const tipo = () => scrollerOf().querySelector('thead th[data-column="tipo"]');
             await expect.poll(() => tipo()).toBeTruthy();
             expect(tipo().querySelector('[data-testid="sort-order"]')?.textContent).toBe('2');
@@ -652,7 +654,7 @@ describe('Publicaciones ML with markup and an expanded row (visual)', () => {
         expect(wrapped(ranges)).toEqual([]);
         expect(overflowingCells(scroller)).toEqual([]);
         // Filters: the new band stays inside the card.
-        const band = [...document.querySelectorAll('div[class*="filterBand"]')].find((el) => el.textContent.includes('Markup:'));
+        const band = [...document.querySelectorAll('div[class*="filterBand"]')].find((el) => el.querySelector('[class*="filterLabel"]')?.textContent === 'Markup');
         expect(band).toBeDefined();
         expect(band.scrollWidth).toBeLessThanOrEqual(band.clientWidth + 1);
         expect(rect(band).right).toBeLessThanOrEqual(width);
@@ -836,8 +838,8 @@ describe('Publicaciones ML Agrupado tree (visual)', () => {
         expect(rect(control).right, control.textContent).toBeLessThanOrEqual(width);
       }
       // The markup filters are not offered in the tree; the store stays in the filter bar.
-      expect(document.body.textContent).not.toContain('Markup:');
-      expect(document.body.textContent).toContain('Tienda:');
+      expect(filterLabels()).not.toContain('Markup');
+      expect(filterLabels()).toContain('Tienda');
       screen.unmount();
     });
 
@@ -1078,7 +1080,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
           expect(rect(button).right, button.getAttribute('aria-label')).toBeLessThanOrEqual(rect(sinMla).right + 0.5);
         }
         if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/products-header-${width}-${theme}.png` });
-        expect(document.body.textContent).not.toContain('Markup:');
+        expect(filterLabels()).not.toContain('Markup');
         screen.unmount();
       });
 
@@ -3766,4 +3768,102 @@ describe('Publicaciones ML columns sized by their content (visual)', () => {
       expect(localStorage.getItem('pubml:colsizing:lista')).toBeNull();
     });
   }
+});
+
+// Unslop PR A: one filled action, the rest the same quiet button; filters of one size; the "?" key instead of a toast.
+describe('Publicaciones ML action bar and filters (visual)', () => {
+  const actions = () => document.querySelector('header [class*="headerActions"]');
+  const filterCard = () => document.querySelector('section[aria-label="Filtros"]');
+  const centerY = (el) => rect(el).top + rect(el).height / 2;
+
+  beforeEach(() => {
+    canSeeMargin = false;
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.items.mockResolvedValue({ data: RESPONSE });
+  });
+
+  for (const { width, height } of [{ width: 1366, height: 768 }, { width: 1440, height: 900 }]) {
+    for (const theme of THEMES) {
+      it(`${width}x${height} ${theme}: the action bar is one row with one filled button, and the filters share one size`, async () => {
+        const screen = await renderPage({ width, height, theme });
+        await expect.element(screen.getByRole('button', { name: 'Poner precios' })).toBeVisible();
+
+        // One row: every control's middle on the same line, inside the page (CI's fonts run ~8% wider and still fit).
+        const controls = [...actions().children].filter((el) => rect(el).width > 0);
+        const middle = centerY(controls[0]);
+        for (const control of controls) {
+          expect(Math.abs(centerY(control) - middle), control.textContent).toBeLessThanOrEqual(2);
+          expect(rect(control).right, control.textContent).toBeLessThanOrEqual(width);
+        }
+
+        // "Poner precios" is the only filled button; the others are a thin grey outline.
+        const filled = screen.getByRole('button', { name: 'Poner precios' }).element();
+        expect(getComputedStyle(filled).backgroundColor).toBe(tokenColor('--selection-fill'));
+        for (const name of ['Listas de precios', 'Exportar CSV', 'Columnas', 'Indicadores', 'Filas finas', /Acciones masivas/, 'Pausar / activar']) {
+          const button = screen.getByRole('button', { name }).element();
+          const style = getComputedStyle(button);
+          expect(style.borderTopWidth, String(name)).toBe('1px');
+          expect(style.borderTopColor, String(name)).toBe(tokenColor('--cf-border-default'));
+          expect(style.backgroundColor, String(name)).toBe('rgba(0, 0, 0, 0)');
+        }
+        // Columnas, Indicadores and Filas finas are icons named by their tooltip.
+        for (const name of ['Columnas', 'Indicadores', 'Filas finas']) {
+          const button = screen.getByRole('button', { name }).element();
+          expect(button.textContent).toBe('');
+          expect(button).toHaveAttribute('title', name);
+        }
+
+        // Filter names: sentence case, no colon.
+        expect(filterLabels()).toEqual(expect.arrayContaining(['Estado', 'Tipo', 'Vínculo', 'Stock', 'Tienda', 'Color', 'Producto']));
+        for (const el of filterCard().querySelectorAll('[class*="filterLabel"]')) {
+          expect(el.textContent).not.toContain(':');
+          expect(getComputedStyle(el).textTransform).toBe('none');
+        }
+
+        // Marca, Categoría, Subcategoría, PM, Presencia, Auditoría and Promos at the chips' height and letter.
+        const chip = screen.getByRole('group', { name: 'Filtrar por estado' }).getByRole('button', { name: /Todas/ }).element();
+        const chipHeight = rect(chip).height;
+        const chipFont = getComputedStyle(chip).fontSize;
+        const pickers = [
+          ...['marcas', 'categorias', 'subcategorias', 'pms', 'presencia', 'auditoria'].map((key) => filterCard().querySelector(`[data-filter="${key}"]`)),
+          screen.getByRole('button', { name: 'Filtros de promociones' }).element(),
+        ];
+        for (const picker of pickers) {
+          expect(rect(picker).height, picker.textContent).toBeCloseTo(chipHeight, 0);
+          expect(getComputedStyle(picker).fontSize, picker.textContent).toBe(chipFont);
+        }
+
+        // The state chips carry their dot.
+        const dots = screen.getByRole('group', { name: 'Filtrar por estado' }).element().querySelectorAll('[data-tone]');
+        expect([...dots].map((dot) => dot.dataset.tone)).toEqual(['success', 'warning', 'neutral', 'warning', 'neutral', 'danger']);
+
+        // Auto-recalcular and the "?" key close the first row, on the line of the state chips at 1440; CI's wider fonts
+        // may wrap them at 1366, together at the right end.
+        const firstBand = filterCard().querySelector('[class*="filterBand"]');
+        const tail = ['Recalcular las cuotas al guardar un precio (Alt+R)', 'Atajos de teclado'].map((name) =>
+          [...firstBand.querySelectorAll('button')].find((el) => el.title === name || el.getAttribute('aria-label') === name),
+        );
+        expect(tail.every(Boolean)).toBe(true);
+        expect(Math.abs(centerY(tail[0]) - centerY(tail[1]))).toBeLessThanOrEqual(2);
+        expect(rect(tail[1]).right).toBeCloseTo(rect(firstBand).right - Number.parseFloat(getComputedStyle(firstBand).paddingRight), 0);
+        if (width >= 1440) {
+          expect(Math.abs(centerY(tail[0]) - centerY(chip))).toBeLessThanOrEqual(2);
+        }
+        expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/barra-filtros-${width}-${theme}.png` });
+        screen.unmount();
+      });
+    }
+  }
+
+  it('a row with the keyboard lights the "?" key and nothing floats over the table', async () => {
+    const screen = await renderPage({ width: 1366, height: 768, theme: 'light' });
+    const key = screen.getByRole('button', { name: 'Atajos de teclado' }).element();
+    await userEvent.keyboard('{ArrowDown}');
+    await expect.poll(() => key.hasAttribute('data-navigating')).toBe(true);
+    expect(getComputedStyle(key).color).toBe(tokenColor('--cf-accent-blue'));
+    const fixed = [...document.querySelectorAll('body *')].filter((el) => getComputedStyle(el).position === 'fixed' && rect(el).width > 0);
+    expect(fixed.filter((el) => /navegación/i.test(el.textContent))).toEqual([]);
+    screen.unmount();
+  });
 });

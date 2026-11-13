@@ -10,6 +10,7 @@ import RecalcularCuotasModal from './RecalcularCuotasModal';
 import useBulkProductSet from './useBulkProductSet';
 import { resolverParams } from './bulkParams';
 import styles from './BulkActions.module.css';
+import buttonStyles from './toolbarButton.module.css';
 
 // Productos' bulk actions, behind Productos' own permissions. The cuotas recalculation is Productos' "Recalcular
 // Cuotas Web/PVP" button, which Productos shows in its Cuotas/PVP view modes.
@@ -156,7 +157,7 @@ export default function BulkActions({
     <div className={styles.anchor} ref={containerRef} onKeyDown={closeOnEscape}>
       <button
         type="button"
-        className="btn-tesla outline-subtle-primary sm"
+        className={`btn-tesla sm ${buttonStyles.quiet}`}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={scope ? `Acciones masivas (${scope})` : 'Acciones masivas'}

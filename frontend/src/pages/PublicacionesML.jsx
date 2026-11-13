@@ -8,7 +8,6 @@ import {
   FileSpreadsheet,
   FilterX,
   Gauge,
-  Keyboard,
   Rows4,
   ShieldAlert,
   Users,
@@ -118,6 +117,7 @@ import PhoneToolbar from '../components/publicacionesMl/mobile/PhoneToolbar';
 import PhoneList from '../components/publicacionesMl/mobile/PhoneList';
 import phoneStyles from '../components/publicacionesMl/mobile/PhoneLayout.module.css';
 import styles from './PublicacionesML.module.css';
+import buttonStyles from '../components/publicacionesMl/toolbarButton.module.css';
 
 /**
  * Publicaciones ML -- the management screen over every publication
@@ -146,6 +146,9 @@ import styles from './PublicacionesML.module.css';
 // Space the table leaves for what is above and below it (header, filters, pager).
 const TABLE_OFFSET = '380px';
 
+// Every secondary action on the screen: the same button with a thin grey outline.
+const quietButton = `btn-tesla sm ${buttonStyles.quiet}`;
+
 // Productos' search operators, also understood by the backend's `normalize_q`.
 const SEARCH_OPERATORS_HELP =
   'Operadores: codigo:ABC123 o ean:7790001234567 (código exacto), marca:Samsung (marca exacta), *123 (termina en)';
@@ -158,6 +161,15 @@ const STATUS_LABELS = {
   under_review: 'En revisión',
   inactive: 'Inactivas',
   gone: 'Eliminadas',
+};
+// The state's dot in the Estado filter, the same tones as a node's states in the tree.
+const STATUS_TONES = {
+  active: 'success',
+  paused: 'warning',
+  under_review: 'warning',
+  closed: 'neutral',
+  inactive: 'neutral',
+  gone: 'danger',
 };
 const TIPO_OPTIONS = ['clasica', 'premium', 'catalogo', 'full'];
 const TIPO_LABELS = { clasica: 'Clásica', premium: 'Premium', catalogo: 'Catálogo', full: 'Full' };
@@ -900,9 +912,10 @@ export default function PublicacionesML() {
 
   // Each group's "Todas" is its own facet total (the rows without that group's selection), never the list's total:
   // choosing "Eliminadas" must not turn "Todas" into the deleted count.
-  const chipGroup = (label, key, options, labels, axis) => (
+  const chipGroup = (label, key, options, labels, axis, tones) => (
     <FacetChips
       label={label}
+      tones={tones}
       options={options}
       labels={labels}
       counts={facets?.[axis]}
@@ -914,8 +927,8 @@ export default function PublicacionesML() {
 
   const estadoGroup = (
     <div className={styles.filterGroup}>
-      <span className={styles.filterLabel}>Estado:</span>
-      {chipGroup('Filtrar por estado', 'estado', STATUS_OPTIONS, STATUS_LABELS, 'status')}
+      <span className={styles.filterLabel}>Estado</span>
+      {chipGroup('Filtrar por estado', 'estado', STATUS_OPTIONS, STATUS_LABELS, 'status', STATUS_TONES)}
     </div>
   );
   // The layer and what paints on it wrap together.
@@ -940,7 +953,7 @@ export default function PublicacionesML() {
           for its word. */}
       <button
         type="button"
-        className={`btn-tesla outline-subtle-primary ${isPhone ? '' : 'icon-only '}sm`}
+        className={`btn-tesla ${isPhone ? '' : 'icon-only '}sm ${buttonStyles.quiet}`}
         onClick={() => setEquiposOpen(true)}
         aria-label="Equipos"
         title="Equipos: crear y administrar tus equipos"
@@ -962,21 +975,21 @@ export default function PublicacionesML() {
     <>
       <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
         <div className={styles.filterGroup}>
-          <span className={styles.filterLabel}>Tipo:</span>
+          <span className={styles.filterLabel}>Tipo</span>
           {chipGroup('Filtrar por tipo', 'tipo', TIPO_OPTIONS, TIPO_LABELS, 'listing')}
         </div>
         <div className={styles.filterGroup}>
-          <span className={styles.filterLabel}>Vínculo:</span>
+          <span className={styles.filterLabel}>Vínculo</span>
           {chipGroup('Filtrar por vínculo', 'vinculo', VINCULO_OPTIONS, VINCULO_LABELS, 'link')}
         </div>
         <div className={styles.filterGroup}>
-          <span className={styles.filterLabel}>Stock:</span>
+          <span className={styles.filterLabel}>Stock</span>
           {chipGroup('Filtrar por stock', 'stock', STOCK_OPTIONS, STOCK_LABELS, 'stock')}
         </div>
       </div>
       <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
         <div className={styles.filterGroup}>
-          <span className={styles.filterLabel}>Tienda:</span>
+          <span className={styles.filterLabel}>Tienda</span>
           <FacetChips
             label="Filtrar por tienda oficial"
             {...storeChips}
@@ -984,9 +997,10 @@ export default function PublicacionesML() {
             onChange={csvChange('tiendas')}
           />
         </div>
+        {layerGroup}
         {/* Productos' color filter, on the layer on show (Capa). */}
         <div className={styles.filterGroup}>
-          <span className={styles.filterLabel}>Color:</span>
+          <span className={styles.filterLabel}>Color</span>
           <ColorFilterChips value={filters.colores} onChange={(colores) => setFilters({ colores })} />
         </div>
       </div>
@@ -994,14 +1008,9 @@ export default function PublicacionesML() {
         <ProductFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} facet={facets?.product ?? null} />
         {/* Same band as the product filters, behind a button: a band of its own pushed the list's header below
             the fold at 1366x768. */}
-        <PresenceFilters
-          filters={filters}
-          setFilters={setFilters}
-          labelClassName={styles.filterLabel}
-          canSeeMargin={canSeeMargin}
-        />
-        <AuditFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
-        <PromoFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
+        <PresenceFilters filters={filters} setFilters={setFilters} canSeeMargin={canSeeMargin} />
+        <AuditFilters filters={filters} setFilters={setFilters} />
+        <PromoFilters filters={filters} setFilters={setFilters} />
         {/* Productos' price columns (S11): how the rows are looked at, like the Capa; the header has no room left. */}
         {canSeePrices && precios && (
           <PriceModeSelect
@@ -1014,7 +1023,7 @@ export default function PublicacionesML() {
       {showMarkupFilters && (
         <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
           <div className={styles.filterGroup}>
-            <span className={styles.filterLabel}>Markup:</span>
+            <span className={styles.filterLabel}>Markup</span>
             <MarkupFilters
               negative={filters.markup_neg === '1'}
               min={filters.markup_min}
@@ -1077,9 +1086,11 @@ export default function PublicacionesML() {
   const overlays = (
     <>
       {showShortcuts && <ShortcutsHelp onClose={() => setShowShortcuts(false)} />}
+      {/* Productos' "Modo Navegación" notice, without a toast over the rows: the "?" key by the filters lights up,
+          and this line tells a screen reader. */}
       {navigating && (
-        <div className={styles.navigationBanner} role="status">
-          Modo Navegación Activo - Presiona <kbd>Esc</kbd> para salir o <kbd>?</kbd> para ayuda
+        <div className={styles.srOnly} role="status">
+          Modo navegación activo: Esc para salir, ? para ver los atajos
         </div>
       )}
       <ModalInfoProducto isOpen={infoProductId != null} itemId={infoProductId} onClose={() => setInfoProductId(null)} />
@@ -1253,7 +1264,6 @@ export default function PublicacionesML() {
         >
           <div className={styles.phoneFilters}>
             {estadoGroup}
-            {layerGroup}
             {filterBands}
           </div>
         </PhoneSheet>
@@ -1302,16 +1312,6 @@ export default function PublicacionesML() {
           </p>
         </div>
         <div className={styles.headerActions}>
-          {canPonerPrecios && (
-            <button
-              type="button"
-              className={`btn-tesla outline-subtle-primary sm ${ponerPreciosMode ? 'toggle-active' : ''}`}
-              aria-pressed={ponerPreciosMode}
-              onClick={togglePonerPreciosMode}
-            >
-              MODO PONER PRECIOS
-            </button>
-          )}
           {!ponerPreciosMode && (
             <SegmentedControl
               label="Vista"
@@ -1355,37 +1355,63 @@ export default function PublicacionesML() {
               checked={checkedStatus}
             />
           )}
-          {!ponerPreciosMode && <ColumnPicker table={pickerTable} />}
+          <span className={styles.spacer} />
+          {!ponerPreciosMode && <ColumnPicker table={pickerTable} iconOnly buttonClassName={quietButton} />}
           {!ponerPreciosMode && kpiOptions.length > 0 && (
-            <ColumnPicker table={kpiPicker} label="Indicadores" icon={Gauge} groupLabel="Elegir indicadores visibles" />
+            <ColumnPicker
+              table={kpiPicker}
+              label="Indicadores"
+              icon={Gauge}
+              groupLabel="Elegir indicadores visibles"
+              iconOnly
+              buttonClassName={quietButton}
+            />
           )}
           <button
             type="button"
-            className={`btn-tesla outline sm ${styles.densityToggle}`}
+            className={`${quietButton} icon-only`}
             aria-pressed={dense}
             aria-label="Filas finas"
             title="Filas finas"
             onClick={toggleDense}
           >
             <Rows4 size={14} />
-            <span className={styles.densityLabel}>Filas finas</span>
           </button>
           {canExportVista(filters.vista) && (
-            <button type="button" className="btn-tesla outline sm" onClick={handleExport} disabled={exporting}>
+            <button
+              type="button"
+              className={quietButton}
+              aria-label={exporting ? 'Exportando…' : 'Exportar CSV'}
+              title="Exportar CSV"
+              onClick={handleExport}
+              disabled={exporting}
+            >
               <Download size={14} />
-              {exporting ? 'Exportando…' : 'Exportar CSV'}
+              {exporting ? 'Exportando…' : 'Exportar'}
             </button>
           )}
           {sheetsEnabled && canExportVista(filters.vista) && (
-            <button type="button" className="btn-tesla outline sm" onClick={handleSheetsExport} disabled={exportingSheets}>
+            <button type="button" className={quietButton} onClick={handleSheetsExport} disabled={exportingSheets}>
               <FileSpreadsheet size={14} />
               {exportingSheets ? 'Exportando a Sheets…' : 'Exportar a Sheets'}
             </button>
           )}
           {canExportPriceLists && (
-            <button type="button" className="btn-tesla outline sm" onClick={() => setPriceListsOpen(true)}>
+            <button type="button" className={quietButton} onClick={() => setPriceListsOpen(true)}>
               <FileDown size={14} />
               Listas de precios
+            </button>
+          )}
+          {/* The screen's one filled button. */}
+          {canPonerPrecios && (
+            <button
+              type="button"
+              className={`btn-tesla sm ${buttonStyles.primary}`}
+              aria-pressed={ponerPreciosMode}
+              onClick={togglePonerPreciosMode}
+            >
+              {ponerPreciosMode && <Check size={14} aria-hidden="true" />}
+              Poner precios
             </button>
           )}
         </div>
@@ -1435,54 +1461,59 @@ export default function PublicacionesML() {
               value={filters.q}
               onChange={(value) => setFilters({ q: value })}
               debounce={400}
-              placeholder="Buscar por título, MLA, SKU/EAN o producto…"
+              placeholder="Buscar título, MLA, SKU/EAN o producto"
             />
           </div>
           {estadoGroup}
-          {layerGroup}
           <span className={styles.spacer} />
-          {ponerPreciosMode && (
+          {/* The row's tools wrap together, to the right end of the next line when the chips take the width. */}
+          <div className={styles.filterTools}>
+            {ponerPreciosMode && (
+              <button
+                type="button"
+                className={quietButton}
+                aria-expanded={!filtersCollapsed}
+                onClick={() => setFiltersCollapsed((collapsed) => !collapsed)}
+              >
+                <ChevronDown
+                  size={14}
+                  aria-hidden="true"
+                  className={filtersCollapsed ? styles.filterChevronCollapsed : undefined}
+                />
+                {filtersCollapsed ? 'Mostrar filtros' : 'Minimizar filtros'}
+              </button>
+            )}
+            {canCalculatePrice && (
+              <button
+                type="button"
+                className={quietButton}
+                aria-pressed={autoRecalc.enabled}
+                title="Recalcular las cuotas al guardar un precio (Alt+R)"
+                onClick={autoRecalc.toggle}
+              >
+                {autoRecalc.enabled ? <Check size={14} aria-hidden="true" /> : null}
+                Auto-recalcular
+              </button>
+            )}
+            {/* A still "?" key instead of a notice over the rows: lit while a row has the keyboard (Esc leaves). */}
             <button
               type="button"
-              className="btn-tesla ghost sm"
-              aria-expanded={!filtersCollapsed}
-              onClick={() => setFiltersCollapsed((collapsed) => !collapsed)}
+              className={`${quietButton} ${styles.shortcutsKey}`}
+              data-navigating={navigating ? '' : undefined}
+              aria-label="Atajos de teclado"
+              title={navigating ? 'Modo navegación: Esc para salir, ? para ver los atajos' : 'Atajos de teclado (?)'}
+              onClick={() => setShowShortcuts(true)}
             >
-              <ChevronDown
-                size={14}
-                aria-hidden="true"
-                className={filtersCollapsed ? styles.filterChevronCollapsed : undefined}
-              />
-              {filtersCollapsed ? 'Mostrar filtros' : 'Minimizar filtros'}
+              <kbd aria-hidden="true">?</kbd>
+              <span aria-hidden="true">atajos</span>
             </button>
-          )}
-          {canCalculatePrice && (
-            <button
-              type="button"
-              className={`btn-tesla outline-subtle-primary sm ${autoRecalc.enabled ? 'toggle-active' : ''}`}
-              aria-pressed={autoRecalc.enabled}
-              title="Recalcular las cuotas al guardar un precio (Alt+R)"
-              onClick={autoRecalc.toggle}
-            >
-              {autoRecalc.enabled ? <Check size={14} aria-hidden="true" /> : null}
-              Auto-recalcular
-            </button>
-          )}
-          <button
-            type="button"
-            className="btn-tesla ghost sm"
-            aria-label="Atajos de teclado"
-            title="Atajos de teclado (?)"
-            onClick={() => setShowShortcuts(true)}
-          >
-            <Keyboard size={14} aria-hidden="true" />
-          </button>
-          {hasActiveFilters && (
-            <button type="button" className="btn-tesla ghost sm" onClick={resetFilters}>
-              <FilterX size={14} />
-              Limpiar filtros
-            </button>
-          )}
+            {hasActiveFilters && (
+              <button type="button" className={quietButton} onClick={resetFilters}>
+                <FilterX size={14} />
+                Limpiar filtros
+              </button>
+            )}
+          </div>
         </div>
         {filterBands}
       </section>

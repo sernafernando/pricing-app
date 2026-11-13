@@ -13,7 +13,7 @@ const OPTIONS = [
 export default function PriceModeSelect({ value, onChange, labelClassName }) {
   return (
     <label className={styles.layer}>
-      <span className={labelClassName}>Precios:</span>
+      <span className={labelClassName}>Precios</span>
       <select
         className={styles.select}
         aria-label="Precios"

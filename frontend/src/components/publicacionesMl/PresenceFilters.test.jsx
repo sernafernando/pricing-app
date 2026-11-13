@@ -44,8 +44,8 @@ const openPanel = () => userEvent.click(screen.getByRole('button', { name: /Filt
 describe('PresenceFilters', () => {
   it('keeps the toggles behind one button, as Productos keeps them behind "Filtros Avanzados"', async () => {
     render(<PresenceFilters filters={filters()} setFilters={vi.fn()} />);
-    expect(screen.getByText('Presencia:')).toBeInTheDocument();
     const button = screen.getByRole('button', { name: /Filtros de presencia/ });
+    expect(button).toHaveTextContent('Presencia');
     expect(button).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     await openPanel();

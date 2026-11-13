@@ -21,9 +21,9 @@ beforeEach(() => {
 });
 
 describe('ProductFilters', () => {
-  it('offers the Marca, Categoría, Subcategoría and PM pickers under "Producto:"', async () => {
+  it('offers the Marca, Categoría, Subcategoría and PM pickers under "Producto"', async () => {
     render(<ProductFilters filters={filters()} setFilters={vi.fn()} />);
-    expect(screen.getByText('Producto:')).toBeInTheDocument();
+    expect(screen.getByText('Producto')).toBeInTheDocument();
     for (const name of ['Marca', 'Categoría', 'Subcategoría', 'PM']) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument();
     }

@@ -224,8 +224,8 @@ describe('Publicaciones ML on a phone (mobile-metricas-pubml S2)', () => {
     await page();
     await userEvent.click(screen.getByRole('button', { name: /^Filtros/ }));
     const sheet = screen.getByRole('dialog', { name: 'Filtros' });
-    expect(within(sheet).getByText('Tipo:')).toBeInTheDocument();
-    expect(within(sheet).getByText('Vínculo:')).toBeInTheDocument();
+    expect(within(sheet).getByText('Tipo')).toBeInTheDocument();
+    expect(within(sheet).getByText('Vínculo')).toBeInTheDocument();
     await userEvent.click(within(sheet).getByRole('button', { name: 'Ver 235 publicaciones' }));
     expect(screen.queryByRole('dialog', { name: 'Filtros' })).not.toBeInTheDocument();
   });
