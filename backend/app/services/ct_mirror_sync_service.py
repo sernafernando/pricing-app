@@ -81,17 +81,11 @@ def upsert_cts_from_records(session: Session, records: list[dict[str, Any]]) -> 
     """Upsert by `ct_transaction` PK (GUID mirrored for Postgres identity). No commit."""
     if not records:
         return []
-    incoming_cts = [
-        ct
-        for ct in (parse_int(r.get("ct_transaction")) for r in records)
-        if ct is not None
-    ]
+    incoming_cts = [ct for ct in (parse_int(r.get("ct_transaction")) for r in records) if ct is not None]
     existing_map: dict[int, CommercialTransaction] = {}
     if incoming_cts:
         existing = (
-            session.query(CommercialTransaction)
-            .filter(CommercialTransaction.ct_transaction.in_(incoming_cts))
-            .all()
+            session.query(CommercialTransaction).filter(CommercialTransaction.ct_transaction.in_(incoming_cts)).all()
         )
         existing_map = {int(row.ct_transaction): row for row in existing}
 
