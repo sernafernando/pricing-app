@@ -58,8 +58,11 @@ jobs:
   #
   # Second rule, re-pushes of a PR: a group (backend or frontend) also skips
   # when an earlier run of the SAME PR passed every job of that group and no
-  # file in the group's area changed since (step `incremental`). Fixing a
-  # frontend test no longer re-runs the ~14 minutes of backend. It only ADDS
+  # file in the group's area changed since (step `incremental`). Areas:
+  # `backend/` and `frontend/`, each plus every shared path outside both
+  # (`.github/`, root files, `scripts/`, docs), so a CI-config change re-runs
+  # both groups. Fixing a frontend test no longer re-runs the ~14 minutes of
+  # backend. Scenarios: `.github/scripts/ci-passed-groups.test.sh`. It only ADDS
   # skips: the outputs are `false` when either rule says so. Fail safe the
   # same way: an API error, a first run, a force-push or a rebase leaves the
   # group running.

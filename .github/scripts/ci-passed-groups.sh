@@ -8,8 +8,10 @@
 #       job of the group, at PR head commit P;
 #   (b) P is an ancestor of the current PR head (no force-push or rebase in
 #       between) and the files changed from P to the current head are all
-#       outside the group's area. Area: frontend = `frontend/`, backend =
-#       everything else.
+#       outside the group's area. Area: backend = `backend/` plus shared
+#       paths, frontend = `frontend/` plus shared paths. Shared = anything
+#       outside both (`.github/` workflows and scripts, root files, `scripts/`,
+#       docs): a CI-config or root change re-runs BOTH groups.
 #
 # Fail safe: the script always prints `skip_backend=false` and
 # `skip_frontend=false` unless it PROVED a skip. Any API error, missing run,
@@ -119,8 +121,8 @@ if p="$(passed_at "$BACKEND_JOBS")" && files="$(changed_since "$p")"; then
   fi
 fi
 if p="$(passed_at "$FRONTEND_JOBS")" && files="$(changed_since "$p")"; then
-  if ! grep -q '^frontend/' <<<"$files"; then
-    echo "incremental CI: frontend passed at $p, nothing under frontend/ changed since" >&2
+  if ! grep -qv -e '^backend/' -e '^$' <<<"$files"; then
+    echo "incremental CI: frontend passed at $p, nothing outside backend/ changed since" >&2
     skip_frontend=true
   fi
 fi
