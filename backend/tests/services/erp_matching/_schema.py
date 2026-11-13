@@ -50,6 +50,23 @@ CREATE TABLE pedido_compra_lineas_facturadas (
 );
 """
 
+# The per-invoice split (sell in varias facturas, 20261114_sell_in_facturas_elegidas): the reconcile writes it with
+# the aggregate, so every schema the reconcile runs on has it.
+LINEAS_CT_DDL = """
+CREATE TABLE pedido_compra_lineas_facturadas_ct (
+  id BIGSERIAL PRIMARY KEY,
+  pedido_id BIGINT NOT NULL REFERENCES pedidos_compra (id) ON DELETE CASCADE,
+  ct_transaction_id BIGINT,
+  item_id INTEGER NOT NULL,
+  cantidad INTEGER NOT NULL CHECK (cantidad <> 0),
+  importe_neto NUMERIC(18, 2), moneda VARCHAR(3)
+);
+CREATE UNIQUE INDEX uq_lf_ct_factura ON pedido_compra_lineas_facturadas_ct (pedido_id, ct_transaction_id, item_id)
+  WHERE ct_transaction_id IS NOT NULL;
+CREATE UNIQUE INDEX uq_lf_ct_pedido ON pedido_compra_lineas_facturadas_ct (pedido_id, item_id)
+  WHERE ct_transaction_id IS NULL;
+"""
+
 ADD_IMPORTE_DDL = """
 ALTER TABLE pedido_compra_lineas_facturadas
   ADD COLUMN importe_neto NUMERIC(18, 2),
@@ -142,7 +159,7 @@ def lf_schema(*, con_importe: bool = True, con_bono: bool = False) -> Iterator[E
     eng = create_engine(POSTGRES_TEST_URL, connect_args={"options": f"-csearch_path={schema}"})
     try:
         with eng.begin() as conn:
-            conn.execute(text(ERP_DDL + LINEAS_DDL_V1 + (ADD_IMPORTE_DDL if con_importe else "")))
+            conn.execute(text(ERP_DDL + LINEAS_DDL_V1 + LINEAS_CT_DDL + (ADD_IMPORTE_DDL if con_importe else "")))
             if con_bono:
                 conn.execute(text(BONO_DDL))
                 for statement in BONO_FUNCIONES:

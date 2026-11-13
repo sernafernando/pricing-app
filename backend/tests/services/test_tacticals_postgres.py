@@ -1698,3 +1698,230 @@ class TestVariasFacturas:
         assert self._compras(engine, tactical.id) == antes
         with engine.connect() as conn:
             assert conn.execute(text("SELECT count(*) FROM auditoria")).scalar() == auditadas
+
+
+class TestFacturasElegidas:
+    """Sell in varias facturas S3-S5 (owner 2026-11-13: "hay que hacer que se pueda modificar eso y elegir las facturas
+    en caso que tenga que aplicarse a una sola, dentro del propio editor, se cambia el pedido por la factura
+    correspondiente en ese caso dentro de las que ya están aplicadas"): an invoice line may pick specific invoices of
+    its operation; it then applies only to their lines, and switching an applied line from all to one rebuilds what
+    it applied, with nothing applied twice."""
+
+    A, B = 701, 702  # the operation's two invoices
+    LINEAS_A = {2964: 10}
+    LINEAS_B = {950: 5}
+
+    @pytest.fixture(autouse=True)
+    def _worker_db(self, engine, monkeypatch) -> None:
+        monkeypatch.setattr("app.core.database.SessionLocal", sessionmaker(bind=engine))
+
+    def _worker(self) -> None:
+        TestFacturaPendienteTotal._worker(self)
+
+    def _operacion(self, engine: Engine, nc_del_pedido: dict | None = None, **kw) -> int:
+        """An operation with invoices A and B, its aggregate snapshot and its per-invoice one (what the reconcile
+        writes); `nc_del_pedido` the credit notes imputed to the whole operation, per item (positive units)."""
+        nc = nc_del_pedido or {}
+        todas = {
+            i: self.LINEAS_A.get(i, 0) + self.LINEAS_B.get(i, 0) - nc.get(i, 0)
+            for i in {**self.LINEAS_A, **self.LINEAS_B}
+        }
+        pedido = bw.pedido(engine, {i: q for i, q in todas.items() if q >= 1}, date(2026, 10, 10), **kw)
+        with engine.begin() as conn:
+            for ct in (self.A, self.B):
+                conn.execute(
+                    text(
+                        "INSERT INTO pedido_compra_facturas (pedido_id, ct_transaction_id, created_at) VALUES (:p, :c, now())"
+                    ),
+                    {"p": pedido, "c": ct},
+                )
+            buckets = [(self.A, i, q) for i, q in self.LINEAS_A.items()] + [
+                (self.B, i, q) for i, q in self.LINEAS_B.items()
+            ]
+            buckets += [(None, i, -q) for i, q in nc.items()]
+            for ct, item_id, cantidad in buckets:
+                conn.execute(
+                    text(
+                        "INSERT INTO pedido_compra_lineas_facturadas_ct (pedido_id, ct_transaction_id, item_id, cantidad) "
+                        "VALUES (:p, :c, :i, :q)"
+                    ),
+                    {"p": pedido, "c": ct, "i": item_id, "q": cantidad},
+                )
+        return pedido
+
+    def _linea(self, pedido: int, modo: str, valor: str, facturas_ct=None) -> dict:
+        linea = {"alcance": "factura", "pedido_compra_id": pedido, "modo_monto": modo, "valor": valor}
+        if facturas_ct is not None:
+            linea["facturas_ct"] = facturas_ct
+        return linea
+
+    def _datos(self, *lineas: dict) -> TacticalIn:
+        return _tactical("sell_in", list(lineas), fecha_desde=None, fecha_hasta=None)
+
+    def _generadas(self, engine: Engine, pedido: int) -> list[dict[int, int]]:
+        """The items of each ACTIVE purchase a bonus generated for the operation."""
+        with engine.connect() as conn:
+            compras_ = (
+                conn.execute(
+                    text(
+                        "SELECT id FROM sell_in_compras WHERE origen = 'bono_marca' AND estado = 'activa' "
+                        "AND bono_pedido_id = :p ORDER BY id"
+                    ),
+                    {"p": pedido},
+                )
+                .scalars()
+                .all()
+            )
+            return [
+                dict(
+                    conn.execute(
+                        text("SELECT item_id, cantidad FROM sell_in_compra_items WHERE compra_id = :c"), {"c": c}
+                    ).all()
+                )
+                for c in compras_
+            ]
+
+    def _totales(self, engine: Engine, tactical_id: int) -> list[tuple[str, dict[int, int]]]:
+        return [
+            (cabecera[0], {i: q for i, q, _ in items})
+            for cabecera, items in TestFacturaPendienteTotal._compras(self, engine, tactical_id)
+        ]
+
+    def _activos(self, engine: Engine, tactical_id: int) -> list[dict[int, int]]:
+        """The active totals of a tactical, its replaced (detached) ones included by operation."""
+        with engine.connect() as conn:
+            filas = (
+                conn.execute(
+                    text(
+                        "SELECT c.id FROM sell_in_compras c JOIN sell_in_compra_pedidos p ON p.compra_id = c.id "
+                        "WHERE c.origen = 'manual' AND c.estado = 'activa' AND p.pedido_compra_id IN "
+                        "(SELECT pedido_compra_id FROM sell_in_compra_pedidos sp JOIN sell_in_compras sc "
+                        " ON sc.id = sp.compra_id WHERE sc.tactical_id = :t) ORDER BY c.id"
+                    ),
+                    {"t": tactical_id},
+                )
+                .scalars()
+                .all()
+            )
+            return [
+                dict(
+                    conn.execute(
+                        text("SELECT item_id, cantidad FROM sell_in_compra_items WHERE compra_id = :c"), {"c": c}
+                    ).all()
+                )
+                for c in filas
+            ]
+
+    # picking one of two invoices applies only its lines
+
+    def test_a_bonus_line_picking_one_invoice_applies_only_its_lines(self, db, engine) -> None:
+        pedido = self._operacion(engine)
+        service.crear(db, self._datos(self._linea(pedido, "por_unidad", "2", [self.B])), USUARIO)
+        self._worker()
+
+        assert self._generadas(engine, pedido) == [self.LINEAS_B]
+
+    def test_a_total_picking_one_invoice_is_split_over_its_lines_only(self, db, engine) -> None:
+        pedido = self._operacion(engine, moneda="ARS")
+        tactical = service.crear(db, self._datos(self._linea(pedido, "monto_total", "15000", [self.A])), USUARIO)
+
+        [(cabecera, items)] = TestFacturaPendienteTotal._compras(self, engine, tactical.id)
+        assert (cabecera[0], cabecera[3]) == ("activa", Decimal("15000"))
+        assert {i: q for i, q, _ in items} == self.LINEAS_A
+        assert sum(m for _, _, m in items) == Decimal("15000")
+
+    def test_without_a_pick_the_line_still_covers_every_invoice(self, db, engine) -> None:
+        pedido = self._operacion(engine)
+        tactical = service.crear(db, self._datos(self._linea(pedido, "por_unidad", "2")), USUARIO)
+        self._worker()
+
+        assert self._generadas(engine, pedido) == [{**self.LINEAS_A, **self.LINEAS_B}]
+        [salida] = service.serializar(db, [tactical])[0]["lineas"]
+        assert (salida["facturas_ct"], salida["facturas_elegidas"]) == (None, None)
+
+    # switching an applied line from all to one rebuilds, nothing applied twice
+
+    def test_switching_an_applied_bonus_line_from_all_to_one_invoice_rebuilds_its_purchase(self, db, engine) -> None:
+        pedido = self._operacion(engine)
+        tactical = service.crear(db, self._datos(self._linea(pedido, "por_unidad", "2")), USUARIO)
+        self._worker()
+        assert self._generadas(engine, pedido) == [{**self.LINEAS_A, **self.LINEAS_B}]
+
+        service.reemplazar(db, tactical.id, self._datos(self._linea(pedido, "por_unidad", "2", [self.B])), USUARIO)
+        self._worker()
+
+        assert self._generadas(engine, pedido) == [self.LINEAS_B]  # one active purchase, B's lines only
+
+    def test_switching_an_applied_total_from_all_to_one_invoice_rebuilds_it(self, db, engine) -> None:
+        pedido = self._operacion(engine, moneda="ARS")
+        tactical = service.crear(db, self._datos(self._linea(pedido, "monto_total", "15000")), USUARIO)
+        assert self._activos(engine, tactical.id) == [{**self.LINEAS_A, **self.LINEAS_B}]
+
+        service.reemplazar(db, tactical.id, self._datos(self._linea(pedido, "monto_total", "15000", [self.A])), USUARIO)
+        self._worker()
+
+        assert self._activos(engine, tactical.id) == [self.LINEAS_A]
+        assert self._totales(engine, tactical.id) == [("activa", self.LINEAS_A)]
+
+    def test_an_unchanged_pick_keeps_the_total_s_purchase(self, db, engine) -> None:
+        pedido = self._operacion(engine, moneda="ARS")
+        datos = self._datos(self._linea(pedido, "monto_total", "15000", [self.A]))
+        tactical = service.crear(db, datos, USUARIO)
+        antes = TestFacturaPendienteTotal._compras(self, engine, tactical.id)
+
+        service.reemplazar(db, tactical.id, datos, USUARIO)
+
+        assert TestFacturaPendienteTotal._compras(self, engine, tactical.id) == antes
+        [salida] = service.serializar(db, [tactical])[0]["lineas"]
+        assert salida["facturas_ct"] == [self.A]
+
+    # the credit notes imputed to the whole operation (owner's decision pending: option 3 for now)
+
+    def test_operation_level_credit_notes_count_only_under_todas(self, db, engine) -> None:
+        pedido = self._operacion(engine, nc_del_pedido={2964: 2}, moneda="ARS")
+        todas = service.crear(db, self._datos(self._linea(pedido, "monto_total", "100")), USUARIO)
+        elegida = service.crear(db, self._datos(self._linea(pedido, "monto_total", "100", [self.A])), USUARIO)
+
+        assert self._totales(engine, todas.id) == [("activa", {2964: 8, 950: 5})]
+        assert self._totales(engine, elegida.id) == [("activa", {2964: 10})]
+
+    def test_the_credit_note_rule_gives_a_pick_no_share_of_the_operation_s_notes(self) -> None:
+        from app.services.sell_in.facturas_elegidas import Facturado, nc_del_pedido_para_eleccion
+
+        notas = {2964: Facturado(-2, Decimal("-100"), "ARS")}
+        assert nc_del_pedido_para_eleccion(notas, {self.A}, {self.A, self.B}) == {}
+
+    # S5: the read
+
+    def test_the_read_shows_the_picked_invoices(self, db, engine) -> None:
+        pedido = self._operacion(engine)
+        tactical = service.crear(db, self._datos(self._linea(pedido, "por_unidad", "2", [self.B])), USUARIO)
+
+        [salida] = service.serializar(db, [tactical])[0]["lineas"]
+        assert salida["facturas_ct"] == [self.B]
+        assert salida["facturas_elegidas"] == [{"ct_transaction_id": self.B, "numero": None}]  # no ERP mirror here
+
+    # refusals
+
+    @pytest.mark.parametrize(
+        ("pick", "mensaje"),
+        [
+            ([999], "^Línea 1: la factura 999 no está vinculada a la operación OC-"),
+            ([], "^Línea 1: elegí al menos una factura, o dejá todas las facturas de la operación$"),
+        ],
+    )
+    def test_a_pick_outside_the_operation_is_refused(self, db, engine, pick, mensaje) -> None:
+        pedido = self._operacion(engine)
+        with pytest.raises(service.TacticalError, match=mensaje):
+            service.crear(db, self._datos(self._linea(pedido, "por_unidad", "2", pick)), USUARIO)
+        assert _contar(engine, "tacticals") == 0
+
+    def test_an_operation_without_invoices_takes_no_pick(self, db, engine) -> None:
+        pedido = bw.pedido(engine, {}, None)
+        with pytest.raises(service.TacticalError, match="^Línea 1: la operación OC-.* todavía no tiene facturas"):
+            service.crear(db, self._datos(self._linea(pedido, "por_unidad", "2", [self.A])), USUARIO)
+
+    def test_only_an_invoice_line_picks_invoices(self, db) -> None:
+        linea = {"alcance": "marca", "marca": TPLINK, "modo_monto": "por_unidad", "valor": "2", "facturas_ct": [1]}
+        with pytest.raises(service.TacticalError, match="^Línea 1: solo una línea por factura elige facturas$"):
+            service.crear(db, _tactical("sell_in", [linea]), USUARIO)

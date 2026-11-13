@@ -406,6 +406,28 @@ _CHARGE_SQL = text(
 )
 
 
+# The per-invoice snapshot (sell in varias facturas, `pedido_compra_lineas_facturadas_ct`) queues its operation like the
+# aggregate does (same function, same gate): a credit note moved from one invoice to another changes a picked
+# invoice's units without changing the aggregate. Installed by `20261114_sell_in_facturas_elegidas`; kept apart from
+# `UPGRADE_SQL`, whose frozen-copy chain is the aggregate queue's.
+LINEAS_CT_SQL: List[str] = [
+    """
+CREATE TRIGGER trg_sell_in_bono_lineas_ct_insert_delete
+AFTER INSERT OR DELETE ON pedido_compra_lineas_facturadas_ct
+FOR EACH ROW EXECUTE FUNCTION sell_in_bono_enqueue_linea()
+""",
+    """
+CREATE TRIGGER trg_sell_in_bono_lineas_ct_update
+AFTER UPDATE OF pedido_id, ct_transaction_id, item_id, cantidad, importe_neto, moneda
+ON pedido_compra_lineas_facturadas_ct
+FOR EACH ROW WHEN (
+    (OLD.pedido_id, OLD.ct_transaction_id, OLD.item_id, OLD.cantidad, OLD.importe_neto, OLD.moneda)
+    IS DISTINCT FROM (NEW.pedido_id, NEW.ct_transaction_id, NEW.item_id, NEW.cantidad, NEW.importe_neto, NEW.moneda)
+)
+EXECUTE FUNCTION sell_in_bono_enqueue_linea()
+""",
+]
+
 _ENCOLAR_FACTURADOS_SQL = text(
     """
     INSERT INTO sell_in_bono_dirty (tipo, ref)

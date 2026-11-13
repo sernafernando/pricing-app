@@ -8,15 +8,18 @@ Relation table is the source of truth. Header `pedidos_compra.ct_transaction_id`
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+import logging
 from typing import TYPE_CHECKING, Sequence
 
-from sqlalchemy import BigInteger, Column, Date, DateTime, ForeignKey, Index, UniqueConstraint
+from sqlalchemy import BigInteger, Column, Date, DateTime, ForeignKey, Index, UniqueConstraint, bindparam, text
 from sqlalchemy.orm import Session, relationship
 
 from app.core.database import Base
 
 if TYPE_CHECKING:
     from app.models.pedido_compra import PedidoCompra
+
+logger = logging.getLogger(__name__)
 
 
 class PedidoCompraFactura(Base):
@@ -82,3 +85,34 @@ def count_pedidos_for_ct(session: Session, ct_transaction_id: int) -> int:
     from app.models.pedido_compra import PedidoCompra
 
     return session.query(PedidoCompra.id).filter(PedidoCompra.ct_transaction_id == int(ct_transaction_id)).count()
+
+
+def ct_docnumbers_by_id(session: Session | None, ct_ids: list[int]) -> dict[int, str]:
+    """Map ct_transaction → ct_docnumber from the ERP mirror (best-effort).
+
+    Uses a SAVEPOINT so a missing/broken view (SQLite unit tests, or a
+    transient Postgres error) does not abort the outer transaction.
+    """
+    if session is None or not ct_ids:
+        return {}
+
+    stmt = text(
+        """
+        SELECT ct_transaction, ct_docnumber
+        FROM v_facturas_compra_vigentes
+        WHERE ct_transaction IN :ids
+        """
+    ).bindparams(bindparam("ids", expanding=True))
+    try:
+        with session.begin_nested():
+            rows = session.execute(stmt, {"ids": [int(x) for x in ct_ids]}).all()
+    except Exception as exc:  # noqa: BLE001 — view absent in SQLite unit tests
+        logger.warning("facturas payload: ct_docnumber lookup skipped: %s", exc)
+        return {}
+    out: dict[int, str] = {}
+    for row in rows:
+        ct = int(row[0])
+        doc = str(row[1] or "").strip()
+        if doc:
+            out[ct] = doc
+    return out

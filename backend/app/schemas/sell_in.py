@@ -189,6 +189,12 @@ class SellInOperacionProductosOut(BaseModel):
 OPERACIONES_LIMITE = 20  # options in the operation picker of the create panel
 
 
+class SellInOperacionFacturaOut(BaseModel):
+    ct_transaction_id: int
+    numero: Optional[str] = None  # the readable ERP number (#2264); None when the mirror has none
+    fecha_factura: Optional[date] = None
+
+
 class SellInOperacionOut(BaseModel):
     """One Compras operation (`pedidos_compra`) as the picker shows it: what the Compras list shows."""
 
@@ -203,6 +209,8 @@ class SellInOperacionOut(BaseModel):
     numero_factura: Optional[str]
     # The supplier invoice's date; None while Compras has not linked it (an invoice line may wait for it).
     fecha_factura: Optional[date] = None
+    # The invoices linked to it, oldest link first (sell in varias facturas S3): what a tactical invoice line may pick.
+    facturas: list[SellInOperacionFacturaOut] = Field(default_factory=list)
 
 
 class SellInOperacionesOut(BaseModel):

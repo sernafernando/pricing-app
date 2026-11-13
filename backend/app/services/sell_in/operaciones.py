@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from app.models.pedido_compra import PedidoCompra
 from app.models.proveedor import Proveedor
 from app.schemas.sell_in import OPERACIONES_LIMITE
+from app.services.sell_in import facturas_elegidas
 from app.services.sell_in.compras import contiene
 from app.services.sell_in.prefill import fecha_local
 
@@ -55,7 +56,9 @@ def buscar_operaciones(
         query = query.filter(PedidoCompra.moneda == moneda)
     if excluir:
         query = query.filter(PedidoCompra.id.notin_(excluir))
-    filas = query.order_by(PedidoCompra.created_at.desc(), PedidoCompra.id.desc()).limit(OPERACIONES_LIMITE)
+    filas = query.order_by(PedidoCompra.created_at.desc(), PedidoCompra.id.desc()).limit(OPERACIONES_LIMITE).all()
+    # The invoices of each operation, for a tactical invoice line's pick (sell in varias facturas S3).
+    facturas = facturas_elegidas.facturas_de(db, [pedido.id for pedido, _ in filas])
     return [
         {
             "id": pedido.id,
@@ -68,6 +71,7 @@ def buscar_operaciones(
             "estado": pedido.estado,
             "numero_factura": pedido.numero_factura,
             "fecha_factura": pedido.fecha_factura,  # None: its supplier invoice is not linked yet
+            "facturas": facturas.get(pedido.id, []),
         }
         for pedido, nombre in filas
     ]
