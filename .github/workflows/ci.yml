@@ -113,7 +113,9 @@ jobs:
       # which also runs locally against real commits. `continue-on-error`: if
       # the step dies, its outputs are empty and every group runs. The script
       # prints `skip_*=false` unless it proved a skip, so `tee` into
-      # GITHUB_OUTPUT is the whole contract.
+      # GITHUB_OUTPUT is the whole contract. `shell: bash` adds pipefail (the
+      # implicit shell is plain `bash -e`), so a broken script shows as a
+      # failed step instead of hiding behind `tee`.
       - name: Did an earlier run of this PR already pass a group?
         id: incremental
         if: github.event_name == 'pull_request'
@@ -124,7 +126,10 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           # The PR head, NOT `github.sha` (the merge commit, new every run).
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           RUN_ID: ${{ github.run_id }}
+        shell: bash
         run: |
           WORKFLOW_ID="$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .workflow_id)"
           export WORKFLOW_ID

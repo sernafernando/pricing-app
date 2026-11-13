@@ -18,8 +18,10 @@
 # check.
 #
 # Env: GH_TOKEN (needs `actions: read`, `contents: read`), REPO (owner/name),
-# PR_NUMBER, HEAD_SHA (PR head, not the merge commit), WORKFLOW_ID.
-# Runs locally too: `REPO=... PR_NUMBER=... HEAD_SHA=... WORKFLOW_ID=ci.yml
+# PR_NUMBER, HEAD_SHA (PR head, not the merge commit), HEAD_REF and
+# HEAD_REPO (the PR's head branch and its owner/name), WORKFLOW_ID.
+# Runs locally too: `REPO=... PR_NUMBER=... HEAD_SHA=... HEAD_REF=...
+# HEAD_REPO=... WORKFLOW_ID=ci.yml
 # .github/scripts/ci-passed-groups.sh` with an authenticated `gh`.
 
 set -uo pipefail
@@ -43,7 +45,7 @@ emit() {
 }
 trap emit EXIT
 
-for var in REPO PR_NUMBER HEAD_SHA WORKFLOW_ID; do
+for var in REPO PR_NUMBER HEAD_SHA HEAD_REF HEAD_REPO WORKFLOW_ID; do
   if [ -z "${!var:-}" ]; then
     echo "::notice::incremental CI: $var is empty, running every group" >&2
     exit 0
@@ -86,9 +88,20 @@ changed_since() {
 }
 
 # Completed pull_request runs of this workflow for this PR, newest first.
-# The current run is still in progress, so it is not in the list.
-RUNS="$(gh api "repos/$REPO/actions/workflows/$WORKFLOW_ID/runs?event=pull_request&status=completed&per_page=100" \
-  --jq "[.workflow_runs[] | select(any(.pull_requests[]; .number == $PR_NUMBER))][:$MAX_RUNS][] | [.id, .head_sha] | @tsv")" || {
+# The current run is still in progress, so it is not in the list. Filtered
+# by head branch on the API side: unfiltered, 100 runs cover about one day
+# of this repo and a PR's earlier green run falls out of the window.
+# A run belongs to this PR when its `pull_requests` lists it. For a PR from
+# a fork that list is always empty, so there the run's head repository and
+# branch identify it instead. Same-repo runs with an empty list (an older,
+# merged PR that reused the branch name) never count.
+RUNS="$(gh api -X GET "repos/$REPO/actions/workflows/$WORKFLOW_ID/runs" \
+  -f event=pull_request -f status=completed -f per_page=100 -f branch="$HEAD_REF" \
+  --jq "[.workflow_runs[]
+         | select(any(.pull_requests[]; .number == $PR_NUMBER)
+                  or (.pull_requests == [] and env.HEAD_REPO != env.REPO
+                      and .head_repository.full_name == env.HEAD_REPO))
+        ][:$MAX_RUNS][] | [.id, .head_sha] | @tsv")" || {
   echo "::notice::incremental CI: could not list earlier runs, running every group" >&2
   exit 0
 }
