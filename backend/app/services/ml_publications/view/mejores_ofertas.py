@@ -25,6 +25,12 @@ def is_pm(db: Session, user_id: int) -> bool:
     return db.query(MarcaPM.usuario_id).filter(MarcaPM.usuario_id == user_id).first() is not None
 
 
+def pm_ids(db: Session) -> list[int]:
+    """Every user id with (marca, categoria) assignments: the PMs, in id order."""
+    rows = db.query(MarcaPM.usuario_id).filter(MarcaPM.usuario_id.isnot(None)).distinct().all()
+    return sorted(usuario_id for (usuario_id,) in rows)
+
+
 def count_for_pm(db: Session, pm_id: int) -> int:
     """How many active publications of `pm_id` have better offers: the listing total of `pm_filter(pm_id)`."""
     return listing.count_items(db, pm_filter(pm_id))
