@@ -28,6 +28,9 @@
  *    width is remembered in this browser under that key, and
  *    until someone resizes, the panel keeps its usual token width. Without
  *    the prop nothing changes: no handle, same columns.
+ *  - `expanded` (Ver competencia) is a wider view with a width of its own:
+ *    it starts at its token and the operator's drag there is remembered
+ *    apart (`<resizeKey>:expanded`), so neither view moves the other.
  *  - On a phone (`useIsPhone`, <= 768px) there is no room beside the list:
  *    the panel takes the whole screen over it, with no divider, and the list
  *    keeps its scroll underneath for when the panel closes
@@ -83,7 +86,8 @@ function isEditableElement(el) {
  * @param {import('react').ReactNode} props.panel Panel content.
  * @param {() => void} props.onClose Called on Escape.
  * @param {'md'|'lg'|'xl'} [props.width='md'] 460px / 560px / 920px (capped at 42vw unless `expanded`).
- * @param {boolean} [props.expanded] Lifts the 42vw cap so `xl` (Ver competencia) can actually grow.
+ * @param {boolean} [props.expanded] Lifts the 42vw cap so `xl` (Ver competencia) can actually grow; its dragged width
+ *   is remembered apart from the usual one.
  * @param {string} [props.ariaLabel] Accessible name of the panel.
  * @param {string} [props.resizeKey] Turns on resizing; the width is remembered per browser under this key.
  *   Read once on mount, so keep it constant for the life of the layout.
@@ -95,8 +99,13 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', e
   const resizable = Boolean(resizeKey) && !phone;
   const gridRef = useRef(null);
   const handleRef = useRef(null);
-  // `null` until the operator resizes: the panel keeps its token width.
-  const [panelWidth, setPanelWidth] = useState(() => loadWidth(resizeKey));
+  // `null` until the operator resizes: the panel keeps its token width. The
+  // expanded view keeps its own, so dragging one never moves the other.
+  const [usualWidth, setUsualWidth] = useState(() => loadWidth(resizeKey));
+  const [expandedWidth, setExpandedWidth] = useState(() => loadWidth(resizeKey && `${resizeKey}:expanded`));
+  const panelWidth = expanded ? expandedWidth : usualWidth;
+  const setPanelWidth = expanded ? setExpandedWidth : setUsualWidth;
+  const widthKey = expanded ? `${resizeKey}:expanded` : resizeKey;
   const [measured, setMeasured] = useState({ width: 0, min: PANEL_MIN_WIDTH, max: PANEL_MIN_WIDTH });
   // Cancels the drag in progress, if any: back to the width before it, nothing saved.
   const cancelDragRef = useRef(null);
@@ -228,7 +237,7 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', e
     setMeasured(box);
     if (next === null) return;
     setPanelWidth(next);
-    saveWidth(resizeKey, next);
+    saveWidth(widthKey, next);
   };
 
   const handlePointerDown = (e) => {
@@ -266,7 +275,7 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', e
     function finish() {
       stop();
       // A click without a drag is not a resize: the default width stays.
-      if (latest !== null) saveWidth(resizeKey, latest);
+      if (latest !== null) saveWidth(widthKey, latest);
     }
     function end(event) {
       if (event.pointerId === pointerId) finish();
@@ -284,13 +293,10 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', e
     window.addEventListener('blur', finish);
   };
 
-  // Ver competencia needs the `xl` token, not a previously dragged narrow width.
-  const resized = resizable && panelWidth !== null && !expanded;
+  const resized = resizable && panelWidth !== null;
   // A saved width is reported as the CSS draws it, clamped to both bounds.
   const valueNow =
-    panelWidth === null || expanded
-      ? measured.width
-      : Math.min(Math.max(panelWidth, measured.min), measured.max);
+    panelWidth === null ? measured.width : Math.min(Math.max(panelWidth, measured.min), measured.max);
   // The unresized width can sit outside the bounds (a grid narrower than the
   // default panel, or unread stylesheet values); the reported range still contains it.
   const valueMin = Math.min(measured.min, valueNow);

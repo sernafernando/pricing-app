@@ -1111,7 +1111,15 @@
 .ponerPreciosChoiceMeta { font-size: var(--font-xs); color: var(--cf-text-secondary); }
 
 /* Promos tab: Ver competencia opens a second column; Promos fields stay
-   compact in column 1 (do not stretch with the wide panel). */
+   compact in column 1 (do not stretch with the wide panel). The panel is
+   resizable, so the two columns answer to the tab's own width (a container
+   query), not the window's: on a panel too narrow for both, the ranking
+   stacks under the promos. */
+.promosContainer {
+  container: promos-tab / inline-size;
+  min-width: 0;
+}
+
 .promosLayout {
   display: flex;
   flex-direction: column;
@@ -1137,6 +1145,19 @@
   gap: var(--spacing-sm);
   padding-left: var(--spacing-md);
   border-left: 1px solid var(--cf-border-default);
+}
+
+@container promos-tab (max-width: 46rem) {
+  .promosLayoutWide {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .promosCompetenciaCol {
+    padding-left: 0;
+    border-left: 0;
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--cf-border-default);
+  }
 }
 
 .promosCompetenciaTitle {

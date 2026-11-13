@@ -4003,3 +4003,82 @@ describe('Publicaciones ML table cells (visual)', () => {
     });
   }
 });
+
+// Ver competencia (owner, 2026-11-13): open by default on a catalog listing, the panel starts wider and still takes
+// the user's drag; the two columns stack when the panel gets narrow, and nothing pokes out sideways.
+describe('Publicaciones ML, Ver competencia open (visual)', () => {
+  const RANKING = {
+    fetch_status: 'ok',
+    fecha_consulta: '2026-11-13T12:00:00Z',
+    our_price: 98500,
+    competitor_count: 4,
+    same_bucket: [
+      { item_id: 'MLA1999000001', seller_nickname: 'DISTRIBUIDORA DE REDES DEL LITORAL SRL', price: 96999, markup: 10.42 },
+      { item_id: SELECTED, seller_nickname: 'NUESTRA TIENDA', price: 98500, markup: 12.7 },
+      { item_id: 'MLA1999000002', seller_nickname: 'OTRO VENDEDOR', price: 99990, markup: 14.1 },
+      { item_id: 'MLA1999000003', seller_nickname: 'MAYORISTA INFORMATICA CENTRO', price: 104500, markup: 19.8 },
+    ],
+    undercutting: [],
+  };
+  const columns = () => {
+    const title = [...panelOf().querySelectorAll('h3')].find((h) => h.textContent === 'Competencia del catálogo');
+    const ranking = title.parentElement;
+    return { ranking, promos: ranking.previousElementSibling };
+  };
+  const fitsSideways = (width) => {
+    const panel = panelOf();
+    expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+    const box = rect(panel);
+    for (const el of columns().ranking.querySelectorAll('li, li span')) {
+      expect(rect(el).right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(box.right + 0.5);
+    }
+  };
+
+  beforeEach(() => {
+    localStorage.removeItem('split-panel-width:publicaciones-ml');
+    localStorage.removeItem('split-panel-width:publicaciones-ml:expanded');
+    promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({ data: RANKING });
+  });
+
+  afterEach(() => {
+    localStorage.removeItem('split-panel-width:publicaciones-ml');
+    localStorage.removeItem('split-panel-width:publicaciones-ml:expanded');
+    promocionesAPI.getCompetenciaCatalogo.mockReset();
+  });
+
+  for (const theme of THEMES) {
+    it(`1440x900 ${theme}: opens wide with both columns, and a drag narrower is honoured and stacks them`, async () => {
+      const screen = await renderWithPanel({ width: 1440, height: 900, theme, tab: 'promos', rowExtra: { catalog_listing: true } });
+      await expect.element(screen.getByRole('button', { name: 'Ocultar competencia' })).toBeVisible();
+      await expect.element(screen.getByText('DISTRIBUIDORA DE REDES DEL LITORAL SRL')).toBeVisible();
+      await frame();
+      const wide = rect(panelOf()).width;
+      expect(wide).toBeGreaterThan(800);
+      // Side by side: the ranking starts to the right of the promos, on the same top.
+      let { ranking, promos } = columns();
+      expect(rect(ranking).left).toBeGreaterThanOrEqual(rect(promos).right);
+      expect(Math.abs(rect(ranking).top - rect(promos).top)).toBeLessThanOrEqual(2);
+      expect(rect(scrollerOf()).right).toBeLessThanOrEqual(rect(panelOf()).left + 0.5);
+      fitsSideways(1440);
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/competencia-1440-${theme}.png`, element: document.querySelector('[data-split-grid]') });
+
+      const handle = document.querySelector('[role="separator"][aria-label="Ancho del panel"]');
+      const x = rect(handle).left + rect(handle).width / 2;
+      handle.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: x, clientY: 300 }));
+      window.dispatchEvent(new PointerEvent('pointermove', { buttons: 1, clientX: x + 400, clientY: 300 }));
+      window.dispatchEvent(new PointerEvent('pointerup', { clientX: x + 400, clientY: 300 }));
+      await frame();
+      expect(Math.abs(rect(panelOf()).width - (wide - 400))).toBeLessThanOrEqual(1);
+      expect(localStorage.getItem('split-panel-width:publicaciones-ml:expanded')).toBe(String(Math.round(wide - 400)));
+      // The other views keep their own width.
+      expect(localStorage.getItem('split-panel-width:publicaciones-ml')).toBeNull();
+      ({ ranking, promos } = columns());
+      expect(rect(ranking).top).toBeGreaterThanOrEqual(rect(promos).bottom);
+      expect(rect(scrollerOf()).right).toBeLessThanOrEqual(rect(panelOf()).left + 0.5);
+      fitsSideways(1440);
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/competencia-1440-angosto-${theme}.png`, element: document.querySelector('[data-split-grid]') });
+      screen.unmount();
+    });
+  }
+});

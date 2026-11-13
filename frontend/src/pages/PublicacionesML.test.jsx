@@ -42,7 +42,11 @@ vi.mock('../services/api', () => ({
   productosPropiosAPI: { get: vi.fn(() => new Promise(() => {})), save: vi.fn() },
   // The publication panel opens on Promos (owner, 2026-11-02): its promotions never answer here, these tests are
   // about the panel's opening and closing.
-  promocionesAPI: { getPromocionesItem: vi.fn(() => new Promise(() => {})), refreshItemPromociones: vi.fn(() => new Promise(() => {})) },
+  promocionesAPI: {
+    getPromocionesItem: vi.fn(() => new Promise(() => {})),
+    refreshItemPromociones: vi.fn(() => new Promise(() => {})),
+    getCompetenciaCatalogo: vi.fn(() => new Promise(() => {})),
+  },
   publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn(), statusItemIds: vi.fn(), statusItemIdsChecked: vi.fn(), statusBulk: vi.fn(), paintColors: vi.fn() },
   productosAPI: {
     // The product panel's publication tree (Productos' `ProductoMLAsPanel`): the product's publication.
@@ -1129,6 +1133,49 @@ describe('the detail panel (publicaciones-ml-vista P13a.T1)', () => {
     await page('/ml-publicaciones?sel=MLA9999999999');
     expect(await screen.findByRole('complementary', { name: 'Detalle de la publicación' })).toBeInTheDocument();
     expect(publicacionesMlAPI.detail).toHaveBeenCalledWith('MLA9999999999');
+  });
+});
+
+describe('Ver competencia (owner, 2026-11-13: open by default, and the panel keeps its resize)', () => {
+  const grid = () => document.querySelector('[data-split-grid]');
+  const catalogDetail = (itemId) =>
+    Promise.resolve({ data: { ...DETAIL_RESPONSE, row: { ...(ITEMS.find((item) => item.item_id === itemId) ?? ITEMS[0]), catalog_listing: true } } });
+
+  beforeEach(() => publicacionesMlAPI.detail.mockImplementation(catalogDetail));
+
+  it('a catalog listing opens with the ranking shown and the panel starts wider', async () => {
+    await page('/ml-publicaciones?sel=MLA1100000002');
+    expect(await screen.findByRole('button', { name: 'Ocultar competencia' })).toBeInTheDocument();
+    expect(screen.getByText('Competencia del catálogo')).toBeInTheDocument();
+    await waitFor(() => expect(grid()).toHaveAttribute('data-width', 'xl'));
+    expect(grid()).toHaveAttribute('data-expanded', 'true');
+  });
+
+  it('closed, it stays closed on the next publication, and opens again on the next entry to the page', async () => {
+    const { unmount } = renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?sel=MLA1100000001'] });
+    await userEvent.click(await screen.findByRole('button', { name: 'Ocultar competencia' }));
+    await waitFor(() => expect(grid()).toHaveAttribute('data-width', 'lg'));
+    expect(grid()).not.toHaveAttribute('data-expanded');
+
+    await userEvent.click(screen.getByText('MLA1100000002').closest('tr'));
+    await screen.findByRole('heading', { name: /Cartucho Epson 544/ });
+    expect(await screen.findByRole('button', { name: 'Ver competencia' })).toBeInTheDocument();
+    expect(screen.queryByText('Competencia del catálogo')).not.toBeInTheDocument();
+    expect(grid()).toHaveAttribute('data-width', 'lg');
+    unmount();
+
+    await page('/ml-publicaciones?sel=MLA1100000002');
+    expect(await screen.findByRole('button', { name: 'Ocultar competencia' })).toBeInTheDocument();
+  });
+
+  it('a listing outside the catalog keeps the usual width', async () => {
+    publicacionesMlAPI.detail.mockImplementation((itemId) =>
+      Promise.resolve({ data: { ...DETAIL_RESPONSE, row: { ...(ITEMS.find((item) => item.item_id === itemId) ?? ITEMS[0]), catalog_listing: false } } }),
+    );
+    await page('/ml-publicaciones?sel=MLA1100000002');
+    await screen.findByRole('heading', { name: /Cartucho Epson 544/ });
+    expect(screen.queryByRole('button', { name: /competencia/ })).not.toBeInTheDocument();
+    expect(grid()).toHaveAttribute('data-width', 'lg');
   });
 });
 

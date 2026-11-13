@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import MlaPromocionesPanel from '../../promociones/MlaPromocionesPanel';
 import CatalogCompetitionPanel from '../../promociones/CatalogCompetitionPanel';
 import { markPromoPulled, promoPulledRecently } from '../../promociones/promoPullTtl';
@@ -44,10 +44,12 @@ function ItemPromotions({ itemId, suggestedPromotionIds, promosCacheRef, onPromo
  * `suggestedPromotionIds` are the promotions the "Hay candidatas mejores" block above the tabs suggests;
  * their rows carry a "Sugerida" chip instead of a second banner here.
  *
- * When the publication is a catalog listing, **Ver competencia** expands the
- * split panel (`competenciaWide`) and opens column 2 with the same-bucket
- * ranking (`CatalogCompetitionPanel` variant `ranking`). Promos stay in
- * column 1 at their compact width — they do not stretch into the extra space.
+ * When the publication is a catalog listing, the same-bucket ranking
+ * (`CatalogCompetitionPanel` variant `ranking`) shows in column 2 while
+ * `competenciaOpen` (open by default; **Ocultar competencia** closes it).
+ * `onCompetenciaShownChange` tells the page when it is on screen, so the
+ * split starts wider. Promos stay in column 1 at their compact width; on a
+ * panel too narrow for both, the ranking stacks under them.
  *
  * `key={itemId}` makes a new selection start from scratch, so one
  * publication's promotions are never shown under the next. The cache is
@@ -59,50 +61,59 @@ export default function PromocionesTab({
   detail,
   onPromoApplied,
   suggestedPromotionIds,
-  competenciaWide = false,
-  onCompetenciaWideChange,
+  competenciaOpen = false,
+  onCompetenciaOpenChange,
+  onCompetenciaShownChange,
 }) {
   const [promosCacheRef] = useState(() => ({ current: new Map() }));
   const [catalogCacheRef] = useState(() => ({ current: new Map() }));
   const isCatalog = Boolean(detail?.row?.catalog_listing);
-  const showRanking = isCatalog && competenciaWide;
+  const showRanking = isCatalog && competenciaOpen;
+
+  useEffect(() => {
+    onCompetenciaShownChange?.(showRanking);
+  }, [showRanking, onCompetenciaShownChange]);
+  // Leaving the tab (or the publication) takes the ranking off screen.
+  useEffect(() => () => onCompetenciaShownChange?.(false), [onCompetenciaShownChange]);
 
   const toggleCompetencia = () => {
-    onCompetenciaWideChange?.(!competenciaWide);
+    onCompetenciaOpenChange?.(!competenciaOpen);
   };
 
   return (
-    <div className={showRanking ? styles.promosLayoutWide : styles.promosLayout}>
-      <div className={styles.promosCol}>
-        {isCatalog && (
-          <button
-            type="button"
-            className={`btn-tesla outline-subtle-primary sm ${styles.promosCompetenciaToggle}`}
-            onClick={toggleCompetencia}
-            aria-pressed={competenciaWide}
-          >
-            {competenciaWide ? 'Ocultar competencia' : 'Ver competencia'}
-          </button>
-        )}
-        <ItemPromotions
-          key={itemId}
-          itemId={itemId}
-          suggestedPromotionIds={suggestedPromotionIds}
-          promosCacheRef={promosCacheRef}
-          onPromoApplied={onPromoApplied}
-        />
-      </div>
-      {showRanking && (
-        <div className={styles.promosCompetenciaCol}>
-          <h3 className={styles.promosCompetenciaTitle}>Competencia del catálogo</h3>
-          <CatalogCompetitionPanel
-            key={`catalog-${itemId}`}
-            mla={itemId}
-            catalogCompetitionCacheRef={catalogCacheRef}
-            variant="ranking"
+    <div className={styles.promosContainer}>
+      <div className={showRanking ? styles.promosLayoutWide : styles.promosLayout}>
+        <div className={styles.promosCol}>
+          {isCatalog && (
+            <button
+              type="button"
+              className={`btn-tesla outline-subtle-primary sm ${styles.promosCompetenciaToggle}`}
+              onClick={toggleCompetencia}
+              aria-pressed={competenciaOpen}
+            >
+              {competenciaOpen ? 'Ocultar competencia' : 'Ver competencia'}
+            </button>
+          )}
+          <ItemPromotions
+            key={itemId}
+            itemId={itemId}
+            suggestedPromotionIds={suggestedPromotionIds}
+            promosCacheRef={promosCacheRef}
+            onPromoApplied={onPromoApplied}
           />
         </div>
-      )}
+        {showRanking && (
+          <div className={styles.promosCompetenciaCol}>
+            <h3 className={styles.promosCompetenciaTitle}>Competencia del catálogo</h3>
+            <CatalogCompetitionPanel
+              key={`catalog-${itemId}`}
+              mla={itemId}
+              catalogCompetitionCacheRef={catalogCacheRef}
+              variant="ranking"
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

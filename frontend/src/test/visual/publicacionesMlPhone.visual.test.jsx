@@ -335,6 +335,39 @@ describe.each(['light', 'dark'])('Publicaciones ML at 390x844 (%s)', (theme) => 
     await shot(`pubml-phone-detalle-${theme}`, panel.element());
   });
 
+  it('Ver competencia comes open on a catalog listing and stacks under the promos, with no sideways scroll', async () => {
+    publicacionesMlAPI.detail.mockResolvedValue({ data: { ...PHONE_DETAIL, row: { ...DETAIL_ROW, catalog_listing: true } } });
+    promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
+      data: {
+        fetch_status: 'ok',
+        fecha_consulta: '2026-11-13T12:00:00Z',
+        our_price: 98500,
+        competitor_count: 2,
+        same_bucket: [
+          { item_id: 'MLA1999000001', seller_nickname: 'DISTRIBUIDORA DE REDES DEL LITORAL SRL', price: 96999, markup: 10.42 },
+          { item_id: 'MLA1999000002', seller_nickname: 'OTRO VENDEDOR', price: 99990, markup: 14.1 },
+        ],
+        undercutting: [],
+      },
+    });
+    try {
+      const screen = await renderPhone({ theme, entry: '/ml-publicaciones?sel=MLA1100000001&tab=promos' });
+      const panel = screen.getByRole('complementary', { name: 'Detalle de la publicación' });
+      await expect.element(panel.getByRole('button', { name: 'Ocultar competencia' })).toBeVisible();
+      await expect.element(panel.getByText('DISTRIBUIDORA DE REDES DEL LITORAL SRL')).toBeVisible();
+      const el = panel.element();
+      expect(el.scrollWidth).toBeLessThanOrEqual(el.clientWidth + 1);
+      noSidewaysScroll();
+      const title = [...el.querySelectorAll('h3')].find((h) => h.textContent === 'Competencia del catálogo');
+      const ranking = title.parentElement;
+      expect(ranking.getBoundingClientRect().top).toBeGreaterThanOrEqual(ranking.previousElementSibling.getBoundingClientRect().bottom);
+      ranking.scrollIntoView();
+      await shot(`pubml-phone-competencia-${theme}`, el);
+    } finally {
+      promocionesAPI.getCompetenciaCatalogo.mockReset();
+    }
+  });
+
   it('keeps the footer at the bottom of the screen while the panel scrolls', async () => {
     const screen = await renderPhone({ theme, entry: '/ml-publicaciones?sel=MLA1100000001&tab=resumen' });
     const panel = screen.getByRole('complementary', { name: 'Detalle de la publicación' });
