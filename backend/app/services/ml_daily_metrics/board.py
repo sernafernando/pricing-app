@@ -2967,15 +2967,15 @@ class Board:
         joined, fp = self._members(PRODUCT_AXIS, narrow=True)
         rows = product_combo_rows(self.db, select(fp.c.marca, fp.c.categoria, fp.c.subcategoria_id).select_from(joined))
         # Brands without stock are hidden unless excepted or, Métricas being a sales screen, sold in the period
-        # and filters being viewed: the brands of those same members with units in the period.
-        sold = self.db.execute(select(fp.c.marca).select_from(joined).where(fp.c.units > 0).distinct()).scalars()
+        # and filters being viewed: the brands of those same members with units in the period (ONE statement
+        # with the visibility rule).
+        sold = select(fp.c.marca).select_from(joined).where(fp.c.units > 0)
         f = self.f
         return product_facet_options(
             self.db,
             rows,
             ProductSelection(marcas=f.marcas, categorias=f.categorias, subcategorias=f.subcategorias, pms=f.pms),
-            visibility=brand_visibility(self.db),
-            sold_brands=list(sold),
+            visibility=brand_visibility(self.db, sold_brands=sold),
         )
 
 

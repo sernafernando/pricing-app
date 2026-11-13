@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, FrozenSet, Iterable, List, Optional, TypeVar
 
-from sqlalchemy import func, select, union
+from sqlalchemy import Select, func, select, union
 from sqlalchemy.orm import Session
 
 from app.models.marca_visible_excepcion import MarcaVisibleExcepcion
@@ -41,11 +41,17 @@ def _key_sql(column: object) -> object:
     return func.upper(func.trim(func.coalesce(column, "")))
 
 
-def visible_brand_keys_statement():
-    """The keys of the brands that are visible without any sales context: with stock, or in the exception list."""
-    with_stock = select(_key_sql(ProductoERP.marca).label("k")).where(ProductoERP.stock > 0).group_by("k")
-    exceptions = select(_key_sql(MarcaVisibleExcepcion.marca).label("k"))
-    return union(with_stock, exceptions)
+def visible_brand_keys_statement(sold_brands: Optional[Select] = None):
+    """The keys of the visible brands: with stock, in the exception list, or (sales screens) in `sold_brands`,
+    a select of ONE brand column. One flat UNION (SQLite refuses a parenthesized compound inside another)."""
+    parts = [
+        select(_key_sql(ProductoERP.marca).label("k")).where(ProductoERP.stock > 0).group_by("k"),
+        select(_key_sql(MarcaVisibleExcepcion.marca).label("k")),
+    ]
+    if sold_brands is not None:
+        sold = sold_brands.subquery("sold_brands")
+        parts.append(select(_key_sql(list(sold.c)[0]).label("k")))
+    return union(*parts)
 
 
 @dataclass(frozen=True)
@@ -73,9 +79,11 @@ class BrandVisibility:
         return [option for option in options if self.is_visible(read(option), extra)]  # type: ignore[arg-type]
 
 
-def brand_visibility(db: Session) -> BrandVisibility:
-    """The request's `BrandVisibility`: one statement."""
-    return BrandVisibility(keys=frozenset(k for (k,) in db.execute(visible_brand_keys_statement()) if k))
+def brand_visibility(db: Session, sold_brands: Optional[Select] = None) -> BrandVisibility:
+    """The request's `BrandVisibility`: one statement. `sold_brands`, a select of ONE brand column (the brands
+    that sold in the period being viewed, sales screens only), joins that same statement."""
+    statement = visible_brand_keys_statement(sold_brands)
+    return BrandVisibility(keys=frozenset(k for (k,) in db.execute(statement) if k))
 
 
 def filter_visible_brands(
