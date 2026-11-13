@@ -419,7 +419,11 @@ def _ocs_payload(p: PedidoCompra) -> list[PedidoCompraOcLink]:
 
 
 def _ct_docnumbers_by_id(session: Session | None, ct_ids: list[int]) -> dict[int, str]:
-    """Map ct_transaction → ct_docnumber from the ERP mirror (best-effort)."""
+    """Map ct_transaction → ct_docnumber from the ERP mirror (best-effort).
+
+    Uses a SAVEPOINT so a missing/broken view (SQLite unit tests, or a
+    transient Postgres error) does not abort the outer transaction.
+    """
     if session is None or not ct_ids:
         return {}
     from sqlalchemy import bindparam  # noqa: PLC0415
@@ -432,7 +436,8 @@ def _ct_docnumbers_by_id(session: Session | None, ct_ids: list[int]) -> dict[int
         """
     ).bindparams(bindparam("ids", expanding=True))
     try:
-        rows = session.execute(stmt, {"ids": [int(x) for x in ct_ids]}).all()
+        with session.begin_nested():
+            rows = session.execute(stmt, {"ids": [int(x) for x in ct_ids]}).all()
     except Exception as exc:  # noqa: BLE001 — view absent in SQLite unit tests
         logger.warning("facturas payload: ct_docnumber lookup skipped: %s", exc)
         return {}
@@ -445,19 +450,44 @@ def _ct_docnumbers_by_id(session: Session | None, ct_ids: list[int]) -> dict[int
     return out
 
 
-def _facturas_payload(p: PedidoCompra) -> list[PedidoCompraFacturaLink]:
+def _factura_ct_fecha_pairs(p: PedidoCompra) -> list[tuple[int, date | None]]:
+    """Linked ERP CT ids + invoice dates (relation SoT, else header first-link)."""
+    rel = list(getattr(p, "facturas", None) or [])
+    if rel:
+        return [(int(row.ct_transaction_id), row.fecha_factura) for row in rel]
+    if getattr(p, "ct_transaction_id", None) is not None:
+        return [(int(p.ct_transaction_id), getattr(p, "fecha_factura", None))]
+    return []
+
+
+def _ct_docnumbers_for_pedidos(
+    session: Session | None, pedidos: list[PedidoCompra]
+) -> dict[int, str]:
+    """One mirror lookup for every CT linked on a page of pedidos."""
+    ids: list[int] = []
+    seen: set[int] = set()
+    for p in pedidos:
+        for ct, _ in _factura_ct_fecha_pairs(p):
+            if ct not in seen:
+                seen.add(ct)
+                ids.append(ct)
+    return _ct_docnumbers_by_id(session, ids)
+
+
+def _facturas_payload(
+    p: PedidoCompra,
+    *,
+    ct_docnumbers: dict[int, str] | None = None,
+) -> list[PedidoCompraFacturaLink]:
     """Serialize linked ERP CTs (relation SoT, else header first-link cache)."""
     from sqlalchemy.orm import object_session  # noqa: PLC0415
 
-    rel = list(getattr(p, "facturas", None) or [])
-    raw: list[tuple[int, date | None]]
-    if rel:
-        raw = [(int(row.ct_transaction_id), row.fecha_factura) for row in rel]
-    elif getattr(p, "ct_transaction_id", None) is not None:
-        raw = [(int(p.ct_transaction_id), getattr(p, "fecha_factura", None))]
-    else:
+    raw = _factura_ct_fecha_pairs(p)
+    if not raw:
         return []
-    docs = _ct_docnumbers_by_id(object_session(p), [ct for ct, _ in raw])
+    docs = ct_docnumbers if ct_docnumbers is not None else _ct_docnumbers_by_id(
+        object_session(p), [ct for ct, _ in raw]
+    )
     return [
         PedidoCompraFacturaLink(
             ct_transaction_id=ct,
@@ -485,6 +515,9 @@ def _pedido_response(
     tiene_numero_factura: Optional[bool] = None,
     oc_match_status: Optional[str] = None,
     arribo_en_curso: bool = False,
+    # Precomputed ct_transaction → ct_docnumber for list pages (1 query / page).
+    # None → lookup for this pedido only (detail / single-item callers).
+    ct_docnumbers: dict[int, str] | None = None,
 ) -> PedidoCompraResponse:
     """Serializa PedidoCompra incluyendo empresa_nombre / proveedor_nombre.
 
@@ -529,7 +562,7 @@ def _pedido_response(
             ),
             "oc_vinculada": getattr(p, "oc_poh_id", None) is not None or bool(getattr(p, "ocs", None)),
             "ocs": _ocs_payload(p),
-            "facturas": _facturas_payload(p),
+            "facturas": _facturas_payload(p, ct_docnumbers=ct_docnumbers),
             "factura_cargada": factura_flag,
             "tiene_numero_factura": tiene_numero_flag,
             "oc_match_status": oc_match_status,
@@ -756,6 +789,7 @@ def listar_pedidos(
         )
         chips_map = pedidos_service.chips_visibilidad_batch(db, page_ids)
         arribo_curso_ids = recepcion_service.pedidos_con_arribo_en_curso(db, page_ids)
+        ct_docs_map = _ct_docnumbers_for_pedidos(db, items_page)
 
         return PedidoCompraPaginated(
             items=[
@@ -770,6 +804,7 @@ def listar_pedidos(
                     tiene_numero_factura=chips_map.get(p.id, {}).get("tiene_numero_factura"),
                     oc_match_status=chips_map.get(p.id, {}).get("oc_match_status"),
                     arribo_en_curso=p.id in arribo_curso_ids and p.estado in recepcion_service.ESTADOS_ARRIBO,
+                    ct_docnumbers=ct_docs_map,
                 )
                 for p in items_page
             ],
@@ -837,6 +872,7 @@ def listar_pedidos(
     )
     chips_map = pedidos_service.chips_visibilidad_batch(db, pedido_ids)
     arribo_curso_ids = recepcion_service.pedidos_con_arribo_en_curso(db, pedido_ids)
+    ct_docs_map = _ct_docnumbers_for_pedidos(db, items)
     # These three aggregates feed the accounting fields only, so a warehouse-only
     # listing skips them entirely instead of computing and discarding them.
     if solo_deposito:
@@ -866,6 +902,7 @@ def listar_pedidos(
                 tiene_numero_factura=chips_map.get(p.id, {}).get("tiene_numero_factura"),
                 oc_match_status=chips_map.get(p.id, {}).get("oc_match_status"),
                 arribo_en_curso=p.id in arribo_curso_ids and p.estado in recepcion_service.ESTADOS_ARRIBO,
+                ct_docnumbers=ct_docs_map,
             )
             for p in items
         ],
@@ -936,10 +973,11 @@ def listar_pedidos_pendientes_pago(
     # dos SUM queries por pedido (no-reversal + reversal); no hay N+1 de
     # relaciones porque ya las traímos con joinedload, pero sí N queries
     # de agregación. Aceptable para el N pequeño descrito arriba.
+    ct_docs_map = _ct_docnumbers_for_pedidos(db, pedidos)
     respuestas: list[PedidoCompraResponse] = []
     for p in pedidos:
         saldo = pedidos_service.calcular_saldo_pendiente_pedido(db, p.id)
-        resp = _pedido_response(p)
+        resp = _pedido_response(p, ct_docnumbers=ct_docs_map)
         respuestas.append(resp.model_copy(update={"saldo_pendiente": saldo}))
     return respuestas
 
@@ -1090,7 +1128,7 @@ def crear_pedido(
 @router.put(
     "/pedidos/{pedido_id}",
     response_model=PedidoCompraResponse,
-    summary="Editar pedido (según estado: borrador=todos los campos, aprobado=numero_factura)",
+    summary="Editar pedido (borrador=campos de setup; aprobado/pagado*=factura, fecha pago estimada, observaciones)",
 )
 def editar_pedido(
     pedido_id: int,

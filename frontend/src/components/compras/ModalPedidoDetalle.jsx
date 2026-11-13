@@ -1087,26 +1087,17 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                             {f.ct_docnumber ? (
                               <>
                                 Factura <strong>{f.ct_docnumber}</strong>
-                                {f.fecha_factura ? (
-                                  <span className={styles.facturaSub}> · {f.fecha_factura}</span>
-                                ) : null}
-                                <span className={styles.facturaSub}>
-                                  {' '}
-                                  · GBP #{f.ct_transaction_id}
-                                </span>
                               </>
                             ) : (
-                              <>
-                                Factura ERP
-                                {f.fecha_factura ? (
-                                  <span className={styles.facturaSub}> · {f.fecha_factura}</span>
-                                ) : null}
-                                <span className={styles.facturaSub}>
-                                  {' '}
-                                  · GBP #{f.ct_transaction_id}
-                                </span>
-                              </>
+                              'Factura ERP'
                             )}
+                            {f.fecha_factura ? (
+                              <span className={styles.facturaSub}> · {f.fecha_factura}</span>
+                            ) : null}
+                            <span className={styles.facturaSub}>
+                              {' '}
+                              · GBP #{f.ct_transaction_id}
+                            </span>
                           </span>
                           {canGestionar && (
                             <button
