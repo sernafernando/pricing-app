@@ -3,10 +3,13 @@
 A PM is a user with (marca, categoria) assignments (`marcas_pm`): the same id the Publicaciones ML `pms` filter takes.
 A PM's count is the listing's own total (`listing.count_items`) for the page the badge opens,
 `/ml-publicaciones?estado=active&hay_mejores_ofertas=1&pms=<pm_id>`, so the badge and the page always agree. Every
-badge (the PM's own and any grouped one) counts through `count_for_pm`: one query shape.
+badge counts with `pm_filter` through the listing's own count: `count_for_pm` for one PM, `counts_by_pm` for every PM
+at once (one query for their pairs, one for their counts), the same statement per PM.
 """
 
 from __future__ import annotations
+
+from dataclasses import replace
 
 from sqlalchemy.orm import Session
 
@@ -25,12 +28,18 @@ def is_pm(db: Session, user_id: int) -> bool:
     return db.query(MarcaPM.usuario_id).filter(MarcaPM.usuario_id == user_id).first() is not None
 
 
-def pm_ids(db: Session) -> list[int]:
-    """Every user id with (marca, categoria) assignments: the PMs, in id order."""
-    rows = db.query(MarcaPM.usuario_id).filter(MarcaPM.usuario_id.isnot(None)).distinct().all()
-    return sorted(usuario_id for (usuario_id,) in rows)
-
-
 def count_for_pm(db: Session, pm_id: int) -> int:
     """How many active publications of `pm_id` have better offers: the listing total of `pm_filter(pm_id)`."""
     return listing.count_items(db, pm_filter(pm_id))
+
+
+def pm_pairs(db: Session) -> dict[int, tuple[tuple[str, str], ...]]:
+    """Every PM (a user with `marcas_pm` rows) with their pairs, in one query: the input of `counts_by_pm`."""
+    return listing.pm_pairs_by_user(db)
+
+
+def counts_by_pm(db: Session, pairs: dict[int, tuple[tuple[str, str], ...]]) -> dict[int, int]:
+    """`count_for_pm` of every PM in `pairs` (from `pm_pairs`) in one statement: each count is the listing total of
+    that PM's `pm_filter`, with the pairs already resolved."""
+    filters = {pm_id: replace(pm_filter(pm_id), pm_pairs=pm_pairs_) for pm_id, pm_pairs_ in pairs.items()}
+    return listing.count_items_by_key(db, filters)

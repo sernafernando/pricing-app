@@ -1389,22 +1389,23 @@ def get_mejores_ofertas_por_pm(
     auth_db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """Each active PM's count of active publications with better offers, for the grouped top-bar notifier of those
-    who review the PMs (`alertas.ver_mejores_ofertas_pms`). Every count is that PM's own badge count
-    (`mejores_ofertas.count_for_pm`), so each row equals the page it opens. PMs are the users the screen's `pms`
+    who review the PMs (`alertas.ver_mejores_ofertas_pms`). Every count is that PM's own badge count, all of them in
+    one statement (`mejores_ofertas.counts_by_pm`), so each row equals the page it opens. PMs are the users the screen's `pms`
     filter lists (active, with `marcas_pm` assignments); most better offers first, then by name."""
     try:
-        ids = mejores_ofertas.pm_ids(db)
+        pairs = mejores_ofertas.pm_pairs(db)
         names = (
-            dict(auth_db.query(Usuario.id, Usuario.nombre).filter(Usuario.id.in_(ids), Usuario.activo.is_(True)).all())
-            if ids
+            dict(
+                auth_db.query(Usuario.id, Usuario.nombre)
+                .filter(Usuario.id.in_(list(pairs)), Usuario.activo.is_(True))
+                .all()
+            )
+            if pairs
             else {}
         )
         listing.bound(db)
-        rows = [
-            {"pm_id": pm_id, "nombre": names[pm_id], "count": mejores_ofertas.count_for_pm(db, pm_id)}
-            for pm_id in ids
-            if pm_id in names
-        ]
+        counts = mejores_ofertas.counts_by_pm(db, {pm_id: pairs[pm_id] for pm_id in pairs if pm_id in names})
+        rows = [{"pm_id": pm_id, "nombre": names[pm_id], "count": count} for pm_id, count in counts.items()]
     except DBAPIError as exc:
         if (slow := _database_error(exc)) is not None:
             raise slow from exc

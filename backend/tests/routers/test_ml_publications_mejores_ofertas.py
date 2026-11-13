@@ -6,7 +6,7 @@ publications have better offers. Its count is the Publicaciones ML listing's own
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
 
 from tests.routers.test_ml_publications_links import grant
 from tests.routers.test_ml_publications_view import pg, reader, seed_rows  # noqa: F401
@@ -191,3 +191,32 @@ class TestMejoresOfertasPorPm:
         }
         for row in rows:
             assert row["count"] == own[row["pm_id"]] == _linked_total(client, admin_auth_headers, row["pm_id"])
+
+    def test_every_pm_is_counted_in_one_query_whatever_their_number(
+        self,
+        client,
+        pg,  # noqa: F811
+        mlpub_pg,  # noqa: F811
+        db,
+        rol_admin,
+        admin_user,
+        active_user,
+        inactive_user,
+        admin_auth_headers,
+    ) -> None:
+        grant(db, rol_admin, PERMISO_PMS)
+        seed_rows(pg, _fill_two_pms(admin_user.id, active_user.id, inactive_user.id))
+        statements: list[str] = []
+
+        def record(conn, cursor, statement, parameters, context, executemany) -> None:
+            statements.append(statement.lower())
+
+        event.listen(mlpub_pg, "before_cursor_execute", record)
+        try:
+            response = client.get(POR_PM, headers=admin_auth_headers)
+        finally:
+            event.remove(mlpub_pg, "before_cursor_execute", record)
+        assert response.status_code == 200, response.text
+        assert len(response.json()["pms"]) == 2
+        assert sum("from marcas_pm" in s and "count(" not in s for s in statements) == 1  # the PMs and their pairs
+        assert sum("count(" in s for s in statements) == 1  # every PM's count at once
