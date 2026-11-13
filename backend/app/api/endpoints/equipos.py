@@ -29,6 +29,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import exists
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -271,6 +272,8 @@ def actualizar_mis_preferencias(
       unmarking global (`false`) is refused (400): mark a team instead.
     - `mostrar_referencia_global` applies to a team layer only (400 on global, which has no reference of its own).
     - A team the caller is not a member of: 403. Returns the caller's layers, as `GET /equipos`.
+    - Two defaults ticked at once (two tabs or devices) meet the one-default-per-user index: the later one is rolled
+      back with 409 and the user retries.
     """
     equipo = _get_equipo_or_404(db, equipo_id)
     mias = db.query(EquipoMiembro).filter(EquipoMiembro.usuario_id == current_user.id)
@@ -281,9 +284,11 @@ def actualizar_mis_preferencias(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="La capa global solo puede marcarse como capa por defecto",
             )
-        if request.por_defecto:
-            mias.filter(EquipoMiembro.por_defecto.is_(True)).update({EquipoMiembro.por_defecto: False})
-        db.commit()
+        # Already the default (no team marked): nothing to write.
+        if request.por_defecto and mias.filter(EquipoMiembro.por_defecto.is_(True)).update(
+            {EquipoMiembro.por_defecto: False}
+        ):
+            db.commit()
         return _equipos_del_usuario(db, current_user)
 
     miembro = _require_member(db, equipo_id, current_user)
@@ -295,7 +300,14 @@ def actualizar_mis_preferencias(
         miembro.por_defecto = request.por_defecto
     if request.mostrar_referencia_global is not None:
         miembro.mostrar_referencia_global = request.mostrar_referencia_global
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Otra pestaña cambió tu capa por defecto al mismo tiempo; volvé a intentar",
+        ) from None
     return _equipos_del_usuario(db, current_user)
 
 

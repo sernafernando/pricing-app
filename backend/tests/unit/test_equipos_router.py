@@ -15,6 +15,7 @@ Verifies:
 
 from __future__ import annotations
 
+from sqlalchemy import event, text
 
 from app.core.security import get_password_hash
 from app.models.equipo import Equipo, EquipoMiembro, RolEquipo
@@ -574,6 +575,36 @@ class TestMisPreferencias:
         assert resp.status_code == 200
 
         assert _prefs(client.get("/api/equipos", headers=headers).json()) == {equipo_global.id: (True, True)}
+
+    def test_dos_tildes_simultaneos_responden_409_y_queda_uno(self, client, db, rol_ventas) -> None:
+        _global_equipo(db)
+        uno = _make_equipo(db, "Uno")
+        dos = _make_equipo(db, "Dos")
+        user = _make_usuario(db, "prefsrace", rol_ventas.id)
+        _add_member(db, uno.id, user.id)
+        otro = _add_member(db, dos.id, user.id)
+        db.commit()
+
+        # A concurrent request marks "Dos" right after this one cleared the user's defaults, before it writes its own.
+        def _concurrent_tick(update_context) -> None:
+            update_context.session.execute(
+                text("UPDATE equipo_miembro SET por_defecto = true WHERE id = :id"), {"id": otro.id}
+            )
+
+        event.listen(db, "after_bulk_update", _concurrent_tick, once=True)
+        resp = client.patch(
+            f"/api/equipos/{uno.id}/mis-preferencias", json={"por_defecto": True}, headers=auth_headers_for(user)
+        )
+
+        assert resp.status_code == 409
+        assert (
+            resp.json()["error"]["message"]
+            == "Otra pestaña cambió tu capa por defecto al mismo tiempo; volvé a intentar"
+        )
+        defaults = db.query(EquipoMiembro).filter(
+            EquipoMiembro.usuario_id == user.id, EquipoMiembro.por_defecto.is_(True)
+        )
+        assert defaults.count() <= 1
 
     def test_no_miembro_recibe_403_y_nada_cambia(self, client, db, rol_ventas) -> None:
         _global_equipo(db)
