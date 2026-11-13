@@ -4,14 +4,14 @@ Este índice lista todas las pantallas de la aplicación, en el mismo orden en q
 
 | # | Pantalla | Archivo | Ruta | Menú | Permiso |
 |---|----------|---------|------|------|---------|
-| 1 | Productos | `productos.md` | `/productos` | Productos → Productos | Acceso a Productos |
+| 1 | Productos | `productos.md` | `/productos` | Fuera del menú (solo por dirección) | Acceso a Productos |
 | 2 | Tienda | `tienda.md` | `/tienda` | Productos → Tienda | Acceso a Tienda |
 | 3 | Precios por Lista | `precios-por-lista.md` | `/precios-listas` | Productos → Precios por Lista | Acceso a Productos |
 | 4 | Banlist MLAs | `banlist-mlas.md` | `/mla-banlist` | Productos → Banlist MLAs | Permiso de administración para gestionar la banlist |
 | 5 | Items sin MLA | `items-sin-mla.md` | `/items-sin-mla` | Productos → Items sin MLA | Permiso de administración para ver los ítems sin MLA |
 | 6 | Prearmadas disponibles | `prearmadas-disponibles.md` | `/prearmadas-disponibles` | Productos → Prearmadas disponibles | Acceso a las prearmadas disponibles |
 | 7 | Sell in / Sell out | `sell-in-sell-out.md` | `/sell-in` | Productos → Sell in / Sell out | Acceso a Sell in / Sell out |
-| 7b | Publicaciones ML | `publicaciones-ml.md` | `/ml-publicaciones` | Productos → Publicaciones ML | Acceso a Productos o a Ventas ML |
+| 7b | Publicaciones ML | `publicaciones-ml.md` | `/ml-publicaciones` | Productos → Publicaciones ML (primera; pantalla de inicio) | Acceso a Productos o a Ventas ML |
 | 7c | Control reparación | `control-reparacion.md` | `/ml-repair-control` | Productos → Control reparación | Permiso ml_ops.ver (control de reparación de publicaciones) |
 | 8 | Preparación | `preparacion.md` | `/pedidos-preparacion` | Operaciones → Preparación | Acceso a Preparación |
 | 9 | Producción | `produccion.md` | `/produccion` | Operaciones → Producción | Acceso a Producción |

@@ -20,6 +20,7 @@ function renderAt() {
         <Route path="/" element={<SmartRedirect />} />
         <Route path="/productos" element={<div>PRODUCTOS</div>} />
         <Route path="/ml-publicaciones" element={<div>PUBLICACIONES</div>} />
+        <Route path="/tienda" element={<div>TIENDA</div>} />
         <Route path="/fichaje" element={<div>FICHAJE</div>} />
         <Route path="/login" element={<div>LOGIN</div>} />
       </Routes>
@@ -34,9 +35,21 @@ describe('SmartRedirect — Publicaciones ML', () => {
     expect(screen.getByText('PUBLICACIONES')).toBeInTheDocument();
   });
 
-  it('keeps higher-priority landings: productos.ver still goes to /productos', () => {
-    permisos = new Set(['productos.ver', 'ml_ops.ver']);
+  it('lands a productos.ver user on /ml-publicaciones, not /productos', () => {
+    permisos = new Set(['productos.ver']);
     renderAt();
-    expect(screen.getByText('PRODUCTOS')).toBeInTheDocument();
+    expect(screen.getByText('PUBLICACIONES')).toBeInTheDocument();
+  });
+
+  it('puts /ml-publicaciones ahead of every other landing', () => {
+    permisos = new Set(['productos.ver', 'productos.ver_tienda', 'ml_ops.ver']);
+    renderAt();
+    expect(screen.getByText('PUBLICACIONES')).toBeInTheDocument();
+  });
+
+  it('keeps the next landing for users without productos.ver or ml_ops.ver', () => {
+    permisos = new Set(['productos.ver_tienda']);
+    renderAt();
+    expect(screen.getByText('TIENDA')).toBeInTheDocument();
   });
 });

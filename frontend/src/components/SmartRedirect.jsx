@@ -4,7 +4,7 @@ import FullScreenLoader from './FullScreenLoader';
 
 /**
  * Redirige al usuario a la primera página que tenga acceso
- * Evita loops infinitos cuando el usuario no tiene acceso a /productos
+ * Evita loops infinitos cuando el usuario no tiene acceso a la primera ruta
  *
  * Nota: la resiliencia ante fallos de carga de permisos (retry + estado de
  * error) vive en PermisosContext/ProtectedRoute. Acá un set de permisos vacío
@@ -12,6 +12,8 @@ import FullScreenLoader from './FullScreenLoader';
  */
 export default function SmartRedirect() {
   const { tienePermiso, loading, initialized } = usePermisos();
+  // `permiso` may list several codes separated by commas: any of them grants the route.
+  const puedeVer = (permiso) => permiso.split(',').some((codigo) => tienePermiso(codigo));
 
   // Esperar hasta que los permisos estén completamente cargados
   if (loading || !initialized) {
@@ -20,7 +22,8 @@ export default function SmartRedirect() {
 
   // Lista de rutas en orden de prioridad con sus permisos requeridos
   const rutas = [
-    { path: '/productos', permiso: 'productos.ver' },
+    // Publicaciones ML is the default landing; /productos stays reachable by URL only.
+    { path: '/ml-publicaciones', permiso: 'productos.ver,ml_ops.ver' },
     { path: '/tienda', permiso: 'productos.ver_tienda' },
     { path: '/dashboard-metricas-ml', permiso: 'ventas_ml.ver_dashboard' },
     { path: '/dashboard-ventas-fuera', permiso: 'ventas_fuera.ver_dashboard' },
@@ -39,12 +42,11 @@ export default function SmartRedirect() {
     { path: '/rrhh/empleados', permiso: 'rrhh.ver' },
     { path: '/administracion/proveedores', permiso: 'administracion.ver_proveedores' },
     { path: '/dashboard-tplink', permiso: 'dashboard_tplink.ver' },
-    { path: '/ml-publicaciones', permiso: 'ml_ops.ver' },
   ];
 
   // Buscar la primera ruta a la que tenga acceso
   for (const ruta of rutas) {
-    if (tienePermiso(ruta.permiso)) {
+    if (puedeVer(ruta.permiso)) {
       return <Navigate to={ruta.path} replace />;
     }
   }

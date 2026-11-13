@@ -66,6 +66,17 @@ describe('Sidebar — Publicaciones ML entry (go-live)', () => {
     expect(screen.getByRole('link', { name: /^Publicaciones ML\s*Nuevo$/ })).toHaveAttribute('href', '/ml-publicaciones');
   });
 
+  it('shows "Publicaciones ML" first in Productos and no "Productos" link', async () => {
+    holds('productos.ver', 'productos.ver_tienda');
+    await renderMenu();
+    const pubml = screen.getByRole('link', { name: /^Publicaciones ML\s*Nuevo$/ });
+    const section = pubml.parentElement;
+    const hrefs = Array.from(section.querySelectorAll('a')).map((a) => a.getAttribute('href'));
+    expect(hrefs[0]).toBe('/ml-publicaciones');
+    expect(screen.queryByRole('link', { name: /^Productos$/ })).not.toBeInTheDocument();
+    expect(document.querySelector('a[href="/productos"]')).toBeNull();
+  });
+
   it('hides "Publicaciones ML" without productos.ver or ml_ops.ver', async () => {
     holds('ml_metricas.ver');
     await renderMenu();
