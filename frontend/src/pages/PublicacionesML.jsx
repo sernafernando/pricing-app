@@ -338,8 +338,11 @@ export default function PublicacionesML() {
   );
   // Workflow mode (S1–S3). Local flag — never the URL `modo` / PRICE_MODES.
   const [ponerPreciosMode, setPonerPreciosMode] = useState(false);
-  // Promos Ver competencia: widen the split and show same-bucket ranking col 2.
-  const [competenciaWide, setCompetenciaWide] = useState(false);
+  // Promos Ver competencia: open by default on every entry to the page. Once the user closes it, it stays closed
+  // while they browse other publications. `competenciaShown` is whether the ranking is on screen right now (a
+  // catalog listing on its Promos tab), which is what widens the split.
+  const [competenciaOpen, setCompetenciaOpen] = useState(true);
+  const [competenciaShown, setCompetenciaShown] = useState(false);
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
   const vistaBeforeMode = useRef(null);
   const canPonerPrecios = canUsePonerPreciosMode(tienePermiso);
@@ -729,14 +732,8 @@ export default function PublicacionesML() {
   const [productTab, setProductTab] = useState(null);
   if (!filters.prod && productTab) setProductTab(null);
   // A publication's panel takes the place of its product's (`sel` over `prod`); closing either closes the panel.
-  const closePanel = () => {
-    setCompetenciaWide(false);
-    setFilters({ sel: '', tab: '', prod: '' });
-  };
-
-  useEffect(() => {
-    setCompetenciaWide(false);
-  }, [filters.sel, filters.tab]);
+  const closePanel = () => setFilters({ sel: '', tab: '', prod: '' });
+  const competenciaWide = !ponerPreciosMode && Boolean(filters.sel) && competenciaShown;
   const selectProduct = (key) => {
     setProductTab(null);
     setFilters({ prod: key, sel: '', tab: '' });
@@ -1047,8 +1044,9 @@ export default function PublicacionesML() {
         backLabel={backLabel}
         priceGroup={canSeePrices ? priceGroup : null}
         ponerPreciosMode={ponerPreciosMode}
-        competenciaWide={competenciaWide}
-        onCompetenciaWideChange={setCompetenciaWide}
+        competenciaOpen={competenciaOpen}
+        onCompetenciaOpenChange={setCompetenciaOpen}
+        onCompetenciaShownChange={setCompetenciaShown}
       />
     ) : filters.prod ? (
       <ProductPanel

@@ -351,8 +351,8 @@ describe('Ver competencia (catalog ranking column)', () => {
     expect(screen.queryByRole('button', { name: /ver competencia/i })).not.toBeInTheDocument();
   });
 
-  it('shows Ver competencia for a catalog listing and opens ranking when wide', async () => {
-    const onCompetenciaWideChange = vi.fn();
+  it('shows Ver competencia for a catalog listing and opens the ranking when open', async () => {
+    const onCompetenciaOpenChange = vi.fn();
     const detail = readDetail(DETAIL_RESPONSE);
     detail.row = { ...detail.row, catalog_listing: true };
     render(
@@ -361,13 +361,13 @@ describe('Ver competencia (catalog ranking column)', () => {
         itemId="MLA1100000001"
         canSeeMargin={false}
         dataState={null}
-        competenciaWide={false}
-        onCompetenciaWideChange={onCompetenciaWideChange}
+        competenciaOpen={false}
+        onCompetenciaOpenChange={onCompetenciaOpenChange}
       />,
     );
     await screen.findByText('Smart promo');
     await userEvent.click(screen.getByRole('button', { name: /ver competencia/i }));
-    expect(onCompetenciaWideChange).toHaveBeenCalledWith(true);
+    expect(onCompetenciaOpenChange).toHaveBeenCalledWith(true);
 
     render(
       <PromocionesTab
@@ -375,12 +375,49 @@ describe('Ver competencia (catalog ranking column)', () => {
         itemId="MLA1100000001"
         canSeeMargin={false}
         dataState={null}
-        competenciaWide
-        onCompetenciaWideChange={onCompetenciaWideChange}
+        competenciaOpen
+        onCompetenciaOpenChange={onCompetenciaOpenChange}
       />,
     );
     expect(screen.getByRole('button', { name: /ocultar competencia/i })).toBeInTheDocument();
     expect(screen.getByText('Competencia del catálogo')).toBeInTheDocument();
     await waitFor(() => expect(promocionesAPI.getCompetenciaCatalogo).toHaveBeenCalled());
+  });
+
+  it('tells the page when the ranking is on screen, and that it is off once the tab goes', async () => {
+    const onCompetenciaShownChange = vi.fn();
+    const detail = readDetail(DETAIL_RESPONSE);
+    detail.row = { ...detail.row, catalog_listing: true };
+    const { unmount } = render(
+      <PromocionesTab
+        detail={detail}
+        itemId="MLA1100000001"
+        canSeeMargin={false}
+        dataState={null}
+        competenciaOpen
+        onCompetenciaShownChange={onCompetenciaShownChange}
+      />,
+    );
+    await screen.findByText('Smart promo');
+    expect(onCompetenciaShownChange).toHaveBeenLastCalledWith(true);
+    unmount();
+    expect(onCompetenciaShownChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('a listing outside the catalog never shows the ranking, even with it open', async () => {
+    const onCompetenciaShownChange = vi.fn();
+    render(
+      <PromocionesTab
+        detail={readDetail(DETAIL_RESPONSE)}
+        itemId="MLA1100000001"
+        canSeeMargin={false}
+        dataState={null}
+        competenciaOpen
+        onCompetenciaShownChange={onCompetenciaShownChange}
+      />,
+    );
+    await screen.findByText('Smart promo');
+    expect(screen.queryByText('Competencia del catálogo')).not.toBeInTheDocument();
+    expect(onCompetenciaShownChange).not.toHaveBeenCalledWith(true);
   });
 });

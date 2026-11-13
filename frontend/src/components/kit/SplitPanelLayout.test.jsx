@@ -607,6 +607,56 @@ describe('resizing (opt-in by resizeKey)', () => {
     }
   });
 
+  describe('expanded (Ver competencia)', () => {
+    const EXPANDED_STORAGE = `${STORAGE}:expanded`;
+    const renderSwitchable = (props) => {
+      const view = render(
+        <SplitPanelLayout open panel={<div>panel content</div>} onClose={vi.fn()} resizeKey="pubml" {...props}>
+          <div>table content</div>
+        </SplitPanelLayout>,
+      );
+      const switchTo = (next) =>
+        view.rerender(
+          <SplitPanelLayout open panel={<div>panel content</div>} onClose={vi.fn()} resizeKey="pubml" {...next}>
+            <div>table content</div>
+          </SplitPanelLayout>,
+        );
+      return { ...view, switchTo };
+    };
+
+    it('the drag is honoured and remembered apart from the usual width', () => {
+      const { container } = renderSwitchable({ width: 'xl', expanded: true });
+      fireEvent.pointerDown(separator(), { button: 0, clientX: 1000 });
+      fireEvent.pointerMove(window, { buttons: 1, clientX: 1100 });
+      expect(dragWidth(container)).toBe(`${PANEL - 100}px`);
+      expect(container.firstChild).toHaveAttribute('data-resized', 'true');
+      fireEvent.pointerUp(window, { clientX: 1100 });
+      expect(localStorage.getItem(EXPANDED_STORAGE)).toBe(String(PANEL - 100));
+      expect(localStorage.getItem(STORAGE)).toBeNull();
+    });
+
+    it('opens at its own remembered width', () => {
+      localStorage.setItem(EXPANDED_STORAGE, '700');
+      const { container } = renderSwitchable({ width: 'xl', expanded: true });
+      expect(dragWidth(container)).toBe('700px');
+      expect(separator()).toHaveAttribute('aria-valuenow', '700');
+    });
+
+    it('a sibling view still honours the user width, and the expanded one starts at its token', () => {
+      localStorage.setItem(STORAGE, '720');
+      const { container, switchTo } = renderSwitchable({ width: 'lg' });
+      expect(dragWidth(container)).toBe('720px');
+
+      switchTo({ width: 'xl', expanded: true });
+      expect(dragWidth(container)).toBe('');
+      expect(container.firstChild).not.toHaveAttribute('data-resized');
+
+      switchTo({ width: 'lg' });
+      expect(dragWidth(container)).toBe('720px');
+      expect(container.firstChild).toHaveAttribute('data-resized', 'true');
+    });
+  });
+
   it('opens at the width remembered by this browser', () => {
     localStorage.setItem(STORAGE, '720');
     const { container } = renderLayout({ resizeKey: 'pubml' });

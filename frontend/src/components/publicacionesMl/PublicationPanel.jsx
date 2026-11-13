@@ -50,8 +50,9 @@ const describeError = (error) =>
  * @param {string} [props.backLabel] The product's name for that link ("Volver al producto" without it).
  * @param {object} [props.priceGroup] What the Precios tab takes from the list (Calcular, the Tienda Nube price).
  * @param {boolean} [props.ponerPreciosMode] MODO PONER PRECIOS: no tabs, minimal price body (S5).
- * @param {boolean} [props.competenciaWide] Promos Ver competencia: wide split + ranking col 2.
- * @param {(open: boolean) => void} [props.onCompetenciaWideChange]
+ * @param {boolean} [props.competenciaOpen] Promos Ver competencia: whether the ranking column is open.
+ * @param {(open: boolean) => void} [props.onCompetenciaOpenChange]
+ * @param {(shown: boolean) => void} [props.onCompetenciaShownChange] Whether the ranking is on screen (widens the split).
  */
 export default function PublicationPanel({
   itemId,
@@ -65,8 +66,9 @@ export default function PublicationPanel({
   backLabel,
   priceGroup = null,
   ponerPreciosMode = false,
-  competenciaWide = false,
-  onCompetenciaWideChange,
+  competenciaOpen = false,
+  onCompetenciaOpenChange,
+  onCompetenciaShownChange,
 }) {
   const { tienePermiso } = usePermisos();
   const canSeeMargin = tienePermiso('ml_metricas.ver_ganancia');
@@ -201,8 +203,9 @@ export default function PublicationPanel({
             onWritten={handleWritten}
             priceGroup={priceGroup}
             suggestedPromotionIds={showMejoresBlock ? suggestedIds : undefined}
-            competenciaWide={competenciaWide}
-            onCompetenciaWideChange={onCompetenciaWideChange}
+            competenciaOpen={competenciaOpen}
+            onCompetenciaOpenChange={onCompetenciaOpenChange}
+            onCompetenciaShownChange={onCompetenciaShownChange}
           />
         </PanelTabs>
       )}
