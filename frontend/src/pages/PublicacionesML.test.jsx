@@ -70,6 +70,7 @@ vi.mock('../services/api', () => ({
     listar: vi.fn(() =>
       Promise.resolve({ data: [{ id: 1, nombre: 'U', es_global: true }, { id: 12, nombre: 'Ventas', es_global: false }] }),
     ),
+    misPreferencias: vi.fn(),
   },
   preciosAPI: {
     calcularMarkup: vi.fn(() => Promise.resolve({ data: { markup: 10 } })),
@@ -2439,10 +2440,16 @@ describe('Exportar a Sheets', () => {
   });
 });
 
+// Opens the layer selector's panel (pubml-capa-default): a radio per layer, and the user's ticks.
+async function openLayers() {
+  await userEvent.click(await screen.findByRole('button', { name: /^Capa de color/ }));
+  return screen.getByRole('dialog', { name: 'Capas de color' });
+}
+
 describe('the color layer (S8)', () => {
   it('opens team management from beside the layer, as Productos does', async () => {
     await page();
-    await screen.findByRole('combobox', { name: 'Capa de color' });
+    await screen.findByRole('button', { name: /^Capa de color/ });
     expect(screen.queryByRole('dialog', { name: 'Gestión de equipos' })).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'Equipos' }));
@@ -2452,7 +2459,7 @@ describe('the color layer (S8)', () => {
 
   it('closing team management reloads the teams, so the layer offers a team just created', async () => {
     await page();
-    await screen.findByRole('combobox', { name: 'Capa de color' });
+    await screen.findByRole('button', { name: /^Capa de color/ });
     await userEvent.click(screen.getByRole('button', { name: 'Equipos' }));
     equiposAPI.listar.mockResolvedValueOnce({
       data: [
@@ -2465,9 +2472,14 @@ describe('the color layer (S8)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Cerrar equipos' }));
 
     expect(screen.queryByRole('dialog', { name: 'Gestión de equipos' })).not.toBeInTheDocument();
-    const capa = screen.getByRole('combobox', { name: 'Capa de color' });
+    await waitFor(() => expect(equiposAPI.listar.mock.calls.length).toBeGreaterThan(1));
+    const capas = await openLayers();
     await waitFor(() =>
-      expect(within(capa).getAllByRole('option').map((o) => o.textContent)).toEqual(['Global', 'Ventas', 'Compras']),
+      expect(within(capas).getAllByRole('radio').map((radio) => radio.labels[0].textContent)).toEqual([
+        'Global',
+        'Ventas',
+        'Compras',
+      ]),
     );
   });
 
@@ -2482,7 +2494,7 @@ describe('the color layer (S8)', () => {
 
     await waitFor(() => expect(lastParams()).not.toHaveProperty('equipo_id'));
     // With no team left there is no layer to choose: the selector goes away with it.
-    expect(screen.queryByRole('combobox', { name: 'Capa de color' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Capa de color/ })).not.toBeInTheDocument();
     // Never asked again on the deleted team: it would answer 403.
     expect(calls().slice(asked).map((params) => params.equipo_id)).not.toContain('12');
   });
@@ -2501,21 +2513,21 @@ describe('the color layer (S8)', () => {
       await equiposAPI.listar.mock.results.at(-1).value;
     });
     expect(calls().length).toBe(asked);
-    expect(screen.getByRole('combobox', { name: 'Capa de color' })).toHaveValue('12');
+    expect(screen.getByRole('button', { name: /^Capa de color/ })).toHaveAccessibleName('Capa de color: Ventas');
   });
 
   it('lists the global layer and the teams, and asks the rows on the chosen one', async () => {
     await page();
-    const capa = await screen.findByRole('combobox', { name: 'Capa de color' });
-    expect(within(capa).getAllByRole('option').map((o) => o.textContent)).toEqual(['Global', 'Ventas']);
-    await userEvent.selectOptions(capa, '12');
+    const capas = await openLayers();
+    expect(within(capas).getAllByRole('radio').map((radio) => radio.labels[0].textContent)).toEqual(['Global', 'Ventas']);
+    await userEvent.click(within(capas).getByRole('radio', { name: 'Ventas' }));
     await waitFor(() => expect(lastParams()).toMatchObject({ equipo_id: '12' }));
   });
 
   it("drops a layer the user has no team for (a link shared by someone else): the list is asked on the global one", async () => {
     await page('/ml-publicaciones?equipo=99');
     await waitFor(() => expect(lastParams()).not.toHaveProperty('equipo_id'));
-    expect(screen.getByRole('combobox', { name: 'Capa de color' })).toHaveValue('');
+    expect(screen.getByRole('button', { name: /^Capa de color/ })).toHaveAccessibleName('Capa de color: Global');
     // Never asked on that layer, not even before the teams loaded: the 403 would flash a false error.
     expect(calls().map((params) => params.equipo_id)).not.toContain('99');
   });
@@ -2532,6 +2544,113 @@ describe('the color layer (S8)', () => {
   });
 });
 
+describe('the default layer and the global reference (pubml-capa-default)', () => {
+  const firstRow = () => screen.getByText('MLA1100000001').closest('tr');
+  // The teams as `GET /equipos` answers them, with the user's own preferences on each.
+  const teams = ({ ventas = {}, compras = {} } = {}) => ({
+    data: [
+      { id: 1, nombre: 'U', es_global: true, por_defecto: !ventas.por_defecto && !compras.por_defecto, mostrar_referencia_global: true },
+      { id: 12, nombre: 'Ventas', es_global: false, por_defecto: false, mostrar_referencia_global: true, ...ventas },
+      { id: 13, nombre: 'Compras', es_global: false, por_defecto: false, mostrar_referencia_global: true, ...compras },
+    ],
+  });
+  // A row its team has not painted, painted on the global layer: the marker "Color global".
+  const hinted = () => respond({ ...ITEMS_RESPONSE, items: [{ ...ITEMS[0], color_hint_global: 'rojo' }, ...ITEMS.slice(1)], facets: FACETS });
+
+  it('with no preference set opens on Global, and a team layer shows the global marker (today)', async () => {
+    equiposAPI.listar.mockResolvedValueOnce({
+      data: [{ id: 1, nombre: 'U', es_global: true }, { id: 12, nombre: 'Ventas', es_global: false }],
+    });
+    await page();
+    expect(calls().map((params) => params.equipo_id)).toEqual([undefined]);
+    expect(await screen.findByRole('button', { name: /^Capa de color/ })).toHaveAccessibleName('Capa de color: Global');
+    const capas = await openLayers();
+    expect(within(capas).getByRole('checkbox', { name: 'Abrir en Global al entrar' })).toBeChecked();
+    expect(within(capas).getByRole('checkbox', { name: 'Ver la referencia de color global en Ventas' })).toBeChecked();
+
+    hinted();
+    await userEvent.click(within(capas).getByRole('radio', { name: 'Ventas' }));
+    await waitFor(() => expect(lastParams()).toMatchObject({ equipo_id: '12' }));
+    await waitFor(() => expect(firstRow()).toHaveAttribute('data-marker'));
+  });
+
+  it("opens on the user's default layer when the link has none, never asking on Global first", async () => {
+    equiposAPI.listar.mockResolvedValueOnce(teams({ compras: { por_defecto: true } }));
+    await page();
+    expect(calls().map((params) => params.equipo_id)).toEqual(['13']);
+    expect(screen.getByRole('button', { name: /^Capa de color/ })).toHaveAccessibleName('Capa de color: Compras');
+  });
+
+  it('a layer in the link wins over the default', async () => {
+    equiposAPI.listar.mockResolvedValueOnce(teams({ compras: { por_defecto: true } }));
+    await page('/ml-publicaciones?equipo=12');
+    expect(calls().map((params) => params.equipo_id)).toEqual(['12']);
+    expect(screen.getByRole('button', { name: /^Capa de color/ })).toHaveAccessibleName('Capa de color: Ventas');
+  });
+
+  it('a default the user no longer has a team for falls back to Global, silently', async () => {
+    // The teams no longer list it (the user left it or it was deleted): no team is the default.
+    equiposAPI.listar.mockResolvedValueOnce({
+      data: [
+        { id: 1, nombre: 'U', es_global: true, por_defecto: false },
+        { id: 12, nombre: 'Ventas', es_global: false, por_defecto: false, mostrar_referencia_global: true },
+      ],
+    });
+    await page();
+    expect(calls().map((params) => params.equipo_id)).toEqual([undefined]);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('ticking a layer saves it as the default, and the panel shows the answer', async () => {
+    equiposAPI.listar.mockResolvedValueOnce(teams());
+    equiposAPI.misPreferencias.mockResolvedValueOnce(teams({ ventas: { por_defecto: true } }));
+    await page();
+    const capas = await openLayers();
+
+    await userEvent.click(within(capas).getByRole('checkbox', { name: 'Abrir en Ventas al entrar' }));
+
+    expect(equiposAPI.misPreferencias).toHaveBeenCalledWith(12, { por_defecto: true });
+    await waitFor(() => expect(within(capas).getByRole('checkbox', { name: 'Abrir en Ventas al entrar' })).toBeChecked());
+    expect(within(capas).getByRole('checkbox', { name: 'Abrir en Global al entrar' })).not.toBeChecked();
+    // Saving a preference does not move the layer on show.
+    expect(screen.getByRole('button', { name: /^Capa de color/ })).toHaveAccessibleName('Capa de color: Global');
+  });
+
+  it('hides the global marker on a team layer whose reference is off', async () => {
+    hinted();
+    equiposAPI.listar.mockResolvedValueOnce(teams({ ventas: { mostrar_referencia_global: false } }));
+    await page('/ml-publicaciones?equipo=12');
+    await waitFor(() => expect(lastParams()).toMatchObject({ equipo_id: '12' }));
+    expect(firstRow()).not.toHaveAttribute('data-marker');
+  });
+
+  it('turning the reference off from the panel hides the marker at once', async () => {
+    hinted();
+    equiposAPI.listar.mockResolvedValueOnce(teams());
+    equiposAPI.misPreferencias.mockResolvedValueOnce(teams({ ventas: { mostrar_referencia_global: false } }));
+    await page('/ml-publicaciones?equipo=12');
+    await waitFor(() => expect(firstRow()).toHaveAttribute('data-marker'));
+    const capas = await openLayers();
+
+    await userEvent.click(within(capas).getByRole('checkbox', { name: 'Ver la referencia de color global en Ventas' }));
+
+    expect(equiposAPI.misPreferencias).toHaveBeenCalledWith(12, { mostrar_referencia_global: false });
+    await waitFor(() => expect(firstRow()).not.toHaveAttribute('data-marker'));
+  });
+
+  it('a preference that fails to save says so and changes nothing', async () => {
+    equiposAPI.listar.mockResolvedValueOnce(teams());
+    equiposAPI.misPreferencias.mockRejectedValueOnce(httpError(403, { detail: 'No sos miembro de este equipo' }));
+    await page();
+    const capas = await openLayers();
+
+    await userEvent.click(within(capas).getByRole('checkbox', { name: 'Abrir en Ventas al entrar' }));
+
+    expect(await within(capas).findByRole('alert')).toHaveTextContent('No sos miembro de este equipo');
+    expect(within(capas).getByRole('checkbox', { name: 'Abrir en Ventas al entrar' })).not.toBeChecked();
+  });
+});
+
 describe('the color filter (P6)', () => {
   it("never asks another team's layer anywhere: the strip and the bulk set follow the list", async () => {
     await page('/ml-publicaciones?colores=rojo&equipo=99');
@@ -2545,7 +2664,7 @@ describe('the color filter (P6)', () => {
   it('asks the list for the picked colors on the layer on show, from page 1, and "Limpiar filtros" clears them', async () => {
     const user = userEvent.setup();
     await page('/ml-publicaciones?pagina=2&equipo=12');
-    await screen.findByRole('option', { name: 'Ventas' });
+    await screen.findByRole('button', { name: /^Capa de color/ });
     const colores = screen.getByRole('group', { name: 'Filtrar por color' });
     await user.click(within(colores).getByRole('button', { name: 'Urgente' }));
     await user.click(within(colores).getByRole('button', { name: 'Sin color' }));
@@ -3114,7 +3233,7 @@ describe('painting from the keyboard (S8)', () => {
     api.patch.mockClear();
     const user = userEvent.setup();
     await page('/ml-publicaciones?equipo=12');
-    await screen.findByRole('option', { name: 'Ventas' });
+    await screen.findByRole('button', { name: /^Capa de color/ });
     firstRow().focus();
     await user.keyboard('4');
     await waitFor(() => expect(firstRow()).toHaveAttribute('data-tone'));
@@ -3147,7 +3266,7 @@ describe('painting from the keyboard (S8)', () => {
   it('F7 / F6 step through Global and the teams, and say which layer is on', async () => {
     const user = userEvent.setup();
     await page();
-    await screen.findByRole('option', { name: 'Ventas' });
+    await screen.findByRole('button', { name: /^Capa de color/ });
     await user.keyboard('{F7}');
     await waitFor(() => expect(lastParams()).toMatchObject({ equipo_id: '12' }));
     expect(await screen.findByText('Capa: Ventas')).toBeInTheDocument();

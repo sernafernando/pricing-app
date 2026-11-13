@@ -75,6 +75,7 @@ export default function ProductoTable({
   onSort,
   offset,
   colorOverlay,
+  globalReference = true,
   ownColorOverlay,
   emptyMessage = 'Ningún producto coincide con los filtros',
   selection,
@@ -132,7 +133,10 @@ export default function ProductoTable({
         : undefined;
 
   // The colors painted since the rows loaded (`useColorOverlay`) win over the rows' own.
-  const getRowTone = useCallback((row) => treeRowTone(row, colorOverlay, ownColorOverlay), [colorOverlay, ownColorOverlay]);
+  const getRowTone = useCallback(
+    (row) => treeRowTone(row, colorOverlay, ownColorOverlay, globalReference),
+    [colorOverlay, ownColorOverlay, globalReference],
+  );
 
   const handleRowClick = (row, event) => {
     if (row.type === 'node') onSelectProduct(row.node.key);

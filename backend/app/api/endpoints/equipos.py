@@ -29,6 +29,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import exists
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -58,8 +59,20 @@ class EquipoResponse(BaseModel):
     id: int
     nombre: str
     es_global: bool
+    # The caller's own layer preferences (`GET /equipos` and `PATCH .../mis-preferencias` fill them): whether
+    # Publicaciones ML opens on this layer, and whether the global color reference shows on it. The global layer is
+    # the default while no team is marked; its reference is the layer itself, so always "shown".
+    por_defecto: bool = False
+    mostrar_referencia_global: bool = True
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class MisPreferenciasRequest(BaseModel):
+    """The caller's own preferences on one layer; an omitted field stays as it is."""
+
+    por_defecto: Optional[bool] = None
+    mostrar_referencia_global: Optional[bool] = None
 
 
 class MiembroAddRequest(BaseModel):
@@ -198,30 +211,104 @@ def crear_equipo(
     return equipo
 
 
+def _equipos_del_usuario(db: Session, user: Usuario) -> List[EquipoResponse]:
+    """The user's teams plus the global one, each with the user's own layer preferences."""
+    global_id = get_global_equipo_id(db)
+
+    mis_equipos = (
+        db.query(Equipo, EquipoMiembro)
+        .join(EquipoMiembro, EquipoMiembro.equipo_id == Equipo.id)
+        .filter(EquipoMiembro.usuario_id == user.id)
+        .all()
+    )
+
+    resultado = [
+        EquipoResponse(
+            id=equipo.id,
+            nombre=equipo.nombre,
+            es_global=equipo.es_global,
+            por_defecto=miembro.por_defecto,
+            mostrar_referencia_global=miembro.mostrar_referencia_global,
+        )
+        for equipo, miembro in mis_equipos
+    ]
+    if not any(e.id == global_id for e in resultado):
+        equipo_global = _get_equipo_or_404(db, global_id)
+        resultado.append(
+            EquipoResponse(
+                id=equipo_global.id,
+                nombre=equipo_global.nombre,
+                es_global=True,
+                por_defecto=not any(e.por_defecto for e in resultado),
+            )
+        )
+    return resultado
+
+
 @router.get("/equipos", response_model=List[EquipoResponse])
 def listar_equipos(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
-) -> List[Equipo]:
+) -> List[EquipoResponse]:
     """Lists teams the current user belongs to, plus the global ("U") team.
 
     This is the data source for the frontend layer selector ("View colors
-    of: Mine / Team X / Global").
+    of: Mine / Team X / Global"), with the caller's own preferences on each layer.
     """
-    global_id = get_global_equipo_id(db)
+    return _equipos_del_usuario(db, current_user)
 
-    mis_equipos = (
-        db.query(Equipo)
-        .join(EquipoMiembro, EquipoMiembro.equipo_id == Equipo.id)
-        .filter(EquipoMiembro.usuario_id == current_user.id)
-        .all()
-    )
 
-    resultado = list(mis_equipos)
-    if not any(e.id == global_id for e in resultado):
-        resultado.append(_get_equipo_or_404(db, global_id))
+@router.patch("/equipos/{equipo_id}/mis-preferencias", response_model=List[EquipoResponse])
+def actualizar_mis_preferencias(
+    equipo_id: int,
+    request: MisPreferenciasRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> List[EquipoResponse]:
+    """Sets the caller's own preferences on one layer; nobody else's can be set.
 
-    return resultado
+    - `por_defecto=true` makes it the layer Publicaciones ML opens on, unmarking the caller's previous default (one
+      per user). On the global layer it unmarks every team, since "none marked" is what makes global the default;
+      unmarking global (`false`) is refused (400): mark a team instead.
+    - `mostrar_referencia_global` applies to a team layer only (400 on global, which has no reference of its own).
+    - A team the caller is not a member of: 403. Returns the caller's layers, as `GET /equipos`.
+    - Two defaults ticked at once (two tabs or devices) meet the one-default-per-user index: the later one is rolled
+      back with 409 and the user retries.
+    """
+    equipo = _get_equipo_or_404(db, equipo_id)
+    mias = db.query(EquipoMiembro).filter(EquipoMiembro.usuario_id == current_user.id)
+
+    if equipo.es_global:
+        if request.mostrar_referencia_global is not None or request.por_defecto is False:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La capa global solo puede marcarse como capa por defecto",
+            )
+        # Already the default (no team marked): nothing to write.
+        if request.por_defecto and mias.filter(EquipoMiembro.por_defecto.is_(True)).update(
+            {EquipoMiembro.por_defecto: False}
+        ):
+            db.commit()
+        return _equipos_del_usuario(db, current_user)
+
+    miembro = _require_member(db, equipo_id, current_user)
+    if request.por_defecto:
+        mias.filter(EquipoMiembro.id != miembro.id, EquipoMiembro.por_defecto.is_(True)).update(
+            {EquipoMiembro.por_defecto: False}
+        )
+    if request.por_defecto is not None:
+        miembro.por_defecto = request.por_defecto
+    if request.mostrar_referencia_global is not None:
+        miembro.mostrar_referencia_global = request.mostrar_referencia_global
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Otra pestaña cambió tu capa por defecto al mismo tiempo; volvé a intentar",
+        ) from None
+    return _equipos_del_usuario(db, current_user)
 
 
 @router.get("/equipos/usuarios-disponibles", response_model=List[UsuarioDisponibleResponse])

@@ -7,3 +7,149 @@
 .select {
   composes: select selectSm from '../../styles/forms-tesla.css';
 }
+
+.anchor {
+  position: relative;
+}
+
+/* Looks like the select it replaces (PriceModeSelect still is one): the same primitive, a chevron after the name. */
+.trigger {
+  composes: select selectSm from '../../styles/forms-tesla.css';
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: auto;
+  max-width: 220px;
+  color: var(--cf-text-primary);
+}
+
+.triggerText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 30;
+  display: grid;
+  gap: var(--space-1);
+  width: max-content;
+  min-width: 280px;
+  max-width: min(420px, calc(100vw - 32px));
+  margin-top: var(--spacing-xs);
+  padding: var(--spacing-sm);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+/* One grid for the header and the rows, so the tick columns line up. */
+.head,
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, auto) 64px 64px;
+  align-items: center;
+  column-gap: var(--spacing-sm);
+}
+
+.head {
+  padding: 0 var(--spacing-sm) var(--space-1);
+  font-size: var(--font-xs);
+  color: var(--cf-text-muted);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.head span:not(:first-child) {
+  text-align: center;
+}
+
+.row {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-md);
+}
+
+.row:hover {
+  background: var(--cf-bg-hover);
+}
+
+.row[data-current] {
+  background: var(--cf-accent-blue-light);
+}
+
+.pick {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  cursor: pointer;
+}
+
+.pick span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pick input,
+.tick {
+  accent-color: var(--cf-accent-blue);
+  cursor: pointer;
+}
+
+.tick {
+  justify-self: center;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.tick:disabled {
+  cursor: default;
+}
+
+.error {
+  margin: 0;
+  padding: var(--space-1) var(--spacing-sm) 0;
+  font-size: var(--font-xs);
+  color: var(--cf-danger);
+}
+
+/* On the phone (inside the Filtros sheet) the panel opens in place, the sheet's width, and a row is a finger's height. */
+@media (max-width: 640px) {
+  .layer {
+    flex-wrap: wrap;
+  }
+
+  .anchor {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    align-items: flex-start;
+    min-width: 0;
+  }
+
+  .panel {
+    position: static;
+    align-self: stretch;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    box-shadow: none;
+  }
+
+  .row {
+    min-height: 44px;
+  }
+
+  .tick,
+  .pick input {
+    width: 20px;
+    height: 20px;
+  }
+}

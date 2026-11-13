@@ -33,6 +33,7 @@ export default function AgrupadoTable({
   selectedKey,
   offset,
   colorOverlay,
+  globalReference = true,
   ownColorOverlay,
   emptyMessage = 'Ninguna publicación coincide con los filtros',
   columnWidths,
@@ -64,7 +65,10 @@ export default function AgrupadoTable({
   const selectedRowId = selectedKey === undefined ? undefined : rows.find((row) => row.type === 'item' && row.item.item_id === selectedKey)?.id;
 
   // The colors painted since the rows loaded (`useColorOverlay`) win over the rows' own.
-  const getRowTone = useCallback((row) => treeRowTone(row, colorOverlay, ownColorOverlay), [colorOverlay, ownColorOverlay]);
+  const getRowTone = useCallback(
+    (row) => treeRowTone(row, colorOverlay, ownColorOverlay, globalReference),
+    [colorOverlay, ownColorOverlay, globalReference],
+  );
 
   const handleRowClick = (row, event) => {
     if (row.type === 'node') toggle(row);

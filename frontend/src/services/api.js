@@ -296,6 +296,8 @@ export const equiposAPI = {
   agregarMiembro: (id, data) => api.post(`/equipos/${id}/miembros`, data),
   actualizarMiembro: (id, uid, data) => api.patch(`/equipos/${id}/miembros/${uid}`, data),
   eliminarMiembro: (id, uid) => api.delete(`/equipos/${id}/miembros/${uid}`),
+  // The caller's own layer preferences (`por_defecto`, `mostrar_referencia_global`); answers the caller's layers.
+  misPreferencias: (id, data) => api.patch(`/equipos/${id}/mis-preferencias`, data),
 };
 
 export const promocionesAPI = {

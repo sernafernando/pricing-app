@@ -15,6 +15,7 @@ Verifies:
 
 from __future__ import annotations
 
+from sqlalchemy import event, text
 
 from app.core.security import get_password_hash
 from app.models.equipo import Equipo, EquipoMiembro, RolEquipo
@@ -478,3 +479,166 @@ class TestUsuariosDisponibles:
     def test_requiere_autenticacion(self, client, db) -> None:
         resp = client.get("/api/equipos/usuarios-disponibles")
         assert resp.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# Own preferences: default layer and global reference (pubml-capa-default)
+# ---------------------------------------------------------------------------
+
+
+def _prefs(resp_json: list) -> dict:
+    return {e["id"]: (e["por_defecto"], e["mostrar_referencia_global"]) for e in resp_json}
+
+
+class TestMisPreferencias:
+    def test_sin_preferencias_global_es_default_y_referencia_visible(self, client, db, rol_ventas) -> None:
+        equipo_global = _global_equipo(db)
+        propio = _make_equipo(db, "Mi equipo")
+        user = _make_usuario(db, "prefsnone", rol_ventas.id)
+        _add_member(db, propio.id, user.id)
+        db.commit()
+
+        resp = client.get("/api/equipos", headers=auth_headers_for(user))
+        assert resp.status_code == 200
+        assert _prefs(resp.json()) == {equipo_global.id: (True, True), propio.id: (False, True)}
+
+    def test_marcar_equipo_por_defecto_desmarca_el_anterior(self, client, db, rol_ventas) -> None:
+        equipo_global = _global_equipo(db)
+        uno = _make_equipo(db, "Uno")
+        dos = _make_equipo(db, "Dos")
+        user = _make_usuario(db, "prefsdefault", rol_ventas.id)
+        _add_member(db, uno.id, user.id)
+        _add_member(db, dos.id, user.id)
+        db.commit()
+        headers = auth_headers_for(user)
+
+        resp = client.patch(f"/api/equipos/{uno.id}/mis-preferencias", json={"por_defecto": True}, headers=headers)
+        assert resp.status_code == 200
+        assert _prefs(resp.json()) == {equipo_global.id: (False, True), uno.id: (True, True), dos.id: (False, True)}
+
+        resp = client.patch(f"/api/equipos/{dos.id}/mis-preferencias", json={"por_defecto": True}, headers=headers)
+        assert _prefs(resp.json()) == {equipo_global.id: (False, True), uno.id: (False, True), dos.id: (True, True)}
+        assert _prefs(client.get("/api/equipos", headers=headers).json())[dos.id] == (True, True)
+
+        resp = client.patch(
+            f"/api/equipos/{equipo_global.id}/mis-preferencias", json={"por_defecto": True}, headers=headers
+        )
+        assert resp.status_code == 200
+        assert _prefs(resp.json()) == {equipo_global.id: (True, True), uno.id: (False, True), dos.id: (False, True)}
+
+    def test_ocultar_referencia_global_de_un_equipo(self, client, db, rol_ventas) -> None:
+        _global_equipo(db)
+        propio = _make_equipo(db, "Mi equipo")
+        user = _make_usuario(db, "prefsref", rol_ventas.id)
+        _add_member(db, propio.id, user.id)
+        db.commit()
+        headers = auth_headers_for(user)
+
+        resp = client.patch(
+            f"/api/equipos/{propio.id}/mis-preferencias", json={"mostrar_referencia_global": False}, headers=headers
+        )
+        assert resp.status_code == 200
+        assert _prefs(resp.json())[propio.id] == (False, False)
+        miembro = db.query(EquipoMiembro).filter(EquipoMiembro.usuario_id == user.id).one()
+        db.refresh(miembro)
+        assert miembro.mostrar_referencia_global is False
+
+    def test_las_preferencias_son_de_cada_usuario(self, client, db, rol_ventas) -> None:
+        _global_equipo(db)
+        compartido = _make_equipo(db, "Compartido")
+        user = _make_usuario(db, "prefsmine", rol_ventas.id)
+        other = _make_usuario(db, "prefsother", rol_ventas.id)
+        _add_member(db, compartido.id, user.id)
+        _add_member(db, compartido.id, other.id)
+        db.commit()
+
+        client.patch(
+            f"/api/equipos/{compartido.id}/mis-preferencias",
+            json={"por_defecto": True, "mostrar_referencia_global": False},
+            headers=auth_headers_for(user),
+        )
+        resp = client.get("/api/equipos", headers=auth_headers_for(other))
+        assert _prefs(resp.json())[compartido.id] == (False, True)
+
+    def test_al_salir_del_equipo_por_defecto_vuelve_global(self, client, db, rol_ventas) -> None:
+        equipo_global = _global_equipo(db)
+        equipo = _make_equipo(db, "Se va")
+        admin = _make_usuario(db, "prefsadmin", rol_ventas.id)
+        user = _make_usuario(db, "prefsleaves", rol_ventas.id)
+        _add_member(db, equipo.id, admin.id, RolEquipo.ADMIN)
+        _add_member(db, equipo.id, user.id)
+        db.commit()
+        headers = auth_headers_for(user)
+        client.patch(f"/api/equipos/{equipo.id}/mis-preferencias", json={"por_defecto": True}, headers=headers)
+
+        resp = client.delete(f"/api/equipos/{equipo.id}/miembros/{user.id}", headers=auth_headers_for(admin))
+        assert resp.status_code == 200
+
+        assert _prefs(client.get("/api/equipos", headers=headers).json()) == {equipo_global.id: (True, True)}
+
+    def test_dos_tildes_simultaneos_responden_409_y_queda_uno(self, client, db, rol_ventas) -> None:
+        _global_equipo(db)
+        uno = _make_equipo(db, "Uno")
+        dos = _make_equipo(db, "Dos")
+        user = _make_usuario(db, "prefsrace", rol_ventas.id)
+        _add_member(db, uno.id, user.id)
+        otro = _add_member(db, dos.id, user.id)
+        db.commit()
+
+        # A concurrent request marks "Dos" right after this one cleared the user's defaults, before it writes its own.
+        def _concurrent_tick(update_context) -> None:
+            update_context.session.execute(
+                text("UPDATE equipo_miembro SET por_defecto = true WHERE id = :id"), {"id": otro.id}
+            )
+
+        event.listen(db, "after_bulk_update", _concurrent_tick, once=True)
+        resp = client.patch(
+            f"/api/equipos/{uno.id}/mis-preferencias", json={"por_defecto": True}, headers=auth_headers_for(user)
+        )
+
+        assert resp.status_code == 409
+        assert (
+            resp.json()["error"]["message"]
+            == "Otra pestaña cambió tu capa por defecto al mismo tiempo; volvé a intentar"
+        )
+        defaults = db.query(EquipoMiembro).filter(
+            EquipoMiembro.usuario_id == user.id, EquipoMiembro.por_defecto.is_(True)
+        )
+        assert defaults.count() <= 1
+
+    def test_no_miembro_recibe_403_y_nada_cambia(self, client, db, rol_ventas) -> None:
+        _global_equipo(db)
+        ajeno = _make_equipo(db, "Ajeno")
+        owner = _make_usuario(db, "prefsowner", rol_ventas.id)
+        intruso = _make_usuario(db, "prefsintruso", rol_ventas.id)
+        _add_member(db, ajeno.id, owner.id, RolEquipo.ADMIN)
+        db.commit()
+
+        resp = client.patch(
+            f"/api/equipos/{ajeno.id}/mis-preferencias",
+            json={"por_defecto": True, "mostrar_referencia_global": False},
+            headers=auth_headers_for(intruso),
+        )
+        assert resp.status_code == 403
+        assert db.query(EquipoMiembro).filter(EquipoMiembro.usuario_id == intruso.id).count() == 0
+        miembro = db.query(EquipoMiembro).filter(EquipoMiembro.usuario_id == owner.id).one()
+        db.refresh(miembro)
+        assert (miembro.por_defecto, miembro.mostrar_referencia_global) == (False, True)
+
+    def test_equipo_inexistente_404(self, client, db, rol_ventas) -> None:
+        _global_equipo(db)
+        user = _make_usuario(db, "prefs404", rol_ventas.id)
+        db.commit()
+        resp = client.patch(
+            "/api/equipos/999999/mis-preferencias", json={"por_defecto": True}, headers=auth_headers_for(user)
+        )
+        assert resp.status_code == 404
+
+    def test_global_no_admite_referencia_ni_desmarcar(self, client, db, rol_ventas) -> None:
+        equipo_global = _global_equipo(db)
+        user = _make_usuario(db, "prefsglobal", rol_ventas.id)
+        db.commit()
+        headers = auth_headers_for(user)
+        url = f"/api/equipos/{equipo_global.id}/mis-preferencias"
+        assert client.patch(url, json={"mostrar_referencia_global": False}, headers=headers).status_code == 400
+        assert client.patch(url, json={"por_defecto": False}, headers=headers).status_code == 400

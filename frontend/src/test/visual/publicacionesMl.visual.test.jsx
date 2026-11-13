@@ -2728,7 +2728,7 @@ describe('row colors and the color layer (S8)', () => {
   for (const theme of ['light', 'dark']) {
     it(`1366x768 ${theme}: the layer selector fits the filter band and a painted row reads on its color`, async () => {
       const screen = await renderPage({ width: 1366, height: 768, theme });
-      await expect.element(screen.getByRole('combobox', { name: 'Capa de color' })).toBeVisible();
+      await expect.element(screen.getByRole('button', { name: /^Capa de color/ })).toBeVisible();
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1366);
       const [painted, hinted] = document.querySelectorAll('tbody tr');
       const cell = painted.querySelector('td:nth-child(2)');
@@ -2751,6 +2751,37 @@ describe('row colors and the color layer (S8)', () => {
       }
       screen.unmount();
     });
+  }
+
+  // pubml-capa-default S6: the selector open with its ticks (the default layer, the global reference per team), inside
+  // the screen in both themes. The phone's, inside the Filtros sheet, is in publicacionesMlPhone.visual.test.jsx.
+  for (const theme of ['light', 'dark']) {
+    for (const [width, height] of [[1440, 900]]) {
+      it(`${width} ${theme}: the layer selector opens with its ticks, inside the screen`, async () => {
+        equiposAPI.listar.mockResolvedValue({
+          data: [
+            { id: 1, nombre: 'U', es_global: true, por_defecto: false, mostrar_referencia_global: true },
+            { id: 12, nombre: 'Ventas', es_global: false, por_defecto: true, mostrar_referencia_global: true },
+            { id: 13, nombre: 'Compras mayoristas', es_global: false, por_defecto: false, mostrar_referencia_global: false },
+          ],
+        });
+        const screen = await renderPage({ width, height, theme });
+        await userEvent.click(screen.getByRole('button', { name: /^Capa de color/ }));
+        const panel = screen.getByRole('dialog', { name: 'Capas de color' });
+        await expect.element(panel).toBeVisible();
+        await expect.element(screen.getByRole('checkbox', { name: 'Abrir en Ventas al entrar' })).toBeChecked();
+        await expect
+          .element(screen.getByRole('checkbox', { name: 'Ver la referencia de color global en Compras mayoristas' }))
+          .not.toBeChecked();
+        panel.element().scrollIntoView({ block: 'nearest' });
+        const box = rect(panel.element());
+        expect(box.left).toBeGreaterThanOrEqual(-0.5);
+        expect(box.right).toBeLessThanOrEqual(width + 0.5);
+        expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/capa-default-${width}-${theme}.png` });
+        screen.unmount();
+      });
+    }
   }
 
   // Owner (2026-11-03): "los badges no tienen fondo, entonces, por ejemplo el de clásica en verde casi no se lee, el de
