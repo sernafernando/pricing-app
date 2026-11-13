@@ -16,6 +16,12 @@ import { seleccionDesdeDetalle } from './tacticalTiendas';
 /** A decimal from the API ("220.00", "3.5") as the screen types it ("220", "3,5"); empty when null. */
 const texto = (valor) => (valor == null ? '' : String(Number(valor)).replace('.', ','));
 
+/** A saved invoice pick as the screen keeps it: nothing when the line covers every invoice of its operation. */
+const elegidasDe = (linea) =>
+  linea.facturas_ct?.length
+    ? { facturasCt: [...linea.facturas_ct], facturasElegidas: linea.facturas_elegidas ?? null }
+    : {};
+
 function lineaDe(hijos, conservar) {
   const [primero] = hijos;
   const productos = hijos.flatMap((h) => h.productos ?? []);
@@ -34,10 +40,11 @@ function lineaDe(hijos, conservar) {
     compartido: primero.alcance === 'productos' && hijos.length === 1 && productos.length > 1,
     // How a total amount was split among the line's products (sell out or sell in); '' for any other line.
     reparto: primero.reparto_criterio ?? '',
-    // Editar keeps the invoice (`id` is the pedido_compra_id); the picker's details arrive later (`conFacturas`).
+    // Editar keeps the invoice (`id` is the pedido_compra_id) and the invoices it was limited to (varias facturas
+    // S3); the picker's details arrive later (`conFacturas`).
     facturas:
       conservar && primero.alcance === 'factura' && primero.pedido_compra_id != null
-        ? [{ id: primero.pedido_compra_id, numero: primero.pedido_numero }]
+        ? [{ id: primero.pedido_compra_id, numero: primero.pedido_numero, ...elegidasDe(primero) }]
         : [],
   };
 }
