@@ -33,6 +33,7 @@ vi.mock('../contexts/PermisosContext', () => ({
 vi.mock('../hooks/useWeather', () => ({ useWeather: () => weatherStub }));
 vi.mock('./NotificationBell', () => ({ default: () => null }));
 vi.mock('./FreeShippingBadge', () => ({ default: () => null }));
+vi.mock('./MejoresOfertasBadge', () => ({ default: () => null }));
 vi.mock('./TicketBadge', () => ({ default: () => null }));
 vi.mock('./BirthdayBadge', () => ({ default: () => null }));
 vi.mock('./ThemeToggleSimple', () => ({ default: () => null }));

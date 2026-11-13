@@ -1,0 +1,60 @@
+/* MejoresOfertasBadge - PM's better-offers badge in the TopBar (sibling of FreeShippingBadge) */
+
+.badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--tone-success-bg);
+  border: 1px solid var(--tone-success-border);
+  border-radius: 8px;
+  color: var(--tone-success-fg);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+  transition: all var(--duration-150) var(--ease-in-out);
+  white-space: nowrap;
+  height: 34px;
+  flex-shrink: 0;
+}
+
+.badge:hover {
+  border-color: var(--tone-success-fg);
+  transform: translateY(-1px);
+}
+
+.badge:active {
+  transform: translateY(0);
+}
+
+.icon {
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.label {
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The count alone shows only where the sentence does not fit */
+.count {
+  display: none;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+@media (max-width: 1100px) {
+  .badge {
+    padding: 6px 8px;
+  }
+
+  .label {
+    display: none;
+  }
+
+  .count {
+    display: inline;
+  }
+}

@@ -7,6 +7,7 @@ import { Menu, CloudRain, Droplets, Wind, Fingerprint } from 'lucide-react';
 import ThemeToggleSimple from './ThemeToggleSimple';
 import NotificationBell from './NotificationBell';
 import FreeShippingBadge from './FreeShippingBadge';
+import MejoresOfertasBadge from './MejoresOfertasBadge';
 import TicketBadge from './TicketBadge';
 import BirthdayBadge from './BirthdayBadge';
 import { useWeather } from '../hooks/useWeather';
@@ -204,6 +205,7 @@ export default function TopBar({ sidebarExpanded = true, sidebarHidden = false, 
         <BirthdayBadge />
         <TicketBadge />
         <FreeShippingBadge />
+        <MejoresOfertasBadge />
         <NotificationBell />
         
         <div 
