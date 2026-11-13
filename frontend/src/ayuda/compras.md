@@ -39,7 +39,10 @@ En el detalle del pedido, **Actualizar OC** vuelve a traer del ERP el contenido 
 Sí, en pedidos **con OC** todavía en *Por recibir* / *Por retirar* (chip de Proceso en Pedidos, según `requiere_envio`). Por cada línea cargás cuánto se retiró/recibió y confirmás con **Guardar este retiro** / **Guardar esta recepción** (no cierra el pedido). Con parciales guardados, el chip de Proceso en Pedidos y el badge de Depósito pasan a verde **Recibiendo** / **Retirando**. Cuando el acumulado cubre el total, Guardar se deshabilita y hay que pulsar **Marcar pedido como recibido/retirado completo** para pasar a *Sin controlar*. **Deshacer recibido/retiro** vuelve al eje por recibir/retirar y borra ese progreso.
 
 **¿Se puede vincular más de una factura ERP a un pedido?**
-Sí. En el detalle del pedido, **Facturas del ERP** lista cada `ct_transaction` vinculada, permite **Desvincular** una por una y **Vincular otra**. La misma factura también puede quedar documentada en varios pedidos; el sell-in de líneas solo se arma cuando esa factura queda ligada a un solo pedido.
+Sí. En el detalle del pedido, **Facturas del ERP** lista cada factura vinculada con su **número de factura** (y el id interno GBP como dato secundario), permite **Desvincular** una por una y **Vincular otra**. La misma factura también puede quedar documentada en varios pedidos; el sell-in de líneas solo se arma cuando esa factura queda ligada a un solo pedido.
+
+**¿Se puede cambiar la fecha de pago estimada después de aprobar?**
+Sí. En **Ver detalle**, con permiso de gestionar órdenes de compra, **Editar** en Fecha pago estimada (también en borrador / pagado parcial / pagado). Órdenes de pago usa esa fecha para priorizar vencimientos; sirve si el pago se difiere de común acuerdo o si el originador no la cargó.
 
 **¿Por qué el botón Cerrar del detalle del pedido queda siempre a la vista?**
 En **Ver detalle**, el contenido largo (líneas, facturas, OC) hace scroll adentro del modal; la barra de acciones con **Cerrar** queda fija abajo del diálogo para no tener que bajar hasta el final.

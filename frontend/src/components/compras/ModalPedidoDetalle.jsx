@@ -43,6 +43,19 @@ import styles from './ModalPedidoDetalle.module.css';
 
 // Estados desde los que se puede corregir un pedido (feature D).
 const ESTADOS_CORREGIBLES = new Set(['aprobado', 'pagado_parcial', 'pagado']);
+// Metadata editable via PUT /pedidos/{id} (fecha_pago_estimada included post-aprobación).
+const ESTADOS_FECHA_PAGO_EDITABLE = new Set(['borrador', 'aprobado', 'pagado_parcial', 'pagado']);
+
+const toInputDate = (value) => {
+  if (!value) return '';
+  return String(value).split('T')[0];
+};
+
+const formatFechaPago = (value) => {
+  if (!value) return '—';
+  const [y, m, d] = String(value).split('T')[0].split('-');
+  return y && m && d ? `${d}/${m}/${y}` : String(value);
+};
 
 
 const MATCH_STATUS_LABEL = {
@@ -150,6 +163,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   // Desestructurar función memoizada para evitar loop en useEffect.
   const {
     obtener: obtenerPedido,
+    editar: editarPedido,
     desvincularFactura,
     desvinculaOc,
     fetchOcDetalle,
@@ -169,6 +183,10 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   const [showVincularModal, setShowVincularModal] = useState(false);
   const [desvinculando, setDesvinculando] = useState(false);
   const [showCorregirModal, setShowCorregirModal] = useState(false);
+  const [editingFechaPago, setEditingFechaPago] = useState(false);
+  const [fechaPagoForm, setFechaPagoForm] = useState('');
+  const [savingFechaPago, setSavingFechaPago] = useState(false);
+  const [errorFechaPago, setErrorFechaPago] = useState(null);
   // Batch J — OC section state.
   const [showVincularOCModal, setShowVincularOCModal] = useState(false);
   const [desvinculandoOC, setDesvinculandoOC] = useState(false);
@@ -194,6 +212,36 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
 
   const puedeCorregir =
     canGestionar && pedido && ESTADOS_CORREGIBLES.has(pedido.estado);
+  const puedeEditarFechaPago =
+    canGestionar && pedido && ESTADOS_FECHA_PAGO_EDITABLE.has(pedido.estado);
+
+  const handleGuardarFechaPago = async () => {
+    if (!pedido) return;
+    const next = fechaPagoForm || null;
+    const current = toInputDate(pedido.fecha_pago_estimada) || null;
+    if (next === current) {
+      setEditingFechaPago(false);
+      setErrorFechaPago(null);
+      return;
+    }
+    if (!next) {
+      setErrorFechaPago('Indicá una fecha estimada de pago.');
+      return;
+    }
+    setSavingFechaPago(true);
+    setErrorFechaPago(null);
+    try {
+      const updated = await editarPedido(pedido.id, { fecha_pago_estimada: next });
+      setPedido(updated);
+      setEditingFechaPago(false);
+    } catch (err) {
+      setErrorFechaPago(
+        err?.response?.data?.detail || err?.message || 'No se pudo guardar la fecha',
+      );
+    } finally {
+      setSavingFechaPago(false);
+    }
+  };
 
   // Documentos ERP imputados (sub-batch 3.1).
   const [documentos, setDocumentos] = useState([]);
@@ -818,16 +866,71 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
               </div>
               <div>
                 <span className={styles.infoLabel}>Fecha pago estimada</span>
-                <strong className={styles.infoValue}>
-                  {pedido.fecha_pago_estimada
-                    ? (() => {
-                        const [y, m, d] = String(pedido.fecha_pago_estimada)
-                          .split('T')[0]
-                          .split('-');
-                        return y && m && d ? `${d}/${m}/${y}` : pedido.fecha_pago_estimada;
-                      })()
-                    : '—'}
-                </strong>
+                {editingFechaPago ? (
+                  <div className={styles.fechaPagoEditor}>
+                    <input
+                      type="date"
+                      className={styles.fechaPagoInput}
+                      value={fechaPagoForm}
+                      onChange={(e) => setFechaPagoForm(e.target.value)}
+                      disabled={savingFechaPago}
+                      aria-label="Fecha de pago estimada"
+                    />
+                    <div className={styles.fechaPagoActions}>
+                      <button
+                        type="button"
+                        className={styles.btnPrimaryInline}
+                        onClick={handleGuardarFechaPago}
+                        disabled={savingFechaPago}
+                      >
+                        {savingFechaPago ? (
+                          <Loader2 size={12} className={styles.spin} />
+                        ) : (
+                          <Check size={12} />
+                        )}
+                        Guardar
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.btnGhost}
+                        disabled={savingFechaPago}
+                        onClick={() => {
+                          setEditingFechaPago(false);
+                          setErrorFechaPago(null);
+                          setFechaPagoForm(toInputDate(pedido.fecha_pago_estimada));
+                        }}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                    {errorFechaPago && (
+                      <div className={styles.errorBanner} role="alert">
+                        {errorFechaPago}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className={styles.fechaPagoReadonly}>
+                    <strong className={styles.infoValue}>
+                      {formatFechaPago(pedido.fecha_pago_estimada)}
+                    </strong>
+                    {puedeEditarFechaPago && (
+                      <button
+                        type="button"
+                        className={styles.btnGhost}
+                        title="Editar fecha de pago estimada (Órdenes de pago la usan)"
+                        onClick={() => {
+                          setFechaPagoForm(toInputDate(pedido.fecha_pago_estimada));
+                          setErrorFechaPago(null);
+                          setEditingFechaPago(true);
+                        }}
+                      >
+                        <Pencil size={12} />
+                        Editar
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
               <div>
                 <span className={styles.infoLabel}>Requiere envío</span>
@@ -876,11 +979,12 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
               </div>
               {facturasErp.length > 0 && (
                 <div>
-                  <span className={styles.infoLabel}>ERP ct_transaction</span>
+                  <span className={styles.infoLabel}>Facturas ERP</span>
                   <strong className={styles.infoValue}>
                     {facturasErp.map((f, i) => (
                       <span key={f.ct_transaction_id}>
-                        {i > 0 ? ', ' : ''}#{f.ct_transaction_id}
+                        {i > 0 ? ', ' : ''}
+                        {f.ct_docnumber || `GBP #${f.ct_transaction_id}`}
                       </span>
                     ))}
                   </strong>
@@ -980,10 +1084,29 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                       {facturasErp.map((f) => (
                         <li key={f.ct_transaction_id} className={styles.facturaListItem}>
                           <span className={styles.facturaMain}>
-                            ct_transaction <strong>#{f.ct_transaction_id}</strong>
-                            {f.fecha_factura ? (
-                              <span className={styles.facturaSub}> · {f.fecha_factura}</span>
-                            ) : null}
+                            {f.ct_docnumber ? (
+                              <>
+                                Factura <strong>{f.ct_docnumber}</strong>
+                                {f.fecha_factura ? (
+                                  <span className={styles.facturaSub}> · {f.fecha_factura}</span>
+                                ) : null}
+                                <span className={styles.facturaSub}>
+                                  {' '}
+                                  · GBP #{f.ct_transaction_id}
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                Factura ERP
+                                {f.fecha_factura ? (
+                                  <span className={styles.facturaSub}> · {f.fecha_factura}</span>
+                                ) : null}
+                                <span className={styles.facturaSub}>
+                                  {' '}
+                                  · GBP #{f.ct_transaction_id}
+                                </span>
+                              </>
+                            )}
                           </span>
                           {canGestionar && (
                             <button

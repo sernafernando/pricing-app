@@ -418,25 +418,54 @@ def _ocs_payload(p: PedidoCompra) -> list[PedidoCompraOcLink]:
     return []
 
 
+def _ct_docnumbers_by_id(session: Session | None, ct_ids: list[int]) -> dict[int, str]:
+    """Map ct_transaction → ct_docnumber from the ERP mirror (best-effort)."""
+    if session is None or not ct_ids:
+        return {}
+    from sqlalchemy import bindparam  # noqa: PLC0415
+
+    stmt = text(
+        """
+        SELECT ct_transaction, ct_docnumber
+        FROM v_facturas_compra_vigentes
+        WHERE ct_transaction IN :ids
+        """
+    ).bindparams(bindparam("ids", expanding=True))
+    try:
+        rows = session.execute(stmt, {"ids": [int(x) for x in ct_ids]}).all()
+    except Exception as exc:  # noqa: BLE001 — view absent in SQLite unit tests
+        logger.warning("facturas payload: ct_docnumber lookup skipped: %s", exc)
+        return {}
+    out: dict[int, str] = {}
+    for row in rows:
+        ct = int(row[0])
+        doc = str(row[1] or "").strip()
+        if doc:
+            out[ct] = doc
+    return out
+
+
 def _facturas_payload(p: PedidoCompra) -> list[PedidoCompraFacturaLink]:
     """Serialize linked ERP CTs (relation SoT, else header first-link cache)."""
+    from sqlalchemy.orm import object_session  # noqa: PLC0415
+
     rel = list(getattr(p, "facturas", None) or [])
+    raw: list[tuple[int, date | None]]
     if rel:
-        return [
-            PedidoCompraFacturaLink(
-                ct_transaction_id=int(row.ct_transaction_id),
-                fecha_factura=row.fecha_factura,
-            )
-            for row in rel
-        ]
-    if getattr(p, "ct_transaction_id", None) is not None:
-        return [
-            PedidoCompraFacturaLink(
-                ct_transaction_id=int(p.ct_transaction_id),
-                fecha_factura=getattr(p, "fecha_factura", None),
-            )
-        ]
-    return []
+        raw = [(int(row.ct_transaction_id), row.fecha_factura) for row in rel]
+    elif getattr(p, "ct_transaction_id", None) is not None:
+        raw = [(int(p.ct_transaction_id), getattr(p, "fecha_factura", None))]
+    else:
+        return []
+    docs = _ct_docnumbers_by_id(object_session(p), [ct for ct, _ in raw])
+    return [
+        PedidoCompraFacturaLink(
+            ct_transaction_id=ct,
+            fecha_factura=fecha,
+            ct_docnumber=docs.get(ct),
+        )
+        for ct, fecha in raw
+    ]
 
 
 def _pedido_response(

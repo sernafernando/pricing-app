@@ -116,6 +116,9 @@ class PedidoCompraFacturaLink(BaseModel):
 
     ct_transaction_id: int
     fecha_factura: date | None = None
+    # Supplier-facing document number from GBP (`ct_docnumber`); None if mirror
+    # row is missing (tests without the ERP view, or orphan CT).
+    ct_docnumber: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
