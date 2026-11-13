@@ -1282,13 +1282,20 @@ export default function PublicacionesML() {
               openRequest={bulkRequest}
             />
             {canExportVista(filters.vista) && (
-              <button type="button" className="btn-tesla outline sm" onClick={handleExport} disabled={exporting}>
+              <button
+                type="button"
+                className={quietButton}
+                aria-label={exporting ? 'Exportando…' : 'Exportar CSV'}
+                title="Exportar CSV"
+                onClick={handleExport}
+                disabled={exporting}
+              >
                 <Download size={14} />
-                {exporting ? 'Exportando…' : 'Exportar CSV'}
+                {exporting ? 'Exportando…' : 'Exportar'}
               </button>
             )}
             {sheetsEnabled && canExportVista(filters.vista) && (
-              <button type="button" className="btn-tesla outline sm" onClick={handleSheetsExport} disabled={exportingSheets}>
+              <button type="button" className={quietButton} onClick={handleSheetsExport} disabled={exportingSheets}>
                 <FileSpreadsheet size={14} />
                 {exportingSheets ? 'Exportando a Sheets…' : 'Exportar a Sheets'}
               </button>

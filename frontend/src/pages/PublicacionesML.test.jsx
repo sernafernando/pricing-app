@@ -2829,7 +2829,7 @@ describe("Productos' pricing modal from the table (P3c)", () => {
     await page('/ml-publicaciones?vista=precios');
     await user.click(await within(table()).findByRole('button', { name: 'Calcular el precio de Router Archer AX55' }));
     // PricingModalTesla, titled with the product and its listing figures as in Productos.
-    const modal = (await screen.findByText(/Stock: 3 \| Costo: USD \$100\.00/)).closest('.modal-tesla');
+    const modal = (await screen.findByText(/Stock 3 · Costo USD 100,00/)).closest('.modal-tesla');
     expect(modal).toHaveTextContent('Router Archer AX55');
     // Opening it is not opening the row.
     expect(table().querySelector('tr[aria-current]')).toBeNull();

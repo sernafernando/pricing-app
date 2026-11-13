@@ -3019,7 +3019,7 @@ describe('row colors and the color layer (S8)', () => {
       const center = calculate.element().getBoundingClientRect();
       expect(document.elementFromPoint(center.left + center.width / 2, center.top + center.height / 2)?.closest('button')).toBe(calculate.element());
       calculate.element().click();
-      const modal = screen.getByText(/TP-LINK \| REDES \| Stock: 12/);
+      const modal = screen.getByText(/TP-LINK · REDES · Stock 12/);
       await expect.element(modal).toBeVisible();
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1366);
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/pricing-modal-1366-${theme}.png` });
@@ -3766,6 +3766,64 @@ describe('Publicaciones ML columns sized by their content (visual)', () => {
       // Saved under the Producto view's own key (written at the latest on unmount): the list keeps its width.
       expect(JSON.parse(localStorage.getItem('pubml:colsizing:producto') ?? '{}').titulo).toBe(after);
       expect(localStorage.getItem('pubml:colsizing:lista')).toBeNull();
+    });
+  }
+});
+
+// Unslop PR C: the panel's actions in the quiet outline, the footer's dates in aligned columns, and Productos' pricing
+// modal with a flat segmented control and "Calcular" on its field's line.
+describe('Publicaciones ML panel and pricing modal (visual)', () => {
+  const quiet = (button) => {
+    const style = getComputedStyle(button);
+    expect(style.backgroundColor, button.textContent).toBe('rgba(0, 0, 0, 0)');
+    expect(style.borderTopWidth, button.textContent).toBe('1px');
+    expect(style.borderTopColor, button.textContent).toBe(tokenColor('--cf-border-default'));
+    expect(style.color, button.textContent).toBe(tokenColor('--cf-text-secondary'));
+  };
+
+  for (const theme of THEMES) {
+    it(`1440x900 ${theme}: Pausar and Resincronizar are quiet and the footer's dates line up in equal columns`, async () => {
+      const screen = await renderWithPanel({ width: 1440, height: 900, theme, margin: true, detailExtra: { can_resync: true, can_change_status: true } });
+      const panel = panelOf();
+      const footer = panel.querySelector('footer');
+      const buttons = [...footer.querySelectorAll('button')];
+      for (const name of ['Pausar', 'Resincronizar']) quiet(buttons.find((el) => el.textContent.trim() === name));
+      const entries = [...footer.querySelectorAll('ul > li')];
+      expect(entries).toHaveLength(3);
+      // One row of three equal columns: every date starts on its own column line, none of them cut.
+      expect(new Set(entries.map((li) => Math.round(rect(li).top))).size).toBe(1);
+      const widths = entries.map((li) => rect(li).width);
+      expect(Math.max(...widths) - Math.min(...widths)).toBeLessThan(1);
+      for (const li of entries) expect(li.scrollWidth).toBeLessThanOrEqual(li.clientWidth + 1);
+      expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/panel-pie-1440-${theme}.png`, element: footer });
+      screen.unmount();
+    });
+
+    it(`1440x900 ${theme}: the pricing modal picks the mode without a gradient and "Calcular" is as tall as its field`, async () => {
+      const screen = await renderPage({ width: 1440, height: 900, theme, entry: PRECIOS });
+      const calculate = screen.getByRole('button', { name: 'Calcular el precio de Router Archer AX55' }).first();
+      await expect.element(calculate).toBeVisible();
+      calculate.element().scrollIntoView({ block: 'center', inline: 'center' });
+      calculate.element().click();
+      await expect.element(screen.getByText(/TP-LINK · REDES · Stock 12 · Costo/)).toBeVisible();
+      const modes = screen.getByRole('group', { name: 'Modo de cálculo' }).element();
+      const chosen = modes.querySelector('[aria-pressed="true"]');
+      expect(chosen.textContent).toBe('Por markup');
+      for (const button of modes.querySelectorAll('button')) expect(getComputedStyle(button).backgroundImage).toBe('none');
+      expect(getComputedStyle(chosen).backgroundColor).toBe(tokenColor('--selection-fill'));
+      expect(contrastRatio(getComputedStyle(chosen).color, getComputedStyle(chosen).backgroundColor)).toBeGreaterThanOrEqual(4.5);
+      const field = screen.getByRole('spinbutton', { name: 'Markup objetivo (%)' }).element();
+      const run = screen.getByRole('button', { name: 'Calcular', exact: true }).element();
+      expect(Math.abs(rect(run).top - rect(field).top)).toBeLessThan(1);
+      expect(Math.abs(rect(run).height - rect(field).height)).toBeLessThan(1);
+      expect(rect(run).left).toBeGreaterThan(rect(field).right);
+      // Inside the modal's content, not past its sides.
+      const body = field.closest('.modal-section');
+      expect(rect(run).right).toBeLessThanOrEqual(rect(body).right + 0.5);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1440);
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/modal-precio-1440-${theme}.png`, element: field.closest('.modal-tesla') });
+      screen.unmount();
     });
   }
 });

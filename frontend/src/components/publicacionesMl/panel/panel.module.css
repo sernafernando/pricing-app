@@ -435,8 +435,8 @@
 .freshness {
   display: grid;
   flex: 1 1 24rem;
-  /* Columns of the design's width, not stretched: a name stays near its time. */
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 10rem), 12rem));
+  /* Three equal columns, so the dates line up with each other and, with the actions beside them, make four columns. */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0 var(--spacing-md);
   min-width: 0;
   margin: 0;
@@ -476,6 +476,7 @@
 
 .footerActions {
   display: flex;
+  flex: none;
   flex-wrap: wrap;
   align-items: flex-start;
   gap: var(--spacing-sm);
@@ -1190,6 +1191,7 @@
   /* The freshness above the footer, as the end of the content. */
   .panel > .freshness {
     flex: none;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 10rem), 1fr));
     padding: 0 var(--spacing-md) var(--spacing-md);
   }
 

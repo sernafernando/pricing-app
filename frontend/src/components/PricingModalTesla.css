@@ -64,13 +64,59 @@
    SELECTOR DE MODO
    ============================================ */
 
+/* A segmented control: one outlined track, the chosen mode in the selection fill, no gradient. */
 .modo-selector {
   display: flex;
-  gap: var(--spacing-sm);
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
 }
 
 .modo-selector button {
   flex: 1;
+  height: var(--chip-height);
+  padding: 0 var(--spacing-md);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--cf-text-secondary);
+  font: inherit;
+  font-size: var(--font-sm);
+  cursor: pointer;
+}
+
+.modo-selector button:hover {
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+}
+
+.modo-selector button[aria-pressed='true'] {
+  color: var(--on-selection-fill);
+  background: var(--selection-fill);
+}
+
+.modo-selector button:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+}
+
+/* The value and "Calcular" side by side; the button takes the field's height. */
+.calcular-row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--spacing-sm);
+}
+
+.calcular-row .input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.calcular-row .btn-tesla {
+  flex: none;
+  height: auto;
 }
 
 /* ============================================
@@ -147,8 +193,6 @@
   font-size: var(--font-xs);
   font-weight: var(--font-medium);
   color: var(--success-text);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
 .resultado-item strong {
@@ -187,8 +231,6 @@
   font-size: var(--font-xs);
   font-weight: var(--font-semibold);
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   margin-bottom: var(--spacing-sm);
 }
 
@@ -211,10 +253,6 @@
    ============================================ */
 
 @media (max-width: 768px) {
-  .modo-selector {
-    flex-direction: column;
-  }
-  
   .cuotas-grid {
     grid-template-columns: repeat(2, 1fr);
   }

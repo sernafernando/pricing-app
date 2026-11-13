@@ -11,10 +11,26 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { Megaphone } from 'lucide-react';
 import api from '../services/api';
 import { formatDateOnly } from '../utils/dateUtils';
+import { formatMoney } from '../utils/formatMoney';
 import ModalTesla, { ModalSection, ModalAlert, ModalFooterButtons } from './ModalTesla';
 import './PricingModalTesla.css';
+
+/** A figure in the Argentine format with two decimals: 95.5 -> "95,50"; a missing one is "—". */
+function decimal2(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  const num = Number(value);
+  if (Number.isNaN(num)) return '—';
+  return num.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** A percentage in the Argentine format: 42.98 -> "42,98 %"; a missing one is only "—". */
+function percent2(value) {
+  const figure = decimal2(value);
+  return figure === '—' ? figure : `${figure} %`;
+}
 
 export default function PricingModalTesla({ producto, onClose, onSave, isOpen }) {
   const [modo, setModo] = useState('markup');
@@ -174,7 +190,7 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
     }
   };
 
-  const subtitle = `${producto.marca} | ${producto.categoria} | Stock: ${producto.stock} | Costo: ${producto.moneda_costo} $${producto.costo?.toFixed(2)}`;
+  const subtitle = `${producto.marca} · ${producto.categoria} · Stock ${producto.stock} · Costo ${producto.moneda_costo} ${decimal2(producto.costo)}`;
 
   return (
     <ModalTesla
@@ -188,7 +204,7 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
           <ModalFooterButtons
             onCancel={onClose}
             onConfirm={guardar}
-            confirmText="Guardar Precio"
+            confirmText="Guardar precio"
             confirmLoading={guardando}
             confirmVariant="outline-subtle-success"
           />
@@ -198,7 +214,10 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
       {/* Ofertas vigentes */}
       {!loadingOfertas && ofertas && ofertas.con_oferta > 0 && (
         <ModalAlert type="warning">
-          <strong>📢 Ofertas Vigentes ({ofertas.con_oferta} de {ofertas.total_publicaciones} publicaciones)</strong>
+          <strong>
+            <Megaphone size={14} aria-hidden="true" /> Ofertas vigentes ({ofertas.con_oferta} de {ofertas.total_publicaciones}{' '}
+            publicaciones)
+          </strong>
           <div className="ofertas-list">
             {ofertas.publicaciones
               .filter(p => p.tiene_oferta)
@@ -207,10 +226,10 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
                   <div className="oferta-mla">{pub.mla}</div>
                   <div className="oferta-lista">{pub.lista_nombre}</div>
                   <div className="oferta-precio">
-                    Precio de oferta: <strong>${pub.oferta.precio_final.toLocaleString('es-AR')}</strong>
+                    Precio de oferta: <strong>{formatMoney(pub.oferta.precio_final)}</strong>
                   </div>
                   <div className="oferta-aporte">
-                    Aporte Meli: ${pub.oferta.aporte_meli_pesos.toLocaleString('es-AR')}
+                    Aporte Meli: {formatMoney(pub.oferta.aporte_meli_pesos)}
                     {pub.oferta.aporte_meli_porcentaje && ` (${pub.oferta.aporte_meli_porcentaje}%)`}
                   </div>
                   <div className="oferta-vigencia">
@@ -231,28 +250,25 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
 
       {/* Selector de modo */}
       <ModalSection title="Modo de cálculo">
-        <div className="modo-selector">
-          <button
-            className={`btn-tesla ${modo === 'markup' ? 'primary' : 'secondary'}`}
-            onClick={() => cambiarModo('markup')}
-          >
-            Por Markup
+        <div className="modo-selector" role="group" aria-label="Modo de cálculo">
+          <button type="button" aria-pressed={modo === 'markup'} onClick={() => cambiarModo('markup')}>
+            Por markup
           </button>
-          <button
-            className={`btn-tesla ${modo === 'precio' ? 'primary' : 'secondary'}`}
-            onClick={() => cambiarModo('precio')}
-          >
-            Precio Manual
+          <button type="button" aria-pressed={modo === 'precio'} onClick={() => cambiarModo('precio')}>
+            Precio manual
           </button>
         </div>
       </ModalSection>
 
       {/* Inputs según modo */}
-      <ModalSection title={modo === 'markup' ? 'Markup Objetivo (%)' : 'Precio Manual ($)'}>
+      <ModalSection title={modo === 'markup' ? 'Markup objetivo (%)' : 'Precio manual ($)'}>
+        {/* The field and "Calcular" on one line, the button as tall as the field. */}
+        <div className="calcular-row">
         {modo === 'markup' ? (
           <input
             type="number"
             className="input"
+            aria-label="Markup objetivo (%)"
             value={markupObjetivo}
             onChange={(e) => setMarkupObjetivo(e.target.value)}
             step="0.01"
@@ -262,6 +278,7 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
           <input
             type="number"
             className="input"
+            aria-label="Precio manual ($)"
             value={precioManual}
             onChange={(e) => setPrecioManual(e.target.value)}
             step="0.01"
@@ -270,13 +287,14 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
         )}
 
         <button
-          className={`btn-tesla outline-subtle-primary full ${calculando ? 'loading' : ''}`}
+          type="button"
+          className={`btn-tesla outline-subtle-primary ${calculando ? 'loading' : ''}`}
           onClick={calcular}
           disabled={calculando}
-          style={{ marginTop: 'var(--spacing-md)' }}
         >
-          {calculando ? 'Calculando...' : 'Calcular'}
+          {calculando ? 'Calculando…' : 'Calcular'}
         </button>
+        </div>
       </ModalSection>
 
       {/* Rebate */}
@@ -288,11 +306,11 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
               checked={participaRebate}
               onChange={(e) => setParticipaRebate(e.target.checked)}
             />
-            Participa en Rebate
+            Participa en rebate
           </label>
           {participaRebate && (
             <div className="rebate-percentage">
-              <label>Porcentaje:</label>
+              <label>Porcentaje</label>
               <input
                 type="number"
                 className="input"
@@ -311,21 +329,21 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
       {/* Resultados */}
       {resultado && (
         <>
-          <ModalSection title="Precio Clásica">
+          <ModalSection title="Precio clásica">
             <div className="resultado-card">
               <div className="resultado-item">
-                <span>Precio:</span>
-                <strong>${resultado.clasica?.precio?.toLocaleString('es-AR')}</strong>
+                <span>Precio</span>
+                <strong>{formatMoney(resultado.clasica?.precio) ?? '—'}</strong>
               </div>
               <div className="resultado-item">
-                <span>Markup:</span>
-                <strong>{resultado.clasica?.markup_real?.toFixed(2)}%</strong>
+                <span>Markup</span>
+                <strong>{percent2(resultado.clasica?.markup_real)}</strong>
               </div>
             </div>
           </ModalSection>
 
           {resultado.cuotas && (
-            <ModalSection title="Precios con Cuotas">
+            <ModalSection title="Precios con cuotas">
               <div className="cuotas-grid">
                 {['3_cuotas', '6_cuotas', '9_cuotas', '12_cuotas'].map((key) => {
                   const cuota = resultado.cuotas[key];
@@ -334,8 +352,8 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
                   return (
                     <div key={key} className="cuota-card">
                       <div className="cuota-title">{key.replace('_', ' ')}</div>
-                      <div className="cuota-precio">${cuota.precio?.toLocaleString('es-AR')}</div>
-                      <div className="cuota-markup">{cuota.markup_real?.toFixed(2)}%</div>
+                      <div className="cuota-precio">{formatMoney(cuota.precio) ?? '—'}</div>
+                      <div className="cuota-markup">{percent2(cuota.markup_real)}</div>
                     </div>
                   );
                 })}

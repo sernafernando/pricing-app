@@ -6,6 +6,7 @@ import { RESOURCE_NAMES, RESOURCE_STATE_LABELS, label } from './labels';
 import StatusAction from './StatusAction';
 import useIsPhone from '../../../hooks/useIsPhone';
 import styles from './panel.module.css';
+import buttonStyles from '../toolbarButton.module.css';
 
 // What a resync asks for: the item's own data plus the Full replenishment report.
 const RESYNC_RESOURCES = ['bundle', 'replenishment'];
@@ -82,7 +83,7 @@ export default function PanelFooter({ detail, itemId, canManage, onStatusChanged
           <StatusAction detail={detail} itemId={itemId} onChanged={onStatusChanged} />
           {canResync && (
             <div className={styles.resync}>
-              <button type="button" className="btn-tesla outline sm" onClick={resync} disabled={state.status === 'sending'}>
+              <button type="button" className={`btn-tesla sm ${buttonStyles.quiet}`} onClick={resync} disabled={state.status === 'sending'}>
                 <RefreshCw size={14} aria-hidden="true" />
                 Resincronizar
               </button>
