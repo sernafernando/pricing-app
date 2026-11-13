@@ -53,7 +53,9 @@ export default function MejoresOfertasBadge() {
       const { data } = await api.get('/ml-publications/view/mejores-ofertas/count');
       setState({ pmId: data.pm_id, count: data.count });
       lastFetchAtRef.current = Date.now();
-    } catch {
+    } catch (error) {
+      // Hidden until the next read, but never silent: the failure is logged, as the top bar's Facturado ML card does.
+      console.error('Mejores ofertas: the PM count request failed', error);
       setState({ pmId: null, count: 0 });
     } finally {
       inFlightRef.current = false;

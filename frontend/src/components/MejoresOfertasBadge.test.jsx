@@ -2,7 +2,7 @@
  * MejoresOfertasBadge: a PM sees how many of THEIR active publications have better
  * offers and opens their filtered Publicaciones ML page; nobody else sees it.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -38,6 +38,10 @@ beforeEach(() => {
   permisos.codes = ['productos.ver'];
 });
 
+afterEach(() => {
+  vi.restoreAllMocks(); // a failed assertion never leaves Date.now or console spied for the next test
+});
+
 describe('MejoresOfertasBadge', () => {
   it("shows the owner's sentence with the count and links to the PM's filtered page", async () => {
     api.get.mockResolvedValue({ data: { pm_id: 17, count: 5 } });
@@ -58,6 +62,15 @@ describe('MejoresOfertasBadge', () => {
     api.get.mockResolvedValue({ data: { pm_id: null, count: 0 } });
     const { container } = renderBadge();
     await waitFor(() => expect(api.get).toHaveBeenCalled());
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('logs a failed read and renders nothing', async () => {
+    const error = new Error('Network Error');
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    api.get.mockRejectedValue(error);
+    const { container } = renderBadge();
+    await waitFor(() => expect(log).toHaveBeenCalledWith('Mejores ofertas: the PM count request failed', error));
     expect(container).toBeEmptyDOMElement();
   });
 
@@ -92,7 +105,6 @@ describe('MejoresOfertasBadge', () => {
     sse.handlers['ml-publications:mejores-ofertas']();
     await waitFor(() => expect(screen.queryByRole('link')).not.toBeInTheDocument());
     expect(api.get).toHaveBeenCalledTimes(2);
-    vi.restoreAllMocks();
   });
 
   it('a signal inside the 10 s window reads once when the window ends, never dropped', async () => {
