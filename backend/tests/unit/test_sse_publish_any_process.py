@@ -58,3 +58,30 @@ def test_inside_the_api_it_goes_through_the_event_loop(monkeypatch) -> None:
     finally:
         sse._set_sync_client_for_tests(None)
         loop.close()
+
+
+class _Broken:
+    def publish(self, channel: str, message: str) -> int:
+        raise ValueError("not a Redis error")
+
+
+def test_a_non_redis_error_never_reaches_the_caller(no_loop, caplog) -> None:
+    # It runs inside `after_commit`: nothing may propagate out of it.
+    sse._set_sync_client_for_tests(_Broken())
+    sse.sse_publish_any_process("ml-publications:mejores-ofertas")
+    assert "SSE sync publish failed" in caplog.text
+
+
+def test_an_error_on_the_event_loop_path_never_reaches_the_caller(monkeypatch, caplog) -> None:
+    loop = asyncio.new_event_loop()
+    try:
+        monkeypatch.setattr(sse, "_event_loop", loop)
+
+        def boom(channel, data=None):
+            raise TypeError("unexpected")
+
+        monkeypatch.setattr(sse, "sse_publish_bg", boom)
+        sse.sse_publish_any_process("ml-publications:mejores-ofertas")
+        assert "SSE sync publish failed" in caplog.text
+    finally:
+        loop.close()

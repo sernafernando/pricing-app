@@ -135,15 +135,16 @@ def sse_publish_any_process(channel: str, data: dict[str, Any] | None = None) ->
     In the API process (`set_redis` gave it the event loop) this is `sse_publish_bg`. Elsewhere (the
     `app.workers.run` processes, a script) there is no loop, so it publishes the same event straight to
     the same Redis channel with a short, bounded synchronous call, as ml-webhook does for
-    `free-shipping:count`. Best-effort: a Redis error is logged and swallowed.
+    `free-shipping:count`. Best-effort: ANY error is logged and swallowed, since it runs from
+    `after_commit` hooks, where nothing may propagate.
     """
-    if _event_loop is not None and not _event_loop.is_closed():
-        sse_publish_bg(channel, data)
-        return
-    event = SSEEvent.create(channel=channel, data=data)
     try:
+        if _event_loop is not None and not _event_loop.is_closed():
+            sse_publish_bg(channel, data)
+            return
+        event = SSEEvent.create(channel=channel, data=data)
         _get_sync_client().publish(f"sse:{channel}", event.model_dump_json())
-    except redis.RedisError as exc:
+    except Exception as exc:  # noqa: BLE001 - best-effort signal, never fails the caller
         logger.warning("SSE sync publish failed (channel=%s): %s", channel, exc)
 
 
