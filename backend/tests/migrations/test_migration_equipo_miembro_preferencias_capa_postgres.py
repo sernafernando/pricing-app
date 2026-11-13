@@ -71,11 +71,14 @@ def engine() -> Iterator[Engine]:
 
 
 def test_the_revision_chains_on_the_current_head() -> None:
+    # Not `get_heads() == [this]`: compras_048 (and later revisions) chain on top.
     config = Config(os.path.join(_BACKEND_ROOT, "alembic.ini"))
     config.set_main_option("script_location", os.path.join(_BACKEND_ROOT, "alembic"))
     script_dir = ScriptDirectory.from_config(config)
     assert script_dir.get_revision(_REVISION).down_revision == "20261113_permiso_mejores_ofertas_pms"
-    assert script_dir.get_heads() == [_REVISION]
+    (head,) = script_dir.get_heads()
+    ancestors = {rev.revision for rev in script_dir.walk_revisions(base="base", head=head)}
+    assert _REVISION in ancestors
 
 
 def test_upgrade_keeps_todays_behavior_on_existing_and_new_rows(engine) -> None:
