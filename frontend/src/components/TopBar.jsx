@@ -8,6 +8,7 @@ import ThemeToggleSimple from './ThemeToggleSimple';
 import NotificationBell from './NotificationBell';
 import FreeShippingBadge from './FreeShippingBadge';
 import MejoresOfertasBadge from './MejoresOfertasBadge';
+import MejoresOfertasPmsBadge from './MejoresOfertasPmsBadge';
 import TicketBadge from './TicketBadge';
 import BirthdayBadge from './BirthdayBadge';
 import { useWeather } from '../hooks/useWeather';
@@ -206,6 +207,7 @@ export default function TopBar({ sidebarExpanded = true, sidebarHidden = false, 
         <TicketBadge />
         <FreeShippingBadge />
         <MejoresOfertasBadge />
+        <MejoresOfertasPmsBadge />
         <NotificationBell />
         
         <div 

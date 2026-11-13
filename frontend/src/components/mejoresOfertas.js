@@ -1,5 +1,8 @@
 // Shared by the PMs' better-offers badges (MejoresOfertasBadge, and the grouped one).
 
+/** Whoever reviews the PMs: the grouped notifier with every PM's count. */
+export const PERMISO_MEJORES_OFERTAS_PMS = 'alertas.ver_mejores_ofertas_pms';
+
 export const MEJORES_OFERTAS_CHANNEL = 'ml-publications:mejores-ofertas';
 
 /** A PM's Publicaciones ML page with the badge's filters (the badge's count is that page's total). */
