@@ -10,9 +10,23 @@ FRESHNESS_TARGET_DEFAULTS = {
     "sale_price": 300,
     "promotions": 300,
     "competition": 300,
-    "description": 21600,
+    "description": 86400,
     "family": 86400,
     "visits": 90000,
+}
+
+# Minimum seconds between bundle fetches of a sub-resource. The description is fetched once a day: "ya habíamos
+# dicho que no ibamos a traer la descripción en cada pasada" (owner, 2026-11-12). A resource not named here has
+# no minimum (prices, sale_price).
+MIN_AGE_DEFAULTS = {
+    "promotions": 300,
+    "description": 86400,
+    "user_product": 900,
+    "stock": 900,
+    "family": 86400,
+    "competition": 900,
+    "moderation": 3600,
+    "replenishment": 86400,
 }
 
 # Environments where testing affordances (docs, testing-only endpoints) are
@@ -248,19 +262,9 @@ class Settings(BaseSettings):
     # The intake cursor of an enabled intake that has not advanced for this long is reported as stalled by the
     # admin status endpoint (spec: "Stale intake alarm").
     ML_PUB_INTAKE_STALL_SECONDS: int = Field(default=600, ge=1)
-    # Minimum seconds between fetches of a sub-resource on a bundle refresh.
-    ML_PUB_MIN_AGE_SECONDS: dict = Field(
-        default_factory=lambda: {
-            "promotions": 300,
-            "description": 21600,
-            "user_product": 900,
-            "stock": 900,
-            "family": 86400,
-            "competition": 900,
-            "moderation": 3600,
-            "replenishment": 86400,
-        }
-    )
+    # Minimum seconds between fetches of a sub-resource on a bundle refresh. An env value that names only some
+    # resources keeps the default of the others (`MIN_AGE_DEFAULTS`).
+    ML_PUB_MIN_AGE_SECONDS: dict = Field(default_factory=lambda: dict(MIN_AGE_DEFAULTS))
     # ml-sync-pipeline S5: seconds a notified change may stay unapplied once due (past its minimum age) before
     # the owner gets a WhatsApp. Visits are swept once a day (design D17), so theirs is the age of the check.
     # An env value that names only some resources keeps the default of the others.
@@ -463,6 +467,11 @@ class Settings(BaseSettings):
                 f"ML_PUB_FRESHNESS_TARGET_SECONDS takes positive seconds for {sorted(FRESHNESS_TARGET_DEFAULTS)}"
             )
         return merged
+
+    @field_validator("ML_PUB_MIN_AGE_SECONDS")
+    @classmethod
+    def _min_ages_keep_the_defaults(cls, value: dict) -> dict:
+        return {**MIN_AGE_DEFAULTS, **value}
 
     @field_validator("ML_PUB_SWEEP_STATUSES")
     @classmethod

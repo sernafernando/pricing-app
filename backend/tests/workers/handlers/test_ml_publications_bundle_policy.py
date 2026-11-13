@@ -102,6 +102,11 @@ def sub_row(engine, table: str, item: str = ITEM):
     return sql_one(engine, f"SELECT * FROM {table} WHERE item_id = :i", i=item)
 
 
+# The description is first-fetch-only (`bundle.FIRST_FETCH_ONLY`): a bundle fetches it only for an item never checked,
+# a request that names it always does. The tests that use it as "a slow sub-resource" name it next to the bundle.
+WITH_DESCRIPTION = ("bundle", "description")
+
+
 class TestTheGate:
     def test_with_only_the_core_enabled_only_items_bulk_is_called(self, env) -> None:
         enable_refresh()  # bundle_resources defaults to ["core"]
@@ -113,9 +118,9 @@ class TestTheGate:
         assert paths(transport) == ["/items/bulk"]
         assert queue_row(env, ITEM) is None
 
-    def test_enabling_description_fetches_it_after_the_core_and_stores_it(self, env) -> None:
+    def test_enabling_description_fetches_it_after_the_core_when_named_and_stores_it(self, env) -> None:
         enable_refresh(bundle_resources=["core", "description"])
-        enqueue_items(ITEM)
+        enqueue_items(ITEM, resources=WITH_DESCRIPTION)
         transport = ScriptedTransport(responder_with())
 
         make_handler(transport).run(context())
@@ -162,7 +167,7 @@ class TestPartialSuccess:
     def test_a_failing_description_stores_its_error_applies_the_others_and_retries_only_it(self, env) -> None:
         """Synthetic fault: description answers 500 (nothing 5xx was captured)."""
         enable_refresh(bundle_resources=["core", "description", "prices"])
-        enqueue_items(ITEM)
+        enqueue_items(ITEM, resources=WITH_DESCRIPTION)
         error_body = {"message": "internal", "error": "internal_error", "status": 500, "cause": []}
         transport = ScriptedTransport(responder_with({"description": json_response(error_body, status=500)}))
 
@@ -198,7 +203,7 @@ class TestPartialSuccess:
 
     def test_a_sub_resource_404_is_a_state_not_a_failure(self, env) -> None:
         enable_refresh(bundle_resources=["core", "description"])
-        enqueue_items(ITEM)
+        enqueue_items(ITEM, resources=WITH_DESCRIPTION)
         call = NOT_FOUND["description"]
         transport = ScriptedTransport(responder_with({"description": json_response(call["body"], status=404)}))
 
@@ -210,7 +215,7 @@ class TestPartialSuccess:
 
     def test_a_malformed_2xx_is_charged_to_that_resource_only(self, env) -> None:
         enable_refresh(bundle_resources=["core", "description", "prices"])
-        enqueue_items(ITEM)
+        enqueue_items(ITEM, resources=WITH_DESCRIPTION)
         transport = ScriptedTransport(responder_with({"description": json_response({"unexpected": True})}))
 
         make_handler(transport).run(context())
@@ -223,7 +228,7 @@ class TestPartialSuccess:
         self, env, monkeypatch
     ) -> None:
         enable_refresh(bundle_resources=["core", "description", "prices"])
-        enqueue_items(ITEM)
+        enqueue_items(ITEM, resources=WITH_DESCRIPTION)
         original = subresource_store.apply_subresource
 
         def flaky(spec, key, response, **kwargs):
@@ -244,35 +249,56 @@ class TestMinimumAges:
     def enable_all(self) -> None:
         enable_refresh(bundle_resources=["core", "description", "prices"])
 
-    def test_a_recent_description_is_not_refetched_by_the_bundle_but_prices_always_are(self, env) -> None:
+    def test_a_bundle_fetches_the_description_of_a_new_item_only(self, env) -> None:
+        """Prod 2026-11-12: ~517 description calls per 10 min for ~625 notified items. The daily sweep refreshes a
+        description; a bundle fetches it only for an item never checked, so a new publication has it at once."""
         self.enable_all()
         enqueue_items(ITEM)
-        make_handler(ScriptedTransport(responder_with())).run(context())
+        first = ScriptedTransport(responder_with())
+        make_handler(first).run(context())
+        assert paths(first) == ["/items/bulk", f"/items/{ITEM}/prices", f"/items/{ITEM}/description"]
+        assert sub_row(env, "ml_item_descriptions")["raw"] == BODIES["description"]
 
         enqueue_items(ITEM)
-        transport = ScriptedTransport(responder_with())
-        make_handler(transport).run(context())
-
-        assert paths(transport) == ["/items/bulk", f"/items/{ITEM}/prices"]  # description 6 h, prices 0
-        assert counters_of(env)["skipped_min_age"] == {"description": 1}
+        again = ScriptedTransport(responder_with())
+        make_handler(again).run(context())
+        assert paths(again) == ["/items/bulk", f"/items/{ITEM}/prices"]
         assert queue_row(env, ITEM) is None
 
-    def test_a_description_older_than_its_minimum_age_is_fetched_again(self, env) -> None:
+    def test_a_bundle_notification_does_not_fetch_a_description_checked_a_day_ago(self, env) -> None:
         self.enable_all()
-        enqueue_items(ITEM)
+        enqueue_items(ITEM, resources=WITH_DESCRIPTION)
         make_handler(ScriptedTransport(responder_with())).run(context())
         with env.begin() as conn:
-            conn.execute(text("UPDATE ml_item_descriptions SET last_checked_at = now() - interval '6 hours 1 minute'"))
+            conn.execute(text("UPDATE ml_item_descriptions SET last_checked_at = now() - interval '1 day 1 minute'"))
 
         enqueue_items(ITEM)
         transport = ScriptedTransport(responder_with())
         make_handler(transport).run(context())
 
-        assert f"/items/{ITEM}/description" in paths(transport)
+        assert f"/items/{ITEM}/description" not in paths(transport)
+
+    def test_a_resource_older_than_its_minimum_age_is_fetched_again_and_a_recent_one_is_skipped(self, env) -> None:
+        enable_refresh(bundle_resources=["core", "prices"], min_age_seconds={"prices": 3600})
+        enqueue_items(ITEM)
+        make_handler(ScriptedTransport(responder_with())).run(context())
+
+        enqueue_items(ITEM)
+        recent = ScriptedTransport(responder_with())
+        make_handler(recent).run(context())
+        assert paths(recent) == ["/items/bulk"]
+        assert counters_of(env)["skipped_min_age"] == {"prices": 1}
+
+        with env.begin() as conn:
+            conn.execute(text("UPDATE ml_item_prices SET last_checked_at = now() - interval '61 minutes'"))
+        enqueue_items(ITEM)
+        stale = ScriptedTransport(responder_with())
+        make_handler(stale).run(context())
+        assert f"/items/{ITEM}/prices" in paths(stale)
 
     def test_an_explicit_named_resource_bypasses_the_minimum_age(self, env) -> None:
         self.enable_all()
-        enqueue_items(ITEM)
+        enqueue_items(ITEM, resources=WITH_DESCRIPTION)
         make_handler(ScriptedTransport(responder_with())).run(context())
 
         enqueue_items(ITEM, resources=("description",))
@@ -370,7 +396,7 @@ class TestFastDataFirst:
         # started a few microseconds apart may race to the transport).
         monkeypatch.setattr(settings, "ML_PUB_MAX_IN_FLIGHT", 1)
         enable_refresh(bundle_resources=["core", "description", "prices"])
-        enqueue_items(ITEM, self.OTHER)
+        enqueue_items(ITEM, self.OTHER, resources=WITH_DESCRIPTION)
         transport = ScriptedTransport(responder_with())
 
         make_handler(transport).run(context())
@@ -384,7 +410,7 @@ class TestFastDataFirst:
 
     def test_a_deadline_after_the_prices_leaves_only_the_descriptions_pending(self, env, monkeypatch) -> None:
         enable_refresh(bundle_resources=["core", "description", "prices"])
-        enqueue_items(ITEM, self.OTHER)
+        enqueue_items(ITEM, self.OTHER, resources=WITH_DESCRIPTION)
         ctx = context(seconds=30)
         original = subresource_store.apply_subresource
         applied: list[str] = []
@@ -448,7 +474,7 @@ class TestFailuresBeforeAnInterruption:
         """Synthetic faults: prices 500, then sale_price 429 (the core was already applied; description, slow data,
         comes after them and is not reached)."""
         enable_refresh(bundle_resources=["core", "description", "prices", "sale_price"])
-        enqueue_items(ITEM)
+        enqueue_items(ITEM, resources=WITH_DESCRIPTION)
         error_body = {"message": "internal", "error": "internal_error", "status": 500, "cause": []}
         limited = json_response({"message": "too many"}, status=429, headers={"Retry-After": "30"})
         transport = ScriptedTransport(
@@ -473,7 +499,7 @@ class TestFailuresBeforeAnInterruption:
 class TestCounters:
     def test_outcomes_per_sub_resource_are_flushed(self, env) -> None:
         enable_refresh(bundle_resources=["core", "description", "prices"])
-        enqueue_items(ITEM)
+        enqueue_items(ITEM, resources=WITH_DESCRIPTION)
 
         make_handler(ScriptedTransport(responder_with())).run(context())
 
@@ -527,7 +553,7 @@ class TestConcurrentCalls:
 
     def test_a_stopping_worker_stores_nothing_more_and_releases_the_rest_uncharged(self, env, monkeypatch) -> None:
         enable_refresh(bundle_resources=["core", "description", "prices"])
-        enqueue_items(ITEM)
+        enqueue_items(ITEM, resources=WITH_DESCRIPTION)
         stopping = threading.Event()
         ctx = WorkerContext(
             deadline=datetime.now(timezone.utc) + timedelta(seconds=30),

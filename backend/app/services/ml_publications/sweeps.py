@@ -1,9 +1,10 @@
-"""Sweeps of the resources with no notification topic: performance, visits and replenishment (design D17).
+"""Sweeps of the resources with no notification topic: description, performance, visits and replenishment
+(design D17; the description since 2026-11-12, see `bundle.FIRST_FETCH_ONLY`).
 
 Every tick (the handler runs every 10 minutes) takes, per resource, the K entities whose state is oldest
 (`last_checked_at`, never-checked first) among the eligible ones and enqueues them in the sweep lane with the
-resource NAMED (`{performance}` / `{visits}` / `{replenishment}`: they are `bundle.SWEEP_ONLY`, so only a named
-request fetches them). K = ceil(eligible / 144): 144 ticks a day cover every eligible entity once a day. The sweep
+resource NAMED (`{description}` / `{performance}` / `{visits}` / `{replenishment}`: a bundle never refreshes them,
+see `bundle.SWEEP_ONLY` and `bundle.FIRST_FETCH_ONLY`, so only a named request does). K = ceil(eligible / 144): 144 ticks a day cover every eligible entity once a day. The sweep
 makes no ML call and spends no budget of its own: the refresh handler fetches what it enqueued, under the shared
 pacer (replenishment also under its own sub-gate) and the lane order.
 
@@ -12,7 +13,7 @@ product of the stored fulfillment (Full) items with a sweep status, not gone, an
 `user_product`. An item with no user product is simply not eligible (nothing to fetch, no error).
 
 Eligible: status in `sweep.statuses` (never `closed`), not gone, never-existed excluded, no parked queue entry; visits
-only of an item active now or seen leaving `active` within `VISITS_ACTIVE_WINDOW` of the tick; a performance state
+and description only of an item active now or seen leaving `active` within `VISITS_ACTIVE_WINDOW` of the tick; a performance state
 stored as `applicable = false` (a catalog product item answers "not supported") only after
 `ML_PUB_NOT_APPLICABLE_RECHECK_DAYS`. Only resources named in `bundle_resources` are swept: a name that is not
 listed would be dropped by the refresh handler and the item selected again on every tick.
@@ -38,6 +39,7 @@ from app.core.config import SCAN_STATUS_NAMES
 from app.models.ml_publications import MlPubJobRun
 from app.services.ml_publications import queue
 from app.services.ml_publications.resources import (
+    DESCRIPTION_RESOURCE,
     ITEM_KIND,
     PERFORMANCE_RESOURCE,
     REPLENISHMENT_RESOURCE,
@@ -67,6 +69,7 @@ OUTCOME_FAILED = "failed"
 
 # Resource name -> its state table. Fixed identifiers: never built from input.
 _TABLES: Mapping[str, str] = {
+    DESCRIPTION_RESOURCE: "ml_item_descriptions",
     PERFORMANCE_RESOURCE: "ml_item_performance",
     VISITS_RESOURCE: "ml_item_visits",
     REPLENISHMENT_RESOURCE: "ml_user_product_replenishment",
@@ -123,6 +126,9 @@ _RECENTLY_ACTIVE = (
     "WHERE c.item_id = i.item_id AND c.resource_type = 'item' AND c.observed_at >= :active_since "
     "AND c.context->>'status_old' = 'active'))"
 )
+# Swept only for items active now or recently: visits cannot change on an item that is not selling, and a
+# description is only worth a daily check where buyers can read it.
+_ACTIVE_ONLY_RESOURCES = frozenset({VISITS_RESOURCE, DESCRIPTION_RESOURCE})
 _NOT_QUEUED = "AND NOT EXISTS (SELECT 1 FROM ml_pub_refresh_queue q WHERE q.kind = '{kind}' AND q.entity_id = {id})"
 
 # Lanes are ordered by priority number (`queue`: manual 0, notification 1, ...): `lane <= LANE_NOTIFICATION` is the
@@ -215,7 +221,7 @@ def _eligible_sql(resource: str) -> str:
         table=_TABLES[resource],
         parked=parked,
         not_applicable=_NOT_APPLICABLE if resource == PERFORMANCE_RESOURCE else "",
-        recently_active=_RECENTLY_ACTIVE if resource == VISITS_RESOURCE else "",
+        recently_active=_RECENTLY_ACTIVE if resource in _ACTIVE_ONLY_RESOURCES else "",
     )
 
 

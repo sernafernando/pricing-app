@@ -440,8 +440,10 @@ class TestFetchedByNameThroughTheBundleGate:
     def test_both_resources_are_sweep_only_so_only_a_named_entry_reaches_them(self) -> None:
         from app.services.ml_publications import bundle
 
-        assert bundle.SWEEP_ONLY == set(sweeps.SWEEP_RESOURCES)
-        assert bundle.plan(["bundle"], ["core", *sweeps.SWEEP_RESOURCES]).wanted == {}
+        assert bundle.SWEEP_ONLY | bundle.FIRST_FETCH_ONLY == set(sweeps.SWEEP_RESOURCES)
+        assert bundle.plan(["bundle"], ["core", *sweeps.SWEEP_RESOURCES]).wanted == {
+            name: False for name in bundle.FIRST_FETCH_ONLY
+        }  # first fetch only
         for name in sweeps.SWEEP_RESOURCES:
             assert bundle.plan([name], ["core", *sweeps.SWEEP_RESOURCES]).wanted == {name: True}
 
@@ -458,3 +460,28 @@ class TestNoMlCallOfItsOwn:
 
         source = Path(sweeps.__file__).read_text(encoding="utf-8")
         assert "MlHttpClient" not in source and "ml_http" not in source and ".get(" not in source
+
+
+class TestDescriptionIsSweptDaily:
+    """2026-11-12: the description left the notification bundle; the sweep laps it once a day, only for items
+    active now or in the last 24 h (like visits)."""
+
+    def test_an_active_item_is_swept_for_its_description(self, env) -> None:
+        (item,) = put_items(env, 1)
+        result = run(bundle=["core", "description"])
+        assert queue_rows(env) == {item: {"lane": queue.LANE_SWEEP, "resources": ["description"]}}
+        assert result.resources["description"].eligible == 1
+
+    def test_an_item_paused_two_days_ago_is_not_swept_for_its_description(self, env) -> None:
+        (item,) = put_items(env, 1, status="paused", prefix="MLP")
+        put_status_change(env, item, hours_ago=48)
+        assert run(bundle=["core", "description"]).resources["description"].eligible == 0
+        assert queue_rows(env) == {}
+
+    def test_the_oldest_description_goes_first(self, env) -> None:
+        old, recent = put_items(env, 2)
+        put_state(env, "ml_item_descriptions", old, checked_ago_days=2)
+        put_state(env, "ml_item_descriptions", recent, checked_ago_days=0.1)
+        result = run(bundle=["core", "description"])
+        assert result.resources["description"].batch == 1
+        assert set(queue_rows(env)) == {old}

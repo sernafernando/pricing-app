@@ -136,9 +136,18 @@ class TestPlan:
         assert (plan.needs_core, dict(plan.wanted), plan.dropped) == (True, {}, frozenset())
 
     def test_a_bundle_asks_for_every_enabled_fetchable_resource_implicitly(self) -> None:
-        plan = bundle.plan(("bundle",), ["core", "description", "prices"])
+        plan = bundle.plan(("bundle",), ["core", "family", "prices"])
         assert plan.needs_core is True
-        assert dict(plan.wanted) == {"description": False, "prices": False}  # False = not explicit
+        assert dict(plan.wanted) == {"family": False, "prices": False}  # False = not explicit
+
+    def test_a_bundle_fetches_the_description_only_when_never_checked(self) -> None:
+        """2026-11-12: the description is swept once a day; a bundle fetches it only for a new publication."""
+        assert bundle.is_due(explicit=False, min_age=86400, last_checked_at=None, now=NOW, first_fetch_only=True)
+        long_ago = NOW - timedelta(days=30)
+        assert not bundle.is_due(
+            explicit=False, min_age=86400, last_checked_at=long_ago, now=NOW, first_fetch_only=True
+        )
+        assert bundle.is_due(explicit=True, min_age=86400, last_checked_at=NOW, now=NOW, first_fetch_only=True)
 
     def test_an_enabled_resource_without_a_fetcher_is_dropped_not_wanted(self) -> None:
         plan = bundle.plan(("bundle",), ["core", "prices", "visits"])

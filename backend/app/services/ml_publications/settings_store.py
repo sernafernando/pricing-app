@@ -139,6 +139,10 @@ SETTING_DEFS: Dict[str, _Def] = {
 }
 
 
+# Object settings whose stored row is merged key by key over the env value instead of replacing it.
+_MERGED_OVER_ENV = frozenset({"min_age_seconds"})
+
+
 def _definition(key: str) -> _Def:
     try:
         return SETTING_DEFS[key]
@@ -160,6 +164,10 @@ def _resolve(key: str, definition: _Def, stored: Any, found: bool) -> Setting:
     if not definition.valid(stored):
         logger.warning("ml_pub setting %s has an invalid stored value %r; using the env default", key, stored)
         return Setting(key, _env_default(definition), SOURCE_ENV)
+    if key in _MERGED_OVER_ENV:
+        # A row naming some resources keeps the env value of the others: a missing key would otherwise mean
+        # "no minimum age" and the resource would be fetched on every pass.
+        return Setting(key, {**_env_default(definition), **stored}, SOURCE_DB)
     return Setting(key, stored, SOURCE_DB)
 
 

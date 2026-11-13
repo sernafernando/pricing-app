@@ -244,6 +244,74 @@ class TestVisits:
         assert visits["late"] == 1
 
 
+def put_sweep_tick(engine, scope: str, *, started: datetime, outcome: str = "success") -> None:
+    run(
+        engine,
+        "INSERT INTO ml_pub_job_runs (job, scope, started_at, finished_at, outcome, counts) "
+        "VALUES ('sweep', :scope, :started, :started, :outcome, '{}')",
+        scope=scope,
+        started=started,
+        outcome=outcome,
+    )
+
+
+class TestDescription:
+    """2026-11-12: swept once a day, so measured like visits: the age of the last check on active items. Until the
+    sweep has had a full target since its first tick that sweeps the description, nothing is late (no false
+    alert the day it starts)."""
+
+    def enable(self) -> None:
+        settings_store.set_setting("bundle_resources", ["core", "description"], "test")
+        settings_store.set_setting("sweep.enabled", True, "test")
+
+    def test_a_description_unchecked_for_more_than_a_day_is_late_once_the_sweep_had_a_full_lap(self, env) -> None:
+        put_item(env, "MLA1", checked=ago(1))
+        put_checked(env, "ml_item_descriptions", "MLA1", ago(60 * 30))
+        put_item(env, "MLA2", checked=ago(1))
+        put_checked(env, "ml_item_descriptions", "MLA2", ago(60 * 23))
+        put_sweep_tick(env, "description,visits", started=ago(60 * 48))
+        settings_store.set_setting("bundle_resources", ["core", "description"], "test")
+        assert "description" not in measure(env)["resources"]
+
+        settings_store.set_setting("sweep.enabled", True, "test")
+        description = measure(env)["resources"]["description"]
+        assert (description["late"], description["target_seconds"]) == (1, 86400)
+
+    def test_nothing_is_late_before_the_first_sweep_tick_of_the_description(self, env) -> None:
+        put_item(env, "MLA1", checked=ago(1))
+        put_checked(env, "ml_item_descriptions", "MLA1", ago(60 * 30))
+        put_sweep_tick(env, "visits", started=ago(60 * 48))
+        put_sweep_tick(env, "description,visits", started=ago(5), outcome="failed")
+        self.enable()
+        assert measure(env)["resources"]["description"]["late"] == 0
+
+    def test_the_first_lap_has_the_target_as_grace_from_the_first_tick(self, env) -> None:
+        put_item(env, "MLA1", checked=ago(1))
+        put_checked(env, "ml_item_descriptions", "MLA1", ago(60 * 30))
+        put_sweep_tick(env, "description,visits", started=ago(60 * 20))
+        self.enable()
+        assert measure(env)["resources"]["description"]["late"] == 0
+
+        put_sweep_tick(env, "description,visits", started=ago(60 * 27))
+        late = measure(env)["resources"]["description"]
+        assert late["late"] == 1 and 60 * 60 * 26.5 < late["oldest_late_seconds"] < 60 * 60 * 27.5
+
+    def test_visits_are_measured_as_before_without_a_grace(self, env) -> None:
+        put_item(env, "MLA1", checked=ago(1))
+        put_checked(env, "ml_item_visits", "MLA1", ago(60 * 30))
+        settings_store.set_setting("bundle_resources", ["core", "visits"], "test")
+        settings_store.set_setting("sweep.enabled", True, "test")
+        assert measure(env)["resources"]["visits"]["late"] == 1
+
+    def test_a_bundle_notification_does_not_make_the_description_late(self, env) -> None:
+        put_item(env, "MLA1", checked=ago(1))
+        put_checked(env, "ml_item_descriptions", "MLA1", ago(60 * 2))
+        put_sweep_tick(env, "description", started=ago(60 * 48))
+        notify(env, "MLA1", received=ago(60 * 3))
+        self.enable()
+        assert measure(env)["resources"]["description"]["late"] == 0
+
+
 class TestQueueLag:
     def test_the_oldest_wait_of_each_lane_is_reported(self, env) -> None:
         notify(env, "MLA1", received=ago(3), lane=2)
