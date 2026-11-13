@@ -25,6 +25,23 @@
   color: var(--warning-text);
 }
 
+/* `outline`: a thin border and the text in the tone, no fill (a pixel less padding for the border). */
+.outline {
+  padding: 0 5px;
+  border: 1px solid;
+  background-color: transparent;
+}
+
+.outline.exact {
+  color: var(--tone-success-fg);
+  border-color: var(--tone-success-border);
+}
+
+.outline.upgrade {
+  color: var(--tone-warning-fg);
+  border-color: var(--tone-warning-border);
+}
+
 .label {
   line-height: 1;
 }

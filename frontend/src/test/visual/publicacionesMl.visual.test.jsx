@@ -3867,3 +3867,81 @@ describe('Publicaciones ML action bar and filters (visual)', () => {
     screen.unmount();
   });
 });
+
+// Unslop PR B: every figure of the table in the mono face, "Sin título" upright, the badges outlined.
+describe('Publicaciones ML table cells (visual)', () => {
+  const family = (value) => value.replace(/["']/g, '').replace(/\s*,\s*/g, ',').trim();
+  const MONO = () => family(getComputedStyle(document.documentElement).getPropertyValue('--font-mono'));
+  // The figures of a table: leaf text in a figure column (`data-align`), numbers with their signs and units.
+  const figuresOf = (root) =>
+    [...root.querySelectorAll('tbody td[data-align] span, tbody td[data-align] input')].filter((el) => {
+      if (el.tagName === 'INPUT') return true;
+      if (el.children.length > 0 || el.closest('[class*="srOnly"]')) return false;
+      return /^[$\s]*[−-]?[\d.,]+\s*(%|d|u\.)?$/.test(el.textContent.trim());
+    });
+
+  beforeEach(() => {
+    canSeeMargin = true;
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.items.mockResolvedValue({ data: MARGIN_RESPONSE });
+  });
+
+  for (const theme of THEMES) {
+    for (const [view, entry] of [['publicaciones', '/ml-publicaciones'], ['precios', PRECIOS]]) {
+      it(`1440x900 ${theme}: the ${view} view reads every figure in mono with tabular digits`, async () => {
+        const screen = await renderMarginPage({ width: 1440, height: 900, theme, entry });
+        const scroller = scrollerOf();
+        const figures = figuresOf(scroller);
+        expect(figures.length).toBeGreaterThan(10);
+        for (const el of figures) {
+          const style = getComputedStyle(el);
+          expect(family(style.fontFamily), el.textContent || el.value).toBe(MONO());
+          expect(style.fontVariantNumeric, el.textContent || el.value).toContain('tabular-nums');
+        }
+        expect(overflowingCells(scroller)).toEqual([]);
+        expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1440);
+        if (PRODUCT_SHOTS_DIR) {
+          scroller.scrollIntoView({ block: 'start' });
+          await frame();
+          await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/celdas-${view}-1440-${theme}.png` });
+        }
+        screen.unmount();
+      });
+    }
+
+    it(`1366x768 ${theme}: "Sin título" reads upright in the muted ink`, async () => {
+      publicacionesMlAPI.items.mockResolvedValue({ data: { ...RESPONSE, items: [{ ...RESPONSE.items[0], title: null }, ...RESPONSE.items.slice(1)] } });
+      const screen = await renderPage({ width: 1366, height: 768, theme });
+      const empty = [...scrollerOf().querySelectorAll('tbody span')].find((el) => el.textContent === 'Sin título');
+      expect(empty).toBeDefined();
+      expect(getComputedStyle(empty).fontStyle).toBe('normal');
+      expect(getComputedStyle(empty).color).toBe(tokenColor('--cf-text-tertiary'));
+      screen.unmount();
+    });
+
+    it(`1440x900 ${theme}: a product row's "2 listas" and catalog badges are a thin outline with their tone in the ink`, async () => {
+      const screen = await renderProducts({ width: 1440, height: 900, theme });
+      const table = screen.getByRole('table', { name: /por producto/ });
+      await expect.element(table.getByText('2 listas').first()).toBeVisible();
+      const listas = [...scrollerOf().querySelectorAll('span')].find((el) => el.textContent.trim() === '2 listas' && el.title);
+      const catalog = scrollerOf().querySelector('[aria-label^="Catálogo: ganando"]');
+      for (const [badge, ink] of [[listas, '--tone-success-fg'], [catalog, '--tone-success-fg']]) {
+        expect(badge).toBeTruthy();
+        const style = getComputedStyle(badge);
+        expect(style.backgroundColor).toBe('rgba(0, 0, 0, 0)');
+        expect(style.borderTopWidth).toBe('1px');
+        expect(style.color).toBe(tokenColor(ink));
+        // The ink reads on the card: at least 3:1 for an icon, 4.5:1 for the words.
+        const ratio = contrastRatio(style.color, getComputedStyle(scrollerOf()).backgroundColor);
+        expect(ratio).toBeGreaterThanOrEqual(badge === listas ? 4.5 : 3);
+      }
+      expect(overflowingCells(scrollerOf())).toEqual([]);
+      if (PRODUCT_SHOTS_DIR) {
+        listas.scrollIntoView({ block: 'center' });
+        await frame();
+        await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/celdas-producto-1440-${theme}.png` });
+      }
+      screen.unmount();
+    });
+  }
+});

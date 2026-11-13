@@ -103,7 +103,7 @@ export default function ProductoTable({
               const { node } = row;
               const badges = (
                 <>
-                  <PrearmadaBadge stats={prearmadasStats[node.productoItemId]} />
+                  <PrearmadaBadge outline stats={prearmadasStats[node.productoItemId]} />
                   <PxqTramosBadge tramos={node.pxqTramos} precioDesde={node.pxqPrecioDesde} />
                   <CatalogStatusBadge product={listingById.get(Number(node.productoItemId))} />
                 </>

@@ -53,6 +53,10 @@ Columnas: configurables con el selector de columnas (incluye código, descripci�
 
 Ancho de las columnas: cada columna de números (precio, ventas, markups, facturado, ageing, stocks) ocupa lo que necesitan su título y sus valores, y tanto el título como los números van centrados. El lugar que sobra es para **Publicación**, que muestra el título completo (si es largo, baja a otra línea). Para darle más o menos lugar, arrastrá el borde derecho del título **Publicación** (o enfocalo con Tab y usá ← →); doble clic vuelve al ancho original. En las vistas **Producto** y **Agrupado** pasa lo mismo con su primera columna. Cada vista guarda su ancho en este navegador.
 
+Cifras: todos los números de la tabla (precio, ventas, markups, ageing, stocks y los precios de la vista **Precios**) van en la misma letra de ancho fijo, con los dígitos alineados entre filas. Una publicación sin título dice **Sin título** en gris, en letra normal.
+
+Etiquetas de un producto (vista **Producto**): las prearmadas (**2 listas**, o **1 disponible (upgrade)**) y el estado en el catálogo (trofeo si gana, apretón de manos si comparte el primer lugar, alerta si compite) se dibujan con un borde fino y su color en el texto y el ícono, sin relleno. Al pasar el mouse se ve el detalle, como antes.
+
 Stock: el grupo **Stock** tiene tres columnas, **ERP** (el stock del producto vinculado en el ERP), **Full** (lo que hay en Full de Mercado Libre) y **Total** (ERP + Full; si falta uno, suma el que hay, y muestra "—" solo si faltan los dos). Las tres se ordenan con un clic en su título. La cantidad publicada en Mercado Libre no es un stock real y no aparece como columna. Los botones de stock son **Full sin stock**, **Sin stock ERP** y **Con stock ERP**; un enlace guardado con el viejo **Sin stock propio** abre igual, sin ese filtro.
 
 Un stock ERP en 0 (o menos) se ve en rojo; al pasar el mouse dice "Sin stock ERP".

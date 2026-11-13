@@ -1,4 +1,4 @@
-import { NEUTRAL_TONE, catalogState, catalogTooltip } from './catalogStatus';
+import { NEUTRAL_INK, catalogState, catalogTooltip } from './catalogStatus';
 import styles from './CatalogStatusBadge.module.css';
 
 
@@ -7,7 +7,7 @@ import styles from './CatalogStatusBadge.module.css';
  * catalog badge of Productos' product rows (`pages/Productos.jsx`), and both read the same states and tooltip
  * (`catalogStatus.js`).
  *
- * - Winning shows a trophy, sharing first place a handshake, competing an alert, each in its state's tone.
+ * - Winning shows a trophy, sharing first place a handshake, competing an alert, each outlined in its state's ink.
  * - Any other status shows an empty neutral badge, announced by its own key: it says which state it is, where a
  *   generic word would hide it.
  * - The tooltip has the price it wins or ties at, or the price to win; none without that price.
@@ -26,7 +26,7 @@ export default function CatalogStatusBadge({ product }) {
     <span
       className={styles.badge}
       data-status={product.catalog_status}
-      style={{ '--catalog-tone': state?.tone ?? NEUTRAL_TONE }}
+      style={{ '--catalog-ink': state?.ink ?? NEUTRAL_INK }}
       title={title}
       aria-label={label}
       role="img"

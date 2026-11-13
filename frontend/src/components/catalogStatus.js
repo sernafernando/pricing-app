@@ -2,8 +2,8 @@ import { AlertCircle, Handshake, Trophy } from 'lucide-react';
 
 /**
  * The catalog competition states ML reports, one table for Productos' row badge and Publicaciones ML's
- * `CatalogStatusBadge`. Each state has its words, Productos' emoji mark, Publicaciones ML's icon, the badge's tone and
- * its tooltip, from the product's usable prices (`winner`: the price it wins or ties at; `toWin`: the price to win).
+ * `CatalogStatusBadge`. Each state has its words, Productos' emoji mark, Publicaciones ML's icon, Productos' badge
+ * tone, Publicaciones ML's outline ink (a text tone that reads on the card) and its tooltip, from the product's usable prices (`winner`: the price it wins or ties at; `toWin`: the price to win).
  */
 export const CATALOG_STATES = {
   winning: {
@@ -11,6 +11,7 @@ export const CATALOG_STATES = {
     mark: '🏆',
     Icon: Trophy,
     tone: 'var(--success)',
+    ink: 'var(--tone-success-fg)',
     tooltip: ({ winner }) => winner && `Ganando a $${winner}`,
   },
   sharing_first_place: {
@@ -18,6 +19,7 @@ export const CATALOG_STATES = {
     mark: '🤝',
     Icon: Handshake,
     tone: 'var(--info)',
+    ink: 'var(--tone-info-fg)',
     tooltip: ({ winner }) => winner && `Empatando a $${winner}`,
   },
   competing: {
@@ -25,12 +27,16 @@ export const CATALOG_STATES = {
     mark: '!',
     Icon: AlertCircle,
     tone: 'var(--warning)',
+    ink: 'var(--tone-warning-fg)',
     tooltip: ({ toWin }) => toWin && `Precio para ganar: $${toWin}`,
   },
 };
 
 /** The badge's tone for a status the table does not have, in both badges. */
 export const NEUTRAL_TONE = 'var(--text-tertiary)';
+
+/** Publicaciones ML's outline ink for a status the table does not have. */
+export const NEUTRAL_INK = 'var(--tone-neutral-fg)';
 
 /**
  * The state of a catalog status, or undefined for a status the table does not have. Only the table's own keys count,

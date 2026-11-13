@@ -25,6 +25,7 @@
 
 .markup {
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-weight: var(--font-bold);
   white-space: nowrap;
 }
@@ -64,6 +65,7 @@
 
 .when {
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--font-xs);
 }
 
@@ -78,6 +80,7 @@
   border: 1px solid var(--tone-neutral-border);
   border-radius: var(--radius-base);
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 10.5px;
   white-space: nowrap;
 }

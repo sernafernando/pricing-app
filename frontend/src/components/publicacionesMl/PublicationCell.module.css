@@ -38,8 +38,8 @@
   overflow-wrap: anywhere;
 }
 
+/* A publication without a title reads "Sin título" in the muted ink, upright like every other title. */
 .titleEmpty {
-  font-style: italic;
   color: var(--cf-text-tertiary);
 }
 

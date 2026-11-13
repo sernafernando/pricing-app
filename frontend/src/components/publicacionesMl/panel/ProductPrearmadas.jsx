@@ -14,5 +14,5 @@ import { usePrearmadasStats } from '../../../hooks/usePrearmadasStats';
 export default function ProductPrearmadas({ productItemId }) {
   const itemIds = useMemo(() => [productItemId], [productItemId]);
   const { statsById } = usePrearmadasStats(itemIds);
-  return <PrearmadaBadge stats={statsById[productItemId]} />;
+  return <PrearmadaBadge outline stats={statsById[productItemId]} />;
 }
