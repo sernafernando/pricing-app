@@ -580,6 +580,47 @@ def aplicar_facturas_pendientes(db: Session, pedido_ids: Iterable[int]) -> int:
     return aplicadas
 
 
+def repartir_totales_de_factura(db: Session, pedido_ids: Iterable[int]) -> int:
+    """Re-split the applied invoice totals of these operations over all their invoiced lines (sell in varias facturas
+    S2, owner: "por defecto tendría que aplicar a todas las facturas el sell in"): a total covers every invoice of its
+    operation, so when another invoice links (or one is unlinked) its one purchase is re-split in place over the
+    operation's current invoiced units (`compras.repartir_compra_sin_commit`). The total is never applied once per
+    invoice: it stays one purchase, same id and amount, so a manual cost mode naming it and its waiting row stay
+    valid. A purchase whose operation has no invoiced units left, or already has exactly them, is left as is. Called by
+    the `sell_in.bono` worker after `aplicar_facturas_pendientes`; does not commit. Returns how many were re-split."""
+    ids = sorted(set(pedido_ids))
+    if not ids:
+        return 0
+    compra_ids = (
+        select(SellInCompra.id)
+        .join(SellInCompraPedido, SellInCompraPedido.compra_id == SellInCompra.id)
+        .where(
+            SellInCompraPedido.pedido_compra_id.in_(ids),
+            SellInCompra.tactical_id.isnot(None),
+            SellInCompra.estado == "activa",
+            SellInCompra.tipo == "monto",
+        )
+    )
+    # Lock order of a tactical's writers (`aplicar_facturas_pendientes`): the tactical, then its purchases.
+    duenos = select(SellInCompra.tactical_id).where(SellInCompra.id.in_(compra_ids)).distinct()
+    db.query(Tactical.id).filter(Tactical.id.in_(duenos)).order_by(Tactical.id).with_for_update(key_share=True).all()
+    filas = (
+        db.query(SellInCompra.id, SellInCompra.usuario_id, SellInCompraPedido.pedido_compra_id)
+        .join(SellInCompraPedido, SellInCompraPedido.compra_id == SellInCompra.id)
+        .filter(SellInCompra.id.in_(compra_ids), SellInCompraPedido.pedido_compra_id.in_(ids))
+        .order_by(SellInCompra.id)
+        .all()
+    )
+    repartidas = 0
+    for compra_id, usuario_id, pedido_id in filas:
+        cantidades = _facturado(db, pedido_id)
+        if not cantidades:
+            continue
+        if compras.repartir_compra_sin_commit(db, compra_id, cantidades, usuario_id) is not None:
+            repartidas += 1
+    return repartidas
+
+
 def _ocupado_si_deadlock(operacion):
     """A deadlock (40P01) with another writer of a campaign is `TacticalOcupado` (rolled back, retry), never a raw
     error: the engines' own wrapper (`campanas.deadlock_es_ocupada`), with this module's error."""

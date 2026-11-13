@@ -1543,3 +1543,158 @@ class TestFacturaPendienteTotal:
         with pytest.raises(service.TacticalError, match="^Línea 1: un monto total no lleva topes"):
             service.crear(db, _tactical("sell_in", [linea], fecha_desde=None, fecha_hasta=None), USUARIO)
         assert _contar(engine, "tacticals") == 0
+
+
+class TestVariasFacturas:
+    """Sell in invoice line over an operation with several invoices, S2 (owner 2026-11-13: "por defecto tendría que
+    aplicar a todas las facturas el sell in"): the line covers every invoice of the operation, the loaded and the
+    pending path alike, and an invoice linked later is covered too. The invoiced-lines snapshot holds the operation's
+    units over all its invoices (`reconciliar_lineas_facturadas`), so a second invoice is more units on the
+    snapshot. A fixed total is split once over all the invoiced lines and re-split when another invoice links; it is
+    never applied once per invoice."""
+
+    PRIMERA = {2964: 10}  # first invoice
+    TODAS = {2964: 10, 950: 5}  # first and second invoice
+
+    @pytest.fixture(autouse=True)
+    def _worker_db(self, engine, monkeypatch) -> None:
+        monkeypatch.setattr("app.core.database.SessionLocal", sessionmaker(bind=engine))
+
+    def _worker(self) -> None:
+        TestFacturaPendienteTotal._worker(self)
+
+    def _crear(self, db: Session, pedido: int, modo: str, valor: str, **cabecera):
+        linea = {"alcance": "factura", "pedido_compra_id": pedido, "modo_monto": modo, "valor": valor}
+        return service.crear(db, _tactical("sell_in", [linea], fecha_desde=None, fecha_hasta=None, **cabecera), USUARIO)
+
+    def _compras(self, engine: Engine, tactical_id: int) -> list[tuple]:
+        return TestFacturaPendienteTotal._compras(self, engine, tactical_id)
+
+    def _activas(self, engine: Engine, tactical_id: int) -> list[tuple]:
+        return [(cabecera, items) for cabecera, items in self._compras(engine, tactical_id) if cabecera[0] == "activa"]
+
+    def _bono(self, engine: Engine, tactical_id: int) -> int:
+        return TestFacturaPendiente._bono(self, engine, tactical_id)[0]
+
+    def _items(self, items: list[tuple]) -> dict[int, int]:
+        return {item_id: cantidad for item_id, cantidad, _ in items}
+
+    # default: all invoices, loaded and pending
+
+    @pytest.mark.parametrize("modo", ["por_unidad", "porcentaje"])
+    def test_a_bonus_line_loaded_with_two_invoices_covers_both(self, db, engine, modo) -> None:
+        pedido = bw.pedido(engine, self.TODAS, date(2026, 10, 10))
+        bw.set_importe(engine, pedido, 2964, "41500.00", "USD")
+        bw.set_importe(engine, pedido, 950, "4950.00", "USD")
+        tactical = self._crear(db, pedido, modo, "2")
+        self._worker()
+
+        assert self._items(bw.items_de(engine, self._bono(engine, tactical.id), pedido)) == self.TODAS
+
+    def test_a_bonus_line_waiting_for_two_invoices_covers_both(self, db, engine) -> None:
+        pedido = bw.pedido(engine, {}, None)
+        tactical = self._crear(db, pedido, "por_unidad", "2")
+
+        bw.update_pedido(engine, pedido, fecha_factura=date(2026, 10, 10))
+        bw.set_lineas(engine, pedido, self.TODAS)
+        self._worker()
+
+        assert self._items(bw.items_de(engine, self._bono(engine, tactical.id), pedido)) == self.TODAS
+
+    def test_a_total_loaded_with_two_invoices_is_one_purchase_over_both(self, db, engine) -> None:
+        pedido = bw.pedido(engine, self.TODAS, date(2026, 10, 10), moneda="ARS")
+        tactical = self._crear(db, pedido, "monto_total", "15000")
+
+        [(cabecera, items)] = self._compras(engine, tactical.id)
+        assert cabecera[3] == Decimal("15000")
+        assert self._items(items) == self.TODAS
+        assert sum(m for _, _, m in items) == Decimal("15000")
+
+    def test_a_total_waiting_for_two_invoices_is_one_purchase_over_both(self, db, engine) -> None:
+        pedido = bw.pedido(engine, {}, None, moneda="ARS")
+        tactical = self._crear(db, pedido, "monto_total", "15000")
+
+        bw.update_pedido(engine, pedido, fecha_factura=date(2026, 10, 10))
+        bw.set_lineas(engine, pedido, self.TODAS)
+        self._worker()
+
+        [(cabecera, items)] = self._compras(engine, tactical.id)
+        assert (cabecera[0], cabecera[3]) == ("activa", Decimal("15000"))
+        assert self._items(items) == self.TODAS
+
+    # an invoice linked later
+
+    def test_a_bonus_line_covers_an_invoice_linked_later(self, db, engine) -> None:
+        pedido = bw.pedido(engine, self.PRIMERA, date(2026, 10, 10))
+        tactical = self._crear(db, pedido, "por_unidad", "2")
+        self._worker()
+        bono = self._bono(engine, tactical.id)
+        assert self._items(bw.items_de(engine, bono, pedido)) == self.PRIMERA
+
+        bw.set_lineas(engine, pedido, self.TODAS)
+        assert ("pedido", pedido) in bw.queued(engine)
+        self._worker()
+
+        assert self._items(bw.items_de(engine, bono, pedido)) == self.TODAS
+
+    def test_a_loaded_total_is_re_split_when_another_invoice_links(self, db, engine) -> None:
+        pedido = bw.pedido(engine, self.PRIMERA, date(2026, 10, 10), moneda="ARS")
+        tactical = self._crear(db, pedido, "monto_total", "15000")
+        [(antes, _)] = self._compras(engine, tactical.id)
+        bw.clear_queue(engine)
+
+        bw.set_lineas(engine, pedido, self.TODAS)
+        assert ("pedido", pedido) in bw.queued(engine)  # no bonus covers it: only the applied total gates it in
+        self._worker()
+
+        [(despues, items)] = self._compras(engine, tactical.id)  # the same purchase, never a second one
+        assert despues == antes  # header: still active, same total, currency, operation
+        assert self._items(items) == self.TODAS
+        assert sum(m for _, _, m in items) == Decimal("15000")
+
+    def test_a_pending_total_is_re_split_when_a_second_invoice_links(self, db, engine) -> None:
+        pedido = bw.pedido(engine, {}, None, moneda="ARS")
+        tactical = self._crear(db, pedido, "monto_total", "15000")
+        bw.update_pedido(engine, pedido, fecha_factura=date(2026, 10, 10))
+        bw.set_lineas(engine, pedido, self.PRIMERA)
+        self._worker()
+        [(_, items)] = self._compras(engine, tactical.id)
+        assert self._items(items) == self.PRIMERA
+
+        bw.set_lineas(engine, pedido, self.TODAS)
+        self._worker()
+
+        [(cabecera, items)] = self._compras(engine, tactical.id)
+        assert (cabecera[0], cabecera[3]) == ("activa", Decimal("15000"))
+        assert self._items(items) == self.TODAS
+        assert sum(m for _, _, m in items) == Decimal("15000")
+        assert TestFacturaPendienteTotal._pendientes(self, engine, tactical.id) == [(1, pedido, "aplicada")]
+
+    def test_the_re_split_keeps_the_existing_lines_cost_and_matches_a_total_loaded_with_both(self, db, engine) -> None:
+        tarde = bw.pedido(engine, self.PRIMERA, date(2026, 10, 10), moneda="ARS")
+        partido = self._crear(db, tarde, "monto_total", "15000", nombre="Rebate")
+        bw.set_lineas(engine, tarde, self.TODAS)
+        self._worker()
+        juntas = bw.pedido(engine, self.TODAS, date(2026, 10, 10), moneda="ARS")
+        cargado = self._crear(db, juntas, "monto_total", "15000", nombre="Rebate")
+
+        [(_, items_tarde)] = self._compras(engine, partido.id)
+        [(_, items_juntas)] = self._compras(engine, cargado.id)
+        assert items_tarde == items_juntas  # costs unchanged in between: same split as loaded with both
+
+    # parity: a single invoice is unchanged
+
+    def test_requeueing_an_unchanged_single_invoice_leaves_its_total_as_is(self, db, engine) -> None:
+        pedido = bw.pedido(engine, self.PRIMERA, date(2026, 10, 10), moneda="ARS")
+        tactical = self._crear(db, pedido, "monto_total", "15000")
+        antes = self._compras(engine, tactical.id)
+        with engine.connect() as conn:
+            auditadas = conn.execute(text("SELECT count(*) FROM auditoria")).scalar()
+
+        with engine.begin() as conn:
+            conn.execute(text("INSERT INTO sell_in_bono_dirty (tipo, ref) VALUES ('pedido', :p)"), {"p": pedido})
+        self._worker()
+
+        assert self._compras(engine, tactical.id) == antes
+        with engine.connect() as conn:
+            assert conn.execute(text("SELECT count(*) FROM auditoria")).scalar() == auditadas
