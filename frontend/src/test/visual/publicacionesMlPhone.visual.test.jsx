@@ -380,7 +380,7 @@ describe.each(['light', 'dark'])('Publicaciones ML at 390x844 (%s)', (theme) => 
     scroller.scrollTop = 0;
   });
 
-  it('shows the promo filter in the Promos tab: summary, clear and chips fit the screen at 44px', async () => {
+  it('shows the promo filter in the Promos tab: one compact row, desktop-size chips, no repeated label', async () => {
     promocionesAPI.getPromocionesItem.mockResolvedValue({
       data: {
         promotions: [
@@ -399,8 +399,20 @@ describe.each(['light', 'dark'])('Publicaciones ML at 390x844 (%s)', (theme) => 
       expect(panel.element().textContent).not.toContain('Ofertas compartidas CM');
       await panel.getByRole('button', { name: 'Filtrar promos' }).click();
       await expect.element(panel.getByRole('button', { name: 'Smart' })).toBeVisible();
-      const filter = panel.getByRole('button', { name: 'Quitar filtro' }).element().parentElement.parentElement;
-      expect(shortTargets(filter)).toEqual([]);
+      // Toggle, summary and "Quitar filtro" on ONE row; the summary truncates instead of wrapping.
+      const toggle = panel.getByRole('button', { name: 'Filtrar promos' }).element();
+      const summary = panel.getByText('Filtro: 2 tipos · 1 nombre').element();
+      const clear = panel.getByRole('button', { name: 'Quitar filtro' }).element();
+      const middle = (el) => el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2;
+      for (const el of [summary, clear]) expect(Math.abs(middle(el) - middle(toggle))).toBeLessThan(2);
+      expect(getComputedStyle(summary).textOverflow).toBe('ellipsis');
+      expect(clear.getBoundingClientRect().right).toBeLessThanOrEqual(390 - 16 + 0.5);
+      // The row's two buttons are touch targets; the chips keep the compact desktop size.
+      expect(shortTargets(toggle.parentElement)).toEqual([]);
+      const smart = panel.getByRole('button', { name: 'Smart' }).element();
+      expect(smart.getBoundingClientRect().height).toBeLessThan(36);
+      // The toggle already says "Filtrar promos": the chip row does not repeat it.
+      expect(panel.element().textContent).not.toContain('Filtrar promos:');
       noSidewaysScroll();
       await shot(`pubml-phone-promo-filter-${theme}`);
     } finally {

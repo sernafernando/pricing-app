@@ -120,6 +120,8 @@ describe('the promo filter (one setting for the user, shared with Productos)', (
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     await user.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    // The toggle already names the filter: the chip row does not repeat "Filtrar promos:".
+    expect(screen.queryByText('Filtrar promos:')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Smart' }));
     expect(screen.queryByText('Deal of the day')).not.toBeInTheDocument();
     expect(screen.getByText('Smart promo')).toBeInTheDocument();

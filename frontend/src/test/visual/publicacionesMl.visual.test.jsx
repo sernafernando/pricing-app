@@ -4108,6 +4108,9 @@ describe('Publicaciones ML panel, the promo filter in the Promos tab (visual)', 
       await userEvent.click(toggle);
       await expect.element(screen.getByRole('button', { name: 'Smart' })).toHaveAttribute('aria-pressed', 'true');
       await frame();
+      // The toggle already says "Filtrar promos": the chip row does not repeat it.
+      expect(panel.textContent).not.toContain('Filtrar promos:');
+      expect(Math.abs(middle(summary.element()) - middle(toggle.element()))).toBeLessThan(2);
       expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/promo-filter-1440-${theme}.png`, element: panel });
       screen.unmount();

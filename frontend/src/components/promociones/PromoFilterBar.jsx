@@ -12,8 +12,10 @@ import { derivePromosByType } from './derivePromosByType';
  * Toggling a chip filters the promo list of EVERY MLA panel that shows promos.
  * `promosCacheRef` (optional) is the host-owned promos cache; it's read
  * open-time only, to build the name universe for the "Nombres" mini-modal.
+ * `showLabel={false}` drops the "Filtrar promos:" label, for a host whose own
+ * toggle already names the filter.
  */
-function PromoFilterBar({ promosCacheRef }) {
+function PromoFilterBar({ promosCacheRef, showLabel = true }) {
   const selectedTypes = usePromoFilterStore((state) => state.selectedTypes);
   const selectedNames = usePromoFilterStore((state) => state.selectedNames);
   const toggleType = usePromoFilterStore((state) => state.toggleType);
@@ -39,7 +41,7 @@ function PromoFilterBar({ promosCacheRef }) {
 
   return (
     <div className={styles.filterBar}>
-      <span className={styles.filterBarLabel}>Filtrar promos:</span>
+      {showLabel && <span className={styles.filterBarLabel}>Filtrar promos:</span>}
       <button
         type="button"
         className={styles.filterChip}

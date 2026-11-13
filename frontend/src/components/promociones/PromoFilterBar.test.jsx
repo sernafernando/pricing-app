@@ -100,4 +100,14 @@ describe('PromoFilterBar', () => {
     fireEvent.click(screen.getByLabelText('2x1'));
     expect(usePromoFilterStore.getState().selectedNames).toEqual({});
   });
+
+  it('shows its "Filtrar promos:" label in Productos, and none when the host already names the filter', () => {
+    const { unmount } = render(<PromoFilterBar />);
+    expect(screen.getByText('Filtrar promos:')).toBeInTheDocument();
+    unmount();
+    render(<PromoFilterBar showLabel={false} />);
+    expect(screen.queryByText('Filtrar promos:')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^smart$/i })).toBeInTheDocument();
+  });
 });
+

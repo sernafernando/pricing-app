@@ -32,7 +32,7 @@ function PromoFilterHeader({ promosCacheRef }) {
       <div className={styles.promosFilterRow}>
         <button
           type="button"
-          className="btn-tesla outline-subtle-primary sm"
+          className={`btn-tesla outline-subtle-primary sm ${styles.promosFilterToggle}`}
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
         >
@@ -40,14 +40,16 @@ function PromoFilterHeader({ promosCacheRef }) {
         </button>
         {parts.length > 0 && (
           <>
-            <span className={styles.promosFilterSummary}>Filtro: {parts.join(' · ')}</span>
-            <button type="button" className="btn-tesla ghost sm" onClick={clear}>
+            <span className={styles.promosFilterSummary} title={`Filtro: ${parts.join(' · ')}`}>
+              Filtro: {parts.join(' · ')}
+            </span>
+            <button type="button" className={styles.promosFilterClear} onClick={clear}>
               Quitar filtro
             </button>
           </>
         )}
       </div>
-      {open && <PromoFilterBar promosCacheRef={promosCacheRef} />}
+      {open && <PromoFilterBar promosCacheRef={promosCacheRef} showLabel={false} />}
     </div>
   );
 }

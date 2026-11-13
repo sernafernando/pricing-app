@@ -1181,14 +1181,41 @@
 .promosFilterRow {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: var(--spacing-sm);
+  min-width: 0;
 }
 
+.promosFilterToggle {
+  flex: none;
+}
+
+/* Takes the room left between the toggle and "Quitar filtro", and truncates rather than wrapping. */
 .promosFilterSummary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: 13px;
   font-weight: 600;
   color: var(--brand-primary);
+}
+
+/* A quiet text button at the end of the row. */
+.promosFilterClear {
+  flex: none;
+  border: none;
+  background: transparent;
+  padding: 0 var(--spacing-xs);
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.promosFilterClear:hover {
+  color: var(--text-primary);
 }
 
 /* Phone (mobile-metricas-pubml S2, S5): the panel is the whole screen. "‹ Publicaciones" on top with the panel's own
@@ -1217,8 +1244,10 @@
 }
 
 @media (max-width: 768px) {
-  /* The promo filter's toggle, clear and chips are touch targets of 44px, like the panel's other actions. */
-  .promosFilter button {
+  /* The promo filter's toggle and clear are touch targets of 44px, like the panel's other actions; the chips
+     keep the compact desktop size. */
+  .promosFilterToggle,
+  .promosFilterClear {
     min-height: 44px;
   }
 
