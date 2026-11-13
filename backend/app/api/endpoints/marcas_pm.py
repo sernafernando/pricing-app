@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, tuple_
 from sqlalchemy.exc import IntegrityError
@@ -182,7 +182,11 @@ class BulkSubPMResponse(BaseModel):
 
 @router.get("/marcas-pm", response_model=List[MarcaPMResponse])
 def listar_marcas_pm(
-    db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+    solo_visibles: bool = Query(
+        False, description="Only the brands offered as options (with stock or excepted); GestionPM sends it"
+    ),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
 ) -> List[MarcaPMResponse]:
     """
     Lista todas las marcas+categorías con sus PMs asignados.
@@ -196,9 +200,11 @@ def listar_marcas_pm(
         raise HTTPException(403, "No tienes permisos")
 
     marcas = db.query(MarcaPM).options(joinedload(MarcaPM.usuario)).all()
-    # Brands without stock and without an admin exception are not offered (marcas-sin-stock): the admin
-    # keeps a brand assignable by adding it to the exception list.
-    marcas = filter_visible_brands(db, marcas, marca_of=lambda row: row.marca)
+    # `solo_visibles` (GestionPM's assignment list, marcas-sin-stock): brands without stock and without an
+    # admin exception are not offered. Off by default: MisSubPMs and PermisosPorPantalla read this endpoint as
+    # the COMPLETE pair list (a missing pair would revoke its sub-PM grants on save, or miscount access).
+    if solo_visibles:
+        marcas = filter_visible_brands(db, marcas, marca_of=lambda row: row.marca)
 
     resultado = []
     for marca in marcas:

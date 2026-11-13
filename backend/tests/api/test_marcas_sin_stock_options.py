@@ -155,13 +155,17 @@ def test_offset_filtros_opciones(client, admin_auth_headers, catalog) -> None:
 
 
 def test_marcas_pm(db, client, admin_auth_headers, catalog) -> None:
-    """`/marcas-pm` (GestionPM): a brand without stock is not offered for assignment."""
+    """`/marcas-pm?solo_visibles=true` (GestionPM): a brand without stock is not offered for assignment. Without
+    the flag every pair is listed: MisSubPMs and PermisosPorPantalla read it as the complete pair list."""
     for marca in BRANDS:
         db.add(MarcaPM(marca=marca, categoria="Impresoras"))
     db.flush()
-    resp = client.get("/api/marcas-pm", headers=admin_auth_headers)
+    resp = client.get("/api/marcas-pm", params={"solo_visibles": "true"}, headers=admin_auth_headers)
     assert resp.status_code == 200, resp.text
     assert _shown(r["marca"] for r in resp.json()) == {"Epson", "Excepcion"}
+    complete = client.get("/api/marcas-pm", headers=admin_auth_headers)
+    assert complete.status_code == 200, complete.text
+    assert _shown(r["marca"] for r in complete.json()) == set(BRANDS)
 
 
 def test_items_sin_mla_marcas(db, client, admin_auth_headers, catalog) -> None:
