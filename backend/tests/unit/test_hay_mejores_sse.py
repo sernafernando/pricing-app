@@ -15,7 +15,9 @@ from app.services.ml_promotions_hay_mejores import FlagDecision
 @pytest.fixture()
 def published(monkeypatch) -> list[tuple[str, dict]]:
     calls: list[tuple[str, dict]] = []
-    monkeypatch.setattr(hay_mejores, "sse_publish_bg", lambda channel, data=None: calls.append((channel, data)))
+    monkeypatch.setattr(
+        hay_mejores, "sse_publish_any_process", lambda channel, data=None: calls.append((channel, data))
+    )
     return calls
 
 

@@ -25,7 +25,7 @@ from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
-from app.core.sse import sse_publish_bg
+from app.core.sse import sse_publish_any_process
 from app.models.ml_publications import MlItemSalePrice, MlItemSellerPromotions
 from app.services.ml_promotions_pricing import (
     MarkupsDePrecio,
@@ -60,7 +60,7 @@ def notify_hay_mejores_changed(db: Session) -> None:
 
 def _publish_if_changed(db: Session) -> None:
     if db.info.pop(_CHANGED, False):
-        sse_publish_bg(SSE_CHANNEL_MEJORES_OFERTAS, {"hint": "reload"})
+        sse_publish_any_process(SSE_CHANNEL_MEJORES_OFERTAS, {"hint": "reload"})
 
 
 def _forget_change(db: Session) -> None:
@@ -255,9 +255,9 @@ def actualizar_hay_mejores_ofertas(
             row.hay_mejores_descartado_fingerprint = decision.descartado_fingerprint
             if decision.hay_mejores and (not prev_flag or prev_fingerprint != decision.fingerprint):
                 _enqueue_catalog_competition_refresh(db, item_id)
-            if decision.hay_mejores != prev_flag:
-                notify_hay_mejores_changed(db)
-            return decision
+        if decision.hay_mejores != prev_flag:  # after the savepoint: a failed one changed nothing
+            notify_hay_mejores_changed(db)
+        return decision
     except Exception as exc:
         logger.warning("hay_mejores: failed for %s: %s", item_id, exc)
         return None

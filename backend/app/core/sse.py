@@ -25,9 +25,11 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+import redis
 from pydantic import BaseModel, ConfigDict
 from redis.asyncio import Redis
 
+from app.core.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -108,6 +110,41 @@ def sse_publish_bg(channel: str, data: dict[str, Any] | None = None) -> None:
         asyncio.run_coroutine_threadsafe(sse_publish(channel, data), _event_loop)
     except RuntimeError:
         logger.warning("sse_publish_bg: event loop closed (channel=%s)", channel)
+
+
+_sync_client: redis.Redis | None = None
+
+
+def _get_sync_client() -> redis.Redis:
+    global _sync_client
+    if _sync_client is None:
+        _sync_client = redis.Redis.from_url(settings.REDIS_URL, socket_connect_timeout=0.25, socket_timeout=0.25)
+    return _sync_client
+
+
+def _set_sync_client_for_tests(client: redis.Redis | None) -> None:
+    """Test seam: swap in a fake client, or None to reset."""
+    global _sync_client
+    _sync_client = client
+
+
+def sse_publish_any_process(channel: str, data: dict[str, Any] | None = None) -> None:
+    """
+    Publish from sync code that may run outside the API process.
+
+    In the API process (`set_redis` gave it the event loop) this is `sse_publish_bg`. Elsewhere (the
+    `app.workers.run` processes, a script) there is no loop, so it publishes the same event straight to
+    the same Redis channel with a short, bounded synchronous call, as ml-webhook does for
+    `free-shipping:count`. Best-effort: a Redis error is logged and swallowed.
+    """
+    if _event_loop is not None and not _event_loop.is_closed():
+        sse_publish_bg(channel, data)
+        return
+    event = SSEEvent.create(channel=channel, data=data)
+    try:
+        _get_sync_client().publish(f"sse:{channel}", event.model_dump_json())
+    except redis.RedisError as exc:
+        logger.warning("SSE sync publish failed (channel=%s): %s", channel, exc)
 
 
 # ── Connection Manager ───────────────────────────────────────────
