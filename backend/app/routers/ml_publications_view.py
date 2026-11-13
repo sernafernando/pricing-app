@@ -89,6 +89,7 @@ from app.services.ml_publications.view import (
     history,
     kpis,
     listing,
+    mejores_ofertas,
     products,
     row_metrics,
     stats,
@@ -345,6 +346,14 @@ class DataStateOut(BaseModel):
     degraded: bool
     degradations: list[dict[str, Any]]
     sections_failed: list[str]
+
+
+class MejoresOfertasCountResponse(BaseModel):
+    """The PMs' top-bar badge: the caller's PM id (the `pms` filter's), `None` when the caller is no PM, and the
+    total of their Publicaciones ML page `estado=active&hay_mejores_ofertas=1&pms=<pm_id>`."""
+
+    pm_id: Optional[int]
+    count: int
 
 
 class ItemsResponse(BaseModel):
@@ -1333,6 +1342,28 @@ def get_items(
             "ms": page.markup_stats.ms,
         }
     return body
+
+
+@router.get("/mejores-ofertas/count", response_model=MejoresOfertasCountResponse)
+def get_mejores_ofertas_count(
+    user: Usuario = Depends(require_algun_permiso(PERMISOS_PUBLICACIONES_ML)),
+    db: Session = Depends(get_view_db),
+) -> dict[str, Any]:
+    """How many of the caller's active publications have better offers, for their top-bar badge. A PM is a user with
+    (marca, categoria) assignments (`marcas_pm`), the same id the screen's `pms` filter takes; anyone else gets no PM
+    and zero. The count is the listing's own total for the badge's link (`listing.count_items`), so the badge and the
+    page it opens always agree."""
+    try:
+        if not mejores_ofertas.is_pm(db, user.id):
+            return {"pm_id": None, "count": 0}
+        listing.bound(db)
+        return {"pm_id": user.id, "count": mejores_ofertas.count_for_pm(db, user.id)}
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()  # read-only, as every read of the screen
 
 
 def _summary_out(summary: listing.Summary) -> dict[str, Any]:
