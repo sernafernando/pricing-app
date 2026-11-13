@@ -19,6 +19,7 @@ from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.pricing_constants import PricingConstants
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
+from app.services.marcas_visibles import filter_visible_brands
 from app.services.offset_resumen_service import (
     fetch_resumenes_grupo,
     fetch_resumenes_individuales,
@@ -968,7 +969,8 @@ def obtener_filtros_tienda_nube(
     subcategorias_result = db.execute(text(subcategorias_query), subcategorias_params).fetchall()
 
     return {
-        "marcas": [m[0] for m in marcas_result if m[0]],
+        # Brands without stock and without an admin exception are not offered; a selected one stays.
+        "marcas": filter_visible_brands(db, [m[0] for m in marcas_result if m[0]], keep=lista_marcas),
         "categorias": [c[0] for c in categorias_result if c[0]],
         "subcategorias": [s[0] for s in subcategorias_result if s[0]],
     }

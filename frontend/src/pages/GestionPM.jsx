@@ -17,7 +17,7 @@ export default function GestionPM() {
   const cargarDatos = async () => {
     try {
       const [registrosRes, usuariosRes] = await Promise.all([
-        api.get('/marcas-pm'),
+        api.get('/marcas-pm', { params: { solo_visibles: true } }),
         api.get('/usuarios/pms'),
       ]);
 

@@ -33,6 +33,8 @@ globals()["tree_catalog"] = nested.tree_catalog
 
 NOW = datetime(2026, 9, 30, 18, 0, tzinfo=timezone.utc)
 TODAY = date(2026, 9, 30)
+# Re-pinned once for marcas-sin-stock (hidden-brands rule, app.services.marcas_visibles): each scenario gained ONE
+# statement, the brand visibility query of the product facet options. Every row/totals statement is unchanged.
 GOLDEN = Path(__file__).parent / "golden" / "board_sql_no_mla_source.json"
 EPSON_LOGI = [("EPSON", "IMPRESORAS"), ("LOGITECH", "GAMING")]
 # The rows `rows_for_keys` reads in each view: the board's top three by gross on the clean fixture.

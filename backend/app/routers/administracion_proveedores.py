@@ -19,6 +19,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
+from app.services.marcas_visibles import filter_visible_brands
 from app.core.database import get_db, get_async_db, get_background_db
 from app.core.logging import get_logger
 from app.core.sse import sse_publish
@@ -984,6 +985,8 @@ def marcas_por_proveedor(
         """),
         {"supp_id": prov.supp_id},
     ).fetchall()
+    # Brands without stock and without an admin exception are not listed (marcas-sin-stock, owner: "en todas").
+    results = filter_visible_brands(db, results, marca_of=lambda r: r[1])
 
     return [
         MarcaProveedorResponse(

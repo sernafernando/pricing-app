@@ -18,6 +18,10 @@ La tabla se ordena haciendo clic en los encabezados. Cada fila muestra el produc
 
 ## Filtros y columnas
 
+Una marca sin ningún producto en stock no aparece en el filtro de marca, salvo que esté en **Admin → Marcas sin stock**. Si ya la tenías elegida, el filtro sigue funcionando y la marca se ve tildada.
+
+En **⚙️ Setup Markups** tampoco aparece una marca sin stock, salvo que ya tenga un markup configurado o esté en **Admin → Marcas sin stock**.
+
 Columnas principales: código, descripción, marca, stock, costo, precio gremio (ARS o USD según el toggle), cuotas y web/transferencia. En vista cuotas se muestran las cuotas.
 
 La columna **Costo** ocupa una sola línea: el costo en su moneda y, si el producto tiene sell in hoy, al lado y más chico **c/ sell in** con el costo que queda, en la misma moneda (con el mouse encima, el costo con sell in en pesos, el descuento por unidad y de dónde sale). Debajo del markup de **Sugerido**, **Gremio** y **Web Transf.** aparecen el markup **c/ sell in** y el markup **c/ sell in + sell out** (o **c/ sell out** si no hay sell in). Se calculan con el neto de cada precio de Tienda, no con el de Mercado Libre: en Sugerido y Gremio, el precio sin IVA sin el % de varios; en Web Transf., el precio sin IVA menos la comisión de Tienda Nube y el % de varios. El sell out de Sugerido y Gremio sale de los tacticals que aplican a ventas por fuera, y el de Web Transf. de los que aplican a Tienda Nube; un tactical solo para tiendas oficiales de Mercado Libre no suma acá. Un sell out que es un % del precio usa el precio con IVA de esa columna.

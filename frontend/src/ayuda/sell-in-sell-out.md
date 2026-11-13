@@ -201,6 +201,8 @@ Un **tactical** es un programa de una marca: sell in baja el costo, sell out sum
 
 ## Filtros y columnas
 
+Los selectores de marca no ofrecen marcas sin ningún producto en stock, salvo que estén en **Admin → Marcas sin stock**. La marca ya cargada en un registro se sigue viendo al editarlo.
+
 Tacticals: tipo, marca, moneda, contiene (tipo de línea), estado, cobranza, vigencia, búsqueda y producto; columna Cobranza (Pendiente o Cobrado con la fecha). Grupos: nombre, filtros, productos alcanzados y campañas que lo usan. Productos: búsqueda por código o descripción, marca y modo de costo; columnas producto, modo de costo, unidades, sell in por unidad y última compra, todas ordenables.
 
 ## Botones y acciones

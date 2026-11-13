@@ -18,6 +18,8 @@ Por defecto: **En Full** y **sin** filas con Stock ERP en 0. La tabla ordena por
 
 ## Filtros y columnas
 
+Una marca sin ningún producto en stock no aparece en el filtro de marca, salvo que esté en **Admin → Marcas sin stock**. Si ya la tenías elegida, el filtro sigue funcionando y la marca se ve tildada.
+
 Filtros:
 
 - Búsqueda libre: EAN, descripción, Código ML (`inventory_id`), MLAU o **family_id** exacto (el id numérico de familia de ML).

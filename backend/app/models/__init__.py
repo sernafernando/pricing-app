@@ -106,6 +106,7 @@ from app.models.weather_history import WeatherHistory
 # RRHH — Recursos Humanos
 from app.models.empresa import Empresa
 from app.models.ml_tienda_oficial import MlTiendaOficial
+from app.models.marca_visible_excepcion import MarcaVisibleExcepcion
 from app.models.rrhh_empleado import RRHHEmpleado, EstadoEmpleado
 from app.models.rrhh_schema_legajo import RRHHSchemaLegajo
 from app.models.rrhh_tipo_documento import RRHHTipoDocumento
@@ -384,6 +385,7 @@ __all__ = [
     "EstadoArt",
     "Empresa",
     "MlTiendaOficial",
+    "MarcaVisibleExcepcion",
     "RRHHArtDocumento",
     # RRHH — Sanciones
     "RRHHTipoSancion",

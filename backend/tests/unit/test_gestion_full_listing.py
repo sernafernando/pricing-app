@@ -5,6 +5,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.services.gestion_full.listing import (
     _COUNT_SQL,
     _LIST_SQL,
@@ -65,6 +67,13 @@ def test_sugerido_replenish_to_last_inbound_capped_by_stock_erp() -> None:
     assert _sugerido(None, 40, stock_erp=10) is None
 
 
+@pytest.fixture(autouse=True)
+def _no_brand_visibility_read():
+    """The brand rule's own statement (`app.services.marcas_visibles`) is not one of the mocked three."""
+    with patch("app.services.gestion_full.listing.brand_visibility", return_value=None):
+        yield
+
+
 def _mock_db_for_list(list_rows: list | None = None) -> MagicMock:
     db = MagicMock()
     count_result = MagicMock()
@@ -104,7 +113,9 @@ def test_list_gestion_full_passes_filters_and_pagination() -> None:
 
     with patch(
         "app.services.gestion_full.listing.product_facet_options",
-        return_value=MagicMock(model_dump=lambda: {"marcas": ["M"], "categorias": ["C"], "subcategorias": [], "pms": []}),
+        return_value=MagicMock(
+            model_dump=lambda: {"marcas": ["M"], "categorias": ["C"], "subcategorias": [], "pms": []}
+        ),
     ):
         payload = list_gestion_full(db, q="EAN", marcas=["M"], categorias=["C"], limit=50, offset=10)
 
@@ -132,9 +143,7 @@ def test_list_gestion_full_multi_marcas_uppercases_for_sql() -> None:
     db = _mock_db_for_list([])
     with patch(
         "app.services.gestion_full.listing.product_facet_options",
-        return_value=MagicMock(
-            model_dump=lambda: {"marcas": [], "categorias": [], "subcategorias": [], "pms": []}
-        ),
+        return_value=MagicMock(model_dump=lambda: {"marcas": [], "categorias": [], "subcategorias": [], "pms": []}),
     ):
         list_gestion_full(db, marcas=["tp-link", "EPSON"], categorias=["Camaras"])
     params = db.execute.call_args_list[0].args[1]
@@ -147,9 +156,7 @@ def test_list_gestion_full_passes_full_mode_and_zero_stock_flag() -> None:
     db = _mock_db_for_list([])
     with patch(
         "app.services.gestion_full.listing.product_facet_options",
-        return_value=MagicMock(
-            model_dump=lambda: {"marcas": [], "categorias": [], "subcategorias": [], "pms": []}
-        ),
+        return_value=MagicMock(model_dump=lambda: {"marcas": [], "categorias": [], "subcategorias": [], "pms": []}),
     ):
         list_gestion_full(db, full_mode="fuera", include_zero_stock=True)
     params = db.execute.call_args_list[0].args[1]
@@ -163,9 +170,7 @@ def test_list_gestion_full_normalizes_invalid_full_mode_to_en() -> None:
     db = _mock_db_for_list([])
     with patch(
         "app.services.gestion_full.listing.product_facet_options",
-        return_value=MagicMock(
-            model_dump=lambda: {"marcas": [], "categorias": [], "subcategorias": [], "pms": []}
-        ),
+        return_value=MagicMock(model_dump=lambda: {"marcas": [], "categorias": [], "subcategorias": [], "pms": []}),
     ):
         list_gestion_full(db, full_mode="nope")
     params = db.execute.call_args_list[0].args[1]
@@ -176,9 +181,7 @@ def test_list_gestion_full_clamps_limit() -> None:
     db = _mock_db_for_list([])
     with patch(
         "app.services.gestion_full.listing.product_facet_options",
-        return_value=MagicMock(
-            model_dump=lambda: {"marcas": [], "categorias": [], "subcategorias": [], "pms": []}
-        ),
+        return_value=MagicMock(model_dump=lambda: {"marcas": [], "categorias": [], "subcategorias": [], "pms": []}),
     ):
         payload = list_gestion_full(db, limit=9999, offset=-5)
     assert payload["limit"] == 500
@@ -217,18 +220,14 @@ def test_tienda_params_ids_and_sin_tienda() -> None:
 def test_order_clause_top_by_and_sort() -> None:
     assert "r.units_30d DESC" in _order_clause(sort=None, sort_dir="asc", top_by="ventas_full_30d")
     assert "p.codigo DESC" in _order_clause(sort="ean", sort_dir="desc", top_by=None)
-    assert _order_clause(sort="nope", sort_dir="asc", top_by=None) == (
-        "p.codigo ASC, linked.user_product_id ASC"
-    )
+    assert _order_clause(sort="nope", sort_dir="asc", top_by=None) == ("p.codigo ASC, linked.user_product_id ASC")
 
 
 def test_list_gestion_full_passes_tiendas_and_top_by_limit() -> None:
     db = _mock_db_for_list([])
     with patch(
         "app.services.gestion_full.listing.product_facet_options",
-        return_value=MagicMock(
-            model_dump=lambda: {"marcas": [], "categorias": [], "subcategorias": [], "pms": []}
-        ),
+        return_value=MagicMock(model_dump=lambda: {"marcas": [], "categorias": [], "subcategorias": [], "pms": []}),
     ):
         payload = list_gestion_full(
             db,

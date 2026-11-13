@@ -447,6 +447,9 @@ def sales_product_options(db: Session, f: SalesFilter, scope: SalesScope) -> Pro
     if f.marcas or f.categorias or f.subcategorias or f.pms:
         open_scope = build_scope(db, replace(f, marcas=(), categorias=(), subcategorias=(), pms=()))
     rows = product_combo_rows(db, product_facet_source(open_scope))
+    # Brands without stock (`app.services.marcas_visibles`): a sales screen also offers a brand that sold in
+    # the period and filters being viewed, and this universe IS those sold items -- every brand in it is
+    # offered, so the visibility rule has nothing to drop here (no extra query).
     return product_facet_options(db, rows, selection)
 
 

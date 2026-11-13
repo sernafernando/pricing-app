@@ -39,6 +39,7 @@ from app.models.ml_publications import MlItemSellerPromotions
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.publicacion_ml import PublicacionML
 from app.models.tipo_cambio import TipoCambio
+from app.services.marcas_visibles import filter_visible_brands
 from app.services.ml_daily_metrics.groups import NO_GROUP, pm_pairs
 from app.services.ml_publications.links import DIVERGENCE_OTHER_PRODUCT, sku_key
 from app.services.ml_publications.listing_kind import NO_TYPE_RANK, OTHER_RANK, listing_kind, listing_rank
@@ -1054,4 +1055,6 @@ def product_options(db: Session, f: PublicationFilter) -> dict[str, list]:
         pms=f.pms,
     )
     values = facet_values(rows, selection)
-    return {"marcas": values.marcas, "subcategorias": sorted(values.subcategoria_ids)}
+    # Brands without stock and without an admin exception are not offered; a selected one stays (marcas-sin-stock).
+    marcas = filter_visible_brands(db, values.marcas, keep=selection.marcas)
+    return {"marcas": marcas, "subcategorias": sorted(values.subcategoria_ids)}

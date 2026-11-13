@@ -14,6 +14,7 @@ import pytest
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.models.marca_visible_excepcion import MarcaVisibleExcepcion
 from app.models.gestion_full_override import GestionFullOverride
 from app.models.gestion_full_pm_ready import GestionFullPmReady
 from app.models.gestion_full_unidades_caja import GestionFullUnidadesCaja
@@ -32,6 +33,7 @@ _ORM_TABLES = [
     GestionFullOverride.__table__,
     GestionFullUnidadesCaja.__table__,
     GestionFullPmReady.__table__,
+    MarcaVisibleExcepcion.__table__,
 ]
 
 _STUB_DDL = (
@@ -294,6 +296,38 @@ class TestGestionFullListingFiltersPostgres:
             # Marcas list ignores its own selection so EPSON stays available to untick/switch.
             assert "EPSON" in facets["marcas"]
             assert any(m.upper() == "TP-LINK" for m in facets["marcas"])
+        finally:
+            db.close()
+
+    def test_a_brand_without_stock_is_not_offered_but_its_rows_stay(self, pg_engine: Engine) -> None:
+        """marcas-sin-stock S2/S3: the Marca list drops a brand with no product in stock (its rows still list,
+        with "include zero stock"); a selected one stays offered; an admin exception brings it back."""
+        db = _session(pg_engine)
+        try:
+            for n, (marca, stock) in enumerate((("EPSON", 10), ("AGOTADA", 0)), start=1):
+                _seed_linked_row(
+                    db,
+                    producto_item_id=n,
+                    ean=f"EAN-{n}",
+                    marca=marca,
+                    categoria="Camaras",
+                    mla=f"MLA{n}",
+                    inventory_id=f"INV{n}",
+                    user_product_id=f"MLAU{n}",
+                    stock=stock,
+                )
+            db.commit()
+
+            payload = list_gestion_full(db, full_mode="en", include_zero_stock=True)
+            assert {item["marca"] for item in payload["items"]} == {"EPSON", "AGOTADA"}
+            assert payload["facets"]["product"]["marcas"] == ["EPSON"]
+            selected = list_gestion_full(db, full_mode="en", include_zero_stock=True, marcas=["AGOTADA"])
+            assert [item["marca"] for item in selected["items"]] == ["AGOTADA"]
+            assert selected["facets"]["product"]["marcas"] == ["AGOTADA", "EPSON"]
+            db.add(MarcaVisibleExcepcion(marca="Agotada"))
+            db.commit()
+            excepted = list_gestion_full(db, full_mode="en", include_zero_stock=True)
+            assert excepted["facets"]["product"]["marcas"] == ["AGOTADA", "EPSON"]
         finally:
             db.close()
 

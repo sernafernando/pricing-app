@@ -56,6 +56,8 @@ En una pantalla angosta (celular, hasta 768 px de ancho) Métricas ML tiene su p
 
 Filtros: fecha, búsqueda, tienda, producto, publicación (estado/tipo), stock, ageing, alertas, solo con ventas, agrupación, dimensión (en agrupado), publicidad, costos TP, comparación.
 
+En el filtro de **Marca** una marca sin ningún producto en stock solo aparece si vendió en el período y con los filtros que estás viendo, o si está en **Admin → Marcas sin stock**. Lo ya tildado sigue a la vista.
+
 Columnas: definidas por el selector de columnas (incluye métricas de ventas, margen, ads, etc.; las de margen solo si tenés permiso de ganancia).
 
 ## Botones y acciones

@@ -8,6 +8,7 @@ from sqlalchemy import and_, or_, func
 from typing import Dict, List, Optional
 from pydantic import BaseModel, ConfigDict
 
+from app.services.marcas_visibles import filter_visible_brands
 from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.producto import ProductoERP
@@ -468,21 +469,12 @@ def get_tiendas_oficiales(
 @router.get("/marcas")
 def get_marcas_sin_mla(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
-    Obtiene las marcas de productos sin MLA (para filtros)
+    Brands the Items sin MLA brand filter may offer: those of active, not banned products, minus the brands
+    without stock and without an admin exception (marcas-sin-stock). Not narrowed to products with NO
+    publication: the table also lists products that miss only some lists, and their brands must stay offered.
+    The screen intersects this list with the brands of its rows.
     """
-
-    # Items con MLA
-    items_con_mla_subq = (
-        db.query(MercadoLibreItemPublicado.item_id)
-        .distinct()
-        .filter(MercadoLibreItemPublicado.item_id.isnot(None))
-        .scalar_subquery()
-    )
-
-    # Items baneados
     items_baneados_subq = db.query(ItemSinMLABanlist.item_id).scalar_subquery()
-
-    # Marcas de productos sin MLA y no baneados
     marcas = (
         db.query(ProductoERP.marca)
         .distinct()
@@ -490,15 +482,13 @@ def get_marcas_sin_mla(db: Session = Depends(get_db), current_user: Usuario = De
             and_(
                 ProductoERP.activo == True,
                 ProductoERP.marca.isnot(None),
-                ProductoERP.item_id.notin_(items_con_mla_subq),
                 ProductoERP.item_id.notin_(items_baneados_subq),
             )
         )
         .order_by(ProductoERP.marca)
         .all()
     )
-
-    return [{"marca": m[0]} for m in marcas if m[0]]
+    return [{"marca": m} for m in filter_visible_brands(db, [m[0] for m in marcas if m[0]])]
 
 
 # Mapeo de campañas ML a listas del sistema

@@ -1,0 +1,124 @@
+/* PanelMarcasVisibles: brands kept visible without stock */
+.container { padding: var(--spacing-md) 0; }
+
+.title {
+  font-size: var(--font-lg);
+  color: var(--cf-text-primary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.desc {
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+  margin-bottom: var(--spacing-lg);
+  max-width: 72ch;
+}
+
+.error {
+  background: color-mix(in srgb, var(--cf-accent-red) 10%, transparent);
+  color: var(--cf-accent-red);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.picker {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+}
+
+.label {
+  display: block;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  margin-bottom: var(--spacing-xs);
+  font-weight: 500;
+}
+
+.input {
+  composes: input from '../styles/forms-tesla.css';
+  width: 100%;
+  max-width: 420px;
+}
+
+.results {
+  list-style: none;
+  margin: var(--spacing-sm) 0 0;
+  padding: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) 0;
+  border-bottom: 1px solid var(--cf-border-default);
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.resultName {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.hint {
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-xs);
+  margin-top: var(--spacing-sm);
+}
+
+.btnAdd {
+  composes: btn-tesla outline-subtle-success sm from '../styles/buttons-tesla.css';
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-shrink: 0;
+}
+
+.added {
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-xs);
+  flex-shrink: 0;
+}
+
+.loading, .empty {
+  color: var(--cf-text-tertiary);
+  text-align: center;
+  padding: var(--spacing-lg);
+  font-size: var(--font-sm);
+}
+
+.tableWrapper { overflow-x: auto; }
+
+.table {
+  composes: table-tesla from '../styles/table-tesla.css';
+}
+
+.stockOn {
+  color: var(--cf-accent-green);
+  font-weight: 600;
+  font-size: var(--font-xs);
+  white-space: nowrap;
+}
+
+.stockOff {
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-xs);
+  white-space: nowrap;
+}
+
+.btnRemove {
+  composes: btn-tesla outline-subtle-danger icon-only sm from '../styles/buttons-tesla.css';
+}

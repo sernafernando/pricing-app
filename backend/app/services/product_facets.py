@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session
 from app.models.comision_config import SubcategoriaGrupo
 from app.models.marca_pm import MarcaPM
 from app.models.usuario import Usuario
+from app.services.marcas_visibles import BrandVisibility
 
 NO_CATEGORY_LABEL = "Sin categoría"
 
@@ -214,8 +215,19 @@ def facet_values(rows: Iterable[ComboRow], selection: ProductSelection) -> Facet
     )
 
 
-def product_facet_options(db: Session, rows: Iterable[ComboRow], selection: ProductSelection) -> ProductFacetOptions:
-    """The four option lists for `rows` (`product_combo_rows`) under `selection`."""
+def product_facet_options(
+    db: Session,
+    rows: Iterable[ComboRow],
+    selection: ProductSelection,
+    visibility: Optional[BrandVisibility] = None,
+    sold_brands: Iterable[Optional[str]] = (),
+) -> ProductFacetOptions:
+    """The four option lists for `rows` (`product_combo_rows`) under `selection`.
+
+    With `visibility` (`app.services.marcas_visibles`), the brand list drops the brands with no stock and no
+    admin exception -- a selected one stays, and so does one in `sold_brands` (the sales screens pass the
+    brands that sold in the viewed period). Only the brand OPTIONS: the cascade over the other lists still
+    reads every row."""
     rows = list(rows)
     sub_names: Dict[int, Tuple[str, str]] = {}
     sub_groups: Dict[int, Optional[int]] = {}
@@ -229,6 +241,8 @@ def product_facet_options(db: Session, rows: Iterable[ComboRow], selection: Prod
             sub_names[row.subcategoria_id] = (row.subcategoria_nombre, row.subcategoria_categoria or NO_CATEGORY_LABEL)
             sub_groups[row.subcategoria_id] = row.subcategoria_grupo_id
     marcas, categorias, sub_ids, pm_ids = facet_values(rows, selection)
+    if visibility is not None:
+        marcas = visibility.filter(marcas, keep=selection.marcas, sold=sold_brands)
     sel_subs = set(selection.subcategorias)
     sel_pms = set(selection.pms)
 

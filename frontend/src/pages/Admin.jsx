@@ -13,6 +13,7 @@ import PanelPermisos from '../components/PanelPermisos';
 import PanelRoles from '../components/PanelRoles';
 import PanelSubcategorias from '../components/PanelSubcategorias';
 import PanelTiendasOficiales from '../components/PanelTiendasOficiales';
+import PanelMarcasVisibles from '../components/PanelMarcasVisibles';
 import { registrarPagina } from '../registry/tabRegistry';
 
 registrarPagina({
@@ -25,6 +26,7 @@ registrarPagina({
     { tabKey: 'subcategorias', label: 'Subcategorías' },
     { tabKey: 'constantes', label: 'Constantes Pricing' },
     { tabKey: 'tiendas', label: 'Tiendas Oficiales' },
+    { tabKey: 'marcas-visibles', label: 'Marcas sin stock' },
     { tabKey: 'permisos', label: 'Usuarios' },
     { tabKey: 'roles', label: 'Roles' },
   ],
@@ -230,6 +232,12 @@ export default function Admin() {
           Tiendas Oficiales
         </button>
         <button
+          className={`${styles.tab} ${tabActiva === 'marcas-visibles' ? styles.tabActive : ''}`}
+          onClick={() => setTabActiva('marcas-visibles')}
+        >
+          Marcas sin stock
+        </button>
+        <button
           className={`${styles.tab} ${tabActiva === 'permisos' ? styles.tabActive : ''}`}
           onClick={() => setTabActiva('permisos')}
         >
@@ -390,6 +398,10 @@ export default function Admin() {
 
       {tabActiva === 'tiendas' && (
         <PanelTiendasOficiales />
+      )}
+
+      {tabActiva === 'marcas-visibles' && (
+        <PanelMarcasVisibles />
       )}
 
       {tabActiva === 'permisos' && (

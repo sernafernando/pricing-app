@@ -178,6 +178,7 @@ def obtener_opciones_filtros(db: Session = Depends(get_db), current_user: Usuari
     para poder filtrar en cascada en el frontend.
     """
     from app.models.producto import ProductoERP
+    from app.services.marcas_visibles import brand_visibility
 
     # Obtener todas las combinaciones únicas de marca-categoría-subcategoría
     # No filtramos por activo para incluir todos los productos
@@ -232,6 +233,12 @@ def obtener_opciones_filtros(db: Session = Depends(get_db), current_user: Usuari
         subcats = db.query(TBSubCategory).filter(TBSubCategory.subcat_id.in_(subcategorias_ids)).all()
         for s in subcats:
             subcategorias_info[s.subcat_id] = s.subcat_desc
+
+    # Brands without stock and without an admin exception are not offered (marcas-sin-stock): the brand list and
+    # the per-category brand lists drop them; `categorias_por_marca` keeps every brand, an existing offset may name one.
+    visibility = brand_visibility(db)
+    marcas = set(visibility.filter(marcas))
+    marcas_por_categoria = {c: {m for m in ms if m in marcas} for c, ms in marcas_por_categoria.items()}
 
     # Convertir sets a listas ordenadas
     return {

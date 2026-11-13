@@ -18,6 +18,8 @@ Si hay productos sin costo, se muestra un aviso en la pestaña Resumen.
 
 ## Filtros y columnas
 
+Una marca sin ningún producto en stock no aparece en el filtro de marca, salvo que esté en **Admin → Marcas sin stock**. Si ya la tenías elegida, el filtro sigue funcionando y la marca se ve tildada.
+
 Filtros: fecha, vendedores y, en Detalle de Operaciones, solo sin costo.
 
 Columnas de operaciones: fecha, producto, cantidad, precios, costos, markup.

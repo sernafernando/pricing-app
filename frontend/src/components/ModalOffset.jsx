@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../services/api';
 import styles from './TabRentabilidad.module.css';
 import OffsetMigradoBadge from './offsets/OffsetMigradoBadge';
+import { withSelectedBrands } from '../utils/brandOptions';
 
 // Map apiBasePath to default channel selection
 const CHANNEL_DEFAULTS = {
@@ -516,7 +517,8 @@ export default function ModalOffset({
                   onChange={e => setNuevoOffset({ ...nuevoOffset, valor: e.target.value })}
                 >
                   <option value="">Seleccionar marca...</option>
-                  {filtrosDisponibles.marcas.map(m => (
+                  {/* An edited offset keeps its brand even when it is now hidden from the options (no stock). */}
+                  {withSelectedBrands(filtrosDisponibles.marcas, nuevoOffset.valor).map(m => (
                     <option key={m} value={m}>{m}</option>
                   ))}
                 </select>

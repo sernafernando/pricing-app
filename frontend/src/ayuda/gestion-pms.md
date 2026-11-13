@@ -16,6 +16,8 @@ La tabla lista los pares marca-categoría con el PM asignado. Se puede asignar u
 
 ## Filtros y columnas
 
+Las marcas sin ningún producto en stock no aparecen en la lista para asignar PM, salvo que estén en **Admin → Marcas sin stock**.
+
 Filtro: búsqueda por marca, categoría o PM.
 
 Columnas: Marca, Categoría, PM asignado.

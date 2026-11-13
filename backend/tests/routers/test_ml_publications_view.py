@@ -237,6 +237,8 @@ class TestContract:
 
     def test_the_facets_carry_the_product_options_next_to_the_counts(self, client, pg, reader) -> None:
         seed_rows(pg, self.fill)
+        # A brand is offered while it has stock (marcas-sin-stock).
+        seed_rows(pg, lambda conn: conn.execute(text("UPDATE productos_erp SET stock = 2 WHERE item_id = 70")))
         facets = get(client, reader, facets="true", estado="active").json()["facets"]
         assert facets["product"] == {"marcas": ["TP-Link"], "subcategorias": []}
         assert {"status", "stores", "marcas", "listing", "link", "stock", "total"} <= set(facets)
@@ -496,7 +498,8 @@ class TestStatementCount:
         without = self.statements(client, pg, reader, limit=10)
         with_facets = self.statements(client, pg, reader, limit=10, facets="true")
         # one per axis, plus ONE for the product filter's Marca / Subcategoría lists (`listing.product_options`)
-        assert len(with_facets) - len(without) == len(listing.FACET_AXES) + 1
+        # and ONE for the brand visibility rule those lists apply (`app.services.marcas_visibles`)
+        assert len(with_facets) - len(without) == len(listing.FACET_AXES) + 2
 
 
 class TestProductManagerFilter:

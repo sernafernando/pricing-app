@@ -14,6 +14,7 @@ from app.api.deps import get_current_user
 from app.models.usuario import Usuario
 from app.models.markup_tienda import MarkupTiendaBrand, MarkupTiendaProducto, TiendaConfig
 from app.models.producto import ProductoERP, ProductoPricing
+from app.services.marcas_visibles import brand_visibility
 from app.services.permisos_service import verificar_permiso
 from app.services.pricing_calculator import obtener_tipo_cambio_actual, convertir_a_pesos, obtener_constantes_pricing
 from app.api.endpoints.productos_shared import computar_precio_sugerido
@@ -184,7 +185,10 @@ def listar_brands_con_markups(
             )
         )
 
-    return results
+    # Brands without stock and without an admin exception are not offered (marcas-sin-stock), except a brand
+    # that already has a markup configured: an existing configuration never disappears from this screen.
+    con_markup = [r.brand_desc for r in results if r.markup_id is not None]
+    return brand_visibility(db).filter(results, keep=con_markup, marca_of=lambda r: r.brand_desc)
 
 
 @router.post("/brands/{comp_id}/{brand_id}/markup", response_model=MarkupBrandResponse)

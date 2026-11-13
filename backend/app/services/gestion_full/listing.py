@@ -28,6 +28,7 @@ from typing import Any, Literal, Optional, Sequence
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.services.marcas_visibles import brand_visibility
 from app.services.product_facets import (
     ComboRow,
     ProductFacetOptions,
@@ -482,7 +483,7 @@ def _build_product_facets(
         categorias=tuple(categorias),
         pms=tuple(pms),
     )
-    return product_facet_options(db, rows, selection).model_dump()
+    return product_facet_options(db, rows, selection, visibility=brand_visibility(db)).model_dump()
 
 
 def list_gestion_full(

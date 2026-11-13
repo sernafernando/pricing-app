@@ -6,6 +6,7 @@ import { useToast } from '../hooks/useToast';
 import ModalInfoProducto from '../components/ModalInfoProducto';
 import Toast from '../components/Toast';
 import TiendaNubeReconcile from './TiendaNubeReconcile';
+import { visibleBrands } from '../utils/brandOptions';
 import './ItemsSinMLA.css';
 
 // Inline SVG icons — stroke-based, consistent 16x16 default
@@ -57,6 +58,9 @@ const ItemsSinMLA = () => {
   // Filtros
   const [marcas, setMarcas] = useState([]);
   const [marcasSeleccionadas, setMarcasSeleccionadas] = useState([]);
+  // Brands the server lets the filter offer (with stock or in the admin exception list); null = unknown.
+  const [marcasVisibles, setMarcasVisibles] = useState(null);
+  const marcasOfrecidas = visibleBrands(marcas, marcasVisibles, marcasSeleccionadas);
   const [busquedaMarca, setBusquedaMarca] = useState('');
   const [panelMarcasAbierto, setPanelMarcasAbierto] = useState(false);
   const [busqueda, setBusqueda] = useState('');
@@ -167,6 +171,7 @@ const ItemsSinMLA = () => {
     cargarListasPrecio();
     cargarTiendasOficiales();
     cargarItemsSinMLA();
+    cargarMarcasVisibles();
     cargarAsignaciones();
     cargarUsuariosAsignables();
     // solo al montar — funciones de carga estables para este ciclo de vida
@@ -401,6 +406,18 @@ const ItemsSinMLA = () => {
       setTiendasOficiales(response.data);
     } catch {
       // Silently fail — store list is not critical for page load
+    }
+  };
+
+  const cargarMarcasVisibles = async () => {
+    try {
+      const response = await api.get('/items-sin-mla/marcas');
+      const lista = response?.data;
+      setMarcasVisibles(Array.isArray(lista) ? lista.map((m) => m.marca).filter(Boolean) : null);
+    } catch (error) {
+      // Without the list the filter offers every brand of the rows, so the screen keeps working.
+      console.error('Error al cargar marcas:', error);
+      setMarcasVisibles(null);
     }
   };
 
@@ -1260,7 +1277,7 @@ const ItemsSinMLA = () => {
                     )}
                   </div>
                   <div className="dropdown-list">
-                    {marcas
+                    {marcasOfrecidas
                       .filter(marca => !busquedaMarca || marca.toLowerCase().includes(busquedaMarca.toLowerCase()))
                       .map(marca => (
                         <label

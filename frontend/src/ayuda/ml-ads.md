@@ -16,7 +16,7 @@ Arriba dice **ML Ads** y debajo están las pestañas **Aportes** y **Display**. 
 ## Pestaña Aportes
 
 
-Arriba de la pestaña dice **Aportes de marcas (Ads ML)** y aclara que lo que una marca paga de una campaña de Product Ads deja de restarse en Métricas ML.
+Arriba de la pestaña dice **Aportes de marcas (Ads ML)** y aclara que lo que una marca paga de una campaña de Product Ads deja de restarse en Métricas ML. El selector de marca no ofrece marcas sin ningún producto en stock, salvo que estén en **Admin → Marcas sin stock**; la marca de un aporte ya cargado se sigue viendo al editarlo.
 
 Elegí el rango de fechas (Desde/Hasta). Se muestran tarjetas KPI: Costo Ads del período, Aporte de marcas, Costo neto y Campañas con aporte.
 

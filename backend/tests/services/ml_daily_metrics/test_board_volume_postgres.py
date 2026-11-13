@@ -333,8 +333,9 @@ class TestBoardOnVolume:
         assert not empty.rows and len(emptied.statements) == counts[50] - 2 + 5
         # 24: the store chips count the period's operations (their own temp table, CREATE + ANALYZE, then ONE
         # count for every store and "Todas") instead of two row counts. 25: the KPI strip's "Operaciones" (ONE
-        # statement over the keyed lines of both periods, `Board._operations`).
-        assert counts[50] <= 25
+        # statement over the keyed lines of both periods, `Board._operations`). 26: the brand options' visibility
+        # rule (brands in stock, admin exceptions and brands sold in the period: ONE statement, marcas-sin-stock).
+        assert counts[50] <= 26
 
     def test_the_scope_filter_adds_only_its_touched_groups(self, volume_session) -> None:
         """The PM scope bounds the groups the base reads: a scoped (or empty-scoped)

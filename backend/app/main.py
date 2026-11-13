@@ -105,6 +105,7 @@ from app.routers import (
     prearmado_stats,
     pxq,
     tiendas_oficiales,
+    marcas_visibles,
     rrhh_empleados,
     rrhh_fichaje_mobile,
     rrhh_presentismo,
@@ -422,6 +423,7 @@ app.include_router(ml_publication_color.router, prefix="/api")
 app.include_router(ml_ads.router, prefix="/api")
 app.include_router(pxq.router, prefix="/api")
 app.include_router(tiendas_oficiales.router, prefix="/api")
+app.include_router(marcas_visibles.router, prefix="/api")
 app.include_router(document_templates.router, prefix="/api", tags=["document-templates"])
 app.include_router(rrhh_empleados.router, prefix="/api", tags=["rrhh"])
 app.include_router(rrhh_presentismo.router, prefix="/api", tags=["rrhh-presentismo"])

@@ -26,6 +26,8 @@ En **Comparación Listas**, el botón **Sincronizar ML** lanza una sincronizaci�
 
 ## Filtros y columnas
 
+Una marca sin ningún producto en stock no aparece en el filtro de marca, salvo que esté en **Admin → Marcas sin stock**. Si ya la tenías elegida, el filtro sigue funcionando y la marca se ve tildada.
+
 Filtros en Sin MLA: búsqueda por código/descripción, marca, lista faltante, stock, tienda oficial, solo nuevos, sin ninguna publicación.
 
 Columnas típicas: item, código, descripción, marca, listas donde falta/tiene, asignación.
