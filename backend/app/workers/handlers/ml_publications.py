@@ -1314,12 +1314,13 @@ _SWEEP_KEYS = ("sweep.enabled", "sweep.statuses", "bundle_resources")
 
 
 class SweepHandler:
-    """`ml_publications.sweep`: performance and visits have no notification topic, so every 10 minutes
-    this tick enqueues the oldest `ceil(eligible / 144)` items of each in the sweep lane (design D17).
+    """`ml_publications.sweep`: description, performance, visits and replenishment are refreshed by no
+    notification, so every 10 minutes this tick enqueues, per resource, the oldest `ceil(eligible / 144)`
+    entities plus every one last checked more than `sweeps.DUE_AGE` ago (capped), in the sweep lane (design D17).
 
     It makes NO ML call and holds no pacer: the refresh handler fetches what it enqueues, under the shared
-    budget and the lane order, and the tick itself yields while live work is waiting. A tick that fails is
-    recorded and simply followed by the next one, ten minutes later.
+    budget and the lane order (the sweep lane is served last, so the tick does not yield to live work). A tick
+    that fails is recorded and simply followed by the next one, ten minutes later.
     """
 
     name = SWEEP_HANDLER

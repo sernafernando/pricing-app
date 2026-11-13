@@ -151,8 +151,8 @@ class TestBatch:
 
     def test_never_checked_first_then_the_least_recently_checked(self, env) -> None:
         ups = put_ups(env, 3)
-        put_state(env, ups[0], checked_ago_days=1)
-        put_state(env, ups[1], checked_ago_days=5)
+        put_state(env, ups[0], checked_ago_days=0.25)
+        put_state(env, ups[1], checked_ago_days=0.5)
         # ups[2] never checked: first. K = 1 per tick for 3 eligible.
         run()
         assert set(queue_rows(env)) == {ups[2]}
@@ -160,7 +160,7 @@ class TestBatch:
             conn.execute(text("DELETE FROM ml_pub_refresh_queue"))
         put_state(env, ups[2], checked_ago_days=0)
         run()
-        assert set(queue_rows(env)) == {ups[1]}  # 5 days old beats 1 day old
+        assert set(queue_rows(env)) == {ups[1]}  # 12 h old beats 6 h old (neither overdue)
 
     def test_the_run_record_counts_it_beside_the_item_resources(self, env) -> None:
         put_ups(env, 3)
@@ -218,7 +218,7 @@ class TestGate:
         assert "replenishment" in sweeps.SWEEP_RESOURCES
         assert "replenishment" in bundle.SWEEP_ONLY
 
-    def test_it_yields_to_live_work_like_the_other_resources(self, env) -> None:
+    def test_live_work_does_not_stop_it_like_the_other_resources(self, env) -> None:
         put_ups(env, 1)
         with env.begin() as conn:
             conn.execute(
@@ -228,5 +228,5 @@ class TestGate:
                 ),
                 {"lane": queue.LANE_NOTIFICATION},
             )
-        assert run().outcome == sweeps.OUTCOME_YIELDED
-        assert "MLAU1000000" not in queue_rows(env)
+        assert run().outcome == sweeps.OUTCOME_SUCCESS
+        assert "MLAU1000000" in queue_rows(env)
