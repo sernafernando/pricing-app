@@ -1,46 +1,86 @@
-.list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-  margin: 0;
+/* `full` takes the 95vh height; the width stops at 80rem so the three columns do not spread on a wide screen. */
+:global(.modal-tesla.full).modal {
+  max-width: min(95vw, 80rem);
 }
 
-.entry {
-  display: grid;
-  grid-template-columns: minmax(10rem, auto) 1fr;
-  gap: var(--spacing-md);
-  align-items: baseline;
+/* Groups flow into as many 18rem columns as fit: three on a desktop modal, one on a phone. */
+.groups {
+  columns: 3 18rem;
+  column-gap: var(--spacing-xl);
 }
 
-.keys {
-  margin: 0;
-  font-size: var(--font-xs);
-  color: var(--cf-text-tertiary);
-}
-
-.kbd {
-  padding: 0 var(--space-1);
-  font-family: var(--font-mono);
-  font-size: var(--font-xs);
-  color: var(--cf-text-primary);
-  background: var(--cf-bg-hover);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-sm);
-}
-
-.what {
-  margin: 0;
-  font-size: var(--font-sm);
-  color: var(--cf-text-primary);
-}
-
-.section {
-  margin-top: var(--spacing-lg);
+.group {
+  break-inside: avoid;
+  margin-bottom: var(--spacing-lg);
 }
 
 .heading {
   margin: 0 0 var(--spacing-sm);
   font-size: var(--font-sm);
-  font-weight: 600;
+  font-weight: var(--font-medium);
+  line-height: var(--leading-snug);
   color: var(--cf-text-secondary);
+}
+
+/* One grid per group: the keycaps share one column, so every description starts on the same line. */
+.list {
+  display: grid;
+  grid-template-columns: fit-content(10rem) 1fr;
+  column-gap: var(--spacing-md);
+  row-gap: var(--space-2);
+  margin: 0;
+}
+
+.entry {
+  display: contents;
+}
+
+.keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+.key {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.or {
+  font-size: var(--font-xs);
+  color: var(--cf-text-muted);
+}
+
+.kbd {
+  display: inline-block;
+  min-width: 1.25rem;
+  padding: 0 var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  /* 1px top + 2px bottom border: the keycap is as tall as a description line (1.25rem). */
+  line-height: calc(1.25rem - 3px);
+  text-align: center;
+  white-space: nowrap;
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-default);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-base);
+}
+
+.what {
+  margin: 0;
+  font-size: var(--font-sm);
+  line-height: 1.25rem;
+  color: var(--cf-text-primary);
+}
+
+@media (max-width: 480px) {
+  .list {
+    grid-template-columns: fit-content(7.5rem) 1fr;
+    column-gap: var(--spacing-sm);
+  }
 }
