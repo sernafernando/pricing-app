@@ -29,6 +29,8 @@ En la tabla, cada fila muestra el producto (con SKU y MLA; si hay varios, un car
 
 Filtros: período, tienda, operación, mercadería, producto (marca/categoría/subcategoría/PM), solo con alertas, incluir (A revisar/En disputa/Mixta/Provisorio/Canceladas), búsqueda por texto.
 
+El filtro de **Marca** ofrece las marcas que vendieron en el período y con los filtros que estás viendo, aunque hoy no tengan stock (como en Métricas ML).
+
 Columnas: configurables con el botón de columnas; se pueden redimensionar arrastrando el borde del encabezado y restablecer con **Restablecer columnas**. La elección queda guardada en el navegador.
 
 ## Botones y acciones
