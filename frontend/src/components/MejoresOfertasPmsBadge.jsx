@@ -9,7 +9,7 @@ import { MEJORES_OFERTAS_CHANNEL, PERMISO_MEJORES_OFERTAS_PMS, mejoresOfertasPat
 import styles from './MejoresOfertasPmsBadge.module.css';
 
 const MIN_FETCH_INTERVAL_MS = 10000;
-const EMPTY = { pms: [], total: 0 };
+const EMPTY = { pms: [], total: 0, tiendaId: null };
 
 /**
  * MejoresOfertasPmsBadge - TopBar notifier for whoever reviews the PMs
@@ -50,7 +50,7 @@ export default function MejoresOfertasPmsBadge() {
     inFlightRef.current = true;
     try {
       const { data: body } = await api.get('/ml-publications/view/mejores-ofertas/por-pm');
-      setData({ pms: body.pms ?? [], total: body.total ?? 0 });
+      setData({ pms: body.pms ?? [], total: body.total ?? 0, tiendaId: body.tienda_id });
       lastFetchAtRef.current = Date.now();
     } catch (error) {
       // Hidden until the next read, but never silent: the failure is logged, as the top bar's Facturado ML card does.
@@ -131,7 +131,7 @@ export default function MejoresOfertasPmsBadge() {
               <li key={pm.pm_id}>
                 <Link
                   ref={index === 0 ? firstRowRef : undefined}
-                  to={mejoresOfertasPath(pm.pm_id)}
+                  to={mejoresOfertasPath(pm.pm_id, data.tiendaId)}
                   className={`${styles.row} ${pm.count === 0 ? styles.rowZero : ''}`}
                   onClick={() => setOpen(false)}
                 >

@@ -25,7 +25,7 @@ const MIN_FETCH_INTERVAL_MS = 10000;
  */
 export default function MejoresOfertasBadge() {
   const { tienePermiso } = usePermisos();
-  const [state, setState] = useState({ pmId: null, count: 0 });
+  const [state, setState] = useState({ pmId: null, count: 0, tiendaId: null });
   const [loading, setLoading] = useState(true);
   const { isDegraded } = useSSE();
   const inFlightRef = useRef(false);
@@ -51,12 +51,12 @@ export default function MejoresOfertasBadge() {
     inFlightRef.current = true;
     try {
       const { data } = await api.get('/ml-publications/view/mejores-ofertas/count');
-      setState({ pmId: data.pm_id, count: data.count });
+      setState({ pmId: data.pm_id, count: data.count, tiendaId: data.tienda_id });
       lastFetchAtRef.current = Date.now();
     } catch (error) {
       // Hidden until the next read, but never silent: the failure is logged, as the top bar's Facturado ML card does.
       console.error('Mejores ofertas: the PM count request failed', error);
-      setState({ pmId: null, count: 0 });
+      setState({ pmId: null, count: 0, tiendaId: null });
     } finally {
       inFlightRef.current = false;
       setLoading(false);
@@ -78,12 +78,12 @@ export default function MejoresOfertasBadge() {
     return () => clearInterval(interval);
   }, [canView, isDegraded, fetchCount]);
 
-  const { pmId, count } = state;
+  const { pmId, count, tiendaId } = state;
   if (!canView || loading || pmId == null || count === 0) return null;
 
   const text = mejoresOfertasText(count);
   return (
-    <Link to={mejoresOfertasPath(pmId)} className={styles.badge} title={text} aria-label={text}>
+    <Link to={mejoresOfertasPath(pmId, tiendaId)} className={styles.badge} title={text} aria-label={text}>
       <BadgePercent size={18} className={styles.icon} aria-hidden="true" />
       <span className={styles.label}>{text}</span>
       <span className={styles.count}>{count}</span>

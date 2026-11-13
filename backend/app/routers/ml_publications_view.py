@@ -350,10 +350,12 @@ class DataStateOut(BaseModel):
 
 class MejoresOfertasCountResponse(BaseModel):
     """The PMs' top-bar badge: the caller's PM id (the `pms` filter's), `None` when the caller is no PM, and the
-    total of their Publicaciones ML page `estado=active&hay_mejores_ofertas=1&pms=<pm_id>`."""
+    total of their Publicaciones ML page `estado=active&hay_mejores_ofertas=1&pms=<pm_id>&tiendas=<tienda_id>`, where
+    `tienda_id` is the main store the count is limited to (the link's `tiendas` filter)."""
 
     pm_id: Optional[int]
     count: int
+    tienda_id: int
 
 
 class MejoresOfertasPm(BaseModel):
@@ -363,10 +365,12 @@ class MejoresOfertasPm(BaseModel):
 
 
 class MejoresOfertasPorPmResponse(BaseModel):
-    """The grouped notifier (S8): every active PM with their own badge's count, most first, and their sum."""
+    """The grouped notifier (S8): every active PM with their own badge's count, most first, and their sum. Every
+    count is limited to the main store `tienda_id`, the `tiendas` filter of each PM's link."""
 
     pms: list[MejoresOfertasPm]
     total: int
+    tienda_id: int
 
 
 PERMISO_MEJORES_OFERTAS_PMS = "alertas.ver_mejores_ofertas_pms"
@@ -1371,9 +1375,13 @@ def get_mejores_ofertas_count(
     page it opens always agree."""
     try:
         if not mejores_ofertas.is_pm(db, user.id):
-            return {"pm_id": None, "count": 0}
+            return {"pm_id": None, "count": 0, "tienda_id": mejores_ofertas.MAIN_STORE_ID}
         listing.bound(db)
-        return {"pm_id": user.id, "count": mejores_ofertas.count_for_pm(db, user.id)}
+        return {
+            "pm_id": user.id,
+            "count": mejores_ofertas.count_for_pm(db, user.id),
+            "tienda_id": mejores_ofertas.MAIN_STORE_ID,
+        }
     except DBAPIError as exc:
         if (slow := _database_error(exc)) is not None:
             raise slow from exc
@@ -1413,7 +1421,7 @@ def get_mejores_ofertas_por_pm(
     finally:
         db.rollback()  # read-only, as every read of the screen
     rows.sort(key=lambda row: (-row["count"], row["nombre"].casefold()))
-    return {"pms": rows, "total": sum(row["count"] for row in rows)}
+    return {"pms": rows, "total": sum(row["count"] for row in rows), "tienda_id": mejores_ofertas.MAIN_STORE_ID}
 
 
 def _summary_out(summary: listing.Summary) -> dict[str, Any]:

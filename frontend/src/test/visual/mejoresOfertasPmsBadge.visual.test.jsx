@@ -37,8 +37,8 @@ vi.mock('../../hooks/useWeather', () => ({ useWeather: () => ({ weather: null })
 vi.mock('../../services/api', async (importOriginal) => {
   const original = await importOriginal();
   const answers = {
-    '/ml-publications/view/mejores-ofertas/count': { pm_id: 17, count: 128 },
-    '/ml-publications/view/mejores-ofertas/por-pm': { pms: PMS, total: 183 },
+    '/ml-publications/view/mejores-ofertas/count': { pm_id: 17, count: 128, tienda_id: 57997 },
+    '/ml-publications/view/mejores-ofertas/por-pm': { pms: PMS, total: 183, tienda_id: 57997 },
     '/free-shipping-alerts/count': { count: 34 },
     '/ml-metricas/board': { kpis: { gross: { value: 187654321.5 } } },
     '/notificaciones/agrupadas?solo_no_leidas=false': [],
@@ -106,7 +106,7 @@ describe.each(['light', 'dark'])('MejoresOfertasPmsBadge in the TopBar (%s)', (t
     expect(box.bottom).toBeLessThanOrEqual(window.innerHeight);
     const rows = [...dialog.element().querySelectorAll('a')];
     expect(rows.map((row) => row.getAttribute('href'))).toEqual(
-      PMS.map((pm) => `/ml-publicaciones?estado=active&hay_mejores_ofertas=1&pms=${pm.pm_id}`),
+      PMS.map((pm) => `/ml-publicaciones?estado=active&hay_mejores_ofertas=1&pms=${pm.pm_id}&tiendas=57997`),
     );
     for (const row of rows) {
       const name = row.querySelector('span');
