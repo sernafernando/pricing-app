@@ -356,6 +356,22 @@ class MejoresOfertasCountResponse(BaseModel):
     count: int
 
 
+class MejoresOfertasPm(BaseModel):
+    pm_id: int
+    nombre: str
+    count: int
+
+
+class MejoresOfertasPorPmResponse(BaseModel):
+    """The grouped notifier (S8): every active PM with their own badge's count, most first, and their sum."""
+
+    pms: list[MejoresOfertasPm]
+    total: int
+
+
+PERMISO_MEJORES_OFERTAS_PMS = "alertas.ver_mejores_ofertas_pms"
+
+
 class ItemsResponse(BaseModel):
     items: list[ItemRowOut]
     total: int
@@ -1364,6 +1380,40 @@ def get_mejores_ofertas_count(
         raise
     finally:
         db.rollback()  # read-only, as every read of the screen
+
+
+@router.get("/mejores-ofertas/por-pm", response_model=MejoresOfertasPorPmResponse)
+def get_mejores_ofertas_por_pm(
+    user: Usuario = Depends(require_permiso(PERMISO_MEJORES_OFERTAS_PMS)),
+    db: Session = Depends(get_view_db),
+    auth_db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Each active PM's count of active publications with better offers, for the grouped top-bar notifier of those
+    who review the PMs (`alertas.ver_mejores_ofertas_pms`). Every count is that PM's own badge count, all of them in
+    one statement (`mejores_ofertas.counts_by_pm`), so each row equals the page it opens. PMs are the users the screen's `pms`
+    filter lists (active, with `marcas_pm` assignments); most better offers first, then by name."""
+    try:
+        pairs = mejores_ofertas.pm_pairs(db)
+        names = (
+            dict(
+                auth_db.query(Usuario.id, Usuario.nombre)
+                .filter(Usuario.id.in_(list(pairs)), Usuario.activo.is_(True))
+                .all()
+            )
+            if pairs
+            else {}
+        )
+        listing.bound(db)
+        counts = mejores_ofertas.counts_by_pm(db, {pm_id: pairs[pm_id] for pm_id in pairs if pm_id in names})
+        rows = [{"pm_id": pm_id, "nombre": names[pm_id], "count": count} for pm_id, count in counts.items()]
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()  # read-only, as every read of the screen
+    rows.sort(key=lambda row: (-row["count"], row["nombre"].casefold()))
+    return {"pms": rows, "total": sum(row["count"] for row in rows)}
 
 
 def _summary_out(summary: listing.Summary) -> dict[str, Any]:
