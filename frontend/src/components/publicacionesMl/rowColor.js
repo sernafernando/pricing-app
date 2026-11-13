@@ -9,6 +9,9 @@ import { COLORES_DISPONIBLES } from '../../utils/productosConstants';
  * (`marcado`, `hintGlobal`; null = cleared) wins over the row's own. A publication may also be painted on its own
  * (seleccion-por-publicacion S3): its own color wins over its product's, and `ownOverlay` (by MLA) holds the own colors
  * painted since, a null one falling back to the product's.
+ *
+ * `globalReference` false (the user turned the global reference off on this team layer, pubml-capa-default S3) drops
+ * the global layer's hint: a row the team has not painted shows nothing.
  */
 const COLOR_BY_ID = new Map(COLORES_DISPONIBLES.filter((c) => c.id).map((c) => [c.id, c]));
 
@@ -43,21 +46,22 @@ function layerColor(item, field, painted, ownPainted) {
 }
 
 /** A publication row (`/view/items`). */
-export function itemRowTone(item, overlay, ownOverlay) {
+export function itemRowTone(item, overlay, ownOverlay, globalReference = true) {
   const productId = item.link?.producto_item_id;
   const painted = productId != null ? overlay?.get(String(productId)) : undefined;
   const ownPainted = item.item_id != null ? ownOverlay?.get(String(item.item_id)) : undefined;
   return toneOf(
     layerColor(item, 'marcado', painted, ownPainted),
-    layerColor(item, 'hintGlobal', painted, ownPainted),
+    globalReference ? layerColor(item, 'hintGlobal', painted, ownPainted) : null,
   );
 }
 
 /** A row of the Producto / Agrupado trees: its publications and its product nodes carry the color. */
-export function treeRowTone(row, overlay, ownOverlay) {
-  if (row.type === 'item') return itemRowTone(row.item, overlay, ownOverlay);
+export function treeRowTone(row, overlay, ownOverlay, globalReference = true) {
+  if (row.type === 'item') return itemRowTone(row.item, overlay, ownOverlay, globalReference);
   if (row.type === 'node' && row.node.kind === 'producto') {
-    return toneOver(overlay, row.node.productoItemId, row.node.colorMarcado, row.node.colorHintGlobal);
+    const tone = toneOver(overlay, row.node.productoItemId, row.node.colorMarcado, row.node.colorHintGlobal);
+    return !globalReference && tone?.marker ? null : tone;
   }
   return null;
 }

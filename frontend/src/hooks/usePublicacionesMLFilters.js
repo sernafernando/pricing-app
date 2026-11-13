@@ -528,8 +528,10 @@ export function usePublicacionesMLFilters({ canSeeMargin = false } = {}) {
     [filters],
   );
 
+  // `options` are the router's navigate options (`{ replace: true }`: a change the user did not make, like the default
+  // layer on entry, leaves no history entry to go back to).
   const setFilters = useCallback(
-    (updates) => {
+    (updates, options) => {
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev);
         for (const [key, value] of Object.entries(updates)) {
@@ -542,7 +544,7 @@ export function usePublicacionesMLFilters({ canSeeMargin = false } = {}) {
           for (const key of VIEW_KEYS) if (!changed.includes(key)) next.delete(key);
         }
         return next;
-      });
+      }, options);
     },
     [setSearchParams],
   );

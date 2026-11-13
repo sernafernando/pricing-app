@@ -34,6 +34,7 @@ import ColorFilterChips from '../components/publicacionesMl/ColorFilterChips';
 import ColorLayerSelect from '../components/publicacionesMl/ColorLayerSelect';
 import PaintColorMenu from '../components/publicacionesMl/PaintColorMenu';
 import { itemRowTone } from '../components/publicacionesMl/rowColor';
+import { defaultLayer, showsGlobalReference } from '../components/publicacionesMl/layerPreferences';
 import useColorOverlay from '../components/publicacionesMl/useColorOverlay';
 import { useSSEChannel } from '../hooks/useSSEChannel';
 import useHiddenKpis from '../hooks/useHiddenKpis';
@@ -358,23 +359,34 @@ export default function PublicacionesML() {
     [],
   );
 
-  const { equipos, loaded: equiposLoaded, recargar: recargarEquipos } = useEquipos();
+  const { equipos, loaded: equiposLoaded, recargar: recargarEquipos, guardarPreferencias } = useEquipos();
   // Team management, as in Productos: any user may create and run their own teams, so no permission gates it.
   const [equiposOpen, setEquiposOpen] = useState(false);
   // The rows are asked on a team layer only once the teams say it is the user's: a link to another team's layer
   // would answer 403 and flash a false error before ColorLayerSelect drops it. Until then nothing is asked.
-  const layerPending = filters.equipo !== '' && !equiposLoaded;
+  // Entered with no layer in the link: the page opens on the user's default one (pubml-capa-default S2), so nothing is
+  // asked until the teams say which, and then on it -- never first on Global. A layer in the link wins.
+  const [entryLayerPending, setEntryLayerPending] = useState(() => filters.equipo === '');
+  const entryLayer = equiposLoaded ? defaultLayer(equipos) : '';
+  useEffect(() => {
+    if (!entryLayerPending || !equiposLoaded) return;
+    if (entryLayer !== '' && filters.equipo === '') setFilters({ equipo: entryLayer }, { replace: true });
+    else setEntryLayerPending(false);
+  }, [entryLayerPending, equiposLoaded, entryLayer, filters.equipo, setFilters]);
+  const layerPending = entryLayerPending || (filters.equipo !== '' && !equiposLoaded);
   const layerKnown =
     filters.equipo === '' || equipos.some((equipo) => !equipo.es_global && String(equipo.id) === filters.equipo);
   const rowFilters = useMemo(() => (layerKnown ? filters : { ...filters, equipo: '' }), [filters, layerKnown]);
+  // The user may hide, per team layer, the global color's marker on rows the team has not painted (S3).
+  const globalReference = showsGlobalReference(equipos, rowFilters.equipo);
   // What is painted, on the layer and filters the rows were asked on, since the rows loaded -- here or by
   // anyone -- repaints them without asking the list again (the trees would close their open branches).
   const colorOverlay = useColorOverlay(rowFilters.equipo, filterKey);
   useSSEChannel('producto_color:changed', colorOverlay.apply);
   useSSEChannel('publicacion_color:changed', colorOverlay.applyOwn);
   const getItemTone = useCallback(
-    (item) => itemRowTone(item, colorOverlay.colors, colorOverlay.own),
-    [colorOverlay.colors, colorOverlay.own],
+    (item) => itemRowTone(item, colorOverlay.colors, colorOverlay.own, globalReference),
+    [colorOverlay.colors, colorOverlay.own, globalReference],
   );
 
   const pageSize = filters.limite;
@@ -937,6 +949,7 @@ export default function PublicacionesML() {
         equipos={equipos}
         loaded={equiposLoaded}
         labelClassName={styles.filterLabel}
+        onPreferences={guardarPreferencias}
       />
       <PaintColorMenu
         checked={checkedStatus}
@@ -1071,6 +1084,7 @@ export default function PublicacionesML() {
       dimension={filters.agrupar}
       colorOverlay={colorOverlay.colors}
       ownColorOverlay={colorOverlay.own}
+      globalReference={globalReference}
       canSeeMargin={canSeeMargin}
       expandedIds={expandedIds}
       onSelectItem={handleRowClick}
@@ -1548,6 +1562,7 @@ export default function PublicacionesML() {
                   selection={selection}
                   colorOverlay={colorOverlay.colors}
                   ownColorOverlay={colorOverlay.own}
+                  globalReference={globalReference}
                   prearmadasStats={prearmadasStats}
                   listingById={listPrices.byId}
                   canSeeMargin={canSeeMargin}

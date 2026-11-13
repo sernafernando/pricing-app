@@ -103,3 +103,22 @@ describe("a publication's own color (seleccion-por-publicacion S3)", () => {
     });
   });
 });
+
+describe('the global reference turned off on the layer (pubml-capa-default S3)', () => {
+  const product = { type: 'node', node: { kind: 'producto', productoItemId: 4101, colorMarcado: null, colorHintGlobal: 'azul' } };
+
+  it('drops the global marker, on the list and the trees, the overlay too', () => {
+    expect(itemRowTone({ color_hint_global: 'azul' }, undefined, undefined, false)).toBeNull();
+    expect(treeRowTone(product, undefined, undefined, false)).toBeNull();
+    expect(treeRowTone(product, new Map([['4101', { hintGlobal: 'rojo' }]]), undefined, false)).toBeNull();
+  });
+
+  it("keeps the layer's own color", () => {
+    expect(itemRowTone({ color_marcado: 'verde', color_hint_global: 'azul' }, undefined, undefined, false)).toMatchObject({
+      background: 'var(--product-ok-bg)',
+    });
+    expect(treeRowTone({ ...product, node: { ...product.node, colorMarcado: 'rojo' } }, undefined, undefined, false)).toMatchObject({
+      background: 'var(--product-urgent-bg)',
+    });
+  });
+});

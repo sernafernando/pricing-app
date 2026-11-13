@@ -14,7 +14,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { setTheme, tokenColor } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
 import { usePromoFilterStore } from '../../store/promoFilterStore';
-import { promocionesAPI, publicacionesMlAPI } from '../../services/api';
+import { equiposAPI, promocionesAPI, publicacionesMlAPI } from '../../services/api';
 import { FACETS, ITEMS, ITEMS_RESPONSE, KPIS_RESPONSE_MARGIN, MARKUP_BREAKDOWN, makeDetail } from './publicacionesMlFixtures';
 
 
@@ -302,6 +302,37 @@ describe.each(['light', 'dark'])('Publicaciones ML at 390x844 (%s)', (theme) => 
     await expect.element(sheet.getByRole('button', { name: 'Limpiar' })).toBeVisible();
     await expect.element(sheet.getByRole('button', { name: 'Equipos' })).toHaveTextContent('Equipos');
     await shot(`pubml-phone-filtros-${theme}`);
+  });
+
+  // pubml-capa-default S6: the layer selector, in the Filtros sheet, opens in place with its ticks, the sheet's width.
+  it('opens the layer selector with its ticks inside the filters sheet', async () => {
+    equiposAPI.listar.mockResolvedValueOnce({
+      data: [
+        { id: 1, nombre: 'U', es_global: true, por_defecto: false, mostrar_referencia_global: true },
+        { id: 12, nombre: 'Ventas', es_global: false, por_defecto: true, mostrar_referencia_global: true },
+        { id: 13, nombre: 'Compras mayoristas', es_global: false, por_defecto: false, mostrar_referencia_global: false },
+      ],
+    });
+    const screen = await renderPhone({ theme });
+    await userEvent.click(screen.getByRole('button', { name: /^Filtros/ }));
+    const sheet = screen.getByRole('dialog', { name: 'Filtros' });
+    await userEvent.click(sheet.getByRole('button', { name: /^Capa de color/ }));
+    const panel = sheet.getByRole('dialog', { name: 'Capas de color' });
+    await expect.element(panel).toBeVisible();
+    await expect.element(panel.getByRole('checkbox', { name: 'Abrir en Ventas al entrar' })).toBeChecked();
+    await expect.element(panel.getByRole('checkbox', { name: 'Ver la referencia de color global en Compras mayoristas' })).not.toBeChecked();
+    panel.element().scrollIntoView({ block: 'center' });
+    const box = panel.element().getBoundingClientRect();
+    expect(box.left).toBeGreaterThanOrEqual(16 - 0.5);
+    expect(box.right).toBeLessThanOrEqual(390 - 16 + 0.5);
+    noSidewaysScroll();
+    // A finger's height per layer, and the whole name of each.
+    for (const row of panel.element().querySelectorAll('[class*="row"]')) {
+      expect(row.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    }
+    const name = panel.getByText('Compras mayoristas').element();
+    expect(name.scrollWidth).toBeLessThanOrEqual(name.clientWidth);
+    await shot(`pubml-phone-capa-default-${theme}`);
   });
 
   it('opens a publication full screen', async () => {
