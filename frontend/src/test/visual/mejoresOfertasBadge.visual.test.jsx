@@ -187,7 +187,9 @@ describe.each(['light', 'dark'])('MejoresOfertasBadge in the TopBar (%s)', (them
     const [label, count] = el.querySelectorAll('span');
     expect(getComputedStyle(label).display).toBe('none');
     expect(count.textContent).toBe('128');
-    expect(el.getBoundingClientRect().width).toBeLessThanOrEqual(54); // ~50px: icon + 3 digits
+    // ~50px: the badge's own chrome (border, padding, 16px icon, gap) stays at 29px whatever the font; the number
+    // is what CI's wider font stretches.
+    expect(el.getBoundingClientRect().width - count.getBoundingClientRect().width).toBeLessThanOrEqual(30);
     const logo = checkPhoneBar(el);
     if (width === 390) expect(logo).toBe(104); // the logo only gives way when the bar needs it
     if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/mejores-ofertas-topbar-${width}-pm-${theme}.png` });
