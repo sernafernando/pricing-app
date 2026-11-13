@@ -9,7 +9,7 @@ the families) below, exactly like the default `marca` tree. The key test is the 
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import column, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.comision_config import SubcategoriaGrupo
@@ -186,6 +186,18 @@ class TestSubcategoria:
         for bad in ("x|REDES", "10", "10|", "²|REDES"):
             with pytest.raises(FilterError):
                 tree(db, "subcategoria", bad)
+
+    def test_a_subcategory_id_out_of_the_id_range_opens_no_rows(self, conn, db) -> None:
+        """A digit key past `integer` is no subcategory: an empty branch, never a DB overflow. (A negative key never
+        gets here: the path's key check rejects it.)"""
+        seed_catalog(conn)
+        for key in ("2147483648", "99999999999999999999", "9" * 5000):  # 5000 digits: past what `int()` converts
+            assert tree(db, "subcategoria", f"{key}|REDES").nodes == []
+            assert tree(db, "categoria", "REDES", key).nodes == []
+        assert tree(db, "categoria", "REDES", "10").nodes != []  # the guard keeps the ids in range
+        matches = metricas_groups._id_matches(column("id"))
+        assert str(matches("2147483648").compile()) == "false"  # compared as no id, whatever the driver binds
+        assert str(matches(str(metricas_groups.MAX_ID)).compile()) == "id = :id_1"
 
     def test_a_category_with_a_comma_or_a_percent_travels_escaped_and_round_trips(self, conn, db) -> None:
         comma_catalog(conn)

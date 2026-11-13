@@ -24,7 +24,7 @@ from app.models.ml_publications import MlItemSellerPromotions
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.publicacion_ml import PublicacionML
 from app.models.tipo_cambio import TipoCambio
-from app.services.ml_daily_metrics.groups import NO_GROUP
+from app.services.ml_daily_metrics.groups import NO_GROUP, pm_pairs
 from app.services.ml_publications.links import DIVERGENCE_OTHER_PRODUCT, sku_key
 from app.services.ml_publications.listing_kind import NO_TYPE_RANK, OTHER_RANK, listing_kind, listing_rank
 from app.services.ml_publications.view.display import round_display
@@ -296,19 +296,27 @@ def bound(db: Session, timeout: Optional[str] = None) -> None:
 
 
 def resolve_pm_pairs(db: Session, f: PublicationFilter) -> PublicationFilter:
-    """Fill `pm_pairs` from the PMs' (marca, categoria) assignments, trimmed and upper-cased like the tree keys them.
+    """Fill `pm_pairs` from the PMs' (marca, categoria) assignments, trimmed and upper-cased like the tree keys them,
+    and `pm_group_pairs`, the pairs of the PM node `pm_group` (every PM's pair for `NO_GROUP`) as the tree gives them.
 
-    Idempotent: a filter whose pairs are already resolved (or that has no `pms`) comes back as it is, with no
-    query, so the router resolves once and `list_items` / `facets` may call it again safely."""
-    if not f.pms or f.pm_pairs is not None:
-        return f
-    rows = (
-        db.query(normalized_text(MarcaPM.marca), normalized_text(MarcaPM.categoria))
-        .filter(MarcaPM.usuario_id.in_(f.pms), MarcaPM.marca.isnot(None), MarcaPM.categoria.isnot(None))
-        .all()
-    )
-    pairs = {(marca, categoria) for marca, categoria in rows if marca and categoria}
-    return replace(f, pm_pairs=tuple(sorted(pairs)))
+    Idempotent: a filter whose pairs are already resolved (or that has no `pms` / `pm_group`) comes back as it is,
+    with no query, so the router resolves once and `list_items` / `facets` may call it again safely."""
+    if f.pms and f.pm_pairs is None:
+        rows = (
+            db.query(normalized_text(MarcaPM.marca), normalized_text(MarcaPM.categoria))
+            .filter(MarcaPM.usuario_id.in_(f.pms), MarcaPM.marca.isnot(None), MarcaPM.categoria.isnot(None))
+            .all()
+        )
+        pairs = {(marca, categoria) for marca, categoria in rows if marca and categoria}
+        f = replace(f, pm_pairs=tuple(sorted(pairs)))
+    if f.pm_group is not None and f.pm_group_pairs is None:
+        owners = pm_pairs("pm_group_resolved")
+        query = select(owners.c.marca, owners.c.categoria)
+        if f.pm_group != NO_GROUP:
+            query = query.where(owners.c.usuario_id == int(f.pm_group))
+        rows = db.execute(query).all()
+        f = replace(f, pm_group_pairs=tuple(sorted((marca, categoria) for marca, categoria in rows)))
+    return f
 
 
 def row_columns(*, cost: bool = False) -> list[Any]:
