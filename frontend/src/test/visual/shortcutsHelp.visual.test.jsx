@@ -2,7 +2,8 @@
  * Publicaciones ML's `?` help (ShortcutsHelp) -- real CSS, real Chromium (pubml-atajos S3).
  *
  * jsdom does no layout, so the unit suite pins the keys and this file pins the layout:
- *  - on a 1440x900 desktop the groups sit side by side in 2-3 columns and the whole set fits without scrolling;
+ *  - on a 1440x900 desktop the groups sit side by side in 2-3 columns and the whole set fits without scrolling,
+ *    Lista's Alt / Shift with Enter or Space (pubml-atajos-faltantes S2) included;
  *  - inside a group the keycaps share one column, so every description starts on the same line;
  *  - on a 390 phone the groups stack in one column and nothing overflows sideways.
  *
@@ -36,6 +37,13 @@ describe('ShortcutsHelp (visual)', () => {
       await open(1440, 900, theme);
       const body = document.querySelector('.modal-body-tesla');
       expect(body.scrollHeight).toBeLessThanOrEqual(body.clientHeight + 1);
+
+      // The last keys added to Lista are on screen, inside the body, with no scroll.
+      const bodyBox = body.getBoundingClientRect();
+      for (const key of ['Alt+Espacio', 'Shift+Espacio']) {
+        const kbd = Array.from(body.querySelectorAll('kbd')).find((candidate) => candidate.textContent === key);
+        expect(kbd.getBoundingClientRect().bottom).toBeLessThanOrEqual(bodyBox.bottom);
+      }
 
       const groups = groupsOf();
       expect(groups.length).toBeGreaterThanOrEqual(5);

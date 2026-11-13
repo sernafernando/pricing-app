@@ -137,7 +137,8 @@ Con el permiso **Ver mejores ofertas de todos los PMs** (`alertas.ver_mejores_of
 - **Ctrl + clic**: abre la publicación en Mercado Libre.
 - **Alt + clic**: abre la publicación en el panel de vendedores de Mercado Libre.
 - **Mayús + clic**: abre las promociones de la publicación en el panel de vendedores.
-- Los tres atajos funcionan en cualquier parte de la fila y abren en el panel lateral de Mercado Libre si tenés instalada la extensión; si no, en una pestaña nueva.
+- Con el teclado, sobre la fila marcada: **Ctrl + Enter** abre la publicación en Mercado Libre, **Alt + Enter** o **Alt + Espacio** la abre en el panel de vendedores y **Mayús + Enter** o **Mayús + Espacio** abre sus promociones en el panel de vendedores. También figuran en la ayuda de atajos (**?**), en el grupo **Lista**.
+- Los tres atajos funcionan en cualquier parte de la fila (o con la fila marcada, desde el teclado) y abren en el panel lateral de Mercado Libre si tenés instalada la extensión; si no, en una pestaña nueva.
 
 ## Preguntas frecuentes
 

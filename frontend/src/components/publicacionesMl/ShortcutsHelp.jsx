@@ -15,6 +15,8 @@ const GROUPS = [
       { keys: ['Shift+↓', 'Shift+↑'], what: 'Moverse y marcar desde la última marcada' },
       { keys: ['Enter'], what: 'Abrir el detalle (con un precio activo: editarlo)' },
       { keys: ['Ctrl+Enter'], what: 'Abrir la publicación en Mercado Libre' },
+      { keys: ['Alt+Enter', 'Alt+Espacio'], what: 'Abrir la publicación en el panel de vendedores' },
+      { keys: ['Shift+Enter', 'Shift+Espacio'], what: 'Abrir sus promociones en el panel de vendedores' },
       { keys: ['Esc'], what: 'Salir del modo navegación' },
     ],
   },
