@@ -30,6 +30,8 @@ export default function MejoresOfertasPmsBadge() {
   const lastFetchAtRef = useRef(0);
   const trailingRef = useRef(null);
   const wrapperRef = useRef(null);
+  const buttonRef = useRef(null);
+  const firstRowRef = useRef(null);
 
   const canView = tienePermiso(PERMISO_MEJORES_OFERTAS_PMS);
 
@@ -50,7 +52,9 @@ export default function MejoresOfertasPmsBadge() {
       const { data: body } = await api.get('/ml-publications/view/mejores-ofertas/por-pm');
       setData({ pms: body.pms ?? [], total: body.total ?? 0 });
       lastFetchAtRef.current = Date.now();
-    } catch {
+    } catch (error) {
+      // Hidden until the next read, but never silent: the failure is logged, as the top bar's Facturado ML card does.
+      console.error('Mejores ofertas: the per-PM counts request failed', error);
       setData(EMPTY);
     } finally {
       inFlightRef.current = false;
@@ -73,12 +77,18 @@ export default function MejoresOfertasPmsBadge() {
   }, [canView, isDegraded, fetchCounts]);
 
   useEffect(() => {
+    if (open) firstRowRef.current?.focus(); // keyboard users land on the first PM
+  }, [open]);
+
+  useEffect(() => {
     if (!open) return;
     const handleDocClick = (e) => {
       if (wrapperRef.current && !wrapperRef.current.contains(e.target)) setOpen(false);
     };
     const handleKeyDown = (e) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key !== 'Escape') return;
+      setOpen(false);
+      buttonRef.current?.focus(); // back where the user opened it
     };
     document.addEventListener('click', handleDocClick);
     document.addEventListener('keydown', handleKeyDown);
@@ -91,9 +101,16 @@ export default function MejoresOfertasPmsBadge() {
   if (!canView || data.total === 0) return null;
 
   const label = `Promos mejores por PM: ${data.total} en total`;
+  // Tabbing out of the notifier (past the last PM) closes it; Shift+Tab back to the button keeps it open. A click on
+  // the popover's own text moves the focus nowhere (no relatedTarget): the document click handler decides that one.
+  const handleBlur = (e) => {
+    if (open && e.relatedTarget && !wrapperRef.current?.contains(e.relatedTarget)) setOpen(false);
+  };
+
   return (
-    <div ref={wrapperRef} className={styles.wrapper}>
+    <div ref={wrapperRef} className={styles.wrapper} onBlur={handleBlur}>
       <button
+        ref={buttonRef}
         type="button"
         className={styles.badge}
         onClick={() => setOpen((prev) => !prev)}
@@ -110,9 +127,10 @@ export default function MejoresOfertasPmsBadge() {
         <div className={styles.popover} role="dialog" aria-label="Promos mejores por PM">
           <div className={styles.header}>Promos mejores por PM</div>
           <ul className={styles.rows}>
-            {data.pms.map((pm) => (
+            {data.pms.map((pm, index) => (
               <li key={pm.pm_id}>
                 <Link
+                  ref={index === 0 ? firstRowRef : undefined}
                   to={mejoresOfertasPath(pm.pm_id)}
                   className={`${styles.row} ${pm.count === 0 ? styles.rowZero : ''}`}
                   onClick={() => setOpen(false)}

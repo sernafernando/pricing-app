@@ -2,7 +2,7 @@
  * MejoresOfertasPmsBadge: whoever reviews the PMs (alertas.ver_mejores_ofertas_pms) sees
  * every PM's better offers grouped, and each PM opens that PM's filtered page.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -47,6 +47,10 @@ beforeEach(() => {
   permisos.codes = ['alertas.ver_mejores_ofertas_pms'];
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe('MejoresOfertasPmsBadge', () => {
   it('shows the total and, opened, each PM with their count linking to their filtered page', async () => {
     api.get.mockResolvedValue({ data: BODY });
@@ -65,13 +69,67 @@ describe('MejoresOfertasPmsBadge', () => {
     ]);
   });
 
-  it('closes on Escape', async () => {
+  it('opened, focuses the first PM', async () => {
     api.get.mockResolvedValue({ data: BODY });
     renderBadge();
     await userEvent.click(await screen.findByRole('button', { name: /16 en total/ }));
+    expect(screen.getByRole('link', { name: 'Carolina Lépore12' })).toHaveFocus();
+  });
+
+  it('closes on Escape and gives the focus back to its button', async () => {
+    api.get.mockResolvedValue({ data: BODY });
+    renderBadge();
+    const button = await screen.findByRole('button', { name: /16 en total/ });
+    await userEvent.click(button);
     expect(screen.getByRole('dialog', { name: 'Promos mejores por PM' })).toBeInTheDocument();
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(button).toHaveFocus();
+  });
+
+  it('Tab walks the PMs in order and leaving the last one closes the popover', async () => {
+    api.get.mockResolvedValue({ data: BODY });
+    render(
+      <MemoryRouter>
+        <MejoresOfertasPmsBadge />
+        <button type="button">next</button>
+      </MemoryRouter>,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: /16 en total/ }));
+    await userEvent.tab();
+    expect(screen.getByRole('link', { name: 'Ramiro Echeverría4' })).toHaveFocus();
+    await userEvent.tab();
+    expect(screen.getByRole('link', { name: 'Juan Pereyra0' })).toHaveFocus();
+    await userEvent.tab();
+    expect(screen.getByRole('button', { name: 'next' })).toHaveFocus();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('Shift+Tab from the first PM goes back to its button and keeps the popover open', async () => {
+    api.get.mockResolvedValue({ data: BODY });
+    renderBadge();
+    const button = await screen.findByRole('button', { name: /16 en total/ });
+    await userEvent.click(button);
+    await userEvent.tab({ shift: true });
+    expect(button).toHaveFocus();
+    expect(screen.getByRole('dialog', { name: 'Promos mejores por PM' })).toBeInTheDocument();
+  });
+
+  it('a click on its own title keeps it open', async () => {
+    api.get.mockResolvedValue({ data: BODY });
+    renderBadge();
+    await userEvent.click(await screen.findByRole('button', { name: /16 en total/ }));
+    await userEvent.click(screen.getByText('Promos mejores por PM'));
+    expect(screen.getByRole('dialog', { name: 'Promos mejores por PM' })).toBeInTheDocument();
+  });
+
+  it('logs a failed read and renders nothing', async () => {
+    const error = new Error('Network Error');
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    api.get.mockRejectedValue(error);
+    const { container } = renderBadge();
+    await waitFor(() => expect(log).toHaveBeenCalledWith('Mejores ofertas: the per-PM counts request failed', error));
+    expect(container).toBeEmptyDOMElement();
   });
 
   it('never asks without the permission, even with the screen permissions', () => {

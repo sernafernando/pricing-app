@@ -49,6 +49,8 @@
   top: calc(100% + 8px);
   right: 0;
   z-index: var(--z-popover);
+  /* As wide as the longest PM name (one line each), within the cap; the narrow wrapper never squeezes it to 240 */
+  width: max-content;
   min-width: 240px;
   max-width: min(320px, calc(100vw - 32px));
   max-height: min(420px, calc(100vh - 96px));

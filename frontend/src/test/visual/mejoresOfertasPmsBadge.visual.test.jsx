@@ -86,7 +86,15 @@ describe.each(['light', 'dark'])('MejoresOfertasPmsBadge in the TopBar (%s)', (t
     const cs = getComputedStyle(header);
     const inner = header.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
     const centerContent = [...center.children].reduce((sum, child) => sum + widthOf(child), 0);
-    expect((widthOf(left) + centerContent + widthOf(right)) * CI_FONT_MARGIN).toBeLessThanOrEqual(inner);
+    expect(header.scrollWidth).toBeLessThanOrEqual(header.clientWidth);
+    // A wider font stretches the bar's texts, not its icons, paddings or gaps: the free room must cover CI's wider
+    // font (~8%, 12% kept) on every visible text of the bar, as the phone checks of the PM badge do.
+    const texts = [...header.querySelectorAll('span, a, button, div')].filter(
+      (node) => node.offsetWidth > 0 && [...node.childNodes].some((c) => c.nodeType === Node.TEXT_NODE && c.textContent.trim()),
+    );
+    const textWidth = texts.reduce((sum, node) => sum + widthOf(node), 0);
+    const room = inner - (widthOf(left) + centerContent + widthOf(right));
+    expect(room).toBeGreaterThanOrEqual(textWidth * (CI_FONT_MARGIN - 1));
     expect(button.element().getBoundingClientRect().height).toBe(34);
 
     await userEvent.click(button);
