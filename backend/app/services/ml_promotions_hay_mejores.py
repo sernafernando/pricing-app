@@ -13,20 +13,26 @@ markups with today's sell in / sell out (``markup_sell_in_out``) when the
 status quo AND the candidate both have one, else both plain markups: always
 the same basis on both sides (``markups_comparables``). The sell in / sell out read is done once per call, or
 once per batch of items when the caller passes it (``recompute``).
+
+Only candidates applicable right now count (``candidata_aplicable_ahora``: writable type, started, not finished,
+SELLER_CAMPAIGN only as the Premium of the month). Time passing changes that with no sync event, so the worker
+handler ``ml_promotions.hay_mejores_boundaries`` re-runs the flag of the items whose candidates crossed a start or
+finish date (``items_con_candidatas_que_cruzan``).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
 from app.core.sse import sse_publish_any_process
 from app.models.ml_publications import MlItemSalePrice, MlItemSellerPromotions
+from app.services.ml_promotions_aplicable import candidata_aplicable_ahora, parse_promo_instant
 from app.services.ml_promotions_pricing import (
     MarkupsDePrecio,
     enriquecer_markup_por_promo,
@@ -205,10 +211,43 @@ def listar_mejores_candidatas(
     return mejores
 
 
-def _candidate_entries(raw: Any) -> List[Mapping[str, Any]]:
+def _candidate_entries(raw: Any, now: datetime) -> List[Mapping[str, Any]]:
+    """The candidates that can be applied at ``now``: a better promo applicable only in 10 days does not count."""
     if not isinstance(raw, list):
         return []
-    return [e for e in raw if isinstance(e, Mapping) and e.get("status") == STATUS_CANDIDATE]
+    return [
+        e
+        for e in raw
+        if isinstance(e, Mapping) and e.get("status") == STATUS_CANDIDATE and candidata_aplicable_ahora(e, now)
+    ]
+
+
+# Candidate entries with a start or finish date near a window, prefiltered by the date's day so the scan never
+# casts ML's free-form dates in SQL; ``items_con_candidatas_que_cruzan`` decides the exact instant in Python.
+_CANDIDATE_DATES_NEAR_SQL = text(
+    """
+    SELECT s.item_id, e->>'start_date', e->>'finish_date'
+    FROM ml_item_seller_promotions AS s
+    CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN jsonb_typeof(s.raw) = 'array' THEN s.raw ELSE '[]'::jsonb END
+    ) AS e
+    WHERE e->>'status' = 'candidate'
+      AND (left(e->>'start_date', 10) BETWEEN :lo AND :hi OR left(e->>'finish_date', 10) BETWEEN :lo AND :hi)
+    """
+)
+
+
+def items_con_candidatas_que_cruzan(db: Session, since: datetime, until: datetime) -> List[str]:
+    """MLAs (sorted) with a candidate whose start or finish date falls in ``(since, until]``: the items whose flag
+    time alone may have changed. Dates are read as ``candidata_aplicable_ahora`` reads them. Postgres only."""
+    lo = (since - timedelta(days=1)).date().isoformat()
+    hi = (until + timedelta(days=1)).date().isoformat()
+    found: Set[str] = set()
+    for item_id, start, finish in db.execute(_CANDIDATE_DATES_NEAR_SQL, {"lo": lo, "hi": hi}):
+        instants = (parse_promo_instant(start), parse_promo_instant(finish, end_of_day=True))
+        if any(instant is not None and since < instant <= until for instant in instants):
+            found.add(item_id)
+    return sorted(found)
 
 
 def actualizar_hay_mejores_ofertas(
@@ -217,8 +256,10 @@ def actualizar_hay_mejores_ofertas(
     *,
     raw_promotions: Any = None,
     sell_in_out_batch: Optional[SellInOutBatch] = None,
+    now: Optional[datetime] = None,
 ) -> Optional[FlagDecision]:
-    """Persist flag from sale_price vs candidates. Never raises.
+    """Persist flag from sale_price vs the candidates applicable at ``now`` (default: the current instant).
+    Never raises.
 
     Runs in a SAVEPOINT so a failure only skips the flag and never poisons the
     outer promotions-sync transaction. When the flag newly becomes true (or is
@@ -235,7 +276,7 @@ def actualizar_hay_mejores_ofertas(
             sale = db.query(MlItemSalePrice).filter(MlItemSalePrice.item_id == item_id).one_or_none()
             baseline = float(sale.amount) if sale is not None and sale.amount is not None else None
             raw = raw_promotions if raw_promotions is not None else row.raw
-            candidates = _candidate_entries(raw)
+            candidates = _candidate_entries(raw, now if now is not None else datetime.now(timezone.utc))
             if baseline is None or baseline <= 0 or not candidates:
                 decision = decidir_flag_hay_mejores(mejores=[], descartado_fingerprint=None)
             else:

@@ -89,6 +89,61 @@ class TestMejoresOfertasCount:
         count = client.get(URL, headers=reader).json()["count"]
         assert count == _linked_total(client, reader, admin_user.id) == 1
 
+    def test_the_count_still_equals_the_listing_total_with_the_applicable_now_rule(
+        self,
+        client,
+        pg,  # noqa: F811
+        reader,  # noqa: F811
+        admin_user,
+        monkeypatch,
+    ) -> None:
+        """pubml-promo-mejor S2: the flag counts only candidates applicable now; badge and listing both read it."""
+        import json
+        from datetime import datetime, timezone
+
+        from sqlalchemy.orm import sessionmaker
+
+        from app.services import ml_promotions_hay_mejores as hay_mejores
+
+        seed_rows(pg, _fill(admin_user.id, admin_user.id + 100))
+        raws = {
+            "MLA1": [{"id": "C-1", "type": "SMART", "status": "candidate", "price": 900}],
+            # Better, but applicable only in 10 days: it no longer counts (it did before the rule).
+            "MLA2": [
+                {"id": "C-2", "type": "SMART", "status": "candidate", "price": 900, "start_date": "2026-11-23T00:00:00"}
+            ],
+        }
+        with pg.begin() as conn:
+            for item_id, raw in raws.items():
+                conn.execute(
+                    text(
+                        "UPDATE ml_item_seller_promotions SET raw = CAST(:r AS jsonb), hay_mejores_ofertas = true WHERE item_id = :i"
+                    ),
+                    {"r": json.dumps(raw), "i": item_id},
+                )
+            conn.execute(
+                text(
+                    "INSERT INTO ml_item_sale_prices (item_id, amount) VALUES ('MLA1', 1000), ('MLA2', 1000) "
+                    "ON CONFLICT (item_id) DO UPDATE SET amount = EXCLUDED.amount"
+                )
+            )
+        monkeypatch.setattr(
+            hay_mejores,
+            "listar_mejores_candidatas",
+            lambda _db, _mla, candidates, _baseline, **_k: [(c["id"], float(c["price"])) for c in candidates],
+        )
+        monkeypatch.setattr(hay_mejores, "_enqueue_catalog_competition_refresh", lambda *_a, **_k: None)
+        session = sessionmaker(bind=pg)()
+        try:
+            now = datetime(2026, 11, 13, 15, tzinfo=timezone.utc)
+            for item_id in raws:
+                hay_mejores.actualizar_hay_mejores_ofertas(session, item_id, now=now)
+            session.commit()
+        finally:
+            session.close()
+        count = client.get(URL, headers=reader).json()["count"]
+        assert count == _linked_total(client, reader, admin_user.id) == 1
+
     def test_productos_ver_alone_also_reads_the_count(
         self,
         client,
