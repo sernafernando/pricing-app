@@ -145,6 +145,27 @@ class TestMejoresOfertasPorPm:
         assert response.status_code == 403
         assert PERMISO_PMS in response.json()["error"]["message"]
 
+    def test_a_role_grant_denied_by_a_user_override_gets_403(
+        self,
+        client,
+        pg,  # noqa: F811
+        db,
+        rol_ventas,
+        active_user,
+        auth_headers,
+    ) -> None:
+        from app.models.permiso import Permiso, UsuarioPermisoOverride
+
+        grant(db, rol_ventas, PERMISO_PMS, "productos.ver")
+        seed_rows(pg, lambda conn: conn.execute(text(MARCAS_PM_DDL)))  # no PM yet: an empty answer
+        assert client.get(POR_PM, headers=auth_headers).status_code == 200  # the role alone grants it
+        permiso = db.query(Permiso).filter(Permiso.codigo == PERMISO_PMS).one()
+        db.add(UsuarioPermisoOverride(usuario_id=active_user.id, permiso_id=permiso.id, concedido=False))
+        db.flush()
+        response = client.get(POR_PM, headers=auth_headers)
+        assert response.status_code == 403
+        assert PERMISO_PMS in response.json()["error"]["message"]
+
     def test_each_pm_with_their_count_most_first(
         self,
         client,
