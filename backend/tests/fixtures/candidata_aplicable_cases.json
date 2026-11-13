@@ -6,6 +6,8 @@
     {"name": "started in the past, ends in the future", "entry": {"type": "DEAL", "start_date": "2026-11-01T00:00:00", "finish_date": "2026-11-30T23:59:59"}, "applicable": true},
     {"name": "start exactly now", "entry": {"type": "DEAL", "start_date": "2026-11-13T15:00:00Z"}, "applicable": true},
     {"name": "starts in 10 days", "entry": {"type": "SMART", "start_date": "2026-11-23T00:00:00"}, "applicable": false},
+    {"name": "space-separated naive start in 10 days", "entry": {"type": "SMART", "start_date": "2026-11-23 00:00:00"}, "applicable": false},
+    {"name": "space-separated naive finish already passed", "entry": {"type": "DEAL", "finish_date": "2026-11-13 14:59:59"}, "applicable": false},
     {"name": "starts in one minute (offset)", "entry": {"type": "DEAL", "start_date": "2026-11-13T12:01:00-03:00"}, "applicable": false},
     {"name": "already expired", "entry": {"type": "DEAL", "finish_date": "2026-11-12T23:59:59"}, "applicable": false},
     {"name": "finish exactly now", "entry": {"type": "DEAL", "finish_date": "2026-11-13T15:00:00+00:00"}, "applicable": false},

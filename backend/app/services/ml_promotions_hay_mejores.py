@@ -32,7 +32,11 @@ from sqlalchemy.orm import Session
 from app.core.logging import get_logger
 from app.core.sse import sse_publish_any_process
 from app.models.ml_publications import MlItemSalePrice, MlItemSellerPromotions
-from app.services.ml_promotions_aplicable import candidata_aplicable_ahora, parse_promo_instant
+from app.services.ml_promotions_aplicable import (
+    candidata_aplicable_ahora,
+    inicios_de_mes_entre,
+    parse_promo_instant,
+)
 from app.services.ml_promotions_pricing import (
     MarkupsDePrecio,
     enriquecer_markup_por_promo,
@@ -237,9 +241,23 @@ _CANDIDATE_DATES_NEAR_SQL = text(
 )
 
 
+# Every item with a SELLER_CAMPAIGN candidate: at an Argentina month start its "Premium <mes>" rule flips.
+_SELLER_CAMPAIGN_CANDIDATES_SQL = text(
+    """
+    SELECT DISTINCT s.item_id
+    FROM ml_item_seller_promotions AS s
+    CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN jsonb_typeof(s.raw) = 'array' THEN s.raw ELSE '[]'::jsonb END
+    ) AS e
+    WHERE e->>'status' = 'candidate' AND e->>'type' = 'SELLER_CAMPAIGN'
+    """
+)
+
+
 def items_con_candidatas_que_cruzan(db: Session, since: datetime, until: datetime) -> List[str]:
-    """MLAs (sorted) with a candidate whose start or finish date falls in ``(since, until]``: the items whose flag
-    time alone may have changed. Dates are read as ``candidata_aplicable_ahora`` reads them. Postgres only."""
+    """MLAs (sorted) whose flag time alone may have changed in ``(since, until]``: a candidate's start or finish date
+    falls there, or an Argentina month starts there and the item has a SELLER_CAMPAIGN candidate (the Premium of the
+    month changes). Dates are read as ``candidata_aplicable_ahora`` reads them. Postgres only."""
     lo = (since - timedelta(days=1)).date().isoformat()
     hi = (until + timedelta(days=1)).date().isoformat()
     found: Set[str] = set()
@@ -247,6 +265,8 @@ def items_con_candidatas_que_cruzan(db: Session, since: datetime, until: datetim
         instants = (parse_promo_instant(start), parse_promo_instant(finish, end_of_day=True))
         if any(instant is not None and since < instant <= until for instant in instants):
             found.add(item_id)
+    if inicios_de_mes_entre(since, until):
+        found.update(row[0] for row in db.execute(_SELLER_CAMPAIGN_CANDIDATES_SQL))
     return sorted(found)
 
 

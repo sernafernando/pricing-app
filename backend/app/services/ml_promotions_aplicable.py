@@ -18,7 +18,7 @@ types live here and the write service re-exports them.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Mapping, Optional
+from typing import Any, List, Mapping, Optional
 from zoneinfo import ZoneInfo
 
 # NOTE: PRICE_MATCHING_MELI_ALL is intentionally EXCLUDED from this set
@@ -69,6 +69,22 @@ def parse_promo_instant(value: Any, *, end_of_day: bool = False) -> Optional[dat
 def nombre_mes_es(now: datetime) -> str:
     """Spanish name of the month of ``now`` in Argentina."""
     return _MONTHS_ES[now.astimezone(_ARGENTINA_TZ).month - 1]
+
+
+def inicios_de_mes_entre(since: datetime, until: datetime) -> List[datetime]:
+    """The starts of an Argentina month in ``(since, until]``: a SELLER_CAMPAIGN's "Premium <mes>" rule changes there
+    with no date of the promo crossing, so the time-window recompute treats them as boundaries too."""
+    found: List[datetime] = []
+    local = since.astimezone(_ARGENTINA_TZ)
+    start = local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    while True:
+        start = (
+            start.replace(year=start.year + 1, month=1) if start.month == 12 else start.replace(month=start.month + 1)
+        )
+        if start > until:
+            return found
+        if start > since:
+            found.append(start)
 
 
 def es_premium_del_mes(name: Any, now: datetime) -> bool:

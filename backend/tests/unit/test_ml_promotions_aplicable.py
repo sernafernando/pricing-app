@@ -4,12 +4,17 @@ runs (`tests/fixtures/candidata_aplicable_cases.json`, read by `pickPonerPrecios
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
-from app.services.ml_promotions_aplicable import candidata_aplicable_ahora, nombre_mes_es, parse_promo_instant
+from app.services.ml_promotions_aplicable import (
+    candidata_aplicable_ahora,
+    inicios_de_mes_entre,
+    nombre_mes_es,
+    parse_promo_instant,
+)
 
 SHARED = json.loads((Path(__file__).resolve().parents[1] / "fixtures" / "candidata_aplicable_cases.json").read_text())
 NOW = datetime.fromisoformat(SHARED["now"])
@@ -36,3 +41,21 @@ def test_the_premium_month_is_the_month_in_argentina() -> None:
 def test_the_promotion_type_key_of_the_panel_payload_is_read_too() -> None:
     assert candidata_aplicable_ahora({"promotion_type": "SMART"}, NOW) is True
     assert candidata_aplicable_ahora({"promotion_type": "DOD"}, NOW) is False
+
+
+def test_the_argentina_month_starts_inside_a_window_are_boundaries() -> None:
+    # Dec 1st 00:00 in Argentina is 03:00 UTC.
+    start = datetime(2026, 12, 1, 3, tzinfo=timezone.utc)
+    assert inicios_de_mes_entre(start - timedelta(minutes=5), start) == [start]
+    assert inicios_de_mes_entre(start, start + timedelta(minutes=5)) == []  # `since` itself was the last window
+    assert (
+        inicios_de_mes_entre(datetime(2026, 11, 13, tzinfo=timezone.utc), datetime(2026, 11, 14, tzinfo=timezone.utc))
+        == []
+    )
+    # A worker down for months still sees every month start it missed.
+    assert (
+        len(
+            inicios_de_mes_entre(datetime(2026, 11, 13, tzinfo=timezone.utc), datetime(2027, 2, 2, tzinfo=timezone.utc))
+        )
+        == 3
+    )

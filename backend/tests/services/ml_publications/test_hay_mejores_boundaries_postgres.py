@@ -191,6 +191,33 @@ class TestBoundariesHandler:
         assert second.detail == {"recomputed": 2, "changed": 2, "catchup": True}
         assert [_flag(db, i) for i in ("MLA1", "MLA2", "MLA3")] == [False, False, False]
 
+    def test_the_premium_of_the_new_month_sets_the_flag_when_the_month_starts_in_argentina(self, db) -> None:
+        """Verifier B1: ML's naive dates read as UTC cross 3 h before the Argentina month starts; at that crossing
+        the campaign is still "next month's Premium". The month start itself must re-run the flag."""
+        _add(
+            db,
+            "MLA1",
+            [
+                {
+                    "id": "C-DIC",
+                    "type": "SELLER_CAMPAIGN",
+                    "name": "PREMIUM DICIEMBRE",
+                    "start_date": "2026-12-01T00:00:00",
+                }
+            ],
+        )
+        _add(db, "MLA2", [{"id": "C-NOV", "type": "SELLER_CAMPAIGN", "name": "PREMIUM NOVIEMBRE"}])
+        clock = _Clock(datetime(2026, 11, 30, 20, tzinfo=timezone.utc))
+        hay_mejores.actualizar_hay_mejores_ofertas(db, "MLA2", now=clock.now)
+        db.commit()
+        _handler(clock).run(_ctx(clock))  # catch-up: MLA2 flagged under November's rule
+        assert (_flag(db, "MLA1"), _flag(db, "MLA2")) == (False, True)
+        # Every 5 minutes until Dec 1st 00:05 in Argentina (03:05 UTC).
+        while clock.now < datetime(2026, 12, 1, 3, 5, tzinfo=timezone.utc):
+            clock.now += timedelta(minutes=5)
+            assert _handler(clock).run(_ctx(clock)).success
+        assert (_flag(db, "MLA1"), _flag(db, "MLA2")) == (True, False)
+
     def test_a_failure_is_reported_not_raised(self, db, monkeypatch) -> None:
         def boom(*_a, **_k):
             raise RuntimeError("db down")
@@ -210,6 +237,15 @@ class TestCrossingSelection:
         _add(db, "MLA4", [{"id": "d", "type": "SMART", "start_date": _iso(T0 + timedelta(minutes=6))}])
         _add(db, "MLA5", [{"id": "e", "type": "SMART", "start_date": "not a date"}])
         assert hay_mejores.items_con_candidatas_que_cruzan(db, since, until) == ["MLA1", "MLA2"]
+
+    def test_a_month_start_selects_every_item_with_a_seller_campaign_candidate(self, db) -> None:
+        _add(db, "MLA1", [{"id": "a", "type": "SELLER_CAMPAIGN", "name": "PREMIUM DICIEMBRE"}])
+        _add(db, "MLA2", [{"id": "b", "type": "SMART"}])
+        month_start = datetime(2026, 12, 1, 3, tzinfo=timezone.utc)
+        assert hay_mejores.items_con_candidatas_que_cruzan(db, month_start - timedelta(minutes=5), month_start) == [
+            "MLA1"
+        ]
+        assert hay_mejores.items_con_candidatas_que_cruzan(db, month_start, month_start + timedelta(minutes=5)) == []
 
     def test_a_date_only_finish_crosses_at_the_end_of_its_day(self, db) -> None:
         _add(db, "MLA1", [{"id": "a", "type": "DEAL", "finish_date": "2026-11-13"}])

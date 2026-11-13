@@ -135,8 +135,10 @@ class HayMejoresBoundariesHandler:
             state = _read_state(db)
             catchup = state.get("rules_version") != RULES_VERSION or _parse(state.get("checked_until")) is None
             if catchup:
-                started = _parse(state.get("catchup_started_at")) or now
-                ids = _catchup_ids(db, state.get("cursor"))
+                started = _parse(state.get("catchup_started_at"))
+                # A cursor belongs to the catch-up only when one is under way (never to an unfinished window).
+                ids = _catchup_ids(db, state.get("cursor") if started is not None else None)
+                started = started or now
                 window: Dict[str, Any] = {"catchup_started_at": started.isoformat()}
             else:
                 since = _parse(state["checked_until"])

@@ -96,7 +96,8 @@ export function isPremiumCurrentMonth(promo, monthName) {
  */
 export function parsePromoInstant(value, { endOfDay = false } = {}) {
   if (!value || typeof value !== 'string') return null;
-  const text = value.trim();
+  // A space between date and time is valid ISO for the backend's `fromisoformat` too.
+  const text = value.trim().replace(/^(\d{4}-\d{2}-\d{2}) (?=\d{2}:)/, '$1T');
   const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(text);
   if (!dateOnly && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(text)) return null;
   const hasZone = /(Z|[+-]\d{2}:?\d{2})$/.test(text);
