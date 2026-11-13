@@ -47,6 +47,26 @@
   transform: translateY(-1px);
 }
 
+/* `compact`: the size of a `FacetChips` chip, so the four sit among chips without standing out. */
+.compact {
+  height: 28px;
+  padding: 0 10px;
+  font-size: var(--font-xs);
+  border-radius: var(--radius-md);
+  color: var(--cf-text-primary);
+  background: var(--tone-neutral-bg);
+  border-color: var(--tone-neutral-border);
+}
+
+.compact:hover {
+  transform: none;
+}
+
+.compact:not(.filterButtonActive):hover {
+  border-color: var(--cf-border-strong);
+  background: var(--tone-neutral-bg);
+}
+
 .filterButtonActive {
   background: var(--brand-primary);
   border-color: var(--brand-primary);

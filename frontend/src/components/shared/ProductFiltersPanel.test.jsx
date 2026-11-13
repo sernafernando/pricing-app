@@ -344,4 +344,16 @@ describe('ProductFiltersPanel like Productos', () => {
     await userEvent.click(screen.getByRole('button', { name: 'PM' }));
     expect(screen.getByText('Ana')).toBeInTheDocument();
   });
+
+  it('compact adds the chip size to every button and leaves the default as it was', () => {
+    const { unmount } = render(panel());
+    const plain = screen.getByRole('button', { name: 'Marca' }).className;
+    unmount();
+    render(panel({ compact: true }));
+    for (const name of ['Marca', 'Categoría', 'Subcategoría', 'PM']) {
+      const button = screen.getByRole('button', { name });
+      expect(button.className, name).toContain(plain.trim());
+      expect(button.className.trim(), name).not.toBe(plain.trim());
+    }
+  });
 });

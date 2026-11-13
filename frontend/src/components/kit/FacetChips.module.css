@@ -36,6 +36,27 @@
   color: var(--cf-text-tertiary);
 }
 
+/* `tones`: the state's dot, in its tone's ink. */
+.dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--tone-neutral-fg);
+}
+
+.dot[data-tone='success'] {
+  background: var(--tone-success-fg);
+}
+
+.dot[data-tone='warning'] {
+  background: var(--tone-warning-fg);
+}
+
+.dot[data-tone='danger'] {
+  background: var(--tone-danger-fg);
+}
+
 /* Active = filled primary, like the design's "Todas (1.284)". */
 .chipActive {
   /* The card colour on the headline blue: white on blue in light mode,

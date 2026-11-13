@@ -15,9 +15,10 @@ const INT_FORMAT = new Intl.NumberFormat('es-AR');
  * filled with the primary colour. The " · " between them is kept in the
  * DOM (visually hidden) so the accessible name still reads "Pagada · 3".
  */
-function ChipContent({ label, count }) {
+function ChipContent({ label, count, tone }) {
   return (
     <>
+      {tone && <span className={styles.dot} data-tone={tone} aria-hidden="true" />}
       {/* The spaces are separate text nodes on purpose: the accessible name
           keeps them ("Pagada · 3"), the flex layout drops them. */}
       <span>{label}</span> <span className={styles.srOnly}>·</span>{' '}
@@ -30,6 +31,7 @@ function ChipContent({ label, count }) {
  * `hints` (optional, per option value): a tooltip for that chip, e.g. why it can read 0 and still select rows.
  * `allLabel` (optional): the name of the chip that clears the axis, "Todas" unless the axis is masculine ("Todos").
  * `allLast` (optional): put that chip after the options instead of before them.
+ * `tones` (optional, per option value): a small dot before the label, `success`, `warning`, `neutral` or `danger`.
  */
 export default function FacetChips({
   label,
@@ -42,6 +44,7 @@ export default function FacetChips({
   onChange,
   allLabel = 'Todas',
   allLast = false,
+  tones,
 }) {
   const allChip = (
     <button
@@ -65,7 +68,7 @@ export default function FacetChips({
           title={hints?.[value]}
           onClick={() => onChange(activeValue === value ? '' : value)}
         >
-          <ChipContent label={labels[value] ?? value} count={counts?.[value]} />
+          <ChipContent label={labels[value] ?? value} count={counts?.[value]} tone={tones?.[value]} />
         </button>
       ))}
       {allLast && allChip}

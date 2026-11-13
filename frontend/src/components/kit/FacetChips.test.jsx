@@ -125,4 +125,24 @@ describe('FacetChips', () => {
     // total is whatever the backend sent, not sum(counts) (=9)
     expect(screen.getByRole('button', { name: /Todas · 999/ })).toBeInTheDocument();
   });
+
+  it('puts a toned dot before the label of the options that have a tone, and the name stays the same', () => {
+    render(
+      <FacetChips
+        label="Estado"
+        options={OPTIONS}
+        labels={LABELS}
+        counts={counts}
+        total={4}
+        activeValue=""
+        onChange={() => {}}
+        tones={{ paid: 'success' }}
+      />
+    );
+    const paid = screen.getByRole('button', { name: /Pagada · 3/ });
+    expect(paid.querySelector('[data-tone]')).toHaveAttribute('data-tone', 'success');
+    expect(paid.querySelector('[data-tone]')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByRole('button', { name: /Cancelada · 1/ }).querySelector('[data-tone]')).toBeNull();
+    expect(screen.getByRole('button', { name: /Todas · 4/ }).querySelector('[data-tone]')).toBeNull();
+  });
 });

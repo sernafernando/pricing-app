@@ -19,9 +19,17 @@ import styles from './ColumnPicker.module.css';
  * they hold) and a copy of it here would just rot.
  *
  * `label`, `icon` and `groupLabel` let the same picker list other things a page shows or hides (the KPI
- * cards' "Indicadores"); each instance gets its own popover id, so two can sit side by side.
+ * cards' "Indicadores"); each instance gets its own popover id, so two can sit side by side. `iconOnly` shows just
+ * the icon, the label then naming the button and its tooltip; `buttonClassName` replaces the trigger's look.
  */
-export default function ColumnPicker({ table, label = 'Columnas', icon = Columns3, groupLabel = 'Elegir columnas visibles' }) {
+export default function ColumnPicker({
+  table,
+  label = 'Columnas',
+  icon = Columns3,
+  groupLabel = 'Elegir columnas visibles',
+  iconOnly = false,
+  buttonClassName = 'btn-tesla outline sm',
+}) {
   const Icon = icon;
   const popoverId = useId();
   const [open, setOpen] = useState(false);
@@ -64,13 +72,15 @@ export default function ColumnPicker({ table, label = 'Columnas', icon = Columns
       <button
         type="button"
         ref={triggerRef}
-        className="btn-tesla outline sm"
+        className={iconOnly ? `${buttonClassName} icon-only` : buttonClassName}
+        aria-label={iconOnly ? label : undefined}
+        title={iconOnly ? label : undefined}
         aria-expanded={open}
         aria-controls={popoverId}
         onClick={() => setOpen((prev) => !prev)}
       >
         <Icon size={14} />
-        {label}
+        {!iconOnly && label}
       </button>
       {/* `role="group"`, NOT `role="menu"`: a `menu` expects
           `menuitemcheckbox` children with full arrow-key navigation, and these
