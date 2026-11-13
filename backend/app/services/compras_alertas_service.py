@@ -36,6 +36,10 @@ SNOOZE_WINDOW: Final[timedelta] = timedelta(hours=1)
 # disparada, no Notificacion / auto-vínculo). Prevents a first worker run (or a
 # long outage) from fan-out-notifying the whole historical cargada backlog.
 MAX_FACTURA_ALERT_LAG: Final[timedelta] = timedelta(hours=1)
+# Space auto-vínculo retries so a wrong numero does not hammer GBP every minute.
+AUTO_VINCULO_RETRY_INTERVAL: Final[timedelta] = timedelta(hours=6)
+# Stop retrying after this age (badge/filter still show; admin links manually).
+AUTO_VINCULO_RETRY_MAX_AGE: Final[timedelta] = timedelta(days=7)
 PERMISO_VER_ALERTAS_FACTURA: Final[str] = "administracion.ver_alertas_factura"
 PERMISO_DEPOSITO_RECEPCION: Final[str] = "deposito.recibir_mercaderia"
 # Belt-and-suspenders: Gabriel DeMarco always receives factura_cargada (brief).
@@ -140,17 +144,31 @@ def notificar_factura_cargada(
     return creadas
 
 
-def _docs_auto_vinculo_pendientes(session: Session, *, limit: int = 50) -> list[PedidoFacturaDocumento]:
-    """Cargada docs whose auto-link already failed (retry after mirror sync)."""
+def _docs_auto_vinculo_pendientes(
+    session: Session,
+    *,
+    ahora: datetime,
+    limit: int = 50,
+) -> list[PedidoFacturaDocumento]:
+    """Cargada docs whose auto-link failed — retry with backoff, drop after max age."""
+    from sqlalchemy import or_  # noqa: PLC0415
+
     from app.services.erp_matching_service import AUTO_VINCULO_PENDIENTES  # noqa: PLC0415
 
+    retry_due_before = ahora - AUTO_VINCULO_RETRY_INTERVAL
+    abandon_before = ahora - AUTO_VINCULO_RETRY_MAX_AGE
     return (
         session.query(PedidoFacturaDocumento)
         .options(joinedload(PedidoFacturaDocumento.pedido).joinedload(PedidoCompra.proveedor))
         .filter(
             PedidoFacturaDocumento.cargada.is_(True),
             PedidoFacturaDocumento.alerta_disparada_at.isnot(None),
+            PedidoFacturaDocumento.alerta_disparada_at >= abandon_before,
             PedidoFacturaDocumento.auto_vinculo_estado.in_(sorted(AUTO_VINCULO_PENDIENTES)),
+            or_(
+                PedidoFacturaDocumento.auto_vinculo_intentado_at.is_(None),
+                PedidoFacturaDocumento.auto_vinculo_intentado_at <= retry_due_before,
+            ),
         )
         .order_by(PedidoFacturaDocumento.auto_vinculo_intentado_at.asc().nullsfirst())
         .limit(limit)
@@ -200,10 +218,11 @@ def disparar_alertas_factura_pendientes(session: Session, *, ahora: datetime | N
         )
         .all()
     )
-    retries = _docs_auto_vinculo_pendientes(session)
-    if rows or retries:
+    # Sync GBP only for fresh due alerts — not when the sweep is retries-only
+    # (wrong numero / permanent sin_match must not hammer the parser every minute).
+    if rows:
         _sync_espejo_antes_autolink(session)
-        # Identity map expired after commit — reload work sets.
+        # Identity map expired after commit — reload due set.
         rows = (
             session.query(PedidoFacturaDocumento)
             .options(joinedload(PedidoFacturaDocumento.pedido).joinedload(PedidoCompra.proveedor))
@@ -215,7 +234,7 @@ def disparar_alertas_factura_pendientes(session: Session, *, ahora: datetime | N
             )
             .all()
         )
-        retries = _docs_auto_vinculo_pendientes(session)
+    retries = _docs_auto_vinculo_pendientes(session, ahora=stamp)
 
     from app.services import erp_matching_service  # noqa: PLC0415
 

@@ -10,7 +10,7 @@ transaction across the fetch (release with `session.commit()` first).
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 from uuid import UUID
 
@@ -32,10 +32,13 @@ logger = get_logger(__name__)
 
 DEFAULT_DAYS: Final[int] = 2
 DEFAULT_TIMEOUT_S: Final[float] = 20.0
+# Cap payload size — scriptCommercial has no supplier filter; keep worker bounded.
+MAX_FETCH_ROWS: Final[int] = 5000
 
 
 def _fetch_window(*, days: int, timeout_s: float) -> list[dict[str, Any]]:
-    hoy = datetime.now().date()
+    # Explicit UTC calendar day so the window does not depend on server local TZ.
+    hoy = datetime.now(UTC).date()
     fecha_hasta = datetime.combine(hoy, datetime.max.time()).replace(microsecond=0)
     fecha_desde = datetime.combine(hoy - timedelta(days=days), datetime.min.time())
     params = {
@@ -43,7 +46,8 @@ def _fetch_window(*, days: int, timeout_s: float) -> list[dict[str, Any]]:
         "fromDate": fecha_desde.strftime("%Y-%m-%d %H:%M:%S"),
         "toDate": fecha_hasta.strftime("%Y-%m-%d %H:%M:%S"),
     }
-    with httpx.Client(timeout=timeout_s) as client:
+    # Timeout applies to the whole client lifetime (connect + read) for this call.
+    with httpx.Client(timeout=httpx.Timeout(timeout_s)) as client:
         response = client.get(settings.GBP_PARSER_URL, params=params)
         response.raise_for_status()
         data = response.json()
@@ -51,6 +55,13 @@ def _fetch_window(*, days: int, timeout_s: float) -> list[dict[str, Any]]:
         return []
     if len(data) == 1 and "Column1" in data[0]:
         return []
+    if len(data) > MAX_FETCH_ROWS:
+        logger.warning(
+            "ct_mirror_sync: truncating GBP payload %s → %s rows",
+            len(data),
+            MAX_FETCH_ROWS,
+        )
+        return data[:MAX_FETCH_ROWS]
     return data
 
 

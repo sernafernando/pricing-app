@@ -450,7 +450,58 @@ def asignar_factura_erp(session: Session, pedido: PedidoCompra, ct_transaction: 
         )
         session.flush()
     _sync_header_factura_cache(session, pedido)
+    _resolver_auto_vinculo_tras_asignar(session, pedido, ct)
     _aplicar_sell_in_por_ct(session, ct)
+
+
+def _resolver_auto_vinculo_tras_asignar(session: Session, pedido: PedidoCompra, ct_transaction: int) -> None:
+    """Clear pending auto-vínculo badges when Administración links the CT by hand."""
+    from datetime import UTC, datetime as dt  # noqa: PLC0415
+
+    from app.models.pedido_factura_documento import PedidoFacturaDocumento  # noqa: PLC0415
+
+    docnumber = session.execute(
+        text(
+            """
+            SELECT ct_docnumber
+            FROM v_facturas_compra_vigentes
+            WHERE ct_transaction = :ct
+            LIMIT 1
+            """
+        ),
+        {"ct": int(ct_transaction)},
+    ).scalar()
+    if not docnumber:
+        docnumber = session.execute(
+            text(
+                """
+                SELECT ct_docnumber
+                FROM tb_commercial_transactions
+                WHERE ct_transaction = :ct
+                LIMIT 1
+                """
+            ),
+            {"ct": int(ct_transaction)},
+        ).scalar()
+    numero = str(docnumber or "").strip()
+    if not numero or pedido.id is None:
+        return
+    stamp = dt.now(UTC)
+    pendientes = (
+        session.query(PedidoFacturaDocumento)
+        .filter(
+            PedidoFacturaDocumento.pedido_id == pedido.id,
+            PedidoFacturaDocumento.cargada.is_(True),
+            PedidoFacturaDocumento.numero == numero,
+            PedidoFacturaDocumento.auto_vinculo_estado.in_(sorted(AUTO_VINCULO_PENDIENTES)),
+        )
+        .all()
+    )
+    for doc in pendientes:
+        doc.auto_vinculo_estado = AUTO_VINCULO_OK
+        doc.auto_vinculo_intentado_at = stamp
+    if pendientes:
+        session.flush()
 
 
 def quitar_factura_erp(session: Session, pedido: PedidoCompra, ct_transaction: int) -> None:

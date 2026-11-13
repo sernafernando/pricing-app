@@ -47,3 +47,31 @@ def test_upsert_skips_rows_without_guid(db):
         == []
     )
     assert db.query(CommercialTransaction).count() == 0
+
+
+def test_fetch_window_truncates_over_max_rows(monkeypatch):
+    oversized = [{"ct_transaction": i, "ct_guid": str(i)} for i in range(5001)]
+
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return oversized
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, *a, **k):
+            return _Resp()
+
+    monkeypatch.setattr(ct_mirror_sync_service.httpx, "Client", _Client)
+    rows = ct_mirror_sync_service._fetch_window(days=2, timeout_s=1.0)
+    assert len(rows) == ct_mirror_sync_service.MAX_FETCH_ROWS
