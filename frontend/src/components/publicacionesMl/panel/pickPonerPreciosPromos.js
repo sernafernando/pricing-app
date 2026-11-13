@@ -80,13 +80,51 @@ function baselinePromo(promotions, baselinePrice) {
   return started.reduce((best, promo) => (promo.nuestro_markup > best.nuestro_markup ? promo : best));
 }
 
+// The month of a "Premium <mes>" campaign is Argentina's, whatever the browser's time zone (backend `nombre_mes_es`).
+const ARGENTINA_MONTH = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Argentina/Buenos_Aires', month: 'numeric' });
+
 export function currentMonthNameEs(now = new Date()) {
-  return MONTHS_ES[now.getMonth()];
+  return MONTHS_ES[Number(ARGENTINA_MONTH.format(now)) - 1];
 }
 
 export function isPremiumCurrentMonth(promo, monthName) {
   const name = (resolvePromoName(promo) || '').toLowerCase();
   return name.includes('premium') && name.includes(String(monthName).toLowerCase());
+}
+
+/**
+ * An ML promotion date as epoch ms, or null when missing or unparseable. Naive values are UTC (as the backend reads
+ * them: `new Date()` would read them as local time); a date-only value starts its day, or with `endOfDay` the next one.
+ * Keep in sync with backend `parse_promo_instant` (ml_promotions_aplicable.py).
+ */
+export function parsePromoInstant(value, { endOfDay = false } = {}) {
+  if (!value || typeof value !== 'string') return null;
+  // A space between date and time is valid ISO for the backend's `fromisoformat` too.
+  const text = value.trim().replace(/^(\d{4}-\d{2}-\d{2}) (?=\d{2}:)/, '$1T');
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(text);
+  if (!dateOnly && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(text)) return null;
+  const hasZone = /(Z|[+-]\d{2}:?\d{2})$/.test(text);
+  const ms = Date.parse(dateOnly ? `${text}T00:00:00Z` : hasZone ? text : `${text}Z`);
+  if (!Number.isFinite(ms)) return null;
+  return dateOnly && endOfDay ? ms + 24 * 60 * 60 * 1000 : ms;
+}
+
+/**
+ * Whether a candidate can be applied at `now` (owner: "no me sirve una promo mejor que voy a poder aplicar recién en
+ * 10 días"): writable type, started (or no start), not finished (or no finish), SELLER_CAMPAIGN only as the Premium of
+ * the month. Keep in sync with backend `candidata_aplicable_ahora` (ml_promotions_aplicable.py); both run the shared
+ * cases in `backend/tests/fixtures/candidata_aplicable_cases.json`.
+ */
+export function isApplicableNow(promo, { now = new Date(), monthName = currentMonthNameEs(now) } = {}) {
+  const type = promo?.promotion_type;
+  if (!APPLICABLE_PROMOTION_TYPES.has(type)) return false;
+  const at = now.getTime();
+  const start = parsePromoInstant(promo.start_date);
+  if (start != null && start > at) return false;
+  const finish = parsePromoInstant(promo.finish_date, { endOfDay: true });
+  if (finish != null && finish <= at) return false;
+  if (type === 'SELLER_CAMPAIGN' && !isPremiumCurrentMonth(promo, monthName)) return false;
+  return true;
 }
 
 const finiteOrNull = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
@@ -174,16 +212,19 @@ export function pickPonerPreciosPromos(promotions, { monthName = currentMonthNam
 }
 
 /**
- * Best enrollable slot per type among candidates that beat the MeLi status quo. The status quo's plain markup is
+ * Best enrollable slot per type among the candidates applicable now that beat the MeLi status quo. The status quo's plain markup is
  * `baselineMarkup` and its markup with sell in / sell out `baselineSellInOut`; each candidate is compared on the
  * basis `comparableMarkups` picks.
  */
 export function pickMejoresCandidatas(
   promotions,
-  { baselinePrice, baselineMarkup, baselineSellInOut = null, monthName = currentMonthNameEs() } = {},
+  { baselinePrice, baselineMarkup, baselineSellInOut = null, now = new Date(), monthName = currentMonthNameEs(now) } = {},
 ) {
   const baseline = { nuestro_markup: baselineMarkup, markup_sell_in_out: baselineSellInOut };
-  const candidates = (promotions || []).filter((promo) => promo?.status === 'candidate');
+  // Only candidates applicable now, as the backend flag counts them (`candidata_aplicable_ahora`).
+  const candidates = (promotions || []).filter(
+    (promo) => promo?.status === 'candidate' && isApplicableNow(promo, { now, monthName }),
+  );
   const better = candidates.filter((promo) => {
     const [candidateMarkup, statusQuoMarkup] = comparableMarkups(promo, baseline);
     return esMejorOferta(promoDisplayPrice(promo), candidateMarkup, baselinePrice, statusQuoMarkup);

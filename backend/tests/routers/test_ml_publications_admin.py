@@ -138,6 +138,8 @@ class TestContract:
         # `ml_publications.freshness` measures every minute with no flag and makes no ML call: nothing to request.
         # `ml_publications.catalog_competition_refresh` drains hay_mejores queue behind
         # `catalog_competition_refresh.enabled`: nothing to request.
+        # `ml_promotions.hay_mejores_boundaries` re-runs the hay_mejores flag every 5 min from the stored mirror,
+        # with no flag and no ML call (pubml-promo-mejor S3): nothing to request.
         # `gestion_full.inbound` / `gestion_full.reconcile`: nothing to request via admin.
         # `publicacion_repair.*` run on kill-switch / write flags; nothing to request from admin.
         env_gated = {
@@ -148,6 +150,7 @@ class TestContract:
             "promo_write.refresh",
             "ml_publications.freshness",
             "ml_publications.catalog_competition_refresh",
+            "ml_promotions.hay_mejores_boundaries",
             "ml_publications.core_first",
             "gestion_full.inbound",
             "gestion_full.reconcile",

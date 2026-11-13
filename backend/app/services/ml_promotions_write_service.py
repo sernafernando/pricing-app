@@ -59,6 +59,7 @@ from app.core.database import get_background_db
 from app.models.ml_write_log import ACTION_ENROLL, ACTION_REMOVE, RESOURCE_PROMOTION, MlWriteLog
 from app.models.promo_refresh_pending import PromoRefreshPending
 from app.models.publicacion_ml import PublicacionML
+from app.services.ml_promotions_aplicable import WRITABLE_PROMOTION_TYPES
 from app.services.ml_promotions_pricing import precio_de_oferta
 from app.services.ml_promotions_service import fetch_item_promotions
 from app.services.ml_publications import queue as ml_pub_queue
@@ -89,12 +90,8 @@ REFRESH_RETRY_DELAY_SECONDS = 60
 DIVERGENCE_CAPTURE_TIMEOUT_S = 5.0
 DIVERGENCE_CAPTURE_GRACE_S = 1.0
 
-# NOTE: PRICE_MATCHING_MELI_ALL is intentionally EXCLUDED from this set
-# (ML-autogestionado, not writable by us). Its absence here is what enforces
-# the deny (enroll/remove both fail-close on `not in WRITABLE_PROMOTION_TYPES`)
-# — never add it, and never use startswith/prefix matching against
-# "PRICE_MATCHING" that could accidentally admit it.
-WRITABLE_PROMOTION_TYPES = {"SELLER_CAMPAIGN", "DEAL", "SMART", "PRE_NEGOTIATED", "PRICE_MATCHING", "LIGHTNING"}
+# `WRITABLE_PROMOTION_TYPES` (imported above) lives in `ml_promotions_aplicable`, the leaf module the hay_mejores
+# flag also reads: PRICE_MATCHING_MELI_ALL stays EXCLUDED there (ML-autogestionado, not writable by us).
 
 # Ofertas relámpago (ML docs, es_ar/ofertas-relampago): the enroll body is
 # `{deal_price, stock, promotion_type}` (no promotion_id), the price must be in
@@ -108,7 +105,7 @@ LIGHTNING = "LIGHTNING"
 # and remove re-reads live for the current offer_id. Also share SMART's
 # slower eventual-consistency window for reconciliation purposes.
 # NOTE: PRICE_MATCHING_MELI_ALL is intentionally EXCLUDED here too (see
-# WRITABLE_PROMOTION_TYPES comment above) — exact set membership only.
+# WRITABLE_PROMOTION_TYPES in ml_promotions_aplicable) — exact set membership only.
 SMART_LIKE_PROMOTION_TYPES = {"SMART", "PRE_NEGOTIATED", "PRICE_MATCHING"}
 
 # Incident 2026-10-05 (MLA2385168136): for the SMART-like types ML SETS the

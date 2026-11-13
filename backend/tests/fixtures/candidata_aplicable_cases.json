@@ -1,0 +1,25 @@
+{
+  "_doc": "Shared cases of the applicable-now rule: backend `candidata_aplicable_ahora` (ml_promotions_aplicable.py) and frontend `isApplicableNow` (pickPonerPreciosPromos.js) both run them, each at the case's `now` when it has one, else the top-level `now`. Naive dates are UTC; a date-only finish ends at the end of that day; the Premium month is Argentina's.",
+  "now": "2026-11-13T15:00:00+00:00",
+  "cases": [
+    {"name": "writable, no dates", "entry": {"type": "SMART"}, "applicable": true},
+    {"name": "started in the past, ends in the future", "entry": {"type": "DEAL", "start_date": "2026-11-01T00:00:00", "finish_date": "2026-11-30T23:59:59"}, "applicable": true},
+    {"name": "start exactly now", "entry": {"type": "DEAL", "start_date": "2026-11-13T15:00:00Z"}, "applicable": true},
+    {"name": "starts in 10 days", "entry": {"type": "SMART", "start_date": "2026-11-23T00:00:00"}, "applicable": false},
+    {"name": "space-separated naive start in 10 days", "entry": {"type": "SMART", "start_date": "2026-11-23 00:00:00"}, "applicable": false},
+    {"name": "space-separated naive finish already passed", "entry": {"type": "DEAL", "finish_date": "2026-11-13 14:59:59"}, "applicable": false},
+    {"name": "starts in one minute (offset)", "entry": {"type": "DEAL", "start_date": "2026-11-13T12:01:00-03:00"}, "applicable": false},
+    {"name": "already expired", "entry": {"type": "DEAL", "finish_date": "2026-11-12T23:59:59"}, "applicable": false},
+    {"name": "finish exactly now", "entry": {"type": "DEAL", "finish_date": "2026-11-13T15:00:00+00:00"}, "applicable": false},
+    {"name": "date-only finish today lasts the whole day", "entry": {"type": "DEAL", "finish_date": "2026-11-13"}, "applicable": true},
+    {"name": "unparseable dates count as absent", "entry": {"type": "SMART", "start_date": "soon", "finish_date": ""}, "applicable": true},
+    {"name": "non-writable type", "entry": {"type": "DOD"}, "applicable": false},
+    {"name": "ML-managed price matching", "entry": {"type": "PRICE_MATCHING_MELI_ALL"}, "applicable": false},
+    {"name": "seller campaign Premium of the month", "entry": {"type": "SELLER_CAMPAIGN", "name": "PREMIUM NOVIEMBRE"}, "applicable": true},
+    {"name": "seller campaign Premium of another month", "entry": {"type": "SELLER_CAMPAIGN", "name": "PREMIUM OCTUBRE"}, "applicable": false},
+    {"name": "seller campaign not Premium", "entry": {"type": "SELLER_CAMPAIGN", "name": "PVP LYONN noviembre"}, "applicable": false},
+    {"name": "seller campaign without a name", "entry": {"type": "SELLER_CAMPAIGN"}, "applicable": false},
+    {"name": "UTC in December but Nov 30 22:30 in Argentina: November's Premium counts", "now": "2026-12-01T01:30:00Z", "entry": {"type": "SELLER_CAMPAIGN", "name": "PREMIUM NOVIEMBRE"}, "applicable": true},
+    {"name": "UTC in December but Nov 30 22:30 in Argentina: December's Premium does not count yet", "now": "2026-12-01T01:30:00Z", "entry": {"type": "SELLER_CAMPAIGN", "name": "PREMIUM DICIEMBRE"}, "applicable": false}
+  ]
+}

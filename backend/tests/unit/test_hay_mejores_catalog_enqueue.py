@@ -39,7 +39,7 @@ def _run_actualizar(monkeypatch, *, prev_flag: bool, prev_fp: str | None, decisi
     monkeypatch.setattr(
         hay_mejores,
         "_candidate_entries",
-        lambda raw: [{"id": "C-1", "status": "candidate"}],
+        lambda raw, now: [{"id": "C-1", "status": "candidate"}],
     )
     monkeypatch.setattr(
         hay_mejores,
@@ -47,7 +47,9 @@ def _run_actualizar(monkeypatch, *, prev_flag: bool, prev_fp: str | None, decisi
         lambda _db, item_id: enqueued.append(item_id),
     )
 
-    result = hay_mejores.actualizar_hay_mejores_ofertas(db, "MLA1", raw_promotions=[{"id": "C-1", "status": "candidate"}])
+    result = hay_mejores.actualizar_hay_mejores_ofertas(
+        db, "MLA1", raw_promotions=[{"id": "C-1", "status": "candidate"}]
+    )
     assert result == decision
     assert row.hay_mejores_ofertas is decision.hay_mejores
     return enqueued

@@ -627,10 +627,16 @@ class TestItsOwnThread:
     def test_only_refresh_order_discounts_and_core_first_run_in_their_own_thread(self) -> None:
         from app.workers.registry import ML_PUBLICATIONS_REGISTRY
 
-        # Exactly these three (ml-ads-cupones-display T3a added the paced `ml_orders.discounts`, ml-freshness S1c
-        # the 5 s `ml_publications.core_first`); any other ML handler in its own thread is a regression.
+        # Exactly these four (ml-ads-cupones-display T3a added the paced `ml_orders.discounts`, ml-freshness S1c
+        # the 5 s `ml_publications.core_first`, pubml-promo-mejor the up-to-120 s `ml_promotions.hay_mejores_boundaries`
+        # so its catch-up never delays the drain pass); any other ML handler in its own thread is a regression.
         own = [h.name for h in ML_PUBLICATIONS_REGISTRY if getattr(h, "own_thread", False)]
-        assert own == [HANDLER_NAME, "ml_orders.discounts", "ml_publications.core_first"]
+        assert own == [
+            HANDLER_NAME,
+            "ml_orders.discounts",
+            "ml_promotions.hay_mejores_boundaries",
+            "ml_publications.core_first",
+        ]
 
     def test_its_deadline_is_half_the_lease_so_no_claim_outlives_it(self, monkeypatch) -> None:
         monkeypatch.setattr(settings, "ML_PUB_LEASE_SECONDS", 300)

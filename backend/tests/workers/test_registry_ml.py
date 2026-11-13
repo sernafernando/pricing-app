@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import time, timedelta
 
 from app.workers import registry
-from app.workers.handlers import ml_ads, ml_billing, ml_order_discounts, ml_publications
+from app.workers.handlers import ml_ads, ml_billing, ml_hay_mejores, ml_order_discounts, ml_publications
 from app.workers.handlers.combos_sync import sync as combos_sync
 from app.workers.handlers.compras_factura_cargada import factura_cargada_alerts
 from app.workers.handlers.ml_orders_quarantine import quarantine_retry
@@ -72,6 +72,7 @@ class TestMlPublicationsRegistry:
             "gestion_full.inbound",
             "gestion_full.reconcile",
             "ml_publications.catalog_competition_refresh",
+            "ml_promotions.hay_mejores_boundaries",
             "ml_publications.core_first",
             "publicacion_repair.envio",
             "publicacion_repair.sku",
@@ -92,12 +93,13 @@ class TestMlPublicationsRegistry:
         assert registry.ML_PUBLICATIONS_REGISTRY[13].name == "gestion_full.inbound"
         assert registry.ML_PUBLICATIONS_REGISTRY[14].name == "gestion_full.reconcile"
         assert registry.ML_PUBLICATIONS_REGISTRY[15].name == "ml_publications.catalog_competition_refresh"
-        assert registry.ML_PUBLICATIONS_REGISTRY[16] is ml_publications.core_first
-        assert registry.ML_PUBLICATIONS_REGISTRY[17] is envio_repair
-        assert registry.ML_PUBLICATIONS_REGISTRY[18] is sku_repair
+        assert registry.ML_PUBLICATIONS_REGISTRY[16] is ml_hay_mejores.boundaries
+        assert registry.ML_PUBLICATIONS_REGISTRY[17] is ml_publications.core_first
+        assert registry.ML_PUBLICATIONS_REGISTRY[18] is envio_repair
+        assert registry.ML_PUBLICATIONS_REGISTRY[19] is sku_repair
 
     def test_core_first_runs_in_its_own_thread_five_seconds_apart_on_the_refresh_pacer(self) -> None:
-        handler = registry.ML_PUBLICATIONS_REGISTRY[16]
+        handler = registry.ML_PUBLICATIONS_REGISTRY[17]
         assert handler.own_thread is True
         assert handler.interval == timedelta(seconds=5)
         assert handler.run_at_local is None
@@ -120,6 +122,13 @@ class TestMlPublicationsRegistry:
     def test_refresh_runs_every_five_seconds_and_is_not_notify_driven(self) -> None:
         handler = registry.ML_PUBLICATIONS_REGISTRY[0]
         assert handler.interval == timedelta(seconds=5)
+        assert handler.run_at_local is None
+        assert handler.channels == ()
+
+    def test_hay_mejores_boundaries_runs_in_its_own_thread_every_five_minutes_and_is_not_notify_driven(self) -> None:
+        handler = registry.ML_PUBLICATIONS_REGISTRY[16]
+        assert handler.own_thread is True
+        assert handler.interval == timedelta(minutes=5)
         assert handler.run_at_local is None
         assert handler.channels == ()
 
@@ -162,5 +171,5 @@ class TestProcessIsolation:
             "'ml_publications.verify', 'ml_publications.promo_refresh', 'ml_ads.ingest', 'promo_write.refresh', "
             "'ml_publications.freshness', 'ml_billing.sweep', 'ml_orders.discounts', 'gestion_full.inbound', "
             "'gestion_full.reconcile', 'ml_publications.catalog_competition_refresh', "
-            "'ml_publications.core_first', 'publicacion_repair.envio', 'publicacion_repair.sku'] True"
+            "'ml_promotions.hay_mejores_boundaries', 'ml_publications.core_first', 'publicacion_repair.envio', 'publicacion_repair.sku'] True"
         )

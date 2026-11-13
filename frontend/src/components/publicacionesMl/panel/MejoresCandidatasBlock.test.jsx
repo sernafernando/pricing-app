@@ -438,3 +438,83 @@ describe('MejoresCandidatasBlock', () => {
     });
   });
 });
+
+// pubml-promo-mejor S5 (owner: "tiene que traer también la información de la aplicada actual para verlo a simple vista
+// la comparación"): the applied promo sits next to the candidates with the same figures, and each candidate says by
+// how much it beats it.
+// A figure's whole text, whatever runs it is split into (dates and shares wrap only after their separator).
+const figureText = (text) => (_, element) =>
+  /mejoresValue/.test(element?.className ?? '') && element.textContent === text;
+
+describe('MejoresCandidatasBlock comparison with the applied promo', () => {
+  const candidate = {
+    status: 'candidate',
+    promotion_type: 'SMART',
+    promotion_id: 'P-SMART',
+    price: 57000,
+    nuestro_markup: 4.5,
+    name: 'Potencia tus ventas',
+    start_date: '2026-11-05T12:00:00Z',
+    finish_date: '2099-11-25T12:00:00Z',
+    payload: { seller_percentage: 23.5, meli_percentage: 3.6 },
+  };
+  const applied = {
+    status: 'started',
+    application_status: 'active',
+    promotion_type: 'DEAL',
+    promotion_id: 'P-DEAL',
+    price: 59999,
+    nuestro_markup: 1.25,
+    name: 'MKP T1 CYBER',
+    start_date: '2026-11-02T12:00:00Z',
+    finish_date: '2099-12-02T12:00:00Z',
+    payload: {},
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { nuestro_markup: 1 } });
+  });
+
+  it('shows the applied promo with the same figures as the candidates and the markup delta', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [applied, candidate] } });
+    render(<MejoresCandidatasBlock itemId="MLA9" baselinePrice={59999} />);
+
+    const appliedRow = await screen.findByRole('group', { name: 'Promo aplicada' });
+    expect(within(appliedRow).getByText('DEAL')).toBeInTheDocument();
+    expect(within(appliedRow).getByText('MKP T1 CYBER')).toBeInTheDocument();
+    expect(within(appliedRow).getByText('$ 59.999,00')).toBeInTheDocument();
+    expect(within(appliedRow).getByText('1,25%')).toBeInTheDocument();
+    expect(within(appliedRow).getByText(figureText('—'))).toBeInTheDocument(); // no seller / ML shares
+    expect(within(appliedRow).getByText(figureText('02/11 – 02/12'))).toBeInTheDocument();
+
+    const card = screen.getByRole('group', { name: 'Promo sugerida SMART' });
+    expect(within(card).getByText(figureText('23,50% / 3,60%'))).toBeInTheDocument();
+    expect(within(card).getByText(figureText('05/11 – 25/11'))).toBeInTheDocument();
+    expect(within(card).getByLabelText('+3,25 pp vs aplicada')).toBeInTheDocument();
+    // The existing actions stay.
+    expect(within(card).getByRole('button', { name: 'Aplicar sugerencia' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Descartar sugerencia' })).toBeInTheDocument();
+  });
+
+  it('says Sin promo aplicada with the sale price and its markup when nothing is applied', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [candidate] } });
+    render(<MejoresCandidatasBlock itemId="MLA9" baselinePrice={59999} />);
+
+    const baseRow = await screen.findByRole('group', { name: 'Sin promo aplicada' });
+    expect(within(baseRow).getByText('Sin promo aplicada')).toBeInTheDocument();
+    expect(within(baseRow).getByText('$ 59.999,00')).toBeInTheDocument();
+    expect(within(baseRow).getByText('1,00%')).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Promo aplicada' })).toBeNull();
+    const card = screen.getByRole('group', { name: 'Promo sugerida SMART' });
+    expect(within(card).getByLabelText('+3,50 pp vs actual')).toBeInTheDocument();
+  });
+
+  it('does not suggest a candidate that starts later, even if it is better', async () => {
+    const later = { ...candidate, promotion_id: 'P-LATER', start_date: '2099-01-01T00:00:00Z' };
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [applied, later] } });
+    render(<MejoresCandidatasBlock itemId="MLA9" baselinePrice={59999} />);
+    expect(await screen.findByText(/No hay candidatas aplicables/)).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Promo sugerida SMART' })).toBeNull();
+  });
+});

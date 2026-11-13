@@ -94,7 +94,7 @@ class TestWhoNotifies:
         )
         monkeypatch.setattr(hay_mejores, "decidir_flag_hay_mejores", lambda **kwargs: decision)
         monkeypatch.setattr(hay_mejores, "listar_mejores_candidatas", lambda *a, **k: [("C-1", 900.0)])
-        monkeypatch.setattr(hay_mejores, "_candidate_entries", lambda raw: [{"id": "C-1"}])
+        monkeypatch.setattr(hay_mejores, "_candidate_entries", lambda raw, now: [{"id": "C-1"}])
         monkeypatch.setattr(hay_mejores, "_enqueue_catalog_competition_refresh", lambda _db, _item_id: None)
         hay_mejores.actualizar_hay_mejores_ofertas(session, "MLA1", raw_promotions=[{"id": "C-1"}])
         session.commit()

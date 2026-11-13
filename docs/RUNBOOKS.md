@@ -1146,6 +1146,16 @@ the panel refresh), paced with the shared ML `Pacer`.
 
 ### Hay mejores — offline recompute (one-shot, no ML)
 
+Since pubml-promo-mejor, only candidates **applicable now** count (writable
+type, started, not finished, SELLER_CAMPAIGN only as the Premium of the month;
+`ml_promotions_aplicable.candidata_aplicable_ahora`). The ML worker handler
+`ml_promotions.hay_mejores_boundaries` (every 5 min) re-runs the flag of the
+items whose candidates crossed a start/finish date since its last run, and on
+its first run after a rules change (`RULES_VERSION`) it recomputes the flagged
+and discarded rows once by itself. It runs in its own thread of the ML worker
+and is single-flight (session advisory lock `84_217_006`; a tick finding it
+held is skipped). The script below stays as a manual fallback.
+
 Baseline markup for the flag (and the panel chooser) uses co-funded math when
 a **started** SMART / PRE_NEGOTIATED / PRICE_MATCHING offer matches
 `sale_price` (same as the promo card); otherwise plain `markup_para_precio(sale)`
