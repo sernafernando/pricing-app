@@ -78,7 +78,7 @@ def opciones_envio(db: Session, item_id: int, date_from: date, date_to: date) ->
         return None
     mlas = envio.mlas_activas(db, item_id)
     try:
-        own = envio.costos_envio_por_mla(mlas) if mlas else {}
+        own = envio.costos_envio_por_mla(mlas, db=db) if mlas else {}
     except Exception as exc:  # any driver/connection error of the other database: told apart from "no costs"
         raise CostosNoDisponibles(str(exc)) from exc
     costs = {mla: own[mla] for mla in mlas if mla in own}

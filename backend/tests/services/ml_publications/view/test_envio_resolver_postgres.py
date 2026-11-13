@@ -249,6 +249,46 @@ class TestTheMlwebhookQuery:
         values = list(parameters.values()) if isinstance(parameters, dict) else list(parameters)
         assert len(values) == 1 and isinstance(values[0], str)  # one text parameter, not an array of 1000 elements
 
+    def test_it_reads_the_brackets_once_ml_webhook_stores_them(self, conn, shipping_table) -> None:  # noqa: F811
+        """MLA1173065146 as ml-webhook stores it (list_cost at its 41999 sale price, every bracket's cost)."""
+        conn.execute(text("ALTER TABLE ml_seller_shipping_costs ADD COLUMN cost_by_bracket jsonb"))
+        conn.execute(
+            text(
+                "INSERT INTO ml_seller_shipping_costs VALUES ('MLA1173065146', 6790, 'ARS', 'fulfillment', "
+                "CAST(:b AS jsonb))"
+            ),
+            {
+                "b": '[{"min_price": 0, "list_cost": 0}, {"min_price": 33000, "list_cost": 6790}, '
+                '{"min_price": 50000, "list_cost": 7290}]'
+            },
+        )
+
+        costs = envio_real_service._fetch_list_cost_by_mla(["MLA1173065146", "MLA1"])
+
+        assert costs == {"MLA1173065146": 6790.0, "MLA1": 1000.0}
+        assert costs["MLA1173065146"].para(41999) == 6790.0
+        assert costs["MLA1173065146"].para(65472) == 7290.0
+        assert type(costs["MLA1"]) is float  # a row without brackets stays a plain cost
+
+    def test_it_keeps_a_promo_under_the_floor_for_its_priced_brackets(self, conn, shipping_table) -> None:  # noqa: F811
+        """List price 35000, promo 31500: ML charges nothing at the sale price (list_cost 0), 6790 from 33000."""
+        conn.execute(text("ALTER TABLE ml_seller_shipping_costs ADD COLUMN cost_by_bracket jsonb"))
+        conn.execute(
+            text(
+                "INSERT INTO ml_seller_shipping_costs VALUES ('MLA_PROMO', 0, 'ARS', 'cross_docking', CAST(:b AS jsonb))"
+            ),
+            {
+                "b": '[{"min_price": 0, "list_cost": 0}, {"min_price": 33000, "list_cost": 6790}, '
+                '{"min_price": 50000, "list_cost": 7290}]'
+            },
+        )
+
+        costs = envio_real_service._fetch_list_cost_by_mla(["MLA_PROMO", "MLA2"])
+
+        assert list(costs) == ["MLA_PROMO"]  # MLA2 (0, no brackets) is still excluded
+        assert costs["MLA_PROMO"] == 0.0
+        assert costs["MLA_PROMO"].para(35000) == 6790.0
+
     def test_it_returns_nothing_when_mlwebhook_is_down(self, monkeypatch) -> None:
         def down():
             raise RuntimeError("no mlwebhook")

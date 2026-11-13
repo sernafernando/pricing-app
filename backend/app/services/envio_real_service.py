@@ -18,6 +18,10 @@ Design decisions (ADR):
      the last 30 days (`ponderado`; no sales -> `promedio`). No row, or `max`, is the MAX above. A chosen MLA that is
      inactive or has no cost falls back to the MAX. Applied inside both resolvers, so every product-pricing caller
      gets it; the choices are read in ONE statement and the units sold in ONE more, only for `ponderado` products.
+  7. ML charges the seller by item-price bracket. ml-webhook stores list_cost at the sale price and every
+     bracket's cost (`cost_by_bracket`); a cost read with brackets is a `CostoEnvioTramos` (envio_tramos): the
+     same float for display, which `calcular_limpio` resolves at the price it evaluates. Every aggregation here
+     (MAX, choice, means) also runs bracket by bracket, so no caller needs the price to get the right bracket.
 """
 
 from __future__ import annotations
@@ -28,14 +32,16 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Mapping, Optional, Sequence
 
-from sqlalchemy import ARRAY, Integer, any_, literal, select, text
+from sqlalchemy import ARRAY, Integer, String, any_, literal, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_mlwebhook_engine
+from app.models.ml_publications import MlItemSalePrice
 from app.models.producto import ProductoERP
 from app.models.producto_envio_eleccion import ProductoEnvioEleccion
 from app.models.publicacion_ml import PublicacionML
+from app.services.envio_tramos import CostoEnvioTramos, por_tramo
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +59,11 @@ def _query_list_cost_by_mla(mla_ids: list[str]) -> dict[str, float]:
     """
     Query ml_seller_shipping_costs in the mlwebhook DB for the given MLA IDs; RAISES on any error.
 
-    Returns {mla_id: list_cost} for rows where list_cost > 0 and currency_id = 'ARS'.
+    Returns {mla_id: list_cost} for rows where list_cost > 0 (or with a bracket that costs > 0) and
+    currency_id = 'ARS'. list_cost is the cost at the
+    publication's sale price; a row with `cost_by_bracket` comes back as a `CostoEnvioTramos` (still that float)
+    that `calcular_limpio` evaluates at the price it prices. `cost_by_bracket` is read through `to_jsonb(row)`, so
+    the query also works before ml-webhook's migration adds the column (it is then NULL: a plain float).
 
     list_cost is stored WITH IVA — returned as-is; caller decides what to do with it.
 
@@ -69,18 +79,21 @@ def _query_list_cost_by_mla(mla_ids: list[str]) -> dict[str, float]:
         rows = conn.execute(
             text(
                 """
-                SELECT mla_id, list_cost
-                FROM ml_seller_shipping_costs
+                SELECT mla_id, list_cost, to_jsonb(s) -> 'cost_by_bracket' AS tramos
+                FROM ml_seller_shipping_costs s
                 WHERE mla_id = ANY(ARRAY(SELECT jsonb_array_elements_text(CAST(:ids AS jsonb))))
                   AND list_cost IS NOT NULL
-                  AND list_cost > 0
+                  AND list_cost >= 0
                   AND currency_id = 'ARS'
                 """
             ),
             {"ids": json.dumps(mla_ids)},
         ).fetchall()
     for row in rows:
-        result[row.mla_id] = float(row.list_cost)
+        cost = CostoEnvioTramos.desde_fila(float(row.list_cost), row.tramos)
+        # A 0 at the sale price (a promo under the free-shipping floor) still has its brackets' costs
+        if cost > 0 or (isinstance(cost, CostoEnvioTramos) and cost.cobra()):
+            result[row.mla_id] = cost
     return result
 
 
@@ -137,7 +150,7 @@ def resolver_costo_envio(
         return float(producto.envio or 0.0)
 
     # Step 2: fetch shipping costs from mlwebhook DB
-    costs = _fetch_list_cost_by_mla(active_mla_ids)
+    costs = al_precio_vigente(db, _fetch_list_cost_by_mla(active_mla_ids))
     if not costs:
         return float(producto.envio or 0.0)
 
@@ -146,26 +159,66 @@ def resolver_costo_envio(
     return resolved.get(producto.item_id, costo_envio_maximo(costs, producto.envio))
 
 
-def costos_envio_por_mla(mla_ids: Sequence[str]) -> dict[str, float]:
+def costos_envio_por_mla(mla_ids: Sequence[str], *, db: Optional[Session] = None) -> dict[str, float]:
     """{mla: list_cost} (ARS, with IVA) for the given MLAs, in ONE cross-DB read; RAISES when the read fails.
 
     MLAs without a usable cost are absent. Public face of the read `resolver_costo_envio` does, for a caller that
-    needs each publication's own cost instead of the MAX and must tell a failed read from missing data."""
-    return _query_list_cost_by_mla(list(mla_ids))
+    needs each publication's own cost instead of the MAX and must tell a failed read from missing data. With `db`,
+    bracketed costs are valued at the current sale price (`al_precio_vigente`)."""
+    costs = _query_list_cost_by_mla(list(mla_ids))
+    return al_precio_vigente(db, costs) if db is not None else costs
+
+
+def _precios_vigentes(db: Session, mlas: Sequence[str]) -> dict[str, float]:
+    """{mla: the price it sells at now} from pricing's `ml_item_sale_prices` mirror (kept fresh by the publications
+    sync, not by ml-webhook's items webhook), inside a connection-level savepoint like `_unidades_aisladas`: a
+    failed read is no data (`{}`), never an aborted caller transaction."""
+    connection = db.connection()
+    savepoint = connection.begin_nested()
+    try:
+        with db.no_autoflush:
+            rows = (
+                db.query(MlItemSalePrice.item_id, MlItemSalePrice.amount)
+                .filter(_in_item_ids(db, MlItemSalePrice.item_id, mlas, String), MlItemSalePrice.amount > 0)
+                .all()
+            )
+    except SQLAlchemyError as exc:
+        savepoint.rollback()
+        logger.warning("No se pudieron leer los precios de venta vigentes: %s", exc)
+        return {}
+    savepoint.commit()
+    return {item_id: float(amount) for item_id, amount in rows}
+
+
+def al_precio_vigente(db: Session, costs: Mapping[str, float]) -> dict[str, float]:
+    """`costs` with every bracketed cost valued at its MLA's CURRENT sale price (`CostoEnvioTramos.al_precio`).
+
+    ml-webhook's list_cost is the cost at the sale price of its last quote; a promo that starts or ends without an
+    items webhook would leave it stale. Brackets do not go stale, so the displayed cost is re-read from them at the
+    price pricing's mirror holds now. Flat costs, and MLAs without a mirrored price, keep the stored value. One
+    read, only when some cost has brackets."""
+    bracketed = [mla for mla, cost in costs.items() if isinstance(cost, CostoEnvioTramos)]
+    if not bracketed:
+        return dict(costs)
+    precios = _precios_vigentes(db, bracketed)
+    return {
+        mla: cost.al_precio(precios[mla]) if isinstance(cost, CostoEnvioTramos) and mla in precios else cost
+        for mla, cost in costs.items()
+    }
 
 
 def costo_envio_maximo(costs: Mapping[str, float], fallback: Optional[float]) -> float:
     """The resolved shipping cost of a product from its active MLAs' costs: their MAX, else the ERP `envio`."""
     if not costs:
         return float(fallback or 0.0)
-    return max(costs.values())
+    return por_tramo(lambda cs: max(cs.values()), costs)  # type: ignore[return-value]  # costs is not empty
 
 
-def _in_item_ids(db: Session, column: Any, item_ids: Sequence[int]) -> Any:
+def _in_item_ids(db: Session, column: Any, item_ids: Sequence[Any], element_type: Any = Integer) -> Any:
     """`column IN item_ids` as ONE array parameter on PostgreSQL (not N binds); an expanding bind elsewhere."""
     ids = list(item_ids)
     if db.get_bind().dialect.name == "postgresql":
-        return column == any_(literal(ids, ARRAY(Integer)))
+        return column == any_(literal(ids, ARRAY(element_type)))
     return column.in_(ids)  # portable (SQLite in tests): expanding bind, still one statement
 
 
@@ -247,7 +300,7 @@ def resolver_costos_envio_batch(
 
     # Step 2: one cross-DB query for all MLAs
     try:
-        costs = _fetch_list_cost_by_mla(list(set(all_active_mlas)))
+        costs = al_precio_vigente(db, _fetch_list_cost_by_mla(list(set(all_active_mlas))))
     except Exception as exc:
         # _fetch already catches internally, but guard here for safety
         logger.warning("resolver_costos_envio_batch: error inesperado: %s", exc)
@@ -317,18 +370,19 @@ def elecciones_por_item(db: Session, item_ids: Sequence[int]) -> dict[int, tuple
 
 
 def costo_promedio(costs: Mapping[str, float]) -> Optional[float]:
-    """The simple mean of the given MLAs' costs; None without any."""
+    """The simple mean of the given MLAs' costs; None without any. Bracket by bracket too (`por_tramo`)."""
     if not costs:
         return None
-    return round(sum(costs.values()) / len(costs), 2)
+    return por_tramo(lambda cs: round(sum(cs.values()) / len(cs), 2), costs)
 
 
 def costo_ponderado(costs: Mapping[str, float], units: Mapping[str, int]) -> Optional[float]:
-    """The mean of the given MLAs' costs weighted by their units sold; None when none of them sold."""
+    """The mean of the given MLAs' costs weighted by their units sold; None when none of them sold. Bracket by
+    bracket too (`por_tramo`), with the same weights."""
     total = sum(units.get(mla, 0) for mla in costs)
     if total <= 0:
         return None
-    return round(sum(cost * units.get(mla, 0) for mla, cost in costs.items()) / total, 2)
+    return por_tramo(lambda cs: round(sum(cost * units.get(mla, 0) for mla, cost in cs.items()) / total, 2), costs)
 
 
 def eleccion_cae_a_maximo(modo: str, mla: Optional[str], costs: Mapping[str, float]) -> bool:
@@ -343,9 +397,17 @@ def costo_envio_elegido(
     units sold (read only for `ponderado`). None when no MLA has a cost (callers fall back to the ERP envio).
 
     `mla`: that publication's cost, else MAX. `promedio`: the simple mean. `ponderado`: the sales-weighted mean,
-    `promedio` without sales. Anything else (`max`, no choice): MAX."""
+    `promedio` without sales. Anything else (`max`, no choice): MAX. Bracketed costs resolve bracket by bracket
+    (`por_tramo`): a product's MAX at 41999 is the MAX of its MLAs' costs at 41999."""
     if not costs:
         return None
+    return por_tramo(lambda cs: _costo_elegido(modo, mla, cs, units), costs)
+
+
+def _costo_elegido(
+    modo: str, mla: Optional[str], costs: Mapping[str, float], units: Mapping[str, int]
+) -> Optional[float]:
+    """`costo_envio_elegido` on plain floats."""
     if modo == "mla" and not eleccion_cae_a_maximo(modo, mla, costs):
         return costs[mla]  # type: ignore[index]  # not None: checked above
     if modo == "promedio":
@@ -428,7 +490,7 @@ def resolver_costos_envio_mlas(db: Session, item_ids: list[int], mla_ids: Sequen
         wanted.update(mlas)
     if not wanted:
         return CostosEnvio()
-    costs = _fetch_list_cost_by_mla(sorted(wanted))
+    costs = al_precio_vigente(db, _fetch_list_cost_by_mla(sorted(wanted)))
     return CostosEnvio(
         por_producto=_resolve_by_item(db, item_to_active_mlas, costs),
         por_mla={mla: costs[mla] for mla in mla_ids if mla in costs},

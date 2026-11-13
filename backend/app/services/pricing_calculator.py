@@ -5,6 +5,7 @@ from app.models.comision_config import SubcategoriaGrupo, ComisionListaGrupo
 from app.models.comision_versionada import ComisionVersion, ComisionBase, ComisionAdicionalCuota
 from app.models.pricing_constants import PricingConstants
 from app.models.producto import ProductoERP, ProductoPricing
+from app.services.envio_tramos import costo_envio_para
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from datetime import date
@@ -340,6 +341,8 @@ def calcular_limpio(
     if envio_cuenta(precio, constantes):
         # Si el producto no tiene costo de envío asignado pero tenemos grupo_id,
         # usar el envío promedio del grupo
+        # ML charges by price bracket: a bracketed cost resolves to the bracket of THIS price
+        costo_envio = costo_envio_para(costo_envio, precio)
         if costo_envio == 0 and grupo_id is not None and db is not None:
             costo_envio = obtener_envio_promedio_grupo(db, grupo_id)
 
@@ -490,6 +493,11 @@ def precio_por_markup_goalseek(
     """Goal seek: dado un markup objetivo, encuentra el precio necesario
 
     Funciona con markups positivos y negativos.
+
+    Con un costo de envío por tramos (`CostoEnvioTramos`) el limpio no es monótono: al cruzar un piso de tramo
+    (p.ej. 50000, donde el envío sube ~500) cae ~413 y recién vuelve a su nivel ~500 pesos más arriba. Un markup
+    objetivo dentro de esa banda lo cumplen DOS precios (uno debajo del piso y otro encima); la bisección se queda
+    con el de arriba, dentro de su tolerancia de redondeo habitual. Ver `TestGoalseekAtThe50000Step`.
     """
 
     if costo <= 0:
