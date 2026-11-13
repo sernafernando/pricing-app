@@ -45,7 +45,7 @@
 
 /* A filter that opens a panel (Presencia, Auditoría, Promos): the height and size of the filter chips beside it. */
 :global(.btn-tesla).chipSize {
-  height: 28px;
+  height: var(--chip-height);
   padding: 0 10px;
   font-size: var(--font-xs);
 }

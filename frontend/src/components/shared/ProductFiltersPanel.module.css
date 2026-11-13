@@ -49,7 +49,7 @@
 
 /* `compact`: the size of a `FacetChips` chip, so the four sit among chips without standing out. */
 .compact {
-  height: 28px;
+  height: var(--chip-height);
   padding: 0 10px;
   font-size: var(--font-xs);
   border-radius: var(--radius-md);

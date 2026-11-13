@@ -1087,12 +1087,10 @@ export default function PublicacionesML() {
     <>
       {showShortcuts && <ShortcutsHelp onClose={() => setShowShortcuts(false)} />}
       {/* Productos' "Modo Navegación" notice, without a toast over the rows: the "?" key by the filters lights up,
-          and this line tells a screen reader. */}
-      {navigating && (
-        <div className={styles.srOnly} role="status">
-          Modo navegación activo: Esc para salir, ? para ver los atajos
-        </div>
-      )}
+          and this line tells a screen reader. Always mounted, so the change of its text is announced. */}
+      <div className={styles.srOnly} aria-live="polite">
+        {navigating ? 'Modo navegación activo: Esc para salir, ? para ver los atajos' : ''}
+      </div>
       <ModalInfoProducto isOpen={infoProductId != null} itemId={infoProductId} onClose={() => setInfoProductId(null)} />
       {priceEditor.pending && (
         <ModalTesla

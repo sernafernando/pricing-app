@@ -2999,7 +2999,7 @@ describe("Productos' navigation mode, on the shortcuts key", () => {
     expect(shortcutsKey()).not.toHaveAttribute('data-navigating');
     await user.keyboard('{ArrowDown}');
     expect(notice()).toHaveTextContent('Modo navegación activo: Esc para salir, ? para ver los atajos');
-    expect(notice()).toHaveAttribute('role', 'status');
+    expect(notice()).toHaveAttribute('aria-live', 'polite');
     expect(shortcutsKey()).toHaveAttribute('data-navigating');
     expect(shortcutsKey()).toHaveAttribute('title', 'Modo navegación: Esc para salir, ? para ver los atajos');
     expect(screen.queryByText(/Modo Navegación Activo/)).not.toBeInTheDocument();

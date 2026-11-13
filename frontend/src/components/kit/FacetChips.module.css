@@ -9,7 +9,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 28px;
+  height: var(--chip-height);
   padding: 0 10px;
   font-family: inherit;
   font-size: var(--font-xs);
