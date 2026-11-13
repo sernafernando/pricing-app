@@ -135,6 +135,56 @@ def test_auto_vincular_links_unique_ct(db, empresa, proveedor, sd_factura, activ
     db.refresh(pedido)
     assert pedido.ct_transaction_id == 9001
     assert cts_for_pedido(db, pedido) == [(9001, date(2026, 4, 1))]
+    db.refresh(doc)
+    assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_OK
+
+
+def test_auto_vincular_persists_sin_match(db, empresa, proveedor, active_user):
+    pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-NONE")
+    doc = PedidoFacturaDocumento(
+        pedido_id=pedido.id,
+        numero="FA-MISSING",
+        created_by_id=active_user.id,
+        cargada=True,
+    )
+    db.add(doc)
+    db.flush()
+
+    assert erp_matching_service.auto_vincular_por_constancia_cargada(db, doc) is None
+    db.refresh(doc)
+    assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_SIN_MATCH
+    assert doc.auto_vinculo_intentado_at is not None
+
+
+def test_auto_vincular_persists_ambiguo(db, empresa, proveedor, sd_factura, active_user):
+    pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-AMB")
+    doc = PedidoFacturaDocumento(
+        pedido_id=pedido.id,
+        numero="FA-DUP",
+        created_by_id=active_user.id,
+        cargada=True,
+    )
+    db.add(doc)
+    for ct_id in (9101, 9102):
+        db.add(
+            CommercialTransaction(
+                ct_transaction=ct_id,
+                comp_id=1,
+                bra_id=1,
+                supp_id=proveedor.supp_id,
+                ct_docNumber="FA-DUP",
+                sd_id=sd_factura.sd_id,
+                ct_total=Decimal("100"),
+                curr_id_transaction=1,
+                ct_date=datetime(2026, 4, 1, 12, 0, 0),
+                ct_isCancelled=False,
+            )
+        )
+    db.flush()
+
+    assert erp_matching_service.auto_vincular_por_constancia_cargada(db, doc) is None
+    db.refresh(doc)
+    assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_AMBIGUO
 
 
 def test_auto_vincular_shared_numero_across_pedidos(db, empresa, proveedor, sd_factura, active_user):
@@ -255,6 +305,11 @@ def test_disparar_alertas_also_auto_links(db, empresa, proveedor, sd_factura, ac
             "notificar_factura_cargada",
             lambda *a, **k: [],
         )
+        mp.setattr(
+            compras_alertas_service,
+            "_sync_espejo_antes_autolink",
+            lambda *_a, **_k: None,
+        )
         fired = compras_alertas_service.disparar_alertas_factura_pendientes(db, ahora=ahora)
     assert fired == 1
     db.refresh(pedido)
@@ -286,6 +341,11 @@ def test_disparar_alertas_marks_fired_when_auto_vincular_raises(
             lambda *a, **k: [],
         )
         mp.setattr(
+            compras_alertas_service,
+            "_sync_espejo_antes_autolink",
+            lambda *_a, **_k: None,
+        )
+        mp.setattr(
             erp_matching_service,
             "auto_vincular_por_constancia_cargada",
             lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
@@ -296,3 +356,49 @@ def test_disparar_alertas_marks_fired_when_auto_vincular_raises(
     assert doc.alerta_disparada_at is not None
     db.refresh(pedido)
     assert pedido.ct_transaction_id is None
+
+
+def test_disparar_retries_sin_match_after_ct_appears(
+    db, empresa, proveedor, sd_factura, active_user
+):
+    pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-RETRY")
+    ahora = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
+    doc = PedidoFacturaDocumento(
+        pedido_id=pedido.id,
+        numero="FA-RETRY",
+        created_by_id=active_user.id,
+        cargada=True,
+        alerta_pendiente_hasta=ahora - timedelta(minutes=10),
+        alerta_disparada_at=ahora - timedelta(minutes=5),
+        auto_vinculo_estado=erp_matching_service.AUTO_VINCULO_SIN_MATCH,
+        auto_vinculo_intentado_at=ahora - timedelta(minutes=5),
+    )
+    db.add(doc)
+    db.add(
+        CommercialTransaction(
+            ct_transaction=9200,
+            comp_id=1,
+            bra_id=1,
+            supp_id=proveedor.supp_id,
+            ct_docNumber="FA-RETRY",
+            sd_id=sd_factura.sd_id,
+            ct_total=Decimal("100"),
+            curr_id_transaction=1,
+            ct_date=datetime(2026, 4, 5, 12, 0, 0),
+            ct_isCancelled=False,
+        )
+    )
+    db.flush()
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            compras_alertas_service,
+            "_sync_espejo_antes_autolink",
+            lambda *_a, **_k: None,
+        )
+        fired = compras_alertas_service.disparar_alertas_factura_pendientes(db, ahora=ahora)
+    assert fired == 0
+    db.refresh(pedido)
+    assert pedido.ct_transaction_id == 9200
+    db.refresh(doc)
+    assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_OK

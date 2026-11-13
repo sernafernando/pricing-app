@@ -140,6 +140,37 @@ def notificar_factura_cargada(
     return creadas
 
 
+def _docs_auto_vinculo_pendientes(session: Session, *, limit: int = 50) -> list[PedidoFacturaDocumento]:
+    """Cargada docs whose auto-link already failed (retry after mirror sync)."""
+    from app.services.erp_matching_service import AUTO_VINCULO_PENDIENTES  # noqa: PLC0415
+
+    return (
+        session.query(PedidoFacturaDocumento)
+        .options(joinedload(PedidoFacturaDocumento.pedido).joinedload(PedidoCompra.proveedor))
+        .filter(
+            PedidoFacturaDocumento.cargada.is_(True),
+            PedidoFacturaDocumento.alerta_disparada_at.isnot(None),
+            PedidoFacturaDocumento.auto_vinculo_estado.in_(sorted(AUTO_VINCULO_PENDIENTES)),
+        )
+        .order_by(PedidoFacturaDocumento.auto_vinculo_intentado_at.asc().nullsfirst())
+        .limit(limit)
+        .all()
+    )
+
+
+def _sync_espejo_antes_autolink(session: Session) -> None:
+    """Best-effort short CT mirror pull. Releases the txn before HTTP."""
+    from app.services import ct_mirror_sync_service  # noqa: PLC0415
+
+    # Pool-safety: do not hold an open transaction across GBP (idle_in_transaction).
+    session.commit()
+    try:
+        ct_mirror_sync_service.sync_recent_cts(session)
+    except Exception:  # noqa: BLE001 — mirror lag must not block alerts / retries
+        logger.exception("ct_mirror_sync before auto-vínculo failed; matching with current mirror")
+        session.rollback()
+
+
 def disparar_alertas_factura_pendientes(session: Session, *, ahora: datetime | None = None) -> int:
     """Fire pending ERP-check alerts whose window has been reached. Idempotent.
 
@@ -151,6 +182,10 @@ def disparar_alertas_factura_pendientes(session: Session, *, ahora: datetime | N
     skip the Notificacion fan-out but still auto-link and mark disparada —
     historical backlog must not spam the bell when the worker first comes up,
     yet a late sweep must not permanently skip the ERP vínculo.
+
+    Before matching, pulls a short CT mirror window (and retries prior
+    sin_match/ambiguo/sin_mapeo rows) so GBP lag after cargada does not
+    permanently strand the vínculo.
     """
     stamp = _ahora_utc(ahora)
     lag_floor = stamp - MAX_FACTURA_ALERT_LAG
@@ -165,6 +200,23 @@ def disparar_alertas_factura_pendientes(session: Session, *, ahora: datetime | N
         )
         .all()
     )
+    retries = _docs_auto_vinculo_pendientes(session)
+    if rows or retries:
+        _sync_espejo_antes_autolink(session)
+        # Identity map expired after commit — reload work sets.
+        rows = (
+            session.query(PedidoFacturaDocumento)
+            .options(joinedload(PedidoFacturaDocumento.pedido).joinedload(PedidoCompra.proveedor))
+            .filter(
+                PedidoFacturaDocumento.cargada.is_(True),
+                PedidoFacturaDocumento.alerta_pendiente_hasta.isnot(None),
+                PedidoFacturaDocumento.alerta_pendiente_hasta <= stamp,
+                PedidoFacturaDocumento.alerta_disparada_at.is_(None),
+            )
+            .all()
+        )
+        retries = _docs_auto_vinculo_pendientes(session)
+
     from app.services import erp_matching_service  # noqa: PLC0415
 
     fired = 0
@@ -194,7 +246,21 @@ def disparar_alertas_factura_pendientes(session: Session, *, ahora: datetime | N
                 pedido.id,
             )
         row.alerta_disparada_at = stamp
-    if rows:
+
+    for row in retries:
+        if row.pedido is None:
+            continue
+        try:
+            with session.begin_nested():
+                erp_matching_service.auto_vincular_por_constancia_cargada(session, row, ahora=stamp)
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "auto_vincular_constancia retry falló documento_id=%s pedido_id=%s",
+                row.id,
+                row.pedido_id,
+            )
+
+    if rows or retries:
         session.flush()
     if drained:
         logger.warning(

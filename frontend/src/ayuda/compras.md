@@ -44,5 +44,8 @@ Sí. En el detalle del pedido, **Facturas del ERP** lista cada factura vinculada
 **¿Se puede cambiar la fecha de pago estimada después de aprobar?**
 Sí. En **Ver detalle**, con permiso de gestionar órdenes de compra, **Editar** en Fecha pago estimada (también en borrador / pagado parcial / pagado). Órdenes de pago usa esa fecha para priorizar vencimientos; sirve si el pago se difiere de común acuerdo o si el originador no la cargó.
 
+**¿Qué es “Pendiente vínculo ERP”?**
+Cuando marcás **Cargada en ERP**, tras la ventana de arrepentimiento el sistema refresca el espejo de facturas y trata de vincular por número. Si no hay una CT única (todavía no llegó al espejo, o el número es ambiguo), la constancia queda pendiente. Filtralo en Pedidos → Estado → **Pendiente vínculo ERP**, o usá el badge en el detalle para abrir **Vincular** a mano.
+
 **¿Por qué el botón Cerrar del detalle del pedido queda siempre a la vista?**
 En **Ver detalle**, el contenido largo (líneas, facturas, OC) hace scroll adentro del modal; la barra de acciones con **Cerrar** queda fija abajo del diálogo para no tener que bajar hasta el final.

@@ -56,6 +56,10 @@ class PedidoFacturaDocumento(Base):
     )
     alerta_pendiente_hasta = Column(DateTime(timezone=True), nullable=True)
     alerta_disparada_at = Column(DateTime(timezone=True), nullable=True)
+    # Outcome of auto_vincular_por_constancia_cargada after the cargada window:
+    # ok | sin_match | ambiguo | sin_mapeo. NULL = never attempted.
+    auto_vinculo_estado = Column(String(24), nullable=True)
+    auto_vinculo_intentado_at = Column(DateTime(timezone=True), nullable=True)
 
     pedido = relationship("PedidoCompra", foreign_keys=[pedido_id], back_populates="factura_documentos")
     created_by = relationship("Usuario", foreign_keys=[created_by_id], lazy="select")

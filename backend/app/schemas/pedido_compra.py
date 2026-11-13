@@ -279,6 +279,9 @@ class PedidoFacturaDocumentoResponse(BaseModel):
     cargada: bool = False
     cargada_marked_at: datetime | None = None
     cargada_marked_by_id: int | None = None
+    # ok | sin_match | ambiguo | sin_mapeo; null = auto-link never attempted.
+    auto_vinculo_estado: str | None = None
+    auto_vinculo_intentado_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

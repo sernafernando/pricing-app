@@ -62,6 +62,9 @@ const ESTADOS = [
   'controlado',
 ];
 
+/** Sentinel in the Estado select — not a workflow `pedido.estado`. */
+const FILTRO_PENDIENTE_VINCULO_ERP = 'pendiente_vinculo_erp';
+
 const COLUMNS = [
   { key: 'numero', label: 'Número', width: '160px' },
   { key: 'empresa', label: 'Empresa', width: '104px' },
@@ -259,8 +262,14 @@ export default function TabPedidosCompra() {
   // ── Fetch ──
   const fetchPedidos = useCallback(async () => {
     const params = { page, page_size: PAGE_SIZE };
-    if (filtroEstado) params.estado = filtroEstado;
-    else params.excluir_estado = 'cancelado';
+    if (filtroEstado === FILTRO_PENDIENTE_VINCULO_ERP) {
+      params.pendiente_vinculo_erp = true;
+      params.excluir_estado = 'cancelado';
+    } else if (filtroEstado) {
+      params.estado = filtroEstado;
+    } else {
+      params.excluir_estado = 'cancelado';
+    }
     if (filtroEmpresa) params.empresa_id = filtroEmpresa;
     if (filtroProveedorId) params.proveedor_id = filtroProveedorId;
     if (filtroDesde) params.desde = filtroDesde;
@@ -867,6 +876,7 @@ export default function TabPedidosCompra() {
               {estado}
             </option>
           ))}
+          <option value={FILTRO_PENDIENTE_VINCULO_ERP}>Pendiente vínculo ERP</option>
         </select>
         <select
           className={styles.select}
