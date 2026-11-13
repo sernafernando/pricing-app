@@ -1061,7 +1061,8 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: start;
-  gap: var(--spacing-sm) var(--spacing-md);
+  /* A tight column gap: each column keeps room for its figure with wider (CI) fonts. */
+  gap: var(--spacing-sm);
   padding: var(--spacing-sm) var(--spacing-md);
   border: 1px solid var(--cf-border-default);
   border-radius: 6px;
@@ -1108,8 +1109,10 @@
   font-size: var(--font-xs);
   font-weight: var(--font-semibold);
   color: var(--cf-accent-blue);
-  white-space: nowrap;
 }
+
+/* The figure stays on one line; "vs aplicada" wraps under it when the column is narrow. */
+.mejoresDeltaValue { white-space: nowrap; }
 
 @media (max-width: 480px) {
   .mejoresCard { grid-template-columns: repeat(2, minmax(0, 1fr)); }

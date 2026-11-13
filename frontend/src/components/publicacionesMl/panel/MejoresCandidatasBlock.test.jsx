@@ -487,7 +487,7 @@ describe('MejoresCandidatasBlock comparison with the applied promo', () => {
     const card = screen.getByRole('group', { name: 'Promo sugerida SMART' });
     expect(within(card).getByText('23,50% / 3,60%')).toBeInTheDocument();
     expect(within(card).getByText('05/11 – 25/11')).toBeInTheDocument();
-    expect(within(card).getByText('+3,25 pp vs aplicada')).toBeInTheDocument();
+    expect(within(card).getByLabelText('+3,25 pp vs aplicada')).toBeInTheDocument();
     // The existing actions stay.
     expect(within(card).getByRole('button', { name: 'Aplicar sugerencia' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Descartar sugerencia' })).toBeInTheDocument();
@@ -503,7 +503,7 @@ describe('MejoresCandidatasBlock comparison with the applied promo', () => {
     expect(within(baseRow).getByText('1,00%')).toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Promo aplicada' })).toBeNull();
     const card = screen.getByRole('group', { name: 'Promo sugerida SMART' });
-    expect(within(card).getByText('+3,50 pp vs actual')).toBeInTheDocument();
+    expect(within(card).getByLabelText('+3,50 pp vs actual')).toBeInTheDocument();
   });
 
   it('does not suggest a candidate that starts later, even if it is better', async () => {

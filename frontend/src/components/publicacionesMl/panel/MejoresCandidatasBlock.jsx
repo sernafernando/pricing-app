@@ -80,7 +80,7 @@ function PromoFigures({ price, markup, sellInOut, sharesText, dates, delta, delt
         <SellInOutMarkupExtra value={sellInOut} format={pct} />
         {delta && (
           <span className={styles.mejoresDelta} aria-label={`${delta} ${deltaLabel}`}>
-            {delta} {deltaLabel}
+            <span className={styles.mejoresDeltaValue}>{delta}</span> {deltaLabel}
           </span>
         )}
       </span>
