@@ -1,8 +1,58 @@
 import { useEffect, useState } from 'react';
 import MlaPromocionesPanel from '../../promociones/MlaPromocionesPanel';
 import CatalogCompetitionPanel from '../../promociones/CatalogCompetitionPanel';
+import PromoFilterBar from '../../promociones/PromoFilterBar';
+import { countActivePromoFilter } from '../../promociones/promoFilterPredicate';
 import { markPromoPulled, promoPulledRecently } from '../../promociones/promoPullTtl';
+import { usePromoFilterStore } from '../../../store/promoFilterStore';
 import styles from './panel.module.css';
+
+const plural = (count, one, many) => `${count} ${count === 1 ? one : many}`;
+
+/**
+ * The global promo filter, in the tab header: "Filtrar promos" opens the
+ * Productos filter bar (type chips + "Nombres"), and while a filter is set
+ * the header says so ("Filtro: 2 tipos · 3 nombres") with a one-click clear,
+ * so a promotion it hides never looks missing.
+ */
+function PromoFilterHeader({ promosCacheRef }) {
+  const selectedTypes = usePromoFilterStore((state) => state.selectedTypes);
+  const selectedNames = usePromoFilterStore((state) => state.selectedNames);
+  const clear = usePromoFilterStore((state) => state.clear);
+  const [open, setOpen] = useState(false);
+
+  const active = countActivePromoFilter(selectedTypes, selectedNames);
+  const parts = [
+    active.types > 0 && plural(active.types, 'tipo', 'tipos'),
+    active.names > 0 && plural(active.names, 'nombre', 'nombres'),
+  ].filter(Boolean);
+
+  return (
+    <div className={styles.promosFilter}>
+      <div className={styles.promosFilterRow}>
+        <button
+          type="button"
+          className={`btn-tesla outline-subtle-primary sm ${styles.promosFilterToggle}`}
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          Filtrar promos
+        </button>
+        {parts.length > 0 && (
+          <>
+            <span className={styles.promosFilterSummary} title={`Filtro: ${parts.join(' · ')}`}>
+              Filtro: {parts.join(' · ')}
+            </span>
+            <button type="button" className={styles.promosFilterClear} onClick={clear}>
+              Quitar filtro
+            </button>
+          </>
+        )}
+      </div>
+      {open && <PromoFilterBar promosCacheRef={promosCacheRef} showLabel={false} />}
+    </div>
+  );
+}
 
 /** One MLA's promotions; mounted per MLA, so its pull decision is that MLA's. */
 function ItemPromotions({ itemId, suggestedPromotionIds, promosCacheRef, onPromoApplied }) {
@@ -13,7 +63,6 @@ function ItemPromotions({ itemId, suggestedPromotionIds, promosCacheRef, onPromo
       mla={itemId}
       promosCacheRef={promosCacheRef}
       pullOnOpen={pullOnOpen}
-      ignoreGlobalFilter
       suggestedPromotionIds={suggestedPromotionIds}
       sections
       onApplied={onPromoApplied}
@@ -53,8 +102,14 @@ function ItemPromotions({ itemId, suggestedPromotionIds, promosCacheRef, onPromo
  *
  * `key={itemId}` makes a new selection start from scratch, so one
  * publication's promotions are never shown under the next. The cache is
- * private to this tab: the Productos filter bar that reads its entries is not
- * on this page, and the global promo filter is ignored for the same reason.
+ * private to this tab; the filter bar in the tab header reads its entries for
+ * the "Nombres" modal.
+ *
+ * The global promo filter (the one Productos sets) applies here too: it is one
+ * setting for the user, not per publication, so it stays when the selection
+ * changes and survives a reload. Its bar and an active-filter summary with a
+ * one-click clear sit in the tab header (`PromoFilterHeader`), so a filtered-out
+ * promotion always has a visible way back.
  */
 export default function PromocionesTab({
   itemId,
@@ -84,6 +139,7 @@ export default function PromocionesTab({
     <div className={styles.promosContainer}>
       <div className={showRanking ? styles.promosLayoutWide : styles.promosLayout}>
         <div className={styles.promosCol}>
+          <PromoFilterHeader promosCacheRef={promosCacheRef} />
           {isCatalog && (
             <button
               type="button"

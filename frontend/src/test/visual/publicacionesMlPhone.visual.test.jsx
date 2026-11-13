@@ -13,6 +13,7 @@ import { page, userEvent } from 'vitest/browser';
 import { MemoryRouter } from 'react-router-dom';
 import { setTheme, tokenColor } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
+import { usePromoFilterStore } from '../../store/promoFilterStore';
 import { promocionesAPI, publicacionesMlAPI } from '../../services/api';
 import { FACETS, ITEMS, ITEMS_RESPONSE, KPIS_RESPONSE_MARGIN, MARKUP_BREAKDOWN, makeDetail } from './publicacionesMlFixtures';
 
@@ -378,4 +379,88 @@ describe.each(['light', 'dark'])('Publicaciones ML at 390x844 (%s)', (theme) => 
     expect(scroller.querySelector('footer').getBoundingClientRect().bottom).toBeCloseTo(844, 0);
     scroller.scrollTop = 0;
   });
+
+  it('shows the promo filter in the Promos tab: one compact row, desktop-size chips, no repeated label', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          { promotion_id: 'P1', promotion_type: 'SMART', name: 'Potencia tus ventas', price: 100 },
+          { promotion_id: 'P2', promotion_type: 'SMART', name: 'Ofertas compartidas CM', price: 95 },
+          { promotion_id: 'P3', promotion_type: 'DEAL', name: 'MKP T1 CYBER MONDAY NOV', price: 90 },
+        ],
+      },
+    });
+    usePromoFilterStore.setState({ selectedTypes: ['SMART', 'DEAL'], selectedNames: { SMART: ['Potencia tus ventas'] } });
+    try {
+      const screen = await renderPhone({ theme, entry: '/ml-publicaciones?sel=MLA1100000001' });
+      const panel = screen.getByRole('complementary', { name: 'Detalle de la publicación' });
+      await expect.element(panel.getByText('Potencia tus ventas')).toBeVisible();
+      await expect.element(panel.getByText('Filtro: 2 tipos · 1 nombre')).toBeVisible();
+      expect(panel.element().textContent).not.toContain('Ofertas compartidas CM');
+      await panel.getByRole('button', { name: 'Filtrar promos' }).click();
+      await expect.element(panel.getByRole('button', { name: 'Smart' })).toBeVisible();
+      // Toggle, summary and "Quitar filtro" on ONE row; the summary truncates instead of wrapping.
+      const toggle = panel.getByRole('button', { name: 'Filtrar promos' }).element();
+      const summary = panel.getByText('Filtro: 2 tipos · 1 nombre').element();
+      const clear = panel.getByRole('button', { name: 'Quitar filtro' }).element();
+      const middle = (el) => el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2;
+      for (const el of [summary, clear]) expect(Math.abs(middle(el) - middle(toggle))).toBeLessThan(2);
+      expect(getComputedStyle(summary).textOverflow).toBe('ellipsis');
+      expect(clear.getBoundingClientRect().right).toBeLessThanOrEqual(390 - 16 + 0.5);
+      // The row's two buttons are touch targets; the chips keep the compact desktop size.
+      expect(shortTargets(toggle.parentElement)).toEqual([]);
+      const smart = panel.getByRole('button', { name: 'Smart' }).element();
+      expect(smart.getBoundingClientRect().height).toBeLessThan(36);
+      // The toggle already says "Filtrar promos": the chip row does not repeat it.
+      expect(panel.element().textContent).not.toContain('Filtrar promos:');
+      noSidewaysScroll();
+      await shot(`pubml-phone-promo-filter-${theme}`);
+    } finally {
+      usePromoFilterStore.getState().clear();
+    }
+  });
+
+  it('stacks the promo filter, Ocultar competencia, the promos and the ranking on a catalog listing', async () => {
+    publicacionesMlAPI.detail.mockResolvedValue({ data: { ...PHONE_DETAIL, row: { ...PHONE_DETAIL.row, catalog_listing: true } } });
+    promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
+      data: {
+        fetch_status: 'ok',
+        fecha_consulta: '2026-11-13T12:00:00Z',
+        our_price: 98500,
+        competitor_count: 1,
+        same_bucket: [{ item_id: 'MLA1999000001', seller_nickname: 'DISTRIBUIDORA DE REDES DEL LITORAL SRL', price: 96999, markup: 10.42 }],
+        undercutting: [],
+      },
+    });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          { promotion_id: 'P1', promotion_type: 'SMART', name: 'Potencia tus ventas', price: 100 },
+          { promotion_id: 'P2', promotion_type: 'SMART', name: 'Ofertas compartidas CM', price: 95 },
+        ],
+      },
+    });
+    usePromoFilterStore.setState({ selectedTypes: ['SMART'], selectedNames: { SMART: ['Potencia tus ventas'] } });
+    try {
+      const screen = await renderPhone({ theme, entry: '/ml-publicaciones?sel=MLA1100000001' });
+      const panel = screen.getByRole('complementary', { name: 'Detalle de la publicación' });
+      await expect.element(panel.getByText('Potencia tus ventas')).toBeVisible();
+      await expect.element(panel.getByText('DISTRIBUIDORA DE REDES DEL LITORAL SRL')).toBeVisible();
+      const toggle = panel.getByRole('button', { name: 'Filtrar promos' }).element();
+      const competencia = panel.getByRole('button', { name: 'Ocultar competencia' }).element();
+      const summary = panel.getByText('Filtro: 1 tipo · 1 nombre').element();
+      const box = (el) => el.getBoundingClientRect();
+      expect(Math.abs(box(summary).top + box(summary).height / 2 - (box(toggle).top + box(toggle).height / 2))).toBeLessThan(2);
+      expect(box(competencia).top).toBeGreaterThanOrEqual(box(toggle).bottom);
+      const title = [...panel.element().querySelectorAll('h3')].find((h) => h.textContent === 'Competencia del catálogo');
+      expect(box(title.parentElement).top).toBeGreaterThanOrEqual(box(title.parentElement.previousElementSibling).bottom);
+      expect(panel.element().textContent).not.toContain('Ofertas compartidas CM');
+      noSidewaysScroll();
+      await shot(`pubml-phone-promo-filter-competencia-${theme}`);
+    } finally {
+      usePromoFilterStore.getState().clear();
+      promocionesAPI.getCompetenciaCatalogo.mockReset();
+    }
+  });
 });
+

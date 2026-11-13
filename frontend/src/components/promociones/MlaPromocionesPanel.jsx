@@ -16,9 +16,6 @@ import {
 } from './applicablePromoTypes';
 import styles from './promociones.module.css';
 
-const NO_TYPES = [];
-const NO_NAMES = {};
-
 // A row older than this reads as stale (ML recalculates SMART/PRICE_MATCHING
 // candidates daily, so a day-old mirror row may no longer be ML's offer).
 const STALE_ROW_MS = 24 * 60 * 60 * 1000;
@@ -189,10 +186,6 @@ function CouponRow({ promo, mla }) {
  * `onPulled(mla, startedOn)` (optional) is called once a background pull ML
  * answered settles for this mount (not on a failed or abandoned one), with the
  * `promoPullGeneration` it started on.
- * `ignoreGlobalFilter` is for a host that is not a Productos tree (the
- * Publicaciones ML side panel): the shared type/name filter belongs to the
- * page whose filter bar sets it, and showing "Sin promos del tipo filtrado"
- * there, with no bar to clear it, would hide promotions with no way out.
  * `suggestedPromotionIds` (optional) are the promotions the host's "Hay candidatas mejores" block
  * suggests; their rows carry a "Sugerida" chip.
  * `sections` (the same host) splits them into Activa ahora, Disponibles para activar, Otras promociones and, last
@@ -204,7 +197,6 @@ function MlaPromocionesPanel({
   mla,
   promosCacheRef,
   pullOnOpen = true,
-  ignoreGlobalFilter = false,
   suggestedPromotionIds,
   sections = false,
   onApplied,
@@ -323,11 +315,10 @@ function MlaPromocionesPanel({
   useEffect(() => {
     onAppliedRef.current = onApplied;
   }, [onApplied]);
-  const storedTypes = usePromoFilterStore((state) => state.selectedTypes);
-  const storedNames = usePromoFilterStore((state) => state.selectedNames);
+  // The global type/name filter; every host renders its filter bar, so a filtered-out promotion has a way back.
   // Empty selections mean "show all" to `matchesPromoFilter`.
-  const selectedTypes = ignoreGlobalFilter ? NO_TYPES : storedTypes;
-  const selectedNames = ignoreGlobalFilter ? NO_NAMES : storedNames;
+  const selectedTypes = usePromoFilterStore((state) => state.selectedTypes);
+  const selectedNames = usePromoFilterStore((state) => state.selectedNames);
 
   const clearReloadTimers = useCallback(() => {
     reloadTimersRef.current.forEach((timerId) => clearTimeout(timerId));

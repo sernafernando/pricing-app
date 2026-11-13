@@ -87,4 +87,27 @@ describe('PromoFilterBar', () => {
     render(<PromoFilterBar />);
     expect(screen.getByRole('button', { name: /nombres \(3\)/i })).toBeInTheDocument();
   });
+
+  it('the "Nombres" modal also lists a chosen name no loaded promotion carries, so it can be unchecked', () => {
+    usePromoFilterStore.setState({ selectedTypes: [], selectedNames: { DEAL: ['2x1'] } });
+    const promosCacheRef = {
+      current: new Map([['MLA1', { status: 'ok', data: { promotions: [{ promotion_type: 'DEAL', name: '3x2' }] } }]]),
+    };
+    render(<PromoFilterBar promosCacheRef={promosCacheRef} />);
+    fireEvent.click(screen.getByRole('button', { name: /nombres/i }));
+    expect(screen.getByLabelText('3x2')).not.toBeChecked();
+    expect(screen.getByLabelText('2x1')).toBeChecked();
+    fireEvent.click(screen.getByLabelText('2x1'));
+    expect(usePromoFilterStore.getState().selectedNames).toEqual({});
+  });
+
+  it('shows its "Filtrar promos:" label in Productos, and none when the host already names the filter', () => {
+    const { unmount } = render(<PromoFilterBar />);
+    expect(screen.getByText('Filtrar promos:')).toBeInTheDocument();
+    unmount();
+    render(<PromoFilterBar showLabel={false} />);
+    expect(screen.queryByText('Filtrar promos:')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^smart$/i })).toBeInTheDocument();
+  });
 });
+
