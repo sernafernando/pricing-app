@@ -98,7 +98,30 @@ def test_each_option_carries_what_identifies_the_operation(client, gestor, prove
             "estado": "aprobado",
             "numero_factura": "A-0001-00001234",
             "fecha_factura": None,
+            "facturas": [],  # no invoice linked yet (sell in varias facturas S3)
         }
+    ]
+
+
+def test_an_option_lists_its_linked_invoices_oldest_first(client, gestor, proveedores, nuevo_pedido, db):
+    """Sell in varias facturas S3: a tactical invoice line may pick some of the operation's invoices; the picker lists
+    them with the readable ERP number (None here: no ERP mirror in this test database)."""
+    from app.models.pedido_compra_factura import PedidoCompraFactura
+
+    pedido = nuevo_pedido(proveedores[0])
+    db.add_all(
+        [
+            PedidoCompraFactura(pedido_id=pedido.id, ct_transaction_id=701, fecha_factura=date(2026, 10, 10)),
+            PedidoCompraFactura(pedido_id=pedido.id, ct_transaction_id=702, fecha_factura=None),
+        ]
+    )
+    db.flush()
+
+    [op] = client.get(URL, headers=gestor).json()["items"]
+
+    assert op["facturas"] == [
+        {"ct_transaction_id": 701, "numero": None, "fecha_factura": "2026-10-10"},
+        {"ct_transaction_id": 702, "numero": None, "fecha_factura": None},
     ]
 
 
