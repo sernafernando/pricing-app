@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
 import { MemoryRouter } from 'react-router-dom';
-import { setTheme } from './visualHelpers';
+import { setTheme, tokenColor } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
 import { promocionesAPI, publicacionesMlAPI } from '../../services/api';
 import { FACETS, ITEMS, ITEMS_RESPONSE, KPIS_RESPONSE_MARGIN, MARKUP_BREAKDOWN, makeDetail } from './publicacionesMlFixtures';
@@ -325,6 +325,13 @@ describe.each(['light', 'dark'])('Publicaciones ML at 390x844 (%s)', (theme) => 
     const footer = panel.element().querySelector('footer').getBoundingClientRect();
     expect(footer.bottom).toBeCloseTo(844, 0);
     expect(Math.min(pause.height, resync.height)).toBeGreaterThanOrEqual(44);
+    // Both in the quiet outline: no fill, a thin grey border, the secondary ink.
+    for (const name of ['Pausar', 'Resincronizar']) {
+      const style = getComputedStyle(panel.getByRole('button', { name }).element());
+      expect(style.backgroundColor, name).toBe('rgba(0, 0, 0, 0)');
+      expect(style.borderTopColor, name).toBe(tokenColor('--cf-border-default'));
+      expect(style.color, name).toBe(tokenColor('--cf-text-secondary'));
+    }
     await shot(`pubml-phone-detalle-${theme}`, panel.element());
   });
 

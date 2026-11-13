@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pause, Play } from 'lucide-react';
 import { publicacionesMlAPI } from '../../../services/api';
 import styles from './panel.module.css';
+import buttonStyles from '../toolbarButton.module.css';
 
 // What each current status offers: only an active publication is paused and only a paused one activated.
 const ACTIONS = {
@@ -78,7 +79,7 @@ export default function StatusAction({ detail, itemId, onChanged }) {
           </button>
           <button
             type="button"
-            className="btn-tesla outline sm"
+            className={`btn-tesla sm ${buttonStyles.quiet}`}
             onClick={() => setState({ status: 'idle', message: null })}
             disabled={state.status === 'sending'}
           >
@@ -86,7 +87,7 @@ export default function StatusAction({ detail, itemId, onChanged }) {
           </button>
         </div>
       ) : (
-        <button type="button" className="btn-tesla outline sm" onClick={() => setState({ status: 'confirming', message: null })}>
+        <button type="button" className={`btn-tesla sm ${buttonStyles.quiet}`} onClick={() => setState({ status: 'confirming', message: null })}>
           <Icon size={14} aria-hidden="true" />
           {action.label}
         </button>
