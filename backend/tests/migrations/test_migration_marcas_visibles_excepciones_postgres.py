@@ -119,4 +119,4 @@ class TestMigrationGraph:
         assert _REVISION in {rev.revision for rev in scripts.iterate_revisions(heads[0], "base")}
 
     def test_chains_on_the_head_of_main(self) -> None:
-        assert _script_directory().get_revision(_REVISION).down_revision == "20261113_equipo_miembro_preferencias_capa"
+        assert _script_directory().get_revision(_REVISION).down_revision == "compras_048_auto_vinculo_factura"

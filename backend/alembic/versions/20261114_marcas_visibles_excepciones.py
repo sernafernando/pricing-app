@@ -1,7 +1,7 @@
 """marcas_visibles_excepciones: brands kept visible without stock (Admin panel)
 
 Revision ID: 20261114_marcas_visibles_excepciones
-Revises: 20261113_equipo_miembro_preferencias_capa
+Revises: compras_048_auto_vinculo_factura
 Create Date: 2026-11-14
 
 A brand with no product in stock is hidden from every brand filter and selector
@@ -18,7 +18,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261114_marcas_visibles_excepciones"
-down_revision: Union[str, None] = "20261113_equipo_miembro_preferencias_capa"
+down_revision: Union[str, None] = "compras_048_auto_vinculo_factura"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
