@@ -39,8 +39,63 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  # Decides whether the backend jobs below are worth running. A pull request
+  # that changes NOTHING outside `frontend/` cannot break the backend, and the
+  # four backend jobs are the slow part of CI (~14 minutes), so on such a PR
+  # they are skipped. Everything else runs them exactly as before: any file
+  # outside `frontend/` (backend, `.github/`, root files, scripts, docs), every
+  # `push` to main and every `workflow_dispatch`.
+  #
+  # Job-level `if:` instead of a workflow `paths:` filter, deliberately. A job
+  # skipped by `if:` still reports a result ("skipped"), which branch
+  # protection counts as passing. A workflow filtered out by `paths:` reports
+  # nothing, and a required check would sit at "Expected" forever.
+  #
+  # Fail safe: `backend_needed` starts as `true` and only becomes `false` when
+  # the diff was computed and every changed path is under `frontend/`. If this
+  # job itself fails, its output is empty, and the backend jobs run (they test
+  # `!= 'false'`, not `== 'true'`).
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      backend_needed: ${{ steps.detect.outputs.backend_needed }}
+    steps:
+      # On `pull_request` this checks out `refs/pull/N/merge`, a merge commit
+      # whose first parent is the base branch tip. Depth 2 brings that parent,
+      # so `HEAD^1..HEAD` is exactly what merging the PR would change.
+      # `--no-renames` below lists both sides of a rename, so moving a file
+      # from `backend/` into `frontend/` still counts as a backend change.
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+
+      - name: Is any changed file outside frontend/?
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          needed=true
+          if [ "$EVENT_NAME" = "pull_request" ] \
+            && [ "$(git rev-list --parents -n 1 HEAD | wc -w)" = "3" ] \
+            && files="$(git diff --name-only --no-renames HEAD^1 HEAD)" \
+            && [ -n "$files" ]; then
+            echo "Changed files:"
+            echo "$files"
+            if ! printf '%s\n' "$files" | grep -qv '^frontend/'; then
+              needed=false
+            fi
+          fi
+          echo "backend_needed=$needed"
+          echo "backend_needed=$needed" >> "$GITHUB_OUTPUT"
+
   backend-lint:
     name: Backend Lint
+    needs: changes
+    # `!cancelled()` so a failed `changes` job still runs this one (fail safe).
+    if: ${{ !cancelled() && needs.changes.outputs.backend_needed != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -64,6 +119,9 @@ jobs:
 
   backend-smoke:
     name: Backend Tests
+    needs: changes
+    # `!cancelled()` so a failed `changes` job still runs this one (fail safe).
+    if: ${{ !cancelled() && needs.changes.outputs.backend_needed != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -123,6 +181,9 @@ jobs:
 
   backend-postgres:
     name: Backend Tests (Postgres)
+    needs: changes
+    # `!cancelled()` so a failed `changes` job still runs this one (fail safe).
+    if: ${{ !cancelled() && needs.changes.outputs.backend_needed != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -183,6 +244,9 @@ jobs:
 
   backend-postgres-volume:
     name: Backend Tests (Postgres volume)
+    needs: changes
+    # `!cancelled()` so a failed `changes` job still runs this one (fail safe).
+    if: ${{ !cancelled() && needs.changes.outputs.backend_needed != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
