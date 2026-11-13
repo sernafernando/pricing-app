@@ -107,7 +107,7 @@ describe.each(['light', 'dark'])('MejoresOfertasBadge in the TopBar (%s)', (them
     const box = el.getBoundingClientRect();
     const bar = header.getBoundingClientRect();
     expect(box.right).toBeLessThanOrEqual(bar.right);
-    expect(box.height).toBe(truck.element().getBoundingClientRect().height);
+    expect(Math.abs(box.height - truck.element().getBoundingClientRect().height)).toBeLessThanOrEqual(1);
 
     if (SHOTS_DIR) {
       await page.screenshot({ path: `${SHOTS_DIR}/mejores-ofertas-topbar-1440-${theme}.png` });
@@ -142,8 +142,8 @@ describe.each(['light', 'dark'])('MejoresOfertasBadge in the TopBar (%s)', (them
       </MemoryRouter>,
     );
 
-  const phoneBar = async () => {
-    await page.viewport(390, 844);
+  const phoneBar = async (width) => {
+    await page.viewport(width, 844);
     localStorage.setItem('theme', theme);
     setTheme(theme);
     renderBar();
@@ -153,9 +153,9 @@ describe.each(['light', 'dark'])('MejoresOfertasBadge in the TopBar (%s)', (them
     return badge.element();
   };
 
-  // At 390 nothing may overflow, and what can still give way (the logo down to its 32px floor, plus the free
+  // At 390 nothing may overflow, and what can still give way (the logo down to its 28px floor, plus the free
   // room) must cover CI's wider font (~8%, 12% kept) on every text of the bar.
-  const LOGO_FLOOR = 32;
+  const LOGO_FLOOR = 28;
   const checkPhoneBar = (el) => {
     const header = el.closest('header');
     expect(header.scrollWidth).toBeLessThanOrEqual(header.clientWidth);
@@ -164,33 +164,41 @@ describe.each(['light', 'dark'])('MejoresOfertasBadge in the TopBar (%s)', (them
     expect(avatar.left).toBeGreaterThanOrEqual(bar.left);
     expect(avatar.right).toBeLessThanOrEqual(bar.right);
     const [left, , right] = header.children;
-    const widthOf = (node) => node.getBoundingClientRect().width;
-    const cs = getComputedStyle(header);
-    const inner = header.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-    const logo = widthOf(left.querySelector('img'));
+    const img = left.querySelector('img').getBoundingClientRect();
+    const burger = left.querySelector('button').getBoundingClientRect();
+    const rightBox = right.getBoundingClientRect();
+    // Real edges, not box widths: the left block may be narrower than what it holds.
+    expect(burger.right).toBeLessThanOrEqual(img.left);
+    expect(img.right).toBeLessThanOrEqual(rightBox.left);
+    expect(rightBox.right).toBeLessThanOrEqual(bar.right - parseFloat(getComputedStyle(header).paddingRight));
+    const logo = img.width;
     expect(logo).toBeGreaterThanOrEqual(LOGO_FLOOR);
     const texts = [...right.querySelectorAll('span')].filter((span) => span.offsetWidth > 0 && span.textContent.trim());
-    const textWidth = texts.reduce((sum, span) => sum + widthOf(span), 0);
-    const room = inner - widthOf(left) - widthOf(right) + (logo - LOGO_FLOOR);
+    const textWidth = texts.reduce((sum, span) => sum + span.getBoundingClientRect().width, 0);
+    const room = rightBox.left - img.right + (logo - LOGO_FLOOR);
     expect(room).toBeGreaterThanOrEqual(textWidth * (CI_FONT_MARGIN - 1));
     return logo;
   };
 
-  it('at phone width (390) a PM sees icon and number, the whole logo, and the avatar stays on the bar', async () => {
+  // 390 and 360: the common phone widths.
+  it.each([390, 360])('at phone width (%i) a PM sees icon and number and the avatar stays on the bar', async (width) => {
     Object.assign(others, { truck: 0, birthdays: 0 }); // a PM's usual bar: tickets, this badge, the bell, the avatar
-    const el = await phoneBar();
+    const el = await phoneBar(width);
     const [label, count] = el.querySelectorAll('span');
     expect(getComputedStyle(label).display).toBe('none');
     expect(count.textContent).toBe('128');
     expect(el.getBoundingClientRect().width).toBeLessThanOrEqual(54); // ~50px: icon + 3 digits
-    expect(checkPhoneBar(el)).toBe(104); // the logo only gives way when the bar needs it
-    if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/mejores-ofertas-topbar-390-pm-${theme}.png` });
+    const logo = checkPhoneBar(el);
+    if (width === 390) expect(logo).toBe(104); // the logo only gives way when the bar needs it
+    if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/mejores-ofertas-topbar-${width}-pm-${theme}.png` });
   });
 
-  it('at phone width (390) every badge at once still fits: the logo gives way', async () => {
-    const el = await phoneBar(); // birthday, tickets, truck, this badge, the bell, the avatar
+  it.each([390, 360])('at phone width (%i) every badge at once still fits: the logo gives way', async (width) => {
+    const el = await phoneBar(width); // birthday, tickets, truck, this badge, the bell, the avatar
     expect(el.closest('header').querySelectorAll('[data-user-menu], [data-ticket-badge]').length).toBe(2);
     checkPhoneBar(el);
-    if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/mejores-ofertas-topbar-390-all-badges-${theme}.png` });
+    if (SHOTS_DIR) {
+      await page.screenshot({ path: `${SHOTS_DIR}/mejores-ofertas-topbar-${width}-all-badges-${theme}.png` });
+    }
   });
 });

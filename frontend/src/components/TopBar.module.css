@@ -407,7 +407,7 @@
   }
 }
 
-/* Small phones: the gaps tighten and the logo gives way (at most 104px, less only when the badges need the room)
+/* Small phones: the gaps tighten and the logo gives way (at most 104px, down to 28px only when the badges need the room)
    so every badge and the avatar stay on the bar. Wider screens are untouched. */
 @media (max-width: 480px) {
   .left,
@@ -424,7 +424,7 @@
   }
 
   .logoLink {
-    min-width: 32px;
+    min-width: 28px;
     flex-shrink: 1;
   }
 
@@ -432,5 +432,17 @@
     width: 100%;
     max-width: 104px;
     height: auto;
+  }
+}
+
+/* The narrowest phones (360-400px): a little less padding and gap, so every badge still fits */
+@media (max-width: 400px) {
+  .topbar {
+    padding: 0 12px;
+  }
+
+  .left,
+  .right {
+    gap: 6px;
   }
 }
