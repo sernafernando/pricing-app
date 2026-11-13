@@ -650,15 +650,22 @@ def product_links(name: str = "product_links") -> Any:
     `producto_propio_service.linked_skus` reads them by). A link names a product only in state `linked` (the table's
     CHECK), the state that gives the ERP stock (`erp_stock`). The Producto view and the `producto` / `sin_producto`
     filters read this, so a product's rows are what opening it lists."""
-    link, var = aliased(MlItemProductLink, name=f"{name}_l"), aliased(MlItemVariation, name=f"{name}_v")
+    link, var = _link_aliases(name)
+    return _live_links(link, var, link.item_id, link.producto_item_id).distinct().subquery(name)
+
+
+def _link_aliases(name: str) -> tuple[Any, Any]:
+    return aliased(MlItemProductLink, name=f"{name}_l"), aliased(MlItemVariation, name=f"{name}_v")
+
+
+def _live_links(link: Any, var: Any, *columns: Any) -> Select:
+    """`columns` of the links that name a product: the item-level link, or a live variation's (`product_links`)."""
     live = or_(link.variation_id == LINK_ITEM_LEVEL, and_(var.variation_id.isnot(None), var.gone_at.is_(None)))
     return (
-        select(link.item_id, link.producto_item_id)
+        select(*columns)
         .select_from(link)
         .outerjoin(var, and_(var.item_id == link.item_id, var.variation_id == link.variation_id))
         .where(link.producto_item_id.isnot(None), live)
-        .distinct()
-        .subquery(name)
     )
 
 
@@ -674,15 +681,21 @@ def primary_product() -> ColumnElement:
 def has_product(products: Any = None, *, outside: Optional[list[int]] = None) -> ColumnElement:
     """The row's publication is linked (`product_links`) to one of `products` (any product when None): a list of ids,
     or an uncorrelated select of them (`_matching_products`, resolved once per query, not per row), or, with
-    `outside`, to a product that is not one of those."""
-    pl = product_links("pl_filter")
-    found = select(1).select_from(pl).where(pl.c.item_id == T.i.item_id)
+    `outside`, to a product that is not one of those.
+
+    Read from the links themselves, not from the `DISTINCT` `product_links`: an `EXISTS` needs no `DISTINCT`, and
+    without it the test is a probe of `ml_item_product_links_pkey` by `item_id`. Over the `DISTINCT` subquery the
+    planner could not probe it: on a one-row page (`limit=1`, walked in the page's order) it compared every link
+    with every publication walked, and `sin_producto` hit the 8 s timeout."""
+    link, var = _link_aliases("pl_filter")
+    product = link.producto_item_id
+    found = _live_links(link, var, literal(1)).where(link.item_id == T.i.item_id)
     if isinstance(products, Select):
-        found = found.where(pl.c.producto_item_id.in_(products))
+        found = found.where(product.in_(products))
     elif products is not None:
-        found = found.where(pl.c.producto_item_id == any_(literal(products, ARRAY(Integer))))
+        found = found.where(product == any_(literal(products, ARRAY(Integer))))
     if outside is not None:
-        found = found.where(pl.c.producto_item_id != all_(literal(outside, ARRAY(Integer))))
+        found = found.where(product != all_(literal(outside, ARRAY(Integer))))
     return exists(found)
 
 
