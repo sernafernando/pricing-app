@@ -34,6 +34,9 @@ from tests.integration.test_ml_metricas_board_router import (  # noqa: F401 -- f
 )
 from datetime import date
 
+# Re-pinned once for marcas-sin-stock (hidden-brands rule, app.services.marcas_visibles): the `*-solo_false`
+# scenarios' `facets.product.marcas` lost DeWalt and Lenovo (zero stock, no sales in the fixture, no exception).
+# Nothing else in the golden changed.
 GOLDEN = Path(__file__).parent / "golden" / "board_off_responses.json"
 
 VIEWS = {

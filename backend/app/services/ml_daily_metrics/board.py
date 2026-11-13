@@ -283,8 +283,6 @@ MEMBER_COLUMNS = (
     "marca",
     "categoria",
     "subcategoria_id",
-    # The pair's units in the period: the brand options offer a brand without stock that sold (marcas-sin-stock).
-    "units",
 )
 MEMBER_STATS = ("store_id",)
 # The cursors whose completed passes keep the sales fresh (same as Ventas ML's
@@ -2967,9 +2965,11 @@ class Board:
         joined, fp = self._members(PRODUCT_AXIS, narrow=True)
         rows = product_combo_rows(self.db, select(fp.c.marca, fp.c.categoria, fp.c.subcategoria_id).select_from(joined))
         # Brands without stock are hidden unless excepted or, Métricas being a sales screen, sold in the period
-        # and filters being viewed: the brands of those same members with units in the period (ONE statement
-        # with the visibility rule).
-        sold = select(fp.c.marca).select_from(joined).where(fp.c.units > 0)
+        # and filters being viewed: the brands of those same members' pairs with units in the period, read from
+        # the materialized pair table inside the visibility statement (ONE statement; the member table and every
+        # row/totals statement stay as they were).
+        pairs = self.filtered_pairs(PRODUCT_AXIS if self._axis_active(PRODUCT_AXIS) else "")
+        sold = select(pairs.c.marca).where(pairs.c.units > 0, pairs.c.rk.in_(select(fp.c.rk)))
         f = self.f
         return product_facet_options(
             self.db,
