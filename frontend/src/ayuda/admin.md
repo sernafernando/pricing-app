@@ -25,6 +25,8 @@ En esta pestaña está la lista de marcas que se siguen mostrando aunque se qued
 
 En **Métricas ML**, **Métricas** y **Ventas ML** una marca sin stock también se muestra si vendió en el período y con los filtros que estás viendo.
 
+Una marca oculta por falta de stock puede seguir teniendo un PM asignado: **Gestión PMs** no la muestra y no la deja editar hasta que la agregues a esta lista o vuelva a tener stock. En **Markups Tienda** una marca sin stock que ya tiene un markup configurado se sigue mostrando.
+
 Se necesita el permiso **Administrar marcas sin stock visibles** (admin.marcas_visibles).
 
 ## Filtros y columnas

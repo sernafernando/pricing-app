@@ -17,6 +17,7 @@ from app.models.commercial_transaction import CommercialTransaction
 from app.models.item_transaction import ItemTransaction
 from app.models.marca_pm import MarcaPM
 from app.models.marca_visible_excepcion import MarcaVisibleExcepcion
+from app.models.markup_tienda import MarkupTiendaBrand
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.ml_venta_metrica import MLVentaMetrica
 from app.models.permiso import Permiso, RolPermisoBase
@@ -206,3 +207,18 @@ def test_consultas_ranking_facets(db, client, admin_auth_headers, rol_admin, cat
     assert _shown(resp.json()["marcas"]) == {"Epson", "Excepcion"}
     selected = client.get("/api/consultas/ranking/facets", params={"marca": "Agotada"}, headers=admin_auth_headers)
     assert _shown(selected.json()["marcas"]) == {"Epson", "Excepcion", "Agotada"}
+
+
+def test_markups_tienda_brands(db, client, admin_auth_headers, rol_admin, catalog) -> None:
+    """`/markups-tienda/brands` (SetupMarkups): a brand without stock is hidden, but one that already has a markup
+    configured stays listed so its configuration never disappears."""
+    _grant(db, rol_admin, "productos.gestionar_markups_tienda")
+    for n, marca in enumerate((*BRANDS, "ConMarkup")):
+        db.add(TBBrand(comp_id=1, brand_id=n + 1, brand_desc=marca))
+    db.add(MarkupTiendaBrand(comp_id=1, brand_id=len(BRANDS) + 1, brand_desc="ConMarkup", markup_porcentaje=10.0))
+    db.flush()
+    resp = client.get("/api/markups-tienda/brands", headers=admin_auth_headers)
+    assert resp.status_code == 200, resp.text
+    shown = {r["brand_desc"] for r in resp.json()}
+    assert "Agotada" not in shown
+    assert {"Epson", "Excepcion", "ConMarkup"} <= shown
