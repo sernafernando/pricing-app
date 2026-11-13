@@ -36,6 +36,16 @@ DEFAULT_TIMEOUT_S: Final[float] = 20.0
 MAX_FETCH_ROWS: Final[int] = 5000
 
 
+def _ct_date_sort_key(record: dict[str, Any]) -> datetime:
+    """Newest-first sort key; missing/unparseable dates sort last."""
+    parsed = parse_datetime(record.get("ct_date"))
+    if parsed is None:
+        return datetime.min.replace(tzinfo=UTC)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
 def _fetch_window(*, days: int, timeout_s: float) -> list[dict[str, Any]]:
     # Explicit UTC calendar day so the window does not depend on server local TZ.
     hoy = datetime.now(UTC).date()
@@ -46,8 +56,10 @@ def _fetch_window(*, days: int, timeout_s: float) -> list[dict[str, Any]]:
         "fromDate": fecha_desde.strftime("%Y-%m-%d %H:%M:%S"),
         "toDate": fecha_hasta.strftime("%Y-%m-%d %H:%M:%S"),
     }
-    # Timeout applies to the whole client lifetime (connect + read) for this call.
-    with httpx.Client(timeout=httpx.Timeout(timeout_s)) as client:
+    # Per-operation timeouts (connect + read), not one wall-clock budget for the
+    # whole client lifetime. Connect is capped so a dead host fails fast.
+    timeout = httpx.Timeout(timeout_s, connect=min(5.0, timeout_s))
+    with httpx.Client(timeout=timeout) as client:
         response = client.get(settings.GBP_PARSER_URL, params=params)
         response.raise_for_status()
         data = response.json()
@@ -57,11 +69,12 @@ def _fetch_window(*, days: int, timeout_s: float) -> list[dict[str, Any]]:
         return []
     if len(data) > MAX_FETCH_ROWS:
         logger.warning(
-            "ct_mirror_sync: truncating GBP payload %s → %s rows",
+            "ct_mirror_sync: truncating GBP payload %s → %s rows (keeping newest by ct_date)",
             len(data),
             MAX_FETCH_ROWS,
         )
-        return data[:MAX_FETCH_ROWS]
+        ranked = sorted(data, key=_ct_date_sort_key, reverse=True)
+        return ranked[:MAX_FETCH_ROWS]
     return data
 
 

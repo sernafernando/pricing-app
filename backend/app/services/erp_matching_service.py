@@ -460,29 +460,50 @@ def _resolver_auto_vinculo_tras_asignar(session: Session, pedido: PedidoCompra, 
 
     from app.models.pedido_factura_documento import PedidoFacturaDocumento  # noqa: PLC0415
 
-    docnumber = session.execute(
-        text(
-            """
-            SELECT ct_docnumber
-            FROM v_facturas_compra_vigentes
-            WHERE ct_transaction = :ct
-            LIMIT 1
-            """
-        ),
-        {"ct": int(ct_transaction)},
-    ).scalar()
+    ct = int(ct_transaction)
+    docnumber = None
+    # SAVEPOINT: a missing/broken view must not abort the outer assign txn
+    # (same pattern as #2264 `_ct_docnumbers_by_id`).
+    try:
+        with session.begin_nested():
+            docnumber = session.execute(
+                text(
+                    """
+                    SELECT ct_docnumber
+                    FROM v_facturas_compra_vigentes
+                    WHERE ct_transaction = :ct
+                    LIMIT 1
+                    """
+                ),
+                {"ct": ct},
+            ).scalar()
+    except Exception as exc:  # noqa: BLE001 — view absent in SQLite unit tests
+        logger.warning(
+            "auto_vinculo clear: vista lookup skipped ct=%s: %s",
+            ct,
+            exc,
+        )
     if not docnumber:
-        docnumber = session.execute(
-            text(
-                """
-                SELECT ct_docnumber
-                FROM tb_commercial_transactions
-                WHERE ct_transaction = :ct
-                LIMIT 1
-                """
-            ),
-            {"ct": int(ct_transaction)},
-        ).scalar()
+        try:
+            with session.begin_nested():
+                docnumber = session.execute(
+                    text(
+                        """
+                        SELECT ct_docnumber
+                        FROM tb_commercial_transactions
+                        WHERE ct_transaction = :ct
+                        LIMIT 1
+                        """
+                    ),
+                    {"ct": ct},
+                ).scalar()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "auto_vinculo clear: mirror lookup skipped ct=%s: %s",
+                ct,
+                exc,
+            )
+            return
     numero = str(docnumber or "").strip()
     if not numero or pedido.id is None:
         return
@@ -1171,12 +1192,13 @@ def _cancelar_ncs_locales_por_erp_cancelado(
     Para cada ct_transaction en cts_synced que sea una NC ERP cancelada,
     cancela la NC local vinculada (si existe y está en estado activo).
 
-    Estado terminales que NO se tocan: 'cancelado', 'aplicada', 'rechazado'.
+    Estados terminales que NO se tocan: 'cancelado', 'aplicada'.
     Estados que sí se cancelan: 'borrador', 'pendiente_aprobacion', 'aprobado',
-    'aplicada_parcial'.
+    'aplicada_parcial', 'rechazado' (vía cancelar_definitivo → cancelado).
 
     Para 'aprobado' y 'aplicada_parcial' se usa la acción 'cancelar_aprobado'
-    (que revierte imputaciones activas). Para los demás, 'cancelar'.
+    (que revierte imputaciones activas). Para 'rechazado', 'cancelar_definitivo'.
+    Para los demás activos, 'cancelar' / 'rechazar_cancelar'.
 
     NO commitea. Errores individuales se cuentan en resumen['errores'].
     """
@@ -1186,7 +1208,8 @@ def _cancelar_ncs_locales_por_erp_cancelado(
     from sqlalchemy.exc import SQLAlchemyError  # noqa: PLC0415
 
     # Mapa estado_origen → acción de cancelación válida según TRANSICIONES_VALIDAS.
-    # Estados terminales (cancelado, aplicada, rechazado) se omiten antes de llegar aquí.
+    # Terminales cancelado/aplicada se omiten antes de llegar aquí; rechazado
+    # still advances to cancelado when the ERP credit note was cancelled.
     _ACCION_CANCELAR: dict[str, str] = {
         "borrador": "cancelar",
         "pendiente_aprobacion": "rechazar_cancelar",

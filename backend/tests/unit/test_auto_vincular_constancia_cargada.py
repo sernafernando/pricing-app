@@ -400,8 +400,9 @@ def test_disparar_retries_sin_match_after_ct_appears(
         )
         fired = compras_alertas_service.disparar_alertas_factura_pendientes(db, ahora=ahora)
     assert fired == 0
-    # Retries-only sweep must not hammer GBP.
-    assert sync_calls == []
+    # Backoff-due retries still refresh the mirror (once), so a CT that
+    # landed after the first miss can match without waiting for the GUID cron.
+    assert sync_calls == [1]
     db.refresh(pedido)
     assert pedido.ct_transaction_id == 9200
     db.refresh(doc)
@@ -440,14 +441,17 @@ def test_disparar_skips_retry_inside_backoff_window(
     )
     db.flush()
 
+    sync_calls: list[int] = []
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(
             compras_alertas_service,
             "_sync_espejo_antes_autolink",
-            lambda *_a, **_k: None,
+            lambda *_a, **_k: sync_calls.append(1),
         )
         fired = compras_alertas_service.disparar_alertas_factura_pendientes(db, ahora=ahora)
     assert fired == 0
+    # Inside backoff: no due retries → no GBP sync.
+    assert sync_calls == []
     db.refresh(pedido)
     assert pedido.ct_transaction_id is None
     db.refresh(doc)

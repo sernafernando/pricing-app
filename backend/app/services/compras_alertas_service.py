@@ -218,11 +218,14 @@ def disparar_alertas_factura_pendientes(session: Session, *, ahora: datetime | N
         )
         .all()
     )
-    # Sync GBP only for fresh due alerts — not when the sweep is retries-only
-    # (wrong numero / permanent sin_match must not hammer the parser every minute).
-    if rows:
+    # Sync when there is work — due alerts and/or backoff-due retries.
+    # Backoff (6h) keeps retries from hammering GBP every minute; without a
+    # retry sync, a CT that landed after the first miss would stay stranded
+    # until the GUID cron or another due-alert sweep refreshed the mirror.
+    retries = _docs_auto_vinculo_pendientes(session, ahora=stamp)
+    if rows or retries:
         _sync_espejo_antes_autolink(session)
-        # Identity map expired after commit — reload due set.
+        # Identity map expired after commit — reload work sets.
         rows = (
             session.query(PedidoFacturaDocumento)
             .options(joinedload(PedidoFacturaDocumento.pedido).joinedload(PedidoCompra.proveedor))
@@ -234,7 +237,7 @@ def disparar_alertas_factura_pendientes(session: Session, *, ahora: datetime | N
             )
             .all()
         )
-    retries = _docs_auto_vinculo_pendientes(session, ahora=stamp)
+        retries = _docs_auto_vinculo_pendientes(session, ahora=stamp)
 
     from app.services import erp_matching_service  # noqa: PLC0415
 

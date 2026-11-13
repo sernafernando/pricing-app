@@ -49,8 +49,24 @@ def test_upsert_skips_rows_without_guid(db):
     assert db.query(CommercialTransaction).count() == 0
 
 
-def test_fetch_window_truncates_over_max_rows(monkeypatch):
-    oversized = [{"ct_transaction": i, "ct_guid": str(i)} for i in range(5001)]
+def test_fetch_window_truncates_keeping_newest_by_ct_date(monkeypatch):
+    # Oldest first in payload; after cap we must keep the newest dates.
+    oversized = [
+        {
+            "ct_transaction": i,
+            "ct_guid": str(i),
+            "ct_date": f"2026-11-{(i % 28) + 1:02d}T12:00:00",
+        }
+        for i in range(5001)
+    ]
+    # Force a clearly newest row at the end of the unsorted payload.
+    oversized.append(
+        {
+            "ct_transaction": 99999,
+            "ct_guid": "newest",
+            "ct_date": "2026-12-31T23:59:59",
+        }
+    )
 
     class _Resp:
         def raise_for_status(self):
@@ -61,7 +77,7 @@ def test_fetch_window_truncates_over_max_rows(monkeypatch):
 
     class _Client:
         def __init__(self, *a, **k):
-            pass
+            self.timeout = k.get("timeout")
 
         def __enter__(self):
             return self
@@ -72,6 +88,17 @@ def test_fetch_window_truncates_over_max_rows(monkeypatch):
         def get(self, *a, **k):
             return _Resp()
 
-    monkeypatch.setattr(ct_mirror_sync_service.httpx, "Client", _Client)
-    rows = ct_mirror_sync_service._fetch_window(days=2, timeout_s=1.0)
+    captured: dict = {}
+
+    def _client_factory(*a, **k):
+        client = _Client(*a, **k)
+        captured["timeout"] = k.get("timeout")
+        return client
+
+    monkeypatch.setattr(ct_mirror_sync_service.httpx, "Client", _client_factory)
+    rows = ct_mirror_sync_service._fetch_window(days=2, timeout_s=20.0)
     assert len(rows) == ct_mirror_sync_service.MAX_FETCH_ROWS
+    assert rows[0]["ct_transaction"] == 99999
+    assert captured["timeout"] is not None
+    assert float(captured["timeout"].connect) == 5.0
+    assert float(captured["timeout"].read) == 20.0
