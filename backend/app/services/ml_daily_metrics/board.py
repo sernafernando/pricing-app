@@ -147,6 +147,7 @@ from app.services.ml_publication_status_service import ML_PUBLICATION_STATUS_MAP
 from app.services.ml_publications.listing_kind import OTHER_RANK, listing_kind, listing_kind_from_type, listing_rank
 from app.services.ml_publications.view.filters import SearchFields, SearchTerm, item_skus, normalize_q, search_parts
 from app.services.ml_sales_query.filters import NO_STORE, SalesFilter, _resolve_pm_pairs, build_scope
+from app.services.marcas_visibles import brand_visibility
 from app.services.product_facets import (
     ProductFacetOptions,
     ProductSelection,
@@ -282,6 +283,8 @@ MEMBER_COLUMNS = (
     "marca",
     "categoria",
     "subcategoria_id",
+    # The pair's units in the period: the brand options offer a brand without stock that sold (marcas-sin-stock).
+    "units",
 )
 MEMBER_STATS = ("store_id",)
 # The cursors whose completed passes keep the sales fresh (same as Ventas ML's
@@ -2963,11 +2966,16 @@ class Board:
         materialized pairs; the rest is `product_facets`."""
         joined, fp = self._members(PRODUCT_AXIS, narrow=True)
         rows = product_combo_rows(self.db, select(fp.c.marca, fp.c.categoria, fp.c.subcategoria_id).select_from(joined))
+        # Brands without stock are hidden unless excepted or, Métricas being a sales screen, sold in the period
+        # and filters being viewed: the brands of those same members with units in the period.
+        sold = self.db.execute(select(fp.c.marca).select_from(joined).where(fp.c.units > 0).distinct()).scalars()
         f = self.f
         return product_facet_options(
             self.db,
             rows,
             ProductSelection(marcas=f.marcas, categorias=f.categorias, subcategorias=f.subcategorias, pms=f.pms),
+            visibility=brand_visibility(self.db),
+            sold_brands=list(sold),
         )
 
 

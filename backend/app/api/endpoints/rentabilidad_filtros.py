@@ -8,6 +8,8 @@ from app.models.ml_venta_metrica import MLVentaMetrica
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
 from app.api.endpoints.rentabilidad_shared import aplicar_filtro_marcas_pm, aplicar_filtro_tienda_oficial
+from app.services.marcas_visibles import filter_visible_brands
+
 
 router = APIRouter()
 
@@ -81,7 +83,8 @@ def obtener_filtros_disponibles(
     subcategorias_disponibles = subcat_query.distinct().order_by(MLVentaMetrica.subcategoria).all()
 
     return {
-        "marcas": [m[0] for m in marcas_disponibles if m[0]],
+        # Brands without stock and without an admin exception are not offered; a selected one stays.
+        "marcas": filter_visible_brands(db, [m[0] for m in marcas_disponibles if m[0]], keep=lista_marcas),
         "categorias": [c[0] for c in categorias_disponibles if c[0]],
         "subcategorias": [s[0] for s in subcategorias_disponibles if s[0]],
     }

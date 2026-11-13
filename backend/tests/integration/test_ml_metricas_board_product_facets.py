@@ -18,6 +18,7 @@ import pytest
 
 from app.models.comision_config import SubcategoriaGrupo
 from app.models.marca_pm import MarcaPM
+from app.models.marca_visible_excepcion import MarcaVisibleExcepcion
 from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
 from app.services.ml_daily_metrics import board
@@ -178,11 +179,31 @@ def test_the_other_board_filters_narrow_the_options_too(client, admin_auth_heade
         client, admin_auth_headers, date_from="2026-08-01", date_to="2026-08-10", solo_con_ventas="true"
     )
     assert _product(empty_period)["marcas"] == []
-    # Publications nobody sold in the period are in the universe unless the toggle hides them.
-    assert (
-        _product(_get(client, admin_auth_headers, date_from="2026-08-01", date_to="2026-08-10"))["marcas"]
-        == ALL["marcas"]
-    )
+    # Publications nobody sold in the period are in the universe unless the toggle hides them: their categories
+    # are offered. Their brands are not: none has stock nor sold in the period (marcas-sin-stock S2b).
+    unsold = _product(_get(client, admin_auth_headers, date_from="2026-08-01", date_to="2026-08-10"))
+    assert unsold["categorias"] == ALL["categorias"]
+    assert unsold["marcas"] == []
+
+
+def test_a_brand_without_stock_is_offered_only_while_it_sold_in_the_period(client, admin_auth_headers, catalog, db):
+    """marcas-sin-stock S2b, Métricas: no product of the catalog has stock. A brand that sold in the viewed period
+    is offered; with no sale in the period it is not, unless it has stock or an admin exception."""
+    assert _product(_get(client, admin_auth_headers))["marcas"] == ALL["marcas"]  # every brand sold on SOLD
+    empty = {"date_from": "2026-08-01", "date_to": "2026-08-10"}
+    assert _product(_get(client, admin_auth_headers, **empty))["marcas"] == []
+    db.query(ProductoERP).filter(ProductoERP.item_id == 23).update({"stock": 5})
+    db.add(MarcaVisibleExcepcion(marca="LOGITECH"))
+    db.commit()
+    assert _product(_get(client, admin_auth_headers, **empty))["marcas"] == ["HP", "Logitech"]
+
+
+def test_a_url_filter_on_a_hidden_brand_still_filters_the_rows_and_keeps_its_chip(client, admin_auth_headers, catalog):
+    """marcas-sin-stock S3: only the OPTIONS hide; a saved filter naming a hidden brand filters as before."""
+    body = _get(client, admin_auth_headers, date_from="2026-09-20", date_to="2026-09-20", marcas="HP")
+    assert {row["key"] for row in body["rows"]} == {"23"}
+    hidden = _get(client, admin_auth_headers, date_from="2026-08-01", date_to="2026-08-10", marcas="HP")
+    assert _product(hidden)["marcas"] == ["HP"]
 
 
 def test_the_options_follow_the_grouping_by_publication(client, admin_auth_headers, catalog):

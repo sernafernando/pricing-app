@@ -269,3 +269,19 @@ class TestCrossFilteredOptions:
         got = _product(body)
         assert got["marcas"] == ["Epson", "Logitech"]
         assert got["categorias"] == ["Insumos", "Perifericos"]
+
+
+class TestBrandsWithoutStock:
+    """marcas-sin-stock S2b, Ventas ML behaves like Métricas: no product of the catalog has stock. A brand that
+    sold in the viewed period and filters is offered; with no sale there it is not."""
+
+    def test_a_brand_without_stock_is_offered_only_while_it_sold_in_the_period(
+        self, client, admin_auth_headers, catalog
+    ):
+        assert (
+            _product(_get(client, admin_auth_headers, date_from="2026-09-01", date_to="2026-09-01"))["marcas"]
+            == ALL["marcas"]
+        )
+        assert _product(_get(client, admin_auth_headers, date_from="2026-08-01", date_to="2026-08-10"))["marcas"] == []
+        # Narrowed by the other filters too: only the brands sold in that store.
+        assert _product(_get(client, admin_auth_headers, stores=str(TPLINK)))["marcas"] == ["Epson", "Logitech"]

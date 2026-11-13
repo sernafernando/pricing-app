@@ -15,6 +15,8 @@ from typing import Any, Iterator
 
 import pytest
 
+from tests._marcas_visibles import MARCAS_VISIBLES_DDL
+
 FIXTURES_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "ml_publications"
 
 BULK_CAPTURE = "items_bulk_capture_20261006_015628.json"
@@ -78,6 +80,8 @@ def _create_publication_map(target, connection, **kwargs) -> None:
     # real tables carry a user foreign key, and these schemas have no `usuarios`: same columns, no foreign key.
     for ddl in BANLIST_DDL:
         connection.execute(text(ddl))
+    # Every brand option list reads the brands-without-stock exceptions (`app.services.marcas_visibles`).
+    connection.execute(text(MARCAS_VISIBLES_DDL))
 
 
 BANLIST_DDL = (

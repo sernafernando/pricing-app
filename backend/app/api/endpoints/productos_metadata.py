@@ -12,6 +12,7 @@ from app.core.database import get_db
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
+from app.services.marcas_visibles import filter_visible_brands
 from app.api.endpoints.productos_shared import (  # noqa: F401
     color_slot,
     filtro_colores,
@@ -163,7 +164,8 @@ def listar_marcas(
             return {"marcas": []}
 
     marcas = query.order_by(ProductoERP.marca).all()
-    return {"marcas": [m[0] for m in marcas if m[0]]}
+    # Brands without stock and without an admin exception are not offered (marcas-sin-stock).
+    return {"marcas": filter_visible_brands(db, [m[0] for m in marcas if m[0]])}
 
 
 @router.get("/subcategorias")

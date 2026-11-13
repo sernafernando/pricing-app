@@ -37,6 +37,7 @@ from app.api.deps import get_current_user, require_algun_permiso
 from app.core.database import get_db
 from app.models.usuario import Usuario
 from app.api.deps import exigir_combos_sincronizados
+from app.services.marcas_visibles import filter_visible_brands
 from app.services.combos.componentes import sql_no_es_combo
 from app.services.permisos_service import PermisosService
 from app.services.pm_scope import scope_exists_sql
@@ -1507,7 +1508,8 @@ async def get_ranking_facets(
             detail="Error al obtener los facets de ranking",
         ) from exc
 
-    marcas: list[str] = [row[0] for row in marcas_rows]
+    # Brands without stock and without an admin exception are not offered; the selected one stays.
+    marcas: list[str] = filter_visible_brands(db, [row[0] for row in marcas_rows], keep=[marca] if marca else ())
     categorias: list[str] = [row[0] for row in categorias_rows]
     pms: list[str] = [row[0] for row in pms_rows]
     depositos: list[DepositoFacet] = [

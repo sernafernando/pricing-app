@@ -11,6 +11,8 @@ import pytest
 from sqlalchemy import create_engine, inspect as sa_inspect, text
 from sqlalchemy.orm import sessionmaker
 
+from tests._marcas_visibles import MARCAS_VISIBLES_DDL
+
 PRODUCTOS_MIN_DDL = """
 CREATE TABLE productos_erp (
     item_id INTEGER PRIMARY KEY,
@@ -34,6 +36,8 @@ FACET_LOOKUPS_DDL = {
     "grupo_id INTEGER, nombre_subcategoria VARCHAR(200), cat_id VARCHAR(10), nombre_categoria VARCHAR(200), "
     "oculta BOOLEAN)",
     "usuarios": "CREATE TABLE usuarios (id SERIAL PRIMARY KEY, nombre VARCHAR(255), email VARCHAR(255))",
+    # The brand list drops brands without stock unless excepted (`app.services.marcas_visibles`).
+    "marcas_visibles_excepciones": MARCAS_VISIBLES_DDL,
 }
 
 

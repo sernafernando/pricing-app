@@ -1253,10 +1253,13 @@ class TestProductOptions:
 
     @pytest.fixture(autouse=True)
     def rows(self, conn) -> None:
-        seed.add_product(conn, 70, "A1", "Router", marca="TP-Link", categoria="Redes", subcategoria_id=10)
-        seed.add_product(conn, 71, "B1", "Camara", marca="Hikvision", categoria="Camaras", subcategoria_id=20)
-        seed.add_product(conn, 72, "C1", "Impresora", marca="Epson", categoria="Impresoras", subcategoria_id=30)
-        seed.add_product(conn, 73, "D1", "Camara IP", marca="TP-Link", categoria="Camaras", subcategoria_id=21)
+        # In stock: a brand without stock is not offered (marcas-sin-stock, see the test at the end).
+        seed.add_product(conn, 70, "A1", "Router", marca="TP-Link", categoria="Redes", subcategoria_id=10, stock=1)
+        seed.add_product(conn, 71, "B1", "Camara", marca="Hikvision", categoria="Camaras", subcategoria_id=20, stock=1)
+        seed.add_product(
+            conn, 72, "C1", "Impresora", marca="Epson", categoria="Impresoras", subcategoria_id=30, stock=1
+        )
+        seed.add_product(conn, 73, "D1", "Camara IP", marca="TP-Link", categoria="Camaras", subcategoria_id=21, stock=1)
         seed.add_item(conn, "MLA1", status="active", official_store_id=1)
         seed.add_item(conn, "MLA2", status="active", official_store_id=1)
         seed.add_item(conn, "MLA3", status="paused", official_store_id=1)
@@ -1319,7 +1322,19 @@ class TestProductOptions:
             self.options(db, estado="active", marcas="EPSON", subcategorias="99")
         finally:
             event.remove(engine, "before_cursor_execute", record)
-        assert len(statements) == 1
+        # The lists, plus the ONE grouped statement of the brand visibility rule (`app.services.marcas_visibles`).
+        assert len(statements) == 2
+
+    def test_a_brand_without_stock_is_not_offered_unless_excepted_or_selected(self, conn, db) -> None:
+        """marcas-sin-stock S2/S3: a brand whose products have no stock is not offered; an admin exception brings
+        it back; a URL that already selects it keeps it offered (its chip shows)."""
+        seed.add_product(conn, 75, "F1", "Mouse", marca="Agotada", categoria="Perifericos", subcategoria_id=40, stock=0)
+        seed.add_item(conn, "MLA6", status="active", official_store_id=1)
+        seed.add_link(conn, "MLA6", 75)
+        assert self.options(db)["marcas"] == ["Epson", "Hikvision", "TP-Link"]
+        assert self.options(db, marcas="AGOTADA")["marcas"] == ["Agotada", "Epson", "Hikvision", "TP-Link"]
+        conn.execute(text("INSERT INTO marcas_visibles_excepciones (marca) VALUES ('AGOTADA')"))
+        assert self.options(db)["marcas"] == ["Agotada", "Epson", "Hikvision", "TP-Link"]
 
 
 class TestSortKeys:

@@ -6,6 +6,7 @@ from sqlalchemy import func, tuple_
 from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional, Dict
+from app.services.marcas_visibles import filter_visible_brands
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.usuario import Usuario, RolUsuario
@@ -195,6 +196,9 @@ def listar_marcas_pm(
         raise HTTPException(403, "No tienes permisos")
 
     marcas = db.query(MarcaPM).options(joinedload(MarcaPM.usuario)).all()
+    # Brands without stock and without an admin exception are not offered (marcas-sin-stock): the admin
+    # keeps a brand assignable by adding it to the exception list.
+    marcas = filter_visible_brands(db, marcas, marca_of=lambda row: row.marca)
 
     resultado = []
     for marca in marcas:

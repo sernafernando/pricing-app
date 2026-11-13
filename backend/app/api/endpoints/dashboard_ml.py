@@ -522,6 +522,9 @@ def get_marcas_disponibles(
     # Aplicar filtro de PM por separado
     query = aplicar_filtro_marcas_pm(query, current_user, db, pm_ids)
 
+    # Brands without stock (`app.services.marcas_visibles`): a sales screen also offers a brand that sold in the
+    # period and filters being viewed, and these brands ARE the period's sales -- the visibility rule has nothing to
+    # drop here (no extra query).
     marcas = query.distinct().order_by(MLVentaMetrica.marca).all()
     return [m[0] for m in marcas]
 

@@ -8,6 +8,7 @@ from sqlalchemy import and_, or_, func
 from typing import Dict, List, Optional
 from pydantic import BaseModel, ConfigDict
 
+from app.services.marcas_visibles import filter_visible_brands
 from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.producto import ProductoERP
@@ -498,7 +499,8 @@ def get_marcas_sin_mla(db: Session = Depends(get_db), current_user: Usuario = De
         .all()
     )
 
-    return [{"marca": m[0]} for m in marcas if m[0]]
+    # Brands without stock and without an admin exception are not offered (marcas-sin-stock).
+    return [{"marca": m} for m in filter_visible_brands(db, [m[0] for m in marcas if m[0]])]
 
 
 # Mapeo de campañas ML a listas del sistema
