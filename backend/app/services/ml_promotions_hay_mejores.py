@@ -21,9 +21,11 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
+from app.core.sse import sse_publish_bg
 from app.models.ml_publications import MlItemSalePrice, MlItemSellerPromotions
 from app.services.ml_promotions_pricing import (
     MarkupsDePrecio,
@@ -39,6 +41,30 @@ from app.services.ml_publications.parsers.seller_promotions import STATUS_CANDID
 logger = get_logger(__name__)
 
 MejorTuple = Tuple[str, float]
+
+# The PMs' top-bar badge (`MejoresOfertasBadge`) re-reads its count on this channel.
+SSE_CHANNEL_MEJORES_OFERTAS = "ml-publications:mejores-ofertas"
+_CHANGED = "hay_mejores_changed"  # `Session.info` key: this transaction changed some flag
+_LISTENING = "hay_mejores_listening"  # `Session.info` key: the commit/rollback listeners are on this session
+
+
+def notify_hay_mejores_changed(db: Session) -> None:
+    """Signal the badge once this transaction commits: never before (the count would read the old flags) and never
+    on a rollback. Several changes in one transaction publish once. Best-effort, as every SSE signal."""
+    db.info[_CHANGED] = True
+    if not db.info.get(_LISTENING):
+        db.info[_LISTENING] = True
+        event.listen(db, "after_commit", _publish_if_changed)
+        event.listen(db, "after_rollback", _forget_change)
+
+
+def _publish_if_changed(db: Session) -> None:
+    if db.info.pop(_CHANGED, False):
+        sse_publish_bg(SSE_CHANNEL_MEJORES_OFERTAS, {"hint": "reload"})
+
+
+def _forget_change(db: Session) -> None:
+    db.info.pop(_CHANGED, None)
 
 
 @dataclass(frozen=True)
@@ -229,6 +255,8 @@ def actualizar_hay_mejores_ofertas(
             row.hay_mejores_descartado_fingerprint = decision.descartado_fingerprint
             if decision.hay_mejores and (not prev_flag or prev_fingerprint != decision.fingerprint):
                 _enqueue_catalog_competition_refresh(db, item_id)
+            if decision.hay_mejores != prev_flag:
+                notify_hay_mejores_changed(db)
             return decision
     except Exception as exc:
         logger.warning("hay_mejores: failed for %s: %s", item_id, exc)
@@ -260,6 +288,8 @@ def descartar_hay_mejores_ofertas(db: Session, item_id: str) -> bool:
     row = db.query(MlItemSellerPromotions).filter(MlItemSellerPromotions.item_id == item_id).one_or_none()
     if row is None:
         return False
+    if row.hay_mejores_ofertas:
+        notify_hay_mejores_changed(db)
     row.hay_mejores_ofertas = False
     if row.hay_mejores_fingerprint:
         row.hay_mejores_descartado_fingerprint = row.hay_mejores_fingerprint
@@ -271,6 +301,8 @@ def limpiar_hay_mejores_ofertas(db: Session, item_ids: Iterable[str]) -> None:
     if not ids:
         return
     rows = db.query(MlItemSellerPromotions).filter(MlItemSellerPromotions.item_id.in_(ids)).all()
+    if any(row.hay_mejores_ofertas for row in rows):
+        notify_hay_mejores_changed(db)
     for row in rows:
         row.hay_mejores_ofertas = False
         row.hay_mejores_fingerprint = None

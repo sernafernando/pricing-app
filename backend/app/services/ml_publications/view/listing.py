@@ -784,6 +784,12 @@ def _by_markup(sort: Sort, markup: Optional[MarkupQuery]) -> bool:
     return False
 
 
+def count_items(db: Session, f: PublicationFilter) -> int:
+    """The number of publications `f` keeps: the `total` of `list_items` (it counts through here), so a count read
+    elsewhere (the PMs' better-offers badge) always equals the total the listing shows for the same filter."""
+    return db.execute(build_base_select(resolve_pm_pairs(db, f), func.count())).scalar_one()
+
+
 def list_items(
     db: Session,
     f: PublicationFilter,
@@ -805,7 +811,7 @@ def list_items(
     f = resolve_pm_pairs(db, f)
     if _by_markup(sort, markup):
         return _list_by_markup(db, f, sort, limit, offset, events, markup, lines_db)
-    total = db.execute(build_base_select(f, func.count())).scalar_one()
+    total = count_items(db, f)
     if total == 0 or offset >= total:
         return ItemsPage([], total, None if markup is None else MarkupStats(0, {}, 0.0))
     if sort.figure_keys:  # Métricas figures (the markup's went through `_list_by_markup`)

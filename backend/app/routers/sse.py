@@ -31,6 +31,7 @@ VALID_CHANNELS = {
     "etiquetas:changed",
     "notificaciones:updated",
     "free-shipping:count",
+    "ml-publications:mejores-ofertas",
     "alertas:updated",
     "claims:updated",
     "shipments:webhook",
