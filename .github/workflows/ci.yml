@@ -55,12 +55,26 @@ jobs:
   # the diff was computed and every changed path is under `frontend/`. If this
   # job itself fails, its output is empty, and the backend jobs run (they test
   # `!= 'false'`, not `== 'true'`).
+  #
+  # Second rule, re-pushes of a PR: a group (backend or frontend) also skips
+  # when an earlier run of the SAME PR passed every job of that group and no
+  # file in the group's area changed since (step `incremental`). Fixing a
+  # frontend test no longer re-runs the ~14 minutes of backend. It only ADDS
+  # skips: the outputs are `false` when either rule says so. Fail safe the
+  # same way: an API error, a first run, a force-push or a rebase leaves the
+  # group running.
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # `actions: read` lists this PR's earlier runs and their jobs; `contents:
+    # read` for checkout and the compare API. Nothing else.
+    permissions:
+      actions: read
+      contents: read
     outputs:
-      backend_needed: ${{ steps.detect.outputs.backend_needed }}
+      backend_needed: ${{ (steps.detect.outputs.backend_needed == 'false' || steps.incremental.outputs.skip_backend == 'true') && 'false' || 'true' }}
+      frontend_needed: ${{ steps.incremental.outputs.skip_frontend == 'true' && 'false' || 'true' }}
     steps:
       # On `pull_request` this checks out `refs/pull/N/merge`, a merge commit
       # whose first parent is the base branch tip. Depth 2 brings that parent,
@@ -93,6 +107,28 @@ jobs:
           fi
           echo "backend_needed=$needed"
           echo "backend_needed=$needed" >> "$GITHUB_OUTPUT"
+
+      # Did an earlier run of this PR already pass a group whose area did not
+      # change since? The logic and its fail-safe rules live in the script,
+      # which also runs locally against real commits. `continue-on-error`: if
+      # the step dies, its outputs are empty and every group runs. The script
+      # prints `skip_*=false` unless it proved a skip, so `tee` into
+      # GITHUB_OUTPUT is the whole contract.
+      - name: Did an earlier run of this PR already pass a group?
+        id: incremental
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          # The PR head, NOT `github.sha` (the merge commit, new every run).
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          WORKFLOW_ID="$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .workflow_id)"
+          export WORKFLOW_ID
+          .github/scripts/ci-passed-groups.sh | tee -a "$GITHUB_OUTPUT"
 
   backend-lint:
     name: Backend Lint
@@ -308,6 +344,9 @@ jobs:
 
   frontend-lint:
     name: Frontend Lint
+    needs: changes
+    # `!cancelled()` so a failed `changes` job still runs this one (fail safe).
+    if: ${{ !cancelled() && needs.changes.outputs.frontend_needed != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -341,6 +380,9 @@ jobs:
 
   frontend-build:
     name: Frontend Build
+    needs: changes
+    # `!cancelled()` so a failed `changes` job still runs this one (fail safe).
+    if: ${{ !cancelled() && needs.changes.outputs.frontend_needed != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -368,6 +410,9 @@ jobs:
 
   frontend-test:
     name: Frontend Tests
+    needs: changes
+    # `!cancelled()` so a failed `changes` job still runs this one (fail safe).
+    if: ${{ !cancelled() && needs.changes.outputs.frontend_needed != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -395,6 +440,9 @@ jobs:
 
   frontend-visual:
     name: Frontend Visual Tests
+    needs: changes
+    # `!cancelled()` so a failed `changes` job still runs this one (fail safe).
+    if: ${{ !cancelled() && needs.changes.outputs.frontend_needed != 'false' }}
     runs-on: ubuntu-latest
     # The visual suite itself runs in ~6s. Everything else here is setup, and
     # the apt step below is the one that has hung for hours (see `env`).
