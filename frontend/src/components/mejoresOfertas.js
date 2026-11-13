@@ -5,8 +5,12 @@ export const PERMISO_MEJORES_OFERTAS_PMS = 'alertas.ver_mejores_ofertas_pms';
 
 export const MEJORES_OFERTAS_CHANNEL = 'ml-publications:mejores-ofertas';
 
-/** A PM's Publicaciones ML page with the badge's filters (the badge's count is that page's total). */
-export const mejoresOfertasPath = (pmId) => `/ml-publicaciones?estado=active&hay_mejores_ofertas=1&pms=${pmId}`;
+/**
+ * A PM's Publicaciones ML page with the badge's filters (the badge's count is that page's total). `tiendaId` is the
+ * main store the backend limits the count to (its `tienda_id`), so the page lists exactly what was counted.
+ */
+export const mejoresOfertasPath = (pmId, tiendaId) =>
+  `/ml-publicaciones?estado=active&hay_mejores_ofertas=1&pms=${pmId}&tiendas=${tiendaId}`;
 
 /** The owner's sentence, singular for one as the top bar badges pluralize their counts. */
 export const mejoresOfertasText = (count) =>

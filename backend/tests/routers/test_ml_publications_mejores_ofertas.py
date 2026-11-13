@@ -1,6 +1,7 @@
 """`GET /api/ml-publications/view/mejores-ofertas/count`: the top-bar badge that tells each PM how many of THEIR active
 publications have better offers. Its count is the Publicaciones ML listing's own total for
-`estado=active&hay_mejores_ofertas=1&pms=<the PM's user id>` (the page the badge links to), never a query of its own.
+`estado=active&hay_mejores_ofertas=1&pms=<the PM's user id>&tiendas=<main store>` (the page the badge links to), never a
+query of its own. Only the main store counts: other stores' publications (e.g. TP-Link's) take no promos.
 """
 
 from __future__ import annotations
@@ -14,6 +15,9 @@ from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
 
 pytestmark = pytest.mark.postgres
+
+MAIN_STORE = 57997
+OTHER_STORE = 2645
 
 URL = "/api/ml-publications/view/mejores-ofertas/count"
 ITEMS = "/api/ml-publications/view/items"
@@ -39,21 +43,29 @@ def _fill(pm_id: int, other_pm_id: int):
         )
         seed.add_product(conn, 70, "A1", "Router", marca="TP-Link", categoria="Redes")
         seed.add_product(conn, 80, "B1", "Parlante", marca="Xiaomi", categoria="Audio")
-        # The PM's: active + better offers (counted), active without, paused with
-        for item_id, status, better in (("MLA1", "active", True), ("MLA2", "active", False), ("MLA3", "paused", True)):
-            seed.add_item(conn, item_id, status=status)
+        # The PM's: active + better offers (counted), active without, paused with, and active with better offers
+        # in another store (promos do not apply there: never counted)
+        for item_id, status, better, store in (
+            ("MLA1", "active", True, MAIN_STORE),
+            ("MLA2", "active", False, MAIN_STORE),
+            ("MLA3", "paused", True, MAIN_STORE),
+            ("MLA6", "active", True, OTHER_STORE),
+        ):
+            seed.add_item(conn, item_id, status=status, official_store_id=store)
             seed.add_link(conn, item_id, 70)
             _offers(conn, item_id, better)
         # Another PM's active publication with better offers: never the logged-in PM's count
-        seed.add_item(conn, "MLA4", status="active")
+        seed.add_item(conn, "MLA4", status="active", official_store_id=MAIN_STORE)
         seed.add_link(conn, "MLA4", 80)
         _offers(conn, "MLA4", True)
 
     return fill
 
 
-def _linked_total(client, headers, pm_id: int) -> int:
+def _linked_total(client, headers, pm_id: int, tiendas: str | None = str(MAIN_STORE)) -> int:
     params = {"estado": "active", "hay_mejores_ofertas": "1", "pms": str(pm_id)}
+    if tiendas is not None:
+        params["tiendas"] = tiendas
     response = client.get(ITEMS, headers=headers, params=params)
     assert response.status_code == 200, response.text
     return response.json()["total"]
@@ -70,7 +82,7 @@ class TestMejoresOfertasCount:
         seed_rows(pg, _fill(admin_user.id + 100, admin_user.id + 200))
         response = client.get(URL, headers=reader)
         assert response.status_code == 200, response.text
-        assert response.json() == {"pm_id": None, "count": 0}
+        assert response.json() == {"pm_id": None, "count": 0, "tienda_id": MAIN_STORE}
 
     def test_a_pm_counts_only_their_active_publications_with_better_offers(
         self,
@@ -82,12 +94,27 @@ class TestMejoresOfertasCount:
         seed_rows(pg, _fill(admin_user.id, admin_user.id + 100))
         response = client.get(URL, headers=reader)
         assert response.status_code == 200, response.text
-        assert response.json() == {"pm_id": admin_user.id, "count": 1}
+        assert response.json() == {"pm_id": admin_user.id, "count": 1, "tienda_id": MAIN_STORE}
 
     def test_the_count_equals_the_linked_listing_total(self, client, pg, reader, admin_user) -> None:  # noqa: F811
         seed_rows(pg, _fill(admin_user.id, admin_user.id + 100))
+        body = client.get(URL, headers=reader).json()
+        assert body["count"] == _linked_total(client, reader, admin_user.id, str(body["tienda_id"])) == 1
+
+    def test_another_stores_publication_is_out_of_the_count_and_the_linked_list(
+        self,
+        client,
+        pg,  # noqa: F811
+        reader,  # noqa: F811
+        admin_user,
+    ) -> None:
+        seed_rows(pg, _fill(admin_user.id, admin_user.id + 100))
         count = client.get(URL, headers=reader).json()["count"]
-        assert count == _linked_total(client, reader, admin_user.id) == 1
+        params = {"estado": "active", "hay_mejores_ofertas": "1", "pms": str(admin_user.id), "tiendas": str(MAIN_STORE)}
+        listed = [row["item_id"] for row in client.get(ITEMS, headers=reader, params=params).json()["items"]]
+        assert count == len(listed) == 1
+        assert "MLA6" not in listed
+        assert _linked_total(client, reader, admin_user.id, tiendas=None) == 2  # without the store, MLA6 shows up
 
     def test_productos_ver_alone_also_reads_the_count(
         self,
@@ -101,7 +128,11 @@ class TestMejoresOfertasCount:
         grant(db, rol_ventas, "productos.ver")
         seed_rows(pg, _fill(active_user.id, active_user.id + 100))
         body = client.get(URL, headers=auth_headers).json()
-        assert body == {"pm_id": active_user.id, "count": _linked_total(client, auth_headers, active_user.id)}
+        assert body == {
+            "pm_id": active_user.id,
+            "count": _linked_total(client, auth_headers, active_user.id),
+            "tienda_id": MAIN_STORE,
+        }
 
 
 POR_PM = "/api/ml-publications/view/mejores-ofertas/por-pm"
@@ -114,7 +145,7 @@ def _fill_two_pms(first_pm: int, second_pm: int, inactive_pm: int):
 
     def fill(conn) -> None:
         _fill(first_pm, second_pm)(conn)
-        seed.add_item(conn, "MLA5", status="active")
+        seed.add_item(conn, "MLA5", status="active", official_store_id=MAIN_STORE)
         seed.add_link(conn, "MLA5", 80)
         _offers(conn, "MLA5", True)
         conn.execute(
@@ -187,6 +218,7 @@ class TestMejoresOfertasPorPm:
                 {"pm_id": admin_user.id, "nombre": "Admin User", "count": 1},
             ],
             "total": 3,
+            "tienda_id": MAIN_STORE,
         }
 
     def test_each_count_is_that_pms_own_count_and_listing_total(

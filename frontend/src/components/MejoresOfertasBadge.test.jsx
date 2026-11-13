@@ -44,10 +44,10 @@ afterEach(() => {
 
 describe('MejoresOfertasBadge', () => {
   it("shows the owner's sentence with the count and links to the PM's filtered page", async () => {
-    api.get.mockResolvedValue({ data: { pm_id: 17, count: 5 } });
+    api.get.mockResolvedValue({ data: { pm_id: 17, count: 5, tienda_id: 57997 } });
     renderBadge();
     const link = await screen.findByRole('link', { name: 'tenés 5 promos mejores para revisar' });
-    expect(link).toHaveAttribute('href', '/ml-publicaciones?estado=active&hay_mejores_ofertas=1&pms=17');
+    expect(link).toHaveAttribute('href', '/ml-publicaciones?estado=active&hay_mejores_ofertas=1&pms=17&tiendas=57997');
     expect(link).toHaveTextContent('tenés 5 promos mejores para revisar');
     expect(api.get).toHaveBeenCalledWith(URL);
   });

@@ -35,7 +35,7 @@ vi.mock('../../hooks/useWeather', () => ({ useWeather: () => ({ weather: null })
 vi.mock('../../services/api', async (importOriginal) => {
   const original = await importOriginal();
   const answers = {
-    '/ml-publications/view/mejores-ofertas/count': { pm_id: 17, count: 128 },
+    '/ml-publications/view/mejores-ofertas/count': { pm_id: 17, count: 128, tienda_id: 57997 },
     '/ml-metricas/board': { kpis: { gross: { value: 187654321.5 } } },
     '/notificaciones/agrupadas?solo_no_leidas=false': [],
     '/notificaciones/stats': { total: 3, no_leidas: 3 },
@@ -82,7 +82,7 @@ describe.each(['light', 'dark'])('MejoresOfertasBadge in the TopBar (%s)', (them
     );
     const badge = page.getByRole('link', { name: 'tenés 128 promos mejores para revisar' });
     await expect.element(badge).toBeVisible();
-    await expect.element(badge).toHaveAttribute('href', '/ml-publicaciones?estado=active&hay_mejores_ofertas=1&pms=17');
+    await expect.element(badge).toHaveAttribute('href', '/ml-publicaciones?estado=active&hay_mejores_ofertas=1&pms=17&tiendas=57997');
     const truck = page.getByTitle(/^34 publicaci/); // the free-shipping truck beside it
     await expect.element(truck).toBeVisible();
 

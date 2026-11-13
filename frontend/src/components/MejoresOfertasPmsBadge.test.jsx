@@ -32,6 +32,7 @@ const BODY = {
     { pm_id: 9, nombre: 'Juan Pereyra', count: 0 },
   ],
   total: 16,
+  tienda_id: 57997,
 };
 
 const renderBadge = () =>
@@ -63,9 +64,9 @@ describe('MejoresOfertasPmsBadge', () => {
     const links = screen.getAllByRole('link');
     expect(links.map((link) => link.textContent)).toEqual(['Carolina Lépore12', 'Ramiro Echeverría4', 'Juan Pereyra0']);
     expect(links.map((link) => link.getAttribute('href'))).toEqual([
-      '/ml-publicaciones?estado=active&hay_mejores_ofertas=1&pms=17',
-      '/ml-publicaciones?estado=active&hay_mejores_ofertas=1&pms=3',
-      '/ml-publicaciones?estado=active&hay_mejores_ofertas=1&pms=9',
+      '/ml-publicaciones?estado=active&hay_mejores_ofertas=1&pms=17&tiendas=57997',
+      '/ml-publicaciones?estado=active&hay_mejores_ofertas=1&pms=3&tiendas=57997',
+      '/ml-publicaciones?estado=active&hay_mejores_ofertas=1&pms=9&tiendas=57997',
     ]);
   });
 
