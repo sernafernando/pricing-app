@@ -1,0 +1,131 @@
+/* MejoresOfertasPmsBadge - every PM's better offers, for whoever reviews the PMs */
+
+.wrapper {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  height: 34px;
+  background: var(--tone-success-bg);
+  border: 1px solid var(--tone-success-border);
+  border-radius: 8px;
+  color: var(--tone-success-fg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--duration-150) var(--ease-in-out);
+}
+
+.badge:hover {
+  border-color: var(--tone-success-fg);
+  transform: translateY(-1px);
+}
+
+.badge:focus-visible {
+  outline: 2px solid var(--tone-success-fg);
+  outline-offset: 2px;
+}
+
+.icon {
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.count {
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: var(--z-popover);
+  /* As wide as the longest PM name (one line each), within the cap; the narrow wrapper never squeezes it to 240 */
+  width: max-content;
+  min-width: 240px;
+  max-width: min(320px, calc(100vw - 32px));
+  max-height: min(420px, calc(100vh - 96px));
+  overflow-y: auto;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: 8px;
+  box-shadow: var(--cf-shadow-modal);
+  padding: 8px;
+}
+
+.header {
+  padding: 4px 8px 8px;
+  font-size: 12px;
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-secondary);
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--cf-text-primary);
+  text-decoration: none;
+}
+
+.row:hover,
+.row:focus-visible {
+  background: var(--cf-bg-hover);
+}
+
+.rowZero {
+  color: var(--cf-text-secondary);
+}
+
+.rowName {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.rowCount {
+  font-size: 13px;
+  font-weight: var(--font-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 768px) {
+  .badge {
+    gap: 3px;
+    padding: 6px 4px;
+  }
+
+  .icon {
+    width: 16px;
+    height: 16px;
+  }
+}
+
+/* Small phones: hidden (owner, option a). A desktop review tool; the PM's own badge stays, and every badge plus
+   the avatar keep fitting the bar */
+@media (max-width: 480px) {
+  .wrapper {
+    display: none;
+  }
+}
