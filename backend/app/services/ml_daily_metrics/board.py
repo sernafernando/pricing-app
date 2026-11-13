@@ -1038,7 +1038,18 @@ class Board:
         titles = self._small(select(M.mlp_publicationID).where(M.mlp_publicationID.isnot(None), own).distinct())
         if titles is None:
             return []
-        mlas = sorted({*titles, *exact})
+        # The pair filter reads the SKUs from `ml_items` by MLA, mirrored or not: an MLA only there must be read too.
+        item = MlItem.__table__
+        listed = SearchFields(
+            item_id=item.c.item_id,
+            title=item.c.title,
+            skus=item_skus(item.c.item_id),
+            item_in=self._mla_in(item.c.item_id),
+        )
+        skus = self._small(select(item.c.item_id).where(search_parts(term, P, listed)[0]).distinct())
+        if skus is None:
+            return []
+        mlas = sorted({*titles, *skus, *exact})
         return [
             lambda item, cost: item.item_id.in_(mlas),
             lambda item, cost: cost.producto_item_id.in_(products),

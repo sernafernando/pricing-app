@@ -32,6 +32,7 @@
   "5e83f8362ed730b5 SAVEPOINT sa_savepoint_3",
   "28b2b935e12839b6 SELECT DISTINCT productos_erp.item_id FROM productos_erp WHERE product",
   "bbb44be964196f58 SELECT DISTINCT tb_mercadolibre_items_publicados.mlp_publicationid FRO",
+  "d592f71663394e33 SELECT DISTINCT ml_items.item_id FROM ml_items WHERE ml_items.title IL",
   "64bec8f1ce3d06b5 CREATE TEMPORARY TABLE board_touched_groups ON COMMIT DROP AS SELECT C",
   "85301c7b3d1fad4c ANALYZE board_touched_groups (group_key)",
   "3a4450f68f933c67 CREATE TEMPORARY TABLE board_lines ON COMMIT DROP AS SELECT lines.prod",

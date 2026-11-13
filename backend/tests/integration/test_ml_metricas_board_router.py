@@ -538,6 +538,21 @@ class TestFilters:
     def test_the_search_has_publicaciones_ml_operators(self, client, admin_auth_headers, board_data, q, keys):
         assert set(_by_key(_get(client, admin_auth_headers, q=q))) == keys
 
+    def test_a_sku_search_reads_the_sales_of_an_mla_listed_only_in_ml_items(
+        self, db, client, admin_auth_headers, board_data
+    ):
+        """The pair filter finds the SKU in `ml_items` by MLA; the bounded read must keep that MLA's sales even when
+        the ERP mirror has no row for it."""
+        from app.models.ml_publications import MlItem
+
+        db.add(MlItem(item_id="MLA77", seller_sku="XYZ-777"))
+        _day(db, 13, "MLA77", date(2026, 9, 15), 2, "300", "30", "200")
+        db.commit()
+
+        rows = _by_key(_get(client, admin_auth_headers, q="XYZ-777"))
+        assert set(rows) == {"13"}
+        assert rows["13"]["units"] == 2
+
     def test_the_search_narrows_the_totals_and_the_facets_too(self, client, admin_auth_headers, board_data):
         body = _get(client, admin_auth_headers, q="marca:epson")
         assert body["total"] == 1
