@@ -175,3 +175,26 @@ describe('useProductosData — request-generation desync guard', () => {
     expect(result.current.stats?.total_productos).toBe(18);
   });
 });
+
+describe('useProductosData — selected brands hidden from the option list (marcas-sin-stock S3)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    productosAPI.listar.mockResolvedValue({ data: { productos: [], total: 0 } });
+    productosAPI.statsDinamicos.mockResolvedValue({ data: {} });
+    productosAPI.marcas.mockResolvedValue({ data: { marcas: ['HP', 'TP-LINK'] } });
+  });
+
+  it('keeps a selected brand the server no longer lists, and adds no other brand', async () => {
+    const props = makeStableProps();
+    props.filters = { ...EMPTY_FILTERS, marcasSeleccionadas: ['OCULTA', 'hp'] };
+    const { result } = renderHook(() => useProductosData(props));
+
+    await waitFor(() => expect(result.current.marcas).toEqual(['HP', 'TP-LINK', 'OCULTA']));
+  });
+
+  it('offers exactly the server list when nothing hidden is selected', async () => {
+    const { result } = renderHook(() => useProductosData(makeStableProps()));
+
+    await waitFor(() => expect(result.current.marcas).toEqual(['HP', 'TP-LINK']));
+  });
+});

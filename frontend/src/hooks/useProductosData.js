@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { productosAPI } from '../services/api';
 import api from '../services/api';
+import { withSelectedBrands } from '../utils/brandOptions';
 
 /**
  * Owns all data state for the Productos page:
@@ -286,13 +287,16 @@ export function useProductosData({
     cargarDatosPorPM();
   }, [pmsSeleccionados]);
 
+  // The server hides brands without stock; a selected one (URL, saved filter) must stay listed so it can be unticked.
+  const marcasOfrecidas = useMemo(() => withSelectedBrands(marcas, marcasSeleccionadas), [marcas, marcasSeleccionadas]);
+
   return {
     productos,
     setProductos,
     loading,
     stats,
     totalProductos,
-    marcas,
+    marcas: marcasOfrecidas,
     subcategorias,
     pms,
     marcasPorPM,

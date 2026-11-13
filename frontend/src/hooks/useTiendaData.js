@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import api, { productosAPI } from '../services/api';
+import { withSelectedBrands } from '../utils/brandOptions';
 
 /**
  * Custom hook para manejar TODA la carga de datos de la vista Tienda.
@@ -290,6 +291,12 @@ export function useTiendaData({
     filters.filtrosAuditoria,
   ]);
 
+  // The server hides brands without stock; a selected one (URL, saved filter) must stay listed so it can be unticked.
+  const marcasOfrecidas = useMemo(
+    () => withSelectedBrands(marcas, filters.marcasSeleccionadas),
+    [marcas, filters.marcasSeleccionadas],
+  );
+
   return {
     // Productos
     productos,
@@ -301,7 +308,7 @@ export function useTiendaData({
     stats,
 
     // Filter options (loaded from API)
-    marcas,
+    marcas: marcasOfrecidas,
     subcategorias,
     usuarios,
     tiposAccion,
