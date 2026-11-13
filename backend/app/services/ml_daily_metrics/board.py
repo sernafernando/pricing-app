@@ -80,9 +80,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 from sqlalchemy import (
+    ARRAY,
     Date,
     Numeric,
     String,
@@ -144,6 +145,7 @@ from app.services.ml_daily_metrics.sales import (
 from app.services.ml_orders_ingestion.mode_resolution import modo_logistico_expr
 from app.services.ml_publication_status_service import ML_PUBLICATION_STATUS_MAP
 from app.services.ml_publications.listing_kind import OTHER_RANK, listing_kind, listing_kind_from_type, listing_rank
+from app.services.ml_publications.view.filters import SearchFields, SearchTerm, item_skus, normalize_q, search_parts
 from app.services.ml_sales_query.filters import NO_STORE, SalesFilter, _resolve_pm_pairs, build_scope
 from app.services.product_facets import (
     ProductFacetOptions,
@@ -331,7 +333,9 @@ class BoardFilter:
     categorias: Tuple[str, ...] = ()
     subcategorias: Tuple[int, ...] = ()
     pms: Tuple[int, ...] = ()
-    q: Optional[str] = None
+    # The search box, with Publicaciones ML's operators (`normalize_q`): text is parsed on construction. A `promo:`
+    # term carries the MLAs the router resolved (`mlas`); unresolved it matches nothing, as there.
+    q: Optional[Union[str, SearchTerm]] = None
     pub_status: Tuple[str, ...] = ()
     pub_type: Tuple[str, ...] = ()
     # Exclusion mirrors inclusion ("hide these"): a pair is dropped when it
@@ -382,6 +386,8 @@ class BoardFilter:
     sell_in_out: bool = False
 
     def __post_init__(self) -> None:
+        if isinstance(self.q, str):
+            object.__setattr__(self, "q", normalize_q(self.q))
         if self.restar_todo and not self.restar_publicidad:
             raise ValueError("restar_todo is the third position of restar_publicidad: it needs the toggle on")
         if self.costos_tp and not self.tp_store_ids:
@@ -1003,37 +1009,64 @@ class Board:
         return None if len(values) > PUSHDOWN_MAX_IDS else values
 
     def _text_predicates(self) -> List[LinePredicate]:
-        """The sold lines the search text could keep, as alternatives (any one
-        keeps the group): lines of an MLA whose id or title matches, or of a
-        product whose description, code or brand matches. Matched loosely --
-        ANY publication row of the MLA, not just the newest -- so the result is
-        a superset and the exact pair filter still runs afterwards. `[]` when
-        there is no text or it is too broad to bound the read."""
-        needle = (self.f.q or "").strip().lower()
-        if not needle:
+        """The sold lines the search could keep, as alternatives (any one
+        keeps the group): lines of an MLA whose own fields match (any
+        publication row of the MLA, not just the newest), or of a product whose
+        own fields match -- the very `search_parts` the pair filter runs, so the
+        result is a superset and that exact filter still runs afterwards. `[]`
+        when there is no search or it is too broad to bound the read."""
+        term = self.f.q
+        if term is None:
             return []
-
-        def has(col: Any) -> Any:
-            return func.lower(func.coalesce(col, "")).contains(needle, autoescape=True)
-
-        # Cheapest first, and stop at the first one too broad to bound the read:
-        # the sold items are the only lookup that scans a big table (~30 ms).
-        products = self._small(select(P.item_id).where(or_(has(P.descripcion), has(P.codigo), has(P.marca))).distinct())
+        exact = [term.value] if term.kind == "item_id" else [f"MLA{term.value}"] if term.kind == "digits" else []
+        if term.kind in ("item_id", "promo"):  # no product side, and the MLAs are known
+            mlas = exact or sorted(term.mlas or ())
+            if len(mlas) > PUSHDOWN_MAX_IDS:
+                return []
+            return [lambda item, cost: item.item_id.in_(mlas)]
+        mirror = SearchFields(
+            item_id=M.mlp_publicationID,
+            title=M.mlp_itemTitle,
+            skus=item_skus(M.mlp_publicationID),
+            item_in=self._mla_in(M.mlp_publicationID),
+        )
+        own, product = search_parts(term, P, mirror)
+        # Cheapest first, and stop at the first one too broad to bound the read.
+        products = self._small(select(P.item_id).where(product).distinct())
         if products is None:
             return []
-        titles = self._small(
-            select(M.mlp_publicationID).where(M.mlp_publicationID.isnot(None), has(M.mlp_itemTitle)).distinct()
-        )
+        titles = self._small(select(M.mlp_publicationID).where(M.mlp_publicationID.isnot(None), own).distinct())
         if titles is None:
             return []
-        ids = self._small(select(MlOrderItemOps.item_id).where(has(MlOrderItemOps.item_id)).distinct())
-        if ids is None:
+        # The pair filter reads the SKUs from `ml_items` by MLA, mirrored or not: an MLA only there must be read too.
+        item = MlItem.__table__
+        listed = SearchFields(
+            item_id=item.c.item_id,
+            title=item.c.title,
+            skus=item_skus(item.c.item_id),
+            item_in=self._mla_in(item.c.item_id),
+        )
+        skus = self._small(select(item.c.item_id).where(search_parts(term, P, listed)[0]).distinct())
+        if skus is None:
             return []
-        mlas = sorted({*titles, *ids})
+        mlas = sorted({*titles, *skus, *exact})
         return [
             lambda item, cost: item.item_id.in_(mlas),
             lambda item, cost: cost.producto_item_id.in_(products),
         ]
+
+    def _mla_in(self, column: Any) -> Any:
+        """`SearchFields.item_in` on an MLA `column`: one array parameter on Postgres (a promotion can hold thousands
+        of MLAs), a plain IN on SQLite."""
+
+        def item_in(mlas: frozenset) -> Any:
+            if not mlas:
+                return false()
+            if self.sqlite:
+                return column.in_(sorted(mlas))
+            return column == any_(literal(sorted(mlas), ARRAY(String)))
+
+        return item_in
 
     def _line_predicates(self) -> Optional[List[LinePredicate]]:
         """The sold lines any filter that applies to EVERY chip count could
@@ -1745,16 +1778,12 @@ class Board:
                 if self.pm_pairs
                 else false()
             )
-        if f.q:
-            needle = f.q.strip().lower()
-            conditions.append(
-                or_(
-                    *(
-                        func.lower(func.coalesce(col, "")).contains(needle, autoescape=True)
-                        for col in (t.c.mla, t.c.pub_title, t.c.descripcion, t.c.codigo, t.c.marca)
-                    )
-                )
+        if f.q is not None:
+            # Publicaciones ML's search (`search_parts`) on the pair: its MLA, its title and SKUs, and its product.
+            fields = SearchFields(
+                item_id=t.c.mla, title=t.c.pub_title, skus=item_skus(t.c.mla), item_in=self._mla_in(t.c.mla)
             )
+            conditions.append(or_(*search_parts(f.q, t.c, fields)))
         if self.product_item_id is not None:
             conditions.append(t.c.product == self.product_item_id)
         if self._in_scope:

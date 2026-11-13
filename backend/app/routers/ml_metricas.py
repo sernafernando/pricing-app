@@ -32,13 +32,22 @@ from typing import Annotated, Callable, Dict, List, NamedTuple, Optional, Sequen
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.core.exceptions import api_error
 from app.core.database import get_background_db, get_db
 from app.models.usuario import Usuario
 from app.services.ml_sales_query.params import parse_csv_ids, parse_csv_stores, parse_csv_strings
 from app.services.ml_daily_metrics import board, groups
+from app.services.ml_publications.view.filters import FilterError, normalize_q
+from app.services.ml_promotions_service import (
+    KNOWN_PROMOTION_TYPES,
+    fetch_mlas_by_promo_name,
+    fetch_mlas_with_active_promo_type,
+)
+from app.services.promo_filter_resolver import resolve_promo_term
 from app.services.ml_daily_metrics.kpi_strip import (
     MAX_BOARD_DATE,
     MAX_PERIOD_DAYS,
@@ -82,6 +91,8 @@ TP_SOLO_DENY_KEYS = frozenset({"total_gauss", "sell_in_out"})
 TP_SOLO_DENY_CSV = frozenset({"Total Gauss", *SELL_CSV_HEADER})
 
 logger = logging.getLogger(__name__)
+# The code Publicaciones ML answers when the promotions database cannot resolve a `promo:` search.
+PROMO_SEARCH_UNAVAILABLE = "filtro_no_disponible"
 
 router = APIRouter(prefix="/ml-metricas", tags=["ML Métricas"])
 
@@ -295,7 +306,11 @@ def board_filter(
     categorias: Optional[str] = Query(default=None, description="CSV de categorías (productos_erp.categoria)"),
     subcategorias: Optional[str] = Query(default=None),
     pms: Optional[str] = Query(default=None),
-    q: Optional[str] = Query(default=None, description="Producto, SKU, marca, MLA o título"),
+    q: Optional[str] = Query(
+        default=None,
+        description="Título, MLA, SKU/EAN o producto, con los operadores de Publicaciones ML "
+        "(mla:, ean:, codigo:, marca:, desc:, promo:, *final, inicio*)",
+    ),
     pub_status: Optional[str] = Query(default=None, description="CSV: " + ", ".join(board.PUB_STATUSES)),
     pub_type: Optional[str] = Query(default=None, description="CSV: " + ", ".join(board.PUB_TYPES)),
     pub_status_exclude: Optional[str] = Query(
@@ -372,6 +387,25 @@ def board_filter(
     ageing_in = _parse_choices(ageing, "ageing", board.AGEING_BUCKETS)
     ageing_out = _parse_choices(ageing_exclude, "ageing_exclude", board.AGEING_BUCKETS)
     _no_overlap(ageing_in, ageing_out, "ageing")
+    try:
+        search = normalize_q(q)
+    except FilterError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        # Publicaciones ML's `promo:`: the same shared resolver, injected with this module's readers (patchable here)
+        search = resolve_promo_term(
+            search,
+            by_type=fetch_mlas_with_active_promo_type,
+            by_name=fetch_mlas_by_promo_name,
+            known_types=KNOWN_PROMOTION_TYPES,
+        )
+    except (RuntimeError, SQLAlchemyError) as exc:
+        logger.warning("Operador promo: no disponible en Métricas ML: %s", exc)
+        raise api_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            PROMO_SEARCH_UNAVAILABLE,
+            "Búsqueda por promoción no disponible temporalmente",
+        ) from exc
     return board.BoardFilter(
         date_from=desde,
         date_to=hasta,
@@ -383,7 +417,8 @@ def board_filter(
         categorias=parse_csv_strings(categorias, "categorias"),
         subcategorias=parse_csv_ids(subcategorias, "subcategorias"),
         pms=parse_csv_ids(pms, "pms"),
-        q=q.strip() if q and q.strip() else None,
+        # Publicaciones ML's search: its operators (`normalize_q`) and its `promo:` resolver (503 when down)
+        q=search,
         pub_status=pub_status_in,
         pub_type=pub_type_in,
         pub_status_exclude=pub_status_out,

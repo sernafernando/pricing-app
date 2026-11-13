@@ -247,7 +247,7 @@ describe('paging, sorting and search at every level', () => {
     await openTree();
     await openBranch();
 
-    await userEvent.type(screen.getByPlaceholderText(/Buscar por producto/), 'notebook');
+    await userEvent.type(screen.getByPlaceholderText(/Buscar título, MLA, SKU\/EAN o producto/), 'notebook');
 
     await waitFor(() => expect(lastBoardParams()).toMatchObject({ q: 'notebook' }));
     await waitFor(() => expect(screen.queryByText('Laser')).not.toBeInTheDocument());
