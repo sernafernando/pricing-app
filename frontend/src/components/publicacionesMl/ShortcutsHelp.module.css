@@ -12,7 +12,7 @@
 
 .group {
   break-inside: avoid;
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: var(--space-5);
 }
 
 .heading {
@@ -23,14 +23,19 @@
   color: var(--cf-text-secondary);
 }
 
-/* One grid per group: the keycaps share one column, so every description starts on the same line. Up to 11rem, so
-   pairs like Ctrl+F1 o Ctrl+Shift+1 stay on one line in a wider font too. */
+/* One grid per group: the keycaps share one column, so every description starts on the same line. */
 .list {
   display: grid;
-  grid-template-columns: fit-content(11rem) 1fr;
+  grid-template-columns: fit-content(10rem) 1fr;
   column-gap: var(--spacing-md);
   row-gap: var(--space-2);
   margin: 0;
+}
+
+/* Groups whose descriptions are short keep each key pair on one line, whatever the font: under a cap, a wider font
+   (CI's DejaVu) wraps Ctrl+F1 o Ctrl+Shift+1 and the group grows a line per row. */
+.list.unbroken {
+  grid-template-columns: max-content 1fr;
 }
 
 .entry {
