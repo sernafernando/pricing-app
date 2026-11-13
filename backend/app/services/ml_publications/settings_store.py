@@ -133,6 +133,7 @@ SETTING_DEFS: Dict[str, _Def] = {
         "ML_PUB_CATALOG_COMPETITION_REFRESH_RATE_PER_MIN", _int_between(1, 120)
     ),
     "bulk_max_ids": _Def("ML_PUB_BULK_MAX_IDS", _int_between(1, 20)),
+    "refresh.runners": _Def("ML_PUB_REFRESH_RUNNERS", _int_between(1, 8)),
     "low_lane_min_share": _Def("ML_PUB_LOW_LANE_MIN_SHARE", _positive_number(1)),
     "view.ads_formula": _Def("ML_PUB_VIEW_ADS_FORMULA", _ads_formula),
 }

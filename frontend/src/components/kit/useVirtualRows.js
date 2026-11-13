@@ -4,8 +4,8 @@
  * row is its own `<tbody>` (the row and its sub-rows, measured together through `measureElement`, so a row of any
  * height or an expanded one keeps its place) between two spacers `before` / `after` px high.
  *
- * The scroller is `scrollerRef`'s element (TableShell owns a bounded one). Without it the page itself scrolls (the
- * board has no scroller of its own): then `listRef` is the table, whose distance from the top of the page is the
+ * The scroller is `scrollerRef`'s element (TableShell and Métricas ML's board own a bounded one). Without it the
+ * page itself scrolls (unit mounts): then `listRef` is the table, whose distance from the top of the page is the
  * virtualizer's scroll margin.
  *
  * `onEndReached` is called when the last rows come into view (the last rendered row within `OVERSCAN` of the end),

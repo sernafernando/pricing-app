@@ -175,6 +175,8 @@ export default function MetricasML() {
   // A `tplink.solo` user has the profit view without it (backend `_viewer`), so it gets the toggle too.
   const puedeVerGanancia = tpSolo || tienePermiso('ml_metricas.ver_ganancia');
   const latestRequestRef = useRef(0);
+  // Bounded table scroller (sticky headers + "Todos" virtualization), same role as TableShell's scroller.
+  const tableScrollerRef = useRef(null);
   const [searchParams, setSearchParams] = useSearchParams();
   // The view a link describes (period, grouping, filters, sort; `defaultView` where it says nothing): the URL then
   // follows the state, so a reload keeps the view and a filtered view can be shared (U1).
@@ -1074,7 +1076,7 @@ export default function MetricasML() {
       {adsOn && kpiVisible('ads') && <AdsKpiBlock ads={ads} />}
 
       <section className={styles.tableCard} aria-label={`Tablero de ${noun}`} aria-busy={loading}>
-        <div className={styles.tableScroll} data-table-scroll>
+        <div ref={tableScrollerRef} className={styles.tableScroll} data-table-scroll>
           <BoardTable
             rows={rows}
             columns={visibleColumns}
@@ -1089,6 +1091,7 @@ export default function MetricasML() {
             dense={dense}
             virtualizeFrom={allRows ? VIRTUALIZE_FROM : undefined}
             onEndReached={allRows ? loadMoreRows : undefined}
+            scrollerRef={tableScrollerRef}
           />
         </div>
         {allRows && moreError && (

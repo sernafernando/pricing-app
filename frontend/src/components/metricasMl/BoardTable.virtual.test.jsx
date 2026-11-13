@@ -1,6 +1,7 @@
 /**
  * Métricas ML's "Todos" (filas-sin-limite S3): past `virtualizeFrom` rows the board renders only the rows in view,
- * with the same virtualization as Publicaciones ML's TableShell (`kit/useVirtualRows`), scrolled by the page itself.
+ * with the same virtualization as Publicaciones ML's TableShell (`kit/useVirtualRows`). With `scrollerRef` the card
+ * owns the scroll; without it (these unit mounts) the page itself scrolls.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -57,11 +58,17 @@ function renderBoard(rows, props = {}) {
 }
 
 describe('BoardTable virtualization', () => {
-  it('past virtualizeFrom rows only the rows in view are in the DOM, scrolled by the page (window)', () => {
+  it('past virtualizeFrom rows only the rows in view are in the DOM, scrolled by the page (window) without scrollerRef', () => {
     renderBoard(rowsOf(300), { virtualizeFrom: 100 });
     expect(screen.getByText('Producto 20')).toBeInTheDocument();
     expect(screen.queryByText('Producto 21')).not.toBeInTheDocument();
     expect(view.options.getScrollElement()).toBe(window);
+  });
+
+  it('with scrollerRef, virtualization scrolls that element (TableShell model)', () => {
+    const scrollerRef = { current: document.createElement('div') };
+    renderBoard(rowsOf(300), { virtualizeFrom: 100, scrollerRef });
+    expect(view.options.getScrollElement()).toBe(scrollerRef.current);
   });
 
   it('up to virtualizeFrom rows, or without it, every row renders as before', () => {

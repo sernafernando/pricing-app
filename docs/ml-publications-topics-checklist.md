@@ -282,6 +282,34 @@ Rollback: remove `replenishment` from `bundle_resources` (no deploy; the sweep s
 are dropped uncharged); nothing already stored is deleted. The migration `20261011_ml_user_product_replenishment`
 downgrades by dropping its table.
 
+## Refresh throughput: batch runners and calls in flight
+
+The refresh handler spends the whole ML budget (`rate_per_sec`, prod 10/s) while `ml_pub_refresh_queue` has
+claimable work (ml-freshness S1a; before it, one batch at a time and one resource phase at a time left the budget
+idle half the time):
+
+- `refresh.runners` (`ml_pub_settings`, int 1..8, env default `ML_PUB_REFRESH_RUNNERS` = 3; no deploy to change
+  it): batch runners, each its own claim -> process -> settle loop over the SKIP LOCKED claim, so no two runners
+  ever hold one entry. A runner whose claim comes back full starts another one, so a short queue keeps one runner.
+  The setting is re-read at every batch boundary; lowering it retires the extra runners there. All the runners share
+  the one pacer, so the total rate stays `rate_per_sec`. A 429, a bad token or a stop seen by one runner ends the
+  run for all of them, releasing their claims uncharged.
+- A batch submits all its sub-resource calls at once, in fetch order (every entry's prices, sale price, promotions
+  and competition before any description or family), and stores the answers in that order. No resource waits for
+  the previous one to finish; a run cut short still leaves the slow data pending, never the fast data stored before
+  it.
+- `ML_PUB_MAX_IN_FLIGHT` (env only, default 20, max 20): ML calls in flight at once for all the runners together,
+  sized as rate x worst-case latency (10/s x 2 s = 20), so a few slow calls never starve the others. It bounds the
+  sub-resource calls; each runner's core `/items/bulk` call runs on the runner itself (still paced), so up to
+  `ML_PUB_MAX_IN_FLIGHT` + `refresh.runners` HTTP calls can be in flight at once (23 with the defaults).
+- Database: each runner holds at most one short session at a time and never across an ML call; the call threads
+  open none (only the short ml-webhook token read). Worst case for `pricing-worker-ml`: 8 runners + the runtime
+  pass + `ml_orders.discounts` + the heartbeat = 11 pooled main-database sessions at once (6 with the default 3
+  runners), below its pool of 25 (`pool_size` 15 + `max_overflow` 10), plus the runtime's one direct LISTEN
+  connection; the ml-webhook pool is capped at 4 (2 + 2).
+
+Rollback: `refresh.runners = 1` (no deploy) gives one batch at a time again.
+
 ## Missed feeds and sweeps
 
 Two more jobs of the `pricing-worker-ml` worker, each behind its own flag (default off, independent of each other

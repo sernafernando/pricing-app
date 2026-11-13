@@ -4,8 +4,9 @@
  *
  * Asserts the layout promises the approved design (`tablero.png`) and the
  * feature doc make, at the two widths operators use, in both themes:
- * - the table scrolls sideways INSIDE its card, never the page;
- * - the Producto column stays pinned while it does;
+ * - the table scrolls on BOTH axes INSIDE its card (TableShell model), never the page sideways;
+ * - the header stays pinned at the top of that scroller while rows move;
+ * - the Producto column stays pinned while it scrolls sideways;
  * - money never wraps ("$" never alone on a line), and neither do the
  *   "vs anterior" chip or "Mín / Máx 90D";
  * - nothing pokes out of its cell.
@@ -23,6 +24,7 @@ import MetricasML from '../../pages/MetricasML';
 import api from '../../services/api';
 import {
   BOARD_RESPONSE,
+  BOARD_ROWS,
   EPSON_GROUP_PRODUCTS,
   EPSON_PUBLICATIONS,
   epsonNodesFor,
@@ -259,6 +261,10 @@ describe('Métricas ML board (visual)', () => {
         expect(wrapped(table.querySelectorAll('td[data-col-id="markup_delta"] > span'))).toEqual([]);
         expect(wrapped(table.querySelectorAll('td[data-col-id="markup_range"] > span'))).toEqual([]);
 
+        // Bounded scroller on both axes (Publicaciones ML / TableShell model).
+        expect(getComputedStyle(scroller).overflowY).toBe('auto');
+        expect(getComputedStyle(scroller).overflowX).toBe('auto');
+
         // Scroll the table all the way right: Producto stays where it was,
         // and the Sell-in columns come into view.
         const firstCell = table.querySelector('tbody td[data-col-id="producto"]');
@@ -280,6 +286,69 @@ describe('Métricas ML board (visual)', () => {
       });
     }
   }
+});
+
+describe('Métricas ML sticky headers (visual)', () => {
+  // Enough rows for the card scroller to move vertically (TableShell / Publicaciones model).
+  const tallBoard = {
+    ...BOARD_RESPONSE,
+    total: 40,
+    rows: Array.from({ length: 40 }, (_, i) => ({
+      ...BOARD_ROWS[0],
+      key: String(1000 + i),
+      product_item_id: 1000 + i,
+      title: `Producto sticky ${i}`,
+      sku: `STK-${i}`,
+    })),
+  };
+
+  beforeEach(() => {
+    api.get.mockReset();
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-metricas/board') return Promise.resolve({ data: tallBoard });
+      return Promise.resolve(routeGet(url));
+    });
+  });
+
+  it('1366x768 light: header and Producto stay pinned while the card scrolls both axes', async () => {
+    await page.viewport(1366, 768);
+    setTheme('light');
+    document.body.style.background = 'var(--cf-bg-app)';
+    const screen = await render(
+      <Shell>
+        <MetricasML />
+      </Shell>,
+    );
+    await expect.element(screen.getByText('Producto sticky 0').first()).toBeVisible();
+    const scroller = document.querySelector('[data-table-scroll]');
+    expect(scroller.scrollHeight).toBeGreaterThan(scroller.clientHeight);
+
+    scroller.scrollIntoView({ block: 'start' });
+    scroller.scrollTop = 280;
+    scroller.scrollLeft = 160;
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    const box = scroller.getBoundingClientRect();
+    const groupCell = scroller.querySelector('thead tr:first-child th');
+    const leafCell = scroller.querySelector('thead tr:last-child th');
+    expect(Math.abs(groupCell.getBoundingClientRect().top - box.top)).toBeLessThanOrEqual(2);
+    expect(Math.abs(leafCell.getBoundingClientRect().top - groupCell.getBoundingClientRect().bottom)).toBeLessThanOrEqual(1);
+
+    const pinned = [...scroller.querySelectorAll('tbody td[data-col-id="producto"]')].find(
+      (td) =>
+        td.getBoundingClientRect().top >= leafCell.getBoundingClientRect().bottom - 0.5 &&
+        td.getBoundingClientRect().bottom <= box.bottom,
+    );
+    expect(pinned).toBeTruthy();
+    expect(Math.abs(pinned.getBoundingClientRect().left - box.left)).toBeLessThanOrEqual(2);
+
+    const probeY = Math.min(leafCell.getBoundingClientRect().bottom + 3, box.bottom - 2);
+    const probe = document.elementFromPoint(box.left + Math.min(box.width / 2, 200), probeY);
+    expect(probe).toBeTruthy();
+    expect(scroller.querySelector('thead').contains(probe)).toBe(false);
+    expect(probe.closest('tbody')).not.toBeNull();
+    screen.unmount();
+  });
 });
 
 describe('Métricas ML "Agrupado" view (visual)', () => {

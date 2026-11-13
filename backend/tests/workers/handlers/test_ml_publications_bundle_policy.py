@@ -391,7 +391,10 @@ class TestFastDataFirst:
 
     OTHER = "MLA934406852"
 
-    def test_every_entry_gets_its_prices_before_any_description(self, env) -> None:
+    def test_every_entry_gets_its_prices_before_any_description(self, env, monkeypatch) -> None:
+        # The calls start in this order; one call thread makes them reach ML in it too (with several, two calls
+        # started a few microseconds apart may race to the transport).
+        monkeypatch.setattr(settings, "ML_PUB_MAX_IN_FLIGHT", 1)
         enable_refresh(bundle_resources=["core", "description", "prices"])
         enqueue_items(ITEM, self.OTHER, resources=WITH_DESCRIPTION)
         transport = ScriptedTransport(responder_with())
@@ -506,9 +509,10 @@ class TestCounters:
 
 
 class TestConcurrentCalls:
-    """ml-sync-pipeline S3 (owner: "pero por qué hacemos las llamadas en serie?"): the entries' calls of one resource
-    are in flight together, at most `ML_PUB_MAX_IN_FLIGHT`, under the shared pacer; each answer is still stored in
-    its own short session, and the next resource starts only when this one is done (fast data first, S2)."""
+    """ml-sync-pipeline S3 (owner: "pero por qué hacemos las llamadas en serie?"): the entries' calls are in flight
+    together, at most `ML_PUB_MAX_IN_FLIGHT`, under the shared pacer; each answer is still stored in its own short
+    session. Since ml-freshness S1a no resource waits for the previous one to finish: every call of a batch is
+    submitted at once in `bundle.FETCH_ORDER` (fast data first, S2) and stored in that order."""
 
     # A third live item: the real capture of ITEM with one field changed, its id.
     CLONE = "MLA900000001"
@@ -547,9 +551,7 @@ class TestConcurrentCalls:
             assert sub_row(env, "ml_item_prices", item)["http_status"] == 200, item
             assert queue_row(env, item) is None, item
 
-    def test_a_stopping_worker_ends_the_run_before_the_next_resource_releasing_it_uncharged(
-        self, env, monkeypatch
-    ) -> None:
+    def test_a_stopping_worker_stores_nothing_more_and_releases_the_rest_uncharged(self, env, monkeypatch) -> None:
         enable_refresh(bundle_resources=["core", "description", "prices"])
         enqueue_items(ITEM, resources=WITH_DESCRIPTION)
         stopping = threading.Event()
@@ -571,7 +573,8 @@ class TestConcurrentCalls:
         result = make_handler(transport).run(ctx)
 
         assert result.detail["stopped"] == "stopping"
-        assert not any(path.endswith("/description") for path in paths(transport))
+        assert sub_row(env, "ml_item_prices")["http_status"] == 200
+        assert sub_row(env, "ml_item_descriptions") is None  # answered or not, never stored after the stop
         queued = queue_row(env, ITEM)
         assert (queued["attempts"], queued["claimed_at"], queued["resources"]) == (0, None, ["description"])
 

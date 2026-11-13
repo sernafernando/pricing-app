@@ -231,8 +231,15 @@ class Settings(BaseSettings):
     ML_PUB_STOCK_RATE_PER_MIN: int = Field(default=60, ge=1, le=100)
     # Sub-budget of the replenishment sweep (weekly data, no topic), on top of the global rate.
     ML_PUB_REPLENISHMENT_RATE_PER_MIN: int = Field(default=30, ge=1, le=100)
-    # Refresh: calls of one resource in flight together for a batch's entries (all still paced by the rate above).
-    ML_PUB_MAX_IN_FLIGHT: int = Field(default=8, ge=1, le=20)
+    # Refresh: ML calls in flight at once for the whole handler (one pool shared by its batch runners; every call
+    # still paced by the rate above). Sized as rate x worst-case latency so a few slow calls never starve the
+    # others: 10/s (prod `rate_per_sec`) x 2 s => 20; at the usual ~100-300 ms only 1-3 are busy. The pool holds the
+    # sub-resource calls only: each runner's core `/items/bulk` call runs on the runner thread (still paced), so up
+    # to this + `refresh.runners` HTTP calls can be in flight at once.
+    ML_PUB_MAX_IN_FLIGHT: int = Field(default=20, ge=1, le=20)
+    # Refresh: batch runners, each its own claim -> process -> settle loop over the SKIP LOCKED claim, all on the
+    # one shared pacer (runtime setting `refresh.runners`; this is its default).
+    ML_PUB_REFRESH_RUNNERS: int = Field(default=3, ge=1, le=8)
     # `/items/bulk` accepts at most 20 ids per call.
     ML_PUB_BULK_MAX_IDS: int = Field(default=20, ge=1, le=20)
     # Queue: claim lease (refresh's run deadline is half of it, so no claim outlives it) and poison limit.

@@ -281,6 +281,10 @@ def computar_saldos(session: Session, pedido: PedidoCompra) -> SaldosResponse:
         item_nombre = raw_nombre if raw_nombre is not None else (str(item_id) if item_id is not None else None)
 
         recibido_pricing = recibido_by_oc_pod.get((oc_poh_id, pod_id), Decimal("0"))
+        # Physical saldo on purpose: pod_isprocessed is ignored here (unlike
+        # "Ver detalle" in oc_ingresos_service, which shows the ERP saldo with
+        # processed => 0) because this value gates the over-receipt 409 and
+        # recalcular_estado; forcing 0 would block ingresos and auto-close.
         saldo_pendiente = pod_qty - pod_confirmedqty - recibido_pricing
 
         lineas.append(
