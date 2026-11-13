@@ -234,23 +234,52 @@
   color: var(--cf-text-tertiary);
 }
 
-/* The kit's pill wraps inside a narrow column; a campaign's anunciante and estado are one word and stay whole. */
+.campaign {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  /* A long campaign name wraps instead of squeezing the column; on a narrow screen the table card scrolls. */
+  min-width: 160px;
+}
+
+.campaignName {
+  font-weight: var(--font-semibold);
+}
+
+/* Display's pills stay whole inside a narrow column. */
 .keep {
   display: inline-block;
   flex-shrink: 0;
   min-width: max-content;
 }
 
-.campaign {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  /* Keeps a long campaign name to two lines; on a narrow screen the table card scrolls instead. */
-  min-width: 260px;
+.campaignMeta {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
 }
 
-.campaignName {
-  font-weight: var(--font-semibold);
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+}
+
+.dot,
+.dotIdle {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cf-accent-green);
+}
+
+.dotIdle {
+  background: var(--cf-text-tertiary);
 }
 
 .campaignId {
@@ -261,12 +290,6 @@
 
 .muted {
   color: var(--cf-text-tertiary);
-}
-
-.chips {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--spacing-sm);
 }
 
 .chipList {
@@ -280,14 +303,25 @@
 }
 
 .chip {
-  display: inline-flex;
+  /* Amount, settlement, range and actions sit on the same verticals in every row: the amount is at
+     least 14 characters of its own mono font (up to $ 9.999.999,99) and the settlement at least 4rem.
+     Anything wider grows its track instead of overlapping the next one. */
+  display: grid;
+  grid-template-columns: max-content minmax(4rem, max-content) max-content auto;
   align-items: center;
-  gap: var(--spacing-sm);
+  column-gap: var(--spacing-sm);
   height: 28px;
-  padding: 0 var(--space-1) 0 var(--space-2);
   white-space: nowrap;
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-md);
+}
+
+.chip .chipValue {
+  min-width: 14ch;
+  text-align: right;
+}
+
+.kind {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
 }
 
 .chipValue {
@@ -302,9 +336,42 @@
 }
 
 .none {
-  font-style: italic;
   color: var(--cf-text-tertiary);
   line-height: 28px;
+}
+
+.addCell {
+  width: 1%;
+  white-space: nowrap;
+}
+
+/* The aportes cell's own right padding already separates the button. */
+.table .addCell {
+  padding-left: 0;
+}
+
+/* The add column is only as wide as its button. */
+.addCell .addLink {
+  padding: 0 var(--space-2);
+}
+
+/*
+ * Campaign table only (the other tabs share `.table`): 8px cell sides and wrapping money headers,
+ * so the table fits its card at 1280 with real margin even under wider fallback fonts (CI's DejaVu).
+ */
+.campaignTable th,
+.campaignTable td {
+  padding-left: var(--space-2);
+  padding-right: var(--space-2);
+}
+
+.campaignTable th:first-child,
+.campaignTable td:first-child {
+  padding-left: var(--space-3);
+}
+
+.campaignTable th.num {
+  white-space: normal;
 }
 
 .addLink {
@@ -349,6 +416,12 @@
   gap: 2px;
   padding-left: var(--space-1);
   border-left: 1px solid var(--cf-border-subtle);
+}
+
+/* Inside an aporte row the grid already separates the actions. */
+.chip .actions {
+  padding-left: 0;
+  border-left: 0;
 }
 
 .btnDanger {
