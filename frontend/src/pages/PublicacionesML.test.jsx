@@ -173,6 +173,8 @@ const respond = (body) => publicacionesMlAPI.items.mockResolvedValue({ data: bod
 const calls = () => publicacionesMlAPI.items.mock.calls.map(([params]) => params);
 const lastParams = () => calls().at(-1);
 const httpError = (status, data = {}) => Object.assign(new Error(`HTTP ${status}`), { response: { status, data } });
+// A filter's name in the filter card ("Markup", "Tienda"): sentence case, no colon.
+const filterLabel = (name) => within(screen.getByRole('region', { name: 'Filtros' })).queryByText(name, { selector: 'span' });
 
 const STATS_RESPONSE = {
   stats: { total: 40, con_stock: 30, con_precio: 35, con_stock_sin_precio: 3, nuevos: 5, nuevos_sin_precio: 2, oferta_sin_rebate: 4 },
@@ -1367,7 +1369,7 @@ describe('the Agrupado view (P12a)', () => {
   it('keeps the filter bar: the store chips reach the tree', async () => {
     await tree('/ml-publicaciones?vista=agrupado&tiendas=57997&estado=active');
     expect(groupCalls()[0]).toMatchObject({ tiendas: '57997', estado: 'active' });
-    expect(screen.getByText('Tienda:')).toBeInTheDocument();
+    expect(filterLabel('Tienda')).toBeInTheDocument();
   });
 
   it('has the family toggle only in the tree, off by default, and it asks for families', async () => {
@@ -1391,7 +1393,7 @@ describe('the Agrupado view (P12a)', () => {
   it('does not offer the markup filters the tree does not apply, nor send them', async () => {
     canSeeMargin = true;
     await tree('/ml-publicaciones?vista=agrupado&markup_neg=1&markup_min=5');
-    expect(screen.queryByText('Markup:')).not.toBeInTheDocument();
+    expect(filterLabel('Markup')).not.toBeInTheDocument();
     expect(groupCalls()[0]).not.toHaveProperty('markup_neg');
     expect(groupCalls()[0]).not.toHaveProperty('markup_min');
   });
@@ -1399,7 +1401,7 @@ describe('the Agrupado view (P12a)', () => {
   it('keeps the markup filters in the list view', async () => {
     canSeeMargin = true;
     await page();
-    expect(screen.getByText('Markup:')).toBeInTheDocument();
+    expect(filterLabel('Markup')).toBeInTheDocument();
   });
 
   it('shows the node figures only with ver_ganancia', async () => {
@@ -1712,7 +1714,7 @@ describe('the Producto view', () => {
   it('does not offer the markup filters it does not apply', async () => {
     canSeeMargin = true;
     await products('/ml-publicaciones?vista=producto&markup_neg=1');
-    expect(screen.queryByText('Markup:')).not.toBeInTheDocument();
+    expect(filterLabel('Markup')).not.toBeInTheDocument();
     expect(productCalls()[0]).not.toHaveProperty('markup_neg');
   });
 });
@@ -1845,11 +1847,11 @@ describe('the product filters (Marca, Categoría, Subcategoría, PM)', () => {
     ['Publicaciones', '/ml-publicaciones', 'MLA1100000001'],
     ['Producto', '/ml-publicaciones?vista=producto', 'Router Archer AX55'],
     ['Agrupado', '/ml-publicaciones?vista=agrupado', 'EPSON'],
-  ])('are offered under "Producto:" in the %s view', async (_view, entry, ready) => {
+  ])('are offered under "Producto" in the %s view', async (_view, entry, ready) => {
     renderWithRouter(<PublicacionesML />, { initialEntries: [entry] });
     await screen.findByText(ready);
     const card = screen.getByRole('region', { name: 'Filtros' });
-    expect(within(card).getByText('Producto:')).toBeInTheDocument();
+    expect(within(card).getByText('Producto', { selector: 'span' })).toBeInTheDocument();
     expect(within(card).getByRole('button', { name: 'Subcategoría' })).toBeInTheDocument();
   });
 
@@ -2893,9 +2895,9 @@ describe('keyboard shortcuts', () => {
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Atajos de teclado' })).not.toBeInTheDocument());
 
     await user.keyboard('{Control>}f{/Control}');
-    expect(screen.getByPlaceholderText(/Buscar por título/)).toHaveFocus();
+    expect(screen.getByPlaceholderText(/Buscar título/)).toHaveFocus();
 
-    screen.getByPlaceholderText(/Buscar por título/).blur();
+    screen.getByPlaceholderText(/Buscar título/).blur();
     await user.keyboard('{ArrowDown}{Enter}');
     await waitFor(() => expect(publicacionesMlAPI.detail).toHaveBeenCalledWith(ITEMS[0].item_id));
   });
@@ -2985,18 +2987,25 @@ describe("Ctrl+I: Productos' product information", () => {
   });
 });
 
-describe("Productos' navigation mode banner", () => {
-  const banner = () => screen.queryByText(/Modo Navegación Activo/);
+describe("Productos' navigation mode, on the shortcuts key", () => {
+  const notice = () => screen.queryByText(/Modo navegación activo/);
+  const shortcutsKey = () => screen.getByRole('button', { name: 'Atajos de teclado' });
 
-  it('shows while a row has the focus, and Escape leaves the row and hides it', async () => {
+  it('lights the "?" key and tells a screen reader while a row has the focus, with no notice over the rows', async () => {
     const user = userEvent.setup();
     await page();
     await screen.findAllByRole('row');
-    expect(banner()).not.toBeInTheDocument();
+    expect(notice()).not.toBeInTheDocument();
+    expect(shortcutsKey()).not.toHaveAttribute('data-navigating');
     await user.keyboard('{ArrowDown}');
-    expect(banner()).toHaveTextContent('Modo Navegación Activo - Presiona Esc para salir o ? para ayuda');
+    expect(notice()).toHaveTextContent('Modo navegación activo: Esc para salir, ? para ver los atajos');
+    expect(notice()).toHaveAttribute('aria-live', 'polite');
+    expect(shortcutsKey()).toHaveAttribute('data-navigating');
+    expect(shortcutsKey()).toHaveAttribute('title', 'Modo navegación: Esc para salir, ? para ver los atajos');
+    expect(screen.queryByText(/Modo Navegación Activo/)).not.toBeInTheDocument();
     await user.keyboard('{Escape}');
-    expect(banner()).not.toBeInTheDocument();
+    expect(notice()).not.toBeInTheDocument();
+    expect(shortcutsKey()).not.toHaveAttribute('data-navigating');
     expect(document.activeElement.closest('tr')).toBeNull();
   });
 
@@ -3009,10 +3018,10 @@ describe("Productos' navigation mode banner", () => {
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('heading', { name: /Router TP-Link Archer AX55/ })).not.toBeInTheDocument());
     expect(row).toHaveFocus();
-    expect(banner()).toBeInTheDocument();
+    expect(notice()).toBeInTheDocument();
     await user.keyboard('{Escape}');
     expect(row).not.toHaveFocus();
-    expect(banner()).not.toBeInTheDocument();
+    expect(notice()).not.toBeInTheDocument();
   });
 });
 

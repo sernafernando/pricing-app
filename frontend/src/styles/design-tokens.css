@@ -226,6 +226,7 @@
   
   /* Button heights */
   --btn-height-sm: 2rem;    /* 32px */
+  --chip-height: 28px;      /* a filter chip (FacetChips) and the filters sized like one */
   --btn-height-base: 2.5rem; /* 40px */
   --btn-height-lg: 3rem;    /* 48px */
 

@@ -32,4 +32,12 @@ describe('PublicationKpiStrip hideable cards', () => {
     expect(document.querySelector('div[class*="cards"]')).toBeNull();
     expect(screen.getByRole('group', { name: 'Período' })).toBeInTheDocument();
   });
+
+  it('says what each change compares to: the as many days right before', () => {
+    render(<PublicationKpiStrip state={state(KPIS_RESPONSE_MARGIN)} periodo={15} onPeriodChange={() => {}} />);
+    expect(screen.getAllByText('vs 15 días anteriores')).toHaveLength(4);
+    for (const note of screen.getAllByText('vs 15 días anteriores')) {
+      expect(note.parentElement.textContent).toMatch(/^[▲▼]?\s*[+−-]?[\d,]+ ?(%|pp) vs 15 días anteriores$/);
+    }
+  });
 });

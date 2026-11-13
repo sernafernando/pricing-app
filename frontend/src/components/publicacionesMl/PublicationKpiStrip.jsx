@@ -14,11 +14,15 @@ import styles from './PublicationKpiStrip.module.css';
  */
 export const PERIOD_OPTIONS = [7, 15, 30, 60, 90].map((days) => ({ value: days, label: `${days} días` }));
 
-function Delta({ value, format }) {
+// The change says what it compares to: the backend's previous period, as many days right before this one.
+function Delta({ value, format, periodo }) {
   const tone = deltaTone(value);
   return tone ? (
-    <span className={styles.delta} data-tone={tone}>
-      {format(value)}
+    <span className={styles.deltaGroup}>
+      <span className={styles.delta} data-tone={tone}>
+        {format(value)}
+      </span>{' '}
+      {periodo ? <span className={styles.vs}>vs {periodo} días anteriores</span> : null}
     </span>
   ) : null;
 }
@@ -42,7 +46,7 @@ function Tile({ label, icon, value, valueClass = '', delta, series, tone, childr
 
 const pctOf = (part, whole) => (whole ? (part / whole) * 100 : null);
 
-function Tiles({ kpis, isVisible }) {
+function Tiles({ kpis, isVisible, periodo }) {
   const { units, gross, total_gauss: gauss, markup, rows_with_sales: withSales, ageing } = kpis;
   const activePct = pctOf(withSales.value, withSales.of_total);
   const tiles = {
@@ -51,7 +55,7 @@ function Tiles({ kpis, isVisible }) {
         label="Unidades vendidas"
         icon={ShoppingBag}
         value={formatUnits(units.value)}
-        delta={<Delta value={units.delta_pct} format={formatDeltaPct} />}
+        delta={<Delta value={units.delta_pct} format={formatDeltaPct} periodo={periodo} />}
         series={units.series}
         tone={deltaTone(units.delta_pct)}
       />
@@ -61,7 +65,7 @@ function Tiles({ kpis, isVisible }) {
         label="Facturado bruto"
         icon={ReceiptText}
         value={formatSignedMoney(gross.value)}
-        delta={<Delta value={gross.delta_pct} format={formatDeltaPct} />}
+        delta={<Delta value={gross.delta_pct} format={formatDeltaPct} periodo={periodo} />}
         series={gross.series}
         tone={deltaTone(gross.delta_pct)}
       />
@@ -72,7 +76,7 @@ function Tiles({ kpis, isVisible }) {
         icon={Wallet}
         value={formatSignedMoney(gauss.value)}
         valueClass={styles[`money_${moneyTone(gauss.value)}`]}
-        delta={<Delta value={gauss.delta_pct} format={formatDeltaPct} />}
+        delta={<Delta value={gauss.delta_pct} format={formatDeltaPct} periodo={periodo} />}
         series={gauss.series}
         tone={deltaTone(gauss.delta_pct)}
       />
@@ -83,7 +87,7 @@ function Tiles({ kpis, isVisible }) {
         icon={PieChart}
         value={formatPct(markup.value)}
         valueClass={styles[`markup_${markupTone(markup.value)}`]}
-        delta={<Delta value={markup.delta_pp} format={formatDeltaPp} />}
+        delta={<Delta value={markup.delta_pp} format={formatDeltaPp} periodo={periodo} />}
         series={markup.series}
         tone={deltaTone(markup.delta_pp)}
       />
@@ -156,7 +160,7 @@ export default function PublicationKpiStrip({ state, periodo, onPeriodChange, ma
           </button>
         </div>
       )}
-      {!error && data && <Tiles kpis={data.kpis} isVisible={isVisible} />}
+      {!error && data && <Tiles kpis={data.kpis} isVisible={isVisible} periodo={periodo} />}
       {!error && !data && <div className={styles.cards} />}
     </section>
   );

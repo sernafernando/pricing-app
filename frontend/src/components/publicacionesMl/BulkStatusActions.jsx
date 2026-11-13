@@ -5,6 +5,7 @@ import { publicacionesMlAPI } from '../../services/api';
 import ModalTesla from '../ModalTesla';
 import { resolverParams } from './bulkParams';
 import styles from './BulkActions.module.css';
+import buttonStyles from './toolbarButton.module.css';
 
 // The most publications one write request carries; the backend refuses more (`BULK_BATCH_SIZE`).
 export const BATCH_SIZE = 20;
@@ -155,7 +156,7 @@ export default function BulkStatusActions({ filters, canSeeMargin, onDone, check
     <div className={styles.anchor} ref={containerRef} onKeyDown={closeOnEscape}>
       <button
         type="button"
-        className="btn-tesla outline-subtle-primary sm"
+        className={`btn-tesla sm ${buttonStyles.quiet}`}
         aria-haspopup="menu"
         aria-expanded={open}
         title={

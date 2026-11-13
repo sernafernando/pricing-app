@@ -33,6 +33,8 @@ import styles from './ProductFiltersPanel.module.css';
  *   The cross-filtered lists; empty until the screen's first response.
  * @param {boolean} [props.hidePm] Hides the PM button and its panel (a screen that takes no PM filter).
  * @param {boolean} [props.hideSubcategorias] Hides the Subcategoría button and its panel.
+ * @param {boolean} [props.compact] Buttons at the height and size of a filter chip (`FacetChips`), for a screen whose
+ *   other filters are chips.
  *
  * Like Productos' filter (`pubml-filtros` S2): each search takes the focus when its dropdown opens, selects its
  * text on focus and clears with ✕; a category header ticks all its shown subcategorías (indeterminate with an
@@ -45,7 +47,9 @@ export default function ProductFiltersPanel({
   options,
   hidePm = false,
   hideSubcategorias = false,
+  compact = false,
 }) {
+  const buttonClass = compact ? `${styles.filterButton} ${styles.compact}` : styles.filterButton;
   const [panelAbierto, setPanelAbierto] = useState(null); // 'marcas' | 'categorias' | 'subcategorias' | 'pms' | null
   const containerRef = useRef(null);
 
@@ -122,7 +126,7 @@ export default function ProductFiltersPanel({
       <div className={styles.buttonsRow}>
         <button
           type="button"
-          className={`${styles.filterButton} ${selectedMarcas.length > 0 ? styles.filterButtonActive : ''}`}
+          className={`${buttonClass} ${selectedMarcas.length > 0 ? styles.filterButtonActive : ''}`}
           data-filter="marcas"
           onClick={() => togglePanel('marcas')}
         >
@@ -134,7 +138,7 @@ export default function ProductFiltersPanel({
 
         <button
           type="button"
-          className={`${styles.filterButton} ${selectedCategorias.length > 0 ? styles.filterButtonActive : ''}`}
+          className={`${buttonClass} ${selectedCategorias.length > 0 ? styles.filterButtonActive : ''}`}
           data-filter="categorias"
           onClick={() => togglePanel('categorias')}
         >
@@ -147,7 +151,7 @@ export default function ProductFiltersPanel({
         {!hideSubcategorias && (
           <button
             type="button"
-            className={`${styles.filterButton} ${selectedSubcategorias.length > 0 ? styles.filterButtonActive : ''}`}
+            className={`${buttonClass} ${selectedSubcategorias.length > 0 ? styles.filterButtonActive : ''}`}
             data-filter="subcategorias"
             onClick={() => togglePanel('subcategorias')}
           >
@@ -161,7 +165,7 @@ export default function ProductFiltersPanel({
         {!hidePm && (
           <button
             type="button"
-            className={`${styles.filterButton} ${selectedPms.length > 0 ? styles.filterButtonActive : ''}`}
+            className={`${buttonClass} ${selectedPms.length > 0 ? styles.filterButtonActive : ''}`}
             data-filter="pms"
             onClick={() => togglePanel('pms')}
           >

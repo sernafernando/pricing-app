@@ -4,15 +4,16 @@ import { PROMO_TYPES } from '../../constants/promoTypes';
 import { EMPTY_PROMO_FILTERS, PROMO_STATE_OPTIONS, activePromoChips } from './promoFilters';
 import chipStyles from './ProductFilters.module.css';
 import styles from './AuditFilters.module.css';
+import buttonStyles from './toolbarButton.module.css';
 
 /**
- * The "Promos:" group of the Publicaciones ML filter card: Productos' promo filter (types, the state of those
+ * The "Promos" button of the Publicaciones ML filter card: Productos' promo filter (types, the state of those
  * types or of any promo, and "Precios mayoristas"), behind one button so the card does not grow a row. One
  * removable chip per active value and a control that clears them all stay in the row.
  *
- * @param {{filters: object, setFilters: (updates: object) => void, labelClassName?: string}} props
+ * @param {{filters: object, setFilters: (updates: object) => void}} props
  */
-export default function PromoFilters({ filters, setFilters, labelClassName }) {
+export default function PromoFilters({ filters, setFilters }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef(null);
   const chips = activePromoChips(filters);
@@ -43,11 +44,10 @@ export default function PromoFilters({ filters, setFilters, labelClassName }) {
 
   return (
     <div className={chipStyles.group}>
-      <span className={labelClassName}>Promos:</span>
       <div className={styles.anchor} ref={containerRef} onKeyDown={closeOnEscape}>
         <button
           type="button"
-          className="btn-tesla outline sm"
+          className={`btn-tesla sm ${buttonStyles.quiet} ${buttonStyles.chipSize}`}
           aria-expanded={open}
           aria-label={label}
           title={label}

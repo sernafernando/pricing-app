@@ -19,7 +19,7 @@ export default function ColorLayerSelect({ value, onChange, equipos, loaded, lab
 
   return (
     <label className={styles.layer}>
-      <span className={labelClassName}>Capa:</span>
+      <span className={labelClassName}>Capa</span>
       <select
         className={styles.select}
         aria-label="Capa de color"

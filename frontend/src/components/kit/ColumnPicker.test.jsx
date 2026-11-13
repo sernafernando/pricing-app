@@ -10,13 +10,13 @@ const COLUMNS = [
   { id: 'b', header: 'B', size: 10, cell: () => null },
 ];
 
-function TestHarness() {
+function TestHarness(props) {
   const table = useReactTable({
     columns: COLUMNS,
     data: [],
     getCoreRowModel: getCoreRowModel(),
   });
-  return <ColumnPicker table={table} />;
+  return <ColumnPicker table={table} {...props} />;
 }
 
 describe('ColumnPicker', () => {
@@ -87,5 +87,19 @@ describe('ColumnPicker', () => {
     const kpis = screen.getByRole('group', { name: 'Elegir indicadores visibles' });
     expect(screen.getByRole('button', { name: 'Indicadores' })).toHaveAttribute('aria-controls', kpis.id);
     expect(kpis.id).not.toBe(screen.getByRole('button', { name: 'Columnas' }).getAttribute('aria-controls'));
+  });
+
+  it('keeps its label and outline by default, and iconOnly shows just the icon, named by the label', () => {
+    const { unmount } = render(<TestHarness />);
+    const labelled = screen.getByRole('button', { name: 'Columnas' });
+    expect(labelled).toHaveTextContent('Columnas');
+    expect(labelled).toHaveClass('btn-tesla', 'outline', 'sm');
+    unmount();
+    render(<TestHarness iconOnly buttonClassName="btn-tesla sm quiet" />);
+    const icon = screen.getByRole('button', { name: 'Columnas' });
+    expect(icon).toHaveTextContent('');
+    expect(icon).toHaveAttribute('title', 'Columnas');
+    expect(icon).toHaveClass('btn-tesla', 'sm', 'quiet', 'icon-only');
+    expect(icon).not.toHaveClass('outline');
   });
 });
