@@ -135,6 +135,56 @@ def test_auto_vincular_links_unique_ct(db, empresa, proveedor, sd_factura, activ
     db.refresh(pedido)
     assert pedido.ct_transaction_id == 9001
     assert cts_for_pedido(db, pedido) == [(9001, date(2026, 4, 1))]
+    db.refresh(doc)
+    assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_OK
+
+
+def test_auto_vincular_persists_sin_match(db, empresa, proveedor, active_user):
+    pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-NONE")
+    doc = PedidoFacturaDocumento(
+        pedido_id=pedido.id,
+        numero="FA-MISSING",
+        created_by_id=active_user.id,
+        cargada=True,
+    )
+    db.add(doc)
+    db.flush()
+
+    assert erp_matching_service.auto_vincular_por_constancia_cargada(db, doc) is None
+    db.refresh(doc)
+    assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_SIN_MATCH
+    assert doc.auto_vinculo_intentado_at is not None
+
+
+def test_auto_vincular_persists_ambiguo(db, empresa, proveedor, sd_factura, active_user):
+    pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-AMB")
+    doc = PedidoFacturaDocumento(
+        pedido_id=pedido.id,
+        numero="FA-DUP",
+        created_by_id=active_user.id,
+        cargada=True,
+    )
+    db.add(doc)
+    for ct_id in (9101, 9102):
+        db.add(
+            CommercialTransaction(
+                ct_transaction=ct_id,
+                comp_id=1,
+                bra_id=1,
+                supp_id=proveedor.supp_id,
+                ct_docNumber="FA-DUP",
+                sd_id=sd_factura.sd_id,
+                ct_total=Decimal("100"),
+                curr_id_transaction=1,
+                ct_date=datetime(2026, 4, 1, 12, 0, 0),
+                ct_isCancelled=False,
+            )
+        )
+    db.flush()
+
+    assert erp_matching_service.auto_vincular_por_constancia_cargada(db, doc) is None
+    db.refresh(doc)
+    assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_AMBIGUO
 
 
 def test_auto_vincular_shared_numero_across_pedidos(db, empresa, proveedor, sd_factura, active_user):
@@ -255,6 +305,11 @@ def test_disparar_alertas_also_auto_links(db, empresa, proveedor, sd_factura, ac
             "notificar_factura_cargada",
             lambda *a, **k: [],
         )
+        mp.setattr(
+            compras_alertas_service,
+            "_sync_espejo_antes_autolink",
+            lambda *_a, **_k: None,
+        )
         fired = compras_alertas_service.disparar_alertas_factura_pendientes(db, ahora=ahora)
     assert fired == 1
     db.refresh(pedido)
@@ -286,6 +341,11 @@ def test_disparar_alertas_marks_fired_when_auto_vincular_raises(
             lambda *a, **k: [],
         )
         mp.setattr(
+            compras_alertas_service,
+            "_sync_espejo_antes_autolink",
+            lambda *_a, **_k: None,
+        )
+        mp.setattr(
             erp_matching_service,
             "auto_vincular_por_constancia_cargada",
             lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
@@ -296,3 +356,222 @@ def test_disparar_alertas_marks_fired_when_auto_vincular_raises(
     assert doc.alerta_disparada_at is not None
     db.refresh(pedido)
     assert pedido.ct_transaction_id is None
+
+
+def test_disparar_retries_sin_match_after_ct_appears(
+    db, empresa, proveedor, sd_factura, active_user
+):
+    pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-RETRY")
+    ahora = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
+    doc = PedidoFacturaDocumento(
+        pedido_id=pedido.id,
+        numero="FA-RETRY",
+        created_by_id=active_user.id,
+        cargada=True,
+        alerta_pendiente_hasta=ahora - timedelta(hours=8),
+        alerta_disparada_at=ahora - timedelta(hours=7),
+        auto_vinculo_estado=erp_matching_service.AUTO_VINCULO_SIN_MATCH,
+        # Past AUTO_VINCULO_RETRY_INTERVAL (6h) so the retry sweep picks it up.
+        auto_vinculo_intentado_at=ahora - timedelta(hours=7),
+    )
+    db.add(doc)
+    db.add(
+        CommercialTransaction(
+            ct_transaction=9200,
+            comp_id=1,
+            bra_id=1,
+            supp_id=proveedor.supp_id,
+            ct_docNumber="FA-RETRY",
+            sd_id=sd_factura.sd_id,
+            ct_total=Decimal("100"),
+            curr_id_transaction=1,
+            ct_date=datetime(2026, 4, 5, 12, 0, 0),
+            ct_isCancelled=False,
+        )
+    )
+    db.flush()
+
+    sync_calls: list[int] = []
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            compras_alertas_service,
+            "_sync_espejo_antes_autolink",
+            lambda *_a, **_k: sync_calls.append(1),
+        )
+        fired = compras_alertas_service.disparar_alertas_factura_pendientes(db, ahora=ahora)
+    assert fired == 0
+    # Backoff-due retries still refresh the mirror (once), so a CT that
+    # landed after the first miss can match without waiting for the GUID cron.
+    assert sync_calls == [1]
+    db.refresh(pedido)
+    assert pedido.ct_transaction_id == 9200
+    db.refresh(doc)
+    assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_OK
+
+
+def test_disparar_skips_retry_inside_backoff_window(
+    db, empresa, proveedor, sd_factura, active_user
+):
+    pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-BACKOFF")
+    ahora = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
+    doc = PedidoFacturaDocumento(
+        pedido_id=pedido.id,
+        numero="FA-BACKOFF",
+        created_by_id=active_user.id,
+        cargada=True,
+        alerta_pendiente_hasta=ahora - timedelta(hours=2),
+        alerta_disparada_at=ahora - timedelta(hours=1),
+        auto_vinculo_estado=erp_matching_service.AUTO_VINCULO_SIN_MATCH,
+        auto_vinculo_intentado_at=ahora - timedelta(minutes=30),
+    )
+    db.add(doc)
+    db.add(
+        CommercialTransaction(
+            ct_transaction=9201,
+            comp_id=1,
+            bra_id=1,
+            supp_id=proveedor.supp_id,
+            ct_docNumber="FA-BACKOFF",
+            sd_id=sd_factura.sd_id,
+            ct_total=Decimal("100"),
+            curr_id_transaction=1,
+            ct_date=datetime(2026, 4, 5, 12, 0, 0),
+            ct_isCancelled=False,
+        )
+    )
+    db.flush()
+
+    sync_calls: list[int] = []
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            compras_alertas_service,
+            "_sync_espejo_antes_autolink",
+            lambda *_a, **_k: sync_calls.append(1),
+        )
+        fired = compras_alertas_service.disparar_alertas_factura_pendientes(db, ahora=ahora)
+    assert fired == 0
+    # Inside backoff: no due retries → no GBP sync.
+    assert sync_calls == []
+    db.refresh(pedido)
+    assert pedido.ct_transaction_id is None
+    db.refresh(doc)
+    assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_SIN_MATCH
+
+
+def test_disparar_marks_fired_when_mirror_sync_raises(
+    db, empresa, proveedor, sd_factura, active_user
+):
+    """GBP mirror failure must not abort the alert sweep (Fernando #2266)."""
+    from app.services import ct_mirror_sync_service  # noqa: PLC0415
+
+    pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-SYNCFAIL")
+    ahora = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
+    doc = PedidoFacturaDocumento(
+        pedido_id=pedido.id,
+        numero="FA-SYNCFAIL",
+        created_by_id=active_user.id,
+        cargada=True,
+        alerta_pendiente_hasta=ahora - timedelta(minutes=1),
+        alerta_disparada_at=None,
+    )
+    db.add(doc)
+    db.add(
+        CommercialTransaction(
+            ct_transaction=9300,
+            comp_id=1,
+            bra_id=1,
+            supp_id=proveedor.supp_id,
+            ct_docNumber="FA-SYNCFAIL",
+            sd_id=sd_factura.sd_id,
+            ct_total=Decimal("100"),
+            curr_id_transaction=1,
+            ct_date=datetime(2026, 4, 6, 12, 0, 0),
+            ct_isCancelled=False,
+        )
+    )
+    db.flush()
+
+    def _boom(_session):
+        raise RuntimeError("gbp down")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            compras_alertas_service,
+            "notificar_factura_cargada",
+            lambda *a, **k: [],
+        )
+        # Exercise the real helper (commit + catch), not a no-op stub.
+        mp.setattr(ct_mirror_sync_service, "sync_recent_cts", _boom)
+        fired = compras_alertas_service.disparar_alertas_factura_pendientes(db, ahora=ahora)
+    assert fired == 1
+    db.refresh(doc)
+    assert doc.alerta_disparada_at is not None
+    db.refresh(pedido)
+    assert pedido.ct_transaction_id == 9300
+
+
+def test_auto_vincular_persists_sin_mapeo(db, active_user):
+    empresa = Empresa(id=99, nombre="EmpSinMap", activo=True, orden=0)
+    proveedor = Proveedor(
+        id=99,
+        nombre="ProvSinMap",
+        origen=OrigenProveedor.ERP,
+        activo=True,
+        supp_id=None,
+    )
+    db.add(empresa)
+    db.add(proveedor)
+    db.flush()
+    pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-SINMAP")
+    doc = PedidoFacturaDocumento(
+        pedido_id=pedido.id,
+        numero="FA-SINMAP",
+        created_by_id=active_user.id,
+        cargada=True,
+    )
+    db.add(doc)
+    db.flush()
+
+    ct = erp_matching_service.auto_vincular_por_constancia_cargada(db, doc)
+    assert ct is None
+    db.refresh(doc)
+    assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_SIN_MAPEO
+    assert doc.auto_vinculo_intentado_at is not None
+
+
+def test_asignar_factura_erp_clears_auto_vinculo_pendiente(
+    db, empresa, proveedor, sd_factura, active_user
+):
+    pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-MANUAL")
+    ahora = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
+    doc = PedidoFacturaDocumento(
+        pedido_id=pedido.id,
+        numero="FA-MANUAL",
+        created_by_id=active_user.id,
+        cargada=True,
+        alerta_disparada_at=ahora - timedelta(hours=1),
+        auto_vinculo_estado=erp_matching_service.AUTO_VINCULO_AMBIGUO,
+        auto_vinculo_intentado_at=ahora - timedelta(hours=1),
+    )
+    db.add(doc)
+    db.add(
+        CommercialTransaction(
+            ct_transaction=9400,
+            comp_id=1,
+            bra_id=1,
+            supp_id=proveedor.supp_id,
+            ct_docNumber="FA-MANUAL",
+            sd_id=sd_factura.sd_id,
+            ct_total=Decimal("100"),
+            curr_id_transaction=1,
+            ct_date=datetime(2026, 4, 7, 12, 0, 0),
+            ct_isCancelled=False,
+        )
+    )
+    db.flush()
+
+    erp_matching_service.asignar_factura_erp(db, pedido, 9400)
+    db.refresh(doc)
+    assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_OK
+    db.refresh(pedido)
+    assert pedido.ct_transaction_id == 9400

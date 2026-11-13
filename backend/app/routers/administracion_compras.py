@@ -672,6 +672,13 @@ def listar_pedidos(
     diferencial_cambio_pendiente: Optional[bool] = Query(
         None, description="Filtrar pedidos con diferencia de cambio pendiente (Caso-B, abs > 1 ARS)"
     ),
+    pendiente_vinculo_erp: Optional[bool] = Query(
+        None,
+        description=(
+            "Pedidos with at least one cargada constancia whose auto-vínculo "
+            "failed (sin_match|ambiguo|sin_mapeo). Not a workflow estado."
+        ),
+    ),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -865,6 +872,16 @@ def listar_pedidos(
         creado_por_id=creado_por_id,
         q_producto=q_producto,
     )
+    if pendiente_vinculo_erp:
+        from app.services.erp_matching_service import AUTO_VINCULO_PENDIENTES  # noqa: PLC0415
+
+        condiciones.append(
+            exists().where(
+                PedidoFacturaDocumento.pedido_id == PedidoCompra.id,
+                PedidoFacturaDocumento.cargada.is_(True),
+                PedidoFacturaDocumento.auto_vinculo_estado.in_(sorted(AUTO_VINCULO_PENDIENTES)),
+            )
+        )
 
     stmt = select(PedidoCompra).options(
         joinedload(PedidoCompra.empresa),

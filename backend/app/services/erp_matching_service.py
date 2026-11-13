@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Final, Optional
 
 from fastapi import HTTPException
 from sqlalchemy import Date, text
@@ -121,6 +121,16 @@ def _resolver_supp_id(session: Session, proveedor_id: int) -> Optional[int]:
     return int(supp_id) if supp_id is not None else None
 
 
+# Outcomes persisted on PedidoFacturaDocumento.auto_vinculo_estado.
+AUTO_VINCULO_OK: Final[str] = "ok"
+AUTO_VINCULO_SIN_MATCH: Final[str] = "sin_match"
+AUTO_VINCULO_AMBIGUO: Final[str] = "ambiguo"
+AUTO_VINCULO_SIN_MAPEO: Final[str] = "sin_mapeo"
+AUTO_VINCULO_PENDIENTES: Final[frozenset[str]] = frozenset(
+    {AUTO_VINCULO_SIN_MATCH, AUTO_VINCULO_AMBIGUO, AUTO_VINCULO_SIN_MAPEO}
+)
+
+
 def _buscar_ct_vigente(
     session: Session,
     *,
@@ -128,13 +138,13 @@ def _buscar_ct_vigente(
     bra_id: int,
     supp_id: int,
     ct_docnumber: str,
-) -> Optional[int]:
+) -> tuple[Optional[int], str]:
     """
     Busca en `v_facturas_compra_vigentes` una ct única para la tupla.
 
     Returns:
-        `ct_transaction` si hay match único; `None` si hay 0 o >1 coincidencias
-        (en caso ambiguo, el caller decide; por ahora, no se auto-asocia).
+        `(ct_transaction, "ok")` if unique; `(None, "sin_match"|"ambiguo")`
+        when 0 or >1 rows (caller must not auto-link).
     """
     stmt = text(
         """
@@ -156,9 +166,11 @@ def _buscar_ct_vigente(
             "ct_docnumber": ct_docnumber,
         },
     ).all()
-    if len(filas) != 1:
-        return None
-    return int(filas[0][0])
+    if len(filas) == 0:
+        return None, AUTO_VINCULO_SIN_MATCH
+    if len(filas) > 1:
+        return None, AUTO_VINCULO_AMBIGUO
+    return int(filas[0][0]), AUTO_VINCULO_OK
 
 
 def _alertar_si_monto_difiere(
@@ -438,7 +450,79 @@ def asignar_factura_erp(session: Session, pedido: PedidoCompra, ct_transaction: 
         )
         session.flush()
     _sync_header_factura_cache(session, pedido)
+    _resolver_auto_vinculo_tras_asignar(session, pedido, ct)
     _aplicar_sell_in_por_ct(session, ct)
+
+
+def _resolver_auto_vinculo_tras_asignar(session: Session, pedido: PedidoCompra, ct_transaction: int) -> None:
+    """Clear pending auto-vínculo badges when Administración links the CT by hand."""
+    from datetime import UTC, datetime as dt  # noqa: PLC0415
+
+    from app.models.pedido_factura_documento import PedidoFacturaDocumento  # noqa: PLC0415
+
+    ct = int(ct_transaction)
+    docnumber = None
+    # SAVEPOINT: a missing/broken view must not abort the outer assign txn
+    # (same pattern as #2264 `_ct_docnumbers_by_id`).
+    try:
+        with session.begin_nested():
+            docnumber = session.execute(
+                text(
+                    """
+                    SELECT ct_docnumber
+                    FROM v_facturas_compra_vigentes
+                    WHERE ct_transaction = :ct
+                    LIMIT 1
+                    """
+                ),
+                {"ct": ct},
+            ).scalar()
+    except Exception as exc:  # noqa: BLE001 — view absent in SQLite unit tests
+        logger.warning(
+            "auto_vinculo clear: vista lookup skipped ct=%s: %s",
+            ct,
+            exc,
+        )
+    if not docnumber:
+        try:
+            with session.begin_nested():
+                docnumber = session.execute(
+                    text(
+                        """
+                        SELECT ct_docnumber
+                        FROM tb_commercial_transactions
+                        WHERE ct_transaction = :ct
+                        LIMIT 1
+                        """
+                    ),
+                    {"ct": ct},
+                ).scalar()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "auto_vinculo clear: mirror lookup skipped ct=%s: %s",
+                ct,
+                exc,
+            )
+            return
+    numero = str(docnumber or "").strip()
+    if not numero or pedido.id is None:
+        return
+    stamp = dt.now(UTC)
+    pendientes = (
+        session.query(PedidoFacturaDocumento)
+        .filter(
+            PedidoFacturaDocumento.pedido_id == pedido.id,
+            PedidoFacturaDocumento.cargada.is_(True),
+            PedidoFacturaDocumento.numero == numero,
+            PedidoFacturaDocumento.auto_vinculo_estado.in_(sorted(AUTO_VINCULO_PENDIENTES)),
+        )
+        .all()
+    )
+    for doc in pendientes:
+        doc.auto_vinculo_estado = AUTO_VINCULO_OK
+        doc.auto_vinculo_intentado_at = stamp
+    if pendientes:
+        session.flush()
 
 
 def quitar_factura_erp(session: Session, pedido: PedidoCompra, ct_transaction: int) -> None:
@@ -746,7 +830,7 @@ def match_forward(
         return None
 
     # Match via vista
-    ct_transaction = _buscar_ct_vigente(
+    ct_transaction, _match_estado = _buscar_ct_vigente(
         session,
         comp_id=comp_id,
         bra_id=bra_id,
@@ -1108,12 +1192,13 @@ def _cancelar_ncs_locales_por_erp_cancelado(
     Para cada ct_transaction en cts_synced que sea una NC ERP cancelada,
     cancela la NC local vinculada (si existe y está en estado activo).
 
-    Estado terminales que NO se tocan: 'cancelado', 'aplicada', 'rechazado'.
+    Estados terminales que NO se tocan: 'cancelado', 'aplicada'.
     Estados que sí se cancelan: 'borrador', 'pendiente_aprobacion', 'aprobado',
-    'aplicada_parcial'.
+    'aplicada_parcial', 'rechazado' (vía cancelar_definitivo → cancelado).
 
     Para 'aprobado' y 'aplicada_parcial' se usa la acción 'cancelar_aprobado'
-    (que revierte imputaciones activas). Para los demás, 'cancelar'.
+    (que revierte imputaciones activas). Para 'rechazado', 'cancelar_definitivo'.
+    Para los demás activos, 'cancelar' / 'rechazar_cancelar'.
 
     NO commitea. Errores individuales se cuentan en resumen['errores'].
     """
@@ -1123,7 +1208,8 @@ def _cancelar_ncs_locales_por_erp_cancelado(
     from sqlalchemy.exc import SQLAlchemyError  # noqa: PLC0415
 
     # Mapa estado_origen → acción de cancelación válida según TRANSICIONES_VALIDAS.
-    # Estados terminales (cancelado, aplicada, rechazado) se omiten antes de llegar aquí.
+    # Terminales cancelado/aplicada se omiten antes de llegar aquí; rechazado
+    # still advances to cancelado when the ERP credit note was cancelled.
     _ACCION_CANCELAR: dict[str, str] = {
         "borrador": "cancelar",
         "pendiente_aprobacion": "rechazar_cancelar",
@@ -1246,6 +1332,19 @@ def _cancelar_ncs_locales_por_erp_cancelado(
     session.flush()
 
 
+def _marcar_auto_vinculo(
+    documento: Any,
+    *,
+    estado: str,
+    ahora: datetime,
+) -> None:
+    """Stamp auto-vínculo outcome on the constancia row (when columns exist)."""
+    if hasattr(documento, "auto_vinculo_estado"):
+        documento.auto_vinculo_estado = estado
+    if hasattr(documento, "auto_vinculo_intentado_at"):
+        documento.auto_vinculo_intentado_at = ahora
+
+
 def auto_vincular_por_constancia_cargada(
     session: Session,
     documento: Any,
@@ -1259,7 +1358,8 @@ def auto_vincular_por_constancia_cargada(
     then adds that CT to every same-empresa/proveedor pedido whose cargada
     constancia with that numero already left its regret window (or is this
     row). M:N documental; does not change monto. Skips pedidos that already
-    link the CT. Returns the CT id, or None if no unique match. NO commit.
+    link the CT. Persists `auto_vinculo_estado` on `documento`. Returns the CT
+    id, or None if no unique match. NO commit.
     """
     from datetime import UTC, datetime as dt  # noqa: PLC0415
 
@@ -1268,6 +1368,7 @@ def auto_vincular_por_constancia_cargada(
     from app.models.pedido_compra_factura import cts_for_pedido  # noqa: PLC0415
     from app.models.pedido_factura_documento import PedidoFacturaDocumento  # noqa: PLC0415
 
+    stamp = ahora if ahora is not None else dt.now(UTC)
     numero = (getattr(documento, "numero", None) or "").strip()
     if not numero:
         return None
@@ -1283,6 +1384,8 @@ def auto_vincular_por_constancia_cargada(
             pedido.id,
             pedido.empresa_id,
         )
+        _marcar_auto_vinculo(documento, estado=AUTO_VINCULO_SIN_MAPEO, ahora=stamp)
+        session.flush()
         return None
     supp_id = _resolver_supp_id(session, pedido.proveedor_id)
     if supp_id is None:
@@ -1291,9 +1394,11 @@ def auto_vincular_por_constancia_cargada(
             pedido.id,
             pedido.proveedor_id,
         )
+        _marcar_auto_vinculo(documento, estado=AUTO_VINCULO_SIN_MAPEO, ahora=stamp)
+        session.flush()
         return None
 
-    ct_transaction = _buscar_ct_vigente(
+    ct_transaction, match_estado = _buscar_ct_vigente(
         session,
         comp_id=comp_id,
         bra_id=bra_id,
@@ -1302,13 +1407,15 @@ def auto_vincular_por_constancia_cargada(
     )
     if ct_transaction is None:
         logger.info(
-            "auto_vincular_constancia: sin match único para numero=%s (pedido_id=%s)",
+            "auto_vincular_constancia: %s para numero=%s (pedido_id=%s)",
+            match_estado,
             numero,
             pedido.id,
         )
+        _marcar_auto_vinculo(documento, estado=match_estado, ahora=stamp)
+        session.flush()
         return None
 
-    stamp = ahora if ahora is not None else dt.now(UTC)
     docs = (
         session.query(PedidoFacturaDocumento)
         .options(joinedload(PedidoFacturaDocumento.pedido))
@@ -1336,6 +1443,7 @@ def auto_vincular_por_constancia_cargada(
             continue
         linked = {ct for ct, _ in cts_for_pedido(session, target)}
         if int(ct_transaction) in linked:
+            _marcar_auto_vinculo(doc, estado=AUTO_VINCULO_OK, ahora=stamp)
             continue
         asignar_factura_erp(session, target, ct_transaction)
         _registrar_evento_match(
@@ -1345,17 +1453,24 @@ def auto_vincular_por_constancia_cargada(
             origen="auto_constancia_cargada",
             usuario_id=usuario_id,
         )
+        _marcar_auto_vinculo(doc, estado=AUTO_VINCULO_OK, ahora=stamp)
         logger.info(
             "auto_vincular_constancia: pedido_id=%s ↔ ct=%s (numero=%s)",
             target.id,
             ct_transaction,
             numero,
         )
+    _marcar_auto_vinculo(documento, estado=AUTO_VINCULO_OK, ahora=stamp)
     session.flush()
     return int(ct_transaction)
 
 
 __all__ = [
+    "AUTO_VINCULO_AMBIGUO",
+    "AUTO_VINCULO_OK",
+    "AUTO_VINCULO_PENDIENTES",
+    "AUTO_VINCULO_SIN_MAPEO",
+    "AUTO_VINCULO_SIN_MATCH",
     "asignar_factura_erp",
     "auto_vincular_por_constancia_cargada",
     "copiar_facturas_erp",

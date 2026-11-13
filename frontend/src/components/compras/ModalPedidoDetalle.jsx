@@ -946,7 +946,11 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                 <span className={styles.infoLabel}>Factura/s</span>
                 {(pedido.factura_documentos || []).length > 0 ? (
                   <ul className={styles.facturaDocList}>
-                    {(pedido.factura_documentos || []).map((row) => (
+                    {(pedido.factura_documentos || []).map((row) => {
+                      const vinculoPendiente =
+                        row.cargada &&
+                        ['sin_match', 'ambiguo', 'sin_mapeo'].includes(row.auto_vinculo_estado);
+                      return (
                       <li key={row.id} className={styles.facturaDocRow}>
                         <strong className={styles.facturaDocNumero}>{row.numero}</strong>
                         <label className={styles.checkboxLabel}>
@@ -961,8 +965,27 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                           />
                           Cargada en ERP
                         </label>
+                        {vinculoPendiente && (
+                          <button
+                            type="button"
+                            className={styles.badgeVinculoPendiente}
+                            title={
+                              row.auto_vinculo_estado === 'ambiguo'
+                                ? 'Hay más de una factura ERP con ese número — vinculá a mano'
+                                : row.auto_vinculo_estado === 'sin_mapeo'
+                                  ? 'Falta mapeo empresa/proveedor ERP'
+                                  : 'No se encontró la factura en el espejo ERP'
+                            }
+                            onClick={() => canGestionar && setShowVincularModal(true)}
+                            disabled={!canGestionar}
+                          >
+                            <AlertCircle size={11} />
+                            Pendiente vínculo ERP
+                          </button>
+                        )}
                       </li>
-                    ))}
+                      );
+                    })}
                   </ul>
                 ) : (
                   <strong className={styles.infoValue}>

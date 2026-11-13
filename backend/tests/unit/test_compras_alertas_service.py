@@ -215,7 +215,13 @@ def _check_erp(db, pedido: PedidoCompra, row, user: Usuario, *, ahora: datetime)
 
 
 def _fire_at(db, *, ahora: datetime) -> int:
-    return compras_alertas_service.disparar_alertas_factura_pendientes(db, ahora=ahora)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            compras_alertas_service,
+            "_sync_espejo_antes_autolink",
+            lambda *_a, **_k: None,
+        )
+        return compras_alertas_service.disparar_alertas_factura_pendientes(db, ahora=ahora)
 
 
 class TestCopyFactura:

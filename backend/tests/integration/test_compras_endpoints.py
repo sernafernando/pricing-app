@@ -315,6 +315,60 @@ class TestPedidosCRUD:
         assert p_faltantes.id in ids
         assert p_borrador.id not in ids
 
+    def test_listar_pedidos_pendiente_vinculo_erp(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_todos_los_permisos
+    ):
+        from app.models.pedido_factura_documento import PedidoFacturaDocumento  # noqa: PLC0415
+        from app.services.erp_matching_service import AUTO_VINCULO_SIN_MATCH  # noqa: PLC0415
+
+        pendiente = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("5000"),
+            creado_por_id=active_user.id,
+        )
+        pendiente.estado = "aprobado"
+        ok = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("5000"),
+            creado_por_id=active_user.id,
+        )
+        ok.estado = "aprobado"
+        db.add(
+            PedidoFacturaDocumento(
+                pedido_id=pendiente.id,
+                numero="FA-PV-1",
+                created_by_id=active_user.id,
+                cargada=True,
+                auto_vinculo_estado=AUTO_VINCULO_SIN_MATCH,
+            )
+        )
+        db.add(
+            PedidoFacturaDocumento(
+                pedido_id=ok.id,
+                numero="FA-PV-2",
+                created_by_id=active_user.id,
+                cargada=True,
+                auto_vinculo_estado="ok",
+            )
+        )
+        db.flush()
+
+        r = client.get(
+            f"{BASE}/pedidos",
+            headers=auth_headers,
+            params={"pendiente_vinculo_erp": True},
+        )
+        assert r.status_code == 200, r.text
+        ids = {p["id"] for p in r.json()["items"]}
+        assert pendiente.id in ids
+        assert ok.id not in ids
+
     def test_listar_pedidos_excluir_estado_cancelado(
         self, client, auth_headers, db, empresa, proveedor, active_user, con_todos_los_permisos
     ):
