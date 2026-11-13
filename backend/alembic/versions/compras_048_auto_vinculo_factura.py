@@ -1,7 +1,7 @@
 """compras 048 — auto-vínculo ERP outcome on factura documentos
 
 Revision ID: compras_048_auto_vinculo_factura
-Revises: 20261113_permiso_mejores_ofertas_pms
+Revises: 20261113_equipo_miembro_preferencias_capa
 Create Date: 2026-11-13
 
 Persists the result of `auto_vincular_por_constancia_cargada` so Administración
@@ -16,7 +16,7 @@ from alembic import op
 
 
 revision: str = "compras_048_auto_vinculo_factura"
-down_revision: Union[str, None] = "20261113_permiso_mejores_ofertas_pms"
+down_revision: Union[str, None] = "20261113_equipo_miembro_preferencias_capa"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
