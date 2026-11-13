@@ -9,7 +9,9 @@ defaults (almost all `*.enabled` flags default OFF).
 Documented exception (owner): `catalog_competition_refresh.enabled` defaults
 ON (`ML_PUB_CATALOG_COMPETITION_REFRESH_ENABLED=True`) so hay_mejores → catalog
 competition drain runs without a manual post-deploy flip. Operators still turn
-it off via `ml_pub_settings` or `ML_PUB_KILL_SWITCH`.
+it off via `ml_pub_settings` or `ML_PUB_KILL_SWITCH`. `core_first.enabled` also
+defaults ON (owner: a kill switch, nothing ships off); it acts only while
+`refresh.enabled` is on too, so a fresh deploy stays inert.
 
 `ML_PUB_KILL_SWITCH` is environment-only on purpose: when set, every `*.enabled`
 flag reads as disabled regardless of the database, and the database is not even
@@ -110,6 +112,7 @@ _FLAGS = (
     "promotions",
     "promo_refresh",
     "catalog_competition_refresh",
+    "core_first",
     "links",
     "verify",
     "divergence",

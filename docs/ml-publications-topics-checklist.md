@@ -407,6 +407,38 @@ Rollback: `python -m app.scripts.ml_publications_settings set missed_feeds.enabl
 deleted, queued entries are still served by the refresh handler). To stop only the fetching of performance and visits,
 remove them from `bundle_resources`.
 
+## Core-first reads of a notification burst
+
+One more job of the `pricing-worker-ml` worker keeps the publication status (`items`, freshness target 2 min) fresh
+while a burst of `items` notifications waits in the notification lane (1). A burst of about 700 notifications in
+3 minutes (prod 2026-11-12) costs about 4 calls per entry through the refresh, but its cores alone are 35
+`/items/bulk` calls (20 ids per call), about 3.5 s at 10 req/s.
+
+| Job | Handler | Schedule | Flag | What it does |
+|---|---|---|---|---|
+| Core-first | `ml_publications.core_first` | own thread, every 5 seconds | `core_first.enabled` (default **on**, also needs `refresh.enabled`) | reads the cores of the oldest waiting lane-1 item entries whose stored core is older than their last notification, in groups of `bulk_max_ids`, at most 3 calls per tick, through the shared pacer; never claims, changes or deletes a queue entry |
+
+How it works:
+
+* The rule: a stored core covers an entry when the store's latest observation of the item was requested at least
+  5 seconds after the entry's last enqueue
+  (`ml_items.fetched_request_started_at - 5 s >= ml_pub_refresh_queue.last_enqueued_at`, `CLOCK_SKEW_MARGIN_SECONDS`).
+  The worker clock stamps the request and Postgres stamps the enqueue: the margin keeps a worker clock up to 5 s
+  ahead from passing off a read made before a notification as covering it. So that its own reads count, the job
+  waits until an entry has been queued for 5 seconds before reading it.
+  `source_received_at` keeps the oldest notification of an entry, so it cannot tell a newer one apart.
+* The cores go through the same `/items/bulk` request, parser and `store.apply_fetch` as the refresh; the row lock
+  and the stale check of `apply_fetch` order two writes of one item, whoever lands first.
+* The refresh then claims the entry as usual and, for a lane-1 entry whose core is covered, takes the stored core
+  instead of reading it again (counter `skipped_core_fresh`); its sub-resources are fetched as before. Manual,
+  reconcile, backfill and sweep entries always read their core.
+* A 429 (or its cooldown still running) ends the tick. An item whose core could not be applied is left to the
+  refresh, not read again by this job for the same notification (for 10 minutes).
+* Budget: at most 3 calls per 5 s, about 6 % of 10 req/s, which reads up to 720 cores a minute.
+
+Rollback: `python -m app.scripts.ml_publications_settings set core_first.enabled false` (next tick; the refresh then
+reads every core again as before). `ML_PUB_KILL_SWITCH` turns it off with every other flag.
+
 ## Verification jobs
 
 One more job of the `pricing-worker-ml` worker, `ml_publications.verify`, with two sub-jobs. Each is behind its own

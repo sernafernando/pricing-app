@@ -148,6 +148,7 @@ class TestContract:
             "promo_write.refresh",
             "ml_publications.freshness",
             "ml_publications.catalog_competition_refresh",
+            "ml_publications.core_first",
             "gestion_full.inbound",
             "gestion_full.reconcile",
             "publicacion_repair.envio",

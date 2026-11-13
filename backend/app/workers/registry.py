@@ -101,6 +101,7 @@ def __getattr__(name: str) -> List[JobHandler]:
             from app.workers.handlers.catalog_competition_refresh import catalog_competition_refresh
             from app.workers.handlers.ml_promo_refresh import promo_refresh
             from app.workers.handlers.ml_publications import (
+                core_first,
                 freshness,
                 intake,
                 missed_feeds,
@@ -136,6 +137,9 @@ def __getattr__(name: str) -> List[JobHandler]:
                 gestion_full_reconcile,
                 # hay_mejores → catalog competition snapshot refresh (path 1).
                 catalog_competition_refresh,
+                # ml-freshness S1c: item cores of a notification burst read ahead of the sub-resources (own thread;
+                # registered before the repair ticks, which stay last).
+                core_first,
                 # publicaciones-repair: conditional envio/sku ticks under the shared Pacer.
                 envio_repair,
                 sku_repair,

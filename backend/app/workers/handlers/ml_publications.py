@@ -60,6 +60,7 @@ from app.services.ml_publications.resources import (
     USER_PRODUCT_KIND,
 )
 from app.workers.context import JobResult, WorkerContext
+from app.workers.handlers.ml_core_first import CoreFirstHandler, fresh_cores
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,7 @@ def disabled_outcome() -> JobResult:
 # Settings the refresh handler reads at the start of a run and at every batch boundary.
 _SETTING_KEYS = (
     "refresh.enabled",
+    "core_first.enabled",
     "events.enabled",
     "links.enabled",
     *bundle.FLAG_GATES.values(),
@@ -302,6 +304,7 @@ class RefreshHandler:
         self._skipped_not_applicable: Counter = Counter()
         self._skipped_shared: Counter = Counter()
         self._requeued_for_core: Counter = Counter()
+        self._skipped_core_fresh = 0
         self._skipped_item_gone = 0
         self._sub_outcomes: Dict[str, Counter] = defaultdict(Counter)
         self._apply_counters = store.ApplyCounters()
@@ -466,6 +469,8 @@ class RefreshHandler:
             else:  # nothing this deployment can fetch: settle the entry, no ML call, nothing charged
                 self._finish(work)
         core_works = [w for w in works if w.plan.needs_core]
+        if core_works and config["core_first.enabled"].value is True:
+            core_works = self._skip_fresh_cores(core_works)
         if core_works:
             reason = _time_up(ctx)
             if reason:
@@ -487,6 +492,23 @@ class RefreshHandler:
                 return
             self._handle_core_response(ctx, core_works, response, run)
         self._fetch_subresources(ctx, [w for w in works if not w.settled], config, run)
+
+    def _skip_fresh_cores(self, works: List[_Work]) -> List[_Work]:
+        """S1c: a notification-lane entry whose core `ml_publications.core_first` already read after its last
+        notification takes the stored core as its own (a gone item as a 404) instead of reading it again; returns
+        the entries whose core is still to read."""
+        fresh = fresh_cores([w.claim.entity_id for w in works if w.claim.kind == ITEM_KIND])
+        remaining: List[_Work] = []
+        for work in works:
+            if work.claim.entity_id not in fresh or work.claim.kind != ITEM_KIND:
+                remaining.append(work)
+                continue
+            with self._counters_lock:  # several runners skip at once
+                self._skipped_core_fresh += 1
+            work.core_status = 404 if fresh[work.claim.entity_id] else 200
+            if not work.plan.wanted:
+                self._finish(work)
+        return remaining
 
     def _interruption(self, ctx: WorkerContext, response: MlResponse, run: _Run) -> Optional[_Interruption]:
         if response.error == DEADLINE:  # the deadline passed, or the wait was ended (`should_stop`)
@@ -910,6 +932,7 @@ class RefreshHandler:
             "skipped_shared": dict(self._skipped_shared),
             "requeued_for_core": dict(self._requeued_for_core),
             "skipped_item_gone": self._skipped_item_gone,
+            "skipped_core_fresh": self._skipped_core_fresh,
             "subresources": {resource: dict(kinds) for resource, kinds in self._sub_outcomes.items()},
         }
 
@@ -1477,3 +1500,4 @@ missed_feeds = MissedFeedsHandler(pacer=refresh.pacer)
 sweep = SweepHandler()
 freshness = FreshnessHandler()
 verify = VerifyHandler(pacer=refresh.pacer)
+core_first = CoreFirstHandler(pacer=refresh.pacer)  # S1c: reads burst cores ahead, under the same ML budget
