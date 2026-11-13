@@ -15,7 +15,7 @@ const PRODUCTO = { item_id: 7, descripcion: 'Router Archer AX55', marca: 'TP-LIN
 
 const RESULTADO = {
   clasica: { precio: 98500.5, markup_real: 42.98 },
-  cuotas: { '3_cuotas': { precio: 104200, markup_real: 40.1 } },
+  cuotas: { '3_cuotas': { precio: 104200, markup_real: 40.1 }, '6_cuotas': { precio: 110000, markup_real: null } },
 };
 
 const open = () => render(<PricingModalTesla isOpen producto={PRODUCTO} onClose={() => {}} onSave={() => {}} />);
@@ -66,6 +66,8 @@ describe('PricingModalTesla - format and controls', () => {
     expect(screen.getByText('42,98 %')).toBeInTheDocument();
     expect(screen.getByText('$ 104.200,00')).toBeInTheDocument();
     expect(screen.getByText('40,10 %')).toBeInTheDocument();
+    // A plan without a markup reads "—", not "— %".
+    expect(screen.getByText('$ 110.000,00').nextElementSibling).toHaveTextContent(/^—$/);
     expect(screen.getByRole('heading', { name: 'Precio clásica' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Precios con cuotas' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Guardar precio' })).toBeInTheDocument();

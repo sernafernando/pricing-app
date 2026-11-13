@@ -11,18 +11,25 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { Megaphone } from 'lucide-react';
 import api from '../services/api';
 import { formatDateOnly } from '../utils/dateUtils';
 import { formatMoney } from '../utils/formatMoney';
 import ModalTesla, { ModalSection, ModalAlert, ModalFooterButtons } from './ModalTesla';
 import './PricingModalTesla.css';
 
-/** A figure in the Argentine format with two decimals: 95.5 -> "95,50". */
+/** A figure in the Argentine format with two decimals: 95.5 -> "95,50"; a missing one is "—". */
 function decimal2(value) {
   if (value === null || value === undefined || value === '') return '—';
   const num = Number(value);
   if (Number.isNaN(num)) return '—';
   return num.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** A percentage in the Argentine format: 42.98 -> "42,98 %"; a missing one is only "—". */
+function percent2(value) {
+  const figure = decimal2(value);
+  return figure === '—' ? figure : `${figure} %`;
 }
 
 export default function PricingModalTesla({ producto, onClose, onSave, isOpen }) {
@@ -207,7 +214,10 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
       {/* Ofertas vigentes */}
       {!loadingOfertas && ofertas && ofertas.con_oferta > 0 && (
         <ModalAlert type="warning">
-          <strong>📢 Ofertas vigentes ({ofertas.con_oferta} de {ofertas.total_publicaciones} publicaciones)</strong>
+          <strong>
+            <Megaphone size={14} aria-hidden="true" /> Ofertas vigentes ({ofertas.con_oferta} de {ofertas.total_publicaciones}{' '}
+            publicaciones)
+          </strong>
           <div className="ofertas-list">
             {ofertas.publicaciones
               .filter(p => p.tiene_oferta)
@@ -327,7 +337,7 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
               </div>
               <div className="resultado-item">
                 <span>Markup</span>
-                <strong>{decimal2(resultado.clasica?.markup_real)} %</strong>
+                <strong>{percent2(resultado.clasica?.markup_real)}</strong>
               </div>
             </div>
           </ModalSection>
@@ -343,7 +353,7 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
                     <div key={key} className="cuota-card">
                       <div className="cuota-title">{key.replace('_', ' ')}</div>
                       <div className="cuota-precio">{formatMoney(cuota.precio) ?? '—'}</div>
-                      <div className="cuota-markup">{decimal2(cuota.markup_real)} %</div>
+                      <div className="cuota-markup">{percent2(cuota.markup_real)}</div>
                     </div>
                   );
                 })}

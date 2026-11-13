@@ -4,7 +4,7 @@
 
 ## Resumen ejecutivo
 
-en el panel de una publicación, **Pausar** y **Resincronizar** pasan a tener un borde gris fino, y las fechas del pie quedan en columnas alineadas. El cálculo de precio (el mismo de Productos) muestra el modo en un selector de dos partes, con **Calcular** al lado del campo y las cifras en formato argentino.
+En el panel de una publicación, **Pausar** y **Resincronizar** pasan a tener un borde gris fino, y las fechas del pie quedan en columnas alineadas. El cálculo de precio (el mismo de Productos) muestra el modo en un selector de dos partes, con **Calcular** al lado del campo y las cifras en formato argentino.
 
 ## Qué cambia
 
