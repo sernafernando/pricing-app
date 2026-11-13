@@ -406,3 +406,31 @@
     font-size: 9px;
   }
 }
+
+/* Small phones: the gaps tighten and the logo gives way (at most 104px, less only when the badges need the room)
+   so every badge and the avatar stay on the bar. Wider screens are untouched. */
+@media (max-width: 480px) {
+  .left,
+  .right {
+    gap: 8px;
+  }
+
+  .left {
+    min-width: 0;
+  }
+
+  .right {
+    flex-shrink: 0;
+  }
+
+  .logoLink {
+    min-width: 32px;
+    flex-shrink: 1;
+  }
+
+  .logoIcon {
+    width: 100%;
+    max-width: 104px;
+    height: auto;
+  }
+}

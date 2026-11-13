@@ -20,6 +20,9 @@ import TopBar from '../../components/TopBar';
 const SHOTS_DIR = import.meta.env.VITE_MEJORES_OFERTAS_SHOTS_DIR;
 // CI renders with DejaVu (~8% wider than the app's fonts): every check keeps more than that spare.
 const CI_FONT_MARGIN = 1.12;
+// What the other top bar badges show: every one of them by default (the widest bar), changed per test.
+const others = vi.hoisted(() => ({ truck: 34, birthdays: 1, tickets: 12 }));
+const OTHERS_ALL = { truck: 34, birthdays: 1, tickets: 12 };
 
 vi.mock('../../contexts/PermisosContext', () => ({
   usePermisos: () => ({ permisos: [], rol: null, tienePermiso: () => true, cargandoPermisos: false }),
@@ -33,28 +36,35 @@ vi.mock('../../services/api', async (importOriginal) => {
   const original = await importOriginal();
   const answers = {
     '/ml-publications/view/mejores-ofertas/count': { pm_id: 17, count: 128 },
-    '/free-shipping-alerts/count': { count: 34 },
     '/ml-metricas/board': { kpis: { gross: { value: 187654321.5 } } },
     '/notificaciones/agrupadas?solo_no_leidas=false': [],
     '/notificaciones/stats': { total: 3, no_leidas: 3 },
   };
   return {
     ...original,
-    default: { ...original.default, get: vi.fn(async (url) => ({ data: answers[url] ?? {} })) },
+    default: {
+      ...original.default,
+      get: vi.fn(async (url) => ({
+        data: url === '/free-shipping-alerts/count' ? { count: others.truck } : (answers[url] ?? {}),
+      })),
+    },
     ticketsAPI: {
       ...original.ticketsAPI,
       badgeCount: vi.fn(async () => ({
-        data: { pendientes: 12, sin_asignar: 4, asignados_a_mi: 8, sync_vikunja_habilitado: false },
+        data: { pendientes: others.tickets, sin_asignar: 4, asignados_a_mi: 8, sync_vikunja_habilitado: false },
       })),
     },
     rrhhAPI: {
       ...original.rrhhAPI,
-      cumpleanosHoy: vi.fn(async () => ({ data: { empleados: [{ empleado_id: 1, nombre: 'Ana', apellido: 'Paz' }] } })),
+      cumpleanosHoy: vi.fn(async () => ({
+        data: { empleados: others.birthdays ? [{ empleado_id: 1, nombre: 'Ana', apellido: 'Paz' }] : [] },
+      })),
     },
   };
 });
 
 beforeEach(() => {
+  Object.assign(others, OTHERS_ALL);
   useAuthStore.setState({ user: { id: 17, nombre: 'Carolina Lépore', username: 'clepore', rol: 'ADMIN' } });
 });
 
@@ -121,5 +131,66 @@ describe.each(['light', 'dark'])('MejoresOfertasBadge in the TopBar (%s)', (them
     expect(getComputedStyle(label).display).toBe('none');
     expect(count.textContent).toBe('128');
     expect(getComputedStyle(count).display).not.toBe('none');
+  });
+
+  const renderBar = () =>
+    render(
+      <MemoryRouter>
+        <ThemeProvider>
+          <TopBar />
+        </ThemeProvider>
+      </MemoryRouter>,
+    );
+
+  const phoneBar = async () => {
+    await page.viewport(390, 844);
+    localStorage.setItem('theme', theme);
+    setTheme(theme);
+    renderBar();
+    const badge = page.getByRole('link', { name: 'tenés 128 promos mejores para revisar' });
+    await expect.element(badge).toBeVisible();
+    await expect.element(page.getByText('C', { exact: true })).toBeVisible(); // the avatar's initial
+    return badge.element();
+  };
+
+  // At 390 nothing may overflow, and what can still give way (the logo down to its 32px floor, plus the free
+  // room) must cover CI's wider font (~8%, 12% kept) on every text of the bar.
+  const LOGO_FLOOR = 32;
+  const checkPhoneBar = (el) => {
+    const header = el.closest('header');
+    expect(header.scrollWidth).toBeLessThanOrEqual(header.clientWidth);
+    const bar = header.getBoundingClientRect();
+    const avatar = header.querySelector('[data-user-menu]').getBoundingClientRect();
+    expect(avatar.left).toBeGreaterThanOrEqual(bar.left);
+    expect(avatar.right).toBeLessThanOrEqual(bar.right);
+    const [left, , right] = header.children;
+    const widthOf = (node) => node.getBoundingClientRect().width;
+    const cs = getComputedStyle(header);
+    const inner = header.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const logo = widthOf(left.querySelector('img'));
+    expect(logo).toBeGreaterThanOrEqual(LOGO_FLOOR);
+    const texts = [...right.querySelectorAll('span')].filter((span) => span.offsetWidth > 0 && span.textContent.trim());
+    const textWidth = texts.reduce((sum, span) => sum + widthOf(span), 0);
+    const room = inner - widthOf(left) - widthOf(right) + (logo - LOGO_FLOOR);
+    expect(room).toBeGreaterThanOrEqual(textWidth * (CI_FONT_MARGIN - 1));
+    return logo;
+  };
+
+  it('at phone width (390) a PM sees icon and number, the whole logo, and the avatar stays on the bar', async () => {
+    Object.assign(others, { truck: 0, birthdays: 0 }); // a PM's usual bar: tickets, this badge, the bell, the avatar
+    const el = await phoneBar();
+    const [label, count] = el.querySelectorAll('span');
+    expect(getComputedStyle(label).display).toBe('none');
+    expect(count.textContent).toBe('128');
+    expect(el.getBoundingClientRect().width).toBeLessThanOrEqual(54); // ~50px: icon + 3 digits
+    expect(checkPhoneBar(el)).toBe(104); // the logo only gives way when the bar needs it
+    if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/mejores-ofertas-topbar-390-pm-${theme}.png` });
+  });
+
+  it('at phone width (390) every badge at once still fits: the logo gives way', async () => {
+    const el = await phoneBar(); // birthday, tickets, truck, this badge, the bell, the avatar
+    expect(el.closest('header').querySelectorAll('[data-user-menu], [data-ticket-badge]').length).toBe(2);
+    checkPhoneBar(el);
+    if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/mejores-ofertas-topbar-390-all-badges-${theme}.png` });
   });
 });

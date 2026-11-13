@@ -58,3 +58,16 @@
     display: inline;
   }
 }
+
+/* Phones: as narrow as the other top bar badges, icon and number only (~50px for 3 digits) */
+@media (max-width: 768px) {
+  .badge {
+    gap: 3px;
+    padding: 6px 4px;
+  }
+
+  .icon {
+    width: 16px;
+    height: 16px;
+  }
+}
