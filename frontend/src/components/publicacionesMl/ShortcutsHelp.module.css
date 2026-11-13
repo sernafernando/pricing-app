@@ -1,6 +1,7 @@
-/* `full` takes the 95vh height; the width stops at 80rem so the three columns do not spread on a wide screen. */
+/* `full` takes the 95vh height; the width stops at 85rem so the three columns do not spread on a wide screen. 85rem
+   (not 80) leaves room at 1440x900 for a wider system font, as CI's DejaVu: the visual test pins it. */
 :global(.modal-tesla.full).modal {
-  max-width: min(95vw, 80rem);
+  max-width: min(95vw, 85rem);
 }
 
 /* Groups flow into as many 18rem columns as fit: three on a desktop modal, one on a phone. */
@@ -22,10 +23,11 @@
   color: var(--cf-text-secondary);
 }
 
-/* One grid per group: the keycaps share one column, so every description starts on the same line. */
+/* One grid per group: the keycaps share one column, so every description starts on the same line. Up to 11rem, so
+   pairs like Ctrl+F1 o Ctrl+Shift+1 stay on one line in a wider font too. */
 .list {
   display: grid;
-  grid-template-columns: fit-content(10rem) 1fr;
+  grid-template-columns: fit-content(11rem) 1fr;
   column-gap: var(--spacing-md);
   row-gap: var(--space-2);
   margin: 0;

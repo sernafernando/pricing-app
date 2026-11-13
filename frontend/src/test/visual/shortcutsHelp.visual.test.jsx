@@ -5,6 +5,8 @@
  *  - on a 1440x900 desktop the groups sit side by side in 2-3 columns and the whole set fits without scrolling,
  *    Lista's Alt / Shift with Enter or Space (pubml-atajos-faltantes S2) included;
  *  - inside a group the keycaps share one column, so every description starts on the same line;
+ *  - with a wider font (CI's Chromium has DejaVu; letter-spacing stands in for it, 0.05em reproduces CI's heights) it
+ *    still fits 1440x900, with room to spare;
  *  - on a 390 phone the groups stack in one column and nothing overflows sideways.
  *
  *   pnpm exec vitest run --project=visual shortcutsHelp
@@ -17,6 +19,9 @@ import { setTheme } from './visualHelpers';
 import ShortcutsHelp from '../../components/publicacionesMl/ShortcutsHelp';
 
 const SHOTS_DIR = import.meta.env.VITE_ATAJOS_SHOTS_DIR;
+// Wider letters standing in for a wider system font: CI's overflow shows at 0.05em, so 0.07em is the margin.
+const CI_FONT_SPACING = '0.07em';
+const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
 const groupsOf = () => Array.from(document.querySelectorAll('.modal-body-tesla section'));
 const distinct = (values) => new Set(values.map((value) => Math.round(value))).size;
@@ -50,6 +55,18 @@ describe('ShortcutsHelp (visual)', () => {
       const columns = distinct(groups.map((group) => group.getBoundingClientRect().left));
       expect(columns).toBeGreaterThanOrEqual(2);
       expect(columns).toBeLessThanOrEqual(3);
+
+      // A wider font still fits without scrolling.
+      const wider = document.createElement('style');
+      wider.textContent = `.modal-body-tesla { letter-spacing: ${CI_FONT_SPACING}; }`;
+      document.head.append(wider);
+      try {
+        await frame();
+        expect(body.scrollHeight, `with letter-spacing ${CI_FONT_SPACING}`).toBeLessThanOrEqual(body.clientHeight + 1);
+      } finally {
+        wider.remove();
+        await frame();
+      }
 
       // One keycap column per group: every description of a group starts at the same x.
       for (const group of groups) {
