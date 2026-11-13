@@ -111,8 +111,12 @@ def _script_directory() -> ScriptDirectory:
 
 
 class TestMigrationGraph:
-    def test_is_the_single_head(self) -> None:
-        assert _script_directory().get_heads() == [_REVISION]
+    def test_single_head_descends_from_this_revision(self) -> None:
+        # Not `get_heads() == [this]`: a later revision must not break this test.
+        scripts = _script_directory()
+        heads = scripts.get_heads()
+        assert len(heads) == 1
+        assert _REVISION in {rev.revision for rev in scripts.iterate_revisions(heads[0], "base")}
 
     def test_chains_on_the_head_of_main(self) -> None:
-        assert _script_directory().get_revision(_REVISION).down_revision == "20261113_permiso_mejores_ofertas_pms"
+        assert _script_directory().get_revision(_REVISION).down_revision == "20261113_equipo_miembro_preferencias_capa"
