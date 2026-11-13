@@ -35,6 +35,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -369,17 +370,23 @@ def analyzed(session: Session, statement: str, parameters: Any) -> tuple[dict[st
     return document, document["Execution Time"]
 
 
-def nodes(node: dict[str, Any]) -> Iterator[dict[str, Any]]:
+def nodes(node: dict[str, Any], skip: frozenset[str] = frozenset()) -> Iterator[dict[str, Any]]:
+    """The plan's nodes, without the subtrees of the subplans named in `skip`."""
+    if node.get("Subplan Name") in skip:
+        return
     yield node
     for child in node.get("Plans", ()):
-        yield from nodes(child)
+        yield from nodes(child, skip)
 
 
 def per_row_plans(document: dict[str, Any]) -> list[str]:
     """What runs once per outer row over a big table: a whole-index probe of the activity index by `item_id`, or a
-    sequential scan executed more than once."""
+    sequential scan executed more than once. A hashed subplan (`hashed SubPlan N` in a condition) is not per row: its
+    hash is built once per statement, whatever the rows tested against it (Postgres may report that build as 2
+    loops, e.g. the `has_product` EXISTS under `NOT (...) OR ...`), so its subtree is left out."""
+    hashed = frozenset(re.findall(r"hashed (SubPlan \d+)", json.dumps(document)))
     found = []
-    for node in nodes(document["Plan"]):
+    for node in nodes(document["Plan"], hashed):
         cond = node.get("Index Cond", "")
         if (
             node.get("Index Name") == "ix_ml_items_last_trigger"

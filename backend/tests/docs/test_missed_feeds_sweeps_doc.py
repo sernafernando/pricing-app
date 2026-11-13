@@ -90,8 +90,9 @@ def test_the_resume_age_limit_is_the_real_constant(section) -> None:
     assert f"older than {hours} hours is dropped" in section
 
 
-def test_the_yielded_outcome_is_explained(section) -> None:
-    assert "`yielded`" in section and "expected, not a fault" in section
+def test_the_sweep_no_longer_yields_and_catches_up(section) -> None:
+    assert "longer yields to live work" in section
+    assert "`DUE_AGE`" in section and "`MAX_TICK_BATCH`" in section
 
 
 def test_the_health_signals_and_the_unconfirmed_ordering_are_stated(section) -> None:
