@@ -4116,4 +4116,52 @@ describe('Publicaciones ML panel, the promo filter in the Promos tab (visual)', 
       screen.unmount();
     });
   }
+
+  // With #2270's Competencia (open by default on a catalog listing): the filter header and the competencia toggle
+  // share column 1, the ranking sits in column 2, at the panel's default width.
+  for (const theme of THEMES) {
+    it(`1440x900 ${theme}: on a catalog listing the filter header and Ocultar competencia share the promos column, the ranking beside it`, async () => {
+      localStorage.removeItem('split-panel-width:publicaciones-ml');
+      localStorage.removeItem('split-panel-width:publicaciones-ml:expanded');
+      promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
+        data: {
+          fetch_status: 'ok',
+          fecha_consulta: '2026-11-13T12:00:00Z',
+          our_price: 98500,
+          competitor_count: 2,
+          same_bucket: [
+            { item_id: 'MLA1999000001', seller_nickname: 'DISTRIBUIDORA DE REDES DEL LITORAL SRL', price: 96999, markup: 10.42 },
+            { item_id: SELECTED, seller_nickname: 'NUESTRA TIENDA', price: 98500, markup: 12.7 },
+          ],
+          undercutting: [],
+        },
+      });
+      usePromoFilterStore.setState({ selectedTypes: ['SMART', 'DEAL'], selectedNames: { SMART: ['Potencia tus ventas'] } });
+      try {
+        const screen = await renderWithPanel({ width: 1440, height: 900, theme, tab: 'promos', margin: true, promotions: S9_PROMOTIONS, rowExtra: { catalog_listing: true } });
+        await expect.element(screen.getByText('DISTRIBUIDORA DE REDES DEL LITORAL SRL')).toBeVisible();
+        await expect.element(screen.getByText('MKP T1 CYBER MONDAY NOV')).toBeVisible();
+        await frame();
+        const panel = panelOf();
+        const toggle = screen.getByRole('button', { name: 'Filtrar promos' }).element();
+        const competencia = screen.getByRole('button', { name: 'Ocultar competencia' }).element();
+        await expect.element(screen.getByText('Filtro: 2 tipos · 1 nombre')).toBeVisible();
+        // Filter header first, the competencia toggle under it, both in the promos column.
+        expect(rect(competencia).top).toBeGreaterThanOrEqual(rect(toggle).bottom);
+        const title = [...panel.querySelectorAll('h3')].find((h) => h.textContent === 'Competencia del catálogo');
+        const ranking = title.parentElement;
+        const promos = ranking.previousElementSibling;
+        expect(promos.contains(toggle) && promos.contains(competencia)).toBe(true);
+        expect(rect(ranking).left).toBeGreaterThanOrEqual(rect(promos).right);
+        expect(panel.textContent).not.toContain('Ofertas compartidas CM');
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/promo-filter-competencia-1440-${theme}.png`, element: panel });
+        screen.unmount();
+      } finally {
+        promocionesAPI.getCompetenciaCatalogo.mockReset();
+        localStorage.removeItem('split-panel-width:publicaciones-ml:expanded');
+      }
+    });
+  }
 });
+
