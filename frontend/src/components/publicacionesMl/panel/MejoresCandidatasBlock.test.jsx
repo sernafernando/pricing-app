@@ -442,6 +442,10 @@ describe('MejoresCandidatasBlock', () => {
 // pubml-promo-mejor S5 (owner: "tiene que traer también la información de la aplicada actual para verlo a simple vista
 // la comparación"): the applied promo sits next to the candidates with the same figures, and each candidate says by
 // how much it beats it.
+// A figure's whole text, whatever runs it is split into (dates and shares wrap only after their separator).
+const figureText = (text) => (_, element) =>
+  /mejoresValue/.test(element?.className ?? '') && element.textContent === text;
+
 describe('MejoresCandidatasBlock comparison with the applied promo', () => {
   const candidate = {
     status: 'candidate',
@@ -481,12 +485,12 @@ describe('MejoresCandidatasBlock comparison with the applied promo', () => {
     expect(within(appliedRow).getByText('MKP T1 CYBER')).toBeInTheDocument();
     expect(within(appliedRow).getByText('$ 59.999,00')).toBeInTheDocument();
     expect(within(appliedRow).getByText('1,25%')).toBeInTheDocument();
-    expect(within(appliedRow).getByText('—')).toBeInTheDocument(); // no seller / ML shares
-    expect(within(appliedRow).getByText(/^02\/11 – 02\/12$/)).toBeInTheDocument();
+    expect(within(appliedRow).getByText(figureText('—'))).toBeInTheDocument(); // no seller / ML shares
+    expect(within(appliedRow).getByText(figureText('02/11 – 02/12'))).toBeInTheDocument();
 
     const card = screen.getByRole('group', { name: 'Promo sugerida SMART' });
-    expect(within(card).getByText('23,50% / 3,60%')).toBeInTheDocument();
-    expect(within(card).getByText('05/11 – 25/11')).toBeInTheDocument();
+    expect(within(card).getByText(figureText('23,50% / 3,60%'))).toBeInTheDocument();
+    expect(within(card).getByText(figureText('05/11 – 25/11'))).toBeInTheDocument();
     expect(within(card).getByLabelText('+3,25 pp vs aplicada')).toBeInTheDocument();
     // The existing actions stay.
     expect(within(card).getByRole('button', { name: 'Aplicar sugerencia' })).toBeInTheDocument();

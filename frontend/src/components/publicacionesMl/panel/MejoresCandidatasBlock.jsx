@@ -42,20 +42,31 @@ function shortDate(value) {
   return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
 
+// Figures as unbreakable runs: a narrow column (or a wider font) wraps them only after their separator.
 function dateRange(promo) {
   const start = shortDate(promo?.start_date);
   const finish = shortDate(promo?.finish_date);
-  if (start && finish) return `${start} – ${finish}`;
-  if (finish) return `hasta ${finish}`;
-  if (start) return `desde ${start}`;
-  return 'Sin fecha';
+  if (start && finish) return [`${start} –`, finish];
+  if (finish) return [`hasta ${finish}`];
+  if (start) return [`desde ${start}`];
+  return ['Sin fecha'];
 }
 
 function shares(promo) {
   const seller = promo?.payload?.seller_percentage;
   const meli = promo?.payload?.meli_percentage;
-  if (seller == null && meli == null) return '—';
-  return `${seller != null ? pct(seller) : '—'} / ${meli != null ? pct(meli) : '—'}`;
+  if (seller == null && meli == null) return ['—'];
+  return [`${seller != null ? pct(seller) : '—'} /`, meli != null ? pct(meli) : '—'];
+}
+
+/** A figure's runs, each on one line, separated by a space where the line may break. */
+function Runs({ runs }) {
+  return runs.map((run, index) => (
+    <span key={index}>
+      {index > 0 && ' '}
+      <span className={styles.mejoresNowrap}>{run}</span>
+    </span>
+  ));
 }
 
 /** Markup delta of a candidate vs the applied promo (or the sale price), on the basis `comparableMarkups` picks. */
@@ -72,25 +83,29 @@ function PromoFigures({ price, markup, sellInOut, sharesText, dates, delta, delt
     <>
       <span className={styles.mejoresFigure}>
         <span className={styles.mejoresEyebrow}>Precio</span>
-        <span className={styles.mejoresValue}>{price != null ? `$ ${formatAmount(price)}` : '—'}</span>
+        <span className={`${styles.mejoresValue} ${styles.mejoresNowrap}`}>{price != null ? `$ ${formatAmount(price)}` : '—'}</span>
       </span>
       <span className={styles.mejoresFigure}>
         <span className={styles.mejoresEyebrow}>Markup</span>
-        <span className={`${styles.mejoresValue} ${markupTone(markup)}`}>{markup != null ? pct(markup) : '—'}</span>
+        <span className={`${styles.mejoresValue} ${styles.mejoresNowrap} ${markupTone(markup)}`}>{markup != null ? pct(markup) : '—'}</span>
         <SellInOutMarkupExtra value={sellInOut} format={pct} />
         {delta && (
           <span className={styles.mejoresDelta} aria-label={`${delta} ${deltaLabel}`}>
-            <span className={styles.mejoresDeltaValue}>{delta}</span> {deltaLabel}
+            <span className={styles.mejoresNowrap}>{delta}</span> {deltaLabel}
           </span>
         )}
       </span>
       <span className={styles.mejoresFigure}>
         <span className={styles.mejoresEyebrow}>Vend. / ML</span>
-        <span className={styles.mejoresValue}>{sharesText}</span>
+        <span className={styles.mejoresValue}>
+          <Runs runs={sharesText} />
+        </span>
       </span>
       <span className={styles.mejoresFigure}>
         <span className={styles.mejoresEyebrow}>Vigencia</span>
-        <span className={styles.mejoresValue}>{dates}</span>
+        <span className={styles.mejoresValue}>
+          <Runs runs={dates} />
+        </span>
       </span>
     </>
   );
@@ -275,8 +290,8 @@ export default function MejoresCandidatasBlock({
         price={baselinePrice != null && Number.isFinite(Number(baselinePrice)) ? Number(baselinePrice) : null}
         markup={baselineMarkup}
         sellInOut={baselineSellInOut}
-        sharesText="—"
-        dates="—"
+        sharesText={['—']}
+        dates={['—']}
       />
     </li>
   );

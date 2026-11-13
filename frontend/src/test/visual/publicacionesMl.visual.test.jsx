@@ -3491,8 +3491,10 @@ describe('Publicaciones ML panel, the whole S9 design (visual)', () => {
 // pubml-promo-mejor S5: the "promo mejor" card compares each candidate with the applied promo (same figures, the
 // markup delta as the one accent), or with the sale price when nothing is applied ("Sin promo aplicada").
 describe('Publicaciones ML panel, promo mejor vs the applied promo (visual)', () => {
-  // CI renders with DejaVu (~8% wider than the app's fonts): every width check keeps more than that spare.
+  // CI renders with DejaVu (~8% wider than the app's fonts): every width check keeps more than that spare, on top
+  // of a letter-spacing that stands in for the wider font (as #2273 did; it reproduces the CI widths locally).
   const CI_FONT_MARGIN = 1.12;
+  const CI_SIM_LETTER_SPACING = '0.05em';
   const sinAplicada = S9_PROMOTIONS.filter((promo) => promo.application_status !== 'active');
 
   for (const { width, height } of [
@@ -3528,13 +3530,23 @@ describe('Publicaciones ML panel, promo mejor vs the applied promo (visual)', ()
           // The card itself fits; the whole panel is not asserted here: at 390 the Promos rows below it already
           // overflow with CI fonts, outside this card.
           expect(region.scrollWidth).toBeLessThanOrEqual(region.clientWidth + 1);
-          // Every one-line figure (and the delta's figure) fits its column with the CI font margin to spare, so the
-          // columns of the reference row and the candidates still line up there.
-          for (const figure of region.querySelectorAll('li [class*="mejoresFigure"]')) {
-            const column = rect(figure).width;
-            for (const line of figure.querySelectorAll('[class*="mejoresValue"], [class*="mejoresDeltaValue"]')) {
-              expect(line.scrollWidth * CI_FONT_MARGIN, line.textContent).toBeLessThanOrEqual(column + 1);
+          // CI's font (DejaVu) is wider than this browser's: simulate it with letter-spacing, then keep the
+          // CI_FONT_MARGIN on top. Every unbreakable run of a figure fits its column, so the columns of the reference
+          // row and the candidates still line up in CI.
+          const ciFont = document.createElement('style');
+          ciFont.textContent = `[aria-label="Candidatas mejores"] { letter-spacing: ${CI_SIM_LETTER_SPACING}; }`;
+          document.head.append(ciFont);
+          try {
+            await frame();
+            expect(region.scrollWidth).toBeLessThanOrEqual(region.clientWidth + 1);
+            for (const figure of region.querySelectorAll('li [class*="mejoresFigure"]')) {
+              const column = rect(figure).width;
+              for (const run of figure.querySelectorAll('[class*="mejoresNowrap"]')) {
+                expect(run.scrollWidth * CI_FONT_MARGIN, run.textContent).toBeLessThanOrEqual(column + 1);
+              }
             }
+          } finally {
+            ciFont.remove();
           }
           if (PRODUCT_SHOTS_DIR) {
             await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/promo-mejor-${variant}-${width}-${theme}.png`, element: region });

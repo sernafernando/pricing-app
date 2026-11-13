@@ -1092,11 +1092,10 @@
   min-width: 0;
 }
 
-/* One line per figure: the four columns read across rows without a wrapped date or share. */
-.mejoresFigure .mejoresValue {
-  font-size: var(--font-sm);
-  white-space: nowrap;
-}
+.mejoresFigure .mejoresValue { font-size: var(--font-sm); }
+
+/* An unbreakable run of a figure (price, markup, a date, a share): a figure wraps only between its runs. */
+.mejoresNowrap { white-space: nowrap; }
 
 /* The applied promo (or the sale price without one): the comparison's reference row, quieter than the candidates. */
 .mejoresCardApplied {
@@ -1110,9 +1109,6 @@
   font-weight: var(--font-semibold);
   color: var(--cf-accent-blue);
 }
-
-/* The figure stays on one line; "vs aplicada" wraps under it when the column is narrow. */
-.mejoresDeltaValue { white-space: nowrap; }
 
 @media (max-width: 480px) {
   .mejoresCard { grid-template-columns: repeat(2, minmax(0, 1fr)); }
