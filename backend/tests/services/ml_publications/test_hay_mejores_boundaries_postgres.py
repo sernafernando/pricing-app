@@ -12,6 +12,7 @@ from decimal import Decimal
 from typing import List
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.ml_publications import MlItemSalePrice, MlItemSellerPromotions
@@ -217,6 +218,23 @@ class TestBoundariesHandler:
             clock.now += timedelta(minutes=5)
             assert _handler(clock).run(_ctx(clock)).success
         assert (_flag(db, "MLA1"), _flag(db, "MLA2")) == (True, False)
+
+    def test_a_tick_is_skipped_while_another_run_holds_the_lock(self, db, mlpub_pg) -> None:
+        _add(db, "MLA1", [{"id": "C-1", "type": "DOD"}], flag=True)
+        clock = _Clock(T0)
+        with mlpub_pg.connect() as other:
+            assert other.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": module.RUN_LOCK_KEY}).scalar()
+            result = _handler(clock).run(_ctx(clock))
+            assert result.success and result.detail == {"skipped": "locked"}
+            assert _flag(db, "MLA1") is True  # nothing recomputed
+            other.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": module.RUN_LOCK_KEY})
+        result = _handler(clock).run(_ctx(clock))
+        assert result.detail == {"recomputed": 1, "changed": 1, "catchup": True}
+        assert _flag(db, "MLA1") is False
+        # The run released its lock: another session can take it.
+        with mlpub_pg.connect() as other:
+            assert other.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": module.RUN_LOCK_KEY}).scalar()
+            other.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": module.RUN_LOCK_KEY})
 
     def test_a_failure_is_reported_not_raised(self, db, monkeypatch) -> None:
         def boom(*_a, **_k):

@@ -23,7 +23,8 @@ NOW = datetime.fromisoformat(SHARED["now"])
 @pytest.mark.parametrize("case", SHARED["cases"], ids=[case["name"] for case in SHARED["cases"]])
 def test_shared_case(case: dict) -> None:
     entry = {"status": "candidate", **case["entry"]}
-    assert candidata_aplicable_ahora(entry, NOW) is case["applicable"]
+    now = datetime.fromisoformat(case["now"].replace("Z", "+00:00")) if "now" in case else NOW
+    assert candidata_aplicable_ahora(entry, now) is case["applicable"]
 
 
 def test_naive_dates_are_utc_and_a_date_only_finish_ends_at_the_end_of_the_day() -> None:

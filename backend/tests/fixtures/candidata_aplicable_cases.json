@@ -1,5 +1,5 @@
 {
-  "_doc": "Shared cases of the applicable-now rule: backend `candidata_aplicable_ahora` (ml_promotions_aplicable.py) and frontend `isApplicableNow` (pickPonerPreciosPromos.js) both run them. Naive dates are UTC; a date-only finish ends at the end of that day.",
+  "_doc": "Shared cases of the applicable-now rule: backend `candidata_aplicable_ahora` (ml_promotions_aplicable.py) and frontend `isApplicableNow` (pickPonerPreciosPromos.js) both run them, each at the case's `now` when it has one, else the top-level `now`. Naive dates are UTC; a date-only finish ends at the end of that day; the Premium month is Argentina's.",
   "now": "2026-11-13T15:00:00+00:00",
   "cases": [
     {"name": "writable, no dates", "entry": {"type": "SMART"}, "applicable": true},
@@ -18,6 +18,8 @@
     {"name": "seller campaign Premium of the month", "entry": {"type": "SELLER_CAMPAIGN", "name": "PREMIUM NOVIEMBRE"}, "applicable": true},
     {"name": "seller campaign Premium of another month", "entry": {"type": "SELLER_CAMPAIGN", "name": "PREMIUM OCTUBRE"}, "applicable": false},
     {"name": "seller campaign not Premium", "entry": {"type": "SELLER_CAMPAIGN", "name": "PVP LYONN noviembre"}, "applicable": false},
-    {"name": "seller campaign without a name", "entry": {"type": "SELLER_CAMPAIGN"}, "applicable": false}
+    {"name": "seller campaign without a name", "entry": {"type": "SELLER_CAMPAIGN"}, "applicable": false},
+    {"name": "UTC in December but Nov 30 22:30 in Argentina: November's Premium counts", "now": "2026-12-01T01:30:00Z", "entry": {"type": "SELLER_CAMPAIGN", "name": "PREMIUM NOVIEMBRE"}, "applicable": true},
+    {"name": "UTC in December but Nov 30 22:30 in Argentina: December's Premium does not count yet", "now": "2026-12-01T01:30:00Z", "entry": {"type": "SELLER_CAMPAIGN", "name": "PREMIUM DICIEMBRE"}, "applicable": false}
   ]
 }

@@ -80,8 +80,11 @@ function baselinePromo(promotions, baselinePrice) {
   return started.reduce((best, promo) => (promo.nuestro_markup > best.nuestro_markup ? promo : best));
 }
 
+// The month of a "Premium <mes>" campaign is Argentina's, whatever the browser's time zone (backend `nombre_mes_es`).
+const ARGENTINA_MONTH = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Argentina/Buenos_Aires', month: 'numeric' });
+
 export function currentMonthNameEs(now = new Date()) {
-  return MONTHS_ES[now.getMonth()];
+  return MONTHS_ES[Number(ARGENTINA_MONTH.format(now)) - 1];
 }
 
 export function isPremiumCurrentMonth(promo, monthName) {

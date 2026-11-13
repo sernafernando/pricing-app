@@ -10,6 +10,10 @@ Catch-up: when `RULES_VERSION` is newer than the one stored, the handler first r
 new rules can change (flagged, or with a discarded fingerprint), once, in id order. That replaces the one-off
 `recompute_hay_mejores_ofertas` script after a rules change.
 
+Runs in its own thread of the ML worker (`own_thread`): a catch-up of up to `deadline_seconds` never delays the
+other handlers of the drain pass. Single-flight: a run takes the session advisory lock `RUN_LOCK_KEY` on a connection
+of its own for its whole length and skips the tick when another process (or a manual run) holds it.
+
 State (merged into `worker_job_state.detail`, every other key kept):
     {rules_version, checked_until, window_until, cursor, catchup_started_at}
 A run stopped by its deadline keeps `cursor` (the last item id done) and its window, and the next run resumes there;
@@ -40,6 +44,8 @@ HANDLER_NAME = "ml_promotions.hay_mejores_boundaries"
 # 1 = applicable-now rule (writable type, started, not finished, SELLER_CAMPAIGN Premium of the month).
 RULES_VERSION = 1
 BATCH = 100
+# Session advisory lock: one run at a time across processes (next free key of the 84_217_xxx family).
+RUN_LOCK_KEY = 84_217_006
 
 
 def _now() -> datetime:
@@ -101,6 +107,20 @@ def _recompute(db: Session, item_ids: List[str], now: datetime) -> int:
     return changed
 
 
+def _try_lock(db: Session) -> bool:
+    """Take the run's session advisory lock; the session keeps its connection (open transaction) until `_unlock`.
+    Not Postgres (SQLite unit tests): no other process to exclude."""
+    if db.get_bind().dialect.name != "postgresql":
+        return True
+    return bool(db.execute(text("SELECT pg_try_advisory_lock(:key)"), {"key": RUN_LOCK_KEY}).scalar())
+
+
+def _unlock(db: Session) -> None:
+    """Release it on the SAME connection before the session hands that connection back to the pool."""
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": RUN_LOCK_KEY})
+
+
 class HayMejoresBoundariesHandler:
     """`JobHandler`: the flags whose candidates crossed a start or finish date since the last run."""
 
@@ -109,6 +129,8 @@ class HayMejoresBoundariesHandler:
     interval: Optional[timedelta] = timedelta(minutes=5)
     run_at_local: Optional[time] = None
     deadline_seconds = 120
+    # Its own thread (like `ml_publications.core_first` / `ml_orders.discounts`): never in the drain pass.
+    own_thread = True
 
     def __init__(
         self,
@@ -124,7 +146,14 @@ class HayMejoresBoundariesHandler:
 
     def run(self, ctx: WorkerContext) -> JobResult:
         try:
-            return self._run(ctx)
+            with self._session() as lock_db:
+                if not _try_lock(lock_db):
+                    logger.info("%s: another run holds the lock, tick skipped", HANDLER_NAME)
+                    return JobResult(success=True, detail={"skipped": "locked"})
+                try:
+                    return self._run(ctx)
+                finally:
+                    _unlock(lock_db)
         except Exception as exc:  # noqa: BLE001 - a failed run is reported, the next tick retries it
             logger.warning("%s: run failed: %s", HANDLER_NAME, exc)
             return JobResult(success=False, error=f"{type(exc).__name__}: {exc}")

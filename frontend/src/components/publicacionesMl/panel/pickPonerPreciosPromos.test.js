@@ -16,6 +16,7 @@ import {
   pickPonerPreciosPromos,
   pricesClose,
   comparableMarkups,
+  currentMonthNameEs,
   slotEntries,
 } from './pickPonerPreciosPromos';
 import { LISTS } from '../../pricing/priceWrites';
@@ -376,11 +377,16 @@ const applicableCases = JSON.parse(
 );
 
 describe('isApplicableNow (shared with backend candidata_aplicable_ahora)', () => {
-  const now = new Date(applicableCases.now);
-  it.each(applicableCases.cases)('$name', ({ entry, applicable }) => {
+  it.each(applicableCases.cases)('$name', ({ entry, applicable, now }) => {
     const { type, ...rest } = entry;
     const promo = { status: 'candidate', promotion_type: type, ...rest };
-    expect(isApplicableNow(promo, { now, monthName: 'noviembre' })).toBe(applicable);
+    // No monthName: the Premium month comes from `now` in Argentina, as the backend reads it.
+    expect(isApplicableNow(promo, { now: new Date(now ?? applicableCases.now) })).toBe(applicable);
+  });
+
+  it('takes the Premium month in Argentina, not in the browser time zone', () => {
+    expect(currentMonthNameEs(new Date('2026-12-01T01:30:00Z'))).toBe('noviembre');
+    expect(currentMonthNameEs(new Date('2026-12-01T03:00:00Z'))).toBe('diciembre');
   });
 
   it('reads naive dates as UTC, not as local time', () => {

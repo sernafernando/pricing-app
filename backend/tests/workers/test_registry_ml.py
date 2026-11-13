@@ -125,8 +125,9 @@ class TestMlPublicationsRegistry:
         assert handler.run_at_local is None
         assert handler.channels == ()
 
-    def test_hay_mejores_boundaries_runs_every_five_minutes_and_is_not_notify_driven(self) -> None:
+    def test_hay_mejores_boundaries_runs_in_its_own_thread_every_five_minutes_and_is_not_notify_driven(self) -> None:
         handler = registry.ML_PUBLICATIONS_REGISTRY[16]
+        assert handler.own_thread is True
         assert handler.interval == timedelta(minutes=5)
         assert handler.run_at_local is None
         assert handler.channels == ()
