@@ -131,3 +131,4 @@ El PR debe incluir:
 - Este README se simplifico para onboarding rapido.
 - El detalle operativo vive en `docs/`, `AGENTS.md` y docs de componente.
 - La version completa anterior se preserva en `docs/README.full-legacy.md`.
+
