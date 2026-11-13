@@ -24,6 +24,8 @@ La ganancia se muestra como *** si no tenés permiso de ganancia.
 
 ## Filtros y columnas
 
+El filtro de marca ofrece las marcas que vendieron en el período elegido, aunque hoy no tengan stock. En las pestañas de rentabilidad, una marca sin ningún producto en stock solo aparece si está en **Admin → Marcas sin stock** o si ya la tenías elegida.
+
 Filtros: fecha, marcas, categorías, tiendas oficiales, PMs.
 
 Columnas de operaciones: Fecha, ML ID, Código, Producto, Marca, Cant, Precio Unit, Total, IVA%, Costo Unit, Costo Total, Comisión%, Comisión $, Envío s/IVA, Limpio, Offset Flex, Markup%, Lista.

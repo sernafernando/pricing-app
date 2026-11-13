@@ -20,6 +20,8 @@ La ganancia se muestra como *** si no tenés permiso.
 
 ## Filtros y columnas
 
+Una marca sin ningún producto en stock no aparece en el filtro de marca, salvo que esté en **Admin → Marcas sin stock**. Si ya la tenías elegida, el filtro sigue funcionando y la marca se ve tildada.
+
 Filtros: fecha, sucursales, vendedores.
 
 Columnas de operaciones: fecha, código, producto, vendedor, cantidad, precios, costos, markup.

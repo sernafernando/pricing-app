@@ -17,6 +17,7 @@ from app.models.commercial_transaction import CommercialTransaction
 from app.models.item_transaction import ItemTransaction
 from app.models.marca_pm import MarcaPM
 from app.models.marca_visible_excepcion import MarcaVisibleExcepcion
+from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.ml_venta_metrica import MLVentaMetrica
 from app.models.permiso import Permiso, RolPermisoBase
 from app.models.producto import ProductoERP
@@ -163,8 +164,11 @@ def test_marcas_pm(db, client, admin_auth_headers, catalog) -> None:
     assert _shown(r["marca"] for r in resp.json()) == {"Epson", "Excepcion"}
 
 
-def test_items_sin_mla_marcas(client, admin_auth_headers, catalog) -> None:
-    """`/items-sin-mla/marcas` (ItemsSinMLA's brand filter)."""
+def test_items_sin_mla_marcas(db, client, admin_auth_headers, catalog) -> None:
+    """`/items-sin-mla/marcas` (ItemsSinMLA's brand filter). A brand in stock whose products already have a
+    publication stays offered: the table also lists products that miss only some lists."""
+    db.add(MercadoLibreItemPublicado(mlp_id=1, item_id=100, mlp_publicationID="MLA1"))
+    db.flush()
     resp = client.get("/api/items-sin-mla/marcas", headers=admin_auth_headers)
     assert resp.status_code == 200, resp.text
     assert _shown(r["marca"] for r in resp.json()) == {"Epson", "Excepcion"}

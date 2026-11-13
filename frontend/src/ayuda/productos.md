@@ -25,6 +25,8 @@ El selector **Vista** cambia las columnas visibles entre **Normal**, **📊 Cuot
 
 ## Filtros y columnas
 
+Una marca sin ningún producto en stock no aparece en el filtro de marca, salvo que esté en **Admin → Marcas sin stock**. Si ya la tenías elegida, el filtro sigue funcionando y la marca se ve tildada.
+
 Columnas fijas: **Código**, **Descripción**, **Marca**, **Stock**, **Costo**, y la columna de precio (en vista Normal es **Precio Clásica**; en vista Cuotas son **3 Cuotas**, **6 Cuotas**, **9 Cuotas**, **12 Cuotas**; en vista PVP son **Precio PVP** y **PVP 3/6/9/12 Cuotas**).
 
 La columna **Costo** ocupa una sola línea: el costo en su moneda (por ejemplo `USD $17.04`) y, si el producto tiene sell in hoy, al lado y más chico **c/ sell in** con el costo que queda, en la misma moneda que el costo. Con el mouse encima se ve el PPP (o «sin PPP»), el costo con sell in en pesos, el descuento por unidad (en la moneda del costo y en pesos) y de dónde sale el sell in. El costo con sell in en dólares usa el mismo tipo de cambio con el que se pasa el costo a pesos para el markup; los markups no cambian.

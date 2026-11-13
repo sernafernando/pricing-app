@@ -16,6 +16,8 @@ El botón **Sync ERP** lanza el sync y muestra el progreso; la pantalla espera h
 
 ## Filtros y columnas
 
+En las marcas que le compramos a un proveedor no aparecen las marcas sin ningún producto en stock, salvo que estén en **Admin → Marcas sin stock**.
+
 Filtro: búsqueda por nombre, solo activos.
 
 Columnas: datos del proveedor (razón social, CUIT, etc.).

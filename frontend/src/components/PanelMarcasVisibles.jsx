@@ -82,7 +82,7 @@ export default function PanelMarcasVisibles() {
       <h2 className={styles.title}>Marcas sin stock visibles</h2>
       <p className={styles.desc}>
         Una marca sin ningún producto en stock no aparece en los filtros ni en los selectores del sistema. Las
-        marcas de esta lista se siguen mostrando aunque se queden sin stock. En Métricas ML y Ventas ML una marca
+        marcas de esta lista se siguen mostrando aunque se queden sin stock. En Métricas ML, Métricas y Ventas ML una marca
         que vendió en el período que estás viendo también se muestra.
       </p>
 

@@ -22,6 +22,8 @@ El botón **Actualizar stock** sincroniza el stock desde el ERP (mientras trabaj
 
 ## Filtros y columnas
 
+Una marca sin ningún producto en stock no aparece en el filtro de marca, salvo que esté en **Admin → Marcas sin stock**. Si ya la tenías elegida, el filtro sigue funcionando y la marca se ve tildada.
+
 Filtros: marca, categoría, PM, depósitos, sin stock, combos, solo stock muerto, búsqueda.
 
 Columnas Detalle: Código, Descripción, Marca, Categoría, PM, Días sin venta, Ageing ERP, Última compra, Stock, Valor costo, Valor venta.
