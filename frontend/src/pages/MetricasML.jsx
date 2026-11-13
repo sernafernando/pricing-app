@@ -978,7 +978,7 @@ export default function MetricasML() {
               value={searchQuery}
               onChange={withReset(setSearchQuery)}
               debounce={400}
-              placeholder="Buscar por producto, SKU, MLA o marca…"
+              placeholder="Buscar título, MLA, SKU/EAN o producto"
             />
           </div>
           <div className={styles.segments}>

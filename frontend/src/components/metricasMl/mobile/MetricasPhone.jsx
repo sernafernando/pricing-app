@@ -235,7 +235,7 @@ export default function MetricasPhone({
           value={searchQuery}
           onChange={onSearchChange}
           debounce={400}
-          placeholder="Producto, SKU, MLA o marca"
+          placeholder="Título, MLA, SKU/EAN o producto"
           className={styles.search}
           size="lg"
         />

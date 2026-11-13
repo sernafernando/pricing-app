@@ -39,6 +39,14 @@ describe('metricasMlUrl', () => {
     expect(read(writeMetricasUrl(view).toString())).toEqual(view);
   });
 
+  it.each(['marca:TP-Link', 'ean:7791234567890', '*AX55', 'L32*', 'promo:hot sale', 'mla:MLA123'])(
+    'round-trips a search with an operator of Publicaciones ML (%s)',
+    (searchQuery) => {
+      const view = { ...DEFAULTS, searchQuery };
+      expect(read(writeMetricasUrl(view).toString())).toEqual(view);
+    },
+  );
+
   it('reads a preset period relative to today, so a saved link keeps meaning "the last 7 days"', () => {
     expect(read('periodo=7d').range).toEqual({ desde: '2026-10-21', hasta: '2026-10-27', filtro: '7d' });
     expect(writeMetricasUrl({ ...DEFAULTS, range: { desde: '2026-10-21', hasta: '2026-10-27', filtro: '7d' } }).toString()).toBe(
