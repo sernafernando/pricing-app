@@ -84,12 +84,91 @@
   font-weight: var(--font-medium);
 }
 
-/* One line of a parent row's Tipo / Estado summary ("2 Clásica", "4 activas"): never wider than its cell. */
-.summaryLine {
-  font-size: var(--font-sm);
+/* A parent row's Tipo / Estado summary: compact badges ("C 33", "● 111") on one line, wrapping only when the cell
+   is too narrow for them. Never taller than the row's title, in any density. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 3px;
+  border: 1px solid var(--tone-neutral-border);
+  border-radius: var(--radius-base);
+  background: var(--tone-neutral-bg);
+  color: var(--tone-badge-fg, var(--tone-neutral-fg));
+  /* Below the smallest text token (--font-xs, 12px), like the list's status pills (10.5px): five badges fit the
+     column on one line, each no taller than a line of the row's title. */
+  font-size: 11px;
+  font-weight: var(--font-semibold);
   font-variant-numeric: tabular-nums;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+.chip[data-tone='success'] {
+  border-color: var(--tone-success-border);
+  background: var(--tone-success-bg);
+  color: var(--tone-badge-fg, var(--tone-success-fg));
+}
+
+.chip[data-tone='warning'] {
+  border-color: var(--tone-warning-border);
+  background: var(--tone-warning-bg);
+  color: var(--tone-badge-fg, var(--tone-warning-fg));
+}
+
+.chip[data-tone='info'] {
+  border-color: var(--tone-info-border);
+  background: var(--tone-info-bg);
+  color: var(--tone-badge-fg, var(--tone-info-fg));
+}
+
+.chip[data-tone='purple'] {
+  border-color: var(--tone-purple-border);
+  background: var(--tone-purple-bg);
+  color: var(--tone-badge-fg, var(--tone-purple-fg));
+}
+
+.chip[data-tone='danger'] {
+  border-color: var(--tone-danger-border);
+  background: var(--tone-danger-bg);
+  color: var(--tone-badge-fg, var(--tone-danger-fg));
+}
+
+/* The state's badge reads its colour from the dot; its count stays in the body text colour. */
+.chip:has(.chipDot) {
+  border-color: var(--cf-border-default);
+  background: transparent;
   color: var(--cf-text-primary);
-  overflow-wrap: anywhere;
+}
+
+.chipDot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--tone-neutral-fg);
+}
+
+.chip[data-tone='success'] .chipDot {
+  background: var(--tone-success-fg);
+}
+
+.chip[data-tone='warning'] .chipDot {
+  background: var(--tone-warning-fg);
+}
+
+.chip[data-tone='danger'] .chipDot {
+  background: var(--tone-danger-fg);
+}
+
+.chipShort {
+  font-weight: var(--font-bold);
 }
 
 .code {

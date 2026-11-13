@@ -316,13 +316,21 @@ const scrollerOf = () => document.querySelector('[data-table-shell-scroller]');
 const rect = (el) => el.getBoundingClientRect();
 
 // A cell's content horizontally inside its own <td>.
+// Inside a box of the cell that cuts what overflows it (a line cut with "…", whole in its tooltip): never drawn outside.
+const clippedInside = (el, td) => {
+  for (let box = el.parentElement; box && box !== td; box = box.parentElement) {
+    if (['hidden', 'clip'].includes(getComputedStyle(box).overflowX)) return true;
+  }
+  return false;
+};
+
 const overflowingCells = (root) => {
   const offenders = [];
   for (const td of root.querySelectorAll('tbody td')) {
     const box = td.getBoundingClientRect();
     for (const child of td.querySelectorAll('*')) {
       const r = child.getBoundingClientRect();
-      if (r.width === 0) continue;
+      if (r.width === 0 || clippedInside(child, td)) continue;
       if (r.right > box.right + 0.5 || r.left < box.left - 0.5) {
         offenders.push(`${td.textContent.trim().slice(0, 40)} > ${child.textContent.trim().slice(0, 30)}`);
         break;
@@ -737,7 +745,19 @@ describe('Publicaciones ML with markup and an expanded row (visual)', () => {
 });
 
 // The Agrupado tree (publicaciones-ml-vista P12a.T3): brand > category > subcategory > product > MLA.
-const CATEGORY = makeNode({ kind: 'categoria', key: 'ROUTERS', label: 'ROUTERS', count: 90, params: { marcas: 'TP-LINK', categorias: 'ROUTERS' }, negative_count: 4, markup_min: -6.5, markup_max: 38.2 });
+// Its Tipo and Estado are the owner's own row (2026-11-12): five kinds and three states.
+const CATEGORY = makeNode({
+  kind: 'categoria',
+  key: 'ROUTERS',
+  label: 'ROUTERS',
+  count: 137,
+  params: { marcas: 'TP-LINK', categorias: 'ROUTERS' },
+  negative_count: 4,
+  markup_min: -6.5,
+  markup_max: 38.2,
+  kind_counts: { clasica: 33, cuotas_3: 30, cuotas_6: 26, cuotas_9: 24, cuotas_12: 24 },
+  status_counts: { active: 111, under_review: 7, closed: 19 },
+});
 const SUBCATEGORY = makeNode({
   kind: 'subcategoria',
   key: '55',
@@ -837,24 +857,66 @@ describe('Publicaciones ML Agrupado tree (visual)', () => {
       screen.unmount();
     });
 
-    it(`${width}x${height} ${theme}: a node summarizes its publications in Tipo, Estado and Precio, each line inside its cell`, async () => {
-      const screen = await renderTree({ width, height, theme });
-      await openToLeaf(screen);
-      const scroller = scrollerOf();
-      const cell = (row, key) => row.querySelector(`td[data-column="${key}"]`);
-      for (const label of ['TP-LINK', 'ROUTERS', 'Routers WiFi', 'Router Archer AX55']) {
-        const row = rowWith(scroller, label);
-        expect(cell(row, 'tipo').textContent, label).toMatch(/\d+ Clásica/);
-        expect(cell(row, 'estado').textContent, label).toMatch(/\d+ activas?/);
-        expect(cell(row, 'precio').textContent, label).toMatch(/^[\d.,]+( –[\d.,]+)?$/);
-      }
-      expect(cell(rowWith(scroller, 'TP-LINK'), 'estado').textContent).toBe('89 activas1 pausada');
-      // Each summary line is one line, and nothing pokes out of its cell; the publication rows stay as the list's.
-      expect(wrapped(scroller.querySelectorAll('[data-summary-line]'))).toEqual([]);
-      expect(overflowingCells(scroller)).toEqual([]);
-      expect(cell(rowWith(scroller, 'Router TP-Link Archer AX55 por color'), 'tipo').querySelector('[data-summary-line]')).toBeNull();
-      screen.unmount();
-    });
+    // Owner (2026-11-12): "elijo filas finas y las filas son gigantes por eso ... pones badges y achicá los renglones".
+    for (const [w, h, dense] of [[width, height, false], [width, height, true], [1440, 900, false], [1440, 900, true]]) {
+      it(`${w}x${h} ${theme}${dense ? ', filas finas' : ''}: a node sums up Tipo and Estado in compact badges, never taller than its title`, async () => {
+        if (dense) localStorage.setItem('publicaciones-ml.filas-finas', 'true');
+        try {
+          const screen = await renderTree({ width: w, height: h, theme });
+          await openToLeaf(screen);
+          const scroller = scrollerOf();
+          expect(scroller.closest('[data-density]').dataset.density).toBe(dense ? 'dense' : 'normal');
+          if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/arbol-badges-${w}-${theme}${dense ? '-finas' : ''}.png` });
+          const cell = (row, key) => row.querySelector(`td[data-column="${key}"]`);
+          const names = (row, key) => [...cell(row, key).querySelectorAll('[data-summary-chip]')].map((chip) => chip.getAttribute('title'));
+          for (const label of ['TP-LINK', 'ROUTERS', 'Routers WiFi', 'Router Archer AX55']) {
+            const row = rowWith(scroller, label);
+            expect(names(row, 'tipo').join('|'), label).toMatch(/\d+ Clásica/);
+            expect(cell(row, 'tipo').textContent, label).toMatch(/^C \d+/);
+            expect(names(row, 'estado').join('|'), label).toMatch(/\d+ activas?/);
+            expect(cell(row, 'precio').textContent, label).toMatch(/^[\d.,]+( –[\d.,]+)?$/);
+            // S3: the badges never make the row taller than its title cell does.
+            const title = cell(row, 'titulo') ?? row.querySelector('td[data-pinned]');
+            const titleContent = title.firstElementChild;
+            for (const key of ['tipo', 'estado']) {
+              expect(rect(cell(row, key).firstElementChild).height, `${label} ${key}`).toBeLessThanOrEqual(rect(titleContent).height + 0.5);
+            }
+          }
+          const tpLink = rowWith(scroller, 'TP-LINK');
+          expect(names(tpLink, 'estado')).toEqual(['89 activas', '1 pausada']);
+          expect(cell(tpLink, 'estado').textContent).toBe('891');
+          const routers = rowWith(scroller, 'ROUTERS');
+          // Real margin for a wider fallback font (CI's Chromium has DejaVu, ~8% wider): the owner's five kinds and three
+          // states take at most 85% of their cell's content box, so they stay on one line there too.
+          for (const key of ['tipo', 'estado']) {
+            const td = cell(routers, key);
+            const chipsOf = [...td.querySelectorAll('[data-summary-chip]')];
+            const used = rect(chipsOf.at(-1)).right - rect(chipsOf[0]).left;
+            const style = getComputedStyle(td);
+            const room = td.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight);
+            expect(used, `ROUTERS ${key}`).toBeLessThanOrEqual(room * 0.85);
+          }
+          expect(cell(routers, 'tipo').textContent).toBe('C 333 306 269 2412 24');
+          expect(names(routers, 'estado')).toEqual(['111 activas', '7 en revisión', '19 cerradas']);
+          // Every badge on one line, inside its cell.
+          expect(wrapped(scroller.querySelectorAll('[data-summary-chip]'))).toEqual([]);
+          expect(overflowingCells(scroller)).toEqual([]);
+          expect(cell(rowWith(scroller, 'Router TP-Link Archer AX55 por color'), 'tipo').querySelector('[data-summary-chip]')).toBeNull();
+          if (dense) {
+            // "Filas finas": a parent row is as thin as a publication row; its second line is cut, whole in its tooltip.
+            const note = rowWith(scroller, 'Router Archer AX55').querySelector('td[data-pinned] [data-node-note]');
+            expect(note.getAttribute('title')).toBe('Producto · ARCHER-AX55 · 3 publicaciones · 1 con markup negativo');
+            const leaf = rect(rowWith(scroller, 'Router TP-Link Archer AX55 por color')).height;
+            for (const label of ['TP-LINK', 'ROUTERS', 'Routers WiFi', 'Router Archer AX55']) {
+              expect(rect(rowWith(scroller, label)).height, label).toBeLessThanOrEqual(leaf + 0.5);
+            }
+          }
+          screen.unmount();
+        } finally {
+          localStorage.removeItem('publicaciones-ml.filas-finas');
+        }
+      });
+    }
 
     it(`${width}x${height} ${theme}: each level sits deeper than its parent and the pinned cell stays on the left edge`, async () => {
       const screen = await renderTree({ width, height, theme });
@@ -1057,15 +1119,21 @@ describe('Publicaciones ML Producto view (visual)', () => {
         const row = rowWith(scroller, 'Router Archer AX55');
         const cell = (key) => row.querySelector(`td[data-column="${key}"]`);
         expect(cell('titulo').textContent).toContain('3 publicaciones');
-        expect(cell('tipo').textContent).toBe('2 Clásica1 6 cuotas');
-        expect(cell('estado').textContent).toBe('2 activas1 pausada');
+        const names = (key) => [...cell(key).querySelectorAll('[data-summary-chip]')].map((chip) => chip.getAttribute('title'));
+        expect(cell('tipo').textContent).toBe('C 26 1');
+        expect(names('tipo')).toEqual(['2 Clásica', '1 6 cuotas']);
+        expect(names('estado')).toEqual(['2 activas', '1 pausada']);
         expect(cell('precio').textContent).toBe('45.999,00 –189.999,50');
         expect(scroller.querySelector('thead th[data-column="publicaciones"]')).toBeNull();
-        // Each summary line is one line inside its cell; the opened publications keep the list's own cells.
-        expect(wrapped(scroller.querySelectorAll('[data-summary-line]'))).toEqual([]);
+        // The summary badges sit on one line inside their cell; the opened publications keep the list's own cells.
+        expect(wrapped(scroller.querySelectorAll('[data-summary-chip]'))).toEqual([]);
+        for (const key of ['tipo', 'estado']) {
+          const chips = [...cell(key).querySelectorAll('[data-summary-chip]')];
+          expect(new Set(chips.map((chip) => Math.round(rect(chip).top))).size, key).toBe(1);
+        }
         expect(overflowingCells(scroller)).toEqual([]);
         const publication = rowWith(scroller, 'Router TP-Link Archer AX55 por color');
-        expect(publication.querySelector('td[data-column="tipo"] [data-summary-line]')).toBeNull();
+        expect(publication.querySelector('td[data-column="tipo"] [data-summary-chip]')).toBeNull();
         screen.unmount();
       });
 

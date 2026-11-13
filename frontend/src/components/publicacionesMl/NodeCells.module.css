@@ -63,3 +63,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* "Filas finas": the node's second line (kind, code, count) on ONE line too, whole in its tooltip, so a parent row is
+   as thin as a publication row. */
+:global([data-density='dense']) .nodeNote {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
