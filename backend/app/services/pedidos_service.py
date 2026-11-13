@@ -121,6 +121,9 @@ EJES_PROCESAL: Final[frozenset[str]] = frozenset(
 CAMPOS_EDITABLES_APROBADO: Final[frozenset[str]] = frozenset(
     {
         "numero_factura",
+        # Ops/tesorería (Órdenes de pago) sort and surface this date; Administración
+        # must be able to set or defer it after approval without cloning the pedido.
+        "fecha_pago_estimada",
         # F5: tipo_cambio removed — TC corrections now go exclusively through
         # PUT /pedidos/{id}/tipo-cambio (actualizar_tipo_cambio_manual).
         # Attempting to pass tipo_cambio here returns HTTP 422.

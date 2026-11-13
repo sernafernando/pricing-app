@@ -253,6 +253,35 @@
   color: var(--cf-text-tertiary);
 }
 
+.fechaPagoReadonly {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.fechaPagoEditor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.fechaPagoInput {
+  max-width: 11rem;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-input, var(--cf-bg-card));
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+}
+
+.fechaPagoActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+}
+
 .emptyHint {
   font-size: var(--font-sm);
   color: var(--cf-text-secondary);

@@ -27,9 +27,10 @@ ponytail: this 5900+ line god-router predates the current GGA checklist.
 GET /health is an intentional unauthenticated smoke/readiness probe
 (COMPRAS-5.9, docstring on health_compras). Other pre-existing gaps
 (naive datetime.now in listar_sd_ids_faltantes, missing response_model
-on a few admin endpoints, per-row saldo queries, Body dict mutators)
-are out of scope for the excluir_estado Query patch — do not expand
-this change into a router rewrite. Tracked in docs/tech-debt-ledger.md.
+on a few admin endpoints, per-row saldo queries, Body dict mutators,
+hardcoded ERP curr_id 1=ARS/2=USD in listar_facturas SQL)
+are out of scope for a format/label patch — do not expand this change
+into a router rewrite. Tracked in docs/tech-debt-ledger.md.
 """
 
 from __future__ import annotations
@@ -203,6 +204,24 @@ def _commit_or_rollback(db: Session, *, operacion: str) -> None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al persistir la operación '{operacion}'. Reintenta o contactá soporte.",
+        ) from exc
+
+
+def _parse_optional_iso_date(value: Any, *, field: str) -> date | None:
+    """Parse YYYY-MM-DD from a raw Body dict; invalid → 422 (never 500)."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"{field} debe ser una fecha ISO (YYYY-MM-DD).",
+        )
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"{field} inválida: '{value}'. Usá YYYY-MM-DD.",
         ) from exc
 
 
@@ -418,25 +437,82 @@ def _ocs_payload(p: PedidoCompra) -> list[PedidoCompraOcLink]:
     return []
 
 
-def _facturas_payload(p: PedidoCompra) -> list[PedidoCompraFacturaLink]:
-    """Serialize linked ERP CTs (relation SoT, else header first-link cache)."""
+def _ct_docnumbers_by_id(session: Session | None, ct_ids: list[int]) -> dict[int, str]:
+    """Map ct_transaction → ct_docnumber from the ERP mirror (best-effort).
+
+    Uses a SAVEPOINT so a missing/broken view (SQLite unit tests, or a
+    transient Postgres error) does not abort the outer transaction.
+    """
+    if session is None or not ct_ids:
+        return {}
+    from sqlalchemy import bindparam  # noqa: PLC0415
+
+    stmt = text(
+        """
+        SELECT ct_transaction, ct_docnumber
+        FROM v_facturas_compra_vigentes
+        WHERE ct_transaction IN :ids
+        """
+    ).bindparams(bindparam("ids", expanding=True))
+    try:
+        with session.begin_nested():
+            rows = session.execute(stmt, {"ids": [int(x) for x in ct_ids]}).all()
+    except Exception as exc:  # noqa: BLE001 — view absent in SQLite unit tests
+        logger.warning("facturas payload: ct_docnumber lookup skipped: %s", exc)
+        return {}
+    out: dict[int, str] = {}
+    for row in rows:
+        ct = int(row[0])
+        doc = str(row[1] or "").strip()
+        if doc:
+            out[ct] = doc
+    return out
+
+
+def _factura_ct_fecha_pairs(p: PedidoCompra) -> list[tuple[int, date | None]]:
+    """Linked ERP CT ids + invoice dates (relation SoT, else header first-link)."""
     rel = list(getattr(p, "facturas", None) or [])
     if rel:
-        return [
-            PedidoCompraFacturaLink(
-                ct_transaction_id=int(row.ct_transaction_id),
-                fecha_factura=row.fecha_factura,
-            )
-            for row in rel
-        ]
+        return [(int(row.ct_transaction_id), row.fecha_factura) for row in rel]
     if getattr(p, "ct_transaction_id", None) is not None:
-        return [
-            PedidoCompraFacturaLink(
-                ct_transaction_id=int(p.ct_transaction_id),
-                fecha_factura=getattr(p, "fecha_factura", None),
-            )
-        ]
+        return [(int(p.ct_transaction_id), getattr(p, "fecha_factura", None))]
     return []
+
+
+def _ct_docnumbers_for_pedidos(session: Session | None, pedidos: list[PedidoCompra]) -> dict[int, str]:
+    """One mirror lookup for every CT linked on a page of pedidos."""
+    ids: list[int] = []
+    seen: set[int] = set()
+    for p in pedidos:
+        for ct, _ in _factura_ct_fecha_pairs(p):
+            if ct not in seen:
+                seen.add(ct)
+                ids.append(ct)
+    return _ct_docnumbers_by_id(session, ids)
+
+
+def _facturas_payload(
+    p: PedidoCompra,
+    *,
+    ct_docnumbers: dict[int, str] | None = None,
+) -> list[PedidoCompraFacturaLink]:
+    """Serialize linked ERP CTs (relation SoT, else header first-link cache)."""
+    from sqlalchemy.orm import object_session  # noqa: PLC0415
+
+    raw = _factura_ct_fecha_pairs(p)
+    if not raw:
+        return []
+    docs = (
+        ct_docnumbers if ct_docnumbers is not None else _ct_docnumbers_by_id(object_session(p), [ct for ct, _ in raw])
+    )
+    return [
+        PedidoCompraFacturaLink(
+            ct_transaction_id=ct,
+            fecha_factura=fecha,
+            ct_docnumber=docs.get(ct),
+        )
+        for ct, fecha in raw
+    ]
 
 
 def _pedido_response(
@@ -456,6 +532,9 @@ def _pedido_response(
     tiene_numero_factura: Optional[bool] = None,
     oc_match_status: Optional[str] = None,
     arribo_en_curso: bool = False,
+    # Precomputed ct_transaction → ct_docnumber for list pages (1 query / page).
+    # None → lookup for this pedido only (detail / single-item callers).
+    ct_docnumbers: dict[int, str] | None = None,
 ) -> PedidoCompraResponse:
     """Serializa PedidoCompra incluyendo empresa_nombre / proveedor_nombre.
 
@@ -500,7 +579,7 @@ def _pedido_response(
             ),
             "oc_vinculada": getattr(p, "oc_poh_id", None) is not None or bool(getattr(p, "ocs", None)),
             "ocs": _ocs_payload(p),
-            "facturas": _facturas_payload(p),
+            "facturas": _facturas_payload(p, ct_docnumbers=ct_docnumbers),
             "factura_cargada": factura_flag,
             "tiene_numero_factura": tiene_numero_flag,
             "oc_match_status": oc_match_status,
@@ -727,6 +806,7 @@ def listar_pedidos(
         )
         chips_map = pedidos_service.chips_visibilidad_batch(db, page_ids)
         arribo_curso_ids = recepcion_service.pedidos_con_arribo_en_curso(db, page_ids)
+        ct_docs_map = _ct_docnumbers_for_pedidos(db, items_page)
 
         return PedidoCompraPaginated(
             items=[
@@ -741,6 +821,7 @@ def listar_pedidos(
                     tiene_numero_factura=chips_map.get(p.id, {}).get("tiene_numero_factura"),
                     oc_match_status=chips_map.get(p.id, {}).get("oc_match_status"),
                     arribo_en_curso=p.id in arribo_curso_ids and p.estado in recepcion_service.ESTADOS_ARRIBO,
+                    ct_docnumbers=ct_docs_map,
                 )
                 for p in items_page
             ],
@@ -808,6 +889,7 @@ def listar_pedidos(
     )
     chips_map = pedidos_service.chips_visibilidad_batch(db, pedido_ids)
     arribo_curso_ids = recepcion_service.pedidos_con_arribo_en_curso(db, pedido_ids)
+    ct_docs_map = _ct_docnumbers_for_pedidos(db, items)
     # These three aggregates feed the accounting fields only, so a warehouse-only
     # listing skips them entirely instead of computing and discarding them.
     if solo_deposito:
@@ -837,6 +919,7 @@ def listar_pedidos(
                 tiene_numero_factura=chips_map.get(p.id, {}).get("tiene_numero_factura"),
                 oc_match_status=chips_map.get(p.id, {}).get("oc_match_status"),
                 arribo_en_curso=p.id in arribo_curso_ids and p.estado in recepcion_service.ESTADOS_ARRIBO,
+                ct_docnumbers=ct_docs_map,
             )
             for p in items
         ],
@@ -907,10 +990,11 @@ def listar_pedidos_pendientes_pago(
     # dos SUM queries por pedido (no-reversal + reversal); no hay N+1 de
     # relaciones porque ya las traímos con joinedload, pero sí N queries
     # de agregación. Aceptable para el N pequeño descrito arriba.
+    ct_docs_map = _ct_docnumbers_for_pedidos(db, pedidos)
     respuestas: list[PedidoCompraResponse] = []
     for p in pedidos:
         saldo = pedidos_service.calcular_saldo_pendiente_pedido(db, p.id)
-        resp = _pedido_response(p)
+        resp = _pedido_response(p, ct_docnumbers=ct_docs_map)
         respuestas.append(resp.model_copy(update={"saldo_pendiente": saldo}))
     return respuestas
 
@@ -1061,7 +1145,7 @@ def crear_pedido(
 @router.put(
     "/pedidos/{pedido_id}",
     response_model=PedidoCompraResponse,
-    summary="Editar pedido (según estado: borrador=todos los campos, aprobado=numero_factura)",
+    summary="Editar pedido (borrador=campos de setup; aprobado/pagado*=factura, fecha pago estimada, observaciones)",
 )
 def editar_pedido(
     pedido_id: int,
@@ -1263,8 +1347,10 @@ def aprobar_pedido(
     user: Usuario = Depends(require_permiso("administracion.aprobar_ordenes_compra")),
 ) -> PedidoCompraResponse:
     """Aprobación de pedido — permiso crítico. REQ-PED-003."""
-    fecha_str = payload.get("fecha_pago_estimada") if payload else None
-    fecha_pago_estimada = date.fromisoformat(fecha_str) if isinstance(fecha_str, str) else None
+    fecha_pago_estimada = _parse_optional_iso_date(
+        (payload or {}).get("fecha_pago_estimada"),
+        field="fecha_pago_estimada",
+    )
 
     pedido = _transicionar_y_commit(
         db,
@@ -1490,7 +1576,11 @@ def corregir_pedido_endpoint(
     except HTTPException:
         db.rollback()
         raise
-    db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.exception("corregir_pedido falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al corregir el pedido.") from exc
+    _commit_or_rollback(db, operacion="corregir_pedido")
     db.refresh(clon)
     return _pedido_response(clon)
 
@@ -3768,8 +3858,7 @@ def forzar_reconciliacion(
     _user: Usuario = Depends(require_permiso("administracion.gestionar_cuentas_corrientes")),
 ) -> dict[str, Any]:
     """Corrida manual. REQ-CC-004. Lee tolerancias desde `configuracion`."""
-    fecha_str = (payload or {}).get("fecha")
-    fecha_corrida = date.fromisoformat(fecha_str) if isinstance(fecha_str, str) else date.today()
+    fecha_corrida = _parse_optional_iso_date((payload or {}).get("fecha"), field="fecha") or date.today()
 
     # Tolerancias por moneda (COMPRAS-1.15 seed). Fallback 100 ARS / 1 USD.
     from app.schemas.configuracion_compras import leer_configuracion
@@ -3822,33 +3911,33 @@ def metricas_reconciliacion(
     """
     from app.models.cc_reconciliacion_log import CCReconciliacionLog
 
-    # Días consecutivos sin divergencia (desde hoy hacia atrás)
+    # Días consecutivos sin divergencia (desde hoy hacia atrás).
+    # One grouped query for the 60-day window — no per-day N+1.
     dias_consecutivos = 0
     hoy = date.today()
+    desde_ventana = hoy - timedelta(days=59)
+    agg_rows = db.execute(
+        select(
+            CCReconciliacionLog.fecha_corrida,
+            CCReconciliacionLog.estado,
+            sa_func.count(),
+        )
+        .where(CCReconciliacionLog.fecha_corrida >= desde_ventana)
+        .group_by(CCReconciliacionLog.fecha_corrida, CCReconciliacionLog.estado)
+    ).all()
+    por_fecha: dict[date, dict[str, int]] = {}
+    for fecha_row, estado_row, cnt in agg_rows:
+        bucket = por_fecha.setdefault(fecha_row, {"total": 0, "div": 0})
+        n = int(cnt or 0)
+        bucket["total"] += n
+        if estado_row == CCReconciliacionLog.ESTADO_DIVERGENCIA:
+            bucket["div"] += n
     for offset in range(0, 60):
         fecha_check = hoy - timedelta(days=offset)
-        div_count = int(
-            db.execute(
-                select(sa_func.count())
-                .select_from(CCReconciliacionLog)
-                .where(
-                    CCReconciliacionLog.fecha_corrida == fecha_check,
-                    CCReconciliacionLog.estado == CCReconciliacionLog.ESTADO_DIVERGENCIA,
-                )
-            ).scalar_one()
-            or 0
-        )
-        total_count = int(
-            db.execute(
-                select(sa_func.count())
-                .select_from(CCReconciliacionLog)
-                .where(CCReconciliacionLog.fecha_corrida == fecha_check)
-            ).scalar_one()
-            or 0
-        )
-        if total_count == 0:
+        bucket = por_fecha.get(fecha_check)
+        if not bucket or bucket["total"] == 0:
             break  # dejamos de contar al llegar a un día sin corrida
-        if div_count > 0:
+        if bucket["div"] > 0:
             break
         dias_consecutivos += 1
 

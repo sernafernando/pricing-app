@@ -402,6 +402,85 @@ class TestEditarPedido:
         db.refresh(p)
         assert p.numero_factura == "FA-12345"
 
+    def test_editar_fecha_pago_estimada_en_aprobado(self, db, empresa, proveedor, active_user) -> None:
+        """Administración can set/defer estimated pay date after approval (OP reads it)."""
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            creado_por_id=active_user.id,
+        )
+        p.estado = "aprobado"
+        p.fecha_pago_estimada = date(2026, 11, 1)
+        db.flush()
+
+        pedidos_service.editar_pedido(
+            db,
+            pedido_id=p.id,
+            user_id=active_user.id,
+            fecha_pago_estimada=date(2026, 12, 15),
+        )
+        db.refresh(p)
+        assert p.fecha_pago_estimada == date(2026, 12, 15)
+
+        evento = (
+            db.query(CompraEvento)
+            .filter(CompraEvento.entidad_id == p.id, CompraEvento.tipo == "editado")
+            .one()
+        )
+        campos = evento.payload["campos_cambiados"]
+        assert campos["fecha_pago_estimada"]["antes"] == "2026-11-01"
+        assert campos["fecha_pago_estimada"]["despues"] == "2026-12-15"
+
+    @pytest.mark.parametrize("estado", ["pagado_parcial", "pagado"])
+    def test_editar_fecha_pago_estimada_en_pagado_estados(
+        self, db, empresa, proveedor, active_user, estado: str
+    ) -> None:
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            creado_por_id=active_user.id,
+        )
+        p.estado = estado
+        db.flush()
+
+        pedidos_service.editar_pedido(
+            db,
+            pedido_id=p.id,
+            user_id=active_user.id,
+            fecha_pago_estimada=date(2026, 12, 20),
+        )
+        db.refresh(p)
+        assert p.fecha_pago_estimada == date(2026, 12, 20)
+
+    def test_editar_fecha_pago_estimada_en_cancelado_raise_409(
+        self, db, empresa, proveedor, active_user
+    ) -> None:
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            creado_por_id=active_user.id,
+        )
+        p.estado = "cancelado"
+        db.flush()
+
+        with pytest.raises(HTTPException) as exc:
+            pedidos_service.editar_pedido(
+                db,
+                pedido_id=p.id,
+                user_id=active_user.id,
+                fecha_pago_estimada=date(2026, 12, 15),
+            )
+        assert exc.value.status_code == 409
+
     def test_editar_monto_en_aprobado_raise_409(self, db, empresa, proveedor, active_user) -> None:
         p = pedidos_service.crear_pedido(
             db,
