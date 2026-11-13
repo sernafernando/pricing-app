@@ -80,11 +80,14 @@ jobs:
           needed=true
           if [ "$EVENT_NAME" = "pull_request" ] \
             && [ "$(git rev-list --parents -n 1 HEAD | wc -w)" = "3" ] \
-            && files="$(git diff --name-only --no-renames HEAD^1 HEAD)" \
+            && files="$(git -c core.quotePath=false diff --name-only --no-renames HEAD^1 HEAD)" \
             && [ -n "$files" ]; then
             echo "Changed files:"
             echo "$files"
-            if ! printf '%s\n' "$files" | grep -qv '^frontend/'; then
+            # Here-string, not `printf | grep -q`: under pipefail an early
+            # `grep -q` exit kills printf with SIGPIPE, and the `!` would then
+            # skip the backend on a PR that does touch it.
+            if ! grep -qv '^frontend/' <<<"$files"; then
               needed=false
             fi
           fi
