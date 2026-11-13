@@ -167,8 +167,12 @@ def _id_matches(column: Any) -> Callable[[str], ColumnElement]:
     def matches(key: str) -> ColumnElement:
         if key == NO_GROUP:
             return column.is_(None)
-        if not (key.isascii() and key.isdigit()) or str(int(key)) != key or int(key) > MAX_ID:
-            return false()  # never the text of an id (nor an id past `integer`: no row has it)
+        # never the text of an id, nor an id past `integer` (no row has it; its length is checked before `int()`,
+        # which refuses strings over 4300 digits)
+        if not (key.isascii() and key.isdigit()) or len(key) > len(str(MAX_ID)) or str(int(key)) != key:
+            return false()
+        if int(key) > MAX_ID:
+            return false()
         return column == int(key)
 
     return matches

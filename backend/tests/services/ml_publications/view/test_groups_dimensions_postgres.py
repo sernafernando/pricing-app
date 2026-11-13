@@ -191,7 +191,7 @@ class TestSubcategoria:
         """A digit key past `integer` is no subcategory: an empty branch, never a DB overflow. (A negative key never
         gets here: the path's key check rejects it.)"""
         seed_catalog(conn)
-        for key in ("2147483648", "99999999999999999999"):
+        for key in ("2147483648", "99999999999999999999", "9" * 5000):  # 5000 digits: past what `int()` converts
             assert tree(db, "subcategoria", f"{key}|REDES").nodes == []
             assert tree(db, "categoria", "REDES", key).nodes == []
         assert tree(db, "categoria", "REDES", "10").nodes != []  # the guard keeps the ids in range
