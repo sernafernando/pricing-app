@@ -35,6 +35,8 @@ describe('ShortcutsHelp', () => {
       'Shift+↓ o Shift+↑',
       'Enter',
       'Ctrl+Enter',
+      'Alt+Enter o Alt+Espacio',
+      'Shift+Enter o Shift+Espacio',
       'Esc',
     ]);
     expect(termsOf('Precios de la fila')).toEqual(['→ o ←', 'Espacio', 'Tab o Shift+Tab', 'Esc']);
@@ -55,6 +57,13 @@ describe('ShortcutsHelp', () => {
   it("lists Productos' Ctrl+I, the focused row's product information", () => {
     render(<ShortcutsHelp onClose={() => {}} />);
     expect(keysOf('Ver su información')).toEqual(['Ctrl+I']);
+  });
+
+  // The row's Enter / Space reach `handleRowClick` with their modifiers, as a click does (TableShell's `activateOnKey`).
+  it('lists Alt and Shift with Enter or Space, the seller panel listing and promotions of the row', () => {
+    render(<ShortcutsHelp onClose={() => {}} />);
+    expect(keysOf('Abrir la publicación en el panel de vendedores')).toEqual(['Alt+Enter', 'Alt+Espacio']);
+    expect(keysOf('Abrir sus promociones en el panel de vendedores')).toEqual(['Shift+Enter', 'Shift+Espacio']);
   });
 
   it("lists Productos' Esc, leaving the navigation mode", () => {

@@ -15,6 +15,8 @@ const GROUPS = [
       { keys: ['Shift+↓', 'Shift+↑'], what: 'Moverse y marcar desde la última marcada' },
       { keys: ['Enter'], what: 'Abrir el detalle (con un precio activo: editarlo)' },
       { keys: ['Ctrl+Enter'], what: 'Abrir la publicación en Mercado Libre' },
+      { keys: ['Alt+Enter', 'Alt+Espacio'], what: 'Abrir la publicación en el panel de vendedores' },
+      { keys: ['Shift+Enter', 'Shift+Espacio'], what: 'Abrir sus promociones en el panel de vendedores' },
       { keys: ['Esc'], what: 'Salir del modo navegación' },
     ],
   },
@@ -38,6 +40,7 @@ const GROUPS = [
   },
   {
     title: 'Copiar',
+    unbroken: true,
     entries: [
       { keys: ['Ctrl+F1', 'Ctrl+Shift+1'], what: 'Código del producto' },
       { keys: ['Ctrl+F2', 'Ctrl+Shift+2'], what: 'Enlace 1 (listado por precio)' },
@@ -64,6 +67,7 @@ const GROUPS = [
   },
   {
     title: 'Abrir un filtro',
+    unbroken: true,
     entries: [
       { keys: ['Alt+M', 'Alt+S', 'Alt+P'], what: 'Marca, Subcategoría o PM' },
       { keys: ['Alt+A'], what: 'Auditoría' },
@@ -98,14 +102,15 @@ const GROUPS = [
   },
 ];
 
-function Group({ title, entries }) {
+// `unbroken`: the group's key pairs never wrap (its descriptions are short enough to give them the room).
+function Group({ title, entries, unbroken = false }) {
   const headingId = useId();
   return (
     <section aria-labelledby={headingId} className={styles.group}>
       <h3 id={headingId} className={styles.heading}>
         {title}
       </h3>
-      <dl className={styles.list}>
+      <dl className={unbroken ? `${styles.list} ${styles.unbroken}` : styles.list}>
         {entries.map(({ keys, what }) => (
           <div key={what} className={styles.entry}>
             <dt className={styles.keys}>

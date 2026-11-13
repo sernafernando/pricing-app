@@ -1,6 +1,7 @@
-/* `full` takes the 95vh height; the width stops at 80rem so the three columns do not spread on a wide screen. */
+/* `full` takes the 95vh height; the width stops at 85rem so the three columns do not spread on a wide screen. 85rem
+   (not 80) leaves room at 1440x900 for a wider system font, as CI's DejaVu: the visual test pins it. */
 :global(.modal-tesla.full).modal {
-  max-width: min(95vw, 80rem);
+  max-width: min(95vw, 85rem);
 }
 
 /* Groups flow into as many 18rem columns as fit: three on a desktop modal, one on a phone. */
@@ -11,7 +12,7 @@
 
 .group {
   break-inside: avoid;
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: var(--space-5);
 }
 
 .heading {
@@ -29,6 +30,12 @@
   column-gap: var(--spacing-md);
   row-gap: var(--space-2);
   margin: 0;
+}
+
+/* Groups whose descriptions are short keep each key pair on one line, whatever the font: under a cap, a wider font
+   (CI's DejaVu) wraps Ctrl+F1 o Ctrl+Shift+1 and the group grows a line per row. */
+.list.unbroken {
+  grid-template-columns: max-content 1fr;
 }
 
 .entry {
