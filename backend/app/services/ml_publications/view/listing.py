@@ -15,7 +15,22 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Mapping, Optional
 
-from sqlalchemy import ARRAY, Numeric, Text, and_, any_, case, cast, exists, func, literal, select, text, true
+from sqlalchemy import (
+    ARRAY,
+    Numeric,
+    Text,
+    and_,
+    any_,
+    case,
+    cast,
+    exists,
+    func,
+    literal,
+    select,
+    text,
+    true,
+    union_all,
+)
 from sqlalchemy.dialects.postgresql import array as pg_array
 from sqlalchemy.orm import Session
 
@@ -295,6 +310,36 @@ def bound(db: Session, timeout: Optional[str] = None) -> None:
     db.execute(text(f"SET LOCAL statement_timeout = '{timeout or STATEMENT_TIMEOUT}'; SET LOCAL jit = off"))
 
 
+def pm_pairs_by_user(db: Session, user_ids: Optional[tuple[int, ...]] = None) -> dict[int, tuple[tuple[str, str], ...]]:
+    """Each PM's (marca, categoria) pairs, trimmed and upper-cased like the tree keys them, in one query: the pairs
+    `resolve_pm_pairs` matches for `pms`. `user_ids` None reads every PM (every user with `marcas_pm` rows); a PM whose
+    rows all lack a brand or a category still gets an entry, with no pairs (it then matches nothing)."""
+    query = db.query(MarcaPM.usuario_id, normalized_text(MarcaPM.marca), normalized_text(MarcaPM.categoria))
+    query = query.filter(MarcaPM.usuario_id.isnot(None) if user_ids is None else MarcaPM.usuario_id.in_(user_ids))
+    by_user: dict[int, set[tuple[str, str]]] = {}
+    for usuario_id, marca, categoria in query.all():
+        pairs = by_user.setdefault(usuario_id, set())
+        if marca and categoria:
+            pairs.add((marca, categoria))
+    return {usuario_id: tuple(sorted(pairs)) for usuario_id, pairs in by_user.items()}
+
+
+def count_items_by_key(db: Session, filters: Mapping[int, PublicationFilter]) -> dict[int, int]:
+    """`count_items` of several filters in ONE statement (a UNION ALL of the very same count, one branch per key), so
+    each count equals the listing total of its filter. Each filter's `pms` must already be resolved (`pm_pairs` set,
+    e.g. from `pm_pairs_by_user`): resolving here would run one query per filter."""
+    if not filters:
+        return {}
+    for f in filters.values():
+        if f.pms and f.pm_pairs is None:
+            raise RuntimeError("count_items_by_key needs every filter's `pms` resolved to pairs")
+    branches = [
+        build_base_select(f, literal(key).label("key"), func.count().label("total")) for key, f in filters.items()
+    ]
+    query = branches[0] if len(branches) == 1 else union_all(*branches)
+    return {int(key): total for key, total in db.execute(query).all()}
+
+
 def resolve_pm_pairs(db: Session, f: PublicationFilter) -> PublicationFilter:
     """Fill `pm_pairs` from the PMs' (marca, categoria) assignments, trimmed and upper-cased like the tree keys them,
     and `pm_group_pairs`, the pairs of the PM node `pm_group` (every PM's pair for `NO_GROUP`) as the tree gives them.
@@ -302,12 +347,7 @@ def resolve_pm_pairs(db: Session, f: PublicationFilter) -> PublicationFilter:
     Idempotent: a filter whose pairs are already resolved (or that has no `pms` / `pm_group`) comes back as it is,
     with no query, so the router resolves once and `list_items` / `facets` may call it again safely."""
     if f.pms and f.pm_pairs is None:
-        rows = (
-            db.query(normalized_text(MarcaPM.marca), normalized_text(MarcaPM.categoria))
-            .filter(MarcaPM.usuario_id.in_(f.pms), MarcaPM.marca.isnot(None), MarcaPM.categoria.isnot(None))
-            .all()
-        )
-        pairs = {(marca, categoria) for marca, categoria in rows if marca and categoria}
+        pairs = {pair for user_pairs in pm_pairs_by_user(db, f.pms).values() for pair in user_pairs}
         f = replace(f, pm_pairs=tuple(sorted(pairs)))
     if f.pm_group is not None and f.pm_group_pairs is None:
         owners = pm_pairs("pm_group_resolved")
