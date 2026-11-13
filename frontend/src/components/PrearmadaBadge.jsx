@@ -9,9 +9,11 @@ import styles from './PrearmadaBadge.module.css';
  *   - exact === 0 && upgrade > 0 → yellow badge "{upgrade} disponibles (upgrade)"
  *   - else (zeros or no stats)  → renders nothing
  *
- * @param {{ stats: { exact: number, upgrade: number } | null | undefined }} props
+ * `outline` draws it as a thin border with the text in its tone instead of filled (Publicaciones ML).
+ *
+ * @param {{ stats: { exact: number, upgrade: number } | null | undefined, outline?: boolean }} props
  */
-export default function PrearmadaBadge({ stats }) {
+export default function PrearmadaBadge({ stats, outline = false }) {
   if (!stats) return null;
 
   const { exact = 0, upgrade = 0 } = stats;
@@ -27,7 +29,7 @@ export default function PrearmadaBadge({ stats }) {
 
   return (
     <span
-      className={`${styles.badge} ${isExact ? styles.exact : styles.upgrade}`}
+      className={`${styles.badge} ${isExact ? styles.exact : styles.upgrade}${outline ? ` ${styles.outline}` : ''}`}
       title={tooltip}
       aria-label={tooltip}
     >

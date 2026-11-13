@@ -18,10 +18,10 @@ export default function TnPriceLine({ product, percent, label = null }) {
     <div className={styles.tnPrice} data-tn-price="">
       <div className={styles.tnAmount}>
         {label && <span className={styles.tnLabel}>{label}</span>}
-        <span>$ {formatAmount(shown)}</span>
+        <span className={styles.tnFigure}>$ {formatAmount(shown)}</span>
         <PrecioTransfHint precioTarjeta={shown} porcentaje={percent} className={styles.tnHint} />
       </div>
-      {promo && Number(product.tn_price) > 0 && <s className={styles.tnRegular}>$ {formatAmount(product.tn_price)}</s>}
+      {promo && Number(product.tn_price) > 0 && <s className={`${styles.tnRegular} ${styles.tnFigure}`}>$ {formatAmount(product.tn_price)}</s>}
     </div>
   );
 }

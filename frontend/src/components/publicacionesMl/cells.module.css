@@ -40,7 +40,10 @@
   white-space: nowrap;
 }
 
+/* Every figure of the table in the mono face with tabular digits, like the sales, markups and ageing columns
+   (MetricsCells): one letter for every number in a row. */
 .amount {
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-weight: var(--font-medium);
   color: var(--cf-text-primary);
@@ -48,6 +51,7 @@
 }
 
 .regular {
+  font-family: var(--font-mono);
   font-size: var(--font-xs);
   font-variant-numeric: tabular-nums;
   color: var(--cf-text-tertiary);
@@ -73,6 +77,7 @@
 }
 
 .units {
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-weight: var(--font-medium);
   color: var(--cf-text-primary);
@@ -185,6 +190,7 @@
 }
 
 .markup {
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-weight: var(--font-medium);
   color: var(--cf-text-primary);
@@ -197,6 +203,7 @@
 
 /* Productos' "markup con offsets": the clásica markup over the cost the offsets discount, under the markup. */
 .markupOffset {
+  font-family: var(--font-mono);
   font-size: var(--font-xs);
   font-variant-numeric: tabular-nums;
   color: var(--cf-text-secondary);
@@ -297,6 +304,7 @@
 
 .priceInput {
   composes: input inputSm from '../../styles/forms-tesla.css';
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -364,6 +372,11 @@
   border-bottom: 1px solid var(--cf-border-default);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* Its figures in mono like the rest of the table; the label and the transfer hint keep the interface face. */
+.tnFigure {
+  font-family: var(--font-mono);
 }
 
 .tnAmount {
