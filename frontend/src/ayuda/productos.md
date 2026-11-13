@@ -1,10 +1,13 @@
 # Productos
 
 Área: Productos
-Ruta: Productos → Productos
+Ruta: ya no está en el menú; se abre escribiendo /productos en la dirección del navegador
 Permiso: Pedile a un administrador acceso a Productos.
 
 ## Para qué sirve
+
+Publicaciones ML reemplaza a esta pantalla en el menú y es la que se abre al entrar. Productos sigue funcionando igual si entrás por su dirección.
+
 
 Sirve para consultar y gestionar el catálogo de productos: ver precios, stock, costos, markups, asignar colores, filtrar por marca/categoría/PM, editar precios y cuotas en línea, y lanzar acciones masivas sobre el conjunto filtrado.
 

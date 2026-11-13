@@ -1,10 +1,13 @@
 # Publicaciones ML
 
 Área: Productos
-Ruta: Productos → Publicaciones ML
+Ruta: Productos → Publicaciones ML (primera del menú)
 Permiso: Acceso a Productos o a Ventas ML (productos.ver o ml_ops.ver).
 
 ## Para qué sirve
+
+Es la pantalla que se abre al entrar al sistema si tenés acceso a Productos o a Ventas ML, y la primera del menú **Productos**.
+
 
 Gestiona todas las publicaciones de Mercado Libre: verlas, filtrarlas, ordenarlas, editar precios en línea, asignar colores, aplicar acciones masivas y exportar. Se puede ver por producto, por publicación, por precios o agrupado.
 
