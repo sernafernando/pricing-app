@@ -102,6 +102,7 @@ from app.services.ml_publications.view.filters import (
     FilterError,
     MarkupFilter,
     PublicationFilter,
+    SearchTerm,
     parse_ads_period,
     parse_filter,
     parse_markup_filter,
@@ -1094,11 +1095,16 @@ def _started_promotions() -> Optional[frozenset[str]]:
 
 
 def _resolve_promo_search(f: PublicationFilter) -> PublicationFilter:
+    return replace(f, q=resolve_promo_term(f.q))
+
+
+def resolve_promo_term(term: Optional[SearchTerm]) -> Optional[SearchTerm]:
     """A `promo:` search with its MLAs, resolved as Productos does: a known promotion type is its active promotions
-    (applied or not), any other text a substring of the promotion's name. A resolver that cannot answer is a 503."""
-    if f.q is None or f.q.kind != "promo":
-        return f
-    value = f.q.value
+    (applied or not), any other text a substring of the promotion's name. A resolver that cannot answer is a 503.
+    Any other term is returned as is. Métricas ML's search resolves its `promo:` here too."""
+    if term is None or term.kind != "promo":
+        return term
+    value = term.value
     if value.upper() in KNOWN_PROMOTION_TYPES:
         resolver = partial(fetch_mlas_with_active_promo_type, [value.upper()], applied_only=False)
     else:
@@ -1112,7 +1118,7 @@ def _resolve_promo_search(f: PublicationFilter) -> PublicationFilter:
             FILTER_UNAVAILABLE_CODE,
             "Búsqueda por promoción no disponible temporalmente",
         ) from exc
-    return replace(f, q=replace(f.q, mlas=found))
+    return replace(term, mlas=found)
 
 
 def _ads_status(provider: AdsCostProvider, requested: bool, first: Optional[date], last: Optional[date]) -> AdsStatus:

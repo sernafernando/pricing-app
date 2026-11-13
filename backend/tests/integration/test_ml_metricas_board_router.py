@@ -513,6 +513,72 @@ class TestFilters:
         assert set(_by_key(_get(client, admin_auth_headers, q="MLA5"))) == {"14"}
         assert set(_by_key(_get(client, admin_auth_headers, q="SKU-13"))) == {"13"}
 
+    @pytest.mark.parametrize(
+        ("q", "keys"),
+        [
+            ("MLA3", {"12"}),  # exact publication
+            ("mla:mla5", {"14"}),
+            ("mla:MLA", set()),  # an id is exact, never a prefix of every MLA
+            ("ean:sku-13", {"13"}),  # exact code
+            ("ean:SKU-1", set()),
+            ("codigo:SKU-12", {"12"}),
+            ("marca:tp-link", {"14"}),  # exact brand
+            ("marca:TP", set()),
+            ("desc:notebooklenovo", {"12"}),  # contains, ignoring dashes and spaces
+            ("descripcion:taladro", {"13"}),
+            ("Impresora*", {"11"}),  # starts with
+            ("Título MLA4*", {"13"}),
+            ("*AX55", {"14"}),  # ends with
+            ("*MLA3", {"12"}),
+            ("notebook-lenovo", {"12"}),  # plain text: description, brand and code without dashes and spaces
+            ("título mla2", {"11"}),  # plain text: the publication's title
+            ("5", {"14"}),  # bare digits: the exact MLA5 (or code)
+        ],
+    )
+    def test_the_search_has_publicaciones_ml_operators(self, client, admin_auth_headers, board_data, q, keys):
+        assert set(_by_key(_get(client, admin_auth_headers, q=q))) == keys
+
+    def test_the_search_narrows_the_totals_and_the_facets_too(self, client, admin_auth_headers, board_data):
+        body = _get(client, admin_auth_headers, q="marca:epson")
+        assert body["total"] == 1
+        assert body["facets"]["product"]["marcas"] == ["Epson"]
+
+    def test_a_promo_search_reads_the_promotions_resolver_of_publicaciones_ml(
+        self, client, admin_auth_headers, board_data, monkeypatch
+    ):
+        from app.routers import ml_publications_view
+
+        seen = []
+
+        def by_type(types, applied_only):
+            seen.append(("tipo", types, applied_only))
+            return {"MLA5"}
+
+        def by_name(name):
+            seen.append(("nombre", name))
+            return {"MLA3"}
+
+        monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_active_promo_type", by_type)
+        monkeypatch.setattr(ml_publications_view, "fetch_mlas_by_promo_name", by_name)
+        assert set(_by_key(_get(client, admin_auth_headers, q="promo:deal"))) == {"14"}
+        assert set(_by_key(_get(client, admin_auth_headers, q="promo:hot sale"))) == {"12"}
+        assert seen == [("tipo", ["DEAL"], False), ("nombre", "hot sale")]
+
+    def test_a_promo_search_that_cannot_be_resolved_is_a_503(self, client, admin_auth_headers, board_data, monkeypatch):
+        from sqlalchemy.exc import OperationalError
+
+        from app.routers import ml_publications_view
+
+        def down(*args, **kwargs):
+            raise OperationalError("select", {}, Exception("mlwebhook down"))
+
+        monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_active_promo_type", down)
+        resp = client.get(URL, params={"q": "promo:deal"}, headers=admin_auth_headers)
+        assert resp.status_code == 503
+
+    def test_a_search_over_100_characters_is_a_422(self, client, admin_auth_headers, board_data):
+        assert client.get(URL, params={"q": "x" * 101}, headers=admin_auth_headers).status_code == 422
+
     def test_alerts(self, client, admin_auth_headers, board_data):
         assert set(_by_key(_get(client, admin_auth_headers, alerts="sin_ventas_30d"))) == {"12", "13"}
         assert set(_by_key(_get(client, admin_auth_headers, alerts="ageing_60d"))) == {"12", "13"}

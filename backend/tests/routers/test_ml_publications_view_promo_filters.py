@@ -141,3 +141,16 @@ def test_a_promo_search_that_cannot_be_resolved_is_a_503(client, reader, monkeyp
     response = client.get(ITEMS_URL, headers=reader, params={"q": q})
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "filtro_no_disponible"
+
+
+def test_the_search_operators_keep_their_results_after_metricas_shares_them(client, reader, calls) -> None:
+    """Métricas ML now runs this search too (`search_parts`, shared): Publicaciones ML's results do not move."""
+    assert items(client, reader, q="MLA3") == ["MLA3"]
+    assert items(client, reader, q="ean:r77") == ["MLA1"]
+    assert items(client, reader, q="codigo:R78") == ["MLA2"]
+    assert items(client, reader, q="marca:tp-link") == ["MLA1"]
+    assert items(client, reader, q="desc:router ax") == ["MLA1"]
+    assert items(client, reader, q="promo:deal") == ["MLA1", "MLA3"]
+    assert items(client, reader, q="R7*") == ["MLA1", "MLA2"]
+    assert items(client, reader, q="*AX") == ["MLA1"]
+    assert items(client, reader, q="antena") == ["MLA2"]

@@ -37,8 +37,10 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.database import get_background_db, get_db
 from app.models.usuario import Usuario
+from app.routers.ml_publications_view import resolve_promo_term
 from app.services.ml_sales_query.params import parse_csv_ids, parse_csv_stores, parse_csv_strings
 from app.services.ml_daily_metrics import board, groups
+from app.services.ml_publications.view.filters import FilterError, normalize_q
 from app.services.ml_daily_metrics.kpi_strip import (
     MAX_BOARD_DATE,
     MAX_PERIOD_DAYS,
@@ -295,7 +297,11 @@ def board_filter(
     categorias: Optional[str] = Query(default=None, description="CSV de categorías (productos_erp.categoria)"),
     subcategorias: Optional[str] = Query(default=None),
     pms: Optional[str] = Query(default=None),
-    q: Optional[str] = Query(default=None, description="Producto, SKU, marca, MLA o título"),
+    q: Optional[str] = Query(
+        default=None,
+        description="Título, MLA, SKU/EAN o producto, con los operadores de Publicaciones ML "
+        "(mla:, ean:, codigo:, marca:, desc:, promo:, *final, inicio*)",
+    ),
     pub_status: Optional[str] = Query(default=None, description="CSV: " + ", ".join(board.PUB_STATUSES)),
     pub_type: Optional[str] = Query(default=None, description="CSV: " + ", ".join(board.PUB_TYPES)),
     pub_status_exclude: Optional[str] = Query(
@@ -372,6 +378,10 @@ def board_filter(
     ageing_in = _parse_choices(ageing, "ageing", board.AGEING_BUCKETS)
     ageing_out = _parse_choices(ageing_exclude, "ageing_exclude", board.AGEING_BUCKETS)
     _no_overlap(ageing_in, ageing_out, "ageing")
+    try:
+        search = normalize_q(q)
+    except FilterError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return board.BoardFilter(
         date_from=desde,
         date_to=hasta,
@@ -383,7 +393,8 @@ def board_filter(
         categorias=parse_csv_strings(categorias, "categorias"),
         subcategorias=parse_csv_ids(subcategorias, "subcategorias"),
         pms=parse_csv_ids(pms, "pms"),
-        q=q.strip() if q and q.strip() else None,
+        # Publicaciones ML's search: its operators, and `promo:` resolved by its own resolver (503 when down)
+        q=resolve_promo_term(search),
         pub_status=pub_status_in,
         pub_type=pub_type_in,
         pub_status_exclude=pub_status_out,

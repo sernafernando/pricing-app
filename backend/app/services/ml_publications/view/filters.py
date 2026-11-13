@@ -851,24 +851,65 @@ def _variation_sku(match: Any) -> ColumnElement:
     )
 
 
-def _search_parts(term: SearchTerm, p: Any) -> tuple[ColumnElement, ColumnElement]:
-    """`term` on the publication's own fields, and on the product `p` (a catalog alias): `q` keeps a publication
-    when either matches, and its linked products whose own fields match (or all of them, when the publication's do)."""
+@dataclass(frozen=True)
+class SearchFields:
+    """The publication columns a search reads on a row: its MLA id, its title, its SKUs (`skus(match)`: one test
+    per SKU column, any of them matching keeps the row) and its membership in a set of MLAs (`item_in`, the `promo:`
+    operator). Publicaciones ML reads its own `ml_items` row (`publication_fields`); Métricas ML a pair table's."""
+
+    item_id: Any
+    title: Any
+    skus: Callable[[Callable[[Any], ColumnElement]], list[ColumnElement]]
+    item_in: Callable[[frozenset[str]], ColumnElement]
+
+
+def publication_fields() -> SearchFields:
+    """Publicaciones ML's: the listed `ml_items` row (`T.i`) and its live variations."""
+    return SearchFields(
+        item_id=T.i.item_id,
+        title=T.i.title,
+        skus=lambda match: [match(T.i.seller_sku), match(T.i.seller_custom_field), _variation_sku(match)],
+        item_in=_item_in,
+    )
+
+
+def item_skus(item_id: Any) -> Callable[[Callable[[Any], ColumnElement]], list[ColumnElement]]:
+    """`SearchFields.skus` of the publication `item_id` (a column of another table): the SKUs of its `ml_items`
+    row and of its live variations, the same columns `publication_fields` reads."""
+    item = aliased(MlItem, name="q_item")
+    var = aliased(MlItemVariation, name="q_var")
+
+    def skus(match: Callable[[Any], ColumnElement]) -> list[ColumnElement]:
+        return [
+            exists(
+                select(1).where(item.item_id == item_id, or_(match(item.seller_sku), match(item.seller_custom_field)))
+            ),
+            exists(
+                select(1).where(
+                    var.item_id == item_id,
+                    var.gone_at.is_(None),
+                    or_(match(var.seller_sku), match(var.seller_custom_field)),
+                )
+            ),
+        ]
+
+    return skus
+
+
+def search_parts(term: SearchTerm, p: Any, fields: SearchFields) -> tuple[ColumnElement, ColumnElement]:
+    """`term` on the publication's own fields (`fields`), and on the product `p` (anything with `codigo`,
+    `descripcion` and `marca` columns): a row is kept when either matches. The one implementation of the search
+    box's operators (`normalize_q`), shared by Publicaciones ML and Métricas ML."""
     if term.kind == "item_id":
-        return T.i.item_id == term.value, false()
+        return fields.item_id == term.value, false()
     if term.kind == "promo":
-        return _item_in(term.mlas or frozenset()), false()
+        return fields.item_in(term.mlas or frozenset()), false()
     if term.kind == "digits":
 
         def same(column: Any) -> ColumnElement:
             return column == term.value
 
-        own = or_(
-            T.i.item_id == f"MLA{term.value}",
-            same(T.i.seller_sku),
-            same(T.i.seller_custom_field),
-            _variation_sku(same),
-        )
+        own = or_(fields.item_id == f"MLA{term.value}", *fields.skus(same))
         return own, same(p.codigo)
     if term.kind == "codigo":
         # upper-cased by the database on both sides, as `_text_in`: Python and Postgres disagree on some letters
@@ -881,14 +922,14 @@ def _search_parts(term: SearchTerm, p: Any) -> tuple[ColumnElement, ColumnElemen
         def ends(column: Any) -> ColumnElement:
             return column.ilike(suffix, escape=LIKE_ESCAPE)
 
-        return ends(T.i.title), or_(ends(p.descripcion), ends(p.marca), ends(p.codigo))
+        return ends(fields.title), or_(ends(p.descripcion), ends(p.marca), ends(p.codigo))
     if term.kind == "starts_with":
         prefix = f"{escape_like(term.value)}%"
 
         def starts(column: Any) -> ColumnElement:
             return column.ilike(prefix, escape=LIKE_ESCAPE)
 
-        return starts(T.i.title), or_(starts(p.descripcion), starts(p.marca), starts(p.codigo))
+        return starts(fields.title), or_(starts(p.descripcion), starts(p.marca), starts(p.codigo))
     if term.kind == "descripcion":
         return false(), _folded_contains(term.value)(p.descripcion)
     # ponytail: case-insensitive but accent-sensitive; `unaccent` is not installed on the test DB and its presence
@@ -898,9 +939,7 @@ def _search_parts(term: SearchTerm, p: Any) -> tuple[ColumnElement, ColumnElemen
     def contains(column: Any) -> ColumnElement:
         return column.ilike(pattern, escape=LIKE_ESCAPE)
 
-    own = or_(
-        contains(T.i.title), contains(T.i.seller_sku), contains(T.i.seller_custom_field), _variation_sku(contains)
-    )
+    own = or_(contains(fields.title), *fields.skus(contains))
     # Productos' plain search: name and brand without dashes and spaces, the code without dashes (`productos_listing`)
     folded = _folded_contains(term.value)
     product = or_(
@@ -911,6 +950,12 @@ def _search_parts(term: SearchTerm, p: Any) -> tuple[ColumnElement, ColumnElemen
         folded(p.codigo, "-"),
     )
     return own, product
+
+
+def _search_parts(term: SearchTerm, p: Any) -> tuple[ColumnElement, ColumnElement]:
+    """`search_parts` on Publicaciones ML's own row: a publication is kept when its own fields match, and its linked
+    products whose own fields match (or all of them, when the publication's do)."""
+    return search_parts(term, p, publication_fields())
 
 
 def _matching_products(term: SearchTerm) -> Select:

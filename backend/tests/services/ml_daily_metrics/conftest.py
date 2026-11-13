@@ -70,7 +70,7 @@ def board_pg_engine():
     from app.models.rma_claim_ml import RmaClaimML
     from app.models.ml_payments import MlPaymentOps
     from app.models.ml_sale_line import MlSaleLine
-    from app.models.ml_publications import MlItem
+    from app.models.ml_publications import MlItem, MlItemVariation
     from app.models.ml_tienda_oficial import MlTiendaOficial
     from app.models.ml_venta_deduccion import MlVentaDeduccion
     from app.models.sell_dirty import SellDirty
@@ -88,6 +88,8 @@ def board_pg_engine():
         MercadoLibreItemPublicado.__table__,
         # The listing kind of a publication (Clásica, 3/6/9/12 cuotas): its type, tags and campaign.
         MlItem.__table__,
+        # The search reads the SKUs of the publication's variations too, as Publicaciones ML's does.
+        MlItemVariation.__table__,
         MlOpsSyncCursor.__table__,
         # Ventas ML's KPI aggregate (the parity checks) reads these too.
         MlPaymentOps.__table__,
