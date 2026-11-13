@@ -4,7 +4,7 @@ Introduces:
 - `Equipo`: a team; a single sentinel row (`es_global=True`) represents the
   legacy "global" scope so existing color data can be backfilled without a
   behavior change (PR1 is models + migration only, no endpoints yet).
-- `EquipoMiembro`: membership of a `Usuario` in an `Equipo`, with a role.
+- `EquipoMiembro`: membership of a `Usuario` in an `Equipo`, with a role and the member's own layer preferences.
 - `ProductoColor`: per-team color marking for a `ProductoERP`, replacing the
   single global `productos_pricing.color_marcado`/`color_marcado_tienda`
   columns (retained for now; migration only backfills into this new table).
@@ -70,13 +70,27 @@ class Equipo(Base):
 
 class EquipoMiembro(Base):
     __tablename__ = "equipo_miembro"
-    __table_args__ = (UniqueConstraint("equipo_id", "usuario_id", name="uq_equipo_miembro_equipo_usuario"),)
+    __table_args__ = (
+        UniqueConstraint("equipo_id", "usuario_id", name="uq_equipo_miembro_equipo_usuario"),
+        # At most one default layer per user (see `Equipo`'s singleton index for the dialect kwargs).
+        Index(
+            "uq_equipo_miembro_usuario_por_defecto",
+            "usuario_id",
+            unique=True,
+            postgresql_where=text("por_defecto"),
+            sqlite_where=text("por_defecto"),
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     equipo_id = Column(Integer, ForeignKey("equipo.id"), nullable=False, index=True)
     usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
     # String (not SQLEnum) to avoid enum name/value drift — see alerta.py
     rol = Column(String(20), nullable=False)
+    # The member's own Publicaciones ML preferences for this layer: the layer it opens on (at most one per user; none
+    # marked = the global layer) and whether the global color reference shows on rows this team has not painted.
+    por_defecto = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    mostrar_referencia_global = Column(Boolean, nullable=False, default=True, server_default=text("true"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     equipo = relationship("Equipo", back_populates="miembros")
