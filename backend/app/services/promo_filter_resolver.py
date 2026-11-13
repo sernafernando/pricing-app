@@ -24,9 +24,11 @@ namespace.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
-from typing import Callable, List, Optional, Set, Tuple
+from typing import Callable, Collection, List, Optional, Set, Tuple
+
+from app.services.ml_publications.view.filters import SearchTerm
 
 
 @dataclass(frozen=True)
@@ -106,3 +108,25 @@ def select_promo_resolver(
         return partial(fns.candidate_only, mla_ids=mla_ids), "Filtro con_promo_sin_aplicar"
 
     return None
+
+
+def resolve_promo_term(
+    term: Optional[SearchTerm],
+    *,
+    by_type: Callable[..., Set[str]],
+    by_name: Callable[..., Set[str]],
+    known_types: Collection[str],
+) -> Optional[SearchTerm]:
+    """The search box's `promo:` operator with its MLAs, resolved as Productos does: a known promotion type is its
+    active promotions (applied or not), any other text a substring of the promotion's name. Any other term is
+    returned as is. Shared by Publicaciones ML and Métricas ML; each injects ITS OWN module-level `by_type`
+    (`fetch_mlas_with_active_promo_type`) and `by_name` (`fetch_mlas_by_promo_name`), as `PromoResolverFns` does.
+    A resolver's error (`RuntimeError`, `SQLAlchemyError`) propagates: the caller answers it with a 503."""
+    if term is None or term.kind != "promo":
+        return term
+    value = term.value
+    if value.upper() in known_types:
+        found = by_type([value.upper()], applied_only=False)
+    else:
+        found = by_name(value)
+    return replace(term, mlas=frozenset(found))

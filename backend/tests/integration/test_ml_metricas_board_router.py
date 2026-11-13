@@ -546,8 +546,6 @@ class TestFilters:
     def test_a_promo_search_reads_the_promotions_resolver_of_publicaciones_ml(
         self, client, admin_auth_headers, board_data, monkeypatch
     ):
-        from app.routers import ml_publications_view
-
         seen = []
 
         def by_type(types, applied_only):
@@ -558,8 +556,8 @@ class TestFilters:
             seen.append(("nombre", name))
             return {"MLA3"}
 
-        monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_active_promo_type", by_type)
-        monkeypatch.setattr(ml_publications_view, "fetch_mlas_by_promo_name", by_name)
+        monkeypatch.setattr(ml_metricas, "fetch_mlas_with_active_promo_type", by_type)
+        monkeypatch.setattr(ml_metricas, "fetch_mlas_by_promo_name", by_name)
         assert set(_by_key(_get(client, admin_auth_headers, q="promo:deal"))) == {"14"}
         assert set(_by_key(_get(client, admin_auth_headers, q="promo:hot sale"))) == {"12"}
         assert seen == [("tipo", ["DEAL"], False), ("nombre", "hot sale")]
@@ -567,14 +565,13 @@ class TestFilters:
     def test_a_promo_search_that_cannot_be_resolved_is_a_503(self, client, admin_auth_headers, board_data, monkeypatch):
         from sqlalchemy.exc import OperationalError
 
-        from app.routers import ml_publications_view
-
         def down(*args, **kwargs):
             raise OperationalError("select", {}, Exception("mlwebhook down"))
 
-        monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_active_promo_type", down)
+        monkeypatch.setattr(ml_metricas, "fetch_mlas_with_active_promo_type", down)
         resp = client.get(URL, params={"q": "promo:deal"}, headers=admin_auth_headers)
         assert resp.status_code == 503
+        assert resp.json()["error"]["code"] == "filtro_no_disponible"
 
     def test_a_search_over_100_characters_is_a_422(self, client, admin_auth_headers, board_data):
         assert client.get(URL, params={"q": "x" * 101}, headers=admin_auth_headers).status_code == 422

@@ -14,7 +14,6 @@ Arriba dice **Métricas ML** y aclara que muestra rendimiento y rentabilidad por
 
 Debajo está la barra de filtros: rango de fechas (máx. 1 año), búsqueda (título, MLA, SKU/EAN o producto, con los mismos operadores que Publicaciones ML; ver **Operadores de búsqueda** abajo), agrupar por (Producto/Publicación/Agrupado), comparar con (Período anterior/Mismo período año pasado), tienda, publicidad (si tenés permiso de ganancia), costos TP (si tenés permiso), solo con ventas en el período, stock, ageing, alertas (Sin ventas 30d, Ageing > 60d, Markup cayendo), producto (marca/categoría/subcategoría/PM), estado y tipo de publicación. Los filtros de producto funcionan como en Productos: al abrir uno, el cursor queda en la búsqueda (✕ la borra); en **Subcategoría**, tildar una categoría marca todas sus subcategorías a la vista (a medias muestra cuántas, por ejemplo 1/2), buscar el nombre de una categoría muestra todas sus subcategorías, cada subcategoría muestra su grupo de comisión (G1, G2…) y cada PM su email.
 
-
 ### Operadores de búsqueda
 
 La búsqueda funciona igual que la de **Publicaciones ML**, en la computadora y en el celular. Se aplica a las filas, a las tarjetas KPI y a las opciones de los filtros, y queda en el link de la pantalla.

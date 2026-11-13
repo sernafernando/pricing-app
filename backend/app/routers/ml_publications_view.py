@@ -56,7 +56,6 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, replace
-from functools import partial
 from datetime import date, datetime, timedelta
 from typing import Annotated, Any, Callable, Literal, NamedTuple, Optional, Sequence
 
@@ -102,7 +101,6 @@ from app.services.ml_publications.view.filters import (
     FilterError,
     MarkupFilter,
     PublicationFilter,
-    SearchTerm,
     parse_ads_period,
     parse_filter,
     parse_markup_filter,
@@ -121,7 +119,7 @@ from app.services.ml_promotions_service import (
 from app.services import ml_pxq_tiers_read_service
 from app.services.ml_pxq_tiers_read_service import fetch_mlas_with_pxq_tiers
 from app.services.permisos_service import PermisosService
-from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
+from app.services.promo_filter_resolver import PromoResolverFns, resolve_promo_term, select_promo_resolver
 
 PERMISO_VER = "ml_ops.ver"  # one of the screen's permissions (`PERMISOS_PUBLICACIONES_ML`), not the only one
 PERMISO_GANANCIA = "ml_metricas.ver_ganancia"
@@ -1095,22 +1093,18 @@ def _started_promotions() -> Optional[frozenset[str]]:
 
 
 def _resolve_promo_search(f: PublicationFilter) -> PublicationFilter:
-    return replace(f, q=resolve_promo_term(f.q))
-
-
-def resolve_promo_term(term: Optional[SearchTerm]) -> Optional[SearchTerm]:
-    """A `promo:` search with its MLAs, resolved as Productos does: a known promotion type is its active promotions
-    (applied or not), any other text a substring of the promotion's name. A resolver that cannot answer is a 503.
-    Any other term is returned as is. Métricas ML's search resolves its `promo:` here too."""
-    if term is None or term.kind != "promo":
-        return term
-    value = term.value
-    if value.upper() in KNOWN_PROMOTION_TYPES:
-        resolver = partial(fetch_mlas_with_active_promo_type, [value.upper()], applied_only=False)
-    else:
-        resolver = partial(fetch_mlas_by_promo_name, value)
+    """A `promo:` search with its MLAs (`resolve_promo_term`, shared with Métricas ML). A resolver that cannot answer
+    is a 503."""
     try:
-        found = frozenset(resolver())
+        return replace(
+            f,
+            q=resolve_promo_term(
+                f.q,
+                by_type=fetch_mlas_with_active_promo_type,
+                by_name=fetch_mlas_by_promo_name,
+                known_types=KNOWN_PROMOTION_TYPES,
+            ),
+        )
     except (RuntimeError, SQLAlchemyError) as exc:
         logger.warning("Operador promo: no disponible: %s", exc)
         raise api_error(
@@ -1118,7 +1112,6 @@ def resolve_promo_term(term: Optional[SearchTerm]) -> Optional[SearchTerm]:
             FILTER_UNAVAILABLE_CODE,
             "Búsqueda por promoción no disponible temporalmente",
         ) from exc
-    return replace(term, mlas=found)
 
 
 def _ads_status(provider: AdsCostProvider, requested: bool, first: Optional[date], last: Optional[date]) -> AdsStatus:
