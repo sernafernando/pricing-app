@@ -101,4 +101,23 @@ describe('promoFilterStore', () => {
     expect(usePromoFilterStore.getState()).toMatchObject({ selectedTypes: ['DEAL'], selectedNames: { DEAL: ['2x1'] } });
     expect(typeof usePromoFilterStore.getState().toggleType).toBe('function');
   });
+
+  it('a stored value of the wrong shape restores no filter instead of breaking the page', async () => {
+    localStorage.setItem(
+      'promo-filter-store',
+      JSON.stringify({ state: { selectedTypes: 'SMART', selectedNames: null }, version: 0 }),
+    );
+    await usePromoFilterStore.persist.rehydrate();
+    expect(usePromoFilterStore.getState()).toMatchObject({ selectedTypes: [], selectedNames: {} });
+  });
+
+  it('a stored name list of the wrong shape is dropped, the valid ones kept', async () => {
+    localStorage.setItem(
+      'promo-filter-store',
+      JSON.stringify({ state: { selectedTypes: ['DEAL', 3], selectedNames: { DEAL: ['2x1', null], SMART: 'x' } }, version: 0 }),
+    );
+    await usePromoFilterStore.persist.rehydrate();
+    expect(usePromoFilterStore.getState()).toMatchObject({ selectedTypes: ['DEAL'], selectedNames: { DEAL: ['2x1', null] } });
+  });
 });
+

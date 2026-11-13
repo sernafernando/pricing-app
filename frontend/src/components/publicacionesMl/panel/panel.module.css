@@ -1216,14 +1216,12 @@
   cursor: pointer;
 }
 
-/* Phone: the filter's toggle, clear and chips are touch targets of 44px, like the panel's other actions. */
 @media (max-width: 768px) {
+  /* The promo filter's toggle, clear and chips are touch targets of 44px, like the panel's other actions. */
   .promosFilter button {
     min-height: 44px;
   }
-}
 
-@media (max-width: 768px) {
   .figureList {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

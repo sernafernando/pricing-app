@@ -97,6 +97,13 @@ describe('the promo filter (one setting for the user, shared with Productos)', (
     expect(screen.getByText('Filtro: 2 tipos · 3 nombres')).toBeInTheDocument();
   });
 
+  it('counts only the names that filter: a name kept for a type that is not chosen is left out', async () => {
+    usePromoFilterStore.setState({ selectedTypes: ['SMART'], selectedNames: { DOD: ['Deal of the day'] } });
+    renderTab();
+    expect(await screen.findByText('Smart promo')).toBeInTheDocument();
+    expect(screen.getByText('Filtro: 1 tipo')).toBeInTheDocument();
+  });
+
   it('shows no summary and hides nothing while no filter is set', async () => {
     renderTab();
     expect(await screen.findByText('Smart promo')).toBeInTheDocument();

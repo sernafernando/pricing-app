@@ -6,8 +6,9 @@ import PromoNameFilterModal from './PromoNameFilterModal';
 import { derivePromosByType } from './derivePromosByType';
 
 /**
- * GLOBAL filter bar — rendered once per page (Productos page, Publicaciones ML
- * Promos tab header), not per MLA panel.
+ * GLOBAL filter bar — rendered at the page level in Productos, and in the
+ * header of each Publicaciones ML Promos tab (one per open publication in a
+ * product panel); every copy reads and writes the same store.
  * Toggling a chip filters the promo list of EVERY MLA panel that shows promos.
  * `promosCacheRef` (optional) is the host-owned promos cache; it's read
  * open-time only, to build the name universe for the "Nombres" mini-modal.

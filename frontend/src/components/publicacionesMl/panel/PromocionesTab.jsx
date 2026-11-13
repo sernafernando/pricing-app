@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import MlaPromocionesPanel from '../../promociones/MlaPromocionesPanel';
 import CatalogCompetitionPanel from '../../promociones/CatalogCompetitionPanel';
 import PromoFilterBar from '../../promociones/PromoFilterBar';
+import { countActivePromoFilter } from '../../promociones/promoFilterPredicate';
 import { markPromoPulled, promoPulledRecently } from '../../promociones/promoPullTtl';
 import { usePromoFilterStore } from '../../../store/promoFilterStore';
 import styles from './panel.module.css';
@@ -20,10 +21,10 @@ function PromoFilterHeader({ promosCacheRef }) {
   const clear = usePromoFilterStore((state) => state.clear);
   const [open, setOpen] = useState(false);
 
-  const namesCount = Object.values(selectedNames).reduce((sum, names) => sum + names.length, 0);
+  const active = countActivePromoFilter(selectedTypes, selectedNames);
   const parts = [
-    selectedTypes.length > 0 && plural(selectedTypes.length, 'tipo', 'tipos'),
-    namesCount > 0 && plural(namesCount, 'nombre', 'nombres'),
+    active.types > 0 && plural(active.types, 'tipo', 'tipos'),
+    active.names > 0 && plural(active.names, 'nombre', 'nombres'),
   ].filter(Boolean);
 
   return (
