@@ -2,4 +2,4 @@
 
 
 def test_ci_probe_backend() -> None:
-    assert 1 + 1 == 3
+    assert 1 + 1 == 2
