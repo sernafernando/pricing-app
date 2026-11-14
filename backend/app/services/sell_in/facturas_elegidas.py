@@ -18,7 +18,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Collection, Iterable, Mapping, Optional
+from typing import Collection, Iterable, Mapping, Optional, Sequence
 
 from sqlalchemy.orm import Session
 
@@ -40,20 +40,44 @@ class Facturado:
 
 
 def nc_del_pedido_para_eleccion(
-    nc_del_pedido: Mapping[int, Facturado], elegidas: Collection[int], todas: Collection[int]
+    nc_del_pedido: Mapping[int, Facturado],
+    facturas: Sequence[tuple[int, Mapping[int, Facturado]]],
+    elegidas: Collection[int],
 ) -> dict[int, Facturado]:
     """THE rule for the credit notes imputed to the whole operation (no invoice of their own) when a line picks
-    specific invoices: what share of them, per item, the picked invoices take (negative units and amounts).
+    specific invoices: the share of them, per item, that falls on the picked invoices (negative units and amounts).
 
-    Current rule (option 3): they count only under "Todas" (the aggregate already nets them); a pick of specific
-    invoices takes none of them.
+    Rule (owner, 2026-11-13): a credit note imputed to the operation is deducted exactly once across its invoices,
+    never once per pick. Its units of an item are allocated to the operation's invoices oldest first (`facturas` comes
+    in that order), each absorbing up to its own net units of that item, until the note is consumed; the amount
+    follows the units in proportion. So with A (older) 10 u, B 10 u and a note of 4 u: A 6, B 10, A + B 16 = "Todas".
 
-    TODO(owner, 2026-11-13): pending decision on operation-level credit notes under a pick. Alternatives on the table:
-    prorate them over the operation's invoices by units or by amount. Only this function changes; its callers already
-    add whatever it returns to the picked invoices' units.
+    `facturas`: (ct_transaction_id, {item_id: its net units}) per invoice, oldest first.
     """
-    del nc_del_pedido, elegidas, todas
-    return {}
+    elegidas = frozenset(elegidas)
+    parte: dict[int, Facturado] = {}
+    for item_id, nota in nc_del_pedido.items():
+        por_restar = -nota.cantidad
+        if por_restar <= 0:
+            continue
+        restadas = 0
+        importe_previo = Decimal("0")
+        for ct, lineas in facturas:
+            if restadas >= por_restar:
+                break
+            absorbe = min(max(lineas[item_id].cantidad, 0) if item_id in lineas else 0, por_restar - restadas)
+            if absorbe <= 0:
+                continue
+            restadas += absorbe
+            importe = None
+            if nota.importe_neto is not None:
+                # cumulative rounding, so the shares add up to the note's amount to the cent
+                acumulado = (nota.importe_neto * restadas / por_restar).quantize(Decimal("0.01"))
+                importe, importe_previo = acumulado - importe_previo, acumulado
+            if ct in elegidas:
+                share = Facturado(-absorbe, importe, nota.moneda if importe is not None else None)
+                parte[item_id] = _sumar(parte.get(item_id), share)
+    return parte
 
 
 def _sumar(a: Optional[Facturado], b: Facturado) -> Facturado:
@@ -67,27 +91,40 @@ def _sumar(a: Optional[Facturado], b: Facturado) -> Facturado:
     )
 
 
+def _mas_viejas_primero(db: Session, pedido_id: int, cts: Iterable[int]) -> list[int]:
+    """These invoices of an operation, oldest first: by invoice date (undated last), then by id."""
+    fechas = dict(
+        db.query(PedidoCompraFactura.ct_transaction_id, PedidoCompraFactura.fecha_factura).filter(
+            PedidoCompraFactura.pedido_id == pedido_id
+        )
+    )
+    return sorted(cts, key=lambda ct: (fechas.get(ct) is None, fechas.get(ct) or date.min, ct))
+
+
 def facturado_elegido(db: Session, pedido_id: int, elegidas: Collection[int]) -> dict[int, Facturado]:
     """An operation's invoiced units per item over the picked invoices only, plus the share of operation-level credit
     notes the rule gives them; the items with less than one unit left out, a negative amount clamped at 0 (like the
     aggregate)."""
     elegidas = frozenset(int(ct) for ct in elegidas)
     t = PedidoCompraLineaFacturadaCt
-    por_item: dict[int, Facturado] = {}
+    por_factura: dict[int, dict[int, Facturado]] = defaultdict(dict)
     nc_del_pedido: dict[int, Facturado] = {}
-    todas: set[int] = set()
     for ct, item_id, cantidad, importe, moneda in db.query(
         t.ct_transaction_id, t.item_id, t.cantidad, t.importe_neto, t.moneda
     ).filter(t.pedido_id == pedido_id):
         fila = Facturado(int(cantidad), Decimal(importe) if importe is not None else None, moneda)
         if ct is None:
             nc_del_pedido[int(item_id)] = fila
-            continue
-        todas.add(int(ct))
-        if int(ct) in elegidas:
-            por_item[int(item_id)] = _sumar(por_item.get(int(item_id)), fila)
-    for item_id, parte in nc_del_pedido_para_eleccion(nc_del_pedido, elegidas, todas).items():
-        por_item[item_id] = _sumar(por_item.get(item_id), parte)
+        else:
+            por_factura[int(ct)][int(item_id)] = fila
+    por_item: dict[int, Facturado] = {}
+    for ct in elegidas:
+        for item_id, fila in por_factura.get(ct, {}).items():
+            por_item[item_id] = _sumar(por_item.get(item_id), fila)
+    if nc_del_pedido:
+        facturas = [(ct, por_factura[ct]) for ct in _mas_viejas_primero(db, pedido_id, por_factura)]
+        for item_id, parte in nc_del_pedido_para_eleccion(nc_del_pedido, facturas, elegidas).items():
+            por_item[item_id] = _sumar(por_item.get(item_id), parte)
     return {
         item_id: Facturado(
             f.cantidad, max(f.importe_neto, Decimal("0")) if f.importe_neto is not None else None, f.moneda

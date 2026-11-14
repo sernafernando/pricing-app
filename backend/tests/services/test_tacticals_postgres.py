@@ -29,6 +29,7 @@ from app.schemas.sell_out import SellOutCampanaIn
 from app.schemas.tacticals import TacticalIn
 from app.services import tacticals as service
 from app.services.sell_in import bonos
+from app.services.sell_in.facturas_elegidas import Facturado, facturado_elegido, nc_del_pedido_para_eleccion
 from app.services.sell_out import edicion_masiva, renovacion
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _bono_world as bw
@@ -1718,9 +1719,16 @@ class TestFacturasElegidas:
     def _worker(self) -> None:
         TestFacturaPendienteTotal._worker(self)
 
-    def _operacion(self, engine: Engine, nc_del_pedido: dict | None = None, **kw) -> int:
-        """An operation with invoices A and B, its aggregate snapshot and its per-invoice one (what the reconcile
-        writes); `nc_del_pedido` the credit notes imputed to the whole operation, per item (positive units)."""
+    def _operacion(
+        self,
+        engine: Engine,
+        nc_del_pedido: dict | None = None,
+        fechas: tuple = (date(2026, 10, 1), date(2026, 10, 5)),
+        **kw,
+    ) -> int:
+        """An operation with invoices A and B (dated `fechas`, A older by default), its aggregate snapshot and its
+        per-invoice one (what the reconcile writes); `nc_del_pedido` the credit notes imputed to the whole operation,
+        per item (positive units)."""
         nc = nc_del_pedido or {}
         todas = {
             i: self.LINEAS_A.get(i, 0) + self.LINEAS_B.get(i, 0) - nc.get(i, 0)
@@ -1728,12 +1736,13 @@ class TestFacturasElegidas:
         }
         pedido = bw.pedido(engine, {i: q for i, q in todas.items() if q >= 1}, date(2026, 10, 10), **kw)
         with engine.begin() as conn:
-            for ct in (self.A, self.B):
+            for ct, fecha in zip((self.A, self.B), fechas):
                 conn.execute(
                     text(
-                        "INSERT INTO pedido_compra_facturas (pedido_id, ct_transaction_id, created_at) VALUES (:p, :c, now())"
+                        "INSERT INTO pedido_compra_facturas (pedido_id, ct_transaction_id, fecha_factura, created_at) "
+                        "VALUES (:p, :c, :f, now())"
                     ),
-                    {"p": pedido, "c": ct},
+                    {"p": pedido, "c": ct, "f": fecha},
                 )
             buckets = [(self.A, i, q) for i, q in self.LINEAS_A.items()] + [
                 (self.B, i, q) for i, q in self.LINEAS_B.items()
@@ -1875,21 +1884,53 @@ class TestFacturasElegidas:
         [salida] = service.serializar(db, [tactical])[0]["lineas"]
         assert salida["facturas_ct"] == [self.A]
 
-    # the credit notes imputed to the whole operation (owner's decision pending: option 3 for now)
+    # the credit notes imputed to the whole operation: deducted exactly once, allocated to the invoices oldest first
 
-    def test_operation_level_credit_notes_count_only_under_todas(self, db, engine) -> None:
+    def test_an_operation_level_note_falls_on_the_invoice_that_carries_the_item(self, db, engine) -> None:
         pedido = self._operacion(engine, nc_del_pedido={2964: 2}, moneda="ARS")
         todas = service.crear(db, self._datos(self._linea(pedido, "monto_total", "100")), USUARIO)
         elegida = service.crear(db, self._datos(self._linea(pedido, "monto_total", "100", [self.A])), USUARIO)
 
         assert self._totales(engine, todas.id) == [("activa", {2964: 8, 950: 5})]
-        assert self._totales(engine, elegida.id) == [("activa", {2964: 10})]
+        assert self._totales(engine, elegida.id) == [("activa", {2964: 8})]
 
-    def test_the_credit_note_rule_gives_a_pick_no_share_of_the_operation_s_notes(self) -> None:
-        from app.services.sell_in.facturas_elegidas import Facturado, nc_del_pedido_para_eleccion
+    def test_an_operation_level_note_is_deducted_once_from_the_oldest_invoice(self, db, engine) -> None:
+        self.LINEAS_B = {2964: 10}  # both invoices carry the item; A is the older one
+        pedido = self._operacion(engine, nc_del_pedido={2964: 4}, moneda="ARS")
+        todas = service.crear(db, self._datos(self._linea(pedido, "monto_total", "100")), USUARIO)
+        solo_a = service.crear(db, self._datos(self._linea(pedido, "monto_total", "100", [self.A])), USUARIO)
+        solo_b = service.crear(db, self._datos(self._linea(pedido, "monto_total", "100", [self.B])), USUARIO)
 
-        notas = {2964: Facturado(-2, Decimal("-100"), "ARS")}
-        assert nc_del_pedido_para_eleccion(notas, {self.A}, {self.A, self.B}) == {}
+        assert self._totales(engine, todas.id) == [("activa", {2964: 16})]
+        assert self._totales(engine, solo_a.id) == [("activa", {2964: 6})]
+        assert self._totales(engine, solo_b.id) == [("activa", {2964: 10})]
+
+    def test_an_operation_level_note_larger_than_the_oldest_invoice_spills_into_the_next(self, db, engine) -> None:
+        self.LINEAS_B = {2964: 10}
+        pedido = self._operacion(engine, nc_del_pedido={2964: 14}, moneda="ARS")
+
+        assert facturado_elegido(db, pedido, {self.A}) == {}  # A: 10 - 10 = 0, left out like the aggregate
+        assert facturado_elegido(db, pedido, {self.B}) == {2964: Facturado(6, None, None)}
+        assert facturado_elegido(db, pedido, {self.A, self.B}) == {2964: Facturado(6, None, None)}
+
+    def test_the_oldest_invoice_is_by_invoice_date_not_by_id(self, db, engine) -> None:
+        self.LINEAS_B = {2964: 10}
+        pedido = self._operacion(engine, nc_del_pedido={2964: 4}, fechas=(date(2026, 10, 5), date(2026, 10, 1)))
+
+        assert facturado_elegido(db, pedido, {self.A}) == {2964: Facturado(10, None, None)}
+        assert facturado_elegido(db, pedido, {self.B}) == {2964: Facturado(6, None, None)}
+
+    def test_the_credit_note_rule_allocates_units_and_amount_oldest_first(self) -> None:
+        notas = {2964: Facturado(-14, Decimal("-140.00"), "ARS")}
+        facturas = [
+            (self.A, {2964: Facturado(10, Decimal("1000.00"), "ARS")}),
+            (self.B, {2964: Facturado(10, Decimal("1000.00"), "ARS")}),
+        ]
+        assert nc_del_pedido_para_eleccion(notas, facturas, {self.A}) == {
+            2964: Facturado(-10, Decimal("-100.00"), "ARS")
+        }
+        assert nc_del_pedido_para_eleccion(notas, facturas, {self.B}) == {2964: Facturado(-4, Decimal("-40.00"), "ARS")}
+        assert nc_del_pedido_para_eleccion(notas, facturas, {self.A, self.B}) == notas
 
     # S5: the read
 
