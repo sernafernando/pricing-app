@@ -12,16 +12,17 @@ ANTES de cualquier llamada al proxy).
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from pydantic import BaseModel, ConfigDict, StrictInt
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
+from pydantic import BaseModel, ConfigDict, StrictInt, StringConstraints
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.logging import get_logger
 from app.models.usuario import Usuario
+from app.services.ml_publications import admin as ml_pub_admin
 from app.services.ml_catalog_competition_service import (
     obtener_ultimo_snapshot,
     refrescar_competencia_catalogo,
@@ -42,7 +43,11 @@ from app.services.ml_promotions_service import (
     fetch_promotion_items,
     fetch_promotions,
 )
-from app.services.ml_promotions_hay_mejores import descartar_hay_mejores_ofertas
+from app.services.ml_promotions_hay_mejores import (
+    descartar_hay_mejores_ofertas,
+    set_hay_mejores_excluido,
+    set_hay_mejores_excluido_bulk,
+)
 from app.services.ml_promotions_write_service import enroll_one_item, remove_one_item
 from app.services.ml_publication_status_service import GONE, NEVER_EXISTED, NO_ML_DATA, fetch_publication_status_by_mla
 from app.services.ml_webhook_client import ml_webhook_client
@@ -873,6 +878,67 @@ def descartar_hay_mejores(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Publicación sin datos de promociones")
     db.commit()
     return DescartarHayMejoresResult(mla=mla_id, descartado=True)
+
+
+class HayMejoresExclusionBody(BaseModel):
+    excluido: bool
+    model_config = ConfigDict(extra="forbid")
+
+
+class HayMejoresExclusionResult(BaseModel):
+    mla: str
+    excluido: bool
+    model_config = ConfigDict(from_attributes=True)
+
+
+class HayMejoresExclusionBulkResult(BaseModel):
+    excluido: bool
+    item_ids: List[str]
+    count: int
+    model_config = ConfigDict(from_attributes=True)
+
+
+MlaIdPath = Annotated[str, Path(pattern=ml_pub_admin.ITEM_ID_PATTERN)]
+MlaIdBody = Annotated[str, StringConstraints(pattern=ml_pub_admin.ITEM_ID_PATTERN)]
+
+
+class HayMejoresExclusionBulkBody(BaseModel):
+    excluido: bool
+    item_ids: List[MlaIdBody]
+    model_config = ConfigDict(extra="forbid")
+
+
+@router.put("/item/{mla_id}/hay-mejores-exclusion", response_model=HayMejoresExclusionResult)
+def put_hay_mejores_exclusion(
+    mla_id: MlaIdPath,
+    body: HayMejoresExclusionBody,
+    current_user: Usuario = Depends(require_promos_write()),
+    db: Session = Depends(get_db),
+) -> HayMejoresExclusionResult:
+    """Opt out of (or back into) hay_mejores permanently until the next voluntary change. Requires promos.escribir."""
+    if not set_hay_mejores_excluido(db, mla_id, excluido=body.excluido):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Publicación no encontrada")
+    db.commit()
+    return HayMejoresExclusionResult(mla=mla_id, excluido=body.excluido)
+
+
+@router.post("/hay-mejores-exclusion-bulk", response_model=HayMejoresExclusionBulkResult)
+def post_hay_mejores_exclusion_bulk(
+    body: HayMejoresExclusionBulkBody,
+    current_user: Usuario = Depends(require_promos_write()),
+    db: Session = Depends(get_db),
+) -> HayMejoresExclusionBulkResult:
+    """Bulk exclude/include for hay_mejores (batches of item ids from the view resolver). Requires promos.escribir."""
+    if not body.item_ids:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="item_ids vacío")
+    if len(body.item_ids) > 20:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Como máximo 20 publicaciones por request",
+        )
+    touched = set_hay_mejores_excluido_bulk(db, body.item_ids, excluido=body.excluido)
+    db.commit()
+    return HayMejoresExclusionBulkResult(excluido=body.excluido, item_ids=touched, count=len(touched))
 
 
 @router.delete("/item/{mla_id}", response_model=RemoveResult)
