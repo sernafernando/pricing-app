@@ -383,10 +383,7 @@ def set_hay_mejores_excluido_bulk(db: Session, item_ids: Sequence[str], *, exclu
     ids = [item_id for item_id in dict.fromkeys(item_ids) if item_id]
     if not ids:
         return []
-    known = {
-        row[0]
-        for row in db.query(MlItem.item_id).filter(MlItem.item_id.in_(ids)).all()
-    }
+    known = {row[0] for row in db.query(MlItem.item_id).filter(MlItem.item_id.in_(ids)).all()}
     ids = [item_id for item_id in ids if item_id in known]
     if not ids:
         return []
@@ -397,9 +394,7 @@ def set_hay_mejores_excluido_bulk(db: Session, item_ids: Sequence[str], *, exclu
     for item_id in ids:
         if item_id in rows:
             continue
-        stub = MlItemSellerPromotions(
-            item_id=item_id, raw=[], hay_mejores_ofertas=False, hay_mejores_excluido=False
-        )
+        stub = MlItemSellerPromotions(item_id=item_id, raw=[], hay_mejores_ofertas=False, hay_mejores_excluido=False)
         db.add(stub)
         rows[item_id] = stub
     db.flush()
