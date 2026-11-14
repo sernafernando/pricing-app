@@ -187,9 +187,7 @@ class HayMejoresBoundariesHandler:
                 until = _parse(state.get("window_until")) or now
                 cursor = state.get("cursor")
                 # Date crossings (may turn a flag ON) ∪ currently flagged (may turn a stale flag OFF).
-                ids = sorted(
-                    set(hay_mejores.items_con_candidatas_que_cruzan(db, since, until)) | set(_flagged_ids(db))
-                )
+                ids = sorted(set(hay_mejores.items_con_candidatas_que_cruzan(db, since, until)) | set(_flagged_ids(db)))
                 if cursor:
                     ids = [i for i in ids if i > cursor]
                 window = {"window_until": until.isoformat()}
