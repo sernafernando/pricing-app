@@ -285,6 +285,8 @@ def actualizar_hay_mejores_ofertas(
     outer promotions-sync transaction. When the flag newly becomes true (or is
     re-marked with a different fingerprint), enqueues a catalog-competition
     snapshot refresh for the MLA (worker `ml_publications.catalog_competition_refresh`).
+
+    While ``hay_mejores_excluido`` is true the flag stays false (permanent opt-out until a PM re-includes).
     """
     try:
         with db.begin_nested():
@@ -293,35 +295,127 @@ def actualizar_hay_mejores_ofertas(
                 return None
             prev_flag = bool(row.hay_mejores_ofertas)
             prev_fingerprint = row.hay_mejores_fingerprint
-            sale = db.query(MlItemSalePrice).filter(MlItemSalePrice.item_id == item_id).one_or_none()
-            baseline = float(sale.amount) if sale is not None and sale.amount is not None else None
-            raw = raw_promotions if raw_promotions is not None else row.raw
-            candidates = _candidate_entries(raw, now if now is not None else datetime.now(timezone.utc))
-            if baseline is None or baseline <= 0 or not candidates:
+            # getattr: unit stubs may omit the column; default participate (False).
+            if bool(getattr(row, "hay_mejores_excluido", False)):
                 decision = decidir_flag_hay_mejores(mejores=[], descartado_fingerprint=None)
+                row.hay_mejores_ofertas = False
+                row.hay_mejores_fingerprint = None
+                row.hay_mejores_descartado_fingerprint = None
             else:
-                decision = decidir_flag_hay_mejores(
-                    mejores=listar_mejores_candidatas(
-                        db,
-                        item_id,
-                        candidates,
-                        baseline,
-                        raw_promotions=raw,
-                        sell_in_out_batch=sell_in_out_batch,
-                    ),
-                    descartado_fingerprint=row.hay_mejores_descartado_fingerprint,
-                )
-            row.hay_mejores_ofertas = decision.hay_mejores
-            row.hay_mejores_fingerprint = decision.fingerprint
-            row.hay_mejores_descartado_fingerprint = decision.descartado_fingerprint
-            if decision.hay_mejores and (not prev_flag or prev_fingerprint != decision.fingerprint):
-                _enqueue_catalog_competition_refresh(db, item_id)
+                sale = db.query(MlItemSalePrice).filter(MlItemSalePrice.item_id == item_id).one_or_none()
+                baseline = float(sale.amount) if sale is not None and sale.amount is not None else None
+                raw = raw_promotions if raw_promotions is not None else row.raw
+                candidates = _candidate_entries(raw, now if now is not None else datetime.now(timezone.utc))
+                if baseline is None or baseline <= 0 or not candidates:
+                    decision = decidir_flag_hay_mejores(mejores=[], descartado_fingerprint=None)
+                else:
+                    decision = decidir_flag_hay_mejores(
+                        mejores=listar_mejores_candidatas(
+                            db,
+                            item_id,
+                            candidates,
+                            baseline,
+                            raw_promotions=raw,
+                            sell_in_out_batch=sell_in_out_batch,
+                        ),
+                        descartado_fingerprint=row.hay_mejores_descartado_fingerprint,
+                    )
+                row.hay_mejores_ofertas = decision.hay_mejores
+                row.hay_mejores_fingerprint = decision.fingerprint
+                row.hay_mejores_descartado_fingerprint = decision.descartado_fingerprint
+                if decision.hay_mejores and (not prev_flag or prev_fingerprint != decision.fingerprint):
+                    _enqueue_catalog_competition_refresh(db, item_id)
         if decision.hay_mejores != prev_flag:  # after the savepoint: a failed one changed nothing
             notify_hay_mejores_changed(db)
         return decision
     except Exception as exc:
         logger.warning("hay_mejores: failed for %s: %s", item_id, exc)
         return None
+
+
+def _ensure_promotions_row(db: Session, item_id: str) -> Optional[MlItemSellerPromotions]:
+    """Promotions mirror row for a known MLA (stub only when the publication exists in ``ml_items``)."""
+    from app.models.ml_publications import MlItem
+
+    if db.get(MlItem, item_id) is None:
+        return None
+    row = db.query(MlItemSellerPromotions).filter(MlItemSellerPromotions.item_id == item_id).one_or_none()
+    if row is not None:
+        return row
+    row = MlItemSellerPromotions(item_id=item_id, raw=[], hay_mejores_ofertas=False, hay_mejores_excluido=False)
+    db.add(row)
+    db.flush()
+    return row
+
+
+def set_hay_mejores_excluido(db: Session, item_id: str, *, excluido: bool) -> bool:
+    """Permanent opt-out (or re-include) for hay_mejores. Returns False when the MLA is unknown.
+
+    Exclude: flag off, fingerprints cleared, ``hay_mejores_excluido=true`` — ``actualizar`` will not re-flag.
+    Include: ``hay_mejores_excluido=false``, then recompute from the mirror.
+    """
+    if not item_id:
+        return False
+    row = _ensure_promotions_row(db, item_id)
+    if row is None:
+        return False
+    was_flagged = bool(row.hay_mejores_ofertas)
+    if excluido:
+        row.hay_mejores_excluido = True
+        row.hay_mejores_ofertas = False
+        row.hay_mejores_fingerprint = None
+        row.hay_mejores_descartado_fingerprint = None
+        if was_flagged:
+            notify_hay_mejores_changed(db)
+        return True
+    row.hay_mejores_excluido = False
+    actualizar_hay_mejores_ofertas(db, item_id)
+    return True
+
+
+def set_hay_mejores_excluido_bulk(db: Session, item_ids: Sequence[str], *, excluido: bool) -> List[str]:
+    """Exclude/include many MLAs with one promotions load (and one sell-in/out batch on re-include).
+
+    Order preserved, duplicates dropped; unknown ``ml_items`` ids are skipped. Cap is enforced by the API (20).
+    """
+    from app.models.ml_publications import MlItem
+    from app.services.ml_promotions_pricing import resolver_sell_in_out_para_mlas
+
+    ids = [item_id for item_id in dict.fromkeys(item_ids) if item_id]
+    if not ids:
+        return []
+    known = {row[0] for row in db.query(MlItem.item_id).filter(MlItem.item_id.in_(ids)).all()}
+    ids = [item_id for item_id in ids if item_id in known]
+    if not ids:
+        return []
+    rows = {
+        row.item_id: row
+        for row in db.query(MlItemSellerPromotions).filter(MlItemSellerPromotions.item_id.in_(ids)).all()
+    }
+    for item_id in ids:
+        if item_id in rows:
+            continue
+        stub = MlItemSellerPromotions(item_id=item_id, raw=[], hay_mejores_ofertas=False, hay_mejores_excluido=False)
+        db.add(stub)
+        rows[item_id] = stub
+    db.flush()
+    if excluido:
+        any_flagged = False
+        for item_id in ids:
+            row = rows[item_id]
+            any_flagged = any_flagged or bool(row.hay_mejores_ofertas)
+            row.hay_mejores_excluido = True
+            row.hay_mejores_ofertas = False
+            row.hay_mejores_fingerprint = None
+            row.hay_mejores_descartado_fingerprint = None
+        if any_flagged:
+            notify_hay_mejores_changed(db)
+        return ids
+    batch = resolver_sell_in_out_para_mlas(db, ids)
+    for item_id in ids:
+        rows[item_id].hay_mejores_excluido = False
+        actualizar_hay_mejores_ofertas(db, item_id, sell_in_out_batch=batch)
+    return ids
 
 
 def _enqueue_catalog_competition_refresh(db: Session, item_id: str) -> None:
