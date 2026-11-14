@@ -115,7 +115,12 @@ class TestPermission:
         # What each read asks on top of the screen (the KPI strip Métricas, the status ids pausing) is granted to both
         # callers; one holds productos.ver, the other ml_ops.ver. Each read answers them alike, whatever it answers on
         # this schema (some fail on tables it lacks, after the permission), and never 401/403.
-        extras = ("ml_metricas.ver", "ml_publicaciones.pausar", "alertas.ver_mejores_ofertas_pms")
+        extras = (
+            "ml_metricas.ver",
+            "ml_publicaciones.pausar",
+            "alertas.ver_mejores_ofertas_pms",
+            "promos.escribir",  # hay-mejores exclusion resolve (read-shaped)
+        )
         grant(db, rol_ventas, "productos.ver", *extras)
         grant(db, rol_admin, VER, *extras)
         productos = client.get(f"/api{path}", headers=auth_headers)
