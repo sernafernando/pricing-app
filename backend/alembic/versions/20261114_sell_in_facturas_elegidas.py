@@ -57,6 +57,9 @@ TRIGGERS_DOWN: List[str] = [
 ]
 
 # Frozen copy of `erp_matching_service._LINEAS_CT_ORIGEN_SQL` over every operation (`scope_pedido` = 1 = 1).
+# FROZEN: it is what this revision backfilled, not the runtime SQL. Do not edit it when `_LINEAS_CT_ORIGEN_SQL`
+# changes later; `test_the_migration_backfill_matches_the_reconcile` (tests/services/test_lineas_facturadas_postgres.py)
+# guards that, today, both give the same rows.
 ORIGEN_SQL = """
 SELECT d.pedido_id AS pedido_id, d.factura AS factura, it.item_id AS item_id, CAST(FLOOR(SUM(it.it_qty * v.sd_plusorminus)) AS INTEGER) AS cantidad, CASE WHEN COUNT(DISTINCT it.curr_id) = 1 AND COUNT(it.curr_id) = COUNT(*) AND COUNT(it.it_price) = COUNT(*) AND MIN(it.curr_id) IN (1, 2) THEN CASE WHEN d.factura IS NOT NULL AND SUM(it.it_qty * it.it_price * v.sd_plusorminus) < 0 THEN 0 ELSE ROUND(SUM(it.it_qty * it.it_price * v.sd_plusorminus), 2) END END AS importe_neto, CASE WHEN COUNT(DISTINCT it.curr_id) = 1 AND COUNT(it.curr_id) = COUNT(*) AND COUNT(it.it_price) = COUNT(*) AND MIN(it.curr_id) IN (1, 2) THEN CASE MIN(it.curr_id) WHEN 1 THEN 'ARS' ELSE 'USD' END END AS moneda FROM (SELECT docs.pedido_id AS pedido_id, docs.ct AS ct, MAX(docs.factura) AS factura FROM (SELECT links.pedido_id AS pedido_id, links.ct AS ct, links.ct AS factura FROM (
 SELECT f.pedido_id AS pedido_id, f.ct_transaction_id AS ct
@@ -161,8 +164,19 @@ BACKFILL_SQL = (
 )
 
 
+def _lock_timeout() -> None:
+    # env.py runs every pending revision in ONE transaction: save the caller's lock_timeout and set ours for this
+    # transaction (plain SQL, works in offline `--sql` mode); `_restaurar_lock_timeout` puts it back.
+    op.execute("SELECT set_config('facturas_elegidas.lock_timeout_previo', current_setting('lock_timeout'), true)")
+    op.execute("SELECT set_config('lock_timeout', '5s', true)")
+
+
+def _restaurar_lock_timeout() -> None:
+    op.execute("SELECT set_config('lock_timeout', current_setting('facturas_elegidas.lock_timeout_previo'), true)")
+
+
 def upgrade() -> None:
-    op.execute("SELECT set_config('lock_timeout', '5s', false)")
+    _lock_timeout()
     op.create_table(
         LINEAS_CT,
         sa.Column("id", sa.BigInteger(), primary_key=True),
@@ -204,11 +218,13 @@ def upgrade() -> None:
     op.execute(BACKFILL_SQL)
     for statement in TRIGGERS_UP:
         op.execute(statement)
+    _restaurar_lock_timeout()
 
 
 def downgrade() -> None:
-    op.execute("SELECT set_config('lock_timeout', '5s', false)")
+    _lock_timeout()
     for statement in TRIGGERS_DOWN:
         op.execute(statement)
     op.drop_table(ELEGIDAS)
     op.drop_table(LINEAS_CT)
+    _restaurar_lock_timeout()

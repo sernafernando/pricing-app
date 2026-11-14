@@ -581,7 +581,10 @@ def aplicar_facturas_pendientes(db: Session, pedido_ids: Iterable[int]) -> int:
             .filter(PedidoCompra.id == fila.pedido_id)
             .first()
         )
-        if pedido is None or pedido.fecha_factura is None or not _facturado(db, pedido.id):
+        if pedido is None or pedido.fecha_factura is None:
+            continue
+        # the gate reads the line's pick like the purchase does: a picked invoice without lines yet keeps waiting
+        if not _facturado(db, pedido.id, facturas_elegidas.de_linea(db, fila.tactical_id, fila.tactical_linea)):
             continue
         compra = _compra_de_factura(
             db,

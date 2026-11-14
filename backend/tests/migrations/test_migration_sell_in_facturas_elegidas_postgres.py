@@ -159,3 +159,16 @@ def test_the_frozen_backfill_is_the_live_reconcile_origin() -> None:
 
 def _norm(sql: str) -> str:
     return " ".join(sql.split())
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize("step", ["upgrade", "downgrade"])
+def test_it_restores_the_lock_timeout_the_transaction_had(before, step) -> None:
+    if step == "downgrade":
+        _step(before, "upgrade")
+    with before.connect() as conn:
+        ctx = MigrationContext.configure(conn)
+        with ctx.begin_transaction(), Operations.context(ctx):
+            conn.exec_driver_sql("SET LOCAL lock_timeout = '42s'")
+            getattr(_module(), step)()
+            assert conn.exec_driver_sql("SHOW lock_timeout").scalar() == "42s"

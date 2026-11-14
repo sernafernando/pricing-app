@@ -66,13 +66,26 @@ $fn$ LANGUAGE sql STABLE
 ]
 
 
+def _lock_timeout() -> None:
+    # env.py runs every pending revision in ONE transaction: save the caller's lock_timeout and set ours for this
+    # transaction (plain SQL, works in offline `--sql` mode); `_restaurar_lock_timeout` puts it back.
+    op.execute("SELECT set_config('cubre_totales.lock_timeout_previo', current_setting('lock_timeout'), true)")
+    op.execute("SELECT set_config('lock_timeout', '5s', true)")
+
+
+def _restaurar_lock_timeout() -> None:
+    op.execute("SELECT set_config('lock_timeout', current_setting('cubre_totales.lock_timeout_previo'), true)")
+
+
 def upgrade() -> None:
-    op.execute("SELECT set_config('lock_timeout', '5s', false)")
+    _lock_timeout()
     for statement in FUNCIONES_UP:
         op.execute(statement)
+    _restaurar_lock_timeout()
 
 
 def downgrade() -> None:
-    op.execute("SELECT set_config('lock_timeout', '5s', false)")
+    _lock_timeout()
     for statement in FUNCIONES_DOWN:
         op.execute(statement)
+    _restaurar_lock_timeout()

@@ -1884,6 +1884,18 @@ class TestFacturasElegidas:
         [salida] = service.serializar(db, [tactical])[0]["lineas"]
         assert salida["facturas_ct"] == [self.A]
 
+    def test_a_waiting_total_picking_an_invoice_without_lines_keeps_waiting(self, db, engine) -> None:
+        self.LINEAS_B = {}  # B is linked, its lines not reconciled yet
+        pedido = self._operacion(engine, moneda="ARS")
+        bw.update_pedido(engine, pedido, fecha_factura=None)
+        tactical = service.crear(db, self._datos(self._linea(pedido, "monto_total", "15000", [self.B])), USUARIO)
+        bw.update_pedido(engine, pedido, fecha_factura=date(2026, 10, 10))
+
+        service.aplicar_facturas_pendientes(db, [pedido])  # A's lines are there, the picked B's are not
+
+        assert TestFacturaPendienteTotal._pendientes(self, engine, tactical.id) == [(1, pedido, "pendiente")]
+        assert self._totales(engine, tactical.id) == []
+
     # the credit notes imputed to the whole operation: deducted exactly once, allocated to the invoices oldest first
 
     def test_an_operation_level_note_falls_on_the_invoice_that_carries_the_item(self, db, engine) -> None:
