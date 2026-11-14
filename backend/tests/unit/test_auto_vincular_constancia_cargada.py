@@ -226,9 +226,7 @@ def test_auto_vincular_shared_numero_across_pedidos(db, empresa, proveedor, sd_f
     assert db.query(PedidoCompraFactura).filter_by(ct_transaction_id=9002).count() == 2
 
 
-def test_auto_vincular_skips_sister_still_in_regret_window(
-    db, empresa, proveedor, sd_factura, active_user
-):
+def test_auto_vincular_skips_sister_still_in_regret_window(db, empresa, proveedor, sd_factura, active_user):
     a = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-WIN-A")
     b = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-WIN-B")
     ahora = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
@@ -318,9 +316,7 @@ def test_disparar_alertas_also_auto_links(db, empresa, proveedor, sd_factura, ac
     assert doc.alerta_disparada_at is not None
 
 
-def test_disparar_alertas_marks_fired_when_auto_vincular_raises(
-    db, empresa, proveedor, sd_factura, active_user
-):
+def test_disparar_alertas_marks_fired_when_auto_vincular_raises(db, empresa, proveedor, sd_factura, active_user):
     pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-FAIL")
     ahora = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
     doc = PedidoFacturaDocumento(
@@ -358,9 +354,7 @@ def test_disparar_alertas_marks_fired_when_auto_vincular_raises(
     assert pedido.ct_transaction_id is None
 
 
-def test_disparar_retries_sin_match_after_ct_appears(
-    db, empresa, proveedor, sd_factura, active_user
-):
+def test_disparar_retries_sin_match_after_ct_appears(db, empresa, proveedor, sd_factura, active_user):
     pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-RETRY")
     ahora = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
     doc = PedidoFacturaDocumento(
@@ -409,9 +403,7 @@ def test_disparar_retries_sin_match_after_ct_appears(
     assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_OK
 
 
-def test_disparar_skips_retry_inside_backoff_window(
-    db, empresa, proveedor, sd_factura, active_user
-):
+def test_disparar_skips_retry_inside_backoff_window(db, empresa, proveedor, sd_factura, active_user):
     pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-BACKOFF")
     ahora = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
     doc = PedidoFacturaDocumento(
@@ -458,9 +450,7 @@ def test_disparar_skips_retry_inside_backoff_window(
     assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_SIN_MATCH
 
 
-def test_disparar_marks_fired_when_mirror_sync_raises(
-    db, empresa, proveedor, sd_factura, active_user
-):
+def test_disparar_marks_fired_when_mirror_sync_raises(db, empresa, proveedor, sd_factura, active_user):
     """GBP mirror failure must not abort the alert sweep (Fernando #2266)."""
     from app.services import ct_mirror_sync_service  # noqa: PLC0415
 
@@ -539,9 +529,7 @@ def test_auto_vincular_persists_sin_mapeo(db, active_user):
     assert doc.auto_vinculo_intentado_at is not None
 
 
-def test_asignar_factura_erp_clears_auto_vinculo_pendiente(
-    db, empresa, proveedor, sd_factura, active_user
-):
+def test_asignar_factura_erp_clears_auto_vinculo_pendiente(db, empresa, proveedor, sd_factura, active_user):
     pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-MANUAL")
     ahora = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
     doc = PedidoFacturaDocumento(
@@ -575,3 +563,80 @@ def test_asignar_factura_erp_clears_auto_vinculo_pendiente(
     assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_OK
     db.refresh(pedido)
     assert pedido.ct_transaction_id == 9400
+
+
+def test_numeros_factura_equivalentes_pos_prefix():
+    assert erp_matching_service.numeros_factura_equivalentes("0047-00289132", "00289132")
+    assert erp_matching_service.numeros_factura_equivalentes("00289132", "0047-00289132")
+    assert not erp_matching_service.numeros_factura_equivalentes("0047-00289132", "00289199")
+    # Exact same string always matches; short cores must not match via endswith.
+    assert erp_matching_service.numeros_factura_equivalentes("12", "12")
+    assert not erp_matching_service.numeros_factura_equivalentes("123456", "56")
+
+
+def test_auto_vincular_matches_erp_docnumber_without_pos_prefix(db, empresa, proveedor, sd_factura, active_user):
+    """Prod case P-02-2026-00290: constancia 0047-00289132, ERP 00289132."""
+    pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-POS")
+    doc = PedidoFacturaDocumento(
+        pedido_id=pedido.id,
+        numero="0047-00289132",
+        created_by_id=active_user.id,
+        cargada=True,
+    )
+    db.add(doc)
+    db.add(
+        CommercialTransaction(
+            ct_transaction=944607,
+            comp_id=1,
+            bra_id=1,
+            supp_id=proveedor.supp_id,
+            ct_docNumber="00289132",
+            sd_id=sd_factura.sd_id,
+            ct_total=Decimal("15957.81"),
+            curr_id_transaction=1,
+            ct_date=datetime(2026, 11, 6, 12, 0, 0),
+            ct_isCancelled=False,
+        )
+    )
+    db.flush()
+
+    ct = erp_matching_service.auto_vincular_por_constancia_cargada(db, doc)
+    assert ct == 944607
+    db.refresh(doc)
+    assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_OK
+    db.refresh(pedido)
+    assert pedido.ct_transaction_id == 944607
+
+
+def test_asignar_clears_pending_when_constancia_has_pos_prefix(db, empresa, proveedor, sd_factura, active_user):
+    pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-POS-CLR")
+    ahora = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
+    doc = PedidoFacturaDocumento(
+        pedido_id=pedido.id,
+        numero="0047-00289132",
+        created_by_id=active_user.id,
+        cargada=True,
+        alerta_disparada_at=ahora - timedelta(hours=1),
+        auto_vinculo_estado=erp_matching_service.AUTO_VINCULO_SIN_MATCH,
+        auto_vinculo_intentado_at=ahora - timedelta(hours=1),
+    )
+    db.add(doc)
+    db.add(
+        CommercialTransaction(
+            ct_transaction=944608,
+            comp_id=1,
+            bra_id=1,
+            supp_id=proveedor.supp_id,
+            ct_docNumber="00289132",
+            sd_id=sd_factura.sd_id,
+            ct_total=Decimal("100"),
+            curr_id_transaction=1,
+            ct_date=datetime(2026, 11, 6, 12, 0, 0),
+            ct_isCancelled=False,
+        )
+    )
+    db.flush()
+
+    erp_matching_service.asignar_factura_erp(db, pedido, 944608)
+    db.refresh(doc)
+    assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_OK

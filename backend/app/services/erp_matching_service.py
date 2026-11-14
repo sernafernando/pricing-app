@@ -129,6 +129,53 @@ AUTO_VINCULO_SIN_MAPEO: Final[str] = "sin_mapeo"
 AUTO_VINCULO_PENDIENTES: Final[frozenset[str]] = frozenset(
     {AUTO_VINCULO_SIN_MATCH, AUTO_VINCULO_AMBIGUO, AUTO_VINCULO_SIN_MAPEO}
 )
+# Minimum digit length before treating two invoice numbers as equivalent via
+# suffix / POS-prefix forms (e.g. 0047-00289132 ↔ 00289132). Shorter cores
+# are too weak even scoped by proveedor.
+_NUMERO_FACTURA_MIN_DIGITS: Final[int] = 6
+
+
+def variantes_numero_factura(numero: str) -> list[str]:
+    """Canonical lookup forms for an AFIP/GBP-style invoice number.
+
+    Constancia may store `0047-00289132` while the ERP mirror keeps `00289132`
+    (or the reverse). Auto-vínculo and manual-clear share these variants.
+    """
+    raw = (numero or "").strip()
+    if not raw:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def _add(value: str) -> None:
+        cleaned = value.strip()
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            out.append(cleaned)
+
+    _add(raw)
+    if "-" in raw:
+        _add(raw.rsplit("-", 1)[-1])
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if digits:
+        _add(digits)
+        stripped = digits.lstrip("0") or "0"
+        if len(stripped) >= _NUMERO_FACTURA_MIN_DIGITS:
+            _add(stripped)
+    return out
+
+
+def numeros_factura_equivalentes(a: str, b: str) -> bool:
+    """True when two invoice numbers refer to the same document (POS optional)."""
+    va = set(variantes_numero_factura(a))
+    vb = set(variantes_numero_factura(b))
+    if va & vb:
+        return True
+    da = "".join(ch for ch in (a or "") if ch.isdigit())
+    db = "".join(ch for ch in (b or "") if ch.isdigit())
+    if len(da) < _NUMERO_FACTURA_MIN_DIGITS or len(db) < _NUMERO_FACTURA_MIN_DIGITS:
+        return False
+    return da.endswith(db) or db.endswith(da)
 
 
 def _buscar_ct_vigente(
@@ -142,10 +189,24 @@ def _buscar_ct_vigente(
     """
     Busca en `v_facturas_compra_vigentes` una ct única para la tupla.
 
+    Docnumber matching is flexible: exact, post-hyphen core, and
+    `%-{core}` (POS-prefixed ERP forms) when the core has enough digits.
+
     Returns:
         `(ct_transaction, "ok")` if unique; `(None, "sin_match"|"ambiguo")`
         when 0 or >1 rows (caller must not auto-link).
     """
+    from sqlalchemy import bindparam  # noqa: PLC0415
+
+    variants = variantes_numero_factura(ct_docnumber)
+    if not variants:
+        return None, AUTO_VINCULO_SIN_MATCH
+    # Prefer the post-hyphen / digit core for the POS-prefix LIKE pattern.
+    core = variants[1] if len(variants) > 1 else variants[0]
+    digits_core = "".join(ch for ch in core if ch.isdigit())
+    use_pos_like = len(digits_core) >= _NUMERO_FACTURA_MIN_DIGITS
+    pos_like = f"%-{digits_core}" if use_pos_like else None
+
     stmt = text(
         """
         SELECT ct_transaction
@@ -153,17 +214,22 @@ def _buscar_ct_vigente(
         WHERE comp_id = :comp_id
           AND bra_id = :bra_id
           AND supp_id = :supp_id
-          AND ct_docnumber = :ct_docnumber
+          AND (
+            ct_docnumber IN :variants
+            OR (:use_pos_like = 1 AND ct_docnumber LIKE :pos_like)
+          )
         LIMIT 2
         """
-    )
+    ).bindparams(bindparam("variants", expanding=True))
     filas = session.execute(
         stmt,
         {
             "comp_id": comp_id,
             "bra_id": bra_id,
             "supp_id": supp_id,
-            "ct_docnumber": ct_docnumber,
+            "variants": variants,
+            "use_pos_like": 1 if use_pos_like else 0,
+            "pos_like": pos_like or "",
         },
     ).all()
     if len(filas) == 0:
@@ -513,15 +579,18 @@ def _resolver_auto_vinculo_tras_asignar(session: Session, pedido: PedidoCompra, 
         .filter(
             PedidoFacturaDocumento.pedido_id == pedido.id,
             PedidoFacturaDocumento.cargada.is_(True),
-            PedidoFacturaDocumento.numero == numero,
             PedidoFacturaDocumento.auto_vinculo_estado.in_(sorted(AUTO_VINCULO_PENDIENTES)),
         )
         .all()
     )
+    cleared = 0
     for doc in pendientes:
+        if not numeros_factura_equivalentes(doc.numero or "", numero):
+            continue
         doc.auto_vinculo_estado = AUTO_VINCULO_OK
         doc.auto_vinculo_intentado_at = stamp
-    if pendientes:
+        cleared += 1
+    if cleared:
         session.flush()
 
 
@@ -1471,6 +1540,8 @@ __all__ = [
     "AUTO_VINCULO_PENDIENTES",
     "AUTO_VINCULO_SIN_MAPEO",
     "AUTO_VINCULO_SIN_MATCH",
+    "numeros_factura_equivalentes",
+    "variantes_numero_factura",
     "asignar_factura_erp",
     "auto_vincular_por_constancia_cargada",
     "copiar_facturas_erp",
