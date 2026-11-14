@@ -295,7 +295,8 @@ def actualizar_hay_mejores_ofertas(
                 return None
             prev_flag = bool(row.hay_mejores_ofertas)
             prev_fingerprint = row.hay_mejores_fingerprint
-            if bool(row.hay_mejores_excluido):
+            # getattr: unit stubs may omit the column; default participate (False).
+            if bool(getattr(row, "hay_mejores_excluido", False)):
                 decision = decidir_flag_hay_mejores(mejores=[], descartado_fingerprint=None)
                 row.hay_mejores_ofertas = False
                 row.hay_mejores_fingerprint = None
