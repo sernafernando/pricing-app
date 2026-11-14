@@ -48,7 +48,6 @@ import usePaintPublication from '../components/publicacionesMl/usePaintPublicati
 import ProductoTable from '../components/publicacionesMl/ProductoTable';
 import BulkActions from '../components/publicacionesMl/BulkActions';
 import BulkStatusActions from '../components/publicacionesMl/BulkStatusActions';
-import BulkHayMejoresExclusion from '../components/publicacionesMl/BulkHayMejoresExclusion';
 import { resolverParams } from '../components/publicacionesMl/bulkParams';
 import ExportModal from '../components/ExportModal';
 import ModalInfoProducto from '../components/ModalInfoProducto';
@@ -1283,14 +1282,6 @@ export default function PublicacionesML() {
             {!sinMla && (
               <BulkStatusActions filters={rowFilters} canSeeMargin={canSeeMargin} onDone={reloadList} checked={checkedStatus} />
             )}
-            {!sinMla && (
-              <BulkHayMejoresExclusion
-                filters={rowFilters}
-                canSeeMargin={canSeeMargin}
-                onDone={reloadList}
-                checked={checkedStatus}
-              />
-            )}
             <BulkActions
               filters={rowFilters}
               checkedIds={checkedIds}
@@ -1301,6 +1292,8 @@ export default function PublicacionesML() {
               canSeeMargin={canSeeMargin}
               onDone={reloadList}
               openRequest={bulkRequest}
+              checkedStatus={checkedStatus}
+              hayMejores={!sinMla}
             />
             {canExportVista(filters.vista) && (
               <button
@@ -1372,17 +1365,11 @@ export default function PublicacionesML() {
             canSeeMargin={canSeeMargin}
             onDone={reloadList}
             openRequest={bulkRequest}
+            checkedStatus={checkedStatus}
+            hayMejores={!sinMla}
           />
           {!sinMla && (
             <BulkStatusActions
-              filters={rowFilters}
-              canSeeMargin={canSeeMargin}
-              onDone={reloadList}
-              checked={checkedStatus}
-            />
-          )}
-          {!sinMla && (
-            <BulkHayMejoresExclusion
               filters={rowFilters}
               canSeeMargin={canSeeMargin}
               onDone={reloadList}

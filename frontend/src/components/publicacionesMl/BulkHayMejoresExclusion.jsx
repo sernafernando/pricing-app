@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Ban, ChevronDown } from 'lucide-react';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { promocionesAPI, publicacionesMlAPI } from '../../services/api';
@@ -55,22 +56,34 @@ function describeResolveError(error, scope) {
 /**
  * Bulk exclude / re-include publications from the hay_mejores process (`promos.escribir`).
  * Same scope as Pausar/activar: checked rows, else the current filter.
+ *
+ * `variant="menuItems"`: portals menuitems into `menuSlot` and keeps the confirm modal mounted here
+ * (so closing Acciones masivas does not abort the run). Default keeps a standalone toolbar button.
  */
-export default function BulkHayMejoresExclusion({ filters, canSeeMargin, onDone, checked }) {
+export default function BulkHayMejoresExclusion({
+  filters,
+  canSeeMargin,
+  onDone,
+  checked,
+  variant = 'button',
+  onChose,
+  menuSlot = null,
+}) {
   const { tienePermiso } = usePermisos();
   const [open, setOpen] = useState(false);
   const [run, setRun] = useState(null);
   const containerRef = useRef(null);
   const attempt = useRef(0);
+  const menuOnly = variant === 'menuItems';
 
   useEffect(() => {
-    if (!open) return undefined;
+    if (!open || menuOnly) return undefined;
     const closeOutside = (event) => {
       if (containerRef.current && !containerRef.current.contains(event.target)) setOpen(false);
     };
     document.addEventListener('mousedown', closeOutside);
     return () => document.removeEventListener('mousedown', closeOutside);
-  }, [open]);
+  }, [open, menuOnly]);
 
   if (!tienePermiso('promos.escribir')) return null;
 
@@ -91,6 +104,7 @@ export default function BulkHayMejoresExclusion({ filters, canSeeMargin, onDone,
     const mine = ++attempt.current;
     const action = { ...choice, label: `${choice.name} ${scope.suffix}`, where: scope.where };
     setOpen(false);
+    onChose?.();
     setRun({ action, phase: 'resolving' });
     try {
       const { data } = await resolve(action.excluido);
@@ -137,6 +151,79 @@ export default function BulkHayMejoresExclusion({ filters, canSeeMargin, onDone,
   };
 
   const total = run?.itemIds?.length ?? run?.total ?? 0;
+  const menuItems = ACTIONS.map((action) => (
+    <button
+      key={String(action.excluido)}
+      type="button"
+      role="menuitem"
+      className={styles.item}
+      onClick={() => choose(action)}
+    >
+      {`${action.name} ${scope.suffix}`}
+    </button>
+  ));
+  const modal = run && (
+    <ModalTesla
+      isOpen
+      onClose={close}
+      title={run.action.label}
+      size="sm"
+      closeOnOverlay={false}
+      closeOnEsc={run.phase !== 'sending'}
+      showCloseButton={run.phase !== 'sending'}
+    >
+      <section aria-label={REGION} className={styles.statusBody}>
+        {run.phase === 'resolving' && <p>{`Calculando las publicaciones ${run.action.where.many}…`}</p>}
+        {run.phase === 'refused' && <p role="alert">{run.error}</p>}
+        {run.phase === 'confirming' && total === 0 && (
+          <p>{`Ninguna publicación ${run.action.where.one} se puede ${run.action.verb}.`}</p>
+        )}
+        {run.phase === 'confirming' && total > 0 && (
+          <p>{`Se van a ${run.action.verb} ${total} ${plural(total, 'publicación', 'publicaciones')}.`}</p>
+        )}
+        {run.phase === 'confirming' && run.noAplican > 0 && (
+          <p className={styles.note}>
+            {`${run.noAplican} ${plural(
+              run.noAplican,
+              `publicación ${run.action.where.one} no se toca`,
+              `publicaciones ${run.action.where.many} no se tocan`,
+            )} (ya están en ese estado).`}
+          </p>
+        )}
+        {run.phase === 'sending' && <p role="status">{`Aplicando ${run.done} de ${total}…`}</p>}
+        {run.phase === 'done' && (
+          <div className={styles.summary}>
+            {run.stopped && (
+              <p role="alert">{`Se cortó después de ${run.done} de ${total}. Las que faltan no se enviaron.`}</p>
+            )}
+            <p>{`${run.done} ${run.action.done}.`}</p>
+          </div>
+        )}
+        <div className={styles.statusButtons}>
+          {run.phase === 'confirming' && total > 0 && (
+            <button type="button" className="btn-tesla primary sm" onClick={confirm}>
+              Confirmar
+            </button>
+          )}
+          {run.phase !== 'sending' && (
+            <button type="button" className="btn-tesla ghost sm" onClick={close}>
+              {run.phase === 'done' ? 'Cerrar' : 'Cancelar'}
+            </button>
+          )}
+        </div>
+      </section>
+    </ModalTesla>
+  );
+
+  if (menuOnly) {
+    return (
+      <>
+        {menuSlot ? createPortal(menuItems, menuSlot) : null}
+        {modal}
+      </>
+    );
+  }
+
   return (
     <div className={styles.anchor} ref={containerRef} onKeyDown={closeOnEscape}>
       <button
@@ -158,72 +245,11 @@ export default function BulkHayMejoresExclusion({ filters, canSeeMargin, onDone,
       {open && (
         <div className={styles.panel}>
           <div role="menu" aria-label="Excluir o incluir en hay mejores" className={styles.menu}>
-            {ACTIONS.map((action) => (
-              <button
-                key={String(action.excluido)}
-                type="button"
-                role="menuitem"
-                className={styles.item}
-                onClick={() => choose(action)}
-              >
-                {`${action.name} ${scope.suffix}`}
-              </button>
-            ))}
+            {menuItems}
           </div>
         </div>
       )}
-      {run && (
-        <ModalTesla
-          isOpen
-          onClose={close}
-          title={run.action.label}
-          size="sm"
-          closeOnOverlay={false}
-          closeOnEsc={run.phase !== 'sending'}
-          showCloseButton={run.phase !== 'sending'}
-        >
-          <section aria-label={REGION} className={styles.statusBody}>
-            {run.phase === 'resolving' && <p>{`Calculando las publicaciones ${run.action.where.many}…`}</p>}
-            {run.phase === 'refused' && <p role="alert">{run.error}</p>}
-            {run.phase === 'confirming' && total === 0 && (
-              <p>{`Ninguna publicación ${run.action.where.one} se puede ${run.action.verb}.`}</p>
-            )}
-            {run.phase === 'confirming' && total > 0 && (
-              <p>{`Se van a ${run.action.verb} ${total} ${plural(total, 'publicación', 'publicaciones')}.`}</p>
-            )}
-            {run.phase === 'confirming' && run.noAplican > 0 && (
-              <p className={styles.note}>
-                {`${run.noAplican} ${plural(
-                  run.noAplican,
-                  `publicación ${run.action.where.one} no se toca`,
-                  `publicaciones ${run.action.where.many} no se tocan`,
-                )} (ya están en ese estado).`}
-              </p>
-            )}
-            {run.phase === 'sending' && <p role="status">{`Aplicando ${run.done} de ${total}…`}</p>}
-            {run.phase === 'done' && (
-              <div className={styles.summary}>
-                {run.stopped && (
-                  <p role="alert">{`Se cortó después de ${run.done} de ${total}. Las que faltan no se enviaron.`}</p>
-                )}
-                <p>{`${run.done} ${run.action.done}.`}</p>
-              </div>
-            )}
-            <div className={styles.statusButtons}>
-              {run.phase === 'confirming' && total > 0 && (
-                <button type="button" className="btn-tesla primary sm" onClick={confirm}>
-                  Confirmar
-                </button>
-              )}
-              {run.phase !== 'sending' && (
-                <button type="button" className="btn-tesla ghost sm" onClick={close}>
-                  {run.phase === 'done' ? 'Cerrar' : 'Cancelar'}
-                </button>
-              )}
-            </div>
-          </section>
-        </ModalTesla>
-      )}
+      {modal}
     </div>
   );
 }

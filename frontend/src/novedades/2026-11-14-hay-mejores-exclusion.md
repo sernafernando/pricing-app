@@ -10,5 +10,5 @@ Podés sacar una publicación del aviso **Hay mejores ofertas** de forma permane
 
 - En la pestaña **Promos**, junto a Filtrar promos / Ver competencia, aparece **Excluir de hay mejores** (hace falta permiso de escribir promos). Por defecto está apagado: la publicación participa.
 - Mientras está excluida no se prende el aviso ni el bloque de candidatas, aunque haya promos mejores.
-- En la barra de Publicaciones ML, el menú **Hay mejores** permite excluir o volver a incluir las del filtro o las marcadas.
+- En **Acciones masivas** de Publicaciones ML podés excluir o volver a incluir las del filtro o las marcadas.
 - El filtro de promos **Excluidas de hay mejores** lista solo las que están optadas fuera.
