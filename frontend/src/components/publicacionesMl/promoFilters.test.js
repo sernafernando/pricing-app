@@ -12,4 +12,15 @@ describe('activePromoChips hay_mejores_ofertas', () => {
   it('omits the chip when the filter is off', () => {
     expect(activePromoChips(EMPTY_PROMO_FILTERS)).toEqual([]);
   });
+
+  it('adds a chip when the excluido filter is on', () => {
+    const chips = activePromoChips({ ...EMPTY_PROMO_FILTERS, hay_mejores_excluido: '1' });
+    expect(chips).toEqual([
+      {
+        id: 'hay_mejores_excluido',
+        label: 'Excluidas de hay mejores',
+        remove: { hay_mejores_excluido: '' },
+      },
+    ]);
+  });
 });
