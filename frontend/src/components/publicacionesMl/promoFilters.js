@@ -4,7 +4,13 @@ import { PROMO_TYPES } from '../../constants/promoTypes';
  * Productos' promo filter on Publicaciones ML: promo types, promo state and "Precios mayoristas", with Productos'
  * URL keys and labels. What each value asks the backend lives in `usePublicacionesMLFilters`.
  */
-export const EMPTY_PROMO_FILTERS = { promo_tipos: [], promo_estado: '', pxq: '', hay_mejores_ofertas: '' };
+export const EMPTY_PROMO_FILTERS = {
+  promo_tipos: [],
+  promo_estado: '',
+  pxq: '',
+  hay_mejores_ofertas: '',
+  hay_mejores_excluido: '',
+};
 export const PROMO_STATE_OPTIONS = [
   ['', 'Disponible'],
   ['aplicada', 'Aplicada'],
@@ -25,6 +31,9 @@ export function activePromoChips(filters) {
     ...(filters.pxq ? [{ id: 'pxq', label: 'Con precios mayoristas', remove: { pxq: '' } }] : []),
     ...(filters.hay_mejores_ofertas === '1'
       ? [{ id: 'hay_mejores', label: 'Hay mejores ofertas', remove: { hay_mejores_ofertas: '' } }]
+      : []),
+    ...(filters.hay_mejores_excluido === '1'
+      ? [{ id: 'hay_mejores_excluido', label: 'Excluidas de hay mejores', remove: { hay_mejores_excluido: '' } }]
       : []),
   ];
 }

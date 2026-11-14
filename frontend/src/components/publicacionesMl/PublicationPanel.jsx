@@ -108,16 +108,20 @@ export default function PublicationPanel({
     setMejoresShown(false);
   }, [itemId]);
   const hayMejores = Boolean(detail?.row?.hay_mejores_ofertas);
+  const hayMejoresExcluido = Boolean(detail?.row?.hay_mejores_excluido);
   useEffect(() => {
     if (hayMejores) setMejoresShown(true);
   }, [hayMejores]);
+  // Opted-out pubs never show the chooser (permanent exclude until re-include).
   const showMejoresBlock =
     !ponerPreciosMode &&
+    !hayMejoresExcluido &&
     canWritePromos &&
     (hayMejores || mejoresShown) &&
     mejoresBlockOpen;
   // Without promos.escribir the flag is still news: a read-only notice, as the old Promos-tab banner.
-  const showMejoresReadOnly = !ponerPreciosMode && !canWritePromos && canViewPromos && hayMejores;
+  const showMejoresReadOnly =
+    !ponerPreciosMode && !hayMejoresExcluido && !canWritePromos && canViewPromos && hayMejores;
   const closeMejoresBlock = () => {
     setMejoresBlockOpen(false);
     setSuggestedIds([]);

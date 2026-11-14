@@ -315,6 +315,10 @@ export const promocionesAPI = {
   postPromocionItem: (mlaId, body) => api.post(`/promociones/item/${mlaId}`, body),
   // Clear hay_mejores_ofertas for this MLA (promos.escribir). Fingerprint blocks instant re-flag.
   descartarHayMejores: (mlaId) => api.post(`/promociones/item/${mlaId}/descartar-hay-mejores`),
+  // Permanent opt-out / re-include for hay_mejores (promos.escribir). Default participates.
+  setHayMejoresExclusion: (mlaId, excluido) =>
+    api.put(`/promociones/item/${mlaId}/hay-mejores-exclusion`, { excluido }),
+  setHayMejoresExclusionBulk: (body) => api.post('/promociones/hay-mejores-exclusion-bulk', body),
   // Remove/desapply a promotion from a given MLA (real ML write). `params`
   // shape: { promotion_type, promotion_id } - backend re-derives offer_id
   // for SMART itself, so the FE never sends offer_id here either.
@@ -962,6 +966,10 @@ export const publicacionesMlAPI = {
   // Bulk pause / activate: the MLAs of the filtered set that can take `target`, then the writes in batches.
   statusItemIds: (params, config) => api.get('/ml-publications/view/status-item-ids', { params, ...config }),
   statusItemIdsChecked: (body) => api.post('/ml-publications/view/status-item-ids/checked', body),
+  hayMejoresExclusionItemIds: (params, config) =>
+    api.get('/ml-publications/view/hay-mejores-exclusion-item-ids', { params, ...config }),
+  hayMejoresExclusionItemIdsChecked: (body) =>
+    api.post('/ml-publications/view/hay-mejores-exclusion-item-ids/checked', body),
   // Paints publications on their own on one layer (the global one when `equipo_id` is left out), or with
   // `color: null` takes their own color off (seleccion-por-publicacion S3; at most 500 MLAs, see `paintPublications`).
   paintColors: (body) => api.put('/ml-publications/colors', body),
