@@ -1,10 +1,12 @@
-"""`ml_promotions.hay_mejores_boundaries`: re-run the "hay mejores ofertas" flag when time alone changes it.
+"""`ml_promotions.hay_mejores_boundaries`: re-run the "hay mejores ofertas" flag when time alone changes it,
+and keep flagged rows honest without a promotions rewrite.
 
 Only candidates applicable right now count (`candidata_aplicable_ahora`). A candidate whose start date arrives, or
 the only better one expiring, gets no sync event, so this schedule-only handler (every `interval`, no cron, in the ML
 publications worker) re-runs `actualizar_hay_mejores_ofertas` for the items with a candidate whose start or finish
-date fell between its last checked instant and now: never a full rescan of the flags. The read is the stored mirror
-(no ML call).
+date fell between its last checked instant and now. The same tick also re-runs every currently flagged row (mirror
+only, no ML call), so a stale `hay_mejores_ofertas=true` (price/markup/sell-in-out drift, or candidates that no
+longer beat the status quo) clears without opening the panel or a one-off script.
 
 Catch-up: when `RULES_VERSION` is newer than the one stored, the handler first recomputes every item whose flag the
 new rules can change (flagged, or with a discarded fingerprint), once, in id order. That replaces the one-off
@@ -94,6 +96,17 @@ def _catchup_ids(db: Session, after: Optional[str]) -> List[str]:
     return [row[0] for row in query.order_by(MlItemSellerPromotions.item_id).all()]
 
 
+def _flagged_ids(db: Session) -> List[str]:
+    """Every MLA currently marked hay_mejores — the periodic hygiene pass (stale flags without a date crossing)."""
+    return [
+        row[0]
+        for row in db.query(MlItemSellerPromotions.item_id)
+        .filter(MlItemSellerPromotions.hay_mejores_ofertas.is_(True))
+        .order_by(MlItemSellerPromotions.item_id)
+        .all()
+    ]
+
+
 def _recompute(db: Session, item_ids: List[str], now: datetime) -> int:
     """One batch: one sell in / sell out read, the flag of each id at `now`. Returns the flags that changed."""
     batch = resolver_sell_in_out_para_mlas(db, item_ids)
@@ -122,7 +135,7 @@ def _unlock(db: Session) -> None:
 
 
 class HayMejoresBoundariesHandler:
-    """`JobHandler`: the flags whose candidates crossed a start or finish date since the last run."""
+    """`JobHandler`: date-crossing candidates plus a periodic pass over currently flagged rows."""
 
     name = HANDLER_NAME
     channels: tuple[str, ...] = ()
@@ -173,9 +186,10 @@ class HayMejoresBoundariesHandler:
                 since = _parse(state["checked_until"])
                 until = _parse(state.get("window_until")) or now
                 cursor = state.get("cursor")
-                ids = [
-                    i for i in hay_mejores.items_con_candidatas_que_cruzan(db, since, until) if not cursor or i > cursor
-                ]
+                # Date crossings (may turn a flag ON) ∪ currently flagged (may turn a stale flag OFF).
+                ids = sorted(set(hay_mejores.items_con_candidatas_que_cruzan(db, since, until)) | set(_flagged_ids(db)))
+                if cursor:
+                    ids = [i for i in ids if i > cursor]
                 window = {"window_until": until.isoformat()}
             db.rollback()  # the selection holds no lock while the batches run
 
