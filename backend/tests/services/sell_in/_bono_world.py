@@ -27,7 +27,9 @@ from app.models.sell_in import (
     SellInBonoMarca,
     SellInBonoReparto,
 )
-from app.models.tactical import TacticalFacturaPendiente
+from app.models.pedido_compra_factura import PedidoCompraFactura
+from app.models.pedido_compra_linea_facturada_ct import PedidoCompraLineaFacturadaCt
+from app.models.tactical import TacticalFacturaPendiente, TacticalLineaFactura
 from app.models.tipo_cambio import TipoCambio
 from app.services.sell import queue as sell_queue
 from app.services.sell_in import bono_queue
@@ -60,6 +62,10 @@ TABLES = [
     *_SELL_IN,
     TacticalFacturaPendiente.__table__,  # read by the queue gate (sell in factura pendiente)
     PedidoCompraLineaFacturada.__table__,
+    # Sell in varias facturas: the operation's invoices, their per-invoice lines, and a tactical line's pick.
+    PedidoCompraFactura.__table__,
+    PedidoCompraLineaFacturadaCt.__table__,
+    TacticalLineaFactura.__table__,
     TipoCambio.__table__,
     SellInBonoDirty.__table__,
 ]
@@ -76,7 +82,7 @@ PRODUCTOS = {
 
 def _install(engine: Engine) -> None:
     with engine.begin() as conn:
-        for statement in sell_queue.UPGRADE_SQL + bono_queue.UPGRADE_SQL:
+        for statement in sell_queue.UPGRADE_SQL + bono_queue.UPGRADE_SQL + bono_queue.LINEAS_CT_SQL:
             conn.execute(text(statement))
         for item_id, (marca, costo, moneda) in PRODUCTOS.items():
             conn.execute(
@@ -99,12 +105,15 @@ def clean(engine: Engine) -> None:
     """Empties what the tests write; the queues go LAST, since deletes fire their triggers."""
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM tactical_facturas_pendientes"))  # it names purchases (RESTRICT)
+        conn.execute(text("DELETE FROM tactical_linea_facturas"))
     w.clean(engine)
     with engine.begin() as conn:
         for table in (
             "sell_in_compras",
             "sell_in_bonos_marca",
             "pedido_compra_lineas_facturadas",
+            "pedido_compra_lineas_facturadas_ct",
+            "pedido_compra_facturas",
             "pedido_compra_ingresos",
             "pedidos_compra",
         ):

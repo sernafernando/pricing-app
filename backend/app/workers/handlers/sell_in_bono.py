@@ -54,6 +54,9 @@ def _reconciliar(db: Session, keys: Sequence[Key]) -> Tuple[bonos.ReconcileResul
     # A queued operation may hold a tactical's invoice total waiting for its invoice (sell in factura pendiente):
     # applied first, in the same transaction, so its purchase is there for the rest of the reconcile.
     tacticals.aplicar_facturas_pendientes(db, [ref for tipo, ref in keys if tipo == "pedido"])
+    # An applied invoice total covers every invoice of its operation (sell in varias facturas S2): re-split over the
+    # operation's current invoiced units when another invoice linked.
+    tacticals.repartir_totales_de_factura(db, [ref for tipo, ref in keys if tipo == "pedido"])
     result = bonos.reconciliar(
         db,
         bono_ids=[ref for tipo, ref in keys if tipo == "bono"],

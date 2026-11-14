@@ -59,6 +59,19 @@ describe('estadoDe', () => {
 });
 
 describe('alcanceDe', () => {
+  it('says which invoices of the operation an invoice line covers (varias facturas S5)', () => {
+    const linea = { alcance: 'factura', pedido_compra_id: 5521, pedido_numero: 'OC-1840', facturas_ct: null, facturas_elegidas: null };
+    expect(alcanceDe(linea).titulo).toBe('Factura del pedido OC-1840 · Todas las facturas');
+    const elegidas = [
+      { ct_transaction_id: 70001, numero: 'A-0001-123' },
+      { ct_transaction_id: 70003, numero: null },
+    ];
+    expect(alcanceDe({ ...linea, facturas_ct: [70001, 70003], facturas_elegidas: elegidas }).titulo).toBe(
+      'Factura del pedido OC-1840 · A-0001-123, CT 70003',
+    );
+  });
+
+
   it('names a brand, a category or an invoice line; product lines are chips', () => {
     expect(alcanceDe({ alcance: 'marca', marca: 'HP' })).toEqual({ titulo: 'Marca HP', detalle: 'Todos los productos de la marca' });
     expect(alcanceDe({ alcance: 'marca', marca: 'TP-LINK', categoria: 'Routers' })).toEqual({
@@ -70,11 +83,11 @@ describe('alcanceDe', () => {
       detalle: 'Todos los productos de la categoría',
     });
     expect(alcanceDe({ alcance: 'factura', pedido_compra_id: 5521, pedido_numero: 'OC-1840' })).toEqual({
-      titulo: 'Factura del pedido OC-1840',
+      titulo: 'Factura del pedido OC-1840 · Todas las facturas',
       detalle: null,
     });
     expect(alcanceDe({ alcance: 'factura', pedido_compra_id: 5521, pedido_numero: null })).toEqual({
-      titulo: 'Factura del pedido #5521',
+      titulo: 'Factura del pedido #5521 · Todas las facturas',
       detalle: null,
     });
   });
@@ -199,7 +212,7 @@ describe('an invoice line waiting for its invoice (sell in factura pendiente S4)
   it('says on the line that it waits for the invoice', () => {
     const linea = { alcance: 'factura', pedido_compra_id: 9, pedido_numero: 'OC-9', esperando_factura: true };
     expect(alcanceDe(linea)).toEqual({
-      titulo: 'Factura del pedido OC-9',
+      titulo: 'Factura del pedido OC-9 · Todas las facturas',
       detalle: 'Esperando factura: se aplica cuando Compras vincule la factura del proveedor',
     });
     expect(alcanceDe({ ...linea, esperando_factura: false }).detalle).toBeNull();

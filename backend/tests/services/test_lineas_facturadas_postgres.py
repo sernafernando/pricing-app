@@ -58,6 +58,18 @@ CREATE TABLE pedido_compra_lineas_facturadas (
   CONSTRAINT uq_pedido_compra_lineas_facturadas_pedido_item UNIQUE (pedido_id, item_id),
   CONSTRAINT ck_pedido_compra_lineas_facturadas_cantidad_positiva CHECK (cantidad > 0)
 );
+CREATE TABLE pedido_compra_lineas_facturadas_ct (
+  id BIGSERIAL PRIMARY KEY,
+  pedido_id BIGINT NOT NULL REFERENCES pedidos_compra (id) ON DELETE CASCADE,
+  ct_transaction_id BIGINT,
+  item_id INTEGER NOT NULL,
+  cantidad INTEGER NOT NULL CHECK (cantidad <> 0),
+  importe_neto NUMERIC(18, 2), moneda VARCHAR(3)
+);
+CREATE UNIQUE INDEX uq_lf_ct_factura ON pedido_compra_lineas_facturadas_ct (pedido_id, ct_transaction_id, item_id)
+  WHERE ct_transaction_id IS NOT NULL;
+CREATE UNIQUE INDEX uq_lf_ct_pedido ON pedido_compra_lineas_facturadas_ct (pedido_id, item_id)
+  WHERE ct_transaction_id IS NULL;
 """
 
 
@@ -225,10 +237,7 @@ def test_shared_ct_yields_no_sell_in_lines(pg_lf_engine):
     with pg_lf_engine.begin() as conn:
         conn.execute(text("INSERT INTO pedidos_compra (id, ct_transaction_id) VALUES (1, 100), (2, 100)"))
         conn.execute(
-            text(
-                "INSERT INTO pedido_compra_facturas (pedido_id, ct_transaction_id) "
-                "VALUES (1, 100), (2, 100)"
-            )
+            text("INSERT INTO pedido_compra_facturas (pedido_id, ct_transaction_id) VALUES (1, 100), (2, 100)")
         )
         conn.execute(text("INSERT INTO v_facturas_compra_vigentes VALUES (100, 1, 'FACTURA')"))
         conn.execute(
@@ -250,10 +259,7 @@ def test_two_exclusive_cts_sum_units(pg_lf_engine):
     with pg_lf_engine.begin() as conn:
         conn.execute(text("INSERT INTO pedidos_compra (id, ct_transaction_id) VALUES (1, 100)"))
         conn.execute(
-            text(
-                "INSERT INTO pedido_compra_facturas (pedido_id, ct_transaction_id) "
-                "VALUES (1, 100), (1, 200)"
-            )
+            text("INSERT INTO pedido_compra_facturas (pedido_id, ct_transaction_id) VALUES (1, 100), (1, 200)")
         )
         conn.execute(text("INSERT INTO v_facturas_compra_vigentes VALUES (100, 1, 'FACTURA'), (200, 1, 'FACTURA')"))
         conn.execute(
@@ -274,10 +280,7 @@ def test_unlinking_shared_ct_restores_other_pedido_lines(pg_lf_engine):
     with pg_lf_engine.begin() as conn:
         conn.execute(text("INSERT INTO pedidos_compra (id, ct_transaction_id) VALUES (1, 100), (2, 100)"))
         conn.execute(
-            text(
-                "INSERT INTO pedido_compra_facturas (pedido_id, ct_transaction_id) "
-                "VALUES (1, 100), (2, 100)"
-            )
+            text("INSERT INTO pedido_compra_facturas (pedido_id, ct_transaction_id) VALUES (1, 100), (2, 100)")
         )
         conn.execute(text("INSERT INTO v_facturas_compra_vigentes VALUES (100, 1, 'FACTURA')"))
         conn.execute(
@@ -307,3 +310,121 @@ def test_unlinking_shared_ct_restores_other_pedido_lines(pg_lf_engine):
             text("SELECT pedido_id, item_id, cantidad FROM pedido_compra_lineas_facturadas ORDER BY pedido_id")
         ).all()
     assert [tuple(f) for f in filas] == [(2, 501, 5)]
+
+
+# --- per-invoice split (sell in varias facturas) ------------------------------------------------------------------
+
+
+def _por_factura(eng) -> list[tuple]:
+    with eng.connect() as conn:
+        return [
+            tuple(r)
+            for r in conn.execute(
+                text(
+                    "SELECT ct_transaction_id, item_id, cantidad FROM pedido_compra_lineas_facturadas_ct "
+                    "ORDER BY ct_transaction_id NULLS LAST, item_id"
+                )
+            )
+        ]
+
+
+def _dos_facturas(conn) -> None:
+    """Pedido 1 with invoices 100 (501 x3, 502 x2) and 300 (501 x4)."""
+    conn.execute(text("INSERT INTO pedidos_compra (id, ct_transaction_id) VALUES (1, 100)"))
+    conn.execute(text("INSERT INTO pedido_compra_facturas (pedido_id, ct_transaction_id) VALUES (1, 100), (1, 300)"))
+    conn.execute(text("INSERT INTO v_facturas_compra_vigentes VALUES (100, 1, 'FACTURA'), (300, 1, 'FACTURA')"))
+    conn.execute(
+        text(
+            "INSERT INTO tb_item_transactions (it_transaction, ct_transaction, item_id, it_qty) VALUES "
+            "(1, 100, 501, 3), (2, 100, 502, 2), (3, 300, 501, 4)"
+        )
+    )
+
+
+def _nc(conn, *, nc: int, destino_tipo: str, destino_id: int, lineas: list[tuple[int, int, int]], imp: int) -> None:
+    conn.execute(text("INSERT INTO v_facturas_compra_vigentes VALUES (:nc, -1, 'NC')"), {"nc": nc})
+    conn.execute(
+        text(
+            "INSERT INTO imputaciones (id, origen_tipo, origen_id, destino_tipo, destino_id) "
+            "VALUES (:imp, 'nota_credito_erp', :nc, :dt, :di)"
+        ),
+        {"imp": imp, "nc": nc, "dt": destino_tipo, "di": destino_id},
+    )
+    for it, item, qty in lineas:
+        conn.execute(
+            text(
+                "INSERT INTO tb_item_transactions (it_transaction, ct_transaction, item_id, it_qty) "
+                "VALUES (:it, :nc, :i, :q)"
+            ),
+            {"it": it, "nc": nc, "i": item, "q": qty},
+        )
+
+
+def _reconciliar(eng) -> None:
+    with Session(eng) as session:
+        reconciliar_lineas_facturadas(session, 1)
+        session.commit()
+
+
+def test_each_invoice_gets_its_own_bucket_and_the_aggregate_is_unchanged(pg_lf_engine):
+    with pg_lf_engine.begin() as conn:
+        _dos_facturas(conn)
+
+    _reconciliar(pg_lf_engine)
+
+    assert _lineas(pg_lf_engine) == [(501, 7), (502, 2)]  # the aggregate, as before
+    assert _por_factura(pg_lf_engine) == [(100, 501, 3), (100, 502, 2), (300, 501, 4)]
+
+
+def test_credit_notes_go_to_their_invoice_or_to_the_operation_bucket(pg_lf_engine):
+    """An NC imputed to an invoice nets in that invoice's bucket; one imputed to the whole operation goes to the
+    signed NULL bucket. Per item the buckets add up to the aggregate."""
+    with pg_lf_engine.begin() as conn:
+        _dos_facturas(conn)
+        _nc(conn, nc=400, destino_tipo="factura_erp", destino_id=300, lineas=[(10, 501, 1)], imp=1)
+        _nc(conn, nc=500, destino_tipo="pedido_compra", destino_id=1, lineas=[(11, 502, 1)], imp=2)
+
+    _reconciliar(pg_lf_engine)
+
+    assert _lineas(pg_lf_engine) == [(501, 6), (502, 1)]
+    assert _por_factura(pg_lf_engine) == [(100, 501, 3), (100, 502, 2), (300, 501, 3), (None, 502, -1)]
+    sumas: dict[int, int] = {}
+    for _, item, cantidad in _por_factura(pg_lf_engine):
+        sumas[item] = sumas.get(item, 0) + cantidad
+    assert sorted(sumas.items()) == _lineas(pg_lf_engine)
+
+
+def test_unlinking_an_invoice_drops_its_bucket(pg_lf_engine):
+    with pg_lf_engine.begin() as conn:
+        _dos_facturas(conn)
+    _reconciliar(pg_lf_engine)
+
+    with pg_lf_engine.begin() as conn:
+        conn.execute(text("DELETE FROM pedido_compra_facturas WHERE ct_transaction_id = 300"))
+    _reconciliar(pg_lf_engine)
+
+    assert _lineas(pg_lf_engine) == [(501, 3), (502, 2)]
+    assert _por_factura(pg_lf_engine) == [(100, 501, 3), (100, 502, 2)]
+
+
+def test_the_migration_backfill_matches_the_reconcile(pg_lf_engine):
+    with pg_lf_engine.begin() as conn:
+        _dos_facturas(conn)
+        _nc(conn, nc=500, destino_tipo="pedido_compra", destino_id=1, lineas=[(11, 502, 1)], imp=2)
+    _reconciliar(pg_lf_engine)
+    esperado = _por_factura(pg_lf_engine)
+
+    migracion = _cargar_migracion("20261114_sell_in_facturas_elegidas")
+    with pg_lf_engine.begin() as conn:
+        conn.execute(text("DELETE FROM pedido_compra_lineas_facturadas_ct"))
+        conn.execute(text(migracion.BACKFILL_SQL))
+
+    assert _por_factura(pg_lf_engine) == esperado
+
+
+def _cargar_migracion(revision: str):
+    ruta = Path(__file__).resolve().parents[2] / "alembic" / "versions" / f"{revision}.py"
+    spec = importlib.util.spec_from_file_location(f"{revision}_m", ruta)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module

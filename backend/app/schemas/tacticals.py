@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -33,6 +33,7 @@ MARCA_MAX = 100  # productos_erp.marca is VARCHAR(100)
 MARCAS_MAX = 50  # brands on one tactical header
 LINEAS_MAX = 100
 ITEMS_MAX = 500
+FACTURAS_MAX = 100  # invoices one invoice line may pick out of its operation's
 TIENDAS_MAX = 100  # official stores + synthetic channels on one tactical
 NOTA_MAX = 2000
 HIJOS_MAX = 500  # campaigns or bonuses one create may store: one per-product line over a full product list
@@ -61,6 +62,11 @@ class TacticalLineaIn(BaseModel):
     marca: Optional[str] = Field(default=None, max_length=MARCA_MAX)
     categoria: Optional[str] = Field(default=None, max_length=MARCA_MAX)
     pedido_compra_id: Optional[int] = Field(default=None, ge=1, le=2**63 - 1)
+    # An invoice line only (sell in varias facturas S3): the invoices (`ct_transaction_id` of the operation's
+    # `pedido_compra_facturas`) it applies to. None: every invoice of the operation, the ones linked later included.
+    facturas_ct: Optional[list[Annotated[int, Field(ge=1, le=2**63 - 1)]]] = Field(
+        default=None, max_length=FACTURAS_MAX
+    )
     modo_monto: ModoMonto
     # por_unidad / monto_total: in the tactical's `moneda`; porcentaje: (0, 100], checked by the service.
     valor: Decimal = Field(**MONTO)
@@ -140,6 +146,11 @@ class TacticalProductoOut(BaseModel):
     descripcion: Optional[str]
 
 
+class TacticalFacturaElegidaOut(BaseModel):
+    ct_transaction_id: int
+    numero: Optional[str] = None  # the readable ERP number (#2264); None when the mirror has none
+
+
 class TacticalLineaOut(BaseModel):
     """One per child row: a `tope_por_producto` line comes back as one line per product."""
 
@@ -169,6 +180,9 @@ class TacticalLineaOut(BaseModel):
     monto_usado: Decimal
     # An invoice line saved before Compras linked its operation's supplier invoice: it applies nothing until then.
     esperando_factura: bool = False
+    # An invoice line's pick (S5): None = every invoice of its operation ("Todas"); otherwise the picked invoices.
+    facturas_ct: Optional[list[int]] = None
+    facturas_elegidas: Optional[list[TacticalFacturaElegidaOut]] = None
 
 
 # Only the detail of the chosen `medio` may come (tactical cobranza S1, S2): one Spanish message per field.

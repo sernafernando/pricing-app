@@ -79,7 +79,7 @@ from app.schemas.tacticals import (
     TacticalLineaTopesIn,
     TacticalTiendaIn,
 )
-from app.services.sell_in import bono_queue, bonos, bonos_crud, compras
+from app.services.sell_in import bono_queue, bonos, bonos_crud, compras, facturas_elegidas
 from app.services.sell_in.compras import contiene
 from app.services.sell_out import alcance as sell_out_alcance, campanas, tienda_scope
 
@@ -337,7 +337,25 @@ def _validar_linea(db: Session, data: TacticalIn, linea: TacticalLineaIn) -> _Al
     # Any invoice date: an invoice line has no dates of its own (S1), its bonus takes its invoice's (`_sell_in`). Any
     # invoice line may wait for its invoice (sell in factura pendiente): a % or per unit one as its invoice bonus, a
     # total as a `TacticalFacturaPendiente`; each applies when Compras links the invoice.
+    _validar_facturas_elegidas(db, linea, pedido)
     return _Alcance(pedido=pedido)
+
+
+def _validar_facturas_elegidas(db: Session, linea: TacticalLineaIn, pedido: Any) -> None:
+    """A pick of specific invoices (sell in varias facturas S3) names invoices linked to the line's own operation; an
+    operation still without its invoice applies to all the invoices it will have (S2), so it takes no pick."""
+    if linea.facturas_ct is None:
+        return
+    if not linea.facturas_ct:
+        raise TacticalError("elegí al menos una factura, o dejá todas las facturas de la operación")
+    vinculadas = {f["ct_transaction_id"] for f in facturas_elegidas.facturas_de(db, [pedido.id]).get(pedido.id, [])}
+    if not vinculadas:
+        raise TacticalError(
+            f"la operación {pedido.numero} todavía no tiene facturas: la línea aplica a todas las que se vinculen"
+        )
+    ajenas = sorted(set(linea.facturas_ct) - vinculadas)
+    if ajenas:
+        raise TacticalError(f"la factura {ajenas[0]} no está vinculada a la operación {pedido.numero}")
 
 
 def _partes(linea: TacticalLineaIn, alcance: _Alcance) -> list[_Alcance]:
@@ -482,8 +500,11 @@ def _total_de_factura(db, tactical, data, linea, numero, pedido, descripcion, us
     _compra_de_factura(db, (tactical.id, numero), pedido, linea.valor, data.moneda, tasa_usd, descripcion, usuario_id)
 
 
-def _facturado(db: Session, pedido_id: int) -> list[tuple[int, int]]:
-    """An operation's invoiced units per item, net of credit notes, the items with none left out."""
+def _facturado(db: Session, pedido_id: int, elegidas: Optional[frozenset[int]] = None) -> list[tuple[int, int]]:
+    """An operation's invoiced units per item, net of credit notes, the items with none left out: over every invoice
+    (no pick, S2), or over the picked ones (`facturas_elegidas`, S3)."""
+    if elegidas:
+        return [(i, f.cantidad) for i, f in facturas_elegidas.facturado_elegido(db, pedido_id, elegidas).items()]
     t = PedidoCompraLineaFacturada
     return [
         (int(item_id), int(cantidad))
@@ -507,7 +528,7 @@ def _compra_de_factura(
 ) -> SellInCompra:
     """The purchase of an invoice total, at save (`_total_de_factura`) or when its invoice arrives
     (`aplicar_facturas_pendientes`): one code path, so both give the same rows."""
-    cantidades = _facturado(db, pedido.id)
+    cantidades = _facturado(db, pedido.id, facturas_elegidas.de_linea(db, *tactical))
     if not cantidades:
         raise TacticalError(f"la factura de la operación {pedido.numero} no tiene líneas facturadas")
     entrada = SellInCompraCreate(
@@ -560,7 +581,10 @@ def aplicar_facturas_pendientes(db: Session, pedido_ids: Iterable[int]) -> int:
             .filter(PedidoCompra.id == fila.pedido_id)
             .first()
         )
-        if pedido is None or pedido.fecha_factura is None or not _facturado(db, pedido.id):
+        if pedido is None or pedido.fecha_factura is None:
+            continue
+        # the gate reads the line's pick like the purchase does: a picked invoice without lines yet keeps waiting
+        if not _facturado(db, pedido.id, facturas_elegidas.de_linea(db, fila.tactical_id, fila.tactical_linea)):
             continue
         compra = _compra_de_factura(
             db,
@@ -578,6 +602,54 @@ def aplicar_facturas_pendientes(db: Session, pedido_ids: Iterable[int]) -> int:
     db.flush()
     bonos._cabeceras_por_factura(db, tacticals_)
     return aplicadas
+
+
+def repartir_totales_de_factura(db: Session, pedido_ids: Iterable[int]) -> int:
+    """Re-split the applied invoice totals of these operations over all their invoiced lines (sell in varias facturas
+    S2, owner: "por defecto tendría que aplicar a todas las facturas el sell in"): a total covers every invoice of its
+    operation, so when another invoice links (or one is unlinked) its one purchase is re-split in place over the
+    operation's current invoiced units (`compras.repartir_compra_sin_commit`). The total is never applied once per
+    invoice: it stays one purchase, same id and amount, so a manual cost mode naming it and its waiting row stay
+    valid. A purchase whose operation has no invoiced units left, or already has exactly them, is left as is. Called by
+    the `sell_in.bono` worker after `aplicar_facturas_pendientes`; does not commit. Returns how many were re-split."""
+    ids = sorted(set(pedido_ids))
+    if not ids:
+        return 0
+    compra_ids = (
+        select(SellInCompra.id)
+        .join(SellInCompraPedido, SellInCompraPedido.compra_id == SellInCompra.id)
+        .where(
+            SellInCompraPedido.pedido_compra_id.in_(ids),
+            SellInCompra.tactical_id.isnot(None),
+            SellInCompra.estado == "activa",
+            SellInCompra.tipo == "monto",
+        )
+    )
+    # Lock order of a tactical's writers (`aplicar_facturas_pendientes`): the tactical, then its purchases.
+    duenos = select(SellInCompra.tactical_id).where(SellInCompra.id.in_(compra_ids)).distinct()
+    db.query(Tactical.id).filter(Tactical.id.in_(duenos)).order_by(Tactical.id).with_for_update(key_share=True).all()
+    filas = (
+        db.query(
+            SellInCompra.id,
+            SellInCompra.usuario_id,
+            SellInCompraPedido.pedido_compra_id,
+            SellInCompra.tactical_id,
+            SellInCompra.tactical_linea,
+        )
+        .join(SellInCompraPedido, SellInCompraPedido.compra_id == SellInCompra.id)
+        .filter(SellInCompra.id.in_(compra_ids), SellInCompraPedido.pedido_compra_id.in_(ids))
+        .order_by(SellInCompra.id)
+        .all()
+    )
+    repartidas = 0
+    elegidas = facturas_elegidas.de_lineas(db, [(f.tactical_id, f.tactical_linea) for f in filas])
+    for compra_id, usuario_id, pedido_id, tactical_id, numero in filas:
+        cantidades = _facturado(db, pedido_id, elegidas.get((tactical_id, numero)))
+        if not cantidades:
+            continue
+        if compras.repartir_compra_sin_commit(db, compra_id, cantidades, usuario_id) is not None:
+            repartidas += 1
+    return repartidas
 
 
 def _ocupado_si_deadlock(operacion):
@@ -713,9 +785,15 @@ def _crear_hijos(
     crear_hijo = _sell_out if data.tipo == "sell_out" else _sell_in
     for numero, linea in enumerate(data.lineas, start=1):
         if numero in conservadas:
+            facturas_elegidas.guardar(db, tactical.id, numero, linea.facturas_ct)  # the same pick (`_conservables`)
             continue
         try:
+            if linea.facturas_ct is not None and linea.alcance != "factura":
+                raise TacticalError("solo una línea por factura elige facturas")
             alcance = _validar_linea(db, data, linea)
+            # Before its children: every child of the line reads the line's pick (`facturas_elegidas`), an invoice
+            # total right away (`_compra_de_factura`). None stored: every invoice.
+            facturas_elegidas.guardar(db, tactical.id, numero, linea.facturas_ct)
             for parte in _partes(linea, alcance):
                 crear_hijo(db, tactical, data, linea, numero, parte, codigos, usuario_id)
         except campanas.SellOutRecalculando as exc:
@@ -1082,6 +1160,7 @@ def reemplazar(
         _sin_modo_manual(db, [h for h in hijos if h["linea"] not in conservadas])
         tasas = _tasas_al_cobro(db, tactical, data)
         reemplazados = _reemplazar_hijos(db, tactical_id, conservadas, usuario_id)
+        facturas_elegidas.borrar(db, tactical_id)  # every line stores its pick again (`_crear_hijos`)
         _aplicar_cabecera(db, tactical, data)
         db.flush()
         _crear_hijos(db, tactical, data, usuario_id, frozenset(conservadas))
@@ -1109,7 +1188,7 @@ def reemplazar(
 def _definicion_de(hijos: list[dict]) -> list[dict]:
     """What each child was, for the audit row's `valores_anteriores`."""
     campos = ("linea", "origen", "id", "estado", "alcance", "marca", "categoria", "pedido_compra_id", "modo_monto",
-              "valor", "reparto_criterio", "moneda", "tope_unidades", "tope_monto")  # fmt: skip
+              "valor", "reparto_criterio", "moneda", "tope_unidades", "tope_monto", "facturas_ct")  # fmt: skip
     return [
         {
             **{c: (str(h[c]) if isinstance(h[c], Decimal) else h[c]) for c in campos},
@@ -1139,6 +1218,7 @@ def _conservables(tactical: Tactical, data: TacticalIn, hijos: list[dict]) -> se
             and linea.modo_monto == "monto_total"
             and linea.pedido_compra_id == actual["pedido_compra_id"]
             and _cents(linea.valor) == _cents(actual["valor"])
+            and frozenset(linea.facturas_ct or ()) == frozenset(actual["facturas_ct"] or ())
             and data.moneda == actual["moneda"] == tactical.moneda
             and (data.moneda == "ARS" or data.tipo_cambio == tactical.tipo_cambio)
         ):
@@ -1834,6 +1914,25 @@ def _cobranza(cobranza: Optional[TacticalCobranza]) -> Optional[dict]:
     return {c: getattr(cobranza, c) for c in columnas}
 
 
+def _con_facturas_elegidas(db: Session, lineas: list[dict]) -> None:
+    """Each line's invoices (S5): `facturas_ct` the pick (None: every invoice of its operation, also on a line that is
+    not an invoice line) and `facturas_elegidas` the picked invoices with their readable ERP number."""
+    de_factura = [h for h in lineas if h["alcance"] == "factura"]
+    elegidas = facturas_elegidas.de_lineas(db, [(h["tactical_id"], h["linea"]) for h in de_factura])
+    pedidos = {h["pedido_compra_id"] for h in de_factura if (h["tactical_id"], h["linea"]) in elegidas}
+    numeros = {
+        f["ct_transaction_id"]: f["numero"]
+        for facturas in facturas_elegidas.facturas_de(db, pedidos).values()
+        for f in facturas
+    }
+    for h in lineas:
+        cts = elegidas.get((h["tactical_id"], h["linea"])) if h["alcance"] == "factura" else None
+        h["facturas_ct"] = sorted(cts) if cts else None
+        h["facturas_elegidas"] = (
+            [{"ct_transaction_id": ct, "numero": numeros.get(ct)} for ct in sorted(cts)] if cts else None
+        )
+
+
 def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
     """Each tactical with its lines, one per child, in line order (module docstring): a few queries per page."""
     tacticals = list(tacticals)
@@ -1853,6 +1952,7 @@ def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
     por_linea: dict[tuple[int, int], int] = defaultdict(int)
     for linea in lineas:
         por_linea[(linea["tactical_id"], linea["linea"])] += 1
+    _con_facturas_elegidas(db, lineas)
     de_tactical: dict[int, list[dict]] = defaultdict(list)
     for linea in sorted(lineas, key=lambda x: (x["linea"], x["id"])):
         item_ids_ = linea.pop("item_ids")

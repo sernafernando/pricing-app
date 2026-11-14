@@ -50,6 +50,7 @@ from app.core.config import settings
 from app.core.constants import VARIANZA_TC_THRESHOLD_ARS
 from app.core.database import get_db
 from app.core.logging import get_logger
+from app.models.pedido_compra_factura import ct_docnumbers_by_id
 from app.models.caja import CajaMovimiento
 from app.models.compra_adjunto import CompraAdjunto
 from app.models.oc_match_job import OcMatchJob
@@ -437,36 +438,8 @@ def _ocs_payload(p: PedidoCompra) -> list[PedidoCompraOcLink]:
     return []
 
 
-def _ct_docnumbers_by_id(session: Session | None, ct_ids: list[int]) -> dict[int, str]:
-    """Map ct_transaction → ct_docnumber from the ERP mirror (best-effort).
-
-    Uses a SAVEPOINT so a missing/broken view (SQLite unit tests, or a
-    transient Postgres error) does not abort the outer transaction.
-    """
-    if session is None or not ct_ids:
-        return {}
-    from sqlalchemy import bindparam  # noqa: PLC0415
-
-    stmt = text(
-        """
-        SELECT ct_transaction, ct_docnumber
-        FROM v_facturas_compra_vigentes
-        WHERE ct_transaction IN :ids
-        """
-    ).bindparams(bindparam("ids", expanding=True))
-    try:
-        with session.begin_nested():
-            rows = session.execute(stmt, {"ids": [int(x) for x in ct_ids]}).all()
-    except Exception as exc:  # noqa: BLE001 — view absent in SQLite unit tests
-        logger.warning("facturas payload: ct_docnumber lookup skipped: %s", exc)
-        return {}
-    out: dict[int, str] = {}
-    for row in rows:
-        ct = int(row[0])
-        doc = str(row[1] or "").strip()
-        if doc:
-            out[ct] = doc
-    return out
+# Moved to the model module so services can reuse it (sell in varias facturas); same behavior.
+_ct_docnumbers_by_id = ct_docnumbers_by_id
 
 
 def _factura_ct_fecha_pairs(p: PedidoCompra) -> list[tuple[int, date | None]]:

@@ -231,7 +231,14 @@ from app.models.sell_out import (
     SellOutDirty,
     SellOutPrograma,
 )
-from app.models.tactical import Tactical, TacticalCobranza, TacticalFacturaPendiente, TacticalMarca, TacticalTienda
+from app.models.tactical import (
+    Tactical,
+    TacticalCobranza,
+    TacticalFacturaPendiente,
+    TacticalLineaFactura,
+    TacticalMarca,
+    TacticalTienda,
+)
 from app.models.sell_dirty import SellDirty
 from app.models.combo_componente import ComboComponente
 
@@ -249,6 +256,7 @@ from app.models.purchase_order_detail import PurchaseOrderDetail
 from app.models.pedido_compra_ingresos import PedidoCompraIngreso
 from app.models.pedido_compra_arribo_progreso import PedidoCompraArriboProgreso
 from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
+from app.models.pedido_compra_linea_facturada_ct import PedidoCompraLineaFacturadaCt
 
 # Tesorería — Módulo de Cheques (Slice 1)
 from app.models.cheque import Chequera, Cheque, OrdenPagoCheque, ChequeEvento
@@ -468,6 +476,7 @@ __all__ = [
     "PedidoCompraIngreso",
     "PedidoCompraArriboProgreso",
     "PedidoCompraLineaFacturada",
+    "PedidoCompraLineaFacturadaCt",
     # Tesorería — Módulo de Cheques
     "Chequera",
     "Cheque",
@@ -526,6 +535,7 @@ __all__ = [
     "TacticalMarca",
     "TacticalCobranza",
     "TacticalFacturaPendiente",
+    "TacticalLineaFactura",
     "TacticalTienda",
     "SellDirty",
     "ComboComponente",
