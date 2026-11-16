@@ -55,6 +55,8 @@ FILTER_SAMPLES = {
     "subcategorias": (1,),
     "pms": (7,),
     "q": "impresora",
+    "empresas": ("EMPRESA EJEMPLO SA",),
+    "vendedores": ("Vendedor Uno",),
     "pub_status": ("active",),
     "pub_type": ("clasica",),
     "pub_status_exclude": ("closed",),

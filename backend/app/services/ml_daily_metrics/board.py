@@ -127,6 +127,7 @@ from app.models.sell_in import SellInBonoConsumo, SellInConsumo
 from app.models.sell_out import SellOutCampana, SellOutConsumo
 from app.services.ml_ads.iva import ads_cost_net_of_iva
 from app.services.ml_ads.owner import ads_owner_select
+from app.services.ml_daily_metrics import fuera
 from app.services.ml_daily_metrics import groups as grouping
 from app.services.ml_daily_metrics.groups import DIMENSIONS, NO_GROUP
 from app.services.ml_daily_metrics.sales import (
@@ -385,10 +386,21 @@ class BoardFilter:
     # TO the figures without them, which never change. The router sets it for `ml_metricas.ver_ganancia` only.
     # OFF emits the very same SQL as before the field existed.
     sell_in_out: bool = False
+    # The sales read (vpf-metricas-canal S1): "ml" (default: the board as it always was, the very same SQL), "fuera"
+    # (the GBP PDF operations, `fuera`) or "todo" (both, each line with its own rule, summed). `costo` is the fuera
+    # cost basis (Costo D or Precio Costo); `empresas` / `vendedores` narrow the fuera lines only (S4).
+    canal: str = "ml"
+    costo: str = "costo_d"
+    empresas: Tuple[str, ...] = ()
+    vendedores: Tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if isinstance(self.q, str):
             object.__setattr__(self, "q", normalize_q(self.q))
+        if self.canal not in fuera.CANALES:
+            raise ValueError(f"canal must be one of {fuera.CANALES}: {self.canal!r}")
+        if self.costo not in fuera.COSTOS:
+            raise ValueError(f"costo must be one of {fuera.COSTOS}: {self.costo!r}")
         if self.restar_todo and not self.restar_publicidad:
             raise ValueError("restar_todo is the third position of restar_publicidad: it needs the toggle on")
         if self.costos_tp and not self.tp_store_ids:
@@ -419,6 +431,8 @@ FILTER_FIELDS = frozenset(
         "ageing",
         "ageing_exclude",
         "mla_source",
+        "empresas",
+        "vendedores",
     }
 )
 NAVIGATION_FIELDS = frozenset(
@@ -436,6 +450,8 @@ NAVIGATION_FIELDS = frozenset(
         "costos_tp",
         "tp_store_ids",
         "sell_in_out",
+        "canal",
+        "costo",
     }
 )
 
@@ -861,9 +877,14 @@ class Board:
         self.db = db
         self.kind_first = kind_first
         self.f = f
+        # The sales read (`BoardFilter.canal`). A publication row is an ML publication: by publication only the ML
+        # lines are read, whatever the canal (vpf-metricas-canal S10; fuera alone is refused before, 422).
+        self.canal = "ml" if f.group_by == "publication" else f.canal
+        self.fuera_scope = fuera.FueraScope(costo=f.costo, empresas=f.empresas, vendedores=f.vendedores)
         # Whether this request subtracts the ads (the router already refused
-        # the toggle without `ml_metricas.ver_ganancia`). OFF changes nothing.
-        self.ads = f.restar_publicidad
+        # the toggle without `ml_metricas.ver_ganancia`). OFF changes nothing. The ads are ML's: por fuera alone
+        # has none to subtract.
+        self.ads = f.restar_publicidad and self.canal != "fuera"
         # "Costos TP": the TP store group's operations take the TP cost. OFF changes nothing.
         self.tp = f.costos_tp
         # Sell in / sell out next to the figures without them. OFF changes nothing.
@@ -1139,10 +1160,15 @@ class Board:
             lines.c.mla,
         ).group_by(lines.c.product, lines.c.mla, lines.c.day)
 
-    def _read_lines(self, ranges: List[Any], *, tp: bool = False, keyed: bool = False) -> Any:
-        """The sold lines of `ranges` from the request's line source, bounded as `_lines_source` explains."""
+    def _read_lines(self, ranges: List[Any], *, tp: bool = False, keyed: bool = False, ml_only: bool = False) -> Any:
+        """The sold lines of `ranges` from the request's line source, bounded as `_lines_source` explains: the ML
+        ones, the fuera ones (`fuera.fuera_lines`, same columns) or both (`BoardFilter.canal`). `ml_only`: the ML
+        lines whatever the canal (what only an ML sale has, e.g. its shipping)."""
+        canal = "ml" if ml_only else self.canal
+        if canal == "fuera":
+            return self._fuera_lines(ranges, tp=tp, keyed=keyed).subquery("lines")
         pushdown = self.use_lines and self.mla_set is not None
-        return lines_source(
+        ml = lines_source(
             sqlite=self.sqlite,
             ranges=ranges,
             product=self.product_item_id,
@@ -1151,6 +1177,28 @@ class Board:
             tp=tp,
             keyed=keyed,
         )
+        if canal == "ml":
+            return ml
+        # "todo": each line with its own rule (S3), the money summed afterwards like any other line.
+        return union_all(select(*ml.c), self._fuera_lines(ranges, tp=tp, keyed=keyed)).subquery("lines")
+
+    def _fuera_lines(self, ranges: List[Any], *, tp: bool, keyed: bool) -> Any:
+        return fuera.fuera_lines(
+            self.fuera_scope, sqlite=self.sqlite, ranges=ranges, product=self.product_item_id, keyed=keyed, tp=tp
+        )
+
+    def _publications_count(self, mla: Any) -> Any:
+        """A row's distinct publications: a fuera pair (`fuera.FUERA_MLA`) is none."""
+        if self.canal == "ml":
+            return func.count(func.distinct(mla))
+        return func.count(func.distinct(case((mla != fuera.FUERA_MLA, mla))))
+
+    def _ml_only_condition(self, t: Any, condition: Any) -> Any:
+        """A publication filter (store, status, type) narrows the ML pairs only: a fuera pair has no publication and
+        passes (vpf-metricas-canal S10)."""
+        if self.canal == "ml":
+            return condition
+        return or_(t.c.mla == fuera.FUERA_MLA, condition)
 
     def _sell_line_sums(self, lines: Any) -> Tuple[Any, List[Any]]:
         """Sell in / sell out per sold line (`venta_ref` = its `item_row_id`, channel 'ml'): `(the lines joined to
@@ -1285,13 +1333,14 @@ class Board:
                 # small set costs its own sales, not the whole store's (filtering the aggregate afterwards is what
                 # it was).
                 last_query = last_query.where(MlOrderItemOps.item_id.in_(mlas))
-        last = last_query.cte("last_sale")
+        last = self._with_fuera_last(last_query).cte("last_sale")
         published = select(M.item_id, M.mlp_publicationID).where(M.item_id.isnot(None), M.mlp_publicationID.isnot(None))
         if self.product_item_id is not None:
             published = published.where(M.item_id == self.product_item_id)
         published = self._in_mla_set(published, M.mlp_publicationID)
         pair_ads = self._pair_ads() if self.ads else None
-        universe = [select(last.c.product, last.c.mla), published]
+        # Por fuera alone: only the pairs it sold (the ML publications are not its universe).
+        universe = [select(last.c.product, last.c.mla)] + ([] if self.canal == "fuera" else [published])
         if pair_ads is not None and self.ads_unattributed and self.product_item_id in (None, NO_PRODUCT):
             # Ad-only rows: the MLAs no product owns have no sale or publication pair to carry their ads.
             universe.append(select(pair_ads.c.product, pair_ads.c.mla).where(pair_ads.c.product == NO_PRODUCT))
@@ -1341,10 +1390,10 @@ class Board:
                 pub.c.is_catalog,
                 pub.c.is_full,
                 pub.c.start_day,
-                pub.c.title.label("pub_title"),
+                self._pub_title(pub.c.title, last),
                 pub.c.thumbnail,
                 P.descripcion,
-                P.codigo,
+                P.codigo if self.canal == "ml" else func.coalesce(P.codigo, last.c.fuera_codigo).label("codigo"),
                 P.marca,
                 P.categoria,
                 P.subcategoria_id,
@@ -1388,6 +1437,30 @@ class Board:
             for target, onclause in dimension.joins:
                 source = source.outerjoin(target, onclause)
         return source
+
+    def _with_fuera_last(self, ml_last: Any) -> Any:
+        """The last sale of every pair the canal reads: ML's (`ml_last`, unchanged for "ml"), the fuera pairs'
+        (`fuera.fuera_last_sales`, with what names a "sin producto" row) or both."""
+        if self.canal == "ml":
+            return ml_last
+        fuera_last = fuera.fuera_last_sales(self.fuera_scope, sqlite=self.sqlite, product=self.product_item_id)
+        if self.canal == "fuera":
+            return fuera_last
+        ml = ml_last.subquery("ml_last_sale")
+        text_null = cast(null(), String)
+        return union_all(
+            select(
+                ml.c.product, ml.c.mla, ml.c.last_at, text_null.label("fuera_title"), text_null.label("fuera_codigo")
+            ),
+            fuera_last,
+        )
+
+    def _pub_title(self, pub_title: Any, last: Any) -> Any:
+        """The pair's `pub_title`: its publication's title; a fuera pair has none and takes its article text (the
+        title of a "sin producto" row, and what the search reads on it, S5)."""
+        if self.canal == "ml":
+            return pub_title.label("pub_title")
+        return func.coalesce(pub_title, last.c.fuera_title).label("pub_title")
 
     # ── request lifecycle: the lines and the pair aggregate, computed ONCE ──
 
@@ -1738,9 +1811,9 @@ class Board:
             store_match = [t.c.store_id.in_(ids)] if ids else []
             if NO_STORE in f.stores:
                 store_match.append(t.c.store_id.is_(None))
-            conditions.append(or_(*store_match))
+            conditions.append(self._ml_only_condition(t, or_(*store_match)))
         if f.pub_status and skip != "pub_status":
-            conditions.append(t.c.status.in_(f.pub_status))
+            conditions.append(self._ml_only_condition(t, t.c.status.in_(f.pub_status)))
         if f.pub_type and skip != "pub_type":
             types = []
             listing = [x for x in f.pub_type if x in ("clasica", "premium")]
@@ -1750,9 +1823,9 @@ class Board:
                 types.append(t.c.is_catalog == True)  # noqa: E712 -- untyped temp-table column
             if "full" in f.pub_type:
                 types.append(t.c.is_full == True)  # noqa: E712
-            conditions.append(or_(*types))
+            conditions.append(self._ml_only_condition(t, or_(*types)))
         if f.pub_status_exclude and skip != "pub_status":
-            # A pair with no known status is not "paused": keep it.
+            # A pair with no known status is not "paused": keep it. (A fuera pair has none: always kept.)
             conditions.append(or_(t.c.status.is_(None), t.c.status.notin_(f.pub_status_exclude)))
         if f.pub_type_exclude and skip != "pub_type":
             hidden = [x for x in f.pub_type_exclude if x in ("clasica", "premium")]
@@ -1833,7 +1906,7 @@ class Board:
                     else func.coalesce(func.max(product), func.max(fp.c.product))
                 ).label("product"),
                 func.max(fp.c.title).label("title"),
-                func.count(func.distinct(fp.c.mla)).label("pubs"),
+                self._publications_count(fp.c.mla).label("pubs"),
                 *(
                     func.sum(fp.c[name]).label(name)
                     for name in (
@@ -2269,7 +2342,7 @@ class Board:
                 key.label("rk"),
                 func.max(gp.c[grouping.label_column(level)]).label("label"),
                 func.sum(gp.c.first_in_group).label("products"),
-                func.count(func.distinct(gp.c.mla)).label("pubs"),
+                self._publications_count(gp.c.mla).label("pubs"),
                 *(func.sum(gp.c[name]).label(name) for name in grouping.sum_columns(gp)),
                 func.max(gp.c.last_day).label("last_day"),
                 func.max(gp.c.last_at).label("last_at"),
@@ -2455,7 +2528,7 @@ class Board:
                 func.max(gp.c.title).label("title"),
                 func.max(gp.c.codigo).label("sku"),
                 func.max(gp.c.marca).label("marca"),
-                func.count(func.distinct(gp.c.mla)).label("pubs"),
+                self._publications_count(gp.c.mla).label("pubs"),
                 *(func.sum(gp.c[name]).label(name) for name in grouping.sum_columns(gp)),
                 func.max(gp.c.last_day).label("last_day"),
                 func.max(gp.c.last_at).label("last_at"),
@@ -2675,7 +2748,8 @@ class Board:
         statement."""
         f = self.f
         joined, fp = self._members("", narrow=True)
-        lines = self._read_lines([day_bounds(f.date_from, f.date_to)], keyed=True)
+        # Shipping is an ML order's: the fuera lines have none (vpf-metricas-canal S10).
+        lines = self._read_lines([day_bounds(f.date_from, f.date_to)], keyed=True, ml_only=True)
         O, S = aliased(MlOrdersOps), aliased(MlShipmentOps)
         modo = modo_logistico_expr(S.shipment_id, S.logistic_type, O.has_no_shipping_tag).label("modo")
         gross = func.sum(lines.c.gross)
@@ -2695,6 +2769,30 @@ class Board:
         )
         rows = self.db.execute(query.group_by(modo).order_by(gross.desc(), modo)).all()
         return [ShippingRow(modo=m, operations=int(n), units=int(u), gross=cents(g)) for m, n, u, g in rows]
+
+    def fuera_unknown_venta(self) -> int:
+        """How many fuera sold lines of the period, of the rows the board keeps, have an unknown Venta with VAT
+        (`fuera.gross_with_vat`: no legal rate to derive, S13/S14) -- 0 with canal=ml. ONE statement."""
+        if self.canal == "ml":
+            return 0
+        f = self.f
+        joined, fp = self._members("", narrow=True)
+        lines = self._fuera_lines([day_bounds(f.date_from, f.date_to)], tp=False, keyed=False).subquery("fuera_lines")
+        query = (
+            select(func.count())
+            .select_from(joined)
+            .join(lines, and_(lines.c.product == fp.c.product, lines.c.mla == fp.c.mla))
+            .where(lines.c.gross.is_(None))
+        )
+        return int(self.db.execute(query).scalar() or 0)
+
+    def fuera_facets(self) -> Tuple[List[str], List[str]]:
+        """The empresa and vendedor options of the period's fuera lines (`fuera.fuera_options`, S15)."""
+        f = self.f
+        empresas, vendedores = fuera.fuera_options(
+            self.fuera_scope, sqlite=self.sqlite, ranges=[day_bounds(f.date_from, f.date_to)]
+        )
+        return list(self.db.execute(empresas).scalars()), list(self.db.execute(vendedores).scalars())
 
     def _ads_kpis(self) -> AdsKpis:
         """ONE statement. The unfiltered view sums every ad line of the period (the MLAs whose rows a sort or a

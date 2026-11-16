@@ -17,6 +17,8 @@ Permissions (migration `20261001_ml_metricas_permisos`):
   group (the client store filter is intersected), always "Costos TP" (Total TP and Markup TP without
   `ver_ganancia`), never a Gauss figure (`_tp_solo_response`, `TP_SOLO_DENY_CSV`), no PM filter (422), PM scope or
   PM facet, and only the product, publication and "Agrupado" by tienda views (422 otherwise).
+- `canal=fuera|todo` (ventas por fuera, vpf-metricas-canal S7): also `ventas_fuera.ver_metricas_pdf` (403 without it);
+  Total Gauss and markup stay behind `ml_metricas.ver_ganancia`; `tplink.solo` gets 403.
 """
 
 from __future__ import annotations
@@ -40,7 +42,7 @@ from app.core.exceptions import api_error
 from app.core.database import get_background_db, get_db
 from app.models.usuario import Usuario
 from app.services.ml_sales_query.params import parse_csv_ids, parse_csv_stores, parse_csv_strings
-from app.services.ml_daily_metrics import board, groups
+from app.services.ml_daily_metrics import board, fuera, groups
 from app.services.ml_publications.view.filters import FilterError, normalize_q
 from app.services.ml_promotions_service import (
     KNOWN_PROMOTION_TYPES,
@@ -65,7 +67,8 @@ from app.services import pm_scope
 from app.services.permisos_service import PermisosService
 from app.services.product_facets import ProductFacetOptions
 from app.services.tiendas_oficiales import TPLINK_CLAVE, StoreClaveNotConfigured, require_store_ids_for_clave
-from app.services.tplink_solo import es_tplink_solo, lock_stores
+from app.services.tplink_solo import TPLINK_SOLO, es_tplink_solo, lock_stores
+from app.routers.ventas_fuera_pdf import PERMISO_VER as PERMISO_FUERA
 from app.utils.csv_cells import csv_text
 
 PERMISO_VER = "ml_metricas.ver"
@@ -222,6 +225,29 @@ class BoardResponse(BaseModel):
     rows: List[BoardRow]
 
 
+class BoardFueraKpis(BoardKpisWithAds):
+    """The strip with canal=fuera|todo: also how many fuera sold lines have an unknown Venta with VAT (no legal VAT
+    rate to derive from their document, vpf-metricas-canal S13/S14): their Venta adds nothing, so the screen can say
+    it. Never on the ML board (its bytes stay as they were)."""
+
+    venta_desconocida_lineas: int
+
+
+class BoardFueraFacets(BoardFacets):
+    """The chips with canal=fuera|todo: also the empresa and vendedor options of the period's fuera lines, each
+    narrowed by the other's filter (S15). Never on the ML board."""
+
+    empresas: List[str]
+    vendedores: List[str]
+
+
+class BoardFueraResponse(BoardResponse):
+    """`BoardResponse` with canal=fuera|todo (`BoardFueraKpis`, `BoardFueraFacets`)."""
+
+    kpis: BoardFueraKpis
+    facets: BoardFueraFacets
+
+
 class PublicationsResponse(BaseModel):
     rows: List[BoardRow]
 
@@ -343,8 +369,26 @@ def board_filter(
     ),
     sort: str = Query(default="gross", description=" | ".join(board.SORTS)),
     sort_dir: str = Query(default="desc", description="asc | desc"),
+    canal: str = Query(
+        default="ml",
+        description="ml | fuera | todo: las ventas de Mercado Libre, las ventas por fuera (PDF de GBP) o ambas "
+        "(fuera y todo requieren ventas_fuera.ver_metricas_pdf)",
+    ),
+    costo: str = Query(
+        default="costo_d",
+        description="Costo de las ventas por fuera: costo_d (Precio Costo x 1,065) | costo (Precio Costo)",
+    ),
+    empresas: Optional[str] = Query(default=None, description="CSV de empresas de las ventas por fuera"),
+    vendedores: Optional[str] = Query(default=None, description="CSV de vendedores de las ventas por fuera"),
 ) -> board.BoardFilter:
     """Every board filter, validated (422 on anything unknown)."""
+    if canal not in fuera.CANALES:
+        raise HTTPException(status_code=422, detail=f"canal inválido: {canal!r} ({' | '.join(fuera.CANALES)})")
+    if costo not in fuera.COSTOS:
+        raise HTTPException(status_code=422, detail=f"costo inválido: {costo!r} ({' | '.join(fuera.COSTOS)})")
+    if canal == "fuera" and group_by == "publication":
+        # A publication is an ML one: por fuera has none (vpf-metricas-canal S10).
+        raise HTTPException(status_code=422, detail="canal=fuera no tiene vista por publicación (group_by=publication)")
     if group_by not in board.GROUP_BY:
         raise HTTPException(status_code=422, detail=f"group_by inválido: {group_by!r}")
     if dimension not in board.DIMENSIONS:
@@ -433,6 +477,17 @@ def board_filter(
         restar_todo=ads_level == "todo",
         sort=sort,
         sort_desc=sort_dir == "desc",
+        # The ML board reads none of the fuera choices: with canal=ml the filter is the one it always was.
+        **(
+            {}
+            if canal == "ml"
+            else dict(
+                canal=canal,
+                costo=costo,
+                empresas=parse_csv_strings(empresas, "empresas"),
+                vendedores=parse_csv_strings(vendedores, "vendedores"),
+            )
+        ),
     )
 
 
@@ -449,8 +504,11 @@ def board_filter_tp(
 ) -> board.BoardFilter:
     """`board_filter` plus "Costos TP": 403 without the profit view, and the TP store group resolved from the
     `tplink` clave here, server-side (503 when none is configured: never every store). A `tplink.solo` user gets
-    the TP lock instead, whatever `costos_tp` says (`_tp_solo_filter`)."""
-    if _tp_solo_of(tp_solo, db, current_user):
+    the TP lock instead, whatever `costos_tp` says (`_tp_solo_filter`). Ventas por fuera is gated first
+    (`_fuera_gate`)."""
+    tp_solo = _tp_solo_of(tp_solo, db, current_user)
+    _fuera_gate(db, current_user, f, tp_solo)
+    if tp_solo:
         return _tp_solo_filter(db, f)
     if not costos_tp:
         if f.sort == "total_tp":
@@ -462,6 +520,19 @@ def board_filter_tp(
         # The sell in lowers the Gauss cost: with "Costos TP" there is no markup with sell in / sell out to sort by.
         raise HTTPException(status_code=422, detail="sort=markup_sell no está disponible con costos_tp=true")
     return replace(f, costos_tp=True, tp_store_ids=_tp_store_ids(db))
+
+
+def _fuera_gate(db: Session, user: Usuario, f: board.BoardFilter, tp_solo: bool) -> None:
+    """canal=fuera|todo (vpf-metricas-canal S7): 403 for `tplink.solo` (its lock is the TP store group, por fuera has
+    none) and without `ventas_fuera.ver_metricas_pdf`; `ml_metricas.ver` was already required."""
+    if f.canal == "ml":
+        return
+    if tp_solo:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=f"{TPLINK_SOLO}: las ventas por fuera no están disponibles"
+        )
+    if not PermisosService(db).tiene_permiso(user, PERMISO_FUERA):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Falta el permiso {PERMISO_FUERA}")
 
 
 def _tp_store_ids(db: Session) -> Tuple[int, ...]:
@@ -639,8 +710,9 @@ def build_board_response(
             rows = b.group_page(limit, offset)
         else:
             rows = b.page(limit, offset)
+        fuera_extras = None if f.canal == "ml" else (b.fuera_unknown_venta(), *b.fuera_facets())
     prev_from, prev_to = board.previous_period(f)
-    return BoardResponse(
+    response = BoardResponse(
         period=BoardPeriod(date_from=f.date_from, date_to=f.date_to, prev_from=prev_from, prev_to=prev_to),
         group_by=f.group_by,
         dimension=f.dimension if grouped else None,
@@ -655,6 +727,13 @@ def build_board_response(
         facets=_facets(facets, can_see_margin),
         rows=[_row_out(row, can_see_margin, group_view=grouped) for row in rows],
     )
+    if fuera_extras is None:
+        return response
+    unknown, empresas, vendedores = fuera_extras
+    body = response.model_dump()
+    body["kpis"]["venta_desconocida_lineas"] = unknown
+    body["facets"].update(empresas=empresas, vendedores=vendedores)
+    return BoardFueraResponse.model_validate(body)
 
 
 # ── Endpoints ────────────────────────────────────────────────────
@@ -686,7 +765,12 @@ def get_board(
     response = build_board_response(
         db, f, limit=limit, offset=offset, can_see_margin=can_see_margin, scope_pairs=scope_pairs
     )
-    return _tp_solo_response(response) if tp_solo else response
+    if tp_solo:
+        return _tp_solo_response(response)
+    if isinstance(response, BoardFueraResponse):
+        # Its extra fields are not `BoardResponse`'s: answered as they are (the ML board keeps its response model).
+        return JSONResponse(response.model_dump(mode="json"))
+    return response
 
 
 @router.get("/board/products/{product_item_id}/publications", response_model=PublicationsResponse)
@@ -705,10 +789,12 @@ def get_product_publications(
     The ROW filters (alerts, stock, ageing, "solo con ventas") already decided that the
     product is on the board: its sub-rows are every publication passing the
     PAIR filters (store, status, type, brand, search), so they add up to the
-    product row."""
+    product row. Publications are ML's: none por fuera, and only the ML ones in "todo" (vpf-metricas-canal S10)."""
     tp_solo = _tp_solo_of(tp_solo, db, current_user)
     can_see_margin, scope_pairs = _viewer(db, current_user, tp_solo)
     f = _margin_gate(f, can_see_margin)
+    if f.canal == "fuera":
+        return PublicationsResponse(rows=[])
     by_pub = replace(
         f,
         group_by="publication",
@@ -749,10 +835,13 @@ def get_board_shipping_types(
 ) -> ShippingTypesResponse:
     """The period's sales by shipping type ("Por tipo de envío", Métricas ML audit B8), under the board's
     filters: operations, units and gross of the sold lines of the rows the board keeps, each line under its
-    order's logistic mode. Only sales figures, so no profit permission is needed."""
+    order's logistic mode. Only sales figures, so no profit permission is needed. Shipping is ML's: empty por fuera,
+    the ML lines only in "todo" (vpf-metricas-canal S10)."""
     tp_solo = _tp_solo_of(tp_solo, db, current_user)
     can_see_margin, scope_pairs = _viewer(db, current_user, tp_solo)
     f = _margin_gate(f, can_see_margin)
+    if f.canal == "fuera":
+        return ShippingTypesResponse(rows=[])
     with board.Board(db, f, scope_pairs=scope_pairs) as b:
         rows = b.by_shipping()
     return ShippingTypesResponse(
