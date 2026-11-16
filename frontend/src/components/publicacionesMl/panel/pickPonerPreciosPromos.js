@@ -4,11 +4,8 @@ import { resolvePromoName } from '../../promociones/resolvePromoName';
 import { promoDisplayPrice } from '../../promociones/promoDisplayPrice';
 import {
   APPLICABLE_PROMOTION_TYPES,
-  COFUNDED_PROMOTION_TYPES,
   SMART_LIKE_PROMOTION_TYPES,
 } from '../../promociones/applicablePromoTypes';
-
-export { COFUNDED_PROMOTION_TYPES };
 
 const MONTHS_ES = [
   'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
@@ -36,48 +33,59 @@ export const CHOOSER_SLOT_LABELS = Object.fromEntries(
   CHOOSER_SLOT_TYPES.map((type) => [type, type]),
 );
 
-/** Pesos: sale vs started offer can differ by cents. Keep in sync with backend tolerance. */
-const BASELINE_PRICE_TOLERANCE_ARS = 1;
-
-export function pricesClose(left, right, tolerance = BASELINE_PRICE_TOLERANCE_ARS) {
-  if (left == null || right == null) return false;
-  const a = Number(left);
-  const b = Number(right);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
-  return Math.abs(a - b) <= tolerance;
-}
-
 /**
- * Status-quo markup for the chooser: co-funded started offer matching
- * `baselinePrice` (same chain as the promo card / backend
- * `markup_baseline_vigente`: max among matches), else null so the caller
- * falls back to `getMarkupParaPrecio` (plain sale, no co-funding).
+ * Status-quo markup for the chooser: the promo ML applies now (Activa ahora),
+ * else null so the caller falls back to `getMarkupParaPrecio` (plain sale).
+ * Extra args (legacy baseline price) are ignored.
  */
-export function baselineMarkupFromPromos(promotions, baselinePrice) {
-  return baselinePromo(promotions, baselinePrice)?.nuestro_markup ?? null;
+export function baselineMarkupFromPromos(promotions) {
+  return baselinePromo(promotions)?.nuestro_markup ?? null;
 }
 
 /**
  * The `markup_sell_in_out` of the same status-quo offer `baselineMarkupFromPromos` takes its
  * markup from (promos-markup-sell-in-out), null when there is none or it has no sell in / sell out.
+ * Extra args (legacy baseline price) are ignored.
  */
-export function baselineSellInOutFromPromos(promotions, baselinePrice) {
-  return baselinePromo(promotions, baselinePrice)?.markup_sell_in_out ?? null;
+export function baselineSellInOutFromPromos(promotions) {
+  return baselinePromo(promotions)?.markup_sell_in_out ?? null;
 }
 
-function baselinePromo(promotions, baselinePrice) {
-  if (baselinePrice == null || !Number.isFinite(Number(baselinePrice))) return null;
-  const started = (promotions || []).filter(
-    (promo) =>
-      promo?.status === 'started' &&
-      COFUNDED_PROMOTION_TYPES.has(promo.promotion_type) &&
-      typeof promo.nuestro_markup === 'number' &&
-      Number.isFinite(promo.nuestro_markup) &&
-      pricesClose(promoDisplayPrice(promo), baselinePrice),
-  );
-  if (!started.length) return null;
-  // The best markup among the matches (backend `markup_baseline_vigente`); the first on a tie.
-  return started.reduce((best, promo) => (promo.nuestro_markup > best.nuestro_markup ? promo : best));
+/**
+ * Promo hay_mejores compares against: ML's applied started offer (Activa ahora).
+ * Panel rows already carry `application_status` from `derivar_application_status`
+ * — use `started` + `active` only. When that field is absent (mirror / worker
+ * payloads), fall back to the same min-price rule among `started`, then best
+ * `nuestro_markup` on a tie. Null when none qualify (caller uses plain sale).
+ * Keep in sync with backend `markups_baseline_vigente` / `derivar_application_status`.
+ */
+export function baselinePromo(promotions) {
+  const list = promotions || [];
+  const started = list.filter((promo) => promo?.status === 'started');
+  const derived = started.some((promo) => promo != null && 'application_status' in promo);
+  let pool = started.filter((promo) => promo?.application_status === 'active');
+  if (!pool.length && !derived) {
+    // Mirror / worker paths without application_status: same min-price rule among started.
+    const prices = [];
+    for (const promo of started) {
+      const price = promoDisplayPrice(promo);
+      if (price != null && Number.isFinite(price)) prices.push(price);
+    }
+    const minPrice = prices.length ? Math.min(...prices) : null;
+    pool =
+      minPrice == null
+        ? started
+        : started.filter((promo) => {
+            const price = promoDisplayPrice(promo);
+            return price == null || price === minPrice;
+          });
+  }
+  const usable = pool.filter((promo) => {
+    if (typeof promo?.nuestro_markup !== 'number' || !Number.isFinite(promo.nuestro_markup)) return false;
+    return promoDisplayPrice(promo) != null;
+  });
+  if (!usable.length) return null;
+  return usable.reduce((best, promo) => (promo.nuestro_markup > best.nuestro_markup ? promo : best));
 }
 
 // The month of a "Premium <mes>" campaign is Argentina's, whatever the browser's time zone (backend `nombre_mes_es`).

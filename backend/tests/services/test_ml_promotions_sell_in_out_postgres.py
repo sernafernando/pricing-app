@@ -31,6 +31,7 @@ from app.routers.ml_promotions import obtener_promociones_item
 from app.services import ml_promotions_hay_mejores as hay_mejores
 from app.services.envio_real_service import CostosEnvio
 from app.services.ml_promotions_pricing import (
+    MarkupsDePrecio,
     enriquecer_markup_por_promo,
     markup_para_precio_con_sell_in_out,
     resolver_sell_in_out_para_mlas,
@@ -338,11 +339,11 @@ class TestFallaDelSellInOut:
                 _tienda(),
                 patch("app.services.ml_promotions_pricing.resolver_sell_in_out_batch", side_effect=_resolver_que_falla),
             ):
-                nuestro, con_sio = markup_para_precio_con_sell_in_out(db, MLA, 60500.0)
+                markups = markup_para_precio_con_sell_in_out(db, MLA, 60500.0)
             assert db.query(PublicacionML).count() == 1
 
-        assert nuestro is not None
-        assert con_sio is None
+        assert markups.nuestro_markup is not None
+        assert markups.markup_sell_in_out is None
 
 
 class TestPrecioManualYVigente:
@@ -351,22 +352,25 @@ class TestPrecioManualYVigente:
 
         with sessionmaker(bind=engine, autoflush=False)() as db:
             with _tienda():
-                nuestro, con_sio = markup_para_precio_con_sell_in_out(db, MLA, 60500.0)
+                markups = markup_para_precio_con_sell_in_out(db, MLA, 60500.0)
 
-        assert nuestro is not None
-        assert con_sio == pytest.approx(round(((_limpio(nuestro) + 500) / (COSTO - 1000) - 1) * 100, 2), abs=0.01)
+        assert markups.nuestro_markup is not None
+        assert markups.markup_sell_in_out == pytest.approx(
+            round(((_limpio(markups.nuestro_markup) + 500) / (COSTO - 1000) - 1) * 100, 2),
+            abs=0.01,
+        )
 
     def test_without_sell_in_or_sell_out_only_the_markup_comes(self, engine) -> None:
         with sessionmaker(bind=engine, autoflush=False)() as db:
             with _tienda():
-                nuestro, con_sio = markup_para_precio_con_sell_in_out(db, MLA, 60500.0)
+                markups = markup_para_precio_con_sell_in_out(db, MLA, 60500.0)
 
-        assert nuestro is not None
-        assert con_sio is None
+        assert markups.nuestro_markup is not None
+        assert markups.markup_sell_in_out is None
 
     def test_an_unknown_publication_gives_neither(self, engine) -> None:
         with sessionmaker(bind=engine, autoflush=False)() as db:
-            assert markup_para_precio_con_sell_in_out(db, "MLA0", 60500.0) == (None, None)
+            assert markup_para_precio_con_sell_in_out(db, "MLA0", 60500.0) == MarkupsDePrecio(None, None)
 
 
 def _contar(engine: Engine, needle: str):

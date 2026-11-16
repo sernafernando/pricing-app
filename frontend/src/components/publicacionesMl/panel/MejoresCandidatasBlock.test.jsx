@@ -225,7 +225,7 @@ describe('MejoresCandidatasBlock', () => {
     });
   });
 
-  it('uses cofunded started markup as vigente and does not call getMarkupParaPrecio', async () => {
+  it('uses Activa ahora markup as vigente and does not call getMarkupParaPrecio', async () => {
     promocionesAPI.getPromocionesItem.mockResolvedValue({
       data: {
         promotions: [
@@ -251,6 +251,36 @@ describe('MejoresCandidatasBlock', () => {
     render(<MejoresCandidatasBlock itemId="MLA3" baselinePrice={555867.83} />);
     expect(await screen.findByText(/No hay candidatas aplicables/)).toBeInTheDocument();
     expect(screen.getByText(/markup vigente ~ 1,40%/i)).toBeInTheDocument();
+    expect(promocionesAPI.getMarkupParaPrecio).not.toHaveBeenCalled();
+  });
+
+  it('uses a diverged SMART Activa ahora and does not suggest a worse cheaper candidate', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            status: 'started',
+            promotion_type: 'SMART',
+            promotion_id: 'P-SMART',
+            price: 814999,
+            nuestro_markup: 12.1,
+            name: 'Potencia tus ventas',
+          },
+          {
+            status: 'candidate',
+            promotion_type: 'PRICE_MATCHING',
+            promotion_id: 'P-PM',
+            price: 764813.56,
+            nuestro_markup: 4.73,
+            name: 'Gánale a la competencia',
+            start_date: '2026-11-01T00:00:00Z',
+          },
+        ],
+      },
+    });
+    render(<MejoresCandidatasBlock itemId="MLA1609415777" baselinePrice={771149} />);
+    expect(await screen.findByText(/No hay candidatas aplicables/)).toBeInTheDocument();
+    expect(screen.getByText(/markup vigente ~ 12,10%/i)).toBeInTheDocument();
     expect(promocionesAPI.getMarkupParaPrecio).not.toHaveBeenCalled();
   });
 
