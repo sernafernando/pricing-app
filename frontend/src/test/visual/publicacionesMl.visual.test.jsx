@@ -3618,7 +3618,8 @@ describe('Publicaciones ML panel, promo markups with sell in / sell out (visual)
           detailExtra: { can_resync: true, can_change_status: true },
         });
         await expect.element(screen.getByRole('button', { name: 'Aplicar sugerencia' }).first()).toBeVisible();
-        await expect.element(screen.getByText(/Markup vigente ~ -28,74% · c\/ sell in\/out -22,34%/)).toBeVisible();
+        // Markup vigente comes from Activa ahora (S9 started @ 59999, -28.7) + its sell in/out (+6.4 → -22.3).
+        await expect.element(screen.getByText(/Markup vigente ~ -28,70% · c\/ sell in\/out -22,30%/)).toBeVisible();
         const panel = panelOf();
         const section = panel.querySelector('section[aria-label="Disponibles para activar"]');
         const lightningRow = [...section.querySelectorAll('li')].find((li) => li.textContent.startsWith('LIGHTNING'));
