@@ -53,8 +53,8 @@ export function useMejoresCandidatas({
             const res = await promocionesAPI.getMarkupParaPrecio(itemId, Number(baselinePrice));
             markup = res?.data?.nuestro_markup ?? null;
             sellInOut = res?.data?.markup_sell_in_out ?? null;
-          } catch (err) {
-            console.warn('getMarkupParaPrecio failed for hay_mejores baseline', itemId, err);
+          } catch {
+            // Soft-fail: UI already treats null markup as unavailable (no console — team rule).
             markup = null;
           }
         }
