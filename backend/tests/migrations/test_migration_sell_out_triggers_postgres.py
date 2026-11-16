@@ -72,12 +72,27 @@ class TestMigrationGraph:
         assert revision.down_revision == "20261108_sell_out_consumos"
 
 
+def _vpf():
+    """20261119_vpf_offsets_sell_pdf dropped the fuera trigger of the GBP sync table; its downgrade restores it."""
+    path = os.path.join(os.path.dirname(_PATH), "20261119_vpf_offsets_sell_pdf.py")
+    spec = importlib.util.spec_from_file_location("vpf_offsets_sell_pdf_migration", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _sin_fuera(statements):
+    return [s for s in statements if "ventas_fuera_ml_metricas" not in s]
+
+
 class TestFrozenTriggerCopy:
     def test_the_upgrade_installs_exactly_the_module_trigger_sql(self) -> None:
-        assert _module().UPGRADE_SQL == triggers.UPGRADE_SQL, _DRIFT.format("UPGRADE_SQL", _REVISION)
+        assert _sin_fuera(_module().UPGRADE_SQL) == triggers.UPGRADE_SQL, _DRIFT.format("UPGRADE_SQL", _REVISION)
+        fuera = [s for s in _module().UPGRADE_SQL if "ventas_fuera_ml_metricas" in s]
+        assert fuera and set(fuera) <= set(_vpf().DOWNGRADE_SQL)
 
     def test_the_downgrade_drops_exactly_the_module_trigger_sql(self) -> None:
-        assert _module().DOWNGRADE_SQL == triggers.DOWNGRADE_SQL, _DRIFT.format("DOWNGRADE_SQL", _REVISION)
+        assert _sin_fuera(_module().DOWNGRADE_SQL) == triggers.DOWNGRADE_SQL, _DRIFT.format("DOWNGRADE_SQL", _REVISION)
 
 
 @pytest.fixture()
