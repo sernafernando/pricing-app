@@ -2770,6 +2770,30 @@ class Board:
         rows = self.db.execute(query.group_by(modo).order_by(gross.desc(), modo)).all()
         return [ShippingRow(modo=m, operations=int(n), units=int(u), gross=cents(g)) for m, n, u, g in rows]
 
+    def fuera_unknown_venta(self) -> int:
+        """How many fuera sold lines of the period, of the rows the board keeps, have an unknown Venta with VAT
+        (`fuera.gross_with_vat`: no legal rate to derive, S13/S14) -- 0 with canal=ml. ONE statement."""
+        if self.canal == "ml":
+            return 0
+        f = self.f
+        joined, fp = self._members("", narrow=True)
+        lines = self._fuera_lines([day_bounds(f.date_from, f.date_to)], tp=False, keyed=False).subquery("fuera_lines")
+        query = (
+            select(func.count())
+            .select_from(joined)
+            .join(lines, and_(lines.c.product == fp.c.product, lines.c.mla == fp.c.mla))
+            .where(lines.c.gross.is_(None))
+        )
+        return int(self.db.execute(query).scalar() or 0)
+
+    def fuera_facets(self) -> Tuple[List[str], List[str]]:
+        """The empresa and vendedor options of the period's fuera lines (`fuera.fuera_options`, S15)."""
+        f = self.f
+        empresas, vendedores = fuera.fuera_options(
+            self.fuera_scope, sqlite=self.sqlite, ranges=[day_bounds(f.date_from, f.date_to)]
+        )
+        return list(self.db.execute(empresas).scalars()), list(self.db.execute(vendedores).scalars())
+
     def _ads_kpis(self) -> AdsKpis:
         """ONE statement. The unfiltered view sums every ad line of the period (the MLAs whose rows a sort or a
         page hides included); a filtered view sums the owner pairs of the rows it keeps, ads owned by nobody

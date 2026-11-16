@@ -40,6 +40,7 @@ from sqlalchemy import (
     func,
     literal,
     null,
+    or_,
     select,
 )
 
@@ -55,6 +56,10 @@ COSTOS = ("costo_d", "costo")
 COSTO_D_FACTOR = Decimal("1.065")
 # The MLA of every fuera pair: a fuera sale has no publication.
 FUERA_MLA = "fuera"
+# The Argentine VAT rates (%) a rate derived from a document may be (S13), and how far from one it may land
+# (percentage points): the header Importe is rounded to the cent.
+LEGAL_VAT_RATES = (Decimal("0"), Decimal("2.5"), Decimal("5"), Decimal("10.5"), Decimal("21"), Decimal("27"))
+VAT_TOLERANCE_PP = Decimal("0.1")
 
 OP = VentaFueraOperacion.__table__
 LN = VentaFueraOperacionLinea.__table__
@@ -84,15 +89,24 @@ def gross_with_vat(
       Importe = every line x its own VAT, x (1 + `RECARGO_CHEQUE`) on "CHEQUE 30 D" documents. So the header without
       the cheque factor, minus the known lines with their VAT (`known_vat`), over the precio of the lines without a
       known rate (`unknown_precio`), is their VAT factor -- never an assumed 21%.
-    - When the document leaves no rate to derive (its lines without a known rate add up to 0) the line's Venta is
-      NULL (unknown): it adds nothing to Venta, never a guessed amount.
+    - That derived rate counts only when it is a legal AR VAT rate (`LEGAL_VAT_RATES`, within `VAT_TOLERANCE_PP`,
+      S13). When it is not (e.g. a cheque document loaded without its summary: no condicion de venta, so the x1.04
+      stays in the header), or the document leaves no rate to derive (its lines without a known rate add up to 0),
+      the line's Venta is NULL (unknown): it adds nothing to Venta, never a guessed amount, and the board counts it
+      (`Board.fuera_unknown_venta`, S14).
 
     `known_vat` and `unknown_precio` are the document's sums (window over its lines)."""
     rate = cast(iva, Numeric) / literal(100, Numeric)
     cheque = func.upper(condicion_venta).like(f"{CONDICION_CHEQUE}%")
     header = case((cheque, importe / _money(Decimal(1) + RECARGO_CHEQUE)), else_=importe)
     derived = (header - known_vat) / func.nullif(unknown_precio, 0)
-    return case((iva.isnot(None), precio * (literal(1, Numeric) + rate)), else_=precio * derived)
+    derived_pct = (derived - literal(1, Numeric)) * literal(100, Numeric)
+    legal = or_(*(func.abs(derived_pct - _money(vat)) <= _money(VAT_TOLERANCE_PP) for vat in LEGAL_VAT_RATES))
+    return case(
+        (iva.isnot(None), precio * (literal(1, Numeric) + rate)),
+        (legal, precio * derived),
+        else_=cast(null(), Numeric),
+    )
 
 
 def _documents() -> Any:
@@ -215,6 +229,22 @@ def fuera_last_sales(scope: FueraScope, *, sqlite: bool, product: Optional[int] 
     return _narrowed(query, d, scope, product).group_by(d.c.product)
 
 
+def fuera_options(scope: FueraScope, *, sqlite: bool, ranges: List[Range]) -> Tuple[Any, Any]:
+    """The empresa and vendedor option lists of the fuera lines of `ranges` (S15): each narrowed by the OTHER one's
+    filter, never by its own, like the board's chips. Two one-column SELECTs of distinct values."""
+    d = _documents()
+    in_period = _in_ranges(_group_date(d.c.fecha, sqlite), ranges)
+
+    def options(column: Any, other: Any, values: Tuple[str, ...]) -> Any:
+        query = select(column).where(in_period).distinct().order_by(column)
+        return query.where(other.in_(values)) if values else query
+
+    return (
+        options(d.c.empresa, d.c.vendedor, scope.vendedores),
+        options(d.c.vendedor, d.c.empresa, scope.empresas),
+    )
+
+
 __all__ = [
     "CANALES",
     "COSTOS",
@@ -223,5 +253,6 @@ __all__ = [
     "FueraScope",
     "fuera_last_sales",
     "fuera_lines",
+    "fuera_options",
     "gross_with_vat",
 ]

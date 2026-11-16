@@ -497,3 +497,100 @@ class TestSharedReaders:
         lines = list(csv.reader(io.StringIO(resp.text.lstrip("﻿")), delimiter=";"))
         by_title = {line[0]: line for line in lines[1:]}
         assert by_title["Cable"][lines[0].index("Facturado")] == "331,50"
+
+
+class TestUnknownVenta:
+    """S13: a derived rate counts only when it is a legal AR VAT rate (0, 2.5, 5, 10.5, 21, 27, +-0.1 pp); otherwise
+    the line's with-VAT Venta is unknown and adds nothing. S14: the response counts those lines (canal != ml)."""
+
+    def test_a_cheque_document_without_its_summary_leaves_the_manual_line_unknown_and_counted(self, client, db):
+        """Loaded without the summary, the cheque document has no condicion de venta: its header still carries the
+        x1.04, so the freight's derived rate is (2424.24 - 2210) / 100 - 1 = 114.24%, no AR VAT rate."""
+        _products(db)
+        _doc(
+            db,
+            date(2026, 9, 10),
+            "2424.24",
+            [_libro("2000", "1500"), Ln("100", "0", articulo="Flete Ejemplo")],
+            condicion=None,
+        )
+
+        body = _get(client, canal="fuera")
+
+        assert {title: row["gross"] for title, row in _rows(body).items()} == {
+            "Libro Ejemplo": 2210.0,
+            "Flete Ejemplo": 0.0,
+        }
+        assert body["kpis"]["gross"]["value"] == 2210.0
+        assert body["kpis"]["venta_desconocida_lineas"] == 1
+
+    def test_lines_without_a_rate_adding_up_to_zero_are_unknown_and_counted(self, client, db):
+        """The lines without a known rate add up to precio 0 (+100 and -100): no rate can be derived."""
+        _products(db)
+        _doc(
+            db,
+            date(2026, 9, 10),
+            "2210",
+            [_libro("2000", "1500"), Ln("100", "0", articulo="Bonificable"), Ln("-100", "0", articulo="Bonificacion")],
+        )
+
+        body = _get(client, canal="todo")
+
+        assert body["kpis"]["gross"]["value"] == 2210.0
+        assert body["kpis"]["venta_desconocida_lineas"] == 2
+
+    def test_the_count_follows_the_period_and_the_filters(self, client, db):
+        _products(db)
+        _doc(db, date(2026, 9, 10), "2424.24", [_libro(), Ln("100", "0", articulo="Flete Ejemplo")], condicion=None)
+        _doc(db, date(2026, 8, 10), "2424.24", [_libro(), Ln("100", "0", articulo="Flete Ejemplo")], condicion=None)
+
+        assert _get(client, canal="fuera")["kpis"]["venta_desconocida_lineas"] == 1
+        assert _get(client, canal="fuera", empresas="OTRA EMPRESA SRL")["kpis"]["venta_desconocida_lineas"] == 0
+        assert _get(client, canal="fuera", marcas="MarcaDos")["kpis"]["venta_desconocida_lineas"] == 0
+        assert (
+            _get(client, canal="fuera", date_from="2026-08-01", date_to="2026-08-31")["kpis"][
+                "venta_desconocida_lineas"
+            ]
+            == 1
+        )
+
+    def test_a_legal_rate_within_a_tenth_of_a_point_is_taken(self, client, db):
+        """Importe 120.95 for a manual 100: 20.95% is 21% within 0.1 pp, so Venta = the document's 120.95."""
+        _doc(db, date(2026, 9, 10), "120.95", [Ln("100", "50", articulo="Servicio")])
+
+        body = _get(client, canal="fuera")
+
+        assert body["rows"][0]["gross"] == 120.95
+        assert body["kpis"]["venta_desconocida_lineas"] == 0
+
+
+class TestFueraFacets:
+    """S15: /board carries the empresa and vendedor option lists of the fuera lines ONLY when canal != ml."""
+
+    def _seed(self, db) -> None:
+        _products(db)
+        _ml_sale(db, MONITOR, "MLA9001", date(2026, 9, 5))
+        _doc(db, date(2026, 9, 10), "1210", [_monitor()])
+        _doc(db, date(2026, 9, 11), "1210", [_monitor()], empresa="OTRA EMPRESA SRL", vendedor="Vendedor Dos")
+        _doc(db, date(2026, 9, 12), "1210", [_monitor()], empresa="OTRA EMPRESA SRL", vendedor="Vendedor Tres")
+
+    @pytest.mark.parametrize("canal", ["fuera", "todo"])
+    def test_fuera_and_todo_carry_the_empresa_and_vendedor_options(self, client, db, canal):
+        self._seed(db)
+
+        facets = _get(client, canal=canal)["facets"]
+        narrowed = _get(client, canal=canal, empresas="OTRA EMPRESA SRL")["facets"]
+
+        assert facets["empresas"] == [EMPRESA, "OTRA EMPRESA SRL"]
+        assert facets["vendedores"] == ["Vendedor Dos", "Vendedor Tres", VENDEDOR]
+        # Each list keeps its own options and is narrowed by the other one.
+        assert narrowed["empresas"] == [EMPRESA, "OTRA EMPRESA SRL"]
+        assert narrowed["vendedores"] == ["Vendedor Dos", "Vendedor Tres"]
+
+    def test_ml_carries_neither_the_options_nor_the_count(self, client, db):
+        self._seed(db)
+
+        body = _get(client, canal="ml")
+
+        assert "empresas" not in body["facets"] and "vendedores" not in body["facets"]
+        assert "venta_desconocida_lineas" not in body["kpis"]

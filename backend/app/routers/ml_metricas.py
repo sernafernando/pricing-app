@@ -225,6 +225,29 @@ class BoardResponse(BaseModel):
     rows: List[BoardRow]
 
 
+class BoardFueraKpis(BoardKpisWithAds):
+    """The strip with canal=fuera|todo: also how many fuera sold lines have an unknown Venta with VAT (no legal VAT
+    rate to derive from their document, vpf-metricas-canal S13/S14): their Venta adds nothing, so the screen can say
+    it. Never on the ML board (its bytes stay as they were)."""
+
+    venta_desconocida_lineas: int
+
+
+class BoardFueraFacets(BoardFacets):
+    """The chips with canal=fuera|todo: also the empresa and vendedor options of the period's fuera lines, each
+    narrowed by the other's filter (S15). Never on the ML board."""
+
+    empresas: List[str]
+    vendedores: List[str]
+
+
+class BoardFueraResponse(BoardResponse):
+    """`BoardResponse` with canal=fuera|todo (`BoardFueraKpis`, `BoardFueraFacets`)."""
+
+    kpis: BoardFueraKpis
+    facets: BoardFueraFacets
+
+
 class PublicationsResponse(BaseModel):
     rows: List[BoardRow]
 
@@ -687,8 +710,9 @@ def build_board_response(
             rows = b.group_page(limit, offset)
         else:
             rows = b.page(limit, offset)
+        fuera_extras = None if f.canal == "ml" else (b.fuera_unknown_venta(), *b.fuera_facets())
     prev_from, prev_to = board.previous_period(f)
-    return BoardResponse(
+    response = BoardResponse(
         period=BoardPeriod(date_from=f.date_from, date_to=f.date_to, prev_from=prev_from, prev_to=prev_to),
         group_by=f.group_by,
         dimension=f.dimension if grouped else None,
@@ -703,6 +727,13 @@ def build_board_response(
         facets=_facets(facets, can_see_margin),
         rows=[_row_out(row, can_see_margin, group_view=grouped) for row in rows],
     )
+    if fuera_extras is None:
+        return response
+    unknown, empresas, vendedores = fuera_extras
+    body = response.model_dump()
+    body["kpis"]["venta_desconocida_lineas"] = unknown
+    body["facets"].update(empresas=empresas, vendedores=vendedores)
+    return BoardFueraResponse.model_validate(body)
 
 
 # ── Endpoints ────────────────────────────────────────────────────
@@ -734,7 +765,12 @@ def get_board(
     response = build_board_response(
         db, f, limit=limit, offset=offset, can_see_margin=can_see_margin, scope_pairs=scope_pairs
     )
-    return _tp_solo_response(response) if tp_solo else response
+    if tp_solo:
+        return _tp_solo_response(response)
+    if isinstance(response, BoardFueraResponse):
+        # Its extra fields are not `BoardResponse`'s: answered as they are (the ML board keeps its response model).
+        return JSONResponse(response.model_dump(mode="json"))
+    return response
 
 
 @router.get("/board/products/{product_item_id}/publications", response_model=PublicationsResponse)
