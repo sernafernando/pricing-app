@@ -1,16 +1,12 @@
 /* A dropdown the height of the filter chips, on the same surface. */
 .select {
+  composes: select selectSm from '../../styles/forms-tesla.css';
+  width: auto;
   height: var(--chip-height);
+  min-height: var(--chip-height);
   min-width: 180px;
-  padding: 0 28px 0 10px;
-  font-family: inherit;
-  font-size: var(--font-xs);
   font-weight: var(--font-medium);
-  color: var(--cf-text-primary);
-  background-color: var(--cf-bg-card);
-  border: 1px solid var(--tone-neutral-border);
-  border-radius: var(--radius-md);
-  cursor: pointer;
+  border-color: var(--tone-neutral-border);
 }
 
 .select:focus-visible {

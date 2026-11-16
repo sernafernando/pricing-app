@@ -178,14 +178,10 @@
 }
 
 .select {
+  composes: select selectSm from '../styles/forms-tesla.css';
+  width: auto;
   height: 30px;
-  padding: 0 8px;
-  font: inherit;
-  font-size: 13px;
-  color: var(--cf-text-primary);
-  background: var(--cf-bg-card);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-md);
+  min-height: 30px;
 }
 
 .faltan {
