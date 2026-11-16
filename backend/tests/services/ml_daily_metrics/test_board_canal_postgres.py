@@ -39,7 +39,13 @@ pytestmark = pytest.mark.postgres
 
 NOW = datetime(2026, 9, 30, 18, 0, tzinfo=timezone.utc)
 URL = "/api/ml-metricas/board"
-PERMISOS = {"ml_metricas.ver", "ml_metricas.ver_ganancia", "ventas_fuera.ver_metricas_pdf"}
+# Both profit views: fuera's figures need ventas_fuera.ver_ganancia, ML's ml_metricas.ver_ganancia (vpf-metricas-canal-fe S6).
+PERMISOS = {
+    "ml_metricas.ver",
+    "ml_metricas.ver_ganancia",
+    "ventas_fuera.ver_metricas_pdf",
+    "ventas_fuera.ver_ganancia",
+}
 EMPRESA, VENDEDOR = "EMPRESA EJEMPLO SA", "Vendedor Uno"
 MONITOR, LIBRO = 501, 502  # productos_erp: VAT 21% and 10.5%
 CABLE = "7790000099999"  # a code productos_erp does not have
@@ -599,16 +605,23 @@ class TestFueraFacets:
 # ── Regression tests from the independent verification: margin and permission gates on every endpoint,
 # credit notes, cheque documents with mixed VAT rates and the legal-rate tolerance. ──
 
-NO_MARGIN = PERMISOS - {"ml_metricas.ver_ganancia"}
 NO_FUERA = PERMISOS - {"ventas_fuera.ver_metricas_pdf"}
 
 
-@pytest.mark.parametrize("canal", ["fuera", "todo"])
-def test_s7_margin_hidden_without_ver_ganancia(conn, db, monkeypatch, canal):
+# vpf-metricas-canal-fe S6 ("Mirror L23 per channel"): fuera's margin needs ventas_fuera.ver_ganancia, todo's both.
+@pytest.mark.parametrize(
+    ("canal", "missing"),
+    [
+        ("fuera", "ventas_fuera.ver_ganancia"),
+        ("todo", "ml_metricas.ver_ganancia"),
+        ("todo", "ventas_fuera.ver_ganancia"),
+    ],
+)
+def test_s7_margin_hidden_without_ver_ganancia(conn, db, monkeypatch, canal, missing):
     _products(db)
     _ml_sale(db, MONITOR, "MLA9001", date(2026, 9, 5))
     _doc(db, date(2026, 9, 10), "1210", [_monitor("1000", "800")])
-    c = _client(conn, monkeypatch, NO_MARGIN)
+    c = _client(conn, monkeypatch, PERMISOS - {missing})
     body = _get(c, canal=canal)
     row = body["rows"][0]
     assert row["gross"] > 0

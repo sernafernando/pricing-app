@@ -46,7 +46,7 @@ from sqlalchemy import (
 
 from app.core.constants import BUSINESS_TIMEZONE
 from app.models.producto import ProductoERP
-from app.models.venta_fuera_pdf import VentaFueraOperacion, VentaFueraOperacionLinea
+from app.models.venta_fuera_pdf import VentaFueraOperacion, VentaFueraOperacionLinea, VentaFueraPdfCarga
 from app.services.ml_daily_metrics.sales import BUSINESS_TZ, NO_PRODUCT, Range, _in_ranges
 from app.services.ventas_fuera_pdf.carga import CONDICION_CHEQUE, RECARGO_CHEQUE
 
@@ -121,6 +121,9 @@ def _documents() -> Any:
     return (
         select(
             LN.c.operacion_id,
+            OP.c.tipo,
+            OP.c.letra,
+            OP.c.recargo_financiero,
             OP.c.fecha,
             OP.c.empresa,
             OP.c.vendedor,
@@ -155,6 +158,11 @@ def _group_date(fecha: Any, sqlite: bool) -> Any:
     return func.timezone(BUSINESS_TIMEZONE, cast(fecha, DateTime))
 
 
+def _cost(d: Any, costo: str) -> Any:
+    """A line's cost on the basis `costo`: Costo D (`precio_costo` x `COSTO_D_FACTOR`) or `precio_costo` (S1)."""
+    return d.c.precio_costo * _money(COSTO_D_FACTOR) if costo == "costo_d" else d.c.precio_costo
+
+
 def _narrowed(query: Any, d: Any, scope: FueraScope, product: Optional[int]) -> Any:
     if scope.empresas:
         query = query.where(d.c.empresa.in_(scope.empresas))
@@ -180,7 +188,7 @@ def fuera_lines(
     d = _documents()
     group_date = _group_date(d.c.fecha, sqlite)
     ars = d.c.moneda == "ARS"
-    cost = d.c.precio_costo * _money(COSTO_D_FACTOR) if scope.costo == "costo_d" else d.c.precio_costo
+    cost = _cost(d, scope.costo)
     # In Total Gauss and the markup: ARS and with a cost (S8, S9).
     counted = and_(ars, d.c.precio_costo != 0)
     margin = case((counted, d.c.precio - cost), else_=0)
@@ -245,14 +253,88 @@ def fuera_options(scope: FueraScope, *, sqlite: bool, ranges: List[Range]) -> Tu
     )
 
 
+def otro_costo(costo: str) -> str:
+    """The cost basis the board is NOT showing (vpf-metricas-canal-fe C3 `kpis.fuera.otro_costo`)."""
+    return "costo" if costo == "costo_d" else "costo_d"
+
+
+def fuera_kpi_lines(scope: FueraScope, *, sqlite: bool, ranges: List[Range]) -> Any:
+    """The fuera sold lines of `ranges` with what the "Por fuera" KPI block reads (vpf-metricas-canal-fe C3): the
+    document (`operacion_id`, `tipo`, `letra`, its cheque surcharge `recargo_financiero`), the pair (`product`, `mla`)
+    to keep only the board's rows, `sin_producto`, the line's Venta with VAT (`gross`, as the board's) and its Total
+    Gauss and cost on the OTHER cost basis (`otro_costo`): `otro_margin` / `otro_mcosto`, by the board's rule (ARS
+    lines with a cost only)."""
+    d = _documents()
+    ars = d.c.moneda == "ARS"
+    cost = _cost(d, otro_costo(scope.costo))
+    counted = and_(ars, d.c.precio_costo != 0)
+    query = select(
+        d.c.operacion_id,
+        d.c.tipo,
+        d.c.letra,
+        d.c.recargo_financiero,
+        d.c.product.label("product"),
+        literal(FUERA_MLA).label("mla"),
+        d.c.sin_producto,
+        case((ars, d.c.gross_vat), else_=0).label("gross"),
+        case((counted, d.c.precio - cost), else_=0).label("otro_margin"),
+        case((counted, cost), else_=0).label("otro_mcosto"),
+    ).where(_in_ranges(_group_date(d.c.fecha, sqlite), ranges))
+    return _narrowed(query, d, scope, None)
+
+
+def fuera_empresa_documentos(scope: FueraScope, *, sqlite: bool, ranges: List[Range]) -> Any:
+    """`empresa`, `documentos`: the period's fuera documents per company, narrowed by the vendedor filter, never by
+    the empresa one (like the empresa options, S15)."""
+    d = _documents()
+    query = (
+        select(d.c.empresa, func.count(func.distinct(d.c.operacion_id)).label("documentos"))
+        .where(_in_ranges(_group_date(d.c.fecha, sqlite), ranges))
+        .group_by(d.c.empresa)
+        .order_by(d.c.empresa)
+    )
+    return query.where(d.c.vendedor.in_(scope.vendedores)) if scope.vendedores else query
+
+
+def fuera_vendedor_documentos(scope: FueraScope, *, sqlite: bool, ranges: List[Range]) -> Any:
+    """`vendedor`, `documentos`: the period's fuera documents per salesperson, narrowed by the empresa filter, never by
+    the vendedor one (like the vendedor options, S15)."""
+    d = _documents()
+    query = (
+        select(d.c.vendedor, func.count(func.distinct(d.c.operacion_id)).label("documentos"))
+        .where(_in_ranges(_group_date(d.c.fecha, sqlite), ranges))
+        .group_by(d.c.vendedor)
+        .order_by(d.c.vendedor)
+    )
+    return query.where(d.c.empresa.in_(scope.empresas)) if scope.empresas else query
+
+
+def ultimo_pdf(scope: FueraScope) -> Any:
+    """`created_at`, `empresa`, `vendedor` of the newest upload that brought a detailed report (of the filtered
+    companies): how fresh the fuera figures are."""
+    C = VentaFueraPdfCarga.__table__
+    query = (
+        select(C.c.created_at, C.c.empresa, C.c.vendedor)
+        .where(C.c.archivo_detallado.isnot(None))
+        .order_by(C.c.created_at.desc(), C.c.id.desc())
+        .limit(1)
+    )
+    return query.where(C.c.empresa.in_(scope.empresas)) if scope.empresas else query
+
+
 __all__ = [
     "CANALES",
     "COSTOS",
     "COSTO_D_FACTOR",
     "FUERA_MLA",
     "FueraScope",
+    "fuera_empresa_documentos",
+    "fuera_vendedor_documentos",
+    "fuera_kpi_lines",
     "fuera_last_sales",
     "fuera_lines",
     "fuera_options",
     "gross_with_vat",
+    "otro_costo",
+    "ultimo_pdf",
 ]

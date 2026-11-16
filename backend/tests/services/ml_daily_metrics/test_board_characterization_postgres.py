@@ -192,6 +192,9 @@ def _compute(session) -> Dict[str, Dict[str, str]]:
 
 def _row_json(row: Any) -> Dict[str, Any]:
     data = _without_null_tp(dict(row.__dict__))
+    # `canal` (vpf-metricas-canal-fe C3) is set only with canal=fuera|todo: additive, not pinned here while None.
+    if data.get("canal") is None:
+        data.pop("canal", None)
     data["flags"] = sorted(data.get("flags") or ())
     return data
 

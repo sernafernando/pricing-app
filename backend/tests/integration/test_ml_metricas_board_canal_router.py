@@ -92,8 +92,8 @@ class TestParams:
 
 
 class TestPermissions:
-    """S7: canal=fuera|todo require ml_metricas.ver AND ventas_fuera.ver_metricas_pdf (403 otherwise); tplink.solo
-    users get 403 on fuera/todo."""
+    """S7, as vpf-metricas-canal-fe S5 changed it: canal=fuera requires ventas_fuera.ver_metricas_pdf, canal=todo also
+    ml_metricas.ver (403 otherwise); tplink.solo users get 403 on fuera/todo."""
 
     @pytest.mark.usefixtures("board_data")
     @pytest.mark.parametrize("canal", ["fuera", "todo"])
@@ -106,7 +106,9 @@ class TestPermissions:
         assert resp.status_code == 403
         assert FUERA in resp.text
 
-    @pytest.mark.parametrize("canal", ["fuera", "todo"])
+    # vpf-metricas-canal-fe S5 (L23): "fuera needs ver_metricas_pdf only, ml needs ml_metricas.ver, todo needs both"
+    # -- canal=fuera with the PDF permission alone is 200 (`test_board_canal_split_postgres`).
+    @pytest.mark.parametrize("canal", ["todo"])
     def test_the_fuera_permission_without_ml_metricas_ver_is_403(
         self, client, admin_auth_headers, rol_admin, db, canal
     ):
