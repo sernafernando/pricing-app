@@ -382,6 +382,20 @@ class TestTextos:
         assert texto["fuente"] == "gbp" and texto["elegida"] is False
         assert stored(pg, "fuente_titulo_ml") is None
 
+    def test_copying_from_a_publication_keeps_an_own_text(self, client, pg, editor, db, rol_admin):
+        """Copying a publication's data (T7) never replaces an own ML text (L17 b); the others are copied."""
+        grant(db, rol_admin, "ml_publicaciones.editar_producto")
+        with pg.begin() as conn:
+            product(conn)
+            publication(conn, "MLA1", title="Titulo de la publicacion", desc="Descripcion de la publicacion")
+        patch(client, editor, {"textos": {"titulo_ml": {"fuente": "propio", "texto": "Mi titulo"}}})
+
+        copied = client.post(f"{BASE}/455/fuente", headers=editor, json={"mla": "MLA1"})
+
+        assert copied.status_code == 200, copied.text
+        assert (stored(pg, "titulo"), stored(pg, "descripcion")) == ("Mi titulo", "Descripcion de la publicacion")
+        assert read(client, editor)["textos"]["titulo_ml"]["valor"] == "Mi titulo"
+
     def test_choosing_a_source_keeps_the_publicaciones_ml_copy(self, client, pg, editor):
         """`titulo` / `descripcion` are also the copy of the chosen publication (T7): a source never clears them."""
         with pg.begin() as conn:
@@ -429,6 +443,22 @@ class TestUnidadesCaja:
         assert stored(pg, "nombre") is None  # nothing written
         grant(db, rol_admin, DEPOSITOS)
         assert patch(client, editor, {"unidades_caja": 0}).status_code == 422
+
+    def test_an_unchanged_units_per_box_needs_no_gestion_full_permission(self, client, pg, editor):
+        """The screen sends the whole form: the value it read back must not be refused (L17 a)."""
+        with pg.begin() as conn:
+            product(conn)
+
+        assert patch(client, editor, {"unidades_caja": None, "nombre": "Sin caja"}).status_code == 200
+        with pg.begin() as conn:
+            conn.execute(text("INSERT INTO gestion_full_unidades_caja (producto_item_id, unidades) VALUES (455, 20)"))
+        same = patch(client, editor, {"unidades_caja": 20, "nombre": "Con caja"})
+        assert same.status_code == 200, same.text
+        assert stored(pg, "nombre") == "Con caja"
+        assert patch(client, editor, {"unidades_caja": 21}).status_code == 403
+        assert patch(client, editor, {"unidades_caja": None}).status_code == 403
+        with pg.connect() as conn:
+            assert conn.execute(text("SELECT unidades FROM gestion_full_unidades_caja")).scalar() == 20
 
 
 class TestListado:

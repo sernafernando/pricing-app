@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_algun_permiso, require_permiso
 from app.core.constants import PERMISOS_PUBLICACIONES_ML
 from app.core.database import get_db
+from app.models.gestion_full_unidades_caja import GestionFullUnidadesCaja
 from app.models.producto_propio import MAX_CODE_LENGTH
 from app.models.usuario import Usuario
 from app.schemas.publication_data import (
@@ -247,12 +248,15 @@ def patch_maestro(
 ) -> MaestroResponse:
     """Override GBP fields (null goes back to GBP), choose each text's source or write an own text, and set units
     per box (null clears them). Nothing is written to GBP. 422 for an unknown brand or category, a subcategory of
-    another category or a blank own text; 403 for units per box without `gestion_full.depositos`."""
+    another category or a blank own text; 403 for changing units per box without `gestion_full.depositos`."""
     sent = body.model_fields_set
     cambios = {campo: getattr(body, campo) for campo in sent if campo in producto_maestro.OVERRIDES}
     unidades: Any = producto_maestro.SIN_CAMBIO
     if "unidades_caja" in sent:
-        if not PermisosService(auth_db).tiene_permiso(user, PERMISO_UNIDADES_CAJA):
+        # The screen sends the whole form: only a change needs the Gestión Full permission.
+        actual = db.get(GestionFullUnidadesCaja, item_id)
+        sin_cambio = body.unidades_caja == (actual.unidades if actual is not None else None)
+        if not sin_cambio and not PermisosService(auth_db).tiene_permiso(user, PERMISO_UNIDADES_CAJA):
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Editar unidades por caja requiere el permiso de Depósitos")
         unidades = body.unidades_caja
     textos = {clave: (edit.fuente, edit.texto) for clave, edit in body.textos.items()}
