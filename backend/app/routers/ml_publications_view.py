@@ -318,6 +318,7 @@ class ItemRowOut(BaseModel):
     gone_at: Optional[datetime] = None
     price: PriceOut
     hay_mejores_ofertas: bool = False
+    hay_mejores_excluido: bool = False
     stock: StockOut
     erp_stock: ErpStockOut
     stock_total: Optional[int] = None  # ERP + Full; null only when both are unknown
@@ -912,6 +913,9 @@ def filter_query(
     hay_mejores_ofertas: Optional[bool] = Query(
         None, description="true: candidate promo beats consumer MeLi price (modo poner precios)"
     ),
+    hay_mejores_excluido: Optional[bool] = Query(
+        None, description="true: publication opted out of hay_mejores until a PM re-includes it"
+    ),
     colores: Optional[str] = Query(
         None, description="csv of Productos' colors and/or `sin_color`, on the layer of `equipo_id` (the global one)"
     ),
@@ -983,6 +987,7 @@ def filter_query(
             con_mla=con_mla,
             estado_mla=estado_mla,
             hay_mejores_ofertas=hay_mejores_ofertas if hay_mejores_ofertas is True else None,
+            hay_mejores_excluido=hay_mejores_excluido if hay_mejores_excluido is True else None,
         )
         # The facets' promo axis leaves its own filter out, as every axis does: it needs the PxQ part alone.
         f = replace(_resolve_promo_search(f), pxq_scope=scope.pxq, promo_filter=scope.promo_filter)
@@ -1901,6 +1906,81 @@ def post_checked_status_item_ids(
         raise
     finally:
         db.rollback()  # read-only work; nothing was written
+    return {"item_ids": found.item_ids, "count": len(found.item_ids), "no_aplican": found.no_aplican}
+
+
+class ExclusionItemIdsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    excluido: bool
+    item_ids: list[CheckedItemId] = Field(default_factory=list, max_length=caps.MAX_CHECKED_IDS)
+    producto_ids: list[CheckedProductId] = Field(default_factory=list, max_length=caps.MAX_CHECKED_IDS)
+
+    @model_validator(mode="after")
+    def _something_checked(self) -> "ExclusionItemIdsRequest":
+        if not self.item_ids and not self.producto_ids:
+            raise ValueError("check at least one publication or product")
+        return self
+
+
+@router.get("/hay-mejores-exclusion-item-ids", response_model=StatusItemIdsResponse)
+def get_hay_mejores_exclusion_item_ids(
+    excluido: bool = Query(..., description="true: pubs that can be excluded; false: that can be re-included"),
+    user: Usuario = Depends(require_algun_permiso(PERMISOS_PUBLICACIONES_ML)),
+    _may_write: Usuario = Depends(require_permiso("promos.escribir")),
+    f: PublicationFilter = Depends(filter_query),
+    markup_neg: Optional[bool] = Query(None, description="ANY variation negative (ver_ganancia), as in /items"),
+    markup_min: Optional[str] = Query(None, description="worst variation >= this percent (ver_ganancia)"),
+    markup_max: Optional[str] = Query(None, description="worst variation <= this percent (ver_ganancia)"),
+    db: Session = Depends(get_view_db),
+    auth_db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Filtered MLAs for bulk hay_mejores exclude/include. Needs `promos.escribir`. Cap as status bulk."""
+    from app.services.ml_publications.view import exclusion_targets
+
+    asks_for_margin = _check_markup_filter(user, auth_db, markup_neg, markup_min, markup_max)
+    try:
+        markup = _markup_query(auth_db, markup_neg, markup_min, markup_max) if asks_for_margin else None
+        if f.needs_events and settings_store.get_setting("events.enabled").value is not True:
+            raise FilterError("evento", "requires the events flag (events.enabled) to be on")
+        listing.bound(db)
+        found = exclusion_targets.exclusion_item_ids(db, f, excluido=excluido, markup=markup)
+    except FilterError as exc:
+        raise _unprocessable(exc) from exc
+    except status_targets.TooManyPublications as exc:
+        raise _over_cap(exc, "El filtro selecciona", "Acotá el filtro.") from exc
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()
+    return {"item_ids": found.item_ids, "count": len(found.item_ids), "no_aplican": found.no_aplican}
+
+
+@router.post("/hay-mejores-exclusion-item-ids/checked", response_model=StatusItemIdsResponse)
+def post_checked_hay_mejores_exclusion_item_ids(
+    body: ExclusionItemIdsRequest,
+    _user: Usuario = Depends(require_algun_permiso(PERMISOS_PUBLICACIONES_ML)),
+    _may_write: Usuario = Depends(require_permiso("promos.escribir")),
+    db: Session = Depends(get_view_db),
+) -> dict[str, Any]:
+    """Checked rows' MLAs for bulk hay_mejores exclude/include (same widening as status bulk)."""
+    from app.services.ml_publications.view import exclusion_targets
+
+    try:
+        listing.bound(db)
+        found = exclusion_targets.checked_exclusion_item_ids(
+            db, body.item_ids, body.producto_ids, excluido=body.excluido
+        )
+    except status_targets.TooManyPublications as exc:
+        raise _over_cap(exc, "Lo marcado suma", "Marcá menos filas.") from exc
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()
     return {"item_ids": found.item_ids, "count": len(found.item_ids), "no_aplican": found.no_aplican}
 
 

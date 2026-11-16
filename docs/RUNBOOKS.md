@@ -1144,6 +1144,17 @@ the panel refresh), paced with the shared ML `Pacer`.
   or `ML_PUB_KILL_SWITCH=true` (env-only, forces every `*.enabled` off).
 - **Rate:** `catalog_competition_refresh.rate_per_min` (env default 10/min).
 
+### Hay mejores — exclusion (`hay_mejores_excluido`)
+
+Permanent opt-out of the hay_mejores process until a PM re-includes the MLA
+(`promos.escribir`). Default is participate (`false`). While excluded,
+`actualizar_hay_mejores_ofertas` keeps `hay_mejores_ofertas=false` (clears
+fingerprints) and never re-flags. UI: checkbox in Promos tab; bulk via
+`POST /promociones/hay-mejores-exclusion-bulk` after resolving ids with
+`/ml-publications/view/hay-mejores-exclusion-item-ids`. List filter
+`hay_mejores_excluido=true`. Migration `20261114_hay_mejores_excluido`
+(column only; no partial index yet).
+
 ### Hay mejores — offline recompute (one-shot, no ML)
 
 Since pubml-promo-mejor, only candidates **applicable now** count (writable

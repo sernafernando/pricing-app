@@ -45,9 +45,30 @@ class TestNotWider:
         assert response.status_code == 403
         assert "pausar" in response.text
 
-    def test_the_only_view_write_shaped_route_is_the_checked_status_read(self):
+    def test_the_only_view_write_shaped_routes_are_the_checked_reads(self):
+        # Read-by-POST: checked pause/activate resolve + checked hay-mejores exclusion resolve.
         posts = sorted(route.path for route in ml_publications_view.router.routes if "POST" in route.methods)
-        assert posts == ["/ml-publications/view/status-item-ids/checked"]
+        assert posts == [
+            "/ml-publications/view/hay-mejores-exclusion-item-ids/checked",
+            "/ml-publications/view/status-item-ids/checked",
+        ]
+
+    def test_hay_mejores_exclusion_item_ids_still_needs_promos_escribir(self, client, pg, productos_only):
+        response = client.get(
+            "/api/ml-publications/view/hay-mejores-exclusion-item-ids?excluido=true",
+            headers=productos_only,
+        )
+        assert response.status_code == 403
+        assert "promos.escribir" in response.text
+
+    def test_checked_hay_mejores_exclusion_item_ids_still_needs_promos_escribir(self, client, pg, productos_only):
+        response = client.post(
+            "/api/ml-publications/view/hay-mejores-exclusion-item-ids/checked",
+            headers=productos_only,
+            json={"excluido": True, "item_ids": ["MLA1"]},
+        )
+        assert response.status_code == 403
+        assert "promos.escribir" in response.text
 
     def test_kpis_still_need_ml_metricas_ver(self, client, pg, productos_only):
         response = client.get("/api/ml-publications/view/kpis", headers=productos_only)

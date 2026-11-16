@@ -394,6 +394,12 @@ def row_columns(*, cost: bool = False) -> list[Any]:
                 MlItemSellerPromotions.hay_mejores_ofertas.is_(True),
             )
         ).label("hay_mejores_ofertas"),
+        exists(
+            select(literal(1)).where(
+                MlItemSellerPromotions.item_id == i.item_id,
+                MlItemSellerPromotions.hay_mejores_excluido.is_(True),
+            )
+        ).label("hay_mejores_excluido"),
         # ERP list for this MLA (map allow-listed here for S4), not ML listing_type_id.
         select(PublicacionML.pricelist_id)
         .where(PublicacionML.mla == i.item_id)
@@ -597,6 +603,7 @@ def _item(row: Any, variations: dict[str, int], labels: dict[int, str], last_eve
         "gone_at": row.gone_at,
         "price": _price(row),
         "hay_mejores_ofertas": bool(getattr(row, "hay_mejores_ofertas", False)),
+        "hay_mejores_excluido": bool(getattr(row, "hay_mejores_excluido", False)),
         "stock": {
             "available": row.available_quantity,
             "full": row.full_quantity,
