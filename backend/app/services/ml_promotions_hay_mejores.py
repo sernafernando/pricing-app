@@ -4,9 +4,9 @@ Better = markup↑ at same price, or lower price with markup ≥ baseline.
 A higher consumer price is never better. Discard fingerprints block instant
 re-flag; a new better novelty re-marks.
 
-Baseline markup: co-funded when a started SMART / PRE_NEGOTIATED /
-PRICE_MATCHING offer matches sale_price (``markups_baseline_vigente``);
-otherwise plain ``markup_para_precio(sale)``.
+Baseline: the Activa ahora offer ML applies (lowest-price ``started``, via
+``markups_baseline_vigente`` / ``derivar_application_status``); otherwise plain
+``markup_para_precio(sale)`` against sale.
 
 Ranking markup (S5, owner: "va a tener que usar el sell in sell out"): the
 markups with today's sell in / sell out (``markup_sell_in_out``) when the
@@ -179,15 +179,15 @@ def listar_mejores_candidatas(
     raw_promotions: Any = None,
     sell_in_out_batch: Optional[SellInOutBatch] = None,
 ) -> List[MejorTuple]:
-    """Candidates that beat the MeLi status quo (sale_price + correct baseline markup), compared by
-    ``markups_comparables``: the same basis on both sides.
+    """Candidates that beat the MeLi status quo, compared by ``markups_comparables``.
 
-    ``raw_promotions`` (full mirror, including started) selects co-funded vs
-    plain baseline via ``markups_baseline_vigente``. ``sell_in_out_batch``: a
-    sell in / sell out read already done for many items; without it, one read
-    for this item feeds both sides, and a failed read is not retried per side.
-    The MLA's header unit is resolved ONCE and prices both sides
-    (``resolver_contexto_promos``); without one, nothing beats the status quo.
+    Status quo comes from ``markups_baseline_vigente``: the lowest-price started
+    offer ML applies (Activa ahora), else plain sale. ``baseline_price`` is the
+    sale used for that plain fallback. ``raw_promotions`` is the full mirror
+    (incl. started). ``sell_in_out_batch``: a sell in / sell out read already
+    done for many items; without it, one read for this item feeds both sides.
+    The MLA's header unit is resolved ONCE (``resolver_contexto_promos``);
+    without one, nothing beats the status quo.
     """
     if not candidates or baseline_price is None or baseline_price <= 0:
         return []
@@ -202,6 +202,11 @@ def listar_mejores_candidatas(
     )
     if vigente.nuestro_markup is None:
         return []
+    status_quo_price = (
+        float(vigente.precio_status_quo)
+        if vigente.precio_status_quo is not None and vigente.precio_status_quo > 0
+        else float(baseline_price)
+    )
     promos = [normalizar_entrada_seller_promo(entry) for entry in candidates]
     enriquecer_markup_por_promo(db, mla, promos, sell_in_out=True, batch=batch, context=context)
     mejores: List[MejorTuple] = []
@@ -209,7 +214,7 @@ def listar_mejores_candidatas(
         price = precio_de_oferta(promo)
         candidato = MarkupsDePrecio(promo.get("nuestro_markup"), promo.get("markup_sell_in_out"))
         markup, baseline_markup = markups_comparables(candidato, vigente)
-        if not es_mejor_oferta(price, markup, baseline_price, baseline_markup):
+        if not es_mejor_oferta(price, markup, status_quo_price, baseline_markup):
             continue
         assert price is not None
         mejores.append((promotion_key(entry), float(price)))

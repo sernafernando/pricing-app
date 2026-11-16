@@ -10,8 +10,7 @@ import SellInOutMarkupExtra from '../../promociones/SellInOutMarkupExtra';
 import { sellInOutText } from '../../promociones/sellInOutMarkup';
 import {
   CHOOSER_SLOT_LABELS,
-  baselineMarkupFromPromos,
-  baselineSellInOutFromPromos,
+  baselinePromo,
   comparableMarkups,
   hasPickedSlot,
   parsePromoInstant,
@@ -172,10 +171,10 @@ export default function MejoresCandidatasBlock({
         const promoRes = await promocionesAPI.getPromocionesItem(itemId);
         if (cancelled) return;
         const promotions = promoRes?.data?.promotions ?? promoRes?.data?.promociones ?? [];
-        // Co-funded started (SMART / PRE_NEGOTIATED / PRICE_MATCHING) matching
-        // sale → same markup as the promo card; else plain getMarkupParaPrecio.
-        let markup = baselineMarkupFromPromos(promotions, baselinePrice);
-        let sellInOut = baselineSellInOutFromPromos(promotions, baselinePrice);
+        // Activa ahora = ML-applied started (lowest price / application_status active).
+        const statusQuoPromo = baselinePromo(promotions);
+        let markup = statusQuoPromo?.nuestro_markup ?? null;
+        let sellInOut = statusQuoPromo?.markup_sell_in_out ?? null;
         if (markup == null && baselinePrice != null && Number.isFinite(Number(baselinePrice))) {
           try {
             const res = await promocionesAPI.getMarkupParaPrecio(itemId, Number(baselinePrice));
@@ -196,8 +195,10 @@ export default function MejoresCandidatasBlock({
         setBaselineMarkup(markup);
         setBaselineSellInOut(sellInOut);
         setApplied(promotions.find((promo) => promo?.application_status === 'active') ?? null);
+        const comparePrice =
+          statusQuoPromo != null ? Number(promoDisplayPrice(statusQuoPromo)) : Number(baselinePrice);
         const picked = pickMejoresCandidatas(promotions, {
-          baselinePrice: Number(baselinePrice),
+          baselinePrice: comparePrice,
           // Compared like the backend flag (S5): with sell in / sell out only when both sides have it.
           baselineMarkup: markup,
           baselineSellInOut: sellInOut,

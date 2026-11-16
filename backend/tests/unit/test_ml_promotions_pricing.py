@@ -598,7 +598,7 @@ class TestMarkupBaselineVigente:
         with _header():
             assert markup_baseline_vigente(db, "MLA1", sale + 0.5, raw_promotions=raw) == pytest.approx(expected)
 
-    def test_falls_back_to_plain_markup_without_cofunded_started(self) -> None:
+    def test_falls_back_to_plain_markup_without_started(self) -> None:
         from app.services.ml_promotions_pricing import markup_baseline_vigente
 
         db = MagicMock()
@@ -609,12 +609,6 @@ class TestMarkupBaselineVigente:
                 "status": "candidate",
                 "price": 526957,
             },
-            {
-                "id": "C-1",
-                "type": "SELLER_CAMPAIGN",
-                "status": "started",
-                "price": 599999,
-            },
         ]
         with patch(
             "app.services.ml_promotions_pricing.markup_para_precio",
@@ -624,29 +618,108 @@ class TestMarkupBaselineVigente:
             plain.assert_called_once()
             assert plain.call_args.args == (db, "MLA1", 555867.83)
 
-    def test_falls_back_when_started_cofunded_price_does_not_match_sale(self) -> None:
-        from app.services.ml_promotions_pricing import markup_baseline_vigente
+    def test_uses_started_even_when_offer_price_differs_from_sale(self) -> None:
+        from app.services.ml_promotions_pricing import markups_baseline_vigente
 
         db = MagicMock()
         raw = [
             {
                 "id": "P-1",
-                "type": "PRICE_MATCHING",
+                "type": "SMART",
                 "status": "started",
-                "price": 400000,
-                "original_price": 939442,
-                "meli_percentage": 10,
+                "price": 814999,
+                "original_price": 1451411,
+                "meli_percentage": 3.4,
             },
         ]
 
-        def _enrich(_db, _mla, promos):
+        def _enrich(_db, _mla, promos, **_kwargs):
             for promo in promos:
-                promo["nuestro_markup"] = 1.4
+                promo["nuestro_markup"] = 12.1
+                promo["markup_sell_in_out"] = 13.0
             return promos
 
         with (
             patch("app.services.ml_promotions_pricing.enriquecer_markup_por_promo", side_effect=_enrich),
             patch("app.services.ml_promotions_pricing.markup_para_precio", return_value=-5.1) as plain,
         ):
-            assert markup_baseline_vigente(db, "MLA1", 555867.83, raw_promotions=raw) == -5.1
-            plain.assert_called_once()
+            vigente = markups_baseline_vigente(db, "MLA1", 771149.0, raw_promotions=raw)
+            assert vigente.nuestro_markup == pytest.approx(12.1)
+            assert vigente.markup_sell_in_out == pytest.approx(13.0)
+            assert vigente.precio_status_quo == pytest.approx(814999.0)
+            plain.assert_not_called()
+
+    def test_uses_started_deal_not_only_cofunded_types(self) -> None:
+        from app.services.ml_promotions_pricing import markups_baseline_vigente
+
+        db = MagicMock()
+        raw = [{"id": "D-1", "type": "DEAL", "status": "started", "price": 90000}]
+
+        def _enrich(_db, _mla, promos, **_kwargs):
+            for promo in promos:
+                promo["nuestro_markup"] = 8.5
+            return promos
+
+        with patch("app.services.ml_promotions_pricing.enriquecer_markup_por_promo", side_effect=_enrich):
+            vigente = markups_baseline_vigente(db, "MLA1", 100000.0, raw_promotions=raw)
+            assert vigente.nuestro_markup == pytest.approx(8.5)
+            assert vigente.precio_status_quo == pytest.approx(90000.0)
+
+    def test_keeps_lowest_price_started_not_highest_markup(self) -> None:
+        """ML applies the cheapest started; a dearer SMART must not become status quo."""
+        from app.services.ml_promotions_pricing import markups_baseline_vigente
+
+        db = MagicMock()
+        raw = [
+            {
+                "id": "P-SMART",
+                "type": "SMART",
+                "status": "started",
+                "price": 814999,
+            },
+            {
+                "id": "P-PM",
+                "type": "PRICE_MATCHING",
+                "status": "started",
+                "price": 771149,
+            },
+        ]
+
+        def _enrich(_db, _mla, promos, **_kwargs):
+            by_id = {"P-SMART": (12.1, 13.0), "P-PM": (5.0, 6.0)}
+            for promo in promos:
+                markup, sell = by_id[promo["promotion_id"]]
+                promo["nuestro_markup"] = markup
+                promo["markup_sell_in_out"] = sell
+            return promos
+
+        with (
+            patch("app.services.ml_promotions_pricing.enriquecer_markup_por_promo", side_effect=_enrich),
+            patch("app.services.ml_promotions_pricing.markup_para_precio", return_value=-5.1) as plain,
+        ):
+            vigente = markups_baseline_vigente(db, "MLA1", 771149.0, raw_promotions=raw)
+            assert vigente.nuestro_markup == pytest.approx(5.0)
+            assert vigente.markup_sell_in_out == pytest.approx(6.0)
+            assert vigente.precio_status_quo == pytest.approx(771149.0)
+            plain.assert_not_called()
+
+    def test_min_price_tie_skips_started_without_markup(self) -> None:
+        from app.services.ml_promotions_pricing import markups_baseline_vigente
+
+        db = MagicMock()
+        raw = [
+            {"id": "A", "type": "SMART", "status": "started", "price": 100000},
+            {"id": "B", "type": "DEAL", "status": "started", "price": 100000},
+            {"id": "C", "type": "PRICE_MATCHING", "status": "started", "price": 120000},
+        ]
+
+        def _enrich(_db, _mla, promos, **_kwargs):
+            marks = {"A": None, "B": 8.5, "C": 20.0}
+            for promo in promos:
+                promo["nuestro_markup"] = marks[promo["promotion_id"]]
+            return promos
+
+        with patch("app.services.ml_promotions_pricing.enriquecer_markup_por_promo", side_effect=_enrich):
+            vigente = markups_baseline_vigente(db, "MLA1", 150000.0, raw_promotions=raw)
+            assert vigente.nuestro_markup == pytest.approx(8.5)
+            assert vigente.precio_status_quo == pytest.approx(100000.0)
