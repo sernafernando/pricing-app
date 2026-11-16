@@ -1292,6 +1292,8 @@ export default function PublicacionesML() {
               canSeeMargin={canSeeMargin}
               onDone={reloadList}
               openRequest={bulkRequest}
+              checkedStatus={checkedStatus}
+              hayMejores={!sinMla}
             />
             {canExportVista(filters.vista) && (
               <button
@@ -1363,6 +1365,8 @@ export default function PublicacionesML() {
             canSeeMargin={canSeeMargin}
             onDone={reloadList}
             openRequest={bulkRequest}
+            checkedStatus={checkedStatus}
+            hayMejores={!sinMla}
           />
           {!sinMla && (
             <BulkStatusActions

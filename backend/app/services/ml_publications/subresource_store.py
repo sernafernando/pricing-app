@@ -204,7 +204,7 @@ def _apply_state(
     if row.raw is None:
         _write_state(row, typed, body, new_hash, response)
         _checked(row, response)
-        _refresh_hay_mejores_if_promotions(db, spec, entity_id, body)
+        _refresh_hay_mejores_after_write(db, spec, entity_id, body)
         db.flush()
         return ApplyOutcome("first_seen")
 
@@ -223,7 +223,7 @@ def _apply_state(
         counters.noise_suppressed[(spec.name, change.path)] += 1
     _write_state(row, typed, body, new_hash, response)
     _checked(row, response)
-    _refresh_hay_mejores_if_promotions(db, spec, entity_id, body)
+    _refresh_hay_mejores_after_write(db, spec, entity_id, body)
     if not reportable and not restoring:
         db.flush()
         return ApplyOutcome("noise_only")
@@ -247,12 +247,17 @@ def _apply_state(
     )
 
 
-def _refresh_hay_mejores_if_promotions(db, spec: ResourceSpec, item_id: str, raw: Any) -> None:
-    if spec.name != "promotions":
+def _refresh_hay_mejores_after_write(db, spec: ResourceSpec, item_id: str, raw: Any) -> None:
+    """Recompute hay_mejores when promotions or sale_price mirror rows change (baseline is sale_price)."""
+    if spec.name not in ("promotions", "sale_price"):
         return
     from app.services.ml_promotions_hay_mejores import actualizar_hay_mejores_ofertas
 
-    actualizar_hay_mejores_ofertas(db, item_id, raw_promotions=raw)
+    if spec.name == "promotions":
+        actualizar_hay_mejores_ofertas(db, item_id, raw_promotions=raw)
+        return
+    # sale_price: promotions stay in their table; actualizar reads them + the new amount.
+    actualizar_hay_mejores_ofertas(db, item_id)
 
 
 def _heal_typed(row: Any, typed: dict[str, Any]) -> None:

@@ -187,6 +187,8 @@ class PublicationFilter:
     promo_filter: bool = False
     # Candidate promo beats consumer MeLi price (`ml_item_seller_promotions.hay_mejores_ofertas`).
     hay_mejores_ofertas: Optional[bool] = None
+    # Opted out of hay_mejores permanently until a PM re-includes (`hay_mejores_excluido`).
+    hay_mejores_excluido: Optional[bool] = None
 
     @property
     def audits(self) -> bool:
@@ -439,6 +441,7 @@ def parse_filter(
     mla_scope: Optional[frozenset[str]] = None,
     colores: Optional[str] = None,
     hay_mejores_ofertas: Optional[bool] = None,
+    hay_mejores_excluido: Optional[bool] = None,
 ) -> PublicationFilter:
     """Query-string values (csv text, `None` when absent) -> `PublicationFilter`; `FilterError` when invalid."""
     status_vocabulary = (*STATUS_VALUES, STATUS_GONE, NO_STATUS)
@@ -495,6 +498,7 @@ def parse_filter(
         colors=tuple(c for c in colores_ if c != NO_COLOR),
         no_color=NO_COLOR in colores_,
         hay_mejores_ofertas=hay_mejores_ofertas,
+        hay_mejores_excluido=hay_mejores_excluido,
     )
 
 
@@ -1258,6 +1262,8 @@ def presence_conditions(f: PublicationFilter) -> list[ColumnElement]:
         where.append(_item_in(f.mla_scope))
     if f.hay_mejores_ofertas is True:
         where.append(_hay_mejores_ofertas())
+    if f.hay_mejores_excluido is True:
+        where.append(_hay_mejores_excluido())
     return where
 
 
@@ -1267,6 +1273,16 @@ def _hay_mejores_ofertas() -> ColumnElement:
         select(literal(1)).where(
             MlItemSellerPromotions.item_id == T.i.item_id,
             MlItemSellerPromotions.hay_mejores_ofertas.is_(True),
+        )
+    )
+
+
+def _hay_mejores_excluido() -> ColumnElement:
+    """Publications opted out of hay_mejores (`hay_mejores_excluido = true`)."""
+    return exists(
+        select(literal(1)).where(
+            MlItemSellerPromotions.item_id == T.i.item_id,
+            MlItemSellerPromotions.hay_mejores_excluido.is_(True),
         )
     )
 
@@ -1379,6 +1395,7 @@ def publication_filter_in(f: PublicationFilter) -> Optional[str]:
         ("con_oferta", f.oferta is not None),
         ("promo_tipos", f.mla_scope is not None),
         ("hay_mejores_ofertas", f.hay_mejores_ofertas is True),
+        ("hay_mejores_excluido", f.hay_mejores_excluido is True),
     )
     return next((name for name, on in asked if on), None)
 

@@ -4,6 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
+  alternarFactura,
   conAlcance,
   conLineaDeLaPantalla,
   copiarLinea,
@@ -249,6 +250,44 @@ describe('the body of POST /tacticals (Contrato final)', () => {
       'Línea 2: la factura 9002 ya tiene un sell in.',
     );
     expect(conLineaDeLaPantalla('La marca no existe.', origen)).toBe('La marca no existe.');
+  });
+});
+
+describe('an invoice line on an operation with several invoices (varias facturas S3)', () => {
+  const SELL_IN = { ...FORM, tipo: 'sell_in', moneda: 'ARS' };
+  const sinTope = { tope_unidades: null, tope_monto: null };
+  const [conDos, otra] = OPERACIONES;
+
+  it('applies to every invoice by default: the body line sends no facturas_ct', () => {
+    const factura = linea({ alcance: 'factura', modo: 'monto_total', monto: '850000', facturas: [conDos] });
+    const [cuerpo] = cuerpoDe(SELL_IN, [factura]).body.lineas;
+    expect(cuerpo).toEqual({ alcance: 'factura', pedido_compra_id: 9001, modo_monto: 'monto_total', valor: 850000, ...sinTope });
+    expect(cuerpo).not.toHaveProperty('facturas_ct');
+  });
+
+  it("picking one invoice sends facturas_ct on that operation's body line only", () => {
+    const elegida = { ...conDos, facturasCt: [70002] };
+    const factura = linea({ alcance: 'factura', modo: 'porcentaje', monto: '5', facturas: [elegida, otra] });
+    expect(cuerpoDe(SELL_IN, [factura]).body.lineas).toEqual([
+      { alcance: 'factura', pedido_compra_id: 9001, facturas_ct: [70002], modo_monto: 'porcentaje', valor: 5, ...sinTope },
+      { alcance: 'factura', pedido_compra_id: 9002, modo_monto: 'porcentaje', valor: 5, ...sinTope },
+    ]);
+  });
+
+  it('a pick goes back to all invoices when its last invoice is unchecked, never an empty list', () => {
+    expect(alternarFactura(null, 70002)).toEqual([70002]);
+    expect(alternarFactura([70002], 70001)).toEqual([70002, 70001]);
+    expect(alternarFactura([70002, 70001], 70002)).toEqual([70001]);
+    expect(alternarFactura([70001], 70001)).toBeNull();
+    const vacia = linea({ alcance: 'factura', modo: 'porcentaje', monto: '5', facturas: [{ ...conDos, facturasCt: [] }] });
+    expect(cuerpoDe(SELL_IN, [vacia]).body.lineas[0]).not.toHaveProperty('facturas_ct');
+  });
+
+  it('a products line body is unchanged', () => {
+    const productos = linea({ productos: [producto(201)], monto: '10', topeUnidades: '5' });
+    expect(cuerpoDe(SELL_IN, [productos]).body.lineas).toEqual([
+      { alcance: 'productos', item_ids: [201], modo_monto: 'por_unidad', valor: 10, tope_unidades: 5, tope_monto: null, tope_por_producto: true },
+    ]);
   });
 });
 

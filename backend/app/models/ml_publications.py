@@ -329,6 +329,8 @@ class MlItemSellerPromotions(_SubResourceState, Base):
     hay_mejores_ofertas = Column(Boolean, nullable=False, server_default="false")
     hay_mejores_fingerprint = Column(Text)
     hay_mejores_descartado_fingerprint = Column(Text)
+    # Opt-out of hay_mejores: permanent until a PM re-includes (default participates).
+    hay_mejores_excluido = Column(Boolean, nullable=False, server_default="false")
 
 
 class MlUserProduct(_SubResourceState, Base):

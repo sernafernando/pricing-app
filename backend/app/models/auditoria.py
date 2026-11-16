@@ -33,6 +33,8 @@ class TipoAccion(str, enum.Enum):
     # line's product, `compra_id` travels in the values). Same VARCHAR(50) column: no DDL.
     SELL_IN_COMPRA_CREADA = "sell_in_compra_creada"
     SELL_IN_COMPRA_ANULADA = "sell_in_compra_anulada"
+    # a tactical's invoice total re-split in place when another invoice of its operation links (one row per new line).
+    SELL_IN_COMPRA_REPARTIDA = "sell_in_compra_repartida"
     # brand bonus: one row per bonus load, edit or void (`item_id` NULL, `bono_id` in the values), and one
     # row per change the worker makes to a purchase it generated (`item_id` NULL, lines before/after).
     SELL_IN_BONO_CREADO = "sell_in_bono_creado"

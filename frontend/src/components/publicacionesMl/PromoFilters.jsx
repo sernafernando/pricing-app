@@ -101,6 +101,16 @@ export default function PromoFilters({ filters, setFilters }) {
                 />
                 Hay mejores ofertas
               </label>
+              <label className={styles.option}>
+                <input
+                  type="checkbox"
+                  checked={filters.hay_mejores_excluido === '1'}
+                  onChange={(event) =>
+                    setFilters({ hay_mejores_excluido: event.target.checked ? '1' : '' })
+                  }
+                />
+                Excluidas de hay mejores
+              </label>
             </fieldset>
             <fieldset className={styles.section}>
               <legend className={styles.legend}>Precios mayoristas</legend>

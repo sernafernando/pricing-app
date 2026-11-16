@@ -1144,17 +1144,31 @@ the panel refresh), paced with the shared ML `Pacer`.
   or `ML_PUB_KILL_SWITCH=true` (env-only, forces every `*.enabled` off).
 - **Rate:** `catalog_competition_refresh.rate_per_min` (env default 10/min).
 
+### Hay mejores — exclusion (`hay_mejores_excluido`)
+
+Permanent opt-out of the hay_mejores process until a PM re-includes the MLA
+(`promos.escribir`). Default is participate (`false`). While excluded,
+`actualizar_hay_mejores_ofertas` keeps `hay_mejores_ofertas=false` (clears
+fingerprints) and never re-flags. UI: checkbox in Promos tab; bulk via
+`POST /promociones/hay-mejores-exclusion-bulk` after resolving ids with
+`/ml-publications/view/hay-mejores-exclusion-item-ids`. List filter
+`hay_mejores_excluido=true`. Migration `20261114_hay_mejores_excluido`
+(column only; no partial index yet).
+
 ### Hay mejores — offline recompute (one-shot, no ML)
 
 Since pubml-promo-mejor, only candidates **applicable now** count (writable
 type, started, not finished, SELLER_CAMPAIGN only as the Premium of the month;
 `ml_promotions_aplicable.candidata_aplicable_ahora`). The ML worker handler
 `ml_promotions.hay_mejores_boundaries` (every 5 min) re-runs the flag of the
-items whose candidates crossed a start/finish date since its last run, and on
-its first run after a rules change (`RULES_VERSION`) it recomputes the flagged
-and discarded rows once by itself. It runs in its own thread of the ML worker
-and is single-flight (session advisory lock `84_217_006`; a tick finding it
-held is skipped). The script below stays as a manual fallback.
+items whose candidates crossed a start/finish date since its last run, **and
+every currently flagged row** (stale-flag hygiene: price/markup/sell-in-out
+drift without a date crossing). On its first run after a rules change
+(`RULES_VERSION`) it recomputes the flagged and discarded rows once by itself.
+A `sale_price` mirror write also recomputes that MLA's flag (same as a
+promotions write). It runs in its own thread of the ML worker and is
+single-flight (session advisory lock `84_217_006`; a tick finding it held is
+skipped). The script below stays as a manual fallback / incident tool.
 
 Baseline markup for the flag (and the panel chooser) uses co-funded math when
 a **started** SMART / PRE_NEGOTIATED / PRICE_MATCHING offer matches
@@ -1164,13 +1178,15 @@ computed with the plain-sale baseline get corrected.
 
 After the stricter `es_mejor_oferta` rules (never a higher consumer price than
 the current `sale_price`), rows that were flagged under the old rule can keep
-`hay_mejores_ofertas=true` until promotions are written again. The panel
+`hay_mejores_ofertas=true` until the next boundaries tick (flagged pass, ≤5
+min) or a promotions/`sale_price` write recomputes them. The panel
 “Refrescar promociones” button only reconciles the **bridge** mirror
-(ml-webhook); it does **not** recompute this flag. Catalog competition refresh
-also does **not** clear stale flags (it only runs on newly-true / fingerprint
-novelty).
+(ml-webhook); it does **not** recompute this flag by itself. Catalog
+competition refresh also does **not** clear stale flags (it only runs on
+newly-true / fingerprint novelty).
 
-**Fix:** recompute from the stored mirror (`ml_item_seller_promotions.raw` +
+**Manual fix** (incident / before the worker tick catches up): recompute from
+the stored mirror (`ml_item_seller_promotions.raw` +
 `ml_item_sale_prices.amount`) with no MercadoLibre calls:
 
 ```bash

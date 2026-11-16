@@ -51,6 +51,12 @@
   gap: var(--space-1);
 }
 
+.menuSep {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--cf-border-default);
+}
+
 .item {
   padding: var(--spacing-xs) var(--spacing-sm);
   font-size: var(--font-sm);
