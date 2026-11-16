@@ -1215,6 +1215,22 @@ class TestPublishOverridePersistence:
         row = self._master(db)
         assert (row.peso_g, row.largo_cm, row.alto_cm) == (None, None, Decimal("3"))
 
+    def test_a_value_below_the_column_scale_is_skipped_not_stored_as_zero(self, db):
+        user = _make_user(db)
+        _make_erp_product(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 999}},
+        )
+        publish_product(
+            db,
+            user,
+            client=fake_client,
+            **_publish_kwargs(overrides={"depth": "0.001", "weight": "0.000001", "height": "0.005"}),
+        )
+        row = self._master(db)
+        # Rounded to 2 decimals first: 0.001 cm and 0.001 g are skipped, 0.005 cm rounds up to 0.01.
+        assert (row.ancho_cm, row.peso_g, row.alto_cm) == (None, None, Decimal("0.01"))
+
     def test_every_overridable_field_has_a_master_column(self):
         # A publisher field without a master column would be accepted, reported as stored, and silently lost.
         assert set(OVERRIDABLE_FIELDS) == set(CAMPOS_TN)

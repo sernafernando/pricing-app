@@ -11,7 +11,7 @@ GBP `Código` (`productos_erp.codigo`, only a code of exactly one product), in t
 - TN width = GBP large -> `largo_cm`; TN depth = GBP wide -> `ancho_cm`; height -> `alto_cm`.
 
 A value the master already holds is kept (an ABM edit wins). A value equal to GBP (`tb_item`, lowest comp_id) is not
-stored, since NULL already means "follow GBP". A value that is not a positive number in the column's range is skipped.
+stored, since NULL already means "follow GBP". A value is rounded to the columns' 2 decimals first; one below 0.01 or out of the column's range is skipped.
 `updated_by` of a new row is the operator who last saved that EAN's measurements.
 
 The downgrade leaves the copy in place: the master owns those values now and cannot tell them from ABM edits. The old
@@ -37,14 +37,15 @@ _COPY = sa.text(r"""
         -- The cast only runs on a plain decimal: a CASE, since a WHERE does not fix the evaluation order.
         SELECT p.item_id, o.campo, o.usuario_id, o.fecha_actualizacion,
                CASE WHEN btrim(o.valor) ~ '^[0-9]+(\.[0-9]+)?$'
-                    THEN btrim(o.valor)::numeric * CASE o.campo WHEN 'weight' THEN 1000 ELSE 1 END
+                    THEN round(btrim(o.valor)::numeric * CASE o.campo WHEN 'weight' THEN 1000 ELSE 1 END, 2)
                END AS valor
         FROM tn_publish_override o
         JOIN productos p ON p.codigo = o.ean
         WHERE o.campo IN ('weight', 'width', 'depth', 'height')
     ),
     valores AS (
-        SELECT * FROM numeros WHERE valor > 0 AND valor < 100000000
+        -- Rounded to the columns' 2 decimals first, so a value below 0.01 is skipped instead of stored as 0.00.
+        SELECT * FROM numeros WHERE valor >= 0.01 AND valor < 100000000
     ),
     por_item AS (
         SELECT v.item_id,

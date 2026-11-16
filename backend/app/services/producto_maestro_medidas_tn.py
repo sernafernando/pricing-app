@@ -13,7 +13,7 @@ only read.
 from __future__ import annotations
 
 import logging
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Iterable, Optional
 
 from sqlalchemy import func
@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 # The master columns are Numeric(10, 2) and (12, 2): a value from 10^8 on does not fit (the migration uses the same cap).
 MAXIMO = Decimal(100_000_000)
+# Their scale: a value is rounded to it first, and below it nothing is stored (never 0.00).
+ESCALA = Decimal("0.01")
 
 # TN publisher field -> (master column, TN units per master unit)
 CAMPOS_TN: dict[str, tuple[str, Decimal]] = {
@@ -86,15 +88,18 @@ def medidas_por_ean(db: Session, eans: Iterable[str]) -> dict[str, dict[str, str
 def _a_maestro(valor: str, factor: Decimal) -> Optional[Decimal]:
     try:
         numero = Decimal(str(valor).strip()) * factor
+        if not numero.is_finite():
+            return None
+        numero = numero.quantize(ESCALA, rounding=ROUND_HALF_UP)
     except (InvalidOperation, ValueError):
         return None
-    return numero if numero.is_finite() and 0 < numero < MAXIMO else None
+    return numero if ESCALA <= numero < MAXIMO else None
 
 
 def guardar_medidas(db: Session, ean: str, medidas: dict[str, str], usuario_id: int) -> bool:
     """Store the publisher's edited measurements (TN units) on the product's master row; the caller commits. False,
     writing nothing, when the EAN is not exactly one ERP product. An unknown field or a value that is not a positive
-    number below `MAXIMO` is skipped (logged), so one bad value never loses the others."""
+    number of at least `ESCALA` (after rounding to it) and below `MAXIMO` is skipped (logged), so one bad value never loses the others."""
     item_id = _item_ids_por_ean(db, [ean]).get(ean)
     if item_id is None:
         logger.warning("TN publish measurements not stored: ean=%s is not exactly one ERP product", ean)

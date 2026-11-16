@@ -42,16 +42,14 @@ def _override(conn, ean: str, campo: str, valor: str, usuario_id: int = 5) -> No
     )
 
 
-def test_upgrade_copies_the_measurements_into_the_master_in_its_units(pg_schema) -> None:
-    eng = pg_schema
-    module = _script().get_revision(_REVISION).module
+def _seed(eng) -> None:
     ProductoPropio.__table__.create(bind=eng)
     with eng.begin() as conn:
         for statement in _DDL:
             conn.execute(text(statement))
         conn.execute(
             text(
-                "INSERT INTO productos_erp (item_id, codigo) VALUES (1, 'A'), (2, 'B'), (3, 'C'), (4, 'D'), (5, 'F'), (7, 'G')"
+                "INSERT INTO productos_erp (item_id, codigo) VALUES (1, 'A'), (2, 'B'), (3, 'C'), (4, 'D'), (5, 'F'), (7, 'G'), (8, 'H')"
             )
         )
         conn.execute(text("INSERT INTO tb_item (comp_id, item_id, item_weight, item_large) VALUES (1, 3, 1500, 20)"))
@@ -74,6 +72,29 @@ def test_upgrade_copies_the_measurements_into_the_master_in_its_units(pg_schema)
         _override(conn, "E", "weight", "2")  # no product with that code
         _override(conn, "F", "weight", "99999999")  # 99,999,999 kg: out of range
         _override(conn, "G", "weight", "1")
+        # Rounded to the column scale (2 decimals) first: below 0.01 is skipped, never stored as 0.00.
+        _override(conn, "H", "depth", "0.001")
+        _override(conn, "H", "weight", "0.000001")  # 0.001 g
+        _override(conn, "H", "height", "0.005")  # rounds up to 0.01: stored
+
+
+def _master_rows(eng) -> list:
+    with eng.connect() as conn:
+        return [
+            tuple(r)
+            for r in conn.execute(
+                text(
+                    "SELECT item_id, peso_g, largo_cm, ancho_cm, alto_cm, updated_by, titulo, updated_at "
+                    "FROM productos_propios ORDER BY item_id"
+                )
+            )
+        ]
+
+
+def test_upgrade_copies_the_measurements_into_the_master_in_its_units(pg_schema) -> None:
+    eng = pg_schema
+    module = _script().get_revision(_REVISION).module
+    _seed(eng)
 
     _run(eng, module, "upgrade")
 
@@ -86,7 +107,7 @@ def test_upgrade_copies_the_measurements_into_the_master_in_its_units(pg_schema)
                 )
             )
         }
-    assert set(rows) == {1, 2, 7}
+    assert set(rows) == {1, 2, 7, 8}
     a = rows[1]
     assert (a.peso_g, a.largo_cm, a.ancho_cm, a.alto_cm) == (Decimal("1200"), Decimal("13"), Decimal("2"), Decimal("3"))
     assert a.updated_by == 9
@@ -94,10 +115,24 @@ def test_upgrade_copies_the_measurements_into_the_master_in_its_units(pg_schema)
     assert (b.peso_g, b.alto_cm, b.largo_cm, b.titulo) == (Decimal("500"), Decimal("10"), None, "own")
     g = rows[7]
     assert (g.peso_g, g.updated_at.year) == (Decimal("300"), 2020)
+    h = rows[8]
+    assert (h.peso_g, h.ancho_cm, h.alto_cm) == (None, None, Decimal("0.01"))
 
     _run(eng, module, "downgrade")
 
     with eng.connect() as conn:
         # The copy stays (the master owns it now) and the old table is untouched.
-        assert conn.execute(text("SELECT count(*) FROM productos_propios")).scalar() == 3
-        assert conn.execute(text("SELECT count(*) FROM tn_publish_override")).scalar() == 15
+        assert conn.execute(text("SELECT count(*) FROM productos_propios")).scalar() == 4
+        assert conn.execute(text("SELECT count(*) FROM tn_publish_override")).scalar() == 18
+
+
+def test_upgrade_twice_changes_nothing(pg_schema) -> None:
+    eng = pg_schema
+    module = _script().get_revision(_REVISION).module
+    _seed(eng)
+
+    _run(eng, module, "upgrade")
+    primera = _master_rows(eng)
+    _run(eng, module, "upgrade")
+
+    assert _master_rows(eng) == primera
