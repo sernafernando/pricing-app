@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Search } from 'lucide-react';
 import { productoMaestroAPI, productoMarcasAPI } from '../../services/api';
 import { useDebounce } from '../../hooks/useDebounce';
 import { numero } from './formato';
+import { flechasTabs } from './tabs';
 import m from './maestro.module.css';
 import styles from './MaestroLista.module.css';
 
@@ -47,6 +48,7 @@ function Fila({ item, on, onSelect }) {
  * @param {number} [props.reloadKey] Changes after a save, so the list shows the new name or completeness.
  */
 export default function MaestroLista({ selectedId, onSelect, onFirst, reloadKey = 0 }) {
+  const baseId = useId();
   const [tab, setTab] = useState('todos');
   const [incompletos, setIncompletos] = useState(false);
   const [q, setQ] = useState('');
@@ -59,13 +61,17 @@ export default function MaestroLista({ selectedId, onSelect, onFirst, reloadKey 
   const tipo = TABS.find((t) => t.key === tab).tipo;
 
   useEffect(() => {
+    let vigente = true;
     productoMarcasAPI
       .listar()
-      .then(({ data }) => setMarcas(data.filter((x) => x.activa && x.productos > 0).map((x) => x.nombre).sort()))
-      .catch(() => setMarcas([]));
+      .then(({ data }) => vigente && setMarcas(data.filter((x) => x.activa && x.productos > 0).map((x) => x.nombre).sort()))
+      .catch(() => vigente && setMarcas([]));
     Promise.all(TABS.map((t) => productoMaestroAPI.listar({ tipo: t.tipo, limit: 1, offset: 0 })))
-      .then((answers) => setTotales(Object.fromEntries(answers.map(({ data }, i) => [TABS[i].key, data.total]))))
-      .catch(() => setTotales({}));
+      .then((answers) => vigente && setTotales(Object.fromEntries(answers.map(({ data }, i) => [TABS[i].key, data.total]))))
+      .catch(() => vigente && setTotales({}));
+    return () => {
+      vigente = false;
+    };
   }, [reloadKey]);
 
   // A new filter starts again from the first page.
@@ -98,13 +104,16 @@ export default function MaestroLista({ selectedId, onSelect, onFirst, reloadKey 
   return (
     <section aria-label="Listado" className={`${m.card} ${styles.lista}`}>
       <div className={styles.top}>
-        <div role="tablist" aria-label="Tipo de producto" className={m.tablist}>
+        <div role="tablist" aria-label="Tipo de producto" className={m.tablist} onKeyDown={flechasTabs}>
           {TABS.map((t) => (
             <button
               key={t.key}
+              id={`${baseId}-${t.key}`}
               type="button"
               role="tab"
               aria-selected={tab === t.key}
+              aria-controls={`${baseId}-panel`}
+              tabIndex={tab === t.key ? 0 : -1}
               className={tab === t.key ? `${m.tab} ${m.tabOn}` : m.tab}
               onClick={() => setTab(t.key)}
             >
@@ -146,7 +155,7 @@ export default function MaestroLista({ selectedId, onSelect, onFirst, reloadKey 
         <span className={styles.right}>Stock</span>
         <span>Specs</span>
       </div>
-      <div className={styles.rows}>
+      <div className={styles.rows} role="tabpanel" id={`${baseId}-panel`} aria-labelledby={`${baseId}-${tab}`}>
         {estado.items.map((item) => (
           <Fila key={item.item_id} item={item} on={item.item_id === selectedId} onSelect={onSelect} />
         ))}

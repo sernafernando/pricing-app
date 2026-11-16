@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { productoSpecsAPI } from '../../services/api';
 import { specActual } from './fichaEdits';
 import m from './maestro.module.css';
@@ -68,12 +68,20 @@ export default function FichaSpecs({ specs, info, edits, onValor, onNoAplica }) 
   const [sugerencias, setSugerencias] = useState({});
   const grupos = [...new Set(specs.campos.map((c) => c.grupo))];
 
+  const montado = useRef(true);
+  useEffect(() => {
+    montado.current = true;
+    return () => {
+      montado.current = false;
+    };
+  }, []);
+
   const sugerir = (campo) => {
     if (campo in sugerencias) return;
     setSugerencias((prev) => ({ ...prev, [campo]: [] }));
     productoSpecsAPI
       .valores(campo)
-      .then(({ data }) => setSugerencias((prev) => ({ ...prev, [campo]: data })))
+      .then(({ data }) => montado.current && setSugerencias((prev) => ({ ...prev, [campo]: data })))
       .catch(() => {});
   };
 

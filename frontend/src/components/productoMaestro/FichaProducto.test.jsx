@@ -165,6 +165,30 @@ describe('Ficha: general fields over GBP', () => {
     expect(productoMaestroAPI.guardar).toHaveBeenCalledWith(455, { marca_id: 7 });
   });
 
+  it('a category without active subcategories cannot be saved', async () => {
+    const user = userEvent.setup();
+    productoCategoriasAPI.listar.mockResolvedValue({
+      data: [
+        { id: 61, nombre: 'CONECTIVIDAD', activa: true, subcategorias: [{ id: 3855, nombre: 'ANTENAS WIFI', activa: true }] },
+        { id: 80, nombre: 'VARIOS', activa: true, subcategorias: [{ id: 4001, nombre: 'OTROS', activa: false }] },
+      ],
+    });
+    render(<FichaProducto itemId={455} />);
+
+    await screen.findByRole('option', { name: 'VARIOS' });
+    await user.selectOptions(field('Categoría'), 'VARIOS');
+
+    expect(screen.getByText('VARIOS no tiene subcategorías activas: elegí otra categoría')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Guardar/ })).toBeDisabled();
+  });
+
+  it('integer fields open the numeric keyboard, decimal ones the decimal one', async () => {
+    render(<FichaProducto itemId={455} />);
+    await screen.findByDisplayValue('180');
+    expect(field('Garantía')).toHaveAttribute('inputmode', 'numeric');
+    expect(field('Peso')).toHaveAttribute('inputmode', 'decimal');
+  });
+
   it('units per box need Depósitos: read-only without it, sent as a number with it', async () => {
     productoMaestroAPI.leer.mockResolvedValueOnce({ data: maestro({ unidades_caja: 20, can_edit_unidades: false }) });
     const { unmount } = render(<FichaProducto itemId={455} />);
@@ -304,6 +328,23 @@ describe('Ficha: specs of notebooks and PCs', () => {
     render(<FichaProducto itemId={455} />);
     expect(await screen.findByRole('tab', { name: /Specs técnicas/ })).toBeDisabled();
     expect(productoSpecsAPI.leer).not.toHaveBeenCalled();
+  });
+
+  it('the tabs control their panel and move with the arrow keys', async () => {
+    const user = userEvent.setup();
+    render(<FichaProducto itemId={4874} />);
+
+    const general = await screen.findByRole('tab', { name: 'General' });
+    const specsTab = await screen.findByRole('tab', { name: /Specs técnicas/ });
+    await waitFor(() => expect(specsTab).toBeEnabled());
+    expect(screen.getByRole('tabpanel', { name: 'General' })).toHaveAttribute('id', general.getAttribute('aria-controls'));
+
+    general.focus();
+    await user.keyboard('{ArrowRight}');
+
+    expect(specsTab).toHaveFocus();
+    expect(specsTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel', { name: /Specs técnicas/ })).toBeInTheDocument();
   });
 
   it('shows each origin, edits by hand and marks "No aplica", saved in one PUT', async () => {

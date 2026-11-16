@@ -79,7 +79,7 @@ function Campo({ def, maestro, edits, editable, onChange, onVolver, maestros }) 
               className={inpCls}
               value={valor}
               placeholder="Sin dato"
-              inputMode={def.tipo ? 'decimal' : undefined}
+              inputMode={def.tipo === 'entero' ? 'numeric' : def.tipo ? 'decimal' : undefined}
               disabled={disabled}
               onChange={(e) => onChange(def, def.tipo === 'entero' ? e.target.value.replace(/[^0-9]/g, '') : e.target.value)}
             />

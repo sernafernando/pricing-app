@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import {
   productoCategoriasAPI,
@@ -11,6 +11,7 @@ import { apiErrorMessage } from '../../utils/apiErrorMessage';
 import { EDITS_VACIOS, bodySpecs, completos, contarCambios, patchMaestro } from './fichaEdits';
 import FichaGeneral from './FichaGeneral';
 import FichaSpecs from './FichaSpecs';
+import { flechasTabs } from './tabs';
 import m from './maestro.module.css';
 import f from './Ficha.module.css';
 
@@ -63,6 +64,7 @@ function meta(maestro, vinculo) {
  * @param {() => void} [props.onSaved] Called after a save, so a list can show the new name or completeness.
  */
 export default function FichaProducto({ itemId, onSaved }) {
+  const baseId = useId();
   const [maestro, setMaestro] = useState(null);
   const [specs, setSpecs] = useState(null);
   const [info, setInfo] = useState({});
@@ -113,11 +115,20 @@ export default function FichaProducto({ itemId, onSaved }) {
   }
   if (!maestro) return <p className={f.cargando}>Cargando el producto…</p>;
 
+  const tabGeneralId = `${baseId}-general`;
+  const tabSpecsId = `${baseId}-specs`;
+  const panelId = `${baseId}-panel`;
+
   const enSpecs = vista === 'specs' && specs != null;
   const cambios = contarCambios(maestro, specs, edits);
   const editable = maestro.can_edit || maestro.can_edit_unidades || specs?.can_edit;
   const nombre = edits.general.nombre?.trim() || maestro.campos.nombre?.valor || `Producto ${itemId}`;
   const sinSpecsEdits = !Object.keys(edits.specs).length && !Object.keys(edits.noAplica).length;
+  // The server refuses a category without its subcategory; a category with no active one cannot be saved.
+  const categoriaSinSub =
+    edits.general.subcategoria_id === ''
+      ? (maestros.categorias.find((c) => String(c.id) === edits.general.categoria_id)?.nombre ?? 'La categoría')
+      : null;
   const specsListos = specs ? (sinSpecsEdits ? specs.completos : completos(specs.campos, edits)) : null;
 
   const setGeneral = (def, value) => {
@@ -190,21 +201,33 @@ export default function FichaProducto({ itemId, onSaved }) {
               </button>
             )}
             {editable && (
-              <button className={`${m.btn} ${m.btnPrimary}`} type="button" disabled={cambios === 0 || enviando} onClick={guardar}>
+              <button className={`${m.btn} ${m.btnPrimary}`} type="button" disabled={cambios === 0 || enviando || categoriaSinSub != null} onClick={guardar}>
                 {cambios === 0 ? 'Guardar' : `Guardar ${cambios} ${cambios === 1 ? 'cambio' : 'cambios'}`}
               </button>
             )}
           </div>
         </div>
         <div className={f.cabeceraFila}>
-          <div role="tablist" aria-label="Secciones de la ficha" className={m.tablist}>
-            <button type="button" role="tab" aria-selected={!enSpecs} className={!enSpecs ? `${m.tab} ${m.tabOn}` : m.tab} onClick={() => setVista('general')}>
+          <div role="tablist" aria-label="Secciones de la ficha" className={m.tablist} onKeyDown={flechasTabs}>
+            <button
+              id={tabGeneralId}
+              type="button"
+              role="tab"
+              aria-selected={!enSpecs}
+              aria-controls={panelId}
+              tabIndex={enSpecs ? -1 : 0}
+              className={!enSpecs ? `${m.tab} ${m.tabOn}` : m.tab}
+              onClick={() => setVista('general')}
+            >
               General
             </button>
             <button
+              id={tabSpecsId}
               type="button"
               role="tab"
               aria-selected={enSpecs}
+              aria-controls={panelId}
+              tabIndex={enSpecs ? 0 : -1}
               disabled={!maestro.tipo_specs || !specs}
               className={enSpecs ? `${m.tab} ${m.tabOn}` : m.tab}
               onClick={() => setVista('specs')}
@@ -219,28 +242,35 @@ export default function FichaProducto({ itemId, onSaved }) {
             {error}
           </p>
         )}
+        {categoriaSinSub && (
+          <p className={m.feedback} role="alert">
+            {categoriaSinSub} no tiene subcategorías activas: elegí otra categoría
+          </p>
+        )}
       </div>
 
-      {enSpecs ? (
-        <FichaSpecs
-          specs={specs}
-          info={info}
-          edits={edits}
-          onValor={(campo, value) => setEdits({ ...edits, specs: { ...edits.specs, [campo]: value } })}
-          onNoAplica={(campo, value) => setEdits({ ...edits, noAplica: { ...edits.noAplica, [campo]: value } })}
-        />
-      ) : (
-        <FichaGeneral
-          maestro={maestro}
-          edits={edits}
-          maestros={maestros}
-          vinculo={vinculo}
-          onCampo={setGeneral}
-          onVolver={volver}
-          onTexto={(clave, edit) => setEdits({ ...edits, textos: { ...edits.textos, [clave]: edit } })}
-          onVinculo={setVinculo}
-        />
-      )}
+      <div role="tabpanel" id={panelId} aria-labelledby={enSpecs ? tabSpecsId : tabGeneralId}>
+        {enSpecs ? (
+          <FichaSpecs
+            specs={specs}
+            info={info}
+            edits={edits}
+            onValor={(campo, value) => setEdits({ ...edits, specs: { ...edits.specs, [campo]: value } })}
+            onNoAplica={(campo, value) => setEdits({ ...edits, noAplica: { ...edits.noAplica, [campo]: value } })}
+          />
+        ) : (
+          <FichaGeneral
+            maestro={maestro}
+            edits={edits}
+            maestros={maestros}
+            vinculo={vinculo}
+            onCampo={setGeneral}
+            onVolver={volver}
+            onTexto={(clave, edit) => setEdits({ ...edits, textos: { ...edits.textos, [clave]: edit } })}
+            onVinculo={setVinculo}
+          />
+        )}
+      </div>
     </>
   );
 }

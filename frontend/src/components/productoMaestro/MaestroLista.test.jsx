@@ -87,4 +87,16 @@ describe('MaestroLista', () => {
     await user.click(await screen.findByRole('button', { name: 'Ver más' }));
     await waitFor(() => expect(lastParams()).toMatchObject({ offset: 2, limit: 50 }));
   });
+  it('the type tabs move with the arrow keys and control the list', async () => {
+    const user = userEvent.setup();
+    render(<MaestroLista selectedId={null} onSelect={vi.fn()} />);
+
+    const todos = await screen.findByRole('tab', { name: /Todos/ });
+    expect(screen.getByRole('tabpanel', { name: /Todos/ })).toHaveAttribute('id', todos.getAttribute('aria-controls'));
+    todos.focus();
+    await user.keyboard('{ArrowRight}');
+
+    expect(screen.getByRole('tab', { name: /Notebooks/ })).toHaveFocus();
+    expect(screen.getByRole('tab', { name: /Notebooks/ })).toHaveAttribute('aria-selected', 'true');
+  });
 });
