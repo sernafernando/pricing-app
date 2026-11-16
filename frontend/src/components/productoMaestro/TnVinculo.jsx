@@ -80,7 +80,7 @@ function Buscador({ itemId, onElegir, onCerrar }) {
  *
  * @param {object} props
  * @param {number} props.itemId
- * @param {object | null} props.vinculo The read of `GET /producto-tn-vinculos/{item_id}`.
+ * @param {object | null} props.vinculo The read of `GET /producto-tn-vinculos/{item_id}`; `sinLectura` when it failed.
  * @param {(vinculo: object) => void} props.onVinculo Receives the link as the server answered the change.
  */
 export default function TnVinculo({ itemId, vinculo, onVinculo }) {
@@ -88,6 +88,7 @@ export default function TnVinculo({ itemId, vinculo, onVinculo }) {
   const [error, setError] = useState(null);
 
   if (!vinculo) return <p className={f.nota}>Cargando el vínculo con Tienda Nube…</p>;
+  if (vinculo.sinLectura) return <p className={f.nota}>No se pudo leer el vínculo con Tienda Nube</p>;
 
   const editable = vinculo.can_edit;
   const tn = vinculo.tn;

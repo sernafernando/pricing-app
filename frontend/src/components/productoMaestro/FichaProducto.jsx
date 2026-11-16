@@ -91,16 +91,16 @@ export default function FichaProducto({ itemId, onSaved }) {
         productoSpecsAPI
           .campos()
           .then((r) => vigente && setInfo(Object.fromEntries(r.data.map((c) => [c.nombre, c]))))
-          .catch(() => {});
+          .catch(() => vigente && setError('No se pudieron cargar los tipos de las specs'));
       })
       .catch((err) => vigente && setCargaError(err?.response?.status === 404 ? 'El producto no existe en el ERP' : 'No se pudo cargar el producto. Probá de nuevo.'));
     productoTnVinculosAPI
       .leer(itemId)
       .then(({ data }) => vigente && setVinculo(data))
-      .catch(() => vigente && setVinculo({ item_id: itemId, origen: null, tn: null, can_edit: false }));
+      .catch(() => vigente && setVinculo({ item_id: itemId, origen: null, tn: null, can_edit: false, sinLectura: true }));
     Promise.all([productoMarcasAPI.listar(), productoCategoriasAPI.listar()])
       .then(([marcas, categorias]) => vigente && setMaestros({ marcas: marcas.data, categorias: categorias.data }))
-      .catch(() => {});
+      .catch(() => vigente && setError('No se pudieron cargar las marcas y categorías: solo se ve el valor actual'));
     return () => {
       vigente = false;
     };

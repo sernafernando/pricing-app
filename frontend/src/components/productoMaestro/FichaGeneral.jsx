@@ -152,7 +152,8 @@ function Texto({ def, maestro, edits, editable, onTexto }) {
   );
 }
 
-function Lectura({ lectura, tn }) {
+function Lectura({ lectura, vinculo }) {
+  const tn = vinculo?.tn;
   const filas = [
     ['Costo', moneda(lectura.moneda_costo, lectura.costo)],
     ['IVA', lectura.iva != null ? `${numero(lectura.iva)} %` : '—'],
@@ -160,7 +161,7 @@ function Lectura({ lectura, tn }) {
     ['Precio lista ML', pesos(lectura.precio_lista_ml)],
     ['Proveedor', lectura.proveedor || '—'],
     ['Publicaciones ML', `${numero(lectura.publicaciones_ml ?? 0)} vinculadas`],
-    ['Tienda Nube', tn?.published ? 'Publicado' : 'No publicado'],
+    ['Tienda Nube', vinculo?.sinLectura ? '—' : tn?.published ? 'Publicado' : 'No publicado'],
   ];
   return (
     <fieldset className={f.seccion} aria-label="Precio, stock y canales · solo lectura">
@@ -220,7 +221,7 @@ export default function FichaGeneral({ maestro, edits, maestros, vinculo, onCamp
         ))}
       </fieldset>
 
-      <Lectura lectura={maestro.lectura} tn={vinculo?.tn} />
+      <Lectura lectura={maestro.lectura} vinculo={vinculo} />
     </div>
   );
 }

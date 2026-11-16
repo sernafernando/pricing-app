@@ -319,6 +319,31 @@ describe('Ficha: Tienda Nube as a description source', () => {
   });
 });
 
+describe('Ficha: failed reads say so', () => {
+  it('a failed read of brands and categories is reported', async () => {
+    productoCategoriasAPI.listar.mockRejectedValue(new Error('HTTP 500'));
+    render(<FichaProducto itemId={455} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron cargar las marcas y categorías: solo se ve el valor actual');
+  });
+
+  it('a failed read of the spec types is reported', async () => {
+    productoMaestroAPI.leer.mockResolvedValue({ data: maestro({ item_id: 4874, tipo_specs: 'notebook' }) });
+    productoSpecsAPI.leer.mockResolvedValue({ data: specs() });
+    productoSpecsAPI.campos.mockRejectedValue(new Error('HTTP 500'));
+    render(<FichaProducto itemId={4874} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron cargar los tipos de las specs');
+  });
+
+  it('a failed read of the Tienda Nube link claims no status', async () => {
+    productoTnVinculosAPI.leer.mockRejectedValue(new Error('HTTP 500'));
+    render(<FichaProducto itemId={455} />);
+    expect(await screen.findByText('No se pudo leer el vínculo con Tienda Nube')).toBeInTheDocument();
+    const lectura = screen.getByRole('group', { name: /Precio, stock y canales/ });
+    expect(within(lectura).queryByText('No publicado')).not.toBeInTheDocument();
+    expect(within(lectura).getByText('Tienda Nube').nextSibling).toHaveTextContent('—');
+  });
+});
+
 describe('Ficha: read-only data', () => {
   it('shows cost, VAT, stock, list price, supplier, publications and Tienda Nube', async () => {
     render(<FichaProducto itemId={455} />);
