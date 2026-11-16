@@ -198,8 +198,8 @@ describe('SubirPdfModal: backend deviations (T1 notes)', () => {
   it('formats the old Decimal-string amounts (total_lineas, recargo_financiero) like numbers', async () => {
     const user = userEvent.setup();
     renderModal();
-    await hastaResultado(user, { ...CARGA, total_lineas: '161236.45', recargo_financiero: '500947.07' });
-    expect(screen.getByText('Total de líneas (sin IVA)').nextElementSibling).toHaveTextContent('$ 161.236,45');
+    await hastaResultado(user, { ...CARGA, total_lineas: '84512.33', recargo_financiero: '3120.75' });
+    expect(screen.getByText('Total de líneas (sin IVA)').nextElementSibling).toHaveTextContent('$ 84.512,33');
   });
 
   it('labels the no-product amount as without VAT (it is the PDF price)', async () => {
