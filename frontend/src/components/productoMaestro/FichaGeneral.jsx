@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { GENERAL, TEXTOS, original, textoActual, valorGeneral } from './fichaEdits';
 import { moneda, numero, pesos } from './formato';
 import TnVinculo from './TnVinculo';
@@ -29,6 +30,7 @@ function opciones(def, valor, { marcas, categorias, categoriaId }) {
 }
 
 function Campo({ def, maestro, edits, editable, onChange, onVolver, maestros }) {
+  const id = useId();
   const valor = valorGeneral(maestro, edits, def);
   const dirty = def.key in edits.general && valor.trim() !== original(maestro, def);
   const select = ['marca', 'categoria', 'subcategoria'].includes(def.tipo);
@@ -50,7 +52,6 @@ function Campo({ def, maestro, edits, editable, onChange, onVolver, maestros }) 
   }
 
   const inpCls = [m.inp, def.unidad && m.inpUnit, dirty ? m.inpDirty : gbp !== null && m.inpOv, valor === '' && m.inpEmpty].filter(Boolean).join(' ');
-  const id = `maestro-${def.key}`;
   const opts = select ? opciones(def, valor, maestros) : [];
 
   return (

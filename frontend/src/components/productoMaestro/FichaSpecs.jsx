@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { productoSpecsAPI } from '../../services/api';
 import { specActual } from './fichaEdits';
 import m from './maestro.module.css';
@@ -17,7 +17,8 @@ function Spec({ campo, info, edits, editable, onValor, onNoAplica, sugerencias, 
   const tagCls = na ? m.oNa : manualSinGuardar ? m.oManual : vacio ? m.oNone : TAG_CLS[campo.origen] ?? m.oManual;
   const unidad = !na && info?.unidad ? UNIDAD[info.unidad] ?? info.unidad : null;
   const categorico = info?.tipo === 'categorico';
-  const listId = categorico ? `spec-valores-${campo.campo}` : undefined;
+  const baseId = useId();
+  const listId = categorico ? `${baseId}-valores` : undefined;
   const inpCls = [m.inp, unidad && m.inpUnit, (editado || naEditado) && m.inpDirty, vacio && m.inpEmpty].filter(Boolean).join(' ');
 
   return (
