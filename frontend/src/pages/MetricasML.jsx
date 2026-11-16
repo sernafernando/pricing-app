@@ -922,7 +922,7 @@ export default function MetricasML() {
         <VendedorFilter
           options={facets?.vendedores ?? []}
           counts={facets?.vendedor_documentos}
-          value={vendedores[0] ?? ''}
+          value={vendedores}
           variant={esFuera ? 'chips' : 'select'}
           onChange={withReset((value) => setVendedores(value ? [value] : []))}
         />

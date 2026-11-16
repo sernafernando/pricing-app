@@ -57,3 +57,24 @@ describe('VendedorFilter select (Todo, unchanged)', () => {
     expect(screen.queryByRole('group', { name: 'Vendedores' })).toBeNull();
   });
 });
+
+describe('VendedorFilter with several salespeople from a link (a load that imported more than one)', () => {
+  it('chips: every chosen salesperson is a pressed chip and "Todos" is not pressed', () => {
+    chips({ value: ['Vendedora Cinco', 'Vendedor Cuatro'] });
+    const group = screen.getByRole('group', { name: 'Vendedores' });
+    expect(within(group).getByRole('button', { name: /^Todos$/ })).toHaveAttribute('aria-pressed', 'false');
+    expect(within(group).getByRole('button', { name: /Vendedora Cinco/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(group).getByRole('button', { name: /Vendedor Cuatro/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('select: says how many salespeople are chosen instead of "Todos los vendedores"', () => {
+    render(<VendedorFilter options={OPTIONS} value={['Vendedora Uno', 'Vendedor Dos']} onChange={() => {}} />);
+    const select = screen.getByRole('combobox', { name: 'Vendedor' });
+    expect(select.selectedOptions[0]).toHaveTextContent('2 vendedores');
+  });
+
+  it('one chosen salesperson as a list works like the plain name', () => {
+    chips({ value: ['Vendedor Dos'] });
+    expect(screen.getByRole('button', { name: /Vendedor Dos/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+});

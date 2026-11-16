@@ -4,6 +4,8 @@ import styles from './VendedorFilter.module.css';
 // How many salespeople get a chip of their own on Por fuera (approved mockup 2); the rest go in "Otro".
 const TOP_CHIPS = 3;
 const INT_FORMAT = new Intl.NumberFormat('es-AR');
+// The select's value while a link carries several salespeople (not a salesperson name).
+const VARIOS = '\u0000varios';
 
 /** "Vendedora Uno · 96" -- the " · " kept for the accessible name and hidden on screen, like FacetChips. */
 function Name({ name, count }) {
@@ -16,9 +18,9 @@ function Name({ name, count }) {
   );
 }
 
-/** The top salespeople by documents (ties and missing counts keep the board's order), the chosen one always among
+/** The top salespeople by documents (ties and missing counts keep the board's order), the chosen ones always among
  * them. */
-function topNames(options, counts, value) {
+function topNames(options, counts, elegidos) {
   const ranked = counts
     ? options
         .map((name, index) => ({ name, index, n: counts[name] ?? 0 }))
@@ -26,7 +28,7 @@ function topNames(options, counts, value) {
         .map(({ name }) => name)
     : options;
   const top = ranked.slice(0, TOP_CHIPS);
-  if (value && !top.includes(value)) top.push(value);
+  for (const name of elegidos) if (!top.includes(name)) top.push(name);
   return top;
 }
 
@@ -34,18 +36,21 @@ function topNames(options, counts, value) {
  * The ventas por fuera salesperson filter (vpf-metricas-canal-fe, approved mockups 1 and 2): one salesperson or all
  * of them (`facets.vendedores`, narrowed by the empresa chosen). `chips` (Por fuera) shows "Todos" and the
  * salespeople with most documents (`counts`, `facets.vendedor_documentos`) as chips with their counts, the rest in
- * "Otro"; `select` (Todo) is one dropdown. The board answers for the names.
+ * "Otro"; `select` (Todo) is one dropdown. The board answers for the names. `value` is the name chosen or the list a
+ * link carries (a load that imported several salespeople): every one of them shows as chosen; `onChange` gets one.
  */
 export default function VendedorFilter({ options = [], counts, value = '', onChange, variant = 'select' }) {
+  const elegidos = (Array.isArray(value) ? value : [value]).filter(Boolean);
+  const solo = elegidos.length === 1 ? elegidos[0] : '';
   if (variant === 'chips') {
-    const top = topNames(options, counts, value);
+    const top = topNames(options, counts, elegidos);
     const others = options.filter((name) => !top.includes(name));
     return (
       <div className={chipStyles.row} role="group" aria-label="Vendedores">
         <button
           type="button"
-          className={`${chipStyles.chip} ${value === '' ? chipStyles.chipActive : ''}`}
-          aria-pressed={value === ''}
+          className={`${chipStyles.chip} ${elegidos.length === 0 ? chipStyles.chipActive : ''}`}
+          aria-pressed={elegidos.length === 0}
           onClick={() => onChange('')}
         >
           Todos
@@ -54,9 +59,9 @@ export default function VendedorFilter({ options = [], counts, value = '', onCha
           <button
             key={name}
             type="button"
-            className={`${chipStyles.chip} ${value === name ? chipStyles.chipActive : ''}`}
-            aria-pressed={value === name}
-            onClick={() => onChange(value === name ? '' : name)}
+            className={`${chipStyles.chip} ${elegidos.includes(name) ? chipStyles.chipActive : ''}`}
+            aria-pressed={elegidos.includes(name)}
+            onClick={() => onChange(solo === name ? '' : name)}
           >
             <Name name={name} count={counts?.[name]} />
           </button>
@@ -80,10 +85,20 @@ export default function VendedorFilter({ options = [], counts, value = '', onCha
     );
   }
   return (
-    <select className={styles.select} aria-label="Vendedor" value={value} onChange={(event) => onChange(event.target.value)}>
+    <select
+      className={styles.select}
+      aria-label="Vendedor"
+      value={elegidos.length > 1 ? VARIOS : solo}
+      onChange={(event) => onChange(event.target.value)}
+    >
       <option value="">Todos los vendedores</option>
+      {elegidos.length > 1 && (
+        <option value={VARIOS} disabled>
+          {elegidos.length} vendedores
+        </option>
+      )}
       {/* A salesperson chosen from a link that the period does not list stays selectable. */}
-      {[...(value && !options.includes(value) ? [value] : []), ...options].map((name) => (
+      {[...(solo && !options.includes(solo) ? [solo] : []), ...options].map((name) => (
         <option key={name} value={name}>
           {name}
         </option>
