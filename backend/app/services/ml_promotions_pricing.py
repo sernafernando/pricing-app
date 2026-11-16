@@ -358,10 +358,15 @@ def markup_para_precio(db: Session, mla: str, price: float, *, context: Any = _R
 
 
 class MarkupsDePrecio(NamedTuple):
-    """`markup_para_precio` and its sell in / sell out companion for the same price."""
+    """`markup_para_precio` and its sell in / sell out companion for the same price.
+
+    ``precio_status_quo``: when set, the consumer price hay_mejores should compare
+    candidates against (Activa ahora offer price, or the sale when plain).
+    """
 
     nuestro_markup: Optional[float]
     markup_sell_in_out: Optional[float]
+    precio_status_quo: Optional[float] = None
 
 
 def markup_para_precio_con_sell_in_out(
@@ -429,26 +434,6 @@ def resolver_sell_in_out_para_mlas(db: Session, mlas: Iterable[str]) -> Optional
         return None
 
 
-# Types where ML co-funds the discount (`_co_funding_amount`). A started
-# offer of one of these is the real status quo when its consumer price is
-# the sale_price — plain `markup_para_precio(sale)` would understate markup.
-COFUNDED_PROMOTION_TYPES: frozenset[str] = frozenset({"SMART", "PRE_NEGOTIATED", "PRICE_MATCHING"})
-
-# Pesos: sale_price and started `price` can differ by cents (e.g. 555867.83 vs 555867.8).
-_BASELINE_PRICE_TOLERANCE_ARS = 1.0
-
-
-def _prices_close(
-    left: Optional[float], right: Optional[float], *, tolerance: float = _BASELINE_PRICE_TOLERANCE_ARS
-) -> bool:
-    if left is None or right is None:
-        return False
-    try:
-        return abs(float(left) - float(right)) <= tolerance
-    except (TypeError, ValueError):
-        return False
-
-
 def markup_baseline_vigente(
     db: Session,
     mla: str,
@@ -463,6 +448,39 @@ def markup_baseline_vigente(
     ).nuestro_markup
 
 
+def _started_activas_por_precio(started: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Same rule as ``derivar_application_status``: ML applies the lowest-price started.
+
+    Missing prices count as active (never silently discarded). Ties on the minimum
+    keep every tied promo; caller then breaks ties by ``nuestro_markup``.
+    """
+    numeric: List[float] = []
+    for promo in started:
+        price = promo.get("price")
+        if price is None:
+            continue
+        try:
+            numeric.append(float(price))
+        except (TypeError, ValueError):
+            continue
+    min_price = min(numeric) if numeric else None
+    if min_price is None:
+        return list(started)
+
+    activas: List[Dict[str, Any]] = []
+    for promo in started:
+        price = promo.get("price")
+        if price is None:
+            activas.append(promo)
+            continue
+        try:
+            if float(price) == min_price:
+                activas.append(promo)
+        except (TypeError, ValueError):
+            continue
+    return activas
+
+
 def markups_baseline_vigente(
     db: Session,
     mla: str,
@@ -473,46 +491,48 @@ def markups_baseline_vigente(
     batch: Optional[SellInOutBatch] = None,
     context: Any = _RESOLVER,
 ) -> MarkupsDePrecio:
-    """Seller markup for the MeLi status-quo price used by hay_mejores, with its sell in / sell out
-    companion (`markup_sell_in_out`, None with `sell_in_out=False`).
+    """Status-quo markups for hay_mejores (Activa ahora / plain sale).
 
-    - If a **started** SMART / PRE_NEGOTIATED / PRICE_MATCHING entry's offer
-      price matches ``baseline_price`` (sale), use the co-funded chain
-      (same as the promo card / ``enriquecer_markup_por_promo``): the match
-      with the best plain markup, and that same offer's companion.
-    - Otherwise use plain ``markup_para_precio`` (no co-funding) — list
-      price, DEAL/seller campaigns, or no matching cofunded started offer.
+    - Among mirror entries with ``status=started`` (any type), keep only those ML
+      actually applies: the lowest ``price`` (same rule as
+      ``derivar_application_status`` / Activa ahora). Enrich those, then take the
+      best ``nuestro_markup`` and set ``precio_status_quo`` to that offer's price
+      (no requirement that it match ``baseline_price`` / sale).
+    - Otherwise plain ``markup_para_precio`` / sell-in-out on ``baseline_price``
+      (sale), with ``precio_status_quo=baseline_price``.
 
-    ``raw_promotions`` is the seller-promotions mirror list (store `raw` or
-    the same shape); ``batch`` an already-resolved sell in / sell out read;
-    ``context`` the MLA's already-resolved header unit (else resolved here,
-    ONCE, for both the co-funded and the plain chain).
-    Never raises: None when markup cannot be computed.
+    ``raw_promotions`` is the seller-promotions mirror list; ``batch`` an already-
+    resolved sell in / sell out read; ``context`` the MLA header unit (else
+    resolved here once). Never raises: markups None when they cannot be computed.
     """
     if baseline_price is None or baseline_price <= 0:
-        return MarkupsDePrecio(None, None)
+        return MarkupsDePrecio(None, None, None)
     context = _contexto(db, mla, context)
 
     def _plano() -> MarkupsDePrecio:
         if sell_in_out:
-            return markup_para_precio_con_sell_in_out(db, mla, baseline_price, batch=batch, context=context)
-        return MarkupsDePrecio(markup_para_precio(db, mla, baseline_price, context=context), None)
+            plain = markup_para_precio_con_sell_in_out(db, mla, baseline_price, batch=batch, context=context)
+            return MarkupsDePrecio(plain.nuestro_markup, plain.markup_sell_in_out, float(baseline_price))
+        return MarkupsDePrecio(
+            markup_para_precio(db, mla, baseline_price, context=context), None, float(baseline_price)
+        )
 
-    started_cofunded: List[Dict[str, Any]] = []
+    started: List[Dict[str, Any]] = []
     if isinstance(raw_promotions, list):
         for entry in raw_promotions:
             if not isinstance(entry, Mapping):
                 continue
-            status = entry.get("status")
-            promo_type = entry.get("type") or entry.get("promotion_type")
-            if status != "started" or promo_type not in COFUNDED_PROMOTION_TYPES:
+            if entry.get("status") != "started":
                 continue
-            started_cofunded.append(
+            promo_type = entry.get("type") or entry.get("promotion_type")
+            if not promo_type:
+                continue
+            started.append(
                 {
                     "mla": mla,
                     "promotion_id": entry.get("id") or entry.get("promotion_id"),
                     "promotion_type": promo_type,
-                    "status": status,
+                    "status": "started",
                     "price": entry.get("price"),
                     "original_price": entry.get("original_price"),
                     "suggested_discounted_price": entry.get("suggested_discounted_price"),
@@ -520,24 +540,24 @@ def markups_baseline_vigente(
                 }
             )
 
-    if started_cofunded:
+    activas = _started_activas_por_precio(started)
+    if activas:
         try:
-            enriquecer_markup_por_promo(
-                db, mla, started_cofunded, sell_in_out=sell_in_out, batch=batch, context=context
-            )
+            enriquecer_markup_por_promo(db, mla, activas, sell_in_out=sell_in_out, batch=batch, context=context)
         except Exception as e:
-            logger.warning("Error enriqueciendo baseline cofunded mla %s: %s", mla, e)
+            logger.warning("Error enriqueciendo baseline started mla %s: %s", mla, e)
             return _plano()
 
-        matched = [
+        usable = [
             promo
-            for promo in started_cofunded
-            if _prices_close(precio_de_oferta(promo), baseline_price) and promo.get("nuestro_markup") is not None
+            for promo in activas
+            if promo.get("nuestro_markup") is not None and precio_de_oferta(promo) is not None
         ]
-        if matched:
-            # Same consumer price: the best reported markup (ties rare; the first on a tie), with its companion.
-            best = max(matched, key=lambda promo: float(promo["nuestro_markup"]))
-            return MarkupsDePrecio(float(best["nuestro_markup"]), best.get("markup_sell_in_out"))
+        if usable:
+            best = max(usable, key=lambda promo: float(promo["nuestro_markup"]))
+            offer = precio_de_oferta(best)
+            assert offer is not None
+            return MarkupsDePrecio(float(best["nuestro_markup"]), best.get("markup_sell_in_out"), float(offer))
 
     return _plano()
 

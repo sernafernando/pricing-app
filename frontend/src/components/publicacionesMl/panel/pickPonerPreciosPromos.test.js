@@ -14,7 +14,6 @@ import {
   pickMejoresCandidatas,
   parsePromoInstant,
   pickPonerPreciosPromos,
-  pricesClose,
   comparableMarkups,
   currentMonthNameEs,
   slotEntries,
@@ -133,49 +132,100 @@ describe('pickPonerPreciosPromos', () => {
 });
 
 describe('baselineMarkupFromPromos', () => {
-  it('uses max cofunded started markup when offer price matches sale (same as backend)', () => {
+  it('uses application_status active (ML-applied), not a higher-priced programmed started', () => {
     expect(
       baselineMarkupFromPromos(
         [
           {
             status: 'started',
             promotion_type: 'PRICE_MATCHING',
-            application_status: 'programmed',
-            price: 555867.8,
-            nuestro_markup: 1.2,
+            application_status: 'active',
+            price: 771149,
+            nuestro_markup: 5.0,
           },
           {
             status: 'started',
             promotion_type: 'SMART',
-            application_status: 'active',
-            price: 555867.5,
-            nuestro_markup: 1.4,
-          },
-          {
-            status: 'candidate',
-            promotion_type: 'SMART',
-            price: 526957,
-            nuestro_markup: -5.06,
+            application_status: 'programmed',
+            price: 814999,
+            nuestro_markup: 12.1,
           },
         ],
-        555867.83,
+        771149,
       ),
-    ).toBe(1.4);
+    ).toBe(5.0);
   });
 
-  it('returns null without a matching cofunded started offer', () => {
+  it('without application_status, keeps the lowest-price started then best markup', () => {
+    expect(
+      baselineMarkupFromPromos(
+        [
+          { status: 'started', promotion_type: 'SMART', price: 814999, nuestro_markup: 12.1 },
+          { status: 'started', promotion_type: 'PRICE_MATCHING', price: 771149, nuestro_markup: 5.0 },
+        ],
+        771149,
+      ),
+    ).toBe(5.0);
+  });
+
+  it('on a min-price tie, picks the best markup and skips started without markup', () => {
+    expect(
+      baselineMarkupFromPromos(
+        [
+          { status: 'started', promotion_type: 'SMART', price: 100000, nuestro_markup: null },
+          { status: 'started', promotion_type: 'DEAL', price: 100000, nuestro_markup: 8.5 },
+          { status: 'started', promotion_type: 'PRICE_MATCHING', price: 100000, nuestro_markup: 7.0 },
+        ],
+        120000,
+      ),
+    ).toBe(8.5);
+  });
+
+  it('uses a started DEAL / seller campaign, not only cofunded types', () => {
+    expect(
+      baselineMarkupFromPromos(
+        [{ status: 'started', promotion_type: 'DEAL', price: 90000, nuestro_markup: 8.5 }],
+        100000,
+      ),
+    ).toBe(8.5);
+  });
+
+  it('returns null without a started offer', () => {
     expect(
       baselineMarkupFromPromos(
         [{ status: 'candidate', promotion_type: 'SMART', price: 526957, nuestro_markup: -5.06 }],
         555867.83,
       ),
     ).toBeNull();
-    expect(pricesClose(555867.83, 555867.8)).toBe(true);
-    expect(pricesClose(555867.83, 400000)).toBe(false);
   });
 });
 
 describe('esMejorOferta / pickMejoresCandidatas', () => {
+  it('rejects a cheaper worse-markup candidate when Activa ahora is a diverged SMART (MLA1609415777)', () => {
+    const now = new Date('2026-11-16T12:00:00Z');
+    const picked = pickMejoresCandidatas(
+      [
+        {
+          status: 'started',
+          promotion_type: 'SMART',
+          promotion_id: 'P-SMART',
+          price: 814999,
+          nuestro_markup: 12.1,
+        },
+        {
+          status: 'candidate',
+          promotion_type: 'PRICE_MATCHING',
+          promotion_id: 'P-PM',
+          price: 764813.56,
+          nuestro_markup: 4.73,
+          start_date: '2026-11-01T00:00:00Z',
+        },
+      ],
+      { baselinePrice: 814999, baselineMarkup: 12.1, baselineSellInOut: null, now },
+    );
+    expect(picked.PRICE_MATCHING).toBeNull();
+  });
+
   it('rejects markup↑ at a higher consumer price', () => {
     expect(esMejorOferta(1100, 30, 1000, 20)).toBe(false);
     expect(esMejorOferta(1000, 30, 1000, 20)).toBe(true);
@@ -300,9 +350,12 @@ describe('baselineSellInOutFromPromos', () => {
     ).toBe(3.1);
   });
 
-  it('is null when that offer has none, or there is no matching offer', () => {
+  it('is null when that Activa ahora offer has no sell in / sell out', () => {
     expect(baselineSellInOutFromPromos([started(555867.8, 1.4, null)], 555867.83)).toBeNull();
-    expect(baselineSellInOutFromPromos([started(400000, 1.4, 3.1)], 555867.83)).toBeNull();
+  });
+
+  it('keeps sell in / sell out when Activa ahora price differs from sale', () => {
+    expect(baselineSellInOutFromPromos([started(400000, 1.4, 3.1)], 555867.83)).toBe(3.1);
   });
 });
 
