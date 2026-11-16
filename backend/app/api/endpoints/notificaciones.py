@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Query as OrmQuery, Session
 from sqlalchemy import desc, func
 from pydantic import BaseModel, ConfigDict
@@ -158,8 +158,8 @@ class NotificacionAgrupada(BaseModel):
 
 @router.get("/notificaciones", response_model=List[NotificacionResponse])
 def listar_notificaciones(
-    limit: int = Query(50, ge=1, le=500),
-    offset: int = Query(0, ge=0),
+    limit: int = 50,
+    offset: int = 0,
     solo_no_leidas: bool = False,
     tipo: Optional[str] = None,
     familia: Optional[Familia] = None,
