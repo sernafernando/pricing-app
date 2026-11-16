@@ -63,6 +63,9 @@ describe.each([
     await userEvent.click(screen.getByText('Adaptador Bluetooth 5.0 TP-Link UB500 Nano USB', { exact: true }).first());
     await expect.element(screen.getByText('GBP: BLUETOOTH TPLINK NANO USB UB500 BT 5.0')).toBeVisible();
     await expect.element(screen.getByText('Automático por SKU')).toBeVisible();
+    await expect
+      .element(screen.getByLabelText('Descripción web'))
+      .toHaveAttribute('placeholder', 'Sin descripción en Tienda Nube: llega con la sincronización de TN');
     sinScrollHorizontal();
     if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/real-general-${width}-${theme}.png`, fullPage: true });
 

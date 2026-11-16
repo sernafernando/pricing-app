@@ -69,7 +69,7 @@ export const MAESTRO = {
       titulo_ml: { fuente: 'ml', elegida: false, valor: ML_TITULO_455, fuentes: { ml: ML_TITULO_455, tn: TN_455, gbp: 'Adaptador Bluetooth Usb Nano Tp-link Ub400 Para Notebook Pc' } },
       titulo_web: { fuente: 'tn', elegida: false, valor: TN_455, fuentes: { tn: TN_455, ml: ML_TITULO_455, nombre: 'Adaptador Bluetooth 5.0 TP-Link UB500 Nano USB' } },
       descripcion_ml: { fuente: 'ml', elegida: false, valor: ML_DESC_455, fuentes: { ml: ML_DESC_455, tn: null, gbp: GBP_DESC_455 } },
-      descripcion_web: { fuente: 'ml', elegida: false, valor: ML_DESC_455, fuentes: { tn: null, ml: ML_DESC_455, gbp: GBP_DESC_455 } },
+      descripcion_web: { fuente: 'tn', elegida: true, valor: null, fuentes: { tn: null, ml: ML_DESC_455, gbp: GBP_DESC_455 } },
     },
     mla_ganadora: 'MLA1824169308',
     lectura: {

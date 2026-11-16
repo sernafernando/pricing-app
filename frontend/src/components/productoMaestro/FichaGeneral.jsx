@@ -9,6 +9,9 @@ const SECCIONES = [...new Set(GENERAL.map((def) => def.seccion))];
 
 const ETIQUETA_FUENTE = { tn: 'Tienda Nube', gbp: 'GBP', nombre: 'Nombre' };
 
+/** The sources of each description, in the approved mock's order. */
+const ORDEN_DESCRIPCION = { descripcion_ml: ['ml', 'tn', 'gbp'], descripcion_web: ['tn', 'ml', 'gbp'] };
+
 function notaTexto(clave, fuente, largo) {
   if (fuente === 'propio') return 'Texto propio: queda fijo aunque cambie la publicación o GBP';
   if (fuente === 'gbp') return 'Texto de GBP: se actualiza con la sincronización de GBP';
@@ -107,14 +110,17 @@ function Texto({ def, maestro, edits, editable, onTexto }) {
   const server = maestro.textos[def.clave] ?? { fuentes: {} };
   const { fuente, valor } = textoActual(maestro, edits, def.clave);
   const dirty = def.clave in edits.textos;
-  const fuentes = Object.entries(server.fuentes ?? {}).filter(([, contenido]) => contenido);
+  // A source without text is not offered, except Tienda Nube on the descriptions: as in the mock it is always there,
+  // in its fixed place, and empty until the TN sync brings the store's description.
+  const orden = ORDEN_DESCRIPCION[def.clave] ?? Object.keys(server.fuentes ?? {});
+  const fuentes = orden.filter((clave) => server.fuentes?.[clave] || (clave === 'tn' && def.clave in ORDEN_DESCRIPCION));
   const etiqueta = (clave) => (clave === 'ml' ? `Publicación ${maestro.mla_ganadora}` : ETIQUETA_FUENTE[clave]);
-  const chips = [...fuentes.map(([clave]) => clave), 'propio'];
+  const chips = [...fuentes, 'propio'];
   const inpCls = [m.inp, dirty && m.inpDirty, valor === '' && m.inpEmpty].filter(Boolean).join(' ');
   const props = {
     className: inpCls,
     'aria-label': def.etiqueta,
-    placeholder: 'Sin texto',
+    placeholder: fuente === 'tn' && def.largo ? 'Sin descripción en Tienda Nube: llega con la sincronización de TN' : 'Sin texto',
     value: valor,
     disabled: !editable,
     onChange: (e) => onTexto(def.clave, { fuente: 'propio', texto: e.target.value }),

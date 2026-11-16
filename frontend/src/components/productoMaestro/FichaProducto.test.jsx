@@ -270,6 +270,55 @@ describe('Ficha: titles and descriptions', () => {
   });
 });
 
+describe('Ficha: Tienda Nube as a description source', () => {
+  const chips = (bloque) =>
+    within(bloque)
+      .getAllByRole('button')
+      .map((b) => b.textContent);
+
+  it('both descriptions always offer Tienda Nube, in the mock order, even without its text', async () => {
+    const user = userEvent.setup();
+    render(<FichaProducto itemId={455} />);
+
+    const ml = (await screen.findByLabelText('Descripción ML')).closest('[data-texto]');
+    const web = screen.getByLabelText('Descripción web').closest('[data-texto]');
+    expect(chips(ml)).toEqual(['Publicación MLA1442876593', 'Tienda Nube', 'GBP', 'Texto propio']);
+    expect(chips(web)).toEqual(['Tienda Nube', 'Publicación MLA1442876593', 'GBP', 'Texto propio']);
+
+    await user.click(within(web).getByRole('button', { name: 'Tienda Nube' }));
+    expect(screen.getByLabelText('Descripción web')).toHaveValue('');
+    expect(screen.getByLabelText('Descripción web')).toHaveAttribute(
+      'placeholder',
+      'Sin descripción en Tienda Nube: llega con la sincronización de TN',
+    );
+  });
+
+  it('with its text, Tienda Nube gives the plain text for ML and the HTML for the web', async () => {
+    const base = maestro();
+    productoMaestroAPI.leer.mockResolvedValue({
+      data: maestro({
+        textos: {
+          ...base.textos,
+          descripcion_ml: { ...base.textos.descripcion_ml, fuentes: { ...base.textos.descripcion_ml.fuentes, tn: 'Bluetooth 5.0 nano' } },
+          descripcion_web: { ...base.textos.descripcion_web, fuentes: { ...base.textos.descripcion_web.fuentes, tn: '<p>Bluetooth 5.0 nano</p>' } },
+        },
+      }),
+    });
+    const user = userEvent.setup();
+    render(<FichaProducto itemId={455} />);
+
+    const ml = (await screen.findByLabelText('Descripción ML')).closest('[data-texto]');
+    const web = screen.getByLabelText('Descripción web').closest('[data-texto]');
+    expect(chips(ml)).toEqual(['Publicación MLA1442876593', 'Tienda Nube', 'GBP', 'Texto propio']);
+    expect(chips(web)).toEqual(['Tienda Nube', 'Publicación MLA1442876593', 'GBP', 'Texto propio']);
+
+    await user.click(within(ml).getByRole('button', { name: 'Tienda Nube' }));
+    await user.click(within(web).getByRole('button', { name: 'Tienda Nube' }));
+    expect(screen.getByLabelText('Descripción ML')).toHaveValue('Bluetooth 5.0 nano');
+    expect(screen.getByLabelText('Descripción web')).toHaveValue('<p>Bluetooth 5.0 nano</p>');
+  });
+});
+
 describe('Ficha: read-only data', () => {
   it('shows cost, VAT, stock, list price, supplier, publications and Tienda Nube', async () => {
     render(<FichaProducto itemId={455} />);
