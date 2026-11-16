@@ -139,6 +139,8 @@ class _TextoPlano(HTMLParser):
                 self._prefix = "- "
 
     def handle_endtag(self, tag: str) -> None:
+        if tag == "br":  # a void element: `<br/>` reaches here right after its start tag, which already broke the line
+            return
         if tag in _SKIPPED_TAGS:
             self._skipping = max(0, self._skipping - 1)
         elif tag in _BLOCK_TAGS:

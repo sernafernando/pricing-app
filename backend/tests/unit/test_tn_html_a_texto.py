@@ -47,3 +47,7 @@ def test_the_texts_row_takes_the_spanish_name_and_description_of_the_product() -
 
 def test_a_product_without_description_stores_none_not_empty_html() -> None:
     assert extract_textos({"id": 7, "name": {"es": "X"}})["descripcion_html"] is None
+
+
+def test_a_self_closing_br_is_one_line_break_like_br() -> None:
+    assert html_a_texto("<p>A<br/>B<br />C</p>") == "A\nB\nC"
