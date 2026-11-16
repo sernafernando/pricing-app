@@ -120,7 +120,7 @@ def _bono(engine: Engine, moneda: str, tactical_id, tipo: str = "por_unidad") ->
 
 def test_revises_the_current_sell_in_head() -> None:
     module = _module()
-    assert (module.revision, module.down_revision) == (_REVISION, "20261119_vpf_offsets_sell_pdf")
+    assert (module.revision, module.down_revision) == (_REVISION, "20261119_ventas_fuera_pdf_cargas_detalle")
 
 
 @pytest.mark.postgres

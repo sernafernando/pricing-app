@@ -1,7 +1,7 @@
 """tacticals: a sell in cost bonus may be USD (per unit or capped), converted per sale by the tactical's rate type
 
 Revision ID: 20261120_tactical_sell_in_usd
-Revises: 20261119_vpf_offsets_sell_pdf
+Revises: 20261119_ventas_fuera_pdf_cargas_detalle
 Create Date: 2026-11-16
 
 Owner, 2026-11-16: "vos elegís un tipo de moneda para el sell in y un tipo de cambio qué importa en qué se cargó la
@@ -26,7 +26,7 @@ from typing import List, Sequence, Union
 from alembic import op
 
 revision: str = "20261120_tactical_sell_in_usd"
-down_revision: Union[str, None] = "20261119_vpf_offsets_sell_pdf"
+down_revision: Union[str, None] = "20261119_ventas_fuera_pdf_cargas_detalle"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
