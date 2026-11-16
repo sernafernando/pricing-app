@@ -1,6 +1,7 @@
 """`tienda_nube.sync` (abm-productos L12): keeps `tienda_nube_productos` (variants, prices, published, ERP link) and
 `tienda_nube_producto_textos` (name and description) in step with the Tienda Nube catalog. No cron: it replaces the
-crontab line `*/15 6-21 * * * ... scripts/sync_tienda_nube.py`, with the same cadence.
+`/etc/cron.d/pricing-app` line that ran `backend/scripts/sync_tienda_nube.py` every 15 minutes at 9-23,0 UTC (06-21 h
+Argentina), with the same cadence.
 
 Schedule-only, every 15 minutes; outside 06:00-21:59 Argentina time a run does nothing. The fetch (paged HTTP, no
 database session open) is bounded by `ctx.deadline`; then one short `get_background_db()` transaction applies the
