@@ -139,6 +139,13 @@ _RECENTLY_ACTIVE = (
 _ACTIVE_ONLY_RESOURCES = frozenset({VISITS_RESOURCE, DESCRIPTION_RESOURCE})
 _NOT_QUEUED = "AND NOT EXISTS (SELECT 1 FROM ml_pub_refresh_queue q WHERE q.kind = '{kind}' AND q.entity_id = {id})"
 
+
+def item_eligibility_sql() -> str:
+    """The sweep's eligibility of an item `i` (sweep status, not gone, never-existed and parked excluded), so the
+    freshness check measures exactly the items the sweep is responsible for. Binds `:statuses`."""
+    return _STATUS_FILTER + " " + _NOT_PARKED.format(kind=ITEM_KIND, id="i.item_id")
+
+
 _SWEEP_BACKLOG = text("SELECT count(*) FROM ml_pub_refresh_queue WHERE lane = :lane AND parked_at IS NULL")
 
 
