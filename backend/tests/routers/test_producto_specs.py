@@ -225,6 +225,18 @@ class TestPreload:
             None,
         )
 
+    def test_the_worker_handler_works_in_batches_and_stops_at_the_deadline(self, pg, monkeypatch):
+        with pg.begin() as conn:
+            for item_id in (10, 11, 12):
+                product(conn, item_id, NB_NAME)
+        monkeypatch.setattr("app.workers.handlers.producto_specs_preload.BATCH_SIZE", 2)
+
+        late = preload.run(WorkerContext(deadline=datetime(2000, 1, 1, tzinfo=timezone.utc), worker_name="w"))
+        done = preload.run(WorkerContext(deadline=datetime(2100, 1, 1, tzinfo=timezone.utc), worker_name="w"))
+
+        assert (late.success, late.detail["creados"]) == (False, 0)  # stays due: the next pass finishes it
+        assert (done.success, done.detail["creados"], done.detail["lotes"]) == (True, 3, 2)
+
 
 class TestManual:
     def test_a_manual_value_is_never_overwritten_by_a_re_preload(self, client, pg, editor):

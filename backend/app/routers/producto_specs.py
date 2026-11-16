@@ -8,7 +8,6 @@ Reading needs `productos.ver` (anyone who can see products); editing, adding lis
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
@@ -102,12 +101,6 @@ def _can_edit(db: Session, user: Usuario) -> bool:
     return PermisosService(db).tiene_permiso(user, PERMISO_EDITAR)
 
 
-def _number(value):
-    if isinstance(value, Decimal):
-        return float(value) if value != value.to_integral_value() else int(value)
-    return value
-
-
 def _response(prod: store.Producto, row: Optional[dict], can_edit: bool) -> ProductoSpecsResponse:
     row = row or {}
     origenes = row.get("origenes") or {}
@@ -116,7 +109,7 @@ def _response(prod: store.Producto, row: Optional[dict], can_edit: bool) -> Prod
             campo=c.nombre,
             grupo=c.grupo,
             etiqueta=c.etiqueta,
-            valor=_number(row.get(c.nombre)),
+            valor=store.numero_json(row.get(c.nombre)),
             origen=origenes.get(c.nombre),
         )
         for c in campos_de(prod.tipo)

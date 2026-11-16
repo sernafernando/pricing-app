@@ -173,6 +173,10 @@ class Listas:
             for row in db.execute(text("SELECT campo, clave, valor FROM producto_spec_valores"))
         }
 
+    def existente(self, campo: str, valor: str) -> Optional[str]:
+        """The list spelling of `valor`, or None when the field's list does not have it."""
+        return self._por_clave.get((campo, clave(valor)))
+
     def resolver(self, campo: str, valor: str, *, usuario_id: Optional[int] = None) -> str:
         key = clave(valor)
         existing = self._por_clave.get((campo, key))
@@ -201,7 +205,7 @@ def valores(db: Session, campo: str) -> list[Any]:
     rows = db.execute(
         text(f"SELECT DISTINCT {column.name} AS v FROM producto_specs WHERE {column.name} IS NOT NULL ORDER BY 1")
     )
-    return [_json_number(row.v) for row in rows]
+    return [numero_json(row.v) for row in rows]
 
 
 def agregar_valor(db: Session, campo: str, valor: str, usuario_id: int) -> str:
@@ -216,7 +220,8 @@ def agregar_valor(db: Session, campo: str, valor: str, usuario_id: int) -> str:
     return Listas(db).resolver(campo, limpio, usuario_id=usuario_id)
 
 
-def _json_number(value):
+def numero_json(value):
+    """A stored number as JSON shows it: 15.6 stays a float, 16 (or 15.0 from a Numeric) an int."""
     if isinstance(value, Decimal):
         return float(value) if value != value.to_integral_value() else int(value)
     return value
@@ -346,7 +351,7 @@ def leer(db: Session, item_id: int) -> tuple[Producto, Optional[dict]]:
     return prod, (_row_dict(row) if row else None)
 
 
-def _validar(campo: str, value: Any, tipo: str, listas_por_clave: dict[tuple[str, str], str]) -> Any:
+def _validar(campo: str, value: Any, tipo: str, listas: Listas) -> Any:
     definicion = POR_NOMBRE.get(campo)
     if definicion is None:
         raise ValorNoValido(campo, "no es un campo de specs")
@@ -355,7 +360,7 @@ def _validar(campo: str, value: Any, tipo: str, listas_por_clave: dict[tuple[str
     if value is None or (isinstance(value, str) and not value.strip()):
         return None
     if definicion.tipo == CATEGORICO:
-        existing = listas_por_clave.get((campo, clave(str(value))))
+        existing = listas.existente(campo, str(value))
         if existing is None:
             raise ValorNoValido(campo, f"'{value}' no está en la lista; agregalo primero")
         return existing
@@ -376,7 +381,7 @@ def editar(db: Session, item_id: int, cambios: dict[str, Any], usuario_id: int) 
     """Set the given fields by hand: each one becomes `manual` (an empty value too), so no pre-load changes it."""
     prod = producto(db, item_id)
     listas = Listas(db)
-    validated = {campo: _validar(campo, value, prod.tipo, listas._por_clave) for campo, value in cambios.items()}
+    validated = {campo: _validar(campo, value, prod.tipo, listas) for campo, value in cambios.items()}
     if db.execute(text("SELECT 1 FROM producto_specs WHERE item_id = :i"), {"i": item_id}).first() is None:
         precargar(db, [item_id])  # the first edit of a product starts from its pre-load, not from an empty row
     db.execute(
