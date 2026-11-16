@@ -292,10 +292,22 @@ class TestEsquema:
     def test_downgrade_restores_the_gbp_triggers_and_drops_the_pdf_ones(self, engine: Engine) -> None:
         _sembrar(engine)
         _step(engine, "upgrade")
+        with engine.begin() as conn:  # a group recompute after the upgrade, from a PDF line (FKs off, as seeded)
+            conn.execute(text("SET LOCAL session_replication_role = replica"))
+            conn.execute(
+                text(
+                    "INSERT INTO offset_grupo_consumo (grupo_id, tipo_venta, fecha_venta, item_id, cantidad, offset_id, "
+                    "monto_offset_aplicado) VALUES (1, 'fuera_pdf', now(), 2964, 1, 1, 10)"
+                )
+            )
 
         _step(engine, "downgrade")
 
         assert _filas(engine, "SELECT count(*) FROM sell_dirty WHERE canal = 'fuera'") == [(0,)]
+        assert _filas(engine, "SELECT DISTINCT tipo_venta FROM offset_grupo_consumo ORDER BY 1") == [
+            ("ml",),
+            ("tienda_nube",),
+        ]
         assert _filas(
             engine,
             "SELECT count(*) FROM information_schema.columns WHERE table_name = 'ventas_fuera_operacion_lineas' "

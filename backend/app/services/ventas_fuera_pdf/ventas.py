@@ -102,3 +102,37 @@ class VentasPdf:
     cust_id = _ventas.c.cust_id
     monto_total = _ventas.c.monto_total
     costo_total = _ventas.c.costo_total
+
+
+# Offsets de ganancia (T4, S15) read the same lines as a `ventas_fuera_ml_metricas`-shaped row source, in raw SQL like
+# the rest of their queries: Costo D as `costo_total`, the USD rate of the sale date (`tipo_cambio`, the latest on or
+# before it; NULL falls back to the current rate), brand and category from the product. An Nc line keeps its negative
+# quantity and cost, so per-unit and percentage amounts subtract by themselves; `monto_offset_pdf` also reverses a fixed
+# amount (owner, L18: "Restan").
+TIPO_VENTA_OFFSET = "fuera_pdf"
+VENTAS_FUERA_OFFSETS_SQL = f"""(
+    SELECT
+        l.id,
+        o.fecha AS fecha_venta,
+        l.item_id,
+        p.marca,
+        p.categoria,
+        l.cantidad,
+        l.precio_costo * {COSTO_D_FACTOR} AS costo_total,
+        (
+            SELECT tc.venta FROM tipo_cambio tc
+            WHERE tc.moneda = 'USD' AND tc.fecha <= o.fecha
+            ORDER BY tc.fecha DESC LIMIT 1
+        ) AS cotizacion_dolar
+    FROM ventas_fuera_operacion_lineas l
+    JOIN ventas_fuera_operaciones o ON o.id = l.operacion_id
+    JOIN productos_erp p ON p.item_id = l.item_id
+)"""
+
+
+def monto_offset_pdf(tipo_offset: str, cantidad: int, montos: tuple) -> tuple:
+    """The (ARS, USD) amounts of an offset on a PDF line: a fixed amount is reversed by an Nc line (negative quantity),
+    the other types already carry the line's sign."""
+    if tipo_offset == "monto_fijo" and cantidad < 0:
+        return -montos[0], -montos[1]
+    return montos

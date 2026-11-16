@@ -22,12 +22,13 @@ Owner on what the GBP sync already produced (L15): "Borrarlos y recalcular desde
   gives the freed units to other sales) and every campaign that lost rows (`sell_out_dirty`). The drains rebuild
   them from the PDF lines.
 
-Group offsets keep a summary per group: after deploy run `app.scripts.recalcular_consumo_grupos` (PR body).
+Group offsets keep a summary per group and are recomputed on request, from the PDF lines with `tipo_venta =
+'fuera_pdf'`: after deploy run `app.scripts.recalcular_consumo_grupos` (PR body).
 
 Every statement is idempotent: re-running the upgrade leaves the same rows and the same queue (once the drains ran,
 it deletes the `fuera` consumptions they rebuilt from the PDF and queues them again). They all run in the migration's
 single transaction, so a failure leaves everything as it was. Downgrade drops the PDF triggers, deletes the `fuera` rows of
-the queue and of the consumptions (computed from the PDF lines by then), restores the GBP triggers and drops
+the queue and of the consumptions and the `fuera_pdf` offset consumptions (computed from the PDF lines by then), restores the GBP triggers and drops
 `item_id`; the purged GBP consumptions are not restored (the sell in / sell out backfills rebuild them).
 """
 
@@ -180,8 +181,8 @@ DOWNGRADE_SQL: List[str] = [
     "DELETE FROM sell_in_bono_consumos WHERE canal = 'fuera'",
     "DELETE FROM sell_out_consumos WHERE canal = 'fuera'",
     "DELETE FROM sell_dirty WHERE canal = 'fuera'",
-    "DELETE FROM offset_grupo_consumo WHERE tipo_venta = 'fuera_ml'",
-    "DELETE FROM offset_individual_consumo WHERE tipo_venta = 'fuera_ml'",
+    "DELETE FROM offset_grupo_consumo WHERE tipo_venta = 'fuera_pdf'",
+    "DELETE FROM offset_individual_consumo WHERE tipo_venta = 'fuera_pdf'",
     # Frozen copies of the GBP triggers as main had them before this revision.
     "DROP TRIGGER IF EXISTS trg_sell_dirty_fuera_insert_delete ON ventas_fuera_ml_metricas",
     """

@@ -19,6 +19,7 @@ from app.api.endpoints.rentabilidad_schemas import (
     DesgloseOffset,
     RentabilidadResponse,
 )
+from app.services.ventas_fuera_pdf.ventas import VENTAS_FUERA_OFFSETS_SQL
 from app.services.offset_resumen_service import (
     fetch_resumenes_grupo,
     fetch_resumenes_individuales,
@@ -288,12 +289,13 @@ def obtener_rentabilidad(
         """)
         result_ml = db.execute(query_ml, params_ml).first()
 
-        # Sumar ventas fuera de ML (estas no tienen tienda oficial, se incluyen siempre)
+        # Sumar ventas fuera de ML (estas no tienen tienda oficial, se incluyen siempre): the PDF lines since VPF T4,
+        # an Nc line subtracting its units and cost
         query_fuera = text(f"""
             SELECT
                 COALESCE(SUM(cantidad), 0) as total_unidades,
                 COALESCE(SUM(costo_total), 0) as total_costo
-            FROM ventas_fuera_ml_metricas
+            FROM {VENTAS_FUERA_OFFSETS_SQL} AS ventas_pdf
             WHERE ({where_filtros})
             AND fecha_venta >= :desde AND fecha_venta < :hasta
         """)

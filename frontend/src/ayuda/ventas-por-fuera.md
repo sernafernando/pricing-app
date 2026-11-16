@@ -37,3 +37,9 @@ Una venta realizada fuera de Mercado Libre, cargada manualmente.
 
 ¿Por qué veo \*\*\* en la ganancia?**
 No tenés el permiso para ver ganancias.
+
+¿Por qué **Costo c/ sell in** y **Markup c/ sell in/out** muestran **-** en **Detalle de Operaciones**?
+Desde que las ventas por fuera se cargan con los reportes PDF de GBP, el sell in, el sell out y los offsets de ganancia se calculan sobre esas operaciones cargadas y ya no sobre las ventas sincronizadas que lista esta pestaña. Por eso esas dos columnas quedan en **-**.
+
+¿Cómo cuenta una nota de crédito en los offsets de ganancia?
+Resta: descuenta sus unidades y su monto del offset del grupo, también cuando el offset es un monto fijo.
