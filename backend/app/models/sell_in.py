@@ -84,7 +84,8 @@ class SellInBonoMarca(Base):
         CheckConstraint("base IN ('factura', 'costo_venta')", name="ck_sell_in_bonos_marca_base"),
         CheckConstraint(
             "(base = 'factura' AND NOT incluye_iva) "
-            "OR (base = 'costo_venta' AND moneda = 'ARS' AND alcance IN ('marca', 'categoria', 'modelos'))",
+            "OR (base = 'costo_venta' AND alcance IN ('marca', 'categoria', 'modelos') AND (moneda = 'ARS' "
+            "OR (moneda = 'USD' AND tactical_id IS NOT NULL AND tipo <> 'monto_total')))",
             name="ck_sell_in_bonos_marca_costo_venta",
         ),
         UniqueConstraint("offset_origen_id", name="uq_sell_in_bonos_marca_offset_origen_id"),
@@ -403,6 +404,9 @@ class SellInBonoConsumo(Base):
         CheckConstraint("canal IN ('ml', 'fuera', 'tn')", name="ck_sell_in_bono_consumos_canal"),
         CheckConstraint("unidades > 0", name="ck_sell_in_bono_consumos_unidades_positivas"),
         CheckConstraint("descuento_ars >= 0", name="ck_sell_in_bono_consumos_descuento_no_negativo"),
+        # A USD bonus's row keeps its USD amount and the rate it converts at; an ARS bonus's has neither.
+        CheckConstraint("(monto_usd IS NULL) = (tc_venta IS NULL)", name="ck_sell_in_bono_consumos_usd"),
+        CheckConstraint("tc_venta IS NULL OR tc_venta > 0", name="ck_sell_in_bono_consumos_tc_positivo"),
         Index("ix_sell_in_bono_consumos_canal_venta", "canal", "venta_ref"),
         Index("ix_sell_in_bono_consumos_item_fecha", "item_id", "fecha_venta"),
     )
@@ -419,3 +423,7 @@ class SellInBonoConsumo(Base):
     fecha_venta = Column(Date, nullable=False)
     unidades = Column(Integer, nullable=False)
     descuento_ars = Column(Numeric(18, 2), nullable=False)
+    # USD bonus only (tactical sell in USD): the row's USD amount and the rate (ARS per USD) it converts at now;
+    # `descuento_ars` is `monto_usd * tc_venta` rounded to cents, like sell out's rows.
+    monto_usd = Column(Numeric(18, 2), nullable=True)
+    tc_venta = Column(Numeric(18, 6), nullable=True)
