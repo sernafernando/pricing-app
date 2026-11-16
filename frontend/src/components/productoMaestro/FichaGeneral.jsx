@@ -9,6 +9,13 @@ const SECCIONES = [...new Set(GENERAL.map((def) => def.seccion))];
 
 const ETIQUETA_FUENTE = { tn: 'Tienda Nube', gbp: 'GBP', nombre: 'Nombre' };
 
+/** Integer fields keep only digits; decimal ones also their separator. */
+const soloNumero = (def, value) => {
+  if (def.tipo === 'entero') return value.replace(/[^0-9]/g, '');
+  if (def.tipo === 'decimal') return value.replace(/[^0-9.,]/g, '');
+  return value;
+};
+
 /** The sources of each description, in the approved mock's order. */
 const ORDEN_DESCRIPCION = { descripcion_ml: ['ml', 'tn', 'gbp'], descripcion_web: ['tn', 'ml', 'gbp'] };
 
@@ -85,7 +92,7 @@ function Campo({ def, maestro, edits, editable, onChange, onVolver, maestros }) 
               placeholder="Sin dato"
               inputMode={def.tipo === 'entero' ? 'numeric' : def.tipo ? 'decimal' : undefined}
               disabled={disabled}
-              onChange={(e) => onChange(def, def.tipo === 'entero' ? e.target.value.replace(/[^0-9]/g, '') : e.target.value)}
+              onChange={(e) => onChange(def, soloNumero(def, e.target.value))}
             />
           )}
           {def.unidad && <span className={m.unit}>{def.unidad}</span>}

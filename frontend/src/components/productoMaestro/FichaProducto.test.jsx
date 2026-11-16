@@ -213,6 +213,15 @@ describe('Ficha: general fields over GBP', () => {
     expect(field('Alto')).toHaveValue('');
   });
 
+  it('decimal fields keep only digits and the decimal separator', async () => {
+    const user = userEvent.setup();
+    render(<FichaProducto itemId={455} />);
+    const peso = await screen.findByDisplayValue('35');
+    await user.clear(peso);
+    await user.type(peso, 'abc2,5g');
+    expect(peso).toHaveValue('2,5');
+  });
+
   it('without edit permission every field is read-only', async () => {
     productoMaestroAPI.leer.mockResolvedValueOnce({ data: maestro({ can_edit: false, can_edit_unidades: false }) });
     render(<FichaProducto itemId={455} />);
@@ -337,6 +346,16 @@ describe('Ficha: failed reads say so', () => {
 
     await waitFor(() => expect(productoMaestroAPI.guardar).toHaveBeenCalled());
     expect(screen.getByText('No se pudieron cargar las marcas y categorías: solo se ve el valor actual')).toBeInTheDocument();
+  });
+
+  it('two failed reads are both reported', async () => {
+    productoMaestroAPI.leer.mockResolvedValue({ data: maestro({ item_id: 4874, tipo_specs: 'notebook' }) });
+    productoSpecsAPI.leer.mockResolvedValue({ data: specs() });
+    productoSpecsAPI.campos.mockRejectedValue(new Error('HTTP 500'));
+    productoCategoriasAPI.listar.mockRejectedValue(new Error('HTTP 500'));
+    render(<FichaProducto itemId={4874} />);
+    expect(await screen.findByText('No se pudieron cargar los tipos de las specs')).toBeInTheDocument();
+    expect(await screen.findByText('No se pudieron cargar las marcas y categorías: solo se ve el valor actual')).toBeInTheDocument();
   });
 
   it('a failed read of the spec types is reported', async () => {
@@ -478,6 +497,17 @@ describe('Ficha: specs of notebooks and PCs', () => {
     await user.click(screen.getByRole('button', { name: 'Guardar 2 cambios' }));
     expect(productoSpecsAPI.guardar).toHaveBeenCalledWith(4874, { valores: { cpu_marca: 'Intel' }, no_aplica: { gpu_modelo: true } });
     expect(productoMaestroAPI.guardar).not.toHaveBeenCalled();
+  });
+
+  it('"Precargar de nuevo" waits while a save is in flight', async () => {
+    productoSpecsAPI.guardar.mockReturnValue(new Promise(() => {}));
+    const user = userEvent.setup();
+    render(<FichaProducto itemId={4874} />);
+    await user.click(await screen.findByRole('tab', { name: /Specs técnicas/ }));
+    await user.click(screen.getAllByRole('checkbox', { name: 'No aplica' }).at(-1));
+    await user.click(screen.getByRole('button', { name: /^Guardar 1/ }));
+
+    expect(screen.getByRole('button', { name: 'Precargar de nuevo' })).toBeDisabled();
   });
 
   it('"Precargar de nuevo" re-pre-loads the product', async () => {

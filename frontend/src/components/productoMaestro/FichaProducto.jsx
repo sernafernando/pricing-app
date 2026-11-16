@@ -72,7 +72,7 @@ export default function FichaProducto({ itemId, onSaved }) {
   const [maestros, setMaestros] = useState({ marcas: [], categorias: [] });
   const [error, setError] = useState(null);
   // What failed to load stays on screen: a save clears only its own error.
-  const [aviso, setAviso] = useState(null);
+  const [avisos, setAvisos] = useState([]);
   const [cargaError, setCargaError] = useState(null);
   const [edits, setEdits] = useState(EDITS_VACIOS);
   const [vista, setVista] = useState('general');
@@ -89,11 +89,11 @@ export default function FichaProducto({ itemId, onSaved }) {
         productoSpecsAPI
           .leer(itemId)
           .then((r) => vigente && setSpecs(r.data))
-          .catch(() => vigente && setAviso('No se pudieron cargar las specs'));
+          .catch(() => vigente && setAvisos((prev) => [...prev, 'No se pudieron cargar las specs']));
         productoSpecsAPI
           .campos()
           .then((r) => vigente && setInfo(Object.fromEntries(r.data.map((c) => [c.nombre, c]))))
-          .catch(() => vigente && setAviso('No se pudieron cargar los tipos de las specs'));
+          .catch(() => vigente && setAvisos((prev) => [...prev, 'No se pudieron cargar los tipos de las specs']));
       })
       .catch((err) => vigente && setCargaError(err?.response?.status === 404 ? 'El producto no existe en el ERP' : 'No se pudo cargar el producto. Probá de nuevo.'));
     productoTnVinculosAPI
@@ -102,7 +102,7 @@ export default function FichaProducto({ itemId, onSaved }) {
       .catch(() => vigente && setVinculo({ item_id: itemId, origen: null, tn: null, can_edit: false, sinLectura: true }));
     Promise.all([productoMarcasAPI.listar(), productoCategoriasAPI.listar()])
       .then(([marcas, categorias]) => vigente && setMaestros({ marcas: marcas.data, categorias: categorias.data }))
-      .catch(() => vigente && setAviso('No se pudieron cargar las marcas y categorías: solo se ve el valor actual'));
+      .catch(() => vigente && setAvisos((prev) => [...prev, 'No se pudieron cargar las marcas y categorías: solo se ve el valor actual']));
     return () => {
       vigente = false;
     };
@@ -148,7 +148,8 @@ export default function FichaProducto({ itemId, onSaved }) {
     const general = { ...edits.general };
     delete general[def.key];
     setEdits({ ...edits, general });
-    if (!maestro.campos[def.key]?.overrideado) return;
+    if (!maestro.campos[def.key]?.overrideado || enviando) return;
+    setEnviando(true);
     setError(null);
     try {
       const { data } = await productoMaestroAPI.guardar(itemId, { [def.key]: null });
@@ -156,6 +157,8 @@ export default function FichaProducto({ itemId, onSaved }) {
       onSaved?.();
     } catch (err) {
       setError(apiErrorMessage(err, 'No se pudo volver al valor de GBP. Probá de nuevo.'));
+    } finally {
+      setEnviando(false);
     }
   };
 
@@ -178,12 +181,16 @@ export default function FichaProducto({ itemId, onSaved }) {
   };
 
   const precargar = async () => {
+    if (enviando) return;
+    setEnviando(true);
     setError(null);
     try {
       setSpecs((await productoSpecsAPI.precargar(itemId)).data);
       onSaved?.();
     } catch (err) {
       setError(apiErrorMessage(err, 'No se pudo precargar. Probá de nuevo.'));
+    } finally {
+      setEnviando(false);
     }
   };
 
@@ -197,7 +204,7 @@ export default function FichaProducto({ itemId, onSaved }) {
           </div>
           <div className={f.acciones}>
             {enSpecs && specs.can_edit && (
-              <button className={`${m.btn} ${m.btnSecondary}`} type="button" onClick={precargar}>
+              <button className={`${m.btn} ${m.btnSecondary}`} type="button" disabled={enviando} onClick={precargar}>
                 <RefreshCw size={16} strokeWidth={1.5} aria-hidden="true" />
                 Precargar de nuevo
               </button>
@@ -244,11 +251,11 @@ export default function FichaProducto({ itemId, onSaved }) {
             {error}
           </p>
         )}
-        {aviso && (
-          <p className={m.feedback} role="alert">
+        {avisos.map((aviso) => (
+          <p key={aviso} className={m.feedback} role="alert">
             {aviso}
           </p>
-        )}
+        ))}
         {categoriaSinSub && (
           <p className={m.feedback} role="alert">
             {categoriaSinSub} no tiene subcategorías activas: elegí otra categoría
