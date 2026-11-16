@@ -16,10 +16,15 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.models.auditoria import Auditoria, TipoAccion
+from app.models.producto import ProductoERP
+from app.models.producto_propio import ProductoPropio
+from app.models.tb_item import TBItem
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.tn_publish_override import TnPublishOverride
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
+from app.services.producto_maestro_medidas_tn import CAMPOS_TN
 from app.services.tienda_nube_product_client import TnProductLookupError, TnRateLimited
+from app.services.tn_publish_core import OVERRIDABLE_FIELDS
 from app.services.tn_publish_service import (
     InvalidPublishPriceError,
     _validate_publish_price,
@@ -274,6 +279,13 @@ class TestUnpublishRateLimited:
 # `usePublishSubmit.buildOverrides`). Tests that specifically exercise the
 # gate itself override `overrides` explicitly.
 _VALID_MEASUREMENT_OVERRIDES = {"weight": "1.0", "width": "1.0", "depth": "1.0", "height": "1.0"}
+
+
+def _make_erp_product(db, ean="EAN-PUB-1", item_id=7001, gbp=None):
+    """The ERP product the GBP `Código` belongs to, with its GBP measurements (grams and cm) on `tb_item`."""
+    db.add(ProductoERP(item_id=item_id, codigo=ean, descripcion="Producto"))
+    db.add(TBItem(comp_id=1, item_id=item_id, item_code=ean, **(gbp or {})))
+    db.commit()
 
 
 def _publish_kwargs(**overrides):
@@ -1096,18 +1108,20 @@ class TestPublishCostGate:
 
 
 class TestPublishOverridePersistence:
-    """PC5/D8 (task 5.4/5.5): a SUCCESSFUL publish upserts every
-    operator-edited field into `tn_publish_override`, keyed by `(ean,
-    campo)`. D8 is enforced structurally elsewhere (the core has no GBP
-    write client on its call path); this only proves the upsert itself
-    fires on success and stays silent on every other outcome."""
+    """PC5/D8, moved to the product master (abm-productos T7, L8 Q3): a SUCCESSFUL publish stores every
+    operator-edited measurement in the product's master row (`productos_propios`), found by the GBP `Código`
+    (`productos_erp.codigo`), in the master's units: TN weight in kg -> `peso_g`; TN width = GBP large ->
+    `largo_cm`; TN depth = GBP wide -> `ancho_cm`; height -> `alto_cm`. A value equal to GBP is not stored (the master
+    rule: NULL = follow GBP). Nothing is written to the old `tn_publish_override` table any more, nor on any other
+    outcome."""
+
+    def _master(self, db, item_id=7001):
+        db.expire_all()
+        return db.get(ProductoPropio, item_id)
 
     def test_unknown_override_field_is_skipped_never_persisted(self, db):
-        # Defense in depth behind the endpoint's 422 validator: a caller
-        # bypassing `PublicarRequest` (a future internal consumer) must not
-        # be able to persist arbitrary campos — the unknown key is skipped
-        # with a warning while the known one still persists.
         user = _make_user(db)
+        _make_erp_product(db, ean="EAN-OVR-UNK")
         fake_client = _FakePublishClient(
             create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 993}},
         )
@@ -1120,11 +1134,12 @@ class TestPublishOverridePersistence:
                 overrides={**_VALID_MEASUREMENT_OVERRIDES, "weight": "1.200", "campo_inventado": "zzz"},
             ),
         )
-        campos = {row.campo for row in db.query(TnPublishOverride).filter(TnPublishOverride.ean == "EAN-OVR-UNK")}
-        assert campos == {"weight", "width", "depth", "height"}
+        row = self._master(db)
+        assert (row.peso_g, row.largo_cm, row.ancho_cm, row.alto_cm) == (1200, 1, 1, 1)
 
-    def test_successful_publish_upserts_every_overridden_field(self, db):
+    def test_successful_publish_stores_every_edited_measurement_in_the_master(self, db):
         user = _make_user(db)
+        _make_erp_product(db)
         fake_client = _FakePublishClient(
             create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 991}},
         )
@@ -1134,75 +1149,137 @@ class TestPublishOverridePersistence:
             client=fake_client,
             **_publish_kwargs(overrides={"weight": "1.200", "width": "13", "depth": "2.0", "height": "3.0"}),
         )
-        rows = {
-            row.campo: row.valor
-            for row in db.query(TnPublishOverride).filter(TnPublishOverride.ean == "EAN-PUB-1").all()
-        }
-        assert rows == {"weight": "1.200", "width": "13", "depth": "2.0", "height": "3.0"}
+        row = self._master(db)
+        assert row.peso_g == Decimal("1200")
+        assert row.largo_cm == Decimal("13")  # TN width = GBP large
+        assert row.ancho_cm == Decimal("2")  # TN depth = GBP wide
+        assert row.alto_cm == Decimal("3")
+        assert row.updated_by == user.id
+        assert db.query(TnPublishOverride).count() == 0
 
-    def test_re_publish_updates_the_existing_override_row_not_a_duplicate(self, db):
+    def test_re_publish_updates_the_master_row_and_keeps_the_fields_not_edited(self, db):
         user = _make_user(db)
-        db.add(TnPublishOverride(ean="EAN-PUB-1", campo="weight", valor="0.900", usuario_id=user.id))
+        _make_erp_product(db)
+        db.add(ProductoPropio(item_id=7001, peso_g=Decimal("900"), alto_cm=Decimal("40"), titulo="Own title"))
         db.commit()
         fake_client = _FakePublishClient(
             create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 992}},
+        )
+        publish_product(db, user, client=fake_client, **_publish_kwargs(overrides={"weight": "1.200"}))
+        row = self._master(db)
+        assert row.peso_g == Decimal("1200")
+        assert row.alto_cm == Decimal("40")
+        assert row.titulo == "Own title"
+
+    def test_a_value_equal_to_gbp_is_not_stored_and_clears_the_override(self, db):
+        user = _make_user(db)
+        _make_erp_product(db, gbp={"item_weight": Decimal("1500"), "item_large": Decimal("20")})
+        db.add(ProductoPropio(item_id=7001, peso_g=Decimal("900")))
+        db.commit()
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 995}},
+        )
+        publish_product(db, user, client=fake_client, **_publish_kwargs(overrides={"weight": "1.5", "width": "20"}))
+        row = self._master(db)
+        assert row.peso_g is None and row.largo_cm is None
+
+    def test_an_ean_without_a_product_publishes_and_stores_nothing(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 996}},
+        )
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(overrides={"weight": "1.200"}))
+        assert outcome["status"] == "submitted"
+        assert db.query(ProductoPropio).count() == 0
+
+    def test_an_ean_of_several_products_publishes_and_stores_nothing(self, db):
+        user = _make_user(db)
+        _make_erp_product(db)
+        _make_erp_product(db, item_id=7002)  # same GBP code on two products: which one is unknown
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 997}},
+        )
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(overrides={"weight": "1.200"}))
+        assert outcome["status"] == "submitted"
+        assert db.query(ProductoPropio).count() == 0
+
+    def test_an_out_of_range_value_is_skipped_and_the_other_fields_are_stored(self, db):
+        user = _make_user(db)
+        _make_erp_product(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 998}},
+        )
+        publish_product(
+            db, user, client=fake_client, **_publish_kwargs(overrides={"weight": "1e9", "width": "1e8", "height": "3"})
+        )
+        row = self._master(db)
+        assert (row.peso_g, row.largo_cm, row.alto_cm) == (None, None, Decimal("3"))
+
+    def test_a_value_below_the_column_scale_is_skipped_not_stored_as_zero(self, db):
+        user = _make_user(db)
+        _make_erp_product(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 999}},
         )
         publish_product(
             db,
             user,
             client=fake_client,
-            **_publish_kwargs(ean="EAN-PUB-1", overrides={**_VALID_MEASUREMENT_OVERRIDES, "weight": "1.200"}),
+            **_publish_kwargs(overrides={"depth": "0.001", "weight": "0.000001", "height": "0.005"}),
         )
-        rows = db.query(TnPublishOverride).filter(TnPublishOverride.ean == "EAN-PUB-1").all()
-        assert len(rows) == 4
-        assert next(r for r in rows if r.campo == "weight").valor == "1.200"
+        row = self._master(db)
+        # Rounded to 2 decimals first: 0.001 cm and 0.001 g are skipped, 0.005 cm rounds up to 0.01.
+        assert (row.ancho_cm, row.peso_g, row.alto_cm) == (None, None, Decimal("0.01"))
+
+    def test_every_overridable_field_has_a_master_column(self):
+        # A publisher field without a master column would be accepted, reported as stored, and silently lost.
+        assert set(OVERRIDABLE_FIELDS) == set(CAMPOS_TN)
 
     def test_the_happy_path_publishes_and_persists_nothing(self, db):
-        """The operator edited nothing: the item still PUBLISHES (its
-        measurements travel in `measurements`), and precisely because
-        nothing was edited, no `tn_publish_override` row is written.
-
-        This is the end-to-end shape a previous revision got wrong by
-        reading the D3 gate off `overrides`: dirty-only overrides meant an
-        untouched item sent `{}` and every normal publish failed closed.
-        Frontend and backend tests each passed in isolation while the flow
-        between them was broken — hence this one asserts both halves."""
+        """The operator edited nothing: the item still PUBLISHES (its measurements travel in `measurements`), and
+        precisely because nothing was edited, no master row is written."""
         user = _make_user(db)
+        _make_erp_product(db)
         fake_client = _FakePublishClient(
             create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 993}},
         )
         outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(overrides={}))
         assert outcome["status"] == "submitted"
-        assert db.query(TnPublishOverride).count() == 0
+        assert db.query(ProductoPropio).count() == 0
 
     def test_rejected_invalid_price_persists_no_override(self, db):
         user = _make_user(db)
+        _make_erp_product(db)
         publish_product(
             db,
             user,
             client=_FakePublishClient(create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {}}),
             **_publish_kwargs(overrides={"weight": "1.200"}, product_data={"name": {"es": "x"}, "price": None}),
         )
-        assert db.query(TnPublishOverride).count() == 0
+        assert db.query(ProductoPropio).count() == 0
 
     def test_ambiguous_outcome_with_no_readback_persists_no_override(self, db):
         user = _make_user(db)
+        _make_erp_product(db)
         fake_client = _FakePublishClient(
             create_outcome={"ok": False, "status_code": 503, "ambiguous": True, "body": None},
         )
-        publish_product(db, user, client=fake_client, **_publish_kwargs())
-        assert db.query(TnPublishOverride).count() == 0
+        publish_product(db, user, client=fake_client, **_publish_kwargs(overrides={"weight": "1.200"}))
+        assert db.query(ProductoPropio).count() == 0
 
-    def test_no_gbp_erp_write_client_used_no_side_effect_beyond_override_table(self, db):
-        """D8 structural proof: the override upsert touches ONLY
-        `tn_publish_override` — it never calls any GBP/ERP write method on
-        the injected client (which has none to call in the first place)."""
+    def test_no_gbp_erp_write_client_used_no_side_effect_beyond_the_master(self, db):
+        """D8 structural proof: the measurement write touches ONLY the master — it never calls any GBP/ERP write
+        method on the injected client, and the ERP mirror rows are left as they were."""
         user = _make_user(db)
+        _make_erp_product(db, gbp={"item_weight": Decimal("1500")})
         fake_client = _FakePublishClient(
             create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 994}},
         )
-        publish_product(db, user, client=fake_client, **_publish_kwargs())
+        publish_product(db, user, client=fake_client, **_publish_kwargs(overrides={"weight": "1.200"}))
         assert not hasattr(fake_client, "update_erp") and not hasattr(fake_client, "write_gbp")
+        db.expire_all()
+        assert db.query(TBItem).one().item_weight == Decimal("1500")
+        assert db.get(ProductoERP, 7001).codigo == "EAN-PUB-1"
 
 
 class TestPublishRateLimited:

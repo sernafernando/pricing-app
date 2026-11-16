@@ -11,6 +11,10 @@ class TnPublishOverride(Base):
     `(ean, campo)` unique — EAN is the GBP `Código`, 100% populated, already
     the join key for `get_product_by_sku`, the mirror `variant_sku`, and the
     reconcile banlist. See design's `tn_publish_override` decision.
+
+    Legacy since abm-productos T7: its values were copied into the product master (`productos_propios`) and the
+    publisher reads and writes the master (`app.services.producto_maestro_medidas_tn`). Nothing reads this table any
+    more; a later PR drops it.
     """
 
     __tablename__ = "tn_publish_override"

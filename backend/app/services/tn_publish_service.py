@@ -45,7 +45,6 @@ from sqlalchemy.orm import Session
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.tn_category_profile_hint import TnCategoryProfileHint
-from app.models.tn_publish_override import TnPublishOverride
 from app.models.usuario import Usuario
 from app.services.tienda_nube_product_client import (
     TiendaNubeProductClient,
@@ -56,6 +55,7 @@ from app.services.tienda_nube_product_client import (
 from app.services.tn_publish_core.assemble import assemble_payload
 from app.services.tn_publish_core.batch import execute_batch
 from app.services.tn_publish_core.resolve import Resolved, latest_usd_rate
+from app.services.producto_maestro_medidas_tn import guardar_medidas
 from app.services.tn_publish_core.validate import MEASUREMENT_FIELDS, OVERRIDABLE_FIELDS, validate_measurements
 from app.utils.async_bridge import resolve_maybe_async as _resolve
 
@@ -408,28 +408,22 @@ def _audit_publish(
 
 
 def _upsert_publish_overrides(db: Session, usuario: Usuario, ean: str, overrides: Optional[Dict[str, str]]) -> None:
-    """PC5/D8 (design Decision 5, task 5.4/5.5): persist every
-    operator-edited field into `tn_publish_override`, one row per `(ean,
-    campo)`. Called ONLY after a `submitted` outcome — never on a
-    rejected/ambiguous/blocked publish, so a failed attempt can never leave
-    behind an override the operator never actually confirmed went live.
+    """PC5/D8 (design Decision 5, task 5.4/5.5): persist every operator-edited measurement. Since abm-productos T7
+    (L8 Q3) they live in the product master (`productos_propios`, via `producto_maestro_medidas_tn`), so the ABM and
+    the publisher show and edit the same values. Called ONLY after a `submitted` outcome — never on a
+    rejected/ambiguous/blocked publish, so a failed attempt can never leave behind a value the operator never actually
+    confirmed went live.
 
-    D8 is enforced structurally, not by convention: this function has no
-    GBP/ERP write client on its call path at all — it only ever touches
-    `tn_publish_override` via the ORM session already passed in.
+    D8 is enforced structurally, not by convention: this function has no GBP/ERP write client on its call path at
+    all — it only ever writes the master row via the ORM session already passed in.
 
-    Best-effort like every other audit-adjacent write in this module: a
-    failure here must never mask or reverse the TN write outcome the caller
-    already computed and is about to return.
+    Best-effort like every other audit-adjacent write in this module: a failure here must never mask or reverse the
+    TN write outcome the caller already computed and is about to return.
     """
     if not overrides:
         return
-    # Defense in depth behind `PublicarRequest`'s 422 validator: only
-    # known overridable fields are ever persisted. A stray key reaching
-    # this layer (a future caller bypassing the endpoint model) is skipped
-    # LOUDLY — silently swallowing it at the DB layer (e.g. a >50-char
-    # campo failing the column constraint inside this best-effort block)
-    # would lose the operator's edit with no signal at all.
+    # Defense in depth behind `PublicarRequest`'s 422 validator: only known overridable fields are ever persisted. A
+    # stray key reaching this layer (a future caller bypassing the endpoint model) is skipped LOUDLY.
     unknown = set(overrides) - set(OVERRIDABLE_FIELDS)
     if unknown:
         logger.warning(
@@ -439,17 +433,8 @@ def _upsert_publish_overrides(db: Session, usuario: Usuario, ean: str, overrides
         )
         overrides = {campo: valor for campo, valor in overrides.items() if campo in OVERRIDABLE_FIELDS}
     try:
-        existing_by_campo = {
-            row.campo: row for row in db.query(TnPublishOverride).filter(TnPublishOverride.ean == ean).all()
-        }
-        for campo, valor in overrides.items():
-            row = existing_by_campo.get(campo)
-            if row is not None:
-                row.valor = valor
-                row.usuario_id = usuario.id
-            else:
-                db.add(TnPublishOverride(ean=ean, campo=campo, valor=valor, usuario_id=usuario.id))
-        db.commit()
+        if guardar_medidas(db, ean, overrides, usuario.id):
+            db.commit()
     except Exception as e:
         db.rollback()
         logger.error("Override upsert failed for ean=%s: %s", ean, e, exc_info=True)

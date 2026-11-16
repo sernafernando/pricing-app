@@ -27,6 +27,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.security import create_access_token, get_password_hash
 from app.models.permiso import Permiso, UsuarioPermisoOverride
 from app.models.producto import ProductoERP, ProductoPricing
+from app.models.producto_propio import ProductoPropio
 from app.models.rol import Rol
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.tipo_cambio import TipoCambio
@@ -839,7 +840,7 @@ class TestPublicarEndpoint:
     def test_overrides_are_forwarded_to_publish_product(self, client, db, user_publicacion):
         """Task 5.18 — the typed `PublicarRequest.overrides` field (design's
         Interfaces/Contracts) reaches `publish_product` as its `overrides`
-        kwarg, which persists them into `tn_publish_override` on success
+        kwarg, which stores them in the product master on success
         (5.4/5.5). The old `product_data` wire shape stays supported for the
         live modal (PR-6/7 transition — see the module docstring)."""
         fake_outcome = {"submitted": True, "status": "submitted", "product_id": 1, "skipped_image_srcs": []}
@@ -1064,14 +1065,25 @@ class TestReportePublishDraft:
         assert draft["fields"]["weight"]["source"] == "gbp"
         assert draft["fields"]["cost"]["value"] == pytest.approx(100.0)
 
-    def test_stored_override_wins_over_gbp_in_the_draft(self, client, db, user_ver):
-        db.add(TnPublishOverride(ean="EAN-DRAFT", campo="weight", valor="9.500", usuario_id=1))
+    def test_the_master_measurements_win_over_gbp_in_the_draft(self, client, db, user_ver):
+        # abm-productos T7 (L8 Q3): the stored measurements live in the product master, found by the GBP `Código`,
+        # in grams and cm: peso_g -> TN weight in kg, largo_cm -> TN width (GBP large), ancho_cm -> TN depth (GBP
+        # wide), alto_cm -> height. The old `tn_publish_override` table is not read any more.
+        db.add(ProductoERP(item_id=8801, codigo="EAN-DRAFT", descripcion="Draft"))
+        db.add(
+            ProductoPropio(
+                item_id=8801, peso_g=Decimal("9500"), largo_cm=Decimal("30"), ancho_cm=Decimal("4"), alto_cm=None
+            )
+        )
+        db.add(TnPublishOverride(ean="EAN-DRAFT", campo="height", valor="77", usuario_id=1))
         db.commit()
         response = _fetch_report(client, user_ver, gbp_rows=[self._complete_gbp_row()])
-        row = response.json()["items"][0]
-        draft = row["publish_draft"]
-        assert draft["fields"]["weight"]["value"] == pytest.approx(9.5)
-        assert draft["fields"]["weight"]["source"] == "override"
+        fields = response.json()["items"][0]["publish_draft"]["fields"]
+        assert fields["weight"]["value"] == pytest.approx(9.5)
+        assert fields["weight"]["source"] == "override"
+        assert (fields["width"]["value"], fields["width"]["source"]) == (pytest.approx(30.0), "override")
+        assert (fields["depth"]["value"], fields["depth"]["source"]) == (pytest.approx(4.0), "override")
+        assert (fields["height"]["value"], fields["height"]["source"]) == (pytest.approx(8.0), "gbp")
 
     def test_missing_measurement_blocks_the_draft_and_names_the_field(self, client, db, user_ver):
         response = _fetch_report(client, user_ver, gbp_rows=[self._complete_gbp_row(weight="0")])

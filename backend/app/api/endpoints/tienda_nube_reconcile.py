@@ -71,10 +71,10 @@ from app.models.producto import ProductoERP, ProductoPricing
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.tn_category_embedding import TnCategoryEmbedding
 from app.models.tn_category_profile_hint import TnCategoryProfileHint
-from app.models.tn_publish_override import TnPublishOverride
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
 from app.models.tn_reconcile_excepcion import TnReconcileExcepcion
 from app.models.usuario import Usuario
+from app.services.producto_maestro_medidas_tn import medidas_por_ean
 from app.services.permisos_service import verificar_permiso
 from app.services.tn_category_embedding_service import suggest_category, sync_category_embeddings
 from app.services.tn_publish_core import OVERRIDABLE_FIELDS, latest_usd_rate_with_date
@@ -549,7 +549,7 @@ class PublicarRequest(BaseModel):
     # below against `tn_publish_core.OVERRIDABLE_FIELDS` (an unknown key is a
     # 422, never silently persisted), and `_upsert_publish_overrides` filters
     # against the same tuple as defense in depth.
-    # Persisted into `tn_publish_override` ONLY on a `submitted` outcome.
+    # Persisted into the product master (abm-productos T7) ONLY on a `submitted` outcome.
     # Defaults to `{}` — the current modal sends nothing here yet (PR-7).
     overrides: Dict[str, str] = {}
     # The COMPLETE resolved measurement set the modal was showing — what to
@@ -722,10 +722,8 @@ async def get_reconciliation_report(
         # publish-candidate EANs actually present in this report.
         candidate_rows = [v for v in verdicts if v.verdict in PUBLISH_CANDIDATE_VERDICTS]
         candidate_eans = {v.ean for v in candidate_rows}
-        overrides_by_ean: Dict[str, Dict[str, str]] = {}
-        if candidate_eans:
-            for override_row in db.query(TnPublishOverride).filter(TnPublishOverride.ean.in_(candidate_eans)).all():
-                overrides_by_ean.setdefault(override_row.ean, {})[override_row.campo] = override_row.valor
+        # abm-productos T7 (L8 Q3): the stored measurements are the product master's, in TN units.
+        overrides_by_ean: Dict[str, Dict[str, str]] = medidas_por_ean(db, candidate_eans)
         # Decision 3: the USD exchange rate is resolved ONCE per report
         # (1-2 `TipoCambio` queries total) and handed to every draft as a
         # value+date pair (PR-7 gap fix, task B) — ~99% of report rows are
