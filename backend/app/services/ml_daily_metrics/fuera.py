@@ -48,7 +48,7 @@ from app.core.constants import BUSINESS_TIMEZONE
 from app.models.producto import ProductoERP
 from app.models.venta_fuera_pdf import VentaFueraOperacion, VentaFueraOperacionLinea, VentaFueraPdfCarga
 from app.services.ml_daily_metrics.sales import BUSINESS_TZ, NO_PRODUCT, Range, _in_ranges
-from app.services.ventas_fuera_pdf.carga import CONDICION_CHEQUE, RECARGO_CHEQUE
+from app.services.ventas_fuera_pdf.carga import CONDICION_CHEQUE, LARGO_VENDEDOR_IMPRESO, RECARGO_CHEQUE
 
 CANALES = ("ml", "fuera", "todo")
 COSTOS = ("costo_d", "costo")
@@ -65,9 +65,18 @@ OP = VentaFueraOperacion.__table__
 LN = VentaFueraOperacionLinea.__table__
 
 
+def _vendedores_guardados(nombres: Tuple[str, ...]) -> Tuple[str, ...]:
+    """The stored names the vendedor filter matches: each name as given and as GBP prints it on documents, cut to
+    `LARGO_VENDEDOR_IMPRESO` characters (operations store that cut name, while an upload's result and its "Ver
+    métricas" link carry the report header's full name)."""
+    cortados = (n[:LARGO_VENDEDOR_IMPRESO] for n in nombres if len(n) > LARGO_VENDEDOR_IMPRESO)
+    return tuple(dict.fromkeys((*nombres, *cortados)))
+
+
 @dataclass(frozen=True)
 class FueraScope:
-    """What narrows the fuera lines: the cost basis and the empresa / vendedor filters (stored text, as-is, S4)."""
+    """What narrows the fuera lines: the cost basis and the empresa / vendedor filters (stored text, S4; a vendedor
+    also matches its 12-character printed cut, `_vendedores_guardados`)."""
 
     costo: str = "costo_d"
     empresas: Tuple[str, ...] = ()
@@ -167,7 +176,7 @@ def _narrowed(query: Any, d: Any, scope: FueraScope, product: Optional[int]) -> 
     if scope.empresas:
         query = query.where(d.c.empresa.in_(scope.empresas))
     if scope.vendedores:
-        query = query.where(d.c.vendedor.in_(scope.vendedores))
+        query = query.where(d.c.vendedor.in_(_vendedores_guardados(scope.vendedores)))
     if product is not None:
         query = query.where(d.c.product == product)
     return query
@@ -248,7 +257,7 @@ def fuera_options(scope: FueraScope, *, sqlite: bool, ranges: List[Range]) -> Tu
         return query.where(other.in_(values)) if values else query
 
     return (
-        options(d.c.empresa, d.c.vendedor, scope.vendedores),
+        options(d.c.empresa, d.c.vendedor, _vendedores_guardados(scope.vendedores)),
         options(d.c.vendedor, d.c.empresa, scope.empresas),
     )
 
@@ -293,7 +302,7 @@ def fuera_empresa_documentos(scope: FueraScope, *, sqlite: bool, ranges: List[Ra
         .group_by(d.c.empresa)
         .order_by(d.c.empresa)
     )
-    return query.where(d.c.vendedor.in_(scope.vendedores)) if scope.vendedores else query
+    return query.where(d.c.vendedor.in_(_vendedores_guardados(scope.vendedores))) if scope.vendedores else query
 
 
 def fuera_vendedor_documentos(scope: FueraScope, *, sqlite: bool, ranges: List[Range]) -> Any:

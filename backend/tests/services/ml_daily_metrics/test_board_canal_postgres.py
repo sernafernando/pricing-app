@@ -316,6 +316,20 @@ class TestFuera:
         assert _get(client, canal="fuera", empresas="OTRA EMPRESA SRL", vendedores="Vendedor Uno")["rows"] == []
         assert _get(client, canal="todo", empresas="OTRA EMPRESA SRL")["kpis"]["gross"]["value"] == 684.0
 
+    def test_vendedor_filter_finds_the_name_gbp_prints_cut_to_12_characters(self, client, db):
+        """Operations store the salesperson as documents print it (GBP cuts it to 12 characters, "Carla Ejempl"); the
+        upload result and its "Ver métricas" link carry the report header's full name ("Carla Ejemplo"). Filtering by
+        the full name finds the cut one, and nothing that only shares a shorter prefix."""
+        _products(db)
+        _doc(db, date(2026, 9, 10), "1210", [_monitor("1000", "800")], vendedor="Carla Ejempl")
+        _doc(db, date(2026, 9, 11), "484", [_monitor("400", "300")], vendedor="Carla Otra")
+
+        assert _get(client, canal="fuera", vendedores="Carla Ejemplo")["kpis"]["gross"]["value"] == 1210.0
+        assert _get(client, canal="fuera", vendedores="Carla Ejempl")["kpis"]["gross"]["value"] == 1210.0
+        assert _get(client, canal="fuera", vendedores="Carla")["rows"] == []
+        facets = _get(client, canal="fuera", vendedores="Carla Ejemplo")["facets"]
+        assert facets["empresa_documentos"] == {EMPRESA: 1}
+
     def test_sin_producto_rows_appear(self, client, db):
         """S5: one row per code not in productos_erp and one per article text of a line without code; never under a
         marca filter; found by the search on their article or code."""

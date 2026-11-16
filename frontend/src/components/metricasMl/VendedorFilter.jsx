@@ -4,6 +4,17 @@ import styles from './VendedorFilter.module.css';
 // How many salespeople get a chip of their own on Por fuera (approved mockup 2); the rest go in "Otro".
 const TOP_CHIPS = 3;
 const INT_FORMAT = new Intl.NumberFormat('es-AR');
+// GBP prints the salesperson on documents cut to this many characters: the board lists those cut names, while an
+// upload's "Ver métricas" link carries the report header's full name (backend LARGO_VENDEDOR_IMPRESO).
+const LARGO_VENDEDOR_IMPRESO = 12;
+
+/** The board's option a chosen name stands for: itself, or the option that is its cut to 12 characters. */
+function comoOpcion(name, options) {
+  if (options.includes(name) || name.length <= LARGO_VENDEDOR_IMPRESO) return name;
+  const cortado = name.slice(0, LARGO_VENDEDOR_IMPRESO);
+  return options.includes(cortado) ? cortado : name;
+}
+
 // The select's value while a link carries several salespeople (not a salesperson name).
 const VARIOS = '\u0000varios';
 
@@ -40,7 +51,7 @@ function topNames(options, counts, elegidos) {
  * link carries (a load that imported several salespeople): every one of them shows as chosen; `onChange` gets one.
  */
 export default function VendedorFilter({ options = [], counts, value = '', onChange, variant = 'select' }) {
-  const elegidos = (Array.isArray(value) ? value : [value]).filter(Boolean);
+  const elegidos = (Array.isArray(value) ? value : [value]).filter(Boolean).map((name) => comoOpcion(name, options));
   const solo = elegidos.length === 1 ? elegidos[0] : '';
   if (variant === 'chips') {
     const top = topNames(options, counts, elegidos);

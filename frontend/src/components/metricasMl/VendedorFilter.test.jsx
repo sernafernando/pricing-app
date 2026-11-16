@@ -78,3 +78,26 @@ describe('VendedorFilter with several salespeople from a link (a load that impor
     expect(screen.getByRole('button', { name: /Vendedor Dos/ })).toHaveAttribute('aria-pressed', 'true');
   });
 });
+
+describe('VendedorFilter with the full name of a salesperson the board lists cut to 12 characters', () => {
+  // GBP prints the salesperson cut to 12 characters on documents (the board's options); an upload's "Ver métricas"
+  // link carries the report header's full name.
+  const CORTADOS = ['Carla Ejempl', 'Vendedor Dos'];
+
+  it('chips: the cut option is the pressed chip, with no second chip for the full name', () => {
+    render(<VendedorFilter options={CORTADOS} value={['Carla Ejemplo']} onChange={() => {}} variant="chips" />);
+    const group = screen.getByRole('group', { name: 'Vendedores' });
+    expect(within(group).getAllByRole('button').map((b) => b.textContent)).toEqual(['Todos', 'Carla Ejempl', 'Vendedor Dos']);
+    expect(within(group).getByRole('button', { name: 'Carla Ejempl' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('select: the cut option is selected', () => {
+    render(<VendedorFilter options={CORTADOS} value="Carla Ejemplo" onChange={() => {}} />);
+    expect(screen.getByRole('combobox', { name: 'Vendedor' })).toHaveValue('Carla Ejempl');
+  });
+
+  it('a shorter name that only shares a prefix stays its own choice', () => {
+    render(<VendedorFilter options={CORTADOS} value="Carla" onChange={() => {}} />);
+    expect(screen.getByRole('combobox', { name: 'Vendedor' })).toHaveValue('Carla');
+  });
+});
