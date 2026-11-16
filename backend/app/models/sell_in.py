@@ -328,7 +328,7 @@ class SellInConsumo(Base):
     __tablename__ = "sell_in_consumos"
     __table_args__ = (
         UniqueConstraint("canal", "venta_ref", "compra_item_id", name="uq_sell_in_consumos_canal_venta_item"),
-        CheckConstraint("canal IN ('ml', 'fuera', 'tn')", name="ck_sell_in_consumos_canal"),
+        CheckConstraint("canal IN ('ml', 'pdf', 'tn')", name="ck_sell_in_consumos_canal"),
         CheckConstraint("unidades > 0", name="ck_sell_in_consumos_unidades_positivas"),
         CheckConstraint("(compra_item_id IS NULL) <> (modo_id IS NULL)", name="ck_sell_in_consumos_origen"),
         Index("ix_sell_in_consumos_item_fecha", "item_id", "fecha_venta"),
@@ -400,7 +400,7 @@ class SellInBonoConsumo(Base):
         UniqueConstraint(
             "bono_id", "canal", "venta_ref", "item_id", name="uq_sell_in_bono_consumos_bono_canal_venta_item"
         ),
-        CheckConstraint("canal IN ('ml', 'fuera', 'tn')", name="ck_sell_in_bono_consumos_canal"),
+        CheckConstraint("canal IN ('ml', 'pdf', 'tn')", name="ck_sell_in_bono_consumos_canal"),
         CheckConstraint("unidades > 0", name="ck_sell_in_bono_consumos_unidades_positivas"),
         CheckConstraint("descuento_ars >= 0", name="ck_sell_in_bono_consumos_descuento_no_negativo"),
         Index("ix_sell_in_bono_consumos_canal_venta", "canal", "venta_ref"),

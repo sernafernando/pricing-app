@@ -48,7 +48,7 @@ from app.services.sell_in.bonos import tasas_bna_por_fecha
 from app.services.sell_out import alcance, asignacion, campanas as campanas_service, queue, reparto, tienda_scope
 from app.services.sell_out.tope import cents
 
-CANALES = ("ml", "fuera", "tn")
+CANALES = ("ml", "pdf", "tn")
 
 # Two-key advisory locks show the first key as `classid` and the second as `objid`, with `objsubid` 2.
 # pg_locks lists the whole cluster, so only this database's locks are this database's campaigns.

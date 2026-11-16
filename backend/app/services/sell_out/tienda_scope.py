@@ -22,8 +22,8 @@ from app.models.ml_sale_line import MlSaleLine
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.tactical import Tactical
 
-# tactical_tiendas.tipo for synthetic channels ↔ sell_out canal
-_CANAL_A_TIPO = {"fuera": "fuera", "tn": "tienda_nube"}
+# sell_out canal -> tactical_tiendas.tipo of synthetic channels; "Por fuera" (`fuera`) is the PDF sales since VPF T4
+_CANAL_A_TIPO = {"pdf": "fuera", "tn": "tienda_nube"}
 
 # ('oficial', store_id) | ('sin_tienda', None) for ML without official store | ('fuera'|'tienda_nube', None)
 TargetKey = Tuple[str, Optional[int]]

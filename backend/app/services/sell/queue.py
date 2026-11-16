@@ -2,15 +2,23 @@
 their sell-in / sell-out allocation recomputed. No cron: writers queue a line
 and `pg_notify('sell_dirty')`, and `sell.drain` (worker REGISTRY) drains it.
 
-Three writers, all inside the transaction that changes the sale:
+Writers, all inside the transaction that changes the sale:
 
-- `ventas_fuera_ml_metricas` (`canal = 'fuera'`) and
-  `ventas_tienda_nube_metricas` (`canal = 'tn'`): row triggers, keyed by
+- `ventas_tienda_nube_metricas` (`canal = 'tn'`): row triggers, keyed by
   `it_transaction`. An INSERT or DELETE always queues; an UPDATE queues only
   when a column the allocation reads actually changes (`ALLOCATION_COLUMNS`),
   so the ERP sync rewriting a row with the same values queues nothing. An
   UPDATE that changes `it_transaction` queues both keys. The trigger does one
   upsert and one notify per row: no reads, no allocation work.
+- `ventas_fuera_operacion_lineas` (`canal = 'pdf'`, ventas por fuera from the
+  GBP PDF reports, VPF T4): row triggers keyed by the line `id`. A line with a
+  product queues on INSERT and DELETE (a re-upload deletes the lines of its
+  scope, also through the document's cascade, and inserts new ones), and on an
+  UPDATE of its product or amounts; a line "sin producto" is never a sale. A
+  document whose date or client changes (`ventas_fuera_operaciones`; pairing a
+  later summary fills its client code) queues its lines: the client decides
+  which sale a return reverses. The GBP sync (`ventas_fuera_ml_metricas`) queues
+  nothing since T4: it is not a sale source any more (owner, S18).
 - `ml_sale_lines` (`canal = 'ml'`): `enqueue_ml`, called by
   `store_sale_lines` with the lines that appeared, changed or disappeared.
 - `ml_order_items_ops`, BEFORE DELETE: a deleted item takes its line with it
@@ -45,7 +53,7 @@ from app.services.combos.componentes import componentes_de
 CHANNEL = "sell_dirty"
 BATCH_SIZE = 500
 
-# What the allocators read from a fuera / TN sale row. Changing anything else
+# What the allocators read from a TN sale row. Changing anything else
 # (customer, seller, commission...) does not move an allocation.
 # `costo_total` is the base of a % of cost sell-in bonus (`bonos_costo`, `sell_out.alcance.ventas`; T25b2).
 ALLOCATION_COLUMNS = (
@@ -79,22 +87,64 @@ END;
 $trg$ LANGUAGE plpgsql
 """,
     """
-CREATE TRIGGER trg_sell_dirty_fuera_insert_delete
-AFTER INSERT OR DELETE ON ventas_fuera_ml_metricas
-FOR EACH ROW EXECUTE FUNCTION sell_dirty_enqueue_venta('fuera')
+CREATE OR REPLACE FUNCTION sell_dirty_enqueue_pdf_linea() RETURNS TRIGGER AS $trg$
+DECLARE
+    fila ventas_fuera_operacion_lineas%ROWTYPE;
+BEGIN
+    IF TG_OP = 'DELETE' OR NEW.item_id IS NULL THEN
+        fila := OLD;
+    ELSE
+        fila := NEW;
+    END IF;
+    IF fila.item_id IS NULL THEN
+        RETURN NULL;
+    END IF;
+    INSERT INTO sell_dirty (canal, venta_ref, item_id) VALUES ('pdf', fila.id, fila.item_id)
+    ON CONFLICT (canal, venta_ref) DO UPDATE
+    SET item_id = EXCLUDED.item_id, enqueued_at = now(), attempts = 0, last_error = NULL;
+    PERFORM pg_notify('sell_dirty', '');
+    RETURN NULL;
+END;
+$trg$ LANGUAGE plpgsql
 """,
     """
-CREATE TRIGGER trg_sell_dirty_fuera_update
-AFTER UPDATE OF it_transaction, item_id, cantidad, fecha_venta, signo, monto_total, costo_unitario, costo_total
-ON ventas_fuera_ml_metricas
+CREATE TRIGGER trg_sell_dirty_pdf_insert_delete
+AFTER INSERT OR DELETE ON ventas_fuera_operacion_lineas
+FOR EACH ROW EXECUTE FUNCTION sell_dirty_enqueue_pdf_linea()
+""",
+    """
+CREATE TRIGGER trg_sell_dirty_pdf_update
+AFTER UPDATE OF item_id, cantidad, precio, precio_costo, operacion_id ON ventas_fuera_operacion_lineas
 FOR EACH ROW WHEN (
-    (OLD.it_transaction, OLD.item_id, OLD.cantidad, OLD.fecha_venta, OLD.signo, OLD.monto_total, OLD.costo_unitario,
-     OLD.costo_total)
-    IS DISTINCT FROM
-    (NEW.it_transaction, NEW.item_id, NEW.cantidad, NEW.fecha_venta, NEW.signo, NEW.monto_total, NEW.costo_unitario,
-     NEW.costo_total)
+    (OLD.item_id, OLD.cantidad, OLD.precio, OLD.precio_costo, OLD.operacion_id)
+    IS DISTINCT FROM (NEW.item_id, NEW.cantidad, NEW.precio, NEW.precio_costo, NEW.operacion_id)
 )
-EXECUTE FUNCTION sell_dirty_enqueue_venta('fuera')
+EXECUTE FUNCTION sell_dirty_enqueue_pdf_linea()
+""",
+    """
+CREATE OR REPLACE FUNCTION sell_dirty_enqueue_pdf_operacion() RETURNS TRIGGER AS $trg$
+BEGIN
+    INSERT INTO sell_dirty (canal, venta_ref, item_id)
+    SELECT 'pdf', l.id, l.item_id FROM ventas_fuera_operacion_lineas AS l
+    WHERE l.operacion_id = NEW.id AND l.item_id IS NOT NULL
+    ORDER BY l.id
+    ON CONFLICT (canal, venta_ref) DO UPDATE
+    SET item_id = EXCLUDED.item_id, enqueued_at = now(), attempts = 0, last_error = NULL;
+    IF FOUND THEN
+        PERFORM pg_notify('sell_dirty', '');
+    END IF;
+    RETURN NULL;
+END;
+$trg$ LANGUAGE plpgsql
+""",
+    """
+CREATE TRIGGER trg_sell_dirty_pdf_operacion_update
+AFTER UPDATE OF empresa, cliente, cliente_codigo, fecha ON ventas_fuera_operaciones
+FOR EACH ROW WHEN (
+    (OLD.empresa, OLD.cliente, OLD.cliente_codigo, OLD.fecha)
+    IS DISTINCT FROM (NEW.empresa, NEW.cliente, NEW.cliente_codigo, NEW.fecha)
+)
+EXECUTE FUNCTION sell_dirty_enqueue_pdf_operacion()
 """,
     """
 CREATE TRIGGER trg_sell_dirty_tn_insert_delete
@@ -140,8 +190,11 @@ DOWNGRADE_SQL: List[str] = [
     "DROP FUNCTION IF EXISTS sell_dirty_enqueue_ml_item_delete()",
     "DROP TRIGGER IF EXISTS trg_sell_dirty_tn_update ON ventas_tienda_nube_metricas",
     "DROP TRIGGER IF EXISTS trg_sell_dirty_tn_insert_delete ON ventas_tienda_nube_metricas",
-    "DROP TRIGGER IF EXISTS trg_sell_dirty_fuera_update ON ventas_fuera_ml_metricas",
-    "DROP TRIGGER IF EXISTS trg_sell_dirty_fuera_insert_delete ON ventas_fuera_ml_metricas",
+    "DROP TRIGGER IF EXISTS trg_sell_dirty_pdf_operacion_update ON ventas_fuera_operaciones",
+    "DROP FUNCTION IF EXISTS sell_dirty_enqueue_pdf_operacion()",
+    "DROP TRIGGER IF EXISTS trg_sell_dirty_pdf_update ON ventas_fuera_operacion_lineas",
+    "DROP TRIGGER IF EXISTS trg_sell_dirty_pdf_insert_delete ON ventas_fuera_operacion_lineas",
+    "DROP FUNCTION IF EXISTS sell_dirty_enqueue_pdf_linea()",
     "DROP FUNCTION IF EXISTS sell_dirty_enqueue_venta()",
 ]
 
@@ -257,7 +310,7 @@ _ENQUEUE_COMBOS_SQL = text(
 WITH ventas AS (
     SELECT 'ml' AS canal, item_row_id AS ref, product AS item FROM ml_sale_lines WHERE product = ANY(:combos)
     UNION ALL
-    SELECT 'fuera', it_transaction, item_id FROM ventas_fuera_ml_metricas WHERE item_id = ANY(:combos)
+    SELECT 'pdf', id, item_id FROM ventas_fuera_operacion_lineas WHERE item_id = ANY(:combos)
     UNION ALL
     SELECT 'tn', it_transaction, item_id FROM ventas_tienda_nube_metricas WHERE item_id = ANY(:combos)
 ), queued AS (

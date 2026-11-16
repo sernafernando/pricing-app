@@ -9,7 +9,11 @@ Rows are shaped like production (read on prod, 2026-10-17):
 - ML: one `ml_sale_lines` row per `ml_order_items_ops` row, `qty` > 0, `day`;
 - a fuera return (409 product returns measured) is `signo = -1`, sd_id 3,
   POSITIVE `cantidad`, `cust_id` always filled, often the same day as its sale
-  with a higher `it_transaction` (584631 sold, 584724 returned, 2026-09-30).
+  with a higher `it_transaction` (584631 sold, 584724 returned, 2026-09-30);
+- pdf (ventas por fuera loaded from GBP's PDF, T4): one document per line in
+  `ventas_fuera_operaciones`, a return is an Nc whose line has a NEGATIVE
+  `cantidad`, `precio` and `precio_costo` (GBP's sign); invented data only.
+  Since T4 the `fuera` rows (the GBP sync) are NOT a sale source any more.
 """
 
 from __future__ import annotations
@@ -40,6 +44,7 @@ from app.models.sell_in import (
     SellInModoProducto,
 )
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
+from app.models.venta_fuera_pdf import VentaFueraOperacion, VentaFueraOperacionLinea, VentaFueraPdfCarga
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.services.sell import queue
 from tests.services.sell._schema import PUBLICADOS, throwaway_schema
@@ -64,6 +69,9 @@ TABLES = [
     Auditoria.__table__,
     VentaFueraMLMetrica.__table__,
     VentaTiendaNubeMetrica.__table__,
+    VentaFueraPdfCarga.__table__,  # the PDF sales (canal `pdf`, T4)
+    VentaFueraOperacion.__table__,
+    VentaFueraOperacionLinea.__table__,
     MlOrderItemOps.__table__,
     MlSaleLine.__table__,
     SellDirty.__table__,
@@ -93,8 +101,15 @@ def world(prefix: str) -> Iterator[Engine]:
 def clean(engine: Engine) -> None:
     """Empties every table; the queue goes LAST, since deleting sales fires its triggers."""
     with engine.begin() as conn:
-        for table in ("ml_order_items_ops", "ventas_fuera_ml_metricas", "ventas_tienda_nube_metricas", "auditoria"):
-            conn.execute(text(f"DELETE FROM {table}"))  # ml_sale_lines go with their items
+        for table in (
+            "ml_order_items_ops",
+            "ventas_fuera_ml_metricas",
+            "ventas_tienda_nube_metricas",
+            "ventas_fuera_operaciones",
+            "ventas_fuera_pdf_cargas",
+            "auditoria",
+        ):
+            conn.execute(text(f"DELETE FROM {table}"))  # ml_sale_lines go with their items, pdf lines with their docs
         conn.execute(text("DELETE FROM sell_in_consumos"))  # a manual block's go with neither purchase nor line
         conn.execute(text("DELETE FROM sell_in_modos_producto"))
         conn.execute(text("DELETE FROM sell_in_compras"))  # cascades to items
@@ -164,14 +179,77 @@ def modo(engine: Engine, item_id: int, modo: str, desde: date, **manual) -> int:
         ).scalar()
 
 
+PDF_PRECIO = Decimal("54298.64")  # a line total without VAT, invented
+PDF_COSTO = Decimal("38574.55")  # 'Precio Costo' per unit, invented; Costo D = x 1.065
+PDF_EMPRESA = "EMPRESA DEMO SRL"
+
+
 def venta(
-    engine: Engine, canal: str, item_id: int, cantidad: int, dia: date, *, signo: int = 1, cliente: int = 202741
+    engine: Engine,
+    canal: str,
+    item_id: Optional[int],
+    cantidad: int,
+    dia: date,
+    *,
+    signo: int = 1,
+    cliente: Optional[int] = 202741,
+    cliente_nombre: str = "Cliente Demo",
+    precio_costo: Optional[Decimal] = None,
+    precio: Optional[Decimal] = None,
 ) -> int:
-    """A sale line in `canal` (ml, fuera, tn); returns its `venta_ref`. A fuera return is
-    `signo=-1` with a POSITIVE `cantidad` and sd_id 3, its customer always filled."""
+    """A sale line in `canal` (ml, fuera, tn, pdf); returns its `venta_ref`. A fuera return is
+    `signo=-1` with a POSITIVE `cantidad` and sd_id 3, its customer always filled. A pdf return
+    (`signo=-1`) is an Nc document whose line has a NEGATIVE quantity and amounts; `cliente` is its
+    client code (None: the document has no summary, so no code), `precio_costo` the line's
+    'Precio Costo' total (default `PDF_COSTO` per unit) and `precio` its price total without VAT
+    (default `PDF_PRECIO`); both given unsigned, signed like GBP here."""
     ref = next(_refs)
     with engine.begin() as conn:
-        if canal == "ml":
+        if canal == "pdf":
+            q = Decimal(cantidad) * signo
+            costo = abs(precio_costo) if precio_costo is not None else PDF_COSTO * abs(q)
+            total = abs(precio) if precio is not None else PDF_PRECIO
+            carga = conn.execute(
+                text(
+                    "INSERT INTO ventas_fuera_pdf_cargas (empresa, desde, hasta, documentos, reemplazados, avisos) "
+                    "VALUES (:e, :d, :d, 1, 0, '[]') RETURNING id"
+                ),
+                {"e": PDF_EMPRESA, "d": dia},
+            ).scalar()
+            operacion = conn.execute(
+                text(
+                    "INSERT INTO ventas_fuera_operaciones (carga_id, empresa, vendedor, cliente, cliente_codigo, tipo, "
+                    "letra, punto_venta, numero, fecha, importe, saldo, total_lineas, recargo_financiero) "
+                    "VALUES (:c, :e, 'Vendedor Demo', :cn, :cc, :t, 'A', 9, :n, :d, :p, 0, :p, 0) RETURNING id"
+                ),
+                {
+                    "c": carga,
+                    "e": PDF_EMPRESA,
+                    "cn": cliente_nombre,
+                    "cc": None if cliente is None else str(cliente),
+                    "t": "Fc" if signo == 1 else "Nc",
+                    "n": ref,
+                    "d": dia,
+                    "p": total * signo,
+                },
+            ).scalar()
+            conn.execute(
+                text(
+                    "INSERT INTO ventas_fuera_operacion_lineas (id, operacion_id, renglon, codigo, articulo, cantidad, "
+                    "moneda, precio, precio_costo, precio_costo_pp, item_id) "
+                    "VALUES (:id, :o, 1, :cod, 'Articulo demo', :q, 'ARS', :p, :pc, :pc, :i)"
+                ),
+                {
+                    "id": ref,
+                    "o": operacion,
+                    "cod": None if item_id is None else f"C{item_id}",
+                    "q": q,
+                    "p": total * signo,
+                    "pc": costo * signo,
+                    "i": item_id,
+                },
+            )
+        elif canal == "ml":
             conn.execute(
                 text("INSERT INTO ml_order_items_ops (id, order_id, item_id, quantity) VALUES (:id, :o, :mla, :q)"),
                 {"id": ref, "o": 2_000_000_000 + ref, "mla": f"MLA{ref}", "q": cantidad},
@@ -222,7 +300,15 @@ def update_venta(engine: Engine, canal: str, ref: int, **values) -> None:
 
 def delete_venta(engine: Engine, canal: str, ref: int) -> None:
     with engine.begin() as conn:
-        if canal == "ml":
+        if canal == "pdf":  # a re-upload deletes the documents of its scope; their lines cascade
+            conn.execute(
+                text(
+                    "DELETE FROM ventas_fuera_operaciones WHERE id = "
+                    "(SELECT operacion_id FROM ventas_fuera_operacion_lineas WHERE id = :r)"
+                ),
+                {"r": ref},
+            )
+        elif canal == "ml":
             conn.execute(text("DELETE FROM ml_order_items_ops WHERE id = :r"), {"r": ref})
         else:
             conn.execute(text(f"DELETE FROM {_MODELS[canal].__tablename__} WHERE it_transaction = :r"), {"r": ref})

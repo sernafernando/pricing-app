@@ -179,6 +179,9 @@ class VentaFueraOperacionLinea(Base):
     renglon = Column(Integer, nullable=False)
     # EAN = productos_erp.codigo; NULL on manual lines ("Servicio Tecnico (Manual)").
     codigo = Column(String(100), nullable=True, index=True)
+    # productos_erp.item_id of `codigo`, set on load; NULL "sin producto": such a line never enters offsets, sell in
+    # or sell out (`app.services.ventas_fuera_pdf.ventas`).
+    item_id = Column(Integer, nullable=True, index=True)
     articulo = Column(String(255), nullable=False)
     cantidad = Column(MONTO, nullable=False)
     moneda = Column(String(3), nullable=False)

@@ -4,7 +4,9 @@ and the BNA rates, plus bare stand-ins for what they reference.
 
 Sales are written with `tests.services.sell_in._world.venta`, which shapes them
 like production (fuera / TN at midnight UTC, a fuera return `signo = -1` with a
-POSITIVE `cantidad`; ML one `ml_sale_lines` row per `ml_order_items_ops` row).
+POSITIVE `cantidad`; ML one `ml_sale_lines` row per `ml_order_items_ops` row; a pdf
+return an Nc line with a NEGATIVE `cantidad`). Since VPF T4 ventas por fuera are
+the pdf lines; the GBP `fuera` rows are not a sale source.
 Products carry a brand, category and VAT like `productos_erp` (`iva` 21 or 10.5).
 """
 
@@ -34,6 +36,7 @@ from app.models.sell_out import (
 )
 from app.models.tipo_cambio import TipoCambio
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
+from app.models.venta_fuera_pdf import VentaFueraOperacion, VentaFueraOperacionLinea, VentaFueraPdfCarga
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from tests.services.sell._schema import PUBLICADOS, throwaway_schema
 from tests.services.sell_in._world import delete_venta, venta  # noqa: F401 - re-exported for the tests
@@ -59,6 +62,9 @@ TABLES = [
     TipoCambio.__table__,
     VentaFueraMLMetrica.__table__,
     VentaTiendaNubeMetrica.__table__,
+    VentaFueraPdfCarga.__table__,  # the PDF sales (canal `pdf`, VPF T4)
+    VentaFueraOperacion.__table__,
+    VentaFueraOperacionLinea.__table__,
     MlOrderItemOps.__table__,
     MlSaleLine.__table__,
     ComboComponente.__table__,  # combo sales count for their components' campaigns
@@ -95,6 +101,8 @@ def clean(engine: Engine) -> None:
             "ml_order_items_ops",
             "ventas_fuera_ml_metricas",
             "ventas_tienda_nube_metricas",
+            "ventas_fuera_operaciones",
+            "ventas_fuera_pdf_cargas",
             "sell_out_campanas",
             "sell_out_programas",
             "offset_grupos",
