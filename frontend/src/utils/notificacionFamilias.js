@@ -1,3 +1,5 @@
+import { AlertTriangle, Bell, DollarSign, Package, Receipt, Wrench } from 'lucide-react';
+
 /**
  * Notification families shown as tabs in the bell and in /notificaciones.
  * Mirrors backend/app/services/notificacion_familias.py.
@@ -23,8 +25,8 @@ const TITULOS_POR_TIPO = {
   precio_desactualizado: 'Precio desactualizado',
 };
 
-const ICONOS_POR_FAMILIA = { compras: '🧾', markup: '⚠️', tecnicas: '🛠️' };
-const ICONOS_OTRAS = { stock_bajo: '📦', precio_desactualizado: '💰' };
+const ICONOS_POR_FAMILIA = { compras: Receipt, markup: AlertTriangle, tecnicas: Wrench };
+const ICONOS_OTRAS = { stock_bajo: Package, precio_desactualizado: DollarSign };
 
 export function familiaDeTipo(tipo = '') {
   if (tipo.startsWith('compras.')) return 'compras';
@@ -36,9 +38,10 @@ export function familiaDeTipo(tipo = '') {
 /** Only markup_bajo uses the markup template (product, markup real, sale details). */
 export const esNotificacionMarkup = (tipo) => familiaDeTipo(tipo) === 'markup';
 
+/** lucide icon component for a notification tipo (one per family, a few per tipo in "otras"). */
 export function iconoDeTipo(tipo) {
   const familia = familiaDeTipo(tipo);
-  return ICONOS_POR_FAMILIA[familia] || ICONOS_OTRAS[tipo] || '🔔';
+  return ICONOS_POR_FAMILIA[familia] || ICONOS_OTRAS[tipo] || Bell;
 }
 
 export function tituloDeTipo(tipo) {

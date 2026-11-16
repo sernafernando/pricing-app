@@ -120,7 +120,7 @@ describe('NotificationBell — family tabs', () => {
     const factura = await screen.findByText(/Factura 00002-00006138 cargada en P-321/);
     const item = factura.closest('[data-testid="notif-item"]');
     expect(within(item).getByText('Factura cargada')).toBeInTheDocument();
-    expect(within(item).getByText('🧾')).toBeInTheDocument();
+    expect(item.querySelector('svg.lucide-receipt')).not.toBeNull();
     expect(within(item).queryByText(/ - /)).not.toBeInTheDocument();
   });
 });

@@ -17,6 +17,8 @@ from app.services.notificacion_familias import (
     filtro_familia,
 )
 from app.services.compras_alertas_service import (
+    TIPO_FALTANTES,
+    esta_oculta_por_snooze,
     filtrar_visibles,
     marcar_ok,
     rechazar_cierre_faltantes,
@@ -83,6 +85,7 @@ class NotificacionStats(BaseModel):
 
 class NotificacionTotal(BaseModel):
     total: int
+    pms: List[str] = []
 
 
 OrdenListado = Literal["severidad_desc", "severidad_asc", "fecha_desc", "fecha_asc", "markup_asc", "markup_desc"]
@@ -95,6 +98,25 @@ _ORDENES = {
     "markup_asc": (Notificacion.markup_real.asc().nullslast(), desc(Notificacion.fecha_creacion)),
     "markup_desc": (Notificacion.markup_real.desc().nullslast(), desc(Notificacion.fecha_creacion)),
 }
+
+
+def _faltantes_ocultas_ids(db: Session, user_id: int, ahora: datetime) -> set[int]:
+    """Ids of the user's open compras.faltantes hidden from listings (obsolete or snoozed).
+
+    Few rows per user, so the flat list can exclude them in SQL before paging and its total agrees.
+    """
+    abiertas = (
+        db.query(Notificacion)
+        .filter(
+            Notificacion.user_id == user_id,
+            Notificacion.tipo == TIPO_FALTANTES,
+            Notificacion.estado != EstadoNotificacion.DESCARTADA,
+        )
+        .all()
+    )
+    ocultas = faltantes_obsoletas_ids(db, abiertas)
+    ocultas.update(int(n.id) for n in abiertas if esta_oculta_por_snooze(n, ahora=ahora))
+    return ocultas
 
 
 def _query_listado(
@@ -110,8 +132,14 @@ def _query_listado(
     solo_criticas: bool = False,
     solo_pendientes: bool = False,
 ) -> OrmQuery:
-    """Shared filters of the flat list and its total, so both always agree."""
+    """Shared filters of the flat list and its total, so both always agree.
+
+    Hidden compras.faltantes (obsolete or snoozed) are excluded here, before paging.
+    """
     query = db.query(Notificacion).filter(Notificacion.user_id == user_id)
+    ocultas = _faltantes_ocultas_ids(db, user_id, _ahora_listado())
+    if ocultas:
+        query = query.filter(Notificacion.id.notin_(ocultas))
     if solo_no_leidas:
         query = query.filter(Notificacion.leida == False)
     if tipo:
@@ -200,13 +228,8 @@ def listar_notificaciones(
         solo_criticas=solo_criticas,
         solo_pendientes=solo_pendientes,
     )
-    notificaciones = query.order_by(*_ORDENES[orden], desc(Notificacion.id)).offset(offset).limit(limit).all()
-
-    ahora = _ahora_listado()
     # Read-only: never write/commit on this hot GET (incident 2026-11-11, pool starvation).
-    obsoletas = faltantes_obsoletas_ids(db, notificaciones)
-    notificaciones = [n for n in notificaciones if n.id not in obsoletas]
-    return filtrar_visibles(notificaciones, ahora=ahora)
+    return query.order_by(*_ORDENES[orden], desc(Notificacion.id)).offset(offset).limit(limit).all()
 
 
 @router.get("/notificaciones/total", response_model=NotificacionTotal)
@@ -223,21 +246,28 @@ def total_notificaciones(
     current_user: Usuario = Depends(get_current_user),
 ):
     """
-    Cantidad de notificaciones con los mismos filtros que GET /notificaciones, para paginar en el servidor.
+    Cantidad de notificaciones con los mismos filtros que GET /notificaciones, para paginar en el servidor,
+    y los PMs disponibles con esos filtros (sin el de PM) para armar el selector.
     """
-    query = _query_listado(
-        db,
-        current_user.id,
-        solo_no_leidas=solo_no_leidas,
-        tipo=tipo,
-        familia=familia,
-        severidad=severidad,
-        estado=estado,
-        pm=pm,
-        solo_criticas=solo_criticas,
-        solo_pendientes=solo_pendientes,
+    filtros = {
+        "solo_no_leidas": solo_no_leidas,
+        "tipo": tipo,
+        "familia": familia,
+        "severidad": severidad,
+        "estado": estado,
+        "solo_criticas": solo_criticas,
+        "solo_pendientes": solo_pendientes,
+    }
+    total = _query_listado(db, current_user.id, pm=pm, **filtros).count()
+    pms = (
+        _query_listado(db, current_user.id, **filtros)
+        .filter(Notificacion.pm.isnot(None), Notificacion.pm != "")
+        .with_entities(Notificacion.pm)
+        .distinct()
+        .order_by(Notificacion.pm)
+        .all()
     )
-    return {"total": query.count()}
+    return {"total": total, "pms": [fila.pm for fila in pms]}
 
 
 @router.get("/notificaciones/agrupadas", response_model=List[NotificacionAgrupada])

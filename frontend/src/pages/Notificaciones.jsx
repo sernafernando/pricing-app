@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import api from '../services/api';
 import styles from './Notificaciones.module.css';
 import NotificacionFamiliaTabs from '../components/NotificacionFamiliaTabs';
-import { esNotificacionMarkup, iconoDeTipo, tituloDeTipo } from '../utils/notificacionFamilias';
+import NotificacionIcono from '../components/NotificacionIcono';
+import { esNotificacionMarkup, tituloDeTipo } from '../utils/notificacionFamilias';
 
 const ITEMS_PER_PAGE = 20;
 
@@ -16,6 +17,7 @@ export default function Notificaciones() {
   const [loading, setLoading] = useState(false);
   const [familia, setFamilia] = useState(null);
   const [totalServidor, setTotalServidor] = useState(0);
+  const [pmsServidor, setPmsServidor] = useState([]);
   const [filtroPM, setFiltroPM] = useState(null);
   const [filtroSeveridad, setFiltroSeveridad] = useState(null);
   const [ordenamiento, setOrdenamiento] = useState('severidad_desc'); // severidad_desc, fecha_desc, markup_asc
@@ -63,6 +65,7 @@ export default function Notificaciones() {
       ]);
       setNotificaciones(notifResponse.data);
       setTotalServidor(totalResponse.data.total);
+      setPmsServidor(totalResponse.data.pms ?? []);
       setStats(statsResponse.data);
     } catch (error) {
       console.error('Error al obtener notificaciones:', error);
@@ -354,10 +357,10 @@ export default function Notificaciones() {
     }
   };
 
-  // Extraer PMs únicos para el filtro
-  const pmsUnicos = [...new Set(
+  // PMs para el filtro: en la lista plana vienen del servidor (todas las páginas), en la agrupada de los grupos
+  const pmsUnicos = !vistaAgrupada ? pmsServidor : [...new Set(
     notificaciones
-      .map(n => vistaAgrupada ? n.notificacion_reciente?.pm : n.pm)
+      .map(n => n.notificacion_reciente?.pm)
       .filter(pm => pm && pm.trim() !== '')
   )].sort();
 
@@ -491,8 +494,8 @@ export default function Notificaciones() {
         </div>
 
         <div className={styles.filterGroup}>
-          <label>PM:</label>
-          <select value={filtroPM || ''} onChange={(e) => setFiltroPM(e.target.value || null)}>
+          <label htmlFor="notif-filtro-pm">PM:</label>
+          <select id="notif-filtro-pm" value={filtroPM || ''} onChange={(e) => setFiltroPM(e.target.value || null)}>
             <option value="">Todos</option>
             {pmsUnicos.map(pm => (
               <option key={pm} value={pm}>{pm}</option>
@@ -570,7 +573,7 @@ export default function Notificaciones() {
                     }
                   }
                 }}>
-                  <div className={styles.notifIcon}>{iconoDeTipo(grupo.tipo)}</div>
+                  <div className={styles.notifIcon}><NotificacionIcono tipo={grupo.tipo} /></div>
                   <div className={styles.grupoMain}>
                     {esNotificacionMarkup(grupo.tipo) ? (
                       <div className={styles.grupoProducto}>
@@ -804,7 +807,7 @@ export default function Notificaciones() {
                 className={`${styles.notifCard} ${!notif.leida ? styles.noLeida : ''}`}
               >
                 <div className={styles.notifHeader} onClick={() => toggleExpand(notif)}>
-                  <div className={styles.notifIcon}>{iconoDeTipo(notif.tipo)}</div>
+                  <div className={styles.notifIcon}><NotificacionIcono tipo={notif.tipo} /></div>
                   <div className={styles.notifMain}>
                     {!esNotificacionMarkup(notif.tipo) && (
                       <div className={styles.notifTitulo}>{tituloDeTipo(notif.tipo)}</div>

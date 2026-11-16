@@ -85,7 +85,9 @@ describe('Notificaciones page — families, paging and non-markup rendering', ()
       if (url === '/notificaciones/agrupadas') {
         return Promise.resolve({ data: [grupoFailover, grupoFactura, grupoMarkup] });
       }
-      if (url === '/notificaciones/total') return Promise.resolve({ data: { total: 2300 } });
+      if (url === '/notificaciones/total') {
+        return Promise.resolve({ data: { total: 2300, pms: ['Ana Lopez', 'Gabriel Perez'] } });
+      }
       if (url === '/notificaciones') return Promise.resolve({ data: flatPage(config?.params?.offset ?? 0) });
       return Promise.resolve({ data: {} });
     });
@@ -100,6 +102,7 @@ describe('Notificaciones page — families, paging and non-markup rendering', ()
     expect(within(cardFailover).getByText(/1400 notificaciones/)).toBeInTheDocument();
     expect(within(cardFailover).queryByText(/Markup Real/)).not.toBeInTheDocument();
     expect(within(cardFailover).queryByText(/^ - $/)).not.toBeInTheDocument();
+    expect(cardFailover.querySelector('svg.lucide-wrench')).not.toBeNull();
 
     const factura = screen.getByText(/Factura 00002-00006138 cargada en P-321/);
     const cardFactura = factura.closest('[data-testid="notif-grupo"]');
@@ -142,6 +145,12 @@ describe('Notificaciones page — families, paging and non-markup rendering', ()
     await user.click(await screen.findByLabelText('Agrupar por producto/markup'));
     expect(await screen.findByText('Fila 1')).toBeInTheDocument();
     expect(screen.getByText('Página 1 de 115')).toBeInTheDocument();
+    const pmSelect = screen.getByLabelText('PM:');
+    expect(within(pmSelect).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Todos',
+      'Ana Lopez',
+      'Gabriel Perez',
+    ]);
 
     for (let i = 0; i < 6; i += 1) {
       await user.click(screen.getByRole('button', { name: /Siguiente/ }));

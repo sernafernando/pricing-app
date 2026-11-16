@@ -13,9 +13,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.models.notificacion import Notificacion, SeveridadNotificacion
+from app.api.endpoints import notificaciones as notificaciones_endpoint
+from app.models.notificacion import EstadoNotificacion, Notificacion, SeveridadNotificacion
 from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
+from app.services.compras_alertas_service import SNOOZE_MARKER
 
 BASE = datetime(2026, 11, 13, 9, 0, tzinfo=timezone.utc)
 
@@ -165,6 +167,68 @@ class TestServerPaging:
 
         assert r.status_code == 200
         assert [n["id"] for n in r.json()] == [objetivo.id]
+
+
+class TestHiddenFaltantesInPaging:
+    """Snoozed or obsolete compras.faltantes are hidden before paging, so the
+    total and every page agree (no short or empty pages)."""
+
+    @pytest.fixture()
+    def con_faltantes_ocultas(self, db, active_user: Usuario) -> list[Notificacion]:
+        visibles = [_notif(db, active_user, tipo="markup_bajo", minutos=i) for i in range(3)]
+        # Obsolete: its pedido does not exist any more.
+        _notif(db, active_user, tipo="compras.faltantes", minutos=10, item_id=999999)
+        # Snoozed for the next hour.
+        _notif(
+            db,
+            active_user,
+            tipo="compras.faltantes",
+            minutos=11,
+            item_id=999998,
+            estado=EstadoNotificacion.REVISADA,
+            notas_revision=SNOOZE_MARKER,
+        )
+        return visibles
+
+    def test_total_skips_hidden_faltantes(self, client, auth_headers, con_faltantes_ocultas, monkeypatch) -> None:
+        monkeypatch.setattr(notificaciones_endpoint, "_ahora_listado", lambda: BASE + timedelta(minutes=20))
+
+        r = client.get("/api/notificaciones/total", headers=auth_headers)
+
+        assert r.status_code == 200
+        assert r.json()["total"] == 3
+
+    def test_pages_are_full_when_faltantes_are_hidden(
+        self, client, auth_headers, con_faltantes_ocultas, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(notificaciones_endpoint, "_ahora_listado", lambda: BASE + timedelta(minutes=20))
+
+        r = client.get(
+            "/api/notificaciones",
+            params={"limit": 2, "offset": 0, "orden": "fecha_desc"},
+            headers=auth_headers,
+        )
+
+        assert r.status_code == 200
+        assert [n["id"] for n in r.json()] == [con_faltantes_ocultas[2].id, con_faltantes_ocultas[1].id]
+
+
+class TestPmOptions:
+    def test_total_lists_every_pm_of_the_filter_not_just_one_page(
+        self, client, db, auth_headers, active_user, buzon_tapado
+    ) -> None:
+        _notif(db, active_user, tipo="markup_bajo", minutos=-20, pm="Gabriel")
+        _notif(db, active_user, tipo="markup_bajo", minutos=-21, pm="Ana")
+        _notif(db, active_user, tipo="compras.faltantes_resuelto", minutos=-22, pm="Compras PM")
+
+        r = client.get(
+            "/api/notificaciones/total",
+            params={"familia": "markup", "pm": "Gabriel"},
+            headers=auth_headers,
+        )
+
+        assert r.status_code == 200
+        assert r.json() == {"total": 1, "pms": ["Ana", "Gabriel"]}
 
 
 class TestComprasNoProductLookup:

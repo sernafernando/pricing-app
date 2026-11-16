@@ -6,7 +6,8 @@ import NotificacionFamiliaTabs from './NotificacionFamiliaTabs';
 import api from '../services/api';
 import { useSSEChannel } from '../hooks/useSSEChannel';
 import { useSSE } from '../contexts/SSEContext';
-import { esNotificacionMarkup, iconoDeTipo, tituloDeTipo } from '../utils/notificacionFamilias';
+import { esNotificacionMarkup, tituloDeTipo } from '../utils/notificacionFamilias';
+import NotificacionIcono from './NotificacionIcono';
 
 export default function NotificationBell() {
   const navigate = useNavigate();
@@ -153,8 +154,8 @@ export default function NotificationBell() {
                     data-testid="notif-item"
                     className={`${styles.notifItem} ${!grupo.notificacion_reciente.leida ? styles.noLeida : ''}`}
                   >
-                    <div className={styles.notifIcon} aria-hidden="true">
-                      {iconoDeTipo(grupo.tipo)}
+                    <div className={styles.notifIcon}>
+                      <NotificacionIcono tipo={grupo.tipo} size={18} />
                     </div>
                     <div className={styles.notifContent}>
                       {!esNotificacionMarkup(grupo.tipo) && (
