@@ -37,7 +37,7 @@ vi.mock('../../services/api', async (importOriginal) => {
   const answers = {
     '/ml-publications/view/mejores-ofertas/count': { pm_id: 17, count: 128, tienda_id: 57997 },
     '/ml-metricas/board': { kpis: { gross: { value: 187654321.5 } } },
-    '/notificaciones/agrupadas?solo_no_leidas=false': [],
+    '/notificaciones/agrupadas': [],
     '/notificaciones/stats': { total: 3, no_leidas: 3 },
   };
   return {

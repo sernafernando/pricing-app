@@ -504,3 +504,25 @@
    - btn-tesla secondary sm → Marcar no leídas
    - btn-tesla ghost sm → Eliminar
 */
+
+.notifTitulo {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.grupoMensaje {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.4;
+  margin: 0.25rem 0;
+}
+
+.detalleMensaje {
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin: 0 0 1rem;
+  white-space: pre-line;
+}

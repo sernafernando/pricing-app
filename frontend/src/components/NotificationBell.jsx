@@ -2,27 +2,34 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell } from 'lucide-react';
 import styles from './NotificationBell.module.css';
+import NotificacionFamiliaTabs from './NotificacionFamiliaTabs';
 import api from '../services/api';
 import { useSSEChannel } from '../hooks/useSSEChannel';
 import { useSSE } from '../contexts/SSEContext';
+import { esNotificacionMarkup, tituloDeTipo } from '../utils/notificacionFamilias';
+import NotificacionIcono from './NotificacionIcono';
 
 export default function NotificationBell() {
   const navigate = useNavigate();
   const [notificaciones, setNotificaciones] = useState([]);
-  const [noLeidas, setNoLeidas] = useState(0);
+  const [stats, setStats] = useState(null);
+  const [familia, setFamilia] = useState(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  const noLeidas = stats?.no_leidas ?? 0;
 
   const fetchNotificaciones = async () => {
     try {
       setLoading(true);
+      const params = familia ? { solo_no_leidas: false, familia } : { solo_no_leidas: false };
       const [notifResponse, statsResponse] = await Promise.all([
-        api.get('/notificaciones/agrupadas?solo_no_leidas=false'),
+        api.get('/notificaciones/agrupadas', { params }),
         api.get('/notificaciones/stats')
       ]);
 
       setNotificaciones(notifResponse.data);
-      setNoLeidas(statsResponse.data.no_leidas);
+      setStats(statsResponse.data);
     } catch (error) {
       console.error('❌ Error al obtener notificaciones:', error);
       console.error('Error details:', error.response?.data || error.message);
@@ -35,7 +42,9 @@ export default function NotificationBell() {
 
   useEffect(() => {
     fetchNotificaciones();
-  }, []);
+    // fetchNotificaciones se recrea cada render — recargar solo cuando cambia la familia
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [familia]);
 
   // SSE-driven reload: instant notification updates
   useSSEChannel('notificaciones:updated', fetchNotificaciones);
@@ -62,7 +71,9 @@ export default function NotificationBell() {
 
   const marcarTodasLeidas = async () => {
     try {
-      await api.post('/notificaciones/marcar-todas-leidas');
+      await api.post('/notificaciones/marcar-todas-leidas', null, {
+        params: familia ? { familia } : {},
+      });
       await fetchNotificaciones();
     } catch (error) {
       console.error('Error al marcar todas:', error);
@@ -79,19 +90,6 @@ export default function NotificationBell() {
       await fetchNotificaciones();
     } catch (error) {
       console.error('Error al eliminar notificación:', error);
-    }
-  };
-
-  const getTipoIcon = (tipo) => {
-    switch (tipo) {
-      case 'markup_bajo':
-        return '⚠️';
-      case 'stock_bajo':
-        return '📦';
-      case 'precio_desactualizado':
-        return '💰';
-      default:
-        return '🔔';
     }
   };
 
@@ -142,6 +140,8 @@ export default function NotificationBell() {
               )}
             </div>
 
+            <NotificacionFamiliaTabs familia={familia} onChange={setFamilia} stats={stats} compact />
+
             <div className={styles.notifList}>
               {loading ? (
                 <div className={styles.loading}>Cargando...</div>
@@ -151,19 +151,23 @@ export default function NotificationBell() {
                 notificaciones.map((grupo) => (
                   <div
                     key={`${grupo.item_id}-${grupo.tipo}-${grupo.markup_real}`}
+                    data-testid="notif-item"
                     className={`${styles.notifItem} ${!grupo.notificacion_reciente.leida ? styles.noLeida : ''}`}
                   >
                     <div className={styles.notifIcon}>
-                      {getTipoIcon(grupo.tipo)}
+                      <NotificacionIcono tipo={grupo.tipo} size={18} />
                     </div>
                     <div className={styles.notifContent}>
+                      {!esNotificacionMarkup(grupo.tipo) && (
+                        <div className={styles.notifTitulo}>{tituloDeTipo(grupo.tipo)}</div>
+                      )}
                       <div className={styles.notifMensaje}>
                         {grupo.notificacion_reciente.mensaje}
                         {grupo.count > 1 && (
                           <span className={styles.grupoCount}> ({grupo.count})</span>
                         )}
                       </div>
-                      {grupo.codigo_producto && (
+                      {esNotificacionMarkup(grupo.tipo) && grupo.codigo_producto && (
                         <div className={styles.notifProducto}>
                           <span>{grupo.codigo_producto} - {grupo.descripcion_producto}</span>
                           {grupo.pm && <span className={styles.pmTag}>PM: {grupo.pm.split(' ')[0]}</span>}

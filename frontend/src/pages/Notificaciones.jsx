@@ -1,12 +1,23 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
 import styles from './Notificaciones.module.css';
+import NotificacionFamiliaTabs from '../components/NotificacionFamiliaTabs';
+import NotificacionIcono from '../components/NotificacionIcono';
+import { esNotificacionMarkup, tituloDeTipo } from '../utils/notificacionFamilias';
+
+const ITEMS_PER_PAGE = 20;
+
+/** Drop null/empty filters so the request only carries the active ones. */
+const soloFiltrosActivos = (params) =>
+  Object.fromEntries(Object.entries(params).filter(([, valor]) => valor !== null && valor !== undefined && valor !== ''));
 
 export default function Notificaciones() {
   const [notificaciones, setNotificaciones] = useState([]);
   const [stats, setStats] = useState({ total: 0, no_leidas: 0, por_tipo: {} });
   const [loading, setLoading] = useState(false);
-  const [filtroTipo, setFiltroTipo] = useState(null);
+  const [familia, setFamilia] = useState(null);
+  const [totalServidor, setTotalServidor] = useState(0);
+  const [pmsServidor, setPmsServidor] = useState([]);
   const [filtroPM, setFiltroPM] = useState(null);
   const [filtroSeveridad, setFiltroSeveridad] = useState(null);
   const [ordenamiento, setOrdenamiento] = useState('severidad_desc'); // severidad_desc, fecha_desc, markup_asc
@@ -18,22 +29,43 @@ export default function Notificaciones() {
   const [vistaAgrupada, setVistaAgrupada] = useState(true);
   const [expandedGrupo, setExpandedGrupo] = useState(null);
 
-  const ITEMS_PER_PAGE = 20;
-
   const fetchNotificaciones = async () => {
     try {
       setLoading(true);
-      const endpoint = vistaAgrupada ? '/notificaciones/agrupadas' : '/notificaciones';
-      const params = vistaAgrupada
-        ? { solo_no_leidas: soloNoLeidas, tipo: filtroTipo }
-        : { limit: 100, offset: 0, solo_no_leidas: soloNoLeidas, tipo: filtroTipo };
+      if (vistaAgrupada) {
+        const [notifResponse, statsResponse] = await Promise.all([
+          api.get('/notificaciones/agrupadas', {
+            params: soloFiltrosActivos({ solo_no_leidas: soloNoLeidas, familia }),
+          }),
+          api.get('/notificaciones/stats'),
+        ]);
+        setNotificaciones(notifResponse.data);
+        setStats(statsResponse.data);
+        return;
+      }
 
-      const [notifResponse, statsResponse] = await Promise.all([
-        api.get(endpoint, { params }),
-        api.get('/notificaciones/stats')
+      // Lista plana: paginada en el servidor, así se llega a todas las notificaciones.
+      const filtros = soloFiltrosActivos({
+        solo_no_leidas: soloNoLeidas,
+        familia,
+        pm: filtroPM,
+        severidad: filtroSeveridad,
+      });
+      const [notifResponse, totalResponse, statsResponse] = await Promise.all([
+        api.get('/notificaciones', {
+          params: {
+            ...filtros,
+            limit: ITEMS_PER_PAGE,
+            offset: paginaActual * ITEMS_PER_PAGE,
+            orden: ordenamiento,
+          },
+        }),
+        api.get('/notificaciones/total', { params: filtros }),
+        api.get('/notificaciones/stats'),
       ]);
-
       setNotificaciones(notifResponse.data);
+      setTotalServidor(totalResponse.data.total);
+      setPmsServidor(totalResponse.data.pms ?? []);
       setStats(statsResponse.data);
     } catch (error) {
       console.error('Error al obtener notificaciones:', error);
@@ -42,16 +74,21 @@ export default function Notificaciones() {
     }
   };
 
+  // La lista plana pide cada página, orden y filtro al servidor; la agrupada filtra y ordena en el cliente.
+  const [paginaServidor, ordenServidor, pmServidor, severidadServidor] = vistaAgrupada
+    ? [null, null, null, null]
+    : [paginaActual, ordenamiento, filtroPM, filtroSeveridad];
+
   useEffect(() => {
     fetchNotificaciones();
     // fetchNotificaciones se recrea cada render — recargar solo cuando cambian los filtros
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [soloNoLeidas, filtroTipo, vistaAgrupada]);
+  }, [soloNoLeidas, familia, vistaAgrupada, paginaServidor, ordenServidor, pmServidor, severidadServidor]);
 
   // Resetear página cuando cambien los filtros u ordenamiento
   useEffect(() => {
     setPaginaActual(0);
-  }, [filtroPM, filtroSeveridad, ordenamiento]);
+  }, [filtroPM, filtroSeveridad, ordenamiento, familia, soloNoLeidas, vistaAgrupada]);
 
   const marcarComoLeida = async (notifId) => {
     try {
@@ -75,7 +112,7 @@ export default function Notificaciones() {
   const marcarTodasLeidas = async () => {
     try {
       await api.post('/notificaciones/marcar-todas-leidas', null, {
-        params: { tipo: filtroTipo }
+        params: soloFiltrosActivos({ familia })
       });
       await fetchNotificaciones();
     } catch (error) {
@@ -86,7 +123,7 @@ export default function Notificaciones() {
   const marcarTodasNoLeidas = async () => {
     try {
       await api.post('/notificaciones/marcar-todas-no-leidas', null, {
-        params: { tipo: filtroTipo }
+        params: soloFiltrosActivos({ familia })
       });
       await fetchNotificaciones();
     } catch (error) {
@@ -274,7 +311,7 @@ export default function Notificaciones() {
   };
 
   const fetchPrecioSeteado = async (notif) => {
-    if (!notif.item_id || preciosSeteados[notif.id]) return;
+    if (!esNotificacionMarkup(notif.tipo) || !notif.item_id || preciosSeteados[notif.id]) return;
 
     try {
       const response = await api.get(`/productos/${notif.item_id}/pricing-stored`);
@@ -300,15 +337,6 @@ export default function Notificaciones() {
     }
   };
 
-  const getTipoIcon = (tipo) => {
-    switch (tipo) {
-      case 'markup_bajo': return '⚠️';
-      case 'stock_bajo': return '📦';
-      case 'precio_desactualizado': return '💰';
-      default: return '🔔';
-    }
-  };
-
   const formatearFecha = (fecha) => {
     const date = new Date(fecha);
     return date.toLocaleString('es-AR', {
@@ -329,15 +357,15 @@ export default function Notificaciones() {
     }
   };
 
-  // Extraer PMs únicos para el filtro
-  const pmsUnicos = [...new Set(
+  // PMs para el filtro: en la lista plana vienen del servidor (todas las páginas), en la agrupada de los grupos
+  const pmsUnicos = !vistaAgrupada ? pmsServidor : [...new Set(
     notificaciones
-      .map(n => vistaAgrupada ? n.notificacion_reciente?.pm : n.pm)
+      .map(n => n.notificacion_reciente?.pm)
       .filter(pm => pm && pm.trim() !== '')
   )].sort();
 
-  // Filtrar por PM y Severidad en el frontend
-  let notificacionesFiltradas = notificaciones.filter(n => {
+  // Vista agrupada: filtrar por PM y Severidad en el frontend (la lista plana ya viene filtrada del servidor)
+  let notificacionesFiltradas = !vistaAgrupada ? notificaciones : notificaciones.filter(n => {
     // Extraer datos según vista
     const pm = vistaAgrupada ? n.notificacion_reciente?.pm : n.pm;
     const severidad = vistaAgrupada ? n.notificacion_reciente?.severidad : n.severidad;
@@ -357,7 +385,7 @@ export default function Notificaciones() {
     return valores[sev] || 0;
   };
 
-  notificacionesFiltradas = [...notificacionesFiltradas].sort((a, b) => {
+  if (vistaAgrupada) notificacionesFiltradas = [...notificacionesFiltradas].sort((a, b) => {
     const aSev = vistaAgrupada ? a.notificacion_reciente?.severidad : a.severidad;
     const bSev = vistaAgrupada ? b.notificacion_reciente?.severidad : b.severidad;
     const aFecha = vistaAgrupada ? a.ultima_fecha : a.fecha_creacion;
@@ -403,12 +431,13 @@ export default function Notificaciones() {
     }
   });
 
-  const notificacionesPaginadas = notificacionesFiltradas.slice(
-    paginaActual * ITEMS_PER_PAGE,
-    (paginaActual + 1) * ITEMS_PER_PAGE
-  );
+  const notificacionesPaginadas = vistaAgrupada
+    ? notificacionesFiltradas.slice(paginaActual * ITEMS_PER_PAGE, (paginaActual + 1) * ITEMS_PER_PAGE)
+    : notificacionesFiltradas;
 
-  const totalPaginas = Math.ceil(notificacionesFiltradas.length / ITEMS_PER_PAGE);
+  const totalPaginas = Math.ceil(
+    (vistaAgrupada ? notificacionesFiltradas.length : totalServidor) / ITEMS_PER_PAGE
+  );
 
   return (
     <div className={styles.container}>
@@ -426,6 +455,8 @@ export default function Notificaciones() {
         </div>
       </div>
 
+      <NotificacionFamiliaTabs familia={familia} onChange={setFamilia} stats={stats} />
+
       <div className={styles.filters}>
         <div className={styles.filterGroup}>
           <span style={{ 
@@ -435,8 +466,8 @@ export default function Notificaciones() {
             padding: '0 8px'
           }}>
             📋 Mostrando: <strong style={{ color: 'var(--primary-color)' }}>
-              {notificacionesFiltradas.length}
-            </strong> de {notificaciones.length}
+              {notificacionesPaginadas.length}
+            </strong> de {vistaAgrupada ? notificaciones.length : totalServidor}
           </span>
         </div>
 
@@ -463,18 +494,8 @@ export default function Notificaciones() {
         </div>
 
         <div className={styles.filterGroup}>
-          <label>Tipo:</label>
-          <select value={filtroTipo || ''} onChange={(e) => setFiltroTipo(e.target.value || null)}>
-            <option value="">Todas</option>
-            <option value="markup_bajo">⚠️ Markup Bajo</option>
-            <option value="stock_bajo">📦 Stock Bajo</option>
-            <option value="precio_desactualizado">💰 Precio Desactualizado</option>
-          </select>
-        </div>
-
-        <div className={styles.filterGroup}>
-          <label>PM:</label>
-          <select value={filtroPM || ''} onChange={(e) => setFiltroPM(e.target.value || null)}>
+          <label htmlFor="notif-filtro-pm">PM:</label>
+          <select id="notif-filtro-pm" value={filtroPM || ''} onChange={(e) => setFiltroPM(e.target.value || null)}>
             <option value="">Todos</option>
             {pmsUnicos.map(pm => (
               <option key={pm} value={pm}>{pm}</option>
@@ -534,6 +555,7 @@ export default function Notificaciones() {
             {notificacionesPaginadas.map((grupo) => (
               <div
                 key={`${grupo.item_id}-${grupo.tipo}-${grupo.markup_real}`}
+                data-testid="notif-grupo"
                 className={`${styles.grupoCard} ${!grupo.notificacion_reciente.leida ? styles.noLeida : ''}`}
               >
                 <div className={styles.grupoHeader} onClick={async () => {
@@ -551,11 +573,18 @@ export default function Notificaciones() {
                     }
                   }
                 }}>
-                  <div className={styles.notifIcon}>{getTipoIcon(grupo.tipo)}</div>
+                  <div className={styles.notifIcon}><NotificacionIcono tipo={grupo.tipo} /></div>
                   <div className={styles.grupoMain}>
-                    <div className={styles.grupoProducto}>
-                      {grupo.codigo_producto} - {grupo.descripcion_producto}
-                    </div>
+                    {esNotificacionMarkup(grupo.tipo) ? (
+                      <div className={styles.grupoProducto}>
+                        {grupo.codigo_producto} - {grupo.descripcion_producto}
+                      </div>
+                    ) : (
+                      <>
+                        <div className={styles.grupoProducto}>{tituloDeTipo(grupo.tipo)}</div>
+                        <div className={styles.grupoMensaje}>{grupo.notificacion_reciente.mensaje}</div>
+                      </>
+                    )}
                     <div className={styles.grupoInfo}>
                       {/* Badge de severidad */}
                       {grupo.notificacion_reciente.severidad && (
@@ -569,8 +598,10 @@ export default function Notificaciones() {
                           {getEstadoBadge(grupo.notificacion_reciente.estado).text}
                         </span>
                       )}
-                      <span className={styles.grupoMarkup}>Markup Real: {grupo.markup_real}%</span>
-                      <span className={styles.grupoCount}>({grupo.count} notificación{grupo.count > 1 ? 'es' : ''})</span>
+                      {esNotificacionMarkup(grupo.tipo) && (
+                        <span className={styles.grupoMarkup}>Markup Real: {grupo.markup_real}%</span>
+                      )}
+                      <span className={styles.grupoCount}>({grupo.count} {grupo.count > 1 ? 'notificaciones' : 'notificación'})</span>
                       {grupo.pm && <span className={styles.pmTag}>PM: {grupo.pm}</span>}
                     </div>
                     <div className={styles.grupoFechas}>
@@ -588,76 +619,82 @@ export default function Notificaciones() {
 
                 {expandedGrupo === grupo && (
                   <div className={styles.grupoDetalle}>
-                    {/* Mostrar detalles de la notificación más reciente */}
-                    <h4 className={styles.seccionTitulo}>📊 Operación Más Reciente</h4>
-                    <div className={styles.detalleGrid}>
-                      <div className={styles.detalleItem}>
-                        <strong>Markup Real:</strong>
-                        <span className={grupo.notificacion_reciente.markup_real < 0 ? styles.negativo : ''}>
-                          {grupo.notificacion_reciente.markup_real}%
-                        </span>
-                      </div>
-                      <div className={styles.detalleItem}>
-                        <strong>Monto de la Venta:</strong>
-                        <span>${parseFloat(grupo.notificacion_reciente.monto_venta).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                      </div>
-                      <div className={styles.detalleItem}>
-                        <strong>Costo de la Venta:</strong>
-                        <span>${grupo.notificacion_reciente.costo_operacion ? parseFloat(grupo.notificacion_reciente.costo_operacion).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
-                      </div>
-                      <div className={styles.detalleItem}>
-                        <strong>Costo Envío s/IVA:</strong>
-                        <span>${grupo.notificacion_reciente.costo_envio ? parseFloat(grupo.notificacion_reciente.costo_envio).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0,00'}</span>
-                      </div>
-                      <div className={styles.detalleItem}>
-                        <strong>Fecha Venta:</strong>
-                        <span>{formatearFecha(grupo.notificacion_reciente.fecha_venta)}</span>
-                      </div>
-                    </div>
-
-                    {/* Sección 2: Configuración ML */}
-                    <h4 className={styles.seccionTitulo}>🛒 Configuración ML</h4>
-                    <div className={styles.detalleGrid}>
-                      <div className={styles.detalleItem}>
-                        <strong>Cantidad:</strong>
-                        <span>{grupo.notificacion_reciente.cantidad || 1} unidad{grupo.notificacion_reciente.cantidad > 1 ? 'es' : ''}</span>
-                      </div>
-                      <div className={styles.detalleItem}>
-                        <strong>Lista de Precios:</strong>
-                        <span>{grupo.notificacion_reciente.tipo_publicacion || 'N/A'}</span>
-                      </div>
-                      <div className={styles.detalleItem}>
-                        <strong>Comisión ML:</strong>
-                        <span>{grupo.notificacion_reciente.comision_ml ? `${parseFloat(grupo.notificacion_reciente.comision_ml).toFixed(2)}%` : 'N/A'}</span>
-                      </div>
-                      <div className={styles.detalleItem}>
-                        <strong>IVA:</strong>
-                        <span>{grupo.notificacion_reciente.iva_porcentaje || 21}%</span>
-                      </div>
-                    </div>
-
-                    {/* Sección 3: Configuración del Producto */}
-                    <h4 className={styles.seccionTitulo}>⚙️ Configuración Producto</h4>
-                    <div className={styles.detalleGrid}>
-                      <div className={styles.detalleItem}>
-                        <strong>Precio Venta Seteado:</strong>
-                        <span>${preciosSeteados[grupo.notificacion_reciente.id] ? parseFloat(preciosSeteados[grupo.notificacion_reciente.id]).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'Cargando...'}</span>
-                      </div>
-                      <div className={styles.detalleItem}>
-                        <strong>Markup Esperado:</strong>
-                        <span>{grupo.notificacion_reciente.markup_objetivo}%</span>
-                      </div>
-                      {grupo.notificacion_reciente.pm && (
-                        <div className={styles.detalleItem}>
-                          <strong>Product Manager:</strong>
-                          <span>{grupo.notificacion_reciente.pm}</span>
+                    {esNotificacionMarkup(grupo.tipo) ? (
+                      <>
+                        {/* Mostrar detalles de la notificación más reciente */}
+                        <h4 className={styles.seccionTitulo}>📊 Operación Más Reciente</h4>
+                        <div className={styles.detalleGrid}>
+                          <div className={styles.detalleItem}>
+                            <strong>Markup Real:</strong>
+                            <span className={grupo.notificacion_reciente.markup_real < 0 ? styles.negativo : ''}>
+                              {grupo.notificacion_reciente.markup_real}%
+                            </span>
+                          </div>
+                          <div className={styles.detalleItem}>
+                            <strong>Monto de la Venta:</strong>
+                            <span>${parseFloat(grupo.notificacion_reciente.monto_venta).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                          </div>
+                          <div className={styles.detalleItem}>
+                            <strong>Costo de la Venta:</strong>
+                            <span>${grupo.notificacion_reciente.costo_operacion ? parseFloat(grupo.notificacion_reciente.costo_operacion).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
+                          </div>
+                          <div className={styles.detalleItem}>
+                            <strong>Costo Envío s/IVA:</strong>
+                            <span>${grupo.notificacion_reciente.costo_envio ? parseFloat(grupo.notificacion_reciente.costo_envio).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0,00'}</span>
+                          </div>
+                          <div className={styles.detalleItem}>
+                            <strong>Fecha Venta:</strong>
+                            <span>{formatearFecha(grupo.notificacion_reciente.fecha_venta)}</span>
+                          </div>
                         </div>
-                      )}
-                      <div className={styles.detalleItem}>
-                        <strong>Costo Actual:</strong>
-                        <span>${grupo.notificacion_reciente.costo_actual ? parseFloat(grupo.notificacion_reciente.costo_actual).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
-                      </div>
-                    </div>
+
+                        {/* Sección 2: Configuración ML */}
+                        <h4 className={styles.seccionTitulo}>🛒 Configuración ML</h4>
+                        <div className={styles.detalleGrid}>
+                          <div className={styles.detalleItem}>
+                            <strong>Cantidad:</strong>
+                            <span>{grupo.notificacion_reciente.cantidad || 1} unidad{grupo.notificacion_reciente.cantidad > 1 ? 'es' : ''}</span>
+                          </div>
+                          <div className={styles.detalleItem}>
+                            <strong>Lista de Precios:</strong>
+                            <span>{grupo.notificacion_reciente.tipo_publicacion || 'N/A'}</span>
+                          </div>
+                          <div className={styles.detalleItem}>
+                            <strong>Comisión ML:</strong>
+                            <span>{grupo.notificacion_reciente.comision_ml ? `${parseFloat(grupo.notificacion_reciente.comision_ml).toFixed(2)}%` : 'N/A'}</span>
+                          </div>
+                          <div className={styles.detalleItem}>
+                            <strong>IVA:</strong>
+                            <span>{grupo.notificacion_reciente.iva_porcentaje || 21}%</span>
+                          </div>
+                        </div>
+
+                        {/* Sección 3: Configuración del Producto */}
+                        <h4 className={styles.seccionTitulo}>⚙️ Configuración Producto</h4>
+                        <div className={styles.detalleGrid}>
+                          <div className={styles.detalleItem}>
+                            <strong>Precio Venta Seteado:</strong>
+                            <span>${preciosSeteados[grupo.notificacion_reciente.id] ? parseFloat(preciosSeteados[grupo.notificacion_reciente.id]).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'Cargando...'}</span>
+                          </div>
+                          <div className={styles.detalleItem}>
+                            <strong>Markup Esperado:</strong>
+                            <span>{grupo.notificacion_reciente.markup_objetivo}%</span>
+                          </div>
+                          {grupo.notificacion_reciente.pm && (
+                            <div className={styles.detalleItem}>
+                              <strong>Product Manager:</strong>
+                              <span>{grupo.notificacion_reciente.pm}</span>
+                            </div>
+                          )}
+                          <div className={styles.detalleItem}>
+                            <strong>Costo Actual:</strong>
+                            <span>${grupo.notificacion_reciente.costo_actual ? parseFloat(grupo.notificacion_reciente.costo_actual).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <p className={styles.detalleMensaje}>{grupo.notificacion_reciente.mensaje}</p>
+                    )}
 
                     <div className={styles.detalleActions}>
                       {/* Botones de Gestión */}
@@ -770,10 +807,13 @@ export default function Notificaciones() {
                 className={`${styles.notifCard} ${!notif.leida ? styles.noLeida : ''}`}
               >
                 <div className={styles.notifHeader} onClick={() => toggleExpand(notif)}>
-                  <div className={styles.notifIcon}>{getTipoIcon(notif.tipo)}</div>
+                  <div className={styles.notifIcon}><NotificacionIcono tipo={notif.tipo} /></div>
                   <div className={styles.notifMain}>
+                    {!esNotificacionMarkup(notif.tipo) && (
+                      <div className={styles.notifTitulo}>{tituloDeTipo(notif.tipo)}</div>
+                    )}
                     <div className={styles.notifMensaje}>{notif.mensaje}</div>
-                    {notif.codigo_producto && (
+                    {esNotificacionMarkup(notif.tipo) && notif.codigo_producto && (
                       <div className={styles.notifProducto}>
                         {notif.codigo_producto} - {notif.descripcion_producto}
                       </div>
@@ -793,76 +833,82 @@ export default function Notificaciones() {
 
                 {expandedNotif === notif.id && (
                   <div className={styles.notifDetalle}>
-                    {/* Sección 1: Datos de la Operación */}
-                    <h4 className={styles.seccionTitulo}>📊 Operación</h4>
-                    <div className={styles.detalleGrid}>
-                      <div className={styles.detalleItem}>
-                        <strong>Markup Real:</strong>
-                        <span className={notif.markup_real < 0 ? styles.negativo : ''}>
-                          {notif.markup_real}%
-                        </span>
-                      </div>
-                      <div className={styles.detalleItem}>
-                        <strong>Monto de la Venta:</strong>
-                        <span>${parseFloat(notif.monto_venta).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                      </div>
-                      <div className={styles.detalleItem}>
-                        <strong>Costo de la Venta:</strong>
-                        <span>${notif.costo_operacion ? parseFloat(notif.costo_operacion).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
-                      </div>
-                      <div className={styles.detalleItem}>
-                        <strong>Costo Envío s/IVA:</strong>
-                        <span>${notif.costo_envio ? parseFloat(notif.costo_envio).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0,00'}</span>
-                      </div>
-                      <div className={styles.detalleItem}>
-                        <strong>Fecha Venta:</strong>
-                        <span>{formatearFecha(notif.fecha_venta)}</span>
-                      </div>
-                    </div>
-
-                    {/* Sección 2: Configuración ML */}
-                    <h4 className={styles.seccionTitulo}>🛒 Configuración ML</h4>
-                    <div className={styles.detalleGrid}>
-                      <div className={styles.detalleItem}>
-                        <strong>Cantidad:</strong>
-                        <span>{notif.cantidad || 1} unidad{notif.cantidad > 1 ? 'es' : ''}</span>
-                      </div>
-                      <div className={styles.detalleItem}>
-                        <strong>Lista de Precios:</strong>
-                        <span>{notif.tipo_publicacion || 'N/A'}</span>
-                      </div>
-                      <div className={styles.detalleItem}>
-                        <strong>Comisión ML:</strong>
-                        <span>{notif.comision_ml ? `${parseFloat(notif.comision_ml).toFixed(2)}%` : 'N/A'}</span>
-                      </div>
-                      <div className={styles.detalleItem}>
-                        <strong>IVA:</strong>
-                        <span>{notif.iva_porcentaje || 21}%</span>
-                      </div>
-                    </div>
-
-                    {/* Sección 3: Configuración del Producto */}
-                    <h4 className={styles.seccionTitulo}>⚙️ Configuración Producto</h4>
-                    <div className={styles.detalleGrid}>
-                      <div className={styles.detalleItem}>
-                        <strong>Precio Venta Seteado:</strong>
-                        <span>${preciosSeteados[notif.id] ? parseFloat(preciosSeteados[notif.id]).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'Cargando...'}</span>
-                      </div>
-                      <div className={styles.detalleItem}>
-                        <strong>Markup Esperado:</strong>
-                        <span>{notif.markup_objetivo}%</span>
-                      </div>
-                      {notif.pm && (
-                        <div className={styles.detalleItem}>
-                          <strong>Product Manager:</strong>
-                          <span>{notif.pm}</span>
+                    {esNotificacionMarkup(notif.tipo) ? (
+                      <>
+                        {/* Sección 1: Datos de la Operación */}
+                        <h4 className={styles.seccionTitulo}>📊 Operación</h4>
+                        <div className={styles.detalleGrid}>
+                          <div className={styles.detalleItem}>
+                            <strong>Markup Real:</strong>
+                            <span className={notif.markup_real < 0 ? styles.negativo : ''}>
+                              {notif.markup_real}%
+                            </span>
+                          </div>
+                          <div className={styles.detalleItem}>
+                            <strong>Monto de la Venta:</strong>
+                            <span>${parseFloat(notif.monto_venta).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                          </div>
+                          <div className={styles.detalleItem}>
+                            <strong>Costo de la Venta:</strong>
+                            <span>${notif.costo_operacion ? parseFloat(notif.costo_operacion).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
+                          </div>
+                          <div className={styles.detalleItem}>
+                            <strong>Costo Envío s/IVA:</strong>
+                            <span>${notif.costo_envio ? parseFloat(notif.costo_envio).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0,00'}</span>
+                          </div>
+                          <div className={styles.detalleItem}>
+                            <strong>Fecha Venta:</strong>
+                            <span>{formatearFecha(notif.fecha_venta)}</span>
+                          </div>
                         </div>
-                      )}
-                      <div className={styles.detalleItem}>
-                        <strong>Costo Actual:</strong>
-                        <span>${notif.costo_actual ? parseFloat(notif.costo_actual).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
-                      </div>
-                    </div>
+
+                        {/* Sección 2: Configuración ML */}
+                        <h4 className={styles.seccionTitulo}>🛒 Configuración ML</h4>
+                        <div className={styles.detalleGrid}>
+                          <div className={styles.detalleItem}>
+                            <strong>Cantidad:</strong>
+                            <span>{notif.cantidad || 1} unidad{notif.cantidad > 1 ? 'es' : ''}</span>
+                          </div>
+                          <div className={styles.detalleItem}>
+                            <strong>Lista de Precios:</strong>
+                            <span>{notif.tipo_publicacion || 'N/A'}</span>
+                          </div>
+                          <div className={styles.detalleItem}>
+                            <strong>Comisión ML:</strong>
+                            <span>{notif.comision_ml ? `${parseFloat(notif.comision_ml).toFixed(2)}%` : 'N/A'}</span>
+                          </div>
+                          <div className={styles.detalleItem}>
+                            <strong>IVA:</strong>
+                            <span>{notif.iva_porcentaje || 21}%</span>
+                          </div>
+                        </div>
+
+                        {/* Sección 3: Configuración del Producto */}
+                        <h4 className={styles.seccionTitulo}>⚙️ Configuración Producto</h4>
+                        <div className={styles.detalleGrid}>
+                          <div className={styles.detalleItem}>
+                            <strong>Precio Venta Seteado:</strong>
+                            <span>${preciosSeteados[notif.id] ? parseFloat(preciosSeteados[notif.id]).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'Cargando...'}</span>
+                          </div>
+                          <div className={styles.detalleItem}>
+                            <strong>Markup Esperado:</strong>
+                            <span>{notif.markup_objetivo}%</span>
+                          </div>
+                          {notif.pm && (
+                            <div className={styles.detalleItem}>
+                              <strong>Product Manager:</strong>
+                              <span>{notif.pm}</span>
+                            </div>
+                          )}
+                          <div className={styles.detalleItem}>
+                            <strong>Costo Actual:</strong>
+                            <span>${notif.costo_actual ? parseFloat(notif.costo_actual).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <p className={styles.detalleMensaje}>{notif.mensaje}</p>
+                    )}
 
                     <div className={styles.detalleActions}>
                       {notif.ml_id && (

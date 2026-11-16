@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Query as OrmQuery, Session
 from sqlalchemy import desc, func
 from pydantic import BaseModel, ConfigDict
-from typing import List, Optional
+from typing import List, Literal, Optional
 from datetime import UTC, datetime
 from app.api.deps import get_current_user
 from app.core.database import get_db, get_async_db
@@ -10,7 +10,15 @@ from app.core.sse import sse_publish
 from app.models.usuario import Usuario
 from app.models.notificacion import Notificacion, SeveridadNotificacion, EstadoNotificacion
 from app.services.notificacion_service import NotificacionService
+from app.services.notificacion_familias import (
+    Familia,
+    conteo_por_familia,
+    es_de_producto,
+    filtro_familia,
+)
 from app.services.compras_alertas_service import (
+    TIPO_FALTANTES,
+    esta_oculta_por_snooze,
     filtrar_visibles,
     marcar_ok,
     rechazar_cierre_faltantes,
@@ -72,6 +80,83 @@ class NotificacionStats(BaseModel):
     total: int
     no_leidas: int
     por_tipo: dict
+    no_leidas_por_familia: dict[str, int] = {}
+
+
+class NotificacionTotal(BaseModel):
+    total: int
+    pms: List[str] = []
+
+
+OrdenListado = Literal["severidad_desc", "severidad_asc", "fecha_desc", "fecha_asc", "markup_asc", "markup_desc"]
+
+_ORDENES = {
+    "severidad_desc": (desc(Notificacion.severidad), desc(Notificacion.fecha_creacion)),
+    "severidad_asc": (Notificacion.severidad.asc(), desc(Notificacion.fecha_creacion)),
+    "fecha_desc": (desc(Notificacion.fecha_creacion),),
+    "fecha_asc": (Notificacion.fecha_creacion.asc(),),
+    "markup_asc": (Notificacion.markup_real.asc().nullslast(), desc(Notificacion.fecha_creacion)),
+    "markup_desc": (Notificacion.markup_real.desc().nullslast(), desc(Notificacion.fecha_creacion)),
+}
+
+
+def _faltantes_ocultas_ids(db: Session, user_id: int, ahora: datetime) -> set[int]:
+    """Ids of the user's open compras.faltantes hidden from listings (obsolete or snoozed).
+
+    Few rows per user, so the flat list can exclude them in SQL before paging and its total agrees.
+    """
+    abiertas = (
+        db.query(Notificacion)
+        .filter(
+            Notificacion.user_id == user_id,
+            Notificacion.tipo == TIPO_FALTANTES,
+            Notificacion.estado != EstadoNotificacion.DESCARTADA,
+        )
+        .all()
+    )
+    ocultas = faltantes_obsoletas_ids(db, abiertas)
+    ocultas.update(int(n.id) for n in abiertas if esta_oculta_por_snooze(n, ahora=ahora))
+    return ocultas
+
+
+def _query_listado(
+    db: Session,
+    user_id: int,
+    *,
+    solo_no_leidas: bool = False,
+    tipo: Optional[str] = None,
+    familia: Optional[Familia] = None,
+    severidad: Optional[SeveridadNotificacion] = None,
+    estado: Optional[EstadoNotificacion] = None,
+    pm: Optional[str] = None,
+    solo_criticas: bool = False,
+    solo_pendientes: bool = False,
+) -> OrmQuery:
+    """Shared filters of the flat list and its total, so both always agree.
+
+    Hidden compras.faltantes (obsolete or snoozed) are excluded here, before paging.
+    """
+    query = db.query(Notificacion).filter(Notificacion.user_id == user_id)
+    ocultas = _faltantes_ocultas_ids(db, user_id, _ahora_listado())
+    if ocultas:
+        query = query.filter(Notificacion.id.notin_(ocultas))
+    if solo_no_leidas:
+        query = query.filter(Notificacion.leida == False)
+    if tipo:
+        query = query.filter(Notificacion.tipo == tipo)
+    if familia:
+        query = query.filter(filtro_familia(familia))
+    if severidad:
+        query = query.filter(Notificacion.severidad == severidad)
+    if estado:
+        query = query.filter(Notificacion.estado == estado)
+    if pm:
+        query = query.filter(Notificacion.pm == pm)
+    if solo_criticas:
+        query = query.filter(Notificacion.severidad.in_([SeveridadNotificacion.CRITICAL, SeveridadNotificacion.URGENT]))
+    if solo_pendientes:
+        query = query.filter(Notificacion.estado.in_([EstadoNotificacion.PENDIENTE, EstadoNotificacion.EN_GESTION]))
+    return query
 
 
 class NotificacionAgrupada(BaseModel):
@@ -105,73 +190,100 @@ def listar_notificaciones(
     offset: int = 0,
     solo_no_leidas: bool = False,
     tipo: Optional[str] = None,
+    familia: Optional[Familia] = None,
     severidad: Optional[SeveridadNotificacion] = None,
     estado: Optional[EstadoNotificacion] = None,
+    pm: Optional[str] = None,
+    solo_criticas: bool = False,
+    solo_pendientes: bool = False,
+    orden: OrdenListado = "severidad_desc",
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """
+    Lista las notificaciones del usuario actual, paginadas en el servidor (limit/offset).
+
+    Filtros disponibles:
+    - solo_no_leidas: Solo notificaciones no leídas
+    - tipo: Filtrar por tipo específico
+    - familia: compras (compras.*), markup (markup_bajo), tecnicas (ml_bot.*, tickets.*) u otras
+    - severidad: Filtrar por severidad (INFO, WARNING, CRITICAL, URGENT)
+    - estado: Filtrar por estado (pendiente, revisada, descartada, en_gestion, resuelta)
+    - pm: Filtrar por PM
+    - solo_criticas: Solo notificaciones críticas o urgentes
+    - solo_pendientes: Solo notificaciones pendientes o en gestión
+    - orden: severidad_desc (default), severidad_asc, fecha_desc, fecha_asc, markup_asc, markup_desc
+
+    El total para paginar sale de GET /notificaciones/total con los mismos filtros.
+    """
+    query = _query_listado(
+        db,
+        current_user.id,
+        solo_no_leidas=solo_no_leidas,
+        tipo=tipo,
+        familia=familia,
+        severidad=severidad,
+        estado=estado,
+        pm=pm,
+        solo_criticas=solo_criticas,
+        solo_pendientes=solo_pendientes,
+    )
+    # Read-only: never write/commit on this hot GET (incident 2026-11-11, pool starvation).
+    return query.order_by(*_ORDENES[orden], desc(Notificacion.id)).offset(offset).limit(limit).all()
+
+
+@router.get("/notificaciones/total", response_model=NotificacionTotal)
+def total_notificaciones(
+    solo_no_leidas: bool = False,
+    tipo: Optional[str] = None,
+    familia: Optional[Familia] = None,
+    severidad: Optional[SeveridadNotificacion] = None,
+    estado: Optional[EstadoNotificacion] = None,
+    pm: Optional[str] = None,
     solo_criticas: bool = False,
     solo_pendientes: bool = False,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
     """
-    Lista las notificaciones del usuario actual ordenadas por fecha de creación (más recientes primero)
-
-    Filtros disponibles:
-    - solo_no_leidas: Solo notificaciones no leídas
-    - tipo: Filtrar por tipo específico
-    - severidad: Filtrar por severidad (info, warning, critical, urgent)
-    - estado: Filtrar por estado (pendiente, revisada, descartada, en_gestion, resuelta)
-    - solo_criticas: Solo notificaciones críticas o urgentes
-    - solo_pendientes: Solo notificaciones pendientes o en gestión
+    Cantidad de notificaciones con los mismos filtros que GET /notificaciones, para paginar en el servidor,
+    y los PMs disponibles con esos filtros (sin el de PM) para armar el selector.
     """
-    query = db.query(Notificacion).filter(Notificacion.user_id == current_user.id)
-
-    if solo_no_leidas:
-        query = query.filter(Notificacion.leida == False)
-
-    if tipo:
-        query = query.filter(Notificacion.tipo == tipo)
-
-    if severidad:
-        query = query.filter(Notificacion.severidad == severidad)
-
-    if estado:
-        query = query.filter(Notificacion.estado == estado)
-
-    if solo_criticas:
-        query = query.filter(Notificacion.severidad.in_([SeveridadNotificacion.CRITICAL, SeveridadNotificacion.URGENT]))
-
-    if solo_pendientes:
-        query = query.filter(Notificacion.estado.in_([EstadoNotificacion.PENDIENTE, EstadoNotificacion.EN_GESTION]))
-
-    notificaciones = (
-        query.order_by(
-            # Ordenar primero por severidad (urgent > critical > warning > info)
-            desc(Notificacion.severidad),
-            # Luego por fecha de creación
-            desc(Notificacion.fecha_creacion),
-        )
-        .offset(offset)
-        .limit(limit)
+    filtros = {
+        "solo_no_leidas": solo_no_leidas,
+        "tipo": tipo,
+        "familia": familia,
+        "severidad": severidad,
+        "estado": estado,
+        "solo_criticas": solo_criticas,
+        "solo_pendientes": solo_pendientes,
+    }
+    total = _query_listado(db, current_user.id, pm=pm, **filtros).count()
+    pms = (
+        _query_listado(db, current_user.id, **filtros)
+        .filter(Notificacion.pm.isnot(None), Notificacion.pm != "")
+        .with_entities(Notificacion.pm)
+        .distinct()
+        .order_by(Notificacion.pm)
         .all()
     )
-
-    ahora = _ahora_listado()
-    # Read-only: never write/commit on this hot GET (incident 2026-11-11, pool starvation).
-    obsoletas = faltantes_obsoletas_ids(db, notificaciones)
-    notificaciones = [n for n in notificaciones if n.id not in obsoletas]
-    return filtrar_visibles(notificaciones, ahora=ahora)
+    return {"total": total, "pms": [fila.pm for fila in pms]}
 
 
 @router.get("/notificaciones/agrupadas", response_model=List[NotificacionAgrupada])
 def listar_notificaciones_agrupadas(
     solo_no_leidas: bool = False,
     tipo: Optional[str] = None,
+    familia: Optional[Familia] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
     """
     Lista las notificaciones agrupadas por (item_id, tipo, markup_real)
-    Cada grupo muestra la cantidad de notificaciones, rango de fechas, y la notificación más reciente
+    Cada grupo muestra la cantidad de notificaciones, rango de fechas, y la notificación más reciente.
+    Filtro opcional por familia (compras, markup, tecnicas, otras).
+    Solo las notificaciones de producto completan código/descripción desde productos_erp: en las de
+    compras el item_id es el id del pedido, no un producto.
     """
     from app.models.producto import ProductoERP
 
@@ -182,6 +294,9 @@ def listar_notificaciones_agrupadas(
 
     if tipo:
         query = query.filter(Notificacion.tipo == tipo)
+
+    if familia:
+        query = query.filter(filtro_familia(familia))
 
     ahora = _ahora_listado()
     candidatas = query.order_by(desc(Notificacion.fecha_creacion)).all()
@@ -213,7 +328,7 @@ def listar_notificaciones_agrupadas(
         codigo_prod = notif_reciente.codigo_producto
         descripcion_prod = notif_reciente.descripcion_producto
 
-        if (not codigo_prod or not descripcion_prod) and item_id:
+        if (not codigo_prod or not descripcion_prod) and item_id and es_de_producto(tipo_notif):
             producto_erp = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
             if producto_erp:
                 if not codigo_prod:
@@ -265,7 +380,12 @@ def obtener_estadisticas_notificaciones(
 
     por_tipo = {tipo: count for tipo, count in tipos_query}
 
-    return {"total": total, "no_leidas": no_leidas, "por_tipo": por_tipo}
+    return {
+        "total": total,
+        "no_leidas": no_leidas,
+        "por_tipo": por_tipo,
+        "no_leidas_por_familia": conteo_por_familia(por_tipo),
+    }
 
 
 @router.patch("/notificaciones/{notificacion_id}/marcar-leida")
@@ -320,15 +440,21 @@ async def marcar_notificacion_no_leida(
 
 @router.post("/notificaciones/marcar-todas-leidas")
 async def marcar_todas_leidas(
-    tipo: Optional[str] = None, db: Session = Depends(get_async_db), current_user: Usuario = Depends(get_current_user)
+    tipo: Optional[str] = None,
+    familia: Optional[Familia] = None,
+    db: Session = Depends(get_async_db),
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
-    Marca todas las notificaciones del usuario actual como leídas (opcionalmente filtradas por tipo)
+    Marca todas las notificaciones del usuario actual como leídas (opcionalmente filtradas por tipo o familia)
     """
     query = db.query(Notificacion).filter(Notificacion.user_id == current_user.id, Notificacion.leida == False)
 
     if tipo:
         query = query.filter(Notificacion.tipo == tipo)
+
+    if familia:
+        query = query.filter(filtro_familia(familia))
 
     count = query.update({"leida": True, "fecha_lectura": datetime.now(UTC)})
 
@@ -340,15 +466,21 @@ async def marcar_todas_leidas(
 
 @router.post("/notificaciones/marcar-todas-no-leidas")
 async def marcar_todas_no_leidas(
-    tipo: Optional[str] = None, db: Session = Depends(get_async_db), current_user: Usuario = Depends(get_current_user)
+    tipo: Optional[str] = None,
+    familia: Optional[Familia] = None,
+    db: Session = Depends(get_async_db),
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
-    Marca todas las notificaciones del usuario actual como no leídas
+    Marca todas las notificaciones del usuario actual como no leídas (opcionalmente filtradas por tipo o familia)
     """
     query = db.query(Notificacion).filter(Notificacion.user_id == current_user.id, Notificacion.leida == True)
 
     if tipo:
         query = query.filter(Notificacion.tipo == tipo)
+
+    if familia:
+        query = query.filter(filtro_familia(familia))
 
     count = query.update({"leida": False, "fecha_lectura": None})
 

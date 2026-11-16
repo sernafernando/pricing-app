@@ -41,7 +41,7 @@ vi.mock('../../services/api', async (importOriginal) => {
     '/ml-publications/view/mejores-ofertas/por-pm': { pms: PMS, total: 183, tienda_id: 57997 },
     '/free-shipping-alerts/count': { count: 34 },
     '/ml-metricas/board': { kpis: { gross: { value: 187654321.5 } } },
-    '/notificaciones/agrupadas?solo_no_leidas=false': [],
+    '/notificaciones/agrupadas': [],
     '/notificaciones/stats': { total: 3, no_leidas: 3 },
   };
   return {

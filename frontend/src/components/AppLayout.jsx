@@ -103,7 +103,7 @@ function AppLayoutInner() {
   const cargarComprasAlertas = useCallback(async () => {
     try {
       const response = await api.get('/notificaciones', {
-        params: { solo_no_leidas: true, limit: 50 },
+        params: { solo_no_leidas: true, familia: 'compras', limit: 50 },
       });
       const rows = Array.isArray(response.data) ? response.data : [];
       setComprasAlertas(rows.filter((n) => (

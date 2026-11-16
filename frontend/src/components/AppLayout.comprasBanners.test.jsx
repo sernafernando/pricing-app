@@ -84,6 +84,15 @@ describe('AppLayout — compras banners', () => {
     expect(localStorage.getItem('alertBanner_compras-11_dismissed')).toBeNull();
   });
 
+  it('asks the server for the compras family so markup alerts cannot crowd the banners out', async () => {
+    renderWithRouter(<AppLayout />, { initialEntries: ['/'] });
+
+    await screen.findByText(/Factura FA-99 cargada en P-01-2026-00012/);
+    expect(api.get).toHaveBeenCalledWith('/notificaciones', {
+      params: { solo_no_leidas: true, familia: 'compras', limit: 50 },
+    });
+  });
+
   it('caps 7 unread compras banners at 3 and shows +4 más', async () => {
     const seven = Array.from({ length: 7 }, (_, index) => ({
       id: 200 + index,
