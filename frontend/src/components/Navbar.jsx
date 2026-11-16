@@ -31,7 +31,7 @@ export default function Navbar() {
   const puedeVerTienda = tienePermiso('productos.ver_tienda');
   const puedeVerPreciosListas = tienePermiso('productos.ver');
   const puedeVerMetricasML = tienePermiso('ventas_ml.ver_dashboard');
-  const puedeVerVentasFuera = tienePermiso('ventas_fuera.ver_dashboard');
+  const puedeVerVentasFuera = tienePermiso('ventas_fuera.ver_metricas_pdf');
   const puedeVerTiendaNube = tienePermiso('ventas_tn.ver_dashboard');
   const puedeVerCalculos = tienePermiso('reportes.ver_calculadora');
   const puedeVerClientes = tienePermiso('clientes.ver');
@@ -51,8 +51,16 @@ export default function Navbar() {
     }
   }, [user]);
 
+  // A path may carry a query (Ventas por fuera = /metricas-ml?canal=fuera): it matches when the URL carries it too.
+  const matches = (path) => {
+    const [base, query = ''] = path.split('?');
+    if (location.pathname !== base) return false;
+    const actuales = new URLSearchParams(location.search);
+    return [...new URLSearchParams(query)].every(([clave, valor]) => actuales.get(clave) === valor);
+  };
+
   const isDropdownActive = (paths) => {
-    return paths.some(path => location.pathname === path);
+    return paths.some(matches);
   };
 
   const logout = useAuthStore((state) => state.logout);
@@ -62,7 +70,7 @@ export default function Navbar() {
     navigate('/login');
   };
 
-  const isActive = (path) => location.pathname === path;
+  const isActive = matches;
 
   const handleLinkClick = () => {
     setMobileMenuOpen(false);
@@ -216,7 +224,7 @@ export default function Navbar() {
               onMouseLeave={() => setDropdownOpen(null)}
             >
               <div
-                className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/dashboard-metricas-ml', '/dashboard-ventas-fuera', '/dashboard-tienda-nube', '/calculos', '/ultimos-cambios']) ? styles.active : ''}`}
+                className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/dashboard-metricas-ml', '/metricas-ml?canal=fuera', '/dashboard-tienda-nube', '/calculos', '/ultimos-cambios']) ? styles.active : ''}`}
                 onClick={() => setDropdownOpen(dropdownOpen === 'reportes' ? null : 'reportes')}
               >
                 Reportes ▾
@@ -237,8 +245,8 @@ export default function Navbar() {
                   )}
                   {puedeVerVentasFuera && (
                     <Link
-                      to="/dashboard-ventas-fuera"
-                      className={`${styles.dropdownItem} ${isActive('/dashboard-ventas-fuera') ? styles.activeDropdown : ''}`}
+                      to="/metricas-ml?canal=fuera"
+                      className={`${styles.dropdownItem} ${isActive('/metricas-ml?canal=fuera') ? styles.activeDropdown : ''}`}
                       onClick={() => setDropdownOpen(null)}
                     >
                       Ventas por Fuera
@@ -410,8 +418,8 @@ export default function Navbar() {
 
           {puedeVerVentasFuera && (
             <Link
-              to="/dashboard-ventas-fuera"
-              className={`${styles.mobileLink} ${isActive('/dashboard-ventas-fuera') ? styles.active : ''}`}
+              to="/metricas-ml?canal=fuera"
+              className={`${styles.mobileLink} ${isActive('/metricas-ml?canal=fuera') ? styles.active : ''}`}
               onClick={handleLinkClick}
             >
               Ventas por Fuera

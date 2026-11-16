@@ -12,6 +12,8 @@
  *       'public'  -> no permission needed.
  *   - fullViewPermisos: for a 'data' screen whose bypass is NOT pm_scope's
  *     is_full_view (the ranking bypasses with consultas.ver_ranking only).
+ *   - vistas: sidebar items that open this screen with a query, e.g.
+ *     "Ventas por Fuera" = /metricas-ml?canal=fuera ({ label, query }).
  *
  * Labels and sections mirror Sidebar.jsx `menuSections`; routes outside the
  * sidebar live under "Otras". `screenCatalog.test.js` reads App.jsx and
@@ -71,14 +73,31 @@ export const SCREENS = [
     fullViewPermisos: ['consultas.ver_ranking'],
   },
   // ml_metricas router + ml_daily_metrics/board.py -> pm_scope.
-  { path: '/metricas-ml', label: 'Métricas ML', section: 'Reportes', permisos: ['ml_metricas.ver'], scope: 'data' },
+  // Ventas por fuera (ODD vpf-metricas-canal-fe S5): ML metrics or the PDF sales open it; the page gates each canal.
+  {
+    path: '/metricas-ml',
+    label: 'Métricas ML',
+    section: 'Reportes',
+    permisos: ['ml_metricas.ver', 'ventas_fuera.ver_metricas_pdf'],
+    scope: 'data',
+    vistas: [{ label: 'Ventas por Fuera', query: 'canal=fuera' }],
+    nota: 'Con ventas_fuera.ver_metricas_pdf solo, abre fijo en Por fuera.',
+  },
+  // History of the GBP PDF loads; the upload button and zone need ventas_fuera.subir_pdf.
+  {
+    path: '/metricas-ml/cargas',
+    label: 'Cargas de PDF',
+    section: 'Reportes',
+    permisos: ['ventas_fuera.subir_pdf', 'ventas_fuera.ver_metricas_pdf'],
+    scope: 'permiso',
+    nota: 'Subir PDF pide ventas_fuera.subir_pdf.',
+  },
   // dashboard_ml.py, ventas_ml.py operaciones and /rentabilidad (TabRentabilidad) -> pm_scope.
   { path: '/dashboard-metricas-ml', label: 'Métricas ML (anterior)', section: 'Reportes', permisos: ['ventas_ml.ver_dashboard'], scope: 'data' },
   // ML Ads: ml_ads router GET /ml-ads/campaigns (Aportes tab) and GET /ml-ads/display (Display tab); costs need ver_ganancia.
   { path: '/ml-ads-aportes', label: 'ML Ads', section: 'Reportes', permisos: ['ml_metricas.ver'], scope: 'permiso' },
   { path: '/ml-ventas-listado', label: 'Ventas ML', section: 'Reportes', permisos: ['ml_ops.ver'], scope: 'permiso' },
   { path: '/dashboard-tplink', label: 'Dashboard TP-Link', section: 'Reportes', permisos: ['dashboard_tplink.ver'], scope: 'permiso' },
-  { path: '/dashboard-ventas-fuera', label: 'Ventas por Fuera', section: 'Reportes', permisos: ['ventas_fuera.ver_dashboard'], scope: 'permiso' },
   { path: '/dashboard-tienda-nube', label: 'Tienda Nube', section: 'Reportes', permisos: ['ventas_tn.ver_dashboard'], scope: 'permiso' },
   { path: '/calculos', label: 'Cálculos', section: 'Reportes', permisos: ['reportes.ver_calculadora'], scope: 'permiso' },
   { path: '/ultimos-cambios', label: 'Últimos Cambios', section: 'Reportes', permisos: ['productos.ver_auditoria'], scope: 'permiso' },
@@ -146,6 +165,14 @@ export const SCREENS = [
   { path: '/sell-in/tactical/nuevo', label: 'Nuevo tactical', section: OTRAS, permisos: ['sell_in.ver'], scope: 'permiso' },
   { path: '/notificaciones', label: 'Notificaciones', section: OTRAS, permisos: ['reportes.ver_notificaciones'], scope: 'permiso' },
   { path: '/perfiles-medidas', label: 'Perfiles de medidas', section: OTRAS, permisos: ['admin.gestionar_tn_perfiles'], scope: 'permiso' },
+  {
+    path: '/dashboard-ventas-fuera/vendedores-excluidos',
+    label: 'Vendedores excluidos',
+    section: OTRAS,
+    permisos: ['ventas_fuera.ver_dashboard'],
+    scope: 'permiso',
+    nota: 'Además pide rol ADMIN o SUPERADMIN. Se llega desde Cargas de PDF.',
+  },
 ];
 
 /**
@@ -172,6 +199,8 @@ export const PERMISOS_ADICIONALES = {
     rma: ['/rma'],
     ml_ops: ['/ml-publicaciones'],
     ml_metricas: ['/metricas-ml'],
+    // Opens Métricas ML, Cargas de PDF and Vendedores excluidos; ver_ganancia acts on the board.
+    ventas_fuera: ['/metricas-ml'],
     produccion: ['/produccion'],
     rrhh: ['/rrhh/empleados'],
     tickets: ['/tickets'],
@@ -225,7 +254,7 @@ export const PERMISOS_ADICIONALES = {
     '/rma': ['rma.gestionar', 'documentos.imprimir'],
     '/claims': ['rma.gestionar'],
     '/control-deposito': ['rma.control_deposito_no_baja'],
-    '/metricas-ml': ['ml_metricas.ver_ganancia', 'ventas_ml.ver_todas_marcas', 'tplink.solo'],
+    '/metricas-ml': ['ml_metricas.ver_ganancia', 'ventas_ml.ver_todas_marcas', 'tplink.solo', 'ventas_fuera.ver_ganancia'],
     '/dashboard-metricas-ml': ['ventas_ml.ver_todas_marcas'],
     '/ml-publicaciones': ['ml_metricas.ver_ganancia'],
     '/ml-ads-aportes': ['ml_metricas.ver_ganancia', 'ml_metricas.gestionar_aportes_ads'],
