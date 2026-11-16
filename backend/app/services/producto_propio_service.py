@@ -12,7 +12,8 @@ count.
 
 The copied data (T7) is a copy, not a live link: the title, description, pictures and attributes of one live
 publication of the product (a catalog one too: catalogs are a base, never edited), taken when it is chosen and
-edited on the product afterwards. Choosing again replaces the copy; the manual SKU and EAN stay.
+edited on the product afterwards. Choosing again replaces the copy; the manual SKU and EAN stay, and so does an own
+ML title or description of the product master (its source is `propio`).
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from sqlalchemy.orm import Session
 
 from app.models.ml_publications import MlItem, MlItemProductLink, MlItemVariation
 from app.models.producto import ProductoERP
-from app.models.producto_propio import ProductoPropio
+from app.models.producto_propio import FUENTE_PROPIA, ProductoPropio
 from app.services.ml_publications.links import sku_key
 from app.services.ml_publications.publication_data import pick, publication_data
 from app.services.ml_publications.view.filters import LINK_ITEM_LEVEL
@@ -145,7 +146,7 @@ def _manual_value(value: Optional[str]) -> Optional[str]:
     return trimmed or None
 
 
-def _upsert(db: Session, item_id: int, values: dict[str, Any]) -> None:
+def upsert_producto_propio(db: Session, item_id: int, values: dict[str, Any]) -> None:
     """Write `values` on the product's row, creating it: two first writes at once both land (the last wins) instead
     of one failing on the primary key."""
     db.execute(
@@ -164,7 +165,9 @@ def save_producto_propio(
     """
     if db.get(ProductoERP, item_id) is None:
         return None
-    _upsert(db, item_id, {"sku": _manual_value(sku), "ean": _manual_value(ean), "updated_by": usuario_id})
+    upsert_producto_propio(
+        db, item_id, {"sku": _manual_value(sku), "ean": _manual_value(ean), "updated_by": usuario_id}
+    )
     db.commit()
     return read_producto_propio(db, item_id)
 
@@ -198,7 +201,13 @@ def choose_source(db: Session, item_id: int, mla: str, usuario_id: int) -> Optio
     if not _is_source_candidate(db, item_id, mla):
         raise FuenteNoValida(f"La publicación {mla} no es una publicación vigente de este producto.")
     copy = _copy_of(db, mla)
-    _upsert(db, item_id, {**copy, "fuente_copiada_por": usuario_id, "fuente_copiada_at": func.now()})
+    # An own ML text of the product master (abm-productos T4) is never replaced by a copy.
+    row = db.get(ProductoPropio, item_id, with_for_update=True)
+    if row is not None and row.fuente_titulo_ml == FUENTE_PROPIA:
+        copy.pop("titulo")
+    if row is not None and row.fuente_descripcion_ml == FUENTE_PROPIA:
+        copy.pop("descripcion")
+    upsert_producto_propio(db, item_id, {**copy, "fuente_copiada_por": usuario_id, "fuente_copiada_at": func.now()})
     db.commit()
     return read_producto_propio(db, item_id)
 

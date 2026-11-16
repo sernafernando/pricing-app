@@ -429,7 +429,7 @@ def editar(
 # ---------------------------------------------------------------------------------------------------------------
 
 
-def _completos_sql(tipo: str) -> str:
+def completos_sql(tipo: str) -> str:
     """How many of the type's fields are complete: with a value, or marked as not applying."""
     return " + ".join(
         f"(s.{c.nombre} IS NOT NULL OR s.origenes ->> '{c.nombre}' IS NOT DISTINCT FROM '{ORIGEN_NO_APLICA}')::int"
@@ -462,7 +462,7 @@ def listar(
             ORDER BY t.item_id
         )
         SELECT b.*, s.updated_at,
-               COALESCE(CASE WHEN b.tipo = 'pc' THEN {_completos_sql(PC)} ELSE {_completos_sql(NOTEBOOK)} END, 0)
+               COALESCE(CASE WHEN b.tipo = 'pc' THEN {completos_sql(PC)} ELSE {completos_sql(NOTEBOOK)} END, 0)
                    AS completos,
                CASE WHEN b.tipo = 'pc' THEN {total_pc} ELSE {total_nb} END AS total
         FROM base b
