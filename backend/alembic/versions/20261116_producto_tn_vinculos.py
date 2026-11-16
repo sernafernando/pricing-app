@@ -1,7 +1,7 @@
 """producto_tn_vinculos + tienda_nube_producto_textos + productos.editar_maestro
 
 Revision ID: 20261116_producto_tn_vinculos
-Revises: 20261116_producto_specs
+Revises: 20261117_producto_maestro
 Create Date: 2026-11-16
 
 abm-productos T6 (S12): `producto_tn_vinculos` holds the links between an ERP product and its Tienda Nube product set
@@ -20,7 +20,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261116_producto_tn_vinculos"
-down_revision: Union[str, None] = "20261116_producto_specs"
+down_revision: Union[str, None] = "20261117_producto_maestro"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
