@@ -184,8 +184,24 @@ class TestMlCategories:
         specs = ml(attr("GRAPHIC_CARD", text))
         assert (specs["gpu_tipo"], specs["gpu_marca"], specs["gpu_modelo"]) == ("Integrada", brand, model)
 
-    def test_integrated_gpu_has_no_video_memory(self):
-        assert "gpu_vram_gb" not in ml(attr("GRAPHIC_CARD", "Intel UHD Graphics"), attr("VIDEO_MEMORY", "4 GB"))
+    def test_video_memory_alone_is_a_dedicated_gpu(self):
+        # Real case, MLA1168328626 (item 280): only VIDEO_MEMORY, no GPU brand or model.
+        specs = ml(attr("VIDEO_MEMORY", "6 GB"))
+        assert (specs["gpu_tipo"], specs["gpu_vram_gb"]) == ("Dedicada", 6)
+        assert "gpu_marca" not in specs and "gpu_modelo" not in specs
+
+    def test_video_memory_is_kept_with_an_integrated_gpu_and_does_not_make_it_dedicated(self):
+        # Real case, MLA1341354513 (item 395).
+        specs = ml(attr("GRAPHIC_CARD", "Intel UHD Graphics Xe G4 48EUs"), attr("VIDEO_MEMORY", "4 GB"))
+        assert (specs["gpu_tipo"], specs["gpu_vram_gb"]) == ("Integrada", 4)
+
+    def test_video_memory_with_a_dedicated_gpu(self):
+        specs = ml(attr("DEDICATED_GRAPHIC_CARD_MODEL", "RTX 3050"), attr("VIDEO_MEMORY", "4 GB"))
+        assert (specs["gpu_tipo"], specs["gpu_vram_gb"]) == ("Dedicada", 4)
+
+    @pytest.mark.parametrize("raw", ["0 KB", "7873270"])
+    def test_unreadable_video_memory_does_not_make_a_gpu(self, raw):
+        assert "gpu_tipo" not in ml(attr("VIDEO_MEMORY", raw))
 
     def test_pc_components(self):
         specs = ml(

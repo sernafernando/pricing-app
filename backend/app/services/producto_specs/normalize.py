@@ -408,19 +408,24 @@ def ml_specs(attributes: list[dict], tipo: str) -> dict:
             if _NVIDIA_MODEL.search(_upper(a.get("GRAPHIC_CARD")) or "")
             else None
         )
-    if dedicada:
-        specs["gpu_tipo"] = "Dedicada"
-        _put(specs, "gpu_marca", dedicada[0])
-        _put(specs, "gpu_modelo", dedicada[1])
-        _put(specs, "gpu_vram_gb", _capacity("gpu_vram_gb", a.get("VIDEO_MEMORY")))
-    else:
+    # Video memory is read whenever it is plausible, whatever the GPU attributes say (most real values come alone).
+    vram = _capacity("gpu_vram_gb", a.get("VIDEO_MEMORY"))
+    integrada = None
+    if not dedicada:
         integrada = gpu_integrada(
             a.get("INTEGRATED_GRAPHIC_CARD_BRAND"), a.get("INTEGRATED_GRAPHIC_CARD_MODEL"), a.get("GRAPHIC_CARD")
         )
-        if integrada is not None:
-            specs["gpu_tipo"] = "Integrada"
-            _put(specs, "gpu_marca", integrada[0])
-            _put(specs, "gpu_modelo", integrada[1])
+    if dedicada or (integrada is None and vram):
+        # Its own video memory with no sign of an integrated GPU is a dedicated one, even unnamed.
+        specs["gpu_tipo"] = "Dedicada"
+        if dedicada:
+            _put(specs, "gpu_marca", dedicada[0])
+            _put(specs, "gpu_modelo", dedicada[1])
+    elif integrada is not None:
+        specs["gpu_tipo"] = "Integrada"
+        _put(specs, "gpu_marca", integrada[0])
+        _put(specs, "gpu_modelo", integrada[1])
+    _put(specs, "gpu_vram_gb", vram)
 
     _component(specs, "gabinete", a.get("COMPUTER_CASE_BRAND"), a.get("COMPUTER_CASE_MODEL"), ("GABINETE",))
     _component(specs, "mother", a.get("MOTHERBOARD_BRAND"), a.get("MOTHERBOARD_MODEL"), ("MOTHER", "MOTHERBOARD"))
