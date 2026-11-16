@@ -23,6 +23,7 @@ from app.workers.handlers.ml_orders_quarantine import quarantine_retry as _ml_or
 from app.workers.handlers.order_metrics import divergence as _order_metrics_divergence
 from app.workers.handlers.order_metrics import drain as _order_metrics_drain
 from app.workers.handlers.order_metrics import reconcile as _order_metrics_reconcile
+from app.workers.handlers.producto_specs_preload import preload as _producto_specs_preload
 from app.workers.handlers.rrhh_horas_extras import horas_extras as _rrhh_horas_extras
 from app.workers.handlers.sell_drain import drain as _sell_drain
 from app.workers.handlers.sell_in_bono import bono as _sell_in_bono
@@ -66,6 +67,7 @@ class JobHandler(Protocol):
 # sell-in-sell-out T3c-3 appends `sell_in.bono` (notify-driven; applies brand bonuses to invoiced purchases).
 # sell-in-sell-out T7 S3 appends `sell_out.drain` (notify-driven; rebuilds the queued sell-out campaigns).
 # compras-oc-facturas-alertas appends `compras.factura_cargada_alerts` (every 1 min; replaces crontab).
+# abm-specs-productos T1 appends `producto_specs.preload` (daily 05:15; also the initial backfill).
 REGISTRY: List[JobHandler] = [
     _order_metrics_drain,
     _order_metrics_reconcile,
@@ -78,6 +80,7 @@ REGISTRY: List[JobHandler] = [
     _sell_in_bono,
     _sell_out_drain,
     _compras_factura_cargada_alerts,
+    _producto_specs_preload,
 ]
 
 # The ML publications store runs in its OWN process (`pricing-worker-ml.service`,

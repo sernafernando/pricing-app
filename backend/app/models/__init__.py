@@ -25,6 +25,7 @@ from app.models.publicacion_repair import PublicacionRepairEvent, PublicacionRep
 from app.models.ml_publication_link import MlPublicationLink
 
 from app.models.producto_propio import ProductoPropio
+from app.models.producto_spec import ProductoSpec, ProductoSpecValor
 from app.models.producto_envio_eleccion import ProductoEnvioEleccion
 from app.models.ml_item_override import MlItemOverride
 from app.models.gestion_full_override import GestionFullOverride
@@ -540,6 +541,8 @@ __all__ = [
     "SellDirty",
     "ComboComponente",
     "ProductoPropio",
+    "ProductoSpec",
+    "ProductoSpecValor",
     "ProductoEnvioEleccion",
     "MlItemOverride",
     "GestionFullOverride",
