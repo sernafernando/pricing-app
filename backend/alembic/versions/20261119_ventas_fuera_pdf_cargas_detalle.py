@@ -1,7 +1,7 @@
 """ventas por fuera PDF uploads: per-upload result columns for the upload history
 
 Revision ID: 20261119_ventas_fuera_pdf_cargas_detalle
-Revises: 20261118_ventas_fuera_pdf_operaciones
+Revises: 20261119_vpf_offsets_sell_pdf
 Create Date: 2026-11-16
 
 Additive (vpf-metricas-canal-fe S8): nullable columns on `ventas_fuera_pdf_cargas` filled at upload with what the
