@@ -7,10 +7,11 @@ unset, like the legacy offsets) must ALL match, exactly; a product matching ANY
 row is reached. A row with nothing set reaches nothing (fail-closed: the API
 refuses it, a stray one must not reach the whole catalog).
 
-Sales: every channel, all app-owned (`ml_sale_lines`, `ventas_fuera_ml_metricas`,
-`ventas_tienda_nube_metricas`; ERP independence, owner 2026-10-17), read the way
-the sell-in allocation reads them (`sell_in.costing`): ML `item_row_id`, `day`,
-`qty`; fuera / TN `it_transaction`, the UTC date of `fecha_venta` and `signo *
+Sales: every channel, all app-owned (`ml_sale_lines`, the ventas por fuera PDF
+lines (`fuera`, VPF T4: never the GBP sync), `ventas_tienda_nube_metricas`; ERP
+independence, owner 2026-10-17), read the way the sell-in allocation reads them
+(`sell_in.costing`): ML `item_row_id`, `day`, `qty`; fuera / TN `it_transaction`
+(the PDF line id), the UTC date of `fecha_venta` and `signo *
 cantidad`, a return's original sale resolved by `costing.resolver_objetivos`. A sale
 belongs to a campaign when it is dated inside its inclusive range, and so does a
 return: only a return dated inside it frees units (`tope.asignar`). A return
@@ -22,7 +23,8 @@ Each sale also carries, per unit and in ARS, what a percentage campaign needs,
 as recorded ON THE SALE (never the current `productos_erp.costo`); None when
 unknown:
 - cost without VAT: ML `mcosto / qty` (the line's share of the order's frozen
-  cost of goods; 0 means unknown), fuera / TN `costo_total / units`;
+  cost of goods; 0 means unknown), fuera / TN `costo_total / units` (fuera: Costo D,
+  'Precio Costo' x 1.065, owner L14);
 - price: ML `gross / qty` (unit price x qty, WITH VAT; 0 means unknown: an
   unsettled or non-ARS order), fuera / TN `monto_total / units` (without VAT).
 

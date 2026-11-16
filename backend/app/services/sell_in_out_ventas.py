@@ -5,7 +5,7 @@ Sell in lowers cost; sell out is a credit added to profit, applied against the n
 allocator already wrote each row net of VAT).
 
 Read only, from what the allocators wrote, for any channel (`ml`, `fuera`, `tn`; `venta_ref` is the
-channel's sale line, `ventas_fuera_ml_metricas.it_transaction` for `fuera`):
+channel's sale line, the PDF line id for `fuera`, ventas por fuera since VPF T4):
 - `sell_in_ars`: the sum of the sale's `sell_in_consumos.descuento_ars` plus its `sell_in_bono_consumos` ones (the %
   of cost bonuses, T25: units the invoice sell in left, so they never overlap), already ARS;
 - `sell_out_ars`: the sum of the sale's `sell_out_consumos` in ARS, converted per campaign like the

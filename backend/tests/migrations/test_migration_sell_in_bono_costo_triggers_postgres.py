@@ -1,7 +1,8 @@
 """Migration `20261213_sell_in_bono_costo_triggers` (sell-in-sell-out T25b2, S30): a fuera/TN sale whose `costo_total`
 changes queues its line in `sell_dirty`, and a product whose brand, category or VAT rate changes queues the % of the
 sale's cost bonuses reaching it; the downgrade puts the previous triggers back. On a real Postgres, in a throwaway
-schema with the live triggers (`_bono_world`), downgraded first to stand for the database before this revision."""
+schema with the live triggers (`_bono_world`), downgraded first to stand for the database before this revision. The
+sales are Tienda Nube's: the fuera trigger of the GBP sync table is gone since VPF T4 (the TN one is the same SQL)."""
 
 from __future__ import annotations
 
@@ -54,14 +55,14 @@ def _cambios(engine: Engine) -> tuple:
     """A TP-LINK cost bonus and a fuera sale of 2964 with a recorded cost; then the product changes brand and the
     sale's cost changes. Returns (cost bonuses queued, sale lines queued)."""
     bono = b.bono_costo(engine)
-    ref = w.venta(engine, "fuera", 2964, 2, date(2026, 10, 5))
-    w.update_venta(engine, "fuera", ref, costo_total=Decimal("2000.00"))
+    ref = w.venta(engine, "tn", 2964, 2, date(2026, 10, 5))
+    w.update_venta(engine, "tn", ref, costo_total=Decimal("2000.00"))
     b.clear_queue(engine)
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM sell_dirty"))
         conn.execute(text("UPDATE productos_erp SET marca = 'OTRA' WHERE item_id = 2964"))
-    w.update_venta(engine, "fuera", ref, costo_total=Decimal("1800.00"))
-    return [k for k in b.queued(engine) if k == ("bono", bono)], [r for r in w.queued(engine) if r == ("fuera", ref)]
+    w.update_venta(engine, "tn", ref, costo_total=Decimal("1800.00"))
+    return [k for k in b.queued(engine) if k == ("bono", bono)], [r for r in w.queued(engine) if r == ("tn", ref)]
 
 
 def test_this_revision_chains_on_the_cost_bonus_revision_and_is_the_single_head() -> None:
@@ -90,12 +91,12 @@ def test_before_it_neither_change_queues_and_after_the_upgrade_both_do(before) -
 def test_after_the_upgrade_an_unrelated_change_queues_nothing(before) -> None:
     _step(before, "upgrade")
     b.bono_costo(before)
-    ref = w.venta(before, "fuera", 2964, 2, date(2026, 10, 5))
+    ref = w.venta(before, "tn", 2964, 2, date(2026, 10, 5))
     b.clear_queue(before)
     with before.begin() as conn:
         conn.execute(text("DELETE FROM sell_dirty"))
         conn.execute(text("UPDATE productos_erp SET costo = 1, descripcion = 'Otra' WHERE item_id = 2964"))
-    w.update_venta(before, "fuera", ref, cliente="Otro")
+    w.update_venta(before, "tn", ref, cliente="Otro")
 
     assert (b.queued(before), w.queued(before)) == ([], [])
 
@@ -106,14 +107,14 @@ def test_what_was_queued_before_still_is(before) -> None:
     _step(before, "upgrade")
     b.bono(before)
     pedido = b.pedido(before, {2964: 1})
-    ref = w.venta(before, "fuera", 2964, 1, date(2026, 10, 5))
+    ref = w.venta(before, "tn", 2964, 1, date(2026, 10, 5))
     b.clear_queue(before)
     with before.begin() as conn:
         conn.execute(text("DELETE FROM sell_dirty"))
         conn.execute(text("UPDATE productos_erp SET marca = 'OTRA' WHERE item_id = 2964"))
-    w.update_venta(before, "fuera", ref, costo_unitario=Decimal("1"))
+    w.update_venta(before, "tn", ref, costo_unitario=Decimal("1"))
 
-    assert (b.queued(before), w.queued(before)) == ([("pedido", pedido)], [("fuera", ref)])
+    assert (b.queued(before), w.queued(before)) == ([("pedido", pedido)], [("tn", ref)])
 
 
 @pytest.mark.postgres
@@ -154,6 +155,8 @@ def test_the_live_module_statements_are_this_revisions() -> None:
     module = _module()
     vivos = {_norm(s) for s in bono_queue.UPGRADE_SQL + sell_queue.UPGRADE_SQL}
     vivos |= {_norm(s) for s in _module("20261111_sell_in_bono_marca_categoria").FUNCIONES_DOWN}
+    # 20261119_vpf_offsets_sell_pdf dropped the fuera trigger of the GBP sync table; its downgrade restores this copy.
+    vivos |= {_norm(s) for s in _module("20261119_vpf_offsets_sell_pdf").DOWNGRADE_SQL}
     assert {_norm(s) for s in module.PRODUCTO_UP + module.SELL_DIRTY_UP} <= vivos
     previos = {_norm(s) for s in _module("20261115_sell_in_bono_queue_alcance")._TRIGGERS_UP}
     previos |= {_norm(s) for s in _module("20261031_sell_dirty_queue")._TRIGGERS_UP}

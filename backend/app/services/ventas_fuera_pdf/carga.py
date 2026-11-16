@@ -181,6 +181,8 @@ def _crear_operaciones(db: Session, detallada: ReporteDetallado, carga_id: int) 
     reemplazados = db.execute(
         delete(VentaFueraOperacion).where(reemplazo), execution_options={"synchronize_session": False}
     ).rowcount
+    # The product of each code, for offsets and sell in / sell out (VPF T4); NULL "sin producto".
+    productos = productos_por_codigo(db, {ln.codigo for doc in detallada.documentos for ln in doc.lineas if ln.codigo})
     for doc in detallada.documentos:
         db.add(
             VentaFueraOperacion(
@@ -208,6 +210,7 @@ def _crear_operaciones(db: Session, detallada: ReporteDetallado, carga_id: int) 
                         precio=linea.precio,
                         precio_costo=linea.precio_costo,
                         precio_costo_pp=linea.precio_costo_pp,
+                        item_id=productos[linea.codigo].item_id if linea.codigo in productos else None,
                     )
                     for i, linea in enumerate(doc.lineas, start=1)
                 ],

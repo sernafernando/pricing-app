@@ -64,8 +64,9 @@ campaign by the T7 allocator; `SellOutDirty` queues the campaigns to rebuild.
 `SellInConsumo.venta_ref`: `ml_sale_lines` is deleted and reinserted on every
 store, so a physical FK would either block the store or cascade the
 consumptions away. The allocator owns that reference; its keyspace is the
-channel's (`ml`: `ml_sale_lines.item_row_id`; `fuera` / `tn`: the
-`it_transaction` of `ventas_fuera_ml_metricas` / `ventas_tienda_nube_metricas`).
+channel's (`ml`: `ml_sale_lines.item_row_id`; `fuera`: `ventas_fuera_operacion_lineas.id`,
+ventas por fuera from the GBP PDF reports since VPF T4; `tn`: the `it_transaction` of
+`ventas_tienda_nube_metricas`).
 """
 
 from sqlalchemy import (

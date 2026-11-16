@@ -8,6 +8,7 @@ from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
 from app.models.cur_exch_history import CurExchHistory
+from app.services.ventas_fuera_pdf.ventas import TIPO_VENTA_OFFSET, VENTAS_FUERA_OFFSETS_SQL, monto_offset_pdf
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
 from app.services.permisos_service import verificar_permiso
@@ -352,20 +353,21 @@ def recalcular_consumo_grupo(
                 total_monto_usd += monto_offset_usd
 
     # ============================================
-    # Procesar ventas fuera de ML con item_ids directos
+    # Procesar ventas fuera de ML con item_ids directos (las líneas de los PDF, VPF T4)
     # ============================================
     if item_ids_directos:
-        ventas_fuera_query = text("""
+        ventas_fuera_query = text(f"""
             SELECT
                 v.id,
                 v.fecha_venta,
                 v.item_id,
                 v.cantidad,
+                v.tipo_documento,
                 v.costo_total,
                 v.cotizacion_dolar,
                 v.marca,
                 v.categoria
-            FROM ventas_fuera_ml_metricas v
+            FROM {VENTAS_FUERA_OFFSETS_SQL} v
             WHERE v.item_id = ANY(:item_ids)
             AND v.fecha_venta >= :fecha_inicio
             ORDER BY v.fecha_venta
@@ -382,7 +384,12 @@ def recalcular_consumo_grupo(
 
             cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
             costo = float(venta.costo_total) if venta.costo_total else 0
-            monto_offset_ars, monto_offset_usd = calcular_monto_offset(offset_aplicable, venta.cantidad, costo, cot)
+            cantidad = int(venta.cantidad)
+            monto_offset_ars, monto_offset_usd = monto_offset_pdf(
+                offset_aplicable.tipo_offset,
+                venta.tipo_documento,
+                calcular_monto_offset(offset_aplicable, cantidad, costo, cot),
+            )
 
             if monto_offset_ars == 0 and monto_offset_usd == 0:
                 continue
@@ -390,10 +397,10 @@ def recalcular_consumo_grupo(
             consumo = OffsetGrupoConsumo(
                 grupo_id=grupo_id,
                 venta_fuera_id=venta.id,
-                tipo_venta="fuera_ml",
+                tipo_venta=TIPO_VENTA_OFFSET,
                 fecha_venta=venta.fecha_venta,
                 item_id=venta.item_id,
-                cantidad=venta.cantidad,
+                cantidad=cantidad,
                 offset_id=offset_aplicable.id,
                 monto_offset_aplicado=monto_offset_ars,
                 monto_offset_usd=monto_offset_usd,
@@ -402,7 +409,7 @@ def recalcular_consumo_grupo(
             db.add(consumo)
             operaciones_procesadas.add(("fuera", venta.id))
             consumos_creados += 1
-            total_unidades += venta.cantidad
+            total_unidades += cantidad
             total_monto_ars += monto_offset_ars
             total_monto_usd += monto_offset_usd
 
@@ -437,11 +444,12 @@ def recalcular_consumo_grupo(
                     v.fecha_venta,
                     v.item_id,
                     v.cantidad,
+                    v.tipo_documento,
                     v.costo_total,
                     v.cotizacion_dolar,
                     v.marca,
                     v.categoria
-                FROM ventas_fuera_ml_metricas v
+                FROM {VENTAS_FUERA_OFFSETS_SQL} v
                 WHERE ({where_filtros})
                 AND v.fecha_venta >= :fecha_inicio
                 ORDER BY v.fecha_venta
@@ -455,7 +463,12 @@ def recalcular_consumo_grupo(
 
                 cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
                 costo = float(venta.costo_total) if venta.costo_total else 0
-                monto_offset_ars, monto_offset_usd = calcular_monto_offset(offset_ref, venta.cantidad, costo, cot)
+                cantidad = int(venta.cantidad)
+                monto_offset_ars, monto_offset_usd = monto_offset_pdf(
+                    offset_ref.tipo_offset,
+                    venta.tipo_documento,
+                    calcular_monto_offset(offset_ref, cantidad, costo, cot),
+                )
 
                 if monto_offset_ars == 0 and monto_offset_usd == 0:
                     continue
@@ -463,10 +476,10 @@ def recalcular_consumo_grupo(
                 consumo = OffsetGrupoConsumo(
                     grupo_id=grupo_id,
                     venta_fuera_id=venta.id,
-                    tipo_venta="fuera_ml",
+                    tipo_venta=TIPO_VENTA_OFFSET,
                     fecha_venta=venta.fecha_venta,
                     item_id=venta.item_id,
-                    cantidad=venta.cantidad,
+                    cantidad=cantidad,
                     offset_id=offset_ref.id,
                     monto_offset_aplicado=monto_offset_ars,
                     monto_offset_usd=monto_offset_usd,
@@ -475,7 +488,7 @@ def recalcular_consumo_grupo(
                 db.add(consumo)
                 operaciones_procesadas.add(("fuera", venta.id))
                 consumos_creados += 1
-                total_unidades += venta.cantidad
+                total_unidades += cantidad
                 total_monto_ars += monto_offset_ars
                 total_monto_usd += monto_offset_usd
 
