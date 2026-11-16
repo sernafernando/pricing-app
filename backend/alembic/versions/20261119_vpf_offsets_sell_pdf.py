@@ -1,7 +1,7 @@
 """offsets and sell in / sell out read ventas por fuera only from the PDF operations (VPF T4)
 
 Revision ID: 20261119_vpf_offsets_sell_pdf
-Revises: 20261118_ventas_fuera_pdf_operaciones
+Revises: 20261119_promo_price_recompute_queue
 Create Date: 2026-11-16
 
 Owner (S18): "sell in / sell out van a aplicar sobre las operaciones que vayamos creando ahí, no se usa nada viejo".
@@ -37,7 +37,7 @@ from typing import List, Sequence, Union
 from alembic import op
 
 revision: str = "20261119_vpf_offsets_sell_pdf"
-down_revision: Union[str, None] = "20261118_ventas_fuera_pdf_operaciones"
+down_revision: Union[str, None] = "20261119_promo_price_recompute_queue"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
