@@ -23,14 +23,14 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 from app.models.gestion_full_unidades_caja import GestionFullUnidadesCaja
-from app.models.producto_propio import ProductoPropio
+from app.models.producto_propio import FUENTE_PROPIA, ProductoPropio
 from app.models.usuario import Usuario
 from app.services.gestion_full.unidades_caja import clear_unidades_caja, upsert_unidades_caja
 from app.services.producto_propio_service import upsert_producto_propio
 from app.services.producto_specs.campos import NOTEBOOK, PC, SUBCATEGORIAS_EXCLUIDAS, campos_de
 from app.services.producto_specs.store import completos_sql
 
-PROPIO = "propio"
+PROPIO = FUENTE_PROPIA
 SIN_CAMBIO = object()  # `unidades_caja` left out of the edit
 
 

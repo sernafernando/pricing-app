@@ -12,6 +12,8 @@ from app.core.database import Base
 
 # The longest SKU or EAN accepted: the width of the ERP `codigo` column the EAN defaults to.
 MAX_CODE_LENGTH = 100
+# A text source meaning "own text": stored on the row and fixed (product master, abm-productos T4).
+FUENTE_PROPIA = "propio"
 
 
 class ProductoPropio(Base):
