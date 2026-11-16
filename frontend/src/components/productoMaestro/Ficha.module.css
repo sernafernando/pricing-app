@@ -1,0 +1,312 @@
+/* The ficha of one product: header, tabs and the General / Specs bodies, as in the approved mock. */
+
+.cabecera {
+  padding: 20px 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  border-bottom: 1px solid var(--cf-border-subtle);
+}
+
+.cabeceraFila {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cabeceraFila:first-child {
+  align-items: flex-start;
+}
+
+.titulo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 300px;
+}
+
+.nombre {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 24px;
+  color: var(--cf-text-primary);
+}
+
+.meta {
+  margin: 0;
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+}
+
+.acciones {
+  display: flex;
+  gap: 8px;
+}
+
+.leyenda {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+}
+
+.leyendaItem {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.cargando {
+  margin: 0;
+  padding: 24px;
+  font-size: 13px;
+  color: var(--cf-text-tertiary);
+}
+
+.cuerpo {
+  padding: 8px 24px 24px;
+  display: flex;
+  flex-direction: column;
+}
+
+.seccion {
+  border: 0;
+  margin: 0;
+  padding: 16px 0 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.seccionTextos {
+  gap: 16px;
+}
+
+.legend {
+  padding: 16px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.legendNota {
+  font-weight: 400;
+  color: var(--cf-text-tertiary);
+}
+
+.legendFrac {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--cf-text-tertiary);
+  margin-left: 4px;
+}
+
+.grilla {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.grillaSpecs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px 16px;
+}
+
+.ancho {
+  grid-column: 1 / -1;
+}
+
+.campo,
+.spec {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.campoHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+}
+
+.nota {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--cf-text-tertiary);
+}
+
+.texto .nota,
+.seccion > .nota {
+  margin: 0;
+}
+
+.gbp {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+}
+
+.gbpValor {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* Titles and descriptions */
+.texto {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.textoHead {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.label {
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.tomar {
+  font-size: 12px;
+  color: var(--cf-text-tertiary);
+}
+
+/* Tienda Nube link */
+.tnCaja {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-radius: var(--radius-xl);
+  box-shadow: inset 0 0 0 1px var(--cf-border-default);
+}
+
+.tnTextos {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 320px;
+}
+
+.tnNombreFuerte {
+  font-size: 14px;
+  color: var(--cf-text-primary);
+}
+
+.tnMeta {
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+}
+
+.tnAcciones {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.tnVacio {
+  font-size: 14px;
+  color: var(--cf-text-secondary);
+}
+
+.tnBuscar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: var(--radius-xl);
+  background: var(--cf-bg-app);
+  box-shadow: inset 0 0 0 1px var(--cf-border-subtle);
+}
+
+.tnTitulo {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--cf-text-tertiary);
+}
+
+.tnResultado {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--cf-border-subtle);
+}
+
+.tnResultado .tnTextos {
+  gap: 2px;
+}
+
+.tnNombre {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tnResultado .tnMeta {
+  color: var(--cf-text-tertiary);
+}
+
+/* Read-only figures */
+.lectura {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px 16px;
+}
+
+.lecturaItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.lecturaItem dt {
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+}
+
+.lecturaItem dd {
+  margin: 0;
+  font-size: 14px;
+  color: var(--cf-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

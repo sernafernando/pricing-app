@@ -105,6 +105,11 @@ vi.mock('../../services/api', () => ({
   },
   mlItemOverridesAPI: { get: vi.fn(), save: vi.fn(), pushToMl: vi.fn() },
   productoBanlistAPI: { add: vi.fn() },
+  productoMaestroAPI: { listar: vi.fn(), leer: vi.fn(), guardar: vi.fn() },
+  productoSpecsAPI: { leer: vi.fn(), guardar: vi.fn(), precargar: vi.fn(), campos: vi.fn(), valores: vi.fn() },
+  productoTnVinculosAPI: { leer: vi.fn(), candidatos: vi.fn(), vincular: vi.fn() },
+  productoMarcasAPI: { listar: vi.fn() },
+  productoCategoriasAPI: { listar: vi.fn() },
   promocionesAPI: { getPromocionesItem: vi.fn(), getMarkupParaPrecio: vi.fn(() => Promise.resolve({ data: { nuestro_markup: null } })), descartarHayMejores: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn(), getCompetenciaCatalogo: vi.fn(), refreshCompetenciaCatalogo: vi.fn() },
   productosAPI: {
     getProductoTree: vi.fn(() => Promise.resolve(DEFAULT_TREE)),

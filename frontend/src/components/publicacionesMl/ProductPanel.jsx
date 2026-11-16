@@ -18,6 +18,7 @@ import PanelTabs from './panel/PanelTabs';
 import ProductBanAction from './panel/ProductBanAction';
 import ProductCatalogCompetition from './panel/ProductCatalogCompetition';
 import ProductChangesTab from './panel/ProductChangesTab';
+import FichaProducto from '../productoMaestro/FichaProducto';
 import ProductCuotasConfig from './panel/ProductCuotasConfig';
 import ProductEnvioChoice from './panel/ProductEnvioChoice';
 import ProductIdentity from './panel/ProductIdentity';
@@ -149,6 +150,7 @@ const RESUMEN = { key: 'resumen', label: 'Resumen' };
 const PRECIOS = { key: 'precios', label: 'Precios' };
 const PROMOS = { key: 'promos', label: 'Promos' };
 const PXQ = { key: 'pxq', label: 'PxQ' };
+const FICHA = { key: 'ficha', label: 'Ficha' };
 const CAMBIOS = { key: 'cambios', label: 'Cambios' };
 
 /**
@@ -176,7 +178,8 @@ const CAMBIOS = { key: 'cambios', label: 'Cambios' };
  * Precios mounts the product's prices (the same `PanelPrices` a publication's Precios tab mounts), under them the
  * shipping cost the product uses (`ProductEnvioChoice`, whose save reloads the list: the markups depend on it), and
  * its instalment settings (`ProductCuotasConfig`, whose save recalculates the instalments: the prices are read
- * again and the list reloaded), for whoever may see them, and Cambios the changes made to the
+ * again and the list reloaded), for whoever may see them, Ficha the product master's ficha (`FichaProducto`, the
+ * same one as "ABM de productos", with `productos.ver`), and Cambios the changes made to the
  * product in the app, with who made each one (`ProductChangesTab`); "Sin producto" has neither. The panel opens on
  * Precios when it exists, else on Resumen, and so does opening another product. A price write reloads the page's list (`onListReload`).
  *
@@ -228,6 +231,7 @@ export default function ProductPanel({
   const tabs = [
     productItemId != null && canViewProductPrices(tienePermiso) && PRECIOS,
     RESUMEN,
+    productItemId != null && tienePermiso('productos.ver') && FICHA,
     tienePermiso('promos.ver') && PROMOS,
     tienePermiso('pxq.ver') && PXQ,
     productItemId != null && CAMBIOS,
@@ -283,6 +287,8 @@ export default function ProductPanel({
         <PanelTabs tabs={tabs} activeKey={activeKey} onTabChange={(key) => setOpenTab({ productKey, key })} label="Secciones del producto">
           {activeKey === CAMBIOS.key ? (
             <ProductChangesTab key={productItemId} productItemId={productItemId} />
+          ) : activeKey === FICHA.key ? (
+            <FichaProducto key={`ficha-${productItemId}`} itemId={productItemId} />
           ) : activeKey === PROMOS.key ? (
             <>
               <ProductPromos key={`promos-${productKey}`} publications={items} onPromoApplied={onListReload} />

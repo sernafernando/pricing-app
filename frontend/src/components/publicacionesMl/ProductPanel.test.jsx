@@ -61,6 +61,10 @@ vi.mock('./panel/ProductIdentity', () => ({
   default: ({ productItemId }) => <div data-testid="product-identity">{`identity of ${productItemId}`}</div>,
 }));
 
+vi.mock('../productoMaestro/FichaProducto', () => ({
+  default: ({ itemId }) => <div data-testid="product-ficha">{`ficha of ${itemId}`}</div>,
+}));
+
 vi.mock('./panel/ProductChangesTab', () => ({
   default: ({ productItemId }) => <div data-testid="product-changes">{`changes of ${productItemId}`}</div>,
 }));
@@ -566,7 +570,7 @@ describe('ProductPanel', () => {
     it('opens on Precios, first, when the product has prices to show (S2)', () => {
       renderPanel();
       expect(screen.getByRole('tablist', { name: 'Secciones del producto' })).toBeInTheDocument();
-      expect(screen.getAllByRole('tab').map((entry) => entry.textContent)).toEqual(['Precios', 'Resumen', 'Cambios']);
+      expect(screen.getAllByRole('tab').map((entry) => entry.textContent)).toEqual(['Precios', 'Resumen', 'Ficha', 'Cambios']);
       expect(tab('Precios')).toHaveAttribute('aria-selected', 'true');
       expect(screen.getByTestId('product-prices')).toBeInTheDocument();
       expect(figures()).not.toBeInTheDocument();
@@ -652,7 +656,7 @@ describe('ProductPanel', () => {
     it('adds Promos with promos.ver and PxQ with pxq.ver, after Resumen, still opening on Precios', () => {
       granted = new Set(['productos.ver', 'promos.ver', 'pxq.ver']);
       renderPanel();
-      expect(screen.getAllByRole('tab').map((entry) => entry.textContent)).toEqual(['Precios', 'Resumen', 'Promos', 'PxQ', 'Cambios']);
+      expect(screen.getAllByRole('tab').map((entry) => entry.textContent)).toEqual(['Precios', 'Resumen', 'Ficha', 'Promos', 'PxQ', 'Cambios']);
       expect(tab('Precios')).toHaveAttribute('aria-selected', 'true');
     });
 
@@ -749,6 +753,23 @@ describe('ProductPanel', () => {
       expect(tab('Cambios')).toHaveAttribute('aria-selected', 'true');
       expect(screen.getByRole('tabpanel')).toHaveTextContent('changes of 4101');
       expect(figures()).not.toBeInTheDocument();
+    });
+
+    it("shows the product master's ficha on Ficha, with productos.ver (abm-productos T8)", async () => {
+      renderPanel();
+      await userEvent.click(tab('Ficha'));
+      expect(tab('Ficha')).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('tabpanel')).toHaveTextContent('ficha of 4101');
+    });
+
+    it('has no Ficha without productos.ver or for "Sin producto"', () => {
+      granted = new Set(['ml_ops.ver']);
+      renderPanel();
+      expect(tab('Ficha')).not.toBeInTheDocument();
+      cleanup();
+      granted = new Set(['productos.ver']);
+      renderPanel({ productKey: '0', state: hookState({ summary: NO_PRODUCT }) });
+      expect(tab('Ficha')).not.toBeInTheDocument();
     });
 
     it('has no Cambios for "Sin producto"', () => {

@@ -35,6 +35,7 @@ export const SCREENS = [
   { path: '/prearmadas-disponibles', label: 'Prearmadas disponibles', section: 'Productos', permisos: ['produccion.ver_prearmadas_stats'], scope: 'permiso' },
   { path: '/sell-in', label: 'Sell in / Sell out', section: 'Productos', permisos: ['sell_in.ver'], scope: 'permiso' },
   { path: '/ml-publicaciones', label: 'Publicaciones ML', section: 'Productos', permisos: ['productos.ver', 'ml_ops.ver'], scope: 'permiso' },
+  { path: '/abm-productos', label: 'ABM de productos', section: 'Productos', permisos: ['productos.ver'], scope: 'permiso' },
   { path: '/ml-repair-control', label: 'Control reparación', section: 'Productos', permisos: ['ml_ops.ver'], scope: 'permiso' },
 
   // ── Operaciones ───────────────────────────────────────────
@@ -203,6 +204,8 @@ export const PERMISOS_ADICIONALES = {
       'productos.marcar_color_lote',
       'productos.gestionar_markups_tienda',
     ],
+    // The product master's ficha (General and Specs técnicas).
+    '/abm-productos': ['productos.editar_maestro', 'productos.editar_specs'],
     '/mla-banlist': ['admin.gestionar_banlist'],
     // ItemsSinMLA.jsx, including its Tienda Nube reconcile tab.
     '/items-sin-mla': [

@@ -914,6 +914,45 @@ export const productosPropiosAPI = {
   saveDatos: (itemId, body) => api.put(`/productos-propios/${itemId}/datos`, body),
 };
 
+// Product master (abm-productos): GBP data with overrides, texts and units per box of every ERP product.
+export const productoMaestroAPI = {
+  // `{ tipo?: 'notebook'|'pc', marca?, q?, incompletos?, limit, offset }` -> `{ total, items }`, ordered by stock.
+  listar: (params) => api.get('/productos-propios/maestro', { params }),
+  leer: (itemId) => api.get(`/productos-propios/${itemId}/maestro`),
+  // A patch: only the fields sent change; null goes back to GBP. `textos: { clave: { fuente, texto? } }`.
+  guardar: (itemId, body) => api.patch(`/productos-propios/${itemId}/maestro`, body),
+};
+
+// Technical specs of notebooks and PCs.
+export const productoSpecsAPI = {
+  leer: (itemId) => api.get(`/producto-specs/${itemId}`),
+  // `{ valores: { campo: valor }, no_aplica: { campo: bool } }`.
+  guardar: (itemId, body) => api.put(`/producto-specs/${itemId}`, body),
+  precargar: (itemId) => api.post(`/producto-specs/${itemId}/precargar`),
+  // Every spec field with its group, label, type (numerico / categorico) and unit.
+  campos: () => api.get('/producto-specs/campos'),
+  // The normalized values of a categorical field, for its suggestions.
+  valores: (campo) => api.get(`/producto-specs/valores/${campo}`),
+};
+
+// The product's Tienda Nube product: the current link, candidates to pick from and the link set by hand.
+export const productoTnVinculosAPI = {
+  leer: (itemId) => api.get(`/producto-tn-vinculos/${itemId}`),
+  // Without `q`: suggestions (same EAN, similar name); with `q`: a search by name or SKU.
+  candidatos: (itemId, q) => api.get(`/producto-tn-vinculos/${itemId}/candidatos`, { params: q ? { q } : {} }),
+  // `tnProductId` null: explicitly not linked ("Desvincular").
+  vincular: (itemId, tnProductId) => api.put(`/producto-tn-vinculos/${itemId}`, { tn_product_id: tnProductId }),
+};
+
+// Brands and categories masters (seeded from GBP, same ids).
+export const productoMarcasAPI = {
+  listar: () => api.get('/producto-marcas'),
+};
+
+export const productoCategoriasAPI = {
+  listar: () => api.get('/producto-categorias'),
+};
+
 export const productoBanlistAPI = {
   // `{ agregados, duplicados, no_encontrados, total_agregados }`: each list names what happened to each product.
   add: (itemId, motivo) => api.post('/producto-banlist', { item_ids: String(itemId), motivo }),

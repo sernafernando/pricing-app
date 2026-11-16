@@ -80,6 +80,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
       defaultOpen: true,
       items: [
         { label: 'Publicaciones ML', path: '/ml-publicaciones', permiso: 'productos.ver,ml_ops.ver', multiple: true, badge: 'Nuevo' },
+        { label: 'ABM de productos', path: '/abm-productos', permiso: 'productos.ver', badge: 'Nuevo' },
         { label: 'Tienda', path: '/tienda', permiso: 'productos.ver_tienda' },
         { label: 'Precios por Lista', path: '/precios-listas', permiso: 'productos.ver' },
         { label: 'Banlist MLAs', path: '/mla-banlist', permiso: 'admin.gestionar_mla_banlist' },
