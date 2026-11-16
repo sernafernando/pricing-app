@@ -42,14 +42,22 @@ def test_assert_package_exportable_inbound_blocks_regen() -> None:
 
 
 def test_assert_package_exportable_requires_caja() -> None:
+    from unittest.mock import patch
+
     db = MagicMock()
-    db.query.return_value.filter.return_value.all.return_value = []
+    db.query.return_value.filter.return_value.all.return_value = [
+        SimpleNamespace(item_id=7, codigo="4897098683446", descripcion="UB500"),
+    ]
     pkg = SimpleNamespace(
         status="open",
         lines=[SimpleNamespace(inbound_id=None, qty_export=2, producto_item_id=7)],
     )
-    with pytest.raises(ValueError, match="unidades/caja"):
-        assert_package_exportable(db, pkg)
+    with patch(
+        "app.services.gestion_full.unidades_caja.producto_ids_con_caja_efectiva",
+        return_value=set(),
+    ):
+        with pytest.raises(ValueError, match="unidades por caja.*4897098683446"):
+            assert_package_exportable(db, pkg)
 
 
 def test_write_text_cell_forces_string_not_formula() -> None:
@@ -158,10 +166,12 @@ def test_export_stock_and_caja_helpers_batch_with_in() -> None:
     import inspect
 
     from app.services.gestion_full import excel_export as mod
+    from app.services.gestion_full import unidades_caja as caja_mod
 
     for fn in (
         mod._stock_by_producto_ids,
-        mod._caja_producto_ids,
+        caja_mod.producto_ids_con_caja,
+        caja_mod.producto_ids_con_caja_efectiva,
         mod.recap_qty_export_to_stock,
         mod.assert_ship_qty_within_stock,
         mod.assert_package_exportable,
@@ -169,7 +179,7 @@ def test_export_stock_and_caja_helpers_batch_with_in() -> None:
         src = inspect.getsource(fn)
         assert "db.get(" not in src
     assert ".in_(" in inspect.getsource(mod._stock_by_producto_ids)
-    assert ".in_(" in inspect.getsource(mod._caja_producto_ids)
+    assert ".in_(" in inspect.getsource(caja_mod.producto_ids_con_caja)
 
 
 def test_get_envios_joinedloads_package() -> None:

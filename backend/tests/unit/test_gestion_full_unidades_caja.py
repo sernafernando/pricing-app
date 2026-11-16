@@ -11,6 +11,7 @@ from app.services.gestion_full.unidades_caja import (
     clear_unidades_caja,
     import_unidades_caja_por_ean,
     list_pendientes_unidades_caja,
+    producto_ids_con_caja_efectiva,
     upsert_unidades_caja,
 )
 
@@ -92,12 +93,10 @@ def test_list_pendientes_unidades_caja_package_first_excludes_with_caja() -> Non
     package_q.filter.return_value.distinct.return_value.all.return_value = [(1,)]
     ready_q = MagicMock()
     ready_q.distinct.return_value.all.return_value = [(2,), (1,)]
-    caja_q = MagicMock()
-    caja_q.filter.return_value.all.return_value = []
     product_q = MagicMock()
     product_q.filter.return_value.all.return_value = [product_ready, product_pkg]
 
-    queries = [package_q, ready_q, caja_q, product_q]
+    queries = [package_q, ready_q, product_q]
 
     def query_router(*_args: object, **_kwargs: object) -> MagicMock:
         if not queries:
@@ -106,12 +105,64 @@ def test_list_pendientes_unidades_caja_package_first_excludes_with_caja() -> Non
 
     db.query.side_effect = query_router
 
-    with patch(
-        "app.services.gestion_full.unidades_caja.get_active_package",
-        return_value=pkg,
+    with (
+        patch(
+            "app.services.gestion_full.unidades_caja.get_active_package",
+            return_value=pkg,
+        ),
+        patch(
+            "app.services.gestion_full.unidades_caja.producto_ids_con_caja_efectiva",
+            return_value=set(),
+        ),
     ):
         items = list_pendientes_unidades_caja(db)
 
     assert [i["producto_item_id"] for i in items] == [1, 2]
     assert items[0]["en_paquete"] is True and items[0]["pm_ready"] is True
     assert items[1]["en_paquete"] is False and items[1]["pm_ready"] is True
+
+
+def test_producto_ids_con_caja_efectiva_inherits_single_component_combo() -> None:
+    """PACK X2/X4 of one SKU share the base product's U/caja."""
+    db = MagicMock()
+    with (
+        patch(
+            "app.services.gestion_full.unidades_caja.producto_ids_con_caja",
+            side_effect=[
+                {4486},  # base L530E has caja; packs do not
+                {4486},  # component lookup
+            ],
+        ),
+        patch(
+            "app.services.gestion_full.unidades_caja.combos_disponibles",
+            return_value=True,
+        ),
+        patch(
+            "app.services.gestion_full.unidades_caja.componentes_de",
+            return_value={
+                4693: {4486: 2},
+                4694: {4486: 4},
+            },
+        ),
+    ):
+        covered = producto_ids_con_caja_efectiva(db, {4486, 4693, 4694, 455})
+    assert covered == {4486, 4693, 4694}
+
+
+def test_producto_ids_con_caja_efectiva_skips_multi_component_combo() -> None:
+    db = MagicMock()
+    with (
+        patch(
+            "app.services.gestion_full.unidades_caja.producto_ids_con_caja",
+            return_value=set(),
+        ),
+        patch(
+            "app.services.gestion_full.unidades_caja.combos_disponibles",
+            return_value=True,
+        ),
+        patch(
+            "app.services.gestion_full.unidades_caja.componentes_de",
+            return_value={999: {1: 1, 2: 1}},
+        ),
+    ):
+        assert producto_ids_con_caja_efectiva(db, {999}) == set()
