@@ -1,129 +1,23 @@
-import { useEffect, useRef, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { formatAmount } from '../../../utils/ventasMlFormat';
-import { errorText } from '../../pricing/priceWrites';
-import { promocionesAPI } from '../../../services/api';
 import { resolvePromoName } from '../../promociones/resolvePromoName';
-import { ML_PRICED_TYPES, promoDisplayPrice } from '../../promociones/promoDisplayPrice';
+import { promoDisplayPrice } from '../../promociones/promoDisplayPrice';
 import PromoApplyControl from '../../promociones/PromoApplyControl';
-import SellInOutMarkupExtra from '../../promociones/SellInOutMarkupExtra';
 import { sellInOutText } from '../../promociones/sellInOutMarkup';
+import { CHOOSER_SLOT_LABELS, slotEntries } from './pickPonerPreciosPromos';
+import { AppliedOrSaleCard, PromoFigures } from './MejoresCandidatasFigures';
 import {
-  CHOOSER_SLOT_LABELS,
-  baselineMarkupFromPromos,
-  baselineSellInOutFromPromos,
-  comparableMarkups,
-  hasPickedSlot,
-  parsePromoInstant,
-  pickMejoresCandidatas,
-  slotEntries,
-} from './pickPonerPreciosPromos';
+  SLOT_BADGE,
+  appliedCleanly,
+  dateRange,
+  markupDelta,
+  markupTone,
+  pct,
+  shares,
+} from './mejoresCandidatasHelpers';
+import { useMejoresCandidatas } from './useMejoresCandidatas';
 import promoStyles from '../../promociones/promociones.module.css';
 import styles from './panel.module.css';
-
-// Same per-type badge hue as the Promos tab rows (MlaPromocionesPanel TYPE_BADGE_CLASS).
-const SLOT_BADGE = {
-  SMART: promoStyles.badgeTypeSmart,
-  DEAL: promoStyles.badgeTypeDeal,
-  PRE_NEGOTIATED: promoStyles.badgeTypePreNegotiated,
-  PRICE_MATCHING: promoStyles.badgeTypePriceMatching,
-  LIGHTNING: promoStyles.badgeTypeLightning,
-  SMART_LIGHTNING: promoStyles.badgeTypeSmartLightning,
-  SELLER_CAMPAIGN: promoStyles.badgeTypeSellerCampaign,
-};
-
-const pct = (value) => `${formatAmount(value)}%`;
-
-// dd/mm of an ML promotion date; naive values are UTC (parsePromoInstant), shown in the operator's time zone.
-function shortDate(value) {
-  const ms = parsePromoInstant(value);
-  if (ms == null) return null;
-  const date = new Date(ms);
-  return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
-}
-
-// Figures as unbreakable runs: a narrow column (or a wider font) wraps them only after their separator.
-function dateRange(promo) {
-  const start = shortDate(promo?.start_date);
-  const finish = shortDate(promo?.finish_date);
-  if (start && finish) return [`${start} –`, finish];
-  if (finish) return [`hasta ${finish}`];
-  if (start) return [`desde ${start}`];
-  return ['Sin fecha'];
-}
-
-function shares(promo) {
-  const seller = promo?.payload?.seller_percentage;
-  const meli = promo?.payload?.meli_percentage;
-  if (seller == null && meli == null) return ['—'];
-  return [`${seller != null ? pct(seller) : '—'} /`, meli != null ? pct(meli) : '—'];
-}
-
-/** A figure's runs, each on one line, separated by a space where the line may break. */
-function Runs({ runs }) {
-  return runs.map((run, index) => (
-    <span key={index}>
-      {index > 0 && ' '}
-      <span className={styles.mejoresNowrap}>{run}</span>
-    </span>
-  ));
-}
-
-/** Markup delta of a candidate vs the applied promo (or the sale price), on the basis `comparableMarkups` picks. */
-function markupDelta(promo, statusQuo) {
-  const [candidate, current] = comparableMarkups(promo, statusQuo);
-  if (candidate == null || current == null) return null;
-  const delta = candidate - current;
-  return `${delta >= 0 ? '+' : '−'}${formatAmount(Math.abs(delta))} pp`;
-}
-
-/** The figures every row shows, the applied promo and each candidate alike, so they compare like for like. */
-function PromoFigures({ price, markup, sellInOut, sharesText, dates, delta, deltaLabel }) {
-  return (
-    <>
-      <span className={styles.mejoresFigure}>
-        <span className={styles.mejoresEyebrow}>Precio</span>
-        <span className={`${styles.mejoresValue} ${styles.mejoresNowrap}`}>{price != null ? `$ ${formatAmount(price)}` : '—'}</span>
-      </span>
-      <span className={styles.mejoresFigure}>
-        <span className={styles.mejoresEyebrow}>Markup</span>
-        <span className={`${styles.mejoresValue} ${styles.mejoresNowrap} ${markupTone(markup)}`}>{markup != null ? pct(markup) : '—'}</span>
-        <SellInOutMarkupExtra value={sellInOut} format={pct} />
-        {delta && (
-          <span className={styles.mejoresDelta} aria-label={`${delta} ${deltaLabel}`}>
-            <span className={styles.mejoresNowrap}>{delta}</span> {deltaLabel}
-          </span>
-        )}
-      </span>
-      <span className={styles.mejoresFigure}>
-        <span className={styles.mejoresEyebrow}>Vend. / ML</span>
-        <span className={styles.mejoresValue}>
-          <Runs runs={sharesText} />
-        </span>
-      </span>
-      <span className={styles.mejoresFigure}>
-        <span className={styles.mejoresEyebrow}>Vigencia</span>
-        <span className={styles.mejoresValue}>
-          <Runs runs={dates} />
-        </span>
-      </span>
-    </>
-  );
-}
-
-function markupTone(value) {
-  return value != null && Number(value) < 0 ? styles.mejoresMarkupNegative : styles.mejoresMarkupPositive;
-}
-
-/**
- * An apply went through cleanly: sent or confirmed, and (for an ML-priced offer) ML applied the
- * price the operator confirmed. Anything else keeps the pub open so its feedback stays visible.
- */
-function appliedCleanly(promo, data) {
-  if (data?.status === 'reconciled_applied') return true;
-  if (data?.status !== 'submitted') return false;
-  return !ML_PRICED_TYPES.has(promo.promotion_type) || data.precio_difiere === false;
-}
 
 /**
  * The best candidate per writable MeLi type for a pub already flagged hay_mejores, as cards.
@@ -146,94 +40,25 @@ export default function MejoresCandidatasBlock({
   onUnavailable,
   onSuggested,
 }) {
-  const [loading, setLoading] = useState(true);
-  const [slots, setSlots] = useState(null);
-  const [baselineMarkup, setBaselineMarkup] = useState(null);
-  const [baselineSellInOut, setBaselineSellInOut] = useState(null);
-  // The promo ML applies today (`application_status === 'active'`), null when none: the comparison's left side.
-  const [applied, setApplied] = useState(null);
-  const [message, setMessage] = useState(null);
-  const [descartando, setDescartando] = useState(false);
-  const [unavailable, setUnavailable] = useState(false);
-  // Bumped after a clean apply that stays on the pub: re-reads the candidates.
-  const [reloadToken, setReloadToken] = useState(0);
-  const onUnavailableRef = useRef(onUnavailable);
-  onUnavailableRef.current = onUnavailable;
-  const onSuggestedRef = useRef(onSuggested);
-  onSuggestedRef.current = onSuggested;
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setMessage(null);
-      setUnavailable(false);
-      try {
-        const promoRes = await promocionesAPI.getPromocionesItem(itemId);
-        if (cancelled) return;
-        const promotions = promoRes?.data?.promotions ?? promoRes?.data?.promociones ?? [];
-        // Co-funded started (SMART / PRE_NEGOTIATED / PRICE_MATCHING) matching
-        // sale → same markup as the promo card; else plain getMarkupParaPrecio.
-        let markup = baselineMarkupFromPromos(promotions, baselinePrice);
-        let sellInOut = baselineSellInOutFromPromos(promotions, baselinePrice);
-        if (markup == null && baselinePrice != null && Number.isFinite(Number(baselinePrice))) {
-          try {
-            const res = await promocionesAPI.getMarkupParaPrecio(itemId, Number(baselinePrice));
-            markup = res?.data?.nuestro_markup ?? null;
-            sellInOut = res?.data?.markup_sell_in_out ?? null;
-          } catch {
-            markup = null;
-          }
-        }
-        if (cancelled) return;
-        if (markup == null) {
-          setUnavailable(true);
-          // Nothing is suggested any more: no row in the Promos tab stays marked Sugerida.
-          onSuggestedRef.current?.([]);
-          onUnavailableRef.current?.();
-          return;
-        }
-        setBaselineMarkup(markup);
-        setBaselineSellInOut(sellInOut);
-        setApplied(promotions.find((promo) => promo?.application_status === 'active') ?? null);
-        const picked = pickMejoresCandidatas(promotions, {
-          baselinePrice: Number(baselinePrice),
-          // Compared like the backend flag (S5): with sell in / sell out only when both sides have it.
-          baselineMarkup: markup,
-          baselineSellInOut: sellInOut,
-        });
-        setSlots(hasPickedSlot(picked) ? picked : null);
-        onSuggestedRef.current?.(slotEntries(picked).map(([, promo]) => promo.promotion_id));
-      } catch (err) {
-        if (!cancelled) {
-          // Keep mounted with the error: do not call onUnavailable (MODO would unmount and hide it).
-          setMessage({ tone: 'error', text: errorText(err, 'No se pudieron cargar las candidatas.') });
-          setUnavailable(true);
-          onSuggestedRef.current?.([]);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [itemId, baselinePrice, reloadToken]);
-
-  const discard = async () => {
-    if (descartando) return;
-    setDescartando(true);
-    setMessage(null);
-    try {
-      await promocionesAPI.descartarHayMejores(itemId);
-      onWritten?.();
-      onDismissed?.();
-    } catch (err) {
-      setMessage({ tone: 'error', text: errorText(err, 'No se pudo descartar.') });
-    } finally {
-      setDescartando(false);
-    }
-  };
+  const {
+    loading,
+    slots,
+    baselineMarkup,
+    baselineSellInOut,
+    applied,
+    unavailable,
+    message,
+    descartando,
+    discard,
+    bumpReload,
+  } = useMejoresCandidatas({
+    itemId,
+    baselinePrice,
+    onWritten,
+    onDismissed,
+    onUnavailable,
+    onSuggested,
+  });
 
   const entries = slotEntries(slots);
   const lead = (extra) => (
@@ -258,43 +83,6 @@ export default function MejoresCandidatasBlock({
     ? { nuestro_markup: applied.nuestro_markup, markup_sell_in_out: applied.markup_sell_in_out }
     : { nuestro_markup: baselineMarkup, markup_sell_in_out: baselineSellInOut };
   const deltaLabel = applied ? 'vs aplicada' : 'vs actual';
-  const appliedCard = applied ? (
-    <li className={`${styles.mejoresCard} ${styles.mejoresCardApplied}`} role="group" aria-label="Promo aplicada">
-      <span className={styles.mejoresHead}>
-        <span className={`${promoStyles.badge} ${SLOT_BADGE[applied.promotion_type] || promoStyles.badgeTypeNeutral}`}>
-          {applied.promotion_type}
-        </span>
-        <span className={styles.mejoresMain}>
-          <span className={styles.mejoresEyebrow}>Promo aplicada</span>
-          <span className={styles.mejoresName}>{resolvePromoName(applied) || applied.promotion_id}</span>
-        </span>
-      </span>
-      <PromoFigures
-        price={promoDisplayPrice(applied)}
-        markup={applied.nuestro_markup}
-        sellInOut={applied.markup_sell_in_out}
-        sharesText={shares(applied)}
-        dates={dateRange(applied)}
-      />
-    </li>
-  ) : (
-    <li className={`${styles.mejoresCard} ${styles.mejoresCardApplied}`} role="group" aria-label="Sin promo aplicada">
-      <span className={styles.mejoresHead}>
-        <span className={`${promoStyles.badge} ${promoStyles.badgeTypeNeutral}`}>Actual</span>
-        <span className={styles.mejoresMain}>
-          <span className={styles.mejoresEyebrow}>Sin promo aplicada</span>
-          <span className={styles.mejoresName}>Precio de venta actual</span>
-        </span>
-      </span>
-      <PromoFigures
-        price={baselinePrice != null && Number.isFinite(Number(baselinePrice)) ? Number(baselinePrice) : null}
-        markup={baselineMarkup}
-        sellInOut={baselineSellInOut}
-        sharesText={['—']}
-        dates={['—']}
-      />
-    </li>
-  );
 
   const discardButton = (
     <button type="button" className="btn-tesla ghost sm" disabled={descartando} onClick={discard}>
@@ -317,7 +105,12 @@ export default function MejoresCandidatasBlock({
         <>
           {lead(vigente)}
           <ul className={styles.ponerPreciosChoices}>
-            {appliedCard}
+            <AppliedOrSaleCard
+              applied={applied}
+              baselinePrice={baselinePrice}
+              baselineMarkup={baselineMarkup}
+              baselineSellInOut={baselineSellInOut}
+            />
             {entries.map(([slot, promo], index) => {
               const price = promoDisplayPrice(promo);
               return (
@@ -351,7 +144,7 @@ export default function MejoresCandidatasBlock({
                         onWritten?.();
                         if (!appliedCleanly(promo, data)) return;
                         if (onLeavePub) onLeavePub();
-                        else setReloadToken((token) => token + 1);
+                        else bumpReload();
                       }}
                       onReloadNeeded={onWritten}
                     />
