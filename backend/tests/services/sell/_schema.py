@@ -11,6 +11,7 @@ from typing import Callable, Iterator, Optional, Sequence
 import pytest
 from sqlalchemy import Engine, Table, create_engine, text
 
+from app.models.venta_fuera_pdf import VentaFueraOperacion, VentaFueraOperacionLinea, VentaFueraPdfCarga
 from tests.conftest import POSTGRES_TEST_URL, _postgres_reachable, _restore_pristine_pg_types
 
 
@@ -24,6 +25,11 @@ PUBLICADOS = (
     "CREATE TABLE tb_mercadolibre_items_publicados ("
     "mlp_id SERIAL PRIMARY KEY, mlp_publicationid VARCHAR(50), mlp_official_store_id INTEGER)"
 )
+
+# Ventas por fuera from the PDF reports (canal `fuera` since VPF T4): `app.services.sell.queue` puts triggers on them,
+# so every schema that installs the queue needs them. `ventas_fuera_pdf_cargas.usuario_id` needs a `usuarios` table.
+PDF_TABLES = [VentaFueraPdfCarga.__table__, VentaFueraOperacion.__table__, VentaFueraOperacionLinea.__table__]
+USUARIOS = "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)"
 
 
 @contextmanager

@@ -6,7 +6,7 @@ One row per sale line, keyed like `SellInConsumo` (`canal`, `venta_ref`):
 - `ml`: `venta_ref` = `ml_sale_lines.item_row_id`, queued by
   `app.services.order_metrics.sale_lines_store.store_sale_lines` when a line
   appears, changes or disappears;
-- `pdf`: `venta_ref` = `ventas_fuera_operacion_lineas.id` (ventas por fuera
+- `fuera`: `venta_ref` = `ventas_fuera_operacion_lineas.id` (ventas por fuera
   from the GBP PDF reports, VPF T4), and `tn`: `it_transaction` of
   `ventas_tienda_nube_metricas`, queued by row triggers
   (`app.services.sell.queue`).
@@ -29,7 +29,7 @@ from app.core.database import Base
 
 class SellDirty(Base):
     __tablename__ = "sell_dirty"
-    __table_args__ = (CheckConstraint("canal IN ('ml', 'pdf', 'tn')", name="ck_sell_dirty_canal"),)
+    __table_args__ = (CheckConstraint("canal IN ('ml', 'fuera', 'tn')", name="ck_sell_dirty_canal"),)
 
     canal = Column(String(8), primary_key=True)
     venta_ref = Column(BigInteger, primary_key=True, autoincrement=False)

@@ -38,7 +38,7 @@ BasePorcentaje = Literal["costo", "precio_neto"]
 Moneda = Literal["ARS", "USD"]
 TcModo = Literal["al_cobro", "fijo", "dia_venta"]
 Estado = Literal["activa", "anulada"]
-Canal = Literal["ml", "pdf", "tn"]
+Canal = Literal["ml", "fuera", "tn"]
 EstadoRecalculo = Literal["al_dia", "en_cola", "recalculando", "fallida"]
 
 NOMBRE_MAX = 200
@@ -428,7 +428,7 @@ class SellOutConsumoOut(BaseModel):
 
     id: int
     canal: Canal
-    venta_ref: int  # ML `item_row_id`; pdf: the PDF line id; TN `it_transaction`
+    venta_ref: int  # ML `item_row_id`; fuera / TN `it_transaction`
     fecha_venta: date
     item_id: int
     codigo: Optional[str]

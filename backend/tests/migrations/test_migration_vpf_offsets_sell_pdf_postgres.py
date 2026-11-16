@@ -8,7 +8,7 @@ sale line of each product that lost consumptions, and every campaign that lost r
 The purge is idempotent and runs in the migration's single transaction.
 
 Real Postgres; the tables start as before the migration (no `item_id` on the lines, canal CHECKs with `fuera`, the
-GBP triggers in place). Invented data only (the repo is public).
+GBP triggers in place). Canal `fuera` means the PDF lines after it (orchestrator, L20). Invented data only (the repo is public).
 """
 
 from __future__ import annotations
@@ -35,12 +35,6 @@ pytestmark = pytest.mark.postgres
 
 _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _PATH = os.path.join(_BACKEND_ROOT, "alembic", "versions", "20261119_vpf_offsets_sell_pdf.py")
-_CHECKS = {
-    "sell_dirty": "ck_sell_dirty_canal",
-    "sell_in_consumos": "ck_sell_in_consumos_canal",
-    "sell_in_bono_consumos": "ck_sell_in_bono_consumos_canal",
-    "sell_out_consumos": "ck_sell_out_consumos_canal",
-}
 _TABLES = list(
     dict.fromkeys(
         sell_in_world.TABLES + sell_out_world.TABLES + [OffsetGrupoConsumo.__table__, OffsetIndividualConsumo.__table__]
@@ -91,9 +85,6 @@ def _como_antes(engine: Engine) -> None:
     with engine.begin() as conn:
         conn.execute(text("DROP INDEX IF EXISTS ix_ventas_fuera_operacion_lineas_item_id"))
         conn.execute(text("ALTER TABLE ventas_fuera_operacion_lineas DROP COLUMN item_id"))
-        for tabla, nombre in _CHECKS.items():
-            conn.execute(text(f"ALTER TABLE {tabla} DROP CONSTRAINT {nombre}"))
-            conn.execute(text(f"ALTER TABLE {tabla} ADD CONSTRAINT {nombre} CHECK (canal IN ('ml', 'fuera', 'tn'))"))
         for sql in _ANTES:
             conn.execute(text(sql))
         conn.execute(
@@ -217,7 +208,8 @@ class TestPurga:
         assert _filas(engine, _CONSUMOS) == [
             ("bono", "ml", 4), ("bono", "tn", 5), ("in", "ml", 4), ("in", "tn", 5), ("out", "ml", 4), ("out", "tn", 5),
         ]  # fmt: skip
-        assert ("fuera",) not in _filas(engine, "SELECT DISTINCT canal FROM sell_dirty")
+        # The GBP keys queued before (101-103) are gone; the only `fuera` key left is the PDF line requeued.
+        assert _filas(engine, "SELECT venta_ref FROM sell_dirty WHERE canal = 'fuera'") == [(900_001,)]
         assert _filas(engine, "SELECT tipo_venta FROM offset_grupo_consumo ORDER BY 1") == [("ml",), ("tienda_nube",)]
         assert _filas(engine, "SELECT tipo_venta FROM offset_individual_consumo ORDER BY 1") == [
             ("ml",),
@@ -231,9 +223,9 @@ class TestPurga:
 
         # 2964: its PDF line; 2270: its ML line (no PDF line); 777: no sale left anywhere, nothing to queue.
         assert _filas(engine, "SELECT canal, venta_ref, item_id FROM sell_dirty ORDER BY 1, 2") == [
+            ("fuera", 900_001, 2964),
             ("ml", 104, 2964),
             ("ml", ids["ml_2270"], 2270),
-            ("pdf", 900_001, 2964),
             ("tn", 105, 950),
         ]
         assert _filas(engine, "SELECT campana_id FROM sell_out_dirty") == [(ids["campana_fuera"],)]
@@ -284,11 +276,11 @@ class TestEsquema:
         _step(engine, "upgrade")
         _sql(engine, "DELETE FROM sell_dirty")
 
-        sell_in_world.venta(engine, "fuera", 2964, 1, date(2026, 10, 2))
+        sell_in_world.venta(engine, "gbp", 2964, 1, date(2026, 10, 2))
         _linea_pdf(engine, 900_010, "C2964")
         _sql(engine, "UPDATE ventas_fuera_operacion_lineas SET item_id = 2964 WHERE id = 900_010")
 
-        assert _filas(engine, "SELECT canal, venta_ref FROM sell_dirty") == [("pdf", 900_010)]
+        assert _filas(engine, "SELECT canal, venta_ref FROM sell_dirty") == [("fuera", 900_010)]
         assert (
             _filas(
                 engine,
@@ -297,31 +289,18 @@ class TestEsquema:
             == []
         )
 
-    @pytest.mark.parametrize("tabla", sorted(_CHECKS))
-    def test_the_canal_check_takes_pdf_instead_of_fuera(self, engine: Engine, tabla: str) -> None:
-        _step(engine, "upgrade")
-
-        [(definicion,)] = _filas(
-            engine,
-            "SELECT pg_get_constraintdef(c.oid) FROM pg_constraint AS c "
-            "WHERE c.conname = :n AND c.conrelid = CAST(:t AS regclass)",
-            n=_CHECKS[tabla],
-            t=tabla,
-        )
-        assert "'pdf'" in definicion and "'fuera'" not in definicion
-
     def test_downgrade_restores_the_gbp_triggers_and_drops_the_pdf_ones(self, engine: Engine) -> None:
         _sembrar(engine)
         _step(engine, "upgrade")
 
         _step(engine, "downgrade")
 
-        assert _filas(engine, "SELECT count(*) FROM sell_dirty WHERE canal = 'pdf'") == [(0,)]
+        assert _filas(engine, "SELECT count(*) FROM sell_dirty WHERE canal = 'fuera'") == [(0,)]
         assert _filas(
             engine,
             "SELECT count(*) FROM information_schema.columns WHERE table_name = 'ventas_fuera_operacion_lineas' "
             "AND column_name = 'item_id' AND table_schema = current_schema()",
         ) == [(0,)]
         _sql(engine, "DELETE FROM sell_dirty")
-        ref = sell_in_world.venta(engine, "fuera", 2964, 1, date(2026, 10, 2))
+        ref = sell_in_world.venta(engine, "gbp", 2964, 1, date(2026, 10, 2))
         assert _filas(engine, "SELECT canal, venta_ref FROM sell_dirty") == [("fuera", ref)]

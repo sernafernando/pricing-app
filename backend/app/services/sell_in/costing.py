@@ -32,7 +32,7 @@ so a re-run never rewrites a row only because of precision the column drops.
 Sources per channel (one `venta_ref` keyspace each, like `sell_dirty`):
 
 - `ml`: `ml_sale_lines` (`item_row_id`, `product`, `day`, `qty`);
-- `pdf`: the lines of the ventas por fuera PDF reports
+- `fuera`: the lines of the ventas por fuera PDF reports
   (`app.services.ventas_fuera_pdf.ventas.VentasPdf`, same columns as the synced
   tables; a credit note line is a return); the GBP sync
   (`ventas_fuera_ml_metricas`) is not a source since VPF T4 (owner, S18);
@@ -53,7 +53,7 @@ have exactly one candidate, 89 several, 37 none. A PDF line's customer is its
 document's client code, else its company + printed client name (`VentasPdf`).
 Our sale tables carry no reference to the original sale, so a recompute reads
 the CURRENT rows: a new, deleted or changed return or sale re-queues its line
-through the PDF / TN triggers and the drain recomputes the product. A TN
+through the fuera (PDF) / TN triggers and the drain recomputes the product. A TN
 `cust_id`-only change is not in the triggers' `ALLOCATION_COLUMNS`: it takes
 effect on the product's next recompute (any other change to it, or the
 backfill); a PDF document whose client changes re-queues its lines.
@@ -123,7 +123,7 @@ LOCK_SQL = text(
     "ORDER BY i) AS ordered"
 )
 # Ventas por fuera come only from the GBP PDF reports (owner, S18), never from the GBP sync.
-VENTAS_FACTURADAS = (("pdf", VentasPdf), ("tn", VentaTiendaNubeMetrica))
+VENTAS_FACTURADAS = (("fuera", VentasPdf), ("tn", VentaTiendaNubeMetrica))
 
 
 @dataclass

@@ -1,7 +1,7 @@
 """Sell out on ventas por fuera from the PDF reports (VPF T4, S15/S18/L14).
 
-A campaign credits the PDF lines under canal `pdf` (`venta_ref` = line id), never the GBP sync rows; a percentage on
-cost takes Costo D = 'Precio Costo' x 1.065 (owner, L14); a tactical narrowed to "Por fuera" reaches them.
+A campaign credits the PDF lines under canal `fuera` (`venta_ref` = line id, orchestrator L20), never the GBP sync
+rows; a percentage on cost takes Costo D = 'Precio Costo' x 1.065 (owner, L14).
 Invented data only (the repo is public).
 """
 
@@ -17,8 +17,6 @@ from sqlalchemy.orm import sessionmaker
 
 from app.services.sell_out import queue as sell_out_queue
 from app.services.sell_out.asignacion import recalcular
-from app.services.sell_out.resumen import CANALES
-from app.services.sell_out.tienda_scope import Scope, alcanza
 from tests.services.sell_out import _world as w
 
 pytestmark = pytest.mark.postgres
@@ -50,17 +48,17 @@ def _filas(engine: Engine, campana_id: int) -> List[tuple]:
 
 
 class TestCredito:
-    def test_a_pdf_line_is_credited_under_canal_pdf(self, engine: Engine) -> None:
+    def test_a_pdf_line_is_credited_under_canal_fuera(self, engine: Engine) -> None:
         campana = w.campana(engine, [w.grupo(engine, [TP])])
-        pdf = w.venta(engine, "pdf", 2964, 2, D(2026, 11, 2))
+        pdf = w.venta(engine, "fuera", 2964, 2, D(2026, 11, 2))
 
         _recalcular(engine, campana)
 
-        assert _filas(engine, campana) == [("pdf", pdf, 2, Decimal("20.00"))]
+        assert _filas(engine, campana) == [("fuera", pdf, 2, Decimal("20.00"))]
 
     def test_a_gbp_synced_sale_is_not_credited(self, engine: Engine) -> None:
         campana = w.campana(engine, [w.grupo(engine, [TP])])
-        w.venta(engine, "fuera", 2964, 2, D(2026, 11, 2))
+        w.venta(engine, "gbp", 2964, 2, D(2026, 11, 2))
 
         _recalcular(engine, campana)
 
@@ -68,12 +66,12 @@ class TestCredito:
 
     def test_a_credit_note_line_nets_its_sale(self, engine: Engine) -> None:
         campana = w.campana(engine, [w.grupo(engine, [TP])])
-        pdf = w.venta(engine, "pdf", 2964, 3, D(2026, 11, 2), cliente=101)
-        w.venta(engine, "pdf", 2964, 1, D(2026, 11, 5), signo=-1, cliente=101)
+        pdf = w.venta(engine, "fuera", 2964, 3, D(2026, 11, 2), cliente=101)
+        w.venta(engine, "fuera", 2964, 1, D(2026, 11, 5), signo=-1, cliente=101)
 
         _recalcular(engine, campana)
 
-        assert _filas(engine, campana) == [("pdf", pdf, 2, Decimal("20.00"))]
+        assert _filas(engine, campana) == [("fuera", pdf, 2, Decimal("20.00"))]
 
     def test_percentage_on_cost_takes_costo_d(self, engine: Engine) -> None:
         """10% of Costo D: 'Precio Costo' 1000.00 for 2 units x 1.065 = 1065.00 -> 106.50."""
@@ -81,45 +79,29 @@ class TestCredito:
         campana = w.campana(
             engine, [grupo], tipo="porcentaje", monto_unit=None, porcentaje="10", base_porcentaje="costo"
         )
-        pdf = w.venta(engine, "pdf", 2964, 2, D(2026, 11, 2), precio_costo=Decimal("1000.00"))
+        pdf = w.venta(engine, "fuera", 2964, 2, D(2026, 11, 2), precio_costo=Decimal("1000.00"))
 
         _recalcular(engine, campana)
 
-        assert _filas(engine, campana) == [("pdf", pdf, 2, Decimal("106.50"))]
+        assert _filas(engine, campana) == [("fuera", pdf, 2, Decimal("106.50"))]
 
     def test_percentage_on_net_price_takes_the_line_price(self, engine: Engine) -> None:
         grupo = w.grupo(engine, [TP])
         campana = w.campana(
             engine, [grupo], tipo="porcentaje", monto_unit=None, porcentaje="10", base_porcentaje="precio_neto"
         )
-        pdf = w.venta(engine, "pdf", 2964, 2, D(2026, 11, 2), precio=Decimal("2000.00"))
+        pdf = w.venta(engine, "fuera", 2964, 2, D(2026, 11, 2), precio=Decimal("2000.00"))
 
         _recalcular(engine, campana)
 
-        assert _filas(engine, campana) == [("pdf", pdf, 2, Decimal("200.00"))]
+        assert _filas(engine, campana) == [("fuera", pdf, 2, Decimal("200.00"))]
 
 
 class TestCola:
     def test_a_pdf_line_queues_the_campaigns_that_reach_it(self, engine: Engine) -> None:
         campana = w.campana(engine, [w.grupo(engine, [TP])])
         w.campana(engine, [w.grupo(engine, [{"marca": "MERCUSYS"}])])  # does not reach it
-        pdf = w.venta(engine, "pdf", 2964, 1, D(2026, 11, 2))
+        pdf = w.venta(engine, "fuera", 2964, 1, D(2026, 11, 2))
 
         with sessionmaker(bind=engine)() as db:
-            assert sell_out_queue.campanas_de_ventas(db, [("pdf", pdf)]) == {campana}
-
-
-class TestCanal:
-    def test_the_summary_lists_the_pdf_channel(self) -> None:
-        assert CANALES == ("ml", "pdf", "tn")
-
-    def test_a_tactical_narrowed_to_por_fuera_reaches_pdf_sales(self) -> None:
-        por_fuera = Scope(
-            todas_tiendas=False, tope_compartido=True, oficiales=frozenset(), canales=frozenset({"fuera"})
-        )
-        solo_tn = Scope(
-            todas_tiendas=False, tope_compartido=True, oficiales=frozenset(), canales=frozenset({"tienda_nube"})
-        )
-
-        assert alcanza(por_fuera, "pdf", None) is True
-        assert alcanza(solo_tn, "pdf", None) is False
+            assert sell_out_queue.campanas_de_ventas(db, [("fuera", pdf)]) == {campana}

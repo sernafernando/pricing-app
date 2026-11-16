@@ -14,7 +14,8 @@ Owner on what the GBP sync already produced (L15): "Borrarlos y recalcular desde
 - purge: every consumption computed from it is deleted (`sell_in_consumos`, `sell_in_bono_consumos`,
   `sell_out_consumos` and `sell_dirty` with canal `fuera`; `offset_grupo_consumo` / `offset_individual_consumo`
   with `tipo_venta = 'fuera_ml'`). ML and TN rows are not touched;
-- the canal CHECKs take `pdf` (ventas por fuera from the PDF reports) instead of `fuera`;
+- canal `fuera` now means the PDF lines (`venta_ref` = `ventas_fuera_operacion_lineas.id`, orchestrator L20); the
+  purge above leaves no GBP `it_transaction` under it, so the two key spaces never mix;
 - `sell_dirty` row triggers on the PDF lines (and on a document whose client or date changes), frozen copies of
   `app.services.sell.queue`;
 - requeue: every PDF line with a product, one remaining sale line of each product that lost consumptions (its FIFO
@@ -23,10 +24,11 @@ Owner on what the GBP sync already produced (L15): "Borrarlos y recalcular desde
 
 Group offsets keep a summary per group: after deploy run `app.scripts.recalcular_consumo_grupos` (PR body).
 
-Every statement is idempotent (re-running the upgrade changes nothing) and they all run in the migration's single
-transaction, so a failure leaves everything as it was. Downgrade drops the PDF triggers, deletes the `pdf` rows of
-the queue and of the consumptions, restores the CHECKs and the GBP triggers and drops `item_id`; the purged GBP
-consumptions are not restored (re-running the sell in / sell out backfills rebuilds them).
+Every statement is idempotent: re-running the upgrade leaves the same rows and the same queue (once the drains ran,
+it deletes the `fuera` consumptions they rebuilt from the PDF and queues them again). They all run in the migration's
+single transaction, so a failure leaves everything as it was. Downgrade drops the PDF triggers, deletes the `fuera` rows of
+the queue and of the consumptions (computed from the PDF lines by then), restores the GBP triggers and drops
+`item_id`; the purged GBP consumptions are not restored (the sell in / sell out backfills rebuild them).
 """
 
 from typing import List, Sequence, Union
@@ -37,13 +39,6 @@ revision: str = "20261119_vpf_offsets_sell_pdf"
 down_revision: Union[str, None] = "20261118_ventas_fuera_pdf_operaciones"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
-
-_CHECKS = (
-    ("sell_dirty", "ck_sell_dirty_canal"),
-    ("sell_in_consumos", "ck_sell_in_consumos_canal"),
-    ("sell_in_bono_consumos", "ck_sell_in_bono_consumos_canal"),
-    ("sell_out_consumos", "ck_sell_out_consumos_canal"),
-)
 
 _UPSERT = (
     "ON CONFLICT (canal, venta_ref) DO UPDATE "
@@ -78,14 +73,6 @@ SELECT DISTINCT campana_id FROM sell_out_consumos WHERE canal = 'fuera'
     "DELETE FROM sell_dirty WHERE canal = 'fuera'",
     "DELETE FROM offset_grupo_consumo WHERE tipo_venta = 'fuera_ml'",
     "DELETE FROM offset_individual_consumo WHERE tipo_venta = 'fuera_ml'",
-    *[
-        sql
-        for tabla, nombre in _CHECKS
-        for sql in (
-            f"ALTER TABLE {tabla} DROP CONSTRAINT IF EXISTS {nombre}",
-            f"ALTER TABLE {tabla} ADD CONSTRAINT {nombre} CHECK (canal IN ('ml', 'pdf', 'tn'))",
-        )
-    ],
     """
 CREATE OR REPLACE FUNCTION sell_dirty_enqueue_pdf_linea() RETURNS TRIGGER AS $trg$
 DECLARE
@@ -99,7 +86,7 @@ BEGIN
     IF fila.item_id IS NULL THEN
         RETURN NULL;
     END IF;
-    INSERT INTO sell_dirty (canal, venta_ref, item_id) VALUES ('pdf', fila.id, fila.item_id)
+    INSERT INTO sell_dirty (canal, venta_ref, item_id) VALUES ('fuera', fila.id, fila.item_id)
     ON CONFLICT (canal, venta_ref) DO UPDATE
     SET item_id = EXCLUDED.item_id, enqueued_at = now(), attempts = 0, last_error = NULL;
     PERFORM pg_notify('sell_dirty', '');
@@ -127,7 +114,7 @@ EXECUTE FUNCTION sell_dirty_enqueue_pdf_linea()
 CREATE OR REPLACE FUNCTION sell_dirty_enqueue_pdf_operacion() RETURNS TRIGGER AS $trg$
 BEGIN
     INSERT INTO sell_dirty (canal, venta_ref, item_id)
-    SELECT 'pdf', l.id, l.item_id FROM ventas_fuera_operacion_lineas AS l
+    SELECT 'fuera', l.id, l.item_id FROM ventas_fuera_operacion_lineas AS l
     WHERE l.operacion_id = NEW.id AND l.item_id IS NOT NULL
     ORDER BY l.id
     ON CONFLICT (canal, venta_ref) DO UPDATE
@@ -152,7 +139,7 @@ EXECUTE FUNCTION sell_dirty_enqueue_pdf_operacion()
     # Requeue: the PDF lines (new sales), then one remaining line of each product that lost consumptions.
     f"""
 INSERT INTO sell_dirty (canal, venta_ref, item_id)
-SELECT 'pdf', id, item_id FROM ventas_fuera_operacion_lineas WHERE item_id IS NOT NULL ORDER BY id
+SELECT 'fuera', id, item_id FROM ventas_fuera_operacion_lineas WHERE item_id IS NOT NULL ORDER BY id
 {_UPSERT}
 """,
     f"""
@@ -161,7 +148,7 @@ SELECT v.canal, v.ref, p.item_id
 FROM vpf_t4_productos AS p
 CROSS JOIN LATERAL (
     SELECT u.canal, u.ref FROM (
-        (SELECT 1 AS orden, 'pdf'::text AS canal, l.id::bigint AS ref FROM ventas_fuera_operacion_lineas AS l
+        (SELECT 1 AS orden, 'fuera'::text AS canal, l.id::bigint AS ref FROM ventas_fuera_operacion_lineas AS l
          WHERE l.item_id = p.item_id ORDER BY l.id LIMIT 1)
         UNION ALL
         (SELECT 2, 'ml', s.item_row_id FROM ml_sale_lines AS s WHERE s.product = p.item_id
@@ -189,18 +176,12 @@ DOWNGRADE_SQL: List[str] = [
     "DROP TRIGGER IF EXISTS trg_sell_dirty_pdf_update ON ventas_fuera_operacion_lineas",
     "DROP TRIGGER IF EXISTS trg_sell_dirty_pdf_insert_delete ON ventas_fuera_operacion_lineas",
     "DROP FUNCTION IF EXISTS sell_dirty_enqueue_pdf_linea()",
-    "DELETE FROM sell_in_consumos WHERE canal = 'pdf'",
-    "DELETE FROM sell_in_bono_consumos WHERE canal = 'pdf'",
-    "DELETE FROM sell_out_consumos WHERE canal = 'pdf'",
-    "DELETE FROM sell_dirty WHERE canal = 'pdf'",
-    *[
-        sql
-        for tabla, nombre in _CHECKS
-        for sql in (
-            f"ALTER TABLE {tabla} DROP CONSTRAINT IF EXISTS {nombre}",
-            f"ALTER TABLE {tabla} ADD CONSTRAINT {nombre} CHECK (canal IN ('ml', 'fuera', 'tn'))",
-        )
-    ],
+    "DELETE FROM sell_in_consumos WHERE canal = 'fuera'",
+    "DELETE FROM sell_in_bono_consumos WHERE canal = 'fuera'",
+    "DELETE FROM sell_out_consumos WHERE canal = 'fuera'",
+    "DELETE FROM sell_dirty WHERE canal = 'fuera'",
+    "DELETE FROM offset_grupo_consumo WHERE tipo_venta = 'fuera_ml'",
+    "DELETE FROM offset_individual_consumo WHERE tipo_venta = 'fuera_ml'",
     # Frozen copies of the GBP triggers as main had them before this revision.
     "DROP TRIGGER IF EXISTS trg_sell_dirty_fuera_insert_delete ON ventas_fuera_ml_metricas",
     """

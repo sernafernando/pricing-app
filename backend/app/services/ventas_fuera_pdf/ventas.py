@@ -5,7 +5,8 @@ So these engines read ventas por fuera ONLY from the PDF operations (`ventas_fue
 `ventas_fuera_operaciones`), never from the GBP sync (`ventas_fuera_ml_metricas`).
 
 `VentasPdf` exposes each line with the columns the engines read from a synced sale table, so
-`sell_in.costing.VENTAS_FACTURADAS` treats it like one under its own channel `pdf` (`venta_ref` = the line id):
+`sell_in.costing.VENTAS_FACTURADAS` treats it like one under the channel `fuera` (`venta_ref` = the line id; the
+consumptions the GBP sync produced under `fuera` were purged by `20261119_vpf_offsets_sell_pdf`):
 
 - `it_transaction`: the line id. A re-upload replaces the lines of its scope with new ids; the `sell_dirty` row
   triggers queue the old and the new ones, so the allocation follows (`app.services.sell.queue`);
@@ -22,17 +23,42 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from sqlalchemy import DateTime, case, cast, func, literal
-from sqlalchemy.sql.expression import select
+from sqlalchemy import DateTime, case, literal
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.sql.expression import ColumnElement, select
+from sqlalchemy.sql.functions import FunctionElement
 
 from app.models.venta_fuera_pdf import VentaFueraOperacion, VentaFueraOperacionLinea
 
-CANAL = "pdf"
+CANAL = "fuera"
 # Costo D: 'Precio Costo' x 1.065 (owner, L14: "Costo D (Precio Costo × 1,065)").
 COSTO_D_FACTOR = Decimal("1.065")
 
 _linea = VentaFueraOperacionLinea.__table__
 _operacion = VentaFueraOperacion.__table__
+
+
+class _MedianocheUtc(FunctionElement):
+    """A DATE as a timestamp at midnight UTC: `timezone('UTC', d::timestamp)` on Postgres (a timestamptz whatever the
+    session's time zone), the plain cast elsewhere (SQLite tests)."""
+
+    type = DateTime(timezone=True)
+    inherit_cache = True
+    name = "medianoche_utc"
+
+
+@compiles(_MedianocheUtc)
+def _medianoche_utc(element: _MedianocheUtc, compiler, **kw) -> str:
+    return f"CAST({compiler.process(element.clauses, **kw)} AS DATETIME)"
+
+
+@compiles(_MedianocheUtc, "postgresql")
+def _medianoche_utc_pg(element: _MedianocheUtc, compiler, **kw) -> str:
+    return f"timezone('UTC', CAST({compiler.process(element.clauses, **kw)} AS TIMESTAMP WITHOUT TIME ZONE))"
+
+
+def medianoche_utc(fecha) -> ColumnElement:
+    return _MedianocheUtc(fecha)
 
 
 def costo_d(precio_costo):
@@ -52,7 +78,7 @@ _ventas = (
     select(
         _linea.c.id.label("it_transaction"),
         _linea.c.item_id.label("item_id"),
-        func.timezone("UTC", cast(_operacion.c.fecha, DateTime)).label("fecha_venta"),
+        medianoche_utc(_operacion.c.fecha).label("fecha_venta"),
         literal(1).label("signo"),
         _linea.c.cantidad.label("cantidad"),
         cliente_clave.label("cust_id"),

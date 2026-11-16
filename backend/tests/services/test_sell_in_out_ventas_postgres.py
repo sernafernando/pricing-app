@@ -34,6 +34,7 @@ from app.models.sell_in import (
 )
 from app.models.sell_out import SellOutCampana, SellOutConsumo, SellOutPrograma
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
+from tests.services.sell._schema import PDF_TABLES
 from app.services import sell_in_out_ventas
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _world as w_in
@@ -67,7 +68,8 @@ TABLES = [
     SellOutPrograma.__table__,
     SellOutCampana.__table__,
     SellOutConsumo.__table__,
-    VentaFueraMLMetrica.__table__,
+    VentaFueraMLMetrica.__table__,  # the synced rows the old fuera screen lists
+    *PDF_TABLES,  # the fuera sales since VPF T4
 ]
 
 
@@ -84,7 +86,14 @@ def world(prefix: str) -> Iterator[Engine]:
 
 def clean(engine: Engine) -> None:
     with engine.begin() as conn:
-        for table in ("ventas_fuera_ml_metricas", "sell_in_compras", "sell_in_bonos_marca", "sell_out_campanas"):
+        for table in (
+            "ventas_fuera_ml_metricas",
+            "ventas_fuera_operaciones",  # its lines cascade
+            "ventas_fuera_pdf_cargas",
+            "sell_in_compras",
+            "sell_in_bonos_marca",
+            "sell_out_campanas",
+        ):
             conn.execute(text(f"DELETE FROM {table}"))  # items and consumptions cascade
 
 

@@ -27,7 +27,8 @@ pytestmark = pytest.mark.postgres
 D = date
 TPLINK_ROUTERS = {"marca": "TP-LINK", "categoria": "Routers"}  # reaches 2964 only
 MERCUSYS = {"marca": "MERCUSYS"}  # reaches 950 only
-CANALES = [("fuera", "ventas_fuera_ml_metricas"), ("tn", "ventas_tienda_nube_metricas")]
+# The GBP sync table lost its trigger in VPF T4 (ventas por fuera come from the PDF lines, queued by `sell.queue`).
+CANALES = [("tn", "ventas_tienda_nube_metricas")]
 PORCENTAJE_COSTO = {"tipo": "porcentaje", "monto_unit": None, "porcentaje": "2.0000", "base_porcentaje": "costo"}
 
 
@@ -209,7 +210,7 @@ class TestProducts:
 
 
 class TestSaleCustomer:
-    """A customer-only change on fuera sales: it moves which earlier sale a return reverses
+    """A customer-only change on Tienda Nube sales: it moves which earlier sale a return reverses
     (`costing.resolver_objetivos`), and a return only counts inside a campaign's range."""
 
     @pytest.mark.parametrize("canal, tabla", CANALES)
@@ -230,22 +231,22 @@ class TestSaleCustomer:
 
     def test_it_queues_a_campaign_holding_the_sale_even_if_it_no_longer_reaches_it(self, engine: Engine) -> None:
         cid = w.campana(engine, [w.grupo(engine, [MERCUSYS])])
-        ref = w.venta(engine, "fuera", 2964, 1, D(2026, 11, 10))
-        _consumo(engine, cid, "fuera", ref, 2964, D(2026, 11, 10))
+        ref = w.venta(engine, "tn", 2964, 1, D(2026, 11, 10))
+        _consumo(engine, cid, "tn", ref, 2964, D(2026, 11, 10))
         w.clear_queue(engine)
 
-        w.execute(engine, "UPDATE ventas_fuera_ml_metricas SET cust_id = 999 WHERE it_transaction = :r", r=ref)
+        w.execute(engine, "UPDATE ventas_tienda_nube_metricas SET cust_id = 999 WHERE it_transaction = :r", r=ref)
 
         assert _ids(engine) == [cid]
 
     def test_rewriting_the_same_customer_or_another_column_queues_nothing(self, engine: Engine) -> None:
         w.campana(engine, [w.grupo(engine, [TPLINK_ROUTERS])], **PORCENTAJE_COSTO)
-        ref = w.venta(engine, "fuera", 2964, 1, D(2026, 11, 10))
+        ref = w.venta(engine, "tn", 2964, 1, D(2026, 11, 10))
         w.clear_queue(engine)
 
         w.execute(
             engine,
-            "UPDATE ventas_fuera_ml_metricas SET cust_id = cust_id, costo_total = costo_total, cliente = 'Otro' "
+            "UPDATE ventas_tienda_nube_metricas SET cust_id = cust_id, costo_total = costo_total, cliente = 'Otro' "
             "WHERE it_transaction = :r",
             r=ref,
         )
@@ -273,11 +274,13 @@ class TestSaleCost:
 
     def test_without_an_active_campaign_nothing_is_queued(self, engine: Engine) -> None:
         w.campana(engine, [w.grupo(engine, [TPLINK_ROUTERS])], estado="anulada", **PORCENTAJE_COSTO)
-        ref = w.venta(engine, "fuera", 2964, 1, D(2026, 11, 10))
+        ref = w.venta(engine, "tn", 2964, 1, D(2026, 11, 10))
         w.clear_queue(engine)
 
         w.execute(
-            engine, "UPDATE ventas_fuera_ml_metricas SET costo_total = 1, cust_id = 1 WHERE it_transaction = :r", r=ref
+            engine,
+            "UPDATE ventas_tienda_nube_metricas SET costo_total = 1, cust_id = 1 WHERE it_transaction = :r",
+            r=ref,
         )
 
         assert _ids(engine) == []
@@ -286,12 +289,12 @@ class TestSaleCost:
         otro = w.grupo(engine, [MERCUSYS])  # neither reaches the line: only what they hold queues them
         porcentaje = w.campana(engine, [otro], **PORCENTAJE_COSTO)
         por_unidad = w.campana(engine, [otro])
-        ref = w.venta(engine, "fuera", 2964, 1, D(2026, 11, 10))
-        _consumo(engine, porcentaje, "fuera", ref, 2964, D(2026, 11, 10))
-        _consumo(engine, por_unidad, "fuera", ref, 2964, D(2026, 11, 10))
+        ref = w.venta(engine, "tn", 2964, 1, D(2026, 11, 10))
+        _consumo(engine, porcentaje, "tn", ref, 2964, D(2026, 11, 10))
+        _consumo(engine, por_unidad, "tn", ref, 2964, D(2026, 11, 10))
         w.clear_queue(engine)
 
-        w.execute(engine, "UPDATE ventas_fuera_ml_metricas SET costo_total = 1 WHERE it_transaction = :r", r=ref)
+        w.execute(engine, "UPDATE ventas_tienda_nube_metricas SET costo_total = 1 WHERE it_transaction = :r", r=ref)
 
         assert _ids(engine) == [porcentaje]
 
@@ -304,10 +307,10 @@ class TestSaleDay:
     def test_the_day_is_the_utc_date_under_a_non_utc_session(self, engine: Engine, hora, dentro) -> None:
         cid = w.campana(engine, [w.grupo(engine, [TPLINK_ROUTERS])], **PORCENTAJE_COSTO)  # November
         dia = D(2026, 11, 30) if hora.hour == 23 else D(2026, 12, 1)
-        ref = w.venta(engine, "fuera", 2964, 1, dia)
+        ref = w.venta(engine, "tn", 2964, 1, dia)
         w.execute(
             engine,
-            "UPDATE ventas_fuera_ml_metricas SET fecha_venta = :f WHERE it_transaction = :r",
+            "UPDATE ventas_tienda_nube_metricas SET fecha_venta = :f WHERE it_transaction = :r",
             f=datetime.combine(dia, hora, tzinfo=timezone.utc),
             r=ref,
         )
@@ -316,7 +319,7 @@ class TestSaleDay:
         with engine.begin() as conn:
             conn.exec_driver_sql("SET LOCAL TIME ZONE 'America/Argentina/Buenos_Aires'")
             conn.execute(
-                text("UPDATE ventas_fuera_ml_metricas SET costo_total = 1 WHERE it_transaction = :r"), {"r": ref}
+                text("UPDATE ventas_tienda_nube_metricas SET costo_total = 1 WHERE it_transaction = :r"), {"r": ref}
             )
 
         assert _ids(engine) == ([cid] if dentro else [])
@@ -381,14 +384,14 @@ class TestStatementLevel:
     def test_a_statement_that_changes_nothing_relevant_leaves_a_parked_campaign_untouched(self, engine: Engine) -> None:
         routers = w.grupo(engine, [TPLINK_ROUTERS])
         cid = w.campana(engine, [routers], **PORCENTAJE_COSTO)
-        ref = w.venta(engine, "fuera", 2964, 1, D(2026, 11, 10))
+        ref = w.venta(engine, "tn", 2964, 1, D(2026, 11, 10))
         w.execute(engine, "INSERT INTO sell_out_dirty (campana_id, attempts, last_error) VALUES (:c, 5, 'roto')", c=cid)
 
         w.execute(engine, "UPDATE productos_erp SET descripcion = 'Otra', marca = marca")
         w.execute(engine, "UPDATE offset_grupo_filtros SET created_at = now(), marca = marca")
         w.execute(
             engine,
-            "UPDATE ventas_fuera_ml_metricas SET cliente = 'Otro', costo_total = costo_total WHERE it_transaction = :r",
+            "UPDATE ventas_tienda_nube_metricas SET cliente = 'Otro', costo_total = costo_total WHERE it_transaction = :r",
             r=ref,
         )
 
@@ -440,11 +443,11 @@ class TestSaleEarlyExit:
     def test_a_relevant_statement_does_run_the_reach_query(self, engine: Engine) -> None:
         """Control: the lock does guard the reach query (otherwise the test above proves nothing)."""
         w.campana(engine, [w.grupo(engine, [TPLINK_ROUTERS])], **PORCENTAJE_COSTO)
-        ref = w.venta(engine, "fuera", 2964, 1, D(2026, 11, 10))
+        ref = w.venta(engine, "tn", 2964, 1, D(2026, 11, 10))
 
         with pytest.raises(OperationalError) as caught:
             _con_consumos_bloqueados(
-                engine, f"UPDATE ventas_fuera_ml_metricas SET cust_id = 999 WHERE it_transaction = {ref}"
+                engine, f"UPDATE ventas_tienda_nube_metricas SET cust_id = 999 WHERE it_transaction = {ref}"
             )
         assert isinstance(caught.value.orig, LockNotAvailable)
 

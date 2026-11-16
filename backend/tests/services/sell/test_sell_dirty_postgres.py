@@ -1,8 +1,10 @@
-"""`sell_dirty` triggers (sell-in-sell-out T4): a fuera or Tienda Nube sale
+"""`sell_dirty` triggers (sell-in-sell-out T4): a Tienda Nube sale
 that appears, changes what the allocation reads, or disappears queues its line.
+The fuera (PDF) triggers are in `test_sell_dirty_pdf_postgres` (VPF T4); the GBP
+sync's were dropped with it.
 
-Postgres only: the queue is fed by row triggers on the fuera and Tienda Nube
-sale tables and woken with `pg_notify`.
+Postgres only: the queue is fed by row triggers on the sale tables and woken
+with `pg_notify`.
 The fixture rows are shaped like production rows (it_transaction, item_id,
 cantidad 1.0000, fecha_venta at midnight UTC, sd_id 1, signo 1).
 """
@@ -22,21 +24,19 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_sale_line import MlSaleLine
 from app.models.sell_dirty import SellDirty
-from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.services.sell import queue
-from tests.services.sell._schema import throwaway_schema
+from tests.services.sell._schema import PDF_TABLES, USUARIOS, throwaway_schema
 
 # Children before parents in the cleanup order: `ml_sale_lines` references
 # `ml_order_items_ops`.
 _TABLES = [
-    VentaFueraMLMetrica.__table__,
     VentaTiendaNubeMetrica.__table__,
     MlOrderItemOps.__table__,
     MlSaleLine.__table__,
     SellDirty.__table__,
 ]
-_CANALES: List[Tuple[str, Type]] = [("fuera", VentaFueraMLMetrica), ("tn", VentaTiendaNubeMetrica)]
+_CANALES: List[Tuple[str, Type]] = [("tn", VentaTiendaNubeMetrica)]
 _ids = itertools.count(590_000)
 
 
@@ -51,7 +51,7 @@ def pg_sell_engine() -> Iterator[Engine]:
     """Every table, the function and the triggers live in a throwaway schema:
     always installed from `queue.UPGRADE_SQL`, never inherited from (or skipped
     because of) what other tests left in the shared database."""
-    with throwaway_schema("sell_dirty_trg", _TABLES, after=_install_triggers) as engine:
+    with throwaway_schema("sell_dirty_trg", _TABLES + PDF_TABLES, [USUARIOS], after=_install_triggers) as engine:
         yield engine
 
 

@@ -3,17 +3,16 @@ sell-in tables, the three sale sources, the `sell_dirty` queue WITH its live
 triggers, and bare stand-ins for what they reference.
 
 Rows are shaped like production (read on prod, 2026-10-17):
-- fuera / TN: `fecha_venta` at midnight UTC, `cantidad` a whole NUMERIC, a
+- TN: `fecha_venta` at midnight UTC, `cantidad` a whole NUMERIC, a
   return is `signo = -1` with a POSITIVE `cantidad` (sd_id 3), and TN
   adjustment lines are `signo = 1` with a NEGATIVE `cantidad`;
 - ML: one `ml_sale_lines` row per `ml_order_items_ops` row, `qty` > 0, `day`;
-- a fuera return (409 product returns measured) is `signo = -1`, sd_id 3,
-  POSITIVE `cantidad`, `cust_id` always filled, often the same day as its sale
-  with a higher `it_transaction` (584631 sold, 584724 returned, 2026-09-30);
-- pdf (ventas por fuera loaded from GBP's PDF, T4): one document per line in
-  `ventas_fuera_operaciones`, a return is an Nc whose line has a NEGATIVE
-  `cantidad`, `precio` and `precio_costo` (GBP's sign); invented data only.
-  Since T4 the `fuera` rows (the GBP sync) are NOT a sale source any more.
+- fuera (VPF T4): ventas por fuera loaded from GBP's PDF reports, one document
+  per line in `ventas_fuera_operaciones`; a return is an Nc whose line has a
+  NEGATIVE `cantidad`, `precio` and `precio_costo` (GBP's sign), often the same
+  day as its sale with a higher line id; invented data only. `gbp` writes a row
+  of the GBP sync (`ventas_fuera_ml_metricas`), which is NOT a sale source any
+  more: only to prove it is ignored.
 """
 
 from __future__ import annotations
@@ -44,10 +43,10 @@ from app.models.sell_in import (
     SellInModoProducto,
 )
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
-from app.models.venta_fuera_pdf import VentaFueraOperacion, VentaFueraOperacionLinea, VentaFueraPdfCarga
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.services.sell import queue
-from tests.services.sell._schema import PUBLICADOS, throwaway_schema
+from app.services.ventas_fuera_pdf.ventas import COSTO_D_FACTOR
+from tests.services.sell._schema import PDF_TABLES, PUBLICADOS, throwaway_schema
 
 STUBS = [
     PUBLICADOS,
@@ -69,15 +68,13 @@ TABLES = [
     Auditoria.__table__,
     VentaFueraMLMetrica.__table__,
     VentaTiendaNubeMetrica.__table__,
-    VentaFueraPdfCarga.__table__,  # the PDF sales (canal `pdf`, T4)
-    VentaFueraOperacion.__table__,
-    VentaFueraOperacionLinea.__table__,
+    *PDF_TABLES,  # the fuera sales since VPF T4
     MlOrderItemOps.__table__,
     MlSaleLine.__table__,
     SellDirty.__table__,
     ComboComponente.__table__,  # combo sales count as their components' (combos in sell in / sell out)
 ]
-_MODELS = {"fuera": VentaFueraMLMetrica, "tn": VentaTiendaNubeMetrica}
+_MODELS = {"gbp": VentaFueraMLMetrica, "tn": VentaTiendaNubeMetrica}
 _refs = itertools.count(600_000)
 
 
@@ -197,15 +194,14 @@ def venta(
     precio_costo: Optional[Decimal] = None,
     precio: Optional[Decimal] = None,
 ) -> int:
-    """A sale line in `canal` (ml, fuera, tn, pdf); returns its `venta_ref`. A fuera return is
-    `signo=-1` with a POSITIVE `cantidad` and sd_id 3, its customer always filled. A pdf return
-    (`signo=-1`) is an Nc document whose line has a NEGATIVE quantity and amounts; `cliente` is its
-    client code (None: the document has no summary, so no code), `precio_costo` the line's
+    """A sale line in `canal` (ml, fuera, tn; gbp: a GBP sync row, not a sale); returns its `venta_ref`.
+    A fuera return (`signo=-1`) is an Nc document whose line has a NEGATIVE quantity and amounts;
+    `cliente` is its client code (None: the document has no summary, so no code), `precio_costo` the line's
     'Precio Costo' total (default `PDF_COSTO` per unit) and `precio` its price total without VAT
     (default `PDF_PRECIO`); both given unsigned, signed like GBP here."""
     ref = next(_refs)
     with engine.begin() as conn:
-        if canal == "pdf":
+        if canal == "fuera":
             q = Decimal(cantidad) * signo
             costo = abs(precio_costo) if precio_costo is not None else PDF_COSTO * abs(q)
             total = abs(precio) if precio is not None else PDF_PRECIO
@@ -291,7 +287,30 @@ def venta(
     return ref
 
 
+# A fuera (PDF) line's columns under the names of the synced tables; `costo_total` is Costo D, so its
+# 'Precio Costo' is costo_total / 1.065 (to the cent: Costo D may then be off by less than a cent).
+_LINEA_PDF = {"costo_total": "precio_costo", "monto_total": "precio", "cantidad": "cantidad", "item_id": "item_id"}
+
+
 def update_venta(engine: Engine, canal: str, ref: int, **values) -> None:
+    if canal == "fuera":
+        with engine.begin() as conn:
+            if "fecha_venta" in values:
+                conn.execute(
+                    text(
+                        "UPDATE ventas_fuera_operaciones SET fecha = :f "
+                        "WHERE id = (SELECT operacion_id FROM ventas_fuera_operacion_lineas WHERE id = :r)"
+                    ),
+                    {"f": values.pop("fecha_venta"), "r": ref},
+                )
+            if "costo_total" in values:
+                values["costo_total"] = round(Decimal(values["costo_total"]) / COSTO_D_FACTOR, 2)
+            sets = ", ".join(f"{_LINEA_PDF[column]} = :{column}" for column in values)
+            if sets:
+                conn.execute(
+                    text(f"UPDATE ventas_fuera_operacion_lineas SET {sets} WHERE id = :_ref"), {"_ref": ref, **values}
+                )
+        return
     table = _MODELS[canal].__tablename__
     sets = ", ".join(f"{column} = :{column}" for column in values)
     with engine.begin() as conn:
@@ -300,7 +319,7 @@ def update_venta(engine: Engine, canal: str, ref: int, **values) -> None:
 
 def delete_venta(engine: Engine, canal: str, ref: int) -> None:
     with engine.begin() as conn:
-        if canal == "pdf":  # a re-upload deletes the documents of its scope; their lines cascade
+        if canal == "fuera":  # a re-upload deletes the documents of its scope; their lines cascade
             conn.execute(
                 text(
                     "DELETE FROM ventas_fuera_operaciones WHERE id = "

@@ -66,8 +66,15 @@ class TestMigrationGraph:
         fuera, tn = later.SELL_DIRTY_UP
         swaps = {"CREATE TRIGGER trg_sell_dirty_fuera_update": fuera, "CREATE TRIGGER trg_sell_dirty_tn_update": tn}
         installed = [next((new for key, new in swaps.items() if key in s), s) for s in _module()._TRIGGERS_UP]
-        assert installed == queue.UPGRADE_SQL
-        assert _module()._TRIGGERS_DOWN == queue.DOWNGRADE_SQL
+        # 20261119_vpf_offsets_sell_pdf dropped the fuera triggers of the GBP sync table (its downgrade restores these
+        # copies) and added the PDF lines' ones (`sell_dirty_enqueue_pdf_*`).
+        vpf = _module(os.path.join(_BACKEND_ROOT, "alembic", "versions", "20261119_vpf_offsets_sell_pdf.py"))
+        fuera = [s for s in installed if "ventas_fuera_ml_metricas" in s]
+        assert len(fuera) == 2 and set(fuera) <= set(vpf.DOWNGRADE_SQL)
+        assert [s for s in installed if s not in fuera] == [s for s in queue.UPGRADE_SQL if "_pdf_" not in s]
+        assert [s for s in _module()._TRIGGERS_DOWN if "ventas_fuera_ml_metricas" not in s] == [
+            s for s in queue.DOWNGRADE_SQL if "_pdf_" not in s
+        ]
 
 
 @pytest.fixture()

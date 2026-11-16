@@ -88,7 +88,7 @@ class TestBase:
     def test_the_base_is_the_ml_cost_per_unit_and_a_sale_with_unknown_cost_is_pending(self, engine: Engine) -> None:
         bono = b.bono_costo(engine, "10.00")
         ml = w.venta(engine, "ml", 2964, 2, D(2026, 10, 5))  # mcosto 30 for 2 units: 15.00 each, without VAT
-        _fuera(engine, 2964, 1, D(2026, 10, 6), costo_unit=None)  # no costo_total: unknown, skipped
+        w.venta(engine, "tn", 2964, 1, D(2026, 10, 6))  # no costo_total: unknown, skipped
 
         result = _items(engine, 2964)
 

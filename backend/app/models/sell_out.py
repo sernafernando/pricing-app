@@ -64,7 +64,7 @@ campaign by the T7 allocator; `SellOutDirty` queues the campaigns to rebuild.
 `SellInConsumo.venta_ref`: `ml_sale_lines` is deleted and reinserted on every
 store, so a physical FK would either block the store or cascade the
 consumptions away. The allocator owns that reference; its keyspace is the
-channel's (`ml`: `ml_sale_lines.item_row_id`; `pdf`: `ventas_fuera_operacion_lineas.id`,
+channel's (`ml`: `ml_sale_lines.item_row_id`; `fuera`: `ventas_fuera_operacion_lineas.id`,
 ventas por fuera from the GBP PDF reports since VPF T4; `tn`: the `it_transaction` of
 `ventas_tienda_nube_metricas`).
 """
@@ -279,7 +279,7 @@ class SellOutConsumo(Base):
         UniqueConstraint(
             "campana_id", "canal", "venta_ref", "item_id", name="uq_sell_out_consumos_campana_canal_venta_item"
         ),
-        CheckConstraint("canal IN ('ml', 'pdf', 'tn')", name="ck_sell_out_consumos_canal"),
+        CheckConstraint("canal IN ('ml', 'fuera', 'tn')", name="ck_sell_out_consumos_canal"),
         CheckConstraint("unidades > 0", name="ck_sell_out_consumos_unidades_positivas"),
         CheckConstraint("tc_venta IS NULL OR tc_venta > 0", name="ck_sell_out_consumos_tc_venta_positivo"),
         Index("ix_sell_out_consumos_canal_venta", "canal", "venta_ref"),

@@ -10,7 +10,7 @@ Writers, all inside the transaction that changes the sale:
   so the ERP sync rewriting a row with the same values queues nothing. An
   UPDATE that changes `it_transaction` queues both keys. The trigger does one
   upsert and one notify per row: no reads, no allocation work.
-- `ventas_fuera_operacion_lineas` (`canal = 'pdf'`, ventas por fuera from the
+- `ventas_fuera_operacion_lineas` (`canal = 'fuera'`, ventas por fuera from the
   GBP PDF reports, VPF T4): row triggers keyed by the line `id`. A line with a
   product queues on INSERT and DELETE (a re-upload deletes the lines of its
   scope, also through the document's cascade, and inserts new ones), and on an
@@ -99,7 +99,7 @@ BEGIN
     IF fila.item_id IS NULL THEN
         RETURN NULL;
     END IF;
-    INSERT INTO sell_dirty (canal, venta_ref, item_id) VALUES ('pdf', fila.id, fila.item_id)
+    INSERT INTO sell_dirty (canal, venta_ref, item_id) VALUES ('fuera', fila.id, fila.item_id)
     ON CONFLICT (canal, venta_ref) DO UPDATE
     SET item_id = EXCLUDED.item_id, enqueued_at = now(), attempts = 0, last_error = NULL;
     PERFORM pg_notify('sell_dirty', '');
@@ -125,7 +125,7 @@ EXECUTE FUNCTION sell_dirty_enqueue_pdf_linea()
 CREATE OR REPLACE FUNCTION sell_dirty_enqueue_pdf_operacion() RETURNS TRIGGER AS $trg$
 BEGIN
     INSERT INTO sell_dirty (canal, venta_ref, item_id)
-    SELECT 'pdf', l.id, l.item_id FROM ventas_fuera_operacion_lineas AS l
+    SELECT 'fuera', l.id, l.item_id FROM ventas_fuera_operacion_lineas AS l
     WHERE l.operacion_id = NEW.id AND l.item_id IS NOT NULL
     ORDER BY l.id
     ON CONFLICT (canal, venta_ref) DO UPDATE
@@ -310,7 +310,7 @@ _ENQUEUE_COMBOS_SQL = text(
 WITH ventas AS (
     SELECT 'ml' AS canal, item_row_id AS ref, product AS item FROM ml_sale_lines WHERE product = ANY(:combos)
     UNION ALL
-    SELECT 'pdf', id, item_id FROM ventas_fuera_operacion_lineas WHERE item_id = ANY(:combos)
+    SELECT 'fuera', id, item_id FROM ventas_fuera_operacion_lineas WHERE item_id = ANY(:combos)
     UNION ALL
     SELECT 'tn', it_transaction, item_id FROM ventas_tienda_nube_metricas WHERE item_id = ANY(:combos)
 ), queued AS (
