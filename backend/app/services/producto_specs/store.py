@@ -8,7 +8,7 @@ Pre-load, per field, first source with a readable value wins:
      then most recently updated on ML, then lowest MLA id);
   2. `erp_name`: the ERP product name;
   3. `combo` (PCs): the combo components whose category is a PC part (48-55).
-A field whose origin is `manual` is never touched, value or emptiness. Running it twice with the same data writes
+A field whose origin is `manual` or `no_aplica` is never touched, value or emptiness. Running it twice with the same data writes
 nothing the second time. Categorical values go through the field's normalized list (`producto_spec_valores`): an
 existing value with the same identity (case and spacing folded) is reused as it is spelled there; a new one is added.
 
@@ -37,6 +37,8 @@ from app.services.producto_specs.campos import (
     ORIGEN_COMBO,
     ORIGEN_MANUAL,
     ORIGEN_ML,
+    ORIGEN_NO_APLICA,
+    ORIGENES_A_MANO,
     ORIGEN_NOMBRE_ERP,
     PC,
     POR_NOMBRE,
@@ -245,9 +247,9 @@ def _merge(
     origenes: dict[str, str] = {}
     aplicables = {c.nombre for c in campos_de(prod.tipo)}
     for campo in NOMBRES:
-        if origenes_actuales.get(campo) == ORIGEN_MANUAL:
+        if origenes_actuales.get(campo) in ORIGENES_A_MANO:
             values[campo] = actual.get(campo)
-            origenes[campo] = ORIGEN_MANUAL
+            origenes[campo] = origenes_actuales[campo]
             continue
         values[campo] = None
         if campo not in aplicables:
@@ -282,7 +284,7 @@ def _same(actual: dict, values: dict, origenes: dict, fuente_mla: Optional[str])
 
 
 def precargar(db: Session, item_ids: Optional[Iterable[int]] = None, *, now: Optional[datetime] = None) -> dict:
-    """Pre-load the given products (all notebooks and PCs when None). Idempotent; never touches manual fields.
+    """Pre-load the given products (all notebooks and PCs when None). Idempotent; never touches manual or no-aplica fields.
     Returns the counts {productos, creados, actualizados, sin_cambios}. The caller commits."""
     now = now or datetime.now(UTC)
     prods = productos(db, item_ids)
@@ -377,9 +379,26 @@ def _validar(campo: str, value: Any, tipo: str, listas: Listas) -> Any:
     return int(number)
 
 
-def editar(db: Session, item_id: int, cambios: dict[str, Any], usuario_id: int) -> None:
-    """Set the given fields by hand: each one becomes `manual` (an empty value too), so no pre-load changes it."""
+def editar(
+    db: Session,
+    item_id: int,
+    cambios: dict[str, Any],
+    usuario_id: int,
+    no_aplica: Optional[dict[str, bool]] = None,
+) -> None:
+    """Set the given fields by hand: each one becomes `manual` (an empty value too), so no pre-load changes it.
+
+    `no_aplica` marks fields (True) as not applying to this product: empty, origin `no_aplica`, complete, never
+    pre-loaded; or clears that mark (False): the field is empty again, without origin, so the next pre-load fills it.
+    """
+    no_aplica = no_aplica or {}
     prod = producto(db, item_id)
+    aplicables = {c.nombre for c in campos_de(prod.tipo)}
+    for campo, marcar in no_aplica.items():
+        if campo not in aplicables:
+            raise ValorNoValido(campo, f"no aplica a {prod.tipo}")
+        if marcar and campo in cambios:
+            raise ValorNoValido(campo, "no puede tener un valor y estar marcado como no aplica")
     listas = Listas(db)
     validated = {campo: _validar(campo, value, prod.tipo, listas) for campo, value in cambios.items()}
     if db.execute(text("SELECT 1 FROM producto_specs WHERE item_id = :i"), {"i": item_id}).first() is None:
@@ -391,6 +410,13 @@ def editar(db: Session, item_id: int, cambios: dict[str, Any], usuario_id: int) 
     origenes = dict(row.origenes or {})
     for campo in validated:
         origenes[campo] = ORIGEN_MANUAL
+    for campo, marcar in no_aplica.items():
+        if marcar:
+            validated[campo] = None
+            origenes[campo] = ORIGEN_NO_APLICA
+        elif origenes.get(campo) == ORIGEN_NO_APLICA and campo not in cambios:
+            validated[campo] = None
+            del origenes[campo]
     db.execute(
         _SPECS.update()
         .where(_SPECS.c.item_id == item_id)
@@ -404,7 +430,11 @@ def editar(db: Session, item_id: int, cambios: dict[str, Any], usuario_id: int) 
 
 
 def _completos_sql(tipo: str) -> str:
-    return " + ".join(f"(s.{c.nombre} IS NOT NULL)::int" for c in campos_de(tipo))
+    """How many of the type's fields are complete: with a value, or marked as not applying."""
+    return " + ".join(
+        f"(s.{c.nombre} IS NOT NULL OR s.origenes ->> '{c.nombre}' IS NOT DISTINCT FROM '{ORIGEN_NO_APLICA}')::int"
+        for c in campos_de(tipo)
+    )
 
 
 def listar(
@@ -417,7 +447,8 @@ def listar(
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[int, list[dict]]:
-    """Notebooks and PCs with how many of their fields are filled. `incompletos`: some field still empty."""
+    """Notebooks and PCs with how many of their fields are complete (filled, or marked as not applying).
+    `incompletos`: some applicable field still empty."""
     total_nb, total_pc = len(campos_de(NOTEBOOK)), len(campos_de(PC))
     sql = f"""
         WITH base AS (

@@ -19,12 +19,15 @@ TIPOS = (NOTEBOOK, PC)
 CATEGORIAS = {46: NOTEBOOK, 47: PC}
 SUBCATEGORIAS_EXCLUIDAS = (3908, 3964)  # FUNDAS, BASE REFRIGERANTE
 
-# Where a field's value came from. `manual` is never overwritten by a pre-load.
+# Where a field's value came from. `manual` and `no_aplica` (set by hand: the field does not apply to this product, its
+# value stays empty and it counts as complete) are never overwritten by a pre-load.
 ORIGEN_ML = "ml"
 ORIGEN_NOMBRE_ERP = "erp_name"
 ORIGEN_COMBO = "combo"
 ORIGEN_MANUAL = "manual"
-ORIGENES = (ORIGEN_ML, ORIGEN_NOMBRE_ERP, ORIGEN_COMBO, ORIGEN_MANUAL)
+ORIGEN_NO_APLICA = "no_aplica"
+ORIGENES = (ORIGEN_ML, ORIGEN_NOMBRE_ERP, ORIGEN_COMBO, ORIGEN_MANUAL, ORIGEN_NO_APLICA)
+ORIGENES_A_MANO = (ORIGEN_MANUAL, ORIGEN_NO_APLICA)
 
 NUMERICO = "numerico"
 CATEGORICO = "categorico"

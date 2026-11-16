@@ -53,7 +53,7 @@ class ProductoSpec(Base):
     refrigeracion_marca = Column(String(MAX_VALOR_LENGTH))
     refrigeracion_modelo = Column(String(MAX_VALOR_LENGTH))
 
-    origenes = Column(JSONB, nullable=False, server_default="{}")  # {field: ml | erp_name | combo | manual}
+    origenes = Column(JSONB, nullable=False, server_default="{}")  # {field: ml | erp_name | combo | manual | no_aplica}
     fuente_mla = Column(Text)  # the ML publication the `ml` fields came from (the winner, see the pre-load)
     precargado_at = Column(DateTime(timezone=True))
     updated_by = Column(Integer)  # usuarios.id of the last manual edit

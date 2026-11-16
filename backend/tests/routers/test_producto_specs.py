@@ -294,11 +294,86 @@ class TestManual:
         assert response.status_code == 422
 
 
+class TestNoAplica:
+    """S10: a field can be marked "no aplica" per product; it stays empty, no pre-load fills it, and it counts as
+    complete."""
+
+    def test_no_aplica_survives_a_re_preload(self, client, pg, editor):
+        with pg.begin() as conn:
+            product(conn, 10, NB_NAME)
+        preload_all(pg)
+        assert fields(read(client, editor, 10))["cpu_modelo"] == ("13620H", "erp_name")
+
+        response = client.put(f"{BASE}/10", headers=editor, json={"no_aplica": {"cpu_modelo": True}})
+        assert response.status_code == 200, response.text
+        assert fields(response.json())["cpu_modelo"] == (None, "no_aplica")
+
+        assert client.post(f"{BASE}/10/precargar", headers=editor).status_code == 200
+        preload_all(pg)
+
+        assert fields(read(client, editor, 10))["cpu_modelo"] == (None, "no_aplica")
+
+    def test_a_product_with_every_field_filled_or_no_aplica_is_complete(self, client, pg, editor):
+        with pg.begin() as conn:
+            product(conn, 10, NB_NAME)
+            product(conn, 11, "NB HP", marca="HP")
+        preload_all(pg)
+        vacios = [campo for campo, (valor, _) in fields(read(client, editor, 10)).items() if valor is None]
+        assert vacios  # the ERP name alone leaves fields empty
+
+        response = client.put(f"{BASE}/10", headers=editor, json={"no_aplica": dict.fromkeys(vacios, True)})
+
+        assert response.status_code == 200, response.text
+        assert (response.json()["completos"], response.json()["total"]) == (17, 17)
+        listed = client.get(BASE, headers=editor, params={"incompletos": "true"}).json()
+        assert [row["item_id"] for row in listed["items"]] == [11]
+        row = client.get(BASE, headers=editor, params={"q": "10"}).json()["items"][0]
+        assert (row["item_id"], row["completos"], row["total"]) == (10, 17, 17)
+
+    def test_clearing_no_aplica_makes_it_incomplete_again(self, client, pg, editor):
+        with pg.begin() as conn:
+            product(conn, 10, NB_NAME)
+        preload_all(pg)
+        vacios = [campo for campo, (valor, _) in fields(read(client, editor, 10)).items() if valor is None]
+        client.put(f"{BASE}/10", headers=editor, json={"no_aplica": dict.fromkeys(vacios, True)})
+
+        response = client.put(f"{BASE}/10", headers=editor, json={"no_aplica": {vacios[0]: False}})
+
+        assert response.status_code == 200, response.text
+        assert fields(response.json())[vacios[0]] == (None, None)
+        assert response.json()["completos"] == 16
+        listed = client.get(BASE, headers=editor, params={"incompletos": "true"}).json()
+        assert [row["item_id"] for row in listed["items"]] == [10]
+
+    def test_a_field_cannot_get_a_value_and_no_aplica_at_once(self, client, pg, editor):
+        with pg.begin() as conn:
+            product(conn, 10, NB_NAME)
+        response = client.put(
+            f"{BASE}/10", headers=editor, json={"valores": {"ram_gb": 8}, "no_aplica": {"ram_gb": True}}
+        )
+        assert response.status_code == 422
+        assert "ram_gb" in response.text
+
+    def test_no_aplica_on_a_field_the_type_does_not_have_is_rejected(self, client, pg, editor):
+        with pg.begin() as conn:
+            product(conn, 20, "PC ARMADA", cat_id=47)
+        response = client.put(f"{BASE}/20", headers=editor, json={"no_aplica": {"pantalla_hz": True}})
+        assert response.status_code == 422
+        assert "pantalla_hz" in response.text
+
+    def test_an_edit_with_nothing_to_change_is_rejected(self, client, pg, editor):
+        with pg.begin() as conn:
+            product(conn, 10, NB_NAME)
+        assert client.put(f"{BASE}/10", headers=editor, json={}).status_code == 422
+        assert client.put(f"{BASE}/10", headers=editor, json={"valores": {}, "no_aplica": {}}).status_code == 422
+
+
 class TestPermissions:
     def test_editing_needs_the_edit_permission(self, client, pg, reader):
         with pg.begin() as conn:
             product(conn, 10, NB_NAME)
         assert client.put(f"{BASE}/10", headers=reader, json={"valores": {"ram_gb": 8}}).status_code == 403
+        assert client.put(f"{BASE}/10", headers=reader, json={"no_aplica": {"ram_gb": True}}).status_code == 403
         assert client.post(f"{BASE}/10/precargar", headers=reader).status_code == 403
         assert client.post(f"{BASE}/valores/gpu_marca", headers=reader, json={"valor": "X"}).status_code == 403
         assert read(client, reader, 10)["can_edit"] is False

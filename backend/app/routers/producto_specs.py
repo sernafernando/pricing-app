@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_permiso
@@ -19,7 +19,7 @@ from app.core.database import get_db
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
 from app.services.producto_specs import store
-from app.services.producto_specs.campos import CAMPOS, NOMBRES, POR_NOMBRE, campos_de
+from app.services.producto_specs.campos import CAMPOS, NOMBRES, ORIGEN_NO_APLICA, POR_NOMBRE, campos_de
 
 PERMISO_VER = "productos.ver"
 PERMISO_EDITAR = "productos.editar_specs"
@@ -52,7 +52,7 @@ class ValorCampo(BaseModel):
     grupo: str
     etiqueta: str
     valor: Any
-    origen: Optional[str]  # ml | erp_name | combo | manual; None: empty and never set by hand
+    origen: Optional[str]  # ml | erp_name | combo | manual | no_aplica; None: empty and never set by hand
 
 
 class ProductoSpecsResponse(BaseModel):
@@ -62,7 +62,7 @@ class ProductoSpecsResponse(BaseModel):
     descripcion: Optional[str]
     marca: Optional[str]
     campos: list[ValorCampo]
-    completos: int
+    completos: int  # fields with a value or marked as not applying
     total: int
     fuente_mla: Optional[str]
     precargado_at: Optional[datetime]
@@ -88,8 +88,18 @@ class ListaResponse(BaseModel):
 
 
 class EditarRequest(BaseModel):
+    """`valores`: fields set by hand (`manual`). `no_aplica`: true marks a field as not applying to the product (empty,
+    complete, never pre-loaded); false clears that mark."""
+
     model_config = ConfigDict(extra="forbid")
-    valores: dict[str, Optional[Any]] = Field(min_length=1)
+    valores: dict[str, Optional[Any]] = Field(default_factory=dict)
+    no_aplica: dict[str, bool] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _algo_que_cambiar(self) -> "EditarRequest":
+        if not self.valores and not self.no_aplica:
+            raise ValueError("Nada que cambiar: valores o no_aplica")
+        return self
 
 
 class ValorRequest(BaseModel):
@@ -121,7 +131,7 @@ def _response(prod: store.Producto, row: Optional[dict], can_edit: bool) -> Prod
         descripcion=prod.descripcion,
         marca=prod.marca,
         campos=campos,
-        completos=sum(1 for c in campos if c.valor is not None),
+        completos=sum(1 for c in campos if c.valor is not None or c.origen == ORIGEN_NO_APLICA),
         total=len(campos),
         fuente_mla=row.get("fuente_mla"),
         precargado_at=row.get("precargado_at"),
@@ -229,11 +239,11 @@ def editar(
     user: Usuario = Depends(require_permiso(PERMISO_EDITAR)),
     store_db: Session = Depends(get_producto_specs_db),
 ):
-    unknown = sorted(set(body.valores) - set(NOMBRES))
+    unknown = sorted((set(body.valores) | set(body.no_aplica)) - set(NOMBRES))
     if unknown:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Campos desconocidos: {', '.join(unknown)}")
     try:
-        store.editar(store_db, item_id, body.valores, user.id)
+        store.editar(store_db, item_id, body.valores, user.id, body.no_aplica)
     except store.ProductoNoEncontrado:
         store_db.rollback()
         raise HTTPException(status.HTTP_404_NOT_FOUND, "El producto no es una notebook ni una PC") from None
