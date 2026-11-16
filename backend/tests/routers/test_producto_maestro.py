@@ -380,7 +380,23 @@ class TestTextos:
         texto = patch(client, editor, {"textos": {"titulo_ml": {"fuente": None}}}).json()["textos"]["titulo_ml"]
 
         assert texto["fuente"] == "gbp" and texto["elegida"] is False
-        assert stored(pg, "fuente_titulo_ml") is None and stored(pg, "titulo") is None
+        assert stored(pg, "fuente_titulo_ml") is None
+
+    def test_choosing_a_source_keeps_the_publicaciones_ml_copy(self, client, pg, editor):
+        """`titulo` / `descripcion` are also the copy of the chosen publication (T7): a source never clears them."""
+        with pg.begin() as conn:
+            product(conn)
+            publication(conn, "MLA1", title="Titulo ML", desc="Descripcion ML")
+            conn.execute(
+                text(
+                    "INSERT INTO productos_propios (item_id, fuente_mla, titulo, descripcion) "
+                    "VALUES (455, 'MLA1', 'Copia', 'Desc')"
+                )
+            )
+
+        patch(client, editor, {"textos": {"titulo_ml": {"fuente": "gbp"}, "descripcion_ml": {"fuente": None}}})
+
+        assert (stored(pg, "titulo"), stored(pg, "descripcion")) == ("Copia", "Desc")
 
 
 class TestUnidadesCaja:

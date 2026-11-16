@@ -273,8 +273,11 @@ def _texto_values(clave: str, fuente: Optional[str], contenido: Optional[str]) -
     texto = TEXTOS[clave]
     if fuente is not None and fuente != PROPIO and fuente not in texto.fuentes:
         raise DatoNoValido(f"{clave}: la fuente {fuente} no aplica")
-    propio = (contenido or "").strip() if fuente == PROPIO else None
-    if fuente == PROPIO and not propio:
+    if fuente != PROPIO:
+        # The stored text is left alone: `titulo` / `descripcion` are also the Publicaciones ML copy (T7).
+        return {texto.fuente: fuente}
+    propio = (contenido or "").strip()
+    if not propio:
         raise DatoNoValido(f"{clave}: el texto propio no puede quedar vacío")
     return {texto.fuente: fuente, texto.columna: propio}
 
