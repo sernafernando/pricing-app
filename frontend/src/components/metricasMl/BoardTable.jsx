@@ -20,6 +20,7 @@ import { LEVEL_LABELS, LEVEL_NOUNS, nodeId } from '../../utils/metricasMlLevels'
 import { ADS_ROW_BADGES, adsRowKind } from '../../utils/metricasMlAds';
 import { tpCellState, tpIncompleteTitle } from '../../utils/metricasMlTp';
 import { sellOutEstimatedTitle, sellOutPendingTitle } from '../../utils/metricasMlSell';
+import { ROW_CANAL_LABELS, isSinProducto } from '../../utils/metricasMlCanal';
 import { useVirtualRows } from '../kit/useVirtualRows';
 import styles from './BoardTable.module.css';
 
@@ -317,7 +318,14 @@ function ProductCell({ row, groupBy, canSeeMargin, isSub, depth, expanded, onTog
               : [publicationDescriptor(row), row.title].filter(Boolean).join(' · ')
           }
         >
-          {isProduct ? (
+          {isProduct && isSinProducto(row) ? (
+            // A fuera line whose code is no catalog product: no brand, no publication; its code when it has one.
+            <>
+              <span className={styles.sku}>{row.sku || '—'}</span>
+              <span className={styles.dotSep}>·</span>
+              <span className={styles.sinProductoTag}>Sin producto</span>
+            </>
+          ) : isProduct ? (
             <>
               {row.sku && <span className={styles.sku}>{row.sku}</span>}
               {row.marca && (
@@ -371,7 +379,15 @@ function renderCell(colId, row, ctx) {
         />
       );
     }
+    case 'canal':
+      return row.canal ? (
+        <span className={styles.canalTag} data-canal={row.canal}>
+          {ROW_CANAL_LABELS[row.canal] ?? row.canal}
+        </span>
+      ) : null;
     case 'markup': {
+      // A sin producto row has no cost: no markup nor Total Gauss, whatever the figure.
+      if (isSinProducto(row)) return <span className={`${styles.markup} ${styles.muted}`}>—</span>;
       const tone = markupTone(row.markup_pct);
       return <span className={`${styles.markup} ${tone ? styles[`tone_${tone}`] : styles.muted}`}>{formatPct(row.markup_pct)}</span>;
     }
@@ -401,6 +417,7 @@ function renderCell(colId, row, ctx) {
         </span>
       );
     case 'total_gauss': {
+      if (isSinProducto(row)) return <span className={`${styles.money} ${styles.muted}`}>—</span>;
       const tone = moneyTone(row.total_gauss);
       const mTone = markupTone(row.markup_pct);
       return (
@@ -417,6 +434,13 @@ function renderCell(colId, row, ctx) {
         </div>
       );
     }
+    case 'costo_canal':
+      // A sin producto row has no cost (C5 sends null; never trust a figure for it).
+      return (
+        <span className={`${styles.money} ${isSinProducto(row) || row.costo == null ? styles.muted : ''}`} data-money>
+          {isSinProducto(row) ? '—' : formatSignedMoney(row.costo)}
+        </span>
+      );
     case 'total_tp':
       return <TotalTpCell value={row.total_tp} incompletos={row.tp_incompletos} />;
     case 'ads_cost':
@@ -478,6 +502,7 @@ const NUMERIC = new Set([
   'markup',
   'gross',
   'total_gauss',
+  'costo_canal',
   'total_tp',
   'ads_cost',
   'costo',

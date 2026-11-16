@@ -277,3 +277,30 @@
   font-variant-numeric: tabular-nums;
   color: var(--cf-text-primary);
 }
+
+/* canal=todo (vpf-metricas-canal-fe, mockup 1): the card's figure per channel, label left and amount right. */
+.split {
+  display: grid;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.splitLine {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.splitLine strong {
+  font-family: var(--font-mono);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  white-space: nowrap;
+}
+
+/* Todo and Por fuera have no sparkline at the bottom: the figures sit under the label, like the mockups. */
+.cards[data-canal] .card {
+  justify-content: flex-start;
+}

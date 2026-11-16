@@ -61,3 +61,10 @@
   text-align: right;
   white-space: nowrap;
 }
+
+/* canal=todo: "· solo ventas ML" next to the title (mockup 1). */
+.titleNote {
+  margin-left: 6px;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}

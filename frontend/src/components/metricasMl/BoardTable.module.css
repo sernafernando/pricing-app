@@ -721,3 +721,30 @@ thead .colProducto {
   padding: 0;
   border: 0;
 }
+
+/* vpf-metricas-canal-fe: a fuera row with no catalog product, and the Canal column of canal=todo (mockup 1). */
+.sinProductoTag,
+.canalTag {
+  display: inline-block;
+  flex-shrink: 0;
+  padding: 0 6px;
+  border: 1px solid var(--tone-neutral-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  line-height: 16px;
+  color: var(--tone-neutral-fg);
+  background: var(--tone-neutral-bg);
+  white-space: nowrap;
+}
+
+.canalTag[data-canal='ml'] {
+  color: var(--tone-warning-fg);
+  background: var(--tone-warning-bg);
+  border-color: var(--tone-warning-border);
+}
+
+.canalTag[data-canal='ambos'] {
+  color: var(--tone-info-fg);
+  background: var(--tone-info-bg);
+  border-color: var(--tone-info-border);
+}

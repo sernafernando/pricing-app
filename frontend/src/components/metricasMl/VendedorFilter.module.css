@@ -1,0 +1,23 @@
+/* A dropdown the height of the filter chips, on the same surface. */
+.select {
+  height: var(--chip-height);
+  min-width: 180px;
+  padding: 0 28px 0 10px;
+  font-family: inherit;
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  color: var(--cf-text-primary);
+  background-color: var(--cf-bg-card);
+  border: 1px solid var(--tone-neutral-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.select:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+}
+
+.compact {
+  min-width: 0;
+}
