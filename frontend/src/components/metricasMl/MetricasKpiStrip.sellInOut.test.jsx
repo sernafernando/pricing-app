@@ -67,6 +67,16 @@ describe('MetricasKpiStrip with sell in / sell out', () => {
     expect(within(sellOut).getByTitle('3 ventas con tipo de cambio estimado')).toHaveTextContent('≈ 3');
   });
 
+  // Tactical sell in USD S10: an estimated sell in is flagged on the Sell in figure and the total that adds it.
+  it('flags the sales whose sell in uses an estimated rate', () => {
+    strip({ ...OFF, sell_in_out: { ...SELL, sell_in_estimados: 2 } });
+
+    const estimated = '2 ventas con sell in a tipo de cambio estimado';
+    const sellIn = within(cardOf('Sell in / Sell out')).getByTestId('kpi-sell-in');
+    expect(within(sellIn).getByTitle(estimated)).toHaveTextContent('≈ 2');
+    expect(within(cardOf('Total Gauss')).getByTitle(estimated)).toHaveTextContent('≈ 2');
+  });
+
   it('shows no estimated-rate flag when every sell out has its final rate', () => {
     strip({ ...OFF, sell_in_out: SELL });
 

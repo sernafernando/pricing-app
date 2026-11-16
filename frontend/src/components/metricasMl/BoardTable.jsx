@@ -19,7 +19,7 @@ import { COLUMN_GROUPS } from './metricasMlColumns';
 import { LEVEL_LABELS, LEVEL_NOUNS, nodeId } from '../../utils/metricasMlLevels';
 import { ADS_ROW_BADGES, adsRowKind } from '../../utils/metricasMlAds';
 import { tpCellState, tpIncompleteTitle } from '../../utils/metricasMlTp';
-import { sellOutEstimatedTitle, sellOutPendingTitle } from '../../utils/metricasMlSell';
+import { sellInEstimatedTitle, sellOutEstimatedTitle, sellOutPendingTitle } from '../../utils/metricasMlSell';
 import { ROW_CANAL_LABELS, isSinProducto } from '../../utils/metricasMlCanal';
 import { useVirtualRows } from '../kit/useVirtualRows';
 import styles from './BoardTable.module.css';
@@ -135,6 +135,19 @@ function SellOutCell({ figures }) {
           ≈ {formatUnits(estimados)}
         </span>
       )}
+    </div>
+  );
+}
+
+/** The row's sell in, flagging the sold lines whose sell in is still an estimate like `SellOutCell` does. */
+function SellInCell({ value, estimados = 0 }) {
+  if (!(estimados > 0)) return <SellMoneyCell value={value} />;
+  return (
+    <div className={styles.gaussCell}>
+      <SellMoneyCell value={value} />
+      <span className={styles.tpHint} title={sellInEstimatedTitle(estimados)}>
+        ≈ {formatUnits(estimados)}
+      </span>
     </div>
   );
 }
@@ -472,9 +485,11 @@ function renderCell(colId, row, ctx) {
     case 'costo':
       return <SellMoneyCell value={row.sell_in_out?.costo} />;
     case 'costo_sell_in':
-    case 'sell_in':
       if (row.sell_in_out && row.sell_in_out[colId] == null) return null;
       return <SellMoneyCell value={row.sell_in_out?.[colId]} />;
+    case 'sell_in':
+      if (row.sell_in_out && row.sell_in_out.sell_in == null) return null;
+      return <SellInCell value={row.sell_in_out?.sell_in} estimados={row.sell_in_out?.sell_in_estimados} />;
     case 'sell_out':
       return <SellOutCell figures={row.sell_in_out} />;
     case 'total_gauss_sell':

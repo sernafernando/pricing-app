@@ -4,15 +4,21 @@
  * figures without them.
  *
  * The API leaves every field null for an operation without either; a USD sell out whose rate is not
- * defined yet is `sell_out_estimado`, and its markup is null while the amount itself is unknown.
+ * defined yet is `sell_out_estimado`, and its markup is null while the amount itself is unknown. A sell in of a USD
+ * "al cobro" tactical without its collection rate yet is `sell_in_estimado` (tactical sell in USD S10): a known
+ * amount marked like an estimated sell out.
  */
+
+const ESTIMADO = ' (estimado: tipo de cambio a definir)';
+
+const parteSellIn = (op, moneda) => `Sell in: ${moneda(op.sell_in_ars)}${op.sell_in_estimado ? ESTIMADO : ''}`;
 
 /** The amounts a sale's sell in / sell out tooltip names, shared by every list that shows them. */
 export const partesSellInOut = (op, moneda) => {
   const partes = [];
-  if (op.sell_in_ars != null) partes.push(`Sell in: ${moneda(op.sell_in_ars)}`);
+  if (op.sell_in_ars != null) partes.push(parteSellIn(op, moneda));
   if (op.sell_out_ars != null) {
-    partes.push(`Sell out: ${moneda(op.sell_out_ars)}${op.sell_out_estimado ? ' (estimado: tipo de cambio a definir)' : ''}`);
+    partes.push(`Sell out: ${moneda(op.sell_out_ars)}${op.sell_out_estimado ? ESTIMADO : ''}`);
   } else if (op.sell_out_estimado) {
     partes.push('Sell out en USD sin tipo de cambio');
   }
@@ -33,9 +39,12 @@ export const celdasSellInOut = (op, { moneda, porcentaje }) => {
   const partes = partesSellInOut(op, moneda);
   const markup = op.markup_con_sell_in_out;
   let texto = 'A definir';
-  if (markup != null) texto = `${op.sell_out_estimado ? '≈ ' : ''}${porcentaje(markup)}`;
+  if (markup != null) texto = `${op.sell_out_estimado || op.sell_in_estimado ? '≈ ' : ''}${porcentaje(markup)}`;
   return {
-    costo: { texto: moneda(op.costo_con_sell_in), title: op.sell_in_ars != null ? `Sell in: ${moneda(op.sell_in_ars)}` : undefined },
+    costo: {
+      texto: `${op.sell_in_estimado ? '≈ ' : ''}${moneda(op.costo_con_sell_in)}`,
+      title: op.sell_in_ars != null ? parteSellIn(op, moneda) : undefined,
+    },
     markup: { texto, title: partes.join(' · ') || undefined, negativo: markup != null && Number(markup) < 0 },
   };
 };

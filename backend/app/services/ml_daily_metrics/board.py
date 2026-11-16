@@ -126,6 +126,7 @@ from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInConsumo
 from app.models.sell_out import SellOutCampana, SellOutConsumo
 from app.services.ml_ads.iva import ads_cost_net_of_iva
+from app.services.sell_in import bonos_costo
 from app.services.ml_ads.owner import ads_owner_select
 from app.services.ml_daily_metrics import fuera
 from app.services.ml_daily_metrics import groups as grouping
@@ -559,7 +560,9 @@ class SellInOut:
     the lines inside the markup population (`mtg`/`costo`), None with "Costos TP" ON: the markup's cost basis is
     then the TP cost, and a purchase discount on the Gauss cost does not apply to it. `sell_out` sums the KNOWN
     sell out only: `sell_out_pendientes` lines have a USD sell out without its rate yet (never read as 0) and
-    `sell_out_estimados` lines one whose campaign rate is still an estimate.
+    `sell_out_estimados` lines one whose campaign rate is still an estimate; `sell_in_estimados` lines whose sell in
+    has a USD cost bonus of an `al_cobro` tactical without its collection rate yet (today's BNA, tactical sell in USD
+    S10).
 
     A figure that does not apply is None, not 0 nor a copy of the one without (owner: "en las filas que no aplica
     estaría bueno que directamente esté vacío así no hace ruido"): no sold line with a sell in (`sell_in_lineas`)
@@ -636,6 +639,7 @@ class Row:
     m_sell_out: Optional[Decimal] = None
     sell_out_pendientes: Optional[int] = None
     sell_out_estimados: Optional[int] = None
+    sell_in_estimados: Optional[int] = None
     # How many sold lines carry a sell in / a sell out (`SellInOut.applies`).
     sell_in_lineas: Optional[int] = None
     sell_out_lineas: Optional[int] = None
@@ -713,6 +717,7 @@ class Kpis:
     m_sell_out: Optional[Decimal] = None
     sell_out_pendientes: Optional[int] = None
     sell_out_estimados: Optional[int] = None
+    sell_in_estimados: Optional[int] = None
     # How many sold lines carry a sell in / a sell out (`SellInOut.applies`).
     sell_in_lineas: Optional[int] = None
     sell_out_lineas: Optional[int] = None
@@ -1279,11 +1284,23 @@ class Board:
         without the sale's. `m_*` keep only the lines inside the markup population."""
         so, campana = SellOutConsumo, SellOutCampana
         # Invoice sell in plus the % of cost bonuses' (T25, S31): disjoint units of the sale, so they add up.
+        # A cost bonus row is an estimate while its USD `al_cobro` tactical has no collection rate (S10).
+        # On Postgres `bono_id = ANY(<array>)`, the array built ONCE by an InitPlan (`_is_survivor`'s form): no
+        # extra statement, no per-row subplan nor nested loop (`test_board_filter_plans_postgres`).
+        bono, ids = SellInBonoConsumo, select(bonos_costo.bonos_estimados().subquery().c.id)
+        es_estimado = bono.bono_id.in_(ids) if self.sqlite else bono.bono_id == any_(func.array(ids.scalar_subquery()))
         rows = union_all(
-            *(select(t.venta_ref, t.descuento_ars).where(t.canal == "ml") for t in (SellInConsumo, SellInBonoConsumo))
+            select(SellInConsumo.venta_ref, SellInConsumo.descuento_ars, literal(0).label("estimado")).where(
+                SellInConsumo.canal == "ml"
+            ),
+            select(bono.venta_ref, bono.descuento_ars, case((es_estimado, 1), else_=0)).where(bono.canal == "ml"),
         ).subquery("line_sell_in_rows")
         sell_in = (
-            select(rows.c.venta_ref, func.sum(rows.c.descuento_ars).label("ars"))
+            select(
+                rows.c.venta_ref,
+                func.sum(rows.c.descuento_ars).label("ars"),
+                func.max(rows.c.estimado).label("estimados"),
+            )
             .group_by(rows.c.venta_ref)
             .subquery("line_sell_in")
         )
@@ -1319,6 +1336,7 @@ class Board:
             func.sum(case((and_(in_gauss, sell_out.c.sin_tasa == 0, sell_out.c.estimados > 0), 1), else_=0)).label(
                 "sell_out_estimados"
             ),
+            func.sum(case((and_(in_gauss, sell_in.c.estimados > 0), 1), else_=0)).label("sell_in_estimados"),
             func.sum(case((and_(in_gauss, sell_in.c.venta_ref.isnot(None)), 1), else_=0)).label("sell_in_lineas"),
             func.sum(case((and_(in_gauss, sell_out.c.venta_ref.isnot(None)), 1), else_=0)).label("sell_out_lineas"),
         ]
@@ -2544,6 +2562,7 @@ class Board:
             m_sell_out=None if self.tp else cents(r["m_sell_out"]),
             sell_out_pendientes=int(r["sell_out_pendientes"] or 0),
             sell_out_estimados=int(r["sell_out_estimados"] or 0),
+            sell_in_estimados=int(r["sell_in_estimados"] or 0),
             sell_in_lineas=int(r["sell_in_lineas"] or 0),
             sell_out_lineas=int(r["sell_out_lineas"] or 0),
         )

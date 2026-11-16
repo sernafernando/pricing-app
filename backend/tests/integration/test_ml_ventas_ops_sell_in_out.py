@@ -19,8 +19,9 @@ import pytest
 from app.core.config import settings
 from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.producto import ProductoERP
-from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
+from app.models.sell_in import SellInBonoConsumo, SellInBonoMarca, SellInCompra, SellInCompraItem, SellInConsumo
 from app.models.sell_out import SellOutCampana, SellOutConsumo
+from app.models.tactical import Tactical, TacticalCobranza
 from app.models.usuario import Usuario
 
 from .test_ml_ventas_ops_sales_router import _grant_ml_ops_ver, _group_holding, _seed_order
@@ -86,6 +87,58 @@ def _sell_in(db, mundo, ref: int, ars: str) -> None:
     db.flush()
 
 
+def _sell_in_usd(db, mundo, ref: int, *, cobro: str | None = None) -> None:
+    """USD 10 of a USD `al_cobro` tactical's cost bonus at today's estimate 1500 (tactical sell in USD S10); `cobro`
+    loads the collection rate, which makes it final."""
+    tactical = Tactical(
+        tipo="sell_in",
+        nombre="Synthetic",
+        marca="TP-LINK",
+        fecha_desde=DIA,
+        fecha_hasta=DIA,
+        moneda="USD",
+        tc_modo="al_cobro",
+        usuario_id=mundo["usuario_id"],
+    )
+    db.add(tactical)
+    db.flush()
+    if cobro is not None:
+        db.add(
+            TacticalCobranza(
+                tactical_id=tactical.id, fecha_cobro=DIA, tipo_cambio=Decimal(cobro), usuario_id=mundo["usuario_id"]
+            )
+        )
+    bono = SellInBonoMarca(
+        base="costo_venta",
+        alcance="marca",
+        marca="TP-LINK",
+        tipo="por_unidad",
+        monto_unit=Decimal("10"),
+        moneda="USD",
+        fecha_desde=DIA,
+        fecha_hasta=DIA,
+        usuario_id=mundo["usuario_id"],
+        tactical_id=tactical.id,
+        tactical_linea=1,
+    )
+    db.add(bono)
+    db.flush()
+    db.add(
+        SellInBonoConsumo(
+            bono_id=bono.id,
+            canal="ml",
+            venta_ref=ref,
+            item_id=ITEM,
+            fecha_venta=DIA,
+            unidades=1,
+            descuento_ars=Decimal("15000"),
+            monto_usd=Decimal("10"),
+            tc_venta=Decimal("1500"),
+        )
+    )
+    db.flush()
+
+
 def _campana(db, mundo, *, moneda: str = "ARS", tc_modo: str | None = None, tipo_cambio: str | None = None):
     campana = SellOutCampana(
         nombre="Campaña",
@@ -130,7 +183,7 @@ def _order(body: dict, order_id: int) -> dict:
     return next(o for g in body["sales"] for o in g["orders"] if o["order_id"] == order_id)
 
 
-SELL_FIELDS = ("sell_in_ars", "sell_out_ars", "sell_out_estimado")
+SELL_FIELDS = ("sell_in_ars", "sell_out_ars", "sell_out_estimado", "sell_in_estimado")
 
 
 class TestPerOrder:
@@ -153,7 +206,7 @@ class TestPerOrder:
 
         order = _order(_listing(db, client, admin_auth_headers), 91002)
 
-        assert [order[f] for f in SELL_FIELDS] == [None, None, None]
+        assert [order[f] for f in SELL_FIELDS] == [None, None, None, None]
 
     def test_only_sell_in_leaves_the_sell_out_null(self, db, client, admin_auth_headers, ver):
         refs = _venta(db, 91003)
@@ -230,7 +283,32 @@ class TestPerPack:
 
         group = _group_holding(_listing(db, client, admin_auth_headers), 92021)
 
-        assert [group[f] for f in SELL_FIELDS] == [None, None, None]
+        assert [group[f] for f in SELL_FIELDS] == [None, None, None, None]
+
+
+class TestSellInEstimado:
+    """Option C (tactical sell in USD S10): "y marcar los montos como estimados en pantalla", like `sell_out_estimado`."""
+
+    def test_an_al_cobro_usd_cost_bonus_without_its_collection_rate_marks_the_order_and_its_pack(
+        self, db, client, admin_auth_headers, ver
+    ):
+        refs_a = _venta(db, 93001, pack_id=93500)
+        refs_b = _venta(db, 93002, pack_id=93500)
+        _sell_in(db, ver, refs_a[0], "100.00")
+        _sell_in_usd(db, ver, refs_b[0])
+
+        body = _listing(db, client, admin_auth_headers)
+
+        assert (_order(body, 93001)["sell_in_estimado"], _order(body, 93002)["sell_in_estimado"]) == (False, True)
+        assert _order(body, 93002)["sell_in_ars"] == pytest.approx(15000.00)
+        group = _group_holding(body, 93001)
+        assert (group["sell_in_ars"], group["sell_in_estimado"]) == (pytest.approx(15100.00), True)
+
+    def test_a_loaded_collection_rate_is_final(self, db, client, admin_auth_headers, ver):
+        refs = _venta(db, 93011)
+        _sell_in_usd(db, ver, refs[0], cobro="1350")
+
+        assert _order(_listing(db, client, admin_auth_headers), 93011)["sell_in_estimado"] is False
 
 
 class TestTplinkSolo:

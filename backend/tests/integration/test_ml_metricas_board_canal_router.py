@@ -33,14 +33,16 @@ ENDPOINTS = {
 }
 
 # sha256 of each response body, recorded on the code BEFORE `canal` existed (origin/main 80c6dc9b5). A change to
-# what the ML board answers fails here, naming the endpoint.
+# what the ML board answers fails here, naming the endpoint. `board`, `board_group` and `publications` re-recorded
+# when `sell_in_out` gained `sell_in_estimados` (tactical sell in USD S10): removing that one key from those bodies
+# gives the previous digests byte for byte.
 BEFORE = {
-    "board": "e39b283da88ca18f24024cbe8413242c1453c153070afabf2d0d1437e88853bf",
-    "board_group": "7f55a74566d2eb04fe86ac7d5c8bc85341e1ee0515959d42e2168c23ef456094",
+    "board": "4c61ba3168d8d9621f8a03dc723b81b05b2756c61114a7512d96df01ffba6d97",
+    "board_group": "645f6f9431867b312961f1a6bf8c865b3c30d9618c6ae080feea5fcdafc2f4af",
     "group_nodes": "cb5d47e33dd725b7e6ce2a1fdb8b36f73ddbdb0683a900a92bed8603ca567c25",
     "envios": "07fa64de8c9f2a887da307a3a76750d838c85def276035384b301ec41d59cd79",
     "export": "ad65039d33e507128b511bb5dd12ea4bb5decce5f36e6bb39b3c695136043f07",
-    "publications": "0564bad811fec400aa0522f8d3467288195a2e622c77a9036abc953329cad231",
+    "publications": "b781b4a0f85cc678c48b64c2b0d2233a4ab649308b00d7af1f1f3dc64f7e3936",
 }
 
 

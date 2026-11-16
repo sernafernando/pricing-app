@@ -7,12 +7,14 @@ allocator already wrote each row net of VAT).
 Read only, from what the allocators wrote, for any channel (`ml`, `fuera`, `tn`; `venta_ref` is the
 channel's sale line, the PDF line id for `fuera`, ventas por fuera since VPF T4):
 - `sell_in_ars`: the sum of the sale's `sell_in_consumos.descuento_ars` plus its `sell_in_bono_consumos` ones (the %
-  of cost bonuses, T25: units the invoice sell in left, so they never overlap), already ARS;
+  of cost bonuses, T25: units the invoice sell in left, so they never overlap), already ARS; `sell_in_estimado` when
+  a row is a USD cost bonus's of an `al_cobro` tactical without its collection rate yet (converted at today's BNA,
+  tactical sell in USD S10), like sell out's `al_cobro` campaign. An estimate is still a known amount;
 - `sell_out_ars`: the sum of the sale's `sell_out_consumos` in ARS, converted per campaign like the
   sell-out screen (`resumen.monto_ars`). A USD row without its rate leaves it unknown (None), never a
   partial sum, and makes it `sell_out_estimado`, as does an `al_cobro` campaign whose rate is not set
   yet (`resumen.ars_estimado`).
-A sale without rows of a kind has None for that kind (`sell_out_estimado` too); a sale without rows
+A sale without rows of a kind has None for that kind (its `*_estimado` too); a sale without rows
 of either kind is not in the result. Two queries for the whole page, whatever its size.
 """
 
@@ -23,11 +25,12 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Dict, Iterable, List, Optional
 
-from sqlalchemy import func, select, union_all
+from sqlalchemy import case, func, literal, select, union_all
 from sqlalchemy.orm import Session
 
 from app.models.sell_in import SellInBonoConsumo, SellInConsumo
 from app.models.sell_out import SellOutCampana, SellOutConsumo
+from app.services.sell_in import bonos_costo
 from app.services.sell_out import resumen
 
 
@@ -36,6 +39,7 @@ class MontosVenta:
     sell_in_ars: Optional[Decimal] = None
     sell_out_ars: Optional[Decimal] = None
     sell_out_estimado: Optional[bool] = None
+    sell_in_estimado: Optional[bool] = None
 
     @property
     def credito_ars(self) -> Optional[Decimal]:
@@ -45,15 +49,21 @@ class MontosVenta:
         return (self.sell_in_ars or Decimal(0)) + (self.sell_out_ars or Decimal(0))
 
 
-def _sell_in(db: Session, canal: str, refs: List[int]) -> Dict[int, Decimal]:
+def _sell_in(db: Session, canal: str, refs: List[int]) -> Dict[int, tuple]:
+    """`{venta_ref: (sell_in_ars, estimado)}`."""
+    b, estimados = SellInBonoConsumo, bonos_costo.ids_estimados(db)
     filas = union_all(
-        *(
-            select(t.venta_ref, t.descuento_ars).where(t.canal == canal, t.venta_ref.in_(refs))
-            for t in (SellInConsumo, SellInBonoConsumo)
-        )
+        select(SellInConsumo.venta_ref, SellInConsumo.descuento_ars, literal(0).label("estimado")).where(
+            SellInConsumo.canal == canal, SellInConsumo.venta_ref.in_(refs)
+        ),
+        select(b.venta_ref, b.descuento_ars, case((b.bono_id.in_(estimados), 1), else_=0)).where(
+            b.canal == canal, b.venta_ref.in_(refs)
+        ),
     ).subquery()
-    rows = db.query(filas.c.venta_ref, func.sum(filas.c.descuento_ars)).group_by(filas.c.venta_ref)
-    return {int(ref): Decimal(total) for ref, total in rows}
+    rows = db.query(filas.c.venta_ref, func.sum(filas.c.descuento_ars), func.max(filas.c.estimado)).group_by(
+        filas.c.venta_ref
+    )
+    return {int(ref): (Decimal(total), bool(estimado)) for ref, total, estimado in rows}
 
 
 def _sell_out(db: Session, canal: str, refs: List[int]) -> Dict[int, tuple]:
@@ -94,18 +104,23 @@ def montos_por_venta(db: Session, canal: str, refs: Iterable[int]) -> Dict[int, 
     salida = {}
     for ref in sell_in.keys() | sell_out.keys():
         ars, estimado = sell_out.get(ref, (None, None))
-        salida[ref] = MontosVenta(sell_in_ars=sell_in.get(ref), sell_out_ars=ars, sell_out_estimado=estimado)
+        sell_in_ars, sell_in_estimado = sell_in.get(ref, (None, None))
+        salida[ref] = MontosVenta(
+            sell_in_ars=sell_in_ars, sell_out_ars=ars, sell_out_estimado=estimado, sell_in_estimado=sell_in_estimado
+        )
     return salida
 
 
 def sumar(partes: Iterable[Optional[MontosVenta]]) -> Optional[MontosVenta]:
     """Several sales' amounts as one (an ML order's item rows, a pack's orders), under each kind's rule:
     a part without rows of a kind adds nothing to it; an unknown sell out (`sell_out_estimado` without
-    an amount) makes the total unknown, never a partial sum. None when no part has any row."""
+    an amount) makes the total unknown, never a partial sum; one estimated part makes its kind estimated. None when no
+    part has any row."""
     partes = [p for p in partes if p is not None]
     if not partes:
         return None
     sell_in = [p.sell_in_ars for p in partes if p.sell_in_ars is not None]
+    con_estimado_in = [p.sell_in_estimado for p in partes if p.sell_in_estimado is not None]
     con_sell_out = [p for p in partes if p.sell_out_estimado is not None]
     sell_out_ars = None
     estimado = None
@@ -117,4 +132,5 @@ def sumar(partes: Iterable[Optional[MontosVenta]]) -> Optional[MontosVenta]:
         sell_in_ars=sum(sell_in, Decimal(0)) if sell_in else None,
         sell_out_ars=sell_out_ars,
         sell_out_estimado=estimado,
+        sell_in_estimado=any(con_estimado_in) if con_estimado_in else None,
     )

@@ -216,7 +216,11 @@ def volume_sell(volume_session):
         text(
             "CREATE TEMPORARY TABLE sell_in_consumos (canal VARCHAR(8), venta_ref BIGINT, descuento_ars NUMERIC(18, 2));"
             "CREATE TEMPORARY TABLE sell_in_bono_consumos (canal VARCHAR(8), venta_ref BIGINT, "
-            "descuento_ars NUMERIC(18, 2));"
+            "descuento_ars NUMERIC(18, 2), bono_id BIGINT);"
+            "CREATE TEMPORARY TABLE sell_in_bonos_marca (id BIGINT PRIMARY KEY, base VARCHAR(16), moneda VARCHAR(3), "
+            "tactical_id BIGINT);"
+            "CREATE TEMPORARY TABLE tacticals (id BIGINT PRIMARY KEY, tc_modo VARCHAR(12));"
+            "CREATE TEMPORARY TABLE tactical_cobranzas (tactical_id BIGINT, tipo_cambio NUMERIC(18, 6));"
             "CREATE TEMPORARY TABLE sell_out_campanas (id BIGINT PRIMARY KEY, moneda VARCHAR(3), tc_modo VARCHAR(12), "
             "tipo_cambio NUMERIC(18, 6), tipo VARCHAR(16), estado VARCHAR(16), fecha_hasta DATE);"
             "CREATE TEMPORARY TABLE sell_out_consumos (campana_id BIGINT, canal VARCHAR(8), venta_ref BIGINT, "

@@ -114,6 +114,7 @@ class OperacionFueraMLResponse(BaseModel):
     sell_in_ars: Optional[float] = None
     sell_out_ars: Optional[float] = None
     sell_out_estimado: Optional[bool] = None
+    sell_in_estimado: Optional[bool] = None
     costo_con_sell_in: Optional[float] = None
     ganancia_con_sell_in_out: Optional[float] = None
     markup_con_sell_in_out: Optional[float] = None

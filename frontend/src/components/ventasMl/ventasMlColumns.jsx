@@ -403,6 +403,7 @@ export const COLUMNS = [
       const sellOut = lineaSellOut(entity, sellMoney);
       return (
         <>
+          {entity.sell_in_estimado && '≈ '}
           <Money value={entity.sell_in_ars} currencyId="ARS" />
           {sellOut && <span className={styles.subline}>{sellOut}</span>}
         </>

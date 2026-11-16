@@ -28,6 +28,7 @@ NUEVOS = (
     "sell_in_ars",
     "sell_out_ars",
     "sell_out_estimado",
+    "sell_in_estimado",
     "costo_con_sell_in",
     "ganancia_con_sell_in_out",
     "markup_con_sell_in_out",

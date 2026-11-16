@@ -84,7 +84,7 @@ from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
-from sqlalchemy import and_, delete, func, insert, or_, text
+from sqlalchemy import Select, and_, delete, func, insert, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.models.producto import ProductoERP
@@ -422,6 +422,26 @@ def tasas_de_hoy(db: Session, bonos: Iterable[SellInBonoMarca], hoy: date) -> Di
         except ValueError:
             salida[bid] = None
     return salida
+
+
+def bonos_estimados() -> Select:
+    """The ids of the USD cost bonuses whose rows are still an estimate (tactical sell in USD S10, option C "y marcar
+    los montos como estimados en pantalla"): an `al_cobro` tactical's whose collection has no rate yet, converted at
+    the latest BNA and recomputed daily until it does (`encolar_por_bna`). `fijo`, `dia_venta` and a loaded
+    collection rate are final. For `<rows>.bono_id.in_(bonos_estimados())`, like sell out's `ars_estimado`."""
+    t, c, b = Tactical, TacticalCobranza, SellInBonoMarca
+    return (
+        select(b.id)
+        .join(t, t.id == b.tactical_id)
+        .outerjoin(c, c.tactical_id == t.id)
+        .where(b.base == BASE, b.moneda == USD, t.tc_modo == "al_cobro", c.tipo_cambio.is_(None))
+    )
+
+
+def ids_estimados(db: Session) -> List[int]:
+    """`bonos_estimados()`'s ids, read once: a handful at most (one per USD `al_cobro` line not collected yet). The
+    readers filter on this literal list, never on a subquery a big sales read would re-run or nest-loop."""
+    return sorted(db.execute(bonos_estimados()).scalars())
 
 
 def _sin_tasa(bono: SellInBonoMarca, fecha: date) -> Decimal:

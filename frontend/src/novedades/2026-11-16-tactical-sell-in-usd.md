@@ -9,6 +9,7 @@ Un tactical de sell in en USD ya no obliga a cargar el monto en pesos: una líne
 - **Fijo**: cada venta se pasa a pesos al tipo de cambio cargado.
 - **Día de la venta**: cada venta usa el BNA de su fecha.
 - **Al cobro**: se estima con el último BNA y se recalcula solo cada día; cuando cargás el cobro con su tipo de cambio, ese queda como definitivo.
+- Mientras es estimado, el sell in se marca como estimado en **Ventas ML** (≈) y en **Métricas ML** (≈ n), como el sell out.
 - El tope de monto cuenta dólares.
 - El recuadro del tope bajo las tiendas ahora lista el tope de **cada línea**, no solo el de la primera.
 

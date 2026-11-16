@@ -134,6 +134,7 @@ SELL_SUM_COLUMNS = (
     "m_sell_out",
     "sell_out_pendientes",
     "sell_out_estimados",
+    "sell_in_estimados",
     "sell_in_lineas",
     "sell_out_lineas",
 )

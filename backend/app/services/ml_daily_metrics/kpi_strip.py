@@ -216,6 +216,8 @@ class SellInOutFigures(BaseModel):
     sell_out: Optional[float] = None
     sell_out_pendientes: int
     sell_out_estimados: int
+    # Tactical sell in USD S10: sold lines whose sell in is a USD `al_cobro` cost bonus without its collection rate.
+    sell_in_estimados: int = 0
     costo: Optional[float] = None
     costo_sell_in: Optional[float] = None
     total_gauss: Optional[float] = None
@@ -233,6 +235,7 @@ def sell_in_out_of(x: Union[board.Row, board.Kpis]) -> Optional[SellInOutFigures
         sell_out=(round_money(x.sell_out) if x.sell_out_lineas or board.SellInOut.remanente(x) is not None else None),
         sell_out_pendientes=x.sell_out_pendientes,
         sell_out_estimados=x.sell_out_estimados,
+        sell_in_estimados=x.sell_in_estimados,
         costo=None if x.m_sell_in is None else round_money(x.costo),
         costo_sell_in=None if x.costo_sell_in is None else round_money(x.costo_sell_in),
         total_gauss=None if x.total_gauss_sell is None else round_money(x.total_gauss_sell),
