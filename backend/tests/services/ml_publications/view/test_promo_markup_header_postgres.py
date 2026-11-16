@@ -20,6 +20,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.services.envio_real_service import CostosEnvio
 from app.services.ml_promotions_pricing import (
+    MarkupsDePrecio,
     enriquecer_markup_por_promo,
     markup_para_precio,
     markup_para_precio_con_sell_in_out,
@@ -176,7 +177,7 @@ def test_a_publication_without_header_markup_gets_no_promo_markup(conn, db, item
     promo = enriquecer_markup_por_promo(db, MLA, [_seller_campaign(HEADER_PRICE)], sell_in_out=True)[0]
 
     assert promo["nuestro_markup"] is None and promo["markup_sell_in_out"] is None
-    assert markup_para_precio_con_sell_in_out(db, MLA, HEADER_PRICE) == (None, None)
+    assert markup_para_precio_con_sell_in_out(db, MLA, HEADER_PRICE) == MarkupsDePrecio(None, None)
     assert db.execute(text("SELECT 1")).scalar() == 1  # the session is still usable
 
 
