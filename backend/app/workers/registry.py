@@ -134,8 +134,6 @@ def __getattr__(name: str) -> List[JobHandler]:
                 ads,
                 # promo-write-refresh P2: the ~60 s follow-up refresh after a promo write (was an unscheduled script).
                 promo_write_refresh,
-                # promo-ml-precio-inmediato T1: recomputes the promo price columns ml-webhook just reported.
-                promo_price_recompute,
                 # ml-sync-pipeline S5: the per-minute freshness check (no ML call).
                 freshness,
                 billing,
@@ -152,6 +150,9 @@ def __getattr__(name: str) -> List[JobHandler]:
                 # ml-freshness S1c: item cores of a notification burst read ahead of the sub-resources (own thread;
                 # registered before the repair ticks, which stay last).
                 core_first,
+                # promo-ml-precio-inmediato T1: recomputes the promo price columns ml-webhook just reported
+                # (own thread, so its place in this list does not delay it; registered before the repair ticks).
+                promo_price_recompute,
                 # publicaciones-repair: conditional envio/sku ticks under the shared Pacer.
                 envio_repair,
                 sku_repair,
