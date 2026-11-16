@@ -122,8 +122,7 @@
 # TIENDA NUBE
 # ============================================
 
-# Tienda Nube - sync cada 15 minutos
-*/15 6-21 * * * cd /var/www/html/pricing-app && /var/www/html/pricing-app/backend/venv/bin/python backend/scripts/sync_tienda_nube.py >> /var/log/sync_tienda_nube.log 2>&1
+# Tienda Nube - sync del catálogo: lo hace el handler del worker `tienda_nube.sync` (cada 15 minutos, 6-21 h), sin cron.
 
 # Métricas Tienda Nube - cada 5 minutos
 */5 6-21 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.agregar_metricas_tienda_nube --minutes 10 >> /var/log/pricing-app/tn_metricas.log 2>&1
@@ -200,7 +199,6 @@
 - agregar_metricas_ml_diario
 - agregar_metricas_fuera_ml
 - agregar_metricas_tienda_nube
-- sync_tienda_nube
 - sync_catalog_status
 - sync_pedidos_export
 - actualizar_estados_turbo

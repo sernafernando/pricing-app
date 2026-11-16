@@ -28,6 +28,7 @@ from app.workers.handlers.rrhh_horas_extras import horas_extras as _rrhh_horas_e
 from app.workers.handlers.sell_drain import drain as _sell_drain
 from app.workers.handlers.sell_in_bono import bono as _sell_in_bono
 from app.workers.handlers.sell_out_drain import drain as _sell_out_drain
+from app.workers.handlers.tienda_nube_sync import sync as _tienda_nube_sync
 from app.workers.handlers.tp_cost_fill import fill as _tp_cost_fill
 
 
@@ -68,6 +69,7 @@ class JobHandler(Protocol):
 # sell-in-sell-out T7 S3 appends `sell_out.drain` (notify-driven; rebuilds the queued sell-out campaigns).
 # compras-oc-facturas-alertas appends `compras.factura_cargada_alerts` (every 1 min; replaces crontab).
 # abm-specs-productos T1 appends `producto_specs.preload` (daily 05:15; also the initial backfill).
+# abm-productos T6 appends `tienda_nube.sync` (every 15 min, 06-21 h; replaces the TN catalog crontab line).
 REGISTRY: List[JobHandler] = [
     _order_metrics_drain,
     _order_metrics_reconcile,
@@ -81,6 +83,7 @@ REGISTRY: List[JobHandler] = [
     _sell_out_drain,
     _compras_factura_cargada_alerts,
     _producto_specs_preload,
+    _tienda_nube_sync,
 ]
 
 # The ML publications store runs in its OWN process (`pricing-worker-ml.service`,
