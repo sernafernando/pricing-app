@@ -2,7 +2,7 @@
 # Fail-safe WhatsApp notification helper for cron scripts.
 #
 # Usage:
-#   notify-wabot.sh "db_backup.sh FAILED: pg_dump exit 1"
+#   notify-wabot.sh "nightly_job.sh FAILED: exit 1"
 #
 # Contract:
 #   - ALWAYS exits 0. Adding this to a script can never change that script's
