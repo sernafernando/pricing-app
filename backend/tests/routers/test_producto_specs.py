@@ -23,7 +23,7 @@ from app.models.producto_spec import ProductoSpec, ProductoSpecValor
 from app.models.tb_item import TBItem
 from app.routers import producto_specs
 from app.services.producto_specs import store
-from app.services.producto_specs.campos import VALORES_INICIALES
+from app.services.producto_specs.campos import VALORES_INICIALES, campos_de
 from app.workers.context import WorkerContext
 from app.workers.handlers.producto_specs_preload import preload
 from tests.routers.test_ml_publications_links import grant
@@ -323,3 +323,20 @@ class TestList:
         preload_all(pg)
         assert client.get(f"{BASE}/valores/ram_gb", headers=reader).json() == [8, 16]
         assert client.get(f"{BASE}/valores/nope", headers=reader).status_code == 404
+
+    def test_the_incomplete_filter_counts_only_the_incomplete(self, client, pg, reader):
+        with pg.begin() as conn:
+            product(conn, 10, NB_NAME)
+            product(conn, 11, "NB HP", marca="HP")
+        preload_all(pg)
+        filled = {c.nombre: (8 if c.tipo == "numerico" else "X") for c in campos_de("notebook")}
+        filled["pantalla_pulgadas"] = 15.6
+        with pg.begin() as conn:
+            conn.execute(
+                text(f"UPDATE producto_specs SET {', '.join(f'{k} = :{k}' for k in filled)} WHERE item_id = 10"), filled
+            )
+
+        body = client.get(BASE, headers=reader, params={"incompletos": "true", "limit": 1}).json()
+
+        assert body["total"] == 1
+        assert [row["item_id"] for row in body["items"]] == [11]

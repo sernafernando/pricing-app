@@ -428,8 +428,7 @@ def listar(
         SELECT b.*, s.updated_at,
                COALESCE(CASE WHEN b.tipo = 'pc' THEN {_completos_sql(PC)} ELSE {_completos_sql(NOTEBOOK)} END, 0)
                    AS completos,
-               CASE WHEN b.tipo = 'pc' THEN {total_pc} ELSE {total_nb} END AS total,
-               count(*) OVER () AS filas
+               CASE WHEN b.tipo = 'pc' THEN {total_pc} ELSE {total_nb} END AS total
         FROM base b
         LEFT JOIN producto_specs s ON s.item_id = b.item_id
         WHERE (CAST(:tipo AS text) IS NULL OR b.tipo = :tipo)
@@ -437,10 +436,8 @@ def listar(
           AND (CAST(:q AS text) IS NULL OR b.descripcion ILIKE :like OR b.codigo ILIKE :like
                OR CAST(b.item_id AS text) = :q)
     """
-    if incompletos:
-        sql = f"SELECT * FROM ({sql}) x WHERE completos < total"
-    else:
-        sql = f"SELECT * FROM ({sql}) x"
+    # Counted after the incomplete filter, so `total` pages exactly the rows the filter returns.
+    sql = f"SELECT x.*, count(*) OVER () AS filas FROM ({sql}) x" + (" WHERE completos < total" if incompletos else "")
     sql += " ORDER BY COALESCE(stock, 0) DESC, descripcion, item_id LIMIT :limit OFFSET :offset"
     q_clean = (q or "").strip() or None
     rows = db.execute(
