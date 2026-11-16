@@ -178,6 +178,9 @@ class TacticalLineaOut(BaseModel):
     tc_al_cobro: Optional[Decimal] = None
     unidades_usadas: int
     monto_usado: Decimal
+    # A USD cost line of an `al_cobro` tactical without its collection rate yet whose USD comes from today's BNA (a %
+    # line, or a per-unit amount cut to the unit cost): `monto_usado` is an estimate (tactical sell in USD S10).
+    monto_estimado: bool = False
     # An invoice line saved before Compras linked its operation's supplier invoice: it applies nothing until then.
     esperando_factura: bool = False
     # An invoice line's pick (S5): None = every invoice of its operation ("Todas"); otherwise the picked invoices.
@@ -267,6 +270,7 @@ class MontoMonedaOut(BaseModel):
     monto: Decimal
     tope: Optional[Decimal] = None  # the lines' money caps in this currency (S6); None when no line here has one
     tope_parcial: bool = False  # only some lines in this currency have a cap: `tope` is not comparable to `monto`
+    estimado: bool = False  # some line in this currency is still an estimate (tactical sell in USD S10)
 
 
 class CobranzaKpiOut(BaseModel):

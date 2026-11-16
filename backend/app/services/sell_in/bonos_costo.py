@@ -84,7 +84,7 @@ from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
-from sqlalchemy import Select, and_, delete, func, insert, or_, select, text
+from sqlalchemy import ColumnElement, Select, and_, delete, func, insert, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.models.producto import ProductoERP
@@ -435,6 +435,17 @@ def bonos_estimados() -> Select:
         .join(t, t.id == b.tactical_id)
         .outerjoin(c, c.tactical_id == t.id)
         .where(b.base == BASE, b.moneda == USD, t.tc_modo == "al_cobro", c.tipo_cambio.is_(None))
+    )
+
+
+def fila_usd_estimada() -> ColumnElement:
+    """Whether a `sell_in_bono_consumos` row (joined to its `sell_in_bonos_marca`) has a USD amount that is still an
+    estimate (S10): its bonus is in `bonos_estimados()` and the row's USD comes from an ARS amount over today's BNA
+    (a % line, or a per-unit amount cut to the unit cost). A per-unit amount itself is exact USD."""
+    b, c = SellInBonoMarca, SellInBonoConsumo
+    return and_(
+        b.id.in_(bonos_estimados()),
+        or_(b.tipo != "por_unidad", c.monto_usd != func.round(b.monto_unit * c.unidades, 2)),
     )
 
 

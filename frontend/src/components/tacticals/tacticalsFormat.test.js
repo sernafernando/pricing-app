@@ -134,6 +134,14 @@ describe('avanceDeTactical', () => {
     expect(avanceDeTactical(lineas)).toEqual({ unidades: null, monto: 'USD 500 de USD 1.500' });
   });
 
+  it('marks a currency whose used amount is an estimate with ≈ (tactical sell in USD S10)', () => {
+    const lineas = [
+      { tope_unidades: null, unidades_usadas: 2, tope_monto: '100', monto_usado: '42.1', moneda: 'USD', monto_estimado: true },
+      { tope_unidades: null, unidades_usadas: 2, tope_monto: '50', monto_usado: '21.82', moneda: 'USD', monto_estimado: false },
+    ];
+    expect(avanceDeTactical(lineas).monto).toBe('≈ USD 63,92 de USD 150');
+  });
+
   it('keeps each currency apart: a USD tactical can hold an ARS cost-reduction line', () => {
     const lineas = [
       { tope_unidades: null, tope_monto: null, monto_usado: '300', moneda: 'USD' },
@@ -193,6 +201,12 @@ describe('cobranza filter and KPIs (tactical cobranza S4)', () => {
   it('formats a KPI amount as generated of cap when its currency has a cap (S6)', () => {
     const montos = [{ moneda: 'ARS', monto: '4380250.00', tope: '6000000.00' }, { moneda: 'USD', monto: '1920.00', tope: null }];
     expect(formatMontosKpi(montos)).toBe('ARS 4.380.250 de 6.000.000 · USD 1.920');
+  });
+
+  // Tactical sell in USD S10: "y marcar los montos como estimados en pantalla", ≈ like an estimated sell out.
+  it('marks an estimated amount with ≈', () => {
+    const montos = [{ moneda: 'USD', monto: '42.10', tope: '100.00', estimado: true }, { moneda: 'ARS', monto: '10.00' }];
+    expect(formatMontosKpi(montos)).toBe('≈ USD 42,1 de 100 · ARS 10');
   });
 
   it('shows the cap apart when only some lines of the currency have one (advisory on #2195)', () => {

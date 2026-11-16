@@ -183,10 +183,10 @@ class TestKpis:
 
         assert kpis == {
             "pendientes": {"cantidad": 3, "sin_tope": 3,
-                           "montos": [{"moneda": "ARS", "monto": Decimal("70.50"), "tope": None, "tope_parcial": False},
-                                      {"moneda": "USD", "monto": Decimal("7.00"), "tope": None, "tope_parcial": False}]},
+                           "montos": [{"moneda": "ARS", "monto": Decimal("70.50"), "tope": None, "tope_parcial": False, "estimado": False},
+                                      {"moneda": "USD", "monto": Decimal("7.00"), "tope": None, "tope_parcial": False, "estimado": False}]},
             "cobrados": {"cantidad": 1, "sin_tope": 1,
-                         "montos": [{"moneda": "ARS", "monto": Decimal("100.00"), "tope": None, "tope_parcial": False}]},
+                         "montos": [{"moneda": "ARS", "monto": Decimal("100.00"), "tope": None, "tope_parcial": False, "estimado": False}]},
         }  # fmt: skip
 
     def test_they_follow_the_other_filters_but_not_the_collection_one(self, db, engine) -> None:
@@ -203,7 +203,9 @@ class TestKpis:
             "pendientes": {
                 "cantidad": 1,
                 "sin_tope": 1,
-                "montos": [{"moneda": "ARS", "monto": Decimal("10.00"), "tope": None, "tope_parcial": False}],
+                "montos": [
+                    {"moneda": "ARS", "monto": Decimal("10.00"), "tope": None, "tope_parcial": False, "estimado": False}
+                ],
             },
             "cobrados": {"cantidad": 0, "sin_tope": 0, "montos": []},
         }
@@ -227,8 +229,11 @@ def _segun_las_lineas(db: Session, filtros: service.Filtros) -> dict:
         montos: dict[str, Decimal] = {}
         topes: dict[str, Decimal] = {}
         sin_tope: set[str] = set()  # currencies with an uncapped line
+        estimados: set[str] = set()  # currencies with an estimated line
         for t in grupo:
             for linea in t["lineas"]:
+                if linea["monto_estimado"]:
+                    estimados.add(linea["moneda"])
                 montos[linea["moneda"]] = montos.get(linea["moneda"], Decimal(0)) + Decimal(linea["monto_usado"])
                 if (tope := _tope_de(linea)) is not None:
                     topes[linea["moneda"]] = topes.get(linea["moneda"], Decimal(0)) + tope
@@ -244,6 +249,8 @@ def _segun_las_lineas(db: Session, filtros: service.Filtros) -> dict:
                     "tope": topes[m].quantize(Decimal("0.01")) if m in topes else None,
                     # Advisory on #2195: the cap covers only some of the generated lines.
                     "tope_parcial": m in topes and m in sin_tope,
+                    # Tactical sell in USD S10: some line in this currency is still an estimate.
+                    "estimado": m in estimados,
                 }
                 for m in ("ARS", "USD")
                 if m in montos
@@ -377,13 +384,13 @@ class TestKpisEnSql:
             # Tope 500 + Costo total USD 2.001; the other 5 have none.
             "pendientes": {"cantidad": 7, "sin_tope": 5,
                            "montos": [{"moneda": "ARS", "monto": Decimal("201.80"), "tope": Decimal("2501.00"),
-                                       "tope_parcial": True},
-                                      {"moneda": "USD", "monto": Decimal("0.00"), "tope": None, "tope_parcial": False}]},
+                                       "tope_parcial": True, "estimado": False},
+                                      {"moneda": "USD", "monto": Decimal("0.00"), "tope": None, "tope_parcial": False, "estimado": False}]},
             # Costo 108,15; Total USD 2,50 + Total USD anulado 0,50, each capped by its USD 300 total; Costo has none.
             "cobrados": {"cantidad": 3, "sin_tope": 1,
-                         "montos": [{"moneda": "ARS", "monto": Decimal("108.15"), "tope": None, "tope_parcial": False},
+                         "montos": [{"moneda": "ARS", "monto": Decimal("108.15"), "tope": None, "tope_parcial": False, "estimado": False},
                                     {"moneda": "USD", "monto": Decimal("3.00"), "tope": Decimal("600.00"),
-                                     "tope_parcial": False}]},
+                                     "tope_parcial": False, "estimado": False}]},
         }  # fmt: skip
 
     def test_voided_tacticals_with_the_anulados_filter(self, db, engine) -> None:
@@ -408,12 +415,16 @@ class TestKpisEnSql:
             "pendientes": {
                 "cantidad": 1,
                 "sin_tope": 1,
-                "montos": [{"moneda": "ARS", "monto": Decimal("30.25"), "tope": None, "tope_parcial": False}],
+                "montos": [
+                    {"moneda": "ARS", "monto": Decimal("30.25"), "tope": None, "tope_parcial": False, "estimado": False}
+                ],
             },
             "cobrados": {
                 "cantidad": 1,
                 "sin_tope": 1,
-                "montos": [{"moneda": "ARS", "monto": Decimal("70.00"), "tope": None, "tope_parcial": False}],
+                "montos": [
+                    {"moneda": "ARS", "monto": Decimal("70.00"), "tope": None, "tope_parcial": False, "estimado": False}
+                ],
             },
         }
         assert service.kpis(db, filtros, hoy=HOY) == _segun_las_lineas(db, filtros)
@@ -520,5 +531,78 @@ class TestTipoDeCambioDelCobro:
 
         assert (linea["moneda"], linea["unidades_usadas"], linea["monto_usado"]) == ("USD", 2, Decimal("21.82"))
         assert kpis["cobrados"]["montos"] == [
-            {"moneda": "USD", "monto": Decimal("21.82"), "tope": None, "tope_parcial": False}
+            {"moneda": "USD", "monto": Decimal("21.82"), "tope": None, "tope_parcial": False, "estimado": False}
         ]
+
+
+def _bonos_de(engine: Engine, tactical_id: int) -> list[int]:
+    with engine.connect() as conn:
+        return list(
+            conn.execute(
+                text("SELECT id FROM sell_in_bonos_marca WHERE tactical_id = :t ORDER BY tactical_linea"),
+                {"t": tactical_id},
+            ).scalars()
+        )
+
+
+def _recalcular(engine: Engine, bono_ids: list[int]) -> None:
+    with sessionmaker(bind=engine)() as otra:
+        bonos_costo.recalcular(otra, bono_ids=bono_ids)
+        otra.commit()
+
+
+class TestMontoEstimado:
+    """Option C (tactical sell in USD S10): "y marcar los montos como estimados en pantalla". A USD line whose USD
+    comes from an ARS amount over today's BNA (a % line, or a per-unit amount cut to the unit cost) moves with each
+    BNA until the collection rate is loaded: the list marks it and the KPIs say so. A per-unit amount itself is exact."""
+
+    _PORCENTAJE = {"alcance": "productos", "item_ids": [950], "modo_monto": "porcentaje", "valor": "3",
+                   "tope_monto": "100"}  # fmt: skip
+
+    def _ventas(self, engine: Engine) -> None:
+        for item in (2964, 950):
+            ref = w.venta(engine, "fuera", item, 2, date(2026, 11, 3))
+            w.update_venta(engine, "fuera", ref, costo_total=Decimal("100000.00"))
+        bw.tipo_cambio(engine, date(2026, 11, 1), 1200)
+
+    def test_a_percentage_line_is_estimated_until_the_collection_rate_and_a_per_unit_one_is_not(
+        self, db, engine
+    ) -> None:
+        tactical = _usd(db, lineas=[self._PORCENTAJE, _POR_UNIDAD_USD])
+        self._ventas(engine)
+        _recalcular(engine, _bonos_de(engine, tactical.id))
+
+        lineas = sorted(_leido(db, tactical.id)["lineas"], key=lambda x: x["linea"])
+        pendientes = service.kpis(db, service.Filtros(tipos=TODOS), hoy=HOY)["pendientes"]["montos"]
+
+        assert [(x["modo_monto"], x["monto_estimado"]) for x in lineas] == [
+            ("porcentaje", True),
+            ("por_unidad", False),
+        ]
+        assert [(m["moneda"], m["estimado"]) for m in pendientes] == [("USD", True)]
+        assert service.kpis(db, service.Filtros(tipos=TODOS), hoy=HOY) == _segun_las_lineas(
+            db, service.Filtros(tipos=TODOS)
+        )
+
+        service.cobrar(db, tactical.id, _cobro(tipo_cambio=Decimal("1350")), USUARIO)
+        _recalcular(engine, _bonos_de(engine, tactical.id))
+
+        assert [x["monto_estimado"] for x in _leido(db, tactical.id)["lineas"]] == [False, False]
+        cobrados = service.kpis(db, service.Filtros(tipos=TODOS), hoy=HOY)["cobrados"]["montos"]
+        assert [(m["moneda"], m["estimado"]) for m in cobrados] == [("USD", False)]
+
+    def test_a_per_unit_amount_cut_to_the_unit_cost_is_estimated(self, db, engine) -> None:
+        caro = {**_POR_UNIDAD_USD, "valor": "100"}  # USD 100 x 1200 > the ARS 50.000 unit cost: cut, then / BNA
+        tactical = _usd(db, lineas=[caro])
+        self._ventas(engine)
+        _recalcular(engine, _bonos_de(engine, tactical.id))
+
+        assert [x["monto_estimado"] for x in _leido(db, tactical.id)["lineas"]] == [True]
+
+    @pytest.mark.parametrize("tc", [{"tc_modo": "fijo", "tipo_cambio": "1400"}, {"tc_modo": "dia_venta"}])
+    def test_a_final_rate_is_never_estimated(self, db, engine, tc) -> None:
+        tactical = service.crear(db, _tactical("sell_in", [self._PORCENTAJE], moneda="USD", **tc), USUARIO)
+        self._ventas(engine)
+        _recalcular(engine, _bonos_de(engine, tactical.id))
+
+        assert [x["monto_estimado"] for x in _leido(db, tactical.id)["lineas"]] == [False]

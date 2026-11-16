@@ -108,6 +108,20 @@ describe('TacticalFila money cap', () => {
   });
 });
 
+describe('TacticalFila estimated amounts (tactical sell in USD S10)', () => {
+  it('marks a line whose used amount is still an estimate, like an estimated sell out', async () => {
+    const usd = {
+      ...BPS,
+      lineas: [{ ...BPS.lineas[0], moneda: 'USD', tope_unidades: null, tope_monto: '100', monto_usado: '42.10', monto_estimado: true }],
+    };
+    renderFilas([usd]);
+    await userEvent.click(screen.getByRole('button', { name: `Ver las líneas de ${BPS.nombre}` }));
+
+    const celda = screen.getByTitle('Estimado: tipo de cambio a definir');
+    expect(celda).toHaveTextContent('≈ USD 42,1');
+  });
+});
+
 describe('TacticalFila brands (S3)', () => {
   it('shows every brand of a tactical with several, and the one brand of an older read', () => {
     renderFilas([{ ...REBATE, marcas: ['HP', 'TP-Link'] }]);

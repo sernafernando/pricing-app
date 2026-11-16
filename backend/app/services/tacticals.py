@@ -1532,6 +1532,7 @@ def _usado_por_linea(ids: Select) -> Subquery:
     """One row per child of the tacticals in `ids` (a subquery of ids): `(tactical_id, moneda, monto, tope)`, `monto`
     being its `monto_usado` exactly as `serializar` computes it (`_lineas_campanas`, `_lineas_bonos` through
     `bonos_crud.serializar`, `_lineas_compras`), rounded to cents per child. A child that used nothing is a 0 row.
+    `estimado` is 1 when some of a USD cost bonus's amount is still an estimate (S10, `bonos_costo.fila_usd_estimada`).
     `tope` is its money cap in that same currency (S6): its `tope_monto`, or the total of a Monto total child (the
     total is its cap; a cost bonus keeps it in ARS, converted at the tactical's fixed rate); NULL without one."""
     cero = literal(0)
@@ -1545,6 +1546,7 @@ def _usado_por_linea(ids: Select) -> Subquery:
             SellOutCampana.moneda.label("moneda"),
             func.round(func.coalesce(func.sum(SellOutConsumo.monto), cero), 2).label("monto"),
             tope(SellOutCampana),
+            cero.label("estimado"),
         )
         .select_from(SellOutCampana)
         .outerjoin(SellOutConsumo, SellOutConsumo.campana_id == SellOutCampana.id)
@@ -1565,6 +1567,8 @@ def _usado_por_linea(ids: Select) -> Subquery:
                 else_=func.round(func.coalesce(func.sum(SellInBonoConsumo.descuento_ars), cero), 2),
             ),
             tope(SellInBonoMarca),
+            # 1 while some of its USD is still an estimate (tactical sell in USD S10).
+            func.max(case((bonos_costo.fila_usd_estimada(), 1), else_=0)),
         )
         .select_from(SellInBonoMarca)
         .outerjoin(SellInBonoConsumo, SellInBonoConsumo.bono_id == SellInBonoMarca.id)
@@ -1578,6 +1582,7 @@ def _usado_por_linea(ids: Select) -> Subquery:
             SellInBonoMarca.moneda,
             func.round(func.coalesce(func.sum(SellInCompraItem.monto_asignado), cero), 2),
             tope(SellInBonoMarca),
+            cero,
         )
         .select_from(SellInBonoMarca)
         .outerjoin(
@@ -1601,6 +1606,7 @@ def _usado_por_linea(ids: Select) -> Subquery:
             SellInCompra.moneda,
             func.round(case((en_usd, ars / SellInCompra.tipo_cambio), else_=ars), 2),
             SellInCompra.monto_total,  # an invoice total: in the purchase's own currency, its own cap
+            cero,
         )
         .select_from(SellInCompra)
         .outerjoin(SellInCompraItem, SellInCompraItem.compra_id == SellInCompra.id)
@@ -1628,7 +1634,7 @@ def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
     cantidades = {bool(c): int(n) for c, n in db.query(base.c.cobrado, func.count()).group_by(base.c.cobrado)}
     lineas = _usado_por_linea(select(base.c.id))
     montos: dict[bool, dict[str, dict]] = defaultdict(dict)
-    for c, moneda, monto, tope, con_tope_, lineas_ in (
+    for c, moneda, monto, tope, con_tope_, lineas_, estimado in (
         db.query(
             base.c.cobrado,
             lineas.c.moneda,
@@ -1636,6 +1642,7 @@ def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
             func.sum(lineas.c.tope),
             func.count(lineas.c.tope),
             func.count(),
+            func.max(lineas.c.estimado),
         )
         .join(lineas, lineas.c.tactical_id == base.c.id)
         .group_by(base.c.cobrado, lineas.c.moneda)
@@ -1646,6 +1653,8 @@ def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
             "tope": None if tope is None else _cents(tope),
             # The cap covers only some of the lines `monto` sums: comparing them would read "900 of 500".
             "tope_parcial": 0 < con_tope_ < lineas_,
+            # Some line here is still an estimate (tactical sell in USD S10): the list marks the amount.
+            "estimado": bool(estimado),
         }
     con_tope = (
         select(lineas.c.tactical_id, func.count(lineas.c.tope).label("topes")).group_by(lineas.c.tactical_id).subquery()
@@ -1987,6 +1996,21 @@ def _con_facturas_elegidas(db: Session, lineas: list[dict]) -> None:
         )
 
 
+def _bonos_estimados(db: Session, ids: list[int]) -> set[int]:
+    """The cost bonuses of the tacticals in `ids` whose used USD is still an estimate (tactical sell in USD S10, option
+    C "y marcar los montos como estimados en pantalla"): one query, none without tacticals."""
+    if not ids:
+        return set()
+    return set(
+        db.execute(
+            select(SellInBonoConsumo.bono_id)
+            .join(SellInBonoMarca, SellInBonoMarca.id == SellInBonoConsumo.bono_id)
+            .where(SellInBonoMarca.tactical_id.in_(ids), bonos_costo.fila_usd_estimada())
+            .distinct()
+        ).scalars()
+    )
+
+
 def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
     """Each tactical with its lines, one per child, in line order (module docstring): a few queries per page."""
     tacticals = list(tacticals)
@@ -2006,6 +2030,9 @@ def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
     por_linea: dict[tuple[int, int], int] = defaultdict(int)
     for linea in lineas:
         por_linea[(linea["tactical_id"], linea["linea"])] += 1
+    estimados = _bonos_estimados(db, ids)
+    for linea in lineas:
+        linea["monto_estimado"] = linea["origen"] == "sell_in_bono" and linea["id"] in estimados
     _con_facturas_elegidas(db, lineas)
     de_tactical: dict[int, list[dict]] = defaultdict(list)
     for linea in sorted(lineas, key=lambda x: (x["linea"], x["id"])):

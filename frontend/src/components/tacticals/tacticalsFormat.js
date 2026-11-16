@@ -125,7 +125,9 @@ export function avanceDeTactical(lineas) {
   const monto = monedas
     .map((moneda) => {
       const deMoneda = lineas.filter((l) => l.moneda === moneda);
-      const usado = formatMontoTactical(deMoneda.reduce((s, l) => s + Number(l.monto_usado ?? 0), 0), moneda);
+      // ≈ while some line's amount is still an estimate (tactical sell in USD S10), like an estimated sell out.
+      const aprox = deMoneda.some((l) => l.monto_estimado) ? '≈ ' : '';
+      const usado = `${aprox}${formatMontoTactical(deMoneda.reduce((s, l) => s + Number(l.monto_usado ?? 0), 0), moneda)}`;
       if (!deMoneda.every((l) => !vacio(l.tope_monto))) return usado;
       return `${usado} de ${formatMontoTactical(deMoneda.reduce((s, l) => s + Number(l.tope_monto), 0), moneda)}`;
     })
@@ -159,8 +161,8 @@ export const FILTROS_VACIOS = {
 export const formatMontosKpi = (montos) =>
   montos?.length
     ? montos
-        .map(({ moneda, monto, tope, tope_parcial: parcial }) => {
-          const generado = formatMontoTactical(monto, moneda);
+        .map(({ moneda, monto, tope, tope_parcial: parcial, estimado }) => {
+          const generado = `${estimado ? '≈ ' : ''}${formatMontoTactical(monto, moneda)}`;
           if (vacio(tope)) return generado;
           const cifra = NUMERO.format(Number(tope));
           return parcial ? `${generado} · tope ${cifra} (líneas con tope)` : `${generado} de ${cifra}`;
