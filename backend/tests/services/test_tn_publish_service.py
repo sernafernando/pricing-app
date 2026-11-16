@@ -22,7 +22,9 @@ from app.models.tb_item import TBItem
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.tn_publish_override import TnPublishOverride
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
+from app.services.producto_maestro_medidas_tn import CAMPOS_TN
 from app.services.tienda_nube_product_client import TnProductLookupError, TnRateLimited
+from app.services.tn_publish_core import OVERRIDABLE_FIELDS
 from app.services.tn_publish_service import (
     InvalidPublishPriceError,
     _validate_publish_price,
@@ -1189,6 +1191,33 @@ class TestPublishOverridePersistence:
         outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(overrides={"weight": "1.200"}))
         assert outcome["status"] == "submitted"
         assert db.query(ProductoPropio).count() == 0
+
+    def test_an_ean_of_several_products_publishes_and_stores_nothing(self, db):
+        user = _make_user(db)
+        _make_erp_product(db)
+        _make_erp_product(db, item_id=7002)  # same GBP code on two products: which one is unknown
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 997}},
+        )
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(overrides={"weight": "1.200"}))
+        assert outcome["status"] == "submitted"
+        assert db.query(ProductoPropio).count() == 0
+
+    def test_an_out_of_range_value_is_skipped_and_the_other_fields_are_stored(self, db):
+        user = _make_user(db)
+        _make_erp_product(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 998}},
+        )
+        publish_product(
+            db, user, client=fake_client, **_publish_kwargs(overrides={"weight": "1e9", "width": "1e8", "height": "3"})
+        )
+        row = self._master(db)
+        assert (row.peso_g, row.largo_cm, row.alto_cm) == (None, None, Decimal("3"))
+
+    def test_every_overridable_field_has_a_master_column(self):
+        # A publisher field without a master column would be accepted, reported as stored, and silently lost.
+        assert set(OVERRIDABLE_FIELDS) == set(CAMPOS_TN)
 
     def test_the_happy_path_publishes_and_persists_nothing(self, db):
         """The operator edited nothing: the item still PUBLISHES (its measurements travel in `measurements`), and

@@ -75,6 +75,11 @@ _COPY = sa.text(r"""
         ancho_cm = COALESCE(productos_propios.ancho_cm, EXCLUDED.ancho_cm),
         alto_cm = COALESCE(productos_propios.alto_cm, EXCLUDED.alto_cm),
         updated_at = now()
+    -- A row the copy adds nothing to is not touched (its updated_at keeps dating its last real edit).
+    WHERE (productos_propios.peso_g IS NULL AND EXCLUDED.peso_g IS NOT NULL)
+       OR (productos_propios.largo_cm IS NULL AND EXCLUDED.largo_cm IS NOT NULL)
+       OR (productos_propios.ancho_cm IS NULL AND EXCLUDED.ancho_cm IS NOT NULL)
+       OR (productos_propios.alto_cm IS NULL AND EXCLUDED.alto_cm IS NOT NULL)
 """)
 
 

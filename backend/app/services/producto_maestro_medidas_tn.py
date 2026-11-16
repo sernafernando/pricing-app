@@ -27,6 +27,9 @@ from app.services.producto_propio_service import upsert_producto_propio
 
 logger = logging.getLogger(__name__)
 
+# The master columns are Numeric(10, 2) and (12, 2): a value from 10^8 on does not fit (the migration uses the same cap).
+MAXIMO = Decimal(100_000_000)
+
 # TN publisher field -> (master column, TN units per master unit)
 CAMPOS_TN: dict[str, tuple[str, Decimal]] = {
     "weight": ("peso_g", Decimal(1000)),
@@ -85,13 +88,13 @@ def _a_maestro(valor: str, factor: Decimal) -> Optional[Decimal]:
         numero = Decimal(str(valor).strip()) * factor
     except (InvalidOperation, ValueError):
         return None
-    return numero if numero.is_finite() and numero > 0 else None
+    return numero if numero.is_finite() and 0 < numero < MAXIMO else None
 
 
 def guardar_medidas(db: Session, ean: str, medidas: dict[str, str], usuario_id: int) -> bool:
     """Store the publisher's edited measurements (TN units) on the product's master row; the caller commits. False,
     writing nothing, when the EAN is not exactly one ERP product. An unknown field or a value that is not a positive
-    number is skipped."""
+    number below `MAXIMO` is skipped (logged), so one bad value never loses the others."""
     item_id = _item_ids_por_ean(db, [ean]).get(ean)
     if item_id is None:
         logger.warning("TN publish measurements not stored: ean=%s is not exactly one ERP product", ean)
@@ -100,11 +103,14 @@ def guardar_medidas(db: Session, ean: str, medidas: dict[str, str], usuario_id: 
     values = {}
     for campo, valor in medidas.items():
         if campo not in CAMPOS_TN:
+            logger.warning("TN publish measurement skipped: ean=%s has no master column for %s", ean, campo)
             continue
         columna, factor = CAMPOS_TN[campo]
         numero = _a_maestro(valor, factor)
         if numero is None:
-            logger.warning("TN publish measurement skipped: ean=%s %s=%r is not a positive number", ean, campo, valor)
+            logger.warning(
+                "TN publish measurement skipped: ean=%s %s=%r is not a positive number in range", ean, campo, valor
+            )
             continue
         values[columna] = valor_override(columna, numero, getattr(gbp, OVERRIDES[columna]) if gbp else None)
     if not values:

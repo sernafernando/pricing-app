@@ -50,11 +50,17 @@ def test_upgrade_copies_the_measurements_into_the_master_in_its_units(pg_schema)
         for statement in _DDL:
             conn.execute(text(statement))
         conn.execute(
-            text("INSERT INTO productos_erp (item_id, codigo) VALUES (1, 'A'), (2, 'B'), (3, 'C'), (4, 'D'), (5, 'F')")
+            text(
+                "INSERT INTO productos_erp (item_id, codigo) VALUES (1, 'A'), (2, 'B'), (3, 'C'), (4, 'D'), (5, 'F'), (7, 'G')"
+            )
         )
         conn.execute(text("INSERT INTO tb_item (comp_id, item_id, item_weight, item_large) VALUES (1, 3, 1500, 20)"))
         # B already has a weight set in the master (the ABM): it is kept.
         conn.execute(text("INSERT INTO productos_propios (item_id, peso_g, titulo) VALUES (2, 500, 'own')"))
+        # G's master row already holds everything the copy brings: the row is not touched at all.
+        conn.execute(
+            text("INSERT INTO productos_propios (item_id, peso_g, updated_at) VALUES (7, 300, '2020-01-01T00:00:00Z')")
+        )
         for campo, valor in (("weight", "1.2"), ("width", "13"), ("depth", "2.0"), ("height", "3")):
             _override(conn, "A", campo, valor, usuario_id=9)
         _override(conn, "B", "weight", "0.9")
@@ -67,6 +73,7 @@ def test_upgrade_copies_the_measurements_into_the_master_in_its_units(pg_schema)
         _override(conn, "D", "height", "0")
         _override(conn, "E", "weight", "2")  # no product with that code
         _override(conn, "F", "weight", "99999999")  # 99,999,999 kg: out of range
+        _override(conn, "G", "weight", "1")
 
     _run(eng, module, "upgrade")
 
@@ -74,19 +81,23 @@ def test_upgrade_copies_the_measurements_into_the_master_in_its_units(pg_schema)
         rows = {
             r.item_id: r
             for r in conn.execute(
-                text("SELECT item_id, peso_g, largo_cm, ancho_cm, alto_cm, updated_by, titulo FROM productos_propios")
+                text(
+                    "SELECT item_id, peso_g, largo_cm, ancho_cm, alto_cm, updated_by, titulo, updated_at FROM productos_propios"
+                )
             )
         }
-    assert set(rows) == {1, 2}
+    assert set(rows) == {1, 2, 7}
     a = rows[1]
     assert (a.peso_g, a.largo_cm, a.ancho_cm, a.alto_cm) == (Decimal("1200"), Decimal("13"), Decimal("2"), Decimal("3"))
     assert a.updated_by == 9
     b = rows[2]
     assert (b.peso_g, b.alto_cm, b.largo_cm, b.titulo) == (Decimal("500"), Decimal("10"), None, "own")
+    g = rows[7]
+    assert (g.peso_g, g.updated_at.year) == (Decimal("300"), 2020)
 
     _run(eng, module, "downgrade")
 
     with eng.connect() as conn:
         # The copy stays (the master owns it now) and the old table is untouched.
-        assert conn.execute(text("SELECT count(*) FROM productos_propios")).scalar() == 2
-        assert conn.execute(text("SELECT count(*) FROM tn_publish_override")).scalar() == 14
+        assert conn.execute(text("SELECT count(*) FROM productos_propios")).scalar() == 3
+        assert conn.execute(text("SELECT count(*) FROM tn_publish_override")).scalar() == 15
