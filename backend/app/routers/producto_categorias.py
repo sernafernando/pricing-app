@@ -3,6 +3,10 @@ deactivate, link each one to a Tienda Nube category, suggest that link, and refr
 
 Reading needs `productos.ver`; every write, the TN suggestion and the TN refresh need `productos.editar_categorias`.
 The logic lives in `app.services.producto_categorias`.
+
+The TN suggestion and the TN refresh call the network (the embedder, the TN API). They hold no DB session meanwhile:
+the user is authenticated with `get_current_user_transient`, what they need is read in a short `get_background_db()`
+session that is closed before the call, and the result is written in a new short session after it.
 """
 
 from __future__ import annotations
@@ -14,11 +18,17 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_permiso
-from app.core.database import get_db
+from app.api.deps import get_current_user_transient, require_permiso
+from app.core.database import get_background_db, get_db
+from app.core.exceptions import ErrorCode, api_error
 from app.models.usuario import Usuario
 from app.services import producto_categorias as service
-from app.services.tn_category_embedding_service import sync_category_embeddings
+from app.services.permisos_service import PermisosService
+from app.services.tn_category_embedding_service import (
+    embed_category_text,
+    fetch_category_embeddings,
+    store_category_embeddings,
+)
 
 PERMISO_VER = "productos.ver"
 PERMISO_EDITAR = "productos.editar_categorias"
@@ -139,13 +149,34 @@ def listar_tn(
     return service.listar_tn_categorias(db, q)
 
 
+def _exigir_editar(user: Usuario) -> None:
+    """Permission check in its own short session, for the endpoints that must not hold one across a network call."""
+    with get_background_db() as db:
+        permitido = PermisosService(db).tiene_permiso(user, PERMISO_EDITAR)
+    if not permitido:
+        raise api_error(403, ErrorCode.INSUFFICIENT_PERMISSIONS, f"Permiso requerido: {PERMISO_EDITAR}")
+
+
+def _sugerir(user: Usuario, leer_texto: Callable[[Session], tuple[str, Optional[str]]]) -> dict[str, Any]:
+    _exigir_editar(user)
+    try:
+        with get_background_db() as db:
+            texto, rama = leer_texto(db)
+    except service.NoEncontrado as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    embedding = embed_category_text(texto)  # network, no DB session held
+    with get_background_db() as db:
+        return service.sugerencias_tn(db, embedding, rama)
+
+
 @router.post("/tn-categorias/sync", response_model=SyncTnResponse)
-def sincronizar_tn(
-    _user: Usuario = Depends(require_permiso(PERMISO_EDITAR)),
-    db: Session = Depends(get_db),
-) -> SyncTnResponse:
-    """ "Actualizar desde Tienda Nube": re-runs the existing TN category mirror sync."""
-    result = sync_category_embeddings(db)
+def sincronizar_tn(user: Usuario = Depends(get_current_user_transient)) -> SyncTnResponse:
+    """ "Actualizar desde Tienda Nube": re-runs the existing TN category mirror sync. The TN API and the embedder are
+    called with no DB session held; the mirror is written afterwards in a short session."""
+    _exigir_editar(user)
+    fetched = fetch_category_embeddings()  # network, no DB session held
+    with get_background_db() as db:
+        result = store_category_embeddings(db, fetched)
     return SyncTnResponse(synced=result["synced"], skipped=result["skipped"], reason=result.get("reason"))
 
 
@@ -164,11 +195,11 @@ def editar_subcategoria(
 @router.get("/subcategorias/{subcategoria_id}/sugerencia-tn", response_model=SugerenciaResponse)
 def sugerir_tn_subcategoria(
     subcategoria_id: int = Path(..., ge=1),
-    _user: Usuario = Depends(require_permiso(PERMISO_EDITAR)),
-    db: Session = Depends(get_db),
+    user: Usuario = Depends(get_current_user_transient),
 ) -> dict[str, Any]:
-    """Suggested TN categories for "<category> > <subcategory>", kept in the branch of the category's link."""
-    return ejecutar(db, lambda: service.sugerencia_tn_subcategoria(db, subcategoria_id))
+    """Suggested TN categories for "<category> > <subcategory>", kept in the branch of the category's link; empty when
+    the embedder is unavailable. No DB session is held during the embedder call."""
+    return _sugerir(user, lambda db: service.texto_sugerencia_subcategoria(db, subcategoria_id))
 
 
 @router.patch("/{categoria_id}", response_model=CategoriaResponse)
@@ -197,8 +228,8 @@ def crear_subcategoria(
 @router.get("/{categoria_id}/sugerencia-tn", response_model=SugerenciaResponse)
 def sugerir_tn(
     categoria_id: int = Path(..., ge=1),
-    _user: Usuario = Depends(require_permiso(PERMISO_EDITAR)),
-    db: Session = Depends(get_db),
+    user: Usuario = Depends(get_current_user_transient),
 ) -> dict[str, Any]:
-    """Suggested TN categories for the category's name (embeddings); empty when the embedder is unavailable."""
-    return ejecutar(db, lambda: service.sugerencia_tn_categoria(db, categoria_id))
+    """Suggested TN categories for the category's name (embeddings); empty when the embedder is unavailable. No DB
+    session is held during the embedder call."""
+    return _sugerir(user, lambda db: service.texto_sugerencia_categoria(db, categoria_id))

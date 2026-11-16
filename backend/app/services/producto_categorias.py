@@ -7,8 +7,8 @@
 - Own rows get ids from `PRIMER_ID_PROPIO` up. Only an own subcategory may move to another category (GBP keeps its tree).
 - A category or subcategory links to one Tienda Nube category of the mirrored tree (`tn_category_embedding`). A
   subcategory without its own link uses its category's (`tn_category_efectiva`).
-- The TN suggestion reuses `suggest_category` (embeddings); for a subcategory it is kept inside the branch of its
-  category's link when there is one. Nothing is linked automatically.
+- The TN suggestion reuses the embeddings suggester (`embed_category_text` + `suggest_category_for_embedding`); for a
+  subcategory it is kept inside the branch of its category's link when there is one. Nothing is linked automatically.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from app.models.producto_categoria import PRIMER_ID_PROPIO, ProductoCategoria, ProductoSubcategoria
 from app.models.producto_marca import ProductoMarca
 from app.models.tn_category_embedding import TnCategoryEmbedding
-from app.services.tn_category_embedding_service import suggest_category
+from app.services.tn_category_embedding_service import suggest_category_for_embedding
 
 # Same statements as the migration `20261117_producto_categorias_marcas` (a test pins them equal).
 SEED_SQL = (
@@ -322,22 +322,23 @@ def editar_subcategoria(
     return leer_subcategoria(db, sub.id)
 
 
-def sugerencia_tn_categoria(db: Session, categoria_id: int) -> dict[str, Any]:
-    """TN categories ranked for the category's name. Empty (never an error) when the embedder is unavailable."""
-    cat = leer_categoria(db, categoria_id)
-    result = suggest_category(db, cat["nombre"] or "", top_n=SUGERENCIAS)
-    return {"sugerencias": result["suggestions"], "top": result["top"]}
+def texto_sugerencia_categoria(db: Session, categoria_id: int) -> tuple[str, Optional[str]]:
+    """What to rank TN categories for: the category's name; no branch restriction."""
+    return leer_categoria(db, categoria_id)["nombre"] or "", None
 
 
-def sugerencia_tn_subcategoria(db: Session, subcategoria_id: int) -> dict[str, Any]:
-    """TN categories ranked for "<category> > <subcategory>". When the category is linked, only that link's branch is
-    kept. Empty (never an error) when the embedder is unavailable."""
+def texto_sugerencia_subcategoria(db: Session, subcategoria_id: int) -> tuple[str, Optional[str]]:
+    """What to rank TN categories for: "<category> > <subcategory>", and the TN path of the category's link (the branch
+    the suggestion stays in) when it has one."""
     sub = leer_subcategoria(db, subcategoria_id)
     cat = leer_categoria(db, sub["categoria_id"])
-    rama = cat["tn_categoria"]
-    result = suggest_category(
-        db, f"{cat['nombre']} > {sub['nombre']}", top_n=_SUGERENCIAS_RAMA if rama else SUGERENCIAS
-    )
+    return f"{cat['nombre']} > {sub['nombre']}", cat["tn_categoria"]
+
+
+def sugerencias_tn(db: Session, embedding: Optional[list[float]], rama: Optional[str]) -> dict[str, Any]:
+    """TN categories nearest to `embedding` (from `embed_category_text`, called by the caller without a DB session),
+    kept inside `rama` when given. Empty, never an error, when the embedder was unavailable."""
+    result = suggest_category_for_embedding(db, embedding, top_n=_SUGERENCIAS_RAMA if rama else SUGERENCIAS)
     sugerencias = result["suggestions"]
     if rama:
         sugerencias = [

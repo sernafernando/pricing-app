@@ -99,23 +99,22 @@ def build_category_paths(categories: List[Dict[str, Any]]) -> Dict[int, str]:
     return paths
 
 
-def sync_category_embeddings(db: Session, client: Optional[TiendaNubeProductClient] = None) -> Dict[str, Any]:
-    """Refreshes `tn_category_embedding` from the live TN category tree.
+def fetch_category_embeddings(client: Optional[TiendaNubeProductClient] = None) -> Dict[str, Any]:
+    """Network half of `sync_category_embeddings`: fetch the TN tree and embed its paths, touching no database, so a
+    caller can run it without holding a DB session.
 
-    Returns `{"synced": int, "skipped": bool, "reason": Optional[str]}`.
-    Never raises — a fetch/embedder failure is logged and reported via
-    `skipped`/`reason` so a caller (e.g. an admin script) can surface it
-    without crashing.
+    Returns `{"rows": [(tn_category_id, path_text, embedding), ...]}` or, when it cannot sync,
+    `{"rows": None, "skipped": bool, "reason": Optional[str]}` (an empty tree is `skipped=False`). Never raises.
     """
     active_client = client if client is not None else TiendaNubeProductClient()
     categories = _resolve(active_client.fetch_categories())
 
     if categories is None:
         logger.warning("sync_category_embeddings: fetch_categories failed — sync skipped")
-        return {"synced": 0, "skipped": True, "reason": "fetch_categories_failed"}
+        return {"rows": None, "skipped": True, "reason": "fetch_categories_failed"}
 
     if not categories:
-        return {"synced": 0, "skipped": False, "reason": None}
+        return {"rows": None, "skipped": False, "reason": None}
 
     paths = build_category_paths(categories)
     ordered_ids = list(paths.keys())
@@ -124,9 +123,21 @@ def sync_category_embeddings(db: Session, client: Optional[TiendaNubeProductClie
     embeddings = _resolve(embed_passages(path_texts))
     if embeddings is None:
         logger.warning("sync_category_embeddings: embed_passages failed — sync skipped")
-        return {"synced": 0, "skipped": True, "reason": "embed_passages_failed"}
+        return {"rows": None, "skipped": True, "reason": "embed_passages_failed"}
 
-    for cat_id, path_text, embedding in zip(ordered_ids, path_texts, embeddings):
+    return {"rows": list(zip(ordered_ids, path_texts, embeddings))}
+
+
+def store_category_embeddings(db: Session, fetched: Dict[str, Any]) -> Dict[str, Any]:
+    """Database half of `sync_category_embeddings`: upsert what `fetch_category_embeddings` returned and commit.
+
+    Returns `{"synced": int, "skipped": bool, "reason": Optional[str]}`.
+    """
+    rows = fetched["rows"]
+    if rows is None:
+        return {"synced": 0, "skipped": fetched["skipped"], "reason": fetched["reason"]}
+
+    for cat_id, path_text, embedding in rows:
         existing = db.query(TnCategoryEmbedding).filter(TnCategoryEmbedding.tn_category_id == cat_id).first()
         if existing:
             existing.category_path_text = path_text
@@ -136,7 +147,18 @@ def sync_category_embeddings(db: Session, client: Optional[TiendaNubeProductClie
 
     db.commit()
 
-    return {"synced": len(ordered_ids), "skipped": False, "reason": None}
+    return {"synced": len(rows), "skipped": False, "reason": None}
+
+
+def sync_category_embeddings(db: Session, client: Optional[TiendaNubeProductClient] = None) -> Dict[str, Any]:
+    """Refreshes `tn_category_embedding` from the live TN category tree.
+
+    Returns `{"synced": int, "skipped": bool, "reason": Optional[str]}`.
+    Never raises — a fetch/embedder failure is logged and reported via
+    `skipped`/`reason` so a caller (e.g. an admin script) can surface it
+    without crashing.
+    """
+    return store_category_embeddings(db, fetch_category_embeddings(client))
 
 
 def _similarity_query(db: Session, query_embedding: List[float], top_n: int) -> List[Tuple[TnCategoryEmbedding, float]]:
@@ -167,7 +189,19 @@ def suggest_category(db: Session, category_text: str, top_n: int = _DEFAULT_TOP_
          rows, a transient DB error).
       3. The similarity query returns zero rows (empty category table).
     """
-    query_embedding = _resolve(embed_query(category_text))
+    return suggest_category_for_embedding(db, embed_category_text(category_text), top_n)
+
+
+def embed_category_text(category_text: str) -> Optional[List[float]]:
+    """Network half of `suggest_category`: the query embedding, or `None` when the embedder is unavailable. Touches no
+    database, so a caller can run it without holding a DB session."""
+    return _resolve(embed_query(category_text))
+
+
+def suggest_category_for_embedding(
+    db: Session, query_embedding: Optional[List[float]], top_n: int = _DEFAULT_TOP_N
+) -> Dict[str, Any]:
+    """Database half of `suggest_category`, for an embedding from `embed_category_text`."""
     if query_embedding is None:
         logger.info("suggest_category: embed_query unavailable — returning empty suggestion")
         return {"suggestions": [], "top": None}

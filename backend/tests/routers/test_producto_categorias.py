@@ -5,11 +5,16 @@ category's. Reading needs `productos.ver`; editing needs `productos.editar_categ
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import pytest
 from sqlalchemy import text
 
+from app.api.deps import get_current_user_transient
+from app.main import app
 from app.models.producto_categoria import PRIMER_ID_PROPIO
 from app.models.tn_category_embedding import TnCategoryEmbedding
+from app.routers import producto_categorias as router_mod
 from app.services import producto_categorias as service
 from tests.routers.test_ml_publications_links import grant
 
@@ -54,6 +59,31 @@ def tn(db):
     for tn_id, path in ((900, "Redes"), (901, "Redes > Routers"), (902, "Redes > Switches"), (950, "Computación")):
         db.add(TnCategoryEmbedding(tn_category_id=tn_id, category_path_text=path, embedding=[0.0] * 3))
     db.flush()
+
+
+@pytest.fixture()
+def corto(db, admin_user, monkeypatch):
+    """The network endpoints authenticate with `get_current_user_transient` and use short `get_background_db()`
+    sessions; both point at the test database here. Returns the open/close/network event log."""
+    events: list[str] = []
+
+    @contextmanager
+    def _short_db():
+        events.append("open")
+        try:
+            yield db
+        finally:
+            events.append("close")
+
+    monkeypatch.setattr(router_mod, "get_background_db", _short_db)
+    app.dependency_overrides[get_current_user_transient] = lambda: admin_user
+    yield events
+    app.dependency_overrides.pop(get_current_user_transient, None)
+
+
+def _sin_sesion_abierta(events: list[str]) -> None:
+    events.append("red")
+    assert events.count("open") == events.count("close"), f"a DB session was open during the network call: {events}"
 
 
 def _cat(body: list[dict], cat_id: int) -> dict:
@@ -200,18 +230,24 @@ def test_the_tn_picker_lists_the_mirrored_tree(client, reader, gbp, tn) -> None:
     assert [c["category_path"] for c in resp.json()] == ["Redes", "Redes > Routers", "Redes > Switches"]
 
 
-def test_the_subcategory_suggestion_stays_in_the_category_branch(client, editor, gbp, tn, monkeypatch) -> None:
+def test_the_subcategory_suggestion_stays_in_the_category_branch(client, editor, gbp, tn, corto, monkeypatch) -> None:
     seen: list[str] = []
 
-    def fake_suggest(_db, category_text: str, top_n: int = 5) -> dict:
+    def fake_embed(category_text: str) -> list[float]:
+        _sin_sesion_abierta(corto)
         seen.append(category_text)
+        return [0.1]
+
+    def fake_similar(_db, embedding, top_n: int = 5) -> dict:
+        assert embedding == [0.1]
         rows = [
             {"tn_category_id": 950, "category_path_text": "Computación", "similarity": 0.9},
             {"tn_category_id": 901, "category_path_text": "Redes > Routers", "similarity": 0.8},
         ]
         return {"suggestions": rows, "top": rows[0]}
 
-    monkeypatch.setattr(service, "suggest_category", fake_suggest)
+    monkeypatch.setattr(router_mod, "embed_category_text", fake_embed)
+    monkeypatch.setattr(service, "suggest_category_for_embedding", fake_similar)
     client.patch(f"{CATS}/46", json={"tn_category_id": 900}, headers=editor)
 
     resp = client.get(f"{CATS}/subcategorias/300/sugerencia-tn", headers=editor)
@@ -220,9 +256,53 @@ def test_the_subcategory_suggestion_stays_in_the_category_branch(client, editor,
     assert seen == ["CONECTIVIDAD > ROUTERS"]
     assert [s["tn_category_id"] for s in resp.json()["sugerencias"]] == [901]
     assert resp.json()["top"]["category_path_text"] == "Redes > Routers"
+    assert "red" in corto and corto[-1] == "close"
 
 
-def test_editing_needs_the_permission(client, reader, gbp) -> None:
+def test_the_category_suggestion_is_empty_when_the_embedder_is_down(client, editor, gbp, tn, corto, monkeypatch):
+    monkeypatch.setattr(router_mod, "embed_category_text", lambda _text: _sin_sesion_abierta(corto))
+
+    resp = client.get(f"{CATS}/46/sugerencia-tn", headers=editor)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"sugerencias": [], "top": None}
+    assert client.get(f"{CATS}/999/sugerencia-tn", headers=editor).status_code == 404
+
+
+def test_the_tn_refresh_calls_tn_with_no_session_open_then_writes_the_mirror(client, editor, gbp, corto, monkeypatch):
+    def fake_fetch() -> dict:
+        _sin_sesion_abierta(corto)
+        return {"rows": [(900, "Redes", [0.0] * 3), (901, "Redes > Routers", [0.0] * 3)]}
+
+    monkeypatch.setattr(router_mod, "fetch_category_embeddings", fake_fetch)
+
+    resp = client.post(f"{CATS}/tn-categorias/sync", headers=editor)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"synced": 2, "skipped": False, "reason": None}
+    assert "red" in corto
+    paths = [c["category_path"] for c in client.get(f"{CATS}/tn-categorias", headers=editor).json()]
+    assert paths == ["Redes", "Redes > Routers"]
+
+
+def test_the_network_endpoints_take_no_request_scoped_session() -> None:
+    from app.core.database import get_async_db, get_db
+
+    def calls(dependant) -> set:
+        found = {dependant.call}
+        for sub in dependant.dependencies:
+            found |= calls(sub)
+        return found
+
+    network = {"/producto-categorias/tn-categorias/sync", "/producto-categorias/{categoria_id}/sugerencia-tn"}
+    network.add("/producto-categorias/subcategorias/{subcategoria_id}/sugerencia-tn")
+    routes = [r for r in router_mod.router.routes if r.path in network]
+    assert len(routes) == 3
+    for route in routes:
+        assert not calls(route.dependant) & {get_db, get_async_db}, route.path
+
+
+def test_editing_needs_the_permission(client, reader, gbp, corto) -> None:
     assert client.patch(f"{CATS}/46", json={"activa": False}, headers=reader).status_code == 403
     assert client.post(CATS, json={"nombre": "X"}, headers=reader).status_code == 403
     assert client.patch(f"{MARCAS}/10", json={"activa": False}, headers=reader).status_code == 403
