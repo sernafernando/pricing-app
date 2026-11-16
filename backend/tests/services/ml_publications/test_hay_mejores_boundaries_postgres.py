@@ -1,5 +1,6 @@
 """pubml-promo-mejor S2/S3/S4 on Postgres: only candidates applicable now set the "hay mejores" flag, and the worker
-handler `ml_promotions.hay_mejores_boundaries` re-runs it when a start or finish date passes (no sync event comes).
+handler `ml_promotions.hay_mejores_boundaries` re-runs it when a start or finish date passes (no sync event comes)
+and every tick over currently flagged rows (stale-flag hygiene).
 
 The pricing comparison is replaced by "every candidate it receives is better", so each test reads only the rule
 under test: which candidates reach the comparison, and when.
@@ -137,9 +138,11 @@ class TestBoundariesHandler:
         assert result.success and result.detail == {"recomputed": 1, "changed": 1, "catchup": False}
         assert _flag(db, "MLA1") is True and _flag(db, "MLA2") is False
 
-        # The window is done: the next run recomputes nothing.
+        # No new date crossing: the periodic flagged pass still re-runs MLA1 (idempotent, unchanged).
         clock.now += timedelta(minutes=5)
-        assert _handler(clock).run(_ctx(clock)).detail["recomputed"] == 0
+        detail = _handler(clock).run(_ctx(clock)).detail
+        assert detail == {"recomputed": 1, "changed": 0, "catchup": False}
+        assert _flag(db, "MLA1") is True
 
     def test_an_expired_candidate_clears_the_flag(self, db) -> None:
         finish = T0 + timedelta(hours=1)
@@ -169,8 +172,23 @@ class TestBoundariesHandler:
         state = db.get(WorkerJobState, module.HANDLER_NAME).detail
         assert state["rules_version"] == module.RULES_VERSION and state["checked_until"] == T0.isoformat()
 
+        # MLA3 stayed flagged: the next tick's flagged pass re-runs it (still true under the mock).
         clock.now += timedelta(minutes=5)
-        assert _handler(clock).run(_ctx(clock)).detail == {"recomputed": 0, "changed": 0, "catchup": False}
+        assert _handler(clock).run(_ctx(clock)).detail == {"recomputed": 1, "changed": 0, "catchup": False}
+        assert _flag(db, "MLA3") is True
+
+    def test_a_stale_flag_without_date_crossing_clears_on_the_next_tick(self, db, monkeypatch) -> None:
+        """Price/markup drift: still flagged, no start/finish in the window — hygiene pass clears it."""
+        _add(db, "MLA1", [{"id": "C-1", "type": "SMART"}], flag=True)
+        clock = _Clock(T0)
+        self._settle(db, clock)
+        assert _flag(db, "MLA1") is True
+
+        monkeypatch.setattr(hay_mejores, "listar_mejores_candidatas", lambda *_a, **_k: [])
+        clock.now += timedelta(minutes=5)
+        result = _handler(clock).run(_ctx(clock))
+        assert result.detail == {"recomputed": 1, "changed": 1, "catchup": False}
+        assert _flag(db, "MLA1") is False
 
     def test_a_run_stopped_by_its_deadline_resumes_after_its_cursor(self, db, monkeypatch) -> None:
         monkeypatch.setattr(module, "BATCH", 1)

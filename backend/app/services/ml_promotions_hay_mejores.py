@@ -17,7 +17,8 @@ once per batch of items when the caller passes it (``recompute``).
 Only candidates applicable right now count (``candidata_aplicable_ahora``: writable type, started, not finished,
 SELLER_CAMPAIGN only as the Premium of the month). Time passing changes that with no sync event, so the worker
 handler ``ml_promotions.hay_mejores_boundaries`` re-runs the flag of the items whose candidates crossed a start or
-finish date (``items_con_candidatas_que_cruzan``).
+finish date (``items_con_candidatas_que_cruzan``) and, every tick, every currently flagged row (stale-flag hygiene).
+A ``sale_price`` mirror write also recomputes the flag (same as a promotions write).
 """
 
 from __future__ import annotations
