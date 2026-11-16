@@ -91,6 +91,16 @@ describe('Cargas de PDF: history', () => {
     expect(vieja.at(-1)).toBe('—');
   });
 
+  it('pills a load with control "avisos" but no avisos list (an older row) instead of breaking the table', async () => {
+    const primera = HISTORIAL[0];
+    const sinLista = { ...primera, estado: 'vigente', control: 'avisos', avisos: null };
+    api.get.mockImplementation((url) =>
+      url === '/ventas-fuera-pdf/cargas' ? Promise.resolve({ data: [sinLista, ...HISTORIAL.slice(1)] }) : routeGet(url),
+    );
+    await renderPage();
+    expect(screen.getByRole('row', { name: /16\/11 12:10/ })).toHaveTextContent('1 aviso');
+  });
+
   it('filters by company, salesperson and days', async () => {
     const user = userEvent.setup();
     await renderPage();

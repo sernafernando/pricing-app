@@ -21,7 +21,13 @@ const DIAS = [30, 90, 180, 365];
 
 const CONTROL = {
   ok: { texto: () => 'OK', tono: 'ok' },
-  avisos: { texto: (fila) => `${fila.avisos.length || 1} ${fila.avisos.length === 1 ? 'aviso' : 'avisos'}`, tono: 'aviso' },
+  avisos: {
+    texto: (fila) => {
+      const n = fila.avisos?.length || 1;
+      return `${n} ${n === 1 ? 'aviso' : 'avisos'}`;
+    },
+    tono: 'aviso',
+  },
   sin_resumen: { texto: () => 'sin resumen', tono: 'neutro' },
   sin_detallada: { texto: () => 'sin detallada', tono: 'neutro' },
 };
