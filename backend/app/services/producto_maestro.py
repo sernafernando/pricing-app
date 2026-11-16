@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.models.gestion_full_unidades_caja import GestionFullUnidadesCaja
 from app.models.producto_propio import FUENTE_PROPIA, ProductoPropio
 from app.models.usuario import Usuario
+from app.schemas.publication_data import MAX_TITULO_LENGTH
 from app.services.gestion_full.unidades_caja import clear_unidades_caja, upsert_unidades_caja
 from app.services.producto_propio_service import upsert_producto_propio
 from app.services.producto_specs.campos import NOTEBOOK, PC, SUBCATEGORIAS_EXCLUIDAS, campos_de
@@ -279,6 +280,9 @@ def _texto_values(clave: str, fuente: Optional[str], contenido: Optional[str]) -
     propio = (contenido or "").strip()
     if not propio:
         raise DatoNoValido(f"{clave}: el texto propio no puede quedar vacío")
+    if clave.startswith("titulo_") and len(propio) > MAX_TITULO_LENGTH:
+        # Same cap as the Publicaciones ML title endpoint, which edits the same `titulo` column (T7).
+        raise DatoNoValido(f"{clave}: el título propio no puede superar {MAX_TITULO_LENGTH} caracteres")
     return {texto.fuente: fuente, texto.columna: propio}
 
 

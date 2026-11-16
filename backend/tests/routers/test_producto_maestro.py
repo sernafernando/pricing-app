@@ -372,6 +372,19 @@ class TestTextos:
 
         assert blank.status_code == 422 and foreign.status_code == 422
 
+    def test_an_own_title_is_capped_like_the_publicaciones_ml_title(self, client, pg, editor):
+        """`titulo` is also the Publicaciones ML copy, whose own endpoint caps it at MAX_TITULO_LENGTH."""
+        with pg.begin() as conn:
+            product(conn)
+
+        for clave, columna in (("titulo_ml", "titulo"), ("titulo_web", "titulo_web")):
+            too_long = patch(client, editor, {"textos": {clave: {"fuente": "propio", "texto": "x" * 256}}})
+            assert too_long.status_code == 422, too_long.text
+            assert stored(pg, columna) is None  # nothing written
+        fits = patch(client, editor, {"textos": {"titulo_ml": {"fuente": "propio", "texto": "x" * 255}}})
+        assert fits.status_code == 200, fits.text
+        assert stored(pg, "titulo") == "x" * 255
+
     def test_a_null_source_goes_back_to_the_default(self, client, pg, editor):
         with pg.begin() as conn:
             product(conn)
