@@ -418,3 +418,84 @@ class TestTheHandler:
 
         assert len(sent) == 2
         assert "promociones" in sent[1]
+
+
+def put_status_change(engine, item_id: str, *, at: datetime, old: str, new: str) -> None:
+    """The item change-log row the store writes when the item's status moves from `old` to `new`."""
+    run(
+        engine,
+        "INSERT INTO ml_change_log (resource_type, entity_id, item_id, kind, observed_at, changed_paths, changes, "
+        "context) VALUES ('item', :i, :i, 'change', :at, ARRAY['status'], '[]', "
+        "jsonb_build_object('status_old', CAST(:old AS text), 'status_new', CAST(:new AS text)))",
+        i=item_id,
+        at=at,
+        old=old,
+        new=new,
+    )
+
+
+class TestSweptItemsBackToActive:
+    """Owner, 2026-11-16: "esto no tiene sentido". An item paused or under review for days stops being swept after
+    24 h, so when it goes back to `active` its last check is days old. It read as late the minute it returned
+    ("4 publicaciones, la más atrasada 70 h"), the sweep fetched it a few minutes later and "volvieron a estar al
+    día" followed. Its age counts from its return to `active` at the latest: the time it was not selling is not a
+    delay. Only items the sweep is responsible for are measured."""
+
+    def enable(self) -> None:
+        settings_store.set_setting("bundle_resources", ["core", "description", "visits"], "test")
+        settings_store.set_setting("sweep.enabled", True, "test")
+
+    def put_returned(self, engine, item_id: str, *, returned: datetime, last_check_hours: float) -> None:
+        put_item(engine, item_id, checked=ago(1))
+        put_checked(engine, "ml_item_visits", item_id, ago(60 * last_check_hours))
+        put_checked(engine, "ml_item_descriptions", item_id, ago(60 * last_check_hours))
+        put_status_change(engine, item_id, at=ago(60 * 24 * 4), old="active", new="paused")
+        put_status_change(engine, item_id, at=returned, old="paused", new="active")
+
+    def test_an_item_back_to_active_a_minute_ago_is_not_late(self, env, sent) -> None:
+        put_sweep_tick(env, "description,visits", started=ago(60 * 24 * 10))
+        self.put_returned(env, "MLA1", returned=ago(1), last_check_hours=72)
+        self.enable()
+
+        resources = measure(env)["resources"]
+        assert (resources["visits"]["late"], resources["description"]["late"]) == (0, 0)
+        handlers.freshness.run(context())
+        assert sent == []
+
+    def test_an_item_back_to_active_and_still_unchecked_past_its_target_is_late_from_its_return(self, env) -> None:
+        put_sweep_tick(env, "description,visits", started=ago(60 * 24 * 10))
+        self.put_returned(env, "MLA1", returned=ago(60 * 28), last_check_hours=72)
+        self.enable()
+
+        visits = measure(env)["resources"]["visits"]
+        assert visits["late"] == 1 and 60 * 60 * 27.5 < visits["oldest_late_seconds"] < 60 * 60 * 28.5
+
+    def test_an_active_item_unchecked_for_days_still_alerts(self, env, sent) -> None:
+        put_sweep_tick(env, "description,visits", started=ago(60 * 24 * 10))
+        put_item(env, "MLA1", checked=ago(1))
+        put_checked(env, "ml_item_visits", "MLA1", ago(60 * 71.5))
+        put_checked(env, "ml_item_descriptions", "MLA1", ago(60 * 71.5))
+        put_status_change(env, "MLA1", at=ago(60 * 24 * 9), old="paused", new="active")
+        self.enable()
+
+        handlers.freshness.run(context())
+
+        assert len(sent) == 1
+        assert "descripción: 1 publicación, la más atrasada 72 h" in sent[0]
+        assert "visitas: 1 publicación, la más atrasada 72 h" in sent[0]
+
+    def test_an_item_the_sweep_does_not_take_is_not_measured(self, env) -> None:
+        put_sweep_tick(env, "description,visits", started=ago(60 * 24 * 10))
+        put_item(env, "MLA1", checked=ago(1))
+        put_checked(env, "ml_item_visits", "MLA1", ago(60 * 72))
+        run(
+            env,
+            "INSERT INTO ml_pub_refresh_queue (kind, entity_id, resources, lane, parked_at) "
+            "VALUES ('item', 'MLA1', '{bundle}', 1, now())",
+        )
+        put_item(env, "MLA2", checked=ago(1))
+        put_checked(env, "ml_item_visits", "MLA2", ago(60 * 72))
+        run(env, "UPDATE ml_items SET never_existed = TRUE WHERE item_id = 'MLA2'")
+        self.enable()
+
+        assert measure(env)["resources"]["visits"]["late"] == 0

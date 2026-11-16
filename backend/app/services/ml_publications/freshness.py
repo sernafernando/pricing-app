@@ -7,9 +7,11 @@ chose, not a delay. Once applied the entry leaves the queue and stops counting. 
 store gave up on that change, so its data stays stale until someone looks.
 
 Visits have no notification (the sweep laps them, design D17), so they are measured by the age of their last
-check on active items, and only while the sweep collects them (visits never collected show in the status
-report's completeness). Stock is not measured: it is the publication's available quantity, which nothing outside
-the store reads (owner, 2026-10-27).
+check on the active items the sweep is responsible for, and only while the sweep collects them (visits never
+collected show in the status report's completeness). An item that went back to `active` counts from its return
+at the latest: the sweep stops checking an item out of `active` for a day, so its last check is as old as the
+pause, and the time it was not selling is not a delay (owner, 2026-11-16). Stock is not measured: it is the
+publication's available quantity, which nothing outside the store reads (owner, 2026-10-27).
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.services.ml_publications import settings_store, status
+from app.services.ml_publications import settings_store, status, sweeps
 from app.services.ml_publications.bundle import min_age_seconds
 from app.services.ml_publications.resources import (
     BUNDLE_RESOURCE,
@@ -100,19 +102,31 @@ _FIRST_SWEEP_TICK = text(
 )
 
 
+# The last time the item `i` went back to `active` (the store logs one item change row per change, with the
+# previous and the new status in `context`; `ix_ml_change_log_item` serves the lookup).
+_RETURNED_TO_ACTIVE = (
+    "(SELECT max(c.observed_at) FROM ml_change_log c WHERE c.item_id = i.item_id AND c.resource_type = 'item'"
+    " AND c.context->>'status_new' = 'active' AND c.context->>'status_old' IS DISTINCT FROM 'active')"
+)
+
+
 def _swept_sql(table: str, *, since_first_tick: bool) -> Any:
-    checked = "GREATEST(v.last_checked_at, :first_tick)" if since_first_tick else "v.last_checked_at"
+    first_tick = ", :first_tick" if since_first_tick else ""
+    # The age only shrinks from the plain one, so the return is looked up only for items already late by their
+    # last check.
     return text(
         "SELECT count(*) AS late, max(age) AS oldest FROM ("
-        f" SELECT CAST(extract(epoch FROM now() - {checked}) AS double precision) AS age"
+        " SELECT CAST(extract(epoch FROM now() - GREATEST("
+        f"   v.last_checked_at{first_tick}, {_RETURNED_TO_ACTIVE})) AS double precision) AS age"
         f" FROM ml_items i JOIN {table} v ON v.item_id = i.item_id"
-        " WHERE i.status = 'active' AND i.gone_at IS NULL"
+        f" WHERE i.status = 'active' AND {sweeps.item_eligibility_sql()}"
+        "  AND v.last_checked_at < now() - make_interval(secs => :target)"
         ") x WHERE age > :target"
     )
 
 
-def _measure_swept(db: Session, name: str, table: str, target: int) -> Dict[str, Any]:
-    params: Dict[str, Any] = {"target": target * LATE_TOLERANCE}
+def _measure_swept(db: Session, name: str, table: str, target: int, statuses: List[str]) -> Dict[str, Any]:
+    params: Dict[str, Any] = {"target": target * LATE_TOLERANCE, "statuses": statuses}
     if name in SWEEP_GRACE:
         first_tick = db.execute(_FIRST_SWEEP_TICK, {"scope": f"%,{name},%"}).scalar()
         if first_tick is None:  # never swept yet: nothing can be late
@@ -130,7 +144,7 @@ def measure(db: Session) -> Dict[str, Any]:
     """Per measured resource: its target, how many entries (items, for visits) are late and the oldest delay;
     plus the waiting count and oldest wait of each queue lane. Read-only, under the status report's timeout."""
     status.bounded_read_only(db)
-    config = settings_store.get_settings(["bundle_resources", "min_age_seconds", "sweep.enabled"])
+    config = settings_store.get_settings(["bundle_resources", "min_age_seconds", "sweep.enabled", "sweep.statuses"])
     collected: List[str] = config["bundle_resources"].value
     min_ages: Mapping[str, Any] = config["min_age_seconds"].value
     targets: Mapping[str, int] = settings.ML_PUB_FRESHNESS_TARGET_SECONDS
@@ -157,7 +171,8 @@ def measure(db: Session) -> Dict[str, Any]:
     for name, table in SWEPT.items():
         if name not in collected or config["sweep.enabled"].value is not True:
             continue
-        resources[name] = _measure_swept(db, name, table, targets[name])
+        statuses = sweeps.sweep_statuses(config["sweep.statuses"].value)
+        resources[name] = _measure_swept(db, name, table, targets[name], statuses)
     return {"resources": resources, "lanes": status.queue_lanes(db)}
 
 
