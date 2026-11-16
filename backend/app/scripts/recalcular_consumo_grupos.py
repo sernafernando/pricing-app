@@ -314,6 +314,7 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
                 v.marca,
                 v.categoria,
                 v.cantidad,
+                v.tipo_documento,
                 v.costo_total,
                 v.cotizacion_dolar
             FROM {VENTAS_FUERA_OFFSETS_SQL} v
@@ -344,7 +345,7 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
                 cantidad = int(venta.cantidad) if venta.cantidad else 0
                 monto_offset_ars, monto_offset_usd = monto_offset_pdf(
                     offset_aplicable.tipo_offset,
-                    cantidad,
+                    venta.tipo_documento,
                     calcular_monto_offset(offset_aplicable, cantidad, costo, cot),
                 )
 
@@ -425,11 +426,7 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
                 cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
                 costo = float(venta.costo_total) if venta.costo_total else 0
                 cantidad = int(venta.cantidad) if venta.cantidad else 0
-                monto_offset_ars, monto_offset_usd = monto_offset_pdf(
-                    offset_aplicable.tipo_offset,
-                    cantidad,
-                    calcular_monto_offset(offset_aplicable, cantidad, costo, cot),
-                )
+                monto_offset_ars, monto_offset_usd = calcular_monto_offset(offset_aplicable, cantidad, costo, cot)
 
                 consumo = OffsetGrupoConsumo(
                     grupo_id=grupo_id,

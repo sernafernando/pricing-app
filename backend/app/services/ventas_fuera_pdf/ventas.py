@@ -40,7 +40,7 @@ _operacion = VentaFueraOperacion.__table__
 
 class _MedianocheUtc(FunctionElement):
     """A DATE as a timestamp at midnight UTC: `timezone('UTC', d::timestamp)` on Postgres (a timestamptz whatever the
-    session's time zone), the plain cast elsewhere (SQLite tests)."""
+    session's time zone), `datetime(d)` elsewhere (SQLite tests; a CAST there would give the NUMERIC year)."""
 
     type = DateTime(timezone=True)
     inherit_cache = True
@@ -49,7 +49,7 @@ class _MedianocheUtc(FunctionElement):
 
 @compiles(_MedianocheUtc)
 def _medianoche_utc(element: _MedianocheUtc, compiler, **kw) -> str:
-    return f"CAST({compiler.process(element.clauses, **kw)} AS DATETIME)"
+    return f"datetime({compiler.process(element.clauses, **kw)})"
 
 
 @compiles(_MedianocheUtc, "postgresql")
@@ -118,6 +118,7 @@ VENTAS_FUERA_OFFSETS_SQL = f"""(
         p.marca,
         p.categoria,
         l.cantidad,
+        o.tipo AS tipo_documento,
         l.precio_costo * {COSTO_D_FACTOR} AS costo_total,
         (
             SELECT tc.venta FROM tipo_cambio tc
@@ -130,9 +131,9 @@ VENTAS_FUERA_OFFSETS_SQL = f"""(
 )"""
 
 
-def monto_offset_pdf(tipo_offset: str, cantidad: int, montos: tuple) -> tuple:
-    """The (ARS, USD) amounts of an offset on a PDF line: a fixed amount is reversed by an Nc line (negative quantity),
-    the other types already carry the line's sign."""
-    if tipo_offset == "monto_fijo" and cantidad < 0:
+def monto_offset_pdf(tipo_offset: str, tipo_documento: str, montos: tuple) -> tuple:
+    """The (ARS, USD) amounts of an offset on a PDF line: a fixed amount is reversed by a line of a credit note (Nc),
+    whatever its quantity (a price-only Nc line has none); the other types already carry the line's sign."""
+    if tipo_offset == "monto_fijo" and tipo_documento == "Nc":
         return -montos[0], -montos[1]
     return montos

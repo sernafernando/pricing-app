@@ -86,9 +86,9 @@ class TestClienteDeLaDevolucion:
 
     def test_by_client_code_two_clients_with_the_same_printed_name_are_apart(self, engine: Engine) -> None:
         [linea] = w.compra(engine, [(2964, 2, "20.00")])
-        suya = w.venta(engine, "fuera", 2964, 1, D(2026, 10, 2), cliente=101, cliente_nombre="Comercial Del Sur Dis")
-        otra = w.venta(engine, "fuera", 2964, 1, D(2026, 10, 3), cliente=102, cliente_nombre="Comercial Del Sur Dis")
-        w.venta(engine, "fuera", 2964, 1, D(2026, 10, 4), signo=-1, cliente=101, cliente_nombre="Comercial Del Sur Dis")
+        suya = w.venta(engine, "fuera", 2964, 1, D(2026, 10, 2), cliente=101, cliente_nombre="Comercial Demo Sur")
+        otra = w.venta(engine, "fuera", 2964, 1, D(2026, 10, 3), cliente=102, cliente_nombre="Comercial Demo Sur")
+        w.venta(engine, "fuera", 2964, 1, D(2026, 10, 4), signo=-1, cliente=101, cliente_nombre="Comercial Demo Sur")
         despues = w.venta(engine, "tn", 2964, 1, D(2026, 10, 5))
 
         _recompute(engine, 2964)

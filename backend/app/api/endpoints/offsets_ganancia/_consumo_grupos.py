@@ -362,6 +362,7 @@ def recalcular_consumo_grupo(
                 v.fecha_venta,
                 v.item_id,
                 v.cantidad,
+                v.tipo_documento,
                 v.costo_total,
                 v.cotizacion_dolar,
                 v.marca,
@@ -385,7 +386,9 @@ def recalcular_consumo_grupo(
             costo = float(venta.costo_total) if venta.costo_total else 0
             cantidad = int(venta.cantidad)
             monto_offset_ars, monto_offset_usd = monto_offset_pdf(
-                offset_aplicable.tipo_offset, cantidad, calcular_monto_offset(offset_aplicable, cantidad, costo, cot)
+                offset_aplicable.tipo_offset,
+                venta.tipo_documento,
+                calcular_monto_offset(offset_aplicable, cantidad, costo, cot),
             )
 
             if monto_offset_ars == 0 and monto_offset_usd == 0:
@@ -441,6 +444,7 @@ def recalcular_consumo_grupo(
                     v.fecha_venta,
                     v.item_id,
                     v.cantidad,
+                    v.tipo_documento,
                     v.costo_total,
                     v.cotizacion_dolar,
                     v.marca,
@@ -461,7 +465,9 @@ def recalcular_consumo_grupo(
                 costo = float(venta.costo_total) if venta.costo_total else 0
                 cantidad = int(venta.cantidad)
                 monto_offset_ars, monto_offset_usd = monto_offset_pdf(
-                    offset_ref.tipo_offset, cantidad, calcular_monto_offset(offset_ref, cantidad, costo, cot)
+                    offset_ref.tipo_offset,
+                    venta.tipo_documento,
+                    calcular_monto_offset(offset_ref, cantidad, costo, cot),
                 )
 
                 if monto_offset_ars == 0 and monto_offset_usd == 0:

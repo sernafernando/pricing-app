@@ -18,8 +18,8 @@ Owner on what the GBP sync already produced (L15): "Borrarlos y recalcular desde
   purge above leaves no GBP `it_transaction` under it, so the two key spaces never mix;
 - `sell_dirty` row triggers on the PDF lines (and on a document whose client or date changes), frozen copies of
   `app.services.sell.queue`;
-- requeue: every PDF line with a product, one remaining sale line of each product that lost consumptions (its FIFO
-  gives the freed units to other sales) and every campaign that lost rows (`sell_out_dirty`). The drains rebuild
+- requeue: every PDF line with a product, one remaining sale line of each product that lost consumptions, or of a
+  combo containing it (its FIFO gives the freed units to other sales) and every campaign that lost rows (`sell_out_dirty`). The drains rebuild
   them from the PDF lines.
 
 Group offsets keep a summary per group and are recomputed on request, from the PDF lines with `tipo_venta =
@@ -145,18 +145,24 @@ SELECT 'fuera', id, item_id FROM ventas_fuera_operacion_lineas WHERE item_id IS 
 """,
     f"""
 INSERT INTO sell_dirty (canal, venta_ref, item_id)
-SELECT v.canal, v.ref, p.item_id
+SELECT v.canal, v.ref, v.item
 FROM vpf_t4_productos AS p
 CROSS JOIN LATERAL (
-    SELECT u.canal, u.ref FROM (
-        (SELECT 1 AS orden, 'fuera'::text AS canal, l.id::bigint AS ref FROM ventas_fuera_operacion_lineas AS l
-         WHERE l.item_id = p.item_id ORDER BY l.id LIMIT 1)
+    -- the product itself or a combo containing it: a component sold only inside combos still gets its FIFO rerun
+    SELECT ARRAY[p.item_id] || ARRAY(
+        SELECT c.combo_item_id FROM combo_componentes AS c WHERE c.componente_item_id = p.item_id
+    ) AS items
+) AS k
+CROSS JOIN LATERAL (
+    SELECT u.canal, u.ref, u.item FROM (
+        (SELECT 1 AS orden, 'fuera'::text AS canal, l.id::bigint AS ref, l.item_id AS item
+         FROM ventas_fuera_operacion_lineas AS l WHERE l.item_id = ANY(k.items) ORDER BY l.id LIMIT 1)
         UNION ALL
-        (SELECT 2, 'ml', s.item_row_id FROM ml_sale_lines AS s WHERE s.product = p.item_id
+        (SELECT 2, 'ml', s.item_row_id, s.product FROM ml_sale_lines AS s WHERE s.product = ANY(k.items)
          ORDER BY s.item_row_id LIMIT 1)
         UNION ALL
-        (SELECT 3, 'tn', t.it_transaction FROM ventas_tienda_nube_metricas AS t
-         WHERE t.item_id = p.item_id AND t.it_transaction IS NOT NULL ORDER BY t.it_transaction LIMIT 1)
+        (SELECT 3, 'tn', t.it_transaction, t.item_id FROM ventas_tienda_nube_metricas AS t
+         WHERE t.item_id = ANY(k.items) AND t.it_transaction IS NOT NULL ORDER BY t.it_transaction LIMIT 1)
     ) AS u ORDER BY u.orden LIMIT 1
 ) AS v
 ORDER BY v.canal, v.ref

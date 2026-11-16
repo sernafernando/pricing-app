@@ -230,6 +230,17 @@ class TestPurga:
         ]
         assert _filas(engine, "SELECT campana_id FROM sell_out_dirty") == [(ids["campana_fuera"],)]
 
+    def test_a_component_sold_only_inside_a_combo_queues_a_line_of_the_combo(self, engine: Engine) -> None:
+        """777 lost its GBP consumption and has no sale of its own; combo 888 contains it and has an ML line."""
+        _sembrar(engine)
+        _sql(engine, "INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (888, 777, 1)")
+        combo = sell_in_world.venta(engine, "ml", 888, 1, date(2026, 10, 2))
+        _sql(engine, "DELETE FROM sell_dirty")
+
+        _step(engine, "upgrade")
+
+        assert ("ml", combo, 888) in _filas(engine, "SELECT canal, venta_ref, item_id FROM sell_dirty")
+
     def test_running_it_again_changes_nothing(self, engine: Engine) -> None:
         _sembrar(engine)
         _step(engine, "upgrade")

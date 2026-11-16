@@ -239,6 +239,26 @@ class TestNotaDeCredito:
         assert _consumos(engine) == [(venta, "fuera_pdf", 1, 500.0, 0.5), (nc, "fuera_pdf", -1, -500.0, -0.5)]
         assert (resultado["total_unidades"], resultado["total_monto_ars"]) == (0, 0.0)
 
+    def test_a_price_only_nc_line_reverses_a_fixed_amount_too(self, engine: Engine, client: TestClient) -> None:
+        """An Nc line with no quantity (a price correction) is still a credit note: the document type decides."""
+        grupo = _grupo(engine, item_id=2964, tipo_offset="monto_fijo", monto=500)
+        nc = w.venta(engine, "fuera", 2964, 0, DIA, signo=-1)
+
+        _recalcular(client, grupo)
+
+        assert _consumos(engine) == [(nc, "fuera_pdf", 0, -500.0, -0.5)]
+
+
+class TestPeriodo:
+    def test_a_line_dated_on_the_offset_start_counts(self, engine: Engine, client: TestClient) -> None:
+        grupo = _grupo(engine, item_id=2964, tipo_offset="monto_por_unidad", monto=100)  # from 2026-10-01
+        linea = w.venta(engine, "fuera", 2964, 1, date(2026, 10, 1))
+        w.venta(engine, "fuera", 2964, 1, date(2026, 9, 30))  # the day before
+
+        _recalcular(client, grupo)
+
+        assert _consumos(engine) == [(linea, "fuera_pdf", 1, 100.0, 0.1)]
+
 
 class TestScript:
     """The post-deploy recompute (`recalcular_consumo_grupos.recalcular_grupo`) reads the same lines."""
