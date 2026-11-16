@@ -118,6 +118,7 @@ def __getattr__(name: str) -> List[JobHandler]:
                 sweep,
                 verify,
             )
+            from app.workers.handlers.promo_price_recompute import recompute as promo_price_recompute
             from app.workers.handlers.promo_refresh import promo_write_refresh
             from app.workers.handlers.publicacion_repair import envio_repair, sku_repair
 
@@ -133,6 +134,8 @@ def __getattr__(name: str) -> List[JobHandler]:
                 ads,
                 # promo-write-refresh P2: the ~60 s follow-up refresh after a promo write (was an unscheduled script).
                 promo_write_refresh,
+                # promo-ml-precio-inmediato T1: recomputes the promo price columns ml-webhook just reported.
+                promo_price_recompute,
                 # ml-sync-pipeline S5: the per-minute freshness check (no ML call).
                 freshness,
                 billing,

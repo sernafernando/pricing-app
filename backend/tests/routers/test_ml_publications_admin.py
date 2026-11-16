@@ -135,6 +135,7 @@ class TestContract:
         # ML_BILLING_ENABLED), not by an admin setting: they have no admin job.
         # `ml_publications.promo_refresh` drains a queue every 15 s behind `promo_refresh.enabled`: nothing to request.
         # `promo_write.refresh` drains the post-write queue every 30 s behind the PROMOS_WRITE_ENABLED kill switch.
+        # `promo_price.recompute` drains the queue ml-webhook fills, behind the PROMOS_WRITE_ENABLED kill switch.
         # `ml_publications.freshness` measures every minute with no flag and makes no ML call: nothing to request.
         # `ml_publications.catalog_competition_refresh` drains hay_mejores queue behind
         # `catalog_competition_refresh.enabled`: nothing to request.
@@ -148,6 +149,7 @@ class TestContract:
             "ml_billing.sweep",
             "ml_publications.promo_refresh",
             "promo_write.refresh",
+            "promo_price.recompute",
             "ml_publications.freshness",
             "ml_publications.catalog_competition_refresh",
             "ml_promotions.hay_mejores_boundaries",
