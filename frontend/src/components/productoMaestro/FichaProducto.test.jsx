@@ -326,6 +326,19 @@ describe('Ficha: failed reads say so', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron cargar las marcas y categorías: solo se ve el valor actual');
   });
 
+  it('a save does not hide that brands and categories failed to load', async () => {
+    productoCategoriasAPI.listar.mockRejectedValue(new Error('HTTP 500'));
+    const user = userEvent.setup();
+    render(<FichaProducto itemId={455} />);
+    await screen.findByText(/No se pudieron cargar las marcas y categorías/);
+
+    await user.type(screen.getByLabelText('Garantía'), '0');
+    await user.click(screen.getByRole('button', { name: 'Guardar 1 cambio' }));
+
+    await waitFor(() => expect(productoMaestroAPI.guardar).toHaveBeenCalled());
+    expect(screen.getByText('No se pudieron cargar las marcas y categorías: solo se ve el valor actual')).toBeInTheDocument();
+  });
+
   it('a failed read of the spec types is reported', async () => {
     productoMaestroAPI.leer.mockResolvedValue({ data: maestro({ item_id: 4874, tipo_specs: 'notebook' }) });
     productoSpecsAPI.leer.mockResolvedValue({ data: specs() });

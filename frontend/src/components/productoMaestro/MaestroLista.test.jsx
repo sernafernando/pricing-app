@@ -87,6 +87,23 @@ describe('MaestroLista', () => {
     await user.click(await screen.findByRole('button', { name: 'Ver más' }));
     await waitFor(() => expect(lastParams()).toMatchObject({ offset: 2, limit: 50 }));
   });
+  it('a reload after "Ver más" starts again from the first page, without repeated rows', async () => {
+    const OTRO = { ...ITEMS[0], item_id: 9001, nombre: 'OTRO PRODUCTO' };
+    productoMaestroAPI.listar.mockImplementation((params) =>
+      Promise.resolve({ data: { total: 3, items: params.limit === 1 ? [] : params.offset === 0 ? ITEMS : [OTRO] } }),
+    );
+    const user = userEvent.setup();
+    const { rerender } = render(<MaestroLista selectedId={null} onSelect={vi.fn()} reloadKey={0} />);
+    await user.click(await screen.findByRole('button', { name: 'Ver más' }));
+    expect(await screen.findByText('OTRO PRODUCTO')).toBeInTheDocument();
+
+    rerender(<MaestroLista selectedId={null} onSelect={vi.fn()} reloadKey={1} />);
+
+    await waitFor(() => expect(lastParams()).toMatchObject({ offset: 0 }));
+    await waitFor(() => expect(screen.queryByText('OTRO PRODUCTO')).not.toBeInTheDocument());
+    expect(screen.getAllByText('BLUETOOTH TPLINK NANO USB UB500 BT 5.0')).toHaveLength(1);
+  });
+
   it('the type tabs move with the arrow keys and control the list', async () => {
     const user = userEvent.setup();
     render(<MaestroLista selectedId={null} onSelect={vi.fn()} />);

@@ -74,8 +74,8 @@ export default function MaestroLista({ selectedId, onSelect, onFirst, reloadKey 
     };
   }, [reloadKey]);
 
-  // A new filter starts again from the first page.
-  const filtros = `${tab}|${incompletos}|${qDebounced}|${marca}`;
+  // A new filter, or a reload after a save, starts again from the first page.
+  const filtros = `${tab}|${incompletos}|${qDebounced}|${marca}|${reloadKey}`;
   const [filtrosPrevios, setFiltrosPrevios] = useState(filtros);
   if (filtros !== filtrosPrevios) {
     setFiltrosPrevios(filtros);

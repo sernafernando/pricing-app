@@ -71,6 +71,8 @@ export default function FichaProducto({ itemId, onSaved }) {
   const [vinculo, setVinculo] = useState(null);
   const [maestros, setMaestros] = useState({ marcas: [], categorias: [] });
   const [error, setError] = useState(null);
+  // What failed to load stays on screen: a save clears only its own error.
+  const [aviso, setAviso] = useState(null);
   const [cargaError, setCargaError] = useState(null);
   const [edits, setEdits] = useState(EDITS_VACIOS);
   const [vista, setVista] = useState('general');
@@ -87,11 +89,11 @@ export default function FichaProducto({ itemId, onSaved }) {
         productoSpecsAPI
           .leer(itemId)
           .then((r) => vigente && setSpecs(r.data))
-          .catch(() => vigente && setError('No se pudieron cargar las specs'));
+          .catch(() => vigente && setAviso('No se pudieron cargar las specs'));
         productoSpecsAPI
           .campos()
           .then((r) => vigente && setInfo(Object.fromEntries(r.data.map((c) => [c.nombre, c]))))
-          .catch(() => vigente && setError('No se pudieron cargar los tipos de las specs'));
+          .catch(() => vigente && setAviso('No se pudieron cargar los tipos de las specs'));
       })
       .catch((err) => vigente && setCargaError(err?.response?.status === 404 ? 'El producto no existe en el ERP' : 'No se pudo cargar el producto. Probá de nuevo.'));
     productoTnVinculosAPI
@@ -100,7 +102,7 @@ export default function FichaProducto({ itemId, onSaved }) {
       .catch(() => vigente && setVinculo({ item_id: itemId, origen: null, tn: null, can_edit: false, sinLectura: true }));
     Promise.all([productoMarcasAPI.listar(), productoCategoriasAPI.listar()])
       .then(([marcas, categorias]) => vigente && setMaestros({ marcas: marcas.data, categorias: categorias.data }))
-      .catch(() => vigente && setError('No se pudieron cargar las marcas y categorías: solo se ve el valor actual'));
+      .catch(() => vigente && setAviso('No se pudieron cargar las marcas y categorías: solo se ve el valor actual'));
     return () => {
       vigente = false;
     };
@@ -240,6 +242,11 @@ export default function FichaProducto({ itemId, onSaved }) {
         {error && (
           <p className={m.feedback} role="alert">
             {error}
+          </p>
+        )}
+        {aviso && (
+          <p className={m.feedback} role="alert">
+            {aviso}
           </p>
         )}
         {categoriaSinSub && (
