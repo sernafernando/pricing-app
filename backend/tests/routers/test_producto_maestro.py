@@ -31,6 +31,7 @@ from app.models.tb_item import TBItem
 from app.models.tb_subcategory import TBSubCategory
 from app.models.tb_supplier import TBSupplier
 from app.models.tienda_nube_producto import TiendaNubeProducto
+from app.models.tienda_nube_producto_texto import TiendaNubeProductoTexto
 from app.routers import productos_propios
 from tests.routers.test_ml_publications_links import grant
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
@@ -63,6 +64,7 @@ def pg(client, request, admin_user):
         TBSubCategory,
         TBSupplier,
         TiendaNubeProducto,
+        TiendaNubeProductoTexto,
         ProductoSpec,
         GestionFullUnidadesCaja,
         Auditoria,
@@ -311,8 +313,38 @@ class TestTextos:
         assert textos["titulo_web"]["fuente"] == "tn"
         assert textos["titulo_web"]["valor"] == "Adaptador TP-Link Nano USB Bluetooth 5.0 UB500"
         assert textos["descripcion_ml"]["valor"] == "Nano UB500"
-        assert textos["descripcion_web"]["fuente"] == "ml"  # the TN description is not stored yet
+        assert textos["descripcion_web"]["fuente"] == "ml"  # the TN product has no stored texts
         assert read(client, reader)["mla_ganadora"] == "MLA1824169308"
+
+    def test_the_tn_description_is_a_source_html_for_web_and_plain_text_for_ml(self, client, pg, reader):
+        with pg.begin() as conn:
+            product(conn)
+            tn(conn)
+            conn.execute(
+                text(
+                    "INSERT INTO tienda_nube_producto_textos (product_id, nombre, descripcion_html, descripcion_texto)"
+                    " VALUES (266589695, 'UB500', '<p>Nano <b>UB500</b></p>', 'Nano UB500')"
+                )
+            )
+
+        textos = read(client, reader)["textos"]
+
+        assert textos["descripcion_web"]["fuentes"]["tn"] == "<p>Nano <b>UB500</b></p>"
+        assert (textos["descripcion_web"]["fuente"], textos["descripcion_web"]["valor"]) == (
+            "tn",
+            "<p>Nano <b>UB500</b></p>",
+        )
+        assert textos["descripcion_ml"]["fuentes"]["tn"] == "Nano UB500"
+
+    def test_without_tn_texts_the_tn_description_source_is_empty(self, client, pg, reader):
+        with pg.begin() as conn:
+            product(conn)
+            tn(conn)
+
+        textos = read(client, reader)["textos"]
+
+        assert textos["descripcion_web"]["fuentes"]["tn"] is None
+        assert textos["descripcion_ml"]["fuentes"]["tn"] is None
 
     def test_without_publication_the_ml_title_falls_back_to_tn_then_gbp(self, client, pg, reader):
         with pg.begin() as conn:
