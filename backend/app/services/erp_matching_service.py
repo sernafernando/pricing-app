@@ -129,6 +129,40 @@ AUTO_VINCULO_SIN_MAPEO: Final[str] = "sin_mapeo"
 AUTO_VINCULO_PENDIENTES: Final[frozenset[str]] = frozenset(
     {AUTO_VINCULO_SIN_MATCH, AUTO_VINCULO_AMBIGUO, AUTO_VINCULO_SIN_MAPEO}
 )
+# Minimum digit length before treating two invoice numbers as equivalent via
+# suffix / POS-prefix forms (e.g. 0047-00289132 ↔ 00289132). Shorter cores
+# are too weak even scoped by proveedor.
+_NUMERO_FACTURA_MIN_DIGITS: Final[int] = 6
+
+
+def _partes_numero_factura(numero: str) -> tuple[Optional[str], str]:
+    """Split an invoice number into `(pos, core)`, both without leading zeros.
+
+    `0047-00289132` -> `("47", "289132")`; `00289132` -> `(None, "289132")`.
+    `pos` is None when there is no numeric POS block before the last hyphen.
+    """
+    raw = (numero or "").strip()
+    pos_raw, _, num_raw = raw.rpartition("-")
+    pos_digits = "".join(ch for ch in pos_raw if ch.isdigit())
+    core_digits = "".join(ch for ch in num_raw if ch.isdigit())
+    pos = (pos_digits.lstrip("0") or "0") if pos_digits else None
+    return pos, core_digits.lstrip("0")
+
+
+def numeros_factura_equivalentes(a: str, b: str) -> bool:
+    """True when two invoice numbers refer to the same document.
+
+    Same number without leading zeros (at least `_NUMERO_FACTURA_MIN_DIGITS`
+    digits) and the same POS, or POS missing on one side. Shorter numbers
+    only match exactly.
+    """
+    if (a or "").strip() and (a or "").strip() == (b or "").strip():
+        return True
+    pos_a, core_a = _partes_numero_factura(a)
+    pos_b, core_b = _partes_numero_factura(b)
+    if len(core_a) < _NUMERO_FACTURA_MIN_DIGITS or core_a != core_b:
+        return False
+    return pos_a is None or pos_b is None or pos_a == pos_b
 
 
 def _buscar_ct_vigente(
@@ -142,30 +176,49 @@ def _buscar_ct_vigente(
     """
     Busca en `v_facturas_compra_vigentes` una ct única para la tupla.
 
+    Docnumber matching: exact, or `numeros_factura_equivalentes` (same
+    number without leading zeros, POS equal or absent on one side) when the
+    number has enough digits.
+
     Returns:
         `(ct_transaction, "ok")` if unique; `(None, "sin_match"|"ambiguo")`
         when 0 or >1 rows (caller must not auto-link).
     """
-    stmt = text(
-        """
-        SELECT ct_transaction
-        FROM v_facturas_compra_vigentes
-        WHERE comp_id = :comp_id
-          AND bra_id = :bra_id
-          AND supp_id = :supp_id
-          AND ct_docnumber = :ct_docnumber
-        LIMIT 2
-        """
-    )
-    filas = session.execute(
-        stmt,
-        {
-            "comp_id": comp_id,
-            "bra_id": bra_id,
-            "supp_id": supp_id,
-            "ct_docnumber": ct_docnumber,
-        },
-    ).all()
+    _pos, core = _partes_numero_factura(ct_docnumber)
+    if len(core) < _NUMERO_FACTURA_MIN_DIGITS:
+        stmt = text(
+            """
+            SELECT ct_transaction
+            FROM v_facturas_compra_vigentes
+            WHERE comp_id = :comp_id
+              AND bra_id = :bra_id
+              AND supp_id = :supp_id
+              AND ct_docnumber = :ct_docnumber
+            LIMIT 2
+            """
+        )
+        filas = session.execute(
+            stmt,
+            {"comp_id": comp_id, "bra_id": bra_id, "supp_id": supp_id, "ct_docnumber": ct_docnumber},
+        ).all()
+    else:
+        # The LIKE only narrows candidates; equivalence (POS, exact core) is
+        # decided in Python so `20123456` never matches `123456`.
+        stmt = text(
+            """
+            SELECT ct_transaction, ct_docnumber
+            FROM v_facturas_compra_vigentes
+            WHERE comp_id = :comp_id
+              AND bra_id = :bra_id
+              AND supp_id = :supp_id
+              AND ct_docnumber LIKE :core_like
+            """
+        )
+        candidatas = session.execute(
+            stmt,
+            {"comp_id": comp_id, "bra_id": bra_id, "supp_id": supp_id, "core_like": f"%{core}"},
+        ).all()
+        filas = [fila for fila in candidatas if numeros_factura_equivalentes(ct_docnumber, fila[1])]
     if len(filas) == 0:
         return None, AUTO_VINCULO_SIN_MATCH
     if len(filas) > 1:
@@ -513,15 +566,18 @@ def _resolver_auto_vinculo_tras_asignar(session: Session, pedido: PedidoCompra, 
         .filter(
             PedidoFacturaDocumento.pedido_id == pedido.id,
             PedidoFacturaDocumento.cargada.is_(True),
-            PedidoFacturaDocumento.numero == numero,
             PedidoFacturaDocumento.auto_vinculo_estado.in_(sorted(AUTO_VINCULO_PENDIENTES)),
         )
         .all()
     )
+    cleared = 0
     for doc in pendientes:
+        if not numeros_factura_equivalentes(doc.numero or "", numero):
+            continue
         doc.auto_vinculo_estado = AUTO_VINCULO_OK
         doc.auto_vinculo_intentado_at = stamp
-    if pendientes:
+        cleared += 1
+    if cleared:
         session.flush()
 
 
@@ -1586,6 +1642,7 @@ __all__ = [
     "AUTO_VINCULO_PENDIENTES",
     "AUTO_VINCULO_SIN_MAPEO",
     "AUTO_VINCULO_SIN_MATCH",
+    "numeros_factura_equivalentes",
     "asignar_factura_erp",
     "auto_vincular_por_constancia_cargada",
     "copiar_facturas_erp",
