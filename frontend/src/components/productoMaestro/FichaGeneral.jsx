@@ -41,7 +41,7 @@ function Campo({ def, maestro, edits, editable, onChange, onVolver, maestros }) 
     tag = valor ? 'Gestión Full' : 'Sin dato';
     tagCls = valor ? m.oTn : m.oNone;
   } else {
-    const campo = maestro.campos[def.key];
+    const campo = maestro.campos[def.key] ?? {};
     const gbpValor = campo.gbp === null || campo.gbp === undefined ? '' : String(campo.gbp);
     const overrideado = dirty ? valor.trim() !== '' && valor.trim() !== gbpValor : campo.overrideado;
     tag = overrideado ? 'Overrideado' : gbpValor ? 'GBP' : 'Sin dato';
@@ -145,7 +145,7 @@ function Texto({ def, maestro, edits, editable, onTexto }) {
   );
 }
 
-function Lectura({ lectura, tnVinculado }) {
+function Lectura({ lectura, tn }) {
   const filas = [
     ['Costo', moneda(lectura.moneda_costo, lectura.costo)],
     ['IVA', lectura.iva != null ? `${numero(lectura.iva)} %` : '—'],
@@ -153,7 +153,7 @@ function Lectura({ lectura, tnVinculado }) {
     ['Precio lista ML', pesos(lectura.precio_lista_ml)],
     ['Proveedor', lectura.proveedor || '—'],
     ['Publicaciones ML', `${numero(lectura.publicaciones_ml ?? 0)} vinculadas`],
-    ['Tienda Nube', tnVinculado && lectura.tn_publicado ? 'Publicado' : 'No publicado'],
+    ['Tienda Nube', tn?.published ? 'Publicado' : 'No publicado'],
   ];
   return (
     <fieldset className={f.seccion} aria-label="Precio, stock y canales · solo lectura">
@@ -213,7 +213,7 @@ export default function FichaGeneral({ maestro, edits, maestros, vinculo, onCamp
         ))}
       </fieldset>
 
-      <Lectura lectura={maestro.lectura} tnVinculado={vinculo?.tn != null} />
+      <Lectura lectura={maestro.lectura} tn={vinculo?.tn} />
     </div>
   );
 }

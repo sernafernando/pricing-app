@@ -205,6 +205,14 @@ describe('Ficha: general fields over GBP', () => {
     expect(productoMaestroAPI.guardar).toHaveBeenCalledWith(455, { unidades_caja: 12 });
   });
 
+  it('a general field the server does not send shows as without data', async () => {
+    const { alto_cm: _omitido, ...campos } = maestro().campos;
+    productoMaestroAPI.leer.mockResolvedValue({ data: maestro({ campos }) });
+    render(<FichaProducto itemId={455} />);
+    expect(await screen.findByDisplayValue('180')).toBeInTheDocument();
+    expect(field('Alto')).toHaveValue('');
+  });
+
   it('without edit permission every field is read-only', async () => {
     productoMaestroAPI.leer.mockResolvedValueOnce({ data: maestro({ can_edit: false, can_edit_unidades: false }) });
     render(<FichaProducto itemId={455} />);
@@ -291,6 +299,21 @@ describe('Ficha: Tienda Nube link', () => {
     await user.click(screen.getByRole('button', { name: 'Desvincular' }));
     expect(productoTnVinculosAPI.vincular).toHaveBeenCalledWith(455, null);
     expect(await screen.findByText('Sin producto de Tienda Nube vinculado')).toBeInTheDocument();
+  });
+
+  it('the read-only Tienda Nube status follows the product linked on screen', async () => {
+    productoTnVinculosAPI.leer.mockResolvedValue({ data: vinculo({ origen: 'sku', tn: TN }) });
+    productoTnVinculosAPI.vincular.mockResolvedValue({ data: vinculo({ origen: 'manual', tn: { ...TN, published: false } }) });
+    productoTnVinculosAPI.candidatos.mockResolvedValue({ data: [{ ...TN, published: false, item_id: null, motivo: 'ean' }] });
+    const user = userEvent.setup();
+    render(<FichaProducto itemId={455} />);
+    const lectura = await screen.findByRole('group', { name: /Precio, stock y canales/ });
+    expect(await within(lectura).findByText('Publicado')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Cambiar' }));
+    await user.click(await screen.findByRole('button', { name: 'Vincular' }));
+
+    expect(await within(lectura).findByText('No publicado')).toBeInTheDocument();
   });
 
   it('suggests candidates, searches and links one', async () => {
