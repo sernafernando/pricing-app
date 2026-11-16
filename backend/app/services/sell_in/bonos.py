@@ -117,7 +117,7 @@ from app.models.sell_in import SellInBonoItem, SellInBonoMarca, SellInCompra, Se
 from app.models.tactical import Tactical
 from app.models.tipo_cambio import TipoCambio
 from app.schemas.sell_in_bonos import BASE_FACTURA
-from app.services.sell_in import bonos_costo
+from app.services.sell_in import bonos_costo, facturas_elegidas
 from app.services.sell_in.compras import SellInError, audit, costo_en_moneda, moneda
 from app.services.sell_in.costing import get_costing
 from app.services.sell_in.split import CENT
@@ -553,6 +553,20 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
         .filter(PedidoCompraLineaFacturada.pedido_id.in_(pids or [-1]))
     ):
         lineas[pid].append(_Linea(*linea))
+    # An invoice bonus of a tactical line that picks specific invoices (sell in varias facturas S3) reads only those
+    # invoices; every other bonus reads the operation's aggregate, as before.
+    elegidas = facturas_elegidas.de_lineas(
+        db, [(b.tactical_id, b.tactical_linea) for b in bonos.values() if b.alcance == "factura"]
+    )
+    de_eleccion: Dict[Par, List[_Linea]] = {
+        (bid, pid): _lineas_elegidas(db, pid, elegidas[(bonos[bid].tactical_id, bonos[bid].tactical_linea)])
+        for bid, pid in pares
+        if bonos[bid].alcance == "factura" and (bonos[bid].tactical_id, bonos[bid].tactical_linea) in elegidas
+    }
+
+    def lineas_del_par(par: Par) -> List[_Linea]:
+        return de_eleccion[par] if par in de_eleccion else lineas.get(par[1], [])
+
     # Each model with its own value of its bonus's kind (None: the bonus's).
     modelos: Dict[int, Dict[int, Optional[Decimal]]] = defaultdict(dict)
     for bid, item_id, monto_unit, porcentaje in db.query(
@@ -595,7 +609,7 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
         bono_id, pedido_id = par
         try:
             deseadas[par] = _deseada(
-                bonos[bono_id], pedidos.get(pedido_id), lineas.get(pedido_id, []), tasas_bna, modelos[bono_id]
+                bonos[bono_id], pedidos.get(pedido_id), lineas_del_par(par), tasas_bna, modelos[bono_id]
             )
         except SellInError as exc:
             result.fallidas[par] = str(exc)
@@ -607,7 +621,7 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
         compra = existentes.get(par)
         actuales = items_por_compra.get(compra.id, []) if compra is not None else []
         if compra is None and deseada is not None:
-            tocados |= _crear(db, bonos[bono_id], pedido_id, deseada, lineas[pedido_id])
+            tocados |= _crear(db, bonos[bono_id], pedido_id, deseada, lineas_del_par(par))
             result.creadas += 1
         elif compra is not None and deseada is None:
             if compra.estado == "activa":
@@ -623,7 +637,7 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
                 tocados |= {i.item_id for i in actuales}
                 result.anuladas += 1
         elif compra is not None and deseada is not None:
-            cambiados = _actualizar(db, compra, actuales, deseada, lineas[pedido_id])
+            cambiados = _actualizar(db, compra, actuales, deseada, lineas_del_par(par))
             if cambiados:
                 tocados |= cambiados
                 result.actualizadas += 1
@@ -634,6 +648,23 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
         # The % of cost bonuses (T25b) take only the units the FIFO leaves: they follow at once too.
         bonos_costo.seguir_fifo(db, tocados)
     return result
+
+
+def _lineas_elegidas(db: Session, pedido_id: int, elegidas: frozenset) -> List[_Linea]:
+    """An operation's invoiced lines over the picked invoices only (`facturas_elegidas.facturado_elegido`), joined to
+    their product like the aggregate's (a line with no product is never read)."""
+    facturado = facturas_elegidas.facturado_elegido(db, pedido_id, elegidas)
+    productos = {
+        p.item_id: p
+        for p in db.query(
+            ProductoERP.item_id, ProductoERP.marca, ProductoERP.categoria, ProductoERP.costo, ProductoERP.moneda_costo
+        ).filter(ProductoERP.item_id.in_(list(facturado) or [-1]))
+    }
+    return [
+        _Linea(item_id, f.cantidad, p.marca, p.categoria, f.importe_neto, f.moneda, p.costo, p.moneda_costo)
+        for item_id, f in facturado.items()
+        if (p := productos.get(item_id)) is not None
+    ]
 
 
 def _seguir_factura(bonos: Iterable[SellInBonoMarca], pedidos: Mapping[int, _Pedido]) -> Set[int]:

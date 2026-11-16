@@ -426,7 +426,7 @@ def asignar_factura_erp(session: Session, pedido: PedidoCompra, ct_transaction: 
         pedido.ct_transaction_id = None
         pedido.fecha_factura = None
         if pedido.id is not None:
-            session.execute(_BORRAR_LINEAS_SQL, {"pid": pedido.id})
+            _borrar_lineas(session, pedido.id)
         return
 
     _seed_factura_junction_from_header(session, pedido)
@@ -538,7 +538,7 @@ def quitar_factura_erp(session: Session, pedido: PedidoCompra, ct_transaction: i
     session.flush()
     _sync_header_factura_cache(session, pedido)
     if pedido.id is not None and pedido.ct_transaction_id is None:
-        session.execute(_BORRAR_LINEAS_SQL, {"pid": pedido.id})
+        _borrar_lineas(session, pedido.id)
     elif pedido.id is not None and pedido.ct_transaction_id is not None:
         reconciliar_lineas_facturadas(session, pedido.id)
     _aplicar_sell_in_por_ct(session, ct)
@@ -702,13 +702,101 @@ GROUP BY d.pedido_id, it.item_id
 HAVING SUM(it.it_qty * v.sd_plusorminus) >= 1
 """
 )
-_T = "pedido_compra_lineas_facturadas"
-_BORRAR_LINEAS_SQL = text(f"DELETE FROM {_T} WHERE pedido_id = :pid")
-# The corrected clone inherits the original's link and lines as-is.
-_COPIAR_LINEAS_SQL = text(
-    f"INSERT INTO {_T} (pedido_id, item_id, cantidad, importe_neto, moneda) "
-    f"SELECT :destino, item_id, cantidad, importe_neto, moneda FROM {_T} WHERE pedido_id = :origen"
+# Per invoice (sell in varias facturas, `PedidoCompraLineaFacturadaCt`): the same documents tagged with the invoice
+# they belong to. `factura` is the linked CT itself, or for a credit note the invoice it is imputed to; NULL for one
+# imputed to the whole operation (`destino_tipo = 'pedido_compra'`, through the corrected-from chain too). A credit
+# note imputed both ways is one document of one bucket (MAX), so per (pedido, item) the buckets add up to the
+# aggregate above, which keeps its own SQL untouched.
+_DOCUMENTOS_CT_SQL = (
+    "SELECT docs.pedido_id AS pedido_id, docs.ct AS ct, MAX(docs.factura) AS factura FROM ("
+    "SELECT links.pedido_id AS pedido_id, links.ct AS ct, links.ct AS factura FROM ("
+    + _LINKS_SQL
+    + ") links WHERE "
+    + _CT_OWNERS_EQ_1
+    + """
+UNION
+SELECT links.pedido_id, n.ct, CASE WHEN n.destino_tipo = 'factura_erp' THEN links.ct END
+FROM ("""
+    + _LINKS_SQL
+    + """) links
+JOIN (
+  WITH RECURSIVE cadena(pedido_id, ancestro_id) AS (
+    SELECT links.pedido_id, links.pedido_id FROM ("""
+    + _LINKS_SQL
+    + ") links WHERE "
+    + _CT_OWNERS_EQ_1
+    + """
+    UNION
+    SELECT c.pedido_id, a.corregido_desde_id
+    FROM cadena c JOIN pedidos_compra a ON a.id = c.ancestro_id
+    WHERE a.corregido_desde_id IS NOT NULL
+  )
+  SELECT pedido_id, ancestro_id FROM cadena
+) cad ON cad.pedido_id = links.pedido_id
+JOIN (
+  SELECT i.destino_tipo, i.destino_id,
+         CASE WHEN i.origen_tipo = 'nota_credito_erp' THEN i.origen_id ELSE ncl.ct_transaction_id END AS ct
+  FROM imputaciones i
+  LEFT JOIN notas_credito_local ncl ON i.origen_tipo = 'nota_credito_local' AND ncl.id = i.origen_id
+  WHERE i.origen_tipo IN ('nota_credito_erp', 'nota_credito_local')
+    AND i.es_reversal = false
+    AND NOT EXISTS (SELECT 1 FROM imputaciones r WHERE r.es_reversal = true AND r.reimputada_desde_id = i.id)
+) n ON (n.destino_tipo = 'pedido_compra' AND n.destino_id = cad.ancestro_id)
+    OR (n.destino_tipo = 'factura_erp' AND n.destino_id = links.ct)
+JOIN v_facturas_compra_vigentes vn ON vn.ct_transaction = n.ct AND vn.clasificacion = 'NC'
+WHERE """
+    + _CT_OWNERS_EQ_1
+    + ") docs GROUP BY docs.pedido_id, docs.ct"
 )
+# An invoice's bucket keeps the aggregate's rules (net >= 1 unit, amount clamped at 0); the operation's credit-note
+# bucket is signed (net <> 0, amount unclamped): it only takes away.
+_LINEAS_CT_ORIGEN_SQL = (
+    "SELECT d.pedido_id AS pedido_id, d.factura AS factura, it.item_id AS item_id, "
+    "CAST(FLOOR(SUM(it.it_qty * v.sd_plusorminus)) AS INTEGER) AS cantidad, "
+    "CASE WHEN " + _IMPORTE_VALIDO + " THEN CASE WHEN d.factura IS NOT NULL "
+    "AND SUM(it.it_qty * it.it_price * v.sd_plusorminus) < 0 THEN 0 "
+    "ELSE ROUND(SUM(it.it_qty * it.it_price * v.sd_plusorminus), 2) END END AS importe_neto, "
+    "CASE WHEN " + _IMPORTE_VALIDO + " THEN CASE MIN(it.curr_id) WHEN 1 THEN 'ARS' ELSE 'USD' END END AS moneda "
+    "FROM (" + _DOCUMENTOS_CT_SQL + ") d "
+    """JOIN v_facturas_compra_vigentes v ON v.ct_transaction = d.ct
+JOIN tb_item_transactions it ON it.ct_transaction = d.ct
+WHERE it.item_id IS NOT NULL
+  AND NOT (
+    COALESCE(it.it_isassociation, false) = true
+    AND COALESCE(it.it_order, 1) <> 1
+    AND it.it_isassociationgroup IS NOT NULL
+  )
+GROUP BY d.pedido_id, d.factura, it.item_id
+HAVING (d.factura IS NOT NULL AND SUM(it.it_qty * v.sd_plusorminus) >= 1)
+    OR (d.factura IS NULL AND CAST(FLOOR(SUM(it.it_qty * v.sd_plusorminus)) AS INTEGER) <> 0)
+"""
+)
+_T = "pedido_compra_lineas_facturadas"
+_TCT = "pedido_compra_lineas_facturadas_ct"
+_BORRAR_LINEAS_SQL = (
+    text(f"DELETE FROM {_T} WHERE pedido_id = :pid"),
+    text(f"DELETE FROM {_TCT} WHERE pedido_id = :pid"),
+)
+# The corrected clone inherits the original's link and lines as-is (both snapshots).
+_COPIAR_LINEAS_SQL = (
+    text(
+        f"INSERT INTO {_T} (pedido_id, item_id, cantidad, importe_neto, moneda) "
+        f"SELECT :destino, item_id, cantidad, importe_neto, moneda FROM {_T} WHERE pedido_id = :origen"
+    ),
+    text(
+        f"INSERT INTO {_TCT} (pedido_id, ct_transaction_id, item_id, cantidad, importe_neto, moneda) "
+        f"SELECT :destino, ct_transaction_id, item_id, cantidad, importe_neto, moneda FROM {_TCT} "
+        "WHERE pedido_id = :origen"
+    ),
+)
+
+
+def _borrar_lineas(session: Session, pedido_id: int) -> None:
+    """Drop both invoiced-lines snapshots of an operation (aggregate and per invoice)."""
+    for sql in _BORRAR_LINEAS_SQL:
+        session.execute(sql, {"pid": pedido_id})
+
+
 _MATCH = f"s.pedido_id = {_T}.pedido_id AND s.item_id = {_T}.item_id"
 # Set difference against the snapshot: delete what the ERP no longer has, then
 # upsert the rest. ON CONFLICT (not INSERT ... WHERE NOT EXISTS) makes two
@@ -728,15 +816,36 @@ _RECONCILIAR_SQL = (
     "WHERE ({t}.cantidad, {t}.importe_neto, {t}.moneda) "
     "IS DISTINCT FROM (excluded.cantidad, excluded.importe_neto, excluded.moneda)",
 )
+# The per-invoice snapshot, same set difference: one upsert per bucket kind (each has its own partial unique index;
+# ON CONFLICT names the index by its columns and predicate).
+_MATCH_CT = (
+    f"s.pedido_id = {_TCT}.pedido_id AND s.item_id = {_TCT}.item_id "
+    f"AND s.factura IS NOT DISTINCT FROM {_TCT}.ct_transaction_id"
+)
+_UPSERT_CT = (
+    "WITH s AS ({origen}) INSERT INTO {t} (pedido_id, ct_transaction_id, item_id, cantidad, importe_neto, moneda) "
+    "SELECT s.pedido_id, s.factura, s.item_id, s.cantidad, s.importe_neto, s.moneda FROM s WHERE s.factura IS {nulo} "
+    "ON CONFLICT ({conflicto}) WHERE ct_transaction_id IS {nulo} DO UPDATE SET cantidad = excluded.cantidad, "
+    "importe_neto = excluded.importe_neto, moneda = excluded.moneda "
+    "WHERE ({t}.cantidad, {t}.importe_neto, {t}.moneda) "
+    "IS DISTINCT FROM (excluded.cantidad, excluded.importe_neto, excluded.moneda)"
+)
+_RECONCILIAR_CT_SQL = (
+    "WITH s AS ({origen}) DELETE FROM {t} WHERE {scope_t} AND NOT EXISTS (SELECT 1 FROM s WHERE {match})",
+    _UPSERT_CT.replace("{nulo}", "NOT NULL").replace("{conflicto}", "pedido_id, ct_transaction_id, item_id"),
+    _UPSERT_CT.replace("{nulo}", "NULL").replace("{conflicto}", "pedido_id, item_id"),
+)
 
 
 def copiar_lineas_facturadas(session: Session, *, origen_id: int, destino_id: int) -> None:
     """Copy a pedido's invoiced-units snapshot to another one (corregir_pedido). NO commit."""
-    session.execute(_COPIAR_LINEAS_SQL, {"origen": origen_id, "destino": destino_id})
+    for sql in _COPIAR_LINEAS_SQL:
+        session.execute(sql, {"origen": origen_id, "destino": destino_id})
 
 
 def reconciliar_lineas_facturadas(session: Session, pedido_id: Optional[int] = None) -> int:
-    """Bring `pedido_compra_lineas_facturadas` in step with the ERP mirror.
+    """Bring `pedido_compra_lineas_facturadas` (and its per-invoice split `pedido_compra_lineas_facturadas_ct`) in
+    step with the ERP mirror.
 
     One pedido (`pedido_id`) or every pedido (None, the ERP sync hook). Flushes
     first because it reads `pedidos_compra.ct_transaction_id` from SQL. A pedido
@@ -754,6 +863,12 @@ def reconciliar_lineas_facturadas(session: Session, pedido_id: Optional[int] = N
         session.execute(text(sql.format(origen=origen, t=_T, scope_t=scope_t, match=_MATCH)), params).rowcount or 0
         for sql in _RECONCILIAR_SQL
     )
+    # The per-invoice split (sell in varias facturas): same scope, same transaction; not counted in `cambios`, which
+    # keeps reporting the aggregate it always reported.
+    origen_ct = _LINEAS_CT_ORIGEN_SQL.format(scope_pedido=scope_pedido)
+    scope_ct = f"{_TCT}.pedido_id = :pid" if pedido_id is not None else "1 = 1"
+    for sql in _RECONCILIAR_CT_SQL:
+        session.execute(text(sql.format(origen=origen_ct, t=_TCT, scope_t=scope_ct, match=_MATCH_CT)), params)
     logger.info("reconciliar_lineas_facturadas: pedido_id=%s filas cambiadas=%s", pedido_id, cambios)
     return cambios
 

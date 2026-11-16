@@ -234,3 +234,25 @@ class TacticalFacturaPendiente(Base):
     usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     aplicada_en = Column(DateTime(timezone=True), nullable=True)
+
+
+class TacticalLineaFactura(Base):
+    """The invoices an invoice line of a tactical applies to, when not all (sell in varias facturas S3, owner
+    2026-11-13: "por defecto tendría que aplicar a todas las facturas el sell in, pero hay que hacer que se pueda
+    modificar eso y elegir las facturas"). No row for a line: every invoice of its operation (the default). One row
+    per picked invoice (`ct_transaction_id`, one of `pedido_compra_facturas` of the line's operation). Keyed by the
+    line, not its child, so the bonus, the waiting total and the purchase of that line all read the same pick; a full
+    replace rewrites it. Migration `20261114_sell_in_facturas_elegidas`."""
+
+    __tablename__ = "tactical_linea_facturas"
+    __table_args__ = (
+        UniqueConstraint(
+            "tactical_id", "tactical_linea", "ct_transaction_id", name="uq_tactical_linea_facturas_linea_ct"
+        ),
+        CheckConstraint("tactical_linea >= 1", name="ck_tactical_linea_facturas_linea"),
+    )
+
+    id = Column(BigInteger, primary_key=True)
+    tactical_id = Column(BigInteger, ForeignKey("tacticals.id", ondelete="CASCADE"), nullable=False)
+    tactical_linea = Column(Integer, nullable=False)
+    ct_transaction_id = Column(BigInteger, nullable=False)

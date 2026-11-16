@@ -64,6 +64,16 @@ export function estadoDe(
   return { texto: `Vence en ${restan} ${restan === 1 ? 'día' : 'días'}`, tono: 'warning' };
 }
 
+/** An invoice of a Compras operation by its ERP number, or by its CT id when the mirror has no number. */
+export const etiquetaFactura = (f) => f.numero || `CT ${f.ct_transaction_id}`;
+
+/**
+ * Which invoices of its operation an invoice line covers (varias facturas S5): every one, also those linked later
+ * (`null`), or the ones picked, by number.
+ */
+export const facturasCubiertas = (elegidas) =>
+  elegidas?.length ? elegidas.map(etiquetaFactura).join(', ') : 'Todas las facturas';
+
 const ESPERANDO_FACTURA = 'Esperando factura: se aplica cuando Compras vincule la factura del proveedor';
 
 /** What a brand, category or invoice line reaches; product lines are shown as chips instead. */
@@ -76,7 +86,7 @@ export function alcanceDe(linea) {
     return { titulo: `Categoría ${linea.categoria}`, detalle: 'Todos los productos de la categoría' };
   }
   return {
-    titulo: `Factura del pedido ${linea.pedido_numero ?? `#${linea.pedido_compra_id}`}`,
+    titulo: `Factura del pedido ${linea.pedido_numero ?? `#${linea.pedido_compra_id}`} · ${facturasCubiertas(linea.facturas_elegidas)}`,
     detalle: linea.esperando_factura ? ESPERANDO_FACTURA : null,
   };
 }

@@ -156,6 +156,31 @@ describe('edicionDe (S8)', () => {
     expect(renovacionDe(tactical).lineas[0].facturas).toEqual([]);
   });
 
+  it("keeps the invoices an invoice line was limited to, and the Compras search does not drop them", () => {
+    const factura = {
+      ...TACTICAL_REBATE.lineas[0],
+      alcance: 'factura',
+      pedido_compra_id: 5001,
+      pedido_numero: 'OC-77',
+      facturas_ct: [70002],
+      facturas_elegidas: [{ ct_transaction_id: 70002, numero: 'A-0001-124' }],
+    };
+    const { lineas } = edicionDe({ ...TACTICAL_REBATE, lineas: [factura] });
+    const elegida = {
+      id: 5001,
+      numero: 'OC-77',
+      facturasCt: [70002],
+      facturasElegidas: [{ ct_transaction_id: 70002, numero: 'A-0001-124' }],
+    };
+    expect(lineas[0].facturas).toEqual([elegida]);
+
+    const facturas = [
+      { ct_transaction_id: 70001, numero: 'A-0001-123', fecha_factura: '2026-11-03' },
+      { ct_transaction_id: 70002, numero: 'A-0001-124', fecha_factura: '2026-11-05' },
+    ];
+    expect(conFacturas(lineas, [{ id: 5001, numero: 'OC-77', facturas }])[0].facturas).toEqual([{ ...elegida, facturas }]);
+  });
+
   it('fills an invoice with what the Compras search found, by id', () => {
     const lineas = [{ id: 'a', facturas: [{ id: 5001, numero: 'OC-77' }] }];
     const encontrada = { id: 5001, numero: 'OC-77', numero_factura: 'A-0001-123', proveedor_nombre: 'TP-Link', fecha: '2026-11-03' };

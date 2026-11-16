@@ -124,10 +124,10 @@ def test_downgrade_restores_the_previous_gate_and_drops_the_table(before) -> Non
         assert conn.execute(text("SELECT to_regclass('tactical_facturas_pendientes')")).scalar() is None
 
 
-def test_the_live_gate_is_this_revisions_and_the_downgrade_restores_the_previous_one() -> None:
-    from app.services.sell_in import bono_queue
-
-    assert {_norm(s) for s in _module().FUNCIONES_UP} <= {_norm(s) for s in bono_queue.UPGRADE_SQL}
+def test_the_next_gate_restores_this_revisions_and_the_downgrade_restores_the_previous_one() -> None:
+    # The gate was widened later (20261114_sell_in_cubre_totales_aplicados), whose downgrade restores this one.
+    siguiente = _module("20261114_sell_in_cubre_totales_aplicados").FUNCIONES_DOWN
+    assert {_norm(s) for s in _module().FUNCIONES_UP} <= {_norm(s) for s in siguiente}
     previa = _module("20261112_sell_in_bono_cubre_pedido").FUNCIONES_UP
     assert {_norm(s) for s in _module().FUNCIONES_DOWN} <= {_norm(s) for s in previa}
 

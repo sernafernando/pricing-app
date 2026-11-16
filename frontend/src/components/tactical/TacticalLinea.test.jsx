@@ -8,7 +8,7 @@ import userEvent from '@testing-library/user-event';
 import TacticalLinea from './TacticalLinea';
 import { nuevaLinea } from './tacticalLineas';
 import api, { productosAPI } from '../../services/api';
-import { CATALOGO } from './tacticalFixtures';
+import { CATALOGO, OPERACIONES } from './tacticalFixtures';
 
 const onDuplicar = vi.fn();
 const onEliminar = vi.fn();
@@ -203,6 +203,31 @@ describe('TacticalLinea', () => {
   it('one product cannot share its cap', () => {
     render(<Holder tipo="sell_out" inicial={{ productos: monitores.slice(0, 1) }} />);
     expect(within(fila()).getByRole('button', { name: 'Por producto' })).toBeDisabled();
+  });
+
+  it('an operation with several invoices applies to all of them, or to the ones picked (varias facturas S3)', async () => {
+    const user = userEvent.setup();
+    const inicial = { alcance: 'factura', modo: 'monto_total', facturas: [OPERACIONES[0]] };
+    render(<Holder tipo="sell_in" moneda="ARS" inicial={inicial} />);
+    const grupo = within(fila()).getByRole('group', { name: 'Facturas de FC A 0003-00012345, línea 1' });
+    const todas = within(grupo).getByRole('checkbox', { name: 'Todas las facturas' });
+    const segunda = within(grupo).getByRole('checkbox', { name: 'FC A 0003-00012360' });
+    expect(todas).toBeChecked();
+    expect(segunda).not.toBeChecked();
+
+    await user.click(segunda);
+    expect(todas).not.toBeChecked();
+    expect(segunda).toBeChecked();
+    await user.click(segunda);
+    expect(todas).toBeChecked();
+  });
+
+  it('an operation with one invoice or none applies to all of them, with nothing to pick', () => {
+    const inicial = { alcance: 'factura', modo: 'monto_total', facturas: [OPERACIONES[1], OPERACIONES[3]] };
+    render(<Holder tipo="sell_in" moneda="ARS" inicial={inicial} />);
+    expect(within(fila()).queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(within(fila()).getByText('Todas las facturas · FC A 0003-00012346')).toBeInTheDocument();
+    expect(within(fila()).getByText('Todas las facturas')).toBeInTheDocument();
   });
 
   it('copies and deletes', async () => {

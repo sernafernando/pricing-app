@@ -42,7 +42,7 @@ from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP
 from app.models.proveedor import Proveedor
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
-from app.schemas.sell_in import SellInCompraCreate, SellInPreviewIn
+from app.schemas.sell_in import SellInCompraCreate, SellInLineaIn, SellInPreviewIn
 from app.services.sell_in import bonos_costo
 from app.services.sell_in.costing import LOCK_NAMESPACE, LOCK_SQL, get_costing
 from app.services.sell_in.split import CENT, UNIT_PRECISION, Line, SellInSplitError, preview, unit_discount
@@ -530,6 +530,63 @@ def anular_compra_sin_commit(
     # Its units are released in the same transaction: later purchases take those sales over.
     get_costing().recompute(db, [item.item_id for item in items], isolate_failures=False)
     bonos_costo.seguir_fifo(db, [item.item_id for item in items])  # T25b: they take what the FIFO leaves
+    return compra
+
+
+def repartir_compra_sin_commit(
+    db: Session, compra_id: int, lineas: List[Tuple[int, int]], usuario_id: int
+) -> Optional[SellInCompra]:
+    """Re-split an active `monto` purchase over new lines `[(item_id, cantidad)]`, in place: same id, header and
+    total, its lines rewritten (sell in varias facturas S2: a tactical's invoice total re-split when another invoice
+    of its operation links). A line it already had keeps its stored unit cost; a new one takes the product's current
+    cost, converted at the purchase's own rate. Audits the new lines (`SELL_IN_COMPRA_REPARTIDA`) and recomputes the
+    sales of every product it touched, like a load or a void. Does not commit. None, with nothing changed, when the
+    purchase is not active, not `monto`, or already has exactly those units."""
+    compra = db.query(SellInCompra).filter(SellInCompra.id == compra_id).with_for_update().first()
+    if compra is None or compra.estado != "activa" or compra.tipo != "monto":
+        return None
+    actuales = list(
+        db.query(SellInCompraItem).filter(SellInCompraItem.compra_id == compra_id).order_by(SellInCompraItem.id)
+    )
+    if sorted((i.item_id, i.cantidad) for i in actuales) == sorted(lineas):
+        return None
+    costos = {i.item_id: Decimal(i.costo_base_unit) for i in actuales}
+    data = SellInPreviewIn(
+        moneda=compra.moneda,
+        tipo="monto",
+        monto_total=Decimal(compra.monto_total),
+        tipo_cambio=compra.tipo_cambio,
+        formula=compra.formula,
+        lineas=[
+            SellInLineaIn(item_id=item_id, cantidad=cantidad, costo_base_unit=costos.get(item_id))
+            for item_id, cantidad in sorted(lineas)
+        ],
+    )
+    try:
+        calculo = _calcular(db, data, [])
+    except SellInSplitError as exc:
+        raise SellInError(str(exc)) from exc
+    deseadas = {linea["item_id"]: linea for linea in calculo.lineas}
+    for item in actuales:
+        if item.item_id not in deseadas:
+            db.delete(item)
+    tenidos = {item.item_id: item for item in actuales}
+    nuevos: list[SellInCompraItem] = []
+    for item_id, linea in sorted(deseadas.items()):
+        item = tenidos.get(item_id)
+        if item is None:
+            item = SellInCompraItem(compra_id=compra.id, item_id=item_id)
+            db.add(item)
+        item.cantidad = linea["cantidad"]
+        item.costo_base_unit = linea["costo_base_unit"]
+        item.monto_asignado = linea["monto_asignado"]
+        nuevos.append(item)
+    db.flush()
+    audit(db, compra, nuevos, TipoAccion.SELL_IN_COMPRA_REPARTIDA, usuario_id)
+    db.flush()
+    tocados = sorted(set(tenidos) | set(deseadas))
+    get_costing().recompute(db, tocados, isolate_failures=False)
+    bonos_costo.seguir_fifo(db, tocados)
     return compra
 
 
