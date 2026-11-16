@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
-
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -151,6 +149,52 @@ def test_export_routes_call_prepare_before_build() -> None:
         assert "prepare_package_for_export" in src
         build = "build_ml_full_xlsx" if fn is mod.get_package_export_ml else "build_ops_ean_xlsx"
         assert src.index("prepare_package_for_export") < src.index(build)
+
+
+def test_envio_export_ops_skips_prepare_and_uses_inbound_builder() -> None:
+    """Post-inbound ops must not require active package / stock re-cap."""
+    import inspect
+
+    from app.routers import gestion_full as mod
+
+    src = inspect.getsource(mod.get_envio_export_ops)
+    assert "build_ops_ean_xlsx_for_envio" in src
+    assert "prepare_package_for_export" not in src
+    assert "mark_package_exported" not in src
+
+
+def test_build_ops_ean_xlsx_for_envio_missing() -> None:
+    from app.services.gestion_full.excel_export import build_ops_ean_xlsx_for_envio
+
+    db = MagicMock()
+    db.get.return_value = None
+    with pytest.raises(LookupError, match="envío no encontrado"):
+        build_ops_ean_xlsx_for_envio(db, "79909756")
+
+
+def test_build_ops_ean_xlsx_for_envio_happy_path() -> None:
+    from unittest.mock import patch
+
+    from app.services.gestion_full.excel_export import build_ops_ean_xlsx_for_envio
+
+    db = MagicMock()
+    envio = SimpleNamespace(package_id=12, inbound_id="79909756")
+    db.get.return_value = envio
+    ln = SimpleNamespace(producto_item_id=7, qty_export=3, inbound_id="79909756")
+    db.query.return_value.filter.return_value.all.return_value = [ln]
+    with (
+        patch(
+            "app.services.gestion_full.excel_export._assert_ship_lines_have_caja",
+        ) as assert_caja,
+        patch(
+            "app.services.gestion_full.excel_export._ops_ean_xlsx_bytes",
+            return_value=b"PK",
+        ) as build_bytes,
+    ):
+        out = build_ops_ean_xlsx_for_envio(db, "79909756")
+    assert out == b"PK"
+    assert_caja.assert_called_once()
+    build_bytes.assert_called_once_with(db, [ln])
 
 
 def test_export_stock_and_caja_helpers_batch_with_in() -> None:

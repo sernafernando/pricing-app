@@ -35,6 +35,7 @@ from app.services.gestion_full.reconcile import envio_detail
 from app.services.gestion_full.excel_export import (
     build_ml_full_xlsx,
     build_ops_ean_xlsx,
+    build_ops_ean_xlsx_for_envio,
     mark_package_exported,
     prepare_package_for_export,
 )
@@ -700,6 +701,37 @@ def get_envio_detail(
     if detail is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="envío no encontrado")
     return detail
+
+
+@router.get(
+    "/envios/{inbound_id}/export/ops",
+    dependencies=[Depends(require_permiso(PERM_GESTOR))],
+)
+def get_envio_export_ops(
+    inbound_id: str = Path(..., min_length=1, max_length=64),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Download ops Excel for one inbound (post-assign / hard-lock path).
+
+    Does not mutate package status; stock is not re-capped — qty is the declared
+    ship for that SC inbound. Same permission as Envío exports.
+    """
+    try:
+        payload = build_ops_ean_xlsx_for_envio(db, inbound_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from None
+    safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in inbound_id.strip())[:48]
+    filename = f"envio-stock-full-ops-{safe or 'inbound'}.xlsx"
+    return StreamingResponse(
+        io.BytesIO(payload),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post(
