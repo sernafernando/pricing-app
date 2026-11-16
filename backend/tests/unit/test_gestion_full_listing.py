@@ -27,6 +27,7 @@ def test_row_dict_maps_full_windows_and_leaves_later_fields_null() -> None:
         categoria="Camaras",
         inventory_id="CBOW39035",
         user_product_id="MLAU1",
+        family_id=2622757685268259,
         mla="MLA1",
         stock_erp=30,
         stock_full=6,
@@ -45,6 +46,7 @@ def test_row_dict_maps_full_windows_and_leaves_later_fields_null() -> None:
     out = _row_dict(row)
     assert out["ean"] == "1210002615013"
     assert out["inventory_id"] == "CBOW39035"
+    assert out["family_id"] == "2622757685268259"
     assert out["ventas_full_30d"] == 28
     assert out["ventas_colecta_flex_7d"] == 3
     assert out["ventas_colecta_flex_30d"] == 11

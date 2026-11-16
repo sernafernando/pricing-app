@@ -306,7 +306,7 @@ export default function GestionFullGestorTab() {
 
       {!loading && pkg && (
         <div className={styles.tableWrap}>
-          <table className={styles.table}>
+          <table className={`${styles.table} ${styles.tableEnvio}`}>
             <thead>
               <tr>
                 <th>
@@ -318,6 +318,9 @@ export default function GestionFullGestorTab() {
                     disabled={locked}
                   />
                 </th>
+                <th>EAN</th>
+                <th>Descripción</th>
+                <th>Family ID</th>
                 <th>Código ML</th>
                 <th>MLAU</th>
                 <th>Qty PM</th>
@@ -337,15 +340,20 @@ export default function GestionFullGestorTab() {
                       disabled={locked}
                     />
                   </td>
+                  <td className={styles.mono}>{cell(ln.ean)}</td>
+                  <td className={styles.desc} title={ln.descripcion || undefined}>
+                    {cell(ln.descripcion)}
+                  </td>
+                  <td className={styles.mono}>{cell(ln.family_id)}</td>
                   <td className={styles.mono}>{cell(ln.inventory_id)}</td>
                   <td className={styles.mono}>{cell(ln.user_product_id)}</td>
                   <td className={styles.num}>{cell(ln.qty_pm)}</td>
-                  <td className={styles.num}>
+                  <td className={`${styles.num} ${styles.qtyExport}`}>
                     {locked ? (
                       cell(ln.qty_export)
                     ) : (
                       <input
-                        className={styles.input}
+                        className={`${styles.input} ${styles.qtyExportInput}`}
                         type="number"
                         min={0}
                         step={1}
@@ -369,7 +377,7 @@ export default function GestionFullGestorTab() {
               ))}
               {lines.length === 0 && (
                 <tr>
-                  <td colSpan={6} className={styles.empty}>
+                  <td colSpan={9} className={styles.empty}>
                     Sin líneas en este filtro
                   </td>
                 </tr>

@@ -34,6 +34,9 @@ describe('GestionFullGestorTab', () => {
             qty_pm: 5,
             qty_export: 5,
             inbound_id: null,
+            ean: '7791234567890',
+            descripcion: 'Camara TP-Link',
+            family_id: '2622757685268259',
           },
         ],
       },
@@ -42,6 +45,11 @@ describe('GestionFullGestorTab', () => {
 
     render(<GestionFullGestorTab />);
     await waitFor(() => expect(screen.getByText('INV1')).toBeInTheDocument());
+    expect(screen.getByText('7791234567890')).toBeInTheDocument();
+    expect(screen.getByText('Camara TP-Link')).toBeInTheDocument();
+    expect(screen.getByText('2622757685268259')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'EAN' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Family ID' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText('Seleccionar línea 10'));
     fireEvent.click(screen.getByRole('button', { name: /Quitar del envío/ }));

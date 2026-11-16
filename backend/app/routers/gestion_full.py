@@ -43,6 +43,8 @@ from app.services.gestion_full.package import (
     get_active_package,
     get_or_create_open_package,
     remove_package_lines,
+    serialize_package,
+    serialize_package_line,
     set_qty_export,
     upsert_package_line,
 )
@@ -82,6 +84,7 @@ class GestionFullItem(BaseModel):
     categoria: Optional[str] = None
     inventory_id: Optional[str] = None
     user_product_id: Optional[str] = None
+    family_id: Optional[str] = None
     mla: Optional[str] = None
     stock_erp: Optional[int] = None
     stock_full: Optional[int] = None
@@ -244,6 +247,9 @@ class GestionFullPackageLineOut(BaseModel):
     qty_export: int
     qty_export_reason: Optional[str] = None
     inbound_id: Optional[str] = None
+    ean: Optional[str] = None
+    descripcion: Optional[str] = None
+    family_id: Optional[str] = None
 
 
 class GestionFullPackageResponse(BaseModel):
@@ -515,24 +521,7 @@ def get_package(db: Session = Depends(get_db)) -> dict[str, Any]:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="no hay paquete activo",
         )
-    return {
-        "id": pkg.id,
-        "week_monday": pkg.week_monday.isoformat(),
-        "status": pkg.status,
-        "lines": [
-            {
-                "id": ln.id,
-                "producto_item_id": ln.producto_item_id,
-                "user_product_id": ln.user_product_id,
-                "inventory_id": ln.inventory_id,
-                "qty_pm": ln.qty_pm,
-                "qty_export": ln.qty_export,
-                "qty_export_reason": ln.qty_export_reason,
-                "inbound_id": ln.inbound_id,
-            }
-            for ln in pkg.lines
-        ],
-    }
+    return serialize_package(db, pkg)
 
 
 @router.post(
@@ -596,16 +585,7 @@ def post_package_line(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from None
-    return {
-        "id": line.id,
-        "producto_item_id": line.producto_item_id,
-        "user_product_id": line.user_product_id,
-        "inventory_id": line.inventory_id,
-        "qty_pm": line.qty_pm,
-        "qty_export": line.qty_export,
-        "qty_export_reason": line.qty_export_reason,
-        "inbound_id": line.inbound_id,
-    }
+    return serialize_package_line(db, line)
 
 
 @router.patch(
@@ -639,16 +619,7 @@ def patch_package_qty_export(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from None
-    return {
-        "id": line.id,
-        "producto_item_id": line.producto_item_id,
-        "user_product_id": line.user_product_id,
-        "inventory_id": line.inventory_id,
-        "qty_pm": line.qty_pm,
-        "qty_export": line.qty_export,
-        "qty_export_reason": line.qty_export_reason,
-        "inbound_id": line.inbound_id,
-    }
+    return serialize_package_line(db, line)
 
 
 class GestionFullEnvioListItem(BaseModel):
@@ -731,27 +702,6 @@ def get_envio_detail(
     return detail
 
 
-def _package_response(pkg: Any) -> dict[str, Any]:
-    return {
-        "id": pkg.id,
-        "week_monday": pkg.week_monday.isoformat(),
-        "status": pkg.status,
-        "lines": [
-            {
-                "id": ln.id,
-                "producto_item_id": ln.producto_item_id,
-                "user_product_id": ln.user_product_id,
-                "inventory_id": ln.inventory_id,
-                "qty_pm": ln.qty_pm,
-                "qty_export": ln.qty_export,
-                "qty_export_reason": ln.qty_export_reason,
-                "inbound_id": ln.inbound_id,
-            }
-            for ln in pkg.lines
-        ],
-    }
-
-
 @router.post(
     "/package/assign-inbound",
     response_model=GestionFullPackageResponse,
@@ -784,7 +734,7 @@ def post_assign_inbound(
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from None
     db.refresh(pkg)
-    return _package_response(pkg)
+    return serialize_package(db, pkg)
 
 
 @router.post(
@@ -813,7 +763,7 @@ def post_remove_package_lines(
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from None
     db.refresh(pkg)
-    return _package_response(pkg)
+    return serialize_package(db, pkg)
 
 
 @router.post(
@@ -834,24 +784,7 @@ def post_clear_inbounds(
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
     db.refresh(pkg)
-    return {
-        "id": pkg.id,
-        "week_monday": pkg.week_monday.isoformat(),
-        "status": pkg.status,
-        "lines": [
-            {
-                "id": ln.id,
-                "producto_item_id": ln.producto_item_id,
-                "user_product_id": ln.user_product_id,
-                "inventory_id": ln.inventory_id,
-                "qty_pm": ln.qty_pm,
-                "qty_export": ln.qty_export,
-                "qty_export_reason": ln.qty_export_reason,
-                "inbound_id": ln.inbound_id,
-            }
-            for ln in pkg.lines
-        ],
-    }
+    return serialize_package(db, pkg)
 
 
 @router.get(
