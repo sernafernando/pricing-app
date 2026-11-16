@@ -18,6 +18,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoItem, SellInBonoMarca
+from app.models.tactical import TacticalCobranza
 from app.services.productos_sell_in_out import resolver_sell_in_out_batch
 from app.services.sell_in.bonos_alcance import del_alcance
 from app.services.sell_in import visor_lotes
@@ -35,7 +36,7 @@ HOY = D(2026, 11, 10)
 ROUTER = 2964  # TP-LINK Routers, iva 21, cost 50000 ARS
 SWITCH = 2270  # TP-LINK Switches, iva 10.5, no sell in nor sell out anywhere
 
-TABLES = list(dict.fromkeys([*si.TABLES, SellInBonoItem.__table__, *so.TABLES]))
+TABLES = list(dict.fromkeys([*si.TABLES, SellInBonoItem.__table__, TacticalCobranza.__table__, *so.TABLES]))
 STUBS = [*si.STUBS, so.STUBS[-1]]  # usuarios / proveedores / pedidos_compra + offsets_ganancia
 
 
@@ -65,6 +66,8 @@ def _clean(engine: Engine) -> Iterator[None]:
     so.clean(engine)
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM sell_in_bonos_marca"))  # items and consumptions cascade
+        conn.execute(text("DELETE FROM tactical_cobranzas"))
+        conn.execute(text("DELETE FROM tacticals"))
 
 
 def _recompute_sell_in(engine: Engine, *item_ids: int) -> None:
@@ -469,6 +472,76 @@ class TestCostBonus:
         _bono_costo(engine, alcance="modelos", modelos=(SWITCH,))
 
         assert self._statements(engine) == sin_bonos + 1  # the reached bonuses' rows and caps, every bonus in one query
+
+
+def _bono_usd(
+    engine, tc_modo: str, *, tipo_cambio: Optional[str] = None, cobro: Optional[str] = None, tope: Optional[str] = None
+) -> int:
+    """A tactical's USD 10 per unit cost bonus over TP-LINK, current on `HOY` (tactical sell in USD S1-S3)."""
+    with engine.begin() as conn:
+        tactical = conn.execute(
+            text(
+                "INSERT INTO tacticals (tipo, nombre, marca, fecha_desde, fecha_hasta, moneda, tc_modo, tipo_cambio, "
+                "usuario_id) VALUES ('sell_in', 'Synthetic', 'TP-LINK', :d, :h, 'USD', :m, :tc, 7) RETURNING id"
+            ),
+            {"d": D(2026, 11, 1), "h": D(2026, 11, 30), "m": tc_modo, "tc": tipo_cambio},
+        ).scalar()
+        if cobro is not None:
+            conn.execute(
+                text(
+                    "INSERT INTO tactical_cobranzas (tactical_id, fecha_cobro, tipo_cambio, usuario_id) "
+                    "VALUES (:t, :f, :tc, 7)"
+                ),
+                {"t": tactical, "f": HOY, "tc": cobro},
+            )
+        return conn.execute(
+            text(
+                "INSERT INTO sell_in_bonos_marca (base, alcance, marca, tipo, monto_unit, tope_monto, moneda, "
+                "fecha_desde, fecha_hasta, usuario_id, tactical_id, tactical_linea) VALUES ('costo_venta', 'marca', "
+                "'TP-LINK', 'por_unidad', 10, :tope, 'USD', :d, :h, 7, :t, 1) RETURNING id"
+            ),
+            {"tope": tope, "d": D(2026, 11, 1), "h": D(2026, 11, 30), "t": tactical},
+        ).scalar()
+
+
+class TestUsdCostBonus:
+    """Owner (tactical sell in USD): "vos elegís un tipo de moneda para el sell in y un tipo de cambio". Today's next
+    sale of a USD cost bonus gets its USD in pesos at the rate the allocator would use for a sale today: the fixed one,
+    today's BNA (dia_venta), the collection's rate or, without it, the latest BNA (al_cobro). Its cap counts USD."""
+
+    @pytest.mark.parametrize(
+        "tc_modo, kw, esperado",
+        [
+            ("fijo", {"tipo_cambio": "1000"}, 10000.0),
+            ("dia_venta", {}, 15000.0),
+            ("al_cobro", {}, 15000.0),
+            ("al_cobro", {"cobro": "1350"}, 13500.0),
+        ],
+    )
+    def test_the_next_unit_gets_its_usd_in_pesos_at_the_tacticals_rate(self, engine, tc_modo, kw, esperado):
+        so.tipo_cambio(engine, D(2026, 11, 9), 1500)
+        bono = _bono_usd(engine, tc_modo, **kw)
+
+        sell_in = _payload(engine).sell_in
+
+        assert sell_in is not None and sell_in.bono_ids == [bono]
+        assert sell_in.descuento_unit == esperado
+        assert sell_in.costo == 50000.0 - esperado
+
+    def test_its_money_cap_counts_the_usd_already_used(self, engine):
+        bono = _bono_usd(engine, "fijo", tipo_cambio="1000", tope="25")
+        with engine.begin() as conn:  # 2 units already got USD 20 (ARS 20000): USD 5 left
+            conn.execute(
+                text(
+                    "INSERT INTO sell_in_bono_consumos (bono_id, canal, venta_ref, item_id, fecha_venta, unidades, "
+                    "descuento_ars, monto_usd, tc_venta) VALUES (:b, 'fuera', 1, :i, '2026-11-05', 2, 20000, 20, 1000)"
+                ),
+                {"b": bono, "i": ROUTER},
+            )
+
+        sell_in = _payload(engine).sell_in
+
+        assert sell_in is not None and sell_in.descuento_unit == 5000.0
 
 
 class TestSellOut:

@@ -366,10 +366,10 @@ def _repartos(db: Session, activos: Dict[int, SellInBonoMarca]) -> Dict[int, Dic
     return salida
 
 
-def _tasador(db: Session, activos: Dict[int, SellInBonoMarca], ventas: List[alcance.Venta]) -> Tasa:
+def _tasador(db: Session, activos: Dict[int, SellInBonoMarca], fechas: Iterable[date]) -> Tasa:
     """The rate each active USD bonus converts a sale of a date at (module docstring, "USD"), read in at most three
     queries, none without a USD bonus: the tactical's mode and fixed rate with its collection's rate, the BNA of the
-    `dia_venta` sale dates, and the latest BNA for an `al_cobro` bonus whose collection has no rate yet."""
+    `dia_venta` sale dates (`fechas`), and the latest BNA for an `al_cobro` bonus whose collection has no rate yet."""
     ids = sorted(bid for bid, b in activos.items() if b.moneda == USD)
     if not ids:
         return _sin_tasa
@@ -388,7 +388,7 @@ def _tasador(db: Session, activos: Dict[int, SellInBonoMarca], ventas: List[alca
         # Imported here: `bonos` imports this module.
         from app.services.sell_in.bonos import tasas_bna_por_fecha
 
-        por_dia = tasas_bna_por_fecha(db, {v.fecha for v in ventas})
+        por_dia = tasas_bna_por_fecha(db, set(fechas))
     actual: Optional[Decimal] = None
     if any(modo == "al_cobro" and propia is None for modo, propia in propias.values()):
         from app.services.sell_out.criterio import tasa_bna
@@ -405,6 +405,23 @@ def _tasador(db: Session, activos: Dict[int, SellInBonoMarca], ventas: List[alca
         return valor.quantize(_TC_ESCALA, rounding=ROUND_HALF_UP)
 
     return tasa
+
+
+def tasas_de_hoy(db: Session, bonos: Iterable[SellInBonoMarca], hoy: date) -> Dict[int, Optional[Decimal]]:
+    """`{bono_id: rate}` a sale on `hoy` of each USD per-unit or % bonus would convert at, by the allocator's own rule
+    (`_tasador`), for the "c/ sell in" estimate of today (`productos_sell_in_out`); None when there is no rate, which
+    fails the allocator's whole component. ARS bonuses are not in the result."""
+    usd = {b.id: b for b in bonos if b.moneda == USD and b.tipo != MONTO_TOTAL}
+    if not usd:
+        return {}
+    tasa = _tasador(db, usd, {hoy})
+    salida: Dict[int, Optional[Decimal]] = {}
+    for bid, bono in usd.items():
+        try:
+            salida[bid] = tasa(bono, hoy)
+        except ValueError:
+            salida[bid] = None
+    return salida
 
 
 def _sin_tasa(bono: SellInBonoMarca, fecha: date) -> Decimal:
@@ -460,7 +477,7 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
     }
 
     repartos = _repartos(db, activos)
-    tasa = _tasador(db, activos, ventas)
+    tasa = _tasador(db, activos, {v.fecha for v in ventas})
     deseadas: Dict[Tuple[int, str, int, int], _Fila] = {}
     fallidos: Set[int] = set()
     for componente in _componentes(activos, alcances, productos):

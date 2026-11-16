@@ -2038,7 +2038,11 @@ def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
             "cobranza": _cobranza(t.cobranza),
             "pide_tc_cobro": (t.tipo, t.moneda, t.tc_modo) == ("sell_in", "USD", "al_cobro")
             and any(
-                h["origen"] == "sell_in_bono" and h["moneda"] == "USD" and h["estado"] == "activa"
+                # The rule of `_bonos_al_cobro`: an invoice line discounts the invoice, not each sale's cost.
+                h["origen"] == "sell_in_bono"
+                and h["alcance"] != "factura"
+                and h["moneda"] == "USD"
+                and h["estado"] == "activa"
                 for h in de_tactical[t.id]
             ),
         }

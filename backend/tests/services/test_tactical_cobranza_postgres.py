@@ -457,16 +457,23 @@ class TestTipoDeCambioDelCobro:
 
     @pytest.mark.parametrize(
         "kind",
-        ["ars", "fijo", "dia_venta", "sell_out", "al_cobro_sin_linea_usd"],
+        ["ars", "fijo", "dia_venta", "sell_out", "al_cobro_sin_linea_usd", "al_cobro_solo_factura"],
     )
     def test_any_other_tactical_takes_no_rate_and_collects_as_before(self, db, engine, kind) -> None:
         porcentaje = {"alcance": "marca", "marca": bw.TPLINK, "modo_monto": "porcentaje", "valor": "3"}
+
+        def factura() -> dict:
+            pedido = bw.pedido(engine, {2964: 10}, date(2026, 10, 10))
+            return {"alcance": "factura", "pedido_compra_id": pedido, "modo_monto": "porcentaje", "valor": "5"}
+
         tactical = {
             "ars": lambda: service.crear(db, _tactical("sell_in", [_POR_UNIDAD_USD]), USUARIO),
             "fijo": lambda: _usd(db, "fijo", tipo_cambio="1400"),
             "dia_venta": lambda: _usd(db, "dia_venta"),
             "sell_out": lambda: service.crear(db, _tactical(moneda="USD", tc_modo="al_cobro"), USUARIO),
             "al_cobro_sin_linea_usd": lambda: _usd(db, lineas=[porcentaje]),  # a % of the ARS cost: no rate needed
+            # An invoice line carries the tactical's currency but discounts the invoice, not each sale's cost.
+            "al_cobro_solo_factura": lambda: _usd(db, lineas=[factura()], fecha_desde=None, fecha_hasta=None),
         }[kind]()
         assert _leido(db, tactical.id)["pide_tc_cobro"] is False
 

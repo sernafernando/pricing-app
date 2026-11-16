@@ -121,8 +121,9 @@ class _Campana:
 @dataclass(frozen=True)
 class _BonoCosto:
     bono: SellInBonoMarca
-    valor: Decimal  # the product's own % (or ARS per unit) in the bonus, or the bonus's
-    monto_libre: Optional[Decimal]  # ARS cap left; None: no money cap
+    valor: Decimal  # the product's own % (or amount per unit, in the bonus currency) in the bonus, or the bonus's
+    monto_libre: Optional[Decimal]  # money cap left, in the bonus currency; None: no money cap
+    tasa: Optional[Decimal] = None  # a USD bonus's rate for a sale today (`bonos_costo.tasas_de_hoy`); None on ARS
 
 
 class SellInOutMarkups:
@@ -231,16 +232,23 @@ class SellInOutBatch:
         for x in self.bonos_costo.get(item_id, []):
             if any(not (p.acumulable and x.bono.acumulable) for p in tomados):
                 continue  # an earlier bonus it does not stack with holds the unit (`bonos_costo`, T27b)
+            usd = x.bono.moneda == "USD"
+            if usd and x.tasa is None:
+                return None  # no rate: the allocator fails the product's whole component, so none is shown
             try:
                 monto = bonos_costo.unitario(x.bono, x.valor, costo, item_id, iva, self.hoy)
             except ValueError:
                 # A VAT-loaded bonus on a product without a VAT rate: the allocator (`bonos_costo.recalcular`) fails
                 # the product's whole component, every cost bonus of it, so none is shown either.
                 return None
+            libre = x.monto_libre
+            if usd:  # USD per unit and cap, in pesos at today's rate, as the allocator books a sale today
+                monto = monto * x.tasa if x.bono.tipo == "por_unidad" else monto
+                libre = None if libre is None else cents(libre * x.tasa)
             unitario = min(monto, costo - total)
             if unitario <= 0:
                 continue
-            total += cents(unitario) if x.monto_libre is None else min(cents(unitario), x.monto_libre)
+            total += cents(unitario) if libre is None else min(cents(unitario), libre)
             tomados.append(x.bono)
         if not tomados:
             return None
@@ -332,7 +340,7 @@ def resolver_sell_in_out_por_contexto(
             scopes = scopes_de(db, list({c.id: c for c, _, _ in filas}.values()))
             if any(s is not None and not s.tope_compartido for s in scopes.values()):
                 usado_por_target = _uso_sell_out_por_target(db, cids)
-    bonos = _bonos_costo(db, pares)  # sell in ignores stores: one result for every key
+    bonos = _bonos_costo(db, pares, hoy)  # sell in ignores stores: one result for every key
     campanas_por_clave = {
         clave: _campanas_vigentes(filas, por_item, contextos, scopes, usado_global, usado_por_target)
         for clave, contextos in contextos_por_clave.items()
@@ -421,21 +429,27 @@ def _campanas_y_bonos(db: Session, ids: List[int], sin_lote: List[int], hoy: dat
     return alcance.campanas_de_filas([r[:4] for r in filas if r[4] == "campana"], ventas), pares
 
 
-def _bonos_costo(db: Session, pares: List[_Par]) -> Dict[int, List[_BonoCosto]]:
+def _bonos_costo(db: Session, pares: List[_Par], hoy: date) -> Dict[int, List[_BonoCosto]]:
     """`{item_id: cost bonuses}` from the (bonus, product) pairs, in id order, without the bonuses whose cap is used
-    up (after `sell_in_bono_consumos`). One joined query, only when there is a pair. No store scope: sell in lowers
+    up (after `sell_in_bono_consumos`; a USD bonus's money cap counts its rows' `monto_usd`, with today's rate in
+    `tasa`, tactical sell in USD S2-S3). One joined query, only when there is a pair. No store scope: sell in lowers
     the cost of every sale (owner, 2026-11-10), so the cap counts everything the bonus gave."""
     if not pares:
         return {}
     t = SellInBonoConsumo
     usado = (
-        select(t.bono_id, func.sum(t.unidades).label("unidades"), func.sum(t.descuento_ars).label("monto"))
+        select(
+            t.bono_id,
+            func.sum(t.unidades).label("unidades"),
+            func.sum(t.descuento_ars).label("monto"),
+            func.sum(t.monto_usd).label("monto_usd"),
+        )
         .group_by(t.bono_id)
         .subquery()
     )
     activos: Dict[int, Tuple[SellInBonoMarca, Optional[Decimal]]] = {}
-    for bono, unidades, monto in (
-        db.query(SellInBonoMarca, usado.c.unidades, usado.c.monto)
+    for bono, unidades, monto, monto_usd in (
+        db.query(SellInBonoMarca, usado.c.unidades, usado.c.monto, usado.c.monto_usd)
         .outerjoin(usado, usado.c.bono_id == SellInBonoMarca.id)
         .filter(SellInBonoMarca.id.in_(sorted({bid for bid, _, _ in pares})))
     ):
@@ -444,16 +458,19 @@ def _bonos_costo(db: Session, pares: List[_Par]) -> Dict[int, List[_BonoCosto]]:
             tope_monto=None if bono.tope_monto is None else Decimal(bono.tope_monto),
             scope=None,
             contextos=None,
-            usado_global=(int(unidades or 0), Decimal(monto or 0)),
+            usado_global=(int(unidades or 0), Decimal((monto_usd if bono.moneda == "USD" else monto) or 0)),
             usado_target={},
         )
         if activa:
             activos[bono.id] = (bono, libre)
+    tasas = bonos_costo.tasas_de_hoy(db, [b for b, _ in activos.values()], hoy)
     por_item: Dict[int, List[_BonoCosto]] = {}
     for bid, item_id, propio in sorted(pares, key=lambda x: (x[1], x[0])):
         if bid in activos:
             bono, libre = activos[bid]
-            por_item.setdefault(item_id, []).append(_BonoCosto(bono, bonos_costo.valor_del_bono(bono, propio), libre))
+            por_item.setdefault(item_id, []).append(
+                _BonoCosto(bono, bonos_costo.valor_del_bono(bono, propio), libre, tasas.get(bid))
+            )
     return por_item
 
 
