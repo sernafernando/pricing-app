@@ -218,9 +218,18 @@ class TestRejectionsKeepData:
         assert _hash(engine) == antes
 
     def test_duplicate_names(self, engine, monkeypatch) -> None:
+        """A name sent twice imports that salesperson once: the same operations and one scope as sending it once."""
         _como(monkeypatch, detallada=_dos, resumen=_dos)
-        resp = _subir(_client(engine), vendedores=[OTRO, OTRO])
+        client = _client(engine)
+        assert _subir(client, vendedores=[OTRO]).status_code == 200
+        una_vez = sorted(_q(engine, "SELECT vendedor, COUNT(*) FROM ventas_fuera_operaciones GROUP BY vendedor"))
+        resp = _subir(client, vendedores=[OTRO, OTRO])
         assert resp.status_code == 200
+        assert resp.json()["vendedores"] == [OTRO]
+        assert (
+            sorted(_q(engine, "SELECT vendedor, COUNT(*) FROM ventas_fuera_operaciones GROUP BY vendedor")) == una_vez
+        )
+        assert [a["vendedor"] for a in _alcances(engine)].count(OTRO) == 1
 
 
 class TestHistorialEstado:

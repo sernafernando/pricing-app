@@ -270,6 +270,16 @@ def _mismo_vendedor(a: str, b: str) -> bool:
     return len(corto) >= LARGO_VENDEDOR_IMPRESO and largo.startswith(corto)
 
 
+def _mismo_vendedor_sql(guardado, nombre: str):
+    """`_mismo_vendedor` in SQL, for a stored name column: equal, or one is the other as GBP cuts it on documents."""
+    buscado = literal(nombre, String)
+    return or_(
+        guardado == nombre,
+        and_(func.char_length(guardado) >= LARGO_VENDEDOR_IMPRESO, func.strpos(buscado, guardado) == 1),
+        and_(func.char_length(buscado) >= LARGO_VENDEDOR_IMPRESO, func.strpos(guardado, buscado) == 1),
+    )
+
+
 def _cubre(otro: VentaFueraPdfAlcance, vendedor: Optional[str]) -> bool:
     return otro.vendedor is None or (vendedor is not None and _mismo_vendedor(otro.vendedor, vendedor))
 
@@ -904,7 +914,8 @@ def listar_cargas(
     """The uploads of the last `dias` days, newest first, with who uploaded them and whether they still hold: an
     upload with documents is "vigente" while any of its operations remains (a later upload replaced them all
     otherwise); one without (a summary alone, an empty report) while it is still a scope's last report of its kind.
-    `vendedor` matches the PDF's salesperson filter or one of the salespeople imported."""
+    `vendedor` matches the PDF's salesperson filter or one of the salespeople imported, also when one of the two
+    is the name as GBP cuts it on documents."""
     C = VentaFueraPdfCarga
     con_operaciones = exists().where(VentaFueraOperacion.carga_id == C.id)
     de_un_alcance = exists().where(
@@ -922,7 +933,15 @@ def listar_cargas(
     if empresa:
         consulta = consulta.where(C.empresa == empresa)
     if vendedor:
-        consulta = consulta.where(or_(C.vendedor == vendedor, cast(C.vendedores, JSONB).contains([vendedor])))
+        importado = func.jsonb_array_elements_text(cast(C.vendedores, JSONB)).table_valued("value").alias("importado")
+        consulta = consulta.where(
+            or_(
+                _mismo_vendedor_sql(C.vendedor, vendedor),
+                exists(
+                    select(literal(1)).select_from(importado).where(_mismo_vendedor_sql(importado.c.value, vendedor))
+                ),
+            )
+        )
     return [CargaHistorial(carga, usuario, bool(v)) for carga, usuario, v in db.execute(consulta).all()]
 
 

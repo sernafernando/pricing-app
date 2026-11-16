@@ -532,6 +532,22 @@ class TestHistorial:
         assert [f["vendedor"] for f in _historial(engine, vendedor=CARLA)] == [CARLA]
         assert [f["vendedores"] for f in _historial(engine, page_size=1, page=2)] == [[CARLA]]
 
+    def test_salesperson_filter_finds_the_uploads_stored_with_the_printed_name(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A subset of a "Todos" PDF stores the salesperson as documents print it (cut to 12 characters); the
+        history filtered by the full name still lists that upload, and the printed name finds the full-name one."""
+        client = _client(engine, {SUBIR})
+        _subir(client, resumen=None)
+        _como(monkeypatch, detallada=_de(_dos, _rango(1, 15, vendedor=None)))
+        _subir(client, resumen=None, vendedores=[CARLA_IMPRESO])
+
+        assert CARLA_IMPRESO != CARLA
+        por_nombre = [(f["vendedor"], f["vendedores"]) for f in _historial(engine, vendedor=CARLA)]
+        assert sorted(por_nombre, key=str) == sorted([(None, [CARLA_IMPRESO]), (CARLA, [CARLA])], key=str)
+        assert len(_historial(engine, vendedor=CARLA_IMPRESO)) == 2
+        assert _historial(engine, vendedor=CARLA[:5]) == []
+
     @pytest.mark.parametrize(("permisos", "status"), [(set(), 403), ({VER}, 200), ({SUBIR}, 200)])
     def test_needs_either_permission(self, engine: Engine, permisos: set, status: int) -> None:
         assert _client(engine, permisos).get(URL).status_code == status
