@@ -22,6 +22,14 @@ import styles from './panel.module.css';
 /**
  * The best candidate per writable MeLi type for a pub already flagged hay_mejores, as cards.
  * Mount only when the operator can write promos (discard/apply need it).
+ * "Aplicar sugerencia" is the row's PromoApplyControl (same confirmation, guards and body; a
+ * LIGHTNING opens its irreversible-offer card with the stock prefilled at ML's minimum);
+ * `onLeavePub` runs only after a clean apply; without it, a clean apply reloads the candidates
+ * so the applied promo drops out. `onSuggested(ids)` reports the suggested promotion ids so the
+ * Promos tab can mark them. Calls onUnavailable only when baseline markup cannot be computed
+ * (optional parent signal). A hard load failure stays mounted with the error and
+ * "Descartar sugerencia" and does not call onUnavailable. MODO unlocks Nuevo precio only via
+ * onDismissed (Descartar), so neither path can hide the failure by unmounting early.
  */
 export default function MejoresCandidatasBlock({
   itemId,
