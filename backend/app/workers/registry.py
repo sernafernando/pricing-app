@@ -118,6 +118,7 @@ def __getattr__(name: str) -> List[JobHandler]:
                 sweep,
                 verify,
             )
+            from app.workers.handlers.promo_price_recompute import recompute as promo_price_recompute
             from app.workers.handlers.promo_refresh import promo_write_refresh
             from app.workers.handlers.publicacion_repair import envio_repair, sku_repair
 
@@ -149,6 +150,9 @@ def __getattr__(name: str) -> List[JobHandler]:
                 # ml-freshness S1c: item cores of a notification burst read ahead of the sub-resources (own thread;
                 # registered before the repair ticks, which stay last).
                 core_first,
+                # promo-ml-precio-inmediato T1: recomputes the promo price columns ml-webhook just reported
+                # (own thread, so its place in this list does not delay it; registered before the repair ticks).
+                promo_price_recompute,
                 # publicaciones-repair: conditional envio/sku ticks under the shared Pacer.
                 envio_repair,
                 sku_repair,

@@ -9,13 +9,18 @@ ml-webhook, orquestado por ml_promotions_write_service. Gated por
 `promos.escribir` (independiente del gate de lectura `promos.ver`) y por
 el kill-switch `PROMOS_WRITE_ENABLED` (chequeado dentro del servicio,
 ANTES de cualquier llamada al proxy).
+
+`POST /promociones/recompute-precios`: ml-webhook (permiso `ml_ops.ingest`)
+encola el recálculo de las columnas de precio de los items cuya promo
+cambió en ML; lo corre el handler `promo_price.recompute` del worker ML
+(hilo propio, cada 5 s).
 """
 
 from datetime import datetime
 from typing import Annotated, Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
-from pydantic import BaseModel, ConfigDict, StrictInt, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StringConstraints
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -52,6 +57,7 @@ from app.services.ml_promotions_write_service import enroll_one_item, remove_one
 from app.services.ml_publication_status_service import GONE, NEVER_EXISTED, NO_ML_DATA, fetch_publication_status_by_mla
 from app.services.ml_webhook_client import ml_webhook_client
 from app.services.permisos_service import PermisosService
+from app.services import promo_price_recompute
 from app.services.promo_write_confirmation import advertencias_de_escritura
 from app.utils.async_bridge import resolve_maybe_async
 
@@ -939,6 +945,62 @@ def post_hay_mejores_exclusion_bulk(
     touched = set_hay_mejores_excluido_bulk(db, body.item_ids, excluido=body.excluido)
     db.commit()
     return HayMejoresExclusionBulkResult(excluido=body.excluido, item_ids=touched, count=len(touched))
+
+
+# ── Price recompute requested by ml-webhook (promo-ml-precio-inmediato T1) ──
+
+
+MlaRecompute = Annotated[str, StringConstraints(pattern=r"^MLA\d+$")]
+
+
+class RecomputePreciosBody(BaseModel):
+    mlas: List[MlaRecompute] = Field(min_length=1, max_length=promo_price_recompute.MAX_MLAS_PER_REQUEST)
+    model_config = ConfigDict(extra="forbid")
+
+
+class RecomputePreciosResult(BaseModel):
+    accepted: bool
+    items_queued: int
+    unknown_mlas: List[str]
+
+
+def require_ml_ingest():
+    """Dependency: requires `ml_ops.ingest`, held only by the ml-webhook bridge service user (the same
+    permission as `POST /api/ml-ventas-ops/activity/ping`)."""
+
+    def _check(
+        current_user: Usuario = Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ) -> Usuario:
+        if not PermisosService(db).tiene_permiso(current_user, "ml_ops.ingest"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso: ml_ops.ingest")
+        return current_user
+
+    return _check
+
+
+@router.post(
+    "/recompute-precios",
+    response_model=RecomputePreciosResult,
+    status_code=status.HTTP_202_ACCEPTED,
+    responses={403: {"description": "Falta el permiso ml_ops.ingest"}},
+)
+def solicitar_recompute_precios(
+    body: RecomputePreciosBody,
+    current_user: Usuario = Depends(require_ml_ingest()),
+    db: Session = Depends(get_db),
+) -> RecomputePreciosResult:
+    """Called by ml-webhook after it updates the promo mirror of these MLAs (a promo started, changed
+    or ended in ML): queues their items for the `promo_price.recompute` worker handler, which runs the
+    same `recompute_item` as the panel apply (last-write-wins vs manual, MIN across promos, frozen on
+    end, kill switch). The price is not written in this request; 202 means queued.
+
+    One queue row per item: MLAs of the same item and repeated calls collapse. At most 50 MLAs per
+    request. MLAs with no publication in pricing are returned in `unknown_mlas` and queue nothing. The
+    `sync_promo_prices` cron still catches anything this path misses."""
+    result = promo_price_recompute.enqueue_mlas(db, body.mlas)
+    db.commit()
+    return RecomputePreciosResult(accepted=True, items_queued=result.items_queued, unknown_mlas=result.unknown_mlas)
 
 
 @router.delete("/item/{mla_id}", response_model=RemoveResult)
