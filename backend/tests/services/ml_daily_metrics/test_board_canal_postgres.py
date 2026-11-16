@@ -594,3 +594,115 @@ class TestFueraFacets:
 
         assert "empresas" not in body["facets"] and "vendedores" not in body["facets"]
         assert "venta_desconocida_lineas" not in body["kpis"]
+
+
+# ── Regression tests from the independent verification: margin and permission gates on every endpoint,
+# credit notes, cheque documents with mixed VAT rates and the legal-rate tolerance. ──
+
+NO_MARGIN = PERMISOS - {"ml_metricas.ver_ganancia"}
+NO_FUERA = PERMISOS - {"ventas_fuera.ver_metricas_pdf"}
+
+
+@pytest.mark.parametrize("canal", ["fuera", "todo"])
+def test_s7_margin_hidden_without_ver_ganancia(conn, db, monkeypatch, canal):
+    _products(db)
+    _ml_sale(db, MONITOR, "MLA9001", date(2026, 9, 5))
+    _doc(db, date(2026, 9, 10), "1210", [_monitor("1000", "800")])
+    c = _client(conn, monkeypatch, NO_MARGIN)
+    body = _get(c, canal=canal)
+    row = body["rows"][0]
+    assert row["gross"] > 0
+    assert row["total_gauss"] is None and row["markup_pct"] is None
+    k = body["kpis"]
+    for key in ("total_gauss", "markup"):
+        assert k.get(key) in (None, {}) or (isinstance(k[key], dict) and k[key].get("value") is None), (key, k[key])
+    grouped = _get(c, canal=canal, group_by="group", dimension="marca")
+    assert all(r["total_gauss"] is None for r in grouped["rows"])
+    nodes = _get(c, f"{URL}/group-nodes", canal=canal, dimension="marca", path=json.dumps(["MARCAUNO"]))
+    assert all(r["total_gauss"] is None for r in nodes["rows"])
+    resp = c.get(f"{URL}/export", params={"canal": canal})
+    assert resp.status_code == 200
+    header = next(csv.reader(io.StringIO(resp.text.lstrip("﻿")), delimiter=";"))
+    assert not any("gauss" in h.lower() or "markup" in h.lower() for h in header)
+    assert c.get(URL, params={"canal": canal, "sort": "markup"}).status_code == 403
+
+
+@pytest.mark.parametrize("canal", ["fuera", "todo"])
+@pytest.mark.parametrize("path", ["", "/group-nodes", "/export", "/envios", f"/products/{MONITOR}/publications"])
+def test_s7_no_fuera_permission_everywhere_pg(conn, db, monkeypatch, canal, path):
+    _products(db)
+    _doc(db, date(2026, 9, 10), "1210", [_monitor("1000", "800")])
+    c = _client(conn, monkeypatch, NO_FUERA)
+    params = {"canal": canal}
+    if path == "/group-nodes":
+        params.update(dimension="marca", path=json.dumps(["MARCAUNO"]))
+    resp = c.get(URL + path, params=params)
+    assert resp.status_code == 403, resp.text
+
+
+def test_s2_nc_negative_document(client, db):
+    _products(db)
+    _doc(db, date(2026, 9, 10), "1210", [_monitor("1000", "800")])
+    _doc(db, date(2026, 9, 11), "-1210", [_monitor("-1000", "-800", cantidad="-1")], tipo="Nc")
+    _doc(db, date(2026, 9, 12), "-605", [Ln("-500", "-400", articulo="Servicio Nc", cantidad="-1")], tipo="Nc")
+    body = _get(client, canal="fuera", costo="costo")
+    rows = _rows(body)
+    assert _money(rows["Monitor Ejemplo 24"])[:3] == (0, 0.0, 0.0)
+    assert _money(rows["Servicio Nc"])[:3] == (-1, -605.0, -100.0)
+    assert body["kpis"]["venta_desconocida_lineas"] == 0
+
+
+def test_s2_nc_alone_costo_d(client, db):
+    _products(db)
+    _doc(db, date(2026, 9, 11), "-1210", [_monitor("-1000", "-800", cantidad="-1")], tipo="Nc")
+    row = _get(client, canal="fuera")["rows"][0]
+    # TG = -1000 - (-800 x 1.065) = -148
+    assert _money(row)[:3] == (-1, -1210.0, -148.0)
+
+
+def test_s11_cheque_all_known_and_mixed_rate(client, db):
+    """CHEQUE doc with a 21% product and an unmatched 10.5% line: (1210 + 331.5) x 1.04 = 1603.16."""
+    _products(db)
+    _doc(
+        db,
+        date(2026, 9, 10),
+        "1603.16",
+        [_monitor("1000", "800"), Ln("300", "150", codigo=CABLE, articulo="Cable")],
+        condicion="CHEQUE 30 D",
+        recargo="52",
+    )
+    rows = _rows(_get(client, canal="fuera"))
+    assert rows["Monitor Ejemplo 24"]["gross"] == 1210.0
+    assert rows["Cable"]["gross"] == 331.5
+
+
+def test_s13_illegal_rate_is_unknown_not_21(client, db):
+    """Manual 100 with Importe 115 (15%): not legal -> unknown, never 121."""
+    _doc(db, date(2026, 9, 10), "115", [Ln("100", "50", articulo="Raro")])
+    body = _get(client, canal="fuera")
+    assert body["rows"][0]["gross"] == 0.0
+    assert body["kpis"]["venta_desconocida_lineas"] == 1
+
+
+def test_s13_boundary_just_outside_tolerance(client, db):
+    _doc(db, date(2026, 9, 10), "120.89", [Ln("100", "50", articulo="Borde")])  # 20.89% -> 0.11pp off
+    body = _get(client, canal="fuera")
+    assert body["kpis"]["venta_desconocida_lineas"] == 1
+
+
+def test_s5_sin_producto_key_stable_across_periods(client, db):
+    _doc(db, date(2026, 8, 10), "121", [Ln("100", "50", codigo=CABLE, articulo="Cable Ejemplo")])
+    _doc(db, date(2026, 9, 10), "121", [Ln("100", "50", codigo=CABLE, articulo="Cable Ejemplo")])
+    sep = _get(client, canal="fuera")["rows"]
+    aug = _get(client, canal="fuera", date_from="2026-08-01", date_to="2026-08-31")["rows"]
+    filt = _get(client, canal="fuera", vendedores="Vendedor Uno")["rows"]
+    assert len(sep) == len(aug) == 1
+    assert sep[0]["key"] == aug[0]["key"] == filt[0]["key"]
+    assert sep[0]["product_item_id"] < 0
+
+
+def test_s12_recargo_not_in_venta_todo(client, db):
+    _products(db)
+    _ml_sale(db, LIBRO, "MLA9002", date(2026, 9, 5), gross="200")
+    _doc(db, date(2026, 9, 10), "2298.40", [_libro("2000", "1500")], condicion="CHEQUE 30 D", recargo="80")
+    assert _get(client, canal="todo")["kpis"]["gross"]["value"] == 2410.0
