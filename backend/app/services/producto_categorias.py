@@ -54,9 +54,22 @@ class Invalido(ValueError):
     """The change breaks a master rule (422)."""
 
 
+# GBP owns its tree: a GBP subcategory moved to another (already seeded) category follows it. Own rows never move here.
+_SEGUIR_GBP_SQL = (
+    "UPDATE producto_subcategorias SET categoria_id = ("
+    "SELECT MIN(s.cat_id) FROM tb_subcategory s WHERE s.subcat_id = producto_subcategorias.id) "
+    "WHERE propia = false AND categoria_id <> ("
+    "SELECT MIN(s.cat_id) FROM tb_subcategory s WHERE s.subcat_id = producto_subcategorias.id) "
+    "AND (SELECT MIN(s.cat_id) FROM tb_subcategory s WHERE s.subcat_id = producto_subcategorias.id) "
+    "IN (SELECT id FROM producto_categorias)"
+)
+
+
 def sembrar_desde_gbp(db: Session) -> dict[str, int]:
-    """Insert the GBP categories, subcategories and brands that are not in the masters yet. The caller commits."""
+    """Insert the GBP categories, subcategories and brands that are not in the masters yet, and move a GBP subcategory
+    GBP moved. Names, states and TN links are never touched. The caller commits."""
     counts = [db.execute(text(statement)).rowcount or 0 for statement in SEED_SQL]
+    db.execute(text(_SEGUIR_GBP_SQL))
     return dict(zip(("categorias", "subcategorias", "marcas"), counts))
 
 

@@ -245,3 +245,20 @@ def test_brands_rename_deactivate_and_create_like_categories(client, editor, gbp
     own = client.post(MARCAS, json={"nombre": "Marca propia"}, headers=editor)
     assert own.status_code == 201 and own.json()["id"] == PRIMER_ID_PROPIO and own.json()["propia"] is True
     assert client.patch(f"{MARCAS}/999", json={"activa": False}, headers=editor).status_code == 404
+
+
+def test_the_seed_follows_gbp_when_it_moves_one_of_its_subcategories(client, editor, gbp) -> None:
+    own = client.post(f"{CATS}/46/subcategorias", json={"nombre": "Antenas"}, headers=editor).json()
+    gbp.execute(text("UPDATE tb_subcategory SET cat_id = 47 WHERE subcat_id = 301"))
+
+    service.sembrar_desde_gbp(gbp)
+
+    rows = gbp.execute(text("SELECT id, categoria_id FROM producto_subcategorias ORDER BY id")).all()
+    assert [tuple(r) for r in rows] == [(300, 46), (301, 47), (own["id"], 46)]
+
+
+def test_a_concurrent_id_clash_answers_409(client, editor, gbp, monkeypatch) -> None:
+    client.post(CATS, json={"nombre": "Gaming"}, headers=editor)
+    monkeypatch.setattr(service, "_nuevo_id", lambda _db, _model: PRIMER_ID_PROPIO)
+
+    assert client.post(CATS, json={"nombre": "Audio"}, headers=editor).status_code == 409

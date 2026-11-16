@@ -11,6 +11,7 @@ from typing import Any, Callable, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_permiso
@@ -90,7 +91,7 @@ class SyncTnResponse(BaseModel):
 
 
 def ejecutar(db: Session, accion: Callable[[], Any]) -> Any:
-    """Run a write, commit it, and map the master rule errors to 404/422."""
+    """Run a write, commit it, and map the master rule errors to 404/422 and an id clash to 409."""
     try:
         result = accion()
     except service.NoEncontrado as exc:
@@ -99,6 +100,12 @@ def ejecutar(db: Session, accion: Callable[[], Any]) -> Any:
     except service.Invalido as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        # Two own rows created at the same time took the same next id.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Otro cambio se guardó a la vez; reintentá"
+        ) from exc
     db.commit()
     return result
 
