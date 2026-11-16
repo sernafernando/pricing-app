@@ -1,0 +1,92 @@
+.page {
+  min-height: 100%;
+  box-sizing: border-box;
+  background: var(--cf-bg-app);
+  color: var(--cf-text-primary);
+  padding: 24px 32px 48px;
+}
+
+.contenido {
+  max-width: 1480px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.titulos {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 13px;
+  color: var(--cf-text-secondary);
+}
+
+.h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--cf-text-primary);
+}
+
+.headerDerecha {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+  max-width: 560px;
+}
+
+.headerNota {
+  margin: 0;
+  font-size: 13px;
+  color: var(--cf-text-secondary);
+  text-align: right;
+}
+
+.columnas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.ficha {
+  flex: 1 1 640px;
+  display: flex;
+  flex-direction: column;
+}
+
+.vacio {
+  margin: 0;
+  padding: 24px;
+  font-size: 13px;
+  color: var(--cf-text-tertiary);
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 16px 16px 32px;
+  }
+
+  .headerDerecha {
+    align-items: flex-start;
+  }
+
+  .headerNota {
+    text-align: left;
+  }
+}

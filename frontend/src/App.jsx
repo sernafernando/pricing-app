@@ -58,6 +58,7 @@ const ApiDocs = lazy(() => import('./pages/ApiDocs'));
 const SellIn = lazy(() => import('./pages/SellIn'));
 const TacticalNuevo = lazy(() => import('./pages/TacticalNuevo'));
 const PublicacionesML = lazy(() => import('./pages/PublicacionesML'));
+const AbmProductos = lazy(() => import('./pages/AbmProductos'));
 const GestionFull = lazy(() => import('./pages/GestionFull'));
 const ConsultasRanking = lazy(() => import('./pages/ConsultasRanking'));
 const Traza = lazy(() => import('./pages/Traza'));
@@ -163,6 +164,7 @@ const protectedRoutes = [
   { path: '/ml-ventas-listado', component: VentasML, permiso: 'ml_ops.ver' },
   // Productos' own permission or ml_ops.ver (S12f1): PRICING and VENTAS read it as they read Productos.
   { path: '/ml-publicaciones', component: PublicacionesML, permisos: ['productos.ver', 'ml_ops.ver'] },
+  { path: '/abm-productos', component: AbmProductos, permiso: 'productos.ver' },
   { path: '/consultas/ranking', component: ConsultasRanking, permisos: ['consultas.ver_ranking', 'consultas.ver_mi_ranking'] },
   { path: '/traza', component: Traza, permiso: 'traza.ver' },
   { path: '/free-shipping-alerts', component: FreeShippingAlerts, permiso: 'alertas.ver_free_shipping' },

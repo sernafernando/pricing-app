@@ -12,6 +12,7 @@ Este índice lista todas las pantallas de la aplicación, en el mismo orden en q
 | 6 | Prearmadas disponibles | `prearmadas-disponibles.md` | `/prearmadas-disponibles` | Productos → Prearmadas disponibles | Acceso a las prearmadas disponibles |
 | 7 | Sell in / Sell out | `sell-in-sell-out.md` | `/sell-in` | Productos → Sell in / Sell out | Acceso a Sell in / Sell out |
 | 7b | Publicaciones ML | `publicaciones-ml.md` | `/ml-publicaciones` | Productos → Publicaciones ML (primera; pantalla de inicio) | Acceso a Productos o a Ventas ML |
+| 7b1 | ABM de productos | `abm-de-productos.md` | `/abm-productos` | Productos → ABM de productos | Acceso a Productos (editar requiere el permiso del maestro o de specs) |
 | 7c | Control reparación | `control-reparacion.md` | `/ml-repair-control` | Productos → Control reparación | Permiso ml_ops.ver (control de reparación de publicaciones) |
 | 8 | Preparación | `preparacion.md` | `/pedidos-preparacion` | Operaciones → Preparación | Acceso a Preparación |
 | 9 | Producción | `produccion.md` | `/produccion` | Operaciones → Producción | Acceso a Producción |
