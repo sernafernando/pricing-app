@@ -145,7 +145,7 @@ def _manual_value(value: Optional[str]) -> Optional[str]:
     return trimmed or None
 
 
-def _upsert(db: Session, item_id: int, values: dict[str, Any]) -> None:
+def upsert_producto_propio(db: Session, item_id: int, values: dict[str, Any]) -> None:
     """Write `values` on the product's row, creating it: two first writes at once both land (the last wins) instead
     of one failing on the primary key."""
     db.execute(
@@ -164,7 +164,9 @@ def save_producto_propio(
     """
     if db.get(ProductoERP, item_id) is None:
         return None
-    _upsert(db, item_id, {"sku": _manual_value(sku), "ean": _manual_value(ean), "updated_by": usuario_id})
+    upsert_producto_propio(
+        db, item_id, {"sku": _manual_value(sku), "ean": _manual_value(ean), "updated_by": usuario_id}
+    )
     db.commit()
     return read_producto_propio(db, item_id)
 
@@ -198,7 +200,7 @@ def choose_source(db: Session, item_id: int, mla: str, usuario_id: int) -> Optio
     if not _is_source_candidate(db, item_id, mla):
         raise FuenteNoValida(f"La publicación {mla} no es una publicación vigente de este producto.")
     copy = _copy_of(db, mla)
-    _upsert(db, item_id, {**copy, "fuente_copiada_por": usuario_id, "fuente_copiada_at": func.now()})
+    upsert_producto_propio(db, item_id, {**copy, "fuente_copiada_por": usuario_id, "fuente_copiada_at": func.now()})
     db.commit()
     return read_producto_propio(db, item_id)
 
