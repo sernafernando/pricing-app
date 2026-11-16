@@ -26,6 +26,8 @@ from app.models.ml_publication_link import MlPublicationLink
 
 from app.models.producto_propio import ProductoPropio
 from app.models.producto_spec import ProductoSpec, ProductoSpecValor
+from app.models.producto_categoria import ProductoCategoria, ProductoSubcategoria
+from app.models.producto_marca import ProductoMarca
 from app.models.producto_envio_eleccion import ProductoEnvioEleccion
 from app.models.ml_item_override import MlItemOverride
 from app.models.gestion_full_override import GestionFullOverride
@@ -543,6 +545,9 @@ __all__ = [
     "ProductoPropio",
     "ProductoSpec",
     "ProductoSpecValor",
+    "ProductoCategoria",
+    "ProductoSubcategoria",
+    "ProductoMarca",
     "ProductoEnvioEleccion",
     "MlItemOverride",
     "GestionFullOverride",

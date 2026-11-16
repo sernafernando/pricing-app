@@ -91,6 +91,8 @@ from app.routers import (
     ml_item_status,
     productos_propios,
     producto_specs,
+    producto_categorias,
+    producto_marcas,
     ml_item_overrides,
     ml_publications_links,
     sell_in_bonos,
@@ -412,6 +414,8 @@ app.include_router(ml_publications_links.router, prefix="/api")
 app.include_router(ml_item_status.router, prefix="/api")
 app.include_router(productos_propios.router, prefix="/api")
 app.include_router(producto_specs.router, prefix="/api")
+app.include_router(producto_categorias.router, prefix="/api")
+app.include_router(producto_marcas.router, prefix="/api")
 app.include_router(ml_item_overrides.router, prefix="/api")
 app.include_router(gestion_full.router, prefix="/api")
 app.include_router(sell_in_compras.router, prefix="/api")
