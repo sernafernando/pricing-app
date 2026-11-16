@@ -47,6 +47,23 @@ class VentaFueraPdfCarga(Base):
     avisos = Column(JSON, nullable=False, default=list)
     usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # The upload's result for the history (migration 20261119_ventas_fuera_pdf_cargas_detalle): NULL on uploads made
+    # before it. `vendedores` = the salespeople imported (owner L22: the user picks them).
+    vendedores = Column(JSON, nullable=True)
+    lineas = Column(Integer, nullable=True)
+    unidades = Column(MONTO, nullable=True)
+    total_lineas = Column(MONTO, nullable=True)
+    sin_producto_lineas = Column(Integer, nullable=True)
+    sin_producto_monto = Column(MONTO, nullable=True)
+    recargo_financiero = Column(MONTO, nullable=True)
+    # [{"tipo": "Fc", "letra": "A", "cantidad": 3}]
+    documentos_por_tipo = Column(JSON, nullable=True)
+    # The summary cross-check as the upload left it (`carga.Control`) and its status: ok | avisos | sin_resumen |
+    # sin_detallada.
+    control = Column(JSON, nullable=True)
+    control_estado = Column(String(20), nullable=True)
+    # When the newest upload whose documents this one replaced was made (NULL: it replaced none).
+    carga_anterior_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (Index("ix_ventas_fuera_pdf_cargas_empresa_desde", "empresa", "desde"),)
 
