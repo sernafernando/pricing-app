@@ -79,7 +79,7 @@ from app.schemas.tacticals import (
     TacticalLineaTopesIn,
     TacticalTiendaIn,
 )
-from app.services.sell_in import bono_queue, bonos, bonos_crud, compras, facturas_elegidas
+from app.services.sell_in import bono_queue, bonos, bonos_costo, bonos_crud, compras, facturas_elegidas
 from app.services.sell_in.compras import contiene
 from app.services.sell_out import alcance as sell_out_alcance, campanas, tienda_scope
 
@@ -94,9 +94,6 @@ TOTALES_DE_FACTURA = ("sell_in_compra", ORIGEN_PENDIENTE)
 SIN_FECHAS = "Las fechas son obligatorias: solo un tactical con todas sus líneas por factura va sin fechas"
 SIN_FECHA_HASTA = "Un tactical por factura no tiene fecha hasta: cada factura aplica hasta que se venden sus unidades"
 TOTAL_USD_SIN_TC_FIJO = "un monto total en USD necesita tipo de cambio fijo"
-COSTO_EN_PESOS = (
-    "una reducción de costo por unidad o con tope de monto va en pesos (ARS): el costo de cada venta está en pesos"
-)
 
 
 class TacticalError(ValueError):
@@ -426,15 +423,13 @@ def _sell_in(db, tactical, data, linea, numero, parte, codigos, usuario_id) -> N
     else:
         if linea.modo_monto == "monto_total" and data.moneda == "USD" and tactical.tc_modo != "fijo":
             raise TacticalError(TOTAL_USD_SIN_TC_FIJO)
-        if data.moneda != "ARS" and (linea.modo_monto == "por_unidad" or linea.tope_monto is not None):
-            raise TacticalError(COSTO_EN_PESOS)
         alcance = "modelos" if parte.item_ids else ("marca" if parte.marca else "categoria")
         campos = {
             "alcance": alcance,
             "marca": parte.marca,
             "categoria": parte.categoria,
             "modelos": list(parte.item_ids),
-            "moneda": "ARS",
+            "moneda": moneda_de_costo(data.moneda, linea.modo_monto, linea.tope_monto),
             "base": BASE_COSTO_VENTA,
             "incluye_iva": data.incluye_iva,
         }
@@ -457,6 +452,16 @@ def _sell_in(db, tactical, data, linea, numero, parte, codigos, usuario_id) -> N
         acumulable=data.acumulable,
     )
     bonos_crud.crear_bono_sin_commit(db, entrada, usuario_id, tactical=(tactical.id, numero))
+
+
+def moneda_de_costo(moneda: str, modo_monto: str, tope_monto: Optional[Decimal]) -> str:
+    """A cost bonus's currency (tactical sell in USD, owner: "vos elegís un tipo de moneda para el sell in y un tipo de
+    cambio"): a USD tactical's per-unit amount, or money cap, is USD (P2 = A: the cap counts USD), converted per sale by
+    `bonos_costo` at the tactical's rate type; a % without a money cap is a % of the ARS cost, the rate does not
+    matter; a total is ARS at the fixed rate (`_total_en_pesos`)."""
+    if moneda == "USD" and modo_monto != "monto_total" and (modo_monto == "por_unidad" or tope_monto is not None):
+        return "USD"
+    return "ARS"
 
 
 def _fecha_de_factura(pedido: Any) -> date:
@@ -1032,16 +1037,26 @@ def _maximos_por_tienda(
 def _validar_tope(
     tope: TacticalLineaTopesIn, hijo: dict, moneda: str, maximo: Optional[tuple[int, Decimal]] = None
 ) -> None:
-    """The create's cap rules (a cost bonus is ARS), plus never below what the child already used: with per-store
-    caps (`maximo`), below what its most-used store or channel used."""
+    """The create's cap rules, plus never below what the child already used: with per-store caps (`maximo`), below
+    what its most-used store or channel used. A cost bonus whose currency the new cap changes (`moneda_de_costo`: a
+    USD tactical's % line with or without a money cap) compares only units: its used amount is in the old currency."""
     if tope.tope_monto is not None and tope.tope_monto <= 0:
         raise TacticalError(f"Línea {hijo['linea']}: el tope de monto debe ser mayor que cero")
-    es_costo = hijo["origen"] == "sell_in_bono" and hijo["alcance"] != "factura"
-    if es_costo and moneda != "ARS" and tope.tope_monto is not None:
-        raise TacticalError(f"Línea {hijo['linea']}: {COSTO_EN_PESOS}")
     if hijo["modo_monto"] == "monto_total" and (tope.tope_unidades is not None or tope.tope_monto is not None):
         raise TacticalError(f"Línea {hijo['linea']}: un monto total no lleva topes: el monto total es el tope")
+    nueva = _moneda_tras_tope(hijo, moneda, tope.model_dump(exclude_unset=True))
+    if nueva is not None and nueva != hijo["moneda"]:
+        tope = tope.model_copy(update={"tope_monto": None})
     _validar_usado(tope, hijo, maximo)
+
+
+def _moneda_tras_tope(hijo: dict, moneda: str, cambios: dict) -> Optional[str]:
+    """A cost bonus's currency once `cambios` (a PATCH line's set caps) apply, by `moneda_de_costo`; None for any
+    other child."""
+    if hijo["origen"] != "sell_in_bono" or hijo["alcance"] == "factura":
+        return None
+    tope_monto = cambios["tope_monto"] if "tope_monto" in cambios else hijo["tope_monto"]
+    return moneda_de_costo(moneda, hijo["modo_monto"], tope_monto)
 
 
 def _validar_usado(
@@ -1103,6 +1118,9 @@ def _editar_hijos(
                     **({} if bono.alcance == "factura" else {"fecha_hasta": fecha_hasta}),
                     **topes.get(numero, {}),
                 }
+                moneda = _moneda_tras_tope(hijo, tactical.moneda, topes.get(numero, {}))
+                if moneda is not None:
+                    cambios["moneda"] = moneda  # a money cap on a USD tactical's % line counts USD (P2 = A)
                 if all(getattr(bono, campo) == valor for campo, valor in cambios.items()):
                     continue
                 entrada = bonos_crud.entrada_guardada(db, bono).model_copy(update=cambios)
@@ -1533,18 +1551,18 @@ def _usado_por_linea(ids: Select) -> Subquery:
         .where(SellOutCampana.tactical_id.in_(ids))
         .group_by(SellOutCampana.id)
     )
-    # A cost bonus: what its sales got (ARS); counted only when the bonus itself is ARS, as `monto_generado`.
+    # A cost bonus: what its sales got in the bonus's own currency, as `monto_generado`: ARS, or a USD bonus's USD.
     costo = SellInBonoMarca.base == BASE_COSTO_VENTA
-    bonos_costo = (
+    bonos_costo_ = (
         select(
             SellInBonoMarca.tactical_id,
             SellInBonoMarca.moneda,
             case(
                 (
-                    SellInBonoMarca.moneda == "ARS",
-                    func.round(func.coalesce(func.sum(SellInBonoConsumo.descuento_ars), cero), 2),
+                    SellInBonoMarca.moneda == "USD",
+                    func.round(func.coalesce(func.sum(SellInBonoConsumo.monto_usd), cero), 2),
                 ),
-                else_=cero,
+                else_=func.round(func.coalesce(func.sum(SellInBonoConsumo.descuento_ars), cero), 2),
             ),
             tope(SellInBonoMarca),
         )
@@ -1590,7 +1608,7 @@ def _usado_por_linea(ids: Select) -> Subquery:
         .where(SellInCompra.tactical_id.in_(ids))
         .group_by(SellInCompra.id)
     )
-    return union_all(campanas_, bonos_costo, bonos_compras, compras_).subquery()
+    return union_all(campanas_, bonos_costo_, bonos_compras, compras_).subquery()
 
 
 def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
@@ -1662,10 +1680,19 @@ def cobrar(db: Session, tactical_id: int, data: TacticalCobranzaIn, usuario_id: 
         if tactical is None:
             return None
         cobranza = db.query(TacticalCobranza).filter(TacticalCobranza.tactical_id == tactical_id).first()
+        usd = _bonos_al_cobro(db, tactical)
+        if usd and data.tipo_cambio is None:
+            raise TacticalError(SIN_TC_COBRO)
+        if not usd and data.tipo_cambio is not None:
+            raise TacticalError(TC_COBRO_SIN_USD)
+        antes = cobranza.tipo_cambio if cobranza is not None else None
         if cobranza is None:
             cobranza = TacticalCobranza(tactical_id=tactical_id)
             db.add(cobranza)
         cobranza.fecha_cobro = data.fecha_cobro
+        cobranza.tipo_cambio = data.tipo_cambio
+        if antes is None or data.tipo_cambio is None or Decimal(antes) != data.tipo_cambio:
+            bonos_costo.encolar_bonos(db, usd)  # they convert at the new rate (only when it changed)
         cobranza.medio = data.medio
         for campo in _COBRANZA_TEXTOS:
             setattr(cobranza, campo, _texto(getattr(data, campo)))
@@ -1678,9 +1705,36 @@ def cobrar(db: Session, tactical_id: int, data: TacticalCobranzaIn, usuario_id: 
     return tactical
 
 
+SIN_TC_COBRO = (
+    "Falta el tipo de cambio del cobro: con tipo de cambio al cobro, las líneas en USD se pasan a pesos al tipo de "
+    "cambio al que cobraste"
+)
+TC_COBRO_SIN_USD = (
+    "Solo un tactical de sell in en USD con tipo de cambio al cobro y una línea en USD lleva tipo de cambio del cobro"
+)
+
+
+def _bonos_al_cobro(db: Session, tactical: Tactical) -> list[int]:
+    """The active USD cost bonuses of a sell in USD `al_cobro` tactical: they convert at the collection's rate
+    (`bonos_costo`), so its collection asks for it (`pide_tc_cobro`)."""
+    if (tactical.tipo, tactical.moneda, tactical.tc_modo) != ("sell_in", "USD", "al_cobro"):
+        return []
+    b = SellInBonoMarca
+    return [
+        bid
+        for (bid,) in db.query(b.id).filter(
+            b.tactical_id == tactical.id, b.base == BASE_COSTO_VENTA, b.moneda == "USD", b.estado == "activa"
+        )
+    ]
+
+
 def deshacer_cobro(db: Session, tactical_id: int) -> bool:
-    """Undo: delete the tactical's collection record, so it reads "Pendiente" again. False when it had none."""
+    """Undo: delete the tactical's collection record, so it reads "Pendiente" again. False when it had none. A USD
+    `al_cobro` cost line goes back to the latest BNA: its bonuses are queued."""
     try:
+        tactical = db.get(Tactical, tactical_id)
+        if tactical is not None:
+            bonos_costo.encolar_bonos(db, _bonos_al_cobro(db, tactical))
         borradas = db.query(TacticalCobranza).filter(TacticalCobranza.tactical_id == tactical_id).delete()
         db.commit()
     except Exception:
@@ -1910,7 +1964,7 @@ def _lineas_pendientes(db: Session, ids: list[int]) -> list[dict]:
 def _cobranza(cobranza: Optional[TacticalCobranza]) -> Optional[dict]:
     if cobranza is None:
         return None
-    columnas = ("fecha_cobro", "medio", *_COBRANZA_TEXTOS, "usuario_id", "created_at", "updated_at")
+    columnas = ("fecha_cobro", "medio", *_COBRANZA_TEXTOS, "tipo_cambio", "usuario_id", "created_at", "updated_at")
     return {c: getattr(cobranza, c) for c in columnas}
 
 
@@ -1982,6 +2036,11 @@ def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
             "esperando_factura": any(h["esperando_factura"] and h["estado"] == "activa" for h in de_tactical[t.id]),
             "lineas": de_tactical[t.id],
             "cobranza": _cobranza(t.cobranza),
+            "pide_tc_cobro": (t.tipo, t.moneda, t.tc_modo) == ("sell_in", "USD", "al_cobro")
+            and any(
+                h["origen"] == "sell_in_bono" and h["moneda"] == "USD" and h["estado"] == "activa"
+                for h in de_tactical[t.id]
+            ),
         }
         for t in tacticals
     ]

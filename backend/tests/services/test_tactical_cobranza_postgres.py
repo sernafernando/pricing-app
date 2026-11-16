@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.schemas.tacticals import TacticalCobranzaIn
 from app.services import tacticals as service
+from app.services.sell_in import bonos_costo
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _bono_world as bw
 from tests.services.sell_in import _world as w
@@ -416,3 +417,101 @@ class TestKpisEnSql:
             },
         }
         assert service.kpis(db, filtros, hoy=HOY) == _segun_las_lineas(db, filtros)
+
+
+_POR_UNIDAD_USD = {"alcance": "productos", "item_ids": [2964], "modo_monto": "por_unidad", "valor": "10.91",
+                   "tope_unidades": 4}  # fmt: skip
+
+
+def _usd(db, tc_modo: str = "al_cobro", lineas=None, **cabecera):
+    return service.crear(
+        db, _tactical("sell_in", lineas or [_POR_UNIDAD_USD], moneda="USD", tc_modo=tc_modo, **cabecera), USUARIO
+    )
+
+
+def _bono_de(engine: Engine, tactical_id: int) -> int:
+    with engine.connect() as conn:
+        return conn.execute(
+            text("SELECT id FROM sell_in_bonos_marca WHERE tactical_id = :t"), {"t": tactical_id}
+        ).scalar()
+
+
+class TestTipoDeCambioDelCobro:
+    """Owner: "Ponelo donde se carga el cobro." The rate the brand paid at is loaded with the collection; it is what
+    a USD `al_cobro` cost line converts at from then on (tactical sell in USD S2, S8)."""
+
+    def test_a_usd_al_cobro_sell_in_asks_for_it_and_stores_it(self, db, engine) -> None:
+        tactical = _usd(db)
+        assert _leido(db, tactical.id)["pide_tc_cobro"] is True
+
+        service.cobrar(db, tactical.id, _cobro(tipo_cambio=Decimal("1350.5")), USUARIO)
+
+        assert _leido(db, tactical.id)["cobranza"]["tipo_cambio"] == Decimal("1350.500000")
+
+    def test_without_it_the_collection_is_refused_and_nothing_is_stored(self, db, engine) -> None:
+        tactical = _usd(db)
+
+        with pytest.raises(service.TacticalError, match="^Falta el tipo de cambio del cobro"):
+            service.cobrar(db, tactical.id, _cobro(), USUARIO)
+        assert _leido(db, tactical.id)["cobranza"] is None
+
+    @pytest.mark.parametrize(
+        "kind",
+        ["ars", "fijo", "dia_venta", "sell_out", "al_cobro_sin_linea_usd"],
+    )
+    def test_any_other_tactical_takes_no_rate_and_collects_as_before(self, db, engine, kind) -> None:
+        porcentaje = {"alcance": "marca", "marca": bw.TPLINK, "modo_monto": "porcentaje", "valor": "3"}
+        tactical = {
+            "ars": lambda: service.crear(db, _tactical("sell_in", [_POR_UNIDAD_USD]), USUARIO),
+            "fijo": lambda: _usd(db, "fijo", tipo_cambio="1400"),
+            "dia_venta": lambda: _usd(db, "dia_venta"),
+            "sell_out": lambda: service.crear(db, _tactical(moneda="USD", tc_modo="al_cobro"), USUARIO),
+            "al_cobro_sin_linea_usd": lambda: _usd(db, lineas=[porcentaje]),  # a % of the ARS cost: no rate needed
+        }[kind]()
+        assert _leido(db, tactical.id)["pide_tc_cobro"] is False
+
+        with pytest.raises(
+            service.TacticalError, match="^Solo un tactical de sell in en USD con tipo de cambio al cobro"
+        ):
+            service.cobrar(db, tactical.id, _cobro(tipo_cambio=Decimal("1350")), USUARIO)
+        service.cobrar(db, tactical.id, _cobro(), USUARIO)
+        assert _leido(db, tactical.id)["cobranza"]["tipo_cambio"] is None
+
+    def test_loading_changing_and_undoing_it_queue_the_usd_lines_again(self, db, engine) -> None:
+        tactical = _usd(db)
+        bono = _bono_de(engine, tactical.id)
+        bw.clear_queue(engine)
+
+        service.cobrar(db, tactical.id, _cobro(tipo_cambio=Decimal("1350")), USUARIO)
+        assert bw.queued(engine) == [("bono", bono)]
+        bw.clear_queue(engine)
+
+        service.cobrar(
+            db, tactical.id, _cobro(tipo_cambio=Decimal("1350"), observaciones="Sin cambio de tasa"), USUARIO
+        )
+        assert bw.queued(engine) == []
+
+        service.cobrar(db, tactical.id, _cobro(tipo_cambio=Decimal("1400")), USUARIO)
+        assert bw.queued(engine) == [("bono", bono)]
+        bw.clear_queue(engine)
+
+        service.deshacer_cobro(db, tactical.id)
+        assert bw.queued(engine) == [("bono", bono)]
+
+    def test_the_line_and_the_kpis_show_the_usd_used_at_the_collection_rate(self, db, engine) -> None:
+        tactical = _usd(db)
+        ref = w.venta(engine, "fuera", 2964, 2, date(2026, 11, 3))
+        w.update_venta(engine, "fuera", ref, costo_total=Decimal("100000.00"))
+        bw.tipo_cambio(engine, date(2026, 11, 1), 1200)
+        service.cobrar(db, tactical.id, _cobro(tipo_cambio=Decimal("1350")), USUARIO)
+        with sessionmaker(bind=engine)() as otra:
+            bonos_costo.recalcular(otra, bono_ids=[_bono_de(engine, tactical.id)])
+            otra.commit()
+
+        linea = _leido(db, tactical.id)["lineas"][0]
+        kpis = service.kpis(db, service.Filtros(tipos=TODOS), hoy=HOY)
+
+        assert (linea["moneda"], linea["unidades_usadas"], linea["monto_usado"]) == ("USD", 2, Decimal("21.82"))
+        assert kpis["cobrados"]["montos"] == [
+            {"moneda": "USD", "monto": Decimal("21.82"), "tope": None, "tope_parcial": False}
+        ]

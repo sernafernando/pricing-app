@@ -84,7 +84,7 @@ from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
-from sqlalchemy import delete, func, insert, text
+from sqlalchemy import and_, delete, func, insert, or_, text
 from sqlalchemy.orm import Session
 
 from app.models.producto import ProductoERP
@@ -566,6 +566,38 @@ _ENCOLAR_BONO = text(
     "INSERT INTO sell_in_bono_dirty (tipo, ref) VALUES ('bono', :ref) "
     "ON CONFLICT (tipo, ref) DO UPDATE SET enqueued_at = now(), attempts = 0, last_error = NULL"
 )
+
+
+def encolar_bonos(db: Session, bono_ids: Iterable[int]) -> None:
+    """Queues these cost bonuses for the `sell_in.bono` drain in the caller's transaction (a USD bonus whose rate
+    changed: the collection's, `tacticals.cobrar`). Postgres only (the queue's NOTIFY). Does not commit."""
+    ids = sorted(set(bono_ids))
+    if not ids or db.get_bind().dialect.name != "postgresql":
+        return
+    for bid in ids:
+        db.execute(_ENCOLAR_BONO, {"ref": bid})
+    db.execute(text("SELECT pg_notify(:canal, '')"), {"canal": bono_queue.CHANNEL})
+
+
+def encolar_por_bna(db: Session, fecha: date) -> None:
+    """Queues the active USD cost bonuses a new BNA rate dated `fecha` can move, as sell out's `enqueue_por_bna`:
+    an `al_cobro` one whose tactical's collection has no rate yet (it follows the latest BNA: the daily recompute,
+    owner "recomputed daily until the collection rate is loaded") and a `dia_venta` one still running on or after
+    `fecha` (a sale converts at the latest rate on or before its day). `fijo` and a loaded collection rate never
+    move with BNA. Does not commit."""
+    t, c, b = Tactical, TacticalCobranza, SellInBonoMarca
+    sin_tasa = and_(t.tc_modo == "al_cobro", c.tipo_cambio.is_(None))
+    dia_venta = and_(t.tc_modo == "dia_venta", b.fecha_hasta >= fecha)
+    encolar_bonos(
+        db,
+        [
+            bid
+            for (bid,) in db.query(b.id)
+            .join(t, t.id == b.tactical_id)
+            .outerjoin(c, c.tactical_id == t.id)
+            .filter(b.base == BASE, b.estado == "activa", b.moneda == USD, or_(sin_tasa, dia_venta))
+        ],
+    )
 
 
 def _encolar(db: Session, item_ids: Set[int]) -> None:

@@ -204,6 +204,9 @@ class TacticalCobranzaIn(BaseModel):
     distribuidor: Optional[str] = Field(default=None, max_length=200)
     otro_detalle: Optional[str] = Field(default=None, max_length=500)
     observaciones: Optional[str] = Field(default=None, max_length=NOTA_MAX)
+    # The rate (ARS per USD) the brand paid at (tactical sell in USD S8, owner: "Ponelo donde se carga el cobro"):
+    # required exactly when the tactical asks for it (`TacticalOut.pide_tc_cobro`), refused otherwise.
+    tipo_cambio: Optional[Decimal] = Field(default=None, gt=0, max_digits=18, decimal_places=6)
 
     @model_validator(mode="after")
     def _detalle_del_medio(self) -> "TacticalCobranzaIn":
@@ -220,6 +223,7 @@ class TacticalCobranzaOut(BaseModel):
     distribuidor: Optional[str]
     otro_detalle: Optional[str]
     observaciones: Optional[str]
+    tipo_cambio: Optional[Decimal] = None  # the rate the brand paid at (a USD `al_cobro` sell in), else None
     usuario_id: int  # the last user to save it
     created_at: datetime
     updated_at: datetime
@@ -254,6 +258,8 @@ class TacticalOut(BaseModel):
     lineas: list[TacticalLineaOut]
     # The collection record (tactical cobranza S1): None = "Pendiente", a record = "Cobrado".
     cobranza: Optional[TacticalCobranzaOut] = None
+    # Its collection takes the rate the brand paid at: a sell in in USD `al_cobro` with an active USD cost line.
+    pide_tc_cobro: bool = False
 
 
 class MontoMonedaOut(BaseModel):
