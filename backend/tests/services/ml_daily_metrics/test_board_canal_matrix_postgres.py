@@ -111,8 +111,10 @@ def test_duplicate_canal_params_do_not_split_gate_and_filter(conn, db, monkeypat
     r1 = c.get(URL + "?canal=ml&canal=fuera")
     r2 = c.get(URL + "?canal=fuera&canal=ml")
     assert r2.status_code == 403
-    if r1.status_code == 200:
-        assert {row["canal"] for row in r1.json()["rows"]} <= {"fuera"}
+    # The gate and the filter both read the last value: fuera, which this caller may see.
+    assert r1.status_code == 200, r1.text
+    assert r1.json()["rows"]
+    assert {row["canal"] for row in r1.json()["rows"]} == {"fuera"}
 
 
 # ── S6 margin per channel, export CSV contents ──

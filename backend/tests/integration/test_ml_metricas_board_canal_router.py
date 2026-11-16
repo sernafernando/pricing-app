@@ -134,3 +134,25 @@ class TestPermissions:
     @pytest.mark.usefixtures("board_data")
     def test_canal_ml_needs_no_fuera_permission(self, client, admin_auth_headers):
         assert client.get(URL, params={"canal": "ml"}, headers=admin_auth_headers).status_code == 200
+
+
+def _dependencias(dependant) -> set:
+    vistas = set()
+    for sub in dependant.dependencies:
+        vistas.add(sub.call)
+        vistas |= _dependencias(sub)
+    return vistas
+
+
+def test_every_route_gated_by_canal_also_validates_canal() -> None:
+    """`require_ver` picks the permission from the raw `canal` query (fuera needs only ventas_fuera.ver_metricas_pdf),
+    so a route that used it without `board_filter` (which validates `canal` and applies it to the rows) would let a
+    PDF-only user read ML data by sending canal=fuera."""
+    from fastapi.routing import APIRoute
+
+    from app.routers.ml_metricas import board_filter, require_ver, router
+
+    rutas = [r for r in router.routes if isinstance(r, APIRoute)]
+    con_gate = [r.path for r in rutas if require_ver in _dependencias(r.dependant)]
+    assert len(con_gate) == 5, con_gate
+    assert [r.path for r in rutas if r.path in con_gate and board_filter not in _dependencias(r.dependant)] == []
