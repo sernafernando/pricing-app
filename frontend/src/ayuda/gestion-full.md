@@ -12,7 +12,7 @@ Planifica cuánto mandar a Full: una fila por producto ERP y familia MLAU, con C
 
 Arriba dice **Gestión Full**. Hay pestañas **Planificación**, **Consulta envíos**, con permiso `gestion_full.depositos` **Depósito** (U/caja e import), y con `gestion_full.gestor` **Envío** (armar paquete, Excel ML/ops, asignar inbound_id, quitar líneas del envío). En Planificación: búsqueda, filtros de producto (Marca / Categoría / PM, multi-selección; sin Subcategoría), presencia Full, stock ERP y **Solo Listo**.
 
-En **Depósito**, por defecto ves **Pendientes**: productos sin U/caja que ya están en el **paquete de la semana** y/o marcados **Listo** (así el Excel no se traba). La columna Motivo dice Paquete / Listo. Con **Todos** cargás el catálogo ERP (búsqueda + import) como antes.
+En **Depósito**, por defecto ves **Pendientes**: productos sin U/caja que ya están en el **paquete de la semana** y/o marcados **Listo** (así el Excel no se traba). La columna Motivo dice Paquete / Listo. Con **Todos** cargás el catálogo ERP (búsqueda + import) como antes. Un **pack/combo de un solo componente** (p. ej. L530E X2/X4) hereda la U/caja del producto base: no hace falta cargarla otra vez en el pack. Si el export falla por U/caja, el mensaje nombra EAN y descripción y te manda a Depósito.
 
 Por defecto: **En Full** y **sin** filas con Stock ERP en 0. La tabla ordena por EAN y, si un mismo EAN tiene varios MLAU, esas filas van juntas con el mismo tinte. Al scrollear, la fila de cabeceras se queda fija (Planificación, Depósito, Envío y Consulta envíos).
 
