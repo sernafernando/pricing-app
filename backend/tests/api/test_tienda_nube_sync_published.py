@@ -1,8 +1,8 @@
 """Integration tests for `POST /api/tienda-nube/sync`'s `published` mapping.
 
 Fourth review round found a real bug: this endpoint is the SECOND writer of
-`tienda_nube_productos` (the first being `scripts/sync_tienda_nube.py`) and,
-unlike that script, never mapped TN's product-level `published` field onto
+`tienda_nube_productos` (the first being the `tienda_nube.sync` worker handler) and,
+unlike that writer, never mapped TN's product-level `published` field onto
 its per-variant rows — every row this endpoint touches got `published=NULL`
 forever, silently defeating `_is_visible()`'s DESPUBLICAR logic for any
 catalog synced this way.
@@ -267,3 +267,35 @@ class TestSyncEndpointVariantSkuNormalization:
         # Untrimmed whitespace would make every ERP match query (exact,
         # SUBSTRING, '0'||...) miss and item_id would stay NULL forever.
         assert row.variant_sku == "0123456"
+
+
+class TestSyncEndpointTextsAndManualLinks:
+    """abm-productos S12: the manual sync stores the same TN texts and applies the manual links last, like the worker
+    handler, so a hand-set link survives a sync started from the screen too."""
+
+    def test_it_stores_the_texts_and_a_manual_link_wins_over_the_sku_match(self, client, db, sync_user):
+        from app.models.producto import ProductoERP
+        from app.models.producto_tn_vinculo import ProductoTnVinculo
+        from app.models.tienda_nube_producto_texto import TiendaNubeProductoTexto
+
+        db.add_all(
+            [
+                ProductoERP(item_id=10, codigo="7790001", descripcion="NB"),
+                ProductoERP(item_id=20, codigo="7790002", descripcion="NB OB"),
+                ProductoTnVinculo(item_id=10, tn_product_id=301),
+            ]
+        )
+        db.commit()
+        products = [
+            {**_tn_product(product_id=300, variant_id=3000, sku="7790001"), "description": {"es": "<p>Uno</p>"}},
+            _tn_product(product_id=301, variant_id=3010, sku="7790002"),
+        ]
+        with patch("httpx.AsyncClient.get", new=_mock_products_response(products)):
+            response = client.post("/api/tienda-nube/sync", headers=_bearer(sync_user))
+
+        assert response.status_code == 200, response.text
+        db.expire_all()
+        item_by_product = {r.product_id: r.item_id for r in db.query(TiendaNubeProducto).all()}
+        assert item_by_product == {300: None, 301: 10}
+        textos = {t.product_id: t.descripcion_texto for t in db.query(TiendaNubeProductoTexto).all()}
+        assert textos == {300: "Uno", 301: ""}

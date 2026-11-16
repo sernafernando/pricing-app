@@ -27,7 +27,7 @@ So an ambiguous outcome (timeout/5xx) cannot be reconciled against a live TN
 read the way `ml_promotions_write_service.reconcile_write_outcome` does. It
 is surfaced to the operator as `status="ambiguous"` and the local
 `tienda_nube_productos.published` mirror is left UNCHANGED — the real state
-is genuinely unknown until the next `sync_tienda_nube` run. A definitive 2xx
+is genuinely unknown until the next `tienda_nube.sync` worker run. A definitive 2xx
 response DOES update the local mirror immediately (best-effort, logged on
 failure) so the reconciliation view reflects the change without waiting for
 the next sync.
@@ -696,7 +696,7 @@ def publish_product(
     live TN GET is in scope this slice, so this is best-effort against the
     LOCAL mirror, not a live TN lookup; a product created directly in TN
     (outside this app) between syncs would not be caught until the next
-    `sync_tienda_nube` run populates the mirror.
+    `tienda_nube.sync` worker run populates the mirror.
 
     Single-shot POST, NO retry on ambiguous (timeout/5xx) — same rule as
     `unpublish_product`; a blind retry on `POST /products` risks creating

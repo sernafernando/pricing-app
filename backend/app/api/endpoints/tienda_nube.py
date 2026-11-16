@@ -16,7 +16,7 @@ from app.api.deps import get_current_user
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.usuario import Usuario
 from app.services.permisos_service import verificar_permiso
-from app.services.tienda_nube_sync_shared import extract_published_flag
+from app.services.tienda_nube_sync_shared import aplicar_vinculos_manuales, extract_published_flag, guardar_textos
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -134,7 +134,7 @@ async def sincronizar_tienda_nube(
     for product in all_products:
         product_id = product.get("id")
         product_name = product.get("name", {}).get("es", "Sin nombre")
-        # Same semantics as the cron writer (scripts/sync_tienda_nube.py):
+        # Same semantics as the worker writer (tienda_nube_sync_shared.sincronizar_catalogo):
         # missing/non-bool -> None (unknown), never False.
         published = extract_published_flag(product)
 
@@ -263,6 +263,12 @@ async def sincronizar_tienda_nube(
     except Exception as e:
         logger.warning(f"No se pudieron relacionar SKUs: {e}")
 
+    # Same texts and manual links as the worker handler `tienda_nube.sync`: the manual links go last, so they win.
+    # The flush puts this run's new variant rows in the table first (the session does not autoflush), or the manual
+    # links would miss them until the next run.
+    db.flush()
+    guardar_textos(db, all_products)
+    aplicar_vinculos_manuales(db)
     db.commit()
 
     logger.info(f"Sincronización completada - Nuevos: {nuevos}, Actualizados: {actualizados}, Errores: {errores}")

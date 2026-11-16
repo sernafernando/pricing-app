@@ -213,7 +213,7 @@ from app.scripts.sync_customers_incremental import sync_customers_incremental
 | **Otras** |
 | tbItemSerials | sync_item_serials | - | ❌ | ⚠️ Existe script, falta cron |
 | Pedidos Export | sync_pedidos_export | 5 min | ✅ | ✅ OK |
-| Tienda Nube | sync_tienda_nube | 15 min | ✅ | ✅ OK |
+| Tienda Nube | worker `tienda_nube.sync` | 15 min | worker (sin cron) | ✅ OK |
 | Estados Turbo | actualizar_estados_turbo | 1h | ✅ | ✅ OK |
 
 **Leyenda:**

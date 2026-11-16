@@ -28,6 +28,8 @@ from app.models.producto_propio import ProductoPropio
 from app.models.producto_spec import ProductoSpec, ProductoSpecValor
 from app.models.producto_categoria import ProductoCategoria, ProductoSubcategoria
 from app.models.producto_marca import ProductoMarca
+from app.models.producto_tn_vinculo import ProductoTnVinculo
+from app.models.tienda_nube_producto_texto import TiendaNubeProductoTexto
 from app.models.producto_envio_eleccion import ProductoEnvioEleccion
 from app.models.ml_item_override import MlItemOverride
 from app.models.gestion_full_override import GestionFullOverride
@@ -548,6 +550,8 @@ __all__ = [
     "ProductoCategoria",
     "ProductoSubcategoria",
     "ProductoMarca",
+    "ProductoTnVinculo",
+    "TiendaNubeProductoTexto",
     "ProductoEnvioEleccion",
     "MlItemOverride",
     "GestionFullOverride",
