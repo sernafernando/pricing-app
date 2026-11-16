@@ -5,6 +5,8 @@ import PromoFilterBar from '../../promociones/PromoFilterBar';
 import { countActivePromoFilter } from '../../promociones/promoFilterPredicate';
 import { markPromoPulled, promoPulledRecently } from '../../promociones/promoPullTtl';
 import { usePromoFilterStore } from '../../../store/promoFilterStore';
+import { usePermisos } from '../../../contexts/PermisosContext';
+import { promocionesAPI } from '../../../services/api';
 import styles from './panel.module.css';
 
 const plural = (count, one, many) => `${count} ${count === 1 ? one : many}`;
@@ -120,19 +122,41 @@ export default function PromocionesTab({
   onCompetenciaOpenChange,
   onCompetenciaShownChange,
 }) {
+  const { tienePermiso } = usePermisos();
+  const canWritePromos = tienePermiso('promos.escribir');
   const [promosCacheRef] = useState(() => ({ current: new Map() }));
   const [catalogCacheRef] = useState(() => ({ current: new Map() }));
+  const [exclusionBusy, setExclusionBusy] = useState(false);
+  const [exclusionError, setExclusionError] = useState(null);
   const isCatalog = Boolean(detail?.row?.catalog_listing);
   const showRanking = isCatalog && competenciaOpen;
+  const excluido = Boolean(detail?.row?.hay_mejores_excluido);
 
   useEffect(() => {
     onCompetenciaShownChange?.(showRanking);
   }, [showRanking, onCompetenciaShownChange]);
   // Leaving the tab (or the publication) takes the ranking off screen.
   useEffect(() => () => onCompetenciaShownChange?.(false), [onCompetenciaShownChange]);
+  useEffect(() => {
+    setExclusionError(null);
+  }, [itemId]);
 
   const toggleCompetencia = () => {
     onCompetenciaOpenChange?.(!competenciaOpen);
+  };
+
+  const toggleExclusion = async () => {
+    if (!canWritePromos || exclusionBusy) return;
+    setExclusionBusy(true);
+    setExclusionError(null);
+    try {
+      await promocionesAPI.setHayMejoresExclusion(itemId, !excluido);
+      onPromoApplied?.();
+    } catch {
+      setExclusionError('No se pudo actualizar la exclusión de hay mejores.');
+    } finally {
+      setExclusionBusy(false);
+    }
   };
 
   return (
@@ -140,15 +164,33 @@ export default function PromocionesTab({
       <div className={showRanking ? styles.promosLayoutWide : styles.promosLayout}>
         <div className={styles.promosCol}>
           <PromoFilterHeader promosCacheRef={promosCacheRef} />
-          {isCatalog && (
-            <button
-              type="button"
-              className={`btn-tesla outline-subtle-primary sm ${styles.promosCompetenciaToggle}`}
-              onClick={toggleCompetencia}
-              aria-pressed={competenciaOpen}
-            >
-              {competenciaOpen ? 'Ocultar competencia' : 'Ver competencia'}
-            </button>
+          <div className={styles.promosToolbarRow}>
+            {isCatalog && (
+              <button
+                type="button"
+                className={`btn-tesla outline-subtle-primary sm ${styles.promosCompetenciaToggle}`}
+                onClick={toggleCompetencia}
+                aria-pressed={competenciaOpen}
+              >
+                {competenciaOpen ? 'Ocultar competencia' : 'Ver competencia'}
+              </button>
+            )}
+            {canWritePromos && (
+              <label className={styles.promosExclusion}>
+                <input
+                  type="checkbox"
+                  checked={excluido}
+                  disabled={exclusionBusy}
+                  onChange={toggleExclusion}
+                />
+                Excluir de hay mejores
+              </label>
+            )}
+          </div>
+          {exclusionError && (
+            <p className={styles.promosExclusionError} role="alert">
+              {exclusionError}
+            </p>
           )}
           <ItemPromotions
             key={itemId}

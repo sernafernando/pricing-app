@@ -1200,6 +1200,33 @@
   color: var(--cf-text-primary);
 }
 
+.promosToolbarRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.promosExclusion {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.promosExclusion input {
+  margin: 0;
+}
+
+.promosExclusionError {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-danger, var(--cf-danger));
+}
+
 .promosCompetenciaToggle {
   align-self: flex-start;
 }

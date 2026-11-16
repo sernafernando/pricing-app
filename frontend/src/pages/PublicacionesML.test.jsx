@@ -1996,7 +1996,13 @@ describe('bulk actions over products (S6)', () => {
     // Never the filter's products: it opens on a panel that says why and offers to clear the selection.
     await user.click(await screen.findByRole('button', { name: 'Acciones masivas (0 productos de 1 publicación marcada)' }));
     expect(screen.getByText('Las publicaciones marcadas no tienen producto vinculado.')).toBeInTheDocument();
-    for (const item of screen.getAllByRole('menuitem')) expect(item).toBeDisabled();
+    // Price actions need a product; hay-mejores exclude/include acts on publications and stays enabled.
+    const menuItems = screen.getAllByRole('menuitem');
+    const hayMejores = menuItems.filter((el) => /hay mejores/i.test(el.textContent ?? ''));
+    const pricing = menuItems.filter((el) => !/hay mejores/i.test(el.textContent ?? ''));
+    expect(hayMejores.length).toBe(2);
+    for (const item of pricing) expect(item).toBeDisabled();
+    for (const item of hayMejores) expect(item).toBeEnabled();
     await user.click(screen.getByRole('button', { name: /Limpiar selección/ }));
     expect(pick('MLA1100000004')).not.toBeChecked();
     expect(await screen.findByRole('button', { name: 'Acciones masivas (2 productos)' })).toBeEnabled();

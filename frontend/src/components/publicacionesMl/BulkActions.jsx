@@ -8,6 +8,7 @@ import CalcularWebModal from '../CalcularWebModal';
 import CalcularPVPModal from '../CalcularPVPModal';
 import RecalcularCuotasModal from './RecalcularCuotasModal';
 import useBulkProductSet from './useBulkProductSet';
+import BulkHayMejoresExclusion from './BulkHayMejoresExclusion';
 import { resolverParams } from './bulkParams';
 import styles from './BulkActions.module.css';
 import buttonStyles from './toolbarButton.module.css';
@@ -49,13 +50,18 @@ export default function BulkActions({
   canSeeMargin,
   onDone,
   openRequest,
+  // Publication selection for hay-mejores exclude/include (same shape as Pausar/activar).
+  checkedStatus,
+  hayMejores = false,
 }) {
   const { tienePermiso } = usePermisos();
   const { toast, showToast, hideToast } = useToast();
   const actions = ACTIONS.filter((action) => tienePermiso(action.permiso));
+  const showHayMejores = hayMejores && tienePermiso('promos.escribir');
   const [open, setOpen] = useState(false);
   const [modal, setModal] = useState(null);
   const [reloadToken, setReloadToken] = useState(0);
+  const [hayMejoresMenuSlot, setHayMejoresMenuSlot] = useState(null);
   const containerRef = useRef(null);
 
   const resolved = useBulkProductSet(resolverParams(filters, canSeeMargin), actions.length > 0, reloadToken);
@@ -126,7 +132,7 @@ export default function BulkActions({
     setModal({ key: openRequest.key, itemIds: ids, itemIdsNota: note });
   }, [openRequest, showToast]);
 
-  if (actions.length === 0) return null;
+  if (actions.length === 0 && !showHayMejores) return null;
 
   const closeOnEscape = (event) => {
     if (event.key === 'Escape' && open) {
@@ -152,6 +158,13 @@ export default function BulkActions({
     itemIds: modal.itemIds,
     itemIdsNota: modal.itemIdsNota,
   };
+  // Hay-mejores items stay usable even when the pricing product set is still resolving or empty.
+  const pricingBlocked = actions.length > 0 && Boolean(reason) && !checked && !showHayMejores;
+  const pricingTitle =
+    actions.length > 0 ? (reason ?? `Cambia el precio de ${scope}, en todas sus publicaciones`) : null;
+  const hayMejoresTitle = showHayMejores
+    ? 'También excluye o vuelve a incluir publicaciones en hay mejores'
+    : null;
 
   return (
     <div className={styles.anchor} ref={containerRef} onKeyDown={closeOnEscape}>
@@ -161,9 +174,9 @@ export default function BulkActions({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={scope ? `Acciones masivas (${scope})` : 'Acciones masivas'}
-        title={reason ?? `Cambia el precio de ${scope}, en todas sus publicaciones`}
+        title={[pricingTitle, hayMejoresTitle].filter(Boolean).join('. ') || 'Acciones masivas'}
         // A checked selection with nothing to act on still opens: its panel says why and holds "Limpiar selección".
-        disabled={Boolean(reason) && !checked}
+        disabled={pricingBlocked}
         onClick={() => setOpen((was) => !was)}
       >
         <Layers size={14} aria-hidden="true" />
@@ -173,12 +186,18 @@ export default function BulkActions({
       </button>
       {open && (
         <div className={styles.panel}>
-          <p className={styles.scope}>
-            Sobre {checked ? scope : `los ${scope} del filtro`}
-          </p>
-          {reason && <p className={styles.note}>{reason}</p>}
-          {nota && <p className={styles.note}>{nota}</p>}
-          <div role="menu" aria-label="Acciones masivas" className={styles.menu}>
+          {actions.length > 0 && (
+            <>
+              {scope && (
+                <p className={styles.scope}>
+                  Sobre {checked ? scope : `los ${scope} del filtro`}
+                </p>
+              )}
+              {reason && <p className={styles.note}>{reason}</p>}
+              {nota && <p className={styles.note}>{nota}</p>}
+            </>
+          )}
+          <div role="menu" aria-label="Acciones masivas" className={styles.menu} ref={setHayMejoresMenuSlot}>
             {actions.map((action) => (
               <button
                 key={action.key}
@@ -191,6 +210,7 @@ export default function BulkActions({
                 {action.label}
               </button>
             ))}
+            {showHayMejores && actions.length > 0 && <div className={styles.menuSep} role="separator" />}
           </div>
           {checked && (
             <button type="button" className="btn-tesla ghost sm" onClick={onClearChecked}>
@@ -199,6 +219,17 @@ export default function BulkActions({
             </button>
           )}
         </div>
+      )}
+      {showHayMejores && (
+        <BulkHayMejoresExclusion
+          variant="menuItems"
+          filters={filters}
+          canSeeMargin={canSeeMargin}
+          onDone={onDone}
+          checked={checkedStatus}
+          menuSlot={open ? hayMejoresMenuSlot : null}
+          onChose={() => setOpen(false)}
+        />
       )}
       {modal?.key === 'web' && <CalcularWebModal {...modalProps} />}
       {modal?.key === 'pvp' && <CalcularPVPModal {...modalProps} />}
