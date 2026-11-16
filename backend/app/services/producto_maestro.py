@@ -100,8 +100,10 @@ _PUBLICACIONES_SQL = text("""
 """)
 
 _TN_SQL = text("""
-    SELECT product_id, product_name, published FROM tienda_nube_productos
-    WHERE item_id = :item_id AND activo IS TRUE ORDER BY product_id LIMIT 1
+    SELECT p.product_id, p.product_name, p.published, x.descripcion_html, x.descripcion_texto
+    FROM tienda_nube_productos p
+    LEFT JOIN tienda_nube_producto_textos x ON x.product_id = p.product_id
+    WHERE p.item_id = :item_id AND p.activo IS TRUE ORDER BY p.product_id LIMIT 1
 """)
 
 
@@ -189,16 +191,22 @@ def _textos(gbp: dict[str, Any], row: Optional[ProductoPropio], nombre: Optional
             "gbp": gbp["gbp_titulo"],
             "nombre": nombre,
         },
-        # The Tienda Nube description is not stored yet: the TN sync brings it in a later delivery (S12).
-        "descripcion": {
+        # The Tienda Nube description as stored by the TN sync: plain text for ML, which accepts no HTML, and the
+        # original HTML for the web.
+        "descripcion_ml": {
             "ml": ganadora.descripcion if ganadora else None,
-            "tn": None,
+            "tn": tn.descripcion_texto if tn else None,
+            "gbp": gbp["gbp_descripcion"],
+        },
+        "descripcion_web": {
+            "ml": ganadora.descripcion if ganadora else None,
+            "tn": tn.descripcion_html if tn else None,
             "gbp": gbp["gbp_descripcion"],
         },
     }
     textos = {}
     for clave, texto in TEXTOS.items():
-        valores = disponibles["titulo" if clave.startswith("titulo") else "descripcion"]
+        valores = disponibles["titulo" if clave.startswith("titulo") else clave]
         fuentes = {fuente: valores[fuente] or None for fuente in texto.fuentes}
         elegida = getattr(row, texto.fuente) if row is not None else None
         if elegida == PROPIO:
