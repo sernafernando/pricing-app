@@ -245,8 +245,8 @@ def build_publish_draft(
     degrade to a blocked/absent field rather than 500 the whole report —
     the caller is expected to wrap this in a broad `except Exception`.
 
-    `overrides` is this row's `{campo: valor}` slice of a bulk
-    `tn_publish_override` query (`WHERE ean IN (...)`, loaded ONCE per
+    `overrides` is this row's `{campo: valor}` slice of the bulk product
+    master read (`producto_maestro_medidas_tn.medidas_por_ean`, loaded ONCE per
     report by the caller — never per row). `usd_rate`/`usd_rate_date` are
     likewise the report-wide value from ONE `latest_usd_rate_with_date(db)`
     call before the row loop (design Decision 3: no per-row `TipoCambio`

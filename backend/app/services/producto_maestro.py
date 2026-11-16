@@ -244,7 +244,7 @@ def leer(db: Session, item_id: int) -> Optional[dict[str, Any]]:
     }
 
 
-def _override(campo: str, valor: Any, gbp: Any) -> Any:
+def valor_override(campo: str, valor: Any, gbp: Any) -> Any:
     """What is stored for an edited field: None (follow GBP) when blank or equal to the GBP value."""
     if isinstance(valor, str):
         valor = valor.strip() or None
@@ -301,7 +301,7 @@ def guardar(
     if gbp is None:
         return None
     row = db.get(ProductoPropio, item_id, with_for_update=True)
-    values = {campo: _override(campo, valor, gbp[OVERRIDES[campo]]) for campo, valor in cambios.items()}
+    values = {campo: valor_override(campo, valor, gbp[OVERRIDES[campo]]) for campo, valor in cambios.items()}
     efectivos = {}
     for campo in ("marca_id", "categoria_id", "subcategoria_id"):
         manual = values[campo] if campo in values else (getattr(row, campo) if row is not None else None)
