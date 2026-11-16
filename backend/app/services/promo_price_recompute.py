@@ -9,9 +9,9 @@ columns only through the `sync_promo_prices` cron, 3 times a day. Now ml-webhook
    `promo_price_recompute_queue`. Repeated notifications for the same item collapse into that
    row; a new request also un-parks it (`attempts = 0`).
 2. The `promo_price.recompute` handler (own thread in the ML worker, every few seconds, no cron)
-   calls `drain`: per item it first reads the activation time from the mirror, with no pricing
-   transaction open (the latest `updated_at` of the item's candidate/started rows, the same value
-   the cron uses), then runs the SAME `recompute_item` as the panel apply and the cron in its own
+   calls `drain`: per batch it first reads the items' activation times from the mirror in one
+   query, with no pricing transaction open (the latest `updated_at` of each item's
+   candidate/started rows, the same value the cron uses), then runs the SAME `recompute_item` as the panel apply and the cron in its own
    short `get_background_db()` session. So last-write-wins vs a manual price, MIN across started
    promos and frozen-on-end are unchanged. An item with no active mirror row has no started promo
    to write: it leaves the queue without a recompute (never `recompute_item(now=None)`, which
@@ -29,7 +29,6 @@ kept, like the cron.
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Dict, Iterable, List, Set, Tuple
@@ -41,11 +40,12 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_background_db, get_mlwebhook_engine
+from app.core.logging import get_logger
 from app.models.promo_price_recompute_queue import PromoPriceRecomputeQueue
 from app.models.publicacion_ml import PublicacionML
 from app.services.promo_price_propagation import recompute_item
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 MAX_MLAS_PER_REQUEST = 50
 BATCH_ITEMS = 50
@@ -99,7 +99,8 @@ def _upsert(db: Session, item_ids: List[int]) -> None:
 
 
 def fetch_activation_times(mlas: List[str]) -> Dict[str, datetime]:
-    """ONE cross-DB query: the latest mirror `updated_at` of each MLA's candidate/started rows.
+    """ONE cross-DB query (per drain batch): the latest mirror `updated_at` of each MLA's
+    candidate/started rows.
     Same rows and same meaning as `sync_promo_prices._fetch_newly_active_rows`."""
     if not mlas:
         return {}
@@ -132,9 +133,13 @@ def _same_request(item_id: int, enqueued_at: datetime):
     return (PromoPriceRecomputeQueue.item_id == item_id) & (PromoPriceRecomputeQueue.enqueued_at == enqueued_at)
 
 
-def _mlas_of(item_id: int) -> List[str]:
+def _mlas_by_item(item_ids: List[int]) -> Dict[int, List[str]]:
     with get_background_db() as db:
-        return [mla for (mla,) in db.query(PublicacionML.mla).filter(PublicacionML.item_id == item_id)]
+        rows = db.query(PublicacionML.item_id, PublicacionML.mla).filter(PublicacionML.item_id.in_(item_ids)).all()
+    by_item: Dict[int, List[str]] = {}
+    for item_id, mla in rows:
+        by_item.setdefault(item_id, []).append(mla)
+    return by_item
 
 
 def _dequeue(item_id: int, enqueued_at: datetime) -> None:
@@ -173,23 +178,26 @@ def drain(deadline: datetime) -> DrainResult:
         claims = _claim(seen)
         if not claims:
             break
+        # Two reads per batch, not per item: the items' MLAs (pricing) and their activation times
+        # (mirror, one cross-DB query), both before any pricing write transaction opens.
+        mlas_by_item = _mlas_by_item([item_id for item_id, _ in claims])
+        try:
+            activation_by_mla = fetch_activation_times(sorted({m for mlas in mlas_by_item.values() for m in mlas}))
+        except Exception:  # noqa: BLE001 -- a dependency outage, not any item's fault
+            logger.warning("promo_price.recompute: mirror unreadable, pass stopped", exc_info=True)
+            result.mirror_unavailable = True
+            return result
         for item_id, enqueued_at in claims:
             if datetime.now(UTC) >= deadline:
                 return result
             seen.add(item_id)
-            mlas = _mlas_of(item_id)
-            try:
-                activation_times = fetch_activation_times(mlas)
-            except Exception:  # noqa: BLE001 -- a dependency outage, not this item's fault
-                logger.warning("promo_price.recompute: mirror unreadable, pass stopped", exc_info=True)
-                result.mirror_unavailable = True
-                return result
+            activation_times = [activation_by_mla[m] for m in mlas_by_item.get(item_id, []) if m in activation_by_mla]
             if not activation_times:
                 _dequeue(item_id, enqueued_at)
                 result.no_active_promo += 1
                 continue
             try:
-                _recompute_one(item_id, enqueued_at, max(activation_times.values()))
+                _recompute_one(item_id, enqueued_at, max(activation_times))
             except Exception as exc:  # noqa: BLE001 -- one item's failure must not stop the others
                 logger.warning("promo_price.recompute: item %s failed", item_id, exc_info=True)
                 result.failed += 1

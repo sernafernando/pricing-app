@@ -201,6 +201,18 @@ class TestDrain:
         assert _price(db, 8001) == 1234.0
         assert _row(db, 8001) is None
 
+    def test_the_mirror_is_read_once_per_batch_not_once_per_item(self, db, wired):
+        _make_item(db, 8001, "MLA8001")
+        _make_item(db, 8002, "MLA8002")
+        wired.mirror.update({"MLA8001": ACTIVATION, "MLA8002": ACTIVATION})
+        _queue(db, 8001)
+        _queue(db, 8002)
+
+        result = handler.run(_ctx())
+
+        assert result.detail["recomputed"] == 2
+        wired.activation_spy.assert_called_once_with(["MLA8001", "MLA8002"])
+
     def test_an_empty_queue_reads_nothing_cross_db(self, db, wired):
         result = handler.run(_ctx())
 
