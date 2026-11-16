@@ -20,6 +20,8 @@ Rules (spec vpf-pdf-metricas, T1):
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
@@ -251,8 +253,17 @@ def _faltante(reporte: str, vendedor: Optional[str], desde: date, hasta: date) -
     return {"reporte": reporte, "vendedor": vendedor, "desde": desde.isoformat(), "hasta": hasta.isoformat()}
 
 
+def _nombre_completo(persona: str, conocidos: list[str]) -> str:
+    """The salesperson's full name from a report header of the company, when GBP cut it on the documents."""
+    return next((n for n in conocidos if len(n) > len(persona) and _mismo_vendedor(n, persona)), persona)
+
+
 def _sin_cubrir(
-    alcance: VentaFueraPdfAlcance, reporte: str, otros: list[VentaFueraPdfAlcance], documentos: list[tuple[date, str]]
+    alcance: VentaFueraPdfAlcance,
+    reporte: str,
+    otros: list[VentaFueraPdfAlcance],
+    documentos: list[tuple[date, str]],
+    conocidos: list[str],
 ) -> list[dict]:
     """What of the scope no report of kind `reporte` covers (owner, L11: "que cubra por partes"). `otros` are the
     company's scopes that have that report; `documentos` are the scope's own (date, salesperson) pairs, which name the
@@ -265,7 +276,7 @@ def _sin_cubrir(
         por_persona = {}
         for persona in sorted({v for fecha, v in documentos if a <= fecha <= b}):
             propios = [o for o in otros if o.vendedor is not None and _mismo_vendedor(o.vendedor, persona)]
-            nombre = propios[0].vendedor if propios else persona
+            nombre = propios[0].vendedor if propios else _nombre_completo(persona, conocidos)
             por_persona[nombre] = _restar(a, b, [(o.desde, o.hasta) for o in propios])
         if all(huecos == [(a, b)] for huecos in por_persona.values()):
             # Nothing of the other kind touches this range: the whole range is missing, for everyone.
@@ -340,12 +351,22 @@ def _cruzar(
         )
     operaciones = {(op.tipo, op.letra, op.punto_venta, op.numero): op for op in [*ajenas, *propias]}
 
+    conocidos = sorted(
+        n
+        for n in db.execute(
+            select(VentaFueraPdfAlcance.vendedor)
+            .where(VentaFueraPdfAlcance.empresa == alcance.empresa, VentaFueraPdfAlcance.vendedor.is_not(None))
+            .distinct()
+        ).scalars()
+    )
     faltantes: list[dict] = []
     if alcance.detallada_carga_id is not None:
-        faltantes += _sin_cubrir(alcance, "resumen", con_resumen, [(op.fecha, op.vendedor) for op in propias])
+        faltantes += _sin_cubrir(
+            alcance, "resumen", con_resumen, [(op.fecha, op.vendedor) for op in propias], conocidos
+        )
     if alcance.resumen_carga_id is not None:
         faltantes += _sin_cubrir(
-            alcance, "detallada", con_detallada, [(doc.fecha, doc.vendedor) for doc in resumen_propio]
+            alcance, "detallada", con_detallada, [(doc.fecha, doc.vendedor) for doc in resumen_propio], conocidos
         )
     if alcance.detallada_carga_id is None and alcance.resumen_carga_id is None:
         faltantes = [_faltante("detallada", alcance.vendedor, alcance.desde, alcance.hasta)]
@@ -401,6 +422,29 @@ def _cruzar(
     return avisos, propias if alcance.detallada_carga_id is not None else ajenas
 
 
+REEMPLAZADOS = re.compile(r"se reemplazaron por una carga posterior \((.+)\)\.$")
+
+
+def _reemplazo(
+    db: Session, alcance: VentaFueraPdfAlcance, perdidas: dict[int, int], cabecera: ReporteDetallado | ReporteResumen
+) -> Optional[str]:
+    """How many documents of the scope's detailed upload a later upload replaced, counted from what is stored, so
+    loading that later upload again keeps saying it. Names the upload that replaced them last."""
+    carga = db.get(VentaFueraPdfCarga, alcance.detallada_carga_id)
+    quedan = db.execute(
+        select(func.count()).where(VentaFueraOperacion.carga_id == alcance.detallada_carga_id)
+    ).scalar_one()
+    if carga is None or carga.documentos <= quedan:
+        return None
+    if alcance.detallada_carga_id in perdidas:
+        origen = f"{cabecera.vendedor or 'Todos'}, {cabecera.desde:%d/%m/%Y}-{cabecera.hasta:%d/%m/%Y}"
+    else:
+        anterior = next((m for m in map(REEMPLAZADOS.search, alcance.avisos or []) if m), None)
+        origen = anterior.group(1) if anterior else None
+    sufijo = f" ({origen})" if origen else ""
+    return f"{carga.documentos - quedan} comprobantes de este período se reemplazaron por una carga posterior{sufijo}."
+
+
 def _refrescar(
     db: Session, alcance: VentaFueraPdfAlcance, perdidas: dict[int, int], cabecera: ReporteDetallado | ReporteResumen
 ) -> tuple[list[str], list[VentaFueraOperacion]]:
@@ -427,12 +471,9 @@ def _refrescar(
     resultado: tuple[list[str], list[VentaFueraOperacion]] = ([], [])
     for otro in sorted(afectados.values(), key=lambda a: a.id != alcance.id):
         avisos, operaciones = _cruzar(db, otro, del_periodo_de(otro))
-        if otro.id != alcance.id and otro.detallada_carga_id in perdidas:
-            avisos = [
-                f"{perdidas[otro.detallada_carga_id]} comprobantes de este período se reemplazaron por una carga "
-                f"posterior ({cabecera.vendedor or 'Todos'}, {cabecera.desde:%d/%m/%Y}-{cabecera.hasta:%d/%m/%Y}).",
-                *avisos,
-            ]
+        if otro.id != alcance.id and otro.detallada_carga_id is not None:
+            reemplazo = _reemplazo(db, otro, perdidas, cabecera)
+            avisos = [reemplazo, *avisos] if reemplazo else avisos
         otro.avisos = avisos
         if otro.id == alcance.id:
             resultado = (avisos, operaciones)

@@ -363,6 +363,37 @@ def _sin_impares(reporte):
     return dataclasses.replace(reporte, documentos=[d for d in reporte.documentos if not d.numero % 2])
 
 
+def _rango(desde: int, hasta: int, vendedor: str | None = "igual"):
+    """The report as GBP exports it for days `desde`-`hasta` of March 2025 (and another salesperson filter)."""
+
+    def cambiar(reporte):
+        d, h = date(2025, 3, desde), date(2025, 3, hasta)
+        docs = [doc for doc in reporte.documentos if d <= doc.fecha <= h]
+        filtro = reporte.vendedor if vendedor == "igual" else vendedor
+        return dataclasses.replace(reporte, desde=d, hasta=h, vendedor=filtro, documentos=docs)
+
+    return cambiar
+
+
+def _dos_vendedores(reporte):
+    """The odd-numbered documents belong to "Otro Vendedor"; a salesperson-filtered report keeps only its own."""
+    docs = [dataclasses.replace(d, vendedor="Otro Vendedor") if d.numero % 2 else d for d in reporte.documentos]
+    if reporte.vendedor == "Otro Vendedor":
+        docs = [d for d in docs if d.numero % 2]
+    elif reporte.vendedor is not None:
+        docs = [d for d in docs if not d.numero % 2]
+    return dataclasses.replace(reporte, documentos=docs)
+
+
+def _de(*cambios):
+    def aplicar(reporte):
+        for cambio in cambios:
+            reporte = cambio(reporte)
+        return reporte
+
+    return aplicar
+
+
 def _faltantes(engine: Engine) -> dict:
     return {(a["vendedor"], a["desde"], a["hasta"]): a["faltantes"] for a in _alcances(engine)}
 
@@ -441,6 +472,157 @@ class TestCoberturaPorPartes:
             {"reporte": "resumen", "vendedor": "Otro Vendedor", "desde": "2025-03-01", "hasta": "2025-03-31"}
         ]
         assert _sin_control(todos["avisos"]) == []
+
+    @pytest.mark.parametrize(("nombre_conocido", "esperado"), [(True, "Carla Ejemplo"), (False, "Carla Ejempl")])
+    def test_a_missing_salesperson_is_named_in_full_when_a_header_names_them(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch, nombre_conocido: bool, esperado: str
+    ) -> None:
+        """GBP cuts the salesperson to 12 characters on documents ("Carla Ejempl"); a report header of the company
+        names them in full, and that is the name shown. Without one, GBP's prefix stays."""
+        client = _client(engine, {SUBIR})
+        if nombre_conocido:
+            _como(
+                monkeypatch,
+                detallada=lambda r: dataclasses.replace(
+                    r, desde=date(2025, 2, 1), hasta=date(2025, 2, 28), documentos=[]
+                ),
+            )
+            _subir(client, resumen=None)
+        largo = "Otro Vendedor Largo"
+        _como(
+            monkeypatch,
+            detallada=lambda r: dataclasses.replace(
+                r,
+                vendedor=None,
+                documentos=[dataclasses.replace(d, vendedor=largo[:12]) if d.numero % 2 else d for d in r.documentos],
+            ),
+            resumen=lambda r: dataclasses.replace(
+                r,
+                vendedor=largo,
+                documentos=[dataclasses.replace(d, vendedor=largo) for d in r.documentos if d.numero % 2],
+            ),
+        )
+        _subir(client, resumen=None)
+        _subir(client, detallada=None)
+
+        todos = next(a for a in _alcances(engine) if a["vendedor"] is None)
+
+        assert todos["faltantes"] == [
+            {"reporte": "resumen", "vendedor": esperado, "desde": "2025-03-01", "hasta": "2025-03-31"}
+        ]
+        assert todos["avisos"][0] == (
+            f"Falta subir el reporte de ventas (resumen) de {esperado} del 01/03/2025 al 31/03/2025."
+        )
+
+    def test_a_gap_between_two_summaries_is_the_only_part_missing_until_it_is_uploaded(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """(a) Todos detailed + Carla summaries for 01-10 and 21-31: only 11-20 is missing; uploading it clears it."""
+        client = _client(engine, {SUBIR})
+        _como(monkeypatch, detallada=_todos)
+        _subir(client, resumen=None)
+        for desde, hasta in ((1, 10), (21, 31)):
+            _como(monkeypatch, resumen=_rango(desde, hasta))
+            _subir(client, detallada=None)
+
+        todos = next(a for a in _alcances(engine) if a["vendedor"] is None)
+        assert todos["faltantes"] == [
+            {"reporte": "resumen", "vendedor": "Carla Ejemplo", "desde": "2025-03-11", "hasta": "2025-03-20"}
+        ]
+
+        _como(monkeypatch, resumen=_rango(11, 20))
+        _subir(client, detallada=None)
+
+        assert all(a["faltantes"] == [] for a in _alcances(engine))
+        assert _recargos(engine) == (7, "480390.91")
+
+    def test_with_two_salespeople_only_the_half_covered_one_misses_its_second_half(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """(b) Todos detailed of two salespeople; the other one's summary covers the month, Carla's only 01-15."""
+        client = _client(engine, {SUBIR})
+        _como(monkeypatch, detallada=_de(_todos, _dos_vendedores))
+        _subir(client, resumen=None)
+        _como(monkeypatch, resumen=_de(lambda r: dataclasses.replace(r, vendedor="Otro Vendedor"), _dos_vendedores))
+        _subir(client, detallada=None)
+        _como(monkeypatch, resumen=_de(_rango(1, 15), _dos_vendedores))
+        _subir(client, detallada=None)
+
+        todos = next(a for a in _alcances(engine) if a["vendedor"] is None)
+
+        assert todos["faltantes"] == [
+            {"reporte": "resumen", "vendedor": "Carla Ejemplo", "desde": "2025-03-16", "hasta": "2025-03-31"}
+        ]
+        assert _sin_control(todos["avisos"]) == []
+
+    def test_a_salesperson_detailed_wider_than_its_summary_misses_only_the_uncovered_dates(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """(d) Carla's detailed report covers the month, her summary only 01-15."""
+        client = _client(engine, {SUBIR})
+        _subir(client, resumen=None)
+        _como(monkeypatch, resumen=_rango(1, 15))
+
+        body = _subir(client, detallada=None).json()
+
+        assert body["faltantes"] == []
+        carla = _faltantes(engine)[("Carla Ejemplo", "2025-03-01", "2025-03-31")]
+        assert carla == [
+            {"reporte": "resumen", "vendedor": "Carla Ejemplo", "desde": "2025-03-16", "hasta": "2025-03-31"}
+        ]
+
+    def test_a_todos_summary_and_salesperson_summaries_together_leave_nothing_missing(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """(e) Todos detailed controlled by a Todos summary for 01-15 and Carla's summary for 16-31."""
+        client = _client(engine, {SUBIR})
+        _como(monkeypatch, detallada=_todos, resumen=_rango(1, 15, vendedor=None))
+        _subir(client, resumen=None)
+        _subir(client, detallada=None)
+        _como(monkeypatch, resumen=_rango(16, 31))
+        _subir(client, detallada=None)
+
+        assert all(a["faltantes"] == [] for a in _alcances(engine))
+        assert all(_sin_control(a["avisos"]) == [] for a in _alcances(engine))
+        assert _recargos(engine) == (7, "480390.91")
+
+    def test_a_todos_summary_alone_misses_the_detailed_of_everyone(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """(f) A Todos summary alone: the detailed report is missing for every salesperson, no operations."""
+        _como(monkeypatch, resumen=_todos)
+
+        body = _subir(_client(engine, {SUBIR}), detallada=None).json()
+
+        esperado = [{"reporte": "detallada", "vendedor": None, "desde": "2025-03-01", "hasta": "2025-03-31"}]
+        assert (body["faltantes"], body["falta_detallada"], body["documentos"]) == (esperado, True, 0)
+        assert _faltantes(engine) == {(None, "2025-03-01", "2025-03-31"): esperado}
+        assert _ops(engine) == 0
+
+    def test_a_todos_half_month_replaces_the_salesperson_load_and_reuploading_it_changes_nothing(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """(g) After Carla's full load, a Todos detailed for 01-15 replaces her documents of those days; her scope
+        says so, and uploading the Todos report again keeps everything as it was."""
+        client = _client(engine, {SUBIR})
+        _subir(client)
+        _como(monkeypatch, detallada=_rango(1, 15, vendedor=None))
+        primera = _subir(client, resumen=None).json()
+        reemplazados = primera["reemplazados"]
+        antes = (_ops(engine), _recargos(engine), _alcances(engine))
+
+        segunda = _subir(client, resumen=None).json()
+
+        assert reemplazados == primera["documentos"] > 0
+        carla = next(a for a in _alcances(engine) if a["vendedor"] == "Carla Ejemplo")
+        assert carla["avisos"][0] == (
+            f"{reemplazados} comprobantes de este período se reemplazaron por una carga posterior "
+            "(Todos, 01/03/2025-15/03/2025)."
+        )
+        assert (segunda["reemplazados"], segunda["documentos"]) == (reemplazados, reemplazados)
+        despues = (_ops(engine), _recargos(engine), _alcances(engine))
+        sin_fecha = lambda xs: [{k: v for k, v in a.items() if k != "updated_at"} for a in xs]  # noqa: E731
+        assert (despues[0], despues[1], sin_fecha(despues[2])) == (antes[0], antes[1], sin_fecha(antes[2]))
 
     def test_a_summary_month_with_a_half_month_detailed_misses_only_the_other_half(
         self, engine: Engine, monkeypatch: pytest.MonkeyPatch
