@@ -11,6 +11,7 @@ import pytest
 
 from app.services.gestion_full.package import (
     get_or_create_open_package,
+    serialize_package_lines,
     upsert_package_line,
     week_monday_on,
 )
@@ -146,9 +147,7 @@ def test_add_all_ready_lines_to_package() -> None:
     assert out_pkg is pkg
     assert touched == 1
     assert db.add.call_count >= 1
-    line_adds = [
-        c.args[0] for c in db.add.call_args_list if type(c.args[0]).__name__ == "GestionFullPackageLine"
-    ]
+    line_adds = [c.args[0] for c in db.add.call_args_list if type(c.args[0]).__name__ == "GestionFullPackageLine"]
     assert len(line_adds) == 1
     assert line_adds[0].qty_export == 12
     lock.assert_called_once()
@@ -296,9 +295,7 @@ def test_add_all_ready_exported_skips_new_listo_lines() -> None:
     ):
         _pkg, touched = add_all_ready_lines_to_package(db, usuario=SimpleNamespace(id=1))
     assert touched == 1
-    line_adds = [
-        c.args[0] for c in db.add.call_args_list if type(c.args[0]).__name__ == "GestionFullPackageLine"
-    ]
+    line_adds = [c.args[0] for c in db.add.call_args_list if type(c.args[0]).__name__ == "GestionFullPackageLine"]
     assert line_adds == []  # no new package lines; auditoria may still be written
     db.flush.assert_called()
     db.expire.assert_called()
@@ -404,3 +401,43 @@ def test_set_qty_export_noop_still_tries_hard_lock() -> None:
         set_qty_export(db, line=line, qty_export=0, usuario=SimpleNamespace(id=2))
     lock.assert_called_once()
     db.commit.assert_called_once()
+
+
+def test_serialize_package_lines_adds_ean_desc_family() -> None:
+    line = SimpleNamespace(
+        id=10,
+        producto_item_id=101,
+        user_product_id="MLAU1",
+        inventory_id="INV1",
+        qty_pm=5,
+        qty_export=4,
+        qty_export_reason=None,
+        inbound_id=None,
+    )
+    db = MagicMock()
+
+    def _execute(sql: object, params: dict) -> MagicMock:
+        result = MagicMock()
+        if "ids" in params:
+            result.mappings.return_value = [SimpleNamespace(producto_item_id=101, ean="7791", descripcion="Camara")]
+        else:
+            result.mappings.return_value = [SimpleNamespace(user_product_id="MLAU1", family_id=2622757685268259)]
+        return result
+
+    db.execute.side_effect = _execute
+    out = serialize_package_lines(db, [line])
+    assert out == [
+        {
+            "id": 10,
+            "producto_item_id": 101,
+            "user_product_id": "MLAU1",
+            "inventory_id": "INV1",
+            "qty_pm": 5,
+            "qty_export": 4,
+            "qty_export_reason": None,
+            "inbound_id": None,
+            "ean": "7791",
+            "descripcion": "Camara",
+            "family_id": "2622757685268259",
+        }
+    ]

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from datetime import UTC
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
+from sqlalchemy import bindparam, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -365,3 +366,98 @@ def remove_package_lines(
     db.commit()
     db.refresh(pkg)
     return len(to_delete)
+
+
+_ERP_DISPLAY_SQL = text(
+    """
+    SELECT p.item_id AS producto_item_id, p.codigo AS ean, p.descripcion
+    FROM productos_erp p
+    WHERE p.item_id IN :ids
+    """
+).bindparams(bindparam("ids", expanding=True))
+
+_FAMILY_BY_MLAU_SQL = text(
+    """
+    SELECT DISTINCT ON (i.user_product_id)
+      i.user_product_id,
+      i.family_id
+    FROM ml_items i
+    WHERE i.user_product_id IN :mlaus
+      AND i.never_existed IS NOT TRUE
+      AND i.gone_at IS NULL
+    ORDER BY i.user_product_id, (i.inventory_id IS NULL), i.inventory_id, i.item_id
+    """
+).bindparams(bindparam("mlaus", expanding=True))
+
+
+def serialize_package_line(
+    db: Session,
+    line: GestionFullPackageLine,
+    *,
+    erp_by_id: Optional[dict[int, Any]] = None,
+    family_by_mlau: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """API dict for one package line, including EAN / descripción / family_id."""
+    if erp_by_id is None or family_by_mlau is None:
+        enriched = serialize_package_lines(db, [line])
+        return enriched[0]
+
+    erp = erp_by_id.get(int(line.producto_item_id))
+    family_id = family_by_mlau.get(str(line.user_product_id))
+    return {
+        "id": line.id,
+        "producto_item_id": line.producto_item_id,
+        "user_product_id": line.user_product_id,
+        "inventory_id": line.inventory_id,
+        "qty_pm": line.qty_pm,
+        "qty_export": line.qty_export,
+        "qty_export_reason": line.qty_export_reason,
+        "inbound_id": line.inbound_id,
+        "ean": erp.ean if erp else None,
+        "descripcion": erp.descripcion if erp else None,
+        "family_id": str(family_id) if family_id is not None else None,
+    }
+
+
+def serialize_package_lines(
+    db: Session,
+    lines: Iterable[GestionFullPackageLine],
+) -> list[dict[str, Any]]:
+    """Batch-enrich package lines for the Envío grid (EAN, descripción, family_id)."""
+    lines_list = list(lines)
+    if not lines_list:
+        return []
+
+    erp_ids = sorted({int(ln.producto_item_id) for ln in lines_list})
+    mlaus = sorted({str(ln.user_product_id) for ln in lines_list if ln.user_product_id})
+
+    erp_by_id: dict[int, Any] = {}
+    if erp_ids:
+        for row in db.execute(_ERP_DISPLAY_SQL, {"ids": erp_ids}).mappings():
+            erp_by_id[int(row.producto_item_id)] = row
+
+    family_by_mlau: dict[str, Any] = {}
+    if mlaus:
+        for row in db.execute(_FAMILY_BY_MLAU_SQL, {"mlaus": mlaus}).mappings():
+            if row.family_id is not None:
+                family_by_mlau[str(row.user_product_id)] = row.family_id
+
+    return [
+        serialize_package_line(
+            db,
+            ln,
+            erp_by_id=erp_by_id,
+            family_by_mlau=family_by_mlau,
+        )
+        for ln in lines_list
+    ]
+
+
+def serialize_package(db: Session, pkg: GestionFullPackage) -> dict[str, Any]:
+    """Active-package payload for GET/POST responses that return the full package."""
+    return {
+        "id": pkg.id,
+        "week_monday": pkg.week_monday.isoformat(),
+        "status": pkg.status,
+        "lines": serialize_package_lines(db, pkg.lines),
+    }
