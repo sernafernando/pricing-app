@@ -170,6 +170,17 @@ class TestBurst:
         (row,) = pending(env)
         assert seconds_until_due(row) <= 1 and row["attempts"] == 0
 
+    def test_a_new_change_resets_the_attempts_of_a_queued_mla(self, env) -> None:
+        """A change while the worker holds the row must not count toward its quarantine."""
+        change_item(CATALOG)
+        with env.begin() as conn:
+            conn.execute(text("UPDATE catalog_competition_refresh_pending SET attempts = 3"))
+
+        apply_item(repriced(CATALOG, delta=200.0), CATALOG, minutes=10)
+
+        (row,) = pending(env)
+        assert row["attempts"] == 0
+
 
 class TestSubResourceChange:
     def test_a_competition_change_queues_the_catalog_listing(self, env) -> None:

@@ -443,6 +443,7 @@ def _log_change(
     )
     db.add(entry)
     db.flush()
+    # Imported here: the rule reads the catalog-competition model, which the store's import graph does not need.
     from app.services.catalog_competition_on_change import enqueue_after_change
 
     enqueue_after_change(db, entry)
