@@ -44,8 +44,9 @@ class TiendaNubeSyncHandler:
     channels: tuple[str, ...] = ()
     interval: timedelta | None = timedelta(minutes=15)
     run_at_local: time | None = None
-    # ~1.2k products are 6-7 pages of 200; the old cron took well under a minute.
-    deadline_seconds = 90
+    # Prod 2026-11-16: ~2.2k TN rows, ~11 pages of 200. Each page is bounded by `REQUEST_TIMEOUT_SECONDS` (20 s), so
+    # even a slow TN fits; a run cut by the deadline is partial and logged with the pages it got.
+    deadline_seconds = 240
 
     def run(self, ctx: WorkerContext) -> JobResult:
         if not en_horario(_now()):

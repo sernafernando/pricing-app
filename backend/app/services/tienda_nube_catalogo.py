@@ -17,9 +17,13 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 PER_PAGE = 200
-REQUEST_TIMEOUT_SECONDS = 30.0
+REQUEST_TIMEOUT_SECONDS = 20.0
 # Under this much time left a new page is not worth asking for.
 MIN_REQUEST_SECONDS = 3.0
+
+
+def _segundos_restantes(deadline: datetime) -> float:
+    return (deadline - datetime.now(UTC)).total_seconds()
 
 
 def fetch_productos(*, deadline: datetime) -> tuple[list[dict], bool]:
@@ -33,9 +37,14 @@ def fetch_productos(*, deadline: datetime) -> tuple[list[dict], bool]:
     page = 1
     with httpx.Client() as client:
         while True:
-            remaining = (deadline - datetime.now(UTC)).total_seconds()
+            remaining = _segundos_restantes(deadline)
             if remaining < MIN_REQUEST_SECONDS:
-                logger.warning("tienda_nube.sync: deadline reached on page %s, partial fetch", page)
+                logger.warning(
+                    "tienda_nube.sync: deadline reached after %s pages (%s products), partial fetch: "
+                    "nothing is inactivated and the next interval retries",
+                    page - 1,
+                    len(products),
+                )
                 return products, False
             try:
                 response = client.get(
