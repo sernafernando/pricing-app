@@ -1,7 +1,7 @@
 """hay_mejores_excluido on ml_item_seller_promotions (opt-out of hay mejores).
 
 Revision ID: 20261114_hay_mejores_excluido
-Revises: 20261114_marcas_visibles_excepciones
+Revises: 20261114_sell_in_facturas_elegidas
 Create Date: 2026-11-14
 
 Column only (no new index): excluded rows are few; list filter uses EXISTS on
@@ -15,7 +15,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261114_hay_mejores_excluido"
-down_revision: Union[str, None] = "20261114_marcas_visibles_excepciones"
+down_revision: Union[str, None] = "20261114_sell_in_facturas_elegidas"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
