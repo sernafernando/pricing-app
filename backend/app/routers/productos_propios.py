@@ -255,10 +255,13 @@ def patch_maestro(
     if "unidades_caja" in sent:
         # The screen sends the whole form: only a change needs the Gestión Full permission.
         actual = db.get(GestionFullUnidadesCaja, item_id)
-        sin_cambio = body.unidades_caja == (actual.unidades if actual is not None else None)
-        if not sin_cambio and not PermisosService(auth_db).tiene_permiso(user, PERMISO_UNIDADES_CAJA):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Editar unidades por caja requiere el permiso de Depósitos")
-        unidades = body.unidades_caja
+        # An unchanged value is not written either, so Gestión Full keeps its editor and gets no audit row.
+        if body.unidades_caja != (actual.unidades if actual is not None else None):
+            if not PermisosService(auth_db).tiene_permiso(user, PERMISO_UNIDADES_CAJA):
+                raise HTTPException(
+                    status.HTTP_403_FORBIDDEN, "Editar unidades por caja requiere el permiso de Depósitos"
+                )
+            unidades = body.unidades_caja
     textos = {clave: (edit.fuente, edit.texto) for clave, edit in body.textos.items()}
     try:
         result = producto_maestro.guardar(db, item_id, cambios, textos, user, unidades)

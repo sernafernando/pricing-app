@@ -460,6 +460,23 @@ class TestUnidadesCaja:
         with pg.connect() as conn:
             assert conn.execute(text("SELECT unidades FROM gestion_full_unidades_caja")).scalar() == 20
 
+    def test_an_unchanged_units_per_box_is_not_rewritten_nor_audited(self, client, pg, editor):
+        """Resending the stored units per box leaves Gestión Full untouched: same editor, no audit row."""
+        with pg.begin() as conn:
+            product(conn)
+            conn.execute(text("INSERT INTO gestion_full_unidades_caja (producto_item_id, unidades) VALUES (455, 20)"))
+
+        same = patch(client, editor, {"unidades_caja": 20, "nombre": "Con caja"})
+
+        assert same.status_code == 200, same.text
+        with pg.connect() as conn:
+            row = conn.execute(text("SELECT unidades, updated_by_id FROM gestion_full_unidades_caja")).one()
+            audits = conn.execute(
+                text("SELECT count(*) FROM auditoria WHERE tipo_accion = 'GESTION_FULL_CAJA'")
+            ).scalar()
+        assert tuple(row) == (20, None)
+        assert audits == 0
+
 
 class TestListado:
     def test_lists_every_product_with_its_effective_name_ordered_by_stock(self, client, pg, editor):
