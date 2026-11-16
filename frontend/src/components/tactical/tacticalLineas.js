@@ -5,7 +5,8 @@
  * A line is `{ id, alcance, productos, facturas, marca, categoria, monto, modo, topeUnidades, topeMonto, compartido,
  * reparto }`:
  * `productos` are catalog rows (`item_id`, `codigo`, `descripcion`), `facturas` Compras operations (`id` is the
- * pedido_compra_id), `monto`/`topeUnidades`/`topeMonto` the text as typed, `modo` `por_unidad` | `porcentaje` |
+ * pedido_compra_id; their own `facturas` are the invoices linked to it, and `facturasCt` the CT ids of the ones the
+ * line is limited to, or null for all of them), `monto`/`topeUnidades`/`topeMonto` the text as typed, `modo` `por_unidad` | `porcentaje` |
  * `monto_total`, `compartido` whether a line with several products shares one cap, and `reparto` how a sell out total
  * amount is split among the line's products (`REPARTOS`, '' until chosen).
  */
@@ -65,6 +66,17 @@ const enteroDe = (texto) => {
   const n = numeroDe(texto);
   return n == null ? null : Math.floor(n);
 };
+
+/**
+ * An operation's invoice pick after checking or unchecking one invoice (varias facturas S3): from all invoices
+ * (`null`) to that one, and back to all when the last one is unchecked, so an empty pick never goes out.
+ */
+export function alternarFactura(facturasCt, ct) {
+  if (!facturasCt?.length) return [ct];
+  const resto = facturasCt.filter((c) => c !== ct);
+  if (resto.length === facturasCt.length) return [...facturasCt, ct];
+  return resto.length ? resto : null;
+}
 
 /** Several products may share one cap; one product, a brand, a category or an invoice cannot. */
 export const puedeCompartir = (linea) => linea.alcance === 'productos' && linea.productos.length > 1;
@@ -236,7 +248,13 @@ function lineasDelContrato(linea) {
   }
   if (linea.alcance === 'marca') return [{ ...deMarca(linea), ...comun }];
   if (linea.alcance === 'categoria') return [{ alcance: 'categoria', categoria: linea.categoria, ...comun }];
-  return linea.facturas.map((f) => ({ alcance: 'factura', pedido_compra_id: f.id, ...comun }));
+  // No `facturas_ct` is every invoice of the operation, also those linked later; a pick sends its CT ids.
+  return linea.facturas.map((f) => ({
+    alcance: 'factura',
+    pedido_compra_id: f.id,
+    ...(f.facturasCt?.length ? { facturas_ct: [...f.facturasCt] } : {}),
+    ...comun,
+  }));
 }
 
 /**

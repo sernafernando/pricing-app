@@ -10,10 +10,12 @@ import { useEffect, useState } from 'react';
 import TacticalPicker from './TacticalPicker';
 import { productosAPI } from '../../services/api';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
+import { etiquetaFactura, facturasCubiertas } from '../tacticals/tacticalsFormat';
 import {
   REPARTOS,
   TOTAL_USD_SIN_TC_FIJO,
   alcancesDe,
+  alternarFactura,
   conAlcance,
   conModo,
   dinero,
@@ -96,6 +98,42 @@ const FACTURAS = {
   singular: 'seleccionada',
   plural: 'seleccionadas',
 };
+
+/**
+ * Which invoices of an operation the line applies to (varias facturas S3): "Todas las facturas" (also those linked
+ * later) or a pick of them. With one invoice or none there is nothing to pick; a saved pick still reads as it is.
+ */
+function FacturasDeOperacion({ operacion, n, cambiar }) {
+  const lista = operacion.facturas ?? [];
+  const elegidas = operacion.facturasCt?.length ? operacion.facturasCt : null;
+  if (lista.length < 2) {
+    if (elegidas) {
+      const conocidas = [...lista, ...(operacion.facturasElegidas ?? [])];
+      const etiquetas = elegidas.map((ct) => conocidas.find((f) => f.ct_transaction_id === ct) ?? { ct_transaction_id: ct });
+      return <span className={styles.help}>{facturasCubiertas(etiquetas)}</span>;
+    }
+    const unica = lista.length === 1 ? ` · ${etiquetaFactura(lista[0])}` : '';
+    return <span className={styles.help}>{`Todas las facturas${unica}`}</span>;
+  }
+  return (
+    <div className={styles.facturasOp} role="group" aria-label={`Facturas de ${numeroFactura(operacion)}, línea ${n}`}>
+      <label className={styles.facturaOp}>
+        <input type="checkbox" checked={elegidas == null} onChange={() => cambiar(null)} />
+        Todas las facturas
+      </label>
+      {lista.map((f) => (
+        <label key={f.ct_transaction_id} className={styles.facturaOp}>
+          <input
+            type="checkbox"
+            checked={Boolean(elegidas?.includes(f.ct_transaction_id))}
+            onChange={() => cambiar(alternarFactura(elegidas, f.ct_transaction_id))}
+          />
+          {etiquetaFactura(f)}
+        </label>
+      ))}
+    </div>
+  );
+}
 
 /** The categories a brand has products in (SISO S3); empty while loading, on an error or without a brand. */
 function useCategoriasDe(marca) {
@@ -187,7 +225,7 @@ function Incluye({ linea, n, marcas, categorias, abierto, onAbrir, onCerrar, cam
           ? `${numeroFactura(item)} · ${item.proveedor_nombre || item.proveedor_id} · ${dia(item.fecha)}`
           : item.descripcion;
         const nombre = facturas ? numeroFactura(item) : item.descripcion;
-        return (
+        const chip = (
           <span key={config.claveDe(item)} className={`${styles.chip} ${facturas ? styles.chipFactura : ''}`}>
             <span className={styles.chipText} title={texto}>
               {texto}
@@ -201,6 +239,15 @@ function Incluye({ linea, n, marcas, categorias, abierto, onAbrir, onCerrar, cam
               <X size={10} aria-hidden="true" />
             </button>
           </span>
+        );
+        if (!facturas) return chip;
+        const elegir = (facturasCt) =>
+          cambiar({ facturas: linea.facturas.map((f) => (f.id === item.id ? { ...f, facturasCt } : f)) });
+        return (
+          <div key={item.id} className={styles.operacion}>
+            {chip}
+            <FacturasDeOperacion operacion={item} n={n} cambiar={elegir} />
+          </div>
         );
       })}
       <button

@@ -73,6 +73,34 @@
   font-family: var(--font-mono);
 }
 
+/* An operation of an invoice line: its chip, and which of its invoices the line applies to. */
+.operacion {
+  display: grid;
+  flex-basis: 100%;
+  gap: 4px;
+  justify-items: start;
+}
+
+.facturasOp {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.facturaOp {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+}
+
+.facturaOp:first-child {
+  font-family: inherit;
+}
+
 .chipX {
   display: inline-flex;
   flex: none;

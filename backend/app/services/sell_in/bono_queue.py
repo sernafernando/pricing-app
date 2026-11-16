@@ -15,8 +15,8 @@ exists (and a key is only queued when some active bonus can care about it):
 - `pedidos_compra`: an UPDATE of `fecha_factura`, `estado`, `tipo_cambio` or
   `proveedor_id` that changes it, and an INSERT or DELETE, queue the operation
   when its old or new invoice date falls in an active bonus's range, or it
-  has an invoice date and an active invoice bonus or a waiting invoice total
-  of its own;
+  has an invoice date and an active invoice bonus, a waiting invoice total
+  or an applied one (an active tactical purchase) of its own;
 - `pedido_compra_lineas_facturadas` (invoiced units and net amount): an INSERT or
   DELETE, or an UPDATE that changes `pedido_id`, `item_id`, `cantidad`,
   `importe_neto` or `moneda` (the base of a percentage bonus), queue the operation
@@ -42,11 +42,13 @@ queued) that keeps those triggers cheap; the worker reconciles it as a no-op.
 The gates are `sell_in_bono_cubre(fecha[, marca])` (date only, any scope; with a
 brand, brand bonuses only), `sell_in_bono_cubre_pedido(fecha, pedido)` (the
 operation and line triggers: the date gate, or an active invoice bonus or a
-waiting invoice total (`tactical_facturas_pendientes`) of that very operation
-once it has an invoice date, whatever the bonus's range: an invoice line saved
-before the invoice holds a placeholder day until the reconcile moves it to the
-invoice's, and a waiting total is applied by the worker, sell in factura
-pendiente) and
+waiting invoice total (`tactical_facturas_pendientes`) or an applied one (an
+active purchase of a tactical linked to it) of that very operation once it has
+an invoice date, whatever the bonus's range: an invoice line saved before the
+invoice holds a placeholder day until the reconcile moves it to the invoice's,
+a waiting total is applied by the worker, sell in factura pendiente, and an
+applied one is re-split over all the operation's invoices when another one
+links, sell in varias facturas) and
 `sell_in_bono_cubre_producto(fecha, pedido, item, marca, categoria)`: one EXISTS
 over the (few) bonuses each. A trigger does no reconcile work.
 `UPGRADE_SQL`/`DOWNGRADE_SQL` are the live definition; the migration
@@ -58,7 +60,8 @@ statements and carry their frozen copies: the bonus update trigger
 `20261215_sell_in_bono_acumulable`), the product
 function and update trigger (`20261213_sell_in_bono_costo_triggers`) and the
 operation and line functions (`20261112_sell_in_bono_cubre_pedido`), whose gate
-`20261112_tactical_facturas_pendientes` widened to the waiting totals.
+`20261112_tactical_facturas_pendientes` widened to the waiting totals and
+`20261114_sell_in_cubre_totales_aplicados` to the applied ones.
 
 The `sell_in.bono` worker drains it. A claimed row is locked (`FOR UPDATE SKIP
 LOCKED`) for the drain's short transaction: a trigger re-queueing it waits and
@@ -107,6 +110,11 @@ CREATE OR REPLACE FUNCTION sell_in_bono_cubre_pedido(p_fecha DATE, p_pedido BIGI
         OR EXISTS (
             SELECT 1 FROM tactical_facturas_pendientes AS t
             WHERE t.estado = 'pendiente' AND t.pedido_id = p_pedido
+        )
+        OR EXISTS (
+            SELECT 1 FROM sell_in_compra_pedidos AS cp
+            JOIN sell_in_compras AS c ON c.id = cp.compra_id
+            WHERE cp.pedido_compra_id = p_pedido AND c.estado = 'activa' AND c.tactical_id IS NOT NULL
         )
     ))
 $fn$ LANGUAGE sql STABLE
@@ -397,6 +405,28 @@ _CHARGE_SQL = text(
     "WHERE tipo = :tipo AND ref = :ref AND enqueued_at = :enqueued_at RETURNING attempts"
 )
 
+
+# The per-invoice snapshot (sell in varias facturas, `pedido_compra_lineas_facturadas_ct`) queues its operation like the
+# aggregate does (same function, same gate): a credit note moved from one invoice to another changes a picked
+# invoice's units without changing the aggregate. Installed by `20261114_sell_in_facturas_elegidas`; kept apart from
+# `UPGRADE_SQL`, whose frozen-copy chain is the aggregate queue's.
+LINEAS_CT_SQL: List[str] = [
+    """
+CREATE TRIGGER trg_sell_in_bono_lineas_ct_insert_delete
+AFTER INSERT OR DELETE ON pedido_compra_lineas_facturadas_ct
+FOR EACH ROW EXECUTE FUNCTION sell_in_bono_enqueue_linea()
+""",
+    """
+CREATE TRIGGER trg_sell_in_bono_lineas_ct_update
+AFTER UPDATE OF pedido_id, ct_transaction_id, item_id, cantidad, importe_neto, moneda
+ON pedido_compra_lineas_facturadas_ct
+FOR EACH ROW WHEN (
+    (OLD.pedido_id, OLD.ct_transaction_id, OLD.item_id, OLD.cantidad, OLD.importe_neto, OLD.moneda)
+    IS DISTINCT FROM (NEW.pedido_id, NEW.ct_transaction_id, NEW.item_id, NEW.cantidad, NEW.importe_neto, NEW.moneda)
+)
+EXECUTE FUNCTION sell_in_bono_enqueue_linea()
+""",
+]
 
 _ENCOLAR_FACTURADOS_SQL = text(
     """

@@ -23,6 +23,7 @@ const KIND_LABELS = {
   ml_vinculo_automatico: 'Vínculo automático a publicación',
   sell_in_compra_creada: 'Compra de sell in cargada',
   sell_in_compra_anulada: 'Compra de sell in anulada',
+  sell_in_compra_repartida: 'Compra de sell in repartida entre las facturas',
   sell_in_bono_creado: 'Bono de sell in cargado',
   sell_in_bono_editado: 'Bono de sell in editado',
   sell_in_bono_anulado: 'Bono de sell in anulado',
