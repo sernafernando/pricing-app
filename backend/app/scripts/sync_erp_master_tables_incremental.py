@@ -30,6 +30,7 @@ import httpx
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text
+from sqlalchemy.exc import SQLAlchemyError
 from app.core.database import SessionLocal
 import app.models  # noqa - importar todos los modelos
 from app.models.tb_brand import TBBrand
@@ -38,6 +39,7 @@ from app.models.tb_subcategory import TBSubCategory
 from app.services.tb_item_row import upsert_tb_item
 from app.models.tb_tax_name import TBTaxName
 from app.models.tb_item_taxes import TBItemTaxes
+from app.services.producto_categorias import sembrar_desde_gbp
 
 # URL del endpoint local que proxea al ERP
 GBP_PARSER_URL = "http://localhost:8002/api/gbp-parser"
@@ -465,6 +467,18 @@ async def verificar_items_faltantes(db: Session):
         return {"sincronizados": 0, "error": str(e)}
 
 
+def sembrar_maestros(db: Session) -> None:
+    """Add the GBP categories, subcategories and brands new since the last run to the local masters (ABM)."""
+    print("  📦 Maestros de categorías y marcas...", end=" ", flush=True)
+    try:
+        counts = sembrar_desde_gbp(db)
+        db.commit()
+        print(f"✓ ({counts})")
+    except SQLAlchemyError as e:
+        print(f"❌ Error: {str(e)}")
+        db.rollback()
+
+
 async def main_async(minutes: int = 15, usar_dia_completo: bool = False):
     """Función principal async"""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -478,6 +492,7 @@ async def main_async(minutes: int = 15, usar_dia_completo: bool = False):
         await sync_brands(db)
         await sync_categories(db)
         await sync_subcategories(db)
+        sembrar_maestros(db)
         await sync_tax_names(db)
 
         # Items - sync incremental
