@@ -11,7 +11,7 @@ import styles from './Sidebar.module.css';
  * ("Ventas por Fuera" is `/metricas-ml?canal=fuera`): among the items on the current pathname whose query the URL
  * carries, the most specific wins; with none, the plain pathname (the previous behavior).
  */
-export function rutaActiva(paths, { pathname, search }) {
+function rutaActiva(paths, { pathname, search }) {
   const actuales = new URLSearchParams(search);
   let mejor = pathname;
   let especificidad = -1;

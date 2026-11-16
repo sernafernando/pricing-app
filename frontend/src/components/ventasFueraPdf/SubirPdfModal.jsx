@@ -34,7 +34,7 @@ const tamanio = (bytes) =>
   bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1).replace('.', ',')} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
 /** Which dropped file is which report: the one named "detallad…" is the detailed one, else the first. */
-export function repartirArchivos(archivos) {
+function repartirArchivos(archivos) {
   const pdfs = [...(archivos || [])].slice(0, 2);
   if (pdfs.length === 0) return { detallada: null, resumen: null };
   const i = pdfs.findIndex((f) => /detallad/i.test(f.name));
@@ -307,7 +307,7 @@ function Resultado({ carga }) {
 }
 
 /** `/metricas-ml?canal=fuera&vendedores=…&empresas=…&periodo=custom&desde=…&hasta=…` for a load. */
-export function urlMetricas(carga) {
+function urlMetricas(carga) {
   const params = new URLSearchParams({ canal: 'fuera' });
   const vendedores = carga.vendedores?.length ? carga.vendedores : carga.vendedor ? [carga.vendedor] : [];
   if (vendedores.length) params.set('vendedores', vendedores.join(','));
