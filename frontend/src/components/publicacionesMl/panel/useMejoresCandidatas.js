@@ -68,7 +68,12 @@ export function useMejoresCandidatas({
         }
         setBaselineMarkup(markup);
         setBaselineSellInOut(sellInOut);
-        setApplied(promotions.find((promo) => promo?.application_status === 'active') ?? null);
+        // Same gate as baselinePromo: only a started + active row is "Promo aplicada".
+        setApplied(
+          promotions.find(
+            (promo) => promo?.status === 'started' && promo?.application_status === 'active',
+          ) ?? null,
+        );
         const comparePrice =
           statusQuoPromo != null ? Number(promoDisplayPrice(statusQuoPromo)) : Number(baselinePrice);
         const picked = pickMejoresCandidatas(promotions, {

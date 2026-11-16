@@ -198,6 +198,59 @@ describe('baselineMarkupFromPromos', () => {
       ),
     ).toBeNull();
   });
+
+  it('ignores application_status active on a non-started row (panel fixtures / coupons)', () => {
+    expect(
+      baselineMarkupFromPromos(
+        [
+          {
+            promotion_type: 'DOD',
+            price: 50000,
+            nuestro_markup: -2,
+            application_status: 'active',
+          },
+          {
+            status: 'candidate',
+            promotion_type: 'SMART',
+            price: 57920.55,
+            nuestro_markup: -28.34,
+          },
+        ],
+        59999,
+      ),
+    ).toBeNull();
+  });
+
+  it('with derived application_status and none active, returns null (sale path; no started fallback)', () => {
+    expect(
+      baselineMarkupFromPromos(
+        [
+          {
+            status: 'started',
+            promotion_type: 'SMART_LIGHTNING',
+            application_status: null,
+            price: 57341.34,
+            nuestro_markup: -32.8,
+          },
+          {
+            status: 'started',
+            promotion_type: 'PRICE_DISCOUNT',
+            application_status: null,
+            price: 59514,
+            nuestro_markup: -29.5,
+          },
+          {
+            status: 'candidate',
+            promotion_type: 'SMART',
+            application_status: null,
+            price: 57920.55,
+            nuestro_markup: -28.3,
+          },
+        ],
+        59999,
+      ),
+    ).toBeNull();
+  });
 });
 
 describe('esMejorOferta / pickMejoresCandidatas', () => {

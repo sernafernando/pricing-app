@@ -52,17 +52,20 @@ export function baselineSellInOutFromPromos(promotions) {
 }
 
 /**
- * Promo hay_mejores compares against: ML's applied started offer (lowest price;
- * `application_status === 'active'` when the panel derived it), then best
- * `nuestro_markup` on a tie. Null when none have markup. Keep in sync with
- * backend `markups_baseline_vigente` / `derivar_application_status`.
+ * Promo hay_mejores compares against: ML's applied started offer (Activa ahora).
+ * Panel rows already carry `application_status` from `derivar_application_status`
+ * — use `started` + `active` only. When that field is absent (mirror / worker
+ * payloads), fall back to the same min-price rule among `started`, then best
+ * `nuestro_markup` on a tie. Null when none qualify (caller uses plain sale).
+ * Keep in sync with backend `markups_baseline_vigente` / `derivar_application_status`.
  */
 export function baselinePromo(promotions) {
   const list = promotions || [];
-  let pool = list.filter((promo) => promo?.application_status === 'active');
-  if (!pool.length) {
+  const started = list.filter((promo) => promo?.status === 'started');
+  const derived = started.some((promo) => promo != null && 'application_status' in promo);
+  let pool = started.filter((promo) => promo?.application_status === 'active');
+  if (!pool.length && !derived) {
     // Mirror / worker paths without application_status: same min-price rule among started.
-    const started = list.filter((promo) => promo?.status === 'started');
     const prices = [];
     for (const promo of started) {
       const price = promoDisplayPrice(promo);
