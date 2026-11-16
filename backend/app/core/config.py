@@ -220,6 +220,11 @@ class Settings(BaseSettings):
     # ml_pub_settings or ML_PUB_KILL_SWITCH. See settings_store module docstring.
     ML_PUB_CATALOG_COMPETITION_REFRESH_ENABLED: bool = True
     ML_PUB_CATALOG_COMPETITION_REFRESH_RATE_PER_MIN: int = Field(default=10, ge=1, le=120)
+    # A change the store records on an active catalog listing (item, prices, sale_price, competition) also queues
+    # its snapshot: due after the debounce (a burst collapses into one fetch), skipped while the latest snapshot is
+    # younger than the gap (owner, 2026-11-16: 30 minutes).
+    ML_PUB_CATALOG_COMPETITION_CHANGE_DEBOUNCE_SECONDS: int = Field(default=120, ge=0, le=3600)
+    ML_PUB_CATALOG_COMPETITION_CHANGE_GAP_SECONDS: int = Field(default=1800, ge=0, le=86400)
     # Core-first read of the notification lane's item cores (`ml_publications.core_first`, S1c). A kill switch,
     # ON by default (owner: nothing ships off); it also needs `refresh.enabled`, so a fresh deploy stays inert.
     ML_PUB_CORE_FIRST_ENABLED: bool = True
