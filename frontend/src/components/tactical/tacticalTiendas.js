@@ -104,9 +104,45 @@ const TITULO_POR_TIENDA = 'Un tope para cada tienda o canal';
 /**
  * Live preview of what the line cap does with the current selection (owner, 2026-11-10: "«Cómo se aplica el tope» no
  * se entiende"): a title naming the mode, one row per counter and a sentence saying when crediting stops.
- * `ejemploTope` is the first line unit cap, shown as "100 u."; null speaks of "the line cap" instead.
+ * `ejemploTope` is the first line unit cap, shown as "100 u."; null speaks of "the line cap" instead. With several
+ * `lineas` (`topesDeLineas`: label and cap of each) every line keeps its own cap, so the rows speak of "each line's
+ * cap" and `lineas` lists them all (tactical sell in USD S9, owner: "solo pone en la leyenda la primer línea de abajo
+ * no todas"); with one line or none, `lineas` is empty.
  */
-export function previewTope({ todasTiendas, seleccionKeys, grupos = [], tiendasActivas, topeCompartido, ejemploTope }) {
+export function previewTope({
+  todasTiendas,
+  seleccionKeys,
+  grupos = [],
+  tiendasActivas,
+  topeCompartido,
+  ejemploTope,
+  lineas = [],
+}) {
+  const varias = lineas.length > 1;
+  const base = previewDeUnTope({
+    todasTiendas,
+    seleccionKeys,
+    grupos,
+    tiendasActivas,
+    topeCompartido,
+    ejemploTope: varias ? null : ejemploTope,
+  });
+  if (!varias) return { ...base, lineas: [] };
+  const deCadaLinea = (texto) => texto.replace('tope de la línea', 'tope de cada línea');
+  return {
+    ...base,
+    filas: base.filas.map((f) => ({ ...f, valor: deCadaLinea(f.valor) })),
+    ayuda:
+      base.filas.length === 0
+        ? base.ayuda
+        : base.modo === 'compartido'
+          ? 'Cada línea tiene su propio tope. Las ventas de todas suman al mismo tope de esa línea: cuando juntas llegan a él, esa línea deja de acreditar en todas.'
+          : 'Cada línea tiene su propio tope. Cada tienda o canal cuenta sus ventas aparte: cuando una llega al tope de esa línea, la línea deja de acreditar solo en esa y las demás siguen.',
+    lineas,
+  };
+}
+
+function previewDeUnTope({ todasTiendas, seleccionKeys, grupos, tiendasActivas, topeCompartido, ejemploTope }) {
   const conTope = !(ejemploTope == null || ejemploTope === '');
   const unidades = conTope
     ? `${Number.isFinite(Number(ejemploTope)) ? Number(ejemploTope).toLocaleString('es-AR') : ejemploTope} u.`

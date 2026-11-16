@@ -5,7 +5,7 @@
  * and a note.
  *
  * `form` holds the fields as typed; `onChange(cambios)` merges the changed ones; `onTipo(tipo)` switches the type.
- * `gruposTiendas` are clave-collapsed official stores (`tiendasActivas`: how many are active); `ejemploTope` drives the live cap preview.
+ * `gruposTiendas` are clave-collapsed official stores (`tiendasActivas`: how many are active); `ejemploTope` and `topesLineas` (every line's cap) drive the live cap preview.
  */
 import { X } from 'lucide-react';
 import Seg from './Seg';
@@ -32,6 +32,7 @@ export default function TacticalDatos({
   gruposTiendas = [],
   tiendasActivas,
   ejemploTope = null,
+  topesLineas = [],
   alcancePorTienda = ALCANCE_POR_TIENDA,
   porFactura = false,
 }) {
@@ -47,6 +48,7 @@ export default function TacticalDatos({
     tiendasActivas,
     topeCompartido,
     ejemploTope,
+    lineas: topesLineas,
   });
   const campo = (nombre) => (e) => {
     const { type, checked, value } = e.target;
@@ -319,6 +321,16 @@ export default function TacticalDatos({
                         </li>
                       ))}
                     </ul>
+                    {preview.lineas.length > 0 && (
+                      <ul className={styles.previewLista} aria-label="Tope de cada línea">
+                        {preview.lineas.map((linea) => (
+                          <li key={linea.label}>
+                            <span>{linea.label}</span>
+                            <span>{linea.valor}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                     <p className={styles.previewAyuda}>{preview.ayuda}</p>
                   </>
                 )}

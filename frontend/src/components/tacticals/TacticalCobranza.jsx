@@ -3,7 +3,8 @@
  * de cobro (the only required field), Medio (Nota de crédito → Número de NC, Fondo en distribuidor → Distribuidor,
  * Otro → Detalle) and Observaciones. Guardar saves the record (`PUT /tacticals/{id}/cobranza`) and the row reads
  * "Cobrado"; on a collected tactical, Deshacer cobro deletes it and the row is "Pendiente" again. `onGuardado` runs
- * after either, `onCerrar` on Cancelar or Escape. The server's refusal shows inside the box.
+ * after either, `onCerrar` on Cancelar or Escape. The server's refusal shows inside the box. A tactical that takes the
+ * rate the brand paid at (`pide_tc_cobro`: a sell in in USD al cobro) also asks "Tipo de cambio del cobro *".
  */
 import { useState } from 'react';
 import { SegmentedControl } from '../kit';
@@ -19,6 +20,7 @@ export default function TacticalCobranza({ tactical, onGuardado, onCerrar }) {
   const [enviando, setEnviando] = useState(false);
   const cambiar = (cambio) => setValores((v) => ({ ...v, ...cambio }));
   const detalle = DETALLE_DE_MEDIO[valores.medio];
+  const pideTc = Boolean(tactical.pide_tc_cobro);
   const id = `tactical-${tactical.id}-cobranza`;
 
   const enviar = async (llamada, mensaje) => {
@@ -35,12 +37,12 @@ export default function TacticalCobranza({ tactical, onGuardado, onCerrar }) {
 
   const guardar = (e) => {
     e.preventDefault();
-    const problema = problemaDeCobranza(valores);
+    const problema = problemaDeCobranza(valores, pideTc);
     if (problema) {
       setError(problema);
       return;
     }
-    enviar(() => tacticalsAPI.cobrar(tactical.id, cuerpoDeCobranza(valores)), 'No se pudo guardar la cobranza.');
+    enviar(() => tacticalsAPI.cobrar(tactical.id, cuerpoDeCobranza(valores, pideTc)), 'No se pudo guardar la cobranza.');
   };
 
   return (
@@ -64,6 +66,20 @@ export default function TacticalCobranza({ tactical, onGuardado, onCerrar }) {
             onChange={(e) => cambiar({ fecha: e.target.value })}
           />
         </label>
+        {pideTc && (
+          <label className={dialogos.campo} htmlFor={`${id}-tc`}>
+            <span>Tipo de cambio del cobro *</span>
+            <input
+              id={`${id}-tc`}
+              className={dialogos.control}
+              inputMode="decimal"
+              placeholder="Pesos por dólar"
+              required
+              value={valores.tipoCambio}
+              onChange={(e) => cambiar({ tipoCambio: e.target.value })}
+            />
+          </label>
+        )}
         <div className={dialogos.campo}>
           <span>Medio</span>
           <SegmentedControl label="Medio" options={MEDIOS} value={valores.medio} onChange={(medio) => cambiar({ medio })} />

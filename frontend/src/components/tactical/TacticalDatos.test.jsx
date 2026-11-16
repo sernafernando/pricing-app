@@ -142,6 +142,19 @@ describe('TacticalDatos', () => {
     ).toBeInTheDocument();
   });
 
+  it('lists the cap of every line, not only the first (S9)', () => {
+    const lineas = [
+      { label: 'Línea 1 · A-1', valor: '4 u.' },
+      { label: 'Línea 2 · B-2', valor: '40 u.' },
+    ];
+    render(<TacticalDatos form={FORM} onChange={vi.fn()} onTipo={vi.fn()} ejemploTope={4} topesLineas={lineas} alcancePorTienda />);
+    const lista = screen.getByRole('list', { name: 'Tope de cada línea' });
+    expect(within(lista).getByText('Línea 1 · A-1')).toBeInTheDocument();
+    expect(within(lista).getByText('4 u.')).toBeInTheDocument();
+    expect(within(lista).getByText('Línea 2 · B-2')).toBeInTheDocument();
+    expect(within(lista).getByText('40 u.')).toBeInTheDocument();
+  });
+
   it('caps the texts at what the contract accepts', () => {
     render(<Holder />);
     expect(screen.getByLabelText('Nombre')).toHaveAttribute('maxLength', '200');

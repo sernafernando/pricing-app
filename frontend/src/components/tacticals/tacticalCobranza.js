@@ -1,4 +1,5 @@
 import { formatDateOnly } from '../../utils/dateUtils';
+import { formatPrecioInput, parsePrecioInput } from '../../utils/precioInput';
 
 /**
  * Collection check of a tactical (handoffs/tactical-cobranza-tarea.md S3; API in PR #2182). Owner, 2026-11-10: "pida,
@@ -28,15 +29,32 @@ export const valoresDeCobranza = (cobranza) => ({
   distribuidor: cobranza?.distribuidor ?? '',
   otroDetalle: cobranza?.otro_detalle ?? '',
   observaciones: cobranza?.observaciones ?? '',
+  tipoCambio: cobranza?.tipo_cambio == null ? '' : formatPrecioInput(Number(cobranza.tipo_cambio)),
 });
 
-/** What stops a save, or null: only the date is required. */
-export const problemaDeCobranza = (valores) => (valores.fecha ? null : 'La fecha de cobro es obligatoria.');
+/** The collection rate as typed (es-AR, "1.350,5"), or null when it is not a rate above zero. */
+const tasaDe = (texto) => {
+  const tasa = parsePrecioInput(texto);
+  return tasa != null && tasa > 0 ? tasa : null;
+};
+
+/**
+ * What stops a save, or null: the date, and on a tactical that takes one (`pide_tc_cobro`: a sell in in USD al cobro,
+ * tactical sell in USD, owner: "Ponelo donde se carga el cobro") the rate the brand paid at.
+ */
+export function problemaDeCobranza(valores, pideTc = false) {
+  if (!valores.fecha) return 'La fecha de cobro es obligatoria.';
+  if (pideTc && tasaDe(valores.tipoCambio) == null) return 'Falta el tipo de cambio del cobro (pesos por dólar).';
+  return null;
+}
 
 const texto = (valor) => valor.trim() || null;
 
-/** The `PUT` body: only the chosen medium's detail (the API refuses another medium's), blank texts as null. */
-export function cuerpoDeCobranza(valores) {
+/**
+ * The `PUT` body: only the chosen medium's detail (the API refuses another medium's), blank texts as null, and the
+ * collection rate only on a tactical that takes one (the API refuses it on any other).
+ */
+export function cuerpoDeCobranza(valores, pideTc = false) {
   const cuerpo = {
     fecha_cobro: valores.fecha,
     medio: valores.medio || null,
@@ -44,6 +62,7 @@ export function cuerpoDeCobranza(valores) {
     distribuidor: null,
     otro_detalle: null,
     observaciones: texto(valores.observaciones),
+    tipo_cambio: pideTc ? tasaDe(valores.tipoCambio) : null,
   };
   const detalle = DETALLE_DE_MEDIO[valores.medio];
   if (detalle) cuerpo[detalle.api] = texto(valores[detalle.campo]);

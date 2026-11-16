@@ -68,6 +68,7 @@ describe('TacticalCobranza', () => {
       distribuidor: null,
       otro_detalle: null,
       observaciones: 'NC de noviembre',
+      tipo_cambio: null, // only a sell in in USD al cobro takes the collection rate
     });
     expect(props.onGuardado).toHaveBeenCalled();
   });
@@ -102,5 +103,30 @@ describe('TacticalCobranza', () => {
 
     expect(props.onCerrar).toHaveBeenCalled();
     expect(tacticalsAPI.cobrar).not.toHaveBeenCalled();
+  });
+});
+
+// Tactical sell in USD, owner: "Ponelo donde se carga el cobro": the rate the brand paid at goes with the collection.
+describe('TacticalCobranza: tipo de cambio del cobro', () => {
+  const USD_AL_COBRO = { ...PENDIENTE, tipo: 'sell_in', moneda: 'USD', tc_modo: 'al_cobro', pide_tc_cobro: true };
+
+  it('asks for it only on a tactical that takes one', () => {
+    renderizar(PENDIENTE);
+    expect(screen.queryByLabelText('Tipo de cambio del cobro *')).not.toBeInTheDocument();
+  });
+
+  it('requires it and sends it as a number', async () => {
+    const props = renderizar(USD_AL_COBRO);
+    await userEvent.type(screen.getByLabelText('Fecha de cobro *'), '2026-11-09');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Falta el tipo de cambio del cobro (pesos por dólar).');
+    expect(tacticalsAPI.cobrar).not.toHaveBeenCalled();
+
+    await userEvent.type(screen.getByLabelText('Tipo de cambio del cobro *'), '1.350,5');
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    expect(tacticalsAPI.cobrar).toHaveBeenCalledWith(USD_AL_COBRO.id, expect.objectContaining({ tipo_cambio: 1350.5 }));
+    expect(props.onGuardado).toHaveBeenCalled();
   });
 });
