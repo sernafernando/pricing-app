@@ -55,8 +55,8 @@ logger = logging.getLogger(__name__)
 ROSTER_CONFIG_KEY = "llm_providers"
 CURSOR_CONFIG_KEY = "llm_rotation_cursor"
 
-# Item #3 (PR de pulido): failover notification throttle — at most one
-# notification per FAILED provider per hour (partial failover), or one per
+# Item #3 (PR de pulido): failover log throttle — at most one
+# warning per FAILED provider per hour (partial failover), or one per
 # hour for the whole outage under key suffix "ALL" (total outage, rotation
 # cursor-independent) — tracked as an ISO timestamp in `ml_bot_config` under
 # this key prefix (fail-safe: a malformed/unreadable timestamp is treated as
@@ -286,11 +286,11 @@ def _record_notified(db: Any, throttle_key: str, now: datetime) -> None:
         row.valor = now.isoformat()
 
 
-def _notify_failover(failed_names: List[str], covered_by: Optional[str]) -> None:
-    """Item #3 (PR de pulido): create a notification via pricing's EXISTING
-    notification system (`crear_notificaciones_para_permisos`, mirrors the
-    compras/matching pattern) when the rotation falls over between
-    providers, or when ALL providers fail.
+def _log_failover(failed_names: List[str], covered_by: Optional[str]) -> None:
+    """Log a warning when the rotation falls over between providers, or when
+    ALL providers fail. It creates no notification (owner 2026-11-16: the
+    `ml_bot.llm_failover` alerts reached every recipient's bell and buried
+    the rest); the log keeps the failover observable.
 
     Throttle keying (fix for the rotation-dependent `failed_names[0]` bug —
     `build_rotation_order` advances the cursor per question, so
@@ -300,7 +300,7 @@ def _notify_failover(failed_names: List[str], covered_by: Optional[str]) -> None
     - Partial failover (`covered_by` is set): throttled PER FAILED
       PROVIDER, independently — each provider name has its own
       `llm_failover_notified_{name}` key/budget. Only the providers that are
-      NOT currently throttled are named in the (single) notification sent,
+      NOT currently throttled are named in the (single) warning logged,
       and only THOSE get their timestamp recorded.
     - Total outage (`covered_by` is None): a single rotation-independent key
       `llm_failover_notified_ALL` throttles the whole outage as one unit
@@ -308,64 +308,43 @@ def _notify_failover(failed_names: List[str], covered_by: Optional[str]) -> None
 
     Fail-safe: this is best-effort observability, never allowed to break
     the drafting pipeline — any exception here is caught and logged, never
-    re-raised (the caller already has its own successful/failed outcome to
-    return regardless of whether this notification fires).
+    re-raised.
     """
     if not failed_names:
         return
     try:
-        # Imported locally to avoid a notification-module import at module
-        # load time for a code path that only runs on the (hopefully rare)
-        # failover branch — mirrors `resolver_usuarios_con_algun_permiso`'s
-        # own local import of `PermisosService`.
-        from app.models.notificacion import SeveridadNotificacion  # noqa: PLC0415
-        from app.services.notificacion_service import crear_notificaciones_para_permisos  # noqa: PLC0415
-
         now = datetime.now(timezone.utc)
 
         with get_background_db() as db:
             if covered_by:
-                names_to_notify = [
+                names_to_log = [
                     name for name in failed_names if not _is_throttled(db, f"{_FAILOVER_NOTIF_KEY_PREFIX}{name}", now)
                 ]
-                if not names_to_notify:
+                if not names_to_log:
                     return  # every failed provider is within its own throttle window
 
-                mensaje = (
-                    f"Bot ML: el proveedor LLM '{', '.join(names_to_notify)}' falló — failover activo a '{covered_by}'."
+                logger.warning(
+                    "Bot ML: el proveedor LLM '%s' falló — failover activo a '%s'.",
+                    ", ".join(names_to_log),
+                    covered_by,
                 )
 
-                crear_notificaciones_para_permisos(
-                    db,
-                    permisos_requeridos=["ml_bot.config"],
-                    tipo="ml_bot.llm_failover",
-                    mensaje=mensaje,
-                    severidad=SeveridadNotificacion.WARNING,
-                )
-
-                for name in names_to_notify:
+                for name in names_to_log:
                     _record_notified(db, f"{_FAILOVER_NOTIF_KEY_PREFIX}{name}", now)
             else:
                 throttle_key = f"{_FAILOVER_NOTIF_KEY_PREFIX}ALL"
                 if _is_throttled(db, throttle_key, now):
-                    return  # throttled — total outage already notified within the last hour
+                    return  # throttled — total outage already logged within the last hour
 
-                mensaje = (
-                    f"Bot ML: TODOS los proveedores LLM fallaron ({', '.join(sorted(failed_names))}) "
-                    "— las preguntas están recibiendo la respuesta de fallback."
-                )
-
-                crear_notificaciones_para_permisos(
-                    db,
-                    permisos_requeridos=["ml_bot.config"],
-                    tipo="ml_bot.llm_failover",
-                    mensaje=mensaje,
-                    severidad=SeveridadNotificacion.WARNING,
+                logger.warning(
+                    "Bot ML: TODOS los proveedores LLM fallaron (%s) "
+                    "— las preguntas están recibiendo la respuesta de fallback.",
+                    ", ".join(sorted(failed_names)),
                 )
 
                 _record_notified(db, throttle_key, now)
-    except Exception:  # noqa: BLE001 — notification is best-effort, must never break drafting.
-        logger.warning("ml-bot failover notification: failed to create/throttle notification", exc_info=True)
+    except Exception:  # noqa: BLE001 — logging is best-effort, must never break drafting.
+        logger.warning("ml-bot failover log: failed to read/record the throttle", exc_info=True)
 
 
 class RotatingProvider:
@@ -401,7 +380,7 @@ class RotatingProvider:
                 provider_model = getattr(provider, "model", None)
                 self.last_used_provider = f"{provider.name}/{provider_model}" if provider_model else provider.name
                 if failed_names:
-                    _notify_failover(failed_names, covered_by=provider.name)
+                    _log_failover(failed_names, covered_by=provider.name)
                 return result
             except LlmProviderError as exc:
                 last_error = exc
@@ -413,6 +392,6 @@ class RotatingProvider:
                 )
                 continue
 
-        _notify_failover(failed_names, covered_by=None)
+        _log_failover(failed_names, covered_by=None)
         assert last_error is not None
         raise last_error
