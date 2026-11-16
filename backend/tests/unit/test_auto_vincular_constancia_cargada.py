@@ -640,3 +640,100 @@ def test_asignar_clears_pending_when_constancia_has_pos_prefix(db, empresa, prov
     erp_matching_service.asignar_factura_erp(db, pedido, 944608)
     db.refresh(doc)
     assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_OK
+
+
+def _add_ct(db, sd_factura, *, ct_id: int, docnumber: str, supp_id: int) -> None:
+    db.add(
+        CommercialTransaction(
+            ct_transaction=ct_id,
+            comp_id=1,
+            bra_id=1,
+            supp_id=supp_id,
+            ct_docNumber=docnumber,
+            sd_id=sd_factura.sd_id,
+            ct_total=Decimal("100"),
+            curr_id_transaction=1,
+            ct_date=datetime(2026, 11, 6, 12, 0, 0),
+            ct_isCancelled=False,
+        )
+    )
+
+
+def _doc(db, pedido, user_id: int, numero: str) -> PedidoFacturaDocumento:
+    doc = PedidoFacturaDocumento(pedido_id=pedido.id, numero=numero, created_by_id=user_id, cargada=True)
+    db.add(doc)
+    return doc
+
+
+def test_numeros_factura_equivalentes_requires_same_core_and_compatible_pos():
+    eq = erp_matching_service.numeros_factura_equivalentes
+    assert not eq("20123456", "123456")
+    assert not eq("1123456", "123456")
+    assert eq("0047-00123456", "123456")
+    assert not eq("0047-00123456", "0099-00123456")
+
+
+def test_auto_vincular_different_pos_is_sin_match(db, empresa, proveedor, sd_factura, active_user):
+    pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-POS-DIF")
+    doc = _doc(db, pedido, active_user.id, "0047-00289132")
+    _add_ct(db, sd_factura, ct_id=944701, docnumber="0099-00289132", supp_id=proveedor.supp_id)
+    db.flush()
+
+    assert erp_matching_service.auto_vincular_por_constancia_cargada(db, doc) is None
+    db.refresh(doc)
+    assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_SIN_MATCH
+    db.refresh(pedido)
+    assert pedido.ct_transaction_id is None
+
+
+def test_auto_vincular_constancia_without_pos_links_erp_with_pos(db, empresa, proveedor, sd_factura, active_user):
+    pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-POS-ERP")
+    doc = _doc(db, pedido, active_user.id, "00289132")
+    _add_ct(db, sd_factura, ct_id=944702, docnumber="0047-00289132", supp_id=proveedor.supp_id)
+    db.flush()
+
+    assert erp_matching_service.auto_vincular_por_constancia_cargada(db, doc) == 944702
+    db.refresh(doc)
+    assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_OK
+    db.refresh(pedido)
+    assert pedido.ct_transaction_id == 944702
+
+
+def test_auto_vincular_short_padded_number_needs_exact_match(db, empresa, proveedor, sd_factura, active_user):
+    pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-SHORT")
+    doc = _doc(db, pedido, active_user.id, "0001-00000012")
+    _add_ct(db, sd_factura, ct_id=944703, docnumber="0002-00000012", supp_id=proveedor.supp_id)
+    db.flush()
+
+    assert erp_matching_service.auto_vincular_por_constancia_cargada(db, doc) is None
+    db.refresh(doc)
+    assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_SIN_MATCH
+    db.refresh(pedido)
+    assert pedido.ct_transaction_id is None
+
+
+def test_auto_vincular_two_equivalent_candidates_is_ambiguo(db, empresa, proveedor, sd_factura, active_user):
+    pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-POS-AMB")
+    doc = _doc(db, pedido, active_user.id, "00289132")
+    _add_ct(db, sd_factura, ct_id=944704, docnumber="0047-00289132", supp_id=proveedor.supp_id)
+    _add_ct(db, sd_factura, ct_id=944705, docnumber="0099-00289132", supp_id=proveedor.supp_id)
+    db.flush()
+
+    assert erp_matching_service.auto_vincular_por_constancia_cargada(db, doc) is None
+    db.refresh(doc)
+    assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_AMBIGUO
+    db.refresh(pedido)
+    assert pedido.ct_transaction_id is None
+
+
+def test_auto_vincular_same_number_other_supplier_is_sin_match(db, empresa, proveedor, sd_factura, active_user):
+    pedido = _pedido(db, empresa, proveedor, active_user.id, numero="P-AV-POS-SUPP")
+    doc = _doc(db, pedido, active_user.id, "0047-00289132")
+    _add_ct(db, sd_factura, ct_id=944706, docnumber="0047-00289132", supp_id=proveedor.supp_id + 1)
+    db.flush()
+
+    assert erp_matching_service.auto_vincular_por_constancia_cargada(db, doc) is None
+    db.refresh(doc)
+    assert doc.auto_vinculo_estado == erp_matching_service.AUTO_VINCULO_SIN_MATCH
+    db.refresh(pedido)
+    assert pedido.ct_transaction_id is None

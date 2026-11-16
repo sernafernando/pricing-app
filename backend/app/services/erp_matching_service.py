@@ -135,47 +135,34 @@ AUTO_VINCULO_PENDIENTES: Final[frozenset[str]] = frozenset(
 _NUMERO_FACTURA_MIN_DIGITS: Final[int] = 6
 
 
-def variantes_numero_factura(numero: str) -> list[str]:
-    """Canonical lookup forms for an AFIP/GBP-style invoice number.
+def _partes_numero_factura(numero: str) -> tuple[Optional[str], str]:
+    """Split an invoice number into `(pos, core)`, both without leading zeros.
 
-    Constancia may store `0047-00289132` while the ERP mirror keeps `00289132`
-    (or the reverse). Auto-vínculo and manual-clear share these variants.
+    `0047-00289132` -> `("47", "289132")`; `00289132` -> `(None, "289132")`.
+    `pos` is None when there is no numeric POS block before the last hyphen.
     """
     raw = (numero or "").strip()
-    if not raw:
-        return []
-    out: list[str] = []
-    seen: set[str] = set()
-
-    def _add(value: str) -> None:
-        cleaned = value.strip()
-        if cleaned and cleaned not in seen:
-            seen.add(cleaned)
-            out.append(cleaned)
-
-    _add(raw)
-    if "-" in raw:
-        _add(raw.rsplit("-", 1)[-1])
-    digits = "".join(ch for ch in raw if ch.isdigit())
-    if digits:
-        _add(digits)
-        stripped = digits.lstrip("0") or "0"
-        if len(stripped) >= _NUMERO_FACTURA_MIN_DIGITS:
-            _add(stripped)
-    return out
+    pos_raw, _, num_raw = raw.rpartition("-")
+    pos_digits = "".join(ch for ch in pos_raw if ch.isdigit())
+    core_digits = "".join(ch for ch in num_raw if ch.isdigit())
+    pos = (pos_digits.lstrip("0") or "0") if pos_digits else None
+    return pos, core_digits.lstrip("0")
 
 
 def numeros_factura_equivalentes(a: str, b: str) -> bool:
-    """True when two invoice numbers refer to the same document (POS optional)."""
-    va = set(variantes_numero_factura(a))
-    vb = set(variantes_numero_factura(b))
-    if va & vb:
+    """True when two invoice numbers refer to the same document.
+
+    Same number without leading zeros (at least `_NUMERO_FACTURA_MIN_DIGITS`
+    digits) and the same POS, or POS missing on one side. Shorter numbers
+    only match exactly.
+    """
+    if (a or "").strip() and (a or "").strip() == (b or "").strip():
         return True
-    da = "".join(ch for ch in (a or "") if ch.isdigit())
-    db = "".join(ch for ch in (b or "") if ch.isdigit())
-    if len(da) < _NUMERO_FACTURA_MIN_DIGITS or len(db) < _NUMERO_FACTURA_MIN_DIGITS:
+    pos_a, core_a = _partes_numero_factura(a)
+    pos_b, core_b = _partes_numero_factura(b)
+    if len(core_a) < _NUMERO_FACTURA_MIN_DIGITS or core_a != core_b:
         return False
-    return da.endswith(db) or db.endswith(da)
+    return pos_a is None or pos_b is None or pos_a == pos_b
 
 
 def _buscar_ct_vigente(
@@ -189,49 +176,49 @@ def _buscar_ct_vigente(
     """
     Busca en `v_facturas_compra_vigentes` una ct única para la tupla.
 
-    Docnumber matching is flexible: exact, post-hyphen core, and
-    `%-{core}` (POS-prefixed ERP forms) when the core has enough digits.
+    Docnumber matching: exact, or `numeros_factura_equivalentes` (same
+    number without leading zeros, POS equal or absent on one side) when the
+    number has enough digits.
 
     Returns:
         `(ct_transaction, "ok")` if unique; `(None, "sin_match"|"ambiguo")`
         when 0 or >1 rows (caller must not auto-link).
     """
-    from sqlalchemy import bindparam  # noqa: PLC0415
-
-    variants = variantes_numero_factura(ct_docnumber)
-    if not variants:
-        return None, AUTO_VINCULO_SIN_MATCH
-    # Prefer the post-hyphen / digit core for the POS-prefix LIKE pattern.
-    core = variants[1] if len(variants) > 1 else variants[0]
-    digits_core = "".join(ch for ch in core if ch.isdigit())
-    use_pos_like = len(digits_core) >= _NUMERO_FACTURA_MIN_DIGITS
-    pos_like = f"%-{digits_core}" if use_pos_like else None
-
-    stmt = text(
-        """
-        SELECT ct_transaction
-        FROM v_facturas_compra_vigentes
-        WHERE comp_id = :comp_id
-          AND bra_id = :bra_id
-          AND supp_id = :supp_id
-          AND (
-            ct_docnumber IN :variants
-            OR (:use_pos_like = 1 AND ct_docnumber LIKE :pos_like)
-          )
-        LIMIT 2
-        """
-    ).bindparams(bindparam("variants", expanding=True))
-    filas = session.execute(
-        stmt,
-        {
-            "comp_id": comp_id,
-            "bra_id": bra_id,
-            "supp_id": supp_id,
-            "variants": variants,
-            "use_pos_like": 1 if use_pos_like else 0,
-            "pos_like": pos_like or "",
-        },
-    ).all()
+    _pos, core = _partes_numero_factura(ct_docnumber)
+    if len(core) < _NUMERO_FACTURA_MIN_DIGITS:
+        stmt = text(
+            """
+            SELECT ct_transaction
+            FROM v_facturas_compra_vigentes
+            WHERE comp_id = :comp_id
+              AND bra_id = :bra_id
+              AND supp_id = :supp_id
+              AND ct_docnumber = :ct_docnumber
+            LIMIT 2
+            """
+        )
+        filas = session.execute(
+            stmt,
+            {"comp_id": comp_id, "bra_id": bra_id, "supp_id": supp_id, "ct_docnumber": ct_docnumber},
+        ).all()
+    else:
+        # The LIKE only narrows candidates; equivalence (POS, exact core) is
+        # decided in Python so `20123456` never matches `123456`.
+        stmt = text(
+            """
+            SELECT ct_transaction, ct_docnumber
+            FROM v_facturas_compra_vigentes
+            WHERE comp_id = :comp_id
+              AND bra_id = :bra_id
+              AND supp_id = :supp_id
+              AND ct_docnumber LIKE :core_like
+            """
+        )
+        candidatas = session.execute(
+            stmt,
+            {"comp_id": comp_id, "bra_id": bra_id, "supp_id": supp_id, "core_like": f"%{core}"},
+        ).all()
+        filas = [fila for fila in candidatas if numeros_factura_equivalentes(ct_docnumber, fila[1])]
     if len(filas) == 0:
         return None, AUTO_VINCULO_SIN_MATCH
     if len(filas) > 1:
@@ -1656,7 +1643,6 @@ __all__ = [
     "AUTO_VINCULO_SIN_MAPEO",
     "AUTO_VINCULO_SIN_MATCH",
     "numeros_factura_equivalentes",
-    "variantes_numero_factura",
     "asignar_factura_erp",
     "auto_vincular_por_constancia_cargada",
     "copiar_facturas_erp",
