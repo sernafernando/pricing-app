@@ -12,7 +12,7 @@ from sqlalchemy import text
 
 from app.models.catalog_competition_refresh_pending import CatalogCompetitionRefreshPending
 from app.models.ml_catalog_competition import MLCatalogCompetition
-from app.scripts.catalog_competition_backfill import enqueue_never_consulted
+from app.scripts.catalog_competition_backfill import enqueue_never_consulted, main
 from app.services.ml_publications import store as store_module
 
 pytestmark = pytest.mark.postgres
@@ -105,3 +105,18 @@ class TestResumable:
 
         assert run(spacing_seconds=6, dry_run=True) == 1
         assert pending(env) == []
+
+
+class TestSpacingMustBePositive:
+    @pytest.mark.parametrize("spacing", ["0", "-6"])
+    def test_the_command_line_rejects_a_non_positive_spacing(self, spacing, capsys) -> None:
+        with pytest.raises(SystemExit) as exit_info:
+            main(["--spacing-seconds", spacing, "--dry-run"])
+
+        assert exit_info.value.code == 2
+        assert "--spacing-seconds must be greater than 0" in capsys.readouterr().err
+
+    @pytest.mark.parametrize("spacing", [0, -6.0])
+    def test_the_function_rejects_a_non_positive_spacing_before_reading_anything(self, spacing) -> None:
+        with pytest.raises(ValueError, match="spacing_seconds must be greater than 0"):
+            enqueue_never_consulted(None, NOW, spacing_seconds=spacing)

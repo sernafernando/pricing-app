@@ -10,8 +10,8 @@ front of a live change: the worker claims by due time and a change-driven entry 
 Resumable and idempotent: a listing already queued or already consulted is skipped, so it can be stopped and run
 again. `--dry-run` only counts.
 
-    cd backend && venv/bin/python -m app.scripts.catalog_competition_backfill --dry-run
-    cd backend && venv/bin/python -m app.scripts.catalog_competition_backfill
+    cd /srv/apps/pricing-app/backend && venv/bin/python -m app.scripts.catalog_competition_backfill --dry-run
+    cd /srv/apps/pricing-app/backend && venv/bin/python -m app.scripts.catalog_competition_backfill
 """
 
 from __future__ import annotations
@@ -61,7 +61,11 @@ def enqueue_never_consulted(
     limit: Optional[int] = None,
     dry_run: bool = False,
 ) -> int:
-    """Queue the never-consulted listings spaced from `now`; returns how many (would be) queued."""
+    """Queue the never-consulted listings spaced from `now`; returns how many (would be) queued.
+
+    A spacing of 0 or less would make the whole backlog due at once, ahead of every live change: refused."""
+    if spacing_seconds <= 0:
+        raise ValueError("spacing_seconds must be greater than 0")
     mlas = never_consulted(db, limit)
     if dry_run or not mlas:
         return len(mlas)
@@ -74,9 +78,19 @@ def enqueue_never_consulted(
     return len(mlas)
 
 
+def _positive_seconds(value: str) -> float:
+    try:
+        seconds = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"--spacing-seconds must be a number, got {value!r}") from None
+    if seconds <= 0:
+        raise argparse.ArgumentTypeError(f"--spacing-seconds must be greater than 0, got {value}")
+    return seconds
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--spacing-seconds", type=float, default=DEFAULT_SPACING_SECONDS)
+    parser.add_argument("--spacing-seconds", type=_positive_seconds, default=DEFAULT_SPACING_SECONDS)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
