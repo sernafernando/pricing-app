@@ -51,3 +51,11 @@ def test_a_product_without_description_stores_none_not_empty_html() -> None:
 
 def test_a_self_closing_br_is_one_line_break_like_br() -> None:
     assert html_a_texto("<p>A<br/>B<br />C</p>") == "A\nB\nC"
+
+
+def test_a_list_item_wrapping_a_paragraph_keeps_its_bullet() -> None:
+    assert html_a_texto("<ul><li><p>Uno</p></li><li><div>Dos</div></li></ul>") == "- Uno\n- Dos"
+
+
+def test_an_empty_list_item_does_not_put_its_bullet_on_the_next_line() -> None:
+    assert html_a_texto("<ul><li></li></ul><p>Uno</p>") == "Uno"

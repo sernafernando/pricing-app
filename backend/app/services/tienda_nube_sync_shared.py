@@ -126,9 +126,9 @@ class _TextoPlano(HTMLParser):
         self._buffer = []
         if line:
             self.lines.append(self._prefix + line)
+            self._prefix = ""  # an empty block (e.g. the `<p>` start inside `<li><p>`) keeps the pending bullet
         elif spacer:
             self.lines.append("")
-        self._prefix = ""
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
         if tag in _SKIPPED_TAGS:
@@ -145,6 +145,8 @@ class _TextoPlano(HTMLParser):
             self._skipping = max(0, self._skipping - 1)
         elif tag in _BLOCK_TAGS:
             self._flush(spacer=tag in _SPACER_TAGS)
+            if tag == "li":  # an empty item's bullet never reaches the next line
+                self._prefix = ""
 
     def handle_data(self, data: str) -> None:
         if not self._skipping:
