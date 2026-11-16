@@ -1,7 +1,7 @@
 """productos_propios as the product master + productos.editar_maestro
 
 Revision ID: 20261117_producto_maestro
-Revises: 20261116_producto_specs
+Revises: 20261117_producto_categorias_marcas
 Create Date: 2026-11-17
 
 abm-productos T4 (delivery 1): `productos_propios` becomes the local product master (one row per ERP `item_id`). The
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261117_producto_maestro"
-down_revision: Union[str, None] = "20261116_producto_specs"
+down_revision: Union[str, None] = "20261117_producto_categorias_marcas"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
