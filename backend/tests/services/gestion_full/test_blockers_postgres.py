@@ -504,6 +504,44 @@ class TestReconcileEnvioPostgres:
         finally:
             db.close()
 
+    def test_holds_no_transaction_open_during_ml_calls(
+        self, pg_engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Prod 2026-11-17: the transaction stayed open across one ML call per inventory; past
+        `idle_in_transaction_session_timeout` (2 min) Postgres closed the connection and the final commit raised."""
+        db = _session(pg_engine)
+        try:
+            envio = _seed_open_envio(db, inbound_id="INB-NOTX")
+            reception = {
+                "id": 9101,
+                "type": "INBOUND_RECEPTION",
+                "date_created": "2026-10-30T12:00:00Z",
+                "detail": {"available_quantity": 3},
+                "external_references": [{"type": "inbound_id", "value": "INB-NOTX"}],
+            }
+            in_transaction_during_calls: list[bool] = []
+
+            def ml_get(*_args: object, **_kwargs: object) -> SimpleNamespace:
+                in_transaction_during_calls.append(db.in_transaction())
+                return SimpleNamespace(status=200, body={"results": [reception]})
+
+            client = MagicMock()
+            client.get.side_effect = ml_get
+            monkeypatch.setattr("app.core.config.settings.ML_USER_ID", "1")
+            now = datetime(2026, 10, 31, tzinfo=UTC)
+
+            out = reconcile_envio(db, envio, client=client, now=now)
+
+            assert in_transaction_during_calls == [False]
+            assert out["inserted"] == 1
+            assert out["ml_ok"] == 1
+            assert db.query(GestionFullInboundReceptionOp).filter_by(operation_id=9101).one().cantidad == 3
+            db.refresh(envio)
+            assert envio.last_reception_at is not None
+            assert envio.last_polled_at == now
+        finally:
+            db.close()
+
 
 @pytest.mark.postgres
 class TestRound2Blockers:

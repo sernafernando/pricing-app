@@ -160,16 +160,20 @@ def reconcile_envio(
     db.commit()
     db.refresh(envio)
 
+    inbound_id = envio.inbound_id
     inv_ids = list(
         dict.fromkeys(
             ln.inventory_id
             for ln in db.query(GestionFullPackageLine)
-            .filter_by(package_id=envio.package_id, inbound_id=envio.inbound_id)
+            .filter_by(package_id=envio.package_id, inbound_id=inbound_id)
             .all()
         )
     )
+    # End the read transaction before ML I/O: the calls wait on the shared pacer, and a transaction left open
+    # past `idle_in_transaction_session_timeout` is killed by Postgres (prod 2026-11-17).
+    db.commit()
 
-    inserted = 0
+    receptions: list[dict[str, Any]] = []
     ml_ok = 0
     ml_fail = 0
     # Reuse last-inbound walk but collect via client search windows — lean: one lookback call path
@@ -207,12 +211,17 @@ def reconcile_envio(
             if not isinstance(row, dict):
                 continue
             parsed = _op_from_ml_row(row, inventory_id=inventory_id)
-            if parsed is None or parsed["inbound_id"] != envio.inbound_id:
+            if parsed is None or parsed["inbound_id"] != inbound_id:
                 continue
-            if upsert_reception_op(db, **parsed):
-                inserted += 1
-                if envio.last_reception_at is None or parsed["occurred_at"] > envio.last_reception_at:
-                    envio.last_reception_at = parsed["occurred_at"]
+            receptions.append(parsed)
+
+    # Writes go in one short transaction, after every ML call.
+    inserted = 0
+    for parsed in receptions:
+        if upsert_reception_op(db, **parsed):
+            inserted += 1
+            if envio.last_reception_at is None or parsed["occurred_at"] > envio.last_reception_at:
+                envio.last_reception_at = parsed["occurred_at"]
 
     # Idle-close only after at least one reception was seen, and never when this tick
     # had ML failures (e.g. all-429 must not close an envío that never received).
@@ -227,7 +236,7 @@ def reconcile_envio(
 
     db.commit()
     return {
-        "inbound_id": envio.inbound_id,
+        "inbound_id": inbound_id,
         "inserted": inserted,
         "closed": closed,
         "ml_ok": ml_ok,

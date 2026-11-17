@@ -115,6 +115,14 @@ class TestMlPublicationsRegistry:
         assert handler.channels == ()
         assert handler.pacer is ml_publications.refresh.pacer
 
+    def test_gestion_full_reconcile_runs_in_its_own_thread_every_three_hours_on_the_refresh_pacer(self) -> None:
+        handler = registry.ML_PUBLICATIONS_REGISTRY[14]
+        assert handler.own_thread is True
+        assert handler.interval == timedelta(hours=3)
+        assert handler.run_at_local is None
+        assert handler.channels == ()
+        assert handler.pacer is ml_publications.refresh.pacer
+
     def test_order_discounts_runs_in_its_own_thread_five_seconds_apart_and_is_not_notify_driven(self) -> None:
         handler = registry.ML_PUBLICATIONS_REGISTRY[12]
         assert handler.own_thread is True
