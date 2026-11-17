@@ -17,6 +17,7 @@ cambió en ML; lo corre el handler `promo_price.recompute` del worker ML
 """
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Annotated, Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
@@ -52,6 +53,13 @@ from app.services.ml_promotions_hay_mejores import (
     descartar_hay_mejores_ofertas,
     set_hay_mejores_excluido,
     set_hay_mejores_excluido_bulk,
+)
+from app.services.ml_hay_mejores_criterios_service import (
+    DEFAULT_C6_DISTANCIA,
+    DEFAULT_C6_GAP_MIN,
+    CriteriosView,
+    get_criterios,
+    upsert_criterios,
 )
 from app.services.ml_promotions_write_service import enroll_one_item, remove_one_item
 from app.services.ml_publication_status_service import GONE, NEVER_EXISTED, NO_ML_DATA, fetch_publication_status_by_mla
@@ -945,6 +953,103 @@ def post_hay_mejores_exclusion_bulk(
     touched = set_hay_mejores_excluido_bulk(db, body.item_ids, excluido=body.excluido)
     db.commit()
     return HayMejoresExclusionBulkResult(excluido=body.excluido, item_ids=touched, count=len(touched))
+
+
+# ── Criterios de aplicación (hay_mejores) ─────────────────────────
+
+
+class HayMejoresCriteriosResponse(BaseModel):
+    mla: str
+    c1_activo: bool
+    c1_markup_min: Optional[Decimal] = None
+    c1_markup_max: Optional[Decimal] = None
+    c2_activo: bool
+    c2_solo_markup_positivo: bool
+    c6_activo: bool
+    c6_solo_via_promo: bool
+    c6_gap_min: Decimal
+    c6_distancia_objetivo: Decimal
+    auto_aplicacion: bool
+    sellers_excluidos: List[str] = []
+    exists: bool
+    updated_at: Optional[datetime] = None
+    model_config = ConfigDict(from_attributes=True)
+
+
+class HayMejoresCriteriosBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    c1_activo: bool = False
+    c1_markup_min: Optional[Decimal] = None
+    c1_markup_max: Optional[Decimal] = None
+    c2_activo: bool = False
+    c2_solo_markup_positivo: bool = True
+    c6_activo: bool = False
+    c6_solo_via_promo: bool = False
+    c6_gap_min: Decimal = Field(default=DEFAULT_C6_GAP_MIN, ge=0)
+    c6_distancia_objetivo: Decimal = Field(default=DEFAULT_C6_DISTANCIA, ge=0)
+    auto_aplicacion: bool = False
+    sellers_excluidos: Optional[List[str]] = None
+
+
+def _criterios_response(view: CriteriosView) -> HayMejoresCriteriosResponse:
+    return HayMejoresCriteriosResponse(
+        mla=view.item_id,
+        c1_activo=view.c1_activo,
+        c1_markup_min=view.c1_markup_min,
+        c1_markup_max=view.c1_markup_max,
+        c2_activo=view.c2_activo,
+        c2_solo_markup_positivo=view.c2_solo_markup_positivo,
+        c6_activo=view.c6_activo,
+        c6_solo_via_promo=view.c6_solo_via_promo,
+        c6_gap_min=view.c6_gap_min,
+        c6_distancia_objetivo=view.c6_distancia_objetivo,
+        auto_aplicacion=view.auto_aplicacion,
+        sellers_excluidos=view.sellers_excluidos,
+        exists=view.exists,
+        updated_at=view.updated_at,
+    )
+
+
+@router.get("/item/{mla_id}/hay-mejores-criterios", response_model=HayMejoresCriteriosResponse)
+def get_hay_mejores_criterios(
+    mla_id: MlaIdPath,
+    current_user: Usuario = Depends(require_promos_read()),
+    db: Session = Depends(get_db),
+) -> HayMejoresCriteriosResponse:
+    """Per-MLA criterios (defaults when no row). Requires promos.ver."""
+    return _criterios_response(get_criterios(db, mla_id))
+
+
+@router.put("/item/{mla_id}/hay-mejores-criterios", response_model=HayMejoresCriteriosResponse)
+def put_hay_mejores_criterios(
+    mla_id: MlaIdPath,
+    body: HayMejoresCriteriosBody,
+    current_user: Usuario = Depends(require_promos_write()),
+    db: Session = Depends(get_db),
+) -> HayMejoresCriteriosResponse:
+    """Upsert per-MLA criterios. Requires promos.escribir. Does not re-eval existing flags."""
+    try:
+        view = upsert_criterios(
+            db,
+            mla_id,
+            updated_by=getattr(current_user, "id", None),
+            c1_activo=body.c1_activo,
+            c1_markup_min=body.c1_markup_min,
+            c1_markup_max=body.c1_markup_max,
+            c2_activo=body.c2_activo,
+            c2_solo_markup_positivo=body.c2_solo_markup_positivo,
+            c6_activo=body.c6_activo,
+            c6_solo_via_promo=body.c6_solo_via_promo,
+            c6_gap_min=body.c6_gap_min,
+            c6_distancia_objetivo=body.c6_distancia_objetivo,
+            auto_aplicacion=body.auto_aplicacion,
+            sellers_excluidos=body.sellers_excluidos,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    db.commit()
+    return _criterios_response(view)
 
 
 # ── Price recompute requested by ml-webhook (promo-ml-precio-inmediato T1) ──
