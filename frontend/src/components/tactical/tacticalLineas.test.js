@@ -20,6 +20,7 @@ import {
   porFactura,
   problemaDe,
   puedeCompartir,
+  topesDeLineas,
   unidadesDelTope,
 } from './tacticalLineas';
 import { CATALOGO, OPERACIONES } from './tacticalFixtures';
@@ -391,5 +392,31 @@ describe('a brand line narrowed to one category (SISO S3: "los routers solo de t
     expect(conAlcance(linea({ alcance: 'categoria', categoria: 'Routers' }), 'marca').categoria).toBe('');
     expect(conAlcance(linea({ alcance: 'marca', marca: 'HP', categoria: 'Routers' }), 'categoria').categoria).toBe('');
     expect(conAlcance(linea({ alcance: 'marca', categoria: 'Routers' }), 'marca').categoria).toBe('Routers');
+  });
+});
+
+// Owner: "solo pone en la leyenda la primer línea de abajo no todas": the cap summary names every line and its cap.
+describe('topesDeLineas', () => {
+  it('names each line by its scope and says its own cap', () => {
+    const [a, b] = CATALOGO;
+    const lineas = [
+      linea({ alcance: 'productos', productos: [a], topeUnidades: '4' }),
+      linea({ alcance: 'productos', productos: [a, b], topeUnidades: '1.500', topeMonto: '200' }),
+      linea({ alcance: 'marca', marca: 'TP-Link', topeMonto: '19800' }),
+      linea({ alcance: 'categoria', categoria: 'Routers' }),
+    ];
+    expect(topesDeLineas(lineas, 'USD')).toEqual([
+      { label: `Línea 1 · ${a.codigo}`, valor: '4 u.' },
+      { label: `Línea 2 · ${a.codigo}, ${b.codigo}`, valor: '1.500 u. o USD 200' },
+      { label: 'Línea 3 · TP-Link', valor: 'USD 19.800' },
+      { label: 'Línea 4 · Routers', valor: 'sin tope' },
+    ]);
+  });
+
+  it('shortens a long product list', () => {
+    const productos = CATALOGO.slice(0, 4);
+    expect(topesDeLineas([linea({ productos, topeUnidades: '10' })], 'ARS')[0].label).toBe(
+      `Línea 1 · ${productos[0].codigo}, ${productos[1].codigo} y 2 más`,
+    );
   });
 });

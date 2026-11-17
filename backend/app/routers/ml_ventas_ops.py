@@ -812,6 +812,8 @@ class SaleListItem(BaseModel):
     sell_in_ars: Optional[float] = None
     sell_out_ars: Optional[float] = None
     sell_out_estimado: Optional[bool] = None
+    # Tactical sell in USD S10: a USD `al_cobro` cost bonus without its collection rate yet (today's BNA).
+    sell_in_estimado: Optional[bool] = None
     # Métricas audit B9: the old operations tab's Costo Total and Limpio,
     # read from the same stored `ml_order_metrics` row as `total_gauss`.
     costo_mercaderia: Optional[float] = None
@@ -877,6 +879,8 @@ class SaleGroup(BaseModel):
     sell_in_ars: Optional[float] = None
     sell_out_ars: Optional[float] = None
     sell_out_estimado: Optional[bool] = None
+    # Tactical sell in USD S10: a USD `al_cobro` cost bonus without its collection rate yet (today's BNA).
+    sell_in_estimado: Optional[bool] = None
     # Métricas audit B9: the members' sums, all-or-nothing like `total_gauss` / `neto`.
     costo_mercaderia: Optional[float] = None
     neto_sin_iva: Optional[float] = None
@@ -1259,6 +1263,7 @@ def _sell_in_out_fields(montos: Optional[MontosVenta]) -> Dict[str, Any]:
         "sell_in_ars": float(montos.sell_in_ars) if montos.sell_in_ars is not None else None,
         "sell_out_ars": float(montos.sell_out_ars) if montos.sell_out_ars is not None else None,
         "sell_out_estimado": montos.sell_out_estimado,
+        "sell_in_estimado": montos.sell_in_estimado,
     }
 
 

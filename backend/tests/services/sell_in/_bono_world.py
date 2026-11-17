@@ -29,7 +29,7 @@ from app.models.sell_in import (
 )
 from app.models.pedido_compra_factura import PedidoCompraFactura
 from app.models.pedido_compra_linea_facturada_ct import PedidoCompraLineaFacturadaCt
-from app.models.tactical import TacticalFacturaPendiente, TacticalLineaFactura
+from app.models.tactical import TacticalCobranza, TacticalFacturaPendiente, TacticalLineaFactura
 from app.models.tipo_cambio import TipoCambio
 from app.services.sell import queue as sell_queue
 from app.services.sell_in import bono_queue
@@ -54,6 +54,7 @@ _SELL_IN = [
 ]
 TABLES = [
     w.Tactical.__table__,  # `sell_in_bonos_marca.tactical_id` (tacticals T1)
+    TacticalCobranza.__table__,  # a USD `al_cobro` cost bonus's rate (tactical sell in USD S8)
     w.ProductoERP.__table__,
     SellInBonoMarca.__table__,
     SellInBonoItem.__table__,

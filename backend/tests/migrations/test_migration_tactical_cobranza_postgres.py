@@ -110,7 +110,8 @@ class TestUpgrade:
             "created_at": ("timestamp with time zone", "NO"),
             "updated_at": ("timestamp with time zone", "NO"),
         }
-        assert set(columnas) == {c.name for c in TacticalCobranza.__table__.columns}
+        # `tipo_cambio` comes later, with `20261120_tactical_sell_in_usd` (its own test checks it).
+        assert set(columnas) == {c.name for c in TacticalCobranza.__table__.columns} - {"tipo_cambio"}
         assert {i.name for i in TacticalCobranza.__table__.indexes} <= indices
         assert "uq_tactical_cobranzas_tactical" in indices
 

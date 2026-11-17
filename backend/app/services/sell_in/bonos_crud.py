@@ -174,11 +174,13 @@ def _validar_alcance(db: Session, data: SellInBonoIn) -> tuple[Optional[str], Op
     return marca, categoria, modelos, data.pedido_id
 
 
-def _validar_base(data: SellInBonoIn, base: str, incluye_iva: bool) -> None:
-    """A cost bonus is a % of the sale's cost, or an amount per unit (tacticals T1), in ARS over a brand, category or
-    models (the DB CHECK `ck_sell_in_bonos_marca_costo_venta`); only it may take its value with VAT included (S33)."""
+def _validar_base(data: SellInBonoIn, base: str, incluye_iva: bool, de_tactical: bool = False) -> None:
+    """A cost bonus is a % of the sale's cost, or an amount per unit (tacticals T1), over a brand, category or models
+    (the DB CHECK `ck_sell_in_bonos_marca_costo_venta`), in ARS, or in USD when it is a tactical's line that is not a
+    total (tactical sell in USD: `bonos_costo` converts each sale at the tactical's rate type); only it may take its
+    value with VAT included (S33)."""
     if base == BASE_COSTO_VENTA:
-        if data.moneda != "ARS":
+        if data.moneda != "ARS" and not (de_tactical and data.moneda == "USD" and data.tipo != MONTO_TOTAL):
             raise SellInBonoError("Un bono sobre el costo va en pesos (ARS)")
         if data.alcance == "factura":
             raise SellInBonoError("Un bono sobre el costo no puede ser por factura")
@@ -186,12 +188,19 @@ def _validar_base(data: SellInBonoIn, base: str, incluye_iva: bool) -> None:
         raise SellInBonoError("Solo un bono sobre el costo puede incluir IVA")
 
 
-def validar(db: Session, data: SellInBonoIn, base: Optional[str] = None, incluye_iva: Optional[bool] = None) -> Campos:
+def validar(
+    db: Session,
+    data: SellInBonoIn,
+    base: Optional[str] = None,
+    incluye_iva: Optional[bool] = None,
+    de_tactical: bool = False,
+) -> Campos:
     """The rules the operator can break, in one readable message each; returns the normalized fields.
-    `base` / `incluye_iva`: the effective ones (an edit's stored ones); None: the body's."""
+    `base` / `incluye_iva`: the effective ones (an edit's stored ones); None: the body's. `de_tactical`: the bonus is
+    (or will be) a tactical's line."""
     base = data.base if base is None else base
     incluye_iva = data.incluye_iva if incluye_iva is None else incluye_iva
-    _validar_base(data, base, incluye_iva)
+    _validar_base(data, base, incluye_iva, de_tactical)
     marca, categoria, modelos, pedido_id = _validar_alcance(db, data)
     if data.tipo != MONTO_TOTAL:
         if data.monto_total is not None:
@@ -478,7 +487,7 @@ def crear_bono_sin_commit(
     """The create step without committing: validation, the row, its models and one audit row. Shared by the single
     create and a tactical's lines (`app.services.tacticals`, several in one transaction). `tactical`: the
     `(tactical_id, tactical_linea)` it is a line of, set before the first flush."""
-    campos = validar(db, data)
+    campos = validar(db, data, de_tactical=tactical is not None)
     tactical_id, tactical_linea = tactical or (None, None)
     bono = SellInBonoMarca(
         usuario_id=usuario_id,
@@ -529,7 +538,7 @@ def editar_bono_sin_commit(db: Session, bono_id: int, data: SellInBonoIn, usuari
             "La base del bono no se puede cambiar: lo que ya generó se contaría dos veces; anulalo y cargá otro"
         )
     incluye_iva = data.incluye_iva if "incluye_iva" in data.model_fields_set else bono.incluye_iva
-    campos = validar(db, data, bono.base, incluye_iva)
+    campos = validar(db, data, bono.base, incluye_iva, de_tactical=bono.tactical_id is not None)
     if data.moneda != bono.moneda and bono.tope_monto is not None and "tope_monto" not in data.model_fields_set:
         # The stored money cap is in the old currency: kept as is it would silently mean another amount.
         raise SellInBonoError("Al cambiar la moneda hay que volver a indicar el tope de monto")
@@ -677,17 +686,20 @@ def serializar(db: Session, bonos: list[SellInBonoMarca]) -> list[dict]:
         unidades[bono_id] = 0
         montos[bono_id] = {}
     if costo_ids:
-        for bono_id, cantidad, monto in (
+        for bono_id, cantidad, monto, usd in (
             db.query(
                 SellInBonoConsumo.bono_id,
                 func.coalesce(func.sum(SellInBonoConsumo.unidades), 0),
                 func.coalesce(func.sum(SellInBonoConsumo.descuento_ars), 0),
+                func.sum(SellInBonoConsumo.monto_usd),
             )
             .filter(SellInBonoConsumo.bono_id.in_(costo_ids))
             .group_by(SellInBonoConsumo.bono_id)
         ):
             unidades[bono_id] = int(cantidad)
             montos[bono_id] = {"ARS": Decimal(str(monto)).quantize(Decimal("0.01"))}
+            if usd is not None:  # a USD bonus (tactical sell in USD): its USD, what its cap counts, and the ARS
+                montos[bono_id]["USD"] = Decimal(str(usd)).quantize(Decimal("0.01"))
     modelos = _modelos(db, ids)
     repartos = _repartos_de(db, [b.id for b in bonos if b.tipo == MONTO_TOTAL])
     productos = {

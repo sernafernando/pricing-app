@@ -170,6 +170,7 @@ class TacticalCobranza(Base):
     __table_args__ = (
         UniqueConstraint("tactical_id", name="uq_tactical_cobranzas_tactical"),
         CheckConstraint(MEDIO, name="ck_tactical_cobranzas_medio"),
+        CheckConstraint("tipo_cambio IS NULL OR tipo_cambio > 0", name="ck_tactical_cobranzas_tc_positivo"),
         Index("ix_tactical_cobranzas_usuario_id", "usuario_id"),
     )
 
@@ -181,6 +182,9 @@ class TacticalCobranza(Base):
     distribuidor = Column(String(200), nullable=True)
     otro_detalle = Column(String(500), nullable=True)
     observaciones = Column(Text, nullable=True)
+    # The rate (ARS per USD) the brand paid at: what a USD `al_cobro` sell in cost bonus converts at once loaded
+    # (tactical sell in USD S8, owner: "Ponelo donde se carga el cobro"); NULL: still the latest BNA.
+    tipo_cambio = Column(Numeric(18, 6), nullable=True)
     usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=False)  # last to save it
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

@@ -76,6 +76,13 @@ describe('Sell in / out cell (Métricas audit A7)', () => {
     expect(cell.tooltip).toBe('Sell out en USD sin tipo de cambio');
   });
 
+  // Tactical sell in USD S10: an estimated sell in is marked like an estimated sell out.
+  it('an estimated sell in is marked', () => {
+    const cell = renderSell({ kind: 'member', order: order({ sell_in_ars: 1200.5, sell_in_estimado: true }) });
+    expect(cell).toHaveTextContent('≈ $ 1.200,50');
+    expect(cell.tooltip).toBe('Sell in: $ 1.200,50 (estimado: tipo de cambio a definir)');
+  });
+
   it('a sale with nothing applied shows a dash and no tooltip', () => {
     const cell = renderSell({ kind: 'member', order: order() });
     expect(cell).toHaveTextContent('—');

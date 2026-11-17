@@ -50,6 +50,8 @@ _MIGRATIONS = [
         "20261108_sell_in_bono_monto_total",
         "20261107_tacticals_tiendas",  # the store scope on tacticals; it chains on 20261108_sell_in_bono_monto_total
         "20261111_sell_in_bono_marca_categoria",  # SISO S3: a brand bonus may carry a category
+        "20261110_tactical_cobranza",  # the collection table the next one alters
+        "20261120_tactical_sell_in_usd",  # a tactical's cost bonus in USD, its rows' USD amount and rate
     )
 ]
 TABLES = {"sell_in_compras", "sell_in_compra_items", "sell_in_consumos", "sell_in_modos_producto"}

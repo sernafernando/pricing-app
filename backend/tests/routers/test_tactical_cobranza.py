@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from app.models.producto import ProductoERP
-from tests.routers.test_tacticals import BASE, _body
+from tests.routers.test_tacticals import BASE, _body, _message
 
 
 @pytest.fixture()
@@ -104,3 +104,12 @@ def test_saving_and_undoing_need_the_edit_permission(client, tactical_id, lector
     assert client.delete(f"{BASE}/{tactical_id}/cobranza", headers=lector).status_code == 403
     assert client.put(f"{BASE}/999/cobranza", json=COBRO, headers=lector).status_code == 404
     assert client.get(BASE, headers=lector).status_code == 200  # reading stays with `sell_out.ver`
+
+
+def test_a_rate_on_a_tactical_that_takes_none_is_a_422_with_its_message(client, tactical_id, lector) -> None:
+    """Tactical sell in USD S8: only a sell in USD `al_cobro` with a USD line takes the rate the brand paid at."""
+    resp = client.put(f"{BASE}/{tactical_id}/cobranza", json={**COBRO, "tipo_cambio": "1350"}, headers=lector)
+
+    assert resp.status_code == 422, resp.text
+    assert _message(resp).startswith("Solo un tactical de sell in en USD con tipo de cambio al cobro")
+    assert client.get(f"{BASE}/{tactical_id}", headers=lector).json()["cobranza"] is None

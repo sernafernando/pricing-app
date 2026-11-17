@@ -4,6 +4,7 @@ import requests
 from sqlalchemy.orm import Session
 from datetime import date
 from app.models.tipo_cambio import TipoCambio
+from app.services.sell_in import bonos_costo
 from app.services.sell_out import queue as sell_out_queue
 
 logger = logging.getLogger(__name__)
@@ -55,8 +56,10 @@ def actualizar_tipo_cambio_bna(db: Session) -> dict:
 
 def guardar_cotizacion_bna(db: Session, compra: float, venta: float) -> None:
     """Guarda la cotización USD de hoy y, si `venta` cambió, encola en la misma transacción las
-    campañas de sell out que se mueven con el BNA (`sell_out.queue.enqueue_por_bna`), en un savepoint:
-    si encolar falla se loguea y la cotización se guarda igual. Commitea."""
+    campañas de sell out que se mueven con el BNA (`sell_out.queue.enqueue_por_bna`) y los bonos de
+    costo de sell in en USD (`bonos_costo.encolar_por_bna`: al cobro sin tipo de cambio del cobro y día
+    de venta vigentes), cada uno en su savepoint: si encolar falla se loguea y la cotización se guarda
+    igual. Commitea."""
     hoy = date.today()
     tc = db.query(TipoCambio).filter(TipoCambio.moneda == "USD", TipoCambio.fecha == hoy).first()
     cambio = tc is None or float(tc.venta or 0) != venta
@@ -72,4 +75,11 @@ def guardar_cotizacion_bna(db: Session, compra: float, venta: float) -> None:
                 sell_out_queue.enqueue_por_bna(db, hoy)
         except Exception:
             logger.exception("BNA: no se pudieron encolar las campañas de sell-out; el tipo de cambio se guarda igual")
+        try:
+            with db.begin_nested():
+                bonos_costo.encolar_por_bna(db, hoy)
+        except Exception:
+            logger.exception(
+                "BNA: no se pudieron encolar los bonos de sell-in en USD; el tipo de cambio se guarda igual"
+            )
     db.commit()

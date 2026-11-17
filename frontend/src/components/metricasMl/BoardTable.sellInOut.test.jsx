@@ -79,6 +79,13 @@ describe('BoardTable: sell in / sell out', () => {
     expect(within(sellOut).getByTitle(/1 venta con tipo de cambio estimado/)).toBeInTheDocument();
   });
 
+  // Tactical sell in USD S10: the sold lines whose sell in is still an estimate, flagged like the sell out's.
+  it('flags the sold lines whose sell in uses an estimated rate', () => {
+    renderRow({ ...SELL, sell_in_estimados: 1 });
+
+    expect(within(cell('sell_in')).getByTitle('1 venta con sell in a tipo de cambio estimado')).toHaveTextContent('≈ 1');
+  });
+
   // Owner: "en las filas que no aplica estaría bueno que directamente esté vacío así no hace ruido".
   it('a row where sell in / sell out does not apply leaves those cells empty and keeps its cost', () => {
     renderRow({

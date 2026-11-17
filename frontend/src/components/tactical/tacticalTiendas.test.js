@@ -99,7 +99,38 @@ describe('previewTope', () => {
       titulo: 'Un tope para cada tienda o canal',
       filas: [],
       ayuda: 'Elegí al menos una tienda o canal.',
+      lineas: [],
     });
+  });
+});
+
+// Owner: "solo pone en la leyenda la primer línea de abajo no todas" (tactical sell in USD S9).
+describe('previewTope with several lines', () => {
+  const lineas = [
+    { label: 'Línea 1 · A-1', valor: '4 u.' },
+    { label: 'Línea 2 · B-2', valor: '40 u.' },
+  ];
+
+  it('lists every line with its own cap and speaks of each line cap', () => {
+    const preview = previewTope({
+      todasTiendas: false,
+      seleccionKeys: ['57997', 'fuera'],
+      grupos: GRUPOS,
+      topeCompartido: true,
+      ejemploTope: 4,
+      lineas,
+    });
+    expect(preview.lineas).toEqual(lineas);
+    expect(preview.filas).toEqual([{ label: 'GaussOnline + Por fuera', valor: 'tope de cada línea, en total' }]);
+    expect(preview.ayuda).toBe(
+      'Cada línea tiene su propio tope. Las ventas de todas suman al mismo tope de esa línea: cuando juntas llegan a él, esa línea deja de acreditar en todas.',
+    );
+  });
+
+  it('with one line keeps its cap in the rows and lists nothing more', () => {
+    const preview = previewTope({ todasTiendas: true, seleccionKeys: [], grupos: GRUPOS, topeCompartido: true, ejemploTope: 4, lineas: lineas.slice(0, 1) });
+    expect(preview.lineas).toEqual([]);
+    expect(preview.filas).toEqual([{ label: 'Todas las tiendas oficiales', valor: '4 u. en total' }]);
   });
 });
 

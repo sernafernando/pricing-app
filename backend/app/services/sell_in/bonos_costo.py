@@ -36,6 +36,16 @@ Owner: "agregá el de sell in, es para operaciones viejas que no tienen la factu
   recomputed from scratch for the whole bonus: a late sale dated earlier displaces a later one. Amounts are each
   row's units x the unrounded unit amount, rounded once to cents, half up.
 
+- USD (tactical sell in USD, owner P1 = C, P2 = A): a tactical's per-unit or capped line in USD is a USD bonus
+  (`moneda = 'USD'`, only with `tactical_id`). Each sale converts at the tactical's rate type, by sell out's rule
+  (`sell_out.asignacion._tasa`): `fijo` the tactical's `tipo_cambio`; `dia_venta` the BNA USD `venta` of the sale
+  date (the latest on or before it); `al_cobro` the rate loaded on the tactical's collection
+  (`tactical_cobranzas.tipo_cambio`, "Ponelo donde se carga el cobro"), until then the latest BNA (an estimate the BNA
+  update re-queues). A per-unit amount is USD times that rate; a percentage stays a % of the ARS cost. The cut to the
+  unit cost is in ARS; the cap (`tope_monto`, USD) counts each sale's USD (that ARS over its rate). A row keeps
+  `monto_usd` (cents) and `tc_venta` (6 decimals, half up), and `descuento_ars` = cents(`monto_usd` x `tc_venta`). A
+  sale with no rate to convert fails its component (configuration, never guessed), like a missing VAT rate.
+
 - A total split across products (tactical monto total S4, `tipo = 'monto_total'`): sell out's lump sum
   (`sell_out.reparto`) over the sales above: `iguales` / `costo` spread each product's fixed share
   (`sell_in_bono_repartos`) over its net units, `unidades` the whole total over every net unit, cents by cumulative
@@ -71,14 +81,15 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import Decimal
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
-from sqlalchemy import delete, func, insert, text
+from sqlalchemy import ColumnElement, Select, and_, delete, func, insert, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca, SellInBonoReparto, SellInConsumo
+from app.models.tactical import Tactical, TacticalCobranza
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA
 from app.services.sell_in import bono_queue
 from app.services.sell_in.costing import LOCK_SQL, LOCK_NAMESPACE
@@ -92,9 +103,14 @@ BASE = BASE_COSTO_VENTA
 LOCK_TIMEOUT = sell_out_queue.LOCK_TIMEOUT
 CIEN = Decimal(100)
 MONTO_TOTAL = "monto_total"
+USD = "USD"
+_TC_ESCALA = Decimal("0.000001")  # `sell_in_bono_consumos.tc_venta` is NUMERIC(18, 6)
 
 Clave = tope.Clave  # (canal, venta_ref, item_id): a combo sale is one line per component
-_Fila = Tuple[int, date, int, Decimal]  # (item_id, fecha_venta, unidades, descuento_ars)
+# (item_id, fecha_venta, unidades, descuento_ars, monto_usd, tc_venta): the last two only on a USD bonus's row
+_Fila = Tuple[int, date, int, Decimal, Optional[Decimal], Optional[Decimal]]
+# The rate (ARS per USD) a USD bonus converts a sale of that date at; raises `ValueError` without one.
+Tasa = Callable[[SellInBonoMarca, date], Decimal]
 
 
 @dataclass
@@ -230,8 +246,10 @@ def _componente(
     fifo: Dict[Clave, int],
     pendientes: Dict[int, int],
     repartos: Optional[Dict[int, Dict[int, Decimal]]] = None,
+    tasa: Optional[Tasa] = None,
 ) -> Dict[Tuple[int, str, int, int], _Fila]:
-    """The desired rows of one component: its bonuses in id order over its sales (module docstring)."""
+    """The desired rows of one component: its bonuses in id order over its sales (module docstring). `tasa` converts
+    a USD bonus's sales (`_tasador`); an ARS bonus never calls it."""
     deseadas: Dict[Tuple[int, str, int, int], _Fila] = {}
     # Per sale and unit number: what earlier bonuses give that unit.
     usado: Dict[Clave, Dict[int, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
@@ -241,8 +259,10 @@ def _componente(
         total = bono.tipo == MONTO_TOTAL
         # A total is not limited by the units other cost bonuses hold (sell out's lump sum, module docstring).
         antes = [] if total else [p.id for p in bonos if p.id < bono.id and not (p.acumulable and bono.acumulable)]
+        usd = bono.moneda == USD and not total
         lineas: List[tope.Linea] = []
-        unitarios: Dict[Clave, Decimal] = {}
+        unitarios: Dict[Clave, Decimal] = {}  # ARS per unit, what `usado` adds up
+        tasas: Dict[Clave, Decimal] = {}  # a USD bonus's rate per sale
         libres: Dict[Clave, List[int]] = {}
         for v in sorted(ventas, key=lambda x: x.unidades < 0):  # sales first: a return checks its sale
             if v.item_id not in alcances[bono.id] or not (bono.fecha_desde <= v.fecha <= bono.fecha_hasta):
@@ -265,6 +285,12 @@ def _componente(
             elif v.unidades > 0:
                 valor = valor_del_bono(bono, modelos.get(bono.id, {}).get(v.item_id))
                 monto = unitario(bono, valor, v.costo_unit, v.item_id, iva.get(v.item_id), v.fecha)
+                if usd:
+                    if tasa is None:
+                        raise ValueError(f"bono {bono.id}: no rate to convert USD")
+                    tasas[clave] = tasa(bono, v.fecha)
+                    if bono.tipo == "por_unidad":
+                        monto *= tasas[clave]  # the USD amount per unit, in ARS at this sale's rate
                 # A unit never gets more than its cost: cut to what the most loaded unit it may take has left.
                 monto = min(monto, v.costo_unit - max((usado[clave][u] for u in libres[clave]), default=0))
                 if monto <= 0:
@@ -277,7 +303,8 @@ def _componente(
                     item_id=v.item_id,
                     fecha=v.fecha,
                     unidades=v.unidades,
-                    base_unit=unitarios.get(clave),
+                    # A USD bonus's cap counts USD: each unit's ARS over its sale's rate.
+                    base_unit=unitarios[clave] / tasas[clave] if usd and clave in unitarios else unitarios.get(clave),
                     ocupadas=len(ocupado),
                     objetivo=v.objetivo,
                 )
@@ -288,7 +315,7 @@ def _componente(
             continue
         campana = tope.Campana(
             tipo="porcentaje",
-            moneda="ARS",
+            moneda=USD if usd else "ARS",
             porcentaje=CIEN,
             tope_unidades=bono.tope_unidades,
             tope_monto=Decimal(bono.tope_monto) if bono.tope_monto is not None else None,
@@ -296,7 +323,12 @@ def _componente(
         por_linea: Dict[Clave, int] = {}
         for x in tope.asignar(campana, lineas, por_linea=por_linea):
             clave = (x.canal, x.venta_ref, x.item_id)
-            deseadas[(bono.id, *clave)] = (x.item_id, x.fecha_venta, x.unidades, x.monto)
+            if usd:
+                tc = tasas[clave]
+                fila = (x.item_id, x.fecha_venta, x.unidades, tope.cents(x.monto * tc), x.monto, tc)
+            else:
+                fila = (x.item_id, x.fecha_venta, x.unidades, x.monto, None, None)
+            deseadas[(bono.id, *clave)] = fila
             for u in libres[clave][: x.unidades]:
                 usado[clave][u] += unitarios[clave]
         tenidas[bono.id] = {clave: libres[clave][:n] for clave, n in por_linea.items()}
@@ -318,7 +350,7 @@ def _total(
         criterio=bono.reparto_criterio,
     )
     return {
-        (bono.id, x.canal, x.venta_ref, x.item_id): (x.item_id, x.fecha_venta, x.unidades, x.monto)
+        (bono.id, x.canal, x.venta_ref, x.item_id): (x.item_id, x.fecha_venta, x.unidades, x.monto, None, None)
         for x in reparto.repartir(mt, netas)
     }
 
@@ -332,6 +364,102 @@ def _repartos(db: Session, activos: Dict[int, SellInBonoMarca]) -> Dict[int, Dic
         for bid, item_id, monto in db.query(t.bono_id, t.item_id, t.monto).filter(t.bono_id.in_(ids)):
             salida[bid][item_id] = Decimal(monto)
     return salida
+
+
+def _tasador(db: Session, activos: Dict[int, SellInBonoMarca], fechas: Iterable[date]) -> Tasa:
+    """The rate each active USD bonus converts a sale of a date at (module docstring, "USD"), read in at most three
+    queries, none without a USD bonus: the tactical's mode and fixed rate with its collection's rate, the BNA of the
+    `dia_venta` sale dates (`fechas`), and the latest BNA for an `al_cobro` bonus whose collection has no rate yet."""
+    ids = sorted(bid for bid, b in activos.items() if b.moneda == USD)
+    if not ids:
+        return _sin_tasa
+    t, c = Tactical, TacticalCobranza
+    propias: Dict[int, Tuple[Optional[str], Optional[Decimal]]] = {}
+    for bid, modo, fija, cobro in (
+        db.query(SellInBonoMarca.id, t.tc_modo, t.tipo_cambio, c.tipo_cambio)
+        .join(t, t.id == SellInBonoMarca.tactical_id)
+        .outerjoin(c, c.tactical_id == t.id)
+        .filter(SellInBonoMarca.id.in_(ids))
+    ):
+        propia = fija if modo == "fijo" else cobro if modo == "al_cobro" else None
+        propias[bid] = (modo, Decimal(propia) if propia is not None else None)
+    por_dia: Dict[date, Optional[Decimal]] = {}
+    if any(modo == "dia_venta" for modo, _ in propias.values()):
+        # Imported here: `bonos` imports this module.
+        from app.services.sell_in.bonos import tasas_bna_por_fecha
+
+        por_dia = tasas_bna_por_fecha(db, set(fechas))
+    actual: Optional[Decimal] = None
+    if any(modo == "al_cobro" and propia is None for modo, propia in propias.values()):
+        from app.services.sell_out.criterio import tasa_bna
+
+        actual = tasa_bna(db)
+
+    def tasa(bono: SellInBonoMarca, fecha: date) -> Decimal:
+        modo, propia = propias.get(bono.id, (None, None))
+        valor = propia if propia is not None else por_dia.get(fecha) if modo == "dia_venta" else None
+        if valor is None and modo == "al_cobro":
+            valor = actual
+        if valor is None or valor <= 0:
+            raise ValueError(f"bono {bono.id}: no USD rate to convert the sale of {fecha}")
+        return valor.quantize(_TC_ESCALA, rounding=ROUND_HALF_UP)
+
+    return tasa
+
+
+def tasas_de_hoy(db: Session, bonos: Iterable[SellInBonoMarca], hoy: date) -> Dict[int, Optional[Decimal]]:
+    """`{bono_id: rate}` a sale on `hoy` of each USD per-unit or % bonus would convert at, by the allocator's own rule
+    (`_tasador`), for the "c/ sell in" estimate of today (`productos_sell_in_out`); None when there is no rate, which
+    fails the allocator's whole component. ARS bonuses are not in the result."""
+    usd = {b.id: b for b in bonos if b.moneda == USD and b.tipo != MONTO_TOTAL}
+    if not usd:
+        return {}
+    tasa = _tasador(db, usd, {hoy})
+    salida: Dict[int, Optional[Decimal]] = {}
+    for bid, bono in usd.items():
+        try:
+            salida[bid] = tasa(bono, hoy)
+        except ValueError:
+            salida[bid] = None
+    return salida
+
+
+def bonos_estimados() -> Select:
+    """The ids of the USD cost bonuses whose rows are still an estimate (tactical sell in USD S10, option C "y marcar
+    los montos como estimados en pantalla"): an `al_cobro` tactical's whose collection has no rate yet, converted at
+    the latest BNA and recomputed daily until it does (`encolar_por_bna`). `fijo`, `dia_venta` and a loaded
+    collection rate are final. For `<rows>.bono_id.in_(bonos_estimados())`, like sell out's `ars_estimado`."""
+    t, c, b = Tactical, TacticalCobranza, SellInBonoMarca
+    return (
+        select(b.id)
+        .join(t, t.id == b.tactical_id)
+        .outerjoin(c, c.tactical_id == t.id)
+        .where(b.base == BASE, b.moneda == USD, t.tc_modo == "al_cobro", c.tipo_cambio.is_(None))
+    )
+
+
+def fila_usd_estimada() -> ColumnElement:
+    """Whether a `sell_in_bono_consumos` row (joined to its `sell_in_bonos_marca`) has a USD amount that is still an
+    estimate (S10): its bonus is in `bonos_estimados()` and the row's USD comes from an ARS amount over today's BNA
+    (a % line, or a per-unit amount cut to the unit cost). A per-unit amount itself is exact USD. A bonus without a
+    sale row (an outer join's NULL row) has nothing estimated. Known limit: a per-unit row cut by the USD money cap is
+    exact USD too, but it reads as cut and is marked; the stored row cannot tell the two cuts apart."""
+    b, c = SellInBonoMarca, SellInBonoConsumo
+    return and_(
+        b.id.in_(bonos_estimados()),
+        c.monto_usd.isnot(None),
+        or_(b.tipo != "por_unidad", c.monto_usd != func.round(b.monto_unit * c.unidades, 2)),
+    )
+
+
+def ids_estimados(db: Session) -> List[int]:
+    """`bonos_estimados()`'s ids, read once: a handful at most (one per USD `al_cobro` line not collected yet). The
+    readers filter on this literal list, never on a subquery a big sales read would re-run or nest-loop."""
+    return sorted(db.execute(bonos_estimados()).scalars())
+
+
+def _sin_tasa(bono: SellInBonoMarca, fecha: date) -> Decimal:
+    raise ValueError(f"bono {bono.id}: no USD rate to convert the sale of {fecha}")
 
 
 def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[int] = ()) -> CostoResult:
@@ -383,6 +511,7 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
     }
 
     repartos = _repartos(db, activos)
+    tasa = _tasador(db, activos, {v.fecha for v in ventas})
     deseadas: Dict[Tuple[int, str, int, int], _Fila] = {}
     fallidos: Set[int] = set()
     for componente in _componentes(activos, alcances, productos):
@@ -398,6 +527,7 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
                     fifo,
                     result.pendientes,
                     repartos,
+                    tasa,
                 )
             )
         except ValueError as exc:
@@ -410,13 +540,25 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
 
     guardadas: Dict[Tuple[int, str, int, int], Tuple[int, _Fila]] = {}
     t = SellInBonoConsumo
-    for rid, bid, canal, ref, item_id, fecha, unidades, monto in (
-        db.query(t.id, t.bono_id, t.canal, t.venta_ref, t.item_id, t.fecha_venta, t.unidades, t.descuento_ars)
+    for rid, bid, canal, ref, item_id, fecha, unidades, monto, usd, tc in (
+        db.query(
+            t.id,
+            t.bono_id,
+            t.canal,
+            t.venta_ref,
+            t.item_id,
+            t.fecha_venta,
+            t.unidades,
+            t.descuento_ars,
+            t.monto_usd,
+            t.tc_venta,
+        )
         .join(SellInBonoMarca, SellInBonoMarca.id == t.bono_id)
         .filter(t.item_id.in_(ids), SellInBonoMarca.base == BASE)
     ):
         # Only cost bonuses' rows: a row of any other kind is never this call's to delete.
-        guardadas[(bid, canal, ref, item_id)] = (rid, (item_id, fecha, unidades, Decimal(monto)))
+        fila = (item_id, fecha, unidades, Decimal(monto), _decimal(usd), _decimal(tc))
+        guardadas[(bid, canal, ref, item_id)] = (rid, fila)
     # A failed component keeps its rows; a sale re-filed into another product keeps its key there too.
     retenidas = {clave for clave, (_, fila) in guardadas.items() if fila[0] in fallidos}
     borrar = [rid for clave, (rid, fila) in guardadas.items() if clave not in retenidas and deseadas.get(clave) != fila]
@@ -429,6 +571,8 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
             "fecha_venta": fila[1],
             "unidades": fila[2],
             "descuento_ars": fila[3],
+            "monto_usd": fila[4],
+            "tc_venta": fila[5],
         }
         for clave, fila in deseadas.items()
         if clave not in retenidas and guardadas.get(clave, (None, None))[1] != fila
@@ -439,6 +583,10 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
         db.execute(insert(SellInBonoConsumo), filas)
     result.inserted, result.deleted = len(filas), len(borrar)
     return result
+
+
+def _decimal(valor: Optional[Decimal]) -> Optional[Decimal]:
+    return Decimal(valor) if valor is not None else None
 
 
 def seguir_fifo(db: Session, item_ids: Iterable[int]) -> None:
@@ -469,6 +617,38 @@ _ENCOLAR_BONO = text(
     "INSERT INTO sell_in_bono_dirty (tipo, ref) VALUES ('bono', :ref) "
     "ON CONFLICT (tipo, ref) DO UPDATE SET enqueued_at = now(), attempts = 0, last_error = NULL"
 )
+
+
+def encolar_bonos(db: Session, bono_ids: Iterable[int]) -> None:
+    """Queues these cost bonuses for the `sell_in.bono` drain in the caller's transaction (a USD bonus whose rate
+    changed: the collection's, `tacticals.cobrar`). Postgres only (the queue's NOTIFY). Does not commit."""
+    ids = sorted(set(bono_ids))
+    if not ids or db.get_bind().dialect.name != "postgresql":
+        return
+    for bid in ids:
+        db.execute(_ENCOLAR_BONO, {"ref": bid})
+    db.execute(text("SELECT pg_notify(:canal, '')"), {"canal": bono_queue.CHANNEL})
+
+
+def encolar_por_bna(db: Session, fecha: date) -> None:
+    """Queues the active USD cost bonuses a new BNA rate dated `fecha` can move, as sell out's `enqueue_por_bna`:
+    an `al_cobro` one whose tactical's collection has no rate yet (it follows the latest BNA: the daily recompute,
+    owner "recomputed daily until the collection rate is loaded") and a `dia_venta` one still running on or after
+    `fecha` (a sale converts at the latest rate on or before its day). `fijo` and a loaded collection rate never
+    move with BNA. Does not commit."""
+    t, c, b = Tactical, TacticalCobranza, SellInBonoMarca
+    sin_tasa = and_(t.tc_modo == "al_cobro", c.tipo_cambio.is_(None))
+    dia_venta = and_(t.tc_modo == "dia_venta", b.fecha_hasta >= fecha)
+    encolar_bonos(
+        db,
+        [
+            bid
+            for (bid,) in db.query(b.id)
+            .join(t, t.id == b.tactical_id)
+            .outerjoin(c, c.tactical_id == t.id)
+            .filter(b.base == BASE, b.estado == "activa", b.moneda == USD, or_(sin_tasa, dia_venta))
+        ],
+    )
 
 
 def _encolar(db: Session, item_ids: Set[int]) -> None:

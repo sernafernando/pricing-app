@@ -151,6 +151,7 @@ TP_FIELDS = (
     "m_sell_out",
     "sell_out_pendientes",
     "sell_out_estimados",
+    "sell_in_estimados",  # tactical sell in USD S10
     "sell_in_lineas",
     "sell_out_lineas",
     "sell_in_out",

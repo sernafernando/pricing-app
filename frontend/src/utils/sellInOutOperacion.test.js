@@ -72,4 +72,19 @@ describe('celdasSellInOut', () => {
 
     expect(result.markup.negativo).toBe(true);
   });
+
+  // Tactical sell in USD S10: "y marcar los montos como estimados en pantalla", like an estimated sell out.
+  it('marks an estimated sell in on the cost and the markup', () => {
+    const result = celdas({
+      ...SIN_CONSUMOS,
+      sell_in_ars: 100,
+      sell_in_estimado: true,
+      costo_con_sell_in: 900,
+      markup_con_sell_in_out: 0.5,
+    });
+
+    expect(result.costo).toEqual({ texto: '≈ $ 900', title: 'Sell in: $ 100 (estimado: tipo de cambio a definir)' });
+    expect(result.markup.texto).toBe('≈ 50.00%');
+    expect(result.markup.title).toBe('Sell in: $ 100 (estimado: tipo de cambio a definir)');
+  });
 });

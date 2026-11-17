@@ -46,6 +46,36 @@ export const nuevaLinea = (marca = '') => ({
   reparto: '',
 });
 
+const PRODUCTOS_A_NOMBRAR = 2;
+
+/** What a line covers, as the cap summary names it: its products' codes, its brand, category or invoices. */
+function alcanceDe(linea) {
+  if (linea.alcance === 'marca') return linea.marca;
+  if (linea.alcance === 'categoria') return linea.categoria;
+  const nombres = linea.alcance === 'factura' ? linea.facturas.map((f) => f.numero) : linea.productos.map((p) => p.codigo);
+  const resto = nombres.length - PRODUCTOS_A_NOMBRAR;
+  const vistos = nombres.slice(0, resto > 1 ? PRODUCTOS_A_NOMBRAR : nombres.length).join(', ');
+  return resto > 1 ? `${vistos} y ${resto} más` : vistos;
+}
+
+/**
+ * Every line's cap for the summary under the stores (tactical sell in USD S9, owner: "solo pone en la leyenda la
+ * primer línea de abajo no todas"): "Línea N · <scope>" with its unit cap and/or money cap, or "sin tope".
+ */
+export function topesDeLineas(lineas, moneda) {
+  return lineas.map((linea, i) => {
+    const unidades = numeroDe(linea.topeUnidades);
+    const monto = numeroDe(linea.topeMonto);
+    const topes = [
+      unidades != null && unidades > 0 ? `${unidades.toLocaleString('es-AR')} u.` : null,
+      monto != null && monto > 0 ? dinero(moneda, monto) : null,
+    ].filter(Boolean);
+    const alcance = alcanceDe(linea);
+    const label = alcance ? `Línea ${i + 1} · ${alcance}` : `Línea ${i + 1}`;
+    return { label, valor: topes.join(' o ') || 'sin tope' };
+  });
+}
+
 export const copiarLinea = (linea) => ({
   ...linea,
   id: ++siguienteId,

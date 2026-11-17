@@ -31,6 +31,7 @@ import {
   numeroDe,
   porFactura,
   problemaDe,
+  topesDeLineas,
   unidadesDelTope,
 } from '../components/tactical/tacticalLineas';
 import { ALCANCE_INICIAL, ALCANCE_POR_TIENDA, contadoresDelTope } from '../components/tactical/tacticalTiendas';
@@ -347,6 +348,7 @@ export default function TacticalNuevo() {
             gruposTiendas={gruposTiendas}
             tiendasActivas={tiendasOficialesActivas.length}
             ejemploTope={ejemploTope}
+            topesLineas={topesDeLineas(lineas, form.moneda)}
             alcancePorTienda={alcancePorTienda}
             porFactura={porFactura(form, lineas)}
           />

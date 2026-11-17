@@ -158,6 +158,7 @@ class TestWithTheProfitView:
             "sell_out": 5.0,
             "sell_out_pendientes": 0,
             "sell_out_estimados": 0,
+            "sell_in_estimados": 0,
             "costo": 100.0,
             "costo_sell_in": 90.0,
             "total_gauss": 45.0,

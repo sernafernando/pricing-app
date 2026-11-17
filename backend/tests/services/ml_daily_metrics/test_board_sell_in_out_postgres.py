@@ -40,8 +40,13 @@ CONSUMPTION_DDL = (
     "CREATE TEMP TABLE sell_in_consumos (canal VARCHAR(8), venta_ref BIGINT, descuento_ars NUMERIC(18, 2)) "
     "ON COMMIT DROP;"
     # The % of cost bonuses' sell in (T25, `sell_in_bono_consumos`): the same keys, disjoint units.
-    "CREATE TEMP TABLE sell_in_bono_consumos (canal VARCHAR(8), venta_ref BIGINT, descuento_ars NUMERIC(18, 2)) "
-    "ON COMMIT DROP;"
+    "CREATE TEMP TABLE sell_in_bono_consumos (canal VARCHAR(8), venta_ref BIGINT, descuento_ars NUMERIC(18, 2), "
+    "bono_id BIGINT) ON COMMIT DROP;"
+    # What makes a cost bonus's sell in an estimate (tactical sell in USD S10, `bonos_costo.bonos_estimados`).
+    "CREATE TEMP TABLE sell_in_bonos_marca (id BIGINT PRIMARY KEY, base VARCHAR(16) DEFAULT 'costo_venta', "
+    "moneda VARCHAR(3), tactical_id BIGINT) ON COMMIT DROP;"
+    "CREATE TEMP TABLE tacticals (id BIGINT PRIMARY KEY, tc_modo VARCHAR(12)) ON COMMIT DROP;"
+    "CREATE TEMP TABLE tactical_cobranzas (tactical_id BIGINT, tipo_cambio NUMERIC(18, 6)) ON COMMIT DROP;"
     "CREATE TEMP TABLE sell_out_campanas (id BIGINT PRIMARY KEY, moneda VARCHAR(3), tc_modo VARCHAR(12), "
     "tipo_cambio NUMERIC(18, 6), tipo VARCHAR(16) DEFAULT 'por_unidad', estado VARCHAR(16) DEFAULT 'activa', "
     "fecha_hasta DATE DEFAULT '2026-09-30') ON COMMIT DROP;"
@@ -408,3 +413,70 @@ class TestCostBonusSellIn:
             k = b.kpis()
 
         assert (k.sell_in, k.m_sell_in, k.sell_in_lineas) == (_d("13.00"), _d("13.00"), 2)
+
+
+@pytest.fixture(params=["live", "persisted"])
+def usd_bonus(request, board_pg, monkeypatch):
+    """Tactical sell in USD S10 (option C, "y marcar los montos como estimados en pantalla"): a USD cost bonus of an
+    `al_cobro` tactical converts at today's BNA until its collection rate is loaded, so its sell in is estimated.
+    39: one sale whose sell in is such a bonus without the collection rate (estimated) plus an ARS one.
+    40: one sale whose USD `al_cobro` bonus already has its collection rate (final)."""
+    db = board_pg
+    db.execute(
+        text(
+            "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria, subcategoria_id, stock) "
+            "VALUES (39, 'S39', 'Switch', 'TP-Link', 'Redes', 1, 1), (40, 'S40', 'Mesh', 'TP-Link', 'Redes', 1, 1);"
+            "INSERT INTO ml_tiendas_oficiales (store_id, nombre, clave, orden, activa) VALUES "
+            "(57997, 'Gauss', NULL, 1, true);"
+            "INSERT INTO tb_mercadolibre_items_publicados (mlp_id, mlp_publicationid, item_id, mlp_official_store_id) "
+            "VALUES (9139, 'MLA939', 39, 57997), (9140, 'MLA940', 40, 57997)"
+        )
+    )
+    refs = {}
+    for product in (39, 40):
+        order_id = 2000012345679000 + product
+        _order(db, order_id, [(product, f"MLA9{product}", 1, Decimal("50"))], tg="10", costo="50")
+        _group(db, f"o:{order_id}", [order_id], NOW - timedelta(hours=3))
+        refs[product] = _line(db, order_id)
+    db.execute(text(CONSUMPTION_DDL))
+    db.execute(
+        text(
+            "INSERT INTO tacticals VALUES (1, 'al_cobro'), (2, 'al_cobro');"
+            "INSERT INTO tactical_cobranzas VALUES (2, 1350);"
+            "INSERT INTO sell_in_bonos_marca (id, moneda, tactical_id) VALUES (1, 'USD', 1), (2, 'USD', 2), "
+            "(3, 'ARS', NULL);"
+            "INSERT INTO sell_in_bono_consumos VALUES ('ml', :s39, 15, 1), ('ml', :s39, 1, 3), ('ml', :s40, 13.5, 2)"
+        ),
+        {"s39": refs[39], "s40": refs[40]},
+    )
+    db.flush()
+    if request.param == "persisted":
+        lines = sale_lines(sqlite=False, queue=False, keyed=True, tp=True)
+        db.execute(
+            insert(MlSaleLine.__table__).from_select(
+                list(STORED_COLUMNS), select(*(lines.c[n] for n in STORED_COLUMNS))
+            )
+        )
+        monkeypatch.setattr(settings, "METRICAS_SALE_LINES_ENABLED", True)
+        db.flush()
+    return db
+
+
+@pytest.mark.postgres
+class TestEstimatedSellIn:
+    def test_a_usd_al_cobro_bonus_without_its_collection_rate_flags_the_row(self, usd_bonus) -> None:
+        rows = _rows(usd_bonus, ON)
+
+        assert (rows["39"].sell_in, rows["39"].sell_in_estimados) == (_d("16.00"), 1)
+        assert (rows["40"].sell_in, rows["40"].sell_in_estimados) == (_d("13.50"), 0)
+        assert sell_in_out_of(rows["39"]).sell_in_estimados == 1
+
+    def test_the_kpis_count_the_estimated_lines(self, usd_bonus) -> None:
+        with board.Board(usd_bonus, ON, scope_pairs=None) as b:
+            k = b.kpis()
+
+        assert (k.sell_in, k.sell_in_estimados) == (_d("29.50"), 1)
+        assert sell_in_out_of(k).sell_in_estimados == 1
+
+    def test_off_reports_no_estimate(self, usd_bonus) -> None:
+        assert _rows(usd_bonus, OFF)["39"].sell_in_estimados is None

@@ -178,6 +178,9 @@ class TacticalLineaOut(BaseModel):
     tc_al_cobro: Optional[Decimal] = None
     unidades_usadas: int
     monto_usado: Decimal
+    # A USD cost line of an `al_cobro` tactical without its collection rate yet whose USD comes from today's BNA (a %
+    # line, or a per-unit amount cut to the unit cost): `monto_usado` is an estimate (tactical sell in USD S10).
+    monto_estimado: bool = False
     # An invoice line saved before Compras linked its operation's supplier invoice: it applies nothing until then.
     esperando_factura: bool = False
     # An invoice line's pick (S5): None = every invoice of its operation ("Todas"); otherwise the picked invoices.
@@ -204,6 +207,9 @@ class TacticalCobranzaIn(BaseModel):
     distribuidor: Optional[str] = Field(default=None, max_length=200)
     otro_detalle: Optional[str] = Field(default=None, max_length=500)
     observaciones: Optional[str] = Field(default=None, max_length=NOTA_MAX)
+    # The rate (ARS per USD) the brand paid at (tactical sell in USD S8, owner: "Ponelo donde se carga el cobro"):
+    # required exactly when the tactical asks for it (`TacticalOut.pide_tc_cobro`), refused otherwise.
+    tipo_cambio: Optional[Decimal] = Field(default=None, gt=0, max_digits=18, decimal_places=6)
 
     @model_validator(mode="after")
     def _detalle_del_medio(self) -> "TacticalCobranzaIn":
@@ -220,6 +226,7 @@ class TacticalCobranzaOut(BaseModel):
     distribuidor: Optional[str]
     otro_detalle: Optional[str]
     observaciones: Optional[str]
+    tipo_cambio: Optional[Decimal] = None  # the rate the brand paid at (a USD `al_cobro` sell in), else None
     usuario_id: int  # the last user to save it
     created_at: datetime
     updated_at: datetime
@@ -254,6 +261,8 @@ class TacticalOut(BaseModel):
     lineas: list[TacticalLineaOut]
     # The collection record (tactical cobranza S1): None = "Pendiente", a record = "Cobrado".
     cobranza: Optional[TacticalCobranzaOut] = None
+    # Its collection takes the rate the brand paid at: a sell in in USD `al_cobro` with an active USD cost line.
+    pide_tc_cobro: bool = False
 
 
 class MontoMonedaOut(BaseModel):
@@ -261,6 +270,7 @@ class MontoMonedaOut(BaseModel):
     monto: Decimal
     tope: Optional[Decimal] = None  # the lines' money caps in this currency (S6); None when no line here has one
     tope_parcial: bool = False  # only some lines in this currency have a cap: `tope` is not comparable to `monto`
+    estimado: bool = False  # some line in this currency is still an estimate (tactical sell in USD S10)
 
 
 class CobranzaKpiOut(BaseModel):

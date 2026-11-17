@@ -294,11 +294,22 @@ class TestSellIn:
             _editar(db, tactical.id, lineas=[{"linea": 1, "tope_unidades": 5}])
         assert _editar(db, tactical.id, nombre="Total renombrado").nombre == "Total renombrado"
 
-    def test_a_usd_cost_reduction_takes_no_money_cap_as_on_create(self, db, engine) -> None:
-        """The cost bonus is in ARS: a cap in the tactical's USD would be read as pesos."""
+    def test_a_usd_cost_reduction_takes_a_money_cap_in_usd_as_on_create(self, db, engine) -> None:
+        """P2 = A ("En dólares"): a money cap on a USD tactical's % line makes its cost bonus USD, the cap in USD;
+        taking the cap away leaves the % of the ARS cost it was."""
         linea = {"alcance": "marca", "marca": bw.TPLINK, "modo_monto": "porcentaje", "valor": "3"}
         tactical = service.crear(db, _tactical("sell_in", [linea], moneda="USD"), USUARIO)
 
-        with pytest.raises(service.TacticalError, match="^Línea 1: una reducción de costo por unidad o con tope de "):
-            _editar(db, tactical.id, lineas=[{"linea": 1, "tope_monto": "500"}])
-        assert _filas(engine, "SELECT tope_monto FROM sell_in_bonos_marca") == [(None,)]
+        _editar(db, tactical.id, lineas=[{"linea": 1, "tope_monto": "500"}])
+        assert _filas(engine, "SELECT moneda, tope_monto FROM sell_in_bonos_marca") == [("USD", Decimal("500.00"))]
+
+        _editar(db, tactical.id, lineas=[{"linea": 1, "tope_monto": None}])
+        assert _filas(engine, "SELECT moneda, tope_monto FROM sell_in_bonos_marca") == [("ARS", None)]
+
+    def test_an_ars_cost_reduction_cap_stays_in_pesos(self, db, engine) -> None:
+        linea = {"alcance": "marca", "marca": bw.TPLINK, "modo_monto": "porcentaje", "valor": "3"}
+        tactical = service.crear(db, _tactical("sell_in", [linea]), USUARIO)
+
+        _editar(db, tactical.id, lineas=[{"linea": 1, "tope_monto": "500"}])
+
+        assert _filas(engine, "SELECT moneda, tope_monto FROM sell_in_bonos_marca") == [("ARS", Decimal("500.00"))]

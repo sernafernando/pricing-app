@@ -24,7 +24,7 @@ from app.models.sell_out import (
     SellOutDirty,
     SellOutPrograma,
 )
-from app.models.tactical import TacticalCobranza, TacticalMarca, TacticalTienda
+from app.models.tactical import TacticalMarca, TacticalTienda
 from app.schemas.sell_out import SellOutCampanaIn
 from app.schemas.tacticals import TacticalIn
 from app.services import tacticals as service
@@ -44,7 +44,7 @@ TABLES = [
     MlTiendaOficial.__table__,
     TacticalTienda.__table__,
     TacticalMarca.__table__,
-    TacticalCobranza.__table__,
+    # `TacticalCobranza` comes with `bw.TABLES` (a USD `al_cobro` cost bonus reads its rate).
     OffsetGrupo.__table__,
     OffsetGrupoFiltro.__table__,
     SellOutPrograma.__table__,
@@ -101,6 +101,11 @@ def db(engine: Engine) -> Iterator[Session]:
 def _contar(engine: Engine, tabla: str, where: str = "true") -> int:
     with engine.connect() as conn:
         return conn.execute(text(f"SELECT count(*) FROM {tabla} WHERE {where}")).scalar()
+
+
+def _sql(engine: Engine, sql: str) -> list[tuple]:
+    with engine.connect() as conn:
+        return [tuple(r) for r in conn.execute(text(sql))]
 
 
 def _tactical(tipo: str = "sell_out", lineas=None, **cabecera) -> TacticalIn:
@@ -200,9 +205,45 @@ class TestSellIn:
                        f"base = 'costo_venta' AND tipo = 'por_unidad' AND alcance = 'modelos' "
                        f"AND tactical_id = {tactical.id} AND tactical_linea = 1") == 1  # fmt: skip
 
-        usd = _tactical("sell_in", [linea], moneda="USD")
-        with pytest.raises(service.TacticalError, match="^Línea 1: una reducción de costo por unidad .* en pesos"):
-            service.crear(db, usd, USUARIO)
+        assert _contar(engine, "sell_in_bonos_marca", "moneda = 'ARS' AND monto_unit = 36") == 1
+
+    @pytest.mark.parametrize(
+        "tc",
+        [{"tc_modo": "fijo", "tipo_cambio": "1400"}, {"tc_modo": "dia_venta"}, {"tc_modo": "al_cobro"}],
+        ids=["fijo", "dia_venta", "al_cobro"],
+    )
+    def test_usd_per_unit_lines_are_usd_cost_bonuses_each_with_its_own_cap(self, db, engine, tc) -> None:
+        """Owner: "vos elegís un tipo de moneda para el sell in y un tipo de cambio qué importa en qué se cargó la
+        factura?" (P1 = C: every rate type). The screenshot's tactical: two product lines, each keeps its unit cap."""
+        lineas = [
+            {"alcance": "productos", "item_ids": [2964], "modo_monto": "por_unidad", "valor": "10.91",
+             "tope_unidades": 4},
+            {"alcance": "productos", "item_ids": [950], "modo_monto": "por_unidad", "valor": "4.58",
+             "tope_unidades": 40},
+        ]  # fmt: skip
+
+        tactical = service.crear(db, _tactical("sell_in", lineas, moneda="USD", **tc), USUARIO)
+
+        assert _sql(
+            engine,
+            "SELECT tactical_linea, moneda, tipo, monto_unit, tope_unidades FROM sell_in_bonos_marca "
+            f"WHERE tactical_id = {tactical.id} AND base = 'costo_venta' ORDER BY tactical_linea",
+        ) == [(1, "USD", "por_unidad", Decimal("10.91"), 4), (2, "USD", "por_unidad", Decimal("4.58"), 40)]
+
+    def test_a_usd_percentage_is_a_usd_cost_bonus_only_with_a_money_cap(self, db, engine) -> None:
+        """P2 = A ("En dólares"): the money cap counts USD; a % without one stays a % of the ARS cost, as before."""
+        lineas = [
+            {"alcance": "marca", "marca": TPLINK, "modo_monto": "porcentaje", "valor": "3"},
+            {"alcance": "marca", "marca": TPLINK, "modo_monto": "porcentaje", "valor": "2", "tope_monto": "500"},
+        ]
+
+        tactical = service.crear(db, _tactical("sell_in", lineas, moneda="USD", tc_modo="dia_venta"), USUARIO)
+
+        assert _sql(
+            engine,
+            "SELECT tactical_linea, moneda, tope_monto FROM sell_in_bonos_marca "
+            f"WHERE tactical_id = {tactical.id} ORDER BY tactical_linea",
+        ) == [(1, "ARS", None), (2, "USD", Decimal("500.00"))]
 
     def test_an_invoice_tactical_takes_no_dates_and_its_bonus_takes_its_invoice_date(self, db, engine) -> None:
         """Tactical factura sin fecha S1/S2c: any invoice date; the header spans the oldest to the newest invoice."""

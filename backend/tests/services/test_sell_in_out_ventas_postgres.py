@@ -21,7 +21,7 @@ import pytest
 from sqlalchemy import Engine, event, text
 from sqlalchemy.orm import sessionmaker
 
-from app.models.tactical import Tactical
+from app.models.tactical import Tactical, TacticalCobranza
 from app.models.producto import ProductoERP
 from app.models.sell_in import (
     SellInBonoConsumo,
@@ -58,6 +58,7 @@ STUBS = [
 TABLES = [
     ProductoERP.__table__,
     Tactical.__table__,  # `tactical_id` of campaigns, bonuses and purchases (tacticals T1)
+    TacticalCobranza.__table__,  # the collection rate of a USD `al_cobro` tactical (tactical sell in USD S8)
     SellInBonoMarca.__table__,
     SellInCompra.__table__,
     SellInCompraItem.__table__,
@@ -93,6 +94,8 @@ def clean(engine: Engine) -> None:
             "sell_in_compras",
             "sell_in_bonos_marca",
             "sell_out_campanas",
+            "tactical_cobranzas",
+            "tacticals",
         ):
             conn.execute(text(f"DELETE FROM {table}"))  # items and consumptions cascade
 
@@ -151,6 +154,49 @@ def sell_in_costo(engine: Engine, bono_id: int, ref: int, descuento: str, canal:
     )
 
 
+def bono_costo_usd(engine: Engine, tc_modo: str = "al_cobro", cobro: Optional[str] = None) -> int:
+    """A tactical's USD per-unit cost bonus (tactical sell in USD S2); `cobro` loads its collection with that rate."""
+    with engine.begin() as conn:
+        tactical = conn.execute(
+            text(
+                "INSERT INTO tacticals (tipo, nombre, marca, fecha_desde, fecha_hasta, moneda, tc_modo, tipo_cambio, "
+                "usuario_id) VALUES ('sell_in', 'Synthetic', 'TP-LINK', :f, :f, 'USD', :m, :tc, 7) RETURNING id"
+            ),
+            {"f": DIA, "m": tc_modo, "tc": "1000" if tc_modo == "fijo" else None},
+        ).scalar()
+        if cobro is not None:
+            conn.execute(
+                text(
+                    "INSERT INTO tactical_cobranzas (tactical_id, fecha_cobro, tipo_cambio, usuario_id) "
+                    "VALUES (:t, :f, :tc, 7)"
+                ),
+                {"t": tactical, "f": DIA, "tc": cobro},
+            )
+        return conn.execute(
+            text(
+                "INSERT INTO sell_in_bonos_marca (base, alcance, marca, tipo, monto_unit, moneda, fecha_desde, "
+                "fecha_hasta, usuario_id, tactical_id, tactical_linea) VALUES ('costo_venta', 'marca', 'TP-LINK', "
+                "'por_unidad', 10, 'USD', :f, :f, 7, :t, 1) RETURNING id"
+            ),
+            {"f": DIA, "t": tactical},
+        ).scalar()
+
+
+def sell_in_costo_usd(engine: Engine, bono_id: int, ref: int, tc: str = "1500", canal: str = "fuera") -> None:
+    """A USD cost bonus's row: USD 10 at `tc` (ARS = cents(usd x tc))."""
+    w_out.execute(
+        engine,
+        "INSERT INTO sell_in_bono_consumos (bono_id, canal, venta_ref, item_id, fecha_venta, unidades, descuento_ars, "
+        "monto_usd, tc_venta) VALUES (:b, :canal, :r, 2964, :f, 1, :d, 10, :tc)",
+        b=bono_id,
+        canal=canal,
+        r=ref,
+        f=DIA,
+        d=str(Decimal(tc) * 10),
+        tc=tc,
+    )
+
+
 def sell_out(engine: Engine, campana_id: int, ref: int, monto: str, tc_venta: Optional[str] = None) -> None:
     w_out.execute(
         engine,
@@ -179,6 +225,46 @@ def _clean(engine: Engine) -> Iterator[None]:
 def _montos(engine: Engine, refs: List[int], canal: str = "fuera") -> dict:
     with sessionmaker(bind=engine)() as db:
         return sell_in_out_ventas.montos_por_venta(db, canal, refs)
+
+
+class TestSellInEstimado:
+    """Option C (tactical sell in USD S10): "y marcar los montos como estimados en pantalla". A USD cost bonus of an
+    `al_cobro` tactical whose collection has no rate yet converts at today's BNA: its sales' sell in is estimated,
+    like sell out's `al_cobro` campaign without its rate."""
+
+    def test_an_al_cobro_usd_cost_bonus_without_its_collection_rate_is_estimated(self, engine: Engine) -> None:
+        ref = venta(engine)
+        sell_in(engine, compra_item(engine), ref, "100.00")
+        sell_in_costo_usd(engine, bono_costo_usd(engine), ref)
+
+        m = _montos(engine, [ref])[ref]
+
+        assert (m.sell_in_ars, m.sell_in_estimado) == (Decimal("15100.00"), True)
+        assert m.credito_ars == Decimal("15100.00")  # an estimate is a known amount, unlike an unknown sell out
+
+    @pytest.mark.parametrize(
+        "bono",
+        [
+            pytest.param(lambda e: bono_costo_usd(e, cobro="1350"), id="collection_rate_loaded"),
+            pytest.param(lambda e: bono_costo_usd(e, tc_modo="fijo"), id="fijo"),
+            pytest.param(lambda e: bono_costo_usd(e, tc_modo="dia_venta"), id="dia_venta"),
+        ],
+    )
+    def test_a_final_rate_is_not_estimated(self, engine: Engine, bono) -> None:
+        ref = venta(engine)
+        sell_in_costo_usd(engine, bono(engine), ref)
+
+        assert _montos(engine, [ref])[ref].sell_in_estimado is False
+
+    def test_ars_sell_in_is_not_estimated_and_no_sell_in_is_none(self, engine: Engine) -> None:
+        ref, solo_out = venta(engine), venta(engine)
+        sell_in(engine, compra_item(engine), ref, "100.00")
+        sell_in_costo(engine, bono_costo(engine), ref, "9.75")
+        sell_out(engine, campana(engine), solo_out, "20.00")
+
+        m = _montos(engine, [ref, solo_out])
+
+        assert (m[ref].sell_in_estimado, m[solo_out].sell_in_estimado) == (False, None)
 
 
 class TestMontosPorVenta:
