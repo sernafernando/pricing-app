@@ -1479,9 +1479,11 @@
 }
 
 .rankingRow {
+  /* Tracks sized to content maxima; remainder → name.
+     price ≤ "$10.000.000,00"; markup ≤ "-99.9%" (sell-in/out stacks below). */
   display: grid;
-  grid-template-columns: 1.25rem 2rem minmax(0, 1fr) auto auto;
-  gap: var(--space-2, 0.5rem);
+  grid-template-columns: 1.1rem 1.25rem minmax(0, 1fr) 2.4em 8.5em 14ch 5.5ch;
+  gap: var(--space-1, 0.25rem) var(--space-2, 0.5rem);
   align-items: center;
   min-height: 32px;
   padding: 0.25rem 0.5rem;
@@ -1519,8 +1521,13 @@
 }
 
 .rankingPos {
+  justify-self: stretch;
+  width: 100%;
+  box-sizing: border-box;
   font-family: ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
+  font-size: 0.7rem;
+  text-align: right;
   color: var(--cf-text-secondary, var(--text-secondary));
 }
 
@@ -1532,15 +1539,52 @@
   color: var(--cf-text-primary, var(--text-primary));
 }
 
+.rankingBadge,
+.rankingRep {
+  justify-self: stretch;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cf-text-secondary, var(--text-secondary));
+}
+
+.rankingBadge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.rankingRep {
+  font-size: 0.65rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: lowercase;
+}
+
 .rankingPrice,
 .rankingMarkup {
+  justify-self: stretch;
+  width: 100%;
+  box-sizing: border-box;
   font-family: ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   text-align: right;
 }
 
+/* Keep the markup track at ~99.9%: label above the value, not beside it. */
 .rankingMarkup .sellInOutExtra {
   display: block;
-  white-space: nowrap;
+  white-space: normal;
+  text-align: right;
+  font-size: 0.6rem;
+  line-height: 1.15;
+}
+
+.rankingMarkup .sellInOutLabel {
+  display: block;
 }

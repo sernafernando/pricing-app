@@ -318,6 +318,36 @@ function CatalogCompetitionPanel({ mla, catalogCompetitionCacheRef, variant = 'u
                   {competitor.seller_nickname || itemId || 'Competidor'}
                   {ours ? ' (vos)' : ''}
                 </span>
+                <span
+                  className={styles.rankingBadge}
+                  title={
+                    competitor.is_full === true
+                      ? 'Mercado Envíos Full'
+                      : competitor.is_full === false
+                        ? 'No es Full'
+                        : 'Sin dato de Full en el snapshot'
+                  }
+                >
+                  {competitor.is_full === true ? 'Full' : competitor.is_full === false ? '—' : '?'}
+                </span>
+                <span
+                  className={styles.rankingRep}
+                  title={
+                    competitor.power_seller_status || competitor.reputation_level
+                      ? [
+                          competitor.reputation_level && `Nivel: ${competitor.reputation_level}`,
+                          competitor.power_seller_status && `Power: ${competitor.power_seller_status}`,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')
+                      : 'Sin dato de reputación (puede llegar tras el Actualizar)'
+                  }
+                >
+                  {competitor.power_seller_status ||
+                    (competitor.reputation_level
+                      ? String(competitor.reputation_level).replace(/_/g, ' ')
+                      : '?')}
+                </span>
                 <span className={styles.rankingPrice}>{formatPrice(competitor.price_ars ?? competitor.price)}</span>
                 <span className={styles.rankingMarkup} style={{ color: getMarkupColor(competitor.markup) }}>
                   {formatMarkup(competitor.markup)}

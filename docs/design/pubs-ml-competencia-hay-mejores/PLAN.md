@@ -40,7 +40,7 @@ En lugar del lead clásico, tono: *“Tenés oportunidad de aumentar el precio e
 | --- | --- | --- |
 | **C1** | Límite de markup | Floor y/o techo; fuera de rango no es “mejor” aunque pase A. |
 | **C2** | Ganar catálogo | Promo que gana catálogo (ranking efectivo). Toggle **solo markup positivo**: ON → markup &gt; 0; OFF → permite negativo. Catálogo fresco obligatorio. |
-| **C3–C5, C7–C8** | Tabla de competidores | **Única** fuente de quién cuenta. Columnas informativas (Full, intl, stock, reputación, …). Todos tildados por defecto; el PM destilda. Responsabilidad del PM. |
+| **C3–C5, C7–C8** | Tabla de competidores | **Única** fuente de quién cuenta. Columnas informativas: **Full** (shipping_badges) + **reputación** (/users enrich) shipped 2026-11-17; **intl / stock competitor = no data source** (documented, columns stay “sin dato”). Todos tildados por defecto; el PM destilda. Responsabilidad del PM. |
 | **C6** | Techo monopolio | Ganando + gap al 2º **entre tildados** ≥ gap mín (default **$5000**) → subir. Distancia objetivo al 2º configurable (default **$100**). Toggle: solo vía promo vs cualquier caso. |
 
 Dependencia: catálogo → tabla (tildados) → ranking efectivo → C2 y C6. Canónico A + C1 → candidatas clásicas.
@@ -102,3 +102,37 @@ PRs a `main`, slices ~≤400 líneas. Cambio de criterios → **solo corridas nu
 - ~~Gap / −100 C6~~ → configurables; defaults gap **≥ $5000**, distancia **$100**.
 - ~~Premium no enrollable~~ → entra al circuito C6 sin promo sugerida; cartel + motivo.
 - ~~`hay_mejores_excluido`~~ → fuera del circuito por completo; no se procesa nada mientras esté excluida.
+- **Columnas ranking:** Full + reputación shipped (`feat/hay-mejores-catalog-full-badge`); intl / stock competitor **blocked** (ver CRITERIOS Family 3).
+
+## 9. Handoff a pricing upstream (obligatorio)
+
+**Todas** las PRs / slices de Criterios + Auto + ranking que armamos en el fork personal (`GabeADemarco/pricing-app`) tienen que pasar después a **`sernafernando/pricing-app`** (pricing upstream). El merge/smoke en el fork **no** cierra el trabajo.
+
+Inventario fork → portar a pricing (cadena base = PR anterior; tip = P5c + columnas ranking):
+
+| Fork PR | Slice | Head |
+| --- | --- | --- |
+| [#15](https://github.com/GabeADemarco/pricing-app/pull/15) | Diseño + plan | `feat/hay-mejores-criterios-aplicacion` |
+| [#16](https://github.com/GabeADemarco/pricing-app/pull/16) | P0a persistencia | `feat/hay-mejores-criterios-p0` |
+| [#17](https://github.com/GabeADemarco/pricing-app/pull/17) | P0b C1 wire | `feat/hay-mejores-criterios-p0b-c1-wire` |
+| [#18](https://github.com/GabeADemarco/pricing-app/pull/18) | P0c API criterios | `feat/hay-mejores-criterios-p0c-api` |
+| [#19](https://github.com/GabeADemarco/pricing-app/pull/19) | P0d UI Criterios col2 | `feat/hay-mejores-criterios-p0d-ui` |
+| [#20](https://github.com/GabeADemarco/pricing-app/pull/20) | P1 lean audit | `feat/hay-mejores-criterios-p1-audit` |
+| [#21](https://github.com/GabeADemarco/pricing-app/pull/21) | P2a C2 ranking | `feat/hay-mejores-criterios-p2a-c2-ranking` |
+| [#22](https://github.com/GabeADemarco/pricing-app/pull/22) | P2b tildes excluidos | `feat/hay-mejores-criterios-p2b-tildes` |
+| [#23](https://github.com/GabeADemarco/pricing-app/pull/23) | P3a C6 motor | `feat/hay-mejores-criterios-p3a-c6-motor` |
+| [#24](https://github.com/GabeADemarco/pricing-app/pull/24) | P3b C6 UI | `feat/hay-mejores-criterios-p3b-c6-ui` |
+| [#25](https://github.com/GabeADemarco/pricing-app/pull/25) | P4a R-AUTO | `feat/hay-mejores-criterios-p4a-r-auto` |
+| [#26](https://github.com/GabeADemarco/pricing-app/pull/26) | P4b Autoapply falló | `feat/hay-mejores-criterios-p4b-auto-fail-ui` |
+| [#27](https://github.com/GabeADemarco/pricing-app/pull/27) | P5a bulk API | `feat/hay-mejores-criterios-p5a-bulk-api` |
+| [#28](https://github.com/GabeADemarco/pricing-app/pull/28) | P5b bulk UI | `feat/hay-mejores-criterios-p5b-bulk-ui` |
+| [#29](https://github.com/GabeADemarco/pricing-app/pull/29) | P5c permiso Auto | `feat/hay-mejores-criterios-p5c-auto-permiso` |
+| *(local / pending PR)* | Ranking Full + reputación; intl/stock documentados no-go | `feat/hay-mejores-catalog-full-badge` |
+
+Relacionado (mismo tema catálogo, también a pricing si no está): fork [#14](https://github.com/GabeADemarco/pricing-app/pull/14) cuotas numéricas — en upstream ya hubo [#2308](https://github.com/sernafernando/pricing-app/pull/2308); verificar no duplicar.
+
+Checklist al cerrar el paquete:
+
+1. Smoke local de Criterios + Auto + ranking (Full / reputación).
+2. Reabrir / rebasar **cada** fila de la tabla contra pricing (`sernafernando/pricing-app`), en orden de cadena o equivalente stacked.
+3. Nada queda “done” solo en `GabeADemarco/pricing-app`.
