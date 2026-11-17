@@ -1701,6 +1701,7 @@ describe('the Producto view', () => {
   });
 
   it('offers the views in Métricas ML order: Producto, Publicaciones, Precios, Agrupado', async () => {
+    denied = new Set(['ml_publicaciones.ver_auditoria_stock']);
     await page();
     const views = within(screen.getByRole('group', { name: 'Vista' })).getAllByRole('button');
     expect(views.map((button) => button.textContent)).toEqual(['Producto', 'Publicaciones', 'Precios', 'Agrupado']);
@@ -3465,5 +3466,93 @@ describe("the panels' Precios tab: one table, a row per plan (S2)", () => {
     const table = await plans('Detalle del producto');
     expect(within(table).getByText('$ 12.345,50')).toBeInTheDocument();
     expect(within(panel).getByRole('button', { name: 'Calcular el precio de Router Archer AX55' })).toBeInTheDocument();
+  });
+});
+
+describe('auditoria-stock S2: "Poner precios" left the page', () => {
+  it('has no "Poner precios" button, even with every price and promotion permission', async () => {
+    canSeeMargin = true;
+    await page();
+    expect(screen.queryByRole('button', { name: 'Poner precios' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Minimizar filtros' })).not.toBeInTheDocument();
+  });
+});
+
+describe('auditoria-stock S9: the "Promo aplicada" filter', () => {
+  const promoFacets = { ...FACETS, promo: { con_promo: 70, sin_promo: 165 } };
+  const promoGroup = () => screen.getByRole('group', { name: 'Filtrar por promo aplicada' });
+
+  it('offers Todas / Con promo aplicada / Sin promo aplicada with their counts', async () => {
+    respond({ ...ITEMS_RESPONSE, facets: promoFacets });
+    await page();
+    const group = await waitFor(promoGroup);
+    expect(within(group).getByRole('button', { name: 'Todas · 235', pressed: true })).toBeInTheDocument();
+    expect(within(group).getByRole('button', { name: 'Con promo aplicada · 70' })).toBeInTheDocument();
+    expect(within(group).getByRole('button', { name: 'Sin promo aplicada · 165' })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['Con promo aplicada · 70', 'con'],
+    ['Sin promo aplicada · 165', 'sin'],
+  ])('"%s" asks the list for promo_aplicada=%s, and a second click takes it off', async (name, value) => {
+    const user = userEvent.setup();
+    respond({ ...ITEMS_RESPONSE, facets: promoFacets });
+    await page();
+    await user.click(within(promoGroup()).getByRole('button', { name }));
+    await waitFor(() => expect(lastParams()).toMatchObject({ promo_aplicada: value, offset: 0 }));
+    await user.click(within(promoGroup()).getByRole('button', { name, pressed: true }));
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('promo_aplicada'));
+  });
+
+  it('reads it from the URL in every view', async () => {
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado&promo_aplicada=sin'] });
+    await waitFor(() => expect(publicacionesMlAPI.groups).toHaveBeenCalled());
+    expect(publicacionesMlAPI.groups.mock.calls.at(-1)[0]).toMatchObject({ promo_aplicada: 'sin' });
+    expect(within(promoGroup()).getByRole('button', { name: /^Sin promo aplicada/, pressed: true })).toBeInTheDocument();
+  });
+
+  it('an unknown value sends nothing', async () => {
+    await page('/ml-publicaciones?promo_aplicada=quizas');
+    expect(lastParams()).not.toHaveProperty('promo_aplicada');
+  });
+
+  it('keeps the promo_estado filter working beside it', async () => {
+    await page('/ml-publicaciones?promo_estado=sin_aplicar&promo_aplicada=con');
+    expect(lastParams()).toMatchObject({ con_promo_sin_aplicar: true, promo_aplicada: 'con' });
+  });
+});
+
+describe('auditoria-stock L9: the store chips', () => {
+  it('count the publications without an official store under "Sin tienda", with no "Tienda none" chip', async () => {
+    await page();
+    const stores = screen.getByRole('group', { name: 'Filtrar por tienda oficial' });
+    expect(within(stores).getByRole('button', { name: 'Sin tienda · 35' })).toBeInTheDocument();
+    expect(within(stores).queryByRole('button', { name: /none/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('auditoria-stock L8: "Promo aplicada" without the promotions database', () => {
+  const promoGroup = () => screen.getByRole('group', { name: 'Filtrar por promo aplicada' });
+
+  it('reads "—" on every promo chip when facets.promo is missing, never 0', async () => {
+    await page();
+    const group = promoGroup();
+    for (const name of ['Todas', 'Con promo aplicada', 'Sin promo aplicada']) {
+      expect(within(group).getByRole('button', { name: `${name} · —` })).toBeInTheDocument();
+    }
+    expect(within(group).queryByText('0')).not.toBeInTheDocument();
+  });
+
+  it('still filters by it', async () => {
+    const user = userEvent.setup();
+    await page();
+    await user.click(within(promoGroup()).getByRole('button', { name: 'Con promo aplicada · —' }));
+    await waitFor(() => expect(lastParams()).toMatchObject({ promo_aplicada: 'con' }));
+  });
+
+  it('the other axes keep their counts, 0 included', async () => {
+    await page();
+    const stock = screen.getByRole('group', { name: 'Filtrar por stock' });
+    expect(within(stock).getByRole('button', { name: 'Sin stock ERP · 0' })).toBeInTheDocument();
   });
 });

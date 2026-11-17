@@ -10,6 +10,7 @@ import {
   Gauge,
   Rows4,
   ShieldAlert,
+  Tag,
   Users,
 } from 'lucide-react';
 import { publicacionesMlAPI } from '../services/api';
@@ -46,6 +47,13 @@ import EquiposModal from '../components/EquiposModal';
 import usePaintProduct from '../components/publicacionesMl/usePaintProduct';
 import usePaintPublication from '../components/publicacionesMl/usePaintPublication';
 import ProductoTable from '../components/publicacionesMl/ProductoTable';
+import PromoAplicadaChips from '../components/publicacionesMl/PromoAplicadaChips';
+import StockAuditTable from '../components/publicacionesMl/auditoria/StockAuditTable';
+import { AUDIT_KPI_OPTIONS, auditColumnOptions } from '../components/publicacionesMl/auditoria/auditOptions';
+import StockAuditKpis from '../components/publicacionesMl/auditoria/StockAuditKpis';
+import useStockAudit from '../components/publicacionesMl/auditoria/useStockAudit';
+import { exportAuditoriaStockExcel } from '../components/publicacionesMl/auditoria/exportStockAudit';
+import auditStyles from '../components/publicacionesMl/auditoria/StockAudit.module.css';
 import BulkActions from '../components/publicacionesMl/BulkActions';
 import BulkStatusActions from '../components/publicacionesMl/BulkStatusActions';
 import { resolverParams } from '../components/publicacionesMl/bulkParams';
@@ -68,10 +76,6 @@ import useInlinePriceEdit from '../components/publicacionesMl/useInlinePriceEdit
 import ModalTesla, { ModalFooterButtons } from '../components/ModalTesla';
 import PricingModalTesla from '../components/PricingModalTesla';
 import { buildColumns, columnChoicesOver, defaultColumnVisibility } from '../components/publicacionesMl/columns';
-import {
-  canUsePonerPreciosMode,
-  visibilityForPonerPreciosMode,
-} from '../components/publicacionesMl/ponerPreciosMode';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import {
@@ -85,11 +89,14 @@ import {
   pageSizeLabel,
   PRICE_MODES,
   PRODUCT_SORTS,
+  PROMO_APLICADA_VALUES,
   SIN_MLA,
   buildExportParams,
   buildItemsParams,
   buildKpiParams,
   buildStatsParams,
+  buildStockAuditExportParams,
+  effectiveAuditSort,
   effectiveSortKeys,
   hasMarkupFilter,
   headerSort,
@@ -203,6 +210,36 @@ const VISTA_OPTIONS = [
   { value: 'precios', label: 'Precios' },
   { value: 'agrupado', label: 'Agrupado' },
 ];
+// The stock audit (auditoria-stock S2, S8): only for `ml_publicaciones.ver_auditoria_stock`.
+const AUDIT_PERMISSION = 'ml_publicaciones.ver_auditoria_stock';
+const AUDIT_OPTION = { value: 'auditoria', label: 'Auditoría de stock' };
+
+// "Promo aplicada" (S9): a started promotion in ML, or none (candidates do not count); in every view.
+const PROMO_APLICADA_LABELS = {
+  con: (
+    <>
+      <Tag size={12} aria-hidden="true" /> Con promo aplicada
+    </>
+  ),
+  sin: 'Sin promo aplicada',
+};
+
+const RATE = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** The audit's basis, under its toolbar (approved mock v2). */
+function AuditRateLine({ rate }) {
+  return (
+    <p className={auditStyles.rateLine}>
+      <span>Valor a costo sin IVA</span>
+      <span>·</span>
+      <span>
+        Dólar BNA de hoy <span className={auditStyles.rate}>{rate ? `$ ${RATE.format(rate)}` : '—'}</span>
+      </span>
+      <span>·</span>
+      <span>Las variantes no suman su stock ERP a la base; sus unidades en Full sí</span>
+    </p>
+  );
+}
 
 // Métricas ML's dimension picker, limited to the dimensions the tree's `/groups` takes.
 const AGRUPAR_OPTIONS = DIMENSION_OPTIONS.filter((option) => AGRUPAR_DIMENSIONS.includes(option.value));
@@ -337,16 +374,11 @@ export default function PublicacionesML() {
       }),
     [columnDefaults],
   );
-  // Workflow mode (S1–S3). Local flag — never the URL `modo` / PRICE_MODES.
-  const [ponerPreciosMode, setPonerPreciosMode] = useState(false);
   // Promos Ver competencia: open by default on every entry to the page. Once the user closes it, it stays closed
   // while they browse other publications. `competenciaShown` is whether the ranking is on screen right now (a
   // catalog listing on its Promos tab), which is what widens the split.
   const [competenciaOpen, setCompetenciaOpen] = useState(true);
   const [competenciaShown, setCompetenciaShown] = useState(false);
-  const [filtersCollapsed, setFiltersCollapsed] = useState(false);
-  const vistaBeforeMode = useRef(null);
-  const canPonerPrecios = canUsePonerPreciosMode(tienePermiso);
   // Publications whose variation sub-rows are open. Their data loads on opening.
   const [expandedIds, setExpandedIds] = useState(() => new Set());
   const toggleVariations = useCallback(
@@ -395,12 +427,17 @@ export default function PublicacionesML() {
   const agrupado = filters.vista === 'agrupado';
   const producto = filters.vista === 'producto';
   const precios = filters.vista === 'precios';
+  // The stock audit and its view option exist only for its permission (S8); a link to it without it opens the list.
+  const canAudit = tienePermiso(AUDIT_PERMISSION);
+  const auditoria = filters.vista === 'auditoria' && canAudit;
+  const vistaShown = filters.vista === 'auditoria' && !canAudit ? 'publicacion' : filters.vista;
+  const vistaOptions = canAudit ? [...VISTA_OPTIONS, AUDIT_OPTION] : VISTA_OPTIONS;
   // The main list sums up publications, not products (owner, 2026-10-28).
-  const publicacion = filters.vista === 'publicacion';
+  const publicacion = vistaShown === 'publicacion';
   // Productos' Sin MLA: products with no publication, so nothing a publication strip or action could act on.
   const sinMla = filters.mla === SIN_MLA;
   // The views that load their own rows: `/items` brings them only the state and the facets.
-  const ownRows = agrupado || producto;
+  const ownRows = agrupado || producto || auditoria;
   const latestRequest = useRef(0);
   // The filter set the current `facets` belong to. Advances only when a
   // response that carried facets is applied, so a failure asks again.
@@ -526,6 +563,9 @@ export default function PublicacionesML() {
     }
   };
   const handleExport = () => runExport(exportPublicacionesCsv, setExporting);
+  // The Auditoría de stock's workbook (L7): every row, with its filters and sort.
+  const handleAuditExport = () =>
+    runExport(() => exportAuditoriaStockExcel(buildStockAuditExportParams(rowFilters, { canSeeSales, canSeeMargin })), setExporting);
   const handleSheetsExport = () => runExport(exportPublicacionesSheets, setExportingSheets);
   // Productos' price lists over the linked products of the filtered publications, resolved as a bulk action's set.
   const canExportPriceLists = PRICE_LIST_EXPORT_PERMISSIONS.some((codigo) => tienePermiso(codigo));
@@ -537,7 +577,7 @@ export default function PublicacionesML() {
   const { toast, showToast, hideToast } = useToast();
 
   // Like the rows, the strip and the bulk sets ask only a layer known to be the user's (it matters with `colores`).
-  const kpis = usePublicacionesMLKpis(buildKpiParams(rowFilters, periodo), canSeeKpis && !layerPending && !sinMla);
+  const kpis = usePublicacionesMLKpis(buildKpiParams(rowFilters, periodo), canSeeKpis && !layerPending && !sinMla && !auditoria);
   // The KPI cards the viewer hid, from the "Indicadores" picker (only while the strip shows); requests never change.
   const kpiData = kpis.data?.kpis;
   const kpiOptions = useMemo(() => (canSeeKpis && !sinMla ? publicationKpiOptions(kpiData) : []), [canSeeKpis, sinMla, kpiData]);
@@ -548,7 +588,11 @@ export default function PublicacionesML() {
   const listSizing = useResizableColumns(PUBML_COLUMN_SIZING_KEYS.lista);
   const productSizing = useResizableColumns(PUBML_COLUMN_SIZING_KEYS.producto);
   const treeSizing = useResizableColumns(PUBML_COLUMN_SIZING_KEYS.agrupado);
-  const stats = usePublicationStats(buildStatsParams(rowFilters), !layerPending && !publicacion);
+  const stats = usePublicationStats(buildStatsParams(rowFilters), !layerPending && !publicacion && !auditoria);
+  // The stock audit's rows, KPIs and rate; its hideable columns and KPI cards, each remembered per browser (L6).
+  const stockAudit = useStockAudit({ filters: rowFilters, pageSize, canSeeSales, canSeeMargin, enabled: auditoria && !layerPending });
+  const auditColumns = useHiddenKpis('publicaciones-ml.auditoria.columnas-ocultas', auditColumnOptions({ canSeeSales, canSeeMargin }));
+  const auditKpis = useHiddenKpis('publicaciones-ml.auditoria.kpis-ocultos', AUDIT_KPI_OPTIONS);
   const productRows = useProductRows({
     filters: rowFilters,
     pageSize,
@@ -686,30 +730,7 @@ export default function PublicacionesML() {
     ],
   );
 
-  // In mode: fixed S3 preset overlay (user picker choices come back on exit).
-  const columnVisibility = useMemo(() => {
-    if (!ponerPreciosMode) return baseColumnVisibility;
-    return visibilityForPonerPreciosMode(columns.map((column) => column.key));
-  }, [ponerPreciosMode, baseColumnVisibility, columns]);
-
-  const togglePonerPreciosMode = () => {
-    if (ponerPreciosMode) {
-      setPonerPreciosMode(false);
-      setFiltersCollapsed(false);
-      const prior = vistaBeforeMode.current;
-      vistaBeforeMode.current = null;
-      if (prior != null && prior !== filters.vista) {
-        setFilters({ vista: prior === 'publicacion' ? '' : prior, mla: '' });
-      }
-      return;
-    }
-    vistaBeforeMode.current = filters.vista;
-    if (filters.vista !== 'publicacion') {
-      setFilters({ vista: '', mla: '' });
-    }
-    setFiltersCollapsed(false);
-    setPonerPreciosMode(true);
-  };
+  const columnVisibility = baseColumnVisibility;
 
   // The kit's ColumnPicker is TanStack-shaped; this table is the kit's, so a
   // row-less table instance carries only the visibility state both read.
@@ -737,7 +758,11 @@ export default function PublicacionesML() {
   // What the list really applies: a sort the user may not ask for (a shared link) falls back on the default --
   // the listing type, then Facturado 30D for who sees the sales (like Métricas) or the activity otherwise.
   // The Producto view sorts the products by their own figures (`effectiveProductSort`).
-  const sort = producto ? productRows.sort : headerSort(effectiveSortKeys(filters, { canSeeSales, canSeeMargin }));
+  const sort = auditoria
+    ? headerSort([effectiveAuditSort(filters, { canSeeSales, canSeeMargin })])
+    : producto
+      ? productRows.sort
+      : headerSort(effectiveSortKeys(filters, { canSeeSales, canSeeMargin }));
   // The product panel's open tab outlives the panel, which unmounts while one of its publications is open, so
   // "Volver" lands on the tab it left. Only for that trip: picking a product, or closing the panel (the close
   // button or a filter change), starts it again on its first tab.
@@ -745,7 +770,7 @@ export default function PublicacionesML() {
   if (!filters.prod && productTab) setProductTab(null);
   // A publication's panel takes the place of its product's (`sel` over `prod`); closing either closes the panel.
   const closePanel = () => setFilters({ sel: '', tab: '', prod: '' });
-  const competenciaWide = !ponerPreciosMode && Boolean(filters.sel) && competenciaShown;
+  const competenciaWide = Boolean(filters.sel) && competenciaShown;
   const selectProduct = (key) => {
     setProductTab(null);
     setFilters({ prod: key, sel: '', tab: '' });
@@ -759,7 +784,8 @@ export default function PublicacionesML() {
   // Shift+click adds a column to the sort, like Productos: any column, the markup and Métricas' figures included.
   const handleSort = (key, event) => {
     if (event?.shiftKey) window.getSelection()?.removeAllRanges(); // Shift+click also extends the text selection
-    setFilters(sortParams(nextSort(sort.keys, key, { shift: Boolean(event?.shiftKey) })));
+    // The audit sorts by one column at a time: Shift+click is a plain click there.
+    setFilters(sortParams(nextSort(sort.keys, key, { shift: !auditoria && Boolean(event?.shiftKey) })));
   };
 
   // Ctrl/Cmd+click opens the publication in ML, Alt+click in the seller panel
@@ -789,7 +815,8 @@ export default function PublicacionesML() {
     tiendas,
     getLabel,
     // The backend counts "no official store" under `none`; the chips call it `sin_tienda`.
-    counts: facets?.stores ? { ...facets.stores, sin_tienda: facets.stores.none } : undefined,
+    // Without the `none` key, which would otherwise be one more chip ("Tienda none") beside "Sin tienda".
+    counts: facets?.stores ? (({ none, ...stores }) => ({ ...stores, sin_tienda: none }))(facets.stores) : undefined,
     selected: filters.tiendas.join(','),
   });
 
@@ -910,8 +937,8 @@ export default function PublicacionesML() {
     keepRowOnEscape: Boolean(filters.sel || filters.prod),
     showToast,
   });
-  const total = producto ? productRows.total : (data?.total ?? 0);
-  const unit = producto ? 'productos' : 'publicaciones';
+  const total = auditoria ? stockAudit.total : producto ? productRows.total : (data?.total ?? 0);
+  const unit = producto || auditoria ? 'productos' : 'publicaciones';
   const offset = pageOffset(filters.pagina, pageSize);
   const emptyMessage = data?.data_state?.store_empty
     ? 'Todavía no hay publicaciones sincronizadas'
@@ -983,7 +1010,7 @@ export default function PublicacionesML() {
   );
   const filterBands = (
     <>
-      <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
+      <div className={styles.filterBand}>
         <div className={styles.filterGroup}>
           <span className={styles.filterLabel}>Tipo</span>
           {chipGroup('Filtrar por tipo', 'tipo', TIPO_OPTIONS, TIPO_LABELS, 'listing')}
@@ -996,8 +1023,19 @@ export default function PublicacionesML() {
           <span className={styles.filterLabel}>Stock</span>
           {chipGroup('Filtrar por stock', 'stock', STOCK_OPTIONS, STOCK_LABELS, 'stock')}
         </div>
+        <div className={styles.filterGroup}>
+          <span className={styles.filterLabel}>Promo aplicada</span>
+          <PromoAplicadaChips
+            options={PROMO_APLICADA_VALUES}
+            labels={PROMO_APLICADA_LABELS}
+            promo={facets?.promo}
+            loading={!facets}
+            activeValue={filters.promo_aplicada}
+            onChange={(value) => setFilters({ promo_aplicada: value })}
+          />
+        </div>
       </div>
-      <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
+      <div className={styles.filterBand}>
         <div className={styles.filterGroup}>
           <span className={styles.filterLabel}>Tienda</span>
           <FacetChips
@@ -1014,7 +1052,7 @@ export default function PublicacionesML() {
           <ColorFilterChips value={filters.colores} onChange={(colores) => setFilters({ colores })} />
         </div>
       </div>
-      <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
+      <div className={styles.filterBand}>
         <ProductFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} facet={facets?.product ?? null} />
         {/* Same band as the product filters, behind a button: a band of its own pushed the list's header below
             the fold at 1366x768. */}
@@ -1031,7 +1069,7 @@ export default function PublicacionesML() {
         )}
       </div>
       {showMarkupFilters && (
-        <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
+        <div className={styles.filterBand}>
           <div className={styles.filterGroup}>
             <span className={styles.filterLabel}>Markup</span>
             <MarkupFilters
@@ -1056,7 +1094,6 @@ export default function PublicacionesML() {
         onBack={filters.prod ? backToProduct : undefined}
         backLabel={backLabel}
         priceGroup={canSeePrices ? priceGroup : null}
-        ponerPreciosMode={ponerPreciosMode}
         competenciaOpen={competenciaOpen}
         onCompetenciaOpenChange={setCompetenciaOpen}
         onCompetenciaShownChange={setCompetenciaShown}
@@ -1173,6 +1210,23 @@ export default function PublicacionesML() {
       />
   );
 
+  const auditTable = auditoria && (
+    <StockAuditTable
+      audit={stockAudit}
+      canSeeSales={canSeeSales}
+      canSeeMargin={canSeeMargin}
+      isVisible={auditColumns.isVisible}
+      sort={sort}
+      onSort={handleSort}
+      onSelectItem={handleRowClick}
+      selectedKey={filters.sel || undefined}
+      offset={TABLE_OFFSET}
+      emptyMessage={
+        stockAudit.loading ? 'Cargando…' : hasActiveFilters ? 'Ningún producto coincide con los filtros' : 'No hay productos con stock'
+      }
+    />
+  );
+
   if (isPhone) {
     const phoneRows = producto ? productRows.rows.filter((row) => row.type === 'node').map((row) => row.node) : items;
     const remaining = producto ? 0 : total - offset - items.length;
@@ -1188,6 +1242,7 @@ export default function PublicacionesML() {
           onOpenFilters={() => setPhoneSheet('filtros')}
           onOpenMenu={() => setPhoneSheet('acciones')}
           searchPlaceholder="Título, MLA, SKU/EAN o producto"
+          canAudit={canAudit}
         />
         <div className={phoneStyles.banners}>
           {exportError && (
@@ -1200,7 +1255,12 @@ export default function PublicacionesML() {
           <StateBanner dataState={data?.data_state} />
           {listErrorBar}
         </div>
-        {canSeeKpis && !sinMla && (
+        {auditoria && (
+          <div className={phoneStyles.kpis}>
+            <StockAuditKpis audit={stockAudit} isVisible={auditKpis.isVisible} />
+          </div>
+        )}
+        {canSeeKpis && !sinMla && !auditoria && (
           <div className={phoneStyles.kpis}>
             <PublicationKpiStrip
               state={kpis}
@@ -1217,7 +1277,9 @@ export default function PublicacionesML() {
           ariaLabel={filters.sel ? 'Detalle de la publicación' : 'Detalle del producto'}
           panel={detailPanel}
         >
-          {agrupado ? (
+          {auditoria ? (
+            <div className={phoneStyles.wideTable}>{auditTable}</div>
+          ) : agrupado ? (
             <div className={phoneStyles.wideTable}>{agrupadoTable}</div>
           ) : listPhase === 'loading' ? (
             <ListSkeleton />
@@ -1331,15 +1393,13 @@ export default function PublicacionesML() {
           </p>
         </div>
         <div className={styles.headerActions}>
-          {!ponerPreciosMode && (
-            <SegmentedControl
-              label="Vista"
-              options={VISTA_OPTIONS}
-              value={filters.vista}
-              onChange={(value) => setFilters({ vista: value === 'publicacion' ? '' : value, mla: '' })}
-            />
-          )}
-          {!ponerPreciosMode && agrupado && (
+          <SegmentedControl
+            label="Vista"
+            options={vistaOptions}
+            value={vistaShown}
+            onChange={(value) => setFilters({ vista: value === 'publicacion' ? '' : value, mla: '' })}
+          />
+          {agrupado && (
             <SegmentedControl
               label="Agrupar por"
               options={AGRUPAR_OPTIONS}
@@ -1347,7 +1407,7 @@ export default function PublicacionesML() {
               onChange={(value) => setFilters({ agrupar: value === AGRUPAR_DIMENSIONS[0] ? '' : value })}
             />
           )}
-          {!ponerPreciosMode && agrupado && (
+          {agrupado && (
             <SwitchChip
               label="Con familias"
               title="Agrupa las publicaciones de una misma familia dentro de cada producto"
@@ -1355,6 +1415,7 @@ export default function PublicacionesML() {
               onChange={(checked) => setFilters({ familias: checked ? '1' : '' })}
             />
           )}
+          {!auditoria && (
           <BulkActions
             filters={rowFilters}
             checkedIds={checkedIds}
@@ -1368,7 +1429,8 @@ export default function PublicacionesML() {
             checkedStatus={checkedStatus}
             hayMejores={!sinMla}
           />
-          {!sinMla && (
+          )}
+          {!sinMla && !auditoria && (
             <BulkStatusActions
               filters={rowFilters}
               canSeeMargin={canSeeMargin}
@@ -1377,8 +1439,22 @@ export default function PublicacionesML() {
             />
           )}
           <span className={styles.spacer} />
-          {!ponerPreciosMode && <ColumnPicker table={pickerTable} iconOnly buttonClassName={quietButton} />}
-          {!ponerPreciosMode && kpiOptions.length > 0 && (
+          {auditoria ? (
+            <>
+              <ColumnPicker table={auditColumns.pickerTable} iconOnly buttonClassName={quietButton} />
+              <ColumnPicker
+                table={auditKpis.pickerTable}
+                label="Indicadores"
+                icon={Gauge}
+                groupLabel="Elegir indicadores visibles"
+                iconOnly
+                buttonClassName={quietButton}
+              />
+            </>
+          ) : (
+            <ColumnPicker table={pickerTable} iconOnly buttonClassName={quietButton} />
+          )}
+          {!auditoria && kpiOptions.length > 0 && (
             <ColumnPicker
               table={kpiPicker}
               label="Indicadores"
@@ -1398,6 +1474,19 @@ export default function PublicacionesML() {
           >
             <Rows4 size={14} />
           </button>
+          {auditoria && (
+            <button
+              type="button"
+              className={quietButton}
+              aria-label={exporting ? 'Exportando…' : 'Exportar Excel'}
+              title="Exportar a Excel"
+              onClick={handleAuditExport}
+              disabled={exporting}
+            >
+              <Download size={14} />
+              {exporting ? 'Exportando…' : 'Exportar'}
+            </button>
+          )}
           {canExportVista(filters.vista) && (
             <button
               type="button"
@@ -1423,18 +1512,6 @@ export default function PublicacionesML() {
               Listas de precios
             </button>
           )}
-          {/* The screen's one filled button. */}
-          {canPonerPrecios && (
-            <button
-              type="button"
-              className={`btn-tesla sm ${buttonStyles.primary}`}
-              aria-pressed={ponerPreciosMode}
-              onClick={togglePonerPreciosMode}
-            >
-              {ponerPreciosMode && <Check size={14} aria-hidden="true" />}
-              Poner precios
-            </button>
-          )}
         </div>
       </header>
 
@@ -1448,7 +1525,10 @@ export default function PublicacionesML() {
 
       <StateBanner dataState={data?.data_state} />
 
-      {!ponerPreciosMode && canSeeKpis && !sinMla && (
+      {auditoria && <AuditRateLine rate={stockAudit.data?.tipo_cambio} />}
+      {auditoria && <StockAuditKpis audit={stockAudit} isVisible={auditKpis.isVisible} />}
+
+      {canSeeKpis && !sinMla && !auditoria && (
         <PublicationKpiStrip
           state={kpis}
           periodo={periodo}
@@ -1458,8 +1538,7 @@ export default function PublicacionesML() {
         />
       )}
 
-      {!ponerPreciosMode &&
-        (publicacion ? (
+      {auditoria ? null : publicacion ? (
           <PublicationCountCards facets={facets} filters={filters} onApply={setFilters} />
         ) : (
           <PublicationStatCards
@@ -1472,7 +1551,7 @@ export default function PublicacionesML() {
             onRetry={stats.reload}
             markupNotice={showMarkupFilters && hasMarkupFilter(filters)}
           />
-        ))}
+        )}
 
       <section className={styles.filterCard} aria-label="Filtros" ref={filterCardRef}>
         <div className={styles.filterBand}>
@@ -1489,21 +1568,6 @@ export default function PublicacionesML() {
           <span className={styles.spacer} />
           {/* The row's tools wrap together, to the right end of the next line when the chips take the width. */}
           <div className={styles.filterTools}>
-            {ponerPreciosMode && (
-              <button
-                type="button"
-                className={quietButton}
-                aria-expanded={!filtersCollapsed}
-                onClick={() => setFiltersCollapsed((collapsed) => !collapsed)}
-              >
-                <ChevronDown
-                  size={14}
-                  aria-hidden="true"
-                  className={filtersCollapsed ? styles.filterChevronCollapsed : undefined}
-                />
-                {filtersCollapsed ? 'Mostrar filtros' : 'Minimizar filtros'}
-              </button>
-            )}
             {canCalculatePrice && (
               <button
                 type="button"
@@ -1549,15 +1613,17 @@ export default function PublicacionesML() {
           <SplitPanelLayout
             open={Boolean(filters.sel || filters.prod)}
             onClose={closePanel}
-            width={ponerPreciosMode ? 'md' : competenciaWide ? 'xl' : 'lg'}
+            width={competenciaWide ? 'xl' : 'lg'}
             expanded={competenciaWide}
-            resizeKey={ponerPreciosMode ? 'publicaciones-ml-poner-precios' : 'publicaciones-ml'}
+            resizeKey="publicaciones-ml"
             ariaLabel={filters.sel ? 'Detalle de la publicación' : 'Detalle del producto'}
             panel={detailPanel}
           >
             {/* The kit's TableShell takes no density: this box marks the table inside it ("Filas finas"). */}
             <div className={styles.tableDensity} data-density={dense ? 'dense' : 'normal'}>
-              {producto ? (
+              {auditoria ? (
+                auditTable
+              ) : producto ? (
                 <ProductoTable
                   tree={productRows}
                   virtualizeFrom={virtualizeFrom}

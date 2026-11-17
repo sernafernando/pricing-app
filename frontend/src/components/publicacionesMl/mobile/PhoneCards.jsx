@@ -1,5 +1,6 @@
 import MarkupCell from '../MarkupCell';
 import PublicationStatusPill from '../PublicationStatusPill';
+import PromoAplicadaBadge from '../PromoAplicadaBadge';
 import { listingKindLabel } from '../listingKindLabels';
 import { AgeingCell, MarkupRealCell, StockQuantity, UnitsCell } from '../MetricsCells';
 import { formatUnits } from '../../../utils/metricasMlFormat';
@@ -45,6 +46,7 @@ export function PublicationCard({ item, canSeeSales, canSeeMargin, selected = fa
           <span className={styles.title}>{item.title ?? 'Sin título'}</span>
           <Meta parts={[item.item_id, listingKindLabel(item.listing_kind), item.store_label]}>
             <PublicationStatusPill status={item.status} gone={item.gone} subStatus={item.sub_status} />
+            <PromoAplicadaBadge applied={item.promo_aplicada} />
           </Meta>
         </span>
       </span>

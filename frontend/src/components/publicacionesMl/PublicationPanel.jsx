@@ -15,9 +15,7 @@ import { canViewProductPrices } from '../pricing/productPricePermissions';
 import { usePublicationDetail } from './panel/usePublicationDetail';
 import PanelFigures from './panel/PanelFigures';
 import MejoresCandidatasBlock from './panel/MejoresCandidatasBlock';
-import PonerPreciosBody from './panel/PonerPreciosBody';
 import { publicationFigures } from './panel/publicationFigures';
-import { pricePermissions } from '../pricing/productPricePermissions';
 import useIsPhone from '../../hooks/useIsPhone';
 import PhonePanelActions from './mobile/PhonePanelActions';
 import styles from './panel/panel.module.css';
@@ -49,7 +47,6 @@ const describeError = (error) =>
  * @param {() => void} [props.onBack] Shows "Volver a <producto>": the publication was opened from a product's panel.
  * @param {string} [props.backLabel] The product's name for that link ("Volver al producto" without it).
  * @param {object} [props.priceGroup] What the Precios tab takes from the list (Calcular, the Tienda Nube price).
- * @param {boolean} [props.ponerPreciosMode] MODO PONER PRECIOS: no tabs, minimal price body (S5).
  * @param {boolean} [props.competenciaOpen] Promos Ver competencia: whether the ranking column is open.
  * @param {(open: boolean) => void} [props.onCompetenciaOpenChange]
  * @param {(shown: boolean) => void} [props.onCompetenciaShownChange] Whether the ranking is on screen (widens the split).
@@ -65,7 +62,6 @@ export default function PublicationPanel({
   onBack,
   backLabel,
   priceGroup = null,
-  ponerPreciosMode = false,
   competenciaOpen = false,
   onCompetenciaOpenChange,
   onCompetenciaShownChange,
@@ -76,7 +72,6 @@ export default function PublicationPanel({
   const canManage = tienePermiso('ml_ops.gestionar');
   const canViewPromos = tienePermiso('promos.ver');
   const canViewPrices = canViewProductPrices(tienePermiso);
-  const canEditPrice = ['canEditClasica', 'canEditMlCuotas'].some((flag) => pricePermissions(tienePermiso)[flag]);
   const canWritePromos = tienePermiso('promos.escribir');
   const { status, detail, error, reload, refresh } = usePublicationDetail(itemId, { canSeeMargin });
   // A write in a tab (a promotion, a product price) changes what the detail and the
@@ -93,7 +88,7 @@ export default function PublicationPanel({
   const mlUrl = buildMlItemUrl(row?.permalink);
   // On a phone the ML link and the seller panel's links are the top bar's icons, not the MLA line's (PubDetalle design).
   const phone = useIsPhone();
-  // Outside MODO: chooser is a block above tabs (never replaces them). Hide after
+  // The chooser is a block above tabs (never replaces them). Hide after
   // discard; when its candidates are unavailable it stays as a notice that can still
   // discard the flag. Reset when switching publication.
   const [mejoresBlockOpen, setMejoresBlockOpen] = useState(true);
@@ -114,14 +109,13 @@ export default function PublicationPanel({
   }, [hayMejores]);
   // Opted-out pubs never show the chooser (permanent exclude until re-include).
   const showMejoresBlock =
-    !ponerPreciosMode &&
     !hayMejoresExcluido &&
     canWritePromos &&
     (hayMejores || mejoresShown) &&
     mejoresBlockOpen;
   // Without promos.escribir the flag is still news: a read-only notice, as the old Promos-tab banner.
   const showMejoresReadOnly =
-    !ponerPreciosMode && !hayMejoresExcluido && !canWritePromos && canViewPromos && hayMejores;
+    !hayMejoresExcluido && !canWritePromos && canViewPromos && hayMejores;
   const closeMejoresBlock = () => {
     setMejoresBlockOpen(false);
     setSuggestedIds([]);
@@ -155,7 +149,6 @@ export default function PublicationPanel({
         </>
       }
       figures={
-        !ponerPreciosMode &&
         detail && <PanelFigures label="Cifras de la publicación" figures={publicationFigures(row, { canSeeMargin, canSeeSales, breakdown: detail.markupBreakdown, sellInOut: detail.sellInOut })} />
       }
       onClose={onClose}
@@ -165,18 +158,6 @@ export default function PublicationPanel({
       error={status === 'error' ? describeError(error) : null}
       onRetry={reload}
     >
-      {status === 'ready' && ponerPreciosMode && (
-        <PonerPreciosBody
-          key={itemId}
-          detail={detail}
-          itemId={itemId}
-          canEditPrice={canEditPrice}
-          canWritePromos={canWritePromos}
-          onWritten={handleWritten}
-          onLeavePub={onClose}
-        />
-      )}
-
       {status === 'ready' && showMejoresReadOnly && (
         <p className={styles.mejoresReadOnly} role="status" aria-label="Candidatas mejores">
           <Sparkles size={14} aria-hidden="true" className={styles.mejoresIcon} />
@@ -195,7 +176,7 @@ export default function PublicationPanel({
         />
       )}
 
-      {status === 'ready' && !ponerPreciosMode && active && (
+      {status === 'ready' && active && (
         <PanelTabs tabs={available} activeKey={active.key} onTabChange={onTabChange} label="Secciones de la publicación">
           <active.Component
             detail={detail}
@@ -214,7 +195,7 @@ export default function PublicationPanel({
         </PanelTabs>
       )}
 
-      {status === 'ready' && !ponerPreciosMode && (
+      {status === 'ready' && (
         <PanelFooter key={itemId} detail={detail} itemId={itemId} canManage={canManage} onStatusChanged={handleWritten} />
       )}
     </PanelShell>

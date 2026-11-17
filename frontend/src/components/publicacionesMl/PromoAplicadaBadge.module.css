@@ -1,0 +1,13 @@
+/* A publication with a started promotion: the success tone, like the list's other meta chips. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 var(--spacing-xs);
+  border: 1px solid var(--tone-success-border);
+  border-radius: var(--radius-base);
+  background: var(--tone-success-bg);
+  color: var(--tone-badge-fg, var(--tone-success-fg));
+  font-size: var(--font-xs);
+  white-space: nowrap;
+}

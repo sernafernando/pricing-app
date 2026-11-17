@@ -120,6 +120,7 @@ class TestPermission:
             "ml_publicaciones.pausar",
             "alertas.ver_mejores_ofertas_pms",
             "promos.escribir",  # hay-mejores exclusion resolve (read-shaped)
+            "ml_publicaciones.ver_auditoria_stock",  # the Auditoría de stock view
         )
         grant(db, rol_ventas, "productos.ver", *extras)
         grant(db, rol_admin, VER, *extras)
@@ -277,9 +278,13 @@ class TestContract:
     ) -> None:
         seed_rows(pg, self.fill)
         reads = []
-        monkeypatch.setattr(
-            ml_publications_view, "fetch_mlas_with_started", lambda mla_ids=None: reads.append(1) or {"MLA1"}
-        )
+
+        def started(mla_ids=None):
+            if mla_ids is None:  # the whole account (the facets); the rows' badge reads its page's MLAs each time
+                reads.append(1)
+            return {"MLA1"}
+
+        monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_started", started)
         get(client, reader, facets="true")
         get(client, reader, facets="true", estado="active")
         assert len(reads) == 1
@@ -313,7 +318,7 @@ class TestContract:
     ) -> None:
         seed_rows(pg, self.fill)
 
-        def unavailable():
+        def unavailable(mla_ids=None):
             raise RuntimeError("ML_WEBHOOK_DB_URL no configurada")
 
         monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_started", unavailable)

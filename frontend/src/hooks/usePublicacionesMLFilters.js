@@ -104,7 +104,9 @@ const AUDIT_KEYS = [...Object.keys(AUDIT_CSV_PARAMS), ...Object.keys(AUDIT_TEXT_
  */
 const PROMO_TYPE_VALUES = PROMO_TYPES.map(({ type }) => type);
 export const PROMO_STATES = ['aplicada', 'sin_aplicar'];
-const PROMO_KEYS = ['promo_tipos', 'promo_estado', 'pxq', 'hay_mejores_ofertas', 'hay_mejores_excluido'];
+// "Promo aplicada" (auditoria-stock S9): `con` = a started promotion, `sin` = none started (candidates do not count).
+export const PROMO_APLICADA_VALUES = ['con', 'sin'];
+const PROMO_KEYS = ['promo_tipos', 'promo_estado', 'pxq', 'hay_mejores_ofertas', 'hay_mejores_excluido', 'promo_aplicada'];
 /**
  * Productos' "Sin MLA" (`?mla=sin_mla`, Productos' value): in the Producto view, the products no publication is
  * linked to (`con_mla=false`). Only the product filters apply to them; the backend refuses the others (422).
@@ -134,8 +136,9 @@ export function sinMlaUpdates(filters) {
   return { ...cleared, stock: filters.stock.filter((value) => PRODUCT_STOCK_VALUES.includes(value)), [MLA_KEY]: SIN_MLA };
 }
 
-// `producto` = one row per product, opening into its publications (`/view/products`).
-const VISTAS = ['publicacion', 'precios', 'producto', 'agrupado'];
+// `producto` = one row per product, opening into its publications (`/view/products`); `auditoria` = the stock audit,
+// one row per base product with its variants (`/view/stock-audit`, `ml_publicaciones.ver_auditoria_stock`).
+const VISTAS = ['publicacion', 'precios', 'producto', 'agrupado', 'auditoria'];
 // The dimensions `GET /ml-publications/view/groups` takes, the default first; the picker offers exactly these.
 // They are Métricas ML's five, in its order (`DIMENSION_OPTIONS`).
 export const AGRUPAR_DIMENSIONS = ['marca', 'categoria', 'subcategoria', 'tienda', 'pm'];
@@ -184,6 +187,14 @@ export const DEFAULT_DIRECTION = {
   markup_30d: 'desc',
   facturado_30d: 'desc',
   total_gauss_30d: 'desc',
+  // The stock audit's own figures (`STOCK_AUDIT_SORTS`): the biggest first; its product name A to Z.
+  valor_total: 'desc',
+  valor_erp: 'desc',
+  valor_full: 'desc',
+  unidades_total: 'desc',
+  unidades_erp: 'desc',
+  unidades_full: 'desc',
+  descripcion: 'asc',
 };
 
 const SALES_SORTS = new Set(['unidades_7d', 'unidades_30d', 'facturado_30d', 'markup_30d', 'total_gauss_30d']);
@@ -233,9 +244,12 @@ const withListingTypeWithinProduct = (sort) =>
     ? [sort[0], { key: 'tipo', dir: '' }, ...sort.slice(1)]
     : sort;
 
-/** The URL's sort keys the user may ask for the publication list: any combination, figures included. */
+/** The URL's sort keys the user may ask for the publication list: any combination, figures included. The stock
+ * audit's own keys (`STOCK_AUDIT_ONLY_SORTS`) mean nothing to `/items`: a link sorted by them opens the list without them. */
 function listSort(filters, permissions) {
-  return withListingTypeWithinProduct(askedSort(filters).filter(({ key }) => mayAsk(key, permissions)));
+  return withListingTypeWithinProduct(
+    askedSort(filters).filter(({ key }) => !STOCK_AUDIT_ONLY_SORTS.has(key) && mayAsk(key, permissions)),
+  );
 }
 
 /**
@@ -303,6 +317,50 @@ export function effectiveProductSort(filters, permissions = {}) {
   return effectiveProductSortKeys(filters, permissions)[0];
 }
 
+/**
+ * The sorts of the Auditoría de stock view (`/view/stock-audit` `orden`, one key): the stock and its value, the
+ * product's name, and the Publicaciones view's sales and margin figures (same permissions, 403 otherwise).
+ */
+export const STOCK_AUDIT_SORTS = [
+  'valor_total',
+  'valor_erp',
+  'valor_full',
+  'unidades_total',
+  'unidades_erp',
+  'unidades_full',
+  'descripcion',
+  'unidades_7d',
+  'unidades_30d',
+  'facturado_30d',
+  'total_gauss_30d',
+  'markup_30d',
+  'markup',
+];
+const STOCK_AUDIT_ONLY_SORTS = new Set(['valor_total', 'valor_erp', 'valor_full', 'unidades_total', 'unidades_erp', 'unidades_full', 'descripcion']);
+const STOCK_AUDIT_DEFAULT_SORT = 'valor_total';
+
+/** The one sort the audit applies: the URL's first key when the audit sorts by it and the user may ask for it, else
+ * the total value, biggest first. */
+export function effectiveAuditSort(filters, permissions = {}) {
+  const asked = askedSort(filters).find(({ key }) => STOCK_AUDIT_SORTS.includes(key) && mayAsk(key, permissions));
+  return resolved(asked ?? { key: STOCK_AUDIT_DEFAULT_SORT, dir: '' });
+}
+
+/** The `GET /ml-publications/view/stock-audit` query: the list's filters (never the markup ones nor the layer, the
+ * audit has neither), the audit's sort and the page. */
+export function buildStockAuditParams(filters, pageSize = filters.limite ?? PAGE_SIZE, permissions = {}) {
+  const params = withLayerOnlyForColors(buildItemsParams(filters, pageSize, { canSeeMargin: false }));
+  const sort = effectiveAuditSort(filters, permissions);
+  return { ...params, orden: sort.key, dir: sort.dir };
+}
+
+/** The `GET /ml-publications/view/stock-audit/export` query: the audit's own, every row (no page). */
+export function buildStockAuditExportParams(filters, permissions = {}) {
+  const { limit, offset, ...params } = buildStockAuditParams(filters, PAGE_SIZE, permissions);
+  void limit, offset;
+  return params;
+}
+
 const csv = (value) => (value ? value.split(',').filter(Boolean) : []);
 
 // "Sin stock ML" (`sin_stock`, ML's available, a sum) and "Sin stock propio" (`propio_sin_stock`, the published
@@ -334,6 +392,7 @@ function readFilters(params, { canSeeMargin = false } = {}) {
   filters.pxq = params.get('pxq') === 'con_pxq' ? 'con_pxq' : '';
   filters.hay_mejores_ofertas = ['1', 'true'].includes(params.get('hay_mejores_ofertas')) ? '1' : '';
   filters.hay_mejores_excluido = ['1', 'true'].includes(params.get('hay_mejores_excluido')) ? '1' : '';
+  filters.promo_aplicada = PROMO_APLICADA_VALUES.includes(params.get('promo_aplicada')) ? params.get('promo_aplicada') : '';
   // One reading for the switch and the request: only `1` / `true` mean on.
   filters.markup_neg = ['1', 'true'].includes(params.get('markup_neg')) ? '1' : '';
   const vista = params.get('vista');
@@ -432,6 +491,7 @@ export function buildItemsParams(
   if (filters.pxq === 'con_pxq') params.con_pxq = true;
   if (filters.hay_mejores_ofertas === '1') params.hay_mejores_ofertas = true;
   if (filters.hay_mejores_excluido === '1') params.hay_mejores_excluido = true;
+  if (filters.promo_aplicada) params.promo_aplicada = filters.promo_aplicada;
   if (filters.equipo) params.equipo_id = filters.equipo;
   params.limit = pageSize;
   params.offset = pageOffset(filters.pagina, pageSize);

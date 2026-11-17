@@ -6,8 +6,7 @@
   padding: var(--spacing-lg);
 }
 
-/* The title, then the actions in one row under it: the view on the left, the tools and "Poner precios" on the
-   right. */
+/* The title, then the actions in one row under it: the view on the left, the tools on the right. */
 .header {
   display: flex;
   flex-direction: column;
@@ -54,10 +53,6 @@
   border: 1px solid var(--ventas-divider);
   border-radius: var(--radius-lg);
   box-shadow: var(--cf-card-shadow);
-}
-
-.filterChevronCollapsed {
-  transform: rotate(-90deg);
 }
 
 .filterBand {

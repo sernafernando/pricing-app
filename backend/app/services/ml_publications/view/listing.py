@@ -973,7 +973,7 @@ def _link_counts(db: Session, f: PublicationFilter) -> dict[str, int]:
 
 def _promo_counts(db: Session, f: PublicationFilter, started: frozenset[str]) -> dict[str, int]:
     """The promo axis without its own selection: the promo filter's MLAs are left out of the scope, the PxQ ones stay."""
-    own = replace(f, mla_scope=f.pxq_scope) if f.promo_filter else f
+    own = replace(f, mla_scope=f.pxq_scope, mla_exclude=None) if f.promo_filter else f
     return _flags(db, own, None, promo_clauses(started))[0]
 
 

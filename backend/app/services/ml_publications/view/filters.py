@@ -60,8 +60,10 @@ from app.models.ml_publications import (
 from app.models.oferta_ml import OfertaML
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.producto_banlist import ProductoBanlist
+from app.models.tb_item import TBItem
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.services.ml_daily_metrics.groups import NO_GROUP, pm_pairs
+from app.services.producto_specs.campos import SUBCATEGORIAS_EXCLUIDAS
 from app.services.ml_publications.events import EVENT_TYPES as real_event_types
 from app.services.ml_publications.links import sku_divergence
 
@@ -181,6 +183,8 @@ class PublicationFilter:
     # The promo and PxQ filters, resolved by the router to the matching MLAs (mlwebhook database): `None` = no such
     # filter, an empty set lists nothing.
     mla_scope: Optional[frozenset[str]] = None
+    # The MLAs the "Sin promo aplicada" filter leaves out (those with a started promotion): `None` = no such filter.
+    mla_exclude: Optional[frozenset[str]] = None
     # Which part of it is the PxQ toggle's (`pxq_scope`), and whether a promo filter is in it (`promo_filter`): the
     # facets' promo axis counts without its own filter, as every axis does.
     pxq_scope: Optional[frozenset[str]] = None
@@ -439,6 +443,7 @@ def parse_filter(
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
     mla_scope: Optional[frozenset[str]] = None,
+    mla_exclude: Optional[frozenset[str]] = None,
     colores: Optional[str] = None,
     hay_mejores_ofertas: Optional[bool] = None,
     hay_mejores_excluido: Optional[bool] = None,
@@ -495,6 +500,7 @@ def parse_filter(
         audit_since=_audit_moment("audit_fecha_desde", audit_fecha_desde, end_of_day=False),
         audit_until=_audit_moment("audit_fecha_hasta", audit_fecha_hasta, end_of_day=True),
         mla_scope=mla_scope,
+        mla_exclude=mla_exclude,
         colors=tuple(c for c in colores_ if c != NO_COLOR),
         no_color=NO_COLOR in colores_,
         hay_mejores_ofertas=hay_mejores_ofertas,
@@ -1260,6 +1266,8 @@ def presence_conditions(f: PublicationFilter) -> list[ColumnElement]:
         where.append(_oferta(f.oferta, f.oferta_per_product))
     if f.mla_scope is not None:
         where.append(_item_in(f.mla_scope))
+    if f.mla_exclude is not None:
+        where.append(promo_clauses(f.mla_exclude)["sin_promo"])
     if f.hay_mejores_ofertas is True:
         where.append(_hay_mejores_ofertas())
     if f.hay_mejores_excluido is True:
@@ -1394,6 +1402,7 @@ def publication_filter_in(f: PublicationFilter) -> Optional[str]:
         ("evento", bool(f.event_types)),
         ("con_oferta", f.oferta is not None),
         ("promo_tipos", f.mla_scope is not None),
+        ("promo_aplicada", f.mla_exclude is not None),
         ("hay_mejores_ofertas", f.hay_mejores_ofertas is True),
         ("hay_mejores_excluido", f.hay_mejores_excluido is True),
     )
@@ -1458,3 +1467,32 @@ def product_select(f: PublicationFilter, *columns: Any) -> Select:
 def product_colors_only(f: PublicationFilter) -> PublicationFilter:
     """`f` with the color filter on the product's color only (`color_per_product`): the Producto view's rows."""
     return replace(f, color_per_product=True, item_color_ids=(), item_colored_ids=())
+
+
+# --- The Auditoría de stock's catalog reads (`stock_audit`) -------------------------------------------------------------
+#
+# The audit values each product's stock at its catalog cost and tells a notebook variant from a pack by the ERP
+# category of its components. Those reads are built here, the view's catalog extraction module, so `stock_audit` only
+# runs them and never names the catalog or the ERP mirror itself.
+
+# The notebook category's subcategories that are accessories, not notebooks (`producto_specs.campos`).
+NOTEBOOK_ACCESSORY_SUBCATEGORIES = SUBCATEGORIAS_EXCLUIDAS
+
+
+def catalog_products_select(ids: list[int]) -> Select:
+    """`(item_id, codigo, descripcion, marca, stock, costo, moneda_costo)` of the catalog products `ids`."""
+    p = T.p
+    return select(p.item_id, p.codigo, p.descripcion, p.marca, p.stock, p.costo, p.moneda_costo).where(
+        p.item_id.in_(ids)
+    )
+
+
+def erp_categories_select(ids: list[int]) -> Select:
+    """`(item_id, cat_id, subcat_id)` of `ids` in the ERP item mirror, its first row by company (`comp_id`), as
+    `producto_maestro` reads a product's category."""
+    return (
+        select(TBItem.item_id, TBItem.cat_id, TBItem.subcat_id)
+        .where(TBItem.item_id.in_(ids))
+        .distinct(TBItem.item_id)
+        .order_by(TBItem.item_id, TBItem.comp_id)
+    )

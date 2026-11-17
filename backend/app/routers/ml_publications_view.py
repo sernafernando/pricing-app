@@ -94,6 +94,7 @@ from app.services.ml_publications.view import (
     stats,
     status_block,
     status_targets,
+    stock_audit,
     variations,
 )
 from app.services.ml_publications.view.ads import AdsCostProvider, AdsStatus, get_ads_provider, resolve_ads
@@ -127,6 +128,7 @@ OFFER_OF_PRODUCT = "oferta_por_producto"  # the `filter_query` param a Producto 
 COLOR_OF_PRODUCT = "color_por_producto"  # the one they carry with `colores` / `sin_color`
 PERMISO_METRICAS = "ml_metricas.ver"  # the KPI strip is Métricas' numbers: seeing them needs seeing Métricas
 PERMISO_GESTIONAR = "ml_ops.gestionar"  # what lets the screen offer "Resincronizar"
+PERMISO_AUDITORIA_STOCK = "ml_publicaciones.ver_auditoria_stock"  # the Auditoría de stock view
 PERMISO_PAUSAR = "ml_publicaciones.pausar"  # what lets the screen offer "Pausar" / "Activar"
 # Choosing a product's shipping cost changes its prices' markups: the permission of Productos' main price edit
 # (Productos.jsx `puedeEditarPrecioClasica`, one of `/precios/set-rapido`'s PERMISOS_EDITAR_PRODUCTOS).
@@ -319,6 +321,9 @@ class ItemRowOut(BaseModel):
     price: PriceOut
     hay_mejores_ofertas: bool = False
     hay_mejores_excluido: bool = False
+    # A started (applied) promotion, as the Con / Sin promo aplicada filter reads it; absent when the mlwebhook
+    # database cannot be read (unknown, never a false "Sin").
+    promo_aplicada: Optional[bool] = None
     stock: StockOut
     erp_stock: ErpStockOut
     stock_total: Optional[int] = None  # ERP + Full; null only when both are unknown
@@ -765,6 +770,116 @@ class KpisResponse(BaseModel):
     can_see_margin: bool
 
 
+class StockMoneyOut(BaseModel):
+    """Units and what they are worth at cost (no VAT); a value is null when no unit has a known cost or rate."""
+
+    unidades: int
+    usd: Optional[float] = None
+    ars: Optional[float] = None
+
+
+class StockAuditSalesOut(BaseModel):
+    """A row's sales over the last 30 business days, its publications' Board rows summed (a variant's units in base
+    units on its base row). Total Gauss and the markups (the Board's ratio of the sums; the `_sell_` ones with sell
+    in / sell out applied, null where neither applies) are present only with `ml_metricas.ver_ganancia`."""
+
+    unidades_7d: int
+    unidades_30d: int
+    facturado_30d: float
+    total_gauss_30d: Optional[float] = None
+    markup_30d: Optional[float] = None
+    total_gauss_sell_30d: Optional[float] = None
+    markup_sell_30d: Optional[float] = None
+    # the 90-day trends: units (base units on a base row) and, with ver_ganancia, each day's units-weighted markup
+    series_units_90d: list[int] = []
+    series_markup_90d: Optional[list[Optional[float]]] = None
+
+
+class StockMarkupRangeOut(BaseModel):
+    """The current list markup's range over a row's publications (as an Agrupado node shows it: never an average)."""
+
+    min: float
+    max: float
+
+
+class StockAuditVariantOut(BaseModel):
+    """A variant (`variante`: a notebook combo) or a pack (`pack`) under its base product: its own Full part only
+    (its ERP stock is derived from the base, never shown). `full_unidades_base` is that part in base units."""
+
+    key: str
+    product_item_id: int
+    tipo: str
+    codigo: Optional[str] = None
+    descripcion: str
+    cantidad: float
+    costo: Optional[float] = None
+    moneda_costo: str
+    full: StockMoneyOut
+    full_unidades_base: int
+    sin_costo: bool = False  # its Full has no cost: its values are unknown (L9)
+    publications_count: int
+    params: dict[str, str]
+    ventas: Optional[StockAuditSalesOut] = None  # null without ml_metricas.ver
+    kind_counts: dict[str, int] = {}  # listing kind -> its publications (Tipo)
+    status_counts: dict[str, int] = {}  # status token -> its publications (Estado)
+    markup_actual: Optional[StockMarkupRangeOut] = None  # present only with ml_metricas.ver_ganancia
+
+
+class StockAuditRowOut(BaseModel):
+    """A base product (`producto`) or a PC (`pc`): its ERP and Full stock and their total, its variants' Full
+    included in `full`. `params` select its own publications in `/items`; each variant carries its own."""
+
+    key: str
+    product_item_id: int
+    tipo: str
+    codigo: Optional[str] = None
+    descripcion: str
+    marca: Optional[str] = None
+    costo: Optional[float] = None
+    moneda_costo: str
+    erp: StockMoneyOut
+    full: StockMoneyOut
+    total: StockMoneyOut
+    sin_costo: bool = False  # some of its stock (own, or a variant's Full) has no cost: values unknown (L9)
+    publications_count: int
+    publicacion_activa: bool
+    promo_aplicada: Optional[bool] = None  # null when the promotions database could not be read
+    params: dict[str, str]
+    ventas: Optional[StockAuditSalesOut] = None  # null without ml_metricas.ver
+    # over its own and its variants' publications
+    kind_counts: dict[str, int] = {}
+    status_counts: dict[str, int] = {}
+    markup_actual: Optional[StockMarkupRangeOut] = None  # present only with ml_metricas.ver_ganancia
+    variantes: list[StockAuditVariantOut]
+
+
+class StockAuditKpisOut(BaseModel):
+    erp: StockMoneyOut
+    full: StockMoneyOut
+    total: StockMoneyOut
+    productos: int
+    productos_sin_publicacion_activa: int
+    valor_sin_publicacion_activa: StockMoneyOut  # what their stock is worth (ERP + Full)
+    # L9: rows with some stock without cost; the values above add only the stock with a cost
+    productos_sin_costo: int = 0
+    productos_con_promo_aplicada: Optional[int] = None  # null when the promotions database could not be read
+    productos_sin_promo_aplicada: Optional[int] = None
+
+
+class StockAuditResponse(BaseModel):
+    rows: list[StockAuditRowOut]
+    total: int
+    limit: int
+    offset: int
+    orden: str
+    dir: str
+    can_see_sales: bool  # ml_metricas.ver: `ventas` on every row
+    can_see_margin: bool  # ml_metricas.ver_ganancia: its Total Gauss and markups
+    tipo_cambio: Optional[float] = None  # the BNA USD selling rate the ARS / USD values use
+    tipo_cambio_fecha: Optional[date] = None
+    kpis: StockAuditKpisOut
+
+
 class StatsResponse(BaseModel):
     stats: dict[str, int]  # card -> linked products (`stats.compute`); the markup cards only with `can_see_margin`
     can_see_margin: bool
@@ -909,6 +1024,9 @@ def filter_query(
     promo_estado: Optional[str] = Query(None, description="disponible (default), aplicada or sin_aplicar"),
     con_promo_aplicada: Optional[bool] = Query(None, description="any promotion started (without promo_tipos)"),
     con_promo_sin_aplicar: Optional[bool] = Query(None, description="only candidate promotions (without promo_tipos)"),
+    promo_aplicada: Optional[str] = Query(
+        None, description="con: a started (applied) promotion; sin: none started, even with candidates"
+    ),
     con_pxq: Optional[bool] = Query(None, description="the publication has wholesale (PxQ) tiers"),
     hay_mejores_ofertas: Optional[bool] = Query(
         None, description="true: candidate promo beats consumer MeLi price (modo poner precios)"
@@ -944,7 +1062,9 @@ def filter_query(
             f"Se requiere el permiso {PERMISO_GANANCIA} para filtrar por markup",
         )
     try:
-        scope = _mla_scope(promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar, con_pxq)
+        scope = _mla_scope(
+            promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar, con_pxq, promo_aplicada
+        )
         f = parse_filter(
             q=q,
             estado=estado,
@@ -983,6 +1103,7 @@ def filter_query(
             audit_fecha_desde=audit_fecha_desde,
             audit_fecha_hasta=audit_fecha_hasta,
             mla_scope=scope.scope,
+            mla_exclude=scope.exclude,
             colores=colores,
             con_mla=con_mla,
             estado_mla=estado_mla,
@@ -1001,15 +1122,18 @@ def filter_query(
 
 
 PROMO_STATES = ("disponible", "aplicada", "sin_aplicar")
+PROMO_APLICADA = ("con", "sin")
 FILTER_UNAVAILABLE_CODE = "filtro_no_disponible"
 
 
 class MlaScope(NamedTuple):
-    """The MLAs the promo and PxQ filters leave (`scope`), the PxQ ones alone (`pxq`) and whether a promo filter is on."""
+    """The MLAs the promo and PxQ filters leave (`scope`), the PxQ ones alone (`pxq`), the ones "Sin promo aplicada"
+    leaves out (`exclude`) and whether a promo filter is on."""
 
     scope: Optional[frozenset[str]]
     pxq: Optional[frozenset[str]]
     promo_filter: bool
+    exclude: Optional[frozenset[str]] = None
 
 
 def _mla_scope(
@@ -1018,10 +1142,13 @@ def _mla_scope(
     con_promo_aplicada: Optional[bool],
     con_promo_sin_aplicar: Optional[bool],
     con_pxq: Optional[bool],
+    promo_aplicada: Optional[str] = None,
 ) -> MlaScope:
     """Productos' promo filter (the same `select_promo_resolver` dispatch) and its PxQ toggle as the MLAs that match,
     read from the mlwebhook database, ANDed (`scope`, `None` when neither is asked), with the PxQ part apart (`pxq`)
-    for the facets' promo axis. A resolver that cannot answer is a 503: never the unfiltered list."""
+    for the facets' promo axis. The Con / Sin promo aplicada filter (`promo_aplicada`) reads the started promotions
+    (the badge's set): `con` ANDs them into `scope`, `sin` leaves them out (`exclude`). A resolver that cannot answer
+    is a 503: never the unfiltered list."""
     tipos = [t.strip() for t in (promo_tipos or "").split(",") if t.strip()]
     unknown = [t for t in tipos if t not in KNOWN_PROMOTION_TYPES]
     if unknown:
@@ -1030,6 +1157,8 @@ def _mla_scope(
         )
     if promo_estado is not None and promo_estado not in PROMO_STATES:
         raise FilterError("promo_estado", f"unknown value {promo_estado}; known: {', '.join(PROMO_STATES)}")
+    if promo_aplicada is not None and promo_aplicada not in PROMO_APLICADA:
+        raise FilterError("promo_aplicada", f"unknown value {promo_aplicada}; known: {', '.join(PROMO_APLICADA)}")
     asked = []
     promo = select_promo_resolver(
         PromoResolverFns(
@@ -1052,15 +1181,46 @@ def _mla_scope(
     scope: Optional[frozenset[str]] = None
     pxq: Optional[frozenset[str]] = None
     for resolver, context, message in asked:
-        try:
-            found = frozenset(resolver())
-        except (RuntimeError, SQLAlchemyError) as exc:
-            logger.warning("%s no disponible: %s", context, exc)
-            raise api_error(status.HTTP_503_SERVICE_UNAVAILABLE, FILTER_UNAVAILABLE_CODE, message) from exc
+        found = _resolve_mlas(resolver, context, message)
         if resolver is fetch_mlas_with_pxq_tiers:
             pxq = found
         scope = found if scope is None else scope & found
-    return MlaScope(scope=scope, pxq=pxq, promo_filter=promo is not None)
+    exclude: Optional[frozenset[str]] = None
+    if promo_aplicada is not None:
+        started = _resolve_mlas(
+            fetch_mlas_with_started, "Filtro promo_aplicada", "Filtro de promo aplicada no disponible temporalmente"
+        )
+        if promo_aplicada == "con":
+            scope = started if scope is None else scope & started
+        else:
+            exclude = started  # left out, never ANDed into the scope
+    promo_filter = promo is not None or promo_aplicada is not None
+    return MlaScope(scope=scope, pxq=pxq, promo_filter=promo_filter, exclude=exclude)
+
+
+def _attach_promo_aplicada(items: list[dict[str, Any]]) -> None:
+    """Each row's Promo aplicada badge: whether it is among the MLAs with a started promotion, read for the page's
+    MLAs only (`mla_ids`; an empty page reads nothing, since no `mla_ids` would read the whole account). A database
+    that cannot be read leaves the rows without the badge: the list still answers."""
+    mlas = [item["item_id"] for item in items]
+    if not mlas:
+        return
+    try:
+        started = fetch_mlas_with_started(mla_ids=mlas)
+    except (RuntimeError, SQLAlchemyError) as exc:
+        logger.warning("Badge de promo aplicada no disponible en Publicaciones ML: %s", exc)
+        return
+    for item in items:
+        item["promo_aplicada"] = item["item_id"] in started
+
+
+def _resolve_mlas(resolver: Callable[[], Any], context: str, message: str) -> frozenset[str]:
+    """One MLA set read from the mlwebhook database; a reader that cannot answer is a 503 with `message`."""
+    try:
+        return frozenset(resolver())
+    except (RuntimeError, SQLAlchemyError) as exc:
+        logger.warning("%s no disponible: %s", context, exc)
+        raise api_error(status.HTTP_503_SERVICE_UNAVAILABLE, FILTER_UNAVAILABLE_CODE, message) from exc
 
 
 class _RecentSet:
@@ -1316,6 +1476,8 @@ def get_items(
             with timer.stage("metrics"):
                 by_mla = row_metrics.metrics_by_mla(db, [item["item_id"] for item in page.items])
             _attach_metrics(page.items, by_mla, with_margin=can_see_margin)
+        with timer.stage("promo"):
+            _attach_promo_aplicada(page.items)
         facet_counts = None
         if facets:
             with timer.stage("facets"):
@@ -1630,6 +1792,123 @@ def products_ask(
         directions.append(wanted or ("asc" if name == products.NEUTRAL_SORT else "desc"))
     then = tuple((name, wanted == "desc") for (name, _), wanted in zip(pairs[1:], directions[1:]))
     return ProductsAsk(can_see_margin, can_see_sales, pairs[0][0], directions[0], then)
+
+
+class _StockAuditRead(NamedTuple):
+    audit: Any  # stock_audit.Audit
+    ordered: list[Any]  # its rows in the asked order
+    started: Optional[frozenset[str]]
+    rate: Any  # stock_audit.Rate
+    can_see_sales: bool
+    can_see_margin: bool
+
+
+def _read_stock_audit(
+    user: Usuario, f: PublicationFilter, orden: str, dir: str, db: Session, auth_db: Session
+) -> _StockAuditRead:
+    """The stock audit for `user` (the view and its export share it): the order checked against what the caller may
+    see (422 unknown, 403 a sales or margin order without its permission), every row built and sorted."""
+    permisos = PermisosService(auth_db)
+    can_see_sales = permisos.tiene_permiso(user, PERMISO_METRICAS)
+    can_see_margin = can_see_sales and permisos.tiene_permiso(user, PERMISO_GANANCIA)
+    if orden not in stock_audit.ORDERS:
+        raise _unprocessable(FilterError("orden", f"unknown value {orden}; known: {', '.join(stock_audit.ORDERS)}"))
+    if stock_audit.needs_sales(orden) and not can_see_sales:
+        raise api_error(
+            status.HTTP_403_FORBIDDEN,
+            ErrorCode.INSUFFICIENT_PERMISSIONS,
+            f"Se requiere el permiso {PERMISO_METRICAS} para ordenar por las cifras de Métricas ML",
+        )
+    if stock_audit.needs_margin(orden) and not can_see_margin:
+        raise api_error(
+            status.HTTP_403_FORBIDDEN,
+            ErrorCode.INSUFFICIENT_PERMISSIONS,
+            f"Se requiere el permiso {PERMISO_GANANCIA} para ordenar por markup o Total Gauss",
+        )
+    try:
+        listing.bound(db)
+        f = listing.resolve_pm_pairs(db, f)
+        rate = stock_audit.read_rate(db)
+        audit = stock_audit.build(db, f, rate)
+        stock_audit.add_summaries(db, audit)
+        if can_see_sales:
+            stock_audit.add_sales(db, audit, sell_in_out=can_see_margin)
+        if can_see_margin:
+            stock_audit.add_markups(db, auth_db, audit)
+    except FilterError as exc:
+        raise _unprocessable(exc) from exc
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
+    started = _started_promotions()
+    ordered = stock_audit.sort_rows(audit.rows, orden, dir == "desc")
+    return _StockAuditRead(audit, ordered, started, rate, can_see_sales, can_see_margin)
+
+
+@router.get("/stock-audit", response_model=StockAuditResponse, response_model_exclude_unset=True)
+def get_stock_audit(
+    user: Usuario = Depends(require_permiso(PERMISO_AUDITORIA_STOCK)),  # first: who may ask
+    f: PublicationFilter = Depends(filter_query),
+    orden: str = Query("valor_total", description=f"one of {', '.join(stock_audit.ORDERS)}"),
+    dir: str = Query("desc", pattern="^(asc|desc)$"),
+    limit: int = Query(listing.DEFAULT_LIMIT, ge=1, le=listing.MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_view_db),
+    auth_db: Session = Depends(get_db),  # the Métricas permissions (see `get_items`)
+) -> dict[str, Any]:
+    """The Auditoría de stock view (`ml_publicaciones.ver_auditoria_stock`): one row per base product with stock,
+    its variants under it, what its ERP and Full stock is worth at cost in USD and ARS (the day's BNA rate), and the
+    KPI strip over every row (`stock_audit`)."""
+    read = _read_stock_audit(user, f, orden, dir, db, auth_db)
+    return {
+        "rows": [
+            stock_audit.row_out(
+                r, read.audit.active, read.started, with_sales=read.can_see_sales, with_margin=read.can_see_margin
+            )
+            for r in read.ordered[offset : offset + limit]
+        ],
+        "can_see_sales": read.can_see_sales,
+        "can_see_margin": read.can_see_margin,
+        "total": len(read.ordered),
+        "limit": limit,
+        "offset": offset,
+        "orden": orden,
+        "dir": dir,
+        "tipo_cambio": read.rate.usd_ars,
+        "tipo_cambio_fecha": read.rate.fecha,
+        "kpis": stock_audit.kpis(read.audit, read.started),
+    }
+
+
+@router.get("/stock-audit/export")
+def export_stock_audit(
+    user: Usuario = Depends(require_permiso(PERMISO_AUDITORIA_STOCK)),  # first: who may ask
+    f: PublicationFilter = Depends(filter_query),
+    orden: str = Query("valor_total", description=f"one of {', '.join(stock_audit.ORDERS)}"),
+    dir: str = Query("desc", pattern="^(asc|desc)$"),
+    db: Session = Depends(get_view_db),
+    auth_db: Session = Depends(get_db),
+) -> Response:
+    """The Auditoría de stock as an Excel workbook (L7): EVERY row of the view (not the page) in its order, with the
+    same filters and permissions, each base product followed by its variants and packs (`export.stock_audit_lines`).
+    The audit is built in memory as the view builds it, so the file is one response, not a stream."""
+    read = _read_stock_audit(user, f, orden, dir, db, auth_db)
+    rows = [
+        stock_audit.row_out(
+            r, read.audit.active, read.started, with_sales=read.can_see_sales, with_margin=read.can_see_margin
+        )
+        for r in read.ordered
+    ]
+    lines = export.stock_audit_lines(rows, sales=read.can_see_sales, margin=read.can_see_margin)
+    filename = f"publicaciones-ml-auditoria-stock-{date.today().isoformat()}.xlsx"
+    return Response(
+        export.workbook(lines, "Auditoría de stock"),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/products", response_model=ProductsResponse, response_model_exclude_unset=True)
