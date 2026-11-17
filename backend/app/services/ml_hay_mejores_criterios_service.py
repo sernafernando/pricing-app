@@ -14,6 +14,8 @@ from app.services.ml_hay_mejores_audit_service import record_auto_toggle
 
 DEFAULT_C6_GAP_MIN = Decimal("5000")
 DEFAULT_C6_DISTANCIA = Decimal("100")
+# Catalog code; seeded with no role grants — assign only via usuario_permisos_override.
+PERMISO_AUTO_APLICACION = "promos.auto_aplicacion"
 
 
 @dataclass(frozen=True)
@@ -179,6 +181,7 @@ def upsert_criterios(
     auto_aplicacion: bool,
     sellers_excluidos: Optional[Sequence[str]] = None,
     alcance: str = "item",
+    puede_cambiar_auto: bool = True,
 ) -> CriteriosView:
     if c1_activo and c1_markup_min is not None and c1_markup_max is not None and c1_markup_min > c1_markup_max:
         raise ValueError("c1_markup_min no puede ser mayor que c1_markup_max")
@@ -186,6 +189,8 @@ def upsert_criterios(
         raise ValueError("gap y distancia de C6 deben ser ≥ 0")
 
     previous = get_criterios(db, item_id)
+    # Without promos.auto_aplicacion the Auto toggle is locked: keep the stored value.
+    effective_auto = auto_aplicacion if puede_cambiar_auto else previous.auto_aplicacion
     row = db.get(MlHayMejoresCriterios, item_id)
     if row is None:
         row = MlHayMejoresCriterios(item_id=item_id)
@@ -200,7 +205,7 @@ def upsert_criterios(
     row.c6_solo_via_promo = c6_solo_via_promo
     row.c6_gap_min = c6_gap_min
     row.c6_distancia_objetivo = c6_distancia_objetivo
-    row.auto_aplicacion = auto_aplicacion
+    row.auto_aplicacion = effective_auto
     if sellers_excluidos is not None:
         row.sellers_excluidos = list(sellers_excluidos)
     row.updated_by = updated_by
@@ -210,7 +215,7 @@ def upsert_criterios(
         db,
         item_id,
         old=previous.auto_aplicacion,
-        new=auto_aplicacion,
+        new=effective_auto,
         usuario_id=updated_by,
         alcance=alcance,
     )
@@ -233,6 +238,7 @@ def upsert_criterios_bulk(
     c6_distancia_objetivo: Decimal,
     auto_aplicacion: bool,
     sellers_excluidos: Optional[Sequence[str]] = None,
+    puede_cambiar_auto: bool = True,
 ) -> list[str]:
     """Upsert the same criterios onto many MLAs. Unknown ``ml_items`` ids are skipped; order preserved."""
     from app.models.ml_publications import MlItem
@@ -261,6 +267,7 @@ def upsert_criterios_bulk(
             auto_aplicacion=auto_aplicacion,
             sellers_excluidos=sellers_excluidos,
             alcance="bulk",
+            puede_cambiar_auto=puede_cambiar_auto,
         )
         touched.append(item_id)
     return touched

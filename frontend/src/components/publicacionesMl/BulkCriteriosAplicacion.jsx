@@ -89,6 +89,7 @@ export default function BulkCriteriosAplicacion({
   const [run, setRun] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [descartar, setDescartar] = useState(false);
+  const canAuto = tienePermiso('promos.auto_aplicacion');
 
   if (!tienePermiso('promos.escribir')) return null;
 
@@ -292,15 +293,19 @@ export default function BulkCriteriosAplicacion({
                   </div>
                 </>
               )}
-              <label className={formStyles.checkRow}>
-                <input
-                  type="checkbox"
-                  checked={form.auto_aplicacion}
-                  onChange={(e) => setField('auto_aplicacion', e.target.checked)}
-                />
-                Auto-aplicación
-              </label>
-              {form.auto_aplicacion && <p className={formStyles.autoHint}>{AUTO_ON_HINT}</p>}
+              {canAuto && (
+                <>
+                  <label className={formStyles.checkRow}>
+                    <input
+                      type="checkbox"
+                      checked={form.auto_aplicacion}
+                      onChange={(e) => setField('auto_aplicacion', e.target.checked)}
+                    />
+                    Auto-aplicación
+                  </label>
+                  {form.auto_aplicacion && <p className={formStyles.autoHint}>{AUTO_ON_HINT}</p>}
+                </>
+              )}
               <label className={formStyles.checkRow}>
                 <input
                   type="checkbox"

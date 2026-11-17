@@ -107,6 +107,53 @@ def test_upsert_criterios_logs_auto_flip(monkeypatch) -> None:
     assert row.auto_aplicacion is True
 
 
+def test_upsert_without_auto_permission_keeps_previous_auto(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.ml_hay_mejores_criterios_service.record_auto_toggle",
+        lambda *_a, **_k: None,
+    )
+    monkeypatch.setattr(
+        "app.services.ml_hay_mejores_criterios_service.get_criterios",
+        lambda db, item_id: SimpleNamespace(auto_aplicacion=True),
+    )
+    row = SimpleNamespace(
+        item_id="MLA1",
+        c1_activo=False,
+        c1_markup_min=None,
+        c1_markup_max=None,
+        c2_activo=False,
+        c2_solo_markup_positivo=True,
+        c6_activo=False,
+        c6_solo_via_promo=False,
+        c6_gap_min=Decimal("5000"),
+        c6_distancia_objetivo=Decimal("100"),
+        auto_aplicacion=True,
+        sellers_excluidos=[],
+        updated_by=None,
+        updated_at=None,
+    )
+    db = MagicMock()
+    db.get.return_value = row
+
+    upsert_criterios(
+        db,
+        "MLA1",
+        updated_by=3,
+        c1_activo=False,
+        c1_markup_min=None,
+        c1_markup_max=None,
+        c2_activo=False,
+        c2_solo_markup_positivo=True,
+        c6_activo=False,
+        c6_solo_via_promo=False,
+        c6_gap_min=Decimal("5000"),
+        c6_distancia_objetivo=Decimal("100"),
+        auto_aplicacion=False,
+        puede_cambiar_auto=False,
+    )
+    assert row.auto_aplicacion is True
+
+
 def test_latest_flag_transition_payload_returns_dict() -> None:
     db = MagicMock()
     db.query.return_value.filter.return_value.order_by.return_value.first.return_value = SimpleNamespace(
