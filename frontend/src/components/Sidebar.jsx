@@ -6,6 +6,28 @@ import SidebarSection from './SidebarSection';
 import { Package, ClipboardList, BarChart3, Settings, PanelLeftClose, PanelLeft, ChevronsDown, ChevronsUp, X, Search, Headset, Truck, Users, Ticket, FileText, Building2, Wallet, HelpCircle } from 'lucide-react';
 import styles from './Sidebar.module.css';
 
+/**
+ * The path of the item to mark active; SidebarSection compares `item.path` with it. An item may carry a query
+ * ("Ventas por Fuera" is `/metricas-ml?canal=fuera`): among the items on the current pathname whose query the URL
+ * carries, the most specific wins; with none, the plain pathname (the previous behavior).
+ */
+function rutaActiva(paths, { pathname, search }) {
+  const actuales = new URLSearchParams(search);
+  let mejor = pathname;
+  let especificidad = -1;
+  for (const path of paths) {
+    const [base, query = ''] = path.split('?');
+    if (base !== pathname) continue;
+    const pedidos = [...new URLSearchParams(query)];
+    if (!pedidos.every(([clave, valor]) => actuales.get(clave) === valor)) continue;
+    if (pedidos.length > especificidad) {
+      mejor = path;
+      especificidad = pedidos.length;
+    }
+  }
+  return mejor;
+}
+
 export default function Sidebar({ mobileOpen = false, onMobileClose }) {
   // Estado persistido: true = expandido fijo, false = colapsado
   const [isPinned, setIsPinned] = useState(() => {
@@ -145,7 +167,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'ML Ads', path: '/ml-ads-aportes', permiso: 'ml_metricas.ver_ganancia', badge: 'Nuevo' },
         { label: 'Ventas ML', path: '/ml-ventas-listado', permiso: 'ml_ops.ver' },
         { label: 'Dashboard TP-Link', path: '/dashboard-tplink', permiso: 'dashboard_tplink.ver' },
-        { label: 'Ventas por Fuera', path: '/dashboard-ventas-fuera', permiso: 'ventas_fuera.ver_dashboard' },
+        // ODD vpf-metricas-canal-fe (S4): the old Ventas por fuera dashboard is now this view of the board.
+        { label: 'Ventas por Fuera', path: '/metricas-ml?canal=fuera', permiso: 'ventas_fuera.ver_metricas_pdf' },
+        { label: 'Cargas de PDF', path: '/metricas-ml/cargas', permiso: 'ventas_fuera.subir_pdf,ventas_fuera.ver_metricas_pdf', multiple: true },
         { label: 'Tienda Nube', path: '/dashboard-tienda-nube', permiso: 'ventas_tn.ver_dashboard' },
         { label: 'Cálculos', path: '/calculos', permiso: 'reportes.ver_calculadora' },
         { label: 'Últimos Cambios', path: '/ultimos-cambios', permiso: 'productos.ver_auditoria' },
@@ -236,6 +260,24 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
     },
   ];
 
+  const esVisible = (item) => {
+    // Ítem con visibilidad data-scoped (no permiso admin) — ej. "Mis Sub-PMs"
+    if (item.visibleIf) return item.visibleIf();
+    // Sin permiso definido → visible para todos
+    if (!item.permiso) return true;
+    if (item.multiple) {
+      // Si tiene múltiples permisos separados por coma
+      const permisos = item.permiso.split(',');
+      return tieneAlgunPermiso(permisos);
+    }
+    return tienePermiso(item.permiso);
+  };
+
+  const currentPath = rutaActiva(
+    menuSections.flatMap((section) => section.items.filter(esVisible).map((item) => item.path)),
+    location,
+  );
+
   return (
     <>
       {/* Overlay para cerrar sidebar en mobile */}
@@ -280,18 +322,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
       <nav className={styles.nav}>
         {menuSections.map((section) => {
           // Filtrar ítems con permisos
-          const visibleItems = section.items.filter((item) => {
-            // Ítem con visibilidad data-scoped (no permiso admin) — ej. "Mis Sub-PMs"
-            if (item.visibleIf) return item.visibleIf();
-            // Sin permiso definido → visible para todos
-            if (!item.permiso) return true;
-            if (item.multiple) {
-              // Si tiene múltiples permisos separados por coma
-              const permisos = item.permiso.split(',');
-              return tieneAlgunPermiso(permisos);
-            }
-            return tienePermiso(item.permiso);
-          });
+          const visibleItems = section.items.filter(esVisible);
 
           // Solo mostrar sección si tiene ítems visibles
           if (visibleItems.length === 0) return null;
@@ -304,7 +335,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
               items={visibleItems}
               defaultOpen={section.defaultOpen}
               isExpanded={isExpanded}
-              currentPath={location.pathname}
+              currentPath={currentPath}
               forceOpen={expandAll}
               onItemClick={onMobileClose}
             />

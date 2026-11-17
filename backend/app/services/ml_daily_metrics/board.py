@@ -163,6 +163,11 @@ COMPARE = ("periodo_anterior", "anio_anterior")
 PUB_STATUSES = ("active", "paused", "closed", "under_review")
 PUB_TYPES = ("clasica", "premium", "catalogo", "full")
 ALERTS = ("sin_ventas_30d", "ageing_60d", "margen_cayendo")
+# canal=fuera|todo (vpf-metricas-canal-fe C3): also the "Sin producto" rows (a fuera line whose code is not in
+# productos_erp, or without code). Never on the ML board.
+SIN_PRODUCTO_ALERT = "sin_producto"
+ALERTS_FUERA = ALERTS + (SIN_PRODUCTO_ALERT,)
+CANAL_ROW = ("ml", "fuera", "ambos")
 # The row's ERP stock (`productos_erp.stock`, deposit 1 -- the "Stock" every
 # other screen shows for an ERP product): > 0, <= 0, or unknown (the product
 # is not in `productos_erp`, or its stock is NULL). Unknown is its own bucket,
@@ -645,6 +650,8 @@ class Row:
     flags: Set[str] = field(default_factory=set)
     series_units: List[int] = field(default_factory=list)
     series_markup: List[Optional[float]] = field(default_factory=list)
+    # canal=fuera|todo only (`canal_of`): where the row's sales come from, "ml", "fuera" or "ambos".
+    canal: Optional[str] = None
 
     @property
     def markup(self) -> Optional[Decimal]:
@@ -716,6 +723,44 @@ class Kpis:
     costo_sell_in = property(lambda self: SellInOut.costo_sell_in(self))
     total_gauss_sell = property(lambda self: SellInOut.total_gauss_sell(self))
     markup_sell = property(lambda self: SellInOut.markup_sell(self))
+
+
+@dataclass
+class FueraKpis:
+    """The "Por fuera" KPI block (vpf-metricas-canal-fe C3, `Board.fuera_kpis`): over the fuera lines of the period
+    of the rows the board keeps."""
+
+    comprobantes: int
+    # [(tipo, letra, documents)], by tipo and letra.
+    por_tipo: List[Tuple[str, str, int]]
+    recargo_cheque: Decimal
+    sin_producto_lineas: int
+    sin_producto_monto: Decimal
+    otro_costo: str
+    otro_margin: Decimal
+    otro_costo_total: Decimal
+    # (created_at, empresa, vendedor) of the newest upload with a detailed report; None when there is none.
+    ultimo_pdf: Optional[Tuple[datetime, str, Optional[str]]]
+
+
+@dataclass
+class CanalSums:
+    units: int
+    gross: Decimal
+    tg: Decimal
+    mtg: Decimal
+    costo: Decimal
+
+
+def canal_of(ml_sold: Any, fuera_sold: Any, ml_pairs: Any, fuera_pairs: Any) -> str:
+    """Where a row's sales come from (C3 `rows[].canal`): the channels with a sale (units or Venta) in the period;
+    a row without any sale in the period goes by the channels of its pairs."""
+    ml, fuera_ = bool(ml_sold), bool(fuera_sold)
+    if not ml and not fuera_:
+        ml, fuera_ = bool(ml_pairs), bool(fuera_pairs)
+    if ml and fuera_:
+        return "ambos"
+    return "fuera" if fuera_ else "ml"
 
 
 @dataclass
@@ -881,6 +926,8 @@ class Board:
         # lines are read, whatever the canal (vpf-metricas-canal S10; fuera alone is refused before, 422).
         self.canal = "ml" if f.group_by == "publication" else f.canal
         self.fuera_scope = fuera.FueraScope(costo=f.costo, empresas=f.empresas, vendedores=f.vendedores)
+        # The row alerts this board computes: ML's, plus "sin producto" when it reads fuera lines.
+        self.alert_names = ALERTS if self.canal == "ml" else ALERTS_FUERA
         # Whether this request subtracts the ads (the router already refused
         # the toggle without `ml_metricas.ver_ganancia`). OFF changes nothing. The ads are ML's: por fuera alone
         # has none to subtract.
@@ -1199,6 +1246,29 @@ class Board:
         if self.canal == "ml":
             return condition
         return or_(t.c.mla == fuera.FUERA_MLA, condition)
+
+    def _canal_columns(self, pairs: Any) -> List[Any]:
+        """canal=fuera|todo: the per-row counts `canal_of` reads (pairs of each channel, and those with a sale)."""
+        if self.canal == "ml":
+            return []
+        es_fuera = pairs.c.mla == fuera.FUERA_MLA
+        vendio = or_(pairs.c.units != 0, pairs.c.gross != 0)
+
+        def count(cond: Any, name: str) -> Any:
+            return func.sum(case((cond, 1), else_=0)).label(name)
+
+        return [
+            count(and_(~es_fuera, vendio), "c_ml_sold"),
+            count(and_(es_fuera, vendio), "c_fuera_sold"),
+            count(~es_fuera, "c_ml"),
+            count(es_fuera, "c_fuera"),
+        ]
+
+    def _canal_of(self, r: Any) -> Optional[str]:
+        if self.canal == "ml":
+            # canal=todo by publication reads the ML lines only: its rows are ML publications.
+            return None if self.f.canal == "ml" else "ml"
+        return canal_of(r["c_ml_sold"], r["c_fuera_sold"], r["c_ml"], r["c_fuera"])
 
     def _sell_line_sums(self, lines: Any) -> Tuple[Any, List[Any]]:
         """Sell in / sell out per sold line (`venta_ref` = its `item_row_id`, channel 'ml'): `(the lines joined to
@@ -1935,6 +2005,7 @@ class Board:
                 func.min(fp.c.start_day).label("start_day"),
                 # A publication row's kind rank (a product row: its best publication's), for `listing_kind`.
                 func.min(listing_rank(fp.c.listing_kind)).label("listing_rank"),
+                *self._canal_columns(fp),
             )
             .group_by(fp.c.rk)
             .subquery("g")
@@ -1972,6 +2043,8 @@ class Board:
             case((sin_ventas, 1), else_=0).label("a_sin_ventas_30d"),
             case((ageing_60, 1), else_=0).label("a_ageing_60d"),
             case((cayendo, 1), else_=0).label("a_margen_cayendo"),
+            # A "sin producto" fuera row is keyed by a negative product id (`fuera`).
+            *([case((g.c.product < 0, 1), else_=0).label("a_sin_producto")] if self.canal != "ml" else []),
             stock.label("stock"),
             stock_bucket.label("stock_bucket"),
             ageing_bucket.label("ageing_bucket"),
@@ -2054,6 +2127,8 @@ class Board:
                 "sin_ventas_30d": T.c.a_sin_ventas_30d == 1,
                 "ageing_60d": T.c.a_ageing_60d == 1,
                 "margen_cayendo": T.c.a_margen_cayendo == 1,
+                # By publication only ML lines are read: no row is "sin producto" there.
+                SIN_PRODUCTO_ALERT: T.c.a_sin_producto == 1 if self.canal != "ml" else false(),
             }
             q = q.where(or_(*(by_name[a] for a in self.f.alerts)))
         if self.f.solo_con_ventas:
@@ -2194,7 +2269,8 @@ class Board:
                 units_24h=int(r["u24"] or 0),
                 ageing_days=(self.today - ref_day).days if ref_day else None,
                 stock=int(r["stock"]) if r["stock"] is not None else None,
-                flags={name for name in ALERTS if r[f"a_{name}"]},
+                flags={name for name in self.alert_names if r[f"a_{name}"]},
+                canal=self._canal_of(r),
             )
             out.append(row)
         self._decorate(out, with_series=with_series)
@@ -2348,6 +2424,7 @@ class Board:
                 func.max(gp.c.last_at).label("last_at"),
                 func.min(gp.c.start_day).label("start_day"),
                 func.sum(case((gp.c.first_in_group == 1, gp.c.stock), else_=None)).label("stock"),
+                *self._canal_columns(gp),
             )
             .group_by(key)
             .subquery("g")
@@ -2399,6 +2476,7 @@ class Board:
                     child_level=self.levels[level + 1],
                     **self._sums_of(r, ref_day),
                     products_count=int(r["products"] or 0),
+                    canal=self._canal_of(r),
                 )
             )
         if out and with_series:
@@ -2794,6 +2872,116 @@ class Board:
         )
         return list(self.db.execute(empresas).scalars()), list(self.db.execute(vendedores).scalars())
 
+    def fuera_empresa_documentos(self) -> Dict[str, int]:
+        """The period's fuera documents per company (C3 `facets.empresa_documentos`)."""
+        f = self.f
+        query = fuera.fuera_empresa_documentos(
+            self.fuera_scope, sqlite=self.sqlite, ranges=[day_bounds(f.date_from, f.date_to)]
+        )
+        return {empresa: int(n) for empresa, n in self.db.execute(query)}
+
+    def fuera_vendedor_documentos(self) -> Dict[str, int]:
+        """The period's fuera documents per salesperson (C5 `facets.vendedor_documentos`)."""
+        f = self.f
+        query = fuera.fuera_vendedor_documentos(
+            self.fuera_scope, sqlite=self.sqlite, ranges=[day_bounds(f.date_from, f.date_to)]
+        )
+        return {vendedor: int(n) for vendedor, n in self.db.execute(query)}
+
+    def fuera_kpis(self) -> FueraKpis:
+        """The "Por fuera" KPI block (C3 `kpis.fuera`) over the fuera lines of the period of the rows the board keeps:
+        their documents, by type, with their cheque surcharge (each document once); the "sin producto" lines and
+        their Venta with VAT (the rows' Venta); Total Gauss and its cost on the cost basis NOT shown (`otro_costo`).
+        Three statements, plus the freshness of the newest upload."""
+        f = self.f
+        joined, fp = self._members("", narrow=True)
+        lines = fuera.fuera_kpi_lines(
+            self.fuera_scope, sqlite=self.sqlite, ranges=[day_bounds(f.date_from, f.date_to)]
+        ).subquery("fuera_kpi_lines")
+        kept = (
+            select(*lines.c)
+            .select_from(joined)
+            .join(lines, and_(lines.c.product == fp.c.product, lines.c.mla == fp.c.mla))
+            .subquery("fuera_kept")
+        )
+        documentos = (
+            select(kept.c.tipo, kept.c.letra, func.max(kept.c.recargo_financiero).label("recargo"))
+            .group_by(kept.c.operacion_id, kept.c.tipo, kept.c.letra)
+            .subquery("fuera_kept_docs")
+        )
+        por_tipo = self.db.execute(
+            select(
+                documentos.c.tipo, documentos.c.letra, func.count(), func.coalesce(func.sum(documentos.c.recargo), 0)
+            )
+            .group_by(documentos.c.tipo, documentos.c.letra)
+            .order_by(documentos.c.tipo, documentos.c.letra)
+        ).all()
+        sums = (
+            self.db.execute(
+                select(
+                    func.coalesce(func.sum(case((kept.c.sin_producto, 1), else_=0)), 0).label("sin_lineas"),
+                    func.coalesce(func.sum(case((kept.c.sin_producto, kept.c.gross), else_=0)), 0).label("sin_monto"),
+                    func.coalesce(func.sum(kept.c.otro_margin), 0).label("margin"),
+                    func.coalesce(func.sum(kept.c.otro_mcosto), 0).label("costo"),
+                )
+            )
+            .mappings()
+            .one()
+        )
+        ultimo = self.db.execute(fuera.ultimo_pdf(self.fuera_scope)).first()
+        return FueraKpis(
+            comprobantes=sum(int(n) for _, _, n, _ in por_tipo),
+            por_tipo=[(tipo, letra, int(n)) for tipo, letra, n, _ in por_tipo],
+            recargo_cheque=cents(sum((Decimal(str(r or 0)) for *_, r in por_tipo), Decimal(0))),
+            sin_producto_lineas=int(sums["sin_lineas"]),
+            sin_producto_monto=cents(sums["sin_monto"]),
+            otro_costo=fuera.otro_costo(f.costo),
+            otro_margin=cents(sums["margin"]),
+            otro_costo_total=cents(sums["costo"]),
+            ultimo_pdf=(
+                None
+                if ultimo is None
+                else (as_aware(as_datetime(ultimo[0])).astimezone(timezone.utc), ultimo[1], ultimo[2])
+            ),
+        )
+
+    def por_canal(self) -> Tuple[Dict[str, CanalSums], Dict[str, List[Decimal]]]:
+        """canal=todo (C3 `kpis.por_canal`, `kpis.gross.series_por_canal`): the strip's units, Venta, Total Gauss and
+        markup sums of the rows the board keeps, split by channel, and the daily Venta of each channel. Two
+        statements."""
+        f = self.f
+        joined, fp = self._members("")
+        es_fuera = fp.c.mla == fuera.FUERA_MLA
+        totals = self.db.execute(
+            select(
+                es_fuera.label("fuera"),
+                *(func.coalesce(func.sum(fp.c[name]), 0).label(name) for name in ("units", "gross", "tg", "mtg")),
+                func.coalesce(func.sum(fp.c.costo), 0).label("costo"),
+            )
+            .select_from(joined)
+            .group_by(es_fuera)
+        ).mappings()
+        sums = {name: CanalSums(0, Decimal(0), Decimal(0), Decimal(0), Decimal(0)) for name in ("ml", "fuera")}
+        for t in totals:
+            sums["fuera" if t["fuera"] else "ml"] = CanalSums(
+                int(t["units"]), cents(t["gross"]), cents(t["tg"]), cents(t["mtg"]), cents(t["costo"])
+            )
+        joined, fp = self._members("", narrow=True)
+        L = self.lines
+        en_fuera = L.c.mla == fuera.FUERA_MLA
+        days = (f.date_to - f.date_from).days + 1
+        series = {name: [Decimal("0")] * days for name in ("ml", "fuera")}
+        query = (
+            select(L.c.day, en_fuera.label("fuera"), func.sum(L.c.gross).label("gross"))
+            .select_from(joined)
+            .join(L, and_(L.c.product == fp.c.product, L.c.mla == fp.c.mla))
+            .where(L.c.day.between(self._day(f.date_from), self._day(f.date_to)))
+            .group_by(L.c.day, en_fuera)
+        )
+        for s in self.db.execute(query).mappings():
+            series["fuera" if s["fuera"] else "ml"][(as_date(s["day"]) - f.date_from).days] = cents(s["gross"])
+        return sums, series
+
     def _ads_kpis(self) -> AdsKpis:
         """ONE statement. The unfiltered view sums every ad line of the period (the MLAs whose rows a sort or a
         page hides included); a filtered view sums the owner pairs of the rows it keeps, ads owned by nobody
@@ -2944,11 +3132,13 @@ class Board:
 
         rows = self.rows(skip_row_axes=("alerts",))
         alert_row = (
-            self.db.execute(select(*(func.coalesce(func.sum(rows.c[f"a_{name}"]), 0).label(name) for name in ALERTS)))
+            self.db.execute(
+                select(*(func.coalesce(func.sum(rows.c[f"a_{name}"]), 0).label(name) for name in self.alert_names))
+            )
             .mappings()
             .one()
         )
-        alerts = {name: int(alert_row[name]) for name in ALERTS}
+        alerts = {name: int(alert_row[name]) for name in self.alert_names}
 
         # The row chip groups (stock, ageing) in ONE statement: the rows with
         # BOTH axes cleared, each group counting only the rows that pass the

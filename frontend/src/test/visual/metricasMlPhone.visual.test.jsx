@@ -18,6 +18,8 @@ import { BOARD_RESPONSE, EPSON_PUBLICATIONS } from './metricasMlFixtures';
 
 vi.mock('react-router-dom', async () => ({
   useSearchParams: (await import('./searchParamsMock')).useSearchParams,
+  // The board renders the PDF upload modal, which navigates to the upload history.
+  useNavigate: () => () => {},
   Link: ({ to, children, ...rest }) => (
     <a href={to} {...rest}>
       {children}

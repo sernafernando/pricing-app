@@ -13,7 +13,8 @@ const URL = '/ml-metricas/board/envios';
  * filters. Closed by default and read only once opened, so the board never pays for it. An ML type with no label
  * shows verbatim, like Ventas ML.
  */
-export default function MetricasEnviosPanel({ params }) {
+// `note` (canal=todo): a word next to the title, e.g. that the shipping types are the ML sales only.
+export default function MetricasEnviosPanel({ params, note = null }) {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState({ rows: null, error: false });
   // Read again when the filters change, not when the page hands over an equal object.
@@ -41,6 +42,7 @@ export default function MetricasEnviosPanel({ params }) {
         {open ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
         Por tipo de envío
       </button>
+      {note && <span className={styles.titleNote}>{note}</span>}
       {open && state.error && <p className={styles.note}>No se pudo cargar el desglose por tipo de envío</p>}
       {open && !state.error && state.rows === null && <p className={styles.note}>Cargando…</p>}
       {open && state.rows?.length === 0 && <p className={styles.note}>Sin ventas en el período</p>}

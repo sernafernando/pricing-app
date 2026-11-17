@@ -1,0 +1,411 @@
+/* Subir PDF de ventas por fuera (mockup 3-modal-subir-pdf.png): quiet cards on the modal surface, money and dates
+   in the mono face, one warm card for the summary cross-check when something does not add up. Tokens only. */
+
+.modal {
+  max-width: 820px;
+}
+
+.cuerpo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+  font-size: 13px;
+  color: var(--cf-text-primary);
+}
+
+.slots {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+@media (max-width: 640px) {
+  .slots {
+    grid-template-columns: 1fr;
+  }
+}
+
+.slot {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-3) var(--spacing-md);
+  border: 1px dashed var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+}
+
+.slotListo {
+  border-color: var(--ventas-divider);
+}
+
+.slotArrastrando {
+  border-color: var(--cf-accent-blue);
+  background: var(--tone-info-bg);
+}
+
+.slotIcono {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: var(--tone-neutral-bg);
+  color: var(--cf-text-secondary);
+}
+
+.slotTexto {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.slotTitulo {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.slotNota {
+  font-size: 11px;
+  color: var(--cf-text-tertiary);
+}
+
+.slotArchivo {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.slotCheck {
+  flex-shrink: 0;
+  color: var(--tone-success-fg);
+}
+
+.link {
+  padding: 0;
+  font: inherit;
+  font-size: var(--font-xs);
+  color: var(--cf-accent-blue);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.link:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.ayuda {
+  margin: 0;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.seccion {
+  margin: var(--space-2) 0 0;
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-secondary);
+}
+
+.meta {
+  margin: -8px 0 0;
+  font-size: 13px;
+  color: var(--cf-text-secondary);
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.suave {
+  color: var(--cf-text-tertiary);
+}
+
+.negativo {
+  color: var(--money-negative);
+}
+
+/* Preview: the salespeople found. */
+.lista {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--ventas-divider);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+}
+
+.fila {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto 150px;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 10px var(--spacing-md);
+  cursor: pointer;
+}
+
+.fila + .fila {
+  border-top: 1px solid var(--ventas-divider);
+}
+
+.fila:hover {
+  background: var(--cf-bg-hover);
+}
+
+.fila input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--cf-accent-blue);
+}
+
+.filaExcluida .filaNombre {
+  color: var(--cf-text-tertiary);
+}
+
+.filaNombre {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.filaDocs {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.filaMonto {
+  text-align: right;
+}
+
+.tag {
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--tone-neutral-fg);
+  background: var(--tone-neutral-bg);
+  border: 1px solid var(--tone-neutral-border);
+  border-radius: var(--radius-sm);
+}
+
+/* Result. */
+.resultado {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.datos {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: 8px var(--spacing-md);
+  margin: 0;
+}
+
+.datoLabel {
+  color: var(--cf-text-secondary);
+}
+
+.datoValor {
+  margin: 0;
+  min-width: 0;
+}
+
+.card {
+  margin: 0;
+  padding: var(--space-3) var(--spacing-md);
+  border: 1px solid var(--ventas-divider);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+}
+
+.cardAviso {
+  background: var(--tone-warning-bg);
+  border-color: var(--tone-warning-border);
+}
+
+.cardTitulo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.cardTexto {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.cardPie {
+  margin: 6px 0 0;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.articulos {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.articulos li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: 5px 0;
+}
+
+.articulos li + li {
+  border-top: 1px solid var(--ventas-divider);
+}
+
+.articulo {
+  min-width: 0;
+}
+
+.controlLista {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.controlLista li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.5;
+}
+
+.controlLista li > svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.ok {
+  color: var(--tone-success-fg);
+}
+
+.aviso {
+  color: var(--tone-warning-fg);
+}
+
+.aviso strong {
+  font-weight: var(--font-semibold);
+}
+
+.neutro {
+  color: var(--cf-text-secondary);
+}
+
+.controlNota {
+  margin: 4px 0 0;
+  color: var(--cf-text-secondary);
+}
+
+.controlNota .link {
+  font-size: inherit;
+}
+
+.cheques {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--cf-text-primary);
+}
+
+.cheques li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  padding: 3px 0;
+}
+
+.chequeCliente {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.avisos {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-xs);
+  color: var(--tone-warning-fg);
+}
+
+.avisos li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.avisos li > svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px var(--spacing-md);
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border: 1px solid var(--tone-danger-border);
+  border-radius: var(--radius-md);
+}
+
+.error > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* Footer. */
+.pie {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.acciones {
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.subidoPor {
+  font-size: 13px;
+  color: var(--cf-text-secondary);
+}

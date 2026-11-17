@@ -2,11 +2,31 @@
 
 Área: Reportes
 Ruta: Reportes → Métricas ML
-Permiso: Pedile a un administrador acceso a Métricas ML (ml_metricas.ver; ver ganancias pide ml_metricas.ver_ganancia).
+Permiso: Pedile a un administrador acceso a Métricas ML (ml_metricas.ver; ver ganancias pide ml_metricas.ver_ganancia). Las ventas por fuera piden ventas_fuera.ver_metricas_pdf (su ganancia, ventas_fuera.ver_ganancia).
 
 ## Para qué sirve
 
-Es el tablero de rendimiento y rentabilidad por producto y publicación en Mercado Libre: ventas, margen, publicidad (ads), envíos, ageing y alertas. Permite agrupar por producto, publicación o agrupado, comparar con período anterior o mismo período del año pasado, y exportar.
+Es el tablero de rendimiento y rentabilidad por producto y publicación en Mercado Libre: ventas, margen, publicidad (ads), envíos, ageing y alertas. Permite agrupar por producto, publicación o agrupado, comparar con período anterior o mismo período del año pasado, y exportar. Con el selector **Canal** también muestra las ventas por fuera de Mercado Libre, cargadas desde los PDF de GBP.
+
+## Canal: ML, Por fuera y Todo
+
+Arriba de los filtros, **Canal** elige qué ventas se ven:
+
+- **ML**: las ventas de Mercado Libre, como siempre. Es el valor por defecto.
+- **Por fuera**: las ventas por fuera de Mercado Libre, cargadas desde los PDF de GBP. Total Gauss = venta − costo (sin comisión ni envío). Ver la ayuda de **Ventas por Fuera**.
+- **Todo**: las dos sumadas. Cada venta usa su regla (ML descuenta comisión y envío, por fuera no) y después se suman. Las tarjetas separan ML de Por fuera, **Ventas por día** apila los dos canales y la tabla suma la columna **Canal** (ML, Por fuera o ML + fuera).
+
+Solo ves los canales que tu permiso deja ver. Con acceso solo a ventas por fuera, el tablero queda en **Por fuera**. **Todo** pide los dos accesos.
+
+Con **Por fuera** o **Todo** aparecen:
+
+- **Costo por fuera**: **Costo D** (por defecto, Precio Costo × 1,065) o **Costo** (el Precio Costo del PDF). Cambia el costo, el Total Gauss y el markup de las ventas por fuera. ML usa su costo de siempre.
+- **Empresa** y **Vendedor**: filtran las ventas por fuera. En **Todo** no filtran las de ML.
+- La alerta **Sin producto**: las líneas del PDF cuyo artículo no está en el catálogo. Suman a la venta, pero no tienen marca, PM ni markup.
+
+Con **Por fuera** se ocultan Tienda ML, Publicación, Publicidad, Costos TP, Por tipo de envío y Agrupar por Publicación, porque no existen fuera de Mercado Libre. En **Todo** siguen a la vista y filtran solo las ventas de ML.
+
+**Subir PDF de ventas** (arriba, con el permiso ventas_fuera.subir_pdf) carga un PDF nuevo, y **Cargas de PDF** muestra el historial de cargas. Ver la ayuda de **Ventas por Fuera**.
 
 ## Cómo se usa
 

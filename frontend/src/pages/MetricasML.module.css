@@ -273,3 +273,45 @@
   background: var(--cf-accent-blue-light);
   border-color: var(--cf-accent-blue);
 }
+
+/* ── Canal (vpf-metricas-canal-fe, approved mockups 1 and 2) ─────────── */
+
+/* The cost selector with its line under it, like Publicidad's. */
+.costoGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.costoHint {
+  margin: 0;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.alertChip[data-tone='neutral'] {
+  color: var(--tone-neutral-fg);
+  background: var(--tone-neutral-bg);
+  border-color: var(--tone-neutral-border);
+}
+
+.alertActive[data-tone='neutral'] {
+  color: var(--cf-bg-card);
+  background: var(--tone-neutral-fg);
+}
+
+/* A notice that sits among the alerts but filters nothing. */
+.alertChip[role='note'] {
+  cursor: default;
+}
+
+.fueraNote {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.segmentsRow {
+  flex-basis: 100%;
+  justify-content: flex-start;
+  margin-left: 0;
+}
