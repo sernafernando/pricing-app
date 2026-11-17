@@ -35,7 +35,13 @@ def _run_actualizar(monkeypatch, *, prev_flag: bool, prev_fp: str | None, decisi
         "decidir_flag_hay_mejores",
         lambda **kwargs: decision,
     )
-    monkeypatch.setattr(hay_mejores, "listar_mejores_candidatas", lambda *a, **k: [("C-1", 900.0)])
+    monkeypatch.setattr(
+        hay_mejores,
+        "evaluar_mejores_candidatas",
+        lambda *a, **k: hay_mejores.MejoresEvaluacion(
+            mejores=[("C-1", 900.0)], status_quo={}, candidatas=[], criterios={}
+        ),
+    )
     monkeypatch.setattr(
         hay_mejores,
         "_candidate_entries",

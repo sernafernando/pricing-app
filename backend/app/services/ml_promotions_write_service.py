@@ -552,13 +552,20 @@ def enroll_one_item(
     markup_visto: Optional[float] = None,
     usuario_id: Optional[int] = None,
     stock: Optional[int] = None,
+    *,
+    auto_aplicacion: bool = False,
 ) -> Dict[str, Any]:
     """Enrolls a single item in a promotion, records who did it
     (`_record_write_log`, `usuario_id` None for system writes), then triggers
     the point-refresh hook (`_maybe_refresh_after_write`) BEFORE the promo
     price recompute hook (`_maybe_recompute_after_write`) — see each
     function's docstring for its failure-isolation contract. See
-    `_enroll_one_item` for the enroll orchestration itself."""
+    `_enroll_one_item` for the enroll orchestration itself.
+
+    ``auto_aplicacion`` marks R-AUTO enrolls in the write-log payload. Lean
+    audit also attaches the latest flag_transition snapshot when present
+    (before the flag is cleared).
+    """
     outcome = _enroll_one_item(
         mla_id,
         promotion_id,
@@ -572,6 +579,14 @@ def enroll_one_item(
     # Evidence for the write log only: taken off the outcome before anything
     # else (the refresh hook, the API response) sees it.
     divergence_capture = outcome.pop("divergence_capture", None)
+    flag_snapshot = None
+    try:
+        from app.services.ml_hay_mejores_audit_service import latest_flag_transition_payload
+
+        with get_background_db() as audit_db:
+            flag_snapshot = latest_flag_transition_payload(audit_db, mla_id)
+    except Exception:
+        logger.warning("hay_mejores: flag snapshot for enroll log failed for %s", mla_id, exc_info=True)
     _record_write_log(
         mla_id,
         ACTION_ENROLL,
@@ -590,6 +605,8 @@ def enroll_one_item(
             "offer_id": outcome.get("offer_id"),
             "stock": stock,
             "divergence_capture": divergence_capture,
+            "auto_aplicacion": auto_aplicacion,
+            "hay_mejores_flag_snapshot": flag_snapshot,
         },
     )
     _maybe_refresh_after_write(mla_id, outcome)

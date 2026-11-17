@@ -48,11 +48,38 @@ from app.services.ml_promotions_pricing import (
 )
 from app.services.productos_sell_in_out import SellInOutBatch
 from app.services.ml_publications.parsers.seller_promotions import STATUS_CANDIDATE, promotion_key
-from app.services.ml_hay_mejores_criterios_service import get_criterios, markup_pasa_c1
+from app.services.ml_hay_mejores_audit_service import record_flag_transition
+from app.services.ml_hay_mejores_criterios_service import CriteriosView, get_criterios, markup_pasa_c1
 
 logger = get_logger(__name__)
 
 MejorTuple = Tuple[str, float]
+
+
+@dataclass(frozen=True)
+class MejoresEvaluacion:
+    """Ranking result plus lean-audit snapshot (status quo, beating candidates, criteria)."""
+
+    mejores: List[MejorTuple]
+    status_quo: Dict[str, Any]
+    candidatas: List[Dict[str, Any]]
+    criterios: Dict[str, Any]
+
+
+def _criterios_audit_dict(criterios: CriteriosView) -> Dict[str, Any]:
+    return {
+        "c1_activo": criterios.c1_activo,
+        "c1_markup_min": float(criterios.c1_markup_min) if criterios.c1_markup_min is not None else None,
+        "c1_markup_max": float(criterios.c1_markup_max) if criterios.c1_markup_max is not None else None,
+        "c2_activo": criterios.c2_activo,
+        "c2_solo_markup_positivo": criterios.c2_solo_markup_positivo,
+        "c6_activo": criterios.c6_activo,
+        "c6_solo_via_promo": criterios.c6_solo_via_promo,
+        "c6_gap_min": float(criterios.c6_gap_min),
+        "c6_distancia_objetivo": float(criterios.c6_distancia_objetivo),
+        "auto_aplicacion": criterios.auto_aplicacion,
+    }
+
 
 # The PMs' top-bar badge (`MejoresOfertasBadge`) re-reads its count on this channel.
 SSE_CHANNEL_MEJORES_OFERTAS = "ml-publications:mejores-ofertas"
@@ -171,6 +198,80 @@ def normalizar_entrada_seller_promo(entry: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
+def evaluar_mejores_candidatas(
+    db: Session,
+    mla: str,
+    candidates: Sequence[Mapping[str, Any]],
+    baseline_price: float,
+    *,
+    raw_promotions: Any = None,
+    sell_in_out_batch: Optional[SellInOutBatch] = None,
+) -> MejoresEvaluacion:
+    """Same ranking as ``listar_mejores_candidatas``, plus audit snapshot fields."""
+    empty = MejoresEvaluacion(mejores=[], status_quo={}, candidatas=[], criterios={})
+    if not candidates or baseline_price is None or baseline_price <= 0:
+        return empty
+    context = resolver_contexto_promos(db, mla)
+    if context is None:
+        return empty
+    batch = sell_in_out_batch if sell_in_out_batch is not None else resolver_sell_in_out_para_mlas(db, [mla])
+    if batch is None:
+        batch = _sin_sell_in_out()
+    vigente = markups_baseline_vigente(
+        db, mla, baseline_price, raw_promotions=raw_promotions, batch=batch, context=context
+    )
+    if vigente.nuestro_markup is None:
+        return empty
+    status_quo_price = (
+        float(vigente.precio_status_quo)
+        if vigente.precio_status_quo is not None and vigente.precio_status_quo > 0
+        else float(baseline_price)
+    )
+    promos = [normalizar_entrada_seller_promo(entry) for entry in candidates]
+    enriquecer_markup_por_promo(db, mla, promos, sell_in_out=True, batch=batch, context=context)
+    criterios = get_criterios(db, mla)
+    mejores: List[MejorTuple] = []
+    candidatas: List[Dict[str, Any]] = []
+    for entry, promo in zip(candidates, promos):
+        price = precio_de_oferta(promo)
+        candidato = MarkupsDePrecio(promo.get("nuestro_markup"), promo.get("markup_sell_in_out"))
+        markup, baseline_markup = markups_comparables(candidato, vigente)
+        if not es_mejor_oferta(price, markup, status_quo_price, baseline_markup):
+            continue
+        if not markup_pasa_c1(
+            markup,
+            c1_activo=criterios.c1_activo,
+            c1_markup_min=criterios.c1_markup_min,
+            c1_markup_max=criterios.c1_markup_max,
+        ):
+            continue
+        assert price is not None
+        key = promotion_key(entry)
+        mejores.append((key, float(price)))
+        candidatas.append(
+            {
+                "key": key,
+                "price": float(price),
+                "markup": markup,
+                "markup_status_quo": baseline_markup,
+                "nuestro_markup": promo.get("nuestro_markup"),
+                "markup_sell_in_out": promo.get("markup_sell_in_out"),
+            }
+        )
+    return MejoresEvaluacion(
+        mejores=mejores,
+        status_quo={
+            "price": status_quo_price,
+            "nuestro_markup": vigente.nuestro_markup,
+            "markup_sell_in_out": vigente.markup_sell_in_out,
+            "precio_status_quo": vigente.precio_status_quo,
+            "sale_baseline": float(baseline_price),
+        },
+        candidatas=candidatas,
+        criterios=_criterios_audit_dict(criterios),
+    )
+
+
 def listar_mejores_candidatas(
     db: Session,
     mla: str,
@@ -190,44 +291,14 @@ def listar_mejores_candidatas(
     The MLA's header unit is resolved ONCE (``resolver_contexto_promos``);
     without one, nothing beats the status quo.
     """
-    if not candidates or baseline_price is None or baseline_price <= 0:
-        return []
-    context = resolver_contexto_promos(db, mla)
-    if context is None:
-        return []
-    batch = sell_in_out_batch if sell_in_out_batch is not None else resolver_sell_in_out_para_mlas(db, [mla])
-    if batch is None:
-        batch = _sin_sell_in_out()
-    vigente = markups_baseline_vigente(
-        db, mla, baseline_price, raw_promotions=raw_promotions, batch=batch, context=context
-    )
-    if vigente.nuestro_markup is None:
-        return []
-    status_quo_price = (
-        float(vigente.precio_status_quo)
-        if vigente.precio_status_quo is not None and vigente.precio_status_quo > 0
-        else float(baseline_price)
-    )
-    promos = [normalizar_entrada_seller_promo(entry) for entry in candidates]
-    enriquecer_markup_por_promo(db, mla, promos, sell_in_out=True, batch=batch, context=context)
-    criterios = get_criterios(db, mla)
-    mejores: List[MejorTuple] = []
-    for entry, promo in zip(candidates, promos):
-        price = precio_de_oferta(promo)
-        candidato = MarkupsDePrecio(promo.get("nuestro_markup"), promo.get("markup_sell_in_out"))
-        markup, baseline_markup = markups_comparables(candidato, vigente)
-        if not es_mejor_oferta(price, markup, status_quo_price, baseline_markup):
-            continue
-        if not markup_pasa_c1(
-            markup,
-            c1_activo=criterios.c1_activo,
-            c1_markup_min=criterios.c1_markup_min,
-            c1_markup_max=criterios.c1_markup_max,
-        ):
-            continue
-        assert price is not None
-        mejores.append((promotion_key(entry), float(price)))
-    return mejores
+    return evaluar_mejores_candidatas(
+        db,
+        mla,
+        candidates,
+        baseline_price,
+        raw_promotions=raw_promotions,
+        sell_in_out_batch=sell_in_out_batch,
+    ).mejores
 
 
 def _candidate_entries(raw: Any, now: datetime) -> List[Mapping[str, Any]]:
@@ -321,18 +392,20 @@ def actualizar_hay_mejores_ofertas(
                 baseline = float(sale.amount) if sale is not None and sale.amount is not None else None
                 raw = raw_promotions if raw_promotions is not None else row.raw
                 candidates = _candidate_entries(raw, now if now is not None else datetime.now(timezone.utc))
+                evaluacion: Optional[MejoresEvaluacion] = None
                 if baseline is None or baseline <= 0 or not candidates:
                     decision = decidir_flag_hay_mejores(mejores=[], descartado_fingerprint=None)
                 else:
+                    evaluacion = evaluar_mejores_candidatas(
+                        db,
+                        item_id,
+                        candidates,
+                        baseline,
+                        raw_promotions=raw,
+                        sell_in_out_batch=sell_in_out_batch,
+                    )
                     decision = decidir_flag_hay_mejores(
-                        mejores=listar_mejores_candidatas(
-                            db,
-                            item_id,
-                            candidates,
-                            baseline,
-                            raw_promotions=raw,
-                            sell_in_out_batch=sell_in_out_batch,
-                        ),
+                        mejores=evaluacion.mejores,
                         descartado_fingerprint=row.hay_mejores_descartado_fingerprint,
                     )
                 row.hay_mejores_ofertas = decision.hay_mejores
@@ -340,6 +413,19 @@ def actualizar_hay_mejores_ofertas(
                 row.hay_mejores_descartado_fingerprint = decision.descartado_fingerprint
                 if decision.hay_mejores and (not prev_flag or prev_fingerprint != decision.fingerprint):
                     _enqueue_catalog_competition_refresh(db, item_id)
+                    if evaluacion is not None:
+                        record_flag_transition(
+                            db,
+                            item_id,
+                            payload={
+                                "fingerprint": decision.fingerprint,
+                                "prev_flag": prev_flag,
+                                "prev_fingerprint": prev_fingerprint,
+                                "status_quo": evaluacion.status_quo,
+                                "candidatas": evaluacion.candidatas,
+                                "criterios": evaluacion.criterios,
+                            },
+                        )
         if decision.hay_mejores != prev_flag:  # after the savepoint: a failed one changed nothing
             notify_hay_mejores_changed(db)
         return decision

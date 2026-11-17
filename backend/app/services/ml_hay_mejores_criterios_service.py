@@ -10,6 +10,7 @@ from typing import Any, Optional, Sequence
 from sqlalchemy.orm import Session
 
 from app.models.ml_hay_mejores_criterios import MlHayMejoresCriterios
+from app.services.ml_hay_mejores_audit_service import record_auto_toggle
 
 DEFAULT_C6_GAP_MIN = Decimal("5000")
 DEFAULT_C6_DISTANCIA = Decimal("100")
@@ -127,6 +128,7 @@ def upsert_criterios(
     if c6_gap_min < 0 or c6_distancia_objetivo < 0:
         raise ValueError("gap y distancia de C6 deben ser ≥ 0")
 
+    previous = get_criterios(db, item_id)
     row = db.get(MlHayMejoresCriterios, item_id)
     if row is None:
         row = MlHayMejoresCriterios(item_id=item_id)
@@ -147,4 +149,12 @@ def upsert_criterios(
     row.updated_by = updated_by
     row.updated_at = datetime.now(UTC)
     db.flush()
+    record_auto_toggle(
+        db,
+        item_id,
+        old=previous.auto_aplicacion,
+        new=auto_aplicacion,
+        usuario_id=updated_by,
+        alcance="item",
+    )
     return _row_to_view(row)
