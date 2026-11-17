@@ -3521,3 +3521,12 @@ describe('auditoria-stock S9: the "Promo aplicada" filter', () => {
     expect(lastParams()).toMatchObject({ con_promo_sin_aplicar: true, promo_aplicada: 'con' });
   });
 });
+
+describe('auditoria-stock L9: the store chips', () => {
+  it('count the publications without an official store under "Sin tienda", with no "Tienda none" chip', async () => {
+    await page();
+    const stores = screen.getByRole('group', { name: 'Filtrar por tienda oficial' });
+    expect(within(stores).getByRole('button', { name: 'Sin tienda · 35' })).toBeInTheDocument();
+    expect(within(stores).queryByRole('button', { name: /none/ })).not.toBeInTheDocument();
+  });
+});

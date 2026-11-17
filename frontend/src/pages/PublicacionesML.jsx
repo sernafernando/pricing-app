@@ -810,7 +810,8 @@ export default function PublicacionesML() {
     tiendas,
     getLabel,
     // The backend counts "no official store" under `none`; the chips call it `sin_tienda`.
-    counts: facets?.stores ? { ...facets.stores, sin_tienda: facets.stores.none } : undefined,
+    // Without the `none` key, which would otherwise be one more chip ("Tienda none") beside "Sin tienda".
+    counts: facets?.stores ? (({ none, ...stores }) => ({ ...stores, sin_tienda: none }))(facets.stores) : undefined,
     selected: filters.tiendas.join(','),
   });
 
