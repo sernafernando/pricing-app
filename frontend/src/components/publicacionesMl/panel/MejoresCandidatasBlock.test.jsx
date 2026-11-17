@@ -11,12 +11,18 @@ vi.mock('../../../services/api', () => ({
     getPromocionesItem: vi.fn(),
     descartarHayMejores: vi.fn(),
     postPromocionItem: vi.fn(),
+    getHayMejoresCriterios: vi.fn(),
+    getCompetenciaCatalogo: vi.fn(),
   },
 }));
 
 vi.mock('../../../contexts/PermisosContext', () => ({
   usePermisos: () => ({ permisos: [], tienePermiso: () => true, cargandoPermisos: false }),
   PermisosProvider: ({ children }) => children,
+}));
+
+vi.mock('./useMonopolioC6', () => ({
+  useMonopolioC6: () => ({ loading: false, oportunidad: null, error: null }),
 }));
 
 import { promocionesAPI } from '../../../services/api';
