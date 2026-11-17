@@ -3531,7 +3531,8 @@ describe('Publicaciones ML panel, promo mejor vs the applied promo (visual)', ()
             detailExtra: { can_resync: true, can_change_status: true },
           });
           await expect.element(screen.getByRole('button', { name: 'Aplicar sugerencia' }).first()).toBeVisible();
-          const reference = screen.getByRole('group', { name: variant === 'aplicada' ? 'Promo aplicada' : 'Sin promo aplicada' });
+          // Exact: the filter row's "Filtrar por promo aplicada" group (auditoria-stock S9) contains the same words.
+          const reference = screen.getByRole('group', { name: variant === 'aplicada' ? 'Promo aplicada' : 'Sin promo aplicada', exact: true });
           await expect.element(reference).toBeVisible();
           await expect.element(screen.getByText(/pp vs (aplicada|actual)/).first()).toBeVisible();
           await frame();
