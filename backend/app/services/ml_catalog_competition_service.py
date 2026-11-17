@@ -34,7 +34,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from hashlib import sha256
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from sqlalchemy.orm import Session
 
@@ -458,6 +458,44 @@ def same_bucket_competitors(row: Optional[MLCatalogCompetition]) -> List[Dict[st
         return []
     our_key = _resolve_our_bucket_key(row)
     return _sort_competitors_by_price(_competitors_matching_bucket(row, our_key))
+
+
+def effective_same_bucket_competitors(
+    row: Optional[MLCatalogCompetition],
+    *,
+    sellers_excluidos: Sequence[str] | None = None,
+) -> List[Dict[str, Any]]:
+    """``same_bucket_competitors`` minus unchecked sellers (``sellers_excluidos``).
+
+    Absent / empty exclusions = everyone checked (PM default). New sellers on
+    a fresh snapshot are not in the JSONB list → they count.
+    """
+    excluded = {str(x) for x in (sellers_excluidos or []) if x}
+    if not excluded:
+        return same_bucket_competitors(row)
+    return [c for c in same_bucket_competitors(row) if (c.get("item_id") or "") not in excluded]
+
+
+def min_rival_price_ars(
+    row: Optional[MLCatalogCompetition],
+    *,
+    our_item_id: str,
+    sellers_excluidos: Sequence[str] | None = None,
+) -> Optional[float]:
+    """Cheapest checked rival ``price_ars`` in-bucket (excludes ``our_item_id``).
+
+    ``None`` when there is no priced rival → C2 catalog-win is inert.
+    """
+    prices: List[float] = []
+    for competitor in effective_same_bucket_competitors(row, sellers_excluidos=sellers_excluidos):
+        item_id = competitor.get("item_id") or ""
+        if item_id == our_item_id:
+            continue
+        price = competitor.get("price_ars")
+        if price is None:
+            continue
+        prices.append(float(price))
+    return min(prices) if prices else None
 
 
 async def refrescar_competencia_catalogo(db: Session, mlas: List[str]) -> List[MLCatalogCompetition]:

@@ -29,6 +29,8 @@ from app.services.ml_catalog_competition_service import (
     _to_ars,
     obtener_ultimo_snapshot,
     refrescar_competencia_catalogo,
+    effective_same_bucket_competitors,
+    min_rival_price_ars,
     same_bucket_competitors,
     undercutting_competitors,
 )
@@ -708,3 +710,29 @@ class TestUndercuttingCompetitorsReadRecompute:
         ]
         result = undercutting_competitors(row)
         assert [c["item_id"] for c in result] == ["MLA_6X_CHEAP"]
+
+
+class TestEffectiveSameBucketAndMinRival:
+    def test_exclusions_drop_unchecked_sellers(self) -> None:
+        row = MagicMock()
+        row.competitors = [
+            {"item_id": "MLA1", "same_bucket": True, "price_ars": 1000},
+            {"item_id": "RIVAL_A", "same_bucket": True, "price_ars": 900},
+            {"item_id": "RIVAL_B", "same_bucket": True, "price_ars": 950},
+        ]
+        effective = effective_same_bucket_competitors(row, sellers_excluidos=["RIVAL_A"])
+        assert [c["item_id"] for c in effective] == ["RIVAL_B", "MLA1"]
+
+    def test_min_rival_ignores_us_and_excluded(self) -> None:
+        row = MagicMock()
+        row.competitors = [
+            {"item_id": "MLA1", "same_bucket": True, "price_ars": 800},
+            {"item_id": "RIVAL_A", "same_bucket": True, "price_ars": 900},
+            {"item_id": "RIVAL_B", "same_bucket": True, "price_ars": 950},
+        ]
+        assert min_rival_price_ars(row, our_item_id="MLA1", sellers_excluidos=["RIVAL_A"]) == 950.0
+
+    def test_min_rival_none_when_no_priced_rivals(self) -> None:
+        row = MagicMock()
+        row.competitors = [{"item_id": "MLA1", "same_bucket": True, "price_ars": 1000}]
+        assert min_rival_price_ars(row, our_item_id="MLA1") is None

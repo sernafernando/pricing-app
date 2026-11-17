@@ -48,8 +48,15 @@ from app.services.ml_promotions_pricing import (
 )
 from app.services.productos_sell_in_out import SellInOutBatch
 from app.services.ml_publications.parsers.seller_promotions import STATUS_CANDIDATE, promotion_key
+from app.services.ml_catalog_competition_service import min_rival_price_ars, obtener_ultimo_snapshot
 from app.services.ml_hay_mejores_audit_service import record_flag_transition
-from app.services.ml_hay_mejores_criterios_service import CriteriosView, get_criterios, markup_pasa_c1
+from app.services.ml_hay_mejores_criterios_service import (
+    CriteriosView,
+    catalog_win_con_precio,
+    get_criterios,
+    markup_pasa_c1,
+    markup_pasa_c2,
+)
 
 logger = get_logger(__name__)
 
@@ -78,6 +85,7 @@ def _criterios_audit_dict(criterios: CriteriosView) -> Dict[str, Any]:
         "c6_gap_min": float(criterios.c6_gap_min),
         "c6_distancia_objetivo": float(criterios.c6_distancia_objetivo),
         "auto_aplicacion": criterios.auto_aplicacion,
+        "sellers_excluidos": list(criterios.sellers_excluidos),
     }
 
 
@@ -230,20 +238,32 @@ def evaluar_mejores_candidatas(
     promos = [normalizar_entrada_seller_promo(entry) for entry in candidates]
     enriquecer_markup_por_promo(db, mla, promos, sell_in_out=True, batch=batch, context=context)
     criterios = get_criterios(db, mla)
+    min_rival: Optional[float] = None
+    if criterios.c2_activo:
+        # C2 needs a catalog snapshot; missing/empty rivals → path inert (no false flags).
+        min_rival = min_rival_price_ars(
+            obtener_ultimo_snapshot(db, mla),
+            our_item_id=mla,
+            sellers_excluidos=criterios.sellers_excluidos,
+        )
     mejores: List[MejorTuple] = []
     candidatas: List[Dict[str, Any]] = []
     for entry, promo in zip(candidates, promos):
         price = precio_de_oferta(promo)
         candidato = MarkupsDePrecio(promo.get("nuestro_markup"), promo.get("markup_sell_in_out"))
         markup, baseline_markup = markups_comparables(candidato, vigente)
-        if not es_mejor_oferta(price, markup, status_quo_price, baseline_markup):
-            continue
-        if not markup_pasa_c1(
+        pasa_clasico = es_mejor_oferta(price, markup, status_quo_price, baseline_markup) and markup_pasa_c1(
             markup,
             c1_activo=criterios.c1_activo,
             c1_markup_min=criterios.c1_markup_min,
             c1_markup_max=criterios.c1_markup_max,
-        ):
+        )
+        pasa_c2 = catalog_win_con_precio(price, min_rival) and markup_pasa_c2(
+            markup,
+            c2_activo=criterios.c2_activo,
+            c2_solo_markup_positivo=criterios.c2_solo_markup_positivo,
+        )
+        if not pasa_clasico and not pasa_c2:
             continue
         assert price is not None
         key = promotion_key(entry)
@@ -256,6 +276,8 @@ def evaluar_mejores_candidatas(
                 "markup_status_quo": baseline_markup,
                 "nuestro_markup": promo.get("nuestro_markup"),
                 "markup_sell_in_out": promo.get("markup_sell_in_out"),
+                "path_clasico": pasa_clasico,
+                "path_c2": pasa_c2,
             }
         )
     return MejoresEvaluacion(
