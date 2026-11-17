@@ -2272,6 +2272,77 @@ def post_checked_hay_mejores_exclusion_item_ids(
     return {"item_ids": found.item_ids, "count": len(found.item_ids), "no_aplican": found.no_aplican}
 
 
+class CriteriosItemIdsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_ids: list[CheckedItemId] = Field(default_factory=list, max_length=caps.MAX_CHECKED_IDS)
+    producto_ids: list[CheckedProductId] = Field(default_factory=list, max_length=caps.MAX_CHECKED_IDS)
+
+    @model_validator(mode="after")
+    def _something_checked(self) -> "CriteriosItemIdsRequest":
+        if not self.item_ids and not self.producto_ids:
+            raise ValueError("check at least one publication or product")
+        return self
+
+
+@router.get("/hay-mejores-criterios-item-ids", response_model=StatusItemIdsResponse)
+def get_hay_mejores_criterios_item_ids(
+    user: Usuario = Depends(require_algun_permiso(PERMISOS_PUBLICACIONES_ML)),
+    _may_write: Usuario = Depends(require_permiso("promos.escribir")),
+    f: PublicationFilter = Depends(filter_query),
+    markup_neg: Optional[bool] = Query(None, description="ANY variation negative (ver_ganancia), as in /items"),
+    markup_min: Optional[str] = Query(None, description="worst variation >= this percent (ver_ganancia)"),
+    markup_max: Optional[str] = Query(None, description="worst variation <= this percent (ver_ganancia)"),
+    db: Session = Depends(get_view_db),
+    auth_db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Filtered MLAs for bulk hay_mejores criterios apply. Needs `promos.escribir`. Cap as status bulk."""
+    from app.services.ml_publications.view import criterios_targets
+
+    asks_for_margin = _check_markup_filter(user, auth_db, markup_neg, markup_min, markup_max)
+    try:
+        markup = _markup_query(auth_db, markup_neg, markup_min, markup_max) if asks_for_margin else None
+        if f.needs_events and settings_store.get_setting("events.enabled").value is not True:
+            raise FilterError("evento", "requires the events flag (events.enabled) to be on")
+        listing.bound(db)
+        found = criterios_targets.criterios_item_ids(db, f, markup=markup)
+    except FilterError as exc:
+        raise _unprocessable(exc) from exc
+    except status_targets.TooManyPublications as exc:
+        raise _over_cap(exc, "El filtro selecciona", "Acotá el filtro.") from exc
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()
+    return {"item_ids": found.item_ids, "count": len(found.item_ids), "no_aplican": found.no_aplican}
+
+
+@router.post("/hay-mejores-criterios-item-ids/checked", response_model=StatusItemIdsResponse)
+def post_checked_hay_mejores_criterios_item_ids(
+    body: CriteriosItemIdsRequest,
+    _user: Usuario = Depends(require_algun_permiso(PERMISOS_PUBLICACIONES_ML)),
+    _may_write: Usuario = Depends(require_permiso("promos.escribir")),
+    db: Session = Depends(get_view_db),
+) -> dict[str, Any]:
+    """Checked rows' MLAs for bulk hay_mejores criterios apply."""
+    from app.services.ml_publications.view import criterios_targets
+
+    try:
+        listing.bound(db)
+        found = criterios_targets.checked_criterios_item_ids(db, body.item_ids, body.producto_ids)
+    except status_targets.TooManyPublications as exc:
+        raise _over_cap(exc, "Lo marcado suma", "Marcá menos filas.") from exc
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()
+    return {"item_ids": found.item_ids, "count": len(found.item_ids), "no_aplican": found.no_aplican}
+
+
 # ── CSV export of the current view ───────────────────────────────
 
 

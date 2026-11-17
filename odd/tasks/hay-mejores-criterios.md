@@ -42,7 +42,7 @@ S12. Persistence: `ml_hay_mejores_criterios` per item_id upsert.
 | T3 | S4,S5 | inline | done | P2a #21 · P2b #22 |
 | T4 | S6 | inline | done | P3a #23 · P3b #24 |
 | T5 | S7,S8 | inline | done | P4a #25 · P4b #26 |
-| T6 | S9,S10 | inline | in progress | P5a bulk API; P5b UI |
+| T6 | S9,S10 | inline | in progress | P5a #27 · P5b bulk UI |
 
 ## Log
 
@@ -63,3 +63,5 @@ L7. 2026-11-17: P4a — R-AUTO enroll-instead-of-flag (`pick_mejor_candidata_aut
 L8. 2026-11-17: P4b — `auto_fail_message` on GET promociones/item when flag on + latest audit auto_fail; banner in MejoresCandidatasBlock.
 
 L9. 2026-11-17: P5a — POST `/hay-mejores-criterios-bulk` (≤20) + optional discard skipping Auto-fail; `alcance=bulk` on auto_toggle.
+
+L10. 2026-11-17: P5b — view resolver criterios-item-ids + BulkCriteriosAplicacion in Acciones masivas; ayuda + novedad.
