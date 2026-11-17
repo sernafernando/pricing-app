@@ -6,7 +6,7 @@ the logística it would put back is active, or NULL ("Sin asignar"). The GET sho
 enforces, so both read it from `motivo_no_deshacer`.
 """
 
-from typing import Optional
+from typing import Optional, Set
 
 from sqlalchemy import desc
 from sqlalchemy.orm import Session, aliased
@@ -41,14 +41,29 @@ def motivo_no_deshacer(
     db: Session, etiqueta: EtiquetaEnvio, ultimo: Optional[EtiquetaEnvioLogisticaHistorial]
 ) -> Optional[str]:
     """Why the latest change cannot be undone (the 409 message), or None when it can."""
+    activas: Set[int] = set()
+    if ultimo is not None and ultimo.logistica_anterior_id is not None:
+        activa = db.query(Logistica.activa).filter(Logistica.id == ultimo.logistica_anterior_id).scalar()
+        if activa:
+            activas.add(ultimo.logistica_anterior_id)
+    return motivo_no_deshacer_con(etiqueta.logistica_id, ultimo, activas)
+
+
+def motivo_no_deshacer_con(
+    logistica_actual_id: Optional[int],
+    ultimo: Optional[EtiquetaEnvioLogisticaHistorial],
+    logisticas_activas: Set[int],
+) -> Optional[str]:
+    """The undo rule without queries: the caller passes the label's current logística and the active ids.
+
+    Single and mass undo share it, so a selection of hundreds of labels reads the active logísticas once.
+    """
     if ultimo is None:
         return SIN_CAMBIOS
-    if etiqueta.logistica_id != ultimo.logistica_nueva_id:
+    if logistica_actual_id != ultimo.logistica_nueva_id:
         return CAMBIO_SIN_REGISTRO
-    if ultimo.logistica_anterior_id is not None:
-        activa = db.query(Logistica.activa).filter(Logistica.id == ultimo.logistica_anterior_id).scalar()
-        if not activa:
-            return ANTERIOR_INACTIVA
+    if ultimo.logistica_anterior_id is not None and ultimo.logistica_anterior_id not in logisticas_activas:
+        return ANTERIOR_INACTIVA
     return None
 
 

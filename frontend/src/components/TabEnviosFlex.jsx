@@ -6,10 +6,14 @@ import {
   ScanBarcode, Plus, Trash2, ToggleLeft, ToggleRight, X, Download,
   Truck, Search, Printer, Pencil, Bike, Building, Calendar,
   Table, Map, CloudRain, Flag, FileDown, Clock, ChevronRight, MessageCircle, History,
+  Undo2, Layers,
 } from 'lucide-react';
 import DocumentGeneratorModal from './DocumentGeneratorModal';
 import ModalRemitoManual from './ModalRemitoManual';
 import HistorialLogisticaModal from './enviosFlex/HistorialLogisticaModal';
+import DeshacerSeleccionModal from './enviosFlex/DeshacerSeleccionModal';
+import OperacionesMasivasModal from './enviosFlex/OperacionesMasivasModal';
+import SobrescribirLogisticaModal from './enviosFlex/SobrescribirLogisticaModal';
 import { aplicarDeshacer, useRecargarAlCerrar } from './enviosFlex/historialLogisticaTab';
 import MapaEnviosFlex from './MapaEnviosFlex';
 import CalendarioEnvios from './CalendarioEnvios';
@@ -309,6 +313,10 @@ export default function TabEnviosFlex({ operador = null }) {
   // Flag modal
   const [showFlagModal, setShowFlagModal] = useState(false);
   const [historialShippingId, setHistorialShippingId] = useState(null);
+  // Mass undo of the selection, list of bulk assignments, and overwrite guard of the bulk assignment.
+  const [deshacerSeleccionIds, setDeshacerSeleccionIds] = useState(null);
+  const [showOperacionesMasivas, setShowOperacionesMasivas] = useState(false);
+  const [sobrescribir, setSobrescribir] = useState(null);
   const [flagType, setFlagType] = useState('mal_pasado');
   const [flagMotivo, setFlagMotivo] = useState('');
   const [flagLoading, setFlagLoading] = useState(false);
@@ -486,6 +494,9 @@ export default function TabEnviosFlex({ operador = null }) {
       showPrintManualModal ||
       showFlagModal ||
       historialShippingId ||
+      deshacerSeleccionIds ||
+      showOperacionesMasivas ||
+      sobrescribir ||
       bulkActualizando
     ) {
       return;
@@ -502,12 +513,16 @@ export default function TabEnviosFlex({ operador = null }) {
   }, [
     showManualEnvioModal, showLogisticasModal, showTransportesModal,
     showExportModal, showExportManualesModal, showPrintManualModal,
-    showFlagModal, historialShippingId, bulkActualizando, buildFilterParams,
+    showFlagModal, historialShippingId, deshacerSeleccionIds, showOperacionesMasivas, sobrescribir,
+    bulkActualizando, buildFilterParams,
   ]);
 
   useSSEChannel('etiquetas:changed', silentReload);
   useSSEChannel('shipments:webhook', silentReload);
   useRecargarAlCerrar(Boolean(historialShippingId), silentReload);
+  useRecargarAlCerrar(Boolean(deshacerSeleccionIds), silentReload);
+  useRecargarAlCerrar(showOperacionesMasivas, silentReload);
+  useRecargarAlCerrar(Boolean(sobrescribir), silentReload);
 
   // Fallback polling: re-activate 10s polling when SSE is degraded
   useEffect(() => {
@@ -1139,10 +1154,39 @@ export default function TabEnviosFlex({ operador = null }) {
 
     setBulkActualizando(true);
     try {
-      await api.put('/etiquetas-envio/asignar-masivo', {
-        shipping_ids: Array.from(selectedIds),
-        logistica_id: parseInt(bulkLogisticaId, 10),
+      const shippingIds = Array.from(selectedIds);
+      const logisticaId = parseInt(bulkLogisticaId, 10);
+      // Overwrite guard: labels that already have another logistics ('A designar' counts as none) ask first.
+      const { data: conflictos } = await api.post('/etiquetas-envio/asignar-masivo/conflictos', {
+        shipping_ids: shippingIds,
+        logistica_id: logisticaId,
       });
+      if (conflictos.sobrescribiria > 0) {
+        const log = logisticas.find(l => l.id === logisticaId);
+        setSobrescribir({
+          shippingIds,
+          logistica: { id: logisticaId, nombre: log?.nombre ?? '', color: log?.color ?? null },
+          sobrescribiria: conflictos.sobrescribiria,
+        });
+        return;
+      }
+
+      // Nothing to overwrite, so "only without logistics" changes the same labels; it also skips a label someone
+      // assigned between the check and this call instead of overwriting it silently.
+      const { data: asignado } = await api.put('/etiquetas-envio/asignar-masivo', {
+        shipping_ids: shippingIds,
+        logistica_id: logisticaId,
+        solo_sin_logistica: true,
+      });
+      if (asignado.salteadas > 0) {
+        showErrorToast(
+          `${asignado.salteadas} etiqueta${asignado.salteadas === 1 ? '' : 's'} recién recibió otra logística y se salteó.`,
+          'warning',
+        );
+        // No local update: the SSE "etiquetas:changed" of this assignment reloads the real state.
+        limpiarSeleccion();
+        return;
+      }
 
       // Actualizar localmente
       const log = logisticas.find(l => l.id === parseInt(bulkLogisticaId, 10));
@@ -2318,6 +2362,17 @@ export default function TabEnviosFlex({ operador = null }) {
             </button>
           )}
 
+          {puedeAsignarLogistica && (
+            <button
+              onClick={() => setShowOperacionesMasivas(true)}
+              className={styles.btnLogisticas}
+              aria-label="Ver y deshacer asignaciones masivas de logística"
+            >
+              <Layers size={16} />
+              Masivas
+            </button>
+          )}
+
           {puedeGestionarLogisticas && (
             <button
               onClick={() => setShowLogisticasModal(true)}
@@ -2941,6 +2996,15 @@ export default function TabEnviosFlex({ operador = null }) {
                 className={styles.selectionBtnAsignar}
               >
                 {bulkActualizando ? 'Asignando...' : 'Asignar'}
+              </button>
+              <button
+                onClick={() => setDeshacerSeleccionIds(Array.from(selectedIds))}
+                disabled={bulkActualizando}
+                className={styles.selectionBtnAsignar}
+                title="Volver cada etiqueta seleccionada a la logística que tenía antes de su último cambio"
+              >
+                <Undo2 size={16} />
+                Deshacer último cambio
               </button>
             </div>
           )}
@@ -4387,6 +4451,36 @@ export default function TabEnviosFlex({ operador = null }) {
             setEtiquetas(prev =>
               aplicarDeshacer(prev, historialShippingId, cambio.logistica_id, logisticas)
             );
+          }}
+        />
+      )}
+
+      {deshacerSeleccionIds && (
+        <DeshacerSeleccionModal
+          shippingIds={deshacerSeleccionIds}
+          operadorId={operador?.operadorActivo?.id ?? null}
+          onClose={() => setDeshacerSeleccionIds(null)}
+          onListo={() => limpiarSeleccion()}
+        />
+      )}
+
+      {showOperacionesMasivas && (
+        <OperacionesMasivasModal
+          operadorId={operador?.operadorActivo?.id ?? null}
+          onClose={() => setShowOperacionesMasivas(false)}
+        />
+      )}
+
+      {sobrescribir && (
+        <SobrescribirLogisticaModal
+          shippingIds={sobrescribir.shippingIds}
+          logistica={sobrescribir.logistica}
+          sobrescribiria={sobrescribir.sobrescribiria}
+          onClose={() => setSobrescribir(null)}
+          onAsignado={(_data, { soloSinLogistica }) => {
+            limpiarSeleccion();
+            // Overwrite all needs no report: close and let the reload show it. Only-without stays open with the counts.
+            if (!soloSinLogistica) setSobrescribir(null);
           }}
         />
       )}

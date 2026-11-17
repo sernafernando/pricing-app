@@ -739,6 +739,29 @@ class DeshacerLogisticaRequest(BaseModel):
     operador_id: Optional[int] = Field(None, description="Operador que deshace el cambio (opcional).")
 
 
+class DeshacerLogisticaMasivoRequest(BaseModel):
+    """Payload para deshacer el último cambio de logística de varias etiquetas."""
+
+    shipping_ids: List[str] = Field(min_length=1)
+    operador_id: Optional[int] = Field(None, description="Operador que deshace los cambios (opcional).")
+
+
+class MotivoNoRevertidas(BaseModel):
+    """Etiquetas que un deshacer masivo salteó por un mismo motivo."""
+
+    motivo: str
+    cantidad: int
+    shipping_ids: List[str]
+
+
+class DeshacerMasivoResponse(BaseModel):
+    """Resultado de un deshacer masivo: cuántas volvieron y por qué no volvieron las demás."""
+
+    revertidas: int
+    no_revertidas: int
+    no_revertidas_por_motivo: List[MotivoNoRevertidas]
+
+
 class LogisticaRef(BaseModel):
     """Logística como la muestra el historial: id, nombre y color del badge."""
 
@@ -768,6 +791,16 @@ class HistorialLogisticaResponse(BaseModel):
     # Logística que pondría el deshacer; `None` = "Sin asignar" (solo tiene sentido con puede_deshacer).
     deshacer_a: Optional[LogisticaRef] = None
     cambios: List[CambioLogisticaItem]
+
+
+class OperacionMasivaLogistica(BaseModel):
+    """Una asignación masiva de logística: quién, cuándo, a qué logística y cuántas etiquetas cambió."""
+
+    id: int
+    usuario_nombre: Optional[str] = None
+    cambiado_en: datetime
+    logistica: Optional[LogisticaRef] = None
+    etiquetas: int
 
 
 class CambiarFechaRequest(BaseModel):
@@ -869,6 +902,10 @@ class AsignarMasivoRequest(BaseModel):
 
     shipping_ids: List[str] = Field(min_length=1)
     logistica_id: int
+    solo_sin_logistica: bool = Field(
+        False,
+        description="Cambiar solo las etiquetas sin logística (o en 'A designar'); las demás se saltean.",
+    )
 
 
 class AsignarTransporteMasivoRequest(BaseModel):
