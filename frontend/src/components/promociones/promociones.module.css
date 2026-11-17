@@ -1480,7 +1480,7 @@
 
 .rankingRow {
   display: grid;
-  grid-template-columns: 2rem minmax(0, 1fr) auto auto;
+  grid-template-columns: 1.25rem 2rem minmax(0, 1fr) auto auto;
   gap: var(--space-2, 0.5rem);
   align-items: center;
   min-height: 32px;
@@ -1495,6 +1495,27 @@
 
 .rankingOurs {
   background: color-mix(in srgb, var(--cf-accent-blue, var(--brand-primary)) 12%, transparent);
+}
+
+.rankingExcluded {
+  opacity: 0.55;
+}
+
+.rankingCheck {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+}
+
+.rankingCheck input {
+  margin: 0;
+}
+
+.rankingHint {
+  margin: 0 0 var(--spacing-xs, 0.25rem);
+  font-size: var(--font-xs, 0.75rem);
+  color: var(--cf-text-secondary, var(--text-secondary));
 }
 
 .rankingPos {
