@@ -591,6 +591,16 @@ class TestMontoEstimado:
         cobrados = service.kpis(db, service.Filtros(tipos=TODOS), hoy=HOY)["cobrados"]["montos"]
         assert [(m["moneda"], m["estimado"]) for m in cobrados] == [("USD", False)]
 
+    def test_a_percentage_line_without_sales_has_nothing_estimated(self, db, engine) -> None:
+        tactical = _usd(db, lineas=[self._PORCENTAJE])
+        _recalcular(engine, _bonos_de(engine, tactical.id))
+
+        kpis = service.kpis(db, service.Filtros(tipos=TODOS), hoy=HOY)
+
+        assert [x["monto_estimado"] for x in _leido(db, tactical.id)["lineas"]] == [False]
+        assert all(not m["estimado"] for m in kpis["pendientes"]["montos"])
+        assert kpis == _segun_las_lineas(db, service.Filtros(tipos=TODOS))
+
     def test_a_per_unit_amount_cut_to_the_unit_cost_is_estimated(self, db, engine) -> None:
         caro = {**_POR_UNIDAD_USD, "valor": "100"}  # USD 100 x 1200 > the ARS 50.000 unit cost: cut, then / BNA
         tactical = _usd(db, lineas=[caro])

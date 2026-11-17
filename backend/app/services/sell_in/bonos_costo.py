@@ -441,10 +441,13 @@ def bonos_estimados() -> Select:
 def fila_usd_estimada() -> ColumnElement:
     """Whether a `sell_in_bono_consumos` row (joined to its `sell_in_bonos_marca`) has a USD amount that is still an
     estimate (S10): its bonus is in `bonos_estimados()` and the row's USD comes from an ARS amount over today's BNA
-    (a % line, or a per-unit amount cut to the unit cost). A per-unit amount itself is exact USD."""
+    (a % line, or a per-unit amount cut to the unit cost). A per-unit amount itself is exact USD. A bonus without a
+    sale row (an outer join's NULL row) has nothing estimated. Known limit: a per-unit row cut by the USD money cap is
+    exact USD too, but it reads as cut and is marked; the stored row cannot tell the two cuts apart."""
     b, c = SellInBonoMarca, SellInBonoConsumo
     return and_(
         b.id.in_(bonos_estimados()),
+        c.monto_usd.isnot(None),
         or_(b.tipo != "por_unidad", c.monto_usd != func.round(b.monto_unit * c.unidades, 2)),
     )
 

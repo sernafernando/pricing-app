@@ -15,7 +15,8 @@ channel's sale line, the PDF line id for `fuera`, ventas por fuera since VPF T4)
   partial sum, and makes it `sell_out_estimado`, as does an `al_cobro` campaign whose rate is not set
   yet (`resumen.ars_estimado`).
 A sale without rows of a kind has None for that kind (its `*_estimado` too); a sale without rows
-of either kind is not in the result. Two queries for the whole page, whatever its size.
+of either kind is not in the result. Three queries for the whole page, whatever its size (the sales' rows of
+each kind, and the estimated bonuses' ids).
 """
 
 from __future__ import annotations
