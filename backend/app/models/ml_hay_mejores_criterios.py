@@ -1,0 +1,41 @@
+"""Per-MLA hay_mejores application criteria (PM policy), keyed by MLA.
+
+Sparse upsert: missing row = defaults (C1 off, C2/C6/Auto off). No FK to
+`ml_items` — the publication store owns that table and must not be blocked
+by policy rows (same shape as `ml_item_overrides`).
+"""
+
+from sqlalchemy import Boolean, Column, DateTime, Integer, Numeric, Text, func, text
+from sqlalchemy.dialects.postgresql import JSONB
+
+from app.core.database import Base
+
+
+class MlHayMejoresCriterios(Base):
+    __tablename__ = "ml_hay_mejores_criterios"
+
+    item_id = Column(Text, primary_key=True)  # MLA
+
+    # C1 — markup band (same basis as status-quo comparison). Null = side unused.
+    c1_activo = Column(Boolean, nullable=False, server_default=text("false"), default=False)
+    c1_markup_min = Column(Numeric(12, 4), nullable=True)
+    c1_markup_max = Column(Numeric(12, 4), nullable=True)
+
+    # C2 — win catalog
+    c2_activo = Column(Boolean, nullable=False, server_default=text("false"), default=False)
+    c2_solo_markup_positivo = Column(Boolean, nullable=False, server_default=text("true"), default=True)
+
+    # C6 — monopoly ceiling
+    c6_activo = Column(Boolean, nullable=False, server_default=text("false"), default=False)
+    c6_solo_via_promo = Column(Boolean, nullable=False, server_default=text("false"), default=False)
+    c6_gap_min = Column(Numeric(18, 2), nullable=False, server_default="5000", default=5000)
+    c6_distancia_objetivo = Column(Numeric(18, 2), nullable=False, server_default="100", default=100)
+
+    # R-AUTO
+    auto_aplicacion = Column(Boolean, nullable=False, server_default=text("false"), default=False)
+
+    # P2: unchecked competitor item_ids (absent = checked / counts)
+    sellers_excluidos = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list)
+
+    updated_by = Column(Integer, nullable=True)  # usuarios.id
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
