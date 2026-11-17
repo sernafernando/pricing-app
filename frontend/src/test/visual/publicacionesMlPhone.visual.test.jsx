@@ -110,7 +110,7 @@ vi.mock('../../services/api', () => ({
   productoTnVinculosAPI: { leer: vi.fn(), candidatos: vi.fn(), vincular: vi.fn() },
   productoMarcasAPI: { listar: vi.fn() },
   productoCategoriasAPI: { listar: vi.fn() },
-  promocionesAPI: { getPromocionesItem: vi.fn(), getMarkupParaPrecio: vi.fn(() => Promise.resolve({ data: { nuestro_markup: null } })), descartarHayMejores: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn(), getCompetenciaCatalogo: vi.fn(), refreshCompetenciaCatalogo: vi.fn() },
+  promocionesAPI: { getPromocionesItem: vi.fn(), getMarkupParaPrecio: vi.fn(() => Promise.resolve({ data: { nuestro_markup: null } })), descartarHayMejores: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn(), getCompetenciaCatalogo: vi.fn(), refreshCompetenciaCatalogo: vi.fn(), getHayMejoresCriterios: vi.fn(() => Promise.resolve({ data: { sellers_excluidos: [] } })), putHayMejoresCriterios: vi.fn((mlaId, body) => Promise.resolve({ data: body })) },
   productosAPI: {
     getProductoTree: vi.fn(() => Promise.resolve(DEFAULT_TREE)),
     marcas: vi.fn(() => Promise.resolve({ data: { marcas: [] } })),
