@@ -34,8 +34,11 @@ class MlHayMejoresCriterios(Base):
     # R-AUTO
     auto_aplicacion = Column(Boolean, nullable=False, server_default=text("false"), default=False)
 
-    # P2: unchecked competitor item_ids (absent = checked / counts)
-    sellers_excluidos = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list)
+    # P2: unchecked competitor item_ids (absent = checked / counts).
+    # Dialect-neutral default on purpose (same as ml_catalog_competition.competitors):
+    # migration DDL keeps '[]'::jsonb; Base.metadata.create_all() on SQLite must not
+    # emit "::jsonb" or the whole suite dies with "unrecognized token: :".
+    sellers_excluidos = Column(JSONB, nullable=False, server_default="[]", default=list)
 
     updated_by = Column(Integer, nullable=True)  # usuarios.id
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
