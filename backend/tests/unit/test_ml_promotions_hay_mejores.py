@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
 from app.services import ml_promotions_hay_mejores as hay_mejores
+from app.services.ml_hay_mejores_criterios_service import default_criterios
 from app.services.ml_promotions_hay_mejores import (
     decidir_flag_hay_mejores,
     es_mejor_oferta,
@@ -445,3 +448,29 @@ class TestRankingConSellInOut:
 
         assert listar_mejores_candidatas(MagicMock(), "MLA1", [], 1000.0) == []
         assert "baseline_batch" not in seen and seen["enrich"] == []
+
+
+class TestC1MarkupBandInListar(TestRankingConSellInOut):
+    """C1 clamps classic mejores after es_mejor_oferta (same markup basis)."""
+
+    def test_c1_inactive_keeps_canonical_ranking(self, monkeypatch) -> None:
+        self._wire(monkeypatch, MarkupsDePrecio(9.0, None), {"A": (10.0, None), "B": (8.0, None)})
+        monkeypatch.setattr(hay_mejores, "get_criterios", lambda _db, mla: default_criterios(mla))
+
+        assert listar_mejores_candidatas(MagicMock(), "MLA1", self._candidatas("A", "B"), 1000.0) == [("A", 900.0)]
+
+    def test_c1_active_rejects_markup_outside_band(self, monkeypatch) -> None:
+        self._wire(monkeypatch, MarkupsDePrecio(9.0, None), {"A": (10.0, None), "B": (8.0, None)})
+        monkeypatch.setattr(
+            hay_mejores,
+            "get_criterios",
+            lambda _db, mla: replace(
+                default_criterios(mla),
+                c1_activo=True,
+                c1_markup_min=Decimal("0"),
+                c1_markup_max=Decimal("9.5"),
+            ),
+        )
+
+        # A would win canonically (10 >= 9) but 10 > max 9.5 → filtered out; B never better.
+        assert listar_mejores_candidatas(MagicMock(), "MLA1", self._candidatas("A", "B"), 1000.0) == []
