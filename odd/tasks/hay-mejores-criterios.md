@@ -42,7 +42,7 @@ S12. Persistence: `ml_hay_mejores_criterios` per item_id upsert.
 | T3 | S4,S5 | inline | done | P2a #21 · P2b #22 |
 | T4 | S6 | inline | done | P3a #23 · P3b #24 |
 | T5 | S7,S8 | inline | done | P4a #25 · P4b #26 |
-| T6 | S9,S10 | inline | in progress | P5a #27 · P5b bulk UI |
+| T6 | S9,S10 | inline | done | P5a #27 · P5b #28 |
 
 ## Log
 
