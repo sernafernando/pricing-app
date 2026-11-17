@@ -327,3 +327,74 @@ def test_a_variant_full_value_uses_decimal_quantities() -> None:
     # a quantity read as Decimal never breaks the base-units product (pack x 2.0000)
     kinds = stock_audit.classify_combos({1: [(2, Decimal("2.0000"))]}, {2: (60, 1)}, {})
     assert kinds[1].cantidad == Decimal(2)
+
+
+# --- Recheck (L7, L9): the Excel export and stock without cost -----------------------------------------------------
+
+EXPORT_URL = URL + "/export"
+
+
+def sheet(content: bytes):
+    import io
+
+    from openpyxl import load_workbook
+
+    return load_workbook(io.BytesIO(content)).active
+
+
+@pytest.mark.postgres
+class TestProbeExport:
+    def test_a_text_starting_with_equals_stays_text_never_a_formula(self, client, auditor, pg) -> None:
+        with pg.begin() as conn:
+            conn.execute(
+                text('UPDATE productos_erp SET descripcion = \'=HYPERLINK("http://x","y")\' WHERE item_id = 200')
+            )
+        response = client.get(EXPORT_URL, headers=auditor)
+        assert response.status_code == 200, response.text
+        assert response.headers["content-type"].startswith(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        ws = sheet(response.content)
+        cells = [c for row in ws.iter_rows() for c in row if c.value == '=HYPERLINK("http://x","y")']
+        assert cells and all(c.data_type == "s" for c in cells)
+
+    def test_every_row_and_variant_whatever_the_page_and_no_sales_without_metricas(self, client, auditor) -> None:
+        ws = sheet(client.get(EXPORT_URL, headers=auditor, params={"limit": 1}).content)
+        header = [c.value for c in ws[1]]
+        assert "Ventas 7D" not in header and "Total Gauss 30D" not in header
+        codes = [row[1] for row in ws.iter_rows(min_row=2, values_only=True)]
+        # 9 base rows + variant 202 + pack 208 + pack 231 (never kits, never 281 without publication)
+        assert len(codes) == 12
+        assert "C281" not in codes and "C204" not in codes
+
+    def test_with_metricas_only_sales_without_profit(self, client, auditor, db, rol_admin, board_mlas) -> None:
+        grant(db, rol_admin, "ml_metricas.ver")
+        header = [c.value for c in sheet(client.get(EXPORT_URL, headers=auditor).content)[1]]
+        assert "Ventas 30D" in header
+        assert "Total Gauss 30D" not in header and "Markup real 30D" not in header
+
+    def test_the_export_needs_the_audit_permission(
+        self, client, pg, db, rol_admin, admin_auth_headers, started
+    ) -> None:
+        seed_rows(pg, fill)
+        grant(db, rol_admin, "ml_ops.ver", "ml_metricas.ver")
+        assert client.get(EXPORT_URL, headers=admin_auth_headers).status_code == 403
+
+
+@pytest.mark.postgres
+class TestProbeSinCosto:
+    def test_a_row_without_cost_is_flagged_and_counted_and_the_kpi_keeps_the_rest(self, client, auditor) -> None:
+        body = audit(client, auditor)
+        rows = by_id(body)
+        assert rows[240]["sin_costo"] is True and rows[240]["total"] == money(5, None, None)
+        assert rows[200]["sin_costo"] is False
+        assert body["kpis"]["productos_sin_costo"] == 1
+        assert body["kpis"]["erp"] == money(22, 5210.0, 5_210_000.0)  # the costed stock, its units all counted
+
+    def test_without_the_rate_the_kpi_currency_is_unknown_not_partial(
+        self, client, pg, db, rol_admin, admin_auth_headers, started
+    ) -> None:
+        seed_rows(pg, no_rate_fill)
+        grant(db, rol_admin, PERMISO)
+        kpis = audit(client, admin_auth_headers)["kpis"]
+        assert kpis["erp"] == money(5, None, None)
