@@ -69,6 +69,7 @@ MejorTuple = Tuple[str, float]
 
 # Synthetic fingerprint key for C6 raise-price opportunity (not a MeLi promotion id).
 C6_FINGERPRINT_KEY = "c6"
+AUTOAPPLY_FAIL_PREFIX = "Autoapply falló"
 
 
 @dataclass(frozen=True)
@@ -111,25 +112,8 @@ def _criterios_audit_dict(criterios: CriteriosView) -> Dict[str, Any]:
 SSE_CHANNEL_MEJORES_OFERTAS = "ml-publications:mejores-ofertas"
 _CHANGED = "hay_mejores_changed"  # `Session.info` key: this transaction changed some flag
 _LISTENING = "hay_mejores_listening"  # `Session.info` key: the commit/rollback listeners are on this session
-
-
-def notify_hay_mejores_changed(db: Session) -> None:
-    """Signal the badge once this transaction commits: never before (the count would read the old flags) and never
-    on a rollback. Several changes in one transaction publish once. Best-effort, as every SSE signal."""
-    db.info[_CHANGED] = True
-    if not db.info.get(_LISTENING):
-        db.info[_LISTENING] = True
-        event.listen(db, "after_commit", _publish_if_changed)
-        event.listen(db, "after_rollback", _forget_change)
-
-
-def _publish_if_changed(db: Session) -> None:
-    if db.info.pop(_CHANGED, False):
-        sse_publish_any_process(SSE_CHANNEL_MEJORES_OFERTAS, {"hint": "reload"})
-
-
-def _forget_change(db: Session) -> None:
-    db.info.pop(_CHANGED, None)
+# R-AUTO jobs run only after the outer txn commits (ADR-5: never hold a Session across MeLi HTTP).
+_AUTO_PENDING = "hay_mejores_auto_pending"
 
 
 @dataclass(frozen=True)
@@ -137,6 +121,88 @@ class FlagDecision:
     hay_mejores: bool
     fingerprint: Optional[str]
     descartado_fingerprint: Optional[str]
+
+
+def _ensure_hay_mejores_listeners(db: Session) -> None:
+    if db.info.get(_LISTENING):
+        return
+    db.info[_LISTENING] = True
+    event.listen(db, "after_commit", _on_hay_mejores_commit)
+    event.listen(db, "after_rollback", _on_hay_mejores_rollback)
+
+
+def notify_hay_mejores_changed(db: Session) -> None:
+    """Signal the badge once this transaction commits: never before (the count would read the old flags) and never
+    on a rollback. Several changes in one transaction publish once. Best-effort, as every SSE signal."""
+    db.info[_CHANGED] = True
+    _ensure_hay_mejores_listeners(db)
+
+
+def _schedule_auto_enroll(
+    db: Session,
+    item_id: str,
+    target: Mapping[str, Any],
+    decision: FlagDecision,
+) -> None:
+    """Queue R-AUTO enroll for after_commit so MeLi HTTP never holds the caller's Session."""
+    pending: List[Dict[str, Any]] = db.info.setdefault(_AUTO_PENDING, [])
+    pending.append(
+        {
+            "item_id": item_id,
+            "target": dict(target),
+            "fingerprint": decision.fingerprint,
+            "descartado_fingerprint": decision.descartado_fingerprint,
+        }
+    )
+    _ensure_hay_mejores_listeners(db)
+
+
+def _on_hay_mejores_commit(db: Session) -> None:
+    if db.info.pop(_CHANGED, False):
+        sse_publish_any_process(SSE_CHANNEL_MEJORES_OFERTAS, {"hint": "reload"})
+    pending = list(db.info.pop(_AUTO_PENDING, []) or [])
+    for job in pending:
+        _run_auto_enroll_after_commit(job)
+
+
+def _on_hay_mejores_rollback(db: Session) -> None:
+    db.info.pop(_CHANGED, None)
+    db.info.pop(_AUTO_PENDING, None)
+
+
+def _run_auto_enroll_after_commit(job: Mapping[str, Any]) -> None:
+    """HTTP enroll with no caller Session held; on fail, re-flag in a fresh short session."""
+    item_id = str(job["item_id"])
+    target = job["target"]
+    outcome = _try_auto_enroll(item_id, target)
+    if _auto_enroll_succeeded(outcome):
+        return
+    fail_reason = outcome.get("error") or outcome.get("message") or outcome.get("status") or "enroll rechazado"
+    try:
+        from app.core.database import get_background_db
+
+        with get_background_db() as fresh_db:
+            row = fresh_db.query(MlItemSellerPromotions).filter(MlItemSellerPromotions.item_id == item_id).one_or_none()
+            if row is None:
+                return
+            row.hay_mejores_ofertas = True
+            row.hay_mejores_fingerprint = job.get("fingerprint")
+            row.hay_mejores_descartado_fingerprint = job.get("descartado_fingerprint")
+            _enqueue_catalog_competition_refresh(fresh_db, item_id)
+            record_flag_transition(
+                fresh_db,
+                item_id,
+                payload={
+                    "fingerprint": job.get("fingerprint"),
+                    "auto_aplicacion": True,
+                    "auto_fail": True,
+                    "auto_fail_message": f"{AUTOAPPLY_FAIL_PREFIX}: {fail_reason}",
+                    "auto_pick": target.get("key") if isinstance(target, Mapping) else None,
+                },
+            )
+            notify_hay_mejores_changed(fresh_db)
+    except Exception as exc:
+        logger.warning("hay_mejores R-AUTO re-flag after fail failed for %s: %s", item_id, exc, exc_info=True)
 
 
 def es_mejor_oferta(
@@ -387,6 +453,80 @@ def evaluar_monopolio_c6(
     )
 
 
+def pick_mejor_candidata_auto(candidatas: Sequence[Mapping[str, Any]]) -> Optional[Dict[str, Any]]:
+    """R-AUTO pick: classic path first, else C2; among pool, best markup (sell-in/out if all have it)."""
+    ranked = [c for c in candidatas if c.get("key") != C6_FINGERPRINT_KEY and c.get("markup") is not None]
+    classic = [c for c in ranked if c.get("path_clasico")]
+    pool: List[Dict[str, Any]] = list(classic) if classic else [c for c in ranked if c.get("path_c2")]
+    if not pool:
+        return None
+    use_sio = all(c.get("markup_sell_in_out") is not None for c in pool)
+    best = pool[0]
+    for candidata in pool[1:]:
+        best_m = best.get("markup_sell_in_out") if use_sio else best.get("markup")
+        cand_m = candidata.get("markup_sell_in_out") if use_sio else candidata.get("markup")
+        if cand_m is not None and best_m is not None and float(cand_m) > float(best_m):
+            best = candidata
+    return dict(best)
+
+
+def resolve_auto_enroll_target(
+    candidatas: Sequence[Mapping[str, Any]],
+    candidates: Sequence[Mapping[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Map the Auto pick to enroll kwargs. None when nothing enrollable (e.g. LIGHTNING without stock)."""
+    picked = pick_mejor_candidata_auto(candidatas)
+    if picked is None:
+        return None
+    entry = next((e for e in candidates if promotion_key(e) == picked["key"]), None)
+    if entry is None:
+        return None
+    promo_id = entry.get("id")
+    promo_type = entry.get("type") or entry.get("promotion_type")
+    if promo_id is None or not promo_type:
+        return None
+    promo_type_s = str(promo_type)
+    stock_min: Optional[int] = None
+    if promo_type_s == "LIGHTNING":
+        stock = entry.get("stock") if isinstance(entry.get("stock"), Mapping) else None
+        if not isinstance(stock, Mapping) or not isinstance(stock.get("min"), int):
+            return None
+        stock_min = int(stock["min"])
+    return {
+        "promotion_id": str(promo_id),
+        "promotion_type": promo_type_s,
+        "deal_price": float(picked["price"]),
+        "precio_visto": float(picked["price"]),
+        "markup_visto": picked.get("markup"),
+        "stock": stock_min,
+        "key": picked["key"],
+    }
+
+
+def _try_auto_enroll(item_id: str, target: Mapping[str, Any]) -> Dict[str, Any]:
+    """Call enroll outside the flag savepoint. Never raises."""
+    try:
+        from app.services.ml_promotions_write_service import enroll_one_item
+
+        return enroll_one_item(
+            item_id,
+            str(target["promotion_id"]),
+            str(target["promotion_type"]),
+            deal_price=target.get("deal_price"),
+            precio_visto=target.get("precio_visto"),
+            markup_visto=target.get("markup_visto"),
+            stock=target.get("stock"),
+            auto_aplicacion=True,
+        )
+    except Exception as exc:
+        logger.warning("hay_mejores R-AUTO enroll failed for %s: %s", item_id, exc, exc_info=True)
+        return {"status": "error", "error": str(exc)}
+
+
+def _auto_enroll_succeeded(outcome: Mapping[str, Any]) -> bool:
+    return outcome.get("status") in {"submitted", "reconciled_applied"}
+
+
 def _candidate_entries(raw: Any, now: datetime) -> List[Mapping[str, Any]]:
     """The candidates that can be applied at ``now``: a better promo applicable only in 10 days does not count."""
     if not isinstance(raw, list):
@@ -460,6 +600,7 @@ def actualizar_hay_mejores_ofertas(
 
     While ``hay_mejores_excluido`` is true the flag stays false (permanent opt-out until a PM re-includes).
     """
+    auto_target: Optional[Dict[str, Any]] = None
     try:
         with db.begin_nested():
             row = db.query(MlItemSellerPromotions).filter(MlItemSellerPromotions.item_id == item_id).one_or_none()
@@ -500,11 +641,22 @@ def actualizar_hay_mejores_ofertas(
                     mejores=mejores,
                     descartado_fingerprint=row.hay_mejores_descartado_fingerprint,
                 )
-                row.hay_mejores_ofertas = decision.hay_mejores
-                row.hay_mejores_fingerprint = decision.fingerprint
-                row.hay_mejores_descartado_fingerprint = decision.descartado_fingerprint
-                if decision.hay_mejores and (not prev_flag or prev_fingerprint != decision.fingerprint):
-                    _enqueue_catalog_competition_refresh(db, item_id)
+                would_transition = bool(
+                    decision.hay_mejores and (not prev_flag or prev_fingerprint != decision.fingerprint)
+                )
+                if (
+                    would_transition
+                    and criterios_view.auto_aplicacion
+                    and evaluacion is not None
+                    and evaluacion.candidatas
+                ):
+                    auto_target = resolve_auto_enroll_target(evaluacion.candidatas, candidates)
+
+                if auto_target is not None:
+                    # R-AUTO: clear visible flag now; MeLi enroll runs only after the outer txn commits (ADR-5).
+                    row.hay_mejores_ofertas = False
+                    row.hay_mejores_fingerprint = None
+                    row.hay_mejores_descartado_fingerprint = None
                     record_flag_transition(
                         db,
                         item_id,
@@ -518,13 +670,43 @@ def actualizar_hay_mejores_ofertas(
                                 evaluacion.criterios if evaluacion else _criterios_audit_dict(criterios_view)
                             ),
                             "monopolio": monopolio.oportunidad if monopolio else None,
+                            "auto_aplicacion": True,
+                            "auto_pick": auto_target.get("key"),
+                            "auto_deferred": True,
                         },
                     )
+                else:
+                    row.hay_mejores_ofertas = decision.hay_mejores
+                    row.hay_mejores_fingerprint = decision.fingerprint
+                    row.hay_mejores_descartado_fingerprint = decision.descartado_fingerprint
+                    if would_transition:
+                        _enqueue_catalog_competition_refresh(db, item_id)
+                        record_flag_transition(
+                            db,
+                            item_id,
+                            payload={
+                                "fingerprint": decision.fingerprint,
+                                "prev_flag": prev_flag,
+                                "prev_fingerprint": prev_fingerprint,
+                                "status_quo": evaluacion.status_quo if evaluacion else {},
+                                "candidatas": evaluacion.candidatas if evaluacion else [],
+                                "criterios": (
+                                    evaluacion.criterios if evaluacion else _criterios_audit_dict(criterios_view)
+                                ),
+                                "monopolio": monopolio.oportunidad if monopolio else None,
+                                "auto_aplicacion": bool(criterios_view.auto_aplicacion),
+                            },
+                        )
+        if auto_target is not None:
+            _schedule_auto_enroll(db, item_id, auto_target, decision)
+            if prev_flag:
+                notify_hay_mejores_changed(db)
+            return FlagDecision(hay_mejores=False, fingerprint=None, descartado_fingerprint=None)
         if decision.hay_mejores != prev_flag:  # after the savepoint: a failed one changed nothing
             notify_hay_mejores_changed(db)
         return decision
     except Exception as exc:
-        logger.warning("hay_mejores: failed for %s: %s", item_id, exc)
+        logger.warning("hay_mejores: failed for %s: %s", item_id, exc, exc_info=True)
         return None
 
 
