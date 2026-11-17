@@ -48,6 +48,7 @@ from app.services.ml_promotions_pricing import (
 )
 from app.services.productos_sell_in_out import SellInOutBatch
 from app.services.ml_publications.parsers.seller_promotions import STATUS_CANDIDATE, promotion_key
+from app.services.ml_hay_mejores_criterios_service import get_criterios, markup_pasa_c1
 
 logger = get_logger(__name__)
 
@@ -209,12 +210,20 @@ def listar_mejores_candidatas(
     )
     promos = [normalizar_entrada_seller_promo(entry) for entry in candidates]
     enriquecer_markup_por_promo(db, mla, promos, sell_in_out=True, batch=batch, context=context)
+    criterios = get_criterios(db, mla)
     mejores: List[MejorTuple] = []
     for entry, promo in zip(candidates, promos):
         price = precio_de_oferta(promo)
         candidato = MarkupsDePrecio(promo.get("nuestro_markup"), promo.get("markup_sell_in_out"))
         markup, baseline_markup = markups_comparables(candidato, vigente)
         if not es_mejor_oferta(price, markup, status_quo_price, baseline_markup):
+            continue
+        if not markup_pasa_c1(
+            markup,
+            c1_activo=criterios.c1_activo,
+            c1_markup_min=criterios.c1_markup_min,
+            c1_markup_max=criterios.c1_markup_max,
+        ):
             continue
         assert price is not None
         mejores.append((promotion_key(entry), float(price)))
