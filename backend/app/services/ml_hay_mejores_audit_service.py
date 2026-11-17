@@ -92,3 +92,14 @@ def latest_flag_transition_payload(db: Session, item_id: str) -> Optional[dict[s
     if row is None or not isinstance(row.payload, dict):
         return None
     return dict(row.payload)
+
+
+def latest_auto_fail_message(db: Session, item_id: str) -> Optional[str]:
+    """Visible R-AUTO fail text when the latest flag_transition recorded an enroll failure."""
+    payload = latest_flag_transition_payload(db, item_id)
+    if not payload or not payload.get("auto_fail"):
+        return None
+    message = payload.get("auto_fail_message")
+    if message is None or message == "":
+        return None
+    return str(message)

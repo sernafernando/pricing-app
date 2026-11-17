@@ -78,6 +78,27 @@ describe('MejoresCandidatasBlock', () => {
     expect(within(card).getByRole('button', { name: 'Aplicar sugerencia' })).toBeInTheDocument();
   });
 
+  it('shows Autoapply fail text above the suggestion when the API sends it', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        auto_fail_message: 'Autoapply falló: stock insuficiente',
+        promotions: [
+          {
+            status: 'candidate',
+            promotion_type: 'SMART',
+            promotion_id: 'P-MLA-AF',
+            price: 200000,
+            nuestro_markup: 1.5,
+            name: 'Oferta fail',
+          },
+        ],
+      },
+    });
+    render(<MejoresCandidatasBlock itemId="MLA-AF" baselinePrice={218299} />);
+    expect(await screen.findByText('Autoapply falló: stock insuficiente')).toBeInTheDocument();
+    expect(screen.getByText(/Hay candidatas mejores que el precio vigente/)).toBeInTheDocument();
+  });
+
   // promos-markup-sell-in-out S2: the box shows the markup with sell in / sell out next to each markup.
   it('shows the markup with sell in / sell out on the card and on the Markup vigente line', async () => {
     promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { nuestro_markup: 0.35, markup_sell_in_out: 3.2 } });

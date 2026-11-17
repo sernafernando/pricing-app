@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 from app.models.ml_hay_mejores_audit import KIND_AUTO_TOGGLE, KIND_FLAG_TRANSITION
 from app.services.ml_hay_mejores_audit_service import (
+    latest_auto_fail_message,
     latest_flag_transition_payload,
     record_auto_toggle,
     record_flag_transition,
@@ -58,9 +59,7 @@ def test_upsert_criterios_logs_auto_flip(monkeypatch) -> None:
     logged: list[dict] = []
 
     def _log(db, item_id, *, old, new, usuario_id, alcance="item"):
-        logged.append(
-            {"item_id": item_id, "old": old, "new": new, "usuario_id": usuario_id, "alcance": alcance}
-        )
+        logged.append({"item_id": item_id, "old": old, "new": new, "usuario_id": usuario_id, "alcance": alcance})
 
     monkeypatch.setattr(
         "app.services.ml_hay_mejores_criterios_service.record_auto_toggle",
@@ -104,9 +103,7 @@ def test_upsert_criterios_logs_auto_flip(monkeypatch) -> None:
         c6_distancia_objetivo=Decimal("100"),
         auto_aplicacion=True,
     )
-    assert logged == [
-        {"item_id": "MLA1", "old": False, "new": True, "usuario_id": 3, "alcance": "item"}
-    ]
+    assert logged == [{"item_id": "MLA1", "old": False, "new": True, "usuario_id": 3, "alcance": "item"}]
     assert row.auto_aplicacion is True
 
 
@@ -116,3 +113,19 @@ def test_latest_flag_transition_payload_returns_dict() -> None:
         payload={"status_quo": {"price": 1000.0}}
     )
     assert latest_flag_transition_payload(db, "MLA1") == {"status_quo": {"price": 1000.0}}
+
+
+def test_latest_auto_fail_message_reads_fail_payload() -> None:
+    db = MagicMock()
+    db.query.return_value.filter.return_value.order_by.return_value.first.return_value = SimpleNamespace(
+        payload={"auto_fail": True, "auto_fail_message": "Autoapply falló: stock insuficiente"}
+    )
+    assert latest_auto_fail_message(db, "MLA1") == "Autoapply falló: stock insuficiente"
+
+
+def test_latest_auto_fail_message_none_without_fail_flag() -> None:
+    db = MagicMock()
+    db.query.return_value.filter.return_value.order_by.return_value.first.return_value = SimpleNamespace(
+        payload={"fingerprint": "A:900"}
+    )
+    assert latest_auto_fail_message(db, "MLA1") is None
