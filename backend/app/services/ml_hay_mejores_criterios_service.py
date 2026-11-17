@@ -106,6 +106,27 @@ def markup_pasa_c1(
     return True
 
 
+def catalog_win_con_precio(promo_price: Optional[float], min_rival_price: Optional[float]) -> bool:
+    """True when the promo is strictly cheaper than every checked rival (same as is_cheaper_than_us)."""
+    if promo_price is None or min_rival_price is None:
+        return False
+    return float(promo_price) < float(min_rival_price)
+
+
+def markup_pasa_c2(
+    markup: Optional[float],
+    *,
+    c2_activo: bool,
+    c2_solo_markup_positivo: bool,
+) -> bool:
+    """C2 gate on markup: inactive → never; ON solo-positivo → markup must be &gt; 0; OFF → any markup."""
+    if not c2_activo:
+        return False
+    if c2_solo_markup_positivo:
+        return markup is not None and float(markup) > 0
+    return markup is not None
+
+
 def upsert_criterios(
     db: Session,
     item_id: str,
