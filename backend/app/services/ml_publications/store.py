@@ -424,7 +424,10 @@ def _log_change(
     item_scoped: bool = True,
 ) -> MlChangeLog:
     """Append one change-log row for `entity_id`: the item's id, or with `item_scoped` off the user product's
-    or family's, which are not items and leave the row's `item_id` empty."""
+    or family's, which are not items and leave the row's `item_id` empty.
+
+    A change of an active catalog listing also queues its catalog-competition snapshot refresh
+    (`catalog_competition_on_change`), in this transaction and its own savepoint."""
     entry = MlChangeLog(
         resource_type=spec.name,
         entity_id=entity_id,
@@ -440,4 +443,8 @@ def _log_change(
     )
     db.add(entry)
     db.flush()
+    # Imported here: the rule reads the catalog-competition model, which the store's import graph does not need.
+    from app.services.catalog_competition_on_change import enqueue_after_change
+
+    enqueue_after_change(db, entry)
     return entry

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Iterable, Optional
 
+from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -41,6 +42,24 @@ def enqueue(db: Session, item_ids: Iterable[str], now: datetime) -> int:
     statement = insert.on_conflict_do_update(
         index_elements=["mla"],
         set_={"due_at": insert.excluded.due_at, "attempts": 0},
+    ).returning(CatalogCompetitionRefreshPending.id)
+    return len(db.execute(statement).all())
+
+
+def enqueue_debounced(db: Session, due: Iterable[tuple[str, datetime]]) -> int:
+    """Queue each MLA at its own due time, never pushing back one already queued earlier.
+
+    For change-driven and backfill entries: a later change of an MLA that is already waiting (or due now through
+    `enqueue`) keeps the earlier due time, so a steady stream of changes cannot postpone its refresh forever. A row
+    under a claim lease gets the earlier time too, so the claim's settle leaves it queued for one more refresh; its
+    attempts restart at 0, as in `enqueue`, so changes during a lease never add up to a quarantine."""
+    values = {mla: {"mla": mla, "due_at": due_at, "attempts": 0} for mla, due_at in due if mla}
+    if not values:
+        return 0
+    insert = pg_insert(CatalogCompetitionRefreshPending).values(list(values.values()))
+    statement = insert.on_conflict_do_update(
+        index_elements=["mla"],
+        set_={"due_at": func.least(CatalogCompetitionRefreshPending.due_at, insert.excluded.due_at), "attempts": 0},
     ).returning(CatalogCompetitionRefreshPending.id)
     return len(db.execute(statement).all())
 

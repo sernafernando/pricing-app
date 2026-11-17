@@ -1,7 +1,10 @@
 """Queue of MLAs waiting for a catalog-competition snapshot refresh.
 
 Enqueued when `hay_mejores_ofertas` is newly set (or re-marked with a new
-fingerprint). Drained by `ml_publications.catalog_competition_refresh`.
+fingerprint), when the store records a change of an active catalog listing
+(`catalog_competition_on_change`) and by the one-off backfill
+(`app.scripts.catalog_competition_backfill`). Drained by
+`ml_publications.catalog_competition_refresh`.
 """
 
 from __future__ import annotations
