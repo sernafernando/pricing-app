@@ -10,6 +10,7 @@ import {
   Gauge,
   Rows4,
   ShieldAlert,
+  Tag,
   Users,
 } from 'lucide-react';
 import { publicacionesMlAPI } from '../services/api';
@@ -81,6 +82,7 @@ import {
   pageSizeLabel,
   PRICE_MODES,
   PRODUCT_SORTS,
+  PROMO_APLICADA_VALUES,
   SIN_MLA,
   buildExportParams,
   buildItemsParams,
@@ -199,6 +201,17 @@ const VISTA_OPTIONS = [
   { value: 'precios', label: 'Precios' },
   { value: 'agrupado', label: 'Agrupado' },
 ];
+
+// "Promo aplicada" (S9): a started promotion in ML, or none (candidates do not count); in every view.
+const PROMO_APLICADA_LABELS = {
+  con: (
+    <>
+      <Tag size={12} aria-hidden="true" /> Con promo aplicada
+    </>
+  ),
+  sin: 'Sin promo aplicada',
+};
+const PROMO_APLICADA_COUNTS = (promo) => (promo ? { con: promo.con_promo, sin: promo.sin_promo } : undefined);
 
 // Métricas ML's dimension picker, limited to the dimensions the tree's `/groups` takes.
 const AGRUPAR_OPTIONS = DIMENSION_OPTIONS.filter((option) => AGRUPAR_DIMENSIONS.includes(option.value));
@@ -963,6 +976,18 @@ export default function PublicacionesML() {
         <div className={styles.filterGroup}>
           <span className={styles.filterLabel}>Stock</span>
           {chipGroup('Filtrar por stock', 'stock', STOCK_OPTIONS, STOCK_LABELS, 'stock')}
+        </div>
+        <div className={styles.filterGroup}>
+          <span className={styles.filterLabel}>Promo aplicada</span>
+          <FacetChips
+            label="Filtrar por promo aplicada"
+            options={PROMO_APLICADA_VALUES}
+            labels={PROMO_APLICADA_LABELS}
+            counts={PROMO_APLICADA_COUNTS(facets?.promo)}
+            total={facets?.promo ? facets.promo.con_promo + facets.promo.sin_promo : undefined}
+            activeValue={filters.promo_aplicada}
+            onChange={(value) => setFilters({ promo_aplicada: value })}
+          />
         </div>
       </div>
       <div className={styles.filterBand}>

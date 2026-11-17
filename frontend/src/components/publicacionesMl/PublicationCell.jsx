@@ -1,5 +1,6 @@
 import { Barcode, CircleDashed, Link2, Store, TriangleAlert, Unlink } from 'lucide-react';
 import MlSellerLinks from './MlSellerLinks';
+import PromoAplicadaBadge from './PromoAplicadaBadge';
 import { SKU_DIVERGENCE_KINDS } from './skuDivergence';
 import styles from './PublicationCell.module.css';
 
@@ -77,7 +78,7 @@ function DivergenceTag({ divergence }) {
 
 /**
  * First (pinned) column: thumbnail, title and the facts that identify the
- * publication -- MLA, Full, catalogue, how many variations -- plus links to
+ * publication -- MLA, an applied promotion, Full, catalogue, how many variations -- plus links to
  * it in the ML seller panel, its official store and its link to an ERP
  * product (compact: they were columns of their own). The title is the only
  * thing that may be missing; it reads "Sin título", never an empty cell.
@@ -94,6 +95,7 @@ export default function PublicationCell({ item }) {
   const store = storeName(item);
   const metaTitle = [
     item.item_id,
+    item.promo_aplicada === true && 'Promo aplicada',
     item.seller_sku && `SKU ${item.seller_sku}`,
     divergence && `SKU distinto del producto vinculado: ${divergence.label}`,
     link && `Vínculo: ${link.label}`,
@@ -121,6 +123,7 @@ export default function PublicationCell({ item }) {
           <span className={styles.mla} title={MLA_SHORTCUTS}>
             {item.item_id}
           </span>
+          <PromoAplicadaBadge applied={item.promo_aplicada} />
           <MlSellerLinks itemId={item.item_id} />
           <SkuTag sku={item.seller_sku} />
           <DivergenceTag divergence={item.sku_divergence} />

@@ -189,3 +189,17 @@ describe('PublicationCell meta tooltip', () => {
     expect(screen.getByText('Sin título')).toHaveAttribute('title', 'Sin título\nMLA9');
   });
 });
+
+describe('PublicationCell "Promo aplicada" badge (auditoria-stock S9)', () => {
+  it('shows a green "Promo aplicada" next to the MLA when a promotion is started', () => {
+    render(<PublicationCell item={makeItem({ item_id: 'MLA1173065146', title: 'Router', promo_aplicada: true })} />);
+    const badge = screen.getByText('Promo aplicada');
+    expect(badge).toHaveAttribute('title', 'Tiene una promoción aplicada en Mercado Libre');
+    expect(badge.querySelector('svg')).not.toBeNull();
+  });
+
+  it.each([false, null, undefined])('shows nothing when promo_aplicada is %s', (value) => {
+    render(<PublicationCell item={makeItem({ item_id: 'MLA1173065146', title: 'Router', promo_aplicada: value })} />);
+    expect(screen.queryByText('Promo aplicada')).not.toBeInTheDocument();
+  });
+});

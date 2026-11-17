@@ -104,7 +104,9 @@ const AUDIT_KEYS = [...Object.keys(AUDIT_CSV_PARAMS), ...Object.keys(AUDIT_TEXT_
  */
 const PROMO_TYPE_VALUES = PROMO_TYPES.map(({ type }) => type);
 export const PROMO_STATES = ['aplicada', 'sin_aplicar'];
-const PROMO_KEYS = ['promo_tipos', 'promo_estado', 'pxq', 'hay_mejores_ofertas', 'hay_mejores_excluido'];
+// "Promo aplicada" (auditoria-stock S9): `con` = a started promotion, `sin` = none started (candidates do not count).
+export const PROMO_APLICADA_VALUES = ['con', 'sin'];
+const PROMO_KEYS = ['promo_tipos', 'promo_estado', 'pxq', 'hay_mejores_ofertas', 'hay_mejores_excluido', 'promo_aplicada'];
 /**
  * Productos' "Sin MLA" (`?mla=sin_mla`, Productos' value): in the Producto view, the products no publication is
  * linked to (`con_mla=false`). Only the product filters apply to them; the backend refuses the others (422).
@@ -334,6 +336,7 @@ function readFilters(params, { canSeeMargin = false } = {}) {
   filters.pxq = params.get('pxq') === 'con_pxq' ? 'con_pxq' : '';
   filters.hay_mejores_ofertas = ['1', 'true'].includes(params.get('hay_mejores_ofertas')) ? '1' : '';
   filters.hay_mejores_excluido = ['1', 'true'].includes(params.get('hay_mejores_excluido')) ? '1' : '';
+  filters.promo_aplicada = PROMO_APLICADA_VALUES.includes(params.get('promo_aplicada')) ? params.get('promo_aplicada') : '';
   // One reading for the switch and the request: only `1` / `true` mean on.
   filters.markup_neg = ['1', 'true'].includes(params.get('markup_neg')) ? '1' : '';
   const vista = params.get('vista');
@@ -432,6 +435,7 @@ export function buildItemsParams(
   if (filters.pxq === 'con_pxq') params.con_pxq = true;
   if (filters.hay_mejores_ofertas === '1') params.hay_mejores_ofertas = true;
   if (filters.hay_mejores_excluido === '1') params.hay_mejores_excluido = true;
+  if (filters.promo_aplicada) params.promo_aplicada = filters.promo_aplicada;
   if (filters.equipo) params.equipo_id = filters.equipo;
   params.limit = pageSize;
   params.offset = pageOffset(filters.pagina, pageSize);
