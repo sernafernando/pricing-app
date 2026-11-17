@@ -52,6 +52,7 @@ import StockAuditTable from '../components/publicacionesMl/auditoria/StockAuditT
 import { AUDIT_KPI_OPTIONS, auditColumnOptions } from '../components/publicacionesMl/auditoria/auditOptions';
 import StockAuditKpis from '../components/publicacionesMl/auditoria/StockAuditKpis';
 import useStockAudit from '../components/publicacionesMl/auditoria/useStockAudit';
+import { exportAuditoriaStockExcel } from '../components/publicacionesMl/auditoria/exportStockAudit';
 import auditStyles from '../components/publicacionesMl/auditoria/StockAudit.module.css';
 import BulkActions from '../components/publicacionesMl/BulkActions';
 import BulkStatusActions from '../components/publicacionesMl/BulkStatusActions';
@@ -94,6 +95,7 @@ import {
   buildItemsParams,
   buildKpiParams,
   buildStatsParams,
+  buildStockAuditExportParams,
   effectiveAuditSort,
   effectiveSortKeys,
   hasMarkupFilter,
@@ -561,6 +563,9 @@ export default function PublicacionesML() {
     }
   };
   const handleExport = () => runExport(exportPublicacionesCsv, setExporting);
+  // The Auditoría de stock's workbook (L7): every row, with its filters and sort.
+  const handleAuditExport = () =>
+    runExport(() => exportAuditoriaStockExcel(buildStockAuditExportParams(rowFilters, { canSeeSales, canSeeMargin })), setExporting);
   const handleSheetsExport = () => runExport(exportPublicacionesSheets, setExportingSheets);
   // Productos' price lists over the linked products of the filtered publications, resolved as a bulk action's set.
   const canExportPriceLists = PRICE_LIST_EXPORT_PERMISSIONS.some((codigo) => tienePermiso(codigo));
@@ -1469,6 +1474,19 @@ export default function PublicacionesML() {
           >
             <Rows4 size={14} />
           </button>
+          {auditoria && (
+            <button
+              type="button"
+              className={quietButton}
+              aria-label={exporting ? 'Exportando…' : 'Exportar Excel'}
+              title="Exportar a Excel"
+              onClick={handleAuditExport}
+              disabled={exporting}
+            >
+              <Download size={14} />
+              {exporting ? 'Exportando…' : 'Exportar'}
+            </button>
+          )}
           {canExportVista(filters.vista) && (
             <button
               type="button"

@@ -593,3 +593,89 @@ class TestStockWithoutCost:
         kpis = body["kpis"]
         assert (kpis["erp"]["usd"], kpis["erp"]["ars"]) == (None, None)  # USD and ARS costs mixed, no rate
         assert kpis["total"]["unidades"] == 148
+
+
+# --- L7: Exportar a Excel ----------------------------------------------------------------------------------------
+
+EXPORT_URL = "/api/ml-publications/view/stock-audit/export"
+
+
+def sheet(client, headers, **params) -> list[dict]:
+    """The export's rows, each as {header: value}."""
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    response = client.get(EXPORT_URL, headers=headers, params=params)
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert 'filename="publicaciones-ml-auditoria-stock-' in response.headers["content-disposition"]
+    rows = list(load_workbook(BytesIO(response.content)).active.iter_rows(values_only=True))
+    return [dict(zip(rows[0], row)) for row in rows[1:]]
+
+
+@pytest.mark.postgres
+class TestStockAuditExport:
+    def test_without_the_permission_it_is_a_403(self, client, pg, db, rol_admin, admin_auth_headers) -> None:
+        grant(db, rol_admin, "ml_ops.ver", "productos.ver")
+        response = client.get(EXPORT_URL, headers=admin_auth_headers)
+        assert response.status_code == 403
+        assert PERMISO in response.json()["error"]["message"]
+
+    def test_every_base_row_then_its_variants_in_the_view_order_whatever_the_page(self, client, auditor) -> None:
+        rows = sheet(client, auditor, limit=1)
+        assert [(r["Tipo"], r["Código"]) for r in rows] == [
+            ("Producto", "C100"),
+            ("Variante", "C101"),
+            ("PC", "C130"),
+            ("Producto", "C111"),
+            ("Pack", "C110"),
+            ("Producto", "C140"),
+        ]
+        assert rows[1]["Producto base"] == "C100"
+
+    def test_stock_units_and_values_as_the_view_shows_them(self, client, auditor) -> None:
+        rows = {r["Código"]: r for r in sheet(client, auditor)}
+        notebook = rows["C100"]
+        assert (notebook["Stock ERP"], notebook["Stock Full"], notebook["Stock total"]) == (5, 3, 8)
+        assert (notebook["Valor ERP USD"], notebook["Valor ERP ARS"]) == (5000.0, 5_000_000.0)
+        assert (notebook["Valor total USD"], notebook["Valor total ARS"]) == (8100.0, 8_100_000.0)
+        pack = rows["C110"]
+        assert (pack["Cantidad"], pack["Stock ERP"], pack["Stock Full"], pack["Valor Full USD"]) == (10, None, 30, 60.0)
+
+    def test_the_order_follows_orden_and_dir(self, client, auditor) -> None:
+        rows = sheet(client, auditor, orden="descripcion", dir="asc")
+        assert [r["Código"] for r in rows if r["Tipo"] != "Variante" and r["Tipo"] != "Pack"] == [
+            "C100",
+            "C111",
+            "C130",
+            "C140",
+        ]
+
+    def test_without_metricas_there_are_no_sales_columns(self, client, auditor) -> None:
+        headers = set(sheet(client, auditor)[0])
+        assert not headers & {"Ventas 7D", "Ventas 30D", "Facturado 30D", "Total Gauss 30D", "Markup real 30D"}
+
+    def test_with_metricas_the_sales_without_ganancia_no_profit(
+        self, client, auditor, db, rol_admin, board_calls
+    ) -> None:
+        grant(db, rol_admin, "ml_metricas.ver")
+        rows = {r["Código"]: r for r in sheet(client, auditor)}
+        assert (rows["C100"]["Ventas 7D"], rows["C100"]["Ventas 30D"], rows["C100"]["Facturado 30D"]) == (1, 3, 3500.0)
+        assert rows["C110"]["Ventas 30D"] == 20  # the pack's 2 sales in base units, as the view shows them
+        assert not set(rows["C100"]) & {"Total Gauss 30D", "Markup real 30D", "Markup actual mín"}
+
+    def test_with_ganancia_the_profit_and_markups(self, client, auditor, db, rol_admin, board_calls) -> None:
+        grant(db, rol_admin, "ml_metricas.ver", "ml_metricas.ver_ganancia")
+        notebook = {r["Código"]: r for r in sheet(client, auditor)}["C100"]
+        # the sell in / out figures where they apply, as the view's Real 30D and Total Gauss
+        assert (notebook["Total Gauss 30D"], notebook["Markup real 30D"]) == (380.0, 19.5)
+
+    def test_a_product_without_cost_exports_blank_values_and_says_so(self, client, auditor_without_cost) -> None:
+        row = {r["Código"]: r for r in sheet(client, auditor_without_cost)}["C160"]
+        assert (row["Valor ERP USD"], row["Valor total ARS"], row["Sin costo"]) == (None, None, "Sí")
+
+    def test_an_unknown_order_is_a_422(self, client, auditor) -> None:
+        assert client.get(EXPORT_URL, headers=auditor, params={"orden": "precio"}).status_code == 422

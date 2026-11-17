@@ -14,4 +14,5 @@ También hay un filtro nuevo en todas las vistas, **Promo aplicada**, y una etiq
 2. Arriba están los totales: valor del stock ERP, Full y total (en dólares y en pesos), unidades, productos con stock sin publicación activa y productos con y sin promo aplicada. **Indicadores** elige cuáles ver.
 3. Abrí un producto para ver sus publicaciones y sus variantes o combos. Debajo del Full y de las ventas dice cuánto viene de las variantes o del pack.
 4. Ordená con un clic en el título de una columna. **Columnas** oculta las que no uses, también las tendencias; queda guardado.
-5. Para ver solo lo que tiene una promoción aplicada, elegí **Con promo aplicada** en el renglón **Promo aplicada** de los filtros.
+5. **Exportar** descarga un Excel con todos los productos y sus variantes, con los filtros y el orden de la pantalla.
+6. Para ver solo lo que tiene una promoción aplicada, elegí **Con promo aplicada** en el renglón **Promo aplicada** de los filtros.

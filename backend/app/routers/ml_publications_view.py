@@ -1794,20 +1794,20 @@ def products_ask(
     return ProductsAsk(can_see_margin, can_see_sales, pairs[0][0], directions[0], then)
 
 
-@router.get("/stock-audit", response_model=StockAuditResponse, response_model_exclude_unset=True)
-def get_stock_audit(
-    user: Usuario = Depends(require_permiso(PERMISO_AUDITORIA_STOCK)),  # first: who may ask
-    f: PublicationFilter = Depends(filter_query),
-    orden: str = Query("valor_total", description=f"one of {', '.join(stock_audit.ORDERS)}"),
-    dir: str = Query("desc", pattern="^(asc|desc)$"),
-    limit: int = Query(listing.DEFAULT_LIMIT, ge=1, le=listing.MAX_LIMIT),
-    offset: int = Query(0, ge=0),
-    db: Session = Depends(get_view_db),
-    auth_db: Session = Depends(get_db),  # the Métricas permissions (see `get_items`)
-) -> dict[str, Any]:
-    """The Auditoría de stock view (`ml_publicaciones.ver_auditoria_stock`): one row per base product with stock,
-    its variants under it, what its ERP and Full stock is worth at cost in USD and ARS (the day's BNA rate), and the
-    KPI strip over every row (`stock_audit`)."""
+class _StockAuditRead(NamedTuple):
+    audit: Any  # stock_audit.Audit
+    ordered: list[Any]  # its rows in the asked order
+    started: Optional[frozenset[str]]
+    rate: Any  # stock_audit.Rate
+    can_see_sales: bool
+    can_see_margin: bool
+
+
+def _read_stock_audit(
+    user: Usuario, f: PublicationFilter, orden: str, dir: str, db: Session, auth_db: Session
+) -> _StockAuditRead:
+    """The stock audit for `user` (the view and its export share it): the order checked against what the caller may
+    see (422 unknown, 403 a sales or margin order without its permission), every row built and sorted."""
     permisos = PermisosService(auth_db)
     can_see_sales = permisos.tiene_permiso(user, PERMISO_METRICAS)
     can_see_margin = can_see_sales and permisos.tiene_permiso(user, PERMISO_GANANCIA)
@@ -1845,22 +1845,70 @@ def get_stock_audit(
         db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
     started = _started_promotions()
     ordered = stock_audit.sort_rows(audit.rows, orden, dir == "desc")
+    return _StockAuditRead(audit, ordered, started, rate, can_see_sales, can_see_margin)
+
+
+@router.get("/stock-audit", response_model=StockAuditResponse, response_model_exclude_unset=True)
+def get_stock_audit(
+    user: Usuario = Depends(require_permiso(PERMISO_AUDITORIA_STOCK)),  # first: who may ask
+    f: PublicationFilter = Depends(filter_query),
+    orden: str = Query("valor_total", description=f"one of {', '.join(stock_audit.ORDERS)}"),
+    dir: str = Query("desc", pattern="^(asc|desc)$"),
+    limit: int = Query(listing.DEFAULT_LIMIT, ge=1, le=listing.MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_view_db),
+    auth_db: Session = Depends(get_db),  # the Métricas permissions (see `get_items`)
+) -> dict[str, Any]:
+    """The Auditoría de stock view (`ml_publicaciones.ver_auditoria_stock`): one row per base product with stock,
+    its variants under it, what its ERP and Full stock is worth at cost in USD and ARS (the day's BNA rate), and the
+    KPI strip over every row (`stock_audit`)."""
+    read = _read_stock_audit(user, f, orden, dir, db, auth_db)
     return {
         "rows": [
-            stock_audit.row_out(r, audit.active, started, with_sales=can_see_sales, with_margin=can_see_margin)
-            for r in ordered[offset : offset + limit]
+            stock_audit.row_out(
+                r, read.audit.active, read.started, with_sales=read.can_see_sales, with_margin=read.can_see_margin
+            )
+            for r in read.ordered[offset : offset + limit]
         ],
-        "can_see_sales": can_see_sales,
-        "can_see_margin": can_see_margin,
-        "total": len(ordered),
+        "can_see_sales": read.can_see_sales,
+        "can_see_margin": read.can_see_margin,
+        "total": len(read.ordered),
         "limit": limit,
         "offset": offset,
         "orden": orden,
         "dir": dir,
-        "tipo_cambio": rate.usd_ars,
-        "tipo_cambio_fecha": rate.fecha,
-        "kpis": stock_audit.kpis(audit, started),
+        "tipo_cambio": read.rate.usd_ars,
+        "tipo_cambio_fecha": read.rate.fecha,
+        "kpis": stock_audit.kpis(read.audit, read.started),
     }
+
+
+@router.get("/stock-audit/export")
+def export_stock_audit(
+    user: Usuario = Depends(require_permiso(PERMISO_AUDITORIA_STOCK)),  # first: who may ask
+    f: PublicationFilter = Depends(filter_query),
+    orden: str = Query("valor_total", description=f"one of {', '.join(stock_audit.ORDERS)}"),
+    dir: str = Query("desc", pattern="^(asc|desc)$"),
+    db: Session = Depends(get_view_db),
+    auth_db: Session = Depends(get_db),
+) -> Response:
+    """The Auditoría de stock as an Excel workbook (L7): EVERY row of the view (not the page) in its order, with the
+    same filters and permissions, each base product followed by its variants and packs (`export.stock_audit_lines`).
+    The audit is built in memory as the view builds it, so the file is one response, not a stream."""
+    read = _read_stock_audit(user, f, orden, dir, db, auth_db)
+    rows = [
+        stock_audit.row_out(
+            r, read.audit.active, read.started, with_sales=read.can_see_sales, with_margin=read.can_see_margin
+        )
+        for r in read.ordered
+    ]
+    lines = export.stock_audit_lines(rows, sales=read.can_see_sales, margin=read.can_see_margin)
+    filename = f"publicaciones-ml-auditoria-stock-{date.today().isoformat()}.xlsx"
+    return Response(
+        export.workbook(lines, "Auditoría de stock"),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/products", response_model=ProductsResponse, response_model_exclude_unset=True)

@@ -354,6 +354,13 @@ export function buildStockAuditParams(filters, pageSize = filters.limite ?? PAGE
   return { ...params, orden: sort.key, dir: sort.dir };
 }
 
+/** The `GET /ml-publications/view/stock-audit/export` query: the audit's own, every row (no page). */
+export function buildStockAuditExportParams(filters, permissions = {}) {
+  const { limit, offset, ...params } = buildStockAuditParams(filters, PAGE_SIZE, permissions);
+  void limit, offset;
+  return params;
+}
+
 const csv = (value) => (value ? value.split(',').filter(Boolean) : []);
 
 // "Sin stock ML" (`sin_stock`, ML's available, a sum) and "Sin stock propio" (`propio_sin_stock`, the published

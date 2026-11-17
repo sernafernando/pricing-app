@@ -1,4 +1,5 @@
-"""The CSV export of the Publicaciones screen's current view (`/items/export`, `/products/export`).
+"""The CSV export of the Publicaciones screen's current view (`/items/export`, `/products/export`), and the Auditoría
+de stock workbook (`/stock-audit/export`, at the end).
 
 The same discipline as Métricas ML's board export (`routers/ml_metricas.export_board`): the first short transaction
 fixes the ORDERED keys of every row (`listing.ordered_keys`, `products.ordered_product_keys`: the list's own order,
@@ -208,3 +209,109 @@ class PrefetchedAds:
         if mla_ids is None:
             return dict(self._amounts)
         return {mla: self._amounts[mla] for mla in mla_ids if mla in self._amounts}
+
+
+# ── The Auditoría de stock workbook (`/stock-audit/export`, L7) ──────────────────────────────────
+
+AUDIT_KINDS = {"producto": "Producto", "pc": "PC", "variante": "Variante", "pack": "Pack"}
+
+
+def _sold(ventas: Optional[Mapping[str, Any]], key: str, factor: float) -> Any:
+    return None if ventas is None else ventas[key] * factor
+
+
+def _shown(ventas: Optional[Mapping[str, Any]], sell: str, plain: str) -> Any:
+    """The figure the view shows: the sell in / out one where it applies, else the plain one."""
+    if ventas is None:
+        return None
+    return ventas.get(sell) if ventas.get(sell) is not None else ventas.get(plain)
+
+
+def stock_audit_lines(rows: Sequence[Mapping[str, Any]], *, sales: bool, margin: bool) -> list[list[Any]]:
+    """The audit's rows (`stock_audit.row_out`, in the view's order) as sheet lines: the header, then each base row
+    followed by its variants and packs. A variant's ERP is the base's and stays empty; its Full and its sales are in
+    base units (a pack's times its quantity), as the view shows them. Values the view reads "—" are empty cells,
+    never 0; the sales columns only with `sales` (`ml_metricas.ver`), the profit and markups only with `margin`."""
+    header = ["Tipo", "Código", "Producto", "Producto base", "Cantidad", "Costo", "Moneda costo"]
+    header += ["Stock ERP", "Stock Full", "Stock total"]
+    header += [
+        "Valor ERP USD",
+        "Valor ERP ARS",
+        "Valor Full USD",
+        "Valor Full ARS",
+        "Valor total USD",
+        "Valor total ARS",
+    ]
+    header += ["Sin costo", "Publicaciones", "Publicación activa", "Promo aplicada"]
+    if sales:
+        header += ["Ventas 7D", "Ventas 30D", "Facturado 30D"]
+        if margin:
+            header += ["Total Gauss 30D", "Markup real 30D", "Markup actual mín", "Markup actual máx"]
+
+    def yes_no(value: Optional[bool]) -> Optional[str]:
+        return None if value is None else ("Sí" if value else "No")
+
+    def figures(ventas: Optional[Mapping[str, Any]], factor: float, markup: Optional[Mapping[str, Any]]) -> list[Any]:
+        if not sales:
+            return []
+        out = [_sold(ventas, "unidades_7d", factor), _sold(ventas, "unidades_30d", factor)]
+        out.append(None if ventas is None else ventas["facturado_30d"])
+        if margin:
+            out += [
+                _shown(ventas, "total_gauss_sell_30d", "total_gauss_30d"),
+                _shown(ventas, "markup_sell_30d", "markup_30d"),
+            ]
+            out += [None, None] if markup is None else [markup["min"], markup["max"]]
+        return out
+
+    lines: list[list[Any]] = [header]
+    for row in rows:
+        erp, full, total = row["erp"], row["full"], row["total"]
+        lines.append(
+            [AUDIT_KINDS.get(row["tipo"], row["tipo"]), row["codigo"], row["descripcion"], None, 1, row["costo"]]
+            + [row["moneda_costo"], erp["unidades"], full["unidades"], total["unidades"]]
+            + [erp["usd"], erp["ars"], full["usd"], full["ars"], total["usd"], total["ars"]]
+            + [yes_no(row.get("sin_costo", False)), row["publications_count"], yes_no(row["publicacion_activa"])]
+            + [yes_no(row["promo_aplicada"])]
+            + figures(row["ventas"], 1, row.get("markup_actual"))
+        )
+        for v in row["variantes"]:
+            vfull = v["full"]
+            lines.append(
+                [AUDIT_KINDS.get(v["tipo"], v["tipo"]), v["codigo"], v["descripcion"], row["codigo"], v["cantidad"]]
+                + [v["costo"], v["moneda_costo"], None, v["full_unidades_base"], v["full_unidades_base"]]
+                + [None, None, vfull["usd"], vfull["ars"], vfull["usd"], vfull["ars"]]
+                + [yes_no(v.get("sin_costo", False)), v["publications_count"], None, None]
+                + figures(v["ventas"], v["cantidad"], v.get("markup_actual"))
+            )
+    return lines
+
+
+def workbook(lines: Sequence[Sequence[Any]], title: str) -> bytes:
+    """One sheet of `lines` (the first is the header, in bold, frozen) as .xlsx bytes."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    book = Workbook()
+    sheet = book.active
+    sheet.title = title[:31]
+    for line in lines:
+        sheet.append([_cell(value) for value in line])
+    # openpyxl reads a text starting with "=" as a formula: every text cell stays text (no formula injection).
+    for row in sheet.iter_rows():
+        for cell in row:
+            if isinstance(cell.value, str):
+                cell.data_type = "s"
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+    sheet.freeze_panes = "A2"
+    buffer = io.BytesIO()
+    book.save(buffer)
+    return buffer.getvalue()
+
+
+def _cell(value: Any) -> Any:
+    """A sheet cell: a whole number as an int, anything else as it is."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value

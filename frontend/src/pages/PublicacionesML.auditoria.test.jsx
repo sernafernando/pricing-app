@@ -8,6 +8,8 @@ import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import PublicacionesML from './PublicacionesML';
 import { publicacionesMlAPI } from '../services/api';
+import { exportPublicacionesCsv } from '../utils/publicacionesMlExport';
+import { exportAuditoriaStockExcel } from '../components/publicacionesMl/auditoria/exportStockAudit';
 import { seedTiendasOficiales, resetTiendasOficiales } from '../test/tiendasOficialesFixtures';
 import { FACETS, ITEMS_RESPONSE, KPIS_RESPONSE } from '../test/visual/publicacionesMlFixtures';
 import { AUDIT_NOTEBOOK_ITEMS, AUDIT_ORPHAN, stockAuditResponse } from '../test/visual/stockAuditFixtures';
@@ -120,6 +122,7 @@ vi.mock('../utils/mlSidePanel', async (importOriginal) => ({
   openInMlPanel: vi.fn(),
 }));
 
+vi.mock('../components/publicacionesMl/auditoria/exportStockAudit', () => ({ exportAuditoriaStockExcel: vi.fn() }));
 vi.mock('../utils/publicacionesMlExport', async (importOriginal) => ({
   ...(await importOriginal()),
   exportPublicacionesCsv: vi.fn(),
@@ -373,5 +376,37 @@ describe('L8: the promo KPIs without the promotions database', () => {
       .getByText('Productos con stock')
       .closest('div');
     expect(within(card).getAllByText('—')).toHaveLength(2);
+  });
+});
+
+describe('L7: Exportar a Excel', () => {
+  beforeEach(() => {
+    exportAuditoriaStockExcel.mockReset();
+    exportAuditoriaStockExcel.mockResolvedValue(undefined);
+    exportPublicacionesCsv.mockReset();
+  });
+
+  it('downloads every row of the audit with its filters and sort, not the page', async () => {
+    const user = userEvent.setup();
+    await audit('/ml-publicaciones?vista=auditoria&q=notebook&orden=unidades_erp&pagina=2');
+    await user.click(screen.getByRole('button', { name: 'Exportar Excel' }));
+    await waitFor(() => expect(exportAuditoriaStockExcel).toHaveBeenCalledTimes(1));
+    expect(exportAuditoriaStockExcel).toHaveBeenCalledWith({ q: 'notebook', orden: 'unidades_erp', dir: 'desc' });
+    expect(exportPublicacionesCsv).not.toHaveBeenCalled();
+  });
+
+  it("shows the backend's refusal", async () => {
+    const user = userEvent.setup();
+    exportAuditoriaStockExcel.mockRejectedValue(new Error('La consulta tardó demasiado: acotá los filtros o reintentá.'));
+    await audit();
+    await user.click(screen.getByRole('button', { name: 'Exportar Excel' }));
+    expect(await screen.findByText('La consulta tardó demasiado: acotá los filtros o reintentá.')).toBeInTheDocument();
+  });
+
+  it('keeps Acciones masivas and Pausar / activar hidden in this view', async () => {
+    await audit();
+    expect(screen.queryByRole('button', { name: /Acciones masivas/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Pausar \/ activar/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Exportar a Sheets/ })).not.toBeInTheDocument();
   });
 });

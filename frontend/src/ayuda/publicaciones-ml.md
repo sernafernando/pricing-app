@@ -76,7 +76,7 @@ Al expandir la fila, cada publicación muestra su tipo, estado y precio como en 
 
 Orden: las publicaciones arrancan ordenadas por tipo (primero las Clásicas, después 3, 6, 9 y 12 cuotas, al final cualquier otro tipo) y, dentro de cada tipo, por facturación de 30 días (o por última actividad si no ves ventas). Al hacer clic en el título de una columna, manda esa columna. Si ordenás por **Código**, las publicaciones de un mismo producto quedan juntas y, entre ellas, salen por tipo (Clásica, 3, 6, 9 y 12 cuotas): **Tipo** aparece como segundo orden. Vale para las vistas Publicaciones y Precios. Las publicaciones de un producto, al expandirlo o en su panel lateral, también salen ordenadas por tipo y, dentro de cada tipo, por última actividad.
 
-Promo aplicada: el renglón **Promo aplicada** (en todas las vistas) tiene **Todas**, **Con promo aplicada** y **Sin promo aplicada**. **Con promo aplicada** deja las publicaciones con una promoción ya aplicada en Mercado Libre; las candidatas no cuentan. Cada publicación con una promoción aplicada muestra la etiqueta verde **Promo aplicada** al lado del MLA.
+Promo aplicada: el renglón **Promo aplicada** (en todas las vistas) tiene **Todas**, **Con promo aplicada** y **Sin promo aplicada**. **Con promo aplicada** deja las publicaciones con una promoción ya aplicada en Mercado Libre; las candidatas no cuentan. Cada publicación con una promoción aplicada muestra la etiqueta verde **Promo aplicada** al lado del MLA. Si las promociones no están disponibles en ese momento, los números de estos botones dicen **—** (no 0) y el filtro igual se puede usar.
 
 ## Auditoría de stock
 
@@ -92,6 +92,8 @@ Es la última vista (**Auditoría de stock**; en el celular, **Auditoría**). Mu
 - **Markup actual** es el rango de markup de lista de sus publicaciones (el más bajo y el más alto, sin promedio). **Real 30D** y **Total Gauss 30D** usan el sell in / sell out donde corresponde. La tendencia de markup de un producto pondera cada día por las unidades vendidas.
 - Al hacer clic en un título se ordena por esa columna, de a una por vez. Arranca por **Valor total**, de mayor a menor.
 - Los filtros son los mismos que en las otras vistas.
+- **Exportar** descarga un Excel con todos los productos de la auditoría (no solo la página), con los filtros y el orden de la pantalla: una fila por producto base y, debajo, una por cada variante o combo, con el stock, su valor en dólares y en pesos y, según tus permisos, las ventas, el Total Gauss y el markup. **Acciones masivas** y **Pausar / activar** no están en esta vista.
+- Un producto con stock y sin costo no se valoriza como 0: su valor dice **—** y, debajo de las tarjetas de valor, una nota avisa cuántos hay (**1 producto sin costo**); los totales no incluyen ese stock. Si falta el dólar BNA del día, el valor en la otra moneda también dice **—**.
 
 ## Hay mejores ofertas
 
