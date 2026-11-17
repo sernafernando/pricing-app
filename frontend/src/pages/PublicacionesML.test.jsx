@@ -1701,6 +1701,7 @@ describe('the Producto view', () => {
   });
 
   it('offers the views in Métricas ML order: Producto, Publicaciones, Precios, Agrupado', async () => {
+    denied = new Set(['ml_publicaciones.ver_auditoria_stock']);
     await page();
     const views = within(screen.getByRole('group', { name: 'Vista' })).getAllByRole('button');
     expect(views.map((button) => button.textContent)).toEqual(['Producto', 'Publicaciones', 'Precios', 'Agrupado']);

@@ -10,6 +10,8 @@ const PHONE_VISTA_OPTIONS = [
   { value: 'publicacion', label: 'Publicaciones' },
   { value: 'agrupado', label: 'Agrupado' },
 ];
+// The stock audit, for who has `ml_publicaciones.ver_auditoria_stock` (auditoria-stock S8): its table scrolls sideways.
+const AUDIT_OPTION = { value: 'auditoria', label: 'Auditoría' };
 
 // The quick filters beside "Filtros": the same URL filters as the sheet's chips, one tap each.
 const QUICK_FILTERS = [
@@ -34,10 +36,10 @@ const toggled = (filters, { key, value }) => {
  * Vista switch and a sideways row of chips: "Filtros (n)", which opens the filters sheet, then the quick filters.
  */
 const PhoneToolbar = forwardRef(function PhoneToolbar(
-  { filters, setFilters, filterCount, showMarkupFilters, onOpenFilters, onOpenMenu, searchPlaceholder },
+  { filters, setFilters, filterCount, showMarkupFilters, onOpenFilters, onOpenMenu, searchPlaceholder, canAudit = false },
   searchRef,
 ) {
-  const vista = filters.vista === 'precios' ? 'publicacion' : filters.vista;
+  const vista = filters.vista === 'precios' || (filters.vista === 'auditoria' && !canAudit) ? 'publicacion' : filters.vista;
   return (
     <header className={styles.header}>
       <div className={styles.titleRow}>
@@ -63,7 +65,7 @@ const PhoneToolbar = forwardRef(function PhoneToolbar(
       <div className={styles.vista}>
         <SegmentedControl
           label="Vista"
-          options={PHONE_VISTA_OPTIONS}
+          options={canAudit ? [...PHONE_VISTA_OPTIONS, AUDIT_OPTION] : PHONE_VISTA_OPTIONS}
           value={vista}
           onChange={(value) => setFilters({ vista: value === 'publicacion' ? '' : value, mla: '' })}
         />

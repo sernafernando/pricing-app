@@ -1,0 +1,194 @@
+/* The Auditoría de stock view (approved mock v2): its rate line, its KPI cards and its table cells. Tokens only. */
+
+/* "Valor a costo sin IVA · Dólar BNA de hoy $ 1.455,00 · …" under the toolbar. */
+.rateLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  margin-bottom: var(--spacing-sm);
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.rate {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-primary);
+}
+
+.kpis {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--spacing-md);
+}
+
+.kpiRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-3);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--ventas-divider);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--cf-card-shadow);
+}
+
+/* The total value carries the accent, as the approved mock. */
+.cardAccent {
+  border-color: var(--cf-accent-blue);
+}
+
+.label {
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-tertiary);
+}
+
+.bigValue {
+  font-family: var(--font-mono);
+  font-size: clamp(16px, 1.2vw, 20px);
+  font-weight: var(--font-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-primary);
+  white-space: nowrap;
+}
+
+.cardAccent .bigValue {
+  color: var(--cf-accent-blue);
+}
+
+.subValue {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+}
+
+.countLine {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.countUnit {
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.list {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px var(--space-3);
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.list dt,
+.list dd {
+  margin: 0;
+}
+
+.list dd {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.listLine {
+  display: contents;
+}
+
+.listTotal {
+  font-weight: var(--font-semibold);
+}
+
+.error {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: 8px 12px;
+  border: 1px solid var(--tone-danger-border);
+  border-radius: var(--radius-base);
+  font-size: var(--font-sm);
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+}
+
+/* Table cells. */
+.strong {
+  font-weight: var(--font-bold);
+}
+
+.usd {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-medium);
+  color: var(--cf-text-primary);
+  white-space: nowrap;
+}
+
+.ars,
+.figureNote {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-tertiary);
+  white-space: nowrap;
+}
+
+/* A product without anything to open keeps its name aligned with the others. */
+.togglePlaceholder {
+  flex-shrink: 0;
+  width: 24px;
+}
+
+.nodeNote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px var(--space-1);
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.code {
+  font-family: var(--font-mono);
+}
+
+.pcTag,
+.warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 var(--spacing-xs);
+  border: 1px solid var(--tone-neutral-border);
+  border-radius: var(--radius-base);
+  background: var(--tone-neutral-bg);
+  white-space: nowrap;
+}
+
+.warning {
+  border-color: var(--tone-warning-border);
+  background: var(--tone-warning-bg);
+  color: var(--tone-warning-fg);
+}
+
+/* A product's or a variant's name in the regular weight, as the approved mock: its figures carry the emphasis. */
+.nodeName {
+  font-weight: var(--font-medium);
+}

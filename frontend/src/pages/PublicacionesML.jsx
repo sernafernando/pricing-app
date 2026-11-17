@@ -47,6 +47,11 @@ import EquiposModal from '../components/EquiposModal';
 import usePaintProduct from '../components/publicacionesMl/usePaintProduct';
 import usePaintPublication from '../components/publicacionesMl/usePaintPublication';
 import ProductoTable from '../components/publicacionesMl/ProductoTable';
+import StockAuditTable from '../components/publicacionesMl/auditoria/StockAuditTable';
+import { AUDIT_KPI_OPTIONS, auditColumnOptions } from '../components/publicacionesMl/auditoria/auditOptions';
+import StockAuditKpis from '../components/publicacionesMl/auditoria/StockAuditKpis';
+import useStockAudit from '../components/publicacionesMl/auditoria/useStockAudit';
+import auditStyles from '../components/publicacionesMl/auditoria/StockAudit.module.css';
 import BulkActions from '../components/publicacionesMl/BulkActions';
 import BulkStatusActions from '../components/publicacionesMl/BulkStatusActions';
 import { resolverParams } from '../components/publicacionesMl/bulkParams';
@@ -88,6 +93,7 @@ import {
   buildItemsParams,
   buildKpiParams,
   buildStatsParams,
+  effectiveAuditSort,
   effectiveSortKeys,
   hasMarkupFilter,
   headerSort,
@@ -201,6 +207,9 @@ const VISTA_OPTIONS = [
   { value: 'precios', label: 'Precios' },
   { value: 'agrupado', label: 'Agrupado' },
 ];
+// The stock audit (auditoria-stock S2, S8): only for `ml_publicaciones.ver_auditoria_stock`.
+const AUDIT_PERMISSION = 'ml_publicaciones.ver_auditoria_stock';
+const AUDIT_OPTION = { value: 'auditoria', label: 'Auditoría de stock' };
 
 // "Promo aplicada" (S9): a started promotion in ML, or none (candidates do not count); in every view.
 const PROMO_APLICADA_LABELS = {
@@ -212,6 +221,23 @@ const PROMO_APLICADA_LABELS = {
   sin: 'Sin promo aplicada',
 };
 const PROMO_APLICADA_COUNTS = (promo) => (promo ? { con: promo.con_promo, sin: promo.sin_promo } : undefined);
+
+const RATE = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** The audit's basis, under its toolbar (approved mock v2). */
+function AuditRateLine({ rate }) {
+  return (
+    <p className={auditStyles.rateLine}>
+      <span>Valor a costo sin IVA</span>
+      <span>·</span>
+      <span>
+        Dólar BNA de hoy <span className={auditStyles.rate}>{rate ? `$ ${RATE.format(rate)}` : '—'}</span>
+      </span>
+      <span>·</span>
+      <span>Las variantes no suman su stock ERP a la base; sus unidades en Full sí</span>
+    </p>
+  );
+}
 
 // Métricas ML's dimension picker, limited to the dimensions the tree's `/groups` takes.
 const AGRUPAR_OPTIONS = DIMENSION_OPTIONS.filter((option) => AGRUPAR_DIMENSIONS.includes(option.value));
@@ -399,12 +425,17 @@ export default function PublicacionesML() {
   const agrupado = filters.vista === 'agrupado';
   const producto = filters.vista === 'producto';
   const precios = filters.vista === 'precios';
+  // The stock audit and its view option exist only for its permission (S8); a link to it without it opens the list.
+  const canAudit = tienePermiso(AUDIT_PERMISSION);
+  const auditoria = filters.vista === 'auditoria' && canAudit;
+  const vistaShown = filters.vista === 'auditoria' && !canAudit ? 'publicacion' : filters.vista;
+  const vistaOptions = canAudit ? [...VISTA_OPTIONS, AUDIT_OPTION] : VISTA_OPTIONS;
   // The main list sums up publications, not products (owner, 2026-10-28).
-  const publicacion = filters.vista === 'publicacion';
+  const publicacion = vistaShown === 'publicacion';
   // Productos' Sin MLA: products with no publication, so nothing a publication strip or action could act on.
   const sinMla = filters.mla === SIN_MLA;
   // The views that load their own rows: `/items` brings them only the state and the facets.
-  const ownRows = agrupado || producto;
+  const ownRows = agrupado || producto || auditoria;
   const latestRequest = useRef(0);
   // The filter set the current `facets` belong to. Advances only when a
   // response that carried facets is applied, so a failure asks again.
@@ -541,7 +572,7 @@ export default function PublicacionesML() {
   const { toast, showToast, hideToast } = useToast();
 
   // Like the rows, the strip and the bulk sets ask only a layer known to be the user's (it matters with `colores`).
-  const kpis = usePublicacionesMLKpis(buildKpiParams(rowFilters, periodo), canSeeKpis && !layerPending && !sinMla);
+  const kpis = usePublicacionesMLKpis(buildKpiParams(rowFilters, periodo), canSeeKpis && !layerPending && !sinMla && !auditoria);
   // The KPI cards the viewer hid, from the "Indicadores" picker (only while the strip shows); requests never change.
   const kpiData = kpis.data?.kpis;
   const kpiOptions = useMemo(() => (canSeeKpis && !sinMla ? publicationKpiOptions(kpiData) : []), [canSeeKpis, sinMla, kpiData]);
@@ -552,7 +583,11 @@ export default function PublicacionesML() {
   const listSizing = useResizableColumns(PUBML_COLUMN_SIZING_KEYS.lista);
   const productSizing = useResizableColumns(PUBML_COLUMN_SIZING_KEYS.producto);
   const treeSizing = useResizableColumns(PUBML_COLUMN_SIZING_KEYS.agrupado);
-  const stats = usePublicationStats(buildStatsParams(rowFilters), !layerPending && !publicacion);
+  const stats = usePublicationStats(buildStatsParams(rowFilters), !layerPending && !publicacion && !auditoria);
+  // The stock audit's rows, KPIs and rate; its hideable columns and KPI cards, each remembered per browser (L6).
+  const stockAudit = useStockAudit({ filters: rowFilters, pageSize, canSeeSales, canSeeMargin, enabled: auditoria && !layerPending });
+  const auditColumns = useHiddenKpis('publicaciones-ml.auditoria.columnas-ocultas', auditColumnOptions({ canSeeSales, canSeeMargin }));
+  const auditKpis = useHiddenKpis('publicaciones-ml.auditoria.kpis-ocultos', AUDIT_KPI_OPTIONS);
   const productRows = useProductRows({
     filters: rowFilters,
     pageSize,
@@ -718,7 +753,11 @@ export default function PublicacionesML() {
   // What the list really applies: a sort the user may not ask for (a shared link) falls back on the default --
   // the listing type, then Facturado 30D for who sees the sales (like Métricas) or the activity otherwise.
   // The Producto view sorts the products by their own figures (`effectiveProductSort`).
-  const sort = producto ? productRows.sort : headerSort(effectiveSortKeys(filters, { canSeeSales, canSeeMargin }));
+  const sort = auditoria
+    ? headerSort([effectiveAuditSort(filters, { canSeeSales, canSeeMargin })])
+    : producto
+      ? productRows.sort
+      : headerSort(effectiveSortKeys(filters, { canSeeSales, canSeeMargin }));
   // The product panel's open tab outlives the panel, which unmounts while one of its publications is open, so
   // "Volver" lands on the tab it left. Only for that trip: picking a product, or closing the panel (the close
   // button or a filter change), starts it again on its first tab.
@@ -740,7 +779,8 @@ export default function PublicacionesML() {
   // Shift+click adds a column to the sort, like Productos: any column, the markup and Métricas' figures included.
   const handleSort = (key, event) => {
     if (event?.shiftKey) window.getSelection()?.removeAllRanges(); // Shift+click also extends the text selection
-    setFilters(sortParams(nextSort(sort.keys, key, { shift: Boolean(event?.shiftKey) })));
+    // The audit sorts by one column at a time: Shift+click is a plain click there.
+    setFilters(sortParams(nextSort(sort.keys, key, { shift: !auditoria && Boolean(event?.shiftKey) })));
   };
 
   // Ctrl/Cmd+click opens the publication in ML, Alt+click in the seller panel
@@ -891,8 +931,8 @@ export default function PublicacionesML() {
     keepRowOnEscape: Boolean(filters.sel || filters.prod),
     showToast,
   });
-  const total = producto ? productRows.total : (data?.total ?? 0);
-  const unit = producto ? 'productos' : 'publicaciones';
+  const total = auditoria ? stockAudit.total : producto ? productRows.total : (data?.total ?? 0);
+  const unit = producto || auditoria ? 'productos' : 'publicaciones';
   const offset = pageOffset(filters.pagina, pageSize);
   const emptyMessage = data?.data_state?.store_empty
     ? 'Todavía no hay publicaciones sincronizadas'
@@ -1165,6 +1205,23 @@ export default function PublicacionesML() {
       />
   );
 
+  const auditTable = auditoria && (
+    <StockAuditTable
+      audit={stockAudit}
+      canSeeSales={canSeeSales}
+      canSeeMargin={canSeeMargin}
+      isVisible={auditColumns.isVisible}
+      sort={sort}
+      onSort={handleSort}
+      onSelectItem={handleRowClick}
+      selectedKey={filters.sel || undefined}
+      offset={TABLE_OFFSET}
+      emptyMessage={
+        stockAudit.loading ? 'Cargando…' : hasActiveFilters ? 'Ningún producto coincide con los filtros' : 'No hay productos con stock'
+      }
+    />
+  );
+
   if (isPhone) {
     const phoneRows = producto ? productRows.rows.filter((row) => row.type === 'node').map((row) => row.node) : items;
     const remaining = producto ? 0 : total - offset - items.length;
@@ -1180,6 +1237,7 @@ export default function PublicacionesML() {
           onOpenFilters={() => setPhoneSheet('filtros')}
           onOpenMenu={() => setPhoneSheet('acciones')}
           searchPlaceholder="Título, MLA, SKU/EAN o producto"
+          canAudit={canAudit}
         />
         <div className={phoneStyles.banners}>
           {exportError && (
@@ -1192,7 +1250,12 @@ export default function PublicacionesML() {
           <StateBanner dataState={data?.data_state} />
           {listErrorBar}
         </div>
-        {canSeeKpis && !sinMla && (
+        {auditoria && (
+          <div className={phoneStyles.kpis}>
+            <StockAuditKpis audit={stockAudit} isVisible={auditKpis.isVisible} />
+          </div>
+        )}
+        {canSeeKpis && !sinMla && !auditoria && (
           <div className={phoneStyles.kpis}>
             <PublicationKpiStrip
               state={kpis}
@@ -1209,7 +1272,9 @@ export default function PublicacionesML() {
           ariaLabel={filters.sel ? 'Detalle de la publicación' : 'Detalle del producto'}
           panel={detailPanel}
         >
-          {agrupado ? (
+          {auditoria ? (
+            <div className={phoneStyles.wideTable}>{auditTable}</div>
+          ) : agrupado ? (
             <div className={phoneStyles.wideTable}>{agrupadoTable}</div>
           ) : listPhase === 'loading' ? (
             <ListSkeleton />
@@ -1325,8 +1390,8 @@ export default function PublicacionesML() {
         <div className={styles.headerActions}>
           <SegmentedControl
             label="Vista"
-            options={VISTA_OPTIONS}
-            value={filters.vista}
+            options={vistaOptions}
+            value={vistaShown}
             onChange={(value) => setFilters({ vista: value === 'publicacion' ? '' : value, mla: '' })}
           />
           {agrupado && (
@@ -1345,6 +1410,7 @@ export default function PublicacionesML() {
               onChange={(checked) => setFilters({ familias: checked ? '1' : '' })}
             />
           )}
+          {!auditoria && (
           <BulkActions
             filters={rowFilters}
             checkedIds={checkedIds}
@@ -1358,7 +1424,8 @@ export default function PublicacionesML() {
             checkedStatus={checkedStatus}
             hayMejores={!sinMla}
           />
-          {!sinMla && (
+          )}
+          {!sinMla && !auditoria && (
             <BulkStatusActions
               filters={rowFilters}
               canSeeMargin={canSeeMargin}
@@ -1367,8 +1434,22 @@ export default function PublicacionesML() {
             />
           )}
           <span className={styles.spacer} />
-          <ColumnPicker table={pickerTable} iconOnly buttonClassName={quietButton} />
-          {kpiOptions.length > 0 && (
+          {auditoria ? (
+            <>
+              <ColumnPicker table={auditColumns.pickerTable} iconOnly buttonClassName={quietButton} />
+              <ColumnPicker
+                table={auditKpis.pickerTable}
+                label="Indicadores"
+                icon={Gauge}
+                groupLabel="Elegir indicadores visibles"
+                iconOnly
+                buttonClassName={quietButton}
+              />
+            </>
+          ) : (
+            <ColumnPicker table={pickerTable} iconOnly buttonClassName={quietButton} />
+          )}
+          {!auditoria && kpiOptions.length > 0 && (
             <ColumnPicker
               table={kpiPicker}
               label="Indicadores"
@@ -1426,7 +1507,10 @@ export default function PublicacionesML() {
 
       <StateBanner dataState={data?.data_state} />
 
-      {canSeeKpis && !sinMla && (
+      {auditoria && <AuditRateLine rate={stockAudit.data?.tipo_cambio} />}
+      {auditoria && <StockAuditKpis audit={stockAudit} isVisible={auditKpis.isVisible} />}
+
+      {canSeeKpis && !sinMla && !auditoria && (
         <PublicationKpiStrip
           state={kpis}
           periodo={periodo}
@@ -1436,7 +1520,7 @@ export default function PublicacionesML() {
         />
       )}
 
-      {publicacion ? (
+      {auditoria ? null : publicacion ? (
           <PublicationCountCards facets={facets} filters={filters} onApply={setFilters} />
         ) : (
           <PublicationStatCards
@@ -1519,7 +1603,9 @@ export default function PublicacionesML() {
           >
             {/* The kit's TableShell takes no density: this box marks the table inside it ("Filas finas"). */}
             <div className={styles.tableDensity} data-density={dense ? 'dense' : 'normal'}>
-              {producto ? (
+              {auditoria ? (
+                auditTable
+              ) : producto ? (
                 <ProductoTable
                   tree={productRows}
                   virtualizeFrom={virtualizeFrom}

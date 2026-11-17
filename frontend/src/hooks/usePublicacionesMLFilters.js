@@ -136,8 +136,9 @@ export function sinMlaUpdates(filters) {
   return { ...cleared, stock: filters.stock.filter((value) => PRODUCT_STOCK_VALUES.includes(value)), [MLA_KEY]: SIN_MLA };
 }
 
-// `producto` = one row per product, opening into its publications (`/view/products`).
-const VISTAS = ['publicacion', 'precios', 'producto', 'agrupado'];
+// `producto` = one row per product, opening into its publications (`/view/products`); `auditoria` = the stock audit,
+// one row per base product with its variants (`/view/stock-audit`, `ml_publicaciones.ver_auditoria_stock`).
+const VISTAS = ['publicacion', 'precios', 'producto', 'agrupado', 'auditoria'];
 // The dimensions `GET /ml-publications/view/groups` takes, the default first; the picker offers exactly these.
 // They are Métricas ML's five, in its order (`DIMENSION_OPTIONS`).
 export const AGRUPAR_DIMENSIONS = ['marca', 'categoria', 'subcategoria', 'tienda', 'pm'];
@@ -186,6 +187,14 @@ export const DEFAULT_DIRECTION = {
   markup_30d: 'desc',
   facturado_30d: 'desc',
   total_gauss_30d: 'desc',
+  // The stock audit's own figures (`STOCK_AUDIT_SORTS`): the biggest first; its product name A to Z.
+  valor_total: 'desc',
+  valor_erp: 'desc',
+  valor_full: 'desc',
+  unidades_total: 'desc',
+  unidades_erp: 'desc',
+  unidades_full: 'desc',
+  descripcion: 'asc',
 };
 
 const SALES_SORTS = new Set(['unidades_7d', 'unidades_30d', 'facturado_30d', 'markup_30d', 'total_gauss_30d']);
@@ -235,9 +244,12 @@ const withListingTypeWithinProduct = (sort) =>
     ? [sort[0], { key: 'tipo', dir: '' }, ...sort.slice(1)]
     : sort;
 
-/** The URL's sort keys the user may ask for the publication list: any combination, figures included. */
+/** The URL's sort keys the user may ask for the publication list: any combination, figures included. The stock
+ * audit's own keys (`STOCK_AUDIT_ONLY_SORTS`) mean nothing to `/items`: a link sorted by them opens the list without them. */
 function listSort(filters, permissions) {
-  return withListingTypeWithinProduct(askedSort(filters).filter(({ key }) => mayAsk(key, permissions)));
+  return withListingTypeWithinProduct(
+    askedSort(filters).filter(({ key }) => !STOCK_AUDIT_ONLY_SORTS.has(key) && mayAsk(key, permissions)),
+  );
 }
 
 /**
@@ -303,6 +315,43 @@ export function effectiveProductSortKeys(filters, permissions = {}) {
 /** The first of `effectiveProductSortKeys`. */
 export function effectiveProductSort(filters, permissions = {}) {
   return effectiveProductSortKeys(filters, permissions)[0];
+}
+
+/**
+ * The sorts of the Auditoría de stock view (`/view/stock-audit` `orden`, one key): the stock and its value, the
+ * product's name, and the Publicaciones view's sales and margin figures (same permissions, 403 otherwise).
+ */
+export const STOCK_AUDIT_SORTS = [
+  'valor_total',
+  'valor_erp',
+  'valor_full',
+  'unidades_total',
+  'unidades_erp',
+  'unidades_full',
+  'descripcion',
+  'unidades_7d',
+  'unidades_30d',
+  'facturado_30d',
+  'total_gauss_30d',
+  'markup_30d',
+  'markup',
+];
+const STOCK_AUDIT_ONLY_SORTS = new Set(['valor_total', 'valor_erp', 'valor_full', 'unidades_total', 'unidades_erp', 'unidades_full', 'descripcion']);
+const STOCK_AUDIT_DEFAULT_SORT = 'valor_total';
+
+/** The one sort the audit applies: the URL's first key when the audit sorts by it and the user may ask for it, else
+ * the total value, biggest first. */
+export function effectiveAuditSort(filters, permissions = {}) {
+  const asked = askedSort(filters).find(({ key }) => STOCK_AUDIT_SORTS.includes(key) && mayAsk(key, permissions));
+  return resolved(asked ?? { key: STOCK_AUDIT_DEFAULT_SORT, dir: '' });
+}
+
+/** The `GET /ml-publications/view/stock-audit` query: the list's filters (never the markup ones nor the layer, the
+ * audit has neither), the audit's sort and the page. */
+export function buildStockAuditParams(filters, pageSize = filters.limite ?? PAGE_SIZE, permissions = {}) {
+  const params = withLayerOnlyForColors(buildItemsParams(filters, pageSize, { canSeeMargin: false }));
+  const sort = effectiveAuditSort(filters, permissions);
+  return { ...params, orden: sort.key, dir: sort.dir };
 }
 
 const csv = (value) => (value ? value.split(',').filter(Boolean) : []);

@@ -13,7 +13,7 @@ Gestiona todas las publicaciones de Mercado Libre: verlas, filtrarlas, ordenarla
 
 ## Cómo se usa
 
-Arriba dice **Publicaciones ML** y, debajo, la barra de acciones en un solo renglón: a la izquierda la vista (**Producto**, **Publicaciones**, **Precios** o **Agrupado**), **Acciones masivas** y **Pausar / activar**; a la derecha **Columnas**, **Indicadores** y **Filas finas** (solo el ícono: el nombre aparece al pasar el mouse), **Exportar** (CSV), **Exportar a Sheets** (si está habilitado) y **Listas de precios**. Todos los botones tienen un borde gris fino; un botón prendido (**Filas finas**, **Auto-recalcular**) se marca en azul.
+Arriba dice **Publicaciones ML** y, debajo, la barra de acciones en un solo renglón: a la izquierda la vista (**Producto**, **Publicaciones**, **Precios**, **Agrupado** o, con su permiso, **Auditoría de stock**), **Acciones masivas** y **Pausar / activar**; a la derecha **Columnas**, **Indicadores** y **Filas finas** (solo el ícono: el nombre aparece al pasar el mouse), **Exportar** (CSV), **Exportar a Sheets** (si está habilitado) y **Listas de precios**. Todos los botones tienen un borde gris fino; un botón prendido (**Filas finas**, **Auto-recalcular**) se marca en azul.
 
 Debajo está la barra de filtros: búsqueda por producto/SKU/MLA/marca, vista (Producto/Publicaciones/Precios/Agrupado), dimensión (en agrupado), estado, tienda, presencia (rebate/oferta/web transf/tienda nube/out of cards), tipo, vínculo, stock, color, productos, auditoría, promos, precios mayoristas y markup.
 
@@ -75,6 +75,23 @@ Vistas **Producto** y **Agrupado**: cada fila de producto (y, en Agrupado, cada 
 Al expandir la fila, cada publicación muestra su tipo, estado y precio como en la vista **Publicaciones**. El orden de la vista **Producto** no cambia.
 
 Orden: las publicaciones arrancan ordenadas por tipo (primero las Clásicas, después 3, 6, 9 y 12 cuotas, al final cualquier otro tipo) y, dentro de cada tipo, por facturación de 30 días (o por última actividad si no ves ventas). Al hacer clic en el título de una columna, manda esa columna. Si ordenás por **Código**, las publicaciones de un mismo producto quedan juntas y, entre ellas, salen por tipo (Clásica, 3, 6, 9 y 12 cuotas): **Tipo** aparece como segundo orden. Vale para las vistas Publicaciones y Precios. Las publicaciones de un producto, al expandirlo o en su panel lateral, también salen ordenadas por tipo y, dentro de cada tipo, por última actividad.
+
+Promo aplicada: el renglón **Promo aplicada** (en todas las vistas) tiene **Todas**, **Con promo aplicada** y **Sin promo aplicada**. **Con promo aplicada** deja las publicaciones con una promoción ya aplicada en Mercado Libre; las candidatas no cuentan. Cada publicación con una promoción aplicada muestra la etiqueta verde **Promo aplicada** al lado del MLA.
+
+## Auditoría de stock
+
+Permiso: **Ver auditoría de stock** (ml_publicaciones.ver_auditoria_stock). Sin ese permiso la vista no aparece, y un link a ella abre **Publicaciones**.
+
+Es la última vista (**Auditoría de stock**; en el celular, **Auditoría**). Muestra cuánto vale el stock propio y el de Full, a costo sin IVA, producto por producto:
+
+- Debajo de la barra de acciones se lee la base del cálculo: **Valor a costo sin IVA · Dólar BNA de hoy $ X · Las variantes no suman su stock ERP a la base; sus unidades en Full sí**.
+- Indicadores: **Valor stock ERP**, **Valor stock Full** y **Valor stock total** (en dólares y, abajo, en pesos), **Unidades** (ERP, Full y total), **Con stock sin publicación activa** (cuántos productos y cuánto vale su stock) y **Productos con stock** con y sin promo aplicada. Cuentan todos los productos que dejan los filtros, no solo la página. El botón **Indicadores** elige cuáles se ven.
+- Cada fila es un producto base (o una PC). Al abrirla se ven sus publicaciones y sus variantes o combos; cada variante se abre en sus publicaciones. Debajo del nombre dice si es producto, variante o combo, el código y cuántas publicaciones tiene. Un producto con stock y sin ninguna publicación activa lo marca en ámbar.
+- Columnas: **Tipo**, **Estado**, **Stock (unidades)** ERP, Full y Total, **Valor stock (USD · ARS)** ERP, Full y Total, **Ventas (unidades)** 7D, 30D y su tendencia (con permiso para ver métricas), **Markup con sell in / sell out** Actual, Real 30D y su tendencia, y **Resultado** con **Facturado 30D** (oculta al empezar) y **Total Gauss 30D** (con permiso para ver la ganancia). **Columnas** oculta o muestra cualquiera, también las tendencias; la elección queda guardada en este navegador.
+- El Full y las ventas de un producto incluyen los de sus variantes y combos, en unidades del producto: abajo dice de dónde salen (**12 de variantes**, **50 del pack x2**). Un combo muestra además sus propias unidades (**25 packs**).
+- **Markup actual** es el rango de markup de lista de sus publicaciones (el más bajo y el más alto, sin promedio). **Real 30D** y **Total Gauss 30D** usan el sell in / sell out donde corresponde. La tendencia de markup de un producto pondera cada día por las unidades vendidas.
+- Al hacer clic en un título se ordena por esa columna, de a una por vez. Arranca por **Valor total**, de mayor a menor.
+- Los filtros son los mismos que en las otras vistas.
 
 ## Hay mejores ofertas
 

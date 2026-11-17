@@ -21,6 +21,7 @@ import {
   buildKpiParams,
   buildProductIdsParams,
   buildStatsParams,
+  buildStockAuditParams,
   hasMarkupFilter,
   PRESENCE_VALUES,
   PRICE_MODES,
@@ -830,5 +831,41 @@ describe('sorting by several columns (S12e, Shift+click like Productos)', () => 
         ...precio,
       ]);
     });
+  });
+});
+
+describe('the Auditoría de stock query (auditoria-stock S3-S7)', () => {
+  const filtersOf = (url) => setup(url).result.current.hook.filters;
+  const all = { canSeeSales: true, canSeeMargin: true };
+
+  it('keeps vista=auditoria from the URL', () => {
+    expect(filtersOf('/?vista=auditoria').vista).toBe('auditoria');
+  });
+
+  it('sorts by Valor total, biggest first, by default', () => {
+    expect(buildStockAuditParams(filtersOf('/?vista=auditoria'), 50, all)).toEqual({ orden: 'valor_total', dir: 'desc', limit: 50, offset: 0 });
+  });
+
+  it.each([
+    ['unidades_erp', 'desc'],
+    ['descripcion', 'asc'],
+    ['total_gauss_30d', 'desc'],
+  ])('sorts by %s (%s by default)', (key, dir) => {
+    expect(buildStockAuditParams(filtersOf(`/?vista=auditoria&orden=${key}`), 50, all)).toMatchObject({ orden: key, dir });
+  });
+
+  it('a sort it cannot ask for (no permission, or not an audit key) falls back to Valor total', () => {
+    expect(buildStockAuditParams(filtersOf('/?vista=auditoria&orden=markup_30d'), 50, { canSeeSales: true })).toMatchObject({ orden: 'valor_total' });
+    expect(buildStockAuditParams(filtersOf('/?vista=auditoria&orden=precio'), 50, all)).toMatchObject({ orden: 'valor_total' });
+  });
+
+  it('never sends the markup filters', () => {
+    const params = buildStockAuditParams(filtersOf('/?vista=auditoria&markup_neg=1&markup_min=5'), 50, all);
+    expect(params).not.toHaveProperty('markup_neg');
+    expect(params).not.toHaveProperty('markup_min');
+  });
+
+  it("an audit sort means nothing to /items: the publication list drops it and keeps its default", () => {
+    expect(buildItemsParams(filtersOf('/?orden=valor_total'))).not.toMatchObject({ orden: 'valor_total' });
   });
 });

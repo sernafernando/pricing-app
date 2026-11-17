@@ -978,6 +978,9 @@ export const publicacionesMlAPI = {
   groups: (params) => api.get('/ml-publications/view/groups', { params }),
   // One page of the Producto view: Métricas ML's product rows over the selected publications (see `buildProductsParams`).
   products: (params) => api.get('/ml-publications/view/products', { params }),
+  // One page of the Auditoría de stock view (`ml_publicaciones.ver_auditoria_stock`): base products with what their ERP
+  // and Full stock is worth, their variants, and the KPIs over every row (see `buildStockAuditParams`).
+  stockAudit: (params) => api.get('/ml-publications/view/stock-audit', { params }),
   // The shipping costs a PM chooses the product's from (S7b): each active publication's own cost, their promedio,
   // ponderado and max, and the stored choice. `params`: optional `{ date_from, date_to }` (default: the last 30 days).
   productEnvio: (productItemId, params) =>
