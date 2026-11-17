@@ -25,6 +25,10 @@ class GestionFullReconcileHandler:
     channels: Tuple[str, ...] = ()
     interval: Optional[timedelta] = timedelta(hours=3)
     run_at_local = None
+    # Its own thread, never the drain pass: one envío waits minutes on the shared ML pacer, and in the pass that
+    # starved `ml_publications.intake`/`freshness` (prod 2026-11-17, ~11 min lag on every ML resource). The thread
+    # pauses `interval` after every run, failed or not, so a failing reconcile retries once per interval.
+    own_thread = True
 
     def __init__(
         self,
