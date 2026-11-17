@@ -94,6 +94,7 @@ from app.services.ml_publications.view import (
     stats,
     status_block,
     status_targets,
+    stock_audit,
     variations,
 )
 from app.services.ml_publications.view.ads import AdsCostProvider, AdsStatus, get_ads_provider, resolve_ads
@@ -127,6 +128,7 @@ OFFER_OF_PRODUCT = "oferta_por_producto"  # the `filter_query` param a Producto 
 COLOR_OF_PRODUCT = "color_por_producto"  # the one they carry with `colores` / `sin_color`
 PERMISO_METRICAS = "ml_metricas.ver"  # the KPI strip is Métricas' numbers: seeing them needs seeing Métricas
 PERMISO_GESTIONAR = "ml_ops.gestionar"  # what lets the screen offer "Resincronizar"
+PERMISO_AUDITORIA_STOCK = "ml_publicaciones.ver_auditoria_stock"  # the Auditoría de stock view
 PERMISO_PAUSAR = "ml_publicaciones.pausar"  # what lets the screen offer "Pausar" / "Activar"
 # Choosing a product's shipping cost changes its prices' markups: the permission of Productos' main price edit
 # (Productos.jsx `puedeEditarPrecioClasica`, one of `/precios/set-rapido`'s PERMISOS_EDITAR_PRODUCTOS).
@@ -319,6 +321,9 @@ class ItemRowOut(BaseModel):
     price: PriceOut
     hay_mejores_ofertas: bool = False
     hay_mejores_excluido: bool = False
+    # A started (applied) promotion, as the Con / Sin promo aplicada filter reads it; absent when the mlwebhook
+    # database cannot be read (unknown, never a false "Sin").
+    promo_aplicada: Optional[bool] = None
     stock: StockOut
     erp_stock: ErpStockOut
     stock_total: Optional[int] = None  # ERP + Full; null only when both are unknown
@@ -765,6 +770,76 @@ class KpisResponse(BaseModel):
     can_see_margin: bool
 
 
+class StockMoneyOut(BaseModel):
+    """Units and what they are worth at cost (no VAT); a value is null when no unit has a known cost or rate."""
+
+    unidades: int
+    usd: Optional[float] = None
+    ars: Optional[float] = None
+
+
+class StockAuditVariantOut(BaseModel):
+    """A variant (`variante`: a notebook combo) or a pack (`pack`) under its base product: its own Full part only
+    (its ERP stock is derived from the base, never shown). `full_unidades_base` is that part in base units."""
+
+    key: str
+    product_item_id: int
+    tipo: str
+    codigo: Optional[str] = None
+    descripcion: str
+    cantidad: float
+    costo: Optional[float] = None
+    moneda_costo: str
+    full: StockMoneyOut
+    full_unidades_base: int
+    publications_count: int
+    params: dict[str, str]
+
+
+class StockAuditRowOut(BaseModel):
+    """A base product (`producto`) or a PC (`pc`): its ERP and Full stock and their total, its variants' Full
+    included in `full`. `params` select its own publications in `/items`; each variant carries its own."""
+
+    key: str
+    product_item_id: int
+    tipo: str
+    codigo: Optional[str] = None
+    descripcion: str
+    marca: Optional[str] = None
+    costo: Optional[float] = None
+    moneda_costo: str
+    erp: StockMoneyOut
+    full: StockMoneyOut
+    total: StockMoneyOut
+    publications_count: int
+    publicacion_activa: bool
+    promo_aplicada: Optional[bool] = None  # null when the promotions database could not be read
+    params: dict[str, str]
+    variantes: list[StockAuditVariantOut]
+
+
+class StockAuditKpisOut(BaseModel):
+    erp: StockMoneyOut
+    full: StockMoneyOut
+    total: StockMoneyOut
+    productos: int
+    productos_sin_publicacion_activa: int
+    productos_con_promo_aplicada: Optional[int] = None  # null when the promotions database could not be read
+    productos_sin_promo_aplicada: Optional[int] = None
+
+
+class StockAuditResponse(BaseModel):
+    rows: list[StockAuditRowOut]
+    total: int
+    limit: int
+    offset: int
+    orden: str
+    dir: str
+    tipo_cambio: Optional[float] = None  # the BNA USD selling rate the ARS / USD values use
+    tipo_cambio_fecha: Optional[date] = None
+    kpis: StockAuditKpisOut
+
+
 class StatsResponse(BaseModel):
     stats: dict[str, int]  # card -> linked products (`stats.compute`); the markup cards only with `can_see_margin`
     can_see_margin: bool
@@ -909,6 +984,9 @@ def filter_query(
     promo_estado: Optional[str] = Query(None, description="disponible (default), aplicada or sin_aplicar"),
     con_promo_aplicada: Optional[bool] = Query(None, description="any promotion started (without promo_tipos)"),
     con_promo_sin_aplicar: Optional[bool] = Query(None, description="only candidate promotions (without promo_tipos)"),
+    promo_aplicada: Optional[str] = Query(
+        None, description="con: a started (applied) promotion; sin: none started, even with candidates"
+    ),
     con_pxq: Optional[bool] = Query(None, description="the publication has wholesale (PxQ) tiers"),
     hay_mejores_ofertas: Optional[bool] = Query(
         None, description="true: candidate promo beats consumer MeLi price (modo poner precios)"
@@ -944,7 +1022,9 @@ def filter_query(
             f"Se requiere el permiso {PERMISO_GANANCIA} para filtrar por markup",
         )
     try:
-        scope = _mla_scope(promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar, con_pxq)
+        scope = _mla_scope(
+            promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar, con_pxq, promo_aplicada
+        )
         f = parse_filter(
             q=q,
             estado=estado,
@@ -983,6 +1063,7 @@ def filter_query(
             audit_fecha_desde=audit_fecha_desde,
             audit_fecha_hasta=audit_fecha_hasta,
             mla_scope=scope.scope,
+            mla_exclude=scope.exclude,
             colores=colores,
             con_mla=con_mla,
             estado_mla=estado_mla,
@@ -1001,15 +1082,18 @@ def filter_query(
 
 
 PROMO_STATES = ("disponible", "aplicada", "sin_aplicar")
+PROMO_APLICADA = ("con", "sin")
 FILTER_UNAVAILABLE_CODE = "filtro_no_disponible"
 
 
 class MlaScope(NamedTuple):
-    """The MLAs the promo and PxQ filters leave (`scope`), the PxQ ones alone (`pxq`) and whether a promo filter is on."""
+    """The MLAs the promo and PxQ filters leave (`scope`), the PxQ ones alone (`pxq`), the ones "Sin promo aplicada"
+    leaves out (`exclude`) and whether a promo filter is on."""
 
     scope: Optional[frozenset[str]]
     pxq: Optional[frozenset[str]]
     promo_filter: bool
+    exclude: Optional[frozenset[str]] = None
 
 
 def _mla_scope(
@@ -1018,10 +1102,13 @@ def _mla_scope(
     con_promo_aplicada: Optional[bool],
     con_promo_sin_aplicar: Optional[bool],
     con_pxq: Optional[bool],
+    promo_aplicada: Optional[str] = None,
 ) -> MlaScope:
     """Productos' promo filter (the same `select_promo_resolver` dispatch) and its PxQ toggle as the MLAs that match,
     read from the mlwebhook database, ANDed (`scope`, `None` when neither is asked), with the PxQ part apart (`pxq`)
-    for the facets' promo axis. A resolver that cannot answer is a 503: never the unfiltered list."""
+    for the facets' promo axis. The Con / Sin promo aplicada filter (`promo_aplicada`) reads the started promotions
+    (the badge's set): `con` ANDs them into `scope`, `sin` leaves them out (`exclude`). A resolver that cannot answer
+    is a 503: never the unfiltered list."""
     tipos = [t.strip() for t in (promo_tipos or "").split(",") if t.strip()]
     unknown = [t for t in tipos if t not in KNOWN_PROMOTION_TYPES]
     if unknown:
@@ -1030,6 +1117,8 @@ def _mla_scope(
         )
     if promo_estado is not None and promo_estado not in PROMO_STATES:
         raise FilterError("promo_estado", f"unknown value {promo_estado}; known: {', '.join(PROMO_STATES)}")
+    if promo_aplicada is not None and promo_aplicada not in PROMO_APLICADA:
+        raise FilterError("promo_aplicada", f"unknown value {promo_aplicada}; known: {', '.join(PROMO_APLICADA)}")
     asked = []
     promo = select_promo_resolver(
         PromoResolverFns(
@@ -1052,15 +1141,46 @@ def _mla_scope(
     scope: Optional[frozenset[str]] = None
     pxq: Optional[frozenset[str]] = None
     for resolver, context, message in asked:
-        try:
-            found = frozenset(resolver())
-        except (RuntimeError, SQLAlchemyError) as exc:
-            logger.warning("%s no disponible: %s", context, exc)
-            raise api_error(status.HTTP_503_SERVICE_UNAVAILABLE, FILTER_UNAVAILABLE_CODE, message) from exc
+        found = _resolve_mlas(resolver, context, message)
         if resolver is fetch_mlas_with_pxq_tiers:
             pxq = found
         scope = found if scope is None else scope & found
-    return MlaScope(scope=scope, pxq=pxq, promo_filter=promo is not None)
+    exclude: Optional[frozenset[str]] = None
+    if promo_aplicada is not None:
+        started = _resolve_mlas(
+            fetch_mlas_with_started, "Filtro promo_aplicada", "Filtro de promo aplicada no disponible temporalmente"
+        )
+        if promo_aplicada == "con":
+            scope = started if scope is None else scope & started
+        else:
+            exclude = started  # left out, never ANDed into the scope
+    promo_filter = promo is not None or promo_aplicada is not None
+    return MlaScope(scope=scope, pxq=pxq, promo_filter=promo_filter, exclude=exclude)
+
+
+def _attach_promo_aplicada(items: list[dict[str, Any]]) -> None:
+    """Each row's Promo aplicada badge: whether it is among the MLAs with a started promotion, read for the page's
+    MLAs only (`mla_ids`; an empty page reads nothing, since no `mla_ids` would read the whole account). A database
+    that cannot be read leaves the rows without the badge: the list still answers."""
+    mlas = [item["item_id"] for item in items]
+    if not mlas:
+        return
+    try:
+        started = fetch_mlas_with_started(mla_ids=mlas)
+    except (RuntimeError, SQLAlchemyError) as exc:
+        logger.warning("Badge de promo aplicada no disponible en Publicaciones ML: %s", exc)
+        return
+    for item in items:
+        item["promo_aplicada"] = item["item_id"] in started
+
+
+def _resolve_mlas(resolver: Callable[[], Any], context: str, message: str) -> frozenset[str]:
+    """One MLA set read from the mlwebhook database; a reader that cannot answer is a 503 with `message`."""
+    try:
+        return frozenset(resolver())
+    except (RuntimeError, SQLAlchemyError) as exc:
+        logger.warning("%s no disponible: %s", context, exc)
+        raise api_error(status.HTTP_503_SERVICE_UNAVAILABLE, FILTER_UNAVAILABLE_CODE, message) from exc
 
 
 class _RecentSet:
@@ -1316,6 +1436,8 @@ def get_items(
             with timer.stage("metrics"):
                 by_mla = row_metrics.metrics_by_mla(db, [item["item_id"] for item in page.items])
             _attach_metrics(page.items, by_mla, with_margin=can_see_margin)
+        with timer.stage("promo"):
+            _attach_promo_aplicada(page.items)
         facet_counts = None
         if facets:
             with timer.stage("facets"):
@@ -1630,6 +1752,49 @@ def products_ask(
         directions.append(wanted or ("asc" if name == products.NEUTRAL_SORT else "desc"))
     then = tuple((name, wanted == "desc") for (name, _), wanted in zip(pairs[1:], directions[1:]))
     return ProductsAsk(can_see_margin, can_see_sales, pairs[0][0], directions[0], then)
+
+
+@router.get("/stock-audit", response_model=StockAuditResponse)
+def get_stock_audit(
+    user: Usuario = Depends(require_permiso(PERMISO_AUDITORIA_STOCK)),  # first: who may ask
+    f: PublicationFilter = Depends(filter_query),
+    orden: str = Query("valor_total", description=f"one of {', '.join(stock_audit.ORDERS)}"),
+    dir: str = Query("desc", pattern="^(asc|desc)$"),
+    limit: int = Query(listing.DEFAULT_LIMIT, ge=1, le=listing.MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_view_db),
+) -> dict[str, Any]:
+    """The Auditoría de stock view (`ml_publicaciones.ver_auditoria_stock`): one row per base product with stock,
+    its variants under it, what its ERP and Full stock is worth at cost in USD and ARS (the day's BNA rate), and the
+    KPI strip over every row (`stock_audit`)."""
+    if orden not in stock_audit.ORDERS:
+        raise _unprocessable(FilterError("orden", f"unknown value {orden}; known: {', '.join(stock_audit.ORDERS)}"))
+    try:
+        listing.bound(db)
+        f = listing.resolve_pm_pairs(db, f)
+        rate = stock_audit.read_rate(db)
+        audit = stock_audit.build(db, f, rate)
+    except FilterError as exc:
+        raise _unprocessable(exc) from exc
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
+    started = _started_promotions()
+    ordered = stock_audit.sort_rows(audit.rows, orden, dir == "desc")
+    return {
+        "rows": [stock_audit.row_out(r, audit.active, started) for r in ordered[offset : offset + limit]],
+        "total": len(ordered),
+        "limit": limit,
+        "offset": offset,
+        "orden": orden,
+        "dir": dir,
+        "tipo_cambio": rate.usd_ars,
+        "tipo_cambio_fecha": rate.fecha,
+        "kpis": stock_audit.kpis(audit, started),
+    }
 
 
 @router.get("/products", response_model=ProductsResponse, response_model_exclude_unset=True)

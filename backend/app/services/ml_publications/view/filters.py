@@ -181,6 +181,8 @@ class PublicationFilter:
     # The promo and PxQ filters, resolved by the router to the matching MLAs (mlwebhook database): `None` = no such
     # filter, an empty set lists nothing.
     mla_scope: Optional[frozenset[str]] = None
+    # The MLAs the "Sin promo aplicada" filter leaves out (those with a started promotion): `None` = no such filter.
+    mla_exclude: Optional[frozenset[str]] = None
     # Which part of it is the PxQ toggle's (`pxq_scope`), and whether a promo filter is in it (`promo_filter`): the
     # facets' promo axis counts without its own filter, as every axis does.
     pxq_scope: Optional[frozenset[str]] = None
@@ -439,6 +441,7 @@ def parse_filter(
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
     mla_scope: Optional[frozenset[str]] = None,
+    mla_exclude: Optional[frozenset[str]] = None,
     colores: Optional[str] = None,
     hay_mejores_ofertas: Optional[bool] = None,
     hay_mejores_excluido: Optional[bool] = None,
@@ -495,6 +498,7 @@ def parse_filter(
         audit_since=_audit_moment("audit_fecha_desde", audit_fecha_desde, end_of_day=False),
         audit_until=_audit_moment("audit_fecha_hasta", audit_fecha_hasta, end_of_day=True),
         mla_scope=mla_scope,
+        mla_exclude=mla_exclude,
         colors=tuple(c for c in colores_ if c != NO_COLOR),
         no_color=NO_COLOR in colores_,
         hay_mejores_ofertas=hay_mejores_ofertas,
@@ -1260,6 +1264,8 @@ def presence_conditions(f: PublicationFilter) -> list[ColumnElement]:
         where.append(_oferta(f.oferta, f.oferta_per_product))
     if f.mla_scope is not None:
         where.append(_item_in(f.mla_scope))
+    if f.mla_exclude is not None:
+        where.append(promo_clauses(f.mla_exclude)["sin_promo"])
     if f.hay_mejores_ofertas is True:
         where.append(_hay_mejores_ofertas())
     if f.hay_mejores_excluido is True:
@@ -1394,6 +1400,7 @@ def publication_filter_in(f: PublicationFilter) -> Optional[str]:
         ("evento", bool(f.event_types)),
         ("con_oferta", f.oferta is not None),
         ("promo_tipos", f.mla_scope is not None),
+        ("promo_aplicada", f.mla_exclude is not None),
         ("hay_mejores_ofertas", f.hay_mejores_ofertas is True),
         ("hay_mejores_excluido", f.hay_mejores_excluido is True),
     )

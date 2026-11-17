@@ -61,6 +61,12 @@ def reader(client, pg, db, rol_admin, admin_auth_headers):
     return admin_auth_headers
 
 
+def filter_calls(calls: list[tuple]) -> list[tuple]:
+    """The filter resolvers' calls: the rows' Promo aplicada badge also reads the started promotions, bounded to the
+    page's MLAs (a list `mla_ids`), which test_ml_publications_view_promo_aplicada.py pins on its own."""
+    return [call for call in calls if not (call[0] == "started" and isinstance(call[2].get("mla_ids"), list))]
+
+
 def items(client, headers, **params) -> list[str]:
     response = client.get(ITEMS_URL, headers=headers, params=params)
     assert response.status_code == 200, response.text
@@ -69,7 +75,7 @@ def items(client, headers, **params) -> list[str]:
 
 def test_promo_types_and_state_dispatch_like_productos(client, reader, calls) -> None:
     assert items(client, reader, promo_tipos="DEAL,SMART", promo_estado="aplicada") == ["MLA1", "MLA3"]
-    assert calls[-1] == ("tipo", (["DEAL", "SMART"], True), {"mla_ids": None})
+    assert filter_calls(calls)[-1] == ("tipo", (["DEAL", "SMART"], True), {"mla_ids": None})
     assert items(client, reader, promo_tipos="DEAL", promo_estado="sin_aplicar") == ["MLA2"]
     assert items(client, reader, con_promo_aplicada="true") == ["MLA2", "MLA3"]
     assert items(client, reader, con_promo_sin_aplicar="true") == ["MLA1"]
@@ -85,7 +91,7 @@ def test_pxq_ands_with_the_promo_filter_and_reaches_the_products(client, reader,
 
 def test_no_promo_param_asks_nothing(client, reader, calls) -> None:
     assert items(client, reader) == ["MLA1", "MLA2", "MLA3"]
-    assert calls == []
+    assert filter_calls(calls) == []
 
 
 def test_an_unknown_type_or_state_is_a_422(client, reader, calls) -> None:
@@ -104,12 +110,12 @@ def test_a_resolver_that_cannot_answer_is_a_503(client, reader, monkeypatch) -> 
 
 def test_promo_search_with_a_known_type_reads_its_active_promotions_like_productos(client, reader, calls) -> None:
     assert items(client, reader, q="promo:deal") == ["MLA1", "MLA3"]
-    assert calls == [("tipo", (["DEAL"],), {"applied_only": False})]
+    assert filter_calls(calls) == [("tipo", (["DEAL"],), {"applied_only": False})]
 
 
 def test_promo_search_with_any_other_text_reads_the_promotion_name(client, reader, calls) -> None:
     assert items(client, reader, q="promo: Hot Sale") == ["MLA2"]
-    assert calls == [("nombre", ("Hot Sale",), {})]
+    assert filter_calls(calls) == [("nombre", ("Hot Sale",), {})]
 
 
 def test_promo_search_ands_with_the_promo_filter(client, reader, calls) -> None:
@@ -126,7 +132,7 @@ def test_promo_search_reaches_the_products_and_finds_none_without_mla(client, re
 
 def test_mla_search_asks_no_resolver(client, reader, calls) -> None:
     assert items(client, reader, q="mla:mla2") == ["MLA2"]
-    assert calls == []
+    assert filter_calls(calls) == []
 
 
 @pytest.mark.parametrize(
