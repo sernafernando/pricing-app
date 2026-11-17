@@ -68,10 +68,6 @@ import useInlinePriceEdit from '../components/publicacionesMl/useInlinePriceEdit
 import ModalTesla, { ModalFooterButtons } from '../components/ModalTesla';
 import PricingModalTesla from '../components/PricingModalTesla';
 import { buildColumns, columnChoicesOver, defaultColumnVisibility } from '../components/publicacionesMl/columns';
-import {
-  canUsePonerPreciosMode,
-  visibilityForPonerPreciosMode,
-} from '../components/publicacionesMl/ponerPreciosMode';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import {
@@ -337,16 +333,11 @@ export default function PublicacionesML() {
       }),
     [columnDefaults],
   );
-  // Workflow mode (S1–S3). Local flag — never the URL `modo` / PRICE_MODES.
-  const [ponerPreciosMode, setPonerPreciosMode] = useState(false);
   // Promos Ver competencia: open by default on every entry to the page. Once the user closes it, it stays closed
   // while they browse other publications. `competenciaShown` is whether the ranking is on screen right now (a
   // catalog listing on its Promos tab), which is what widens the split.
   const [competenciaOpen, setCompetenciaOpen] = useState(true);
   const [competenciaShown, setCompetenciaShown] = useState(false);
-  const [filtersCollapsed, setFiltersCollapsed] = useState(false);
-  const vistaBeforeMode = useRef(null);
-  const canPonerPrecios = canUsePonerPreciosMode(tienePermiso);
   // Publications whose variation sub-rows are open. Their data loads on opening.
   const [expandedIds, setExpandedIds] = useState(() => new Set());
   const toggleVariations = useCallback(
@@ -686,30 +677,7 @@ export default function PublicacionesML() {
     ],
   );
 
-  // In mode: fixed S3 preset overlay (user picker choices come back on exit).
-  const columnVisibility = useMemo(() => {
-    if (!ponerPreciosMode) return baseColumnVisibility;
-    return visibilityForPonerPreciosMode(columns.map((column) => column.key));
-  }, [ponerPreciosMode, baseColumnVisibility, columns]);
-
-  const togglePonerPreciosMode = () => {
-    if (ponerPreciosMode) {
-      setPonerPreciosMode(false);
-      setFiltersCollapsed(false);
-      const prior = vistaBeforeMode.current;
-      vistaBeforeMode.current = null;
-      if (prior != null && prior !== filters.vista) {
-        setFilters({ vista: prior === 'publicacion' ? '' : prior, mla: '' });
-      }
-      return;
-    }
-    vistaBeforeMode.current = filters.vista;
-    if (filters.vista !== 'publicacion') {
-      setFilters({ vista: '', mla: '' });
-    }
-    setFiltersCollapsed(false);
-    setPonerPreciosMode(true);
-  };
+  const columnVisibility = baseColumnVisibility;
 
   // The kit's ColumnPicker is TanStack-shaped; this table is the kit's, so a
   // row-less table instance carries only the visibility state both read.
@@ -745,7 +713,7 @@ export default function PublicacionesML() {
   if (!filters.prod && productTab) setProductTab(null);
   // A publication's panel takes the place of its product's (`sel` over `prod`); closing either closes the panel.
   const closePanel = () => setFilters({ sel: '', tab: '', prod: '' });
-  const competenciaWide = !ponerPreciosMode && Boolean(filters.sel) && competenciaShown;
+  const competenciaWide = Boolean(filters.sel) && competenciaShown;
   const selectProduct = (key) => {
     setProductTab(null);
     setFilters({ prod: key, sel: '', tab: '' });
@@ -983,7 +951,7 @@ export default function PublicacionesML() {
   );
   const filterBands = (
     <>
-      <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
+      <div className={styles.filterBand}>
         <div className={styles.filterGroup}>
           <span className={styles.filterLabel}>Tipo</span>
           {chipGroup('Filtrar por tipo', 'tipo', TIPO_OPTIONS, TIPO_LABELS, 'listing')}
@@ -997,7 +965,7 @@ export default function PublicacionesML() {
           {chipGroup('Filtrar por stock', 'stock', STOCK_OPTIONS, STOCK_LABELS, 'stock')}
         </div>
       </div>
-      <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
+      <div className={styles.filterBand}>
         <div className={styles.filterGroup}>
           <span className={styles.filterLabel}>Tienda</span>
           <FacetChips
@@ -1014,7 +982,7 @@ export default function PublicacionesML() {
           <ColorFilterChips value={filters.colores} onChange={(colores) => setFilters({ colores })} />
         </div>
       </div>
-      <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
+      <div className={styles.filterBand}>
         <ProductFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} facet={facets?.product ?? null} />
         {/* Same band as the product filters, behind a button: a band of its own pushed the list's header below
             the fold at 1366x768. */}
@@ -1031,7 +999,7 @@ export default function PublicacionesML() {
         )}
       </div>
       {showMarkupFilters && (
-        <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
+        <div className={styles.filterBand}>
           <div className={styles.filterGroup}>
             <span className={styles.filterLabel}>Markup</span>
             <MarkupFilters
@@ -1056,7 +1024,6 @@ export default function PublicacionesML() {
         onBack={filters.prod ? backToProduct : undefined}
         backLabel={backLabel}
         priceGroup={canSeePrices ? priceGroup : null}
-        ponerPreciosMode={ponerPreciosMode}
         competenciaOpen={competenciaOpen}
         onCompetenciaOpenChange={setCompetenciaOpen}
         onCompetenciaShownChange={setCompetenciaShown}
@@ -1331,15 +1298,13 @@ export default function PublicacionesML() {
           </p>
         </div>
         <div className={styles.headerActions}>
-          {!ponerPreciosMode && (
-            <SegmentedControl
-              label="Vista"
-              options={VISTA_OPTIONS}
-              value={filters.vista}
-              onChange={(value) => setFilters({ vista: value === 'publicacion' ? '' : value, mla: '' })}
-            />
-          )}
-          {!ponerPreciosMode && agrupado && (
+          <SegmentedControl
+            label="Vista"
+            options={VISTA_OPTIONS}
+            value={filters.vista}
+            onChange={(value) => setFilters({ vista: value === 'publicacion' ? '' : value, mla: '' })}
+          />
+          {agrupado && (
             <SegmentedControl
               label="Agrupar por"
               options={AGRUPAR_OPTIONS}
@@ -1347,7 +1312,7 @@ export default function PublicacionesML() {
               onChange={(value) => setFilters({ agrupar: value === AGRUPAR_DIMENSIONS[0] ? '' : value })}
             />
           )}
-          {!ponerPreciosMode && agrupado && (
+          {agrupado && (
             <SwitchChip
               label="Con familias"
               title="Agrupa las publicaciones de una misma familia dentro de cada producto"
@@ -1377,8 +1342,8 @@ export default function PublicacionesML() {
             />
           )}
           <span className={styles.spacer} />
-          {!ponerPreciosMode && <ColumnPicker table={pickerTable} iconOnly buttonClassName={quietButton} />}
-          {!ponerPreciosMode && kpiOptions.length > 0 && (
+          <ColumnPicker table={pickerTable} iconOnly buttonClassName={quietButton} />
+          {kpiOptions.length > 0 && (
             <ColumnPicker
               table={kpiPicker}
               label="Indicadores"
@@ -1423,18 +1388,6 @@ export default function PublicacionesML() {
               Listas de precios
             </button>
           )}
-          {/* The screen's one filled button. */}
-          {canPonerPrecios && (
-            <button
-              type="button"
-              className={`btn-tesla sm ${buttonStyles.primary}`}
-              aria-pressed={ponerPreciosMode}
-              onClick={togglePonerPreciosMode}
-            >
-              {ponerPreciosMode && <Check size={14} aria-hidden="true" />}
-              Poner precios
-            </button>
-          )}
         </div>
       </header>
 
@@ -1448,7 +1401,7 @@ export default function PublicacionesML() {
 
       <StateBanner dataState={data?.data_state} />
 
-      {!ponerPreciosMode && canSeeKpis && !sinMla && (
+      {canSeeKpis && !sinMla && (
         <PublicationKpiStrip
           state={kpis}
           periodo={periodo}
@@ -1458,8 +1411,7 @@ export default function PublicacionesML() {
         />
       )}
 
-      {!ponerPreciosMode &&
-        (publicacion ? (
+      {publicacion ? (
           <PublicationCountCards facets={facets} filters={filters} onApply={setFilters} />
         ) : (
           <PublicationStatCards
@@ -1472,7 +1424,7 @@ export default function PublicacionesML() {
             onRetry={stats.reload}
             markupNotice={showMarkupFilters && hasMarkupFilter(filters)}
           />
-        ))}
+        )}
 
       <section className={styles.filterCard} aria-label="Filtros" ref={filterCardRef}>
         <div className={styles.filterBand}>
@@ -1489,21 +1441,6 @@ export default function PublicacionesML() {
           <span className={styles.spacer} />
           {/* The row's tools wrap together, to the right end of the next line when the chips take the width. */}
           <div className={styles.filterTools}>
-            {ponerPreciosMode && (
-              <button
-                type="button"
-                className={quietButton}
-                aria-expanded={!filtersCollapsed}
-                onClick={() => setFiltersCollapsed((collapsed) => !collapsed)}
-              >
-                <ChevronDown
-                  size={14}
-                  aria-hidden="true"
-                  className={filtersCollapsed ? styles.filterChevronCollapsed : undefined}
-                />
-                {filtersCollapsed ? 'Mostrar filtros' : 'Minimizar filtros'}
-              </button>
-            )}
             {canCalculatePrice && (
               <button
                 type="button"
@@ -1549,9 +1486,9 @@ export default function PublicacionesML() {
           <SplitPanelLayout
             open={Boolean(filters.sel || filters.prod)}
             onClose={closePanel}
-            width={ponerPreciosMode ? 'md' : competenciaWide ? 'xl' : 'lg'}
+            width={competenciaWide ? 'xl' : 'lg'}
             expanded={competenciaWide}
-            resizeKey={ponerPreciosMode ? 'publicaciones-ml-poner-precios' : 'publicaciones-ml'}
+            resizeKey="publicaciones-ml"
             ariaLabel={filters.sel ? 'Detalle de la publicación' : 'Detalle del producto'}
             panel={detailPanel}
           >

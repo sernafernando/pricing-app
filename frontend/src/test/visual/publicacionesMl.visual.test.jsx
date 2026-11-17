@@ -484,33 +484,6 @@ describe('Publicaciones ML (visual)', () => {
         screen.unmount();
       });
 
-      // Owner, 2026-11-04: "en la vista de poner precios ... también tienen que estar los badges de Clásica, 3 cuotas,
-      // etc y el orden también cuando estan varias publis del mismo producto juntas".
-      for (const highContrast of width === 1366 ? [false, true] : []) {
-        it(`${width}x${height} ${theme}${highContrast ? ', high contrast' : ''}: Poner precios shows the Tipo badges, sorted by Código then Tipo`, async () => {
-          document.documentElement.classList.toggle('high-contrast', highContrast);
-          let screen;
-          try {
-            screen = await renderPage({ width, height, theme, entry: '/ml-publicaciones?orden=codigo&dir=asc' });
-            await screen.getByRole('button', { name: 'Poner precios' }).click();
-            const tipo = () => scrollerOf().querySelector('thead th[data-column="tipo"]');
-            await expect.poll(() => tipo()).toBeTruthy();
-            expect(tipo().querySelector('[data-testid="sort-order"]')?.textContent).toBe('2');
-            expect(scrollerOf().querySelector('tbody td[data-column="tipo"]')?.textContent).toBeTruthy();
-            expect(overflowingCells(scrollerOf())).toEqual([]);
-            if (PRODUCT_SHOTS_DIR) {
-              // Tall enough for several rows, the Código column (the first sort) in view at the right.
-              await page.viewport(1920, 1300);
-              await frame();
-              await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/poner-precios-tipo-${theme}${highContrast ? '-hc' : ''}.png` });
-            }
-          } finally {
-            screen?.unmount();
-            document.documentElement.classList.remove('high-contrast');
-          }
-        });
-      }
-
       it(`${width}x${height} ${theme}: ERP, Full and total stock sit in three columns under STOCK, headers and figures on one line`, async () => {
         const screen = await renderPage({ width, height, theme });
         const scroller = scrollerOf();
@@ -3936,7 +3909,7 @@ describe('Publicaciones ML panel and pricing modal (visual)', () => {
   }
 });
 
-// Unslop PR A: one filled action, the rest the same quiet button; filters of one size; the "?" key instead of a toast.
+// Unslop PR A: every action the same quiet button (the filled "Poner precios" left with S2); filters of one size; the "?" key instead of a toast.
 describe('Publicaciones ML action bar and filters (visual)', () => {
   const actions = () => document.querySelector('header [class*="headerActions"]');
   const filterCard = () => document.querySelector('section[aria-label="Filtros"]');
@@ -3950,9 +3923,10 @@ describe('Publicaciones ML action bar and filters (visual)', () => {
 
   for (const { width, height } of [{ width: 1366, height: 768 }, { width: 1440, height: 900 }]) {
     for (const theme of THEMES) {
-      it(`${width}x${height} ${theme}: the action bar is one row with one filled button, and the filters share one size`, async () => {
+      it(`${width}x${height} ${theme}: the action bar is one row of quiet buttons, and the filters share one size`, async () => {
         const screen = await renderPage({ width, height, theme });
-        await expect.element(screen.getByRole('button', { name: 'Poner precios' })).toBeVisible();
+        // S2 (auditoria-stock): the "Poner precios" mode is gone; the bar keeps its quiet buttons.
+        expect(screen.getByRole('button', { name: 'Poner precios' }).query()).toBeNull();
 
         // One row: every control's middle on the same line, inside the page (CI's fonts run ~8% wider and still fit).
         const controls = [...actions().children].filter((el) => rect(el).width > 0);
@@ -3962,9 +3936,7 @@ describe('Publicaciones ML action bar and filters (visual)', () => {
           expect(rect(control).right, control.textContent).toBeLessThanOrEqual(width);
         }
 
-        // "Poner precios" is the only filled button; the others are a thin grey outline.
-        const filled = screen.getByRole('button', { name: 'Poner precios' }).element();
-        expect(getComputedStyle(filled).backgroundColor).toBe(tokenColor('--selection-fill'));
+        // Every action is a thin grey outline.
         for (const name of ['Listas de precios', 'Exportar CSV', 'Columnas', 'Indicadores', 'Filas finas', /Acciones masivas/, 'Pausar / activar']) {
           const button = screen.getByRole('button', { name }).element();
           const style = getComputedStyle(button);

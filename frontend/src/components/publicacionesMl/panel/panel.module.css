@@ -935,54 +935,6 @@
   color: var(--cf-text-secondary);
 }
 
-/* MODO PONER PRECIOS: no tabs — lista + price draft only. */
-.ponerPreciosBody {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-  padding: var(--spacing-md);
-}
-
-.ponerPreciosFacts {
-  display: grid;
-  gap: var(--spacing-sm);
-  margin: 0;
-}
-
-.ponerPreciosFacts > div {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.ponerPreciosFacts dt {
-  margin: 0;
-  font-size: var(--font-xs);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--cf-text-secondary);
-}
-
-.ponerPreciosFacts dd {
-  margin: 0;
-  font-size: var(--font-md);
-  font-weight: var(--font-semibold);
-  color: var(--cf-text-primary);
-}
-
-.ponerPreciosField {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  font-size: var(--font-sm);
-  color: var(--cf-text-secondary);
-}
-
-.ponerPreciosInput {
-  composes: input inputSm from '../../../styles/forms-tesla.css';
-}
-
 .ponerPreciosError {
   margin: 0;
   font-size: var(--font-sm);
@@ -1139,9 +1091,6 @@
   gap: var(--spacing-sm);
   grid-column: 1 / -1;
 }
-
-.ponerPreciosChoiceLabel { font-weight: var(--font-semibold); color: var(--cf-text-primary); }
-.ponerPreciosChoiceMeta { font-size: var(--font-xs); color: var(--cf-text-secondary); }
 
 /* Promos tab: Ver competencia opens a second column; Promos fields stay
    compact in column 1 (do not stretch with the wide panel). The panel is

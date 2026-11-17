@@ -3467,3 +3467,12 @@ describe("the panels' Precios tab: one table, a row per plan (S2)", () => {
     expect(within(panel).getByRole('button', { name: 'Calcular el precio de Router Archer AX55' })).toBeInTheDocument();
   });
 });
+
+describe('auditoria-stock S2: "Poner precios" left the page', () => {
+  it('has no "Poner precios" button, even with every price and promotion permission', async () => {
+    canSeeMargin = true;
+    await page();
+    expect(screen.queryByRole('button', { name: 'Poner precios' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Minimizar filtros' })).not.toBeInTheDocument();
+  });
+});
