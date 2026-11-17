@@ -39,8 +39,8 @@ S12. Persistence: `ml_hay_mejores_criterios` per item_id upsert.
 | T1a | S3,S12 | inline | done | P0a #16 · P0b #17 · P0c #18 |
 | T1b | S2 | inline | done | P0d UI #19 |
 | T2 | S11 | inline | done | P1 audit #20 |
-| T3 | S4,S5 | inline | in progress | P2a C2+ranking efectivo; P2b FE tildes |
-| T4 | S6 | inline | pending | P3 C6 |
+| T3 | S4,S5 | inline | done | P2a #21 · P2b #22 |
+| T4 | S6 | inline | in progress | P3a C6 motor; P3b dual UI |
 | T5 | S7,S8 | inline | pending | P4 R-AUTO |
 | T6 | S9,S10 | inline | pending | P5 bulk + ayuda/novedad |
 
@@ -55,3 +55,5 @@ L3. 2026-11-17: P0d UI — Guardian blocked hand-styled `.field input`; compose 
 L4. 2026-11-17: P1 — `ml_hay_mejores_audit` for flag_transition + auto_toggle; enroll enrich via `ml_write_log.payload` (`auto_aplicacion`, `hay_mejores_flag_snapshot`).
 
 L5. 2026-11-17: Owner — smoke al final de todo el stack; seguir abriendo PRs personales. P2 split: P2a motor C2, P2b checkboxes col2.
+
+L6. 2026-11-17: P3a — `evaluar_monopolio_c6` + synthetic fingerprint `c6:{precio_objetivo}`; `solo_via_promo` skips C6-only flag.
