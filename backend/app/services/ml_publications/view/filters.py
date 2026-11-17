@@ -60,8 +60,10 @@ from app.models.ml_publications import (
 from app.models.oferta_ml import OfertaML
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.producto_banlist import ProductoBanlist
+from app.models.tb_item import TBItem
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.services.ml_daily_metrics.groups import NO_GROUP, pm_pairs
+from app.services.producto_specs.campos import SUBCATEGORIAS_EXCLUIDAS
 from app.services.ml_publications.events import EVENT_TYPES as real_event_types
 from app.services.ml_publications.links import sku_divergence
 
@@ -1465,3 +1467,32 @@ def product_select(f: PublicationFilter, *columns: Any) -> Select:
 def product_colors_only(f: PublicationFilter) -> PublicationFilter:
     """`f` with the color filter on the product's color only (`color_per_product`): the Producto view's rows."""
     return replace(f, color_per_product=True, item_color_ids=(), item_colored_ids=())
+
+
+# --- The Auditoría de stock's catalog reads (`stock_audit`) -------------------------------------------------------------
+#
+# The audit values each product's stock at its catalog cost and tells a notebook variant from a pack by the ERP
+# category of its components. Those reads are built here, the view's catalog extraction module, so `stock_audit` only
+# runs them and never names the catalog or the ERP mirror itself.
+
+# The notebook category's subcategories that are accessories, not notebooks (`producto_specs.campos`).
+NOTEBOOK_ACCESSORY_SUBCATEGORIES = SUBCATEGORIAS_EXCLUIDAS
+
+
+def catalog_products_select(ids: list[int]) -> Select:
+    """`(item_id, codigo, descripcion, marca, stock, costo, moneda_costo)` of the catalog products `ids`."""
+    p = T.p
+    return select(p.item_id, p.codigo, p.descripcion, p.marca, p.stock, p.costo, p.moneda_costo).where(
+        p.item_id.in_(ids)
+    )
+
+
+def erp_categories_select(ids: list[int]) -> Select:
+    """`(item_id, cat_id, subcat_id)` of `ids` in the ERP item mirror, its first row by company (`comp_id`), as
+    `producto_maestro` reads a product's category."""
+    return (
+        select(TBItem.item_id, TBItem.cat_id, TBItem.subcat_id)
+        .where(TBItem.item_id.in_(ids))
+        .distinct(TBItem.item_id)
+        .order_by(TBItem.item_id, TBItem.comp_id)
+    )

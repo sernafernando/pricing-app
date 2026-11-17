@@ -1,8 +1,8 @@
 """The Auditoría de stock view of the Publicaciones screen (`GET /ml-publications/view/stock-audit`): one row per BASE
 product with what its stock is worth, ERP and Full apart and their total, in USD and in ARS at the day's BNA rate.
 
-Which product is the row (the combo bill of materials, `combo_componentes`, and the ERP category of `tb_item`, its
-first row by `comp_id`, as `producto_maestro` reads it):
+Which product is the row (the combo bill of materials, `combo_componentes`, and each item's ERP category, read
+through `filters.erp_categories_select`):
 
 * a combo whose own category is PC (47) is a product of its own: one row, never exploded;
 * a combo with exactly one notebook component (category 46, not an accessory subcategory) is a variant of that
@@ -13,7 +13,7 @@ first row by `comp_id`, as `producto_maestro` reads it):
 * a product that is not a combo is its own row.
 
 What a row is worth (owner, 2026-11-17: "Costo x Stock, en USD y en ARS al cambio BNA del día. Sobre los productos
-base, no me sumes las variantes como si fueran un producto adicional"): `productos_erp.costo` (no VAT) times the
+base, no me sumes las variantes como si fueran un producto adicional"): the catalog cost (no VAT) times the
 units. ERP: the base product's own ERP stock; a variant's ERP stock is derived from its base, so it is neither shown
 nor added. Full: the units at ML's warehouse of the publications linked to the product, each user product counted
 once (a classic and a premium listing share one); a variant's Full units add to its base's, worth the variant's own
@@ -57,8 +57,11 @@ from app.services.ml_daily_metrics import board
 from app.services.ml_daily_metrics.kpi_strip import round_money, round_pp
 from app.services.ml_publications.view.filters import (
     T,
+    NOTEBOOK_ACCESSORY_SUBCATEGORIES,
     PublicationFilter,
     build_base_select,
+    catalog_products_select,
+    erp_categories_select,
     joined,
     product_select,
     publication_filter_in,
@@ -68,7 +71,6 @@ from app.services.ml_publications.view.markup_service import ItemMarkup, aggrega
 from app.services.ml_publications.view.products import product_pairs
 from app.services.ml_publications.view.row_metrics import metrics_by_mla
 from app.services.pricing_calculator import moneda_de
-from app.services.producto_specs.campos import SUBCATEGORIAS_EXCLUIDAS
 
 CAT_NOTEBOOK = 46
 CAT_PC = 47
@@ -110,7 +112,7 @@ class ComboKind:
 
 
 def is_notebook(category: Optional[tuple[Optional[int], Optional[int]]]) -> bool:
-    return category is not None and category[0] == CAT_NOTEBOOK and category[1] not in SUBCATEGORIAS_EXCLUIDAS
+    return category is not None and category[0] == CAT_NOTEBOOK and category[1] not in NOTEBOOK_ACCESSORY_SUBCATEGORIES
 
 
 def classify_combos(
@@ -414,25 +416,14 @@ def _categories(db: Session, ids: Iterable[int]) -> dict[int, tuple[Optional[int
     ids = sorted(set(ids))
     if not ids:
         return {}
-    rows = db.execute(
-        text(
-            "SELECT DISTINCT ON (item_id) item_id, cat_id, subcat_id FROM tb_item "
-            "WHERE item_id = ANY(:ids) ORDER BY item_id, comp_id"
-        ).bindparams(bindparam("ids", type_=ARRAY(Integer))),
-        {"ids": ids},
-    ).all()
-    return {item: (cat, subcat) for item, cat, subcat in rows}
+    return {item: (cat, subcat) for item, cat, subcat in db.execute(erp_categories_select(ids)).all()}
 
 
 def _products(db: Session, ids: Iterable[int]) -> dict[int, Product]:
     ids = sorted(set(ids))
     if not ids:
         return {}
-    rows = db.execute(
-        select(T.p.item_id, T.p.codigo, T.p.descripcion, T.p.marca, T.p.stock, T.p.costo, T.p.moneda_costo).where(
-            T.p.item_id.in_(ids)
-        )
-    ).all()
+    rows = db.execute(catalog_products_select(ids)).all()
     return {r[0]: Product(r[0], r[1], r[2], r[3], r[4], r[5], moneda_de(r[6])) for r in rows}
 
 
