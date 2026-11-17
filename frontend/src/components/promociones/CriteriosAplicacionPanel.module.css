@@ -1,0 +1,78 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  min-width: 0;
+}
+
+.state {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.checkRow,
+.checkRowNested {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: var(--spacing-xs);
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkRowNested {
+  margin-left: var(--spacing-md);
+  color: var(--cf-text-secondary);
+}
+
+.checkRow input,
+.checkRowNested input {
+  margin: 0.15rem 0 0;
+  flex-shrink: 0;
+}
+
+.fieldRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  margin-left: var(--spacing-md);
+}
+
+.field {
+  composes: field from '../../styles/forms-tesla.css';
+  width: 7rem;
+}
+
+.fieldLabel {
+  composes: label from '../../styles/forms-tesla.css';
+}
+
+.input {
+  composes: input inputSm from '../../styles/forms-tesla.css';
+}
+
+.autoHint {
+  margin: 0 0 0 var(--spacing-md);
+  font-size: var(--font-xs);
+  line-height: 1.35;
+  color: var(--cf-text-secondary);
+}
+
+.error {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-danger, var(--cf-danger));
+}
+
+.saved {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}

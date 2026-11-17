@@ -35,8 +35,9 @@ S12. Persistence: `ml_hay_mejores_criterios` per item_id upsert.
 
 | ID | Specs | Route | Status | Commit / PR |
 | --- | --- | --- | --- | --- |
-| T0 | S1 | inline | in progress | docs design + PLAN |
-| T1 | S2,S3,S12 | inline | pending | P0 persist + Criterios UI + C1 |
+| T0 | S1 | inline | done | docs PR #2309 |
+| T1a | S3,S12 | inline | done | P0a #16 · P0b #17 · P0c #18 |
+| T1b | S2 | inline | in progress | P0d Criterios UI col2 (forms-tesla) |
 | T2 | S11 | inline | pending | P1 auditoría lean |
 | T3 | S4,S5 | inline | pending | P2 tabla + C2 |
 | T4 | S6 | inline | pending | P3 C6 |
@@ -48,3 +49,5 @@ S12. Persistence: `ml_hay_mejores_criterios` per item_id upsert.
 L1. User: continue criterios stack without waiting for #2308 merge; all Pricing PR rules (≤400, ruff/lint).
 
 L2. Persistence decision: `ml_hay_mejores_criterios` (not offset_grupo_filtros).
+
+L3. 2026-11-17: P0d UI — Guardian blocked hand-styled `.field input`; compose `forms-tesla` `.input`/`.inputSm` + `.field`/`.label`. Stack stays on GabeADemarco only.

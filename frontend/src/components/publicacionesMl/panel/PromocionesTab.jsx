@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import MlaPromocionesPanel from '../../promociones/MlaPromocionesPanel';
 import CatalogCompetitionPanel from '../../promociones/CatalogCompetitionPanel';
+import CriteriosAplicacionPanel from '../../promociones/CriteriosAplicacionPanel';
 import PromoFilterBar from '../../promociones/PromoFilterBar';
 import { countActivePromoFilter } from '../../promociones/promoFilterPredicate';
 import { markPromoPulled, promoPulledRecently } from '../../promociones/promoPullTtl';
@@ -95,12 +96,9 @@ function ItemPromotions({ itemId, suggestedPromotionIds, promosCacheRef, onPromo
  * `suggestedPromotionIds` are the promotions the "Hay candidatas mejores" block above the tabs suggests;
  * their rows carry a "Sugerida" chip instead of a second banner here.
  *
- * When the publication is a catalog listing, the same-bucket ranking
- * (`CatalogCompetitionPanel` variant `ranking`) shows in column 2 while
- * `competenciaOpen` (open by default; **Ocultar competencia** closes it).
- * `onCompetenciaShownChange` tells the page when it is on screen, so the
- * split starts wider. Promos stay in column 1 at their compact width; on a
- * panel too narrow for both, the ranking stacks under them.
+ * Column 2 is shared: **Ver competencia** (catalog ranking) or **Criterios de
+ * aplicación** — opening one closes the other. `onCompetenciaShownChange` is
+ * true when either col2 surface is on screen (widens the split).
  *
  * `key={itemId}` makes a new selection start from scratch, so one
  * publication's promotions are never shown under the next. The cache is
@@ -128,21 +126,38 @@ export default function PromocionesTab({
   const [catalogCacheRef] = useState(() => ({ current: new Map() }));
   const [exclusionBusy, setExclusionBusy] = useState(false);
   const [exclusionError, setExclusionError] = useState(null);
+  const [criteriosOpen, setCriteriosOpen] = useState(false);
   const isCatalog = Boolean(detail?.row?.catalog_listing);
-  const showRanking = isCatalog && competenciaOpen;
+  const showRanking = isCatalog && competenciaOpen && !criteriosOpen;
+  const showCriterios = criteriosOpen;
+  const showCol2 = showRanking || showCriterios;
   const excluido = Boolean(detail?.row?.hay_mejores_excluido);
 
   useEffect(() => {
-    onCompetenciaShownChange?.(showRanking);
-  }, [showRanking, onCompetenciaShownChange]);
-  // Leaving the tab (or the publication) takes the ranking off screen.
+    onCompetenciaShownChange?.(showCol2);
+  }, [showCol2, onCompetenciaShownChange]);
+  // Leaving the tab (or the publication) takes col2 off screen.
   useEffect(() => () => onCompetenciaShownChange?.(false), [onCompetenciaShownChange]);
   useEffect(() => {
     setExclusionError(null);
+    setCriteriosOpen(false);
   }, [itemId]);
 
   const toggleCompetencia = () => {
-    onCompetenciaOpenChange?.(!competenciaOpen);
+    if (!competenciaOpen) {
+      setCriteriosOpen(false);
+      onCompetenciaOpenChange?.(true);
+      return;
+    }
+    onCompetenciaOpenChange?.(false);
+  };
+
+  const toggleCriterios = () => {
+    setCriteriosOpen((open) => {
+      const next = !open;
+      if (next) onCompetenciaOpenChange?.(false);
+      return next;
+    });
   };
 
   const toggleExclusion = async () => {
@@ -161,7 +176,7 @@ export default function PromocionesTab({
 
   return (
     <div className={styles.promosContainer}>
-      <div className={showRanking ? styles.promosLayoutWide : styles.promosLayout}>
+      <div className={showCol2 ? styles.promosLayoutWide : styles.promosLayout}>
         <div className={styles.promosCol}>
           <PromoFilterHeader promosCacheRef={promosCacheRef} />
           <div className={styles.promosToolbarRow}>
@@ -170,11 +185,19 @@ export default function PromocionesTab({
                 type="button"
                 className={`btn-tesla outline-subtle-primary sm ${styles.promosCompetenciaToggle}`}
                 onClick={toggleCompetencia}
-                aria-pressed={competenciaOpen}
+                aria-pressed={showRanking}
               >
-                {competenciaOpen ? 'Ocultar competencia' : 'Ver competencia'}
+                {showRanking ? 'Ocultar competencia' : 'Ver competencia'}
               </button>
             )}
+            <button
+              type="button"
+              className={`btn-tesla outline-subtle-primary sm ${styles.promosCompetenciaToggle}`}
+              onClick={toggleCriterios}
+              aria-pressed={showCriterios}
+            >
+              {showCriterios ? 'Ocultar criterios' : 'Criterios de aplicación'}
+            </button>
             {canWritePromos && (
               <label className={styles.promosExclusion}>
                 <input
@@ -209,6 +232,12 @@ export default function PromocionesTab({
               catalogCompetitionCacheRef={catalogCacheRef}
               variant="ranking"
             />
+          </div>
+        )}
+        {showCriterios && (
+          <div className={styles.promosCompetenciaCol}>
+            <h3 className={styles.promosCompetenciaTitle}>Criterios de aplicación</h3>
+            <CriteriosAplicacionPanel key={`criterios-${itemId}`} mla={itemId} />
           </div>
         )}
       </div>
