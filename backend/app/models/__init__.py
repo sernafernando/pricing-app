@@ -33,6 +33,7 @@ from app.models.producto_tn_vinculo import ProductoTnVinculo
 from app.models.tienda_nube_producto_texto import TiendaNubeProductoTexto
 from app.models.producto_envio_eleccion import ProductoEnvioEleccion
 from app.models.ml_item_override import MlItemOverride
+from app.models.ml_hay_mejores_criterios import MlHayMejoresCriterios
 from app.models.gestion_full_override import GestionFullOverride
 from app.models.gestion_full_envio import GestionFullEnvio, GestionFullInboundReceptionOp
 from app.models.gestion_full_package import (
@@ -556,6 +557,7 @@ __all__ = [
     "TiendaNubeProductoTexto",
     "ProductoEnvioEleccion",
     "MlItemOverride",
+    "MlHayMejoresCriterios",
     "GestionFullOverride",
     "GestionFullEnvio",
     "GestionFullInboundReceptionOp",
