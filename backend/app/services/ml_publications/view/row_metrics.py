@@ -40,8 +40,9 @@ def _mla_source(mlas: Sequence[str]):
     return select(func.unnest(literal(list(mlas), ARRAY(String))).label("mla"))
 
 
-def metrics_by_mla(db: Session, mlas: Sequence[str]) -> Dict[str, board.Row]:
+def metrics_by_mla(db: Session, mlas: Sequence[str], sell_in_out: bool = False) -> Dict[str, board.Row]:
     """The Board's publication row of each of `mlas` over the last 30 business days; an MLA without one is absent.
+    `sell_in_out` adds each row's sell in / sell out (`board.SellInOut`; `ml_metricas.ver_ganancia` callers only).
 
     The period ends on the Board's own business day (`board.today_business`, from `board.now_utc`): the clock its
     windows, series and ageing count from, so the two can never disagree."""
@@ -49,7 +50,13 @@ def metrics_by_mla(db: Session, mlas: Sequence[str]) -> Dict[str, board.Row]:
     if not mlas:
         return {}
     first, last = window(board.today_business())
-    f = board.BoardFilter(date_from=first, date_to=last, group_by="publication", mla_source=_mla_source(mlas))
+    f = board.BoardFilter(
+        date_from=first,
+        date_to=last,
+        group_by="publication",
+        mla_source=_mla_source(mlas),
+        sell_in_out=sell_in_out,
+    )
     with board.Board(db, f, scope_pairs=None) as b:
         rows = b.rows_for_keys(mlas, with_series=True)
     return {row.mla: row for row in rows}

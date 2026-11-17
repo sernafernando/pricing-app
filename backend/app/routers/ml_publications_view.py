@@ -778,6 +778,20 @@ class StockMoneyOut(BaseModel):
     ars: Optional[float] = None
 
 
+class StockAuditSalesOut(BaseModel):
+    """A row's sales over the last 30 business days, its publications' Board rows summed (a variant's units in base
+    units on its base row). Total Gauss and the markups (the Board's ratio of the sums; the `_sell_` ones with sell
+    in / sell out applied, null where neither applies) are present only with `ml_metricas.ver_ganancia`."""
+
+    unidades_7d: int
+    unidades_30d: int
+    facturado_30d: float
+    total_gauss_30d: Optional[float] = None
+    markup_30d: Optional[float] = None
+    total_gauss_sell_30d: Optional[float] = None
+    markup_sell_30d: Optional[float] = None
+
+
 class StockAuditVariantOut(BaseModel):
     """A variant (`variante`: a notebook combo) or a pack (`pack`) under its base product: its own Full part only
     (its ERP stock is derived from the base, never shown). `full_unidades_base` is that part in base units."""
@@ -794,6 +808,7 @@ class StockAuditVariantOut(BaseModel):
     full_unidades_base: int
     publications_count: int
     params: dict[str, str]
+    ventas: Optional[StockAuditSalesOut] = None  # null without ml_metricas.ver
 
 
 class StockAuditRowOut(BaseModel):
@@ -815,6 +830,7 @@ class StockAuditRowOut(BaseModel):
     publicacion_activa: bool
     promo_aplicada: Optional[bool] = None  # null when the promotions database could not be read
     params: dict[str, str]
+    ventas: Optional[StockAuditSalesOut] = None  # null without ml_metricas.ver
     variantes: list[StockAuditVariantOut]
 
 
@@ -835,6 +851,8 @@ class StockAuditResponse(BaseModel):
     offset: int
     orden: str
     dir: str
+    can_see_sales: bool  # ml_metricas.ver: `ventas` on every row
+    can_see_margin: bool  # ml_metricas.ver_ganancia: its Total Gauss and markups
     tipo_cambio: Optional[float] = None  # the BNA USD selling rate the ARS / USD values use
     tipo_cambio_fecha: Optional[date] = None
     kpis: StockAuditKpisOut
@@ -1754,7 +1772,7 @@ def products_ask(
     return ProductsAsk(can_see_margin, can_see_sales, pairs[0][0], directions[0], then)
 
 
-@router.get("/stock-audit", response_model=StockAuditResponse)
+@router.get("/stock-audit", response_model=StockAuditResponse, response_model_exclude_unset=True)
 def get_stock_audit(
     user: Usuario = Depends(require_permiso(PERMISO_AUDITORIA_STOCK)),  # first: who may ask
     f: PublicationFilter = Depends(filter_query),
@@ -1763,10 +1781,14 @@ def get_stock_audit(
     limit: int = Query(listing.DEFAULT_LIMIT, ge=1, le=listing.MAX_LIMIT),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_view_db),
+    auth_db: Session = Depends(get_db),  # the Métricas permissions (see `get_items`)
 ) -> dict[str, Any]:
     """The Auditoría de stock view (`ml_publicaciones.ver_auditoria_stock`): one row per base product with stock,
     its variants under it, what its ERP and Full stock is worth at cost in USD and ARS (the day's BNA rate), and the
     KPI strip over every row (`stock_audit`)."""
+    permisos = PermisosService(auth_db)
+    can_see_sales = permisos.tiene_permiso(user, PERMISO_METRICAS)
+    can_see_margin = can_see_sales and permisos.tiene_permiso(user, PERMISO_GANANCIA)
     if orden not in stock_audit.ORDERS:
         raise _unprocessable(FilterError("orden", f"unknown value {orden}; known: {', '.join(stock_audit.ORDERS)}"))
     try:
@@ -1774,6 +1796,8 @@ def get_stock_audit(
         f = listing.resolve_pm_pairs(db, f)
         rate = stock_audit.read_rate(db)
         audit = stock_audit.build(db, f, rate)
+        if can_see_sales:
+            stock_audit.add_sales(db, audit, sell_in_out=can_see_margin)
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     except DBAPIError as exc:
@@ -1785,7 +1809,12 @@ def get_stock_audit(
     started = _started_promotions()
     ordered = stock_audit.sort_rows(audit.rows, orden, dir == "desc")
     return {
-        "rows": [stock_audit.row_out(r, audit.active, started) for r in ordered[offset : offset + limit]],
+        "rows": [
+            stock_audit.row_out(r, audit.active, started, with_sales=can_see_sales, with_margin=can_see_margin)
+            for r in ordered[offset : offset + limit]
+        ],
+        "can_see_sales": can_see_sales,
+        "can_see_margin": can_see_margin,
         "total": len(ordered),
         "limit": limit,
         "offset": offset,

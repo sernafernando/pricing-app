@@ -22,6 +22,8 @@ import pytest
 from sqlalchemy import text
 
 from app.routers import ml_publications_view
+from app.services.ml_daily_metrics import board
+from app.services.ml_publications.view import stock_audit
 from app.services.ml_publications.view.stock_audit import KIT, PACK, PC, VARIANTE, ComboKind, classify_combos
 from tests.routers.test_ml_publications_links import grant
 from tests.routers.test_ml_publications_view import seed_rows
@@ -233,3 +235,137 @@ class TestStockAudit:
         body = audit(client, auditor)
         assert body["kpis"]["productos_con_promo_aplicada"] is None
         assert all(row["promo_aplicada"] is None for row in body["rows"])
+
+
+# --- S10 (L3): sales by period, Total Gauss and markup with sell in / sell out, summed on the base rows -------------
+
+
+def board_row(mla: str, *, d7: int, d30: int, gross: float, tg: float, costo: float, **sell) -> board.Row:
+    """A Board publication row (30 business days) with its figures; `sell` = the sell in / out fields."""
+    return board.Row(
+        key=mla,
+        product_item_id=0,
+        mla=mla,
+        units=d30,
+        windows={"3d": 0, "7d": d7, "15d": 0, "30d": d30},
+        gross=Decimal(str(gross)),
+        tg=Decimal(str(tg)),
+        mtg=Decimal(str(tg)),
+        costo=Decimal(str(costo)),
+        **{name: (Decimal(str(v)) if isinstance(v, float) else v) for name, v in sell.items()},
+    )
+
+
+FIGURES = {
+    # the notebook's own sales: a sell in of 50 on the cost
+    "MLA10": board_row(
+        "MLA10",
+        d7=1,
+        d30=2,
+        gross=2000.0,
+        tg=200.0,
+        costo=1000.0,
+        sell_in=50.0,
+        sell_out=0.0,
+        m_sell_in=50.0,
+        m_sell_out=0.0,
+        sell_in_lineas=1,
+        sell_out_lineas=0,
+    ),
+    # variant 101: a sell out of 30
+    "MLA12": board_row(
+        "MLA12",
+        d7=0,
+        d30=1,
+        gross=1500.0,
+        tg=100.0,
+        costo=1000.0,
+        sell_in=0.0,
+        sell_out=30.0,
+        m_sell_in=0.0,
+        m_sell_out=30.0,
+        sell_in_lineas=0,
+        sell_out_lineas=1,
+    ),
+    # pack 110: 2 packs of 10 mice, no sell in / out
+    "MLA20": board_row(
+        "MLA20",
+        d7=1,
+        d30=2,
+        gross=100.0,
+        tg=10.0,
+        costo=40.0,
+        sell_in=0.0,
+        sell_out=0.0,
+        m_sell_in=0.0,
+        m_sell_out=0.0,
+        sell_in_lineas=0,
+        sell_out_lineas=0,
+    ),
+}
+
+
+@pytest.fixture()
+def board_calls(monkeypatch) -> list[tuple]:
+    seen: list[tuple] = []
+
+    def fake(db, mlas, sell_in_out=False):
+        seen.append((sorted(mlas), sell_in_out))
+        return {mla: FIGURES[mla] for mla in mlas if mla in FIGURES}
+
+    monkeypatch.setattr(stock_audit, "metrics_by_mla", fake)
+    return seen
+
+
+def sales(unidades_7d: int, unidades_30d: int, facturado: float, **margin) -> dict:
+    return {"unidades_7d": unidades_7d, "unidades_30d": unidades_30d, "facturado_30d": facturado, **margin}
+
+
+@pytest.mark.postgres
+class TestStockAuditSales:
+    def test_with_ganancia_the_board_reads_sell_in_out_once_for_every_row(
+        self, client, auditor, db, rol_admin, board_calls
+    ) -> None:
+        grant(db, rol_admin, "ml_metricas.ver", "ml_metricas.ver_ganancia")
+        body = audit(client, auditor)
+        assert (body["can_see_sales"], body["can_see_margin"]) == (True, True)
+        assert board_calls == [(["MLA10", "MLA11", "MLA12", "MLA20", "MLA40"], True)]
+
+    def test_a_base_row_sums_its_variants_in_base_units_and_weights_the_markup(
+        self, client, auditor, db, rol_admin, board_calls
+    ) -> None:
+        grant(db, rol_admin, "ml_metricas.ver", "ml_metricas.ver_ganancia")
+        rows = {row["product_item_id"]: row for row in audit(client, auditor)["rows"]}
+        notebook = rows[100]
+        # own 2 + variant 1; Total Gauss 300 over cost 2000 = 15 %; with sell in / out: (300 + 50 + 30) / (2000 - 50)
+        assert notebook["ventas"] == sales(
+            1, 3, 3500.0, total_gauss_30d=300.0, markup_30d=15.0, total_gauss_sell_30d=380.0, markup_sell_30d=19.5
+        )
+        assert notebook["variantes"][0]["ventas"] == sales(
+            0, 1, 1500.0, total_gauss_30d=100.0, markup_30d=10.0, total_gauss_sell_30d=130.0, markup_sell_30d=13.0
+        )
+        mouse = rows[111]
+        # 2 packs of 10 = 20 mice; no sell in / out: those figures do not apply (empty, never a copy)
+        assert mouse["ventas"] == sales(
+            10, 20, 100.0, total_gauss_30d=10.0, markup_30d=25.0, total_gauss_sell_30d=None, markup_sell_30d=None
+        )
+        assert mouse["variantes"][0]["ventas"]["unidades_30d"] == 2  # the pack's own units
+        # no sale at all: zero units, no profit figure
+        assert rows[140]["ventas"] == sales(
+            0, 0, 0.0, total_gauss_30d=None, markup_30d=None, total_gauss_sell_30d=None, markup_sell_30d=None
+        )
+
+    def test_without_ganancia_there_is_no_profit_nor_markup_and_no_sell_in_out(
+        self, client, auditor, db, rol_admin, board_calls
+    ) -> None:
+        grant(db, rol_admin, "ml_metricas.ver")
+        body = audit(client, auditor)
+        assert (body["can_see_sales"], body["can_see_margin"]) == (True, False)
+        assert board_calls[0][1] is False
+        assert body["rows"][0]["ventas"] == sales(1, 3, 3500.0)
+
+    def test_without_metricas_there_are_no_sales_and_no_board(self, client, auditor, board_calls) -> None:
+        body = audit(client, auditor)
+        assert (body["can_see_sales"], body["can_see_margin"]) == (False, False)
+        assert board_calls == []
+        assert all(row["ventas"] is None for row in body["rows"])
