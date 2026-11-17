@@ -109,6 +109,8 @@ export default function OperacionesMasivasModal({ operadorId = null, onClose, on
     <ModalTesla
       isOpen
       onClose={onClose}
+      closeOnOverlay={false}
+      closeOnEsc={false}
       title={title}
       footer={footer}
       size="lg"

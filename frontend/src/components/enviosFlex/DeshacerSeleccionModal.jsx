@@ -59,6 +59,8 @@ export default function DeshacerSeleccionModal({ shippingIds, operadorId = null,
     <ModalTesla
       isOpen
       onClose={onClose}
+      closeOnOverlay={false}
+      closeOnEsc={false}
       title={title}
       footer={footer}
       size="md"

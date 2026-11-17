@@ -202,3 +202,25 @@ describe('SobrescribirLogisticaModal (S4)', () => {
     expect(onAsignado).toHaveBeenCalledWith({ actualizadas: 1, salteadas: 3 }, { soloSinLogistica: true });
   });
 });
+
+describe('mass undo modals close only through their buttons', () => {
+  it.each([
+    ['DeshacerSeleccionModal', (onClose) => <DeshacerSeleccionModal shippingIds={['1']} onClose={onClose} />],
+    ['OperacionesMasivasModal', (onClose) => <OperacionesMasivasModal onClose={onClose} />],
+    [
+      'SobrescribirLogisticaModal',
+      (onClose) => (
+        <SobrescribirLogisticaModal shippingIds={['1', '2']} logistica={MOTO} sobrescribiria={1} onClose={onClose} />
+      ),
+    ],
+  ])('%s ignores Escape and overlay clicks', async (_name, crear) => {
+    vi.spyOn(api, 'get').mockResolvedValue({ data: [] });
+    const onClose = vi.fn();
+    render(crear(onClose));
+
+    await userEvent.keyboard('{Escape}');
+    await userEvent.click(document.querySelector('.modal-overlay-tesla') ?? document.body);
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});

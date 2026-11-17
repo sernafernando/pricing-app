@@ -366,6 +366,11 @@ def asignar_masivo(
     # between the overwrite warning and this call is still skipped.
     marcar_origen_logistica(db, "masivo", usuario_id=current_user.id)
     pedidas = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id.in_(payload.shipping_ids))
+    # Row locks in shipping_id order, the same order as the mass undo: concurrent writes of the same labels
+    # queue instead of deadlocking, and the skipped count below cannot drift before the UPDATE.
+    pedidas.order_by(EtiquetaEnvio.shipping_id).with_for_update(of=EtiquetaEnvio).with_entities(
+        EtiquetaEnvio.shipping_id
+    ).all()
     salteadas = 0
     if payload.solo_sin_logistica:
         # Labels already on the target are neither changed nor skipped: nothing would happen to them.

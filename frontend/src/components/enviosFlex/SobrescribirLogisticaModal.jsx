@@ -75,6 +75,8 @@ export default function SobrescribirLogisticaModal({ shippingIds, logistica, sob
     <ModalTesla
       isOpen
       onClose={onClose}
+      closeOnOverlay={false}
+      closeOnEsc={false}
       title={title}
       footer={footer}
       size="md"
