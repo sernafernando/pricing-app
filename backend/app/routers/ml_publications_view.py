@@ -816,6 +816,7 @@ class StockAuditVariantOut(BaseModel):
     moneda_costo: str
     full: StockMoneyOut
     full_unidades_base: int
+    sin_costo: bool = False  # its Full has no cost: its values are unknown (L9)
     publications_count: int
     params: dict[str, str]
     ventas: Optional[StockAuditSalesOut] = None  # null without ml_metricas.ver
@@ -839,6 +840,7 @@ class StockAuditRowOut(BaseModel):
     erp: StockMoneyOut
     full: StockMoneyOut
     total: StockMoneyOut
+    sin_costo: bool = False  # some of its stock (own, or a variant's Full) has no cost: values unknown (L9)
     publications_count: int
     publicacion_activa: bool
     promo_aplicada: Optional[bool] = None  # null when the promotions database could not be read
@@ -858,6 +860,8 @@ class StockAuditKpisOut(BaseModel):
     productos: int
     productos_sin_publicacion_activa: int
     valor_sin_publicacion_activa: StockMoneyOut  # what their stock is worth (ERP + Full)
+    # L9: rows with some stock without cost; the values above add only the stock with a cost
+    productos_sin_costo: int = 0
     productos_con_promo_aplicada: Optional[int] = None  # null when the promotions database could not be read
     productos_sin_promo_aplicada: Optional[int] = None
 

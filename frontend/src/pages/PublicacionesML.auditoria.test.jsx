@@ -10,7 +10,7 @@ import PublicacionesML from './PublicacionesML';
 import { publicacionesMlAPI } from '../services/api';
 import { seedTiendasOficiales, resetTiendasOficiales } from '../test/tiendasOficialesFixtures';
 import { FACETS, ITEMS_RESPONSE, KPIS_RESPONSE } from '../test/visual/publicacionesMlFixtures';
-import { AUDIT_NOTEBOOK_ITEMS, stockAuditResponse } from '../test/visual/stockAuditFixtures';
+import { AUDIT_NOTEBOOK_ITEMS, AUDIT_ORPHAN, stockAuditResponse } from '../test/visual/stockAuditFixtures';
 
 vi.mock('../services/api', () => ({
   default: {
@@ -307,5 +307,71 @@ describe('L6: hideable columns and KPI cards, remembered', () => {
     await user.click(screen.getByRole('checkbox', { name: 'Valor stock ERP' }));
     await waitFor(() => expect(kpis().queryByText('Valor stock ERP')).not.toBeInTheDocument());
     expect(localStorage.getItem('publicaciones-ml.auditoria.kpis-ocultos')).toContain('valor_erp');
+  });
+});
+
+describe('L9: stock without cost', () => {
+  const noCost = {
+    ...AUDIT_ORPHAN,
+    key: 'p9301',
+    product_item_id: 9301,
+    descripcion: 'Mochila Demo sin costo',
+    costo: null,
+    erp: { unidades: 6, usd: null, ars: null },
+    full: { unidades: 0, usd: null, ars: null },
+    total: { unidades: 6, usd: null, ars: null },
+    sin_costo: true,
+  };
+  const withNoCost = (count) => {
+    const body = stockAuditResponse([noCost]);
+    return { ...body, kpis: { ...body.kpis, productos_sin_costo: count } };
+  };
+  const kpis = () => within(screen.getByRole('region', { name: 'Indicadores de la auditoría de stock' }));
+
+  it('its value cells read "—", never 0', async () => {
+    publicacionesMlAPI.stockAudit.mockResolvedValue({ data: withNoCost(1) });
+    const t = await audit();
+    const row = t.getByText('Mochila Demo sin costo').closest('tr');
+    const cells = (key) => row.querySelector(`td[data-column="${key}"]`).textContent;
+    for (const key of ['valor_erp', 'valor_full', 'valor_total']) expect(cells(key)).toBe('—');
+    expect(row.textContent).not.toMatch(/\$ 0\b/);
+  });
+
+  it.each([
+    [1, '1 producto sin costo'],
+    [3, '3 productos sin costo'],
+  ])('with %i the value KPIs say "%s"', async (count, note) => {
+    publicacionesMlAPI.stockAudit.mockResolvedValue({ data: withNoCost(count) });
+    await audit();
+    expect(kpis().getByText(new RegExp(`^${note}`))).toBeInTheDocument();
+  });
+
+  it('with none there is no note', async () => {
+    await audit();
+    expect(kpis().queryByText(/sin costo/)).not.toBeInTheDocument();
+  });
+
+  it('a value the BNA rate cannot reach reads "—" in its KPI', async () => {
+    const body = stockAuditResponse();
+    publicacionesMlAPI.stockAudit.mockResolvedValue({
+      data: { ...body, tipo_cambio: null, kpis: { ...body.kpis, total: { unidades: 184, usd: 24246.9, ars: null } } },
+    });
+    await audit();
+    const total = kpis().getByText('Valor stock total').closest('div');
+    expect(within(total).getByText('—')).toBeInTheDocument();
+  });
+});
+
+describe('L8: the promo KPIs without the promotions database', () => {
+  it('read "—", never 0', async () => {
+    const body = stockAuditResponse();
+    publicacionesMlAPI.stockAudit.mockResolvedValue({
+      data: { ...body, kpis: { ...body.kpis, productos_con_promo_aplicada: null, productos_sin_promo_aplicada: null } },
+    });
+    await audit();
+    const card = within(screen.getByRole('region', { name: 'Indicadores de la auditoría de stock' }))
+      .getByText('Productos con stock')
+      .closest('div');
+    expect(within(card).getAllByText('—')).toHaveLength(2);
   });
 });

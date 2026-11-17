@@ -18,6 +18,9 @@ units. ERP: the base product's own ERP stock; a variant's ERP stock is derived f
 nor added. Full: the units at ML's warehouse of the publications linked to the product, each user product counted
 once (a classic and a premium listing share one); a variant's Full units add to its base's, worth the variant's own
 cost, and in base units (a pack's units times its quantity). The variant row shows its own part.
+Stock without cost is never valued as 0 nor hidden in a partial sum (L9): a row or variant with some stock without
+cost says `sin_costo` and its values read unknown; the KPI totals add the stock with a cost only and count the rows
+left out (`productos_sin_costo`). Without the BNA rate the currency it cannot reach is unknown, in the KPIs too.
 
 The publications are the ones the screen's filter selects (`build_base_select`), linked as the Producto view links
 them (`products.product_pairs`); when the filter asks nothing of the publications, the products with stock and no
@@ -140,26 +143,62 @@ class Rate:
 
 @dataclass
 class Money:
-    """Units and what they are worth; a value is None when no unit has a known cost (never a false 0)."""
+    """Units and what they are worth (L9: never a false 0 nor a partial sum shown as whole). A currency's value is
+    None when no unit has a known value, and also when some units of it are unknown: units of a product without
+    cost (`sin_costo`, both currencies) or a currency the missing BNA rate cannot reach (`usd_unknown` /
+    `ars_unknown`)."""
 
     unidades: int = 0
     usd: Optional[float] = None
     ars: Optional[float] = None
+    sin_costo: bool = False
+    usd_unknown: bool = False
+    ars_unknown: bool = False
 
     def add(self, units: float, usd: Optional[float], ars: Optional[float]) -> None:
+        """Units with the values known for them; a value left None counts nowhere (the KPIs' units-only parts)."""
         self.unidades += int(units)
         if usd is not None:
             self.usd = (self.usd or 0.0) + usd
         if ars is not None:
             self.ars = (self.ars or 0.0) + ars
 
+    def add_part(self, units: float, usd: Optional[float], ars: Optional[float], *, sin_costo: bool) -> None:
+        """A stocked part of a row: without cost, or with a currency the rate cannot reach, its value is unknown."""
+        if units and sin_costo:
+            self.sin_costo = True
+        elif units:
+            self.usd_unknown |= usd is None
+            self.ars_unknown |= ars is None
+        self.add(units, usd, ars)
+
     def plus(self, other: "Money") -> "Money":
-        total = Money(self.unidades, self.usd, self.ars)
+        total = Money(
+            self.unidades,
+            self.usd,
+            self.ars,
+            self.sin_costo or other.sin_costo,
+            self.usd_unknown or other.usd_unknown,
+            self.ars_unknown or other.ars_unknown,
+        )
         total.add(other.unidades, other.usd, other.ars)
         return total
 
+    def known(self) -> "Money":
+        """What the KPI totals add of this part (L9): its units always, its values only when it has a cost (the
+        products without cost are counted apart, `productos_sin_costo`); a currency the rate cannot reach stays
+        unknown."""
+        if self.sin_costo:
+            return Money(self.unidades)
+        return Money(self.unidades, self.usd, self.ars, False, self.usd_unknown, self.ars_unknown)
+
     def out(self) -> dict[str, Any]:
-        return {"unidades": self.unidades, "usd": _round(self.usd), "ars": _round(self.ars)}
+        unknown = self.sin_costo
+        return {
+            "unidades": self.unidades,
+            "usd": None if unknown or self.usd_unknown else _round(self.usd),
+            "ars": None if unknown or self.ars_unknown else _round(self.ars),
+        }
 
 
 def _round(value: Optional[float]) -> Optional[float]:
@@ -301,6 +340,11 @@ class Row:
     @property
     def total(self) -> Money:
         return self.erp.plus(self.full)
+
+    @property
+    def sin_costo(self) -> bool:
+        """Some of its stock (its own ERP or Full, or a variant's Full) has no cost: its values are unknown (L9)."""
+        return self.erp.sin_costo or self.full.sin_costo
 
 
 def read_rate(db: Session) -> Rate:
@@ -465,18 +509,18 @@ def build(db: Session, f: PublicationFilter, rate: Rate) -> Audit:
     for r in rows.values():
         stock = r.product.stock or 0
         if stock > 0:
-            r.erp.add(stock, *value(r.product, stock, rate))
+            r.erp.add_part(stock, *value(r.product, stock, rate), sin_costo=r.product.costo is None)
         own_full = full.get(r.product.item_id, 0)
         if own_full:
-            r.full.add(own_full, *value(r.product, own_full, rate))
+            r.full.add_part(own_full, *value(r.product, own_full, rate), sin_costo=r.product.costo is None)
         for v in r.variants.values():
             units = full.get(v.product.item_id, 0)
             if not units:
                 continue
             usd, ars = value(v.product, units, rate)
-            v.full.add(units, usd, ars)
+            v.full.add_part(units, usd, ars, sin_costo=v.product.costo is None)
             v.full_unidades_base = int(units * v.cantidad)
-            r.full.add(v.full_unidades_base, usd, ars)
+            r.full.add_part(v.full_unidades_base, usd, ars, sin_costo=v.product.costo is None)
 
     with_stock = [r for r in rows.values() if r.erp.unidades > 0 or r.full.unidades > 0]
     return Audit(with_stock, rate, _active(db, {m for r in with_stock for m in r.publications}))
@@ -561,9 +605,9 @@ def _active(db: Session, mlas: set[str]) -> frozenset[str]:
 
 
 SORT_KEYS: dict[str, Callable[[Row], Any]] = {
-    "valor_total": lambda r: r.total.usd or 0.0,
-    "valor_erp": lambda r: r.erp.usd or 0.0,
-    "valor_full": lambda r: r.full.usd or 0.0,
+    "valor_total": lambda r: r.total.out()["usd"],
+    "valor_erp": lambda r: r.erp.out()["usd"],
+    "valor_full": lambda r: r.full.out()["usd"],
     "unidades_total": lambda r: r.total.unidades,
     "unidades_erp": lambda r: r.erp.unidades,
     "unidades_full": lambda r: r.full.unidades,
@@ -590,12 +634,12 @@ def kpis(audit: Audit, started: Optional[frozenset[str]]) -> dict[str, Any]:
     database could not be read."""
     erp, full = Money(), Money()
     for r in audit.rows:
-        erp.add(r.erp.unidades, r.erp.usd, r.erp.ars)
-        full.add(r.full.unidades, r.full.usd, r.full.ars)
+        erp = erp.plus(r.erp.known())
+        full = full.plus(r.full.known())
     without_active = [r for r in audit.rows if not (r.publications & audit.active)]
     sin_activa_valor = Money()
     for r in without_active:
-        sin_activa_valor = sin_activa_valor.plus(r.total)
+        sin_activa_valor = sin_activa_valor.plus(r.erp.known()).plus(r.full.known())
     con_promo = None if started is None else sum(1 for r in audit.rows if r.publications & started)
     return {
         "erp": erp.out(),
@@ -603,6 +647,8 @@ def kpis(audit: Audit, started: Optional[frozenset[str]]) -> dict[str, Any]:
         "total": erp.plus(full).out(),
         "productos": len(audit.rows),
         "productos_sin_publicacion_activa": len(without_active),
+        # L9: the rows with some stock without cost; the values above leave that stock out (its units stay in).
+        "productos_sin_costo": sum(1 for r in audit.rows if r.sin_costo),
         "valor_sin_publicacion_activa": sin_activa_valor.out(),
         "productos_con_promo_aplicada": con_promo,
         "productos_sin_promo_aplicada": None if con_promo is None else len(audit.rows) - con_promo,
@@ -632,6 +678,7 @@ def row_out(
         "erp": r.erp.out(),
         "full": r.full.out(),
         "total": r.total.out(),
+        "sin_costo": r.sin_costo,
         "publications_count": len(r.own_publications),
         "publicacion_activa": bool(r.publications & active),
         "promo_aplicada": None if started is None else bool(r.publications & started),
@@ -651,6 +698,7 @@ def row_out(
                 "moneda_costo": v.product.moneda,
                 "full": v.full.out(),
                 "full_unidades_base": v.full_unidades_base,
+                "sin_costo": v.full.sin_costo,
                 "publications_count": len(v.publications),
                 "params": {"producto": str(v.product.item_id)},
                 "ventas": v.sales.out(with_margin) if with_sales else None,

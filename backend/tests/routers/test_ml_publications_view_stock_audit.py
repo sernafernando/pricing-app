@@ -510,3 +510,86 @@ class TestStockAuditMock:
             grant(db, rol_admin, *permisos)
         response = client.get(URL, headers=auditor, params={"orden": orden})
         assert response.status_code == 403
+
+
+def fill_without_cost(conn, *, rate: bool = True) -> None:
+    """The world above, plus 160 (no cost, ERP 4) and notebook 170 (USD 100, ERP 2) whose variant 171 = 170 + RAM 102
+    has no cost and Full 1 through MLA70; `rate=False` drops the BNA rate."""
+    fill(conn)
+    if not rate:
+        conn.execute(text("DELETE FROM tipo_cambio"))
+    product(conn, 160, 1, "USD", 4, 60)
+    seed.add_cost(conn, 160, None, moneda_costo="USD")
+    product(conn, 170, 100, "USD", 2, 46, 3819)
+    product(conn, 171, 1, "USD", 0, 46, 3819)
+    seed.add_cost(conn, 171, None, moneda_costo="USD")
+    combo(conn, 171, (170, 1), (102, 1))
+    publication(conn, "MLA70", 171, "UP70")
+    seed.add_stock(conn, "UP70", full=1, own=0)
+
+
+@pytest.fixture()
+def auditor_without_cost(client, pg, db, rol_admin, admin_auth_headers, started):
+    seed_rows(pg, fill_without_cost)
+    grant(db, rol_admin, PERMISO)
+    return admin_auth_headers
+
+
+@pytest.fixture()
+def auditor_without_rate(client, pg, db, rol_admin, admin_auth_headers, started):
+    seed_rows(pg, lambda conn: fill_without_cost(conn, rate=False))
+    grant(db, rol_admin, PERMISO)
+    return admin_auth_headers
+
+
+@pytest.mark.postgres
+class TestStockWithoutCost:
+    """L9: a stocked part without cost is never valued as 0 nor hidden in a partial sum: its value is unknown, its row
+    says `sin_costo`, the KPI totals add only the parts with a cost and count the products left out."""
+
+    def rows(self, client, headers) -> dict[int, dict]:
+        return {row["product_item_id"]: row for row in audit(client, headers)["rows"]}
+
+    def test_a_product_without_cost_has_unknown_values_and_is_flagged(self, client, auditor_without_cost) -> None:
+        row = self.rows(client, auditor_without_cost)[160]
+        assert (row["erp"], row["total"]) == (money(4, None, None), money(4, None, None))
+        assert row["sin_costo"] is True
+
+    def test_a_variant_without_cost_leaves_its_base_full_unknown_not_partial(
+        self, client, auditor_without_cost
+    ) -> None:
+        row = self.rows(client, auditor_without_cost)[170]
+        assert row["erp"] == money(2, 200.0, 200_000.0)
+        assert row["full"] == money(1, None, None)
+        assert row["total"] == money(3, None, None)
+        assert row["sin_costo"] is True
+        [variant] = row["variantes"]
+        assert (variant["full"], variant["sin_costo"]) == (money(1, None, None), True)
+
+    def test_rows_with_every_cost_are_not_flagged(self, client, auditor_without_cost) -> None:
+        rows = self.rows(client, auditor_without_cost)
+        assert rows[100]["sin_costo"] is False
+        assert all(v["sin_costo"] is False for v in rows[100]["variantes"])
+
+    def test_the_kpis_add_only_the_parts_with_a_cost_and_count_the_rest(self, client, auditor_without_cost) -> None:
+        kpis = audit(client, auditor_without_cost)["kpis"]
+        # The world's 5520 / 3160 plus notebook 170's ERP 200; 160's ERP and 171's Full count as units only.
+        assert kpis["erp"] == money(114, 5720.0, 5_720_000.0)
+        assert kpis["full"] == money(34, 3160.0, 3_160_000.0)
+        assert kpis["total"] == money(148, 8880.0, 8_880_000.0)
+        assert kpis["productos_sin_costo"] == 2
+
+    def test_without_cost_problems_the_count_is_zero(self, client, auditor) -> None:
+        assert audit(client, auditor)["kpis"]["productos_sin_costo"] == 0
+
+    def test_without_the_bna_rate_the_other_currency_is_unknown_never_partial(
+        self, client, auditor_without_rate
+    ) -> None:
+        body = audit(client, auditor_without_rate)
+        rows = {row["product_item_id"]: row for row in body["rows"]}
+        assert rows[100]["erp"] == money(5, 5000.0, None)
+        assert rows[130]["erp"] == money(1, None, 300_000.0)
+        assert rows[100]["sin_costo"] is False
+        kpis = body["kpis"]
+        assert (kpis["erp"]["usd"], kpis["erp"]["ars"]) == (None, None)  # USD and ARS costs mixed, no rate
+        assert kpis["total"]["unidades"] == 148

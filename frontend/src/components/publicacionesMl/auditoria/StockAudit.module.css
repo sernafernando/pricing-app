@@ -116,6 +116,16 @@
   font-weight: var(--font-semibold);
 }
 
+/* "N productos sin costo" under the value cards (L9): the totals leave that stock out, visibly. */
+.kpiNote {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: calc(var(--space-1) * -1) 0 0;
+  font-size: var(--font-xs);
+  color: var(--tone-warning-fg);
+}
+
 .error {
   display: flex;
   align-items: center;

@@ -1,3 +1,4 @@
+import { TriangleAlert } from 'lucide-react';
 import { formatUnits } from '../../../utils/metricasMlFormat';
 import styles from './StockAudit.module.css';
 
@@ -53,6 +54,8 @@ export default function StockAuditKpis({ audit, isVisible }) {
   if (!data) return null;
   const { kpis } = data;
   const sinActiva = kpis.valor_sin_publicacion_activa ?? {};
+  // L9: rows with stock without cost; the backend leaves their stock out of the values, the note says so.
+  const sinCosto = kpis.productos_sin_costo ?? 0;
   const top = [
     isVisible('valor_erp') && <ValueCard key="valor_erp" label="Valor stock ERP" money={kpis.erp} />,
     isVisible('valor_full') && <ValueCard key="valor_full" label="Valor stock Full" money={kpis.full} />,
@@ -98,6 +101,12 @@ export default function StockAuditKpis({ audit, isVisible }) {
   return (
     <section className={styles.kpis} aria-label="Indicadores de la auditoría de stock">
       {top.length > 0 && <div className={styles.kpiRow}>{top}</div>}
+      {top.length > 0 && sinCosto > 0 && (
+        <p className={styles.kpiNote}>
+          <TriangleAlert size={12} aria-hidden="true" />
+          {formatUnits(sinCosto)} {sinCosto === 1 ? 'producto' : 'productos'} sin costo: su stock no suma a estos valores
+        </p>
+      )}
       {bottom.length > 0 && <div className={styles.kpiRow}>{bottom}</div>}
     </section>
   );
