@@ -20,19 +20,23 @@ Rules (spec vpf-pdf-metricas, T1):
 
 from __future__ import annotations
 
+import dataclasses
 import re
 
+from collections import Counter
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Optional
+from typing import Iterable, Optional, Union
 
-from sqlalchemy import String, and_, delete, func, literal, or_, select, text, tuple_
+from sqlalchemy import String, and_, cast, delete, exists, func, literal, or_, select, text, tuple_
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.marca_pm import MarcaPM
 from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
+from app.models.vendedor_excluido import VendedorExcluido
 from app.models.venta_fuera_pdf import (
     VentaFueraOperacion,
     VentaFueraOperacionLinea,
@@ -40,13 +44,20 @@ from app.models.venta_fuera_pdf import (
     VentaFueraPdfCarga,
     VentaFueraPdfResumenDocumento,
 )
-from app.services.ventas_fuera_pdf.parser import ReporteDetallado, ReporteResumen, nombre_comprobante
+from app.services.ventas_fuera_pdf.parser import (
+    DocumentoDetallado,
+    DocumentoResumen,
+    ReporteDetallado,
+    ReporteResumen,
+    nombre_comprobante,
+)
 
 CONDICION_CHEQUE = "CHEQUE"
 # GBP's financing surcharge on "CHEQUE 30 D" documents, and how far (in pesos) a surcharge may be from it.
 RECARGO_CHEQUE = Decimal("0.04")
 TOLERANCIA_RECARGO = Decimal("0.05")
 CERO = Decimal("0")
+CENTAVO = Decimal("0.01")
 
 
 class CargaInvalida(ValueError):
@@ -70,6 +81,15 @@ class ResultadoCarga:
     falta_resumen: bool
     faltantes: list[dict] = field(default_factory=list)
     avisos: list[str] = field(default_factory=list)
+    # The upload's structured result (vpf-metricas-canal-fe C1), also kept on the upload row for the history (C2).
+    created_at: Optional[datetime] = None
+    usuario: Optional[str] = None
+    vendedores: list[str] = field(default_factory=list)
+    unidades: Decimal = Decimal("0")
+    documentos_por_tipo: list[dict] = field(default_factory=list)
+    sin_producto: dict = field(default_factory=dict)
+    reemplazo: dict = field(default_factory=dict)
+    control: dict = field(default_factory=dict)
 
 
 def _validar_par(detallada: ReporteDetallado, resumen: ReporteResumen) -> None:
@@ -100,13 +120,16 @@ def _es_vendedor(nombre: str):
     )
 
 
-def _alcance(detallada: ReporteDetallado):
-    """The operations this PDF replaces: its company and range, and its salesperson unless the PDF says "Todos"."""
+def _alcance(detallada: ReporteDetallado, elegidos: Optional[list[str]] = None):
+    """The operations this PDF replaces: its company and range, and its salesperson unless the PDF says "Todos".
+    `elegidos` (owner L22: only some salespeople of the PDF imported): only those salespeople's."""
     condiciones = [
         VentaFueraOperacion.empresa == detallada.empresa,
         VentaFueraOperacion.fecha.between(detallada.desde, detallada.hasta),
     ]
-    if detallada.vendedor is not None:
+    if elegidos is not None:
+        condiciones.append(or_(*(_es_vendedor(nombre) for nombre in elegidos)))
+    elif detallada.vendedor is not None:
         condiciones.append(_es_vendedor(detallada.vendedor))
     return and_(*condiciones)
 
@@ -158,10 +181,13 @@ def _guardar_resumen(db: Session, alcance: VentaFueraPdfAlcance, resumen: Report
     alcance.resumen_con_impuestos = resumen.con_impuestos
 
 
-def _crear_operaciones(db: Session, detallada: ReporteDetallado, carga_id: int) -> tuple[int, dict[int, int]]:
+def _crear_operaciones(
+    db: Session, detallada: ReporteDetallado, carga_id: int, elegidos: Optional[list[str]] = None
+) -> tuple[int, dict[int, int], dict[str, int]]:
     """Replace the operations of the PDF's scope (and any of its documents loaded under another scope) with the
-    PDF's documents. Returns how many stored operations were replaced, and how many of them each earlier upload
-    (`carga_id`) lost."""
+    PDF's documents. Returns how many stored operations were replaced, how many of them each earlier upload
+    (`carga_id`) lost, and `{"nuevos", "anulados"}` (C5): the PDF's documents not stored before, and the replaced
+    ones the PDF no longer has (GBP voided them)."""
     claves = [doc.clave for doc in detallada.documentos]
     mismo_doc = and_(
         VentaFueraOperacion.empresa == detallada.empresa,
@@ -172,15 +198,30 @@ def _crear_operaciones(db: Session, detallada: ReporteDetallado, carga_id: int) 
             VentaFueraOperacion.numero,
         ).in_(claves),
     )
-    reemplazo = or_(_alcance(detallada), mismo_doc)
+    reemplazo = or_(_alcance(detallada, elegidos), mismo_doc)
     perdidas = dict(
         db.execute(
             select(VentaFueraOperacion.carga_id, func.count()).where(reemplazo).group_by(VentaFueraOperacion.carga_id)
         ).all()
     )
+    previas = {
+        tuple(clave)
+        for clave in db.execute(
+            select(
+                VentaFueraOperacion.tipo,
+                VentaFueraOperacion.letra,
+                VentaFueraOperacion.punto_venta,
+                VentaFueraOperacion.numero,
+            ).where(reemplazo)
+        ).all()
+    }
+    nuevas = set(claves)
+    cambios = {"nuevos": len(nuevas - previas), "anulados": len(previas - nuevas)}
     reemplazados = db.execute(
         delete(VentaFueraOperacion).where(reemplazo), execution_options={"synchronize_session": False}
     ).rowcount
+    # The product of each code, for offsets and sell in / sell out (VPF T4); NULL "sin producto".
+    productos = productos_por_codigo(db, {ln.codigo for doc in detallada.documentos for ln in doc.lineas if ln.codigo})
     for doc in detallada.documentos:
         db.add(
             VentaFueraOperacion(
@@ -208,13 +249,14 @@ def _crear_operaciones(db: Session, detallada: ReporteDetallado, carga_id: int) 
                         precio=linea.precio,
                         precio_costo=linea.precio_costo,
                         precio_costo_pp=linea.precio_costo_pp,
+                        item_id=productos[linea.codigo].item_id if linea.codigo in productos else None,
                     )
                     for i, linea in enumerate(doc.lineas, start=1)
                 ],
             )
         )
     db.flush()
-    return reemplazados, perdidas
+    return reemplazados, perdidas, cambios
 
 
 REPORTE = {"detallada": "reporte detallado", "resumen": "reporte de ventas (resumen)"}
@@ -226,6 +268,16 @@ def _mismo_vendedor(a: str, b: str) -> bool:
         return True
     corto, largo = sorted((a, b), key=len)
     return len(corto) >= LARGO_VENDEDOR_IMPRESO and largo.startswith(corto)
+
+
+def _mismo_vendedor_sql(guardado, nombre: str):
+    """`_mismo_vendedor` in SQL, for a stored name column: equal, or one is the other as GBP cuts it on documents."""
+    buscado = literal(nombre, String)
+    return or_(
+        guardado == nombre,
+        and_(func.char_length(guardado) >= LARGO_VENDEDOR_IMPRESO, func.strpos(buscado, guardado) == 1),
+        and_(func.char_length(buscado) >= LARGO_VENDEDOR_IMPRESO, func.strpos(guardado, buscado) == 1),
+    )
 
 
 def _cubre(otro: VentaFueraPdfAlcance, vendedor: Optional[str]) -> bool:
@@ -325,6 +377,11 @@ def _cruzar(
                 .order_by(VentaFueraOperacion.id)
             ).scalars()
         )
+        carga = db.get(VentaFueraPdfCarga, alcance.detallada_carga_id)
+        if alcance.vendedor is not None and carga is not None and carga.vendedor is None:
+            # A "Todos" PDF imported for some salespeople only (L22) has one scope per chosen salesperson, all of
+            # them on the same upload: each scope is its own salesperson's documents.
+            propias = [op for op in propias if _mismo_vendedor(alcance.vendedor, op.vendedor)]
     resumen_propio = list(alcance.documentos_resumen) if alcance.resumen_carga_id is not None else []
 
     # The control of a document is its row in a summary of the company; the latest summary wins.
@@ -446,11 +503,15 @@ def _reemplazo(
 
 
 def _refrescar(
-    db: Session, alcance: VentaFueraPdfAlcance, perdidas: dict[int, int], cabecera: ReporteDetallado | ReporteResumen
-) -> tuple[list[str], list[VentaFueraOperacion]]:
+    db: Session,
+    propios: list[VentaFueraPdfAlcance],
+    perdidas: dict[int, int],
+    cabecera: ReporteDetallado | ReporteResumen,
+) -> dict[int, tuple[list[str], list[VentaFueraOperacion]]]:
     """Cross-check again every scope of the company this upload may change: the ones overlapping its range (their
     coverage changes) and the ones whose operations it replaced, which say how many documents a later upload
-    replaced so they no longer look complete. Returns the uploaded scope's warnings and operations."""
+    replaced so they no longer look complete. Returns the warnings and operations of each uploaded scope
+    (`propios`: one, or one per chosen salesperson of a "Todos" PDF), by scope id."""
 
     def del_periodo_de(a: VentaFueraPdfAlcance) -> list[VentaFueraPdfAlcance]:
         consulta = select(VentaFueraPdfAlcance).where(
@@ -460,7 +521,8 @@ def _refrescar(
         )
         return list(db.execute(consulta).scalars())
 
-    afectados = {a.id: a for a in del_periodo_de(alcance)}
+    afectados = {a.id: a for alcance in propios for a in del_periodo_de(alcance)}
+    ids_propios = [a.id for a in propios]
     if perdidas:
         afectados.update(
             (a.id, a)
@@ -468,16 +530,211 @@ def _refrescar(
                 select(VentaFueraPdfAlcance).where(VentaFueraPdfAlcance.detallada_carga_id.in_(list(perdidas)))
             ).scalars()
         )
-    resultado: tuple[list[str], list[VentaFueraOperacion]] = ([], [])
-    for otro in sorted(afectados.values(), key=lambda a: a.id != alcance.id):
+    resultado: dict[int, tuple[list[str], list[VentaFueraOperacion]]] = {}
+    for otro in sorted(afectados.values(), key=lambda a: (a.id not in ids_propios, a.id)):
         avisos, operaciones = _cruzar(db, otro, del_periodo_de(otro))
-        if otro.id != alcance.id and otro.detallada_carga_id is not None:
+        if otro.id not in ids_propios and otro.detallada_carga_id is not None:
             reemplazo = _reemplazo(db, otro, perdidas, cabecera)
             avisos = [reemplazo, *avisos] if reemplazo else avisos
         otro.avisos = avisos
-        if otro.id == alcance.id:
-            resultado = (avisos, operaciones)
+        if otro.id in ids_propios:
+            resultado[otro.id] = (avisos, operaciones)
     return resultado
+
+
+# ── The salespeople of a report (owner L22: "Al cargar el pdf leerlo y seleccionar que vendedores se van a importar")
+
+Documento = Union[DocumentoDetallado, DocumentoResumen]
+
+
+def normalizar_nombre(nombre: Optional[str]) -> str:
+    """A salesperson's name for comparing: case-insensitive, spaces collapsed and trimmed."""
+    return " ".join((nombre or "").split()).casefold()
+
+
+def es_excluido(nombre: str, excluidos: Iterable[Optional[str]]) -> bool:
+    """Whether the salesperson `nombre` of a PDF is in the excluded list (`vendedores_excluidos.sm_name`, e.g. "Vendedor
+    ML"): THE matching rule of the upload preview. Both names are compared case-insensitively with their spaces
+    collapsed and trimmed (`normalizar_nombre`); they match when equal, or when one is the other as GBP cuts it on
+    documents (its first `LARGO_VENDEDOR_IMPRESO` characters or more, `_mismo_vendedor`). An empty excluded name
+    matches nothing."""
+    propio = normalizar_nombre(nombre)
+    return any(bool(otro) and _mismo_vendedor(propio, otro) for otro in (normalizar_nombre(e) for e in excluidos))
+
+
+def nombres_excluidos(db: Session) -> list[str]:
+    """The excluded salespeople's names (`vendedores_excluidos.sm_name`)."""
+    return [n for n in db.execute(select(VendedorExcluido.sm_name)).scalars() if n]
+
+
+def _nombre_de(documento: Documento, cabecera: Optional[str]) -> str:
+    """The name a document's salesperson is listed and chosen by: as printed on the document, or the report header's
+    full name when the header names one salesperson and the document carries it cut by GBP."""
+    if cabecera is not None and _mismo_vendedor(cabecera, documento.vendedor):
+        return cabecera
+    return documento.vendedor
+
+
+def _por_vendedor(reporte: ReporteDetallado | ReporteResumen) -> dict[str, list[Documento]]:
+    grupos: dict[str, list[Documento]] = {}
+    for documento in reporte.documentos:
+        grupos.setdefault(_nombre_de(documento, reporte.vendedor), []).append(documento)
+    return grupos
+
+
+@dataclass
+class VendedorEncontrado:
+    vendedor: str
+    documentos: int
+    # The sum of its documents' lines (without VAT); of their summary Importe when only the summary was uploaded.
+    total_lineas: Decimal
+    excluido: bool
+
+
+@dataclass
+class Previsualizacion:
+    empresa: str
+    desde: date
+    hasta: date
+    vendedor_filtro: Optional[str]
+    vendedores: list[VendedorEncontrado]
+
+
+def previsualizar(
+    db: Session, detallada: Optional[ReporteDetallado], resumen: Optional[ReporteResumen]
+) -> Previsualizacion:
+    """Step 1 of the upload (L22): the salespeople the reports hold, with their documents and amount, most sold first;
+    the excluded ones are marked so the screen leaves them unticked. Same checks as `cargar`; stores nothing."""
+    if detallada is None and resumen is None:
+        raise CargaInvalida("Subí el reporte detallado, el reporte de ventas o los dos.")
+    if detallada is not None and resumen is not None:
+        _validar_par(detallada, resumen)
+    fuente = detallada if detallada is not None else resumen
+    excluidos = nombres_excluidos(db)
+    vendedores = [
+        VendedorEncontrado(
+            vendedor=nombre,
+            documentos=len(docs),
+            total_lineas=sum((d.total_lineas if isinstance(d, DocumentoDetallado) else d.importe for d in docs), CERO),
+            excluido=es_excluido(nombre, excluidos),
+        )
+        for nombre, docs in _por_vendedor(fuente).items()
+    ]
+    vendedores.sort(key=lambda v: (-v.total_lineas, v.vendedor))
+    return Previsualizacion(fuente.empresa, fuente.desde, fuente.hasta, fuente.vendedor, vendedores)
+
+
+def _elegir(
+    detallada: Optional[ReporteDetallado], resumen: Optional[ReporteResumen], elegidos: Optional[list[str]]
+) -> tuple[Optional[ReporteDetallado], Optional[ReporteResumen], list[str], bool]:
+    """The reports narrowed to the chosen salespeople: `(detallada, resumen, imported names, only some of them)`.
+    `elegidos` None imports every salesperson, as before L22. An empty choice or a name the report does not hold is
+    refused."""
+    fuente = detallada if detallada is not None else resumen
+    todos = list(_por_vendedor(fuente))
+    if elegidos is None:
+        return detallada, resumen, todos, False
+    if not elegidos:
+        raise CargaInvalida("Elegí al menos un vendedor para importar.")
+    desconocidos = [n for n in elegidos if n not in todos]
+    if desconocidos:
+        raise CargaInvalida(f"El PDF no tiene comprobantes de: {', '.join(desconocidos)}.")
+    elegidos = [n for n in todos if n in set(elegidos)]
+    if len(elegidos) == len(todos):
+        return detallada, resumen, todos, False
+
+    def de_elegidos(reporte):
+        if reporte is None:
+            return None
+        docs = [
+            d
+            for d in reporte.documentos
+            if _nombre_de(d, reporte.vendedor) in elegidos or any(_mismo_vendedor(n, d.vendedor) for n in elegidos)
+        ]
+        return dataclasses.replace(reporte, documentos=docs)
+
+    return de_elegidos(detallada), de_elegidos(resumen), elegidos, True
+
+
+# ── The structured result (vpf-metricas-canal-fe C1)
+
+EN_RESUMEN_NO_EN_DETALLE = "está en el reporte de ventas pero no en el detallado."
+EN_DETALLE_NO_EN_RESUMEN = "está en el detallado pero no en el reporte de ventas."
+
+
+def _sin_producto(db: Session, detallada: Optional[ReporteDetallado]) -> dict:
+    """The imported lines whose code is not in productos_erp, or without code (S7: "sin producto"), by code (or by
+    article text when there is none): their count and amount (line `precio`, without VAT, as in the PDF)."""
+    lineas = [ln for doc in (detallada.documentos if detallada else []) for ln in doc.lineas]
+    conocidos = productos_por_codigo(db, {ln.codigo for ln in lineas if ln.codigo})
+    articulos: dict[tuple, dict] = {}
+    for ln in lineas:
+        if ln.codigo and ln.codigo in conocidos:
+            continue
+        clave = (ln.codigo, None) if ln.codigo else (None, ln.articulo)
+        item = articulos.setdefault(clave, {"articulo": ln.articulo, "codigo": ln.codigo, "lineas": 0, "monto": CERO})
+        item["lineas"] += 1
+        item["monto"] += ln.precio
+    lista = sorted(articulos.values(), key=lambda a: (-a["monto"], a["articulo"]))
+    return {
+        "lineas": sum(a["lineas"] for a in lista),
+        "monto": sum((a["monto"] for a in lista), CERO),
+        "articulos": lista,
+    }
+
+
+def _control(
+    resumen: Optional[ReporteResumen], operaciones: list[VentaFueraOperacion], avisos: list[str], total: Decimal
+) -> dict:
+    """The summary cross-check of the upload: whether a summary controls it, whether every document is in both
+    reports, the summary's total against the lines' and the cheque documents with their surcharge."""
+    controladas = [op.importe_resumen for op in operaciones if op.importe_resumen is not None]
+    hay_resumen = resumen is not None or bool(controladas)
+    if controladas:
+        total_resumen: Optional[Decimal] = sum(controladas, CERO)
+    elif resumen is not None:
+        total_resumen = sum((d.importe for d in resumen.documentos), CERO)
+    else:
+        total_resumen = None
+    sin_par = any(a.endswith((EN_RESUMEN_NO_EN_DETALLE, EN_DETALLE_NO_EN_RESUMEN)) for a in avisos)
+    return {
+        "resumen": hay_resumen,
+        "documentos_coinciden": (not sin_par) if hay_resumen else None,
+        "total_resumen": total_resumen,
+        "total_lineas": total,
+        "diferencia": total_resumen - total if total_resumen is not None and operaciones else None,
+        "cheques": [
+            {
+                "tipo": op.tipo,
+                "letra": op.letra,
+                "punto_venta": op.punto_venta,
+                "numero": op.numero,
+                "cliente": op.cliente,
+                "recargo": op.recargo_financiero,
+            }
+            for op in sorted(operaciones, key=lambda o: (o.tipo, o.letra, o.punto_venta, o.numero))
+            if op.recargo_financiero
+        ],
+    }
+
+
+def estado_control(falta_detallada: bool, control: dict, avisos: list[str]) -> str:
+    """The upload's control status in the history: "sin_detallada" while no detailed report covers it, "sin_resumen"
+    while no summary controls it, "avisos" with any warning, else "ok"."""
+    if falta_detallada:
+        return "sin_detallada"
+    if not control["resumen"]:
+        return "sin_resumen"
+    return "avisos" if avisos else "ok"
+
+
+def _json(valor):
+    """A result dict as the JSON column keeps it (amounts as strings, exact)."""
+    if isinstance(valor, dict):
+        return {k: _json(v) for k, v in valor.items()}
+    if isinstance(valor, list):
+        return [_json(v) for v in valor]
+    return str(valor) if isinstance(valor, Decimal) else valor
 
 
 def cargar(
@@ -487,14 +744,21 @@ def cargar(
     archivo_detallado: Optional[str],
     archivo_resumen: Optional[str],
     usuario_id: Optional[int],
+    vendedores: Optional[list[str]] = None,
 ) -> ResultadoCarga:
     """Load one or both reports of a scope (company + salesperson + range). The detailed report replaces the scope's
     operations; the summary is kept as the scope's control. Either one pairs with the other report uploaded before
-    for the same scope, and the cross-check runs again over the pair. Commits."""
+    for the same scope, and the cross-check runs again over the pair. Commits.
+
+    `vendedores` (owner L22): the salespeople of the PDF to import; None imports all of them, as before. When only
+    some of a "Todos" PDF's salespeople are chosen, only their documents are stored and replaced (company + chosen
+    salespeople + range) and the upload gets one scope per chosen salesperson instead of the "Todos" scope, so it
+    never claims coverage (L8/L11) for the salespeople left out."""
     if detallada is None and resumen is None:
         raise CargaInvalida("Subí el reporte detallado, el reporte de ventas o los dos.")
     if detallada is not None and resumen is not None:
         _validar_par(detallada, resumen)
+    detallada, resumen, importados, algunos = _elegir(detallada, resumen, vendedores)
     cabecera = detallada if detallada is not None else resumen
 
     # Two uploads of one company must not interleave their delete and insert.
@@ -516,35 +780,169 @@ def cargar(
     )
     db.add(carga)
     db.flush()
-    alcance = _alcance_de(db, cabecera.empresa, cabecera.vendedor, cabecera.desde, cabecera.hasta)
+    alcances = [
+        _alcance_de(db, cabecera.empresa, vendedor, cabecera.desde, cabecera.hasta)
+        for vendedor in (importados if algunos else [cabecera.vendedor])
+    ]
     if resumen is not None:
-        _guardar_resumen(db, alcance, resumen, carga.id)
+        for alcance in alcances:
+            propio = resumen
+            if algunos:
+                propio = dataclasses.replace(
+                    resumen,
+                    documentos=[
+                        d
+                        for d in resumen.documentos
+                        if _mismo_vendedor(alcance.vendedor, d.vendedor)
+                        or _nombre_de(d, resumen.vendedor) == alcance.vendedor
+                    ],
+                )
+            _guardar_resumen(db, alcance, propio, carga.id)
     perdidas: dict[int, int] = {}
+    cambios = {"nuevos": 0, "anulados": 0}
     if detallada is not None:
-        carga.reemplazados, perdidas = _crear_operaciones(db, detallada, carga.id)
-        alcance.detallada_carga_id = carga.id
+        carga.reemplazados, perdidas, cambios = _crear_operaciones(
+            db, detallada, carga.id, importados if algunos else None
+        )
+        for alcance in alcances:
+            alcance.detallada_carga_id = carga.id
     db.flush()
 
-    avisos, operaciones = _refrescar(db, alcance, perdidas, cabecera)
+    por_alcance = _refrescar(db, alcances, perdidas, cabecera)
+    avisos: list[str] = []
+    operaciones: dict[int, VentaFueraOperacion] = {}
+    for alcance in alcances:
+        propios, ops = por_alcance.get(alcance.id, ([], []))
+        avisos += [a for a in propios if a not in avisos]
+        operaciones.update((op.id, op) for op in ops)
+    ops = list(operaciones.values())
+    faltantes = [f for alcance in alcances for f in alcance.faltantes]
+    falta_detallada = any(a.falta_detallada for a in alcances)
+    # Amounts to the cent, as the stored columns read them back.
+    total_lineas = sum((op.total_lineas for op in ops), CERO).quantize(CENTAVO)
+    recargo = sum((op.recargo_financiero for op in ops), CERO).quantize(CENTAVO)
+    sin_producto = _sin_producto(db, detallada)
+    control = _control(resumen, ops, avisos, total_lineas)
+    documentos = detallada.documentos if detallada is not None else []
+    por_tipo = Counter((doc.tipo, doc.letra) for doc in documentos)
+    anteriores = [c for c in perdidas if c != carga.id]
+    carga_anterior_at = (
+        db.execute(
+            select(func.max(VentaFueraPdfCarga.created_at)).where(VentaFueraPdfCarga.id.in_(anteriores))
+        ).scalar_one()
+        if anteriores
+        else None
+    )
+
     carga.avisos = list(avisos)
+    carga.vendedores = importados
+    carga.lineas = sum(len(doc.lineas) for doc in documentos)
+    carga.unidades = sum((ln.cantidad for doc in documentos for ln in doc.lineas), CERO)
+    carga.total_lineas = total_lineas
+    carga.recargo_financiero = recargo
+    carga.sin_producto_lineas = sin_producto["lineas"]
+    carga.sin_producto_monto = sin_producto["monto"]
+    carga.documentos_por_tipo = [
+        {"tipo": tipo, "letra": letra, "cantidad": n} for (tipo, letra), n in sorted(por_tipo.items())
+    ]
+    carga.carga_anterior_at = carga_anterior_at
+    carga.control = _json(control)
+    carga.control_estado = estado_control(falta_detallada, control, avisos)
     db.commit()
+    usuario = (
+        db.execute(select(Usuario.nombre).where(Usuario.id == usuario_id)).scalar_one_or_none()
+        if usuario_id is not None
+        else None
+    )
     return ResultadoCarga(
         carga_id=carga.id,
-        alcance_id=alcance.id,
+        alcance_id=alcances[0].id,
         empresa=cabecera.empresa,
         vendedor=cabecera.vendedor,
         desde=cabecera.desde,
         hasta=cabecera.hasta,
         documentos=carga.documentos,
-        lineas=sum(len(doc.lineas) for doc in detallada.documentos) if detallada is not None else 0,
+        lineas=carga.lineas,
         reemplazados=carga.reemplazados,
-        total_lineas=sum((op.total_lineas for op in operaciones), CERO),
-        recargo_financiero=sum((op.recargo_financiero for op in operaciones), CERO),
-        falta_detallada=alcance.falta_detallada,
-        falta_resumen=alcance.falta_resumen,
-        faltantes=list(alcance.faltantes),
+        total_lineas=total_lineas,
+        recargo_financiero=recargo,
+        falta_detallada=falta_detallada,
+        falta_resumen=any(a.falta_resumen for a in alcances),
+        faltantes=faltantes,
         avisos=avisos,
+        created_at=carga.created_at,
+        usuario=usuario,
+        vendedores=importados,
+        unidades=carga.unidades,
+        documentos_por_tipo=list(carga.documentos_por_tipo),
+        sin_producto=sin_producto,
+        reemplazo={"documentos": carga.reemplazados, "carga_anterior_at": carga_anterior_at, **cambios},
+        control=control,
     )
+
+
+# ── The upload history (vpf-metricas-canal-fe C2)
+
+
+@dataclass
+class CargaHistorial:
+    carga: VentaFueraPdfCarga
+    usuario: Optional[str]
+    vigente: bool
+
+    @property
+    def control(self) -> str:
+        """The stored status; for an upload made before it was stored, what its files and warnings say."""
+        c = self.carga
+        if c.control_estado:
+            return c.control_estado
+        if c.archivo_detallado is None:
+            return "sin_detallada"
+        if c.archivo_resumen is None:
+            return "sin_resumen"
+        return "avisos" if c.avisos else "ok"
+
+
+def listar_cargas(
+    db: Session,
+    empresa: Optional[str] = None,
+    vendedor: Optional[str] = None,
+    dias: int = 90,
+    limite: int = 50,
+    desplazamiento: int = 0,
+) -> list[CargaHistorial]:
+    """The uploads of the last `dias` days, newest first, with who uploaded them and whether they still hold: an
+    upload with documents is "vigente" while any of its operations remains (a later upload replaced them all
+    otherwise); one without (a summary alone, an empty report) while it is still a scope's last report of its kind.
+    `vendedor` matches the PDF's salesperson filter or one of the salespeople imported, also when one of the two
+    is the name as GBP cuts it on documents."""
+    C = VentaFueraPdfCarga
+    con_operaciones = exists().where(VentaFueraOperacion.carga_id == C.id)
+    de_un_alcance = exists().where(
+        or_(VentaFueraPdfAlcance.detallada_carga_id == C.id, VentaFueraPdfAlcance.resumen_carga_id == C.id)
+    )
+    vigente = or_(and_(C.documentos > 0, con_operaciones), and_(C.documentos == 0, de_un_alcance))
+    consulta = (
+        select(C, Usuario.nombre, vigente.label("vigente"))
+        .outerjoin(Usuario, Usuario.id == C.usuario_id)
+        .where(C.created_at >= func.now() - timedelta(days=dias))
+        .order_by(C.created_at.desc(), C.id.desc())
+        .limit(limite)
+        .offset(desplazamiento)
+    )
+    if empresa:
+        consulta = consulta.where(C.empresa == empresa)
+    if vendedor:
+        importado = func.jsonb_array_elements_text(cast(C.vendedores, JSONB)).table_valued("value").alias("importado")
+        consulta = consulta.where(
+            or_(
+                _mismo_vendedor_sql(C.vendedor, vendedor),
+                exists(
+                    select(literal(1)).select_from(importado).where(_mismo_vendedor_sql(importado.c.value, vendedor))
+                ),
+            )
+        )
+    return [CargaHistorial(carga, usuario, bool(v)) for carga, usuario, v in db.execute(consulta).all()]
 
 
 def listar_alcances(

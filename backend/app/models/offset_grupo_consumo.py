@@ -30,7 +30,7 @@ class OffsetGrupoConsumo(Base):
     )  # Para ventas fuera ML (sin FK porque tabla puede no existir)
 
     # Tipo de venta
-    tipo_venta = Column(String(20), nullable=False)  # 'ml' o 'fuera_ml'
+    tipo_venta = Column(String(20), nullable=False)  # 'ml', 'fuera_pdf' (PDF lines since VPF T4; 'fuera_ml' before)
 
     # Datos de la venta al momento del consumo
     fecha_venta = Column(DateTime(timezone=True), index=True, nullable=False)

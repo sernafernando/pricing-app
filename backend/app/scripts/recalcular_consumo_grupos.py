@@ -37,6 +37,7 @@ from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
 from app.models.cur_exch_history import CurExchHistory
+from app.services.ventas_fuera_pdf.ventas import TIPO_VENTA_OFFSET, VENTAS_FUERA_OFFSETS_SQL, monto_offset_pdf
 
 
 def obtener_cotizacion_actual(db):
@@ -313,9 +314,10 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
                 v.marca,
                 v.categoria,
                 v.cantidad,
+                v.tipo_documento,
                 v.costo_total,
                 v.cotizacion_dolar
-            FROM ventas_fuera_ml_metricas v
+            FROM {VENTAS_FUERA_OFFSETS_SQL} v
             WHERE {where_clause_fuera}
             AND v.fecha_venta >= :fecha_inicio
             ORDER BY v.fecha_venta
@@ -341,12 +343,16 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
                 cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
                 costo = float(venta.costo_total) if venta.costo_total else 0
                 cantidad = int(venta.cantidad) if venta.cantidad else 0
-                monto_offset_ars, monto_offset_usd = calcular_monto_offset(offset_aplicable, cantidad, costo, cot)
+                monto_offset_ars, monto_offset_usd = monto_offset_pdf(
+                    offset_aplicable.tipo_offset,
+                    venta.tipo_documento,
+                    calcular_monto_offset(offset_aplicable, cantidad, costo, cot),
+                )
 
                 consumo = OffsetGrupoConsumo(
                     grupo_id=grupo_id,
                     venta_fuera_id=venta.id,
-                    tipo_venta="fuera_ml",
+                    tipo_venta=TIPO_VENTA_OFFSET,
                     fecha_venta=venta.fecha_venta,
                     item_id=venta.item_id,
                     cantidad=cantidad,

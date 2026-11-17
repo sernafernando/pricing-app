@@ -320,13 +320,7 @@ def _ml(engine: Engine, item: int, qty: int, dia: date, gross: str, mcosto: str)
 
 def _fuera(engine: Engine, item: int, qty: int, dia: date, monto: str, costo: str) -> int:
     ref = w.venta(engine, "fuera", item, qty, dia)
-    w.execute(
-        engine,
-        "UPDATE ventas_fuera_ml_metricas SET monto_total = :m, costo_total = :c WHERE it_transaction = :r",
-        m=monto,
-        c=costo,
-        r=ref,
-    )
+    w.update_venta(engine, "fuera", ref, monto_total=Decimal(monto), costo_total=Decimal(costo))
     return ref
 
 
@@ -429,25 +423,21 @@ class TestPorcentaje:
 
     def test_a_return_of_a_sale_waiting_for_its_base_takes_no_credit_from_another_sale(self, engine: Engine) -> None:
         campana = _porcentaje(engine, "costo")
-        sin_costo = w.venta(engine, "fuera", 2964, 1, D(2026, 11, 2), cliente=55)
+        w.venta(engine, "tn", 2964, 1, D(2026, 11, 2), cliente=55)  # no costo_total (a PDF line always has one)
+        ajena = w.venta(engine, "tn", 2964, 1, D(2026, 11, 2), cliente=99)  # another customer
         w.execute(
-            engine, "UPDATE ventas_fuera_ml_metricas SET costo_total = NULL WHERE it_transaction = :r", r=sin_costo
+            engine, "UPDATE ventas_tienda_nube_metricas SET costo_total = 1000 WHERE it_transaction = :r", r=ajena
         )
-        ajena = _fuera(engine, 2964, 1, D(2026, 11, 2), monto="1.00", costo="1000.00")  # another customer
-        w.execute(engine, "UPDATE ventas_fuera_ml_metricas SET cust_id = 99 WHERE it_transaction = :r", r=ajena)
-        w.venta(engine, "fuera", 2964, 1, D(2026, 11, 3), signo=-1, cliente=55)  # returns the waiting sale
+        w.venta(engine, "tn", 2964, 1, D(2026, 11, 3), signo=-1, cliente=55)  # returns the waiting sale
 
         result = _recalcular(engine, campana)
 
-        assert _filas(engine, campana) == [("fuera", ajena, 1, Decimal("100.00"))]
+        assert _filas(engine, campana) == [("tn", ajena, 1, Decimal("100.00"))]
         assert result.pendientes_base == {campana: 1}
 
     def test_a_sale_without_its_cost_waits_on_a_cost_base(self, engine: Engine) -> None:
         campana = _porcentaje(engine, "costo")
-        sin_costo = w.venta(engine, "fuera", 2964, 1, D(2026, 11, 2))
-        w.execute(
-            engine, "UPDATE ventas_fuera_ml_metricas SET costo_total = NULL WHERE it_transaction = :r", r=sin_costo
-        )
+        w.venta(engine, "tn", 2964, 1, D(2026, 11, 2))  # no costo_total (a PDF line always has one)
 
         result = _recalcular(engine, campana)
 

@@ -1,5 +1,6 @@
 import { chainHeader } from '../../utils/metricasMlLevels';
 import { TP_MARKUP_HINT } from '../../utils/metricasMlTp';
+import { COSTO_LABELS } from '../../utils/metricasMlCanal';
 
 // The picker's dimensions live with the levels, shared with Publicaciones ML.
 export { DIMENSION_OPTIONS } from '../../utils/metricasMlLevels';
@@ -26,6 +27,8 @@ export const MARGIN_COLUMNS = new Set([
   'markup_trend',
   'markup_range',
   'total_gauss',
+  // The period cost of canal=fuera|todo (`rows[].costo`, vpf-metricas-canal-fe C5).
+  'costo_canal',
   'total_tp',
   'ads_cost',
   'costo',
@@ -55,11 +58,15 @@ export function buildBoardColumns({
   tpOn = false,
   tpSolo = false,
   costosTp = false,
+  canal = 'ml',
+  costo = 'costo_d',
 }) {
   const showTp = tpOn || tpSolo;
   const markupHeader = tpSolo ? 'Markup TP' : 'Markup act.';
   const columns = [
     { id: 'producto', group: 'producto', header: productHeader(groupBy, dimension), enableHiding: false },
+    // Todo mixes ML and fuera rows: each says which it is (`rows[].canal`, vpf-metricas-canal-fe C3).
+    ...(canal === 'todo' ? [{ id: 'canal', group: 'producto', header: 'Canal' }] : []),
     // The units sold in the chosen period (the KPI's figure, per row), ahead of the fixed windows.
     { id: 'units', group: 'ventas', header: `Unidades ${periodLabel}` },
     { id: 'units_24h', group: 'ventas', header: '24H' },
@@ -75,6 +82,11 @@ export function buildBoardColumns({
     { id: 'markup_range', group: 'markup', header: 'Mín / Máx 90D' },
     { id: 'gross', group: 'resultado', header: `Facturado ${periodLabel}` },
     ...(tpSolo ? [] : [{ id: 'total_gauss', group: 'resultado', header: 'Total Gauss' }]),
+    // Por fuera only: the cost Total Gauss subtracts, named after the cost selector (mockup 2). Todo keeps mockup 1's
+    // Facturado + Total Gauss, so the Rotación columns stay on screen.
+    ...(canal === 'fuera'
+      ? [{ id: 'costo_canal', group: 'resultado', header: `Costo (${COSTO_LABELS[costo] ?? COSTO_LABELS.costo_d})` }]
+      : []),
     // "Costos TP" on: Total TP next to Total Gauss, which stays.
     ...(showTp ? [{ id: 'total_tp', group: 'resultado', header: 'Total TP' }] : []),
     // Only once the board subtracts ads: the Product Ads (net of IVA) charged to the row.

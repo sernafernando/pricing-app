@@ -16,6 +16,7 @@ import { deltaTone, formatDeltaPct, formatDeltaPp, formatPct, formatRatio, forma
 import { originalAmount } from '../../utils/metricasMlAds';
 import { TP_MARKUP_HINT, tpCellState, tpIncompleteTitle } from '../../utils/metricasMlTp';
 import { sellOutEstimatedTitle, sellOutPendingTitle } from '../../utils/metricasMlSell';
+import { COSTO_LABELS, formatPorTipo } from '../../utils/metricasMlCanal';
 import { metricasKpiOptions, nounOf } from './metricasKpiOptions';
 import styles from './MetricasKpiStrip.module.css';
 
@@ -64,6 +65,32 @@ function Adjusted({ original }) {
 }
 
 const pctOf = (part, whole) => (whole ? (part / whole) * 100 : null);
+
+/** canal=todo: one figure per channel under the card's total (`kpis.por_canal`, mockup 1). */
+function Split({ lines }) {
+  return (
+    <div className={styles.split}>
+      {lines.map(([label, value]) => (
+        <div key={label} className={styles.splitLine} data-split>
+          <span>{label}</span>
+          <strong data-money>{value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** A labelled figure on one line ("con Costo: $ X"), kept whole like "Ticket promedio". */
+function FigureLine({ label, children }) {
+  return (
+    <span className={`${styles.subtitle} ${styles.sellLine}`}>
+      <span>{label}</span>{' '}
+      <span className={styles.sellValue}>
+        <strong data-money>{children}</strong>
+      </span>
+    </span>
+  );
+}
 
 /** "Costos TP" on: the known Total TP of the TP store group's operations, never 0 when unknown, and how many
  * of their lines lack a TP cost. */
@@ -164,7 +191,21 @@ function SellInOutCard({ sell }) {
 
 /** `tpSolo`: a `tplink.solo` user's board, which has no Total Gauss (the key is absent) and carries Markup TP.
  * `isVisible(id)` leaves out the cards the viewer hid; with none left there is no row at all. */
-export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading, tpSolo = false, isVisible = () => true }) {
+/**
+ * `canal` (vpf-metricas-canal-fe): `todo` splits units, gross, Total Gauss and markup into ML and Por fuera
+ * (`kpis.por_canal`); `fuera` reads the PDF's documents, the Venta with VAT (S10), the other cost (`costo` is the
+ * chosen one) and the sin producto lines (`kpis.fuera`). Neither draws the daily sparklines (approved mockups).
+ */
+export default function MetricasKpiStrip({
+  kpis,
+  canSeeMargin,
+  groupBy,
+  loading,
+  tpSolo = false,
+  isVisible = () => true,
+  canal = 'ml',
+  costo = 'costo_d',
+}) {
   if (!kpis) return <div className={styles.cards} aria-busy={loading} />;
   const noun = nounOf(groupBy);
   // The ageing buckets count PRODUCTS (or publications) even in the grouped view.
@@ -178,6 +219,14 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
   const sell = canSeeMargin ? (kpis.sell_in_out ?? null) : null;
   const ageingTotal = ageing.up_to_30 + ageing.from_31_to_60 + ageing.over_60;
   const activePct = pctOf(withSales.value, withSales.of_total);
+  const todo = canal === 'todo';
+  const fuera = canal === 'fuera' ? (kpis.fuera ?? null) : null;
+  const porCanal = todo ? (kpis.por_canal ?? null) : null;
+  const sparks = canal === 'ml';
+  const costoLabel = COSTO_LABELS[costo] ?? COSTO_LABELS.costo_d;
+  const otro = fuera?.otro_costo ?? null;
+  const otroLabel = `con ${COSTO_LABELS[otro?.costo] ?? ''}:`;
+  const sinProducto = fuera?.sin_producto ?? null;
 
   const cards = {
     units: () => (
@@ -188,21 +237,45 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
           </span>
           <DeltaChip value={units.delta_pct} format={formatDeltaPct} />
         </div>
-        {operations && (
+        {porCanal && (
+          <Split
+            lines={[
+              ['ML', formatUnits(porCanal.ml?.units)],
+              ['Por fuera', formatUnits(porCanal.fuera?.units)],
+            ]}
+          />
+        )}
+        {fuera && (
+          <>
+            <span className={styles.subtitle}>{formatUnits(fuera.comprobantes)} comprobantes</span>
+            {fuera.por_tipo?.length > 0 && <span className={styles.subtitle}>{formatPorTipo(fuera.por_tipo)}</span>}
+          </>
+        )}
+        {operations && !fuera && (
           <span className={styles.subtitle}>
             {formatUnits(operations.value)} operaciones{perSale?.value != null && ` · ${formatRatio(perSale.value)} por venta`}
           </span>
         )}
-        <Sparkline values={units.series} width={200} height={22} tone={deltaTone(units.delta_pct)} className={styles.spark} label="Unidades por día" />
+        {sparks && <Sparkline values={units.series} width={200} height={22} tone={deltaTone(units.delta_pct)} className={styles.spark} label="Unidades por día" />}
       </Card>
     ),
     gross: () => (
-      <Card label="Facturado bruto" icon={ReceiptText}>
+      <Card label={fuera ? 'Facturado' : 'Facturado bruto'} icon={ReceiptText}>
         <div className={styles.valueRow}>
           <span className={styles.value} data-money data-kpi-value>{formatSignedMoney(gross.value)}</span>
           <DeltaChip value={gross.delta_pct} format={formatDeltaPct} />
         </div>
-        {ticket && (
+        {porCanal && (
+          <Split
+            lines={[
+              ['ML', formatSignedMoney(porCanal.ml?.gross)],
+              ['Por fuera', formatSignedMoney(porCanal.fuera?.gross)],
+            ]}
+          />
+        )}
+        {/* The Venta of the PDF carries VAT, like ML's (L17 / S10); the cheque surcharge never enters it. */}
+        {fuera && <span className={styles.subtitle}>con IVA · sin recargo cheque</span>}
+        {ticket && !porCanal && (
           // Same line layout as "C/ sell in/out": label, then the amount kept whole on one line.
           <span className={`${styles.subtitle} ${styles.sellLine}`}>
             <span>Ticket promedio:</span>{' '}
@@ -211,7 +284,7 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
             </span>
           </span>
         )}
-        <Sparkline values={gross.series} width={200} height={22} tone={deltaTone(gross.delta_pct)} className={styles.spark} label="Facturado por día" />
+        {sparks && <Sparkline values={gross.series} width={200} height={22} tone={deltaTone(gross.delta_pct)} className={styles.spark} label="Facturado por día" />}
       </Card>
     ),
     total_gauss: () => (
@@ -229,8 +302,25 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
                 <Adjusted original={originalAmount(tg.value, ads.subtracted_total)} />
               </div>
             )}
+            {porCanal && (
+              <>
+                <Split
+                  lines={[
+                    ['ML', formatSignedMoney(porCanal.ml?.margin)],
+                    ['Por fuera', formatSignedMoney(porCanal.fuera?.margin)],
+                  ]}
+                />
+                <span className={styles.subtitle}>ML neto de comisión y envío</span>
+              </>
+            )}
+            {fuera && (
+              <>
+                <span className={styles.subtitle}>venta − {costoLabel}</span>
+                {otro?.margin != null && <FigureLine label={otroLabel}>{formatSignedMoney(otro.margin)}</FigureLine>}
+              </>
+            )}
             {sell && sell.total_gauss != null && <WithSellInOut pendientes={sell.sell_out_pendientes} estimados={sell.sell_out_estimados}>{formatSignedMoney(sell.total_gauss)}</WithSellInOut>}
-            <Sparkline values={tg.series} width={200} height={22} tone={deltaTone(tg.delta_pct)} className={styles.spark} label="Total Gauss por día" />
+            {sparks && <Sparkline values={tg.series} width={200} height={22} tone={deltaTone(tg.delta_pct)} className={styles.spark} label="Total Gauss por día" />}
           </>
         ) : (
           <span className={styles.locked}>Sin permiso para ver ganancia</span>
@@ -254,8 +344,22 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
               </div>
             )}
             {tp && <span className={styles.subtitle}>{TP_MARKUP_HINT}</span>}
+            {porCanal && (
+              <Split
+                lines={[
+                  ['ML', formatPct(porCanal.ml?.markup_pct)],
+                  [`Por fuera (${costoLabel})`, formatPct(porCanal.fuera?.markup_pct)],
+                ]}
+              />
+            )}
+            {fuera && (
+              <>
+                <span className={styles.subtitle}>con {costoLabel}</span>
+                {otro?.markup_pct != null && <FigureLine label={otroLabel}>{formatPct(otro.markup_pct)}</FigureLine>}
+              </>
+            )}
             {sell && sell.total_gauss != null && <WithSellInOut>{formatPct(sell.markup_pct)}</WithSellInOut>}
-            <Sparkline values={markup.series} width={200} height={22} tone={deltaTone(markup.delta_pp)} className={styles.spark} label="Markup por día" />
+            {sparks && <Sparkline values={markup.series} width={200} height={22} tone={deltaTone(markup.delta_pp)} className={styles.spark} label="Markup por día" />}
           </>
         ) : (
           <span className={styles.locked}>Sin permiso para ver ganancia</span>
@@ -271,6 +375,9 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
           </span>
           {activePct !== null && <span className={styles.note}>{formatPct(activePct)} activo</span>}
         </div>
+        {sinProducto?.lineas > 0 && (
+          <FigureLine label={`+ ${formatUnits(sinProducto.lineas)} líneas sin producto:`}>{formatSignedMoney(sinProducto.monto)}</FigureLine>
+        )}
         <div className={styles.bar} aria-hidden="true">
           <span className={styles.barFill} style={{ width: `${activePct ?? 0}%` }} />
         </div>
@@ -310,6 +417,7 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
       className={styles.cards}
       aria-label="Indicadores del período"
       aria-busy={loading}
+      data-canal={canal === 'ml' ? undefined : canal}
       style={{ '--kpi-count': shown.length }}
     >
       {shown.map(({ id }) => (

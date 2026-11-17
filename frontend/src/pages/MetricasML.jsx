@@ -1,7 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
-import { AlertTriangle, Clock, Download, FileSpreadsheet, FilterX, Gauge, Rows4, ShieldAlert, TrendingDown } from 'lucide-react';
+import {
+  AlertTriangle,
+  Clock,
+  Download,
+  FileSpreadsheet,
+  FilterX,
+  Gauge,
+  Package,
+  Rows4,
+  ShieldAlert,
+  TrendingDown,
+  Upload,
+} from 'lucide-react';
 import api from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
 import DateRangeFilter from '../components/DateRangeFilter';
@@ -22,6 +34,8 @@ import { metricasKpiOptions } from '../components/metricasMl/metricasKpiOptions'
 import VentasPorDiaChart from '../components/metricasMl/VentasPorDiaChart';
 import MetricasEnviosPanel from '../components/metricasMl/MetricasEnviosPanel';
 import BoardTable, { BOARD_SORT_KEYS } from '../components/metricasMl/BoardTable';
+import VendedorFilter from '../components/metricasMl/VendedorFilter';
+import SubirPdfModal from '../components/ventasFueraPdf/SubirPdfModal';
 import { appendPage } from '../utils/appendPage';
 import { PAGE_SIZE_OPTIONS } from './ventasMlTableHelpers';
 import { adsRequestParams } from '../utils/metricasMlAds';
@@ -31,6 +45,14 @@ import { DIMENSION_OPTIONS, MARGIN_COLUMNS, buildBoardColumns } from '../compone
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import { buildMetricasMLParams } from '../utils/metricasMlParams';
+import {
+  CANAL_OPTIONS,
+  COSTO_OPTIONS,
+  canalInicial,
+  canalesPermitidos,
+  formatPdfStamp,
+  margenPermitido,
+} from '../utils/metricasMlCanal';
 import {
   DEFAULT_PRESET,
   defaultSortFor,
@@ -43,6 +65,7 @@ import { nodeId } from '../utils/metricasMlLevels';
 import { exportMetricasCsv } from '../utils/ventasMlExport';
 import { exportMetricasSheets, isSheetsExportEnabled, loadGoogleIdentity } from '../utils/googleSheetsExport';
 import { timeAgo } from '../utils/ventasMlFormat';
+import { formatSignedMoney } from '../utils/ventasMlTone';
 import {
   AGEING_BUCKET_TONES,
   AGEING_LABELS,
@@ -119,10 +142,24 @@ const COMPARE_OPTIONS = [
   { value: 'anio_anterior', label: 'Mismo período año pasado' },
 ];
 const ALERTS = [
-  { value: 'sin_ventas_30d', label: 'Sin ventas 30d', icon: AlertTriangle, tone: 'warning' },
-  { value: 'ageing_60d', label: 'Ageing > 60d', icon: Clock, tone: 'danger' },
+  { value: 'sin_ventas_30d', label: 'Sin ventas 30d', icon: AlertTriangle, tone: 'warning', canales: ['ml', 'todo'] },
+  { value: 'ageing_60d', label: 'Ageing > 60d', icon: Clock, tone: 'danger', canales: ['ml', 'todo'] },
   { value: 'margen_cayendo', label: 'Markup cayendo', icon: TrendingDown, tone: 'danger', margin: true },
+  // Fuera lines whose code is no catalog product (vpf-metricas-canal-fe C3): first on Por fuera, last on Todo.
+  { value: 'sin_producto', label: 'Sin producto', icon: Package, tone: 'neutral', canales: ['fuera', 'todo'] },
 ];
+// Por fuera's alerts in the approved mockup's order.
+const FUERA_ALERT_ORDER = ['sin_producto', 'margen_cayendo'];
+const alertsOf = (canal) => {
+  const shown = ALERTS.filter((alert) => !alert.canales || alert.canales.includes(canal));
+  if (canal !== 'fuera') return shown;
+  return FUERA_ALERT_ORDER.map((value) => shown.find((alert) => alert.value === value)).filter(Boolean);
+};
+// What the cost selector's line says on each channel (approved mockups 1 and 2).
+const COSTO_HINTS = {
+  todo: 'Costo D = Precio Costo × 1,065. ML usa su costo de siempre.',
+  fuera: 'Costo D = Precio Costo × 1,065. El markup sale de acá, no del PDF.',
+};
 
 const ROWS_WITHOUT_OPERATIONS_HINT = 'Sin operaciones en el período, pero hay filas de esta tienda con los filtros actuales';
 
@@ -166,10 +203,17 @@ function linkSortKeys(canSeeMargin) {
 
 export default function MetricasML() {
   const { permisos, tienePermiso } = usePermisos();
-  const puedeVer = tienePermiso('ml_metricas.ver');
   // A `tplink.solo` user (backend P5b): the TP store group with TP costs always on, no Gauss figure, no PM, and
   // "Agrupado" by tienda only. The backend enforces it; the screen offers nothing it would refuse.
   const tpSolo = isTpSolo(permisos);
+  // The channels this viewer may use (vpf-metricas-canal-fe S5 / C4): ML with `ml_metricas.ver`, Por fuera with
+  // `ventas_fuera.ver_metricas_pdf`, Todo with both. The page opens with either.
+  const canales = canalesPermitidos(tienePermiso, { tpSolo });
+  const canalesKey = canales.join(',');
+  const puedeVer = canales.length > 0;
+  // The PDF upload (T3 wires the modal to this state): only with `ventas_fuera.subir_pdf`.
+  const puedeSubirPdf = tienePermiso('ventas_fuera.subir_pdf');
+  const [subirPdfAbierto, setSubirPdfAbierto] = useState(false);
   const dimensionOptions = tpSolo ? DIMENSION_OPTIONS.filter((option) => option.value === TP_SOLO_DIMENSION) : DIMENSION_OPTIONS;
   // The ads toggle subtracts from Total Gauss and markup: same permission as the backend's (it answers 403 otherwise).
   // A `tplink.solo` user has the profit view without it (backend `_viewer`), so it gets the toggle too.
@@ -180,7 +224,7 @@ export default function MetricasML() {
   const [searchParams, setSearchParams] = useSearchParams();
   // The view a link describes (period, grouping, filters, sort; `defaultView` where it says nothing): the URL then
   // follows the state, so a reload keeps the view and a filtered view can be shared (U1).
-  const [fromUrl] = useState(() => readMetricasUrl(searchParams, { sortKeys: linkSortKeys(puedeVerGanancia) }));
+  const [fromUrl] = useState(() => readMetricasUrl(searchParams, { sortKeys: linkSortKeys(puedeVerGanancia), canales }));
   // The query this page wrote last: a different one is a link followed while the page is open.
   const writtenQueryRef = useRef(searchParams.toString());
 
@@ -212,6 +256,15 @@ export default function MetricasML() {
   const [costosTp, setCostosTp] = useState(false);
   const [tpError, setTpError] = useState(null);
   const [sort, setSort] = useState(fromUrl.sort);
+  // The channel and what only the fuera lines have: the cost they use and their empresa / vendedor filters.
+  const [canalElegido, setCanal] = useState(fromUrl.canal);
+  const [costo, setCosto] = useState(fromUrl.costo);
+  const [empresas, setEmpresas] = useState(fromUrl.empresas);
+  const [vendedores, setVendedores] = useState(fromUrl.vendedores);
+  // The channel shown: the chosen one while the viewer may use it (permissions can arrive after the first render).
+  const canal = canalInicial(canalElegido, canales);
+  const esFuera = canal === 'fuera';
+  const esMl = canal === 'ml';
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
@@ -271,9 +324,14 @@ export default function MetricasML() {
         ageingExclude,
         soloConVentas,
         tpSolo,
+        canal,
+        costo,
+        empresas,
+        vendedores,
       }),
-      ...adsRequestParams(puedeVerGanancia ? publicidad : 'off'),
-      ...tpRequestParams(tpSolo || (puedeVerGanancia && costosTp)),
+      // Publicidad and Costos TP are ML's: Por fuera has neither.
+      ...adsRequestParams(puedeVerGanancia && !esFuera ? publicidad : 'off'),
+      ...tpRequestParams(tpSolo || (puedeVerGanancia && costosTp && !esFuera)),
     }),
     [
       range,
@@ -297,6 +355,11 @@ export default function MetricasML() {
       costosTp,
       puedeVerGanancia,
       tpSolo,
+      canal,
+      costo,
+      empresas,
+      vendedores,
+      esFuera,
     ],
   );
 
@@ -306,7 +369,7 @@ export default function MetricasML() {
     const current = searchParams.toString();
     if (current !== writtenQueryRef.current) {
       writtenQueryRef.current = current;
-      const view = readMetricasUrl(searchParams, { sortKeys: linkSortKeys(puedeVerGanancia) });
+      const view = readMetricasUrl(searchParams, { sortKeys: linkSortKeys(puedeVerGanancia), canales: canalesKey.split(',') });
       setRange(view.range);
       setCompararCon(view.compararCon);
       setGroupBy(view.groupBy);
@@ -325,6 +388,10 @@ export default function MetricasML() {
       setAgeingExclude(view.ageingExclude);
       setSoloConVentas(view.soloConVentas);
       setSort(view.sort);
+      setCanal(view.canal);
+      setCosto(view.costo);
+      setEmpresas(view.empresas);
+      setVendedores(view.vendedores);
       setOffset(0);
       return;
     }
@@ -347,6 +414,10 @@ export default function MetricasML() {
       ageingExclude,
       soloConVentas,
       sort,
+      canal,
+      costo,
+      empresas,
+      vendedores,
     }, searchParams);
     if (next.toString() !== current) {
       writtenQueryRef.current = next.toString();
@@ -371,6 +442,11 @@ export default function MetricasML() {
     ageingExclude,
     soloConVentas,
     sort,
+    canal,
+    costo,
+    empresas,
+    vendedores,
+    canalesKey,
     searchParams,
     setSearchParams,
     puedeVerGanancia,
@@ -380,6 +456,16 @@ export default function MetricasML() {
   const changeGroupBy = (value) => {
     setSort((prev) => sortOnGroupChange(prev, groupBy, value));
     setGroupBy(value);
+  };
+
+  // Por fuera has no publication view (the board answers 422) nor the ML view modes' sorts: choosing it leaves them.
+  const changeCanal = (value) => {
+    if (value === 'fuera') {
+      if (groupBy === 'publication') changeGroupBy('product');
+      setSort((prev) => (MODE_SORTS.has(prev.key) ? defaultSortFor(groupBy === 'publication' ? 'product' : groupBy) : prev));
+    }
+    setCanal(value);
+    setOffset(0);
   };
 
   // Changing WHAT is filtered resets WHERE you are: page 1, nothing open.
@@ -598,10 +684,13 @@ export default function MetricasML() {
     setAgeing([]);
     setAgeingExclude([]);
     setSoloConVentas(true);
+    setEmpresas([]);
+    setVendedores([]);
     setOffset(0);
   };
 
-  const canSeeMargin = Boolean(board?.can_see_margin);
+  // Each channel's margin needs its own profit permission (S6); ML keeps the backend's word as it always did.
+  const canSeeMargin = Boolean(board?.can_see_margin) && (esMl || margenPermitido(canal, tienePermiso));
   // `kpis.ads` exists only while the board subtracts ads.
   const ads = board?.kpis?.ads ?? null;
   const adsOn = canSeeMargin && ads !== null;
@@ -615,8 +704,8 @@ export default function MetricasML() {
   const periodLabel = PERIOD_LABELS[range.filtro] || 'período';
   const shownDimension = tpSolo ? TP_SOLO_DIMENSION : dimension;
   const columnDefs = useMemo(
-    () => buildBoardColumns({ canSeeMargin, periodLabel, groupBy, dimension: shownDimension, adsOn, tpOn, tpSolo, costosTp }),
-    [canSeeMargin, periodLabel, groupBy, shownDimension, adsOn, tpOn, tpSolo, costosTp],
+    () => buildBoardColumns({ canSeeMargin, periodLabel, groupBy, dimension: shownDimension, adsOn, tpOn, tpSolo, costosTp, canal, costo }),
+    [canSeeMargin, periodLabel, groupBy, shownDimension, adsOn, tpOn, tpSolo, costosTp, canal, costo],
   );
   const table = useReactTable({
     data: [],
@@ -649,6 +738,7 @@ export default function MetricasML() {
       stockExclude.length ||
       ageing.length ||
       ageingExclude.length ||
+      (!esMl && (empresas.length || vendedores.length)) ||
       !soloConVentas,
   );
   const noun = { publication: 'publicaciones', group: 'grupos' }[groupBy] ?? 'productos';
@@ -661,17 +751,38 @@ export default function MetricasML() {
   const rows = board?.rows || [];
   const total = board?.total ?? 0;
   const freshness = timeAgo(board?.refreshed_at);
+  // Todo and Por fuera also say when the last PDF came in (`kpis.fuera.ultimo_pdf`, C3).
+  const ultimoPdf = board?.kpis?.fuera?.ultimo_pdf ?? null;
+  const pdfStamp = formatPdfStamp(ultimoPdf?.created_at);
+  let freshnessText = freshness && `actualizado ${freshness}`;
+  if (canal === 'todo') freshnessText = [freshness && `ML ${freshness}`, pdfStamp && `PDF ${pdfStamp}`].filter(Boolean).join(' · ');
+  if (esFuera) freshnessText = pdfStamp && [`último PDF: ${pdfStamp}`, ultimoPdf.vendedor].filter(Boolean).join(' · ');
+  const recargoCheque = esFuera ? (board?.kpis?.fuera?.recargo_cheque ?? 0) : 0;
+  const ventaDesconocida = esMl ? 0 : (board?.kpis?.venta_desconocida_lineas ?? 0);
+  const empresaCounts = facets?.empresa_documentos ?? {};
 
   // The filter controls, built once: the desktop bands and the phone's filter sheet show these same elements, so
   // both screens filter exactly alike.
   const groupControl = (
-    <SegmentedControl label="Agrupar por" options={GROUP_OPTIONS} value={groupBy} onChange={withReset(changeGroupBy)} />
+    <SegmentedControl
+      label="Agrupar por"
+      options={esFuera ? GROUP_OPTIONS.filter((option) => option.value !== 'publication') : GROUP_OPTIONS}
+      value={groupBy}
+      onChange={withReset(changeGroupBy)}
+    />
   );
   const dimensionControl = groupBy === 'group' && (
     <SegmentedControl label="Dimensión" options={dimensionOptions} value={shownDimension} onChange={withReset(setDimension)} />
   );
-  const adsControl = puedeVerGanancia && <AdsModeControl value={publicidad} onChange={withReset(setPublicidad)} tpSolo={tpSolo} />;
-  const costosTpControl = puedeVerGanancia && !tpSolo && (
+  const adsControl = puedeVerGanancia && !esFuera && (
+    <AdsModeControl
+      value={publicidad}
+      onChange={withReset(setPublicidad)}
+      tpSolo={tpSolo}
+      note={canal === 'todo' ? 'Solo resta en ventas ML.' : null}
+    />
+  );
+  const costosTpControl = puedeVerGanancia && !tpSolo && !esFuera && (
     <SwitchChip
       label="Costos TP"
       checked={costosTp}
@@ -771,7 +882,54 @@ export default function MetricasML() {
       })}
     />
   );
-  const alertChips = ALERTS.filter((alert) => !alert.margin || canSeeMargin).map(({ value, label, icon, tone }) => {
+  const canalControl = canales.length > 1 && (
+    <div className={styles.filterGroup}>
+      <span className={styles.filterLabel}>Canal:</span>
+      <SegmentedControl
+        label="Canal"
+        options={CANAL_OPTIONS.filter((option) => canales.includes(option.value))}
+        value={canal}
+        onChange={changeCanal}
+      />
+    </div>
+  );
+  const costoControl = !esMl && (
+    <div className={styles.costoGroup}>
+      <div className={styles.filterGroup}>
+        <span className={styles.filterLabel}>{esFuera ? 'Costo:' : 'Costo por fuera:'}</span>
+        <SegmentedControl label="Costo por fuera" options={COSTO_OPTIONS} value={costo} onChange={withReset(setCosto)} />
+      </div>
+      <p className={styles.costoHint}>{COSTO_HINTS[canal]}</p>
+    </div>
+  );
+  // Empresa and Vendedor filter the fuera lines only (README table); the counts are the board's.
+  const fueraFilters = !esMl && (
+    <>
+      <div className={styles.filterGroup}>
+        <span className={styles.filterLabel}>Empresa:</span>
+        <FacetChips
+          label="Empresa"
+          options={facets?.empresas ?? []}
+          labels={{}}
+          counts={empresaCounts}
+          total={Object.values(empresaCounts).reduce((sum, n) => sum + n, 0)}
+          activeValue={empresas[0] ?? ''}
+          onChange={withReset((value) => setEmpresas(value ? [value] : []))}
+        />
+      </div>
+      <div className={styles.filterGroup}>
+        <span className={styles.filterLabel}>Vendedor:</span>
+        <VendedorFilter
+          options={facets?.vendedores ?? []}
+          counts={facets?.vendedor_documentos}
+          value={vendedores}
+          variant={esFuera ? 'chips' : 'select'}
+          onChange={withReset((value) => setVendedores(value ? [value] : []))}
+        />
+      </div>
+    </>
+  );
+  const alertChips = alertsOf(canal).filter((alert) => !alert.margin || canSeeMargin).map(({ value, label, icon, tone }) => {
     const Icon = icon;
     const active = alerts.includes(value);
     const count = facets?.alerts?.[value];
@@ -930,17 +1088,31 @@ export default function MetricasML() {
     <div className={styles.container}>
       <header className={styles.header}>
         <div className={styles.headerLeft}>
-          <h1>Métricas ML</h1>
+          <h1>{esMl ? 'Métricas ML' : 'Métricas'}</h1>
           <p className={styles.description}>
-            Rendimiento y rentabilidad por producto y publicación en Mercado Libre Argentina
+            {esMl
+              ? 'Rendimiento y rentabilidad por producto y publicación en Mercado Libre Argentina'
+              : 'Rendimiento y rentabilidad por producto: Mercado Libre y ventas por fuera'}
           </p>
         </div>
         <div className={styles.headerActions}>
-          {freshness && (
+          {freshnessText && (
             <span className={styles.freshness}>
               <span className={styles.freshnessDot} aria-hidden="true" />
-              actualizado {freshness}
+              {freshnessText}
             </span>
+          )}
+          {puedeSubirPdf && (
+            <button
+              type="button"
+              className="btn-tesla outline sm"
+              aria-haspopup="dialog"
+              aria-expanded={subirPdfAbierto}
+              onClick={() => setSubirPdfAbierto(true)}
+            >
+              <Upload size={14} />
+              Subir PDF de ventas
+            </button>
           )}
           <ColumnPicker table={table} />
           <ColumnPicker table={kpiPicker} label="Indicadores" icon={Gauge} groupLabel="Elegir indicadores visibles" />
@@ -978,10 +1150,13 @@ export default function MetricasML() {
               value={searchQuery}
               onChange={withReset(setSearchQuery)}
               debounce={400}
-              placeholder="Buscar título, MLA, SKU/EAN o producto"
+              placeholder={esFuera ? 'Buscar producto o SKU/EAN' : 'Buscar título, MLA, SKU/EAN o producto'}
             />
           </div>
-          <div className={styles.segments}>
+          {/* Todo and Por fuera: the selectors take their own row under the period, from the left (mockups 1 and 2). */}
+          <div className={esMl ? styles.segments : `${styles.segments} ${styles.segmentsRow}`}>
+            {canalControl}
+            {costoControl}
             <div className={styles.filterGroup}>
               <span className={styles.filterLabel}>Agrupar por:</span>
               {groupControl}
@@ -1002,15 +1177,19 @@ export default function MetricasML() {
         </div>
 
         <div className={styles.filterBand}>
-          <div className={styles.filterGroup}>
-            <span
-              className={styles.filterLabel}
-              title="Operaciones del período en cada tienda (la tienda oficial ACTUAL de la publicación), como en Ventas ML"
-            >
-              Tienda:
-            </span>
-            {storeControl}
-          </div>
+          {!esFuera && (
+            <div className={styles.filterGroup}>
+              <span
+                className={styles.filterLabel}
+                title="Operaciones del período en cada tienda (la tienda oficial ACTUAL de la publicación), como en Ventas ML"
+              >
+                {esMl ? 'Tienda:' : 'Tienda ML:'}
+              </span>
+              {storeControl}
+            </div>
+          )}
+          {canal === 'todo' && <span className={styles.divider} aria-hidden="true" />}
+          {fueraFilters}
         </div>
 
         <div className={styles.filterBand}>
@@ -1033,30 +1212,54 @@ export default function MetricasML() {
             </span>
             {ageingControl}
           </div>
+          {/* Por fuera has no publication band: the product filters join this one (approved mockup 2). */}
+          {esFuera && (
+            <div className={styles.filterGroup}>
+              <span className={styles.filterLabel}>Producto:</span>
+              {productControl}
+            </div>
+          )}
         </div>
 
-        <div className={styles.filterBand}>
-          <div className={styles.filterGroup}>
-            <span className={styles.filterLabel}>Producto:</span>
-            {productControl}
+        {!esFuera && (
+          <div className={styles.filterBand}>
+            <div className={styles.filterGroup}>
+              <span className={styles.filterLabel}>Producto:</span>
+              {productControl}
+            </div>
+            <span className={styles.divider} aria-hidden="true" />
+            <div className={styles.filterGroup}>
+              <span className={styles.filterLabel} title="Último estado informado por el ERP">
+                {esMl ? 'Publicación:' : 'Publicación (solo ML):'}
+              </span>
+              {pubStatusControl}
+              <span className={styles.subLabel}>Tipo:</span>
+              {pubTypeControl}
+            </div>
           </div>
-          <span className={styles.divider} aria-hidden="true" />
-          <div className={styles.filterGroup}>
-            <span className={styles.filterLabel} title="Último estado informado por el ERP">
-              Publicación:
-            </span>
-            {pubStatusControl}
-            <span className={styles.subLabel}>Tipo:</span>
-            {pubTypeControl}
-          </div>
-        </div>
+        )}
 
         <div className={styles.filterBand}>
           <div className={styles.filterGroup} role="group" aria-label="Alertas">
             <span className={styles.filterLabel}>Alertas:</span>
             {alertChips}
+            {recargoCheque > 0 && (
+              <span className={styles.alertChip} data-tone="warning" role="note">
+                <AlertTriangle size={12} aria-hidden="true" />
+                Recargo cheque fuera de la venta: {formatSignedMoney(recargoCheque)}
+              </span>
+            )}
+            {ventaDesconocida > 0 && (
+              <span className={styles.alertChip} data-tone="neutral" role="note" title="Sin una alícuota de IVA conocida, su venta con IVA no suma al Facturado">
+                <AlertTriangle size={12} aria-hidden="true" />
+                {ventaDesconocida === 1
+                  ? '1 línea por fuera sin venta conocida'
+                  : `${formatUnits(ventaDesconocida)} líneas por fuera sin venta conocida`}
+              </span>
+            )}
           </div>
           <div className={styles.spacer} />
+          {esFuera && <span className={styles.fueraNote}>Por fuera no tiene comisión ML ni envío: Total Gauss = venta − costo.</span>}
           {hasActiveFilters && (
             <button type="button" className={styles.clearFilters} onClick={clearFilters}>
               <FilterX size={14} /> Limpiar filtros
@@ -1067,11 +1270,21 @@ export default function MetricasML() {
 
       <PublicidadRestada ads={ads} />
 
-      <MetricasKpiStrip kpis={board?.kpis} canSeeMargin={canSeeMargin} groupBy={groupBy} loading={loading} tpSolo={tpSolo} isVisible={kpiVisible} />
+      <MetricasKpiStrip
+        kpis={board?.kpis}
+        canSeeMargin={canSeeMargin}
+        groupBy={groupBy}
+        loading={loading}
+        tpSolo={tpSolo}
+        isVisible={kpiVisible}
+        canal={canal}
+        costo={costo}
+      />
 
-      <VentasPorDiaChart period={board?.period} kpis={board?.kpis} />
+      <VentasPorDiaChart period={board?.period} kpis={board?.kpis} canal={canal} vendedor={vendedores.length === 1 ? vendedores[0] : null} />
 
-      <MetricasEnviosPanel params={filterParams} />
+      {/* The shipping types are ML's: none por fuera, the ML sales only on Todo. */}
+      {!esFuera && <MetricasEnviosPanel params={filterParams} note={esMl ? null : '· solo ventas ML'} />}
 
       {adsOn && kpiVisible('ads') && <AdsKpiBlock ads={ads} />}
 
@@ -1135,6 +1348,9 @@ export default function MetricasML() {
       </section>
 
       {adsOn && <AdsUnattributedPanel unattributed={ads.unattributed} />}
+      {subirPdfAbierto && (
+        <SubirPdfModal isOpen onClose={() => setSubirPdfAbierto(false)} onCargado={() => cargar()} />
+      )}
     </div>
   );
 }

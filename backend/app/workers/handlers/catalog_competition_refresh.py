@@ -1,7 +1,8 @@
 """`ml_publications.catalog_competition_refresh`: drain catalog-competition refresh queue.
 
 When `hay_mejores_ofertas` is newly set, the promotions store enqueues the MLA into
-`catalog_competition_refresh_pending`. This handler persists a fresh
+`catalog_competition_refresh_pending`; so does any change the store records on an active
+catalog listing (`catalog_competition_on_change`). This handler persists a fresh
 `ml_catalog_competition` snapshot via `refrescar_competencia_catalogo` (same path as the
 panel's refresh button). No UI; runs in the ML worker.
 

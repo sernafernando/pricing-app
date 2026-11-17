@@ -28,7 +28,7 @@ class OffsetIndividualConsumo(Base):
     venta_fuera_id = Column(Integer, index=True, nullable=True)  # Para ventas fuera ML
 
     # Tipo de venta
-    tipo_venta = Column(String(20), nullable=False)  # 'ml' o 'fuera_ml'
+    tipo_venta = Column(String(20), nullable=False)  # 'ml', 'fuera_pdf' (PDF lines since VPF T4; 'fuera_ml' before)
 
     # Datos de la venta al momento del consumo
     fecha_venta = Column(DateTime(timezone=True), index=True, nullable=False)

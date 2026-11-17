@@ -34,7 +34,8 @@ const Banlist = lazy(() => import('./pages/Banlist'));
 const ItemsSinMLA = lazy(() => import('./pages/ItemsSinMLA'));
 const DashboardMetricasML = lazy(() => import('./pages/DashboardMetricasML'));
 const DashboardTPLink = lazy(() => import('./pages/DashboardTPLink'));
-const DashboardVentasFuera = lazy(() => import('./pages/DashboardVentasFuera'));
+const CargasPdf = lazy(() => import('./pages/CargasPdf'));
+const VendedoresExcluidos = lazy(() => import('./pages/VendedoresExcluidos'));
 const DashboardTiendaNube = lazy(() => import('./pages/DashboardTiendaNube'));
 const Calculos = lazy(() => import('./pages/Calculos'));
 const TestStatsDinamicos = lazy(() => import('./pages/TestStatsDinamicos'));
@@ -139,11 +140,14 @@ const protectedRoutes = [
   { path: '/gestion/alertas', component: GestionAlertas, permiso: 'alertas.gestionar' },
   { path: '/mla-banlist', component: Banlist, permiso: 'admin.gestionar_mla_banlist' },
   { path: '/dashboard-metricas-ml', component: DashboardMetricasML, permiso: 'ventas_ml.ver_dashboard' },
-  { path: '/metricas-ml', component: MetricasML, permiso: 'ml_metricas.ver' },
+  // ODD vpf-metricas-canal-fe (S5): ML metrics or the PDF ventas por fuera; the page gates each canal.
+  { path: '/metricas-ml', component: MetricasML, permisos: ['ml_metricas.ver', 'ventas_fuera.ver_metricas_pdf'] },
+  { path: '/metricas-ml/cargas', component: CargasPdf, permisos: ['ventas_fuera.subir_pdf', 'ventas_fuera.ver_metricas_pdf'] },
   { path: '/gestion-full', component: GestionFull, permiso: 'gestion_full.ver' },
   { path: '/ml-ads-aportes', component: MlAds, permiso: 'ml_metricas.ver' },
   { path: '/dashboard-tplink', component: DashboardTPLink, permiso: 'dashboard_tplink.ver' },
-  { path: '/dashboard-ventas-fuera', component: DashboardVentasFuera, permiso: 'ventas_fuera.ver_dashboard' },
+  // The old dashboard's Admin tab, on its own route (S4); the page also asks for the ADMIN/SUPERADMIN role, as the tab did.
+  { path: '/dashboard-ventas-fuera/vendedores-excluidos', component: VendedoresExcluidos, permiso: 'ventas_fuera.ver_dashboard' },
   { path: '/dashboard-tienda-nube', component: DashboardTiendaNube, permiso: 'ventas_tn.ver_dashboard' },
   { path: '/calculos', component: Calculos, permiso: 'reportes.ver_calculadora' },
   { path: '/items-sin-mla', component: ItemsSinMLA, permiso: 'admin.ver_items_sin_mla' },
@@ -265,6 +269,8 @@ function App() {
             </ProtectedRoute>
           }>
             {protectedRoutes.map(renderProtectedRoute)}
+            {/* The old Ventas por fuera dashboard is the board's canal=fuera view now (S4); /metricas-ml gates it. */}
+            <Route path="/dashboard-ventas-fuera" element={<Navigate to="/metricas-ml?canal=fuera" replace />} />
           </Route>
           </Routes>
         </BrowserRouter>

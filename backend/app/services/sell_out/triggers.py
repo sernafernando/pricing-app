@@ -14,7 +14,7 @@ and does NO allocation work: `sell_out.drain` rebuilds them.
   reaching the old or the new product; a product whose `iva` alone changed
   queues only the ones whose amount depends on it (`monto_incluye_iva`, or a
   percentage on `precio_neto`, whose ML base carries VAT; `asignacion._base`).
-- `ventas_fuera_ml_metricas` / `ventas_tienda_nube_metricas`, updated rows
+- `ventas_tienda_nube_metricas`, updated rows
   whose `cust_id` or `costo_total` changed (`cust_id` is not in
   `sell.queue.ALLOCATION_COLUMNS`; `costo_total` is since 20261213, so a change
   also reaches sell out through `sell.drain`'s fan-out, a harmless extra queue;
@@ -242,13 +242,11 @@ $trg$ LANGUAGE plpgsql
 """,
     *_triggers("filtros", "offset_grupo_filtros", "sell_out_enqueue_filtros()"),
     *_triggers("productos", "productos_erp", "sell_out_enqueue_productos()"),
-    *_triggers("fuera", "ventas_fuera_ml_metricas", "sell_out_enqueue_ventas('fuera')", ("update",)),
     *_triggers("tn", "ventas_tienda_nube_metricas", "sell_out_enqueue_ventas('tn')", ("update",)),
 ]
 
 DOWNGRADE_SQL: List[str] = [
     *_drops("tn", "ventas_tienda_nube_metricas", ("update",)),
-    *_drops("fuera", "ventas_fuera_ml_metricas", ("update",)),
     *_drops("productos", "productos_erp"),
     *_drops("filtros", "offset_grupo_filtros"),
     "DROP FUNCTION IF EXISTS sell_out_enqueue_ventas()",

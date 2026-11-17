@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Iterator
 
 import pytest
-from sqlalchemy import Engine, func, select, text
+from sqlalchemy import Engine, func, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.marca_pm import MarcaPM
@@ -381,6 +381,26 @@ class TestProducto:
             8,
             "PM TP-Link",
         )
+
+    def test_each_line_stores_the_item_id_of_its_code_and_unknown_or_manual_lines_none(
+        self, db: Session, detallada, resumen
+    ) -> None:
+        """VPF T4: offsets and sell in / sell out read the PDF lines by product (`item_id`)."""
+        db.add(ProductoERP(item_id=501, codigo="198154111069", marca="LENOVO", categoria="Notebooks"))
+        db.commit()
+        _cargar(db, detallada, resumen)
+
+        filas = db.execute(
+            select(VentaFueraOperacionLinea.codigo, VentaFueraOperacionLinea.item_id).where(
+                or_(
+                    VentaFueraOperacionLinea.codigo.in_(["198154111069", "1210002613118"]),
+                    VentaFueraOperacionLinea.codigo.is_(None),
+                )
+            )
+        ).all()
+
+        por_codigo = {codigo: {item for c, item in filas if c == codigo} for codigo, _ in filas}
+        assert por_codigo == {"198154111069": {501}, "1210002613118": {None}, None: {None}}
 
     def test_listing_filters_by_company_and_range(self, db: Session, detallada, resumen) -> None:
         primera = _cargar(db, detallada, resumen)

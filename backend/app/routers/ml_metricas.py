@@ -17,8 +17,11 @@ Permissions (migration `20261001_ml_metricas_permisos`):
   group (the client store filter is intersected), always "Costos TP" (Total TP and Markup TP without
   `ver_ganancia`), never a Gauss figure (`_tp_solo_response`, `TP_SOLO_DENY_CSV`), no PM filter (422), PM scope or
   PM facet, and only the product, publication and "Agrupado" by tienda views (422 otherwise).
-- `canal=fuera|todo` (ventas por fuera, vpf-metricas-canal S7): also `ventas_fuera.ver_metricas_pdf` (403 without it);
-  Total Gauss and markup stay behind `ml_metricas.ver_ganancia`; `tplink.solo` gets 403.
+- `canal` (vpf-metricas-canal-fe S5, L23: "fuera needs ver_metricas_pdf only, ml needs ml_metricas.ver, todo needs
+  both"): every board endpoint asks `ml_metricas.ver` for canal=ml, `ventas_fuera.ver_metricas_pdf` for canal=fuera and
+  both for canal=todo (`require_ver`); `tplink.solo` gets 403 on fuera/todo.
+- The profit view per canal (S6, L24: "mirror L23 per channel"): `ml_metricas.ver_ganancia` for ml,
+  `ventas_fuera.ver_ganancia` for fuera, both for todo (`_can_see_margin`).
 """
 
 from __future__ import annotations
@@ -31,7 +34,7 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta
 from typing import Annotated, Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
@@ -56,6 +59,7 @@ from app.services.ml_daily_metrics.kpi_strip import (
     MIN_BOARD_DATE,
     BoardKpisWithAds,
     BoardPeriod,
+    KpiMoney,
     KpiAgeing,  # noqa: F401 -- part of this router's public surface (its tests import it from here)
     SellInOutFigures,
     build_board_kpis,
@@ -73,6 +77,14 @@ from app.utils.csv_cells import csv_text
 
 PERMISO_VER = "ml_metricas.ver"
 PERMISO_GANANCIA = "ml_metricas.ver_ganancia"
+PERMISO_GANANCIA_FUERA = "ventas_fuera.ver_ganancia"
+# What each canal needs (S5) and what its profit view needs (S6). An unknown canal is the ML board's (it is 422 later).
+PERMISOS_CANAL = {"ml": (PERMISO_VER,), "fuera": (PERMISO_FUERA,), "todo": (PERMISO_VER, PERMISO_FUERA)}
+GANANCIA_CANAL = {
+    "ml": (PERMISO_GANANCIA,),
+    "fuera": (PERMISO_GANANCIA_FUERA,),
+    "todo": (PERMISO_GANANCIA, PERMISO_GANANCIA_FUERA),
+}
 DEFAULT_PERIOD_DAYS = 30
 # The CSV streams this many rows per page, each page on its own short DB
 # session: memory and the pooled connection follow ONE page, never the file.
@@ -100,9 +112,17 @@ PROMO_SEARCH_UNAVAILABLE = "filtro_no_disponible"
 router = APIRouter(prefix="/ml-metricas", tags=["ML Métricas"])
 
 
-def require_ver(current_user: Usuario = Depends(get_current_user), db: Session = Depends(get_db)) -> Usuario:
-    if not PermisosService(db).tiene_permiso(current_user, PERMISO_VER):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Falta el permiso {PERMISO_VER}")
+def require_ver(
+    request: Request, current_user: Usuario = Depends(get_current_user), db: Session = Depends(get_db)
+) -> Usuario:
+    """The board at all, per the requested `canal` (S5): canal=ml `ml_metricas.ver`, canal=fuera
+    `ventas_fuera.ver_metricas_pdf`, canal=todo both. 403 naming the first one missing. Read from the query string
+    (the `canal` param itself is `board_filter`'s, which 422s an unknown one)."""
+    canal = request.query_params.get("canal") or "ml"
+    permisos = PermisosService(db)
+    for codigo in PERMISOS_CANAL.get(canal, PERMISOS_CANAL["ml"]):
+        if not permisos.tiene_permiso(current_user, codigo):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Falta el permiso {codigo}")
     return current_user
 
 
@@ -225,27 +245,103 @@ class BoardResponse(BaseModel):
     rows: List[BoardRow]
 
 
+class FueraTipo(BaseModel):
+    tipo: str
+    letra: str
+    cantidad: int
+
+
+class FueraSinProducto(BaseModel):
+    """Fuera sold lines of rows without product, and their Venta (with VAT, as the rows' Venta)."""
+
+    lineas: int
+    monto: float
+
+
+class FueraOtroCosto(BaseModel):
+    """Total Gauss and markup of the fuera lines on the cost basis the board is NOT showing; null without the profit
+    view."""
+
+    costo: str
+    margin: Optional[float] = None
+    markup_pct: Optional[float] = None
+
+
+class FueraUltimoPdf(BaseModel):
+    """The newest upload with a detailed report (`vendedor` null = "Todos")."""
+
+    created_at: datetime
+    empresa: str
+    vendedor: Optional[str] = None
+
+
+class KpiFuera(BaseModel):
+    """The "Por fuera" block (vpf-metricas-canal-fe C3): documents of the period by type, their cheque surcharge
+    (never in Venta), the "sin producto" lines, the other cost basis and how fresh the PDFs are."""
+
+    comprobantes: int
+    por_tipo: List[FueraTipo]
+    recargo_cheque: float
+    sin_producto: FueraSinProducto
+    otro_costo: FueraOtroCosto
+    ultimo_pdf: Optional[FueraUltimoPdf] = None
+
+
+class KpiCanal(BaseModel):
+    units: int
+    gross: float
+    margin: Optional[float] = None
+    markup_pct: Optional[float] = None
+
+
+class KpiPorCanal(BaseModel):
+    ml: KpiCanal
+    fuera: KpiCanal
+
+
+class KpiMoneyPorCanal(KpiMoney):
+    """Facturado with canal=fuera|todo; with canal=todo also its daily series per channel."""
+
+    series_por_canal: Optional[Dict[str, List[float]]] = None
+
+
 class BoardFueraKpis(BoardKpisWithAds):
     """The strip with canal=fuera|todo: also how many fuera sold lines have an unknown Venta with VAT (no legal VAT
     rate to derive from their document, vpf-metricas-canal S13/S14): their Venta adds nothing, so the screen can say
-    it. Never on the ML board (its bytes stay as they were)."""
+    it; the "Por fuera" block; and with canal=todo the split per channel (`por_canal`, `gross.series_por_canal`).
+    Never on the ML board (its bytes stay as they were)."""
 
     venta_desconocida_lineas: int
+    gross: KpiMoneyPorCanal
+    fuera: KpiFuera
+    por_canal: Optional[KpiPorCanal] = None
 
 
 class BoardFueraFacets(BoardFacets):
     """The chips with canal=fuera|todo: also the empresa and vendedor options of the period's fuera lines, each
-    narrowed by the other's filter (S15). Never on the ML board."""
+    narrowed by the other's filter (S15), and each company's documents of the period. Never on the ML board."""
 
     empresas: List[str]
     vendedores: List[str]
+    empresa_documentos: Dict[str, int]
+    vendedor_documentos: Dict[str, int]
+
+
+class BoardFueraRow(BoardRow):
+    """A row with canal=fuera|todo: where its sales come from (`board.canal_of`; "ml" by publication) and its period
+    cost (`costo`, `_fuera_row`)."""
+
+    canal: str
+    costo: Optional[float]
 
 
 class BoardFueraResponse(BoardResponse):
-    """`BoardResponse` with canal=fuera|todo (`BoardFueraKpis`, `BoardFueraFacets`)."""
+    """`BoardResponse` with canal=fuera|todo (`BoardFueraKpis`, `BoardFueraFacets`, `BoardFueraRow`). Answered with
+    the fields it was given only (`fuera_body`): `por_canal` and `gross.series_por_canal` only with canal=todo."""
 
     kpis: BoardFueraKpis
     facets: BoardFueraFacets
+    rows: List[BoardFueraRow]
 
 
 class PublicationsResponse(BaseModel):
@@ -343,7 +439,9 @@ def board_filter(
         default=None, description="CSV a ocultar: " + ", ".join(board.PUB_STATUSES)
     ),
     pub_type_exclude: Optional[str] = Query(default=None, description="CSV a ocultar: " + ", ".join(board.PUB_TYPES)),
-    alerts: Optional[str] = Query(default=None, description="CSV: " + ", ".join(board.ALERTS)),
+    alerts: Optional[str] = Query(
+        default=None, description="CSV: " + ", ".join(board.ALERTS_FUERA) + " (sin_producto: canal fuera|todo)"
+    ),
     stock: Optional[str] = Query(default=None, description="CSV: " + ", ".join(board.STOCK_BUCKETS)),
     stock_exclude: Optional[str] = Query(default=None, description="CSV a ocultar: " + ", ".join(board.STOCK_BUCKETS)),
     ageing: Optional[str] = Query(default=None, description="CSV: " + ", ".join(board.AGEING_BUCKETS)),
@@ -467,7 +565,7 @@ def board_filter(
         pub_type=pub_type_in,
         pub_status_exclude=pub_status_out,
         pub_type_exclude=pub_type_out,
-        alerts=_parse_choices(alerts, "alerts", board.ALERTS),
+        alerts=_parse_choices(alerts, "alerts", board.ALERTS if canal == "ml" else board.ALERTS_FUERA),
         stock=stock_in,
         stock_exclude=stock_out,
         ageing=ageing_in,
@@ -514,8 +612,10 @@ def board_filter_tp(
         if f.sort == "total_tp":
             raise HTTPException(status_code=422, detail="sort=total_tp requiere costos_tp=true")
         return f
-    if not _can_see_margin(db, current_user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Costos TP requiere {PERMISO_GANANCIA}")
+    if not _can_see_margin(db, current_user, f.canal):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=f"Costos TP requiere {' y '.join(GANANCIA_CANAL[f.canal])}"
+        )
     if f.sort == "markup_sell":
         # The sell in lowers the Gauss cost: with "Costos TP" there is no markup with sell in / sell out to sort by.
         raise HTTPException(status_code=422, detail="sort=markup_sell no está disponible con costos_tp=true")
@@ -523,8 +623,8 @@ def board_filter_tp(
 
 
 def _fuera_gate(db: Session, user: Usuario, f: board.BoardFilter, tp_solo: bool) -> None:
-    """canal=fuera|todo (vpf-metricas-canal S7): 403 for `tplink.solo` (its lock is the TP store group, por fuera has
-    none) and without `ventas_fuera.ver_metricas_pdf`; `ml_metricas.ver` was already required."""
+    """canal=fuera|todo: 403 for `tplink.solo` (its lock is the TP store group, por fuera has none) and without
+    `ventas_fuera.ver_metricas_pdf` (`require_ver` already asked it, S5)."""
     if f.canal == "ml":
         return
     if tp_solo:
@@ -563,14 +663,14 @@ def _tp_solo_filter(db: Session, f: board.BoardFilter) -> board.BoardFilter:
 
 
 def _margin_gate(f: board.BoardFilter, can_see_margin: bool) -> board.BoardFilter:
-    """403 for a margin sort, filter or toggle without the profit view; the filter with the sell in / sell out
-    figures (profit figures too) read only with it."""
+    """403 for a margin sort, filter or toggle without the canal's profit view (S6); the filter with the sell in /
+    sell out figures (profit figures too) read only with it."""
     if can_see_margin:
         return replace(f, sell_in_out=True)
     if f.restar_publicidad or f.sort in board.MARGIN_SORTS or "margen_cayendo" in f.alerts:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Ordenar o filtrar por margen, o restar publicidad, requiere {PERMISO_GANANCIA}",
+            detail=f"Ordenar o filtrar por margen, o restar publicidad, requiere {' y '.join(GANANCIA_CANAL[f.canal])}",
         )
     return f
 
@@ -645,16 +745,20 @@ def _facets(facets: board.Facets, can_see_margin: bool) -> BoardFacets:
     )
 
 
-def _can_see_margin(db: Session, user: Usuario) -> bool:
-    return PermisosService(db).tiene_permiso(user, PERMISO_GANANCIA)
+def _can_see_margin(db: Session, user: Usuario, canal: str = "ml") -> bool:
+    """The profit view of `canal` (S6): every permission of `GANANCIA_CANAL[canal]`."""
+    permisos = PermisosService(db)
+    return all(permisos.tiene_permiso(user, codigo) for codigo in GANANCIA_CANAL[canal])
 
 
-def _viewer(db: Session, user: Usuario, tp_solo: bool) -> Tuple[bool, Optional[List[Tuple[str, str]]]]:
-    """The caller's profit view and PM scope. `tplink.solo` sees its TP figures (`_tp_solo_response` drops the
-    Gauss ones) and has no PM scope: the TP store lock bounds what it reads."""
+def _viewer(
+    db: Session, user: Usuario, tp_solo: bool, canal: str = "ml"
+) -> Tuple[bool, Optional[List[Tuple[str, str]]]]:
+    """The caller's profit view of `canal` and PM scope. `tplink.solo` (ML only) sees its TP figures
+    (`_tp_solo_response` drops the Gauss ones) and has no PM scope: the TP store lock bounds what it reads."""
     if tp_solo:
         return True, None
-    return _can_see_margin(db, user), _scope_pairs(db, user)
+    return _can_see_margin(db, user, canal), _scope_pairs(db, user)
 
 
 def _without_gauss(value):
@@ -710,7 +814,18 @@ def build_board_response(
             rows = b.group_page(limit, offset)
         else:
             rows = b.page(limit, offset)
-        fuera_extras = None if f.canal == "ml" else (b.fuera_unknown_venta(), *b.fuera_facets())
+        fuera_extras = (
+            None
+            if f.canal == "ml"
+            else (
+                b.fuera_unknown_venta(),
+                *b.fuera_facets(),
+                b.fuera_empresa_documentos(),
+                b.fuera_vendedor_documentos(),
+                b.fuera_kpis(),
+                b.por_canal() if f.canal == "todo" else None,
+            )
+        )
     prev_from, prev_to = board.previous_period(f)
     response = BoardResponse(
         period=BoardPeriod(date_from=f.date_from, date_to=f.date_to, prev_from=prev_from, prev_to=prev_to),
@@ -729,11 +844,70 @@ def build_board_response(
     )
     if fuera_extras is None:
         return response
-    unknown, empresas, vendedores = fuera_extras
+    unknown, empresas, vendedores, empresa_documentos, vendedor_documentos, kpis_fuera, split = fuera_extras
     body = response.model_dump()
     body["kpis"]["venta_desconocida_lineas"] = unknown
-    body["facets"].update(empresas=empresas, vendedores=vendedores)
+    body["kpis"]["fuera"] = _kpi_fuera(kpis_fuera, can_see_margin)
+    if split is not None:
+        sums, series = split
+        body["kpis"]["por_canal"] = {name: _kpi_canal(sums[name], can_see_margin) for name in ("ml", "fuera")}
+        body["kpis"]["gross"]["series_por_canal"] = {
+            name: [round_money(v) for v in values] for name, values in series.items()
+        }
+    body["facets"].update(
+        empresas=empresas,
+        vendedores=vendedores,
+        empresa_documentos=empresa_documentos,
+        vendedor_documentos=vendedor_documentos,
+    )
+    for item, row in zip(body["rows"], rows):
+        _fuera_row(item, row, can_see_margin, group_view=grouped)
     return BoardFueraResponse.model_validate(body)
+
+
+def _fuera_row(item: dict, row: board.Row, can_see_margin: bool, *, group_view: bool) -> None:
+    """canal=fuera|todo: where the row's sales come from (C3) and its period cost (C5 `rows[].costo`): the markup's cost
+    of its lines (the chosen `costo` for the fuera ones, the ML cost for the ML ones); null without the profit view
+    (S6) and for a row without product."""
+    item["canal"] = row.canal
+    sin_producto = not group_view and row.product_item_id < 0
+    item["costo"] = round_money(row.costo) if can_see_margin and not sin_producto else None
+
+
+def _kpi_fuera(k: board.FueraKpis, can_see_margin: bool) -> dict:
+    """`kpis.fuera`: the other cost basis' figures only with the profit view (S6)."""
+    markup = board.markup_of(k.otro_margin, k.otro_costo_total)
+    return KpiFuera(
+        comprobantes=k.comprobantes,
+        por_tipo=[FueraTipo(tipo=t, letra=letra, cantidad=n) for t, letra, n in k.por_tipo],
+        recargo_cheque=round_money(k.recargo_cheque),
+        sin_producto=FueraSinProducto(lineas=k.sin_producto_lineas, monto=round_money(k.sin_producto_monto)),
+        otro_costo=FueraOtroCosto(
+            costo=k.otro_costo,
+            margin=round_money(k.otro_margin) if can_see_margin else None,
+            markup_pct=round_pp(markup) if can_see_margin else None,
+        ),
+        ultimo_pdf=(
+            None
+            if k.ultimo_pdf is None
+            else FueraUltimoPdf(created_at=k.ultimo_pdf[0], empresa=k.ultimo_pdf[1], vendedor=k.ultimo_pdf[2])
+        ),
+    ).model_dump()
+
+
+def _kpi_canal(s: board.CanalSums, can_see_margin: bool) -> dict:
+    """One channel of `kpis.por_canal`: margin = its Total Gauss, markup its own ratio; null without the profit view."""
+    return KpiCanal(
+        units=s.units,
+        gross=round_money(s.gross),
+        margin=round_money(s.tg) if can_see_margin else None,
+        markup_pct=round_pp(board.markup_of(s.mtg, s.costo)) if can_see_margin else None,
+    ).model_dump()
+
+
+def fuera_body(response: BaseModel) -> dict:
+    """A canal=fuera|todo answer as JSON: only the fields it was given, so the todo-only ones stay out of fuera."""
+    return response.model_dump(mode="json", exclude_unset=True)
 
 
 # ── Endpoints ────────────────────────────────────────────────────
@@ -760,7 +934,7 @@ def get_board(
     windows, the 24h included -- from the orders themselves
     (`ml_daily_metrics.sales.sale_lines`), the same rules as Ventas ML."""
     tp_solo = _tp_solo_of(tp_solo, db, current_user)
-    can_see_margin, scope_pairs = _viewer(db, current_user, tp_solo)
+    can_see_margin, scope_pairs = _viewer(db, current_user, tp_solo, f.canal)
     f = _margin_gate(f, can_see_margin)
     response = build_board_response(
         db, f, limit=limit, offset=offset, can_see_margin=can_see_margin, scope_pairs=scope_pairs
@@ -769,7 +943,7 @@ def get_board(
         return _tp_solo_response(response)
     if isinstance(response, BoardFueraResponse):
         # Its extra fields are not `BoardResponse`'s: answered as they are (the ML board keeps its response model).
-        return JSONResponse(response.model_dump(mode="json"))
+        return JSONResponse(fuera_body(response))
     return response
 
 
@@ -791,7 +965,7 @@ def get_product_publications(
     PAIR filters (store, status, type, brand, search), so they add up to the
     product row. Publications are ML's: none por fuera, and only the ML ones in "todo" (vpf-metricas-canal S10)."""
     tp_solo = _tp_solo_of(tp_solo, db, current_user)
-    can_see_margin, scope_pairs = _viewer(db, current_user, tp_solo)
+    can_see_margin, scope_pairs = _viewer(db, current_user, tp_solo, f.canal)
     f = _margin_gate(f, can_see_margin)
     if f.canal == "fuera":
         return PublicationsResponse(rows=[])
@@ -838,7 +1012,7 @@ def get_board_shipping_types(
     order's logistic mode. Only sales figures, so no profit permission is needed. Shipping is ML's: empty por fuera,
     the ML lines only in "todo" (vpf-metricas-canal S10)."""
     tp_solo = _tp_solo_of(tp_solo, db, current_user)
-    can_see_margin, scope_pairs = _viewer(db, current_user, tp_solo)
+    can_see_margin, scope_pairs = _viewer(db, current_user, tp_solo, f.canal)
     f = _margin_gate(f, can_see_margin)
     if f.canal == "fuera":
         return ShippingTypesResponse(rows=[])
@@ -887,7 +1061,7 @@ def get_group_nodes(
     publications), so the page adds up to the node. Paged (a brand can hold
     thousands of products), in the board's sort order."""
     tp_solo = _tp_solo_of(tp_solo, db, current_user)
-    can_see_margin, scope_pairs = _viewer(db, current_user, tp_solo)
+    can_see_margin, scope_pairs = _viewer(db, current_user, tp_solo, f.canal)
     f = _margin_gate(f, can_see_margin)
     if tp_solo and f.dimension != TP_SOLO_DIMENSION:
         raise HTTPException(status_code=422, detail=f"tplink.solo: sólo se agrupa por {TP_SOLO_DIMENSION}")
@@ -916,6 +1090,12 @@ def get_group_nodes(
         limit=limit,
         offset=offset,
     )
+    if f.canal != "ml":
+        # The rows say where their sales come from (C3 `rows[].canal`); the ML answer keeps its bytes.
+        body = response.model_dump(mode="json")
+        for item, row in zip(body["rows"], rows):
+            _fuera_row(item, row, can_see_margin, group_view=not leaf)
+        return JSONResponse(body)
     return _tp_solo_response(response) if tp_solo else response
 
 
@@ -1067,7 +1247,7 @@ def export_board(
     (PgBouncer, see `board`). A page failing mid-stream ends the file with an
     explicit error line."""
     tp_solo = _tp_solo_of(tp_solo, db, current_user)
-    can_see_margin, scope_pairs = _viewer(db, current_user, tp_solo)
+    can_see_margin, scope_pairs = _viewer(db, current_user, tp_solo, f.canal)
     f = _margin_gate(f, can_see_margin)
     # The CSV follows the board's "Publicidad" position: off keeps the pre-ads file byte for byte.
     with_ads = can_see_margin and f.restar_publicidad

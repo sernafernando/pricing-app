@@ -17,20 +17,20 @@ from app.models.combo_componente import ComboComponente
 from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_sale_line import MlSaleLine
 from app.models.sell_dirty import SellDirty
-from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.services.combos import fuente_erp
 from app.workers.context import WorkerContext
 from app.workers.handlers import combos_sync
 from app.workers.handlers.combos_sync import sync as handler
 from app.workers.registry import REGISTRY
+from tests.services.sell._schema import PDF_TABLES, USUARIOS
 from tests.conftest import POSTGRES_TEST_URL, _postgres_reachable, _restore_pristine_pg_types
 
 D = Decimal
 # Plus the sale sources and `sell_dirty`: a changed combo re-queues its sales (`store.apply`).
 _TABLES = [
     ComboComponente.__table__,
-    VentaFueraMLMetrica.__table__,
+    *PDF_TABLES,  # the fuera sales since VPF T4
     VentaTiendaNubeMetrica.__table__,
     MlOrderItemOps.__table__,
     MlSaleLine.__table__,
@@ -50,6 +50,7 @@ def pg_engine(monkeypatch: pytest.MonkeyPatch) -> Iterator[Engine]:
     engine = create_engine(POSTGRES_TEST_URL, connect_args={"options": f"-csearch_path={schema}"})
     try:
         with engine.begin() as conn:
+            conn.execute(text(USUARIOS))  # referenced by `ventas_fuera_pdf_cargas`
             for table in _TABLES:
                 table.create(bind=conn)
         monkeypatch.setattr("app.core.database.SessionLocal", sessionmaker(bind=engine))

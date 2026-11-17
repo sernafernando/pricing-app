@@ -18,7 +18,6 @@ from app.models.gestion_full_package import (
     GestionFullPackage,
     GestionFullPackageLine,
 )
-from app.models.gestion_full_unidades_caja import GestionFullUnidadesCaja
 from app.models.producto import ProductoERP
 from app.services.gestion_full.inventory_keys import (
     excel_codigo_ml,
@@ -150,16 +149,38 @@ def _stock_by_producto_ids(db: Session, producto_item_ids: set[int]) -> dict[int
     return out
 
 
-def _caja_producto_ids(db: Session, producto_item_ids: set[int]) -> set[int]:
-    """Producto ids that already have unidades/caja (one ``IN`` query)."""
-    if not producto_item_ids:
-        return set()
-    return {
-        int(pid)
-        for (pid,) in db.query(GestionFullUnidadesCaja.producto_item_id)
-        .filter(GestionFullUnidadesCaja.producto_item_id.in_(producto_item_ids))
-        .all()
-    }
+def _format_missing_caja_message(db: Session, missing_ids: list[int]) -> str:
+    """Human-readable export blocker: EAN (+ descripción) instead of bare item ids."""
+    by_id: dict[int, ProductoERP] = {}
+    if missing_ids:
+        by_id = {int(p.item_id): p for p in db.query(ProductoERP).filter(ProductoERP.item_id.in_(missing_ids)).all()}
+    parts: list[str] = []
+    for pid in missing_ids:
+        p = by_id.get(pid)
+        if p is None:
+            parts.append(f"item {pid}")
+            continue
+        ean = (p.codigo or "").strip() or f"item {pid}"
+        desc = (p.descripcion or "").strip()
+        parts.append(f"{ean} — {desc}" if desc else ean)
+    joined = "; ".join(parts)
+    return (
+        "Faltan unidades por caja (cargalas en Depósito) en: "
+        f"{joined}. Los packs de un solo componente heredan la U/caja del producto base."
+    )
+
+
+def _assert_ship_lines_have_caja(db: Session, lines: list[GestionFullPackageLine]) -> None:
+    """Raise when shippable lines (qty≥1) lack U/caja (incl. single-component pack inherit)."""
+    from app.services.gestion_full.unidades_caja import producto_ids_con_caja_efectiva
+
+    ship_ids = {int(ln.producto_item_id) for ln in lines if int(ln.qty_export or 0) >= 1}
+    if not ship_ids:
+        return
+    with_caja = producto_ids_con_caja_efectiva(db, ship_ids)
+    missing_caja = sorted(ship_ids - with_caja)
+    if missing_caja:
+        raise ValueError(_format_missing_caja_message(db, missing_caja))
 
 
 def assert_package_exportable(db: Session, package: GestionFullPackage) -> None:
@@ -196,17 +217,6 @@ def build_ml_full_xlsx(db: Session, package: GestionFullPackage) -> bytes:
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
-
-
-def _assert_ship_lines_have_caja(db: Session, lines: list[GestionFullPackageLine]) -> None:
-    """Raise when shippable lines (qty≥1) lack U/caja."""
-    ship_ids = {int(ln.producto_item_id) for ln in lines if int(ln.qty_export or 0) >= 1}
-    if not ship_ids:
-        return
-    with_caja = _caja_producto_ids(db, ship_ids)
-    missing_caja = sorted(ship_ids - with_caja)
-    if missing_caja:
-        raise ValueError(f"faltan unidades/caja en productos: {missing_caja}")
 
 
 def _ops_ean_xlsx_bytes(db: Session, lines: list[GestionFullPackageLine]) -> bytes:

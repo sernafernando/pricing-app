@@ -163,13 +163,60 @@ describe('screen catalog vs Sidebar.jsx menuSections', () => {
 
   it('includes every sidebar item under the same section', () => {
     expect(sidebarItems.length).toBeGreaterThan(40);
-    for (const item of sidebarItems) {
+    for (const item of sidebarItems.filter((i) => !i.path.includes('?'))) {
       const screen = byPath.get(item.path);
       expect(screen, `sidebar item ${item.path} missing from catalog`).toBeDefined();
       expect(screen.label).toBe(item.label);
       expect(item.section, `no section read for ${item.path}`).toBeTruthy();
       expect(screen.section, `section drifted for ${item.path}`).toBe(item.section);
     }
+  });
+});
+
+describe('sidebar items with a query string (a view of a screen, e.g. Ventas por Fuera)', () => {
+  const sidebarItems = parseSidebar(sidebarSource);
+  const vistas = sidebarItems.filter((i) => i.path.includes('?'));
+
+  it('are listed as a `vistas` entry of their screen, under the same section', () => {
+    expect(vistas.map((v) => v.path)).toContain('/metricas-ml?canal=fuera');
+    for (const item of vistas) {
+      const [path, query] = item.path.split('?');
+      const screen = byPath.get(path);
+      expect(screen, `sidebar view ${item.path} has no catalog screen`).toBeDefined();
+      expect(screen.vistas, `missing vistas entry for ${item.path}`).toContainEqual({ label: item.label, query });
+      expect(screen.section).toBe(item.section);
+    }
+  });
+
+  it('lists no catalog view the sidebar does not have', () => {
+    const enSidebar = new Set(vistas.map((v) => v.path));
+    for (const screen of SCREENS.filter((s) => s.vistas)) {
+      for (const vista of screen.vistas) {
+        expect(enSidebar.has(`${screen.path}?${vista.query}`), `${screen.path}?${vista.query}`).toBe(true);
+      }
+    }
+  });
+});
+
+describe('Ventas por fuera screens (ODD vpf-metricas-canal-fe S4/S5/C4)', () => {
+  const donde = (codigo) => pantallasDeAdicional(codigo, SCREENS, PERMISOS_ADICIONALES);
+
+  it('opens Métricas ML with either permission and lists the PDF loads and the excluded-salespeople admin', () => {
+    expect(byPath.get('/metricas-ml').permisos).toEqual(['ml_metricas.ver', 'ventas_fuera.ver_metricas_pdf']);
+    expect(byPath.get('/metricas-ml/cargas')).toMatchObject({
+      label: 'Cargas de PDF',
+      section: 'Reportes',
+      permisos: ['ventas_fuera.subir_pdf', 'ventas_fuera.ver_metricas_pdf'],
+    });
+    expect(byPath.get('/dashboard-ventas-fuera/vendedores-excluidos')).toMatchObject({
+      section: 'Otras',
+      permisos: ['ventas_fuera.ver_dashboard'],
+    });
+    expect(byPath.has('/dashboard-ventas-fuera')).toBe(false);
+  });
+
+  it('places the ventas_fuera extras on the board', () => {
+    expect(donde('ventas_fuera.ver_ganancia')).toEqual(['/metricas-ml']);
   });
 });
 

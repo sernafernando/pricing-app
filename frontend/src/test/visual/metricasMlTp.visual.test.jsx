@@ -16,6 +16,8 @@ import { withTp } from '../../components/metricasMl/tpFixtures';
 vi.mock('react-router-dom', async () => ({
   // The page keeps its filters in the URL (U1): an in-memory query, empty at the start.
   useSearchParams: (await import('./searchParamsMock')).useSearchParams,
+  // The board renders the PDF upload modal, which navigates to the upload history.
+  useNavigate: () => () => {},
   Link: ({ to, children, ...rest }) => (
     <a href={to} {...rest}>
       {children}

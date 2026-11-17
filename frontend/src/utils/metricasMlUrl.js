@@ -1,5 +1,6 @@
 import { businessToday, calcularRangoPreset } from './dateRangePresets';
 import { DIMENSION_OPTIONS } from './metricasMlLevels';
+import { CANALES, COSTOS, DEFAULT_CANAL, DEFAULT_COSTO, canalInicial } from './metricasMlCanal';
 
 /**
  * The Métricas ML view in the query string (metricas-ml-tablero U1, audit B3): a reload keeps it, and a filtered
@@ -12,6 +13,10 @@ import { DIMENSION_OPTIONS } from './metricasMlLevels';
  * goes as written -- the board answers for those. A preset period (`periodo=7d`) is read relative to today, so a
  * saved link keeps meaning "the last 7 days"; a custom one carries its dates (`periodo=custom&desde=&hasta=`).
  * The view modes (Publicidad, Costos TP), the page and the open rows stay out of it.
+ *
+ * The channel (vpf-metricas-canal-fe): `canal=fuera|todo` (ML, the default, is never written, so every existing link
+ * keeps meaning what it meant), `costo=costo` (Costo D is the default) and the fuera filters `empresas` and
+ * `vendedores` (free text, CSV). `canales` (the ones the viewer may use) moves a link to one it may.
  */
 
 export const DEFAULT_PRESET = 'mesActual';
@@ -32,7 +37,7 @@ const LISTS = {
   pubType: ['tipo', PUB_TYPE],
   pubStatusExclude: ['estado_excluir', PUB_STATUS],
   pubTypeExclude: ['tipo_excluir', PUB_TYPE],
-  alerts: ['alertas', ['sin_ventas_30d', 'ageing_60d', 'margen_cayendo']],
+  alerts: ['alertas', ['sin_ventas_30d', 'ageing_60d', 'margen_cayendo', 'sin_producto']],
   stock: ['stock', STOCK],
   stockExclude: ['stock_excluir', STOCK],
   ageing: ['ageing', AGEING],
@@ -54,6 +59,10 @@ const OWN_PARAMS = [
   'solo_ventas',
   'orden',
   'dir',
+  'canal',
+  'costo',
+  'empresas',
+  'vendedores',
   ...Object.keys(PRODUCT_LISTS),
   ...Object.values(LISTS).map(([param]) => param),
 ];
@@ -94,6 +103,10 @@ export function defaultView(today = businessToday()) {
     ...Object.fromEntries(Object.keys(LISTS).map((key) => [key, []])),
     soloConVentas: true,
     sort: { key: 'gross', desc: true },
+    canal: DEFAULT_CANAL,
+    costo: DEFAULT_COSTO,
+    empresas: [],
+    vendedores: [],
   };
 }
 
@@ -118,12 +131,19 @@ function readRange(params, today) {
   return { ...calcularRangoPreset(periodo, today), filtro: periodo };
 }
 
-export function readMetricasUrl(params, { sortKeys, today = businessToday() }) {
+export function readMetricasUrl(params, { sortKeys, today = businessToday(), canales = CANALES }) {
   const view = defaultView(today);
+  view.canal = canalInicial(CANALES.includes(params.get('canal')) ? params.get('canal') : DEFAULT_CANAL, canales);
+  if (COSTOS.includes(params.get('costo'))) view.costo = params.get('costo');
+  view.empresas = csv(params, 'empresas');
+  view.vendedores = csv(params, 'vendedores');
   const range = readRange(params, today);
   if (range) view.range = range;
   if (COMPARE.has(params.get('comparar'))) view.compararCon = params.get('comparar');
-  if (GROUP_BY.has(params.get('agrupar'))) view.groupBy = params.get('agrupar');
+  // Por fuera has no publication view (the board answers 422): such a link opens by product.
+  if (GROUP_BY.has(params.get('agrupar')) && !(view.canal === 'fuera' && params.get('agrupar') === 'publication')) {
+    view.groupBy = params.get('agrupar');
+  }
   if (DIMENSIONS.has(params.get('dimension'))) view.dimension = params.get('dimension');
   if (params.get('q')) view.searchQuery = params.get('q');
   if (params.get('tienda')) view.storeFilter = params.get('tienda');
@@ -171,6 +191,10 @@ export function writeMetricasUrl(view, current = new URLSearchParams()) {
     if (view[key].length) params.set(param, view[key].join(','));
   }
   if (!view.soloConVentas) params.set('solo_ventas', '0');
+  if (view.canal && view.canal !== DEFAULT_CANAL) params.set('canal', view.canal);
+  if (view.costo && view.costo !== DEFAULT_COSTO) params.set('costo', view.costo);
+  if (view.empresas?.length) params.set('empresas', view.empresas.join(','));
+  if (view.vendedores?.length) params.set('vendedores', view.vendedores.join(','));
   if (!sameSort(view.sort, defaultSortFor(view.groupBy))) {
     params.set('orden', view.sort.key);
     params.set('dir', view.sort.desc ? 'desc' : 'asc');

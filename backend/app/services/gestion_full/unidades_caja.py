@@ -16,6 +16,47 @@ from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
 from app.services.gestion_full.audit import registrar
 from app.services.gestion_full.package import get_active_package
+from app.services.combos.componentes import combos_disponibles, componentes_de
+
+
+def producto_ids_con_caja(
+    db: Session,
+    producto_item_ids: set[int],
+) -> set[int]:
+    """Ids that already have a ``gestion_full_unidades_caja`` row (direct)."""
+    if not producto_item_ids:
+        return set()
+    return {
+        int(pid)
+        for (pid,) in db.query(GestionFullUnidadesCaja.producto_item_id)
+        .filter(GestionFullUnidadesCaja.producto_item_id.in_(producto_item_ids))
+        .all()
+    }
+
+
+def producto_ids_con_caja_efectiva(
+    db: Session,
+    producto_item_ids: set[int],
+) -> set[int]:
+    """Ids covered by U/caja for export / pendientes.
+
+    A combo whose BOM is a single component inherits that component's U/caja
+    (same idea as expanding packs for GBP: X2/X4 of one SKU share the base box size).
+    Multi-component combos do not inherit.
+    """
+    direct = producto_ids_con_caja(db, producto_item_ids)
+    missing = producto_item_ids - direct
+    if not missing or not combos_disponibles(db):
+        return direct
+
+    boms = componentes_de(db, missing)
+    single_comp_ids = {int(next(iter(comps))) for comps in boms.values() if len(comps) == 1}
+    comps_with_caja = producto_ids_con_caja(db, single_comp_ids)
+    covered = set(direct)
+    for combo_id, comps in boms.items():
+        if len(comps) == 1 and int(next(iter(comps))) in comps_with_caja:
+            covered.add(int(combo_id))
+    return covered
 
 
 def upsert_unidades_caja(
@@ -193,12 +234,7 @@ def list_pendientes_unidades_caja(
     if not candidates:
         return []
 
-    with_caja = {
-        int(pid)
-        for (pid,) in db.query(GestionFullUnidadesCaja.producto_item_id)
-        .filter(GestionFullUnidadesCaja.producto_item_id.in_(candidates))
-        .all()
-    }
+    with_caja = producto_ids_con_caja_efectiva(db, candidates)
     missing = candidates - with_caja
     if not missing:
         return []

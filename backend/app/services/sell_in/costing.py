@@ -32,28 +32,34 @@ so a re-run never rewrites a row only because of precision the column drops.
 Sources per channel (one `venta_ref` keyspace each, like `sell_dirty`):
 
 - `ml`: `ml_sale_lines` (`item_row_id`, `product`, `day`, `qty`);
-- `fuera` / `tn`: `ventas_fuera_ml_metricas` / `ventas_tienda_nube_metricas`
+- `fuera`: the lines of the ventas por fuera PDF reports
+  (`app.services.ventas_fuera_pdf.ventas.VentasPdf`, same columns as the synced
+  tables; a credit note line is a return); the GBP sync
+  (`ventas_fuera_ml_metricas`) is not a source since VPF T4 (owner, S18);
+- `tn`: `ventas_tienda_nube_metricas`
   (`it_transaction`, `item_id`, the UTC date of `fecha_venta` — stored at
   midnight UTC —, `signo * cantidad`).
 
 Returns (owner's decision, 2026-10-17): every return (negative `signo *
-cantidad`, e.g. a fuera credit note `signo = -1`) gives its units back
+cantidad`, e.g. a PDF credit note line) gives its units back
 (`fifo.asignar`). The sale that loses them is the customer's ONLY earlier sale
 of the product (same `cust_id` and `item_id`, earlier by `(fecha_venta,
 it_transaction)`); with zero or several candidates, the most recent earlier
 sale still holding units. A unique candidate dated before the purchase counts
 held nothing (it is not among the sales passed to `fifo.asignar`), so that
 return falls back to the most recent holder too: every return releases units.
-Measured on prod: 283 of 409 fuera product returns
-have exactly one candidate, 89 several, 37 none. Our sale tables carry no
-reference to the original sale, so a recompute reads the CURRENT rows: a new,
-deleted or changed return or sale re-queues its line through the fuera / TN
-triggers and the drain recomputes the product. A `cust_id`-only change is not
-in the triggers' `ALLOCATION_COLUMNS`: it takes effect on the product's next
-recompute (any other change to it, or the backfill).
+Measured on prod (GBP sync, before VPF T4): 283 of 409 fuera product returns
+have exactly one candidate, 89 several, 37 none. A PDF line's customer is its
+document's client code, else its company + printed client name (`VentasPdf`).
+Our sale tables carry no reference to the original sale, so a recompute reads
+the CURRENT rows: a new, deleted or changed return or sale re-queues its line
+through the fuera (PDF) / TN triggers and the drain recomputes the product. A TN
+`cust_id`-only change is not in the triggers' `ALLOCATION_COLUMNS`: it takes
+effect on the product's next recompute (any other change to it, or the
+backfill); a PDF document whose client changes re-queues its lines.
 
 ERP independence (owner's rule, 2026-10-17): this process reads only the
-app's own tables (`ml_sale_lines`, `ventas_fuera_ml_metricas`,
+app's own tables (`ml_sale_lines`, the ventas por fuera PDF operations,
 `ventas_tienda_nube_metricas`, `sell_in_*`), never an ERP mirror (`tb_*`), so
 replacing the ERP does not change it.
 
@@ -90,7 +96,6 @@ from sqlalchemy.orm import Session
 
 from app.models.ml_sale_line import MlSaleLine
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo, SellInModoProducto
-from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.services.combos.ventas import partes_de_combos, unidades_de
 from app.services.sell_in.fifo import (
@@ -106,6 +111,7 @@ from app.services.sell_in.fifo import (
     periodo_en,
 )
 from app.services.sell_in.split import unit_discount
+from app.services.ventas_fuera_pdf.ventas import VentasPdf
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +122,8 @@ LOCK_SQL = text(
     "SELECT pg_advisory_xact_lock(:ns, i) FROM (SELECT DISTINCT i FROM unnest(CAST(:ids AS integer[])) AS t(i) "
     "ORDER BY i) AS ordered"
 )
-VENTAS_FACTURADAS = (("fuera", VentaFueraMLMetrica), ("tn", VentaTiendaNubeMetrica))
+# Ventas por fuera come only from the GBP PDF reports (owner, S18), never from the GBP sync.
+VENTAS_FACTURADAS = (("fuera", VentasPdf), ("tn", VentaTiendaNubeMetrica))
 
 
 @dataclass

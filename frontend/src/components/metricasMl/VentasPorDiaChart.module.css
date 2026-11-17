@@ -130,3 +130,45 @@
   font-size: var(--font-xs);
   white-space: nowrap;
 }
+
+/* vpf-metricas-canal-fe: Todo stacks ML (bottom) and Por fuera; Por fuera labels every bar (mockups 1 and 2). */
+.valueShown {
+  visibility: visible;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 2px;
+  overflow: hidden;
+  border-radius: 4px 4px 0 0;
+}
+
+.segment {
+  display: block;
+  flex-basis: 0;
+  min-height: 0;
+}
+
+.segment[data-canal='ml'],
+.legendItem[data-canal='ml']::before {
+  background: var(--cf-accent-blue);
+}
+
+.segment[data-canal='fuera'],
+.legendItem[data-canal='fuera']::before {
+  background: var(--cf-text-muted);
+}
+
+.legendSquare::before {
+  border-radius: 2px;
+}
+
+.day[data-vacio] .date {
+  color: var(--cf-text-muted);
+}
+
+.day[data-vacio] .bar {
+  min-height: 0;
+}
