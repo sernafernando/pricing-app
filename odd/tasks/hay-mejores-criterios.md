@@ -41,7 +41,7 @@ S12. Persistence: `ml_hay_mejores_criterios` per item_id upsert.
 | T2 | S11 | inline | done | P1 audit #20 |
 | T3 | S4,S5 | inline | done | P2a #21 · P2b #22 |
 | T4 | S6 | inline | done | P3a #23 · P3b #24 |
-| T5 | S7,S8 | inline | in progress | P4a R-AUTO motor; P4b fail UI |
+| T5 | S7,S8 | inline | in progress | P4a #25 · P4b fail UI |
 | T6 | S9,S10 | inline | pending | P5 bulk + ayuda/novedad |
 
 ## Log
@@ -58,4 +58,6 @@ L5. 2026-11-17: Owner — smoke al final de todo el stack; seguir abriendo PRs p
 
 L6. 2026-11-17: P3a — `evaluar_monopolio_c6` + synthetic fingerprint `c6:{precio_objetivo}`; `solo_via_promo` skips C6-only flag.
 
-L7. 2026-11-17: P4a — R-AUTO enroll-instead-of-flag (`pick_mejor_candidata_auto` / `resolve_auto_enroll_target` / `_try_auto_enroll`); fail → re-flag + `Autoapply falló` in audit; C6 never auto-enrolls.
+L7. 2026-11-17: P4a — R-AUTO enroll-instead-of-flag (`pick_mejor_candidata_auto` / `resolve_auto_enroll_target` / `_try_auto_enroll`); fail → re-flag + `Autoapply falló` in audit; C6 never auto-enrolls. Enroll on `after_commit` (ADR-5).
+
+L8. 2026-11-17: P4b — `auto_fail_message` on GET promociones/item when flag on + latest audit auto_fail; banner in MejoresCandidatasBlock.

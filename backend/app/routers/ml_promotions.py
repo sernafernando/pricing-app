@@ -27,7 +27,9 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.logging import get_logger
+from app.models.ml_publications import MlItemSellerPromotions
 from app.models.usuario import Usuario
+from app.services.ml_hay_mejores_audit_service import latest_auto_fail_message
 from app.services.ml_publications import admin as ml_pub_admin
 from app.services.ml_catalog_competition_service import (
     obtener_ultimo_snapshot,
@@ -189,6 +191,8 @@ class ItemPromotionsList(BaseModel):
     motivo_sin_actualizacion: Optional[str] = None
     # Not-applied enrolls whose promo is not among `promotions`, so the panel can warn with no row to badge.
     escrituras_no_aplicadas_sin_promo: List[EscrituraNoAplicadaSinPromo] = []
+    # R-AUTO enroll failed while Auto was ON: same suggestion as Auto OFF + this ready-to-show text.
+    auto_fail_message: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -675,6 +679,21 @@ def obtener_promociones_item(
         promotions = derivar_application_status(promotions)
         promotions = enriquecer_markup_por_promo(db, mla_id, promotions, sell_in_out=True)
         motivo = motivo_sin_consulta_ml(db, mla_id)
+        # Optional UI hint: fail-open so a bad audit/flag read never 500s a healthy promotions list.
+        auto_fail_message = None
+        try:
+            promo_row = (
+                db.query(MlItemSellerPromotions).filter(MlItemSellerPromotions.item_id == mla_id).one_or_none()
+            )
+            if promo_row is not None and bool(promo_row.hay_mejores_ofertas):
+                auto_fail_message = latest_auto_fail_message(db, mla_id)
+        except Exception:
+            logger.warning("hay_mejores auto_fail_message enrich failed for %s", mla_id, exc_info=True)
+            try:
+                db.rollback()  # leave the request session usable for later enrichers
+            except Exception:
+                logger.debug("rollback after auto_fail_message enrich failed", exc_info=True)
+            auto_fail_message = None
         # Last: on failure it rolls the request session back, so nothing may read through it afterwards.
         sin_promo = _marcar_escrituras_no_aplicadas(db, mla_id, promotions)
         return ItemPromotionsList(
@@ -683,6 +702,7 @@ def obtener_promociones_item(
             promotions=promotions,
             motivo_sin_actualizacion=motivo,
             escrituras_no_aplicadas_sin_promo=sin_promo,
+            auto_fail_message=auto_fail_message,
         )
     except RuntimeError as e:
         logger.error("ML_WEBHOOK_DB_URL not configured: %s", e)

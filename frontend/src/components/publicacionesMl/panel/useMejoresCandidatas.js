@@ -25,6 +25,7 @@ export function useMejoresCandidatas({
   // The promo ML applies today (`application_status === 'active'`), null when none: the comparison's left side.
   const [applied, setApplied] = useState(null);
   const [message, setMessage] = useState(null);
+  const [autoFailMessage, setAutoFailMessage] = useState(null);
   const [descartando, setDescartando] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   // Bumped after a clean apply that stays on the pub: re-reads the candidates.
@@ -39,10 +40,13 @@ export function useMejoresCandidatas({
     (async () => {
       setLoading(true);
       setMessage(null);
+      setAutoFailMessage(null);
       setUnavailable(false);
       try {
         const promoRes = await promocionesAPI.getPromocionesItem(itemId);
         if (cancelled) return;
+        const failText = promoRes?.data?.auto_fail_message;
+        setAutoFailMessage(typeof failText === 'string' && failText.trim() ? failText.trim() : null);
         const promotions = promoRes?.data?.promotions ?? promoRes?.data?.promociones ?? [];
         // Activa ahora = ML-applied started (lowest price / application_status active).
         const statusQuoPromo = baselinePromo(promotions);
@@ -123,6 +127,7 @@ export function useMejoresCandidatas({
     applied,
     unavailable,
     message,
+    autoFailMessage,
     descartando,
     discard,
     bumpReload: () => setReloadToken((token) => token + 1),
