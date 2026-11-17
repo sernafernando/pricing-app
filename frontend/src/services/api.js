@@ -322,6 +322,8 @@ export const promocionesAPI = {
   // Per-MLA Criterios de aplicación (C1/C2/C6/Auto). GET defaults when no row; PUT upserts.
   getHayMejoresCriterios: (mlaId) => api.get(`/promociones/item/${mlaId}/hay-mejores-criterios`),
   putHayMejoresCriterios: (mlaId, body) => api.put(`/promociones/item/${mlaId}/hay-mejores-criterios`, body),
+  // Bulk apply same criterios (≤20 ids). Optional discard skips Auto-fail suggestions.
+  setHayMejoresCriteriosBulk: (body) => api.post('/promociones/hay-mejores-criterios-bulk', body),
   // Remove/desapply a promotion from a given MLA (real ML write). `params`
   // shape: { promotion_type, promotion_id } - backend re-derives offer_id
   // for SMART itself, so the FE never sends offer_id here either.

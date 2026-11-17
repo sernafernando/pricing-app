@@ -178,6 +178,7 @@ def upsert_criterios(
     c6_distancia_objetivo: Decimal,
     auto_aplicacion: bool,
     sellers_excluidos: Optional[Sequence[str]] = None,
+    alcance: str = "item",
 ) -> CriteriosView:
     if c1_activo and c1_markup_min is not None and c1_markup_max is not None and c1_markup_min > c1_markup_max:
         raise ValueError("c1_markup_min no puede ser mayor que c1_markup_max")
@@ -211,6 +212,64 @@ def upsert_criterios(
         old=previous.auto_aplicacion,
         new=auto_aplicacion,
         usuario_id=updated_by,
-        alcance="item",
+        alcance=alcance,
     )
     return _row_to_view(row)
+
+
+def upsert_criterios_bulk(
+    db: Session,
+    item_ids: Sequence[str],
+    *,
+    updated_by: Optional[int],
+    c1_activo: bool,
+    c1_markup_min: Optional[Decimal],
+    c1_markup_max: Optional[Decimal],
+    c2_activo: bool,
+    c2_solo_markup_positivo: bool,
+    c6_activo: bool,
+    c6_solo_via_promo: bool,
+    c6_gap_min: Decimal,
+    c6_distancia_objetivo: Decimal,
+    auto_aplicacion: bool,
+    sellers_excluidos: Optional[Sequence[str]] = None,
+) -> list[str]:
+    """Upsert the same criterios onto many MLAs. Unknown ``ml_items`` ids are skipped; order preserved."""
+    from app.models.ml_publications import MlItem
+
+    ids = [item_id for item_id in dict.fromkeys(item_ids) if item_id]
+    if not ids:
+        return []
+    known = {row[0] for row in db.query(MlItem.item_id).filter(MlItem.item_id.in_(ids)).all()}
+    touched: list[str] = []
+    for item_id in ids:
+        if item_id not in known:
+            continue
+        upsert_criterios(
+            db,
+            item_id,
+            updated_by=updated_by,
+            c1_activo=c1_activo,
+            c1_markup_min=c1_markup_min,
+            c1_markup_max=c1_markup_max,
+            c2_activo=c2_activo,
+            c2_solo_markup_positivo=c2_solo_markup_positivo,
+            c6_activo=c6_activo,
+            c6_solo_via_promo=c6_solo_via_promo,
+            c6_gap_min=c6_gap_min,
+            c6_distancia_objetivo=c6_distancia_objetivo,
+            auto_aplicacion=auto_aplicacion,
+            sellers_excluidos=sellers_excluidos,
+            alcance="bulk",
+        )
+        touched.append(item_id)
+    return touched
+
+
+def count_auto_aplicacion_on(db: Session, item_ids: Sequence[str]) -> int:
+    """How many of the ids currently have Auto-aplicación ON (for bulk-dialog warning)."""
+    ids = [item_id for item_id in dict.fromkeys(item_ids) if item_id]
+    if not ids:
+        return 0
+    rows = db.query(MlHayMejoresCriterios).filter(MlHayMejoresCriterios.item_id.in_(ids)).all()
+    return sum(1 for row in rows if bool(row.auto_aplicacion))
