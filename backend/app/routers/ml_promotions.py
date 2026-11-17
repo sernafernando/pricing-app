@@ -682,9 +682,7 @@ def obtener_promociones_item(
         # Optional UI hint: fail-open so a bad audit/flag read never 500s a healthy promotions list.
         auto_fail_message = None
         try:
-            promo_row = (
-                db.query(MlItemSellerPromotions).filter(MlItemSellerPromotions.item_id == mla_id).one_or_none()
-            )
+            promo_row = db.query(MlItemSellerPromotions).filter(MlItemSellerPromotions.item_id == mla_id).one_or_none()
             if promo_row is not None and bool(promo_row.hay_mejores_ofertas):
                 auto_fail_message = latest_auto_fail_message(db, mla_id)
         except Exception:
