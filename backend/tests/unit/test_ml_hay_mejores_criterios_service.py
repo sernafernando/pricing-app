@@ -9,6 +9,7 @@ from app.services.ml_hay_mejores_criterios_service import (
     default_criterios,
     markup_pasa_c1,
     markup_pasa_c2,
+    monopolio_c6_oportunidad,
 )
 
 
@@ -92,3 +93,41 @@ class TestCatalogWinAndC2:
 
     def test_c2_allows_negative_when_toggle_off(self) -> None:
         assert markup_pasa_c2(-5.0, c2_activo=True, c2_solo_markup_positivo=False)
+
+
+class TestMonopolioC6Oportunidad:
+    def test_gap_at_least_min_while_winning(self) -> None:
+        out = monopolio_c6_oportunidad(
+            c6_activo=True,
+            our_price_ars=10000.0,
+            segundo_precio_ars=16000.0,
+            c6_gap_min=Decimal("5000"),
+            c6_distancia_objetivo=Decimal("100"),
+        )
+        assert out is not None
+        assert out["gap"] == 6000.0
+        assert out["precio_objetivo"] == 15900.0
+
+    def test_inert_when_gap_below_min(self) -> None:
+        assert (
+            monopolio_c6_oportunidad(
+                c6_activo=True,
+                our_price_ars=10000.0,
+                segundo_precio_ars=14000.0,
+                c6_gap_min=Decimal("5000"),
+                c6_distancia_objetivo=Decimal("100"),
+            )
+            is None
+        )
+
+    def test_inert_when_not_winning(self) -> None:
+        assert (
+            monopolio_c6_oportunidad(
+                c6_activo=True,
+                our_price_ars=16000.0,
+                segundo_precio_ars=10000.0,
+                c6_gap_min=Decimal("5000"),
+                c6_distancia_objetivo=Decimal("100"),
+            )
+            is None
+        )

@@ -314,6 +314,8 @@ class TestActualizarForwardsRawPromotions:
         monkeypatch.setattr(hay_mejores, "evaluar_mejores_candidatas", _evaluar)
         monkeypatch.setattr(hay_mejores, "_enqueue_catalog_competition_refresh", lambda *_a, **_k: None)
         monkeypatch.setattr(hay_mejores, "record_flag_transition", lambda *_a, **_k: None)
+        monkeypatch.setattr(hay_mejores, "get_criterios", lambda *_a, **_k: default_criterios("MLA1"))
+        monkeypatch.setattr(hay_mejores, "evaluar_monopolio_c6", lambda *_a, **_k: None)
 
         decision = hay_mejores.actualizar_hay_mejores_ofertas(db, "MLA1", raw_promotions=raw)
         assert decision is not None and decision.hay_mejores is True

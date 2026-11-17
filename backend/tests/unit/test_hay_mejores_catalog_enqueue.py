@@ -52,6 +52,9 @@ def _run_actualizar(monkeypatch, *, prev_flag: bool, prev_fp: str | None, decisi
         "_enqueue_catalog_competition_refresh",
         lambda _db, item_id: enqueued.append(item_id),
     )
+    monkeypatch.setattr(hay_mejores, "get_criterios", lambda *_a, **_k: SimpleNamespace(c6_activo=False))
+    monkeypatch.setattr(hay_mejores, "evaluar_monopolio_c6", lambda *_a, **_k: None)
+    monkeypatch.setattr(hay_mejores, "record_flag_transition", lambda *_a, **_k: None)
 
     result = hay_mejores.actualizar_hay_mejores_ofertas(
         db, "MLA1", raw_promotions=[{"id": "C-1", "status": "candidate"}]

@@ -48,7 +48,11 @@ from app.services.ml_promotions_pricing import (
 )
 from app.services.productos_sell_in_out import SellInOutBatch
 from app.services.ml_publications.parsers.seller_promotions import STATUS_CANDIDATE, promotion_key
-from app.services.ml_catalog_competition_service import min_rival_price_ars, obtener_ultimo_snapshot
+from app.services.ml_catalog_competition_service import (
+    effective_same_bucket_competitors,
+    min_rival_price_ars,
+    obtener_ultimo_snapshot,
+)
 from app.services.ml_hay_mejores_audit_service import record_flag_transition
 from app.services.ml_hay_mejores_criterios_service import (
     CriteriosView,
@@ -56,11 +60,15 @@ from app.services.ml_hay_mejores_criterios_service import (
     get_criterios,
     markup_pasa_c1,
     markup_pasa_c2,
+    monopolio_c6_oportunidad,
 )
 
 logger = get_logger(__name__)
 
 MejorTuple = Tuple[str, float]
+
+# Synthetic fingerprint key for C6 raise-price opportunity (not a MeLi promotion id).
+C6_FINGERPRINT_KEY = "c6"
 
 
 @dataclass(frozen=True)
@@ -71,6 +79,16 @@ class MejoresEvaluacion:
     status_quo: Dict[str, Any]
     candidatas: List[Dict[str, Any]]
     criterios: Dict[str, Any]
+    monopolio: Optional[Dict[str, Any]] = None
+
+
+@dataclass(frozen=True)
+class MonopolioEvaluacion:
+    """C6 raise-price opportunity on effective catalog ranking."""
+
+    oportunidad: Dict[str, float]
+    flag_tuple: MejorTuple
+    solo_via_promo: bool
 
 
 def _criterios_audit_dict(criterios: CriteriosView) -> Dict[str, Any]:
@@ -323,6 +341,52 @@ def listar_mejores_candidatas(
     ).mejores
 
 
+def _our_price_ars_from_snapshot(row: Any, our_item_id: str) -> Optional[float]:
+    """Our ``price_ars`` from the snapshot competitor list (same currency basis as rivals)."""
+    if row is None:
+        return None
+    for competitor in effective_same_bucket_competitors(row, sellers_excluidos=None):
+        if (competitor.get("item_id") or "") == our_item_id and competitor.get("price_ars") is not None:
+            return float(competitor["price_ars"])
+    for competitor in row.competitors or []:
+        if (competitor.get("item_id") or "") == our_item_id and competitor.get("price_ars") is not None:
+            return float(competitor["price_ars"])
+    return None
+
+
+def evaluar_monopolio_c6(
+    db: Session, mla: str, *, criterios: Optional[CriteriosView] = None
+) -> Optional[MonopolioEvaluacion]:
+    """C6: we are #1 on effective ranking and gap to 2nd ≥ gap mín → raise-price opportunity.
+
+    Inert without snapshot / rivals / ``c6_activo``. Does not enroll; only shapes the flag fingerprint.
+    """
+    view = criterios if criterios is not None else get_criterios(db, mla)
+    if not view.c6_activo:
+        return None
+    snapshot = obtener_ultimo_snapshot(db, mla)
+    segundo = min_rival_price_ars(
+        snapshot,
+        our_item_id=mla,
+        sellers_excluidos=view.sellers_excluidos,
+    )
+    our = _our_price_ars_from_snapshot(snapshot, mla)
+    oportunidad = monopolio_c6_oportunidad(
+        c6_activo=view.c6_activo,
+        our_price_ars=our,
+        segundo_precio_ars=segundo,
+        c6_gap_min=view.c6_gap_min,
+        c6_distancia_objetivo=view.c6_distancia_objetivo,
+    )
+    if oportunidad is None:
+        return None
+    return MonopolioEvaluacion(
+        oportunidad=oportunidad,
+        flag_tuple=(C6_FINGERPRINT_KEY, float(oportunidad["precio_objetivo"])),
+        solo_via_promo=bool(view.c6_solo_via_promo),
+    )
+
+
 def _candidate_entries(raw: Any, now: datetime) -> List[Mapping[str, Any]]:
     """The candidates that can be applied at ``now``: a better promo applicable only in 10 days does not count."""
     if not isinstance(raw, list):
@@ -415,9 +479,9 @@ def actualizar_hay_mejores_ofertas(
                 raw = raw_promotions if raw_promotions is not None else row.raw
                 candidates = _candidate_entries(raw, now if now is not None else datetime.now(timezone.utc))
                 evaluacion: Optional[MejoresEvaluacion] = None
-                if baseline is None or baseline <= 0 or not candidates:
-                    decision = decidir_flag_hay_mejores(mejores=[], descartado_fingerprint=None)
-                else:
+                mejores: List[MejorTuple] = []
+                criterios_view = get_criterios(db, item_id)
+                if baseline is not None and baseline > 0 and candidates:
                     evaluacion = evaluar_mejores_candidatas(
                         db,
                         item_id,
@@ -426,28 +490,36 @@ def actualizar_hay_mejores_ofertas(
                         raw_promotions=raw,
                         sell_in_out_batch=sell_in_out_batch,
                     )
-                    decision = decidir_flag_hay_mejores(
-                        mejores=evaluacion.mejores,
-                        descartado_fingerprint=row.hay_mejores_descartado_fingerprint,
-                    )
+                    mejores = list(evaluacion.mejores)
+                monopolio = evaluar_monopolio_c6(db, item_id, criterios=criterios_view)
+                # solo_via_promo: C6 alone does not flag until a promo-assist path exists (P3b/P4).
+                # With classic/C2 candidatas present, C6 still joins the fingerprint for dual UI.
+                if monopolio is not None and (not monopolio.solo_via_promo or mejores):
+                    mejores = [*mejores, monopolio.flag_tuple]
+                decision = decidir_flag_hay_mejores(
+                    mejores=mejores,
+                    descartado_fingerprint=row.hay_mejores_descartado_fingerprint,
+                )
                 row.hay_mejores_ofertas = decision.hay_mejores
                 row.hay_mejores_fingerprint = decision.fingerprint
                 row.hay_mejores_descartado_fingerprint = decision.descartado_fingerprint
                 if decision.hay_mejores and (not prev_flag or prev_fingerprint != decision.fingerprint):
                     _enqueue_catalog_competition_refresh(db, item_id)
-                    if evaluacion is not None:
-                        record_flag_transition(
-                            db,
-                            item_id,
-                            payload={
-                                "fingerprint": decision.fingerprint,
-                                "prev_flag": prev_flag,
-                                "prev_fingerprint": prev_fingerprint,
-                                "status_quo": evaluacion.status_quo,
-                                "candidatas": evaluacion.candidatas,
-                                "criterios": evaluacion.criterios,
-                            },
-                        )
+                    record_flag_transition(
+                        db,
+                        item_id,
+                        payload={
+                            "fingerprint": decision.fingerprint,
+                            "prev_flag": prev_flag,
+                            "prev_fingerprint": prev_fingerprint,
+                            "status_quo": evaluacion.status_quo if evaluacion else {},
+                            "candidatas": evaluacion.candidatas if evaluacion else [],
+                            "criterios": (
+                                evaluacion.criterios if evaluacion else _criterios_audit_dict(criterios_view)
+                            ),
+                            "monopolio": monopolio.oportunidad if monopolio else None,
+                        },
+                    )
         if decision.hay_mejores != prev_flag:  # after the savepoint: a failed one changed nothing
             notify_hay_mejores_changed(db)
         return decision
