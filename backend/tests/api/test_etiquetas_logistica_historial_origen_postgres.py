@@ -152,7 +152,13 @@ class TestOrigenPorEndpoint:
 
         respuesta = etiquetas_assignments.asignar_masivo(payload, db=db, current_user=_user())
 
-        assert respuesta == {"ok": True, "actualizadas": 3, "logistica_id": 2, "logistica_nombre": "Dos"}
+        assert respuesta == {
+            "ok": True,
+            "actualizadas": 3,
+            "salteadas": 0,
+            "logistica_id": 2,
+            "logistica_nombre": "Dos",
+        }
         assert _historial(engine) == [
             ("S1", 1, 2, _USUARIO_ID, None, "masivo"),
             ("S2", 1, 2, _USUARIO_ID, None, "masivo"),

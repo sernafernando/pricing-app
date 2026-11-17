@@ -13,7 +13,7 @@ Incluye:
 """
 
 from datetime import datetime, UTC
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -32,6 +32,8 @@ from app.services.etiquetas.logistica_historial_consulta import (
     motivo_no_deshacer,
     ultimo_cambio,
 )
+from app.services.etiquetas import logistica_deshacer_masivo
+from app.services.etiquetas.logistica_a_designar import ids_a_designar, sin_logistica
 from app.services.etiquetas.logistica_historial_origen import marcar_origen_logistica
 
 from app.api.endpoints.etiquetas_shared import (
@@ -44,10 +46,13 @@ from app.api.endpoints.etiquetas_shared import (
     CambiarFechaMasivoRequest,
     CambiarFechaRequest,
     CostoOverrideRequest,
+    DeshacerLogisticaMasivoRequest,
     DeshacerLogisticaRequest,
+    DeshacerMasivoResponse,
     FlagEnvioMasivoRequest,
     FlagEnvioRequest,
     HistorialLogisticaResponse,
+    OperacionMasivaLogistica,
     RetornadoMasivoRequest,
     ShippingIdsRequest,
 )
@@ -164,6 +169,88 @@ def deshacer_logistica(
     return {"ok": True, "shipping_id": shipping_id, "logistica_id": destino}
 
 
+def _operador_activo_o_404(db: Session, operador_id: Optional[int]) -> None:
+    if operador_id is None:
+        return
+    operador = db.query(Operador).filter(Operador.id == operador_id, Operador.activo.is_(True)).first()
+    if not operador:
+        raise HTTPException(404, "Operador no encontrado o inactivo")
+
+
+def _cerrar_deshacer_masivo(db: Session, resultado: logistica_deshacer_masivo.Resultado) -> DeshacerMasivoResponse:
+    db.commit()
+    if resultado.revertidas:
+        sse_publish_bg("etiquetas:changed", {"hint": "reload"})
+    return DeshacerMasivoResponse(**resultado.a_dict())
+
+
+@router.post(
+    "/etiquetas-envio/deshacer-logistica-masivo",
+    response_model=DeshacerMasivoResponse,
+    summary="Deshacer el último cambio de logística de varias etiquetas",
+)
+def deshacer_logistica_masivo(
+    payload: DeshacerLogisticaMasivoRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> DeshacerMasivoResponse:
+    """
+    Cada etiqueta seleccionada vuelve a la logística que tenía antes de SU último
+    cambio, con la misma regla que el deshacer individual. Las que no se pueden
+    deshacer se saltean y se informan agrupadas por motivo.
+    """
+    _check_permiso(db, current_user, "envios_flex.asignar_logistica")
+    _operador_activo_o_404(db, payload.operador_id)
+
+    resultado = logistica_deshacer_masivo.deshacer_seleccion(
+        db, payload.shipping_ids, usuario_id=current_user.id, operador_id=payload.operador_id
+    )
+    return _cerrar_deshacer_masivo(db, resultado)
+
+
+@router.get(
+    "/etiquetas-envio/operaciones-masivas-logistica",
+    response_model=List[OperacionMasivaLogistica],
+    summary="Últimas asignaciones masivas de logística",
+)
+def operaciones_masivas_logistica(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> List[OperacionMasivaLogistica]:
+    """Las últimas asignaciones masivas (quién, cuándo, logística destino, cuántas etiquetas cambió)."""
+    _check_permiso(db, current_user, "envios_flex.asignar_logistica")
+    return [OperacionMasivaLogistica(**op) for op in logistica_deshacer_masivo.listar_operaciones(db)]
+
+
+@router.post(
+    "/etiquetas-envio/operaciones-masivas-logistica/{operacion_id}/deshacer",
+    response_model=DeshacerMasivoResponse,
+    summary="Deshacer una asignación masiva de logística entera",
+)
+def deshacer_operacion_masiva_logistica(
+    operacion_id: int,
+    payload: Optional[DeshacerLogisticaRequest] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> DeshacerMasivoResponse:
+    """
+    Vuelve cada etiqueta de la operación a la logística que tenía antes de ella.
+    Una etiqueta que cambió de logística después de la operación no se toca: se
+    saltea y se informa.
+    """
+    _check_permiso(db, current_user, "envios_flex.asignar_logistica")
+    operador_id = payload.operador_id if payload else None
+    _operador_activo_o_404(db, operador_id)
+
+    filas = logistica_deshacer_masivo.filas_de_operacion(db, operacion_id)
+    if filas is None:
+        raise HTTPException(404, "Operación masiva no encontrada")
+    resultado = logistica_deshacer_masivo.deshacer_operacion(
+        db, filas, usuario_id=current_user.id, operador_id=operador_id
+    )
+    return _cerrar_deshacer_masivo(db, resultado)
+
+
 @router.put(
     "/etiquetas-envio/{shipping_id}/fecha",
     response_model=dict,
@@ -275,15 +362,19 @@ def asignar_masivo(
     if not logistica:
         raise HTTPException(404, "Logística no encontrada o inactiva")
 
-    # Update masivo
+    # Update masivo. With solo_sin_logistica the filter lives in the same UPDATE, so a label assigned
+    # between the overwrite warning and this call is still skipped.
     marcar_origen_logistica(db, "masivo", usuario_id=current_user.id)
-    updated = (
-        db.query(EtiquetaEnvio)
-        .filter(EtiquetaEnvio.shipping_id.in_(payload.shipping_ids))
-        .update(
-            {EtiquetaEnvio.logistica_id: payload.logistica_id},
-            synchronize_session="fetch",
-        )
+    pedidas = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id.in_(payload.shipping_ids))
+    salteadas = 0
+    if payload.solo_sin_logistica:
+        # Labels already on the target are neither changed nor skipped: nothing would happen to them.
+        libres = sin_logistica(ids_a_designar(db))
+        salteadas = pedidas.filter(~libres, EtiquetaEnvio.logistica_id != payload.logistica_id).count()
+        pedidas = pedidas.filter(libres)
+    updated = pedidas.update(
+        {EtiquetaEnvio.logistica_id: payload.logistica_id},
+        synchronize_session="fetch",
     )
 
     # PR8: the `marcar_stale` hook that used to live here is gone. The
@@ -297,9 +388,39 @@ def asignar_masivo(
     return {
         "ok": True,
         "actualizadas": updated,
+        "salteadas": salteadas,
         "logistica_id": payload.logistica_id,
         "logistica_nombre": logistica.nombre,
     }
+
+
+@router.post(
+    "/etiquetas-envio/asignar-masivo/conflictos",
+    response_model=dict,
+    summary="Cuántas etiquetas perdería otra logística en una asignación masiva",
+)
+def conflictos_asignar_masivo(
+    payload: AsignarMasivoRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Cuenta las etiquetas del lote que ya tienen OTRA logística (ni vacía, ni
+    'A designar', ni la misma que se va a asignar). Con más de cero, el panel
+    pregunta si sobrescribir todas o cambiar solo las que no tienen logística.
+    """
+    _check_permiso(db, current_user, "envios_flex.asignar_logistica")
+
+    sobrescribiria = (
+        db.query(EtiquetaEnvio)
+        .filter(
+            EtiquetaEnvio.shipping_id.in_(payload.shipping_ids),
+            ~sin_logistica(ids_a_designar(db)),
+            EtiquetaEnvio.logistica_id != payload.logistica_id,
+        )
+        .count()
+    )
+    return {"sobrescribiria": sobrescribiria}
 
 
 @router.put(
