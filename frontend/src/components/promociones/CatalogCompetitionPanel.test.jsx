@@ -135,6 +135,64 @@ describe('CatalogCompetitionPanel', () => {
     expect(screen.getByText(/3 competidores relevados/)).toBeInTheDocument();
   });
 
+  it('ranking variant shows Full badge from is_full on same_bucket rows', async () => {
+    promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
+      data: {
+        mla: 'MLA001',
+        fetch_status: 'ok',
+        fecha_consulta: '2026-11-17T12:00:00Z',
+        our_price: 1000,
+        same_bucket: [
+          { item_id: 'CHEAP', seller_nickname: 'Barato', price_ars: 900, markup: 40, is_full: true },
+          { item_id: 'MLA001', seller_nickname: 'Nosotros', price_ars: 1000, markup: 30, is_full: false },
+          { item_id: 'OLD', seller_nickname: 'Viejo', price_ars: 1100, markup: 20 },
+        ],
+      },
+    });
+    renderPanel({ variant: 'ranking' });
+    expect(await screen.findByText('Barato')).toBeInTheDocument();
+    const fullBadges = screen.getAllByTitle('Mercado Envíos Full');
+    expect(fullBadges).toHaveLength(1);
+    expect(fullBadges[0]).toHaveTextContent('Full');
+    expect(screen.getByTitle('No es Full')).toHaveTextContent('—');
+    expect(screen.getByTitle('Sin dato de Full en el snapshot')).toHaveTextContent('?');
+  });
+
+  it('ranking variant shows reputation from power_seller_status / reputation_level', async () => {
+    promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
+      data: {
+        mla: 'MLA001',
+        fetch_status: 'ok',
+        our_price: 1000,
+        same_bucket: [
+          {
+            item_id: 'CHEAP',
+            seller_nickname: 'Barato',
+            price_ars: 900,
+            markup: 40,
+            is_full: true,
+            reputation_level: '5_green',
+            power_seller_status: 'platinum',
+          },
+          {
+            item_id: 'MLA001',
+            seller_nickname: 'Nosotros',
+            price_ars: 1000,
+            markup: 30,
+            is_full: false,
+            reputation_level: '4_light_green',
+          },
+          { item_id: 'OLD', seller_nickname: 'Viejo', price_ars: 1100, markup: 20 },
+        ],
+      },
+    });
+    renderPanel({ variant: 'ranking' });
+    expect(await screen.findByText('Barato')).toBeInTheDocument();
+    expect(screen.getByTitle('Nivel: 5_green · Power: platinum')).toHaveTextContent('platinum');
+    expect(screen.getByTitle('Nivel: 4_light_green')).toHaveTextContent('4 light green');
+    expect(screen.getByTitle(/Sin dato de reputación/)).toHaveTextContent('?');
+  });
+
   it('ranking variant lists every same_bucket row, including pricier ones, with position', async () => {
     promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
       data: {

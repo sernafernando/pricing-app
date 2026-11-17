@@ -31,12 +31,16 @@ Hard rules encoded here (do not relax without re-reading the design):
 
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
+import time
 from datetime import UTC, datetime
 from hashlib import sha256
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.logging import get_logger
 from app.models.ml_catalog_competition import MLCatalogCompetition
@@ -139,6 +143,22 @@ def _bucket_key(entry: Dict[str, Any]) -> str:
     return f"{listing}|{cuotas}"
 
 
+def _is_full_from_shipping_badges(entry: Dict[str, Any]) -> Optional[bool]:
+    """Whether the competitor listing is Mercado Envíos Full.
+
+    The catalogCompetition `format=processed` payload exposes this as the
+    string ``FULL`` inside ``shipping_badges`` (live-verified). Missing or
+    malformed badges → ``None`` ("sin dato"), never a false negative that
+    would look like "we know they are not Full".
+    """
+    badges = entry.get("shipping_badges")
+    if badges is None:
+        return None
+    if not isinstance(badges, list):
+        return None
+    return any(str(badge).strip().upper() == "FULL" for badge in badges)
+
+
 def _to_ars(price: Optional[float], currency_id: Optional[str], tc_usd: Optional[float]) -> Optional[float]:
     """ARS value of a competitor `price`, or None when it cannot be
     established. None is NOT zero and NOT the raw number: an
@@ -206,6 +226,15 @@ def _build_competitor(
         "markup_sell_in_out": markup_sell_in_out,
         "is_cheaper_than_us": is_cheaper_than_us,
         "shipping_free": bool(entry.get("shipping_free")) if "shipping_free" in entry else None,
+        # From processed `shipping_badges` (e.g. FULL / ENCOMIENDA). Not the
+        # same as free_shipping — Full is logistic, not a free-shipping flag.
+        "is_full": _is_full_from_shipping_badges(entry),
+        "shipping_badges": (
+            [str(b) for b in entry["shipping_badges"]] if isinstance(entry.get("shipping_badges"), list) else None
+        ),
+        # Filled later by `_enrich_competitors_reputation` (same_bucket only).
+        "reputation_level": None,
+        "power_seller_status": None,
     }
 
 
@@ -468,6 +497,201 @@ def _sort_competitors_by_price(competitors: List[Dict[str, Any]]) -> List[Dict[s
     return sorted(competitors, key=_sort_key)
 
 
+# Pause between /users/{id} calls — ML proxy is globally throttled.
+_SELLER_REPUTATION_PAUSE_S = 0.12
+# Process-local seller reputation cache so interactive refresh never blocks
+# on N×/users (a 100-competitor catalog hung the UI ~2+ min).
+_REP_CACHE_TTL_S = 6 * 3600
+_seller_rep_cache: Dict[str, Tuple[float, Dict[str, Optional[str]]]] = {}
+_seller_rep_lock = threading.Lock()
+
+
+def _reputation_fields_from_seller(seller: Optional[Dict[str, Any]]) -> Dict[str, Optional[str]]:
+    """Map a `/users/{id}` payload into the two fields we persist on competitors."""
+    if not seller:
+        return {"reputation_level": None, "power_seller_status": None}
+    rep = seller.get("seller_reputation")
+    if not isinstance(rep, dict):
+        return {"reputation_level": None, "power_seller_status": None}
+    level = rep.get("level_id")
+    power = rep.get("power_seller_status")
+    return {
+        "reputation_level": _bounded_str(level, 32) if level is not None else None,
+        "power_seller_status": _bounded_str(power, 32) if power is not None else None,
+    }
+
+
+def _rep_cache_get(seller_id: Any) -> Optional[Dict[str, Optional[str]]]:
+    key = str(seller_id)
+    with _seller_rep_lock:
+        hit = _seller_rep_cache.get(key)
+        if not hit:
+            return None
+        expires_at, fields = hit
+        if expires_at < time.monotonic():
+            _seller_rep_cache.pop(key, None)
+            return None
+        return fields
+
+
+def _rep_cache_put(seller_id: Any, fields: Dict[str, Optional[str]]) -> None:
+    with _seller_rep_lock:
+        _seller_rep_cache[str(seller_id)] = (time.monotonic() + _REP_CACHE_TTL_S, fields)
+
+
+def _clear_seller_rep_cache() -> None:
+    """Test helper — drop the process-local reputation cache."""
+    with _seller_rep_lock:
+        _seller_rep_cache.clear()
+
+
+def _collect_unique_seller_ids(rows: Sequence[MLCatalogCompetition]) -> List[Any]:
+    """Unique ``seller_id`` values across every competitor in the batch.
+
+    One list for the whole refresh (manual multi-MLA or worker) so each
+    seller is fetched **once**, never once-per-publication.
+    """
+    seller_ids: List[Any] = []
+    seen: set[str] = set()
+    for row in rows:
+        if getattr(row, "fetch_status", None) != "ok":
+            continue
+        for competitor in row.competitors or []:
+            seller_id = competitor.get("seller_id")
+            if seller_id is None or seller_id == "":
+                continue
+            key = str(seller_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            seller_ids.append(seller_id)
+    return seller_ids
+
+
+def _apply_reputation_cache(
+    competitors: List[Dict[str, Any]],
+    cache: Dict[str, Dict[str, Optional[str]]],
+) -> None:
+    """Stamp reputation fields from a shared seller cache (mutates in place)."""
+    for competitor in competitors:
+        seller_id = competitor.get("seller_id")
+        fields = cache.get(str(seller_id)) if seller_id is not None and seller_id != "" else None
+        if fields is None:
+            competitor["reputation_level"] = None
+            competitor["power_seller_status"] = None
+        else:
+            competitor["reputation_level"] = fields["reputation_level"]
+            competitor["power_seller_status"] = fields["power_seller_status"]
+
+
+def _stamp_reputation_from_process_cache(rows: Sequence[MLCatalogCompetition]) -> None:
+    """Apply only already-known seller reputation (no HTTP). Instant."""
+    cache: Dict[str, Dict[str, Optional[str]]] = {}
+    for seller_id in _collect_unique_seller_ids(rows):
+        fields = _rep_cache_get(seller_id)
+        if fields is not None:
+            cache[str(seller_id)] = fields
+    for row in rows:
+        if getattr(row, "fetch_status", None) != "ok":
+            continue
+        _apply_reputation_cache(row.competitors or [], cache)
+
+
+async def _fetch_seller_reputation_cache(seller_ids: Sequence[Any]) -> Dict[str, Dict[str, Optional[str]]]:
+    """``GET /users/{id}`` once per unique seller; throttled; fail-open per id.
+
+    Reuses the process cache; only misses hit the proxy.
+    """
+    cache: Dict[str, Dict[str, Optional[str]]] = {}
+    missing: List[Any] = []
+    for seller_id in seller_ids:
+        cached = _rep_cache_get(seller_id)
+        if cached is not None:
+            cache[str(seller_id)] = cached
+        else:
+            missing.append(seller_id)
+
+    for index, seller_id in enumerate(missing):
+        if index > 0:
+            await asyncio.sleep(_SELLER_REPUTATION_PAUSE_S)
+        try:
+            seller = await ml_webhook_client.get_seller(seller_id)
+            fields = _reputation_fields_from_seller(seller)
+        except Exception:  # noqa: BLE001 — one seller must not abort the batch
+            logger.exception("No se pudo obtener reputación del vendedor %s", seller_id)
+            fields = {"reputation_level": None, "power_seller_status": None}
+        _rep_cache_put(seller_id, fields)
+        cache[str(seller_id)] = fields
+    return cache
+
+
+async def _enrich_rows_reputation(rows: Sequence[MLCatalogCompetition]) -> None:
+    """Batch reputation enrich: unique sellers across **all** rows, one fetch each.
+
+    Never raises; missing sellers leave ``None`` fields.
+    """
+    seller_ids = _collect_unique_seller_ids(rows)
+    if not seller_ids:
+        for row in rows:
+            if getattr(row, "fetch_status", None) == "ok":
+                _apply_reputation_cache(row.competitors or [], {})
+        return
+    cache = await _fetch_seller_reputation_cache(seller_ids)
+    for row in rows:
+        if getattr(row, "fetch_status", None) != "ok":
+            continue
+        _apply_reputation_cache(row.competitors or [], cache)
+
+
+def _schedule_background_reputation_enrich(row_ids: Sequence[int]) -> None:
+    """Fetch unique sellers once and patch persisted snapshots off the request."""
+    ids: List[int] = []
+    for raw_id in row_ids:
+        if raw_id is None:
+            continue
+        try:
+            ids.append(int(raw_id))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        return
+
+    def _run() -> None:
+        try:
+            asyncio.run(_background_reputation_enrich(ids))
+        except Exception:  # noqa: BLE001 — never affect the request path
+            logger.exception("Background reputation enrich failed for rows %s", ids)
+
+    threading.Thread(
+        target=_run,
+        name="catalog-competition-reputation",
+        daemon=True,
+    ).start()
+
+
+async def _background_reputation_enrich(row_ids: Sequence[int]) -> None:
+    """Reload snapshots by id, enrich once per unique seller, rewrite JSONB."""
+    from app.core.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        rows = db.query(MLCatalogCompetition).filter(MLCatalogCompetition.id.in_(list(row_ids))).all()
+        if not rows:
+            return
+        await _enrich_rows_reputation(rows)
+        for row in rows:
+            flag_modified(row, "competitors")
+        db.commit()
+    except Exception:  # noqa: BLE001
+        logger.exception("No se pudo persistir reputación en background para %s", list(row_ids))
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+    finally:
+        db.close()
+
+
 def undercutting_competitors(row: Optional[MLCatalogCompetition]) -> List[Dict[str, Any]]:
     """Competitors from `row` that are BOTH in the same bucket as the
     queried MLA AND strictly cheaper than us (design #1210 section 3.4 /
@@ -570,11 +794,23 @@ def min_rival_price_ars(
     return min(prices) if prices else None
 
 
-async def refrescar_competencia_catalogo(db: Session, mlas: List[str]) -> List[MLCatalogCompetition]:
+async def refrescar_competencia_catalogo(
+    db: Session,
+    mlas: List[str],
+    *,
+    wait_reputation: bool = False,
+) -> List[MLCatalogCompetition]:
     """Fetches, buckets, prices and PERSISTS one snapshot row per MLA in
     `mlas`. Called by the manual per-MLA refresh endpoint (slice C2) and by
     the `ml_publications.catalog_competition_refresh` worker (hay_mejores
     enqueue). Same code path for both — no schema change per caller.
+
+    Reputation: unique sellers across the batch are fetched **once** (never
+    once-per-publication). By default (``wait_reputation=False``) the HTTP
+    refresh returns as soon as the catalog snapshot is committed — only
+    process-cache hits are stamped inline; missing sellers are filled in a
+    daemon thread and patched onto the row. Pass ``wait_reputation=True``
+    (tests / worker that can afford the wait) to enrich inline before commit.
 
     Never raises for a single MLA's FETCH failure: a `not_catalog`, an
     `error`, or an unexpected exception still produces a persisted row, so
@@ -606,11 +842,34 @@ async def refrescar_competencia_catalogo(db: Session, mlas: List[str]) -> List[M
             logger.exception("Fallo inesperado obteniendo competencia de catálogo para %s", mla)
             row = _build_failed_row(mla, "error", str(e)[:500])
 
-        db.add(row)
         rows.append(row)
+
+    if wait_reputation:
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            logger.exception("No se pudo liberar la sesión antes del enrich de reputación")
+        try:
+            await _enrich_rows_reputation(rows)
+        except Exception:  # noqa: BLE001 — reputation is best-effort
+            logger.exception(
+                "No se pudo enriquecer reputación de competencia (batch de %s MLAs)",
+                len(mlas),
+            )
+    else:
+        # Instant: cache hits only. HTTP /users runs in background after commit.
+        _stamp_reputation_from_process_cache(rows)
+
+    for row in rows:
+        db.add(row)
 
     db.commit()
     for row in rows:
         db.refresh(row)
+
+    if not wait_reputation:
+        _schedule_background_reputation_enrich(
+            [row.id for row in rows if getattr(row, "fetch_status", None) == "ok" and row.id is not None]
+        )
 
     return rows
