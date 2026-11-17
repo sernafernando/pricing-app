@@ -89,6 +89,7 @@ ORDERS = (
     "unidades_erp",
     "unidades_full",
     "descripcion",
+    "promos_aplicadas",
     *SALES_ORDERS,
     *MARGIN_ORDERS,
 )
@@ -613,8 +614,23 @@ SORT_KEYS: dict[str, Callable[[Row], Any]] = {
 }
 
 
-def sort_rows(rows: list[Row], orden: str, descending: bool) -> list[Row]:
-    key = SORT_KEYS[orden]
+def promo_counts(publications: set[str], started: Optional[frozenset[str]]) -> Optional[dict[str, int]]:
+    """How many of `publications` have a started promotion (`con`) and how many do not (`sin`), for the Promos
+    aplicadas column (promos-fila S2); None when the promotions database could not be read."""
+    if started is None:
+        return None
+    con = len(publications & started)
+    return {"con": con, "sin": len(publications) - con}
+
+
+def sort_rows(rows: list[Row], orden: str, descending: bool, started: Optional[frozenset[str]] = None) -> list[Row]:
+    """`rows` by `orden`; `promos_aplicadas` counts each row's publications with a started promotion, unknown (every
+    row in the product order) without the promotions database."""
+
+    def with_promo(r: Row) -> Optional[int]:
+        return None if started is None else len(r.publications & started)
+
+    key = with_promo if orden == "promos_aplicadas" else SORT_KEYS[orden]
     ordered = sorted(rows, key=lambda r: r.product.item_id)  # the product id closes every tie
     known = [r for r in ordered if key(r) is not None]
     return sorted(known, key=key, reverse=descending) + [r for r in ordered if key(r) is None]
@@ -673,6 +689,7 @@ def row_out(
         "publications_count": len(r.own_publications),
         "publicacion_activa": bool(r.publications & active),
         "promo_aplicada": None if started is None else bool(r.publications & started),
+        "promo_counts": promo_counts(r.publications, started),
         "params": {"producto": str(p.item_id)},
         "ventas": r.sales.out(with_margin) if with_sales else None,
         "kind_counts": r.summary.kind_counts,
@@ -695,6 +712,7 @@ def row_out(
                 "ventas": v.sales.out(with_margin) if with_sales else None,
                 "kind_counts": v.summary.kind_counts,
                 "status_counts": v.summary.status_counts,
+                "promo_counts": promo_counts(v.publications, started),
                 **({"markup_actual": _range_out(v.markup)} if with_margin else {}),
             }
             for v in sorted(r.variants.values(), key=lambda v: (-(v.full.usd or 0.0), v.product.item_id))

@@ -38,6 +38,7 @@ export const AUDIT_NOTEBOOK = {
   ventas: sales(6, 24, 9600000),
   kind_counts: { clasica: 2, cuotas_6: 3 },
   status_counts: { active: 4, paused: 1 },
+  promo_counts: { con: 2, sin: 3 },
   markup_actual: { min: 16.9, max: 19.2 },
   variantes: [
     {
@@ -56,6 +57,7 @@ export const AUDIT_NOTEBOOK = {
       ventas: sales(2, 8, 3200000),
       kind_counts: { cuotas_6: 3 },
       status_counts: { active: 3 },
+      promo_counts: { con: 1, sin: 2 },
       markup_actual: { min: 18.1, max: 18.3 },
     },
   ],
@@ -80,6 +82,7 @@ export const AUDIT_CARTRIDGE = {
   ventas: sales(5, 25, 450000),
   kind_counts: { clasica: 1, cuotas_3: 1 },
   status_counts: { active: 2 },
+  promo_counts: { con: 0, sin: 2 },
   markup_actual: { min: -2.4, max: 30 },
   variantes: [
     {
@@ -98,6 +101,7 @@ export const AUDIT_CARTRIDGE = {
       ventas: sales(4, 18, 520000),
       kind_counts: { clasica: 1 },
       status_counts: { active: 1 },
+      promo_counts: { con: 0, sin: 1 },
       markup_actual: { min: 28, max: 28 },
     },
   ],
@@ -122,6 +126,7 @@ export const AUDIT_ORPHAN = {
   ventas: sales(0, 0, 0, { series_units_90d: [], series_markup_90d: [] }),
   kind_counts: {},
   status_counts: {},
+  promo_counts: { con: 0, sin: 0 },
   markup_actual: null,
   variantes: [],
 };

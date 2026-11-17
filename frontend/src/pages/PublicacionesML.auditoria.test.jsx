@@ -379,6 +379,61 @@ describe('L8: the promo KPIs without the promotions database', () => {
   });
 });
 
+describe('promos-fila S2: the Promos aplicadas column', () => {
+  const rowOf = (name) => within(table()).getByText(name, { selector: 'span' }).closest('tr');
+
+  it('shows a green tag with the publications with an applied promo and a red one with those without', async () => {
+    await audit();
+    expect(headers().some((text) => text.includes('Promos'))).toBe(true);
+    const notebook = within(rowOf('Notebook Demo 14 i5 8GB 512GB'));
+    expect(notebook.getByLabelText('2 publicaciones con promo aplicada')).toHaveTextContent('2');
+    expect(notebook.getByLabelText('3 publicaciones sin promo aplicada')).toHaveTextContent('3');
+  });
+
+  it('a side with no publication is not drawn, and a product without publications shows nothing', async () => {
+    await audit();
+    const cartridge = within(rowOf('Cartucho Demo 01 negro'));
+    expect(cartridge.getByLabelText('2 publicaciones sin promo aplicada')).toBeInTheDocument();
+    expect(cartridge.queryByLabelText(/con promo aplicada/)).not.toBeInTheDocument();
+    expect(within(rowOf(AUDIT_ORPHAN.descripcion)).queryByLabelText(/promo aplicada/)).not.toBeInTheDocument();
+  });
+
+  it('a variant counts its own publications', async () => {
+    const user = userEvent.setup();
+    const t = await audit();
+    await user.click(t.getByRole('button', { name: 'Abrir Notebook Demo 14 i5 8GB 512GB' }));
+    const variant = within(rowOf('Notebook Demo 14 i5 16GB 512GB'));
+    expect(variant.getByLabelText('1 publicación con promo aplicada')).toBeInTheDocument();
+    expect(variant.getByLabelText('2 publicaciones sin promo aplicada')).toBeInTheDocument();
+  });
+
+  it('without the promotions database it reads "—", never 0', async () => {
+    const body = stockAuditResponse();
+    publicacionesMlAPI.stockAudit.mockResolvedValue({
+      data: { ...body, rows: body.rows.map((row) => ({ ...row, promo_counts: null })) },
+    });
+    await audit();
+    expect(within(rowOf('Notebook Demo 14 i5 8GB 512GB')).getByTitle('Promociones no disponibles')).toHaveTextContent('—');
+    expect(within(table()).queryByLabelText(/promo aplicada/)).not.toBeInTheDocument();
+  });
+
+  it('its header sorts the audit by the publications with an applied promo, most first', async () => {
+    const user = userEvent.setup();
+    await audit();
+    await user.click(within(table()).getByRole('button', { name: /^Promos/ }));
+    await waitFor(() => expect(auditCalls().at(-1)).toMatchObject({ orden: 'promos_aplicadas', dir: 'desc' }));
+  });
+
+  it('can be hidden in the picker, and it is remembered', async () => {
+    const user = userEvent.setup();
+    await audit();
+    await user.click(screen.getByRole('button', { name: /Columnas/ }));
+    await user.click(screen.getByRole('checkbox', { name: 'Promos aplicadas' }));
+    await waitFor(() => expect(headers().some((text) => text.includes('Promos'))).toBe(false));
+    expect(localStorage.getItem('publicaciones-ml.auditoria.columnas-ocultas')).toContain('promos_aplicadas');
+  });
+});
+
 describe('L7: Exportar a Excel', () => {
   beforeEach(() => {
     exportAuditoriaStockExcel.mockReset();

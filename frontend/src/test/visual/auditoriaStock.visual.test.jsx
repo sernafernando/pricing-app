@@ -266,6 +266,27 @@ describe('Auditoría de stock', () => {
     });
   }
 
+  for (const theme of ['light', 'dark']) {
+    it(`2000x1750 ${theme}: the Promos aplicadas column, a green and a red tag with their counts (promos-fila S2)`, async () => {
+      const screen = await renderAudit({ theme });
+      await open(screen, 'Notebook Demo 14 i5 8GB 512GB');
+      await expect.element(screen.getByText('MLA1900000001')).toBeVisible();
+      const con = screen.getByLabelText('2 publicaciones con promo aplicada').element();
+      const sin = screen.getByLabelText('3 publicaciones sin promo aplicada').element();
+      expect(getComputedStyle(con).color).toBe(tokenColor('--tone-success-fg'));
+      expect(getComputedStyle(sin).color).toBe(tokenColor('--tone-danger-fg'));
+      // The icon only, no "Promo aplicada" text next to it, on one line.
+      expect(con.textContent).toBe('2');
+      expect(con.querySelector('svg')).not.toBeNull();
+      expect(con.getBoundingClientRect().top).toBe(sin.getBoundingClientRect().top);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(2000);
+      window.scrollTo(0, 0);
+      await frame();
+      if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/promos-fila-${theme}.png` });
+      screen.unmount();
+    });
+  }
+
   it('2000x1750 light: the column picker lists every column, each one can be hidden', async () => {
     const screen = await renderAudit();
     await userEvent.click(screen.getByRole('button', { name: 'Columnas' }));

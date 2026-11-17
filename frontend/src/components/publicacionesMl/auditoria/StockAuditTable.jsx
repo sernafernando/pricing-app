@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Cpu, TriangleAlert } from 'lucide-react';
+import { ChevronDown, ChevronRight, Cpu, Tag, TriangleAlert } from 'lucide-react';
 import { TableShell } from '../../kit';
 import { buildColumns } from '../columns';
 import { BranchState, NodeSummary } from '../NodeCells';
@@ -125,6 +125,37 @@ function packNote(variant, count) {
   return isPack(variant) && count != null ? `${formatUnits(count)} packs` : null;
 }
 
+/** One side of the Promos aplicadas cell: the promo badge's tag and how many publications; nothing for none. */
+function PromoSide({ count, applied }) {
+  if (!count) return null;
+  const label = `${count} ${count === 1 ? 'publicación' : 'publicaciones'} ${applied ? 'con' : 'sin'} promo aplicada`;
+  return (
+    <span className={applied ? styles.promoCon : styles.promoSin} aria-label={label} title={label}>
+      <Tag size={12} aria-hidden="true" />
+      {formatUnits(count)}
+    </span>
+  );
+}
+
+/** A product's or a variant's publications with and without an applied promo (promos-fila S2); "—" when the
+ * promotions database could not be read (L8), never 0. A publication keeps its own "Promo aplicada" badge (L4). */
+function PromoCounts({ counts }) {
+  if (counts == null) {
+    return (
+      <span className={cellStyles.empty} title="Promociones no disponibles">
+        —
+      </span>
+    );
+  }
+  if (!counts.con && !counts.sin) return null;
+  return (
+    <span className={styles.promoCounts}>
+      <PromoSide count={counts.con} applied />
+      <PromoSide count={counts.sin} applied={false} />
+    </span>
+  );
+}
+
 function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, isVisible }) {
   // A publication draws the list's own cells (Tipo, Estado, sales, markups, Total Gauss).
   const list = Object.fromEntries(buildColumns({ eventsEnabled: false, canSeeSales, canSeeMargin }).map((column) => [column.key, column]));
@@ -168,6 +199,16 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, 
       width: 110,
       render: (row) =>
         row.type === 'item' ? item('estado', row) : row.node ? <NodeSummary column="estado" node={{ statusCounts: row.node.status_counts }} /> : null,
+    },
+    {
+      key: 'promos_aplicadas',
+      header: 'Promos',
+      label: 'Promos aplicadas',
+      width: 96,
+      sortable: true,
+      align: 'center',
+      fit: true,
+      render: (row) => (row.type === 'product' || row.type === 'variant' ? <PromoCounts counts={row.node.promo_counts} /> : null),
     },
     {
       key: 'unidades_erp',

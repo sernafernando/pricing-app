@@ -239,6 +239,42 @@ class TestStockAudit:
         assert body["kpis"]["productos_con_promo_aplicada"] is None
         assert all(row["promo_aplicada"] is None for row in body["rows"])
 
+    # --- promos-fila S2: how many of a node's publications have an applied promotion and how many do not --------
+
+    def test_each_row_and_variant_counts_its_publications_with_and_without_promo(self, client, auditor) -> None:
+        rows = {row["product_item_id"]: row for row in audit(client, auditor)["rows"]}
+        # the notebook adds its own MLA10, MLA11 and its variant's MLA12 (the only started one)
+        assert rows[100]["promo_counts"] == {"con": 1, "sin": 2}
+        assert rows[100]["variantes"][0]["promo_counts"] == {"con": 1, "sin": 0}
+        assert rows[130]["promo_counts"] == {"con": 0, "sin": 1}  # a PC, its paused MLA40
+        assert rows[111]["promo_counts"] == {"con": 0, "sin": 1}  # through its pack's MLA20
+        assert rows[111]["variantes"][0]["promo_counts"] == {"con": 0, "sin": 1}
+        assert rows[140]["promo_counts"] == {"con": 0, "sin": 0}  # no publication
+
+    def test_without_the_promotions_database_the_promo_counts_are_null(self, client, auditor, monkeypatch) -> None:
+        def down(*args, **kwargs):
+            raise RuntimeError("ML_WEBHOOK_DB_URL not set")
+
+        monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_started", down)
+        rows = audit(client, auditor)["rows"]
+        assert all(row["promo_counts"] is None for row in rows)
+        assert all(v["promo_counts"] is None for row in rows for v in row["variantes"])
+
+    @pytest.mark.parametrize("dir, expected", [("desc", [100, 111, 130, 140]), ("asc", [111, 130, 140, 100])])
+    def test_it_sorts_by_the_publications_with_an_applied_promotion(self, client, auditor, dir, expected) -> None:
+        body = audit(client, auditor, orden="promos_aplicadas", dir=dir)
+        assert [row["product_item_id"] for row in body["rows"]] == expected
+
+    def test_the_promo_sort_without_the_promotions_database_keeps_the_product_order(
+        self, client, auditor, monkeypatch
+    ) -> None:
+        def down(*args, **kwargs):
+            raise RuntimeError("ML_WEBHOOK_DB_URL not set")
+
+        monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_started", down)
+        body = audit(client, auditor, orden="promos_aplicadas", dir="desc")
+        assert [row["product_item_id"] for row in body["rows"]] == [100, 111, 130, 140]
+
 
 # --- S10 (L3): sales by period, Total Gauss and markup with sell in / sell out, summed on the base rows -------------
 

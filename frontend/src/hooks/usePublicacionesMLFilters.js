@@ -194,6 +194,7 @@ export const DEFAULT_DIRECTION = {
   unidades_total: 'desc',
   unidades_erp: 'desc',
   unidades_full: 'desc',
+  promos_aplicadas: 'desc',
   descripcion: 'asc',
 };
 
@@ -328,6 +329,7 @@ export const STOCK_AUDIT_SORTS = [
   'unidades_total',
   'unidades_erp',
   'unidades_full',
+  'promos_aplicadas',
   'descripcion',
   'unidades_7d',
   'unidades_30d',
@@ -336,7 +338,7 @@ export const STOCK_AUDIT_SORTS = [
   'markup_30d',
   'markup',
 ];
-const STOCK_AUDIT_ONLY_SORTS = new Set(['valor_total', 'valor_erp', 'valor_full', 'unidades_total', 'unidades_erp', 'unidades_full', 'descripcion']);
+const STOCK_AUDIT_ONLY_SORTS = new Set(['valor_total', 'valor_erp', 'valor_full', 'unidades_total', 'unidades_erp', 'unidades_full', 'promos_aplicadas', 'descripcion']);
 const STOCK_AUDIT_DEFAULT_SORT = 'valor_total';
 
 /** The one sort the audit applies: the URL's first key when the audit sorts by it and the user may ask for it, else
