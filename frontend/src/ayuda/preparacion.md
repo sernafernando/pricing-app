@@ -32,6 +32,9 @@ Columnas: Producto, Cantidad, Paquetes, Tipo Envío, Acciones.
 - **+ Pre-armado**: agrega un pre-armado manual.
 - **🔧 Pre-armar**: marca unidades pre-armadas.
 - **🚫**: banea de la vista de producción (con motivo).
+- **Envíos Flex → Asignar** (logística, con etiquetas seleccionadas): si alguna ya tiene otra logística, pregunta antes: **Sobrescribir todas** o **Solo las sin logística** (cambia las vacías y las que están en «A designar», y dice cuántas salteó).
+- **Envíos Flex → Deshacer último cambio** (con etiquetas seleccionadas): cada una vuelve a la logística que tenía antes de su último cambio; al final dice cuántas volvieron y por qué no volvieron las demás.
+- **Envíos Flex → Masivas**: lista las últimas asignaciones masivas de logística (quién, cuándo, a qué logística, cuántas etiquetas) y **Deshacer** revierte una entera.
 
 ## Preguntas frecuentes
 
@@ -40,3 +43,6 @@ Cada pestaña pide un permiso propio.
 
 **¿Qué pide PIN?**
 Las pestañas Envíos Flex y Pistoleado piden que el operador se identifique con PIN.
+
+**Asigné una logística masiva por error, ¿cómo la vuelvo atrás?**
+En Envíos Flex, **Masivas**, buscá la asignación y hacé clic en **Deshacer**. Las etiquetas que alguien cambió después de esa asignación no se tocan: se informan aparte. Necesitás el mismo permiso que para asignar logística.
