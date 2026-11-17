@@ -435,11 +435,16 @@ def build(db: Session, f: PublicationFilter, rate: Rate) -> Audit:
             rows[base] = Row(product, PC if kind == PC else PRODUCTO)
         return rows[base]
 
+    paired = {product for _, product in pairs}
     for product in linked:
         located = base_of(product)
         if located is None:
             continue
         base, kind = located
+        # A variant or pack is listed only with a publication (S3, L2): its ERP stock is the base's, never its own, so a
+        # stock-only combo adds nothing, not even its base row (the base comes in on its own stock or publications).
+        if product != base and product not in paired:
+            continue
         r = row(base, kind)
         if product == base:
             continue
