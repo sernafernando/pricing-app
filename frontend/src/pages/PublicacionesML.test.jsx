@@ -3530,3 +3530,29 @@ describe('auditoria-stock L9: the store chips', () => {
     expect(within(stores).queryByRole('button', { name: /none/ })).not.toBeInTheDocument();
   });
 });
+
+describe('auditoria-stock L8: "Promo aplicada" without the promotions database', () => {
+  const promoGroup = () => screen.getByRole('group', { name: 'Filtrar por promo aplicada' });
+
+  it('reads "—" on every promo chip when facets.promo is missing, never 0', async () => {
+    await page();
+    const group = promoGroup();
+    for (const name of ['Todas', 'Con promo aplicada', 'Sin promo aplicada']) {
+      expect(within(group).getByRole('button', { name: `${name} · —` })).toBeInTheDocument();
+    }
+    expect(within(group).queryByText('0')).not.toBeInTheDocument();
+  });
+
+  it('still filters by it', async () => {
+    const user = userEvent.setup();
+    await page();
+    await user.click(within(promoGroup()).getByRole('button', { name: 'Con promo aplicada · —' }));
+    await waitFor(() => expect(lastParams()).toMatchObject({ promo_aplicada: 'con' }));
+  });
+
+  it('the other axes keep their counts, 0 included', async () => {
+    await page();
+    const stock = screen.getByRole('group', { name: 'Filtrar por stock' });
+    expect(within(stock).getByRole('button', { name: 'Sin stock ERP · 0' })).toBeInTheDocument();
+  });
+});

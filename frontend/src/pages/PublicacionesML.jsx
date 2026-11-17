@@ -47,6 +47,7 @@ import EquiposModal from '../components/EquiposModal';
 import usePaintProduct from '../components/publicacionesMl/usePaintProduct';
 import usePaintPublication from '../components/publicacionesMl/usePaintPublication';
 import ProductoTable from '../components/publicacionesMl/ProductoTable';
+import PromoAplicadaChips from '../components/publicacionesMl/PromoAplicadaChips';
 import StockAuditTable from '../components/publicacionesMl/auditoria/StockAuditTable';
 import { AUDIT_KPI_OPTIONS, auditColumnOptions } from '../components/publicacionesMl/auditoria/auditOptions';
 import StockAuditKpis from '../components/publicacionesMl/auditoria/StockAuditKpis';
@@ -220,7 +221,6 @@ const PROMO_APLICADA_LABELS = {
   ),
   sin: 'Sin promo aplicada',
 };
-const PROMO_APLICADA_COUNTS = (promo) => (promo ? { con: promo.con_promo, sin: promo.sin_promo } : undefined);
 
 const RATE = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -1020,12 +1020,11 @@ export default function PublicacionesML() {
         </div>
         <div className={styles.filterGroup}>
           <span className={styles.filterLabel}>Promo aplicada</span>
-          <FacetChips
-            label="Filtrar por promo aplicada"
+          <PromoAplicadaChips
             options={PROMO_APLICADA_VALUES}
             labels={PROMO_APLICADA_LABELS}
-            counts={PROMO_APLICADA_COUNTS(facets?.promo)}
-            total={facets?.promo ? facets.promo.con_promo + facets.promo.sin_promo : undefined}
+            promo={facets?.promo}
+            loading={!facets}
             activeValue={filters.promo_aplicada}
             onChange={(value) => setFilters({ promo_aplicada: value })}
           />
