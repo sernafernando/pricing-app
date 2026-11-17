@@ -33,11 +33,14 @@ def test_actualizar_keeps_flag_false_while_excluido(monkeypatch) -> None:
         hay_mejores_excluido=True,
         raw=[{"id": "C-1", "status": "candidate"}],
     )
-    called = {"listar": 0}
+    called = {"evaluar": 0}
     monkeypatch.setattr(
         hay_mejores,
-        "listar_mejores_candidatas",
-        lambda *a, **k: called.__setitem__("listar", called["listar"] + 1) or [("C-1", 900.0)],
+        "evaluar_mejores_candidatas",
+        lambda *a, **k: called.__setitem__("evaluar", called["evaluar"] + 1)
+        or hay_mejores.MejoresEvaluacion(
+            mejores=[("C-1", 900.0)], status_quo={}, candidatas=[], criterios={}
+        ),
     )
     monkeypatch.setattr(hay_mejores, "_enqueue_catalog_competition_refresh", lambda *_a, **_k: None)
     monkeypatch.setattr(hay_mejores, "notify_hay_mejores_changed", lambda *_a, **_k: None)
@@ -46,7 +49,7 @@ def test_actualizar_keeps_flag_false_while_excluido(monkeypatch) -> None:
     assert decision == FlagDecision(hay_mejores=False, fingerprint=None, descartado_fingerprint=None)
     assert row.hay_mejores_ofertas is False
     assert row.hay_mejores_fingerprint is None
-    assert called["listar"] == 0
+    assert called["evaluar"] == 0
 
 
 def test_set_excluido_true_clears_flag(monkeypatch) -> None:

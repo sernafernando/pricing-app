@@ -37,8 +37,8 @@ S12. Persistence: `ml_hay_mejores_criterios` per item_id upsert.
 | --- | --- | --- | --- | --- |
 | T0 | S1 | inline | done | docs PR #2309 |
 | T1a | S3,S12 | inline | done | P0a #16 · P0b #17 · P0c #18 |
-| T1b | S2 | inline | in progress | P0d Criterios UI col2 (forms-tesla) |
-| T2 | S11 | inline | pending | P1 auditoría lean |
+| T1b | S2 | inline | done | P0d UI #19 |
+| T2 | S11 | inline | in progress | P1 auditoría lean (`ml_hay_mejores_audit`) |
 | T3 | S4,S5 | inline | pending | P2 tabla + C2 |
 | T4 | S6 | inline | pending | P3 C6 |
 | T5 | S7,S8 | inline | pending | P4 R-AUTO |
@@ -51,3 +51,5 @@ L1. User: continue criterios stack without waiting for #2308 merge; all Pricing 
 L2. Persistence decision: `ml_hay_mejores_criterios` (not offset_grupo_filtros).
 
 L3. 2026-11-17: P0d UI — Guardian blocked hand-styled `.field input`; compose `forms-tesla` `.input`/`.inputSm` + `.field`/`.label`. Stack stays on GabeADemarco only.
+
+L4. 2026-11-17: P1 — `ml_hay_mejores_audit` for flag_transition + auto_toggle; enroll enrich via `ml_write_log.payload` (`auto_aplicacion`, `hay_mejores_flag_snapshot`).

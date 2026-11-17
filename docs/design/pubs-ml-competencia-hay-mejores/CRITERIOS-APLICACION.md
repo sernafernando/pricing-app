@@ -145,9 +145,10 @@ Later worker may add **`ml_item_events`** (`promotion_activated`, `price_changed
 
 Ship **lean audit** as part of the criterios package (not optional follow-up):
 
-1. **Flag transition event** when `hay_mejores_ofertas` becomes true or `hay_mejores_fingerprint` changes: persist timestamp + status-quo snapshot (price, markups, Activa ahora key if any) + beating candidates (key, price, markups) + rules/criteria version. **Do not** write on no-op boundaries ticks.
-2. **Enroll enrich** on `ml_write_log` (or same event store): status quo at click + candidate applied + prices/markups seen vs applied where available.
-3. Retention / UI to browse “por qué se flageó / qué se aplicó” can follow; persistence is in scope for the package.
+1. **Flag transition event** when `hay_mejores_ofertas` becomes true or `hay_mejores_fingerprint` changes: persist timestamp + status-quo snapshot (price, markups, Activa ahora key if any) + beating candidates (key, price, markups) + rules/criteria version. **Do not** write on no-op boundaries ticks. → table **`ml_hay_mejores_audit`** (`kind=flag_transition`).
+2. **Enroll enrich** on `ml_write_log.payload`: `auto_aplicacion` + latest `hay_mejores_flag_snapshot` when present + existing prices/markups seen vs applied.
+3. **Auto toggle log** on each flip → same table (`kind=auto_toggle`, old→new, usuario, alcance).
+4. Retention / UI to browse “por qué se flageó / qué se aplicó” can follow; persistence is in scope for the package.
 
 Motivation: owner needs this audit trail to support **R-AUTO** (auto-aplicación).
 

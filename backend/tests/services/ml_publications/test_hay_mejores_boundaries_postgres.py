@@ -35,8 +35,13 @@ def db(mlpub_pg, monkeypatch):
     WorkerJobState.__table__.create(bind=mlpub_pg)
     monkeypatch.setattr(
         hay_mejores,
-        "listar_mejores_candidatas",
-        lambda _db, _mla, candidates, _baseline, **_k: [(c["id"], float(c["price"])) for c in candidates],
+        "evaluar_mejores_candidatas",
+        lambda _db, _mla, candidates, _baseline, **_k: hay_mejores.MejoresEvaluacion(
+            mejores=[(c["id"], float(c["price"])) for c in candidates],
+            status_quo={},
+            candidatas=[],
+            criterios={},
+        ),
     )
     monkeypatch.setattr(hay_mejores, "_enqueue_catalog_competition_refresh", lambda *_a, **_k: None)
     monkeypatch.setattr(module, "resolver_sell_in_out_para_mlas", lambda _db, _ids: None)
@@ -184,7 +189,13 @@ class TestBoundariesHandler:
         self._settle(db, clock)
         assert _flag(db, "MLA1") is True
 
-        monkeypatch.setattr(hay_mejores, "listar_mejores_candidatas", lambda *_a, **_k: [])
+        monkeypatch.setattr(
+            hay_mejores,
+            "evaluar_mejores_candidatas",
+            lambda *_a, **_k: hay_mejores.MejoresEvaluacion(
+                mejores=[], status_quo={}, candidatas=[], criterios={}
+            ),
+        )
         clock.now += timedelta(minutes=5)
         result = _handler(clock).run(_ctx(clock))
         assert result.detail == {"recomputed": 1, "changed": 1, "catchup": False}

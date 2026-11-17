@@ -269,9 +269,9 @@ class TestListarMejoresBaselineWiring:
 
 
 class TestActualizarForwardsRawPromotions:
-    """actualizar_hay_mejores_ofertas must pass mirror raw into listar_mejores_candidatas."""
+    """actualizar_hay_mejores_ofertas must pass mirror raw into evaluar_mejores_candidatas."""
 
-    def test_forwards_raw_promotions_kwarg_to_listar(self, monkeypatch) -> None:
+    def test_forwards_raw_promotions_kwarg_to_evaluar(self, monkeypatch) -> None:
         seen: dict = {}
         raw = [
             {
@@ -301,16 +301,19 @@ class TestActualizarForwardsRawPromotions:
         db.begin_nested.return_value = _Nested()
         db.query.return_value.filter.return_value.one_or_none.side_effect = [row, sale]
 
-        def _listar(_db, mla, candidates, baseline, *, raw_promotions=None, sell_in_out_batch=None):
+        def _evaluar(_db, mla, candidates, baseline, *, raw_promotions=None, sell_in_out_batch=None):
             seen["batch"] = sell_in_out_batch
             seen["mla"] = mla
             seen["candidates"] = candidates
             seen["baseline"] = baseline
             seen["raw"] = raw_promotions
-            return [("C-1", 900.0)]
+            return hay_mejores.MejoresEvaluacion(
+                mejores=[("C-1", 900.0)], status_quo={}, candidatas=[], criterios={}
+            )
 
-        monkeypatch.setattr(hay_mejores, "listar_mejores_candidatas", _listar)
+        monkeypatch.setattr(hay_mejores, "evaluar_mejores_candidatas", _evaluar)
         monkeypatch.setattr(hay_mejores, "_enqueue_catalog_competition_refresh", lambda *_a, **_k: None)
+        monkeypatch.setattr(hay_mejores, "record_flag_transition", lambda *_a, **_k: None)
 
         decision = hay_mejores.actualizar_hay_mejores_ofertas(db, "MLA1", raw_promotions=raw)
         assert decision is not None and decision.hay_mejores is True

@@ -93,7 +93,13 @@ class TestWhoNotifies:
             session, monkeypatch, [_row(prev_flag, "C-1:900" if prev_flag else None), SimpleNamespace(amount=1000.0)]
         )
         monkeypatch.setattr(hay_mejores, "decidir_flag_hay_mejores", lambda **kwargs: decision)
-        monkeypatch.setattr(hay_mejores, "listar_mejores_candidatas", lambda *a, **k: [("C-1", 900.0)])
+        monkeypatch.setattr(
+            hay_mejores,
+            "evaluar_mejores_candidatas",
+            lambda *a, **k: hay_mejores.MejoresEvaluacion(
+                mejores=[("C-1", 900.0)], status_quo={}, candidatas=[], criterios={}
+            ),
+        )
         monkeypatch.setattr(hay_mejores, "_candidate_entries", lambda raw, now: [{"id": "C-1"}])
         monkeypatch.setattr(hay_mejores, "_enqueue_catalog_competition_refresh", lambda _db, _item_id: None)
         hay_mejores.actualizar_hay_mejores_ofertas(session, "MLA1", raw_promotions=[{"id": "C-1"}])

@@ -39,7 +39,7 @@ def test_actualizar_db_failure_rolls_back_savepoint_and_leaves_session_usable(ml
             db.flush()
             db.execute(text("SELECT 1/0"))
 
-        monkeypatch.setattr(hay_mejores, "listar_mejores_candidatas", write_then_db_error)
+        monkeypatch.setattr(hay_mejores, "evaluar_mejores_candidatas", write_then_db_error)
 
         assert hay_mejores.actualizar_hay_mejores_ofertas(session, "MLA1") is None
         # Outer transaction still accepts commands (no aborted-txn poison).
@@ -71,8 +71,10 @@ def test_enqueue_sql_failure_keeps_hay_mejores_flag(mlpub_pg, monkeypatch) -> No
 
         monkeypatch.setattr(
             hay_mejores,
-            "listar_mejores_candidatas",
-            lambda *_a, **_k: [("C-1", 900.0)],
+            "evaluar_mejores_candidatas",
+            lambda *_a, **_k: hay_mejores.MejoresEvaluacion(
+                mejores=[("C-1", 900.0)], status_quo={}, candidatas=[], criterios={}
+            ),
         )
         monkeypatch.setattr(
             "app.services.catalog_competition_target.mla_for_catalog_competition_refresh",
