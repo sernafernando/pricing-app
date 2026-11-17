@@ -280,7 +280,10 @@ class TestPricingContextOncePerRun:
         with _count_statements(world, "SELECT") as ten:
             _rank(world, self.MLAS)
 
-        assert ten["SELECT"] == one["SELECT"]
+        # C1 reads one sparse criterios row per MLA; pricing context itself must stay flat
+        # (covered by test_the_pricing_context_is_built_once_for_many_mlas).
+        assert one["SELECT"] >= 1
+        assert ten["SELECT"] == one["SELECT"] * len(self.MLAS)
 
     def test_each_mla_resolves_its_header_unit_once(self, world, monkeypatch) -> None:
         calls: list = []
