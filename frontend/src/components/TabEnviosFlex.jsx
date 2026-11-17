@@ -1171,10 +1171,22 @@ export default function TabEnviosFlex({ operador = null }) {
         return;
       }
 
-      await api.put('/etiquetas-envio/asignar-masivo', {
+      // Nothing to overwrite, so "only without logistics" changes the same labels; it also skips a label someone
+      // assigned between the check and this call instead of overwriting it silently.
+      const { data: asignado } = await api.put('/etiquetas-envio/asignar-masivo', {
         shipping_ids: shippingIds,
         logistica_id: logisticaId,
+        solo_sin_logistica: true,
       });
+      if (asignado.salteadas > 0) {
+        showErrorToast(
+          `${asignado.salteadas} etiqueta${asignado.salteadas === 1 ? '' : 's'} recién recibió otra logística y se salteó.`,
+          'warning',
+        );
+        // No local update: the SSE "etiquetas:changed" of this assignment reloads the real state.
+        limpiarSeleccion();
+        return;
+      }
 
       // Actualizar localmente
       const log = logisticas.find(l => l.id === parseInt(bulkLogisticaId, 10));
