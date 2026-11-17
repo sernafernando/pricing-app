@@ -1,0 +1,50 @@
+# hay-mejores-criterios
+
+Objective: Criterios de aplicación + auditoría lean + Auto-aplicación on top of canonical hay_mejores (A).  
+Branch: `feat/hay-mejores-criterios-aplicacion` (stack to `main`, slices ≤400).  
+Delivery: stacked PRs to `main` per PLAN P0–P5.  
+Tests: pytest (backend) + vitest where FE; ruff + `npm run lint` before each PR.
+
+## Specs
+
+S1. Keep canonical `es_mejor_oferta` (A); Criterios add limitations / alternate paths — quote owner: living design in `docs/design/pubs-ml-competencia-hay-mejores/CRITERIOS-APLICACION.md` + `PLAN.md`.
+
+S2. UI: button **Criterios de aplicación** beside **Ver competencia**; same col2; mutual exclusion.
+
+S3. C1: markup band uses same markup as status-quo comparison; when active, markup must sit inside band.
+
+S4. C2: catalog-win path; toggle ON = markup > 0 only; OFF = allow negative.
+
+S5. Competitor **table** is sole source of who counts (checked default; PM unchecks); C2/C6/R-AUTO use checked set.
+
+S6. C6: same flag, different lead; gap ≥ configurable (default 5000); distancia configurable (default 100); dual UI candidatas above monopolio.
+
+S7. R-AUTO: enroll same suggestion instead of flagging; ON shows text under toggle; fail → suggestion + “Autoapply falló” + reason; audit auto vs manual.
+
+S8. `hay_mejores_excluido` → fully out of circuit.
+
+S9. Non-catalog ignored unless associated to catalog MLA (treat as catalog).
+
+S10. Criteria changes apply to **new runs only**; bulk may opt-in discard open suggestions (default No); skip Auto-fail suggestions.
+
+S11. Lean audit on flag transition + enroll enrich + Auto toggle log (no per-tick audit).
+
+S12. Persistence: `ml_hay_mejores_criterios` per item_id upsert.
+
+## Tasks
+
+| ID | Specs | Route | Status | Commit / PR |
+| --- | --- | --- | --- | --- |
+| T0 | S1 | inline | in progress | docs design + PLAN |
+| T1 | S2,S3,S12 | inline | pending | P0 persist + Criterios UI + C1 |
+| T2 | S11 | inline | pending | P1 auditoría lean |
+| T3 | S4,S5 | inline | pending | P2 tabla + C2 |
+| T4 | S6 | inline | pending | P3 C6 |
+| T5 | S7,S8 | inline | pending | P4 R-AUTO |
+| T6 | S9,S10 | inline | pending | P5 bulk + ayuda/novedad |
+
+## Log
+
+L1. User: continue criterios stack without waiting for #2308 merge; all Pricing PR rules (≤400, ruff/lint).
+
+L2. Persistence decision: `ml_hay_mejores_criterios` (not offset_grupo_filtros).
