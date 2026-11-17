@@ -60,6 +60,7 @@ from app.services.ml_promotions_hay_mejores import (
 from app.services.ml_hay_mejores_criterios_service import (
     DEFAULT_C6_DISTANCIA,
     DEFAULT_C6_GAP_MIN,
+    PERMISO_AUTO_APLICACION,
     CriteriosView,
     count_auto_aplicacion_on,
     get_criterios,
@@ -1049,7 +1050,12 @@ def put_hay_mejores_criterios(
     current_user: Usuario = Depends(require_promos_write()),
     db: Session = Depends(get_db),
 ) -> HayMejoresCriteriosResponse:
-    """Upsert per-MLA criterios. Requires promos.escribir. Does not re-eval existing flags."""
+    """Upsert per-MLA criterios. Requires promos.escribir. Does not re-eval existing flags.
+
+    Changing Auto-aplicación also needs ``promos.auto_aplicacion`` (manual override; no role grant).
+    Without it the stored Auto value is left unchanged.
+    """
+    puede_auto = PermisosService(db).tiene_permiso(current_user, PERMISO_AUTO_APLICACION)
     try:
         view = upsert_criterios(
             db,
@@ -1066,6 +1072,7 @@ def put_hay_mejores_criterios(
             c6_distancia_objetivo=body.c6_distancia_objetivo,
             auto_aplicacion=body.auto_aplicacion,
             sellers_excluidos=body.sellers_excluidos,
+            puede_cambiar_auto=puede_auto,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
@@ -1095,7 +1102,10 @@ def post_hay_mejores_criterios_bulk(
     current_user: Usuario = Depends(require_promos_write()),
     db: Session = Depends(get_db),
 ) -> HayMejoresCriteriosBulkResult:
-    """Apply the same criterios to many MLAs (batches of ≤20). New runs only; optional discard skips Auto-fail."""
+    """Apply the same criterios to many MLAs (batches of ≤20). New runs only; optional discard skips Auto-fail.
+
+    Changing Auto-aplicación needs ``promos.auto_aplicacion``; without it each MLA keeps its stored Auto value.
+    """
     if not body.item_ids:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="item_ids vacío")
     if len(body.item_ids) > 20:
@@ -1103,6 +1113,7 @@ def post_hay_mejores_criterios_bulk(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Como máximo 20 publicaciones por request",
         )
+    puede_auto = PermisosService(db).tiene_permiso(current_user, PERMISO_AUTO_APLICACION)
     auto_on_previas = count_auto_aplicacion_on(db, body.item_ids)
     try:
         touched = upsert_criterios_bulk(
@@ -1120,6 +1131,7 @@ def post_hay_mejores_criterios_bulk(
             c6_distancia_objetivo=body.c6_distancia_objetivo,
             auto_aplicacion=body.auto_aplicacion,
             sellers_excluidos=body.sellers_excluidos,
+            puede_cambiar_auto=puede_auto,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc

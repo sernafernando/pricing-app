@@ -64,6 +64,8 @@ function toPayload(form) {
 export default function CriteriosAplicacionPanel({ mla }) {
   const { tienePermiso } = usePermisos();
   const canWrite = tienePermiso('promos.escribir');
+  // Manual override only (not on any role): show/change the Auto-aplicación checkbox.
+  const canAuto = tienePermiso('promos.auto_aplicacion');
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -229,18 +231,20 @@ export default function CriteriosAplicacionPanel({ mla }) {
         )}
       </section>
 
-      <section className={styles.section}>
-        <label className={styles.checkRow}>
-          <input
-            type="checkbox"
-            checked={form.auto_aplicacion}
-            disabled={!canWrite}
-            onChange={(e) => setField('auto_aplicacion', e.target.checked)}
-          />
-          Auto-aplicación
-        </label>
-        {form.auto_aplicacion && <p className={styles.autoHint}>{AUTO_ON_HINT}</p>}
-      </section>
+      {canAuto && (
+        <section className={styles.section}>
+          <label className={styles.checkRow}>
+            <input
+              type="checkbox"
+              checked={form.auto_aplicacion}
+              disabled={!canWrite}
+              onChange={(e) => setField('auto_aplicacion', e.target.checked)}
+            />
+            Auto-aplicación
+          </label>
+          {form.auto_aplicacion && <p className={styles.autoHint}>{AUTO_ON_HINT}</p>}
+        </section>
+      )}
 
       {error && (
         <p className={styles.error} role="alert">

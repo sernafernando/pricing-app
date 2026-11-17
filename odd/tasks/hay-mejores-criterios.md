@@ -65,3 +65,5 @@ L8. 2026-11-17: P4b — `auto_fail_message` on GET promociones/item when flag on
 L9. 2026-11-17: P5a — POST `/hay-mejores-criterios-bulk` (≤20) + optional discard skipping Auto-fail; `alcance=bulk` on auto_toggle.
 
 L10. 2026-11-17: P5b — view resolver criterios-item-ids + BulkCriteriosAplicacion in Acciones masivas; ayuda + novedad.
+
+L11. 2026-11-17: Owner — Auto-aplicación gated by `promos.auto_aplicacion` (catalog only, no role grants; manual override). FE hides check; BE keeps stored Auto when permission missing.
