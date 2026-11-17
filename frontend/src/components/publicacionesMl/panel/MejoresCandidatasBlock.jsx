@@ -50,6 +50,7 @@ export default function MejoresCandidatasBlock({
     applied,
     unavailable,
     message,
+    autoFailMessage,
     descartando,
     discard,
     bumpReload,
@@ -98,6 +99,11 @@ export default function MejoresCandidatasBlock({
 
   return (
     <div className={styles.ponerPreciosMejores} role="region" aria-label="Candidatas mejores">
+      {autoFailMessage && (
+        <p className={styles.ponerPreciosWarn} role="status">
+          {autoFailMessage}
+        </p>
+      )}
       {loading ? (
         <p className={styles.ponerPreciosOk} role="status">
           Cargando candidatas…
