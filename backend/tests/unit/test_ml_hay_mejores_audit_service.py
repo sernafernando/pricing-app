@@ -15,14 +15,24 @@ from app.services.ml_hay_mejores_criterios_service import upsert_criterios
 from decimal import Decimal
 
 
+class _Nested:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
 def test_record_flag_transition_adds_row() -> None:
     db = MagicMock()
+    db.begin_nested.return_value = _Nested()
     record_flag_transition(db, "MLA1", payload={"fingerprint": "C-1:900"})
     assert db.add.called
     row = db.add.call_args[0][0]
     assert row.item_id == "MLA1"
     assert row.kind == KIND_FLAG_TRANSITION
     assert row.payload["fingerprint"] == "C-1:900"
+    db.begin_nested.assert_called_once()
     db.flush.assert_called_once()
 
 
@@ -30,15 +40,18 @@ def test_record_auto_toggle_skips_when_unchanged() -> None:
     db = MagicMock()
     record_auto_toggle(db, "MLA1", old=False, new=False, usuario_id=7)
     db.add.assert_not_called()
+    db.begin_nested.assert_not_called()
 
 
 def test_record_auto_toggle_logs_flip() -> None:
     db = MagicMock()
+    db.begin_nested.return_value = _Nested()
     record_auto_toggle(db, "MLA1", old=False, new=True, usuario_id=7, alcance="item")
     row = db.add.call_args[0][0]
     assert row.kind == KIND_AUTO_TOGGLE
     assert row.usuario_id == 7
     assert row.payload == {"old": False, "new": True, "alcance": "item"}
+    db.begin_nested.assert_called_once()
 
 
 def test_upsert_criterios_logs_auto_flip(monkeypatch) -> None:

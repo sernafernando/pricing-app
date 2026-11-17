@@ -25,20 +25,26 @@ def record_flag_transition(
 ) -> None:
     """Append a flag_transition row. Caller must only invoke on real transitions.
 
-    Never raises — audit loss must not poison the flag savepoint.
+    Never raises — audit loss must not poison the caller's savepoint/txn.
+    Writes inside ``begin_nested()`` so a failed flush rolls back only the audit.
     """
     try:
-        db.add(
-            MlHayMejoresAudit(
-                item_id=item_id,
-                kind=KIND_FLAG_TRANSITION,
-                usuario_id=usuario_id,
-                payload=dict(payload),
+        with db.begin_nested():
+            db.add(
+                MlHayMejoresAudit(
+                    item_id=item_id,
+                    kind=KIND_FLAG_TRANSITION,
+                    usuario_id=usuario_id,
+                    payload=dict(payload),
+                )
             )
+            db.flush()
+    except Exception:
+        logger.warning(
+            "hay_mejores audit flag_transition failed for %s",
+            item_id,
+            exc_info=True,
         )
-        db.flush()
-    except Exception as exc:
-        logger.warning("hay_mejores audit flag_transition failed for %s: %s", item_id, exc)
 
 
 def record_auto_toggle(
@@ -54,17 +60,22 @@ def record_auto_toggle(
     if old == new:
         return
     try:
-        db.add(
-            MlHayMejoresAudit(
-                item_id=item_id,
-                kind=KIND_AUTO_TOGGLE,
-                usuario_id=usuario_id,
-                payload={"old": old, "new": new, "alcance": alcance},
+        with db.begin_nested():
+            db.add(
+                MlHayMejoresAudit(
+                    item_id=item_id,
+                    kind=KIND_AUTO_TOGGLE,
+                    usuario_id=usuario_id,
+                    payload={"old": old, "new": new, "alcance": alcance},
+                )
             )
+            db.flush()
+    except Exception:
+        logger.warning(
+            "hay_mejores audit auto_toggle failed for %s",
+            item_id,
+            exc_info=True,
         )
-        db.flush()
-    except Exception as exc:
-        logger.warning("hay_mejores audit auto_toggle failed for %s: %s", item_id, exc)
 
 
 def latest_flag_transition_payload(db: Session, item_id: str) -> Optional[dict[str, Any]]:
