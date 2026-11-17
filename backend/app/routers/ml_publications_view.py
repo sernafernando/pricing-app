@@ -790,6 +790,16 @@ class StockAuditSalesOut(BaseModel):
     markup_30d: Optional[float] = None
     total_gauss_sell_30d: Optional[float] = None
     markup_sell_30d: Optional[float] = None
+    # the 90-day trends: units (base units on a base row) and, with ver_ganancia, each day's units-weighted markup
+    series_units_90d: list[int] = []
+    series_markup_90d: Optional[list[Optional[float]]] = None
+
+
+class StockMarkupRangeOut(BaseModel):
+    """The current list markup's range over a row's publications (as an Agrupado node shows it: never an average)."""
+
+    min: float
+    max: float
 
 
 class StockAuditVariantOut(BaseModel):
@@ -809,6 +819,9 @@ class StockAuditVariantOut(BaseModel):
     publications_count: int
     params: dict[str, str]
     ventas: Optional[StockAuditSalesOut] = None  # null without ml_metricas.ver
+    kind_counts: dict[str, int] = {}  # listing kind -> its publications (Tipo)
+    status_counts: dict[str, int] = {}  # status token -> its publications (Estado)
+    markup_actual: Optional[StockMarkupRangeOut] = None  # present only with ml_metricas.ver_ganancia
 
 
 class StockAuditRowOut(BaseModel):
@@ -831,6 +844,10 @@ class StockAuditRowOut(BaseModel):
     promo_aplicada: Optional[bool] = None  # null when the promotions database could not be read
     params: dict[str, str]
     ventas: Optional[StockAuditSalesOut] = None  # null without ml_metricas.ver
+    # over its own and its variants' publications
+    kind_counts: dict[str, int] = {}
+    status_counts: dict[str, int] = {}
+    markup_actual: Optional[StockMarkupRangeOut] = None  # present only with ml_metricas.ver_ganancia
     variantes: list[StockAuditVariantOut]
 
 
@@ -840,6 +857,7 @@ class StockAuditKpisOut(BaseModel):
     total: StockMoneyOut
     productos: int
     productos_sin_publicacion_activa: int
+    valor_sin_publicacion_activa: StockMoneyOut  # what their stock is worth (ERP + Full)
     productos_con_promo_aplicada: Optional[int] = None  # null when the promotions database could not be read
     productos_sin_promo_aplicada: Optional[int] = None
 
@@ -1791,13 +1809,28 @@ def get_stock_audit(
     can_see_margin = can_see_sales and permisos.tiene_permiso(user, PERMISO_GANANCIA)
     if orden not in stock_audit.ORDERS:
         raise _unprocessable(FilterError("orden", f"unknown value {orden}; known: {', '.join(stock_audit.ORDERS)}"))
+    if stock_audit.needs_sales(orden) and not can_see_sales:
+        raise api_error(
+            status.HTTP_403_FORBIDDEN,
+            ErrorCode.INSUFFICIENT_PERMISSIONS,
+            f"Se requiere el permiso {PERMISO_METRICAS} para ordenar por las cifras de Métricas ML",
+        )
+    if stock_audit.needs_margin(orden) and not can_see_margin:
+        raise api_error(
+            status.HTTP_403_FORBIDDEN,
+            ErrorCode.INSUFFICIENT_PERMISSIONS,
+            f"Se requiere el permiso {PERMISO_GANANCIA} para ordenar por markup o Total Gauss",
+        )
     try:
         listing.bound(db)
         f = listing.resolve_pm_pairs(db, f)
         rate = stock_audit.read_rate(db)
         audit = stock_audit.build(db, f, rate)
+        stock_audit.add_summaries(db, audit)
         if can_see_sales:
             stock_audit.add_sales(db, audit, sell_in_out=can_see_margin)
+        if can_see_margin:
+            stock_audit.add_markups(db, auth_db, audit)
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     except DBAPIError as exc:

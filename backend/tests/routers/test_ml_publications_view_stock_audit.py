@@ -16,6 +16,7 @@ The world (rate 1000 ARS per USD):
 
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
@@ -24,6 +25,8 @@ from sqlalchemy import text
 from app.routers import ml_publications_view
 from app.services.ml_daily_metrics import board
 from app.services.ml_publications.view import stock_audit
+from app.services.ml_publications.view.markup import PublicationMarkup
+from app.services.ml_publications.view.markup_service import ItemMarkup
 from app.services.ml_publications.view.stock_audit import KIT, PACK, PC, VARIANTE, ComboKind, classify_combos
 from tests.routers.test_ml_publications_links import grant
 from tests.routers.test_ml_publications_view import seed_rows
@@ -56,8 +59,8 @@ def combo(conn, combo_id: int, *parts: tuple[int, int]) -> None:
         conn.execute(text("INSERT INTO combo_componentes VALUES (:c, :i, :q)"), {"c": combo_id, "i": item, "q": qty})
 
 
-def publication(conn, mla: str, product_id: int, up: str, status: str = "active") -> None:
-    seed.add_item(conn, mla, status=status, user_product_id=up)
+def publication(conn, mla: str, product_id: int, up: str, status: str = "active", kind: str = "gold_special") -> None:
+    seed.add_item(conn, mla, status=status, user_product_id=up, listing_type_id=kind)
     seed.add_link(conn, mla, product_id)
 
 
@@ -85,7 +88,7 @@ def fill(conn) -> None:
     combo(conn, 120, (121, 1), (111, 1))
     combo(conn, 130, (131, 1), (102, 2))
     publication(conn, "MLA10", 100, "UP10")
-    publication(conn, "MLA11", 100, "UP10")
+    publication(conn, "MLA11", 100, "UP10", kind="gold_pro")
     publication(conn, "MLA12", 101, "UP12")
     publication(conn, "MLA20", 110, "UP20")
     publication(conn, "MLA30", 120, "UP30")
@@ -318,7 +321,9 @@ def board_calls(monkeypatch) -> list[tuple]:
 
 
 def sales(unidades_7d: int, unidades_30d: int, facturado: float, **margin) -> dict:
-    return {"unidades_7d": unidades_7d, "unidades_30d": unidades_30d, "facturado_30d": facturado, **margin}
+    # these Board rows carry no daily series: the trends are empty
+    trends = {"series_units_90d": [], **({"series_markup_90d": []} if margin else {})}
+    return {"unidades_7d": unidades_7d, "unidades_30d": unidades_30d, "facturado_30d": facturado, **trends, **margin}
 
 
 @pytest.mark.postgres
@@ -369,3 +374,139 @@ class TestStockAuditSales:
         assert (body["can_see_sales"], body["can_see_margin"]) == (False, False)
         assert board_calls == []
         assert all(row["ventas"] is None for row in body["rows"])
+
+
+# --- The approved mock (L6): trends, current markup, Tipo / Estado, the no-active-publication value, sorting -------
+
+
+SERIES = {
+    # three days are enough: the series are summed day by day, whatever their length
+    "MLA10": ([1, 0, 1], [10.0, None, 20.0]),
+    "MLA11": ([3, 0, 0], [30.0, None, None]),
+    "MLA12": ([0, 1, 0], [None, 30.0, None]),
+    "MLA20": ([2, 0, 0], [25.0, None, None]),
+}
+
+
+@pytest.fixture()
+def series_board(monkeypatch) -> None:
+    figures = {
+        mla: replace(
+            FIGURES.get(mla) or board_row(mla, d7=0, d30=0, gross=0.0, tg=0.0, costo=0.0),
+            series_units=u,
+            series_markup=m,
+        )
+        for mla, (u, m) in SERIES.items()
+    }
+    monkeypatch.setattr(
+        stock_audit, "metrics_by_mla", lambda db, mlas, sell_in_out=False: {m: figures[m] for m in mlas if m in figures}
+    )
+
+
+def unit_markup(low: float, high: float) -> ItemMarkup:
+    return ItemMarkup(PublicationMarkup((), low, high, low, low < 0, 0, ""))
+
+
+@pytest.fixture()
+def list_markups(monkeypatch) -> list[list[str]]:
+    seen: list[list[str]] = []
+    found = {"MLA10": unit_markup(18.0, 18.0), "MLA11": unit_markup(16.0, 19.0), "MLA12": unit_markup(22.0, 22.0)}
+    found["MLA20"] = unit_markup(30.0, 30.0)
+
+    def fake(db, pricing_db, mlas):
+        seen.append(sorted(mlas))
+        return {mla: found[mla] for mla in mlas if mla in found}
+
+    monkeypatch.setattr(stock_audit, "publication_markups", fake)
+    return seen
+
+
+@pytest.mark.postgres
+class TestStockAuditMock:
+    def test_the_trends_sum_units_in_base_units_and_weigh_each_days_markup_by_its_units(
+        self, client, auditor, db, rol_admin, series_board, list_markups
+    ) -> None:
+        grant(db, rol_admin, "ml_metricas.ver", "ml_metricas.ver_ganancia")
+        rows = {row["product_item_id"]: row for row in audit(client, auditor)["rows"]}
+        notebook = rows[100]["ventas"]
+        assert notebook["series_units_90d"] == [4, 1, 1]
+        # day 1: (10 x 1 + 30 x 3) / 4 units; a day with no figure stays empty
+        assert notebook["series_markup_90d"] == [25.0, 30.0, 20.0]
+        assert rows[100]["variantes"][0]["ventas"]["series_units_90d"] == [0, 1, 0]
+        assert rows[111]["ventas"]["series_units_90d"] == [20, 0, 0]  # 2 packs of 10
+        assert rows[111]["variantes"][0]["ventas"]["series_units_90d"] == [2, 0, 0]
+        assert rows[140]["ventas"]["series_units_90d"] == []  # no Board row: no series
+
+    def test_without_ganancia_the_trend_has_units_only(self, client, auditor, db, rol_admin, series_board) -> None:
+        grant(db, rol_admin, "ml_metricas.ver")
+        notebook = audit(client, auditor)["rows"][0]["ventas"]
+        assert notebook["series_units_90d"] == [4, 1, 1]
+        assert "series_markup_90d" not in notebook
+
+    def test_the_current_markup_is_the_range_of_the_rows_publications(
+        self, client, auditor, db, rol_admin, board_calls, list_markups
+    ) -> None:
+        grant(db, rol_admin, "ml_metricas.ver", "ml_metricas.ver_ganancia")
+        rows = {row["product_item_id"]: row for row in audit(client, auditor)["rows"]}
+        assert list_markups == [["MLA10", "MLA11", "MLA12", "MLA20", "MLA40"]]
+        assert rows[100]["markup_actual"] == {"min": 16.0, "max": 22.0}  # its own and its variant's, no average
+        assert rows[100]["variantes"][0]["markup_actual"] == {"min": 22.0, "max": 22.0}
+        assert rows[111]["markup_actual"] == {"min": 30.0, "max": 30.0}
+        assert rows[130]["markup_actual"] is None and rows[140]["markup_actual"] is None
+
+    def test_without_ganancia_there_is_no_current_markup(self, client, auditor, db, rol_admin, list_markups) -> None:
+        grant(db, rol_admin, "ml_metricas.ver")
+        body = audit(client, auditor)
+        assert list_markups == []
+        assert all("markup_actual" not in row for row in body["rows"])
+
+    def test_tipo_and_estado_count_every_publication_of_the_row(self, client, auditor) -> None:
+        rows = {row["product_item_id"]: row for row in audit(client, auditor)["rows"]}
+        notebook = rows[100]
+        assert (notebook["kind_counts"], notebook["status_counts"]) == ({"clasica": 2, "cuotas_6": 1}, {"active": 3})
+        variant = notebook["variantes"][0]
+        assert (variant["kind_counts"], variant["status_counts"]) == ({"clasica": 1}, {"active": 1})
+        assert rows[130]["status_counts"] == {"paused": 1}
+        assert (rows[140]["kind_counts"], rows[140]["status_counts"]) == ({}, {})
+
+    def test_the_kpi_of_products_without_an_active_publication_carries_their_value(self, client, auditor) -> None:
+        kpis = audit(client, auditor)["kpis"]
+        # the paused PC (1 x ARS 300000) and 140 (2 x USD 10)
+        assert kpis["valor_sin_publicacion_activa"] == money(3, 320.0, 320_000.0)
+
+    @pytest.mark.parametrize(
+        "orden, expected",
+        [
+            ("unidades_30d", [111, 100, 130, 140]),
+            ("facturado_30d", [100, 111, 130, 140]),
+            ("unidades_full", [111, 100, 130, 140]),
+        ],
+    )
+    def test_it_sorts_by_the_sales_and_stock_columns(
+        self, client, auditor, db, rol_admin, board_calls, orden, expected
+    ) -> None:
+        grant(db, rol_admin, "ml_metricas.ver")
+        body = audit(client, auditor, orden=orden, dir="desc")
+        assert [row["product_item_id"] for row in body["rows"]] == expected
+
+    def test_a_margin_sort_reads_the_shown_figure_and_leaves_the_empty_ones_last(
+        self, client, auditor, db, rol_admin, board_calls, list_markups
+    ) -> None:
+        grant(db, rol_admin, "ml_metricas.ver", "ml_metricas.ver_ganancia")
+        # the notebook's markup with sell in / out 19.5; the mouse has none, so its plain 25.0 is the one shown
+        asc = audit(client, auditor, orden="markup_30d", dir="asc")
+        assert [row["product_item_id"] for row in asc["rows"]] == [100, 111, 130, 140]
+        current = audit(client, auditor, orden="markup", dir="desc")
+        assert [row["product_item_id"] for row in current["rows"]] == [111, 100, 130, 140]
+
+    @pytest.mark.parametrize(
+        "permisos, orden",
+        [((), "unidades_7d"), (("ml_metricas.ver",), "total_gauss_30d"), (("ml_metricas.ver",), "markup")],
+    )
+    def test_a_sort_by_figures_the_caller_cannot_see_is_a_403(
+        self, client, auditor, db, rol_admin, permisos, orden
+    ) -> None:
+        if permisos:
+            grant(db, rol_admin, *permisos)
+        response = client.get(URL, headers=auditor, params={"orden": orden})
+        assert response.status_code == 403

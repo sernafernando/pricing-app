@@ -27,6 +27,15 @@ Sales (owner, 2026-11-17, L3): each publication's Board row over the last 30 bus
 `/items` shows for it), summed per row as the Producto view sums them: a variant's units in base units on its base row
 (a pack's times its quantity), money summed, the markups the Board's ratio of the sums (`board.markup_of`,
 `board.SellInOut`), never an average of percentages. Nothing is written.
+
+The 90-day trends (L6): the units summed day by day like the sales (base units on a base row); a day's markup is the
+average of its publications' markups weighted by their units that day (the Board hands each publication's daily
+markup, not its numerator and cost, so the ratio of the sums cannot be rebuilt here); a day with no markup stays empty.
+
+The current markup (`markup_actual`, ml_metricas.ver_ganancia): the range of the list markup (`compute_markups`, what
+the Publicaciones list shows) over the row's publications, each read for its own product (`aggregate_nodes`), as the
+Agrupado tree's nodes show it: a range, never an average. Tipo and Estado: the row's publications counted by kind and
+by status (`listing.summary_columns`), a base row over its own and its variants' publications.
 """
 
 from __future__ import annotations
@@ -35,7 +44,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import Decimal
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, Mapping, Optional
 
 from sqlalchemy import ARRAY, Integer, Text, bindparam, select, text
 from sqlalchemy.orm import Session
@@ -47,9 +56,12 @@ from app.services.ml_publications.view.filters import (
     T,
     PublicationFilter,
     build_base_select,
+    joined,
     product_select,
     publication_filter_in,
 )
+from app.services.ml_publications.view.listing import EMPTY_SUMMARY, Summary, summaries, summary_columns
+from app.services.ml_publications.view.markup_service import ItemMarkup, aggregate_nodes, compute_markups
 from app.services.ml_publications.view.products import product_pairs
 from app.services.ml_publications.view.row_metrics import metrics_by_mla
 from app.services.pricing_calculator import moneda_de
@@ -61,7 +73,28 @@ CAT_PC = 47
 PRODUCTO, PC, VARIANTE, PACK, KIT = "producto", "pc", "variante", "pack", "kit"
 ACTIVE = "active"
 
-ORDERS = ("valor_total", "valor_erp", "valor_full", "unidades_total", "descripcion")
+# The sales sorts need ml_metricas.ver, the margin ones also ml_metricas.ver_ganancia (`needs_sales`, `needs_margin`).
+SALES_ORDERS = ("unidades_7d", "unidades_30d", "facturado_30d")
+MARGIN_ORDERS = ("total_gauss_30d", "markup_30d", "markup")
+ORDERS = (
+    "valor_total",
+    "valor_erp",
+    "valor_full",
+    "unidades_total",
+    "unidades_erp",
+    "unidades_full",
+    "descripcion",
+    *SALES_ORDERS,
+    *MARGIN_ORDERS,
+)
+
+
+def needs_sales(orden: str) -> bool:
+    return orden in SALES_ORDERS or orden in MARGIN_ORDERS
+
+
+def needs_margin(orden: str) -> bool:
+    return orden in MARGIN_ORDERS
 
 
 @dataclass(frozen=True)
@@ -153,6 +186,48 @@ class Sales:
     m_sell_out: Optional[Decimal] = None
     sell_in_lineas: Optional[int] = None
     sell_out_lineas: Optional[int] = None
+    series_units: list[Decimal] = field(default_factory=list)
+    # per day: the (markup, units) of each publication with a markup that day
+    series_markups: list[list[tuple[float, Decimal]]] = field(default_factory=list)
+
+    def _add_series(self, row: board.Row, units_factor: Decimal) -> None:
+        days = len(row.series_units)
+        while len(self.series_units) < days:
+            self.series_units.append(Decimal(0))
+            self.series_markups.append([])
+        for day, units in enumerate(row.series_units):
+            self.series_units[day] += units * units_factor
+            markup = row.series_markup[day] if day < len(row.series_markup) else None
+            if markup is not None:
+                self.series_markups[day].append((markup, units * units_factor))
+
+    def markup_series(self) -> list[Optional[float]]:
+        """Each day's markup weighted by its units (a day with markups and no units: their plain average)."""
+        out: list[Optional[float]] = []
+        for points in self.series_markups:
+            weight = sum(units for _, units in points)
+            if not points:
+                out.append(None)
+            elif weight:
+                out.append(round(float(sum(Decimal(str(m)) * units for m, units in points) / weight), 1))
+            else:
+                out.append(round(sum(m for m, _ in points) / len(points), 1))
+        return out
+
+    @property
+    def total_gauss_shown(self) -> Optional[Decimal]:
+        """The Total Gauss the view shows: with sell in / out applied where it applies, else the plain one."""
+        if not self.any_board_row:
+            return None
+        applied = board.SellInOut.total_gauss_sell(self)
+        return self.tg if applied is None else applied
+
+    @property
+    def markup_shown(self) -> Optional[Decimal]:
+        if not self.any_board_row:
+            return None
+        applied = board.SellInOut.markup_sell(self)
+        return board.markup_of(self.mtg, self.costo) if applied is None else applied
 
     def add(self, row: board.Row, units_factor: Decimal = Decimal(1)) -> None:
         self.any_board_row = True
@@ -166,14 +241,17 @@ class Sales:
             value = getattr(row, name)
             if value is not None:
                 setattr(self, name, (getattr(self, name) or 0) + value)
+        self._add_series(row, units_factor)
 
     def out(self, with_margin: bool) -> dict[str, Any]:
         body: dict[str, Any] = {
             "unidades_7d": int(self.units_7d),
             "unidades_30d": int(self.units_30d),
             "facturado_30d": round_money(self.gross),
+            "series_units_90d": [int(units) for units in self.series_units],
         }
         if with_margin:
+            body["series_markup_90d"] = self.markup_series()
             known = self.any_board_row
             body["total_gauss_30d"] = round_money(self.tg) if known else None
             body["markup_30d"] = round_pp(board.markup_of(self.mtg, self.costo)) if known else None
@@ -203,6 +281,8 @@ class Variant:
     full_unidades_base: int = 0
     publications: set[str] = field(default_factory=set)
     sales: Sales = field(default_factory=Sales)
+    markup: Optional[tuple[float, float]] = None  # the current markup's range (`add_markups`)
+    summary: Summary = EMPTY_SUMMARY
 
 
 @dataclass
@@ -215,6 +295,8 @@ class Row:
     own_publications: set[str] = field(default_factory=set)
     variants: dict[int, Variant] = field(default_factory=dict)
     sales: Sales = field(default_factory=Sales)
+    markup: Optional[tuple[float, float]] = None
+    summary: Summary = EMPTY_SUMMARY
 
     @property
     def total(self) -> Money:
@@ -409,6 +491,63 @@ def add_sales(db: Session, audit: "Audit", sell_in_out: bool) -> None:
                     r.sales.add(found, v.cantidad)
 
 
+def publication_markups(db: Session, pricing_db: Session, mlas: Iterable[str]) -> Mapping[str, ItemMarkup]:
+    """The list markup of each publication (`compute_markups`, the Publicaciones list's own figure)."""
+    mlas = sorted(set(mlas))
+    return compute_markups(db, pricing_db, item_ids=mlas).items if mlas else {}
+
+
+def _span(ranges: Iterable[Optional[tuple[float, float]]]) -> Optional[tuple[float, float]]:
+    known = [r for r in ranges if r is not None]
+    return (min(low for low, _ in known), max(high for _, high in known)) if known else None
+
+
+def add_markups(db: Session, pricing_db: Session, audit: "Audit") -> None:
+    """Every row's and variant's current markup range (module docstring); ONE markup read for all the rows."""
+    members = [(m, str(r.product.item_id)) for r in audit.rows for m in r.own_publications]
+    members += [(m, str(v.product.item_id)) for r in audit.rows for v in r.variants.values() for m in v.publications]
+    items = publication_markups(db, pricing_db, {m for m, _ in members})
+    nodes = aggregate_nodes(items, members, products=True)
+
+    def range_of(product: int) -> Optional[tuple[float, float]]:
+        node = nodes.get(str(product))
+        if node is None or node.markup_min is None or node.markup_max is None:
+            return None
+        return node.markup_min, node.markup_max
+
+    for r in audit.rows:
+        for v in r.variants.values():
+            v.markup = range_of(v.product.item_id)
+        r.markup = _span([range_of(r.product.item_id), *(v.markup for v in r.variants.values())])
+
+
+def add_summaries(db: Session, audit: "Audit") -> None:
+    """Every row's and variant's Tipo and Estado (`listing.summaries`): ONE statement over all their publications."""
+    mlas = sorted({m for r in audit.rows for m in r.publications})
+    if not mlas:
+        return
+    pubs = select(T.i.item_id.label("k"), *summary_columns()).select_from(joined()).where(T.i.item_id.in_(mlas))
+    by_mla = summaries(db, pubs.subquery("audit_pubs"))
+
+    def merged(publications: set[str]) -> Summary:
+        kinds: dict[str, int] = {}
+        states: dict[str, int] = {}
+        for mla in publications:
+            found = by_mla.get(mla)
+            if found is None:
+                continue
+            for kind, count in found.kind_counts.items():
+                kinds[kind] = kinds.get(kind, 0) + count
+            for state, count in found.status_counts.items():
+                states[state] = states.get(state, 0) + count
+        return Summary(kinds, states, None, None)
+
+    for r in audit.rows:
+        r.summary = merged(r.publications)
+        for v in r.variants.values():
+            v.summary = merged(v.publications)
+
+
 def _active(db: Session, mlas: set[str]) -> frozenset[str]:
     if not mlas:
         return frozenset()
@@ -416,16 +555,29 @@ def _active(db: Session, mlas: set[str]) -> frozenset[str]:
     return frozenset(m for (m,) in rows)
 
 
+SORT_KEYS: dict[str, Callable[[Row], Any]] = {
+    "valor_total": lambda r: r.total.usd or 0.0,
+    "valor_erp": lambda r: r.erp.usd or 0.0,
+    "valor_full": lambda r: r.full.usd or 0.0,
+    "unidades_total": lambda r: r.total.unidades,
+    "unidades_erp": lambda r: r.erp.unidades,
+    "unidades_full": lambda r: r.full.unidades,
+    "descripcion": lambda r: (r.product.descripcion or "").lower(),
+    "unidades_7d": lambda r: r.sales.units_7d,
+    "unidades_30d": lambda r: r.sales.units_30d,
+    "facturado_30d": lambda r: r.sales.gross,
+    # the figures the view shows; a row without one goes last either way
+    "total_gauss_30d": lambda r: r.sales.total_gauss_shown,
+    "markup_30d": lambda r: r.sales.markup_shown,
+    "markup": lambda r: None if r.markup is None else r.markup[0],
+}
+
+
 def sort_rows(rows: list[Row], orden: str, descending: bool) -> list[Row]:
-    keys = {
-        "valor_total": lambda r: r.total.usd or 0.0,
-        "valor_erp": lambda r: r.erp.usd or 0.0,
-        "valor_full": lambda r: r.full.usd or 0.0,
-        "unidades_total": lambda r: r.total.unidades,
-        "descripcion": lambda r: (r.product.descripcion or "").lower(),
-    }
+    key = SORT_KEYS[orden]
     ordered = sorted(rows, key=lambda r: r.product.item_id)  # the product id closes every tie
-    return sorted(ordered, key=keys[orden], reverse=descending)
+    known = [r for r in ordered if key(r) is not None]
+    return sorted(known, key=key, reverse=descending) + [r for r in ordered if key(r) is None]
 
 
 def kpis(audit: Audit, started: Optional[frozenset[str]]) -> dict[str, Any]:
@@ -435,14 +587,18 @@ def kpis(audit: Audit, started: Optional[frozenset[str]]) -> dict[str, Any]:
     for r in audit.rows:
         erp.add(r.erp.unidades, r.erp.usd, r.erp.ars)
         full.add(r.full.unidades, r.full.usd, r.full.ars)
-    sin_activa = sum(1 for r in audit.rows if not (r.publications & audit.active))
+    without_active = [r for r in audit.rows if not (r.publications & audit.active)]
+    sin_activa_valor = Money()
+    for r in without_active:
+        sin_activa_valor = sin_activa_valor.plus(r.total)
     con_promo = None if started is None else sum(1 for r in audit.rows if r.publications & started)
     return {
         "erp": erp.out(),
         "full": full.out(),
         "total": erp.plus(full).out(),
         "productos": len(audit.rows),
-        "productos_sin_publicacion_activa": sin_activa,
+        "productos_sin_publicacion_activa": len(without_active),
+        "valor_sin_publicacion_activa": sin_activa_valor.out(),
         "productos_con_promo_aplicada": con_promo,
         "productos_sin_promo_aplicada": None if con_promo is None else len(audit.rows) - con_promo,
     }
@@ -459,7 +615,7 @@ def row_out(
     """One row as the endpoint answers it; `ventas` is null without `ml_metricas.ver` (`with_sales`), its profit and
     markups present only with `ml_metricas.ver_ganancia` (`with_margin`)."""
     p = r.product
-    return {
+    body = {
         "key": str(p.item_id),
         "product_item_id": p.item_id,
         "tipo": r.kind,
@@ -476,6 +632,8 @@ def row_out(
         "promo_aplicada": None if started is None else bool(r.publications & started),
         "params": {"producto": str(p.item_id)},
         "ventas": r.sales.out(with_margin) if with_sales else None,
+        "kind_counts": r.summary.kind_counts,
+        "status_counts": r.summary.status_counts,
         "variantes": [
             {
                 "key": str(v.product.item_id),
@@ -491,7 +649,17 @@ def row_out(
                 "publications_count": len(v.publications),
                 "params": {"producto": str(v.product.item_id)},
                 "ventas": v.sales.out(with_margin) if with_sales else None,
+                "kind_counts": v.summary.kind_counts,
+                "status_counts": v.summary.status_counts,
+                **({"markup_actual": _range_out(v.markup)} if with_margin else {}),
             }
             for v in sorted(r.variants.values(), key=lambda v: (-(v.full.usd or 0.0), v.product.item_id))
         ],
     }
+    if with_margin:
+        body["markup_actual"] = _range_out(r.markup)
+    return body
+
+
+def _range_out(found: Optional[tuple[float, float]]) -> Optional[dict[str, float]]:
+    return None if found is None else {"min": round(found[0], 2), "max": round(found[1], 2)}
