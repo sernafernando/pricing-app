@@ -25,6 +25,8 @@ vi.mock('../../../services/api', () => ({
       Promise.resolve({ data: { mla: 'MLA1100000001', fetch_status: 'never', undercutting: [], same_bucket: [] } }),
     ),
     refreshCompetenciaCatalogo: vi.fn(),
+    getHayMejoresCriterios: vi.fn(() => Promise.resolve({ data: { sellers_excluidos: [] } })),
+    putHayMejoresCriterios: vi.fn((mlaId, body) => Promise.resolve({ data: body })),
   },
 }));
 

@@ -46,6 +46,8 @@ vi.mock('../services/api', () => ({
     getPromocionesItem: vi.fn(() => new Promise(() => {})),
     refreshItemPromociones: vi.fn(() => new Promise(() => {})),
     getCompetenciaCatalogo: vi.fn(() => new Promise(() => {})),
+    getHayMejoresCriterios: vi.fn(() => Promise.resolve({ data: { sellers_excluidos: [] } })),
+    putHayMejoresCriterios: vi.fn((mlaId, body) => Promise.resolve({ data: body })),
   },
   publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn(), statusItemIds: vi.fn(), statusItemIdsChecked: vi.fn(), statusBulk: vi.fn(), paintColors: vi.fn() },
   productosAPI: {
