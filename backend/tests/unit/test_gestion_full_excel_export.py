@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
-
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -161,6 +159,90 @@ def test_export_routes_call_prepare_before_build() -> None:
         assert src.index("prepare_package_for_export") < src.index(build)
 
 
+def test_envio_export_ops_skips_prepare_and_uses_inbound_builder() -> None:
+    """Post-inbound ops must not require active package / stock re-cap."""
+    import inspect
+
+    from app.routers import gestion_full as mod
+
+    src = inspect.getsource(mod.get_envio_export_ops)
+    assert "build_ops_ean_xlsx_for_envio" in src
+    assert "prepare_package_for_export" not in src
+    assert "mark_package_exported" not in src
+
+
+def test_build_ops_ean_xlsx_for_envio_missing() -> None:
+    from app.services.gestion_full.excel_export import build_ops_ean_xlsx_for_envio
+
+    db = MagicMock()
+    db.get.return_value = None
+    with pytest.raises(LookupError, match="envío no encontrado"):
+        build_ops_ean_xlsx_for_envio(db, "79909756")
+
+
+def test_build_ops_ean_xlsx_for_envio_happy_path() -> None:
+    from unittest.mock import patch
+
+    from app.services.gestion_full.excel_export import build_ops_ean_xlsx_for_envio
+
+    db = MagicMock()
+    envio = SimpleNamespace(package_id=12, inbound_id="79909756")
+    db.get.return_value = envio
+    ln = SimpleNamespace(producto_item_id=7, qty_export=3, inbound_id="79909756")
+    db.query.return_value.filter.return_value.all.return_value = [ln]
+    with (
+        patch(
+            "app.services.gestion_full.excel_export._assert_ship_lines_have_caja",
+        ) as assert_caja,
+        patch(
+            "app.services.gestion_full.excel_export._ops_ean_xlsx_bytes",
+            return_value=b"PK",
+        ) as build_bytes,
+    ):
+        out = build_ops_ean_xlsx_for_envio(db, "79909756")
+    assert out == b"PK"
+    assert_caja.assert_called_once()
+    build_bytes.assert_called_once_with(db, [ln])
+
+
+def test_envio_ops_export_accepts_pack_inheriting_base_caja() -> None:
+    """Pack X2 of a base with U/caja passes inbound ops export (same gate as #2303)."""
+    from unittest.mock import patch
+
+    from app.services.gestion_full.excel_export import build_ops_ean_xlsx_for_envio
+
+    db = MagicMock()
+    db.get.return_value = SimpleNamespace(package_id=12, inbound_id="79909756")
+    pack_ln = SimpleNamespace(producto_item_id=4693, qty_export=5, inbound_id="79909756")
+    db.query.return_value.filter.return_value.all.return_value = [pack_ln]
+    with (
+        patch(
+            "app.services.gestion_full.unidades_caja.producto_ids_con_caja_efectiva",
+            return_value={4693},
+        ) as effective,
+        patch(
+            "app.services.gestion_full.excel_export._ops_ean_xlsx_bytes",
+            return_value=b"PK-pack",
+        ) as build_bytes,
+    ):
+        out = build_ops_ean_xlsx_for_envio(db, "79909756")
+    assert out == b"PK-pack"
+    effective.assert_called_once_with(db, {4693})
+    build_bytes.assert_called_once_with(db, [pack_ln])
+
+
+def test_assert_ship_lines_have_caja_uses_efectiva_and_ean_message() -> None:
+    """Inbound/package caja gate must reuse #2303 effective coverage + EAN message."""
+    import inspect
+
+    from app.services.gestion_full import excel_export as mod
+
+    src = inspect.getsource(mod._assert_ship_lines_have_caja)
+    assert "producto_ids_con_caja_efectiva" in src
+    assert "_format_missing_caja_message" in src
+    assert "_caja_producto_ids" not in src
+
+
 def test_export_stock_and_caja_helpers_batch_with_in() -> None:
     """Fernando N+1: stock/U-caja must not db.get per line."""
     import inspect
@@ -172,6 +254,7 @@ def test_export_stock_and_caja_helpers_batch_with_in() -> None:
         mod._stock_by_producto_ids,
         caja_mod.producto_ids_con_caja,
         caja_mod.producto_ids_con_caja_efectiva,
+        mod._assert_ship_lines_have_caja,
         mod.recap_qty_export_to_stock,
         mod.assert_ship_qty_within_stock,
         mod.assert_package_exportable,

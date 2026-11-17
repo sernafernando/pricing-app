@@ -170,21 +170,28 @@ def _format_missing_caja_message(db: Session, missing_ids: list[int]) -> str:
     )
 
 
-def assert_package_exportable(db: Session, package: GestionFullPackage) -> None:
-    """Raise ValueError when package cannot be exported."""
+def _assert_ship_lines_have_caja(db: Session, lines: list[GestionFullPackageLine]) -> None:
+    """Raise when shippable lines (qty≥1) lack U/caja (incl. single-component pack inherit)."""
     from app.services.gestion_full.unidades_caja import producto_ids_con_caja_efectiva
 
+    ship_ids = {int(ln.producto_item_id) for ln in lines if int(ln.qty_export or 0) >= 1}
+    if not ship_ids:
+        return
+    with_caja = producto_ids_con_caja_efectiva(db, ship_ids)
+    missing_caja = sorted(ship_ids - with_caja)
+    if missing_caja:
+        raise ValueError(_format_missing_caja_message(db, missing_caja))
+
+
+def assert_package_exportable(db: Session, package: GestionFullPackage) -> None:
+    """Raise ValueError when package cannot be exported."""
     if package.status == PACKAGE_STATUS_LOCKED:
         raise ValueError("paquete hard-locked")
     if any(ln.inbound_id for ln in package.lines):
         raise ValueError("hay inbound_id asignados; borrarlos antes de regenerar")
     if not package.lines:
         raise ValueError("paquete sin líneas")
-    ship_ids = {int(ln.producto_item_id) for ln in package.lines if int(ln.qty_export or 0) >= 1}
-    with_caja = producto_ids_con_caja_efectiva(db, ship_ids)
-    missing_caja = sorted(ship_ids - with_caja)
-    if missing_caja:
-        raise ValueError(_format_missing_caja_message(db, missing_caja))
+    _assert_ship_lines_have_caja(db, list(package.lines))
 
 
 def build_ml_full_xlsx(db: Session, package: GestionFullPackage) -> bytes:
@@ -212,11 +219,10 @@ def build_ml_full_xlsx(db: Session, package: GestionFullPackage) -> bytes:
     return buf.getvalue()
 
 
-def build_ops_ean_xlsx(db: Session, package: GestionFullPackage) -> bytes:
-    """Simple ops sheet: EAN, descripción, cantidad (qty_export)."""
-    assert_package_exportable(db, package)
-    enriched = _enrich_lines(db, list(package.lines))
-    rows = [e for e in enriched if e["line"].qty_export >= 1]
+def _ops_ean_xlsx_bytes(db: Session, lines: list[GestionFullPackageLine]) -> bytes:
+    """Build the ops workbook from already-selected package lines."""
+    enriched = _enrich_lines(db, lines)
+    rows = [e for e in enriched if int(e["line"].qty_export or 0) >= 1]
     if not rows:
         raise ValueError("ninguna línea exportable (qty≥1)")
     wb = Workbook()
@@ -233,6 +239,41 @@ def build_ops_ean_xlsx(db: Session, package: GestionFullPackage) -> bytes:
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def build_ops_ean_xlsx(db: Session, package: GestionFullPackage) -> bytes:
+    """Simple ops sheet: EAN, descripción, cantidad (qty_export) for the active package."""
+    assert_package_exportable(db, package)
+    return _ops_ean_xlsx_bytes(db, list(package.lines))
+
+
+def build_ops_ean_xlsx_for_envio(db: Session, inbound_id: str) -> bytes:
+    """Ops sheet for one inbound — works after assign / hard-lock (Consulta envíos).
+
+    Uses declared ``qty_export`` on lines of that inbound. Does not require an
+    active package, does not clear inbound, and does not re-cap stock (qty already
+    committed to that SC inbound).
+    """
+    from app.models.gestion_full_envio import GestionFullEnvio
+
+    inbound = (inbound_id or "").strip()
+    if not inbound:
+        raise ValueError("inbound_id vacío")
+    envio = db.get(GestionFullEnvio, inbound)
+    if envio is None:
+        raise LookupError("envío no encontrado")
+    lines = (
+        db.query(GestionFullPackageLine)
+        .filter(
+            GestionFullPackageLine.package_id == envio.package_id,
+            GestionFullPackageLine.inbound_id == inbound,
+        )
+        .all()
+    )
+    if not lines:
+        raise ValueError("envío sin líneas")
+    _assert_ship_lines_have_caja(db, lines)
+    return _ops_ean_xlsx_bytes(db, lines)
 
 
 def recap_qty_export_to_stock(db: Session, package: GestionFullPackage) -> int:

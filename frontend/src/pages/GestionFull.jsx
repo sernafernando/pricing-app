@@ -66,6 +66,19 @@ function overrideDraftValue(value) {
   return String(value);
 }
 
+function rowKey(row) {
+  return `${row.producto_item_id}-${row.user_product_id || row.inventory_id || ''}`;
+}
+
+/** Real Código ML, or synthetic key so override/Listo work before Melí assigns one. */
+function overrideKey(row) {
+  return row.inventory_id || `NOINV:${row.user_product_id}`;
+}
+
+function draftKey(row) {
+  return overrideKey(row);
+}
+
 export default function GestionFull() {
   const { tienePermiso } = usePermisos();
   const { grupos: tiendaGrupos } = useTiendasOficiales();
@@ -98,11 +111,6 @@ export default function GestionFull() {
   const debouncedQ = useDebounce(q, 300);
   // After Listo/Desbloquear we only need rows; keep panel options and skip the facet DISTINCT.
   const skipFacetsRef = useRef(false);
-
-  const rowKey = (row) => `${row.producto_item_id}-${row.user_product_id || row.inventory_id || ''}`;
-  // Real Código ML, or synthetic key so override/Listo work before Melí assigns one.
-  const overrideKey = (row) => row.inventory_id || `NOINV:${row.user_product_id}`;
-  const draftKey = (row) => overrideKey(row);
 
   useEffect(() => {
     if (tab !== 'plan') return undefined;
@@ -356,7 +364,7 @@ export default function GestionFull() {
 
       {tab === 'depositos' && puedeDepositos ? <GestionFullDepositosTab /> : null}
       {tab === 'gestor' && puedeGestorPerm ? <GestionFullGestorTab /> : null}
-      {tab === 'envios' ? <GestionFullEnviosTab /> : null}
+      {tab === 'envios' ? <GestionFullEnviosTab puedeGestor={puedeGestorPerm} /> : null}
 
       {tab === 'plan' && (
       <div className={styles.depositos}>
