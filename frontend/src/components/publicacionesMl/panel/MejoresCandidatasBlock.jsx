@@ -16,6 +16,8 @@ import {
   shares,
 } from './mejoresCandidatasHelpers';
 import { useMejoresCandidatas } from './useMejoresCandidatas';
+import { useMonopolioC6 } from './useMonopolioC6';
+import MonopolioC6Block from './MonopolioC6Block';
 import promoStyles from '../../promociones/promociones.module.css';
 import styles from './panel.module.css';
 
@@ -59,8 +61,12 @@ export default function MejoresCandidatasBlock({
     onUnavailable,
     onSuggested,
   });
+  const { loading: monopolioLoading, oportunidad: monopolio, error: monopolioError } = useMonopolioC6(itemId);
 
   const entries = slotEntries(slots);
+  const showClassic = entries.length > 0;
+  const showMonopolio = Boolean(monopolio);
+  const showEmptyClassic = !showClassic && !showMonopolio && !monopolioLoading;
   const lead = (extra) => (
     <p className={styles.ponerPreciosMejoresLead}>
       <Sparkles size={14} aria-hidden="true" className={styles.mejoresIcon} />
@@ -101,72 +107,88 @@ export default function MejoresCandidatasBlock({
           {lead(null)}
           <span>{discardButton}</span>
         </>
-      ) : entries.length > 0 ? (
-        <>
-          {lead(vigente)}
-          <ul className={styles.ponerPreciosChoices}>
-            <AppliedOrSaleCard
-              applied={applied}
-              baselinePrice={baselinePrice}
-              baselineMarkup={baselineMarkup}
-              baselineSellInOut={baselineSellInOut}
-            />
-            {entries.map(([slot, promo], index) => {
-              const price = promoDisplayPrice(promo);
-              return (
-                <li key={slot} className={styles.mejoresCard} role="group" aria-label={`Promo sugerida ${CHOOSER_SLOT_LABELS[slot] || slot}`}>
-                  <span className={styles.mejoresHead}>
-                    <span className={`${promoStyles.badge} ${SLOT_BADGE[slot] || promoStyles.badgeTypeNeutral}`}>
-                      {CHOOSER_SLOT_LABELS[slot] || slot}
-                    </span>
-                    <span className={styles.mejoresMain}>
-                      <span className={styles.mejoresEyebrow}>Promo sugerida</span>
-                      <span className={styles.mejoresName}>{resolvePromoName(promo) || promo.promotion_id}</span>
-                    </span>
-                  </span>
-                  <PromoFigures
-                    price={price}
-                    markup={promo.nuestro_markup}
-                    sellInOut={promo.markup_sell_in_out}
-                    sharesText={shares(promo)}
-                    dates={dateRange(promo)}
-                    delta={markupDelta(promo, statusQuo)}
-                    deltaLabel={deltaLabel}
-                  />
-                  <span className={styles.mejoresActions}>
-                    {index === 0 && discardButton}
-                    <PromoApplyControl
-                      mla={itemId}
-                      promotion={promo}
-                      label="Aplicar sugerencia"
-                      initialStock={slot === 'LIGHTNING' ? promo.payload?.stock?.min : undefined}
-                      onApplied={(data) => {
-                        onWritten?.();
-                        if (!appliedCleanly(promo, data)) return;
-                        if (onLeavePub) onLeavePub();
-                        else bumpReload();
-                      }}
-                      onReloadNeeded={onWritten}
-                    />
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </>
       ) : (
         <>
-          <p className={styles.ponerPreciosOk} role="status">
-            No hay candidatas aplicables (SMART, DEAL, PRE_NEGOTIATED, PRICE_MATCHING, LIGHTNING, SELLER_CAMPAIGN
-            Premium del mes) que superen el precio vigente
-            {baselineMarkup != null
-              ? ` (markup vigente ~ ${formatAmount(baselineMarkup)}%${sellInOutText(baselineSellInOut, pct)})`
-              : ''}
-            .
-            Podés descartar el aviso si quedó desactualizado.
-          </p>
-          <span>{discardButton}</span>
+          {showClassic && (
+            <>
+              {lead(vigente)}
+              <ul className={styles.ponerPreciosChoices}>
+                <AppliedOrSaleCard
+                  applied={applied}
+                  baselinePrice={baselinePrice}
+                  baselineMarkup={baselineMarkup}
+                  baselineSellInOut={baselineSellInOut}
+                />
+                {entries.map(([slot, promo], index) => {
+                  const price = promoDisplayPrice(promo);
+                  return (
+                    <li
+                      key={slot}
+                      className={styles.mejoresCard}
+                      role="group"
+                      aria-label={`Promo sugerida ${CHOOSER_SLOT_LABELS[slot] || slot}`}
+                    >
+                      <span className={styles.mejoresHead}>
+                        <span className={`${promoStyles.badge} ${SLOT_BADGE[slot] || promoStyles.badgeTypeNeutral}`}>
+                          {CHOOSER_SLOT_LABELS[slot] || slot}
+                        </span>
+                        <span className={styles.mejoresMain}>
+                          <span className={styles.mejoresEyebrow}>Promo sugerida</span>
+                          <span className={styles.mejoresName}>{resolvePromoName(promo) || promo.promotion_id}</span>
+                        </span>
+                      </span>
+                      <PromoFigures
+                        price={price}
+                        markup={promo.nuestro_markup}
+                        sellInOut={promo.markup_sell_in_out}
+                        sharesText={shares(promo)}
+                        dates={dateRange(promo)}
+                        delta={markupDelta(promo, statusQuo)}
+                        deltaLabel={deltaLabel}
+                      />
+                      <span className={styles.mejoresActions}>
+                        {index === 0 && discardButton}
+                        <PromoApplyControl
+                          mla={itemId}
+                          promotion={promo}
+                          label="Aplicar sugerencia"
+                          initialStock={slot === 'LIGHTNING' ? promo.payload?.stock?.min : undefined}
+                          onApplied={(data) => {
+                            onWritten?.();
+                            if (!appliedCleanly(promo, data)) return;
+                            if (onLeavePub) onLeavePub();
+                            else bumpReload();
+                          }}
+                          onReloadNeeded={onWritten}
+                        />
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+          {showMonopolio && <MonopolioC6Block oportunidad={monopolio} />}
+          {showEmptyClassic && (
+            <>
+              <p className={styles.ponerPreciosOk} role="status">
+                No hay candidatas aplicables (SMART, DEAL, PRE_NEGOTIATED, PRICE_MATCHING, LIGHTNING, SELLER_CAMPAIGN
+                Premium del mes) que superen el precio vigente
+                {baselineMarkup != null
+                  ? ` (markup vigente ~ ${formatAmount(baselineMarkup)}%${sellInOutText(baselineSellInOut, pct)})`
+                  : ''}
+                . Podés descartar el aviso si quedó desactualizado.
+              </p>
+              <span>{discardButton}</span>
+            </>
+          )}
+          {showMonopolio && !showClassic && <span>{discardButton}</span>}
         </>
+      )}
+      {monopolioError && (
+        <p className={styles.ponerPreciosError} role="status">
+          {monopolioError}
+        </p>
       )}
       {message && (
         <p className={message.tone === 'error' ? styles.ponerPreciosError : styles.ponerPreciosOk} role="status">
