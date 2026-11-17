@@ -53,6 +53,7 @@ from app.services.ml_promotions_service import (
 )
 from app.services.ml_promotions_hay_mejores import (
     descartar_hay_mejores_ofertas,
+    descartar_hay_mejores_sugerencias_bulk,
     set_hay_mejores_excluido,
     set_hay_mejores_excluido_bulk,
 )
@@ -60,8 +61,10 @@ from app.services.ml_hay_mejores_criterios_service import (
     DEFAULT_C6_DISTANCIA,
     DEFAULT_C6_GAP_MIN,
     CriteriosView,
+    count_auto_aplicacion_on,
     get_criterios,
     upsert_criterios,
+    upsert_criterios_bulk,
 )
 from app.services.ml_promotions_write_service import enroll_one_item, remove_one_item
 from app.services.ml_publication_status_service import GONE, NEVER_EXISTED, NO_ML_DATA, fetch_publication_status_by_mla
@@ -1068,6 +1071,70 @@ def put_hay_mejores_criterios(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     db.commit()
     return _criterios_response(view)
+
+
+class HayMejoresCriteriosBulkBody(HayMejoresCriteriosBody):
+    """Same criterios fields as the per-MLA PUT, plus bulk scope + optional discard."""
+
+    item_ids: List[MlaIdBody]
+    descartar_sugerencias: bool = False
+
+
+class HayMejoresCriteriosBulkResult(BaseModel):
+    item_ids: List[str]
+    count: int
+    descartadas: List[str] = []
+    omitidas_auto_fail: List[str] = []
+    auto_on_previas: int = 0
+    model_config = ConfigDict(from_attributes=True)
+
+
+@router.post("/hay-mejores-criterios-bulk", response_model=HayMejoresCriteriosBulkResult)
+def post_hay_mejores_criterios_bulk(
+    body: HayMejoresCriteriosBulkBody,
+    current_user: Usuario = Depends(require_promos_write()),
+    db: Session = Depends(get_db),
+) -> HayMejoresCriteriosBulkResult:
+    """Apply the same criterios to many MLAs (batches of ≤20). New runs only; optional discard skips Auto-fail."""
+    if not body.item_ids:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="item_ids vacío")
+    if len(body.item_ids) > 20:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Como máximo 20 publicaciones por request",
+        )
+    auto_on_previas = count_auto_aplicacion_on(db, body.item_ids)
+    try:
+        touched = upsert_criterios_bulk(
+            db,
+            body.item_ids,
+            updated_by=getattr(current_user, "id", None),
+            c1_activo=body.c1_activo,
+            c1_markup_min=body.c1_markup_min,
+            c1_markup_max=body.c1_markup_max,
+            c2_activo=body.c2_activo,
+            c2_solo_markup_positivo=body.c2_solo_markup_positivo,
+            c6_activo=body.c6_activo,
+            c6_solo_via_promo=body.c6_solo_via_promo,
+            c6_gap_min=body.c6_gap_min,
+            c6_distancia_objetivo=body.c6_distancia_objetivo,
+            auto_aplicacion=body.auto_aplicacion,
+            sellers_excluidos=body.sellers_excluidos,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    descartadas: List[str] = []
+    omitidas: List[str] = []
+    if body.descartar_sugerencias and touched:
+        descartadas, omitidas = descartar_hay_mejores_sugerencias_bulk(db, touched, skip_auto_fail=True)
+    db.commit()
+    return HayMejoresCriteriosBulkResult(
+        item_ids=touched,
+        count=len(touched),
+        descartadas=descartadas,
+        omitidas_auto_fail=omitidas,
+        auto_on_previas=auto_on_previas,
+    )
 
 
 # ── Price recompute requested by ml-webhook (promo-ml-precio-inmediato T1) ──

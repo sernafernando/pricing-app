@@ -828,6 +828,46 @@ def descartar_hay_mejores_ofertas(db: Session, item_id: str) -> bool:
     return True
 
 
+def descartar_hay_mejores_sugerencias_bulk(
+    db: Session,
+    item_ids: Sequence[str],
+    *,
+    skip_auto_fail: bool = True,
+) -> Tuple[List[str], List[str]]:
+    """Clear open hay_mejores flags for many MLAs.
+
+    Returns ``(descartadas, omitidas_auto_fail)``. When ``skip_auto_fail`` is true, suggestions whose
+    latest audit is an R-AUTO enroll failure stay open (owner: bulk discard must not clear them).
+    """
+    from app.services.ml_hay_mejores_audit_service import latest_auto_fail_message
+
+    ids = [item_id for item_id in dict.fromkeys(item_ids) if item_id]
+    if not ids:
+        return [], []
+    rows = {
+        row.item_id: row
+        for row in db.query(MlItemSellerPromotions)
+        .filter(MlItemSellerPromotions.item_id.in_(ids), MlItemSellerPromotions.hay_mejores_ofertas.is_(True))
+        .all()
+    }
+    descartadas: List[str] = []
+    omitidas: List[str] = []
+    for item_id in ids:
+        row = rows.get(item_id)
+        if row is None:
+            continue
+        if skip_auto_fail and latest_auto_fail_message(db, item_id):
+            omitidas.append(item_id)
+            continue
+        row.hay_mejores_ofertas = False
+        if row.hay_mejores_fingerprint:
+            row.hay_mejores_descartado_fingerprint = row.hay_mejores_fingerprint
+        descartadas.append(item_id)
+    if descartadas:
+        notify_hay_mejores_changed(db)
+    return descartadas, omitidas
+
+
 def limpiar_hay_mejores_ofertas(db: Session, item_ids: Iterable[str]) -> None:
     ids = [item_id for item_id in item_ids if item_id]
     if not ids:
