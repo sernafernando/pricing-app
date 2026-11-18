@@ -16,6 +16,8 @@ En la vista de lista las páginas se piden de a 20, así que con **Siguiente** l
 
 Al expandir una notificación se marca como leída automáticamente y se ven más detalles (incluido el precio de venta seteado). También hay botones para marcar todas como leídas o no leídas, y acciones **Revisada**, **Ignorar**, **Resuelta** y **Eliminar**.
 
+En la vista agrupada, cada acción se aplica a todo el grupo de una sola vez, aunque tenga miles de notificaciones. **Ignorar** pide una confirmación y crea la regla para no volver a notificar ese producto con ese markup.
+
 ## Filtros y columnas
 
 Filtros: pestaña de familia (Todas, Compras, Markup, Técnicas, Otras), PM, urgencia, solo no leídas, agrupada/lista, ordenamiento.

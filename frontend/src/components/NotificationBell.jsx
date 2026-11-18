@@ -59,10 +59,8 @@ export default function NotificationBell() {
 
   const marcarComoLeida = async (notificacionesIds) => {
     try {
-      // Marcar todas las notificaciones del grupo
-      await Promise.all(
-        notificacionesIds.map(id => api.patch(`/notificaciones/${id}/marcar-leida`))
-      );
+      // One request for the whole group (prod incident 2026-11-18: 1411 at once took the API down)
+      await api.post('/notificaciones/bulk', { ids: notificacionesIds, accion: 'leida' });
       await fetchNotificaciones();
     } catch (error) {
       console.error('Error al marcar notificación:', error);
@@ -83,10 +81,7 @@ export default function NotificationBell() {
   const eliminarNotificacion = async (notificacionesIds, tipo) => {
     if (tipo === 'compras.faltantes') return;
     try {
-      // Eliminar todas las notificaciones del grupo
-      await Promise.all(
-        notificacionesIds.map(id => api.delete(`/notificaciones/${id}`))
-      );
+      await api.post('/notificaciones/bulk', { ids: notificacionesIds, accion: 'eliminar' });
       await fetchNotificaciones();
     } catch (error) {
       console.error('Error al eliminar notificación:', error);

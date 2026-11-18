@@ -526,3 +526,13 @@
   margin: 0 0 1rem;
   white-space: pre-line;
 }
+
+.errorGrupo {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--tone-danger-border);
+  border-radius: 8px;
+  background: var(--tone-danger-bg);
+  color: var(--tone-danger-fg);
+  font-size: 14px;
+}

@@ -101,6 +101,26 @@ async def get_async_db():
         db.close()
 
 
+def release_connection(db: Session) -> None:
+    """End the session's current transaction so its pooled connection goes back now.
+
+    An `async def` endpoint runs its sync queries on the event loop. If it
+    reaches an await (sse_publish, or FastAPI's own work after the endpoint
+    returns) with a transaction still open, the connection stays "idle in
+    transaction" while other requests block the loop waiting on the pool,
+    and a burst of requests deadlocks the API until pool_timeout (prod
+    incidents 2026-09-25 and 2026-11-18). Committing with expire_on_commit
+    disabled keeps loaded objects usable without a reload, and restoring the
+    flag leaves later commits unchanged.
+    """
+    expire_on_commit = db.expire_on_commit
+    db.expire_on_commit = False
+    try:
+        db.commit()
+    finally:
+        db.expire_on_commit = expire_on_commit
+
+
 @contextmanager
 def get_background_db() -> Generator[Session, None, None]:
     """
