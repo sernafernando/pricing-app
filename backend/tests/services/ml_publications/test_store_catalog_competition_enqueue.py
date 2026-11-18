@@ -31,8 +31,9 @@ DEBOUNCE = timedelta(seconds=120)
 
 @pytest.fixture
 def env(mlpub_pg):
-    CatalogCompetitionRefreshPending.__table__.create(bind=mlpub_pg)
-    MLCatalogCompetition.__table__.create(bind=mlpub_pg)
+    CatalogCompetitionRefreshPending.__table__.create(bind=mlpub_pg, checkfirst=True)
+    # mlpub_schema may already apply 20260731_ml_catalog_competition for hay_mejores prefetch.
+    MLCatalogCompetition.__table__.create(bind=mlpub_pg, checkfirst=True)
     return mlpub_pg
 
 
