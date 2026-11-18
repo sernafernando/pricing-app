@@ -314,9 +314,19 @@ class Settings(BaseSettings):
     MCP_PUBLIC_BASE_URL: Optional[str] = None
     # Allowed OAuth clients (JSON list). Adding a client is config, not code (docs/RUNBOOKS.md):
     # [{"client_id": <https CIMD URL>, "name": <shown on the consent screen>, "redirect_uris": [<https URL>, ...]}]
+    # Allowed OAuth clients of the MCP server (docs/RUNBOOKS.md section 9). Loopback redirects (http://localhost/...)
+    # are declared without port and accept any port. Cursor and Gemini CLI use the pre-registered ids below.
     MCP_OAUTH_CLIENTS: str = (
         '[{"client_id": "https://chatgpt.com/oauth/client.json", "name": "ChatGPT",'
-        ' "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"]}]'
+        ' "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"]},'
+        ' {"client_id": "https://claude.ai/oauth/mcp-oauth-client-metadata", "name": "Claude",'
+        ' "redirect_uris": ["https://claude.ai/api/mcp/auth_callback"]},'
+        ' {"client_id": "https://claude.ai/oauth/claude-code-client-metadata", "name": "Claude Code",'
+        ' "redirect_uris": ["http://localhost/callback", "http://127.0.0.1/callback"]},'
+        ' {"client_id": "pricing-mcp-cursor", "name": "Cursor",'
+        ' "redirect_uris": ["http://localhost/callback", "https://www.cursor.com/agents/mcp/oauth/callback"]},'
+        ' {"client_id": "pricing-mcp-gemini-cli", "name": "Gemini CLI",'
+        ' "redirect_uris": ["http://localhost/oauth/callback"]}]'
     )
     MCP_ACCESS_TOKEN_MINUTES: int = 60
     MCP_REFRESH_TOKEN_DAYS: int = 30

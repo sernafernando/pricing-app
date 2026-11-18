@@ -4,14 +4,14 @@ import { useAuthStore } from '../store/authStore';
 import { oauthAPI } from '../services/api';
 import styles from './McpAutorizar.module.css';
 
-const MENSAJE_VENCIDO = 'El pedido de conexión venció o ya se usó. Volvé a conectar desde ChatGPT.';
-const MENSAJE_SIN_PERMISO = 'No tenés permiso para conectar ChatGPT (mcp.conectar). Pedíselo a un administrador.';
+const MENSAJE_VENCIDO = 'El pedido de conexión venció o ya se usó. Volvé a conectar desde la aplicación de IA.';
+const MENSAJE_SIN_PERMISO = 'No tenés permiso para conectar aplicaciones de IA (mcp.conectar). Pedíselo a un administrador.';
 const MENSAJE_ERROR = 'No se pudo completar la conexión. Probá de nuevo en unos minutos.';
 
 const irAUrlExterna = (url) => window.location.assign(url);
 
 /**
- * Consent step of the OAuth flow for MCP clients (ChatGPT). The backend's
+ * Consent step of the OAuth flow for MCP clients (ChatGPT, Claude, Cursor, Gemini CLI). The backend's
  * /api/oauth/authorize sends the browser here with `?req=<id>`; the normal
  * login (ProtectedRoute + Login return-to) runs first when there is no session.
  * The decision goes back to the backend, which answers with the URL to send the
@@ -87,7 +87,12 @@ export default function McpAutorizar({ irA = irAUrlExterna }) {
             <p className={styles.texto}>
               <strong>{cliente}</strong> quiere consultar Pricing como <strong>{nombreUsuario}</strong>.
             </p>
+            <p className={styles.texto}>
+              La conexión vuelve a <strong>{pedido.redirect_host}</strong>
+              {pedido.redirect_local ? ' (en esta computadora)' : ''}.
+            </p>
             <ul className={styles.detalles}>
+              <li>Permití solo si iniciaste vos esta conexión recién, desde {cliente}.</li>
               <li>Acceso de solo lectura: puede consultar, no puede modificar nada.</li>
               <li>Ve lo mismo que vos: trabaja con tus mismos permisos.</li>
               <li>Podés revocar la conexión cuando quieras desde un administrador.</li>
