@@ -607,7 +607,7 @@ describe('rotacion S2: the Rotación columns', () => {
     await user.click(screen.getByRole('button', { name: /Columnas/ }));
     await user.click(screen.getByRole('checkbox', { name: 'Días de cobertura' }));
     await waitFor(() => expect(headers().some((text) => text.includes('Cobertura'))).toBe(false));
-    expect(localStorage.getItem('publicaciones-ml.auditoria.columnas-ocultas')).toContain('cobertura');
+    await waitFor(() => expect(savedAudit()?.columns.visibility).toMatchObject({ cobertura: false }), { timeout: 2000 });
     for (const name of ['Última venta', 'Ageing', 'Rotación (veces)']) {
       expect(screen.getByRole('checkbox', { name })).toBeInTheDocument();
     }

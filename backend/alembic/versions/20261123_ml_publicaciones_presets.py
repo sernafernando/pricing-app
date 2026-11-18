@@ -1,7 +1,7 @@
 """Publicaciones ML column layouts and presets + ml_publicaciones.presets_compartidos
 
 Revision ID: 20261123_ml_publicaciones_presets
-Revises: 20261122_mcp_oauth
+Revises: 20261122_producto_stock_diario
 Create Date: 2026-11-18
 
 - `ml_publicaciones_layouts`: one row per user and view with the column layout (visibility + order, NULL = the
@@ -19,7 +19,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "20261123_ml_publicaciones_presets"
-down_revision: Union[str, None] = "20261122_mcp_oauth"
+down_revision: Union[str, None] = "20261122_producto_stock_diario"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

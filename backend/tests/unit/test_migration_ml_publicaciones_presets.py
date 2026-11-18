@@ -20,7 +20,7 @@ def test_the_revision_is_on_the_single_line() -> None:
     # One head (alembic did not fork) that descends from this revision; not
     # "this revision IS the head", so a later migration on top keeps it green.
     script = _script()
-    assert script.get_revision(_REVISION).down_revision == "20261122_mcp_oauth"
+    assert script.get_revision(_REVISION).down_revision == "20261122_producto_stock_diario"
     heads = script.get_heads()
     assert len(heads) == 1, f"alembic forked: {heads}"
     assert any(rev.revision == _REVISION for rev in script.walk_revisions("base", heads[0]))
