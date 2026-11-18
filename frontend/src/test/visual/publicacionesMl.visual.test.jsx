@@ -123,7 +123,14 @@ vi.mock('../../services/api', () => ({
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
   pxqAPI: { getLive: vi.fn(), getMarkup: vi.fn(), createTier: vi.fn(), updateTier: vi.fn(), deleteTier: vi.fn(), sync: vi.fn(), adoptLive: vi.fn() },
-  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), setItemStatus: vi.fn(), statusItemIds: vi.fn(), statusBulk: vi.fn(), kpis: vi.fn(), stats: vi.fn(() => Promise.resolve({ data: { stats: { total: 40, con_stock: 30, con_precio: 35, con_stock_sin_precio: 3, nuevos: 5, nuevos_sin_precio: 2, oferta_sin_rebate: 4 }, can_see_margin: false } })), productIds: vi.fn(() => Promise.resolve({ data: { item_ids: [4101, 4102], count: 2, sin_producto: 1 } })), productEnvio: vi.fn(() => new Promise(() => {})), saveProductEnvio: vi.fn(), productLinks: vi.fn(() => Promise.resolve({ data: { units: [] } })), setProductLink: vi.fn(), setProductLinkNone: vi.fn(), revertProductLinkAuto: vi.fn(), searchProducts: vi.fn() },
+  // `/view/facets` (pubml-lentitud T2) answers the facets the current `items` mock carries, without counting as an
+  // `items` call: the counts of the screen are those `/items?facets=true` answered before the split.
+  publicacionesMlAPI: ((api) =>
+    Object.assign(api, {
+      facets: vi.fn((params, config) =>
+        Promise.resolve(api.items.getMockImplementation()?.({ ...params, facets: true }, config)).then((r) => ({ data: r?.data?.facets ?? null })),
+      ),
+    }))({ items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), setItemStatus: vi.fn(), statusItemIds: vi.fn(), statusBulk: vi.fn(), kpis: vi.fn(), stats: vi.fn(() => Promise.resolve({ data: { stats: { total: 40, con_stock: 30, con_precio: 35, con_stock_sin_precio: 3, nuevos: 5, nuevos_sin_precio: 2, oferta_sin_rebate: 4 }, can_see_margin: false } })), productIds: vi.fn(() => Promise.resolve({ data: { item_ids: [4101, 4102], count: 2, sin_producto: 1 } })), productEnvio: vi.fn(() => new Promise(() => {})), saveProductEnvio: vi.fn(), productLinks: vi.fn(() => Promise.resolve({ data: { units: [] } })), setProductLink: vi.fn(), setProductLinkNone: vi.fn(), revertProductLinkAuto: vi.fn(), searchProducts: vi.fn() }),
   productosPropiosAPI: {
     get: vi.fn(() =>
       Promise.resolve({
@@ -4245,3 +4252,32 @@ describe('Publicaciones ML panel, the promo filter in the Promos tab (visual)', 
   }
 });
 
+
+// pubml-lentitud: a chip click asks once, 250 ms after the last click, and the rows of the new filter paint without
+// waiting for the counts (`/view/facets` in its own request). The screenshot shows the rows of the new filter on show
+// while the chip counts are still the previous ones.
+describe('Publicaciones ML after a filter change (visual, pubml-lentitud)', () => {
+  const PAUSED_ROWS = { ...RESPONSE, items: RESPONSE.items.slice(0, 3), total: 3 };
+
+  beforeEach(() => {
+    canSeeMargin = false;
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.items.mockImplementation((params) =>
+      Promise.resolve({ data: params?.estado === 'paused' ? PAUSED_ROWS : RESPONSE }),
+    );
+  });
+
+  for (const theme of THEMES) {
+    // Tall enough to show the chips and the rows of the new filter in one shot.
+    it(`1366x1400 ${theme}: the rows of the new filter paint before its counts arrive`, async () => {
+      const screen = await renderPage({ width: 1366, height: 1400, theme });
+      const before = publicacionesMlAPI.items.mock.calls.length;
+      publicacionesMlAPI.facets.mockImplementationOnce(() => new Promise(() => {}));
+      await userEvent.click(screen.getByRole('group', { name: 'Filtrar por estado' }).getByRole('button', { name: /Pausadas/ }));
+      await expect.element(screen.getByText('mostrando 1-3 de 3 publicaciones')).toBeVisible();
+      expect(publicacionesMlAPI.items.mock.calls.length).toBe(before + 1);
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/cambio-de-filtro-${theme}.png` });
+      screen.unmount();
+    });
+  }
+});

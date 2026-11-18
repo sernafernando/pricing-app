@@ -42,6 +42,10 @@ export default function useStockAudit({
   const [branches, setBranches] = useState({});
   const [reloadToken, setReloadToken] = useState(0);
   const generation = useRef(0);
+  // This generation's requests share one AbortController: a new list aborts what the old one still has in flight
+  // (pubml-lentitud S3), so the browser frees its connections and an old answer never lands.
+  const aborter = useRef(null);
+  useEffect(() => () => aborter.current?.abort(), []);
   // The branches asked in this generation, so an effect run twice asks each once.
   const requested = useRef(new Set());
   const latest = useRef({ filters, listKey, canSeeSales });
@@ -53,12 +57,15 @@ export default function useStockAudit({
   useEffect(() => {
     generation.current += 1;
     const mine = generation.current;
+    aborter.current?.abort();
+    const controller = new AbortController();
+    aborter.current = controller;
     requested.current = new Set();
     setBranches({});
     if (!listKey) return;
     setState((current) => ({ ...current, loading: true, error: null }));
     publicacionesMlAPI
-      .stockAudit(JSON.parse(listKey))
+      .stockAudit(JSON.parse(listKey), { signal: controller.signal })
       .then((response) => {
         if (mine === generation.current) setState({ data: response.data, loading: false, error: null });
       })
@@ -75,14 +82,15 @@ export default function useStockAudit({
       [key]: { items: [], total: 0, ...all[key], row, status: offset === 0 ? 'loading' : 'more', error: null },
     }));
     const { filters: current, listKey: currentList, canSeeSales: sales } = latest.current;
+    const config = { signal: aborter.current?.signal };
     const request =
       row.type === 'group'
         ? publicacionesMlAPI
-            .stockAudit(groupProductsParams(JSON.parse(currentList || '{}'), row.node.grupo, offset))
+            .stockAudit(groupProductsParams(JSON.parse(currentList || '{}'), row.node.grupo, offset), config)
             .then((response) => ({ items: response.data?.rows ?? [], total: response.data?.total ?? 0 }))
         : publicacionesMlAPI
             // The publications' ERP / Full split of their sales (auditoria-stock-niveles S3), with the sales.
-            .items({ ...buildLeafParams(current, { params: row.node.params }, offset), ...(sales ? { desglose_envio: true } : {}) })
+            .items({ ...buildLeafParams(current, { params: row.node.params }, offset), ...(sales ? { desglose_envio: true } : {}) }, config)
             .then((response) => ({ items: response.data?.items ?? [], total: response.data?.total ?? 0 }));
     request
       .then(({ items, total }) => {

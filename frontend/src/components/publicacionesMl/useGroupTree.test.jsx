@@ -55,4 +55,19 @@ describe('useGroupTree', () => {
     act(() => result.current.loadMore('')); // the new roots are still pending: asking again must ask for nothing
     expect(publicacionesMlAPI.groups).toHaveBeenCalledTimes(2);
   });
+
+  it('a new tree aborts what the old one still has in flight (pubml-lentitud S3)', async () => {
+    publicacionesMlAPI.groups.mockReset();
+    publicacionesMlAPI.groups.mockReturnValue(new Promise(() => {}));
+    const { rerender } = renderHook(({ filters }) => useGroupTree({ filters, familias: false, canSeeMargin: false }), {
+      initialProps: { filters: FILTERS },
+    });
+    await waitFor(() => expect(publicacionesMlAPI.groups).toHaveBeenCalledTimes(1));
+    const old = publicacionesMlAPI.groups.mock.calls[0][1].signal;
+    expect(old.aborted).toBe(false);
+    rerender({ filters: { ...FILTERS, tiendas: ['57997'] } });
+    await waitFor(() => expect(publicacionesMlAPI.groups).toHaveBeenCalledTimes(2));
+    expect(old.aborted).toBe(true);
+    expect(publicacionesMlAPI.groups.mock.calls[1][1].signal.aborted).toBe(false);
+  });
 });

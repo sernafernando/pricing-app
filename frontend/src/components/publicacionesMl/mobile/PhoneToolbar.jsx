@@ -58,7 +58,7 @@ const PhoneToolbar = forwardRef(function PhoneToolbar(
           ref={searchRef}
           value={filters.q}
           onChange={(value) => setFilters({ q: value })}
-          debounce={400}
+          debounce={150}
           placeholder={searchPlaceholder}
         />
       </div>

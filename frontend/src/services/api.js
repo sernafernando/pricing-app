@@ -973,14 +973,18 @@ export const mlItemOverridesAPI = {
 export const publicacionesMlAPI = {
   // One page of publications. `params` are the query params of
   // `GET /ml-publications/view/items` (see `buildItemsParams`).
-  items: (params) => api.get('/ml-publications/view/items', { params }),
+  // `config.signal` aborts it when a newer filter, page or sort asks again (pubml-lentitud).
+  items: (params, config) => api.get('/ml-publications/view/items', { params, ...config }),
+  // The chip counts and the Marca / Subcategoría lists of the filters, asked next to `items` without `facets`: the
+  // very counts `items?facets=true` answers, so the rows paint without waiting for them (pubml-lentitud T2).
+  facets: (params, config) => api.get('/ml-publications/view/facets', { params, ...config }),
   // The children of one node of the Agrupado tree (see `buildGroupsParams`).
-  groups: (params) => api.get('/ml-publications/view/groups', { params }),
+  groups: (params, config) => api.get('/ml-publications/view/groups', { params, ...config }),
   // One page of the Producto view: Métricas ML's product rows over the selected publications (see `buildProductsParams`).
-  products: (params) => api.get('/ml-publications/view/products', { params }),
+  products: (params, config) => api.get('/ml-publications/view/products', { params, ...config }),
   // One page of the Auditoría de stock view (`ml_publicaciones.ver_auditoria_stock`): base products with what their ERP
   // and Full stock is worth, their variants, and the KPIs over every row (see `buildStockAuditParams`).
-  stockAudit: (params) => api.get('/ml-publications/view/stock-audit', { params }),
+  stockAudit: (params, config) => api.get('/ml-publications/view/stock-audit', { params, ...config }),
   // The shipping costs a PM chooses the product's from (S7b): each active publication's own cost, their promedio,
   // ponderado and max, and the stored choice. `params`: optional `{ date_from, date_to }` (default: the last 30 days).
   productEnvio: (productItemId, params) =>

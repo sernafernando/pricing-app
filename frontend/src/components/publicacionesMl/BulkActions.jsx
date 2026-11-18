@@ -40,8 +40,11 @@ const plural = (n, one, many) => (n === 1 ? one : many);
 // `checkedIds`: the products behind the checked rows; `checkedRowCount`: how many rows are checked, and
 // `checkedPublications`: how many of them are publications (the rest are product rows of the Producto view).
 // `offPageCount`: how many checked rows the list does not show now (the selection outlives filters and pages).
+// `pending`: the screen's filters are not settled yet (the layer, a preset, a filter change still waiting): the set is
+// not asked until they are, so the first load asks once, and the menu fails closed meanwhile (pubml-lentitud S3).
 export default function BulkActions({
   filters,
+  pending = false,
   checkedIds,
   checkedPublications = 0,
   checkedRowCount = checkedPublications,
@@ -64,7 +67,7 @@ export default function BulkActions({
   const [hayMejoresMenuSlot, setHayMejoresMenuSlot] = useState(null);
   const containerRef = useRef(null);
 
-  const resolved = useBulkProductSet(resolverParams(filters, canSeeMargin), actions.length > 0, reloadToken);
+  const resolved = useBulkProductSet(resolverParams(filters, canSeeMargin), actions.length > 0 && !pending, reloadToken);
 
   useEffect(() => {
     if (!open) return undefined;

@@ -30,6 +30,10 @@ export default function useGroupTree({ filters, familias, dimension, canSeeMargi
   const [branches, setBranches] = useState({});
   const [expanded, setExpanded] = useState(() => new Set());
   const generation = useRef(0);
+  // This generation's requests share one AbortController: a new list aborts what the old one still has in flight
+  // (pubml-lentitud S3), so the browser frees its connections and an old answer never lands.
+  const aborter = useRef(null);
+  useEffect(() => () => aborter.current?.abort(), []);
   // The pages being fetched (`key@offset`): a second click before the answer asks for nothing.
   const inflight = useRef(new Set());
   const latest = useRef({ filters, familias, dimension, canSeeMargin });
@@ -53,9 +57,10 @@ export default function useGroupTree({ filters, familias, dimension, canSeeMargi
       ...all,
       [key]: { rows: [], total: 0, ...all[key], path, leaf, node, status: offset === 0 ? 'loading' : 'more', error: null },
     }));
+    const config = { signal: aborter.current?.signal };
     const request = leaf
-      ? publicacionesMlAPI.items(buildLeafParams(current, node, offset))
-      : publicacionesMlAPI.groups(buildGroupsParams(current, { path, familias: withFamilies, dimension: groupedBy, offset }));
+      ? publicacionesMlAPI.items(buildLeafParams(current, node, offset), config)
+      : publicacionesMlAPI.groups(buildGroupsParams(current, { path, familias: withFamilies, dimension: groupedBy, offset }), config);
     request
       .then((response) => {
         pending.delete(page);
@@ -77,6 +82,8 @@ export default function useGroupTree({ filters, familias, dimension, canSeeMargi
 
   useEffect(() => {
     generation.current += 1;
+    aborter.current?.abort();
+    aborter.current = new AbortController();
     inflight.current = new Set();
     setExpanded(new Set());
     setBranches({});

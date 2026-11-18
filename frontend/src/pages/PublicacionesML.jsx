@@ -64,6 +64,7 @@ import useRecalcularCuotasAuto from '../components/publicacionesMl/useRecalcular
 import usePublicacionesMLKeyboard from '../components/publicacionesMl/usePublicacionesMLKeyboard';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
+import { useSettled } from '../hooks/useSettled';
 import { withRowSelection } from '../components/publicacionesMl/rowSelection';
 import useRowSelection, { selectionRow } from '../components/publicacionesMl/useRowSelection';
 import useProductRows, { appendPage } from '../components/publicacionesMl/useProductRows';
@@ -256,6 +257,10 @@ const AGRUPAR_OPTIONS = DIMENSION_OPTIONS.filter((option) => AGRUPAR_DIMENSIONS.
 
 // The phone's "Cargar 20 más" (mobile-metricas-pubml S2): the next publications after the page, 20 at a time.
 const PHONE_CHUNK = 20;
+// A filter change waits this long for the next one before the reads ask (pubml-lentitud S2): chips clicked in a row
+// ask once. The search box waits SEARCH_DEBOUNCE_MS first, so a typed search asks within ~400 ms as before.
+const FILTER_SETTLE_MS = 250;
+const SEARCH_DEBOUNCE_MS = 150;
 
 // The phone's sort picker: the table headers' sortable figures a card shows, each with the permission it needs.
 const PHONE_SORTS = [
@@ -420,14 +425,28 @@ export default function PublicacionesML() {
     onApplied: dropEntryLayer,
   });
   const layerPending = entryLayerPending || (filters.equipo !== '' && !equiposLoaded) || presetEntry.pending;
-  const layerKnown =
-    filters.equipo === '' || equipos.some((equipo) => !equipo.es_global && String(equipo.id) === filters.equipo);
-  const rowFilters = useMemo(() => (layerKnown ? filters : { ...filters, equipo: '' }), [filters, layerKnown]);
+  // The reads ask with the SETTLED filters (pubml-lentitud S2): a filter change waits FILTER_SETTLE_MS for the next
+  // one, so clicking three chips asks once; a page or sort change, the first load and a preset ask at once. The
+  // controls keep reading the live `filters`.
+  const settled = useSettled(filters, filterKey, FILTER_SETTLE_MS, layerPending);
+  const settledFilters = settled.value;
+  const requestFilterKey = settled.key;
+  const settling = requestFilterKey !== filterKey;
+  const isUsersLayer = (equipo) =>
+    equipo === '' || equipos.some((candidate) => !candidate.es_global && String(candidate.id) === equipo);
+  const layerKnown = isUsersLayer(settledFilters.equipo);
+  const rowFilters = useMemo(
+    () => (layerKnown ? settledFilters : { ...settledFilters, equipo: '' }),
+    [settledFilters, layerKnown],
+  );
+  // What a click acts on right now (exports, the price lists' set): the live filters, never the ones still settling.
+  const liveLayerKnown = isUsersLayer(filters.equipo);
+  const actionFilters = useMemo(() => (liveLayerKnown ? filters : { ...filters, equipo: '' }), [filters, liveLayerKnown]);
   // The user may hide, per team layer, the global color's marker on rows the team has not painted (S3).
   const globalReference = showsGlobalReference(equipos, rowFilters.equipo);
   // What is painted, on the layer and filters the rows were asked on, since the rows loaded -- here or by
   // anyone -- repaints them without asking the list again (the trees would close their open branches).
-  const colorOverlay = useColorOverlay(rowFilters.equipo, filterKey);
+  const colorOverlay = useColorOverlay(rowFilters.equipo, requestFilterKey);
   useSSEChannel('producto_color:changed', colorOverlay.apply);
   useSSEChannel('publicacion_color:changed', colorOverlay.applyOwn);
   const getItemTone = useCallback(
@@ -453,8 +472,8 @@ export default function PublicacionesML() {
   // The views that load their own rows: `/items` brings them only the state and the facets.
   const ownRows = agrupado || producto || auditoria;
   const latestRequest = useRef(0);
-  // The filter set the current `facets` belong to. Advances only when a
-  // response that carried facets is applied, so a failure asks again.
+  // The filter set the current (or in-flight) `facets` request belongs to. A failed one clears it, so the next rows
+  // request asks again; a page or sort change never asks twice for the same filters.
   const facetsFor = useRef(null);
 
   // "Todos" in the Publicación / Precios list is asked in parts (filtros S4): LAZY_CHUNK rows from the page's offset,
@@ -474,32 +493,59 @@ export default function PublicacionesML() {
       : { ...buildItemsParams(rowFilters, pageSize, { canSeeMargin, canSeeSales }), ...(lazy && { limit: LAZY_CHUNK }) },
   );
 
+  // The chip counts of the settled filters, in their own request next to the rows' (pubml-lentitud T2): the rows paint
+  // without waiting for them, and the counts are the very ones `/items?facets=true` answers. Asked again only when the
+  // filters change (never for a page or sort), and the previous request is aborted when they change again.
+  const facetsAbort = useRef(null);
+  const askFacets = useCallback((params) => {
+    facetsAbort.current?.abort();
+    const controller = new AbortController();
+    facetsAbort.current = controller;
+    facetsFor.current = params.filterKey;
+    publicacionesMlAPI
+      .facets(params.query, { signal: controller.signal })
+      .then((response) => {
+        if (controller.signal.aborted) return;
+        setFacets(response.data ?? null);
+      })
+      .catch(() => {
+        // A failed count keeps the last counts on show and is asked again with the next rows request (Reintentar).
+        if (!controller.signal.aborted) facetsFor.current = null;
+      });
+  }, []);
+  useEffect(() => () => facetsAbort.current?.abort(), []);
+
+  // The previous rows request (and its "Todos" parts) is aborted when a newer one starts: the browser frees its
+  // connection and the server stops waiting on an answer nobody reads (pubml-lentitud S3).
+  const itemsAbort = useRef(null);
   useEffect(() => {
-    if (layerPending) return;
+    if (layerPending) return undefined;
     const request = ++latestRequest.current;
-    const wantFacets = filterKey !== facetsFor.current;
     const asked = JSON.parse(requestKey);
-    const params = wantFacets ? { ...asked, facets: true } : asked;
+    if (requestFilterKey !== facetsFor.current) {
+      const { limit, offset, orden, dir, ...query } = asked;
+      void limit, offset, orden, dir;
+      askFacets({ query, filterKey: requestFilterKey });
+    }
+    itemsAbort.current?.abort();
+    const controller = new AbortController();
+    itemsAbort.current = controller;
     parts.current = null;
     setMoreError(false);
     setLoading(true);
     setError(null);
     publicacionesMlAPI
-      .items(params)
+      .items(asked, { signal: controller.signal })
       .then((response) => {
         if (request !== latestRequest.current) return;
         setData(response.data);
         // "Todos" ends at the list's total, however many rows that is (filas-sin-limite S1). Any other page can be
         // continued too: the phone's "Cargar 20 más" asks for the rows after it (mobile-metricas-pubml S2).
         const end = Math.max(asked.offset, response.data.total ?? 0);
-        parts.current = { request, params: asked, next: asked.offset + asked.limit, end, busy: false };
+        parts.current = { request, params: asked, next: asked.offset + asked.limit, end, busy: false, signal: controller.signal };
         // A new list (page, sort, filter) starts with every row collapsed.
         if (keepExpanded.current !== request) setExpandedIds(new Set());
         keepExpanded.current = 0;
-        if (wantFacets) {
-          setFacets(response.data.facets ?? null);
-          facetsFor.current = filterKey;
-        }
         setLoading(false);
       })
       .catch((err) => {
@@ -508,7 +554,9 @@ export default function PublicacionesML() {
         setError(err);
         setLoading(false);
       });
-  }, [requestKey, filterKey, reloadToken, layerPending, lazy]);
+    return undefined;
+  }, [requestKey, requestFilterKey, reloadToken, layerPending, lazy, askFacets]);
+  useEffect(() => () => itemsAbort.current?.abort(), []);
 
   // The next part of "Todos": the same params from the next offset, appended to the rows (once each, by MLA). The
   // total, the data state and the facets stay the first part's. A part of a list that is no longer the current one
@@ -521,7 +569,7 @@ export default function PublicacionesML() {
     const offset = current.next;
     const limit = Math.min(chunk, current.end - offset);
     publicacionesMlAPI
-      .items({ ...current.params, offset, limit })
+      .items({ ...current.params, offset, limit }, { signal: current.signal })
       .then((response) => {
         if (current.request !== latestRequest.current) return;
         current.next = offset + limit;
@@ -566,7 +614,7 @@ export default function PublicacionesML() {
     setExportError(null);
     setSheetsNotice(null);
     try {
-      const result = await exporter(filters.vista, buildExportParams(rowFilters, { canSeeMargin, canSeeSales }));
+      const result = await exporter(filters.vista, buildExportParams(actionFilters, { canSeeMargin, canSeeSales }));
       if (result?.url) setSheetsNotice({ url: result.url });
     } catch (err) {
       if (askedFor !== currentExportList.current) return;
@@ -579,12 +627,12 @@ export default function PublicacionesML() {
   const handleExport = () => runExport(exportPublicacionesCsv, setExporting);
   // The Auditoría de stock's workbook (L7): every row, with its filters and sort.
   const handleAuditExport = () =>
-    runExport(() => exportAuditoriaStockExcel(buildStockAuditExportParams(rowFilters, { canSeeSales, canSeeMargin })), setExporting);
+    runExport(() => exportAuditoriaStockExcel(buildStockAuditExportParams(actionFilters, { canSeeSales, canSeeMargin })), setExporting);
   const handleSheetsExport = () => runExport(exportPublicacionesSheets, setExportingSheets);
   // Productos' price lists over the linked products of the filtered publications, resolved as a bulk action's set.
   const canExportPriceLists = PRICE_LIST_EXPORT_PERMISSIONS.some((codigo) => tienePermiso(codigo));
   const [priceListsOpen, setPriceListsOpen] = useState(false);
-  const resolvePriceListProducts = () => resolverProductosExport(resolverParams(rowFilters, canSeeMargin));
+  const resolvePriceListProducts = () => resolverProductosExport(resolverParams(actionFilters, canSeeMargin));
 
   const searchRef = useRef(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -1361,10 +1409,11 @@ export default function PublicacionesML() {
         <PhoneSheet open={phoneSheet === 'acciones'} title="Acciones" onClose={closePhoneSheet}>
           <div className={phoneStyles.menu}>
             {!sinMla && (
-              <BulkStatusActions filters={rowFilters} canSeeMargin={canSeeMargin} onDone={reloadList} checked={checkedStatus} />
+              <BulkStatusActions filters={actionFilters} canSeeMargin={canSeeMargin} onDone={reloadList} checked={checkedStatus} />
             )}
             <BulkActions
               filters={rowFilters}
+              pending={layerPending || settling}
               checkedIds={checkedIds}
               checkedPublications={checkedItemIds.length}
               checkedRowCount={checkedRows.size}
@@ -1451,6 +1500,7 @@ export default function PublicacionesML() {
           {!auditoria && (
           <BulkActions
             filters={rowFilters}
+            pending={layerPending || settling}
             checkedIds={checkedIds}
             checkedPublications={checkedItemIds.length}
             checkedRowCount={checkedRows.size}
@@ -1465,7 +1515,7 @@ export default function PublicacionesML() {
           )}
           {!sinMla && !auditoria && (
             <BulkStatusActions
-              filters={rowFilters}
+              filters={actionFilters}
               canSeeMargin={canSeeMargin}
               onDone={reloadList}
               checked={checkedStatus}
@@ -1596,7 +1646,7 @@ export default function PublicacionesML() {
               ref={searchRef}
               value={filters.q}
               onChange={(value) => setFilters({ q: value })}
-              debounce={400}
+              debounce={SEARCH_DEBOUNCE_MS}
               placeholder="Buscar título, MLA, SKU/EAN o producto"
             />
           </div>
@@ -1645,7 +1695,7 @@ export default function PublicacionesML() {
       {error && !ownRows ? null : !data && !ownRows ? (
         <ListSkeleton />
       ) : (
-        <div className={styles.listArea} aria-busy={loading}>
+        <div className={styles.listArea} aria-busy={loading || settling}>
           <SplitPanelLayout
             open={Boolean(filters.sel || filters.prod)}
             onClose={closePanel}
