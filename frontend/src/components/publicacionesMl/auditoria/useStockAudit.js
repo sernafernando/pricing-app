@@ -99,16 +99,18 @@ export default function useStockAudit({
 
   const data = state.data;
   const rows = flattenAudit(data?.rows ?? [], expanded, branches);
+  // What the open rows depend on, as a stable value: the list's answer, the opened keys and the loaded branches.
+  const openKey = expandedKeys.join('\n');
 
   // Every open row asks what it holds once: on opening it, and after a reload for the rows the URL keeps open (a
   // category's products first, then the products it holds that were open).
   useEffect(() => {
-    for (const row of rows) {
+    for (const row of flattenAudit(data?.rows ?? [], new Set(openKey ? openKey.split('\n') : []), branches)) {
       if (row.expanded && needsBranch(row) && !branches[row.pathKey] && !requested.current.has(row.pathKey)) {
         fetchBranch(row.pathKey, row, 0);
       }
     }
-  });
+  }, [data, openKey, branches]);
 
   /** Opens or closes a group, a product or a variant row; a branch that failed with nothing is asked again. */
   const toggle = (row) => {
