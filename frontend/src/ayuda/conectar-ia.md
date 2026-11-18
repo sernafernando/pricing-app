@@ -101,7 +101,7 @@ Claude Code, Cursor y Gemini CLI quedan conectados **en esa computadora**. Si us
 
 Solo con el permiso **mcp.escribir** (por ahora, solo administradores) y con la escritura de la IA encendida en **Gestión → Acciones IA**. La IA puede:
 
-- Aplicar o quitar promociones de Mercado Libre, de a una o "todas las que mejoran x%".
+- Aplicar o quitar promociones de Mercado Libre, de a una o "todas las que mejoran x%" (x en puntos de markup: pasar de 12% a 17% es mejorar 5).
 - Pausar o activar publicaciones.
 - Cambiar precios de lista, de a uno o en forma masiva, precios en cuotas y precios mayoristas. No cambia el precio de la publicación en Mercado Libre directamente: se mueve con las promociones o con el precio de lista, como cuando lo hacés vos.
 

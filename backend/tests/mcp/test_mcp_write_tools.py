@@ -379,7 +379,7 @@ def _item(item_id: str, price: float) -> dict:
     return {"item_id": item_id, "title": f"Item {item_id}", "price": {"amount": price}, "link": {"codigo": item_id}}
 
 
-def test_apply_every_promo_that_improves_x_percent_end_to_end(mcp_client, conn, db, fake_app):
+def test_apply_every_promo_that_improves_x_points_end_to_end(mcp_client, conn, db, fake_app):
     fake_app.items_page = [_item("MLA1", 1000), _item("MLA2", 1000)]
     fake_app.promos["MLA1"] = [
         promo(
@@ -388,14 +388,16 @@ def test_apply_every_promo_that_improves_x_percent_end_to_end(mcp_client, conn, 
         promo("P", "PRE_NEGOTIATED", "candidate", 1000.0, nuestro_markup=14.0, markup_sell_in_out=20.0),
     ]
     fake_app.promos["MLA2"] = [promo("B", "SMART", "candidate", 900.0, nuestro_markup=21.0, markup_sell_in_out=None)]
-    fake_app.markup_by_price[1000.0] = 20.0  # MLA2 sells plain at 1000 with markup 20 -> B improves 5%
+    fake_app.markup_by_price[1000.0] = 20.0  # MLA2 sells plain at 1000 with markup 20 -> B improves 1 point (5%)
 
-    planned = plan(mcp_client, conn, "promos_aplicar_mejoras", min_mejora_pct=30, limites=PROMO)
-    [fila] = planned["filas"]  # MLA1 improves 66.67%, MLA2 only 5%
+    # L14 Q1: "mejoran x%" means x POINTS of markup. MLA1 improves 8 points (66.67%), MLA2 1 point (5%):
+    # a threshold of 5 keeps only MLA1, although MLA2 improves 5% relative.
+    planned = plan(mcp_client, conn, "promos_aplicar_mejoras", min_mejora_puntos=5, limites=PROMO)
+    [fila] = planned["filas"]
     assert fila["objetivo"] == "MLA1" and fila["despues"]["promotion_id"] == "P"
-    assert fila["mejora"]["percent"] == pytest.approx(66.67)
+    assert fila["mejora"]["points"] == pytest.approx(8.0)
 
-    planned = plan(mcp_client, conn, "promos_aplicar_mejoras", min_mejora_pct=5, limites=PROMO)
+    planned = plan(mcp_client, conn, "promos_aplicar_mejoras", min_mejora_puntos=1, limites=PROMO)
     assert [f["objetivo"] for f in planned["filas"]] == ["MLA1", "MLA2"]
     _, result = apply(mcp_client, conn, "promos_aplicar_mejoras", planned)
     assert [r["resultado"] for r in result["resultados"]] == ["ok", "ok"]

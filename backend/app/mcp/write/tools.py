@@ -108,7 +108,8 @@ async def _plan_promo_quitar(ctx: WriteContext, args: dict[str, Any], tool: tool
 
 async def _plan_mejoras(ctx: WriteContext, args: dict[str, Any], tool: tools.BuiltTool) -> list[dict[str, Any]]:
     """`promos_publicaciones` with the same filters, then one enroll per row whose best promo improves the current
-    markup by at least `min_mejora_pct` (improvement.percent of that tool)."""
+    markup by at least `min_mejora_puntos` POINTS of markup (improvement.points of that tool; L14: "mejoran x%"
+    means x points, e.g. 12% -> 17% is 5)."""
     if tool.paging == "offset":
         args = {"limit": tools.DEFAULT_PAGE, "offset": 0, **args}
     table = await promos_bulk.run(tool, args, ctx.username)
@@ -117,8 +118,8 @@ async def _plan_mejoras(ctx: WriteContext, args: dict[str, Any], tool: tools.Bui
     rows = []
     for item in table.get("rows") or []:
         best, improvement = item.get("best"), item.get("improvement") or {}
-        percent = promo_pick.finite_or_none(improvement.get("percent"))
-        if not best or percent is None or percent < args["min_mejora_pct"]:
+        points = promo_pick.finite_or_none(improvement.get("points"))
+        if not best or points is None or points < args["min_mejora_puntos"]:
             continue
         wanted = {"mla": item["item_id"], "promotion_id": best["promotion_id"], "promotion_type": best["type"]}
         if best["type"] not in families.SMART_LIKE:
@@ -127,7 +128,10 @@ async def _plan_mejoras(ctx: WriteContext, args: dict[str, Any], tool: tools.Bui
         row["mejora"] = improvement
         rows.append(row)
     if not rows:
-        raise WriteError("sin_filas", f"ninguna publicación de esta página mejora {args['min_mejora_pct']:g}% o más")
+        raise WriteError(
+            "sin_filas",
+            f"ninguna publicación de esta página mejora {args['min_mejora_puntos']:g} puntos de markup o más",
+        )
     return rows
 
 
@@ -199,15 +203,15 @@ SPECS: tuple[WriteToolSpec, ...] = (
         "promos_aplicar_mejoras",
         "Aplicar las promos que mejoran x%",
         '"Aplicá todas las que mejoran x%": toma los mismos filtros que promos_publicaciones (una página: limit / '
-        "offset) y planea inscribir la mejor promo de cada publicación cuya mejora (improvement.percent, % sobre el "
-        "markup actual) sea >= min_mejora_pct. Primero modo plan, después aplicar con el token.",
+        "offset) y planea inscribir la mejor promo de cada publicación cuya mejora (improvement.points, puntos de "
+        'markup: de 12% a 17% son 5) sea >= min_mejora_puntos. "Mejoran x%" significa x puntos de markup. Primero modo plan, después aplicar con el token.',
         guards.KIND_PROMO,
         _destructive(False),
         {
-            "min_mejora_pct": {
+            "min_mejora_puntos": {
                 "type": "number",
                 "minimum": 0,
-                "description": "modo plan: mejora mínima (% sobre el markup actual) para incluir la publicación.",
+                "description": "modo plan: mejora mínima en puntos de markup (de 12% a 17% son 5) para incluir la publicación.",
             }
         },
         _plan_mejoras,
@@ -378,7 +382,7 @@ def _missing(args: dict[str, Any], spec: WriteToolSpec) -> list[str]:
     if spec.name == "accion_deshacer":
         return [] if args.get("accion_ids") or args.get("deshacer_plan_id") else ["accion_ids o deshacer_plan_id"]
     if spec.filters_path:
-        return [] if args.get("min_mejora_pct") is not None else ["min_mejora_pct"]
+        return [] if args.get("min_mejora_puntos") is not None else ["min_mejora_puntos"]
     return [key for key in spec.properties if key not in ("lista_tipo", "deal_price") and args.get(key) is None]
 
 
