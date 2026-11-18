@@ -238,3 +238,15 @@ class TestNoTransactionHeldAcrossAwait:
 
         assert abiertas == [False]
         assert not db.in_transaction()
+
+    def test_refused_faltantes_discard_ends_the_transaction(
+        self, db, active_user, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(compras_alertas_service, "pedido_admite_alerta_faltantes", lambda pedido: True)
+        notif = _notif(db, active_user, tipo="compras.faltantes", item_id=5)
+        db.commit()
+
+        with pytest.raises(HTTPException):
+            asyncio.run(notificaciones_endpoint.descartar_notificacion(notif.id, None, True, db, active_user))
+
+        assert not db.in_transaction()

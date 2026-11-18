@@ -688,7 +688,11 @@ async def descartar_notificacion(
         db.rollback()
         raise HTTPException(404, "Notificación no encontrada")
 
-    rechazar_cierre_faltantes(db, notificacion)
+    try:
+        rechazar_cierre_faltantes(db, notificacion)
+    except HTTPException:
+        db.rollback()
+        raise
 
     # Crear regla de ignorar si se solicitó y tenemos los datos necesarios
     if crear_regla_ignorar and notificacion.item_id and notificacion.markup_real is not None:
@@ -805,7 +809,8 @@ async def accion_bulk_notificaciones(
             _crear_reglas_ignorar(db, current_user.id, query.filter(Notificacion.item_id.isnot(None)).all())
         count = _aplicar_accion_bulk(db, query, body.accion)
         db.commit()
-    except HTTPException:
+    except Exception:
+        # End the transaction before FastAPI's awaits, whatever failed.
         db.rollback()
         raise
 
