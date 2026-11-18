@@ -575,3 +575,51 @@ def test_put_layout_that_loses_the_insert_race_updates_the_row_instead_of_failin
     assert response.json() == {"columns": COLUMNS, "preset_activo_id": None}
     assert _count(db, MlPublicacionesLayout) == 1
     assert _layout(db, cast["ids"]["ana"], "publicacion").column_layout == COLUMNS
+
+
+def _delete_after_validation(db, monkeypatch) -> None:
+    """The remembered preset is deleted by another request right after `put_layout` checked it."""
+    from sqlalchemy import delete
+
+    from app.routers import ml_publications_presets as router_module
+
+    real = router_module._visible_preset
+
+    def checked_then_deleted(session, preset_id, user):
+        preset = real(session, preset_id, user)
+        session.execute(delete(MlPublicacionesPreset).where(MlPublicacionesPreset.id == preset_id))
+        session.commit()
+        return preset
+
+    monkeypatch.setattr(router_module, "_visible_preset", checked_then_deleted)
+
+
+def test_first_layout_save_with_a_preset_deleted_meanwhile_is_404_and_stores_nothing(client, db, cast, monkeypatch):
+    preset = _created(client, cast["ana"])
+    _delete_after_validation(db, monkeypatch)
+
+    response = client.put(
+        f"{LAYOUTS}/publicacion", headers=cast["ana"], json={"columns": COLUMNS, "preset_activo_id": preset["id"]}
+    )
+
+    assert response.status_code == 404, response.text
+    assert _count(db, MlPublicacionesLayout) == 0
+    assert _preset(db, preset["id"]) is None
+
+
+def test_layout_update_with_a_preset_deleted_meanwhile_is_404_and_keeps_the_saved_layout(client, db, cast, monkeypatch):
+    preset = _created(client, cast["ana"])
+    saved = {"visibility": {"markup": True}, "order": ["markup"]}
+    first = client.put(f"{LAYOUTS}/publicacion", headers=cast["ana"], json={"columns": saved, "preset_activo_id": None})
+    assert first.status_code == 200, first.text
+    _delete_after_validation(db, monkeypatch)
+
+    response = client.put(
+        f"{LAYOUTS}/publicacion", headers=cast["ana"], json={"columns": COLUMNS, "preset_activo_id": preset["id"]}
+    )
+
+    assert response.status_code == 404, response.text
+    layout = _layout(db, cast["ids"]["ana"], "publicacion")
+    assert layout.column_layout == saved
+    assert layout.preset_activo_id is None
+    assert _count(db, MlPublicacionesLayout) == 1

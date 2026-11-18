@@ -187,26 +187,25 @@ def put_layout(
         if preset.vista != vista:
             raise _not_found()
     column_layout = body.columns.model_dump() if body.columns is not None else None
-    row = _layout_row(db, user, vista)
-    if row is None:
-        db.add(
-            MlPublicacionesLayout(
-                usuario_id=user.id,
-                vista=vista,
-                column_layout=column_layout,
-                preset_activo_id=body.preset_activo_id,
-            )
-        )
-        try:
-            db.commit()
-        except IntegrityError:
-            # Another first save of this view inserted the row meanwhile: update that one.
-            db.rollback()
-            row = _layout_row(db, user, vista)
-    if row is not None:
+    # Two concurrent requests can break the save at commit: another first save of this view inserted the row
+    # (unique usuario + vista) -> save again as an update; or the remembered preset was deleted after the check
+    # above (FK) -> 404, storing nothing, so no layout ever points at a missing preset.
+    for _attempt in range(2):
+        row = _layout_row(db, user, vista)
+        if row is None:
+            row = MlPublicacionesLayout(usuario_id=user.id, vista=vista)
+            db.add(row)
         row.column_layout = column_layout
         row.preset_activo_id = body.preset_activo_id
-        db.commit()
+        try:
+            db.commit()
+            break
+        except IntegrityError:
+            db.rollback()
+            if body.preset_activo_id is not None and db.get(MlPublicacionesPreset, body.preset_activo_id) is None:
+                raise _not_found() from None
+    else:
+        raise api_error(status.HTTP_409_CONFLICT, ErrorCode.ALREADY_EXISTS, "El layout cambió mientras se guardaba")
     return LayoutBody(columns=body.columns, preset_activo_id=body.preset_activo_id)
 
 
