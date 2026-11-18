@@ -535,7 +535,7 @@ export default function ModalEditarCosto({
                 style={{ fontSize: '1.1rem', padding: '0.5rem' }}
               />
             </div>
-            {markupCostoOriginal !== null && markupCosto !== markupCostoOriginal.toString() && (
+            {markupCostoOriginal && markupCosto !== markupCostoOriginal.toString() && (
               <div style={{ flex: 0, alignSelf: 'flex-end', marginBottom: '0.25rem' }}>
                 <button
                   type="button"
