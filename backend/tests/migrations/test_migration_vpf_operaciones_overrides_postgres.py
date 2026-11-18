@@ -214,6 +214,7 @@ def test_upgrade_is_one_head() -> None:
 
     versiones = os.path.dirname(_PATH)
     revisiones, padres = set(), set()
+    padres_de: dict[str, list[str]] = {}
     for ruta in glob.glob(os.path.join(versiones, "*.py")):
         valores = {}
         for nodo in ast.parse(open(ruta, encoding="utf-8").read()).body:
@@ -223,6 +224,18 @@ def test_upgrade_is_one_head() -> None:
         if "revision" in valores:
             revisiones.add(valores["revision"])
             padre = valores.get("down_revision")
-            padres.update([padre] if isinstance(padre, str) else padre or [])
+            padres_de[valores["revision"]] = [padre] if isinstance(padre, str) else list(padre or [])
+            padres.update(padres_de[valores["revision"]])
 
-    assert revisiones - padres == {"20261120_vpf_operaciones_overrides"}
+    # One head (alembic did not fork) that descends from this revision; not "this revision IS the head", so a
+    # later migration on top keeps it green.
+    heads = revisiones - padres
+    assert len(heads) == 1, f"alembic forked: {heads}"
+    pendientes, vistos = list(heads), set()
+    while pendientes:
+        actual = pendientes.pop()
+        if actual in vistos:
+            continue
+        vistos.add(actual)
+        pendientes.extend(padres_de.get(actual, []))
+    assert "20261120_vpf_operaciones_overrides" in vistos
