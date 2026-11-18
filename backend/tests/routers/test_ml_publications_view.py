@@ -119,7 +119,7 @@ class TestPermission:
             "ml_metricas.ver",
             "ml_publicaciones.pausar",
             "alertas.ver_mejores_ofertas_pms",
-            "promos.escribir",  # hay-mejores exclusion resolve (read-shaped)
+            "promos.escribir",  # hay-mejores exclusion + criterios resolve (read-shaped)
             "ml_publicaciones.ver_auditoria_stock",  # the Auditoría de stock view
         )
         grant(db, rol_ventas, "productos.ver", *extras)
@@ -132,11 +132,12 @@ class TestPermission:
             assert productos.json().get("detail") != "Not Found"
 
     def test_the_view_router_only_reads(self) -> None:
-        # Read-by-POST exceptions (body carries checked MLAs; write nothing): pause/activate resolve and
-        # hay-mejores exclusion resolve. Every other route is GET only.
+        # Read-by-POST exceptions (body carries checked MLAs; write nothing): pause/activate resolve,
+        # hay-mejores exclusion resolve, and hay-mejores criterios resolve. Every other route is GET only.
         read_by_post = {
             "/ml-publications/view/status-item-ids/checked",
             "/ml-publications/view/hay-mejores-exclusion-item-ids/checked",
+            "/ml-publications/view/hay-mejores-criterios-item-ids/checked",
         }
         verbs = {route.path: getattr(route, "methods", set()) for route in ml_publications_view.router.routes}
         for path in read_by_post:
