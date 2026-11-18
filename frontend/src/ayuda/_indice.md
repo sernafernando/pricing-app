@@ -68,3 +68,4 @@ Este índice lista todas las pantallas de la aplicación, en el mismo orden en q
 | 58c | Ayuda | `ayuda.md` | `/ayuda` | Ayuda → Ayuda | Sin permiso especial: la ve cualquier usuario con sesión iniciada |
 | 59 | Notificaciones | `notificaciones.md` | `/notificaciones` | Sin entrada en el menú: se llega desde la campana de notificaciones | Acceso a Notificaciones |
 | 60 | Perfiles de medidas | `perfiles-de-medidas.md` | `/perfiles-medidas` | Sin entrada en el menú: se llega desde la publicación en Tienda Nube | Permiso de administración de perfiles de Tienda Nube |
+| 61 | Conectar ChatGPT | `conectar-chatgpt.md` | `/mcp/autorizar` | Sin entrada en el menú: se llega al conectar ChatGPT | Permiso para conectar ChatGPT (mcp.conectar) |

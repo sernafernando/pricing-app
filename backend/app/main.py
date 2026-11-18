@@ -139,6 +139,9 @@ from app.core.exceptions import combos_no_sincronizados_handler, http_exception_
 from app.services.combos.componentes import CombosNoSincronizados
 from app.core.logging import get_logger
 from app.core.rate_limit import limiter, rate_limit_exceeded_handler
+from app.mcp import loopback as mcp_loopback
+from app.mcp import oauth as mcp_oauth
+from app.mcp.runtime import McpRuntime
 
 # Importar `app.events.rrhh_he_hooks` dispara los `@event.listens_for` que
 # detectan modificaciones de fichadas / cambios de turno y generan alertas
@@ -260,7 +263,9 @@ async def lifespan(app: FastAPI):
 
         logger.info("This worker (pid=%d) skips background tasks (another worker owns them)", os.getpid())
 
-    yield
+    # MCP server (/api/mcp): no-op while MCP_PUBLIC_BASE_URL is unset.
+    async with mcp_runtime.run():
+        yield
 
     # Shutdown
     logger.info("Pricing API shutting down")
@@ -338,6 +343,11 @@ app.add_middleware(
 
 # Incluir routers
 app.include_router(auth.router, prefix="/api", tags=["Autenticación"])
+# MCP server for AI clients: OAuth endpoints (incl. the root /.well-known metadata) and /api/mcp itself.
+app.include_router(mcp_oauth.router, tags=["MCP"])
+mcp_runtime = McpRuntime(lambda: app)
+mcp_loopback.bind_app(lambda: app)
+app.add_route("/api/mcp", mcp_runtime, include_in_schema=False)
 app.include_router(sync.router, prefix="/api", tags=["Sincronización"])
 app.include_router(productos.router, prefix="/api", tags=["Productos"])
 app.include_router(pricing.router, prefix="/api", tags=["Pricing"])

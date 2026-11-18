@@ -1,0 +1,71 @@
+/* Consent card of the MCP OAuth flow. Standalone page (no app layout), centered
+   like Login. Tokens only, light and dark. */
+
+.container {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--cf-bg-app);
+  padding: var(--spacing-md);
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+  max-width: 440px;
+  padding: var(--spacing-xl);
+  background: var(--cf-card-bg);
+  border: 1px solid var(--cf-card-border);
+  border-radius: var(--cf-card-radius);
+  box-shadow: var(--cf-card-shadow);
+  color: var(--cf-text-primary);
+}
+
+.titulo {
+  margin: 0;
+  font-size: var(--font-xl);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.texto {
+  margin: 0;
+  font-size: var(--font-sm);
+  line-height: 1.5;
+}
+
+.detalles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding-left: var(--space-5);
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.muted {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-tertiary);
+}
+
+.error {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--error-bg);
+  color: var(--error-text);
+  font-size: var(--font-sm);
+}
+
+.acciones {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}

@@ -1,5 +1,7 @@
 import { useRef, useState } from 'react';
 import ModalTesla from '../ModalTesla';
+import { useAuthStore } from '../../store/authStore';
+import ConexionesMcp from './ConexionesMcp';
 import styles from './ModalUsuario.module.css';
 
 const MODOS = {
@@ -14,12 +16,17 @@ const MODOS = {
  *
  * `inicial` seeds the fields (`{ username, email, nombre, password?, rol_id }`);
  * the password field exists only when creating.
+ *
+ * `usuarioId` (when editing) adds the user's "Conexiones de IA (MCP)" section,
+ * shown only to ADMIN / SUPERADMIN viewers (the role the admin endpoints accept).
  */
-export default function ModalUsuario({ modo, inicial, roles, guardando, error, onGuardar, onCerrar }) {
+export default function ModalUsuario({ modo, inicial, usuarioId, roles, guardando, error, onGuardar, onCerrar }) {
   const [form, setForm] = useState(inicial);
   const primerCampoRef = useRef(null);
   const textos = MODOS[modo];
   const tituloId = `modal-usuario-${modo}`;
+  const rolViewer = useAuthStore((state) => state.user?.rol);
+  const verConexionesMcp = modo === 'editar' && Boolean(usuarioId) && ['ADMIN', 'SUPERADMIN'].includes(rolViewer);
 
   const cambiar = (campo) => (e) => setForm((prev) => ({ ...prev, [campo]: e.target.value }));
 
@@ -112,6 +119,7 @@ export default function ModalUsuario({ modo, inicial, roles, guardando, error, o
           </button>
         </div>
       </form>
+      {verConexionesMcp && <ConexionesMcp usuarioId={usuarioId} />}
     </ModalTesla>
   );
 }

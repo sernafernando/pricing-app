@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { safeReturnPath } from '../utils/safeReturnPath';
 import logoIcon from '../assets/white-g-logo.png';
 import styles from './Login.module.css';
 
@@ -13,6 +14,7 @@ export default function Login() {
 
   const login = useAuthStore((state) => state.login);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -24,8 +26,11 @@ export default function Login() {
     if (result.success) {
       setLoginExitoso(true);
       // Pequeña pausa para mostrar feedback antes de navegar
+      // Back to the page that asked for the login (e.g. /mcp/autorizar),
+      // only when it is a safe app path; otherwise home, as always.
+      const destino = safeReturnPath(location.state?.from) ?? '/';
       setTimeout(() => {
-        navigate('/');
+        navigate(destino);
       }, 300);
     } else {
       setError(result.error);
