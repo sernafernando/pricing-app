@@ -83,6 +83,18 @@ def convertir_a_boolean(valor):
     return bool(valor)
 
 
+def apply_full_flex_flags(item_dict: dict, item_data: dict) -> None:
+    """Map Full/Fulfillment flags only when present in the ERP payload.
+
+    Missing keys must not call convertir_a_boolean(None) → False and clobber
+    an existing True on update.
+    """
+    if "mlp_is4FulFillment" in item_data:
+        item_dict["mlp_is4FulFillment"] = convertir_a_boolean(item_data["mlp_is4FulFillment"])
+    if "mlp_is4FullAndFlex" in item_data:
+        item_dict["mlp_is4FullAndFlex"] = convertir_a_boolean(item_data["mlp_is4FullAndFlex"])
+
+
 def convertir_fecha(valor):
     """Convierte string a datetime"""
     if not valor or valor == "" or valor == " ":
@@ -215,6 +227,7 @@ async def sync_items_publicados_full(db: Session, smart_mode: bool = False, days
                             "health": convertir_a_numero(item_data.get("health")),
                             "optval_statusId": convertir_a_entero(item_data.get("optval_statusId")),
                         }
+                        apply_full_flex_flags(item_dict, item_data)
 
                         if not item_existente:
                             # Insertar nuevo

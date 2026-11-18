@@ -497,7 +497,7 @@ def test_redirect_constants_match_the_allowlist_default():
     from app.core.config import settings
     from app.mcp.clients import parse_clients
 
-    [chatgpt] = parse_clients(settings.MCP_OAUTH_CLIENTS)
+    [chatgpt] = [c for c in parse_clients(settings.MCP_OAUTH_CLIENTS) if c.client_id == CHATGPT_CLIENT_ID]
     assert chatgpt.client_id == CHATGPT_CLIENT_ID
     assert chatgpt.redirect_uris == (CHATGPT_REDIRECT,)
     assert chatgpt.name == "ChatGPT"

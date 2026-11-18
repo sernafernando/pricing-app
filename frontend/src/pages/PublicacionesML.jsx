@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
 import {
   Check,
   ChevronDown,
@@ -49,7 +48,7 @@ import usePaintPublication from '../components/publicacionesMl/usePaintPublicati
 import ProductoTable from '../components/publicacionesMl/ProductoTable';
 import PromoAplicadaChips from '../components/publicacionesMl/PromoAplicadaChips';
 import StockAuditTable from '../components/publicacionesMl/auditoria/StockAuditTable';
-import { AUDIT_KPI_OPTIONS, auditColumnOptions } from '../components/publicacionesMl/auditoria/auditOptions';
+import { AUDIT_KPI_OPTIONS, auditColumnLayout } from '../components/publicacionesMl/auditoria/auditOptions';
 import StockAuditKpis from '../components/publicacionesMl/auditoria/StockAuditKpis';
 import useStockAudit from '../components/publicacionesMl/auditoria/useStockAudit';
 import { exportAuditoriaStockExcel } from '../components/publicacionesMl/auditoria/exportStockAudit';
@@ -75,7 +74,11 @@ import { canViewProductPrices, pricePermissions } from '../components/pricing/pr
 import useInlinePriceEdit from '../components/publicacionesMl/useInlinePriceEdit';
 import ModalTesla, { ModalFooterButtons } from '../components/ModalTesla';
 import PricingModalTesla from '../components/PricingModalTesla';
-import { buildColumns, columnChoicesOver, defaultColumnVisibility } from '../components/publicacionesMl/columns';
+import { buildColumns, defaultColumnVisibility } from '../components/publicacionesMl/columns';
+import { layoutView, useLayoutStore } from '../hooks/useColumnLayout';
+import usePresets from '../components/publicacionesMl/presets/usePresets';
+import usePresetEntry from '../components/publicacionesMl/presets/usePresetEntry';
+import PresetMenu from '../components/publicacionesMl/presets/PresetMenu';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import {
@@ -213,6 +216,10 @@ const VISTA_OPTIONS = [
 // The stock audit (auditoria-stock S2, S8): only for `ml_publicaciones.ver_auditoria_stock`.
 const AUDIT_PERMISSION = 'ml_publicaciones.ver_auditoria_stock';
 const AUDIT_OPTION = { value: 'auditoria', label: 'Auditoría de stock' };
+// Shared column presets (pubml-columnas-presets S3): creating, editing or deleting them.
+const SHARED_PRESETS_PERMISSION = 'ml_publicaciones.presets_compartidos';
+// The audit's columns start all visible (auditoria-stock L6).
+const NO_HIDDEN_COLUMNS = {};
 
 // "Promo aplicada" (S9): a started promotion in ML, or none (candidates do not count); in every view.
 const PROMO_APLICADA_LABELS = {
@@ -329,7 +336,9 @@ export default function PublicacionesML() {
   const closePhoneSheet = () => setPhoneSheet(null);
   // The markup column, filters and sort exist only for this permission (S68.1).
   const canSeeMargin = tienePermiso('ml_metricas.ver_ganancia');
-  const { filters, filterKey, setFilters, resetFilters } = usePublicacionesMLFilters({ canSeeMargin });
+  const { filters, filterKey, setFilters, resetFilters, presetParams, hasListParams, applyPresetParams } = usePublicacionesMLFilters({
+    canSeeMargin,
+  });
   const { tiendas, getLabel } = useTiendasOficiales();
   // The strip is Métricas' numbers: it needs `ml_metricas.ver`; the table does not.
   const canSeeKpis = tienePermiso('ml_metricas.ver');
@@ -357,23 +366,9 @@ export default function PublicacionesML() {
     keepExpanded.current = latestRequest.current + 1;
     setReloadToken((token) => token + 1);
   }, []);
-  // The user's own picks from the column picker, over a permission-based
-  // default (permissions may load after the first render).
-  const [columnChoices, setColumnChoices] = useState({});
+  // The columns hidden until the user shows them (`defaultColumnVisibility`); the user's own picks and order are the
+  // view's saved layout (`useLayoutStore` below, read over the columns in `layoutView`).
   const columnDefaults = useMemo(() => defaultColumnVisibility(), []);
-  const baseColumnVisibility = useMemo(
-    () => ({ ...columnDefaults, ...columnChoices }),
-    [columnDefaults, columnChoices],
-  );
-  const setColumnVisibility = useCallback(
-    (updater) =>
-      setColumnChoices((choices) => {
-        const current = { ...columnDefaults, ...choices };
-        const next = typeof updater === 'function' ? updater(current) : updater;
-        return columnChoicesOver(next, columnDefaults);
-      }),
-    [columnDefaults],
-  );
   // Promos Ver competencia: open by default on every entry to the page. Once the user closes it, it stays closed
   // while they browse other publications. `competenciaShown` is whether the ranking is on screen right now (a
   // catalog listing on its Promos tab), which is what widens the split.
@@ -405,7 +400,23 @@ export default function PublicacionesML() {
     if (entryLayer !== '' && filters.equipo === '') setFilters({ equipo: entryLayer }, { replace: true });
     else setEntryLayerPending(false);
   }, [entryLayerPending, equiposLoaded, entryLayer, filters.equipo, setFilters]);
-  const layerPending = entryLayerPending || (filters.equipo !== '' && !equiposLoaded);
+  // The column layout and the presets of the view, per user on the server (pubml-columnas-presets S2, S3). A view
+  // the user may not open (the audit without its permission) shows the list, and so its layout.
+  const layoutVista = filters.vista === 'auditoria' && !tienePermiso(AUDIT_PERMISSION) ? 'publicacion' : filters.vista;
+  const layoutStore = useLayoutStore(layoutVista);
+  const presets = usePresets(layoutVista);
+  // A preset sets its own layer (S8): the default-layer step must not paint over it.
+  const dropEntryLayer = useCallback(() => setEntryLayerPending(false), []);
+  // The remembered preset of the view, against a link with filters (S6): until it is known, no rows are asked.
+  const presetEntry = usePresetEntry({
+    vista: layoutVista,
+    store: layoutStore,
+    presets,
+    hasListParams,
+    applyPresetParams,
+    onApplied: dropEntryLayer,
+  });
+  const layerPending = entryLayerPending || (filters.equipo !== '' && !equiposLoaded) || presetEntry.pending;
   const layerKnown =
     filters.equipo === '' || equipos.some((equipo) => !equipo.es_global && String(equipo.id) === filters.equipo);
   const rowFilters = useMemo(() => (layerKnown ? filters : { ...filters, equipo: '' }), [filters, layerKnown]);
@@ -591,7 +602,6 @@ export default function PublicacionesML() {
   const stats = usePublicationStats(buildStatsParams(rowFilters), !layerPending && !publicacion && !auditoria);
   // The stock audit's rows, KPIs and rate; its hideable columns and KPI cards, each remembered per browser (L6).
   const stockAudit = useStockAudit({ filters: rowFilters, pageSize, canSeeSales, canSeeMargin, enabled: auditoria && !layerPending });
-  const auditColumns = useHiddenKpis('publicaciones-ml.auditoria.columnas-ocultas', auditColumnOptions({ canSeeSales, canSeeMargin }));
   const auditKpis = useHiddenKpis('publicaciones-ml.auditoria.kpis-ocultos', AUDIT_KPI_OPTIONS);
   const productRows = useProductRows({
     filters: rowFilters,
@@ -730,25 +740,14 @@ export default function PublicacionesML() {
     ],
   );
 
-  const columnVisibility = baseColumnVisibility;
-
-  // The kit's ColumnPicker is TanStack-shaped; this table is the kit's, so a
-  // row-less table instance carries only the visibility state both read.
-  const columnDefs = useMemo(
-    () => columns.map((column) => ({ id: column.key, header: column.label ?? column.header, enableHiding: column.key !== 'titulo' })),
-    [columns],
+  // The view's saved layout read over its columns (S1, S2): the audit's own columns there, the list's elsewhere. The
+  // first column (Publicación / Producto) stays first; the rest show and go as the user left them.
+  const auditColumnMeta = useMemo(() => auditColumnLayout({ canSeeSales, canSeeMargin }), [canSeeSales, canSeeMargin]);
+  const columnLayout = useMemo(
+    () => layoutView(layoutStore, auditoria ? auditColumnMeta : columns, auditoria ? NO_HIDDEN_COLUMNS : columnDefaults),
+    [layoutStore, auditoria, auditColumnMeta, columns, columnDefaults],
   );
-  const pickerTable = useReactTable({
-    data: EMPTY_ROWS,
-    columns: columnDefs,
-    state: { columnVisibility: baseColumnVisibility },
-    onColumnVisibilityChange: setColumnVisibility,
-    getCoreRowModel: getCoreRowModel(),
-  });
-  const visibleColumns = useMemo(
-    () => columns.filter((column) => columnVisibility[column.key] !== false),
-    [columns, columnVisibility],
-  );
+  const visibleColumns = useMemo(() => columnLayout.arrange(columns), [columnLayout, columns]);
   const selection = useMemo(
     () => ({ checked: checkedRows, onToggle: rowSelection.onToggle, togglePage: rowSelection.togglePage, pageState: rowSelection.pageState }),
     [checkedRows, rowSelection.onToggle, rowSelection.togglePage, rowSelection.pageState],
@@ -1215,7 +1214,7 @@ export default function PublicacionesML() {
       audit={stockAudit}
       canSeeSales={canSeeSales}
       canSeeMargin={canSeeMargin}
-      isVisible={auditColumns.isVisible}
+      arrange={columnLayout.arrange}
       sort={sort}
       onSort={handleSort}
       onSelectItem={handleRowClick}
@@ -1386,11 +1385,25 @@ export default function PublicacionesML() {
   return (
     <div className={styles.container}>
       <header className={styles.header}>
-        <div className={styles.headerLeft}>
-          <h1>Publicaciones ML</h1>
-          <p className={styles.description}>
-            Todas las publicaciones de Mercado Libre: estado, precio, stock y vínculo con el producto.
-          </p>
+        {/* The column preset of the view sits up here, beside the title (pubml-columnas-presets S3): the action bar
+            below is one row with no room for its name. */}
+        <div className={styles.headerTop}>
+          <div className={styles.headerLeft}>
+            <h1>Publicaciones ML</h1>
+            <p className={styles.description}>
+              Todas las publicaciones de Mercado Libre: estado, precio, stock y vínculo con el producto.
+            </p>
+          </div>
+          <PresetMenu
+            presets={presets}
+            view={columnLayout}
+            presetParams={presetParams}
+            applyPresetParams={applyPresetParams}
+            defaultParams={entryLayer ? { equipo: entryLayer } : {}}
+            canShare={tienePermiso(SHARED_PRESETS_PERMISSION)}
+            onApplied={dropEntryLayer}
+            buttonClassName={quietButton}
+          />
         </div>
         <div className={styles.headerActions}>
           <SegmentedControl
@@ -1439,20 +1452,22 @@ export default function PublicacionesML() {
             />
           )}
           <span className={styles.spacer} />
-          {auditoria ? (
-            <>
-              <ColumnPicker table={auditColumns.pickerTable} iconOnly buttonClassName={quietButton} />
-              <ColumnPicker
-                table={auditKpis.pickerTable}
-                label="Indicadores"
-                icon={Gauge}
-                groupLabel="Elegir indicadores visibles"
-                iconOnly
-                buttonClassName={quietButton}
-              />
-            </>
-          ) : (
-            <ColumnPicker table={pickerTable} iconOnly buttonClassName={quietButton} />
+          <ColumnPicker
+            table={columnLayout.pickerTable}
+            onReorder={columnLayout.reorder}
+            onReset={columnLayout.reset}
+            iconOnly
+            buttonClassName={quietButton}
+          />
+          {auditoria && (
+            <ColumnPicker
+              table={auditKpis.pickerTable}
+              label="Indicadores"
+              icon={Gauge}
+              groupLabel="Elegir indicadores visibles"
+              iconOnly
+              buttonClassName={quietButton}
+            />
           )}
           {!auditoria && kpiOptions.length > 0 && (
             <ColumnPicker

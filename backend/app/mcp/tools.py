@@ -42,6 +42,8 @@ EXCLUDED_ROUTES: dict[str, str] = {
     "/api/ml-publications/view/status-item-ids": "SPA bulk-selection helper: ids only",
     "/api/ml-publications/view/hay-mejores-exclusion-item-ids": "SPA bulk-selection helper: ids only",
     "/api/ml-publications/view/hay-mejores-criterios-item-ids": "SPA bulk-selection helper: ids only",
+    "/api/ml-publications/layouts/{vista}": "per-user UI layout/preset preferences, not pricing data",
+    "/api/ml-publications/presets": "per-user UI layout/preset preferences, not pricing data",
 }
 
 _COST_KEY = re.compile(r"(^|_)costos?(_|$)")

@@ -13,9 +13,15 @@ vi.mock('../store/authStore', () => ({
   useAuthStore: (selector) => selector({ user: { nombre: 'Ana Pérez', username: 'ana' } }),
 }));
 
-const PEDIDO = { client_name: 'ChatGPT', scope: 'pricing.read', expires_at: '2026-11-18T12:10:00Z' };
+const PEDIDO = {
+  client_name: 'ChatGPT',
+  scope: 'pricing.read',
+  expires_at: '2026-11-18T12:10:00Z',
+  redirect_host: 'chatgpt.com',
+  redirect_local: false,
+};
 const REDIRECT = 'https://chatgpt.example/connector/oauth/callback?code=c&state=s';
-const VENCIDO = 'El pedido de conexión venció o ya se usó. Volvé a conectar desde ChatGPT.';
+const VENCIDO = 'El pedido de conexión venció o ya se usó. Volvé a conectar desde la aplicación de IA.';
 
 function errorHttp(status) {
   return Object.assign(new Error(`HTTP ${status}`), { response: { status, data: { detail: 'x' } } });
@@ -54,6 +60,23 @@ describe('McpAutorizar', () => {
     expect(screen.getByRole('button', { name: 'Cancelar' })).toBeInTheDocument();
   });
 
+  it('shows where the connection goes back to and warns to approve only a connection you started', async () => {
+    renderPagina();
+    expect(await screen.findByText('chatgpt.com')).toBeInTheDocument();
+    expect(screen.getByText(/Permití solo si iniciaste vos esta conexión recién/)).toBeInTheDocument();
+    expect(screen.queryByText(/en esta computadora/)).not.toBeInTheDocument();
+  });
+
+  it('says a local client (Claude Code, Cursor, Gemini CLI) returns to this computer', async () => {
+    api.get.mockResolvedValue({
+      data: { ...PEDIDO, client_name: 'Claude Code', redirect_host: 'localhost', redirect_local: true },
+    });
+    renderPagina();
+    expect(await screen.findByText(/Claude Code/, { selector: 'strong' })).toBeInTheDocument();
+    expect(screen.getByText(/en esta computadora/)).toBeInTheDocument();
+    expect(screen.getByText('localhost')).toBeInTheDocument();
+  });
+
   it('approves and sends the browser to the redirect the backend returns', async () => {
     const user = userEvent.setup();
     const { irA } = renderPagina();
@@ -84,7 +107,7 @@ describe('McpAutorizar', () => {
     const { irA } = renderPagina();
     await user.click(await screen.findByRole('button', { name: 'Permitir' }));
     expect(
-      await screen.findByText('No tenés permiso para conectar ChatGPT (mcp.conectar). Pedíselo a un administrador.')
+      await screen.findByText('No tenés permiso para conectar aplicaciones de IA (mcp.conectar). Pedíselo a un administrador.')
     ).toBeInTheDocument();
     expect(irA).not.toHaveBeenCalled();
   });

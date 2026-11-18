@@ -33,3 +33,101 @@
 .option:hover {
   background: var(--bg-hover);
 }
+
+/* Reorder (opt-in, `onReorder`): a scrollable list of blocks, each a group or a lone column. */
+.hint {
+  margin: 0 0 var(--space-1, 4px);
+  padding: 0 var(--space-2, 8px);
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.popover > .list {
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+}
+
+.block {
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+}
+
+.block .list {
+  padding-left: var(--space-3, 12px);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+}
+
+.row .option {
+  flex: 1;
+}
+
+.groupHeader {
+  padding: var(--space-1, 4px) 0;
+}
+
+.groupName {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.dragging {
+  position: relative;
+  z-index: 1;
+  box-shadow: var(--shadow-md);
+  outline: 1px solid var(--border-primary);
+}
+
+.handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: grab;
+  touch-action: none;
+}
+
+.handle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.handle:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 1px;
+}
+
+.reset {
+  align-self: flex-start;
+  margin-top: var(--space-1, 4px);
+}
+
+.popoverReorder {
+  width: 280px;
+}
+
+.popoverReorder .option {
+  white-space: nowrap;
+}
