@@ -220,6 +220,26 @@ def _sold(ventas: Optional[Mapping[str, Any]], key: str, factor: float) -> Any:
     return None if ventas is None else ventas[key] * factor
 
 
+def _day(at: Optional[datetime]) -> Optional[str]:
+    """A moment as its business day (the Board's clock), the way the view shows the last sale."""
+    return None if at is None else at.astimezone(board.BUSINESS_TZ).date().isoformat()
+
+
+def _rotation(ventas: Optional[Mapping[str, Any]]) -> list[Any]:
+    """The Rotación columns (rotacion S2): Última venta, the days since it, the ageing, Días de cobertura ("∞" with
+    stock and no sale) and Rotación (veces); empty cells where the view reads "—"."""
+    if ventas is None:
+        return [None] * 5
+    coverage = "∞" if ventas["cobertura_infinita"] else ventas["dias_cobertura"]
+    return [
+        _day(ventas["ultima_venta"]),
+        ventas["ultima_venta_dias"],
+        ventas["ageing_dias"],
+        coverage,
+        ventas["rotacion"],
+    ]
+
+
 def _shown(ventas: Optional[Mapping[str, Any]], sell: str, plain: str) -> Any:
     """The figure the view shows: the sell in / out one where it applies, else the plain one."""
     if ventas is None:
@@ -245,6 +265,7 @@ def stock_audit_lines(rows: Sequence[Mapping[str, Any]], *, sales: bool, margin:
     header += ["Sin costo", "Publicaciones", "Publicación activa", "Promo aplicada"]
     if sales:
         header += ["Ventas 7D", "Ventas 30D", "Facturado 30D"]
+        header += ["Última venta", "Días desde última venta", "Ageing (días)", "Días de cobertura", "Rotación (veces)"]
         if margin:
             header += ["Total Gauss 30D", "Markup real 30D", "Markup actual mín", "Markup actual máx"]
 
@@ -256,6 +277,7 @@ def stock_audit_lines(rows: Sequence[Mapping[str, Any]], *, sales: bool, margin:
             return []
         out = [_sold(ventas, "unidades_7d", factor), _sold(ventas, "unidades_30d", factor)]
         out.append(None if ventas is None else ventas["facturado_30d"])
+        out += _rotation(ventas)
         if margin:
             out += [
                 _shown(ventas, "total_gauss_sell_30d", "total_gauss_30d"),

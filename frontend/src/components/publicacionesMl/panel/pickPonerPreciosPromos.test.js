@@ -3,7 +3,9 @@ import { resolve } from 'node:path';
 import { cwd } from 'node:process';
 import { describe, it, expect } from 'vitest';
 import {
+  CHOOSER_SLOT_TYPES,
   baselineMarkupFromPromos,
+  baselinePromo,
   baselineSellInOutFromPromos,
   bestByMarkup,
   enrollBodyForPromo,
@@ -536,5 +538,32 @@ describe('pickMejoresCandidatas drops candidates not applicable now', () => {
     const later = smart('FUT', { start_date: '2026-11-23T00:00:00', nuestro_markup: 30 });
     const today = smart('NOW', { start_date: '2026-11-01T00:00:00', finish_date: '2026-11-30T23:59:59' });
     expect(pickMejoresCandidatas([later, today], base).SMART.promotion_id).toBe('NOW');
+  });
+});
+
+/**
+ * The Sugerida pick on the cases the backend's MCP port (`app/mcp/promo_pick.py`) runs too: change one, change both.
+ */
+const pickCases = JSON.parse(
+  readFileSync(resolve(cwd(), '../backend/tests/fixtures/pick_mejores_candidatas_cases.json'), 'utf8'),
+);
+
+describe('pickMejoresCandidatas / baselinePromo (shared with the MCP port)', () => {
+  it.each(pickCases.pick_cases)('$name', ({ promotions, baseline, expected }) => {
+    const picked = pickMejoresCandidatas(promotions, {
+      baselinePrice: baseline.price,
+      baselineMarkup: baseline.markup,
+      baselineSellInOut: baseline.sell_in_out,
+      now: new Date(pickCases.now),
+    });
+    const ids = Object.fromEntries(
+      Object.entries(picked).filter(([, promo]) => promo).map(([type, promo]) => [type, promo.promotion_id]),
+    );
+    expect(ids).toEqual(expected);
+    expect(Object.keys(picked).sort()).toEqual([...CHOOSER_SLOT_TYPES].sort());
+  });
+
+  it.each(pickCases.baseline_cases)('baseline: $name', ({ promotions, expected }) => {
+    expect(baselinePromo(promotions)?.promotion_id ?? null).toBe(expected);
   });
 });

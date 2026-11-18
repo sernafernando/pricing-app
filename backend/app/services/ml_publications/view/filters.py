@@ -1145,6 +1145,12 @@ def product_pricing(name: str) -> Any:
     return aliased(ProductoPricing, name=name)
 
 
+def erp_stock_per_product() -> Select:
+    """`(item_id, stock)` of every product with ERP stock (`productos_erp.stock` > 0), for the daily stock photo
+    (`stock_snapshot`): the catalog models are named here only (`test_static_guards`)."""
+    return select(ProductoERP.item_id, ProductoERP.stock).where(ProductoERP.stock > 0)
+
+
 def _pricing_flag(flag: Any, on: bool, p: Any) -> ColumnElement:
     pp = aliased(ProductoPricing, name="pp")
     flagged = exists(select(1).where(pp.item_id == p.item_id, flag(pp).is_(True)))

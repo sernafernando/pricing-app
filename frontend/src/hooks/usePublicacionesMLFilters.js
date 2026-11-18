@@ -196,9 +196,26 @@ export const DEFAULT_DIRECTION = {
   unidades_full: 'desc',
   promos_aplicadas: 'desc',
   descripcion: 'asc',
+  // Its Rotación (rotacion S2): the worst first -- the oldest last sale, the most days of ageing and of coverage
+  // (∞ on top), the lowest rotation.
+  ultima_venta: 'asc',
+  ageing: 'desc',
+  cobertura: 'desc',
+  rotacion: 'asc',
 };
 
-const SALES_SORTS = new Set(['unidades_7d', 'unidades_30d', 'facturado_30d', 'markup_30d', 'total_gauss_30d']);
+const SALES_SORTS = new Set([
+  'unidades_7d',
+  'unidades_30d',
+  'facturado_30d',
+  'markup_30d',
+  'total_gauss_30d',
+  // the audit's Rotación: the Board's figures (ml_metricas.ver)
+  'ultima_venta',
+  'ageing',
+  'cobertura',
+  'rotacion',
+]);
 const MARGIN_SORTS = new Set(['markup', 'markup_30d', 'total_gauss_30d', 'costo', ...PRICE_MARKUP_SORTS]);
 
 /** Métricas' default (Facturado 30D) for who sees the sales; the activity otherwise. */
@@ -337,8 +354,25 @@ export const STOCK_AUDIT_SORTS = [
   'total_gauss_30d',
   'markup_30d',
   'markup',
+  'ultima_venta',
+  'ageing',
+  'cobertura',
+  'rotacion',
 ];
-const STOCK_AUDIT_ONLY_SORTS = new Set(['valor_total', 'valor_erp', 'valor_full', 'unidades_total', 'unidades_erp', 'unidades_full', 'promos_aplicadas', 'descripcion']);
+const STOCK_AUDIT_ONLY_SORTS = new Set([
+  'valor_total',
+  'valor_erp',
+  'valor_full',
+  'unidades_total',
+  'unidades_erp',
+  'unidades_full',
+  'promos_aplicadas',
+  'descripcion',
+  'ultima_venta',
+  'ageing',
+  'cobertura',
+  'rotacion',
+]);
 const STOCK_AUDIT_DEFAULT_SORT = 'valor_total';
 
 /** The one sort the audit applies: the URL's first key when the audit sorts by it and the user may ask for it, else

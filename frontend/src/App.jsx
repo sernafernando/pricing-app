@@ -28,6 +28,7 @@ const Novedades = lazy(() => import('./pages/Novedades'));
 const Ayuda = lazy(() => import('./pages/Ayuda'));
 const PreciosListas = lazy(() => import('./pages/PreciosListas'));
 const GestionPM = lazy(() => import('./pages/GestionPM'));
+const McpAutorizar = lazy(() => import('./pages/McpAutorizar'));
 const MisSubPMs = lazy(() => import('./pages/MisSubPMs'));
 const GestionAlertas = lazy(() => import('./pages/GestionAlertas'));
 const Banlist = lazy(() => import('./pages/Banlist'));
@@ -36,6 +37,9 @@ const DashboardMetricasML = lazy(() => import('./pages/DashboardMetricasML'));
 const DashboardTPLink = lazy(() => import('./pages/DashboardTPLink'));
 const CargasPdf = lazy(() => import('./pages/CargasPdf'));
 const VendedoresExcluidos = lazy(() => import('./pages/VendedoresExcluidos'));
+// The old GBP-synced dashboard, back until the PDF operations screen is complete (ODD vpf-operaciones S4).
+const DashboardVentasFuera = lazy(() => import('./pages/DashboardVentasFuera'));
+const VentasFueraOperaciones = lazy(() => import('./pages/VentasFueraOperaciones'));
 const DashboardTiendaNube = lazy(() => import('./pages/DashboardTiendaNube'));
 const Calculos = lazy(() => import('./pages/Calculos'));
 const TestStatsDinamicos = lazy(() => import('./pages/TestStatsDinamicos'));
@@ -148,6 +152,8 @@ const protectedRoutes = [
   { path: '/dashboard-tplink', component: DashboardTPLink, permiso: 'dashboard_tplink.ver' },
   // The old dashboard's Admin tab, on its own route (S4); the page also asks for the ADMIN/SUPERADMIN role, as the tab did.
   { path: '/dashboard-ventas-fuera/vendedores-excluidos', component: VendedoresExcluidos, permiso: 'ventas_fuera.ver_dashboard' },
+  { path: '/dashboard-ventas-fuera', component: DashboardVentasFuera, permiso: 'ventas_fuera.ver_dashboard' },
+  { path: '/ventas-fuera-listado', component: VentasFueraOperaciones, permiso: 'ventas_fuera.ver_metricas_pdf' },
   { path: '/dashboard-tienda-nube', component: DashboardTiendaNube, permiso: 'ventas_tn.ver_dashboard' },
   { path: '/calculos', component: Calculos, permiso: 'reportes.ver_calculadora' },
   { path: '/items-sin-mla', component: ItemsSinMLA, permiso: 'admin.ver_items_sin_mla' },
@@ -263,14 +269,15 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/fichaje" element={<FichajeMobile />} />
           <Route path="/" element={<ProtectedRoute><SmartRedirect /></ProtectedRoute>} />
+          {/* OAuth consent for MCP clients (ChatGPT). Session required (the login returns here),
+              no page permission: approving checks mcp.conectar and the page explains a 403. */}
+          <Route path="/mcp/autorizar" element={<ProtectedRoute>{lazyElement(McpAutorizar)}</ProtectedRoute>} />
           <Route element={
             <ProtectedRoute>
               <AppLayout />
             </ProtectedRoute>
           }>
             {protectedRoutes.map(renderProtectedRoute)}
-            {/* The old Ventas por fuera dashboard is the board's canal=fuera view now (S4); /metricas-ml gates it. */}
-            <Route path="/dashboard-ventas-fuera" element={<Navigate to="/metricas-ml?canal=fuera" replace />} />
           </Route>
           </Routes>
         </BrowserRouter>

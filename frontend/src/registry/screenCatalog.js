@@ -83,6 +83,23 @@ export const SCREENS = [
     vistas: [{ label: 'Ventas por Fuera', query: 'canal=fuera' }],
     nota: 'Con ventas_fuera.ver_metricas_pdf solo, abre fijo en Por fuera.',
   },
+  // The PDF sales per document with their lines and manual fixes (ODD vpf-operaciones S2/S3); fixes need subir_pdf.
+  {
+    path: '/ventas-fuera-listado',
+    label: 'Operaciones por Fuera',
+    section: 'Reportes',
+    permisos: ['ventas_fuera.ver_metricas_pdf'],
+    scope: 'permiso',
+    nota: 'Corregir costo o producto pide ventas_fuera.subir_pdf; Total Gauss y markup, ventas_fuera.ver_ganancia.',
+  },
+  // The old GBP-synced dashboard, restored until the PDF operations screen is complete (ODD vpf-operaciones S4).
+  {
+    path: '/dashboard-ventas-fuera',
+    label: 'Ventas por Fuera (anterior)',
+    section: 'Reportes',
+    permisos: ['ventas_fuera.ver_dashboard'],
+    scope: 'permiso',
+  },
   // History of the GBP PDF loads; the upload button and zone need ventas_fuera.subir_pdf.
   {
     path: '/metricas-ml/cargas',
@@ -199,7 +216,7 @@ export const PERMISOS_ADICIONALES = {
     rma: ['/rma'],
     ml_ops: ['/ml-publicaciones'],
     ml_metricas: ['/metricas-ml'],
-    // Opens Métricas ML, Cargas de PDF and Vendedores excluidos; ver_ganancia acts on the board.
+    // Opens Métricas ML, Operaciones por Fuera, Cargas de PDF and Vendedores excluidos; ver_ganancia acts on the board.
     ventas_fuera: ['/metricas-ml'],
     produccion: ['/produccion'],
     rrhh: ['/rrhh/empleados'],

@@ -212,7 +212,19 @@ describe('Ventas por fuera screens (ODD vpf-metricas-canal-fe S4/S5/C4)', () => 
       section: 'Otras',
       permisos: ['ventas_fuera.ver_dashboard'],
     });
-    expect(byPath.has('/dashboard-ventas-fuera')).toBe(false);
+    expect(byPath.get('/dashboard-ventas-fuera')).toMatchObject({
+      label: 'Ventas por Fuera (anterior)',
+      section: 'Reportes',
+      permisos: ['ventas_fuera.ver_dashboard'],
+    });
+  });
+
+  it('lists "Operaciones por Fuera" under Reportes with ver_metricas_pdf (vpf-operaciones S2)', () => {
+    expect(byPath.get('/ventas-fuera-listado')).toMatchObject({
+      label: 'Operaciones por Fuera',
+      section: 'Reportes',
+      permisos: ['ventas_fuera.ver_metricas_pdf'],
+    });
   });
 
   it('places the ventas_fuera extras on the board', () => {

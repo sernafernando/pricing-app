@@ -1047,6 +1047,20 @@ export const publicacionesMlAPI = {
   searchProducts: (q) => api.get('/buscar-productos-erp', { params: { q } }),
 };
 
+// OAuth consent for MCP clients (ChatGPT): the /mcp/autorizar page reads the
+// pending request and posts the user's decision; the backend answers with the
+// URL to send the browser back to.
+export const oauthAPI = {
+  obtenerPedido: (req) => api.get(`/oauth/requests/${encodeURIComponent(req)}`),
+  decidir: (req, approve) => api.post(`/oauth/requests/${encodeURIComponent(req)}/decision`, { approve }),
+};
+
+// A user's active MCP connections (admin view in Admin → Usuarios).
+export const mcpConexionesAPI = {
+  listarDeUsuario: (usuarioId) => api.get('/admin/mcp/connections', { params: { usuario_id: usuarioId } }),
+  revocar: (id) => api.delete(`/admin/mcp/connections/${id}`),
+};
+
 export const publicacionRepairAPI = {
   runs: (params, config) => api.get('/ml-publications/repair/runs', { params, ...config }),
   run: (runId, params, config) => api.get(`/ml-publications/repair/runs/${encodeURIComponent(runId)}`, { params, ...config }),

@@ -69,9 +69,9 @@ describe('SmartRedirect — Ventas por fuera (ODD vpf-metricas-canal-fe S4)', ()
     expect(screen.getByText('EN /metricas-ml?canal=fuera')).toBeInTheDocument();
   });
 
-  it('no longer sends the old ventas_fuera.ver_dashboard to the retired dashboard', () => {
+  it('sends a ventas_fuera.ver_dashboard user to the restored old dashboard (vpf-operaciones S4)', () => {
     permisos = new Set(['ventas_fuera.ver_dashboard', 'ventas_tn.ver_dashboard']);
     renderAt();
-    expect(screen.getByText('EN /dashboard-tienda-nube')).toBeInTheDocument();
+    expect(screen.getByText('EN /dashboard-ventas-fuera')).toBeInTheDocument();
   });
 });

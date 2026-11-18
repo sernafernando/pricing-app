@@ -169,6 +169,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'Dashboard TP-Link', path: '/dashboard-tplink', permiso: 'dashboard_tplink.ver' },
         // ODD vpf-metricas-canal-fe (S4): the old Ventas por fuera dashboard is now this view of the board.
         { label: 'Ventas por Fuera', path: '/metricas-ml?canal=fuera', permiso: 'ventas_fuera.ver_metricas_pdf' },
+        { label: 'Operaciones por Fuera', path: '/ventas-fuera-listado', permiso: 'ventas_fuera.ver_metricas_pdf' },
+        { label: 'Ventas por Fuera (anterior)', path: '/dashboard-ventas-fuera', permiso: 'ventas_fuera.ver_dashboard' },
         { label: 'Cargas de PDF', path: '/metricas-ml/cargas', permiso: 'ventas_fuera.subir_pdf,ventas_fuera.ver_metricas_pdf', multiple: true },
         { label: 'Tienda Nube', path: '/dashboard-tienda-nube', permiso: 'ventas_tn.ver_dashboard' },
         { label: 'Cálculos', path: '/calculos', permiso: 'reportes.ver_calculadora' },

@@ -287,6 +287,30 @@ describe('Auditoría de stock', () => {
     });
   }
 
+  for (const theme of ['light', 'dark']) {
+    it(`2000x1750 ${theme}: the Rotación columns at the end of the table, each figure on one line (rotacion S2)`, async () => {
+      const screen = await renderAudit({ theme });
+      await open(screen, 'Notebook Demo 14 i5 8GB 512GB');
+      await expect.element(screen.getByText('MLA1900000001')).toBeVisible();
+      // The table scrolls sideways in its own scroller: bring its last group, Rotación, into view.
+      let scroller = screen.getByRole('table', { name: 'Auditoría de stock' }).element();
+      while (scroller && !['auto', 'scroll'].includes(getComputedStyle(scroller).overflowX)) scroller = scroller.parentElement;
+      scroller.scrollLeft = scroller.scrollWidth;
+      await frame();
+      const infinite = screen.getByTitle('Con stock y sin ventas en 30 días').element();
+      await expect.element(screen.getByTitle('Con stock y sin ventas en 30 días')).toBeVisible();
+      for (const cell of document.querySelectorAll('[aria-label="Rotación (veces)"], [aria-label="Días de cobertura"]')) {
+        expect(cell.getBoundingClientRect().height).toBeLessThan(24); // one line, never wrapped
+      }
+      expect(getComputedStyle(infinite).color).toBe(tokenColor('--text-primary'));
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(2000);
+      window.scrollTo(0, 0);
+      await frame();
+      if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/rotacion-${theme}.png` });
+      screen.unmount();
+    });
+  }
+
   it('2000x1750 light: the column picker lists every column, each one can be hidden', async () => {
     const screen = await renderAudit();
     await userEvent.click(screen.getByRole('button', { name: 'Columnas' }));

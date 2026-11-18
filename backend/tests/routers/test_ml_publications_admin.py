@@ -143,6 +143,7 @@ class TestContract:
         # with no flag and no ML call (pubml-promo-mejor S3): nothing to request.
         # `gestion_full.inbound` / `gestion_full.reconcile`: nothing to request via admin.
         # `publicacion_repair.*` run on kill-switch / write flags; nothing to request from admin.
+        # `stock.snapshot` takes the daily stock photo at 06:00 with no flag and no ML call: nothing to request.
         env_gated = {
             "ml_ads.ingest",
             "ml_orders.discounts",
@@ -158,6 +159,7 @@ class TestContract:
             "gestion_full.reconcile",
             "publicacion_repair.envio",
             "publicacion_repair.sku",
+            "stock.snapshot",
         }
         registered = {h.name for h in ML_PUBLICATIONS_REGISTRY if h.name not in env_gated}
         assert {handler for handler, _ in admin.JOBS.values()} == registered

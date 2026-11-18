@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session, joinedload, raiseload
 from typing import Optional
 
 from app.core.config import settings
-from app.core.database import get_async_db, get_background_db
+from app.core.database import get_async_db, get_background_db, release_connection
 from app.core.exceptions import api_error, ErrorCode
 from app.core.security import decode_token
 from app.models.usuario import Usuario, RolUsuario
@@ -60,27 +60,11 @@ def get_current_user(
     svc = PermisosService(db)
     usuario._permisos_cache = svc.obtener_permisos_usuario(usuario)
 
-    _release_connection(db)
+    # Most endpoints use get_db, a different session than auth's get_async_db:
+    # end auth's read transaction so each request holds one connection at a time.
+    release_connection(db)
 
     return usuario
-
-
-def _release_connection(db: Session) -> None:
-    """End the auth read transaction so its pooled connection goes back now.
-
-    Most endpoints use get_db, a different dependency than get_async_db, so a
-    request holds two sessions. If auth kept its transaction open, a burst of
-    concurrent requests would each hold one connection while waiting for the
-    second, deadlocking the pool until pool_timeout. Committing with
-    expire_on_commit disabled keeps the loaded user and role usable without a
-    reload, and restoring the flag leaves later commits unchanged.
-    """
-    expire_on_commit = db.expire_on_commit
-    db.expire_on_commit = False
-    try:
-        db.commit()
-    finally:
-        db.expire_on_commit = expire_on_commit
 
 
 def get_current_user_transient(

@@ -793,6 +793,20 @@ class StockAuditSalesOut(BaseModel):
     # the 90-day trends: units (base units on a base row) and, with ver_ganancia, each day's units-weighted markup
     series_units_90d: list[int] = []
     series_markup_90d: Optional[list[Optional[float]]] = None
+    # Rotación (rotacion S2), the Board's own figures: the latest sale of the row's publications, the days
+    # since it, and the ageing (since that sale, or since the oldest publication started when none ever sold).
+    ultima_venta: Optional[datetime] = None
+    ultima_venta_dias: Optional[int] = None
+    ageing_dias: Optional[int] = None
+    # Días de cobertura: the stock now over the last 30 days' daily pace; null with `cobertura_infinita` (stock and
+    # no sale: the view's "∞") or with neither stock nor sale ("—").
+    dias_cobertura: Optional[float] = None
+    cobertura_infinita: bool = False
+    # Rotación (veces): units sold in 30 days over the average stock of the days photographed in the last 30
+    # (`stock_promedio_dias` of them; 0 = no photo yet, `stock_promedio` is the stock now); null when that is 0.
+    rotacion: Optional[float] = None
+    stock_promedio: Optional[float] = None
+    stock_promedio_dias: Optional[int] = None
 
 
 class StockMarkupRangeOut(BaseModel):
@@ -1842,6 +1856,7 @@ def _read_stock_audit(
         stock_audit.add_summaries(db, audit)
         if can_see_sales:
             stock_audit.add_sales(db, audit, sell_in_out=can_see_margin)
+            stock_audit.add_rotation(db, audit, board.today_business())
         if can_see_margin:
             stock_audit.add_markups(db, auth_db, audit)
     except FilterError as exc:

@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Query as OrmQuery, Session
 from sqlalchemy import desc, func
-from pydantic import BaseModel, ConfigDict
-from typing import List, Literal, Optional
+from pydantic import BaseModel, ConfigDict, Field
+from typing import Any, List, Literal, Optional
 from datetime import UTC, datetime
 from app.api.deps import get_current_user
-from app.core.database import get_db, get_async_db
+from app.core.database import get_db, get_async_db, release_connection
 from app.core.sse import sse_publish
 from app.models.usuario import Usuario
 from app.models.notificacion import Notificacion, SeveridadNotificacion, EstadoNotificacion
@@ -402,12 +402,16 @@ async def marcar_notificacion_leida(
     )
 
     if not notificacion:
+        db.rollback()
         raise HTTPException(404, "Notificación no encontrada")
 
-    if not notificacion.leida:
+    cambio = not notificacion.leida
+    if cambio:
         notificacion.leida = True
         notificacion.fecha_lectura = datetime.now(UTC)
-        db.commit()
+    # Commit even when nothing changed: it ends the read transaction before any await.
+    db.commit()
+    if cambio:
         await sse_publish("notificaciones:updated", {"hint": "reload"})
 
     return {"mensaje": "Notificación marcada como leída"}
@@ -427,12 +431,16 @@ async def marcar_notificacion_no_leida(
     )
 
     if not notificacion:
+        db.rollback()
         raise HTTPException(404, "Notificación no encontrada")
 
-    if notificacion.leida:
+    cambio = notificacion.leida
+    if cambio:
         notificacion.leida = False
         notificacion.fecha_lectura = None
-        db.commit()
+    # Commit even when nothing changed: it ends the read transaction before any await.
+    db.commit()
+    if cambio:
         await sse_publish("notificaciones:updated", {"hint": "reload"})
 
     return {"mensaje": "Notificación marcada como no leída"}
@@ -520,6 +528,7 @@ async def eliminar_notificacion(
     )
 
     if not notificacion:
+        db.rollback()
         raise HTTPException(404, "Notificación no encontrada")
 
     db.delete(notificacion)
@@ -548,11 +557,13 @@ async def ok_notificacion_compras(
         .first()
     )
     if not notificacion:
+        db.rollback()
         raise HTTPException(404, "Notificación no encontrada")
 
     marcar_ok(db, notificacion)
     db.commit()
     db.refresh(notificacion)
+    release_connection(db)
     await sse_publish("notificaciones:updated", {"hint": "reload"})
     return NotificacionResponse.model_validate(notificacion)
 
@@ -573,11 +584,13 @@ async def snooze_notificacion_compras(
         .first()
     )
     if not notificacion:
+        db.rollback()
         raise HTTPException(404, "Notificación no encontrada")
 
     snooze_faltantes(db, notificacion)
     db.commit()
     db.refresh(notificacion)
+    release_connection(db)
     await sse_publish("notificaciones:updated", {"hint": "reload"})
     return NotificacionResponse.model_validate(notificacion)
 
@@ -607,6 +620,7 @@ async def cambiar_estado_notificacion(
     )
 
     if not notificacion:
+        db.rollback()
         raise HTTPException(404, "Notificación no encontrada")
 
     notificacion.estado = request.estado
@@ -626,6 +640,7 @@ async def cambiar_estado_notificacion(
 
     db.commit()
     db.refresh(notificacion)
+    release_connection(db)
     await sse_publish("notificaciones:updated", {"hint": "reload"})
 
     return {"mensaje": f"Notificación marcada como {request.estado.value}", "notificacion": notificacion}
@@ -670,9 +685,14 @@ async def descartar_notificacion(
     )
 
     if not notificacion:
+        db.rollback()
         raise HTTPException(404, "Notificación no encontrada")
 
-    rechazar_cierre_faltantes(db, notificacion)
+    try:
+        rechazar_cierre_faltantes(db, notificacion)
+    except HTTPException:
+        db.rollback()
+        raise
 
     # Crear regla de ignorar si se solicitó y tenemos los datos necesarios
     if crear_regla_ignorar and notificacion.item_id and notificacion.markup_real is not None:
@@ -704,6 +724,125 @@ async def resolver_notificacion(
     """
     request = CambiarEstadoRequest(estado=EstadoNotificacion.RESUELTA, notas=notas)
     return await cambiar_estado_notificacion(notificacion_id, request, db, current_user)
+
+
+AccionBulk = Literal["leida", "no_leida", "revisada", "descartada", "resuelta", "eliminar"]
+
+
+class AccionBulkRequest(BaseModel):
+    ids: List[int] = Field(min_length=1)
+    accion: AccionBulk
+
+
+class AccionBulkResponse(BaseModel):
+    count: int
+
+
+def _crear_reglas_ignorar(db: Session, user_id: int, query: OrmQuery) -> None:
+    """Add one ignore rule per new product + type + markup, without committing.
+
+    Same rule as the single discard (markup rounded to 2 decimals), but read as
+    plain columns and written in the caller's transaction, so a failed bulk
+    action leaves no rule behind and no row is reloaded per notification.
+    """
+    filas = (
+        query.filter(Notificacion.item_id.isnot(None), Notificacion.markup_real.isnot(None))
+        .with_entities(
+            Notificacion.id,
+            Notificacion.item_id,
+            Notificacion.tipo,
+            Notificacion.markup_real,
+            Notificacion.codigo_producto,
+            Notificacion.descripcion_producto,
+        )
+        .all()
+    )
+    nuevas: dict[tuple[int, str, float], Any] = {}
+    for fila in filas:
+        nuevas.setdefault((fila.item_id, fila.tipo, round(float(fila.markup_real), 2)), fila)
+    if not nuevas:
+        return
+
+    existentes = db.query(
+        NotificacionIgnorada.item_id, NotificacionIgnorada.tipo, NotificacionIgnorada.markup_real
+    ).filter(
+        NotificacionIgnorada.user_id == user_id,
+        NotificacionIgnorada.item_id.in_({clave[0] for clave in nuevas}),
+    )
+    for item_id, tipo, markup in existentes:
+        nuevas.pop((item_id, tipo, round(float(markup), 2)), None)
+
+    for (item_id, tipo, markup), fila in nuevas.items():
+        db.add(
+            NotificacionIgnorada(
+                user_id=user_id,
+                item_id=item_id,
+                tipo=tipo,
+                markup_real=markup,
+                codigo_producto=fila.codigo_producto,
+                descripcion_producto=fila.descripcion_producto,
+                ignorado_por_notificacion_id=fila.id,
+            )
+        )
+
+
+def _aplicar_accion_bulk(db: Session, query: OrmQuery, accion: AccionBulk) -> int:
+    """Apply the action to every row of `query` in one statement and return how many changed."""
+    ahora = datetime.now(UTC)
+    if accion == "eliminar":
+        return query.delete(synchronize_session=False)
+    if accion == "leida":
+        return query.filter(Notificacion.leida == False).update(  # noqa: E712
+            {"leida": True, "fecha_lectura": ahora}, synchronize_session=False
+        )
+    if accion == "no_leida":
+        return query.filter(Notificacion.leida == True).update(  # noqa: E712
+            {"leida": False, "fecha_lectura": None}, synchronize_session=False
+        )
+    if accion == "revisada":
+        valores = {
+            "estado": EstadoNotificacion.REVISADA,
+            "fecha_revision": func.coalesce(Notificacion.fecha_revision, ahora),
+        }
+    elif accion == "descartada":
+        valores = {"estado": EstadoNotificacion.DESCARTADA, "fecha_descarte": ahora}
+    else:
+        valores = {"estado": EstadoNotificacion.RESUELTA, "fecha_resolucion": ahora}
+    return query.update(valores, synchronize_session=False)
+
+
+@router.post("/notificaciones/bulk", response_model=AccionBulkResponse)
+async def accion_bulk_notificaciones(
+    body: AccionBulkRequest,
+    db: Session = Depends(get_async_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> AccionBulkResponse:
+    """
+    Apply one action (read, unread, review, discard, resolve, delete) to many
+    notifications in ONE request and one statement.
+
+    Only the caller's notifications among `ids` are touched. Discard follows the
+    single discard: an open compras.faltantes alert refuses it (409, nothing
+    changes) and it creates the ignore rule for each product + type + markup.
+    The frontend used to send one request per notification; 1411 at once
+    exhausted the pool and took the API down (prod incident 2026-11-18).
+    """
+    query = db.query(Notificacion).filter(Notificacion.id.in_(body.ids), Notificacion.user_id == current_user.id)
+    try:
+        if body.accion == "descartada":
+            for notif in query.filter(Notificacion.tipo == TIPO_FALTANTES).all():
+                rechazar_cierre_faltantes(db, notif)
+            _crear_reglas_ignorar(db, current_user.id, query)
+        count = _aplicar_accion_bulk(db, query, body.accion)
+        db.commit()
+    except Exception:
+        # End the transaction before FastAPI's awaits, whatever failed.
+        db.rollback()
+        raise
+
+    if count:
+        await sse_publish("notificaciones:updated", {"hint": "reload"})
+    return AccionBulkResponse(count=count)
 
 
 @router.post("/notificaciones/bulk-descartar")
@@ -890,6 +1029,7 @@ async def eliminar_regla_ignorada(
     )
 
     if not regla:
+        db.rollback()
         raise HTTPException(404, "Regla no encontrada")
 
     db.delete(regla)

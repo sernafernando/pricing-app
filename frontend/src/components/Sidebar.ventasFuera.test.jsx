@@ -46,10 +46,26 @@ describe('Sidebar — Ventas por Fuera opens the board with canal=fuera', () => 
     expect(screen.getByRole('link', { name: 'Ventas por Fuera' })).toHaveAttribute('href', '/metricas-ml?canal=fuera');
   });
 
-  it('is gone for the old ventas_fuera.ver_dashboard alone', async () => {
+  it('lists the restored old dashboard as "Ventas por Fuera (anterior)" for ver_dashboard only (vpf-operaciones S4)', async () => {
     await openReportes(['ventas_fuera.ver_dashboard', 'ventas_tn.ver_dashboard']);
     expect(screen.queryByRole('link', { name: 'Ventas por Fuera' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /dashboard-ventas-fuera/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Ventas por Fuera (anterior)' })).toHaveAttribute('href', '/dashboard-ventas-fuera');
+  });
+
+  it('hides "Ventas por Fuera (anterior)" without ver_dashboard', async () => {
+    await openReportes(['ventas_fuera.ver_metricas_pdf']);
+    expect(screen.queryByRole('link', { name: 'Ventas por Fuera (anterior)' })).not.toBeInTheDocument();
+  });
+
+  it('lists "Operaciones por Fuera" on /ventas-fuera-listado for ver_metricas_pdf (vpf-operaciones S2)', async () => {
+    await openReportes(['ventas_fuera.ver_metricas_pdf']);
+    expect(screen.getByRole('link', { name: 'Operaciones por Fuera' })).toHaveAttribute('href', '/ventas-fuera-listado');
+    expect(screen.getByRole('link', { name: 'Ventas por Fuera' })).toHaveAttribute('href', '/metricas-ml?canal=fuera');
+  });
+
+  it('hides "Operaciones por Fuera" without ver_metricas_pdf', async () => {
+    await openReportes(['ventas_fuera.subir_pdf', 'ventas_fuera.ver_dashboard']);
+    expect(screen.queryByRole('link', { name: 'Operaciones por Fuera' })).not.toBeInTheDocument();
   });
 
   it('lists "Cargas de PDF" for subir_pdf or ver_metricas_pdf', async () => {

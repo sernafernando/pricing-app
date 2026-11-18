@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { usePermisos } from '../contexts/PermisosContext';
 import FullScreenLoader from './FullScreenLoader';
@@ -21,13 +21,15 @@ export default function ProtectedRoute({
   requireAll = false,
   fallback
 }) {
+  const location = useLocation();
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
   const { tienePermiso, tieneAlgunPermiso, tieneTodosPermisos, loading, initialized, error, recargar, rol } = usePermisos();
 
-  // Si no hay token, redirigir a login
+  // Si no hay token, redirigir a login recordando adónde iba (Login valida el
+  // destino con safeReturnPath antes de volver).
   if (!token) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
   // Mientras carga permisos, mostrar loader

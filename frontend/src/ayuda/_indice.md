@@ -35,7 +35,7 @@ Este índice lista todas las pantallas de la aplicación, en el mismo orden en q
 | 25 | ML Ads | `ml-ads.md` | `/ml-ads-aportes` | Reportes → ML Ads | Acceso a Métricas ML y, además, permiso para ver ganancias |
 | 26 | Ventas ML | `ventas-ml.md` | `/ml-ventas-listado` | Reportes → Ventas ML | Acceso a Ventas ML |
 | 28 | Dashboard TP-Link | `dashboard-tp-link.md` | `/dashboard-tplink` | Reportes → Dashboard TP-Link | Acceso al tablero de TP-Link |
-| 29 | Ventas por Fuera (y Cargas de PDF) | `ventas-por-fuera.md` | `/metricas-ml?canal=fuera` y `/metricas-ml/cargas` | Reportes → Ventas por Fuera y Reportes → Cargas de PDF | Acceso a las métricas de ventas por fuera; subir PDF pide ventas_fuera.subir_pdf |
+| 29 | Ventas por Fuera (Operaciones por Fuera y Cargas de PDF) | `ventas-por-fuera.md` | `/metricas-ml?canal=fuera`, `/ventas-fuera-listado` y `/metricas-ml/cargas` | Reportes → Ventas por Fuera, Reportes → Operaciones por Fuera y Reportes → Cargas de PDF | Acceso a las métricas de ventas por fuera; subir PDF y corregir líneas pide ventas_fuera.subir_pdf |
 | 30 | Tienda Nube | `tienda-nube.md` | `/dashboard-tienda-nube` | Reportes → Tienda Nube | Acceso al tablero de Tienda Nube |
 | 31 | Cálculos | `calculos.md` | `/calculos` | Reportes → Cálculos | Acceso a la calculadora de reportes |
 | 32 | Últimos Cambios | `ultimos-cambios.md` | `/ultimos-cambios` | Reportes → Últimos Cambios | Acceso a la auditoría de productos |
@@ -68,3 +68,4 @@ Este índice lista todas las pantallas de la aplicación, en el mismo orden en q
 | 58c | Ayuda | `ayuda.md` | `/ayuda` | Ayuda → Ayuda | Sin permiso especial: la ve cualquier usuario con sesión iniciada |
 | 59 | Notificaciones | `notificaciones.md` | `/notificaciones` | Sin entrada en el menú: se llega desde la campana de notificaciones | Acceso a Notificaciones |
 | 60 | Perfiles de medidas | `perfiles-de-medidas.md` | `/perfiles-medidas` | Sin entrada en el menú: se llega desde la publicación en Tienda Nube | Permiso de administración de perfiles de Tienda Nube |
+| 61 | Conectar ChatGPT | `conectar-chatgpt.md` | `/mcp/autorizar` | Sin entrada en el menú: se llega al conectar ChatGPT | Permiso para conectar ChatGPT (mcp.conectar) |

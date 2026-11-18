@@ -28,6 +28,8 @@ export default function SmartRedirect() {
     { path: '/dashboard-metricas-ml', permiso: 'ventas_ml.ver_dashboard' },
     // The old Ventas por fuera dashboard is now the board's canal=fuera view (ODD vpf-metricas-canal-fe S4).
     { path: '/metricas-ml?canal=fuera', permiso: 'ventas_fuera.ver_metricas_pdf' },
+    // The restored old dashboard (ODD vpf-operaciones S4).
+    { path: '/dashboard-ventas-fuera', permiso: 'ventas_fuera.ver_dashboard' },
     { path: '/dashboard-tienda-nube', permiso: 'ventas_tn.ver_dashboard' },
     { path: '/ultimos-cambios', permiso: 'productos.ver_auditoria' },
     { path: '/calculos', permiso: 'reportes.ver_calculadora' },
