@@ -121,7 +121,9 @@ def _error_page(message: str) -> PlainTextResponse:
 
 
 @router.get("/api/oauth/authorize", include_in_schema=False)
+@limiter.limit("30/minute")
 def authorize(
+    request: Request,
     response_type: Optional[str] = Query(None),
     client_id: Optional[str] = Query(None),
     redirect_uri: Optional[str] = Query(None),
@@ -154,6 +156,7 @@ def authorize(
     if not requested or any(s not in store.SUPPORTED_SCOPES for s in requested):
         return fail("invalid_scope", "unsupported scope")
 
+    store.prune_requests(db)
     raw = store.new_secret()
     db.add(
         McpOAuthRequest(

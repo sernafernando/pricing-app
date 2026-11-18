@@ -132,6 +132,30 @@ def test_authorize_redirects_to_the_spa_consent_route(mcp_client, db):
     assert stored.usuario_id is None
 
 
+def test_authorize_is_rate_limited(mcp_client, db):
+    """The only unauthenticated endpoint that writes: past the limit it answers 429 and stores nothing more."""
+    _, challenge = pkce_pair()
+    for _ in range(30):
+        r = mcp_client.get("/api/oauth/authorize", params=authorize_params(challenge), follow_redirects=False)
+        assert r.status_code == 302
+    r = mcp_client.get("/api/oauth/authorize", params=authorize_params(challenge), follow_redirects=False)
+    assert r.status_code == 429
+    assert db.query(McpOAuthRequest).count() == 30
+
+
+def test_authorize_drops_long_expired_requests(mcp_client, db):
+    _, challenge = pkce_pair()
+    start_authorize(mcp_client, challenge)
+    old = db.query(McpOAuthRequest).one()
+    old.expires_at = datetime.now(UTC) - timedelta(days=2)
+    db.commit()
+    old_hash = old.request_hash
+    start_authorize(mcp_client, challenge)
+    db.expire_all()
+    assert db.query(McpOAuthRequest).filter_by(request_hash=old_hash).count() == 0
+    assert db.query(McpOAuthRequest).count() == 1
+
+
 def test_consent_card_data_requires_the_app_login(mcp_client, mcp_user):
     _, challenge = pkce_pair()
     req = start_authorize(mcp_client, challenge)

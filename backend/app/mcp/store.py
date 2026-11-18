@@ -149,6 +149,13 @@ def resolve_access_token(db: Session, raw: str) -> AccessGrant | None:
     )
 
 
+def prune_requests(db: Session) -> None:
+    """Drop authorization requests expired over a day ago (also run on /authorize, the unauthenticated writer)."""
+    db.query(McpOAuthRequest).filter(McpOAuthRequest.expires_at < now() - timedelta(days=1)).delete(
+        synchronize_session=False
+    )
+
+
 def prune(db: Session) -> None:
     """Opportunistic cleanup on the token endpoint (no cron, S6): old tool-call logs (L3 Q5), long-expired
     authorization requests and tokens."""
@@ -156,7 +163,5 @@ def prune(db: Session) -> None:
     db.query(McpToolCall).filter(
         McpToolCall.created_at < moment - timedelta(days=settings.MCP_TOOL_LOG_RETENTION_DAYS)
     ).delete(synchronize_session=False)
-    db.query(McpOAuthRequest).filter(McpOAuthRequest.expires_at < moment - timedelta(days=1)).delete(
-        synchronize_session=False
-    )
+    prune_requests(db)
     db.query(McpToken).filter(McpToken.expires_at < moment - timedelta(days=1)).delete(synchronize_session=False)
