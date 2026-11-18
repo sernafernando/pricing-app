@@ -323,6 +323,9 @@ def evaluar_mejores_candidatas(
     enriquecer_markup_por_promo(db, mla, promos, sell_in_out=True, batch=batch, context=context)
     criterios = get_criterios(db, mla)
     min_rival: Optional[float] = None
+    # C2 only flags when status quo is *not* already #1 (effective). If we already win,
+    # keep the toggle ON for later loss-of-position, but do not surface worse promos.
+    c2_busca_ganar = False
     if criterios.c2_activo:
         # C2 needs a catalog snapshot; missing/empty rivals → path inert (no false flags).
         min_rival = min_rival_price_ars(
@@ -330,6 +333,8 @@ def evaluar_mejores_candidatas(
             our_item_id=mla,
             sellers_excluidos=criterios.sellers_excluidos,
         )
+        ya_ganamos = catalog_win_con_precio(status_quo_price, min_rival)
+        c2_busca_ganar = min_rival is not None and not ya_ganamos
     mejores: List[MejorTuple] = []
     candidatas: List[Dict[str, Any]] = []
     for entry, promo in zip(candidates, promos):
@@ -342,10 +347,14 @@ def evaluar_mejores_candidatas(
             c1_markup_min=criterios.c1_markup_min,
             c1_markup_max=criterios.c1_markup_max,
         )
-        pasa_c2 = catalog_win_con_precio(price, min_rival) and markup_pasa_c2(
-            markup,
-            c2_activo=criterios.c2_activo,
-            c2_solo_markup_positivo=criterios.c2_solo_markup_positivo,
+        pasa_c2 = (
+            c2_busca_ganar
+            and catalog_win_con_precio(price, min_rival)
+            and markup_pasa_c2(
+                markup,
+                c2_activo=criterios.c2_activo,
+                c2_solo_markup_positivo=criterios.c2_solo_markup_positivo,
+            )
         )
         if not pasa_clasico and not pasa_c2:
             continue

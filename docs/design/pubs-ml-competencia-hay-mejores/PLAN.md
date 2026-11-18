@@ -39,7 +39,7 @@ En lugar del lead clásico, tono: *“Tenés oportunidad de aumentar el precio e
 | ID | Nombre | Resumen |
 | --- | --- | --- |
 | **C1** | Límite de markup | Floor y/o techo; fuera de rango no es “mejor” aunque pase A. |
-| **C2** | Ganar catálogo | Promo que gana catálogo (ranking efectivo). Toggle **solo markup positivo**: ON → markup &gt; 0; OFF → permite negativo. Catálogo fresco obligatorio. |
+| **C2** | Ganar catálogo | Promo que gana catálogo (ranking efectivo). Toggle **solo markup positivo**: ON → markup &gt; 0; OFF → permite negativo. Catálogo fresco obligatorio. **2026-11-18**: solo flagea si el status quo **no** es ya #1; si ya ganamos, toggle ON + banner UI, sin flag de promos peores. |
 | **C3–C5, C7–C8** | Tabla de competidores | **Única** fuente de quién cuenta. Columnas informativas: **Full** (shipping_badges) + **reputación** (/users enrich) shipped 2026-11-17; **intl / stock competitor = no data source** (documented, columns stay “sin dato”). Todos tildados por defecto; el PM destilda. Responsabilidad del PM. |
 | **C6** | Techo monopolio | Ganando + gap al 2º **entre tildados** ≥ gap mín (default **$5000**) → subir. Distancia objetivo al 2º configurable (default **$100**). Toggle: solo vía promo vs cualquier caso. |
 
