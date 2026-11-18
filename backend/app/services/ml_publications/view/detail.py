@@ -38,6 +38,7 @@ from app.models.ml_publications import MlItem, MlItemProductLink, MlUserProductR
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.producto import ProductoERP, ProductoPricing
 from app.services.ml_publications.view import listing, markup_service
+from app.services.ml_publications.view.cost_lines import siso_markups
 from app.services.ml_publications.view.display import round_display
 from app.services.ml_publications.view.filters import FULFILLMENT, LINK_ITEM_LEVEL, LINK_LINKED, T, joined
 from app.services.ml_publications.view.markup_service import MarkupQuery
@@ -545,6 +546,10 @@ def get_detail(db: Session, item_id: str, *, events: bool, markup: Optional[Mark
         found = markup_service.compute_detail(db, markup.pricing_db, item_id)
         if found is not None:
             out_row["markup"] = listing.markup_out(found.item)
+            # the same markup c/ SISO block the list row carries (`listing._attach_markup`)
+            siso = siso_markups(markup.pricing_db, {out_row["item_id"]: found.item})
+            hit = None if siso is None else siso.get(out_row["item_id"])
+            out_row["markup_siso"] = None if hit is None else listing.siso_out(hit)
         listing.attach_cost([out_row], [row], markup.pricing_db)  # the same cost block the list row carries
         body["markup_breakdown"] = None if found is None else _breakdown_out(found)
         body["sell_in_out"] = _sell_in_out(markup.pricing_db, links, found, mla=str(row.item_id))

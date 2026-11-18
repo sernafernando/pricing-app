@@ -99,9 +99,6 @@ from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo, Se
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.services.combos.ventas import partes_de_combos, unidades_de
 
-# PENDING OWNER (L-owner-2, 2026-11-18): whether a PC's sale stops taking its components' lots and takes the PC's own
-# (`combos.pcs`). Until answered the combo rule stays: a PC's line takes each component's FIFO lots. True flips it.
-LOTES_PC_COMO_ENTIDAD = False
 from app.services.sell_in.fifo import (
     Consumo,
     Dinero,
@@ -116,6 +113,10 @@ from app.services.sell_in.fifo import (
 )
 from app.services.sell_in.split import unit_discount
 from app.services.ventas_fuera_pdf.ventas import VentasPdf
+
+# PENDING OWNER (L-owner-2, 2026-11-18): whether a PC's sale stops taking its components' lots and takes the PC's own
+# (`combos.pcs`). Until answered the combo rule stays: a PC's line takes each component's FIFO lots. True flips it.
+LOTES_PC_COMO_ENTIDAD = False
 
 logger = logging.getLogger(__name__)
 

@@ -60,6 +60,7 @@ from app.models.tipo_cambio import TipoCambio
 from app.services.ml_daily_metrics import board
 from app.services.ml_daily_metrics.groups import NO_GROUP, NO_LABELS, dimension_of
 from app.services.ml_daily_metrics.kpi_strip import round_money, round_pp
+from app.services.combos.pcs import CAT_PC  # the one PC rule, shared with sell out (`combos.pcs`)
 from app.services.ml_publications.view.cost_lines import siso_markups
 from app.services.ml_publications.view.filters import (
     T,
@@ -79,7 +80,6 @@ from app.services.ml_publications.view.row_metrics import fulfillment_by_mla, me
 from app.services.pricing_calculator import moneda_de
 
 CAT_NOTEBOOK = 46
-CAT_PC = 47
 
 PRODUCTO, PC, VARIANTE, PACK, KIT = "producto", "pc", "variante", "pack", "kit"
 ACTIVE = "active"

@@ -374,6 +374,9 @@ def compute_detail(
         if found.unit is not None
         else None
     )
-    return DetailMarkup(
-        ItemMarkup(found.markup, variation_ids=found.publication.variation_ids), breakdown, found.variation_id
+    item = ItemMarkup(
+        found.markup,
+        variation_ids=found.publication.variation_ids,
+        unit_products=_unit_products(found.publication),  # as the list's, so the row's markup c/ SISO matches
     )
+    return DetailMarkup(item, breakdown, found.variation_id)
