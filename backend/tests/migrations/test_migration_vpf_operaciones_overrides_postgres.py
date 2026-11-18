@@ -225,4 +225,4 @@ def test_upgrade_is_one_head() -> None:
             padre = valores.get("down_revision")
             padres.update([padre] if isinstance(padre, str) else padre or [])
 
-    assert revisiones - padres == {"20261120_vpf_operaciones_overrides"}
+    assert revisiones - padres == {"20261117_permiso_promos_auto_aplicacion"}
