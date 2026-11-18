@@ -1390,3 +1390,55 @@ only works before the first tactical is loaded.
 Sequences are kept (new ids continue after the old ones).
 `sell_in_bonos_marca.offset_origen_id` keeps the id of an offset that no
 longer exists; it has no FK, so this is expected.
+
+## 9) MCP server (ChatGPT and other AI clients)
+
+### Overview
+`/api/mcp` lets an AI client (ChatGPT first) query pricing **read-only, as the logged-in user, with that user's permissions** (role, extra roles and overrides; every tool runs the app's own endpoint in process). The client gets OAuth tokens through `/api/oauth/*`, which wraps the normal login screen: the user signs in as usual and approves on `/mcp/autorizar`. Approving needs the `mcp.conectar` permission (seeded to ADMIN). Tokens are opaque, stored hashed, short-lived (access 60 min, refresh 30 days, rotating). Every tool call is logged in `mcp_tool_calls` (user, tool, argument summary, status, size, duration); rows older than `MCP_TOOL_LOG_RETENTION_DAYS` (180) are pruned on token exchanges. Rate limit per user: `MCP_RATE_LIMIT` (60/minute).
+
+### Enabling it (deploy step)
+1. Set `MCP_PUBLIC_BASE_URL=https://<pricing domain>` in the backend environment (no trailing slash). Unset = every MCP/OAuth endpoint answers 404.
+2. The OAuth discovery documents live at the origin root, outside `/api`. Route exactly these two paths to the backend, next to the existing `/api` location, and forbid framing the consent page:
+```nginx
+    # MCP OAuth discovery (RFC 9728 / RFC 8414): same upstream and headers as `location /api`
+    location = /.well-known/oauth-protected-resource/api/mcp {
+        proxy_pass http://<backend upstream>;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location = /.well-known/oauth-authorization-server/api/oauth {
+        proxy_pass http://<backend upstream>;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    # Consent screen of the SPA: never inside a frame (clickjacking)
+    location = /mcp/autorizar {
+        root /var/www/html/pricing-app/frontend/dist;
+        try_files /index.html =404;
+        add_header Content-Security-Policy "frame-ancestors 'none'" always;
+        add_header X-Frame-Options "DENY" always;
+    }
+```
+   The backend checks the `Host` header against `MCP_PUBLIC_BASE_URL`, so the proxy must forward the public host (`proxy_set_header Host $host`).
+3. Check: `curl -s https://<pricing domain>/.well-known/oauth-protected-resource/api/mcp` returns JSON with `"resource": "https://<pricing domain>/api/mcp"`, and `curl -si -X POST https://<pricing domain>/api/mcp` returns `401` with a `WWW-Authenticate: Bearer ... resource_metadata="..."` header.
+4. In ChatGPT (Plus/Pro, developer mode) create a connector with URL `https://<pricing domain>/api/mcp` and OAuth authentication (user guide: Ayuda → "Conectar ChatGPT").
+
+### Revoking a connection
+- Normal path: Admin → Usuarios → select the user → Editar → "Conexiones de IA (MCP)" → Revocar. The client loses access on its next call (401).
+- API: `DELETE /api/admin/mcp/connections/{id}` (ADMIN/SUPERADMIN); list with `GET /api/admin/mcp/connections?usuario_id=<id>`. A user can revoke their own with `DELETE /api/mcp/connections/{id}`.
+- Cut a user off completely: remove `mcp.conectar` (role or override) or deactivate the user; every token of theirs stops working on the next call, no revocation needed.
+- Emergency, everyone at once: `UPDATE mcp_connections SET revoked_at = now() WHERE revoked_at IS NULL;` (tokens die with their connection). Or unset `MCP_PUBLIC_BASE_URL` and restart: the whole MCP surface answers 404.
+
+### Adding a new client (Claude, Cursor, ...)
+Clients are configuration, not code. `MCP_OAUTH_CLIENTS` is a JSON list; the default holds only ChatGPT:
+```json
+[{"client_id": "https://chatgpt.com/oauth/client.json", "name": "ChatGPT",
+  "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"]}]
+```
+1. Get from the client vendor's docs its **Client ID Metadata Document URL** (the `client_id`, an https URL) and its **exact** redirect URI(s). Redirects match byte for byte (no trailing-slash or prefix tolerance).
+2. Append an entry with a `name` (shown on the consent screen) and set the full list in the backend environment; restart. A malformed list fails at startup with a clear error (https only, no fragments, no duplicates).
+3. Verify: start the connection from the new client; an unknown client or redirect gets a plain error page and no redirect.
+4. Clients without CIMD need dynamic client registration (RFC 7591), which is not enabled: `app/mcp/clients.py` has the pluggable `ClientRegistry` to add it (implement the protocol and advertise `registration_endpoint`).
+
+### Tools and parity
+Tools are derived from the Publicaciones ML / Métricas ML / promos endpoints (their query parameters become the tool arguments). `tests/mcp/test_mcp_parity.py` fails when one of those endpoints is added or gains a parameter or response field the MCP does not expose: add the endpoint to `CATALOG` (or to `EXCLUDED_ROUTES` with a reason) in `app/mcp/tools.py`.
