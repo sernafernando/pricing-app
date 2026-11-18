@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.core.logging import get_logger
 from app.models.ml_publications import MlItemSellerPromotions
+from app.services.ml_catalog_competition_service import prefetch_catalog_snapshots
 from app.services.ml_hay_mejores_criterios_service import prefetch_criterios
 from app.services.ml_promotions_hay_mejores import FlagDecision, actualizar_hay_mejores_ofertas
 from app.services.ml_promotions_pricing import resolver_sell_in_out_para_mlas
@@ -122,6 +123,7 @@ def recompute_items(
             window = ids[index : index + size]
             batch = resolver_sell_in_out_para_mlas(db, window)
             prefetch_criterios(db, window)
+            prefetch_catalog_snapshots(db, window)
         row = db.query(MlItemSellerPromotions).filter(MlItemSellerPromotions.item_id == item_id).one_or_none()
         if row is None:
             logger.warning("hay_mejores recompute: no promotions row for %s", item_id)

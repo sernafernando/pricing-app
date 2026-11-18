@@ -231,6 +231,13 @@ export function markupPasaC1(markup, { c1Activo = false, c1MarkupMin = null, c1M
   return true;
 }
 
+export function markupPasaC2(markup, { c2Activo = false, c2SoloMarkupPositivo = true } = {}) {
+  if (!c2Activo) return false;
+  if (markup == null || !Number.isFinite(Number(markup))) return false;
+  if (c2SoloMarkupPositivo) return Number(markup) > 0;
+  return true;
+}
+
 /**
  * Best enrollable slot per type among the candidates applicable now that beat the MeLi status quo. The status quo's plain markup is
  * `baselineMarkup` and its markup with sell in / sell out `baselineSellInOut`; each candidate is compared on the
@@ -247,6 +254,10 @@ export function pickMejoresCandidatas(
     c1Activo = false,
     c1MarkupMin = null,
     c1MarkupMax = null,
+    c2Activo = false,
+    c2SoloMarkupPositivo = true,
+    c2BuscaGanar = false,
+    minRivalPrice = null,
   } = {},
 ) {
   const baseline = { nuestro_markup: baselineMarkup, markup_sell_in_out: baselineSellInOut };
@@ -256,8 +267,17 @@ export function pickMejoresCandidatas(
   );
   const better = candidates.filter((promo) => {
     const [candidateMarkup, statusQuoMarkup] = comparableMarkups(promo, baseline);
-    if (!esMejorOferta(promoDisplayPrice(promo), candidateMarkup, baselinePrice, statusQuoMarkup)) return false;
-    return markupPasaC1(candidateMarkup, { c1Activo, c1MarkupMin, c1MarkupMax });
+    const price = promoDisplayPrice(promo);
+    const pasaC1 = markupPasaC1(candidateMarkup, { c1Activo, c1MarkupMin, c1MarkupMax });
+    const pasaClasico =
+      esMejorOferta(price, candidateMarkup, baselinePrice, statusQuoMarkup) && pasaC1;
+    const pasaC2 =
+      c2BuscaGanar &&
+      minRivalPrice != null &&
+      Number(price) < Number(minRivalPrice) &&
+      markupPasaC2(candidateMarkup, { c2Activo, c2SoloMarkupPositivo }) &&
+      pasaC1;
+    return pasaClasico || pasaC2;
   });
   return pickSlots(better, monthName);
 }

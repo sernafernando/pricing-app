@@ -126,12 +126,13 @@ function CatalogCompetitionPanel({ mla, catalogCompetitionCacheRef, variant = 'u
     }
   };
 
-  const handleToggleRival = async (itemId, nextChecked) => {
-    if (!canWriteCriterios || !itemId || tilting || criteriosLoading || itemId === mla) return;
+  const handleToggleRival = async (sellerId, nextChecked) => {
+    // Persist seller_id (not listing item_id) so unchecking drops the whole seller.
+    if (!canWriteCriterios || !sellerId || tilting || criteriosLoading) return;
     const previous = new Set(excluded);
     const next = new Set(excluded);
-    if (nextChecked) next.delete(itemId);
-    else next.add(itemId);
+    if (nextChecked) next.delete(sellerId);
+    else next.add(sellerId);
     const list = Array.from(next);
     criteriosGenRef.current += 1;
     setExcluded(next);
@@ -290,12 +291,20 @@ function CatalogCompetitionPanel({ mla, catalogCompetitionCacheRef, variant = 'u
           {rows.map((competitor, index) => {
             const ours = competitor.item_id === mla;
             const itemId = competitor.item_id;
-            const counts = ours || !itemId || !excluded.has(itemId);
+            const sellerId =
+              competitor.seller_id != null && competitor.seller_id !== ''
+                ? String(competitor.seller_id)
+                : '';
+            // Exclude by seller_id; legacy JSONB may still hold item_id.
+            const counts =
+              ours ||
+              (!sellerId && !itemId) ||
+              !(excluded.has(sellerId) || (itemId && excluded.has(itemId)));
             if (counts) effectivePos += 1;
             const posLabel = counts ? String(effectivePos) : '—';
             return (
               <li
-                key={itemId || competitor.seller_id || `competitor-${index}`}
+                key={itemId || sellerId || `competitor-${index}`}
                 className={`${styles.rankingRow}${ours ? ` ${styles.rankingOurs}` : ''}${
                   counts ? '' : ` ${styles.rankingExcluded}`
                 }`}
@@ -304,13 +313,13 @@ function CatalogCompetitionPanel({ mla, catalogCompetitionCacheRef, variant = 'u
                   <input
                     type="checkbox"
                     checked={counts}
-                    disabled={ours || !canWriteCriterios || tilting || criteriosLoading || !itemId}
+                    disabled={ours || !canWriteCriterios || tilting || criteriosLoading || !sellerId}
                     aria-label={
                       ours
                         ? 'Tu publicación (siempre cuenta)'
-                        : `Contar a ${competitor.seller_nickname || itemId || 'competidor'}`
+                        : `Contar a ${competitor.seller_nickname || sellerId || itemId || 'competidor'}`
                     }
-                    onChange={(e) => handleToggleRival(itemId, e.target.checked)}
+                    onChange={(e) => handleToggleRival(sellerId, e.target.checked)}
                   />
                 </label>
                 <span className={styles.rankingPos}>{posLabel}</span>

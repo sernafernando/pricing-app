@@ -4,8 +4,9 @@ import { monopolioFromSnapshotAndCriterios } from './monopolioC6';
 
 /**
  * Loads criterios + latest catalog snapshot and returns a C6 opportunity (or null).
+ * ``salePrice``: live sale/status-quo ARS (preferred over snapshot our price).
  */
-export function useMonopolioC6(itemId) {
+export function useMonopolioC6(itemId, { salePrice = null } = {}) {
   const [loading, setLoading] = useState(Boolean(itemId));
   const [oportunidad, setOportunidad] = useState(null);
   const [error, setError] = useState(null);
@@ -41,7 +42,9 @@ export function useMonopolioC6(itemId) {
           return;
         }
         if (cancelled) return;
-        setOportunidad(monopolioFromSnapshotAndCriterios(itemId, snapshot, criterios));
+        setOportunidad(
+          monopolioFromSnapshotAndCriterios(itemId, snapshot, criterios, { salePrice }),
+        );
       } catch {
         if (!cancelled) {
           setOportunidad(null);
@@ -55,7 +58,7 @@ export function useMonopolioC6(itemId) {
     return () => {
       cancelled = true;
     };
-  }, [itemId]);
+  }, [itemId, salePrice]);
 
   return { loading, oportunidad, error };
 }

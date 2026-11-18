@@ -112,16 +112,28 @@ def test_actualizar_auto_defers_flag_and_schedules_enroll(monkeypatch) -> None:
 
 
 def test_auto_enroll_after_commit_success_does_not_reflag(monkeypatch) -> None:
+    monkeypatch.setattr(hay_mejores, "_auto_still_authorized", lambda *_a, **_k: True)
     monkeypatch.setattr(hay_mejores, "_try_auto_enroll", lambda *_a, **_k: {"status": "submitted"})
-    reflag_calls: list[str] = []
+    row = SimpleNamespace(hay_mejores_ofertas=False, hay_mejores_fingerprint="auto_pending:A")
+    fresh = MagicMock()
+    fresh.query.return_value.filter.return_value.one_or_none.return_value = row
+    payloads: list[dict] = []
 
-    def _boom(*_a, **_k):
-        reflag_calls.append("nope")
-        raise AssertionError("success path must not re-flag")
+    class _Bg:
+        def __enter__(self):
+            return fresh
+
+        def __exit__(self, *args):
+            return False
 
     import app.core.database as database
 
-    monkeypatch.setattr(database, "get_background_db", _boom)
+    monkeypatch.setattr(database, "get_background_db", lambda: _Bg())
+    monkeypatch.setattr(
+        hay_mejores,
+        "record_flag_transition",
+        lambda *_a, **_k: payloads.append({}) or (_ for _ in ()).throw(AssertionError("success must not re-flag")),
+    )
 
     _run_auto_enroll_after_commit(
         {
@@ -131,10 +143,12 @@ def test_auto_enroll_after_commit_success_does_not_reflag(monkeypatch) -> None:
             "descartado_fingerprint": None,
         }
     )
-    assert reflag_calls == []
+    assert payloads == []
+    assert row.hay_mejores_fingerprint is None
 
 
 def test_auto_enroll_after_commit_fail_reflags(monkeypatch) -> None:
+    monkeypatch.setattr(hay_mejores, "_auto_still_authorized", lambda *_a, **_k: True)
     row = SimpleNamespace(
         hay_mejores_ofertas=False,
         hay_mejores_fingerprint=None,
@@ -183,15 +197,13 @@ def test_auto_enroll_after_commit_fail_reflags(monkeypatch) -> None:
 
 
 def test_auto_enroll_ambiguous_does_not_reflag(monkeypatch) -> None:
-    reflag_calls: list[str] = []
-
-    def _boom(*_a, **_k):
-        reflag_calls.append("nope")
-        raise AssertionError("ambiguous must not re-flag as Autoapply falló")
-
-    import app.core.database as database
-
-    monkeypatch.setattr(database, "get_background_db", _boom)
+    monkeypatch.setattr(hay_mejores, "_auto_still_authorized", lambda *_a, **_k: True)
+    payloads: list[dict] = []
+    monkeypatch.setattr(
+        hay_mejores,
+        "record_flag_transition",
+        lambda *_a, **_k: payloads.append({}) or (_ for _ in ()).throw(AssertionError("ambiguous must not re-flag")),
+    )
     monkeypatch.setattr(
         hay_mejores,
         "_try_auto_enroll",
@@ -205,7 +217,7 @@ def test_auto_enroll_ambiguous_does_not_reflag(monkeypatch) -> None:
             "descartado_fingerprint": None,
         }
     )
-    assert reflag_calls == []
+    assert payloads == []
 
 
 def test_auto_enroll_fail_reason_prefers_detail() -> None:

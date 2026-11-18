@@ -46,7 +46,7 @@ describe('CatalogCompetitionPanel', () => {
       },
     });
     promocionesAPI.putHayMejoresCriterios.mockResolvedValue({
-      data: { sellers_excluidos: ['CHEAP'] },
+      data: { sellers_excluidos: ['seller-barato'] },
     });
   });
 
@@ -148,9 +148,29 @@ describe('CatalogCompetitionPanel', () => {
         competitor_count: 4,
         undercutting: [{ item_id: 'CHEAP', seller_nickname: 'Barato', price_ars: 900, markup: 40 }],
         same_bucket: [
-          { item_id: 'CHEAP', seller_nickname: 'Barato', price_ars: 900, markup: 40, markup_sell_in_out: 44 },
-          { item_id: 'MLA001', seller_nickname: 'Nosotros', price_ars: 1000, markup: 35, markup_sell_in_out: 39 },
-          { item_id: 'PRICEY', seller_nickname: 'Caro', price_ars: 1200, markup: 28 },
+          {
+            item_id: 'CHEAP',
+            seller_id: 'seller-barato',
+            seller_nickname: 'Barato',
+            price_ars: 900,
+            markup: 40,
+            markup_sell_in_out: 44,
+          },
+          {
+            item_id: 'MLA001',
+            seller_id: 'seller-ours',
+            seller_nickname: 'Nosotros',
+            price_ars: 1000,
+            markup: 35,
+            markup_sell_in_out: 39,
+          },
+          {
+            item_id: 'PRICEY',
+            seller_id: 'seller-caro',
+            seller_nickname: 'Caro',
+            price_ars: 1200,
+            markup: 28,
+          },
         ],
       },
     });
@@ -174,8 +194,20 @@ describe('CatalogCompetitionPanel', () => {
         mla: 'MLA001',
         fetch_status: 'ok',
         same_bucket: [
-          { item_id: 'CHEAP', seller_nickname: 'Barato', price_ars: 900, markup: 40 },
-          { item_id: 'MLA001', seller_nickname: 'Nosotros', price_ars: 1000, markup: 35 },
+          {
+            item_id: 'CHEAP',
+            seller_id: 'seller-barato',
+            seller_nickname: 'Barato',
+            price_ars: 900,
+            markup: 40,
+          },
+          {
+            item_id: 'MLA001',
+            seller_id: 'seller-ours',
+            seller_nickname: 'Nosotros',
+            price_ars: 1000,
+            markup: 35,
+          },
         ],
       },
     });
@@ -207,8 +239,20 @@ describe('CatalogCompetitionPanel', () => {
         mla: 'MLA001',
         fetch_status: 'ok',
         same_bucket: [
-          { item_id: 'CHEAP', seller_nickname: 'Barato', price_ars: 900, markup: 40 },
-          { item_id: 'MLA001', seller_nickname: 'Nosotros', price_ars: 1000, markup: 35 },
+          {
+            item_id: 'CHEAP',
+            seller_id: 'seller-barato',
+            seller_nickname: 'Barato',
+            price_ars: 900,
+            markup: 40,
+          },
+          {
+            item_id: 'MLA001',
+            seller_id: 'seller-ours',
+            seller_nickname: 'Nosotros',
+            price_ars: 1000,
+            markup: 35,
+          },
         ],
       },
     });
@@ -233,7 +277,7 @@ describe('CatalogCompetitionPanel', () => {
     fireEvent.click(box);
     await waitFor(() => expect(promocionesAPI.putHayMejoresCriterios).toHaveBeenCalledTimes(1));
     const body = promocionesAPI.putHayMejoresCriterios.mock.calls[0][1];
-    expect(body.sellers_excluidos).toEqual(['CHEAP']);
+    expect(body.sellers_excluidos).toEqual(['seller-barato']);
     expect(body.c1_activo).toBe(true);
     expect(body.c2_activo).toBe(true);
   });

@@ -62,7 +62,10 @@ export default function MejoresCandidatasBlock({
     onUnavailable,
     onSuggested,
   });
-  const { loading: monopolioLoading, oportunidad: monopolio, error: monopolioError } = useMonopolioC6(itemId);
+  const { loading: monopolioLoading, oportunidad: monopolio, error: monopolioError } = useMonopolioC6(
+    itemId,
+    { salePrice: baselinePrice },
+  );
 
   const entries = slotEntries(slots);
   const showClassic = entries.length > 0;

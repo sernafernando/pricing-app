@@ -52,6 +52,7 @@ from app.services.ml_catalog_competition_service import (
     effective_same_bucket_competitors,
     min_rival_price_ars,
     obtener_ultimo_snapshot,
+    snapshot_is_fresh,
 )
 from app.services.ml_hay_mejores_audit_service import record_flag_transition
 from app.services.ml_hay_mejores_criterios_service import (
@@ -170,12 +171,63 @@ def _on_hay_mejores_rollback(db: Session) -> None:
     db.info.pop(_AUTO_PENDING, None)
 
 
+def _auto_still_authorized(db: Session, item_id: str) -> bool:
+    """Fresh read: Auto still ON and the user who last saved criterios still has the permiso."""
+    from app.models.ml_hay_mejores_criterios import MlHayMejoresCriterios
+    from app.models.usuario import Usuario
+    from app.services.ml_hay_mejores_criterios_service import PERMISO_AUTO_APLICACION, get_criterios
+    from app.services.permisos_service import PermisosService
+
+    view = get_criterios(db, item_id)
+    if not view.auto_aplicacion or not view.exists:
+        return False
+    row = db.get(MlHayMejoresCriterios, item_id)
+    updated_by = getattr(row, "updated_by", None) if row is not None else None
+    if updated_by is None:
+        return False
+    user = db.get(Usuario, int(updated_by))
+    if user is None:
+        return False
+    return bool(PermisosService(db).tiene_permiso(user, PERMISO_AUTO_APLICACION))
+
+
 def _run_auto_enroll_after_commit(job: Mapping[str, Any]) -> None:
     """HTTP enroll with no caller Session held; on fail, re-flag in a fresh short session."""
     item_id = str(job["item_id"])
     target = job["target"]
+    pick_key = str(target.get("key") or "") if isinstance(target, Mapping) else ""
+    try:
+        from app.core.database import get_background_db
+
+        with get_background_db() as gate_db:
+            authorized = _auto_still_authorized(gate_db, item_id)
+        if not authorized:
+            logger.info("hay_mejores R-AUTO skipped for %s: Auto off or permiso revoked", item_id)
+            return
+    except Exception as exc:
+        logger.warning("hay_mejores R-AUTO gate failed for %s: %s", item_id, exc, exc_info=True)
+        return
+
     outcome = _try_auto_enroll(item_id, target)
     if _auto_enroll_succeeded(outcome):
+        try:
+            from app.core.database import get_background_db
+
+            with get_background_db() as done_db:
+                row = (
+                    done_db.query(MlItemSellerPromotions)
+                    .filter(MlItemSellerPromotions.item_id == item_id)
+                    .one_or_none()
+                )
+                if row is not None and _is_auto_pending_fingerprint(row.hay_mejores_fingerprint):
+                    row.hay_mejores_fingerprint = None
+                    row.hay_mejores_ofertas = False
+        except Exception as exc:
+            logger.warning("hay_mejores R-AUTO clear-pending failed for %s: %s", item_id, exc, exc_info=True)
+        return
+    if _auto_enroll_is_ambiguous(outcome):
+        # Leave auto_pending fingerprint; next recompute of the same pick must not re-queue.
+        logger.info("hay_mejores R-AUTO ambiguous for %s pick=%s — leaving pending", item_id, pick_key)
         return
     fail_reason = _auto_enroll_fail_reason(outcome)
     try:
@@ -327,12 +379,17 @@ def evaluar_mejores_candidatas(
     # keep the toggle ON for later loss-of-position, but do not surface worse promos.
     c2_busca_ganar = False
     if criterios.c2_activo:
-        # C2 needs a catalog snapshot; missing/empty rivals → path inert (no false flags).
-        min_rival = min_rival_price_ars(
-            obtener_ultimo_snapshot(db, mla),
-            our_item_id=mla,
-            sellers_excluidos=criterios.sellers_excluidos,
-        )
+        # C2 needs a *fresh* catalog snapshot; missing/stale/empty rivals → path inert.
+        snapshot = obtener_ultimo_snapshot(db, mla)
+        if not snapshot_is_fresh(snapshot):
+            _enqueue_catalog_competition_refresh(db, mla)
+            min_rival = None
+        else:
+            min_rival = min_rival_price_ars(
+                snapshot,
+                our_item_id=mla,
+                sellers_excluidos=criterios.sellers_excluidos,
+            )
         ya_ganamos = catalog_win_con_precio(status_quo_price, min_rival)
         c2_busca_ganar = min_rival is not None and not ya_ganamos
     mejores: List[MejorTuple] = []
@@ -347,6 +404,7 @@ def evaluar_mejores_candidatas(
             c1_markup_min=criterios.c1_markup_min,
             c1_markup_max=criterios.c1_markup_max,
         )
+        # Owner: C1 always wins — C2/Auto may only suggest/apply inside the C1 band.
         pasa_c2 = (
             c2_busca_ganar
             and catalog_win_con_precio(price, min_rival)
@@ -354,6 +412,12 @@ def evaluar_mejores_candidatas(
                 markup,
                 c2_activo=criterios.c2_activo,
                 c2_solo_markup_positivo=criterios.c2_solo_markup_positivo,
+            )
+            and markup_pasa_c1(
+                markup,
+                c1_activo=criterios.c1_activo,
+                c1_markup_min=criterios.c1_markup_min,
+                c1_markup_max=criterios.c1_markup_max,
             )
         )
         if not pasa_clasico and not pasa_c2:
@@ -470,11 +534,20 @@ def evaluar_monopolio_c6(
 
 
 def pick_mejor_candidata_auto(candidatas: Sequence[Mapping[str, Any]]) -> Optional[Dict[str, Any]]:
-    """R-AUTO pick: classic path first, else C2; among pool, best markup (sell-in/out if all have it)."""
-    ranked = [c for c in candidatas if c.get("key") != C6_FINGERPRINT_KEY and c.get("markup") is not None]
-    classic = [c for c in ranked if c.get("path_clasico")]
-    pool: List[Dict[str, Any]] = list(classic) if classic else [c for c in ranked if c.get("path_c2")]
-    if not pool:
+    """R-AUTO pick: classic → C2 → C6 raise-assist (``path_c6``); best markup in the chosen pool."""
+    ranked = [c for c in candidatas if c.get("markup") is not None]
+    # Fingerprint-only C6 rows are not enrollable; raise-assist promos use path_c6 + real promo key.
+    enrollable = [c for c in ranked if c.get("key") != C6_FINGERPRINT_KEY]
+    classic = [c for c in enrollable if c.get("path_clasico")]
+    c2 = [c for c in enrollable if c.get("path_c2")]
+    c6_assist = [c for c in enrollable if c.get("path_c6")]
+    if classic:
+        pool: List[Dict[str, Any]] = list(classic)
+    elif c2:
+        pool = list(c2)
+    elif c6_assist:
+        pool = list(c6_assist)
+    else:
         return None
     use_sio = all(c.get("markup_sell_in_out") is not None for c in pool)
     best = pool[0]
@@ -540,8 +613,13 @@ def _try_auto_enroll(item_id: str, target: Mapping[str, Any]) -> Dict[str, Any]:
 
 
 def _auto_enroll_succeeded(outcome: Mapping[str, Any]) -> bool:
-    # ``ambiguous`` (timeout/5xx): write may already be on ML — do not re-flag as Autoapply falló.
-    return outcome.get("status") in {"submitted", "reconciled_applied", "ambiguous"}
+    # Only definitive applies clear the pending marker. ``ambiguous`` stays pending (no re-flag,
+    # no second enroll on the next recompute of the same pick).
+    return outcome.get("status") in {"submitted", "reconciled_applied"}
+
+
+def _auto_enroll_is_ambiguous(outcome: Mapping[str, Any]) -> bool:
+    return outcome.get("status") == "ambiguous"
 
 
 def _auto_enroll_fail_reason(outcome: Mapping[str, Any]) -> str:
@@ -551,6 +629,21 @@ def _auto_enroll_fail_reason(outcome: Mapping[str, Any]) -> str:
         if value is not None and str(value).strip():
             return str(value).strip()
     return "enroll rechazado"
+
+
+AUTO_PENDING_PREFIX = "auto_pending:"
+
+
+def _auto_pending_fingerprint(pick_key: str) -> str:
+    return f"{AUTO_PENDING_PREFIX}{pick_key}"
+
+
+def _is_auto_pending_fingerprint(fingerprint: Optional[str], pick_key: Optional[str] = None) -> bool:
+    if not fingerprint or not str(fingerprint).startswith(AUTO_PENDING_PREFIX):
+        return False
+    if pick_key is None:
+        return True
+    return fingerprint == _auto_pending_fingerprint(str(pick_key))
 
 
 def _candidate_entries(raw: Any, now: datetime) -> List[Mapping[str, Any]]:
@@ -667,8 +760,12 @@ def actualizar_hay_mejores_ofertas(
                     mejores=mejores,
                     descartado_fingerprint=row.hay_mejores_descartado_fingerprint,
                 )
+                # Pending Auto enroll (incl. after ambiguous) is not a fresh transition.
+                pending_inflight = _is_auto_pending_fingerprint(prev_fingerprint)
                 would_transition = bool(
-                    decision.hay_mejores and (not prev_flag or prev_fingerprint != decision.fingerprint)
+                    decision.hay_mejores
+                    and (not prev_flag or prev_fingerprint != decision.fingerprint)
+                    and not pending_inflight
                 )
                 if (
                     would_transition
@@ -679,9 +776,10 @@ def actualizar_hay_mejores_ofertas(
                     auto_target = resolve_auto_enroll_target(evaluacion.candidatas, candidates)
 
                 if auto_target is not None:
-                    # R-AUTO: clear visible flag now; MeLi enroll runs only after the outer txn commits (ADR-5).
+                    # R-AUTO: hide flag; keep auto_pending fingerprint so ambiguous does not re-enroll.
+                    pending_fp = _auto_pending_fingerprint(str(auto_target.get("key") or decision.fingerprint or ""))
                     row.hay_mejores_ofertas = False
-                    row.hay_mejores_fingerprint = None
+                    row.hay_mejores_fingerprint = pending_fp
                     row.hay_mejores_descartado_fingerprint = None
                     record_flag_transition(
                         db,
@@ -699,8 +797,12 @@ def actualizar_hay_mejores_ofertas(
                             "auto_aplicacion": True,
                             "auto_pick": auto_target.get("key"),
                             "auto_deferred": True,
+                            "auto_pending_fingerprint": pending_fp,
                         },
                     )
+                elif pending_inflight:
+                    row.hay_mejores_ofertas = False
+                    row.hay_mejores_fingerprint = prev_fingerprint
                 else:
                     row.hay_mejores_ofertas = decision.hay_mejores
                     row.hay_mejores_fingerprint = decision.fingerprint
@@ -814,10 +916,12 @@ def set_hay_mejores_excluido_bulk(db: Session, item_ids: Sequence[str], *, exclu
         if any_flagged:
             notify_hay_mejores_changed(db)
         return ids
+    from app.services.ml_catalog_competition_service import prefetch_catalog_snapshots
     from app.services.ml_hay_mejores_criterios_service import prefetch_criterios
 
     batch = resolver_sell_in_out_para_mlas(db, ids)
     prefetch_criterios(db, ids)
+    prefetch_catalog_snapshots(db, ids)
     for item_id in ids:
         rows[item_id].hay_mejores_excluido = False
         actualizar_hay_mejores_ofertas(db, item_id, sell_in_out_batch=batch)

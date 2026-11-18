@@ -88,7 +88,7 @@ Catalog snapshot (fresh on promo review)
 Canonical A + C1 clamp  ⇒  classic “mejor markup/precio” candidates
 ```
 
-### C6 UX (owner draft 2026-11-16 — agent agrees in spirit)
+### C6 UX (owner draft 2026-11-16)
 
 Same flag as hay_mejores; **different lead** when the novelty is monopoly headroom (not “better cheaper promo”):
 
@@ -224,8 +224,8 @@ Recommendation: lean transition events + enroll enrich; never write when fingerp
 - **2026-11-16**: Global (bulk on filter) or per MLA; UI toggle sharing Competencia col2.
 - **2026-11-16**: Owner listed C1–C8 (markup clamp; win catalog; residual stock; international; low reputation; monopoly ceiling; Full; hide sellers by name). Documented and grouped above.
 - **2026-11-16**: C2 composition → toggle like C6: **solo con markup positivo** vs **siempre**. Owner asked to clarify the C6 “separate signal” suggestion.
-- **2026-11-16**: Owner: unsure whether C6 deserves a distinct flag. Agent lean: **not** a separate boolean by default — reuse flag (or a reason/subtype); separate flag only if the table needs its own filter/badge. Pending owner call.
-- **2026-11-16**: C6 UX: same flag; different lead (“oportunidad de aumentar el precio… mantener posición”); if a promo assists, suggest it; else Premium at (2nd price − 100) editable. Agent: agrees; capture −100 / Premium / dual-reason priority as open.
+- **2026-11-16**: Owner: unsure whether C6 deserves a distinct flag. Decision: **not** a separate boolean by default — reuse flag (or a reason/subtype); separate flag only if the table needs its own filter/badge.
+- **2026-11-16**: C6 UX: same flag; different lead (“oportunidad de aumentar el precio… mantener posición”); if a promo assists, suggest it; else Premium at (2nd price − 100) editable.
 - **2026-11-17**: Owner: “ranking after filters” = only which competitors count for 2nd place; markup follows the higher price. Dual classic-vs-C6 question was unclear — rephrase with example.
 - **2026-11-17**: Dual case → **show both** blocks (classic + C6), not exclusive lead.
 - **2026-11-17**: Order: candidatas above monopolio; monopolio only if C6 is enabled.

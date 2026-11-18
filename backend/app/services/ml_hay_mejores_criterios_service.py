@@ -74,8 +74,10 @@ def _row_to_view(row: MlHayMejoresCriterios) -> CriteriosView:
         c2_solo_markup_positivo=bool(row.c2_solo_markup_positivo),
         c6_activo=bool(row.c6_activo),
         c6_solo_via_promo=bool(row.c6_solo_via_promo),
-        c6_gap_min=_to_decimal(row.c6_gap_min) or DEFAULT_C6_GAP_MIN,
-        c6_distancia_objetivo=_to_decimal(row.c6_distancia_objetivo) or DEFAULT_C6_DISTANCIA,
+        c6_gap_min=_to_decimal(row.c6_gap_min) if row.c6_gap_min is not None else DEFAULT_C6_GAP_MIN,
+        c6_distancia_objetivo=_to_decimal(row.c6_distancia_objetivo)
+        if row.c6_distancia_objetivo is not None
+        else DEFAULT_C6_DISTANCIA,
         auto_aplicacion=bool(row.auto_aplicacion),
         sellers_excluidos=[str(x) for x in excluded],
         updated_at=row.updated_at,

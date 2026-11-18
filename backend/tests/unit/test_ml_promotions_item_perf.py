@@ -254,11 +254,13 @@ PRICING_CONTEXT_READS = ("subcategorias_grupos", "comisiones_versiones", "avg(pr
 
 def _rank(db, mlas) -> None:
     """hay_mejores over `mlas` in one run (one session), as the recompute script and the promotions sync do."""
+    from app.services.ml_catalog_competition_service import prefetch_catalog_snapshots
     from app.services.ml_hay_mejores_criterios_service import prefetch_criterios
 
     candidate = {"id": "C-1", "type": "SELLER_CAMPAIGN", "status": "candidate", "price": 25000.0}
-    # One criterios IN-read for the whole run (same pattern as sell_in_out_batch) — never 1 SELECT/MLA.
+    # One criterios + one snapshots batch for the whole run — never 1 SELECT/MLA.
     prefetch_criterios(db, mlas)
+    prefetch_catalog_snapshots(db, mlas)
     for mla in mlas:
         hay_mejores.listar_mejores_candidatas(
             db, mla, [candidate], 30000.0, sell_in_out_batch=hay_mejores._sin_sell_in_out()

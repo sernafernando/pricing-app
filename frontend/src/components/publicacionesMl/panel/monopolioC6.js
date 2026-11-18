@@ -8,7 +8,9 @@ export function minRivalPriceArs(sameBucket, ourMla, sellersExcluidos = []) {
   const prices = [];
   for (const row of sameBucket || []) {
     const id = row?.item_id != null ? String(row.item_id) : '';
-    if (!id || id === ourMla || excluded.has(id)) continue;
+    const sellerId = row?.seller_id != null ? String(row.seller_id) : '';
+    if (!id || id === ourMla) continue;
+    if ((sellerId && excluded.has(sellerId)) || (id && excluded.has(id))) continue;
     const price = row.price_ars ?? row.price;
     if (price == null || Number.isNaN(Number(price))) continue;
     prices.push(Number(price));
@@ -48,16 +50,25 @@ export function computeMonopolioC6({
   };
 }
 
-export function monopolioFromSnapshotAndCriterios(mla, snapshot, criterios) {
+export function monopolioFromSnapshotAndCriterios(mla, snapshot, criterios, { salePrice = null } = {}) {
   if (!criterios?.c6_activo) return null;
   const sameBucket = snapshot?.same_bucket || [];
-  const our = ourPriceArs(sameBucket, mla) ?? (snapshot?.our_price != null ? Number(snapshot.our_price) : null);
+  // Prefer live sale price (backend baseline); snapshot price is fallback only.
+  const our =
+    salePrice != null && Number.isFinite(Number(salePrice))
+      ? Number(salePrice)
+      : ourPriceArs(sameBucket, mla) ?? (snapshot?.our_price != null ? Number(snapshot.our_price) : null);
   const segundo = minRivalPriceArs(sameBucket, mla, criterios.sellers_excluidos || []);
-  return computeMonopolioC6({
+  const out = computeMonopolioC6({
     c6Activo: true,
     ourPrice: our,
     segundoPrecio: segundo,
     gapMin: criterios.c6_gap_min ?? 5000,
     distanciaObjetivo: criterios.c6_distancia_objetivo ?? 100,
   });
+  if (!out) return null;
+  return {
+    ...out,
+    solo_via_promo: Boolean(criterios.c6_solo_via_promo),
+  };
 }

@@ -305,24 +305,85 @@ def _build_failed_row(mla: str, fetch_status: str, detail: Optional[str]) -> MLC
     )
 
 
+_SNAPSHOT_CACHE_KEY = "ml_catalog_competition_snapshot_cache"
+# C2/Auto require a fresh catalog (design: frescor obligatorio). Older → inert + enqueue refresh.
+CATALOG_SNAPSHOT_MAX_AGE_SECONDS = 24 * 3600
+
+
+def _session_snapshot_cache(db: Session) -> Dict[str, Optional[MLCatalogCompetition]]:
+    info = getattr(db, "info", None)
+    if not isinstance(info, dict):
+        return {}
+    return info.setdefault(_SNAPSHOT_CACHE_KEY, {})
+
+
+def prefetch_catalog_snapshots(db: Session, mlas: Sequence[str]) -> Dict[str, Optional[MLCatalogCompetition]]:
+    """One batch read of the latest snapshot per MLA; fills the session cache for ``obtener_ultimo_snapshot``.
+
+    Portable (no DISTINCT ON): load candidates ordered by fecha_consulta DESC and keep first per MLA.
+    """
+    ids = [mla for mla in dict.fromkeys(mlas) if mla]
+    if not ids:
+        return {}
+    cache = _session_snapshot_cache(db)
+    rows = (
+        db.query(MLCatalogCompetition)
+        .filter(MLCatalogCompetition.mla.in_(ids))
+        .order_by(MLCatalogCompetition.mla.asc(), MLCatalogCompetition.fecha_consulta.desc())
+        .all()
+    )
+    if not isinstance(rows, list):
+        rows = []
+    latest: Dict[str, Optional[MLCatalogCompetition]] = {mla: None for mla in ids}
+    for row in rows:
+        if not isinstance(row, MLCatalogCompetition):
+            continue
+        if latest.get(row.mla) is None:
+            latest[row.mla] = row
+    cache.update(latest)
+    return latest
+
+
+def snapshot_is_fresh(row: Optional[MLCatalogCompetition], *, now: Optional[datetime] = None) -> bool:
+    """True when the snapshot exists and is within ``CATALOG_SNAPSHOT_MAX_AGE_SECONDS``.
+
+    Missing ``fecha_consulta`` on a present row → treated as fresh (legacy / unit stubs).
+    """
+    if row is None:
+        return False
+    consulted = getattr(row, "fecha_consulta", None)
+    if consulted is None:
+        return True
+    if getattr(consulted, "tzinfo", None) is None:
+        consulted = consulted.replace(tzinfo=UTC)
+    ref = now if now is not None else datetime.now(UTC)
+    if ref.tzinfo is None:
+        ref = ref.replace(tzinfo=UTC)
+    age = (ref - consulted).total_seconds()
+    return age <= CATALOG_SNAPSHOT_MAX_AGE_SECONDS
+
+
 def obtener_ultimo_snapshot(db: Session, mla: str) -> Optional[MLCatalogCompetition]:
     """Latest persisted snapshot row for `mla`, or `None` if it was never
     fetched.
 
-    Equivalent to reading `v_ml_catalog_competition_latest` filtered to one
-    MLA (`ORDER BY fecha_consulta DESC LIMIT 1` over the same leading
-    columns of `idx_mlcc_mla_fecha`), without depending on the view's
-    Postgres-only `DISTINCT ON` syntax — kept portable so this single-MLA
-    read path stays testable against the SQLite test database. The view
-    itself remains the read path for a future "all MLAs" query, which this
-    is not.
+    Uses the session prefetch cache when present. Otherwise equivalent to reading
+    `v_ml_catalog_competition_latest` filtered to one MLA (`ORDER BY fecha_consulta
+    DESC LIMIT 1`), without depending on the view's Postgres-only `DISTINCT ON`
+    syntax — kept portable for the SQLite test database.
     """
-    return (
+    cache = _session_snapshot_cache(db)
+    if mla in cache:
+        return cache[mla]
+    row = (
         db.query(MLCatalogCompetition)
         .filter(MLCatalogCompetition.mla == mla)
         .order_by(MLCatalogCompetition.fecha_consulta.desc())
         .first()
     )
+    if isinstance(getattr(db, "info", None), dict):
+        cache[mla] = row
+    return row
 
 
 def _our_competitor_entry(row: MLCatalogCompetition) -> Optional[Dict[str, Any]]:
@@ -473,7 +534,18 @@ def effective_same_bucket_competitors(
     excluded = {str(x) for x in (sellers_excluidos or []) if x}
     if not excluded:
         return same_bucket_competitors(row)
-    return [c for c in same_bucket_competitors(row) if (c.get("item_id") or "") not in excluded]
+
+    def _counts(competitor: Dict[str, Any]) -> bool:
+        # Prefer seller_id (PM excludes a seller). Legacy rows may still store item_id.
+        seller_id = str(competitor.get("seller_id") or "")
+        item_id = str(competitor.get("item_id") or "")
+        if seller_id and seller_id in excluded:
+            return False
+        if item_id and item_id in excluded:
+            return False
+        return True
+
+    return [c for c in same_bucket_competitors(row) if _counts(c)]
 
 
 def min_rival_price_ars(
