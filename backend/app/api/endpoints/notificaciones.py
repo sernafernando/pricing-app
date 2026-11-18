@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Query as OrmQuery, Session
 from sqlalchemy import desc, func
 from pydantic import BaseModel, ConfigDict, Field
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Optional
 from datetime import UTC, datetime
 from app.api.deps import get_current_user
 from app.core.database import get_db, get_async_db, release_connection
@@ -738,25 +738,51 @@ class AccionBulkResponse(BaseModel):
     count: int
 
 
-def _crear_reglas_ignorar(db: Session, user_id: int, notificaciones: List[Notificacion]) -> None:
-    """One ignore rule per distinct product + type + markup, like the single discard creates."""
-    servicio = NotificacionService(db)
-    vistas: set[tuple[int, str, float]] = set()
-    for notif in notificaciones:
-        if not notif.item_id or notif.markup_real is None:
-            continue
-        clave = (notif.item_id, notif.tipo, round(float(notif.markup_real), 2))
-        if clave in vistas:
-            continue
-        vistas.add(clave)
-        servicio.agregar_regla_ignorar(
-            user_id=user_id,
-            item_id=notif.item_id,
-            tipo=notif.tipo,
-            markup_real=notif.markup_real,
-            codigo_producto=notif.codigo_producto,
-            descripcion_producto=notif.descripcion_producto,
-            notificacion_id=notif.id,
+def _crear_reglas_ignorar(db: Session, user_id: int, query: OrmQuery) -> None:
+    """Add one ignore rule per new product + type + markup, without committing.
+
+    Same rule as the single discard (markup rounded to 2 decimals), but read as
+    plain columns and written in the caller's transaction, so a failed bulk
+    action leaves no rule behind and no row is reloaded per notification.
+    """
+    filas = (
+        query.filter(Notificacion.item_id.isnot(None), Notificacion.markup_real.isnot(None))
+        .with_entities(
+            Notificacion.id,
+            Notificacion.item_id,
+            Notificacion.tipo,
+            Notificacion.markup_real,
+            Notificacion.codigo_producto,
+            Notificacion.descripcion_producto,
+        )
+        .all()
+    )
+    nuevas: dict[tuple[int, str, float], Any] = {}
+    for fila in filas:
+        nuevas.setdefault((fila.item_id, fila.tipo, round(float(fila.markup_real), 2)), fila)
+    if not nuevas:
+        return
+
+    existentes = db.query(
+        NotificacionIgnorada.item_id, NotificacionIgnorada.tipo, NotificacionIgnorada.markup_real
+    ).filter(
+        NotificacionIgnorada.user_id == user_id,
+        NotificacionIgnorada.item_id.in_({clave[0] for clave in nuevas}),
+    )
+    for item_id, tipo, markup in existentes:
+        nuevas.pop((item_id, tipo, round(float(markup), 2)), None)
+
+    for (item_id, tipo, markup), fila in nuevas.items():
+        db.add(
+            NotificacionIgnorada(
+                user_id=user_id,
+                item_id=item_id,
+                tipo=tipo,
+                markup_real=markup,
+                codigo_producto=fila.codigo_producto,
+                descripcion_producto=fila.descripcion_producto,
+                ignorado_por_notificacion_id=fila.id,
+            )
         )
 
 
@@ -806,7 +832,7 @@ async def accion_bulk_notificaciones(
         if body.accion == "descartada":
             for notif in query.filter(Notificacion.tipo == TIPO_FALTANTES).all():
                 rechazar_cierre_faltantes(db, notif)
-            _crear_reglas_ignorar(db, current_user.id, query.filter(Notificacion.item_id.isnot(None)).all())
+            _crear_reglas_ignorar(db, current_user.id, query)
         count = _aplicar_accion_bulk(db, query, body.accion)
         db.commit()
     except Exception:

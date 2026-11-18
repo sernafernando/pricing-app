@@ -15,6 +15,7 @@ export default function Notificaciones() {
   const [notificaciones, setNotificaciones] = useState([]);
   const [stats, setStats] = useState({ total: 0, no_leidas: 0, por_tipo: {} });
   const [loading, setLoading] = useState(false);
+  const [errorGrupo, setErrorGrupo] = useState(null);
   const [familia, setFamilia] = useState(null);
   const [totalServidor, setTotalServidor] = useState(0);
   const [pmsServidor, setPmsServidor] = useState([]);
@@ -192,11 +193,12 @@ export default function Notificaciones() {
   // Group actions go in ONE request: one per notification took the API down
   // when a group of 1411 was ignored (prod incident 2026-11-18).
   const accionGrupo = async (ids, accion) => {
+    setErrorGrupo(null);
     try {
       await api.post('/notificaciones/bulk', { ids, accion });
     } catch (error) {
       console.error(`Error en acción "${accion}" sobre el grupo:`, error);
-      alert('No se pudo aplicar la acción al grupo');
+      setErrorGrupo('No se pudo aplicar la acción al grupo');
     }
     await fetchNotificaciones();
   };
@@ -454,6 +456,10 @@ export default function Notificaciones() {
           </button>
         </div>
       </div>
+
+      {errorGrupo && (
+        <div className={styles.errorGrupo} role="alert">{errorGrupo}</div>
+      )}
 
       {loading ? (
         <div className={styles.loading}>Cargando...</div>

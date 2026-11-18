@@ -112,6 +112,19 @@ describe('Notificaciones page — group actions are one request', () => {
 
     await expectOneBulk(accion);
   });
+
+  it('a failed group action is shown on the page, not in a browser popup', async () => {
+    mockServer(true);
+    api.post.mockRejectedValue(new Error('boom'));
+    const user = userEvent.setup();
+    renderWithRouter(<Notificaciones />);
+
+    await expandir(user);
+    await user.click(screen.getByRole('button', { name: 'Resuelta (1411)' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo aplicar la acción al grupo');
+    expect(window.alert).not.toHaveBeenCalled();
+  });
 });
 
 describe('NotificationBell — group actions are one request', () => {

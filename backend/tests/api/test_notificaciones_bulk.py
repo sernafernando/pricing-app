@@ -250,3 +250,36 @@ class TestNoTransactionHeldAcrossAwait:
             asyncio.run(notificaciones_endpoint.descartar_notificacion(notif.id, None, True, db, active_user))
 
         assert not db.in_transaction()
+
+    def test_failed_bulk_discard_leaves_no_ignore_rules(self, db, active_user, monkeypatch: pytest.MonkeyPatch) -> None:
+        notifs = [_notif(db, active_user, tipo="markup_bajo", item_id=77, markup_real=-4.5) for _ in range(3)]
+        db.commit()
+
+        def _boom(*args: Any, **kwargs: Any) -> int:
+            raise RuntimeError("update failed")
+
+        monkeypatch.setattr(notificaciones_endpoint, "_aplicar_accion_bulk", _boom)
+        body = notificaciones_endpoint.AccionBulkRequest(ids=[n.id for n in notifs], accion="descartada")
+
+        with pytest.raises(RuntimeError):
+            asyncio.run(notificaciones_endpoint.accion_bulk_notificaciones(body, db, active_user))
+
+        assert not db.in_transaction()
+        assert db.query(NotificacionIgnorada).count() == 0
+        assert (
+            not db.in_transaction()
+            or db.query(Notificacion).filter(Notificacion.estado == EstadoNotificacion.DESCARTADA).count() == 0
+        )
+
+    def test_bulk_discard_skips_rules_that_already_exist(
+        self, client, auth_headers, db, active_user, sse_calls
+    ) -> None:
+        db.add(NotificacionIgnorada(user_id=active_user.id, item_id=77, tipo="markup_bajo", markup_real=-4.5))
+        nueva = _notif(db, active_user, tipo="markup_bajo", item_id=77, markup_real=-4.5)
+        otra = _notif(db, active_user, tipo="markup_bajo", item_id=78, markup_real=2)
+
+        r = _bulk(client, auth_headers, [nueva.id, otra.id], "descartada")
+
+        assert r.json() == {"count": 2}
+        claves = sorted((r.item_id, float(r.markup_real)) for r in db.query(NotificacionIgnorada).all())
+        assert claves == [(77, -4.5), (78, 2.0)]
