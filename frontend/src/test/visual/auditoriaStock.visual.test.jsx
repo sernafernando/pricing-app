@@ -322,7 +322,7 @@ describe('Auditoría de stock', () => {
       await expect.element(screen.getByText('Cartucho Demo 01 negro', { exact: true })).toBeVisible();
       await expect.element(screen.getByRole('group', { name: 'Ver por' })).toBeVisible();
       // The ERP / Full line under each sales figure, one line, in the muted tone.
-      const split = screen.getByText('ERP 12', { exact: true }).element();
+      const split = screen.getByText('ERP 8', { exact: true }).element();
       expect(split.getAttribute('title')).toBe('incluye 2 sin dato de envío');
       expect(split.parentElement.getBoundingClientRect().height).toBeLessThan(20);
       expect(getComputedStyle(split.parentElement).color).toBe(tokenColor('--cf-text-tertiary'));

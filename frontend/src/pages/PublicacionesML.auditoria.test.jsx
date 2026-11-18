@@ -795,11 +795,13 @@ describe('auditoria-stock-niveles S1: Marca > Categoría levels', () => {
   it('a group without cost on some products still shows its costed value and says "N productos sin costo"', async () => {
     const user = userEvent.setup();
     const t = await openAt();
-    await user.click(await t.findByRole('button', { name: 'Abrir DEMO' }));
-    const supplies = rowOf('INSUMOS');
-    expect(within(supplies).getByText('1 producto sin costo')).toBeInTheDocument();
-    expect(supplies.querySelector('td[data-column="valor_total"]').textContent).toContain('3.557');
-    expect(rowOf('DEMO').querySelector('td[data-column="valor_total"]').textContent).toContain('30.017');
+    await user.click(await t.findByRole('button', { name: 'Abrir Sin marca' }));
+    // the cable has no cost: its category and brand say so, and their values are the costed part
+    expect(within(rowOf('Sin categoría')).getByText('1 producto sin costo')).toBeInTheDocument();
+    expect(within(rowOf('Sin marca')).getByText('1 producto sin costo')).toBeInTheDocument();
+    // DEMO is its products' exact sum: notebook 21.000 + cartridge 806,90 + PC 2.440
+    expect(within(rowOf('DEMO')).queryByText(/sin costo/)).not.toBeInTheDocument();
+    expect(rowOf('DEMO').querySelector('td[data-column="valor_total"]').textContent).toContain('24.247');
   });
 
   it('the Excel export carries the level and the drill', async () => {
@@ -822,9 +824,10 @@ describe('auditoria-stock-niveles S3, S4: "ERP n · Full n" under the sales, cov
     const t = await audit('/ml-publicaciones?vista=auditoria');
     await t.findByText('DEMO', { selector: 'span' });
     const brand = rowOf('DEMO');
-    expect(cell(brand, 'unidades_7d')).toHaveTextContent('ERP 12 · Full 5');
-    expect(cell(brand, 'unidades_30d')).toHaveTextContent('ERP 50 · Full 25');
-    expect(within(cell(brand, 'unidades_7d')).getByTitle('incluye 2 sin dato de envío')).toHaveTextContent('ERP 12');
+    // the sum of its products: notebook ERP 4 · Full 2 + cartridge ERP 4 · Full 1 (2 without shipping data) + PC 0
+    expect(cell(brand, 'unidades_7d')).toHaveTextContent('ERP 8 · Full 3');
+    expect(cell(brand, 'unidades_30d')).toHaveTextContent('ERP 33 · Full 16');
+    expect(within(cell(brand, 'unidades_7d')).getByTitle('incluye 2 sin dato de envío')).toHaveTextContent('ERP 8');
     // none without shipping data in 30 days: no tooltip
     expect(within(cell(brand, 'unidades_30d')).queryByTitle(/sin dato de envío/)).not.toBeInTheDocument();
     expect(cell(rowOf('Sin marca'), 'unidades_7d')).toHaveTextContent('ERP 0 · Full 0');

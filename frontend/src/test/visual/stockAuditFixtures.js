@@ -100,7 +100,8 @@ export const AUDIT_CARTRIDGE = {
   publicacion_activa: true,
   promo_aplicada: false,
   params: { item_ids: '9101' },
-  ventas: sales(5, 25, 450000, { ultima_venta: '2026-10-20T12:00:00Z', ultima_venta_dias: 29, ageing_dias: 29, dias_cobertura: 156, rotacion: 0.19, stock_promedio: 131.6 }),
+  // two sales of the week without shipping data, counted in ERP (auditoria-stock-niveles S3)
+  ventas: sales(5, 25, 450000, { ultima_venta: '2026-10-20T12:00:00Z', ultima_venta_dias: 29, ageing_dias: 29, dias_cobertura: 156, rotacion: 0.19, stock_promedio: 131.6, envio: split(5, 25, 2, 0) }),
   kind_counts: { clasica: 1, cuotas_3: 1 },
   status_counts: { active: 2 },
   promo_counts: { con: 0, sin: 2 },
@@ -179,11 +180,10 @@ export function stockAuditResponse(rows = [AUDIT_NOTEBOOK, AUDIT_CARTRIDGE, AUDI
     can_see_margin: true,
     tipo_cambio: 1450,
     tipo_cambio_fecha: '2026-11-17',
+    // as the backend: the KPIs of any level add its top-level rows
     kpis: {
-      erp: money(114, 15536.55),
-      full: money(70, 8710.34),
-      total: money(184, 24246.9),
-      productos: 3,
+      ...summedStock(rows),
+      productos: rows.reduce((acc, r) => acc + (r.productos ?? 1), 0),
       productos_sin_publicacion_activa: 1,
       valor_sin_publicacion_activa: money(4, 2440),
       productos_con_promo_aplicada: 1,
@@ -237,95 +237,113 @@ export const AUDIT_PACK_ITEMS = {
   offset: 0,
 };
 
-// The Marca > Categoría levels (auditoria-stock-niveles S1, S2): group rows over the products above.
-const group = (fields) => ({
-  productos_sin_costo: 0,
-  sin_costo: false,
-  publicacion_activa: true,
-  promo_aplicada: true,
-  kind_counts: { clasica: 3, cuotas_6: 3 },
-  status_counts: { active: 6, paused: 1 },
-  markup_actual: { min: -2.4, max: 30 },
-  ...fields,
+// The Marca > Categoría levels (auditoria-stock-niveles S1, S2): every group is DERIVED from the rows under it, as
+// the backend adds them (owner 2026-11-18: a hand-written category showed twice its products' Full).
+const round2 = (n) => Math.round(n * 100) / 100;
+const addMoney = (parts) => ({
+  unidades: parts.reduce((acc, m) => acc + m.unidades, 0),
+  usd: round2(parts.reduce((acc, m) => acc + (m.usd ?? 0), 0)),
+  ars: round2(parts.reduce((acc, m) => acc + (m.ars ?? 0), 0)),
 });
 
-export const AUDIT_CATEGORY_NOTEBOOKS = group({
-  key: 'marca:DEMO|categoria:NOTEBOOKS',
-  tipo: 'categoria',
-  grupo: { marca: 'DEMO', categoria: 'NOTEBOOKS' },
-  descripcion: 'NOTEBOOKS',
-  productos: 1,
-  erp: money(30, 12600),
-  full: money(32, 13860),
-  total: money(62, 26460),
-  publications_count: 5,
-  promo_counts: { con: 3, sin: 5 },
-  ventas: sales(8, 32, 12800000),
-});
+/** The stock parts (erp, full, total) of `rows` added (costed values only, the KPI rule). */
+function summedStock(rows) {
+  return Object.fromEntries(['erp', 'full', 'total'].map((part) => [part, addMoney(rows.map((r) => r[part]))]));
+}
 
-// One product without cost: its stock is left out of the values, which still show the costed part (KPI rule).
-export const AUDIT_CATEGORY_SUPPLIES = group({
-  key: 'marca:DEMO|categoria:INSUMOS',
-  tipo: 'categoria',
-  grupo: { marca: 'DEMO', categoria: 'INSUMOS' },
-  descripcion: 'INSUMOS',
-  productos: 2,
-  productos_sin_costo: 1,
+const addEnvio = (rows) =>
+  Object.fromEntries(
+    ['7d', '30d'].map((w) => [
+      w,
+      Object.fromEntries(['erp', 'full', 'sin_envio'].map((k) => [k, rows.reduce((acc, r) => acc + (r.ventas?.envio?.[w]?.[k] ?? 0), 0)])),
+    ]),
+  );
+
+const isGroup = (row) => row.tipo === 'marca' || row.tipo === 'categoria';
+
+/** A group row over `children` (products, or a brand's categories): stock, counts and sales added. */
+function groupOf(fields, children) {
+  const u7 = children.reduce((acc, r) => acc + (r.ventas?.unidades_7d ?? 0), 0);
+  const u30 = children.reduce((acc, r) => acc + (r.ventas?.unidades_30d ?? 0), 0);
+  const gross = children.reduce((acc, r) => acc + (r.ventas?.facturado_30d ?? 0), 0);
+  const productosSinCosto = children.reduce((acc, r) => acc + (isGroup(r) ? r.productos_sin_costo : r.sin_costo ? 1 : 0), 0);
+  return {
+    productos: children.reduce((acc, r) => acc + (isGroup(r) ? r.productos : 1), 0),
+    productos_sin_costo: productosSinCosto,
+    sin_costo: productosSinCosto > 0,
+    ...summedStock(children),
+    publications_count: children.reduce((acc, r) => acc + (r.publications_count ?? 0), 0),
+    publicacion_activa: children.some((r) => r.publicacion_activa),
+    promo_aplicada: children.some((r) => r.promo_aplicada),
+    promo_counts: {
+      con: children.reduce((acc, r) => acc + (r.promo_counts?.con ?? 0), 0),
+      sin: children.reduce((acc, r) => acc + (r.promo_counts?.sin ?? 0), 0),
+    },
+    kind_counts: { clasica: 3, cuotas_6: 3 },
+    status_counts: { active: 6, paused: 1 },
+    markup_actual: { min: -2.4, max: 30 },
+    ventas: sales(u7, u30, gross, { envio: addEnvio(children) }),
+    ...fields,
+  };
+}
+
+/** The no-brand, no-category product: a cable sold a little, never by Full, and without cost (its values unknown). */
+export const AUDIT_CABLE = {
+  ...AUDIT_ORPHAN,
+  key: 'p9301',
+  product_item_id: 9301,
+  tipo: 'producto',
+  codigo: 'CABLE-DEMO-1M',
+  descripcion: 'Cable Demo USB-C 1m',
+  marca: null,
+  costo: null,
   sin_costo: true,
-  erp: money(84, 2936.55),
-  full: money(100, 620.68),
-  total: money(184, 3557.23),
-  publications_count: 2,
-  promo_counts: { con: 0, sin: 3 },
-  ventas: sales(9, 43, 970000, { dias_cobertura: 128, rotacion: 0.23 }),
-});
-
-export const AUDIT_BRAND_DEMO = group({
-  key: 'marca:DEMO',
-  tipo: 'marca',
-  grupo: { marca: 'DEMO', categoria: null },
-  descripcion: 'DEMO',
-  productos: 3,
-  productos_sin_costo: 1,
-  sin_costo: true,
-  erp: money(114, 15536.55),
-  full: money(132, 14480.68),
-  total: money(246, 30017.23),
-  publications_count: 7,
-  promo_counts: { con: 3, sin: 8 },
-  // two sales of the week without shipping data, counted in ERP
-  ventas: sales(17, 75, 13770000, { envio: split(17, 75, 2, 0) }),
-  categorias: [AUDIT_CATEGORY_NOTEBOOKS, AUDIT_CATEGORY_SUPPLIES],
-});
-
-export const AUDIT_BRAND_NONE = group({
-  key: 'marca:__none__',
-  tipo: 'marca',
-  grupo: { marca: '__none__', categoria: null },
-  descripcion: 'Sin marca',
-  productos: 1,
-  erp: money(2, 180),
+  erp: money(2, null),
   full: money(0, 0),
-  total: money(2, 180),
+  total: money(2, null),
   publications_count: 1,
+  publicacion_activa: true,
+  params: { item_ids: '9301' },
   promo_counts: { con: 0, sin: 1 },
-  ventas: sales(0, 3, 90000),
-  categorias: [
-    group({
-      key: 'marca:__none__|categoria:__none__',
-      tipo: 'categoria',
-      grupo: { marca: '__none__', categoria: '__none__' },
-      descripcion: 'Sin categoría',
-      productos: 1,
-      erp: money(2, 180),
-      full: money(0, 0),
-      total: money(2, 180),
-      publications_count: 1,
-      promo_counts: { con: 0, sin: 1 },
-      ventas: sales(0, 3, 90000),
-    }),
-  ],
-});
+  ventas: sales(0, 3, 90000, { envio: { '7d': { erp: 0, full: 0, sin_envio: 0 }, '30d': { erp: 3, full: 0, sin_envio: 0 } } }),
+};
+
+const PRODUCTS_BY_CATEGORY = {
+  NOTEBOOKS: [AUDIT_NOTEBOOK],
+  INSUMOS: [AUDIT_CARTRIDGE, AUDIT_ORPHAN],
+  __none__: [AUDIT_CABLE],
+};
+
+export const AUDIT_CATEGORY_NOTEBOOKS = groupOf(
+  { key: 'marca:DEMO|categoria:NOTEBOOKS', tipo: 'categoria', grupo: { marca: 'DEMO', categoria: 'NOTEBOOKS' }, descripcion: 'NOTEBOOKS' },
+  PRODUCTS_BY_CATEGORY.NOTEBOOKS,
+);
+
+export const AUDIT_CATEGORY_SUPPLIES = groupOf(
+  { key: 'marca:DEMO|categoria:INSUMOS', tipo: 'categoria', grupo: { marca: 'DEMO', categoria: 'INSUMOS' }, descripcion: 'INSUMOS' },
+  PRODUCTS_BY_CATEGORY.INSUMOS,
+);
+
+export const AUDIT_BRAND_DEMO = groupOf(
+  {
+    key: 'marca:DEMO',
+    tipo: 'marca',
+    grupo: { marca: 'DEMO', categoria: null },
+    descripcion: 'DEMO',
+    categorias: [AUDIT_CATEGORY_NOTEBOOKS, AUDIT_CATEGORY_SUPPLIES],
+  },
+  [AUDIT_CATEGORY_NOTEBOOKS, AUDIT_CATEGORY_SUPPLIES],
+);
+
+const AUDIT_CATEGORY_NONE = groupOf(
+  { key: 'marca:__none__|categoria:__none__', tipo: 'categoria', grupo: { marca: '__none__', categoria: '__none__' }, descripcion: 'Sin categoría' },
+  PRODUCTS_BY_CATEGORY.__none__,
+);
+
+export const AUDIT_BRAND_NONE = groupOf(
+  { key: 'marca:__none__', tipo: 'marca', grupo: { marca: '__none__', categoria: null }, descripcion: 'Sin marca', categorias: [AUDIT_CATEGORY_NONE] },
+  [AUDIT_CATEGORY_NONE],
+);
 
 /** `GET /view/stock-audit` by its `nivel` and drill: the brands, the categories (inline in a brand, or across brands
  * at `nivel=categoria`), and a category's products. */
@@ -344,14 +362,19 @@ export function stockAuditLevelResponse(params = {}) {
   if (params.nivel === 'marca') return stockAuditResponse([AUDIT_BRAND_DEMO, AUDIT_BRAND_NONE]);
   if (params.nivel === 'categoria') {
     // As the backend: across brands a category is its own key; inside a drilled brand it names that brand.
-    const rows = [AUDIT_CATEGORY_NOTEBOOKS, AUDIT_CATEGORY_SUPPLIES].map((c) => ({
+    const categories = params.grupo_marca === 'DEMO'
+      ? [AUDIT_CATEGORY_NOTEBOOKS, AUDIT_CATEGORY_SUPPLIES]
+      : [AUDIT_CATEGORY_NOTEBOOKS, AUDIT_CATEGORY_SUPPLIES, AUDIT_CATEGORY_NONE];
+    const rows = categories.map((c) => ({
       ...c,
       key: params.grupo_marca ? `marca:${params.grupo_marca}|categoria:${c.grupo.categoria}` : `categoria:${c.grupo.categoria}`,
       grupo: { marca: params.grupo_marca ?? null, categoria: c.grupo.categoria },
     }));
     return drilled(stockAuditResponse(rows));
   }
-  if (params.grupo_categoria === 'NOTEBOOKS') return drilled(stockAuditResponse([AUDIT_NOTEBOOK]));
-  if (params.grupo_categoria === 'INSUMOS') return drilled(stockAuditResponse([AUDIT_CARTRIDGE, AUDIT_ORPHAN]));
-  return drilled(stockAuditResponse());
+  if (params.grupo_categoria) return drilled(stockAuditResponse(PRODUCTS_BY_CATEGORY[params.grupo_categoria] ?? []));
+  if (params.grupo_marca === '__none__') return drilled(stockAuditResponse(PRODUCTS_BY_CATEGORY.__none__));
+  if (params.grupo_marca === 'DEMO') return drilled(stockAuditResponse([AUDIT_NOTEBOOK, AUDIT_CARTRIDGE, AUDIT_ORPHAN]));
+  // every product, so the KPIs are the same on every level (S2: KPI cards unchanged)
+  return drilled(stockAuditResponse([AUDIT_NOTEBOOK, AUDIT_CARTRIDGE, AUDIT_ORPHAN, AUDIT_CABLE]));
 }

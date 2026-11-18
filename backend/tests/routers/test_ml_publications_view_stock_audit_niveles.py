@@ -137,6 +137,33 @@ class TestLevels:
         assert lenovo["erp"] == money(6, 5300.0, 5_300_000.0)
         assert lenovo["full"] == money(3, 3100.0, 3_100_000.0)
 
+    @pytest.mark.parametrize("nivel", ["marca", "categoria"])
+    def test_every_group_is_the_exact_sum_of_its_visible_product_rows(self, client, grouped, nivel) -> None:
+        # Owner 2026-11-18 (screenshot): a group's Full must never count a pack's or a variant's units twice.
+        # Logi holds the pack 110 (Full only), Lenovo / Notebooks the variant 101 (Full only).
+        groups = audit(client, grouped, nivel=nivel)["rows"]
+        assert len(groups) >= 3
+        for g in groups:
+            drill = {
+                k: v
+                for k, v in (("grupo_marca", g["grupo"]["marca"]), ("grupo_categoria", g["grupo"]["categoria"]))
+                if v
+            }
+            products = audit(client, grouped, nivel="producto", **drill)["rows"]
+            assert g["productos"] == len(products), g["key"]
+            for part in ("erp", "full", "total"):
+                assert g[part] == summed(products, part), (g["key"], part)
+        logi = by_key(audit(client, grouped, nivel="marca"))["marca:LOGI"]
+        # mouse ERP 100; Full: 3 packs of 10 = 30 base units, once
+        assert logi["full"]["unidades"] == 30 and logi["erp"]["unidades"] == 100
+
+    @pytest.mark.parametrize("nivel", ["marca", "categoria", "producto"])
+    def test_the_kpis_are_the_sum_of_the_top_level_rows(self, client, grouped, nivel) -> None:
+        body = audit(client, grouped, nivel=nivel)
+        assert body["total"] == len(body["rows"])
+        for part in ("erp", "full", "total"):
+            assert body["kpis"][part] == summed(body["rows"], part), part
+
     def test_a_brand_row_carries_its_categories_and_they_add_up_to_it(self, client, grouped) -> None:
         lenovo = by_key(audit(client, grouped, nivel="marca"))["marca:LENOVO"]
 
