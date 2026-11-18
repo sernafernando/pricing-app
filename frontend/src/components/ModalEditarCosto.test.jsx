@@ -36,7 +36,18 @@ describe('ModalEditarCosto (restored, vpf-operaciones S4)', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('with guardarCosto, hands it the same value instead of the old PUT (vpf-operaciones S3e)', async () => {
+  it('the old screen still starts from the VARIOS % of the pricing constants', async () => {
+    api.get.mockImplementation((url) =>
+      Promise.resolve({ data: url === '/pricing-constants/actual' ? { varios_porcentaje: 7.2 } : {} }),
+    );
+    api.put.mockResolvedValue({ data: {} });
+    render(<ModalEditarCosto mostrar operacion={operacion} onClose={vi.fn()} onSave={vi.fn()} />);
+    expect(await screen.findByDisplayValue('7.2')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar Costo' }));
+    expect(api.put.mock.calls[0][1].costo_unitario).toBeCloseTo(500 * 1.072, 6);
+  });
+
+  it('with guardarCosto, hands it the cost instead of the old PUT (vpf-operaciones S3e)', async () => {
     const guardarCosto = vi.fn().mockResolvedValue(undefined);
     const onSave = vi.fn();
     const onClose = vi.fn();
@@ -44,7 +55,7 @@ describe('ModalEditarCosto (restored, vpf-operaciones S4)', () => {
       <ModalEditarCosto mostrar operacion={operacion} onClose={onClose} onSave={onSave} guardarCosto={guardarCosto} />,
     );
     await userEvent.click(screen.getByRole('button', { name: 'Guardar Costo' }));
-    expect(guardarCosto).toHaveBeenCalledWith(500 * 1.065);
+    expect(guardarCosto).toHaveBeenCalledWith(500);
     expect(api.put).not.toHaveBeenCalled();
     expect(onSave).toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
@@ -70,5 +81,45 @@ describe('ModalEditarCosto (restored, vpf-operaciones S4)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Error al guardar el costo');
     expect(alertSpy).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  describe('Operaciones por Fuera (guardarCosto, owner L4)', () => {
+    const sinCosto = { ...operacion, costo_unitario: 0 };
+
+    beforeEach(() => {
+      api.get.mockImplementation((url) =>
+        Promise.resolve({ data: url === '/pricing-constants/actual' ? { varios_porcentaje: 7.2 } : {} }),
+      );
+    });
+
+    const abrir = (guardarCosto) =>
+      render(<ModalEditarCosto mostrar operacion={sinCosto} onClose={vi.fn()} onSave={vi.fn()} guardarCosto={guardarCosto} />);
+
+    it('the optional % starts at 0: 10000 typed -> 10000 saved, Costo D 10.650,00 shown live', async () => {
+      const guardarCosto = vi.fn().mockResolvedValue(undefined);
+      abrir(guardarCosto);
+      const porcentaje = screen.getByLabelText(/Markup Costo \(%\)/);
+      expect(porcentaje).toHaveValue(0);
+      expect(screen.getByText(/opcional hasta la decisión de gerencia/i)).toBeInTheDocument();
+
+      await userEvent.type(screen.getByLabelText(/Costo Unitario Total/), '10000');
+
+      expect(screen.getByTestId('costo-guardado-preview')).toHaveTextContent('Se guarda $ 10.000,00 · Costo D $ 10.650,00');
+      await userEvent.click(screen.getByRole('button', { name: 'Guardar Costo' }));
+      expect(guardarCosto).toHaveBeenCalledWith(10000);
+    });
+
+    it('typing 7.2 -> 10720 saved, Costo D 11.416,80', async () => {
+      const guardarCosto = vi.fn().mockResolvedValue(undefined);
+      abrir(guardarCosto);
+      await userEvent.type(screen.getByLabelText(/Costo Unitario Total/), '10000');
+      const porcentaje = screen.getByLabelText(/Markup Costo \(%\)/);
+      await userEvent.clear(porcentaje);
+      await userEvent.type(porcentaje, '7.2');
+
+      expect(screen.getByTestId('costo-guardado-preview')).toHaveTextContent('Se guarda $ 10.720,00 · Costo D $ 11.416,80');
+      await userEvent.click(screen.getByRole('button', { name: 'Guardar Costo' }));
+      expect(guardarCosto.mock.calls[0][0]).toBeCloseTo(10720, 6);
+    });
   });
 });

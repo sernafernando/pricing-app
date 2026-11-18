@@ -2,9 +2,9 @@
 ModalEditarCosto, stored apart from the replaceable PDF rows (`ventas_fuera_linea_overrides`, keyed by the document's
 natural key + `renglon`).
 
-- Applying a fix writes the line: `item_id` (origin 'manual') and `precio_costo = costo_unitario x cantidad /
-  COSTO_D_FACTOR`, so the Costo D the board and the list show is exactly the cost typed (VARIOS included) and the
-  "Costo" basis shows it without the 6.5%; `precio_costo_pdf` keeps the PDF's. T4's trigger on the lines queues the
+- Applying a fix writes the line: `item_id` (origin 'manual') and `precio_costo = costo_unitario x cantidad`: the
+  cost saved (typed x (1 + the optional %), owner L4) is the line's Precio Costo, and Costo D (x COSTO_D_FACTOR)
+  applies on top like on any PDF line; `precio_costo_pdf` keeps the PDF's. T4's trigger on the lines queues the
   line for offsets and sell in / sell out; metrics read the lines, so they follow.
 - Owner L2: "hay que hacerle que se persista la data si cargan de nuevo un pdf que sobreescriba la venta". A
   re-upload re-applies each fix whose line snapshot (codigo, articulo, cantidad, precio) is unchanged ('aplicado');
@@ -36,7 +36,6 @@ from app.services.ventas_fuera_pdf.resolucion import (
     item_existe,
     resolver,
 )
-from app.services.ventas_fuera_pdf.ventas import COSTO_D_FACTOR
 
 APLICADO, REVISAR = "aplicado", "revisar"
 CENTAVO = Decimal("0.01")
@@ -57,8 +56,9 @@ class OverrideInvalido(ValueError):
 
 
 def precio_costo_manual(costo_unitario: Decimal, cantidad: Decimal) -> Decimal:
-    """The line total cost whose Costo D is `costo_unitario` x `cantidad`."""
-    return (Decimal(costo_unitario) * Decimal(cantidad) / COSTO_D_FACTOR).quantize(CENTAVO, rounding=ROUND_HALF_UP)
+    """The line's Precio Costo for a manual unit cost: `costo_unitario` x `cantidad` (owner L4: the list adds Costo D
+    x COSTO_D_FACTOR on top)."""
+    return (Decimal(costo_unitario) * Decimal(cantidad)).quantize(CENTAVO, rounding=ROUND_HALF_UP)
 
 
 def _snapshot_igual(override: VentaFueraLineaOverride, linea: VentaFueraOperacionLinea) -> bool:

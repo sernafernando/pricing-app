@@ -51,11 +51,10 @@ from app.models.producto import ProductoERP
 from app.models.venta_fuera_pdf import VentaFueraOperacion, VentaFueraOperacionLinea, VentaFueraPdfCarga
 from app.services.ml_daily_metrics.sales import BUSINESS_TZ, NO_PRODUCT, Range, _in_ranges
 from app.services.ventas_fuera_pdf.carga import CONDICION_CHEQUE, LARGO_VENDEDOR_IMPRESO, RECARGO_CHEQUE
+from app.services.ventas_fuera_pdf.ventas import COSTO_D_FACTOR
 
 CANALES = ("ml", "fuera", "todo")
 COSTOS = ("costo_d", "costo")
-# Costo D = Precio Costo x 1.065 (parent spec S19).
-COSTO_D_FACTOR = Decimal("1.065")
 # The MLA of every fuera pair: a fuera sale has no publication.
 FUERA_MLA = "fuera"
 # The Argentine VAT rates (%) a rate derived from a document may be (S13), and how far from one it may land
@@ -144,8 +143,11 @@ def _documents() -> Any:
             LN.c.moneda,
             LN.c.precio,
             LN.c.precio_costo,
-            func.coalesce(p.c.item_id, sin_producto).label("product"),
-            (p.c.item_id.is_(None)).label("sin_producto"),
+            # Sin producto = no stored product, as the operations list counts it: a line resolved by
+            # `tb_item.item_code` (no productos_erp row) has one and is filed under it.
+            func.coalesce(LN.c.item_id, sin_producto).label("product"),
+            (LN.c.item_id.is_(None)).label("sin_producto"),
+            (p.c.item_id.is_(None)).label("sin_erp"),
             gross_with_vat(
                 LN.c.precio,
                 p.c.iva,
@@ -233,14 +235,15 @@ def fuera_lines(
 
 def fuera_last_sales(scope: FueraScope, *, sqlite: bool, product: Optional[int] = None) -> Any:
     """`product`, `mla`, `last_at` of every fuera pair over ALL history (like `sales.last_sales`), plus what names a
-    "sin producto" row: `fuera_title` (the article text) and `fuera_codigo` (its code, NULL on manual lines)."""
+    row without a productos_erp product: `fuera_title` (the article text) and `fuera_codigo` (its code, NULL on manual
+    lines)."""
     d = _documents()
     query = select(
         d.c.product.label("product"),
         literal(FUERA_MLA).label("mla"),
         func.max(_group_date(d.c.fecha, sqlite)).label("last_at"),
         func.max(d.c.articulo).label("fuera_title"),
-        func.max(case((d.c.sin_producto, d.c.codigo))).label("fuera_codigo"),
+        func.max(case((d.c.sin_erp, d.c.codigo))).label("fuera_codigo"),
     )
     if product == NO_PRODUCT:
         # NO_PRODUCT is ML's "sin producto": no fuera line is filed under it.

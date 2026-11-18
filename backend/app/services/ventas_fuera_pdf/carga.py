@@ -29,7 +29,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Iterable, Optional, Union
 
-from sqlalchemy import String, and_, cast, delete, exists, func, literal, or_, select, text, tuple_
+from sqlalchemy import String, and_, case, cast, delete, exists, func, literal, or_, select, text, tuple_
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session, selectinload
 
@@ -685,20 +685,22 @@ EN_RESUMEN_NO_EN_DETALLE = "está en el reporte de ventas pero no en el detallad
 EN_DETALLE_NO_EN_RESUMEN = "está en el detallado pero no en el reporte de ventas."
 
 
-def _sin_producto(db: Session, detallada: Optional[ReporteDetallado]) -> dict:
-    """The imported lines no product was found for (S7: "sin producto"; vpf-operaciones: by `resolucion.resolver`,
-    the load's own rule), by code (or by article text when there is none): their count and amount (line `precio`,
-    without VAT, as in the PDF)."""
-    lineas = [ln for doc in (detallada.documentos if detallada else []) for ln in doc.lineas]
-    conocidos = resolver(db, [(ln.codigo, ln.articulo[:255]) for ln in lineas])
+def _sin_producto(db: Session, carga_id: int) -> dict:
+    """The upload's lines without a product (S7: "sin producto"), read from the stored lines once the load resolved
+    them and applied the kept manual fixes, as the operations list counts them: their count and amount (line
+    `precio`, without VAT, as in the PDF), by code (or by article text when there is none)."""
+    LN = VentaFueraOperacionLinea
+    filas = db.execute(
+        select(LN.codigo, LN.articulo, LN.precio)
+        .join(VentaFueraOperacion, VentaFueraOperacion.id == LN.operacion_id)
+        .where(VentaFueraOperacion.carga_id == carga_id, LN.item_id.is_(None))
+    ).all()
     articulos: dict[tuple, dict] = {}
-    for ln in lineas:
-        if conocidos[(ln.codigo, ln.articulo[:255])] is not None:
-            continue
-        clave = (ln.codigo, None) if ln.codigo else (None, ln.articulo)
-        item = articulos.setdefault(clave, {"articulo": ln.articulo, "codigo": ln.codigo, "lineas": 0, "monto": CERO})
+    for codigo, articulo, precio in filas:
+        clave = (codigo, None) if codigo else (None, articulo)
+        item = articulos.setdefault(clave, {"articulo": articulo, "codigo": codigo, "lineas": 0, "monto": CERO})
         item["lineas"] += 1
-        item["monto"] += ln.precio
+        item["monto"] += precio
     lista = sorted(articulos.values(), key=lambda a: (-a["monto"], a["articulo"]))
     return {
         "lineas": sum(a["lineas"] for a in lista),
@@ -846,7 +848,8 @@ def cargar(
     # Amounts to the cent, as the stored columns read them back.
     total_lineas = sum((op.total_lineas for op in ops), CERO).quantize(CENTAVO)
     recargo = sum((op.recargo_financiero for op in ops), CERO).quantize(CENTAVO)
-    sin_producto = _sin_producto(db, detallada)
+    db.flush()
+    sin_producto = _sin_producto(db, carga.id)
     control = _control(resumen, ops, avisos, total_lineas)
     documentos = detallada.documentos if detallada is not None else []
     por_tipo = Counter((doc.tipo, doc.letra) for doc in documentos)
@@ -865,6 +868,7 @@ def cargar(
     carga.unidades = sum((ln.cantidad for doc in documentos for ln in doc.lineas), CERO)
     carga.total_lineas = total_lineas
     carga.recargo_financiero = recargo
+    # Deprecated snapshot, still written for the record: every screen reads Sin producto live from the lines.
     carga.sin_producto_lineas = sin_producto["lineas"]
     carga.sin_producto_monto = sin_producto["monto"]
     carga.documentos_por_tipo = [
@@ -916,6 +920,9 @@ class CargaHistorial:
     carga: VentaFueraPdfCarga
     usuario: Optional[str]
     vigente: bool
+    # Live from the lines the upload still holds (NULL on uploads made before the per-upload figures existed).
+    sin_producto_lineas: Optional[int] = None
+    sin_producto_monto: Optional[Decimal] = None
 
     @property
     def control(self) -> str:
@@ -949,9 +956,31 @@ def listar_cargas(
         or_(VentaFueraPdfAlcance.detallada_carga_id == C.id, VentaFueraPdfAlcance.resumen_carga_id == C.id)
     )
     vigente = or_(and_(C.documentos > 0, con_operaciones), and_(C.documentos == 0, de_un_alcance))
+    LN, OP = VentaFueraOperacionLinea, VentaFueraOperacion
+    sin = LN.item_id.is_(None)
+    sp = (
+        select(
+            OP.carga_id,
+            func.count().filter(sin).label("lineas"),
+            func.coalesce(func.sum(LN.precio).filter(sin), 0).label("monto"),
+        )
+        .join(LN, LN.operacion_id == OP.id)
+        .group_by(OP.carga_id)
+        .subquery("sin_producto_vivo")
+    )
+    # Uploads made before the per-upload figures (`lineas` NULL) keep them null; the others count the lines they
+    # still hold (0 once a later upload replaced them all).
+    con_cifras = C.lineas.isnot(None)
     consulta = (
-        select(C, Usuario.nombre, vigente.label("vigente"))
+        select(
+            C,
+            Usuario.nombre,
+            vigente.label("vigente"),
+            case((con_cifras, func.coalesce(sp.c.lineas, 0))).label("sp_lineas"),
+            case((con_cifras, func.coalesce(sp.c.monto, 0))).label("sp_monto"),
+        )
         .outerjoin(Usuario, Usuario.id == C.usuario_id)
+        .outerjoin(sp, sp.c.carga_id == C.id)
         .where(C.created_at >= func.now() - timedelta(days=dias))
         .order_by(C.created_at.desc(), C.id.desc())
         .limit(limite)
@@ -969,7 +998,10 @@ def listar_cargas(
                 ),
             )
         )
-    return [CargaHistorial(carga, usuario, bool(v)) for carga, usuario, v in db.execute(consulta).all()]
+    return [
+        CargaHistorial(carga, usuario, bool(v), None if n is None else int(n), monto)
+        for carga, usuario, v, n, monto in db.execute(consulta).all()
+    ]
 
 
 def listar_alcances(

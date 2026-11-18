@@ -4,7 +4,7 @@
  * reused ModalEditarCosto.
  */
 
-/** Costo D = Precio Costo × 1,065, the backend's COSTO_D_FACTOR (ml_daily_metrics/fuera.py). */
+/** Costo D = Precio Costo × 1,065, the backend's COSTO_D_FACTOR (ventas_fuera_pdf/ventas.py); change both together. */
 export const COSTO_D_FACTOR = 1.065;
 
 export const PAGE_SIZE = 50;
@@ -75,7 +75,7 @@ export function facetas(raw) {
 
 /**
  * A PDF line in the fields ModalEditarCosto reads. `costo_unitario` (the value the modal starts from) is the unit
- * cost BEFORE the VARIOS markup, so saving it unchanged keeps today's Costo D; `costo_pesos_sin_iva` is the line's
+ * Precio Costo, so saving it unchanged with the optional % at 0 (owner L4) keeps today's Costo D; `costo_pesos_sin_iva` is the line's
  * current Costo D.
  */
 export function lineaParaModalCosto(linea, operacion) {
