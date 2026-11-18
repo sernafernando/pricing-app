@@ -1223,7 +1223,9 @@ export default function PublicacionesML() {
   );
 
   // "Ver por" and the drill's way back, over the audit's table (auditoria-stock-niveles S1).
-  const auditLevels = auditoria && <AuditLevelBar filters={filters} onChange={setFilters} />;
+  const auditLevels = auditoria && (
+    <AuditLevelBar filters={filters} onChange={setFilters} names={stockAudit.data?.grupo_nombres} />
+  );
   const auditTable = auditoria && (
     <StockAuditTable
       audit={stockAudit}

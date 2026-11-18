@@ -720,12 +720,16 @@ describe('auditoria-stock-niveles S1: Marca > Categoría levels', () => {
     await waitFor(() => expect(auditCalls().at(-1)).toMatchObject({ nivel: 'categoria', grupo_marca: 'DEMO' }));
     expect(levels().getByRole('button', { name: 'Categoría', pressed: true })).toBeInTheDocument();
     const crumbs = within(screen.getByRole('navigation', { name: 'Nivel de la auditoría' }));
-    expect(crumbs.getByText('DEMO')).toBeInTheDocument();
+    // the way back names the brand as its row does, not by its key
+    expect(await crumbs.findByText('Demo')).toBeInTheDocument();
     // a category row of the drilled level drills into its products with both keys
     await user.click(await t.findByRole('button', { name: 'Ver productos de INSUMOS' }));
     await waitFor(() =>
       expect(auditCalls().at(-1)).toMatchObject({ nivel: 'producto', grupo_marca: 'DEMO', grupo_categoria: 'INSUMOS' }),
     );
+    const path = within(screen.getByRole('navigation', { name: 'Nivel de la auditoría' }));
+    expect(await path.findByRole('button', { name: 'Demo' })).toBeInTheDocument();
+    expect(await path.findByText('Insumos')).toBeInTheDocument();
     await user.click(within(screen.getByRole('navigation', { name: 'Nivel de la auditoría' })).getByRole('button', { name: 'Todas las marcas' }));
     await waitFor(() => expect(auditCalls().at(-1)).toMatchObject({ nivel: 'marca' }));
     expect(auditCalls().at(-1)).not.toHaveProperty('grupo_marca');

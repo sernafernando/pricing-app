@@ -163,8 +163,21 @@ class TestLevels:
 
     def test_a_drill_into_a_brand_narrows_the_categoria_level_and_the_kpis(self, client, grouped) -> None:
         body = audit(client, grouped, nivel="categoria", grupo_marca=LENOVO)
-        assert sorted(r["key"] for r in body["rows"]) == ["categoria:NOTEBOOKS", "categoria:PC"]
+        assert sorted(r["key"] for r in body["rows"]) == [
+            "marca:LENOVO|categoria:NOTEBOOKS",
+            "marca:LENOVO|categoria:PC",
+        ]
         assert body["kpis"]["productos"] == 2
+
+    def test_a_category_inside_a_drilled_brand_keeps_the_brand_to_drill_further(self, client, grouped) -> None:
+        # Opening a category of the drilled brand must stay inside that brand (GGA finding on the first push).
+        body = audit(client, grouped, nivel="categoria", grupo_marca=LENOVO)
+        assert {r["grupo"]["marca"] for r in body["rows"]} == {LENOVO}
+
+    def test_a_drill_names_its_groups_as_the_rows_show_them(self, client, grouped) -> None:
+        body = audit(client, grouped, nivel="producto", grupo_marca=LENOVO, grupo_categoria="NOTEBOOKS")
+        assert body["grupo_nombres"] == {"marca": "Lenovo", "categoria": "Notebooks"}
+        assert "grupo_nombres" not in audit(client, grouped, nivel="marca")
 
     def test_the_none_brand_is_its_own_group(self, client, grouped) -> None:
         drilled = audit(client, grouped, nivel="producto", grupo_marca=NONE)

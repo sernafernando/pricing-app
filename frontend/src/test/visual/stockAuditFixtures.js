@@ -330,16 +330,28 @@ export const AUDIT_BRAND_NONE = group({
 /** `GET /view/stock-audit` by its `nivel` and drill: the brands, the categories (inline in a brand, or across brands
  * at `nivel=categoria`), and a category's products. */
 export function stockAuditLevelResponse(params = {}) {
+  // A drill names its brand and category as their rows show them (the backend's `grupo_nombres`).
+  const drilled = (response) =>
+    params.grupo_marca || params.grupo_categoria
+      ? {
+          ...response,
+          grupo_nombres: {
+            marca: params.grupo_marca === 'DEMO' ? 'Demo' : null,
+            categoria: params.grupo_categoria ? `${params.grupo_categoria[0]}${params.grupo_categoria.slice(1).toLowerCase()}` : null,
+          },
+        }
+      : response;
   if (params.nivel === 'marca') return stockAuditResponse([AUDIT_BRAND_DEMO, AUDIT_BRAND_NONE]);
   if (params.nivel === 'categoria') {
+    // As the backend: across brands a category is its own key; inside a drilled brand it names that brand.
     const rows = [AUDIT_CATEGORY_NOTEBOOKS, AUDIT_CATEGORY_SUPPLIES].map((c) => ({
       ...c,
-      key: `categoria:${c.grupo.categoria}`,
+      key: params.grupo_marca ? `marca:${params.grupo_marca}|categoria:${c.grupo.categoria}` : `categoria:${c.grupo.categoria}`,
       grupo: { marca: params.grupo_marca ?? null, categoria: c.grupo.categoria },
     }));
-    return stockAuditResponse(rows);
+    return drilled(stockAuditResponse(rows));
   }
-  if (params.grupo_categoria === 'NOTEBOOKS') return stockAuditResponse([AUDIT_NOTEBOOK]);
-  if (params.grupo_categoria === 'INSUMOS') return stockAuditResponse([AUDIT_CARTRIDGE, AUDIT_ORPHAN]);
-  return stockAuditResponse();
+  if (params.grupo_categoria === 'NOTEBOOKS') return drilled(stockAuditResponse([AUDIT_NOTEBOOK]));
+  if (params.grupo_categoria === 'INSUMOS') return drilled(stockAuditResponse([AUDIT_CARTRIDGE, AUDIT_ORPHAN]));
+  return drilled(stockAuditResponse());
 }

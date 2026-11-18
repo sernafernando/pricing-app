@@ -958,6 +958,8 @@ class StockAuditKpisOut(BaseModel):
 
 
 class StockAuditResponse(BaseModel):
+    # with grupo_marca / grupo_categoria: the drilled brand's and category's names, as their rows show them
+    grupo_nombres: Optional[StockGroupOut] = None
     rows: list[StockAuditRowOut]
     total: int
     limit: int
@@ -2013,7 +2015,8 @@ def _read_stock_audit(
     products = stock_audit.sort_rows(audit.rows, orden, dir == "desc", started)
     ordered = products
     if level.nivel != stock_audit.PRODUCTO:
-        ordered = stock_audit.sort_rows(stock_audit.group_rows(audit.rows, level.nivel), orden, dir == "desc", started)
+        grouped = stock_audit.group_rows(audit.rows, level.nivel, level.grupo_marca)
+        ordered = stock_audit.sort_rows(grouped, orden, dir == "desc", started)
     return _StockAuditRead(audit, ordered, started, rate, can_see_sales, can_see_margin, level.nivel, products)
 
 
@@ -2051,7 +2054,13 @@ def get_stock_audit(
     KPI strip over every row (`stock_audit`). `nivel` groups the rows by brand or category (S1-S2), `grupo_*`
     narrows them to one group (rows, total and KPIs)."""
     read = _read_stock_audit(user, f, orden, dir, db, auth_db, level)
+    drilled = (
+        {"grupo_nombres": stock_audit.drill_names(read.audit, level.grupo_marca, level.grupo_categoria)}
+        if level.grupo_marca or level.grupo_categoria
+        else {}
+    )
     return {
+        **drilled,
         "rows": [_stock_audit_out(read, r, orden, dir) for r in read.ordered[offset : offset + limit]],
         "can_see_sales": read.can_see_sales,
         "can_see_margin": read.can_see_margin,

@@ -939,6 +939,16 @@ def add_groups(db: Session, audit: "Audit") -> None:
         r.group = found.get(r.product.item_id, none)
 
 
+def drill_names(audit: "Audit", marca: Optional[str], categoria: Optional[str]) -> dict[str, Optional[str]]:
+    """The names of the drilled brand and category as their rows show them (`GroupKeys`), from the drilled rows;
+    None for a level not drilled or with no row left."""
+    first = audit.rows[0].group if audit.rows and audit.rows[0].group is not None else None
+    return {
+        MARCA: first.marca_nombre if marca and first else None,
+        CATEGORIA: first.categoria_nombre if categoria and first else None,
+    }
+
+
 def _group_name(level: str, key: str, name: Optional[str]) -> str:
     return NO_LABELS[level] if key == NO_GROUP or not name else name
 
@@ -1018,9 +1028,10 @@ def label_of(r: "Row | Group") -> str:
     return r.nombre if isinstance(r, Group) else (r.product.descripcion or "")
 
 
-def group_rows(rows: list[Row], nivel: str) -> list[Group]:
+def group_rows(rows: list[Row], nivel: str, marca: Optional[str] = None) -> list[Group]:
     """The base rows grouped by `nivel` (`marca`: each brand with its categories; `categoria`: each category, across
-    brands), in no particular order (`sort_rows` orders them). Needs `add_groups`."""
+    brands, or inside `marca` when the rows were drilled into one: its categories then name it, so opening one
+    stays inside that brand), in no particular order (`sort_rows` orders them). Needs `add_groups`."""
 
     def by(level: str, members: list[Row]) -> dict[str, list[Row]]:
         out: dict[str, list[Row]] = defaultdict(list)
@@ -1034,7 +1045,7 @@ def group_rows(rows: list[Row], nivel: str) -> list[Group]:
 
     if nivel == CATEGORIA:
         return [
-            Group(CATEGORIA, None, key, name(CATEGORIA, members), members)
+            Group(CATEGORIA, marca, key, name(CATEGORIA, members), members)
             for key, members in by(CATEGORIA, rows).items()
         ]
     out = []
