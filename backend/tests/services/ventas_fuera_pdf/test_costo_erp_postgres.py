@@ -300,3 +300,25 @@ class TestRecostear:
 
         assert [c.fecha for c in cambios] == [date(2026, 10, 9)]
         assert (_costo(engine, 1), _costo(engine, 2)) == (Decimal("1605000.00"), Decimal("1500000.00"))
+
+
+def test_a_sibling_whose_manual_cost_is_under_review_still_gets_the_erp_cost(
+    engine: Engine, db: Session, mundo: None
+) -> None:
+    # Verifier note 1: a fix flagged 'revisar' is not applied, so its manual cost must not block the ERP cost.
+    _cargar(
+        db,
+        doc(1, [linea(None, "NB SIN CODIGO EJEMPLO")], fecha=VENTA),
+        doc(2, [linea(None, "NB SIN CODIGO EJEMPLO")], fecha=VENTA),
+    )
+    overrides.guardar(db, lineas(engine)[(2, 1)]["id"], {"costo_unitario": 1200000}, False, 7)
+    _cargar(
+        db,
+        doc(1, [linea(None, "NB SIN CODIGO EJEMPLO")], fecha=VENTA),
+        doc(2, [linea(None, "NB SIN CODIGO EJEMPLO", cantidad="2")], fecha=VENTA),  # changed -> 'revisar'
+    )
+    assert lineas(engine)[(2, 1)]["override_estado"] == "revisar"
+
+    overrides.guardar(db, lineas(engine)[(1, 1)]["id"], {"item_id": 701}, True, 7)
+
+    assert (_costo(engine, 1), _costo(engine, 2)) == (Decimal("1500000.00"), Decimal("3000000.00"))

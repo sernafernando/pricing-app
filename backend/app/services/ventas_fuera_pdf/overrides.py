@@ -231,8 +231,9 @@ def _recordar(db: Session, linea: VentaFueraOperacionLinea, item_id: int, usuari
     ).scalars()
     for otra in otras:
         otra.item_id, otra.item_origen = item_id, ORIGEN_MAPEO
+        # Only an APPLIED manual cost keeps the line's cost; one flagged 'revisar' is not on the line.
         propio = override_de(db, otra)
-        if propio is None or propio.costo_unitario is None:
+        if propio is None or propio.costo_unitario is None or propio.estado != APLICADO:
             otra.precio_costo = _costo_erp(db, otra)
 
 
