@@ -32,6 +32,8 @@ LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "[::1]")
 # 1-65535 without leading zeros, then a path with no query and no fragment.
 _LOOPBACK_REDIRECT = re.compile(r"http://(localhost|127\.0\.0\.1|\[::1\])(?::([1-9][0-9]{0,4}))?(/[^?#]*)")
 _PRE_REGISTERED_ID = re.compile(r"[a-z0-9][a-z0-9-]{1,63}")
+# Declared loopback paths are plain segments: letters, digits, `_`, `.`, `-`, never `.` or `..` alone.
+_DECLARED_PATH = re.compile(r"(?:/(?!\.{1,2}(?:/|$))[A-Za-z0-9_.-]+)+")
 
 
 def _loopback_parts(uri: str) -> tuple[str, int | None, str] | None:
@@ -120,6 +122,8 @@ def _redirect_uri(value: object) -> str:
                 f"MCP_OAUTH_CLIENTS: plain http is only allowed for loopback (localhost, 127.0.0.1, [::1]) "
                 f"with a path and no query: {value!r}"
             )
+        if not _DECLARED_PATH.fullmatch(parts[2]):
+            raise ValueError(f"MCP_OAUTH_CLIENTS: loopback redirect path must be plain segments: {value!r}")
         if parts[1] is not None:
             raise ValueError(
                 f"MCP_OAUTH_CLIENTS: declare loopback redirects without port (any port matches): {value!r}"

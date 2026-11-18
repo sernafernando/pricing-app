@@ -154,6 +154,11 @@ def test_invalid_pre_registered_ids_fail(client_id):
         "file:///etc/passwd",
         "vbscript://x/y",
         "cursor://anysphere.cursor-mcp/oauth/callback",  # private-use schemes are not accepted
+        "http://localhost/cb\n",  # declared loopback paths are plain: no whitespace, backslash or dot segments
+        "http://localhost/a b",
+        "http://localhost/a\\b",
+        "http://localhost/../x",
+        "http://localhost/a/./b",
     ],
 )
 def test_dangerous_or_malformed_redirects_fail_at_startup(uri):
