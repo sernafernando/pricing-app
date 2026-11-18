@@ -30,7 +30,9 @@ from app.core.config import settings
 LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "[::1]")
 # A loopback redirect as a client sends it: lowercase host right after the scheme (no userinfo), optional port
 # 1-65535 without leading zeros, then a path with no query and no fragment.
-_LOOPBACK_REDIRECT = re.compile(r"http://(localhost|127\.0\.0\.1|\[::1\])(?::([1-9][0-9]{0,4}))?(/[^?#]*)")
+_LOOPBACK_REDIRECT = re.compile(
+    r"http://(" + "|".join(map(re.escape, LOOPBACK_HOSTS)) + r")(?::([1-9][0-9]{0,4}))?(/[^?#]*)"
+)
 _PRE_REGISTERED_ID = re.compile(r"[a-z0-9][a-z0-9-]{1,63}")
 # Declared loopback paths are plain segments: letters, digits, `_`, `.`, `-`, never `.` or `..` alone.
 _DECLARED_PATH = re.compile(r"(?:/(?!\.{1,2}(?:/|$))[A-Za-z0-9_.-]+)+")

@@ -312,10 +312,10 @@ class Settings(BaseSettings):
     # Public origin of the app, e.g. https://pricing.example.com (no trailing slash). Unset = MCP and its
     # OAuth endpoints answer 404. The MCP resource is <origin>/api/mcp and the OAuth issuer <origin>/api/oauth.
     MCP_PUBLIC_BASE_URL: Optional[str] = None
-    # Allowed OAuth clients (JSON list). Adding a client is config, not code (docs/RUNBOOKS.md):
-    # [{"client_id": <https CIMD URL>, "name": <shown on the consent screen>, "redirect_uris": [<https URL>, ...]}]
-    # Allowed OAuth clients of the MCP server (docs/RUNBOOKS.md section 9). Loopback redirects (http://localhost/...)
-    # are declared without port and accept any port. Cursor and Gemini CLI use the pre-registered ids below.
+    # Allowed OAuth clients (JSON list). Adding a client is config, not code (docs/RUNBOOKS.md section 9):
+    # [{"client_id": <https CIMD URL or pre-registered id>, "name": <shown on the consent screen>,
+    #   "redirect_uris": [<exact https URL, or loopback http://localhost/<path> declared without port>, ...]}]
+    # Loopback redirects accept any port. Cursor and Gemini CLI use the pre-registered ids below.
     MCP_OAUTH_CLIENTS: str = (
         '[{"client_id": "https://chatgpt.com/oauth/client.json", "name": "ChatGPT",'
         ' "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"]},'
