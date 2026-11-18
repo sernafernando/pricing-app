@@ -531,8 +531,9 @@ describe('rotacion S2: the Rotación columns', () => {
     const notebook = within(rowOf('Notebook Demo 14 i5 8GB 512GB'));
     expect(notebook.getByText(/^16\/11/)).toBeInTheDocument();
     expect(notebook.getByText('2 d')).toBeInTheDocument();
-    expect(notebook.getByLabelText('Días de cobertura')).toHaveTextContent('60');
-    expect(notebook.getByLabelText('Rotación (veces)')).toHaveTextContent('0,48');
+    // its own numbers: 50 in stock, 24 sold in 30 days, 50 on average -> 62,5 days and 0,48 times
+    expect(notebook.getByLabelText('Días de cobertura')).toHaveTextContent('63 d');
+    expect(notebook.getByLabelText('Rotación (veces)')).toHaveTextContent('0,48×/30d');
   });
 
   it("every figure of the group says it is the whole product's, without filters (L2)", async () => {
@@ -563,7 +564,7 @@ describe('rotacion S2: the Rotación columns', () => {
     const cartridge = within(rowOf('Cartucho Demo 01 negro')).getByLabelText('Rotación (veces)');
     expect(cartridge).toHaveAttribute(
       'title',
-      'Veces que se vendió el stock en 30 días: 43 vendidas ÷ 131,6 de stock promedio (12 días) = 0,19, del producto completo, sin filtros',
+      'Veces que se vendió el stock en 30 días: 43 vendidas ÷ 131,6 de stock promedio (12 días) = 0,33, del producto completo, sin filtros',
     );
     const first = within(rowOf('Notebook Demo 14 i5 8GB 512GB')).getByLabelText('Rotación (veces)');
     expect(first).toHaveTextContent('≈ 0,48×/30d');
@@ -938,8 +939,12 @@ describe('auditoria-stock-niveles S3, S4: "ERP n · Full n" under the sales, cov
   it('coverage and rotation by origin, ∞ for stock without sales and "—" for none', async () => {
     await audit();
     const notebook = rowOf('Notebook Demo 14 i5 8GB 512GB');
-    expect(cell(notebook, 'cobertura')).toHaveTextContent('ERP 75 · Full 40');
-    expect(cell(notebook, 'rotacion')).toHaveTextContent('ERP 0,40 · Full 0,75');
+    // ERP 30 in stock over 16 ERP sales = 56 days, 16 / 30 = 0,53; Full 20 over 8 Full sales = 75 days, 8 / 20 = 0,40
+    expect(cell(notebook, 'cobertura')).toHaveTextContent('ERP 56 · Full 75');
+    expect(cell(notebook, 'rotacion')).toHaveTextContent('ERP 0,53 · Full 0,40');
+    // another product, other numbers: ERP 80 over 29 = 83 days, Full 50 over 14 = 107 days
+    const cartridge = rowOf('Cartucho Demo 01 negro');
+    expect(cell(cartridge, 'cobertura')).toHaveTextContent('ERP 83 · Full 107');
     const pc = rowOf(AUDIT_ORPHAN.descripcion);
     expect(cell(pc, 'cobertura')).toHaveTextContent('ERP ∞ · Full —');
     expect(cell(pc, 'rotacion')).toHaveTextContent('ERP 0,00 · Full —');
