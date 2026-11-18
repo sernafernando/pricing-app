@@ -102,3 +102,9 @@ def test_tool_returns_every_response_field(spec, monkeypatch):
 def test_publicaciones_ml_exposes_the_pm_filter():
     built = tools.build_tool(OPENAPI, next(s for s in tools.CATALOG if s.name == "pubml_items"))
     assert {"pms", "pm_grupo"} <= set(built.input_schema["properties"])
+
+
+def test_promos_publicaciones_takes_every_publicaciones_filter_plus_pm_by_name():
+    catalog = tools.build_catalog(OPENAPI)
+    items = set(catalog["pubml_items"].input_schema["properties"])
+    assert set(catalog["promos_publicaciones"].input_schema["properties"]) == items | {"pm"}

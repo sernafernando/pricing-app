@@ -13,6 +13,7 @@ are cut with `truncated: true` plus how to fetch the rest.
 from __future__ import annotations
 
 import copy
+from collections.abc import Awaitable, Callable
 import json
 import re
 from dataclasses import dataclass, field
@@ -57,6 +58,9 @@ class ToolSpec:
     main_key: str | None = None
     # Required dates the tool fills with the last 30 days when omitted: (from param, to param).
     default_period: tuple[str, str] | None = None
+    # Composite tools: arguments on top of `path`'s and the coroutine that answers instead of a plain GET.
+    extra_properties: dict[str, Any] = field(default_factory=dict)
+    runner: Callable[[BuiltTool, dict[str, Any], str], Awaitable[Any]] | None = None
 
 
 CATALOG: tuple[ToolSpec, ...] = (
@@ -367,6 +371,7 @@ def build_tool(openapi: dict[str, Any], spec: ToolSpec) -> BuiltTool:
         key: tuple(p["name"] for p in _parameters(openapi, path) if p.get("in") == "query")
         for key, path in spec.companions.items()
     }
+    properties.update(copy.deepcopy(spec.extra_properties))
     schema: dict[str, Any] = {"type": "object", "properties": properties, "additionalProperties": False}
     if required:
         schema["required"] = required
@@ -381,8 +386,15 @@ def build_tool(openapi: dict[str, Any], spec: ToolSpec) -> BuiltTool:
     )
 
 
+def all_specs() -> tuple[ToolSpec, ...]:
+    """The endpoint tools plus the composite ones (imported here: they build on this module)."""
+    from app.mcp import promos_bulk
+
+    return CATALOG + promos_bulk.SPECS
+
+
 def build_catalog(openapi: dict[str, Any]) -> dict[str, BuiltTool]:
-    return {spec.name: build_tool(openapi, spec) for spec in CATALOG}
+    return {spec.name: build_tool(openapi, spec) for spec in all_specs()}
 
 
 # ---------------------------------------------------------------- execution
@@ -501,6 +513,8 @@ def fit(value: Any) -> Any:
 async def run_tool(tool: BuiltTool, arguments: dict[str, Any], username: str, can_see_costs: bool) -> Any:
     """Validate, call the backing endpoint(s) as the user, shape the answer."""
     args = _validate(tool, arguments)
+    if tool.spec.runner is not None:
+        return fit(await tool.spec.runner(tool, args, username))
     query = {k: v for k, v in args.items() if k in tool.query_params}
     result = await _get(_url(tool, args), query, username)
     if tool.spec.companions:

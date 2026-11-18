@@ -74,7 +74,12 @@ class McpRuntime:
             yield
             return
         base = base.rstrip("/")
-        catalog = tools.build_catalog(self._app_getter().openapi())
+        try:
+            catalog = tools.build_catalog(self._app_getter().openapi())
+        except Exception:  # noqa: BLE001 - a broken catalog must not take the app down; MCP stays off (404)
+            logger.exception("MCP disabled: the tool catalog could not be built")
+            yield
+            return
         server = _PricingMcpServer(self, catalog, base)
         self._asgi = server.streamable_http_app(
             streamable_http_path="/api/mcp",

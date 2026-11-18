@@ -6,9 +6,11 @@ consent, /token, MCP JSON-RPC. Every negative case asserts status, body and stor
 
 from __future__ import annotations
 
+import pytest
+
 from datetime import UTC, datetime, timedelta
 
-from app.mcp.tools import CATALOG
+from app.mcp.tools import all_specs
 from app.models.mcp_oauth import McpConnection, McpOAuthRequest, McpToken
 from tests.conftest import make_access_token
 from tests.mcp.conftest import (
@@ -71,6 +73,21 @@ def test_everything_is_off_when_the_public_base_url_is_not_configured(client):
     assert client.post("/api/mcp", json={}, headers=MCP_HEADERS).status_code == 404
 
 
+@pytest.fixture()
+def broken_catalog(mcp_settings, monkeypatch):
+    from app.mcp import tools
+
+    def boom(openapi):
+        raise KeyError("no GET /api/gone in the app")
+
+    monkeypatch.setattr(tools, "build_catalog", boom)
+
+
+def test_a_broken_tool_catalog_leaves_the_app_up_and_mcp_off(broken_catalog, client):
+    assert client.get("/health").status_code == 200
+    assert client.post("/api/mcp", json={}, headers=MCP_HEADERS).status_code == 404
+
+
 def test_mcp_without_token_answers_401_with_resource_metadata(mcp_client):
     r = rpc(mcp_client, MCP_HEADERS, "initialize", INIT)
     assert r.status_code == 401
@@ -91,7 +108,7 @@ def test_full_flow_reuses_the_existing_login_and_reaches_the_tools(mcp_client, m
 
     r = rpc(mcp_client, conn.headers, "tools/list", rid=2)
     tools = {t["name"]: t for t in r.json()["result"]["tools"]}
-    assert set(tools) == {spec.name for spec in CATALOG}
+    assert set(tools) == {spec.name for spec in all_specs()}
     for tool in tools.values():
         assert tool["annotations"]["readOnlyHint"] is True
         assert tool["annotations"]["destructiveHint"] is False

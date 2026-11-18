@@ -9,6 +9,7 @@ Ahora se puede conectar ChatGPT (cuentas Plus o Pro) a Pricing para hacerle preg
 ## Qué cambia
 
 - ChatGPT puede consultar publicaciones de Mercado Libre, métricas de Mercado Libre, ventas de Mercado Libre y por fuera, la auditoría de stock, y productos con sus precios.
+- Puede armar tablas de promociones por publicación: la promoción actual, las sugeridas por tipo (las mismas que marca el panel como **Sugerida**), la mejor de ellas (la de mayor markup con sell in), el precio de venta y cuánto mejora el markup, en puntos y en %. Se puede filtrar por PM con el nombre, por ejemplo: *"haceme una tabla con los productos de Eli, promoción actual y mejor promoción con precio de venta y markup con sell in"*. Si el nombre coincide con más de un PM, ChatGPT pregunta cuál.
 - Solo lectura: no puede cambiar precios, publicaciones ni ningún otro dato.
 - Con tus mismos permisos: ve lo mismo que ves vos en la aplicación.
 - Para conectarlo hace falta el permiso **mcp.conectar**.
