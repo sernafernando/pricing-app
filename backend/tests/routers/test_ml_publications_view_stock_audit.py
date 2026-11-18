@@ -833,6 +833,8 @@ class TestStockAuditLastSaleAndAgeing:
         "orden, direction, expected",
         [
             ("ultima_venta", "desc", [100, 111, 130, 140]),
+            # never sold (with publications) is the oldest last sale; no publication at all is unknown, last
+            ("ultima_venta", "asc", [111, 100, 130, 140]),
             ("ageing", "desc", [111, 100, 130, 140]),
             ("ageing", "asc", [100, 111, 130, 140]),
         ],

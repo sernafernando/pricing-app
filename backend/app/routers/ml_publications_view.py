@@ -793,7 +793,7 @@ class StockAuditSalesOut(BaseModel):
     # the 90-day trends: units (base units on a base row) and, with ver_ganancia, each day's units-weighted markup
     series_units_90d: list[int] = []
     series_markup_90d: Optional[list[Optional[float]]] = None
-    # Rotación (rotacion S2), the Board's own figures: the latest sale of the row's publications, the business days
+    # Rotación (rotacion S2), the Board's own figures: the latest sale of the row's publications, the days
     # since it, and the ageing (since that sale, or since the oldest publication started when none ever sold).
     ultima_venta: Optional[datetime] = None
     ultima_venta_dias: Optional[int] = None

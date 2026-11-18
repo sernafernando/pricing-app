@@ -45,7 +45,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Callable, Iterable, Mapping, Optional
 
@@ -93,6 +93,9 @@ ORDERS = (
     *SALES_ORDERS,
     *MARGIN_ORDERS,
 )
+
+
+NEVER_SOLD = datetime.min.replace(tzinfo=timezone.utc)
 
 
 def needs_sales(orden: str) -> bool:
@@ -308,7 +311,7 @@ class Sales:
 
     @property
     def ultima_venta_dias(self) -> Optional[int]:
-        """Days since the last sale: the ageing of a row that sold (the same business-day count)."""
+        """Days since the last sale: the ageing of a row that sold (the same day count as the Board's)."""
         return self.ageing_sold
 
     def out(self, with_margin: bool) -> dict[str, Any]:
@@ -715,7 +718,8 @@ SORT_KEYS: dict[str, Callable[[Row], Any]] = {
     "unidades_7d": lambda r: r.sales.units_7d,
     "unidades_30d": lambda r: r.sales.units_30d,
     "facturado_30d": lambda r: r.sales.gross,
-    "ultima_venta": lambda r: r.sales.last_sale_at,
+    # never sold, with publications, is the oldest last sale of all; no Board row at all is unknown (last)
+    "ultima_venta": lambda r: r.sales.last_sale_at or (NEVER_SOLD if r.sales.any_board_row else None),
     "ageing": lambda r: r.sales.ageing_dias,
     # infinite coverage (stock, no sale) is the worst: the highest (L1 Q2)
     "cobertura": lambda r: coverage(r.stock_now, r.sales.units_30d),

@@ -555,3 +555,71 @@ describe('rotacion S2: the Rotación columns', () => {
     }
   });
 });
+
+// The verifier's probes (rotacion S1/S2/L1): a never-sold product's ageing, "—" for a division by zero, the singular day,
+// the permission gate on the picker, and the sort in the URL.
+describe('rotacion S2: edge cases', () => {
+  const rowOf = (name) => within(table()).getByText(name, { selector: 'span' }).closest('tr');
+  const withVentas = (patch) => {
+    const body = stockAuditResponse();
+    const [first, ...rest] = body.rows;
+    publicacionesMlAPI.stockAudit.mockResolvedValue({ data: { ...body, rows: [{ ...first, ventas: { ...first.ventas, ...patch } }, ...rest] } });
+  };
+
+  it('a never-sold product shows its ageing from the publication date and "—" as last sale', async () => {
+    withVentas({ ultima_venta: null, ultima_venta_dias: null, ageing_dias: 70 });
+    await audit();
+    const row = within(rowOf('Notebook Demo 14 i5 8GB 512GB'));
+    expect(row.getByText('70 d')).toBeInTheDocument();
+  });
+
+  it('no stock and no sale: coverage reads "—" (never 0, never ∞)', async () => {
+    withVentas({ dias_cobertura: null, cobertura_infinita: false });
+    await audit();
+    const row = rowOf('Notebook Demo 14 i5 8GB 512GB');
+    expect(within(row).queryByLabelText('Días de cobertura')).not.toBeInTheDocument();
+    expect(row.textContent).not.toContain('∞');
+  });
+
+  it('a null rotation (average stock 0) reads "—", not 0,00', async () => {
+    withVentas({ rotacion: null });
+    await audit();
+    const row = rowOf('Notebook Demo 14 i5 8GB 512GB');
+    expect(within(row).queryByLabelText('Rotación (veces)')).not.toBeInTheDocument();
+  });
+
+  it('a single photographed day says "día" in the singular', async () => {
+    withVentas({ stock_promedio_dias: 1 });
+    await audit();
+    const el = within(rowOf('Notebook Demo 14 i5 8GB 512GB')).getByLabelText('Rotación (veces)');
+    expect(el.getAttribute('title')).toMatch(/promedio de 1 día /);
+  });
+
+  it('with sales but without margin the four columns are in the picker and the table', async () => {
+    canSeeMargin = false;
+    await audit();
+    const h = headers().join('|');
+    for (const name of ['Última venta', 'Ageing', 'Cobertura', 'Veces']) expect(h).toContain(name);
+  });
+
+  it('without ml_metricas.ver the picker does not offer the Rotación columns', async () => {
+    canSeeKpis = false;
+    const user = userEvent.setup();
+    await audit();
+    await user.click(screen.getByRole('button', { name: /Columnas/ }));
+    for (const name of ['Última venta', 'Ageing', 'Días de cobertura', 'Rotación (veces)']) {
+      expect(screen.queryByRole('checkbox', { name })).not.toBeInTheDocument();
+    }
+  });
+
+  it('a ?orden=cobertura URL without ml_metricas.ver falls back to the default sort', async () => {
+    canSeeKpis = false;
+    await audit('/ml-publicaciones?vista=auditoria&orden=cobertura');
+    expect(auditCalls().at(-1).orden).toBe('valor_total');
+  });
+
+  it('a ?orden=cobertura URL with ml_metricas.ver is sent as is', async () => {
+    await audit('/ml-publicaciones?vista=auditoria&orden=cobertura&dir=desc');
+    expect(auditCalls().at(-1)).toMatchObject({ orden: 'cobertura', dir: 'desc' });
+  });
+});
