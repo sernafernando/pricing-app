@@ -805,6 +805,9 @@ def rotation_out(whole: Whole) -> dict[str, Any]:
         "rotacion": rotation(sales.units_30d, average),
         "stock_promedio": None if average is None else round(average.stock, 2),
         "stock_promedio_dias": None if average is None else average.dias,
+        # the numbers of the two formulas above, for their tooltips (auditoria-ventas-erp-full L2)
+        "stock_actual": stock,
+        "vendidas_30d": int(sales.units_30d),
         # S4: each source's stock over its own sales (ERP = the sales not shipped by Full)
         "por_origen": {
             "erp": _coverage_out(whole.stock_erp, sales.erp_30d, None if average is None else average.erp),

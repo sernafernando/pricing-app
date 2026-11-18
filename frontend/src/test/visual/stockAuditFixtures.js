@@ -29,6 +29,9 @@ const sales = (u7, u30, gross, extra = {}) => ({
   rotacion: 0.48,
   stock_promedio: 50,
   stock_promedio_dias: 12,
+  // the whole product's stock now and units sold in 30 days (the notebook's: 48 x 30 / 24 = 60 days, 24 / 50 = 0,48)
+  stock_actual: 48,
+  vendidas_30d: u30,
   // ERP / Full split (auditoria-stock-niveles S3, S4): a third of the sales by Full, the rest by ERP.
   envio: split(u7, u30),
   por_origen: {
@@ -75,7 +78,7 @@ export const AUDIT_NOTEBOOK = {
       full_unidades_base: 12,
       publications_count: 3,
       params: { item_ids: '9002' },
-      ventas: sales(2, 8, 3200000, { dias_cobertura: 45, rotacion: 0.67, stock_promedio: 12 }),
+      ventas: sales(2, 8, 3200000, { dias_cobertura: 45, rotacion: 0.67, stock_promedio: 12, stock_actual: 12 }),
       kind_counts: { cuotas_6: 3 },
       status_counts: { active: 3 },
       promo_counts: { con: 1, sin: 2 },
@@ -102,7 +105,7 @@ export const AUDIT_CARTRIDGE = {
   params: { item_ids: '9101' },
   // its own sales (1 in 7 days, 7 in 30) plus its pack's in base units (4 and 18 packs of 2), as the backend adds
   // them; two sales of the week without shipping data, counted in ERP (auditoria-stock-niveles S3)
-  ventas: sales(9, 43, 970000, { ultima_venta: '2026-10-20T12:00:00Z', ultima_venta_dias: 29, ageing_dias: 29, dias_cobertura: 156, rotacion: 0.19, stock_promedio: 131.6, envio: split(9, 43, 2, 0) }),
+  ventas: sales(9, 43, 970000, { ultima_venta: '2026-10-20T12:00:00Z', ultima_venta_dias: 29, ageing_dias: 29, dias_cobertura: 156, rotacion: 0.19, stock_promedio: 131.6, stock_actual: 224, envio: split(9, 43, 2, 0) }),
   kind_counts: { clasica: 1, cuotas_3: 1 },
   status_counts: { active: 2 },
   promo_counts: { con: 0, sin: 2 },
@@ -157,6 +160,7 @@ export const AUDIT_ORPHAN = {
     cobertura_infinita: true,
     rotacion: 0,
     stock_promedio: 4,
+    stock_actual: 4,
     por_origen: {
       erp: { dias_cobertura: null, cobertura_infinita: true, rotacion: 0 },
       full: { dias_cobertura: null, cobertura_infinita: false, rotacion: null },

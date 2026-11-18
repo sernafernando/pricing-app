@@ -298,8 +298,8 @@ describe('Auditoría de stock', () => {
       while (scroller && !['auto', 'scroll'].includes(getComputedStyle(scroller).overflowX)) scroller = scroller.parentElement;
       scroller.scrollLeft = scroller.scrollWidth;
       await frame();
-      const infinite = screen.getByTitle('Con stock y sin ventas en 30 días').element();
-      await expect.element(screen.getByTitle('Con stock y sin ventas en 30 días')).toBeVisible();
+      const infinite = screen.getByTitle(/ninguna venta en 30 días: no se agota al ritmo actual/).element();
+      await expect.element(screen.getByTitle(/ninguna venta en 30 días: no se agota al ritmo actual/)).toBeVisible();
       for (const cell of document.querySelectorAll('[aria-label="Rotación (veces)"], [aria-label="Días de cobertura"]')) {
         expect(cell.getBoundingClientRect().height).toBeLessThan(24); // one line, never wrapped
       }
@@ -321,11 +321,11 @@ describe('Auditoría de stock', () => {
       await open(screen, 'INSUMOS');
       await expect.element(screen.getByText('Cartucho Demo 01 negro', { exact: true })).toBeVisible();
       await expect.element(screen.getByRole('group', { name: 'Ver por' })).toBeVisible();
-      // The ERP / Full line under each sales figure, one line, in the muted tone.
-      const split = screen.getByText('ERP 10', { exact: true }).element();
-      expect(split.getAttribute('title')).toBe('incluye 2 sin dato de envío');
-      expect(split.parentElement.getBoundingClientRect().height).toBeLessThan(20);
-      expect(getComputedStyle(split.parentElement).color).toBe(tokenColor('--cf-text-tertiary'));
+      // The ERP / Full line under each sales figure, one line, in the muted tone, with no shipping warning (L3).
+      const split = screen.getByText('ERP 10 · Full 5', { exact: true }).element();
+      expect(split.getAttribute('title')).toBeNull();
+      expect(split.getBoundingClientRect().height).toBeLessThan(20);
+      expect(getComputedStyle(split).color).toBe(tokenColor('--cf-text-tertiary'));
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(2000);
       window.scrollTo(0, 0);
       await frame();

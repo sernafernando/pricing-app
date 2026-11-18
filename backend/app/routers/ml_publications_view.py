@@ -834,6 +834,9 @@ class StockAuditSalesOut(BaseModel):
     rotacion: Optional[float] = None
     stock_promedio: Optional[float] = None
     stock_promedio_dias: Optional[int] = None
+    # the whole product's stock now and units sold in 30 days: the numbers of the two formulas (their tooltips)
+    stock_actual: Optional[int] = None
+    vendidas_30d: Optional[int] = None
     envio: Optional[dict[str, StockEnvioWindowOut]] = None  # S3: "7d" / "30d" -> its units by ERP and Full
     por_origen: Optional[StockPorOrigenOut] = None  # S4: coverage and rotation of ERP and of Full
 

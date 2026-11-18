@@ -316,13 +316,6 @@
   white-space: nowrap;
 }
 
-/* An ERP number with sales without shipping data: its tooltip says how many. */
-.splitHint {
-  text-decoration: underline dotted;
-  text-underline-offset: 2px;
-  cursor: help;
-}
-
 /* "N productos sin costo" beside a group's values. */
 .noCost {
   display: inline-flex;
