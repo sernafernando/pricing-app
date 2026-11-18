@@ -2410,10 +2410,14 @@ class Board:
             costo[key][index] += Decimal(str(s["costo"] or 0))
         # The markup of a day from that day's sums rounded to the cent, like
         # the row's own markup.
+        # A day without cost has no markup (`markup_of`): skipped before rounding, it is most of the 90 days of most
+        # rows (pubml-lentitud: 1.9 M roundings for the 10.000 rows of an Auditoría by brand).
         for key, row in by_key.items():
             row.series_units = units[key]
+            day_tg, day_costo = tg[key], costo[key]
             row.series_markup = [
-                _round1(markup_of(cents(tg[key][i]), cents(costo[key][i]))) for i in range(SERIES_DAYS)
+                _round1(markup_of(cents(day_tg[i]), cents(day_costo[i]))) if day_costo[i] else None
+                for i in range(SERIES_DAYS)
             ]
 
     # ── the "Agrupado" view: the surviving products' pairs, as a tree of nodes ──
@@ -2830,8 +2834,12 @@ class Board:
         statement over the keyed lines of both periods (the board's per-day lines drop the key). Every line of a
         group shares its `group_date`, so a group falls on one day and the per-day counts add up to the period's."""
         f = self.f
-        lines = self._read_lines(
-            [day_bounds(f.date_from, f.date_to), day_bounds(self.prev_from, self.prev_to)], keyed=True
+        lines = self._held_lines(
+            "board_ops_lines",
+            self._read_lines(
+                [day_bounds(f.date_from, f.date_to), day_bounds(self.prev_from, self.prev_to)], keyed=True
+            ),
+            ("product", "mla", "day", "group_key"),
         )
         per_day = self._in_mla_set(
             select(lines.c.day, func.count(func.distinct(lines.c.group_key)).label("n"))
@@ -2869,6 +2877,21 @@ class Board:
         rows = self.db.execute(query.group_by(modo).order_by(gross.desc(), modo)).all()
         return [ShippingRow(modo=m, operations=int(n), units=int(u), gross=cents(g)) for m, n, u, g in rows]
 
+    def _held_lines(self, prefix: str, read: Any, columns: Sequence[str]) -> Any:
+        """`read`'s `columns` held in a temp table with statistics, for a statement that joins them to the rows and
+        the MLA set: read in place, the planner takes the keyed sold lines for a handful of rows (the pack / order key
+        join defeats its estimate) and nests loops over the members and the MLA set once per line (pubml-lentitud,
+        prod-sized copy: 3.9 s of a 4.5 s KPI strip, 19 s for the ERP / Full split). The very same lines: only the
+        plan changes, never a number. Only under an MLA set (Publicaciones ML): the persisted lines (`use_lines`)
+        are estimated right, and Métricas ML's own reads keep main's SQL (`test_board_mla_source_postgres`)."""
+        if self.use_lines or self.mla_set is None:
+            return read
+        return self._materialize(
+            self._next_table(prefix),
+            select(*(read.c[name] for name in columns)),
+            analyze=("product", "mla"),
+        )
+
     def _shipped_lines(self, date_from: date) -> Tuple[Any, Any, Any]:
         """The sold lines from `date_from` to the period's end of the rows that survive the filters, each with its
         order's logistic mode (`mode_resolution`'s rule, in SQL): `(lines, modo, a column-less SELECT over them)`.
@@ -2876,7 +2899,11 @@ class Board:
         missing still counts, as "desconocido". `by_shipping` and `units_by_fulfillment` both read it."""
         f = self.f
         joined, fp = self._members("", narrow=True)
-        lines = self._read_lines([day_bounds(date_from, f.date_to)], keyed=True, ml_only=True)
+        lines = self._held_lines(
+            "board_shipped_lines",
+            self._read_lines([day_bounds(date_from, f.date_to)], keyed=True, ml_only=True),
+            ("product", "mla", "order_id", "day", "group_key", "qty", "gross"),
+        )
         O, S = aliased(MlOrdersOps), aliased(MlShipmentOps)
         modo = modo_logistico_expr(S.shipment_id, S.logistic_type, O.has_no_shipping_tag)
         query = self._in_mla_set(
