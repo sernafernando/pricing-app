@@ -174,6 +174,29 @@ class TestOnlyThePage:
                 for name in (*FIGURES, "sell_in", "sell_out", "m_sell_in", "m_sell_out"):
                     assert getattr(part[mla], name) == getattr(everything[mla], name), (subset, mla, name)
 
+    def test_the_sell_in_out_read_never_changes_the_units_rotation_and_ageing(self, sold) -> None:
+        # pubml-lentitud L4: the stock audit now reads its whole products' extra MLAs in the same Board read as the
+        # rows, WITH sell in / sell out when the viewer sees margins (before: a second read without). Rotación,
+        # Cobertura, the units and the ageing must not move; only the sell in / out columns are added.
+        sold.execute(text(CONSUMPTION_DDL))
+        line = sold.execute(
+            text(
+                "SELECT i.id FROM ml_order_items_ops i JOIN ml_orders_ops o ON o.order_id = i.order_id ORDER BY i.id LIMIT 1"
+            )
+        ).scalar_one()
+        sold.execute(
+            text("INSERT INTO sell_in_consumos (canal, venta_ref, descuento_ars) VALUES ('ml', :ref, 50)"),
+            {"ref": line},
+        )
+        mlas = ["MLA1", "MLA2", "MLA3", "MLA4"]
+        plain = row_metrics.metrics_by_mla(sold, mlas, sell_in_out=False)
+        with_sell = row_metrics.metrics_by_mla(sold, mlas, sell_in_out=True)
+        assert set(plain) == set(with_sell)
+        assert any(with_sell[mla].sell_in for mla in with_sell)  # the sell in above was read
+        for mla in plain:
+            for name in ("units", "windows", "series_units", "last_sale_at", "ageing_days"):
+                assert getattr(with_sell[mla], name) == getattr(plain[mla], name), (mla, name)
+
     def test_only_the_mlas_asked_for_are_answered(self, sold) -> None:
         assert set(row_metrics.metrics_by_mla(sold, ["MLA2", "MLA2"])) == {"MLA2"}
 

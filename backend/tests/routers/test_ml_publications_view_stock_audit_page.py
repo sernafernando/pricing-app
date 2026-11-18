@@ -111,3 +111,31 @@ class TestPageParity:
     def test_without_the_margin_permission_a_page_is_the_full_reads(self, client, mine) -> None:
         assert_pages_are_the_full_read(client, mine, orden="valor_total")
         assert_pages_are_the_full_read(client, mine, orden="unidades_30d")
+
+
+def baseline(client, headers, monkeypatch, **params) -> dict:
+    """The answer of the path before pubml-lentitud: every row enriched first, then sorted and cut."""
+    with monkeypatch.context() as patch:
+        patch.setattr(stock_audit, "page_first", lambda orden, nivel: False)
+        return audit(client, headers, **params)
+
+
+@pytest.mark.postgres
+class TestOldVersusNew:
+    """L4 (owner: "que los datos no sean mentira"): the page-first answer equals the old full path's answer, row by
+    row, with the same total and KPIs, for every order, both directions, pages 1 and 2, with and without a filter."""
+
+    @pytest.mark.parametrize("orden", stock_audit.ORDERS)
+    @pytest.mark.parametrize("direction", ["asc", "desc"])
+    def test_every_order_answers_what_the_old_path_answered(
+        self, client, margin, monkeypatch, orden, direction
+    ) -> None:
+        for filters in ({}, {"estado": "active"}):
+            for offset in (0, 2):
+                params = {"orden": orden, "dir": direction, "limit": 2, "offset": offset, **filters}
+                assert audit(client, margin, **params) == baseline(client, margin, monkeypatch, **params), params
+
+    def test_without_the_margin_permission_too(self, client, mine, monkeypatch) -> None:
+        for orden in ("valor_total", "descripcion", "promos_aplicadas", "unidades_30d"):
+            params = {"orden": orden, "limit": 2}
+            assert audit(client, mine, **params) == baseline(client, mine, monkeypatch, **params), params

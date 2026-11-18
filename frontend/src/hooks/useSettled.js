@@ -24,7 +24,9 @@ export function useSettled(value, key, delay, immediate) {
       return undefined;
     }
     // The first value after the immediate phase is the one being asked now: from here on a new key waits.
-    setSettled((current) => (current.primed ? { value, key, primed: false } : current));
+    // A change under the asked key (page, sort) is asked now, so it is the settled value at once: a filter clicked
+    // right after it keeps showing that page while it settles, never the page before it.
+    setSettled((current) => (current.primed || current.key === key ? { value, key, primed: false } : current));
     const timer = setTimeout(() => setSettled({ value, key, primed: false }), delay);
     return () => clearTimeout(timer);
   }, [value, key, delay, immediate]);

@@ -46,4 +46,16 @@ describe('useSettled (pubml-lentitud S2)', () => {
     rerender({ value: { v: 1 }, keyOf: 'a', immediate: false });
     expect(result.current).toEqual({ value: { v: 1 }, key: 'a' });
   });
+
+  it('a filter clicked right after a page change keeps answering the new page while it settles', () => {
+    vi.useFakeTimers();
+    const { result, rerender } = run({ value: { pagina: 1, estado: '' }, keyOf: 'a', immediate: false });
+    act(() => vi.advanceTimersByTime(300));
+    rerender({ value: { pagina: 2, estado: '' }, keyOf: 'a', immediate: false });
+    act(() => vi.advanceTimersByTime(50));
+    rerender({ value: { pagina: 1, estado: 'paused' }, keyOf: 'b', immediate: false });
+    expect(result.current).toEqual({ value: { pagina: 2, estado: '' }, key: 'a' });
+    act(() => vi.advanceTimersByTime(260));
+    expect(result.current).toEqual({ value: { pagina: 1, estado: 'paused' }, key: 'b' });
+  });
 });
