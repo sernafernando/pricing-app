@@ -102,7 +102,9 @@ CATALOG: tuple[ToolSpec, ...] = (
         "pubml_stock_audit",
         "/api/ml-publications/view/stock-audit",
         "Auditoría de stock",
-        "Publicaciones ML, vista Auditoría de stock: stock ERP and Full valued in USD and ARS, rows and KPIs.",
+        "Publicaciones ML, vista Auditoría de stock: stock ERP and Full valued in USD and ARS, rows and KPIs; rows "
+        "per brand, category or product (`nivel`, drill with `grupo_marca` / `grupo_categoria`), sales, coverage "
+        "and rotation split into ERP and Full.",
     ),
     ToolSpec(
         "pubml_mejores_ofertas_count",
