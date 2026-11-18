@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,8 @@ DEFAULT_C6_GAP_MIN = Decimal("5000")
 DEFAULT_C6_DISTANCIA = Decimal("100")
 # Catalog code; seeded with no role grants — assign only via usuario_permisos_override.
 PERMISO_AUTO_APLICACION = "promos.auto_aplicacion"
+# Session-scoped views after ``prefetch_criterios`` (orchestrator / recompute / sync batches).
+_CRITERIOS_CACHE_KEY = "hay_mejores_criterios_cache"
 
 
 @dataclass(frozen=True)
@@ -81,12 +83,48 @@ def _row_to_view(row: MlHayMejoresCriterios) -> CriteriosView:
     )
 
 
+def _session_criterios_cache(db: Session) -> Dict[str, CriteriosView]:
+    """Real Session.info dict only — MagicMock stubs get an ephemeral map (no cross-call cache)."""
+    info = getattr(db, "info", None)
+    if not isinstance(info, dict):
+        return {}
+    return info.setdefault(_CRITERIOS_CACHE_KEY, {})
+
+
+def prefetch_criterios(db: Session, item_ids: Sequence[str]) -> Dict[str, CriteriosView]:
+    """One ``IN`` read for many MLAs; fills the session cache used by ``get_criterios``.
+
+    Call once per orchestrator batch (recompute, boundaries worker, bulk include, ranking runs)
+    so ranking N publications does not issue N criterios SELECTs (pool-exhaustion invariant).
+    """
+    ids = [item_id for item_id in dict.fromkeys(item_ids) if item_id]
+    if not ids:
+        return {}
+    cache = _session_criterios_cache(db)
+    rows = db.query(MlHayMejoresCriterios).filter(MlHayMejoresCriterios.item_id.in_(ids)).all()
+    # MagicMock ``.all()`` is not a real list of ORM rows — treat as empty sparse table.
+    if not isinstance(rows, list):
+        rows = []
+    by_id = {row.item_id: _row_to_view(row) for row in rows if isinstance(row, MlHayMejoresCriterios)}
+    result = {item_id: by_id.get(item_id) or default_criterios(item_id) for item_id in ids}
+    cache.update(result)
+    return result
+
+
 def get_criterios(db: Session, item_id: str) -> CriteriosView:
+    cache = _session_criterios_cache(db)
+    cached = cache.get(item_id)
+    if cached is not None:
+        return cached
     row = db.get(MlHayMejoresCriterios, item_id)
     # Unit tests often pass MagicMock sessions; only a real ORM row counts.
     if not isinstance(row, MlHayMejoresCriterios):
-        return default_criterios(item_id)
-    return _row_to_view(row)
+        view = default_criterios(item_id)
+    else:
+        view = _row_to_view(row)
+    if isinstance(getattr(db, "info", None), dict):
+        cache[item_id] = view
+    return view
 
 
 def markup_pasa_c1(
@@ -219,7 +257,10 @@ def upsert_criterios(
         usuario_id=updated_by,
         alcance=alcance,
     )
-    return _row_to_view(row)
+    view = _row_to_view(row)
+    if isinstance(getattr(db, "info", None), dict):
+        _session_criterios_cache(db)[item_id] = view
+    return view
 
 
 def upsert_criterios_bulk(

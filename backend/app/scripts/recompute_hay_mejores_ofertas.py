@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.core.logging import get_logger
 from app.models.ml_publications import MlItemSellerPromotions
+from app.services.ml_hay_mejores_criterios_service import prefetch_criterios
 from app.services.ml_promotions_hay_mejores import FlagDecision, actualizar_hay_mejores_ofertas
 from app.services.ml_promotions_pricing import resolver_sell_in_out_para_mlas
 
@@ -109,7 +110,8 @@ def recompute_items(
     """Recompute each id via `actualizar_hay_mejores_ofertas`; commit in batches unless dry_run.
 
     The ranking compares markups with sell in / sell out (S5): it is read once per batch of
-    `commit_every` ids (`resolver_sell_in_out_para_mlas`), never id by id."""
+    `commit_every` ids (`resolver_sell_in_out_para_mlas`), never id by id. Criterios (C1/C2/C6)
+    use the same batch window via ``prefetch_criterios``."""
     stats = RecomputeStats()
     pending = 0
     ids = list(item_ids)
@@ -117,7 +119,9 @@ def recompute_items(
     batch = None
     for index, item_id in enumerate(ids):
         if index % size == 0:
-            batch = resolver_sell_in_out_para_mlas(db, ids[index : index + size])
+            window = ids[index : index + size]
+            batch = resolver_sell_in_out_para_mlas(db, window)
+            prefetch_criterios(db, window)
         row = db.query(MlItemSellerPromotions).filter(MlItemSellerPromotions.item_id == item_id).one_or_none()
         if row is None:
             logger.warning("hay_mejores recompute: no promotions row for %s", item_id)

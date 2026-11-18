@@ -254,7 +254,11 @@ PRICING_CONTEXT_READS = ("subcategorias_grupos", "comisiones_versiones", "avg(pr
 
 def _rank(db, mlas) -> None:
     """hay_mejores over `mlas` in one run (one session), as the recompute script and the promotions sync do."""
+    from app.services.ml_hay_mejores_criterios_service import prefetch_criterios
+
     candidate = {"id": "C-1", "type": "SELLER_CAMPAIGN", "status": "candidate", "price": 25000.0}
+    # One criterios IN-read for the whole run (same pattern as sell_in_out_batch) — never 1 SELECT/MLA.
+    prefetch_criterios(db, mlas)
     for mla in mlas:
         hay_mejores.listar_mejores_candidatas(
             db, mla, [candidate], 30000.0, sell_in_out_batch=hay_mejores._sin_sell_in_out()
@@ -280,10 +284,9 @@ class TestPricingContextOncePerRun:
         with _count_statements(world, "SELECT") as ten:
             _rank(world, self.MLAS)
 
-        # C1 reads one sparse criterios row per MLA; pricing context itself must stay flat
-        # (covered by test_the_pricing_context_is_built_once_for_many_mlas).
-        assert one["SELECT"] >= 1
-        assert ten["SELECT"] == one["SELECT"] * len(self.MLAS)
+        # Orchestrator prefetches criterios once per run; SELECT count must stay flat with N MLAs
+        # (pool-exhaustion invariant — do not loosen to ×N).
+        assert ten["SELECT"] == one["SELECT"]
 
     def test_each_mla_resolves_its_header_unit_once(self, world, monkeypatch) -> None:
         calls: list = []

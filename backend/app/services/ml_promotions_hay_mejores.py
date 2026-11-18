@@ -797,7 +797,10 @@ def set_hay_mejores_excluido_bulk(db: Session, item_ids: Sequence[str], *, exclu
         if any_flagged:
             notify_hay_mejores_changed(db)
         return ids
+    from app.services.ml_hay_mejores_criterios_service import prefetch_criterios
+
     batch = resolver_sell_in_out_para_mlas(db, ids)
+    prefetch_criterios(db, ids)
     for item_id in ids:
         rows[item_id].hay_mejores_excluido = False
         actualizar_hay_mejores_ofertas(db, item_id, sell_in_out_batch=batch)
