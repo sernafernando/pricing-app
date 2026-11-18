@@ -25,7 +25,10 @@ from app.core.database import get_async_db, get_db
 from app.models.marca_pm import MarcaPM
 from app.models.producto import ProductoERP
 from app.models.vendedor_excluido import VendedorExcluido
+from app.models.tb_item import TBItem
 from app.models.venta_fuera_pdf import (
+    VentaFueraCodigoMapeo,
+    VentaFueraLineaOverride,
     VentaFueraOperacion,
     VentaFueraOperacionLinea,
     VentaFueraPdfAlcance,
@@ -55,6 +58,10 @@ def engine() -> Iterator[Engine]:
         VentaFueraOperacionLinea.__table__,
         VentaFueraPdfAlcance.__table__,
         VentaFueraPdfResumenDocumento.__table__,
+        # Read by the load since vpf-operaciones (product resolution, manual fixes re-applied).
+        VentaFueraLineaOverride.__table__,
+        VentaFueraCodigoMapeo.__table__,
+        TBItem.__table__,
         ProductoERP.__table__,
         MarcaPM.__table__,
         VendedorExcluido.__table__,

@@ -196,8 +196,9 @@ class VentaFueraOperacionLinea(Base):
     renglon = Column(Integer, nullable=False)
     # EAN = productos_erp.codigo; NULL on manual lines ("Servicio Tecnico (Manual)").
     codigo = Column(String(100), nullable=True, index=True)
-    # productos_erp.item_id of `codigo`, set on load; NULL "sin producto": such a line never enters offsets, sell in
-    # or sell out (`app.services.ventas_fuera_pdf.ventas`).
+    # The line's product, set on load by `app.services.ventas_fuera_pdf.resolucion` (code, prefix, remembered mapping)
+    # or by a manual fix; NULL "sin producto": such a line never enters offsets, sell in or sell out
+    # (`app.services.ventas_fuera_pdf.ventas`).
     item_id = Column(Integer, nullable=True, index=True)
     articulo = Column(String(255), nullable=False)
     cantidad = Column(MONTO, nullable=False)
@@ -205,5 +206,69 @@ class VentaFueraOperacionLinea(Base):
     precio = Column(MONTO, nullable=False)
     precio_costo = Column(MONTO, nullable=False)
     precio_costo_pp = Column(MONTO, nullable=False)
+    # The PDF's `precio_costo`: a manual cost (`VentaFueraLineaOverride.costo_unitario`) replaces `precio_costo`,
+    # this keeps what the PDF said (migration 20261120_vpf_operaciones_overrides; NULL only on rows loaded before it
+    # and not backfilled).
+    precio_costo_pdf = Column(MONTO, nullable=True)
+    # How `item_id` was found: 'codigo' | 'prefijo' | 'mapeo' | 'manual' (`app.services.ventas_fuera_pdf.resolucion`);
+    # NULL = sin producto.
+    item_origen = Column(String(20), nullable=True)
+    # The manual fix of this line: NULL (none), 'aplicado' (applied) or 'revisar' (the PDF line changed since it was
+    # made: not applied, waiting for review).
+    override_estado = Column(String(20), nullable=True)
 
     operacion = relationship("VentaFueraOperacion", back_populates="lineas")
+
+
+class VentaFueraLineaOverride(Base):
+    """A manual fix of a PDF line (owner L2: "hay que hacerle que se persista la data si cargan de nuevo un pdf que
+    sobreescriba la venta"). Keyed by the document's natural key + `renglon`, apart from the replaceable PDF rows, so a
+    re-upload never deletes it: when the new line's snapshot (codigo, articulo, cantidad, precio) is the same it is
+    applied again, otherwise it is kept with `estado` 'revisar' and not applied."""
+
+    __tablename__ = "ventas_fuera_linea_overrides"
+
+    id = Column(Integer, primary_key=True)
+    empresa = Column(String(200), nullable=False)
+    tipo = Column(String(2), nullable=False)
+    letra = Column(String(1), nullable=False)
+    punto_venta = Column(Integer, nullable=False)
+    numero = Column(Integer, nullable=False)
+    renglon = Column(Integer, nullable=False)
+    # The product assigned by hand (NULL: automatic resolution).
+    item_id = Column(Integer, nullable=True)
+    # ARS per unit as ModalEditarCosto sends it (VARIOS included); the line's precio_costo becomes
+    # costo_unitario x cantidad / COSTO_D_FACTOR, so its Costo D is exactly this cost. NULL: the PDF's cost.
+    # Six decimals: the modal's unit cost (total / cantidad x VARIOS) must re-apply to the same line cost after a
+    # re-upload; two decimals drift by up to 0.005 per unit.
+    costo_unitario = Column(Numeric(18, 6), nullable=True)
+    # The line as it was when the fix was made.
+    codigo = Column(String(100), nullable=True)
+    articulo = Column(String(255), nullable=False)
+    cantidad = Column(MONTO, nullable=False)
+    precio = Column(MONTO, nullable=False)
+    estado = Column(String(20), nullable=False, default="aplicado")
+    usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "empresa", "tipo", "letra", "punto_venta", "numero", "renglon", name="uq_ventas_fuera_linea_overrides_linea"
+        ),
+    )
+
+
+class VentaFueraCodigoMapeo(Base):
+    """A product remembered for a PDF code (or, for a line without code, its article text): every later upload
+    resolves lines with that key to `item_id` (S3: "remember the mapping so the next uploads of that code resolve
+    automatically"). `clave` = 'c:' + upper(btrim(codigo)) or 'a:' + upper(btrim(articulo))."""
+
+    __tablename__ = "ventas_fuera_codigo_mapeos"
+
+    id = Column(Integer, primary_key=True)
+    clave = Column(String(300), nullable=False, unique=True)
+    item_id = Column(Integer, nullable=False)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

@@ -57,6 +57,17 @@ describe('Sidebar — Ventas por Fuera opens the board with canal=fuera', () => 
     expect(screen.queryByRole('link', { name: 'Ventas por Fuera (anterior)' })).not.toBeInTheDocument();
   });
 
+  it('lists "Operaciones por Fuera" on /ventas-fuera-listado for ver_metricas_pdf (vpf-operaciones S2)', async () => {
+    await openReportes(['ventas_fuera.ver_metricas_pdf']);
+    expect(screen.getByRole('link', { name: 'Operaciones por Fuera' })).toHaveAttribute('href', '/ventas-fuera-listado');
+    expect(screen.getByRole('link', { name: 'Ventas por Fuera' })).toHaveAttribute('href', '/metricas-ml?canal=fuera');
+  });
+
+  it('hides "Operaciones por Fuera" without ver_metricas_pdf', async () => {
+    await openReportes(['ventas_fuera.subir_pdf', 'ventas_fuera.ver_dashboard']);
+    expect(screen.queryByRole('link', { name: 'Operaciones por Fuera' })).not.toBeInTheDocument();
+  });
+
   it('lists "Cargas de PDF" for subir_pdf or ver_metricas_pdf', async () => {
     await openReportes(['ventas_fuera.subir_pdf']);
     expect(screen.getByRole('link', { name: 'Cargas de PDF' })).toHaveAttribute('href', '/metricas-ml/cargas');

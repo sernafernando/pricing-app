@@ -27,6 +27,13 @@ describe('Ventas por fuera routes', () => {
     expect(appSource).not.toMatch(/<Navigate to="\/metricas-ml\?canal=fuera"/);
   });
 
+  it('vpf-operaciones S2: the PDF operations list opens on /ventas-fuera-listado with ver_metricas_pdf', () => {
+    expect(appSource).toMatch(
+      /\{ path: '\/ventas-fuera-listado', component: VentasFueraOperaciones, permiso: 'ventas_fuera\.ver_metricas_pdf' \}/,
+    );
+    expect(appSource).toMatch(/VentasFueraOperaciones = lazy\(\(\) => import\('\.\/pages\/VentasFueraOperaciones'\)\)/);
+  });
+
   it('S4: the excluded-salespeople admin keeps its own route with the old tab permission', () => {
     expect(appSource).toMatch(
       /\{ path: '\/dashboard-ventas-fuera\/vendedores-excluidos', component: VendedoresExcluidos, permiso: 'ventas_fuera\.ver_dashboard' \}/,
