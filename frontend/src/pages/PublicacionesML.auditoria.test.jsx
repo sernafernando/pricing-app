@@ -3,7 +3,7 @@
  * `/view/items` for, and what it draws. Layout is the visual suite's job (`auditoriaStock.visual.test.jsx`).
  */
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import PublicacionesML from './PublicacionesML';
@@ -13,6 +13,32 @@ import { exportAuditoriaStockExcel } from '../components/publicacionesMl/auditor
 import { seedTiendasOficiales, resetTiendasOficiales } from '../test/tiendasOficialesFixtures';
 import { FACETS, ITEMS_RESPONSE, KPIS_RESPONSE } from '../test/visual/publicacionesMlFixtures';
 import { AUDIT_NOTEBOOK_ITEMS, AUDIT_ORPHAN, stockAuditResponse } from '../test/visual/stockAuditFixtures';
+import { mlPublicationsPresetsAPI } from '../services/mlPublicationsPresets';
+
+// The columns are the user's saved layout of the view (pubml-columnas-presets S2): the server is mocked here.
+vi.mock('../services/mlPublicationsPresets', () => ({
+  mlPublicationsPresetsAPI: {
+    getLayout: vi.fn(),
+    saveLayout: vi.fn(),
+    list: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    remove: vi.fn(),
+  },
+}));
+
+// dnd-kit's gestures do not run in jsdom: a picker drag ends through its DndContext's own `onDragEnd`, by `id`.
+const dragEnd = vi.hoisted(() => ({}));
+vi.mock('@dnd-kit/core', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    DndContext: ({ id, onDragEnd, children }) => {
+      dragEnd[id] = onDragEnd;
+      return children;
+    },
+  };
+});
 
 vi.mock('../services/api', () => ({
   default: {
@@ -191,7 +217,13 @@ beforeEach(() => {
   publicacionesMlAPI.productIds.mockResolvedValue({ data: { item_ids: [], count: 0, sin_producto: 0 } });
   publicacionesMlAPI.groups.mockReset();
   publicacionesMlAPI.groups.mockResolvedValue({ data: { nodes: [], total: 0 } });
+  Object.values(mlPublicationsPresetsAPI).forEach((fn) => fn.mockReset());
+  mlPublicationsPresetsAPI.getLayout.mockResolvedValue({ columns: null, preset_activo_id: null });
+  mlPublicationsPresetsAPI.saveLayout.mockImplementation((vista, body) => Promise.resolve(body));
+  mlPublicationsPresetsAPI.list.mockResolvedValue([]);
 });
+
+const savedAudit = () => mlPublicationsPresetsAPI.saveLayout.mock.calls.filter(([vista]) => vista === 'auditoria').at(-1)?.[1];
 
 afterAll(resetTiendasOficiales);
 
@@ -292,13 +324,29 @@ describe('S3-S7: the view', () => {
 });
 
 describe('L6: hideable columns and KPI cards, remembered', () => {
-  it('hiding a column in the picker drops it and remembers it', async () => {
+  it('hiding a column in the picker drops it and remembers it, on the server (pubml-columnas-presets S2)', async () => {
     const user = userEvent.setup();
     await audit();
     await user.click(screen.getByRole('button', { name: /Columnas/ }));
     await user.click(screen.getByRole('checkbox', { name: 'Tendencia de ventas' }));
     await waitFor(() => expect(headers().filter((text) => text === 'Tendencia')).toHaveLength(1));
-    expect(localStorage.getItem('publicaciones-ml.auditoria.columnas-ocultas')).toContain('units_trend');
+    await waitFor(() => expect(savedAudit()?.columns.visibility).toMatchObject({ units_trend: false, descripcion: true }), { timeout: 2000 });
+  });
+
+  it('opens with the layout saved for the audit, and its groups reorder as a block (pubml-columnas-presets S1)', async () => {
+    mlPublicationsPresetsAPI.getLayout.mockResolvedValue({ columns: { visibility: { tipo: false }, order: [] }, preset_activo_id: null });
+    await audit();
+    expect(mlPublicationsPresetsAPI.getLayout).toHaveBeenCalledWith('auditoria');
+    await waitFor(() => expect(headers()).not.toContain('Tipo'));
+    await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
+    act(() => dragEnd['column-blocks']({ active: { id: 'group:Resultado' }, over: { id: 'col:estado' } }));
+    await waitFor(() => {
+      const keys = [...table().querySelectorAll('th[data-column]')].map((th) => th.getAttribute('data-column'));
+      expect(keys.indexOf('facturado_30d')).toBeLessThan(keys.indexOf('unidades_erp'));
+    });
+    await waitFor(() => expect(savedAudit()?.columns.order.slice(0, 4)).toEqual(['descripcion', 'tipo', 'facturado_30d', 'total_gauss_30d']), {
+      timeout: 2000,
+    });
   });
 
   it('hiding a KPI card drops it and remembers it', async () => {
@@ -430,7 +478,7 @@ describe('promos-fila S2: the Promos aplicadas column', () => {
     await user.click(screen.getByRole('button', { name: /Columnas/ }));
     await user.click(screen.getByRole('checkbox', { name: 'Promos aplicadas' }));
     await waitFor(() => expect(headers().some((text) => text.includes('Promos'))).toBe(false));
-    expect(localStorage.getItem('publicaciones-ml.auditoria.columnas-ocultas')).toContain('promos_aplicadas');
+    await waitFor(() => expect(savedAudit()?.columns.visibility).toMatchObject({ promos_aplicadas: false }), { timeout: 2000 });
   });
 });
 

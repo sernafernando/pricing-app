@@ -155,6 +155,35 @@ const KEPT_ON_RESET = [...SHAPE_KEYS, LAYER_KEY, MODE_KEY];
 const DIRECTIONS = ['asc', 'desc'];
 const SORT_KEYS = ['orden', 'dir', 'limite'];
 const VIEW_KEYS = ['pagina', 'sel', 'tab', 'prod'];
+/**
+ * What a column preset saves and applies besides its columns (pubml-columnas-presets S3, S8): the filters, the sort
+ * and how the rows are looked at (`modo`, `agrupar`, `familias`, the layer `equipo`) -- never the view itself
+ * (`vista`), the page size nor where the user stands (`VIEW_KEYS`).
+ */
+const PRESET_PARAM_KEYS = [...FILTER_KEYS, 'orden', 'dir', MODE_KEY, 'agrupar', 'familias', LAYER_KEY];
+// A value equal to its default is no choice: `modo=normal` and `agrupar=marca` read as their absence.
+const PRESET_DEFAULTS = { [MODE_KEY]: 'normal', agrupar: 'marca' };
+// A link carrying any of these is a link that wins over the remembered preset (S6).
+const LIST_PARAM_KEYS = [...FILTER_KEYS, 'orden', 'dir'];
+
+/** The preset params of `params` (a URLSearchParams or a plain object), without empty or default values. */
+export function normalizePresetParams(params) {
+  const entries = params instanceof URLSearchParams ? [...params.entries()] : Object.entries(params ?? {});
+  return Object.fromEntries(
+    entries.filter(
+      ([key, value]) =>
+        PRESET_PARAM_KEYS.includes(key) && typeof value === 'string' && value !== '' && PRESET_DEFAULTS[key] !== value,
+    ),
+  );
+}
+
+/** Whether two preset params say the same. */
+export function samePresetParams(a, b) {
+  const left = normalizePresetParams(a);
+  const right = normalizePresetParams(b);
+  const keys = Object.keys(left);
+  return keys.length === Object.keys(right).length && keys.every((key) => left[key] === right[key]);
+}
 
 /**
  * The sorts of the list. A column sort's key IS the backend's `orden`; `DEFAULT_DIRECTION` mirrors the backend's
@@ -659,7 +688,25 @@ export function usePublicacionesMLFilters({ canSeeMargin = false } = {}) {
     [setSearchParams],
   );
 
-  return { filters, filterKey, setFilters, resetFilters };
+  const presetParams = useMemo(() => normalizePresetParams(searchParams), [searchParams]);
+  const hasListParams = LIST_PARAM_KEYS.some((key) => searchParams.get(key));
+
+  // A preset's params replace every preset param of the URL at once (one history entry); the view and the page size
+  // stay, and like any filter change it goes back to page 1 and closes the selection.
+  const applyPresetParams = useCallback(
+    (params, options) =>
+      setSearchParams((prev) => {
+        const next = new URLSearchParams();
+        for (const [key, value] of prev) {
+          if (!PRESET_PARAM_KEYS.includes(key) && !VIEW_KEYS.includes(key)) next.append(key, value);
+        }
+        for (const [key, value] of Object.entries(normalizePresetParams(params))) next.set(key, value);
+        return next;
+      }, options),
+    [setSearchParams],
+  );
+
+  return { filters, filterKey, setFilters, resetFilters, presetParams, hasListParams, applyPresetParams };
 }
 
 export default usePublicacionesMLFilters;
