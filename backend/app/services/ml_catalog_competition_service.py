@@ -65,10 +65,26 @@ def _normalize_installments(entry: Dict[str, Any]) -> str:
     the same offer as an interest-free one with the same installment
     count, and they must not share a bucket. Never raises: any
     unresolvable shape degrades to `"0"`.
+
+    The catalog-competition proxy often sends `installments` as a bare
+    integer (e.g. `6` for Premium · 6 cuotas), not `{quantity, rate}`.
+    Treating that as interest-free quantity is required so read-time
+    buckets do not collapse every Premium tranche into `|0`.
     """
-    installments = entry.get("installments")
-    if not installments:
+    installments = entry.get("installments") if isinstance(entry, dict) else None
+    if installments is None or installments is False:
         return "0"
+    if isinstance(installments, bool):
+        return "0"
+    if isinstance(installments, (int, float)):
+        quantity = int(installments)
+        return "0" if quantity <= 0 else str(quantity)
+    if isinstance(installments, str):
+        try:
+            quantity = int(installments.strip())
+        except ValueError:
+            return "0"
+        return "0" if quantity <= 0 else str(quantity)
     try:
         quantity = int(installments.get("quantity") or 0)
         rate = float(installments.get("rate") or 0)
@@ -309,6 +325,88 @@ def obtener_ultimo_snapshot(db: Session, mla: str) -> Optional[MLCatalogCompetit
     )
 
 
+def _our_competitor_entry(row: MLCatalogCompetition) -> Optional[Dict[str, Any]]:
+    """Our listing inside `row.competitors`, keyed by `our_item_id` or `mla`."""
+    our_id = getattr(row, "our_item_id", None) or getattr(row, "mla", None)
+    if not our_id:
+        return None
+    for entry in row.competitors or []:
+        if isinstance(entry, dict) and entry.get("item_id") == our_id:
+            return entry
+    return None
+
+
+def _resolve_our_bucket_key(row: MLCatalogCompetition) -> Optional[str]:
+    """Recompute our bucket from stored competitor fields (read-time).
+
+    Ignores persisted `our_bucket_key` / `same_bucket` so a corrected
+    `_normalize_installments` fixes historical snapshots without MeLi.
+    Degrades to None when our row is missing or unbucketable (under-claim).
+    """
+    our_entry = _our_competitor_entry(row)
+    if our_entry is None:
+        return None
+    key = _bucket_key(our_entry)
+    if key.startswith(f"{_UNKNOWN_LISTING}|"):
+        return None
+    return key
+
+
+def _our_price_ars(row: MLCatalogCompetition) -> Optional[float]:
+    """ARS price for undercutting comparisons — fail-closed on currency.
+
+    If our competitor entry exists but `price_ars` is missing (USD without
+    FX / unconvertible), do **not** fall through to raw `row.our_price`:
+    that column may still hold the unconverted amount and would silently
+    under/over-cut by ~1000×. Only use `row.our_price` when there is no
+    entry and `our_currency_id` is ARS (or missing entry entirely with ARS).
+    """
+    our_entry = _our_competitor_entry(row)
+    if our_entry is not None:
+        if our_entry.get("currency_unconvertible"):
+            return None
+        price = our_entry.get("price_ars")
+        if price is None:
+            return None
+        try:
+            return float(price)
+        except (TypeError, ValueError):
+            return None
+    currency = getattr(row, "our_currency_id", None)
+    if currency not in (None, "ARS"):
+        return None
+    raw = getattr(row, "our_price", None)
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _competitors_matching_bucket(row: MLCatalogCompetition, our_key: Optional[str]) -> List[Dict[str, Any]]:
+    """Same-bucket rows using read-time `_bucket_key`, with persisted-flag fallback."""
+    competitors = [c for c in (row.competitors or []) if isinstance(c, dict)]
+    if our_key is None:
+        # Incomplete snapshot / unit fixtures without our listing fields.
+        return [c for c in competitors if c.get("same_bucket")]
+    return [c for c in competitors if _bucket_key(c) == our_key]
+
+
+def _sort_competitors_by_price(competitors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _sort_key(competitor: Dict[str, Any]) -> tuple:
+        price = competitor.get("price_ars")
+        # None / non-numeric prices sort after every known ARS price.
+        try:
+            price_key = (1, 0.0) if price is None else (0, float(price))
+        except (TypeError, ValueError):
+            price_key = (1, 0.0)
+        item_id = competitor.get("item_id") or ""
+        return (price_key[0], price_key[1], item_id)
+
+    return sorted(competitors, key=_sort_key)
+
+
 def undercutting_competitors(row: Optional[MLCatalogCompetition]) -> List[Dict[str, Any]]:
     """Competitors from `row` that are BOTH in the same bucket as the
     queried MLA AND strictly cheaper than us (design #1210 section 3.4 /
@@ -316,12 +414,35 @@ def undercutting_competitors(row: Optional[MLCatalogCompetition]) -> List[Dict[s
     more-expensive competitor, and never a different-bucket one — those
     stay hidden, not greyed.
 
+    Bucket membership is recomputed at read time from stored
+    `listing_type_id` + `installments` (see module hard rules). Persisted
+    `same_bucket` / `is_cheaper_than_us` are only a fallback when our
+    listing cannot be resolved in the snapshot.
+
     `row` may be `None` (never fetched) or a failed row (`competitors`
     already `[]`) — both degrade to an empty list.
     """
     if row is None:
         return []
-    return [c for c in (row.competitors or []) if c.get("same_bucket") and c.get("is_cheaper_than_us") is True]
+    our_key = _resolve_our_bucket_key(row)
+    our_price = _our_price_ars(row)
+    if our_key is None or our_price is None:
+        return [
+            c
+            for c in (row.competitors or [])
+            if isinstance(c, dict) and c.get("same_bucket") and c.get("is_cheaper_than_us") is True
+        ]
+    cheaper: List[Dict[str, Any]] = []
+    for competitor in _competitors_matching_bucket(row, our_key):
+        price = competitor.get("price_ars")
+        if price is None:
+            continue
+        try:
+            if float(price) < our_price:
+                cheaper.append(competitor)
+        except (TypeError, ValueError):
+            continue
+    return cheaper
 
 
 def same_bucket_competitors(row: Optional[MLCatalogCompetition]) -> List[Dict[str, Any]]:
@@ -329,22 +450,14 @@ def same_bucket_competitors(row: Optional[MLCatalogCompetition]) -> List[Dict[st
     price — cheaper, equal, or more expensive. Different-bucket rows stay
     out. Ordered by `price_ars` ascending (`None` last), then `item_id`.
 
-    Reads the persisted snapshot only; does not call MeLi. Sibling of
+    Recomputes bucket at read time from stored fields (no MeLi). Sibling of
     `undercutting_competitors` for the publication-panel ranking (wide
     Promos column 2); does not replace undercutting for the Productos tree.
     """
     if row is None:
         return []
-    bucket = [c for c in (row.competitors or []) if c.get("same_bucket")]
-
-    def _sort_key(competitor: Dict[str, Any]) -> tuple:
-        price = competitor.get("price_ars")
-        # None prices sort after every known ARS price.
-        price_key = (1, 0.0) if price is None else (0, float(price))
-        item_id = competitor.get("item_id") or ""
-        return (price_key[0], price_key[1], item_id)
-
-    return sorted(bucket, key=_sort_key)
+    our_key = _resolve_our_bucket_key(row)
+    return _sort_competitors_by_price(_competitors_matching_bucket(row, our_key))
 
 
 async def refrescar_competencia_catalogo(db: Session, mlas: List[str]) -> List[MLCatalogCompetition]:

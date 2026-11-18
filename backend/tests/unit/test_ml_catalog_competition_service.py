@@ -123,6 +123,19 @@ class TestNormalizeInstallments:
         bearing = _normalize_installments({"installments": {"quantity": 3, "rate": 10}})
         assert free != bearing
 
+    def test_bare_int_installments_from_proxy(self) -> None:
+        # Catalog proxy sends quantity as a scalar, not {quantity, rate}.
+        assert _normalize_installments({"installments": 6}) == "6"
+        assert _normalize_installments({"installments": 3}) == "3"
+
+    def test_bare_str_installments_from_proxy(self) -> None:
+        assert _normalize_installments({"installments": "12"}) == "12"
+
+    def test_bare_int_matches_dict_quantity_for_bucket(self) -> None:
+        assert _normalize_installments({"installments": 6}) == _normalize_installments(
+            {"installments": {"quantity": 6, "rate": 0}}
+        )
+
 
 class TestBucketKey:
     def test_same_listing_type_different_labels_same_bucket(self) -> None:
@@ -133,6 +146,13 @@ class TestBucketKey:
     def test_same_listing_type_different_installments_different_bucket(self) -> None:
         a = _bucket_key({"listing_type_id": "gold_special", "installments": {"quantity": 3, "rate": 0}})
         b = _bucket_key({"listing_type_id": "gold_special", "installments": {"quantity": 6, "rate": 0}})
+        assert a != b
+
+    def test_bare_int_installments_split_premium_cuotas_buckets(self) -> None:
+        a = _bucket_key({"listing_type_id": "gold_pro", "installments": 3})
+        b = _bucket_key({"listing_type_id": "gold_pro", "installments": 6})
+        assert a == "gold_pro|3"
+        assert b == "gold_pro|6"
         assert a != b
 
     def test_missing_listing_type_id_degrades_to_unknown(self) -> None:
@@ -552,6 +572,9 @@ class TestSameBucketCompetitors:
 
     def test_all_same_bucket_regardless_of_price_sorted_cheapest_first(self) -> None:
         row = MagicMock()
+        # No our_item_id → read path falls back to persisted same_bucket flags.
+        row.our_item_id = None
+        row.mla = None
         row.competitors = [
             {"item_id": "PRICIER", "same_bucket": True, "is_cheaper_than_us": False, "price_ars": 1100},
             {"item_id": "CHEAPER", "same_bucket": True, "is_cheaper_than_us": True, "price_ars": 900},
@@ -564,5 +587,124 @@ class TestSameBucketCompetitors:
 
     def test_competitors_none_degrades_to_empty_list(self) -> None:
         row = MagicMock()
+        row.our_item_id = None
+        row.mla = None
         row.competitors = None
         assert same_bucket_competitors(row) == []
+
+    def test_read_time_recompute_splits_stale_premium_cuotas_flags(self) -> None:
+        """MLA2126104891-shaped: proxy stored bare int installments; writer
+        had marked every Premium row same_bucket=True under gold_pro|0.
+        Read path must keep only our cuotas tranche without a MeLi refresh.
+        """
+        row = MagicMock()
+        row.mla = "MLA_US"
+        row.our_item_id = "MLA_US"
+        row.our_bucket_key = "gold_pro|0"  # stale persisted key — must be ignored
+        row.competitors = [
+            {
+                "item_id": "MLA_US",
+                "listing_type_id": "gold_pro",
+                "listing_label": "Premium · 6 cuotas",
+                "installments": 6,
+                "price_ars": 1039999.0,
+                "same_bucket": True,
+                "bucket_key": "gold_pro|0",
+            },
+            {
+                "item_id": "MLA_3X",
+                "listing_type_id": "gold_pro",
+                "listing_label": "Premium · 3 cuotas",
+                "installments": 3,
+                "price_ars": 969999.0,
+                "same_bucket": True,
+                "bucket_key": "gold_pro|0",
+            },
+            {
+                "item_id": "MLA_6X_CHEAP",
+                "listing_type_id": "gold_pro",
+                "listing_label": "Premium · 6 cuotas",
+                "installments": 6,
+                "price_ars": 1000000.0,
+                "same_bucket": True,
+                "bucket_key": "gold_pro|0",
+            },
+            {
+                "item_id": "MLA_12X",
+                "listing_type_id": "gold_pro",
+                "listing_label": "Premium · 12 cuotas",
+                "installments": 12,
+                "price_ars": 1100000.0,
+                "same_bucket": True,
+                "bucket_key": "gold_pro|0",
+            },
+            {
+                "item_id": "MLA_CLASSIC",
+                "listing_type_id": "gold_special",
+                "listing_label": "Clásica",
+                "installments": None,
+                "price_ars": 900000.0,
+                "same_bucket": False,
+                "bucket_key": "gold_special|0",
+            },
+        ]
+        result = same_bucket_competitors(row)
+        assert [c["item_id"] for c in result] == ["MLA_6X_CHEAP", "MLA_US"]
+
+
+class TestOurPriceArsFailClosed:
+    def test_missing_price_ars_on_entry_does_not_use_raw_our_price(self) -> None:
+        from app.services.ml_catalog_competition_service import _our_price_ars
+
+        row = MagicMock()
+        row.our_item_id = "MLA_US"
+        row.mla = "MLA_US"
+        row.our_price = 5.0  # would be catastrophic if treated as ARS for a USD listing
+        row.our_currency_id = "USD"
+        row.competitors = [
+            {
+                "item_id": "MLA_US",
+                "listing_type_id": "gold_pro",
+                "installments": 6,
+                "price_ars": None,
+                "currency_unconvertible": True,
+                "currency_id": "USD",
+            }
+        ]
+        assert _our_price_ars(row) is None
+
+
+class TestUndercuttingCompetitorsReadRecompute:
+    def test_undercutting_uses_recomputed_cuotas_bucket(self) -> None:
+        row = MagicMock()
+        row.mla = "MLA_US"
+        row.our_item_id = "MLA_US"
+        row.our_price = 1039999.0
+        row.competitors = [
+            {
+                "item_id": "MLA_US",
+                "listing_type_id": "gold_pro",
+                "installments": 6,
+                "price_ars": 1039999.0,
+                "same_bucket": True,
+                "is_cheaper_than_us": False,
+            },
+            {
+                "item_id": "MLA_3X_CHEAP",
+                "listing_type_id": "gold_pro",
+                "installments": 3,
+                "price_ars": 900000.0,
+                "same_bucket": True,
+                "is_cheaper_than_us": True,
+            },
+            {
+                "item_id": "MLA_6X_CHEAP",
+                "listing_type_id": "gold_pro",
+                "installments": 6,
+                "price_ars": 1000000.0,
+                "same_bucket": True,
+                "is_cheaper_than_us": True,
+            },
+        ]
+        result = undercutting_competitors(row)
+        assert [c["item_id"] for c in result] == ["MLA_6X_CHEAP"]
