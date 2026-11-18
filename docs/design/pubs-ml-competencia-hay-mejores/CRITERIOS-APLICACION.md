@@ -2,6 +2,8 @@
 
 Living design notes. Product conversation started 2026-11-16 after #2294 / #2295 (Activa ahora baseline) merged. Update this file as decisions land; do not invent criteria the owner has not named.
 
+**Ship scope:** this PR delivers C1, C2, competitor-table tildes, lean audit, and R-AUTO. **C6 (monopolio ceiling) is deferred** to a later PR — historical C6 sections below are design backlog, not part of the Criterios ship.
+
 ## Intent
 
 Keep the **canonical** hay_mejores comparison rule. Add a **Criterios de aplicación** surface that layers **special limitations / extra criteria** on top of that base, and shows **catalog** context for how those rules apply to the open MLA.

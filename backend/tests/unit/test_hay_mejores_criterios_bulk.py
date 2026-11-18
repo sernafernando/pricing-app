@@ -33,10 +33,6 @@ def test_upsert_criterios_bulk_skips_unknown_and_sets_alcance_bulk(monkeypatch) 
         c1_markup_max=Decimal("5"),
         c2_activo=False,
         c2_solo_markup_positivo=True,
-        c6_activo=False,
-        c6_solo_via_promo=False,
-        c6_gap_min=Decimal("5000"),
-        c6_distancia_objetivo=Decimal("100"),
         auto_aplicacion=True,
         sellers_excluidos=None,
     )

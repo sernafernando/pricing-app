@@ -12,8 +12,6 @@ from sqlalchemy.orm import Session
 from app.models.ml_hay_mejores_criterios import MlHayMejoresCriterios
 from app.services.ml_hay_mejores_audit_service import record_auto_toggle
 
-DEFAULT_C6_GAP_MIN = Decimal("5000")
-DEFAULT_C6_DISTANCIA = Decimal("100")
 # Catalog code; seeded with no role grants — assign only via usuario_permisos_override.
 PERMISO_AUTO_APLICACION = "promos.auto_aplicacion"
 # Session-scoped views after ``prefetch_criterios`` (orchestrator / recompute / sync batches).
@@ -28,10 +26,6 @@ class CriteriosView:
     c1_markup_max: Optional[Decimal]
     c2_activo: bool
     c2_solo_markup_positivo: bool
-    c6_activo: bool
-    c6_solo_via_promo: bool
-    c6_gap_min: Decimal
-    c6_distancia_objetivo: Decimal
     auto_aplicacion: bool
     sellers_excluidos: list[str]
     updated_at: Optional[datetime]
@@ -46,10 +40,6 @@ def default_criterios(item_id: str) -> CriteriosView:
         c1_markup_max=None,
         c2_activo=False,
         c2_solo_markup_positivo=True,
-        c6_activo=False,
-        c6_solo_via_promo=False,
-        c6_gap_min=DEFAULT_C6_GAP_MIN,
-        c6_distancia_objetivo=DEFAULT_C6_DISTANCIA,
         auto_aplicacion=False,
         sellers_excluidos=[],
         updated_at=None,
@@ -72,12 +62,6 @@ def _row_to_view(row: MlHayMejoresCriterios) -> CriteriosView:
         c1_markup_max=_to_decimal(row.c1_markup_max),
         c2_activo=bool(row.c2_activo),
         c2_solo_markup_positivo=bool(row.c2_solo_markup_positivo),
-        c6_activo=bool(row.c6_activo),
-        c6_solo_via_promo=bool(row.c6_solo_via_promo),
-        c6_gap_min=_to_decimal(row.c6_gap_min) if row.c6_gap_min is not None else DEFAULT_C6_GAP_MIN,
-        c6_distancia_objetivo=_to_decimal(row.c6_distancia_objetivo)
-        if row.c6_distancia_objetivo is not None
-        else DEFAULT_C6_DISTANCIA,
         auto_aplicacion=bool(row.auto_aplicacion),
         sellers_excluidos=[str(x) for x in excluded],
         updated_at=row.updated_at,
@@ -179,10 +163,6 @@ def upsert_criterios(
     c1_markup_max: Optional[Decimal],
     c2_activo: bool,
     c2_solo_markup_positivo: bool,
-    c6_activo: bool,
-    c6_solo_via_promo: bool,
-    c6_gap_min: Decimal,
-    c6_distancia_objetivo: Decimal,
     auto_aplicacion: Optional[bool] = None,
     sellers_excluidos: Optional[Sequence[str]] = None,
     alcance: str = "item",
@@ -191,8 +171,6 @@ def upsert_criterios(
 ) -> CriteriosView:
     if c1_activo and c1_markup_min is not None and c1_markup_max is not None and c1_markup_min > c1_markup_max:
         raise ValueError("c1_markup_min no puede ser mayor que c1_markup_max")
-    if c6_gap_min < 0 or c6_distancia_objetivo < 0:
-        raise ValueError("gap y distancia de C6 deben ser ≥ 0")
 
     previous = get_criterios(db, item_id)
     # None = leave Auto unchanged (bulk omit). Without permiso, never change Auto.
@@ -210,10 +188,6 @@ def upsert_criterios(
     row.c1_markup_max = c1_markup_max
     row.c2_activo = c2_activo
     row.c2_solo_markup_positivo = c2_solo_markup_positivo
-    row.c6_activo = c6_activo
-    row.c6_solo_via_promo = c6_solo_via_promo
-    row.c6_gap_min = c6_gap_min
-    row.c6_distancia_objetivo = c6_distancia_objetivo
     row.auto_aplicacion = effective_auto
     if sellers_excluidos is not None:
         row.sellers_excluidos = list(sellers_excluidos)
@@ -244,10 +218,6 @@ def upsert_criterios_bulk(
     c1_markup_max: Optional[Decimal],
     c2_activo: bool,
     c2_solo_markup_positivo: bool,
-    c6_activo: bool,
-    c6_solo_via_promo: bool,
-    c6_gap_min: Decimal,
-    c6_distancia_objetivo: Decimal,
     auto_aplicacion: Optional[bool] = None,
     sellers_excluidos: Optional[Sequence[str]] = None,
     # Fail-closed: callers must pass True only after checking promos.auto_aplicacion.
@@ -273,10 +243,6 @@ def upsert_criterios_bulk(
             c1_markup_max=c1_markup_max,
             c2_activo=c2_activo,
             c2_solo_markup_positivo=c2_solo_markup_positivo,
-            c6_activo=c6_activo,
-            c6_solo_via_promo=c6_solo_via_promo,
-            c6_gap_min=c6_gap_min,
-            c6_distancia_objetivo=c6_distancia_objetivo,
             auto_aplicacion=auto_aplicacion,
             sellers_excluidos=sellers_excluidos,
             alcance="bulk",

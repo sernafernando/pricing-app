@@ -58,7 +58,7 @@ def _run_actualizar(monkeypatch, *, prev_flag: bool, prev_fp: str | None, decisi
     monkeypatch.setattr(
         hay_mejores,
         "get_criterios",
-        lambda *_a, **_k: SimpleNamespace(c6_activo=False, auto_aplicacion=False),
+        lambda *_a, **_k: SimpleNamespace(auto_aplicacion=False),
     )
     monkeypatch.setattr(hay_mejores, "record_flag_transition", lambda *_a, **_k: None)
 

@@ -1,4 +1,4 @@
-import { catalogSnapshotIsFresh } from '../publicacionesMl/panel/monopolioC6';
+import { catalogSnapshotIsFresh } from '../publicacionesMl/panel/catalogSnapshot';
 
 /** True when our_price is strictly below every checked same-bucket rival (same rule as backend C2). */
 export function statusQuoGanaCatalogo(competencia, { mla, sellersExcluidos = [] } = {}) {

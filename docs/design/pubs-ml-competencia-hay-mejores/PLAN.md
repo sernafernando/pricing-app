@@ -3,6 +3,8 @@
 Source of truth for decisions: [CRITERIOS-APLICACION.md](./CRITERIOS-APLICACION.md). Competencia col2 UX: [UX.md](./UX.md).  
 Baseline canónico ya shipped (#2294 / #2295).
 
+**Ship scope (this PR):** C1, C2, competitor table (tildes), auditoría lean, R-AUTO. **C6 (monopolio) is deferred to its own PR** — do not treat C6 sections below as in-scope for the Criterios ship.
+
 ## 1. Objetivo
 
 Mantener la regla canónica de hay_mejores y sumar:

@@ -16,10 +16,6 @@ _EXPECTED_COLUMNS = {
     "c1_markup_max",
     "c2_activo",
     "c2_solo_markup_positivo",
-    "c6_activo",
-    "c6_solo_via_promo",
-    "c6_gap_min",
-    "c6_distancia_objetivo",
     "auto_aplicacion",
     "sellers_excluidos",
     "updated_by",
@@ -29,7 +25,7 @@ _EXPECTED_COLUMNS = {
 
 def test_the_revision_is_on_the_single_line() -> None:
     script = _script()
-    assert script.get_revision(_REVISION).down_revision == "20261120_vpf_operaciones_overrides"
+    assert script.get_revision(_REVISION).down_revision == "20261123_ml_publicaciones_presets"
     heads = script.get_heads()
     assert len(heads) == 1, f"alembic forked: {heads}"
     assert any(rev.revision == _REVISION for rev in script.walk_revisions("base", heads[0]))
@@ -49,12 +45,12 @@ def test_upgrade_creates_table_defaults_and_downgrade_drops(pg_schema) -> None:
         conn.execute(text("INSERT INTO ml_hay_mejores_criterios (item_id) VALUES ('MLA1')"))
         row = conn.execute(
             text(
-                "SELECT c1_activo, c2_solo_markup_positivo, c6_gap_min, c6_distancia_objetivo, "
-                "auto_aplicacion, sellers_excluidos FROM ml_hay_mejores_criterios WHERE item_id = 'MLA1'"
+                "SELECT c1_activo, c2_solo_markup_positivo, auto_aplicacion, sellers_excluidos "
+                "FROM ml_hay_mejores_criterios WHERE item_id = 'MLA1'"
             )
         ).one()
-    assert tuple(row[:5]) == (False, True, 5000, 100, False)
-    assert row[5] == []
+    assert tuple(row[:3]) == (False, True, False)
+    assert row[3] == []
 
     _run(eng, module, "downgrade")
     assert not inspect(eng).has_table("ml_hay_mejores_criterios")

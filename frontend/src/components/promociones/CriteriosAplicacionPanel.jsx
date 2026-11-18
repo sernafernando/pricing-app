@@ -17,10 +17,6 @@ function emptyForm() {
     c1_markup_max: '',
     c2_activo: false,
     c2_solo_markup_positivo: true,
-    c6_activo: false,
-    c6_solo_via_promo: false,
-    c6_gap_min: '5000',
-    c6_distancia_objetivo: '100',
     auto_aplicacion: false,
   };
 }
@@ -32,10 +28,6 @@ function fromApi(data) {
     c1_markup_max: data.c1_markup_max == null ? '' : String(data.c1_markup_max),
     c2_activo: Boolean(data.c2_activo),
     c2_solo_markup_positivo: data.c2_solo_markup_positivo !== false,
-    c6_activo: Boolean(data.c6_activo),
-    c6_solo_via_promo: Boolean(data.c6_solo_via_promo),
-    c6_gap_min: data.c6_gap_min == null ? '5000' : String(data.c6_gap_min),
-    c6_distancia_objetivo: data.c6_distancia_objetivo == null ? '100' : String(data.c6_distancia_objetivo),
     auto_aplicacion: Boolean(data.auto_aplicacion),
   };
 }
@@ -52,16 +44,6 @@ function toPayload(form) {
     c1_markup_max: numOrNull(form.c1_markup_max),
     c2_activo: form.c2_activo,
     c2_solo_markup_positivo: form.c2_solo_markup_positivo,
-    c6_activo: form.c6_activo,
-    c6_solo_via_promo: form.c6_solo_via_promo,
-    c6_gap_min: (() => {
-      const n = Number(form.c6_gap_min);
-      return Number.isFinite(n) ? n : 5000;
-    })(),
-    c6_distancia_objetivo: (() => {
-      const n = Number(form.c6_distancia_objetivo);
-      return Number.isFinite(n) ? n : 100;
-    })(),
     auto_aplicacion: form.auto_aplicacion,
   };
 }

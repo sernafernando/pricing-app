@@ -86,11 +86,6 @@ def _criterios_audit_dict(criterios: CriteriosView) -> Dict[str, Any]:
         "c1_markup_max": float(criterios.c1_markup_max) if criterios.c1_markup_max is not None else None,
         "c2_activo": criterios.c2_activo,
         "c2_solo_markup_positivo": criterios.c2_solo_markup_positivo,
-        # c6_* kept in audit payload for stored round-trip; engine does not evaluate C6 in this PR.
-        "c6_activo": criterios.c6_activo,
-        "c6_solo_via_promo": criterios.c6_solo_via_promo,
-        "c6_gap_min": float(criterios.c6_gap_min),
-        "c6_distancia_objetivo": float(criterios.c6_distancia_objetivo),
         "auto_aplicacion": criterios.auto_aplicacion,
         "sellers_excluidos": list(criterios.sellers_excluidos),
     }

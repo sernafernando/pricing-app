@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { errorText } from '../../pricing/priceWrites';
 import { promocionesAPI } from '../../../services/api';
 import { promoDisplayPrice } from '../../promociones/promoDisplayPrice';
-import { catalogSnapshotIsFresh, minRivalPriceArs } from './monopolioC6';
+import { catalogSnapshotIsFresh, minRivalPriceArs } from './catalogSnapshot';
 import {
   baselinePromo,
   hasPickedSlot,

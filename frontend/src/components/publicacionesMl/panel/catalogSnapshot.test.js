@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CATALOG_SNAPSHOT_MAX_AGE_MS, catalogSnapshotIsFresh, minRivalPriceArs } from './monopolioC6';
+import { CATALOG_SNAPSHOT_MAX_AGE_MS, catalogSnapshotIsFresh, minRivalPriceArs } from './catalogSnapshot';
 
 describe('catalog helpers (C2)', () => {
   it('ignores unchecked rivals for min price', () => {

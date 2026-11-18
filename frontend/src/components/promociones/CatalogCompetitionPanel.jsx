@@ -33,10 +33,6 @@ function criteriosPutBody(data, sellersExcluidos) {
     c1_markup_max: data.c1_markup_max ?? null,
     c2_activo: Boolean(data.c2_activo),
     c2_solo_markup_positivo: data.c2_solo_markup_positivo !== false,
-    c6_activo: Boolean(data.c6_activo),
-    c6_solo_via_promo: Boolean(data.c6_solo_via_promo),
-    c6_gap_min: data.c6_gap_min ?? 5000,
-    c6_distancia_objetivo: data.c6_distancia_objetivo ?? 100,
     auto_aplicacion: Boolean(data.auto_aplicacion),
     sellers_excluidos: sellersExcluidos,
   };

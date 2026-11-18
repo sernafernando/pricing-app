@@ -1,6 +1,6 @@
 """Per-MLA hay_mejores application criteria (PM policy), keyed by MLA.
 
-Sparse upsert: missing row = defaults (C1 off, C2/C6/Auto off). No FK to
+Sparse upsert: missing row = defaults (C1/C2/Auto off). No FK to
 `ml_items` — the publication store owns that table and must not be blocked
 by policy rows (same shape as `ml_item_overrides`).
 """
@@ -24,12 +24,6 @@ class MlHayMejoresCriterios(Base):
     # C2 — win catalog
     c2_activo = Column(Boolean, nullable=False, server_default=text("false"), default=False)
     c2_solo_markup_positivo = Column(Boolean, nullable=False, server_default=text("true"), default=True)
-
-    # C6 — monopoly ceiling
-    c6_activo = Column(Boolean, nullable=False, server_default=text("false"), default=False)
-    c6_solo_via_promo = Column(Boolean, nullable=False, server_default=text("false"), default=False)
-    c6_gap_min = Column(Numeric(18, 2), nullable=False, server_default="5000", default=5000)
-    c6_distancia_objetivo = Column(Numeric(18, 2), nullable=False, server_default="100", default=100)
 
     # R-AUTO
     auto_aplicacion = Column(Boolean, nullable=False, server_default=text("false"), default=False)

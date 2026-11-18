@@ -70,8 +70,6 @@ class TestDefaultCriterios:
         assert view.exists is False
         assert view.c1_activo is False
         assert view.c2_solo_markup_positivo is True
-        assert view.c6_gap_min == Decimal("5000")
-        assert view.c6_distancia_objetivo == Decimal("100")
         assert view.auto_aplicacion is False
         assert view.sellers_excluidos == []
 

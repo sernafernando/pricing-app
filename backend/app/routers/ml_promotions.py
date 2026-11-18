@@ -58,8 +58,6 @@ from app.services.ml_promotions_hay_mejores import (
     set_hay_mejores_excluido_bulk,
 )
 from app.services.ml_hay_mejores_criterios_service import (
-    DEFAULT_C6_DISTANCIA,
-    DEFAULT_C6_GAP_MIN,
     PERMISO_AUTO_APLICACION,
     CriteriosView,
     count_auto_aplicacion_on,
@@ -987,10 +985,6 @@ class HayMejoresCriteriosResponse(BaseModel):
     c1_markup_max: Optional[Decimal] = None
     c2_activo: bool
     c2_solo_markup_positivo: bool
-    c6_activo: bool
-    c6_solo_via_promo: bool
-    c6_gap_min: Decimal
-    c6_distancia_objetivo: Decimal
     auto_aplicacion: bool
     sellers_excluidos: List[str] = []
     exists: bool
@@ -1006,10 +1000,6 @@ class HayMejoresCriteriosBody(BaseModel):
     c1_markup_max: Optional[Decimal] = None
     c2_activo: bool = False
     c2_solo_markup_positivo: bool = True
-    c6_activo: bool = False
-    c6_solo_via_promo: bool = False
-    c6_gap_min: Decimal = Field(default=DEFAULT_C6_GAP_MIN, ge=0)
-    c6_distancia_objetivo: Decimal = Field(default=DEFAULT_C6_DISTANCIA, ge=0)
     auto_aplicacion: bool = False
     sellers_excluidos: Optional[List[str]] = None
 
@@ -1022,10 +1012,6 @@ def _criterios_response(view: CriteriosView) -> HayMejoresCriteriosResponse:
         c1_markup_max=view.c1_markup_max,
         c2_activo=view.c2_activo,
         c2_solo_markup_positivo=view.c2_solo_markup_positivo,
-        c6_activo=view.c6_activo,
-        c6_solo_via_promo=view.c6_solo_via_promo,
-        c6_gap_min=view.c6_gap_min,
-        c6_distancia_objetivo=view.c6_distancia_objetivo,
         auto_aplicacion=view.auto_aplicacion,
         sellers_excluidos=view.sellers_excluidos,
         exists=view.exists,
@@ -1066,10 +1052,6 @@ def put_hay_mejores_criterios(
             c1_markup_max=body.c1_markup_max,
             c2_activo=body.c2_activo,
             c2_solo_markup_positivo=body.c2_solo_markup_positivo,
-            c6_activo=body.c6_activo,
-            c6_solo_via_promo=body.c6_solo_via_promo,
-            c6_gap_min=body.c6_gap_min,
-            c6_distancia_objetivo=body.c6_distancia_objetivo,
             auto_aplicacion=body.auto_aplicacion,
             sellers_excluidos=body.sellers_excluidos,
             puede_cambiar_auto=puede_auto,
@@ -1129,10 +1111,6 @@ def post_hay_mejores_criterios_bulk(
             c1_markup_max=body.c1_markup_max,
             c2_activo=body.c2_activo,
             c2_solo_markup_positivo=body.c2_solo_markup_positivo,
-            c6_activo=body.c6_activo,
-            c6_solo_via_promo=body.c6_solo_via_promo,
-            c6_gap_min=body.c6_gap_min,
-            c6_distancia_objetivo=body.c6_distancia_objetivo,
             auto_aplicacion=body.auto_aplicacion,
             sellers_excluidos=body.sellers_excluidos,
             puede_cambiar_auto=puede_auto,

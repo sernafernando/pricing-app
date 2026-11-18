@@ -21,10 +21,6 @@ function emptyForm() {
     c1_markup_max: '',
     c2_activo: false,
     c2_solo_markup_positivo: true,
-    c6_activo: false,
-    c6_solo_via_promo: false,
-    c6_gap_min: '5000',
-    c6_distancia_objetivo: '100',
     auto_aplicacion: false,
   };
 }
@@ -41,16 +37,6 @@ function toPayload(form) {
     c1_markup_max: numOrNull(form.c1_markup_max),
     c2_activo: form.c2_activo,
     c2_solo_markup_positivo: form.c2_solo_markup_positivo,
-    c6_activo: form.c6_activo,
-    c6_solo_via_promo: form.c6_solo_via_promo,
-    c6_gap_min: (() => {
-      const n = Number(form.c6_gap_min);
-      return Number.isFinite(n) ? n : 5000;
-    })(),
-    c6_distancia_objetivo: (() => {
-      const n = Number(form.c6_distancia_objetivo);
-      return Number.isFinite(n) ? n : 100;
-    })(),
   };
   // Unchecked = leave Auto as-is on each MLA (never silent mass-OFF).
   if (form.auto_aplicacion) {
@@ -84,7 +70,7 @@ function describeResolveError(error, scope) {
 }
 
 /**
- * Bulk apply Criterios de aplicación (C1/C2/C6/Auto) on filter or checked rows.
+ * Bulk apply Criterios de aplicación (C1/C2/Auto) on filter or checked rows.
  * Portals a menuitem into Acciones masivas; confirm modal stays mounted here.
  */
 export default function BulkCriteriosAplicacion({

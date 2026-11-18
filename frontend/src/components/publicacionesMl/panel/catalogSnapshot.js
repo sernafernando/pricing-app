@@ -1,6 +1,5 @@
 /**
- * Catalog helpers shared by C2 (status-quo win / rival price).
- * C6 monopoly UI/engine lives in a later PR — not in this ship.
+ * Catalog snapshot helpers for C2 (status-quo win / rival price).
  */
 
 /** Mirror of backend `CATALOG_SNAPSHOT_MAX_AGE_SECONDS` (24h). */
