@@ -3,7 +3,8 @@
 # ruff: noqa: F811 -- the imported fixtures are used by name
 from __future__ import annotations
 
-from datetime import timedelta
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import text
@@ -48,12 +49,26 @@ def mine(client, pg, db, rol_admin, admin_auth_headers, started, monkeypatch):
     grant(db, rol_admin, PERMISO, "ml_metricas.ver")
     figures = {
         "MLA20": board_row("MLA20", d7=1, d30=3, gross=100.0, tg=10.0, costo=40.0),  # 3 packs of 10 = 30 mice
-        "MLA60": board_row("MLA60", d7=0, d30=12, gross=100.0, tg=10.0, costo=40.0),
+        "MLA60": replace(
+            board_row("MLA60", d7=0, d30=12, gross=100.0, tg=10.0, costo=40.0),
+            last_sale_at=MLA60_SOLD,
+            ageing_days=9,
+        ),
+        # the product's other publication: it sold 4 later, so the whole product's last sale is this one's
+        "MLA61": replace(
+            board_row("MLA61", d7=1, d30=4, gross=50.0, tg=5.0, costo=20.0),
+            last_sale_at=MLA61_SOLD,
+            ageing_days=2,
+        ),
     }
     monkeypatch.setattr(
         stock_audit, "metrics_by_mla", lambda db, mlas, sell_in_out=False: {m: figures[m] for m in mlas if m in figures}
     )
     return admin_auth_headers
+
+
+MLA60_SOLD = datetime(2026, 11, 9, 15, 0, tzinfo=timezone.utc)
+MLA61_SOLD = datetime(2026, 11, 16, 15, 0, tzinfo=timezone.utc)
 
 
 def by_item(body):
@@ -73,16 +88,34 @@ class TestPackAggregation:
 
 @pytest.mark.postgres
 class TestFilteredAudit:
+    """L2 (owner): "Con filtro, usar las ventas de todo el producto" -- Última venta, Ageing, Días de cobertura and
+    Rotación (veces) are the whole product's (all its publications, all its stock), whatever the filter."""
+
     def test_unfiltered_product_with_two_user_products(self, client, mine) -> None:
         v = by_item(audit(client, mine))[160]["ventas"]
-        # stock now 4 + 6 + 6 = 16; 12 sold; avg 16
-        assert (v["dias_cobertura"], v["stock_promedio"], v["rotacion"]) == (40.0, 16.0, 0.75)
+        # stock now 4 + 6 + 6 = 16; 12 + 4 sold; avg 16
+        assert v["unidades_30d"] == 16
+        assert (v["dias_cobertura"], v["stock_promedio"], v["rotacion"]) == (30.0, 16.0, 1.0)
 
-    def test_filtered_the_average_stays_the_whole_products(self, client, mine) -> None:
-        """The daily photo is per product (L1): a publication filter scopes the stock now and the sales, not the
-        average stock, which stays the product's whole stock (pending the orchestrator's call)."""
-        v = by_item(audit(client, mine, q="MLA60"))[160]["ventas"]
-        assert (v["dias_cobertura"], v["stock_promedio"], v["rotacion"]) == (25.0, 16.0, 0.75)
+    def test_filtered_to_one_publication_the_rotation_figures_are_the_whole_products(self, client, mine) -> None:
+        row = by_item(audit(client, mine, q="MLA60"))[160]
+        v = row["ventas"]
+        # the screen's own figures follow the filter: MLA60's 12 sold, its user product's 6 in Full
+        assert (v["unidades_30d"], row["full"]["unidades"]) == (12, 6)
+        # the rotation group does not: 16 in stock, 16 sold, the latest sale and its ageing are MLA61's
+        assert (v["dias_cobertura"], v["stock_promedio"], v["rotacion"]) == (30.0, 16.0, 1.0)
+        assert datetime.fromisoformat(v["ultima_venta"].replace("Z", "+00:00")) == MLA61_SOLD
+        assert (v["ultima_venta_dias"], v["ageing_dias"]) == (2, 2)
+
+    def test_a_filter_that_leaves_no_sale_still_shows_the_products_coverage(self, client, mine) -> None:
+        v = by_item(audit(client, mine, q="MLA61"))[160]["ventas"]
+        assert v["unidades_30d"] == 4
+        assert (v["dias_cobertura"], v["cobertura_infinita"], v["rotacion"]) == (30.0, False, 1.0)
+
+    def test_sorting_by_the_rotation_group_uses_the_whole_products_figures(self, client, mine) -> None:
+        body = audit(client, mine, q="MLA60", orden="rotacion", dir="desc")
+        assert by_item(body)[160]["ventas"]["rotacion"] == 1.0
+        assert [r["product_item_id"] for r in body["rows"]] == [160]
 
 
 @pytest.mark.postgres

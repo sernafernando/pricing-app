@@ -161,18 +161,21 @@ function PromoCounts({ counts }) {
 
 const STOCK_UNITS = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 });
 
+// The Rotación group is the whole product's whatever the filter (L2): every figure's tooltip says so.
+const WHOLE_PRODUCT = 'del producto completo, sin filtros';
+
 /** Días de cobertura (rotacion S2): the stock now at the last 30 days' pace; "∞" with stock and no sale (L1 Q2). */
 function CoverageCell({ ventas }) {
   if (ventas?.cobertura_infinita) {
     return (
-      <span className={`${styles.rotationFigure} ${styles.infinite}`} aria-label="Días de cobertura" title="Con stock y sin ventas en 30 días">
+      <span className={`${styles.rotationFigure} ${styles.infinite}`} aria-label="Días de cobertura" title={`Con stock y sin ventas en 30 días, ${WHOLE_PRODUCT}`}>
         ∞
       </span>
     );
   }
   if (ventas?.dias_cobertura == null) return dash;
   return (
-    <span className={styles.rotationFigure} aria-label="Días de cobertura">
+    <span className={styles.rotationFigure} aria-label="Días de cobertura" title={`Ventas 30D, ${WHOLE_PRODUCT}`}>
       {formatUnits(Math.round(ventas.dias_cobertura))}
     </span>
   );
@@ -186,8 +189,8 @@ function RotationCell({ ventas }) {
   const stock = `${STOCK_UNITS.format(ventas.stock_promedio)} u.`;
   const approximate = !days;
   const title = approximate
-    ? `Aproximado: sobre el stock actual (${stock}), todavía no hay fotos diarias del stock`
-    : `Ventas 30D sobre el stock promedio de ${formatUnits(days)} ${days === 1 ? 'día' : 'días'} (${stock})`;
+    ? `Aproximado: sobre el stock actual (${stock}), todavía no hay fotos diarias del stock, ${WHOLE_PRODUCT}`
+    : `Ventas 30D sobre el stock promedio de ${formatUnits(days)} ${days === 1 ? 'día' : 'días'} (${stock}), ${WHOLE_PRODUCT}`;
   return (
     <span className={styles.rotationFigure} aria-label="Rotación (veces)" title={title}>
       {approximate ? `≈ ${formatRatio(ventas.rotacion)}` : formatRatio(ventas.rotacion)}
@@ -458,7 +461,8 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, 
       });
     }
     // Rotación (rotacion S2): a publication shows its own last sale and ageing; its coverage and rotation are its
-    // product's (the ERP stock is shared), so they stay on the product and variant rows.
+    // product's (the ERP stock is shared), so they stay on the product and variant rows. A product's or variant's
+    // figures are the whole product's, whatever the filter (L2).
     columns.push(
       {
         key: 'ultima_venta',
@@ -469,7 +473,7 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, 
         sortable: true,
         align: 'center',
         fit: true,
-        render: (row) => (row.type === 'item' ? item('last_sale', row) : row.node ? <LastSaleCell metrics={lastSaleOf(row.node.ventas)} /> : null),
+        render: (row) => (row.type === 'item' ? item('last_sale', row) : row.node ? <LastSaleCell metrics={lastSaleOf(row.node.ventas)} note={WHOLE_PRODUCT} /> : null),
       },
       {
         key: 'ageing',
@@ -480,7 +484,7 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, 
         sortable: true,
         align: 'center',
         fit: true,
-        render: (row) => (row.type === 'item' ? item('ageing', row) : row.node ? <AgeingCell metrics={lastSaleOf(row.node.ventas)} /> : null),
+        render: (row) => (row.type === 'item' ? item('ageing', row) : row.node ? <AgeingCell metrics={lastSaleOf(row.node.ventas)} note={`Ageing ${WHOLE_PRODUCT}`} /> : null),
       },
       {
         key: 'cobertura',

@@ -486,12 +486,22 @@ describe('rotacion S2: the Rotación columns', () => {
     expect(notebook.getByLabelText('Rotación (veces)')).toHaveTextContent('0,48');
   });
 
+  it("every figure of the group says it is the whole product's, without filters (L2)", async () => {
+    await audit();
+    const notebook = within(rowOf('Notebook Demo 14 i5 8GB 512GB'));
+    const whole = /del producto completo, sin filtros/;
+    expect(notebook.getByText(/^16\/11/).closest('[title]')).toHaveAttribute('title', expect.stringMatching(whole));
+    expect(notebook.getByText('2 d')).toHaveAttribute('title', expect.stringMatching(whole));
+    expect(notebook.getByLabelText('Días de cobertura')).toHaveAttribute('title', expect.stringMatching(whole));
+    expect(notebook.getByLabelText('Rotación (veces)')).toHaveAttribute('title', expect.stringMatching(whole));
+  });
+
   it('stock without sales lasts forever: ∞, and no last sale nor ageing', async () => {
     await audit();
     const pc = within(rowOf(AUDIT_ORPHAN.descripcion));
     const coverage = pc.getByLabelText('Días de cobertura');
     expect(coverage).toHaveTextContent('∞');
-    expect(coverage).toHaveAttribute('title', 'Con stock y sin ventas en 30 días');
+    expect(coverage).toHaveAttribute('title', 'Con stock y sin ventas en 30 días, del producto completo, sin filtros');
     expect(pc.getByLabelText('Rotación (veces)')).toHaveTextContent('0,00');
   });
 
@@ -502,10 +512,10 @@ describe('rotacion S2: the Rotación columns', () => {
     publicacionesMlAPI.stockAudit.mockResolvedValue({ data: { ...body, rows: [approximate, ...rest] } });
     await audit();
     const cartridge = within(rowOf('Cartucho Demo 01 negro')).getByLabelText('Rotación (veces)');
-    expect(cartridge).toHaveAttribute('title', 'Ventas 30D sobre el stock promedio de 12 días (131,6 u.)');
+    expect(cartridge).toHaveAttribute('title', 'Ventas 30D sobre el stock promedio de 12 días (131,6 u.), del producto completo, sin filtros');
     const first = within(rowOf('Notebook Demo 14 i5 8GB 512GB')).getByLabelText('Rotación (veces)');
     expect(first).toHaveTextContent('≈ 0,48');
-    expect(first).toHaveAttribute('title', 'Aproximado: sobre el stock actual (50 u.), todavía no hay fotos diarias del stock');
+    expect(first).toHaveAttribute('title', 'Aproximado: sobre el stock actual (50 u.), todavía no hay fotos diarias del stock, del producto completo, sin filtros');
   });
 
   it('a variant shows its own figures', async () => {

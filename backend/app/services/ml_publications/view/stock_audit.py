@@ -39,6 +39,10 @@ The current markup (`markup_actual`, ml_metricas.ver_ganancia): the range of the
 the Publicaciones list shows) over the row's publications, each read for its own product (`aggregate_nodes`), as the
 Agrupado tree's nodes show it: a range, never an average. Tipo and Estado: the row's publications counted by kind and
 by status (`listing.summary_columns`), a base row over its own and its variants' publications.
+
+The Rotación group (Última venta, Ageing, Días de cobertura, Rotación (veces)) is the WHOLE product's whatever the
+filter (L2, owner: "Con filtro, usar las ventas de todo el producto"): all its publications' sales over all its stock
+(`add_rotation`), the rest of the row being the filtered part.
 """
 
 from __future__ import annotations
@@ -96,6 +100,11 @@ ORDERS = (
 
 
 NEVER_SOLD = datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _last_sale_key(sales: Sales) -> Optional[datetime]:
+    """Never sold, with publications, is the oldest last sale of all; no Board row at all is unknown (last)."""
+    return sales.last_sale_at or (NEVER_SOLD if sales.any_board_row else None)
 
 
 def needs_sales(orden: str) -> bool:
@@ -358,6 +367,7 @@ class Variant:
     markup: Optional[tuple[float, float]] = None  # the current markup's range (`add_markups`)
     summary: Summary = EMPTY_SUMMARY
     average: Optional["Average"] = None  # its own Full's (`add_rotation`)
+    whole: Optional["Whole"] = None  # the whole product's rotation figures, whatever the filter (`add_rotation`)
 
     @property
     def stock_now(self) -> int:
@@ -378,6 +388,7 @@ class Row:
     markup: Optional[tuple[float, float]] = None
     summary: Summary = EMPTY_SUMMARY
     average: Optional["Average"] = None  # its ERP + Full + its variants' Full in base units (`add_rotation`)
+    whole: Optional["Whole"] = None  # the whole product's rotation figures, whatever the filter (`add_rotation`)
 
     @property
     def stock_now(self) -> int:
@@ -486,6 +497,11 @@ def build(db: Session, f: PublicationFilter, rate: Rate) -> Audit:
         stock_only = [
             item for (item,) in db.execute(product_select(replace(f, sin_mla=True), T.p.item_id).where(T.p.stock > 0))
         ]
+    return _assemble(db, pairs, stock_only, rate)
+
+
+def _assemble(db: Session, pairs: list[tuple[str, int]], stock_only: list[int], rate: Rate) -> Audit:
+    """The base rows of these (MLA, product) pairs and stock-only products, with their stock (S3-S6)."""
     components = _bom(db)
     linked = {product for _, product in pairs} | set(stock_only)
     combo_ids = [p for p in linked if p in components]
@@ -594,16 +610,43 @@ def full_by_product(db: Session) -> dict[int, int]:
     return _full_units(db, _pairs(db, PublicationFilter()))
 
 
-def add_rotation(db: Session, audit: "Audit", today: date) -> None:
+@dataclass(frozen=True)
+class Whole:
+    """The figures of the Rotación group (L2, owner: "Con filtro, usar las ventas de todo el producto"): the whole
+    product's sales (all its publications and its variants') over its whole stock, never the filtered part."""
+
+    sales: Sales
+    stock: int
+    average: Optional[Average]
+
+
+def whole_of(r: "Row | Variant") -> Whole:
+    """Its whole product's figures; its own until `add_rotation` ran."""
+    return r.whole or Whole(r.sales, r.stock_now, r.average)
+
+
+def _whole_products(db: Session, audit: "Audit") -> dict[int, Row]:
+    """The audit's base rows again, built from ALL their publications (no filter): each base, and every combo that
+    has it as a component, with its unfiltered pairs (a combo whose base turns out to be another product is built and
+    dropped)."""
+    bases = {r.product.item_id for r in audit.rows}
+    if not bases:
+        return {}
+    candidates = bases | {combo for combo, parts in _bom(db).items() if any(item in bases for item, _ in parts)}
+    pairs = [(mla, product) for mla, product in _pairs(db, PublicationFilter()) if product in candidates]
+    whole = _assemble(db, pairs, sorted(bases), audit.rate)
+    return {w.product.item_id: w for w in whole.rows if w.product.item_id in bases}
+
+
+def _add_averages(db: Session, rows: Iterable[Row], today: date) -> None:
     """Every row's and variant's average stock (module docstring): ONE read of the photos for all of them. A base
     row adds its own ERP and Full and each variant's Full in base units, as its stock now does (S4-S6)."""
     from app.services.ml_publications.view.stock_snapshot import averages
 
-    items = {r.product.item_id for r in audit.rows} | {
-        v.product.item_id for r in audit.rows for v in r.variants.values()
-    }
+    rows = list(rows)
+    items = {r.product.item_id for r in rows} | {v.product.item_id for r in rows for v in r.variants.values()}
     found = averages(db, items, today)
-    for r in audit.rows:
+    for r in rows:
         if not found.dias:
             r.average = Average(float(r.stock_now), 0)
             for v in r.variants.values():
@@ -616,6 +659,25 @@ def add_rotation(db: Session, audit: "Audit", today: date) -> None:
             v.average = Average(own, found.dias)
             total += own * float(v.cantidad)
         r.average = Average(total, found.dias)
+
+
+def add_rotation(db: Session, audit: "Audit", today: date) -> None:
+    """Every row's and variant's Rotación figures, the WHOLE product's whatever the filter (L2): its rows rebuilt
+    from all their publications, their sales read from the Board only when the filter left some out (the rows the
+    screen already read are reused otherwise), and their average stock (`_add_averages`)."""
+    whole = _whole_products(db, audit)
+    seen = {m for r in audit.rows for m in r.publications}
+    if {m for w in whole.values() for m in w.publications} - seen:
+        add_sales(db, Audit(list(whole.values()), audit.rate, frozenset()), sell_in_out=False)
+    else:  # the filter left every publication of these products in: the screen's rows are the whole products
+        whole = {r.product.item_id: r for r in audit.rows}
+    _add_averages(db, whole.values(), today)
+    for r in audit.rows:
+        w = whole.get(r.product.item_id, r)
+        r.whole = Whole(w.sales, w.stock_now, w.average)
+        for item, v in r.variants.items():
+            wv = w.variants.get(item, v)
+            v.whole = Whole(wv.sales, wv.stock_now, wv.average)
 
 
 def coverage(stock: int, sold_30d: Decimal) -> Optional[float]:
@@ -632,9 +694,14 @@ def rotation(sold_30d: Decimal, average: Optional[Average]) -> Optional[float]:
     return round(float(sold_30d) / average.stock, 2)
 
 
-def rotation_out(sales: Sales, stock: int, average: Optional[Average]) -> dict[str, Any]:
+def rotation_out(whole: Whole) -> dict[str, Any]:
+    """The Rotación group's fields, the whole product's (L2): they replace the filtered ones of `Sales.out`."""
+    sales, stock, average = whole.sales, whole.stock, whole.average
     days = coverage(stock, sales.units_30d)
     return {
+        "ultima_venta": sales.last_sale_at,
+        "ultima_venta_dias": sales.ultima_venta_dias,
+        "ageing_dias": sales.ageing_dias,
         "dias_cobertura": None if days is None or days == float("inf") else days,
         "cobertura_infinita": days == float("inf"),
         "rotacion": rotation(sales.units_30d, average),
@@ -718,12 +785,12 @@ SORT_KEYS: dict[str, Callable[[Row], Any]] = {
     "unidades_7d": lambda r: r.sales.units_7d,
     "unidades_30d": lambda r: r.sales.units_30d,
     "facturado_30d": lambda r: r.sales.gross,
-    # never sold, with publications, is the oldest last sale of all; no Board row at all is unknown (last)
-    "ultima_venta": lambda r: r.sales.last_sale_at or (NEVER_SOLD if r.sales.any_board_row else None),
-    "ageing": lambda r: r.sales.ageing_dias,
+    # the Rotación group: the whole product's figures, as shown (L2)
+    "ultima_venta": lambda r: _last_sale_key(whole_of(r).sales),
+    "ageing": lambda r: whole_of(r).sales.ageing_dias,
     # infinite coverage (stock, no sale) is the worst: the highest (L1 Q2)
-    "cobertura": lambda r: coverage(r.stock_now, r.sales.units_30d),
-    "rotacion": lambda r: rotation(r.sales.units_30d, r.average),
+    "cobertura": lambda r: coverage(whole_of(r).stock, whole_of(r).sales.units_30d),
+    "rotacion": lambda r: rotation(whole_of(r).sales.units_30d, whole_of(r).average),
     # the figures the view shows; a row without one goes last either way
     "total_gauss_30d": lambda r: r.sales.total_gauss_shown,
     "markup_30d": lambda r: r.sales.markup_shown,
@@ -808,7 +875,7 @@ def row_out(
         "promo_aplicada": None if started is None else bool(r.publications & started),
         "promo_counts": promo_counts(r.publications, started),
         "params": {"producto": str(p.item_id)},
-        "ventas": {**r.sales.out(with_margin), **rotation_out(r.sales, r.stock_now, r.average)} if with_sales else None,
+        "ventas": {**r.sales.out(with_margin), **rotation_out(whole_of(r))} if with_sales else None,
         "kind_counts": r.summary.kind_counts,
         "status_counts": r.summary.status_counts,
         "variantes": [
@@ -826,11 +893,7 @@ def row_out(
                 "sin_costo": v.full.sin_costo,
                 "publications_count": len(v.publications),
                 "params": {"producto": str(v.product.item_id)},
-                "ventas": (
-                    {**v.sales.out(with_margin), **rotation_out(v.sales, v.stock_now, v.average)}
-                    if with_sales
-                    else None
-                ),
+                "ventas": ({**v.sales.out(with_margin), **rotation_out(whole_of(v))} if with_sales else None),
                 "kind_counts": v.summary.kind_counts,
                 "status_counts": v.summary.status_counts,
                 "promo_counts": promo_counts(v.publications, started),
