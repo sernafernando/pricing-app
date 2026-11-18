@@ -84,7 +84,7 @@ describe('ModalEditarCosto (restored, vpf-operaciones S4)', () => {
   });
 
   describe('Operaciones por Fuera (guardarCosto, owner L4)', () => {
-    const sinCosto = { ...operacion, costo_unitario: 0 };
+    const sinCosto = { ...operacion, costo_unitario: 0, precio_final_sin_iva: 12000 };
 
     beforeEach(() => {
       api.get.mockImplementation((url) =>
@@ -105,6 +105,12 @@ describe('ModalEditarCosto (restored, vpf-operaciones S4)', () => {
       await userEvent.type(screen.getByLabelText(/Costo Unitario Total/), '10000');
 
       expect(screen.getByTestId('costo-guardado-preview')).toHaveTextContent('Se guarda $ 10.000,00 · Costo D $ 10.650,00');
+      // The preview's profit uses Costo D like the list: 12000 - 10650 = 1350.
+      expect(screen.getByText('Costo D Total:').parentElement).toHaveTextContent('$ 10.650');
+      expect(screen.getByText('Ganancia:').parentElement).toHaveTextContent('$ 1.350');
+      // No stray "0" from the hidden reset button (the original % is 0 here).
+      expect(screen.queryByTitle('Restaurar markup original')).not.toBeInTheDocument();
+      expect(porcentaje.parentElement.parentElement.textContent).not.toMatch(/\)0$/);
       await userEvent.click(screen.getByRole('button', { name: 'Guardar Costo' }));
       expect(guardarCosto).toHaveBeenCalledWith(10000);
     });

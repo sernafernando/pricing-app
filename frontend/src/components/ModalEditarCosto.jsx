@@ -268,7 +268,8 @@ export default function ModalEditarCosto({
   // Aplicar markup de costo (VARIOS) al preview
   const markupCostoVal = parseFloat(markupCosto) || 0;
   const costoConMarkup = costoUnitarioARS * (1 + markupCostoVal / 100);
-  const costoTotal = costoConMarkup * cantidad;
+  // Operaciones por Fuera: the list adds Costo D on top of the saved cost, so the preview's profit does too.
+  const costoTotal = costoConMarkup * (porFuera ? COSTO_D_FACTOR : 1) * cantidad;
   const montoTotal = operacion.precio_final_sin_iva || 0;
   const gananciaPreview = montoTotal - costoTotal;
   const markupPreview = costoTotal > 0 ? ((montoTotal / costoTotal) - 1) * 100 : null;
@@ -535,7 +536,7 @@ export default function ModalEditarCosto({
                 style={{ fontSize: '1.1rem', padding: '0.5rem' }}
               />
             </div>
-            {markupCostoOriginal && markupCosto !== markupCostoOriginal.toString() && (
+            {!porFuera && Boolean(markupCostoOriginal) && markupCosto !== markupCostoOriginal.toString() && (
               <div style={{ flex: 0, alignSelf: 'flex-end', marginBottom: '0.25rem' }}>
                 <button
                   type="button"
@@ -583,7 +584,7 @@ export default function ModalEditarCosto({
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.9rem', color: '#374151' }}>
                 <div><strong>Costo Base:</strong> {formatMoney(costoUnitarioARS)}</div>
                 <div><strong>Costo c/Markup:</strong> {formatMoney(costoConMarkup)}</div>
-                <div><strong>Costo Total:</strong> {formatMoney(costoTotal)}</div>
+                <div><strong>{porFuera ? 'Costo D Total:' : 'Costo Total:'}</strong> {formatMoney(costoTotal)}</div>
                 <div>
                   <strong>Ganancia:</strong>{' '}
                   <span style={{ color: gananciaPreview >= 0 ? '#059669' : '#dc2626', fontWeight: 'bold' }}>
