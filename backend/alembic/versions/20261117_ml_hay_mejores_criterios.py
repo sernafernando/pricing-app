@@ -1,7 +1,7 @@
 """ml_hay_mejores_criterios — per-MLA application criteria for hay_mejores.
 
 Revision ID: 20261117_ml_hay_mejores_criterios
-Revises: 20261121_ml_publicaciones_auditoria_stock_perm
+Revises: 20261120_vpf_operaciones_overrides
 Create Date: 2026-11-17
 
 Sparse policy row per MLA (no FK to ml_items). Defaults = all criteria off.
@@ -14,7 +14,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "20261117_ml_hay_mejores_criterios"
-down_revision: Union[str, None] = "20261122_mcp_oauth"
+down_revision: Union[str, None] = "20261120_vpf_operaciones_overrides"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
