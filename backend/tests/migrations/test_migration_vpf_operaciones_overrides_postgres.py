@@ -142,7 +142,7 @@ def test_revision_chain() -> None:
     module = _module()
 
     assert module.revision == "20261120_vpf_operaciones_overrides"
-    assert module.down_revision == "20261121_ml_publicaciones_auditoria_stock_perm"
+    assert module.down_revision == "20261122_mcp_oauth"
 
 
 def test_upgrade_reresolves_sin_producto_lines_backfills_and_logs_the_count(

@@ -102,13 +102,13 @@ const Shell = ({ phone, children }) => (
   </div>
 );
 
-const mount = async ({ width, height, name }, Page) => {
+const mount = async ({ width, height, name }, contenido) => {
   await page.viewport(width, height);
   setTheme('light');
   document.body.style.background = 'var(--cf-bg-app)';
   return render(
     <Shell phone={name === 'phone'}>
-      <Page />
+      {contenido}
     </Shell>,
   );
 };
@@ -121,7 +121,7 @@ describe('Operaciones por Fuera (visual)', () => {
 
   for (const size of SIZES) {
     it(`${size.name} ${size.width}: a document open shows its lines, flags and causes; nothing scrolls sideways`, async () => {
-      const screen = await mount(size, VentasFueraOperaciones);
+      const screen = await mount(size, <VentasFueraOperaciones />);
       await expect.element(screen.getByText('Fc A 00008-00018044')).toBeVisible();
       await shot(`operaciones-por-fuera-${size.name}-lista`, size);
       await screen.getByText('Fc A 00008-00018044').click();
@@ -157,7 +157,7 @@ describe('Ventas ML operations screen, the model (visual reference)', () => {
 
   for (const size of SIZES) {
     it(`${size.name} ${size.width}: renders the list for the screenshot pair`, async () => {
-      const screen = await mount(size, VentasML);
+      const screen = await mount(size, <VentasML />);
       await expect.element(screen.getByText(/Impresora Multifunción Epson/).first()).toBeVisible();
       await shot(`ventas-ml-${size.name}`, size);
       screen.unmount();
