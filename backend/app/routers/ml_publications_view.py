@@ -1540,6 +1540,15 @@ def items_ask(
     return ItemsAsk(can_see_margin, can_see_sales, sort, markup_filter, ads_status, _ads_plan(ads_provider, ads_status))
 
 
+def _facet_counts(db: Session, f: PublicationFilter) -> dict[str, Any]:
+    """The chip counts of `f` (`listing.facets`, the promo axis included) and the Marca / Subcategoría lists
+    (pubml-filtros S2): what `/items?facets=true` and `/facets` answer alike. `f`'s PM pairs must be resolved."""
+    return {
+        **listing.facets(db, f, _started_promotions()),
+        "product": listing.product_options(db, f),
+    }
+
+
 @router.get("/items", response_model=ItemsResponse, response_model_exclude_unset=True)
 def get_items(
     response: Response,
@@ -1603,11 +1612,7 @@ def get_items(
         facet_counts = None
         if facets:
             with timer.stage("facets"):
-                facet_counts = {
-                    **listing.facets(db, f, _started_promotions()),
-                    "total": page.total,
-                    "product": listing.product_options(db, f),  # the Marca / Subcategoría lists (pubml-filtros S2)
-                }
+                facet_counts = {**_facet_counts(db, f), "total": page.total}
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     except DBAPIError as exc:
@@ -1650,6 +1655,39 @@ def get_items(
             "ms": page.markup_stats.ms,
         }
     return body
+
+
+@router.get("/facets", response_model=dict[str, Any])
+def get_facets(
+    response: Response,
+    user: Usuario = Depends(
+        require_algun_permiso(PERMISOS_PUBLICACIONES_ML)
+    ),  # first: who may ask comes before what is asked
+    f: PublicationFilter = Depends(filter_query),
+    db: Session = Depends(get_view_db),
+) -> dict[str, Any]:
+    """The chip counts and the product option lists of the filter, alone (pubml-lentitud T2): the screen asks them
+    next to `/items` without facets, so the rows paint without waiting for them. The very counts `/items?facets=true`
+    answers (`_facet_counts`); the list's `total` is the rows' answer, never repeated here."""
+    timer = Timer("facets")
+    try:
+        if f.needs_events and settings_store.get_setting("events.enabled").value is not True:
+            raise FilterError("evento", "requires the events flag (events.enabled) to be on")
+        listing.bound(db)
+        f = listing.resolve_pm_pairs(db, f)
+        with timer.stage("facets"):
+            counts = _facet_counts(db, f)
+    except FilterError as exc:
+        raise _unprocessable(exc) from exc
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
+    response.headers["Server-Timing"] = timer.server_timing()
+    timer.emit()
+    return counts
 
 
 @router.get("/mejores-ofertas/count", response_model=MejoresOfertasCountResponse)
