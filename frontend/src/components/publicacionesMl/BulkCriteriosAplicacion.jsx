@@ -259,50 +259,6 @@ export default function BulkCriteriosAplicacion({
                   Solo con markup positivo (&gt; 0)
                 </label>
               )}
-              <label className={formStyles.checkRow}>
-                <input
-                  type="checkbox"
-                  checked={form.c6_activo}
-                  onChange={(e) => setField('c6_activo', e.target.checked)}
-                />
-                C6 — Techo por monopolio
-              </label>
-              {form.c6_activo && (
-                <>
-                  <label className={formStyles.checkRowNested}>
-                    <input
-                      type="checkbox"
-                      checked={form.c6_solo_via_promo}
-                      onChange={(e) => setField('c6_solo_via_promo', e.target.checked)}
-                    />
-                    Solo vía promo
-                  </label>
-                  <div className={formStyles.fieldRow}>
-                    <label className={formStyles.field}>
-                      <span className={formStyles.fieldLabel}>Gap mín $</span>
-                      <input
-                        type="number"
-                        step="any"
-                        min="0"
-                        className={formStyles.input}
-                        value={form.c6_gap_min}
-                        onChange={(e) => setField('c6_gap_min', e.target.value)}
-                      />
-                    </label>
-                    <label className={formStyles.field}>
-                      <span className={formStyles.fieldLabel}>Distancia $</span>
-                      <input
-                        type="number"
-                        step="any"
-                        min="0"
-                        className={formStyles.input}
-                        value={form.c6_distancia_objetivo}
-                        onChange={(e) => setField('c6_distancia_objetivo', e.target.value)}
-                      />
-                    </label>
-                  </div>
-                </>
-              )}
               {canAuto && (
                 <>
                   <label className={formStyles.checkRow}>

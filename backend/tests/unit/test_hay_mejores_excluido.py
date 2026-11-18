@@ -21,7 +21,10 @@ def _db_with_row(row, sale=None):
     db = MagicMock()
     db.begin_nested.return_value = _Nested()
     sale = sale if sale is not None else SimpleNamespace(amount=1000.0)
-    db.query.return_value.filter.return_value.one_or_none.side_effect = [row, sale]
+    locked = MagicMock()
+    locked.one_or_none.side_effect = [row]
+    db.query.return_value.filter.return_value.with_for_update.return_value = locked
+    db.query.return_value.filter.return_value.one_or_none.side_effect = [sale]
     return db
 
 

@@ -49,7 +49,6 @@ from app.services.ml_promotions_pricing import (
 from app.services.productos_sell_in_out import SellInOutBatch
 from app.services.ml_publications.parsers.seller_promotions import STATUS_CANDIDATE, promotion_key
 from app.services.ml_catalog_competition_service import (
-    effective_same_bucket_competitors,
     min_rival_price_ars,
     obtener_ultimo_snapshot,
     snapshot_is_fresh,
@@ -61,15 +60,12 @@ from app.services.ml_hay_mejores_criterios_service import (
     get_criterios,
     markup_pasa_c1,
     markup_pasa_c2,
-    monopolio_c6_oportunidad,
 )
 
 logger = get_logger(__name__)
 
 MejorTuple = Tuple[str, float]
 
-# Synthetic fingerprint key for C6 raise-price opportunity (not a MeLi promotion id).
-C6_FINGERPRINT_KEY = "c6"
 AUTOAPPLY_FAIL_PREFIX = "Autoapply falló"
 
 
@@ -81,16 +77,6 @@ class MejoresEvaluacion:
     status_quo: Dict[str, Any]
     candidatas: List[Dict[str, Any]]
     criterios: Dict[str, Any]
-    monopolio: Optional[Dict[str, Any]] = None
-
-
-@dataclass(frozen=True)
-class MonopolioEvaluacion:
-    """C6 raise-price opportunity on effective catalog ranking."""
-
-    oportunidad: Dict[str, float]
-    flag_tuple: MejorTuple
-    solo_via_promo: bool
 
 
 def _criterios_audit_dict(criterios: CriteriosView) -> Dict[str, Any]:
@@ -100,6 +86,7 @@ def _criterios_audit_dict(criterios: CriteriosView) -> Dict[str, Any]:
         "c1_markup_max": float(criterios.c1_markup_max) if criterios.c1_markup_max is not None else None,
         "c2_activo": criterios.c2_activo,
         "c2_solo_markup_positivo": criterios.c2_solo_markup_positivo,
+        # c6_* kept in audit payload for stored round-trip; engine does not evaluate C6 in this PR.
         "c6_activo": criterios.c6_activo,
         "c6_solo_via_promo": criterios.c6_solo_via_promo,
         "c6_gap_min": float(criterios.c6_gap_min),
@@ -398,13 +385,12 @@ def evaluar_mejores_candidatas(
     # keep the toggle ON for later loss-of-position, but do not surface worse promos.
     c2_busca_ganar = False
     snapshot = None
-    if criterios.c2_activo or criterios.c6_activo:
+    if criterios.c2_activo:
         snapshot = obtener_ultimo_snapshot(db, mla)
         if not snapshot_is_fresh(snapshot):
             # One enqueue per evaluate when the snapshot is missing/stale (not per rival).
             _enqueue_catalog_competition_refresh(db, mla)
             snapshot = None
-    if criterios.c2_activo:
         if snapshot is not None:
             min_rival = min_rival_price_ars(
                 snapshot,
@@ -413,23 +399,6 @@ def evaluar_mejores_candidatas(
             )
         ya_ganamos = catalog_win_con_precio(status_quo_price, min_rival)
         c2_busca_ganar = min_rival is not None and not ya_ganamos
-    # C6 raise-assist: promos that raise price while still winning the effective catalog.
-    c6_segundo: Optional[float] = None
-    c6_busca_asistir = False
-    if criterios.c6_activo and snapshot is not None:
-        c6_segundo = min_rival_price_ars(
-            snapshot,
-            our_item_id=mla,
-            sellers_excluidos=criterios.sellers_excluidos,
-        )
-        c6_opp = monopolio_c6_oportunidad(
-            c6_activo=True,
-            our_price_ars=status_quo_price,
-            segundo_precio_ars=c6_segundo,
-            c6_gap_min=criterios.c6_gap_min,
-            c6_distancia_objetivo=criterios.c6_distancia_objetivo,
-        )
-        c6_busca_asistir = c6_opp is not None
     mejores: List[MejorTuple] = []
     candidatas: List[Dict[str, Any]] = []
     for entry, promo in zip(candidates, promos):
@@ -458,21 +427,7 @@ def evaluar_mejores_candidatas(
                 c1_markup_max=criterios.c1_markup_max,
             )
         )
-        # Raise-assist: higher consumer price than status quo, still #1, inside C1.
-        pasa_c6 = (
-            c6_busca_asistir
-            and price is not None
-            and markup is not None
-            and float(price) > float(status_quo_price)
-            and catalog_win_con_precio(float(price), c6_segundo)
-            and markup_pasa_c1(
-                markup,
-                c1_activo=criterios.c1_activo,
-                c1_markup_min=criterios.c1_markup_min,
-                c1_markup_max=criterios.c1_markup_max,
-            )
-        )
-        if not pasa_clasico and not pasa_c2 and not pasa_c6:
+        if not pasa_clasico and not pasa_c2:
             continue
         assert price is not None
         key = promotion_key(entry)
@@ -487,7 +442,6 @@ def evaluar_mejores_candidatas(
                 "markup_sell_in_out": promo.get("markup_sell_in_out"),
                 "path_clasico": bool(pasa_clasico),
                 "path_c2": bool(pasa_c2),
-                "path_c6": bool(pasa_c6),
             }
         )
     return MejoresEvaluacion(
@@ -533,76 +487,15 @@ def listar_mejores_candidatas(
     ).mejores
 
 
-def _our_price_ars_from_snapshot(row: Any, our_item_id: str) -> Optional[float]:
-    """Our ``price_ars`` from the snapshot competitor list (same currency basis as rivals)."""
-    if row is None:
-        return None
-    for competitor in effective_same_bucket_competitors(row, sellers_excluidos=None):
-        if (competitor.get("item_id") or "") == our_item_id and competitor.get("price_ars") is not None:
-            return float(competitor["price_ars"])
-    for competitor in row.competitors or []:
-        if (competitor.get("item_id") or "") == our_item_id and competitor.get("price_ars") is not None:
-            return float(competitor["price_ars"])
-    return None
-
-
-def evaluar_monopolio_c6(
-    db: Session,
-    mla: str,
-    *,
-    criterios: Optional[CriteriosView] = None,
-    our_price_ars: Optional[float] = None,
-) -> Optional[MonopolioEvaluacion]:
-    """C6: we are #1 on effective ranking and gap to 2nd ≥ gap mín → raise-price opportunity.
-
-    Inert without snapshot / rivals / ``c6_activo``. Does not enroll; only shapes the flag fingerprint.
-    ``our_price_ars`` should be the live sale price when the caller has it (not a stale snapshot).
-    Fingerprint uses a stable ``c6:1`` marker so $1 moves of the 2nd rival do not churn discard/audit.
-    """
-    view = criterios if criterios is not None else get_criterios(db, mla)
-    if not view.c6_activo:
-        return None
-    snapshot = obtener_ultimo_snapshot(db, mla)
-    if not snapshot_is_fresh(snapshot):
-        _enqueue_catalog_competition_refresh(db, mla)
-        return None
-    segundo = min_rival_price_ars(
-        snapshot,
-        our_item_id=mla,
-        sellers_excluidos=view.sellers_excluidos,
-    )
-    our = our_price_ars if our_price_ars is not None else _our_price_ars_from_snapshot(snapshot, mla)
-    oportunidad = monopolio_c6_oportunidad(
-        c6_activo=view.c6_activo,
-        our_price_ars=our,
-        segundo_precio_ars=segundo,
-        c6_gap_min=view.c6_gap_min,
-        c6_distancia_objetivo=view.c6_distancia_objetivo,
-    )
-    if oportunidad is None:
-        return None
-    return MonopolioEvaluacion(
-        oportunidad=oportunidad,
-        # Stable presence marker (not live precio_objetivo) so PM discard survives rival $1 moves.
-        flag_tuple=(C6_FINGERPRINT_KEY, 1.0),
-        solo_via_promo=bool(view.c6_solo_via_promo),
-    )
-
-
 def pick_mejor_candidata_auto(candidatas: Sequence[Mapping[str, Any]]) -> Optional[Dict[str, Any]]:
-    """R-AUTO pick: classic → C2 → C6 raise-assist (``path_c6``); best markup in the chosen pool."""
+    """R-AUTO pick: classic → C2; best markup in the chosen pool."""
     ranked = [c for c in candidatas if c.get("markup") is not None]
-    # Fingerprint-only C6 rows are not enrollable; raise-assist promos use path_c6 + real promo key.
-    enrollable = [c for c in ranked if c.get("key") != C6_FINGERPRINT_KEY]
-    classic = [c for c in enrollable if c.get("path_clasico")]
-    c2 = [c for c in enrollable if c.get("path_c2")]
-    c6_assist = [c for c in enrollable if c.get("path_c6")]
+    classic = [c for c in ranked if c.get("path_clasico")]
+    c2 = [c for c in ranked if c.get("path_c2")]
     if classic:
         pool: List[Dict[str, Any]] = list(classic)
     elif c2:
         pool = list(c2)
-    elif c6_assist:
-        pool = list(c6_assist)
     else:
         return None
     use_sio = all(c.get("markup_sell_in_out") is not None for c in pool)
@@ -688,8 +581,8 @@ def _auto_enroll_fail_reason(outcome: Mapping[str, Any]) -> str:
 
 
 AUTO_PENDING_PREFIX = "auto_pending:"
-# Ambiguous MeLi outcomes leave a pending marker; expire so a better pick can enroll later.
-AUTO_PENDING_TTL_SECONDS = 30 * 60
+# Ambiguous MeLi outcomes leave a pending marker; ML usually settles in seconds–minutes.
+AUTO_PENDING_TTL_SECONDS = 5 * 60
 
 
 def _auto_pending_fingerprint(pick_key: str, *, now: Optional[datetime] = None) -> str:
@@ -738,6 +631,21 @@ def _is_auto_pending_fingerprint(
     instant = now if now is not None else datetime.now(timezone.utc)
     age = int(instant.timestamp()) - int(unix_ts)
     return 0 <= age <= int(ttl_seconds)
+
+
+def _promo_key_applied_in_raw(raw: Any, pick_key: str) -> bool:
+    """True when the mirror already shows ``pick_key`` as started/pending (Auto settle after ambiguous)."""
+    if not pick_key or not isinstance(raw, list):
+        return False
+    for entry in raw:
+        if not isinstance(entry, Mapping):
+            continue
+        if promotion_key(entry) != pick_key:
+            continue
+        status = entry.get("status")
+        if status in ("started", "pending"):
+            return True
+    return False
 
 
 def _candidate_entries(raw: Any, now: datetime) -> List[Mapping[str, Any]]:
@@ -852,11 +760,6 @@ def actualizar_hay_mejores_ofertas(
                         sell_in_out_batch=sell_in_out_batch,
                     )
                     mejores = list(evaluacion.mejores)
-                monopolio = evaluar_monopolio_c6(db, item_id, criterios=criterios_view, our_price_ars=baseline)
-                # solo_via_promo: synthetic c6:1 stays UI-only; path_c6 assist promos still flag.
-                # When off, C6 alone can flag (Premium editable / no promo assist required).
-                if monopolio is not None and not monopolio.solo_via_promo:
-                    mejores = [*mejores, monopolio.flag_tuple]
                 decision = decidir_flag_hay_mejores(
                     mejores=mejores,
                     descartado_fingerprint=row.hay_mejores_descartado_fingerprint,
@@ -871,11 +774,21 @@ def actualizar_hay_mejores_ofertas(
                     auto_target = resolve_auto_enroll_target(evaluacion.candidatas, candidates)
 
                 pick_key = str(auto_target.get("key") or "") if auto_target else None
+                parsed_pending = _parse_auto_pending(prev_fingerprint)
+                pending_alive = _is_auto_pending_fingerprint(prev_fingerprint, now=now_instant)
+                # Expired pending: reconcile vs mirror — if ML already applied that promo, do not re-enroll it.
+                if parsed_pending is not None and not pending_alive:
+                    expired_key, _ = parsed_pending
+                    if _promo_key_applied_in_raw(raw, expired_key):
+                        if pick_key == expired_key:
+                            auto_target = None
+                            pick_key = None
+                    # Liberate either way: fingerprint is no longer an active pending block.
                 # Same-promo pending (non-expired) blocks re-queue; other picks / expired may proceed.
                 pending_blocks_pick = bool(
                     pick_key and _is_auto_pending_fingerprint(prev_fingerprint, pick_key, now=now_instant)
                 )
-                pending_any_alive = _is_auto_pending_fingerprint(prev_fingerprint, now=now_instant)
+                pending_any_alive = pending_alive
                 would_transition = bool(
                     decision.hay_mejores
                     and (not prev_flag or prev_fingerprint != decision.fingerprint)
@@ -902,7 +815,6 @@ def actualizar_hay_mejores_ofertas(
                             "criterios": (
                                 evaluacion.criterios if evaluacion else _criterios_audit_dict(criterios_view)
                             ),
-                            "monopolio": monopolio.oportunidad if monopolio else None,
                             "auto_aplicacion": True,
                             "auto_pick": auto_target.get("key"),
                             "auto_deferred": True,
@@ -933,7 +845,6 @@ def actualizar_hay_mejores_ofertas(
                                 "criterios": (
                                     evaluacion.criterios if evaluacion else _criterios_audit_dict(criterios_view)
                                 ),
-                                "monopolio": monopolio.oportunidad if monopolio else None,
                                 "auto_aplicacion": bool(criterios_view.auto_aplicacion),
                             },
                         )

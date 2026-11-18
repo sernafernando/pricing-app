@@ -227,57 +227,6 @@ export default function CriteriosAplicacionPanel({ mla }) {
         )}
       </section>
 
-      <section className={styles.section}>
-        <label className={styles.checkRow}>
-          <input
-            type="checkbox"
-            checked={form.c6_activo}
-            disabled={!canWrite}
-            onChange={(e) => setField('c6_activo', e.target.checked)}
-          />
-          C6 — Techo por monopolio
-        </label>
-        {form.c6_activo && (
-          <>
-            <label className={styles.checkRowNested}>
-              <input
-                type="checkbox"
-                checked={form.c6_solo_via_promo}
-                disabled={!canWrite}
-                onChange={(e) => setField('c6_solo_via_promo', e.target.checked)}
-              />
-              Solo vía promo
-            </label>
-            <div className={styles.fieldRow}>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>Gap mín $</span>
-                <input
-                  type="number"
-                  step="any"
-                  min="0"
-                  className={styles.input}
-                  value={form.c6_gap_min}
-                  disabled={!canWrite}
-                  onChange={(e) => setField('c6_gap_min', e.target.value)}
-                />
-              </label>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>Distancia $</span>
-                <input
-                  type="number"
-                  step="any"
-                  min="0"
-                  className={styles.input}
-                  value={form.c6_distancia_objetivo}
-                  disabled={!canWrite}
-                  onChange={(e) => setField('c6_distancia_objetivo', e.target.value)}
-                />
-              </label>
-            </div>
-          </>
-        )}
-      </section>
-
       {canAuto && (
         <section className={styles.section}>
           <label className={styles.checkRow}>

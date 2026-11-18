@@ -6,6 +6,6 @@
 
 ## Qué cambia
 
-1. Auto intenta aplicar la misma candidata que se hubiera sugerido (no inventa monopolio C6).
+1. Auto intenta aplicar la misma candidata que se hubiera sugerido.
 2. Si falla, ves la sugerencia manual más el motivo del rechazo arriba del bloque.
 3. Podés aplicar a mano o descartar como siempre.

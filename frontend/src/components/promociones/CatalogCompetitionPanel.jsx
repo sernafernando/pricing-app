@@ -58,7 +58,7 @@ function criteriosPutBody(data, sellersExcluidos) {
  *    decision #6 / Productos tree).
  *  - `ranking`: full same-bucket list any price (publication Promos col 2).
  *    Checkboxes (promos.escribir) persist `sellers_excluidos` — unchecked
- *    rivals do not count for C2/C6/R-AUTO.
+ *    rivals do not count for C2/R-AUTO.
  *
  * This component never recomputes bucket membership, currency conversion,
  * or markup — those come from the snapshot.
@@ -268,7 +268,7 @@ function CatalogCompetitionPanel({ mla, catalogCompetitionCacheRef, variant = 'u
       </div>
       {ranking && (
         <p className={styles.rankingHint}>
-          Destildá quien no cuente para ganar catálogo / monopolio. Los nuevos en un refresh vuelven tildados.
+          Destildá quien no cuente para ganar catálogo. Los nuevos en un refresh vuelven tildados.
         </p>
       )}
       {ranking && criteriosLoading && (

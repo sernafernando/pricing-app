@@ -37,6 +37,9 @@ class _Query:
     def filter(self, *args):
         return self
 
+    def with_for_update(self, *args, **kwargs):
+        return self
+
     def one_or_none(self):
         return self.rows.pop(0)
 
@@ -104,7 +107,6 @@ class TestWhoNotifies:
         monkeypatch.setattr(hay_mejores, "_candidate_entries", lambda raw, now: [{"id": "C-1"}])
         monkeypatch.setattr(hay_mejores, "_enqueue_catalog_competition_refresh", lambda _db, _item_id: None)
         monkeypatch.setattr(hay_mejores, "get_criterios", lambda *_a, **_k: default_criterios("MLA1"))
-        monkeypatch.setattr(hay_mejores, "evaluar_monopolio_c6", lambda *_a, **_k: None)
         monkeypatch.setattr(hay_mejores, "record_flag_transition", lambda *_a, **_k: None)
         hay_mejores.actualizar_hay_mejores_ofertas(session, "MLA1", raw_promotions=[{"id": "C-1"}])
         session.commit()

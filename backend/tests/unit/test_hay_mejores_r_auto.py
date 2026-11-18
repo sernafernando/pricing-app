@@ -10,7 +10,6 @@ from app.services import ml_promotions_hay_mejores as hay_mejores
 from app.services.ml_hay_mejores_criterios_service import default_criterios
 from app.services.ml_promotions_hay_mejores import (
     AUTOAPPLY_FAIL_PREFIX,
-    C6_FINGERPRINT_KEY,
     FlagDecision,
     MejoresEvaluacion,
     _AUTO_PENDING,
@@ -44,7 +43,6 @@ def test_pick_best_markup_within_classic() -> None:
         [
             {"key": "A", "price": 900.0, "markup": 10.0, "path_clasico": True, "path_c2": False},
             {"key": "B", "price": 880.0, "markup": 18.0, "path_clasico": True, "path_c2": False},
-            {"key": C6_FINGERPRINT_KEY, "price": 15900.0, "markup": 99.0, "path_clasico": False, "path_c2": False},
         ]
     )
     assert picked is not None and picked["key"] == "B"
@@ -92,7 +90,6 @@ def test_actualizar_auto_defers_flag_and_schedules_enroll(monkeypatch) -> None:
             criterios={},
         ),
     )
-    monkeypatch.setattr(hay_mejores, "evaluar_monopolio_c6", lambda *_a, **_k: None)
     monkeypatch.setattr(hay_mejores, "record_flag_transition", lambda *_a, **_k: None)
     monkeypatch.setattr(hay_mejores, "_enqueue_catalog_competition_refresh", lambda *_a, **_k: None)
     monkeypatch.setattr(hay_mejores, "notify_hay_mejores_changed", lambda *_a, **_k: None)
@@ -241,27 +238,153 @@ def test_auto_pending_same_key_blocks_other_key_does_not() -> None:
 def test_auto_pending_expires() -> None:
     from datetime import datetime, timedelta, timezone
 
+    assert hay_mejores.AUTO_PENDING_TTL_SECONDS == 5 * 60
     started = datetime(2026, 11, 18, 12, 0, tzinfo=timezone.utc)
     fp = hay_mejores._auto_pending_fingerprint("A", now=started)
     later = started + timedelta(seconds=hay_mejores.AUTO_PENDING_TTL_SECONDS + 1)
     assert hay_mejores._is_auto_pending_fingerprint(fp, "A", now=later) is False
 
 
-def test_pick_prefers_c6_assist_when_no_classic_or_c2() -> None:
-    picked = pick_mejor_candidata_auto(
-        [
-            {
-                "key": "P6",
-                "price": 1500.0,
-                "markup": 40.0,
-                "path_clasico": False,
-                "path_c2": False,
-                "path_c6": True,
-            },
-            {"key": C6_FINGERPRINT_KEY, "price": 15900.0, "markup": 99.0, "path_clasico": False, "path_c2": False},
-        ]
+def test_promo_key_applied_in_raw_detects_started() -> None:
+    raw = [
+        {"id": "A", "type": "SMART", "status": "candidate"},
+        {"id": "B", "type": "SMART", "status": "started"},
+    ]
+    assert hay_mejores._promo_key_applied_in_raw(raw, "B") is True
+    assert hay_mejores._promo_key_applied_in_raw(raw, "A") is False
+
+
+def test_expired_pending_same_key_already_applied_skips_reenroll(monkeypatch) -> None:
+    """ambiguous → TTL expires → ML already started that promo → do not re-queue it."""
+    from datetime import datetime, timedelta, timezone
+
+    started = datetime(2026, 11, 18, 12, 0, tzinfo=timezone.utc)
+    now = started + timedelta(seconds=hay_mejores.AUTO_PENDING_TTL_SECONDS + 10)
+    pending_fp = hay_mejores._auto_pending_fingerprint("A", now=started)
+    row = SimpleNamespace(
+        hay_mejores_ofertas=False,
+        hay_mejores_fingerprint=pending_fp,
+        hay_mejores_descartado_fingerprint=None,
+        raw=[{"id": "A", "type": "SMART", "status": "started", "price": 900}],
     )
-    assert picked is not None and picked["key"] == "P6"
+    sale = SimpleNamespace(amount=1000.0)
+    db = MagicMock()
+    db.info = {}
+    db.begin_nested.return_value = _Nested()
+    locked = MagicMock()
+    locked.one_or_none.side_effect = [row]
+    db.query.return_value.filter.return_value.with_for_update.return_value = locked
+    db.query.return_value.filter.return_value.one_or_none.side_effect = [sale]
+
+    monkeypatch.setattr(
+        hay_mejores,
+        "_candidate_entries",
+        lambda *_a, **_k: [{"id": "A", "type": "SMART", "status": "candidate", "price": 900}],
+    )
+    monkeypatch.setattr(
+        hay_mejores,
+        "get_criterios",
+        lambda *_a, **_k: replace(default_criterios("MLA1"), auto_aplicacion=True),
+    )
+    monkeypatch.setattr(
+        hay_mejores,
+        "evaluar_mejores_candidatas",
+        lambda *_a, **_k: MejoresEvaluacion(
+            mejores=[("A", 900.0)],
+            status_quo={},
+            candidatas=[{"key": "A", "price": 900.0, "markup": 12.0, "path_clasico": True, "path_c2": False}],
+            criterios={},
+        ),
+    )
+    monkeypatch.setattr(hay_mejores, "record_flag_transition", lambda *_a, **_k: None)
+    monkeypatch.setattr(hay_mejores, "_enqueue_catalog_competition_refresh", lambda *_a, **_k: None)
+    monkeypatch.setattr(hay_mejores, "notify_hay_mejores_changed", lambda *_a, **_k: None)
+    monkeypatch.setattr(hay_mejores, "_ensure_hay_mejores_listeners", lambda *_a, **_k: None)
+
+    hay_mejores.actualizar_hay_mejores_ofertas(db, "MLA1", now=now)
+    pending = db.info.get(_AUTO_PENDING) or []
+    assert pending == []  # same key already applied → no new enroll job
+
+
+def test_expired_pending_allows_better_other_candidata(monkeypatch) -> None:
+    """ambiguous → TTL expires → a better other candidata may enroll."""
+    from datetime import datetime, timedelta, timezone
+
+    started = datetime(2026, 11, 18, 12, 0, tzinfo=timezone.utc)
+    now = started + timedelta(seconds=hay_mejores.AUTO_PENDING_TTL_SECONDS + 10)
+    pending_fp = hay_mejores._auto_pending_fingerprint("A", now=started)
+    row = SimpleNamespace(
+        hay_mejores_ofertas=False,
+        hay_mejores_fingerprint=pending_fp,
+        hay_mejores_descartado_fingerprint=None,
+        raw=[],
+    )
+    sale = SimpleNamespace(amount=1000.0)
+    db = MagicMock()
+    db.info = {}
+    db.begin_nested.return_value = _Nested()
+    locked = MagicMock()
+    locked.one_or_none.side_effect = [row]
+    db.query.return_value.filter.return_value.with_for_update.return_value = locked
+    db.query.return_value.filter.return_value.one_or_none.side_effect = [sale]
+
+    monkeypatch.setattr(
+        hay_mejores,
+        "_candidate_entries",
+        lambda *_a, **_k: [{"id": "B", "type": "SMART", "status": "candidate", "price": 850}],
+    )
+    monkeypatch.setattr(
+        hay_mejores,
+        "get_criterios",
+        lambda *_a, **_k: replace(default_criterios("MLA1"), auto_aplicacion=True),
+    )
+    monkeypatch.setattr(
+        hay_mejores,
+        "evaluar_mejores_candidatas",
+        lambda *_a, **_k: MejoresEvaluacion(
+            mejores=[("B", 850.0)],
+            status_quo={},
+            candidatas=[{"key": "B", "price": 850.0, "markup": 20.0, "path_clasico": True, "path_c2": False}],
+            criterios={},
+        ),
+    )
+    monkeypatch.setattr(hay_mejores, "record_flag_transition", lambda *_a, **_k: None)
+    monkeypatch.setattr(hay_mejores, "_enqueue_catalog_competition_refresh", lambda *_a, **_k: None)
+    monkeypatch.setattr(hay_mejores, "notify_hay_mejores_changed", lambda *_a, **_k: None)
+    monkeypatch.setattr(hay_mejores, "_ensure_hay_mejores_listeners", lambda *_a, **_k: None)
+
+    hay_mejores.actualizar_hay_mejores_ofertas(db, "MLA1", now=now)
+    pending = db.info.get(_AUTO_PENDING) or []
+    assert len(pending) == 1
+    assert pending[0]["target"]["key"] == "B"
+
+
+def test_actualizar_locks_promotions_row_with_for_update(monkeypatch) -> None:
+    """Concurrent sync+worker must take FOR UPDATE before deciding Auto enroll."""
+    row = SimpleNamespace(
+        hay_mejores_ofertas=False,
+        hay_mejores_fingerprint=None,
+        hay_mejores_descartado_fingerprint=None,
+        raw=[],
+    )
+    sale = SimpleNamespace(amount=1000.0)
+    db = MagicMock()
+    db.info = {}
+    db.begin_nested.return_value = _Nested()
+    chain = MagicMock()
+    locked = MagicMock()
+    locked.one_or_none.side_effect = [row]
+    chain.with_for_update.return_value = locked
+    db.query.return_value.filter.return_value = chain
+    # Sale lookup after lock: filter().one_or_none without for_update
+    chain.one_or_none.side_effect = [sale]
+
+    monkeypatch.setattr(hay_mejores, "_candidate_entries", lambda *_a, **_k: [])
+    monkeypatch.setattr(hay_mejores, "get_criterios", lambda *_a, **_k: default_criterios("MLA1"))
+    monkeypatch.setattr(hay_mejores, "notify_hay_mejores_changed", lambda *_a, **_k: None)
+
+    hay_mejores.actualizar_hay_mejores_ofertas(db, "MLA1")
+    chain.with_for_update.assert_called()
 
 
 def test_enqueue_catalog_refresh_once_per_session(monkeypatch) -> None:

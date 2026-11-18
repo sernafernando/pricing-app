@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-11-17
 
-**Resumen ejecutivo:** desde Acciones masivas podés aplicar C1/C2/C6/Auto al filtro o a las filas marcadas, con opción de descartar sugerencias abiertas (sin tocar las de Autoapply falló).
+**Resumen ejecutivo:** desde Acciones masivas podés aplicar C1/C2/Auto al filtro o a las filas marcadas, con opción de descartar sugerencias abiertas (sin tocar las de Autoapply falló).
 
 ## Qué cambia
 

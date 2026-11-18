@@ -21,16 +21,6 @@ vi.mock('../../../contexts/PermisosContext', () => ({
   PermisosProvider: ({ children }) => children,
 }));
 
-vi.mock('./useMonopolioC6', () => ({
-  useMonopolioC6: () => ({
-    loading: false,
-    oportunidad: null,
-    markupPct: null,
-    premiumPromo: null,
-    error: null,
-  }),
-}));
-
 import { promocionesAPI } from '../../../services/api';
 
 describe('MejoresCandidatasBlock', () => {

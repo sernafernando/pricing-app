@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-11-17
 
-**Resumen ejecutivo:** en **Publicaciones ML → Promos** aparece **Criterios de aplicación**: abre la columna ancha (la misma que Ver competencia; no se pueden ver las dos a la vez) para configurar límites de markup, ganar catálogo, techo por monopolio y Auto-aplicación.
+**Resumen ejecutivo:** en **Publicaciones ML → Promos** aparece **Criterios de aplicación**: abre la columna ancha (la misma que Ver competencia; no se pueden ver las dos a la vez) para configurar límites de markup, ganar catálogo y Auto-aplicación.
 
 ## Qué cambia
 

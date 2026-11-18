@@ -16,8 +16,6 @@ import {
   shares,
 } from './mejoresCandidatasHelpers';
 import { useMejoresCandidatas } from './useMejoresCandidatas';
-import { useMonopolioC6 } from './useMonopolioC6';
-import MonopolioC6Block from './MonopolioC6Block';
 import promoStyles from '../../promociones/promociones.module.css';
 import styles from './panel.module.css';
 
@@ -62,18 +60,9 @@ export default function MejoresCandidatasBlock({
     onUnavailable,
     onSuggested,
   });
-  const {
-    loading: monopolioLoading,
-    oportunidad: monopolio,
-    markupPct: monopolioMarkupPct,
-    premiumPromo: monopolioPremium,
-    error: monopolioError,
-  } = useMonopolioC6(itemId, { salePrice: baselinePrice });
 
   const entries = slotEntries(slots);
   const showClassic = entries.length > 0;
-  const showMonopolio = Boolean(monopolio);
-  const showEmptyClassic = !showClassic && !showMonopolio && !monopolioLoading;
   const lead = (extra) => (
     <p className={styles.ponerPreciosMejoresLead}>
       <Sparkles size={14} aria-hidden="true" className={styles.mejoresIcon} />
@@ -180,18 +169,7 @@ export default function MejoresCandidatasBlock({
               </ul>
             </>
           )}
-          {showMonopolio && (
-            <MonopolioC6Block
-              oportunidad={monopolio}
-              markupPct={monopolioMarkupPct}
-              premiumPromo={monopolioPremium}
-              itemId={itemId}
-              applyFailMessage={autoFailMessage && !showClassic ? autoFailMessage : null}
-              onWritten={onWritten}
-              onLeavePub={onLeavePub}
-            />
-          )}
-          {showEmptyClassic && (
+          {!showClassic && (
             <>
               <p className={styles.ponerPreciosOk} role="status">
                 No hay candidatas aplicables (SMART, DEAL, PRE_NEGOTIATED, PRICE_MATCHING, LIGHTNING, SELLER_CAMPAIGN
@@ -204,13 +182,7 @@ export default function MejoresCandidatasBlock({
               <span>{discardButton}</span>
             </>
           )}
-          {showMonopolio && !showClassic && <span>{discardButton}</span>}
         </>
-      )}
-      {monopolioError && (
-        <p className={styles.ponerPreciosError} role="status">
-          {monopolioError}
-        </p>
       )}
       {message && (
         <p className={message.tone === 'error' ? styles.ponerPreciosError : styles.ponerPreciosOk} role="status">

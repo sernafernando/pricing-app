@@ -169,41 +169,6 @@ def markup_pasa_c2(
     return markup is not None
 
 
-def monopolio_c6_oportunidad(
-    *,
-    c6_activo: bool,
-    our_price_ars: Optional[float],
-    segundo_precio_ars: Optional[float],
-    c6_gap_min: Decimal,
-    c6_distancia_objetivo: Decimal,
-) -> Optional[dict[str, float]]:
-    """When we are strictly #1 and gap to 2nd (checked) ≥ gap mín, return raise-price snapshot.
-
-    Returns ``None`` when C6 is off or there is no opportunity. ``precio_objetivo`` =
-    ``segundo − distancia`` (may be ≤ our price if distancia is huge — still returned;
-    the FE/Premium path decides editability).
-    """
-    if not c6_activo:
-        return None
-    if our_price_ars is None or segundo_precio_ars is None:
-        return None
-    our = float(our_price_ars)
-    segundo = float(segundo_precio_ars)
-    if our >= segundo:
-        return None  # not strictly winning
-    gap = segundo - our
-    if Decimal(str(gap)) < c6_gap_min:
-        return None
-    distancia = float(c6_distancia_objetivo)
-    return {
-        "our_price": our,
-        "segundo_precio": segundo,
-        "gap": gap,
-        "precio_objetivo": segundo - distancia,
-        "distancia_objetivo": distancia,
-    }
-
-
 def upsert_criterios(
     db: Session,
     item_id: str,

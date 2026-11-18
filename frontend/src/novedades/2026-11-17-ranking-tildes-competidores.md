@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-11-17
 
-**Resumen ejecutivo:** en **Promos → Ver competencia** cada rival del ranking tiene un tilde. Destildarlo saca a ese seller del ranking efectivo (ganar catálogo / monopolio). Los sellers nuevos de un Actualizar vuelven tildados.
+**Resumen ejecutivo:** en **Promos → Ver competencia** cada rival del ranking tiene un tilde. Destildarlo saca a ese seller del ranking efectivo (ganar catálogo). Los sellers nuevos de un Actualizar vuelven tildados.
 
 ## Qué cambia
 

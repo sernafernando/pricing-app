@@ -299,7 +299,10 @@ class TestActualizarForwardsRawPromotions:
 
         db = MagicMock()
         db.begin_nested.return_value = _Nested()
-        db.query.return_value.filter.return_value.one_or_none.side_effect = [row, sale]
+        locked = MagicMock()
+        locked.one_or_none.side_effect = [row]
+        db.query.return_value.filter.return_value.with_for_update.return_value = locked
+        db.query.return_value.filter.return_value.one_or_none.side_effect = [sale]
 
         def _evaluar(_db, mla, candidates, baseline, *, raw_promotions=None, sell_in_out_batch=None):
             seen["batch"] = sell_in_out_batch
@@ -313,7 +316,6 @@ class TestActualizarForwardsRawPromotions:
         monkeypatch.setattr(hay_mejores, "_enqueue_catalog_competition_refresh", lambda *_a, **_k: None)
         monkeypatch.setattr(hay_mejores, "record_flag_transition", lambda *_a, **_k: None)
         monkeypatch.setattr(hay_mejores, "get_criterios", lambda *_a, **_k: default_criterios("MLA1"))
-        monkeypatch.setattr(hay_mejores, "evaluar_monopolio_c6", lambda *_a, **_k: None)
 
         decision = hay_mejores.actualizar_hay_mejores_ofertas(db, "MLA1", raw_promotions=raw)
         assert decision is not None and decision.hay_mejores is True

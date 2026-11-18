@@ -28,7 +28,10 @@ def _run_actualizar(monkeypatch, *, prev_flag: bool, prev_fp: str | None, decisi
 
     db = MagicMock()
     db.begin_nested.return_value = _Nested()
-    db.query.return_value.filter.return_value.one_or_none.side_effect = [row, sale]
+    locked = MagicMock()
+    locked.one_or_none.side_effect = [row]
+    db.query.return_value.filter.return_value.with_for_update.return_value = locked
+    db.query.return_value.filter.return_value.one_or_none.side_effect = [sale]
 
     monkeypatch.setattr(
         hay_mejores,
@@ -57,7 +60,6 @@ def _run_actualizar(monkeypatch, *, prev_flag: bool, prev_fp: str | None, decisi
         "get_criterios",
         lambda *_a, **_k: SimpleNamespace(c6_activo=False, auto_aplicacion=False),
     )
-    monkeypatch.setattr(hay_mejores, "evaluar_monopolio_c6", lambda *_a, **_k: None)
     monkeypatch.setattr(hay_mejores, "record_flag_transition", lambda *_a, **_k: None)
 
     result = hay_mejores.actualizar_hay_mejores_ofertas(
