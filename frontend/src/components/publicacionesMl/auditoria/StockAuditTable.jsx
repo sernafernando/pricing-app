@@ -2,7 +2,7 @@ import { ChevronDown, ChevronRight, CornerDownRight, Cpu, Tag, TriangleAlert } f
 import { TableShell } from '../../kit';
 import { buildColumns } from '../columns';
 import { BranchState, NodeSummary } from '../NodeCells';
-import MarkupCell from '../MarkupCell';
+import MarkupCell, { SisoMarkupCell } from '../MarkupCell';
 import {
   AgeingCell,
   GrossCell,
@@ -314,7 +314,7 @@ function AuditBranchState({ row, onMore }) {
   return <BranchState row={row} onMore={onMore} onRetry={onMore} />;
 }
 
-function buildAuditColumns({ canSeeSales, canSeeMargin, rate, nivel, onToggle, onDrill, onMore, arrange }) {
+export function buildAuditColumns({ canSeeSales, canSeeMargin, rate, nivel, onToggle, onDrill, onMore, arrange }) {
   // A publication draws the list's own cells (Tipo, Estado, sales, markups, Total Gauss).
   const list = Object.fromEntries(buildColumns({ eventsEnabled: false, canSeeSales, canSeeMargin }).map((column) => [column.key, column]));
   const item = (key, row) => list[key].render(row.item);
@@ -546,6 +546,23 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, nivel, onToggle, o
       align: 'center',
       fit: true,
       render: (row) => (row.type === 'item' ? item('markup', row) : row.node ? <MarkupCell markup={auditMarkup(row.node.markup_actual)} /> : null),
+    });
+    columns.push({
+      key: 'markup_siso',
+      group: MARKUP,
+      header: 'Actual c/ SISO',
+      label: 'Markup actual c/ SISO',
+      width: 120,
+      sortable: true,
+      align: 'center',
+      fit: true,
+      // A row's range mixes publications with and without sell in / sell out: no claim either way (`applies` null).
+      render: (row) =>
+        row.type === 'item' ? (
+          item('markup_siso', row)
+        ) : row.node ? (
+          <SisoMarkupCell siso={row.node.markup_siso ? { ...row.node.markup_siso, pending: 0, applies: null } : null} />
+        ) : null,
     });
     if (canSeeSales) {
       columns.push(

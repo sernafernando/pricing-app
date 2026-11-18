@@ -28,11 +28,14 @@ export const encodeKey = (text) => text.replace(/[%,]/g, (char) => (char === '%'
 const numberOrNull = (value) => (typeof value === 'number' ? value : null);
 
 function readAggregates(raw, canSeeMargin) {
-  if (!canSeeMargin) return { negativeCount: null, markup: null };
+  if (!canSeeMargin) return { negativeCount: null, markup: null, markupSiso: null };
   const hasRange = 'markup_min' in raw || 'markup_max' in raw;
+  const hasSiso = 'markup_siso_min' in raw || 'markup_siso_max' in raw;
   return {
     negativeCount: numberOrNull(raw.negative_count),
     markup: hasRange ? { min: numberOrNull(raw.markup_min), max: numberOrNull(raw.markup_max) } : null,
+    // Markup actual c/ SISO: the range of the node's publications, with the plain markup's rule.
+    markupSiso: hasSiso ? { min: numberOrNull(raw.markup_siso_min), max: numberOrNull(raw.markup_siso_max) } : null,
   };
 }
 

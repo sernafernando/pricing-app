@@ -239,6 +239,7 @@ const METRICS = [
     ageing_days: 0,
     total_gauss_30d: -12345678.9,
     markup_30d: -12.5,
+    markup_sell_30d: -4.1,
     markup_delta_pp: -3.4,
     series_markup_90d: Array.from({ length: 90 }, (_, d) => (d % 7 === 0 ? null : 10 - (d % 5) * 4)),
   },
@@ -491,7 +492,7 @@ describe('Publicaciones ML (visual)', () => {
         expect(headers.map((th) => th.textContent)).toEqual(['ERP', 'Full', 'Total']);
         expect(scroller.querySelector('thead th[data-column="stock_propio"]')).toBeNull();
         const group = [...scroller.querySelectorAll('thead th[scope="colgroup"]')].find((th) => th.textContent === 'Stock');
-        expect(group.colSpan).toBe(3);
+        expect(group.colSpan).toBe(5); // Actual, Actual c/ SISO, Real 30D, Real 30D c/ SISO, Tendencia
         expect(wrapped(headers.map((th) => th.querySelector('button')))).toEqual([]);
         // Never the available sum nor our own quantity: the first fixture row has 34 available, 20 Full, 14 of our own.
         const first = scroller.querySelector('tbody tr');
@@ -580,6 +581,12 @@ describe('Publicaciones ML (visual)', () => {
   }
 });
 
+// For a screenshot: the table's rows at the top of the window and `header`'s column in the middle of the scroller.
+const showColumn = (scroller, header) => {
+  window.scrollTo(0, rect(scroller).top + window.scrollY - 16);
+  scroller.scrollLeft = header.offsetLeft - scroller.clientWidth / 2 + header.offsetWidth / 2;
+};
+
 // Publicaciones with markup and an expanded row (publicaciones-ml-vista P11b.T4).
 const MARGIN_ITEMS = [
   VARIATION_ITEM,
@@ -587,6 +594,13 @@ const MARGIN_ITEMS = [
     ...item,
     item_id: `MLA${1100000200 + i}`,
     markup: { min: 8.5, max: 21, worst: 8.5, any_negative: false, reason: 'ok', partial: 0, ads: null },
+    // Markup actual c/ SISO: most with sell in / sell out, one without, one pending (pubml-markup-siso)
+    markup_siso:
+      i % 10 === 3
+        ? { min: null, max: null, worst: null, pending: 1, applies: true }
+        : i % 10 === 5
+          ? { min: 8.5, max: 21, worst: 8.5, pending: 0, applies: false }
+          : { min: 12.4, max: 26.75, worst: 12.4, pending: i % 10 === 7 ? 2 : 0, applies: true },
   })),
 ];
 const MARGIN_RESPONSE = { ...RESPONSE, can_see_margin: true, items: MARGIN_ITEMS };
@@ -622,7 +636,7 @@ describe('Publicaciones ML with markup and an expanded row (visual)', () => {
         const screen = await renderMarginPage({ width, height, theme });
         const scroller = scrollerOf();
         const group = [...scroller.querySelectorAll('thead th[scope="colgroup"]')].find((th) => th.textContent === 'Markup');
-        expect(group.colSpan).toBe(3);
+        expect(group.colSpan).toBe(5); // Actual, Actual c/ SISO, Real 30D, Real 30D c/ SISO, Tendencia
         const header = scroller.querySelector('thead th[data-column="markup"]');
         expect(header.textContent).toBe('Actual');
         expect(wrapped([header.querySelector('button')])).toEqual([]);
@@ -638,6 +652,22 @@ describe('Publicaciones ML with markup and an expanded row (visual)', () => {
         expect(band.scrollWidth).toBeLessThanOrEqual(band.clientWidth + 1);
         expect(rect(band).right).toBeLessThanOrEqual(width);
         expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: the markup c/ SISO columns read on one line inside their cells (pubml-markup-siso)`, async () => {
+        const screen = await renderMarginPage({ width, height, theme });
+        const scroller = scrollerOf();
+        const headers = ['markup_siso', 'markup_sell_30d'].map((key) => scroller.querySelector(`thead th[data-column="${key}"]`));
+        expect(headers.map((th) => th.textContent)).toEqual(['Actual c/ SISO', 'Real 30D c/ SISO']);
+        expect(wrapped(headers.map((th) => th.querySelector('button')))).toEqual([]);
+        await expect.element(screen.getByText('Pendiente').first()).toBeVisible();
+        const cells = [...scroller.querySelectorAll('tbody td[data-column="markup_siso"] span')];
+        expect(cells.length).toBeGreaterThan(0);
+        expect(wrapped(cells.filter((el) => /%|Pendiente/.test(el.textContent)))).toEqual([]);
+        expect(overflowingCells(scroller)).toEqual([]);
+        showColumn(scroller, headers[0]);
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/siso-publicaciones-${width}-${theme}.png` });
         screen.unmount();
       });
 
@@ -1060,6 +1090,21 @@ describe('Publicaciones ML Producto view (visual)', () => {
         }
         if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/products-header-${width}-${theme}.png` });
         expect(filterLabels()).not.toContain('Markup');
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: a product row reads its Real 30D c/ SISO on one line (pubml-markup-siso)`, async () => {
+        const screen = await renderProducts({ width, height, theme });
+        const scroller = scrollerOf();
+        const header = scroller.querySelector('thead th[data-column="markup_sell_30d"]');
+        expect(header.textContent).toBe('Real 30D c/ SISO');
+        await expect.element(screen.getByText('23,9%').first()).toBeVisible();
+        const cells = [...scroller.querySelectorAll('tbody td[data-column="markup_sell_30d"] span')].filter((el) => /%/.test(el.textContent));
+        expect(cells.length).toBeGreaterThan(0);
+        expect(wrapped(cells)).toEqual([]);
+        expect(overflowingCells(scroller)).toEqual([]);
+        showColumn(scroller, header);
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/siso-producto-${width}-${theme}.png` });
         screen.unmount();
       });
 

@@ -61,6 +61,7 @@ export const AUDIT_NOTEBOOK = {
   status_counts: { active: 4, paused: 1 },
   promo_counts: { con: 2, sin: 3 },
   markup_actual: { min: 16.9, max: 19.2 },
+  markup_siso: { min: 21.4, max: 24.8 },
   variantes: [
     {
       key: 'v9002',

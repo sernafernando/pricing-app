@@ -292,7 +292,7 @@ export const groupsResponse = (level, nodes, overrides = {}) => ({
 });
 
 export const BRAND_NODES = [
-  makeNode({ negative_count: 4, markup_min: -6.5, markup_max: 38.2 }),
+  makeNode({ negative_count: 4, markup_min: -6.5, markup_max: 38.2, markup_siso_min: -2.5, markup_siso_max: 41.7 }),
   makeNode({ key: 'EPSON', label: 'EPSON', count: 60, params: { marcas: 'EPSON' }, negative_count: 0, markup_min: 8.1, markup_max: 22 }),
   makeNode({ key: 'TP%2CLINK', label: 'TP,LINK', count: 7, params: { marcas: 'TP%2CLINK' }, negative_count: 0, markup_min: null, markup_max: null }),
   makeNode({ key: '__none__', label: 'Sin marca', count: 25, params: { marcas: '__none__' }, negative_count: 0, markup_min: null, markup_max: null }),
@@ -591,6 +591,7 @@ const productMetrics = (overrides = {}) => ({
   ageing_days: 0,
   total_gauss_30d: 9876543.2,
   markup_30d: 18.4,
+  markup_sell_30d: 23.9,
   markup_delta_pp: -1.2,
   series_markup_90d: Array.from({ length: 90 }, (_, d) => (d % 7 === 0 ? null : 15 + (d % 5))),
   ...overrides,

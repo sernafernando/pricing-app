@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import MarkupCell from './MarkupCell';
+import MarkupCell, { SisoMarkupCell } from './MarkupCell';
 import { describeTreeError } from './groupTree';
 import { LEVEL_LABELS } from '../../utils/metricasMlLevels';
 import { formatAmount } from '../../utils/ventasMlFormat';
@@ -196,6 +196,12 @@ export function NodeSummary({ column, node }) {
   if (column === 'estado') return <NodeStatuses node={node} />;
   if (column === 'precio') return <NodePrice node={node} />;
   return null;
+}
+
+/** Markup actual c/ SISO range of the node's publications: the list's cell. */
+export function NodeSisoMarkup({ node }) {
+  if (node.markupSiso == null) return <SisoMarkupCell siso={null} />;
+  return <SisoMarkupCell siso={{ ...node.markupSiso, pending: 0, applies: null }} />;
 }
 
 /** Markup range of the node's variations: the list's cell, so a null range reads the same ("—"). */

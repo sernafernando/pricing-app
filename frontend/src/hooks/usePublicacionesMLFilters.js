@@ -213,14 +213,16 @@ export const DEFAULT_DIRECTION = {
   codigo: 'asc',
   marca: 'asc',
   costo: 'asc',
-  // Worst variation first: the most negative markup on top.
+  // Worst variation first: the most negative markup on top; with sell in / sell out alike.
   markup: 'asc',
+  markup_siso: 'asc',
   // Productos' price headers sort by that list's markup, the worst first like the markup.
   ...Object.fromEntries([...PRICE_MARKUP_SORTS].map((key) => [key, 'asc'])),
   // Métricas' figures: highest first, as Métricas orders them.
   unidades_7d: 'desc',
   unidades_30d: 'desc',
   markup_30d: 'desc',
+  markup_sell_30d: 'desc',
   facturado_30d: 'desc',
   total_gauss_30d: 'desc',
   // The stock audit's own figures (`STOCK_AUDIT_SORTS`): the biggest first; its product name A to Z.
@@ -245,6 +247,7 @@ const SALES_SORTS = new Set([
   'unidades_30d',
   'facturado_30d',
   'markup_30d',
+  'markup_sell_30d',
   'total_gauss_30d',
   // the audit's Rotación: the Board's figures (ml_metricas.ver)
   'ultima_venta',
@@ -252,7 +255,7 @@ const SALES_SORTS = new Set([
   'cobertura',
   'rotacion',
 ]);
-const MARGIN_SORTS = new Set(['markup', 'markup_30d', 'total_gauss_30d', 'costo', ...PRICE_MARKUP_SORTS]);
+const MARGIN_SORTS = new Set(['markup', 'markup_siso', 'markup_30d', 'markup_sell_30d', 'total_gauss_30d', 'costo', ...PRICE_MARKUP_SORTS]);
 
 /** Métricas' default (Facturado 30D) for who sees the sales; the activity otherwise. */
 export const defaultSortFor = ({ canSeeSales = false } = {}) => (canSeeSales ? 'facturado_30d' : 'actividad');
@@ -350,7 +353,15 @@ export function sortParams(sort) {
  * The sorts of the Producto view (`/view/products` `orden`): Métricas ML's figures of a product and its name. A sort
  * of the publication list the products have no figure for (price, stock...) is not one of them.
  */
-export const PRODUCT_SORTS = ['titulo', 'unidades_7d', 'unidades_30d', 'markup_30d', 'facturado_30d', 'total_gauss_30d'];
+export const PRODUCT_SORTS = [
+  'titulo',
+  'unidades_7d',
+  'unidades_30d',
+  'markup_30d',
+  'markup_sell_30d',
+  'facturado_30d',
+  'total_gauss_30d',
+];
 
 /**
  * The sort the Producto view really applies: the URL's when the products can be sorted by it and the user may ask
@@ -390,6 +401,7 @@ export const STOCK_AUDIT_SORTS = [
   'total_gauss_30d',
   'markup_30d',
   'markup',
+  'markup_siso',
   'ultima_venta',
   'ageing',
   'cobertura',
