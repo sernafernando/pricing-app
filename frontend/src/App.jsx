@@ -28,6 +28,7 @@ const Novedades = lazy(() => import('./pages/Novedades'));
 const Ayuda = lazy(() => import('./pages/Ayuda'));
 const PreciosListas = lazy(() => import('./pages/PreciosListas'));
 const GestionPM = lazy(() => import('./pages/GestionPM'));
+const McpAutorizar = lazy(() => import('./pages/McpAutorizar'));
 const MisSubPMs = lazy(() => import('./pages/MisSubPMs'));
 const GestionAlertas = lazy(() => import('./pages/GestionAlertas'));
 const Banlist = lazy(() => import('./pages/Banlist'));
@@ -266,6 +267,9 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/fichaje" element={<FichajeMobile />} />
           <Route path="/" element={<ProtectedRoute><SmartRedirect /></ProtectedRoute>} />
+          {/* OAuth consent for MCP clients (ChatGPT). Session required (the login returns here),
+              no page permission: approving checks mcp.conectar and the page explains a 403. */}
+          <Route path="/mcp/autorizar" element={<ProtectedRoute>{lazyElement(McpAutorizar)}</ProtectedRoute>} />
           <Route element={
             <ProtectedRoute>
               <AppLayout />

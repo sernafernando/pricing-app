@@ -1,0 +1,108 @@
+{
+  "_comment": "Shared cases of the Sugerida pick: frontend pickPonerPreciosPromos.js (pickMejoresCandidatas, baselinePromo) and backend app/mcp/promo_pick.py both run them. Invented data.",
+  "now": "2026-11-13T15:00:00Z",
+  "pick_cases": [
+    {
+      "name": "same markup at a lower price is better",
+      "baseline": {"price": 1000, "markup": 20, "sell_in_out": null},
+      "promotions": [{"status": "candidate", "promotion_type": "SMART", "promotion_id": "A", "price": 950, "nuestro_markup": 20}],
+      "expected": {"SMART": "A"}
+    },
+    {
+      "name": "a higher consumer price is never better",
+      "baseline": {"price": 1000, "markup": 20, "sell_in_out": null},
+      "promotions": [{"status": "candidate", "promotion_type": "SMART", "promotion_id": "A", "price": 1100, "nuestro_markup": 40}],
+      "expected": {}
+    },
+    {
+      "name": "one per type, the highest markup with sell in when every candidate has it",
+      "baseline": {"price": 1000, "markup": 10, "sell_in_out": 12},
+      "promotions": [
+        {"status": "candidate", "promotion_type": "SMART", "promotion_id": "A", "price": 900, "nuestro_markup": 18, "markup_sell_in_out": 19},
+        {"status": "candidate", "promotion_type": "SMART", "promotion_id": "B", "price": 900, "nuestro_markup": 15, "markup_sell_in_out": 25},
+        {"status": "candidate", "promotion_type": "DEAL", "promotion_id": "D", "max_discounted_price": 950, "nuestro_markup": 14, "markup_sell_in_out": 16}
+      ],
+      "expected": {"SMART": "B", "DEAL": "D"}
+    },
+    {
+      "name": "plain markup when the status quo has no sell in",
+      "baseline": {"price": 1000, "markup": 21, "sell_in_out": null},
+      "promotions": [{"status": "candidate", "promotion_type": "SMART", "promotion_id": "B", "price": 1000, "nuestro_markup": 20, "markup_sell_in_out": 30}],
+      "expected": {}
+    },
+    {
+      "name": "plain ranking when one candidate lacks sell in",
+      "baseline": {"price": 1000, "markup": 10, "sell_in_out": null},
+      "promotions": [
+        {"status": "candidate", "promotion_type": "SMART", "promotion_id": "A", "price": 900, "nuestro_markup": 18, "markup_sell_in_out": 40},
+        {"status": "candidate", "promotion_type": "SMART", "promotion_id": "B", "price": 900, "nuestro_markup": 22}
+      ],
+      "expected": {"SMART": "B"}
+    },
+    {
+      "name": "LIGHTNING needs the ML stock range and shows its clamped suggested price",
+      "baseline": {"price": 1000, "markup": 10, "sell_in_out": null},
+      "promotions": [
+        {"status": "candidate", "promotion_type": "LIGHTNING", "promotion_id": "L1", "suggested_discounted_price": 800, "min_discounted_price": 850, "nuestro_markup": 12},
+        {"status": "candidate", "promotion_type": "LIGHTNING", "promotion_id": "L2", "suggested_discounted_price": 800, "min_discounted_price": 850, "nuestro_markup": 11, "payload": {"stock": {"min": 1, "max": 5}}}
+      ],
+      "expected": {"LIGHTNING": "L2"}
+    },
+    {
+      "name": "SELLER_CAMPAIGN only as the Premium of the current month",
+      "baseline": {"price": 1000, "markup": 10, "sell_in_out": null},
+      "promotions": [
+        {"status": "candidate", "promotion_type": "SELLER_CAMPAIGN", "promotion_id": "OCT", "name": "Premium octubre", "price": 900, "nuestro_markup": 30},
+        {"status": "candidate", "promotion_type": "SELLER_CAMPAIGN", "promotion_id": "NOV", "payload": {"name": "Premium Noviembre"}, "price": 900, "nuestro_markup": 12}
+      ],
+      "expected": {"SELLER_CAMPAIGN": "NOV"}
+    },
+    {
+      "name": "candidates not applicable now and started promos are not suggested",
+      "baseline": {"price": 1000, "markup": 10, "sell_in_out": null},
+      "promotions": [
+        {"status": "candidate", "promotion_type": "SMART", "promotion_id": "FUT", "price": 900, "nuestro_markup": 30, "start_date": "2026-11-23T00:00:00"},
+        {"status": "candidate", "promotion_type": "SMART", "promotion_id": "EXP", "price": 900, "nuestro_markup": 30, "finish_date": "2026-11-12"},
+        {"status": "started", "promotion_type": "PRE_NEGOTIATED", "promotion_id": "ON", "price": 900, "nuestro_markup": 30},
+        {"status": "candidate", "promotion_type": "PRICE_MATCHING", "promotion_id": "PM", "price": 950, "nuestro_markup": 10, "finish_date": "2026-11-13"}
+      ],
+      "expected": {"PRICE_MATCHING": "PM"}
+    },
+    {
+      "name": "no markup, no suggestion",
+      "baseline": {"price": 1000, "markup": 10, "sell_in_out": null},
+      "promotions": [{"status": "candidate", "promotion_type": "SMART", "promotion_id": "A", "price": 900, "nuestro_markup": null}],
+      "expected": {}
+    }
+  ],
+  "baseline_cases": [
+    {
+      "name": "the started promo ML applies (application_status active)",
+      "promotions": [
+        {"status": "started", "promotion_type": "SMART", "promotion_id": "S1", "price": 900, "nuestro_markup": 12, "application_status": "scheduled"},
+        {"status": "started", "promotion_type": "DEAL", "promotion_id": "S2", "price": 950, "nuestro_markup": 15, "application_status": "active"}
+      ],
+      "expected": "S2"
+    },
+    {
+      "name": "derived statuses without an active one: none",
+      "promotions": [{"status": "started", "promotion_type": "SMART", "promotion_id": "S1", "price": 900, "nuestro_markup": 12, "application_status": "scheduled"}],
+      "expected": null
+    },
+    {
+      "name": "without application_status: the lowest-price started, best markup on a tie",
+      "promotions": [
+        {"status": "started", "promotion_type": "SMART", "promotion_id": "S1", "price": 900, "nuestro_markup": 12},
+        {"status": "started", "promotion_type": "DEAL", "promotion_id": "S2", "price": 900, "nuestro_markup": 14},
+        {"status": "started", "promotion_type": "DEAL", "promotion_id": "S3", "price": 950, "nuestro_markup": 30},
+        {"status": "candidate", "promotion_type": "SMART", "promotion_id": "C", "price": 800, "nuestro_markup": 50}
+      ],
+      "expected": "S2"
+    },
+    {
+      "name": "no started promo: none",
+      "promotions": [{"status": "candidate", "promotion_type": "SMART", "promotion_id": "C", "price": 800, "nuestro_markup": 50}],
+      "expected": null
+    }
+  ]
+}

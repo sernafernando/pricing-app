@@ -2,12 +2,19 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import api, { marcasPmAPI } from '../services/api';
+import api, { marcasPmAPI, mcpConexionesAPI } from '../services/api';
 import PanelPermisos from './PanelPermisos';
 
 vi.mock('../services/api', () => ({
   default: { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), delete: vi.fn() },
   marcasPmAPI: { listarTodosLosPares: vi.fn(), obtenerConteosSubPMs: vi.fn() },
+  mcpConexionesAPI: { listarDeUsuario: vi.fn(), revocar: vi.fn() },
+}));
+
+// The viewer of the panel; only the MCP connections test makes it an ADMIN.
+const viewer = vi.hoisted(() => ({ user: { id: 1, nombre: 'Test User' } }));
+vi.mock('../store/authStore', () => ({
+  useAuthStore: (selector) => (typeof selector === 'function' ? selector(viewer) : viewer),
 }));
 
 const USUARIO = { id: 7, nombre: 'Ana Pérez', username: 'ana', email: 'ana@x.com', rol: 'PRICING', activo: true };
@@ -700,6 +707,23 @@ describe('PanelPermisos', () => {
         username: 'ana', email: 'ana@x.com', nombre: 'Ana María Pérez', rol: 'PRICING', rol_id: 2,
       });
       await waitFor(() => expect(screen.queryByRole('form', { name: 'Editar usuario' })).not.toBeInTheDocument());
+    });
+
+    it('shows the edited user\'s AI connections to an admin viewer', async () => {
+      const user = userEvent.setup();
+      mcpConexionesAPI.listarDeUsuario.mockResolvedValue({ data: [] });
+      const previo = viewer.user;
+      viewer.user = { id: 1, rol: 'ADMIN' };
+      try {
+        renderPanel();
+        await user.click(await screen.findByText('Ana Pérez'));
+        await user.click(within(encabezadoUsuario()).getByRole('button', { name: 'Editar' }));
+        formulario('Editar usuario');
+        expect(await screen.findByText('Sin conexiones activas.')).toBeInTheDocument();
+        expect(mcpConexionesAPI.listarDeUsuario).toHaveBeenCalledWith(7);
+      } finally {
+        viewer.user = previo;
+      }
     });
 
     it('keeps the edit modal open and shows a backend error inside it', async () => {

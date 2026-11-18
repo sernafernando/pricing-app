@@ -284,6 +284,9 @@ from app.models.catalog_competition_refresh_pending import CatalogCompetitionRef
 # Per-sale discounts (ml-ads-cupones-display T3a); registered for the same reason.
 from app.models.ml_order_discounts import MlOrderDiscountLine, MlOrderDiscounts, MlOrderDiscountsState
 
+# MCP server OAuth storage (app/mcp); registered for the same reason.
+from app.models.mcp_oauth import McpConnection, McpOAuthRequest, McpToken, McpToolCall
+
 __all__ = [
     "ProductoERP",
     "ProductoPricing",
@@ -568,4 +571,8 @@ __all__ = [
     "MlOrderDiscounts",
     "MlOrderDiscountLine",
     "MlOrderDiscountsState",
+    "McpConnection",
+    "McpOAuthRequest",
+    "McpToken",
+    "McpToolCall",
 ]
