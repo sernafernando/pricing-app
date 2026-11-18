@@ -453,8 +453,8 @@ class OverrideResponse(BaseModel):
 
 class LineaListadoResponse(BaseModel):
     """A line: `costo` on the chosen basis; `total_gauss` / `markup` (%) null when the line is not ARS or has no cost,
-    or without `ventas_fuera.ver_ganancia`; `precio_costo_pdf` the PDF's cost (a manual cost replaces
-    `precio_costo`)."""
+    or without `ventas_fuera.ver_ganancia`; `precio_costo` the ERP cost list's (or a manual cost),
+    `precio_costo_pdf` the PDF's "Precio Costo", only as a reference (vpf-costo-d-erp)."""
 
     id: int
     renglon: int

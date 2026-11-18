@@ -22,10 +22,13 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.deps import get_current_user
 from app.core.database import get_async_db, get_db
+from app.models.cur_exch_history import CurExchHistory
+from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.marca_pm import MarcaPM
 from app.models.producto import ProductoERP
 from app.models.vendedor_excluido import VendedorExcluido
 from app.models.tb_item import TBItem
+from app.models.tipo_cambio import TipoCambio
 from app.models.venta_fuera_pdf import (
     VentaFueraCodigoMapeo,
     VentaFueraLineaOverride,
@@ -62,6 +65,10 @@ def engine() -> Iterator[Engine]:
         VentaFueraLineaOverride.__table__,
         VentaFueraCodigoMapeo.__table__,
         TBItem.__table__,
+        # The ERP cost list and USD rates the load costs each line with (vpf-costo-d-erp); empty here.
+        ItemCostListHistory.__table__,
+        TipoCambio.__table__,
+        CurExchHistory.__table__,
         ProductoERP.__table__,
         MarcaPM.__table__,
         VendedorExcluido.__table__,

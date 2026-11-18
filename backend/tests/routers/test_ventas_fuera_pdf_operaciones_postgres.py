@@ -21,7 +21,7 @@ uploads read documents built in code. Every name, code and amount is INVENTED.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Iterator
@@ -43,6 +43,7 @@ from tests.services.ventas_fuera_pdf._mundo import (
     STUBS,
     TABLAS,
     TRUNCATE,
+    costo_erp,
     doc,
     linea,
     lineas,
@@ -78,6 +79,9 @@ def _clean(engine: Engine) -> Iterator[None]:
     with engine.begin() as conn:
         producto(conn, 501, MONITOR, "Monitor Ejemplo 24")
         producto(conn, 502, LIBRO, "Libro Ejemplo")
+        # vpf-costo-d-erp: the cost comes from the ERP cost list (pesos), set to the PDF's unit costs of `_mundo`.
+        costo_erp(conn, 501, "800", datetime(2026, 9, 1), curr_id=1)
+        costo_erp(conn, 502, "1500", datetime(2026, 9, 1), curr_id=1)
     yield
     with engine.begin() as conn:
         conn.execute(text(TRUNCATE + ", sell_dirty"))
@@ -210,9 +214,10 @@ class TestListado:
             "lineas": 6,
             "unidades": 5.0,
             "venta": 3800.0,
-            "costo": 2609.25,
-            "total_gauss": 690.75,
-            "markup": 26.47,
+            # vpf-costo-d-erp: CABLE (sin producto, PDF cost 150) has no ERP cost -> out of cost and margin.
+            "costo": 2449.5,
+            "total_gauss": 550.5,
+            "markup": 22.47,
             "sin_producto_lineas": 3,
             "sin_producto_venta": 800.0,
             "revisar_lineas": 0,
@@ -257,7 +262,9 @@ class TestListado:
 
         markups = [o["markup"] for o in _listado(engine, sort="markup_asc")["operaciones"]]
 
-        assert markups == sorted(markups) and markups[-1] == 87.79
+        # vpf-costo-d-erp: 103's only costed line is CABLE, sin producto -> no ERP cost -> no markup, listed last.
+        con = [m for m in markups if m is not None]
+        assert con == sorted(con) and con[-1] == 25.2 and markups[-1] is None
 
     def test_pages(self, engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:
         _subir(engine, monkeypatch)
@@ -434,7 +441,7 @@ class TestOverrideProducto:
 
 
 class TestQuitarYConfirmar:
-    def test_delete_restores_the_pdf_cost_and_the_automatic_product(
+    def test_delete_restores_the_erp_cost_and_the_automatic_product(
         self, engine: Engine, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _subir(engine, monkeypatch)

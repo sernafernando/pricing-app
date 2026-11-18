@@ -188,7 +188,12 @@ class VentaFueraOperacion(Base):
 
 
 class VentaFueraOperacionLinea(Base):
-    """A line of a document. `precio`, `precio_costo` and `precio_costo_pp` are line totals without VAT."""
+    """A line of a document. `precio`, `precio_costo` and `precio_costo_pp` are line totals without VAT.
+
+    `precio_costo` is the Precio Costo the screens use (Costo D = x 1.065 on top): the ERP cost list of the line's
+    product on the sale date (`app.services.ventas_fuera_pdf.costo_erp`, vpf-costo-d-erp L3) or a manual cost; NOT
+    the PDF's "Precio Costo" (kept in `precio_costo_pdf`). Rows loaded before vpf-costo-d-erp keep the PDF's until
+    recomputed."""
 
     __tablename__ = "ventas_fuera_operacion_lineas"
 
@@ -209,8 +214,8 @@ class VentaFueraOperacionLinea(Base):
     precio = Column(MONTO, nullable=False)
     precio_costo = Column(MONTO, nullable=False)
     precio_costo_pp = Column(MONTO, nullable=False)
-    # The PDF's `precio_costo`: a manual cost (`VentaFueraLineaOverride.costo_unitario`) replaces `precio_costo`,
-    # this keeps what the PDF said (migration 20261120_vpf_operaciones_overrides; NULL only on rows loaded before it
+    # The PDF's "Precio Costo", only as a reference: `precio_costo` comes from the ERP cost list or a manual cost
+    # (`VentaFueraLineaOverride.costo_unitario`); this keeps what the PDF said (migration 20261120_vpf_operaciones_overrides; NULL only on rows loaded before it
     # and not backfilled).
     precio_costo_pdf = Column(MONTO, nullable=True)
     # How `item_id` was found: 'codigo' | 'prefijo' | 'mapeo' | 'manual' (`app.services.ventas_fuera_pdf.resolucion`);

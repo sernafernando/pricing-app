@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 from typing import Iterator
 
@@ -23,7 +24,17 @@ from tests.routers.test_ventas_fuera_pdf_operaciones_postgres import (
     _trigger,
 )
 from tests.services.sell._schema import throwaway_schema
-from tests.services.ventas_fuera_pdf._mundo import STUBS, TABLAS, TRUNCATE, doc, linea, lineas, producto, reporte
+from tests.services.ventas_fuera_pdf._mundo import (
+    STUBS,
+    TABLAS,
+    TRUNCATE,
+    costo_erp,
+    doc,
+    linea,
+    lineas,
+    producto,
+    reporte,
+)
 
 pytestmark = pytest.mark.postgres
 
@@ -73,6 +84,8 @@ def test_s4_modal_identity_survives_a_reupload_of_the_same_range(engine: Engine,
 
 
 def test_s4_changed_line_is_flagged_not_applied_and_override_kept(engine: Engine, monkeypatch) -> None:
+    with engine.begin() as conn:
+        costo_erp(conn, 801, "125", datetime(2026, 9, 1), curr_id=1)  # vpf-costo-d-erp: 8 x 125 = 1000
     _subir(engine, monkeypatch, _rep())
     linea_id = lineas(engine)[(301, 1)]["id"]
     assert _put(engine, linea_id, {"costo_unitario": 500, "item_id": 802}).status_code == 200

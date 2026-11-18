@@ -4,8 +4,10 @@ natural key + `renglon`).
 
 - Applying a fix writes the line: `item_id` (origin 'manual') and `precio_costo = costo_unitario x cantidad`: the
   cost saved (typed x (1 + the optional %), owner L4) is the line's Precio Costo, and Costo D (x COSTO_D_FACTOR)
-  applies on top like on any PDF line; `precio_costo_pdf` keeps the PDF's. T4's trigger on the lines queues the
-  line for offsets and sell in / sell out; metrics read the lines, so they follow.
+  applies on top like on any PDF line. Without a manual cost the line's Precio Costo is the ERP cost of its product
+  (`costo_erp`, vpf-costo-d-erp L3), also after a product is assigned, remembered or the fix removed;
+  `precio_costo_pdf` keeps the PDF's only as a reference. T4's trigger on the lines queues the line for offsets and
+  sell in / sell out; metrics read the lines, so they follow.
 - Owner L2: "hay que hacerle que se persista la data si cargan de nuevo un pdf que sobreescriba la venta". A
   re-upload re-applies each fix whose line snapshot (codigo, articulo, cantidad, precio) is unchanged ('aplicado');
   a changed (or missing) line keeps the PDF's values and the fix is kept with estado 'revisar', never dropped nor
@@ -27,6 +29,7 @@ from app.models.venta_fuera_pdf import (
     VentaFueraOperacion,
     VentaFueraOperacionLinea,
 )
+from app.services.ventas_fuera_pdf.costo_erp import precio_costo_erp
 from app.services.ventas_fuera_pdf.resolucion import (
     ORIGEN_MANUAL,
     ORIGEN_MAPEO,
@@ -80,12 +83,16 @@ def _automatico(linea: VentaFueraOperacionLinea, resolucion: Optional[Resolucion
     linea.item_origen = resolucion.origen if resolucion else None
 
 
-def _costo_pdf(linea: VentaFueraOperacionLinea) -> Decimal:
-    return linea.precio_costo_pdf if linea.precio_costo_pdf is not None else linea.precio_costo
+def _costo_erp(db: Session, linea: VentaFueraOperacionLinea) -> Decimal:
+    """The line's Precio Costo from the ERP cost list of its current product and sale date (0 without product)."""
+    return precio_costo_erp(db, linea.item_id, linea.operacion.fecha, linea.cantidad)
 
 
 def aplicar(
-    linea: VentaFueraOperacionLinea, override: VentaFueraLineaOverride, resolucion: Optional[Resolucion]
+    db: Session,
+    linea: VentaFueraOperacionLinea,
+    override: VentaFueraLineaOverride,
+    resolucion: Optional[Resolucion],
 ) -> None:
     """Write the fix on the line (`resolucion`: the automatic product, used when the fix sets none)."""
     if linea.precio_costo_pdf is None:
@@ -97,7 +104,7 @@ def aplicar(
     linea.precio_costo = (
         precio_costo_manual(override.costo_unitario, linea.cantidad)
         if override.costo_unitario is not None
-        else _costo_pdf(linea)
+        else _costo_erp(db, linea)
     )
     linea.override_estado = override.estado = APLICADO
 
@@ -127,7 +134,7 @@ def aplicar_en_carga(
         linea = next((ln for ln in lineas[clave] if ln.renglon == override.renglon), None)
         if linea is not None and _snapshot_igual(override, linea):
             automatica = Resolucion(linea.item_id, linea.item_origen) if linea.item_id is not None else None
-            aplicar(linea, override, automatica)
+            aplicar(db, linea, override, automatica)
             aplicados += 1
         else:
             override.estado = REVISAR
@@ -198,7 +205,7 @@ def guardar(
         raise OverrideInvalido("Para recordar el producto en las próximas cargas hay que asignar uno")
     override.usuario_id = usuario_id
     _tomar_snapshot(override, linea)
-    aplicar(linea, override, _resolucion(db, linea))
+    aplicar(db, linea, override, _resolucion(db, linea))
     if recordar_mapeo:
         _recordar(db, linea, override.item_id, usuario_id)
     db.commit()
@@ -224,17 +231,20 @@ def _recordar(db: Session, linea: VentaFueraOperacionLinea, item_id: int, usuari
     ).scalars()
     for otra in otras:
         otra.item_id, otra.item_origen = item_id, ORIGEN_MAPEO
+        propio = override_de(db, otra)
+        if propio is None or propio.costo_unitario is None:
+            otra.precio_costo = _costo_erp(db, otra)
 
 
 def quitar(db: Session, linea_id: int) -> VentaFueraOperacionLinea:
-    """Delete the fix: the line goes back to the PDF's cost and the automatic product. Commits."""
+    """Delete the fix: the line goes back to the automatic product and its ERP cost. Commits."""
     linea = _linea(db, linea_id)
     override = override_de(db, linea)
     if override is None:
         raise OverrideNoEncontrado(linea_id)
     db.execute(delete(VentaFueraLineaOverride).where(VentaFueraLineaOverride.id == override.id))
-    linea.precio_costo = _costo_pdf(linea)
     _automatico(linea, _resolucion(db, linea))
+    linea.precio_costo = _costo_erp(db, linea)
     linea.override_estado = None
     db.commit()
     return linea
@@ -247,6 +257,6 @@ def confirmar(db: Session, linea_id: int) -> VentaFueraOperacionLinea:
     if override is None:
         raise OverrideNoEncontrado(linea_id)
     _tomar_snapshot(override, linea)
-    aplicar(linea, override, _resolucion(db, linea))
+    aplicar(db, linea, override, _resolucion(db, linea))
     db.commit()
     return linea
