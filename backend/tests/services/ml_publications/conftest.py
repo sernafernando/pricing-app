@@ -142,7 +142,7 @@ def mlpub_schema(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
         "20261017_ml_items_installments_campaign",
         "20261102_hay_mejores_ofertas",
         "20261114_hay_mejores_excluido",
-        # C6 / auto-aplicación paths call get_criterios; without this table listar fails in mlpub_pg.
+        # Auto-aplicación / C2 paths call get_criterios; without this table listar fails in mlpub_pg.
         "20261117_ml_hay_mejores_criterios",
         # Boundaries prefetch_catalog_snapshots + flag_transition audit need these tables.
         "20260731_ml_catalog_competition",

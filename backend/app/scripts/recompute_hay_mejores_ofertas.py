@@ -111,7 +111,7 @@ def recompute_items(
     """Recompute each id via `actualizar_hay_mejores_ofertas`; commit in batches unless dry_run.
 
     The ranking compares markups with sell in / sell out (S5): it is read once per batch of
-    `commit_every` ids (`resolver_sell_in_out_para_mlas`), never id by id. Criterios (C1/C2/C6)
+    `commit_every` ids (`resolver_sell_in_out_para_mlas`), never id by id. Criterios (C1/C2)
     use the same batch window via ``prefetch_criterios``."""
     stats = RecomputeStats()
     pending = 0

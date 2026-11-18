@@ -319,7 +319,7 @@ export const promocionesAPI = {
   setHayMejoresExclusion: (mlaId, excluido) =>
     api.put(`/promociones/item/${mlaId}/hay-mejores-exclusion`, { excluido }),
   setHayMejoresExclusionBulk: (body) => api.post('/promociones/hay-mejores-exclusion-bulk', body),
-  // Per-MLA Criterios de aplicación (C1/C2/C6/Auto). GET defaults when no row; PUT upserts.
+  // Per-MLA Criterios de aplicación (C1/C2/Auto). GET defaults when no row; PUT upserts.
   getHayMejoresCriterios: (mlaId) => api.get(`/promociones/item/${mlaId}/hay-mejores-criterios`),
   putHayMejoresCriterios: (mlaId, body) => api.put(`/promociones/item/${mlaId}/hay-mejores-criterios`, body),
   // Bulk apply same criterios (≤20 ids). Optional discard skips Auto-fail suggestions.
