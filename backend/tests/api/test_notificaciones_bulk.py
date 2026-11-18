@@ -266,10 +266,7 @@ class TestNoTransactionHeldAcrossAwait:
 
         assert not db.in_transaction()
         assert db.query(NotificacionIgnorada).count() == 0
-        assert (
-            not db.in_transaction()
-            or db.query(Notificacion).filter(Notificacion.estado == EstadoNotificacion.DESCARTADA).count() == 0
-        )
+        assert db.query(Notificacion).filter(Notificacion.estado == EstadoNotificacion.DESCARTADA).count() == 0
 
     def test_bulk_discard_skips_rules_that_already_exist(
         self, client, auth_headers, db, active_user, sse_calls
