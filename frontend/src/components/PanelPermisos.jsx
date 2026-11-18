@@ -539,6 +539,7 @@ export default function PanelPermisos() {
         <ModalUsuario
           modo={modalUsuario.modo}
           inicial={modalUsuario.inicial}
+          usuarioId={modalUsuario.modo === 'editar' ? usuarioSeleccionado?.id : undefined}
           roles={rolesAsignables}
           guardando={guardando}
           error={errorModal}
