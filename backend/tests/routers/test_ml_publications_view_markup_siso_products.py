@@ -31,6 +31,7 @@ from tests.routers.test_ml_publications_view_stock_audit import (  # noqa: F401
     board_calls,
     list_markups,
     no_split,
+    sheet,
     started,
 )
 from tests.routers.test_ml_publications_view_stock_audit_niveles import LENOVO, fill_groups, splits  # noqa: F401
@@ -216,6 +217,14 @@ class TestAuditLevels:
         for row in audit(client, margin_groups, nivel="categoria")["rows"]:
             drilled = audit(client, margin_groups, nivel="producto", grupo_categoria=row["grupo"]["categoria"])["rows"]
             assert row["markup_siso"] == self.span(drilled), row["key"]
+
+    def test_the_export_carries_it_on_the_brand_and_category_lines(self, client, margin_groups) -> None:
+        lines = sheet(client, margin_groups, nivel="marca", orden="valor_total", dir="desc")
+        lenovo = next(line for line in lines if (line["Tipo"], line["Producto"]) == ("Marca", "Lenovo"))
+        notebooks = next(line for line in lines if (line["Tipo"], line["Producto"]) == ("Categoría", "Notebooks"))
+        siso = ("Markup actual c/ SISO mín", "Markup actual c/ SISO máx")
+        assert tuple(lenovo[h] for h in siso) == (11.0, 32.0)  # the brand's range, as the screen shows it
+        assert tuple(notebooks[h] for h in siso) == (11.0, 32.0)
 
     def test_the_brands_sort_by_it(self, client, margin_groups) -> None:
         rows = audit(client, margin_groups, nivel="marca", orden="markup_siso", dir="asc")["rows"]

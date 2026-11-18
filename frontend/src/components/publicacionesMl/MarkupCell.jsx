@@ -2,7 +2,6 @@ import { MARKUP_REASONS, UNKNOWN_REASON } from './markupReasons';
 import { formatMarkupRange, partialRangeTitle } from './markupRange';
 import styles from './cells.module.css';
 
-/** Markup of a publication (`row.markup`, only with `ml_metricas.ver_ganancia`). */
 const SISO_TITLE = { true: 'Con sell in / sell out al precio de hoy', false: 'Sin sell in ni sell out: es el markup actual' };
 
 /**
@@ -39,6 +38,7 @@ export function SisoMarkupCell({ siso }) {
   );
 }
 
+/** Markup of a publication (`row.markup`, only with `ml_metricas.ver_ganancia`). */
 export default function MarkupCell({ markup }) {
   if (markup == null) return <span className={styles.empty}>—</span>;
   if (markup.min == null || markup.max == null) {

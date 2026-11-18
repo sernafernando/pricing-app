@@ -369,7 +369,7 @@ def stock_audit_lines(rows: Sequence[Mapping[str, Any]], *, sales: bool, margin:
             + [erp["usd"], erp["ars"], full["usd"], full["ars"], total["usd"], total["ars"]]
             + [yes_no(row["sin_costo"]), row["publications_count"], yes_no(row["publicacion_activa"])]
             + [yes_no(row["promo_aplicada"])]
-            + figures(row["ventas"], 1, row.get("markup_actual"))
+            + figures(row["ventas"], 1, row.get("markup_actual"), row.get("markup_siso"))
         )
         for categoria in row.get("categorias", []):
             group(categoria)
