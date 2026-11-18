@@ -307,9 +307,7 @@ class TestActualizarForwardsRawPromotions:
             seen["candidates"] = candidates
             seen["baseline"] = baseline
             seen["raw"] = raw_promotions
-            return hay_mejores.MejoresEvaluacion(
-                mejores=[("C-1", 900.0)], status_quo={}, candidatas=[], criterios={}
-            )
+            return hay_mejores.MejoresEvaluacion(mejores=[("C-1", 900.0)], status_quo={}, candidatas=[], criterios={})
 
         monkeypatch.setattr(hay_mejores, "evaluar_mejores_candidatas", _evaluar)
         monkeypatch.setattr(hay_mejores, "_enqueue_catalog_competition_refresh", lambda *_a, **_k: None)
@@ -484,9 +482,7 @@ class TestC1MarkupBandInListar(TestRankingConSellInOut):
 class TestC2CatalogWinInListar(TestRankingConSellInOut):
     """C2 unions catalog-win candidates that fail the classic A path — only when status quo is not #1."""
 
-    def test_c2_adds_candidate_that_loses_classic_but_beats_rivals_when_we_are_not_winning(
-        self, monkeypatch
-    ) -> None:
+    def test_c2_adds_candidate_that_loses_classic_but_beats_rivals_when_we_are_not_winning(self, monkeypatch) -> None:
         # Status quo 1000 loses to rival 950. Promo 940 fails classic (worse markup) but wins catalog.
         self._wire(monkeypatch, MarkupsDePrecio(12.0, None), {"A": (5.0, None)})
         monkeypatch.setattr(

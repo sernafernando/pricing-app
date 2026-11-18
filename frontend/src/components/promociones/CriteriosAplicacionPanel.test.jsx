@@ -1,7 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import CriteriosAplicacionPanel, { statusQuoGanaCatalogo } from './CriteriosAplicacionPanel';
+import CriteriosAplicacionPanel from './CriteriosAplicacionPanel';
+import { statusQuoGanaCatalogo } from './statusQuoGanaCatalogo';
 
 vi.mock('../../services/api', () => ({
   promocionesAPI: {
