@@ -60,6 +60,7 @@ from app.models.tipo_cambio import TipoCambio
 from app.services.ml_daily_metrics import board
 from app.services.ml_daily_metrics.groups import NO_GROUP, NO_LABELS, dimension_of
 from app.services.ml_daily_metrics.kpi_strip import round_money, round_pp
+from app.services.ml_publications.view.cost_lines import siso_markups
 from app.services.ml_publications.view.filters import (
     T,
     NOTEBOOK_ACCESSORY_SUBCATEGORIES,
@@ -85,7 +86,7 @@ ACTIVE = "active"
 
 # The sales sorts need ml_metricas.ver, the margin ones also ml_metricas.ver_ganancia (`needs_sales`, `needs_margin`).
 SALES_ORDERS = ("unidades_7d", "unidades_30d", "facturado_30d", "ultima_venta", "ageing", "cobertura", "rotacion")
-MARGIN_ORDERS = ("total_gauss_30d", "markup_30d", "markup")
+MARGIN_ORDERS = ("total_gauss_30d", "markup_30d", "markup", "markup_siso")
 ORDERS = (
     "valor_total",
     "valor_erp",
@@ -427,6 +428,7 @@ class Variant:
     publications: set[str] = field(default_factory=set)
     sales: Sales = field(default_factory=Sales)
     markup: Optional[tuple[float, float]] = None  # the current markup's range (`add_markups`)
+    markup_siso: Optional[tuple[float, float]] = None  # the current markup c/ SISO's range (`add_markups`)
     summary: Summary = EMPTY_SUMMARY
     average: Optional["Average"] = None  # its own Full's (`add_rotation`)
     whole: Optional["Whole"] = None  # the whole product's rotation figures, whatever the filter (`add_rotation`)
@@ -454,6 +456,7 @@ class Row:
     variants: dict[int, Variant] = field(default_factory=dict)
     sales: Sales = field(default_factory=Sales)
     markup: Optional[tuple[float, float]] = None
+    markup_siso: Optional[tuple[float, float]] = None
     summary: Summary = EMPTY_SUMMARY
     average: Optional["Average"] = None  # its ERP + Full + its variants' Full in base units (`add_rotation`)
     whole: Optional["Whole"] = None  # the whole product's rotation figures, whatever the filter (`add_rotation`)
@@ -825,22 +828,29 @@ def _span(ranges: Iterable[Optional[tuple[float, float]]]) -> Optional[tuple[flo
 
 
 def add_markups(db: Session, pricing_db: Session, audit: "Audit") -> None:
-    """Every row's and variant's current markup range (module docstring); ONE markup read for all the rows."""
+    """Every row's and variant's current markup range (module docstring), and the same range of the markup c/ SISO
+    (`cost_lines.siso_markups`, the Publicaciones list's own figure); ONE markup read and ONE sell in / sell out read
+    for all the rows."""
     members = [(m, str(r.product.item_id)) for r in audit.rows for m in r.own_publications]
     members += [(m, str(v.product.item_id)) for r in audit.rows for v in r.variants.values() for m in v.publications]
     items = publication_markups(db, pricing_db, {m for m, _ in members})
+    siso = siso_markups(pricing_db, items) or {}
     nodes = aggregate_nodes(items, members, products=True)
+    siso_nodes = aggregate_nodes({m: found.as_item(items[m]) for m, found in siso.items()}, members, products=True)
 
-    def range_of(product: int) -> Optional[tuple[float, float]]:
-        node = nodes.get(str(product))
+    def range_of(found: Mapping[str, Any], product: int) -> Optional[tuple[float, float]]:
+        node = found.get(str(product))
         if node is None or node.markup_min is None or node.markup_max is None:
             return None
         return node.markup_min, node.markup_max
 
     for r in audit.rows:
         for v in r.variants.values():
-            v.markup = range_of(v.product.item_id)
-        r.markup = _span([range_of(r.product.item_id), *(v.markup for v in r.variants.values())])
+            v.markup = range_of(nodes, v.product.item_id)
+            v.markup_siso = range_of(siso_nodes, v.product.item_id)
+        r.markup = _span([range_of(nodes, r.product.item_id), *(v.markup for v in r.variants.values())])
+        own = range_of(siso_nodes, r.product.item_id)
+        r.markup_siso = _span([own, *(v.markup_siso for v in r.variants.values())])
 
 
 def add_summaries(db: Session, audit: "Audit") -> None:
@@ -898,6 +908,7 @@ SORT_KEYS: dict[str, Callable[[Row], Any]] = {
     "total_gauss_30d": lambda r: r.sales.total_gauss_shown,
     "markup_30d": lambda r: r.sales.markup_shown,
     "markup": lambda r: None if r.markup is None else r.markup[0],
+    "markup_siso": lambda r: None if r.markup_siso is None else r.markup_siso[0],
 }
 
 
@@ -1208,13 +1219,18 @@ def row_out(
                 "kind_counts": v.summary.kind_counts,
                 "status_counts": v.summary.status_counts,
                 "promo_counts": promo_counts(v.publications, started),
-                **({"markup_actual": _range_out(v.markup)} if with_margin else {}),
+                **(
+                    {"markup_actual": _range_out(v.markup), "markup_siso": _range_out(v.markup_siso)}
+                    if with_margin
+                    else {}
+                ),
             }
             for v in sorted(r.variants.values(), key=lambda v: (-(v.full.usd or 0.0), v.product.item_id))
         ],
     }
     if with_margin:
         body["markup_actual"] = _range_out(r.markup)
+        body["markup_siso"] = _range_out(r.markup_siso)
     return body
 
 

@@ -88,6 +88,7 @@ from app.services.ml_publications.view.listing import (
     summaries,
     summary_columns,
 )
+from app.services.ml_publications.view.cost_lines import siso_markups
 from app.services.ml_publications.view.markup_service import MarkupQuery, aggregate_nodes, compute_markups, gc_paused
 
 KIND_PRODUCT = "producto"
@@ -132,6 +133,9 @@ class Node:
     negative_count: Optional[int] = None
     markup_min: Optional[float] = None
     markup_max: Optional[float] = None
+    # the range of its publications' markup c/ SISO (`cost_lines.siso_markups`), same rule; None = no value
+    markup_siso_min: Optional[float] = None
+    markup_siso_max: Optional[float] = None
     # what the node shows in Tipo, Estado and Precio, over ALL its publications (`_with_summary`)
     summary: Summary = EMPTY_SUMMARY
 
@@ -572,13 +576,21 @@ def _with_markup(
         result = compute_markups(db, markup.pricing_db, f=f, ads=markup.ads)
     else:
         result = compute_markups(db, markup.pricing_db, item_ids=item_ids, ads=markup.ads)
+    # the markup c/ SISO of the page's publications only (a whole-filter pricing may hold many more), one batch
+    siso = siso_markups(markup.pricing_db, {i: result.items[i] for i in item_ids if i in result.items})
+    siso_items = {} if siso is None else {i: found.as_item(result.items[i]) for i, found in siso.items()}
+    level = {"products": page.level == KIND_PRODUCT, "product": _path_product(tree, path, page)}
     with gc_paused():
-        figures = aggregate_nodes(
-            result.items, members, products=page.level == KIND_PRODUCT, product=_path_product(tree, path, page)
-        )
+        figures = aggregate_nodes(result.items, members, **level)
+        siso_figures = aggregate_nodes(siso_items, members, **level)
     nodes = []
     for node in page.nodes:
-        found = figures.get(node.key)
+        found, with_siso = figures.get(node.key), siso_figures.get(node.key)
+        node = replace(
+            node,
+            markup_siso_min=None if with_siso is None else with_siso.markup_min,
+            markup_siso_max=None if with_siso is None else with_siso.markup_max,
+        )
         nodes.append(
             replace(node, negative_count=0, markup_min=None, markup_max=None)
             if found is None

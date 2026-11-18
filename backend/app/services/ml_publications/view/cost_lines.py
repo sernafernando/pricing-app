@@ -9,15 +9,20 @@ here, as `view/detail.py` does for one publication.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Any, Mapping, Optional, Sequence
 
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.models.producto import ProductoERP
+from app.schemas.sell_in_out_producto import SellInOutProducto
 from app.services.costo_ppp_service import PppMarkups, resolver_ppp_batch
-from app.services.pricing_calculator import obtener_tipo_cambio_actual
+from app.services.ml_publications.view.markup import PublicationMarkup, UnitMarkup, summarize
+from app.services.ml_publications.view.markup_service import ItemMarkup
+from app.services.pricing_calculator import calcular_markup, obtener_tipo_cambio_actual
 from app.services.productos_sell_in_out import resolver_sell_in_out_batch, resolver_sell_in_out_por_contexto
 from app.services.sell_out import alcance
 
@@ -110,3 +115,105 @@ def _lines(item_id: int, products: Mapping[int, tuple[Any, Any, Any]], ppp, sell
 def _as_float(value: Any) -> Optional[float]:
     """A Numeric column's value (a Decimal) as the float the sell in arithmetic mixes it with."""
     return None if value is None else float(value)
+
+
+# --- Markup actual c/ SISO (pubml-markup-siso S1, S2) ------------------------------------------------------------
+
+REASON_SISO_PENDIENTE = "siso_pendiente"  # the unit's sell in / sell out has no amount (a missing rate or base)
+_SISO_KEY = "unidad"
+
+
+@dataclass(frozen=True)
+class SisoMarkup:
+    """A publication's markup with sell in / sell out: `markup` is its units summarized with the plain markup's rule
+    (`summarize`: range, worst variation), so `markup_service.aggregate_nodes` and `product_markup` read it as they
+    read the plain one; `pending` counts the units without a value because their sell in / sell out could not be
+    priced, `applies` whether any unit has one."""
+
+    markup: PublicationMarkup
+    pending: int
+    applies: bool
+
+    def as_item(self, plain: ItemMarkup) -> ItemMarkup:
+        """`plain` with this markup in place of its own (its units' products kept), for the node aggregations."""
+        return replace(plain, markup=self.markup, ads=None)
+
+
+@dataclass(frozen=True)
+class _PricedUnit:
+    """What `SellInOutBatch.markups` reads of the product a unit prices: its cost already in pesos (`costo_ars`), as
+    the panel's Resumen passes it (`detail._PricedProduct`)."""
+
+    item_id: int
+    costo: float
+    iva: Optional[float]
+    moneda_costo: str = "ARS"
+
+
+def siso_unit_value(
+    unit: UnitMarkup, payload: Optional[SellInOutProducto], key: str
+) -> tuple[Optional[float], bool, bool]:
+    """`(value, applies, pending)` of one priced unit, the panel's rule (`SellInOutMarkup`): with sell in and sell out,
+    else with sell in alone (a pending sell out included), else pending when an amount could not be priced; where
+    neither applies, the plain markup of the unit's net over its cost (before Ads, as the panel and Precios)."""
+    if payload is not None:
+        value = payload.markups_sell_in_out.get(key, payload.markups_sell_in.get(key))
+        if value is not None:
+            return value, True, False
+        sin_costo = payload.sell_in is not None and payload.sell_in.costo is None
+        sin_credito = payload.sell_out is not None and payload.sell_out.monto_unit is None
+        if sin_costo or sin_credito:
+            return None, True, True
+    return round(calcular_markup(unit.limpio, unit.costo_ars) * 100, 2), False, False
+
+
+def siso_markups(pricing_db: Session, items: Mapping[str, ItemMarkup]) -> Optional[dict[str, SisoMarkup]]:
+    """The markup with sell in / sell out of each publication of `items` (`compute_markups`' result): every priced
+    unit at today's price with what the panel's Resumen gives its product (`resolver_sell_in_out_por_contexto`, the
+    publication's official store as the allocators credit it), ONE resolver read for the whole set plus one read of
+    the products' VAT. None when a read fails (logged), as `cost_lines`: the column is then empty, the page answers."""
+    if not items:
+        return {}
+    try:
+        with pricing_db.begin_nested():
+            return _siso_markups(pricing_db, items)
+    except SQLAlchemyError:  # a failed read; a programming error still surfaces
+        logger.exception("Publicaciones ML: no se pudo calcular el markup con sell in / sell out")
+        return None
+
+
+def _siso_markups(pricing_db: Session, items: Mapping[str, ItemMarkup]) -> dict[str, SisoMarkup]:
+    products = sorted(
+        {p for item in items.values() for p, unit in _units(item) if p is not None and unit.limpio is not None}
+    )
+    iva: dict[int, Optional[float]] = {}
+    if products:
+        query = select(ProductoERP.item_id, ProductoERP.iva).where(ProductoERP.item_id.in_(products))
+        iva = {item_id: value for item_id, value in pricing_db.execute(query)}
+    stores = alcance.stores_por_mla(pricing_db, set(items))
+    contextos = {store: [("ml", store)] for store in {stores.get(mla) for mla in items}}
+    batches = resolver_sell_in_out_por_contexto(pricing_db, products, date.today(), contextos)
+    return {mla: _siso_of(item, batches[stores.get(mla)], iva) for mla, item in items.items()}
+
+
+def _units(item: ItemMarkup) -> list[tuple[Optional[int], UnitMarkup]]:
+    """Each unit of the publication with its linked product (`ItemMarkup.unit_products`; none when they disagree)."""
+    units = item.markup.variations
+    products = item.unit_products if len(item.unit_products) == len(units) else (None,) * len(units)
+    return list(zip(products, units))
+
+
+def _siso_of(item: ItemMarkup, batch: Any, iva: Mapping[int, Optional[float]]) -> SisoMarkup:
+    units: list[UnitMarkup] = []
+    pending, applies = 0, False
+    for product, unit in _units(item):
+        if product is None or unit.limpio is None or unit.costo_ars is None:
+            units.append(unit if unit.value is None else replace(unit, value=None))
+            continue
+        accumulator = batch.markups(_PricedUnit(product, unit.costo_ars, iva.get(product)), precio_lista_ml=unit.price)
+        accumulator.record(_SISO_KEY, unit.limpio)
+        value, applied, waiting = siso_unit_value(unit, accumulator.payload(), _SISO_KEY)
+        applies = applies or applied
+        pending += waiting
+        units.append(replace(unit, value=value, reason=REASON_SISO_PENDIENTE if waiting else unit.reason))
+    return SisoMarkup(summarize(units), pending, applies)

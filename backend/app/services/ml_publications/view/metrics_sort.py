@@ -18,7 +18,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Any, Iterator, Optional, Sequence
 
-from sqlalchemy import case, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.services.ml_daily_metrics import board
@@ -31,7 +31,12 @@ METRIC_SORTS: dict[str, tuple[str, bool]] = {
     "unidades_30d": ("w30d", False),
     "markup_30d": ("markup", True),
     "total_gauss_30d": ("tg", True),
+    # Real 30D c/ SISO: the Board's `markup_sell`, the plain markup where neither applies (what the column shows,
+    # Auditoría's rule); its Board reads the sell in / sell out (`SELL_SORTS`)
+    "markup_sell_30d": ("markup_sell", True),
 }
+# the keys whose figure needs the Board's sell in / sell out (`BoardFilter.sell_in_out`)
+SELL_SORTS = frozenset({"markup_sell_30d"})
 
 
 def needs_margin(key: str) -> bool:
@@ -39,11 +44,15 @@ def needs_margin(key: str) -> bool:
 
 
 @contextmanager
-def publication_board(db: Session, mla_source: Any) -> Iterator[board.Board]:
+def publication_board(db: Session, mla_source: Any, keys: Sequence[str] = ()) -> Iterator[board.Board]:
     """The Board by publication over the 30-day window, for the MLAs of `mla_source` (its `mla_set`); its rows are
-    keyed by `rk` (the MLA) and its temp tables live as long as the block."""
+    keyed by `rk` (the MLA) and its temp tables live as long as the block. With the sell in / sell out when one of
+    `keys` (the sort's) needs it."""
     first, last = row_metrics.window(board.today_business())
-    f = board.BoardFilter(date_from=first, date_to=last, group_by="publication", mla_source=mla_source)
+    sell = bool(SELL_SORTS.intersection(keys))
+    f = board.BoardFilter(
+        date_from=first, date_to=last, group_by="publication", mla_source=mla_source, sell_in_out=sell
+    )
     with board.Board(db, f, scope_pairs=None) as b:
         yield b
 
@@ -53,7 +62,7 @@ def ranked_page(
 ) -> list[str]:
     """The MLAs of `mla_source` (a one-column select of the filtered set) at `[offset, offset + limit)` once ranked
     by the figure `key` names (`limit` None: every MLA from `offset` on)."""
-    with publication_board(db, mla_source) as b:
+    with publication_board(db, mla_source, (key,)) as b:
         rows = b.rows()
         figure = metric_figure(rows, key)
         ordered = figure.desc() if descending else figure.asc()
@@ -68,14 +77,18 @@ def ranked_page(
 
 
 def metric_figure(rows: Any, key: str) -> Any:
-    """The figure `key` names, only for a publication that sold in the window (null otherwise: last in either way)."""
-    return case((rows.c.units > 0, rows.c[METRIC_SORTS[key][0]]), else_=None)
+    """The figure `key` names, only for a publication that sold in the window (null otherwise: last in either way).
+    Real 30D c/ SISO falls back to the plain markup where neither sell in nor sell out applies (what it shows)."""
+    column = rows.c[METRIC_SORTS[key][0]]
+    if key in SELL_SORTS:
+        column = func.coalesce(column, rows.c.markup)
+    return case((rows.c.units > 0, column), else_=None)
 
 
 def metric_figures(db: Session, mla_source: Any, keys: Sequence[str]) -> dict[str, dict[str, Any]]:
     """For each key of `keys`, every MLA of `mla_source` with the figure it names (None when it has none), for a
     sort with more keys: one Board run however many figures the sort names."""
-    with publication_board(db, mla_source) as b:
+    with publication_board(db, mla_source, keys) as b:
         rows = b.rows()
         query = select(b.mla_set.c.mla, *(metric_figure(rows, key) for key in keys)).outerjoin(
             rows, rows.c.rk == b.mla_set.c.mla

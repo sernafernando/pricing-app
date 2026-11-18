@@ -278,6 +278,31 @@ def create_board_tables(engine) -> None:
     _restore_pristine_pg_types(tables)
     for table in tables:
         table.create(bind=engine, checkfirst=True)
+    create_sell_tables(engine)
+
+
+def create_sell_tables(engine) -> None:
+    """The sell in / sell out tables the Board reads with `sell_in_out` on (its per-line allocations and the
+    campaigns and bonuses they name), WITHOUT their foreign keys: they point at purchases, users and tacticals this
+    throwaway schema does not have, and the Board only reads these tables. Each copy keeps its columns and types."""
+    from sqlalchemy import ForeignKeyConstraint, MetaData
+
+    from app.models.sell_in import SellInBonoConsumo, SellInBonoMarca, SellInConsumo
+    from app.models.sell_out import SellOutCampana, SellOutConsumo
+    from app.models.tactical import Tactical, TacticalCobranza
+    from tests.conftest import _restore_pristine_pg_types
+
+    models = (SellInConsumo, SellInBonoConsumo, SellInBonoMarca, SellOutConsumo, SellOutCampana, Tactical)
+    originals = [model.__table__ for model in (*models, TacticalCobranza)]
+    _restore_pristine_pg_types(originals)
+    copies = MetaData()
+    for original in originals:
+        table = original.to_metadata(copies)
+        for column in table.columns:
+            column.foreign_keys.clear()
+        for constraint in [c for c in table.constraints if isinstance(c, ForeignKeyConstraint)]:
+            table.constraints.discard(constraint)
+        table.create(bind=engine, checkfirst=True)
 
 
 # The audit trails the Eventos/Historial origin reads, with production's column types (`\d` on pricing_db,

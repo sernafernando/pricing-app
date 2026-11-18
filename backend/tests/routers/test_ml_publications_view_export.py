@@ -497,9 +497,9 @@ class TestProducts:
         expected = [name or "Sin producto" for name in listed(client, admin_auth_headers, PRODUCTS, "descripcion")]
         real, bounds = products_service.ordered_product_keys, []
 
-        def spy(session, f, orden, descending, cap, then=()):
+        def spy(session, f, orden, descending, cap, then=(), sell=False):
             bounds.append(cap)
-            return real(session, f, orden, descending, cap, then=then)
+            return real(session, f, orden, descending, cap, then=then, sell=sell)
 
         monkeypatch.setattr(products_service, "ordered_product_keys", spy)
         header, rows = read_csv(client.get(PRODUCTS_CSV, headers=admin_auth_headers))
