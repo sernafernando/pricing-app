@@ -13,7 +13,7 @@ import { setTheme, tokenColor } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
 import { publicacionesMlAPI } from '../../services/api';
 import { FACETS, ITEMS_RESPONSE, KPIS_RESPONSE } from './publicacionesMlFixtures';
-import { AUDIT_CARTRIDGE_ITEMS, AUDIT_NOTEBOOK_ITEMS, AUDIT_PACK_ITEMS, stockAuditResponse } from './stockAuditFixtures';
+import { AUDIT_CARTRIDGE_ITEMS, AUDIT_NOTEBOOK_ITEMS, AUDIT_PACK_ITEMS, stockAuditLevelResponse, stockAuditResponse } from './stockAuditFixtures';
 
 const BRANCHES = { 9001: AUDIT_NOTEBOOK_ITEMS, 9101: AUDIT_CARTRIDGE_ITEMS, 9102: AUDIT_PACK_ITEMS };
 
@@ -203,19 +203,20 @@ const Shell = ({ children }) => (
 
 const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
-const renderAudit = async ({ width = 2000, height = 1750, theme = 'light' } = {}) => {
+// The product level unless a case says otherwise; the view itself opens on Marca (auditoria-stock-niveles S1).
+const renderAudit = async ({ width = 2000, height = 1750, theme = 'light', entry = '/ml-publicaciones?vista=auditoria&nivel=producto', ready = 'Cartucho Demo 01 negro' } = {}) => {
   await page.viewport(width, height);
   setTheme(theme);
   document.body.style.background = 'var(--cf-bg-app)';
   window.scrollTo(0, 0);
   const screen = await render(
-    <MemoryRouter initialEntries={['/ml-publicaciones?vista=auditoria']}>
+    <MemoryRouter initialEntries={[entry]}>
       <Shell>
         <PublicacionesML />
       </Shell>
     </MemoryRouter>,
   );
-  await expect.element(screen.getByText('Cartucho Demo 01 negro')).toBeVisible();
+  await expect.element(screen.getByText(ready, { exact: true })).toBeVisible();
   return screen;
 };
 
@@ -307,6 +308,28 @@ describe('Auditoría de stock', () => {
       window.scrollTo(0, 0);
       await frame();
       if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/rotacion-${theme}.png` });
+      screen.unmount();
+    });
+  }
+
+  for (const theme of ['light', 'dark']) {
+    it(`2000x1750 ${theme}: the Marca level, a brand open into its categories and a category into its products (auditoria-stock-niveles S1, S3)`, async () => {
+      publicacionesMlAPI.stockAudit.mockImplementation((params) => Promise.resolve({ data: stockAuditLevelResponse(params) }));
+      const screen = await renderAudit({ theme, entry: '/ml-publicaciones?vista=auditoria', ready: 'DEMO' });
+      await open(screen, 'DEMO');
+      await expect.element(screen.getByText('INSUMOS', { exact: true })).toBeVisible();
+      await open(screen, 'INSUMOS');
+      await expect.element(screen.getByText('Cartucho Demo 01 negro', { exact: true })).toBeVisible();
+      await expect.element(screen.getByRole('group', { name: 'Ver por' })).toBeVisible();
+      // The ERP / Full line under each sales figure, one line, in the muted tone.
+      const split = screen.getByText('ERP 10', { exact: true }).element();
+      expect(split.getAttribute('title')).toBe('incluye 2 sin dato de envío');
+      expect(split.parentElement.getBoundingClientRect().height).toBeLessThan(20);
+      expect(getComputedStyle(split.parentElement).color).toBe(tokenColor('--cf-text-tertiary'));
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(2000);
+      window.scrollTo(0, 0);
+      await frame();
+      if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/niveles-${theme}.png` });
       screen.unmount();
     });
   }

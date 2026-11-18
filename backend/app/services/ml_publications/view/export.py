@@ -213,7 +213,14 @@ class PrefetchedAds:
 
 # ── The Auditoría de stock workbook (`/stock-audit/export`, L7) ──────────────────────────────────
 
-AUDIT_KINDS = {"producto": "Producto", "pc": "PC", "variante": "Variante", "pack": "Pack"}
+AUDIT_KINDS = {
+    "producto": "Producto",
+    "pc": "PC",
+    "variante": "Variante",
+    "pack": "Pack",
+    "marca": "Marca",
+    "categoria": "Categoría",
+}
 
 
 def _sold(ventas: Optional[Mapping[str, Any]], key: str, factor: float) -> Any:
@@ -240,6 +247,33 @@ def _rotation(ventas: Optional[Mapping[str, Any]]) -> list[Any]:
     ]
 
 
+def _envio(ventas: Optional[Mapping[str, Any]], factor: float) -> list[Any]:
+    """auditoria-stock-niveles S3/S5: each window's ERP and Full units (in base units, like the totals) and the ERP
+    ones without shipping data."""
+    if ventas is None:
+        return [None] * 5
+    split = ventas["envio"]
+    return [
+        split["7d"]["erp"] * factor,
+        split["7d"]["full"] * factor,
+        split["30d"]["erp"] * factor,
+        split["30d"]["full"] * factor,
+        split["30d"]["sin_envio"] * factor,
+    ]
+
+
+def _by_source(ventas: Optional[Mapping[str, Any]]) -> list[Any]:
+    """S4/S5: Días de cobertura and Rotación of ERP and of Full ("∞" with stock and no sale)."""
+    if ventas is None:
+        return [None] * 4
+    erp, full = ventas["por_origen"]["erp"], ventas["por_origen"]["full"]
+
+    def days(part: Mapping[str, Any]) -> Any:
+        return "∞" if part["cobertura_infinita"] else part["dias_cobertura"]
+
+    return [days(erp), days(full), erp["rotacion"], full["rotacion"]]
+
+
 def _shown(ventas: Optional[Mapping[str, Any]], sell: str, plain: str) -> Any:
     """The figure the view shows: the sell in / out one where it applies, else the plain one."""
     if ventas is None:
@@ -251,7 +285,11 @@ def stock_audit_lines(rows: Sequence[Mapping[str, Any]], *, sales: bool, margin:
     """The audit's rows (`stock_audit.row_out`, in the view's order) as sheet lines: the header, then each base row
     followed by its variants and packs. A variant's ERP is the base's and stays empty; its Full and its sales are in
     base units (a pack's times its quantity), as the view shows them. Values the view reads "—" are empty cells,
-    never 0; the sales columns only with `sales` (`ml_metricas.ver`), the profit and markups only with `margin`."""
+    never 0; the sales columns only with `sales` (`ml_metricas.ver`), the profit and markups only with `margin`.
+
+    At the Marca / Categoría levels (auditoria-stock-niveles S5) a row is a group (`stock_audit.group_out`) carrying
+    its base rows in `filas` and, a brand, its categories in `categorias`: each group line is followed by its
+    categories' lines (each followed by its products) or its products."""
     header = ["Tipo", "Código", "Producto", "Producto base", "Cantidad", "Costo", "Moneda costo"]
     header += ["Stock ERP", "Stock Full", "Stock total"]
     header += [
@@ -265,7 +303,15 @@ def stock_audit_lines(rows: Sequence[Mapping[str, Any]], *, sales: bool, margin:
     header += ["Sin costo", "Publicaciones", "Publicación activa", "Promo aplicada"]
     if sales:
         header += ["Ventas 7D", "Ventas 30D", "Facturado 30D"]
+        header += [
+            "Ventas 7D ERP",
+            "Ventas 7D Full",
+            "Ventas 30D ERP",
+            "Ventas 30D Full",
+            "Ventas 30D sin dato de envío",
+        ]
         header += ["Última venta", "Días desde última venta", "Ageing (días)", "Días de cobertura", "Rotación (veces)"]
+        header += ["Días de cobertura ERP", "Días de cobertura Full", "Rotación ERP", "Rotación Full"]
         if margin:
             header += ["Total Gauss 30D", "Markup real 30D", "Markup actual mín", "Markup actual máx"]
 
@@ -277,7 +323,9 @@ def stock_audit_lines(rows: Sequence[Mapping[str, Any]], *, sales: bool, margin:
             return []
         out = [_sold(ventas, "unidades_7d", factor), _sold(ventas, "unidades_30d", factor)]
         out.append(None if ventas is None else ventas["facturado_30d"])
+        out += _envio(ventas, factor)
         out += _rotation(ventas)
+        out += _by_source(ventas)
         if margin:
             out += [
                 _shown(ventas, "total_gauss_sell_30d", "total_gauss_30d"),
@@ -287,7 +335,26 @@ def stock_audit_lines(rows: Sequence[Mapping[str, Any]], *, sales: bool, margin:
         return out
 
     lines: list[list[Any]] = [header]
-    for row in rows:
+
+    def group(row: Mapping[str, Any]) -> None:
+        erp, full, total = row["erp"], row["full"], row["total"]
+        lines.append(
+            [AUDIT_KINDS.get(row["tipo"], row["tipo"]), None, row["descripcion"], None, None, None, None]
+            + [erp["unidades"], full["unidades"], total["unidades"]]
+            + [erp["usd"], erp["ars"], full["usd"], full["ars"], total["usd"], total["ars"]]
+            + [yes_no(row["sin_costo"]), row["publications_count"], yes_no(row["publicacion_activa"])]
+            + [yes_no(row["promo_aplicada"])]
+            + figures(row["ventas"], 1, row.get("markup_actual"))
+        )
+        for categoria in row.get("categorias", []):
+            group(categoria)
+        products(row.get("filas", []))
+
+    def products(rows: Sequence[Mapping[str, Any]]) -> None:
+        for row in rows:
+            product(row)
+
+    def product(row: Mapping[str, Any]) -> None:
         erp, full, total = row["erp"], row["full"], row["total"]
         lines.append(
             [AUDIT_KINDS.get(row["tipo"], row["tipo"]), row["codigo"], row["descripcion"], None, 1, row["costo"]]
@@ -306,6 +373,12 @@ def stock_audit_lines(rows: Sequence[Mapping[str, Any]], *, sales: bool, margin:
                 + [yes_no(v.get("sin_costo", False)), v["publications_count"], None, None]
                 + figures(v["ventas"], v["cantidad"], v.get("markup_actual"))
             )
+
+    for row in rows:
+        if row["tipo"] in ("marca", "categoria"):
+            group(row)
+        else:
+            product(row)
     return lines
 
 

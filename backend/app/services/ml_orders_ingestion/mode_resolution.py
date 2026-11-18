@@ -30,6 +30,7 @@ from typing import Any, List, Optional
 from sqlalchemy import case, func, literal
 
 MODO_SELF_SERVICE = "self_service"
+MODO_FULL = "fulfillment"
 MODO_RETIRO = "retiro"
 MODO_DESCONOCIDO = "desconocido"
 

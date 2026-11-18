@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import defaultdict
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from typing import Annotated, Any, Callable, Literal, NamedTuple, Optional, Sequence
@@ -262,6 +263,16 @@ class Sales30dOut(BaseModel):
     markup: Optional[float] = None
 
 
+class StockEnvioWindowOut(BaseModel):
+    """A window's units by where they shipped from (auditoria-stock-niveles S3): `full` the units of orders shipped
+    by ML Full (the Board's `modo_logistico_expr` = `fulfillment`), `erp` the rest, so `erp + full` is the window's
+    total; `sin_envio` the ERP units with no shipping data."""
+
+    erp: int
+    full: int
+    sin_envio: int
+
+
 class MetricsOut(BaseModel):
     """Métricas ML's figures of the publication, from the Board's publication row over the last 30 business days
     (the numbers the Métricas screen shows for it): units of the last 7 and 30 days with their 90-day daily series,
@@ -279,6 +290,8 @@ class MetricsOut(BaseModel):
     markup_30d: Optional[float] = None
     markup_delta_pp: Optional[float] = None
     series_markup_90d: Optional[list[Optional[float]]] = None
+    # with `desglose_envio` (auditoria-stock-niveles S3): "7d" / "30d" -> its units by ERP and Full
+    envio: Optional[dict[str, StockEnvioWindowOut]] = None
 
 
 class LastEventOut(BaseModel):
@@ -778,6 +791,20 @@ class StockMoneyOut(BaseModel):
     ars: Optional[float] = None
 
 
+class StockOrigenOut(BaseModel):
+    """One source's Días de cobertura and Rotación (S4): its stock over its own sales; null (and not infinite) where
+    the row has no stock of its own there (a variant's ERP)."""
+
+    dias_cobertura: Optional[float] = None
+    cobertura_infinita: bool = False
+    rotacion: Optional[float] = None
+
+
+class StockPorOrigenOut(BaseModel):
+    erp: StockOrigenOut
+    full: StockOrigenOut
+
+
 class StockAuditSalesOut(BaseModel):
     """A row's sales over the last 30 business days, its publications' Board rows summed (a variant's units in base
     units on its base row). Total Gauss and the markups (the Board's ratio of the sums; the `_sell_` ones with sell
@@ -807,6 +834,8 @@ class StockAuditSalesOut(BaseModel):
     rotacion: Optional[float] = None
     stock_promedio: Optional[float] = None
     stock_promedio_dias: Optional[int] = None
+    envio: Optional[dict[str, StockEnvioWindowOut]] = None  # S3: "7d" / "30d" -> its units by ERP and Full
+    por_origen: Optional[StockPorOrigenOut] = None  # S4: coverage and rotation of ERP and of Full
 
 
 class StockMarkupRangeOut(BaseModel):
@@ -847,18 +876,56 @@ class StockAuditVariantOut(BaseModel):
     markup_actual: Optional[StockMarkupRangeOut] = None  # present only with ml_metricas.ver_ganancia
 
 
-class StockAuditRowOut(BaseModel):
-    """A base product (`producto`) or a PC (`pc`): its ERP and Full stock and their total, its variants' Full
-    included in `full`. `params` select its own publications in `/items`; each variant carries its own."""
+class StockGroupOut(BaseModel):
+    """The brand and category a Marca / Categoría row stands for, as `grupo_marca` / `grupo_categoria` take them."""
+
+    marca: Optional[str] = None
+    categoria: Optional[str] = None
+
+
+class StockAuditCategoryOut(BaseModel):
+    """A category under its brand at the Marca level (auditoria-stock-niveles S1-S2): a group row's fields (see
+    `StockAuditRowOut`), `grupo` naming both its brand and itself."""
 
     key: str
-    product_item_id: int
+    tipo: str
+    descripcion: str
+    grupo: StockGroupOut
+    productos: int
+    productos_sin_costo: int
+    erp: StockMoneyOut
+    full: StockMoneyOut
+    total: StockMoneyOut
+    sin_costo: bool = False
+    publications_count: int
+    publicacion_activa: bool
+    promo_aplicada: Optional[bool] = None
+    ventas: Optional[StockAuditSalesOut] = None
+    kind_counts: dict[str, int] = {}
+    status_counts: dict[str, int] = {}
+    promo_counts: Optional[StockPromoCountsOut] = None
+    markup_actual: Optional[StockMarkupRangeOut] = None
+
+
+class StockAuditRowOut(BaseModel):
+    """A base product (`producto`) or a PC (`pc`): its ERP and Full stock and their total, its variants' Full
+    included in `full`. `params` select its own publications in `/items`; each variant carries its own.
+
+    At `nivel=marca|categoria` (auditoria-stock-niveles S1-S2) a row is a group (`tipo` `marca` / `categoria`): no
+    product fields, its `grupo`, how many base rows it adds (`productos`, of them `productos_sin_costo` without cost:
+    its values add the costed stock only, as the KPIs) and, a brand at the Marca level, its `categorias`."""
+
+    key: str
+    product_item_id: Optional[int] = None
     tipo: str
     codigo: Optional[str] = None
     descripcion: str
     marca: Optional[str] = None
     costo: Optional[float] = None
-    moneda_costo: str
+    moneda_costo: Optional[str] = None
+    grupo: Optional[StockGroupOut] = None
+    productos: Optional[int] = None
+    productos_sin_costo: Optional[int] = None
     erp: StockMoneyOut
     full: StockMoneyOut
     total: StockMoneyOut
@@ -866,14 +933,15 @@ class StockAuditRowOut(BaseModel):
     publications_count: int
     publicacion_activa: bool
     promo_aplicada: Optional[bool] = None  # null when the promotions database could not be read
-    params: dict[str, str]
+    params: Optional[dict[str, str]] = None
     ventas: Optional[StockAuditSalesOut] = None  # null without ml_metricas.ver
     # over its own and its variants' publications
     kind_counts: dict[str, int] = {}
     status_counts: dict[str, int] = {}
     promo_counts: Optional[StockPromoCountsOut] = None  # its own and its variants'; null without the promotions db
     markup_actual: Optional[StockMarkupRangeOut] = None  # present only with ml_metricas.ver_ganancia
-    variantes: list[StockAuditVariantOut]
+    variantes: list[StockAuditVariantOut] = []
+    categorias: Optional[list[StockAuditCategoryOut]] = None  # a brand's, at the Marca level only
 
 
 class StockAuditKpisOut(BaseModel):
@@ -890,6 +958,8 @@ class StockAuditKpisOut(BaseModel):
 
 
 class StockAuditResponse(BaseModel):
+    # with grupo_marca / grupo_categoria: the drilled brand's and category's names, as their rows show them
+    grupo_nombres: Optional[StockGroupOut] = None
     rows: list[StockAuditRowOut]
     total: int
     limit: int
@@ -1352,6 +1422,24 @@ def _attach_metrics(items: list[dict[str, Any]], by_mla: dict[str, board.Row], w
         item["sales_30d"] = sales
 
 
+def _attach_envio(items: list[dict[str, Any]], splits: dict[str, board.ShippingSplit]) -> None:
+    """`metrics.envio` on every row with metrics: its window units by Full and ERP (ERP = the window minus Full, so
+    the two add up to `units_7d` / `units_30d`); a publication without a split is all ERP."""
+    for item in items:
+        metrics = item.get("metrics")
+        if metrics is None:
+            continue
+        found = splits.get(item["item_id"]) or board.ShippingSplit()
+        metrics["envio"] = {
+            "7d": {"erp": metrics["units_7d"] - found.full_7d, "full": found.full_7d, "sin_envio": found.unknown_7d},
+            "30d": {
+                "erp": metrics["units_30d"] - found.full_30d,
+                "full": found.full_30d,
+                "sin_envio": found.unknown_30d,
+            },
+        }
+
+
 def _ads_out(status_: AdsStatus) -> dict[str, Any]:
     out: dict[str, Any] = {
         "available": status_.available,
@@ -1464,6 +1552,13 @@ def get_items(
     offset: int = Query(0, ge=0),
     facets: bool = False,
     equipo_id: Optional[int] = Query(None, description="color layer (Productos' teams); omitted = the global one"),
+    desglose_envio: bool = Query(
+        False,
+        description=(
+            "with ml_metricas.ver: each row's metrics.envio, its 7d / 30d units shipped by ML Full and the rest (ERP), "
+            "the ERP ones without shipping data counted apart (the Auditoría de stock's publication rows)"
+        ),
+    ),
     db: Session = Depends(get_view_db),
     # The application session, for the permission check. In production it IS `db` (FastAPI caches `get_db`
     # within a request); it is its own parameter so the permission never rides on the store-tables test seam,
@@ -1499,6 +1594,10 @@ def get_items(
             with timer.stage("metrics"):
                 by_mla = row_metrics.metrics_by_mla(db, [item["item_id"] for item in page.items])
             _attach_metrics(page.items, by_mla, with_margin=can_see_margin)
+            if desglose_envio:
+                with timer.stage("envio"):
+                    splits = row_metrics.fulfillment_by_mla(db, [item["item_id"] for item in page.items])
+                _attach_envio(page.items, splits)
         with timer.stage("promo"):
             _attach_promo_aplicada(page.items)
         facet_counts = None
@@ -1819,18 +1918,60 @@ def products_ask(
 
 class _StockAuditRead(NamedTuple):
     audit: Any  # stock_audit.Audit
-    ordered: list[Any]  # its rows in the asked order
+    ordered: list[Any]  # its rows (or its groups, at the Marca / Categoría level) in the asked order
     started: Optional[frozenset[str]]
     rate: Any  # stock_audit.Rate
     can_see_sales: bool
     can_see_margin: bool
+    nivel: str
+    products: list[Any]  # the base rows in the asked order, whatever the level (the export lists them in their group)
+
+
+@dataclass(frozen=True)
+class StockAuditLevel:
+    """The level of the Auditoría de stock (auditoria-stock-niveles S1) and the group it is drilled into."""
+
+    nivel: str
+    grupo_marca: Optional[str]
+    grupo_categoria: Optional[str]
+
+
+def stock_audit_level(
+    nivel: str = Query(
+        stock_audit.PRODUCTO,
+        description=(
+            "the rows: marca (one per brand, each with its categories), categoria (one per category) or producto "
+            "(one per base product, the default)"
+        ),
+    ),
+    grupo_marca: Optional[str] = Query(
+        None, description="only the base products of this brand: a group row's grupo.marca (__none__ = no brand)"
+    ),
+    grupo_categoria: Optional[str] = Query(
+        None,
+        description="only the base products of this category: a group row's grupo.categoria (__none__ = none)",
+    ),
+) -> StockAuditLevel:
+    """The level and drill of a stock audit request (422 an unknown level)."""
+    if nivel not in stock_audit.NIVELES:
+        raise _unprocessable(FilterError("nivel", f"unknown value {nivel}; known: {', '.join(stock_audit.NIVELES)}"))
+    return StockAuditLevel(nivel, grupo_marca or None, grupo_categoria or None)
 
 
 def _read_stock_audit(
-    user: Usuario, f: PublicationFilter, orden: str, dir: str, db: Session, auth_db: Session
+    user: Usuario,
+    f: PublicationFilter,
+    orden: str,
+    dir: str,
+    db: Session,
+    auth_db: Session,
+    level: Optional[StockAuditLevel] = None,
 ) -> _StockAuditRead:
     """The stock audit for `user` (the view and its export share it): the order checked against what the caller may
-    see (422 unknown, 403 a sales or margin order without its permission), every row built and sorted."""
+    see (422 unknown, 403 a sales or margin order without its permission), every row built, narrowed to the drilled
+    group and sorted; at the Marca / Categoría level the rows are grouped (`stock_audit.group_rows`) and the groups
+    sorted by the same order."""
+    level = level or StockAuditLevel(stock_audit.PRODUCTO, None, None)
     permisos = PermisosService(auth_db)
     can_see_sales = permisos.tiene_permiso(user, PERMISO_METRICAS)
     can_see_margin = can_see_sales and permisos.tiene_permiso(user, PERMISO_GANANCIA)
@@ -1853,6 +1994,9 @@ def _read_stock_audit(
         f = listing.resolve_pm_pairs(db, f)
         rate = stock_audit.read_rate(db)
         audit = stock_audit.build(db, f, rate)
+        stock_audit.add_groups(db, audit)
+        if level.grupo_marca or level.grupo_categoria:
+            audit = stock_audit.restrict(audit, level.grupo_marca, level.grupo_categoria)
         stock_audit.add_summaries(db, audit)
         if can_see_sales:
             stock_audit.add_sales(db, audit, sell_in_out=can_see_margin)
@@ -1868,8 +2012,29 @@ def _read_stock_audit(
     finally:
         db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
     started = _started_promotions()
-    ordered = stock_audit.sort_rows(audit.rows, orden, dir == "desc", started)
-    return _StockAuditRead(audit, ordered, started, rate, can_see_sales, can_see_margin)
+    products = stock_audit.sort_rows(audit.rows, orden, dir == "desc", started)
+    ordered = products
+    if level.nivel != stock_audit.PRODUCTO:
+        grouped = stock_audit.group_rows(audit.rows, level.nivel, level.grupo_marca)
+        ordered = stock_audit.sort_rows(grouped, orden, dir == "desc", started)
+    return _StockAuditRead(audit, ordered, started, rate, can_see_sales, can_see_margin, level.nivel, products)
+
+
+def _stock_audit_out(read: _StockAuditRead, r: Any, orden: str, dir: str) -> dict[str, Any]:
+    """One row of the read, a group or a base row, as the endpoint answers it."""
+    if isinstance(r, stock_audit.Group):
+        return stock_audit.group_out(
+            r,
+            read.audit.active,
+            read.started,
+            with_sales=read.can_see_sales,
+            with_margin=read.can_see_margin,
+            orden=orden,
+            descending=dir == "desc",
+        )
+    return stock_audit.row_out(
+        r, read.audit.active, read.started, with_sales=read.can_see_sales, with_margin=read.can_see_margin
+    )
 
 
 @router.get("/stock-audit", response_model=StockAuditResponse, response_model_exclude_unset=True)
@@ -1880,20 +2045,23 @@ def get_stock_audit(
     dir: str = Query("desc", pattern="^(asc|desc)$"),
     limit: int = Query(listing.DEFAULT_LIMIT, ge=1, le=listing.MAX_LIMIT),
     offset: int = Query(0, ge=0),
+    level: StockAuditLevel = Depends(stock_audit_level),
     db: Session = Depends(get_view_db),
     auth_db: Session = Depends(get_db),  # the Métricas permissions (see `get_items`)
 ) -> dict[str, Any]:
     """The Auditoría de stock view (`ml_publicaciones.ver_auditoria_stock`): one row per base product with stock,
     its variants under it, what its ERP and Full stock is worth at cost in USD and ARS (the day's BNA rate), and the
-    KPI strip over every row (`stock_audit`)."""
-    read = _read_stock_audit(user, f, orden, dir, db, auth_db)
+    KPI strip over every row (`stock_audit`). `nivel` groups the rows by brand or category (S1-S2), `grupo_*`
+    narrows them to one group (rows, total and KPIs)."""
+    read = _read_stock_audit(user, f, orden, dir, db, auth_db, level)
+    drilled = (
+        {"grupo_nombres": stock_audit.drill_names(read.audit, level.grupo_marca, level.grupo_categoria)}
+        if level.grupo_marca or level.grupo_categoria
+        else {}
+    )
     return {
-        "rows": [
-            stock_audit.row_out(
-                r, read.audit.active, read.started, with_sales=read.can_see_sales, with_margin=read.can_see_margin
-            )
-            for r in read.ordered[offset : offset + limit]
-        ],
+        **drilled,
+        "rows": [_stock_audit_out(read, r, orden, dir) for r in read.ordered[offset : offset + limit]],
         "can_see_sales": read.can_see_sales,
         "can_see_margin": read.can_see_margin,
         "total": len(read.ordered),
@@ -1907,25 +2075,38 @@ def get_stock_audit(
     }
 
 
+def _attach_group_products(read: _StockAuditRead, groups: list[dict[str, Any]], orden: str, dir: str) -> None:
+    """The export's group rows (S5) with their base rows in the asked order: a category's under it, a brand's under
+    each of its categories."""
+    by_group: dict[tuple[Optional[str], Optional[str]], list[dict[str, Any]]] = defaultdict(list)
+    for r in read.products:
+        out = _stock_audit_out(read, r, orden, dir)
+        by_group[(r.group.marca, r.group.categoria)].append(out)
+        by_group[(None, r.group.categoria)].append(out)
+    for group in groups:
+        for categoria in group.get("categorias", []):
+            categoria["filas"] = by_group[(categoria["grupo"]["marca"], categoria["grupo"]["categoria"])]
+        if "categorias" not in group:
+            group["filas"] = by_group[(group["grupo"]["marca"], group["grupo"]["categoria"])]
+
+
 @router.get("/stock-audit/export")
 def export_stock_audit(
     user: Usuario = Depends(require_permiso(PERMISO_AUDITORIA_STOCK)),  # first: who may ask
     f: PublicationFilter = Depends(filter_query),
     orden: str = Query("valor_total", description=f"one of {', '.join(stock_audit.ORDERS)}"),
     dir: str = Query("desc", pattern="^(asc|desc)$"),
+    level: StockAuditLevel = Depends(stock_audit_level),
     db: Session = Depends(get_view_db),
     auth_db: Session = Depends(get_db),
 ) -> Response:
     """The Auditoría de stock as an Excel workbook (L7): EVERY row of the view (not the page) in its order, with the
     same filters and permissions, each base product followed by its variants and packs (`export.stock_audit_lines`).
     The audit is built in memory as the view builds it, so the file is one response, not a stream."""
-    read = _read_stock_audit(user, f, orden, dir, db, auth_db)
-    rows = [
-        stock_audit.row_out(
-            r, read.audit.active, read.started, with_sales=read.can_see_sales, with_margin=read.can_see_margin
-        )
-        for r in read.ordered
-    ]
+    read = _read_stock_audit(user, f, orden, dir, db, auth_db, level)
+    rows = [_stock_audit_out(read, r, orden, dir) for r in read.ordered]
+    if read.nivel != stock_audit.PRODUCTO:
+        _attach_group_products(read, rows, orden, dir)
     lines = export.stock_audit_lines(rows, sales=read.can_see_sales, margin=read.can_see_margin)
     filename = f"publicaciones-ml-auditoria-stock-{date.today().isoformat()}.xlsx"
     return Response(

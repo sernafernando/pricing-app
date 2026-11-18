@@ -134,7 +134,11 @@ UI_FILTERS: dict[str, ToolFilters] = {
     "pubml_items": ToolFilters(
         "Publicaciones ML › Publicación / Precios",
         PUBML_COMMON + PUBML_MARKUP_RANGE + PUBML_SORT,
-        {**PUBML_ADS, "facets": "the list asks for its own facet counts"},
+        {
+            **PUBML_ADS,
+            "facets": "the list asks for its own facet counts",
+            "desglose_envio": "adds each row's 7d / 30d units by ERP and Full (the Auditoría de stock's publications)",
+        },
         has_tienda=True,
     ),
     "pubml_products": ToolFilters("Publicaciones ML › Producto", PUBML_COMMON + PUBML_SORT, has_tienda=True),
@@ -160,7 +164,15 @@ UI_FILTERS: dict[str, ToolFilters] = {
         has_tienda=True,
     ),
     "pubml_stock_audit": ToolFilters(
-        "Publicaciones ML › Auditoría de stock", PUBML_COMMON + PUBML_SORT, has_tienda=True
+        "Publicaciones ML › Auditoría de stock",
+        PUBML_COMMON
+        + PUBML_SORT
+        + (
+            ("Ver por (Marca / Categoría / Producto)", "nivel"),
+            ("Marca abierta (drill)", "grupo_marca"),
+            ("Categoría abierta (drill)", "grupo_categoria"),
+        ),
+        has_tienda=True,
     ),
     "pubml_mejores_ofertas_count": ToolFilters("Publicaciones ML › badge mejores ofertas (tienda fija del servidor)"),
     "pubml_mejores_ofertas_por_pm": ToolFilters("Publicaciones ML › mejores ofertas por PM (tienda fija del servidor)"),
@@ -215,7 +227,11 @@ UI_FILTERS: dict[str, ToolFilters] = {
     "promos_publicaciones": ToolFilters(
         "Promos por publicación (filtros de Publicaciones ML)",
         PUBML_COMMON + PUBML_MARKUP_RANGE + PUBML_SORT + (("PM por nombre", "pm"),),
-        {**PUBML_ADS, "facets": "the list asks for its own facet counts"},
+        {
+            **PUBML_ADS,
+            "facets": "the list asks for its own facet counts",
+            "desglose_envio": "adds each row's 7d / 30d units by ERP and Full (the Auditoría de stock's publications)",
+        },
         has_tienda=True,
     ),
     # Productos
