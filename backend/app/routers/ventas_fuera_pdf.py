@@ -9,6 +9,12 @@
 - `GET /ventas-fuera-pdf/alcances` (either permission): each load scope and which of its two reports is missing.
 - `GET /ventas-fuera-pdf/operaciones` (`ventas_fuera.ver_metricas_pdf`): the loaded operations with their lines and
   each line's product, brand, category and PM by code ("sin producto" when the code is not in productos_erp).
+- `GET /ventas-fuera-pdf/operaciones/listado` (`ventas_fuera.ver_metricas_pdf`, vpf-operaciones S2): the operations
+  list like Ventas ML's: filters, totals, Costo D / Costo, markup, flags, each document's lines with their stored
+  product and manual fix. Total Gauss / markup need `ventas_fuera.ver_ganancia` (null otherwise).
+- `GET /ventas-fuera-pdf/sin-producto/resumen` (`ventas_fuera.ver_metricas_pdf`): the lines without product by cause.
+- `PUT|DELETE /ventas-fuera-pdf/lineas/{id}/override`, `POST .../override/confirmar` (`ventas_fuera.subir_pdf`,
+  S3, S4-L2): the manual fix of a line (product and / or cost per unit), kept across re-uploads.
 """
 
 from __future__ import annotations
@@ -19,7 +25,7 @@ from decimal import Decimal
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_algun_permiso, require_permiso
@@ -36,10 +42,14 @@ from app.services.ventas_fuera_pdf.carga import (
     listar_operaciones,
     productos_por_codigo,
 )
+from app.services.permisos_service import PermisosService
+from app.services.ventas_fuera_pdf import listado as listado_svc
+from app.services.ventas_fuera_pdf import overrides as overrides_svc
 from app.services.ventas_fuera_pdf.parser import ReporteInvalido, parse_detallada, parse_resumen
 
 PERMISO_SUBIR = "ventas_fuera.subir_pdf"
 PERMISO_VER = "ventas_fuera.ver_metricas_pdf"
+PERMISO_GANANCIA = "ventas_fuera.ver_ganancia"
 MAX_BYTES = 20 * 1024 * 1024
 
 router = APIRouter(prefix="/ventas-fuera-pdf", tags=["Ventas por fuera (PDF)"])
@@ -131,6 +141,10 @@ class CargaResponse(BaseModel):
     sin_producto: SinProducto
     reemplazo: Reemplazo
     control: Control
+    # vpf-operaciones L2: the manual fixes of this upload's lines applied again, and the ones flagged for review
+    # because their line changed (kept, not applied).
+    overrides_aplicados: int = 0
+    overrides_revisar: int = 0
 
 
 class VendedorPreview(BaseModel):
@@ -424,3 +438,224 @@ def operaciones(
                 linea.sin_producto = False
         respuesta.append(item)
     return respuesta
+
+
+# ── The operations list and the manual fixes (vpf-operaciones S2, S3, S4-L2)
+
+
+class OverrideResponse(BaseModel):
+    estado: Literal["aplicado", "revisar"]
+    costo_unitario: Optional[float]
+    item_id: Optional[int]
+    usuario: Optional[str]
+    updated_at: Optional[datetime]
+
+
+class LineaListadoResponse(BaseModel):
+    """A line: `costo` on the chosen basis; `total_gauss` / `markup` (%) null when the line is not ARS or has no cost,
+    or without `ventas_fuera.ver_ganancia`; `precio_costo_pdf` the PDF's cost (a manual cost replaces
+    `precio_costo`)."""
+
+    id: int
+    renglon: int
+    codigo: Optional[str]
+    articulo: str
+    cantidad: float
+    moneda: str
+    precio: float
+    precio_costo: float
+    precio_costo_pdf: float
+    costo: float
+    total_gauss: Optional[float]
+    markup: Optional[float]
+    item_id: Optional[int]
+    item_origen: Optional[Literal["codigo", "prefijo", "mapeo", "manual"]]
+    producto: Optional[str]
+    marca: Optional[str]
+    categoria: Optional[str]
+    sin_producto: bool
+    sin_producto_causa: Optional[Literal["sin_codigo_manual", "sin_codigo", "codigo_no_encontrado"]]
+    override: Optional[OverrideResponse]
+
+
+class OperacionListadoResponse(BaseModel):
+    id: int
+    fecha: date
+    empresa: str
+    vendedor: str
+    cliente: str
+    tipo: str
+    letra: str
+    punto_venta: int
+    numero: int
+    condicion_venta: Optional[str]
+    cheque: bool
+    recargo_financiero: float
+    importe: float
+    venta: float
+    costo: float
+    total_gauss: Optional[float]
+    markup: Optional[float]
+    sin_producto_lineas: int
+    revisar_lineas: int
+    lineas: list[LineaListadoResponse]
+
+
+class TotalesListado(BaseModel):
+    documentos: int
+    lineas: int
+    unidades: float
+    venta: float
+    costo: float
+    total_gauss: Optional[float]
+    markup: Optional[float]
+    sin_producto_lineas: int
+    sin_producto_venta: float
+    revisar_lineas: int
+
+
+class FacetsListado(BaseModel):
+    empresas: list[str]
+    vendedores: list[str]
+
+
+class ListadoResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    totales: TotalesListado
+    facets: FacetsListado
+    operaciones: list[OperacionListadoResponse]
+
+
+class SinProductoCausa(BaseModel):
+    causa: Literal["sin_codigo_manual", "sin_codigo", "codigo_no_encontrado"]
+    lineas: int
+    venta: float
+
+
+class OverrideRequest(BaseModel):
+    """Only the fields sent change; null clears one. `costo_unitario`: ARS per unit as ModalEditarCosto sends it."""
+
+    costo_unitario: Optional[float] = None
+    item_id: Optional[int] = None
+    recordar_mapeo: bool = Field(False, description="Recordar el producto para las próximas cargas de ese código")
+
+
+def _ver_ganancia(db: Session, usuario: Usuario) -> bool:
+    return PermisosService(db).tiene_permiso(usuario, PERMISO_GANANCIA)
+
+
+@router.get("/operaciones/listado", response_model=ListadoResponse)
+def listado_operaciones(
+    desde: date = Query(...),
+    hasta: date = Query(...),
+    empresas: list[str] = Query([]),
+    vendedores: list[str] = Query([], description="Nombre completo o como lo imprime GBP en el comprobante"),
+    q: Optional[str] = Query(None, description="Cliente, artículo, código o número de comprobante"),
+    tipo: Optional[Literal["Fc", "Nc", "Nd"]] = Query(None),
+    sin_producto: bool = Query(False),
+    revisar: bool = Query(False),
+    costo: Literal["costo_d", "costo"] = Query("costo_d"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    sort: Literal["fecha_desc", "fecha_asc", "importe_desc", "markup_asc"] = Query("fecha_desc"),
+    usuario: Usuario = Depends(require_permiso(PERMISO_VER)),
+    db: Session = Depends(get_db),
+) -> ListadoResponse:
+    """The PDF operations list (S2: "like the Ventas ML operations screen"): a page of documents with their lines,
+    the totals of every filtered document and the empresa / vendedor options. Money as the Métricas board: Costo D
+    (precio_costo x 1.065) or Costo, Total Gauss and markup only on ARS lines with a cost; credit notes negative.
+    Total Gauss and markup come null without `ventas_fuera.ver_ganancia`."""
+    if desde > hasta:
+        raise api_error(422, ErrorCode.VALIDATION_ERROR, "La fecha desde no puede ser posterior a la fecha hasta")
+    filtros = listado_svc.Filtros(
+        desde=desde,
+        hasta=hasta,
+        empresas=tuple(empresas),
+        vendedores=tuple(vendedores),
+        q=q,
+        tipo=tipo,
+        sin_producto=sin_producto,
+        revisar=revisar,
+        costo=costo,
+        page=page,
+        page_size=page_size,
+        sort=sort,
+    )
+    resultado = listado_svc.listar(db, filtros, _ver_ganancia(db, usuario))
+    return ListadoResponse(**resultado.__dict__)
+
+
+@router.get("/sin-producto/resumen", response_model=list[SinProductoCausa])
+def resumen_sin_producto(
+    desde: Optional[date] = Query(None),
+    hasta: Optional[date] = Query(None),
+    _: Usuario = Depends(require_permiso(PERMISO_VER)),
+    db: Session = Depends(get_db),
+) -> list[SinProductoCausa]:
+    """Why lines have no product (S3: "explain why they exist with counts by cause"): a GBP manual line ("(Manual)"),
+    a line without code no prefix resolves, or a code no product has; with their lines and sale (precio, without
+    VAT), most sold first."""
+    return [SinProductoCausa(**fila) for fila in listado_svc.resumen_sin_producto(db, desde, hasta)]
+
+
+def _respuesta_linea(db: Session, usuario: Usuario, linea) -> LineaListadoResponse:
+    return LineaListadoResponse(**listado_svc.linea_listado(db, linea, _ver_ganancia(db, usuario)))
+
+
+@router.put("/lineas/{linea_id}/override", response_model=LineaListadoResponse)
+def guardar_override(
+    linea_id: int,
+    body: OverrideRequest,
+    usuario: Usuario = Depends(require_permiso(PERMISO_SUBIR)),
+    db: Session = Depends(get_db),
+) -> LineaListadoResponse:
+    """Fix a line by hand (S3: "assign the real product ... and/or set the cost by hand, como hacíamos
+    antiguamente"): the product (`item_id`, from productos_erp or tb_item) and / or the cost per unit typed in
+    ModalEditarCosto (the line's Costo D becomes exactly that cost x cantidad). The fix is stored apart and survives
+    re-uploads of the PDF (L2). `recordar_mapeo` remembers the product for the line's code (or article text) and
+    gives it to the other lines of that key without product and to the next uploads. Offsets and sell in / sell out
+    of the line are recomputed (queued by the line's trigger)."""
+    cambios = body.model_dump(include=body.model_fields_set - {"recordar_mapeo"})
+    try:
+        linea = overrides_svc.guardar(db, linea_id, cambios, body.recordar_mapeo, usuario.id)
+    except overrides_svc.LineaNoEncontrada as exc:
+        raise api_error(404, ErrorCode.NOT_FOUND, "La línea no existe") from exc
+    except overrides_svc.OverrideInvalido as exc:
+        db.rollback()
+        raise api_error(422, ErrorCode.VALIDATION_ERROR, str(exc)) from exc
+    return _respuesta_linea(db, usuario, linea)
+
+
+@router.delete("/lineas/{linea_id}/override", response_model=LineaListadoResponse)
+def quitar_override(
+    linea_id: int,
+    usuario: Usuario = Depends(require_permiso(PERMISO_SUBIR)),
+    db: Session = Depends(get_db),
+) -> LineaListadoResponse:
+    """Remove the fix: the line goes back to the PDF's cost and its automatic product."""
+    try:
+        linea = overrides_svc.quitar(db, linea_id)
+    except overrides_svc.LineaNoEncontrada as exc:
+        raise api_error(404, ErrorCode.NOT_FOUND, "La línea no existe") from exc
+    except overrides_svc.OverrideNoEncontrado as exc:
+        raise api_error(404, ErrorCode.NOT_FOUND, "La línea no tiene corrección") from exc
+    return _respuesta_linea(db, usuario, linea)
+
+
+@router.post("/lineas/{linea_id}/override/confirmar", response_model=LineaListadoResponse)
+def confirmar_override(
+    linea_id: int,
+    usuario: Usuario = Depends(require_permiso(PERMISO_SUBIR)),
+    db: Session = Depends(get_db),
+) -> LineaListadoResponse:
+    """A fix flagged 'revisar' (the PDF line changed on a re-upload): keep it for the line as it is now and apply
+    it."""
+    try:
+        linea = overrides_svc.confirmar(db, linea_id)
+    except overrides_svc.LineaNoEncontrada as exc:
+        raise api_error(404, ErrorCode.NOT_FOUND, "La línea no existe") from exc
+    except overrides_svc.OverrideNoEncontrado as exc:
+        raise api_error(404, ErrorCode.NOT_FOUND, "La línea no tiene corrección") from exc
+    return _respuesta_linea(db, usuario, linea)

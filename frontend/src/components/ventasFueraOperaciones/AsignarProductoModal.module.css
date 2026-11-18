@@ -1,0 +1,93 @@
+/* Product assignment for a PDF line (Operaciones por Fuera). Tokens only; controls compose the shared primitives. */
+
+.cuerpo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.busqueda {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.input {
+  composes: input from '../../styles/forms-tesla.css';
+  flex: 1;
+}
+
+.buscar {
+  composes: btn-tesla outline-subtle-primary sm from '../../styles/buttons-tesla.css';
+  gap: 6px;
+}
+
+.error {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--tone-danger-fg);
+}
+
+.vacio,
+.ayuda {
+  margin: 0;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.resultados {
+  display: flex;
+  flex-direction: column;
+  max-height: 280px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--cf-border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.resultado {
+  display: grid;
+  grid-template-columns: minmax(80px, auto) 1fr auto;
+  gap: var(--spacing-sm);
+  align-items: baseline;
+  width: 100%;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font: inherit;
+  color: var(--cf-text-primary);
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--cf-border-subtle);
+}
+
+.resultado:hover {
+  background: var(--cf-bg-hover);
+}
+
+.resultado[aria-pressed='true'] {
+  background: var(--tone-info-bg);
+  box-shadow: inset 3px 0 0 var(--tone-info-fg);
+}
+
+.codigo {
+  font-weight: var(--font-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.descripcion {
+  min-width: 0;
+}
+
+.marca {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.recordar {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-sm);
+}

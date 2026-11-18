@@ -44,6 +44,7 @@ from app.models.venta_fuera_pdf import (
     VentaFueraPdfCarga,
     VentaFueraPdfResumenDocumento,
 )
+from app.services.ventas_fuera_pdf.overrides import aplicar_en_carga
 from app.services.ventas_fuera_pdf.parser import (
     DocumentoDetallado,
     DocumentoResumen,
@@ -51,6 +52,7 @@ from app.services.ventas_fuera_pdf.parser import (
     ReporteResumen,
     nombre_comprobante,
 )
+from app.services.ventas_fuera_pdf.resolucion import Resolucion, resolver
 
 CONDICION_CHEQUE = "CHEQUE"
 # GBP's financing surcharge on "CHEQUE 30 D" documents, and how far (in pesos) a surcharge may be from it.
@@ -90,6 +92,9 @@ class ResultadoCarga:
     sin_producto: dict = field(default_factory=dict)
     reemplazo: dict = field(default_factory=dict)
     control: dict = field(default_factory=dict)
+    # vpf-operaciones L2: the manual fixes of the loaded lines applied again / flagged 'revisar' (their line changed).
+    overrides_aplicados: int = 0
+    overrides_revisar: int = 0
 
 
 def _validar_par(detallada: ReporteDetallado, resumen: ReporteResumen) -> None:
@@ -183,11 +188,15 @@ def _guardar_resumen(db: Session, alcance: VentaFueraPdfAlcance, resumen: Report
 
 def _crear_operaciones(
     db: Session, detallada: ReporteDetallado, carga_id: int, elegidos: Optional[list[str]] = None
-) -> tuple[int, dict[int, int], dict[str, int]]:
+) -> tuple[int, dict[int, int], dict[str, int], dict[str, int]]:
     """Replace the operations of the PDF's scope (and any of its documents loaded under another scope) with the
     PDF's documents. Returns how many stored operations were replaced, how many of them each earlier upload
-    (`carga_id`) lost, and `{"nuevos", "anulados"}` (C5): the PDF's documents not stored before, and the replaced
-    ones the PDF no longer has (GBP voided them)."""
+    (`carga_id`) lost, `{"nuevos", "anulados"}` (C5): the PDF's documents not stored before, and the replaced
+    ones the PDF no longer has (GBP voided them), and `{"aplicados", "revisar"}` (vpf-operaciones L2): the manual
+    fixes of its lines applied again and the ones flagged for review because their line changed.
+
+    Each line gets its product from `resolucion.resolver` (mapping, code trimmed, tb_item, article prefix) and keeps
+    the PDF's cost in `precio_costo_pdf`; the manual fixes (`overrides`) stored apart are then re-applied."""
     claves = [doc.clave for doc in detallada.documentos]
     mismo_doc = and_(
         VentaFueraOperacion.empresa == detallada.empresa,
@@ -220,9 +229,27 @@ def _crear_operaciones(
     reemplazados = db.execute(
         delete(VentaFueraOperacion).where(reemplazo), execution_options={"synchronize_session": False}
     ).rowcount
-    # The product of each code, for offsets and sell in / sell out (VPF T4); NULL "sin producto".
-    productos = productos_por_codigo(db, {ln.codigo for doc in detallada.documentos for ln in doc.lineas if ln.codigo})
+    # The product of each line, for offsets and sell in / sell out (VPF T4); NULL "sin producto".
+    productos = resolver(db, [(ln.codigo, ln.articulo[:255]) for doc in detallada.documentos for ln in doc.lineas])
+    por_doc: dict[tuple, list[VentaFueraOperacionLinea]] = {}
     for doc in detallada.documentos:
+        lineas = [
+            VentaFueraOperacionLinea(
+                renglon=i,
+                codigo=linea.codigo,
+                articulo=linea.articulo[:255],
+                cantidad=linea.cantidad,
+                moneda=linea.moneda,
+                precio=linea.precio,
+                precio_costo=linea.precio_costo,
+                precio_costo_pdf=linea.precio_costo,
+                precio_costo_pp=linea.precio_costo_pp,
+                item_id=_item(productos[(linea.codigo, linea.articulo[:255])]),
+                item_origen=_origen(productos[(linea.codigo, linea.articulo[:255])]),
+            )
+            for i, linea in enumerate(doc.lineas, start=1)
+        ]
+        por_doc[doc.clave] = lineas
         db.add(
             VentaFueraOperacion(
                 carga_id=carga_id,
@@ -239,24 +266,20 @@ def _crear_operaciones(
                 saldo=doc.saldo,
                 total_lineas=doc.total_lineas,
                 recargo_financiero=CERO,
-                lineas=[
-                    VentaFueraOperacionLinea(
-                        renglon=i,
-                        codigo=linea.codigo,
-                        articulo=linea.articulo[:255],
-                        cantidad=linea.cantidad,
-                        moneda=linea.moneda,
-                        precio=linea.precio,
-                        precio_costo=linea.precio_costo,
-                        precio_costo_pp=linea.precio_costo_pp,
-                        item_id=productos[linea.codigo].item_id if linea.codigo in productos else None,
-                    )
-                    for i, linea in enumerate(doc.lineas, start=1)
-                ],
+                lineas=lineas,
             )
         )
+    aplicados, revisar = aplicar_en_carga(db, detallada.empresa, por_doc)
     db.flush()
-    return reemplazados, perdidas, cambios
+    return reemplazados, perdidas, cambios, {"aplicados": aplicados, "revisar": revisar}
+
+
+def _item(resolucion: Optional[Resolucion]) -> Optional[int]:
+    return resolucion.item_id if resolucion else None
+
+
+def _origen(resolucion: Optional[Resolucion]) -> Optional[str]:
+    return resolucion.origen if resolucion else None
 
 
 REPORTE = {"detallada": "reporte detallado", "resumen": "reporte de ventas (resumen)"}
@@ -663,13 +686,14 @@ EN_DETALLE_NO_EN_RESUMEN = "está en el detallado pero no en el reporte de venta
 
 
 def _sin_producto(db: Session, detallada: Optional[ReporteDetallado]) -> dict:
-    """The imported lines whose code is not in productos_erp, or without code (S7: "sin producto"), by code (or by
-    article text when there is none): their count and amount (line `precio`, without VAT, as in the PDF)."""
+    """The imported lines no product was found for (S7: "sin producto"; vpf-operaciones: by `resolucion.resolver`,
+    the load's own rule), by code (or by article text when there is none): their count and amount (line `precio`,
+    without VAT, as in the PDF)."""
     lineas = [ln for doc in (detallada.documentos if detallada else []) for ln in doc.lineas]
-    conocidos = productos_por_codigo(db, {ln.codigo for ln in lineas if ln.codigo})
+    conocidos = resolver(db, [(ln.codigo, ln.articulo[:255]) for ln in lineas])
     articulos: dict[tuple, dict] = {}
     for ln in lineas:
-        if ln.codigo and ln.codigo in conocidos:
+        if conocidos[(ln.codigo, ln.articulo[:255])] is not None:
             continue
         clave = (ln.codigo, None) if ln.codigo else (None, ln.articulo)
         item = articulos.setdefault(clave, {"articulo": ln.articulo, "codigo": ln.codigo, "lineas": 0, "monto": CERO})
@@ -800,8 +824,9 @@ def cargar(
             _guardar_resumen(db, alcance, propio, carga.id)
     perdidas: dict[int, int] = {}
     cambios = {"nuevos": 0, "anulados": 0}
+    fijos = {"aplicados": 0, "revisar": 0}
     if detallada is not None:
-        carga.reemplazados, perdidas, cambios = _crear_operaciones(
+        carga.reemplazados, perdidas, cambios, fijos = _crear_operaciones(
             db, detallada, carga.id, importados if algunos else None
         )
         for alcance in alcances:
@@ -878,6 +903,8 @@ def cargar(
         sin_producto=sin_producto,
         reemplazo={"documentos": carga.reemplazados, "carga_anterior_at": carga_anterior_at, **cambios},
         control=control,
+        overrides_aplicados=fijos["aplicados"],
+        overrides_revisar=fijos["revisar"],
     )
 
 

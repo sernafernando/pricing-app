@@ -1,8 +1,8 @@
 # Ventas por Fuera
 
 Área: Reportes
-Ruta: Reportes → Ventas por Fuera (abre Métricas con el canal **Por fuera**)
-Permiso: Pedile a un administrador acceso a las métricas de ventas por fuera (ventas_fuera.ver_metricas_pdf; ver la ganancia pide ventas_fuera.ver_ganancia; subir los PDF pide ventas_fuera.subir_pdf).
+Ruta: Reportes → Ventas por Fuera (abre Métricas con el canal **Por fuera**), Reportes → Operaciones por Fuera y Reportes → Cargas de PDF
+Permiso: Pedile a un administrador acceso a las métricas de ventas por fuera (ventas_fuera.ver_metricas_pdf; ver la ganancia pide ventas_fuera.ver_ganancia; subir los PDF y corregir líneas pide ventas_fuera.subir_pdf).
 
 ## Para qué sirve
 
@@ -40,6 +40,43 @@ El último PDF manda: lo que ya estaba cargado de esa empresa, de esos vendedore
 
 El resultado muestra la empresa, los vendedores, el rango, los comprobantes por tipo, las líneas y unidades, el total, qué se reemplazó, las líneas sin producto y el control con el resumen: si coinciden los comprobantes y los totales, y por qué no (por ejemplo, el recargo de los cheques). Si falta subir el resumen o la detallada de un vendedor y período, lo avisa.
 
+## Operaciones por Fuera
+
+**Operaciones por Fuera** (**Reportes → Operaciones por Fuera**) es la lista de las ventas cargadas desde los PDF, comprobante por comprobante, como la de **Ventas ML**. Pide el mismo permiso que ver las métricas por fuera (ventas_fuera.ver_metricas_pdf).
+
+1. Elegí el período. Podés buscar por cliente, artículo, código o número de comprobante, y filtrar por **Empresa**, **Vendedor**, **Tipo** (Fc, Nc, Nd), **Sin producto** y **Revisar**.
+2. Arriba ves los totales de lo filtrado: comprobantes, unidades, venta, costo, Total Gauss, markup, líneas sin producto y líneas a revisar. Con **Costo D / Costo** elegís qué costo usar, igual que en Métricas.
+3. Cada fila es un comprobante, con sus marcas: **Nc**, **Cheque** (con el recargo financiero), cuántas líneas **sin producto** tiene y cuántas **a revisar**.
+4. Tocá un comprobante para ver sus líneas al costado: artículo, producto, cantidad, precio, costo, Total Gauss y markup.
+
+### Por qué hay líneas sin producto
+
+El recuadro **Por qué hay líneas sin producto** cuenta las líneas y la venta de cada causa:
+
+- **Artículo manual, sin código**: un artículo cargado a mano en GBP (por ejemplo, un envío o un servicio).
+- **Sin código en el PDF**: la línea no trae código y el inicio del artículo no coincide con ningún producto.
+- **Código que no está en el catálogo**: el código del PDF no existe en los productos.
+
+En cada línea sin producto se ve también su causa.
+
+### Corregir una línea
+
+Con el permiso ventas_fuera.subir_pdf, cada línea tiene sus botones:
+
+- **Costo**: abre la misma ventana de costo de la pantalla anterior (pesos o dólares con el tipo de cambio, el markup VARIOS y la opción de armar el costo sumando productos del ERP). El costo que guardás pasa a ser el Costo D de la línea.
+- **Producto**: buscá el producto real y tocá **Asignar**. Con **Recordar para próximas cargas** tildado, las próximas cargas con el mismo código (o el mismo artículo, si no tiene código) toman ese producto solas.
+- **Quitar corrección**: la línea vuelve al costo del PDF y al producto que encuentra el sistema.
+- **Confirmar**: aparece en las líneas marcadas **Revisar** (ver abajo) y vuelve a aplicar la corrección.
+
+Las líneas corregidas se ven con la marca **Manual**. Al guardar, la lista se actualiza y también las métricas, los offsets y el sell in / sell out de esa línea.
+
+### Las correcciones no se pierden al subir el PDF de nuevo
+
+Las correcciones se guardan aparte de lo que trae el PDF. Si volvés a subir un PDF que reemplaza ese período:
+
+- Si la línea es la misma (mismo comprobante, renglón, artículo, cantidad y precio), la corrección se vuelve a aplicar sola.
+- Si la línea cambió, la corrección se guarda pero no se aplica, y la línea queda marcada **Revisar**. Revisala y tocá **Confirmar** para aplicarla, o **Quitar corrección**.
+
 ## Cargas de PDF
 
 **Cargas de PDF** (**Reportes → Cargas de PDF**) lista cada carga: cuándo se subió, quién la subió, empresa, vendedor, rango, comprobantes, líneas, total, cuánto reemplazó, líneas sin producto y el estado del control. Una carga que después se reemplazó se ve en gris con **reemplazada**. Al tocar una carga se ve su detalle: los archivos, los avisos y qué reemplazó. Los PDF no se guardan: solo queda el nombre del archivo.
@@ -51,7 +88,7 @@ Ahí también se ve qué falta subir: para cada empresa, vendedor y rango, si fa
 ## Preguntas frecuentes
 
 **¿Dónde quedó la pantalla vieja de Ventas por Fuera?**
-Volvió por un tiempo como **Reportes → Ventas por Fuera (anterior)** (`/dashboard-ventas-fuera`, pide ventas_fuera.ver_dashboard), con sus pestañas, la edición de costos y las correcciones de producto. Sus datos siguen saliendo del sync de GBP, no de los PDF, y las columnas de sell in / sell out quedan vacías. Queda hasta que la lista de operaciones de los PDF esté completa.
+Volvió por un tiempo como **Reportes → Ventas por Fuera (anterior)** (`/dashboard-ventas-fuera`, pide ventas_fuera.ver_dashboard), con sus pestañas, la edición de costos y las correcciones de producto. Sus datos siguen saliendo del sync de GBP, no de los PDF, y las columnas de sell in / sell out quedan vacías. La lista de operaciones de los PDF ahora está en **Reportes → Operaciones por Fuera**.
 
 **¿Por qué no veo el Total Gauss ni el markup?**
 Piden el permiso ventas_fuera.ver_ganancia (y en **Todo**, también ml_metricas.ver_ganancia).
@@ -64,3 +101,6 @@ No. El último reemplaza lo cargado de esos vendedores en su rango de fechas.
 
 **¿Cómo cuenta una nota de crédito en los offsets de ganancia?**
 Resta: descuenta sus unidades y su monto del offset del grupo, también cuando el offset es un monto fijo.
+
+**¿Por qué no veo los botones para corregir una línea?**
+Piden el permiso ventas_fuera.subir_pdf.

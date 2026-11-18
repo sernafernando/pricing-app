@@ -4,7 +4,9 @@ the very columns `sales.lines_source` gives the ML lines, so the board sums both
 
 Rules (owner, vpf-metricas-canal S2-S12):
 
-- PRODUCT of a line = the `productos_erp` row whose `codigo` is the line's code. A line without one is "sin producto":
+- PRODUCT of a line = the `productos_erp` row of the line's STORED `item_id` (vpf-operaciones: set at load by
+  `ventas_fuera_pdf.resolucion` -- code trimmed, tb_item, article prefix, remembered mapping -- or by a manual fix).
+  A line without one is "sin producto":
   one row per code productos_erp does not have, and one per article text of a line without code (S5). Such a row is
   keyed by a NEGATIVE product id, `-(the lowest line id of its code / article)` over every loaded line, so the board's
   (product, MLA) pairs and its integer product keys need no other change, and the key stays the same whatever the
@@ -153,7 +155,7 @@ def _documents() -> Any:
                 func.sum(case((known, 0), else_=LN.c.precio)).over(**by_document),
             ).label("gross_vat"),
         )
-        .select_from(LN.join(OP, OP.c.id == LN.c.operacion_id).outerjoin(p, p.c.codigo == LN.c.codigo))
+        .select_from(LN.join(OP, OP.c.id == LN.c.operacion_id).outerjoin(p, p.c.item_id == LN.c.item_id))
         .subquery("fuera_docs")
     )
 

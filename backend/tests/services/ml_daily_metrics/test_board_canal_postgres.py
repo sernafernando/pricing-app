@@ -59,6 +59,8 @@ class Ln:
     articulo: str = "Articulo"
     cantidad: str = "1"
     moneda: str = "ARS"
+    # The product the load (or a manual fix) stored on the line; None = resolved from `codigo` as the load does.
+    item_id: Optional[int] = None
 
 
 @pytest.fixture(scope="module")
@@ -195,11 +197,18 @@ def _doc(
     db.add(op)
     db.flush()
     for renglon, line in enumerate(lines, start=1):
+        item_id = line.item_id
+        if item_id is None and line.codigo:
+            # The load stores the product of the code (`resolucion.resolver`); the board reads that stored item_id.
+            item_id = db.execute(
+                text("SELECT item_id FROM productos_erp WHERE btrim(codigo) = btrim(:c)"), {"c": line.codigo}
+            ).scalar()
         db.add(
             VentaFueraOperacionLinea(
                 operacion_id=op.id,
                 renglon=renglon,
                 codigo=line.codigo,
+                item_id=item_id,
                 articulo=line.articulo,
                 cantidad=Decimal(line.cantidad),
                 moneda=line.moneda,
@@ -733,3 +742,48 @@ def test_s12_recargo_not_in_venta_todo(client, db):
     _ml_sale(db, LIBRO, "MLA9002", date(2026, 9, 5), gross="200")
     _doc(db, date(2026, 9, 10), "2298.40", [_libro("2000", "1500")], condicion="CHEQUE 30 D", recargo="80")
     assert _get(client, canal="todo")["kpis"]["gross"]["value"] == 2410.0
+
+
+class TestStoredProduct:
+    """vpf-operaciones: the board reads the line's STORED product (`item_id`), so the fixes of the operations list
+    (a product assigned by hand, a prefix resolution, a manual cost) show in Métricas."""
+
+    def test_a_product_assigned_by_hand_files_the_line_under_that_product(self, client, db):
+        _products(db)
+        _doc(
+            db, date(2026, 9, 10), "1210", [Ln("1000", "800", codigo=CABLE, articulo="Cable Ejemplo", item_id=MONITOR)]
+        )
+
+        rows = _get(client, canal="fuera")["rows"]
+
+        assert [(r["product_item_id"], r["title"], r["units"]) for r in rows] == [(MONITOR, "Monitor Ejemplo 24", 1)]
+
+    def test_a_code_padded_in_productos_erp_is_the_product(self, client, db):
+        db.execute(
+            text(
+                "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria, subcategoria_id, stock, iva)"
+                " VALUES (503, '7790000000031   ', 'Teclado Ejemplo', 'MarcaUno', 'Cat', 1, 5, 21)"
+            )
+        )
+        _doc(db, date(2026, 9, 10), "1210", [Ln("1000", "800", codigo="7790000000031", articulo="TECLADO")])
+
+        assert [r["product_item_id"] for r in _get(client, canal="fuera")["rows"]] == [503]
+
+    def test_a_manual_cost_is_the_costo_d_shown(self, client, db):
+        """Manual cost 900 per unit x 2: precio_costo = 1800 / 1.065 = 1690.14, so Costo D = 1800 and Total Gauss
+        = 2000 - 1800 = 200, markup 11.1%."""
+        _products(db)
+        _doc(db, date(2026, 9, 10), "2420", [_monitor("2000", "1600", cantidad="2")])
+        db.execute(
+            text("UPDATE ventas_fuera_operacion_lineas SET precio_costo_pdf = precio_costo, precio_costo = 1690.14")
+        )
+
+        rows = _get(client, canal="fuera")["rows"]
+
+        assert [_money(r) for r in rows] == [(2, 2420.0, 200.0, 11.1)]
+
+    def test_without_a_fix_the_numbers_stay_as_before(self, client, db):
+        _products(db)
+        _doc(db, date(2026, 9, 10), "2420", [_monitor("2000", "1600", cantidad="2")])
+
+        assert [_money(r) for r in _get(client, canal="fuera")["rows"]] == [(2, 2420.0, 296.0, 17.4)]
