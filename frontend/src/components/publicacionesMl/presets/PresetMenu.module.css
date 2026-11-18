@@ -183,18 +183,7 @@
 }
 
 .input {
-  width: 100%;
-  padding: var(--space-2, 8px);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: var(--font-sm);
-}
-
-.input:focus-visible {
-  outline: 2px solid var(--brand-primary);
-  outline-offset: 0;
+  composes: input from '../../../styles/forms-tesla.css';
 }
 
 .fieldset {
