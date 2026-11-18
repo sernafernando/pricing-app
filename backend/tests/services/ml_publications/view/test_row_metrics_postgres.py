@@ -27,6 +27,7 @@ from tests.services.ml_daily_metrics.conftest import board_pg, board_pg_engine  
 from tests.services.ml_daily_metrics.test_board_postgres import MLA as IN_SET, OTHER as OUTSIDE
 from tests.services.ml_daily_metrics.test_board_postgres import _group as board_group, _order as board_order
 from tests.services.ml_daily_metrics.test_board_sale_lines_postgres import populate_sale_lines
+from tests.services.ml_daily_metrics.test_board_sell_in_out_postgres import CONSUMPTION_DDL
 from tests.services.ml_publications.view.test_units_sold_postgres import order
 
 pytestmark = pytest.mark.postgres
@@ -160,6 +161,19 @@ class TestSameNumbersAsMetricas:
 
 
 class TestOnlyThePage:
+    @pytest.mark.parametrize("sell_in_out", [False, True])
+    def test_a_subset_reads_the_same_figures_as_the_whole_set(self, sold, sell_in_out) -> None:
+        # pubml-lentitud L4: the stock audit reads only its page's MLAs; each one's figures are the whole set's
+        if sell_in_out:  # the sell in / sell out tables the Board joins (empty: no sale has one)
+            sold.execute(text(CONSUMPTION_DDL))
+        everything = row_metrics.metrics_by_mla(sold, ["MLA1", "MLA2", "MLA3", "MLA4"], sell_in_out=sell_in_out)
+        for subset in (["MLA1"], ["MLA2", "MLA4"], ["MLA3"]):
+            part = row_metrics.metrics_by_mla(sold, subset, sell_in_out=sell_in_out)
+            assert set(part) == set(subset)
+            for mla in subset:
+                for name in (*FIGURES, "sell_in", "sell_out", "m_sell_in", "m_sell_out"):
+                    assert getattr(part[mla], name) == getattr(everything[mla], name), (subset, mla, name)
+
     def test_only_the_mlas_asked_for_are_answered(self, sold) -> None:
         assert set(row_metrics.metrics_by_mla(sold, ["MLA2", "MLA2"])) == {"MLA2"}
 

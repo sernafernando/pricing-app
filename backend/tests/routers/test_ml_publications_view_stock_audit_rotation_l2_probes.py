@@ -171,9 +171,9 @@ class TestWholeProduct:
         audit(client, mine)
         assert len(CALLS) == 1
 
-    def test_filtered_reads_the_board_at_most_twice(self, client, mine) -> None:
+    def test_filtered_reads_the_board_once(self, client, mine) -> None:
         audit(client, mine, q="MLA60")
-        assert len(CALLS) <= 2
+        assert len(CALLS) == 1  # the filtered rows and their whole products in the same read (pubml-lentitud)
 
 
 @pytest.mark.postgres

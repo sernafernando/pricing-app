@@ -1966,11 +1966,14 @@ def _read_stock_audit(
     db: Session,
     auth_db: Session,
     level: Optional[StockAuditLevel] = None,
+    page: Optional[slice] = None,
 ) -> _StockAuditRead:
     """The stock audit for `user` (the view and its export share it): the order checked against what the caller may
     see (422 unknown, 403 a sales or margin order without its permission), every row built, narrowed to the drilled
     group and sorted; at the Marca / Categoría level the rows are grouped (`stock_audit.group_rows`) and the groups
-    sorted by the same order."""
+    sorted by the same order. With `page` and an order that reads no detail column (`stock_audit.page_first`), the
+    rows are sorted and cut first and only the page's rows get their detail (sales, Rotación, markups, Tipo/Estado);
+    the total, the KPIs and the order are always over every row (pubml-lentitud L4)."""
     level = level or StockAuditLevel(stock_audit.PRODUCTO, None, None)
     permisos = PermisosService(auth_db)
     can_see_sales = permisos.tiene_permiso(user, PERMISO_METRICAS)
@@ -1989,6 +1992,9 @@ def _read_stock_audit(
             ErrorCode.INSUFFICIENT_PERMISSIONS,
             f"Se requiere el permiso {PERMISO_GANANCIA} para ordenar por markup o Total Gauss",
         )
+    started = _started_promotions()
+    page_first = page is not None and stock_audit.page_first(orden, level.nivel)
+    products: list[Any] = []
     try:
         listing.bound(db)
         f = listing.resolve_pm_pairs(db, f)
@@ -1997,12 +2003,17 @@ def _read_stock_audit(
         stock_audit.add_groups(db, audit)
         if level.grupo_marca or level.grupo_categoria:
             audit = stock_audit.restrict(audit, level.grupo_marca, level.grupo_categoria)
-        stock_audit.add_summaries(db, audit)
-        if can_see_sales:
-            stock_audit.add_sales(db, audit, sell_in_out=can_see_margin)
-            stock_audit.add_rotation(db, audit, board.today_business())
-        if can_see_margin:
-            stock_audit.add_markups(db, auth_db, audit)
+        if page_first:
+            products = stock_audit.sort_rows(audit.rows, orden, dir == "desc", started)
+        stock_audit.enrich(
+            db,
+            auth_db,
+            audit,
+            products[page] if page_first else audit.rows,
+            sales=can_see_sales,
+            margin=can_see_margin,
+            today=board.today_business(),
+        )
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     except DBAPIError as exc:
@@ -2011,8 +2022,8 @@ def _read_stock_audit(
         raise
     finally:
         db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
-    started = _started_promotions()
-    products = stock_audit.sort_rows(audit.rows, orden, dir == "desc", started)
+    if not page_first:  # the detail is in: the order may read it
+        products = stock_audit.sort_rows(audit.rows, orden, dir == "desc", started)
     ordered = products
     if level.nivel != stock_audit.PRODUCTO:
         grouped = stock_audit.group_rows(audit.rows, level.nivel, level.grupo_marca)
@@ -2053,7 +2064,7 @@ def get_stock_audit(
     its variants under it, what its ERP and Full stock is worth at cost in USD and ARS (the day's BNA rate), and the
     KPI strip over every row (`stock_audit`). `nivel` groups the rows by brand or category (S1-S2), `grupo_*`
     narrows them to one group (rows, total and KPIs)."""
-    read = _read_stock_audit(user, f, orden, dir, db, auth_db, level)
+    read = _read_stock_audit(user, f, orden, dir, db, auth_db, level, page=slice(offset, offset + limit))
     drilled = (
         {"grupo_nombres": stock_audit.drill_names(read.audit, level.grupo_marca, level.grupo_categoria)}
         if level.grupo_marca or level.grupo_categoria

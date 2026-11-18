@@ -502,10 +502,13 @@ def value(product: Product, units: float, rate: Rate) -> tuple[Optional[float], 
     return (amount / rate.usd_ars if rate.usd_ars else None), amount
 
 
-def _pairs(db: Session, f: PublicationFilter) -> list[tuple[str, int]]:
-    """(MLA, linked product) of the publications the filter selects, as the Producto view links them."""
+def _pairs(db: Session, f: PublicationFilter, products: Optional[Iterable[int]] = None) -> list[tuple[str, int]]:
+    """(MLA, linked product) of the publications the filter selects, as the Producto view links them; `products`
+    keeps only those products' pairs, in SQL (the whole products of a page, not the whole catalog)."""
     mlas = build_base_select(f, T.i.item_id.label("mla")).subquery("mlas")
     query = product_pairs(f, mlas, mlas.c.mla, lambda pl: pl.c.producto_item_id.label("product"))
+    if products is not None:
+        query = query.where(query.selected_columns.product.in_(sorted(products)))
     return [(mla, product) for mla, product in db.execute(query).all() if product is not None]
 
 
@@ -654,13 +657,20 @@ def _assemble(db: Session, pairs: list[tuple[str, int]], stock_only: list[int], 
     return Audit(with_stock, rate, _active(db, {m for r in with_stock for m in r.publications}))
 
 
-def add_sales(db: Session, audit: "Audit", sell_in_out: bool) -> None:
-    """Every row's and variant's sales (module docstring): ONE Board read for all the rows' publications."""
-    mlas = sorted({m for r in audit.rows for m in r.publications})
+def _read_sales(
+    db: Session, mlas: Iterable[str], sell_in_out: bool
+) -> tuple[Mapping[str, board.Row], Mapping[str, Any]]:
+    """ONE Board read of `mlas` (each publication's row, `row_metrics`) and its Full split (S3: a publication without
+    one is all ERP). A publication's figures are the same whatever else is read with it."""
+    mlas = sorted(set(mlas))
     figures = metrics_by_mla(db, mlas, sell_in_out=sell_in_out)
-    # S3: the Full split of the same windows, read once for all the rows (a publication without one is all ERP)
-    splits = fulfillment_by_mla(db, mlas) if mlas else {}
-    for r in audit.rows:
+    return figures, (fulfillment_by_mla(db, mlas) if mlas else {})
+
+
+def _apply_sales(rows: Iterable[Row], figures: Mapping[str, board.Row], splits: Mapping[str, Any]) -> None:
+    """Every row's and variant's sales from one Board read (module docstring); a variant's also on its base row, in
+    base units."""
+    for r in rows:
         for mla in sorted(r.own_publications):
             if (found := figures.get(mla)) is not None:
                 r.sales.add(found, split=splits.get(mla))
@@ -669,6 +679,22 @@ def add_sales(db: Session, audit: "Audit", sell_in_out: bool) -> None:
                 if (found := figures.get(mla)) is not None:
                     v.sales.add(found, split=splits.get(mla))
                     r.sales.add(found, v.cantidad, splits.get(mla))
+
+
+def add_sales(db: Session, audit: "Audit", sell_in_out: bool, today: date) -> None:
+    """Every row's and variant's sales and Rotación figures with ONE Board read (pubml-lentitud): the rows' own
+    publications and, when the filter left some of their products' publications out, those too, for the whole
+    products the Rotación group reads (`add_rotation`)."""
+    whole = _whole_products(db, audit)
+    seen = {m for r in audit.rows for m in r.publications}
+    extra = {m for w in whole.values() for m in w.publications} - seen
+    figures, splits = _read_sales(db, seen | extra, sell_in_out)
+    _apply_sales(audit.rows, figures, splits)
+    if extra:
+        _apply_sales(whole.values(), figures, splits)
+    else:  # the filter left every publication of these products in: the screen's rows are the whole products
+        whole = {r.product.item_id: r for r in audit.rows}
+    add_rotation(db, audit, whole, today)
 
 
 # --- Rotación (rotacion S2, L1): Días de cobertura and Rotación (veces) ------------------------------------------------
@@ -717,7 +743,7 @@ def _whole_products(db: Session, audit: "Audit") -> dict[int, Row]:
     if not bases:
         return {}
     candidates = bases | {combo for combo, parts in _bom(db).items() if any(item in bases for item, _ in parts)}
-    pairs = [(mla, product) for mla, product in _pairs(db, PublicationFilter()) if product in candidates]
+    pairs = _pairs(db, PublicationFilter(), candidates)
     whole = _assemble(db, pairs, sorted(bases), audit.rate)
     return {w.product.item_id: w for w in whole.rows if w.product.item_id in bases}
 
@@ -744,16 +770,10 @@ def _add_averages(db: Session, rows: Iterable[Row], today: date) -> None:
         r.average = Average(erp + full, found.dias, erp, full)
 
 
-def add_rotation(db: Session, audit: "Audit", today: date) -> None:
-    """Every row's and variant's Rotación figures, the WHOLE product's whatever the filter (L2): its rows rebuilt
-    from all their publications, their sales read from the Board only when the filter left some out (the rows the
-    screen already read are reused otherwise), and their average stock (`_add_averages`)."""
-    whole = _whole_products(db, audit)
-    seen = {m for r in audit.rows for m in r.publications}
-    if {m for w in whole.values() for m in w.publications} - seen:
-        add_sales(db, Audit(list(whole.values()), audit.rate, frozenset()), sell_in_out=False)
-    else:  # the filter left every publication of these products in: the screen's rows are the whole products
-        whole = {r.product.item_id: r for r in audit.rows}
+def add_rotation(db: Session, audit: "Audit", whole: dict[int, Row], today: date) -> None:
+    """Every row's and variant's Rotación figures, the WHOLE product's whatever the filter (L2): `whole` is each row's
+    product built from all its publications, with its sales (`add_sales`, the same Board read as the rows'), plus
+    their average stock (`_add_averages`)."""
     _add_averages(db, whole.values(), today)
     for r in audit.rows:
         w = whole.get(r.product.item_id, r)
@@ -868,6 +888,26 @@ def add_summaries(db: Session, audit: "Audit") -> None:
         r.summary = merged(r.publications)
         for v in r.variants.values():
             v.summary = merged(v.publications)
+
+
+def page_first(orden: str, nivel: str) -> bool:
+    """Whether the rows can be sorted and cut BEFORE their detail columns are read (pubml-lentitud, L4): the order
+    reads none of them (stock, value, name, promos) and the rows are base products, not groups adding up their rows'
+    sales. Everything shown over the whole set (total, KPIs, the order) never reads the detail, so it stays whole."""
+    return nivel == PRODUCTO and not needs_sales(orden)
+
+
+def enrich(
+    db: Session, pricing_db: Session, audit: "Audit", rows: Iterable[Row], *, sales: bool, margin: bool, today: date
+) -> None:
+    """The detail columns of `rows` (the page's, or every row): Tipo and Estado, sales and Rotación (`ml_metricas.ver`)
+    and the current markup (`ml_metricas.ver_ganancia`), each with ONE read for all of them."""
+    part = Audit(list(rows), audit.rate, audit.active)
+    add_summaries(db, part)
+    if sales:
+        add_sales(db, part, sell_in_out=margin, today=today)
+    if margin:
+        add_markups(db, pricing_db, part)
 
 
 def _active(db: Session, mlas: set[str]) -> frozenset[str]:
