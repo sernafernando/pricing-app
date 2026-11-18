@@ -121,6 +121,7 @@ def __getattr__(name: str) -> List[JobHandler]:
             from app.workers.handlers.promo_price_recompute import recompute as promo_price_recompute
             from app.workers.handlers.promo_refresh import promo_write_refresh
             from app.workers.handlers.publicacion_repair import envio_repair, sku_repair
+            from app.workers.handlers.stock_snapshot import snapshot as stock_snapshot
 
             _ml_publications_registry = [
                 refresh,
@@ -153,6 +154,10 @@ def __getattr__(name: str) -> List[JobHandler]:
                 # promo-ml-precio-inmediato T1: recomputes the promo price columns ml-webhook just reported
                 # (own thread, so its place in this list does not delay it; registered before the repair ticks).
                 promo_price_recompute,
+                # auditoria-stock-rotacion: the daily stock photo the Auditoría de stock's Rotación averages (daily
+                # 06:00 in the drain pass; reads the ML store's Full, so it lives in this process, never in REGISTRY;
+                # registered before the repair ticks, which stay last).
+                stock_snapshot,
                 # publicaciones-repair: conditional envio/sku ticks under the shared Pacer.
                 envio_repair,
                 sku_repair,

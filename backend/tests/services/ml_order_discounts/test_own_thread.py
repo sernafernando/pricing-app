@@ -6,11 +6,12 @@ from __future__ import annotations
 
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 
 from app.core.config import settings
 from app.services.ml_publications.ml_http import MlHttpClient
@@ -62,31 +63,44 @@ def asked(sf):
         return set(db.execute(text("SELECT order_id FROM ml_order_discounts")).scalars())
 
 
-@pytest.mark.postgres
-def test_no_connection_transaction_or_lock_is_held_during_the_ml_call(session_factory, pg_discounts_engine):
+# Every count is scoped to this test's database. `pg_locks` is cluster-wide: under `pytest -n` the other xdist workers
+# run on their own databases of the same server, and an advisory lock one of them holds at that instant is not this
+# handler's (#2338 CI: green alone and with every new test of the PR, red only under `-n 4`).
+THIS_DB = "(SELECT oid FROM pg_database WHERE datname = current_database())"
+CLEAN = {"checked_out": 0, "other_in_tx": 0, "advisory": 0, "relation_locks": 0}
+
+
+def probe(engine, monitor) -> dict:
+    """What is held in this database right now, besides the `monitor` connection itself."""
+    return {
+        "checked_out": engine.pool.checkedout() - 1,  # minus the monitor
+        "other_in_tx": monitor.execute(
+            text(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
+                "AND pid <> pg_backend_pid() AND state LIKE 'idle in transaction%'"
+            )
+        ).scalar(),
+        "advisory": monitor.execute(
+            text(f"SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND database = {THIS_DB}")
+        ).scalar(),
+        "relation_locks": monitor.execute(
+            text(
+                "SELECT count(*) FROM pg_locks l JOIN pg_class c ON c.oid = l.relation "
+                f"WHERE l.database = {THIS_DB} "
+                "AND (c.relname LIKE 'ml_order_discount%' OR c.relname = 'ml_payments_ops')"
+            )
+        ).scalar(),
+    }
+
+
+def run_three_calls(session_factory, engine) -> list[dict]:
+    """Runs the handler on its own thread over 3 seeded payments and probes the database during each ML call."""
     seed(session_factory, 3)
     observed = []
-    monitor = pg_discounts_engine.connect().execution_options(isolation_level="AUTOCOMMIT")
+    monitor = engine.connect().execution_options(isolation_level="AUTOCOMMIT")
 
     def fn(request):
-        observed.append(
-            {
-                "checked_out": pg_discounts_engine.pool.checkedout() - 1,  # minus the monitor
-                "other_in_tx": monitor.execute(
-                    text(
-                        "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
-                        "AND pid <> pg_backend_pid() AND state LIKE 'idle in transaction%'"
-                    )
-                ).scalar(),
-                "advisory": monitor.execute(text("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory'")).scalar(),
-                "relation_locks": monitor.execute(
-                    text(
-                        "SELECT count(*) FROM pg_locks l JOIN pg_class c ON c.oid = l.relation "
-                        "WHERE c.relname LIKE 'ml_order_discount%' OR c.relname = 'ml_payments_ops'"
-                    )
-                ).scalar(),
-            }
-        )
+        observed.append(probe(engine, monitor))
         return httpx.Response(200, json=GOOD)
 
     runtime = make_runtime(make_handler(session_factory, fn))
@@ -99,8 +113,64 @@ def test_no_connection_transaction_or_lock_is_held_during_the_ml_call(session_fa
         runtime.stop()
         runtime.join_own_threads(timeout=15)
         monitor.close()
+    return observed
+
+
+@pytest.mark.postgres
+def test_no_connection_transaction_or_lock_is_held_during_the_ml_call(session_factory, pg_discounts_engine):
+    observed = run_three_calls(session_factory, pg_discounts_engine)
     assert len(observed) == 3
-    assert all(o == {"checked_out": 0, "other_in_tx": 0, "advisory": 0, "relation_locks": 0} for o in observed)
+    assert all(o == CLEAN for o in observed)
+
+
+@pytest.mark.postgres
+def test_the_probe_still_fails_when_the_code_holds_a_lock_and_a_transaction_across_the_ml_call(
+    session_factory, pg_discounts_engine
+):
+    """The scoping is hygiene, not a relaxation: a handler whose sessions leave an advisory lock, an open transaction
+    and a row lock behind in ITS database during the ML call is still caught on every count."""
+    leaked = []
+
+    @contextmanager
+    def leaky_factory():
+        with session_factory() as db:
+            yield db
+        if not leaked:  # the bug: a connection left open in a transaction, holding locks, across the ML calls
+            conn = pg_discounts_engine.connect()
+            conn.begin()
+            conn.execute(text("SELECT pg_advisory_lock(424242)"))
+            conn.execute(text("SELECT count(*) FROM ml_payments_ops"))  # its relation lock lasts to the end
+            leaked.append(conn)
+
+    try:
+        observed = run_three_calls(leaky_factory, pg_discounts_engine)
+    finally:
+        for conn in leaked:
+            conn.execute(text("SELECT pg_advisory_unlock_all()"))
+            conn.rollback()
+            conn.close()
+    assert leaked and len(observed) == 3
+    for o in observed:
+        assert o["checked_out"] >= 1 and o["other_in_tx"] >= 1 and o["advisory"] >= 1 and o["relation_locks"] >= 1
+
+
+@pytest.mark.postgres
+def test_the_probe_ignores_what_another_database_of_the_server_holds(pg_discounts_engine):
+    """An advisory lock and an open transaction in a sibling database (another xdist worker's) are not this handler's."""
+    other_db = pg_discounts_engine.url.set(database="postgres")
+    other = create_engine(other_db)
+    monitor = pg_discounts_engine.connect().execution_options(isolation_level="AUTOCOMMIT")
+    try:
+        with other.connect() as conn:
+            conn.begin()
+            conn.execute(text("SELECT pg_advisory_lock(424242)"))
+            assert conn.execute(text("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory'")).scalar() >= 1
+            assert probe(pg_discounts_engine, monitor) == CLEAN
+            conn.execute(text("SELECT pg_advisory_unlock_all()"))
+            conn.rollback()
+    finally:
+        monitor.close()
+        other.dispose()
 
 
 @pytest.mark.postgres

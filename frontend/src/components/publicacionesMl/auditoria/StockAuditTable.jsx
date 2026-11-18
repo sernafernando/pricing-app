@@ -4,7 +4,9 @@ import { buildColumns } from '../columns';
 import { BranchState, NodeSummary } from '../NodeCells';
 import MarkupCell from '../MarkupCell';
 import {
+  AgeingCell,
   GrossCell,
+  LastSaleCell,
   MarkupRealCell,
   MarkupTrendCell,
   StockQuantity,
@@ -12,7 +14,7 @@ import {
   UnitsCell,
   UnitsTrendCell,
 } from '../MetricsCells';
-import { formatUnits } from '../../../utils/metricasMlFormat';
+import { formatRatio, formatUnits } from '../../../utils/metricasMlFormat';
 import { auditMarkup, auditMetrics, fromVariants, isPack, valueOf } from './stockAuditRows';
 import cellStyles from '../cells.module.css';
 import nodeStyles from '../NodeCells.module.css';
@@ -20,7 +22,7 @@ import styles from './StockAudit.module.css';
 
 /**
  * The Auditoría de stock table (approved mock v2): product › variante › publicación, grouped columns Stock
- * (unidades), Valor stock (USD · ARS), Ventas (unidades), Markup con sell in / sell out and Resultado. Every column
+ * (unidades), Valor stock (USD · ARS), Ventas (unidades), Markup con sell in / sell out, Resultado and Rotación. Every column
  * but the first can be hidden (`AUDIT_COLUMN_OPTIONS`, the page's picker); the sortable ones send their key as the
  * backend's `orden`. A publication row draws the list's own cells (`buildColumns`), so it reads like everywhere else.
  */
@@ -30,6 +32,7 @@ const VALOR = 'Valor stock (USD · ARS)';
 const VENTAS = 'Ventas (unidades)';
 const MARKUP = 'Markup con sell in / sell out';
 const RESULTADO = 'Resultado';
+const ROTACION = 'Rotación';
 
 const MONEY = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
 const dash = <span className={cellStyles.empty}>—</span>;
@@ -155,6 +158,48 @@ function PromoCounts({ counts }) {
     </span>
   );
 }
+
+const STOCK_UNITS = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 });
+
+// The Rotación group is the whole product's whatever the filter (L2): every figure's tooltip says so.
+const WHOLE_PRODUCT = 'del producto completo, sin filtros';
+
+/** Días de cobertura (rotacion S2): the stock now at the last 30 days' pace; "∞" with stock and no sale (L1 Q2). */
+function CoverageCell({ ventas }) {
+  if (ventas?.cobertura_infinita) {
+    return (
+      <span className={`${styles.rotationFigure} ${styles.infinite}`} aria-label="Días de cobertura" title={`Con stock y sin ventas en 30 días, ${WHOLE_PRODUCT}`}>
+        ∞
+      </span>
+    );
+  }
+  if (ventas?.dias_cobertura == null) return dash;
+  return (
+    <span className={styles.rotationFigure} aria-label="Días de cobertura" title={`Ventas 30D, ${WHOLE_PRODUCT}`}>
+      {formatUnits(Math.round(ventas.dias_cobertura))}
+    </span>
+  );
+}
+
+/** Rotación (veces): units sold in 30 days over the average stock of the days photographed; with no photo yet the
+ * stock now stands in, marked "≈" (L1). The tooltip says which. */
+function RotationCell({ ventas }) {
+  if (ventas?.rotacion == null) return dash;
+  const days = ventas.stock_promedio_dias;
+  const stock = `${STOCK_UNITS.format(ventas.stock_promedio)} u.`;
+  const approximate = !days;
+  const title = approximate
+    ? `Aproximado: sobre el stock actual (${stock}), todavía no hay fotos diarias del stock, ${WHOLE_PRODUCT}`
+    : `Ventas 30D sobre el stock promedio de ${formatUnits(days)} ${days === 1 ? 'día' : 'días'} (${stock}), ${WHOLE_PRODUCT}`;
+  return (
+    <span className={styles.rotationFigure} aria-label="Rotación (veces)" title={title}>
+      {approximate ? `≈ ${formatRatio(ventas.rotacion)}` : formatRatio(ventas.rotacion)}
+    </span>
+  );
+}
+
+/** The Board's last sale and ageing of a product or variant, in the list cells' shape. */
+const lastSaleOf = (ventas) => (ventas ? { last_sale_at: ventas.ultima_venta, ageing_days: ventas.ageing_dias } : null);
 
 function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, isVisible }) {
   // A publication draws the list's own cells (Tipo, Estado, sales, markups, Total Gauss).
@@ -415,6 +460,55 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, 
         render: (row) => (row.type === 'item' ? item('total_gauss_30d', row) : row.node ? <TotalGaussCell metrics={metricsOf(row)} /> : null),
       });
     }
+    // Rotación (rotacion S2): a publication shows its own last sale and ageing; its coverage and rotation are its
+    // product's (the ERP stock is shared), so they stay on the product and variant rows. A product's or variant's
+    // figures are the whole product's, whatever the filter (L2).
+    columns.push(
+      {
+        key: 'ultima_venta',
+        group: ROTACION,
+        header: 'Última venta',
+        label: 'Última venta',
+        width: 104,
+        sortable: true,
+        align: 'center',
+        fit: true,
+        render: (row) => (row.type === 'item' ? item('last_sale', row) : row.node ? <LastSaleCell metrics={lastSaleOf(row.node.ventas)} note={WHOLE_PRODUCT} /> : null),
+      },
+      {
+        key: 'ageing',
+        group: ROTACION,
+        header: 'Ageing',
+        label: 'Ageing',
+        width: 76,
+        sortable: true,
+        align: 'center',
+        fit: true,
+        render: (row) => (row.type === 'item' ? item('ageing', row) : row.node ? <AgeingCell metrics={lastSaleOf(row.node.ventas)} note={`Ageing ${WHOLE_PRODUCT}`} /> : null),
+      },
+      {
+        key: 'cobertura',
+        group: ROTACION,
+        header: 'Cobertura',
+        label: 'Días de cobertura',
+        width: 92,
+        sortable: true,
+        align: 'center',
+        fit: true,
+        render: (row) => (row.node ? <CoverageCell ventas={row.node.ventas} /> : row.item ? dash : null),
+      },
+      {
+        key: 'rotacion',
+        group: ROTACION,
+        header: 'Veces',
+        label: 'Rotación (veces)',
+        width: 76,
+        sortable: true,
+        align: 'center',
+        fit: true,
+        render: (row) => (row.node ? <RotationCell ventas={row.node.ventas} /> : row.item ? dash : null),
+      },
+    );
   }
   return columns.filter((column) => column.key === 'descripcion' || isVisible(column.key));
 }

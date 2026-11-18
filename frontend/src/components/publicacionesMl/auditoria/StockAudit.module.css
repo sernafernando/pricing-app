@@ -227,3 +227,16 @@
 .promoSin {
   color: var(--tone-danger-fg);
 }
+
+/* Rotación (rotacion S2): Días de cobertura and Rotación (veces), the list's tabular figures. */
+.rotationFigure {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+/* "∞" (stock and no sale): the glyph reads small at the body size. */
+.infinite {
+  font-size: 1.25em;
+  line-height: 1;
+}
