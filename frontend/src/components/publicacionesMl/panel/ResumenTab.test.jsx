@@ -270,6 +270,13 @@ describe('Rentabilidad (ver_ganancia only): from the price down to the markup', 
     expect(stepOf('Precio')).not.toHaveTextContent('Precio de oferta');
   });
 
+  it('names the active promo as the price when the markup prices it (L-owner, 2026-11-18)', () => {
+    renderTab(makeDetail({ markup_breakdown: { ...DETAIL_RESPONSE_MARGIN.markup_breakdown, price_source: 'promo' } }), {
+      canSeeMargin: true,
+    });
+    expect(stepOf('Precio')).toHaveTextContent('Promo activa (con lo que aporta Mercado Libre)');
+  });
+
   it('a partial breakdown keeps the percentage and the shipping source it has', () => {
     renderTab(
       makeDetail({ markup_breakdown: { ...DETAIL_RESPONSE_MARGIN.markup_breakdown, comision_total: null, costo_envio: null } }),

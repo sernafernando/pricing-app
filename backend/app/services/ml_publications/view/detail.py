@@ -11,7 +11,7 @@ What the panel shows, and where each piece comes from (a constant number of stat
    `test_static_guards.py`): the item-level product with its categories and list prices, and its cost only for a
    caller who may see margins (the cost columns are not even selected otherwise);
 4. the freshness of every sub-resource that applies, in one `UNION ALL` by primary key;
-5. with margins: `markup_service.compute_detail` (the three or four statements of the markup inputs and one
+5. with margins: `markup_service.compute_detail` (the four or five statements of the markup inputs and one
    shipping batch), whose breakdown is the very `unit_markup` pipeline of the list;
 6. with a breakdown: the sell in / sell out of its unit's product today (`productos_sell_in_out`, the batch of
    GET /productos, read from the pricing database), recorded as ONE markup, `publicacion`, from the breakdown's own

@@ -13,14 +13,13 @@ from dataclasses import dataclass, replace
 from datetime import date
 from typing import Any, Mapping, Optional, Sequence
 
-from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.models.producto import ProductoERP
 from app.schemas.sell_in_out_producto import SellInOutProducto
 from app.services.costo_ppp_service import PppMarkups, resolver_ppp_batch
 from app.services.ml_publications.view.markup import PublicationMarkup, UnitMarkup, summarize
+from app.services.ml_publications.view.markup_inputs import product_ivas
 from app.services.ml_publications.view.markup_service import ItemMarkup
 from app.services.pricing_calculator import calcular_markup, obtener_tipo_cambio_actual
 from app.services.productos_sell_in_out import resolver_sell_in_out_batch, resolver_sell_in_out_por_contexto
@@ -186,10 +185,7 @@ def _siso_markups(pricing_db: Session, items: Mapping[str, ItemMarkup]) -> dict[
     products = sorted(
         {p for item in items.values() for p, unit in _units(item) if p is not None and unit.limpio is not None}
     )
-    iva: dict[int, Optional[float]] = {}
-    if products:
-        query = select(ProductoERP.item_id, ProductoERP.iva).where(ProductoERP.item_id.in_(products))
-        iva = {item_id: value for item_id, value in pricing_db.execute(query)}
+    iva = product_ivas(pricing_db, products)
     stores = alcance.stores_por_mla(pricing_db, set(items))
     contextos = {store: [("ml", store)] for store in {stores.get(mla) for mla in items}}
     batches = resolver_sell_in_out_por_contexto(pricing_db, products, date.today(), contextos)
