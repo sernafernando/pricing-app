@@ -965,6 +965,8 @@ def listar_cargas(
             func.coalesce(func.sum(LN.precio).filter(sin), 0).label("monto"),
         )
         .join(LN, LN.operacion_id == OP.id)
+        # Only the uploads of the window, not every line of every upload.
+        .where(OP.carga_id.in_(select(C.id).where(C.created_at >= func.now() - timedelta(days=dias))))
         .group_by(OP.carga_id)
         .subquery("sin_producto_vivo")
     )
