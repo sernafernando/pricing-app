@@ -110,6 +110,7 @@ from app.routers import (
     prearmado,
     prearmado_stats,
     pxq,
+    mcp_admin_acciones,
     tiendas_oficiales,
     marcas_visibles,
     rrhh_empleados,
@@ -444,6 +445,7 @@ app.include_router(ml_publications_presets.router, prefix="/api")
 app.include_router(ml_publication_color.router, prefix="/api")
 app.include_router(ml_ads.router, prefix="/api")
 app.include_router(pxq.router, prefix="/api")
+app.include_router(mcp_admin_acciones.router, prefix="/api")
 app.include_router(tiendas_oficiales.router, prefix="/api")
 app.include_router(marcas_visibles.router, prefix="/api")
 app.include_router(document_templates.router, prefix="/api", tags=["document-templates"])

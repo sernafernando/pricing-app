@@ -121,10 +121,10 @@ class Connected:
         return {**MCP_HEADERS, "Authorization": f"Bearer {self.access}"}
 
 
-def connect(client, user) -> Connected:
+def connect(client, user, scope: str = "pricing.read") -> Connected:
     """Full flow: authorize -> existing login -> consent -> token."""
     verifier, challenge = pkce_pair()
-    req = start_authorize(client, challenge)
+    req = start_authorize(client, challenge, scope=scope)
     app_headers = app_login(client, user)
     r = decide(client, req, app_headers)
     assert r.status_code == 200, r.text
@@ -150,3 +150,54 @@ def call_tool(client, headers: dict[str, str], name: str, arguments: dict | None
 
 def tool_text(result: dict) -> str:
     return "".join(part.get("text", "") for part in result["content"])
+
+
+# ---------------------------------------------------------------- write tools (delivery 2)
+
+WRITE_SCOPE = "pricing.read pricing.write"
+
+
+@pytest.fixture()
+def writer(mcp_user, rol_admin, grant_permiso):
+    """An ADMIN with mcp.conectar + mcp.escribir (what the migrations seed)."""
+    grant_permiso(rol_admin, "mcp.escribir")
+    return mcp_user
+
+
+@pytest.fixture()
+def write_enabled(db, monkeypatch):
+    """AI writes switched on in the DB (the default is OFF), no env kill switch, no write rate limit."""
+    from app.services.ml_publications import settings_store
+
+    monkeypatch.setattr(settings, "MCP_WRITE_KILL_SWITCH", False)
+    monkeypatch.setattr(settings, "ML_PUB_KILL_SWITCH", False)
+    monkeypatch.setattr(settings, "MCP_WRITE_RATE_LIMIT", "1000/minute")
+    settings_store.set_setting("mcp_write.enabled", True, "test", session=db)
+    db.commit()
+
+
+@pytest.fixture()
+def band_ok(monkeypatch):
+    """A C1 band double (the real one answers 'unavailable' until #2333 is integrated)."""
+    from app.mcp.write import criteria
+
+    monkeypatch.setattr(criteria, "band_for", lambda db, target: (0.0, 1000.0))
+
+
+@pytest.fixture()
+def fake_app(db, monkeypatch):
+    """In-memory stand-in for the endpoints the write layer reads and writes (tests/mcp/write_fakes.py)."""
+    from tests.mcp.write_fakes import FakeApp
+
+    return FakeApp(db=db).install(monkeypatch)
+
+
+def write_call(client, headers: dict[str, str], name: str, arguments: dict) -> tuple[dict, dict | str]:
+    """Call a write tool; returns (raw result, parsed JSON or the error text)."""
+    import json
+
+    result = call_tool(client, headers, name, arguments)
+    text = tool_text(result)
+    if result.get("isError"):
+        return result, text
+    return result, json.loads(text)

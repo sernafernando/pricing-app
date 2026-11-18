@@ -45,6 +45,8 @@ EXCLUDED_ROUTES: dict[str, str] = {
     "/api/ml-publications/presets": "per-user UI layout/preset preferences, not pricing data",
 }
 
+SECRET_ARGUMENTS = frozenset({"confirm_token"})
+
 _COST_KEY = re.compile(r"(^|_)costos?(_|$)")
 
 
@@ -586,9 +588,13 @@ async def run_tool(tool: BuiltTool, arguments: dict[str, Any], username: str, ca
 
 
 def summarize_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
-    """What the audit log keeps: values cut to 200 chars, lists to 20 items."""
+    """What the audit log keeps: values cut to 200 chars, lists to 20 items; secrets (the write confirm token)
+    are never kept."""
     summary: dict[str, Any] = {}
     for key, value in list(arguments.items())[:40]:
+        if key in SECRET_ARGUMENTS:
+            summary[str(key)] = "***"
+            continue
         if isinstance(value, list):
             value = value[:20]
         if isinstance(value, (dict, list)):
