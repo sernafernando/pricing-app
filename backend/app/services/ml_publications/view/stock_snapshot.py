@@ -2,7 +2,7 @@
 has in stock on a day, ERP and Full apart, so the Auditoría de stock can divide the units sold in 30 days by the
 AVERAGE stock of those days ("Rotación (veces)").
 
-* `take`: today's photo. ERP = `productos_erp.stock`; Full = the units at ML's warehouse of the product's publications,
+* `take`: today's photo. ERP = the catalog's stock (`filters.erp_stock_per_product`, the view's catalog reader); Full = the units at ML's warehouse of the product's publications,
   each user product counted once, in the product's own units (`stock_audit.full_by_product`, the Auditoría's own
   Full). Only products with some stock get a row. Taking the day again replaces that day's rows (idempotent: a
   product whose stock ran out since the first take loses its row), other days are never touched.
@@ -23,9 +23,9 @@ from typing import Iterable
 from sqlalchemy import delete, func, insert, select
 from sqlalchemy.orm import Session
 
-from app.models.producto import ProductoERP
-from app.models.producto_stock_diario import ProductoStockDiario as S
+from app.models.stock_diario import StockDiario as S
 from app.services.ml_publications.view import stock_audit
+from app.services.ml_publications.view.filters import erp_stock_per_product
 
 KEEP_DAYS = 400
 WINDOW_DAYS = 30
@@ -33,10 +33,7 @@ WINDOW_DAYS = 30
 
 def take(db: Session, day: date) -> int:
     """Replace `day`'s photo with the stock now; returns how many products it holds. Does not commit."""
-    erp = {
-        item: int(stock)
-        for item, stock in db.execute(select(ProductoERP.item_id, ProductoERP.stock).where(ProductoERP.stock > 0))
-    }
+    erp = {item: int(stock) for item, stock in db.execute(erp_stock_per_product())}
     full = {item: units for item, units in stock_audit.full_by_product(db).items() if units > 0}
     rows = [
         {"fecha": day, "item_id": item, "stock_erp": erp.get(item, 0), "stock_full": full.get(item, 0)}

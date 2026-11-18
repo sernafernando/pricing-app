@@ -1,7 +1,7 @@
 """producto_stock_diario: the daily stock photo (Auditoría de stock, Rotación)
 
 Revision ID: 20261122_producto_stock_diario
-Revises: 20261121_ml_publicaciones_auditoria_stock_perm
+Revises: 20261122_mcp_oauth
 Create Date: 2026-11-18
 
 One row per product per day with its ERP units (`productos_erp.stock`) and its Full units (its publications' user
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261122_producto_stock_diario"
-down_revision: Union[str, None] = "20261121_ml_publicaciones_auditoria_stock_perm"
+down_revision: Union[str, None] = "20261122_mcp_oauth"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

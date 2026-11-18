@@ -9,7 +9,7 @@ from sqlalchemy import Column, Date, Index, Integer, PrimaryKeyConstraint
 from app.core.database import Base
 
 
-class ProductoStockDiario(Base):
+class StockDiario(Base):
     __tablename__ = "producto_stock_diario"
 
     fecha = Column(Date, nullable=False)

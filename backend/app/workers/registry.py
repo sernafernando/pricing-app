@@ -154,12 +154,13 @@ def __getattr__(name: str) -> List[JobHandler]:
                 # promo-ml-precio-inmediato T1: recomputes the promo price columns ml-webhook just reported
                 # (own thread, so its place in this list does not delay it; registered before the repair ticks).
                 promo_price_recompute,
+                # auditoria-stock-rotacion: the daily stock photo the Auditoría de stock's Rotación averages (daily
+                # 06:00 in the drain pass; reads the ML store's Full, so it lives in this process, never in REGISTRY;
+                # registered before the repair ticks, which stay last).
+                stock_snapshot,
                 # publicaciones-repair: conditional envio/sku ticks under the shared Pacer.
                 envio_repair,
                 sku_repair,
-                # auditoria-stock-rotacion: the daily stock photo the Auditoría de stock's Rotación averages (daily
-                # 06:00 in the drain pass; reads the ML store's Full, so it lives in this process, never in REGISTRY).
-                stock_snapshot,
             ]
         return _ml_publications_registry
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

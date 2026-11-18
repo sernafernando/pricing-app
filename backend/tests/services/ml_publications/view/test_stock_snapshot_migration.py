@@ -17,7 +17,7 @@ _PATH = Path(__file__).resolve().parents[4] / "alembic" / "versions" / f"{REVISI
 
 def test_one_parent_and_an_ancestor_of_the_single_head() -> None:
     script = _script_directory()
-    assert script.get_revision(REVISION).down_revision == "20261121_ml_publicaciones_auditoria_stock_perm"
+    assert script.get_revision(REVISION).down_revision == "20261122_mcp_oauth"
     [head] = script.get_heads()
     assert REVISION in {r.revision for r in script.walk_revisions(base="base", head=head)}
 
