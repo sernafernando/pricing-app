@@ -171,8 +171,8 @@ def _on_hay_mejores_rollback(db: Session) -> None:
     db.info.pop(_AUTO_PENDING, None)
 
 
-def _auto_still_authorized(db: Session, item_id: str) -> bool:
-    """Fresh read: Auto still ON and the user who last saved criterios still has the permiso."""
+def _auto_still_authorized(db: Session, item_id: str, target: Optional[Mapping[str, Any]] = None) -> bool:
+    """Fresh read: Auto still ON, permiso holds, and C1 still accepts the pick markup when known."""
     from app.models.ml_hay_mejores_criterios import MlHayMejoresCriterios
     from app.models.usuario import Usuario
     from app.services.ml_hay_mejores_criterios_service import PERMISO_AUTO_APLICACION, get_criterios
@@ -188,7 +188,19 @@ def _auto_still_authorized(db: Session, item_id: str) -> bool:
     user = db.get(Usuario, int(updated_by))
     if user is None:
         return False
-    return bool(PermisosService(db).tiene_permiso(user, PERMISO_AUTO_APLICACION))
+    if not bool(PermisosService(db).tiene_permiso(user, PERMISO_AUTO_APLICACION)):
+        return False
+    # Re-check C1 at enroll time (suggestion): refuse if the pick markup left the band.
+    if target is not None and "markup_visto" in target:
+        markup = target.get("markup_visto")
+        if markup is not None and not markup_pasa_c1(
+            float(markup),
+            c1_activo=view.c1_activo,
+            c1_markup_min=view.c1_markup_min,
+            c1_markup_max=view.c1_markup_max,
+        ):
+            return False
+    return True
 
 
 def _run_auto_enroll_after_commit(job: Mapping[str, Any]) -> None:
@@ -200,9 +212,9 @@ def _run_auto_enroll_after_commit(job: Mapping[str, Any]) -> None:
         from app.core.database import get_background_db
 
         with get_background_db() as gate_db:
-            authorized = _auto_still_authorized(gate_db, item_id)
+            authorized = _auto_still_authorized(gate_db, item_id, target if isinstance(target, Mapping) else None)
         if not authorized:
-            logger.info("hay_mejores R-AUTO skipped for %s: Auto off or permiso revoked", item_id)
+            logger.info("hay_mejores R-AUTO skipped for %s: Auto off, permiso revoked, or C1", item_id)
             return
     except Exception as exc:
         logger.warning("hay_mejores R-AUTO gate failed for %s: %s", item_id, exc, exc_info=True)
@@ -217,9 +229,11 @@ def _run_auto_enroll_after_commit(job: Mapping[str, Any]) -> None:
                 row = (
                     done_db.query(MlItemSellerPromotions)
                     .filter(MlItemSellerPromotions.item_id == item_id)
+                    .with_for_update()
                     .one_or_none()
                 )
-                if row is not None and _is_auto_pending_fingerprint(row.hay_mejores_fingerprint):
+                parsed = _parse_auto_pending(getattr(row, "hay_mejores_fingerprint", None) if row else None)
+                if row is not None and parsed is not None and (not pick_key or parsed[0] == pick_key):
                     row.hay_mejores_fingerprint = None
                     row.hay_mejores_ofertas = False
         except Exception as exc:
@@ -234,7 +248,12 @@ def _run_auto_enroll_after_commit(job: Mapping[str, Any]) -> None:
         from app.core.database import get_background_db
 
         with get_background_db() as fresh_db:
-            row = fresh_db.query(MlItemSellerPromotions).filter(MlItemSellerPromotions.item_id == item_id).one_or_none()
+            row = (
+                fresh_db.query(MlItemSellerPromotions)
+                .filter(MlItemSellerPromotions.item_id == item_id)
+                .with_for_update()
+                .one_or_none()
+            )
             if row is None:
                 return
             row.hay_mejores_ofertas = True
@@ -378,13 +397,15 @@ def evaluar_mejores_candidatas(
     # C2 only flags when status quo is *not* already #1 (effective). If we already win,
     # keep the toggle ON for later loss-of-position, but do not surface worse promos.
     c2_busca_ganar = False
-    if criterios.c2_activo:
-        # C2 needs a *fresh* catalog snapshot; missing/stale/empty rivals → path inert.
+    snapshot = None
+    if criterios.c2_activo or criterios.c6_activo:
         snapshot = obtener_ultimo_snapshot(db, mla)
         if not snapshot_is_fresh(snapshot):
+            # One enqueue per evaluate when the snapshot is missing/stale (not per rival).
             _enqueue_catalog_competition_refresh(db, mla)
-            min_rival = None
-        else:
+            snapshot = None
+    if criterios.c2_activo:
+        if snapshot is not None:
             min_rival = min_rival_price_ars(
                 snapshot,
                 our_item_id=mla,
@@ -392,6 +413,23 @@ def evaluar_mejores_candidatas(
             )
         ya_ganamos = catalog_win_con_precio(status_quo_price, min_rival)
         c2_busca_ganar = min_rival is not None and not ya_ganamos
+    # C6 raise-assist: promos that raise price while still winning the effective catalog.
+    c6_segundo: Optional[float] = None
+    c6_busca_asistir = False
+    if criterios.c6_activo and snapshot is not None:
+        c6_segundo = min_rival_price_ars(
+            snapshot,
+            our_item_id=mla,
+            sellers_excluidos=criterios.sellers_excluidos,
+        )
+        c6_opp = monopolio_c6_oportunidad(
+            c6_activo=True,
+            our_price_ars=status_quo_price,
+            segundo_precio_ars=c6_segundo,
+            c6_gap_min=criterios.c6_gap_min,
+            c6_distancia_objetivo=criterios.c6_distancia_objetivo,
+        )
+        c6_busca_asistir = c6_opp is not None
     mejores: List[MejorTuple] = []
     candidatas: List[Dict[str, Any]] = []
     for entry, promo in zip(candidates, promos):
@@ -420,7 +458,21 @@ def evaluar_mejores_candidatas(
                 c1_markup_max=criterios.c1_markup_max,
             )
         )
-        if not pasa_clasico and not pasa_c2:
+        # Raise-assist: higher consumer price than status quo, still #1, inside C1.
+        pasa_c6 = (
+            c6_busca_asistir
+            and price is not None
+            and markup is not None
+            and float(price) > float(status_quo_price)
+            and catalog_win_con_precio(float(price), c6_segundo)
+            and markup_pasa_c1(
+                markup,
+                c1_activo=criterios.c1_activo,
+                c1_markup_min=criterios.c1_markup_min,
+                c1_markup_max=criterios.c1_markup_max,
+            )
+        )
+        if not pasa_clasico and not pasa_c2 and not pasa_c6:
             continue
         assert price is not None
         key = promotion_key(entry)
@@ -433,8 +485,9 @@ def evaluar_mejores_candidatas(
                 "markup_status_quo": baseline_markup,
                 "nuestro_markup": promo.get("nuestro_markup"),
                 "markup_sell_in_out": promo.get("markup_sell_in_out"),
-                "path_clasico": pasa_clasico,
-                "path_c2": pasa_c2,
+                "path_clasico": bool(pasa_clasico),
+                "path_c2": bool(pasa_c2),
+                "path_c6": bool(pasa_c6),
             }
         )
     return MejoresEvaluacion(
@@ -510,6 +563,9 @@ def evaluar_monopolio_c6(
     if not view.c6_activo:
         return None
     snapshot = obtener_ultimo_snapshot(db, mla)
+    if not snapshot_is_fresh(snapshot):
+        _enqueue_catalog_competition_refresh(db, mla)
+        return None
     segundo = min_rival_price_ars(
         snapshot,
         our_item_id=mla,
@@ -632,18 +688,56 @@ def _auto_enroll_fail_reason(outcome: Mapping[str, Any]) -> str:
 
 
 AUTO_PENDING_PREFIX = "auto_pending:"
+# Ambiguous MeLi outcomes leave a pending marker; expire so a better pick can enroll later.
+AUTO_PENDING_TTL_SECONDS = 30 * 60
 
 
-def _auto_pending_fingerprint(pick_key: str) -> str:
-    return f"{AUTO_PENDING_PREFIX}{pick_key}"
+def _auto_pending_fingerprint(pick_key: str, *, now: Optional[datetime] = None) -> str:
+    """``auto_pending:{key}:{unix}`` — key may contain ``:``; timestamp is the last ``:`` segment."""
+    instant = now if now is not None else datetime.now(timezone.utc)
+    return f"{AUTO_PENDING_PREFIX}{pick_key}:{int(instant.timestamp())}"
 
 
-def _is_auto_pending_fingerprint(fingerprint: Optional[str], pick_key: Optional[str] = None) -> bool:
+def _parse_auto_pending(fingerprint: Optional[str]) -> Optional[Tuple[str, Optional[int]]]:
+    """Return ``(pick_key, unix_ts_or_None)`` for pending fingerprints; None if not pending."""
     if not fingerprint or not str(fingerprint).startswith(AUTO_PENDING_PREFIX):
+        return None
+    rest = str(fingerprint)[len(AUTO_PENDING_PREFIX) :]
+    if not rest:
+        return None
+    key, sep, ts_s = rest.rpartition(":")
+    if not sep:
+        # Legacy ``auto_pending:{key}`` without timestamp — treat as expired (no TTL).
+        return (rest, None)
+    try:
+        return (key, int(ts_s))
+    except ValueError:
+        return (rest, None)
+
+
+def _is_auto_pending_fingerprint(
+    fingerprint: Optional[str],
+    pick_key: Optional[str] = None,
+    *,
+    now: Optional[datetime] = None,
+    ttl_seconds: int = AUTO_PENDING_TTL_SECONDS,
+) -> bool:
+    """True when fingerprint is an in-flight Auto pending for ``pick_key`` (or any key) and not expired.
+
+    Without ``pick_key``, any non-expired pending matches (legacy callers). With ``pick_key``, only
+    that promo is blocked — a different candidata may enroll.
+    """
+    parsed = _parse_auto_pending(fingerprint)
+    if parsed is None:
         return False
-    if pick_key is None:
-        return True
-    return fingerprint == _auto_pending_fingerprint(str(pick_key))
+    pending_key, unix_ts = parsed
+    if pick_key is not None and pending_key != str(pick_key):
+        return False
+    if unix_ts is None:
+        return False  # legacy / unparseable → expired
+    instant = now if now is not None else datetime.now(timezone.utc)
+    age = int(instant.timestamp()) - int(unix_ts)
+    return 0 <= age <= int(ttl_seconds)
 
 
 def _candidate_entries(raw: Any, now: datetime) -> List[Mapping[str, Any]]:
@@ -722,7 +816,13 @@ def actualizar_hay_mejores_ofertas(
     auto_target: Optional[Dict[str, Any]] = None
     try:
         with db.begin_nested():
-            row = db.query(MlItemSellerPromotions).filter(MlItemSellerPromotions.item_id == item_id).one_or_none()
+            # Lock the promotions row so concurrent sync+worker cannot double-enroll Auto.
+            row = (
+                db.query(MlItemSellerPromotions)
+                .filter(MlItemSellerPromotions.item_id == item_id)
+                .with_for_update()
+                .one_or_none()
+            )
             if row is None:
                 return None
             prev_flag = bool(row.hay_mejores_ofertas)
@@ -737,7 +837,8 @@ def actualizar_hay_mejores_ofertas(
                 sale = db.query(MlItemSalePrice).filter(MlItemSalePrice.item_id == item_id).one_or_none()
                 baseline = float(sale.amount) if sale is not None and sale.amount is not None else None
                 raw = raw_promotions if raw_promotions is not None else row.raw
-                candidates = _candidate_entries(raw, now if now is not None else datetime.now(timezone.utc))
+                now_instant = now if now is not None else datetime.now(timezone.utc)
+                candidates = _candidate_entries(raw, now_instant)
                 evaluacion: Optional[MejoresEvaluacion] = None
                 mejores: List[MejorTuple] = []
                 criterios_view = get_criterios(db, item_id)
@@ -752,7 +853,7 @@ def actualizar_hay_mejores_ofertas(
                     )
                     mejores = list(evaluacion.mejores)
                 monopolio = evaluar_monopolio_c6(db, item_id, criterios=criterios_view, our_price_ars=baseline)
-                # solo_via_promo: raise-via-promo stays UI-only — do not piggyback classic/C2 mejores.
+                # solo_via_promo: synthetic c6:1 stays UI-only; path_c6 assist promos still flag.
                 # When off, C6 alone can flag (Premium editable / no promo assist required).
                 if monopolio is not None and not monopolio.solo_via_promo:
                     mejores = [*mejores, monopolio.flag_tuple]
@@ -760,24 +861,32 @@ def actualizar_hay_mejores_ofertas(
                     mejores=mejores,
                     descartado_fingerprint=row.hay_mejores_descartado_fingerprint,
                 )
-                # Pending Auto enroll (incl. after ambiguous) is not a fresh transition.
-                pending_inflight = _is_auto_pending_fingerprint(prev_fingerprint)
-                would_transition = bool(
+                if (
                     decision.hay_mejores
                     and (not prev_flag or prev_fingerprint != decision.fingerprint)
-                    and not pending_inflight
-                )
-                if (
-                    would_transition
                     and criterios_view.auto_aplicacion
                     and evaluacion is not None
                     and evaluacion.candidatas
                 ):
                     auto_target = resolve_auto_enroll_target(evaluacion.candidatas, candidates)
 
-                if auto_target is not None:
+                pick_key = str(auto_target.get("key") or "") if auto_target else None
+                # Same-promo pending (non-expired) blocks re-queue; other picks / expired may proceed.
+                pending_blocks_pick = bool(
+                    pick_key and _is_auto_pending_fingerprint(prev_fingerprint, pick_key, now=now_instant)
+                )
+                pending_any_alive = _is_auto_pending_fingerprint(prev_fingerprint, now=now_instant)
+                would_transition = bool(
+                    decision.hay_mejores
+                    and (not prev_flag or prev_fingerprint != decision.fingerprint)
+                    and not pending_blocks_pick
+                )
+                if auto_target is not None and would_transition:
                     # R-AUTO: hide flag; keep auto_pending fingerprint so ambiguous does not re-enroll.
-                    pending_fp = _auto_pending_fingerprint(str(auto_target.get("key") or decision.fingerprint or ""))
+                    pending_fp = _auto_pending_fingerprint(
+                        str(auto_target.get("key") or decision.fingerprint or ""),
+                        now=now_instant,
+                    )
                     row.hay_mejores_ofertas = False
                     row.hay_mejores_fingerprint = pending_fp
                     row.hay_mejores_descartado_fingerprint = None
@@ -800,10 +909,13 @@ def actualizar_hay_mejores_ofertas(
                             "auto_pending_fingerprint": pending_fp,
                         },
                     )
-                elif pending_inflight:
+                elif pending_blocks_pick or (pending_any_alive and auto_target is None):
+                    # Keep inflight pending; do not surface the manual flag yet.
                     row.hay_mejores_ofertas = False
                     row.hay_mejores_fingerprint = prev_fingerprint
+                    auto_target = None
                 else:
+                    auto_target = None  # manual / non-Auto path — do not schedule enroll
                     row.hay_mejores_ofertas = decision.hay_mejores
                     row.hay_mejores_fingerprint = decision.fingerprint
                     row.hay_mejores_descartado_fingerprint = decision.descartado_fingerprint
@@ -928,11 +1040,17 @@ def set_hay_mejores_excluido_bulk(db: Session, item_ids: Sequence[str], *, exclu
     return ids
 
 
+_CATALOG_REFRESH_ENQUEUED = "hay_mejores_catalog_refresh_enqueued"
+
+
 def _enqueue_catalog_competition_refresh(db: Session, item_id: str) -> None:
     """Best-effort enqueue of the catalog MLA to refresh; never undoes hay_mejores.
 
     Runs in its own SAVEPOINT so a failed INSERT (missing table, lock, etc.)
     cannot abort the outer hay_mejores nested transaction.
+
+    Within one Session/run, the same MLA is enqueued at most once (stale/missing
+    snapshot on every evaluate must not reset the pending row each pass).
     """
     try:
         from datetime import UTC, datetime
@@ -940,11 +1058,17 @@ def _enqueue_catalog_competition_refresh(db: Session, item_id: str) -> None:
         from app.services.catalog_competition_refresh_queue import enqueue
         from app.services.catalog_competition_target import mla_for_catalog_competition_refresh
 
+        info = getattr(db, "info", None)
+        already = info.setdefault(_CATALOG_REFRESH_ENQUEUED, set()) if isinstance(info, dict) else None
         with db.begin_nested():
             target = mla_for_catalog_competition_refresh(db, item_id)
             if target is None:
                 return
+            if already is not None and target in already:
+                return
             enqueue(db, [target], datetime.now(UTC))
+            if already is not None:
+                already.add(target)
     except Exception as exc:  # noqa: BLE001
         logger.warning("hay_mejores: catalog competition enqueue failed for %s: %s", item_id, exc)
 

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { computeMonopolioC6, minRivalPriceArs, monopolioFromSnapshotAndCriterios } from './monopolioC6';
+import {
+  CATALOG_SNAPSHOT_MAX_AGE_MS,
+  catalogSnapshotIsFresh,
+  computeMonopolioC6,
+  minRivalPriceArs,
+  monopolioFromSnapshotAndCriterios,
+} from './monopolioC6';
 
 describe('monopolioC6', () => {
   it('computes raise when winning with gap ≥ min', () => {
@@ -37,6 +43,8 @@ describe('monopolioC6', () => {
     const out = monopolioFromSnapshotAndCriterios(
       'MLA1',
       {
+        fetch_status: 'ok',
+        fecha_consulta: new Date().toISOString(),
         same_bucket: [
           { item_id: 'MLA1', price_ars: 10000 },
           { item_id: 'R2', price_ars: 16000 },
@@ -45,5 +53,24 @@ describe('monopolioC6', () => {
       { c6_activo: true, c6_gap_min: 5000, c6_distancia_objetivo: 100, sellers_excluidos: [] },
     );
     expect(out?.precio_objetivo).toBe(15900);
+  });
+
+  it('ignores stale catalog snapshots for C6', () => {
+    const staleIso = new Date(Date.now() - CATALOG_SNAPSHOT_MAX_AGE_MS - 1000).toISOString();
+    expect(catalogSnapshotIsFresh({ fetch_status: 'ok', fecha_consulta: staleIso })).toBe(false);
+    expect(
+      monopolioFromSnapshotAndCriterios(
+        'MLA1',
+        {
+          fetch_status: 'ok',
+          fecha_consulta: staleIso,
+          same_bucket: [
+            { item_id: 'MLA1', price_ars: 10000 },
+            { item_id: 'R2', price_ars: 16000 },
+          ],
+        },
+        { c6_activo: true, c6_gap_min: 5000, c6_distancia_objetivo: 100, sellers_excluidos: [] },
+      ),
+    ).toBeNull();
   });
 });

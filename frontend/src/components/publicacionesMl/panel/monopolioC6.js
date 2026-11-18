@@ -3,6 +3,22 @@
  * Checked rivals = same_bucket minus sellers_excluidos (our MLA always counts).
  */
 
+/** Mirror of backend `CATALOG_SNAPSHOT_MAX_AGE_SECONDS` (24h). */
+export const CATALOG_SNAPSHOT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * True when the catalog API payload is usable for C2/C6 (fetch ok + within max age).
+ * Missing ``fecha_consulta`` on an ok payload → treated as fresh (legacy).
+ */
+export function catalogSnapshotIsFresh(snapshot, { now = Date.now() } = {}) {
+  if (!snapshot || snapshot.fetch_status !== 'ok') return false;
+  const raw = snapshot.fecha_consulta;
+  if (raw == null || raw === '') return true;
+  const ms = Date.parse(raw);
+  if (!Number.isFinite(ms)) return false;
+  return now - ms <= CATALOG_SNAPSHOT_MAX_AGE_MS;
+}
+
 export function minRivalPriceArs(sameBucket, ourMla, sellersExcluidos = []) {
   const excluded = new Set((sellersExcluidos || []).map(String));
   const prices = [];
@@ -52,6 +68,7 @@ export function computeMonopolioC6({
 
 export function monopolioFromSnapshotAndCriterios(mla, snapshot, criterios, { salePrice = null } = {}) {
   if (!criterios?.c6_activo) return null;
+  if (!catalogSnapshotIsFresh(snapshot)) return null;
   const sameBucket = snapshot?.same_bucket || [];
   // Prefer live sale price (backend baseline); snapshot price is fallback only.
   const our =

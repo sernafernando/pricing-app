@@ -65,6 +65,40 @@ describe('statusQuoGanaCatalogo', () => {
       ),
     ).toBe(true);
   });
+
+  it('ignores excluded seller_ids (ranking checkboxes)', () => {
+    expect(
+      statusQuoGanaCatalogo(
+        {
+          fetch_status: 'ok',
+          our_price: 1000,
+          same_bucket: [
+            { item_id: 'MLA_CHEAP', seller_id: 'S-CHEAP', price: 900 },
+            { item_id: 'MLA_DEAR', seller_id: 'S-DEAR', price: 1100 },
+          ],
+        },
+        { mla: 'MLA_OURS', sellersExcluidos: ['S-CHEAP'] },
+      ),
+    ).toBe(true);
+  });
+
+  it('is false when catalog snapshot is stale', () => {
+    const stale = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    expect(
+      statusQuoGanaCatalogo(
+        {
+          fetch_status: 'ok',
+          fecha_consulta: stale,
+          our_price: 900,
+          same_bucket: [
+            { item_id: 'MLA_OURS', price: 900 },
+            { item_id: 'MLA_RIVAL', price: 1000 },
+          ],
+        },
+        { mla: 'MLA_OURS' },
+      ),
+    ).toBe(false);
+  });
 });
 
 describe('CriteriosAplicacionPanel C2 ya ganando banner', () => {

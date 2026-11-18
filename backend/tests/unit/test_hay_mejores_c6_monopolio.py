@@ -22,6 +22,7 @@ class _Nested:
 
 def test_evaluar_monopolio_c6_builds_flag_tuple(monkeypatch) -> None:
     monkeypatch.setattr(hay_mejores, "obtener_ultimo_snapshot", lambda *_a, **_k: object())
+    monkeypatch.setattr(hay_mejores, "snapshot_is_fresh", lambda *_a, **_k: True)
     monkeypatch.setattr(hay_mejores, "_our_price_ars_from_snapshot", lambda *_a, **_k: 10000.0)
     monkeypatch.setattr(hay_mejores, "min_rival_price_ars", lambda *_a, **_k: 16000.0)
     view = replace(default_criterios("MLA1"), c6_activo=True)
@@ -42,7 +43,10 @@ def test_actualizar_flags_c6_only_when_not_solo_via_promo(monkeypatch) -> None:
     sale = SimpleNamespace(amount=10000.0)
     db = MagicMock()
     db.begin_nested.return_value = _Nested()
-    db.query.return_value.filter.return_value.one_or_none.side_effect = [row, sale]
+    locked = MagicMock()
+    locked.one_or_none.side_effect = [row]
+    db.query.return_value.filter.return_value.with_for_update.return_value = locked
+    db.query.return_value.filter.return_value.one_or_none.side_effect = [sale]
 
     monkeypatch.setattr(hay_mejores, "_candidate_entries", lambda *_a, **_k: [])
     monkeypatch.setattr(
@@ -82,7 +86,10 @@ def test_actualizar_skips_c6_only_when_solo_via_promo(monkeypatch) -> None:
     sale = SimpleNamespace(amount=10000.0)
     db = MagicMock()
     db.begin_nested.return_value = _Nested()
-    db.query.return_value.filter.return_value.one_or_none.side_effect = [row, sale]
+    locked = MagicMock()
+    locked.one_or_none.side_effect = [row]
+    db.query.return_value.filter.return_value.with_for_update.return_value = locked
+    db.query.return_value.filter.return_value.one_or_none.side_effect = [sale]
 
     monkeypatch.setattr(hay_mejores, "_candidate_entries", lambda *_a, **_k: [])
     monkeypatch.setattr(

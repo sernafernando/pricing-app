@@ -290,6 +290,42 @@ class TestPricingContextOncePerRun:
         # (pool-exhaustion invariant — do not loosen to ×N).
         assert ten["SELECT"] == one["SELECT"]
 
+    def test_statements_stay_flat_with_c2_active(self, world, monkeypatch) -> None:
+        """C2 with real snapshots must not reintroduce 1 SELECT/MLA (prefetch path)."""
+        from datetime import UTC, datetime
+
+        from app.models.ml_catalog_competition import MLCatalogCompetition
+        from app.services.ml_hay_mejores_criterios_service import default_criterios
+
+        monkeypatch.setattr(
+            hay_mejores,
+            "get_criterios",
+            lambda _db, mla: replace(default_criterios(mla), c2_activo=True),
+        )
+        monkeypatch.setattr(hay_mejores, "_enqueue_catalog_competition_refresh", lambda *_a, **_k: None)
+        now = datetime.now(UTC)
+        for mla in ["MLA0", *self.MLAS]:
+            world.add(
+                MLCatalogCompetition(
+                    mla=mla,
+                    fecha_consulta=now,
+                    fetch_status="ok",
+                    our_price=30000.0,
+                    competitors=[
+                        {"item_id": mla, "seller_id": "us", "price_ars": 30000.0, "same_bucket": True},
+                        {"item_id": f"{mla}-R", "seller_id": "rival", "price_ars": 28000.0, "same_bucket": True},
+                    ],
+                    competitor_count=2,
+                )
+            )
+        world.commit()
+        _rank(world, ["MLA0"])  # warm pricing context + prefetch caches
+        with _count_statements(world, "SELECT") as one:
+            _rank(world, self.MLAS[:1])
+        with _count_statements(world, "SELECT") as ten:
+            _rank(world, self.MLAS)
+        assert ten["SELECT"] == one["SELECT"]
+
     def test_each_mla_resolves_its_header_unit_once(self, world, monkeypatch) -> None:
         calls: list = []
         real = markup_service.detail_unit

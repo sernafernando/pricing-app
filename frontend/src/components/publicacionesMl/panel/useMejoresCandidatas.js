@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { errorText } from '../../pricing/priceWrites';
 import { promocionesAPI } from '../../../services/api';
 import { promoDisplayPrice } from '../../promociones/promoDisplayPrice';
-import { minRivalPriceArs } from './monopolioC6';
+import { catalogSnapshotIsFresh, minRivalPriceArs } from './monopolioC6';
 import {
   baselinePromo,
   hasPickedSlot,
@@ -107,11 +107,16 @@ export function useMejoresCandidatas({
           try {
             const snapRes = await promocionesAPI.getCompetenciaCatalogo(itemId);
             const snapshot = snapRes?.data;
-            const sameBucket = snapshot?.same_bucket || [];
-            minRivalPrice = minRivalPriceArs(sameBucket, itemId, criterios.sellers_excluidos || []);
-            c2BuscaGanar = minRivalPrice != null && !(comparePrice < minRivalPrice);
+            if (!catalogSnapshotIsFresh(snapshot)) {
+              // Stale/missing catalog → C2 inert (same as backend freshness gate).
+              minRivalPrice = null;
+              c2BuscaGanar = false;
+            } else {
+              const sameBucket = snapshot?.same_bucket || [];
+              minRivalPrice = minRivalPriceArs(sameBucket, itemId, criterios.sellers_excluidos || []);
+              c2BuscaGanar = minRivalPrice != null && !(comparePrice < minRivalPrice);
+            }
           } catch {
-            // Stale/missing catalog → C2 inert (same as backend freshness gate).
             minRivalPrice = null;
             c2BuscaGanar = false;
           }

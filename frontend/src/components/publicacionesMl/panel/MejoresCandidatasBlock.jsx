@@ -62,10 +62,13 @@ export default function MejoresCandidatasBlock({
     onUnavailable,
     onSuggested,
   });
-  const { loading: monopolioLoading, oportunidad: monopolio, error: monopolioError } = useMonopolioC6(
-    itemId,
-    { salePrice: baselinePrice },
-  );
+  const {
+    loading: monopolioLoading,
+    oportunidad: monopolio,
+    markupPct: monopolioMarkupPct,
+    premiumPromo: monopolioPremium,
+    error: monopolioError,
+  } = useMonopolioC6(itemId, { salePrice: baselinePrice });
 
   const entries = slotEntries(slots);
   const showClassic = entries.length > 0;
@@ -177,7 +180,17 @@ export default function MejoresCandidatasBlock({
               </ul>
             </>
           )}
-          {showMonopolio && <MonopolioC6Block oportunidad={monopolio} />}
+          {showMonopolio && (
+            <MonopolioC6Block
+              oportunidad={monopolio}
+              markupPct={monopolioMarkupPct}
+              premiumPromo={monopolioPremium}
+              itemId={itemId}
+              applyFailMessage={autoFailMessage && !showClassic ? autoFailMessage : null}
+              onWritten={onWritten}
+              onLeavePub={onLeavePub}
+            />
+          )}
           {showEmptyClassic && (
             <>
               <p className={styles.ponerPreciosOk} role="status">

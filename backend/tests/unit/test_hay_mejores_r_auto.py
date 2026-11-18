@@ -67,7 +67,10 @@ def test_actualizar_auto_defers_flag_and_schedules_enroll(monkeypatch) -> None:
     db = MagicMock()
     db.info = {}
     db.begin_nested.return_value = _Nested()
-    db.query.return_value.filter.return_value.one_or_none.side_effect = [row, sale]
+    locked = MagicMock()
+    locked.one_or_none.side_effect = [row]
+    db.query.return_value.filter.return_value.with_for_update.return_value = locked
+    db.query.return_value.filter.return_value.one_or_none.side_effect = [sale]
 
     monkeypatch.setattr(
         hay_mejores,
@@ -114,9 +117,11 @@ def test_actualizar_auto_defers_flag_and_schedules_enroll(monkeypatch) -> None:
 def test_auto_enroll_after_commit_success_does_not_reflag(monkeypatch) -> None:
     monkeypatch.setattr(hay_mejores, "_auto_still_authorized", lambda *_a, **_k: True)
     monkeypatch.setattr(hay_mejores, "_try_auto_enroll", lambda *_a, **_k: {"status": "submitted"})
-    row = SimpleNamespace(hay_mejores_ofertas=False, hay_mejores_fingerprint="auto_pending:A")
+    row = SimpleNamespace(hay_mejores_ofertas=False, hay_mejores_fingerprint="auto_pending:A:1700000000")
     fresh = MagicMock()
-    fresh.query.return_value.filter.return_value.one_or_none.return_value = row
+    locked = MagicMock()
+    locked.one_or_none.return_value = row
+    fresh.query.return_value.filter.return_value.with_for_update.return_value = locked
     payloads: list[dict] = []
 
     class _Bg:
@@ -156,7 +161,9 @@ def test_auto_enroll_after_commit_fail_reflags(monkeypatch) -> None:
     )
     fresh = MagicMock()
     fresh.info = {}
-    fresh.query.return_value.filter.return_value.one_or_none.return_value = row
+    locked = MagicMock()
+    locked.one_or_none.return_value = row
+    fresh.query.return_value.filter.return_value.with_for_update.return_value = locked
 
     class _Bg:
         def __enter__(self):
@@ -222,6 +229,66 @@ def test_auto_enroll_ambiguous_does_not_reflag(monkeypatch) -> None:
 
 def test_auto_enroll_fail_reason_prefers_detail() -> None:
     assert hay_mejores._auto_enroll_fail_reason({"status": "rejected", "detail": "stock", "error": "x"}) == "stock"
+
+
+def test_auto_pending_same_key_blocks_other_key_does_not() -> None:
+    now = __import__("datetime").datetime(2026, 11, 18, 15, 0, tzinfo=__import__("datetime").timezone.utc)
+    fp = hay_mejores._auto_pending_fingerprint("A", now=now)
+    assert hay_mejores._is_auto_pending_fingerprint(fp, "A", now=now) is True
+    assert hay_mejores._is_auto_pending_fingerprint(fp, "B", now=now) is False
+
+
+def test_auto_pending_expires() -> None:
+    from datetime import datetime, timedelta, timezone
+
+    started = datetime(2026, 11, 18, 12, 0, tzinfo=timezone.utc)
+    fp = hay_mejores._auto_pending_fingerprint("A", now=started)
+    later = started + timedelta(seconds=hay_mejores.AUTO_PENDING_TTL_SECONDS + 1)
+    assert hay_mejores._is_auto_pending_fingerprint(fp, "A", now=later) is False
+
+
+def test_pick_prefers_c6_assist_when_no_classic_or_c2() -> None:
+    picked = pick_mejor_candidata_auto(
+        [
+            {
+                "key": "P6",
+                "price": 1500.0,
+                "markup": 40.0,
+                "path_clasico": False,
+                "path_c2": False,
+                "path_c6": True,
+            },
+            {"key": C6_FINGERPRINT_KEY, "price": 15900.0, "markup": 99.0, "path_clasico": False, "path_c2": False},
+        ]
+    )
+    assert picked is not None and picked["key"] == "P6"
+
+
+def test_enqueue_catalog_refresh_once_per_session(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class _NestedOk:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    db = MagicMock()
+    db.info = {}
+    db.begin_nested.return_value = _NestedOk()
+    monkeypatch.setattr(
+        "app.services.catalog_competition_target.mla_for_catalog_competition_refresh",
+        lambda _db, item_id: item_id,
+    )
+    monkeypatch.setattr(
+        "app.services.catalog_competition_refresh_queue.enqueue",
+        lambda _db, ids, _now: calls.extend(ids) or len(ids),
+    )
+    hay_mejores._enqueue_catalog_competition_refresh(db, "MLA1")
+    hay_mejores._enqueue_catalog_competition_refresh(db, "MLA1")
+    hay_mejores._enqueue_catalog_competition_refresh(db, "MLA2")
+    assert calls == ["MLA1", "MLA2"]
 
 
 def test_on_commit_drains_pending_auto_jobs(monkeypatch) -> None:
