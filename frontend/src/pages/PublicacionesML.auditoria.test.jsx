@@ -465,3 +465,171 @@ describe('L7: Exportar a Excel', () => {
     expect(screen.queryByRole('button', { name: /Exportar a Sheets/ })).not.toBeInTheDocument();
   });
 });
+
+describe('rotacion S2: the Rotación columns', () => {
+  const rowOf = (name) => within(table()).getByText(name, { selector: 'span' }).closest('tr');
+
+  it('groups Última venta, Ageing, Cobertura and Rotación under "Rotación"', async () => {
+    await audit();
+    const all = headers();
+    for (const name of ['Rotación', 'Última venta', 'Ageing', 'Cobertura', 'Veces']) {
+      expect(all.some((text) => text.includes(name))).toBe(true);
+    }
+  });
+
+  it("shows each product's last sale, its ageing, its days of coverage and its rotation", async () => {
+    await audit();
+    const notebook = within(rowOf('Notebook Demo 14 i5 8GB 512GB'));
+    expect(notebook.getByText(/^16\/11/)).toBeInTheDocument();
+    expect(notebook.getByText('2 d')).toBeInTheDocument();
+    expect(notebook.getByLabelText('Días de cobertura')).toHaveTextContent('60');
+    expect(notebook.getByLabelText('Rotación (veces)')).toHaveTextContent('0,48');
+  });
+
+  it("every figure of the group says it is the whole product's, without filters (L2)", async () => {
+    await audit();
+    const notebook = within(rowOf('Notebook Demo 14 i5 8GB 512GB'));
+    const whole = /del producto completo, sin filtros/;
+    expect(notebook.getByText(/^16\/11/).closest('[title]')).toHaveAttribute('title', expect.stringMatching(whole));
+    expect(notebook.getByText('2 d')).toHaveAttribute('title', expect.stringMatching(whole));
+    expect(notebook.getByLabelText('Días de cobertura')).toHaveAttribute('title', expect.stringMatching(whole));
+    expect(notebook.getByLabelText('Rotación (veces)')).toHaveAttribute('title', expect.stringMatching(whole));
+  });
+
+  it('stock without sales lasts forever: ∞, and no last sale nor ageing', async () => {
+    await audit();
+    const pc = within(rowOf(AUDIT_ORPHAN.descripcion));
+    const coverage = pc.getByLabelText('Días de cobertura');
+    expect(coverage).toHaveTextContent('∞');
+    expect(coverage).toHaveAttribute('title', 'Con stock y sin ventas en 30 días, del producto completo, sin filtros');
+    expect(pc.getByLabelText('Rotación (veces)')).toHaveTextContent('0,00');
+  });
+
+  it("the rotation says over how many days its average stock is, and marks the current stock's stand-in", async () => {
+    const body = stockAuditResponse();
+    const [notebook, ...rest] = body.rows;
+    const approximate = { ...notebook, ventas: { ...notebook.ventas, stock_promedio_dias: 0, stock_promedio: 50 } };
+    publicacionesMlAPI.stockAudit.mockResolvedValue({ data: { ...body, rows: [approximate, ...rest] } });
+    await audit();
+    const cartridge = within(rowOf('Cartucho Demo 01 negro')).getByLabelText('Rotación (veces)');
+    expect(cartridge).toHaveAttribute('title', 'Ventas 30D sobre el stock promedio de 12 días (131,6 u.), del producto completo, sin filtros');
+    const first = within(rowOf('Notebook Demo 14 i5 8GB 512GB')).getByLabelText('Rotación (veces)');
+    expect(first).toHaveTextContent('≈ 0,48');
+    expect(first).toHaveAttribute('title', 'Aproximado: sobre el stock actual (50 u.), todavía no hay fotos diarias del stock, del producto completo, sin filtros');
+  });
+
+  it('a variant shows its own figures', async () => {
+    const user = userEvent.setup();
+    const t = await audit();
+    await user.click(t.getByRole('button', { name: 'Abrir Notebook Demo 14 i5 8GB 512GB' }));
+    const variant = within(rowOf('Notebook Demo 14 i5 16GB 512GB'));
+    expect(variant.getByLabelText('Días de cobertura')).toHaveTextContent('45');
+    expect(variant.getByLabelText('Rotación (veces)')).toHaveTextContent('0,67');
+  });
+
+  it('a publication shows its own last sale and ageing', async () => {
+    const user = userEvent.setup();
+    const t = await audit();
+    await user.click(t.getByRole('button', { name: 'Abrir Notebook Demo 14 i5 8GB 512GB' }));
+    const publication = within((await t.findByText('MLA1900000001')).closest('tr'));
+    expect(publication.getByText(/^14\/11/)).toBeInTheDocument();
+  });
+
+  it.each([
+    ['Cobertura', 'cobertura', 'desc'],
+    ['Veces', 'rotacion', 'asc'],
+    ['Ageing', 'ageing', 'desc'],
+    ['Última venta', 'ultima_venta', 'asc'],
+  ])('the %s header sorts the audit by %s, the worst first', async (header, orden, dir) => {
+    const user = userEvent.setup();
+    await audit();
+    await user.click(within(table()).getByRole('button', { name: new RegExp(`^${header}`) }));
+    await waitFor(() => expect(auditCalls().at(-1)).toMatchObject({ orden, dir }));
+  });
+
+  it('without ml_metricas.ver there is no Rotación column', async () => {
+    canSeeKpis = false;
+    await audit();
+    expect(headers().some((text) => /Rotación|Cobertura|Ageing|Última venta/.test(text))).toBe(false);
+  });
+
+  it('each column can be hidden in the picker, and it is remembered', async () => {
+    const user = userEvent.setup();
+    await audit();
+    await user.click(screen.getByRole('button', { name: /Columnas/ }));
+    await user.click(screen.getByRole('checkbox', { name: 'Días de cobertura' }));
+    await waitFor(() => expect(headers().some((text) => text.includes('Cobertura'))).toBe(false));
+    expect(localStorage.getItem('publicaciones-ml.auditoria.columnas-ocultas')).toContain('cobertura');
+    for (const name of ['Última venta', 'Ageing', 'Rotación (veces)']) {
+      expect(screen.getByRole('checkbox', { name })).toBeInTheDocument();
+    }
+  });
+});
+
+// The verifier's probes (rotacion S1/S2/L1): a never-sold product's ageing, "—" for a division by zero, the singular day,
+// the permission gate on the picker, and the sort in the URL.
+describe('rotacion S2: edge cases', () => {
+  const rowOf = (name) => within(table()).getByText(name, { selector: 'span' }).closest('tr');
+  const withVentas = (patch) => {
+    const body = stockAuditResponse();
+    const [first, ...rest] = body.rows;
+    publicacionesMlAPI.stockAudit.mockResolvedValue({ data: { ...body, rows: [{ ...first, ventas: { ...first.ventas, ...patch } }, ...rest] } });
+  };
+
+  it('a never-sold product shows its ageing from the publication date and "—" as last sale', async () => {
+    withVentas({ ultima_venta: null, ultima_venta_dias: null, ageing_dias: 70 });
+    await audit();
+    const row = within(rowOf('Notebook Demo 14 i5 8GB 512GB'));
+    expect(row.getByText('70 d')).toBeInTheDocument();
+  });
+
+  it('no stock and no sale: coverage reads "—" (never 0, never ∞)', async () => {
+    withVentas({ dias_cobertura: null, cobertura_infinita: false });
+    await audit();
+    const row = rowOf('Notebook Demo 14 i5 8GB 512GB');
+    expect(within(row).queryByLabelText('Días de cobertura')).not.toBeInTheDocument();
+    expect(row.textContent).not.toContain('∞');
+  });
+
+  it('a null rotation (average stock 0) reads "—", not 0,00', async () => {
+    withVentas({ rotacion: null });
+    await audit();
+    const row = rowOf('Notebook Demo 14 i5 8GB 512GB');
+    expect(within(row).queryByLabelText('Rotación (veces)')).not.toBeInTheDocument();
+  });
+
+  it('a single photographed day says "día" in the singular', async () => {
+    withVentas({ stock_promedio_dias: 1 });
+    await audit();
+    const el = within(rowOf('Notebook Demo 14 i5 8GB 512GB')).getByLabelText('Rotación (veces)');
+    expect(el.getAttribute('title')).toMatch(/promedio de 1 día /);
+  });
+
+  it('with sales but without margin the four columns are in the picker and the table', async () => {
+    canSeeMargin = false;
+    await audit();
+    const h = headers().join('|');
+    for (const name of ['Última venta', 'Ageing', 'Cobertura', 'Veces']) expect(h).toContain(name);
+  });
+
+  it('without ml_metricas.ver the picker does not offer the Rotación columns', async () => {
+    canSeeKpis = false;
+    const user = userEvent.setup();
+    await audit();
+    await user.click(screen.getByRole('button', { name: /Columnas/ }));
+    for (const name of ['Última venta', 'Ageing', 'Días de cobertura', 'Rotación (veces)']) {
+      expect(screen.queryByRole('checkbox', { name })).not.toBeInTheDocument();
+    }
+  });
+
+  it('a ?orden=cobertura URL without ml_metricas.ver falls back to the default sort', async () => {
+    canSeeKpis = false;
+    await audit('/ml-publicaciones?vista=auditoria&orden=cobertura');
+    expect(auditCalls().at(-1).orden).toBe('valor_total');
+  });
+
+  it('a ?orden=cobertura URL with ml_metricas.ver is sent as is', async () => {
+    await audit('/ml-publicaciones?vista=auditoria&orden=cobertura&dir=desc');
+    expect(auditCalls().at(-1)).toMatchObject({ orden: 'cobertura', dir: 'desc' });
+  });
+});

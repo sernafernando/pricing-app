@@ -73,23 +73,23 @@ export function TotalGaussCell({ metrics }) {
   return soldIn30d(metrics) && metrics.total_gauss_30d != null ? <Money value={metrics.total_gauss_30d} strong /> : <Empty />;
 }
 
-/** The last sale ever and how long ago, in business days. */
-export function LastSaleCell({ metrics, now = new Date() }) {
+/** The last sale ever and how long ago, in business days; `note` adds to its tooltip. */
+export function LastSaleCell({ metrics, now = new Date(), note }) {
   if (!metrics) return <Empty />;
   const { when, ago } = formatLastSale(metrics.last_sale_at, now);
   return (
-    <div className={styles.lastSale} title={ago}>
+    <div className={styles.lastSale} title={note ? `${ago}, ${note}` : ago}>
       <span className={styles.when}>{when}</span>
       <span className={styles.ago}>{ago}</span>
     </div>
   );
 }
 
-/** Days since the last sale (or the publication's start), as Métricas' chip. */
-export function AgeingCell({ metrics }) {
+/** Days since the last sale (or the publication's start), as Métricas' chip; `note` is its tooltip. */
+export function AgeingCell({ metrics, note }) {
   if (metrics?.ageing_days == null) return <Empty />;
   return (
-    <span className={styles.ageing} data-tone={ageingTone(metrics.ageing_days)}>
+    <span className={styles.ageing} data-tone={ageingTone(metrics.ageing_days)} title={note}>
       {formatAgeing(metrics.ageing_days)}
     </span>
   );

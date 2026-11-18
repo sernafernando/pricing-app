@@ -16,6 +16,7 @@ from app.workers.handlers.tienda_nube_sync import sync as tienda_nube_sync
 from app.workers.handlers.promo_price_recompute import recompute as promo_price_recompute
 from app.workers.handlers.promo_refresh import promo_write_refresh
 from app.workers.handlers.publicacion_repair import envio_repair, sku_repair
+from app.workers.handlers.stock_snapshot import snapshot as stock_snapshot
 from app.workers.handlers.rrhh_horas_extras import horas_extras
 from app.workers.handlers.sell_drain import drain as sell_drain
 from app.workers.handlers.sell_in_bono import bono as sell_in_bono
@@ -82,6 +83,7 @@ class TestMlPublicationsRegistry:
             "ml_promotions.hay_mejores_boundaries",
             "ml_publications.core_first",
             "promo_price.recompute",
+            "stock.snapshot",
             "publicacion_repair.envio",
             "publicacion_repair.sku",
         ]
@@ -104,8 +106,9 @@ class TestMlPublicationsRegistry:
         assert registry.ML_PUBLICATIONS_REGISTRY[16] is ml_hay_mejores.boundaries
         assert registry.ML_PUBLICATIONS_REGISTRY[17] is ml_publications.core_first
         assert registry.ML_PUBLICATIONS_REGISTRY[18] is promo_price_recompute
-        assert registry.ML_PUBLICATIONS_REGISTRY[19] is envio_repair
-        assert registry.ML_PUBLICATIONS_REGISTRY[20] is sku_repair
+        assert registry.ML_PUBLICATIONS_REGISTRY[19] is stock_snapshot
+        assert registry.ML_PUBLICATIONS_REGISTRY[20] is envio_repair
+        assert registry.ML_PUBLICATIONS_REGISTRY[21] is sku_repair
 
     def test_core_first_runs_in_its_own_thread_five_seconds_apart_on_the_refresh_pacer(self) -> None:
         handler = registry.ML_PUBLICATIONS_REGISTRY[17]
@@ -188,5 +191,6 @@ class TestProcessIsolation:
             "'ml_publications.verify', 'ml_publications.promo_refresh', 'ml_ads.ingest', 'promo_write.refresh', "
             "'ml_publications.freshness', 'ml_billing.sweep', 'ml_orders.discounts', 'gestion_full.inbound', "
             "'gestion_full.reconcile', 'ml_publications.catalog_competition_refresh', "
-            "'ml_promotions.hay_mejores_boundaries', 'ml_publications.core_first', 'promo_price.recompute', 'publicacion_repair.envio', 'publicacion_repair.sku'] True"
+            "'ml_promotions.hay_mejores_boundaries', 'ml_publications.core_first', 'promo_price.recompute', "
+            "'stock.snapshot', 'publicacion_repair.envio', 'publicacion_repair.sku'] True"
         )

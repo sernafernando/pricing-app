@@ -16,8 +16,11 @@ The world (rate 1000 ARS per USD):
 
 from __future__ import annotations
 
+import importlib.util
 from dataclasses import replace
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from sqlalchemy import text
@@ -64,8 +67,24 @@ def publication(conn, mla: str, product_id: int, up: str, status: str = "active"
     seed.add_link(conn, mla, product_id)
 
 
+SNAPSHOT_MIGRATION = Path(__file__).resolve().parents[2] / "alembic" / "versions" / "20261122_producto_stock_diario.py"
+
+
+def create_snapshot_table(conn) -> None:
+    """The daily stock photo's table, from its real migration."""
+    from alembic.operations import Operations
+    from alembic.runtime.migration import MigrationContext
+
+    spec = importlib.util.spec_from_file_location(SNAPSHOT_MIGRATION.stem, SNAPSHOT_MIGRATION)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with Operations.context(MigrationContext.configure(conn)):
+        module.upgrade()
+
+
 def fill(conn) -> None:
     seed.create_presence_tables(conn)
+    create_snapshot_table(conn)
     for ddl in BOM_DDL:
         conn.execute(text(ddl))
     seed.add_usd_rate(conn, 1000.0, "2026-11-17")
@@ -357,9 +376,26 @@ def board_calls(monkeypatch) -> list[tuple]:
 
 
 def sales(unidades_7d: int, unidades_30d: int, facturado: float, **margin) -> dict:
-    # these Board rows carry no daily series: the trends are empty
+    # these Board rows carry no daily series: the trends are empty (the Rotación columns are compared apart)
     trends = {"series_units_90d": [], **({"series_markup_90d": []} if margin else {})}
     return {"unidades_7d": unidades_7d, "unidades_30d": unidades_30d, "facturado_30d": facturado, **trends, **margin}
+
+
+ROTATION_KEYS = (
+    "ultima_venta",
+    "ultima_venta_dias",
+    "ageing_dias",
+    "dias_cobertura",
+    "cobertura_infinita",
+    "rotacion",
+    "stock_promedio",
+    "stock_promedio_dias",
+)
+
+
+def plain(ventas: dict) -> dict:
+    """A row's sales without the Rotación columns (`sales` builds the rest)."""
+    return {key: value for key, value in ventas.items() if key not in ROTATION_KEYS}
 
 
 @pytest.mark.postgres
@@ -379,20 +415,20 @@ class TestStockAuditSales:
         rows = {row["product_item_id"]: row for row in audit(client, auditor)["rows"]}
         notebook = rows[100]
         # own 2 + variant 1; Total Gauss 300 over cost 2000 = 15 %; with sell in / out: (300 + 50 + 30) / (2000 - 50)
-        assert notebook["ventas"] == sales(
+        assert plain(notebook["ventas"]) == sales(
             1, 3, 3500.0, total_gauss_30d=300.0, markup_30d=15.0, total_gauss_sell_30d=380.0, markup_sell_30d=19.5
         )
-        assert notebook["variantes"][0]["ventas"] == sales(
+        assert plain(notebook["variantes"][0]["ventas"]) == sales(
             0, 1, 1500.0, total_gauss_30d=100.0, markup_30d=10.0, total_gauss_sell_30d=130.0, markup_sell_30d=13.0
         )
         mouse = rows[111]
         # 2 packs of 10 = 20 mice; no sell in / out: those figures do not apply (empty, never a copy)
-        assert mouse["ventas"] == sales(
+        assert plain(mouse["ventas"]) == sales(
             10, 20, 100.0, total_gauss_30d=10.0, markup_30d=25.0, total_gauss_sell_30d=None, markup_sell_30d=None
         )
         assert mouse["variantes"][0]["ventas"]["unidades_30d"] == 2  # the pack's own units
         # no sale at all: zero units, no profit figure
-        assert rows[140]["ventas"] == sales(
+        assert plain(rows[140]["ventas"]) == sales(
             0, 0, 0.0, total_gauss_30d=None, markup_30d=None, total_gauss_sell_30d=None, markup_sell_30d=None
         )
 
@@ -403,7 +439,7 @@ class TestStockAuditSales:
         body = audit(client, auditor)
         assert (body["can_see_sales"], body["can_see_margin"]) == (True, False)
         assert board_calls[0][1] is False
-        assert body["rows"][0]["ventas"] == sales(1, 3, 3500.0)
+        assert plain(body["rows"][0]["ventas"]) == sales(1, 3, 3500.0)
 
     def test_without_metricas_there_are_no_sales_and_no_board(self, client, auditor, board_calls) -> None:
         body = audit(client, auditor)
@@ -715,3 +751,206 @@ class TestStockAuditExport:
 
     def test_an_unknown_order_is_a_422(self, client, auditor) -> None:
         assert client.get(EXPORT_URL, headers=auditor, params={"orden": "precio"}).status_code == 422
+
+
+# --- Rotación (rotacion S2): Última venta and Ageing, the Board's own figures per publication, aggregated per row -----
+
+
+def sold(at: str, ageing: int) -> dict:
+    return {"last_sale_at": datetime.fromisoformat(at).replace(tzinfo=timezone.utc), "ageing_days": ageing}
+
+
+# MLA10 last sold on the 10th (8 days), MLA11 never (published 70 days ago), variant MLA12 on the 15th (3 days),
+# the pack MLA20 never (published 40 days ago); MLA40 (the PC) has no Board row.
+LAST_SALES = {
+    "MLA10": sold("2026-11-10T15:00:00", 8),
+    "MLA11": {"last_sale_at": None, "ageing_days": 70},
+    "MLA12": sold("2026-11-15T12:30:00", 3),
+    "MLA20": {"last_sale_at": None, "ageing_days": 40},
+}
+
+
+@pytest.fixture()
+def last_sales_board(monkeypatch) -> None:
+    figures = {
+        mla: replace(FIGURES.get(mla) or board_row(mla, d7=0, d30=0, gross=0.0, tg=0.0, costo=0.0), **fields)
+        for mla, fields in LAST_SALES.items()
+    }
+    monkeypatch.setattr(
+        stock_audit, "metrics_by_mla", lambda db, mlas, sell_in_out=False: {m: figures[m] for m in mlas if m in figures}
+    )
+
+
+class TestLastSaleAndAgeingAggregation:
+    """A row's last sale is its publications' latest; its ageing the Board's own rule over them (days since that last
+    sale, or since its oldest publication started when none ever sold), never an average."""
+
+    def test_with_a_sale_the_ageing_counts_from_the_latest_sale(self) -> None:
+        figures = stock_audit.Sales()
+        for mla in ("MLA10", "MLA11", "MLA12"):
+            figures.add(replace(board_row(mla, d7=0, d30=0, gross=0.0, tg=0.0, costo=0.0), **LAST_SALES[mla]))
+        out = figures.out(with_margin=False)
+        assert out["ultima_venta"] == LAST_SALES["MLA12"]["last_sale_at"]
+        assert (out["ultima_venta_dias"], out["ageing_dias"]) == (3, 3)
+
+    def test_without_any_sale_the_ageing_counts_from_the_oldest_publication(self) -> None:
+        figures = stock_audit.Sales()
+        figures.add(replace(board_row("MLA11", d7=0, d30=0, gross=0.0, tg=0.0, costo=0.0), **LAST_SALES["MLA11"]))
+        figures.add(replace(board_row("MLA20", d7=0, d30=0, gross=0.0, tg=0.0, costo=0.0), **LAST_SALES["MLA20"]))
+        out = figures.out(with_margin=False)
+        assert (out["ultima_venta"], out["ultima_venta_dias"], out["ageing_dias"]) == (None, None, 70)
+
+    def test_without_a_board_row_both_are_unknown(self) -> None:
+        out = stock_audit.Sales().out(with_margin=False)
+        assert (out["ultima_venta"], out["ultima_venta_dias"], out["ageing_dias"]) == (None, None, None)
+
+
+@pytest.mark.postgres
+class TestStockAuditLastSaleAndAgeing:
+    def test_each_row_and_variant_shows_its_last_sale_and_ageing(
+        self, client, auditor, db, rol_admin, last_sales_board
+    ) -> None:
+        grant(db, rol_admin, "ml_metricas.ver")
+        rows = {row["product_item_id"]: row for row in audit(client, auditor)["rows"]}
+        notebook = rows[100]["ventas"]
+        # its own MLA10 / MLA11 and its variant's MLA12: the variant sold last
+        assert (notebook["ultima_venta"], notebook["ultima_venta_dias"], notebook["ageing_dias"]) == (
+            "2026-11-15T12:30:00Z",
+            3,
+            3,
+        )
+        variant = rows[100]["variantes"][0]["ventas"]
+        assert (variant["ultima_venta"], variant["ageing_dias"]) == ("2026-11-15T12:30:00Z", 3)
+        mouse = rows[111]["ventas"]  # only its pack, never sold: since the pack's publication started
+        assert (mouse["ultima_venta"], mouse["ultima_venta_dias"], mouse["ageing_dias"]) == (None, None, 40)
+        for item in (130, 140):  # no Board row: unknown, never 0
+            assert (rows[item]["ventas"]["ultima_venta"], rows[item]["ventas"]["ageing_dias"]) == (None, None)
+
+    def test_without_metricas_there_is_no_last_sale_nor_ageing(self, client, auditor, last_sales_board) -> None:
+        assert all(row["ventas"] is None for row in audit(client, auditor)["rows"])
+
+    @pytest.mark.parametrize(
+        "orden, direction, expected",
+        [
+            ("ultima_venta", "desc", [100, 111, 130, 140]),
+            # never sold (with publications) is the oldest last sale; no publication at all is unknown, last
+            ("ultima_venta", "asc", [111, 100, 130, 140]),
+            ("ageing", "desc", [111, 100, 130, 140]),
+            ("ageing", "asc", [100, 111, 130, 140]),
+        ],
+    )
+    def test_it_sorts_by_last_sale_and_ageing_with_the_unknown_ones_last(
+        self, client, auditor, db, rol_admin, last_sales_board, orden, direction, expected
+    ) -> None:
+        grant(db, rol_admin, "ml_metricas.ver")
+        body = audit(client, auditor, orden=orden, dir=direction)
+        assert [row["product_item_id"] for row in body["rows"]] == expected
+
+    @pytest.mark.parametrize("orden", ["ultima_venta", "ageing"])
+    def test_sorting_by_them_needs_metricas(self, client, auditor, orden) -> None:
+        assert client.get(URL, headers=auditor, params={"orden": orden}).status_code == 403
+
+    def test_the_export_carries_them_with_metricas(self, client, auditor, db, rol_admin, last_sales_board) -> None:
+        grant(db, rol_admin, "ml_metricas.ver")
+        rows = {r["Código"]: r for r in sheet(client, auditor)}
+        assert (
+            rows["C100"]["Última venta"],
+            rows["C100"]["Días desde última venta"],
+            rows["C100"]["Ageing (días)"],
+        ) == (
+            "2026-11-15",
+            3,
+            3,
+        )
+        assert (rows["C111"]["Última venta"], rows["C111"]["Ageing (días)"]) == (None, 40)
+        assert rows["C140"]["Ageing (días)"] is None
+
+    def test_the_export_has_no_rotation_columns_without_metricas(self, client, auditor) -> None:
+        assert not set(sheet(client, auditor)[0]) & {"Última venta", "Ageing (días)"}
+
+
+# --- Rotación (rotacion S2, L1): Días de cobertura and Rotación (veces) ----------------------------------------------
+
+
+def photo(conn, day: date, **stock: tuple[int, int]) -> None:
+    """The daily stock photo of `day`: item -> (erp, full), keyed `p<item>`."""
+    for key, (erp, full) in stock.items():
+        conn.execute(
+            text("INSERT INTO producto_stock_diario VALUES (:f, :i, :e, :u)"),
+            {"f": day, "i": int(key[1:]), "e": erp, "u": full},
+        )
+
+
+def fill_with_photos(conn) -> None:
+    """The world above with two photos in the last 30 days (and one out of the window)."""
+    fill(conn)
+    today = board.today_business()
+    photo(conn, today, p100=(4, 1), p101=(0, 1), p111=(100, 0), p110=(0, 3), p140=(2, 0))
+    photo(conn, today - timedelta(days=29), p100=(4, 2), p140=(2, 0))
+    photo(conn, today - timedelta(days=30), p100=(1000, 0))
+
+
+@pytest.fixture()
+def photographed(client, pg, db, rol_admin, admin_auth_headers, started):
+    seed_rows(pg, fill_with_photos)
+    grant(db, rol_admin, PERMISO, "ml_metricas.ver")
+    return admin_auth_headers
+
+
+def rotation(ventas: dict) -> tuple:
+    keys = ("dias_cobertura", "cobertura_infinita", "rotacion", "stock_promedio", "stock_promedio_dias")
+    return tuple(ventas[key] for key in keys)
+
+
+@pytest.mark.postgres
+class TestStockAuditCoverageAndRotation:
+    def test_with_photos_the_rotation_is_over_the_average_stock_of_the_days_photographed(
+        self, client, photographed, board_calls
+    ) -> None:
+        rows = {row["product_item_id"]: row for row in audit(client, photographed)["rows"]}
+        # notebook: 3 units in 30 days (its own 2 + its variant's 1); stock now 8 (ERP 5 + Full 2 + the variant's 1)
+        # -> 8 / (3 / 30) = 80 days; average stock (4 + 1 + 1, then 4 + 2) / 2 days = 6 -> 3 / 6 = 0.5 times
+        assert rotation(rows[100]["ventas"]) == (80.0, False, 0.5, 6.0, 2)
+        # the variant on its own: Full 1 now, 1 sold; average Full (1 + 0) / 2
+        assert rotation(rows[100]["variantes"][0]["ventas"]) == (30.0, False, 2.0, 0.5, 2)
+        # mice: 20 sold (2 packs of 10); 130 now (ERP 100 + 30 in packs); average (100 + 3 x 10 + 0) / 2 = 65
+        assert rotation(rows[111]["ventas"]) == (195.0, False, 0.31, 65.0, 2)
+
+    def test_stock_without_sales_lasts_forever(self, client, photographed, board_calls) -> None:
+        rows = {row["product_item_id"]: row for row in audit(client, photographed)["rows"]}
+        # 140: 2 in stock, nothing sold: infinite coverage, rotation 0
+        assert rotation(rows[140]["ventas"]) == (None, True, 0.0, 2.0, 2)
+        # the PC: stock 1 and never photographed in the window: its average is 0, a division by zero ("—")
+        assert rotation(rows[130]["ventas"]) == (None, True, None, 0.0, 2)
+
+    def test_without_photos_the_current_stock_stands_in_and_says_so(self, client, auditor, db, rol_admin, board_calls):
+        grant(db, rol_admin, "ml_metricas.ver")
+        rows = {row["product_item_id"]: row for row in audit(client, auditor)["rows"]}
+        # 0 days photographed: the stock now (130) instead of the average, marked by stock_promedio_dias = 0
+        assert rotation(rows[111]["ventas"]) == (195.0, False, 0.15, 130.0, 0)
+
+    @pytest.mark.parametrize(
+        "orden, direction, expected",
+        [
+            # infinite coverage is the worst: the highest
+            ("cobertura", "desc", [130, 140, 111, 100]),
+            ("cobertura", "asc", [100, 111, 130, 140]),
+            ("rotacion", "desc", [100, 111, 140, 130]),
+        ],
+    )
+    def test_it_sorts_by_coverage_and_rotation(
+        self, client, photographed, board_calls, orden, direction, expected
+    ) -> None:
+        body = audit(client, photographed, orden=orden, dir=direction)
+        assert [row["product_item_id"] for row in body["rows"]] == expected
+
+    @pytest.mark.parametrize("orden", ["cobertura", "rotacion"])
+    def test_sorting_by_them_needs_metricas(self, client, auditor, orden) -> None:
+        assert client.get(URL, headers=auditor, params={"orden": orden}).status_code == 403
+
+    def test_the_export_carries_coverage_and_rotation(self, client, photographed, board_calls) -> None:
+        rows = {r["Código"]: r for r in sheet(client, photographed)}
+        assert (rows["C100"]["Días de cobertura"], rows["C100"]["Rotación (veces)"]) == (80.0, 0.5)
+        assert (rows["C140"]["Días de cobertura"], rows["C140"]["Rotación (veces)"]) == ("∞", 0.0)
+        assert rows["C130"]["Rotación (veces)"] is None
+        assert rows["C101"]["Rotación (veces)"] == 2.0
