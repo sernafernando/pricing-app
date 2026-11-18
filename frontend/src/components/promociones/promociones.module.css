@@ -1479,10 +1479,11 @@
 }
 
 .rankingRow {
-  /* Tracks sized to content maxima; remainder → name.
-     price ≤ "$10.000.000,00"; markup ≤ "-99.9%" (sell-in/out stacks below). */
+  /* Tracks: check | pos | name(fr) | Full | rep | price | markup.
+     Keep fixed tracks tight so name keeps width on phone (~390px);
+     price ≈ "$999.999,00"; markup ≤ "-99.9%" (sell-in/out stacks below). */
   display: grid;
-  grid-template-columns: 1.1rem 1.25rem minmax(0, 1fr) 2.4em 8.5em 14ch 5.5ch;
+  grid-template-columns: 1.1rem 1.25rem minmax(3.5rem, 1fr) 2.4em 4.5em 9ch 5.5ch;
   gap: var(--space-1, 0.25rem) var(--space-2, 0.5rem);
   align-items: center;
   min-height: 32px;
