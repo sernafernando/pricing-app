@@ -6,7 +6,7 @@ import styles from './EditarCampoModal.module.css';
  * Edits one field of a Ventas por Fuera operation (client, code, quantity, ...).
  *
  * `edicion` is `{ label, valor, numerico }` or null (closed). On save it calls
- * `onSave(valor)`: the trimmed text, or for numeric fields a number (null when
+ * `onSave(valor)`: the text as typed, or for numeric fields a number (null when
  * left empty, which clears the override), the same values the old dashboard sent.
  */
 export default function EditarCampoModal({ edicion, onClose, onSave }) {

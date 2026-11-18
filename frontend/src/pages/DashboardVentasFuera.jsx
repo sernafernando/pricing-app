@@ -667,7 +667,7 @@ export default function DashboardVentasFuera() {
         </div>
       )}
 
-      {tabActivo === 'admin' ? (
+      {tabActivo === 'admin' && esAdmin ? (
         <TabAdminVentasFuera />
       ) : tabActivo === 'rentabilidad' ? (
         <TabRentabilidadFuera 
