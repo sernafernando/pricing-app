@@ -43,7 +43,7 @@ def test_protected_resource_metadata_points_to_our_authorization_server(mcp_clie
     body = r.json()
     assert body["resource"] == RESOURCE
     assert body["authorization_servers"] == [ISSUER]
-    assert body["scopes_supported"] == ["pricing.read"]
+    assert body["scopes_supported"] == ["pricing.read", "pricing.write"]
     assert body["bearer_methods_supported"] == ["header"]
 
 
@@ -61,7 +61,7 @@ def test_authorization_server_metadata_advertises_cimd_pkce_and_iss(mcp_client):
     assert body["grant_types_supported"] == ["authorization_code", "refresh_token"]
     assert body["client_id_metadata_document_supported"] is True
     assert body["authorization_response_iss_parameter_supported"] is True
-    assert body["scopes_supported"] == ["pricing.read"]
+    assert body["scopes_supported"] == ["pricing.read", "pricing.write"]
     assert "registration_endpoint" not in body  # DCR stays off until a client needs it (L4)
 
 
@@ -238,7 +238,7 @@ def test_wrong_resource_is_refused(mcp_client):
 
 
 def test_unknown_scope_is_refused(mcp_client):
-    query = _error_redirect(mcp_client, scope="pricing.read pricing.write")
+    query = _error_redirect(mcp_client, scope="pricing.read pricing.admin")
     assert query["error"] == "invalid_scope"
 
 
