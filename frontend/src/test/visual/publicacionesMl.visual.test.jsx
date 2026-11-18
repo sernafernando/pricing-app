@@ -492,7 +492,7 @@ describe('Publicaciones ML (visual)', () => {
         expect(headers.map((th) => th.textContent)).toEqual(['ERP', 'Full', 'Total']);
         expect(scroller.querySelector('thead th[data-column="stock_propio"]')).toBeNull();
         const group = [...scroller.querySelectorAll('thead th[scope="colgroup"]')].find((th) => th.textContent === 'Stock');
-        expect(group.colSpan).toBe(5); // Actual, Actual c/ SISO, Real 30D, Real 30D c/ SISO, Tendencia
+        expect(group.colSpan).toBe(3);
         expect(wrapped(headers.map((th) => th.querySelector('button')))).toEqual([]);
         // Never the available sum nor our own quantity: the first fixture row has 34 available, 20 Full, 14 of our own.
         const first = scroller.querySelector('tbody tr');

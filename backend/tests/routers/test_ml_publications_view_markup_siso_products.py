@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import Optional
 
 import pytest
 from sqlalchemy.orm import sessionmaker
@@ -22,13 +23,17 @@ from tests.routers.test_ml_publications_view import GANANCIA, VER
 from tests.routers.test_ml_publications_view_export import PRODUCTS_CSV, column, read_csv
 from tests.routers.test_ml_publications_view_kpis import METRICAS, _seller, pg, view_pg  # noqa: F401
 from tests.routers.test_ml_publications_view_products import body, by_key, sold  # noqa: F401
+from tests.routers.test_ml_publications_view import seed_rows
 from tests.routers.test_ml_publications_view_stock_audit import (  # noqa: F401
+    PERMISO,
     audit,
     auditor,
     board_calls,
     list_markups,
+    no_split,
     started,
 )
+from tests.routers.test_ml_publications_view_stock_audit_niveles import LENOVO, fill_groups, splits  # noqa: F401
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
 
 pytestmark = pytest.mark.postgres
@@ -109,6 +114,7 @@ class TestProductRows:
         assert by_code["R77"] == f"{rows['77']['metrics']['markup_sell_30d']:.2f}".replace(".", ",")
 
 
+@pytest.mark.usefixtures("no_split")
 class TestAudit:
     @pytest.fixture()
     def siso_ten_up(self, monkeypatch) -> None:
@@ -149,3 +155,80 @@ class TestAudit:
         rows = audit(client, auditor)["rows"]
         assert all("markup_siso" not in row for row in rows)
         assert all("markup_siso" not in v for row in rows for v in row["variantes"])
+
+
+@pytest.mark.postgres
+class TestAuditLevels:
+    """pubml-markup-siso S4 on the Marca and Categoría levels (#2343): a brand's or a category's markup c/ SISO is the
+    range of its products' ranges, the rule its plain `markup_actual` follows (no average)."""
+
+    @pytest.fixture()
+    def margin_groups(self, client, pg, db, rol_admin, admin_auth_headers, started, splits, list_markups, monkeypatch):
+        seed_rows(pg, fill_groups)
+        grant(db, rol_admin, PERMISO, "ml_metricas.ver", "ml_metricas.ver_ganancia")
+
+        def fake(pricing_db, items):  # 10 points above the plain markup, MLA11's low end 5 points below it
+            return {
+                mla: cost_lines.SisoMarkup(
+                    PublicationMarkup(
+                        (),
+                        m.markup.value_min + (-5 if mla == "MLA11" else 10),
+                        m.markup.value_max + 10,
+                        None,
+                        False,
+                        0,
+                        "",
+                    ),
+                    0,
+                    True,
+                )
+                for mla, m in items.items()
+            }
+
+        monkeypatch.setattr(stock_audit, "siso_markups", fake)
+        return admin_auth_headers
+
+    @staticmethod
+    def span(rows: list[dict]) -> Optional[dict]:
+        ranges = [r["markup_siso"] for r in rows if r.get("markup_siso")]
+        if not ranges:
+            return None
+        return {"min": min(r["min"] for r in ranges), "max": max(r["max"] for r in ranges)}
+
+    def test_a_brand_and_its_categories_carry_the_range_of_their_products(self, client, margin_groups) -> None:
+        brands = by_level_key(audit(client, margin_groups, nivel="marca"))
+        lenovo = brands["marca:LENOVO"]
+        products = audit(client, margin_groups, nivel="producto", grupo_marca=LENOVO)["rows"]
+        # notebook 100 (MLA10, MLA11 and its variant's MLA12): MLA11's low end 16 - 5, MLA12's 22 + 10
+        assert lenovo["markup_siso"] == self.span(products) == {"min": 11.0, "max": 32.0}
+        assert brands["marca:LOGI"]["markup_siso"] == {"min": 40.0, "max": 40.0}  # the pack's MLA20
+        for category in lenovo["categorias"]:
+            drilled = audit(
+                client,
+                margin_groups,
+                nivel="producto",
+                grupo_marca=LENOVO,
+                grupo_categoria=category["grupo"]["categoria"],
+            )["rows"]
+            assert category["markup_siso"] == self.span(drilled), category["key"]
+
+    def test_the_categoria_level_too(self, client, margin_groups) -> None:
+        for row in audit(client, margin_groups, nivel="categoria")["rows"]:
+            drilled = audit(client, margin_groups, nivel="producto", grupo_categoria=row["grupo"]["categoria"])["rows"]
+            assert row["markup_siso"] == self.span(drilled), row["key"]
+
+    def test_the_brands_sort_by_it(self, client, margin_groups) -> None:
+        rows = audit(client, margin_groups, nivel="marca", orden="markup_siso", dir="asc")["rows"]
+        lows = [r["markup_siso"]["min"] for r in rows if r["markup_siso"] is not None]
+        assert lows == sorted(lows) and len(lows) == 2
+
+    def test_without_ver_ganancia_no_group_has_it(self, client, pg, db, rol_admin, admin_auth_headers, started, splits):
+        seed_rows(pg, fill_groups)
+        grant(db, rol_admin, PERMISO, "ml_metricas.ver")
+        rows = audit(client, admin_auth_headers, nivel="marca")["rows"]
+        assert all("markup_siso" not in r for r in rows)
+        assert all("markup_siso" not in c for r in rows for c in r.get("categorias") or [])
+
+
+def by_level_key(body: dict) -> dict[str, dict]:
+    return {row["key"]: row for row in body["rows"]}

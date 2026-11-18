@@ -8,7 +8,7 @@ import { buildAuditColumns } from './StockAuditTable';
 import { auditColumnOptions } from './auditOptions';
 import { STOCK_AUDIT_SORTS } from '../../../hooks/usePublicacionesMLFilters';
 
-const columnsFor = (permissions) => buildAuditColumns({ rate: 1000, onToggle: () => {}, onMore: () => {}, ...permissions });
+const columnsFor = (permissions) => buildAuditColumns({ rate: 1000, nivel: 'producto', onToggle: () => {}, onDrill: () => {}, onMore: () => {}, arrange: (columns) => columns, ...permissions });
 const sisoOf = (permissions) => columnsFor(permissions).find((column) => column.key === 'markup_siso');
 
 describe('Markup actual c/ SISO on Auditoría de stock', () => {
@@ -31,6 +31,12 @@ describe('Markup actual c/ SISO on Auditoría de stock', () => {
     const row = { type: 'product', node: { markup_siso: { min: -2.5, max: 30 } } };
     render(sisoOf({ canSeeMargin: true }).render(row));
     expect(screen.getByText('-2,5% – 30,0%')).toHaveAttribute('data-negative', '');
+  });
+
+  it('a brand or category row (Marca / Categoría levels) shows the range of its products', () => {
+    const row = { type: 'group', node: { key: 'marca:LENOVO', markup_siso: { min: 11, max: 32 } } };
+    render(sisoOf({ canSeeMargin: true }).render(row));
+    expect(screen.getByText('11,0% – 32,0%')).toBeInTheDocument();
   });
 
   it('a row without a value reads "—"', () => {

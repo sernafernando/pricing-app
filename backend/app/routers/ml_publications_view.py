@@ -928,6 +928,7 @@ class StockAuditCategoryOut(BaseModel):
     status_counts: dict[str, int] = {}
     promo_counts: Optional[StockPromoCountsOut] = None
     markup_actual: Optional[StockMarkupRangeOut] = None
+    markup_siso: Optional[StockMarkupRangeOut] = None
 
 
 class StockAuditRowOut(BaseModel):

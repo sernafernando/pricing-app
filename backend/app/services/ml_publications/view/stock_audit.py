@@ -1016,6 +1016,7 @@ class Group:
             )
         self.whole = Whole(sales_whole, stock, average, stock_erp, stock_full)
         self.markup = _span(r.markup for r in self.rows)
+        self.markup_siso = _span(r.markup_siso for r in self.rows)  # same rule as `markup` (pubml-markup-siso S4)
 
     @property
     def key(self) -> str:
@@ -1108,6 +1109,7 @@ def group_out(
     }
     if with_margin:
         body["markup_actual"] = _range_out(g.markup)
+        body["markup_siso"] = _range_out(g.markup_siso)
     if g.nivel == MARCA:
         body["categorias"] = [
             group_out(c, active, started, with_sales=with_sales, with_margin=with_margin)
