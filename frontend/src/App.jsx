@@ -36,6 +36,8 @@ const DashboardMetricasML = lazy(() => import('./pages/DashboardMetricasML'));
 const DashboardTPLink = lazy(() => import('./pages/DashboardTPLink'));
 const CargasPdf = lazy(() => import('./pages/CargasPdf'));
 const VendedoresExcluidos = lazy(() => import('./pages/VendedoresExcluidos'));
+// The old GBP-synced dashboard, back until the PDF operations screen is complete (ODD vpf-operaciones S4).
+const DashboardVentasFuera = lazy(() => import('./pages/DashboardVentasFuera'));
 const DashboardTiendaNube = lazy(() => import('./pages/DashboardTiendaNube'));
 const Calculos = lazy(() => import('./pages/Calculos'));
 const TestStatsDinamicos = lazy(() => import('./pages/TestStatsDinamicos'));
@@ -148,6 +150,7 @@ const protectedRoutes = [
   { path: '/dashboard-tplink', component: DashboardTPLink, permiso: 'dashboard_tplink.ver' },
   // The old dashboard's Admin tab, on its own route (S4); the page also asks for the ADMIN/SUPERADMIN role, as the tab did.
   { path: '/dashboard-ventas-fuera/vendedores-excluidos', component: VendedoresExcluidos, permiso: 'ventas_fuera.ver_dashboard' },
+  { path: '/dashboard-ventas-fuera', component: DashboardVentasFuera, permiso: 'ventas_fuera.ver_dashboard' },
   { path: '/dashboard-tienda-nube', component: DashboardTiendaNube, permiso: 'ventas_tn.ver_dashboard' },
   { path: '/calculos', component: Calculos, permiso: 'reportes.ver_calculadora' },
   { path: '/items-sin-mla', component: ItemsSinMLA, permiso: 'admin.ver_items_sin_mla' },
@@ -269,8 +272,6 @@ function App() {
             </ProtectedRoute>
           }>
             {protectedRoutes.map(renderProtectedRoute)}
-            {/* The old Ventas por fuera dashboard is the board's canal=fuera view now (S4); /metricas-ml gates it. */}
-            <Route path="/dashboard-ventas-fuera" element={<Navigate to="/metricas-ml?canal=fuera" replace />} />
           </Route>
           </Routes>
         </BrowserRouter>

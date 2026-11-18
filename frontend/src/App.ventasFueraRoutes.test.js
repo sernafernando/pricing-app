@@ -19,11 +19,12 @@ describe('Ventas por fuera routes', () => {
     expect(appSource).toMatch(/CargasPdf = lazy\(\(\) => import\('\.\/pages\/CargasPdf'\)\)/);
   });
 
-  it('S4: /dashboard-ventas-fuera redirects to the board with canal=fuera', () => {
+  it('vpf-operaciones S4: the old dashboard is back on /dashboard-ventas-fuera with ver_dashboard, no redirect', () => {
     expect(appSource).toMatch(
-      /<Route path="\/dashboard-ventas-fuera" element=\{<Navigate to="\/metricas-ml\?canal=fuera" replace \/>\} \/>/,
+      /\{ path: '\/dashboard-ventas-fuera', component: DashboardVentasFuera, permiso: 'ventas_fuera\.ver_dashboard' \}/,
     );
-    expect(appSource).not.toMatch(/DashboardVentasFuera/);
+    expect(appSource).toMatch(/DashboardVentasFuera = lazy\(\(\) => import\('\.\/pages\/DashboardVentasFuera'\)\)/);
+    expect(appSource).not.toMatch(/<Navigate to="\/metricas-ml\?canal=fuera"/);
   });
 
   it('S4: the excluded-salespeople admin keeps its own route with the old tab permission', () => {
