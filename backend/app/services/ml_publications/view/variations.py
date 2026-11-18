@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session, aliased, join as orm_join
 from app.models.ml_publications import MlItem, MlItemProductLink, MlItemVariation
 from app.models.producto import ProductoERP
 from app.services.ml_publications.view import markup_service
+from app.services.ml_publications.view.cost_lines import siso_markups
 from app.services.ml_publications.view.display import round_display
 from app.services.ml_publications.view.filters import LINK_CONFLICT, LINK_ITEM_LEVEL, LINK_LINKED, LINK_SOURCE_MANUAL
 from app.services.ml_publications.view.markup import UnitMarkup
@@ -188,7 +189,14 @@ def list_variations(db: Session, item_id: str, markup: Optional[MarkupQuery] = N
     units: Mapping[int, UnitMarkup] = {}
     if item is not None and len(item.variation_ids) == len(item.markup.variations):
         units = dict(zip(item.variation_ids, item.markup.variations))
+    # The markup c/ SISO of each unit, the ones the list's `markup_siso` range summarizes (pubml-markup-siso).
+    siso_units: Mapping[int, UnitMarkup] = {}
+    found = siso_markups(markup.pricing_db, {item_id: item}) if units else None
+    if found and item_id in found and len(found[item_id].markup.variations) == len(item.variation_ids):
+        siso_units = dict(zip(item.variation_ids, found[item_id].markup.variations))
     for sub_row in sub_rows:
         unit = units.get(sub_row["variation_id"])
         sub_row["markup"] = _markup_out(unit) if unit is not None else {"value": None, "reason": STALE_REASON}
+        siso = siso_units.get(sub_row["variation_id"])
+        sub_row["markup_siso"] = _markup_out(siso) if siso is not None else {"value": None, "reason": STALE_REASON}
     return VariationsResult(sub_rows, _publication_ads(item) if item is not None else None, computed.ads_failed)

@@ -465,6 +465,8 @@ class VariationOut(BaseModel):
     link: VariationLinkOut
     costo: Optional[VariationCostOut] = None  # present only with ml_metricas.ver_ganancia
     markup: Optional[VariationMarkupOut] = None  # present only with ml_metricas.ver_ganancia
+    # the variation's Markup actual c/ SISO (reason `siso_pendiente`: a missing rate or base); same gate
+    markup_siso: Optional[VariationMarkupOut] = None
 
 
 class VariationsAdsOut(AdsOut):

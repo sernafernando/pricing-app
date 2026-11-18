@@ -230,3 +230,32 @@ class TestGroupNodes:
     def test_without_ver_ganancia_a_node_has_no_markup_with_sell_in_out(self, client, rows, reader, pricing) -> None:
         response = get_groups(client, reader)
         assert all(not {"markup_siso_min", "markup_siso_max"} & set(n) for n in response.json()["nodes"])
+
+
+@pytest.mark.postgres
+class TestVariationRows:
+    """An expanded publication's sub-rows carry each variation's markup c/ SISO, as they carry its plain markup: the
+    units the list's range summarizes, matched by variation id."""
+
+    @staticmethod
+    def variations_of(client, headers, item_id: str = "MLA10") -> dict[int, dict]:
+        response = client.get(f"/api/ml-publications/view/items/{item_id}/variations", headers=headers)
+        assert response.status_code == 200, response.text
+        return {row["variation_id"]: row for row in response.json()["variations"]}
+
+    def test_the_variation_with_sell_in_shows_the_panels_markup_and_the_others_their_plain_one(
+        self, client, rows, analyst, pricing, db, admin_user
+    ) -> None:
+        sell_in(db, admin_user, 71)  # variation 12's product
+
+        found = self.variations_of(client, analyst)
+
+        assert found[12]["markup_siso"]["value"] == panel_markup(client, analyst, "MLA10")
+        for other in (11, 13):  # 13 inherits the publication's product; neither has sell in: their plain one
+            assert found[other]["markup_siso"]["value"] == found[other]["markup"]["value"], other
+        listed = items_of(client, analyst)["MLA10"]["markup_siso"]
+        values = [v["markup_siso"]["value"] for v in found.values() if v["markup_siso"]["value"] is not None]
+        assert (min(values), max(values)) == (listed["min"], listed["max"])  # the list's range is these units'
+
+    def test_without_ver_ganancia_there_is_none(self, client, rows, reader, pricing) -> None:
+        assert all("markup_siso" not in row for row in self.variations_of(client, reader).values())
