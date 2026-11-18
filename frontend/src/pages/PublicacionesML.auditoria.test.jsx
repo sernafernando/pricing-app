@@ -949,4 +949,14 @@ describe('auditoria-stock-niveles S3, S4: "ERP n · Full n" under the sales, cov
     expect(cell(pc, 'cobertura')).toHaveTextContent('ERP ∞ · Full —');
     expect(cell(pc, 'rotacion')).toHaveTextContent('ERP 0,00 · Full —');
   });
+
+  it('ERP sales without ERP stock read out of stock: 0 days and an infinite rotation, never "—" (PR #2345 review)', async () => {
+    const user = userEvent.setup();
+    const t = await audit();
+    await user.click(t.getByRole('button', { name: 'Abrir Notebook Demo 14 i5 8GB 512GB' }));
+    // the 16GB variant sold 6 by ERP in 30 days and holds no ERP stock of its own; Full 12 over 2 Full sales
+    const variant = rowOf('Notebook Demo 14 i5 16GB 512GB');
+    expect(cell(variant, 'cobertura')).toHaveTextContent('ERP 0 · Full 180');
+    expect(cell(variant, 'rotacion')).toHaveTextContent('ERP ∞ · Full 0,17');
+  });
 });

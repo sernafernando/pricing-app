@@ -295,10 +295,13 @@ function RotationCell({ ventas }) {
   );
 }
 
-/** One origin's coverage (`ventas.por_origen.erp`): "∞" with stock and no sale, "—" without a figure. */
+/** One origin's coverage (`ventas.por_origen.erp`): "∞" with stock and no sale, 0 with sales and no stock (out of
+ * stock), "—" only with neither. */
 const originCoverage = (origin) =>
   origin?.cobertura_infinita ? '∞' : origin?.dias_cobertura == null ? '—' : formatUnits(Math.round(origin.dias_cobertura));
-const originRotation = (origin) => (origin?.rotacion == null ? '—' : formatRatio(origin.rotacion));
+/** One origin's rotation: "∞" when it sold with an average stock of 0 (out of stock: sold ÷ 0 has no number). */
+const originRotation = (origin) =>
+  origin?.rotacion_infinita ? '∞' : origin?.rotacion == null ? '—' : formatRatio(origin.rotacion);
 
 /** A Rotación figure with its "ERP · Full" line under it, when the row has one. */
 function RotationFigure({ children, ventas, of }) {

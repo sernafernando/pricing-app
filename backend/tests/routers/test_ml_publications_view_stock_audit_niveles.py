@@ -339,6 +339,28 @@ class TestCoverageAndRotationBySource:
         # 140: ERP 2, never sold -> infinite, rotation 0; no Full at all -> no figure
         assert origen(rows[140]["ventas"]) == ((None, True, 0.0), (None, False, None))
 
+    def test_erp_sales_without_erp_stock_are_out_of_stock_not_unknown(
+        self, client, grouped_photos, splits, monkeypatch
+    ) -> None:
+        # PR #2345 review: the variant sold by ERP and holds no ERP stock of its own -> ERP coverage 0 days (out of
+        # stock, the signal that matters), and its rotation sold / 0 has no number: infinite, never "—"
+        monkeypatch.setitem(SPLITS, "MLA12", board.ShippingSplit(full_7d=0, full_30d=0, erp_7d=0, erp_30d=1))
+        variant = {r["product_item_id"]: r for r in audit(client, grouped_photos)["rows"]}[100]["variantes"][0]
+        erp = variant["ventas"]["por_origen"]["erp"]
+        assert (erp["dias_cobertura"], erp["cobertura_infinita"]) == (0.0, False)
+        assert (erp["rotacion"], erp["rotacion_infinita"]) == (None, True)
+
+    def test_no_erp_sales_and_no_erp_stock_is_the_only_unknown(self, client, grouped_photos, splits) -> None:
+        # the variant sold only by Full: nothing to say about ERP
+        variant = {r["product_item_id"]: r for r in audit(client, grouped_photos)["rows"]}[100]["variantes"][0]
+        erp = variant["ventas"]["por_origen"]["erp"]
+        assert (erp["dias_cobertura"], erp["cobertura_infinita"], erp["rotacion"], erp["rotacion_infinita"]) == (
+            None,
+            False,
+            None,
+            False,
+        )
+
     def test_two_products_with_different_stock_and_sales_get_different_splits(
         self, client, grouped_photos, splits
     ) -> None:

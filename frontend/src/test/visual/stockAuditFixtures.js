@@ -44,10 +44,9 @@ function coverageOf(stock, sold) {
 /** `stock_audit._per_stock`: sold over the average stock, unknown when that average is 0. */
 const perStock = (sold, average) => (average > 0 ? round2(sold / average) : null);
 
-/** `stock_audit._coverage_out`: one source's figures; a source the row has no stock of its own in reads nothing. */
+/** `stock_audit._coverage_out`: one source's figures; sales without stock are 0 days and an infinite rotation. */
 function byOrigin(stock, sold, average) {
-  if (stock == null) return { dias_cobertura: null, cobertura_infinita: false, rotacion: null };
-  return { ...coverageOf(stock, sold), rotacion: perStock(sold, average) };
+  return { ...coverageOf(stock, sold), rotacion: perStock(sold, average), rotacion_infinita: sold > 0 && !(average > 0) };
 }
 
 /**
@@ -59,9 +58,10 @@ function withRotation(row) {
   const ventas = row.ventas;
   const variantes = row.variantes?.map(withRotation);
   if (!ventas) return variantes ? { ...row, variantes } : row;
-  const erp = ['variante', 'pack'].includes(row.tipo) ? null : (row.erp?.unidades ?? 0);
+  // a variant or pack holds no ERP stock of its own (its base does)
+  const erp = ['variante', 'pack'].includes(row.tipo) ? 0 : (row.erp?.unidades ?? 0);
   const full = row.full?.unidades ?? 0;
-  const stock = (erp ?? 0) + full;
+  const stock = erp + full;
   const average = ventas.stock_promedio ?? stock;
   const ratio = stock > 0 ? average / stock : 1;
   const sold = ventas.envio?.['30d'] ?? { erp: ventas.unidades_30d, full: 0 };
@@ -76,7 +76,7 @@ function withRotation(row) {
       ...coverageOf(stock, ventas.unidades_30d),
       rotacion: perStock(ventas.unidades_30d, average),
       por_origen: {
-        erp: byOrigin(erp, sold.erp, erp == null ? null : erp * ratio),
+        erp: byOrigin(erp, sold.erp, erp * ratio),
         full: byOrigin(full, sold.full, full * ratio),
       },
     },
