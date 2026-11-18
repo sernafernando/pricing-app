@@ -29,8 +29,12 @@ export default function ModalEditarCosto({
   // Múltiples productos seleccionados
   const [productosSeleccionados, setProductosSeleccionados] = useState([]);
 
+  // Validation or save error, shown inside the modal.
+  const [error, setError] = useState(null);
+
   useEffect(() => {
     if (mostrar && operacion) {
+      setError(null);
       // Si la operación ya tiene costo, pre-cargar
       if (operacion.costo_unitario && operacion.costo_unitario > 0) {
         setCostoUnitario(operacion.costo_unitario.toString());
@@ -196,12 +200,12 @@ export default function ModalEditarCosto({
   const guardarCosto = async () => {
     const costoARS = getCostoEnARS();
     if (costoARS <= 0) {
-      alert('Debe ingresar un costo válido mayor a 0');
+      setError('Debe ingresar un costo válido mayor a 0');
       return;
     }
 
     if (monedaCosto === 'USD' && (!tipoCambio || parseFloat(tipoCambio) <= 0)) {
-      alert('Debe ingresar un tipo de cambio válido para convertir USD a ARS');
+      setError('Debe ingresar un tipo de cambio válido para convertir USD a ARS');
       return;
     }
 
@@ -209,6 +213,7 @@ export default function ModalEditarCosto({
     const markup = parseFloat(markupCosto) || 0;
     const costoConMarkup = costoARS * (1 + markup / 100);
 
+    setError(null);
     setGuardando(true);
     try {
       await api.put(`/ventas-fuera-ml/metricas/${operacion.metrica_id}/costo`, {
@@ -219,7 +224,7 @@ export default function ModalEditarCosto({
       onClose();
     } catch (error) {
       console.error('Error guardando costo:', error);
-      alert('Error al guardar el costo');
+      setError('Error al guardar el costo');
     } finally {
       setGuardando(false);
     }
@@ -250,6 +255,10 @@ export default function ModalEditarCosto({
     <div className={styles.modalOverlay}>
       <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
         <h3>Editar Costo de Operacion</h3>
+
+        {error && (
+          <div className={styles.error} role="alert">{error}</div>
+        )}
 
         {/* Info de la operación */}
         <div className={styles.offsetForm} style={{ marginBottom: '1rem' }}>

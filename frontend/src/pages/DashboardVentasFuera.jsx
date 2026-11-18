@@ -12,7 +12,14 @@ import { useQueryFilters } from '../hooks/useQueryFilters';
 import { useServerPagination } from '../hooks/useServerPagination';
 import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
-import { Star, DollarSign } from 'lucide-react';
+import {
+  Star, DollarSign, Store, BarChart3, ClipboardList, TrendingUp, Settings, AlertTriangle,
+  Pencil, Wallet, Receipt, Building2, User, Tag,
+} from 'lucide-react';
+import Toast from '../components/Toast';
+import { useToast } from '../hooks/useToast';
+import EditarCampoModal from '../components/EditarCampoModal';
+import local from './DashboardVentasFuera.module.css';
 
 // Helper para obtener fechas por defecto
 const getDefaultFechaDesde = () => {
@@ -134,6 +141,14 @@ export default function DashboardVentasFuera() {
     onDataLoaded: cargarOverridesYJerarquia
   });
 
+  const { toast, showToast, hideToast } = useToast();
+
+  // Inline edit of one override field, in a modal instead of the browser dialog.
+  const [edicion, setEdicion] = useState(null);
+  const abrirEdicion = (idOperacion, campo, label, valor, numerico) => {
+    setEdicion({ idOperacion, campo, label, valor: valor ?? '', numerico });
+  };
+
   const cargarDashboard = useCallback(async () => {
     setLoading(true);
     try {
@@ -169,11 +184,11 @@ export default function DashboardVentasFuera() {
         setVendedoresDisponibles(statsRes.data.vendedores_disponibles || []);
       }
     } catch {
-      alert('Error al cargar el dashboard');
+      showToast('Error al cargar el dashboard', 'error');
     } finally {
       setLoading(false);
     }
-  }, [fechaDesde, fechaHasta, sucursalesSeleccionadas, vendedoresSeleccionados]);
+  }, [fechaDesde, fechaHasta, sucursalesSeleccionadas, vendedoresSeleccionados, showToast]);
 
   useEffect(() => {
     if (fechaDesde && fechaHasta) {
@@ -209,9 +224,9 @@ export default function DashboardVentasFuera() {
       // Invalidar cache para que se recargue con datos frescos
       pagination.invalidateCache();
     } catch {
-      alert('Error al guardar cambios');
+      showToast('Error al guardar cambios', 'error');
     }
-  }, [pagination]);
+  }, [pagination, showToast]);
 
   const guardarOverride = useCallback((itTransaction, campo, valor) => {
     // Actualizar estado local inmediatamente
@@ -391,7 +406,7 @@ export default function DashboardVentasFuera() {
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <h1 className={styles.title}>🏪 Dashboard Ventas por Fuera de ML</h1>
+        <h1 className={styles.title}><Store size={22} aria-hidden="true" /> Dashboard Ventas por Fuera de ML</h1>
 
         {/* Contenedor con filtros rápidos + botón reload + filtros adicionales */}
         <div className={styles.filtrosRapidosWrapper}>
@@ -620,26 +635,26 @@ export default function DashboardVentasFuera() {
             className={`${styles.tab} ${tabActivo === 'resumen' ? styles.tabActivo : ''}`}
             onClick={() => updateFilters({ tab: 'resumen' })}
           >
-            📊 Resumen
+            <BarChart3 size={16} aria-hidden="true" /> Resumen
           </button>
           <button
             className={`${styles.tab} ${tabActivo === 'operaciones' ? styles.tabActivo : ''}`}
             onClick={() => updateFilters({ tab: 'operaciones' })}
           >
-            📋 Detalle de Operaciones
+            <ClipboardList size={16} aria-hidden="true" /> Detalle de Operaciones
           </button>
           <button
             className={`${styles.tab} ${tabActivo === 'rentabilidad' ? styles.tabActivo : ''}`}
             onClick={() => updateFilters({ tab: 'rentabilidad' })}
           >
-            💹 Rentabilidad
+            <TrendingUp size={16} aria-hidden="true" /> Rentabilidad
           </button>
           {esAdmin && (
             <button
               className={`${styles.tab} ${tabActivo === 'admin' ? styles.tabActivo : ''}`}
               onClick={() => updateFilters({ tab: 'admin' })}
             >
-              ⚙️ Admin
+              <Settings size={16} aria-hidden="true" /> Admin
             </button>
           )}
         </div>
@@ -648,7 +663,7 @@ export default function DashboardVentasFuera() {
       {/* Alerta de productos sin costo */}
       {stats && stats.productos_sin_costo > 0 && tabActivo === 'resumen' && (
         <div className={styles.alertaSinCosto}>
-          ⚠️ El período seleccionado tiene <strong>{stats.productos_sin_costo} producto{stats.productos_sin_costo !== 1 ? 's' : ''}</strong> sin costo cargado, los cuales fueron excluidos de todas las métricas.
+          <AlertTriangle size={16} aria-hidden="true" /> El período seleccionado tiene <strong>{stats.productos_sin_costo} producto{stats.productos_sin_costo !== 1 ? 's' : ''}</strong> sin costo cargado, los cuales fueron excluidos de todas las métricas.
         </div>
       )}
 
@@ -684,7 +699,7 @@ export default function DashboardVentasFuera() {
             <SearchInput
               value={pagination.searchTerm}
               onChange={pagination.setSearchTerm}
-              placeholder="🔍 Buscar por código, producto, marca o cliente..."
+              placeholder="Buscar por código, producto, marca o cliente..."
               size="md"
               className={styles.buscador}
             />
@@ -758,50 +773,38 @@ export default function DashboardVentasFuera() {
                       <td>{formatearFecha(op.fecha)}</td>
                       <td>{op.sucursal || '-'}</td>
                       <td>
-                        <span
-                          className={getClaseCampoEditable('cliente')}
-                          onClick={() => {
-                            const nuevoValor = prompt('Cliente:', clienteEfectivo);
-                            if (nuevoValor !== null) guardarOverride(op.id_operacion, 'cliente', nuevoValor);
-                          }}
-                          role="button"
-                          tabIndex={0}
+                        <button
+                          type="button"
+                          className={`${getClaseCampoEditable('cliente')} ${local.celdaBoton}`}
+                          onClick={() => abrirEdicion(op.id_operacion, 'cliente', 'Cliente', clienteEfectivo, false)}
                           aria-label="Editar cliente"
                           title="Click para editar"
                         >
                           {clienteEfectivo || '-'}{asterisco('cliente')}
-                        </span>
+                        </button>
                       </td>
                       <td>{op.vendedor || '-'}</td>
                       <td>
-                        <span
-                          className={getClaseCampoEditable('codigo')}
-                          onClick={() => {
-                            const nuevoValor = prompt('Código:', codigoEfectivo);
-                            if (nuevoValor !== null) guardarOverride(op.id_operacion, 'codigo', nuevoValor);
-                          }}
-                          role="button"
-                          tabIndex={0}
+                        <button
+                          type="button"
+                          className={`${getClaseCampoEditable('codigo')} ${local.celdaBoton}`}
+                          onClick={() => abrirEdicion(op.id_operacion, 'codigo', 'Código', codigoEfectivo, false)}
                           aria-label="Editar código de producto"
                           title="Click para editar"
                         >
                           {codigoEfectivo || '-'}{asterisco('codigo')}
-                        </span>
+                        </button>
                       </td>
                       <td className={styles.descripcion}>
-                        <span
-                          className={getClaseCampoEditable('descripcion')}
-                          onClick={() => {
-                            const nuevoValor = prompt('Descripción:', descripcionEfectiva);
-                            if (nuevoValor !== null) guardarOverride(op.id_operacion, 'descripcion', nuevoValor);
-                          }}
-                          role="button"
-                          tabIndex={0}
+                        <button
+                          type="button"
+                          className={`${getClaseCampoEditable('descripcion')} ${local.celdaBoton}`}
+                          onClick={() => abrirEdicion(op.id_operacion, 'descripcion', 'Descripción', descripcionEfectiva, false)}
                           aria-label="Editar descripción de producto"
                           title="Click para editar"
                         >
                           {descripcionEfectiva || '-'}{asterisco('descripcion')}
-                        </span>
+                        </button>
                       </td>
                       <td>
                         <select
@@ -868,55 +871,40 @@ export default function DashboardVentasFuera() {
                         {asterisco('subcategoria')}
                       </td>
                       <td className={styles.centrado}>
-                        <span
-                          className={getClaseCampoEditable('cantidad')}
-                          onClick={() => {
-                            const valorActual = getValorEfectivo(op, 'cantidad') || op.cantidad || '';
-                            const nuevoValor = prompt('Cantidad:', valorActual);
-                            if (nuevoValor !== null) guardarOverride(op.id_operacion, 'cantidad', nuevoValor ? parseFloat(nuevoValor) : null);
-                          }}
-                          role="button"
-                          tabIndex={0}
+                        <button
+                          type="button"
+                          className={`${getClaseCampoEditable('cantidad')} ${local.celdaBoton}`}
+                          onClick={() => abrirEdicion(op.id_operacion, 'cantidad', 'Cantidad', getValorEfectivo(op, 'cantidad') || op.cantidad || '', true)}
                           aria-label="Editar cantidad"
                           title="Click para editar"
                         >
                           {getValorEfectivo(op, 'cantidad') || op.cantidad || '-'}{asterisco('cantidad')}
-                        </span>
+                        </button>
                       </td>
                       <td className={styles.monto}>
-                        <span
-                          className={getClaseCampoEditable('precio_unitario')}
-                          onClick={() => {
-                            const valorActual = getValorEfectivo(op, 'precio_unitario') || op.precio_unitario_sin_iva || '';
-                            const nuevoValor = prompt('Precio unitario:', valorActual);
-                            if (nuevoValor !== null) guardarOverride(op.id_operacion, 'precio_unitario', nuevoValor ? parseFloat(nuevoValor) : null);
-                          }}
-                          role="button"
-                          tabIndex={0}
+                        <button
+                          type="button"
+                          className={`${getClaseCampoEditable('precio_unitario')} ${local.celdaBoton}`}
+                          onClick={() => abrirEdicion(op.id_operacion, 'precio_unitario', 'Precio unitario', getValorEfectivo(op, 'precio_unitario') || op.precio_unitario_sin_iva || '', true)}
                           aria-label="Editar precio unitario"
                           title="Click para editar"
                         >
                           {formatearMoneda(getValorEfectivo(op, 'precio_unitario') || op.precio_unitario_sin_iva)}{asterisco('precio_unitario')}
-                        </span>
+                        </button>
                       </td>
                       <td className={styles.centrado}>{op.iva_porcentaje}%</td>
                       <td className={styles.monto}>{formatearMoneda(op.precio_final_sin_iva)}</td>
                       <td className={styles.monto}>{formatearMoneda(op.precio_final_con_iva)}</td>
                       <td className={styles.monto}>
-                        <span
-                          className={getClaseCampoEditable('costo_unitario', sinCosto)}
-                          onClick={() => {
-                            const valorActual = getValorEfectivo(op, 'costo_unitario') || op.costo_unitario || '';
-                            const nuevoValor = prompt('Costo unitario:', valorActual);
-                            if (nuevoValor !== null) guardarOverride(op.id_operacion, 'costo_unitario', nuevoValor ? parseFloat(nuevoValor) : null);
-                          }}
-                          role="button"
-                          tabIndex={0}
+                        <button
+                          type="button"
+                          className={`${getClaseCampoEditable('costo_unitario', sinCosto)} ${local.celdaBoton}`}
+                          onClick={() => abrirEdicion(op.id_operacion, 'costo_unitario', 'Costo unitario', getValorEfectivo(op, 'costo_unitario') || op.costo_unitario || '', true)}
                           aria-label="Editar costo unitario"
                           title="Click para editar"
                         >
                           {(getValorEfectivo(op, 'costo_unitario') || op.costo_unitario) ? formatearMoneda(getValorEfectivo(op, 'costo_unitario') || op.costo_unitario) : 'Sin costo'}{asterisco('costo_unitario')}
-                        </span>
+                        </button>
                       </td>
                       <td className={`${styles.centrado} ${op.markup !== null && parseFloat(op.markup) < 0 ? styles.negativo : ''}`}>
                         {formatearPorcentaje(op.markup)}
@@ -933,7 +921,7 @@ export default function DashboardVentasFuera() {
                           aria-label={sinCosto ? 'Agregar costo' : 'Editar costo'}
                           title={sinCosto ? 'Agregar costo' : 'Editar costo'}
                         >
-                          {sinCosto ? '+$' : '✏️'}
+                          {sinCosto ? '+$' : <Pencil size={14} aria-hidden="true" />}
                         </button>
                       </td>
                     </tr>
@@ -963,7 +951,7 @@ export default function DashboardVentasFuera() {
           {/* KPIs Principales - 3 cards grandes */}
           <div className={styles.kpisContainer}>
             <div className={styles.kpiCard}>
-              <div className={styles.kpiIcon}>💰</div>
+              <div className={styles.kpiIcon}><Wallet size={22} aria-hidden="true" /></div>
               <div className={styles.kpiContent}>
                 <div className={styles.kpiLabel}>Total Facturado (sin IVA)</div>
                 <div className={styles.kpiValue}>{formatearMoneda(stats.monto_total_sin_iva)}</div>
@@ -976,7 +964,7 @@ export default function DashboardVentasFuera() {
             </div>
 
             <div className={`${styles.kpiCard} ${styles.kpiGanancia}`}>
-              <div className={styles.kpiIcon}>📈</div>
+              <div className={styles.kpiIcon}><TrendingUp size={22} aria-hidden="true" /></div>
               <div className={styles.kpiContent}>
                 <div className={styles.kpiLabel}>Ganancia Bruta</div>
                 <div className={styles.kpiValue}>{puedeVerGanancia ? formatearMoneda(calcularGanancia()) : '***'}</div>
@@ -991,7 +979,7 @@ export default function DashboardVentasFuera() {
             </div>
 
             <div className={`${styles.kpiCard} ${styles.kpiLimpio}`}>
-              <div className={styles.kpiIcon}>🧾</div>
+              <div className={styles.kpiIcon}><Receipt size={22} aria-hidden="true" /></div>
               <div className={styles.kpiContent}>
                 <div className={styles.kpiLabel}>Total con IVA</div>
                 <div className={styles.kpiValue}>{formatearMoneda(stats.monto_total_con_iva)}</div>
@@ -1040,7 +1028,7 @@ export default function DashboardVentasFuera() {
           <div className={styles.chartsGrid}>
             {/* Ventas por Sucursal */}
             <div className={styles.chartCard}>
-              <h3 className={styles.chartTitle}>🏢 Por Sucursal</h3>
+              <h3 className={styles.chartTitle}><Building2 size={18} aria-hidden="true" /> Por Sucursal</h3>
               <div className={styles.rankingList}>
                 {(() => {
                   const sucursales = Object.entries(stats.por_sucursal || {})
@@ -1075,7 +1063,7 @@ export default function DashboardVentasFuera() {
 
             {/* Ventas por Vendedor */}
             <div className={styles.chartCard}>
-              <h3 className={styles.chartTitle}>👤 Por Vendedor</h3>
+              <h3 className={styles.chartTitle}><User size={18} aria-hidden="true" /> Por Vendedor</h3>
               <div className={styles.rankingList}>
                 {(() => {
                   const vendedores = Object.entries(stats.por_vendedor || {})
@@ -1113,7 +1101,7 @@ export default function DashboardVentasFuera() {
           <div className={styles.chartsGrid}>
             {/* Ventas por Marca */}
             <div className={styles.chartCard}>
-              <h3 className={styles.chartTitle}>🏷️ Top Marcas</h3>
+              <h3 className={styles.chartTitle}><Tag size={18} aria-hidden="true" /> Top Marcas</h3>
               <div className={styles.rankingList}>
                 {(() => {
                   const maxVenta = ventasPorMarca[0]?.monto_sin_iva || 1;
@@ -1232,6 +1220,17 @@ export default function DashboardVentasFuera() {
       ) : (
         <div className={styles.noData}>No hay datos disponibles</div>
       )}
+
+      <EditarCampoModal
+        edicion={edicion}
+        onClose={() => setEdicion(null)}
+        onSave={(valor) => {
+          guardarOverride(edicion.idOperacion, edicion.campo, valor);
+          setEdicion(null);
+        }}
+      />
+
+      <Toast toast={toast} onClose={hideToast} />
 
       {/* Modal para editar costo */}
       <ModalEditarCosto
