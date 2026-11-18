@@ -32,6 +32,7 @@ export default function Navbar() {
   const puedeVerPreciosListas = tienePermiso('productos.ver');
   const puedeVerMetricasML = tienePermiso('ventas_ml.ver_dashboard');
   const puedeVerVentasFuera = tienePermiso('ventas_fuera.ver_metricas_pdf');
+  const puedeVerVentasFueraAnterior = tienePermiso('ventas_fuera.ver_dashboard');
   const puedeVerTiendaNube = tienePermiso('ventas_tn.ver_dashboard');
   const puedeVerCalculos = tienePermiso('reportes.ver_calculadora');
   const puedeVerClientes = tienePermiso('clientes.ver');
@@ -217,14 +218,14 @@ export default function Navbar() {
           )}
 
           {/* Dropdown Reportes (solo si tiene algún permiso de reportes) */}
-          {(puedeVerMetricasML || puedeVerVentasFuera || puedeVerTiendaNube || puedeVerCalculos || puedeVerHistorial) && (
+          {(puedeVerMetricasML || puedeVerVentasFuera || puedeVerVentasFueraAnterior || puedeVerTiendaNube || puedeVerCalculos || puedeVerHistorial) && (
             <div
               className={styles.dropdown}
               onMouseEnter={() => setDropdownOpen('reportes')}
               onMouseLeave={() => setDropdownOpen(null)}
             >
               <div
-                className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/dashboard-metricas-ml', '/metricas-ml?canal=fuera', '/dashboard-tienda-nube', '/calculos', '/ultimos-cambios']) ? styles.active : ''}`}
+                className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/dashboard-metricas-ml', '/metricas-ml?canal=fuera', '/dashboard-ventas-fuera', '/dashboard-tienda-nube', '/calculos', '/ultimos-cambios']) ? styles.active : ''}`}
                 onClick={() => setDropdownOpen(dropdownOpen === 'reportes' ? null : 'reportes')}
               >
                 Reportes ▾
@@ -250,6 +251,15 @@ export default function Navbar() {
                       onClick={() => setDropdownOpen(null)}
                     >
                       Ventas por Fuera
+                    </Link>
+                  )}
+                  {puedeVerVentasFueraAnterior && (
+                    <Link
+                      to="/dashboard-ventas-fuera"
+                      className={`${styles.dropdownItem} ${isActive('/dashboard-ventas-fuera') ? styles.activeDropdown : ''}`}
+                      onClick={() => setDropdownOpen(null)}
+                    >
+                      Ventas por Fuera (anterior)
                     </Link>
                   )}
                   {puedeVerTiendaNube && (
@@ -423,6 +433,16 @@ export default function Navbar() {
               onClick={handleLinkClick}
             >
               Ventas por Fuera
+            </Link>
+          )}
+
+          {puedeVerVentasFueraAnterior && (
+            <Link
+              to="/dashboard-ventas-fuera"
+              className={`${styles.mobileLink} ${isActive('/dashboard-ventas-fuera') ? styles.active : ''}`}
+              onClick={handleLinkClick}
+            >
+              Ventas por Fuera (anterior)
             </Link>
           )}
 

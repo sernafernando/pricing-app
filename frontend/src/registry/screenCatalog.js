@@ -83,6 +83,14 @@ export const SCREENS = [
     vistas: [{ label: 'Ventas por Fuera', query: 'canal=fuera' }],
     nota: 'Con ventas_fuera.ver_metricas_pdf solo, abre fijo en Por fuera.',
   },
+  // The old GBP-synced dashboard, restored until the PDF operations screen is complete (ODD vpf-operaciones S4).
+  {
+    path: '/dashboard-ventas-fuera',
+    label: 'Ventas por Fuera (anterior)',
+    section: 'Reportes',
+    permisos: ['ventas_fuera.ver_dashboard'],
+    scope: 'permiso',
+  },
   // History of the GBP PDF loads; the upload button and zone need ventas_fuera.subir_pdf.
   {
     path: '/metricas-ml/cargas',

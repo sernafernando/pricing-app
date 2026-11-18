@@ -51,7 +51,7 @@ Ahí también se ve qué falta subir: para cada empresa, vendedor y rango, si fa
 ## Preguntas frecuentes
 
 **¿Dónde quedó la pantalla vieja de Ventas por Fuera?**
-La reemplaza Métricas con el canal **Por fuera**. Los links viejos llevan ahí.
+Volvió por un tiempo como **Reportes → Ventas por Fuera (anterior)** (`/dashboard-ventas-fuera`, pide ventas_fuera.ver_dashboard), con sus pestañas, la edición de costos y las correcciones de producto. Sus datos siguen saliendo del sync de GBP, no de los PDF, y las columnas de sell in / sell out quedan vacías. Queda hasta que la lista de operaciones de los PDF esté completa.
 
 **¿Por qué no veo el Total Gauss ni el markup?**
 Piden el permiso ventas_fuera.ver_ganancia (y en **Todo**, también ml_metricas.ver_ganancia).
