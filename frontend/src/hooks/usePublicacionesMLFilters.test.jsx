@@ -22,6 +22,7 @@ import {
   buildProductIdsParams,
   buildStatsParams,
   buildStockAuditParams,
+  buildStockAuditExportParams,
   hasMarkupFilter,
   PRESENCE_VALUES,
   PRICE_MODES,
@@ -843,7 +844,7 @@ describe('the Auditoría de stock query (auditoria-stock S3-S7)', () => {
   });
 
   it('sorts by Valor total, biggest first, by default', () => {
-    expect(buildStockAuditParams(filtersOf('/?vista=auditoria'), 50, all)).toEqual({ orden: 'valor_total', dir: 'desc', limit: 50, offset: 0 });
+    expect(buildStockAuditParams(filtersOf('/?vista=auditoria'), 50, all)).toEqual({ nivel: 'marca', orden: 'valor_total', dir: 'desc', limit: 50, offset: 0 });
   });
 
   it.each([
@@ -906,5 +907,58 @@ describe('presets: the params a preset saves and applies (pubml-columnas-presets
     expect(setup('/?vista=producto&equipo=12&modo=cuotas&familias=1&agrupar=pm').result.current.hook.hasListParams).toBe(false);
     expect(setup('/?estado=active').result.current.hook.hasListParams).toBe(true);
     expect(setup('/?orden=precio').result.current.hook.hasListParams).toBe(true);
+  });
+});
+
+describe('the Auditoría de stock levels (auditoria-stock-niveles S1, S5)', () => {
+  const filtersOf = (url) => setup(url).result.current.hook.filters;
+  const all = { canSeeSales: true, canSeeMargin: true };
+
+  it('reads Marca by default, and only marca / categoria / producto', () => {
+    expect(filtersOf('/?vista=auditoria').nivel).toBe('marca');
+    expect(filtersOf('/?vista=auditoria&nivel=categoria').nivel).toBe('categoria');
+    expect(filtersOf('/?vista=auditoria&nivel=producto').nivel).toBe('producto');
+    expect(filtersOf('/?vista=auditoria&nivel=tienda').nivel).toBe('marca');
+  });
+
+  it('sends the level and the drill keys to the audit and its export', () => {
+    const filters = filtersOf('/?vista=auditoria&nivel=producto&grupo_marca=DEMO&grupo_categoria=__none__');
+    expect(buildStockAuditParams(filters, 50, all)).toMatchObject({ nivel: 'producto', grupo_marca: 'DEMO', grupo_categoria: '__none__' });
+    expect(buildStockAuditExportParams(filters, all)).toEqual({
+      nivel: 'producto',
+      grupo_marca: 'DEMO',
+      grupo_categoria: '__none__',
+      orden: 'valor_total',
+      dir: 'desc',
+    });
+    expect(buildStockAuditParams(filtersOf('/?vista=auditoria'), 50, all)).not.toHaveProperty('grupo_marca');
+  });
+
+  it('reads the opened rows from the URL; anything that is not a list of keys is none', () => {
+    const keys = ['g:marca:DEMO', 'p:p9001'];
+    expect(filtersOf(`/?vista=auditoria&abiertos=${encodeURIComponent(JSON.stringify(keys))}`).abiertos).toEqual(keys);
+    expect(filtersOf('/?vista=auditoria&abiertos=nope').abiertos).toEqual([]);
+    expect(filtersOf('/?vista=auditoria').abiertos).toEqual([]);
+  });
+
+  it('a new list (filter, level, drill, sort) closes the opened rows and goes back to page 1', () => {
+    const { result } = setup(`/?vista=auditoria&pagina=2&abiertos=${encodeURIComponent('["g:marca:DEMO"]')}`);
+    act(() => result.current.hook.setFilters({ nivel: 'categoria', grupo_marca: 'DEMO' }));
+    const params = Object.fromEntries(new URLSearchParams(result.current.search));
+    expect(params).toEqual({ vista: 'auditoria', nivel: 'categoria', grupo_marca: 'DEMO' });
+  });
+
+  it('the level and the drill are part of a preset; Marca is the default, no choice', () => {
+    expect(setup('/?vista=auditoria&nivel=categoria&grupo_marca=DEMO').result.current.hook.presetParams).toEqual({
+      nivel: 'categoria',
+      grupo_marca: 'DEMO',
+    });
+    expect(setup('/?vista=auditoria&nivel=marca').result.current.hook.presetParams).toEqual({});
+  });
+
+  it('"Limpiar filtros" keeps the level and drops the drill', () => {
+    const { result } = setup('/?vista=auditoria&nivel=producto&grupo_categoria=INSUMOS&q=x');
+    act(() => result.current.hook.resetFilters());
+    expect(Object.fromEntries(new URLSearchParams(result.current.search))).toEqual({ vista: 'auditoria', nivel: 'producto' });
   });
 });

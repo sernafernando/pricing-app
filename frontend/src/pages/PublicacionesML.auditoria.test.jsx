@@ -12,7 +12,7 @@ import { exportPublicacionesCsv } from '../utils/publicacionesMlExport';
 import { exportAuditoriaStockExcel } from '../components/publicacionesMl/auditoria/exportStockAudit';
 import { seedTiendasOficiales, resetTiendasOficiales } from '../test/tiendasOficialesFixtures';
 import { FACETS, ITEMS_RESPONSE, KPIS_RESPONSE } from '../test/visual/publicacionesMlFixtures';
-import { AUDIT_NOTEBOOK_ITEMS, AUDIT_ORPHAN, stockAuditResponse } from '../test/visual/stockAuditFixtures';
+import { AUDIT_NOTEBOOK_ITEMS, AUDIT_ORPHAN, stockAuditLevelResponse, stockAuditResponse } from '../test/visual/stockAuditFixtures';
 import { mlPublicationsPresetsAPI } from '../services/mlPublicationsPresets';
 
 // The columns are the user's saved layout of the view (pubml-columnas-presets S2): the server is mocked here.
@@ -186,7 +186,8 @@ vi.mock('../contexts/PermisosContext', () => ({
 
 const auditCalls = () => publicacionesMlAPI.stockAudit.mock.calls.map(([params]) => params);
 const table = () => screen.getByRole('table', { name: 'Auditoría de stock' });
-const audit = async (entry = '/ml-publicaciones?vista=auditoria') => {
+// The product-level tests ask `nivel=producto`; the view opens on Marca (auditoria-stock-niveles S1).
+const audit = async (entry = '/ml-publicaciones?vista=auditoria&nivel=producto') => {
   renderWithRouter(<PublicacionesML />, { initialEntries: [entry] });
   await waitFor(() => expect(publicacionesMlAPI.stockAudit).toHaveBeenCalled());
   const shell = within(await screen.findByRole('table', { name: 'Auditoría de stock' }));
@@ -256,8 +257,8 @@ describe('S8: the gate', () => {
 
 describe('S3-S7: the view', () => {
   it('asks the audit for the page by Valor total, biggest first, with the list filters', async () => {
-    await audit('/ml-publicaciones?vista=auditoria&q=notebook&promo_aplicada=con');
-    expect(auditCalls().at(-1)).toEqual({ q: 'notebook', promo_aplicada: 'con', orden: 'valor_total', dir: 'desc', limit: 50, offset: 0 });
+    await audit('/ml-publicaciones?vista=auditoria&nivel=producto&q=notebook&promo_aplicada=con');
+    expect(auditCalls().at(-1)).toEqual({ q: 'notebook', promo_aplicada: 'con', nivel: 'producto', orden: 'valor_total', dir: 'desc', limit: 50, offset: 0 });
   });
 
   it('draws one row per base product, its rate line and its KPIs, not the publication KPIs', async () => {
@@ -318,7 +319,7 @@ describe('S3-S7: the view', () => {
 
   it('a sales sort without ml_metricas.ver falls back to Valor total (no 403)', async () => {
     canSeeKpis = false;
-    await audit('/ml-publicaciones?vista=auditoria&orden=unidades_30d');
+    await audit('/ml-publicaciones?vista=auditoria&nivel=producto&orden=unidades_30d');
     expect(auditCalls().at(-1)).toMatchObject({ orden: 'valor_total', dir: 'desc' });
   });
 });
@@ -491,10 +492,10 @@ describe('L7: Exportar a Excel', () => {
 
   it('downloads every row of the audit with its filters and sort, not the page', async () => {
     const user = userEvent.setup();
-    await audit('/ml-publicaciones?vista=auditoria&q=notebook&orden=unidades_erp&pagina=2');
+    await audit('/ml-publicaciones?vista=auditoria&nivel=producto&q=notebook&orden=unidades_erp&pagina=2');
     await user.click(screen.getByRole('button', { name: 'Exportar Excel' }));
     await waitFor(() => expect(exportAuditoriaStockExcel).toHaveBeenCalledTimes(1));
-    expect(exportAuditoriaStockExcel).toHaveBeenCalledWith({ q: 'notebook', orden: 'unidades_erp', dir: 'desc' });
+    expect(exportAuditoriaStockExcel).toHaveBeenCalledWith({ q: 'notebook', nivel: 'producto', orden: 'unidades_erp', dir: 'desc' });
     expect(exportPublicacionesCsv).not.toHaveBeenCalled();
   });
 
@@ -672,12 +673,192 @@ describe('rotacion S2: edge cases', () => {
 
   it('a ?orden=cobertura URL without ml_metricas.ver falls back to the default sort', async () => {
     canSeeKpis = false;
-    await audit('/ml-publicaciones?vista=auditoria&orden=cobertura');
+    await audit('/ml-publicaciones?vista=auditoria&nivel=producto&orden=cobertura');
     expect(auditCalls().at(-1).orden).toBe('valor_total');
   });
 
   it('a ?orden=cobertura URL with ml_metricas.ver is sent as is', async () => {
-    await audit('/ml-publicaciones?vista=auditoria&orden=cobertura&dir=desc');
+    await audit('/ml-publicaciones?vista=auditoria&nivel=producto&orden=cobertura&dir=desc');
     expect(auditCalls().at(-1)).toMatchObject({ orden: 'cobertura', dir: 'desc' });
+  });
+});
+
+describe('auditoria-stock-niveles S1: Marca > Categoría levels', () => {
+  const rowOf = (name) => within(table()).getByText(name, { selector: 'span' }).closest('tr');
+  const levels = () => within(screen.getByRole('group', { name: 'Ver por' }));
+  const openAt = (query = '') => audit(`/ml-publicaciones?vista=auditoria${query}`);
+  const urlOf = (keys) => `&abiertos=${encodeURIComponent(JSON.stringify(keys))}`;
+  beforeEach(() => {
+    publicacionesMlAPI.stockAudit.mockImplementation((params) => Promise.resolve({ data: stockAuditLevelResponse(params) }));
+  });
+
+  it('opens on the Marca level: the request carries nivel=marca and the brands are the rows', async () => {
+    const t = await openAt();
+    expect(auditCalls()[0]).toMatchObject({ nivel: 'marca', orden: 'valor_total', dir: 'desc', limit: 50, offset: 0 });
+    expect(auditCalls()[0]).not.toHaveProperty('grupo_marca');
+    expect(await t.findByText('DEMO', { selector: 'span' })).toBeInTheDocument();
+    expect(t.getByText('Sin marca', { selector: 'span' })).toBeInTheDocument();
+    expect(levels().getByRole('button', { name: 'Marca', pressed: true })).toBeInTheDocument();
+    expect(screen.getByText(/de 2 marcas/)).toBeInTheDocument();
+  });
+
+  it('the selector switches the top level', async () => {
+    const user = userEvent.setup();
+    const t = await openAt();
+    await user.click(levels().getByRole('button', { name: 'Categoría' }));
+    await waitFor(() => expect(auditCalls().at(-1)).toMatchObject({ nivel: 'categoria' }));
+    expect(await t.findByText('NOTEBOOKS', { selector: 'span' })).toBeInTheDocument();
+    await user.click(levels().getByRole('button', { name: 'Producto' }));
+    await waitFor(() => expect(auditCalls().at(-1)).toMatchObject({ nivel: 'producto' }));
+    expect(await t.findByText('Notebook Demo 14 i5 8GB 512GB')).toBeInTheDocument();
+  });
+
+  it('drilling into a brand asks its categories with grupo_marca, and the breadcrumb goes back', async () => {
+    const user = userEvent.setup();
+    const t = await openAt();
+    await user.click(await t.findByRole('button', { name: 'Ver categorías de DEMO' }));
+    await waitFor(() => expect(auditCalls().at(-1)).toMatchObject({ nivel: 'categoria', grupo_marca: 'DEMO' }));
+    expect(levels().getByRole('button', { name: 'Categoría', pressed: true })).toBeInTheDocument();
+    const crumbs = within(screen.getByRole('navigation', { name: 'Nivel de la auditoría' }));
+    expect(crumbs.getByText('DEMO')).toBeInTheDocument();
+    // a category row of the drilled level drills into its products with both keys
+    await user.click(await t.findByRole('button', { name: 'Ver productos de INSUMOS' }));
+    await waitFor(() =>
+      expect(auditCalls().at(-1)).toMatchObject({ nivel: 'producto', grupo_marca: 'DEMO', grupo_categoria: 'INSUMOS' }),
+    );
+    await user.click(within(screen.getByRole('navigation', { name: 'Nivel de la auditoría' })).getByRole('button', { name: 'Todas las marcas' }));
+    await waitFor(() => expect(auditCalls().at(-1)).toMatchObject({ nivel: 'marca' }));
+    expect(auditCalls().at(-1)).not.toHaveProperty('grupo_marca');
+    expect(auditCalls().at(-1)).not.toHaveProperty('grupo_categoria');
+  });
+
+  it('clicking a brand row drills down like its button', async () => {
+    const user = userEvent.setup();
+    const t = await openAt();
+    await user.click(await t.findByText('DEMO', { selector: 'span' }));
+    await waitFor(() => expect(auditCalls().at(-1)).toMatchObject({ nivel: 'categoria', grupo_marca: 'DEMO' }));
+  });
+
+  it('a brand opens into its categories without a request; a category asks its products with its grupo', async () => {
+    const user = userEvent.setup();
+    const t = await openAt();
+    await user.click(await t.findByRole('button', { name: 'Abrir DEMO' }));
+    expect(t.getByText('NOTEBOOKS', { selector: 'span' })).toBeInTheDocument();
+    expect(t.getByText('INSUMOS', { selector: 'span' })).toBeInTheDocument();
+    expect(auditCalls()).toHaveLength(1);
+    await user.click(t.getByRole('button', { name: 'Abrir INSUMOS' }));
+    expect(await t.findByText('Cartucho Demo 01 negro')).toBeInTheDocument();
+    expect(auditCalls().at(-1)).toMatchObject({
+      nivel: 'producto',
+      grupo_marca: 'DEMO',
+      grupo_categoria: 'INSUMOS',
+      orden: 'valor_total',
+      dir: 'desc',
+      limit: 100,
+      offset: 0,
+    });
+    // a product inside it opens into its publications and variants as everywhere
+    await user.click(t.getByRole('button', { name: 'Abrir Cartucho Demo 01 negro' }));
+    expect(await t.findByText('Cartucho Demo 01 negro x2')).toBeInTheDocument();
+    expect(publicacionesMlAPI.items.mock.calls.at(-1)[0]).toMatchObject({ item_ids: '9101', desglose_envio: true });
+  });
+
+  it('the opened rows survive a reload (URL)', async () => {
+    const t = await openAt(urlOf(['g:marca:DEMO', 'g:marca:DEMO|categoria:INSUMOS']));
+    expect(await t.findByText('Cartucho Demo 01 negro')).toBeInTheDocument();
+    expect(t.getByText('NOTEBOOKS', { selector: 'span' })).toBeInTheDocument();
+    expect(auditCalls().some((params) => params.grupo_categoria === 'INSUMOS')).toBe(true);
+  });
+
+  it('the level and the drill survive a reload (URL)', async () => {
+    const t = await openAt('&nivel=producto&grupo_marca=DEMO&grupo_categoria=NOTEBOOKS');
+    expect(auditCalls()[0]).toMatchObject({ nivel: 'producto', grupo_marca: 'DEMO', grupo_categoria: 'NOTEBOOKS' });
+    expect(await t.findByText('Notebook Demo 14 i5 8GB 512GB')).toBeInTheDocument();
+    expect(levels().getByRole('button', { name: 'Producto', pressed: true })).toBeInTheDocument();
+  });
+
+  it('a header sorts the brands, and the products a category opens keep that sort', async () => {
+    const user = userEvent.setup();
+    const t = await openAt('&orden=unidades_erp&dir=asc');
+    expect(auditCalls()[0]).toMatchObject({ nivel: 'marca', orden: 'unidades_erp', dir: 'asc' });
+    await user.click(within(table()).getAllByRole('button', { name: /^ERP/ })[1]);
+    await waitFor(() => expect(auditCalls().at(-1)).toMatchObject({ nivel: 'marca', orden: 'valor_erp' }));
+    await user.click(await t.findByRole('button', { name: 'Abrir DEMO' }));
+    await user.click(t.getByRole('button', { name: 'Abrir NOTEBOOKS' }));
+    await waitFor(() => expect(auditCalls().at(-1)).toMatchObject({ nivel: 'producto', grupo_categoria: 'NOTEBOOKS', orden: 'valor_erp' }));
+  });
+
+  it('a group without cost on some products still shows its costed value and says "N productos sin costo"', async () => {
+    const user = userEvent.setup();
+    const t = await openAt();
+    await user.click(await t.findByRole('button', { name: 'Abrir DEMO' }));
+    const supplies = rowOf('INSUMOS');
+    expect(within(supplies).getByText('1 producto sin costo')).toBeInTheDocument();
+    expect(supplies.querySelector('td[data-column="valor_total"]').textContent).toContain('3.557');
+    expect(rowOf('DEMO').querySelector('td[data-column="valor_total"]').textContent).toContain('30.017');
+  });
+
+  it('the Excel export carries the level and the drill', async () => {
+    const user = userEvent.setup();
+    exportAuditoriaStockExcel.mockReset();
+    exportAuditoriaStockExcel.mockResolvedValue(undefined);
+    await openAt('&nivel=categoria&grupo_marca=DEMO');
+    await user.click(screen.getByRole('button', { name: 'Exportar Excel' }));
+    await waitFor(() => expect(exportAuditoriaStockExcel).toHaveBeenCalledTimes(1));
+    expect(exportAuditoriaStockExcel).toHaveBeenCalledWith({ nivel: 'categoria', grupo_marca: 'DEMO', orden: 'valor_total', dir: 'desc' });
+  });
+});
+
+describe('auditoria-stock-niveles S3, S4: "ERP n · Full n" under the sales, coverage and rotation', () => {
+  const rowOf = (name) => within(table()).getByText(name, { selector: 'span' }).closest('tr');
+  const cell = (row, key) => row.querySelector(`td[data-column="${key}"]`);
+
+  it('a brand row: its split, and the tooltip of the ERP number with sales without shipping data', async () => {
+    publicacionesMlAPI.stockAudit.mockImplementation((params) => Promise.resolve({ data: stockAuditLevelResponse(params) }));
+    const t = await audit('/ml-publicaciones?vista=auditoria');
+    await t.findByText('DEMO', { selector: 'span' });
+    const brand = rowOf('DEMO');
+    expect(cell(brand, 'unidades_7d')).toHaveTextContent('ERP 12 · Full 5');
+    expect(cell(brand, 'unidades_30d')).toHaveTextContent('ERP 50 · Full 25');
+    expect(within(cell(brand, 'unidades_7d')).getByTitle('incluye 2 sin dato de envío')).toHaveTextContent('ERP 12');
+    // none without shipping data in 30 days: no tooltip
+    expect(within(cell(brand, 'unidades_30d')).queryByTitle(/sin dato de envío/)).not.toBeInTheDocument();
+    expect(cell(rowOf('Sin marca'), 'unidades_7d')).toHaveTextContent('ERP 0 · Full 0');
+  });
+
+  it('a product row and a pack (in base units, ERP + Full = the total shown)', async () => {
+    const user = userEvent.setup();
+    const t = await audit();
+    const notebook = rowOf('Notebook Demo 14 i5 8GB 512GB');
+    expect(cell(notebook, 'unidades_7d')).toHaveTextContent('ERP 4 · Full 2');
+    expect(cell(notebook, 'unidades_30d')).toHaveTextContent('ERP 16 · Full 8');
+    expect(within(notebook).queryByTitle(/sin dato de envío/)).not.toBeInTheDocument();
+    await user.click(t.getByRole('button', { name: 'Abrir Cartucho Demo 01 negro' }));
+    const pack = rowOf('Cartucho Demo 01 negro x2');
+    // 4 packs in 7 days = 8 units: ERP 3 + Full 1 packs = 6 + 2 units
+    expect(cell(pack, 'unidades_7d')).toHaveTextContent('8');
+    expect(cell(pack, 'unidades_7d')).toHaveTextContent('ERP 6 · Full 2');
+    expect(cell(pack, 'unidades_30d')).toHaveTextContent('ERP 24 · Full 12');
+  });
+
+  it('a publication row: the split of /items?desglose_envio=true, with its tooltip', async () => {
+    const user = userEvent.setup();
+    const t = await audit();
+    await user.click(t.getByRole('button', { name: 'Abrir Notebook Demo 14 i5 8GB 512GB' }));
+    const publication = (await t.findByText('MLA1900000001')).closest('tr');
+    expect(publicacionesMlAPI.items.mock.calls.at(-1)[0]).toMatchObject({ item_ids: '9001', desglose_envio: true });
+    expect(cell(publication, 'unidades_7d')).toHaveTextContent('ERP 3 · Full 1');
+    expect(cell(publication, 'unidades_30d')).toHaveTextContent('ERP 12 · Full 3');
+    expect(within(cell(publication, 'unidades_30d')).getByTitle('incluye 1 sin dato de envío')).toBeInTheDocument();
+  });
+
+  it('coverage and rotation by origin, ∞ for stock without sales and "—" for none', async () => {
+    await audit();
+    const notebook = rowOf('Notebook Demo 14 i5 8GB 512GB');
+    expect(cell(notebook, 'cobertura')).toHaveTextContent('ERP 75 · Full 40');
+    expect(cell(notebook, 'rotacion')).toHaveTextContent('ERP 0,40 · Full 0,75');
+    const pc = rowOf(AUDIT_ORPHAN.descripcion);
+    expect(cell(pc, 'cobertura')).toHaveTextContent('ERP ∞ · Full —');
+    expect(cell(pc, 'rotacion')).toHaveTextContent('ERP 0,00 · Full —');
   });
 });

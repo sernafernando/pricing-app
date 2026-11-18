@@ -4,6 +4,12 @@
  */
 import { makeItem } from './publicacionesMlFixtures';
 
+// `erp + full` is the window's total; `sin_envio` (sales without shipping data) is inside `erp`.
+const split = (u7, u30, sin7 = 0, sin30 = 0) => ({
+  '7d': { erp: u7 - Math.floor(u7 / 3), full: Math.floor(u7 / 3), sin_envio: sin7 },
+  '30d': { erp: u30 - Math.floor(u30 / 3), full: Math.floor(u30 / 3), sin_envio: sin30 },
+});
+
 const sales = (u7, u30, gross, extra = {}) => ({
   unidades_7d: u7,
   unidades_30d: u30,
@@ -23,6 +29,12 @@ const sales = (u7, u30, gross, extra = {}) => ({
   rotacion: 0.48,
   stock_promedio: 50,
   stock_promedio_dias: 12,
+  // ERP / Full split (auditoria-stock-niveles S3, S4): a third of the sales by Full, the rest by ERP.
+  envio: split(u7, u30),
+  por_origen: {
+    erp: { dias_cobertura: 75, cobertura_infinita: false, rotacion: 0.4 },
+    full: { dias_cobertura: 40, cobertura_infinita: false, rotacion: 0.75 },
+  },
   ...extra,
 });
 
@@ -143,6 +155,10 @@ export const AUDIT_ORPHAN = {
     cobertura_infinita: true,
     rotacion: 0,
     stock_promedio: 4,
+    por_origen: {
+      erp: { dias_cobertura: null, cobertura_infinita: true, rotacion: 0 },
+      full: { dias_cobertura: null, cobertura_infinita: false, rotacion: null },
+    },
   }),
   kind_counts: {},
   status_counts: {},
@@ -188,6 +204,8 @@ const itemMetrics = (u7, u30, gross, markup) => ({
   markup_30d: markup,
   markup_delta_pp: 0.4,
   series_markup_90d: Array.from({ length: 90 }, (_, d) => Math.round((markup + 2 * Math.sin(d / 9)) * 10) / 10),
+  // `/items?desglose_envio=true`: one sale by Full in 7 days, three in 30, one of them without shipping data.
+  envio: { '7d': { erp: u7 - 1, full: 1, sin_envio: 0 }, '30d': { erp: u30 - 3, full: 3, sin_envio: 1 } },
 });
 
 /** The notebook's own publications (`/items` with its `params`). */
@@ -218,3 +236,110 @@ export const AUDIT_PACK_ITEMS = {
   limit: 100,
   offset: 0,
 };
+
+// The Marca > Categoría levels (auditoria-stock-niveles S1, S2): group rows over the products above.
+const group = (fields) => ({
+  productos_sin_costo: 0,
+  sin_costo: false,
+  publicacion_activa: true,
+  promo_aplicada: true,
+  kind_counts: { clasica: 3, cuotas_6: 3 },
+  status_counts: { active: 6, paused: 1 },
+  markup_actual: { min: -2.4, max: 30 },
+  ...fields,
+});
+
+export const AUDIT_CATEGORY_NOTEBOOKS = group({
+  key: 'marca:DEMO|categoria:NOTEBOOKS',
+  tipo: 'categoria',
+  grupo: { marca: 'DEMO', categoria: 'NOTEBOOKS' },
+  descripcion: 'NOTEBOOKS',
+  productos: 1,
+  erp: money(30, 12600),
+  full: money(32, 13860),
+  total: money(62, 26460),
+  publications_count: 5,
+  promo_counts: { con: 3, sin: 5 },
+  ventas: sales(8, 32, 12800000),
+});
+
+// One product without cost: its stock is left out of the values, which still show the costed part (KPI rule).
+export const AUDIT_CATEGORY_SUPPLIES = group({
+  key: 'marca:DEMO|categoria:INSUMOS',
+  tipo: 'categoria',
+  grupo: { marca: 'DEMO', categoria: 'INSUMOS' },
+  descripcion: 'INSUMOS',
+  productos: 2,
+  productos_sin_costo: 1,
+  sin_costo: true,
+  erp: money(84, 2936.55),
+  full: money(100, 620.68),
+  total: money(184, 3557.23),
+  publications_count: 2,
+  promo_counts: { con: 0, sin: 3 },
+  ventas: sales(9, 43, 970000, { dias_cobertura: 128, rotacion: 0.23 }),
+});
+
+export const AUDIT_BRAND_DEMO = group({
+  key: 'marca:DEMO',
+  tipo: 'marca',
+  grupo: { marca: 'DEMO', categoria: null },
+  descripcion: 'DEMO',
+  productos: 3,
+  productos_sin_costo: 1,
+  sin_costo: true,
+  erp: money(114, 15536.55),
+  full: money(132, 14480.68),
+  total: money(246, 30017.23),
+  publications_count: 7,
+  promo_counts: { con: 3, sin: 8 },
+  // two sales of the week without shipping data, counted in ERP
+  ventas: sales(17, 75, 13770000, { envio: split(17, 75, 2, 0) }),
+  categorias: [AUDIT_CATEGORY_NOTEBOOKS, AUDIT_CATEGORY_SUPPLIES],
+});
+
+export const AUDIT_BRAND_NONE = group({
+  key: 'marca:__none__',
+  tipo: 'marca',
+  grupo: { marca: '__none__', categoria: null },
+  descripcion: 'Sin marca',
+  productos: 1,
+  erp: money(2, 180),
+  full: money(0, 0),
+  total: money(2, 180),
+  publications_count: 1,
+  promo_counts: { con: 0, sin: 1 },
+  ventas: sales(0, 3, 90000),
+  categorias: [
+    group({
+      key: 'marca:__none__|categoria:__none__',
+      tipo: 'categoria',
+      grupo: { marca: '__none__', categoria: '__none__' },
+      descripcion: 'Sin categoría',
+      productos: 1,
+      erp: money(2, 180),
+      full: money(0, 0),
+      total: money(2, 180),
+      publications_count: 1,
+      promo_counts: { con: 0, sin: 1 },
+      ventas: sales(0, 3, 90000),
+    }),
+  ],
+});
+
+/** `GET /view/stock-audit` by its `nivel` and drill: the brands, the categories (inline in a brand, or across brands
+ * at `nivel=categoria`), and a category's products. */
+export function stockAuditLevelResponse(params = {}) {
+  if (params.nivel === 'marca') return stockAuditResponse([AUDIT_BRAND_DEMO, AUDIT_BRAND_NONE]);
+  if (params.nivel === 'categoria') {
+    const rows = [AUDIT_CATEGORY_NOTEBOOKS, AUDIT_CATEGORY_SUPPLIES].map((c) => ({
+      ...c,
+      key: `categoria:${c.grupo.categoria}`,
+      grupo: { marca: params.grupo_marca ?? null, categoria: c.grupo.categoria },
+    }));
+    return stockAuditResponse(rows);
+  }
+  if (params.grupo_categoria === 'NOTEBOOKS') return stockAuditResponse([AUDIT_NOTEBOOK]);
+  if (params.grupo_categoria === 'INSUMOS') return stockAuditResponse([AUDIT_CARTRIDGE, AUDIT_ORPHAN]);
+  return stockAuditResponse();
+}
