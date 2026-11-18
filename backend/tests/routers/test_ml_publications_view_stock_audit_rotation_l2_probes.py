@@ -20,6 +20,7 @@ from tests.routers.test_ml_publications_view_stock_audit import (  # noqa: F401
     audit,
     board_row,
     fill,
+    no_split,
     photo,
     product,
     publication,

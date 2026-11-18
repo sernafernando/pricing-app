@@ -33,7 +33,8 @@ from app.services.ml_publications.view import stock_audit
 from tests.routers.test_ml_publications_links import grant
 from tests.routers.test_ml_publications_view import seed_rows
 from tests.routers.test_ml_publications_view_kpis import pg, view_pg  # noqa: F401
-from tests.routers.test_ml_publications_view_stock_audit import (
+from tests.routers.test_ml_publications_view_stock_audit import (  # noqa: F401
+    no_split,
     create_snapshot_table,
     BOM_DDL,
     PERMISO,

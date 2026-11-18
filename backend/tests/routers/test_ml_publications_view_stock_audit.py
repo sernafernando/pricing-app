@@ -118,6 +118,13 @@ def fill(conn) -> None:
     seed.add_stock(conn, "UP30", full=4, own=0)
 
 
+@pytest.fixture(autouse=True)
+def no_split(monkeypatch) -> None:
+    """No publication has a Full split (auditoria-stock-niveles S3): every unit sold is ERP. The split's own tests
+    replace it; its Board read is `test_board_envio_por_publicacion_postgres`."""
+    monkeypatch.setattr(stock_audit, "fulfillment_by_mla", lambda db, mlas: {})
+
+
 @pytest.fixture()
 def started(monkeypatch) -> list[tuple]:
     seen: list[tuple] = []
@@ -390,6 +397,9 @@ ROTATION_KEYS = (
     "rotacion",
     "stock_promedio",
     "stock_promedio_dias",
+    # the ERP / Full split (auditoria-stock-niveles S3-S4), compared in test_ml_publications_view_stock_audit_niveles
+    "envio",
+    "por_origen",
 )
 
 
