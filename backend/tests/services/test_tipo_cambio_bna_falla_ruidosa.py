@@ -168,3 +168,78 @@ def test_script_exits_0_when_the_fetch_succeeds(monkeypatch: pytest.MonkeyPatch,
     sync_tipo_cambio.main()
 
     assert "1580.0" in capsys.readouterr().out
+
+
+def _bna_responde(monkeypatch: pytest.MonkeyPatch, html: bytes) -> None:
+    monkeypatch.setattr(
+        tipo_cambio_service.requests, "post", lambda *a, **k: SimpleNamespace(content=html, status_code=200)
+    )
+
+
+def _wabot_explota(monkeypatch: pytest.MonkeyPatch) -> List[str]:
+    intentos: List[str] = []
+
+    def _send(message: str) -> str:
+        intentos.append(message)
+        raise RuntimeError("wabot down")
+
+    monkeypatch.setattr(wabot_client, "send_to_owner", _send)
+    return intentos
+
+
+@pytest.mark.parametrize(
+    ("html", "mensaje"),
+    [
+        (b"<html><body><table><tr><td>Euro</td><td>1</td><td>2</td></tr></table></body></html>", "No se encontraron"),
+        (b"<html><body><table><tr><td>Dolar U.S.A</td><td>1530,00</td></tr></table></body></html>", "incompleta"),
+        (b"<html><body><table><tr><td>Dolar U.S.A</td><td>0</td><td>0</td></tr></table></body></html>", "inválidos"),
+    ],
+)
+def test_parse_failure_is_counted_once_per_run(
+    db: Session, alertas: List[str], monkeypatch: pytest.MonkeyPatch, html: bytes, mensaje: str
+) -> None:
+    _bna_responde(monkeypatch, html)
+
+    resultado = tipo_cambio_service.actualizar_tipo_cambio_bna(db)
+    tipo_cambio_service.actualizar_tipo_cambio_bna(db)
+
+    assert resultado["status"] == "error"
+    assert mensaje in resultado["message"]
+    assert _estado(db)["fallas_consecutivas"] == 2
+    assert db.query(TipoCambio).count() == 0
+
+
+def test_alert_that_raises_on_a_parse_failure_neither_escapes_nor_double_counts(
+    db: Session, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The alert at the threshold used to run inside the fetch's `try`: when it raised, the `except` counted and
+    alerted the same failure a second time and the second raise escaped to the caller."""
+    _bna_responde(monkeypatch, b"<html><body><table><tr><td>Euro</td><td>1</td><td>2</td></tr></table></body></html>")
+    intentos = _wabot_explota(monkeypatch)
+
+    with caplog.at_level(logging.ERROR, logger=tipo_cambio_service.logger.name):
+        for _ in range(tipo_cambio_service.FALLAS_PARA_ALERTAR):
+            resultado = tipo_cambio_service.actualizar_tipo_cambio_bna(db)
+
+    assert resultado == {"status": "error", "message": "No se encontraron valores en BNA"}
+    assert len(intentos) == 1
+    estado = _estado(db)
+    assert estado["fallas_consecutivas"] == tipo_cambio_service.FALLAS_PARA_ALERTAR
+    assert estado["alertado"] is False
+    assert any("wabot" in r.getMessage() for r in caplog.records if r.levelno == logging.ERROR)
+
+
+def test_alert_that_raises_never_escapes_and_is_retried(
+    db: Session, sin_parser: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    intentos = _wabot_explota(monkeypatch)
+
+    for _ in range(tipo_cambio_service.FALLAS_PARA_ALERTAR + 1):
+        resultado = tipo_cambio_service.actualizar_tipo_cambio_bna(db)
+
+    assert resultado["status"] == "error"
+    assert "lxml" in resultado["message"]
+    assert len(intentos) == 2  # the 6th run's alert failed, the 7th retries it
+    estado = _estado(db)
+    assert estado["fallas_consecutivas"] == tipo_cambio_service.FALLAS_PARA_ALERTAR + 1
+    assert estado["alertado"] is False

@@ -1,6 +1,6 @@
 import logging
 from datetime import date, datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Tuple, Union
 
 import requests
 from sqlalchemy.exc import SQLAlchemyError
@@ -29,61 +29,84 @@ def actualizar_tipo_cambio_bna(db: Session) -> dict:
     alimenta el pricing. Se ancla la fila por el texto "Dolar U.S.A" tomando la
     primera coincidencia en orden de documento (= tabla Billetes del día).
     """
+    # The fetch alone runs inside the `try`; the failure is counted and alerted ONCE, outside it, so bookkeeping
+    # that fails can never be caught here and counted (and alerted) a second time.
     try:
-        # Imported here so a missing parser is a counted, alerted failure (it stopped the rate on 2026-11-06)
-        # instead of an ImportError that takes down every caller of this module.
-        from lxml import html
-
-        # El BNA carga las cotizaciones vía POST al tab de billetes y exige
-        # User-Agent (un GET plano devuelve un HTML sin las tablas).
-        url = "https://www.bna.com.ar/Personas?id=billetes"
-        headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"}
-        response = requests.post(url, timeout=10, headers=headers)
-        tree = html.fromstring(response.content)
-
-        # Primera fila "Dolar U.S.A" en el documento = tabla Billetes (compra, venta).
-        filas = tree.xpath("//tr[td[contains(normalize-space(.), 'Dolar U.S.A')]]")
-        if not filas:
-            return _registrar_falla(db, "No se encontraron valores en BNA")
-
-        celdas = [c.strip() for c in filas[0].xpath("./td//text()") if c.strip()]
-        if len(celdas) < 3:
-            return _registrar_falla(db, "Fila de dólar incompleta en BNA")
-
-        # Limpiar y convertir: 1450,00 -> 1450.0
-        compra = float(celdas[1].replace(".", "").replace(",", "."))
-        venta = float(celdas[2].replace(".", "").replace(",", "."))
-
-        if compra == 0 or venta == 0:
-            return _registrar_falla(db, "Valores inválidos")
-
-        guardar_cotizacion_bna(db, compra, venta)
+        cotizacion = _obtener_cotizacion_bna(db)
     except Exception as e:  # noqa: BLE001 -- any failure (import, network, parse, DB) must be counted and alerted
         # Session contract: callers pass a dedicated session with nothing pending (sync endpoint, sync scripts),
         # so rolling back discards only this update and never leaves the session in a failed transaction.
         db.rollback()
         return _registrar_falla(db, str(e))
+    if isinstance(cotizacion, str):
+        return _registrar_falla(db, cotizacion)
+    compra, venta = cotizacion
     _registrar_estado(db, fallas=0, alertado=False, ultimo_error=None)
     return {"status": "success", "compra": compra, "venta": venta, "fuente": "BNA"}
 
 
+def _obtener_cotizacion_bna(db: Session) -> Union[Tuple[float, float], str]:
+    """Scrape the BNA Billetes row and store it (`guardar_cotizacion_bna`). Returns `(compra, venta)`, or the
+    error message when the page has no usable row; raises on import, network or DB errors."""
+    # Imported here so a missing parser is a counted, alerted failure (it stopped the rate on 2026-11-06)
+    # instead of an ImportError that takes down every caller of this module.
+    from lxml import html
+
+    # El BNA carga las cotizaciones vía POST al tab de billetes y exige
+    # User-Agent (un GET plano devuelve un HTML sin las tablas).
+    url = "https://www.bna.com.ar/Personas?id=billetes"
+    headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"}
+    response = requests.post(url, timeout=10, headers=headers)
+    tree = html.fromstring(response.content)
+
+    # Primera fila "Dolar U.S.A" en el documento = tabla Billetes (compra, venta).
+    filas = tree.xpath("//tr[td[contains(normalize-space(.), 'Dolar U.S.A')]]")
+    if not filas:
+        return "No se encontraron valores en BNA"
+
+    celdas = [c.strip() for c in filas[0].xpath("./td//text()") if c.strip()]
+    if len(celdas) < 3:
+        return "Fila de dólar incompleta en BNA"
+
+    # Limpiar y convertir: 1450,00 -> 1450.0
+    compra = float(celdas[1].replace(".", "").replace(",", "."))
+    venta = float(celdas[2].replace(".", "").replace(",", "."))
+
+    if compra == 0 or venta == 0:
+        return "Valores inválidos"
+
+    guardar_cotizacion_bna(db, compra, venta)
+    return compra, venta
+
+
 def _registrar_falla(db: Session, mensaje: str) -> Dict[str, Any]:
     """Log the failed fetch as ERROR, count it, and alert the owner once at FALLAS_PARA_ALERTAR in a row (an alert
-    wabot did not take is retried on the next failure). Returns the caller's error result."""
+    wabot did not take, or that raised, is retried on the next failure). Never raises: returns the error result."""
     logger.error("BNA: no se pudo actualizar el tipo de cambio USD: %s", mensaje)
     estado = _leer_estado(db)
     fallas = int(estado.get("fallas_consecutivas", 0)) + 1
     alertado = bool(estado.get("alertado", False))
     if fallas >= FALLAS_PARA_ALERTAR and not alertado:
-        envio = wabot_client.send_to_owner(
+        alertado = _avisar_owner(
             f"Pricing: el tipo de cambio USD no se actualiza ({fallas} intentos seguidos fallaron). "
             f"Último error: {mensaje}"
         )
-        alertado = envio == "sent"
-        if not alertado:
-            logger.error("BNA: no se pudo avisar al owner por wabot (%s)", envio)
     _registrar_estado(db, fallas=fallas, alertado=alertado, ultimo_error=mensaje)
     return {"status": "error", "message": mensaje}
+
+
+def _avisar_owner(mensaje: str) -> bool:
+    """Send the WhatsApp; True only when wabot took it. An alert must never break the run that sends it, so any
+    exception from the client is logged and counts as not sent."""
+    try:
+        envio = wabot_client.send_to_owner(mensaje)
+    except Exception:  # noqa: BLE001 -- whatever the client raises, the rate update must finish
+        logger.exception("BNA: no se pudo avisar al owner por wabot")
+        return False
+    if envio != "sent":
+        logger.error("BNA: no se pudo avisar al owner por wabot (%s)", envio)
+        return False
+    return True
 
 
 def _leer_estado(db: Session) -> Dict[str, Any]:
