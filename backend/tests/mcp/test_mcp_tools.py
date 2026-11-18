@@ -190,6 +190,15 @@ def test_path_arguments_cannot_escape_their_endpoint(mcp_client, mcp_user, recor
     assert calls == []
 
 
+@pytest.mark.parametrize("value", ["..", ".", "a/..", "%2e%2e"])
+def test_dot_segments_are_refused_in_unpatterned_path_arguments(mcp_client, mcp_user, recorder, value):
+    calls, _ = recorder
+    conn = connect(mcp_client, mcp_user)
+    result = call_tool(mcp_client, conn.headers, "promos_item", {"mla_id": value})
+    assert result["isError"] is True
+    assert calls == []
+
+
 def test_metricas_board_returns_the_board_as_is(mcp_client, mcp_user, recorder):
     _, state = recorder
     state["payload"] = {"rows": [{"producto": "A"}], "kpis": {"ventas": 10}, "total": 1}
@@ -203,7 +212,13 @@ def test_product_costs_are_dropped_without_productos_ver_costos(mcp_client, mcp_
     state["payload"] = {
         "total": 1,
         "productos": [
-            {"item_id": 1, "costo": 10.5, "moneda_costo": "USD", "precio_lista": 99, "detalle": {"costo_ars": 1}}
+            {
+                "item_id": 1,
+                "costo": 10.5,
+                "moneda_costo": "USD",
+                "precio_lista": 99,
+                "detalle": {"costo_ars": 1, "costos": {"envio": 2}},
+            }
         ],
     }
     conn = connect(mcp_client, mcp_user)
@@ -297,3 +312,33 @@ def test_old_tool_call_logs_are_pruned_on_token_exchange(mcp_client, mcp_user, d
     db.commit()
     connect(mcp_client, mcp_user)
     assert [r.tool for r in db.query(McpToolCall).all()] == ["reciente"]
+
+
+def test_promos_item_applies_the_promociones_tab_filter(mcp_client, mcp_user, recorder):
+    """The panel's type / per-type name filter runs in the browser; the tool applies the same rule."""
+    calls, state = recorder
+    promos = [
+        {"promotion_id": "A", "promotion_type": "SMART", "name": "Smart 1"},
+        {"promotion_id": "B", "promotion_type": "DEAL", "name": "Día"},
+        {"promotion_id": "C", "promotion_type": "DEAL", "payload": {"name": "Semana"}},
+        {"promotion_id": "D", "promotion_type": "LIGHTNING", "name": "Relámpago"},
+    ]
+    state["payload"] = {"mla": "MLA9", "count": 4, "promotions": promos}
+    conn = connect(mcp_client, mcp_user)
+    arguments = {"mla_id": "MLA9", "promotion_types": ["DEAL", "SMART"], "promotion_names": {"DEAL": ["Semana"]}}
+    data = json.loads(tool_text(call_tool(mcp_client, conn.headers, "promos_item", arguments)))
+    assert [p["promotion_id"] for p in data["promotions"]] == ["A", "C"]
+    assert data["count"] == 2
+    assert calls[0]["params"] == {}
+    unfiltered = json.loads(tool_text(call_tool(mcp_client, conn.headers, "promos_item", {"mla_id": "MLA9"})))
+    assert unfiltered["count"] == 4
+
+
+def test_ventas_fuera_cargas_reads_the_upload_history(mcp_client, mcp_user, recorder):
+    calls, state = recorder
+    state["payload"] = []
+    conn = connect(mcp_client, mcp_user)
+    result = call_tool(mcp_client, conn.headers, "ventas_fuera_cargas", {"dias": 7, "empresa": "1"})
+    assert result["isError"] is False, tool_text(result)
+    assert calls[0]["path"] == "/api/ventas-fuera-pdf/cargas"
+    assert calls[0]["params"]["dias"] == 7

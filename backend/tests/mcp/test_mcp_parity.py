@@ -16,7 +16,7 @@ import json
 import pytest
 
 from app.main import app
-from app.mcp import loopback, tools
+from app.mcp import loopback, tools, ui_filters
 
 OPENAPI = app.openapi()
 SAMPLE_PATH_VALUES = {"item_id": "MLA1", "mla_id": "MLA1"}
@@ -48,7 +48,7 @@ def test_tool_arguments_are_exactly_the_endpoint_parameters(spec):
         p["name"] for p in tools.operation(OPENAPI, spec.path).get("parameters", []) if p["in"] in ("path", "query")
     }
     built = tools.build_tool(OPENAPI, spec)
-    assert set(built.input_schema["properties"]) == params
+    assert set(built.input_schema["properties"]) == params | set(spec.extra_properties)
     assert built.input_schema["additionalProperties"] is False
 
 
@@ -108,3 +108,65 @@ def test_promos_publicaciones_takes_every_publicaciones_filter_plus_pm_by_name()
     catalog = tools.build_catalog(OPENAPI)
     items = set(catalog["pubml_items"].input_schema["properties"])
     assert set(catalog["promos_publicaciones"].input_schema["properties"]) == items | {"pm"}
+
+
+# ---------------------------------------------------------------- L10: every filter of every screen, by UI name
+
+CATALOG_BUILT = tools.build_catalog(OPENAPI)
+
+
+def test_every_tool_has_its_screen_filter_checklist():
+    assert sorted(set(CATALOG_BUILT) ^ set(ui_filters.UI_FILTERS)) == []
+
+
+@pytest.mark.parametrize("name", sorted(ui_filters.UI_FILTERS))
+def test_every_screen_filter_is_an_argument_of_its_tool(name):
+    arguments = set(CATALOG_BUILT[name].input_schema["properties"])
+    listed = [param for _, param in ui_filters.UI_FILTERS[name].filters]
+    assert sorted(set(listed) - arguments) == [], "screen filters the MCP does not take"
+    assert len(listed) == len(set(listed)), "a filter listed twice"
+
+
+@pytest.mark.parametrize("name", sorted(ui_filters.UI_FILTERS))
+def test_every_argument_is_a_mapped_filter_or_a_justified_non_filter(name):
+    entry = ui_filters.UI_FILTERS[name]
+    arguments = set(CATALOG_BUILT[name].input_schema["properties"])
+    mapped = {param for _, param in entry.filters} | set(entry.other) | set(ui_filters.NOT_FILTERS)
+    assert sorted(arguments - mapped) == [], "endpoint filters missing from the UI checklist (map them)"
+    assert all(reason.strip() for reason in entry.other.values())
+
+
+@pytest.mark.parametrize("name", sorted(ui_filters.UI_FILTERS))
+def test_tienda_is_on_every_tool_whose_screen_has_it(name):
+    entry = ui_filters.UI_FILTERS[name]
+    arguments = set(CATALOG_BUILT[name].input_schema["properties"])
+    takes_store = bool(arguments & {"tiendas", "stores"})
+    assert entry.has_tienda == takes_store
+    if entry.has_tienda:
+        assert any(label.startswith("Tienda") for label, _ in entry.filters)
+        param = "tiendas" if "tiendas" in arguments else "stores"
+        description = CATALOG_BUILT[name].input_schema["properties"][param].get("description", "")
+        assert ("none" if param == "tiendas" else "sin_tienda") in description, "how to ask for Sin tienda"
+
+
+def test_tienda_screens_named_by_the_owner_all_take_it():
+    for name in (
+        "pubml_items",
+        "pubml_kpis",
+        "pubml_groups",
+        "pubml_products",
+        "pubml_stock_audit",
+        "metricas_board",
+        "metricas_board_envios",
+        "metricas_board_group_nodes",
+        "metricas_board_publications",
+        "ventas_ml",
+        "promos_publicaciones",
+    ):
+        assert ui_filters.UI_FILTERS[name].has_tienda, name
+
+
+def test_the_checklist_table_lists_every_filter():
+    table = ui_filters.checklist_markdown(sorted(ui_filters.UI_FILTERS))
+    rows = sum(max(1, len(entry.filters)) for entry in ui_filters.UI_FILTERS.values())
+    assert table.count("✅") == rows

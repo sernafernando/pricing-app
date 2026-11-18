@@ -14,12 +14,15 @@ from __future__ import annotations
 import unicodedata
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import quote
+
+import anyio
 
 from app.mcp import promo_pick
-from app.mcp.tools import BuiltTool, ToolCallError, ToolSpec, _get
+from app.mcp.tools import BuiltTool, ToolCallError, ToolSpec, _get, _path_value
 
 ITEMS_PATH = "/api/ml-publications/view/items"
+# Per-row reads in flight at once: a page of 50 must not run 100 requests one after another, nor all at once.
+ROW_CONCURRENCY = 6
 PMS_PATH = "/api/usuarios/pms"
 
 
@@ -81,7 +84,7 @@ async def _row(item: dict[str, Any], username: str, now: datetime) -> dict[str, 
         "brand": link.get("marca"),
         "sale_price": price,
     }
-    base = f"/api/promociones/item/{quote(item_id, safe='')}"
+    base = f"/api/promociones/item/{_path_value('item_id', item_id)}"
     data = await _get(base, {}, username) or {}
     promotions = data.get("promotions") or []
 
@@ -127,6 +130,27 @@ async def _row(item: dict[str, Any], username: str, now: datetime) -> dict[str, 
     return row
 
 
+async def _rows(items: list[dict[str, Any]], username: str, now: datetime) -> list[dict[str, Any]]:
+    """Every row, in page order, at most ROW_CONCURRENCY reads at a time; the first failure (in order) wins."""
+    results: list[dict[str, Any] | BaseException | None] = [None] * len(items)
+    limiter = anyio.CapacityLimiter(ROW_CONCURRENCY)
+
+    async def one(index: int, item: dict[str, Any]) -> None:
+        async with limiter:
+            try:
+                results[index] = await _row(item, username, now)
+            except ToolCallError as exc:
+                results[index] = exc
+
+    async with anyio.create_task_group() as group:
+        for index, item in enumerate(items):
+            group.start_soon(one, index, item)
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
+    return [r for r in results if isinstance(r, dict)]
+
+
 async def run(tool: BuiltTool, args: dict[str, Any], username: str) -> Any:
     query = {k: v for k, v in args.items() if k in tool.query_params}
     pm_info = None
@@ -146,7 +170,7 @@ async def run(tool: BuiltTool, args: dict[str, Any], username: str) -> Any:
 
     page = await _get(ITEMS_PATH, query, username) or {}
     now = datetime.now(UTC)
-    rows = [await _row(item, username, now) for item in page.get("items") or []]
+    rows = await _rows(page.get("items") or [], username, now)
     result: dict[str, Any] = {
         "total": page.get("total"),
         "limit": page.get("limit", query.get("limit")),

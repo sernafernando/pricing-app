@@ -197,3 +197,29 @@ def test_without_promos_permission_the_tool_is_denied(mcp_client, mcp_user, app_
 def test_page_size_is_capped(mcp_client, mcp_user, app_data):
     result = _call(mcp_client, mcp_user, {"pms": "4", "limit": 500})
     assert result["isError"] is True
+
+
+def test_rows_are_read_concurrently_but_bounded(mcp_client, mcp_user, monkeypatch):
+    """A page of up to 50 publications must not run its per-row reads one after another, nor all at once."""
+    import anyio
+
+    from app.mcp import loopback, promos_bulk
+
+    many = {"total": 12, "limit": 12, "offset": 0, "items": [_row(f"MLA{i}", "x", 1000) for i in range(12)]}
+    state = {"inflight": 0, "peak": 0}
+
+    async def fake_send(path: str, params: dict, headers: dict) -> tuple[int, bytes]:
+        if path == "/api/ml-publications/view/items":
+            return 200, json.dumps(many).encode()
+        state["inflight"] += 1
+        state["peak"] = max(state["peak"], state["inflight"])
+        await anyio.sleep(0.02)
+        state["inflight"] -= 1
+        if path.endswith("/markup"):
+            return 200, json.dumps({"nuestro_markup": 10.0, "markup_sell_in_out": None}).encode()
+        return 200, json.dumps({"promotions": []}).encode()
+
+    monkeypatch.setattr(loopback, "send_request", fake_send)
+    data = json.loads(tool_text(_call(mcp_client, mcp_user, {"pms": "4", "limit": 12})))
+    assert [row["item_id"] for row in data["rows"]] == [f"MLA{i}" for i in range(12)]
+    assert 1 < state["peak"] <= promos_bulk.ROW_CONCURRENCY

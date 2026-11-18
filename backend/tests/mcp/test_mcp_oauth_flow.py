@@ -477,3 +477,59 @@ def test_redirect_constants_match_the_allowlist_default():
     assert chatgpt.client_id == CHATGPT_CLIENT_ID
     assert chatgpt.redirect_uris == (CHATGPT_REDIRECT,)
     assert chatgpt.name == "ChatGPT"
+
+
+# ---------------------------------------------------------------- concurrent redemption (verifier follow-up)
+
+
+def _redeemed_meanwhile(db, monkeypatch, target: str, mark) -> None:
+    """Make another request win the race: right before this one claims the grant, mark it redeemed elsewhere."""
+    from app.mcp import oauth
+
+    real = getattr(oauth, target) if hasattr(oauth, target) else None
+
+    def racing(*args, **kwargs):
+        mark()
+        db.commit()
+        return real(*args, **kwargs) if real else True
+
+    monkeypatch.setattr(oauth, target, racing)
+
+
+def test_a_code_redeemed_concurrently_issues_tokens_only_once(mcp_client, mcp_user, db, monkeypatch):
+    from app.models.mcp_oauth import McpOAuthRequest
+
+    verifier, challenge = pkce_pair()
+    req = start_authorize(mcp_client, challenge)
+    query = redirect_query(decide(mcp_client, req, app_login(mcp_client, mcp_user)).json()["redirect_to"])
+    _redeemed_meanwhile(
+        db,
+        monkeypatch,
+        "_pkce_matches",
+        lambda: db.query(McpOAuthRequest).update({McpOAuthRequest.used_at: datetime.now(UTC)}),
+    )
+    r = exchange_code(mcp_client, query["code"], verifier)
+    assert r.status_code == 400
+    assert r.json()["error"] == "invalid_grant"
+    assert db.query(McpConnection).count() == 0
+
+
+def test_a_refresh_token_used_concurrently_rotates_only_once(mcp_client, mcp_user, db, monkeypatch):
+    from app.mcp import store as mcp_store
+
+    conn = connect(mcp_client, mcp_user)
+    real_may_connect = mcp_store.may_connect
+
+    def racing(session, usuario):
+        db.query(McpToken).filter(McpToken.kind == "refresh").update({McpToken.rotated_at: datetime.now(UTC)})
+        db.commit()
+        return real_may_connect(session, usuario)
+
+    monkeypatch.setattr(mcp_store, "may_connect", racing)
+    r = mcp_client.post(
+        "/api/oauth/token",
+        data={"grant_type": "refresh_token", "refresh_token": conn.refresh, "client_id": CHATGPT_CLIENT_ID},
+    )
+    assert r.status_code == 400
+    assert r.json()["error"] == "invalid_grant"
+    assert db.query(McpToken).filter(McpToken.kind == "refresh").count() == 1

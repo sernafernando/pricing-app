@@ -302,6 +302,16 @@ def _exchange_code(
     if not store.may_connect(db, usuario):
         return _token_error("invalid_grant", "user may not connect")
 
+    # Claim the code atomically: of two concurrent redemptions only one updates the row (the other sees 0 rows).
+    claimed = (
+        db.query(McpOAuthRequest)
+        .filter(McpOAuthRequest.id == row.id, McpOAuthRequest.used_at.is_(None))
+        .update({McpOAuthRequest.used_at: store.now()}, synchronize_session=False)
+    )
+    if claimed != 1:
+        db.rollback()
+        return _token_error("invalid_grant", "code already used")
+
     connection = McpConnection(
         usuario_id=usuario.id,
         client_id=row.client_id,
@@ -312,8 +322,9 @@ def _exchange_code(
     )
     db.add(connection)
     db.flush()
-    row.used_at = store.now()
-    row.connection_id = connection.id
+    db.query(McpOAuthRequest).filter(McpOAuthRequest.id == row.id).update(
+        {McpOAuthRequest.connection_id: connection.id}, synchronize_session=False
+    )
     tokens = store.issue_tokens(db, connection)
     store.prune(db)
     db.commit()
@@ -342,7 +353,15 @@ def _refresh(db: Session, refresh_token: Optional[str], client_id: str, resource
         return _token_error("invalid_target", "unknown resource")
     if not store.may_connect(db, store.load_user(db, connection.usuario_id)):
         return _token_error("invalid_grant", "user may not connect")
-    token.rotated_at = store.now()
+    # Rotate atomically: of two concurrent uses of one refresh token only one rotates it.
+    rotated = (
+        db.query(McpToken)
+        .filter(McpToken.id == token.id, McpToken.rotated_at.is_(None), McpToken.revoked_at.is_(None))
+        .update({McpToken.rotated_at: store.now()}, synchronize_session=False)
+    )
+    if rotated != 1:
+        db.rollback()
+        return _token_error("invalid_grant", "refresh token reuse")
     tokens = store.issue_tokens(db, connection)
     store.prune(db)
     db.commit()

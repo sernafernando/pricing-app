@@ -19,7 +19,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 from jsonschema import Draft202012Validator
 
@@ -43,7 +43,7 @@ EXCLUDED_ROUTES: dict[str, str] = {
     "/api/ml-publications/view/hay-mejores-exclusion-item-ids": "SPA bulk-selection helper: ids only",
 }
 
-_COST_KEY = re.compile(r"(^|_)costo(_|$)")
+_COST_KEY = re.compile(r"(^|_)costos?(_|$)")
 
 
 @dataclass(frozen=True)
@@ -188,7 +188,22 @@ CATALOG: tuple[ToolSpec, ...] = (
         "/api/promociones/item/{mla_id}",
         "Publicación: promos",
         "Publication panel, tab Promos: applied and candidate promotions with prices, nuestro_markup and "
-        "markup_sell_in_out.",
+        "markup_sell_in_out. `promotion_types` / `promotion_names` apply the tab's filter.",
+        extra_properties={
+            "promotion_types": {
+                "type": "array",
+                "items": {"type": "string"},
+                "maxItems": 20,
+                "description": "Promociones tab filter: keep only these promotion types (e.g. SMART, DEAL).",
+            },
+            "promotion_names": {
+                "type": "object",
+                "additionalProperties": {"type": "array", "items": {"type": "string"}, "maxItems": 50},
+                "maxProperties": 20,
+                "description": "Promociones tab filter: per promotion type, keep only these promotion names.",
+            },
+        },
+        runner=lambda tool, args, username: _promos_item_filtered(tool, args, username),
     ),
     ToolSpec(
         "promos_item_markup",
@@ -265,6 +280,12 @@ CATALOG: tuple[ToolSpec, ...] = (
         "Ventas por fuera",
         "Sales outside ML (GBP). Defaults to the last 30 days.",
         default_period=("desde", "hasta"),
+    ),
+    ToolSpec(
+        "ventas_fuera_cargas",
+        "/api/ventas-fuera-pdf/cargas",
+        "Ventas por fuera: cargas de PDF",
+        "Uploads of GBP sales reports (who, when, salespeople, figures, whether still in force), newest first.",
     ),
     # Publicaciones ML repair runs (admin)
     ToolSpec(
@@ -420,10 +441,20 @@ def _validate(tool: BuiltTool, arguments: dict[str, Any]) -> dict[str, Any]:
     return args
 
 
+def _path_value(name: str, value: Any) -> str:
+    """One path segment, never a way out of it: the app decodes `%2F` before routing, so separators and dot
+    segments are refused (encoded or not) instead of being escaped."""
+    text = str(value)
+    decoded = unquote(unquote(text))
+    if not decoded.strip() or decoded.strip() in (".", "..") or any(ch in decoded for ch in "/\\"):
+        raise ToolCallError(f"Argumentos inválidos: {name} no es un identificador válido")
+    return quote(text, safe="")
+
+
 def _url(tool: BuiltTool, args: dict[str, Any]) -> str:
     path = tool.spec.path
     for name in tool.path_params:
-        path = path.replace("{" + name + "}", quote(str(args[name]), safe=""))
+        path = path.replace("{" + name + "}", _path_value(name, args[name]))
     return path
 
 
@@ -459,6 +490,28 @@ async def _get(path: str, params: dict[str, Any], username: str) -> Any:
     if status_code == 503:
         raise ToolCallError(f"No disponible: {detail}")
     raise ToolCallError(f"Error del servidor ({status_code})")
+
+
+def matches_promo_filter(promo: dict[str, Any], types: list[str], names: dict[str, list[str]]) -> bool:
+    """The Promociones tab filter (frontend `matchesPromoFilter`): type in the chosen ones (none = all) and, when
+    names were chosen for that type, the promo's name among them."""
+    if types and promo.get("promotion_type") not in types:
+        return False
+    chosen = names.get(promo.get("promotion_type") or "")
+    if not chosen:
+        return True
+    payload = promo.get("payload")
+    name = promo.get("name") or (payload.get("name") if isinstance(payload, dict) else None)
+    return name in chosen
+
+
+async def _promos_item_filtered(tool: BuiltTool, args: dict[str, Any], username: str) -> Any:
+    result = await _get(_url(tool, args), {}, username)
+    types, names = args.get("promotion_types") or [], args.get("promotion_names") or {}
+    if (types or names) and isinstance(result, dict) and isinstance(result.get("promotions"), list):
+        kept = [p for p in result["promotions"] if isinstance(p, dict) and matches_promo_filter(p, types, names)]
+        result = {**result, "promotions": kept, "count": len(kept)}
+    return result
 
 
 def drop_costs(value: Any) -> Any:
