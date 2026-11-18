@@ -1,7 +1,7 @@
 """ventas por fuera PDF lines: manual fixes that survive re-uploads, remembered mappings, "sin producto" re-resolved
 
 Revision ID: 20261120_vpf_operaciones_overrides
-Revises: 20261122_mcp_oauth
+Revises: 20261122_producto_stock_diario
 Create Date: 2026-11-18
 
 Feature vpf-operaciones (S3, S3a-S3c, S4-L2):
@@ -33,7 +33,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261120_vpf_operaciones_overrides"
-down_revision: Union[str, None] = "20261122_mcp_oauth"
+down_revision: Union[str, None] = "20261122_producto_stock_diario"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
