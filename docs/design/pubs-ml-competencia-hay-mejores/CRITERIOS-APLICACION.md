@@ -55,7 +55,7 @@ Proposed grouping for design (not implementation order):
 
 | # | Name | Rule (owner wording) | Notes |
 | --- | --- | --- | --- |
-| **C2** | **Ganar catálogo** | Consider promos that would **win the catalog**. Fresh catalog when new promos are reviewed is **required**. **Toggle “solo markup positivo”**: **ON** → only suggest catalog-win when the candidate markup is **&gt; 0**; **OFF** → may suggest catalog-win even if that promo yields **negative** markup. | Alternate path vs A. Markup = same basis as status-quo / C1. “Positivo” = literal **% &gt; 0**, not “mejor que status quo”. |
+| **C2** | **Ganar catálogo** | Consider promos that would **win the catalog**. Fresh catalog when new promos are reviewed is **required**. **Toggle “solo markup positivo”**: **ON** → only suggest catalog-win when the candidate markup is **&gt; 0**; **OFF** → may suggest catalog-win even if that promo yields **negative** markup. | Alternate path vs A. Markup = same basis as status-quo / C1. “Positivo” = literal **% &gt; 0**, not “mejor que status quo”. **Decided 2026-11-18**: C2 only **counts toward the flag** when the **status quo is not already #1** on the effective ranking. If we already win, keep the toggle ON (armed for later loss-of-position) but do not flag worse promos. Criterios UI shows a persistent **“Ya estás ganando el catálogo…”** banner while C2 is ON and status quo wins. |
 
 ### Family 3 — Who counts (competitor table — sole source for C2 / C6)
 
@@ -82,7 +82,7 @@ Former C3–C5 / C7 / C8 as **automatic toggles** are **superseded** by this tab
 ```text
 Catalog snapshot (fresh on promo review)
     → competitor table (checked = counts)  ⇒  effective ranking
-        → C2: promo that would put us #1 (effective) ?
+        → C2: only if status quo is NOT #1 → promo that would put us #1 (effective) ?
         → C6: we are #1 and gap to #2 > threshold ?
 
 Canonical A + C1 clamp  ⇒  classic “mejor markup/precio” candidates
@@ -112,8 +112,8 @@ Clarification (owner 2026-11-17): “2nd place” = among **checked** competitor
 | Outcome | Proposed logic |
 | --- | --- |
 | Classic suggestible promo | Passes **A** AND passes **C1** (if bounds set) |
-| Catalog-win suggestible promo | Passes **C2** on **effective** ranking (checked competitors only); if C2 “solo markup positivo” **ON**, require markup **&gt; 0**; if **OFF**, catalog win alone (even negative markup) |
-| Flag / suggestions | Classic ∪ (C2 according to its toggle) — pending finer UX |
+| Catalog-win suggestible promo | Status quo is **not** already #1 **and** promo passes **C2** on **effective** ranking (checked competitors only); if C2 “solo markup positivo” **ON**, require markup **&gt; 0**; if **OFF**, catalog win alone (even negative markup) |
+| Flag / suggestions | Classic ∪ (C2 when armed and status quo is not winning) |
 | Monopoly (C6) | Same `hay_mejores` flag + **different lead copy** (not “Hay candidatas mejores…”). Raise-price opportunity while already winning; toggle promo-only vs any raise. See **C6 UX** below. |
 
 ## Data / capability gates
@@ -236,6 +236,7 @@ Recommendation: lean transition events + enroll enrich; never write when fingerp
 - **2026-11-17**: Clarified: message = **text under the toggle while ON**; auto vs manual = **audit only** (no per-apply UI toast required).
 - **2026-11-17**: C1 uses the same markup as status-quo comparison; when C1 is active that markup must sit inside the band.
 - **2026-11-17**: C2 toggle ON = only suggest catalog-win when markup &gt; 0; OFF = allow negative markup.
+- **2026-11-18**: C2 does not flag while status quo already wins effective catalog; toggle stays ON + UI banner “ya ganando”; resumes seeking win when position is lost.
 - **2026-11-17**: C3 stock residual threshold N configurable beside toggle; default **3**.
 - **2026-11-17**: **Supersedes** auto C3–C5/C7/C8: competitor **table** is sole source of who counts (all checked by default; PM unchecks; PM responsibility). No soft weights.
 - **2026-11-17**: Non-catalog MLAs ignored by hay_mejores by default; if present, they are associated to a catalog MLA and count as catalog.

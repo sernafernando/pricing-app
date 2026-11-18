@@ -482,10 +482,34 @@ class TestC1MarkupBandInListar(TestRankingConSellInOut):
 
 
 class TestC2CatalogWinInListar(TestRankingConSellInOut):
-    """C2 unions catalog-win candidates that fail the classic A path."""
+    """C2 unions catalog-win candidates that fail the classic A path — only when status quo is not #1."""
 
-    def test_c2_adds_candidate_that_loses_classic_but_beats_rivals(self, monkeypatch) -> None:
-        # Classic: candidate 1100 > status quo 1000 → not mejor. C2: 1100 < rival 1200 → win.
+    def test_c2_adds_candidate_that_loses_classic_but_beats_rivals_when_we_are_not_winning(
+        self, monkeypatch
+    ) -> None:
+        # Status quo 1000 loses to rival 950. Promo 940 fails classic (worse markup) but wins catalog.
+        self._wire(monkeypatch, MarkupsDePrecio(12.0, None), {"A": (5.0, None)})
+        monkeypatch.setattr(
+            hay_mejores,
+            "get_criterios",
+            lambda _db, mla: replace(
+                default_criterios(mla),
+                c2_activo=True,
+                c2_solo_markup_positivo=True,
+            ),
+        )
+        monkeypatch.setattr(hay_mejores, "obtener_ultimo_snapshot", lambda _db, _mla: object())
+        monkeypatch.setattr(hay_mejores, "min_rival_price_ars", lambda *_a, **_k: 950.0)
+
+        assert listar_mejores_candidatas(
+            MagicMock(),
+            "MLA1",
+            [{"id": "A", "type": "SMART", "status": "candidate", "price": 940}],
+            1000.0,
+        ) == [("A", 940.0)]
+
+    def test_c2_inert_when_status_quo_already_wins_catalog(self, monkeypatch) -> None:
+        # Status quo 1000 already beats rival 1200; promo 1100 would still beat rivals but worsen us.
         self._wire(monkeypatch, MarkupsDePrecio(9.0, None), {"A": (5.0, None)})
         monkeypatch.setattr(
             hay_mejores,
@@ -499,12 +523,15 @@ class TestC2CatalogWinInListar(TestRankingConSellInOut):
         monkeypatch.setattr(hay_mejores, "obtener_ultimo_snapshot", lambda _db, _mla: object())
         monkeypatch.setattr(hay_mejores, "min_rival_price_ars", lambda *_a, **_k: 1200.0)
 
-        assert listar_mejores_candidatas(
-            MagicMock(),
-            "MLA1",
-            [{"id": "A", "type": "SMART", "status": "candidate", "price": 1100}],
-            1000.0,
-        ) == [("A", 1100.0)]
+        assert (
+            listar_mejores_candidatas(
+                MagicMock(),
+                "MLA1",
+                [{"id": "A", "type": "SMART", "status": "candidate", "price": 1100}],
+                1000.0,
+            )
+            == []
+        )
 
     def test_c2_inert_without_rivals(self, monkeypatch) -> None:
         self._wire(monkeypatch, MarkupsDePrecio(9.0, None), {"A": (5.0, None)})
@@ -527,7 +554,8 @@ class TestC2CatalogWinInListar(TestRankingConSellInOut):
         )
 
     def test_c2_solo_positivo_blocks_negative_markup(self, monkeypatch) -> None:
-        self._wire(monkeypatch, MarkupsDePrecio(9.0, None), {"A": (-3.0, None)})
+        # Not winning (rival 950); promo 940 has negative markup → C2 blocked by solo-positivo.
+        self._wire(monkeypatch, MarkupsDePrecio(12.0, None), {"A": (-3.0, None)})
         monkeypatch.setattr(
             hay_mejores,
             "get_criterios",
@@ -538,13 +566,13 @@ class TestC2CatalogWinInListar(TestRankingConSellInOut):
             ),
         )
         monkeypatch.setattr(hay_mejores, "obtener_ultimo_snapshot", lambda _db, _mla: object())
-        monkeypatch.setattr(hay_mejores, "min_rival_price_ars", lambda *_a, **_k: 1200.0)
+        monkeypatch.setattr(hay_mejores, "min_rival_price_ars", lambda *_a, **_k: 950.0)
 
         assert (
             listar_mejores_candidatas(
                 MagicMock(),
                 "MLA1",
-                [{"id": "A", "type": "SMART", "status": "candidate", "price": 1100}],
+                [{"id": "A", "type": "SMART", "status": "candidate", "price": 940}],
                 1000.0,
             )
             == []

@@ -6,6 +6,28 @@ import styles from './CriteriosAplicacionPanel.module.css';
 const AUTO_ON_HINT =
   'Con Auto-aplicación prendida, el sistema acepta sola la misma sugerencia que verías y enrola esa promo en lugar de flagear. Queda registrado en auditoría si fue auto o manual. Activarlo es tu responsabilidad.';
 
+const C2_YA_GANANDO_HINT =
+  'Ya estás ganando el catálogo (ranking efectivo). C2 queda prendido pero no flagea hasta que dejes de ganar; ahí sí va a buscar una promo que te recupere el #1.';
+
+/** True when our_price is strictly below every checked same-bucket rival (same rule as backend C2). */
+export function statusQuoGanaCatalogo(competencia, { mla, sellersExcluidos = [] } = {}) {
+  if (!competencia || competencia.fetch_status !== 'ok') return false;
+  const ourPrice = competencia.our_price;
+  if (ourPrice == null || !Number.isFinite(Number(ourPrice))) return false;
+  const excluded = new Set((sellersExcluidos || []).map(String));
+  const rivals = Array.isArray(competencia.same_bucket) ? competencia.same_bucket : [];
+  const prices = [];
+  for (const row of rivals) {
+    const itemId = row?.item_id != null ? String(row.item_id) : '';
+    if (!itemId || itemId === mla || excluded.has(itemId)) continue;
+    const price = row?.price_ars ?? row?.price;
+    if (price == null || !Number.isFinite(Number(price))) continue;
+    prices.push(Number(price));
+  }
+  if (prices.length === 0) return false;
+  return Number(ourPrice) < Math.min(...prices);
+}
+
 function emptyForm() {
   return {
     c1_activo: false,
@@ -67,20 +89,26 @@ export default function CriteriosAplicacionPanel({ mla }) {
   // Manual override only (not on any role): show/change the Auto-aplicación checkbox.
   const canAuto = tienePermiso('promos.auto_aplicacion');
   const [form, setForm] = useState(emptyForm);
+  const [sellersExcluidos, setSellersExcluidos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [yaGanandoCatalogo, setYaGanandoCatalogo] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
     setSavedFlash(false);
+    setYaGanandoCatalogo(false);
     promocionesAPI
       .getHayMejoresCriterios(mla)
       .then((res) => {
-        if (!cancelled) setForm(fromApi(res.data || {}));
+        if (cancelled) return;
+        const data = res.data || {};
+        setForm(fromApi(data));
+        setSellersExcluidos(Array.isArray(data.sellers_excluidos) ? data.sellers_excluidos.map(String) : []);
       })
       .catch(() => {
         if (!cancelled) setError('No se pudieron cargar los criterios.');
@@ -92,6 +120,30 @@ export default function CriteriosAplicacionPanel({ mla }) {
       cancelled = true;
     };
   }, [mla]);
+
+  const sellersExcluidosKey = sellersExcluidos.slice().sort().join('|');
+
+  // When C2 is on, refresh the "ya ganando" banner from the latest catalog snapshot.
+  useEffect(() => {
+    if (!form.c2_activo || !mla) {
+      setYaGanandoCatalogo(false);
+      return undefined;
+    }
+    let cancelled = false;
+    const excluded = sellersExcluidosKey ? sellersExcluidosKey.split('|') : [];
+    promocionesAPI
+      .getCompetenciaCatalogo(mla)
+      .then((res) => {
+        if (cancelled) return;
+        setYaGanandoCatalogo(statusQuoGanaCatalogo(res.data || {}, { mla, sellersExcluidos: excluded }));
+      })
+      .catch(() => {
+        if (!cancelled) setYaGanandoCatalogo(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [form.c2_activo, mla, sellersExcluidosKey]);
 
   const setField = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -168,15 +220,22 @@ export default function CriteriosAplicacionPanel({ mla }) {
           C2 — Ganar catálogo
         </label>
         {form.c2_activo && (
-          <label className={styles.checkRowNested}>
-            <input
-              type="checkbox"
-              checked={form.c2_solo_markup_positivo}
-              disabled={!canWrite}
-              onChange={(e) => setField('c2_solo_markup_positivo', e.target.checked)}
-            />
-            Solo con markup positivo (&gt; 0)
-          </label>
+          <>
+            <label className={styles.checkRowNested}>
+              <input
+                type="checkbox"
+                checked={form.c2_solo_markup_positivo}
+                disabled={!canWrite}
+                onChange={(e) => setField('c2_solo_markup_positivo', e.target.checked)}
+              />
+              Solo con markup positivo (&gt; 0)
+            </label>
+            {yaGanandoCatalogo && (
+              <p className={styles.c2YaGanando} role="status">
+                {C2_YA_GANANDO_HINT}
+              </p>
+            )}
+          </>
         )}
       </section>
 

@@ -65,6 +65,16 @@
   color: var(--cf-text-secondary);
 }
 
+.c2YaGanando {
+  margin: 0 0 0 var(--spacing-md);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-xs);
+  line-height: 1.35;
+  color: var(--cf-text-secondary);
+  background: color-mix(in srgb, var(--cf-accent-blue, var(--brand-primary)) 10%, transparent);
+  border-radius: var(--radius-sm, 4px);
+}
+
 .error {
   margin: 0;
   font-size: var(--font-sm);
