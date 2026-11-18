@@ -54,8 +54,8 @@ function toPayload(form) {
     c2_solo_markup_positivo: form.c2_solo_markup_positivo,
     c6_activo: form.c6_activo,
     c6_solo_via_promo: form.c6_solo_via_promo,
-    c6_gap_min: Number(form.c6_gap_min) || 0,
-    c6_distancia_objetivo: Number(form.c6_distancia_objetivo) || 0,
+    c6_gap_min: Number(form.c6_gap_min) || 5000,
+    c6_distancia_objetivo: Number(form.c6_distancia_objetivo) || 100,
     auto_aplicacion: form.auto_aplicacion,
   };
 }

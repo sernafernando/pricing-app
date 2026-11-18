@@ -254,6 +254,23 @@ describe('baselineMarkupFromPromos', () => {
 });
 
 describe('esMejorOferta / pickMejoresCandidatas', () => {
+  it('drops candidatas outside the C1 markup band when C1 is on', () => {
+    const now = new Date('2026-11-16T12:00:00Z');
+    const promo = {
+      status: 'candidate',
+      promotion_type: 'SMART',
+      promotion_id: 'P-OUT',
+      price: 900,
+      nuestro_markup: 25,
+      start_date: '2026-11-01T00:00:00Z',
+    };
+    const base = { baselinePrice: 1000, baselineMarkup: 10, now };
+    expect(pickMejoresCandidatas([promo], base).SMART?.promotion_id).toBe('P-OUT');
+    expect(
+      pickMejoresCandidatas([promo], { ...base, c1Activo: true, c1MarkupMin: 0, c1MarkupMax: 20 }).SMART,
+    ).toBeNull();
+  });
+
   it('rejects a cheaper worse-markup candidate when Activa ahora is a diverged SMART (MLA1609415777)', () => {
     const now = new Date('2026-11-16T12:00:00Z');
     const picked = pickMejoresCandidatas(

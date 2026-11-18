@@ -216,10 +216,11 @@ def upsert_criterios(
     c6_solo_via_promo: bool,
     c6_gap_min: Decimal,
     c6_distancia_objetivo: Decimal,
-    auto_aplicacion: bool,
+    auto_aplicacion: Optional[bool] = None,
     sellers_excluidos: Optional[Sequence[str]] = None,
     alcance: str = "item",
-    puede_cambiar_auto: bool = True,
+    # Fail-closed: callers must pass True only after checking promos.auto_aplicacion.
+    puede_cambiar_auto: bool = False,
 ) -> CriteriosView:
     if c1_activo and c1_markup_min is not None and c1_markup_max is not None and c1_markup_min > c1_markup_max:
         raise ValueError("c1_markup_min no puede ser mayor que c1_markup_max")
@@ -227,8 +228,11 @@ def upsert_criterios(
         raise ValueError("gap y distancia de C6 deben ser ≥ 0")
 
     previous = get_criterios(db, item_id)
-    # Without promos.auto_aplicacion the Auto toggle is locked: keep the stored value.
-    effective_auto = auto_aplicacion if puede_cambiar_auto else previous.auto_aplicacion
+    # None = leave Auto unchanged (bulk omit). Without permiso, never change Auto.
+    if auto_aplicacion is None or not puede_cambiar_auto:
+        effective_auto = previous.auto_aplicacion
+    else:
+        effective_auto = auto_aplicacion
     row = db.get(MlHayMejoresCriterios, item_id)
     if row is None:
         row = MlHayMejoresCriterios(item_id=item_id)
@@ -277,9 +281,10 @@ def upsert_criterios_bulk(
     c6_solo_via_promo: bool,
     c6_gap_min: Decimal,
     c6_distancia_objetivo: Decimal,
-    auto_aplicacion: bool,
+    auto_aplicacion: Optional[bool] = None,
     sellers_excluidos: Optional[Sequence[str]] = None,
-    puede_cambiar_auto: bool = True,
+    # Fail-closed: callers must pass True only after checking promos.auto_aplicacion.
+    puede_cambiar_auto: bool = False,
 ) -> list[str]:
     """Upsert the same criterios onto many MLAs. Unknown ``ml_items`` ids are skipped; order preserved."""
     from app.models.ml_publications import MlItem

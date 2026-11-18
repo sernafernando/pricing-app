@@ -10,7 +10,7 @@ import styles from './BulkActions.module.css';
 
 const REGION = 'Aplicar criterios de hay mejores';
 const AUTO_ON_HINT =
-  'Con Auto-aplicación prendida, el sistema acepta sola la misma sugerencia que verías y enrola esa promo en lugar de flagear. Activarlo es tu responsabilidad.';
+  'Marcá Auto solo para prenderlo en las seleccionadas. Destildado no cambia Auto (no lo apaga). Activarlo es tu responsabilidad.';
 
 const plural = (n, one, many) => (n === 1 ? one : many);
 
@@ -35,7 +35,7 @@ function toPayload(form) {
     const n = Number(value);
     return Number.isFinite(n) ? n : null;
   };
-  return {
+  const payload = {
     c1_activo: form.c1_activo,
     c1_markup_min: numOrNull(form.c1_markup_min),
     c1_markup_max: numOrNull(form.c1_markup_max),
@@ -43,10 +43,14 @@ function toPayload(form) {
     c2_solo_markup_positivo: form.c2_solo_markup_positivo,
     c6_activo: form.c6_activo,
     c6_solo_via_promo: form.c6_solo_via_promo,
-    c6_gap_min: Number(form.c6_gap_min) || 0,
-    c6_distancia_objetivo: Number(form.c6_distancia_objetivo) || 0,
-    auto_aplicacion: form.auto_aplicacion,
+    c6_gap_min: Number(form.c6_gap_min) || 5000,
+    c6_distancia_objetivo: Number(form.c6_distancia_objetivo) || 100,
   };
+  // Unchecked = leave Auto as-is on each MLA (never silent mass-OFF).
+  if (form.auto_aplicacion) {
+    payload.auto_aplicacion = true;
+  }
+  return payload;
 }
 
 function scopeOf(checked) {

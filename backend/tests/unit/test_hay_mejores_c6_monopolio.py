@@ -27,8 +27,9 @@ def test_evaluar_monopolio_c6_builds_flag_tuple(monkeypatch) -> None:
     view = replace(default_criterios("MLA1"), c6_activo=True)
     out = hay_mejores.evaluar_monopolio_c6(MagicMock(), "MLA1", criterios=view)
     assert out is not None
-    assert out.flag_tuple == (C6_FINGERPRINT_KEY, 15900.0)
+    assert out.flag_tuple == (C6_FINGERPRINT_KEY, 1.0)
     assert out.oportunidad["gap"] == 6000.0
+    assert out.oportunidad["precio_objetivo"] == 15900.0
 
 
 def test_actualizar_flags_c6_only_when_not_solo_via_promo(monkeypatch) -> None:
@@ -54,7 +55,7 @@ def test_actualizar_flags_c6_only_when_not_solo_via_promo(monkeypatch) -> None:
         "evaluar_monopolio_c6",
         lambda *_a, **_k: MonopolioEvaluacion(
             oportunidad={"our_price": 10000.0, "segundo_precio": 16000.0, "gap": 6000.0, "precio_objetivo": 15900.0},
-            flag_tuple=(C6_FINGERPRINT_KEY, 15900.0),
+            flag_tuple=(C6_FINGERPRINT_KEY, 1.0),
             solo_via_promo=False,
         ),
     )
@@ -65,7 +66,7 @@ def test_actualizar_flags_c6_only_when_not_solo_via_promo(monkeypatch) -> None:
     decision = hay_mejores.actualizar_hay_mejores_ofertas(db, "MLA1")
     assert decision == FlagDecision(
         hay_mejores=True,
-        fingerprint="c6:15900",
+        fingerprint="c6:1",
         descartado_fingerprint=None,
     )
     assert row.hay_mejores_ofertas is True

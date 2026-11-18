@@ -43,11 +43,15 @@ export function useMejoresCandidatas({
       setAutoFailMessage(null);
       setUnavailable(false);
       try {
-        const promoRes = await promocionesAPI.getPromocionesItem(itemId);
+        const [promoRes, criteriosRes] = await Promise.all([
+          promocionesAPI.getPromocionesItem(itemId),
+          promocionesAPI.getHayMejoresCriterios(itemId).catch(() => null),
+        ]);
         if (cancelled) return;
         const failText = promoRes?.data?.auto_fail_message;
         setAutoFailMessage(typeof failText === 'string' && failText.trim() ? failText.trim() : null);
         const promotions = promoRes?.data?.promotions ?? promoRes?.data?.promociones ?? [];
+        const criterios = criteriosRes?.data ?? {};
         // Activa ahora = ML-applied started (lowest price / application_status active).
         const statusQuoPromo = baselinePromo(promotions);
         let markup = statusQuoPromo?.nuestro_markup ?? null;
@@ -85,6 +89,9 @@ export function useMejoresCandidatas({
           // Compared like the backend flag (S5): with sell in / sell out only when both sides have it.
           baselineMarkup: markup,
           baselineSellInOut: sellInOut,
+          c1Activo: Boolean(criterios.c1_activo),
+          c1MarkupMin: criterios.c1_markup_min ?? null,
+          c1MarkupMax: criterios.c1_markup_max ?? null,
         });
         setSlots(hasPickedSlot(picked) ? picked : null);
         onSuggestedRef.current?.(slotEntries(picked).map(([, promo]) => promo.promotion_id));

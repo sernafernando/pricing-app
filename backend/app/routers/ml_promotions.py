@@ -1081,10 +1081,14 @@ def put_hay_mejores_criterios(
 
 
 class HayMejoresCriteriosBulkBody(HayMejoresCriteriosBody):
-    """Same criterios fields as the per-MLA PUT, plus bulk scope + optional discard."""
+    """Same criterios fields as the per-MLA PUT, plus bulk scope + optional discard.
+
+    ``auto_aplicacion=None`` (omit) leaves each MLA's Auto toggle unchanged — never silent mass-OFF.
+    """
 
     item_ids: List[MlaIdBody]
     descartar_sugerencias: bool = False
+    auto_aplicacion: Optional[bool] = None
 
 
 class HayMejoresCriteriosBulkResult(BaseModel):

@@ -220,13 +220,34 @@ export function pickPonerPreciosPromos(promotions, { monthName = currentMonthNam
 }
 
 /**
+ * Mirror backend ``markup_pasa_c1``: when C1 is off, always pass; when on, markup must sit in the band.
+ */
+export function markupPasaC1(markup, { c1Activo = false, c1MarkupMin = null, c1MarkupMax = null } = {}) {
+  if (!c1Activo) return true;
+  if (markup == null || !Number.isFinite(Number(markup))) return false;
+  const value = Number(markup);
+  if (c1MarkupMin != null && Number.isFinite(Number(c1MarkupMin)) && value < Number(c1MarkupMin)) return false;
+  if (c1MarkupMax != null && Number.isFinite(Number(c1MarkupMax)) && value > Number(c1MarkupMax)) return false;
+  return true;
+}
+
+/**
  * Best enrollable slot per type among the candidates applicable now that beat the MeLi status quo. The status quo's plain markup is
  * `baselineMarkup` and its markup with sell in / sell out `baselineSellInOut`; each candidate is compared on the
- * basis `comparableMarkups` picks.
+ * basis `comparableMarkups` picks. Optional C1 band matches the backend flag gate.
  */
 export function pickMejoresCandidatas(
   promotions,
-  { baselinePrice, baselineMarkup, baselineSellInOut = null, now = new Date(), monthName = currentMonthNameEs(now) } = {},
+  {
+    baselinePrice,
+    baselineMarkup,
+    baselineSellInOut = null,
+    now = new Date(),
+    monthName = currentMonthNameEs(now),
+    c1Activo = false,
+    c1MarkupMin = null,
+    c1MarkupMax = null,
+  } = {},
 ) {
   const baseline = { nuestro_markup: baselineMarkup, markup_sell_in_out: baselineSellInOut };
   // Only candidates applicable now, as the backend flag counts them (`candidata_aplicable_ahora`).
@@ -235,7 +256,8 @@ export function pickMejoresCandidatas(
   );
   const better = candidates.filter((promo) => {
     const [candidateMarkup, statusQuoMarkup] = comparableMarkups(promo, baseline);
-    return esMejorOferta(promoDisplayPrice(promo), candidateMarkup, baselinePrice, statusQuoMarkup);
+    if (!esMejorOferta(promoDisplayPrice(promo), candidateMarkup, baselinePrice, statusQuoMarkup)) return false;
+    return markupPasaC1(candidateMarkup, { c1Activo, c1MarkupMin, c1MarkupMax });
   });
   return pickSlots(better, monthName);
 }

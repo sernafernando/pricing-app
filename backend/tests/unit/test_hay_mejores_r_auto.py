@@ -182,6 +182,36 @@ def test_auto_enroll_after_commit_fail_reflags(monkeypatch) -> None:
     assert any(AUTOAPPLY_FAIL_PREFIX in str(p.get("auto_fail_message", "")) for p in payloads)
 
 
+def test_auto_enroll_ambiguous_does_not_reflag(monkeypatch) -> None:
+    reflag_calls: list[str] = []
+
+    def _boom(*_a, **_k):
+        reflag_calls.append("nope")
+        raise AssertionError("ambiguous must not re-flag as Autoapply falló")
+
+    import app.core.database as database
+
+    monkeypatch.setattr(database, "get_background_db", _boom)
+    monkeypatch.setattr(
+        hay_mejores,
+        "_try_auto_enroll",
+        lambda *_a, **_k: {"status": "ambiguous", "detail": "timeout"},
+    )
+    _run_auto_enroll_after_commit(
+        {
+            "item_id": "MLA1",
+            "target": {"key": "A", "promotion_id": "A", "promotion_type": "SMART"},
+            "fingerprint": "A:900",
+            "descartado_fingerprint": None,
+        }
+    )
+    assert reflag_calls == []
+
+
+def test_auto_enroll_fail_reason_prefers_detail() -> None:
+    assert hay_mejores._auto_enroll_fail_reason({"status": "rejected", "detail": "stock", "error": "x"}) == "stock"
+
+
 def test_on_commit_drains_pending_auto_jobs(monkeypatch) -> None:
     ran: list[str] = []
     monkeypatch.setattr(

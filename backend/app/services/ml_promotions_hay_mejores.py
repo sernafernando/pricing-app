@@ -177,7 +177,7 @@ def _run_auto_enroll_after_commit(job: Mapping[str, Any]) -> None:
     outcome = _try_auto_enroll(item_id, target)
     if _auto_enroll_succeeded(outcome):
         return
-    fail_reason = outcome.get("error") or outcome.get("message") or outcome.get("status") or "enroll rechazado"
+    fail_reason = _auto_enroll_fail_reason(outcome)
     try:
         from app.core.database import get_background_db
 
@@ -430,11 +430,17 @@ def _our_price_ars_from_snapshot(row: Any, our_item_id: str) -> Optional[float]:
 
 
 def evaluar_monopolio_c6(
-    db: Session, mla: str, *, criterios: Optional[CriteriosView] = None
+    db: Session,
+    mla: str,
+    *,
+    criterios: Optional[CriteriosView] = None,
+    our_price_ars: Optional[float] = None,
 ) -> Optional[MonopolioEvaluacion]:
     """C6: we are #1 on effective ranking and gap to 2nd ≥ gap mín → raise-price opportunity.
 
     Inert without snapshot / rivals / ``c6_activo``. Does not enroll; only shapes the flag fingerprint.
+    ``our_price_ars`` should be the live sale price when the caller has it (not a stale snapshot).
+    Fingerprint uses a stable ``c6:1`` marker so $1 moves of the 2nd rival do not churn discard/audit.
     """
     view = criterios if criterios is not None else get_criterios(db, mla)
     if not view.c6_activo:
@@ -445,7 +451,7 @@ def evaluar_monopolio_c6(
         our_item_id=mla,
         sellers_excluidos=view.sellers_excluidos,
     )
-    our = _our_price_ars_from_snapshot(snapshot, mla)
+    our = our_price_ars if our_price_ars is not None else _our_price_ars_from_snapshot(snapshot, mla)
     oportunidad = monopolio_c6_oportunidad(
         c6_activo=view.c6_activo,
         our_price_ars=our,
@@ -457,7 +463,8 @@ def evaluar_monopolio_c6(
         return None
     return MonopolioEvaluacion(
         oportunidad=oportunidad,
-        flag_tuple=(C6_FINGERPRINT_KEY, float(oportunidad["precio_objetivo"])),
+        # Stable presence marker (not live precio_objetivo) so PM discard survives rival $1 moves.
+        flag_tuple=(C6_FINGERPRINT_KEY, 1.0),
         solo_via_promo=bool(view.c6_solo_via_promo),
     )
 
@@ -533,7 +540,17 @@ def _try_auto_enroll(item_id: str, target: Mapping[str, Any]) -> Dict[str, Any]:
 
 
 def _auto_enroll_succeeded(outcome: Mapping[str, Any]) -> bool:
-    return outcome.get("status") in {"submitted", "reconciled_applied"}
+    # ``ambiguous`` (timeout/5xx): write may already be on ML — do not re-flag as Autoapply falló.
+    return outcome.get("status") in {"submitted", "reconciled_applied", "ambiguous"}
+
+
+def _auto_enroll_fail_reason(outcome: Mapping[str, Any]) -> str:
+    """Human reason from enroll_one_item (``detail``) or exception path (``error``)."""
+    for key in ("detail", "error", "message", "status"):
+        value = outcome.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return "enroll rechazado"
 
 
 def _candidate_entries(raw: Any, now: datetime) -> List[Mapping[str, Any]]:
@@ -641,10 +658,10 @@ def actualizar_hay_mejores_ofertas(
                         sell_in_out_batch=sell_in_out_batch,
                     )
                     mejores = list(evaluacion.mejores)
-                monopolio = evaluar_monopolio_c6(db, item_id, criterios=criterios_view)
-                # solo_via_promo: C6 alone does not flag until a promo-assist path exists (P3b/P4).
-                # With classic/C2 candidatas present, C6 still joins the fingerprint for dual UI.
-                if monopolio is not None and (not monopolio.solo_via_promo or mejores):
+                monopolio = evaluar_monopolio_c6(db, item_id, criterios=criterios_view, our_price_ars=baseline)
+                # solo_via_promo: raise-via-promo stays UI-only — do not piggyback classic/C2 mejores.
+                # When off, C6 alone can flag (Premium editable / no promo assist required).
+                if monopolio is not None and not monopolio.solo_via_promo:
                     mejores = [*mejores, monopolio.flag_tuple]
                 decision = decidir_flag_hay_mejores(
                     mejores=mejores,
