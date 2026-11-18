@@ -1391,10 +1391,10 @@ Sequences are kept (new ids continue after the old ones).
 `sell_in_bonos_marca.offset_origen_id` keeps the id of an offset that no
 longer exists; it has no FK, so this is expected.
 
-## 9) MCP server (ChatGPT and other AI clients)
+## 9) MCP server (ChatGPT, Claude, Cursor, Gemini CLI)
 
 ### Overview
-`/api/mcp` lets an AI client (ChatGPT first) query pricing **read-only, as the logged-in user, with that user's permissions** (role, extra roles and overrides; every tool runs the app's own endpoint in process). The client gets OAuth tokens through `/api/oauth/*`, which wraps the normal login screen: the user signs in as usual and approves on `/mcp/autorizar`. Approving needs the `mcp.conectar` permission (seeded to ADMIN). Tokens are opaque, stored hashed, short-lived (access 60 min, refresh 30 days, rotating). Every tool call is logged in `mcp_tool_calls` (user, tool, argument summary, status, size, duration); rows older than `MCP_TOOL_LOG_RETENTION_DAYS` (180) are pruned on token exchanges. Rate limit per user: `MCP_RATE_LIMIT` (60/minute). The OAuth endpoints are limited per IP: `/api/oauth/authorize`, `/token` and `/revoke` 30/minute, the consent decision 20/minute; `/authorize` also drops requests expired over a day ago.
+`/api/mcp` lets an AI client (ChatGPT, Claude web/desktop, Claude Code, Cursor, Gemini CLI) query pricing **read-only, as the logged-in user, with that user's permissions** (role, extra roles and overrides; every tool runs the app's own endpoint in process). The client gets OAuth tokens through `/api/oauth/*`, which wraps the normal login screen: the user signs in as usual and approves on `/mcp/autorizar`. Approving needs the `mcp.conectar` permission (seeded to ADMIN). Tokens are opaque, stored hashed, short-lived (access 60 min, refresh 30 days, rotating). Every tool call is logged in `mcp_tool_calls` (user, tool, argument summary, status, size, duration); rows older than `MCP_TOOL_LOG_RETENTION_DAYS` (180) are pruned on token exchanges. Rate limit per user: `MCP_RATE_LIMIT` (60/minute). The OAuth endpoints are limited per IP: `/api/oauth/authorize`, `/token` and `/revoke` 30/minute, the consent decision 20/minute; `/authorize` also drops requests expired over a day ago.
 
 ### Enabling it (deploy step)
 1. Set `MCP_PUBLIC_BASE_URL=https://<pricing domain>` in the backend environment (no trailing slash). Unset = every MCP/OAuth endpoint answers 404.
@@ -1421,7 +1421,7 @@ longer exists; it has no FK, so this is expected.
 ```
    The backend checks the `Host` header against `MCP_PUBLIC_BASE_URL`, so the proxy must forward the public host (`proxy_set_header Host $host`).
 3. Check: `curl -s https://<pricing domain>/.well-known/oauth-protected-resource/api/mcp` returns JSON with `"resource": "https://<pricing domain>/api/mcp"`, and `curl -si -X POST https://<pricing domain>/api/mcp` returns `401` with a `WWW-Authenticate: Bearer ... resource_metadata="..."` header.
-4. In ChatGPT (Plus/Pro, developer mode) create a connector with URL `https://<pricing domain>/api/mcp` and OAuth authentication (user guide: Ayuda → "Conectar ChatGPT").
+4. Connect a client with URL `https://<pricing domain>/api/mcp` (user guide, step by step per client: Ayuda → "Conectar una IA (ChatGPT, Claude, Cursor o Gemini)"). If the backend environment overrides `MCP_OAUTH_CLIENTS`, replace it with the default list below (or remove the override), otherwise only the clients in the override can connect.
 
 ### Revoking a connection
 - Normal path: Admin → Usuarios → select the user → Editar → "Conexiones de IA (MCP)" → Revocar. The client loses access on its next call (401).
@@ -1429,16 +1429,31 @@ longer exists; it has no FK, so this is expected.
 - Cut a user off completely: remove `mcp.conectar` (role or override) or deactivate the user; every token of theirs stops working on the next call, no revocation needed.
 - Emergency, everyone at once: `UPDATE mcp_connections SET revoked_at = now() WHERE revoked_at IS NULL;` (tokens die with their connection). Or unset `MCP_PUBLIC_BASE_URL` and restart: the whole MCP surface answers 404.
 
-### Adding a new client (Claude, Cursor, ...)
-Clients are configuration, not code. `MCP_OAUTH_CLIENTS` is a JSON list; the default holds only ChatGPT:
-```json
-[{"client_id": "https://chatgpt.com/oauth/client.json", "name": "ChatGPT",
-  "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"]}]
-```
-1. Get from the client vendor's docs its **Client ID Metadata Document URL** (the `client_id`, an https URL) and its **exact** redirect URI(s). Redirects match byte for byte (no trailing-slash or prefix tolerance).
-2. Append an entry with a `name` (shown on the consent screen) and set the full list in the backend environment; restart. A malformed list fails at startup with a clear error (https only, no fragments, no duplicates).
+### Supported clients
+`MCP_OAUTH_CLIENTS` (JSON list, default in `app/core/config.py`) is the allowlist. There is **no dynamic client registration** (no `registration_endpoint`, no `/register`): an unknown `client_id` or redirect gets a plain error page and never a redirect. Default:
+
+| Client | `client_id` | Redirect URIs | How it identifies |
+|---|---|---|---|
+| ChatGPT | `https://chatgpt.com/oauth/client.json` | `https://chatgpt.com/connector_platform_oauth_redirect` | CIMD |
+| Claude (web, desktop, mobile) | `https://claude.ai/oauth/mcp-oauth-client-metadata` | `https://claude.ai/api/mcp/auth_callback` | CIMD (chosen because the AS metadata advertises `client_id_metadata_document_supported` and `none`) |
+| Claude Code | `https://claude.ai/oauth/claude-code-client-metadata` | `http://localhost/callback`, `http://127.0.0.1/callback` (any port) | CIMD |
+| Cursor | `pricing-mcp-cursor` | `http://localhost/callback` (any port; desktop uses 8787), `https://www.cursor.com/agents/mcp/oauth/callback` | pre-registered public id, user sets `auth.CLIENT_ID` in `mcp.json` |
+| Gemini CLI | `pricing-mcp-gemini-cli` | `http://localhost/oauth/callback` (any port) | pre-registered public id, user sets `oauth.clientId` in `settings.json` |
+
+Not supported: the Gemini app (gemini.google.com: redirect/PKCE undocumented by Google) and Gemini Enterprise (needs a confidential client with secret). Cursor's legacy `cursor://` redirect is not accepted (private-use schemes are refused).
+
+All clients are public (`token_endpoint_auth_method: none`), PKCE S256 is mandatory, `resource` must equal `<origin>/api/mcp` when sent. Each local client (Claude Code, Cursor, Gemini CLI) gets its own connection per machine; it shows up and is revoked like any other.
+
+### Redirect matching
+- https redirects match byte for byte (no trailing-slash, prefix or case tolerance).
+- Loopback redirects (RFC 8252 §7.3) are declared **without port**: `http://localhost/<path>`, `http://127.0.0.1/<path>` or `http://[::1]/<path>`. They accept exactly that host and path on any port 1-65535; anything else (another host such as `localhost.evil.com`, userinfo, query, fragment, another path, `https://localhost`) is rejected. The token exchange still requires the exact `redirect_uri` (port included) used at `/authorize`.
+- The consent screen shows the client name and the host the code returns to (`localhost (en esta computadora)` for loopback), plus a line to approve only a connection the user started.
+
+### Adding a new client
+1. Get from the vendor's docs its `client_id` (CIMD URL if it supports Client ID Metadata Documents, otherwise pick a pre-registered public id: lowercase letters, digits and dashes, 2-64 chars, e.g. `pricing-mcp-<client>`) and its **exact** redirect URIs.
+2. Append an entry `{"client_id", "name", "redirect_uris"}` (the `name` is shown on the consent screen), set the full list in the backend environment and restart. Redirects must be https, or loopback http declared without port. A malformed list fails at startup with a clear error (non-loopback http, loopback with a port, fragments, userinfo, other schemes, duplicates).
 3. Verify: start the connection from the new client; an unknown client or redirect gets a plain error page and no redirect.
-4. Clients without CIMD need dynamic client registration (RFC 7591), which is not enabled: `app/mcp/clients.py` has the pluggable `ClientRegistry` to add it (implement the protocol and advertise `registration_endpoint`).
+4. Clients that only support dynamic client registration (RFC 7591) cannot connect: `app/mcp/clients.py` has the pluggable `ClientRegistry` if that is ever approved (implement the protocol and advertise `registration_endpoint`, with redirect allowlist, rate limit and admin revocation).
 
 ### Tools and parity
 Tools are derived from the Publicaciones ML / Métricas ML / promos endpoints (their query parameters become the tool arguments). `tests/mcp/test_mcp_parity.py` fails when one of those endpoints is added or gains a parameter or response field the MCP does not expose: add the endpoint to `CATALOG` (or to `EXCLUDED_ROUTES` with a reason) in `app/mcp/tools.py`.

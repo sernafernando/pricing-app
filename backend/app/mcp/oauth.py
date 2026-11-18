@@ -32,7 +32,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.mcp import store
-from app.mcp.clients import OAuthClient, get_client_registry
+from app.mcp.clients import OAuthClient, get_client_registry, redirect_target
 from app.models.mcp_oauth import McpConnection, McpOAuthRequest, McpToken
 from app.models.usuario import Usuario
 
@@ -93,7 +93,7 @@ def protected_resource_metadata() -> JSONResponse:
 
 @router.get("/.well-known/oauth-authorization-server/api/oauth", include_in_schema=False)
 def authorization_server_metadata() -> JSONResponse:
-    """RFC 8414 metadata. Clients are identified by their CIMD URL (allowlisted); no dynamic registration yet."""
+    """RFC 8414 metadata. Clients are allowlisted by CIMD URL or pre-registered public id; no dynamic registration."""
     issuer = issuer_url()
     metadata = {
         "issuer": issuer,
@@ -182,6 +182,8 @@ class PendingRequestResponse(BaseModel):
     client_name: str
     scope: str
     expires_at: datetime
+    redirect_host: str  # where the code goes back to (consent-phishing hint)
+    redirect_local: bool  # True when that is the user's own computer (loopback)
 
 
 class DecisionRequest(BaseModel):
@@ -212,8 +214,13 @@ def get_pending_request(
 ) -> PendingRequestResponse:
     """What the consent card shows: who asks and for what."""
     row = _pending(db, req)
+    host, local = redirect_target(row.redirect_uri)
     return PendingRequestResponse(
-        client_name=_client_name(row.client_id), scope=row.scope, expires_at=store.aware(row.expires_at)
+        client_name=_client_name(row.client_id),
+        scope=row.scope,
+        expires_at=store.aware(row.expires_at),
+        redirect_host=host,
+        redirect_local=local,
     )
 
 
