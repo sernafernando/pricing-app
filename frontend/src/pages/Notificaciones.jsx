@@ -189,104 +189,16 @@ export default function Notificaciones() {
   // Single gate: compras.faltantes only clears when the PM resolves (not dismiss).
   const puedeDescartarNotificacion = (notifId) => tipoNotificacionById(notifId) !== 'compras.faltantes';
 
-  const descartarNotificacion = async (notifId) => {
-    if (!puedeDescartarNotificacion(notifId)) {
-      return;
-    }
+  // Group actions go in ONE request: one per notification took the API down
+  // when a group of 1411 was ignored (prod incident 2026-11-18).
+  const accionGrupo = async (ids, accion) => {
     try {
-      await api.patch(`/notificaciones/${notifId}/descartar`);
-      
-      // Mostrar mensaje informativo al usuario
-      alert('✓ Notificación descartada.\n\n' +
-            '🔕 Se creó una regla para ignorar futuras notificaciones similares:\n' +
-            '• Mismo producto\n' +
-            '• Mismo tipo\n' +
-            '• Mismo markup\n\n' +
-            'Podés gestionar estas reglas desde Admin → Notificaciones Ignoradas');
-      
-      // Actualizar localmente en vista agrupada
-      if (vistaAgrupada) {
-        setNotificaciones(notificaciones.map(grupo => {
-          if (grupo.notificaciones_ids && grupo.notificaciones_ids.includes(notifId)) {
-            return {
-              ...grupo,
-              notificacion_reciente: {
-                ...grupo.notificacion_reciente,
-                estado: 'DESCARTADA',
-                fecha_descarte: new Date().toISOString()
-              }
-            };
-          }
-          return grupo;
-        }));
-      } else {
-        setNotificaciones(notificaciones.map(n =>
-          n.id === notifId ? { ...n, estado: 'DESCARTADA', fecha_descarte: new Date().toISOString() } : n
-        ));
-      }
+      await api.post('/notificaciones/bulk', { ids, accion });
     } catch (error) {
-      console.error('Error al descartar notificación:', error);
-      alert('Error al descartar notificación');
-      await fetchNotificaciones();
+      console.error(`Error en acción "${accion}" sobre el grupo:`, error);
+      alert('No se pudo aplicar la acción al grupo');
     }
-  };
-
-  const revisarNotificacion = async (notifId) => {
-    try {
-      await api.patch(`/notificaciones/${notifId}/revisar`);
-      // Actualizar localmente en vista agrupada
-      if (vistaAgrupada) {
-        setNotificaciones(notificaciones.map(grupo => {
-          if (grupo.notificaciones_ids && grupo.notificaciones_ids.includes(notifId)) {
-            return {
-              ...grupo,
-              notificacion_reciente: {
-                ...grupo.notificacion_reciente,
-                estado: 'REVISADA',
-                fecha_revision: new Date().toISOString()
-              }
-            };
-          }
-          return grupo;
-        }));
-      } else {
-        setNotificaciones(notificaciones.map(n =>
-          n.id === notifId ? { ...n, estado: 'REVISADA', fecha_revision: new Date().toISOString() } : n
-        ));
-      }
-    } catch (error) {
-      console.error('Error al revisar notificación:', error);
-      await fetchNotificaciones();
-    }
-  };
-
-  const resolverNotificacion = async (notifId) => {
-    try {
-      await api.patch(`/notificaciones/${notifId}/resolver`);
-      // Actualizar localmente en vista agrupada
-      if (vistaAgrupada) {
-        setNotificaciones(notificaciones.map(grupo => {
-          if (grupo.notificaciones_ids && grupo.notificaciones_ids.includes(notifId)) {
-            return {
-              ...grupo,
-              notificacion_reciente: {
-                ...grupo.notificacion_reciente,
-                estado: 'RESUELTA',
-                fecha_resolucion: new Date().toISOString()
-              }
-            };
-          }
-          return grupo;
-        }));
-      } else {
-        setNotificaciones(notificaciones.map(n =>
-          n.id === notifId ? { ...n, estado: 'RESUELTA', fecha_resolucion: new Date().toISOString() } : n
-        ));
-      }
-    } catch (error) {
-      console.error('Error al resolver notificación:', error);
-      await fetchNotificaciones();
-    }
+    await fetchNotificaciones();
   };
 
   const getSeveridadBadge = (severidad) => {
@@ -566,10 +478,7 @@ export default function Notificaciones() {
                     await fetchPrecioSeteado(grupo.notificacion_reciente);
                     // Marcar todas las del grupo como leídas si no lo están
                     if (!grupo.notificacion_reciente.leida) {
-                      await Promise.all(grupo.notificaciones_ids.map(id =>
-                        api.patch(`/notificaciones/${id}/marcar-leida`)
-                      ));
-                      await fetchNotificaciones();
+                      await accionGrupo(grupo.notificaciones_ids, 'leida');
                     }
                   }
                 }}>
@@ -701,7 +610,7 @@ export default function Notificaciones() {
                       <div className="btn-group-tesla compact" style={{ marginBottom: '12px' }}>
                         <button
                           onClick={() => {
-                            Promise.all(grupo.notificaciones_ids.map(id => revisarNotificacion(id)));
+                            accionGrupo(grupo.notificaciones_ids, 'revisada');
                           }}
                           className="btn-tesla outline-success sm"
                           title="Marcar como revisada (no desaparece)"
@@ -712,7 +621,7 @@ export default function Notificaciones() {
                         <button
                           onClick={() => {
                             if (confirm(`¿Ignorar ${grupo.count} notificación${grupo.count > 1 ? 'es' : ''}?\n\nSe creará una regla para NO notificar futuras ventas del mismo producto con el mismo markup.`)) {
-                              Promise.all(grupo.notificaciones_ids.map(id => descartarNotificacion(id)))
+                              accionGrupo(grupo.notificaciones_ids, 'descartada')
                                 .then(() => setExpandedGrupo(null));
                             }
                           }}
@@ -724,7 +633,7 @@ export default function Notificaciones() {
                         )}
                         <button
                           onClick={() => {
-                            Promise.all(grupo.notificaciones_ids.map(id => resolverNotificacion(id)));
+                            accionGrupo(grupo.notificaciones_ids, 'resuelta');
                           }}
                           className="btn-tesla outline sm"
                           title="Marcar como resuelta"
@@ -749,7 +658,7 @@ export default function Notificaciones() {
                         {grupo.notificacion_reciente.leida && (
                           <button
                             onClick={() => {
-                              Promise.all(grupo.notificaciones_ids.map(id => marcarComoNoLeida(id)));
+                              accionGrupo(grupo.notificaciones_ids, 'no_leida');
                             }}
                             className="btn-tesla secondary sm"
                           >
@@ -759,7 +668,7 @@ export default function Notificaciones() {
                         <button
                           onClick={() => {
                             if (confirm(`¿Eliminar ${grupo.count} notificación${grupo.count > 1 ? 'es' : ''}?`)) {
-                              Promise.all(grupo.notificaciones_ids.map(id => eliminarNotificacion(id)))
+                              accionGrupo(grupo.notificaciones_ids, 'eliminar')
                                 .then(() => setExpandedGrupo(null));
                             }
                           }}
