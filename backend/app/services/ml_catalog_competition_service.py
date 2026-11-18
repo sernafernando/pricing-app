@@ -35,6 +35,7 @@ import asyncio
 import json
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -504,6 +505,8 @@ _SELLER_REPUTATION_PAUSE_S = 0.12
 _REP_CACHE_TTL_S = 6 * 3600
 _seller_rep_cache: Dict[str, Tuple[float, Dict[str, Optional[str]]]] = {}
 _seller_rep_lock = threading.Lock()
+# Bounded pool — never fire unbounded daemon threads per refresh (Chicho #2331).
+_REPUTATION_ENRICH_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="catalog-rep")
 
 
 def _reputation_fields_from_seller(seller: Optional[Dict[str, Any]]) -> Dict[str, Optional[str]]:
@@ -644,7 +647,7 @@ async def _enrich_rows_reputation(rows: Sequence[MLCatalogCompetition]) -> None:
 
 
 def _schedule_background_reputation_enrich(row_ids: Sequence[int]) -> None:
-    """Fetch unique sellers once and patch persisted snapshots off the request."""
+    """Fetch unique sellers once and patch persisted snapshots off the request (bounded pool)."""
     ids: List[int] = []
     for raw_id in row_ids:
         if raw_id is None:
@@ -662,11 +665,7 @@ def _schedule_background_reputation_enrich(row_ids: Sequence[int]) -> None:
         except Exception:  # noqa: BLE001 — never affect the request path
             logger.exception("Background reputation enrich failed for rows %s", ids)
 
-    threading.Thread(
-        target=_run,
-        name="catalog-competition-reputation",
-        daemon=True,
-    ).start()
+    _REPUTATION_ENRICH_POOL.submit(_run)
 
 
 async def _background_reputation_enrich(row_ids: Sequence[int]) -> None:
@@ -808,8 +807,8 @@ async def refrescar_competencia_catalogo(
     Reputation: unique sellers across the batch are fetched **once** (never
     once-per-publication). By default (``wait_reputation=False``) the HTTP
     refresh returns as soon as the catalog snapshot is committed — only
-    process-cache hits are stamped inline; missing sellers are filled in a
-    daemon thread and patched onto the row. Pass ``wait_reputation=True``
+    process-cache hits are stamped inline; missing sellers are filled via a
+    bounded ThreadPoolExecutor and patched onto the row. Pass ``wait_reputation=True``
     (tests / worker that can afford the wait) to enrich inline before commit.
 
     Never raises for a single MLA's FETCH failure: a `not_catalog`, an
