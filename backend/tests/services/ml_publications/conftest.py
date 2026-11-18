@@ -144,6 +144,9 @@ def mlpub_schema(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
         "20261114_hay_mejores_excluido",
         # C6 / auto-aplicación paths call get_criterios; without this table listar fails in mlpub_pg.
         "20261117_ml_hay_mejores_criterios",
+        # Boundaries prefetch_catalog_snapshots + flag_transition audit need these tables.
+        "20260731_ml_catalog_competition",
+        "20261117_ml_hay_mejores_audit",
     ):
         module_spec = importlib.util.spec_from_file_location(f"{revision}_for_tests", versions / f"{revision}.py")
         migration = importlib.util.module_from_spec(module_spec)
