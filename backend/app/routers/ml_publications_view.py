@@ -802,6 +802,13 @@ class StockMarkupRangeOut(BaseModel):
     max: float
 
 
+class StockPromoCountsOut(BaseModel):
+    """A node's publications with (`con`) and without (`sin`) a started promotion (promos-fila S2)."""
+
+    con: int
+    sin: int
+
+
 class StockAuditVariantOut(BaseModel):
     """A variant (`variante`: a notebook combo) or a pack (`pack`) under its base product: its own Full part only
     (its ERP stock is derived from the base, never shown). `full_unidades_base` is that part in base units."""
@@ -822,6 +829,7 @@ class StockAuditVariantOut(BaseModel):
     ventas: Optional[StockAuditSalesOut] = None  # null without ml_metricas.ver
     kind_counts: dict[str, int] = {}  # listing kind -> its publications (Tipo)
     status_counts: dict[str, int] = {}  # status token -> its publications (Estado)
+    promo_counts: Optional[StockPromoCountsOut] = None  # null when the promotions database could not be read
     markup_actual: Optional[StockMarkupRangeOut] = None  # present only with ml_metricas.ver_ganancia
 
 
@@ -849,6 +857,7 @@ class StockAuditRowOut(BaseModel):
     # over its own and its variants' publications
     kind_counts: dict[str, int] = {}
     status_counts: dict[str, int] = {}
+    promo_counts: Optional[StockPromoCountsOut] = None  # its own and its variants'; null without the promotions db
     markup_actual: Optional[StockMarkupRangeOut] = None  # present only with ml_metricas.ver_ganancia
     variantes: list[StockAuditVariantOut]
 
@@ -1844,7 +1853,7 @@ def _read_stock_audit(
     finally:
         db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
     started = _started_promotions()
-    ordered = stock_audit.sort_rows(audit.rows, orden, dir == "desc")
+    ordered = stock_audit.sort_rows(audit.rows, orden, dir == "desc", started)
     return _StockAuditRead(audit, ordered, started, rate, can_see_sales, can_see_margin)
 
 

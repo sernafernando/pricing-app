@@ -202,3 +202,28 @@
 .nodeName {
   font-weight: var(--font-medium);
 }
+
+/* Promos aplicadas (promos-fila S2): the "Promo aplicada" badge's tag icon without its text, green with the
+ * publications with an applied promo, red with those without. */
+.promoCounts {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.promoCon,
+.promoSin {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.promoCon {
+  color: var(--tone-success-fg);
+}
+
+.promoSin {
+  color: var(--tone-danger-fg);
+}

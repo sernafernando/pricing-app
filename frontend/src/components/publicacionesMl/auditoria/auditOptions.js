@@ -19,6 +19,7 @@ export const AUDIT_COLUMN_OPTIONS = [
   { id: 'total_gauss_30d', label: 'Total Gauss 30D', sales: true, margin: true },
   { id: 'tipo', label: 'Tipo' },
   { id: 'estado', label: 'Estado' },
+  { id: 'promos_aplicadas', label: 'Promos aplicadas' },
 ];
 
 export const auditColumnOptions = ({ canSeeSales, canSeeMargin }) =>

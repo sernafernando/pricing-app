@@ -848,6 +848,7 @@ describe('the Auditoría de stock query (auditoria-stock S3-S7)', () => {
 
   it.each([
     ['unidades_erp', 'desc'],
+    ['promos_aplicadas', 'desc'],
     ['descripcion', 'asc'],
     ['total_gauss_30d', 'desc'],
   ])('sorts by %s (%s by default)', (key, dir) => {
