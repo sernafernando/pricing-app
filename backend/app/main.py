@@ -105,6 +105,7 @@ from app.routers import (
     ml_ads,
     ml_publications_view,
     ml_publications_envio,
+    ml_publications_presets,
     ml_publication_color,
     prearmado,
     prearmado_stats,
@@ -439,6 +440,7 @@ app.include_router(sell_out_campanas.router, prefix="/api")
 app.include_router(tacticals.router, prefix="/api")
 app.include_router(ml_publications_view.router, prefix="/api")
 app.include_router(ml_publications_envio.router, prefix="/api")
+app.include_router(ml_publications_presets.router, prefix="/api")
 app.include_router(ml_publication_color.router, prefix="/api")
 app.include_router(ml_ads.router, prefix="/api")
 app.include_router(pxq.router, prefix="/api")
