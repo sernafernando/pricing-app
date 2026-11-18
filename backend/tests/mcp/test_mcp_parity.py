@@ -5,7 +5,8 @@
 2. Each tool's arguments are exactly its endpoint's path + query parameters (a new filter shows up as a new
    argument; a tool never hides one).
 3. Each tool returns every top-level field of its endpoint's response model (only product costs are dropped,
-   for users without productos.ver_costos).
+   for users without productos.ver_costos). Endpoints without an object model (and `ventas_ml`, merged with its
+   KPIs) are compared key by key, at every depth, on seeded data in test_mcp_parity_seeded.py.
 """
 
 from __future__ import annotations
@@ -87,7 +88,11 @@ def _sample_arguments(built: tools.BuiltTool) -> dict:
 def test_tool_returns_every_response_field(spec, monkeypatch):
     fields = _response_fields(spec.path)
     if not fields:
-        pytest.skip("endpoint has no declared object response model")
+        # No object model to read the fields from: covered field by field on seeded data instead.
+        from tests.mcp.test_mcp_parity_seeded import UNTYPED
+
+        assert spec.name in UNTYPED, "untyped endpoint without a seeded parity test (test_mcp_parity_seeded.py)"
+        return
     payload = {field: 1 for field in fields}
 
     async def fake_send(path, params, headers):
