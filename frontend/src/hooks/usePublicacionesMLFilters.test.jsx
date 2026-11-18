@@ -870,3 +870,41 @@ describe('the Auditoría de stock query (auditoria-stock S3-S7)', () => {
     expect(buildItemsParams(filtersOf('/?orden=valor_total'))).not.toMatchObject({ orden: 'valor_total' });
   });
 });
+
+describe('presets: the params a preset saves and applies (pubml-columnas-presets S3, S6, S8)', () => {
+  it('presetParams are the filters, the sort, modo, agrupar, familias and equipo, never vista, pagina, sel, tab, prod or limite', () => {
+    const { result } = setup(
+      '/?vista=producto&marcas=EPSON&q=router&orden=markup&dir=asc&modo=cuotas&agrupar=categoria&familias=1&equipo=12&pagina=3&sel=MLA1&tab=promos&prod=7&limite=100',
+    );
+    expect(result.current.hook.presetParams).toEqual({
+      marcas: 'EPSON',
+      q: 'router',
+      orden: 'markup',
+      dir: 'asc',
+      modo: 'cuotas',
+      agrupar: 'categoria',
+      familias: '1',
+      equipo: '12',
+    });
+  });
+
+  it('presetParams leave out the defaults: modo normal and agrupar marca are no choice', () => {
+    const { result } = setup('/?modo=normal&agrupar=marca&estado=active');
+    expect(result.current.hook.presetParams).toEqual({ estado: 'active' });
+  });
+
+  it('applyPresetParams replaces every preset param at once, keeps vista and limite and closes the selection', () => {
+    const { result } = setup('/?vista=precios&marcas=EPSON&estado=active&equipo=12&modo=cuotas&pagina=2&sel=MLA1&tab=promos&limite=100');
+    act(() =>
+      result.current.hook.applyPresetParams({ tipo: 'premium', orden: 'precio', dir: 'asc', equipo: '5', vista: 'agrupado', pagina: '4', sel: 'MLA9' }),
+    );
+    const params = new URLSearchParams(result.current.search);
+    expect(Object.fromEntries(params)).toEqual({ vista: 'precios', limite: '100', tipo: 'premium', orden: 'precio', dir: 'asc', equipo: '5' });
+  });
+
+  it('hasListParams: a filter or a sort in the URL is a link that wins; the layer, the mode and the view are not', () => {
+    expect(setup('/?vista=producto&equipo=12&modo=cuotas&familias=1&agrupar=pm').result.current.hook.hasListParams).toBe(false);
+    expect(setup('/?estado=active').result.current.hook.hasListParams).toBe(true);
+    expect(setup('/?orden=precio').result.current.hook.hasListParams).toBe(true);
+  });
+});

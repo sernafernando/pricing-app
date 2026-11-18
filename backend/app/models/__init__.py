@@ -24,6 +24,7 @@ from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.ml_publication_snapshot import MLPublicationSnapshot
 from app.models.publicacion_repair import PublicacionRepairEvent, PublicacionRepairRun
 from app.models.ml_publication_link import MlPublicationLink
+from app.models.ml_publicaciones_preset import MlPublicacionesLayout, MlPublicacionesPreset
 
 from app.models.producto_propio import ProductoPropio
 from app.models.producto_spec import ProductoSpec, ProductoSpecValor
@@ -503,6 +504,8 @@ __all__ = [
     "PublicacionColor",
     "RolEquipo",
     "MlPublicationLink",
+    "MlPublicacionesLayout",
+    "MlPublicacionesPreset",
     "MlItemRelation",
     "MLCatalogCompetition",
     "CatalogCompetitionRefreshPending",

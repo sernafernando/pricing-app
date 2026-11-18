@@ -1,0 +1,216 @@
+.container {
+  position: relative;
+  display: inline-block;
+}
+
+.trigger {
+  max-width: 360px;
+}
+
+.triggerLabel {
+  color: var(--text-secondary);
+}
+
+.triggerName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activeName {
+  color: var(--text-primary);
+}
+
+.modified {
+  flex-shrink: 0;
+  margin-left: var(--space-1, 4px);
+  padding: 0 var(--space-1, 4px);
+  border-radius: var(--radius-full);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: var(--font-xs);
+  line-height: 1.5;
+}
+
+.popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--space-1, 4px));
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+  width: 440px;
+  max-width: calc(100vw - 32px);
+  padding: var(--space-2, 8px);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.title {
+  margin: 0;
+  padding: var(--space-1, 4px) var(--space-2, 8px);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(50vh, 360px);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.item:hover {
+  background: var(--bg-hover);
+}
+
+.item[data-active] {
+  background: var(--bg-active);
+}
+
+.apply {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  min-width: 0;
+  padding: var(--space-1, 4px) var(--space-2, 8px);
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.apply:focus-visible,
+.iconButton:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: -2px;
+}
+
+.check {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 14px;
+  color: var(--brand-primary);
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  padding: 0 var(--space-1, 4px);
+  border-radius: var(--radius-full);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+}
+
+.iconButton {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.iconButton:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2, 8px);
+  justify-content: flex-end;
+  padding-top: var(--space-2, 8px);
+  border-top: 1px solid var(--border-primary);
+}
+
+.error {
+  margin: 0;
+  padding: var(--space-1, 4px) var(--space-2, 8px);
+  border-radius: var(--radius-sm);
+  background: var(--error-bg);
+  color: var(--error-text);
+  font-size: var(--font-sm);
+}
+
+/* The name dialog. */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+}
+
+.fieldLabel {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.input {
+  composes: input from '../../../styles/forms-tesla.css';
+}
+
+.fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1, 4px) var(--space-4, 16px);
+  margin: var(--space-2, 8px) 0 0;
+  padding: 0;
+  border: none;
+}
+
+.fieldset legend {
+  margin-bottom: var(--space-1, 4px);
+}
+
+.radio {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1, 4px);
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.help {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}

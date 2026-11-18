@@ -16,6 +16,7 @@ import {
 } from '../MetricsCells';
 import { formatRatio, formatUnits } from '../../../utils/metricasMlFormat';
 import { auditMarkup, auditMetrics, fromVariants, isPack, valueOf } from './stockAuditRows';
+import { AUDIT_GROUPS } from './auditOptions';
 import cellStyles from '../cells.module.css';
 import nodeStyles from '../NodeCells.module.css';
 import styles from './StockAudit.module.css';
@@ -27,12 +28,7 @@ import styles from './StockAudit.module.css';
  * backend's `orden`. A publication row draws the list's own cells (`buildColumns`), so it reads like everywhere else.
  */
 
-const STOCK = 'Stock (unidades)';
-const VALOR = 'Valor stock (USD · ARS)';
-const VENTAS = 'Ventas (unidades)';
-const MARKUP = 'Markup con sell in / sell out';
-const RESULTADO = 'Resultado';
-const ROTACION = 'Rotación';
+const { STOCK, VALOR, VENTAS, MARKUP, RESULTADO, ROTACION } = AUDIT_GROUPS;
 
 const MONEY = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
 const dash = <span className={cellStyles.empty}>—</span>;
@@ -201,7 +197,7 @@ function RotationCell({ ventas }) {
 /** The Board's last sale and ageing of a product or variant, in the list cells' shape. */
 const lastSaleOf = (ventas) => (ventas ? { last_sale_at: ventas.ultima_venta, ageing_days: ventas.ageing_dias } : null);
 
-function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, isVisible }) {
+function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, isVisible, arrange }) {
   // A publication draws the list's own cells (Tipo, Estado, sales, markups, Total Gauss).
   const list = Object.fromEntries(buildColumns({ eventsEnabled: false, canSeeSales, canSeeMargin }).map((column) => [column.key, column]));
   const item = (key, row) => list[key].render(row.item);
@@ -510,7 +506,9 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, 
       },
     );
   }
-  return columns.filter((column) => column.key === 'descripcion' || isVisible(column.key));
+  // `arrange` (the page's saved layout, pubml-columnas-presets S1-S2) picks and orders them; `isVisible` only picks.
+  if (arrange) return arrange(columns);
+  return columns.filter((column) => column.key === 'descripcion' || !isVisible || isVisible(column.key));
 }
 
 export default function StockAuditTable({
@@ -518,6 +516,7 @@ export default function StockAuditTable({
   canSeeSales,
   canSeeMargin,
   isVisible,
+  arrange,
   sort,
   onSort,
   onSelectItem,
@@ -534,6 +533,7 @@ export default function StockAuditTable({
     onToggle: audit.toggle,
     onMore: audit.loadMore,
     isVisible,
+    arrange,
   });
   const selectedRowId = selectedKey ? audit.rows.find((row) => row.type === 'item' && row.item.item_id === selectedKey)?.id : undefined;
   return (
