@@ -34,6 +34,7 @@ from tests.routers.test_ml_publications_links import grant
 from tests.routers.test_ml_publications_view import seed_rows
 from tests.routers.test_ml_publications_view_kpis import pg, view_pg  # noqa: F401
 from tests.routers.test_ml_publications_view_stock_audit import (
+    create_snapshot_table,
     BOM_DDL,
     PERMISO,
     URL,
@@ -51,6 +52,7 @@ STARTED = {"MLA202", "MLA300"}
 
 def fill(conn) -> None:
     seed.create_presence_tables(conn)
+    create_snapshot_table(conn)
     for ddl in BOM_DDL:
         conn.execute(text(ddl))
     seed.add_usd_rate(conn, 1000.0, "2026-11-17")
@@ -253,6 +255,7 @@ class TestProbePermission:
 
 def no_rate_fill(conn) -> None:
     seed.create_presence_tables(conn)
+    create_snapshot_table(conn)
     for ddl in BOM_DDL:
         conn.execute(text(ddl))
     conn.execute(
