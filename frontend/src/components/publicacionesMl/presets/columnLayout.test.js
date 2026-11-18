@@ -3,7 +3,7 @@
  * group, whatever the server kept.
  */
 import { describe, it, expect } from 'vitest';
-import { columnBlocks, mergeOrder, resolveOrder, resolveVisibility } from './columnLayout';
+import { columnBlocks, layoutPayload, mergeOrder, resolveOrder, resolveVisibility } from './columnLayout';
 
 const COLUMNS = [
   { key: 'titulo' },
@@ -86,5 +86,25 @@ describe('resolveVisibility', () => {
       stock_full: true,
       codigo: true,
     });
+  });
+});
+
+describe('layoutPayload within the server limit of 200 keys', () => {
+  const stale = Array.from({ length: 250 }, (_, index) => `vieja_${index}`);
+  const saved = { visibility: Object.fromEntries(stale.map((key) => [key, false])), order: stale };
+  const visibility = { titulo: true, tipo: false, precio: true };
+  const order = ['titulo', 'tipo', 'precio'];
+
+  it('keeps every current column visibility when old saved keys fill the cap', () => {
+    const payload = layoutPayload(saved, visibility, order);
+    expect(Object.keys(payload.visibility)).toHaveLength(200);
+    expect(payload.visibility).toMatchObject(visibility);
+  });
+
+  it('keeps every current column in the order when old saved keys fill the cap', () => {
+    const payload = layoutPayload(saved, visibility, order);
+    expect(payload.order).toHaveLength(200);
+    expect(order.every((key) => payload.order.includes(key))).toBe(true);
+    expect(payload.order.filter((key) => order.includes(key))).toEqual(order);
   });
 });

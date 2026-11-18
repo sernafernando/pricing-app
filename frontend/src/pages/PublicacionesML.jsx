@@ -1394,16 +1394,16 @@ export default function PublicacionesML() {
               Todas las publicaciones de Mercado Libre: estado, precio, stock y vínculo con el producto.
             </p>
           </div>
-            <PresetMenu
-              presets={presets}
-              view={columnLayout}
-              presetParams={presetParams}
-              applyPresetParams={applyPresetParams}
-              defaultParams={entryLayer ? { equipo: entryLayer } : {}}
-              canShare={tienePermiso(SHARED_PRESETS_PERMISSION)}
-              onApplied={dropEntryLayer}
-              buttonClassName={quietButton}
-            />
+          <PresetMenu
+            presets={presets}
+            view={columnLayout}
+            presetParams={presetParams}
+            applyPresetParams={applyPresetParams}
+            defaultParams={entryLayer ? { equipo: entryLayer } : {}}
+            canShare={tienePermiso(SHARED_PRESETS_PERMISSION)}
+            onApplied={dropEntryLayer}
+            buttonClassName={quietButton}
+          />
         </div>
         <div className={styles.headerActions}>
           <SegmentedControl
@@ -1460,14 +1460,14 @@ export default function PublicacionesML() {
             buttonClassName={quietButton}
           />
           {auditoria && (
-              <ColumnPicker
-                table={auditKpis.pickerTable}
-                label="Indicadores"
-                icon={Gauge}
-                groupLabel="Elegir indicadores visibles"
-                iconOnly
-                buttonClassName={quietButton}
-              />
+            <ColumnPicker
+              table={auditKpis.pickerTable}
+              label="Indicadores"
+              icon={Gauge}
+              groupLabel="Elegir indicadores visibles"
+              iconOnly
+              buttonClassName={quietButton}
+            />
           )}
           {!auditoria && kpiOptions.length > 0 && (
             <ColumnPicker

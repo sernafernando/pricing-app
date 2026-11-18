@@ -549,3 +549,29 @@ class TestPresetValidation:
         assert response.status_code == 422
         stored = _preset(db, preset["id"])
         assert (stored.nombre, stored.vista) == ("Mi preset", "publicacion")
+
+
+def test_put_layout_that_loses_the_insert_race_updates_the_row_instead_of_failing(client, db, cast, monkeypatch):
+    """Two first saves of the same view at once: the one that finds no row, inserts and hits the unique
+    (usuario, vista) constraint must update the row the other one wrote, not answer 500."""
+    from app.routers import ml_publications_presets as router_module
+
+    db.add(MlPublicacionesLayout(usuario_id=cast["ids"]["ana"], vista="publicacion", column_layout=None))
+    db.commit()
+    real = router_module._layout_row
+    calls = {"n": 0}
+
+    def stale_first_read(*args, **kwargs):
+        calls["n"] += 1
+        return None if calls["n"] == 1 else real(*args, **kwargs)
+
+    monkeypatch.setattr(router_module, "_layout_row", stale_first_read)
+
+    response = client.put(
+        f"{LAYOUTS}/publicacion", headers=cast["ana"], json={"columns": COLUMNS, "preset_activo_id": None}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"columns": COLUMNS, "preset_activo_id": None}
+    assert _count(db, MlPublicacionesLayout) == 1
+    assert _layout(db, cast["ids"]["ana"], "publicacion").column_layout == COLUMNS

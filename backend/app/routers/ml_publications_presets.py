@@ -186,13 +186,27 @@ def put_layout(
         preset = _visible_preset(db, body.preset_activo_id, user)
         if preset.vista != vista:
             raise _not_found()
+    column_layout = body.columns.model_dump() if body.columns is not None else None
     row = _layout_row(db, user, vista)
     if row is None:
-        row = MlPublicacionesLayout(usuario_id=user.id, vista=vista)
-        db.add(row)
-    row.column_layout = body.columns.model_dump() if body.columns is not None else None
-    row.preset_activo_id = body.preset_activo_id
-    db.commit()
+        db.add(
+            MlPublicacionesLayout(
+                usuario_id=user.id,
+                vista=vista,
+                column_layout=column_layout,
+                preset_activo_id=body.preset_activo_id,
+            )
+        )
+        try:
+            db.commit()
+        except IntegrityError:
+            # Another first save of this view inserted the row meanwhile: update that one.
+            db.rollback()
+            row = _layout_row(db, user, vista)
+    if row is not None:
+        row.column_layout = column_layout
+        row.preset_activo_id = body.preset_activo_id
+        db.commit()
     return LayoutBody(columns=body.columns, preset_activo_id=body.preset_activo_id)
 
 

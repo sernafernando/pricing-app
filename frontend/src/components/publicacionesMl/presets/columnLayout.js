@@ -106,12 +106,19 @@ function carryOrder(order, previous) {
 
 /** The body a layout is saved with: the current choices over the saved ones, within the server's limits. */
 export function layoutPayload(saved, visibility, order) {
-  const mergedVisibility = Object.entries({ ...(saved?.visibility ?? {}), ...visibility })
-    .filter(([key, value]) => validKey(key) && typeof value === 'boolean')
-    .slice(0, MAX_KEYS);
+  // The current columns always fit; keys only the saved layout still carries fill what is left of the cap.
+  const isEntry = ([key, value]) => validKey(key) && typeof value === 'boolean';
+  const current = Object.entries(visibility).filter(isEntry).slice(0, MAX_KEYS);
+  const carried = Object.entries(saved?.visibility ?? {})
+    .filter((entry) => isEntry(entry) && !(entry[0] in visibility))
+    .slice(0, MAX_KEYS - current.length);
+  const currentOrder = new Set(order.filter(validKey));
+  let room = MAX_KEYS - currentOrder.size;
   return {
-    visibility: Object.fromEntries(mergedVisibility),
-    order: carryOrder(order, saved?.order ?? []).filter(validKey).slice(0, MAX_KEYS),
+    visibility: Object.fromEntries([...current, ...carried]),
+    order: carryOrder(order, saved?.order ?? [])
+      .filter(validKey)
+      .filter((key) => currentOrder.has(key) || room-- > 0),
   };
 }
 
