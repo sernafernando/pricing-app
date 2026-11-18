@@ -197,6 +197,46 @@ class TestOnlyThePage:
             for name in ("units", "windows", "series_units", "last_sale_at", "ageing_days"):
                 assert getattr(with_sell[mla], name) == getattr(plain[mla], name), (mla, name)
 
+    @pytest.mark.parametrize("sell_in_out", [False, True])
+    def test_a_page_board_answers_what_the_two_boards_answered(self, sold, monkeypatch, sell_in_out) -> None:
+        # pubml-lentitud L4: the stock audit reads the rows and their Full split from ONE Board (`PageBoard`); each
+        # answer is the one its own Board gives, and only one Board is opened
+        if sell_in_out:
+            sold.execute(text(CONSUMPTION_DDL))
+        mlas = ["MLA1", "MLA2", "MLA3", "MLA4"]
+        rows = row_metrics.metrics_by_mla(sold, mlas, sell_in_out=sell_in_out)
+        splits = row_metrics.fulfillment_by_mla(sold, mlas)
+        assert splits  # MLA1 and MLA3 sold in the 30d window
+        opened: list = []
+        real = board.Board.__enter__
+
+        def spy(self):
+            opened.append(self.f.sell_in_out)
+            return real(self)
+
+        monkeypatch.setattr(board.Board, "__enter__", spy)
+        with row_metrics.PageBoard(sold, mlas, sell_in_out) as shared:
+            shared_rows = row_metrics.metrics_by_mla(shared, mlas, sell_in_out=sell_in_out)
+            shared_splits = row_metrics.fulfillment_by_mla(shared, mlas)
+        assert opened == [sell_in_out]
+        assert shared_splits == splits
+        assert set(shared_rows) == set(rows)
+        for mla in rows:
+            for name in (*FIGURES, "sell_in", "sell_out", "m_sell_in", "m_sell_out"):
+                assert getattr(shared_rows[mla], name) == getattr(rows[mla], name), (mla, name)
+
+    def test_a_page_board_refuses_other_mlas_or_another_sell_in_out(self, sold) -> None:
+        with row_metrics.PageBoard(sold, ["MLA1"]) as shared:
+            with pytest.raises(ValueError):
+                row_metrics.metrics_by_mla(shared, ["MLA2"])
+            with pytest.raises(ValueError):
+                row_metrics.metrics_by_mla(shared, ["MLA1"], sell_in_out=True)
+
+    def test_a_page_board_nobody_reads_opens_no_board(self, sold, monkeypatch) -> None:
+        monkeypatch.setattr(board.Board, "__enter__", lambda self: pytest.fail("a Board was opened"))
+        with row_metrics.PageBoard(sold, ["MLA1"]):
+            pass
+
     def test_only_the_mlas_asked_for_are_answered(self, sold) -> None:
         assert set(row_metrics.metrics_by_mla(sold, ["MLA2", "MLA2"])) == {"MLA2"}
 

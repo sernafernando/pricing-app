@@ -74,7 +74,7 @@ from app.services.ml_publications.view.filters import (
 from app.services.ml_publications.view.listing import EMPTY_SUMMARY, Summary, summaries, summary_columns
 from app.services.ml_publications.view.markup_service import ItemMarkup, aggregate_nodes, compute_markups
 from app.services.ml_publications.view.products import product_pairs
-from app.services.ml_publications.view.row_metrics import fulfillment_by_mla, metrics_by_mla
+from app.services.ml_publications.view.row_metrics import PageBoard, fulfillment_by_mla, metrics_by_mla
 from app.services.pricing_calculator import moneda_de
 
 CAT_NOTEBOOK = 46
@@ -263,12 +263,15 @@ class Sales:
 
     def _add_series(self, row: board.Row, units_factor: Decimal) -> None:
         days = len(row.series_units)
-        while len(self.series_units) < days:
-            self.series_units.append(Decimal(0))
-            self.series_markups.append([])
+        if len(self.series_units) < days:
+            self.series_units.extend([Decimal(0)] * (days - len(self.series_units)))
+        if len(self.series_markups) < days:
+            self.series_markups.extend([] for _ in range(days - len(self.series_markups)))
         for day, units in enumerate(row.series_units):
-            self.series_units[day] += units * units_factor
             markup = row.series_markup[day] if day < len(row.series_markup) else None
+            if not units and markup is None:
+                continue  # adds nothing (most days of most rows)
+            self.series_units[day] += units * units_factor
             if markup is not None:
                 self.series_markups[day].append((markup, units * units_factor))
 
@@ -360,6 +363,34 @@ class Sales:
         lasts = [at for at in (self.last_sale_at, other.last_sale_at) if at is not None]
         total.last_sale_at = max(lasts) if lasts else None
         return total
+
+    def absorb(self, other: "Sales") -> None:
+        """`self = self.plus(other)`, in place: the very same additions in the same order, without copying the
+        growing per-day lists on every row a group adds (pubml-lentitud: quadratic, ~0.5 s for an Auditoría by
+        brand on a prod-sized copy)."""
+        for name in ("units_7d", "units_30d", "gross", "tg", "mtg", "costo"):
+            setattr(self, name, getattr(self, name) + getattr(other, name))
+        for name in ("full_7d", "full_30d", "unknown_7d", "unknown_30d"):
+            setattr(self, name, getattr(self, name) + getattr(other, name))
+        self.any_board_row = self.any_board_row or other.any_board_row
+        for name in SELL_FIELDS:
+            mine, theirs = getattr(self, name), getattr(other, name)
+            setattr(self, name, None if mine is None and theirs is None else (mine or 0) + (theirs or 0))
+        days = max(len(self.series_units), len(other.series_units))
+        if len(self.series_units) < days:
+            self.series_units.extend([Decimal(0)] * (days - len(self.series_units)))
+        if len(self.series_markups) < days:
+            self.series_markups.extend([] for _ in range(days - len(self.series_markups)))
+        for day in range(len(other.series_units)):
+            self.series_units[day] = self.series_units[day] + other.series_units[day]
+        for day in range(len(other.series_markups)):
+            self.series_markups[day].extend(other.series_markups[day])
+        sold = [a for a in (self.ageing_sold, other.ageing_sold) if a is not None]
+        unsold = [a for a in (self.ageing_unsold, other.ageing_unsold) if a is not None]
+        self.ageing_sold = min(sold) if sold else None
+        self.ageing_unsold = max(unsold) if unsold else None
+        lasts = [at for at in (self.last_sale_at, other.last_sale_at) if at is not None]
+        self.last_sale_at = max(lasts) if lasts else None
 
     def envio_out(self) -> dict[str, dict[str, int]]:
         """S3: each window's units shipped by Full and the rest (ERP), the ones without shipping data counted apart
@@ -663,8 +694,9 @@ def _read_sales(
     """ONE Board read of `mlas` (each publication's row, `row_metrics`) and its Full split (S3: a publication without
     one is all ERP). A publication's figures are the same whatever else is read with it."""
     mlas = sorted(set(mlas))
-    figures = metrics_by_mla(db, mlas, sell_in_out=sell_in_out)
-    return figures, (fulfillment_by_mla(db, mlas) if mlas else {})
+    with PageBoard(db, mlas, sell_in_out) as shared:  # the rows and their split from ONE Board (`row_metrics`)
+        figures = metrics_by_mla(shared, mlas, sell_in_out=sell_in_out)
+        return figures, (fulfillment_by_mla(shared, mlas) if mlas else {})
 
 
 def _apply_sales(rows: Iterable[Row], figures: Mapping[str, board.Row], splits: Mapping[str, Any]) -> None:
@@ -1030,10 +1062,10 @@ class Group:
         for r in self.rows:
             self.erp = self.erp.plus(r.erp.known())
             self.full = self.full.plus(r.full.known())
-            self.sales = self.sales.plus(r.sales)
+            self.sales.absorb(r.sales)
             self.publications |= r.publications
             w = whole_of(r)
-            sales_whole = sales_whole.plus(w.sales)
+            sales_whole.absorb(w.sales)
             stock, stock_erp, stock_full = stock + w.stock, stock_erp + (w.stock_erp or 0), stock_full + w.stock_full
         average = None
         if averages and all(a is not None for a in averages):
