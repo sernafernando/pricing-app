@@ -102,6 +102,7 @@ def test_upsert_criterios_logs_auto_flip(monkeypatch) -> None:
         c6_gap_min=Decimal("5000"),
         c6_distancia_objetivo=Decimal("100"),
         auto_aplicacion=True,
+        puede_cambiar_auto=True,
     )
     assert logged == [{"item_id": "MLA1", "old": False, "new": True, "usuario_id": 3, "alcance": "item"}]
     assert row.auto_aplicacion is True

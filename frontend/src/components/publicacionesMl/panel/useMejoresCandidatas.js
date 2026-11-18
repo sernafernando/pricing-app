@@ -45,7 +45,8 @@ export function useMejoresCandidatas({
       try {
         const [promoRes, criteriosRes] = await Promise.all([
           promocionesAPI.getPromocionesItem(itemId),
-          promocionesAPI.getHayMejoresCriterios(itemId).catch(() => null),
+          // Promise.resolve: unit mocks may be bare vi.fn() without .catch.
+          Promise.resolve(promocionesAPI.getHayMejoresCriterios(itemId)).catch(() => null),
         ]);
         if (cancelled) return;
         const failText = promoRes?.data?.auto_fail_message;

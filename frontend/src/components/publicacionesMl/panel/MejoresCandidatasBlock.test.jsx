@@ -31,6 +31,8 @@ describe('MejoresCandidatasBlock', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { nuestro_markup: 0.35 } });
+    // C1 band fetch in useMejoresCandidatas — must be thenable (bare vi.fn() has no .catch).
+    promocionesAPI.getHayMejoresCriterios.mockResolvedValue({ data: {} });
   });
 
   it('does not claim there are better candidatas when SMART/DEAL/Premium slots are empty', async () => {
