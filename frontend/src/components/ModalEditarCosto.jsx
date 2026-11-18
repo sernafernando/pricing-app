@@ -6,7 +6,9 @@ export default function ModalEditarCosto({
   mostrar,
   onClose,
   onSave,
-  operacion // La operación a editar
+  operacion, // La operación a editar
+  // Optional async save: gets the unit cost the modal would PUT (VARIOS markup included) and replaces that PUT.
+  guardarCosto: guardarCostoExterno,
 }) {
   const [costoUnitario, setCostoUnitario] = useState('');
   const [monedaCosto, setMonedaCosto] = useState('ARS'); // ARS o USD
@@ -216,9 +218,13 @@ export default function ModalEditarCosto({
     setError(null);
     setGuardando(true);
     try {
-      await api.put(`/ventas-fuera-ml/metricas/${operacion.metrica_id}/costo`, {
-        costo_unitario: costoConMarkup
-      });
+      if (guardarCostoExterno) {
+        await guardarCostoExterno(costoConMarkup);
+      } else {
+        await api.put(`/ventas-fuera-ml/metricas/${operacion.metrica_id}/costo`, {
+          costo_unitario: costoConMarkup
+        });
+      }
 
       if (onSave) onSave();
       onClose();

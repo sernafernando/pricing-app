@@ -225,7 +225,7 @@ export default function Navbar() {
               onMouseLeave={() => setDropdownOpen(null)}
             >
               <div
-                className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/dashboard-metricas-ml', '/metricas-ml?canal=fuera', '/dashboard-ventas-fuera', '/dashboard-tienda-nube', '/calculos', '/ultimos-cambios']) ? styles.active : ''}`}
+                className={`${styles.link} ${styles.dropdownTrigger} ${isDropdownActive(['/dashboard-metricas-ml', '/metricas-ml?canal=fuera', '/ventas-fuera-listado', '/dashboard-ventas-fuera', '/dashboard-tienda-nube', '/calculos', '/ultimos-cambios']) ? styles.active : ''}`}
                 onClick={() => setDropdownOpen(dropdownOpen === 'reportes' ? null : 'reportes')}
               >
                 Reportes ▾
@@ -251,6 +251,15 @@ export default function Navbar() {
                       onClick={() => setDropdownOpen(null)}
                     >
                       Ventas por Fuera
+                    </Link>
+                  )}
+                  {puedeVerVentasFuera && (
+                    <Link
+                      to="/ventas-fuera-listado"
+                      className={`${styles.dropdownItem} ${isActive('/ventas-fuera-listado') ? styles.activeDropdown : ''}`}
+                      onClick={() => setDropdownOpen(null)}
+                    >
+                      Operaciones por Fuera
                     </Link>
                   )}
                   {puedeVerVentasFueraAnterior && (
@@ -433,6 +442,16 @@ export default function Navbar() {
               onClick={handleLinkClick}
             >
               Ventas por Fuera
+            </Link>
+          )}
+
+          {puedeVerVentasFuera && (
+            <Link
+              to="/ventas-fuera-listado"
+              className={`${styles.mobileLink} ${isActive('/ventas-fuera-listado') ? styles.active : ''}`}
+              onClick={handleLinkClick}
+            >
+              Operaciones por Fuera
             </Link>
           )}
 

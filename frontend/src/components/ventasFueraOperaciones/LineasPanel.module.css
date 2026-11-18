@@ -1,0 +1,96 @@
+/* Lines of one PDF document, inside the SplitPanelLayout panel (Operaciones por Fuera). Tokens only. */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  height: 100%;
+  min-height: 0;
+  padding: var(--spacing-md);
+  color: var(--cf-text-primary);
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+}
+
+.titulos {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.titulo {
+  margin: 0;
+  font-size: 18px;
+  font-weight: var(--font-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.sub {
+  margin: 0;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.cerrar {
+  composes: btn-tesla ghost sm from '../../styles/buttons-tesla.css';
+}
+
+.error {
+  margin: 0;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-xs);
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border: 1px solid var(--tone-danger-border);
+  border-radius: var(--radius-sm);
+}
+
+.articulo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  white-space: normal;
+}
+
+.nombre {
+  font-weight: var(--font-medium);
+}
+
+.suave {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.causa {
+  font-size: var(--font-xs);
+  color: var(--tone-warning-fg);
+}
+
+.flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.flags:empty {
+  display: none;
+}
+
+.acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.accion {
+  composes: btn-tesla outline-subtle-primary xs from '../../styles/buttons-tesla.css';
+  gap: 4px;
+}
