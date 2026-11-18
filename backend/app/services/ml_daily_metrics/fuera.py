@@ -4,10 +4,11 @@ the very columns `sales.lines_source` gives the ML lines, so the board sums both
 
 Rules (owner, vpf-metricas-canal S2-S12):
 
-- PRODUCT of a line = the `productos_erp` row of the line's STORED `item_id` (vpf-operaciones: set at load by
-  `ventas_fuera_pdf.resolucion` -- code trimmed, tb_item, article prefix, remembered mapping -- or by a manual fix).
-  A line without one is "sin producto":
-  one row per code productos_erp does not have, and one per article text of a line without code (S5). Such a row is
+- PRODUCT of a line = the line's STORED `item_id` (vpf-operaciones: set at load by `ventas_fuera_pdf.resolucion` --
+  code trimmed, tb_item, article prefix, remembered mapping -- or by a manual fix), described by its `productos_erp`
+  row when it has one (an item only in tb_item is still a product, titled by its article text). A line with NULL
+  `item_id` is "sin producto", as the operations list counts it: one row per code and one per article text of a line
+  without code (S5). Such a row is
   keyed by a NEGATIVE product id, `-(the lowest line id of its code / article)` over every loaded line, so the board's
   (product, MLA) pairs and its integer product keys need no other change, and the key stays the same whatever the
   period or filters (the CSV export fetches rows by key across sessions). Its title is the article text.
