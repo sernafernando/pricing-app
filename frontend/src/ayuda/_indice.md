@@ -62,6 +62,7 @@ Este índice lista todas las pantallas de la aplicación, en el mismo orden en q
 | 54 | Mis Sub-PMs | `mis-sub-pms.md` | `/mis-sub-pms` | Gestión → Mis Sub-PMs | Sin permiso propio: aparece si sos titular de alguna marca/categoría o si un administrador te habilita |
 | 55 | Admin | `admin.md` | `/admin` | Gestión → Admin | Acceso al panel de administración |
 | 56 | API docs | `api-docs.md` | `/api-docs` | Gestión → API docs | Permiso de administración para ver la documentación técnica |
+| 56b | Acciones IA | `acciones-ia.md` | `/acciones-ia` | Gestión → Acciones IA | Permiso para que la IA modifique Pricing (mcp.escribir), solo administradores |
 | 57 | Alertas | `alertas.md` | `/gestion/alertas` | Gestión → Alertas | Permiso para gestionar alertas |
 | 58 | Envío Gratis | `envio-gratis.md` | `/free-shipping-alerts` | Gestión → Envío Gratis | Permiso para ver las alertas de envío gratis |
 | 58b | Novedades | `novedades.md` | `/novedades` | Ayuda → Novedades | Sin permiso especial: la ve cualquier usuario con sesión iniciada |

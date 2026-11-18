@@ -6,12 +6,15 @@ import styles from './McpAutorizar.module.css';
 
 const MENSAJE_VENCIDO = 'El pedido de conexión venció o ya se usó. Volvé a conectar desde la aplicación de IA.';
 const MENSAJE_SIN_PERMISO = 'No tenés permiso para conectar aplicaciones de IA (mcp.conectar). Pedíselo a un administrador.';
+const MENSAJE_SIN_ESCRITURA = 'Solo lectura: no tenés permiso para modificar (mcp.escribir)';
 const MENSAJE_ERROR = 'No se pudo completar la conexión. Probá de nuevo en unos minutos.';
 
 const irAUrlExterna = (url) => window.location.assign(url);
 
 /**
- * Consent step of the OAuth flow for MCP clients (ChatGPT, Claude, Cursor, Gemini CLI). The backend's
+ * Consent step of the OAuth flow for MCP clients (ChatGPT, Claude, Cursor, Gemini CLI).
+ * The wording says whether the token can also write (scope pricing.write, user
+ * holds mcp.escribir) or was downgraded to read-only. The backend's
  * /api/oauth/authorize sends the browser here with `?req=<id>`; the normal
  * login (ProtectedRoute + Login return-to) runs first when there is no session.
  * The decision goes back to the backend, which answers with the URL to send the
@@ -72,6 +75,9 @@ export default function McpAutorizar({ irA = irAUrlExterna }) {
 
   const nombreUsuario = user?.nombre || user?.username || 'tu usuario';
   const cliente = pedido?.client_name || 'La aplicación';
+  // pricing.write: `escritura` = the token will carry it; asked but not granted = downgraded to read-only.
+  const escritura = pedido?.escritura === true;
+  const escrituraDenegada = pedido?.escritura_pedida === true && !escritura;
 
   return (
     <div className={styles.container}>
@@ -85,7 +91,8 @@ export default function McpAutorizar({ irA = irAUrlExterna }) {
         {!cargando && pedido && !terminal && (
           <>
             <p className={styles.texto}>
-              <strong>{cliente}</strong> quiere consultar Pricing como <strong>{nombreUsuario}</strong>.
+              <strong>{cliente}</strong> quiere {escritura ? 'consultar y MODIFICAR' : 'consultar'} Pricing como{' '}
+              <strong>{nombreUsuario}</strong>.
             </p>
             <p className={styles.texto}>
               La conexión vuelve a <strong>{pedido.redirect_host}</strong>
@@ -93,10 +100,21 @@ export default function McpAutorizar({ irA = irAUrlExterna }) {
             </p>
             <ul className={styles.detalles}>
               <li>Permití solo si iniciaste vos esta conexión recién, desde {cliente}.</li>
-              <li>Acceso de solo lectura: puede consultar, no puede modificar nada.</li>
+              {escritura ? (
+                <>
+                  <li>
+                    Puede modificar promociones, precios de lista, precios en cuotas, precios mayoristas y pausar o activar
+                    publicaciones.
+                  </li>
+                  <li>Cada cambio necesita un plan y tu confirmación, y queda en Acciones IA, donde se puede Deshacer.</li>
+                </>
+              ) : (
+                <li>Acceso de solo lectura: puede consultar, no puede modificar nada.</li>
+              )}
               <li>Ve lo mismo que vos: trabaja con tus mismos permisos.</li>
               <li>Podés revocar la conexión cuando quieras desde un administrador.</li>
             </ul>
+            {escrituraDenegada && <p className={styles.nota}>{MENSAJE_SIN_ESCRITURA}</p>}
           </>
         )}
 
