@@ -19,3 +19,5 @@ En **Publicaciones ML** hay dos columnas nuevas en el grupo **Markup**, en todas
 - Si una publicación no tiene sell in ni sell out, la columna muestra su markup sin ellos (el tooltip lo dice).
 - **Pendiente** quiere decir que falta el tipo de cambio o la base de la campaña para calcularlo, como en la pestaña **Precios**.
 - En **Agrupado** y en las filas de producto de **Auditoría de stock**, **Actual c/ SISO** es el rango (el más bajo y el más alto) de sus publicaciones. **Auditoría de stock** no suma un **Real 30D c/ SISO**: su **Real 30D** ya lo incluye.
+- **Actual** ahora toma la promo aplicada: con una SMART, un precio negociado o un precio competitivo, suma lo que aporta Mercado Libre, igual que **Activa ahora** en la pestaña **Promos**. Antes mostraba menos markup que el panel (por ejemplo 14,67 % en lugar de 18,61 %).
+- Las **PCs** cuentan como producto propio en sell out y en los bonos de sell in, como en **Auditoría de stock**: una campaña o un bono que alcanza a la PC se le aplica cuando se vende.

@@ -98,6 +98,10 @@ from app.models.ml_sale_line import MlSaleLine
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo, SellInModoProducto
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.services.combos.ventas import partes_de_combos, unidades_de
+
+# PENDING OWNER (L-owner-2, 2026-11-18): whether a PC's sale stops taking its components' lots and takes the PC's own
+# (`combos.pcs`). Until answered the combo rule stays: a PC's line takes each component's FIFO lots. True flips it.
+LOTES_PC_COMO_ENTIDAD = False
 from app.services.sell_in.fifo import (
     Consumo,
     Dinero,
@@ -507,7 +511,7 @@ class FifoPurchaseCosting:
         counts for each component that has lines, never for the combo itself (module docstring)."""
         if not lotes:
             return {}
-        combos = partes_de_combos(db, lotes)
+        combos = partes_de_combos(db, lotes, pc_entidad=LOTES_PC_COMO_ENTIDAD)
         ids = sorted(set(lotes) | set(combos))
 
         def destinos(item_id: int, unidades: int) -> List[Tuple[int, int]]:
