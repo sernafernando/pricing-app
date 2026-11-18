@@ -47,6 +47,18 @@ describe('stock audit level fixtures', () => {
     for (const b of stockAuditLevelResponse({ nivel: 'marca' }).rows) expectSum(b, b.categorias, b.key);
   });
 
+  it("a product's sales hold its variants' and packs' sales in base units, as the backend adds them", () => {
+    const products = stockAuditLevelResponse({ nivel: 'producto' }).rows;
+    for (const p of products.filter((r) => r.variantes?.length)) {
+      for (const w of ['7d', '30d']) {
+        const fromVariants = p.variantes.reduce((acc, v) => acc + (v.ventas?.[`unidades_${w}`] ?? 0) * (v.cantidad ?? 1), 0);
+        expect(p.ventas[`unidades_${w}`], `${p.key} ${w}`).toBeGreaterThanOrEqual(fromVariants);
+        const { erp, full } = p.ventas.envio[w];
+        expect(erp + full, `${p.key} ERP+Full ${w}`).toBe(p.ventas[`unidades_${w}`]);
+      }
+    }
+  });
+
   it.each(['marca', 'categoria', 'producto'])('the KPIs at nivel=%s are the sum of its top-level rows', (nivel) => {
     const body = stockAuditLevelResponse({ nivel });
     for (const part of PARTS) {

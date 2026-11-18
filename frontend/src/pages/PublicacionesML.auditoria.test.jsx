@@ -824,10 +824,10 @@ describe('auditoria-stock-niveles S3, S4: "ERP n · Full n" under the sales, cov
     const t = await audit('/ml-publicaciones?vista=auditoria');
     await t.findByText('DEMO', { selector: 'span' });
     const brand = rowOf('DEMO');
-    // the sum of its products: notebook ERP 4 · Full 2 + cartridge ERP 4 · Full 1 (2 without shipping data) + PC 0
-    expect(cell(brand, 'unidades_7d')).toHaveTextContent('ERP 8 · Full 3');
-    expect(cell(brand, 'unidades_30d')).toHaveTextContent('ERP 33 · Full 16');
-    expect(within(cell(brand, 'unidades_7d')).getByTitle('incluye 2 sin dato de envío')).toHaveTextContent('ERP 8');
+    // the sum of its products: notebook ERP 4 · Full 2 + cartridge ERP 6 · Full 3 (2 without shipping data) + PC 0
+    expect(cell(brand, 'unidades_7d')).toHaveTextContent('ERP 10 · Full 5');
+    expect(cell(brand, 'unidades_30d')).toHaveTextContent('ERP 45 · Full 22');
+    expect(within(cell(brand, 'unidades_7d')).getByTitle('incluye 2 sin dato de envío')).toHaveTextContent('ERP 10');
     // none without shipping data in 30 days: no tooltip
     expect(within(cell(brand, 'unidades_30d')).queryByTitle(/sin dato de envío/)).not.toBeInTheDocument();
     expect(cell(rowOf('Sin marca'), 'unidades_7d')).toHaveTextContent('ERP 0 · Full 0');

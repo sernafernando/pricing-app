@@ -100,8 +100,9 @@ export const AUDIT_CARTRIDGE = {
   publicacion_activa: true,
   promo_aplicada: false,
   params: { item_ids: '9101' },
-  // two sales of the week without shipping data, counted in ERP (auditoria-stock-niveles S3)
-  ventas: sales(5, 25, 450000, { ultima_venta: '2026-10-20T12:00:00Z', ultima_venta_dias: 29, ageing_dias: 29, dias_cobertura: 156, rotacion: 0.19, stock_promedio: 131.6, envio: split(5, 25, 2, 0) }),
+  // its own sales (1 in 7 days, 7 in 30) plus its pack's in base units (4 and 18 packs of 2), as the backend adds
+  // them; two sales of the week without shipping data, counted in ERP (auditoria-stock-niveles S3)
+  ventas: sales(9, 43, 970000, { ultima_venta: '2026-10-20T12:00:00Z', ultima_venta_dias: 29, ageing_dias: 29, dias_cobertura: 156, rotacion: 0.19, stock_promedio: 131.6, envio: split(9, 43, 2, 0) }),
   kind_counts: { clasica: 1, cuotas_3: 1 },
   status_counts: { active: 2 },
   promo_counts: { con: 0, sin: 2 },
