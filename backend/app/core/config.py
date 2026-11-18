@@ -308,6 +308,21 @@ class Settings(BaseSettings):
     # uvicorn workers -> one global counter). Tests override to "memory://".
     RATE_LIMIT_STORAGE_URI: Optional[str] = None
 
+    # MCP server (app/mcp): ChatGPT and other AI clients query pricing as the logged-in user.
+    # Public origin of the app, e.g. https://pricing.example.com (no trailing slash). Unset = MCP and its
+    # OAuth endpoints answer 404. The MCP resource is <origin>/api/mcp and the OAuth issuer <origin>/api/oauth.
+    MCP_PUBLIC_BASE_URL: Optional[str] = None
+    # Allowed OAuth clients (JSON list). Adding a client is config, not code (docs/RUNBOOKS.md):
+    # [{"client_id": <https CIMD URL>, "name": <shown on the consent screen>, "redirect_uris": [<https URL>, ...]}]
+    MCP_OAUTH_CLIENTS: str = (
+        '[{"client_id": "https://chatgpt.com/oauth/client.json", "name": "ChatGPT",'
+        ' "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"]}]'
+    )
+    MCP_ACCESS_TOKEN_MINUTES: int = 60
+    MCP_REFRESH_TOKEN_DAYS: int = 30
+    MCP_RATE_LIMIT: str = "60/minute"  # tool calls per user
+    MCP_TOOL_LOG_RETENTION_DAYS: int = 180
+
     # GBP (ERP SOAP credentials)
     GBP_USERNAME: Optional[str] = None
     GBP_PASSWORD: Optional[str] = None
