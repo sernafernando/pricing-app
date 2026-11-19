@@ -97,6 +97,9 @@ def splits(monkeypatch, board_calls) -> list[list[str]]:
         return {mla: SPLITS[mla] for mla in mlas if mla in SPLITS}
 
     monkeypatch.setattr(stock_audit, "fulfillment_by_mla", fake)
+    monkeypatch.setattr(
+        stock_audit, "summed_sales", stock_audit.summed_from_rows
+    )  # these Board rows, summed one by one
     return seen
 
 
@@ -302,6 +305,9 @@ class TestSalesSplit:
 
     def test_a_publication_without_a_split_is_all_erp(self, client, grouped, monkeypatch, board_calls) -> None:
         monkeypatch.setattr(stock_audit, "fulfillment_by_mla", lambda db, mlas: {})
+        monkeypatch.setattr(
+            stock_audit, "summed_sales", stock_audit.summed_from_rows
+        )  # these Board rows, summed one by one
         rows = {r["product_item_id"]: r for r in audit(client, grouped)["rows"]}
         assert envio(rows[100]["ventas"]) == split(1, 0, 0, 3, 0, 0)
 

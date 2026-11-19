@@ -297,6 +297,9 @@ def board_mlas(monkeypatch) -> list[list[str]]:
         return {m: figures[m] for m in mlas if m in figures}
 
     monkeypatch.setattr(stock_audit, "metrics_by_mla", fake)
+    monkeypatch.setattr(
+        stock_audit, "summed_sales", stock_audit.summed_from_rows
+    )  # these Board rows, summed one by one
     return seen
 
 

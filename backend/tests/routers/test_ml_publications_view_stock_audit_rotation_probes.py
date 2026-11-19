@@ -65,6 +65,9 @@ def mine(client, pg, db, rol_admin, admin_auth_headers, started, monkeypatch):
     monkeypatch.setattr(
         stock_audit, "metrics_by_mla", lambda db, mlas, sell_in_out=False: {m: figures[m] for m in mlas if m in figures}
     )
+    monkeypatch.setattr(
+        stock_audit, "summed_sales", stock_audit.summed_from_rows
+    )  # these Board rows, summed one by one
     return admin_auth_headers
 
 

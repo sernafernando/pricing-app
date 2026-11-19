@@ -55,29 +55,31 @@ def split(rng: random.Random):
 
 def slow_add(total: Sales, r: board.Row, factor: Decimal, s) -> None:
     """`Sales.add` as it was: every day of the series walked (the empty ones add 0 to the units)."""
-    series = total._add_series
+    series = total.add_series
 
-    def every_day(row: board.Row, units_factor: Decimal) -> None:
-        days = len(row.series_units)
+    def every_day(series_units, series_markup, units_factor: Decimal) -> None:
+        days = len(series_units)
         while len(total.series_units) < days:
             total.series_units.append(Decimal(0))
             total.series_markups.append([])
-        for day, units in enumerate(row.series_units):
+        for day, units in enumerate(series_units):
             total.series_units[day] += units * units_factor
-            markup = row.series_markup[day] if day < len(row.series_markup) else None
+            markup = series_markup[day] if day < len(series_markup) else None
             if markup is not None:
                 total.series_markups[day].append((markup, units * units_factor))
 
-    total._add_series = every_day
+    total.add_series = every_day
     try:
         total.add(r, factor, s)
     finally:
-        total._add_series = series
+        total.add_series = series
 
 
 def same(a: Sales, b: Sales) -> None:
     for f in fields(Sales):
         got, expected = getattr(a, f.name), getattr(b, f.name)
+        if f.name == "series_markups":  # the points of each day; an empty day is any empty sequence
+            got, expected = [list(points) for points in got], [list(points) for points in expected]
         assert got == expected, f.name
         assert repr(got) == repr(expected), f.name
     assert a.markup_series() == b.markup_series()
