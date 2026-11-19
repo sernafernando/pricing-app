@@ -206,6 +206,13 @@ class TestReal30dOnTheList:
         assert board_calls == [False]
         assert "markup_sell_30d" not in found["MLA11"]["metrics"]
 
+    def test_the_panels_row_carries_it_too(self, client, rows, db, rol_admin, analyst, pricing, board_calls) -> None:
+        grant(db, rol_admin, METRICAS)
+        row = body_of(client, analyst, "MLA11")["row"]
+
+        assert board_calls == [True]
+        assert row["metrics"]["markup_sell_30d"] == 26.3  # the same figure the list row shows
+
     def test_sorting_by_it_needs_ver_ganancia(self, client, rows, db, rol_admin, reader, pricing) -> None:
         grant(db, rol_admin, METRICAS)
         assert get_items(client, reader, orden="markup_sell_30d").status_code == 403

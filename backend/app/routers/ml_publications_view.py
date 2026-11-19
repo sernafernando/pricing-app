@@ -2738,7 +2738,11 @@ def get_item_detail(
             found = detail.get_detail(db, item_id, events=events_enabled, markup=markup)
         if found is not None and can_see_sales:
             with timer.stage("metrics"):
-                _attach_metrics([found["row"]], row_metrics.metrics_by_mla(db, [item_id]), with_margin=can_see_margin)
+                _attach_metrics(
+                    [found["row"]],
+                    row_metrics.metrics_by_mla(db, [item_id], sell_in_out=can_see_margin),  # as the list row
+                    with_margin=can_see_margin,
+                )
     except DBAPIError as exc:
         if (slow := _database_error(exc)) is not None:
             raise slow from exc
