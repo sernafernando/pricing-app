@@ -587,22 +587,45 @@ const showColumn = (scroller, header) => {
   scroller.scrollLeft = header.offsetLeft - scroller.clientWidth / 2 + header.offsetWidth / 2;
 };
 
-// Publicaciones with markup and an expanded row (publicaciones-ml-vista P11b.T4).
-const MARGIN_ITEMS = [
-  VARIATION_ITEM,
-  ...MANY.slice(0, 30).map((item, i) => ({
+// Publicaciones with markup and an expanded row (publicaciones-ml-vista P11b.T4). Every row has its own price, promo
+// (ML co-funding included in the priced amount) and sell in / sell out, so "Actual" and "Actual c/ SISO" differ per
+// row (pubml-markup-siso, L-owner).
+const PROMOS = [null, 'SMART', 'DEAL', 'PRE_NEGOTIATED', null, 'PRICE_MATCHING'];
+const marginRow = (item, i) => {
+  const actual = Math.round((24.6 - i * 1.35) * 100) / 100; // 24.6 % down to below zero
+  const promo = PROMOS[i % PROMOS.length];
+  const amount = 98500.5 + i * 1730.25; // the widest price the column holds (cents included)
+  const siso =
+    i % 10 === 3
+      ? { min: null, max: null, worst: null, pending: 1, applies: true }
+      : i % 10 === 5
+        ? { min: actual, max: actual, worst: actual, pending: 0, applies: false } // no sell in / sell out
+        : { min: actual + 2 + (i % 4) * 1.5, max: actual + 2 + (i % 4) * 1.5, worst: actual + 2 + (i % 4) * 1.5, pending: i % 10 === 7 ? 2 : 0, applies: true };
+  return {
     ...item,
     item_id: `MLA${1100000200 + i}`,
-    markup: { min: 8.5, max: 21, worst: 8.5, any_negative: false, reason: 'ok', partial: 0, ads: null },
-    // Markup actual c/ SISO: most with sell in / sell out, one without, one pending (pubml-markup-siso)
-    markup_siso:
-      i % 10 === 3
-        ? { min: null, max: null, worst: null, pending: 1, applies: true }
-        : i % 10 === 5
-          ? { min: 8.5, max: 21, worst: 8.5, pending: 0, applies: false }
-          : { min: 12.4, max: 26.75, worst: 12.4, pending: i % 10 === 7 ? 2 : 0, applies: true },
-  })),
-];
+    // a fallback or missing price stays as the item has it (its own label is the widest cell the column holds)
+    price: ['productos_fallback', null].includes(item.price?.source ?? null) ? item.price : {
+      amount,
+      source: promo ? 'sale_price' : 'item_price',
+      regular_amount: promo ? Math.round(amount * 1.12) : null,
+      promotion_type: promo,
+      campaign: promo === 'DEAL' ? 'Hot Sale' : null, // the widest promotion text the column holds
+      pricelist_id: 12,
+    },
+    markup: { min: actual, max: actual, worst: actual, any_negative: actual < 0, reason: 'ok', partial: 0, ads: null },
+    markup_siso: siso,
+  };
+};
+// A PC (combo of the PC category): its own sell out campaign lifts its markup c/ SISO (L-owner-2).
+const PC_ROW = {
+  ...marginRow(MANY[0], 1),
+  item_id: 'MLA1100000299',
+  title: 'PC Armada Gamer Ryzen 5 5600G 16GB SSD 1TB',
+  markup: { min: 9.8, max: 9.8, worst: 9.8, any_negative: false, reason: 'ok', partial: 0, ads: null },
+  markup_siso: { min: 31.6, max: 31.6, worst: 31.6, pending: 0, applies: true },
+};
+const MARGIN_ITEMS = [VARIATION_ITEM, ...MANY.slice(0, 2).map(marginRow), PC_ROW, ...MANY.slice(2, 30).map((item, i) => marginRow(item, i + 2))];
 const MARGIN_RESPONSE = { ...RESPONSE, can_see_margin: true, items: MARGIN_ITEMS };
 
 const renderMarginPage = async ({ width, height, theme, entry = '/ml-publicaciones', response = MARGIN_RESPONSE }) => {
@@ -666,8 +689,20 @@ describe('Publicaciones ML with markup and an expanded row (visual)', () => {
         expect(cells.length).toBeGreaterThan(0);
         expect(wrapped(cells.filter((el) => /%|Pendiente/.test(el.textContent)))).toEqual([]);
         expect(overflowingCells(scroller)).toEqual([]);
-        showColumn(scroller, headers[0]);
-        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/siso-publicaciones-${width}-${theme}.png` });
+        // Each row its own figures: the c/ SISO column is not one value repeated, and the PC shows it applied.
+        const shown = cells.map((el) => el.textContent).filter((text) => /%/.test(text));
+        expect(new Set(shown).size).toBeGreaterThan(10);
+        const pc = [...scroller.querySelectorAll('tbody tr')].find((tr) => tr.textContent.includes('MLA1100000299'));
+        expect(pc.querySelector('td[data-column="markup_siso"]').textContent).toMatch(/31,6/);
+        // Actual and Actual c/ SISO side by side, right of the frozen column, and the PC's row in view.
+        const actual = scroller.querySelector('thead th[data-column="markup"]');
+        const frozen = scroller.querySelector('thead th[data-column="publicacion"]') ?? scroller.querySelector('thead th');
+        window.scrollTo(0, rect(scroller).top + window.scrollY - 16);
+        scroller.scrollLeft += rect(actual).left - rect(frozen).right - 8;
+        expect(rect(actual).left).toBeGreaterThanOrEqual(rect(frozen).right); // "Actual" is not under the frozen column
+        scroller.scrollTop = Math.max(0, pc.offsetTop - scroller.querySelector('thead').offsetHeight - pc.previousElementSibling.offsetHeight);
+        // Only the table, from its header: no blank band above it.
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/siso-publicaciones-${width}-${theme}.png`, element: scroller });
         screen.unmount();
       });
 
