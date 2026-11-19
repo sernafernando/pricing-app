@@ -51,8 +51,9 @@ def _rep(cantidad: str = "7", precio: str = "1500", costo: str = "1000"):
 
 
 def _modal_unit_cost(precio_costo: float, cantidad: float) -> float:
-    # What ModalEditarCosto sends when saved unchanged: lineaParaModalCosto's costo_unitario x (1 + 6.5 / 100).
-    return precio_costo / cantidad * (1 + 6.5 / 100)
+    # What ModalEditarCosto sends when saved unchanged: lineaParaModalCosto's costo_unitario, the optional % at 0
+    # (owner L4).
+    return precio_costo / cantidad
 
 
 def test_s4_modal_identity_survives_a_reupload_of_the_same_range(engine: Engine, monkeypatch) -> None:

@@ -34,20 +34,12 @@ const { STOCK, VALOR, VENTAS, MARKUP, RESULTADO, ROTACION } = AUDIT_GROUPS;
 const MONEY = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
 const dash = <span className={cellStyles.empty}>—</span>;
 
-/** "ERP n · Full n" under a sales figure (auditoria-stock-niveles S3): Full = sold by ML Full, ERP = the rest, those
- * without shipping data included, which the ERP number's tooltip counts. Nothing without the split. */
+/** "ERP n · Full n" under a sales figure (auditoria-stock-niveles S3): Full = shipped from ML's Full warehouse, ERP =
+ * the rest, out of the own stock: colecta, Flex, Turbo and retiro (a sale without shipping data is a pickup at the
+ * store, owner L3). Nothing without the split. */
 function SalesSplit({ split }) {
   if (!split) return null;
-  const hint = split.sinEnvio > 0 ? `incluye ${formatUnits(split.sinEnvio)} sin dato de envío` : undefined;
-  return (
-    <span className={styles.split}>
-      <span className={hint ? styles.splitHint : undefined} title={hint}>
-        ERP {formatUnits(split.erp)}
-      </span>
-      {' · '}
-      <span>Full {formatUnits(split.full)}</span>
-    </span>
-  );
+  return <span className={styles.split}>{`ERP ${formatUnits(split.erp)} · Full ${formatUnits(split.full)}`}</span>;
 }
 
 /** "ERP x · Full y" under Días de cobertura and Rotación (auditoria-stock-niveles S4), already formatted. */
@@ -244,20 +236,35 @@ const STOCK_UNITS = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 })
 
 // The Rotación group is the whole product's whatever the filter (L2): every figure's tooltip says so.
 const WHOLE_PRODUCT = 'del producto completo, sin filtros';
+// What each figure is (auditoria-ventas-erp-full L2): its header's tooltip, the formula `stock_audit` computes.
+const COVERAGE_HINT =
+  'Días que alcanza el stock al ritmo de venta de los últimos 30 días: stock ÷ (vendidas en 30 días ÷ 30). ∞: hay stock y no hubo ventas.';
+const ROTATION_HINT =
+  'Veces que se vendió el stock en 30 días: vendidas en 30 días ÷ stock promedio de los días con foto del stock (sin fotos, el stock actual).';
+const COUNT = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
 
 /** Días de cobertura (rotacion S2): the stock now at the last 30 days' pace; "∞" with stock and no sale (L1 Q2). */
 function CoverageCell({ ventas }) {
+  const known = ventas?.stock_actual != null && ventas?.vendidas_30d != null;
   if (ventas?.cobertura_infinita) {
+    const title = known
+      ? `${COUNT.format(ventas.stock_actual)} en stock y ninguna venta en 30 días: no se agota al ritmo actual, ${WHOLE_PRODUCT}`
+      : `Con stock y sin ventas en 30 días, ${WHOLE_PRODUCT}`;
     return (
-      <span className={`${styles.rotationFigure} ${styles.infinite}`} aria-label="Días de cobertura" title={`Con stock y sin ventas en 30 días, ${WHOLE_PRODUCT}`}>
+      <span className={`${styles.rotationFigure} ${styles.infinite}`} aria-label="Días de cobertura" title={title}>
         ∞
       </span>
     );
   }
   if (ventas?.dias_cobertura == null) return dash;
+  const days = Math.round(ventas.dias_cobertura);
+  // A month is 30 days, the formula's own window.
+  const title = known
+    ? `Días que alcanza el stock al ritmo de venta de 30 días: ${COUNT.format(ventas.stock_actual)} ÷ (${COUNT.format(ventas.vendidas_30d)} ÷ 30) = ${COUNT.format(days)} días (≈ ${COUNT.format(Math.round(days / 30))} ${Math.round(days / 30) === 1 ? 'mes' : 'meses'}), ${WHOLE_PRODUCT}`
+    : `Ventas 30D, ${WHOLE_PRODUCT}`;
   return (
-    <span className={styles.rotationFigure} aria-label="Días de cobertura" title={`Ventas 30D, ${WHOLE_PRODUCT}`}>
-      {formatUnits(Math.round(ventas.dias_cobertura))}
+    <span className={styles.rotationFigure} aria-label="Días de cobertura" title={title}>
+      {`${formatUnits(days)} d`}
     </span>
   );
 }
@@ -269,20 +276,32 @@ function RotationCell({ ventas }) {
   const days = ventas.stock_promedio_dias;
   const stock = `${STOCK_UNITS.format(ventas.stock_promedio)} u.`;
   const approximate = !days;
-  const title = approximate
-    ? `Aproximado: sobre el stock actual (${stock}), todavía no hay fotos diarias del stock, ${WHOLE_PRODUCT}`
-    : `Ventas 30D sobre el stock promedio de ${formatUnits(days)} ${days === 1 ? 'día' : 'días'} (${stock}), ${WHOLE_PRODUCT}`;
+  const sold = ventas.vendidas_30d;
+  let title;
+  if (sold == null) {
+    title = approximate
+      ? `Aproximado: sobre el stock actual (${stock}), todavía no hay fotos diarias del stock, ${WHOLE_PRODUCT}`
+      : `Ventas 30D sobre el stock promedio de ${formatUnits(days)} ${days === 1 ? 'día' : 'días'} (${stock}), ${WHOLE_PRODUCT}`;
+  } else {
+    const base = approximate
+      ? `${STOCK_UNITS.format(ventas.stock_promedio)} de stock actual (aproximado: todavía no hay fotos diarias del stock)`
+      : `${STOCK_UNITS.format(ventas.stock_promedio)} de stock promedio (${formatUnits(days)} ${days === 1 ? 'día' : 'días'})`;
+    title = `Veces que se vendió el stock en 30 días: ${COUNT.format(sold)} vendidas ÷ ${base} = ${formatRatio(ventas.rotacion)}, ${WHOLE_PRODUCT}`;
+  }
   return (
     <span className={styles.rotationFigure} aria-label="Rotación (veces)" title={title}>
-      {approximate ? `≈ ${formatRatio(ventas.rotacion)}` : formatRatio(ventas.rotacion)}
+      {`${approximate ? '≈ ' : ''}${formatRatio(ventas.rotacion)}×/30d`}
     </span>
   );
 }
 
-/** One origin's coverage (`ventas.por_origen.erp`): "∞" with stock and no sale, "—" without a figure. */
+/** One origin's coverage (`ventas.por_origen.erp`): "∞" with stock and no sale, 0 with sales and no stock (out of
+ * stock), "—" only with neither. */
 const originCoverage = (origin) =>
   origin?.cobertura_infinita ? '∞' : origin?.dias_cobertura == null ? '—' : formatUnits(Math.round(origin.dias_cobertura));
-const originRotation = (origin) => (origin?.rotacion == null ? '—' : formatRatio(origin.rotacion));
+/** One origin's rotation: "∞" when it sold with an average stock of 0 (out of stock: sold ÷ 0 has no number). */
+const originRotation = (origin) =>
+  origin?.rotacion_infinita ? '∞' : origin?.rotacion == null ? '—' : formatRatio(origin.rotacion);
 
 /** A Rotación figure with its "ERP · Full" line under it, when the row has one. */
 function RotationFigure({ children, ventas, of }) {
@@ -510,12 +529,7 @@ export function buildAuditColumns({ canSeeSales, canSeeMargin, rate, nivel, onTo
           }
           if (!row.node) return null;
           const metrics = metricsOf(row);
-          let note = null;
-          if (row.type === 'variant') note = packNote(row.node, row.node.ventas?.unidades_30d);
-          else if (row.type === 'product') {
-            const { sold, source } = fromVariants(row.node);
-            note = sold > 0 ? `${formatUnits(sold)} ${source}` : null;
-          }
+          const note = row.type === 'variant' ? packNote(row.node, row.node.ventas?.unidades_30d) : null;
           return (
             <Figure note={note} split={splitOf(row, '30d')}>
               <UnitsCell value={metrics?.units_30d} strong />
@@ -644,7 +658,7 @@ export function buildAuditColumns({ canSeeSales, canSeeMargin, rate, nivel, onTo
       {
         key: 'cobertura',
         group: ROTACION,
-        header: 'Cobertura',
+        header: <span title={COVERAGE_HINT}>Cobertura</span>,
         label: 'Días de cobertura',
         width: 92,
         sortable: true,
@@ -662,7 +676,7 @@ export function buildAuditColumns({ canSeeSales, canSeeMargin, rate, nivel, onTo
       {
         key: 'rotacion',
         group: ROTACION,
-        header: 'Veces',
+        header: <span title={ROTATION_HINT}>Veces</span>,
         label: 'Rotación (veces)',
         width: 76,
         sortable: true,

@@ -816,12 +816,14 @@ class StockMoneyOut(BaseModel):
 
 
 class StockOrigenOut(BaseModel):
-    """One source's Días de cobertura and Rotación (S4): its stock over its own sales; null (and not infinite) where
-    the row has no stock of its own there (a variant's ERP)."""
+    """One source's Días de cobertura and Rotación (S4): its stock over its own sales. Sales without stock: 0 days
+    and an infinite rotation (out of stock); null (and not infinite) only with no sale and no stock."""
 
     dias_cobertura: Optional[float] = None
     cobertura_infinita: bool = False
     rotacion: Optional[float] = None
+    # sold with an average stock of 0 (out of stock): sold / 0 has no number, the view shows "∞"
+    rotacion_infinita: bool = False
 
 
 class StockPorOrigenOut(BaseModel):
@@ -858,6 +860,9 @@ class StockAuditSalesOut(BaseModel):
     rotacion: Optional[float] = None
     stock_promedio: Optional[float] = None
     stock_promedio_dias: Optional[int] = None
+    # the whole product's stock now and units sold in 30 days: the numbers of the two formulas (their tooltips)
+    stock_actual: Optional[int] = None
+    vendidas_30d: Optional[int] = None
     envio: Optional[dict[str, StockEnvioWindowOut]] = None  # S3: "7d" / "30d" -> its units by ERP and Full
     por_origen: Optional[StockPorOrigenOut] = None  # S4: coverage and rotation of ERP and of Full
 

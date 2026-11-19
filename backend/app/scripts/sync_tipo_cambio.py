@@ -40,11 +40,13 @@ def main() -> None:
     try:
         result = actualizar_tipo_cambio_bna(db)
         print(f"[{timestamp}] Tipo cambio: {result}", flush=True)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 -- the cron log must show any crash
         print(f"[{timestamp}] Error tipo cambio: {e}", flush=True)
         sys.exit(1)
     finally:
         db.close()
+    if result.get("status") != "success":
+        sys.exit(1)  # a failed fetch is a failed run: the cron log and exit code must show it
 
 
 if __name__ == "__main__":
