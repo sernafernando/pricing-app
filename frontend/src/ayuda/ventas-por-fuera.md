@@ -63,7 +63,7 @@ En cada línea sin producto se ve también su causa.
 
 Con el permiso ventas_fuera.subir_pdf, cada línea tiene sus botones:
 
-- **Costo**: abre la misma ventana de costo de la pantalla anterior (pesos o dólares con el tipo de cambio, el markup VARIOS y la opción de armar el costo sumando productos del ERP). El costo que guardás pasa a ser el Costo D de la línea.
+- **Costo**: abre la misma ventana de costo de la pantalla anterior (pesos o dólares con el tipo de cambio y la opción de armar el costo sumando productos del ERP). El **Markup Costo (%)** arranca en 0 y es opcional hasta que gerencia decida cómo se sobrescribe el costo: si lo cargás, se suma al costo. Lo que guardás pasa a ser el Precio Costo de la línea y el listado le suma el Costo D (× 1,065) encima. Debajo del campo ves en vivo "Se guarda … · Costo D …".
 - **Producto**: buscá el producto real y tocá **Asignar**. Con **Recordar para próximas cargas** tildado, las próximas cargas con el mismo código (o el mismo artículo, si no tiene código) toman ese producto solas.
 - **Quitar corrección**: la línea vuelve al costo del PDF y al producto que encuentra el sistema.
 - **Confirmar**: aparece en las líneas marcadas **Revisar** (ver abajo) y vuelve a aplicar la corrección.

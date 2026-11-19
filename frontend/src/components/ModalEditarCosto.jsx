@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import api from '../services/api';
+import { COSTO_D_FACTOR } from '../utils/ventasFueraOperaciones';
 import styles from './TabRentabilidad.module.css';
 
 export default function ModalEditarCosto({
@@ -7,9 +8,13 @@ export default function ModalEditarCosto({
   onClose,
   onSave,
   operacion, // La operación a editar
-  // Optional async save: gets the unit cost the modal would PUT (VARIOS markup included) and replaces that PUT.
+  // Optional async save (Operaciones por Fuera): gets the unit cost to store (typed x (1 + the optional %)) and
+  // replaces the old PUT. There the % starts at 0, not at VARIOS (owner L4), and the list adds Costo D on top.
   guardarCosto: guardarCostoExterno,
 }) {
+  const porFuera = Boolean(guardarCostoExterno);
+  const idCosto = useId();
+  const idMarkup = useId();
   const [costoUnitario, setCostoUnitario] = useState('');
   const [monedaCosto, setMonedaCosto] = useState('ARS'); // ARS o USD
   const [guardando, setGuardando] = useState(false);
@@ -56,10 +61,18 @@ export default function ModalEditarCosto({
         cargarTipoCambioFecha(operacion.fecha);
       }
 
-      // Cargar markup de costo (VARIOS) desde configuración
-      cargarMarkupCosto();
+      if (porFuera) {
+        // Owner L4: optional % until management decides how the cost is overridden.
+        setMarkupCosto('0');
+        setMarkupCostoOriginal(0);
+      } else {
+        // Cargar markup de costo (VARIOS) desde configuración
+        cargarMarkupCosto();
+      }
     }
-  }, [mostrar, operacion]);
+    // cargarMarkupCosto / cargarTipoCambioFecha se recrean cada render: recargar solo al abrir u otra operación
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mostrar, operacion, porFuera]);
 
   const cargarMarkupCosto = async () => {
     try {
@@ -245,6 +258,9 @@ export default function ModalEditarCosto({
     }).format(valor);
   };
 
+  const formatMoney2 = (valor) =>
+    '$ ' + new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(valor);
+
   if (!mostrar || !operacion) return null;
 
   const cantidad = operacion.cantidad || 1;
@@ -252,7 +268,8 @@ export default function ModalEditarCosto({
   // Aplicar markup de costo (VARIOS) al preview
   const markupCostoVal = parseFloat(markupCosto) || 0;
   const costoConMarkup = costoUnitarioARS * (1 + markupCostoVal / 100);
-  const costoTotal = costoConMarkup * cantidad;
+  // Operaciones por Fuera: the list adds Costo D on top of the saved cost, so the preview's profit does too.
+  const costoTotal = costoConMarkup * (porFuera ? COSTO_D_FACTOR : 1) * cantidad;
   const montoTotal = operacion.precio_final_sin_iva || 0;
   const gananciaPreview = montoTotal - costoTotal;
   const markupPreview = costoTotal > 0 ? ((montoTotal / costoTotal) - 1) * 100 : null;
@@ -419,8 +436,9 @@ export default function ModalEditarCosto({
           {/* Input de costo manual con selector de moneda */}
           <div className={styles.formRow} style={{ marginTop: '1rem' }}>
             <div style={{ flex: 2 }}>
-              <label>Costo Unitario Total:</label>
+              <label htmlFor={idCosto}>Costo Unitario Total:</label>
               <input
+                id={idCosto}
                 type="number"
                 step="0.01"
                 min="0"
@@ -499,13 +517,16 @@ export default function ModalEditarCosto({
           {/* Markup de costo (VARIOS) */}
           <div className={styles.formRow} style={{ marginTop: '0.75rem' }}>
             <div style={{ flex: 1 }}>
-              <label>
+              <label htmlFor={idMarkup}>
                 Markup Costo (%):
                 <span style={{ fontWeight: 'normal', marginLeft: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                  (VARIOS - default {markupCostoOriginal}%)
+                  {porFuera
+                    ? '(opcional hasta la decisión de gerencia; Costo D x 1,065 se suma en el listado)'
+                    : `(VARIOS - default ${markupCostoOriginal}%)`}
                 </span>
               </label>
               <input
+                id={idMarkup}
                 type="number"
                 step="0.1"
                 min="0"
@@ -515,7 +536,7 @@ export default function ModalEditarCosto({
                 style={{ fontSize: '1.1rem', padding: '0.5rem' }}
               />
             </div>
-            {markupCostoOriginal && markupCosto !== markupCostoOriginal.toString() && (
+            {!porFuera && Boolean(markupCostoOriginal) && markupCosto !== markupCostoOriginal.toString() && (
               <div style={{ flex: 0, alignSelf: 'flex-end', marginBottom: '0.25rem' }}>
                 <button
                   type="button"
@@ -537,8 +558,14 @@ export default function ModalEditarCosto({
             )}
           </div>
 
+          {porFuera && costoUnitarioARS > 0 && (
+            <p data-testid="costo-guardado-preview" style={{ fontSize: '0.85rem', color: '#8b5cf6', marginTop: '0.5rem', fontWeight: 500 }}>
+              Se guarda {formatMoney2(costoConMarkup)} · Costo D {formatMoney2(costoConMarkup * COSTO_D_FACTOR)}
+            </p>
+          )}
+
           {/* Mostrar cálculo del markup */}
-          {costoUnitarioARS > 0 && markupCostoVal > 0 && (
+          {!porFuera && costoUnitarioARS > 0 && markupCostoVal > 0 && (
             <p style={{ fontSize: '0.85rem', color: '#8b5cf6', marginTop: '0.5rem', fontWeight: 500 }}>
               {formatMoney(costoUnitarioARS)} + {markupCostoVal}% = {formatMoney(costoConMarkup)}
             </p>
@@ -557,7 +584,7 @@ export default function ModalEditarCosto({
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.9rem', color: '#374151' }}>
                 <div><strong>Costo Base:</strong> {formatMoney(costoUnitarioARS)}</div>
                 <div><strong>Costo c/Markup:</strong> {formatMoney(costoConMarkup)}</div>
-                <div><strong>Costo Total:</strong> {formatMoney(costoTotal)}</div>
+                <div><strong>{porFuera ? 'Costo D Total:' : 'Costo Total:'}</strong> {formatMoney(costoTotal)}</div>
                 <div>
                   <strong>Ganancia:</strong>{' '}
                   <span style={{ color: gananciaPreview >= 0 ? '#059669' : '#dc2626', fontWeight: 'bold' }}>

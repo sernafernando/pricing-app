@@ -769,18 +769,30 @@ class TestStoredProduct:
 
         assert [r["product_item_id"] for r in _get(client, canal="fuera")["rows"]] == [503]
 
-    def test_a_manual_cost_is_the_costo_d_shown(self, client, db):
-        """Manual cost 900 per unit x 2: precio_costo = 1800 / 1.065 = 1690.14, so Costo D = 1800 and Total Gauss
-        = 2000 - 1800 = 200, markup 11.1%."""
+    def test_a_manual_cost_gets_costo_d_on_top(self, client, db):
+        """Owner L4: manual cost 900 per unit x 2 = precio_costo 1800, Costo D = 1800 x 1.065 = 1917, Total Gauss
+        = 2000 - 1917 = 83, markup 4.3%."""
         _products(db)
         _doc(db, date(2026, 9, 10), "2420", [_monitor("2000", "1600", cantidad="2")])
         db.execute(
-            text("UPDATE ventas_fuera_operacion_lineas SET precio_costo_pdf = precio_costo, precio_costo = 1690.14")
+            text("UPDATE ventas_fuera_operacion_lineas SET precio_costo_pdf = precio_costo, precio_costo = 1800")
         )
 
         rows = _get(client, canal="fuera")["rows"]
 
-        assert [_money(r) for r in rows] == [(2, 2420.0, 200.0, 11.1)]
+        assert [_money(r) for r in rows] == [(2, 2420.0, 83.0, 4.3)]
+
+    def test_a_line_with_a_product_only_in_tb_item_is_not_sin_producto(self, client, db):
+        """Sin producto = the line has no stored product (`item_id` NULL), as the operations list counts it: a line
+        resolved by `tb_item.item_code` (no productos_erp row) has a product."""
+        _products(db)
+        _doc(db, date(2026, 9, 10), "363", [Ln("300", "150", codigo=CABLE, articulo="Cable Ejemplo", item_id=777)])
+
+        body = _get(client, canal="fuera")
+
+        assert body["kpis"]["fuera"]["sin_producto"] == {"lineas": 0, "monto": 0.0}
+        assert body["facets"]["alerts"]["sin_producto"] == 0
+        assert [(r["product_item_id"], r["title"], r["sku"]) for r in body["rows"]] == [(777, "Cable Ejemplo", CABLE)]
 
     def test_without_a_fix_the_numbers_stay_as_before(self, client, db):
         _products(db)
