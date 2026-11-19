@@ -215,7 +215,7 @@ def _promo_revenues(db: Session, ids: Sequence[str]) -> dict[str, float]:
     rows = _rows(
         db,
         select(promotions.item_id, promotions.raw).where(
-            promotions.item_id.in_(_ids_param(ids)),
+            promotions.item_id.in_(ids_param(ids)),
             promotions.gone_at.is_(None),
             promotions.http_status.between(200, 299),
             promotions.started_count > 0,
