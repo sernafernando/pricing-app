@@ -14,10 +14,17 @@ Las ventas por fuera se ven en la misma pantalla que las de Mercado Libre: **Mé
 
 1. Entrá a **Reportes → Ventas por Fuera**: se abre **Métricas** con el canal **Por fuera** elegido.
 2. Elegí el período, la **Empresa** y el **Vendedor**.
-3. Con **Costo por fuera** elegís el costo del markup y del Total Gauss: **Costo D** (el de siempre: Precio Costo × 1,065) o **Costo** (el Precio Costo del PDF).
+3. Con **Costo por fuera** elegís el costo del markup y del Total Gauss: **Costo D** (el de siempre: Precio Costo × 1,065) o **Costo** (el Precio Costo sin el 6,5%).
 4. Para cargar ventas nuevas usá **Subir PDF de ventas** (ver abajo).
 
 Si tenés acceso a Métricas ML también podés pasar a **ML** o a **Todo** (las dos ventas sumadas, cada una con su regla). Si solo tenés acceso a ventas por fuera, la pantalla queda en **Por fuera**.
+
+### De dónde sale el costo
+
+El Precio Costo de cada línea sale de la **lista de costos del ERP**, igual que en **Ventas por Fuera (anterior)**: el último costo del producto cargado hasta el día de la venta. Si está en dólares, se pasa a pesos con el dólar de ese día (el tipo de cambio de la app; si falta, el del ERP). El Costo D es ese Precio Costo × 1,065.
+
+- El "Precio Costo" que trae el PDF ya no se usa como costo: ya venía con un recargo y, con el × 1,065 encima, el margen quedaba más bajo de lo real. Se guarda solo como referencia.
+- Una línea sin producto, o con un producto sin costo en el ERP, queda sin costo y fuera del markup, como en la pantalla anterior. Para darle costo, corregila (ver abajo).
 
 ### Qué cambia en Por fuera
 
@@ -64,8 +71,8 @@ En cada línea sin producto se ve también su causa.
 Con el permiso ventas_fuera.subir_pdf, cada línea tiene sus botones:
 
 - **Costo**: abre la misma ventana de costo de la pantalla anterior (pesos o dólares con el tipo de cambio y la opción de armar el costo sumando productos del ERP). El **Markup Costo (%)** arranca en 0 y es opcional hasta que gerencia decida cómo se sobrescribe el costo: si lo cargás, se suma al costo. Lo que guardás pasa a ser el Precio Costo de la línea y el listado le suma el Costo D (× 1,065) encima. Debajo del campo ves en vivo "Se guarda … · Costo D …".
-- **Producto**: buscá el producto real y tocá **Asignar**. Con **Recordar para próximas cargas** tildado, las próximas cargas con el mismo código (o el mismo artículo, si no tiene código) toman ese producto solas.
-- **Quitar corrección**: la línea vuelve al costo del PDF y al producto que encuentra el sistema.
+- **Producto**: buscá el producto real y tocá **Asignar**. Si la línea no tiene costo manual, toma el costo del ERP de ese producto. Con **Recordar para próximas cargas** tildado, las próximas cargas con el mismo código (o el mismo artículo, si no tiene código) toman ese producto solas.
+- **Quitar corrección**: la línea vuelve al producto que encuentra el sistema y al costo del ERP de ese producto.
 - **Confirmar**: aparece en las líneas marcadas **Revisar** (ver abajo) y vuelve a aplicar la corrección.
 
 Las líneas corregidas se ven con la marca **Manual**. Al guardar, la lista se actualiza y también las métricas, los offsets y el sell in / sell out de esa línea.

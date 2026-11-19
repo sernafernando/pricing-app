@@ -44,6 +44,7 @@ from app.models.venta_fuera_pdf import (
     VentaFueraPdfCarga,
     VentaFueraPdfResumenDocumento,
 )
+from app.services.ventas_fuera_pdf.costo_erp import costos_unitarios, precio_costo
 from app.services.ventas_fuera_pdf.overrides import aplicar_en_carga
 from app.services.ventas_fuera_pdf.parser import (
     DocumentoDetallado,
@@ -195,8 +196,10 @@ def _crear_operaciones(
     ones the PDF no longer has (GBP voided them), and `{"aplicados", "revisar"}` (vpf-operaciones L2): the manual
     fixes of its lines applied again and the ones flagged for review because their line changed.
 
-    Each line gets its product from `resolucion.resolver` (mapping, code trimmed, tb_item, article prefix) and keeps
-    the PDF's cost in `precio_costo_pdf`; the manual fixes (`overrides`) stored apart are then re-applied."""
+    Each line gets its product from `resolucion.resolver` (mapping, code trimmed, tb_item, article prefix) and its
+    Precio Costo from the ERP cost list of the sale date (`costo_erp`, owner L3 fix B; 0 without product or cost);
+    the PDF's cost is kept only as a reference in `precio_costo_pdf`. The manual fixes (`overrides`) stored apart
+    are then re-applied."""
     claves = [doc.clave for doc in detallada.documentos]
     mismo_doc = and_(
         VentaFueraOperacion.empresa == detallada.empresa,
@@ -231,6 +234,16 @@ def _crear_operaciones(
     ).rowcount
     # The product of each line, for offsets and sell in / sell out (VPF T4); NULL "sin producto".
     productos = resolver(db, [(ln.codigo, ln.articulo[:255]) for doc in detallada.documentos for ln in doc.lineas])
+    # The ERP unit cost of each (product, sale date), in one query (vpf-costo-d-erp).
+    costos = costos_unitarios(
+        db,
+        [
+            (item_id, doc.fecha)
+            for doc in detallada.documentos
+            for ln in doc.lineas
+            if (item_id := _item(productos[(ln.codigo, ln.articulo[:255])])) is not None
+        ],
+    )
     por_doc: dict[tuple, list[VentaFueraOperacionLinea]] = {}
     for doc in detallada.documentos:
         lineas = [
@@ -241,7 +254,9 @@ def _crear_operaciones(
                 cantidad=linea.cantidad,
                 moneda=linea.moneda,
                 precio=linea.precio,
-                precio_costo=linea.precio_costo,
+                precio_costo=precio_costo(
+                    costos.get((_item(productos[(linea.codigo, linea.articulo[:255])]), doc.fecha)), linea.cantidad
+                ),
                 precio_costo_pdf=linea.precio_costo,
                 precio_costo_pp=linea.precio_costo_pp,
                 item_id=_item(productos[(linea.codigo, linea.articulo[:255])]),
