@@ -215,8 +215,8 @@ class VentaFueraOperacionLinea(Base):
     precio_costo = Column(MONTO, nullable=False)
     precio_costo_pp = Column(MONTO, nullable=False)
     # The PDF's "Precio Costo", only as a reference: `precio_costo` comes from the ERP cost list or a manual cost
-    # (`VentaFueraLineaOverride.costo_unitario`); this keeps what the PDF said (migration 20261120_vpf_operaciones_overrides; NULL only on rows loaded before it
-    # and not backfilled).
+    # (`VentaFueraLineaOverride.costo_unitario`); this keeps what the PDF said (migration
+    # 20261120_vpf_operaciones_overrides; NULL only on rows loaded before it and not backfilled).
     precio_costo_pdf = Column(MONTO, nullable=True)
     # How `item_id` was found: 'codigo' | 'prefijo' | 'mapeo' | 'manual' (`app.services.ventas_fuera_pdf.resolucion`);
     # NULL = sin producto.

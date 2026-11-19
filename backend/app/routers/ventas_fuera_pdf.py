@@ -634,7 +634,7 @@ def quitar_override(
     usuario: Usuario = Depends(require_permiso(PERMISO_SUBIR)),
     db: Session = Depends(get_db),
 ) -> LineaListadoResponse:
-    """Remove the fix: the line goes back to the PDF's cost and its automatic product."""
+    """Remove the fix: the line goes back to its automatic product and that product's ERP cost."""
     try:
         linea = overrides_svc.quitar(db, linea_id)
     except overrides_svc.LineaNoEncontrada as exc:
