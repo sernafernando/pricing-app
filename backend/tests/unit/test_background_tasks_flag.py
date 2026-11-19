@@ -119,3 +119,17 @@ def test_the_startup_heap_is_frozen_out_of_the_collector(scheduled, monkeypatch)
     run_lifespan()
     assert frozen == [1]
     assert thresholds == [(10_000, 20, 20)]
+
+
+def test_with_gc_tuning_disabled_the_collector_keeps_its_defaults(scheduled, monkeypatch) -> None:
+    # GC_TUNING_ENABLED=false: the kill switch of a process-wide change (every endpoint of every worker)
+    calls: list[str] = []
+    monkeypatch.setattr(settings, "GC_TUNING_ENABLED", False)
+    monkeypatch.setattr(main.gc, "freeze", lambda: calls.append("freeze"))
+    monkeypatch.setattr(main.gc, "set_threshold", lambda *t: calls.append("set_threshold"))
+    run_lifespan()
+    assert calls == []
+
+
+def test_gc_tuning_defaults_to_on() -> None:
+    assert type(settings).model_fields["GC_TUNING_ENABLED"].default is True

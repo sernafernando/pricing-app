@@ -270,8 +270,10 @@ async def lifespan(app: FastAPI):
     # the garbage collector, a full collection walks only what requests allocate. With so few long-lived objects
     # left, the default thresholds ran three full collections per Auditoría de stock request (~390 ms of ~2 s,
     # pubml-lentitud); these run one every few requests (~60 ms each), at the same memory on the local copy.
-    gc.freeze()
-    gc.set_threshold(*GC_THRESHOLDS)
+    # Process-wide (every endpoint, every worker): `GC_TUNING_ENABLED=false` keeps Python's defaults.
+    if settings.GC_TUNING_ENABLED:
+        gc.freeze()
+        gc.set_threshold(*GC_THRESHOLDS)
 
     # MCP server (/api/mcp): no-op while MCP_PUBLIC_BASE_URL is unset.
     async with mcp_runtime.run():
