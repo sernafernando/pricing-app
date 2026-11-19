@@ -333,7 +333,7 @@ function AuditBranchState({ row, onMore }) {
   return <BranchState row={row} onMore={onMore} onRetry={onMore} />;
 }
 
-export function buildAuditColumns({ canSeeSales, canSeeMargin, rate, nivel, onToggle, onDrill, onMore, arrange }) {
+function buildAuditColumns({ canSeeSales, canSeeMargin, rate, nivel, onToggle, onDrill, onMore, arrange }) {
   // A publication draws the list's own cells (Tipo, Estado, sales, markups, Total Gauss).
   const list = Object.fromEntries(buildColumns({ eventsEnabled: false, canSeeSales, canSeeMargin }).map((column) => [column.key, column]));
   const item = (key, row) => list[key].render(row.item);
