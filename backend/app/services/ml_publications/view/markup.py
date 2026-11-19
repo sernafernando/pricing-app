@@ -40,6 +40,7 @@ REASON_ADS_SIN_VENTAS = "ads_sin_ventas"  # Ads cost but no units sold: no per-u
 SOURCE_SALE_PRICE = "sale_price"
 SOURCE_ITEM_PRICE = "item_price"
 SOURCE_PRODUCTOS_FALLBACK = "productos_fallback"
+SOURCE_PROMO = "promo"
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,8 @@ class UnitInputs:
     iva: float = 21.0
     envio: Optional[float] = None
     subcategoria_id: Optional[int] = None
+    # Revenue of the promo ML applies now (offer price + ML co-funding, `ingreso_promo_activa`); None without one.
+    promo_revenue: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -86,7 +89,12 @@ def _positive(value: Optional[float]) -> bool:
 
 
 def _pick_price(inputs: UnitInputs, pricelist_id: int) -> tuple[Optional[float], Optional[str]]:
-    """sale_price > item_price > Productos price of the resolved list > nothing."""
+    """Active promo's revenue > sale_price > item_price > Productos price of the resolved list > nothing.
+
+    With a promo ML applies, what the publication earns is its offer price plus ML's co-funding (the panel's
+    "Activa ahora"), not the buyer's price alone."""
+    if _positive(inputs.promo_revenue):
+        return float(inputs.promo_revenue), SOURCE_PROMO
     if _positive(inputs.sale_price):
         return float(inputs.sale_price), SOURCE_SALE_PRICE
     if _positive(inputs.item_price):

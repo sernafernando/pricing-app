@@ -3,7 +3,7 @@ import { TableShell } from '../kit';
 import VariationRows from './VariationRows';
 import { treeRowTone } from './rowColor';
 import useGroupTree from './useGroupTree';
-import { BranchState, NodeMarkup, NodeSummary, NodeTitle } from './NodeCells';
+import { BranchState, NodeMarkup, NodeSisoMarkup, NodeSummary, NodeTitle } from './NodeCells';
 
 // A node's Tipo, Estado and Precio: the summary of ALL its publications (S6); its count is its first cell's second line.
 const SUMMARY_COLUMNS = new Set(['tipo', 'estado', 'precio']);
@@ -52,6 +52,7 @@ export default function AgrupadoTable({
             if (column.key === 'titulo') return <NodeTitle row={row} onToggle={toggle} />;
             if (SUMMARY_COLUMNS.has(column.key)) return <NodeSummary column={column.key} node={row.node} />;
             if (column.key === 'markup') return <NodeMarkup node={row.node} />;
+            if (column.key === 'markup_siso') return <NodeSisoMarkup node={row.node} />;
             return null;
           }
           // "Ver más" and the states of a branch live in the pinned cell.

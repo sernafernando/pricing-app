@@ -347,7 +347,7 @@ class DetailUnit:
 def detail_unit(
     db: Session, pricing_db: Session, item_id: str, *, ctx: Optional[PricingContext] = None
 ) -> Optional[DetailUnit]:
-    """The inputs of `compute_detail` for `item_id` (three or four statements, one shipping batch and the pricing
+    """The inputs of `compute_detail` for `item_id` (four or five statements, one shipping batch and the pricing
     context unless given). `None` when the publication is not in the store."""
     publication = fetch_inputs(db, item_ids=[item_id]).get(item_id)
     if publication is None:
@@ -363,7 +363,7 @@ def detail_unit(
 def compute_detail(
     db: Session, pricing_db: Session, item_id: str, *, ctx: Optional[PricingContext] = None
 ) -> Optional[DetailMarkup]:
-    """Markup and breakdown of ONE publication: the inputs (three or four statements), one shipping batch for its
+    """Markup and breakdown of ONE publication: the inputs (four or five statements), one shipping batch for its
     priceable products and the pure functions of the list (`price_publication`, `unit_breakdown`). `None` when the
     publication is not in the store. No Ads: the detail explains the plain markup."""
     found = detail_unit(db, pricing_db, item_id, ctx=ctx)
@@ -374,6 +374,9 @@ def compute_detail(
         if found.unit is not None
         else None
     )
-    return DetailMarkup(
-        ItemMarkup(found.markup, variation_ids=found.publication.variation_ids), breakdown, found.variation_id
+    item = ItemMarkup(
+        found.markup,
+        variation_ids=found.publication.variation_ids,
+        unit_products=_unit_products(found.publication),  # as the list's, so the row's markup c/ SISO matches
     )
+    return DetailMarkup(item, breakdown, found.variation_id)

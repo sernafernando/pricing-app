@@ -175,9 +175,9 @@ class TestListPricesFallback:
             markup_inputs.fetch_inputs(db, f=parse_filter())
         finally:
             event.remove(engine, "before_cursor_execute", record)
-        assert len(recorded) == 4
-        assert [s for s in recorded if "productos_pricing" in s] == [recorded[3]]
-        assert "productos_pricing" in recorded[3]  # the last one is the dedicated read
+        assert len(recorded) == 5
+        assert [s for s in recorded if "productos_pricing" in s] == [recorded[4]]
+        assert "productos_pricing" in recorded[4]  # the last one is the dedicated read
 
 
 class TestUnitInputsLayout:
@@ -196,6 +196,7 @@ class TestUnitInputsLayout:
             "iva",
             "envio",
             "subcategoria_id",
+            "promo_revenue",
         )
 
 
@@ -260,7 +261,9 @@ class TestCampaign:
         finally:
             event.remove(engine, "before_cursor_execute", record)
         assert recorded
-        assert [s for s in recorded if re.search(r"\braw\b", s)] == []
+        # The seller-promotions list (`_promo_revenues`) is read on purpose: only lists with a started promotion,
+        # 1.3 KB each; the item's own body never.
+        assert [s for s in recorded if re.search(r"\braw\b", s) and "ml_item_seller_promotions" not in s] == []
         assert [s for s in recorded if "jsonb_path" in s] == []
 
     def test_no_tags_no_sale_terms_is_no_campaign(self, conn, db) -> None:
@@ -345,4 +348,4 @@ class TestStatementCount:
         by_ids = {n: self.count_statements(db, item_ids=ids[:n]) for n in (10, 100)}
         by_filter = self.count_statements(db, f=parse_filter())
         assert len(markup_inputs.fetch_inputs(db, item_ids=ids)) == 100
-        assert by_ids[10] == by_ids[100] == by_filter == 3  # every unit has a price: no list prices to read
+        assert by_ids[10] == by_ids[100] == by_filter == 4  # every unit has a price: no list prices to read

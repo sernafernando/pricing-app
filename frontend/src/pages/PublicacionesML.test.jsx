@@ -520,7 +520,7 @@ describe('sorting and paging', () => {
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'unidades_7d', dir: 'desc' }));
     await sortBy(/^30D/);
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'unidades_30d', dir: 'desc' }));
-    await sortBy(/^Real 30D/);
+    await sortBy(/^Real 30D(?! c\/ SISO)/);
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'markup_30d', dir: 'desc' }));
     await sortBy(/^Total Gauss 30D/);
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'total_gauss_30d', dir: 'desc' }));
@@ -1193,7 +1193,7 @@ describe('markup (publicaciones-ml-vista P11b.T2)', () => {
     return page(entry);
   };
   // MARKUP's "Actual": the markup at today's price, the worst variation (what the sort and the filters use).
-  const WORST_HEADER = { name: /^Actual/ };
+  const WORST_HEADER = { name: /^Actual(?! c\/ SISO)/ }; // not its "Actual c/ SISO" neighbour
 
   it('without ver_ganancia there is no column, no controls, and no markup param (S68.1)', async () => {
     await page('/ml-publicaciones?markup_neg=1&markup_min=5&orden=markup');

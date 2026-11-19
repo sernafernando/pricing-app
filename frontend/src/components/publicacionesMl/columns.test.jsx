@@ -24,7 +24,9 @@ const ALL = [
   'unidades_30d',
   'units_trend',
   'markup',
+  'markup_siso',
   'markup_30d',
+  'markup_sell_30d',
   'markup_trend',
   'facturado_30d',
   'total_gauss_30d',
@@ -53,7 +55,8 @@ describe('layout', () => {
       Array(8).fill(undefined),
     );
     expect(['unidades_7d', 'unidades_30d', 'units_trend'].map((key) => columns[key].group)).toEqual(Array(3).fill(groupLabel('ventas')));
-    expect(['markup', 'markup_30d', 'markup_trend'].map((key) => columns[key].group)).toEqual(Array(3).fill(groupLabel('markup')));
+    const markups = ['markup', 'markup_siso', 'markup_30d', 'markup_sell_30d', 'markup_trend'];
+    expect(markups.map((key) => columns[key].group)).toEqual(Array(5).fill(groupLabel('markup')));
     expect(['facturado_30d', 'total_gauss_30d'].map((key) => columns[key].group)).toEqual(Array(2).fill(groupLabel('resultado')));
     expect(['last_sale', 'ageing'].map((key) => columns[key].group)).toEqual(Array(2).fill(groupLabel('rotacion')));
     expect(['stock_erp', 'stock_full', 'stock_total'].map((key) => columns[key].group)).toEqual(Array(3).fill('Stock'));
@@ -63,7 +66,14 @@ describe('layout', () => {
     const columns = byKey({ canSeeSales: true, canSeeMargin: true });
     const headers = (list) => list.map((key) => columns[key].header);
     expect(headers(['unidades_7d', 'unidades_30d', 'units_trend'])).toEqual(['7D', '30D', 'Tendencia']);
-    expect(headers(['markup', 'markup_30d', 'markup_trend'])).toEqual(['Actual', 'Real 30D', 'Tendencia']);
+    expect(headers(['markup', 'markup_siso', 'markup_30d', 'markup_sell_30d', 'markup_trend'])).toEqual([
+      'Actual',
+      'Actual c/ SISO',
+      'Real 30D',
+      'Real 30D c/ SISO',
+      'Tendencia',
+    ]);
+    expect([columns.markup_siso.label, columns.markup_sell_30d.label]).toEqual(['Markup actual c/ SISO', 'Markup real 30D c/ SISO']);
     expect(headers(['facturado_30d', 'total_gauss_30d', 'last_sale', 'ageing'])).toEqual(['Facturado 30D', 'Total Gauss 30D', 'Última venta', 'Ageing']);
     expect(headers(['stock_erp', 'stock_full', 'stock_total'])).toEqual(['ERP', 'Full', 'Total']);
     const labels = (list) => list.map((key) => columns[key].label);
@@ -90,7 +100,9 @@ describe('layout', () => {
       'unidades_7d',
       'unidades_30d',
       'markup',
+      'markup_siso',
       'markup_30d',
+      'markup_sell_30d',
       'facturado_30d',
       'total_gauss_30d',
       'stock_erp',
@@ -105,9 +117,11 @@ describe('layout', () => {
     expect(DEFAULT_DIRECTION.stock_propio).toBeUndefined();
     // Clásica first, then 3, 6, 9 and 12 cuotas.
     expect(DEFAULT_DIRECTION.tipo).toBe('asc');
-    for (const key of ['unidades_7d', 'unidades_30d', 'markup_30d', 'facturado_30d', 'total_gauss_30d']) {
+    for (const key of ['unidades_7d', 'unidades_30d', 'markup_30d', 'markup_sell_30d', 'facturado_30d', 'total_gauss_30d']) {
       expect(DEFAULT_DIRECTION[key]).toBe('desc');
     }
+    // the markup c/ SISO, like the plain one: the worst first
+    expect([DEFAULT_DIRECTION.markup, DEFAULT_DIRECTION.markup_siso]).toEqual(['asc', 'asc']);
   });
 });
 
@@ -216,7 +230,7 @@ describe('SKU divergence', () => {
 describe('permissions', () => {
   it('without ml_metricas.ver there are no Métricas figures; the current markup needs only ver_ganancia', () => {
     expect(keys({ canSeeMargin: true })).toEqual([
-      'titulo', 'tipo', 'estado', 'precio', 'markup', 'stock_erp', 'stock_full', 'stock_total', 'codigo', 'marca', 'costo', 'vinculo', 'tienda', 'actividad',
+      'titulo', 'tipo', 'estado', 'precio', 'markup', 'markup_siso', 'stock_erp', 'stock_full', 'stock_total', 'codigo', 'marca', 'costo', 'vinculo', 'tienda', 'actividad',
     ]);
     // the cost, as in the panel, only with ver_ganancia
     expect(keys({})).toEqual(['titulo', 'tipo', 'estado', 'precio', 'stock_erp', 'stock_full', 'stock_total', 'codigo', 'marca', 'vinculo', 'tienda', 'actividad']);
@@ -226,7 +240,9 @@ describe('permissions', () => {
     const got = keys({ canSeeSales: true });
     expect(got).toEqual(expect.arrayContaining(['unidades_7d', 'unidades_30d', 'units_trend', 'facturado_30d', 'last_sale', 'ageing']));
     expect(got).not.toEqual(expect.arrayContaining(['markup']));
-    for (const key of ['markup', 'markup_30d', 'markup_trend', 'total_gauss_30d']) expect(got).not.toContain(key);
+    for (const key of ['markup', 'markup_siso', 'markup_30d', 'markup_sell_30d', 'markup_trend', 'total_gauss_30d']) {
+      expect(got).not.toContain(key);
+    }
   });
 });
 

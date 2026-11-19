@@ -29,6 +29,7 @@ from sqlalchemy import Engine, text
 from app.models.tactical import Tactical
 from app.models.auditoria import Auditoria
 from app.models.combo_componente import ComboComponente
+from app.models.tb_item import TBItem
 from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_sale_line import MlSaleLine
 from app.models.producto import ProductoERP
@@ -73,6 +74,7 @@ TABLES = [
     MlSaleLine.__table__,
     SellDirty.__table__,
     ComboComponente.__table__,  # combo sales count as their components' (combos in sell in / sell out)
+    TBItem.__table__,  # a combo of the PC category is its own product (`combos.pcs`)
 ]
 _MODELS = {"gbp": VentaFueraMLMetrica, "tn": VentaTiendaNubeMetrica}
 _refs = itertools.count(600_000)

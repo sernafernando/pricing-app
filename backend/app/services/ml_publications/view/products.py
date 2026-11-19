@@ -89,6 +89,9 @@ PRODUCT_SORTS: dict[str, tuple[str, bool, bool]] = {
     "unidades_30d": ("w30d", False, True),
     "markup_30d": ("markup", True, True),
     "total_gauss_30d": ("tg", True, True),
+    # Real 30D c/ SISO: the Board's `markup_sell` over the summed row, the plain markup where neither applies (what
+    # the column shows); only on a page read with the sell in / sell out (`sell`)
+    "markup_sell_30d": ("markup_sell_shown", True, True),
     "titulo": ("name", False, False),
 }
 SortKeys = Sequence[tuple[str, bool]]  # the sort keys after the first, each with whether it is descending
@@ -98,6 +101,8 @@ NO_PRODUCT_LABEL = "Sin producto"
 
 # The Board's publication-row figures a product sums.
 SUMMED = ("units", "gross", "tg", "mtg", "costo", "prev_units", "prev_gross", "prev_tg", "prev_mtg", "prev_costo")
+# The sell in / sell out sums of a page read with them (`board.SellInOut` reads them off the product's `board.Row`).
+SELL_SUMMED = ("sell_in", "sell_out", "m_sell_in", "m_sell_out", "sell_in_lineas", "sell_out_lineas")
 WINDOW_COLUMNS = {"3d": "w3d", "7d": "w7d", "15d": "w15d", "30d": "w30d"}
 
 
@@ -186,6 +191,7 @@ def _summed(members: Any, rows: Any) -> Any:
             func.count(members.c.mla).label("pubs"),
             func.count(rows.c.rk).label("board_rows"),
             *(func.sum(rows.c[name]).label(name) for name in (*SUMMED, *WINDOW_COLUMNS.values(), "u24")),
+            *(func.sum(rows.c[name]).label(name) for name in SELL_SUMMED if name in rows.c),
             func.max(rows.c.last_day).label("last_day"),
             func.max(rows.c.last_at).label("last_at"),
             func.min(rows.c.start_day).label("start_day"),
@@ -195,6 +201,12 @@ def _summed(members: Any, rows: Any) -> Any:
         .subquery("products")
     )
     markup = case((g.c.costo > 0, g.c.mtg * 100 / g.c.costo), else_=None)
+    shown = markup  # without the sell in / sell out read, the plain markup (its sort is refused before: margin)
+    if "sell_in_lineas" in g.c:  # the Board's `markup_sell` (`SellInOut`, `_sell_sort_columns`), else the plain one
+        cost = g.c.costo - g.c.m_sell_in
+        applies = or_(g.c.sell_in_lineas > 0, g.c.sell_out_lineas > 0)
+        sell = case((and_(applies, cost > 0), (g.c.mtg + g.c.m_sell_in + g.c.m_sell_out) * 100 / cost), else_=None)
+        shown = func.coalesce(sell, markup)
     # What the row shows (and its name sort): the description, else the code, else the link's id -- a product gone
     # from the catalog keeps a name of its own; "Sin producto" for the publications with no linked product.
     name = case(
@@ -205,7 +217,9 @@ def _summed(members: Any, rows: Any) -> Any:
             literal("Producto #") + cast(g.c.product, String),
         ),
     )
-    return select(*g.c, markup.label("markup"), name.label("name")).subquery("product_rows")
+    return select(*g.c, markup.label("markup"), shown.label("markup_sell_shown"), name.label("name")).subquery(
+        "product_rows"
+    )
 
 
 def _sin_mla_rows(db: Session, f: PublicationFilter) -> Any:
@@ -215,7 +229,16 @@ def _sin_mla_rows(db: Session, f: PublicationFilter) -> Any:
     name = func.coalesce(
         func.nullif(T.p.descripcion, ""), func.nullif(T.p.codigo, ""), literal("Producto #") + cast(T.p.item_id, String)
     )
-    nothing = (*SUMMED, *WINDOW_COLUMNS.values(), "u24", "last_day", "last_at", "start_day", "markup")
+    nothing = (
+        *SUMMED,
+        *WINDOW_COLUMNS.values(),
+        "u24",
+        "last_day",
+        "last_at",
+        "start_day",
+        "markup",
+        "markup_sell_shown",
+    )
     return product_select(
         f,
         T.p.item_id.label("product"),
@@ -291,7 +314,17 @@ def _row(r: Any, today: date) -> board.Row:
         last_sale_at=board.as_aware(board.as_datetime(r["last_at"])),
         ageing_days=(today - ref_day).days if ref_day else None,
         stock=int(r["stock"]) if r["stock"] is not None else None,
+        **_sell_of(r),
     )
+
+
+def _sell_of(r: Any) -> dict[str, Any]:
+    """The summed sell in / sell out of a row read with them (`SELL_SUMMED`), as the Board's rows carry them; none
+    otherwise (the row then has no `markup_sell`, as a Board row read without them)."""
+    if "sell_in_lineas" not in r:
+        return {}
+    money = {name: board.cents(r[name]) for name in ("sell_in", "sell_out", "m_sell_in", "m_sell_out")}
+    return {**money, "sell_in_lineas": int(r["sell_in_lineas"] or 0), "sell_out_lineas": int(r["sell_out_lineas"] or 0)}
 
 
 def _series(b: board.Board, members: Any, by_key: dict[str, board.Row]) -> None:
@@ -339,10 +372,13 @@ def _summaries(db: Session, members: Any, rows: Sequence[board.Row]) -> dict[str
 
 
 @contextmanager
-def _product_rows(db: Session, f: PublicationFilter, only: Optional[Sequence[int]] = None) -> Iterator[tuple]:
+def _product_rows(
+    db: Session, f: PublicationFilter, only: Optional[Sequence[int]] = None, sell: bool = False
+) -> Iterator[tuple]:
     """The Board over the MLAs `f` selects and the summed product rows over it: `(board, members, rows)`. `only`
     narrows the MLA set to the publications linked to those products (`NO_PRODUCT`: no link) -- every one of them
-    `f` selects, so each product's count and figures are the very ones of the whole set."""
+    `f` selects, so each product's count and figures are the very ones of the whole set. `sell` reads the sell in /
+    sell out too (Real 30D c/ SISO; `ml_metricas.ver_ganancia` callers only)."""
     # mejor oferta is a product's (any of its publications), as in Productos
     f = product_colors_only(replace(resolve_pm_pairs(db, f), oferta_per_product=True))
     first, last = row_metrics.window(board.today_business())
@@ -353,7 +389,9 @@ def _product_rows(db: Session, f: PublicationFilter, only: Optional[Sequence[int
         if NO_PRODUCT in only:
             wanted.append(~has_product())
         mla_source = mla_source.where(or_(false(), *wanted))
-    board_filter = board.BoardFilter(date_from=first, date_to=last, group_by="publication", mla_source=mla_source)
+    board_filter = board.BoardFilter(
+        date_from=first, date_to=last, group_by="publication", mla_source=mla_source, sell_in_out=sell
+    )
     with board.Board(db, board_filter, scope_pairs=None) as b:
         members = _members(f, b.mla_set)
         yield b, members, _summed(members, b.rows())
@@ -396,10 +434,12 @@ def list_products(
     *,
     cost: bool = False,
     pricing_db: Optional[Session] = None,
+    sell: bool = False,
 ) -> ProductsPage:
     """The linked-product rows of the MLAs `f` selects at `[offset, offset + limit)`, in the order `orden` (then
     `then`) names. With `cost` (only for who sees the margin) each row's product cost too, and with `pricing_db` the
-    PPP and sell in lines under it; without `cost`, none of them is even read."""
+    PPP and sell in lines under it; without `cost`, none of them is even read. `sell` reads the sell in / sell out
+    of the Board (each row's `markup_sell`)."""
     key = parse_sort(orden, then)
     if f.sin_mla:
         rows = _sin_mla_rows(db, f)
@@ -411,7 +451,7 @@ def list_products(
             found = list(db.execute(page).mappings())
         today = board.today_business()
         return ProductsPage([_row(r, today) for r in found], int(total), 0, frozenset(str(r["product"]) for r in found))
-    with _product_rows(db, f) as (b, members, rows):
+    with _product_rows(db, f, sell=sell) as (b, members, rows):
         # The publications are counted once: one linked to two products is a member of both rows.
         total, mla_count = db.execute(
             select(
@@ -432,7 +472,13 @@ def list_products(
 
 
 def ordered_product_keys(
-    db: Session, f: PublicationFilter, orden: str, descending: bool, cap: Optional[int], then: SortKeys = ()
+    db: Session,
+    f: PublicationFilter,
+    orden: str,
+    descending: bool,
+    cap: Optional[int],
+    then: SortKeys = (),
+    sell: bool = False,
 ) -> list[int]:
     """The product ids (`NO_PRODUCT` for "Sin producto") of every row of the Producto view, at most `cap` (every
     one when None), in the very order `list_products` pages them: the keys an export fixes before reading its pages."""
@@ -441,12 +487,12 @@ def ordered_product_keys(
         rows = _sin_mla_rows(db, f)
         query = select(rows.c.product).order_by(*_ordered(rows, *applied_sort(f, key, descending, then))).limit(cap)
         return [int(product) for product in db.execute(query).scalars()]
-    with _product_rows(db, f) as (_, _, rows):
+    with _product_rows(db, f, sell=sell) as (_, _, rows):
         query = select(rows.c.product).order_by(*_ordered(rows, key, descending, then)).limit(cap)
         return [int(product) for product in db.execute(query).scalars()]
 
 
-def products_for_keys(db: Session, f: PublicationFilter, keys: Sequence[int]) -> ProductsPage:
+def products_for_keys(db: Session, f: PublicationFilter, keys: Sequence[int], sell: bool = False) -> ProductsPage:
     """The product rows of `keys` in their order, built as `list_products` builds them (no series: the export does
     not draw them). A product with no publication left under `f` is skipped."""
     if not keys:
@@ -458,7 +504,7 @@ def products_for_keys(db: Session, f: PublicationFilter, keys: Sequence[int]) ->
         found = [by_key[k] for k in keys if k in by_key]
         today = board.today_business()
         return ProductsPage([_row(r, today) for r in found], len(found), 0, frozenset(str(k) for k in by_key))
-    with _product_rows(db, f, only=keys) as (b, members, rows):
+    with _product_rows(db, f, only=keys, sell=sell) as (b, members, rows):
         by_product = {int(r["product"]): r for r in db.execute(select(rows)).mappings()}
         # the publications of the rows returned, counted once (as `list_products` does): the set also holds sibling
         # products of `keys`' publications, which this page does not show

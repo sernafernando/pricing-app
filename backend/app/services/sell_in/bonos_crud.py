@@ -57,6 +57,7 @@ from app.models.sell_in import (
 )
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, BASE_FACTURA, SellInBonoIn, SellInBonoModeloIn
 from app.services.combos.componentes import componentes_de
+from app.services.combos.pcs import sin_pcs
 from app.services.sell_in import bono_queue
 from app.services.sell_in.bonos_alcance import alcanza_marcas, del_alcance
 from app.services.sell_in.compras import contiene
@@ -428,7 +429,8 @@ def _repartir(db: Session, bono: SellInBonoMarca) -> bool:
         alcanzados = {
             i for (i,) in db.query(ProductoERP.item_id).filter(del_alcance(db, bono, ProductoERP.item_id, None))
         }
-        item_ids = sorted(alcanzados - set(componentes_de(db, alcanzados)))
+        # Combos get no share (their sales pay through their components); a PC is its own product (`combos.pcs`).
+        item_ids = sorted(alcanzados - set(sin_pcs(db, componentes_de(db, alcanzados))))
         tasa = criterio_reparto.tasa_bna(db) if bono.reparto_criterio == criterio_reparto.COSTO else None
         try:
             deseadas = criterio_reparto.cuotas_fijas(
