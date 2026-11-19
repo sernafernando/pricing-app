@@ -67,7 +67,7 @@ def _unnested(ids: Sequence[Any]) -> Any:
     return func.jsonb_array_elements_text(cast(literal(json.dumps(list(ids))), JSONB)).column_valued()
 
 
-def _ids_param(ids: Sequence[str]) -> Any:
+def ids_param(ids: Sequence[str]) -> Any:
     """The ids as ONE JSON text parameter, unnested server side. Bound as an array of N text elements the driver
     quotes and the server parses N literals (about 50 ms for 40k ids, per statement); as one JSON text it is about
     7 ms, and the statement text does not change with N either."""
@@ -158,7 +158,7 @@ def _item_rows(db: Session, item_ids: Optional[Sequence[str]], f: Optional[Publi
             *_product_columns(product),
         )
         .select_from(joins)
-        .where(item.item_id.in_(_ids_param(item_ids or ())))
+        .where(item.item_id.in_(ids_param(item_ids or ())))
     )
     return _rows(db, query)
 
@@ -168,7 +168,7 @@ def _variation_rows(db: Session, ids: Sequence[str]) -> list[Any]:
     return _rows(
         db,
         select(v.item_id, v.variation_id)
-        .where(v.item_id.in_(_ids_param(ids)), v.gone_at.is_(None))
+        .where(v.item_id.in_(ids_param(ids)), v.gone_at.is_(None))
         .order_by(v.item_id, v.variation_id),
     )
 
@@ -181,7 +181,7 @@ def _variation_link_rows(db: Session, ids: Sequence[str]) -> list[Any]:
         select(link.item_id, link.variation_id, link.producto_item_id, *_product_columns(product))
         .select_from(orm_join(link, product, product.item_id == link.producto_item_id))
         .where(
-            link.item_id.in_(_ids_param(ids)), link.variation_id != LINK_ITEM_LEVEL, link.match_status == LINK_LINKED
+            link.item_id.in_(ids_param(ids)), link.variation_id != LINK_ITEM_LEVEL, link.match_status == LINK_LINKED
         ),
     )
 

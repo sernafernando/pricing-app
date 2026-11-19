@@ -73,6 +73,7 @@ from app.services.ml_publications.view.filters import (
     publication_filter_in,
 )
 from app.services.ml_publications.view.listing import EMPTY_SUMMARY, Summary, summaries, summary_columns
+from app.services.ml_publications.view.markup_inputs import ids_param
 from app.services.ml_publications.view.markup_service import ItemMarkup, aggregate_nodes, compute_markups
 from app.services.ml_publications.view.products import product_pairs
 from app.services.ml_publications.view.row_metrics import (
@@ -981,7 +982,11 @@ def add_summaries(db: Session, audit: "Audit") -> None:
     mlas = sorted({m for r in audit.rows for m in r.publications})
     if not mlas:
         return
-    pubs = select(T.i.item_id.label("k"), *summary_columns()).select_from(joined()).where(T.i.item_id.in_(mlas))
+    pubs = (
+        select(T.i.item_id.label("k"), *summary_columns())
+        .select_from(joined())
+        .where(T.i.item_id.in_(ids_param(mlas)))  # ~10k MLAs: one JSON parameter, not one bind each
+    )
     by_mla = summaries(db, pubs.subquery("audit_pubs"))
 
     def merged(publications: set[str]) -> Summary:
@@ -1026,7 +1031,7 @@ def enrich(
 def _active(db: Session, mlas: set[str]) -> frozenset[str]:
     if not mlas:
         return frozenset()
-    rows = db.execute(select(T.i.item_id).where(T.i.item_id.in_(sorted(mlas)), T.i.status == ACTIVE)).all()
+    rows = db.execute(select(T.i.item_id).where(T.i.item_id.in_(ids_param(sorted(mlas))), T.i.status == ACTIVE)).all()
     return frozenset(m for (m,) in rows)
 
 

@@ -77,11 +77,13 @@ doc): a publication that moved store takes its history with it.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import (
     ARRAY,
     Date,
@@ -2279,11 +2281,15 @@ class Board:
         return [found[key] for key in keys if key in found]
 
     def _keyed_members(self, members: Sequence[Tuple[str, str, Decimal]]) -> Any:
-        """`members` (group key, row key, factor) as a SELECT: three array parameters unnested side by side."""
+        """`members` (group key, row key, factor) as a SELECT: ONE JSON parameter of triples unnested server side
+        (~10k members: three arrays of N binds cost the driver and the server N literals each). The factor travels
+        as text, so the numeric it is cast to is the exact Decimal. PostgreSQL only, like the temp tables."""
+        payload = json.dumps([[gk, rk, str(factor)] for gk, rk, factor in members])
+        member = func.jsonb_array_elements(cast(literal(payload), JSONB)).table_valued("value").alias("member")
         return select(
-            func.unnest(literal([m[0] for m in members], ARRAY(String))).label("gk"),
-            func.unnest(literal([m[1] for m in members], ARRAY(String))).label("rk"),
-            func.unnest(literal([m[2] for m in members], ARRAY(Numeric))).label("factor"),
+            member.c.value.op("->>")(literal(0)).label("gk"),
+            member.c.value.op("->>")(literal(1)).label("rk"),
+            cast(member.c.value.op("->>")(literal(2)), Numeric).label("factor"),
         ).subquery("members")
 
     def sums_by(self, members: Sequence[Tuple[str, str, Decimal]]) -> Dict[str, Dict[str, Any]]:

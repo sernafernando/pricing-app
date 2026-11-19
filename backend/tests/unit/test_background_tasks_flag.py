@@ -106,3 +106,16 @@ def test_a_worker_that_loses_the_lock_still_schedules_nothing(scheduled, monkeyp
     monkeypatch.setattr(main, "_try_acquire_bg_lock", lambda: None)
     run_lifespan()
     assert scheduled == []
+
+
+def test_the_startup_heap_is_frozen_out_of_the_collector(scheduled, monkeypatch) -> None:
+    # pubml-lentitud: ~1.3 M objects live from startup (modules, models, schemas); every full collection walked them
+    # all again, ~370 ms of a ~2 s Auditoría request. Frozen once the worker is up, a collection only walks what
+    # requests allocate.
+    frozen: list[int] = []
+    thresholds: list[tuple] = []
+    monkeypatch.setattr(main.gc, "freeze", lambda: frozen.append(1))
+    monkeypatch.setattr(main.gc, "set_threshold", lambda *t: thresholds.append(t))
+    run_lifespan()
+    assert frozen == [1]
+    assert thresholds == [(10_000, 20, 20)]

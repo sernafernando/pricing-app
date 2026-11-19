@@ -4,6 +4,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import UTC, datetime
 import asyncio
+import gc
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from app.api.endpoints import (
@@ -159,6 +160,7 @@ logger = get_logger(__name__)
 # Only one worker acquires the lock; the rest skip background tasks.
 
 _BG_LOCK_PATH = "/tmp/pricing-bg-tasks.lock"
+GC_THRESHOLDS = (10_000, 20, 20)  # see lifespan(): the startup heap is frozen, then collected less often
 
 
 def _try_acquire_bg_lock():
@@ -263,6 +265,13 @@ async def lifespan(app: FastAPI):
         import os
 
         logger.info("This worker (pid=%d) skips background tasks (another worker owns them)", os.getpid())
+
+    # Everything alive by now (modules, models, schemas: ~1 M objects) lives as long as the worker: frozen out of
+    # the garbage collector, a full collection walks only what requests allocate. With so few long-lived objects
+    # left, the default thresholds ran three full collections per Auditoría de stock request (~390 ms of ~2 s,
+    # pubml-lentitud); these run one every few requests (~60 ms each), at the same memory on the local copy.
+    gc.freeze()
+    gc.set_threshold(*GC_THRESHOLDS)
 
     # MCP server (/api/mcp): no-op while MCP_PUBLIC_BASE_URL is unset.
     async with mcp_runtime.run():
