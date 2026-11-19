@@ -56,6 +56,10 @@ from app.services.tn_publish_core.resolve import (
 
 logger = logging.getLogger(__name__)
 
+# `ProductoERP.item_id` is a 32-bit integer column; a longer numeric SKU
+# (an EAN, say) can never be an item id and must not reach the id lookup.
+_MAX_ITEM_ID = 2_147_483_647
+
 # WHICH of design D6's two linkage paths resolved the product. Stamping a
 # single `"erp"` for both made the column useless for the one question it
 # gets asked: when a cost looks wrong, was it the authoritative publication
@@ -254,6 +258,8 @@ def _productos_por_item(db: Session, items: Sequence[OrderItemOpsDTO]) -> Dict[i
             continue
         if str(int(sku)) != sku:
             logger.warning("seller_sku %r looks like an ERP item id but is not spelled exactly; not matched", sku)
+            continue
+        if int(sku) > _MAX_ITEM_ID:
             continue
         ids_por_sku[sku] = int(sku)
     productos_por_id_sku: Dict[int, ProductoERP] = {}

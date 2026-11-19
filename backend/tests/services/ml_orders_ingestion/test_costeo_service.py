@@ -325,6 +325,18 @@ class TestLinkage:
         assert db.query(MlOrderItemCosto).filter_by(order_id=4009).count() == 0
         assert "0319" in caplog.text
 
+    def test_a_numeric_sku_beyond_the_item_id_range_resolves_nothing(self, db) -> None:
+        """An EAN-length numeric SKU with no code match cannot be an ERP item
+        id (a 32-bit column). It must never reach the id lookup, where an
+        out-of-range value can fail the whole order's ingestion."""
+        _producto(db, item_id=500)
+        db.commit()
+
+        congelar(db, 4010, [_item(item_id="MLA-NUEVA", seller_sku="99999999999999999999")])
+        db.commit()
+
+        assert db.query(MlOrderItemCosto).filter_by(order_id=4010).count() == 0
+
     def test_usd_product_without_any_rate_freezes_nothing(self, db) -> None:
         """A USD cost with no usable `TipoCambio` is the one unknown that
         could plausibly be "fixed" by letting the raw USD figure through as
