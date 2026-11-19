@@ -98,7 +98,6 @@ from app.models.ml_sale_line import MlSaleLine
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo, SellInModoProducto
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.services.combos.ventas import partes_de_combos, unidades_de
-
 from app.services.sell_in.fifo import (
     Consumo,
     Dinero,

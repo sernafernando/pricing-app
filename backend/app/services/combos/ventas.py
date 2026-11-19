@@ -47,7 +47,7 @@ def partes_de_combos(db: Session, item_ids: Iterable[int], *, pc_entidad: bool =
     `CombosNoSincronizados` while the bill of materials is empty.
 
     `pc_entidad` leaves the PCs out (`combos.pcs`): a PC is then a plain product, its sales its own and never its
-    components'. Sell out and cost bonuses ask for it; the lots do not (`sell_in.costing.LOTES_PC_COMO_ENTIDAD`)."""
+    components'. Sell out, cost bonuses and the lots ask for it (the lots through `sell_in.costing.LOTES_PC_COMO_ENTIDAD`)."""
     ids = {int(i) for i in item_ids if i is not None}
     if not ids:
         return {}
