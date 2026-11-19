@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Iterable, Optional
+from typing import Callable, Iterable, Optional
 
 from sqlalchemy import bindparam, select, text
 from sqlalchemy.dialects.postgresql import ARRAY
@@ -91,12 +91,17 @@ class Recosteo:
 
 
 def recostear(
-    db: Session, desde: Optional[date] = None, hasta: Optional[date] = None, aplicar: bool = False
+    db: Session,
+    desde: Optional[date] = None,
+    hasta: Optional[date] = None,
+    aplicar: bool = False,
+    respaldo: Optional[Callable[[list[Recosteo]], None]] = None,
 ) -> list[Recosteo]:
     """The stored lines (sale date in `[desde, hasta]`, open ends allowed) whose `precio_costo` differs from the ERP
     cost list's, skipping the lines with a manual cost applied (`ventas_fuera_linea_overrides.costo_unitario`).
-    `aplicar=False` (default) only reports. `aplicar=True` writes them and commits: T4's trigger on the lines queues
-    each one in `sell_dirty`, so offsets and sell in / sell out are recomputed (owner L3: ask before doing it)."""
+    `aplicar=False` (default) only reports. `aplicar=True` locks the lines (FOR UPDATE), hands the exact changes to
+    `respaldo` BEFORE writing (if it raises, nothing is written), then writes them and commits: T4's trigger on the
+    lines queues each one in `sell_dirty`, so offsets and sell in / sell out are recomputed (owner L3)."""
     LN, OP, OV = VentaFueraOperacionLinea, VentaFueraOperacion, VentaFueraLineaOverride
     manual = (
         select(OV.id)
@@ -117,6 +122,8 @@ def recostear(
         query = query.where(OP.fecha >= desde)
     if hasta is not None:
         query = query.where(OP.fecha <= hasta)
+    if aplicar:
+        query = query.with_for_update(of=LN)
     filas = db.execute(query).all()
     costos = costos_unitarios(db, [(ln.item_id, fecha) for ln, fecha in filas if ln.item_id is not None])
     cambios = []
@@ -134,8 +141,16 @@ def recostear(
                     despues,
                 )
             )
-            if aplicar:
-                ln.precio_costo = despues
-    if aplicar:
+    if not aplicar:
+        return cambios
+    try:
+        if respaldo is not None:
+            respaldo(cambios)
+        por_id = {ln.id: ln for ln, _ in filas}
+        for cambio in cambios:
+            por_id[cambio.linea_id].precio_costo = cambio.despues
         db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return cambios

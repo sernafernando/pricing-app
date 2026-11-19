@@ -220,6 +220,19 @@ class TestCorreccionesManuales:
 
         assert _costo(engine, 1) == Decimal("60000.00")  # 20 USD x 1,500 x 2
 
+    def test_a_manual_product_keeps_its_erp_cost_after_a_reupload(
+        self, engine: Engine, db: Session, mundo: None
+    ) -> None:
+        with engine.begin() as conn:
+            costo_erp(conn, 703, "20", datetime(2026, 10, 1))
+        documento = doc(1, [linea(None, "ARTICULO SIN CODIGO", cantidad="2", costo="99")], fecha=VENTA)
+        _cargar(db, documento)
+        overrides.guardar(db, self._linea_id(engine), {"item_id": 703}, False, 7)
+
+        _cargar(db, documento)
+
+        assert (lineas(engine)[(1, 1)]["item_id"], _costo(engine, 1)) == (703, Decimal("60000.00"))
+
     def test_removing_the_fix_goes_back_to_the_erp_cost(self, engine: Engine, db: Session, mundo: None) -> None:
         _cargar(db, doc(1, [linea(NB, "NOTEBOOK EJEMPLO", costo="1605000")], fecha=VENTA))
         overrides.guardar(db, self._linea_id(engine), {"costo_unitario": 1200000}, False, 7)
@@ -287,6 +300,34 @@ class TestRecostear:
 
         assert [c.antes for c in cambios] == [Decimal("1605000.00")]
         assert (_costo(engine, 1), _costo(engine, 2)) == (Decimal("1500000.00"), Decimal("1200000.00"))
+
+    def test_aplicar_backs_up_exactly_the_lines_it_writes_before_writing_them(
+        self, engine: Engine, db: Session, mundo: None
+    ) -> None:
+        _cargar(db, doc(1, [linea(NB, "NOTEBOOK EJEMPLO", costo="1605000")], fecha=VENTA))
+        self._pdf_como_costo(engine)
+        respaldados = []
+
+        def respaldo(cambios):
+            # Still nothing written when the backup is taken.
+            respaldados.append((list(cambios), _costo(engine, 1)))
+
+        cambios = recostear(db, aplicar=True, respaldo=respaldo)
+
+        assert respaldados == [(cambios, Decimal("1605000.00"))]
+        assert _costo(engine, 1) == Decimal("1500000.00")
+
+    def test_a_failing_backup_writes_nothing(self, engine: Engine, db: Session, mundo: None) -> None:
+        _cargar(db, doc(1, [linea(NB, "NOTEBOOK EJEMPLO", costo="1605000")], fecha=VENTA))
+        self._pdf_como_costo(engine)
+
+        def respaldo(_cambios):
+            raise OSError("disk full")
+
+        with pytest.raises(OSError):
+            recostear(db, aplicar=True, respaldo=respaldo)
+
+        assert _costo(engine, 1) == Decimal("1605000.00")
 
     def test_the_date_range_limits_the_lines(self, engine: Engine, db: Session, mundo: None) -> None:
         _cargar(

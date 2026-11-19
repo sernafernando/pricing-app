@@ -2,8 +2,9 @@
 
 Lines loaded before vpf-costo-d-erp keep the PDF's "Precio Costo" (that is why their Costo D was ~7% too high).
 By default this only REPORTS what would change (dry run). `--aplicar` writes `ventas_fuera_operacion_lineas.precio_costo`
-of those lines in one transaction (lines with a manual cost are skipped), after saving every changed line's
-`id, precio_costo` to `--backup`; the existing trigger queues each line in `sell_dirty`, so offsets and sell in /
+of those lines in one transaction (lines with a manual cost are skipped, the lines are locked), after saving exactly
+the lines it writes (`id`, previous `precio_costo`) to `--backup`, a NEW file (an existing one is never overwritten;
+if the backup fails nothing is written); the existing trigger queues each line in `sell_dirty`, so offsets and sell in /
 sell out are recomputed. Owner L3: "ask me with the impact before doing it".
 
     python -m app.scripts.recostear_ventas_fuera_erp [--desde 2026-11-01] [--hasta 2026-11-30]
@@ -53,17 +54,20 @@ def main(argv: Optional[list[str]] = None) -> None:
     args = parser.parse_args(argv)
     if args.aplicar and args.backup is None:
         parser.error("--aplicar requires --backup")
+    if args.aplicar and args.backup.exists():
+        parser.error(f"--backup {args.backup} already exists; it is never overwritten")
+
+    def respaldo(cambios: list[Recosteo]) -> None:
+        with args.backup.open("x") as archivo:
+            json.dump([{"id": c.linea_id, "precio_costo": str(c.antes)} for c in cambios], archivo, indent=1)
 
     with SessionLocal() as db:
-        cambios = recostear(db, args.desde, args.hasta)
-        print(resumen(cambios))
         if not args.aplicar:
+            print(resumen(recostear(db, args.desde, args.hasta)))
             print("dry run: nothing written")
             return
-        args.backup.write_text(
-            json.dumps([{"id": c.linea_id, "precio_costo": str(c.antes)} for c in cambios], indent=1)
-        )
-        aplicados = recostear(db, args.desde, args.hasta, aplicar=True)
+        aplicados = recostear(db, args.desde, args.hasta, aplicar=True, respaldo=respaldo)
+        print(resumen(aplicados))
         print(f"written: {len(aplicados)} lines; backup {args.backup}")
 
 

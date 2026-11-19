@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
@@ -33,6 +34,47 @@ def test_aplicar_without_backup_is_refused_before_touching_the_database(monkeypa
         script.main(["--aplicar"])
 
 
+class _Sesion(SimpleNamespace):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+
+def test_aplicar_backs_up_the_same_changes_it_writes_in_one_call(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, capsys: pytest.CaptureFixture
+) -> None:
+    llamadas = []
+    cambios = [_cambio("1000", "900", "1050")]
+
+    def recostear(db, desde, hasta, aplicar=False, respaldo=None):
+        llamadas.append(aplicar)
+        respaldo(cambios)
+        return cambios
+
+    monkeypatch.setattr(script, "SessionLocal", _Sesion)
+    monkeypatch.setattr(script, "recostear", recostear)
+    backup = tmp_path / "backup.json"
+
+    script.main(["--aplicar", "--backup", str(backup)])
+
+    assert llamadas == [True]
+    assert json.loads(backup.read_text()) == [{"id": 1, "precio_costo": "1000"}]
+    assert "written: 1 lines" in capsys.readouterr().out
+
+
+def test_an_existing_backup_file_is_never_overwritten(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setattr(script, "SessionLocal", lambda: pytest.fail("no session over an existing backup"))
+    backup = tmp_path / "backup.json"
+    backup.write_text("previous")
+
+    with pytest.raises(SystemExit):
+        script.main(["--aplicar", "--backup", str(backup)])
+
+    assert backup.read_text() == "previous"
+
+
 def test_by_default_it_is_a_dry_run(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
     llamadas = []
 
@@ -47,7 +89,9 @@ def test_by_default_it_is_a_dry_run(monkeypatch: pytest.MonkeyPatch, capsys: pyt
     monkeypatch.setattr(
         script,
         "recostear",
-        lambda db, desde, hasta, aplicar=False: llamadas.append(aplicar) or [_cambio("1000", "900", "1050")],
+        lambda db, desde, hasta, aplicar=False, respaldo=None: (
+            llamadas.append(aplicar) or [_cambio("1000", "900", "1050")]
+        ),
     )
 
     script.main(["--desde", "2026-11-01"])
