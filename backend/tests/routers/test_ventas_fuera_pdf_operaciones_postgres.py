@@ -14,14 +14,14 @@ S4-L2 (owner, verbatim): "hay que hacerle que se persista la data si cargan de n
 system."
 
 Money rules = the board's (`ml_daily_metrics.fuera`): Costo D = precio_costo x 1.065, Total Gauss = precio - costo and
-markup = Total Gauss / costo only on ARS lines with a cost. Manual cost: precio_costo = costo_unitario x cantidad /
-1.065, so the Costo D shown is the cost typed. Real Postgres, T4's sell_dirty trigger on the lines installed; the
+markup = Total Gauss / costo only on ARS lines with a cost. Manual cost (owner L4): precio_costo = costo_unitario x
+cantidad, the cost saved (typed x (1 + the optional %)); Costo D x 1.065 applies on top. Real Postgres, T4's sell_dirty trigger on the lines installed; the
 uploads read documents built in code. Every name, code and amount is INVENTED.
 """
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Iterator
@@ -43,6 +43,7 @@ from tests.services.ventas_fuera_pdf._mundo import (
     STUBS,
     TABLAS,
     TRUNCATE,
+    costo_erp,
     doc,
     linea,
     lineas,
@@ -78,6 +79,9 @@ def _clean(engine: Engine) -> Iterator[None]:
     with engine.begin() as conn:
         producto(conn, 501, MONITOR, "Monitor Ejemplo 24")
         producto(conn, 502, LIBRO, "Libro Ejemplo")
+        # vpf-costo-d-erp: the cost comes from the ERP cost list (pesos), set to the PDF's unit costs of `_mundo`.
+        costo_erp(conn, 501, "800", datetime(2026, 9, 1), curr_id=1)
+        costo_erp(conn, 502, "1500", datetime(2026, 9, 1), curr_id=1)
     yield
     with engine.begin() as conn:
         conn.execute(text(TRUNCATE + ", sell_dirty"))
@@ -210,9 +214,10 @@ class TestListado:
             "lineas": 6,
             "unidades": 5.0,
             "venta": 3800.0,
-            "costo": 2609.25,
-            "total_gauss": 690.75,
-            "markup": 26.47,
+            # vpf-costo-d-erp: CABLE (sin producto, PDF cost 150) has no ERP cost -> out of cost and margin.
+            "costo": 2449.5,
+            "total_gauss": 550.5,
+            "markup": 22.47,
             "sin_producto_lineas": 3,
             "sin_producto_venta": 800.0,
             "revisar_lineas": 0,
@@ -257,7 +262,9 @@ class TestListado:
 
         markups = [o["markup"] for o in _listado(engine, sort="markup_asc")["operaciones"]]
 
-        assert markups == sorted(markups) and markups[-1] == 87.79
+        # vpf-costo-d-erp: 103's only costed line is CABLE, sin producto -> no ERP cost -> no markup, listed last.
+        con = [m for m in markups if m is not None]
+        assert con == sorted(con) and con[-1] == 25.2 and markups[-1] is None
 
     def test_pages(self, engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:
         _subir(engine, monkeypatch)
@@ -320,20 +327,42 @@ class TestOverrideCosto:
 
         assert response.status_code == 200, response.text
         body = response.json()
-        # precio_costo = 900 x 2 / 1.065 = 1690.14; Costo D = 1800 (the cost typed), Total Gauss 200, markup 11.11%.
-        assert (body["precio_costo"], body["precio_costo_pdf"], body["costo"]) == (1690.14, 1600.0, 1800.0)
-        assert (body["total_gauss"], body["markup"]) == (200.0, 11.11)
+        # L4: precio_costo = 900 x 2 = 1800 (the cost saved); Costo D = 1800 x 1.065 = 1917 on top, Total Gauss
+        # 2000 - 1917 = 83, markup 83 / 1917 = 4.33%.
+        assert (body["precio_costo"], body["precio_costo_pdf"], body["costo"]) == (1800.0, 1600.0, 1917.0)
+        assert (body["total_gauss"], body["markup"]) == (83.0, 4.33)
         assert body["override"]["estado"] == "aplicado"
         assert (body["override"]["costo_unitario"], body["override"]["usuario"]) == (900.0, "Usuaria Ejemplo")
         fila = lineas(engine)[(101, 1)]
         assert (fila["precio_costo"], fila["precio_costo_pdf"], fila["override_estado"]) == (
-            Decimal("1690.14"),
+            Decimal("1800.00"),
             Decimal("1600.00"),
             "aplicado",
         )
         # T4's trigger queues the line for offsets and sell in / sell out.
         assert _q(engine, "SELECT canal, venta_ref, item_id FROM sell_dirty") == [("fuera", linea_id, 501)]
-        assert _op(_listado(engine), 101)["costo"] == 1800.0
+        assert _op(_listado(engine), 101)["costo"] == 1917.0
+
+    @pytest.mark.parametrize(
+        ("guardado", "costo_d"),
+        [(10000, 10650.0), (10720, 11416.8)],  # owner L4: 10000 with 0%, 10000 + 7.2% = 10720
+    )
+    def test_l4_the_saved_cost_is_precio_costo_and_costo_d_adds_the_6_5_percent_on_top(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch, guardado: int, costo_d: float
+    ) -> None:
+        _subir(engine, monkeypatch)
+        linea_id = _linea_id(engine, 104, 1)  # one unit
+
+        response = _put(engine, linea_id, {"costo_unitario": guardado})
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert (body["override"]["costo_unitario"], body["precio_costo"], body["costo"]) == (
+            float(guardado),
+            float(guardado),
+            costo_d,
+        )
+        assert lineas(engine)[(104, 1)]["precio_costo"] == Decimal(guardado)
 
     @pytest.mark.parametrize("costo", [0, -5])
     def test_a_cost_not_above_zero_is_422(self, engine: Engine, monkeypatch: pytest.MonkeyPatch, costo) -> None:
@@ -412,7 +441,7 @@ class TestOverrideProducto:
 
 
 class TestQuitarYConfirmar:
-    def test_delete_restores_the_pdf_cost_and_the_automatic_product(
+    def test_delete_restores_the_erp_cost_and_the_automatic_product(
         self, engine: Engine, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _subir(engine, monkeypatch)
@@ -446,12 +475,12 @@ class TestPersistenciaL2:
 
         fila = lineas(engine)[(101, 1)]
         assert (fila["precio_costo"], fila["precio_costo_pdf"], fila["override_estado"]) == (
-            Decimal("1690.14"),
+            Decimal("1800.00"),
             Decimal("1600.00"),
             "aplicado",
         )
         assert (resultado["overrides_aplicados"], resultado["overrides_revisar"]) == (1, 0)
-        assert _op(_listado(engine), 101)["costo"] == 1800.0
+        assert _op(_listado(engine), 101)["costo"] == 1917.0
 
     def test_reupload_with_changed_line_flagged(self, engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:
         _subir(engine, monkeypatch)
@@ -491,7 +520,7 @@ class TestPersistenciaL2:
             ("aplicado", Decimal("900.00"))
         ]
         fila = lineas(engine)[(101, 1)]
-        assert (fila["precio_costo"], fila["override_estado"]) == (Decimal("1690.14"), "aplicado")
+        assert (fila["precio_costo"], fila["override_estado"]) == (Decimal("1800.00"), "aplicado")
 
     def test_confirmar_takes_the_current_line_and_applies_the_fix(
         self, engine: Engine, monkeypatch: pytest.MonkeyPatch
@@ -504,13 +533,70 @@ class TestPersistenciaL2:
         response = _client(engine, {SUBIR}).post(f"{BASE}/lineas/{linea_id}/override/confirmar")
 
         assert response.status_code == 200, response.text
-        # 900 x 3 / 1.065 = 2535.21
+        # 900 x 3 = 2700
         fila = lineas(engine)[(101, 1)]
-        assert (fila["precio_costo"], fila["override_estado"]) == (Decimal("2535.21"), "aplicado")
+        assert (fila["precio_costo"], fila["override_estado"]) == (Decimal("2700.00"), "aplicado")
         assert _q(engine, "SELECT estado, cantidad, precio FROM ventas_fuera_linea_overrides") == [
             ("aplicado", Decimal("3.00"), Decimal("3000.00"))
         ]
         assert _client(engine, {SUBIR}).post(f"{BASE}/lineas/999999/override/confirmar").status_code == 404
+
+
+class TestSinProductoVivo:
+    """Sin producto is read live from `ventas_fuera_operacion_lineas` (owner: "computes it live ... like the listing,
+    so manual fixes and mappings are reflected immediately"), never from the deprecated counters of the upload."""
+
+    def _carga(self, engine: Engine) -> dict:
+        response = _client(engine, {VER}).get(f"{BASE}/cargas")
+        assert response.status_code == 200, response.text
+        return response.json()[0]  # newest first
+
+    def test_correcting_a_line_drops_the_cargas_view_count_at_once(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _subir(engine, monkeypatch)
+        assert (self._carga(engine)["sin_producto_lineas"], self._carga(engine)["sin_producto_monto"]) == (3, 800.0)
+
+        assert _put(engine, _linea_id(engine, 103, 1), {"item_id": 502}).status_code == 200
+
+        fila = self._carga(engine)
+        assert (fila["sin_producto_lineas"], fila["sin_producto_monto"]) == (2, 500.0)
+        assert _listado(engine)["totales"]["sin_producto_lineas"] == fila["sin_producto_lineas"]
+        assert _q(engine, "SELECT sin_producto_lineas FROM ventas_fuera_pdf_cargas") == [(3,)]
+
+    def test_a_remembered_mapping_drops_the_count_of_every_sibling(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _subir(engine, monkeypatch, reporte(doc(201, [linea(CABLE, "C", "1", "300")]), doc(202, [linea(CABLE, "C")])))
+        assert self._carga(engine)["sin_producto_lineas"] == 2
+
+        assert _put(engine, _linea_id(engine, 201, 1), {"item_id": 502, "recordar_mapeo": True}).status_code == 200
+
+        assert (self._carga(engine)["sin_producto_lineas"], self._carga(engine)["sin_producto_monto"]) == (0, 0.0)
+
+    def test_quitar_correccion_brings_the_count_back(self, engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:
+        _subir(engine, monkeypatch)
+        linea_id = _linea_id(engine, 103, 1)
+        assert _put(engine, linea_id, {"item_id": 502}).status_code == 200
+
+        assert _client(engine, {SUBIR}).delete(f"{BASE}/lineas/{linea_id}/override").status_code == 200
+
+        assert self._carga(engine)["sin_producto_lineas"] == 3
+
+    def test_the_upload_result_counts_the_lines_a_kept_fix_resolves(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _subir(engine, monkeypatch)
+        assert _put(engine, _linea_id(engine, 103, 1), {"item_id": 502}).status_code == 200
+
+        resultado = _subir(engine, monkeypatch)
+
+        assert (resultado["sin_producto"]["lineas"], resultado["sin_producto"]["monto"]) == (2, 500.0)
+        assert sorted(a["articulo"] for a in resultado["sin_producto"]["articulos"]) == [
+            "Flete Ejemplo",
+            "Servicio Tecnico (Manual)",
+        ]
+        assert self._carga(engine)["sin_producto_lineas"] == 2
 
 
 def test_routes_are_registered_in_the_app() -> None:

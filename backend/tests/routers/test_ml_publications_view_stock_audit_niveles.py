@@ -345,6 +345,55 @@ class TestCoverageAndRotationBySource:
         # 140: ERP 2, never sold -> infinite, rotation 0; no Full at all -> no figure
         assert origen(rows[140]["ventas"]) == ((None, True, 0.0), (None, False, None))
 
+    def test_erp_sales_without_erp_stock_are_out_of_stock_not_unknown(
+        self, client, grouped_photos, splits, monkeypatch
+    ) -> None:
+        # PR #2345 review: the variant sold by ERP and holds no ERP stock of its own -> ERP coverage 0 days (out of
+        # stock, the signal that matters), and its rotation sold / 0 has no number: infinite, never "—"
+        monkeypatch.setitem(SPLITS, "MLA12", board.ShippingSplit(full_7d=0, full_30d=0, erp_7d=0, erp_30d=1))
+        variant = {r["product_item_id"]: r for r in audit(client, grouped_photos)["rows"]}[100]["variantes"][0]
+        erp = variant["ventas"]["por_origen"]["erp"]
+        assert (erp["dias_cobertura"], erp["cobertura_infinita"]) == (0.0, False)
+        assert (erp["rotacion"], erp["rotacion_infinita"]) == (None, True)
+
+    def test_no_erp_sales_and_no_erp_stock_is_the_only_unknown(self, client, grouped_photos, splits) -> None:
+        # the variant sold only by Full: nothing to say about ERP
+        variant = {r["product_item_id"]: r for r in audit(client, grouped_photos)["rows"]}[100]["variantes"][0]
+        erp = variant["ventas"]["por_origen"]["erp"]
+        assert (erp["dias_cobertura"], erp["cobertura_infinita"], erp["rotacion"], erp["rotacion_infinita"]) == (
+            None,
+            False,
+            None,
+            False,
+        )
+
+    def test_two_products_with_different_stock_and_sales_get_different_splits(
+        self, client, grouped_photos, splits
+    ) -> None:
+        # PR #2345 review: the screenshot showed the same ERP / Full figures on every row. The backend computes them
+        # per row: the notebook (ERP 5, Full 3, sold 1 ERP + 2 Full) and the mice (ERP stock, sold only by ERP)
+        rows = {r["product_item_id"]: r for r in audit(client, grouped_photos)["rows"]}
+        assert origen(rows[100]["ventas"]) != origen(rows[111]["ventas"])
+        assert origen(rows[100]["ventas"]) != origen(rows[140]["ventas"])
+
+    def test_the_total_coverage_is_the_sales_weighted_mix_of_erp_and_full(self, client, grouped_photos, splits) -> None:
+        # total days = 30 x (ERP stock + Full stock) / (ERP sold + Full sold), and each source's stock is
+        # its days x its sold / 30: so the total is the sources' days weighted by their sales (rounding aside)
+        checked = 0
+        for nivel in ("producto", "marca"):
+            for row in audit(client, grouped_photos, nivel=nivel)["rows"]:
+                ventas = row["ventas"]
+                erp, full = ventas["por_origen"]["erp"], ventas["por_origen"]["full"]
+                sold = ventas["envio"]["30d"]
+                if ventas["dias_cobertura"] is None or None in (erp["dias_cobertura"], full["dias_cobertura"]):
+                    continue
+                mixed = (erp["dias_cobertura"] * sold["erp"] + full["dias_cobertura"] * sold["full"]) / (
+                    sold["erp"] + sold["full"]
+                )
+                assert abs(mixed - ventas["dias_cobertura"]) <= 0.1, row["key"]
+                checked += 1
+        assert checked >= 2  # the notebook and its brand
+
     def test_a_brand_computes_them_on_its_totals_never_an_average(self, client, grouped_photos, splits) -> None:
         lenovo = by_key(audit(client, grouped_photos, nivel="marca"))["marca:LENOVO"]
         # ERP 6 (5 + the PC's 1) over 1 ERP unit -> 180 days; average ERP 4 + 0 -> 0.25. Full as the notebook's.

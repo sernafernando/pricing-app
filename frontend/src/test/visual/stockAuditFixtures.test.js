@@ -59,6 +59,31 @@ describe('stock audit level fixtures', () => {
     }
   });
 
+  // PR #2345 review: the rotacion screenshot showed the same ERP / Full Cobertura and Veces on every row.
+  it("every row's Cobertura and Veces come from its own stock and sales, and the total from ERP and Full", () => {
+    const rows = [
+      ...stockAuditLevelResponse({ nivel: 'marca' }).rows.flatMap((b) => [b, ...b.categorias]),
+      ...stockAuditLevelResponse({ nivel: 'producto' }).rows.flatMap((p) => [p, ...(p.variantes ?? [])]),
+    ];
+    const signatures = new Set();
+    for (const r of rows) {
+      const v = r.ventas;
+      const own = ['variante', 'pack'].includes(r.tipo) ? 0 : r.erp.unidades;
+      expect(v.stock_actual, `${r.key} stock`).toBe(own + r.full.unidades);
+      expect(v.vendidas_30d, `${r.key} sold`).toBe(v.unidades_30d);
+      if (v.unidades_30d > 0) expect(v.dias_cobertura, `${r.key} days`).toBeCloseTo((v.stock_actual * 30) / v.unidades_30d, 1);
+      const { erp, full } = v.por_origen;
+      const sold = v.envio['30d'];
+      if (v.dias_cobertura != null && erp.dias_cobertura != null && full.dias_cobertura != null) {
+        // the total days are the sources' days weighted by their sales
+        const mixed = (erp.dias_cobertura * sold.erp + full.dias_cobertura * sold.full) / (sold.erp + sold.full);
+        expect(Math.abs(mixed - v.dias_cobertura), `${r.key} mix`).toBeLessThanOrEqual(0.1);
+      }
+      signatures.add(JSON.stringify(v.por_origen));
+    }
+    expect(signatures.size).toBeGreaterThanOrEqual(5);
+  });
+
   it.each(['marca', 'categoria', 'producto'])('the KPIs at nivel=%s are the sum of its top-level rows', (nivel) => {
     const body = stockAuditLevelResponse({ nivel });
     for (const part of PARTS) {

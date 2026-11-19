@@ -212,8 +212,8 @@ class CargaHistorialResponse(BaseModel):
             unidades=c.unidades,
             total_lineas=c.total_lineas,
             reemplazados=c.reemplazados,
-            sin_producto_lineas=c.sin_producto_lineas,
-            sin_producto_monto=c.sin_producto_monto,
+            sin_producto_lineas=item.sin_producto_lineas,
+            sin_producto_monto=item.sin_producto_monto,
             recargo_financiero=c.recargo_financiero,
             archivo_detallado=c.archivo_detallado,
             archivo_resumen=c.archivo_resumen,
@@ -453,8 +453,8 @@ class OverrideResponse(BaseModel):
 
 class LineaListadoResponse(BaseModel):
     """A line: `costo` on the chosen basis; `total_gauss` / `markup` (%) null when the line is not ARS or has no cost,
-    or without `ventas_fuera.ver_ganancia`; `precio_costo_pdf` the PDF's cost (a manual cost replaces
-    `precio_costo`)."""
+    or without `ventas_fuera.ver_ganancia`; `precio_costo` the ERP cost list's (or a manual cost),
+    `precio_costo_pdf` the PDF's "Precio Costo", only as a reference (vpf-costo-d-erp)."""
 
     id: int
     renglon: int
@@ -634,7 +634,7 @@ def quitar_override(
     usuario: Usuario = Depends(require_permiso(PERMISO_SUBIR)),
     db: Session = Depends(get_db),
 ) -> LineaListadoResponse:
-    """Remove the fix: the line goes back to the PDF's cost and its automatic product."""
+    """Remove the fix: the line goes back to its automatic product and that product's ERP cost."""
     try:
         linea = overrides_svc.quitar(db, linea_id)
     except overrides_svc.LineaNoEncontrada as exc:

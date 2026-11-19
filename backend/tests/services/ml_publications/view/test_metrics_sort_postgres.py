@@ -269,9 +269,15 @@ class TestWithTheMarkupFilter:
         def priced(_db, _pricing, *, f=None, item_ids=None, ads=None):
             def one(value):
                 markup = SimpleNamespace(
-                    value_min=value, value_max=value, worst=value, any_negative=False, reason="ok", partial=0
+                    value_min=value,
+                    value_max=value,
+                    worst=value,
+                    any_negative=False,
+                    reason="ok",
+                    partial=0,
+                    variations=(),  # no unit: the markup c/ SISO has nothing to price
                 )
-                return SimpleNamespace(markup=markup, ads=None)
+                return SimpleNamespace(markup=markup, ads=None, unit_products=())
 
             return MarkupResult({k: one(v) for k, v in worst.items()}, MarkupStats(5, {}, 0.0))
 

@@ -2,6 +2,7 @@
 
 export const PRICE_SOURCE_LABELS = {
   sale_price: 'Precio de oferta',
+  promo: 'Promo activa (con lo que aporta Mercado Libre)',
   item_price: 'Precio de la publicación',
   productos_fallback: 'Precio de Productos',
   productos: 'Precio de Productos',

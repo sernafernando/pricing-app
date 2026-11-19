@@ -234,6 +234,20 @@ class MarkupOut(BaseModel):
     ads: Optional[AdsRowOut] = None
 
 
+class SisoMarkupOut(BaseModel):
+    """Markup c/ SISO of a publication (pubml-markup-siso S1): its units at today's price with the sell in / sell out
+    the panel's Resumen gives them (store-scoped), summarized as `MarkupOut` (range, worst variation). A unit where
+    neither applies keeps its plain markup (before Ads); `pending` counts the units whose sell in / sell out could
+    not be priced (a missing rate or base: "Pendiente"), `applies` whether any unit has one. Only with
+    `ml_metricas.ver_ganancia`."""
+
+    min: Optional[float] = None
+    max: Optional[float] = None
+    worst: Optional[float] = None
+    pending: int
+    applies: bool
+
+
 class MarkupStatsOut(BaseModel):
     computed: int
     null_by_reason: dict[str, int]
@@ -292,6 +306,9 @@ class MetricsOut(BaseModel):
     series_markup_90d: Optional[list[Optional[float]]] = None
     # with `desglose_envio` (auditoria-stock-niveles S3): "7d" / "30d" -> its units by ERP and Full
     envio: Optional[dict[str, StockEnvioWindowOut]] = None
+    # the Board's markup with sell in / sell out (`board.SellInOut.markup_sell`, Auditoría's Real 30D); null where
+    # neither applies (never a copy of `markup_30d`); with `ml_metricas.ver_ganancia` only
+    markup_sell_30d: Optional[float] = None
 
 
 class LastEventOut(BaseModel):
@@ -345,6 +362,8 @@ class ItemRowOut(BaseModel):
     last_activity_at: Optional[datetime] = None
     last_event: Optional[LastEventOut] = None  # present only while events.enabled
     markup: Optional[MarkupOut] = None  # present only with ml_metricas.ver_ganancia
+    # present only with ml_metricas.ver_ganancia; null when it could not be read
+    markup_siso: Optional[SisoMarkupOut] = None
     costo: Optional[ItemCostOut] = None  # present only with ml_metricas.ver_ganancia; null without a product cost
     # the lines Productos draws under the cost (same gate as `costo`): null without a product or a PPP row / sell in
     ppp: Optional[PppPayload] = None
@@ -446,6 +465,8 @@ class VariationOut(BaseModel):
     link: VariationLinkOut
     costo: Optional[VariationCostOut] = None  # present only with ml_metricas.ver_ganancia
     markup: Optional[VariationMarkupOut] = None  # present only with ml_metricas.ver_ganancia
+    # the variation's Markup actual c/ SISO (reason `siso_pendiente`: a missing rate or base); same gate
+    markup_siso: Optional[VariationMarkupOut] = None
 
 
 class VariationsAdsOut(AdsOut):
@@ -696,6 +717,9 @@ class GroupNodeOut(BaseModel):
     negative_count: Optional[int] = None  # publications with ANY negative variation (= /items markup_neg total)
     markup_min: Optional[float] = None  # lowest unit markup of the node; null when no publication has a value
     markup_max: Optional[float] = None
+    # the range of its publications' markup c/ SISO (`SisoMarkupOut`), same rule; same gate
+    markup_siso_min: Optional[float] = None
+    markup_siso_max: Optional[float] = None
     # S6: the node's Tipo, Estado and Precio, over ALL its publications under the filters (`listing.Summary`)
     kind_counts: dict[str, int] = {}  # listing kind -> publications (one with no listing type is left out)
     status_counts: dict[str, int] = {}  # status token -> publications (`gone` for a deleted one)
@@ -792,12 +816,14 @@ class StockMoneyOut(BaseModel):
 
 
 class StockOrigenOut(BaseModel):
-    """One source's Días de cobertura and Rotación (S4): its stock over its own sales; null (and not infinite) where
-    the row has no stock of its own there (a variant's ERP)."""
+    """One source's Días de cobertura and Rotación (S4): its stock over its own sales. Sales without stock: 0 days
+    and an infinite rotation (out of stock); null (and not infinite) only with no sale and no stock."""
 
     dias_cobertura: Optional[float] = None
     cobertura_infinita: bool = False
     rotacion: Optional[float] = None
+    # sold with an average stock of 0 (out of stock): sold / 0 has no number, the view shows "∞"
+    rotacion_infinita: bool = False
 
 
 class StockPorOrigenOut(BaseModel):
@@ -834,6 +860,9 @@ class StockAuditSalesOut(BaseModel):
     rotacion: Optional[float] = None
     stock_promedio: Optional[float] = None
     stock_promedio_dias: Optional[int] = None
+    # the whole product's stock now and units sold in 30 days: the numbers of the two formulas (their tooltips)
+    stock_actual: Optional[int] = None
+    vendidas_30d: Optional[int] = None
     envio: Optional[dict[str, StockEnvioWindowOut]] = None  # S3: "7d" / "30d" -> its units by ERP and Full
     por_origen: Optional[StockPorOrigenOut] = None  # S4: coverage and rotation of ERP and of Full
 
@@ -874,6 +903,7 @@ class StockAuditVariantOut(BaseModel):
     status_counts: dict[str, int] = {}  # status token -> its publications (Estado)
     promo_counts: Optional[StockPromoCountsOut] = None  # null when the promotions database could not be read
     markup_actual: Optional[StockMarkupRangeOut] = None  # present only with ml_metricas.ver_ganancia
+    markup_siso: Optional[StockMarkupRangeOut] = None  # the markup c/ SISO's range; same gate
 
 
 class StockGroupOut(BaseModel):
@@ -905,6 +935,7 @@ class StockAuditCategoryOut(BaseModel):
     status_counts: dict[str, int] = {}
     promo_counts: Optional[StockPromoCountsOut] = None
     markup_actual: Optional[StockMarkupRangeOut] = None
+    markup_siso: Optional[StockMarkupRangeOut] = None
 
 
 class StockAuditRowOut(BaseModel):
@@ -940,6 +971,7 @@ class StockAuditRowOut(BaseModel):
     status_counts: dict[str, int] = {}
     promo_counts: Optional[StockPromoCountsOut] = None  # its own and its variants'; null without the promotions db
     markup_actual: Optional[StockMarkupRangeOut] = None  # present only with ml_metricas.ver_ganancia
+    markup_siso: Optional[StockMarkupRangeOut] = None  # the markup c/ SISO's range; same gate
     variantes: list[StockAuditVariantOut] = []
     categorias: Optional[list[StockAuditCategoryOut]] = None  # a brand's, at the Marca level only
 
@@ -1405,6 +1437,8 @@ def _metrics_out(row: board.Row, with_margin: bool) -> dict[str, Any]:
         out["markup_30d"] = kpi_strip.round_pp(row.markup)
         out["markup_delta_pp"] = kpi_strip.round_pp(row.markup_delta)
         out["series_markup_90d"] = row.series_markup
+        if row.sell_in_lineas is not None:  # the Board read the sell in / sell out (`sell_in_out=True`)
+            out["markup_sell_30d"] = kpi_strip.round_pp(row.markup_sell)
     return out
 
 
@@ -1480,9 +1514,10 @@ def items_ask(
         description=(
             "actividad (default), precio, titulo, stock_full, stock_erp, stock_total (ERP + Full), actualizado, codigo, marca, "
             "tipo (Clásica, 3, 6, 9, 12 cuotas), costo and the list headers lista_clasica, lista_rebate, "
-            "lista_oferta, lista_web (ver_ganancia), markup (ver_ganancia); Métricas ML's figures over the whole "
-            "filtered set (ml_metricas.ver): facturado_30d, "
-            "unidades_7d, unidades_30d, markup_30d and total_gauss_30d (also ver_ganancia). Several keys as csv "
+            "lista_oferta, lista_web (ver_ganancia), markup and markup_siso (Markup actual c/ SISO; ver_ganancia); "
+            "Métricas ML's figures over the whole filtered set (ml_metricas.ver): facturado_30d, "
+            "unidades_7d, unidades_30d, markup_30d, markup_sell_30d (Markup real 30D c/ SISO) and total_gauss_30d "
+            "(the markups and Total Gauss also ver_ganancia). Several keys as csv "
             "(multi-column sort), any combination"
         ),
     ),
@@ -1519,7 +1554,9 @@ def items_ask(
         or (markup_min or "").strip()
         or (markup_max or "").strip()
         or any(
-            name == "markup" or name in listing.MARGIN_SORTS or (name in METRIC_SORTS and needs_margin(name))
+            name in listing.MARKUP_SORTS
+            or name in listing.MARGIN_SORTS
+            or (name in METRIC_SORTS and needs_margin(name))
             for name in sort_names
         )
     )  # blank values are absent parameters and the sort names are trimmed, here as in the parsers
@@ -1601,7 +1638,9 @@ def get_items(
             )
         if can_see_sales:
             with timer.stage("metrics"):
-                by_mla = row_metrics.metrics_by_mla(db, [item["item_id"] for item in page.items])
+                by_mla = row_metrics.metrics_by_mla(
+                    db, [item["item_id"] for item in page.items], sell_in_out=can_see_margin
+                )
             _attach_metrics(page.items, by_mla, with_margin=can_see_margin)
             if desglose_envio:
                 with timer.stage("envio"):
@@ -1777,6 +1816,8 @@ def _node_out(node: groups.Node) -> dict[str, Any]:
         out["negative_count"] = node.negative_count
         out["markup_min"] = None if node.markup_min is None else round(node.markup_min, 2)
         out["markup_max"] = None if node.markup_max is None else round(node.markup_max, 2)
+        out["markup_siso_min"] = None if node.markup_siso_min is None else round(node.markup_siso_min, 2)
+        out["markup_siso_max"] = None if node.markup_siso_max is None else round(node.markup_siso_max, 2)
     return out
 
 
@@ -1913,7 +1954,8 @@ def products_ask(
         None,
         description=(
             "csv of: facturado_30d (default with ml_metricas.ver), unidades_7d, unidades_30d (ml_metricas.ver); "
-            "markup_30d, total_gauss_30d (also ver_ganancia); titulo (the default without ml_metricas.ver)"
+            "markup_30d, markup_sell_30d (Markup real 30D c/ SISO), total_gauss_30d (also ver_ganancia); titulo "
+            "(the default without ml_metricas.ver)"
         ),
     ),
     direction: Optional[str] = Query(
@@ -2204,6 +2246,7 @@ def get_products(
                 then=ask.then,
                 cost=can_see_margin,
                 pricing_db=auth_db,
+                sell=can_see_margin,
             )
         if f.sin_mla:  # the rows are the Sin MLA products: their total is the count
             sin_mla_count = page.total
@@ -2574,7 +2617,9 @@ def export_items(
             page = listing.items_for_keys(session, f, list(page_keys), events=False, markup=ask.markup(pricing, plan))
             ads_failed = ads_failed or page.ads_failed
             by_mla = (
-                row_metrics.metrics_by_mla(session, [i["item_id"] for i in page.items]) if ask.can_see_sales else {}
+                row_metrics.metrics_by_mla(session, [i["item_id"] for i in page.items], sell_in_out=ask.can_see_margin)
+                if ask.can_see_sales
+                else {}
             )
             return export.lines(columns, [(item, by_mla.get(item["item_id"])) for item in page.items])
 
@@ -2632,10 +2677,11 @@ def export_products(
             raise FilterError("evento", "requires the events flag (events.enabled) to be on")
         listing.bound(db)
         f = listing.resolve_pm_pairs(db, f)
-        keys = products.ordered_product_keys(db, f, ask.sort_name, descending, None, then=ask.then)  # every row
+        sell = ask.can_see_margin  # Real 30D c/ SISO: the Board's sell in / sell out, margin readers only
+        keys = products.ordered_product_keys(db, f, ask.sort_name, descending, None, then=ask.then, sell=sell)
 
         def read(session: Session, page_keys: Sequence[int]) -> list[list[Any]]:
-            page = products.products_for_keys(session, f, list(page_keys))
+            page = products.products_for_keys(session, f, list(page_keys), sell=sell)
             return export.lines(columns, [(row, row.key not in page.without_figures) for row in page.rows])
 
         first = read(db, keys[:page_size])
@@ -2741,7 +2787,11 @@ def get_item_detail(
             found = detail.get_detail(db, item_id, events=events_enabled, markup=markup)
         if found is not None and can_see_sales:
             with timer.stage("metrics"):
-                _attach_metrics([found["row"]], row_metrics.metrics_by_mla(db, [item_id]), with_margin=can_see_margin)
+                _attach_metrics(
+                    [found["row"]],
+                    row_metrics.metrics_by_mla(db, [item_id], sell_in_out=can_see_margin),  # as the list row
+                    with_margin=can_see_margin,
+                )
     except DBAPIError as exc:
         if (slow := _database_error(exc)) is not None:
             raise slow from exc

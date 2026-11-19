@@ -195,7 +195,7 @@ describe('Operaciones por Fuera: manual fixes (subir_pdf)', () => {
     await user.type(screen.getByPlaceholderText('Ej: 150000'), '10000');
     await user.click(screen.getByRole('button', { name: 'Guardar Costo' }));
     await waitFor(() =>
-      expect(api.put).toHaveBeenCalledWith('/ventas-fuera-pdf/lineas/9002/override', { costo_unitario: 10000 * 1.065 }),
+      expect(api.put).toHaveBeenCalledWith('/ventas-fuera-pdf/lineas/9002/override', { costo_unitario: 10000 }),
     );
     await waitFor(() => expect(listadoCalls().length).toBeGreaterThan(antes));
     expect(screen.queryByText('Editar Costo de Operacion')).not.toBeInTheDocument();

@@ -613,7 +613,7 @@ class TestStatements:
 
     @pytest.mark.parametrize("margin", [False, True])
     @pytest.mark.parametrize("events", [False, True])
-    def test_two_variations_and_two_hundred_fifty_cost_the_same_at_most_eight(
+    def test_two_variations_and_two_hundred_fifty_cost_the_same_at_most_nine(
         self, client, pg, request, pricing, margin, events
     ) -> None:
         seed_rows(pg, self.many)
@@ -623,7 +623,9 @@ class TestStatements:
         small = self.count(client, pg, headers, "MLA30")
         large = self.count(client, pg, headers, "MLA31")
         assert len(small) == len(large), (small, large)
-        assert len(small) <= 8, small  # the shipping batch is separate (stubbed here) and is the +1
+        # 9: the inputs' read of the active promos (`markup_inputs._promo_revenues`); the shipping batch is separate
+        # (stubbed here) and is the +1
+        assert len(small) <= 9, small
         assert len(detail_of(client, headers, "MLA31").json()["links"]) == 251
 
     def test_the_read_is_bounded_in_time_before_the_item_is_read(self, client, rows, pg, reader, pricing) -> None:

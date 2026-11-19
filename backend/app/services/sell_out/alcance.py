@@ -34,7 +34,8 @@ as one of each component, `qty x cantidad` units under the component's `item_id`
 unit price and cost being the combo line's amount split by the component's share (`combos.ventas.Parte.peso`,
 to the cent: `combos.ventas.repartir`) over the component's units. The
 combo itself is never a sale of its own (never twice), and with the bill of materials unsynced this refuses
-(`CombosNoSincronizados`).
+(`CombosNoSincronizados`). A PC is the exception (`combos.pcs`, L-owner-2): its sale is its own, for its own campaigns
+and cost bonuses, never its components'.
 """
 
 from __future__ import annotations
@@ -278,7 +279,7 @@ def ventas(db: Session, item_ids: Set[int], desde: date, hasta: date, con_tienda
     lookup (`store_id` stays None) when no scope reads it (`tienda_scope.necesita_tiendas`)."""
     if not item_ids:
         return []
-    combos = partes_de_combos(db, item_ids)
+    combos = partes_de_combos(db, item_ids, pc_entidad=True)  # a PC sells as itself (`combos.pcs`)
     ids = sorted(set(item_ids) | set(combos))
     ml_rows = list(
         db.query(

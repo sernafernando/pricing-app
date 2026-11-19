@@ -31,6 +31,7 @@ export const AUDIT_COLUMN_OPTIONS = [
   { id: 'unidades_30d', label: 'Ventas 30D', group: VENTAS, sales: true },
   { id: 'units_trend', label: 'Tendencia de ventas', group: VENTAS, sales: true },
   { id: 'markup', label: 'Markup actual', group: MARKUP, margin: true },
+  { id: 'markup_siso', label: 'Markup actual c/ SISO', group: MARKUP, margin: true },
   { id: 'markup_30d', label: 'Markup real 30D', group: MARKUP, sales: true, margin: true },
   { id: 'markup_trend', label: 'Tendencia de markup', group: MARKUP, sales: true, margin: true },
   { id: 'facturado_30d', label: 'Facturado 30D', group: RESULTADO, sales: true },

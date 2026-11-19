@@ -17,9 +17,12 @@ import pytest
 from sqlalchemy import Engine, func, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.models.cur_exch_history import CurExchHistory
+from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.marca_pm import MarcaPM
 from app.models.producto import ProductoERP
 from app.models.tb_item import TBItem
+from app.models.tipo_cambio import TipoCambio
 from app.models.venta_fuera_pdf import (
     VentaFueraCodigoMapeo,
     VentaFueraLineaOverride,
@@ -47,6 +50,10 @@ TABLAS = [
     VentaFueraLineaOverride.__table__,
     VentaFueraCodigoMapeo.__table__,
     TBItem.__table__,
+    # The ERP cost list and USD rates the load costs each line with (vpf-costo-d-erp); empty here.
+    ItemCostListHistory.__table__,
+    TipoCambio.__table__,
+    CurExchHistory.__table__,
     ProductoERP.__table__,
     MarcaPM.__table__,
 ]
@@ -161,6 +168,9 @@ class TestCargaDeLasMuestras:
 
     def test_columns_of_a_line_and_its_document(self, db: Session, detallada, resumen) -> None:
         _cargar(db, detallada, resumen)
+        # vpf-costo-d-erp: the PDF's "Precio Costo" is only a reference (`precio_costo_pdf`); with no ERP cost list
+        # in this world every line's cost is 0.
+        assert {ln.precio_costo for op in _ops(db) for ln in op.lineas} == {Decimal("0.00")}
 
         op = next(op for op in _ops(db) if (op.tipo, op.letra, op.punto_venta, op.numero) == ("Fc", "A", 8, 17982))
         assert (op.cliente, op.cliente_codigo, op.vendedor) == ("CLIENTE PRUEBA 055", "100055", "Carla Ejempl")
@@ -170,7 +180,7 @@ class TestCargaDeLasMuestras:
             "01-Contado",
         )
         assert [
-            (ln.renglon, ln.codigo, ln.cantidad, ln.moneda, ln.precio, ln.precio_costo, ln.precio_costo_pp)
+            (ln.renglon, ln.codigo, ln.cantidad, ln.moneda, ln.precio, ln.precio_costo_pdf, ln.precio_costo_pp)
             for ln in op.lineas
         ] == [
             (

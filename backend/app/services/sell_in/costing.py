@@ -113,6 +113,10 @@ from app.services.sell_in.fifo import (
 from app.services.sell_in.split import unit_discount
 from app.services.ventas_fuera_pdf.ventas import VentasPdf
 
+# Owner (2026-11-18): "Lotes propios de la PC". A PC's sale takes the PC's own lots (sell-in purchases loaded on the
+# PC's item: manual, bono_marca or tactical), never its components' (`combos.pcs`). False is the combo rule.
+LOTES_PC_COMO_ENTIDAD = True
+
 logger = logging.getLogger(__name__)
 
 # First key of the two-key advisory lock; the second is the product's item_id.
@@ -507,7 +511,7 @@ class FifoPurchaseCosting:
         counts for each component that has lines, never for the combo itself (module docstring)."""
         if not lotes:
             return {}
-        combos = partes_de_combos(db, lotes)
+        combos = partes_de_combos(db, lotes, pc_entidad=LOTES_PC_COMO_ENTIDAD)
         ids = sorted(set(lotes) | set(combos))
 
         def destinos(item_id: int, unidades: int) -> List[Tuple[int, int]]:

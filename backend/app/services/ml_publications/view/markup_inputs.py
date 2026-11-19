@@ -33,7 +33,13 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session, aliased, join as orm_join
 from sqlalchemy.types import NullType
 
-from app.models.ml_publications import MlItem, MlItemProductLink, MlItemSalePrice, MlItemVariation
+from app.models.ml_publications import (
+    MlItem,
+    MlItemProductLink,
+    MlItemSalePrice,
+    MlItemSellerPromotions,
+    MlItemVariation,
+)
 from app.models.producto import ProductoERP, ProductoPricing
 from app.services.ml_publications.pricelist_resolver import CAMPAIGN_TAGS
 from app.services.ml_publications.view.filters import (
@@ -197,6 +203,36 @@ def _fallback_rows(db: Session, product_ids: Sequence[int]) -> list[Any]:
     )
 
 
+def _promo_revenues(db: Session, ids: Sequence[str]) -> dict[str, float]:
+    """The active promo's revenue (`ingreso_promo_activa`) of the given publications that have one, from the store's
+    own seller promotions (ML's answer, `ml_item_seller_promotions`); a gone or failed fetch has none. One statement.
+    Only the lists with a started promotion (`started_count`, a typed column) are read: about a quarter of the store,
+    1.3 KB each (8.5 MB for the whole store, measured 2026-11-18), never the item's own `raw` body."""
+    # Imported here: `ml_promotions_pricing` imports this module (its header unit is `fetch_inputs`').
+    from app.services.ml_promotions_pricing import ingreso_promo_activa
+
+    promotions = MlItemSellerPromotions
+    rows = _rows(
+        db,
+        select(promotions.item_id, promotions.raw).where(
+            promotions.item_id.in_(_ids_param(ids)),
+            promotions.gone_at.is_(None),
+            promotions.http_status.between(200, 299),
+            promotions.started_count > 0,
+        ),
+    )
+    revenues = {item_id: ingreso_promo_activa(raw) for item_id, raw in rows}
+    return {item_id: revenue for item_id, revenue in revenues.items() if revenue is not None}
+
+
+def product_ivas(db: Session, product_ids: Sequence[int]) -> dict[int, Optional[float]]:
+    """The VAT of the given catalog products (one statement; none for no ids)."""
+    if not product_ids:
+        return {}
+    query = select(ProductoERP.item_id, ProductoERP.iva).where(ProductoERP.item_id.in_(list(product_ids)))
+    return {item_id: _floats(iva) for item_id, iva in _rows(db, query)}
+
+
 def currency_of(value: Any) -> Optional[str]:
     return getattr(value, "value", value)
 
@@ -209,7 +245,7 @@ def fetch_inputs(
     db: Session, *, item_ids: Optional[Sequence[str]] = None, f: Optional[PublicationFilter] = None
 ) -> dict[str, PublicationInputs]:
     """Inputs of the given publications, or of every publication of a (PM-resolved) filter; ids that do not
-    exist are absent. Exactly one of `item_ids` / `f`. Three statements, four when some unit has no price of its own,
+    exist are absent. Exactly one of `item_ids` / `f`. Four statements, five when some unit has no price of its own,
     whatever the size of the set."""
     if (item_ids is None) == (f is None):
         raise ValueError("pass exactly one of `item_ids` or `f`")
@@ -223,6 +259,8 @@ def fetch_inputs(
         variations.setdefault(item_id, []).append(variation_id)
     # Always the third statement (an empty array when no publication has variations): a fixed count.
     links: dict[tuple[str, int], Any] = {(row[0], row[1]): row for row in _variation_link_rows(db, list(variations))}
+    # Always the fourth statement: the revenue of the promo ML applies now, priced before the sale price.
+    promo_revenues = _promo_revenues(db, [row[0] for row in items])
 
     # The list prices are read, in one more statement, for the products of the units whose publication has no
     # price of its own (`_pick_price` reads them only then); none needs them, no statement.
@@ -263,6 +301,7 @@ def fetch_inputs(
             fallbacks.get(pid, _NO_PRICES),
             pid,
             *found,
+            promo_revenue=item.promo_revenue,
         )
 
     inputs: dict[str, PublicationInputs] = {}
@@ -283,7 +322,15 @@ def fetch_inputs(
         tags = tuple(tags) if tags else ()
         # the statement already casts both prices to double: no per-row conversion
         if pid is None:
-            item_unit = UnitInputs(item_id, listing_type_id, tags, campaign, sale_price, item_price)
+            item_unit = UnitInputs(
+                item_id,
+                listing_type_id,
+                tags,
+                campaign,
+                sale_price,
+                item_price,
+                promo_revenue=promo_revenues.get(item_id),
+            )
         else:
             found = products.get(pid) or product_of(pid, costo, moneda, iva, envio, subcat)
             item_unit = UnitInputs(
@@ -296,6 +343,7 @@ def fetch_inputs(
                 fallbacks.get(pid, _NO_PRICES),
                 pid,
                 *found,
+                promo_revenue=promo_revenues.get(item_id),
             )
         variation_ids = variations.get(item_id)
         if variation_ids is None:
