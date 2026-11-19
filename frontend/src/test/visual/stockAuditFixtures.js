@@ -24,23 +24,68 @@ const sales = (u7, u30, gross, extra = {}) => ({
   ultima_venta: '2026-11-16T15:00:00Z',
   ultima_venta_dias: 2,
   ageing_dias: 2,
-  dias_cobertura: 60,
-  cobertura_infinita: false,
-  rotacion: 0.48,
-  stock_promedio: 50,
+  // Cobertura, Veces and their ERP / Full figures are not written here: `withRotation` derives them from each row's
+  // own stock and sales, as the backend does (PR #2345 review: constants showed the same split on every row).
   stock_promedio_dias: 12,
   // ERP / Full split (auditoria-stock-niveles S3, S4): a third of the sales by Full, the rest by ERP.
   envio: split(u7, u30),
-  por_origen: {
-    erp: { dias_cobertura: 75, cobertura_infinita: false, rotacion: 0.4 },
-    full: { dias_cobertura: 40, cobertura_infinita: false, rotacion: 0.75 },
-  },
   ...extra,
 });
 
+const round1 = (n) => Math.round(n * 10) / 10;
+const round2 = (n) => Math.round(n * 100) / 100;
+
+/** `stock_audit.coverage`: days at the 30-day pace; infinite with stock and no sale, unknown with neither. */
+function coverageOf(stock, sold) {
+  if (sold > 0) return { dias_cobertura: round1((stock * 30) / sold), cobertura_infinita: false };
+  return { dias_cobertura: null, cobertura_infinita: stock > 0 };
+}
+
+/** `stock_audit._per_stock`: sold over the average stock, unknown when that average is 0. */
+const perStock = (sold, average) => (average > 0 ? round2(sold / average) : null);
+
+/** `stock_audit._coverage_out`: one source's figures; sales without stock are 0 days and an infinite rotation. */
+function byOrigin(stock, sold, average) {
+  return { ...coverageOf(stock, sold), rotacion: perStock(sold, average), rotacion_infinita: sold > 0 && !(average > 0) };
+}
+
+/**
+ * A row's Rotación figures from its own numbers, as `stock_audit.rotation_out` computes them: the stock is ERP + Full
+ * (a variant or pack has no ERP stock of its own), the average stock is `stock_promedio` (the stock now when not
+ * given) split between ERP and Full in the stock's proportion, and each source is its stock over its own sales.
+ */
+function withRotation(row) {
+  const ventas = row.ventas;
+  const variantes = row.variantes?.map(withRotation);
+  if (!ventas) return variantes ? { ...row, variantes } : row;
+  // a variant or pack holds no ERP stock of its own (its base does)
+  const erp = ['variante', 'pack'].includes(row.tipo) ? 0 : (row.erp?.unidades ?? 0);
+  const full = row.full?.unidades ?? 0;
+  const stock = erp + full;
+  const average = ventas.stock_promedio ?? stock;
+  const ratio = stock > 0 ? average / stock : 1;
+  const sold = ventas.envio?.['30d'] ?? { erp: ventas.unidades_30d, full: 0 };
+  return {
+    ...row,
+    ...(variantes ? { variantes } : {}),
+    ventas: {
+      ...ventas,
+      stock_actual: stock,
+      vendidas_30d: ventas.unidades_30d,
+      stock_promedio: average,
+      ...coverageOf(stock, ventas.unidades_30d),
+      rotacion: perStock(ventas.unidades_30d, average),
+      por_origen: {
+        erp: byOrigin(erp, sold.erp, erp * ratio),
+        full: byOrigin(full, sold.full, full * ratio),
+      },
+    },
+  };
+}
+
 const money = (unidades, usd, rate = 1450) => ({ unidades, usd, ars: usd == null ? null : usd * rate });
 
-export const AUDIT_NOTEBOOK = {
+export const AUDIT_NOTEBOOK = withRotation({
   key: 'p9001',
   product_item_id: 9001,
   tipo: 'producto',
@@ -75,16 +120,16 @@ export const AUDIT_NOTEBOOK = {
       full_unidades_base: 12,
       publications_count: 3,
       params: { item_ids: '9002' },
-      ventas: sales(2, 8, 3200000, { dias_cobertura: 45, rotacion: 0.67, stock_promedio: 12 }),
+      ventas: sales(2, 8, 3200000, { stock_promedio: 12 }),
       kind_counts: { cuotas_6: 3 },
       status_counts: { active: 3 },
       promo_counts: { con: 1, sin: 2 },
       markup_actual: { min: 18.1, max: 18.3 },
     },
   ],
-};
+});
 
-export const AUDIT_CARTRIDGE = {
+export const AUDIT_CARTRIDGE = withRotation({
   key: 'p9101',
   product_item_id: 9101,
   tipo: 'producto',
@@ -102,7 +147,7 @@ export const AUDIT_CARTRIDGE = {
   params: { item_ids: '9101' },
   // its own sales (1 in 7 days, 7 in 30) plus its pack's in base units (4 and 18 packs of 2), as the backend adds
   // them; two sales of the week without shipping data, counted in ERP (auditoria-stock-niveles S3)
-  ventas: sales(9, 43, 970000, { ultima_venta: '2026-10-20T12:00:00Z', ultima_venta_dias: 29, ageing_dias: 29, dias_cobertura: 156, rotacion: 0.19, stock_promedio: 131.6, envio: split(9, 43, 2, 0) }),
+  ventas: sales(9, 43, 970000, { ultima_venta: '2026-10-20T12:00:00Z', ultima_venta_dias: 29, ageing_dias: 29, stock_promedio: 131.6, envio: split(9, 43, 2, 0) }),
   kind_counts: { clasica: 1, cuotas_3: 1 },
   status_counts: { active: 2 },
   promo_counts: { con: 0, sin: 2 },
@@ -128,9 +173,9 @@ export const AUDIT_CARTRIDGE = {
       markup_actual: { min: 28, max: 28 },
     },
   ],
-};
+});
 
-export const AUDIT_ORPHAN = {
+export const AUDIT_ORPHAN = withRotation({
   key: 'p9201',
   product_item_id: 9201,
   tipo: 'pc',
@@ -153,21 +198,14 @@ export const AUDIT_ORPHAN = {
     ultima_venta: null,
     ultima_venta_dias: null,
     ageing_dias: null,
-    dias_cobertura: null,
-    cobertura_infinita: true,
-    rotacion: 0,
     stock_promedio: 4,
-    por_origen: {
-      erp: { dias_cobertura: null, cobertura_infinita: true, rotacion: 0 },
-      full: { dias_cobertura: null, cobertura_infinita: false, rotacion: null },
-    },
   }),
   kind_counts: {},
   status_counts: {},
   promo_counts: { con: 0, sin: 0 },
   markup_actual: null,
   variantes: [],
-};
+});
 
 export function stockAuditResponse(rows = [AUDIT_NOTEBOOK, AUDIT_CARTRIDGE, AUDIT_ORPHAN], extra = {}) {
   return {
@@ -240,7 +278,6 @@ export const AUDIT_PACK_ITEMS = {
 
 // The Marca > Categoría levels (auditoria-stock-niveles S1, S2): every group is DERIVED from the rows under it, as
 // the backend adds them (owner 2026-11-18: a hand-written category showed twice its products' Full).
-const round2 = (n) => Math.round(n * 100) / 100;
 const addMoney = (parts) => ({
   unidades: parts.reduce((acc, m) => acc + m.unidades, 0),
   usd: round2(parts.reduce((acc, m) => acc + (m.usd ?? 0), 0)),
@@ -264,6 +301,10 @@ const isGroup = (row) => row.tipo === 'marca' || row.tipo === 'categoria';
 
 /** A group row over `children` (products, or a brand's categories): stock, counts and sales added. */
 function groupOf(fields, children) {
+  return withRotation(groupFields(fields, children));
+}
+
+function groupFields(fields, children) {
   const u7 = children.reduce((acc, r) => acc + (r.ventas?.unidades_7d ?? 0), 0);
   const u30 = children.reduce((acc, r) => acc + (r.ventas?.unidades_30d ?? 0), 0);
   const gross = children.reduce((acc, r) => acc + (r.ventas?.facturado_30d ?? 0), 0);
@@ -283,13 +324,16 @@ function groupOf(fields, children) {
     kind_counts: { clasica: 3, cuotas_6: 3 },
     status_counts: { active: 6, paused: 1 },
     markup_actual: { min: -2.4, max: 30 },
-    ventas: sales(u7, u30, gross, { envio: addEnvio(children) }),
+    ventas: sales(u7, u30, gross, {
+      envio: addEnvio(children),
+      stock_promedio: children.reduce((acc, r) => acc + (r.ventas?.stock_promedio ?? 0), 0),
+    }),
     ...fields,
   };
 }
 
 /** The no-brand, no-category product: a cable sold a little, never by Full, and without cost (its values unknown). */
-export const AUDIT_CABLE = {
+export const AUDIT_CABLE = withRotation({
   ...AUDIT_ORPHAN,
   key: 'p9301',
   product_item_id: 9301,
@@ -307,7 +351,7 @@ export const AUDIT_CABLE = {
   params: { item_ids: '9301' },
   promo_counts: { con: 0, sin: 1 },
   ventas: sales(0, 3, 90000, { envio: { '7d': { erp: 0, full: 0, sin_envio: 0 }, '30d': { erp: 3, full: 0, sin_envio: 0 } } }),
-};
+});
 
 const PRODUCTS_BY_CATEGORY = {
   NOTEBOOKS: [AUDIT_NOTEBOOK],

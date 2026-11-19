@@ -436,7 +436,9 @@ class Variant:
         """Its stock in its own units: its Full only (its ERP stock is its base's, S4)."""
         return self.full.unidades
 
-    stock_erp = None  # its ERP stock is its base's: no ERP coverage nor rotation of its own
+    # It holds no ERP stock of its own (its base does): 0, so ERP sales read as out of stock (0 days), and only no
+    # ERP sale and no ERP stock reads as unknown (PR #2345 review).
+    stock_erp = 0
 
     @property
     def stock_full(self) -> int:
@@ -683,7 +685,7 @@ class Average:
 
     stock: float
     dias: int
-    erp: Optional[float] = None  # S4: the ERP part (None: a variant, whose ERP stock is its base's)
+    erp: Optional[float] = None  # S4: the ERP part (0 for a variant, which holds no ERP stock of its own)
     full: float = 0.0  # S4: the Full part
 
 
@@ -700,7 +702,7 @@ class Whole:
     sales: Sales
     stock: int
     average: Optional[Average]
-    stock_erp: Optional[int] = None  # S4: None for a variant (its ERP stock is its base's)
+    stock_erp: Optional[int] = None  # S4: 0 for a variant (it holds no ERP stock of its own)
     stock_full: int = 0
 
 
@@ -734,12 +736,12 @@ def _add_averages(db: Session, rows: Iterable[Row], today: date) -> None:
         if not found.dias:
             r.average = Average(float(r.stock_now), 0, float(r.stock_erp), float(r.stock_full))
             for v in r.variants.values():
-                v.average = Average(float(v.stock_now), 0, None, float(v.stock_full))
+                v.average = Average(float(v.stock_now), 0, 0.0, float(v.stock_full))
             continue
         erp, full = found.stock.get(r.product.item_id, (0.0, 0.0))
         for v in r.variants.values():
             own = found.stock.get(v.product.item_id, (0.0, 0.0))[1]
-            v.average = Average(own, found.dias, None, own)
+            v.average = Average(own, found.dias, 0.0, own)
             full += own * float(v.cantidad)
         r.average = Average(erp + full, found.dias, erp, full)
 
@@ -760,7 +762,7 @@ def add_rotation(db: Session, audit: "Audit", today: date) -> None:
         r.whole = Whole(w.sales, w.stock_now, w.average, w.stock_erp, w.stock_full)
         for item, v in r.variants.items():
             wv = w.variants.get(item, v)
-            v.whole = Whole(wv.sales, wv.stock_now, wv.average, None, wv.stock_full)
+            v.whole = Whole(wv.sales, wv.stock_now, wv.average, wv.stock_erp, wv.stock_full)
 
 
 def coverage(stock: int, sold_30d: Decimal) -> Optional[float]:
@@ -782,13 +784,14 @@ def _per_stock(sold_30d: Decimal, stock: Optional[float]) -> Optional[float]:
 
 
 def _coverage_out(stock: Optional[int], sold_30d: Decimal, average: Optional[float]) -> dict[str, Any]:
-    """One source's Días de cobertura and Rotación (S4); a source the row has no stock of its own in (a variant's
-    ERP) reads nothing."""
+    """One source's Días de cobertura and Rotación (S4). With sales and no stock the coverage is 0 days (out of stock)
+    and the rotation, sold over an average stock of 0, is infinite; only no sale and no stock reads as unknown."""
     days = None if stock is None else coverage(stock, sold_30d)
     return {
         "dias_cobertura": None if days is None or days == float("inf") else days,
         "cobertura_infinita": days == float("inf"),
         "rotacion": None if stock is None else _per_stock(sold_30d, average),
+        "rotacion_infinita": stock is not None and sold_30d > 0 and average is not None and average <= 0,
     }
 
 
@@ -805,6 +808,9 @@ def rotation_out(whole: Whole) -> dict[str, Any]:
         "rotacion": rotation(sales.units_30d, average),
         "stock_promedio": None if average is None else round(average.stock, 2),
         "stock_promedio_dias": None if average is None else average.dias,
+        # the numbers of the two formulas above, for their tooltips (auditoria-ventas-erp-full L2)
+        "stock_actual": stock,
+        "vendidas_30d": int(sales.units_30d),
         # S4: each source's stock over its own sales (ERP = the sales not shipped by Full)
         "por_origen": {
             "erp": _coverage_out(whole.stock_erp, sales.erp_30d, None if average is None else average.erp),
