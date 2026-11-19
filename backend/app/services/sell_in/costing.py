@@ -114,9 +114,9 @@ from app.services.sell_in.fifo import (
 from app.services.sell_in.split import unit_discount
 from app.services.ventas_fuera_pdf.ventas import VentasPdf
 
-# PENDING OWNER (L-owner-2, 2026-11-18): whether a PC's sale stops taking its components' lots and takes the PC's own
-# (`combos.pcs`). Until answered the combo rule stays: a PC's line takes each component's FIFO lots. True flips it.
-LOTES_PC_COMO_ENTIDAD = False
+# Owner (2026-11-18): "Lotes propios de la PC". A PC's sale takes the PC's own lots (sell-in purchases loaded on the
+# PC's item: manual, bono_marca or tactical), never its components' (`combos.pcs`). False is the combo rule.
+LOTES_PC_COMO_ENTIDAD = True
 
 logger = logging.getLogger(__name__)
 

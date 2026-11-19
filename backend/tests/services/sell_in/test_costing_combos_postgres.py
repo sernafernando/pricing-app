@@ -150,9 +150,8 @@ def test_an_empty_plan_queues_nothing(engine: Engine) -> None:
     assert _queued_items(engine) == []
 
 
-def test_a_pc_sale_still_takes_its_components_lots(engine: Engine) -> None:
-    """L-owner-2: the PC is its own product for sell out and cost bonuses; its LOTS keep the combo rule until the owner
-    decides (`costing.LOTES_PC_COMO_ENTIDAD`)."""
+def test_a_pc_sale_takes_the_pcs_own_lots_and_none_of_its_components(engine: Engine) -> None:
+    """Owner (2026-11-18): "Lotes propios de la PC". The PC is its own product for its lots too (`combos.pcs`)."""
     lineas = _mundo(engine)
     with engine.begin() as conn:
         conn.execute(
@@ -163,10 +162,7 @@ def test_a_pc_sale_still_takes_its_components_lots(engine: Engine) -> None:
 
         _recompute(engine, [NOTEBOOK, WH, COMBO])
 
-        assert [(x[0], x[3], x[4]) for x in w.consumos(engine) if x[2] == ref] == [
-            (lineas["notebook"], NOTEBOOK, 1),
-            (lineas["wh"], WH, 2),
-        ]
+        assert [(x[0], x[3], x[4]) for x in w.consumos(engine) if x[2] == ref] == [(lineas["propio"], COMBO, 1)]
     finally:
         with engine.begin() as conn:
             conn.execute(text("DELETE FROM tb_item"))
