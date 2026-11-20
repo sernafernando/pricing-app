@@ -163,6 +163,7 @@ def _drain_costo_si(ctx: WorkerContext) -> dict:
         "costo_si": drenado.productos,
         "costo_si_cambiados": drenado.cambiados,
         "costo_si_fallidos": len(drenado.fallidos),
+        "costo_si_diferidos": len(drenado.diferidos),  # Full operations not kept yet (stock.snapshot fetches them)
     }
 
 

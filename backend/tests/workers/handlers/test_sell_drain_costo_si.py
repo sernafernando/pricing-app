@@ -27,7 +27,7 @@ def _wire(monkeypatch, pendientes: bool, calls: list) -> None:
 
     def drenar(factory, deadline, hoy, *, ml, is_transient):
         calls.append({"ml": ml, "hoy": hoy, "is_transient": is_transient})
-        return Drenado(productos=3, cambiados=2, fallidos={9: "x"})
+        return Drenado(productos=3, cambiados=2, fallidos={9: "x"}, diferidos={11, 12})
 
     monkeypatch.setattr(module, "get_background_db", session)
     monkeypatch.setattr(module.costo_si_queue, "hay_pendientes", lambda db: pendientes)
@@ -39,7 +39,12 @@ def test_it_drains_the_queued_products_without_an_ml_client(monkeypatch) -> None
     calls: list = []
     _wire(monkeypatch, True, calls)
 
-    assert module._drain_costo_si(_ctx()) == {"costo_si": 3, "costo_si_cambiados": 2, "costo_si_fallidos": 1}
+    assert module._drain_costo_si(_ctx()) == {
+        "costo_si": 3,
+        "costo_si_cambiados": 2,
+        "costo_si_fallidos": 1,
+        "costo_si_diferidos": 2,
+    }
     assert calls == [{"ml": None, "hoy": date(2026, 11, 20), "is_transient": module.is_transient}]
 
 
