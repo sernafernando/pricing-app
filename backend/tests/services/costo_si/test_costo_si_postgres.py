@@ -227,6 +227,23 @@ def test_full_is_walked_back_from_our_own_ml_stock_sales_and_shipments(engine: E
         assert fuentes.disponible(db, P, date(2026, 10, 10)) == 34  # principal 0 (no depot 1 rows) + Full
 
 
+def test_full_of_a_product_linked_per_variation_is_its_variations_full(engine: Engine) -> None:
+    """S3 (L8, L11): a product linked to one variation of a publication with variations (the Auditoría photo counts
+    it the same way). Its Full is that variation's user product, 12 today, plus that variation's Full sales after the
+    instant (3); the sibling variation, linked to another product, never counts (50 at Full, 5 sold)."""
+    w.producto(engine, P)
+    w.producto(engine, OTRA_MARCA, marca="OTRA")
+    w.publicacion_full_variacion(engine, "MLA9", 7, P, full_hoy=12)
+    w.publicacion_full_variacion(engine, "MLA9", 8, OTRA_MARCA, full_hoy=50)
+    w.venta_ml(engine, "MLA9", datetime(2026, 10, 15, 12, tzinfo=UTC), 3, variation_id=7)
+    w.venta_ml(engine, "MLA9", datetime(2026, 10, 15, 12, tzinfo=UTC), 5, variation_id=8)
+
+    with sessionmaker(bind=engine)() as db:
+        assert full_ml.full_disponible(db, P, datetime(2026, 10, 10, tzinfo=fuentes.ZONA)) == 15
+        assert full_ml.full_disponible(db, P, datetime(2026, 11, 1, tzinfo=fuentes.ZONA)) == 12
+        assert full_ml.full_disponible(db, OTRA_MARCA, datetime(2026, 10, 10, tzinfo=fuentes.ZONA)) == 55
+
+
 def test_full_is_walked_back_from_the_next_daily_photo_not_from_today(engine: Engine) -> None:
     """S3 (L11): ML received 200 units today whose GBP remito is not issued yet (RE200 on 2026-11-20). Walking back
     from today's 230 would put them in every past day; the walk starts at the first daily photo after the instant

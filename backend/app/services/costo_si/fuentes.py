@@ -13,9 +13,10 @@
   any supplier and linked to Compras or not (S7).
 - Available stock at 00:00 of a day (S3): principal = GBP depot 1 physical minus the units of sale orders generated
   and not invoiced at that instant (pending transfers to Full, customer 2849, do not count: the units still exist).
-  Full = Mercado Libre's Full available stock, NOT GBP depot 17 (L8): the current ML Full stock of the product's
-  inventory ids, walked back with ML's Full stock operations (`full_ml`). A day with a daily photo
-  (`costo_si_stock_diario`) reads the photo instead.
+  Full = Mercado Libre's Full available stock, NOT GBP depot 17 (L8): walked back from the next ML reading the app
+  stores (the Auditoría's daily photo, else today's ML stock) with the stored Full sales and the GBP remitos into
+  Full (`full_ml`, L11; no Mercado Libre call). A day with a costo SI photo (`costo_si_stock_diario`) reads it
+  instead.
 - Combos (S11, L7.1) have no stock, purchases or sell ins of their own: the engine never computes one (`es_combo`);
   their cost is their components' at read time. A combo of the PC category is its own product (L2.6).
 """

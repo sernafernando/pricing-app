@@ -50,9 +50,12 @@ STUBS = [
     "CREATE TABLE ml_item_product_links (item_id TEXT, variation_id BIGINT DEFAULT 0, producto_item_id INTEGER,"
     " PRIMARY KEY (item_id, variation_id))",
     "CREATE TABLE ml_user_product_stock (user_product_id TEXT PRIMARY KEY, full_quantity INTEGER)",
+    "CREATE TABLE ml_item_variations (item_id TEXT, variation_id BIGINT, user_product_id TEXT, gone_at TIMESTAMPTZ,"
+    " PRIMARY KEY (item_id, variation_id))",
     # ML sales as the app stores them (only the columns costo SI reads) and the Auditoría's daily stock photo.
     "CREATE TABLE ml_orders_ops (order_id BIGINT PRIMARY KEY, status TEXT, date_created TIMESTAMPTZ, shipping_id BIGINT)",
-    "CREATE TABLE ml_order_items_ops (id SERIAL PRIMARY KEY, order_id BIGINT NOT NULL, item_id TEXT NOT NULL, quantity INTEGER)",
+    "CREATE TABLE ml_order_items_ops (id SERIAL PRIMARY KEY, order_id BIGINT NOT NULL, item_id TEXT NOT NULL,"
+    " variation_id BIGINT, quantity INTEGER)",
     "CREATE TABLE ml_shipments_ops (shipment_id BIGINT PRIMARY KEY, logistic_type TEXT)",
     "CREATE TABLE producto_stock_diario (fecha DATE, item_id INTEGER, stock_erp INTEGER DEFAULT 0,"
     " stock_full INTEGER DEFAULT 0, PRIMARY KEY (fecha, item_id))",
@@ -119,6 +122,7 @@ def clean(engine: Engine) -> None:
             "ml_items",
             "ml_item_product_links",
             "ml_user_product_stock",
+            "ml_item_variations",
             "ml_orders_ops",
             "ml_order_items_ops",
             "ml_shipments_ops",
@@ -346,8 +350,38 @@ def publicacion_full(engine: Engine, mla: str, producto_item_id: int, inventory_
     run(engine, "INSERT INTO ml_user_product_stock VALUES (:up, :q)", up=up, q=full_hoy)
 
 
+def publicacion_full_variacion(
+    engine: Engine, mla: str, variation_id: int, producto_item_id: int, full_hoy: int
+) -> None:
+    """A publication with variations whose variation `variation_id` is linked to `producto_item_id`: ML keeps the
+    inventory per variation (its own user product), the item itself has none."""
+    up = f"UP-{mla}-{variation_id}"
+    run(engine, "INSERT INTO ml_items VALUES (:m, NULL, NULL) ON CONFLICT DO NOTHING", m=mla)
+    run(
+        engine,
+        "INSERT INTO ml_item_variations (item_id, variation_id, user_product_id) VALUES (:m, :v, :up)",
+        m=mla,
+        v=variation_id,
+        up=up,
+    )
+    run(
+        engine,
+        "INSERT INTO ml_item_product_links (item_id, variation_id, producto_item_id) VALUES (:m, :v, :p)",
+        m=mla,
+        v=variation_id,
+        p=producto_item_id,
+    )
+    run(engine, "INSERT INTO ml_user_product_stock VALUES (:up, :q)", up=up, q=full_hoy)
+
+
 def venta_ml(
-    engine: Engine, mla: str, cuando: datetime, qty: int, logistic_type: str = "fulfillment", status: str = "paid"
+    engine: Engine,
+    mla: str,
+    cuando: datetime,
+    qty: int,
+    logistic_type: str = "fulfillment",
+    status: str = "paid",
+    variation_id: Optional[int] = None,
 ) -> None:
     """One ML sale of `mla` as the app stores it: order, item and shipment."""
     order_id = next(_ids)
@@ -355,9 +389,10 @@ def venta_ml(
     run(engine, "INSERT INTO ml_orders_ops VALUES (:o, :st, :c, :o)", o=order_id, st=status, c=cuando)
     run(
         engine,
-        "INSERT INTO ml_order_items_ops (order_id, item_id, quantity) VALUES (:o, :m, :q)",
+        "INSERT INTO ml_order_items_ops (order_id, item_id, variation_id, quantity) VALUES (:o, :m, :v, :q)",
         o=order_id,
         m=mla,
+        v=variation_id,
         q=qty,
     )
 
