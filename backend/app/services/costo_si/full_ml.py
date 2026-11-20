@@ -166,7 +166,8 @@ def sincronizar_productos(
     inicio_de: Callable[[Session, int], Optional[date]],
 ) -> Tuple[int, Dict[int, str]]:
     """`sincronizar` for each of `items` from its start (`inicio_de`; None skips it), one transaction each, until
-    `deadline`. A product that fails (ML or anything else) is reported and skipped; the next day retries it. Returns (operations stored,
+    `deadline`. A product that fails (ML or anything else) is reported and skipped; the next day retries it.
+    Returns (operations stored,
     failures by product)."""
     guardadas, fallidos = 0, {}
     for item_id in items:

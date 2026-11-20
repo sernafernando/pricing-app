@@ -78,6 +78,8 @@ _PRIMERA_FACTURA_CON_SELL_IN_SQL = text("""
     JOIN pedido_compra_facturas pf
       ON pf.pedido_id = c.bono_pedido_id
       OR pf.pedido_id IN (SELECT cp.pedido_compra_id FROM sell_in_compra_pedidos cp WHERE cp.compra_id = c.id)
+    -- only the invoices that enter the average (S4): never a credit note or a voided invoice
+    JOIN v_facturas_compra_vigentes v ON v.ct_transaction = pf.ct_transaction_id AND v.clasificacion = 'FACTURA'
     JOIN tb_commercial_transactions ct ON ct.ct_transaction = pf.ct_transaction_id
     JOIN tb_item_transactions it ON it.ct_transaction = ct.ct_transaction AND it.item_id = ci.item_id
     WHERE ci.item_id = :i
@@ -141,7 +143,8 @@ _TC_MANUAL_SQL = text(
     "SELECT ct_transaction, tipo_cambio FROM costo_si_factura_tc WHERE ct_transaction = ANY(:cts)"
 ).bindparams(bindparam("cts", type_=ARRAY(BigInteger)))
 
-# Every USD rate from the last one on or before :desde through :hasta: each invoice takes the last on or before its date.
+# Every USD rate from the last one on or before :desde through :hasta; each invoice takes the last one on or before
+# its date.
 _TC_FECHAS_SQL = text("""
     SELECT fecha, venta FROM tipo_cambio
     WHERE moneda = 'USD' AND venta > 0 AND fecha <= :hasta

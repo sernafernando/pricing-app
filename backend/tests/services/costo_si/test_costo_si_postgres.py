@@ -533,3 +533,20 @@ def test_the_daily_sync_starts_with_the_products_synced_least_recently(engine: E
 
     with sessionmaker(bind=engine)() as db:
         assert full_ml.por_antiguedad(db, [P, OTRA_MARCA, COMBO, PC]) == [COMBO, OTRA_MARCA, P, PC]
+
+
+def test_a_credit_note_linked_to_compras_never_moves_the_start(engine: Engine) -> None:
+    """S2 + S4: only invoices that enter the average date the first sell in; a linked credit note of 10-02 does not."""
+    w.producto(engine, P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "25")
+    nc = w.factura(engine, P, date(2026, 10, 2), datetime(2026, 10, 2), 1, "22", previo=10, pedido=5)
+    w.run(
+        engine, "UPDATE v_facturas_compra_vigentes SET clasificacion = 'NOTA_CREDITO' WHERE ct_transaction = :c", c=nc
+    )
+    w.factura(engine, P, date(2026, 10, 9), datetime(2026, 10, 9), 5, "22", previo=9, pedido=6)
+    w.sell_in_compra(engine, P, 5, "2", date(2026, 10, 2))
+    w.sell_in_compra(engine, P, 6, "2", date(2026, 10, 9))
+
+    _recalcular(engine, P)
+
+    assert [p[1] for p in w.pasos(engine, P)] == [date(2026, 10, 9), date(2026, 10, 9)]
