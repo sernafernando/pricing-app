@@ -237,10 +237,10 @@ _PENDIENTE_SQL = text("""
       (SELECT COALESCE(sum(it.it_qty), 0)
        FROM tb_item_transactions it
        JOIN tb_commercial_transactions ct ON ct.ct_transaction = it.ct_transaction AND ct.sd_id IN (1, 2)
-       JOIN (SELECT bra_id, soh_id, min(soh_cd) AS soh_cd FROM tb_sale_order_header_history GROUP BY bra_id, soh_id) hh
-         ON hh.bra_id = it.bra_id AND hh.soh_id = it.it_soh_id
-       WHERE it.item_id = :i AND it.stor_id = :d AND it.it_cd > :t AND hh.soh_cd <= :t
-         AND ct.cust_id IS DISTINCT FROM :full)
+       WHERE it.item_id = :i AND it.stor_id = :d AND it.it_cd > :t AND ct.cust_id IS DISTINCT FROM :full
+         -- the order's creation: its first history row (correlated, only for this item's lines after t)
+         AND (SELECT min(hh.soh_cd) FROM tb_sale_order_header_history hh
+              WHERE hh.bra_id = it.bra_id AND hh.soh_id = it.it_soh_id) <= :t)
     + (SELECT COALESCE(sum(q), 0) FROM (
          SELECT max(d.sod_qty) AS q
          FROM tb_sale_order_detail d
