@@ -29,6 +29,7 @@ from sqlalchemy import Engine, text
 from app.models.tactical import Tactical
 from app.models.auditoria import Auditoria
 from app.models.combo_componente import ComboComponente
+from app.models.costo_si import CostoSiDirty
 from app.models.tb_item import TBItem
 from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_sale_line import MlSaleLine
@@ -73,6 +74,7 @@ TABLES = [
     MlOrderItemOps.__table__,
     MlSaleLine.__table__,
     SellDirty.__table__,
+    CostoSiDirty.__table__,  # sell.drain also drains the costo SI queue (sell-in-costo-si T2)
     ComboComponente.__table__,  # combo sales count as their components' (combos in sell in / sell out)
     TBItem.__table__,  # a combo of the PC category is its own product (`combos.pcs`)
 ]

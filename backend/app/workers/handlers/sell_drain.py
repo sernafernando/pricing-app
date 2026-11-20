@@ -34,6 +34,10 @@ drain on every wake forever, so it is charged and parks like any bad line.
 Step 3 also queues, set-based, the sell-out campaigns the lines can move
 (`app.services.sell_out.queue.enqueue_ventas`), in a savepoint that never
 blocks sell in (`_fan_out_sell_out`); `sell_out.drain` rebuilds them.
+After the sale lines, the same run drains the costo SI queue (`costo_si_dirty`, sell-in-costo-si T2: a sell in, a
+bonus or a purchase link changed), one product per transaction (`costo_si.queue.drenar`); its triggers notify this
+same channel. A costo SI failure is charged to its product and never to the sale lines. It never calls Mercado Libre
+(this is the sales worker): the Full operations it reads are fetched daily by `stock.snapshot` in the ML worker.
 Wired like `tp_cost.fill`:
 `channels=("sell_dirty",)` with no `interval`/`run_at_local`, so
 `WorkerRuntime.drain_once` runs it on every LISTEN wake and on every safety
@@ -51,6 +55,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_background_db
 from app.services.combos.componentes import CombosNoSincronizados
+from app.services.costo_si import queue as costo_si_queue
 from app.services.sell import queue
 from app.services.sell_in import bonos_costo
 from app.services.sell_in.costing import RecomputeResult, get_costing
@@ -137,7 +142,41 @@ class SellDrainHandler:
                 break
         if detail["failed"]:
             logger.warning("sell.drain: run charged %s failed line(s)", detail["failed"])
+        if not stopped:
+            detail.update(_drain_costo_si(ctx))
         return JobResult(success=True, detail=detail)
+
+
+def _drain_costo_si(ctx: WorkerContext) -> dict:
+    """The costo SI queue (module docstring), after the sale lines committed: it never fails the job. Only when
+    something is queued: an empty queue costs one query."""
+    try:
+        return _drenar_costo_si(ctx)
+    except Exception as exc:  # the queue keeps the products; the next wake retries them
+        if is_transient(exc):
+            logger.warning("sell.drain: costo SI pass stopped by a transient error: %s", exc)
+        else:
+            logger.exception("sell.drain: costo SI pass failed")
+        return {"costo_si_error": f"{type(exc).__name__}: {exc}"}
+
+
+def _drenar_costo_si(ctx: WorkerContext) -> dict:
+    with get_background_db() as db:
+        if db.get_bind().dialect.name != "postgresql" or not costo_si_queue.hay_pendientes(db):
+            return {}
+    from app.services.ml_daily_metrics import board
+
+    # ml=None: this is the sales worker, it never calls ML (design D1). The Full operations it reads were fetched by
+    # `stock.snapshot` in the ML worker.
+    drenado = costo_si_queue.drenar(
+        get_background_db, ctx.deadline, board.today_business(), ml=None, is_transient=is_transient
+    )
+    return {
+        "costo_si": drenado.productos,
+        "costo_si_cambiados": drenado.cambiados,
+        "costo_si_fallidos": len(drenado.fallidos),
+        "costo_si_diferidos": len(drenado.diferidos),  # Full operations not kept yet (stock.snapshot fetches them)
+    }
 
 
 def _recompute_and_settle(
