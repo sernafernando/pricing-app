@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { accionesIaAPI } from '../../services/api';
 import styles from './InterruptorEscritura.module.css';
 
-const BLOQUEADO = 'Bloqueado por el servidor (kill switch)';
+const BLOQUEADO = 'La escritura de la IA está bloqueada desde el servidor. No se puede encender desde acá.';
 
 const mensajeError = (err) =>
   err?.response?.status === 403

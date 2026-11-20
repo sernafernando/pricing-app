@@ -89,14 +89,24 @@ describe('AccionesIa', () => {
     expect(await screen.findByText('SKU 12345 - Notebook X')).toBeInTheDocument();
     expect(api.get).toHaveBeenCalledWith('/admin/mcp/acciones', { params: { limit: 50, offset: 0 } });
     const row = filaDe('SKU 12345 - Notebook X');
-    expect(within(row).getByText('Usuario Demo')).toBeInTheDocument();
-    expect(within(row).getByText('Claude')).toBeInTheDocument();
+    expect(within(row).getByText('18/11 12:00')).toBeInTheDocument();
+    expect(within(row).getByText('18/11 12:00')).toHaveAttribute('title', expect.stringContaining('18/11/26'));
+    // Usuario and Cliente share one cell (two lines) so the table fits next to the sidebar.
+    const quien = within(row).getByText('Usuario Demo').closest('td');
+    expect(within(quien).getByText('Claude')).toBeInTheDocument();
     expect(within(row).getByText('Precio de lista')).toBeInTheDocument();
     expect(within(row).getByText('precio: 100.000')).toBeInTheDocument();
     expect(within(row).getByText('precio: 95.000')).toBeInTheDocument();
-    expect(within(row).getByText('Mejora el markup')).toBeInTheDocument();
+    expect(within(row).getByText('Mejora el markup')).toHaveAttribute('title', 'Mejora el markup');
     expect(within(row).getByText('OK')).toBeInTheDocument();
     expect(screen.getByText(/1–5 de 5/)).toBeInTheDocument();
+  });
+
+  it('shows ML publication states in Spanish', async () => {
+    render(<AccionesIa />);
+    const row = (await screen.findByText('MLA999 - Teclado')).closest('tr');
+    expect(within(row).getByText('estado: activa')).toBeInTheDocument();
+    expect(within(row).getByText('estado: pausada')).toBeInTheDocument();
   });
 
   it('shows Deshacer only for undoable, not undone, ok rows', async () => {
@@ -124,7 +134,9 @@ describe('AccionesIa', () => {
     await screen.findByText('SKU 12345 - Notebook X');
     await user.selectOptions(screen.getByLabelText('Usuario'), '3');
     await user.selectOptions(screen.getByLabelText('Cliente'), 'Claude');
-    await user.selectOptions(screen.getByLabelText('Tool'), 'precio_lista_cambiar');
+    expect(screen.queryByLabelText('Tool')).not.toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Cambiar precio de lista' })).toHaveValue('precio_lista_cambiar');
+    await user.selectOptions(screen.getByLabelText('Herramienta'), 'precio_lista_cambiar');
     await user.selectOptions(screen.getByLabelText('Resultado'), 'ok');
     await user.type(screen.getByLabelText('Desde'), '2026-11-01');
     await user.type(screen.getByLabelText('Hasta'), '2026-11-18');
@@ -166,7 +178,10 @@ describe('AccionesIa', () => {
     expect(within(bloqueada).getByText('Bloqueada')).toBeInTheDocument();
     expect(within(bloqueada).queryByText('Lista')).not.toBeInTheDocument();
     expect(within(bloqueada).getByText('el precio cambió desde la acción')).toBeInTheDocument();
-    expect(within(modal).getByText(/1 de 2 filas se van a deshacer/)).toBeInTheDocument();
+    const resumen = within(modal).getByText(/1 de 2 filas se van a deshacer/);
+    // 24-hour time, so the sentence never ends in "p. m.." (double period).
+    expect(resumen).toHaveTextContent(/El plan vence a las 12:15\.$/);
+    expect(resumen.textContent).not.toMatch(/\.\./);
 
     const llamadasAntes = api.get.mock.calls.filter(([url]) => url === '/admin/mcp/acciones').length;
     await user.click(within(modal).getByRole('button', { name: 'Confirmar' }));
@@ -231,7 +246,8 @@ describe('AccionesIa', () => {
     const modal = await screen.findByRole('dialog', { name: 'Deshacer acción' });
     await user.type(within(modal).getByLabelText('Motivo'), 'x');
     await user.click(within(modal).getByRole('button', { name: 'Preparar' }));
-    expect(await within(modal).findByText(/La escritura de la IA está apagada/)).toBeInTheDocument();
+    const aviso = await within(modal).findByText('La escritura de la IA está apagada: no se puede deshacer ahora.');
+    expect(aviso).toBeInTheDocument();
   });
 
   it('shows the permission message when the list answers 403', async () => {
@@ -263,7 +279,7 @@ describe('AccionesIa', () => {
       render(<AccionesIa />);
       const interruptor = await screen.findByRole('switch', { name: 'Permitir que la IA modifique Pricing' });
       expect(interruptor).toBeDisabled();
-      expect(screen.getByText('Bloqueado por el servidor (kill switch)')).toBeInTheDocument();
+      expect(screen.getByText('La escritura de la IA está bloqueada desde el servidor. No se puede encender desde acá.')).toBeInTheDocument();
     });
 
     it('shows the server lock when PUT answers it', async () => {
@@ -272,7 +288,7 @@ describe('AccionesIa', () => {
       render(<AccionesIa />);
       const interruptor = await screen.findByRole('switch', { name: 'Permitir que la IA modifique Pricing' });
       await user.click(interruptor);
-      expect(await screen.findByText('Bloqueado por el servidor (kill switch)')).toBeInTheDocument();
+      expect(await screen.findByText('La escritura de la IA está bloqueada desde el servidor. No se puede encender desde acá.')).toBeInTheDocument();
       expect(interruptor).toBeDisabled();
     });
 

@@ -56,10 +56,55 @@
   white-space: nowrap;
 }
 
+/* Fits at 1440 next to the expanded sidebar: compact cells, long text clamped to two lines. */
+.tabla td {
+  vertical-align: top;
+}
+
+.tabla th {
+  white-space: normal;
+}
+
+.tabla th,
+.tabla td {
+  padding-left: var(--space-3);
+  padding-right: var(--space-3);
+}
+
+.objetivo {
+  width: 140px;
+  min-width: 140px;
+}
+
 .motivo {
-  max-width: 280px;
+  width: 160px;
+  min-width: 160px;
   font-size: var(--font-xs);
   color: var(--cf-text-secondary);
+}
+
+/* Two lines and "…"; the full text is in the cell's title (hover). */
+.recortado {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* Resultado + Deshacer stay on screen even if a row is wider than the window. */
+.fija {
+  position: sticky;
+  right: 0;
+  min-width: 130px;
+  background: var(--bg-primary);
+  box-shadow: -1px 0 0 var(--border-primary);
+}
+
+thead .fija {
+  z-index: 1;
+  background: var(--bg-secondary);
 }
 
 .ok {
@@ -80,7 +125,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
-  justify-content: flex-end;
+  margin-top: var(--space-2);
 }
 
 .vacio {

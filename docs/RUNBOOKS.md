@@ -1463,7 +1463,7 @@ Writes through MCP need **both** the permission `mcp.escribir` (new, critical, s
 
 #### Turning AI writes off
 - Normal path: Gestión → **Acciones IA** → "Escritura de la IA" switch → Apagada. Stored in `ml_pub_settings` key `mcp_write` (`enabled`; without a row the default is `ML_PUB_MCP_WRITE_ENABLED`, OFF), effective on the next call; API `PUT /api/admin/mcp/escritura {"habilitado": false}` (`mcp.escribir`).
-- Server override (wins over the DB switch, survives a broken settings table): set `MCP_WRITE_KILL_SWITCH=true` in the backend environment and restart. The page then shows the switch locked with "Bloqueado por el servidor (kill switch)" and `GET /api/admin/mcp/escritura` returns `"fuente": "kill_switch"`. `ML_PUB_KILL_SWITCH=true` also forces AI writes off, but it is the broader escape hatch of the ML publications store (it stops its workers too); use it only when everything ML-side must stop.
+- Server override (wins over the DB switch, survives a broken settings table): set `MCP_WRITE_KILL_SWITCH=true` in the backend environment and restart. The page then shows the switch locked with "La escritura de la IA está bloqueada desde el servidor. No se puede encender desde acá." and `GET /api/admin/mcp/escritura` returns `"fuente": "kill_switch"`. `ML_PUB_KILL_SWITCH=true` also forces AI writes off, but it is the broader escape hatch of the ML publications store (it stops its workers too); use it only when everything ML-side must stop.
 - While writes are off, write tools and undo answer 503; reads keep working.
 
 #### Undoing an agent action

@@ -3,7 +3,14 @@ import { accionesIaAPI } from '../services/api';
 import InterruptorEscritura from '../components/accionesIa/InterruptorEscritura';
 import ModalDeshacer from '../components/accionesIa/ModalDeshacer';
 import AntesDespues from '../components/accionesIa/AntesDespues';
-import { RESULTADOS, etiquetaAccion, etiquetaResultado, formatearFecha } from '../components/accionesIa/formato';
+import {
+  RESULTADOS,
+  etiquetaAccion,
+  etiquetaHerramienta,
+  etiquetaResultado,
+  formatearFecha,
+  formatearFechaCompleta,
+} from '../components/accionesIa/formato';
 import styles from './AccionesIa.module.css';
 
 const LIMITE = 50;
@@ -128,12 +135,12 @@ export default function AccionesIa() {
           </select>
         </label>
         <label className={styles.filtro}>
-          <span>Tool</span>
+          <span>Herramienta</span>
           <select value={filtros.tool} onChange={cambiarFiltro('tool')}>
             <option value="">Todas</option>
             {[...opciones.tools].map((tool) => (
               <option key={tool} value={tool}>
-                {tool}
+                {etiquetaHerramienta(tool)}
               </option>
             ))}
           </select>
@@ -167,52 +174,58 @@ export default function AccionesIa() {
 
       {!error && (
         <div className="table-container-tesla">
-          <table className="table-tesla striped">
+          <table className={`table-tesla striped ${styles.tabla}`}>
             <thead className="table-tesla-head">
               <tr>
                 <th>Fecha</th>
-                <th>Usuario</th>
-                <th>Cliente</th>
+                <th>Usuario / cliente</th>
                 <th>Acción</th>
                 <th>Objetivo</th>
                 <th>Antes → después</th>
                 <th>Motivo</th>
-                <th>Resultado</th>
-                <th>
-                  <span className={styles.oculto}>Deshacer</span>
-                </th>
+                <th className={styles.fija}>Resultado</th>
               </tr>
             </thead>
             <tbody className="table-tesla-body">
               {!cargando && datos.items.length === 0 && (
                 <tr>
-                  <td colSpan={9} className={styles.vacio}>
+                  <td colSpan={7} className={styles.vacio}>
                     No hay acciones de la IA con estos filtros.
                   </td>
                 </tr>
               )}
               {datos.items.map((fila) => (
                 <tr key={fila.id}>
-                  <td className={styles.nowrap}>{formatearFecha(fila.created_at)}</td>
-                  <td>{fila.usuario_nombre}</td>
-                  <td>{fila.cliente}</td>
+                  <td className={styles.nowrap}>
+                    <span title={formatearFechaCompleta(fila.created_at)}>{formatearFecha(fila.created_at)}</span>
+                  </td>
+                  <td>
+                    {fila.usuario_nombre}
+                    <span className={styles.secundario}>{fila.cliente}</span>
+                  </td>
                   <td>
                     {etiquetaAccion(fila.accion)}
                     {fila.undo_of_id && <span className={styles.secundario}>Deshace #{fila.undo_of_id}</span>}
                   </td>
-                  <td>{fila.objetivo_label || fila.objetivo}</td>
+                  <td className={styles.objetivo}>
+                    <span className={styles.recortado} title={fila.objetivo_label || fila.objetivo}>
+                      {fila.objetivo_label || fila.objetivo}
+                    </span>
+                  </td>
                   <td>
                     <AntesDespues antes={fila.antes} despues={fila.despues} />
                   </td>
-                  <td className={styles.motivo}>{fila.motivo}</td>
-                  <td>
+                  <td className={styles.motivo}>
+                    <span className={styles.recortado} title={fila.motivo}>
+                      {fila.motivo}
+                    </span>
+                  </td>
+                  <td className={styles.fija}>
                     <span className={fila.resultado === 'ok' ? styles.ok : styles.noOk}>
                       {etiquetaResultado(fila.resultado)}
                     </span>
                     {fila.deshecha && <span className={styles.secundario}>Deshecha</span>}
                     {fila.detalle && <span className={styles.secundario}>{fila.detalle}</span>}
-                  </td>
-                  <td>
                     <div className={styles.botones}>
                       {puedeDeshacer(fila) && (
                         <button

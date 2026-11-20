@@ -17,7 +17,7 @@ Muestra todo lo que una IA conectada (ChatGPT, Claude, Cursor o Gemini CLI) camb
 5. Revisá el plan: cada fila dice **Lista** (se va a deshacer) o **Bloqueada** con el motivo (no se toca). El plan vence a los 15 minutos.
 6. Tocá **Confirmar**. Se muestra el resultado de cada fila y la lista se actualiza: la acción original queda como **Deshecha** y aparece una acción nueva que la deshace.
 
-> Si aparece **Bloqueado por el servidor (kill switch)**, la escritura de la IA está cortada desde el servidor y el interruptor no se puede usar. Avisale a quien administra el servidor.
+> Si aparece **La escritura de la IA está bloqueada desde el servidor. No se puede encender desde acá.**, el interruptor no se puede usar. Avisale a quien administra el servidor.
 
 ## Filtros y columnas
 
@@ -25,18 +25,19 @@ Filtros:
 
 - **Usuario**: quién le pidió el cambio a la IA.
 - **Cliente**: la aplicación de IA (por ejemplo, Claude o ChatGPT).
-- **Tool**: la herramienta que usó la IA (por ejemplo, `precio_lista_cambiar`).
+- **Herramienta**: lo que usó la IA (por ejemplo, **Cambiar precio de lista** o **Aplicar promos que mejoran**).
 - **Resultado**: OK, Rechazada, Bloqueada, Ambigua, Error o Denegada.
 - **Desde** / **Hasta**: rango de fechas.
 
 Columnas:
 
-- **Fecha**, **Usuario**, **Cliente**.
+- **Fecha**: día y hora (por ejemplo, 19/11 14:05). Pasá el mouse para ver el año.
+- **Usuario / cliente**: quién pidió el cambio y, debajo, la aplicación de IA.
 - **Acción**: aplicar o quitar promo, pausar, activar, precio de lista, precio en cuotas, markup masivo o precio mayorista. Si la acción deshace otra, dice **Deshace #** con el número de la original.
-- **Objetivo**: el producto o la publicación.
+- **Objetivo**: el producto o la publicación. Si el nombre es largo se corta; pasá el mouse para verlo entero.
 - **Antes → después**: los valores que cambiaron.
-- **Motivo**: lo que explicó la IA al hacer el cambio.
-- **Resultado**: cómo salió. Debajo puede decir **Deshecha** o el detalle de un rechazo.
+- **Motivo**: lo que explicó la IA al hacer el cambio. Se muestran dos líneas; pasá el mouse para leerlo entero.
+- **Resultado**: cómo salió. Debajo puede decir **Deshecha** o el detalle de un rechazo, y están los botones **Deshacer** y **Deshacer plan**. Esta columna queda siempre visible a la derecha.
 
 ## Botones y acciones
 
@@ -49,7 +50,7 @@ Columnas:
 ## Mensajes que pueden aparecer
 
 - **El plan venció o ya se usó. Prepará uno nuevo.** Pasaron más de 15 minutos o el plan ya se confirmó. Tocá **Preparar** otra vez.
-- **La escritura de la IA está apagada (kill switch): no se puede deshacer ahora.** Deshacer también es una escritura: encendé la escritura o esperá a que el servidor la libere.
+- **La escritura de la IA está apagada: no se puede deshacer ahora.** Deshacer también es una escritura: encendé la escritura o esperá a que el servidor la libere.
 - **No tenés permiso para ver ni deshacer las acciones de la IA (mcp.escribir).** Tu usuario no tiene el permiso.
 - Filas **Bloqueadas** al preparar: por ejemplo **el precio cambió desde la acción** (alguien lo cambió después, así que no se pisa), **ML ya no ofrece esa promo** (no se puede volver a aplicar) o **ya deshecha**.
 

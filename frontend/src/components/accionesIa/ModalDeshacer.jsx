@@ -12,7 +12,7 @@ function mensajeError(err) {
   const detail = err?.response?.data?.detail;
   const textoDetalle = typeof detail === 'string' && detail ? ` (${detail})` : '';
   if (status === 409) return `El plan venció o ya se usó${textoDetalle}. Prepará uno nuevo.`;
-  if (status === 503) return 'La escritura de la IA está apagada (kill switch): no se puede deshacer ahora.';
+  if (status === 503) return 'La escritura de la IA está apagada: no se puede deshacer ahora.';
   if (status === 403) return 'No tenés permiso para deshacer acciones de la IA (mcp.escribir).';
   if (status === 422 && textoDetalle) return `Revisá los datos${textoDetalle}.`;
   return 'No se pudo completar. Probá de nuevo en unos minutos.';
@@ -194,7 +194,7 @@ export default function ModalDeshacer({ objetivo, titulo, onClose, onAplicado })
                 </button>
               )}
               {paso === 'plan' && listas > 0 && (
-                <button type="button" className="btn-tesla outline-subtle-danger sm" disabled={enviando} onClick={confirmar}>
+                <button type="button" className={`btn-tesla sm ${styles.confirmar}`} disabled={enviando} onClick={confirmar}>
                   Confirmar
                 </button>
               )}

@@ -63,3 +63,15 @@
   color: var(--error-text);
   font-size: var(--font-sm);
 }
+
+/* Confirmar: the design system's danger tone (meets WCAG AA in light and dark; the solid gradient does not in dark). */
+.confirmar {
+  background: var(--tone-danger-bg);
+  color: var(--tone-danger-fg);
+  border: 1px solid var(--tone-danger-border);
+  box-shadow: none;
+}
+
+.confirmar:hover:not(:disabled) {
+  border-color: var(--tone-danger-fg);
+}
