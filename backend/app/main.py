@@ -101,6 +101,7 @@ from app.routers import (
     sell_in_bonos,
     sell_in_compras,
     sell_in_lotes,
+    costo_si,
     sell_out_campanas,
     tacticals,
     ml_ads,
@@ -447,6 +448,7 @@ app.include_router(gestion_full.router, prefix="/api")
 app.include_router(sell_in_compras.router, prefix="/api")
 app.include_router(sell_in_bonos.router, prefix="/api")
 app.include_router(sell_in_lotes.router, prefix="/api")
+app.include_router(costo_si.router, prefix="/api")
 app.include_router(sell_out_campanas.router, prefix="/api")
 app.include_router(tacticals.router, prefix="/api")
 app.include_router(ml_publications_view.router, prefix="/api")
