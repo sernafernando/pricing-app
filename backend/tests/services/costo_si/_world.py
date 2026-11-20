@@ -20,8 +20,6 @@ from app.models.costo_si import (
     CostoSiBackup,
     CostoSiDirty,
     CostoSiFacturaTc,
-    CostoSiFullCobertura,
-    CostoSiFullOperacion,
     CostoSiPaso,
     CostoSiStockDiario,
 )
@@ -52,6 +50,18 @@ STUBS = [
     "CREATE TABLE ml_item_product_links (item_id TEXT, variation_id BIGINT DEFAULT 0, producto_item_id INTEGER,"
     " PRIMARY KEY (item_id, variation_id))",
     "CREATE TABLE ml_user_product_stock (user_product_id TEXT PRIMARY KEY, full_quantity INTEGER)",
+    "CREATE TABLE ml_item_variations (item_id TEXT, variation_id BIGINT, user_product_id TEXT, gone_at TIMESTAMPTZ,"
+    " PRIMARY KEY (item_id, variation_id))",
+    # ML sales as the app stores them (only the columns costo SI reads) and the Auditoría's daily stock photo.
+    "CREATE TABLE ml_orders_ops (order_id BIGINT PRIMARY KEY, status TEXT, date_created TIMESTAMPTZ, shipping_id BIGINT)",
+    "CREATE TABLE ml_order_items_ops (id SERIAL PRIMARY KEY, order_id BIGINT NOT NULL, item_id TEXT NOT NULL,"
+    " variation_id BIGINT, quantity INTEGER)",
+    "CREATE TABLE ml_shipments_ops (shipment_id BIGINT PRIMARY KEY, logistic_type TEXT)",
+    # A sell-out line (a tactical's included): only the columns a cost reader could be tempted to read.
+    "CREATE TABLE sell_out_campanas (id BIGSERIAL PRIMARY KEY, tactical_id BIGINT, tactical_linea SMALLINT, tipo TEXT,"
+    " porcentaje NUMERIC(7, 4), monto_unit NUMERIC(18, 2), fecha_desde DATE, fecha_hasta DATE, estado TEXT)",
+    "CREATE TABLE producto_stock_diario (fecha DATE, item_id INTEGER, stock_erp INTEGER DEFAULT 0,"
+    " stock_full INTEGER DEFAULT 0, PRIMARY KEY (fecha, item_id))",
 ]
 
 TABLES = [
@@ -76,8 +86,6 @@ TABLES = [
     CostoSiBackup.__table__,
     CostoSiDirty.__table__,
     CostoSiStockDiario.__table__,
-    CostoSiFullOperacion.__table__,
-    CostoSiFullCobertura.__table__,
     CostoSiFacturaTc.__table__,
 ]
 
@@ -102,6 +110,7 @@ def clean(engine: Engine) -> None:
         for table in (
             "sell_in_compras",
             "sell_in_bonos_marca",
+            "tacticals",
             "pedido_compra_facturas",
             "pedidos_compra",
             "v_facturas_compra_vigentes",
@@ -116,12 +125,16 @@ def clean(engine: Engine) -> None:
             "ml_items",
             "ml_item_product_links",
             "ml_user_product_stock",
+            "ml_item_variations",
+            "ml_orders_ops",
+            "ml_order_items_ops",
+            "ml_shipments_ops",
+            "sell_out_campanas",
+            "producto_stock_diario",
             "tb_item",
             "costo_si_pasos",
             "costo_si_backups",
             "costo_si_stock_diario",
-            "costo_si_full_operaciones",
-            "costo_si_full_cobertura",
             "costo_si_factura_tc",
             "productos_erp",
         ):
@@ -286,16 +299,98 @@ def sell_in_compra(engine: Engine, item_id: int, pedido: int, porcentaje: str, f
     return cid
 
 
-def bono_marca(engine: Engine, porcentaje: str, desde: date, hasta: date, marca: str = MARCA) -> int:
-    """A brand bonus of the sale-cost kind by %, like the loyalty (S6)."""
+def tactical(engine: Engine, desde: date, hasta: date, marca: str = MARCA) -> int:
+    """A sell-in tactical of the brand (the loyalty is loaded through one on prod: bono 94, tactical 38)."""
+    with engine.begin() as conn:
+        return conn.execute(
+            text(
+                "INSERT INTO tacticals (tipo, nombre, marca, fecha_desde, fecha_hasta, moneda, usuario_id) "
+                "VALUES ('sell_in', 'Loyalty', :m, :d, :h, 'ARS', 7) RETURNING id"
+            ),
+            {"m": marca, "d": desde, "h": hasta},
+        ).scalar()
+
+
+def bono_marca(
+    engine: Engine,
+    porcentaje: str,
+    desde: date,
+    hasta: date,
+    marca: str = MARCA,
+    tactical_id: Optional[int] = None,
+    incluye_iva: bool = False,
+) -> int:
+    """A brand bonus of the sale-cost kind by %, like the loyalty (S6); optionally one line of a tactical."""
     with engine.begin() as conn:
         return conn.execute(
             text(
                 "INSERT INTO sell_in_bonos_marca (alcance, marca, tipo, porcentaje, moneda, fecha_desde, fecha_hasta, "
-                "base, usuario_id) VALUES ('marca', :m, 'porcentaje', :p, 'ARS', :d, :h, 'costo_venta', 7) RETURNING id"
+                "base, usuario_id, tactical_id, tactical_linea, incluye_iva) "
+                "VALUES ('marca', :m, 'porcentaje', :p, 'ARS', :d, :h, 'costo_venta', 7, :t, :l, :iva) RETURNING id"
             ),
-            {"m": marca, "p": Decimal(porcentaje), "d": desde, "h": hasta},
+            {
+                "m": marca,
+                "p": Decimal(porcentaje),
+                "d": desde,
+                "h": hasta,
+                "t": tactical_id,
+                "l": 1 if tactical_id is not None else None,
+                "iva": incluye_iva,
+            },
         ).scalar()
+
+
+def bono_modelos(
+    engine: Engine,
+    item_ids: list,
+    tipo: str,
+    valor: str,
+    desde: date,
+    hasta: date,
+    *,
+    tope_unidades: Optional[int] = None,
+    tope_monto: Optional[str] = None,
+    moneda: str = "ARS",
+    tactical_id: Optional[int] = None,
+    incluye_iva: bool = False,
+) -> int:
+    """A sale-cost sell-in line over models, % or per unit, as a tactical loads it (tactical 41 / 54 on prod)."""
+    with engine.begin() as conn:
+        bono = conn.execute(
+            text(
+                "INSERT INTO sell_in_bonos_marca (alcance, tipo, porcentaje, monto_unit, moneda, fecha_desde, fecha_hasta,"
+                " base, usuario_id, tactical_id, tactical_linea, tope_unidades, tope_monto, incluye_iva) "
+                "VALUES ('modelos', :t, :p, :mu, :m, :d, :h, 'costo_venta', 7, :tac, :l, :tu, :tm, :iva) RETURNING id"
+            ),
+            {
+                "t": tipo,
+                "p": Decimal(valor) if tipo == "porcentaje" else None,
+                "mu": Decimal(valor) if tipo == "por_unidad" else None,
+                "m": moneda,
+                "d": desde,
+                "h": hasta,
+                "tac": tactical_id,
+                "l": 1 if tactical_id is not None else None,
+                "tu": tope_unidades,
+                "tm": Decimal(tope_monto) if tope_monto else None,
+                "iva": incluye_iva,
+            },
+        ).scalar()
+    for item_id in item_ids:
+        run(engine, "INSERT INTO sell_in_bono_items (bono_id, item_id) VALUES (:b, :i)", b=bono, i=item_id)
+    return bono
+
+
+def sell_out_tactical(engine: Engine, tactical_id: int, porcentaje: str, desde: date, hasta: date) -> None:
+    run(
+        engine,
+        "INSERT INTO sell_out_campanas (tactical_id, tactical_linea, tipo, porcentaje, fecha_desde, fecha_hasta, estado)"
+        " VALUES (:t, 1, 'porcentaje', :p, :d, :h, 'activa')",
+        t=tactical_id,
+        p=Decimal(porcentaje),
+        d=desde,
+        h=hasta,
+    )
 
 
 def tipo_cambio(engine: Engine, fecha: date, venta: float) -> None:
@@ -314,17 +409,61 @@ def publicacion_full(engine: Engine, mla: str, producto_item_id: int, inventory_
     run(engine, "INSERT INTO ml_user_product_stock VALUES (:up, :q)", up=up, q=full_hoy)
 
 
-def operacion_full(engine: Engine, inventory_id: str, cuando: datetime, tipo: str, delta: int, disponible: int) -> None:
+def publicacion_full_variacion(
+    engine: Engine, mla: str, variation_id: int, producto_item_id: int, full_hoy: int
+) -> None:
+    """A publication with variations whose variation `variation_id` is linked to `producto_item_id`: ML keeps the
+    inventory per variation (its own user product), the item itself has none."""
+    up = f"UP-{mla}-{variation_id}"
+    run(engine, "INSERT INTO ml_items VALUES (:m, NULL, NULL) ON CONFLICT DO NOTHING", m=mla)
     run(
         engine,
-        "INSERT INTO costo_si_full_operaciones (operation_id, inventory_id, date_created, tipo, delta, disponible) "
-        "VALUES (:id, :inv, :c, :t, :d, :r)",
-        id=next(_ids),
-        inv=inventory_id,
-        c=cuando,
-        t=tipo,
-        d=delta,
-        r=disponible,
+        "INSERT INTO ml_item_variations (item_id, variation_id, user_product_id) VALUES (:m, :v, :up)",
+        m=mla,
+        v=variation_id,
+        up=up,
+    )
+    run(
+        engine,
+        "INSERT INTO ml_item_product_links (item_id, variation_id, producto_item_id) VALUES (:m, :v, :p)",
+        m=mla,
+        v=variation_id,
+        p=producto_item_id,
+    )
+    run(engine, "INSERT INTO ml_user_product_stock VALUES (:up, :q)", up=up, q=full_hoy)
+
+
+def venta_ml(
+    engine: Engine,
+    mla: str,
+    cuando: datetime,
+    qty: int,
+    logistic_type: str = "fulfillment",
+    status: str = "paid",
+    variation_id: Optional[int] = None,
+) -> None:
+    """One ML sale of `mla` as the app stores it: order, item and shipment."""
+    order_id = next(_ids)
+    run(engine, "INSERT INTO ml_shipments_ops VALUES (:s, :l)", s=order_id, l=logistic_type)
+    run(engine, "INSERT INTO ml_orders_ops VALUES (:o, :st, :c, :o)", o=order_id, st=status, c=cuando)
+    run(
+        engine,
+        "INSERT INTO ml_order_items_ops (order_id, item_id, variation_id, quantity) VALUES (:o, :m, :v, :q)",
+        o=order_id,
+        m=mla,
+        v=variation_id,
+        q=qty,
+    )
+
+
+def foto_ml(engine: Engine, item_id: int, fecha: date, stock_full: int) -> None:
+    """The Auditoría's daily photo of a product (`stock.snapshot`, 06:00 local): ML's Full stock that morning."""
+    run(
+        engine,
+        "INSERT INTO producto_stock_diario (fecha, item_id, stock_full) VALUES (:f, :i, :s)",
+        f=fecha,
+        i=item_id,
+        s=stock_full,
     )
 
 

@@ -37,7 +37,7 @@ def _clean(engine: Engine) -> Iterator[None]:
 
 def _recalcular(engine: Engine, item_id: int, motivo: str = "test") -> recompute.Resultado:
     with sessionmaker(bind=engine, autoflush=False)() as db:
-        resultado = recompute.recalcular(db, item_id, ml=None, hoy=HOY, motivo=motivo)
+        resultado = recompute.recalcular(db, item_id, motivo=motivo)
         db.commit()
     return resultado
 
@@ -109,6 +109,26 @@ def test_loyalty_is_a_sell_in_on_every_invoice_of_the_brand_from_any_supplier(en
     assert [s["origen"] for s in netos[0][3]] == ["compra", "bono"]
     assert w.pasos(engine, P)[0][1] == date(2026, 10, 1)  # the bonus's fecha_desde is the first sell-in date
     assert w.pasos(engine, OTRA_MARCA) == []  # no sell in ever applied to it: no costo SI
+
+
+def test_a_loyalty_loaded_through_a_tactical_is_a_sell_in_on_every_invoice_of_the_brand(engine: Engine) -> None:
+    """S6 (L5, L7.2: "El loyalty es por marca, aplica a cualquier proveedor"): on prod the TP-Link loyalty is bono 94,
+    a line of tactical 38. Being a tactical's line does not take it out of the average: the invoice gets its 3.6 %,
+    the product starts on the bonus's date and the daily pass queues it."""
+    w.producto(engine, P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "100")
+    tactical = w.tactical(engine, date(2026, 10, 1), date(2026, 12, 31))
+    w.bono_marca(engine, "3.6", date(2026, 10, 1), date(2026, 12, 31), tactical_id=tactical)
+    w.factura(engine, P, date(2026, 10, 8), datetime(2026, 10, 9), 10, "100", previo=0, supp_id=19)
+    with sessionmaker(bind=engine)() as db:
+        assert queue.productos_vigentes(db) == [P]  # the daily pass reaches it through the bonus alone
+
+    _recalcular(engine, P)
+
+    assert w.pasos(engine, P) == [
+        ("inicio", date(2026, 10, 1), 0, 0, D("100.00000"), D("100.00000")),
+        ("compra", date(2026, 10, 8), 10, 0, D("96.40000"), D("96.40000")),
+    ]
 
 
 def test_fx_is_the_pm_correction_then_the_compras_tc_then_the_invoice_date(engine: Engine) -> None:
@@ -187,71 +207,58 @@ def test_principal_is_available_stock_not_physical(engine: Engine) -> None:
         assert fuentes.principal_disponible(db, P, t) == 100 - 7 - 5
 
 
-def test_full_is_mercado_libres_stock_walked_back_never_gbp_depot_17(engine: Engine) -> None:
-    """S3 (owner L8): Full today 30 at ML; 4 sold at Full after the instant (sale confirmation), 10 received before it.
-    GBP depot 17 says 500 and is ignored."""
+def test_full_is_walked_back_from_our_own_ml_stock_sales_and_shipments(engine: Engine) -> None:
+    """S3 (owner L8, L11: "tenemos tanto el stock actual de full como las ventas de full de los últimos días"): Full
+    today 30 at ML; Full sales after the instant add back (4 on 10-15; a cancelled one and a sale shipped from our own
+    depot do not), GBP's remito of 10 units into Full on 10-09 takes them out before it. GBP depot 17's balance (500)
+    and its other movements are never read as Full stock."""
     w.producto(engine, P)
     w.publicacion_full(engine, "MLA1", P, "INV1", full_hoy=30)
-    w.operacion_full(engine, "INV1", datetime(2026, 10, 9, 12, tzinfo=UTC), "INBOUND_RECEPTION", 10, 34)
-    w.operacion_full(engine, "INV1", datetime(2026, 10, 15, 12, tzinfo=UTC), "SALE_CONFIRMATION", -4, 30)
+    w.movimiento(engine, P, datetime(2026, 10, 9, 9), 10, previo=490, sd_id=102, stor_id=17)
+    w.venta_ml(engine, "MLA1", datetime(2026, 10, 15, 12, tzinfo=UTC), 4)
+    w.venta_ml(engine, "MLA1", datetime(2026, 10, 16, 12, tzinfo=UTC), 2, status="cancelled")
+    w.venta_ml(engine, "MLA1", datetime(2026, 10, 17, 12, tzinfo=UTC), 5, logistic_type="self_service")
     w.movimiento(engine, P, datetime(2026, 10, 20), 1, previo=500, stor_id=17)
-    instante = datetime(2026, 10, 10, tzinfo=fuentes.ZONA)
 
     with sessionmaker(bind=engine)() as db:
-        assert full_ml.full_disponible(db, P, instante) == 34
+        assert full_ml.full_disponible(db, P, datetime(2026, 10, 10, tzinfo=fuentes.ZONA)) == 34
         assert full_ml.full_disponible(db, P, datetime(2026, 10, 1, tzinfo=fuentes.ZONA)) == 24
         assert full_ml.full_disponible(db, P, datetime(2026, 11, 1, tzinfo=fuentes.ZONA)) == 30
         assert fuentes.disponible(db, P, date(2026, 10, 10)) == 34  # principal 0 (no depot 1 rows) + Full
 
 
-class _Ml:
-    """ML's operations search, answered from a list; records every call."""
-
-    def __init__(self, ops: list, status: int = 200) -> None:
-        self.ops, self.status, self.calls = ops, status, []
-
-    def get(self, family, path, params=None):
-        self.calls.append(dict(params))
-        desde, hasta = date.fromisoformat(params["date_from"]), date.fromisoformat(params["date_to"])
-        found = [o for o in self.ops if desde <= date.fromisoformat(o["date_created"][:10]) < hasta]
-        return type("R", (), {"status": self.status, "body": {"paging": {"scroll": None}, "results": found}})()
-
-
-def test_full_operations_are_fetched_once_in_windows_of_60_days(engine: Engine) -> None:
+def test_full_of_a_product_linked_per_variation_is_its_variations_full(engine: Engine) -> None:
+    """S3 (L8, L11): a product linked to one variation of a publication with variations (the Auditoría photo counts
+    it the same way). Its Full is that variation's user product, 12 today, plus that variation's Full sales after the
+    instant (3); the sibling variation, linked to another product, never counts (50 at Full, 5 sold)."""
     w.producto(engine, P)
-    w.publicacion_full(engine, "MLA1", P, "INV1", full_hoy=30)
-    ml = _Ml(
-        [
-            {
-                "id": 1,
-                "date_created": "2026-10-15T12:00:00Z",
-                "type": "SALE_CONFIRMATION",
-                "detail": {"available_quantity": -4},
-                "result": {"available_quantity": 30},
-            }
-        ]
-    )
+    w.producto(engine, OTRA_MARCA, marca="OTRA")
+    w.publicacion_full_variacion(engine, "MLA9", 7, P, full_hoy=12)
+    w.publicacion_full_variacion(engine, "MLA9", 8, OTRA_MARCA, full_hoy=50)
+    w.venta_ml(engine, "MLA9", datetime(2026, 10, 15, 12, tzinfo=UTC), 3, variation_id=7)
+    w.venta_ml(engine, "MLA9", datetime(2026, 10, 15, 12, tzinfo=UTC), 5, variation_id=8)
 
     with sessionmaker(bind=engine)() as db:
-        assert full_ml.sincronizar(db, ml, P, date(2026, 8, 1), HOY) == 1
-        db.commit()
-        assert [(c["date_from"], c["date_to"]) for c in ml.calls] == [
-            ("2026-08-01", "2026-09-30"),
-            ("2026-09-30", "2026-11-21"),
-        ]
-        ml.calls.clear()
-        assert full_ml.sincronizar(db, ml, P, date(2026, 8, 1), HOY) == 0  # kept: only the last day again
-        assert [(c["date_from"], c["date_to"]) for c in ml.calls] == [("2026-11-20", "2026-11-21")]
-    assert w.rows(engine, "SELECT delta, disponible FROM costo_si_full_operaciones") == [(-4, 30)]
+        assert full_ml.full_disponible(db, P, datetime(2026, 10, 10, tzinfo=fuentes.ZONA)) == 15
+        assert full_ml.full_disponible(db, P, datetime(2026, 11, 1, tzinfo=fuentes.ZONA)) == 12
+        assert full_ml.full_disponible(db, OTRA_MARCA, datetime(2026, 10, 10, tzinfo=fuentes.ZONA)) == 55
 
 
-def test_an_ml_failure_stops_the_recompute_instead_of_guessing_full(engine: Engine) -> None:
+def test_full_is_walked_back_from_the_next_daily_photo_not_from_today(engine: Engine) -> None:
+    """S3 (L11): ML received 200 units today whose GBP remito is not issued yet (RE200 on 2026-11-20). Walking back
+    from today's 230 would put them in every past day; the walk starts at the first daily photo after the instant
+    (06:00 local), and from today's stock only after the last photo."""
     w.producto(engine, P)
-    w.publicacion_full(engine, "MLA1", P, "INV1", full_hoy=30)
-    w.bono_marca(engine, "1", date(2026, 10, 1), date(2026, 12, 31))
+    w.publicacion_full(engine, "MLA1", P, "INV1", full_hoy=230)
+    w.foto_ml(engine, P, date(2026, 11, 18), 69)
+    w.foto_ml(engine, P, date(2026, 11, 20), 41)
+    w.venta_ml(engine, "MLA1", datetime(2026, 11, 17, 15, tzinfo=UTC), 3)
+    w.venta_ml(engine, "MLA1", datetime(2026, 11, 18, 15, tzinfo=UTC), 28)
 
-    with sessionmaker(bind=engine)() as db, pytest.raises(full_ml.FullNoDisponible):
-        recompute.recalcular(db, P, ml=_Ml([], status=429), hoy=HOY)
+    with sessionmaker(bind=engine)() as db:
+        assert full_ml.full_disponible(db, P, datetime(2026, 11, 17, tzinfo=fuentes.ZONA)) == 72  # 69 + 3
+        assert full_ml.full_disponible(db, P, datetime(2026, 11, 18, 7, tzinfo=fuentes.ZONA)) == 69  # 41 + 28
+        assert full_ml.full_disponible(db, P, datetime(2026, 11, 20, 12, tzinfo=fuentes.ZONA)) == 230
 
 
 def test_combos_never_add_their_stock_to_the_components_and_have_no_history(engine: Engine) -> None:
@@ -304,8 +311,6 @@ def test_a_late_sell_in_recomputes_from_its_date_and_backs_up_what_it_replaces(e
     drenado = queue.drenar(
         sessionmaker(bind=engine, autoflush=False),
         datetime.now(UTC) + timedelta(minutes=1),
-        HOY,
-        ml=None,
         is_transient=lambda exc: False,
     )
     assert (drenado.productos, drenado.cambiados, drenado.fallidos) == (1, 1, {})
@@ -358,8 +363,6 @@ def test_a_failing_product_is_charged_and_the_rest_drain(engine: Engine) -> None
     drenado = queue.drenar(
         sessionmaker(bind=engine, autoflush=False),
         datetime.now(UTC) + timedelta(minutes=1),
-        HOY,
-        ml=None,
         is_transient=lambda exc: False,
     )
 
@@ -395,78 +398,23 @@ def test_encolar_vigentes_queues_every_product_with_a_sell_in_or_a_costo_si(engi
     assert w.encolados(engine) == [(P, None)]
 
 
-def test_the_daily_sync_fetches_each_products_full_from_its_start_and_skips_ml_failures(engine: Engine) -> None:
-    """S3 (L8): `stock.snapshot` (the ML worker) keeps every product's Full operations from its first sell-in date;
-    one product ML fails for does not stop the others."""
-    w.producto(engine, P)
-    w.producto(engine, OTRA_MARCA)
-    w.bono_marca(engine, "1", date(2026, 10, 1), date(2026, 12, 31))
-    w.publicacion_full(engine, "MLA1", P, "INV1", full_hoy=30)
-    w.publicacion_full(engine, "MLA2", OTRA_MARCA, "INV2", full_hoy=5)
-
-    class Mixto(_Ml):
-        def get(self, family, path, params=None):
-            if params["inventory_id"] == "INV2":
-                return type("R", (), {"status": 500, "body": None})()
-            return super().get(family, path, params)
-
-    ml = Mixto(
-        [
-            {
-                "id": 7,
-                "date_created": "2026-10-15T12:00:00Z",
-                "type": "SALE_CONFIRMATION",
-                "detail": {"available_quantity": -1},
-                "result": {"available_quantity": 30},
-            }
-        ]
-    )
-    guardadas, fallidos = full_ml.sincronizar_productos(
-        sessionmaker(bind=engine), ml, [P, OTRA_MARCA], HOY, datetime.now(UTC) + timedelta(minutes=1), fuentes.inicio_de
-    )
-
-    assert (guardadas, list(fallidos)) == (1, [OTRA_MARCA])
-    assert [c["date_from"] for c in ml.calls if c["inventory_id"] == "INV1"][0] == "2026-10-01"  # its start
-    assert w.rows(engine, "SELECT inventory_id, desde, hasta FROM costo_si_full_cobertura") == [
-        ("INV1", date(2026, 10, 1), date(2026, 11, 21))
-    ]
-
-
-def test_sell_drain_waits_for_the_full_operations_instead_of_guessing_them(engine: Engine) -> None:
-    """S3 (L8), verifier B1: a loyalty loaded during the day queues a product with a Full publication before
-    `stock.snapshot` fetched its operations. The drain stores nothing and charges nothing (today's Full is not the
-    Full of 10-01); once the operations are kept from its start through today, it recomputes."""
+def test_sell_drain_recomputes_a_full_product_without_any_ml_call(engine: Engine) -> None:
+    """S3 (L11), and the follow-up of the T2 validation: a loyalty loaded during the day queues a product with a Full
+    publication; the drain recomputes it right away from our own data (nothing at Full moved since 10-01: today's
+    30), instead of waiting for Mercado Libre's operations."""
     w.producto(engine, P)
     w.publicacion_full(engine, "MLA9", P, "INV9", full_hoy=30)
     w.costo_lista(engine, P, datetime(2026, 9, 15, 9), "25")
     w.bono_marca(engine, "3.6", date(2026, 10, 1), date(2026, 12, 31))
 
-    def drenar() -> queue.Drenado:
-        return queue.drenar(
-            sessionmaker(bind=engine, autoflush=False),
-            datetime.now(UTC) + timedelta(minutes=1),
-            HOY,
-            ml=None,
-            is_transient=lambda exc: False,
-        )
-
-    drenado = drenar()
-    assert (drenado.productos, drenado.fallidos, drenado.diferidos) == (0, {}, {P})
-    assert w.pasos(engine, P) == []
-    assert w.rows(engine, "SELECT item_id, attempts FROM costo_si_dirty") == [(P, 0)]
-
-    w.run(  # kept, but only from 10-05: still a guess for 10-01
-        engine,
-        "INSERT INTO costo_si_full_cobertura (inventory_id, desde, hasta) VALUES ('INV9', :d, :h)",
-        d=date(2026, 10, 5),
-        h=HOY + timedelta(days=1),
+    drenado = queue.drenar(
+        sessionmaker(bind=engine, autoflush=False),
+        datetime.now(UTC) + timedelta(minutes=1),
+        is_transient=lambda exc: False,
     )
-    assert drenar().diferidos == {P}
 
-    w.run(engine, "UPDATE costo_si_full_cobertura SET desde = :d", d=date(2026, 10, 1))
-    drenado = drenar()
-    assert (drenado.productos, drenado.diferidos) == (1, set())
-    assert w.pasos(engine, P)[0][2] == 30  # nothing moved at Full since: today's 30 is the stock of 10-01
+    assert (drenado.productos, drenado.fallidos) == (1, {})
+    assert w.pasos(engine, P)[0][2] == 30
     assert w.encolados(engine) == []
 
 
@@ -480,25 +428,6 @@ def test_an_invoice_whose_goods_entered_before_its_date_is_not_counted_twice(eng
     _recalcular(engine, P)
 
     assert w.pasos(engine, P)[1] == ("compra", date(2026, 11, 3), 100, 0, D("19.80000"), D("19.80000"))
-
-
-def test_a_product_whose_daily_sync_breaks_does_not_stop_the_others(engine: Engine) -> None:
-    w.producto(engine, P)
-    w.producto(engine, OTRA_MARCA)
-    w.bono_marca(engine, "1", date(2026, 10, 1), date(2026, 12, 31))
-    w.publicacion_full(engine, "MLA2", OTRA_MARCA, "INV2", full_hoy=5)
-
-    def inicio_de(db, item_id):
-        if item_id == P:
-            raise RuntimeError("broken")
-        return fuentes.inicio_de(db, item_id)
-
-    guardadas, fallidos = full_ml.sincronizar_productos(
-        sessionmaker(bind=engine), _Ml([]), [P, OTRA_MARCA], HOY, datetime.now(UTC) + timedelta(minutes=1), inicio_de
-    )
-
-    assert (guardadas, fallidos) == (0, {P: "RuntimeError: broken"})
-    assert w.rows(engine, "SELECT inventory_id FROM costo_si_full_cobertura") == [("INV2",)]
 
 
 def test_a_photo_cut_by_the_deadline_keeps_the_rest_of_the_days_photo(engine: Engine) -> None:
@@ -516,23 +445,6 @@ def test_a_photo_cut_by_the_deadline_keeps_the_rest_of_the_days_photo(engine: En
         db.commit()
 
     assert w.rows(engine, "SELECT principal FROM costo_si_stock_diario") == [(7,)]
-
-
-def test_the_daily_sync_starts_with_the_products_synced_least_recently(engine: Engine) -> None:
-    """A run cut by its deadline reaches next day the products it left out: never synced first, then the oldest."""
-    for item, inv in ((P, "INV1"), (OTRA_MARCA, "INV2"), (COMBO, "INV3")):
-        w.producto(engine, item)
-        w.publicacion_full(engine, f"MLA-{inv}", item, inv, full_hoy=1)
-    w.run(
-        engine,
-        "INSERT INTO costo_si_full_cobertura (inventory_id, desde, hasta) VALUES ('INV1', :d, :h1), ('INV2', :d, :h2)",
-        d=date(2026, 10, 1),
-        h1=HOY + timedelta(days=1),
-        h2=HOY - timedelta(days=3),
-    )
-
-    with sessionmaker(bind=engine)() as db:
-        assert full_ml.por_antiguedad(db, [P, OTRA_MARCA, COMBO, PC]) == [COMBO, OTRA_MARCA, P, PC]
 
 
 def test_a_credit_note_linked_to_compras_never_moves_the_start(engine: Engine) -> None:
@@ -625,8 +537,6 @@ def test_an_invoice_in_an_unknown_or_mixed_currency_reports_the_product(engine: 
     drenado = queue.drenar(
         sessionmaker(bind=engine, autoflush=False),
         datetime.now(UTC) + timedelta(minutes=1),
-        HOY,
-        ml=None,
         is_transient=lambda exc: False,
     )
 
@@ -650,3 +560,348 @@ def test_a_supplier_credit_note_never_enters_the_cost(engine: Engine) -> None:
     _recalcular(engine, P)
 
     assert w.pasos(engine, P) == sin_nc
+
+
+# ------------------------------------------------------------------------------------------------ L15: every input edit
+# Owner L15: "si alguien edita por alguna razón el sell in de cualquier factura o loyalty o lo que fuera, se tienen que
+# recalcular todos los costos posteriores y los promedios claramente". Each change queues the products it touches from
+# the earliest date it moves (NULL = the whole history); the drain then rebuilds the whole history and rewrites it from
+# the first step that differs (`recompute.guardar`), so every later average follows.
+
+
+def _vaciar_cola(engine: Engine) -> None:
+    w.run(engine, "DELETE FROM costo_si_dirty")
+
+
+def test_every_loyalty_change_queues_its_products_from_the_earliest_date_it_touches(engine: Engine) -> None:
+    """L15 + S6: a loyalty created by a tactical, its % edited, its range moved either way, its brand changed (both
+    brands' products), voided and deleted."""
+    w.producto(engine, P)
+    w.producto(engine, OTRA_MARCA, marca="OTRA")
+    tactical = w.tactical(engine, date(2026, 10, 1), date(2026, 12, 31))
+
+    bono = w.bono_marca(engine, "3.6", date(2026, 10, 1), date(2026, 12, 31), tactical_id=tactical)
+    assert w.encolados(engine) == [(P, date(2026, 10, 1))]
+
+    cambios = [
+        ("porcentaje = 4", [(P, date(2026, 10, 1))]),
+        ("fecha_desde = DATE '2026-09-15'", [(P, date(2026, 9, 15))]),  # moved earlier: from the new date
+        ("fecha_desde = DATE '2026-10-10'", [(P, date(2026, 9, 15))]),  # moved later: from the old date
+        ("fecha_hasta = DATE '2026-11-30'", [(P, date(2026, 10, 10))]),
+        ("marca = 'OTRA'", [(P, date(2026, 10, 10)), (OTRA_MARCA, date(2026, 10, 10))]),
+        ("estado = 'anulada'", [(OTRA_MARCA, date(2026, 10, 10))]),
+    ]
+    for cambio, esperado in cambios:
+        _vaciar_cola(engine)
+        w.run(engine, f"UPDATE sell_in_bonos_marca SET {cambio} WHERE id = :b", b=bono)
+        assert w.encolados(engine) == esperado, cambio
+
+    _vaciar_cola(engine)
+    w.run(engine, "DELETE FROM sell_in_bonos_marca WHERE id = :b", b=bono)
+    assert w.encolados(engine) == [(OTRA_MARCA, date(2026, 10, 10))]
+
+
+def test_every_compras_sell_in_change_queues_its_products_from_the_earliest_date_it_touches(engine: Engine) -> None:
+    """L15 + S5: an invoice's Compras sell in edited (%, purchase date, voided), its product line removed, the whole
+    sell in deleted (whole history: its date is gone with it), and an operation linked to it or unlinked."""
+    w.producto(engine, P)
+    w.run(engine, "INSERT INTO pedidos_compra (id) VALUES (1), (2)")
+    compra = w.sell_in_compra(engine, P, 1, "2", date(2026, 10, 3))
+    assert w.encolados(engine) == [(P, date(2026, 10, 3))]
+
+    for cambio, esperado in (
+        ("porcentaje = 3", date(2026, 10, 3)),
+        ("fecha_compra = DATE '2026-09-20'", date(2026, 9, 20)),
+        ("estado = 'anulada'", date(2026, 9, 20)),
+    ):
+        _vaciar_cola(engine)
+        w.run(engine, f"UPDATE sell_in_compras SET {cambio} WHERE id = :c", c=compra)
+        assert w.encolados(engine) == [(P, esperado)], cambio
+
+    _vaciar_cola(engine)
+    w.run(engine, "INSERT INTO sell_in_compra_pedidos (compra_id, pedido_compra_id) VALUES (:c, 2)", c=compra)
+    assert w.encolados(engine) == [(P, date(2026, 9, 20))]
+    _vaciar_cola(engine)
+    w.run(engine, "DELETE FROM sell_in_compra_pedidos WHERE pedido_compra_id = 2")
+    assert w.encolados(engine) == [(P, date(2026, 9, 20))]
+
+    _vaciar_cola(engine)
+    w.run(engine, "DELETE FROM sell_in_compra_items WHERE compra_id = :c", c=compra)
+    assert w.encolados(engine) == [(P, date(2026, 9, 20))]
+
+    otra = w.sell_in_compra(engine, P, 2, "1", date(2026, 10, 5))
+    _vaciar_cola(engine)
+    w.run(engine, "DELETE FROM sell_in_compras WHERE id = :c", c=otra)
+    assert w.encolados(engine) == [(P, None)]
+
+
+def test_unlinking_an_invoice_or_editing_its_fx_queues_its_products_from_its_date(engine: Engine) -> None:
+    """L15 + S4 / S7: an invoice unlinked from its Compras operation, and a PM FX correction edited or removed."""
+    w.producto(engine, P)
+    ct = w.factura(engine, P, date(2026, 10, 7), datetime(2026, 10, 8), 3, "5", previo=0)
+    w.run(engine, "INSERT INTO pedidos_compra (id) VALUES (77)")
+    w.run(engine, "INSERT INTO pedido_compra_facturas (pedido_id, ct_transaction_id) VALUES (77, :c)", c=ct)
+    w.run(engine, "INSERT INTO costo_si_factura_tc (ct_transaction, tipo_cambio) VALUES (:c, 1500)", c=ct)
+
+    for sql in (
+        "DELETE FROM pedido_compra_facturas WHERE ct_transaction_id = :c",
+        "UPDATE costo_si_factura_tc SET tipo_cambio = 1510 WHERE ct_transaction = :c",
+        "DELETE FROM costo_si_factura_tc WHERE ct_transaction = :c",
+    ):
+        _vaciar_cola(engine)
+        w.run(engine, sql, c=ct)
+        assert w.encolados(engine) == [(P, date(2026, 10, 7))], sql
+
+
+def test_editing_a_loyalty_recomputes_every_average_from_its_date_on_and_keeps_the_ones_before(engine: Engine) -> None:
+    """L15 end to end: Alejandro's L1 product with a 1 % loyalty from 11-03; the PM edits it to 2 %. The drain
+    rewrites B (11-03) and C (11-04) and every average after them, backs them up first, and leaves the start and A
+    (11-02, before the loyalty) exactly as they were."""
+    _l1(engine)
+    bono = w.bono_marca(engine, "1", date(2026, 11, 3), date(2026, 12, 31))
+    _recalcular(engine, P)
+    antes = w.rows(
+        engine,
+        "SELECT id, calculado_at, costo_neto_neto_usd, promedio_usd FROM costo_si_pasos WHERE item_id = :i "
+        "ORDER BY orden",
+        i=P,
+    )
+    _vaciar_cola(engine)
+
+    w.run(engine, "UPDATE sell_in_bonos_marca SET porcentaje = 2 WHERE id = :b", b=bono)
+    drenado = queue.drenar(
+        sessionmaker(bind=engine, autoflush=False),
+        datetime.now(UTC) + timedelta(minutes=1),
+        is_transient=lambda exc: False,
+    )
+
+    despues = w.rows(
+        engine,
+        "SELECT id, calculado_at, costo_neto_neto_usd, promedio_usd FROM costo_si_pasos WHERE item_id = :i "
+        "ORDER BY orden",
+        i=P,
+    )
+    assert (drenado.productos, drenado.cambiados) == (1, 1)
+    assert despues[:2] == antes[:2]  # the start and A: same rows, same timestamps
+    assert [r[2] for r in despues[2:]] == [D("18.60000"), D("20.16000")]  # 20 x (1 - 5 % - 2 %), 21 x (1 - 2 % - 2 %)
+    assert all(d[3] < a[3] for d, a in zip(despues[2:], antes[2:]))  # every later average goes down
+    (backup,) = w.rows(engine, "SELECT desde, pasos FROM costo_si_backups")
+    assert backup[0] == date(2026, 11, 3)
+    assert [p["orden"] for p in backup[1]] == [2, 3]
+
+
+# ------------------------------------------------------------------- tactical sell-in lines (orchestrator decision)
+# L4.2: "si algo se cargo por sell in, es sell in, no se discute": every sell-in line, % or per unit, lowers the cost
+# of the purchases in its scope and range, its topes consumed over the invoices in date order; sell out never does.
+
+
+def _nn(engine: Engine, item_id: int) -> list:
+    """The net-net of each purchase step."""
+    return [r[4] for r in w.pasos(engine, item_id) if r[0] == "compra"]
+
+
+def test_a_capped_percentage_line_covers_only_its_first_units_in_date_order(engine: Engine) -> None:
+    """Tactical 41-like: 6 % on one model, tope 15 units. The first invoice (10 u) takes it whole, the second (10 u)
+    only on 5 of them, so the cap runs out mid-invoice (6 % x 5 / 10 = 3 %), and the third gets nothing."""
+    w.producto(engine, P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "100")
+    w.bono_modelos(engine, [P], "porcentaje", "6", date(2026, 10, 1), date(2026, 12, 31), tope_unidades=15)
+    for dia in (8, 15, 22):
+        w.factura(engine, P, date(2026, 10, dia), datetime(2026, 10, dia), 10, "100", previo=0)
+
+    _recalcular(engine, P)
+
+    assert _nn(engine, P) == [D("94.00000"), D("97.00000"), D("100.00000")]
+
+
+def test_a_cap_shared_by_several_models_goes_to_whichever_was_invoiced_first(engine: Engine) -> None:
+    """The same line over two models: the other model's 10 units invoiced on 10-05 use 10 of the 15, so this
+    product's first invoice gets the % on 5 of its 10 units and the next one nothing."""
+    w.producto(engine, P)
+    w.producto(engine, OTRA_MARCA, marca="OTRA")
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "100")
+    w.bono_modelos(engine, [P, OTRA_MARCA], "porcentaje", "6", date(2026, 10, 1), date(2026, 12, 31), tope_unidades=15)
+    w.factura(engine, OTRA_MARCA, date(2026, 10, 5), datetime(2026, 10, 5), 10, "100", previo=0)
+    w.factura(engine, P, date(2026, 10, 8), datetime(2026, 10, 8), 10, "100", previo=0)
+    w.factura(engine, P, date(2026, 10, 15), datetime(2026, 10, 15), 10, "100", previo=0)
+
+    _recalcular(engine, P)
+
+    assert _nn(engine, P) == [D("97.00000"), D("100.00000")]
+
+
+def test_a_money_cap_stops_the_line_once_its_amount_is_used(engine: Engine) -> None:
+    """10 % with tope USD 150: 100 USD off the first invoice (10 u x 100), the 50 left off the second (5 %), nothing
+    off the third."""
+    w.producto(engine, P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "100")
+    tactical = w.tactical(engine, date(2026, 10, 1), date(2026, 12, 31))
+    w.bono_modelos(
+        engine,
+        [P],
+        "porcentaje",
+        "10",
+        date(2026, 10, 1),
+        date(2026, 12, 31),
+        tope_monto="150",
+        moneda="USD",
+        tactical_id=tactical,
+    )
+    for dia in (8, 15, 22):
+        w.factura(engine, P, date(2026, 10, dia), datetime(2026, 10, dia), 10, "100", previo=0)
+
+    _recalcular(engine, P)
+
+    assert _nn(engine, P) == [D("90.00000"), D("95.00000"), D("100.00000")]
+
+
+def test_a_per_unit_line_takes_its_amount_off_every_purchased_unit(engine: Engine) -> None:
+    """Tactical 54-like (HP BPS, loaded as sell in: T-c): USD 170 per unit of one model. A USD invoice at 1000 ->
+    830; an ARS invoice at the operation's TC 1500 (1,500,000 ARS = 1000 USD) -> 830 too. The daily pass reaches the
+    product through the line alone."""
+    w.producto(engine, P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "1000")
+    tactical = w.tactical(engine, date(2026, 10, 1), date(2026, 12, 31))
+    w.bono_modelos(
+        engine, [P], "por_unidad", "170", date(2026, 10, 1), date(2026, 12, 31), moneda="USD", tactical_id=tactical
+    )
+    w.factura(engine, P, date(2026, 10, 8), datetime(2026, 10, 8), 10, "1000", previo=0)
+    w.factura(
+        engine,
+        P,
+        date(2026, 10, 15),
+        datetime(2026, 10, 15),
+        10,
+        "1500000",
+        previo=0,
+        curr_id=1,
+        pedido=5,
+        tc_pedido="1500",
+    )
+    with sessionmaker(bind=engine)() as db:
+        assert queue.productos_vigentes(db) == [P]
+
+    _recalcular(engine, P)
+
+    assert _nn(engine, P) == [D("830.00000"), D("830.00000")]
+
+
+def test_a_per_unit_amount_with_vat_comes_off_without_it(engine: Engine) -> None:
+    """An ARS per-unit line of 121 with VAT (21 %) is 100 ARS net: at the invoice date's rate (1000) 0.10 USD off a
+    10 USD unit."""
+    w.producto(engine, P)
+    w.run(engine, "UPDATE productos_erp SET iva = 21 WHERE item_id = :i", i=P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "10")
+    w.tipo_cambio(engine, date(2026, 10, 1), 1000)
+    w.bono_modelos(engine, [P], "por_unidad", "121", date(2026, 10, 1), date(2026, 12, 31), incluye_iva=True)
+    w.factura(engine, P, date(2026, 10, 8), datetime(2026, 10, 8), 10, "10", previo=0)
+
+    _recalcular(engine, P)
+
+    assert _nn(engine, P) == [D("9.90000")]
+
+
+def test_a_loyalty_without_topes_applies_on_every_invoice_of_its_range_from_any_supplier(engine: Engine) -> None:
+    """T-a (L5, L7.2): no topes is the loyalty: every invoice of the brand dated in its range, whatever the supplier,
+    and none after it."""
+    w.producto(engine, P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "100")
+    w.bono_marca(engine, "3.6", date(2026, 10, 1), date(2026, 10, 31))
+    w.factura(engine, P, date(2026, 10, 8), datetime(2026, 10, 8), 10, "100", previo=0, supp_id=14)
+    w.factura(engine, P, date(2026, 10, 20), datetime(2026, 10, 20), 500, "100", previo=0, supp_id=19)
+    w.factura(engine, P, date(2026, 11, 5), datetime(2026, 11, 5), 10, "100", previo=0, supp_id=14)
+
+    _recalcular(engine, P)
+
+    assert _nn(engine, P) == [D("96.40000"), D("96.40000"), D("100.00000")]
+
+
+def test_a_tactical_sell_out_line_never_touches_the_cost(engine: Engine) -> None:
+    """T-d (L12: "SO va en la venta, como ganancia adicional"): a tactical's sell-out line (40/35/36 on prod) is on
+    the sale. Loading it queues nothing and the invoice keeps only its sell in (a 1 % loyalty)."""
+    w.producto(engine, P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "100")
+    w.bono_marca(engine, "1", date(2026, 10, 1), date(2026, 12, 31))
+    w.factura(engine, P, date(2026, 10, 8), datetime(2026, 10, 8), 10, "100", previo=0)
+    _vaciar_cola(engine)
+
+    w.sell_out_tactical(
+        engine, w.tactical(engine, date(2026, 10, 1), date(2026, 12, 31)), "10", date(2026, 10, 1), date(2026, 12, 31)
+    )
+    assert w.encolados(engine) == []
+
+    _recalcular(engine, P)
+    assert _nn(engine, P) == [D("99.00000")]
+
+
+def test_editing_a_tope_or_a_per_unit_line_queues_its_products_from_its_date(engine: Engine) -> None:
+    """L15: a tope edit moves which invoices the line covers; a per-unit line is a sell in like a % one."""
+    w.producto(engine, P)
+    w.producto(engine, OTRA_MARCA, marca="OTRA")
+    capado = w.bono_modelos(engine, [P], "porcentaje", "6", date(2026, 10, 1), date(2026, 12, 31), tope_unidades=15)
+    for cambio in ("tope_unidades = 20", "tope_monto = 1000"):
+        _vaciar_cola(engine)
+        w.run(engine, f"UPDATE sell_in_bonos_marca SET {cambio} WHERE id = :b", b=capado)
+        assert w.encolados(engine) == [(P, date(2026, 10, 1))], cambio
+
+    _vaciar_cola(engine)
+    tactical = w.tactical(engine, date(2026, 10, 5), date(2026, 12, 31))
+    unidad = w.bono_modelos(
+        engine,
+        [OTRA_MARCA],
+        "por_unidad",
+        "170",
+        date(2026, 10, 5),
+        date(2026, 12, 31),
+        moneda="USD",
+        tactical_id=tactical,
+    )
+    assert w.encolados(engine) == [(OTRA_MARCA, date(2026, 10, 5))]
+    _vaciar_cola(engine)
+    w.run(engine, "UPDATE sell_in_bonos_marca SET monto_unit = 180 WHERE id = :b", b=unidad)
+    assert w.encolados(engine) == [(OTRA_MARCA, date(2026, 10, 5))]
+
+
+@pytest.mark.parametrize("capado", [False, True], ids=["loyalty", "capped"])
+def test_a_percentage_with_vat_comes_off_without_it_like_on_the_sale(engine: Engine, capado: bool) -> None:
+    """S33 (the sale-cost path's rule: "a la cuenta siempre debería llegar 2,71"): a 3.28 % line with VAT on a 21 %
+    product is 3.28 / 1.21 = 2.7107 % of the net, on a plain line and on a capped one alike."""
+    w.producto(engine, P)
+    w.run(engine, "UPDATE productos_erp SET iva = 21 WHERE item_id = :i", i=P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "100")
+    if capado:
+        w.bono_modelos(
+            engine, [P], "porcentaje", "3.28", date(2026, 10, 1), date(2026, 12, 31), tope_unidades=50, incluye_iva=True
+        )
+    else:
+        w.bono_marca(engine, "3.28", date(2026, 10, 1), date(2026, 12, 31), incluye_iva=True)
+    w.factura(engine, P, date(2026, 10, 8), datetime(2026, 10, 8), 10, "100", previo=0)
+
+    _recalcular(engine, P)
+
+    assert _nn(engine, P) == [D("97.28930")]
+
+
+def test_a_line_never_takes_more_than_the_purchase_and_a_money_cap_counts_only_what_it_took(engine: Engine) -> None:
+    """USD 170 per unit on a USD 100 unit takes the whole 100 (net-net 0, the % stays 100); with a USD 1500 cap the
+    first invoice (10 u) uses 1000 of it, so the 500 left still come off the next one (5 % of 10 x 1000)."""
+    w.producto(engine, P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "100")
+    tactical = w.tactical(engine, date(2026, 10, 1), date(2026, 12, 31))
+    w.bono_modelos(
+        engine,
+        [P],
+        "por_unidad",
+        "170",
+        date(2026, 10, 1),
+        date(2026, 12, 31),
+        tope_monto="1500",
+        moneda="USD",
+        tactical_id=tactical,
+    )
+    w.factura(engine, P, date(2026, 10, 8), datetime(2026, 10, 8), 10, "100", previo=0)
+    w.factura(engine, P, date(2026, 10, 15), datetime(2026, 10, 15), 10, "1000", previo=0)
+
+    _recalcular(engine, P)
+
+    assert _nn(engine, P) == [D("0.00000"), D("950.00000")]

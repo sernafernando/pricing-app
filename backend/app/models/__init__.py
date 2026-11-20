@@ -226,8 +226,6 @@ from app.models.costo_si import (
     CostoSiBackup,
     CostoSiDirty,
     CostoSiFacturaTc,
-    CostoSiFullCobertura,
-    CostoSiFullOperacion,
     CostoSiPaso,
     CostoSiStockDiario,
 )
@@ -595,8 +593,6 @@ __all__ = [
     "CostoSiBackup",
     "CostoSiDirty",
     "CostoSiFacturaTc",
-    "CostoSiFullCobertura",
-    "CostoSiFullOperacion",
     "CostoSiPaso",
     "CostoSiStockDiario",
     "McpWriteAction",
