@@ -1,7 +1,7 @@
 """MCP write actions: plans (plan -> confirm token -> apply), audit of applied rows + mcp.escribir
 
 Revision ID: 20261124_mcp_write_actions
-Revises: 20261123_ml_publicaciones_presets
+Revises: 20261117_permiso_promos_auto_aplicacion
 Create Date: 2026-11-18
 
 Delivery 2 of the MCP server: AI clients may change pricing (promos, list prices, cuotas, mayorista, pause/activate)
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261124_mcp_write_actions"
-down_revision: Union[str, None] = "20261123_ml_publicaciones_presets"
+down_revision: Union[str, None] = "20261117_permiso_promos_auto_aplicacion"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -175,7 +175,7 @@ def _markup_problem(db: Session, row: dict[str, Any], limites: dict[str, float])
         return f"min_markup_pct: markup previsto {markup:.2f}% menor que {limites['min_markup_pct']:g}%"
     band = criteria.band_for(db, {"accion": row["accion"], "objetivo": row["objetivo"]})
     if band == criteria.UNAVAILABLE:
-        return "banda_no_disponible: los criterios de banda (C1) todavía no están disponibles"
+        return "banda_no_disponible: no se pudieron leer los criterios de banda (C1)"
     if isinstance(band, tuple) and not band[0] <= markup <= band[1]:
         return f"fuera_de_banda: markup previsto {markup:.2f}% fuera de la banda {band[0]:g}%..{band[1]:g}%"
     return None

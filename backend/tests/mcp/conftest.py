@@ -178,7 +178,7 @@ def write_enabled(db, monkeypatch):
 
 @pytest.fixture()
 def band_ok(monkeypatch):
-    """A C1 band double (the real one answers 'unavailable' until #2333 is integrated)."""
+    """A wide C1 band double, so tests of other guards do not depend on criteria rows."""
     from app.mcp.write import criteria
 
     monkeypatch.setattr(criteria, "band_for", lambda db, target: (0.0, 1000.0))

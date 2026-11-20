@@ -162,7 +162,34 @@ def test_min_markup_blocks_a_row(mcp_client, conn, fake_app, band_ok, write_enab
     assert plan["filas"][0]["detalle"].startswith("min_markup_pct")
 
 
-def test_band_unavailable_blocks_until_criteria_exist(mcp_client, conn, fake_app, write_enabled):
+def test_real_c1_band_from_criteria_blocks_outside_and_allows_inside(mcp_client, conn, db, fake_app, write_enabled):
+    from decimal import Decimal
+
+    from app.models.ml_hay_mejores_criterios import MlHayMejoresCriterios
+    from app.models.publicacion_ml import PublicacionML
+
+    fake_app.product(101, 1000.0)
+    fake_app.product(102, 1000.0)
+    fake_app.markup_by_price[1050.0] = 30.0
+    fake_app.markup_by_price[1040.0] = 22.0
+    for item_id, mla in ((101, "MLA9101"), (102, "MLA9102")):
+        db.add(PublicacionML(mla=mla, item_id=item_id, pricelist_id=4, activo=True))
+        db.add(
+            MlHayMejoresCriterios(item_id=mla, c1_activo=True, c1_markup_min=Decimal("20"), c1_markup_max=Decimal("25"))
+        )
+    db.commit()
+    _, plan = _plan_price(mcp_client, conn, [{"item_id": 101, "precio": 1050}, {"item_id": 102, "precio": 1040}])
+    assert plan["filas"][0]["estado"] == "bloqueada"
+    assert plan["filas"][0]["detalle"].startswith("fuera_de_banda")
+    assert plan["filas"][1]["estado"] == "lista"
+
+
+def test_unreadable_band_blocks_the_row(mcp_client, conn, fake_app, write_enabled, monkeypatch):
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(criteria, "get_criterios", boom)
+    monkeypatch.setattr(criteria, "mlas_activas", lambda db, item_id: ["MLA9101"])
     fake_app.product(101, 1000.0)
     _, plan = _plan_price(mcp_client, conn, [{"item_id": 101, "precio": 1050}])
     assert plan["filas"][0]["estado"] == "bloqueada"
