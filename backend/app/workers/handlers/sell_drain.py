@@ -148,7 +148,19 @@ class SellDrainHandler:
 
 
 def _drain_costo_si(ctx: WorkerContext) -> dict:
-    """The costo SI queue (module docstring). Only when something is queued: an empty queue costs one query."""
+    """The costo SI queue (module docstring), after the sale lines committed: it never fails the job. Only when
+    something is queued: an empty queue costs one query."""
+    try:
+        return _drenar_costo_si(ctx)
+    except Exception as exc:  # the queue keeps the products; the next wake retries them
+        if is_transient(exc):
+            logger.warning("sell.drain: costo SI pass stopped by a transient error: %s", exc)
+        else:
+            logger.exception("sell.drain: costo SI pass failed")
+        return {"costo_si_error": f"{type(exc).__name__}: {exc}"}
+
+
+def _drenar_costo_si(ctx: WorkerContext) -> dict:
     with get_background_db() as db:
         if db.get_bind().dialect.name != "postgresql" or not costo_si_queue.hay_pendientes(db):
             return {}

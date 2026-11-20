@@ -54,3 +54,16 @@ def test_an_empty_queue_costs_one_query_and_reports_nothing(monkeypatch) -> None
 
     assert module._drain_costo_si(_ctx()) == {}
     assert calls == []
+
+
+def test_a_costo_si_failure_never_fails_the_sales_job(monkeypatch) -> None:
+    """The sale lines already committed: a broken costo SI pass is reported, never raised."""
+    calls: list = []
+    _wire(monkeypatch, True, calls)
+
+    def roto(db):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(module.costo_si_queue, "hay_pendientes", roto)
+
+    assert module._drain_costo_si(_ctx()) == {"costo_si_error": "RuntimeError: boom"}
