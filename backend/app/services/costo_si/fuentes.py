@@ -68,12 +68,14 @@ def es_combo(db: Session, item_id: int) -> bool:
 
 # ---------------------------------------------------------------------------------------------------------- start
 
+# Whether a tactical created it or not: the loyalty is loaded as a tactical's line on prod (bono 94, tactical 38) and
+# it is per brand on every invoice (S6, L7.2).
 _BONOS_SQL = text("""
     SELECT b.id, COALESCE(bi.porcentaje, b.porcentaje) AS pct, b.fecha_desde, b.fecha_hasta
     FROM sell_in_bonos_marca b
     JOIN productos_erp p ON p.item_id = :i
     LEFT JOIN sell_in_bono_items bi ON bi.bono_id = b.id AND bi.item_id = :i
-    WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo = 'porcentaje' AND b.tactical_id IS NULL
+    WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo = 'porcentaje'
       AND ((b.alcance = 'marca' AND p.marca = b.marca AND (b.categoria IS NULL OR p.categoria = b.categoria))
         OR (b.alcance = 'categoria' AND p.categoria = b.categoria)
         OR (b.alcance = 'modelos' AND bi.id IS NOT NULL))

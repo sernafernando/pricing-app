@@ -20,13 +20,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional, Set
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.services.costo_si import full_ml, recompute
+from app.services.costo_si import recompute
 
 logger = logging.getLogger(__name__)
 
@@ -264,9 +264,9 @@ _VIGENTES_SQL = """
     UNION SELECT p.item_id FROM sell_in_bonos_marca b JOIN productos_erp p
             ON (b.alcance = 'marca' AND p.marca = b.marca AND (b.categoria IS NULL OR p.categoria = b.categoria))
             OR (b.alcance = 'categoria' AND p.categoria = b.categoria)
-          WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo = 'porcentaje' AND b.tactical_id IS NULL
+          WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo = 'porcentaje'
     UNION SELECT bi.item_id FROM sell_in_bono_items bi JOIN sell_in_bonos_marca b ON b.id = bi.bono_id
-          WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo = 'porcentaje' AND b.tactical_id IS NULL
+          WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo = 'porcentaje'
 """
 
 
@@ -328,39 +328,32 @@ class Drenado:
     productos: int = 0
     cambiados: int = 0
     fallidos: Dict[int, str] = field(default_factory=dict)
-    diferidos: Set[int] = field(default_factory=set)  # Full operations not kept yet: left queued, not charged
 
 
 def drenar(
     session_factory: Callable[[], object],
     deadline: datetime,
-    hoy: date,
     *,
-    ml: Optional[full_ml.ClienteMl],
     is_transient: Callable[[BaseException], bool],
 ) -> Drenado:
     """Recomputes the queued products, one per transaction, until the queue is empty or the deadline passes. A product
     that fails is charged in its own transaction and not retried in this run; it parks after `MAX_ATTEMPTS` until a
-    new change re-queues it. A transient error charges nothing and stops the run. A product whose Full operations
-    are not kept yet stays queued, uncharged, until `stock.snapshot` fetches them and re-queues it."""
+    new change re-queues it. A transient error charges nothing and stops the run."""
     out = Drenado()
     while datetime.now(timezone.utc) < deadline:
         item_id: Optional[int] = None
         try:
             with session_factory() as db:
-                fila = _reclamar(db, set(out.fallidos) | out.diferidos)
+                fila = _reclamar(db, set(out.fallidos))
                 if fila is None:
                     break
                 item_id, desde = int(fila[0]), fila[1]
                 motivo = f"recalculo desde {desde.isoformat()}" if desde else "recalculo completo"
-                resultado = recompute.recalcular(db, item_id, ml=ml, hoy=hoy, motivo=motivo)
+                resultado = recompute.recalcular(db, item_id, motivo=motivo)
                 db.execute(text("DELETE FROM costo_si_dirty WHERE item_id = :i"), {"i": item_id})
                 db.commit()
             out.productos += 1
             out.cambiados += 1 if resultado.desde is not None else 0
-        except full_ml.FullPendiente as exc:
-            logger.info("costo_si: %s; waiting for stock.snapshot", exc)
-            out.diferidos.add(item_id)
         except Exception as exc:
             if item_id is None:
                 raise  # nothing was claimed: not a product's fault

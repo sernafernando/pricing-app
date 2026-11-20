@@ -52,6 +52,12 @@ STUBS = [
     "CREATE TABLE ml_item_product_links (item_id TEXT, variation_id BIGINT DEFAULT 0, producto_item_id INTEGER,"
     " PRIMARY KEY (item_id, variation_id))",
     "CREATE TABLE ml_user_product_stock (user_product_id TEXT PRIMARY KEY, full_quantity INTEGER)",
+    # ML sales as the app stores them (only the columns costo SI reads) and the Auditoría's daily stock photo.
+    "CREATE TABLE ml_orders_ops (order_id BIGINT PRIMARY KEY, status TEXT, date_created TIMESTAMPTZ, shipping_id BIGINT)",
+    "CREATE TABLE ml_order_items_ops (id SERIAL PRIMARY KEY, order_id BIGINT NOT NULL, item_id TEXT NOT NULL, quantity INTEGER)",
+    "CREATE TABLE ml_shipments_ops (shipment_id BIGINT PRIMARY KEY, logistic_type TEXT)",
+    "CREATE TABLE producto_stock_diario (fecha DATE, item_id INTEGER, stock_erp INTEGER DEFAULT 0,"
+    " stock_full INTEGER DEFAULT 0, PRIMARY KEY (fecha, item_id))",
 ]
 
 TABLES = [
@@ -102,6 +108,7 @@ def clean(engine: Engine) -> None:
         for table in (
             "sell_in_compras",
             "sell_in_bonos_marca",
+            "tacticals",
             "pedido_compra_facturas",
             "pedidos_compra",
             "v_facturas_compra_vigentes",
@@ -116,6 +123,10 @@ def clean(engine: Engine) -> None:
             "ml_items",
             "ml_item_product_links",
             "ml_user_product_stock",
+            "ml_orders_ops",
+            "ml_order_items_ops",
+            "ml_shipments_ops",
+            "producto_stock_diario",
             "tb_item",
             "costo_si_pasos",
             "costo_si_backups",
@@ -286,15 +297,42 @@ def sell_in_compra(engine: Engine, item_id: int, pedido: int, porcentaje: str, f
     return cid
 
 
-def bono_marca(engine: Engine, porcentaje: str, desde: date, hasta: date, marca: str = MARCA) -> int:
-    """A brand bonus of the sale-cost kind by %, like the loyalty (S6)."""
+def tactical(engine: Engine, desde: date, hasta: date, marca: str = MARCA) -> int:
+    """A sell-in tactical of the brand (the loyalty is loaded through one on prod: bono 94, tactical 38)."""
+    with engine.begin() as conn:
+        return conn.execute(
+            text(
+                "INSERT INTO tacticals (tipo, nombre, marca, fecha_desde, fecha_hasta, moneda, usuario_id) "
+                "VALUES ('sell_in', 'Loyalty', :m, :d, :h, 'ARS', 7) RETURNING id"
+            ),
+            {"m": marca, "d": desde, "h": hasta},
+        ).scalar()
+
+
+def bono_marca(
+    engine: Engine,
+    porcentaje: str,
+    desde: date,
+    hasta: date,
+    marca: str = MARCA,
+    tactical_id: Optional[int] = None,
+) -> int:
+    """A brand bonus of the sale-cost kind by %, like the loyalty (S6); optionally one line of a tactical."""
     with engine.begin() as conn:
         return conn.execute(
             text(
                 "INSERT INTO sell_in_bonos_marca (alcance, marca, tipo, porcentaje, moneda, fecha_desde, fecha_hasta, "
-                "base, usuario_id) VALUES ('marca', :m, 'porcentaje', :p, 'ARS', :d, :h, 'costo_venta', 7) RETURNING id"
+                "base, usuario_id, tactical_id, tactical_linea) "
+                "VALUES ('marca', :m, 'porcentaje', :p, 'ARS', :d, :h, 'costo_venta', 7, :t, :l) RETURNING id"
             ),
-            {"m": marca, "p": Decimal(porcentaje), "d": desde, "h": hasta},
+            {
+                "m": marca,
+                "p": Decimal(porcentaje),
+                "d": desde,
+                "h": hasta,
+                "t": tactical_id,
+                "l": 1 if tactical_id is not None else None,
+            },
         ).scalar()
 
 
@@ -312,6 +350,33 @@ def publicacion_full(engine: Engine, mla: str, producto_item_id: int, inventory_
         p=producto_item_id,
     )
     run(engine, "INSERT INTO ml_user_product_stock VALUES (:up, :q)", up=up, q=full_hoy)
+
+
+def venta_ml(
+    engine: Engine, mla: str, cuando: datetime, qty: int, logistic_type: str = "fulfillment", status: str = "paid"
+) -> None:
+    """One ML sale of `mla` as the app stores it: order, item and shipment."""
+    order_id = next(_ids)
+    run(engine, "INSERT INTO ml_shipments_ops VALUES (:s, :l)", s=order_id, l=logistic_type)
+    run(engine, "INSERT INTO ml_orders_ops VALUES (:o, :st, :c, :o)", o=order_id, st=status, c=cuando)
+    run(
+        engine,
+        "INSERT INTO ml_order_items_ops (order_id, item_id, quantity) VALUES (:o, :m, :q)",
+        o=order_id,
+        m=mla,
+        q=qty,
+    )
+
+
+def foto_ml(engine: Engine, item_id: int, fecha: date, stock_full: int) -> None:
+    """The Auditoría's daily photo of a product (`stock.snapshot`, 06:00 local): ML's Full stock that morning."""
+    run(
+        engine,
+        "INSERT INTO producto_stock_diario (fecha, item_id, stock_full) VALUES (:f, :i, :s)",
+        f=fecha,
+        i=item_id,
+        s=stock_full,
+    )
 
 
 def operacion_full(engine: Engine, inventory_id: str, cuando: datetime, tipo: str, delta: int, disponible: int) -> None:

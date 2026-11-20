@@ -7,8 +7,9 @@
 - `costo_si_dirty`: the products to recompute and from which date; drained by `sell.drain`, no cron.
 - `costo_si_stock_diario`: the daily photo of AVAILABLE stock, principal (GBP) and Full (Mercado Libre), so the
   reconstruction is only needed for the past (S3 decision).
-- `costo_si_full_operaciones` / `costo_si_full_cobertura`: Mercado Libre's Full stock operations per `inventory_id`
-  (`/stock/fulfillment/operations/search`, ML keeps 12 months) and which dates were already fetched (S3, L8).
+- `costo_si_full_operaciones` / `costo_si_full_cobertura`: no longer written or read. They kept Mercado Libre's Full
+  stock operations; the Full is now rebuilt from the ML stock and sales the app already stores (`full_ml`, owner
+  L11). Dropping them needs a migration of its own.
 - `costo_si_factura_tc`: a PM's FX correction for one purchase invoice (S4, L4.5).
 """
 

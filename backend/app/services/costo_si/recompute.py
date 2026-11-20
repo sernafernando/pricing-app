@@ -18,7 +18,7 @@ from typing import Any, List, Optional, Sequence
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.services.costo_si import fuentes, full_ml
+from app.services.costo_si import fuentes
 from app.services.costo_si.engine import Paso, calcular
 
 LOCK_CLASS = 2026_1125  # pg_advisory_xact_lock(class, item_id): one recompute per product at a time
@@ -129,22 +129,9 @@ def guardar(db: Session, item_id: int, pasos: Sequence[Paso], motivo: str) -> Re
     return Resultado(item_id, len(nuevos), len(viejos), desde)
 
 
-def recalcular(
-    db: Session,
-    item_id: int,
-    *,
-    ml: Optional[full_ml.ClienteMl],
-    hoy: date,
-    motivo: str = "recalculo",
-) -> Resultado:
-    """Recompute `item_id` from its first sell-in date and store it. `ml` fetches the Full operations still missing
-    (None: use only what is kept). Raises `full_ml.FullPendiente`, writing nothing, while those operations are not
-    kept from the start through today. Does not commit."""
-    inicio = fuentes.inicio_de(db, item_id)
-    if inicio is not None:
-        if ml is not None:
-            full_ml.sincronizar(db, ml, item_id, inicio, hoy)
-        full_ml.exigir_cobertura(db, item_id, inicio, hoy)
+def recalcular(db: Session, item_id: int, *, motivo: str = "recalculo") -> Resultado:
+    """Recompute `item_id` from its first sell-in date and store it. Reads only the app's own data (Full included:
+    `full_ml`). Does not commit."""
     entrada = fuentes.entrada(db, item_id)
     pasos = calcular(entrada.inicio, entrada.compras) if entrada is not None else []
     return guardar(db, item_id, pasos, motivo)

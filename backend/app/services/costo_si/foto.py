@@ -1,8 +1,8 @@
 """The daily photo of AVAILABLE stock for costo SI (S3 decision: "from T2 on keep a daily snapshot of available stock
 so reconstruction is only for the past").
 
-Taken by the existing `stock.snapshot` job (06:00, after it fetched the day's Full operations) for every product that
-has a costo SI, at 00:00 of its day, the instant the engine reads it for: principal = GBP depot 1 available
+Taken by the existing `stock.snapshot` job (06:00, right after the Auditoría's photo of ML's Full) for every product
+that has a costo SI, at 00:00 of its day, the instant the engine reads it for: principal = GBP depot 1 available
 (`fuentes.principal_disponible`), Full = Mercado Libre's Full walked back to that instant (`full_ml.full_disponible`).
 Once taken it is read instead of the reconstruction, so later mirror rewrites cannot move a closed day. Taking a day
 again replaces it.

@@ -37,7 +37,7 @@ blocks sell in (`_fan_out_sell_out`); `sell_out.drain` rebuilds them.
 After the sale lines, the same run drains the costo SI queue (`costo_si_dirty`, sell-in-costo-si T2: a sell in, a
 bonus or a purchase link changed), one product per transaction (`costo_si.queue.drenar`); its triggers notify this
 same channel. A costo SI failure is charged to its product and never to the sale lines. It never calls Mercado Libre
-(this is the sales worker): the Full operations it reads are fetched daily by `stock.snapshot` in the ML worker.
+(this is the sales worker): costo SI's Full comes from the ML stock and sales the app already stores (`full_ml`).
 Wired like `tp_cost.fill`:
 `channels=("sell_dirty",)` with no `interval`/`run_at_local`, so
 `WorkerRuntime.drain_once` runs it on every LISTEN wake and on every safety
@@ -164,18 +164,11 @@ def _drenar_costo_si(ctx: WorkerContext) -> dict:
     with get_background_db() as db:
         if db.get_bind().dialect.name != "postgresql" or not costo_si_queue.hay_pendientes(db):
             return {}
-    from app.services.ml_daily_metrics import board
-
-    # ml=None: this is the sales worker, it never calls ML (design D1). The Full operations it reads were fetched by
-    # `stock.snapshot` in the ML worker.
-    drenado = costo_si_queue.drenar(
-        get_background_db, ctx.deadline, board.today_business(), ml=None, is_transient=is_transient
-    )
+    drenado = costo_si_queue.drenar(get_background_db, ctx.deadline, is_transient=is_transient)
     return {
         "costo_si": drenado.productos,
         "costo_si_cambiados": drenado.cambiados,
         "costo_si_fallidos": len(drenado.fallidos),
-        "costo_si_diferidos": len(drenado.diferidos),  # Full operations not kept yet (stock.snapshot fetches them)
     }
 
 
