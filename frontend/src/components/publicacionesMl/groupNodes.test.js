@@ -68,6 +68,13 @@ describe('readNode', () => {
     expect(hidden.markup).toBeNull();
   });
 
+  it('reads the range with sell in / sell out only with ver_ganancia, null when absent', () => {
+    const raw = { ...RAW_BRAND, markup_min: 1, markup_max: 2, markup_siso_min: -1.5, markup_siso_max: 30 };
+    expect(readNode(raw, { canSeeMargin: true }).markupSiso).toEqual({ min: -1.5, max: 30 });
+    expect(readNode(raw, { canSeeMargin: false }).markupSiso).toBeNull();
+    expect(readNode(RAW_BRAND, { canSeeMargin: true }).markupSiso).toBeNull();
+  });
+
   it('never invents an aggregate the backend did not send', () => {
     const node = readNode(RAW_BRAND, { canSeeMargin: true });
     expect(node.negativeCount).toBeNull();

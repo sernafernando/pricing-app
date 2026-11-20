@@ -37,15 +37,14 @@ export function auditMarkup(range) {
 const quantityOf = (variant) => Number(variant.cantidad) || 1;
 export const isPack = (variant) => variant.tipo === 'pack' && quantityOf(variant) !== 1;
 
-/** What a base row's Full and 30D sales got from its variants (in base units), and how to say where from:
+/** What a base row's Full got from its variants (in base units), and how to say where from:
  * "del pack x2" when it is all one pack, "de variantes" otherwise. */
 export function fromVariants(row) {
   const full = row.variantes.reduce((sum, v) => sum + (v.full_unidades_base ?? 0), 0);
-  const sold = row.variantes.reduce((sum, v) => sum + (v.ventas?.unidades_30d ?? 0) * quantityOf(v), 0);
   const contributing = row.variantes.filter((v) => (v.full_unidades_base ?? 0) > 0 || (v.ventas?.unidades_30d ?? 0) > 0);
   const only = contributing.length === 1 ? contributing[0] : null;
   const source = only && only.tipo === 'pack' ? `del pack x${quantityOf(only)}` : 'de variantes';
-  return { full, sold, source };
+  return { full, source };
 }
 
 /** Units of `product` at its cost, in USD and ARS at `rate` (ARS per USD); null where unknown. */
@@ -60,7 +59,7 @@ export function valueOf(units, { costo, moneda_costo: moneda }, rate) {
  * `factor` turns a pack's into them, so ERP + Full is the total the row shows. Null without it. */
 export function salesSplit(window, factor = 1) {
   if (!window) return null;
-  return { erp: window.erp * factor, full: window.full * factor, sinEnvio: (window.sin_envio ?? 0) * factor };
+  return { erp: window.erp * factor, full: window.full * factor };
 }
 
 export const GROUP_TYPES = new Set(['marca', 'categoria']);

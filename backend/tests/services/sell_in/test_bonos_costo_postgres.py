@@ -476,3 +476,24 @@ class TestMarcaYCategoria:
         _items(engine, 2964, 2270, 950)
 
         assert _filas(engine) == [(bono, router, 2964, 1, Decimal("30.00"))]
+
+
+@pytest.mark.postgres
+class TestPc:
+    """L-owner-2 (2026-11-18): a combo of the PC category is its own product for cost bonuses too (Auditoría's rule)."""
+
+    def test_a_pc_sale_takes_the_pcs_own_bonus_and_none_of_its_components(self, engine: Engine) -> None:
+        w.combo(engine, 2270, {950: 1, 2964: 2})
+        with engine.begin() as conn:
+            conn.execute(text("INSERT INTO tb_item (comp_id, item_id, item_code, cat_id) VALUES (1, 2270, 'PC', 47)"))
+        try:
+            bono = b.bono_costo(engine, "3.00", alcance="modelos", marca=None, modelos=(2270, 2964, 950))
+            ref = _fuera(engine, 2270, 1, D(2026, 10, 5))  # the PC's recorded cost: 1000.00
+
+            _items(engine, 950, 2964, 2270)
+
+            assert _filas(engine) == [(bono, ref, 2270, 1, Decimal("30.00"))]  # 3 % of the PC's own 1000.00
+        finally:
+            with engine.begin() as conn:
+                conn.execute(text("DELETE FROM tb_item"))
+                conn.execute(text("DELETE FROM combo_componentes WHERE combo_item_id <> 999999001"))

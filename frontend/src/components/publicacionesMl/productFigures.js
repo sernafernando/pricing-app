@@ -5,6 +5,7 @@ export const PRODUCT_FIGURES = new Set([
   'unidades_30d',
   'units_trend',
   'markup_30d',
+  'markup_sell_30d',
   'markup_trend',
   'facturado_30d',
   'total_gauss_30d',

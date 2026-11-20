@@ -2,10 +2,12 @@
 ModalEditarCosto, stored apart from the replaceable PDF rows (`ventas_fuera_linea_overrides`, keyed by the document's
 natural key + `renglon`).
 
-- Applying a fix writes the line: `item_id` (origin 'manual') and `precio_costo = costo_unitario x cantidad /
-  COSTO_D_FACTOR`, so the Costo D the board and the list show is exactly the cost typed (VARIOS included) and the
-  "Costo" basis shows it without the 6.5%; `precio_costo_pdf` keeps the PDF's. T4's trigger on the lines queues the
-  line for offsets and sell in / sell out; metrics read the lines, so they follow.
+- Applying a fix writes the line: `item_id` (origin 'manual') and `precio_costo = costo_unitario x cantidad`: the
+  cost saved (typed x (1 + the optional %), owner L4) is the line's Precio Costo, and Costo D (x COSTO_D_FACTOR)
+  applies on top like on any PDF line. Without a manual cost the line's Precio Costo is the ERP cost of its product
+  (`costo_erp`, vpf-costo-d-erp L3), also after a product is assigned, remembered or the fix removed;
+  `precio_costo_pdf` keeps the PDF's only as a reference. T4's trigger on the lines queues the line for offsets and
+  sell in / sell out; metrics read the lines, so they follow.
 - Owner L2: "hay que hacerle que se persista la data si cargan de nuevo un pdf que sobreescriba la venta". A
   re-upload re-applies each fix whose line snapshot (codigo, articulo, cantidad, precio) is unchanged ('aplicado');
   a changed (or missing) line keeps the PDF's values and the fix is kept with estado 'revisar', never dropped nor
@@ -14,6 +16,7 @@ natural key + `renglon`).
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
@@ -27,6 +30,7 @@ from app.models.venta_fuera_pdf import (
     VentaFueraOperacion,
     VentaFueraOperacionLinea,
 )
+from app.services.ventas_fuera_pdf.costo_erp import costos_unitarios, precio_costo, precio_costo_erp
 from app.services.ventas_fuera_pdf.resolucion import (
     ORIGEN_MANUAL,
     ORIGEN_MAPEO,
@@ -36,7 +40,6 @@ from app.services.ventas_fuera_pdf.resolucion import (
     item_existe,
     resolver,
 )
-from app.services.ventas_fuera_pdf.ventas import COSTO_D_FACTOR
 
 APLICADO, REVISAR = "aplicado", "revisar"
 CENTAVO = Decimal("0.01")
@@ -57,8 +60,9 @@ class OverrideInvalido(ValueError):
 
 
 def precio_costo_manual(costo_unitario: Decimal, cantidad: Decimal) -> Decimal:
-    """The line total cost whose Costo D is `costo_unitario` x `cantidad`."""
-    return (Decimal(costo_unitario) * Decimal(cantidad) / COSTO_D_FACTOR).quantize(CENTAVO, rounding=ROUND_HALF_UP)
+    """The line's Precio Costo for a manual unit cost: `costo_unitario` x `cantidad` (owner L4: the list adds Costo D
+    x COSTO_D_FACTOR on top)."""
+    return (Decimal(costo_unitario) * Decimal(cantidad)).quantize(CENTAVO, rounding=ROUND_HALF_UP)
 
 
 def _snapshot_igual(override: VentaFueraLineaOverride, linea: VentaFueraOperacionLinea) -> bool:
@@ -80,14 +84,28 @@ def _automatico(linea: VentaFueraOperacionLinea, resolucion: Optional[Resolucion
     linea.item_origen = resolucion.origen if resolucion else None
 
 
-def _costo_pdf(linea: VentaFueraOperacionLinea) -> Decimal:
-    return linea.precio_costo_pdf if linea.precio_costo_pdf is not None else linea.precio_costo
+Costos = dict[tuple[int, date], Decimal]
+
+
+def _costo_erp(db: Session, linea: VentaFueraOperacionLinea, costos: Optional[Costos] = None) -> Decimal:
+    """The line's Precio Costo from the ERP cost list of its current product and sale date (0 without product).
+    `costos`: unit costs already fetched in one batch (`costos_unitarios`), so a loop does not query per line."""
+    if costos is None:
+        return precio_costo_erp(db, linea.item_id, linea.operacion.fecha, linea.cantidad)
+    if linea.item_id is None:
+        return precio_costo(None, linea.cantidad)
+    return precio_costo(costos.get((linea.item_id, linea.operacion.fecha)), linea.cantidad)
 
 
 def aplicar(
-    linea: VentaFueraOperacionLinea, override: VentaFueraLineaOverride, resolucion: Optional[Resolucion]
+    db: Session,
+    linea: VentaFueraOperacionLinea,
+    override: VentaFueraLineaOverride,
+    resolucion: Optional[Resolucion],
+    costos: Optional[Costos] = None,
 ) -> None:
-    """Write the fix on the line (`resolucion`: the automatic product, used when the fix sets none)."""
+    """Write the fix on the line (`resolucion`: the automatic product, used when the fix sets none; `costos`: ERP
+    unit costs fetched in one batch, see `_costo_erp`)."""
     if linea.precio_costo_pdf is None:
         linea.precio_costo_pdf = linea.precio_costo
     if override.item_id is not None:
@@ -97,7 +115,7 @@ def aplicar(
     linea.precio_costo = (
         precio_costo_manual(override.costo_unitario, linea.cantidad)
         if override.costo_unitario is not None
-        else _costo_pdf(linea)
+        else _costo_erp(db, linea, costos)
     )
     linea.override_estado = override.estado = APLICADO
 
@@ -121,13 +139,27 @@ def aplicar_en_carga(
             ).in_(list(lineas)),
         )
     ).scalars()
-    aplicados = revisar = 0
+    pares = []
     for override in overrides:
         clave = (override.tipo, override.letra, override.punto_venta, override.numero)
         linea = next((ln for ln in lineas[clave] if ln.renglon == override.renglon), None)
+        pares.append((override, linea))
+    # One query for the ERP cost of every line a fix re-applies without a manual cost (its product or the fix's).
+    costos = costos_unitarios(
+        db,
+        [
+            (override.item_id if override.item_id is not None else linea.item_id, linea.operacion.fecha)
+            for override, linea in pares
+            if linea is not None
+            and override.costo_unitario is None
+            and (override.item_id is not None or linea.item_id is not None)
+        ],
+    )
+    aplicados = revisar = 0
+    for override, linea in pares:
         if linea is not None and _snapshot_igual(override, linea):
             automatica = Resolucion(linea.item_id, linea.item_origen) if linea.item_id is not None else None
-            aplicar(linea, override, automatica)
+            aplicar(db, linea, override, automatica, costos)
             aplicados += 1
         else:
             override.estado = REVISAR
@@ -198,7 +230,7 @@ def guardar(
         raise OverrideInvalido("Para recordar el producto en las próximas cargas hay que asignar uno")
     override.usuario_id = usuario_id
     _tomar_snapshot(override, linea)
-    aplicar(linea, override, _resolucion(db, linea))
+    aplicar(db, linea, override, _resolucion(db, linea))
     if recordar_mapeo:
         _recordar(db, linea, override.item_id, usuario_id)
     db.commit()
@@ -215,26 +247,61 @@ def _recordar(db: Session, linea: VentaFueraOperacionLinea, item_id: int, usuari
             set_={"item_id": item_id, "usuario_id": usuario_id, "updated_at": func.now()},
         )
     )
-    otras = db.execute(
-        select(VentaFueraOperacionLinea).where(
-            VentaFueraOperacionLinea.item_id.is_(None),
-            VentaFueraOperacionLinea.id != linea.id,
-            clave_mapeo_sql(VentaFueraOperacionLinea.codigo, VentaFueraOperacionLinea.articulo) == clave,
+    otras = (
+        db.execute(
+            select(VentaFueraOperacionLinea).where(
+                VentaFueraOperacionLinea.item_id.is_(None),
+                VentaFueraOperacionLinea.id != linea.id,
+                clave_mapeo_sql(VentaFueraOperacionLinea.codigo, VentaFueraOperacionLinea.articulo) == clave,
+            )
         )
-    ).scalars()
+        .scalars()
+        .all()
+    )
+    if not otras:
+        return
+    # One query for their applied manual costs and one for their ERP costs, not two per line.
+    con_costo_manual = {
+        tuple(fila)
+        for fila in db.execute(
+            select(
+                VentaFueraLineaOverride.empresa,
+                VentaFueraLineaOverride.tipo,
+                VentaFueraLineaOverride.letra,
+                VentaFueraLineaOverride.punto_venta,
+                VentaFueraLineaOverride.numero,
+                VentaFueraLineaOverride.renglon,
+            ).where(
+                VentaFueraLineaOverride.costo_unitario.is_not(None),
+                VentaFueraLineaOverride.estado == APLICADO,
+                tuple_(
+                    VentaFueraLineaOverride.empresa,
+                    VentaFueraLineaOverride.tipo,
+                    VentaFueraLineaOverride.letra,
+                    VentaFueraLineaOverride.punto_venta,
+                    VentaFueraLineaOverride.numero,
+                    VentaFueraLineaOverride.renglon,
+                ).in_([tuple(_clave(otra).values()) for otra in otras]),
+            )
+        )
+    }
+    costos = costos_unitarios(db, [(item_id, otra.operacion.fecha) for otra in otras])
     for otra in otras:
         otra.item_id, otra.item_origen = item_id, ORIGEN_MAPEO
+        # Only an APPLIED manual cost keeps the line's cost; one flagged 'revisar' is not on the line.
+        if tuple(_clave(otra).values()) not in con_costo_manual:
+            otra.precio_costo = _costo_erp(db, otra, costos)
 
 
 def quitar(db: Session, linea_id: int) -> VentaFueraOperacionLinea:
-    """Delete the fix: the line goes back to the PDF's cost and the automatic product. Commits."""
+    """Delete the fix: the line goes back to the automatic product and its ERP cost. Commits."""
     linea = _linea(db, linea_id)
     override = override_de(db, linea)
     if override is None:
         raise OverrideNoEncontrado(linea_id)
     db.execute(delete(VentaFueraLineaOverride).where(VentaFueraLineaOverride.id == override.id))
-    linea.precio_costo = _costo_pdf(linea)
     _automatico(linea, _resolucion(db, linea))
+    linea.precio_costo = _costo_erp(db, linea)
     linea.override_estado = None
     db.commit()
     return linea
@@ -247,6 +314,6 @@ def confirmar(db: Session, linea_id: int) -> VentaFueraOperacionLinea:
     if override is None:
         raise OverrideNoEncontrado(linea_id)
     _tomar_snapshot(override, linea)
-    aplicar(linea, override, _resolucion(db, linea))
+    aplicar(db, linea, override, _resolucion(db, linea))
     db.commit()
     return linea

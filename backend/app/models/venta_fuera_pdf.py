@@ -53,6 +53,9 @@ class VentaFueraPdfCarga(Base):
     lineas = Column(Integer, nullable=True)
     unidades = Column(MONTO, nullable=True)
     total_lineas = Column(MONTO, nullable=True)
+    # DEPRECATED: a snapshot taken at upload time that goes stale once a line is fixed by hand or by a mapping.
+    # Nothing reads them: Sin producto is computed live from `ventas_fuera_operacion_lineas.item_id`
+    # (`carga.listar_cargas`, `carga._sin_producto`, `ml_daily_metrics.fuera`). Kept only to avoid a migration.
     sin_producto_lineas = Column(Integer, nullable=True)
     sin_producto_monto = Column(MONTO, nullable=True)
     recargo_financiero = Column(MONTO, nullable=True)
@@ -185,7 +188,12 @@ class VentaFueraOperacion(Base):
 
 
 class VentaFueraOperacionLinea(Base):
-    """A line of a document. `precio`, `precio_costo` and `precio_costo_pp` are line totals without VAT."""
+    """A line of a document. `precio`, `precio_costo` and `precio_costo_pp` are line totals without VAT.
+
+    `precio_costo` is the Precio Costo the screens use (Costo D = x 1.065 on top): the ERP cost list of the line's
+    product on the sale date (`app.services.ventas_fuera_pdf.costo_erp`, vpf-costo-d-erp L3) or a manual cost; NOT
+    the PDF's "Precio Costo" (kept in `precio_costo_pdf`). Rows loaded before vpf-costo-d-erp keep the PDF's until
+    recomputed."""
 
     __tablename__ = "ventas_fuera_operacion_lineas"
 
@@ -206,9 +214,9 @@ class VentaFueraOperacionLinea(Base):
     precio = Column(MONTO, nullable=False)
     precio_costo = Column(MONTO, nullable=False)
     precio_costo_pp = Column(MONTO, nullable=False)
-    # The PDF's `precio_costo`: a manual cost (`VentaFueraLineaOverride.costo_unitario`) replaces `precio_costo`,
-    # this keeps what the PDF said (migration 20261120_vpf_operaciones_overrides; NULL only on rows loaded before it
-    # and not backfilled).
+    # The PDF's "Precio Costo", only as a reference: `precio_costo` comes from the ERP cost list or a manual cost
+    # (`VentaFueraLineaOverride.costo_unitario`); this keeps what the PDF said (migration
+    # 20261120_vpf_operaciones_overrides; NULL only on rows loaded before it and not backfilled).
     precio_costo_pdf = Column(MONTO, nullable=True)
     # How `item_id` was found: 'codigo' | 'prefijo' | 'mapeo' | 'manual' (`app.services.ventas_fuera_pdf.resolucion`);
     # NULL = sin producto.
@@ -237,9 +245,9 @@ class VentaFueraLineaOverride(Base):
     renglon = Column(Integer, nullable=False)
     # The product assigned by hand (NULL: automatic resolution).
     item_id = Column(Integer, nullable=True)
-    # ARS per unit as ModalEditarCosto sends it (VARIOS included); the line's precio_costo becomes
-    # costo_unitario x cantidad / COSTO_D_FACTOR, so its Costo D is exactly this cost. NULL: the PDF's cost.
-    # Six decimals: the modal's unit cost (total / cantidad x VARIOS) must re-apply to the same line cost after a
+    # ARS per unit as ModalEditarCosto sends it (typed x (1 + the optional %), owner L4); the line's precio_costo
+    # becomes costo_unitario x cantidad and Costo D (x COSTO_D_FACTOR) applies on top. NULL: the PDF's cost.
+    # Six decimals: the modal's unit cost (total / cantidad x (1 + %)) must re-apply to the same line cost after a
     # re-upload; two decimals drift by up to 0.005 per unit.
     costo_unitario = Column(Numeric(18, 6), nullable=True)
     # The line as it was when the fix was made.

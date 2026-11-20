@@ -1,5 +1,7 @@
 # Publicaciones ML — Ver competencia (wide panel)
 
+Related (planned): [CRITERIOS-APLICACION.md](./CRITERIOS-APLICACION.md) — **Criterios de aplicación** shares this same column 2 (mutual exclusion with Competencia).
+
 ## Intent
 
 When the operator clicks **Ver competencia** on the publication Promos panel, the panel expands to **wide** mode. The extra width is **not** used to stretch Promos fields.

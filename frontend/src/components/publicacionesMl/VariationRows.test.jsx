@@ -202,3 +202,32 @@ describe('VariationRows', () => {
     expect(await screen.findByText('Variación 7')).toBeInTheDocument();
   });
 });
+
+describe('Markup actual c/ SISO of a variation (pubml-markup-siso)', () => {
+  const withSiso = (siso) => ({ ...VARIATIONS_RESPONSE, variations: VARIATIONS_RESPONSE.variations.map((v, i) => (i === 0 ? { ...v, markup_siso: siso } : v)) });
+  const sisoCell = () => {
+    const index = buildColumns({ eventsEnabled: false, canSeeMargin: true }).findIndex((c) => c.key === 'markup_siso');
+    return rowOf('Router Archer AX55 negro').children[index];
+  };
+
+  it('shows the variation’s own value under Actual c/ SISO', async () => {
+    publicacionesMlAPI.variations.mockResolvedValue({ data: withSiso({ value: 17.25, reason: 'ok' }) });
+    mount();
+    await screen.findByText('Router Archer AX55 negro');
+    expect(within(sisoCell()).getByText('17,3%')).toBeInTheDocument();
+  });
+
+  it('reads "Pendiente" when its sell in / sell out cannot be priced', async () => {
+    publicacionesMlAPI.variations.mockResolvedValue({ data: withSiso({ value: null, reason: 'siso_pendiente' }) });
+    mount();
+    await screen.findByText('Router Archer AX55 negro');
+    expect(within(sisoCell()).getByText('Pendiente')).toBeInTheDocument();
+  });
+
+  it('is not rendered without ver_ganancia, even if the payload carried it', async () => {
+    publicacionesMlAPI.variations.mockResolvedValue({ data: withSiso({ value: 17.25, reason: 'ok' }) });
+    mount(false);
+    await screen.findByText('Router Archer AX55 negro');
+    expect(screen.queryByText('17,3%')).not.toBeInTheDocument();
+  });
+});

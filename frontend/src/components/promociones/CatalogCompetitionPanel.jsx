@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { promocionesAPI } from '../../services/api';
 import { useLazyResource } from '../../hooks/useLazyResource';
@@ -26,6 +26,18 @@ function formatMarkup(value) {
   return `${Number(value).toFixed(1)}%`;
 }
 
+function criteriosPutBody(data, sellersExcluidos) {
+  return {
+    c1_activo: Boolean(data.c1_activo),
+    c1_markup_min: data.c1_markup_min ?? null,
+    c1_markup_max: data.c1_markup_max ?? null,
+    c2_activo: Boolean(data.c2_activo),
+    c2_solo_markup_positivo: data.c2_solo_markup_positivo !== false,
+    auto_aplicacion: Boolean(data.auto_aplicacion),
+    sellers_excluidos: sellersExcluidos,
+  };
+}
+
 /**
  * Catalog-competition panel for one MLA
  * (promos-catalog-prices-and-official-store, slice C2).
@@ -41,6 +53,8 @@ function formatMarkup(value) {
  *  - `undercutting` (default): same-bucket AND strictly cheaper (product
  *    decision #6 / Productos tree).
  *  - `ranking`: full same-bucket list any price (publication Promos col 2).
+ *    Checkboxes (promos.escribir) persist `sellers_excluidos` — unchecked
+ *    rivals do not count for C2/R-AUTO.
  *
  * This component never recomputes bucket membership, currency conversion,
  * or markup — those come from the snapshot.
@@ -53,8 +67,45 @@ function CatalogCompetitionPanel({ mla, catalogCompetitionCacheRef, variant = 'u
   // Catalog snapshot refresh is gated on promos.ver (same as the GET): it
   // pulls MeLi into our DB, it does not enroll/remove a promotion.
   const canRefresh = tienePermiso('promos.ver');
+  const canWriteCriterios = tienePermiso('promos.escribir');
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState(false);
+  const [criterios, setCriterios] = useState(null);
+  const [excluded, setExcluded] = useState(() => new Set());
+  const [criteriosLoading, setCriteriosLoading] = useState(false);
+  const [criteriosError, setCriteriosError] = useState(null);
+  const [tilting, setTilting] = useState(false);
+  const [tiltError, setTiltError] = useState(null);
+  // Bumped on MLA change and on toggle so a late GET cannot overwrite optimistic PUT state.
+  const criteriosGenRef = useRef(0);
+
+  useEffect(() => {
+    if (!ranking || !mla) return undefined;
+    let cancelled = false;
+    const gen = ++criteriosGenRef.current;
+    setCriteriosLoading(true);
+    setCriteriosError(null);
+    promocionesAPI
+      .getHayMejoresCriterios(mla)
+      .then((res) => {
+        if (cancelled || gen !== criteriosGenRef.current) return;
+        const body = res.data || {};
+        setCriterios(body);
+        setExcluded(new Set(Array.isArray(body.sellers_excluidos) ? body.sellers_excluidos : []));
+      })
+      .catch(() => {
+        if (cancelled || gen !== criteriosGenRef.current) return;
+        setCriterios(null);
+        setExcluded(new Set());
+        setCriteriosError('No se pudieron cargar quién cuenta en el ranking');
+      })
+      .finally(() => {
+        if (!cancelled && gen === criteriosGenRef.current) setCriteriosLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ranking, mla]);
 
   const handleRefresh = async () => {
     if (refreshing) return;
@@ -68,6 +119,35 @@ function CatalogCompetitionPanel({ mla, catalogCompetitionCacheRef, variant = 'u
       setRefreshError(true);
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const handleToggleRival = async (sellerId, nextChecked) => {
+    // Persist seller_id (not listing item_id) so unchecking drops the whole seller.
+    if (!canWriteCriterios || !sellerId || tilting || criteriosLoading) return;
+    const previous = new Set(excluded);
+    const next = new Set(excluded);
+    if (nextChecked) next.delete(sellerId);
+    else next.add(sellerId);
+    const list = Array.from(next);
+    criteriosGenRef.current += 1;
+    setExcluded(next);
+    setTiltError(null);
+    setTilting(true);
+    try {
+      let base = criterios;
+      if (!base) {
+        const res = await promocionesAPI.getHayMejoresCriterios(mla);
+        base = res.data || {};
+        setCriterios(base);
+      }
+      const res = await promocionesAPI.putHayMejoresCriterios(mla, criteriosPutBody(base, list));
+      setCriterios(res.data || base);
+    } catch {
+      setExcluded(previous);
+      setTiltError('No se pudo guardar quién cuenta');
+    } finally {
+      setTilting(false);
     }
   };
 
@@ -154,6 +234,8 @@ function CatalogCompetitionPanel({ mla, catalogCompetitionCacheRef, variant = 'u
           : ''
       }.`;
 
+  let effectivePos = 0;
+
   return (
     <div>
       <div className={ranking ? styles.rankingToolbar : styles.filterMessage}>
@@ -180,20 +262,65 @@ function CatalogCompetitionPanel({ mla, catalogCompetitionCacheRef, variant = 'u
         {!ranking && refreshing && <span className={styles.provisionalPending}>Consultando…</span>}
         {refreshError && <span className={styles.feedbackError}>No se pudo consultar</span>}
       </div>
+      {ranking && (
+        <p className={styles.rankingHint}>
+          Destildá quien no cuente para ganar catálogo. Los nuevos en un refresh vuelven tildados.
+        </p>
+      )}
+      {ranking && criteriosLoading && (
+        <p className={styles.rankingHint}>Cargando quién cuenta…</p>
+      )}
+      {criteriosError && (
+        <p className={styles.feedbackError} role="alert">
+          {criteriosError}
+        </p>
+      )}
+      {tiltError && (
+        <p className={styles.feedbackError} role="alert">
+          {tiltError}
+        </p>
+      )}
       {rows.length === 0 ? (
         <div className={styles.panelState}>{emptyCopy}</div>
       ) : ranking ? (
         <ol className={styles.rankingList} aria-label="Ranking del catálogo en este tramo">
           {rows.map((competitor, index) => {
             const ours = competitor.item_id === mla;
+            const itemId = competitor.item_id;
+            const sellerId =
+              competitor.seller_id != null && competitor.seller_id !== ''
+                ? String(competitor.seller_id)
+                : '';
+            // Exclude by seller_id; legacy JSONB may still hold item_id.
+            const counts =
+              ours ||
+              (!sellerId && !itemId) ||
+              !(excluded.has(sellerId) || (itemId && excluded.has(itemId)));
+            if (counts) effectivePos += 1;
+            const posLabel = counts ? String(effectivePos) : '—';
             return (
               <li
-                key={competitor.item_id || competitor.seller_id || `competitor-${index}`}
-                className={`${styles.rankingRow}${ours ? ` ${styles.rankingOurs}` : ''}`}
+                key={itemId || sellerId || `competitor-${index}`}
+                className={`${styles.rankingRow}${ours ? ` ${styles.rankingOurs}` : ''}${
+                  counts ? '' : ` ${styles.rankingExcluded}`
+                }`}
               >
-                <span className={styles.rankingPos}>{index + 1}</span>
+                <label className={styles.rankingCheck}>
+                  <input
+                    type="checkbox"
+                    checked={counts}
+                    disabled={ours || !canWriteCriterios || tilting || criteriosLoading || !sellerId}
+                    aria-label={
+                      ours
+                        ? 'Tu publicación (siempre cuenta)'
+                        : `Contar a ${competitor.seller_nickname || sellerId || itemId || 'competidor'}`
+                    }
+                    onChange={(e) => handleToggleRival(sellerId, e.target.checked)}
+                  />
+                </label>
+                <span className={styles.rankingPos}>{posLabel}</span>
                 <span className={styles.rankingName}>
-                  {competitor.seller_nickname || competitor.item_id || 'Competidor'}
+                  {competitor.seller_nickname || itemId || 'Competidor'}
                   {ours ? ' (vos)' : ''}
                 </span>
                 <span className={styles.rankingPrice}>{formatPrice(competitor.price_ars ?? competitor.price)}</span>

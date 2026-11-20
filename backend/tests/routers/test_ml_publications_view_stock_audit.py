@@ -397,6 +397,9 @@ ROTATION_KEYS = (
     "rotacion",
     "stock_promedio",
     "stock_promedio_dias",
+    # the numbers of the coverage and rotation formulas (auditoria-ventas-erp-full L2), compared in the L2 probes
+    "stock_actual",
+    "vendidas_30d",
     # the ERP / Full split (auditoria-stock-niveles S3-S4), compared in test_ml_publications_view_stock_audit_niveles
     "envio",
     "por_origen",

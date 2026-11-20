@@ -12,6 +12,14 @@
 /** Pesos are the default; any other currency of the product's cost is named. */
 export const costLabel = (currency) => (currency && currency !== 'ARS' ? `Costo ${currency}` : 'Costo');
 
+const sisoOf = ({ value = null, reason }) => ({
+  min: value,
+  max: value,
+  worst: value,
+  pending: reason === 'siso_pendiente' ? 1 : 0,
+  applies: null,
+});
+
 export function readVariation(raw, { canSeeMargin }) {
   const link = raw.link ?? {};
   const linked = link.codigo != null || link.descripcion != null;
@@ -43,5 +51,7 @@ export function readVariation(raw, { canSeeMargin }) {
         }
       : null,
     negative: value != null && value < 0,
+    // Markup actual c/ SISO of this unit (`{value, reason}`), in SisoMarkupCell's shape; only with ver_ganancia.
+    markupSiso: canSeeMargin && raw.markup_siso != null ? sisoOf(raw.markup_siso) : null,
   };
 }

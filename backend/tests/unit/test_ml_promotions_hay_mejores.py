@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
 from app.services import ml_promotions_hay_mejores as hay_mejores
+from app.services.ml_hay_mejores_criterios_service import default_criterios
 from app.services.ml_promotions_hay_mejores import (
     decidir_flag_hay_mejores,
     es_mejor_oferta,
@@ -266,9 +269,9 @@ class TestListarMejoresBaselineWiring:
 
 
 class TestActualizarForwardsRawPromotions:
-    """actualizar_hay_mejores_ofertas must pass mirror raw into listar_mejores_candidatas."""
+    """actualizar_hay_mejores_ofertas must pass mirror raw into evaluar_mejores_candidatas."""
 
-    def test_forwards_raw_promotions_kwarg_to_listar(self, monkeypatch) -> None:
+    def test_forwards_raw_promotions_kwarg_to_evaluar(self, monkeypatch) -> None:
         seen: dict = {}
         raw = [
             {
@@ -296,18 +299,23 @@ class TestActualizarForwardsRawPromotions:
 
         db = MagicMock()
         db.begin_nested.return_value = _Nested()
-        db.query.return_value.filter.return_value.one_or_none.side_effect = [row, sale]
+        locked = MagicMock()
+        locked.one_or_none.side_effect = [row]
+        db.query.return_value.filter.return_value.with_for_update.return_value = locked
+        db.query.return_value.filter.return_value.one_or_none.side_effect = [sale]
 
-        def _listar(_db, mla, candidates, baseline, *, raw_promotions=None, sell_in_out_batch=None):
+        def _evaluar(_db, mla, candidates, baseline, *, raw_promotions=None, sell_in_out_batch=None):
             seen["batch"] = sell_in_out_batch
             seen["mla"] = mla
             seen["candidates"] = candidates
             seen["baseline"] = baseline
             seen["raw"] = raw_promotions
-            return [("C-1", 900.0)]
+            return hay_mejores.MejoresEvaluacion(mejores=[("C-1", 900.0)], status_quo={}, candidatas=[], criterios={})
 
-        monkeypatch.setattr(hay_mejores, "listar_mejores_candidatas", _listar)
+        monkeypatch.setattr(hay_mejores, "evaluar_mejores_candidatas", _evaluar)
         monkeypatch.setattr(hay_mejores, "_enqueue_catalog_competition_refresh", lambda *_a, **_k: None)
+        monkeypatch.setattr(hay_mejores, "record_flag_transition", lambda *_a, **_k: None)
+        monkeypatch.setattr(hay_mejores, "get_criterios", lambda *_a, **_k: default_criterios("MLA1"))
 
         decision = hay_mejores.actualizar_hay_mejores_ofertas(db, "MLA1", raw_promotions=raw)
         assert decision is not None and decision.hay_mejores is True
@@ -445,3 +453,125 @@ class TestRankingConSellInOut:
 
         assert listar_mejores_candidatas(MagicMock(), "MLA1", [], 1000.0) == []
         assert "baseline_batch" not in seen and seen["enrich"] == []
+
+
+class TestC1MarkupBandInListar(TestRankingConSellInOut):
+    """C1 clamps classic mejores after es_mejor_oferta (same markup basis)."""
+
+    def test_c1_inactive_keeps_canonical_ranking(self, monkeypatch) -> None:
+        self._wire(monkeypatch, MarkupsDePrecio(9.0, None), {"A": (10.0, None), "B": (8.0, None)})
+        monkeypatch.setattr(hay_mejores, "get_criterios", lambda _db, mla: default_criterios(mla))
+
+        assert listar_mejores_candidatas(MagicMock(), "MLA1", self._candidatas("A", "B"), 1000.0) == [("A", 900.0)]
+
+    def test_c1_active_rejects_markup_outside_band(self, monkeypatch) -> None:
+        self._wire(monkeypatch, MarkupsDePrecio(9.0, None), {"A": (10.0, None), "B": (8.0, None)})
+        monkeypatch.setattr(
+            hay_mejores,
+            "get_criterios",
+            lambda _db, mla: replace(
+                default_criterios(mla),
+                c1_activo=True,
+                c1_markup_min=Decimal("0"),
+                c1_markup_max=Decimal("9.5"),
+            ),
+        )
+
+        # A would win canonically (10 >= 9) but 10 > max 9.5 → filtered out; B never better.
+        assert listar_mejores_candidatas(MagicMock(), "MLA1", self._candidatas("A", "B"), 1000.0) == []
+
+
+class TestC2CatalogWinInListar(TestRankingConSellInOut):
+    """C2 unions catalog-win candidates that fail the classic A path — only when status quo is not #1."""
+
+    def test_c2_adds_candidate_that_loses_classic_but_beats_rivals_when_we_are_not_winning(self, monkeypatch) -> None:
+        # Status quo 1000 loses to rival 950. Promo 940 fails classic (worse markup) but wins catalog.
+        self._wire(monkeypatch, MarkupsDePrecio(12.0, None), {"A": (5.0, None)})
+        monkeypatch.setattr(
+            hay_mejores,
+            "get_criterios",
+            lambda _db, mla: replace(
+                default_criterios(mla),
+                c2_activo=True,
+                c2_solo_markup_positivo=True,
+            ),
+        )
+        monkeypatch.setattr(hay_mejores, "obtener_ultimo_snapshot", lambda _db, _mla: object())
+        monkeypatch.setattr(hay_mejores, "min_rival_price_ars", lambda *_a, **_k: 950.0)
+
+        assert listar_mejores_candidatas(
+            MagicMock(),
+            "MLA1",
+            [{"id": "A", "type": "SMART", "status": "candidate", "price": 940}],
+            1000.0,
+        ) == [("A", 940.0)]
+
+    def test_c2_inert_when_status_quo_already_wins_catalog(self, monkeypatch) -> None:
+        # Status quo 1000 already beats rival 1200; promo 1100 would still beat rivals but worsen us.
+        self._wire(monkeypatch, MarkupsDePrecio(9.0, None), {"A": (5.0, None)})
+        monkeypatch.setattr(
+            hay_mejores,
+            "get_criterios",
+            lambda _db, mla: replace(
+                default_criterios(mla),
+                c2_activo=True,
+                c2_solo_markup_positivo=True,
+            ),
+        )
+        monkeypatch.setattr(hay_mejores, "obtener_ultimo_snapshot", lambda _db, _mla: object())
+        monkeypatch.setattr(hay_mejores, "min_rival_price_ars", lambda *_a, **_k: 1200.0)
+
+        assert (
+            listar_mejores_candidatas(
+                MagicMock(),
+                "MLA1",
+                [{"id": "A", "type": "SMART", "status": "candidate", "price": 1100}],
+                1000.0,
+            )
+            == []
+        )
+
+    def test_c2_inert_without_rivals(self, monkeypatch) -> None:
+        self._wire(monkeypatch, MarkupsDePrecio(9.0, None), {"A": (5.0, None)})
+        monkeypatch.setattr(
+            hay_mejores,
+            "get_criterios",
+            lambda _db, mla: replace(default_criterios(mla), c2_activo=True),
+        )
+        monkeypatch.setattr(hay_mejores, "obtener_ultimo_snapshot", lambda _db, _mla: None)
+        monkeypatch.setattr(hay_mejores, "min_rival_price_ars", lambda *_a, **_k: None)
+
+        assert (
+            listar_mejores_candidatas(
+                MagicMock(),
+                "MLA1",
+                [{"id": "A", "type": "SMART", "status": "candidate", "price": 1100}],
+                1000.0,
+            )
+            == []
+        )
+
+    def test_c2_solo_positivo_blocks_negative_markup(self, monkeypatch) -> None:
+        # Not winning (rival 950); promo 940 has negative markup → C2 blocked by solo-positivo.
+        self._wire(monkeypatch, MarkupsDePrecio(12.0, None), {"A": (-3.0, None)})
+        monkeypatch.setattr(
+            hay_mejores,
+            "get_criterios",
+            lambda _db, mla: replace(
+                default_criterios(mla),
+                c2_activo=True,
+                c2_solo_markup_positivo=True,
+            ),
+        )
+        monkeypatch.setattr(hay_mejores, "obtener_ultimo_snapshot", lambda _db, _mla: object())
+        monkeypatch.setattr(hay_mejores, "min_rival_price_ars", lambda *_a, **_k: 950.0)
+
+        assert (
+            listar_mejores_candidatas(
+                MagicMock(),
+                "MLA1",
+                [{"id": "A", "type": "SMART", "status": "candidate", "price": 940}],
+                1000.0,
+            )
+            == []
+        )

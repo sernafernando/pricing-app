@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { errorText } from '../../pricing/priceWrites';
 import { promocionesAPI } from '../../../services/api';
 import { promoDisplayPrice } from '../../promociones/promoDisplayPrice';
+import { catalogSnapshotIsFresh, minRivalPriceArs } from './catalogSnapshot';
 import {
   baselinePromo,
   hasPickedSlot,
@@ -25,6 +26,7 @@ export function useMejoresCandidatas({
   // The promo ML applies today (`application_status === 'active'`), null when none: the comparison's left side.
   const [applied, setApplied] = useState(null);
   const [message, setMessage] = useState(null);
+  const [autoFailMessage, setAutoFailMessage] = useState(null);
   const [descartando, setDescartando] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   // Bumped after a clean apply that stays on the pub: re-reads the candidates.
@@ -39,11 +41,34 @@ export function useMejoresCandidatas({
     (async () => {
       setLoading(true);
       setMessage(null);
+      setAutoFailMessage(null);
       setUnavailable(false);
       try {
-        const promoRes = await promocionesAPI.getPromocionesItem(itemId);
+        let promoRes;
+        let criteriosRes;
+        try {
+          [promoRes, criteriosRes] = await Promise.all([
+            promocionesAPI.getPromocionesItem(itemId),
+            // Promise.resolve: unit mocks may be bare vi.fn() without .then.
+            Promise.resolve(promocionesAPI.getHayMejoresCriterios(itemId)),
+          ]);
+        } catch (err) {
+          // Fail closed: never treat a failed criterios GET as "C1 off".
+          if (!cancelled) {
+            setMessage({
+              tone: 'error',
+              text: errorText(err, 'No se pudieron cargar las candidatas.'),
+            });
+            setUnavailable(true);
+            onSuggestedRef.current?.([]);
+          }
+          return;
+        }
         if (cancelled) return;
+        const failText = promoRes?.data?.auto_fail_message;
+        setAutoFailMessage(typeof failText === 'string' && failText.trim() ? failText.trim() : null);
         const promotions = promoRes?.data?.promotions ?? promoRes?.data?.promociones ?? [];
+        const criterios = criteriosRes?.data ?? {};
         // Activa ahora = ML-applied started (lowest price / application_status active).
         const statusQuoPromo = baselinePromo(promotions);
         let markup = statusQuoPromo?.nuestro_markup ?? null;
@@ -76,11 +101,39 @@ export function useMejoresCandidatas({
         );
         const comparePrice =
           statusQuoPromo != null ? Number(promoDisplayPrice(statusQuoPromo)) : Number(baselinePrice);
+        let minRivalPrice = null;
+        let c2BuscaGanar = false;
+        if (criterios.c2_activo) {
+          try {
+            const snapRes = await promocionesAPI.getCompetenciaCatalogo(itemId);
+            const snapshot = snapRes?.data;
+            if (!catalogSnapshotIsFresh(snapshot)) {
+              // Stale/missing catalog → C2 inert (same as backend freshness gate).
+              minRivalPrice = null;
+              c2BuscaGanar = false;
+            } else {
+              const sameBucket = snapshot?.same_bucket || [];
+              minRivalPrice = minRivalPriceArs(sameBucket, itemId, criterios.sellers_excluidos || []);
+              c2BuscaGanar = minRivalPrice != null && !(comparePrice < minRivalPrice);
+            }
+          } catch {
+            minRivalPrice = null;
+            c2BuscaGanar = false;
+          }
+        }
+        if (cancelled) return;
         const picked = pickMejoresCandidatas(promotions, {
           baselinePrice: comparePrice,
           // Compared like the backend flag (S5): with sell in / sell out only when both sides have it.
           baselineMarkup: markup,
           baselineSellInOut: sellInOut,
+          c1Activo: Boolean(criterios.c1_activo),
+          c1MarkupMin: criterios.c1_markup_min ?? null,
+          c1MarkupMax: criterios.c1_markup_max ?? null,
+          c2Activo: Boolean(criterios.c2_activo),
+          c2SoloMarkupPositivo: criterios.c2_solo_markup_positivo !== false,
+          c2BuscaGanar,
+          minRivalPrice,
         });
         setSlots(hasPickedSlot(picked) ? picked : null);
         onSuggestedRef.current?.(slotEntries(picked).map(([, promo]) => promo.promotion_id));
@@ -123,6 +176,7 @@ export function useMejoresCandidatas({
     applied,
     unavailable,
     message,
+    autoFailMessage,
     descartando,
     discard,
     bumpReload: () => setReloadToken((token) => token + 1),

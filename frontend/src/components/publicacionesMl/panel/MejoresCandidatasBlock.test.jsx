@@ -11,6 +11,8 @@ vi.mock('../../../services/api', () => ({
     getPromocionesItem: vi.fn(),
     descartarHayMejores: vi.fn(),
     postPromocionItem: vi.fn(),
+    getHayMejoresCriterios: vi.fn(),
+    getCompetenciaCatalogo: vi.fn(),
   },
 }));
 
@@ -25,6 +27,9 @@ describe('MejoresCandidatasBlock', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { nuestro_markup: 0.35 } });
+    // C1 band fetch in useMejoresCandidatas — must be thenable (bare vi.fn() has no .catch).
+    promocionesAPI.getHayMejoresCriterios.mockResolvedValue({ data: {} });
+    promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({ data: { same_bucket: [] } });
   });
 
   it('does not claim there are better candidatas when SMART/DEAL/Premium slots are empty', async () => {
@@ -70,6 +75,27 @@ describe('MejoresCandidatasBlock', () => {
     const card = screen.getByRole('group', { name: 'Promo sugerida SMART' });
     expect(within(card).getByText('Oferta ok')).toBeInTheDocument();
     expect(within(card).getByRole('button', { name: 'Aplicar sugerencia' })).toBeInTheDocument();
+  });
+
+  it('shows Autoapply fail text above the suggestion when the API sends it', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        auto_fail_message: 'Autoapply falló: stock insuficiente',
+        promotions: [
+          {
+            status: 'candidate',
+            promotion_type: 'SMART',
+            promotion_id: 'P-MLA-AF',
+            price: 200000,
+            nuestro_markup: 1.5,
+            name: 'Oferta fail',
+          },
+        ],
+      },
+    });
+    render(<MejoresCandidatasBlock itemId="MLA-AF" baselinePrice={218299} />);
+    expect(await screen.findByText('Autoapply falló: stock insuficiente')).toBeInTheDocument();
+    expect(screen.getByText(/Hay candidatas mejores que el precio vigente/)).toBeInTheDocument();
   });
 
   // promos-markup-sell-in-out S2: the box shows the markup with sell in / sell out next to each markup.

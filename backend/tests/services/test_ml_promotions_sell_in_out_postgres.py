@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.comision_config import ComisionListaGrupo, SubcategoriaGrupo
 from app.models.comision_versionada import ComisionAdicionalCuota, ComisionBase, ComisionVersion
+from app.models.ml_hay_mejores_criterios import MlHayMejoresCriterios
 from app.models.pricing_constants import PricingConstants
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
@@ -60,6 +61,8 @@ PRICING_TABLES = [
     ComisionAdicionalCuota.__table__,
     ComisionListaGrupo.__table__,
     SubcategoriaGrupo.__table__,
+    # listar_mejores_candidatas reads criterios (C1); sparse table, no FK.
+    MlHayMejoresCriterios.__table__,
 ]
 TABLES = list(dict.fromkeys([*si.TABLES, SellInBonoItem.__table__, *so.TABLES, *PRICING_TABLES]))
 STUBS = [*si.STUBS, so.STUBS[-1]]

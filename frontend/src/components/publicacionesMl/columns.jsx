@@ -8,7 +8,7 @@ import SkuDivergenceCell from './SkuDivergenceCell';
 import LastEventCell from './LastEventCell';
 import ActivityCell from './ActivityCell';
 import StoreCell from './StoreCell';
-import MarkupCell from './MarkupCell';
+import MarkupCell, { SisoMarkupCell } from './MarkupCell';
 import CostoCell from '../CostoCell';
 import { priceColumns } from './priceColumns';
 import {
@@ -17,6 +17,7 @@ import {
   GrossCell,
   LastSaleCell,
   MarkupRealCell,
+  MarkupRealSisoCell,
   MarkupTrendCell,
   TotalStockCell,
   TotalGaussCell,
@@ -236,6 +237,17 @@ export function buildColumns({
         fit: true,
         render: (item) => <MarkupCell markup={item.markup} />,
       },
+      {
+        key: 'markup_siso',
+        group: MARKUP,
+        header: 'Actual c/ SISO',
+        label: 'Markup actual c/ SISO',
+        width: 120,
+        sortable: true,
+        align: 'center',
+        fit: true,
+        render: (item) => <SisoMarkupCell siso={item.markup_siso} />,
+      },
       ...withSales([
         {
           key: 'markup_30d',
@@ -247,6 +259,17 @@ export function buildColumns({
           align: 'center',
           fit: true,
           render: (item) => <MarkupRealCell metrics={item.metrics} />,
+        },
+        {
+          key: 'markup_sell_30d',
+          group: MARKUP,
+          header: 'Real 30D c/ SISO',
+          label: 'Markup real 30D c/ SISO',
+          width: 96,
+          sortable: true,
+          align: 'center',
+          fit: true,
+          render: (item) => <MarkupRealSisoCell metrics={item.metrics} />,
         },
         {
           key: 'markup_trend',

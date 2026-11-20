@@ -15,7 +15,12 @@ vi.mock('../../../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  promocionesAPI: { getCompetenciaCatalogo: vi.fn(), refreshCompetenciaCatalogo: vi.fn() },
+  promocionesAPI: {
+    getCompetenciaCatalogo: vi.fn(),
+    refreshCompetenciaCatalogo: vi.fn(),
+    getHayMejoresCriterios: vi.fn(() => Promise.resolve({ data: { sellers_excluidos: [] } })),
+    putHayMejoresCriterios: vi.fn((mlaId, body) => Promise.resolve({ data: body })),
+  },
   registerAuthFailureHandler: vi.fn(),
 }));
 

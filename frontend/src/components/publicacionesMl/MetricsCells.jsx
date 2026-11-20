@@ -40,6 +40,23 @@ export function MarkupRealCell({ metrics }) {
   );
 }
 
+/**
+ * The real markup of the 30 days with sell in / sell out (`markup_sell_30d`, the Board's `markup_sell`, the one
+ * Auditoría de stock shows): the plain real markup where neither applies, so the column always reads a figure.
+ */
+export function MarkupRealSisoCell({ metrics }) {
+  if (!soldIn30d(metrics)) return <Empty />;
+  const withSell = metrics.markup_sell_30d;
+  const value = withSell ?? metrics.markup_30d;
+  if (value == null) return <Empty />;
+  const title = withSell != null ? 'Con sell in / sell out de las ventas de 30 días' : 'Sin sell in ni sell out en las ventas de 30 días';
+  return (
+    <span className={styles.markup} data-tone={markupTone(value)} title={title}>
+      {formatPct(value)}
+    </span>
+  );
+}
+
 /** Daily markup over the 90 days, toned by the change against the previous 30 days (Métricas' `markup_trend`). */
 export function MarkupTrendCell({ metrics }) {
   if (!metrics?.series_markup_90d) return <Empty />;

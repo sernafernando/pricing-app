@@ -21,7 +21,8 @@ from tests.services.ml_publications.view.test_group_markup_postgres import seed_
 
 pytestmark = pytest.mark.postgres
 
-FIGURES = {"negative_count", "markup_min", "markup_max"}
+# the markup c/ SISO range travels with them, same gate (pubml-markup-siso)
+FIGURES = {"negative_count", "markup_min", "markup_max", "markup_siso_min", "markup_siso_max"}
 
 
 def node_of(response, key: str) -> dict:

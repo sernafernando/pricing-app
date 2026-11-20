@@ -44,7 +44,12 @@ from app.services.ml_daily_metrics.groups import NO_GROUP, pm_pairs
 from app.services.ml_publications.links import DIVERGENCE_OTHER_PRODUCT, sku_key
 from app.services.ml_publications.listing_kind import NO_TYPE_RANK, OTHER_RANK, listing_kind, listing_rank
 from app.services.ml_publications.view.display import round_display
-from app.services.ml_publications.view.cost_lines import NO_COST_LINES, cost_lines_by_publication
+from app.services.ml_publications.view.cost_lines import (
+    NO_COST_LINES,
+    SisoMarkup,
+    cost_lines_by_publication,
+    siso_markups,
+)
 from app.services.ml_publications.view.filters import (
     AXES,
     FULFILLMENT,
@@ -97,6 +102,9 @@ SORT_ACTIVITY = "actividad"
 # The "Stock propio" column left the screen (owner, 2026-11-10): an old link's sort by it is dropped with its direction.
 RETIRED_SORTS = frozenset({"stock_propio"})
 SORT_MARKUP = "markup"  # not a column: the worst variation's markup, computed in Python (see `_list_by_markup`)
+# not a column either: the worst variation's markup c/ SISO (`cost_lines.siso_markups`), over the same priced set
+SORT_MARKUP_SISO = "markup_siso"
+MARKUP_SORTS = frozenset({SORT_MARKUP, SORT_MARKUP_SISO})  # the sorts priced in Python over the whole set
 
 
 def item_listing_kind() -> Any:
@@ -261,7 +269,7 @@ class ItemsPage:
 def _default_descending(key: str) -> bool:
     if key in METRIC_SORTS:
         return True  # Métricas' figures: highest first, as Métricas orders them
-    return False if key == SORT_MARKUP else SORT_COLUMNS[key][1]  # markup: the worst first
+    return False if key in MARKUP_SORTS else SORT_COLUMNS[key][1]  # markup (c/ SISO too): the worst first
 
 
 def csv_values(raw: Optional[str]) -> list[str]:
@@ -287,7 +295,7 @@ def parse_sort(orden: Optional[str], direction: Optional[str]) -> Sort:
     pairs = [pair for pair in sort_pairs(orden, direction, SORT_ACTIVITY) if pair[0] not in RETIRED_SORTS]
     pairs = pairs or [(SORT_ACTIVITY, "")]
     keys = [key for key, _ in pairs]
-    known = [*SORT_COLUMNS, SORT_MARKUP, *METRIC_SORTS]
+    known = [*SORT_COLUMNS, SORT_MARKUP, SORT_MARKUP_SISO, *METRIC_SORTS]
     for key in keys:
         if key not in known:
             raise FilterError("orden", f"unknown value {key!r}; known: {', '.join(known)}")
@@ -504,7 +512,7 @@ def _ranked_with_columns(db: Session, source: Any, sort: Sort, limit: Optional[i
     """Column keys and ONE Métricas figure (Publicaciones ML's default, `tipo,facturado_30d`): the Board's rows join
     `source` in the database and one statement orders and cuts the page -- never every MLA's figure shipped out and
     back as the arrays of `_by_figures`."""
-    with publication_board(db, source) as b:
+    with publication_board(db, source, sort.keys) as b:
         rows = b.rows()
         order: list[Any] = []
         for key, descending in sort.pairs:
@@ -525,18 +533,19 @@ def _figured_ids(
     sort: Sort,
     limit: Optional[int],
     offset: int,
-    worst: Optional[Mapping[str, Any]] = None,
+    priced: Optional[Mapping[str, Mapping[str, Any]]] = None,
 ) -> list[str]:
     """A sort with figure keys over `source`: a Métricas figure alone is the Board's ranking; column keys with one
     Métricas figure join the Board's rows in one statement (`_ranked_with_columns`); any other combination takes
-    each figure (`worst`, the markup's, priced by the caller; the Métricas ones from one Board run) then orders."""
+    each figure (`priced`: the markups' worst values by key, priced by the caller; the Métricas ones from one Board
+    run) then orders."""
     if len(sort.keys) == 1 and sort.key in METRIC_SORTS:
         return ranked_page(db, source, sort.key, sort.descending, limit, offset)
     if len(sort.figure_keys) == 1 and sort.figure_keys[0] in METRIC_SORTS:
         return _ranked_with_columns(db, source, sort, limit, offset)
     metric_keys = [key for key in sort.figure_keys if key in METRIC_SORTS]
     metrics = metric_figures(db, source, metric_keys) if metric_keys else {}
-    figures = {key: (worst or {}) if key == SORT_MARKUP else metrics[key] for key in sort.figure_keys}
+    figures = {key: (priced or {}).get(key, {}) if key in MARKUP_SORTS else metrics[key] for key in sort.figure_keys}
     return _by_figures(db, source, figures, sort, limit, offset)
 
 
@@ -706,10 +715,35 @@ def markup_out(item: ItemMarkup) -> dict[str, Any]:
     return out
 
 
-def _attach_markup(items: list[dict[str, Any]], computed: Mapping[str, ItemMarkup]) -> None:
+def siso_out(found: SisoMarkup) -> dict[str, Any]:
+    """The `markup_siso` block of a row (`cost_lines.SisoMarkup`): range, worst variation, pending units, applies."""
+    m = found.markup
+    return {
+        "min": round_display(m.value_min),
+        "max": round_display(m.value_max),
+        "worst": round_display(m.worst),
+        "pending": found.pending,
+        "applies": found.applies,
+    }
+
+
+def _attach_markup(
+    items: list[dict[str, Any]],
+    computed: Mapping[str, ItemMarkup],
+    pricing_db: Session,
+    siso: Optional[Mapping[str, SisoMarkup]] = None,
+) -> None:
+    """Each row's `markup` and `markup_siso` (`siso`: already priced for the whole set by a sort on it; otherwise
+    priced here for the page's rows, one batch). `markup_siso` is null on every row when its read failed."""
+    if siso is None:
+        siso = siso_markups(
+            pricing_db, {i["item_id"]: computed[i["item_id"]] for i in items if i["item_id"] in computed}
+        )
     for item in items:
         if item["item_id"] in computed:
             item["markup"] = markup_out(computed[item["item_id"]])
+            found = None if siso is None else siso.get(item["item_id"])
+            item["markup_siso"] = None if found is None else siso_out(found)
 
 
 def attach_cost(items: list[dict[str, Any]], rows: list[Any], pricing_db: Optional[Session] = None) -> None:
@@ -727,13 +761,32 @@ def attach_cost(items: list[dict[str, Any]], rows: list[Any], pricing_db: Option
             item.update(lines.get(str(row.item_id), NO_COST_LINES) if row.producto_item_id else NO_COST_LINES)
 
 
-def _worst_first(computed: Mapping[str, ItemMarkup], descending: bool) -> list[str]:
-    """Item ids by the worst variation's markup; publications without a value last in either direction, and
-    `item_id` closes every tie so paging is stable."""
-    priced = sorted(item_id for item_id, m in computed.items() if m.markup.worst is not None)
-    priced.sort(key=lambda i: computed[i].markup.worst, reverse=descending)  # stable: ties stay by item_id
-    unpriced = sorted(item_id for item_id, m in computed.items() if m.markup.worst is None)
+def _worst_first(worst: Mapping[str, Optional[float]], descending: bool) -> list[str]:
+    """Item ids by their worst variation's markup (`worst`: id -> value); publications without a value last in
+    either direction, and `item_id` closes every tie so paging is stable."""
+    priced = sorted(item_id for item_id, value in worst.items() if value is not None)
+    priced.sort(key=lambda i: worst[i], reverse=descending)  # stable: ties stay by item_id
+    unpriced = sorted(item_id for item_id, value in worst.items() if value is None)
     return priced + unpriced
+
+
+def _priced_figures(
+    sort: Sort, result: MarkupResult, pricing_db: Session
+) -> tuple[dict[str, dict[str, Optional[float]]], Optional[dict[str, SisoMarkup]]]:
+    """The worst values the sort's markup keys order by, per key, over the whole priced set, and the markup c/ SISO
+    when the sort names it (priced once, the page's rows then read it). A failed SISO read leaves every row without
+    a value: last, as an unpriced publication."""
+    figures: dict[str, dict[str, Optional[float]]] = {}
+    siso: Optional[dict[str, SisoMarkup]] = None
+    if SORT_MARKUP in sort.keys:
+        figures[SORT_MARKUP] = {item_id: m.markup.worst for item_id, m in result.items.items()}
+    if SORT_MARKUP_SISO in sort.keys:
+        siso = siso_markups(pricing_db, result.items)
+        figures[SORT_MARKUP_SISO] = {
+            item_id: (None if siso is None or item_id not in siso else siso[item_id].markup.worst)
+            for item_id in result.items
+        }
+    return figures, siso
 
 
 def markup_accepted(db: Session, f: PublicationFilter, markup: MarkupQuery) -> tuple[MarkupResult, frozenset[str]]:
@@ -757,28 +810,29 @@ def markup_accepted(db: Session, f: PublicationFilter, markup: MarkupQuery) -> t
 
 def _markup_ids(
     db: Session, f: PublicationFilter, sort: Sort, limit: Optional[int], offset: int, markup: MarkupQuery
-) -> tuple[list[str], int, MarkupResult]:
+) -> tuple[list[str], int, MarkupResult, Optional[dict[str, SisoMarkup]]]:
     """The ids at `[offset, offset + limit)` (to the end when `limit` is None) of the set the markup filter keeps,
-    in the requested order, its total and the set-wide markup. Sorting or filtering by markup needs the markup of the
+    in the requested order, its total, the set-wide markup and, when the sort names it, the set-wide markup c/ SISO. Sorting or filtering by markup needs the markup of the
     WHOLE filtered set (design §4.4): price it once and filter it in Python. The markup order is applied in Python
     too; a column order is applied by the database over the accepted ids only, which also cuts the page."""
     result, kept = markup_accepted(db, f, markup)
-    if sort.keys == (SORT_MARKUP,):
-        wanted = [item_id for item_id in _worst_first(result.items, sort.descending) if item_id in kept]
+    figures, siso = _priced_figures(sort, result, markup.pricing_db)
+    if len(sort.keys) == 1 and sort.key in MARKUP_SORTS:
+        wanted = [item_id for item_id in _worst_first(figures[sort.key], sort.descending) if item_id in kept]
         end = None if limit is None else offset + limit
-        return wanted[offset:end], len(wanted), result
+        return wanted[offset:end], len(wanted), result, siso
     # The database orders only the publications the markup filter accepted and cuts the page: it used to order
     # the whole filtered set and ship every id back just to keep fifty.
     accepted = [item_id for item_id in result.items if item_id in kept]  # the computed order, as before
     total = len(accepted)
     if offset >= total:
-        return [], total, result
+        return [], total, result, siso
     only_accepted = build_base_select(f, T.i.item_id).where(T.i.item_id == any_(literal(accepted, ARRAY(Text))))
     if sort.figure_keys:
-        worst = {item_id: result.items[item_id].markup.worst for item_id in accepted}
-        return _figured_ids(db, only_accepted, sort, limit, offset, worst), total, result
+        priced = {key: {item_id: values[item_id] for item_id in accepted} for key, values in figures.items()}
+        return _figured_ids(db, only_accepted, sort, limit, offset, priced), total, result, siso
     page = db.execute(only_accepted.order_by(*_order_by(sort)).limit(limit).offset(offset)).scalars()
-    return list(page), total, result
+    return list(page), total, result, siso
 
 
 def _rows_for_ids(db: Session, f: PublicationFilter, ids: list[str], *, cost: bool = False) -> list[Any]:
@@ -804,12 +858,12 @@ def _list_by_markup(
 ) -> ItemsPage:
     """The page of a markup sort or filter (`_markup_ids`), then only the page's rows (by id), with the markup
     computed for the whole set. A fixed number of statements."""
-    page_ids, total, result = _markup_ids(db, f, sort, limit, offset, markup)
+    page_ids, total, result, siso = _markup_ids(db, f, sort, limit, offset, markup)
     if not page_ids:
         return ItemsPage([], total, result.stats, result.ads_failed)
     rows = _rows_for_ids(db, f, page_ids, cost=True)
     items = _assemble(db, rows, events)
-    _attach_markup(items, result.items)
+    _attach_markup(items, result.items, markup.pricing_db, siso)
     attach_cost(items, rows, lines_db)
     return ItemsPage(items, total, result.stats, result.ads_failed)
 
@@ -825,10 +879,11 @@ def _check(f: PublicationFilter, sort: Sort, events: bool, can_see_margin: bool)
 
 def _by_markup(sort: Sort, markup: Optional[MarkupQuery]) -> bool:
     """Whether the order (or the selection) is the markup's, computed in Python over the whole set."""
-    if markup is not None and (SORT_MARKUP in sort.keys or markup.filter.active):
+    asked = MARKUP_SORTS.intersection(sort.keys)
+    if markup is not None and (asked or markup.filter.active):
         return True
-    if SORT_MARKUP in sort.keys:
-        raise FilterError("orden", "markup requires the ml_metricas.ver_ganancia permission")
+    if asked:
+        raise FilterError("orden", f"{min(asked)} requires the ml_metricas.ver_ganancia permission")
     return False
 
 
@@ -876,7 +931,7 @@ def list_items(
     if markup is None:
         return ItemsPage(items, total)
     result = compute_markups(db, markup.pricing_db, item_ids=[row.item_id for row in rows], ads=markup.ads)
-    _attach_markup(items, result.items)
+    _attach_markup(items, result.items, markup.pricing_db)
     attach_cost(items, rows, lines_db)
     return ItemsPage(items, total, result.stats, result.ads_failed)
 
@@ -917,7 +972,7 @@ def items_for_keys(
     if markup is None:
         return ItemsPage(items, len(items))
     result = compute_markups(db, markup.pricing_db, item_ids=[row.item_id for row in rows], ads=markup.ads)
-    _attach_markup(items, result.items)
+    _attach_markup(items, result.items, markup.pricing_db)
     attach_cost(items, rows)
     return ItemsPage(items, len(items), result.stats, result.ads_failed)
 

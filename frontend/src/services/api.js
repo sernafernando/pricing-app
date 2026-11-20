@@ -319,6 +319,11 @@ export const promocionesAPI = {
   setHayMejoresExclusion: (mlaId, excluido) =>
     api.put(`/promociones/item/${mlaId}/hay-mejores-exclusion`, { excluido }),
   setHayMejoresExclusionBulk: (body) => api.post('/promociones/hay-mejores-exclusion-bulk', body),
+  // Per-MLA Criterios de aplicación (C1/C2/Auto). GET defaults when no row; PUT upserts.
+  getHayMejoresCriterios: (mlaId) => api.get(`/promociones/item/${mlaId}/hay-mejores-criterios`),
+  putHayMejoresCriterios: (mlaId, body) => api.put(`/promociones/item/${mlaId}/hay-mejores-criterios`, body),
+  // Bulk apply same criterios (≤20 ids). Optional discard skips Auto-fail suggestions.
+  setHayMejoresCriteriosBulk: (body) => api.post('/promociones/hay-mejores-criterios-bulk', body),
   // Remove/desapply a promotion from a given MLA (real ML write). `params`
   // shape: { promotion_type, promotion_id } - backend re-derives offer_id
   // for SMART itself, so the FE never sends offer_id here either.
@@ -1012,6 +1017,10 @@ export const publicacionesMlAPI = {
     api.get('/ml-publications/view/hay-mejores-exclusion-item-ids', { params, ...config }),
   hayMejoresExclusionItemIdsChecked: (body) =>
     api.post('/ml-publications/view/hay-mejores-exclusion-item-ids/checked', body),
+  hayMejoresCriteriosItemIds: (params, config) =>
+    api.get('/ml-publications/view/hay-mejores-criterios-item-ids', { params, ...config }),
+  hayMejoresCriteriosItemIdsChecked: (body) =>
+    api.post('/ml-publications/view/hay-mejores-criterios-item-ids/checked', body),
   // Paints publications on their own on one layer (the global one when `equipo_id` is left out), or with
   // `color: null` takes their own color off (seleccion-por-publicacion S3; at most 500 MLAs, see `paintPublications`).
   paintColors: (body) => api.put('/ml-publications/colors', body),

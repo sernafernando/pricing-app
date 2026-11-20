@@ -34,6 +34,8 @@ vi.mock('../../services/api', () => ({
     postPromocionItem: vi.fn(),
     descartarHayMejores: vi.fn(() => Promise.resolve({ data: { ok: true } })),
     confirmarSinPromosML: vi.fn(() => Promise.resolve({ data: { sin_promos_confirmado: true, promos_en_ml: 0 } })),
+    getHayMejoresCriterios: vi.fn(() => Promise.resolve({ data: { sellers_excluidos: [] } })),
+    putHayMejoresCriterios: vi.fn((mlaId, body) => Promise.resolve({ data: body })),
   },
   preciosAPI: { obtenerProducto: vi.fn(), tipoCambioActual: vi.fn(), calcularMarkup: vi.fn(), calcularPorMarkup: vi.fn(), setRapido: vi.fn(), setCuota: vi.fn() },
   registerAuthFailureHandler: vi.fn(),

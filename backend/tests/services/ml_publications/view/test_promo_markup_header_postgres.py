@@ -24,6 +24,7 @@ from app.services.ml_promotions_pricing import (
     enriquecer_markup_por_promo,
     markup_para_precio,
     markup_para_precio_con_sell_in_out,
+    markups_baseline_vigente,
 )
 from app.services.ml_publications.view import markup_service
 from tests.services.ml_publications.conftest import env, mlpub_pg  # noqa: F401
@@ -202,3 +203,83 @@ def test_co_funding_still_adds_to_the_revenue(conn, db) -> None:
 
     assert got == pytest.approx(markup_para_precio(db, MLA, 48000.0 + 0.05 * HEADER_PRICE))
     assert got > markup_para_precio(db, MLA, 48000.0)
+
+
+# L-owner (2026-11-18): "y que alguien revise markup actual en todas las partes de publicaciones ml, porque está
+# mostrando cualquier cosa, no toma las promos". The header and the list priced the buyer's price (`sale_price`) and
+# left out what ML co-funds, so an active SMART / PRE_NEGOTIATED / PRICE_MATCHING showed less than the panel's
+# "Activa ahora". Rule: with a started promo, the header prices its revenue (offer price + ML co-funding), the
+# lowest started price being the one ML applies; without one, the sale price as before.
+
+SMART_STARTED = {
+    "id": "S-1",
+    "type": "SMART",
+    "status": "started",
+    "price": 48000.0,
+    "original_price": HEADER_PRICE,
+    "meli_percentage": 5.0,
+}
+
+
+def _store_promotions(conn, *entries: dict) -> list[dict]:
+    """The store's own seller-promotions row of MLA (what ML's API answered), as the refresh writes it."""
+    raw = list(entries)
+    seed.add_state(
+        conn,
+        "ml_item_seller_promotions",
+        "item_id",
+        MLA,
+        raw=json.dumps(raw),
+        http_status=200,
+        started_count=sum(entry["status"] == "started" for entry in raw),
+    )
+    return raw
+
+
+def _list_markup(db) -> float:
+    found = markup_service.compute_markups(db, db, item_ids=[MLA]).items[MLA].markup
+    assert found.value_min == found.value_max
+    return found.value_min
+
+
+def test_an_active_co_funded_promo_prices_its_revenue_in_the_header_and_the_list(conn, db) -> None:
+    _seed(conn, LISTS["nine_by_tag"])
+    raw = _store_promotions(conn, SMART_STARTED)
+
+    found = markup_service.compute_detail(db, db, MLA)
+    revenue = 48000.0 + 0.05 * HEADER_PRICE
+
+    assert (found.breakdown.price, found.breakdown.price_source) == (revenue, "promo")
+    assert found.breakdown.markup == pytest.approx(markup_para_precio(db, MLA, revenue))
+    assert _list_markup(db) == pytest.approx(found.breakdown.markup)
+    # the panel's "Activa ahora" (hay_mejores' status quo) is the same figure
+    active = markups_baseline_vigente(db, MLA, HEADER_PRICE, raw_promotions=raw, sell_in_out=False)
+    assert active.nuestro_markup == pytest.approx(found.breakdown.markup)
+
+
+def test_the_lowest_started_price_is_the_one_priced(conn, db) -> None:
+    _seed(conn, LISTS["nine_by_tag"])
+    campaign = {"id": "C-1", "type": "SELLER_CAMPAIGN", "status": "started", "price": 47000.0}
+    _store_promotions(conn, SMART_STARTED, campaign)  # the SMART is programmed: ML applies the campaign
+
+    found = markup_service.compute_detail(db, db, MLA)
+
+    assert (found.breakdown.price, found.breakdown.price_source) == (47000.0, "promo")
+
+
+def test_without_a_started_promo_the_sale_price_is_priced(conn, db) -> None:
+    _seed(conn, LISTS["nine_by_tag"])
+    _store_promotions(conn, {**SMART_STARTED, "status": "candidate"})
+
+    found = markup_service.compute_detail(db, db, MLA)
+
+    assert (found.breakdown.price, found.breakdown.price_source) == (HEADER_PRICE, "sale_price")
+
+
+def test_a_price_asked_in_the_panel_is_priced_as_asked(conn, db) -> None:
+    """The panel prices other offers on the header unit: the active promo must not replace the price it asks for."""
+    _seed(conn, LISTS["nine_by_tag"])
+    before = markup_para_precio(db, MLA, HEADER_PRICE)
+    _store_promotions(conn, SMART_STARTED)
+
+    assert markup_para_precio(db, MLA, HEADER_PRICE) == pytest.approx(before)

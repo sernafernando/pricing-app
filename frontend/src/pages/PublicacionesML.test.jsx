@@ -46,6 +46,8 @@ vi.mock('../services/api', () => ({
     getPromocionesItem: vi.fn(() => new Promise(() => {})),
     refreshItemPromociones: vi.fn(() => new Promise(() => {})),
     getCompetenciaCatalogo: vi.fn(() => new Promise(() => {})),
+    getHayMejoresCriterios: vi.fn(() => Promise.resolve({ data: { sellers_excluidos: [] } })),
+    putHayMejoresCriterios: vi.fn((mlaId, body) => Promise.resolve({ data: body })),
   },
   publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn(), statusItemIds: vi.fn(), statusItemIdsChecked: vi.fn(), statusBulk: vi.fn(), paintColors: vi.fn() },
   productosAPI: {
@@ -520,7 +522,7 @@ describe('sorting and paging', () => {
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'unidades_7d', dir: 'desc' }));
     await sortBy(/^30D/);
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'unidades_30d', dir: 'desc' }));
-    await sortBy(/^Real 30D/);
+    await sortBy(/^Real 30D(?! c\/ SISO)/);
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'markup_30d', dir: 'desc' }));
     await sortBy(/^Total Gauss 30D/);
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'total_gauss_30d', dir: 'desc' }));
@@ -1193,7 +1195,7 @@ describe('markup (publicaciones-ml-vista P11b.T2)', () => {
     return page(entry);
   };
   // MARKUP's "Actual": the markup at today's price, the worst variation (what the sort and the filters use).
-  const WORST_HEADER = { name: /^Actual/ };
+  const WORST_HEADER = { name: /^Actual(?! c\/ SISO)/ }; // not its "Actual c/ SISO" neighbour
 
   it('without ver_ganancia there is no column, no controls, and no markup param (S68.1)', async () => {
     await page('/ml-publicaciones?markup_neg=1&markup_min=5&orden=markup');
@@ -1997,11 +1999,11 @@ describe('bulk actions over products (S6)', () => {
     // Never the filter's products: it opens on a panel that says why and offers to clear the selection.
     await user.click(await screen.findByRole('button', { name: 'Acciones masivas (0 productos de 1 publicación marcada)' }));
     expect(screen.getByText('Las publicaciones marcadas no tienen producto vinculado.')).toBeInTheDocument();
-    // Price actions need a product; hay-mejores exclude/include acts on publications and stays enabled.
+    // Price actions need a product; hay-mejores exclude/include/criterios act on publications and stay enabled.
     const menuItems = screen.getAllByRole('menuitem');
     const hayMejores = menuItems.filter((el) => /hay mejores/i.test(el.textContent ?? ''));
     const pricing = menuItems.filter((el) => !/hay mejores/i.test(el.textContent ?? ''));
-    expect(hayMejores.length).toBe(2);
+    expect(hayMejores.length).toBe(3);
     for (const item of pricing) expect(item).toBeDisabled();
     for (const item of hayMejores) expect(item).toBeEnabled();
     await user.click(screen.getByRole('button', { name: /Limpiar selección/ }));

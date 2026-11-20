@@ -15,6 +15,8 @@ vi.mock('../../services/api', () => ({
   promocionesAPI: {
     getCompetenciaCatalogo: vi.fn(),
     refreshCompetenciaCatalogo: vi.fn(),
+    getHayMejoresCriterios: vi.fn(),
+    putHayMejoresCriterios: vi.fn(),
   },
 }));
 
@@ -28,6 +30,20 @@ function renderPanel(props = {}) {
 describe('CatalogCompetitionPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockTienePermiso.mockReset();
+    mockTienePermiso.mockReturnValue(true);
+    promocionesAPI.getHayMejoresCriterios.mockResolvedValue({
+      data: {
+        c1_activo: false,
+        c2_activo: false,
+        c2_solo_markup_positivo: true,
+        auto_aplicacion: false,
+        sellers_excluidos: [],
+      },
+    });
+    promocionesAPI.putHayMejoresCriterios.mockResolvedValue({
+      data: { sellers_excluidos: ['seller-barato'] },
+    });
   });
 
   it('shows a loading state while the read fetch is in flight', async () => {
@@ -128,9 +144,29 @@ describe('CatalogCompetitionPanel', () => {
         competitor_count: 4,
         undercutting: [{ item_id: 'CHEAP', seller_nickname: 'Barato', price_ars: 900, markup: 40 }],
         same_bucket: [
-          { item_id: 'CHEAP', seller_nickname: 'Barato', price_ars: 900, markup: 40, markup_sell_in_out: 44 },
-          { item_id: 'MLA001', seller_nickname: 'Nosotros', price_ars: 1000, markup: 35, markup_sell_in_out: 39 },
-          { item_id: 'PRICEY', seller_nickname: 'Caro', price_ars: 1200, markup: 28 },
+          {
+            item_id: 'CHEAP',
+            seller_id: 'seller-barato',
+            seller_nickname: 'Barato',
+            price_ars: 900,
+            markup: 40,
+            markup_sell_in_out: 44,
+          },
+          {
+            item_id: 'MLA001',
+            seller_id: 'seller-ours',
+            seller_nickname: 'Nosotros',
+            price_ars: 1000,
+            markup: 35,
+            markup_sell_in_out: 39,
+          },
+          {
+            item_id: 'PRICEY',
+            seller_id: 'seller-caro',
+            seller_nickname: 'Caro',
+            price_ars: 1200,
+            markup: 28,
+          },
         ],
       },
     });
@@ -144,6 +180,98 @@ describe('CatalogCompetitionPanel', () => {
     expect(screen.queryByText(/Tu markup si igualás/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /actualizar competencia de catálogo/i })).toBeInTheDocument();
     expect(screen.getAllByText(/c\/ sell in\/out/).length).toBeGreaterThanOrEqual(1);
+    expect(await screen.findByLabelText(/Contar a Barato/i)).toBeChecked();
+  });
+
+  it('ranking checkboxes are disabled without promos.escribir', async () => {
+    mockTienePermiso.mockImplementation((perm) => perm === 'promos.ver');
+    promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
+      data: {
+        mla: 'MLA001',
+        fetch_status: 'ok',
+        same_bucket: [
+          {
+            item_id: 'CHEAP',
+            seller_id: 'seller-barato',
+            seller_nickname: 'Barato',
+            price_ars: 900,
+            markup: 40,
+          },
+          {
+            item_id: 'MLA001',
+            seller_id: 'seller-ours',
+            seller_nickname: 'Nosotros',
+            price_ars: 1000,
+            markup: 35,
+          },
+        ],
+      },
+    });
+
+    renderPanel({ variant: 'ranking' });
+    const box = await screen.findByLabelText(/Contar a Barato/i);
+    expect(box).toBeDisabled();
+    fireEvent.click(box);
+    expect(promocionesAPI.putHayMejoresCriterios).not.toHaveBeenCalled();
+  });
+
+  it('ranking shows error when criterios fail to load', async () => {
+    promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
+      data: {
+        mla: 'MLA001',
+        fetch_status: 'ok',
+        same_bucket: [{ item_id: 'CHEAP', seller_nickname: 'Barato', price_ars: 900, markup: 40 }],
+      },
+    });
+    promocionesAPI.getHayMejoresCriterios.mockRejectedValue(new Error('boom'));
+
+    renderPanel({ variant: 'ranking' });
+    expect(await screen.findByRole('alert')).toHaveTextContent(/quién cuenta/i);
+  });
+
+  it('ranking uncheck persists sellers_excluidos without wiping other criterios', async () => {
+    promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
+      data: {
+        mla: 'MLA001',
+        fetch_status: 'ok',
+        same_bucket: [
+          {
+            item_id: 'CHEAP',
+            seller_id: 'seller-barato',
+            seller_nickname: 'Barato',
+            price_ars: 900,
+            markup: 40,
+          },
+          {
+            item_id: 'MLA001',
+            seller_id: 'seller-ours',
+            seller_nickname: 'Nosotros',
+            price_ars: 1000,
+            markup: 35,
+          },
+        ],
+      },
+    });
+    promocionesAPI.getHayMejoresCriterios.mockResolvedValue({
+      data: {
+        c1_activo: true,
+        c1_markup_min: 0,
+        c1_markup_max: 20,
+        c2_activo: true,
+        c2_solo_markup_positivo: true,
+        auto_aplicacion: false,
+        sellers_excluidos: [],
+      },
+    });
+
+    renderPanel({ variant: 'ranking' });
+    const box = await screen.findByLabelText(/Contar a Barato/i);
+    fireEvent.click(box);
+    await waitFor(() => expect(promocionesAPI.putHayMejoresCriterios).toHaveBeenCalledTimes(1));
+    const body = promocionesAPI.putHayMejoresCriterios.mock.calls[0][1];
+    expect(body.sellers_excluidos).toEqual(['seller-barato']);
+    expect(body.c1_activo).toBe(true);
+    expect(body.c2_activo).toBe(true);
   });
 
   it('ranking variant shows empty copy with hidden competitor count', async () => {

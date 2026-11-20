@@ -122,6 +122,20 @@ class TestWholeProduct:
                 continue
             assert rot(rows[160]["ventas"]) == whole, params
 
+    def test_the_rotation_group_carries_the_numbers_of_its_formulas(self, client, mine) -> None:
+        # auditoria-ventas-erp-full L2: the tooltips show stock ÷ (sold ÷ 30) and sold ÷ average with these
+        for params in ({}, {"q": "MLA60"}):
+            ventas = by_item(audit(client, mine, **params))[160]["ventas"]
+            assert (ventas["stock_actual"], ventas["vendidas_30d"]) == (16, 20), params  # the whole product's
+            assert ventas["dias_cobertura"] == round(16 * 30 / 20, 1)
+            assert ventas["rotacion"] == round(20 / ventas["stock_promedio"], 2)
+
+    def test_a_brand_row_carries_the_sums_of_its_products(self, client, mine) -> None:
+        brands = audit(client, mine, nivel="marca")["rows"]
+        products = audit(client, mine)["rows"]
+        for name in ("stock_actual", "vendidas_30d"):
+            assert sum(b["ventas"][name] for b in brands) == sum(p["ventas"][name] for p in products), name
+
     def test_the_rest_of_the_row_still_follows_the_filter(self, client, mine) -> None:
         row = by_item(audit(client, mine, q="MLA60"))[160]
         assert row["ventas"]["unidades_30d"] == 12  # only the filtered publication

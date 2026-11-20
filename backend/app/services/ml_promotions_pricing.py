@@ -206,11 +206,15 @@ class _PricingContext:
         return _ProductoEnPesos(self.unit.producto_item_id, self.costo_ars, self.unit.iva)
 
     def unidad(self, revenue: float) -> UnitMarkup:
-        """The header unit priced at `revenue`; raises ValueError when it has no value there."""
+        """The header unit priced at `revenue`; raises ValueError when it has no value there. The active promo's
+        revenue the header prices (`UnitInputs.promo_revenue`) is dropped: here the price is the one asked for."""
         if _positive_float(revenue) is None:
             raise ValueError(f"revenue {revenue!r} is not a positive price")
         priced = unit_markup(
-            self.ctx, replace(self.unit, sale_price=float(revenue)), self.envio, envio_propio=self.envio_propio
+            self.ctx,
+            replace(self.unit, sale_price=float(revenue), promo_revenue=None),
+            self.envio,
+            envio_propio=self.envio_propio,
         )
         if priced.value is None or priced.limpio is None:
             raise ValueError(f"unit has no markup at {revenue!r}: {priced.reason}")
@@ -481,6 +485,48 @@ def _started_activas_por_precio(started: List[Dict[str, Any]]) -> List[Dict[str,
     return activas
 
 
+def _started_de_raw(mla: Optional[str], raw_promotions: Any) -> List[Dict[str, Any]]:
+    """The ``status=started`` entries of a seller-promotions list (ML's item promotions, as the store keeps them in
+    ``ml_item_seller_promotions.raw``), in the shape the offer price and the co-funding read."""
+    started: List[Dict[str, Any]] = []
+    if not isinstance(raw_promotions, list):
+        return started
+    for entry in raw_promotions:
+        if not isinstance(entry, Mapping) or entry.get("status") != "started":
+            continue
+        promo_type = entry.get("type") or entry.get("promotion_type")
+        if not promo_type:
+            continue
+        started.append(
+            {
+                "mla": mla,
+                "promotion_id": entry.get("id") or entry.get("promotion_id"),
+                "promotion_type": promo_type,
+                "status": "started",
+                "price": entry.get("price"),
+                "original_price": entry.get("original_price"),
+                "suggested_discounted_price": entry.get("suggested_discounted_price"),
+                "payload": dict(entry.get("payload") or entry),
+            }
+        )
+    return started
+
+
+def ingreso_promo_activa(raw_promotions: Any) -> Optional[float]:
+    """What the publication earns today from the promo ML applies ("Activa ahora"): its offer price plus ML's
+    co-funding, the revenue ``nuestro_markup`` prices. Among the started entries ML applies the lowest price
+    (``_started_activas_por_precio``); a tie keeps the best revenue, as ``markups_baseline_vigente`` keeps the best
+    markup. None without a started entry that has an offer price. No statement."""
+    best: Optional[float] = None
+    for promo in _started_activas_por_precio(_started_de_raw(None, raw_promotions)):
+        offer = precio_de_oferta(promo)
+        if offer is None:
+            continue
+        revenue = offer + _co_funding_amount(promo)
+        best = revenue if best is None else max(best, revenue)
+    return best
+
+
 def markups_baseline_vigente(
     db: Session,
     mla: str,
@@ -517,30 +563,7 @@ def markups_baseline_vigente(
             markup_para_precio(db, mla, baseline_price, context=context), None, float(baseline_price)
         )
 
-    started: List[Dict[str, Any]] = []
-    if isinstance(raw_promotions, list):
-        for entry in raw_promotions:
-            if not isinstance(entry, Mapping):
-                continue
-            if entry.get("status") != "started":
-                continue
-            promo_type = entry.get("type") or entry.get("promotion_type")
-            if not promo_type:
-                continue
-            started.append(
-                {
-                    "mla": mla,
-                    "promotion_id": entry.get("id") or entry.get("promotion_id"),
-                    "promotion_type": promo_type,
-                    "status": "started",
-                    "price": entry.get("price"),
-                    "original_price": entry.get("original_price"),
-                    "suggested_discounted_price": entry.get("suggested_discounted_price"),
-                    "payload": dict(entry.get("payload") or entry),
-                }
-            )
-
-    activas = _started_activas_por_precio(started)
+    activas = _started_activas_por_precio(_started_de_raw(mla, raw_promotions))
     if activas:
         try:
             enriquecer_markup_por_promo(db, mla, activas, sell_in_out=sell_in_out, batch=batch, context=context)
