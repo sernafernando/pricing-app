@@ -540,9 +540,7 @@ def test_a_credit_note_linked_to_compras_never_moves_the_start(engine: Engine) -
     w.producto(engine, P)
     w.costo_lista(engine, P, datetime(2026, 9, 1), "25")
     nc = w.factura(engine, P, date(2026, 10, 2), datetime(2026, 10, 2), 1, "22", previo=10, pedido=5)
-    w.run(
-        engine, "UPDATE v_facturas_compra_vigentes SET clasificacion = 'NOTA_CREDITO' WHERE ct_transaction = :c", c=nc
-    )
+    w.run(engine, "UPDATE v_facturas_compra_vigentes SET clasificacion = 'NC' WHERE ct_transaction = :c", c=nc)
     w.factura(engine, P, date(2026, 10, 9), datetime(2026, 10, 9), 5, "22", previo=9, pedido=6)
     w.sell_in_compra(engine, P, 5, "2", date(2026, 10, 2))
     w.sell_in_compra(engine, P, 6, "2", date(2026, 10, 9))
