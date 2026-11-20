@@ -410,3 +410,47 @@ def test_apply_every_promo_that_improves_x_points_end_to_end(mcp_client, conn, d
         ("MLA1", "promo_aplicar", "promos_aplicar_mejoras", "ok"),
         ("MLA2", "promo_aplicar", "promos_aplicar_mejoras", "ok"),
     ]
+
+
+# ---------------------------------------------------------------- concurrency and kill switch during apply
+
+
+def test_an_apply_that_loses_the_claim_race_writes_nothing(mcp_client, conn, db, fake_app, monkeypatch):
+    from app.mcp.write import service
+
+    fake_app.product(101, 1000.0)
+    planned = plan(mcp_client, conn, "precio_lista_cambiar", items=[{"item_id": 101, "precio": 950}], limites=PRECIO)
+    original = service._load_plan
+
+    def load_then_lose_the_race(db_, *args):
+        loaded = original(db_, *args)
+        assert service._claim(db_, loaded["plan_id"])  # a concurrent apply claimed it first
+        return loaded
+
+    monkeypatch.setattr(service, "_load_plan", load_then_lose_the_race)
+    result, text = apply(mcp_client, conn, "precio_lista_cambiar", planned)
+    assert result["isError"] is True
+    assert "ya se está aplicando" in text
+    assert fake_app.writes == []
+    assert db.query(McpWriteAction).count() == 0
+
+
+def test_kill_switch_turned_on_mid_apply_blocks_the_remaining_rows(mcp_client, conn, db, fake_app, monkeypatch):
+    from app.core.config import settings
+    from app.mcp.write import service
+
+    fake_app.product(101, 1000.0)
+    planned = plan(mcp_client, conn, "precio_lista_cambiar", items=[{"item_id": 101, "precio": 950}], limites=PRECIO)
+    original = service._claim
+
+    def claim_then_switch_off(db_, plan_id):
+        claimed = original(db_, plan_id)
+        monkeypatch.setattr(settings, "MCP_WRITE_KILL_SWITCH", True)
+        return claimed
+
+    monkeypatch.setattr(service, "_claim", claim_then_switch_off)
+    result, body = apply(mcp_client, conn, "precio_lista_cambiar", planned)
+    assert result["isError"] is False, body
+    assert body["resultados"][0]["resultado"] == "bloqueada"
+    assert "se deshabilitó durante la aplicación" in body["resultados"][0]["detalle"]
+    assert fake_app.writes == []

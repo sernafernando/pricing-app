@@ -158,3 +158,33 @@ def test_server_instructions_explain_plan_confirm_and_limits(mcp_client, writer)
     instructions = r.json()["result"]["instructions"]
     assert "Read-only" not in instructions
     assert "plan" in instructions and "aplicar" in instructions and "limites" in instructions
+
+
+def test_guard_layer_denies_a_read_scope_even_for_a_user_with_mcp_escribir(writer, db):
+    import pytest
+
+    from app.mcp.write import guards
+    from app.mcp.write.context import ORIGEN_MCP, WriteContext, WriteError
+
+    ctx = WriteContext(
+        usuario_id=writer.id,
+        username=writer.username,
+        connection_id=None,
+        cliente="Cliente de prueba",
+        origen=ORIGEN_MCP,
+        scopes=("pricing.read",),
+    )
+    with pytest.raises(WriteError) as denied:
+        guards.check_access(db, ctx)
+    assert denied.value.code == "denegada"
+    assert "falta el scope pricing.write" in str(denied.value)
+
+
+def test_runtime_denies_a_read_token_even_without_the_guard_layer(mcp_client, writer, db, write_enabled, monkeypatch):
+    from app.mcp.write import guards
+
+    monkeypatch.setattr(guards, "check_access", lambda db_, ctx: None)
+    conn = connect(mcp_client, writer)
+    result = call_tool(mcp_client, conn.headers, "publicaciones_estado", {"modo": "plan"})
+    assert result["isError"] is True
+    assert "solo lectura" in tool_text(result)

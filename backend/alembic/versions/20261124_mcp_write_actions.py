@@ -7,7 +7,7 @@ Create Date: 2026-11-18
 Delivery 2 of the MCP server: AI clients may change pricing (promos, list prices, cuotas, mayorista, pause/activate)
 through the existing endpoints, always as plan -> confirmation -> apply. `mcp.escribir` is separate from
 `mcp.conectar` and critical (it lets an outside app change prices as the user). Granted to ADMIN only; SUPERADMIN
-gets it implicitly, anyone else by override. The parent revision is provisional (re-parented before the push).
+gets it implicitly, anyone else by override.
 """
 
 from typing import Sequence, Union
