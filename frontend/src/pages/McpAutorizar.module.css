@@ -69,3 +69,12 @@
   justify-content: flex-end;
   gap: var(--space-2);
 }
+
+.nota {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: var(--font-sm);
+}

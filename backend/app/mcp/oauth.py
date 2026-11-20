@@ -165,7 +165,7 @@ def authorize(
             redirect_uri=redirect_uri,
             state=state,
             code_challenge=code_challenge,
-            scope=" ".join(dict.fromkeys(requested)),
+            scope=store.normalize_scope(requested),
             resource=resource_url(),
             created_at=store.now(),
             expires_at=store.now() + store.REQUEST_TTL,
@@ -184,6 +184,8 @@ class PendingRequestResponse(BaseModel):
     expires_at: datetime
     redirect_host: str  # where the code goes back to (consent-phishing hint)
     redirect_local: bool  # True when that is the user's own computer (loopback)
+    escritura_pedida: bool  # the client asked for pricing.write
+    escritura: bool  # the token will carry pricing.write (asked AND the viewing user holds mcp.escribir)
 
 
 class DecisionRequest(BaseModel):
@@ -215,12 +217,15 @@ def get_pending_request(
     """What the consent card shows: who asks and for what."""
     row = _pending(db, req)
     host, local = redirect_target(row.redirect_uri)
+    granted = store.granted_scope(db, store.load_user(db, current_user.id), row.scope)
     return PendingRequestResponse(
         client_name=_client_name(row.client_id),
         scope=row.scope,
         expires_at=store.aware(row.expires_at),
         redirect_host=host,
         redirect_local=local,
+        escritura_pedida=store.SCOPE_WRITE in row.scope.split(),
+        escritura=store.SCOPE_WRITE in granted.split(),
     )
 
 
@@ -234,7 +239,8 @@ def decide_request(
     current_user: Usuario = Depends(get_current_user),
 ) -> DecisionResponse:
     """The logged-in user approves (needs mcp.conectar) or denies. Approving issues a one-time code bound to
-    this user; the redirect target is built only from the stored, validated request."""
+    this user; the redirect target is built only from the stored, validated request. A requested pricing.write is
+    dropped here when the user lacks mcp.escribir: the connection gets a read-only token."""
     row = _pending(db, req)
     if not body.approve:
         row.decided_at = store.now()
@@ -244,6 +250,7 @@ def decide_request(
     if not store.may_connect(db, usuario):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Falta el permiso mcp.conectar")
     code = store.new_secret()
+    row.scope = store.granted_scope(db, usuario, row.scope)
     row.decided_at = store.now()
     row.usuario_id = usuario.id
     row.code_hash = store.hash_secret(code)

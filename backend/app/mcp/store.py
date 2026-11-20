@@ -19,8 +19,10 @@ from app.models.usuario import Usuario
 from app.services.permisos_service import OPT_IN_PERMISSION_CODES, PermisosService
 
 PERMISO_CONECTAR = "mcp.conectar"
+PERMISO_ESCRIBIR = "mcp.escribir"
 SCOPE_READ = "pricing.read"
-SUPPORTED_SCOPES = (SCOPE_READ,)
+SCOPE_WRITE = "pricing.write"
+SUPPORTED_SCOPES = (SCOPE_READ, SCOPE_WRITE)
 REQUEST_TTL = timedelta(minutes=10)
 CODE_TTL = timedelta(seconds=60)
 
@@ -59,6 +61,27 @@ def has_permission(db: Session, usuario: Usuario, codigo: str) -> bool:
 def may_connect(db: Session, usuario: Usuario | None) -> bool:
     """Active and holding mcp.conectar: checked on every use of a token."""
     return bool(usuario and usuario.activo and has_permission(db, usuario, PERMISO_CONECTAR))
+
+
+def may_write(db: Session, usuario: Usuario | None) -> bool:
+    """Active and holding mcp.escribir (fresh): checked at consent and before every write."""
+    return bool(usuario and usuario.activo and has_permission(db, usuario, PERMISO_ESCRIBIR))
+
+
+def normalize_scope(requested: list[str]) -> str:
+    """Requested scopes in a stable order; write implies read (the MCP endpoint itself requires read)."""
+    wanted = set(requested)
+    if SCOPE_WRITE in wanted:
+        wanted.add(SCOPE_READ)
+    return " ".join(s for s in SUPPORTED_SCOPES if s in wanted)
+
+
+def granted_scope(db: Session, usuario: Usuario | None, requested: str) -> str:
+    """What the token gets: `pricing.write` only when asked AND the user holds mcp.escribir, else read only."""
+    scopes = requested.split()
+    if SCOPE_WRITE in scopes and not may_write(db, usuario):
+        scopes = [s for s in scopes if s != SCOPE_WRITE]
+    return normalize_scope(scopes or [SCOPE_READ])
 
 
 @dataclass(frozen=True)

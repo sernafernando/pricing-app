@@ -116,6 +116,8 @@ _FLAGS = (
     "links",
     "verify",
     "divergence",
+    # MCP write tools (app.mcp.write): ADMIN-editable from "Acciones IA"; `MCP_WRITE_KILL_SWITCH` also forces it off.
+    "mcp_write",
 )
 
 # The allow-list: only these keys can be read from or written to `ml_pub_settings`.
@@ -174,9 +176,11 @@ def _resolve(key: str, definition: _Def, stored: Any, found: bool) -> Setting:
     return Setting(key, stored, SOURCE_DB)
 
 
-def get_settings(keys: Sequence[str]) -> Dict[str, Setting]:
+def get_settings(keys: Sequence[str], session: Optional[Session] = None) -> Dict[str, Setting]:
     """Effective values for `keys` (kill switch, then DB row, then env default) in ONE
-    short session, so a handler can read everything it needs at a batch boundary."""
+    short session, so a handler can read everything it needs at a batch boundary.
+
+    With `session` the rows are read in the caller's session instead of a background one."""
     definitions = {key: _definition(key) for key in keys}
     if not definitions:
         return {}
@@ -190,9 +194,11 @@ def get_settings(keys: Sequence[str]) -> Dict[str, Setting]:
     if not to_read:
         return result
     try:
-        with database.get_background_db() as session:
-            rows = session.query(MlPubSetting).filter(MlPubSetting.key.in_(to_read)).all()
-            stored = {row.key: copy.deepcopy(row.value) for row in rows}
+        if session is not None:
+            stored = _read_rows(session, to_read)
+        else:
+            with database.get_background_db() as own:
+                stored = _read_rows(own, to_read)
     except Exception:
         logger.exception("ml_pub settings %s unreadable", to_read)
         for key in to_read:
@@ -206,9 +212,14 @@ def get_settings(keys: Sequence[str]) -> Dict[str, Setting]:
     return result
 
 
-def get_setting(key: str) -> Setting:
+def _read_rows(session: Session, keys: List[str]) -> Dict[str, Any]:
+    rows = session.query(MlPubSetting).filter(MlPubSetting.key.in_(keys)).all()
+    return {row.key: copy.deepcopy(row.value) for row in rows}
+
+
+def get_setting(key: str, session: Optional[Session] = None) -> Setting:
     """Effective value of one key; see `get_settings`."""
-    return get_settings([key])[key]
+    return get_settings([key], session=session)[key]
 
 
 def is_enabled(handler: str) -> bool:

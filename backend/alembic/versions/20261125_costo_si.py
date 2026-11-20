@@ -5,7 +5,7 @@ sell-in / Compras tables only queue products (no column changes).
 Frozen copy of `app.services.costo_si.queue.UPGRADE_SQL` / `DOWNGRADE_SQL` at this revision.
 
 Revision ID: 20261125_costo_si
-Revises: 20261117_permiso_promos_auto_aplicacion
+Revises: 20261124_mcp_write_actions
 Create Date: 2026-11-20
 
 """
@@ -17,7 +17,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "20261125_costo_si"
-down_revision: Union[str, None] = "20261117_permiso_promos_auto_aplicacion"
+down_revision: Union[str, None] = "20261124_mcp_write_actions"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
