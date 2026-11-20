@@ -17,7 +17,7 @@ Muestra todo lo que una IA conectada (ChatGPT, Claude, Cursor o Gemini CLI) camb
 5. Revisá el plan: cada fila dice **Lista** (se va a deshacer) o **Bloqueada** con el motivo (no se toca). El plan vence a los 15 minutos.
 6. Tocá **Confirmar**. Se muestra el resultado de cada fila y la lista se actualiza: la acción original queda como **Deshecha** y aparece una acción nueva que la deshace.
 
-> Si aparece **La escritura de la IA está bloqueada desde el servidor. No se puede encender desde acá.**, el interruptor no se puede usar. Avisale a quien administra el servidor.
+> Si aparece el aviso **La escritura de la IA está bloqueada desde el servidor. No se puede encender desde acá.** el interruptor no se puede usar: avisale a quien administra el servidor.
 
 ## Filtros y columnas
 
