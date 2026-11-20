@@ -499,3 +499,20 @@ def test_a_product_whose_daily_sync_breaks_does_not_stop_the_others(engine: Engi
 
     assert (guardadas, fallidos) == (0, {P: "RuntimeError: broken"})
     assert w.rows(engine, "SELECT inventory_id FROM costo_si_full_cobertura") == [("INV2",)]
+
+
+def test_a_photo_cut_by_the_deadline_keeps_the_rest_of_the_days_photo(engine: Engine) -> None:
+    _l1(engine)
+    _recalcular(engine, P)
+    w.run(
+        engine,
+        'INSERT INTO costo_si_stock_diario (fecha, item_id, principal, "full", tomado_at) VALUES (:f, :i, 7, 0, now())',
+        f=date(2026, 11, 3),
+        i=P,
+    )
+
+    with sessionmaker(bind=engine)() as db:
+        assert foto.tomar(db, date(2026, 11, 3), datetime.now(UTC), datetime.now(UTC) - timedelta(seconds=1)) == 0
+        db.commit()
+
+    assert w.rows(engine, "SELECT principal FROM costo_si_stock_diario") == [(7,)]

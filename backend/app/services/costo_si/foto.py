@@ -25,7 +25,7 @@ _INSERT_SQL = text(
 
 def tomar(db: Session, dia: date, ahora: datetime, deadline: Optional[datetime] = None) -> int:
     """Replace `dia`'s photo with the available stock at 00:00 of `dia`; returns how many products it holds. Stops
-    at `deadline`: a product left out is reconstructed when read, as before."""
+    at `deadline`: a product left out keeps an earlier photo of the day, or is reconstructed when read."""
     items = [r[0] for r in db.execute(text("SELECT DISTINCT item_id FROM costo_si_pasos ORDER BY 1"))]
     t = fuentes.inicio_del_dia(dia)
     filas = []
@@ -35,7 +35,10 @@ def tomar(db: Session, dia: date, ahora: datetime, deadline: Optional[datetime] 
         principal = fuentes.principal_disponible(db, item_id, t)
         full = full_ml.full_disponible(db, item_id, t.replace(tzinfo=fuentes.ZONA))
         filas.append({"f": dia, "i": item_id, "p": principal, "fu": full, "t": ahora})
-    db.execute(text("DELETE FROM costo_si_stock_diario WHERE fecha = :f"), {"f": dia})
-    if filas:
+    if filas:  # only the products photographed now: a run cut by the deadline keeps the rest of an earlier photo
+        db.execute(
+            text("DELETE FROM costo_si_stock_diario WHERE fecha = :f AND item_id = ANY(:items)"),
+            {"f": dia, "items": [f["i"] for f in filas]},
+        )
         db.execute(_INSERT_SQL, filas)
     return len(filas)
