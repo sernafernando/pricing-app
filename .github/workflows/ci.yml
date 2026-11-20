@@ -232,12 +232,22 @@ jobs:
           POSTGRES_TEST_URL: "postgresql+psycopg2://postgres:postgres@localhost:5432/pricing_test"
 
   backend-postgres:
-    name: Backend Tests (Postgres)
+    name: Backend Tests (Postgres) ${{ matrix.shard }}/3
     needs: changes
     # `!cancelled()` so a failed `changes` job still runs this one (fail safe).
     if: ${{ !cancelled() && needs.changes.outputs.backend_needed != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Sharded by test file (`.github/scripts/pytest_shard.py`): every shard
+    # computes the same split from the same checkout and the committed
+    # per-file durations (`.github/ci-durations/`), so each test file runs in
+    # exactly one shard. By 2026-11 this job had ~6,500 tests and ~12 min of
+    # pytest on one runner; three runners take a third each. `fail-fast:
+    # false` so one red shard does not cancel the others' results.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     defaults:
       run:
         working-directory: backend
@@ -286,7 +296,14 @@ jobs:
           pip install pytest pytest-xdist httpx
 
       - name: Run tests (postgres-only, parallel)
-        run: pytest tests/ -m "postgres and not volume" -n 4 -q --tb=short --durations=50 --junitxml=junit-postgres.xml
+        # The file list goes through a file, not `< <(...)`, so a failing
+        # split fails the step instead of running an empty or partial shard.
+        run: |
+          python3 -I ../.github/scripts/pytest_shard.py select --shards 3 --index ${{ matrix.shard }} \
+            --durations ../.github/ci-durations/postgres.json > shard-files.txt
+          mapfile -t files < shard-files.txt
+          [ "${#files[@]}" -gt 0 ]
+          pytest "${files[@]}" -m "postgres and not volume" -n 4 -q --tb=short --durations=50 --junitxml=junit-postgres.xml
         env:
           ENVIRONMENT: testing
           DATABASE_URL: "sqlite:///./test.db"
@@ -295,23 +312,30 @@ jobs:
           POSTGRES_TEST_URL: "postgresql+psycopg2://postgres:postgres@localhost:5432/pricing_test"
 
       # Per-test timings (setup + call + teardown) for every test, not only
-      # the 50 slowest in the log: the input for sharding and fixture work.
+      # the 50 slowest in the log: the input for fixture work, and for
+      # refreshing `.github/ci-durations/` when the shards drift out of
+      # balance (`pytest_shard.py durations <the shards' junit files>`).
       - name: Upload JUnit timings
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: junit-postgres
+          name: junit-postgres-${{ matrix.shard }}
           path: backend/junit-postgres.xml
           retention-days: 14
           if-no-files-found: warn
 
   backend-postgres-volume:
-    name: Backend Tests (Postgres volume)
+    name: Backend Tests (Postgres volume) ${{ matrix.shard }}/2
     needs: changes
     # `!cancelled()` so a failed `changes` job still runs this one (fail safe).
     if: ${{ !cancelled() && needs.changes.outputs.backend_needed != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Sharded by test file like `backend-postgres` (see there), in two.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     defaults:
       run:
         working-directory: backend
@@ -358,7 +382,12 @@ jobs:
           pip install pytest pytest-xdist httpx
 
       - name: Run tests (volume, one module per worker)
-        run: pytest tests/ -m volume -n 4 --dist loadfile -q --tb=short --durations=50 --junitxml=junit-postgres-volume.xml
+        run: |
+          python3 -I ../.github/scripts/pytest_shard.py select --shards 2 --index ${{ matrix.shard }} \
+            --durations ../.github/ci-durations/volume.json > shard-files.txt
+          mapfile -t files < shard-files.txt
+          [ "${#files[@]}" -gt 0 ]
+          pytest "${files[@]}" -m volume -n 4 --dist loadfile -q --tb=short --durations=50 --junitxml=junit-postgres-volume.xml
         env:
           ENVIRONMENT: testing
           DATABASE_URL: "sqlite:///./test.db"
@@ -367,12 +396,14 @@ jobs:
           POSTGRES_TEST_URL: "postgresql+psycopg2://postgres:postgres@localhost:5432/pricing_test"
 
       # Per-test timings (setup + call + teardown) for every test, not only
-      # the 50 slowest in the log: the input for sharding and fixture work.
+      # the 50 slowest in the log: the input for fixture work, and for
+      # refreshing `.github/ci-durations/` when the shards drift out of
+      # balance (`pytest_shard.py durations <the shards' junit files>`).
       - name: Upload JUnit timings
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: junit-postgres-volume
+          name: junit-postgres-volume-${{ matrix.shard }}
           path: backend/junit-postgres-volume.xml
           retention-days: 14
           if-no-files-found: warn
