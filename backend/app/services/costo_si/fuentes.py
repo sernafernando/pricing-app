@@ -22,6 +22,7 @@
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
@@ -140,20 +141,26 @@ _TC_MANUAL_SQL = text(
     "SELECT ct_transaction, tipo_cambio FROM costo_si_factura_tc WHERE ct_transaction = ANY(:cts)"
 ).bindparams(bindparam("cts", type_=ARRAY(BigInteger)))
 
-_TC_FECHA_SQL = text(
-    "SELECT venta FROM tipo_cambio WHERE moneda = 'USD' AND fecha <= :d AND venta > 0 ORDER BY fecha DESC LIMIT 1"
-)
+# Every USD rate from the last one on or before :desde through :hasta: each invoice takes the last on or before its date.
+_TC_FECHAS_SQL = text("""
+    SELECT fecha, venta FROM tipo_cambio
+    WHERE moneda = 'USD' AND venta > 0 AND fecha <= :hasta
+      AND fecha >= COALESCE(
+        (SELECT max(fecha) FROM tipo_cambio WHERE moneda = 'USD' AND venta > 0 AND fecha <= :desde), :desde)
+    ORDER BY fecha
+""")
 
+# The product's active Compras sell ins with the Compras operations each one covers (its own and its linked ones).
 _SELL_IN_COMPRAS_SQL = text("""
-    SELECT c.id, c.tipo, c.porcentaje, ci.cantidad, ci.costo_base_unit, ci.monto_asignado
+    SELECT c.id, c.tipo, c.porcentaje, ci.cantidad, ci.costo_base_unit, ci.monto_asignado,
+           array_remove(array_append(array_agg(cp.pedido_compra_id), c.bono_pedido_id), NULL) AS pedidos
     FROM sell_in_compras c
     JOIN sell_in_compra_items ci ON ci.compra_id = c.id AND ci.item_id = :i
+    LEFT JOIN sell_in_compra_pedidos cp ON cp.compra_id = c.id
     WHERE c.estado = 'activa'
-      AND (c.bono_pedido_id = ANY(:pedidos)
-           OR EXISTS (SELECT 1 FROM sell_in_compra_pedidos cp
-                      WHERE cp.compra_id = c.id AND cp.pedido_compra_id = ANY(:pedidos)))
+    GROUP BY c.id, ci.id
     ORDER BY c.id
-""").bindparams(bindparam("pedidos", type_=ARRAY(BigInteger)))
+""")
 
 
 @dataclass
@@ -184,32 +191,54 @@ def facturas_de(db: Session, item_id: int, desde: date) -> List[Factura]:
     return facturas
 
 
-def tipo_cambio_de(db: Session, f: Factura, manuales: Dict[int, Decimal]) -> Tuple[Optional[Decimal], str]:
-    """S4 (L4.5): the PM's correction, else the Compras operation's TC, else the invoice date's."""
+@dataclass(frozen=True)
+class SellInCompras:
+    id: int
+    porcentaje: Decimal
+    pedidos: frozenset
+
+
+def tipos_de_cambio(db: Session, facturas: Sequence[Factura]) -> List[Tuple[date, Decimal]]:
+    """The USD rates the invoices' dates need, oldest first (one query for the whole entry)."""
+    fechas = [f.fecha for f in facturas if f.curr_id != CURR_USD]
+    if not fechas:
+        return []
+    filas = db.execute(_TC_FECHAS_SQL, {"desde": min(fechas), "hasta": max(fechas)})
+    return [(fecha, Decimal(str(venta))) for fecha, venta in filas]
+
+
+def tipo_cambio_de(
+    f: Factura, manuales: Dict[int, Decimal], tasas: Sequence[Tuple[date, Decimal]]
+) -> Tuple[Optional[Decimal], str]:
+    """S4 (L4.5): the PM's correction, else the Compras operation's TC, else the last rate on or before its date."""
     if f.curr_id == CURR_USD:
         return None, "usd"
     if f.ct_transaction in manuales:
         return manuales[f.ct_transaction], "manual"
     if f.tc_pedido is not None:
         return f.tc_pedido, "pedido"
-    venta = db.execute(_TC_FECHA_SQL, {"d": f.fecha}).scalar()
-    return (Decimal(str(venta)) if venta else None), "fecha_factura"
+    k = bisect_right([fecha for fecha, _ in tasas], f.fecha)
+    return (tasas[k - 1][1] if k else None), "fecha_factura"
 
 
-def sell_ins_de(db: Session, item_id: int, f: Factura, bonos: Sequence[Bono]) -> Tuple[SellIn, ...]:
+def sell_ins_compras(db: Session, item_id: int) -> List[SellInCompras]:
+    """The product's active Compras sell ins as % of the net, with the operations they cover (one query)."""
+    out: List[SellInCompras] = []
+    for cid, tipo, pct, cantidad, base, monto, pedidos in db.execute(_SELL_IN_COMPRAS_SQL, {"i": item_id}):
+        if tipo == "porcentaje" and pct is not None:
+            porcentaje = Decimal(pct)
+        elif cantidad and base:
+            porcentaje = Decimal(monto) / (Decimal(cantidad) * Decimal(base)) * 100
+        else:
+            continue
+        out.append(SellInCompras(int(cid), porcentaje.quantize(Decimal("0.0001")), frozenset(pedidos or ())))
+    return out
+
+
+def sell_ins_de(f: Factura, compras: Sequence[SellInCompras], bonos: Sequence[Bono]) -> Tuple[SellIn, ...]:
     """S5/S6: the Compras sell ins of the invoice's operations, then the brand bonuses of its date."""
-    out: List[SellIn] = []
-    if f.pedidos:
-        for cid, tipo, pct, cantidad, base, monto in db.execute(
-            _SELL_IN_COMPRAS_SQL, {"i": item_id, "pedidos": f.pedidos}
-        ):
-            if tipo == "porcentaje" and pct is not None:
-                porcentaje = Decimal(pct)
-            elif cantidad and base:
-                porcentaje = Decimal(monto) / (Decimal(cantidad) * Decimal(base)) * 100
-            else:
-                continue
-            out.append(SellIn("compra", int(cid), porcentaje.quantize(Decimal("0.0001"))))
+    pedidos = set(f.pedidos)
+    out = [SellIn("compra", c.id, c.porcentaje) for c in compras if pedidos & c.pedidos]
     out.extend(SellIn("bono", b.id, b.porcentaje) for b in bonos if b.desde <= f.fecha <= b.hasta)
     return tuple(out)
 
@@ -323,9 +352,12 @@ def entrada(db: Session, item_id: int) -> Optional[Entrada]:
         manuales = {
             ct: Decimal(tc) for ct, tc in db.execute(_TC_MANUAL_SQL, {"cts": [f.ct_transaction for f in posteriores]})
         }
+    tasas = tipos_de_cambio(db, posteriores)
+    del_compras = sell_ins_compras(db, item_id) if any(f.pedidos for f in posteriores) else []
     compras = []
+    # The stock before each invoice is a point-in-time reconstruction (its own instant): one read per invoice.
     for n, f in enumerate(posteriores):
-        tc, fuente = tipo_cambio_de(db, f, manuales)
+        tc, fuente = tipo_cambio_de(f, manuales, tasas)
         if f.curr_id != CURR_USD and not tc:
             raise ValueError(f"invoice {f.ct_transaction}: no exchange rate for {f.fecha}")
         neto = f.precio if f.curr_id == CURR_USD else f.precio / tc
@@ -335,7 +367,7 @@ def entrada(db: Session, item_id: int) -> Optional[Entrada]:
                 ct_transaction=f.ct_transaction,
                 cantidad=f.cantidad,
                 costo_neto_usd=neto,
-                sell_ins=sell_ins_de(db, item_id, f, bonos),
+                sell_ins=sell_ins_de(f, del_compras, bonos),
                 stock_antes=_stock_antes(db, item_id, f, previas + posteriores[:n], posteriores[n + 1 :]),
                 tipo_cambio=tc,
                 fuente_tc=fuente,

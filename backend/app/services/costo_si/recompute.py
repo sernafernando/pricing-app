@@ -118,8 +118,14 @@ def guardar(db: Session, item_id: int, pasos: Sequence[Paso], motivo: str) -> Re
             {"i": item_id, "desde": desde, "motivo": motivo, "pasos": json.dumps([_json(f) for f in viejos])},
         )
         db.execute(text("DELETE FROM costo_si_pasos WHERE item_id = :i AND orden >= :k"), {"i": item_id, "k": k})
-    for orden, fila in enumerate(nuevos[k:], start=k):
-        db.execute(_INSERT_SQL, {**fila, "sell_ins": json.dumps(fila["sell_ins"]), "item_id": item_id, "orden": orden})
+    if nuevos[k:]:
+        db.execute(
+            _INSERT_SQL,
+            [
+                {**fila, "sell_ins": json.dumps(fila["sell_ins"]), "item_id": item_id, "orden": orden}
+                for orden, fila in enumerate(nuevos[k:], start=k)
+            ],
+        )
     return Resultado(item_id, len(nuevos), len(viejos), desde)
 
 

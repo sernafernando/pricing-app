@@ -377,8 +377,10 @@ def test_the_daily_photo_is_read_instead_of_the_reconstruction(engine: Engine) -
     with sessionmaker(bind=engine)() as db:
         assert foto.tomar(db, date(2026, 11, 3), datetime(2026, 11, 20, 9, tzinfo=UTC)) == 1
         db.commit()
-        assert w.rows(engine, 'SELECT principal, "full" FROM costo_si_stock_diario') == [(380, 6)]
-        assert fuentes.disponible(db, P, date(2026, 11, 3)) == 386
+        # 00:00 of 11-03, the instant it stands for: 200 + A's 100 - the sale of 20; B entered later that day
+        assert w.rows(engine, 'SELECT principal, "full" FROM costo_si_stock_diario') == [(280, 6)]
+        w.movimiento(engine, P, datetime(2026, 11, 2, 18), 5, previo=280)  # a late mirror rewrite of a closed day
+        assert fuentes.disponible(db, P, date(2026, 11, 3)) == 286  # the photo, not the reconstruction
 
 
 def test_encolar_vigentes_queues_every_product_with_a_sell_in_or_a_costo_si(engine: Engine) -> None:

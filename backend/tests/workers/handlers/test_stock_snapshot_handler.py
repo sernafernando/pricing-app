@@ -93,7 +93,7 @@ def _wire_costo_si(monkeypatch, log: list, *, ml_falla: bool = False) -> None:
     monkeypatch.setattr(module, "nuevo_cliente_ml", Cliente)
     monkeypatch.setattr(module.costo_si_queue, "productos_vigentes", lambda db: [5101, 5102])
     monkeypatch.setattr(module.costo_si_full_ml, "sincronizar_productos", sincronizar)
-    monkeypatch.setattr(module.costo_si_foto, "tomar", lambda db, day, ahora: log.append(("foto", day)) or 2)
+    monkeypatch.setattr(module.costo_si_foto, "tomar", lambda db, day, ahora, deadline: log.append(("foto", day)) or 2)
     monkeypatch.setattr(module.costo_si_queue, "encolar_vigentes", lambda db: log.append("encolar") or 2)
 
 

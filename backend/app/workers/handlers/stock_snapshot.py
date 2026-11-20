@@ -17,7 +17,8 @@ the GBP sync loaded into the average. A failure there is logged and reported in 
 from __future__ import annotations
 
 import logging
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from typing import TYPE_CHECKING
 
 from app.core.database import get_background_db
 from app.services.ml_daily_metrics import board
@@ -27,6 +28,9 @@ from app.services.costo_si import fuentes as costo_si_fuentes
 from app.services.costo_si import queue as costo_si_queue
 from app.services.ml_publications.view import stock_snapshot
 from app.workers.context import JobResult, WorkerContext
+
+if TYPE_CHECKING:  # the ML client loads only when the job runs
+    from app.services.ml_publications.ml_http import MlHttpClient
 
 logger = logging.getLogger(__name__)
 
@@ -59,14 +63,14 @@ class StockSnapshotHandler:
         return JobResult(success=True, detail=detail)
 
 
-def nuevo_cliente_ml():
+def nuevo_cliente_ml() -> "MlHttpClient":
     from app.services.ml_publications.ml_http import MlHttpClient
     from app.services.ml_publications.pacing import Pacer
 
     return MlHttpClient(pacer=Pacer())
 
 
-def _costo_si(ctx: WorkerContext, day) -> dict:
+def _costo_si(ctx: WorkerContext, day: date) -> dict:
     """Costo SI's Full operations, photo and daily re-queue (module docstring). Never raises."""
     try:
         with get_background_db() as db:
@@ -79,7 +83,9 @@ def _costo_si(ctx: WorkerContext, day) -> dict:
         finally:
             cliente.close()
         with get_background_db() as db:
-            fotografiados = costo_si_foto.tomar(db, day, datetime.now(timezone.utc))
+            fotografiados = costo_si_foto.tomar(
+                db, day, datetime.now(timezone.utc), ctx.deadline - timedelta(seconds=10)
+            )
             encolados = costo_si_queue.encolar_vigentes(db)
             db.commit()
     except Exception as exc:  # the Auditoría photo already committed; the next day retries

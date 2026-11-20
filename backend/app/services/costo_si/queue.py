@@ -198,9 +198,9 @@ _VIGENTES_SQL = """
     UNION SELECT p.item_id FROM sell_in_bonos_marca b JOIN productos_erp p
             ON (b.alcance = 'marca' AND p.marca = b.marca AND (b.categoria IS NULL OR p.categoria = b.categoria))
             OR (b.alcance = 'categoria' AND p.categoria = b.categoria)
-          WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo = 'porcentaje'
+          WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo = 'porcentaje' AND b.tactical_id IS NULL
     UNION SELECT bi.item_id FROM sell_in_bono_items bi JOIN sell_in_bonos_marca b ON b.id = bi.bono_id
-          WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo = 'porcentaje'
+          WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo = 'porcentaje' AND b.tactical_id IS NULL
 """
 
 
