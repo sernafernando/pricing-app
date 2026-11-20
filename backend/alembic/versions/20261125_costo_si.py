@@ -156,53 +156,6 @@ BEGIN
 END
 $t$ LANGUAGE plpgsql
 """,
-    """
-CREATE OR REPLACE FUNCTION costo_si_encolar_imputacion(
-    p_origen_tipo text, p_origen_id bigint, p_destino_tipo text, p_destino_id bigint
-) RETURNS void AS $f$
-BEGIN
-    IF p_origen_tipo NOT IN ('nota_credito_erp', 'nota_credito_local') THEN
-        RETURN;
-    END IF;
-    IF p_destino_tipo = 'factura_erp' THEN
-        PERFORM costo_si_encolar_factura(p_destino_id);
-    END IF;
-    PERFORM costo_si_encolar_factura(CASE WHEN p_origen_tipo = 'nota_credito_erp' THEN p_origen_id
-        ELSE (SELECT ncl.ct_transaction_id FROM notas_credito_local ncl WHERE ncl.id = p_origen_id) END);
-END
-$f$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION costo_si_trg_imputacion() RETURNS TRIGGER AS $t$
-DECLARE
-    o record;
-BEGIN
-    IF TG_OP <> 'INSERT' THEN
-        PERFORM costo_si_encolar_imputacion(OLD.origen_tipo, OLD.origen_id, OLD.destino_tipo, OLD.destino_id);
-    END IF;
-    IF TG_OP <> 'DELETE' THEN
-        PERFORM costo_si_encolar_imputacion(NEW.origen_tipo, NEW.origen_id, NEW.destino_tipo, NEW.destino_id);
-        IF NEW.reimputada_desde_id IS NOT NULL THEN
-            SELECT origen_tipo, origen_id, destino_tipo, destino_id INTO o
-            FROM imputaciones WHERE id = NEW.reimputada_desde_id;
-            IF FOUND THEN
-                PERFORM costo_si_encolar_imputacion(o.origen_tipo, o.origen_id, o.destino_tipo, o.destino_id);
-            END IF;
-        END IF;
-    END IF;
-    RETURN NULL;
-END
-$t$ LANGUAGE plpgsql
-""",
-    """
-CREATE OR REPLACE FUNCTION costo_si_trg_nc_local() RETURNS TRIGGER AS $t$
-BEGIN
-    PERFORM costo_si_encolar_factura(OLD.ct_transaction_id);
-    PERFORM costo_si_encolar_imputacion(i.origen_tipo, i.origen_id, i.destino_tipo, i.destino_id)
-    FROM imputaciones i WHERE i.origen_tipo = 'nota_credito_local' AND i.origen_id = NEW.id;
-    RETURN NULL;
-END
-$t$ LANGUAGE plpgsql
-""",
     "CREATE TRIGGER costo_si_compra_item AFTER INSERT OR UPDATE OR DELETE ON sell_in_compra_items FOR EACH ROW EXECUTE FUNCTION costo_si_trg_compra_item()",
     "CREATE TRIGGER costo_si_compra AFTER UPDATE ON sell_in_compras FOR EACH ROW EXECUTE FUNCTION costo_si_trg_compra()",
     "CREATE TRIGGER costo_si_compra_pedido AFTER INSERT OR UPDATE OR DELETE ON sell_in_compra_pedidos FOR EACH ROW EXECUTE FUNCTION costo_si_trg_compra_pedido()",
@@ -212,8 +165,6 @@ $t$ LANGUAGE plpgsql
     "CREATE TRIGGER costo_si_factura_tc AFTER INSERT OR UPDATE OR DELETE ON costo_si_factura_tc FOR EACH ROW EXECUTE FUNCTION costo_si_trg_factura('ct_transaction')",
     "CREATE TRIGGER costo_si_pedido_tc AFTER UPDATE OF tipo_cambio, tipo_cambio_manual ON pedidos_compra FOR EACH ROW WHEN (OLD.tipo_cambio IS DISTINCT FROM NEW.tipo_cambio OR OLD.tipo_cambio_manual IS DISTINCT FROM NEW.tipo_cambio_manual) EXECUTE FUNCTION costo_si_trg_pedido_tc()",
     "CREATE TRIGGER costo_si_producto AFTER UPDATE OF marca, categoria ON productos_erp FOR EACH ROW WHEN (OLD.marca IS DISTINCT FROM NEW.marca OR OLD.categoria IS DISTINCT FROM NEW.categoria) EXECUTE FUNCTION costo_si_trg_producto()",
-    "CREATE TRIGGER costo_si_imputacion AFTER INSERT OR UPDATE OR DELETE ON imputaciones FOR EACH ROW EXECUTE FUNCTION costo_si_trg_imputacion()",
-    "CREATE TRIGGER costo_si_nc_local AFTER UPDATE OF ct_transaction_id ON notas_credito_local FOR EACH ROW WHEN (OLD.ct_transaction_id IS DISTINCT FROM NEW.ct_transaction_id) EXECUTE FUNCTION costo_si_trg_nc_local()",
 ]
 
 DOWNGRADE_SQL = [
@@ -226,11 +177,6 @@ DOWNGRADE_SQL = [
     "DROP TRIGGER IF EXISTS costo_si_factura_tc ON costo_si_factura_tc",
     "DROP TRIGGER IF EXISTS costo_si_pedido_tc ON pedidos_compra",
     "DROP TRIGGER IF EXISTS costo_si_producto ON productos_erp",
-    "DROP TRIGGER IF EXISTS costo_si_imputacion ON imputaciones",
-    "DROP TRIGGER IF EXISTS costo_si_nc_local ON notas_credito_local",
-    "DROP FUNCTION IF EXISTS costo_si_trg_nc_local()",
-    "DROP FUNCTION IF EXISTS costo_si_trg_imputacion()",
-    "DROP FUNCTION IF EXISTS costo_si_encolar_imputacion(text, bigint, text, bigint)",
     "DROP FUNCTION IF EXISTS costo_si_trg_producto()",
     "DROP FUNCTION IF EXISTS costo_si_trg_pedido_tc()",
     "DROP FUNCTION IF EXISTS costo_si_encolar_compra(bigint)",
@@ -324,16 +270,6 @@ def upgrade() -> None:
         sa.Column("usuario_id", sa.Integer(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
     )
-    op.create_table(
-        "costo_si_nc_sin_asignar",
-        sa.Column("item_id", sa.Integer(), primary_key=True, autoincrement=False),
-        sa.Column("nc_ct", sa.BigInteger(), primary_key=True, autoincrement=False),
-        sa.Column("fecha", sa.Date(), nullable=False),
-        sa.Column("importe", USD, nullable=False),
-        sa.Column("curr_id", sa.Integer(), nullable=True),
-        sa.Column("motivo", sa.String(32), nullable=False),
-        sa.Column("calculado_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-    )
     for statement in UPGRADE_SQL:
         op.execute(statement)
 
@@ -342,7 +278,6 @@ def downgrade() -> None:
     for statement in DOWNGRADE_SQL:
         op.execute(statement)
     for table in (
-        "costo_si_nc_sin_asignar",
         "costo_si_factura_tc",
         "costo_si_full_cobertura",
         "costo_si_full_operaciones",

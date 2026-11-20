@@ -30,7 +30,6 @@ _NUEVAS = {
     "costo_si_full_operaciones",
     "costo_si_full_cobertura",
     "costo_si_factura_tc",
-    "costo_si_nc_sin_asignar",
 }
 
 

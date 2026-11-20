@@ -54,16 +54,6 @@ class ComponenteOut(BaseModel):
     costo_si_usd: Optional[Decimal]
 
 
-class NcSinAsignarOut(BaseModel):
-    """A supplier credit note with lines for the product not tied to exactly one of its invoices: not in the cost."""
-
-    nc_ct: int
-    fecha: date
-    importe: Decimal
-    curr_id: Optional[int]
-    motivo: str
-
-
 class CostoSiOut(BaseModel):
     item_id: int
     fecha: date
@@ -72,7 +62,6 @@ class CostoSiOut(BaseModel):
     vigente_desde: Optional[date]
     pasos: List[PasoOut]
     componentes: List[ComponenteOut]
-    nc_sin_asignar: List[NcSinAsignarOut]
 
 
 @router.get("/{item_id}", response_model=CostoSiOut)
@@ -92,5 +81,4 @@ def costo_si(
         vigente_desde=found.vigente_desde,
         pasos=[PasoOut(**p) for p in found.pasos],
         componentes=[ComponenteOut(**vars(c)) for c in found.componentes],
-        nc_sin_asignar=[NcSinAsignarOut(**n) for n in found.nc_sin_asignar],
     )
