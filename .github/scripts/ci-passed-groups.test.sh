@@ -30,7 +30,7 @@ case "$path" in
   */workflows/*/runs*)
     json='{"workflow_runs":[{"id":101,"head_sha":"P","pull_requests":[{"number":7}],"head_repository":{"full_name":"o/r"}}]}' ;;
   */runs/101/jobs*)
-    json='{"jobs":[{"name":"Backend Lint","conclusion":"success"},{"name":"Backend Tests","conclusion":"success"},{"name":"Backend Tests (Postgres)","conclusion":"success"},{"name":"Backend Tests (Postgres volume)","conclusion":"success"},{"name":"Frontend Lint","conclusion":"success"},{"name":"Frontend Build","conclusion":"success"},{"name":"Frontend Tests","conclusion":"success"},{"name":"Frontend Visual Tests","conclusion":"success"}]}' ;;
+    json='{"jobs":[{"name":"Backend Lint","conclusion":"success"},{"name":"Backend Tests","conclusion":"success"},{"name":"Backend Tests (Postgres) 1/3","conclusion":"success"},{"name":"Backend Tests (Postgres) 2/3","conclusion":"success"},{"name":"Backend Tests (Postgres) 3/3","conclusion":"success"},{"name":"Backend Tests (Postgres volume) 1/3","conclusion":"success"},{"name":"Backend Tests (Postgres volume) 2/3","conclusion":"success"},{"name":"Backend Tests (Postgres volume) 3/3","conclusion":"success"},{"name":"Frontend Lint","conclusion":"success"},{"name":"Frontend Build","conclusion":"success"},{"name":"Frontend Tests","conclusion":"success"},{"name":"Frontend Visual Tests","conclusion":"success"}]}' ;;
   */compare/*)
     json="$(jq -n --arg s "$FAKE_STATUS" --arg f "$FAKE_FILES" \
       '{status: $s, files: ($f | split("\n") | map(select(. != "") | {filename: .}))}')" ;;
