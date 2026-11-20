@@ -592,7 +592,8 @@ def test_a_brand_or_category_change_queues_the_product_for_its_whole_history(eng
     w.run(engine, "DELETE FROM costo_si_dirty")
 
     w.run(engine, "UPDATE productos_erp SET subcategoria_id = 99 WHERE item_id = :i", i=P)
-    assert w.encolados(engine) == []
+    w.run(engine, "UPDATE productos_erp SET marca = marca, categoria = categoria WHERE item_id = :i", i=P)
+    assert w.encolados(engine) == []  # the sync rewriting the same brand is no change
 
     w.run(engine, "UPDATE productos_erp SET marca = 'OTRA' WHERE item_id = :i", i=P)
     assert w.encolados(engine) == [(P, None)]
@@ -758,3 +759,59 @@ def test_imputing_or_reversing_a_credit_note_queues_the_invoice_and_its_products
     assert w.encolados(engine) == []
     w.run(engine, "UPDATE notas_credito_local SET ct_transaction_id = :nc WHERE id = :l", nc=nc, l=local)
     assert w.encolados(engine) == [(P, date(2026, 10, 20))]
+
+
+def test_re_matching_a_local_credit_note_queues_the_products_of_the_erp_note_it_leaves(engine: Engine) -> None:
+    """A local NC moved from one ERP document to another: both documents' products follow (their unassigned lists)."""
+    w.producto(engine, P)
+    w.producto(engine, OTRA_MARCA)
+    vieja = w.nc(engine, P, date(2026, 10, 20), 1, "2")
+    nueva = w.nc(engine, OTRA_MARCA, date(2026, 10, 22), 1, "2")
+    local = w.returning(engine, "INSERT INTO notas_credito_local (ct_transaction_id) VALUES (:c) RETURNING id", c=vieja)
+    w.run(engine, "DELETE FROM costo_si_dirty")
+
+    w.run(engine, "UPDATE notas_credito_local SET ct_transaction_id = :c WHERE id = :l", c=nueva, l=local)
+
+    assert w.encolados(engine) == [(P, date(2026, 10, 20))]  # the one it left; it has no imputation yet
+
+    w.run(
+        engine,
+        "INSERT INTO imputaciones (origen_tipo, origen_id, destino_tipo, destino_id) "
+        "VALUES ('nota_credito_local', :l, 'saldo', NULL)",
+        l=local,
+    )
+    w.run(engine, "DELETE FROM costo_si_dirty")
+    w.run(engine, "UPDATE notas_credito_local SET ct_transaction_id = NULL WHERE id = :l", l=local)
+    assert w.encolados(engine) == [(OTRA_MARCA, date(2026, 10, 22))]
+
+
+def test_a_credit_note_against_an_invoice_before_the_start_is_listed_not_dropped(engine: Engine) -> None:
+    factura = _nc_base(engine)
+    previa = w.factura(engine, P, date(2026, 9, 20), datetime(2026, 9, 20), 10, "100", previo=0)
+    nc = w.nc(engine, P, date(2026, 10, 20), 10, "2")
+    w.imputar(engine, nc, "factura_erp", previa)
+
+    _recalcular(engine, P)
+
+    assert _compra(engine)[1] == D("8.6") and factura
+    assert _sin_asignar(engine) == [(nc, D("20.00000"), "factura_previa")]
+
+
+def test_only_the_main_line_of_an_association_group_counts_on_a_credit_note(engine: Engine) -> None:
+    """As Compras: an association group's child lines (a combo's components) are not the product's own credit."""
+    factura = _nc_base(engine)
+    nc = w.nc(engine, P, date(2026, 10, 20), 10, "2")
+    w.run(
+        engine,
+        "INSERT INTO tb_item_transactions (it_transaction, ct_transaction, bra_id, item_id, it_qty, it_price, "
+        "curr_id, stor_id, it_cd, it_isassociation, it_order, it_isassociationgroup) "
+        "SELECT max(it_transaction) + 1, :nc, 1, :i, 10, 5, 2, 19, :cd, true, 2, false FROM tb_item_transactions",
+        nc=nc,
+        i=P,
+        cd=datetime(2026, 10, 20),
+    )
+    w.imputar(engine, nc, "factura_erp", factura)
+
+    _recalcular(engine, P)
+
+    assert _compra(engine)[:2] == (D("89.40000"), D("10.6"))  # 2 %, not 7 %

@@ -137,6 +137,9 @@ _FACTURAS_SQL = text("""
     JOIN tb_commercial_transactions ct ON ct.ct_transaction = v.ct_transaction
     JOIN tb_item_transactions it ON it.ct_transaction = ct.ct_transaction AND it.item_id = :i
     WHERE v.clasificacion = 'FACTURA' AND ct.ct_date >= :desde
+      -- only the main line of an association group, as Compras (`erp_matching_service._LINEAS_CT_ORIGEN_SQL`)
+      AND NOT (COALESCE(it.it_isassociation, false) = true AND COALESCE(it.it_order, 1) <> 1
+               AND it.it_isassociationgroup IS NOT NULL)
     GROUP BY ct.ct_transaction, ct.ct_date
     ORDER BY ct.ct_date, min(it.it_transaction)
 """)
@@ -278,6 +281,9 @@ _NCS_SQL = text("""
         JOIN tb_commercial_transactions ct ON ct.ct_transaction = v.ct_transaction
         JOIN tb_item_transactions it ON it.ct_transaction = ct.ct_transaction AND it.item_id = :i
         WHERE v.clasificacion = 'NC' AND ct.ct_date >= :desde
+          -- only the main line of an association group, as Compras (`erp_matching_service._LINEAS_CT_ORIGEN_SQL`)
+          AND NOT (COALESCE(it.it_isassociation, false) = true AND COALESCE(it.it_order, 1) <> 1
+                   AND it.it_isassociationgroup IS NOT NULL)
         GROUP BY ct.ct_transaction, ct.ct_date
     ), links AS (
         SELECT CASE WHEN i.origen_tipo = 'nota_credito_erp' THEN i.origen_id ELSE ncl.ct_transaction_id END AS nc,
@@ -305,6 +311,7 @@ class NcSinAsignar:
     importe: Decimal
     curr_id: Optional[int]
     # sin_imputar | imputada_a_pedido | imputada_a_saldo | factura_sin_el_producto | varias_facturas | moneda_distinta
+    # | factura_previa
     motivo: str
 
 
@@ -325,7 +332,9 @@ def ncs_de(
         if len(candidatas) == 1:
             f = candidatas[0]
             base = Decimal(f.cantidad) * f.precio
-            if monedas != 1 or curr_id != f.curr_id:
+            if f.fecha < inicio:  # its invoice is before the first sell in: not in the average
+                motivo = "factura_previa"
+            elif monedas != 1 or curr_id != f.curr_id:
                 motivo = "moneda_distinta"
             elif base > 0:
                 pct = (importe / base * 100).quantize(Decimal("0.0001"))
