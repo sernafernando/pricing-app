@@ -247,6 +247,96 @@ class TestLinkage:
         row = db.query(MlOrderItemCosto).filter_by(order_id=4003).one()
         assert row.producto_item_id == 888, "the SKU fallback beat the publication link"
 
+    def test_a_numeric_sku_equal_to_an_erp_item_id_resolves_that_product(self, db) -> None:
+        """A new listing not yet in `publicaciones_ml` whose seller SKU is the
+        ERP item id ('319'), not the ERP code (the EAN). Without this
+        fallback the sale freezes no cost at all."""
+        db.add(
+            ProductoERP(
+                item_id=319,
+                codigo="1210002609241",
+                descripcion="Router",
+                costo=100.0,
+                moneda_costo=TipoMoneda.ARS,
+                iva=10.5,
+            )
+        )
+        db.commit()
+
+        congelar(db, 4006, [_item(item_id="MLA-NUEVA", seller_sku="319")])
+        db.commit()
+
+        row = db.query(MlOrderItemCosto).filter_by(order_id=4006).one()
+        assert row.producto_item_id == 319
+        assert row.fuente == FUENTE_SKU
+        assert row.costo_unitario_ars == Decimal("100.0000")
+
+    def test_the_erp_code_wins_over_an_equal_item_id(self, db) -> None:
+        """The SKU '319' is the code of one product and the item id of
+        another. The code match comes first and is never overridden."""
+        db.add(
+            ProductoERP(
+                item_id=319,
+                codigo="1210002609241",
+                descripcion="Item 319",
+                costo=100.0,
+                moneda_costo=TipoMoneda.ARS,
+                iva=21.0,
+            )
+        )
+        db.add(
+            ProductoERP(
+                item_id=900,
+                codigo="319",
+                descripcion="Code 319",
+                costo=50.0,
+                moneda_costo=TipoMoneda.ARS,
+                iva=21.0,
+            )
+        )
+        db.commit()
+
+        congelar(db, 4007, [_item(item_id="MLA-NUEVA", seller_sku="319")])
+        db.commit()
+
+        row = db.query(MlOrderItemCosto).filter_by(order_id=4007).one()
+        assert row.producto_item_id == 900, "the item id beat the ERP code"
+
+    def test_a_numeric_sku_with_no_such_item_id_resolves_nothing(self, db) -> None:
+        _producto(db, item_id=500)
+        db.commit()
+
+        congelar(db, 4008, [_item(item_id="MLA-NUEVA", seller_sku="4242")])
+        db.commit()
+
+        assert db.query(MlOrderItemCosto).filter_by(order_id=4008).count() == 0
+
+    def test_a_numeric_sku_must_spell_the_item_id_exactly(self, db, caplog) -> None:
+        """'0319' could mean item 319 or a code that lost a digit; a guess
+        here freezes the wrong product's cost forever. Ambiguous means no
+        match, and the skip is logged."""
+        _producto(db, item_id=319)
+        db.commit()
+
+        with caplog.at_level(logging.WARNING):
+            congelar(db, 4009, [_item(item_id="MLA-NUEVA", seller_sku="0319")])
+        db.commit()
+
+        assert db.query(MlOrderItemCosto).filter_by(order_id=4009).count() == 0
+        assert "0319" in caplog.text
+
+    def test_a_numeric_sku_beyond_the_item_id_range_resolves_nothing(self, db) -> None:
+        """An EAN-length numeric SKU with no code match cannot be an ERP item
+        id (a 32-bit column). It must never reach the id lookup, where an
+        out-of-range value can fail the whole order's ingestion."""
+        _producto(db, item_id=500)
+        db.commit()
+
+        congelar(db, 4010, [_item(item_id="MLA-NUEVA", seller_sku="99999999999999999999")])
+        db.commit()
+
+        assert db.query(MlOrderItemCosto).filter_by(order_id=4010).count() == 0
+
     def test_usd_product_without_any_rate_freezes_nothing(self, db) -> None:
         """A USD cost with no usable `TipoCambio` is the one unknown that
         could plausibly be "fixed" by letting the raw USD figure through as
