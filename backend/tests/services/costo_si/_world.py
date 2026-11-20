@@ -318,14 +318,15 @@ def bono_marca(
     hasta: date,
     marca: str = MARCA,
     tactical_id: Optional[int] = None,
+    incluye_iva: bool = False,
 ) -> int:
     """A brand bonus of the sale-cost kind by %, like the loyalty (S6); optionally one line of a tactical."""
     with engine.begin() as conn:
         return conn.execute(
             text(
                 "INSERT INTO sell_in_bonos_marca (alcance, marca, tipo, porcentaje, moneda, fecha_desde, fecha_hasta, "
-                "base, usuario_id, tactical_id, tactical_linea) "
-                "VALUES ('marca', :m, 'porcentaje', :p, 'ARS', :d, :h, 'costo_venta', 7, :t, :l) RETURNING id"
+                "base, usuario_id, tactical_id, tactical_linea, incluye_iva) "
+                "VALUES ('marca', :m, 'porcentaje', :p, 'ARS', :d, :h, 'costo_venta', 7, :t, :l, :iva) RETURNING id"
             ),
             {
                 "m": marca,
@@ -334,6 +335,7 @@ def bono_marca(
                 "h": hasta,
                 "t": tactical_id,
                 "l": 1 if tactical_id is not None else None,
+                "iva": incluye_iva,
             },
         ).scalar()
 

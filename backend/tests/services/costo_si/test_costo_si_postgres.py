@@ -860,3 +860,48 @@ def test_editing_a_tope_or_a_per_unit_line_queues_its_products_from_its_date(eng
     _vaciar_cola(engine)
     w.run(engine, "UPDATE sell_in_bonos_marca SET monto_unit = 180 WHERE id = :b", b=unidad)
     assert w.encolados(engine) == [(OTRA_MARCA, date(2026, 10, 5))]
+
+
+@pytest.mark.parametrize("capado", [False, True], ids=["loyalty", "capped"])
+def test_a_percentage_with_vat_comes_off_without_it_like_on_the_sale(engine: Engine, capado: bool) -> None:
+    """S33 (the sale-cost path's rule: "a la cuenta siempre debería llegar 2,71"): a 3.28 % line with VAT on a 21 %
+    product is 3.28 / 1.21 = 2.7107 % of the net, on a plain line and on a capped one alike."""
+    w.producto(engine, P)
+    w.run(engine, "UPDATE productos_erp SET iva = 21 WHERE item_id = :i", i=P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "100")
+    if capado:
+        w.bono_modelos(
+            engine, [P], "porcentaje", "3.28", date(2026, 10, 1), date(2026, 12, 31), tope_unidades=50, incluye_iva=True
+        )
+    else:
+        w.bono_marca(engine, "3.28", date(2026, 10, 1), date(2026, 12, 31), incluye_iva=True)
+    w.factura(engine, P, date(2026, 10, 8), datetime(2026, 10, 8), 10, "100", previo=0)
+
+    _recalcular(engine, P)
+
+    assert _nn(engine, P) == [D("97.28930")]
+
+
+def test_a_line_never_takes_more_than_the_purchase_and_a_money_cap_counts_only_what_it_took(engine: Engine) -> None:
+    """USD 170 per unit on a USD 100 unit takes the whole 100 (net-net 0, the % stays 100); with a USD 1500 cap the
+    first invoice (10 u) uses 1000 of it, so the 500 left still come off the next one (5 % of 10 x 1000)."""
+    w.producto(engine, P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "100")
+    tactical = w.tactical(engine, date(2026, 10, 1), date(2026, 12, 31))
+    w.bono_modelos(
+        engine,
+        [P],
+        "por_unidad",
+        "170",
+        date(2026, 10, 1),
+        date(2026, 12, 31),
+        tope_monto="1500",
+        moneda="USD",
+        tactical_id=tactical,
+    )
+    w.factura(engine, P, date(2026, 10, 8), datetime(2026, 10, 8), 10, "100", previo=0)
+    w.factura(engine, P, date(2026, 10, 15), datetime(2026, 10, 15), 10, "1000", previo=0)
+
+    _recalcular(engine, P)
+
+    assert _nn(engine, P) == [D("0.00000"), D("950.00000")]

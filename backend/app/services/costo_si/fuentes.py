@@ -76,7 +76,7 @@ def es_combo(db: Session, item_id: int) -> bool:
 # the line's (`sell_in_bono_items`).
 _BONOS_SQL = text("""
     SELECT b.id, b.tipo, COALESCE(bi.porcentaje, b.porcentaje) AS pct, COALESCE(bi.monto_unit, b.monto_unit) AS unit,
-           b.fecha_desde, b.fecha_hasta, b.moneda, b.incluye_iva, b.tope_unidades, b.tope_monto
+           b.fecha_desde, b.fecha_hasta, b.moneda, b.incluye_iva, b.tope_unidades, b.tope_monto, p.iva
     FROM sell_in_bonos_marca b
     JOIN productos_erp p ON p.item_id = :i
     LEFT JOIN sell_in_bono_items bi ON bi.bono_id = b.id AND bi.item_id = :i
@@ -162,15 +162,28 @@ class Bono:
         return self.porcentaje is not None and self.tope_unidades is None and self.tope_monto is None
 
 
+def sin_iva(valor: Decimal, iva: Optional[Decimal], bono_id: int, item_id: int) -> Decimal:
+    """A line's value net of the product's VAT when the line says it includes it, % or per unit alike: the sale-cost
+    path's rule (S33, `bonos_costo.valor_neto`). A product with no VAT rate fails: never guessed."""
+    if iva is None:
+        raise ValueError(f"bono {bono_id}: product {item_id} has no VAT rate")
+    return valor / (1 + iva / 100)
+
+
 def _dec(value) -> Optional[Decimal]:
     return Decimal(str(value)) if value is not None else None
 
 
 def bonos_de(db: Session, item_id: int) -> List[Bono]:
     out = []
-    for bid, tipo, pct, unit, desde, hasta, moneda, iva, tope_u, tope_m in db.execute(_BONOS_SQL, {"i": item_id}):
+    for bid, tipo, pct, unit, desde, hasta, moneda, iva, tope_u, tope_m, alicuota in db.execute(
+        _BONOS_SQL, {"i": item_id}
+    ):
         if tipo == "porcentaje" and pct:
-            out.append(Bono(bid, Decimal(pct), desde, hasta, None, moneda, bool(iva), tope_u, _dec(tope_m)))
+            pct = Decimal(pct)
+            if iva and tope_u is None and tope_m is None:  # a plain line's % is used as it is: net of VAT here
+                pct = sin_iva(pct, _dec(alicuota), bid, item_id).quantize(Decimal("0.0001"))
+            out.append(Bono(bid, pct, desde, hasta, None, moneda, bool(iva), tope_u, _dec(tope_m)))
         elif tipo == "por_unidad" and unit:
             out.append(Bono(bid, None, desde, hasta, Decimal(unit), moneda, bool(iva), tope_u, _dec(tope_m)))
     return out
@@ -218,18 +231,17 @@ def aplicar_topes(bono: Bono, lineas: Sequence[Linea]) -> Dict[Tuple[int, int], 
             por_unidad = precio * ln.porcentaje / 100
         else:
             por_unidad = ln.monto_unit or Decimal(0)
-            if bono.incluye_iva:
-                if ln.iva is None:
-                    raise ValueError(f"bono {bono.id}: product {ln.item_id} has no VAT rate")
-                por_unidad = por_unidad / (1 + ln.iva / 100)
+        if bono.incluye_iva:
+            por_unidad = sin_iva(por_unidad, ln.iva, bono.id, ln.item_id)
         unidades = ln.cantidad if quedan_u is None else max(min(ln.cantidad, quedan_u), 0)
-        monto = por_unidad * unidades
+        neto = precio * ln.cantidad
+        # Never more than the purchase itself, so a money cap counts only what was really taken off.
+        monto = min(por_unidad * unidades, neto)
         if quedan_m is not None:
             monto = max(min(monto, quedan_m), Decimal(0))
             quedan_m -= monto
         if quedan_u is not None:
             quedan_u -= unidades
-        neto = precio * ln.cantidad
         if monto > 0 and neto > 0:
             out[(ln.ct_transaction, ln.item_id)] = (monto / neto * 100).quantize(Decimal("0.0001"))
     return out
