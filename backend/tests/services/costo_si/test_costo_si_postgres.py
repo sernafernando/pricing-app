@@ -480,3 +480,22 @@ def test_an_invoice_whose_goods_entered_before_its_date_is_not_counted_twice(eng
     _recalcular(engine, P)
 
     assert w.pasos(engine, P)[1] == ("compra", date(2026, 11, 3), 100, 0, D("19.80000"), D("19.80000"))
+
+
+def test_a_product_whose_daily_sync_breaks_does_not_stop_the_others(engine: Engine) -> None:
+    w.producto(engine, P)
+    w.producto(engine, OTRA_MARCA)
+    w.bono_marca(engine, "1", date(2026, 10, 1), date(2026, 12, 31))
+    w.publicacion_full(engine, "MLA2", OTRA_MARCA, "INV2", full_hoy=5)
+
+    def inicio_de(db, item_id):
+        if item_id == P:
+            raise RuntimeError("broken")
+        return fuentes.inicio_de(db, item_id)
+
+    guardadas, fallidos = full_ml.sincronizar_productos(
+        sessionmaker(bind=engine), _Ml([]), [P, OTRA_MARCA], HOY, datetime.now(UTC) + timedelta(minutes=1), inicio_de
+    )
+
+    assert (guardadas, fallidos) == (0, {P: "RuntimeError: broken"})
+    assert w.rows(engine, "SELECT inventory_id FROM costo_si_full_cobertura") == [("INV2",)]

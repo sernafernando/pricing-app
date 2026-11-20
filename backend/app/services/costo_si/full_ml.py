@@ -149,7 +149,7 @@ def sincronizar_productos(
     inicio_de: Callable[[Session, int], Optional[date]],
 ) -> Tuple[int, Dict[int, str]]:
     """`sincronizar` for each of `items` from its start (`inicio_de`; None skips it), one transaction each, until
-    `deadline`. A product ML fails for is reported and skipped; the next day retries it. Returns (operations stored,
+    `deadline`. A product that fails (ML or anything else) is reported and skipped; the next day retries it. Returns (operations stored,
     failures by product)."""
     guardadas, fallidos = 0, {}
     for item_id in items:
@@ -161,9 +161,11 @@ def sincronizar_productos(
                 if inicio is not None:
                     guardadas += sincronizar(db, cliente, item_id, inicio, hoy)
                 db.commit()
-            except FullNoDisponible as exc:
+            except Exception as exc:  # one broken product never stops the others; the next day retries it
                 db.rollback()
-                fallidos[item_id] = str(exc)
+                if not isinstance(exc, FullNoDisponible):
+                    logger.exception("costo_si: Full sync of product %s failed", item_id)
+                fallidos[item_id] = f"{type(exc).__name__}: {exc}"
     if fallidos:
         logger.warning("costo_si: Full operations not fetched for %s product(s): %s", len(fallidos), fallidos)
     return guardadas, fallidos
