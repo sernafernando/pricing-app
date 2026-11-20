@@ -8,9 +8,12 @@
   the linked Compras operation's TC (manual first), else `tipo_cambio.venta` on the invoice date (or the latest
   before it).
 - Sell ins (S5, S6): the active Compras sell ins (`sell_in_compras`) of the operations the invoice is linked to, as a
-  % of the item's net base; plus every active brand bonus by %, of the sale-cost kind (the loyalty: "El loyalty es
-  por marca, aplica a cualquier proveedor", L7.2), on EVERY invoice of a product it reaches dated in its range, from
-  any supplier and linked to Compras or not (S7).
+  % of the item's net base; plus every active sell-in line of the sale-cost kind (`sell_in_bonos_marca`, a tactical's
+  included: "si algo se cargo por sell in, es sell in, no se discute", L4.2), % or per unit, on the purchases of its
+  scope dated in its range, from any supplier and linked to Compras or not (S7). Without topes it is the loyalty
+  (L5, L7.2: every invoice); with `tope_unidades` / `tope_monto` it covers only the first units / amount, used up over
+  the scope's invoices in date order (`aplicar_topes`). A per-unit amount is taken as the % of the invoice's net it
+  is. Sell-out lines (`sell_out_campanas`) are on the sale, never here (L12).
 - Available stock at 00:00 of a day (S3): principal = GBP depot 1 physical minus the units of sale orders generated
   and not invoiced at that instant (pending transfers to Full, customer 2849, do not count: the units still exist).
   Full = Mercado Libre's Full available stock, NOT GBP depot 17 (L8): walked back from the next ML reading the app
@@ -69,18 +72,55 @@ def es_combo(db: Session, item_id: int) -> bool:
 
 # ---------------------------------------------------------------------------------------------------------- start
 
-# Whether a tactical created it or not: the loyalty is loaded as a tactical's line on prod (bono 94, tactical 38) and
-# it is per brand on every invoice (S6, L7.2).
+# Whether a tactical created it or not (the loyalty is bono 94, a line of tactical 38). A model's own value replaces
+# the line's (`sell_in_bono_items`).
 _BONOS_SQL = text("""
-    SELECT b.id, COALESCE(bi.porcentaje, b.porcentaje) AS pct, b.fecha_desde, b.fecha_hasta
+    SELECT b.id, b.tipo, COALESCE(bi.porcentaje, b.porcentaje) AS pct, COALESCE(bi.monto_unit, b.monto_unit) AS unit,
+           b.fecha_desde, b.fecha_hasta, b.moneda, b.incluye_iva, b.tope_unidades, b.tope_monto
     FROM sell_in_bonos_marca b
     JOIN productos_erp p ON p.item_id = :i
     LEFT JOIN sell_in_bono_items bi ON bi.bono_id = b.id AND bi.item_id = :i
-    WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo = 'porcentaje'
+    WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo IN ('porcentaje', 'por_unidad')
       AND ((b.alcance = 'marca' AND p.marca = b.marca AND (b.categoria IS NULL OR p.categoria = b.categoria))
         OR (b.alcance = 'categoria' AND p.categoria = b.categoria)
         OR (b.alcance = 'modelos' AND bi.id IS NOT NULL))
     ORDER BY b.id
+""")
+
+# The purchase lines a capped or per-unit line walks, oldest first: every invoice of its scope (`:solo` NULL) or of
+# one product, dated in its range, with its own value per model, the product's VAT and the invoice's rate (S4 order:
+# the PM's correction, the Compras operation's TC, the last rate on or before its date).
+_LINEAS_SQL = text("""
+    WITH alcance AS (
+        SELECT p.item_id, COALESCE(bi.porcentaje, b.porcentaje) AS pct, COALESCE(bi.monto_unit, b.monto_unit) AS unit,
+               p.iva
+        FROM sell_in_bonos_marca b
+        JOIN productos_erp p
+          ON (b.alcance = 'marca' AND p.marca = b.marca AND (b.categoria IS NULL OR p.categoria = b.categoria))
+          OR (b.alcance = 'categoria' AND p.categoria = b.categoria)
+          OR b.alcance = 'modelos'
+        LEFT JOIN sell_in_bono_items bi ON bi.bono_id = b.id AND bi.item_id = p.item_id
+        WHERE b.id = :b AND (b.alcance <> 'modelos' OR bi.id IS NOT NULL)
+          AND (CAST(:solo AS integer) IS NULL OR p.item_id = :solo)
+    )
+    SELECT ct.ct_transaction, it.item_id, sum(it.it_qty) AS cantidad,
+           sum(it.it_qty * it.it_price) / NULLIF(sum(it.it_qty), 0) AS precio, min(it.curr_id) AS curr_id,
+           a.pct, a.unit, a.iva,
+           COALESCE(
+             (SELECT m.tipo_cambio FROM costo_si_factura_tc m WHERE m.ct_transaction = ct.ct_transaction),
+             (SELECT COALESCE(pc.tipo_cambio_manual, pc.tipo_cambio) FROM pedido_compra_facturas pf
+              JOIN pedidos_compra pc ON pc.id = pf.pedido_id
+              WHERE pf.ct_transaction_id = ct.ct_transaction AND COALESCE(pc.tipo_cambio_manual, pc.tipo_cambio) > 0
+              ORDER BY pf.pedido_id LIMIT 1),
+             (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.venta > 0
+              AND tc.fecha <= ct.ct_date::date ORDER BY tc.fecha DESC LIMIT 1)) AS tc
+    FROM alcance a
+    JOIN tb_item_transactions it ON it.item_id = a.item_id
+    JOIN tb_commercial_transactions ct ON ct.ct_transaction = it.ct_transaction
+    JOIN v_facturas_compra_vigentes v ON v.ct_transaction = ct.ct_transaction AND v.clasificacion = 'FACTURA'
+    WHERE ct.ct_date >= :desde AND ct.ct_date < :hasta
+    GROUP BY ct.ct_transaction, ct.ct_date, it.item_id, a.pct, a.unit, a.iva
+    ORDER BY ct.ct_date, min(it.it_transaction), it.item_id
 """)
 
 _PRIMERA_FACTURA_CON_SELL_IN_SQL = text("""
@@ -107,13 +147,121 @@ _COSTO_LISTA_SQL = text("""
 @dataclass(frozen=True)
 class Bono:
     id: int
-    porcentaje: Decimal
+    porcentaje: Optional[Decimal]  # a % line; None on a per-unit one
     desde: date
     hasta: date
+    monto_unit: Optional[Decimal] = None  # a per-unit line, in `moneda`
+    moneda: str = "ARS"
+    incluye_iva: bool = False
+    tope_unidades: Optional[int] = None
+    tope_monto: Optional[Decimal] = None  # in `moneda`
+
+    @property
+    def plano(self) -> bool:
+        """The loyalty's shape: a % with no topes, the same % on every invoice."""
+        return self.porcentaje is not None and self.tope_unidades is None and self.tope_monto is None
+
+
+def _dec(value) -> Optional[Decimal]:
+    return Decimal(str(value)) if value is not None else None
 
 
 def bonos_de(db: Session, item_id: int) -> List[Bono]:
-    return [Bono(r[0], Decimal(r[1]), r[2], r[3]) for r in db.execute(_BONOS_SQL, {"i": item_id}) if r[1]]
+    out = []
+    for bid, tipo, pct, unit, desde, hasta, moneda, iva, tope_u, tope_m in db.execute(_BONOS_SQL, {"i": item_id}):
+        if tipo == "porcentaje" and pct:
+            out.append(Bono(bid, Decimal(pct), desde, hasta, None, moneda, bool(iva), tope_u, _dec(tope_m)))
+        elif tipo == "por_unidad" and unit:
+            out.append(Bono(bid, None, desde, hasta, Decimal(unit), moneda, bool(iva), tope_u, _dec(tope_m)))
+    return out
+
+
+@dataclass(frozen=True)
+class Linea:
+    """One product's units on one purchase invoice, as a capped or per-unit line walks them."""
+
+    ct_transaction: int
+    item_id: int
+    cantidad: int
+    precio: Decimal  # unit net, in the invoice's currency
+    curr_id: Optional[int]
+    porcentaje: Optional[Decimal]
+    monto_unit: Optional[Decimal]
+    iva: Optional[Decimal]
+    tc: Optional[Decimal]  # ARS per USD
+
+
+def _en_moneda(valor: Decimal, curr_id: Optional[int], moneda: str, tc: Optional[Decimal], ct: int) -> Decimal:
+    """An invoice amount in the line's currency."""
+    if MONEDAS.get(curr_id) == moneda:
+        return valor
+    if not tc:
+        raise ValueError(f"invoice {ct}: no exchange rate to bring it to {moneda}")
+    return valor / tc if moneda == "USD" else valor * tc
+
+
+def aplicar_topes(bono: Bono, lineas: Sequence[Linea]) -> Dict[Tuple[int, int], Decimal]:
+    """Pure: the % of each (invoice, product)'s net the line takes off, walking the lines oldest first and using up its
+    topes (units, then amount, in its currency) as it goes; a cap can run out in the middle of an invoice."""
+    quedan_u = bono.tope_unidades
+    quedan_m = bono.tope_monto
+    out: Dict[Tuple[int, int], Decimal] = {}
+    for ln in lineas:
+        if ln.cantidad <= 0:
+            continue
+        # A % with no money cap needs no rate: it is the same % in any currency.
+        if ln.porcentaje is not None and quedan_m is None:
+            precio = ln.precio
+        else:
+            precio = _en_moneda(ln.precio, ln.curr_id, bono.moneda, ln.tc, ln.ct_transaction)
+        if ln.porcentaje is not None:
+            por_unidad = precio * ln.porcentaje / 100
+        else:
+            por_unidad = ln.monto_unit or Decimal(0)
+            if bono.incluye_iva:
+                if ln.iva is None:
+                    raise ValueError(f"bono {bono.id}: product {ln.item_id} has no VAT rate")
+                por_unidad = por_unidad / (1 + ln.iva / 100)
+        unidades = ln.cantidad if quedan_u is None else max(min(ln.cantidad, quedan_u), 0)
+        monto = por_unidad * unidades
+        if quedan_m is not None:
+            monto = max(min(monto, quedan_m), Decimal(0))
+            quedan_m -= monto
+        if quedan_u is not None:
+            quedan_u -= unidades
+        neto = precio * ln.cantidad
+        if monto > 0 and neto > 0:
+            out[(ln.ct_transaction, ln.item_id)] = (monto / neto * 100).quantize(Decimal("0.0001"))
+    return out
+
+
+def lineas_de(db: Session, bono: Bono, item_id: Optional[int]) -> List[Linea]:
+    """The purchase lines `bono` walks: its whole scope when it has topes (they are shared), else `item_id`'s."""
+    filas = db.execute(
+        _LINEAS_SQL,
+        {
+            "b": bono.id,
+            "solo": item_id,
+            "desde": inicio_del_dia(bono.desde),
+            "hasta": inicio_del_dia(bono.hasta + timedelta(days=1)),
+        },
+    )
+    return [
+        Linea(ct, item, int(q or 0), Decimal(str(precio or 0)), curr, _dec(pct), _dec(unit), _dec(iva), _dec(tc))
+        for ct, item, q, precio, curr, pct, unit, iva, tc in filas
+    ]
+
+
+def porcentajes_de_bonos(db: Session, item_id: int, bonos: Sequence[Bono]) -> Dict[int, Dict[int, Decimal]]:
+    """{bono id: {ct_transaction: %}} for the lines that are not a plain % (capped or per unit)."""
+    out: Dict[int, Dict[int, Decimal]] = {}
+    for b in bonos:
+        if b.plano:
+            continue
+        compartido = b.tope_unidades is not None or b.tope_monto is not None
+        pct = aplicar_topes(b, lineas_de(db, b, None if compartido else item_id))
+        out[b.id] = {ct: v for (ct, item), v in pct.items() if item == item_id}
+    return out
 
 
 def primera_fecha_sell_in(db: Session, item_id: int, bonos: Sequence[Bono]) -> Optional[date]:
@@ -255,11 +403,22 @@ def sell_ins_compras(db: Session, item_id: int) -> List[SellInCompras]:
     return out
 
 
-def sell_ins_de(f: Factura, compras: Sequence[SellInCompras], bonos: Sequence[Bono]) -> Tuple[SellIn, ...]:
-    """S5/S6: the Compras sell ins of the invoice's operations, then the brand bonuses of its date."""
+def sell_ins_de(
+    f: Factura,
+    compras: Sequence[SellInCompras],
+    bonos: Sequence[Bono],
+    por_bono: Optional[Dict[int, Dict[int, Decimal]]] = None,
+) -> Tuple[SellIn, ...]:
+    """S5/S6: the Compras sell ins of the invoice's operations, then the sell-in lines of its date: a plain % as it
+    is, a capped or per-unit one as the % `porcentajes_de_bonos` worked out for this invoice."""
     pedidos = set(f.pedidos)
     out = [SellIn("compra", c.id, c.porcentaje) for c in compras if pedidos & c.pedidos]
-    out.extend(SellIn("bono", b.id, b.porcentaje) for b in bonos if b.desde <= f.fecha <= b.hasta)
+    for b in bonos:
+        if not b.desde <= f.fecha <= b.hasta:
+            continue
+        pct = b.porcentaje if b.plano else (por_bono or {}).get(b.id, {}).get(f.ct_transaction)
+        if pct:
+            out.append(SellIn("bono", b.id, pct))
     return tuple(out)
 
 
@@ -374,6 +533,7 @@ def entrada(db: Session, item_id: int) -> Optional[Entrada]:
         }
     tasas = tipos_de_cambio(db, posteriores)
     del_compras = sell_ins_compras(db, item_id) if any(f.pedidos for f in posteriores) else []
+    por_bono = porcentajes_de_bonos(db, item_id, bonos) if posteriores else {}
     compras = []
     # The stock before each invoice is a point-in-time reconstruction (its own instant): one read per invoice.
     for n, f in enumerate(posteriores):
@@ -387,7 +547,7 @@ def entrada(db: Session, item_id: int) -> Optional[Entrada]:
                 ct_transaction=f.ct_transaction,
                 cantidad=f.cantidad,
                 costo_neto_usd=neto,
-                sell_ins=sell_ins_de(f, del_compras, bonos),
+                sell_ins=sell_ins_de(f, del_compras, bonos, por_bono),
                 stock_antes=_stock_antes(db, item_id, f, previas + posteriores[:n], posteriores[n + 1 :]),
                 tipo_cambio=tc,
                 fuente_tc=fuente,

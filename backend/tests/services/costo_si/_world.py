@@ -57,6 +57,9 @@ STUBS = [
     "CREATE TABLE ml_order_items_ops (id SERIAL PRIMARY KEY, order_id BIGINT NOT NULL, item_id TEXT NOT NULL,"
     " variation_id BIGINT, quantity INTEGER)",
     "CREATE TABLE ml_shipments_ops (shipment_id BIGINT PRIMARY KEY, logistic_type TEXT)",
+    # A sell-out line (a tactical's included): only the columns a cost reader could be tempted to read.
+    "CREATE TABLE sell_out_campanas (id BIGSERIAL PRIMARY KEY, tactical_id BIGINT, tactical_linea SMALLINT, tipo TEXT,"
+    " porcentaje NUMERIC(7, 4), monto_unit NUMERIC(18, 2), fecha_desde DATE, fecha_hasta DATE, estado TEXT)",
     "CREATE TABLE producto_stock_diario (fecha DATE, item_id INTEGER, stock_erp INTEGER DEFAULT 0,"
     " stock_full INTEGER DEFAULT 0, PRIMARY KEY (fecha, item_id))",
 ]
@@ -126,6 +129,7 @@ def clean(engine: Engine) -> None:
             "ml_orders_ops",
             "ml_order_items_ops",
             "ml_shipments_ops",
+            "sell_out_campanas",
             "producto_stock_diario",
             "tb_item",
             "costo_si_pasos",
@@ -332,6 +336,59 @@ def bono_marca(
                 "l": 1 if tactical_id is not None else None,
             },
         ).scalar()
+
+
+def bono_modelos(
+    engine: Engine,
+    item_ids: list,
+    tipo: str,
+    valor: str,
+    desde: date,
+    hasta: date,
+    *,
+    tope_unidades: Optional[int] = None,
+    tope_monto: Optional[str] = None,
+    moneda: str = "ARS",
+    tactical_id: Optional[int] = None,
+    incluye_iva: bool = False,
+) -> int:
+    """A sale-cost sell-in line over models, % or per unit, as a tactical loads it (tactical 41 / 54 on prod)."""
+    with engine.begin() as conn:
+        bono = conn.execute(
+            text(
+                "INSERT INTO sell_in_bonos_marca (alcance, tipo, porcentaje, monto_unit, moneda, fecha_desde, fecha_hasta,"
+                " base, usuario_id, tactical_id, tactical_linea, tope_unidades, tope_monto, incluye_iva) "
+                "VALUES ('modelos', :t, :p, :mu, :m, :d, :h, 'costo_venta', 7, :tac, :l, :tu, :tm, :iva) RETURNING id"
+            ),
+            {
+                "t": tipo,
+                "p": Decimal(valor) if tipo == "porcentaje" else None,
+                "mu": Decimal(valor) if tipo == "por_unidad" else None,
+                "m": moneda,
+                "d": desde,
+                "h": hasta,
+                "tac": tactical_id,
+                "l": 1 if tactical_id is not None else None,
+                "tu": tope_unidades,
+                "tm": Decimal(tope_monto) if tope_monto else None,
+                "iva": incluye_iva,
+            },
+        ).scalar()
+    for item_id in item_ids:
+        run(engine, "INSERT INTO sell_in_bono_items (bono_id, item_id) VALUES (:b, :i)", b=bono, i=item_id)
+    return bono
+
+
+def sell_out_tactical(engine: Engine, tactical_id: int, porcentaje: str, desde: date, hasta: date) -> None:
+    run(
+        engine,
+        "INSERT INTO sell_out_campanas (tactical_id, tactical_linea, tipo, porcentaje, fecha_desde, fecha_hasta, estado)"
+        " VALUES (:t, 1, 'porcentaje', :p, :d, :h, 'activa')",
+        t=tactical_id,
+        p=Decimal(porcentaje),
+        d=desde,
+        h=hasta,
+    )
 
 
 def tipo_cambio(engine: Engine, fecha: date, venta: float) -> None:

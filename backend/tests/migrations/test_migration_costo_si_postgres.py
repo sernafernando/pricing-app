@@ -87,8 +87,16 @@ def test_it_chains_on_the_head_of_main() -> None:
 
 
 def test_the_frozen_trigger_sql_is_the_live_definition() -> None:
+    """The live definition is this revision's frozen copy with the bono function `20261125_costo_si_bono_unidad`
+    replaced."""
     module = _module()
-    assert (module.UPGRADE_SQL, module.DOWNGRADE_SQL) == (queue.UPGRADE_SQL, queue.DOWNGRADE_SQL)
+    path = os.path.join(_BACKEND_ROOT, "alembic", "versions", "20261125_costo_si_bono_unidad.py")
+    spec = importlib.util.spec_from_file_location("costo_si_bono_unidad_migration", path)
+    bono = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bono)
+    assert module.UPGRADE_SQL.count(bono.BONO_SQL_ANTERIOR) == 1
+    vigente = [bono.BONO_SQL if s == bono.BONO_SQL_ANTERIOR else s for s in module.UPGRADE_SQL]
+    assert (vigente, module.DOWNGRADE_SQL) == (queue.UPGRADE_SQL, queue.DOWNGRADE_SQL)
 
 
 @pytest.mark.postgres

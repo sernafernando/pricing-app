@@ -688,3 +688,175 @@ def test_editing_a_loyalty_recomputes_every_average_from_its_date_on_and_keeps_t
     (backup,) = w.rows(engine, "SELECT desde, pasos FROM costo_si_backups")
     assert backup[0] == date(2026, 11, 3)
     assert [p["orden"] for p in backup[1]] == [2, 3]
+
+
+# ------------------------------------------------------------------- tactical sell-in lines (orchestrator decision)
+# L4.2: "si algo se cargo por sell in, es sell in, no se discute": every sell-in line, % or per unit, lowers the cost
+# of the purchases in its scope and range, its topes consumed over the invoices in date order; sell out never does.
+
+
+def _nn(engine: Engine, item_id: int) -> list:
+    """The net-net of each purchase step."""
+    return [r[4] for r in w.pasos(engine, item_id) if r[0] == "compra"]
+
+
+def test_a_capped_percentage_line_covers_only_its_first_units_in_date_order(engine: Engine) -> None:
+    """Tactical 41-like: 6 % on one model, tope 15 units. The first invoice (10 u) takes it whole, the second (10 u)
+    only on 5 of them, so the cap runs out mid-invoice (6 % x 5 / 10 = 3 %), and the third gets nothing."""
+    w.producto(engine, P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "100")
+    w.bono_modelos(engine, [P], "porcentaje", "6", date(2026, 10, 1), date(2026, 12, 31), tope_unidades=15)
+    for dia in (8, 15, 22):
+        w.factura(engine, P, date(2026, 10, dia), datetime(2026, 10, dia), 10, "100", previo=0)
+
+    _recalcular(engine, P)
+
+    assert _nn(engine, P) == [D("94.00000"), D("97.00000"), D("100.00000")]
+
+
+def test_a_cap_shared_by_several_models_goes_to_whichever_was_invoiced_first(engine: Engine) -> None:
+    """The same line over two models: the other model's 10 units invoiced on 10-05 use 10 of the 15, so this
+    product's first invoice gets the % on 5 of its 10 units and the next one nothing."""
+    w.producto(engine, P)
+    w.producto(engine, OTRA_MARCA, marca="OTRA")
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "100")
+    w.bono_modelos(engine, [P, OTRA_MARCA], "porcentaje", "6", date(2026, 10, 1), date(2026, 12, 31), tope_unidades=15)
+    w.factura(engine, OTRA_MARCA, date(2026, 10, 5), datetime(2026, 10, 5), 10, "100", previo=0)
+    w.factura(engine, P, date(2026, 10, 8), datetime(2026, 10, 8), 10, "100", previo=0)
+    w.factura(engine, P, date(2026, 10, 15), datetime(2026, 10, 15), 10, "100", previo=0)
+
+    _recalcular(engine, P)
+
+    assert _nn(engine, P) == [D("97.00000"), D("100.00000")]
+
+
+def test_a_money_cap_stops_the_line_once_its_amount_is_used(engine: Engine) -> None:
+    """10 % with tope USD 150: 100 USD off the first invoice (10 u x 100), the 50 left off the second (5 %), nothing
+    off the third."""
+    w.producto(engine, P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "100")
+    tactical = w.tactical(engine, date(2026, 10, 1), date(2026, 12, 31))
+    w.bono_modelos(
+        engine,
+        [P],
+        "porcentaje",
+        "10",
+        date(2026, 10, 1),
+        date(2026, 12, 31),
+        tope_monto="150",
+        moneda="USD",
+        tactical_id=tactical,
+    )
+    for dia in (8, 15, 22):
+        w.factura(engine, P, date(2026, 10, dia), datetime(2026, 10, dia), 10, "100", previo=0)
+
+    _recalcular(engine, P)
+
+    assert _nn(engine, P) == [D("90.00000"), D("95.00000"), D("100.00000")]
+
+
+def test_a_per_unit_line_takes_its_amount_off_every_purchased_unit(engine: Engine) -> None:
+    """Tactical 54-like (HP BPS, loaded as sell in: T-c): USD 170 per unit of one model. A USD invoice at 1000 ->
+    830; an ARS invoice at the operation's TC 1500 (1,500,000 ARS = 1000 USD) -> 830 too. The daily pass reaches the
+    product through the line alone."""
+    w.producto(engine, P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "1000")
+    tactical = w.tactical(engine, date(2026, 10, 1), date(2026, 12, 31))
+    w.bono_modelos(
+        engine, [P], "por_unidad", "170", date(2026, 10, 1), date(2026, 12, 31), moneda="USD", tactical_id=tactical
+    )
+    w.factura(engine, P, date(2026, 10, 8), datetime(2026, 10, 8), 10, "1000", previo=0)
+    w.factura(
+        engine,
+        P,
+        date(2026, 10, 15),
+        datetime(2026, 10, 15),
+        10,
+        "1500000",
+        previo=0,
+        curr_id=1,
+        pedido=5,
+        tc_pedido="1500",
+    )
+    with sessionmaker(bind=engine)() as db:
+        assert queue.productos_vigentes(db) == [P]
+
+    _recalcular(engine, P)
+
+    assert _nn(engine, P) == [D("830.00000"), D("830.00000")]
+
+
+def test_a_per_unit_amount_with_vat_comes_off_without_it(engine: Engine) -> None:
+    """An ARS per-unit line of 121 with VAT (21 %) is 100 ARS net: at the invoice date's rate (1000) 0.10 USD off a
+    10 USD unit."""
+    w.producto(engine, P)
+    w.run(engine, "UPDATE productos_erp SET iva = 21 WHERE item_id = :i", i=P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "10")
+    w.tipo_cambio(engine, date(2026, 10, 1), 1000)
+    w.bono_modelos(engine, [P], "por_unidad", "121", date(2026, 10, 1), date(2026, 12, 31), incluye_iva=True)
+    w.factura(engine, P, date(2026, 10, 8), datetime(2026, 10, 8), 10, "10", previo=0)
+
+    _recalcular(engine, P)
+
+    assert _nn(engine, P) == [D("9.90000")]
+
+
+def test_a_loyalty_without_topes_applies_on_every_invoice_of_its_range_from_any_supplier(engine: Engine) -> None:
+    """T-a (L5, L7.2): no topes is the loyalty: every invoice of the brand dated in its range, whatever the supplier,
+    and none after it."""
+    w.producto(engine, P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "100")
+    w.bono_marca(engine, "3.6", date(2026, 10, 1), date(2026, 10, 31))
+    w.factura(engine, P, date(2026, 10, 8), datetime(2026, 10, 8), 10, "100", previo=0, supp_id=14)
+    w.factura(engine, P, date(2026, 10, 20), datetime(2026, 10, 20), 500, "100", previo=0, supp_id=19)
+    w.factura(engine, P, date(2026, 11, 5), datetime(2026, 11, 5), 10, "100", previo=0, supp_id=14)
+
+    _recalcular(engine, P)
+
+    assert _nn(engine, P) == [D("96.40000"), D("96.40000"), D("100.00000")]
+
+
+def test_a_tactical_sell_out_line_never_touches_the_cost(engine: Engine) -> None:
+    """T-d (L12: "SO va en la venta, como ganancia adicional"): a tactical's sell-out line (40/35/36 on prod) is on
+    the sale. Loading it queues nothing and the invoice keeps only its sell in (a 1 % loyalty)."""
+    w.producto(engine, P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "100")
+    w.bono_marca(engine, "1", date(2026, 10, 1), date(2026, 12, 31))
+    w.factura(engine, P, date(2026, 10, 8), datetime(2026, 10, 8), 10, "100", previo=0)
+    _vaciar_cola(engine)
+
+    w.sell_out_tactical(
+        engine, w.tactical(engine, date(2026, 10, 1), date(2026, 12, 31)), "10", date(2026, 10, 1), date(2026, 12, 31)
+    )
+    assert w.encolados(engine) == []
+
+    _recalcular(engine, P)
+    assert _nn(engine, P) == [D("99.00000")]
+
+
+def test_editing_a_tope_or_a_per_unit_line_queues_its_products_from_its_date(engine: Engine) -> None:
+    """L15: a tope edit moves which invoices the line covers; a per-unit line is a sell in like a % one."""
+    w.producto(engine, P)
+    w.producto(engine, OTRA_MARCA, marca="OTRA")
+    capado = w.bono_modelos(engine, [P], "porcentaje", "6", date(2026, 10, 1), date(2026, 12, 31), tope_unidades=15)
+    for cambio in ("tope_unidades = 20", "tope_monto = 1000"):
+        _vaciar_cola(engine)
+        w.run(engine, f"UPDATE sell_in_bonos_marca SET {cambio} WHERE id = :b", b=capado)
+        assert w.encolados(engine) == [(P, date(2026, 10, 1))], cambio
+
+    _vaciar_cola(engine)
+    tactical = w.tactical(engine, date(2026, 10, 5), date(2026, 12, 31))
+    unidad = w.bono_modelos(
+        engine,
+        [OTRA_MARCA],
+        "por_unidad",
+        "170",
+        date(2026, 10, 5),
+        date(2026, 12, 31),
+        moneda="USD",
+        tactical_id=tactical,
+    )
+    assert w.encolados(engine) == [(OTRA_MARCA, date(2026, 10, 5))]
+    _vaciar_cola(engine)
+    w.run(engine, "UPDATE sell_in_bonos_marca SET monto_unit = 180 WHERE id = :b", b=unidad)
+    assert w.encolados(engine) == [(OTRA_MARCA, date(2026, 10, 5))]

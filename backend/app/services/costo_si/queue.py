@@ -119,7 +119,7 @@ $t$ LANGUAGE plpgsql
 _BONO = """
 CREATE OR REPLACE FUNCTION costo_si_encolar_bono(r sell_in_bonos_marca) RETURNS void AS $f$
 BEGIN
-    IF r.base = 'costo_venta' AND r.tipo = 'porcentaje' THEN
+    IF r.base = 'costo_venta' AND r.tipo IN ('porcentaje', 'por_unidad') THEN
         PERFORM costo_si_encolar(p.item_id, r.fecha_desde)
         FROM productos_erp p
         WHERE (r.alcance = 'marca' AND p.marca = r.marca AND (r.categoria IS NULL OR p.categoria = r.categoria))
@@ -264,9 +264,9 @@ _VIGENTES_SQL = """
     UNION SELECT p.item_id FROM sell_in_bonos_marca b JOIN productos_erp p
             ON (b.alcance = 'marca' AND p.marca = b.marca AND (b.categoria IS NULL OR p.categoria = b.categoria))
             OR (b.alcance = 'categoria' AND p.categoria = b.categoria)
-          WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo = 'porcentaje'
+          WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo IN ('porcentaje', 'por_unidad')
     UNION SELECT bi.item_id FROM sell_in_bono_items bi JOIN sell_in_bonos_marca b ON b.id = bi.bono_id
-          WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo = 'porcentaje'
+          WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo IN ('porcentaje', 'por_unidad')
 """
 
 

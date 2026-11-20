@@ -56,12 +56,11 @@ def con_costo_si() -> Iterator[Engine]:
         yield engine
 
 
-def test_it_chains_on_costo_si_and_is_the_single_head() -> None:
+def test_it_chains_on_costo_si() -> None:
     config = Config(os.path.join(_BACKEND_ROOT, "alembic.ini"))
     config.set_main_option("script_location", os.path.join(_BACKEND_ROOT, "alembic"))
     script = ScriptDirectory.from_config(config)
     assert script.get_revision(_REVISION).down_revision == _PREVIA
-    assert script.get_heads() == [_REVISION]
 
 
 def test_no_model_maps_the_dropped_tables() -> None:
