@@ -428,3 +428,53 @@ def test_the_daily_sync_fetches_each_products_full_from_its_start_and_skips_ml_f
     assert w.rows(engine, "SELECT inventory_id, desde, hasta FROM costo_si_full_cobertura") == [
         ("INV1", date(2026, 10, 1), date(2026, 11, 21))
     ]
+
+
+def test_sell_drain_waits_for_the_full_operations_instead_of_guessing_them(engine: Engine) -> None:
+    """S3 (L8), verifier B1: a loyalty loaded during the day queues a product with a Full publication before
+    `stock.snapshot` fetched its operations. The drain stores nothing and charges nothing (today's Full is not the
+    Full of 10-01); once the operations are kept from its start through today, it recomputes."""
+    w.producto(engine, P)
+    w.publicacion_full(engine, "MLA9", P, "INV9", full_hoy=30)
+    w.costo_lista(engine, P, datetime(2026, 9, 15, 9), "25")
+    w.bono_marca(engine, "3.6", date(2026, 10, 1), date(2026, 12, 31))
+
+    def drenar() -> queue.Drenado:
+        return queue.drenar(
+            sessionmaker(bind=engine, autoflush=False),
+            datetime.now(UTC) + timedelta(minutes=1),
+            HOY,
+            ml=None,
+            is_transient=lambda exc: False,
+        )
+
+    drenado = drenar()
+    assert (drenado.productos, drenado.fallidos, drenado.diferidos) == (0, {}, {P})
+    assert w.pasos(engine, P) == []
+    assert w.rows(engine, "SELECT item_id, attempts FROM costo_si_dirty") == [(P, 0)]
+
+    w.run(  # kept, but only from 10-05: still a guess for 10-01
+        engine,
+        "INSERT INTO costo_si_full_cobertura (inventory_id, desde, hasta) VALUES ('INV9', :d, :h)",
+        d=date(2026, 10, 5),
+        h=HOY + timedelta(days=1),
+    )
+    assert drenar().diferidos == {P}
+
+    w.run(engine, "UPDATE costo_si_full_cobertura SET desde = :d", d=date(2026, 10, 1))
+    drenado = drenar()
+    assert (drenado.productos, drenado.diferidos) == (1, set())
+    assert w.pasos(engine, P)[0][2] == 30  # nothing moved at Full since: today's 30 is the stock of 10-01
+    assert w.encolados(engine) == []
+
+
+def test_an_invoice_whose_goods_entered_before_its_date_is_not_counted_twice(engine: Engine) -> None:
+    """S3 (T1 §2), verifier note 1: dated 11-03, entered depot 1 on 11-02; the stock before it is 0, not its own 100."""
+    w.producto(engine, P)
+    w.costo_lista(engine, P, datetime(2026, 10, 15, 9), "25")
+    w.bono_marca(engine, "1", date(2026, 11, 1), date(2026, 12, 31))
+    w.factura(engine, P, date(2026, 11, 3), datetime(2026, 11, 2, 10), 100, "20", previo=0)
+
+    _recalcular(engine, P)
+
+    assert w.pasos(engine, P)[1] == ("compra", date(2026, 11, 3), 100, 0, D("19.80000"), D("19.80000"))

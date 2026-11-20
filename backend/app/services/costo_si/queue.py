@@ -262,6 +262,7 @@ class Drenado:
     productos: int = 0
     cambiados: int = 0
     fallidos: Dict[int, str] = field(default_factory=dict)
+    diferidos: Set[int] = field(default_factory=set)  # Full operations not kept yet: left queued, not charged
 
 
 def drenar(
@@ -274,13 +275,14 @@ def drenar(
 ) -> Drenado:
     """Recomputes the queued products, one per transaction, until the queue is empty or the deadline passes. A product
     that fails is charged in its own transaction and not retried in this run; it parks after `MAX_ATTEMPTS` until a
-    new change re-queues it. A transient error charges nothing and stops the run."""
+    new change re-queues it. A transient error charges nothing and stops the run. A product whose Full operations
+    are not kept yet stays queued, uncharged, until `stock.snapshot` fetches them and re-queues it."""
     out = Drenado()
     while datetime.now(timezone.utc) < deadline:
         item_id: Optional[int] = None
         try:
             with session_factory() as db:
-                fila = _reclamar(db, set(out.fallidos))
+                fila = _reclamar(db, set(out.fallidos) | out.diferidos)
                 if fila is None:
                     break
                 item_id, desde = int(fila[0]), fila[1]
@@ -290,6 +292,9 @@ def drenar(
                 db.commit()
             out.productos += 1
             out.cambiados += 1 if resultado.desde is not None else 0
+        except full_ml.FullPendiente as exc:
+            logger.info("costo_si: %s; waiting for stock.snapshot", exc)
+            out.diferidos.add(item_id)
         except Exception as exc:
             if item_id is None:
                 raise  # nothing was claimed: not a product's fault

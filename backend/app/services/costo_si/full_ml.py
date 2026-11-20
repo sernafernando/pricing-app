@@ -40,6 +40,11 @@ class FullNoDisponible(RuntimeError):
     """ML did not answer the operations of an inventory: a recompute must not go on with a guessed Full stock."""
 
 
+class FullPendiente(RuntimeError):
+    """The Full operations since the product's start are not kept yet: the recompute waits for `stock.snapshot` to
+    fetch them (it re-queues the product after). Never charged as a failure."""
+
+
 class ClienteMl(Protocol):
     def get(self, family: str, path: str, params: Optional[dict] = None) -> Any: ...
 
@@ -77,6 +82,24 @@ def full_disponible(db: Session, item_id: int, t: datetime) -> int:
     return total
 
 
+def piso(desde: date, hoy: date) -> date:
+    """The oldest day ML still answers for: before it the Full stock is walked back from the oldest kept operation."""
+    return max(desde, hoy - timedelta(days=RETENCION_DIAS - 1))
+
+
+def exigir_cobertura(db: Session, item_id: int, desde: date, hoy: date) -> None:
+    """Raises `FullPendiente` unless every Full inventory of the product has its operations kept from `desde` (or
+    ML's retention floor) through today, so no past Full stock is guessed from today's."""
+    minimo = piso(desde, hoy)
+    faltan = []
+    for inventory_id, _ in inventarios(db, item_id):
+        cobertura = db.execute(_COBERTURA_SQL, {"inv": inventory_id}).first()
+        if cobertura is None or cobertura[0] > minimo or cobertura[1] <= hoy:
+            faltan.append(inventory_id)
+    if faltan:
+        raise FullPendiente(f"product {item_id}: Full operations not kept from {minimo} for {faltan}")
+
+
 # ------------------------------------------------------------------------------------------------------- fetching
 
 _COBERTURA_SQL = text("SELECT desde, hasta FROM costo_si_full_cobertura WHERE inventory_id = :inv")
@@ -98,16 +121,16 @@ _GUARDAR_OPERACION_SQL = text("""
 def sincronizar(db: Session, cliente: ClienteMl, item_id: int, desde: date, hoy: date) -> int:
     """Fetches the Full operations of the product's inventories from `desde` (at most 12 months back) through today
     that are not kept yet. Returns how many operations were stored. Raises `FullNoDisponible` when ML fails."""
-    piso = max(desde, hoy - timedelta(days=RETENCION_DIAS - 1))
+    minimo = piso(desde, hoy)
     manana = hoy + timedelta(days=1)
     guardadas = 0
     for inventory_id, _ in inventarios(db, item_id):
         cobertura = db.execute(_COBERTURA_SQL, {"inv": inventory_id}).first()
         if cobertura is None:
-            tramos = [(piso, manana)]
+            tramos = [(minimo, manana)]
         else:
-            tramos = [(piso, cobertura[0])] if piso < cobertura[0] else []
-            tramos.append((max(cobertura[1] - timedelta(days=1), piso), manana))
+            tramos = [(minimo, cobertura[0])] if minimo < cobertura[0] else []
+            tramos.append((max(cobertura[1] - timedelta(days=1), minimo), manana))
         for a, b in tramos:
             if a >= b:
                 continue

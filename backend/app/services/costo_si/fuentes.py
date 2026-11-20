@@ -352,4 +352,6 @@ def _stock_antes(db: Session, item_id: int, f: Factura, antes: Sequence[Factura]
     stock = disponible(db, item_id, f.fecha)
     stock += sum(g.cantidad for g in antes if g.entrada is not None and g.entrada >= t)
     stock -= sum(g.cantidad for g in despues if g.entrada is not None and g.entrada < t)
+    if f.entrada is not None and f.entrada < t:  # its own goods entered before its date: already in the stock
+        stock -= f.cantidad
     return stock
