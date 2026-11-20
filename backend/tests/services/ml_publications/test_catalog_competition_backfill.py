@@ -22,8 +22,9 @@ NOW = datetime(2026, 11, 16, 12, 0, tzinfo=timezone.utc)
 
 @pytest.fixture
 def env(mlpub_pg):
-    CatalogCompetitionRefreshPending.__table__.create(bind=mlpub_pg)
-    MLCatalogCompetition.__table__.create(bind=mlpub_pg)
+    CatalogCompetitionRefreshPending.__table__.create(bind=mlpub_pg, checkfirst=True)
+    # mlpub_schema may already apply 20260731_ml_catalog_competition for hay_mejores prefetch.
+    MLCatalogCompetition.__table__.create(bind=mlpub_pg, checkfirst=True)
     return mlpub_pg
 
 

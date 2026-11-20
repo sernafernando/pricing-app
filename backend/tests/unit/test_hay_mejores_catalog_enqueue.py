@@ -28,14 +28,23 @@ def _run_actualizar(monkeypatch, *, prev_flag: bool, prev_fp: str | None, decisi
 
     db = MagicMock()
     db.begin_nested.return_value = _Nested()
-    db.query.return_value.filter.return_value.one_or_none.side_effect = [row, sale]
+    locked = MagicMock()
+    locked.one_or_none.side_effect = [row]
+    db.query.return_value.filter.return_value.with_for_update.return_value = locked
+    db.query.return_value.filter.return_value.one_or_none.side_effect = [sale]
 
     monkeypatch.setattr(
         hay_mejores,
         "decidir_flag_hay_mejores",
         lambda **kwargs: decision,
     )
-    monkeypatch.setattr(hay_mejores, "listar_mejores_candidatas", lambda *a, **k: [("C-1", 900.0)])
+    monkeypatch.setattr(
+        hay_mejores,
+        "evaluar_mejores_candidatas",
+        lambda *a, **k: hay_mejores.MejoresEvaluacion(
+            mejores=[("C-1", 900.0)], status_quo={}, candidatas=[], criterios={}
+        ),
+    )
     monkeypatch.setattr(
         hay_mejores,
         "_candidate_entries",
@@ -46,6 +55,12 @@ def _run_actualizar(monkeypatch, *, prev_flag: bool, prev_fp: str | None, decisi
         "_enqueue_catalog_competition_refresh",
         lambda _db, item_id: enqueued.append(item_id),
     )
+    monkeypatch.setattr(
+        hay_mejores,
+        "get_criterios",
+        lambda *_a, **_k: SimpleNamespace(auto_aplicacion=False),
+    )
+    monkeypatch.setattr(hay_mejores, "record_flag_transition", lambda *_a, **_k: None)
 
     result = hay_mejores.actualizar_hay_mejores_ofertas(
         db, "MLA1", raw_promotions=[{"id": "C-1", "status": "candidate"}]

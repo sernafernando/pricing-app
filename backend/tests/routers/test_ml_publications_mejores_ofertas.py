@@ -156,8 +156,13 @@ class TestMejoresOfertasCount:
             )
         monkeypatch.setattr(
             hay_mejores,
-            "listar_mejores_candidatas",
-            lambda _db, _mla, candidates, _baseline, **_k: [(c["id"], float(c["price"])) for c in candidates],
+            "evaluar_mejores_candidatas",
+            lambda _db, _mla, candidates, _baseline, **_k: hay_mejores.MejoresEvaluacion(
+                mejores=[(c["id"], float(c["price"])) for c in candidates],
+                status_quo={},
+                candidatas=[],
+                criterios={},
+            ),
         )
         monkeypatch.setattr(hay_mejores, "_enqueue_catalog_competition_refresh", lambda *_a, **_k: None)
         session = sessionmaker(bind=pg)()

@@ -46,6 +46,8 @@ vi.mock('../services/api', () => ({
     getPromocionesItem: vi.fn(() => new Promise(() => {})),
     refreshItemPromociones: vi.fn(() => new Promise(() => {})),
     getCompetenciaCatalogo: vi.fn(() => new Promise(() => {})),
+    getHayMejoresCriterios: vi.fn(() => Promise.resolve({ data: { sellers_excluidos: [] } })),
+    putHayMejoresCriterios: vi.fn((mlaId, body) => Promise.resolve({ data: body })),
   },
   publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn(), statusItemIds: vi.fn(), statusItemIdsChecked: vi.fn(), statusBulk: vi.fn(), paintColors: vi.fn() },
   productosAPI: {
@@ -1997,11 +1999,11 @@ describe('bulk actions over products (S6)', () => {
     // Never the filter's products: it opens on a panel that says why and offers to clear the selection.
     await user.click(await screen.findByRole('button', { name: 'Acciones masivas (0 productos de 1 publicación marcada)' }));
     expect(screen.getByText('Las publicaciones marcadas no tienen producto vinculado.')).toBeInTheDocument();
-    // Price actions need a product; hay-mejores exclude/include acts on publications and stays enabled.
+    // Price actions need a product; hay-mejores exclude/include/criterios act on publications and stay enabled.
     const menuItems = screen.getAllByRole('menuitem');
     const hayMejores = menuItems.filter((el) => /hay mejores/i.test(el.textContent ?? ''));
     const pricing = menuItems.filter((el) => !/hay mejores/i.test(el.textContent ?? ''));
-    expect(hayMejores.length).toBe(2);
+    expect(hayMejores.length).toBe(3);
     for (const item of pricing) expect(item).toBeDisabled();
     for (const item of hayMejores) expect(item).toBeEnabled();
     await user.click(screen.getByRole('button', { name: /Limpiar selección/ }));

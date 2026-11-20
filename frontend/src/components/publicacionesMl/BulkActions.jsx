@@ -9,6 +9,7 @@ import CalcularPVPModal from '../CalcularPVPModal';
 import RecalcularCuotasModal from './RecalcularCuotasModal';
 import useBulkProductSet from './useBulkProductSet';
 import BulkHayMejoresExclusion from './BulkHayMejoresExclusion';
+import BulkCriteriosAplicacion from './BulkCriteriosAplicacion';
 import { resolverParams } from './bulkParams';
 import styles from './BulkActions.module.css';
 import buttonStyles from './toolbarButton.module.css';
@@ -221,15 +222,25 @@ export default function BulkActions({
         </div>
       )}
       {showHayMejores && (
-        <BulkHayMejoresExclusion
-          variant="menuItems"
-          filters={filters}
-          canSeeMargin={canSeeMargin}
-          onDone={onDone}
-          checked={checkedStatus}
-          menuSlot={open ? hayMejoresMenuSlot : null}
-          onChose={() => setOpen(false)}
-        />
+        <>
+          <BulkHayMejoresExclusion
+            variant="menuItems"
+            filters={filters}
+            canSeeMargin={canSeeMargin}
+            onDone={onDone}
+            checked={checkedStatus}
+            menuSlot={open ? hayMejoresMenuSlot : null}
+            onChose={() => setOpen(false)}
+          />
+          <BulkCriteriosAplicacion
+            filters={filters}
+            canSeeMargin={canSeeMargin}
+            onDone={onDone}
+            checked={checkedStatus}
+            menuSlot={open ? hayMejoresMenuSlot : null}
+            onChose={() => setOpen(false)}
+          />
+        </>
       )}
       {modal?.key === 'web' && <CalcularWebModal {...modalProps} />}
       {modal?.key === 'pvp' && <CalcularPVPModal {...modalProps} />}

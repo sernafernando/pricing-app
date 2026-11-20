@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
 from app.services import ml_promotions_hay_mejores as hay_mejores
+from app.services.ml_hay_mejores_criterios_service import default_criterios
 from app.services.ml_promotions_hay_mejores import FlagDecision
 
 
@@ -34,6 +35,9 @@ class _Query:
         self.rows = rows
 
     def filter(self, *args):
+        return self
+
+    def with_for_update(self, *args, **kwargs):
         return self
 
     def one_or_none(self):
@@ -93,9 +97,17 @@ class TestWhoNotifies:
             session, monkeypatch, [_row(prev_flag, "C-1:900" if prev_flag else None), SimpleNamespace(amount=1000.0)]
         )
         monkeypatch.setattr(hay_mejores, "decidir_flag_hay_mejores", lambda **kwargs: decision)
-        monkeypatch.setattr(hay_mejores, "listar_mejores_candidatas", lambda *a, **k: [("C-1", 900.0)])
+        monkeypatch.setattr(
+            hay_mejores,
+            "evaluar_mejores_candidatas",
+            lambda *a, **k: hay_mejores.MejoresEvaluacion(
+                mejores=[("C-1", 900.0)], status_quo={}, candidatas=[], criterios={}
+            ),
+        )
         monkeypatch.setattr(hay_mejores, "_candidate_entries", lambda raw, now: [{"id": "C-1"}])
         monkeypatch.setattr(hay_mejores, "_enqueue_catalog_competition_refresh", lambda _db, _item_id: None)
+        monkeypatch.setattr(hay_mejores, "get_criterios", lambda *_a, **_k: default_criterios("MLA1"))
+        monkeypatch.setattr(hay_mejores, "record_flag_transition", lambda *_a, **_k: None)
         hay_mejores.actualizar_hay_mejores_ofertas(session, "MLA1", raw_promotions=[{"id": "C-1"}])
         session.commit()
 

@@ -223,6 +223,9 @@ UI_FILTERS: dict[str, ToolFilters] = {
     "promos_item_confirmacion_ml": ToolFilters(
         "Publicaciones ML › panel › Promociones › confirmación ML", (("Publicación", "mla_id"),)
     ),
+    "promos_item_hay_mejores_criterios": ToolFilters(
+        "Publicaciones ML › panel › Promociones › criterios hay mejores", (("Publicación", "mla_id"),)
+    ),
     "catalogo_competencia": ToolFilters("Publicaciones ML › panel › Competencia", (("Publicación", "mla_id"),)),
     "promos_publicaciones": ToolFilters(
         "Promos por publicación (filtros de Publicaciones ML)",

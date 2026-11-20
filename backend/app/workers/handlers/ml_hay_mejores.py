@@ -36,6 +36,8 @@ from app.core import database
 from app.models.ml_publications import MlItemSellerPromotions
 from app.models.worker_job_state import WorkerJobState
 from app.services import ml_promotions_hay_mejores as hay_mejores
+from app.services.ml_catalog_competition_service import prefetch_catalog_snapshots
+from app.services.ml_hay_mejores_criterios_service import prefetch_criterios
 from app.services.ml_promotions_pricing import resolver_sell_in_out_para_mlas
 from app.workers.context import JobResult, WorkerContext
 
@@ -108,8 +110,10 @@ def _flagged_ids(db: Session) -> List[str]:
 
 
 def _recompute(db: Session, item_ids: List[str], now: datetime) -> int:
-    """One batch: one sell in / sell out read, the flag of each id at `now`. Returns the flags that changed."""
+    """One batch: one sell in / sell out read + one criterios prefetch, then the flag of each id at `now`."""
     batch = resolver_sell_in_out_para_mlas(db, item_ids)
+    prefetch_criterios(db, item_ids)
+    prefetch_catalog_snapshots(db, item_ids)
     rows = db.query(MlItemSellerPromotions).filter(MlItemSellerPromotions.item_id.in_(item_ids)).all()
     before = {row.item_id: bool(row.hay_mejores_ofertas) for row in rows}
     changed = 0

@@ -17,6 +17,7 @@ cambió en ML; lo corre el handler `promo_price.recompute` del worker ML
 """
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Annotated, Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
@@ -26,7 +27,9 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.logging import get_logger
+from app.models.ml_publications import MlItemSellerPromotions
 from app.models.usuario import Usuario
+from app.services.ml_hay_mejores_audit_service import latest_auto_fail_message
 from app.services.ml_publications import admin as ml_pub_admin
 from app.services.ml_catalog_competition_service import (
     obtener_ultimo_snapshot,
@@ -50,8 +53,17 @@ from app.services.ml_promotions_service import (
 )
 from app.services.ml_promotions_hay_mejores import (
     descartar_hay_mejores_ofertas,
+    descartar_hay_mejores_sugerencias_bulk,
     set_hay_mejores_excluido,
     set_hay_mejores_excluido_bulk,
+)
+from app.services.ml_hay_mejores_criterios_service import (
+    PERMISO_AUTO_APLICACION,
+    CriteriosView,
+    count_auto_aplicacion_on,
+    get_criterios,
+    upsert_criterios,
+    upsert_criterios_bulk,
 )
 from app.services.ml_promotions_write_service import enroll_one_item, remove_one_item
 from app.services.ml_publication_status_service import GONE, NEVER_EXISTED, NO_ML_DATA, fetch_publication_status_by_mla
@@ -181,6 +193,8 @@ class ItemPromotionsList(BaseModel):
     motivo_sin_actualizacion: Optional[str] = None
     # Not-applied enrolls whose promo is not among `promotions`, so the panel can warn with no row to badge.
     escrituras_no_aplicadas_sin_promo: List[EscrituraNoAplicadaSinPromo] = []
+    # R-AUTO enroll failed while Auto was ON: same suggestion as Auto OFF + this ready-to-show text.
+    auto_fail_message: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -667,6 +681,19 @@ def obtener_promociones_item(
         promotions = derivar_application_status(promotions)
         promotions = enriquecer_markup_por_promo(db, mla_id, promotions, sell_in_out=True)
         motivo = motivo_sin_consulta_ml(db, mla_id)
+        # Optional UI hint: fail-open so a bad audit/flag read never 500s a healthy promotions list.
+        auto_fail_message = None
+        try:
+            promo_row = db.query(MlItemSellerPromotions).filter(MlItemSellerPromotions.item_id == mla_id).one_or_none()
+            if promo_row is not None and bool(promo_row.hay_mejores_ofertas):
+                auto_fail_message = latest_auto_fail_message(db, mla_id)
+        except Exception:
+            logger.warning("hay_mejores auto_fail_message enrich failed for %s", mla_id, exc_info=True)
+            try:
+                db.rollback()  # leave the request session usable for later enrichers
+            except Exception:
+                logger.debug("rollback after auto_fail_message enrich failed", exc_info=True)
+            auto_fail_message = None
         # Last: on failure it rolls the request session back, so nothing may read through it afterwards.
         sin_promo = _marcar_escrituras_no_aplicadas(db, mla_id, promotions)
         return ItemPromotionsList(
@@ -675,6 +702,7 @@ def obtener_promociones_item(
             promotions=promotions,
             motivo_sin_actualizacion=motivo,
             escrituras_no_aplicadas_sin_promo=sin_promo,
+            auto_fail_message=auto_fail_message,
         )
     except RuntimeError as e:
         logger.error("ML_WEBHOOK_DB_URL not configured: %s", e)
@@ -945,6 +973,162 @@ def post_hay_mejores_exclusion_bulk(
     touched = set_hay_mejores_excluido_bulk(db, body.item_ids, excluido=body.excluido)
     db.commit()
     return HayMejoresExclusionBulkResult(excluido=body.excluido, item_ids=touched, count=len(touched))
+
+
+# ── Criterios de aplicación (hay_mejores) ─────────────────────────
+
+
+class HayMejoresCriteriosResponse(BaseModel):
+    mla: str
+    c1_activo: bool
+    c1_markup_min: Optional[Decimal] = None
+    c1_markup_max: Optional[Decimal] = None
+    c2_activo: bool
+    c2_solo_markup_positivo: bool
+    auto_aplicacion: bool
+    sellers_excluidos: List[str] = []
+    exists: bool
+    updated_at: Optional[datetime] = None
+    model_config = ConfigDict(from_attributes=True)
+
+
+class HayMejoresCriteriosBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    c1_activo: bool = False
+    c1_markup_min: Optional[Decimal] = None
+    c1_markup_max: Optional[Decimal] = None
+    c2_activo: bool = False
+    c2_solo_markup_positivo: bool = True
+    auto_aplicacion: bool = False
+    sellers_excluidos: Optional[List[str]] = None
+
+
+def _criterios_response(view: CriteriosView) -> HayMejoresCriteriosResponse:
+    return HayMejoresCriteriosResponse(
+        mla=view.item_id,
+        c1_activo=view.c1_activo,
+        c1_markup_min=view.c1_markup_min,
+        c1_markup_max=view.c1_markup_max,
+        c2_activo=view.c2_activo,
+        c2_solo_markup_positivo=view.c2_solo_markup_positivo,
+        auto_aplicacion=view.auto_aplicacion,
+        sellers_excluidos=view.sellers_excluidos,
+        exists=view.exists,
+        updated_at=view.updated_at,
+    )
+
+
+@router.get("/item/{mla_id}/hay-mejores-criterios", response_model=HayMejoresCriteriosResponse)
+def get_hay_mejores_criterios(
+    mla_id: MlaIdPath,
+    current_user: Usuario = Depends(require_promos_read()),
+    db: Session = Depends(get_db),
+) -> HayMejoresCriteriosResponse:
+    """Per-MLA criterios (defaults when no row). Requires promos.ver."""
+    return _criterios_response(get_criterios(db, mla_id))
+
+
+@router.put("/item/{mla_id}/hay-mejores-criterios", response_model=HayMejoresCriteriosResponse)
+def put_hay_mejores_criterios(
+    mla_id: MlaIdPath,
+    body: HayMejoresCriteriosBody,
+    current_user: Usuario = Depends(require_promos_write()),
+    db: Session = Depends(get_db),
+) -> HayMejoresCriteriosResponse:
+    """Upsert per-MLA criterios. Requires promos.escribir. Does not re-eval existing flags.
+
+    Changing Auto-aplicación also needs ``promos.auto_aplicacion`` (manual override; no role grant).
+    Without it the stored Auto value is left unchanged.
+    """
+    puede_auto = PermisosService(db).tiene_permiso(current_user, PERMISO_AUTO_APLICACION)
+    try:
+        view = upsert_criterios(
+            db,
+            mla_id,
+            updated_by=getattr(current_user, "id", None),
+            c1_activo=body.c1_activo,
+            c1_markup_min=body.c1_markup_min,
+            c1_markup_max=body.c1_markup_max,
+            c2_activo=body.c2_activo,
+            c2_solo_markup_positivo=body.c2_solo_markup_positivo,
+            auto_aplicacion=body.auto_aplicacion,
+            sellers_excluidos=body.sellers_excluidos,
+            puede_cambiar_auto=puede_auto,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    db.commit()
+    return _criterios_response(view)
+
+
+class HayMejoresCriteriosBulkBody(HayMejoresCriteriosBody):
+    """Same criterios fields as the per-MLA PUT, plus bulk scope + optional discard.
+
+    ``auto_aplicacion=None`` (omit) leaves each MLA's Auto toggle unchanged — never silent mass-OFF.
+    """
+
+    item_ids: List[MlaIdBody]
+    descartar_sugerencias: bool = False
+    auto_aplicacion: Optional[bool] = None
+
+
+class HayMejoresCriteriosBulkResult(BaseModel):
+    item_ids: List[str]
+    count: int
+    descartadas: List[str] = []
+    omitidas_auto_fail: List[str] = []
+    auto_on_previas: int = 0
+    model_config = ConfigDict(from_attributes=True)
+
+
+@router.post("/hay-mejores-criterios-bulk", response_model=HayMejoresCriteriosBulkResult)
+def post_hay_mejores_criterios_bulk(
+    body: HayMejoresCriteriosBulkBody,
+    current_user: Usuario = Depends(require_promos_write()),
+    db: Session = Depends(get_db),
+) -> HayMejoresCriteriosBulkResult:
+    """Apply the same criterios to many MLAs (batches of ≤20). New runs only; optional discard skips Auto-fail.
+
+    Changing Auto-aplicación needs ``promos.auto_aplicacion``; without it each MLA keeps its stored Auto value.
+    """
+    if not body.item_ids:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="item_ids vacío")
+    if len(body.item_ids) > 20:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Como máximo 20 publicaciones por request",
+        )
+    puede_auto = PermisosService(db).tiene_permiso(current_user, PERMISO_AUTO_APLICACION)
+    auto_on_previas = count_auto_aplicacion_on(db, body.item_ids)
+    try:
+        touched = upsert_criterios_bulk(
+            db,
+            body.item_ids,
+            updated_by=getattr(current_user, "id", None),
+            c1_activo=body.c1_activo,
+            c1_markup_min=body.c1_markup_min,
+            c1_markup_max=body.c1_markup_max,
+            c2_activo=body.c2_activo,
+            c2_solo_markup_positivo=body.c2_solo_markup_positivo,
+            auto_aplicacion=body.auto_aplicacion,
+            sellers_excluidos=body.sellers_excluidos,
+            puede_cambiar_auto=puede_auto,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    descartadas: List[str] = []
+    omitidas: List[str] = []
+    if body.descartar_sugerencias and touched:
+        descartadas, omitidas = descartar_hay_mejores_sugerencias_bulk(db, touched, skip_auto_fail=True)
+    db.commit()
+    return HayMejoresCriteriosBulkResult(
+        item_ids=touched,
+        count=len(touched),
+        descartadas=descartadas,
+        omitidas_auto_fail=omitidas,
+        auto_on_previas=auto_on_previas,
+    )
 
 
 # ── Price recompute requested by ml-webhook (promo-ml-precio-inmediato T1) ──

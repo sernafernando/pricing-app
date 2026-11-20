@@ -41,6 +41,7 @@ EXCLUDED_ROUTES: dict[str, str] = {
     "/api/ml-publications/view/product-ids": "SPA bulk-selection helper: ids only",
     "/api/ml-publications/view/status-item-ids": "SPA bulk-selection helper: ids only",
     "/api/ml-publications/view/hay-mejores-exclusion-item-ids": "SPA bulk-selection helper: ids only",
+    "/api/ml-publications/view/hay-mejores-criterios-item-ids": "SPA bulk-selection helper: ids only",
     "/api/ml-publications/layouts/{vista}": "per-user UI layout/preset preferences, not pricing data",
     "/api/ml-publications/presets": "per-user UI layout/preset preferences, not pricing data",
 }
@@ -220,6 +221,12 @@ CATALOG: tuple[ToolSpec, ...] = (
         "/api/promociones/item/{mla_id}/confirmacion-ml",
         "Publicación: confirmación de ML",
         "What Mercado Libre reports for the publication's promotions.",
+    ),
+    ToolSpec(
+        "promos_item_hay_mejores_criterios",
+        "/api/promociones/item/{mla_id}/hay-mejores-criterios",
+        "Publicación: criterios hay mejores",
+        "Per-publication application criteria for hay_mejores (C1 markup band, C2 catalog win, Auto).",
     ),
     ToolSpec(
         "catalogo_competencia",
