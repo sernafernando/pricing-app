@@ -215,3 +215,18 @@ describe('readProduct', () => {
     expect(readProduct({ key: '7' })).toMatchObject({ kindCounts: {}, statusCounts: {}, priceMin: null, priceMax: null });
   });
 });
+
+describe('cancellation (pubml-lentitud S3)', () => {
+  it('a new list aborts the products request the old one still has in flight', async () => {
+    publicacionesMlAPI.products.mockReset();
+    publicacionesMlAPI.products.mockReturnValue(new Promise(() => {}));
+    const { rerender } = setup();
+    await waitFor(() => expect(publicacionesMlAPI.products).toHaveBeenCalledTimes(1));
+    const old = publicacionesMlAPI.products.mock.calls[0][1].signal;
+    expect(old.aborted).toBe(false);
+    rerender({ filters: PAUSED });
+    await waitFor(() => expect(publicacionesMlAPI.products).toHaveBeenCalledTimes(2));
+    expect(old.aborted).toBe(true);
+    expect(publicacionesMlAPI.products.mock.calls[1][1].signal.aborted).toBe(false);
+  });
+});

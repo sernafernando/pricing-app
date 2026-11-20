@@ -18,6 +18,7 @@ is an ERP integer. They are NEVER joined directly. The path is:
 with a fallback when no publication links that MLA:
 
     item.seller_sku -> ProductoERP.codigo
+    item.seller_sku -> ProductoERP.item_id   (numeric SKU, only if no code matched)
 
 Absence at any step means UNKNOWN -- no row is written for that item. So
 does a cost that is not a REAL cost once a product IS found: `NULL` OR
@@ -54,6 +55,10 @@ from app.services.tn_publish_core.resolve import (
 )
 
 logger = logging.getLogger(__name__)
+
+# `ProductoERP.item_id` is a 32-bit integer column; a longer numeric SKU
+# (an EAN, say) can never be an item id and must not reach the id lookup.
+_MAX_ITEM_ID = 2_147_483_647
 
 # WHICH of design D6's two linkage paths resolved the product. Stamping a
 # single `"erp"` for both made the column useless for the one question it
@@ -203,7 +208,7 @@ def _insert_stmt(db: Session, table: Any) -> Any:
 
 
 def _productos_por_item(db: Session, items: Sequence[OrderItemOpsDTO]) -> Dict[int, tuple[ProductoERP, str]]:
-    """Every item's `ProductoERP`, resolved in THREE queries for the whole
+    """Every item's `ProductoERP`, resolved in at most FOUR queries for the whole
     order instead of up to three PER ITEM.
 
     This runs inside `upsert_order`, which the reconciliation sweep calls
@@ -214,9 +219,13 @@ def _productos_por_item(db: Session, items: Sequence[OrderItemOpsDTO]) -> Dict[i
 
     Linkage per design D6: the MLA (`item_id`) through `PublicacionML` to
     `ProductoERP.item_id`, falling back to `seller_sku` -> `ProductoERP
-    .codigo`. The MLA string is NEVER joined against the ERP integer id
-    directly. An item that resolves through neither is simply absent from
-    the returned map -- an UNKNOWN, not an error.
+    .codigo`, and last to a numeric `seller_sku` -> `ProductoERP.item_id`
+    (sellers often type the ERP item id as the SKU of a listing that is not
+    in `publicaciones_ml` yet). The code always wins over the item id. A
+    numeric SKU must spell the id exactly: '0319' is ambiguous, so it
+    matches nothing and is logged. The MLA string is NEVER joined against
+    the ERP integer id directly. An item that resolves through none of these
+    is simply absent from the returned map -- an UNKNOWN, not an error.
     """
     mlas = {item.item_id for item in items if item.item_id}
     skus = {item.seller_sku for item in items if item.seller_sku}
@@ -242,6 +251,24 @@ def _productos_por_item(db: Session, items: Sequence[OrderItemOpsDTO]) -> Dict[i
             producto.codigo: producto for producto in db.query(ProductoERP).filter(ProductoERP.codigo.in_(sorted(skus)))
         }
 
+    sin_codigo = skus - productos_por_codigo.keys()
+    ids_por_sku: Dict[str, int] = {}
+    for sku in sorted(sin_codigo):
+        if not (sku.isascii() and sku.isdigit()):
+            continue
+        if str(int(sku)) != sku:
+            logger.warning("seller_sku %r looks like an ERP item id but is not spelled exactly; not matched", sku)
+            continue
+        if int(sku) > _MAX_ITEM_ID:
+            continue
+        ids_por_sku[sku] = int(sku)
+    productos_por_id_sku: Dict[int, ProductoERP] = {}
+    if ids_por_sku:
+        productos_por_id_sku = {
+            producto.item_id: producto
+            for producto in db.query(ProductoERP).filter(ProductoERP.item_id.in_(sorted(set(ids_por_sku.values()))))
+        }
+
     resueltos: Dict[int, tuple[ProductoERP, str]] = {}
     for idx, item in enumerate(items):
         erp_id = publicaciones.get(item.item_id) if item.item_id else None
@@ -251,6 +278,8 @@ def _productos_por_item(db: Session, items: Sequence[OrderItemOpsDTO]) -> Dict[i
             continue
         if item.seller_sku:
             producto = productos_por_codigo.get(item.seller_sku)
+            if producto is None and item.seller_sku in ids_por_sku:
+                producto = productos_por_id_sku.get(ids_por_sku[item.seller_sku])
             if producto is not None:
                 resueltos[idx] = (producto, FUENTE_SKU)
     return resueltos

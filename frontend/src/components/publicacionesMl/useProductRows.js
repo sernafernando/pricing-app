@@ -80,6 +80,10 @@ export default function useProductRows({ filters, pageSize, canSeeSales = false,
   // The pager's figures belong to ONE list: a new list starts without them, and keeps none if it fails.
   const [summary, setSummary] = useState(NO_SUMMARY);
   const generation = useRef(0);
+  // This generation's requests share one AbortController: a new list aborts what the old one still has in flight
+  // (pubml-lentitud S3), so the browser frees its connections and an old answer never lands.
+  const aborter = useRef(null);
+  useEffect(() => () => aborter.current?.abort(), []);
   const inflight = useRef(new Set());
   // With "Todos", the page's products as the list's first part said (null until then): where its parts stop.
   const latestEnd = useRef(null);
@@ -110,7 +114,10 @@ export default function useProductRows({ filters, pageSize, canSeeSales = false,
     const lazy = !leaf && size === ALL_ROWS;
     const productsParams = leaf ? null : buildProductsParams(current, size, allowed);
     const asked = leaf ? null : productsPartParams(productsParams, lazy, offset, latestEnd.current);
-    const request = leaf ? publicacionesMlAPI.items(buildLeafParams(current, node, offset)) : publicacionesMlAPI.products(asked);
+    const config = { signal: aborter.current?.signal };
+    const request = leaf
+      ? publicacionesMlAPI.items(buildLeafParams(current, node, offset), config)
+      : publicacionesMlAPI.products(asked, config);
     request
       .then((response) => {
         pending.delete(page);
@@ -156,6 +163,8 @@ export default function useProductRows({ filters, pageSize, canSeeSales = false,
 
   useEffect(() => {
     generation.current += 1;
+    aborter.current?.abort();
+    aborter.current = new AbortController();
     inflight.current = new Set();
     latestEnd.current = null;
     setExpanded(new Set());

@@ -124,3 +124,27 @@ describe('publicacionesMlAPI.products', () => {
     expect(get).toHaveBeenCalledWith('/ml-publications/view/products', { params });
   });
 });
+
+describe('publicacionesMlAPI.facets (pubml-lentitud T2)', () => {
+  it('GETs /ml-publications/view/facets with the filters as the query and forwards the abort signal', async () => {
+    const actual = await vi.importActual('./api');
+    const get = vi.spyOn(actual.default, 'get').mockResolvedValue({ data: { status: {} } });
+    const params = { estado: 'active' };
+    const { signal } = new AbortController();
+
+    await actual.publicacionesMlAPI.facets(params, { signal });
+
+    expect(get).toHaveBeenCalledWith('/ml-publications/view/facets', { params, signal });
+  });
+
+  it.each(['items', 'groups', 'products', 'stockAudit'])('%s forwards the abort signal', async (name) => {
+    const actual = await vi.importActual('./api');
+    const get = vi.spyOn(actual.default, 'get').mockResolvedValue({ data: {} });
+    const { signal } = new AbortController();
+
+    await actual.publicacionesMlAPI[name]({ estado: 'active' }, { signal });
+
+    expect(get).toHaveBeenLastCalledWith(expect.any(String), { params: { estado: 'active' }, signal });
+  });
+});
+

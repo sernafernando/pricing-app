@@ -143,6 +143,10 @@ class Settings(BaseSettings):
     # the API that shares a database with production (staging, a second host): the per-host lock cannot see another
     # host, so both would run the same loops against the same rows (e.g. double bot replies to customers).
     BACKGROUND_TASKS_ENABLED: bool = True
+    # Garbage-collector tuning applied by the API lifespan on EVERY worker (pubml-lentitud): the startup heap is frozen
+    # out of the collector and the thresholds raised (`main.GC_THRESHOLDS`). Set it to false to run with Python's
+    # defaults (no freeze, default thresholds): a kill switch for the whole process, not one endpoint.
+    GC_TUNING_ENABLED: bool = True
     # Kill-switch for the ML Seller Promotions write path (enroll/remove).
     # Default OFF: writes to ML Central de Promociones are disabled until
     # explicitly enabled per environment. Consumed by the write-orchestration

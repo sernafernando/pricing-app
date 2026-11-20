@@ -4,7 +4,7 @@
  * resolved set, no action.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import BulkActions from './BulkActions';
 import api, { publicacionesMlAPI } from '../../services/api';
@@ -59,6 +59,18 @@ describe('BulkActions', () => {
     expect(publicacionesMlAPI.productIds).toHaveBeenCalledWith({ estado: 'active' }, expect.anything());
     await openMenu(userEvent.setup());
     expect(screen.getByText(/3 publicaciones sin producto quedan afuera/i)).toBeInTheDocument();
+  });
+
+  it('asks for no set while the screen is still settling its filters, and fails closed meanwhile; once, when settled', async () => {
+    // pubml-lentitud S3: the first load (layer, preset) and a filter still waiting must not ask a set nobody acts on.
+    resolved({ item_ids: [4101, 4102], count: 2, sin_producto: 0 });
+    const { rerender } = renderBulk({ pending: true });
+    await act(async () => {});
+    expect(publicacionesMlAPI.productIds).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /\(2 productos\)/i })).not.toBeInTheDocument();
+    rerender(<BulkActions filters={FILTERS} checkedIds={new Set()} onClearChecked={() => {}} canSeeMargin={false} pending={false} />);
+    expect(await screen.findByRole('button', { name: /acciones masivas \(2 productos\)/i })).toBeEnabled();
+    expect(publicacionesMlAPI.productIds).toHaveBeenCalledTimes(1);
   });
 
   it('runs a bulk calculation over exactly the resolved products', async () => {

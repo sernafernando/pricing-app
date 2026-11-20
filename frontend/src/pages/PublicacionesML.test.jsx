@@ -49,7 +49,14 @@ vi.mock('../services/api', () => ({
     getHayMejoresCriterios: vi.fn(() => Promise.resolve({ data: { sellers_excluidos: [] } })),
     putHayMejoresCriterios: vi.fn((mlaId, body) => Promise.resolve({ data: body })),
   },
-  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn(), statusItemIds: vi.fn(), statusItemIdsChecked: vi.fn(), statusBulk: vi.fn(), paintColors: vi.fn() },
+  // `/view/facets` (pubml-lentitud T2) answers the facets the current `items` mock carries, without counting as an
+  // `items` call: the counts of the screen are those `/items?facets=true` answered before the split.
+  publicacionesMlAPI: ((api) =>
+    Object.assign(api, {
+      facets: vi.fn((params, config) =>
+        Promise.resolve(api.items.getMockImplementation()?.({ ...params, facets: true }, config)).then((r) => ({ data: r?.data?.facets ?? null })),
+      ),
+    }))({ items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn(), statusItemIds: vi.fn(), statusItemIdsChecked: vi.fn(), statusBulk: vi.fn(), paintColors: vi.fn() }),
   productosAPI: {
     // The product panel's publication tree (Productos' `ProductoMLAsPanel`): the product's publication.
     getProductoTree: vi.fn(() =>
@@ -179,6 +186,9 @@ vi.mock('../contexts/PermisosContext', () => ({
 const respond = (body) => publicacionesMlAPI.items.mockResolvedValue({ data: body });
 const calls = () => publicacionesMlAPI.items.mock.calls.map(([params]) => params);
 const lastParams = () => calls().at(-1);
+// The `/view/facets` requests (pubml-lentitud T2): asked next to the rows' request, only when the filters change.
+const facetCalls = () => publicacionesMlAPI.facets.mock.calls.map(([params]) => params);
+const withoutPage = ({ limit, offset, orden, dir, ...filters }) => (void limit, void offset, void orden, void dir, filters);
 const httpError = (status, data = {}) => Object.assign(new Error(`HTTP ${status}`), { response: { status, data } });
 // A filter's name in the filter card ("Markup", "Tienda"): sentence case, no colon.
 const filterLabel = (name) => within(screen.getByRole('region', { name: 'Filtros' })).queryByText(name, { selector: 'span' });
@@ -225,9 +235,10 @@ beforeEach(() => {
 afterAll(resetTiendasOficiales);
 
 describe('the list', () => {
-  it('asks for the first page of 50, with facets, and renders one row per MLA', async () => {
+  it('asks for the first page of 50 and, next to it, the facets of its filters; renders one row per MLA', async () => {
     await page();
-    expect(lastParams()).toEqual({ orden: 'tipo,facturado_30d', dir: 'asc,desc', limit: 50, offset: 0, facets: true });
+    expect(lastParams()).toEqual({ orden: 'tipo,facturado_30d', dir: 'asc,desc', limit: 50, offset: 0 });
+    expect(facetCalls()).toEqual([{}]);
     expect(screen.getByText(/Router TP-Link Archer AX55/)).toBeInTheDocument();
     expect(screen.getByText('MLA1100000004')).toBeInTheDocument();
     expect(screen.getByText('mostrando 1-50 de 235 publicaciones')).toBeInTheDocument();
@@ -243,8 +254,9 @@ describe('the list', () => {
       dir: 'asc',
       limit: 50,
       offset: 50,
-      facets: true,
     });
+    // The counts are of the filters alone: no page, no sort.
+    expect(facetCalls()).toEqual([{ q: 'router', estado: 'active', tiendas: '57997' }]);
   });
 
   it('shows "—" for every nullable, never an empty cell or a made-up 0 (S4.1)', async () => {
@@ -277,20 +289,52 @@ describe('the list', () => {
 describe('facets', () => {
   it('are asked for on a filter change, not on a page or sort change', async () => {
     await page();
-    expect(lastParams().facets).toBe(true);
+    expect(facetCalls()).toEqual([{}]);
 
     await userEvent.click(screen.getByRole('button', { name: 'Página 2' }));
     await waitFor(() => expect(lastParams().offset).toBe(50));
-    expect(lastParams()).not.toHaveProperty('facets');
-
     await userEvent.click(screen.getByRole('button', { name: /^Precio(?!s)/ }));
     await waitFor(() => expect(lastParams().orden).toBe('precio'));
-    expect(lastParams()).not.toHaveProperty('facets');
+    expect(facetCalls()).toHaveLength(1);
+    expect(calls().every((params) => !('facets' in params))).toBe(true);
 
     const estado = screen.getByRole('group', { name: 'Filtrar por estado' });
     await userEvent.click(within(estado).getByRole('button', { name: /Pausadas/ }));
     await waitFor(() => expect(lastParams().estado).toBe('paused'));
-    expect(lastParams().facets).toBe(true);
+    expect(facetCalls()).toEqual([{}, { estado: 'paused' }]);
+  });
+
+  it('paint the rows without waiting for the counts', async () => {
+    publicacionesMlAPI.facets.mockImplementationOnce(() => new Promise(() => {}));
+    await page();
+    expect(screen.getByText('MLA1100000004')).toBeInTheDocument();
+  });
+
+  it('three chips clicked in a row ask once for the rows and once for the counts, with the three of them', async () => {
+    await page();
+    const before = { rows: calls().length, facets: facetCalls().length };
+    await userEvent.click(within(screen.getByRole('group', { name: 'Filtrar por estado' })).getByRole('button', { name: /Activas/ }));
+    await userEvent.click(within(screen.getByRole('group', { name: 'Filtrar por tipo' })).getByRole('button', { name: /Premium/ }));
+    await userEvent.click(within(screen.getByRole('group', { name: 'Filtrar por tienda oficial' })).getByRole('button', { name: /Sin tienda/ }));
+    await waitFor(() => expect(calls().length).toBe(before.rows + 1));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 400)));
+    expect(calls()).toHaveLength(before.rows + 1);
+    expect(facetCalls()).toHaveLength(before.facets + 1);
+    expect(lastParams()).toMatchObject({ estado: 'active', offset: 0 });
+    expect(facetCalls().at(-1)).toMatchObject({ estado: 'active' });
+    expect(facetCalls().at(-1)).toEqual(withoutPage(lastParams()));
+  });
+
+  it('a newer filter aborts the rows request still in flight', async () => {
+    await page();
+    publicacionesMlAPI.items.mockImplementationOnce(() => new Promise(() => {}));
+    await userEvent.click(within(screen.getByRole('group', { name: 'Filtrar por estado' })).getByRole('button', { name: /Activas/ }));
+    await waitFor(() => expect(lastParams().estado).toBe('active'));
+    const pendingSignal = publicacionesMlAPI.items.mock.calls.at(-1)[1].signal;
+    expect(pendingSignal.aborted).toBe(false);
+    await userEvent.click(within(screen.getByRole('group', { name: 'Filtrar por estado' })).getByRole('button', { name: /Pausadas/ }));
+    await waitFor(() => expect(lastParams().estado).toBe('paused'));
+    expect(pendingSignal.aborted).toBe(true);
   });
 
   it('keep showing the last counts while a page without facets loads', async () => {
@@ -303,15 +347,14 @@ describe('facets', () => {
     expect(within(screen.getByRole('group', { name: 'Filtrar por estado' })).getByRole('button', { name: /Activas.*180/ })).toBeInTheDocument();
   });
 
-  it('are asked for again after a failure (the ref only advances on success)', async () => {
-    publicacionesMlAPI.items.mockReset();
-    publicacionesMlAPI.items.mockRejectedValueOnce(httpError(500));
-    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones'] });
-    await screen.findByRole('alert');
-    respond({ ...ITEMS_RESPONSE, facets: FACETS });
-    await userEvent.click(screen.getByRole('button', { name: 'Reintentar' }));
-    await screen.findByText('MLA1100000001');
-    expect(lastParams().facets).toBe(true);
+  it('are asked for again with the next rows request after a failure', async () => {
+    publicacionesMlAPI.facets.mockRejectedValueOnce(httpError(500));
+    await page();
+    await waitFor(() => expect(facetCalls()).toHaveLength(1));
+    await userEvent.click(screen.getByRole('button', { name: 'Página 2' }));
+    await waitFor(() => expect(lastParams().offset).toBe(50));
+    await waitFor(() => expect(facetCalls()).toEqual([{}, {}]));
+    expect(within(screen.getByRole('group', { name: 'Filtrar por estado' })).getByRole('button', { name: /Activas.*180/ })).toBeInTheDocument();
   });
 });
 
@@ -697,8 +740,8 @@ describe('"Todos" in parts of 500 as the list scrolls (filtros S4)', () => {
   it('asks 500 at offset 0 with the facets, then the next parts with the same filters and sort, until the total', async () => {
     await page('/ml-publicaciones?limite=9999&estado=active');
     await waitFor(() => expect(calls()).toHaveLength(3));
-    const { facets, ...first } = calls()[0];
-    expect(facets).toBe(true);
+    const first = calls()[0];
+    expect(facetCalls()).toEqual([{ estado: 'active' }]);
     expect(first).toMatchObject({ estado: 'active', orden: 'tipo,facturado_30d', dir: 'asc,desc', limit: 500, offset: 0 });
     expect(calls()[1]).toEqual({ ...first, offset: 500 });
     expect(calls()[2]).toEqual({ ...first, offset: 1000, limit: 200 });
@@ -726,7 +769,8 @@ describe('"Todos" in parts of 500 as the list scrolls (filtros S4)', () => {
     const estado = screen.getByRole('group', { name: 'Filtrar por estado' });
     await userEvent.click(within(estado).getByRole('button', { name: /Activas/ }));
     await waitFor(() => expect(calls().some((params) => params.estado === 'active' && params.offset === 0)).toBe(true));
-    expect(calls().find((params) => params.estado === 'active')).toMatchObject({ limit: 500, offset: 0, facets: true });
+    expect(calls().find((params) => params.estado === 'active')).toMatchObject({ limit: 500, offset: 0 });
+    expect(facetCalls().at(-1)).toEqual({ estado: 'active' });
     await screen.findByText('MLA1300001000');
     await act(async () => releaseStale());
     expect(screen.queryByText('MLA1900000500')).not.toBeInTheDocument();
@@ -800,7 +844,8 @@ describe('"Todos" in parts of 500 as the list scrolls (filtros S4)', () => {
   it.each([50, 500])('a page of %i still asks one request of that size', async (size) => {
     await page(`/ml-publicaciones?limite=${size}`);
     await act(async () => {});
-    expect(calls()).toEqual([expect.objectContaining({ limit: size, offset: 0, facets: true })]);
+    expect(calls()).toEqual([expect.objectContaining({ limit: size, offset: 0 })]);
+    expect(facetCalls()).toEqual([{}]);
   });
 });
 
@@ -1403,7 +1448,8 @@ describe('the Agrupado view (P12a)', () => {
   it('asks /items only for the state and the facet counts, not for a page of rows', async () => {
     await tree();
     await waitFor(() => expect(publicacionesMlAPI.items).toHaveBeenCalled());
-    expect(lastParams()).toEqual({ limit: 1, offset: 0, facets: true });
+    expect(lastParams()).toEqual({ limit: 1, offset: 0 });
+    await waitFor(() => expect(facetCalls()).toHaveLength(1));
   });
 
   it('switches view from the header, in the URL, and back', async () => {
@@ -1727,7 +1773,8 @@ describe('the Producto view', () => {
   it('asks /items only for the state and the facet counts', async () => {
     await products();
     await waitFor(() => expect(publicacionesMlAPI.items).toHaveBeenCalled());
-    expect(lastParams()).toEqual({ limit: 1, offset: 0, facets: true });
+    expect(lastParams()).toEqual({ limit: 1, offset: 0 });
+    await waitFor(() => expect(facetCalls()).toHaveLength(1));
   });
 
   it('switches to it from the header, in the URL', async () => {

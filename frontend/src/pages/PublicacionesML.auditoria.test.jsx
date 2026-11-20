@@ -55,7 +55,14 @@ vi.mock('../services/api', () => ({
     refreshItemPromociones: vi.fn(() => new Promise(() => {})),
     getCompetenciaCatalogo: vi.fn(() => new Promise(() => {})),
   },
-  publicacionesMlAPI: { stockAudit: vi.fn(), items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn(), statusItemIds: vi.fn(), statusItemIdsChecked: vi.fn(), statusBulk: vi.fn(), paintColors: vi.fn() },
+  // `/view/facets` (pubml-lentitud T2) answers the facets the current `items` mock carries, without counting as an
+  // `items` call: the counts of the screen are those `/items?facets=true` answered before the split.
+  publicacionesMlAPI: ((api) =>
+    Object.assign(api, {
+      facets: vi.fn((params, config) =>
+        Promise.resolve(api.items.getMockImplementation()?.({ ...params, facets: true }, config)).then((r) => ({ data: r?.data?.facets ?? null })),
+      ),
+    }))({ stockAudit: vi.fn(), items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn(), statusItemIds: vi.fn(), statusItemIdsChecked: vi.fn(), statusBulk: vi.fn(), paintColors: vi.fn() }),
   productosAPI: {
     // The product panel's publication tree (Productos' `ProductoMLAsPanel`): the product's publication.
     getProductoTree: vi.fn(() =>
