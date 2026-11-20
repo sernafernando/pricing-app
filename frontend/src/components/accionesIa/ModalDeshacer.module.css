@@ -1,0 +1,77 @@
+/* Undo dialog of "Acciones IA". Tokens only, light and dark. */
+
+.cuerpo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.etiqueta {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.motivo {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font: inherit;
+  font-size: var(--font-sm);
+  resize: vertical;
+}
+
+.resumen {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.tabla {
+  overflow-x: auto;
+}
+
+.lista {
+  font-size: var(--font-xs);
+  color: var(--success-text);
+}
+
+.bloqueada {
+  font-size: var(--font-xs);
+  color: var(--error-text);
+}
+
+.detalle {
+  display: block;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.error {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--error-bg);
+  color: var(--error-text);
+  font-size: var(--font-sm);
+}
+
+/* Confirmar: the design system's danger tone (meets WCAG AA in light and dark; the solid gradient does not in dark). */
+.confirmar {
+  background: var(--tone-danger-bg);
+  color: var(--tone-danger-fg);
+  border: 1px solid var(--tone-danger-border);
+  box-shadow: none;
+}
+
+.confirmar:hover:not(:disabled) {
+  border-color: var(--tone-danger-fg);
+}

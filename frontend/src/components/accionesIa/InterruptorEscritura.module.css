@@ -1,0 +1,106 @@
+/* AI write switch of the "Acciones IA" page. Tokens only, light and dark. */
+
+.panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--cf-card-bg);
+  border: 1px solid var(--cf-card-border);
+  border-radius: var(--cf-card-radius);
+}
+
+.texto {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.titulo {
+  margin: 0;
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.ayuda {
+  margin: 0;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.encendida {
+  font-size: var(--font-sm);
+  color: var(--success-text);
+}
+
+.apagada {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.interruptor {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-full);
+  background: var(--cf-bg-hover);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.interruptor:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.interruptorOn {
+  background: var(--cf-accent-blue);
+  border-color: var(--cf-accent-blue);
+}
+
+.perilla {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-full);
+  background: var(--cf-text-primary);
+  transition: transform 0.15s ease;
+}
+
+.interruptorOn .perilla {
+  transform: translateX(18px);
+  background: var(--cf-bg-card);
+}
+
+.bloqueado {
+  flex-basis: 100%;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: var(--font-xs);
+}
+
+.error {
+  flex-basis: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--error-bg);
+  color: var(--error-text);
+  font-size: var(--font-xs);
+}

@@ -3,6 +3,7 @@
 - Auth: the official SDK's bearer middleware with our `TokenVerifier` (opaque tokens from app.mcp.store, bound
   to this resource). Missing/invalid token -> 401 with `WWW-Authenticate: Bearer resource_metadata=...`.
 - Tools: app.mcp.tools, listed with schemas derived from the backing endpoints and executed as the user.
+- Write tools (app.mcp.write.tools): listed and callable only with a `pricing.write` token; plan -> confirm -> apply.
 - Every call is rate limited per user and written to `mcp_tool_calls`.
 - Off (404) while `MCP_PUBLIC_BASE_URL` is unset.
 """
@@ -35,7 +36,9 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.mcp import store, tools
-from app.models.mcp_oauth import McpToolCall
+from app.mcp.write import tools as write_tools
+from app.mcp.write.context import ORIGEN_MCP, WriteContext, WriteError
+from app.models.mcp_oauth import McpConnection, McpToolCall
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +78,8 @@ class McpRuntime:
             return
         base = base.rstrip("/")
         try:
-            catalog = tools.build_catalog(self._app_getter().openapi())
+            openapi = self._app_getter().openapi()
+            catalog = {**tools.build_catalog(openapi), **write_tools.build_catalog(openapi)}
         except Exception:  # noqa: BLE001 - a broken catalog must not take the app down; MCP stays off (404)
             logger.exception("MCP disabled: the tool catalog could not be built")
             yield
@@ -123,6 +127,11 @@ class McpRuntime:
             usuario = store.load_user(db, usuario_id)
             return bool(usuario and store.has_permission(db, usuario, PERMISO_VER_COSTOS))
 
+    def _client_name(self, connection_id: int) -> str:
+        with self.db_session() as db:
+            connection = db.get(McpConnection, connection_id)
+            return connection.client_name if connection else "MCP"
+
     def _log(
         self, grant: dict[str, Any], tool: str, arguments: dict[str, Any], status: str, size: int, ms: int
     ) -> None:
@@ -155,10 +164,13 @@ class McpRuntime:
                 raise tools.ToolCallError(f"Tool desconocida: {name}")
             if await anyio.to_thread.run_sync(self._rate_limited, grant["usuario_id"]):
                 raise tools.ToolCallError("Demasiadas consultas: esperá un minuto", status="limited")
-            can_see_costs = tool.spec.strip_costs and await anyio.to_thread.run_sync(
-                self._can_see_costs, grant["usuario_id"]
-            )
-            result = await tools.run_tool(tool, arguments, claims["username"], bool(can_see_costs))
+            if name in write_tools.NAMES:
+                result = await self._call_write(tool, arguments, claims, token.scopes if token else [])
+            else:
+                can_see_costs = tool.spec.strip_costs and await anyio.to_thread.run_sync(
+                    self._can_see_costs, grant["usuario_id"]
+                )
+                result = await tools.run_tool(tool, arguments, claims["username"], bool(can_see_costs))
             text = json.dumps(result, ensure_ascii=False, default=str)
         except tools.ToolCallError as exc:
             status, text = exc.status, str(exc)
@@ -170,6 +182,32 @@ class McpRuntime:
             self._log, grant, name, arguments, status, len(text.encode("utf-8")) if status == "ok" else 0, elapsed
         )
         return CallToolResult(content=[TextContent(type="text", text=text)], is_error=status != "ok")
+
+    async def _call_write(
+        self, tool: tools.BuiltTool, arguments: dict[str, Any], claims: dict[str, Any], scopes: list[str]
+    ) -> Any:
+        if store.SCOPE_WRITE not in scopes:
+            raise tools.ToolCallError(
+                "denegada: esta conexión es de solo lectura (falta el scope pricing.write)", status="denied"
+            )
+        context = WriteContext(
+            usuario_id=claims["usuario_id"],
+            username=claims["username"],
+            connection_id=claims["connection_id"],
+            cliente=await anyio.to_thread.run_sync(self._client_name, claims["connection_id"]),
+            origen=ORIGEN_MCP,
+            scopes=tuple(scopes),
+        )
+        try:
+            return await write_tools.run(tool, arguments, context)
+        except WriteError as exc:
+            status = {"denegada": "denied", "limitada": "limited"}.get(exc.code, "error")
+            raise tools.ToolCallError(str(exc), status=status) from exc
+
+
+def _token_scopes() -> list[str]:
+    token = get_access_token()
+    return list(token.scopes) if token else []
 
 
 class _TokenVerifier:
@@ -203,7 +241,14 @@ class _PricingMcpServer(MCPServer):
             name="pricing",
             instructions=(
                 "Pricing app data (Publicaciones ML, Métricas ML, promos, ventas) with the permissions of the "
-                "connected user. Read-only. Amounts follow the app; ask before assuming a PM when a name is ambiguous."
+                "connected user. Amounts follow the app; ask before assuming a PM when a name is ambiguous. "
+                "Connections with pricing.write also get write tools (promos, list prices, cuotas, mayorista, "
+                "pause/activate, undo). Every write is two calls: modo 'plan' shows exactly what would change and "
+                "returns plan_id + confirm_token; show it to the person and only after they confirm call again with "
+                "modo 'aplicar'. Each order needs a motivo and its limites (max_items, max_cambio_pct, "
+                "min_markup_pct, ...): they come from the person, never invent them; ask if missing. Prices never move "
+                "more than 10% per change. Every applied change is listed in Acciones IA and can be undone "
+                "(acciones_recientes, accion_deshacer)."
             ),
             token_verifier=_TokenVerifier(runtime),
             auth=AuthSettings(
@@ -217,15 +262,17 @@ class _PricingMcpServer(MCPServer):
         self._catalog = catalog
 
     async def list_tools(self) -> list[Tool]:
+        can_write = store.SCOPE_WRITE in _token_scopes()
         return [
             Tool(
                 name=t.spec.name,
                 title=t.spec.title,
                 description=t.spec.description,
                 input_schema=t.input_schema,
-                annotations=_READ_ONLY,
+                annotations=write_tools.ANNOTATIONS.get(t.spec.name, _READ_ONLY),
             )
             for t in self._catalog.values()
+            if can_write or t.spec.name not in write_tools.NAMES
         ]
 
     def _tool_input_schema(self, name: str) -> dict[str, Any] | None:
