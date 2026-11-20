@@ -1,15 +1,15 @@
 {
- "tests/services/ml_daily_metrics/test_board_filter_plans_postgres.py": 243.89,
- "tests/services/ml_daily_metrics/test_board_volume_postgres.py": 188.59,
- "tests/services/ml_publications/view/test_catalog_filter_plans_volume_postgres.py": 169.7,
- "tests/services/ml_publications/view/test_filter_matrix_each_a_volume_postgres.py": 95.32,
- "tests/services/ml_publications/view/test_filter_matrix_each_b_volume_postgres.py": 80.3,
- "tests/services/ml_publications/view/test_filter_matrix_oracle_volume_postgres.py": 59.78,
- "tests/services/ml_publications/view/test_filter_matrix_plans_volume_postgres.py": 100.8,
- "tests/services/ml_publications/view/test_metrics_sort_volume_postgres.py": 109.66,
- "tests/services/ml_publications/view/test_product_link_filters_volume_postgres.py": 6.73,
- "tests/services/ml_publications/view/test_products_volume_postgres.py": 71.32,
- "tests/services/ml_publications/view/test_row_metrics_volume_postgres.py": 11.29,
- "tests/services/ml_publications/view/test_view_volume_postgres.py": 279.04,
- "tests/unit/test_v_facturas_compra_vigentes_postgres.py": 64.12
+ "tests/services/ml_daily_metrics/test_board_filter_plans_postgres.py": 164.67,
+ "tests/services/ml_daily_metrics/test_board_volume_postgres.py": 138.26,
+ "tests/services/ml_publications/view/test_catalog_filter_plans_volume_postgres.py": 207.84,
+ "tests/services/ml_publications/view/test_filter_matrix_each_a_volume_postgres.py": 71.98,
+ "tests/services/ml_publications/view/test_filter_matrix_each_b_volume_postgres.py": 102.04,
+ "tests/services/ml_publications/view/test_filter_matrix_oracle_volume_postgres.py": 79.36,
+ "tests/services/ml_publications/view/test_filter_matrix_plans_volume_postgres.py": 130.12,
+ "tests/services/ml_publications/view/test_metrics_sort_volume_postgres.py": 81.86,
+ "tests/services/ml_publications/view/test_product_link_filters_volume_postgres.py": 5.69,
+ "tests/services/ml_publications/view/test_products_volume_postgres.py": 87.36,
+ "tests/services/ml_publications/view/test_row_metrics_volume_postgres.py": 12.44,
+ "tests/services/ml_publications/view/test_view_volume_postgres.py": 326.88,
+ "tests/unit/test_v_facturas_compra_vigentes_postgres.py": 57.29
 }
