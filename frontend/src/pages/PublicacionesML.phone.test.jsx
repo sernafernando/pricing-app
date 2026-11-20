@@ -33,7 +33,14 @@ vi.mock('../services/api', () => ({
   // The publication panel opens on Promos (owner, 2026-11-02): its promotions never answer here, these tests are
   // about the panel's opening and closing.
   promocionesAPI: { getPromocionesItem: vi.fn(() => new Promise(() => {})), refreshItemPromociones: vi.fn(() => new Promise(() => {})) },
-  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn(), statusItemIds: vi.fn(), statusItemIdsChecked: vi.fn(), statusBulk: vi.fn(), paintColors: vi.fn() },
+  // `/view/facets` (pubml-lentitud T2) answers the facets the current `items` mock carries, without counting as an
+  // `items` call: the counts of the screen are those `/items?facets=true` answered before the split.
+  publicacionesMlAPI: ((api) =>
+    Object.assign(api, {
+      facets: vi.fn((params, config) =>
+        Promise.resolve(api.items.getMockImplementation()?.({ ...params, facets: true }, config)).then((r) => ({ data: r?.data?.facets ?? null })),
+      ),
+    }))({ items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn(), statusItemIds: vi.fn(), statusItemIdsChecked: vi.fn(), statusBulk: vi.fn(), paintColors: vi.fn() }),
   productosAPI: {
     // The product panel's publication tree (Productos' `ProductoMLAsPanel`): the product's publication.
     getProductoTree: vi.fn(() =>
@@ -236,7 +243,7 @@ describe('Publicaciones ML on a phone (mobile-metricas-pubml S2)', () => {
     expect(activas).toHaveAttribute('aria-pressed', 'false');
     await userEvent.click(activas);
     expect(activas).toHaveAttribute('aria-pressed', 'true');
-    await waitFor(() => expect(publicacionesMlAPI.items).toHaveBeenLastCalledWith(expect.objectContaining({ estado: 'active' })));
+    await waitFor(() => expect(publicacionesMlAPI.items).toHaveBeenLastCalledWith(expect.objectContaining({ estado: 'active' }), expect.anything()));
     expect(screen.getByRole('button', { name: /^Filtros/ })).toHaveTextContent(/Filtros\s*1/);
   });
 
@@ -246,7 +253,7 @@ describe('Publicaciones ML on a phone (mobile-metricas-pubml S2)', () => {
       data: { ...ITEMS_RESPONSE, items: [{ ...ITEMS[0], item_id: 'MLA1100000099', title: 'Switch TP-Link 8 bocas' }] },
     });
     await userEvent.click(screen.getByRole('button', { name: 'Cargar 20 más' }));
-    expect(publicacionesMlAPI.items).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50, limit: 20 }));
+    expect(publicacionesMlAPI.items).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50, limit: 20 }), expect.anything());
     expect(await screen.findByRole('button', { name: /Switch TP-Link 8 bocas/ })).toBeInTheDocument();
     expect(card('Router TP-Link Archer AX55')).toBeInTheDocument();
   });

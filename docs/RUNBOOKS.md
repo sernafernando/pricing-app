@@ -1457,3 +1457,18 @@ All clients are public (`token_endpoint_auth_method: none`), PKCE S256 is mandat
 
 ### Tools and parity
 Tools are derived from the Publicaciones ML / Métricas ML / promos endpoints (their query parameters become the tool arguments). `tests/mcp/test_mcp_parity.py` fails when one of those endpoints is added or gains a parameter or response field the MCP does not expose: add the endpoint to `CATALOG` (or to `EXCLUDED_ROUTES` with a reason) in `app/mcp/tools.py`.
+
+## 10) Read-only diagnostics against production (PgBouncer)
+
+The application reaches PostgreSQL through PgBouncer in **transaction pooling** mode: a server connection is handed to
+another client as soon as each transaction ends. A session-level setting therefore outlives your script and lands on
+whoever gets that connection next.
+
+- **Never** run a plain `SET <setting> = ...` (session level) through the application engine, a connection listener
+  (`@event.listens_for(Engine, "connect")`) or a pooled `psql`. On 2026-11-18 a diagnostic script ran
+  `SET default_transaction_read_only = on` on each new connection and poisoned pooled server connections: the API's
+  writes failed with `ReadOnlySqlTransaction` until the pool was recycled.
+- For a read-only diagnosis, make **each transaction** read-only instead: `SET TRANSACTION READ ONLY` (or
+  `BEGIN READ ONLY`) as the first statement of the transaction, or `SET LOCAL ...`, both of which end with it.
+- If it already happened: recycle PgBouncer's server connections (`RECONNECT` on the admin console, or restart
+  PgBouncer), then check that no API write fails with `ReadOnlySqlTransaction` (`journalctl -u pricing-api`).

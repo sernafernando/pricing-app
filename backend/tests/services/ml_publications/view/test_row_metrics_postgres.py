@@ -27,6 +27,7 @@ from tests.services.ml_daily_metrics.conftest import board_pg, board_pg_engine  
 from tests.services.ml_daily_metrics.test_board_postgres import MLA as IN_SET, OTHER as OUTSIDE
 from tests.services.ml_daily_metrics.test_board_postgres import _group as board_group, _order as board_order
 from tests.services.ml_daily_metrics.test_board_sale_lines_postgres import populate_sale_lines
+from tests.services.ml_daily_metrics.test_board_sell_in_out_postgres import CONSUMPTION_DDL
 from tests.services.ml_publications.view.test_units_sold_postgres import order
 
 pytestmark = pytest.mark.postgres
@@ -160,6 +161,82 @@ class TestSameNumbersAsMetricas:
 
 
 class TestOnlyThePage:
+    @pytest.mark.parametrize("sell_in_out", [False, True])
+    def test_a_subset_reads_the_same_figures_as_the_whole_set(self, sold, sell_in_out) -> None:
+        # pubml-lentitud L4: the stock audit reads only its page's MLAs; each one's figures are the whole set's
+        if sell_in_out:  # the sell in / sell out tables the Board joins (empty: no sale has one)
+            sold.execute(text(CONSUMPTION_DDL))
+        everything = row_metrics.metrics_by_mla(sold, ["MLA1", "MLA2", "MLA3", "MLA4"], sell_in_out=sell_in_out)
+        for subset in (["MLA1"], ["MLA2", "MLA4"], ["MLA3"]):
+            part = row_metrics.metrics_by_mla(sold, subset, sell_in_out=sell_in_out)
+            assert set(part) == set(subset)
+            for mla in subset:
+                for name in (*FIGURES, "sell_in", "sell_out", "m_sell_in", "m_sell_out"):
+                    assert getattr(part[mla], name) == getattr(everything[mla], name), (subset, mla, name)
+
+    def test_the_sell_in_out_read_never_changes_the_units_rotation_and_ageing(self, sold) -> None:
+        # pubml-lentitud L4: the stock audit now reads its whole products' extra MLAs in the same Board read as the
+        # rows, WITH sell in / sell out when the viewer sees margins (before: a second read without). Rotación,
+        # Cobertura, the units and the ageing must not move; only the sell in / out columns are added.
+        sold.execute(text(CONSUMPTION_DDL))
+        line = sold.execute(
+            text(
+                "SELECT i.id FROM ml_order_items_ops i JOIN ml_orders_ops o ON o.order_id = i.order_id ORDER BY i.id LIMIT 1"
+            )
+        ).scalar_one()
+        sold.execute(
+            text("INSERT INTO sell_in_consumos (canal, venta_ref, descuento_ars) VALUES ('ml', :ref, 50)"),
+            {"ref": line},
+        )
+        mlas = ["MLA1", "MLA2", "MLA3", "MLA4"]
+        plain = row_metrics.metrics_by_mla(sold, mlas, sell_in_out=False)
+        with_sell = row_metrics.metrics_by_mla(sold, mlas, sell_in_out=True)
+        assert set(plain) == set(with_sell)
+        assert any(with_sell[mla].sell_in for mla in with_sell)  # the sell in above was read
+        for mla in plain:
+            for name in ("units", "windows", "series_units", "last_sale_at", "ageing_days"):
+                assert getattr(with_sell[mla], name) == getattr(plain[mla], name), (mla, name)
+
+    @pytest.mark.parametrize("sell_in_out", [False, True])
+    def test_a_page_board_answers_what_the_two_boards_answered(self, sold, monkeypatch, sell_in_out) -> None:
+        # pubml-lentitud L4: the stock audit reads the rows and their Full split from ONE Board (`PageBoard`); each
+        # answer is the one its own Board gives, and only one Board is opened
+        if sell_in_out:
+            sold.execute(text(CONSUMPTION_DDL))
+        mlas = ["MLA1", "MLA2", "MLA3", "MLA4"]
+        rows = row_metrics.metrics_by_mla(sold, mlas, sell_in_out=sell_in_out)
+        splits = row_metrics.fulfillment_by_mla(sold, mlas)
+        assert splits  # MLA1 and MLA3 sold in the 30d window
+        opened: list = []
+        real = board.Board.__enter__
+
+        def spy(self):
+            opened.append(self.f.sell_in_out)
+            return real(self)
+
+        monkeypatch.setattr(board.Board, "__enter__", spy)
+        with row_metrics.PageBoard(sold, mlas, sell_in_out) as shared:
+            shared_rows = row_metrics.metrics_by_mla(shared, mlas, sell_in_out=sell_in_out)
+            shared_splits = row_metrics.fulfillment_by_mla(shared, mlas)
+        assert opened == [sell_in_out]
+        assert shared_splits == splits
+        assert set(shared_rows) == set(rows)
+        for mla in rows:
+            for name in (*FIGURES, "sell_in", "sell_out", "m_sell_in", "m_sell_out"):
+                assert getattr(shared_rows[mla], name) == getattr(rows[mla], name), (mla, name)
+
+    def test_a_page_board_refuses_other_mlas_or_another_sell_in_out(self, sold) -> None:
+        with row_metrics.PageBoard(sold, ["MLA1"]) as shared:
+            with pytest.raises(ValueError):
+                row_metrics.metrics_by_mla(shared, ["MLA2"])
+            with pytest.raises(ValueError):
+                row_metrics.metrics_by_mla(shared, ["MLA1"], sell_in_out=True)
+
+    def test_a_page_board_nobody_reads_opens_no_board(self, sold, monkeypatch) -> None:
+        monkeypatch.setattr(board.Board, "__enter__", lambda self: pytest.fail("a Board was opened"))
+        with row_metrics.PageBoard(sold, ["MLA1"]):
+            pass
+
     def test_only_the_mlas_asked_for_are_answered(self, sold) -> None:
         assert set(row_metrics.metrics_by_mla(sold, ["MLA2", "MLA2"])) == {"MLA2"}
 

@@ -106,3 +106,30 @@ def test_a_worker_that_loses_the_lock_still_schedules_nothing(scheduled, monkeyp
     monkeypatch.setattr(main, "_try_acquire_bg_lock", lambda: None)
     run_lifespan()
     assert scheduled == []
+
+
+def test_the_startup_heap_is_frozen_out_of_the_collector(scheduled, monkeypatch) -> None:
+    # pubml-lentitud: ~1.3 M objects live from startup (modules, models, schemas); every full collection walked them
+    # all again, ~370 ms of a ~2 s Auditoría request. Frozen once the worker is up, a collection only walks what
+    # requests allocate.
+    frozen: list[int] = []
+    thresholds: list[tuple] = []
+    monkeypatch.setattr(main.gc, "freeze", lambda: frozen.append(1))
+    monkeypatch.setattr(main.gc, "set_threshold", lambda *t: thresholds.append(t))
+    run_lifespan()
+    assert frozen == [1]
+    assert thresholds == [(10_000, 20, 20)]
+
+
+def test_with_gc_tuning_disabled_the_collector_keeps_its_defaults(scheduled, monkeypatch) -> None:
+    # GC_TUNING_ENABLED=false: the kill switch of a process-wide change (every endpoint of every worker)
+    calls: list[str] = []
+    monkeypatch.setattr(settings, "GC_TUNING_ENABLED", False)
+    monkeypatch.setattr(main.gc, "freeze", lambda: calls.append("freeze"))
+    monkeypatch.setattr(main.gc, "set_threshold", lambda *t: calls.append("set_threshold"))
+    run_lifespan()
+    assert calls == []
+
+
+def test_gc_tuning_defaults_to_on() -> None:
+    assert type(settings).model_fields["GC_TUNING_ENABLED"].default is True

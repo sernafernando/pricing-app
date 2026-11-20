@@ -51,7 +51,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Any, Callable, Iterable, Mapping, Optional
+from types import SimpleNamespace
+from typing import Any, Callable, Iterable, Mapping, Optional, Sequence
 
 from sqlalchemy import ARRAY, Integer, Text, bindparam, func, select, text
 from sqlalchemy.orm import Session
@@ -74,9 +75,15 @@ from app.services.ml_publications.view.filters import (
     publication_filter_in,
 )
 from app.services.ml_publications.view.listing import EMPTY_SUMMARY, Summary, summaries, summary_columns
+from app.services.ml_publications.view.markup_inputs import ids_param
 from app.services.ml_publications.view.markup_service import ItemMarkup, aggregate_nodes, compute_markups
 from app.services.ml_publications.view.products import product_pairs
-from app.services.ml_publications.view.row_metrics import fulfillment_by_mla, metrics_by_mla
+from app.services.ml_publications.view.row_metrics import (
+    SummedSales,
+    fulfillment_by_mla,
+    metrics_by_mla,
+    summed_sales,
+)
 from app.services.pricing_calculator import moneda_de
 
 CAT_NOTEBOOK = 46
@@ -225,6 +232,9 @@ def _round(value: Optional[float]) -> Optional[float]:
 SELL_FIELDS = ("sell_in", "sell_out", "m_sell_in", "m_sell_out", "sell_in_lineas", "sell_out_lineas")
 
 
+NO_POINTS: tuple = ()  # a day of `Sales.series_markups` without any markup point
+
+
 @dataclass
 class Sales:
     """A row's Board figures summed (`board.SellInOut` reads the sell fields by name, as on a Board row)."""
@@ -244,7 +254,8 @@ class Sales:
     sell_out_lineas: Optional[int] = None
     series_units: list[Decimal] = field(default_factory=list)
     # per day: the (markup, units) of each publication with a markup that day
-    series_markups: list[list[tuple[float, Decimal]]] = field(default_factory=list)
+    # (`NO_POINTS` on a day without any: most days of most rows, shared instead of one empty list each)
+    series_markups: list[Sequence[tuple[float, Decimal]]] = field(default_factory=list)
     # Última venta / Ageing (rotacion S2): the Board's own per-publication figures, never a second definition. The
     # latest sale of any publication; the ageing of the publications that sold (the least, i.e. since that latest
     # sale) and of the ones that never did (the most, i.e. since the oldest one started).
@@ -262,16 +273,56 @@ class Sales:
     def erp_30d(self) -> Decimal:
         return self.units_30d - self.full_30d
 
-    def _add_series(self, row: board.Row, units_factor: Decimal) -> None:
+    def add_split(self, split: Optional[board.ShippingSplit], units_factor: Decimal = Decimal(1)) -> None:
+        """A publication's Full split (None: no line in the window, its units, if any, are ERP)."""
+        if split is not None:
+            self.full_7d += split.full_7d * units_factor
+            self.full_30d += split.full_30d * units_factor
+            self.unknown_7d += split.unknown_7d * units_factor
+            self.unknown_30d += split.unknown_30d * units_factor
+
+    def add_sums(self, sums: Mapping[str, Any]) -> None:
+        """What `add` makes of several publications' rows, from their sums (`board.Board.sums_by`: the same figures
+        added in SQL), but their series and Full split, which are added per publication (`add_series`,
+        `add_split`)."""
+        self.any_board_row = True
+        for name in ("units_7d", "units_30d", "gross", "tg", "mtg", "costo"):
+            setattr(self, name, getattr(self, name) + sums[name])
+        for name in SELL_FIELDS:
+            if sums[name] is not None:
+                setattr(self, name, (getattr(self, name) or 0) + sums[name])
+        if sums["ageing_sold"] is not None:
+            self.ageing_sold = min(
+                sums["ageing_sold"], self.ageing_sold if self.ageing_sold is not None else sums["ageing_sold"]
+            )
+        if sums["ageing_unsold"] is not None:
+            self.ageing_unsold = max(sums["ageing_unsold"], self.ageing_unsold or 0)
+        last = sums["last_sale_at"]
+        if last is not None and (self.last_sale_at is None or last > self.last_sale_at):
+            self.last_sale_at = last
+
+    def add_series(
+        self, series_units: Sequence[int], series_markup: Sequence[Optional[float]], units_factor: Decimal
+    ) -> None:
+        """A publication's 90-day series, day by day."""
+        row = SimpleNamespace(series_units=series_units, series_markup=series_markup)
         days = len(row.series_units)
-        while len(self.series_units) < days:
-            self.series_units.append(Decimal(0))
-            self.series_markups.append([])
+        if len(self.series_units) < days:
+            self.series_units.extend([Decimal(0)] * (days - len(self.series_units)))
+        if len(self.series_markups) < days:
+            self.series_markups.extend([NO_POINTS] * (days - len(self.series_markups)))
+        if not any(row.series_units) and row.series_markup.count(None) == len(row.series_markup):
+            return  # no units and no markup on any day: the series stays as long, nothing else to add
         for day, units in enumerate(row.series_units):
-            self.series_units[day] += units * units_factor
             markup = row.series_markup[day] if day < len(row.series_markup) else None
+            if not units and markup is None:
+                continue  # adds nothing (most days of most rows)
+            self.series_units[day] += units * units_factor
             if markup is not None:
-                self.series_markups[day].append((markup, units * units_factor))
+                points = self.series_markups[day]
+                if points is NO_POINTS:
+                    points = self.series_markups[day] = []
+                points.append((markup, units * units_factor))
 
     def markup_series(self) -> list[Optional[float]]:
         """Each day's markup weighted by its units (a day with markups and no units: their plain average)."""
@@ -308,11 +359,7 @@ class Sales:
         self.any_board_row = True
         self.units_7d += row.windows.get("7d", 0) * units_factor
         self.units_30d += row.windows.get("30d", 0) * units_factor
-        if split is not None:
-            self.full_7d += split.full_7d * units_factor
-            self.full_30d += split.full_30d * units_factor
-            self.unknown_7d += split.unknown_7d * units_factor
-            self.unknown_30d += split.unknown_30d * units_factor
+        self.add_split(split, units_factor)
         self.gross += row.gross
         self.tg += row.tg
         self.mtg += row.mtg
@@ -321,7 +368,7 @@ class Sales:
             value = getattr(row, name)
             if value is not None:
                 setattr(self, name, (getattr(self, name) or 0) + value)
-        self._add_series(row, units_factor)
+        self.add_series(row.series_units, row.series_markup, units_factor)
         if row.ageing_days is not None:
             if row.last_sale_at is not None:
                 self.ageing_sold = min(
@@ -350,10 +397,11 @@ class Sales:
                 (self.series_units[day] if day < len(self.series_units) else Decimal(0))
                 + (other.series_units[day] if day < len(other.series_units) else Decimal(0))
             )
-            total.series_markups.append(
-                (self.series_markups[day] if day < len(self.series_markups) else [])
-                + (other.series_markups[day] if day < len(other.series_markups) else [])
-            )
+            points = [
+                *(self.series_markups[day] if day < len(self.series_markups) else ()),
+                *(other.series_markups[day] if day < len(other.series_markups) else ()),
+            ]
+            total.series_markups.append(points or NO_POINTS)
         sold = [a for a in (self.ageing_sold, other.ageing_sold) if a is not None]
         unsold = [a for a in (self.ageing_unsold, other.ageing_unsold) if a is not None]
         total.ageing_sold = min(sold) if sold else None
@@ -361,6 +409,39 @@ class Sales:
         lasts = [at for at in (self.last_sale_at, other.last_sale_at) if at is not None]
         total.last_sale_at = max(lasts) if lasts else None
         return total
+
+    def absorb(self, other: "Sales") -> None:
+        """`self = self.plus(other)`, in place: the very same additions in the same order, without copying the
+        growing per-day lists on every row a group adds (pubml-lentitud: quadratic, ~0.5 s for an Auditoría by
+        brand on a prod-sized copy)."""
+        for name in ("units_7d", "units_30d", "gross", "tg", "mtg", "costo"):
+            setattr(self, name, getattr(self, name) + getattr(other, name))
+        for name in ("full_7d", "full_30d", "unknown_7d", "unknown_30d"):
+            setattr(self, name, getattr(self, name) + getattr(other, name))
+        self.any_board_row = self.any_board_row or other.any_board_row
+        for name in SELL_FIELDS:
+            mine, theirs = getattr(self, name), getattr(other, name)
+            setattr(self, name, None if mine is None and theirs is None else (mine or 0) + (theirs or 0))
+        days = max(len(self.series_units), len(other.series_units))
+        if len(self.series_units) < days:
+            self.series_units.extend([Decimal(0)] * (days - len(self.series_units)))
+        if len(self.series_markups) < days:
+            self.series_markups.extend([NO_POINTS] * (days - len(self.series_markups)))
+        for day in range(len(other.series_units)):
+            self.series_units[day] = self.series_units[day] + other.series_units[day]
+        for day, theirs in enumerate(other.series_markups):
+            if theirs:
+                mine = self.series_markups[day]
+                if mine is NO_POINTS:
+                    self.series_markups[day] = list(theirs)
+                else:
+                    mine.extend(theirs)
+        sold = [a for a in (self.ageing_sold, other.ageing_sold) if a is not None]
+        unsold = [a for a in (self.ageing_unsold, other.ageing_unsold) if a is not None]
+        self.ageing_sold = min(sold) if sold else None
+        self.ageing_unsold = max(unsold) if unsold else None
+        lasts = [at for at in (self.last_sale_at, other.last_sale_at) if at is not None]
+        self.last_sale_at = max(lasts) if lasts else None
 
     def envio_out(self) -> dict[str, dict[str, int]]:
         """S3: each window's units shipped by Full and the rest (ERP), the ones without shipping data counted apart
@@ -507,10 +588,13 @@ def value(product: Product, units: float, rate: Rate) -> tuple[Optional[float], 
     return (amount / rate.usd_ars if rate.usd_ars else None), amount
 
 
-def _pairs(db: Session, f: PublicationFilter) -> list[tuple[str, int]]:
-    """(MLA, linked product) of the publications the filter selects, as the Producto view links them."""
+def _pairs(db: Session, f: PublicationFilter, products: Optional[Iterable[int]] = None) -> list[tuple[str, int]]:
+    """(MLA, linked product) of the publications the filter selects, as the Producto view links them; `products`
+    keeps only those products' pairs, in SQL (the whole products of a page, not the whole catalog)."""
     mlas = build_base_select(f, T.i.item_id.label("mla")).subquery("mlas")
     query = product_pairs(f, mlas, mlas.c.mla, lambda pl: pl.c.producto_item_id.label("product"))
+    if products is not None:
+        query = query.where(query.selected_columns.product.in_(sorted(products)))
     return [(mla, product) for mla, product in db.execute(query).all() if product is not None]
 
 
@@ -659,21 +743,77 @@ def _assemble(db: Session, pairs: list[tuple[str, int]], stock_only: list[int], 
     return Audit(with_stock, rate, _active(db, {m for r in with_stock for m in r.publications}))
 
 
-def add_sales(db: Session, audit: "Audit", sell_in_out: bool) -> None:
-    """Every row's and variant's sales (module docstring): ONE Board read for all the rows' publications."""
-    mlas = sorted({m for r in audit.rows for m in r.publications})
-    figures = metrics_by_mla(db, mlas, sell_in_out=sell_in_out)
-    # S3: the Full split of the same windows, read once for all the rows (a publication without one is all ERP)
+def summed_from_rows(db: Session, members: list[tuple[str, str, Decimal]], sell_in_out: bool) -> SummedSales:
+    """`row_metrics.summed_sales` from each publication's own Board row (`metrics_by_mla`, `fulfillment_by_mla`),
+    added one by one with `Sales.add`: the definition the SQL sums answer the same as (`test_stock_audit_summed_
+    postgres`), and the seam the tests that hand-make Board rows patch `summed_sales` with."""
+    mlas = sorted({mla for _, mla, _ in members})
+    figures = metrics_by_mla(db, mlas, sell_in_out=sell_in_out) if mlas else {}
     splits = fulfillment_by_mla(db, mlas) if mlas else {}
-    for r in audit.rows:
+    by_key: dict[str, Sales] = {}
+    for key, mla, factor in members:
+        if (found := figures.get(mla)) is not None:
+            by_key.setdefault(key, Sales()).add(found, factor)
+    sums = {
+        key: {
+            name: getattr(sales, name)
+            for name in (
+                *("units_7d", "units_30d", "gross", "tg", "mtg", "costo"),
+                *SELL_FIELDS,
+                *("last_sale_at", "ageing_sold", "ageing_unsold"),
+            )
+        }
+        for key, sales in by_key.items()
+    }
+    series = {mla: (row.series_units, row.series_markup) for mla, row in figures.items()}
+    return SummedSales(sums, frozenset(figures), series, splits)
+
+
+def _members(rows: Iterable[Row]) -> list[tuple[Sales, str, Decimal]]:
+    """What each row's and variant's sales add, in the order they add it: (whose sales, publication, units factor);
+    a variant's publication also on its base row, in base units."""
+    out: list[tuple[Sales, str, Decimal]] = []
+    for r in rows:
         for mla in sorted(r.own_publications):
-            if (found := figures.get(mla)) is not None:
-                r.sales.add(found, split=splits.get(mla))
+            out.append((r.sales, mla, Decimal(1)))
         for v in r.variants.values():
             for mla in sorted(v.publications):
-                if (found := figures.get(mla)) is not None:
-                    v.sales.add(found, split=splits.get(mla))
-                    r.sales.add(found, v.cantidad, splits.get(mla))
+                out.append((v.sales, mla, Decimal(1)))
+                out.append((r.sales, mla, v.cantidad))
+    return out
+
+
+def _apply_sales(db: Session, members: list[tuple[Sales, str, Decimal]], sell_in_out: bool) -> None:
+    """Every row's and variant's sales from ONE Board read (module docstring): each one's figures summed in SQL over
+    the Board's own rows (`summed_sales`), then the series and Full split of the publications that have one, in the
+    order `Sales.add` would add them."""
+    keys: dict[int, tuple[str, Sales]] = {}
+    for sales, _, _ in members:
+        keys.setdefault(id(sales), (str(len(keys)), sales))
+    read = summed_sales(db, [(keys[id(sales)][0], mla, factor) for sales, mla, factor in members], sell_in_out)
+    for key, sales in keys.values():
+        if (sums := read.sums.get(key)) is not None:
+            sales.add_sums(sums)
+            if read.empty_series is not None:  # a found publication without a sold day: its series' length only
+                sales.add_series(*read.empty_series, Decimal(1))
+    for sales, mla, factor in members:
+        if mla in read.found:
+            sales.add_split(read.splits.get(mla), factor)
+            if (series := read.series.get(mla)) is not None:
+                sales.add_series(*series, factor)
+
+
+def add_sales(db: Session, audit: "Audit", sell_in_out: bool, today: date) -> None:
+    """Every row's and variant's sales and Rotación figures with ONE Board read (pubml-lentitud): the rows' own
+    publications and, when the filter left some of their products' publications out, those too, for the whole
+    products the Rotación group reads (`add_rotation`)."""
+    whole = _whole_products(db, audit)
+    seen = {m for r in audit.rows for m in r.publications}
+    extra = {m for w in whole.values() for m in w.publications} - seen
+    _apply_sales(db, _members(audit.rows) + (_members(whole.values()) if extra else []), sell_in_out)
+    if not extra:  # the filter left every publication of these products in: the screen's rows are the whole products
+        whole = {r.product.item_id: r for r in audit.rows}
+    add_rotation(db, audit, whole, today)
 
 
 # --- Rotación (rotacion S2, L1): Días de cobertura and Rotación (veces) ------------------------------------------------
@@ -722,7 +862,7 @@ def _whole_products(db: Session, audit: "Audit") -> dict[int, Row]:
     if not bases:
         return {}
     candidates = bases | {combo for combo, parts in _bom(db).items() if any(item in bases for item, _ in parts)}
-    pairs = [(mla, product) for mla, product in _pairs(db, PublicationFilter()) if product in candidates]
+    pairs = _pairs(db, PublicationFilter(), candidates)
     whole = _assemble(db, pairs, sorted(bases), audit.rate)
     return {w.product.item_id: w for w in whole.rows if w.product.item_id in bases}
 
@@ -749,16 +889,10 @@ def _add_averages(db: Session, rows: Iterable[Row], today: date) -> None:
         r.average = Average(erp + full, found.dias, erp, full)
 
 
-def add_rotation(db: Session, audit: "Audit", today: date) -> None:
-    """Every row's and variant's Rotación figures, the WHOLE product's whatever the filter (L2): its rows rebuilt
-    from all their publications, their sales read from the Board only when the filter left some out (the rows the
-    screen already read are reused otherwise), and their average stock (`_add_averages`)."""
-    whole = _whole_products(db, audit)
-    seen = {m for r in audit.rows for m in r.publications}
-    if {m for w in whole.values() for m in w.publications} - seen:
-        add_sales(db, Audit(list(whole.values()), audit.rate, frozenset()), sell_in_out=False)
-    else:  # the filter left every publication of these products in: the screen's rows are the whole products
-        whole = {r.product.item_id: r for r in audit.rows}
+def add_rotation(db: Session, audit: "Audit", whole: dict[int, Row], today: date) -> None:
+    """Every row's and variant's Rotación figures, the WHOLE product's whatever the filter (L2): `whole` is each row's
+    product built from all its publications, with its sales (`add_sales`, the same Board read as the rows'), plus
+    their average stock (`_add_averages`)."""
     _add_averages(db, whole.values(), today)
     for r in audit.rows:
         w = whole.get(r.product.item_id, r)
@@ -864,7 +998,11 @@ def add_summaries(db: Session, audit: "Audit") -> None:
     mlas = sorted({m for r in audit.rows for m in r.publications})
     if not mlas:
         return
-    pubs = select(T.i.item_id.label("k"), *summary_columns()).select_from(joined()).where(T.i.item_id.in_(mlas))
+    pubs = (
+        select(T.i.item_id.label("k"), *summary_columns())
+        .select_from(joined())
+        .where(T.i.item_id.in_(ids_param(mlas)))  # ~10k MLAs: one JSON parameter, not one bind each
+    )
     by_mla = summaries(db, pubs.subquery("audit_pubs"))
 
     def merged(publications: set[str]) -> Summary:
@@ -886,10 +1024,30 @@ def add_summaries(db: Session, audit: "Audit") -> None:
             v.summary = merged(v.publications)
 
 
+def page_first(orden: str, nivel: str) -> bool:
+    """Whether the rows can be sorted and cut BEFORE their detail columns are read (pubml-lentitud, L4): the order
+    reads none of them (stock, value, name, promos) and the rows are base products, not groups adding up their rows'
+    sales. Everything shown over the whole set (total, KPIs, the order) never reads the detail, so it stays whole."""
+    return nivel == PRODUCTO and not needs_sales(orden)
+
+
+def enrich(
+    db: Session, pricing_db: Session, audit: "Audit", rows: Iterable[Row], *, sales: bool, margin: bool, today: date
+) -> None:
+    """The detail columns of `rows` (the page's, or every row): Tipo and Estado, sales and Rotación (`ml_metricas.ver`)
+    and the current markup (`ml_metricas.ver_ganancia`), each with ONE read for all of them."""
+    part = Audit(list(rows), audit.rate, audit.active)
+    add_summaries(db, part)
+    if sales:
+        add_sales(db, part, sell_in_out=margin, today=today)
+    if margin:
+        add_markups(db, pricing_db, part)
+
+
 def _active(db: Session, mlas: set[str]) -> frozenset[str]:
     if not mlas:
         return frozenset()
-    rows = db.execute(select(T.i.item_id).where(T.i.item_id.in_(sorted(mlas)), T.i.status == ACTIVE)).all()
+    rows = db.execute(select(T.i.item_id).where(T.i.item_id.in_(ids_param(sorted(mlas))), T.i.status == ACTIVE)).all()
     return frozenset(m for (m,) in rows)
 
 
@@ -1007,10 +1165,10 @@ class Group:
         for r in self.rows:
             self.erp = self.erp.plus(r.erp.known())
             self.full = self.full.plus(r.full.known())
-            self.sales = self.sales.plus(r.sales)
+            self.sales.absorb(r.sales)
             self.publications |= r.publications
             w = whole_of(r)
-            sales_whole = sales_whole.plus(w.sales)
+            sales_whole.absorb(w.sales)
             stock, stock_erp, stock_full = stock + w.stock, stock_erp + (w.stock_erp or 0), stock_full + w.stock_full
         average = None
         if averages and all(a is not None for a in averages):

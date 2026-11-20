@@ -39,6 +39,7 @@ EXCLUDED_ROUTES: dict[str, str] = {
     "/api/ml-publications/view/stock-audit/export": "xlsx file; same rows as pubml_stock_audit",
     "/api/ml-metricas/board/export": "xlsx file; same rows as metricas_board",
     "/api/ml-publications/view/product-ids": "SPA bulk-selection helper: ids only",
+    "/api/ml-publications/view/facets": "SPA split of pubml_items: the same chip counts as /view/items?facets=true",
     "/api/ml-publications/view/status-item-ids": "SPA bulk-selection helper: ids only",
     "/api/ml-publications/view/hay-mejores-exclusion-item-ids": "SPA bulk-selection helper: ids only",
     "/api/ml-publications/view/hay-mejores-criterios-item-ids": "SPA bulk-selection helper: ids only",

@@ -92,6 +92,9 @@ def mine(client, pg, db, rol_admin, admin_auth_headers, started, monkeypatch):
         return {m: data[m] for m in mlas if m in data}
 
     monkeypatch.setattr(stock_audit, "metrics_by_mla", fake)
+    monkeypatch.setattr(
+        stock_audit, "summed_sales", stock_audit.summed_from_rows
+    )  # these Board rows, summed one by one
     return admin_auth_headers
 
 
@@ -185,9 +188,9 @@ class TestWholeProduct:
         audit(client, mine)
         assert len(CALLS) == 1
 
-    def test_filtered_reads_the_board_at_most_twice(self, client, mine) -> None:
+    def test_filtered_reads_the_board_once(self, client, mine) -> None:
         audit(client, mine, q="MLA60")
-        assert len(CALLS) <= 2
+        assert len(CALLS) == 1  # the filtered rows and their whole products in the same read (pubml-lentitud)
 
 
 @pytest.mark.postgres

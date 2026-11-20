@@ -123,6 +123,9 @@ def no_split(monkeypatch) -> None:
     """No publication has a Full split (auditoria-stock-niveles S3): every unit sold is ERP. The split's own tests
     replace it; its Board read is `test_board_envio_por_publicacion_postgres`."""
     monkeypatch.setattr(stock_audit, "fulfillment_by_mla", lambda db, mlas: {})
+    monkeypatch.setattr(
+        stock_audit, "summed_sales", stock_audit.summed_from_rows
+    )  # these Board rows, summed one by one
 
 
 @pytest.fixture()
@@ -379,6 +382,9 @@ def board_calls(monkeypatch) -> list[tuple]:
         return {mla: FIGURES[mla] for mla in mlas if mla in FIGURES}
 
     monkeypatch.setattr(stock_audit, "metrics_by_mla", fake)
+    monkeypatch.setattr(
+        stock_audit, "summed_sales", stock_audit.summed_from_rows
+    )  # these Board rows, summed one by one
     return seen
 
 
@@ -486,6 +492,9 @@ def series_board(monkeypatch) -> None:
     monkeypatch.setattr(
         stock_audit, "metrics_by_mla", lambda db, mlas, sell_in_out=False: {m: figures[m] for m in mlas if m in figures}
     )
+    monkeypatch.setattr(
+        stock_audit, "summed_sales", stock_audit.summed_from_rows
+    )  # these Board rows, summed one by one
 
 
 def unit_markup(low: float, high: float) -> ItemMarkup:
@@ -792,6 +801,9 @@ def last_sales_board(monkeypatch) -> None:
     monkeypatch.setattr(
         stock_audit, "metrics_by_mla", lambda db, mlas, sell_in_out=False: {m: figures[m] for m in mlas if m in figures}
     )
+    monkeypatch.setattr(
+        stock_audit, "summed_sales", stock_audit.summed_from_rows
+    )  # these Board rows, summed one by one
 
 
 class TestLastSaleAndAgeingAggregation:

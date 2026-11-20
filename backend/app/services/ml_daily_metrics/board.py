@@ -77,11 +77,13 @@ doc): a publication that moved store takes its history with it.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import (
     ARRAY,
     Date,
@@ -2264,17 +2266,120 @@ class Board:
         q = select(rows.c.rk).order_by(*self._ordered(rows)).limit(limit)
         return [str(rk) for (rk,) in self.db.execute(q)]
 
-    def rows_for_keys(self, keys: List[str], with_series: bool = False) -> List[Row]:
+    def rows_for_keys(self, keys: List[str], with_series: bool = False, with_details: bool = True) -> List[Row]:
         """The rows of `keys`, in THAT order. A key no longer on the filtered
         board (its rows stopped matching the filters since the keys were
-        taken) is skipped -- never replaced by another row."""
+        taken) is skipped -- never replaced by another row. `with_details=False`:
+        the figures only, without the pair details (publication, SKU, brand,
+        thumbnail) a caller that only sums the figures never reads."""
         if not keys:
             return []
         rows = self.rows()
-        found = {row.key: row for row in self._rows_of(select(rows).where(rows.c.rk.in_(keys)), with_series)}
+        found = {
+            row.key: row for row in self._rows_of(select(rows).where(rows.c.rk.in_(keys)), with_series, with_details)
+        }
         return [found[key] for key in keys if key in found]
 
-    def _rows_of(self, q: Any, with_series: bool) -> List[Row]:
+    def _keyed_members(self, members: Sequence[Tuple[str, str, Decimal]]) -> Any:
+        """`members` (group key, row key, factor) as a SELECT: ONE JSON parameter of triples unnested server side
+        (~10k members: three arrays of N binds cost the driver and the server N literals each). The factor travels
+        as text, so the numeric it is cast to is the exact Decimal. PostgreSQL only, like the temp tables."""
+        payload = json.dumps([[gk, rk, str(factor)] for gk, rk, factor in members])
+        member = func.jsonb_array_elements(cast(literal(payload), JSONB)).table_valued("value").alias("member")
+        return select(
+            member.c.value.op("->>")(literal(0)).label("gk"),
+            member.c.value.op("->>")(literal(1)).label("rk"),
+            cast(member.c.value.op("->>")(literal(2)), Numeric).label("factor"),
+        ).subquery("members")
+
+    def sums_by(self, members: Sequence[Tuple[str, str, Decimal]]) -> Dict[str, Dict[str, Any]]:
+        """Per group key, the figures of its member rows added up IN SQL over `rows()` itself (pubml-lentitud: the
+        Auditoría by brand sums ~10.000 publication rows; reading each as a `Row` cost seconds). A member is (group
+        key, row key, units factor); a row key off the board adds nothing, a key listed twice adds twice. Each row's
+        figure is taken as `_rows_of` takes it before adding: money rounded to the cent (`cents`: the columns are
+        numeric, and Postgres' `round` is half away from zero like ROUND_HALF_UP), counts truncated (`int`), units
+        times the factor. A group without any row on the board is absent.
+
+        Keys: `rows` (how many rows added), `units_7d`, `units_30d`, `gross`, `tg`, `mtg`, `costo`, the
+        `SellInOut` fields (None without `sell_in_out`; the markup ones None with "Costos TP"), `last_sale_at`
+        (the latest), `ageing_sold` (the least ageing of the rows that sold) and `ageing_unsold` (the most of the
+        ones that never did, never below 0)."""
+        if not members:
+            return {}
+        m = self._keyed_members(members)
+        rows = self.rows()
+        R = rows.c
+
+        def money(column: Any) -> Any:
+            return func.sum(func.round(func.coalesce(column, 0), 2))
+
+        def count(column: Any) -> Any:
+            return func.sum(func.trunc(func.coalesce(column, 0)))
+
+        columns = [
+            m.c.gk,
+            func.count().label("rows"),
+            func.sum(func.trunc(func.coalesce(R.w7d, 0)) * m.c.factor).label("units_7d"),
+            func.sum(func.trunc(func.coalesce(R.w30d, 0)) * m.c.factor).label("units_30d"),
+            money(R.gross).label("gross"),
+            money(R.tg).label("tg"),
+            money(R.mtg).label("mtg"),
+            money(R.costo).label("costo"),
+            func.max(R.last_at).label("last_at"),
+            func.max(R.ref_day).filter(R.last_at.isnot(None)).label("sold_ref"),
+            func.min(R.ref_day).filter(R.last_at.is_(None)).label("unsold_ref"),
+        ]
+        if self.sell:
+            columns += [
+                money(R.sell_in).label("sell_in"),
+                money(R.sell_out).label("sell_out"),
+                money(R.m_sell_in).label("m_sell_in"),
+                money(R.m_sell_out).label("m_sell_out"),
+                count(R.sell_in_lineas).label("sell_in_lineas"),
+                count(R.sell_out_lineas).label("sell_out_lineas"),
+            ]
+        q = select(*columns).select_from(m.join(rows, R.rk == m.c.rk)).group_by(m.c.gk)
+        out: Dict[str, Dict[str, Any]] = {}
+        for r in self.db.execute(q).mappings():
+            sold, unsold = as_date(r["sold_ref"]), as_date(r["unsold_ref"])
+            sums = {
+                "rows": int(r["rows"]),
+                "units_7d": r["units_7d"],
+                "units_30d": r["units_30d"],
+                "gross": r["gross"],
+                "tg": r["tg"],
+                "mtg": r["mtg"],
+                "costo": r["costo"],
+                "last_sale_at": as_aware(as_datetime(r["last_at"])),
+                "ageing_sold": (self.today - sold).days if sold else None,
+                "ageing_unsold": max((self.today - unsold).days, 0) if unsold else None,
+            }
+            sell = {name: None for name in ("sell_in", "sell_out", "m_sell_in", "m_sell_out")}
+            sell.update(sell_in_lineas=None, sell_out_lineas=None)
+            if self.sell:
+                sell.update({name: r[name] for name in sell})
+                sell.update(sell_in_lineas=int(r["sell_in_lineas"]), sell_out_lineas=int(r["sell_out_lineas"]))
+                if self.tp:
+                    sell.update(m_sell_in=None, m_sell_out=None)
+            out[str(r["gk"])] = {**sums, **sell}
+        return out
+
+    def found_keys(self, keys: Sequence[str]) -> set:
+        """Which of `keys` the filtered board has a row for (`rows_for_keys` skips the others)."""
+        if not keys:
+            return set()
+        m = self._keyed_members([(key, key, Decimal(1)) for key in keys])
+        rows = self.rows()
+        return {str(k) for (k,) in self.db.execute(select(rows.c.rk).select_from(m.join(rows, rows.c.rk == m.c.rk)))}
+
+    def series_of(self, keys: Sequence[str]) -> Dict[str, Tuple[List[int], List[Optional[float]]]]:
+        """The 90-day units and markups (`read_series`) of the keys among `keys` that sold a day of them; the others,
+        0 units and no markup every day, are absent."""
+        if not keys:
+            return {}
+        return self._series_values(self._series_statement(self.filtered_pairs(), dict.fromkeys(keys)))
+
+    def _rows_of(self, q: Any, with_series: bool, with_details: bool = True) -> List[Row]:
         out = []
         for r in self.db.execute(q).mappings():
             ref_day = as_date(r["ref_day"])
@@ -2304,7 +2409,7 @@ class Board:
                 canal=self._canal_of(r),
             )
             out.append(row)
-        self._decorate(out, with_series=with_series)
+        self._decorate(out, with_series=with_series, with_details=with_details)
         return out
 
     def _on_page(self, fp: Any, by_key: Dict[str, Row]) -> Any:
@@ -2316,7 +2421,7 @@ class Board:
             return fp.c.product.in_([int(key) for key in by_key])
         return fp.c.mla.in_(list(by_key))
 
-    def _decorate(self, rows: List[Row], with_series: bool = True) -> None:
+    def _decorate(self, rows: List[Row], with_series: bool = True, with_details: bool = True) -> None:
         """The page's pair details (publication data, product data, the last
         sale timestamp) and its 90-day series: TWO bulk statements for the
         whole page, never one per row."""
@@ -2324,62 +2429,68 @@ class Board:
             return
         by_key = {row.key: row for row in rows}
         fp = self.filtered_pairs()
-        detail = select(
-            fp.c.rk,
-            fp.c.product,
-            fp.c.mla,
-            fp.c.units,
-            fp.c.codigo,
-            fp.c.marca,
-            fp.c.descripcion,
-            fp.c.store_id,
-            fp.c.status,
-            fp.c.listing_type,
-            fp.c.listing_kind,
-            fp.c.is_catalog,
-            fp.c.is_full,
-            fp.c.pub_title.label("title"),
-            fp.c.thumbnail,
-        ).where(self._on_page(fp, by_key))
-        pairs_of: Dict[str, List[Any]] = {}
-        for d in self.db.execute(detail).mappings():
-            pairs_of.setdefault(str(d["rk"]), []).append(d)
-        for key, details in pairs_of.items():
-            row = by_key[key]
-            main = next((d for d in details if d["product"] == row.product_item_id and d["codigo"]), None)
-            main = main or next((d for d in details if d["codigo"]), None)
-            if main is not None:
-                row.sku, row.marca = main["codigo"], main["marca"]
-                if not self.by_pub and main["descripcion"]:
-                    row.title = main["descripcion"]
-            if row.mla is not None:
-                own = next((d for d in details if d["mla"] == row.mla), details[0])
-                row.pub = Pub(
-                    mla=row.mla,
-                    store_id=own["store_id"],
-                    status=own["status"],
-                    listing_type=own["listing_type"],
-                    listing_kind=own["listing_kind"],
-                    is_catalog=bool(own["is_catalog"]),
-                    is_full=bool(own["is_full"]),
-                    title=own["title"],
-                    thumbnail=own["thumbnail"],
-                )
-                row.thumbnail = own["thumbnail"]
-            else:
-                ranked = sorted(details, key=lambda d: (-int(d["units"] or 0), d["mla"]))
-                row.thumbnail = next((d["thumbnail"] for d in ranked if d["thumbnail"]), None)
+        if with_details:
+            detail = select(
+                fp.c.rk,
+                fp.c.product,
+                fp.c.mla,
+                fp.c.units,
+                fp.c.codigo,
+                fp.c.marca,
+                fp.c.descripcion,
+                fp.c.store_id,
+                fp.c.status,
+                fp.c.listing_type,
+                fp.c.listing_kind,
+                fp.c.is_catalog,
+                fp.c.is_full,
+                fp.c.pub_title.label("title"),
+                fp.c.thumbnail,
+            ).where(self._on_page(fp, by_key))
+            pairs_of: Dict[str, List[Any]] = {}
+            for d in self.db.execute(detail).mappings():
+                pairs_of.setdefault(str(d["rk"]), []).append(d)
+            for key, details in pairs_of.items():
+                row = by_key[key]
+                main = next((d for d in details if d["product"] == row.product_item_id and d["codigo"]), None)
+                main = main or next((d for d in details if d["codigo"]), None)
+                if main is not None:
+                    row.sku, row.marca = main["codigo"], main["marca"]
+                    if not self.by_pub and main["descripcion"]:
+                        row.title = main["descripcion"]
+                if row.mla is not None:
+                    own = next((d for d in details if d["mla"] == row.mla), details[0])
+                    row.pub = Pub(
+                        mla=row.mla,
+                        store_id=own["store_id"],
+                        status=own["status"],
+                        listing_type=own["listing_type"],
+                        listing_kind=own["listing_kind"],
+                        is_catalog=bool(own["is_catalog"]),
+                        is_full=bool(own["is_full"]),
+                        title=own["title"],
+                        thumbnail=own["thumbnail"],
+                    )
+                    row.thumbnail = own["thumbnail"]
+                else:
+                    ranked = sorted(details, key=lambda d: (-int(d["units"] or 0), d["mla"]))
+                    row.thumbnail = next((d["thumbnail"] for d in ranked if d["thumbnail"]), None)
 
         if not with_series:
             # Callers with no sparklines (the CSV export) skip the page's
             # most expensive read: the 90-day daily series.
             return
+        self.read_series(by_key, self._series_statement(fp, by_key))
+
+    def _series_statement(self, fp: Any, keys: Any) -> Any:
+        """The 90-day daily sums (`rk`, `day`, `units`, `tg`, `costo`) of the filtered pairs of `keys` (`_on_page`):
+        only the days a key sold, so a key that never sold in them has no row."""
         L = self.lines
         # ponytail: the 90-day sparklines (and the KPI series) read `board_lines`, so with the toggle ON they stay
         # BEFORE ads while the row's markup/Total Gauss are after them. Revisit with the owner's answer on whether
         # to subtract ads per day (needs ads lines over the 90-day series range) or hide the series when ON. The same
         # holds for the account-level spend of position 2: the KPI value drops by it, its series does not.
-        series = (
+        return (
             select(
                 fp.c.rk,
                 L.c.day,
@@ -2390,31 +2501,50 @@ class Board:
             .select_from(fp)
             .join(L, and_(L.c.product == fp.c.product, L.c.mla == fp.c.mla))
             .where(
-                self._on_page(fp, by_key),
+                self._on_page(fp, keys),
                 L.c.day.between(self._day(self.series_from), self._day(self.f.date_to)),
             )
             .group_by(fp.c.rk, L.c.day)
         )
-        self.read_series(by_key, series)
 
     def read_series(self, by_key: Dict[str, Row], series: Any) -> None:
         """Fill every row's 90-day series from `series` (`rk`, `day`, `units`,
         `tg`, `costo` per key and day)."""
-        units = {key: [0] * SERIES_DAYS for key in by_key}
-        tg = {key: [Decimal("0")] * SERIES_DAYS for key in by_key}
-        costo = {key: [Decimal("0")] * SERIES_DAYS for key in by_key}
+        values = self._series_values(series)
+        for key, row in by_key.items():
+            # A key without a sold day is 0 units and no markup every day.
+            row.series_units, row.series_markup = values.get(key) or ([0] * SERIES_DAYS, [None] * SERIES_DAYS)
+
+    def _series_values(self, series: Any) -> Dict[str, Tuple[List[int], List[Optional[float]]]]:
+        """The 90-day units and markups of each key `series` has a row for. Only the keys with a sold day get their
+        sums (pubml-lentitud: most of the ~10.000 publications an Auditoría by brand reads have none)."""
+        units: Dict[str, List[int]] = {}
+        tg: Dict[str, List[Decimal]] = {}
+        costo: Dict[str, List[Decimal]] = {}
+        days: Dict[str, Set[int]] = {}  # the days each key has a row for: only those can have a cost
         for s in self.db.execute(series).mappings():
             key, index = str(s["rk"]), (as_date(s["day"]) - self.series_from).days
+            if key not in units:
+                units[key] = [0] * SERIES_DAYS
+                tg[key] = [Decimal("0")] * SERIES_DAYS
+                costo[key] = [Decimal("0")] * SERIES_DAYS
+                days[key] = set()
+            days[key].add(index)
             units[key][index] += int(s["units"] or 0)
             tg[key][index] += Decimal(str(s["tg"] or 0))
             costo[key][index] += Decimal(str(s["costo"] or 0))
         # The markup of a day from that day's sums rounded to the cent, like
         # the row's own markup.
-        for key, row in by_key.items():
-            row.series_units = units[key]
-            row.series_markup = [
-                _round1(markup_of(cents(tg[key][i]), cents(costo[key][i]))) for i in range(SERIES_DAYS)
-            ]
+        # A day without cost has no markup (`markup_of`): skipped before rounding, it is most of the 90 days of most
+        # rows (pubml-lentitud: 1.9 M roundings for the 10.000 rows of an Auditoría by brand).
+        out: Dict[str, Tuple[List[int], List[Optional[float]]]] = {}
+        for key, day_units in units.items():
+            markups: List[Optional[float]] = [None] * SERIES_DAYS
+            for i in days[key]:
+                if costo[key][i]:
+                    markups[i] = _round1(markup_of(cents(tg[key][i]), cents(costo[key][i])))
+            out[key] = (day_units, markups)
+        return out
 
     # ── the "Agrupado" view: the surviving products' pairs, as a tree of nodes ──
 
@@ -2830,8 +2960,12 @@ class Board:
         statement over the keyed lines of both periods (the board's per-day lines drop the key). Every line of a
         group shares its `group_date`, so a group falls on one day and the per-day counts add up to the period's."""
         f = self.f
-        lines = self._read_lines(
-            [day_bounds(f.date_from, f.date_to), day_bounds(self.prev_from, self.prev_to)], keyed=True
+        lines = self._held_lines(
+            "board_ops_lines",
+            self._read_lines(
+                [day_bounds(f.date_from, f.date_to), day_bounds(self.prev_from, self.prev_to)], keyed=True
+            ),
+            ("product", "mla", "day", "group_key"),
         )
         per_day = self._in_mla_set(
             select(lines.c.day, func.count(func.distinct(lines.c.group_key)).label("n"))
@@ -2869,6 +3003,21 @@ class Board:
         rows = self.db.execute(query.group_by(modo).order_by(gross.desc(), modo)).all()
         return [ShippingRow(modo=m, operations=int(n), units=int(u), gross=cents(g)) for m, n, u, g in rows]
 
+    def _held_lines(self, prefix: str, read: Any, columns: Sequence[str]) -> Any:
+        """`read`'s `columns` held in a temp table with statistics, for a statement that joins them to the rows and
+        the MLA set: read in place, the planner takes the keyed sold lines for a handful of rows (the pack / order key
+        join defeats its estimate) and nests loops over the members and the MLA set once per line (pubml-lentitud,
+        prod-sized copy: 3.9 s of a 4.5 s KPI strip, 19 s for the ERP / Full split). The very same lines: only the
+        plan changes, never a number. Only under an MLA set (Publicaciones ML): the persisted lines (`use_lines`)
+        are estimated right, and Métricas ML's own reads keep main's SQL (`test_board_mla_source_postgres`)."""
+        if self.use_lines or self.mla_set is None:
+            return read
+        return self._materialize(
+            self._next_table(prefix),
+            select(*(read.c[name] for name in columns)),
+            analyze=("product", "mla"),
+        )
+
     def _shipped_lines(self, date_from: date) -> Tuple[Any, Any, Any]:
         """The sold lines from `date_from` to the period's end of the rows that survive the filters, each with its
         order's logistic mode (`mode_resolution`'s rule, in SQL): `(lines, modo, a column-less SELECT over them)`.
@@ -2876,7 +3025,11 @@ class Board:
         missing still counts, as "desconocido". `by_shipping` and `units_by_fulfillment` both read it."""
         f = self.f
         joined, fp = self._members("", narrow=True)
-        lines = self._read_lines([day_bounds(date_from, f.date_to)], keyed=True, ml_only=True)
+        lines = self._held_lines(
+            "board_shipped_lines",
+            self._read_lines([day_bounds(date_from, f.date_to)], keyed=True, ml_only=True),
+            ("product", "mla", "order_id", "day", "group_key", "qty", "gross"),
+        )
         O, S = aliased(MlOrdersOps), aliased(MlShipmentOps)
         modo = modo_logistico_expr(S.shipment_id, S.logistic_type, O.has_no_shipping_tag)
         query = self._in_mla_set(
