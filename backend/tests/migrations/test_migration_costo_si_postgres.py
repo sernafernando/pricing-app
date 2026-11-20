@@ -30,6 +30,7 @@ _NUEVAS = {
     "costo_si_full_operaciones",
     "costo_si_full_cobertura",
     "costo_si_factura_tc",
+    "costo_si_nc_sin_asignar",
 }
 
 
@@ -99,7 +100,7 @@ def test_upgrade_creates_the_tables_and_triggers_and_downgrade_removes_them(ante
     _step(antes, "upgrade")
 
     assert _tablas(antes) - existentes == _NUEVAS
-    assert _triggers(antes) == {name for _, name, _, _ in queue._TRIGGERS}
+    assert _triggers(antes) == {t[1] for t in queue._TRIGGERS}
     w.producto(antes, 5101)
     w.bono_marca(antes, "3.6", date(2026, 10, 1), date(2026, 12, 31))
     assert w.encolados(antes) == [(5101, date(2026, 10, 1))]

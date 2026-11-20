@@ -147,4 +147,19 @@ def recalcular(
         full_ml.exigir_cobertura(db, item_id, inicio, hoy)
     entrada = fuentes.entrada(db, item_id)
     pasos = calcular(entrada.inicio, entrada.compras) if entrada is not None else []
-    return guardar(db, item_id, pasos, motivo)
+    resultado = guardar(db, item_id, pasos, motivo)
+    _guardar_nc_sin_asignar(db, item_id, entrada.nc_sin_asignar if entrada is not None else [])
+    return resultado
+
+
+def _guardar_nc_sin_asignar(db: Session, item_id: int, ncs: Sequence[fuentes.NcSinAsignar]) -> None:
+    """The product's unassigned supplier credit notes, as of this recompute (a list, not history: not backed up)."""
+    db.execute(text("DELETE FROM costo_si_nc_sin_asignar WHERE item_id = :i"), {"i": item_id})
+    if ncs:
+        db.execute(
+            text(
+                "INSERT INTO costo_si_nc_sin_asignar (item_id, nc_ct, fecha, importe, curr_id, motivo) "
+                "VALUES (:i, :nc, :f, :imp, :c, :m)"
+            ),
+            [{"i": item_id, "nc": n.nc_ct, "f": n.fecha, "imp": n.importe, "c": n.curr_id, "m": n.motivo} for n in ncs],
+        )

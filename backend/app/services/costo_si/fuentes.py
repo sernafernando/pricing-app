@@ -41,7 +41,16 @@ from app.services.costo_si.engine import Compra, Inicio, SellIn
 ZONA = ZoneInfo("America/Argentina/Buenos_Aires")
 DEPOSITO_PRINCIPAL = 1
 CLIENTE_TRANSFERENCIA_FULL = 2849
+CURR_ARS = 1
 CURR_USD = 2
+MONEDAS = {CURR_ARS: "ARS", CURR_USD: "USD"}  # the purchase currencies costo SI knows how to bring to USD
+
+
+class MonedaNoSoportada(ValueError):
+    """An invoice in a currency costo SI cannot convert (or mixing currencies): the product is reported, not
+    guessed."""
+
+
 # Invoices dated before the start can still be entering stock after it (GBP loads them up to ~2 weeks late).
 VENTANA_PREVIAS = timedelta(days=90)
 
@@ -123,7 +132,7 @@ def costo_lista(db: Session, item_id: int, dia: date) -> Optional[Decimal]:
 _FACTURAS_SQL = text("""
     SELECT ct.ct_transaction, ct.ct_date::date AS fecha, min(it.it_transaction) AS orden, min(it.it_cd) AS entrada,
            sum(it.it_qty) AS cantidad, sum(it.it_qty * it.it_price) / NULLIF(sum(it.it_qty), 0) AS precio,
-           max(it.curr_id) AS curr_id
+           min(it.curr_id) AS curr_id, count(DISTINCT it.curr_id) AS monedas
     FROM v_facturas_compra_vigentes v
     JOIN tb_commercial_transactions ct ON ct.ct_transaction = v.ct_transaction
     JOIN tb_item_transactions it ON it.ct_transaction = ct.ct_transaction AND it.item_id = :i
@@ -180,10 +189,15 @@ class Factura:
 
 
 def facturas_de(db: Session, item_id: int, desde: date) -> List[Factura]:
-    facturas = [
-        Factura(r[0], r[1], r[2], r[3], int(r[4] or 0), Decimal(r[5] or 0), r[6])
-        for r in db.execute(_FACTURAS_SQL, {"i": item_id, "desde": inicio_del_dia(desde)})
-    ]
+    facturas = []
+    for r in db.execute(_FACTURAS_SQL, {"i": item_id, "desde": inicio_del_dia(desde)}):
+        if r[7] > 1 or r[6] not in MONEDAS:
+            raise MonedaNoSoportada(
+                f"product {item_id}: invoice {r[0]} of {r[1]} is in currency {r[6]}"
+                + (" mixed with others" if r[7] > 1 else "")
+                + f"; costo SI converts only {sorted(MONEDAS.values())}"
+            )
+        facturas.append(Factura(r[0], r[1], r[2], r[3], int(r[4] or 0), Decimal(r[5] or 0), r[6]))
     por_ct = {f.ct_transaction: f for f in facturas}
     if por_ct:
         for ct, pedido, tc in db.execute(_PEDIDOS_SQL, {"cts": list(por_ct)}):
@@ -203,7 +217,7 @@ class SellInCompras:
 
 def tipos_de_cambio(db: Session, facturas: Sequence[Factura]) -> List[Tuple[date, Decimal]]:
     """The USD rates the invoices' dates need, oldest first (one query for the whole entry)."""
-    fechas = [f.fecha for f in facturas if f.curr_id != CURR_USD]
+    fechas = [f.fecha for f in facturas if f.curr_id == CURR_ARS]
     if not fechas:
         return []
     filas = db.execute(_TC_FECHAS_SQL, {"desde": min(fechas), "hasta": max(fechas)})
@@ -238,12 +252,100 @@ def sell_ins_compras(db: Session, item_id: int) -> List[SellInCompras]:
     return out
 
 
-def sell_ins_de(f: Factura, compras: Sequence[SellInCompras], bonos: Sequence[Bono]) -> Tuple[SellIn, ...]:
-    """S5/S6: the Compras sell ins of the invoice's operations, then the brand bonuses of its date."""
+def sell_ins_de(
+    f: Factura, compras: Sequence[SellInCompras], bonos: Sequence[Bono], ncs: Sequence[SellIn] = ()
+) -> Tuple[SellIn, ...]:
+    """S5/S6 (L5): the Compras sell ins of the invoice's operations, the brand bonuses of its date, then the supplier
+    credit notes against it; all % of the same net, additive."""
     pedidos = set(f.pedidos)
     out = [SellIn("compra", c.id, c.porcentaje) for c in compras if pedidos & c.pedidos]
     out.extend(SellIn("bono", b.id, b.porcentaje) for b in bonos if b.desde <= f.fecha <= b.hasta)
+    out.extend(ncs)
     return tuple(out)
+
+
+# ------------------------------------------------------------------------------------------------- credit notes
+
+# The product's lines on every valid purchase credit note since :desde, with the invoices, operations or balance each
+# NC is imputed to. The link is the one Compras already uses (`erp_matching_service._DOCUMENTOS_CT_SQL`): active,
+# never reversed `imputaciones` rows from an ERP or a local NC (resolved to its ERP document); its amount is the NC's
+# own lines for the product, `it_qty` stored positive (the document's sign is -1), `it_price` net of discounts.
+_NCS_SQL = text("""
+    WITH nc AS (
+        SELECT ct.ct_transaction AS nc, ct.ct_date::date AS fecha, sum(it.it_qty * it.it_price) AS importe,
+               min(it.curr_id) AS curr_id, count(DISTINCT it.curr_id) AS monedas
+        FROM v_facturas_compra_vigentes v
+        JOIN tb_commercial_transactions ct ON ct.ct_transaction = v.ct_transaction
+        JOIN tb_item_transactions it ON it.ct_transaction = ct.ct_transaction AND it.item_id = :i
+        WHERE v.clasificacion = 'NC' AND ct.ct_date >= :desde
+        GROUP BY ct.ct_transaction, ct.ct_date
+    ), links AS (
+        SELECT CASE WHEN i.origen_tipo = 'nota_credito_erp' THEN i.origen_id ELSE ncl.ct_transaction_id END AS nc,
+               i.destino_tipo, i.destino_id
+        FROM imputaciones i
+        LEFT JOIN notas_credito_local ncl ON i.origen_tipo = 'nota_credito_local' AND ncl.id = i.origen_id
+        WHERE i.origen_tipo IN ('nota_credito_erp', 'nota_credito_local')
+          AND i.es_reversal = false
+          AND NOT EXISTS (SELECT 1 FROM imputaciones r WHERE r.es_reversal = true AND r.reimputada_desde_id = i.id)
+    )
+    SELECT nc.nc, nc.fecha, nc.importe, nc.curr_id, nc.monedas,
+           COALESCE(array_agg(DISTINCT l.destino_id) FILTER (WHERE l.destino_tipo = 'factura_erp'), '{}') AS facturas,
+           COALESCE(bool_or(l.destino_tipo = 'pedido_compra'), false) AS a_pedido,
+           COALESCE(bool_or(l.destino_tipo = 'saldo'), false) AS a_saldo
+    FROM nc LEFT JOIN links l ON l.nc = nc.nc
+    GROUP BY nc.nc, nc.fecha, nc.importe, nc.curr_id, nc.monedas
+    ORDER BY nc.fecha, nc.nc
+""")
+
+
+@dataclass(frozen=True)
+class NcSinAsignar:
+    nc_ct: int
+    fecha: date
+    importe: Decimal
+    curr_id: Optional[int]
+    # sin_imputar | imputada_a_pedido | imputada_a_saldo | factura_sin_el_producto | varias_facturas | moneda_distinta
+    motivo: str
+
+
+def ncs_de(
+    db: Session, item_id: int, desde: date, inicio: date, facturas: Sequence[Factura]
+) -> Tuple[Dict[int, List[SellIn]], List[NcSinAsignar]]:
+    """The product's supplier credit notes as a % of the net of the one invoice each is imputed to (owner L5), by
+    invoice; and the ones since `inicio` that cannot be tied to exactly one of its invoices, never guessed."""
+    por_ct = {f.ct_transaction: f for f in facturas}
+    asignadas: Dict[int, List[SellIn]] = {}
+    sin_asignar: List[NcSinAsignar] = []
+    for nc, fecha, importe, curr_id, monedas, destinos, a_pedido, a_saldo in db.execute(
+        _NCS_SQL, {"i": item_id, "desde": inicio_del_dia(desde)}
+    ):
+        importe = Decimal(importe or 0)
+        candidatas = [por_ct[ct] for ct in destinos if ct in por_ct]
+        motivo = None
+        if len(candidatas) == 1:
+            f = candidatas[0]
+            base = Decimal(f.cantidad) * f.precio
+            if monedas != 1 or curr_id != f.curr_id:
+                motivo = "moneda_distinta"
+            elif base > 0:
+                pct = (importe / base * 100).quantize(Decimal("0.0001"))
+                asignadas.setdefault(f.ct_transaction, []).append(SellIn("nc", int(nc), pct))
+                continue
+            else:
+                motivo = "factura_sin_el_producto"
+        elif len(candidatas) > 1:
+            motivo = "varias_facturas"
+        elif destinos:
+            motivo = "factura_sin_el_producto"
+        elif a_pedido:
+            motivo = "imputada_a_pedido"
+        elif a_saldo:
+            motivo = "imputada_a_saldo"
+        else:
+            motivo = "sin_imputar"
+        if fecha >= inicio:
+            sin_asignar.append(NcSinAsignar(int(nc), fecha, importe, curr_id, motivo))
+    return asignadas, sin_asignar
 
 
 # --------------------------------------------------------------------------------------------------------- stock
@@ -331,6 +433,7 @@ def inicio_de(db: Session, item_id: int) -> Optional[date]:
 class Entrada:
     inicio: Inicio
     compras: List[Compra]
+    nc_sin_asignar: List["NcSinAsignar"] = field(default_factory=list)
 
 
 def entrada(db: Session, item_id: int) -> Optional[Entrada]:
@@ -357,27 +460,28 @@ def entrada(db: Session, item_id: int) -> Optional[Entrada]:
         }
     tasas = tipos_de_cambio(db, posteriores)
     del_compras = sell_ins_compras(db, item_id) if any(f.pedidos for f in posteriores) else []
+    ncs, nc_sin_asignar = ncs_de(db, item_id, inicio_fecha - VENTANA_PREVIAS, inicio_fecha, facturas)
     compras = []
     # The stock before each invoice is a point-in-time reconstruction (its own instant): one read per invoice.
     for n, f in enumerate(posteriores):
         tc, fuente = tipo_cambio_de(f, manuales, tasas)
-        if f.curr_id != CURR_USD and not tc:
+        if f.curr_id == CURR_ARS and not tc:
             raise ValueError(f"invoice {f.ct_transaction}: no exchange rate for {f.fecha}")
-        neto = f.precio if f.curr_id == CURR_USD else f.precio / tc
+        neto = f.precio if f.curr_id == CURR_USD else f.precio / tc  # ARS (the only other one facturas_de admits)
         compras.append(
             Compra(
                 fecha=f.fecha,
                 ct_transaction=f.ct_transaction,
                 cantidad=f.cantidad,
                 costo_neto_usd=neto,
-                sell_ins=sell_ins_de(f, del_compras, bonos),
+                sell_ins=sell_ins_de(f, del_compras, bonos, ncs.get(f.ct_transaction, ())),
                 stock_antes=_stock_antes(db, item_id, f, previas + posteriores[:n], posteriores[n + 1 :]),
                 tipo_cambio=tc,
                 fuente_tc=fuente,
                 en_compras=bool(f.pedidos),
             )
         )
-    return Entrada(inicio, compras)
+    return Entrada(inicio, compras, nc_sin_asignar)
 
 
 def _stock_antes(db: Session, item_id: int, f: Factura, antes: Sequence[Factura], despues: Sequence[Factura]) -> int:

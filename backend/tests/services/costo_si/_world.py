@@ -20,6 +20,7 @@ from app.models.costo_si import (
     CostoSiBackup,
     CostoSiDirty,
     CostoSiFacturaTc,
+    CostoSiNcSinAsignar,
     CostoSiFullCobertura,
     CostoSiFullOperacion,
     CostoSiPaso,
@@ -52,6 +53,11 @@ STUBS = [
     "CREATE TABLE ml_item_product_links (item_id TEXT, variation_id BIGINT DEFAULT 0, producto_item_id INTEGER,"
     " PRIMARY KEY (item_id, variation_id))",
     "CREATE TABLE ml_user_product_stock (user_product_id TEXT PRIMARY KEY, full_quantity INTEGER)",
+    # Compras' money links (only the columns the costo SI link reads) and local NCs matched to their ERP document.
+    "CREATE TABLE imputaciones (id BIGSERIAL PRIMARY KEY, origen_tipo VARCHAR(64) NOT NULL, origen_id BIGINT NOT NULL,"
+    " destino_tipo VARCHAR(32) NOT NULL, destino_id BIGINT, es_reversal BOOLEAN NOT NULL DEFAULT false,"
+    " reimputada_desde_id BIGINT)",
+    "CREATE TABLE notas_credito_local (id BIGSERIAL PRIMARY KEY, ct_transaction_id BIGINT)",
 ]
 
 TABLES = [
@@ -79,6 +85,7 @@ TABLES = [
     CostoSiFullOperacion.__table__,
     CostoSiFullCobertura.__table__,
     CostoSiFacturaTc.__table__,
+    CostoSiNcSinAsignar.__table__,
 ]
 
 MARCA = "MARCA DEMO"
@@ -123,6 +130,9 @@ def clean(engine: Engine) -> None:
             "costo_si_full_operaciones",
             "costo_si_full_cobertura",
             "costo_si_factura_tc",
+            "costo_si_nc_sin_asignar",
+            "imputaciones",
+            "notas_credito_local",
             "productos_erp",
         ):
             conn.execute(text(f"DELETE FROM {table}"))
@@ -133,6 +143,12 @@ def clean(engine: Engine) -> None:
 def run(engine: Engine, sql: str, **params) -> None:
     with engine.begin() as conn:
         conn.execute(text(sql), params)
+
+
+def returning(engine: Engine, sql: str, **params):
+    """A write whose RETURNING value is wanted, committed."""
+    with engine.begin() as conn:
+        return conn.execute(text(sql), params).scalar()
 
 
 def rows(engine: Engine, sql: str, **params) -> list:
@@ -339,3 +355,50 @@ def pasos(engine: Engine, item_id: int) -> list:
 
 def encolados(engine: Engine) -> list:
     return rows(engine, "SELECT item_id, desde FROM costo_si_dirty ORDER BY item_id")
+
+
+def nc(engine: Engine, item_id: int, fecha: date, qty: int, precio: str, curr_id: int = 2, supp_id: int = 14) -> int:
+    """A supplier credit note dated `fecha` with a line for the product (`it_qty` positive, as GBP stores it; it moves
+    no depot-1 stock)."""
+    ct = next(_ids)
+    run(
+        engine,
+        "INSERT INTO tb_commercial_transactions (ct_transaction, bra_id, sd_id, ct_date, supp_id) "
+        "VALUES (:ct, 1, 103, :d, :s)",
+        ct=ct,
+        d=datetime.combine(fecha, datetime.min.time()),
+        s=supp_id,
+    )
+    run(engine, "INSERT INTO v_facturas_compra_vigentes VALUES (:ct, 'NC', :n)", ct=ct, n=f"0001-NC{ct}")
+    run(
+        engine,
+        "INSERT INTO tb_item_transactions (it_transaction, ct_transaction, bra_id, item_id, it_qty, it_price, curr_id,"
+        " stor_id, it_cd) VALUES (:it, :ct, 1, :i, :q, :p, :c, 19, :cd)",
+        it=next(_ids),
+        ct=ct,
+        i=item_id,
+        q=qty,
+        p=Decimal(precio),
+        c=curr_id,
+        cd=datetime.combine(fecha, datetime.min.time()),
+    )
+    return ct
+
+
+def imputar(engine: Engine, nc_ct: int, destino_tipo: str, destino_id: Optional[int], local: bool = False) -> int:
+    """Imputes an ERP NC (or a local NC matched to it, `local`) to an invoice, a Compras operation or the balance."""
+    origen_tipo, origen_id = "nota_credito_erp", nc_ct
+    if local:
+        origen_tipo = "nota_credito_local"
+        origen_id = returning(
+            engine, "INSERT INTO notas_credito_local (ct_transaction_id) VALUES (:c) RETURNING id", c=nc_ct
+        )
+    return returning(
+        engine,
+        "INSERT INTO imputaciones (origen_tipo, origen_id, destino_tipo, destino_id) VALUES (:ot, :oi, :dt, :di) "
+        "RETURNING id",
+        ot=origen_tipo,
+        oi=origen_id,
+        dt=destino_tipo,
+        di=destino_id,
+    )

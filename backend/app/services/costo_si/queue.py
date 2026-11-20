@@ -73,13 +73,43 @@ END
 $t$ LANGUAGE plpgsql
 """
 
+# A link added, removed or moved (UPDATE: both the old and the new sell in) re-dates its products.
 _COMPRA_PEDIDO = """
-CREATE OR REPLACE FUNCTION costo_si_trg_compra_pedido() RETURNS TRIGGER AS $t$
-DECLARE
-    v_compra bigint := CASE WHEN TG_OP = 'DELETE' THEN OLD.compra_id ELSE NEW.compra_id END;
+CREATE OR REPLACE FUNCTION costo_si_encolar_compra(p_compra bigint) RETURNS void AS $f$
 BEGIN
     PERFORM costo_si_encolar(ci.item_id, c.fecha_compra)
-    FROM sell_in_compra_items ci JOIN sell_in_compras c ON c.id = ci.compra_id WHERE ci.compra_id = v_compra;
+    FROM sell_in_compra_items ci JOIN sell_in_compras c ON c.id = ci.compra_id WHERE ci.compra_id = p_compra;
+END
+$f$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION costo_si_trg_compra_pedido() RETURNS TRIGGER AS $t$
+BEGIN
+    IF TG_OP <> 'INSERT' THEN
+        PERFORM costo_si_encolar_compra(OLD.compra_id);
+    END IF;
+    IF TG_OP <> 'DELETE' THEN
+        PERFORM costo_si_encolar_compra(NEW.compra_id);
+    END IF;
+    RETURN NULL;
+END
+$t$ LANGUAGE plpgsql
+"""
+
+# A Compras operation's TC (S4: the pedido TC, manual first) feeds the FX of every invoice linked to it.
+_PEDIDO_TC = """
+CREATE OR REPLACE FUNCTION costo_si_trg_pedido_tc() RETURNS TRIGGER AS $t$
+BEGIN
+    PERFORM costo_si_encolar_factura(pf.ct_transaction_id) FROM pedido_compra_facturas pf WHERE pf.pedido_id = NEW.id;
+    RETURN NULL;
+END
+$t$ LANGUAGE plpgsql
+"""
+
+# A product's brand or category decides which loyalty bonuses reach it (S6): its whole history again.
+_PRODUCTO = """
+CREATE OR REPLACE FUNCTION costo_si_trg_producto() RETURNS TRIGGER AS $t$
+BEGIN
+    PERFORM costo_si_encolar(NEW.item_id, NULL);
     RETURN NULL;
 END
 $t$ LANGUAGE plpgsql
@@ -149,10 +179,67 @@ END
 $t$ LANGUAGE plpgsql
 """
 
+# A supplier credit note imputed to (or released from) an invoice changes that invoice's cost (owner L5); its own
+# products are queued too, so their list of unassigned NCs follows. A reversal re-queues what it reverses.
+_IMPUTACION = """
+CREATE OR REPLACE FUNCTION costo_si_encolar_imputacion(
+    p_origen_tipo text, p_origen_id bigint, p_destino_tipo text, p_destino_id bigint
+) RETURNS void AS $f$
+BEGIN
+    IF p_origen_tipo NOT IN ('nota_credito_erp', 'nota_credito_local') THEN
+        RETURN;
+    END IF;
+    IF p_destino_tipo = 'factura_erp' THEN
+        PERFORM costo_si_encolar_factura(p_destino_id);
+    END IF;
+    PERFORM costo_si_encolar_factura(CASE WHEN p_origen_tipo = 'nota_credito_erp' THEN p_origen_id
+        ELSE (SELECT ncl.ct_transaction_id FROM notas_credito_local ncl WHERE ncl.id = p_origen_id) END);
+END
+$f$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION costo_si_trg_imputacion() RETURNS TRIGGER AS $t$
+DECLARE
+    o record;
+BEGIN
+    IF TG_OP <> 'INSERT' THEN
+        PERFORM costo_si_encolar_imputacion(OLD.origen_tipo, OLD.origen_id, OLD.destino_tipo, OLD.destino_id);
+    END IF;
+    IF TG_OP <> 'DELETE' THEN
+        PERFORM costo_si_encolar_imputacion(NEW.origen_tipo, NEW.origen_id, NEW.destino_tipo, NEW.destino_id);
+        IF NEW.reimputada_desde_id IS NOT NULL THEN
+            SELECT origen_tipo, origen_id, destino_tipo, destino_id INTO o
+            FROM imputaciones WHERE id = NEW.reimputada_desde_id;
+            IF FOUND THEN
+                PERFORM costo_si_encolar_imputacion(o.origen_tipo, o.origen_id, o.destino_tipo, o.destino_id);
+            END IF;
+        END IF;
+    END IF;
+    RETURN NULL;
+END
+$t$ LANGUAGE plpgsql
+"""
+
+# A local NC matched to (or unmatched from) its ERP document changes what its imputations point at.
+_NC_LOCAL = """
+CREATE OR REPLACE FUNCTION costo_si_trg_nc_local() RETURNS TRIGGER AS $t$
+BEGIN
+    PERFORM costo_si_encolar_factura(OLD.ct_transaction_id);
+    PERFORM costo_si_encolar_imputacion(i.origen_tipo, i.origen_id, i.destino_tipo, i.destino_id)
+    FROM imputaciones i WHERE i.origen_tipo = 'nota_credito_local' AND i.origen_id = NEW.id;
+    RETURN NULL;
+END
+$t$ LANGUAGE plpgsql
+"""
+
 _TRIGGERS = [
     ("sell_in_compra_items", "costo_si_compra_item", "INSERT OR UPDATE OR DELETE", "costo_si_trg_compra_item()"),
     ("sell_in_compras", "costo_si_compra", "UPDATE", "costo_si_trg_compra()"),
-    ("sell_in_compra_pedidos", "costo_si_compra_pedido", "INSERT OR DELETE", "costo_si_trg_compra_pedido()"),
+    (
+        "sell_in_compra_pedidos",
+        "costo_si_compra_pedido",
+        "INSERT OR UPDATE OR DELETE",
+        "costo_si_trg_compra_pedido()",
+    ),
     ("sell_in_bonos_marca", "costo_si_bono", "INSERT OR UPDATE OR DELETE", "costo_si_trg_bono()"),
     ("sell_in_bono_items", "costo_si_bono_item", "INSERT OR UPDATE OR DELETE", "costo_si_trg_bono_item()"),
     (
@@ -167,9 +254,38 @@ _TRIGGERS = [
         "INSERT OR UPDATE OR DELETE",
         "costo_si_trg_factura('ct_transaction')",
     ),
+    (
+        "pedidos_compra",
+        "costo_si_pedido_tc",
+        "UPDATE OF tipo_cambio, tipo_cambio_manual",
+        "costo_si_trg_pedido_tc()",
+        "OLD.tipo_cambio IS DISTINCT FROM NEW.tipo_cambio "
+        "OR OLD.tipo_cambio_manual IS DISTINCT FROM NEW.tipo_cambio_manual",
+    ),
+    (
+        "productos_erp",
+        "costo_si_producto",
+        "UPDATE OF marca, categoria",
+        "costo_si_trg_producto()",
+        "OLD.marca IS DISTINCT FROM NEW.marca OR OLD.categoria IS DISTINCT FROM NEW.categoria",
+    ),
+    ("imputaciones", "costo_si_imputacion", "INSERT OR UPDATE OR DELETE", "costo_si_trg_imputacion()"),
+    (
+        "notas_credito_local",
+        "costo_si_nc_local",
+        "UPDATE OF ct_transaction_id",
+        "costo_si_trg_nc_local()",
+        "OLD.ct_transaction_id IS DISTINCT FROM NEW.ct_transaction_id",
+    ),
 ]
 
 _FUNCIONES = [
+    "costo_si_trg_nc_local()",
+    "costo_si_trg_imputacion()",
+    "costo_si_encolar_imputacion(text, bigint, text, bigint)",
+    "costo_si_trg_producto()",
+    "costo_si_trg_pedido_tc()",
+    "costo_si_encolar_compra(bigint)",
     "costo_si_trg_factura()",
     "costo_si_encolar_factura(bigint)",
     "costo_si_trg_bono_item()",
@@ -181,12 +297,27 @@ _FUNCIONES = [
     "costo_si_encolar(integer, date)",
 ]
 
-UPGRADE_SQL: List[str] = [_ENCOLAR, _COMPRA_ITEM, _COMPRA, _COMPRA_PEDIDO, _BONO, _BONO_ITEM, _FACTURA] + [
-    f"CREATE TRIGGER {name} AFTER {events} ON {table} FOR EACH ROW EXECUTE FUNCTION {fn}"
-    for table, name, events, fn in _TRIGGERS
-]
 
-DOWNGRADE_SQL: List[str] = [f"DROP TRIGGER IF EXISTS {name} ON {table}" for table, name, _, _ in _TRIGGERS] + [
+def _crear(table: str, name: str, events: str, fn: str, cuando: str = "") -> str:
+    when = f" WHEN ({cuando})" if cuando else ""
+    return f"CREATE TRIGGER {name} AFTER {events} ON {table} FOR EACH ROW{when} EXECUTE FUNCTION {fn}"
+
+
+UPGRADE_SQL: List[str] = [
+    _ENCOLAR,
+    _COMPRA_ITEM,
+    _COMPRA,
+    _COMPRA_PEDIDO,
+    _BONO,
+    _BONO_ITEM,
+    _FACTURA,
+    _PEDIDO_TC,
+    _PRODUCTO,
+    _IMPUTACION,
+    _NC_LOCAL,
+] + [_crear(*t) for t in _TRIGGERS]
+
+DOWNGRADE_SQL: List[str] = [f"DROP TRIGGER IF EXISTS {t[1]} ON {t[0]}" for t in _TRIGGERS] + [
     f"DROP FUNCTION IF EXISTS {fn}" for fn in _FUNCIONES
 ]
 

@@ -14,6 +14,7 @@ from typing import List, Optional
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from app.models.costo_si import CostoSiNcSinAsignar
 from app.models.costo_si import CostoSiPaso as P
 from app.services.costo_si import fuentes
 from app.services.costo_si.engine import redondear
@@ -54,6 +55,7 @@ class CostoSi:
     vigente_desde: Optional[date]
     pasos: List[dict] = field(default_factory=list)
     componentes: List[Componente] = field(default_factory=list)
+    nc_sin_asignar: List[dict] = field(default_factory=list)  # supplier NCs not tied to one invoice (owner L5)
 
 
 def vigente(db: Session, item_id: int, fecha: date) -> tuple[Optional[Decimal], Optional[date]]:
@@ -82,4 +84,13 @@ def leer(db: Session, item_id: int, fecha: date) -> CostoSi:
         dict(r._mapping)
         for r in db.execute(select(*(getattr(P, c) for c in _COLUMNAS)).where(P.item_id == item_id).order_by(P.orden))
     ]
-    return CostoSi(item_id, fecha, False, valor, desde, pasos=pasos)
+    N = CostoSiNcSinAsignar
+    ncs = [
+        dict(r._mapping)
+        for r in db.execute(
+            select(N.nc_ct, N.fecha, N.importe, N.curr_id, N.motivo)
+            .where(N.item_id == item_id)
+            .order_by(N.fecha, N.nc_ct)
+        )
+    ]
+    return CostoSi(item_id, fecha, False, valor, desde, pasos=pasos, nc_sin_asignar=ncs)

@@ -117,6 +117,21 @@ class CostoSiFullCobertura(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
+class CostoSiNcSinAsignar(Base):
+    """A supplier credit note with lines for the product that cannot be tied to exactly one of its purchase invoices
+    (owner L5: an NC is a % of the invoice's net; never guessed). Rewritten on every recompute of the product."""
+
+    __tablename__ = "costo_si_nc_sin_asignar"
+
+    item_id = Column(Integer, primary_key=True, autoincrement=False)
+    nc_ct = Column(BigInteger, primary_key=True, autoincrement=False)
+    fecha = Column(Date, nullable=False)
+    importe = Column(Numeric(18, 5), nullable=False)  # the NC lines' net for the product, in their currency
+    curr_id = Column(Integer, nullable=True)
+    motivo = Column(String(32), nullable=False)
+    calculado_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class CostoSiFacturaTc(Base):
     __tablename__ = "costo_si_factura_tc"
 

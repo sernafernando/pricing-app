@@ -550,3 +550,211 @@ def test_a_credit_note_linked_to_compras_never_moves_the_start(engine: Engine) -
     _recalcular(engine, P)
 
     assert [p[1] for p in w.pasos(engine, P)] == [date(2026, 10, 9), date(2026, 10, 9)]
+
+
+def test_moving_a_compras_link_queues_the_products_of_both_sell_ins(engine: Engine) -> None:
+    """S8: an UPDATE of `sell_in_compra_pedidos` re-dates the sell in it leaves and the one it joins."""
+    w.producto(engine, P)
+    w.producto(engine, OTRA_MARCA, marca="OTRA")
+    w.run(engine, "INSERT INTO pedidos_compra (id) VALUES (1), (2)")
+    w.sell_in_compra(engine, P, 1, "2", date(2026, 10, 3))
+    destino = w.sell_in_compra(engine, OTRA_MARCA, 2, "2", date(2026, 10, 9))
+    w.run(engine, "DELETE FROM costo_si_dirty")
+
+    w.run(engine, "UPDATE sell_in_compra_pedidos SET compra_id = :d WHERE pedido_compra_id = 1", d=destino)
+
+    assert w.encolados(engine) == [(P, date(2026, 10, 3)), (OTRA_MARCA, date(2026, 10, 9))]
+
+
+def test_a_compras_tc_edit_queues_the_products_of_its_invoices_from_their_date(engine: Engine) -> None:
+    """S4: the pedido TC (manual first) is an invoice's FX; editing it re-dates the invoice. The same value is no
+    change."""
+    w.producto(engine, P)
+    w.factura(
+        engine, P, date(2026, 10, 7), datetime(2026, 10, 7), 1, "15000", previo=0, curr_id=1, pedido=4, tc_pedido="1500"
+    )
+    w.run(engine, "DELETE FROM costo_si_dirty")
+
+    w.run(engine, "UPDATE pedidos_compra SET tipo_cambio = 1500 WHERE id = 4")
+    assert w.encolados(engine) == []
+
+    w.run(engine, "UPDATE pedidos_compra SET tipo_cambio_manual = 1550 WHERE id = 4")
+    assert w.encolados(engine) == [(P, date(2026, 10, 7))]
+
+    w.run(engine, "DELETE FROM costo_si_dirty")
+    w.run(engine, "UPDATE pedidos_compra SET tipo_cambio = 1520 WHERE id = 4")
+    assert w.encolados(engine) == [(P, date(2026, 10, 7))]
+
+
+def test_a_brand_or_category_change_queues_the_product_for_its_whole_history(engine: Engine) -> None:
+    """S6: loyalty reaches a product by its brand (and category); any other product edit is no change."""
+    w.producto(engine, P)
+    w.run(engine, "DELETE FROM costo_si_dirty")
+
+    w.run(engine, "UPDATE productos_erp SET subcategoria_id = 99 WHERE item_id = :i", i=P)
+    assert w.encolados(engine) == []
+
+    w.run(engine, "UPDATE productos_erp SET marca = 'OTRA' WHERE item_id = :i", i=P)
+    assert w.encolados(engine) == [(P, None)]
+
+    w.run(engine, "DELETE FROM costo_si_dirty")
+    w.run(engine, "UPDATE productos_erp SET categoria = 'OTRA' WHERE item_id = :i", i=P)
+    assert w.encolados(engine) == [(P, None)]
+
+
+@pytest.mark.parametrize("monedas", [(3,), (1, 2)], ids=["unknown", "mixed"])
+def test_an_invoice_in_an_unknown_or_mixed_currency_reports_the_product(engine: Engine, monedas: tuple) -> None:
+    """S4: only USD and ARS are converted; anything else is reported and the product skipped, never treated as
+    ARS."""
+    w.producto(engine, P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "10")
+    w.bono_marca(engine, "1", date(2026, 10, 1), date(2026, 12, 31))
+    w.tipo_cambio(engine, date(2026, 10, 4), 1500)
+    ct = w.factura(engine, P, date(2026, 10, 5), datetime(2026, 10, 5), 2, "16000", previo=0, curr_id=monedas[0])
+    if len(monedas) > 1:
+        w.run(
+            engine,
+            "INSERT INTO tb_item_transactions (it_transaction, ct_transaction, item_id, it_qty, it_price, "
+            "curr_id, stor_id, it_cd) SELECT max(it_transaction) + 1, :ct, :i, 1, 10, :c, 1, :cd "
+            "FROM tb_item_transactions",
+            ct=ct,
+            i=P,
+            c=monedas[1],
+            cd=datetime(2026, 10, 5),
+        )
+
+    drenado = queue.drenar(
+        sessionmaker(bind=engine, autoflush=False),
+        datetime.now(UTC) + timedelta(minutes=1),
+        HOY,
+        ml=None,
+        is_transient=lambda exc: False,
+    )
+
+    assert list(drenado.fallidos) == [P]
+    assert drenado.fallidos[P].startswith("MonedaNoSoportada")
+    assert w.pasos(engine, P) == []
+
+
+def _nc_base(engine: Engine) -> int:
+    """An invoice of 10 at 100 USD (net 1000) with a 5 % Compras sell in, under a 3.6 % loyalty."""
+    w.producto(engine, P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "100")
+    w.bono_marca(engine, "3.6", date(2026, 10, 1), date(2026, 12, 31))
+    ct = w.factura(engine, P, date(2026, 10, 5), datetime(2026, 10, 6), 10, "100", previo=0, pedido=9)
+    w.sell_in_compra(engine, P, 9, "5", date(2026, 10, 5))
+    return ct
+
+
+def _compra(engine: Engine) -> tuple:
+    return w.rows(
+        engine,
+        "SELECT costo_neto_neto_usd, sell_in_pct, sell_ins FROM costo_si_pasos WHERE item_id = :i AND tipo = 'compra'",
+        i=P,
+    )[0]
+
+
+def _sin_asignar(engine: Engine) -> list:
+    return w.rows(
+        engine, "SELECT nc_ct, importe, motivo FROM costo_si_nc_sin_asignar WHERE item_id = :i ORDER BY 1", i=P
+    )
+
+
+@pytest.mark.parametrize("local", [False, True], ids=["erp_nc", "local_nc"])
+def test_a_supplier_credit_note_imputed_to_the_invoice_is_a_percent_of_its_net(engine: Engine, local: bool) -> None:
+    """Owner L5: "además entra el % de NC que haya hecho el proveedor ... sobre el neto también": an NC of 20 on the
+    product against that invoice (net 1000) is 2 %, added to the 5 % and the 3.6 %: 100 x (1 - 0.106) = 89.40."""
+    factura = _nc_base(engine)
+    nc = w.nc(engine, P, date(2026, 10, 20), 10, "2")
+    w.imputar(engine, nc, "factura_erp", factura, local=local)
+
+    _recalcular(engine, P)
+
+    neto_neto, pct, sell_ins = _compra(engine)
+    assert (neto_neto, pct) == (D("89.40000"), D("10.6"))
+    assert [(s["origen"], s["ref"], s["porcentaje"]) for s in sell_ins][-1] == ("nc", nc, "2.0000")
+    assert _sin_asignar(engine) == []
+
+
+def test_a_credit_note_that_cannot_be_tied_to_one_invoice_is_listed_and_never_guessed(engine: Engine) -> None:
+    """An NC imputed to the Compras operation, to the balance, to an invoice without the product, to two invoices of
+    the product, never imputed, or whose imputation was reversed: listed with why, out of the cost."""
+    factura = _nc_base(engine)
+    otra = w.factura(engine, P, date(2026, 10, 9), datetime(2026, 10, 9), 10, "100", previo=10)
+    ajena = w.factura(engine, OTRA_MARCA, date(2026, 10, 9), datetime(2026, 10, 9), 1, "5", previo=0)
+    a_pedido = w.nc(engine, P, date(2026, 10, 20), 1, "3")
+    w.imputar(engine, a_pedido, "pedido_compra", 9)
+    a_saldo = w.nc(engine, P, date(2026, 10, 21), 1, "4")
+    w.imputar(engine, a_saldo, "saldo", None)
+    sin_producto = w.nc(engine, P, date(2026, 10, 22), 1, "5")
+    w.imputar(engine, sin_producto, "factura_erp", ajena)
+    a_dos = w.nc(engine, P, date(2026, 10, 23), 1, "6")
+    w.imputar(engine, a_dos, "factura_erp", factura)
+    w.imputar(engine, a_dos, "factura_erp", otra)
+    sin_imputar = w.nc(engine, P, date(2026, 10, 24), 1, "7")
+    revertida = w.nc(engine, P, date(2026, 10, 25), 1, "8")
+    original = w.imputar(engine, revertida, "factura_erp", factura)
+    w.run(
+        engine,
+        "INSERT INTO imputaciones (origen_tipo, origen_id, destino_tipo, destino_id, es_reversal, "
+        "reimputada_desde_id) VALUES ('nota_credito_erp', :nc, 'factura_erp', :f, true, :o)",
+        nc=revertida,
+        f=factura,
+        o=original,
+    )
+
+    _recalcular(engine, P)
+
+    assert _compra(engine)[1] == D("8.6")  # only the 5 % and the 3.6 %
+    assert _sin_asignar(engine) == [
+        (a_pedido, D("3.00000"), "imputada_a_pedido"),
+        (a_saldo, D("4.00000"), "imputada_a_saldo"),
+        (sin_producto, D("5.00000"), "factura_sin_el_producto"),
+        (a_dos, D("6.00000"), "varias_facturas"),
+        (sin_imputar, D("7.00000"), "sin_imputar"),
+        (revertida, D("8.00000"), "sin_imputar"),
+    ]
+
+
+def test_a_credit_note_in_another_currency_than_its_invoice_is_listed(engine: Engine) -> None:
+    factura = _nc_base(engine)
+    nc = w.nc(engine, P, date(2026, 10, 20), 1, "3000", curr_id=1)
+    w.imputar(engine, nc, "factura_erp", factura)
+
+    _recalcular(engine, P)
+
+    assert _compra(engine)[1] == D("8.6")
+    assert _sin_asignar(engine) == [(nc, D("3000.00000"), "moneda_distinta")]
+
+
+def test_imputing_or_reversing_a_credit_note_queues_the_invoice_and_its_products(engine: Engine) -> None:
+    """The NC changes its invoice's cost from the invoice's date; a reversal does too; a local NC matched to its ERP
+    document later re-queues what its imputations reach."""
+    factura = _nc_base(engine)
+    nc = w.nc(engine, P, date(2026, 10, 20), 10, "2")
+    w.run(engine, "DELETE FROM costo_si_dirty")
+
+    original = w.imputar(engine, nc, "factura_erp", factura)
+    assert w.encolados(engine) == [(P, date(2026, 10, 5))]
+
+    w.run(engine, "DELETE FROM costo_si_dirty")
+    w.run(
+        engine,
+        "INSERT INTO imputaciones (origen_tipo, origen_id, destino_tipo, destino_id, es_reversal, "
+        "reimputada_desde_id) VALUES ('nota_credito_erp', :nc, 'saldo', NULL, true, :o)",
+        nc=nc,
+        o=original,
+    )
+    assert w.encolados(engine) == [(P, date(2026, 10, 5))]
+
+    w.run(engine, "DELETE FROM costo_si_dirty")
+    local = w.returning(engine, "INSERT INTO notas_credito_local (ct_transaction_id) VALUES (NULL) RETURNING id")
+    w.run(
+        engine,
+        "INSERT INTO imputaciones (origen_tipo, origen_id, destino_tipo, destino_id) "
+        "VALUES ('nota_credito_local', :l, 'pedido_compra', 9)",
+        l=local,
+    )
+    assert w.encolados(engine) == []
+    w.run(engine, "UPDATE notas_credito_local SET ct_transaction_id = :nc WHERE id = :l", nc=nc, l=local)
+    assert w.encolados(engine) == [(P, date(2026, 10, 20))]

@@ -9,7 +9,7 @@ from decimal import Decimal
 import pytest
 
 from app.models.combo_componente import ComboComponente
-from app.models.costo_si import CostoSiPaso
+from app.models.costo_si import CostoSiNcSinAsignar, CostoSiPaso
 
 URL = "/api/costo-si"
 PRODUCTO, OTRO, COMBO = 7101, 7102, 7103
@@ -60,6 +60,16 @@ def historia(db) -> None:
         sell_ins=[{"origen": "compra", "ref": 3, "porcentaje": "2.5"}],
     )
     _paso(db, OTRO, 0, date(2026, 10, 1), "4.00000")
+    db.add(
+        CostoSiNcSinAsignar(
+            item_id=PRODUCTO,
+            nc_ct=88_001,
+            fecha=date(2026, 10, 25),
+            importe=Decimal("150"),
+            curr_id=2,
+            motivo="imputada_a_pedido",
+        )
+    )
     db.add(ComboComponente(combo_item_id=COMBO, componente_item_id=PRODUCTO, cantidad=Decimal(2)))
     db.add(ComboComponente(combo_item_id=COMBO, componente_item_id=OTRO, cantidad=Decimal(1)))
     db.commit()
@@ -80,6 +90,9 @@ def test_returns_the_value_in_force_on_the_date_and_the_whole_breakdown(client, 
     )
     assert (compra["stock_antes"], compra["stock_despues"]) == (200, 300)
     assert compra["sell_ins"] == [{"origen": "compra", "ref": 3, "porcentaje": "2.5"}]
+    assert body["nc_sin_asignar"] == [
+        {"nc_ct": 88_001, "fecha": "2026-10-25", "importe": "150.00000", "curr_id": 2, "motivo": "imputada_a_pedido"}
+    ]
 
 
 def test_a_date_before_the_purchase_reads_the_start_value(client, ver_sell_in, historia, auth_headers):
