@@ -74,7 +74,7 @@ def _costo_si(ctx: WorkerContext, day: date) -> dict:
     """Costo SI's Full operations, photo and daily re-queue (module docstring). Never raises."""
     try:
         with get_background_db() as db:
-            items = costo_si_queue.productos_vigentes(db)
+            items = costo_si_full_ml.por_antiguedad(db, costo_si_queue.productos_vigentes(db))
         cliente = nuevo_cliente_ml()
         try:
             operaciones, fallidos = costo_si_full_ml.sincronizar_productos(

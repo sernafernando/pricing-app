@@ -516,3 +516,20 @@ def test_a_photo_cut_by_the_deadline_keeps_the_rest_of_the_days_photo(engine: En
         db.commit()
 
     assert w.rows(engine, "SELECT principal FROM costo_si_stock_diario") == [(7,)]
+
+
+def test_the_daily_sync_starts_with_the_products_synced_least_recently(engine: Engine) -> None:
+    """A run cut by its deadline reaches next day the products it left out: never synced first, then the oldest."""
+    for item, inv in ((P, "INV1"), (OTRA_MARCA, "INV2"), (COMBO, "INV3")):
+        w.producto(engine, item)
+        w.publicacion_full(engine, f"MLA-{inv}", item, inv, full_hoy=1)
+    w.run(
+        engine,
+        "INSERT INTO costo_si_full_cobertura (inventory_id, desde, hasta) VALUES ('INV1', :d, :h1), ('INV2', :d, :h2)",
+        d=date(2026, 10, 1),
+        h1=HOY + timedelta(days=1),
+        h2=HOY - timedelta(days=3),
+    )
+
+    with sessionmaker(bind=engine)() as db:
+        assert full_ml.por_antiguedad(db, [P, OTRA_MARCA, COMBO, PC]) == [COMBO, OTRA_MARCA, P, PC]

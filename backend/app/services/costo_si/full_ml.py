@@ -140,6 +140,23 @@ def sincronizar(db: Session, cliente: ClienteMl, item_id: int, desde: date, hoy:
     return guardadas
 
 
+_POR_ANTIGUEDAD_SQL = text("""
+    SELECT l.producto_item_id FROM unnest(CAST(:items AS integer[])) AS l(producto_item_id)
+    LEFT JOIN ml_item_product_links pl ON pl.producto_item_id = l.producto_item_id AND pl.variation_id = 0
+    LEFT JOIN ml_items i ON i.item_id = pl.item_id
+    LEFT JOIN costo_si_full_cobertura c ON c.inventory_id = i.inventory_id
+    GROUP BY l.producto_item_id
+    ORDER BY bool_or(i.inventory_id IS NOT NULL AND c.inventory_id IS NULL) DESC, min(c.hasta) NULLS LAST,
+             l.producto_item_id
+""")
+
+
+def por_antiguedad(db: Session, items: Iterable[int]) -> List[int]:
+    """`items` with the least recently synced first (a Full inventory never synced first of all), so a daily run cut
+    by its deadline reaches the ones it left out the day before."""
+    return [int(r[0]) for r in db.execute(_POR_ANTIGUEDAD_SQL, {"items": list(items)})]
+
+
 def sincronizar_productos(
     session_factory: Callable[[], Any],
     cliente: ClienteMl,
