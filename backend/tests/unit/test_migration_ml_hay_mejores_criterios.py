@@ -25,7 +25,7 @@ _EXPECTED_COLUMNS = {
 
 def test_the_revision_is_on_the_single_line() -> None:
     script = _script()
-    assert script.get_revision(_REVISION).down_revision == "20261123_ml_publicaciones_presets"
+    assert script.get_revision(_REVISION).down_revision == "20261124_vpf_override_costo_precio_costo"
     heads = script.get_heads()
     assert len(heads) == 1, f"alembic forked: {heads}"
     assert any(rev.revision == _REVISION for rev in script.walk_revisions("base", heads[0]))
