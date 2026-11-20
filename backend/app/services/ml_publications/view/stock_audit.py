@@ -53,12 +53,15 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Callable, Iterable, Mapping, Optional
 
-from sqlalchemy import ARRAY, Integer, Text, bindparam, select, text
+from sqlalchemy import ARRAY, Integer, Text, bindparam, func, select, text
 from sqlalchemy.orm import Session
 
 from app.models.tipo_cambio import TipoCambio
 from app.services.ml_daily_metrics import board
+from app.services.ml_daily_metrics.groups import NO_GROUP, NO_LABELS, dimension_of
 from app.services.ml_daily_metrics.kpi_strip import round_money, round_pp
+from app.services.combos.pcs import CAT_PC  # the one PC rule, shared with sell out (`combos.pcs`)
+from app.services.ml_publications.view.cost_lines import siso_markups
 from app.services.ml_publications.view.filters import (
     T,
     NOTEBOOK_ACCESSORY_SUBCATEGORIES,
@@ -73,18 +76,17 @@ from app.services.ml_publications.view.filters import (
 from app.services.ml_publications.view.listing import EMPTY_SUMMARY, Summary, summaries, summary_columns
 from app.services.ml_publications.view.markup_service import ItemMarkup, aggregate_nodes, compute_markups
 from app.services.ml_publications.view.products import product_pairs
-from app.services.ml_publications.view.row_metrics import metrics_by_mla
+from app.services.ml_publications.view.row_metrics import fulfillment_by_mla, metrics_by_mla
 from app.services.pricing_calculator import moneda_de
 
 CAT_NOTEBOOK = 46
-CAT_PC = 47
 
 PRODUCTO, PC, VARIANTE, PACK, KIT = "producto", "pc", "variante", "pack", "kit"
 ACTIVE = "active"
 
 # The sales sorts need ml_metricas.ver, the margin ones also ml_metricas.ver_ganancia (`needs_sales`, `needs_margin`).
 SALES_ORDERS = ("unidades_7d", "unidades_30d", "facturado_30d", "ultima_venta", "ageing", "cobertura", "rotacion")
-MARGIN_ORDERS = ("total_gauss_30d", "markup_30d", "markup")
+MARGIN_ORDERS = ("total_gauss_30d", "markup_30d", "markup", "markup_siso")
 ORDERS = (
     "valor_total",
     "valor_erp",
@@ -249,6 +251,16 @@ class Sales:
     last_sale_at: Optional[datetime] = None
     ageing_sold: Optional[int] = None
     ageing_unsold: Optional[int] = None
+    # auditoria-stock-niveles S3: the window units shipped by Full, and those with no shipping data (inside ERP);
+    # ERP is the window's units minus Full (`board.Board.units_by_fulfillment`)
+    full_7d: Decimal = Decimal(0)
+    full_30d: Decimal = Decimal(0)
+    unknown_7d: Decimal = Decimal(0)
+    unknown_30d: Decimal = Decimal(0)
+
+    @property
+    def erp_30d(self) -> Decimal:
+        return self.units_30d - self.full_30d
 
     def _add_series(self, row: board.Row, units_factor: Decimal) -> None:
         days = len(row.series_units)
@@ -289,10 +301,18 @@ class Sales:
         applied = board.SellInOut.markup_sell(self)
         return board.markup_of(self.mtg, self.costo) if applied is None else applied
 
-    def add(self, row: board.Row, units_factor: Decimal = Decimal(1)) -> None:
+    def add(
+        self, row: board.Row, units_factor: Decimal = Decimal(1), split: Optional[board.ShippingSplit] = None
+    ) -> None:
+        """A publication's Board row, and its Full split (None: no line in the window, its units, if any, are ERP)."""
         self.any_board_row = True
         self.units_7d += row.windows.get("7d", 0) * units_factor
         self.units_30d += row.windows.get("30d", 0) * units_factor
+        if split is not None:
+            self.full_7d += split.full_7d * units_factor
+            self.full_30d += split.full_30d * units_factor
+            self.unknown_7d += split.unknown_7d * units_factor
+            self.unknown_30d += split.unknown_30d * units_factor
         self.gross += row.gross
         self.tg += row.tg
         self.mtg += row.mtg
@@ -311,6 +331,48 @@ class Sales:
                 self.ageing_unsold = max(row.ageing_days, self.ageing_unsold or 0)
         if row.last_sale_at is not None and (self.last_sale_at is None or row.last_sale_at > self.last_sale_at):
             self.last_sale_at = row.last_sale_at
+
+    def plus(self, other: "Sales") -> "Sales":
+        """Two rows' sales added (a Marca or Categoría row, S2): every sum summed, the series day by day, the latest
+        last sale, and the ageings as `add` keeps them, so a group reads as if its publications were one row's."""
+        total = Sales()
+        for name in ("units_7d", "units_30d", "gross", "tg", "mtg", "costo"):
+            setattr(total, name, getattr(self, name) + getattr(other, name))
+        for name in ("full_7d", "full_30d", "unknown_7d", "unknown_30d"):
+            setattr(total, name, getattr(self, name) + getattr(other, name))
+        total.any_board_row = self.any_board_row or other.any_board_row
+        for name in SELL_FIELDS:
+            mine, theirs = getattr(self, name), getattr(other, name)
+            setattr(total, name, None if mine is None and theirs is None else (mine or 0) + (theirs or 0))
+        days = max(len(self.series_units), len(other.series_units))
+        for day in range(days):
+            total.series_units.append(
+                (self.series_units[day] if day < len(self.series_units) else Decimal(0))
+                + (other.series_units[day] if day < len(other.series_units) else Decimal(0))
+            )
+            total.series_markups.append(
+                (self.series_markups[day] if day < len(self.series_markups) else [])
+                + (other.series_markups[day] if day < len(other.series_markups) else [])
+            )
+        sold = [a for a in (self.ageing_sold, other.ageing_sold) if a is not None]
+        unsold = [a for a in (self.ageing_unsold, other.ageing_unsold) if a is not None]
+        total.ageing_sold = min(sold) if sold else None
+        total.ageing_unsold = max(unsold) if unsold else None
+        lasts = [at for at in (self.last_sale_at, other.last_sale_at) if at is not None]
+        total.last_sale_at = max(lasts) if lasts else None
+        return total
+
+    def envio_out(self) -> dict[str, dict[str, int]]:
+        """S3: each window's units shipped by Full and the rest (ERP), the ones without shipping data counted apart
+        (they are in ERP). ERP is the shown total minus Full, so the two always add up to the number above them."""
+
+        def window(units: Decimal, full: Decimal, unknown: Decimal) -> dict[str, int]:
+            return {"erp": int(units) - int(full), "full": int(full), "sin_envio": int(unknown)}
+
+        return {
+            "7d": window(self.units_7d, self.full_7d, self.unknown_7d),
+            "30d": window(self.units_30d, self.full_30d, self.unknown_30d),
+        }
 
     @property
     def ageing_dias(self) -> Optional[int]:
@@ -332,6 +394,7 @@ class Sales:
             "ultima_venta": self.last_sale_at,
             "ultima_venta_dias": self.ultima_venta_dias,
             "ageing_dias": self.ageing_dias,
+            "envio": self.envio_out(),
         }
         if with_margin:
             body["series_markup_90d"] = self.markup_series()
@@ -365,6 +428,7 @@ class Variant:
     publications: set[str] = field(default_factory=set)
     sales: Sales = field(default_factory=Sales)
     markup: Optional[tuple[float, float]] = None  # the current markup's range (`add_markups`)
+    markup_siso: Optional[tuple[float, float]] = None  # the current markup c/ SISO's range (`add_markups`)
     summary: Summary = EMPTY_SUMMARY
     average: Optional["Average"] = None  # its own Full's (`add_rotation`)
     whole: Optional["Whole"] = None  # the whole product's rotation figures, whatever the filter (`add_rotation`)
@@ -372,6 +436,14 @@ class Variant:
     @property
     def stock_now(self) -> int:
         """Its stock in its own units: its Full only (its ERP stock is its base's, S4)."""
+        return self.full.unidades
+
+    # It holds no ERP stock of its own (its base does): 0, so ERP sales read as out of stock (0 days), and only no
+    # ERP sale and no ERP stock reads as unknown (PR #2345 review).
+    stock_erp = 0
+
+    @property
+    def stock_full(self) -> int:
         return self.full.unidades
 
 
@@ -386,13 +458,23 @@ class Row:
     variants: dict[int, Variant] = field(default_factory=dict)
     sales: Sales = field(default_factory=Sales)
     markup: Optional[tuple[float, float]] = None
+    markup_siso: Optional[tuple[float, float]] = None
     summary: Summary = EMPTY_SUMMARY
     average: Optional["Average"] = None  # its ERP + Full + its variants' Full in base units (`add_rotation`)
     whole: Optional["Whole"] = None  # the whole product's rotation figures, whatever the filter (`add_rotation`)
+    group: Optional["GroupKeys"] = None  # its base product's brand and category (`add_groups`)
 
     @property
     def stock_now(self) -> int:
         return self.total.unidades
+
+    @property
+    def stock_erp(self) -> int:
+        return self.erp.unidades
+
+    @property
+    def stock_full(self) -> int:
+        return self.full.unidades
 
     @property
     def total(self) -> Money:
@@ -579,16 +661,19 @@ def _assemble(db: Session, pairs: list[tuple[str, int]], stock_only: list[int], 
 
 def add_sales(db: Session, audit: "Audit", sell_in_out: bool) -> None:
     """Every row's and variant's sales (module docstring): ONE Board read for all the rows' publications."""
-    figures = metrics_by_mla(db, sorted({m for r in audit.rows for m in r.publications}), sell_in_out=sell_in_out)
+    mlas = sorted({m for r in audit.rows for m in r.publications})
+    figures = metrics_by_mla(db, mlas, sell_in_out=sell_in_out)
+    # S3: the Full split of the same windows, read once for all the rows (a publication without one is all ERP)
+    splits = fulfillment_by_mla(db, mlas) if mlas else {}
     for r in audit.rows:
         for mla in sorted(r.own_publications):
             if (found := figures.get(mla)) is not None:
-                r.sales.add(found)
+                r.sales.add(found, split=splits.get(mla))
         for v in r.variants.values():
             for mla in sorted(v.publications):
                 if (found := figures.get(mla)) is not None:
-                    v.sales.add(found)
-                    r.sales.add(found, v.cantidad)
+                    v.sales.add(found, split=splits.get(mla))
+                    r.sales.add(found, v.cantidad, splits.get(mla))
 
 
 # --- Rotación (rotacion S2, L1): Días de cobertura and Rotación (veces) ------------------------------------------------
@@ -603,6 +688,8 @@ class Average:
 
     stock: float
     dias: int
+    erp: Optional[float] = None  # S4: the ERP part (0 for a variant, which holds no ERP stock of its own)
+    full: float = 0.0  # S4: the Full part
 
 
 def full_by_product(db: Session) -> dict[int, int]:
@@ -618,11 +705,13 @@ class Whole:
     sales: Sales
     stock: int
     average: Optional[Average]
+    stock_erp: Optional[int] = None  # S4: 0 for a variant (it holds no ERP stock of its own)
+    stock_full: int = 0
 
 
-def whole_of(r: "Row | Variant") -> Whole:
+def whole_of(r: "Row | Variant | Group") -> Whole:
     """Its whole product's figures; its own until `add_rotation` ran."""
-    return r.whole or Whole(r.sales, r.stock_now, r.average)
+    return r.whole or Whole(r.sales, r.stock_now, r.average, r.stock_erp, r.stock_full)
 
 
 def _whole_products(db: Session, audit: "Audit") -> dict[int, Row]:
@@ -648,17 +737,16 @@ def _add_averages(db: Session, rows: Iterable[Row], today: date) -> None:
     found = averages(db, items, today)
     for r in rows:
         if not found.dias:
-            r.average = Average(float(r.stock_now), 0)
+            r.average = Average(float(r.stock_now), 0, float(r.stock_erp), float(r.stock_full))
             for v in r.variants.values():
-                v.average = Average(float(v.stock_now), 0)
+                v.average = Average(float(v.stock_now), 0, 0.0, float(v.stock_full))
             continue
         erp, full = found.stock.get(r.product.item_id, (0.0, 0.0))
-        total = erp + full
         for v in r.variants.values():
             own = found.stock.get(v.product.item_id, (0.0, 0.0))[1]
-            v.average = Average(own, found.dias)
-            total += own * float(v.cantidad)
-        r.average = Average(total, found.dias)
+            v.average = Average(own, found.dias, 0.0, own)
+            full += own * float(v.cantidad)
+        r.average = Average(erp + full, found.dias, erp, full)
 
 
 def add_rotation(db: Session, audit: "Audit", today: date) -> None:
@@ -674,10 +762,10 @@ def add_rotation(db: Session, audit: "Audit", today: date) -> None:
     _add_averages(db, whole.values(), today)
     for r in audit.rows:
         w = whole.get(r.product.item_id, r)
-        r.whole = Whole(w.sales, w.stock_now, w.average)
+        r.whole = Whole(w.sales, w.stock_now, w.average, w.stock_erp, w.stock_full)
         for item, v in r.variants.items():
             wv = w.variants.get(item, v)
-            v.whole = Whole(wv.sales, wv.stock_now, wv.average)
+            v.whole = Whole(wv.sales, wv.stock_now, wv.average, wv.stock_erp, wv.stock_full)
 
 
 def coverage(stock: int, sold_30d: Decimal) -> Optional[float]:
@@ -689,9 +777,25 @@ def coverage(stock: int, sold_30d: Decimal) -> Optional[float]:
 
 def rotation(sold_30d: Decimal, average: Optional[Average]) -> Optional[float]:
     """Units sold in 30 days over the average stock; None (the view's "—") when that average is 0 or unknown."""
-    if average is None or average.stock <= 0:
+    return _per_stock(sold_30d, None if average is None else average.stock)
+
+
+def _per_stock(sold_30d: Decimal, stock: Optional[float]) -> Optional[float]:
+    if stock is None or stock <= 0:
         return None
-    return round(float(sold_30d) / average.stock, 2)
+    return round(float(sold_30d) / stock, 2)
+
+
+def _coverage_out(stock: Optional[int], sold_30d: Decimal, average: Optional[float]) -> dict[str, Any]:
+    """One source's Días de cobertura and Rotación (S4). With sales and no stock the coverage is 0 days (out of stock)
+    and the rotation, sold over an average stock of 0, is infinite; only no sale and no stock reads as unknown."""
+    days = None if stock is None else coverage(stock, sold_30d)
+    return {
+        "dias_cobertura": None if days is None or days == float("inf") else days,
+        "cobertura_infinita": days == float("inf"),
+        "rotacion": None if stock is None else _per_stock(sold_30d, average),
+        "rotacion_infinita": stock is not None and sold_30d > 0 and average is not None and average <= 0,
+    }
 
 
 def rotation_out(whole: Whole) -> dict[str, Any]:
@@ -707,6 +811,14 @@ def rotation_out(whole: Whole) -> dict[str, Any]:
         "rotacion": rotation(sales.units_30d, average),
         "stock_promedio": None if average is None else round(average.stock, 2),
         "stock_promedio_dias": None if average is None else average.dias,
+        # the numbers of the two formulas above, for their tooltips (auditoria-ventas-erp-full L2)
+        "stock_actual": stock,
+        "vendidas_30d": int(sales.units_30d),
+        # S4: each source's stock over its own sales (ERP = the sales not shipped by Full)
+        "por_origen": {
+            "erp": _coverage_out(whole.stock_erp, sales.erp_30d, None if average is None else average.erp),
+            "full": _coverage_out(whole.stock_full, sales.full_30d, None if average is None else average.full),
+        },
     }
 
 
@@ -722,22 +834,29 @@ def _span(ranges: Iterable[Optional[tuple[float, float]]]) -> Optional[tuple[flo
 
 
 def add_markups(db: Session, pricing_db: Session, audit: "Audit") -> None:
-    """Every row's and variant's current markup range (module docstring); ONE markup read for all the rows."""
+    """Every row's and variant's current markup range (module docstring), and the same range of the markup c/ SISO
+    (`cost_lines.siso_markups`, the Publicaciones list's own figure); ONE markup read and ONE sell in / sell out read
+    for all the rows."""
     members = [(m, str(r.product.item_id)) for r in audit.rows for m in r.own_publications]
     members += [(m, str(v.product.item_id)) for r in audit.rows for v in r.variants.values() for m in v.publications]
     items = publication_markups(db, pricing_db, {m for m, _ in members})
+    siso = siso_markups(pricing_db, items) or {}
     nodes = aggregate_nodes(items, members, products=True)
+    siso_nodes = aggregate_nodes({m: found.as_item(items[m]) for m, found in siso.items()}, members, products=True)
 
-    def range_of(product: int) -> Optional[tuple[float, float]]:
-        node = nodes.get(str(product))
+    def range_of(found: Mapping[str, Any], product: int) -> Optional[tuple[float, float]]:
+        node = found.get(str(product))
         if node is None or node.markup_min is None or node.markup_max is None:
             return None
         return node.markup_min, node.markup_max
 
     for r in audit.rows:
         for v in r.variants.values():
-            v.markup = range_of(v.product.item_id)
-        r.markup = _span([range_of(r.product.item_id), *(v.markup for v in r.variants.values())])
+            v.markup = range_of(nodes, v.product.item_id)
+            v.markup_siso = range_of(siso_nodes, v.product.item_id)
+        r.markup = _span([range_of(nodes, r.product.item_id), *(v.markup for v in r.variants.values())])
+        own = range_of(siso_nodes, r.product.item_id)
+        r.markup_siso = _span([own, *(v.markup_siso for v in r.variants.values())])
 
 
 def add_summaries(db: Session, audit: "Audit") -> None:
@@ -781,7 +900,7 @@ SORT_KEYS: dict[str, Callable[[Row], Any]] = {
     "unidades_total": lambda r: r.total.unidades,
     "unidades_erp": lambda r: r.erp.unidades,
     "unidades_full": lambda r: r.full.unidades,
-    "descripcion": lambda r: (r.product.descripcion or "").lower(),
+    "descripcion": lambda r: label_of(r).lower(),
     "unidades_7d": lambda r: r.sales.units_7d,
     "unidades_30d": lambda r: r.sales.units_30d,
     "facturado_30d": lambda r: r.sales.gross,
@@ -795,7 +914,214 @@ SORT_KEYS: dict[str, Callable[[Row], Any]] = {
     "total_gauss_30d": lambda r: r.sales.total_gauss_shown,
     "markup_30d": lambda r: r.sales.markup_shown,
     "markup": lambda r: None if r.markup is None else r.markup[0],
+    "markup_siso": lambda r: None if r.markup_siso is None else r.markup_siso[0],
 }
+
+
+# --- Marca and Categoría levels (auditoria-stock-niveles S1-S2) ------------------------------------------------------
+
+MARCA, CATEGORIA = "marca", "categoria"
+NIVELES = (MARCA, CATEGORIA, PRODUCTO)
+
+
+@dataclass(frozen=True)
+class GroupKeys:
+    """A base product's brand and category as the Agrupado tree keys them (`groups.dimension_of`: trimmed and
+    upper-cased by the database, `NO_GROUP` for none), with a name to show for each."""
+
+    marca: str
+    marca_nombre: str
+    categoria: str
+    categoria_nombre: str
+
+
+def add_groups(db: Session, audit: "Audit") -> None:
+    """Every row's brand and category, the BASE product's (a variant is listed under its base, so it counts in its
+    base's group): ONE statement. A product missing from the catalog has neither."""
+    ids = sorted({r.product.item_id for r in audit.rows})
+    found: dict[int, GroupKeys] = {}
+    if ids:
+        p = T.p
+        marca = dimension_of(MARCA, marca=p.marca, categoria=p.categoria, subcategoria_id=None, store_id=None)
+        categoria = dimension_of(CATEGORIA, marca=p.marca, categoria=p.categoria, subcategoria_id=None, store_id=None)
+        rows = db.execute(
+            select(p.item_id, marca.key, func.trim(p.marca), categoria.key, func.trim(p.categoria)).where(
+                p.item_id.in_(ids)
+            )
+        ).all()
+        for item, mk, mn, ck, cn in rows:
+            found[item] = GroupKeys(mk, _group_name(MARCA, mk, mn), ck, _group_name(CATEGORIA, ck, cn))
+    none = GroupKeys(NO_GROUP, NO_LABELS[MARCA], NO_GROUP, NO_LABELS[CATEGORIA])
+    for r in audit.rows:
+        r.group = found.get(r.product.item_id, none)
+
+
+def drill_names(audit: "Audit", marca: Optional[str], categoria: Optional[str]) -> dict[str, Optional[str]]:
+    """The names of the drilled brand and category as their rows show them (`GroupKeys`), from the drilled rows;
+    None for a level not drilled or with no row left."""
+    first = audit.rows[0].group if audit.rows and audit.rows[0].group is not None else None
+    return {
+        MARCA: first.marca_nombre if marca and first else None,
+        CATEGORIA: first.categoria_nombre if categoria and first else None,
+    }
+
+
+def _group_name(level: str, key: str, name: Optional[str]) -> str:
+    return NO_LABELS[level] if key == NO_GROUP or not name else name
+
+
+def restrict(audit: "Audit", marca: Optional[str], categoria: Optional[str]) -> "Audit":
+    """The audit narrowed to one brand and/or category (a drill into a group row, S1): its rows only, so the KPIs, the
+    total and the page are the group's. Needs `add_groups`."""
+    rows = [
+        r
+        for r in audit.rows
+        if r.group is not None
+        and (marca is None or r.group.marca == marca)
+        and (categoria is None or r.group.categoria == categoria)
+    ]
+    return Audit(rows, audit.rate, audit.active)
+
+
+@dataclass
+class Group:
+    """A Marca or Categoría row (S2): its base rows added up with the rules of the base rows. Stock and values are the
+    KPI strip's (`Money.known`: the costed values, the rows without cost counted in `productos_sin_costo`); sales are
+    summed (a variant's already in base units on its base row, so never twice); coverage and rotation are computed
+    on the summed stock, sales and average stock, never an average of the rows' figures."""
+
+    nivel: str
+    marca: Optional[str]
+    categoria: Optional[str]
+    nombre: str
+    rows: list[Row]
+    categorias: list["Group"] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.erp, self.full = Money(), Money()
+        self.sales = Sales()
+        self.publications: set[str] = set()
+        stock = stock_erp = stock_full = 0
+        sales_whole = Sales()
+        averages = [whole_of(r).average for r in self.rows]
+        for r in self.rows:
+            self.erp = self.erp.plus(r.erp.known())
+            self.full = self.full.plus(r.full.known())
+            self.sales = self.sales.plus(r.sales)
+            self.publications |= r.publications
+            w = whole_of(r)
+            sales_whole = sales_whole.plus(w.sales)
+            stock, stock_erp, stock_full = stock + w.stock, stock_erp + (w.stock_erp or 0), stock_full + w.stock_full
+        average = None
+        if averages and all(a is not None for a in averages):
+            average = Average(
+                sum(a.stock for a in averages),
+                max(a.dias for a in averages),
+                sum(a.erp or 0.0 for a in averages),
+                sum(a.full for a in averages),
+            )
+        self.whole = Whole(sales_whole, stock, average, stock_erp, stock_full)
+        self.markup = _span(r.markup for r in self.rows)
+        self.markup_siso = _span(r.markup_siso for r in self.rows)  # same rule as `markup` (pubml-markup-siso S4)
+
+    @property
+    def key(self) -> str:
+        if self.nivel == MARCA:
+            return f"marca:{self.marca}"
+        if self.marca is None:
+            return f"categoria:{self.categoria}"
+        return f"marca:{self.marca}|categoria:{self.categoria}"
+
+    @property
+    def total(self) -> Money:
+        return self.erp.plus(self.full)
+
+    @property
+    def sin_costo(self) -> int:
+        return sum(1 for r in self.rows if r.sin_costo)
+
+
+def label_of(r: "Row | Group") -> str:
+    """The name a row shows (its sort by name)."""
+    return r.nombre if isinstance(r, Group) else (r.product.descripcion or "")
+
+
+def group_rows(rows: list[Row], nivel: str, marca: Optional[str] = None) -> list[Group]:
+    """The base rows grouped by `nivel` (`marca`: each brand with its categories; `categoria`: each category, across
+    brands, or inside `marca` when the rows were drilled into one: its categories then name it, so opening one
+    stays inside that brand), in no particular order (`sort_rows` orders them). Needs `add_groups`."""
+
+    def by(level: str, members: list[Row]) -> dict[str, list[Row]]:
+        out: dict[str, list[Row]] = defaultdict(list)
+        for r in members:
+            out[r.group.marca if level == MARCA else r.group.categoria].append(r)
+        return out
+
+    def name(level: str, members: list[Row]) -> str:
+        g = members[0].group
+        return g.marca_nombre if level == MARCA else g.categoria_nombre
+
+    if nivel == CATEGORIA:
+        return [
+            Group(CATEGORIA, marca, key, name(CATEGORIA, members), members)
+            for key, members in by(CATEGORIA, rows).items()
+        ]
+    out = []
+    for marca, members in by(MARCA, rows).items():
+        categorias = [
+            Group(CATEGORIA, marca, key, name(CATEGORIA, sub), sub) for key, sub in by(CATEGORIA, members).items()
+        ]
+        out.append(Group(MARCA, marca, None, name(MARCA, members), members, categorias))
+    return out
+
+
+def group_out(
+    g: Group,
+    active: frozenset[str],
+    started: Optional[frozenset[str]],
+    *,
+    with_sales: bool = False,
+    with_margin: bool = False,
+    orden: str = "valor_total",
+    descending: bool = True,
+) -> dict[str, Any]:
+    """A Marca or Categoría row as the endpoint answers it: the product row's columns, added up (`Group`); a brand
+    of the Marca level also carries its categories, in the same order as the rows."""
+    kinds: dict[str, int] = {}
+    states: dict[str, int] = {}
+    for r in g.rows:
+        for kind, count in r.summary.kind_counts.items():
+            kinds[kind] = kinds.get(kind, 0) + count
+        for state, count in r.summary.status_counts.items():
+            states[state] = states.get(state, 0) + count
+    body: dict[str, Any] = {
+        "key": g.key,
+        "tipo": g.nivel,
+        "grupo": {"marca": g.marca, "categoria": g.categoria},
+        "descripcion": g.nombre,
+        "productos": len(g.rows),
+        "productos_sin_costo": g.sin_costo,
+        "sin_costo": g.sin_costo > 0,
+        "erp": g.erp.out(),
+        "full": g.full.out(),
+        "total": g.total.out(),
+        "publications_count": sum(len(r.own_publications) for r in g.rows),
+        "publicacion_activa": bool(g.publications & active),
+        "promo_aplicada": None if started is None else bool(g.publications & started),
+        "promo_counts": promo_counts(g.publications, started),
+        "ventas": {**g.sales.out(with_margin), **rotation_out(g.whole)} if with_sales else None,
+        "kind_counts": kinds,
+        "status_counts": states,
+    }
+    if with_margin:
+        body["markup_actual"] = _range_out(g.markup)
+        body["markup_siso"] = _range_out(g.markup_siso)
+    if g.nivel == MARCA:
+        body["categorias"] = [
+            group_out(c, active, started, with_sales=with_sales, with_margin=with_margin)
+            for c in sort_rows(g.categorias, orden, descending, started)
+        ]
+    return body
 
 
 def promo_counts(publications: set[str], started: Optional[frozenset[str]]) -> Optional[dict[str, int]]:
@@ -807,17 +1133,21 @@ def promo_counts(publications: set[str], started: Optional[frozenset[str]]) -> O
     return {"con": con, "sin": len(publications) - con}
 
 
-def sort_rows(rows: list[Row], orden: str, descending: bool, started: Optional[frozenset[str]] = None) -> list[Row]:
-    """`rows` by `orden`; `promos_aplicadas` counts each row's publications with a started promotion, unknown (every
-    row in the product order) without the promotions database."""
+def sort_rows(rows: list[Any], orden: str, descending: bool, started: Optional[frozenset[str]] = None) -> list[Any]:
+    """`rows` (base rows or groups) by `orden`; `promos_aplicadas` counts each row's publications with a started
+    promotion, unknown (every row in the product order) without the promotions database."""
 
-    def with_promo(r: Row) -> Optional[int]:
+    def with_promo(r: Any) -> Optional[int]:
         return None if started is None else len(r.publications & started)
 
     key = with_promo if orden == "promos_aplicadas" else SORT_KEYS[orden]
-    ordered = sorted(rows, key=lambda r: r.product.item_id)  # the product id closes every tie
+    ordered = sorted(rows, key=_tie_key)  # the product id (a group's key) closes every tie
     known = [r for r in ordered if key(r) is not None]
     return sorted(known, key=key, reverse=descending) + [r for r in ordered if key(r) is None]
+
+
+def _tie_key(r: Any) -> Any:
+    return r.key if isinstance(r, Group) else r.product.item_id
 
 
 def kpis(audit: Audit, started: Optional[frozenset[str]]) -> dict[str, Any]:
@@ -897,13 +1227,18 @@ def row_out(
                 "kind_counts": v.summary.kind_counts,
                 "status_counts": v.summary.status_counts,
                 "promo_counts": promo_counts(v.publications, started),
-                **({"markup_actual": _range_out(v.markup)} if with_margin else {}),
+                **(
+                    {"markup_actual": _range_out(v.markup), "markup_siso": _range_out(v.markup_siso)}
+                    if with_margin
+                    else {}
+                ),
             }
             for v in sorted(r.variants.values(), key=lambda v: (-(v.full.usd or 0.0), v.product.item_id))
         ],
     }
     if with_margin:
         body["markup_actual"] = _range_out(r.markup)
+        body["markup_siso"] = _range_out(r.markup_siso)
     return body
 
 

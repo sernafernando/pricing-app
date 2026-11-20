@@ -144,7 +144,7 @@ from app.services.ml_daily_metrics.sales import (
     persisted_last_sales,
     reads_persisted_lines,
 )
-from app.services.ml_orders_ingestion.mode_resolution import modo_logistico_expr
+from app.services.ml_orders_ingestion.mode_resolution import MODO_DESCONOCIDO, MODO_FULL, modo_logistico_expr
 from app.services.ml_publication_status_service import ML_PUBLICATION_STATUS_MAP
 from app.services.ml_publications.listing_kind import OTHER_RANK, listing_kind, listing_kind_from_type, listing_rank
 from app.services.ml_publications.view.filters import SearchFields, SearchTerm, item_skus, normalize_q, search_parts
@@ -776,6 +776,19 @@ class ShippingRow:
     operations: int
     units: int
     gross: Decimal
+
+
+@dataclass(frozen=True)
+class ShippingSplit:
+    """A publication's 7d / 30d window units shipped by Full and the rest (`Board.units_by_fulfillment`); the
+    unknown shipping is inside ERP and also counted apart."""
+
+    full_7d: int = 0
+    full_30d: int = 0
+    erp_7d: int = 0
+    erp_30d: int = 0
+    unknown_7d: int = 0
+    unknown_30d: int = 0
 
 
 @dataclass
@@ -2844,28 +2857,76 @@ class Board:
         whose order row is missing still counts, as "desconocido", so the types always add up to Facturado. ONE
         statement."""
         f = self.f
-        joined, fp = self._members("", narrow=True)
-        # Shipping is an ML order's: the fuera lines have none (vpf-metricas-canal S10).
-        lines = self._read_lines([day_bounds(f.date_from, f.date_to)], keyed=True, ml_only=True)
-        O, S = aliased(MlOrdersOps), aliased(MlShipmentOps)
-        modo = modo_logistico_expr(S.shipment_id, S.logistic_type, O.has_no_shipping_tag).label("modo")
+        lines, modo, query = self._shipped_lines(f.date_from)
+        modo = modo.label("modo")
         gross = func.sum(lines.c.gross)
+        query = query.add_columns(
+            modo,
+            func.count(func.distinct(lines.c.group_key)).label("operations"),
+            func.sum(lines.c.qty).label("units"),
+            gross.label("gross"),
+        )
+        rows = self.db.execute(query.group_by(modo).order_by(gross.desc(), modo)).all()
+        return [ShippingRow(modo=m, operations=int(n), units=int(u), gross=cents(g)) for m, n, u, g in rows]
+
+    def _shipped_lines(self, date_from: date) -> Tuple[Any, Any, Any]:
+        """The sold lines from `date_from` to the period's end of the rows that survive the filters, each with its
+        order's logistic mode (`mode_resolution`'s rule, in SQL): `(lines, modo, a column-less SELECT over them)`.
+        Shipping is an ML order's: the fuera lines have none (vpf-metricas-canal S10). A line whose order row is
+        missing still counts, as "desconocido". `by_shipping` and `units_by_fulfillment` both read it."""
+        f = self.f
+        joined, fp = self._members("", narrow=True)
+        lines = self._read_lines([day_bounds(date_from, f.date_to)], keyed=True, ml_only=True)
+        O, S = aliased(MlOrdersOps), aliased(MlShipmentOps)
+        modo = modo_logistico_expr(S.shipment_id, S.logistic_type, O.has_no_shipping_tag)
         query = self._in_mla_set(
-            select(
-                modo,
-                func.count(func.distinct(lines.c.group_key)).label("operations"),
-                func.sum(lines.c.qty).label("units"),
-                gross.label("gross"),
-            )
+            select()
             .select_from(joined)
             .join(lines, and_(lines.c.product == fp.c.product, lines.c.mla == fp.c.mla))
             .outerjoin(O, O.order_id == lines.c.order_id)
             .outerjoin(S, S.shipment_id == O.shipping_id)
-            .where(lines.c.day.between(self._day(f.date_from), self._day(f.date_to))),
+            .where(lines.c.day.between(self._day(date_from), self._day(f.date_to))),
             lines.c.mla,
         )
-        rows = self.db.execute(query.group_by(modo).order_by(gross.desc(), modo)).all()
-        return [ShippingRow(modo=m, operations=int(n), units=int(u), gross=cents(g)) for m, n, u, g in rows]
+        return lines, modo, query
+
+    def units_by_fulfillment(self) -> Dict[str, "ShippingSplit"]:
+        """Each publication's 7d / 30d window units split by where they shipped from (auditoria-stock-niveles S3,
+        owner: "Full = order with logistic_type 'fulfillment' using the Board's modo_logistico_expr"): Full is a
+        line whose order's mode is `fulfillment`, ERP the window's other units, an unknown shipping included (also
+        counted apart, `unknown_*`). The windows are the rows' own (`WINDOWS`, ending on the period's last day), so
+        ERP + Full is the row's window. A publication without a sold line in the 30d window is absent. ONE
+        statement."""
+        start_7d, start_30d = self.window_from["7d"], self.window_from["30d"]
+        lines, modo, query = self._shipped_lines(min(start_30d, self.f.date_from))
+
+        def units(since: date, condition: Any) -> Any:
+            in_window = lines.c.day.between(self._day(since), self._day(self.f.date_to))
+            return func.coalesce(func.sum(case((and_(in_window, condition), lines.c.qty), else_=0)), 0)
+
+        full, unknown = modo == MODO_FULL, modo == MODO_DESCONOCIDO
+        query = query.add_columns(
+            lines.c.mla,
+            units(start_7d, true()),
+            units(start_30d, true()),
+            units(start_7d, full),
+            units(start_30d, full),
+            units(start_7d, unknown),
+            units(start_30d, unknown),
+        ).group_by(lines.c.mla)
+        out: Dict[str, ShippingSplit] = {}
+        for mla, w7, w30, f7, f30, u7, u30 in self.db.execute(query).all():
+            if not w30:
+                continue
+            out[mla] = ShippingSplit(
+                full_7d=int(f7),
+                full_30d=int(f30),
+                erp_7d=int(w7) - int(f7),
+                erp_30d=int(w30) - int(f30),
+                unknown_7d=int(u7),
+                unknown_30d=int(u30),
+            )
+        return out
 
     def fuera_unknown_venta(self) -> int:
         """How many fuera sold lines of the period, of the rows the board keeps, have an unknown Venta with VAT

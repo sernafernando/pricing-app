@@ -142,8 +142,14 @@ const VISTAS = ['publicacion', 'precios', 'producto', 'agrupado', 'auditoria'];
 // The dimensions `GET /ml-publications/view/groups` takes, the default first; the picker offers exactly these.
 // They are Métricas ML's five, in its order (`DIMENSION_OPTIONS`).
 export const AGRUPAR_DIMENSIONS = ['marca', 'categoria', 'subcategoria', 'tienda', 'pm'];
+// The Auditoría de stock's top level (auditoria-stock-niveles S1): its brands, its categories or its products, the
+// brands first. `/view/stock-audit`'s `nivel`.
+export const AUDIT_LEVELS = ['marca', 'categoria', 'producto'];
+// A drill into a brand or a category (a group row's `grupo`): the audit's `grupo_marca` / `grupo_categoria`. It
+// narrows the list like a filter, but "Limpiar filtros" is the way back to the top, not kept.
+const AUDIT_DRILL_KEYS = ['grupo_marca', 'grupo_categoria'];
 // How the result is shown, not what it is made of: kept by "Limpiar filtros".
-const SHAPE_KEYS = ['vista', 'familias', 'agrupar'];
+const SHAPE_KEYS = ['vista', 'familias', 'agrupar', 'nivel'];
 // The team whose color layer paints the rows ('' = the global layer, as in Productos): how the rows are looked at,
 // so it neither resets the page nor goes away with "Limpiar filtros".
 const LAYER_KEY = 'equipo';
@@ -154,15 +160,16 @@ const MODE_KEY = 'modo';
 const KEPT_ON_RESET = [...SHAPE_KEYS, LAYER_KEY, MODE_KEY];
 const DIRECTIONS = ['asc', 'desc'];
 const SORT_KEYS = ['orden', 'dir', 'limite'];
-const VIEW_KEYS = ['pagina', 'sel', 'tab', 'prod'];
+// `abiertos`: the audit's opened rows (a JSON list of their keys), which a reload keeps and a new list closes.
+const VIEW_KEYS = ['pagina', 'sel', 'tab', 'prod', 'abiertos'];
 /**
  * What a column preset saves and applies besides its columns (pubml-columnas-presets S3, S8): the filters, the sort
  * and how the rows are looked at (`modo`, `agrupar`, `familias`, the layer `equipo`) -- never the view itself
  * (`vista`), the page size nor where the user stands (`VIEW_KEYS`).
  */
-const PRESET_PARAM_KEYS = [...FILTER_KEYS, 'orden', 'dir', MODE_KEY, 'agrupar', 'familias', LAYER_KEY];
-// A value equal to its default is no choice: `modo=normal` and `agrupar=marca` read as their absence.
-const PRESET_DEFAULTS = { [MODE_KEY]: 'normal', agrupar: 'marca' };
+const PRESET_PARAM_KEYS = [...FILTER_KEYS, 'orden', 'dir', MODE_KEY, 'agrupar', 'familias', LAYER_KEY, 'nivel', ...AUDIT_DRILL_KEYS];
+// A value equal to its default is no choice: `modo=normal`, `agrupar=marca` and `nivel=marca` read as their absence.
+const PRESET_DEFAULTS = { [MODE_KEY]: 'normal', agrupar: 'marca', nivel: 'marca' };
 // A link carrying any of these is a link that wins over the remembered preset (S6).
 const LIST_PARAM_KEYS = [...FILTER_KEYS, 'orden', 'dir'];
 
@@ -206,14 +213,16 @@ export const DEFAULT_DIRECTION = {
   codigo: 'asc',
   marca: 'asc',
   costo: 'asc',
-  // Worst variation first: the most negative markup on top.
+  // Worst variation first: the most negative markup on top; with sell in / sell out alike.
   markup: 'asc',
+  markup_siso: 'asc',
   // Productos' price headers sort by that list's markup, the worst first like the markup.
   ...Object.fromEntries([...PRICE_MARKUP_SORTS].map((key) => [key, 'asc'])),
   // Métricas' figures: highest first, as Métricas orders them.
   unidades_7d: 'desc',
   unidades_30d: 'desc',
   markup_30d: 'desc',
+  markup_sell_30d: 'desc',
   facturado_30d: 'desc',
   total_gauss_30d: 'desc',
   // The stock audit's own figures (`STOCK_AUDIT_SORTS`): the biggest first; its product name A to Z.
@@ -238,6 +247,7 @@ const SALES_SORTS = new Set([
   'unidades_30d',
   'facturado_30d',
   'markup_30d',
+  'markup_sell_30d',
   'total_gauss_30d',
   // the audit's Rotación: the Board's figures (ml_metricas.ver)
   'ultima_venta',
@@ -245,7 +255,7 @@ const SALES_SORTS = new Set([
   'cobertura',
   'rotacion',
 ]);
-const MARGIN_SORTS = new Set(['markup', 'markup_30d', 'total_gauss_30d', 'costo', ...PRICE_MARKUP_SORTS]);
+const MARGIN_SORTS = new Set(['markup', 'markup_siso', 'markup_30d', 'markup_sell_30d', 'total_gauss_30d', 'costo', ...PRICE_MARKUP_SORTS]);
 
 /** Métricas' default (Facturado 30D) for who sees the sales; the activity otherwise. */
 export const defaultSortFor = ({ canSeeSales = false } = {}) => (canSeeSales ? 'facturado_30d' : 'actividad');
@@ -343,7 +353,15 @@ export function sortParams(sort) {
  * The sorts of the Producto view (`/view/products` `orden`): Métricas ML's figures of a product and its name. A sort
  * of the publication list the products have no figure for (price, stock...) is not one of them.
  */
-export const PRODUCT_SORTS = ['titulo', 'unidades_7d', 'unidades_30d', 'markup_30d', 'facturado_30d', 'total_gauss_30d'];
+export const PRODUCT_SORTS = [
+  'titulo',
+  'unidades_7d',
+  'unidades_30d',
+  'markup_30d',
+  'markup_sell_30d',
+  'facturado_30d',
+  'total_gauss_30d',
+];
 
 /**
  * The sort the Producto view really applies: the URL's when the products can be sorted by it and the user may ask
@@ -383,6 +401,7 @@ export const STOCK_AUDIT_SORTS = [
   'total_gauss_30d',
   'markup_30d',
   'markup',
+  'markup_siso',
   'ultima_venta',
   'ageing',
   'cobertura',
@@ -416,7 +435,10 @@ export function effectiveAuditSort(filters, permissions = {}) {
 export function buildStockAuditParams(filters, pageSize = filters.limite ?? PAGE_SIZE, permissions = {}) {
   const params = withLayerOnlyForColors(buildItemsParams(filters, pageSize, { canSeeMargin: false }));
   const sort = effectiveAuditSort(filters, permissions);
-  return { ...params, orden: sort.key, dir: sort.dir };
+  const level = {};
+  if (filters.nivel) level.nivel = filters.nivel;
+  for (const key of AUDIT_DRILL_KEYS) if (filters[key]) level[key] = filters[key];
+  return { ...params, ...level, orden: sort.key, dir: sort.dir };
 }
 
 /** The `GET /ml-publications/view/stock-audit/export` query: the audit's own, every row (no page). */
@@ -427,6 +449,17 @@ export function buildStockAuditExportParams(filters, permissions = {}) {
 }
 
 const csv = (value) => (value ? value.split(',').filter(Boolean) : []);
+
+/** The audit's opened rows from the URL (a JSON list of row keys); anything else opens none. */
+function openedKeys(value) {
+  if (!value) return [];
+  try {
+    const keys = JSON.parse(value);
+    return Array.isArray(keys) ? keys.filter((key) => typeof key === 'string') : [];
+  } catch {
+    return [];
+  }
+}
 
 // "Sin stock ML" (`sin_stock`, ML's available, a sum) and "Sin stock propio" (`propio_sin_stock`, the published
 // quantity) left the screen: a saved or shared link that still carries them opens without them, never an error.
@@ -467,6 +500,10 @@ function readFilters(params, { canSeeMargin = false } = {}) {
   filters.familias = ['1', 'true'].includes(params.get('familias')) ? '1' : '';
   const agrupar = params.get('agrupar');
   filters.agrupar = AGRUPAR_DIMENSIONS.includes(agrupar) ? agrupar : AGRUPAR_DIMENSIONS[0];
+  const nivel = params.get('nivel');
+  filters.nivel = AUDIT_LEVELS.includes(nivel) ? nivel : AUDIT_LEVELS[0];
+  for (const key of AUDIT_DRILL_KEYS) filters[key] = params.get(key) ?? '';
+  filters.abiertos = openedKeys(params.get('abiertos'));
   filters.orden = params.get('orden') ?? '';
   // One direction per `orden` key (csv); one that is not asc / desc is that key's default ('').
   const dirs = (params.get('dir') ?? '').split(',').map((dir) => (DIRECTIONS.includes(dir) ? dir : ''));
@@ -666,7 +703,9 @@ export function usePublicacionesMLFilters({ canSeeMargin = false } = {}) {
           else next.set(key, Array.isArray(value) ? value.join(',') : String(value));
         }
         const changed = Object.keys(updates);
-        const touchesList = changed.some((key) => FILTER_KEYS.includes(key) || SORT_KEYS.includes(key) || SHAPE_KEYS.includes(key));
+        const touchesList = changed.some(
+          (key) => FILTER_KEYS.includes(key) || SORT_KEYS.includes(key) || SHAPE_KEYS.includes(key) || AUDIT_DRILL_KEYS.includes(key),
+        );
         if (touchesList) {
           for (const key of VIEW_KEYS) if (!changed.includes(key)) next.delete(key);
         }

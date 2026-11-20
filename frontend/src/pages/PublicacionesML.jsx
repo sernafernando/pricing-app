@@ -50,6 +50,7 @@ import PromoAplicadaChips from '../components/publicacionesMl/PromoAplicadaChips
 import StockAuditTable from '../components/publicacionesMl/auditoria/StockAuditTable';
 import { AUDIT_KPI_OPTIONS, auditColumnLayout } from '../components/publicacionesMl/auditoria/auditOptions';
 import StockAuditKpis from '../components/publicacionesMl/auditoria/StockAuditKpis';
+import AuditLevelBar from '../components/publicacionesMl/auditoria/AuditLevelBar';
 import useStockAudit from '../components/publicacionesMl/auditoria/useStockAudit';
 import { exportAuditoriaStockExcel } from '../components/publicacionesMl/auditoria/exportStockAudit';
 import auditStyles from '../components/publicacionesMl/auditoria/StockAudit.module.css';
@@ -216,6 +217,8 @@ const VISTA_OPTIONS = [
 // The stock audit (auditoria-stock S2, S8): only for `ml_publicaciones.ver_auditoria_stock`.
 const AUDIT_PERMISSION = 'ml_publicaciones.ver_auditoria_stock';
 const AUDIT_OPTION = { value: 'auditoria', label: 'Auditoría de stock' };
+// What a row of the audit is at each level (auditoria-stock-niveles S1), for "de N …".
+const AUDIT_UNITS = { marca: 'marcas', categoria: 'categorías', producto: 'productos' };
 // Shared column presets (pubml-columnas-presets S3): creating, editing or deleting them.
 const SHARED_PRESETS_PERMISSION = 'ml_publicaciones.presets_compartidos';
 // The audit's columns start all visible (auditoria-stock L6).
@@ -601,7 +604,16 @@ export default function PublicacionesML() {
   const treeSizing = useResizableColumns(PUBML_COLUMN_SIZING_KEYS.agrupado);
   const stats = usePublicationStats(buildStatsParams(rowFilters), !layerPending && !publicacion && !auditoria);
   // The stock audit's rows, KPIs and rate; its hideable columns and KPI cards, each remembered per browser (L6).
-  const stockAudit = useStockAudit({ filters: rowFilters, pageSize, canSeeSales, canSeeMargin, enabled: auditoria && !layerPending });
+  // Its opened rows live in the URL (`abiertos`), so a reload opens them again (auditoria-stock-niveles S1).
+  const stockAudit = useStockAudit({
+    filters: rowFilters,
+    pageSize,
+    canSeeSales,
+    canSeeMargin,
+    enabled: auditoria && !layerPending,
+    expanded: filters.abiertos,
+    onExpandedChange: (keys) => setFilters({ abiertos: keys.length > 0 ? JSON.stringify(keys) : '' }, { replace: true }),
+  });
   const auditKpis = useHiddenKpis('publicaciones-ml.auditoria.kpis-ocultos', AUDIT_KPI_OPTIONS);
   const productRows = useProductRows({
     filters: rowFilters,
@@ -747,7 +759,8 @@ export default function PublicacionesML() {
     () => layoutView(layoutStore, auditoria ? auditColumnMeta : columns, auditoria ? NO_HIDDEN_COLUMNS : columnDefaults),
     [layoutStore, auditoria, auditColumnMeta, columns, columnDefaults],
   );
-  const visibleColumns = useMemo(() => columnLayout.arrange(columns), [columnLayout, columns]);
+  // The audit arranges its own columns (`StockAuditTable`): the list's are not drawn there.
+  const visibleColumns = useMemo(() => (auditoria ? columns : columnLayout.arrange(columns)), [auditoria, columnLayout, columns]);
   const selection = useMemo(
     () => ({ checked: checkedRows, onToggle: rowSelection.onToggle, togglePage: rowSelection.togglePage, pageState: rowSelection.pageState }),
     [checkedRows, rowSelection.onToggle, rowSelection.togglePage, rowSelection.pageState],
@@ -937,7 +950,7 @@ export default function PublicacionesML() {
     showToast,
   });
   const total = auditoria ? stockAudit.total : producto ? productRows.total : (data?.total ?? 0);
-  const unit = producto || auditoria ? 'productos' : 'publicaciones';
+  const unit = auditoria ? AUDIT_UNITS[filters.nivel] : producto ? 'productos' : 'publicaciones';
   const offset = pageOffset(filters.pagina, pageSize);
   const emptyMessage = data?.data_state?.store_empty
     ? 'Todavía no hay publicaciones sincronizadas'
@@ -1204,17 +1217,23 @@ export default function PublicacionesML() {
             de {total} {unit}
           </span>
         }
-        onOffsetChange={(next) => setFilters({ pagina: Math.floor(next / pageSize) + 1 })}
+        onOffsetChange={(next) => setFilters({ pagina: Math.floor(next / pageSize) + 1, abiertos: '' })}
         onPageSizeChange={(size) => setFilters({ limite: size === PAGE_SIZE ? '' : size })}
       />
   );
 
+  // "Ver por" and the drill's way back, over the audit's table (auditoria-stock-niveles S1).
+  const auditLevels = auditoria && (
+    <AuditLevelBar filters={filters} onChange={setFilters} names={stockAudit.data?.grupo_nombres} />
+  );
   const auditTable = auditoria && (
     <StockAuditTable
       audit={stockAudit}
       canSeeSales={canSeeSales}
       canSeeMargin={canSeeMargin}
       arrange={columnLayout.arrange}
+      nivel={filters.nivel}
+      onDrill={setFilters}
       sort={sort}
       onSort={handleSort}
       onSelectItem={handleRowClick}
@@ -1257,6 +1276,7 @@ export default function PublicacionesML() {
         {auditoria && (
           <div className={phoneStyles.kpis}>
             <StockAuditKpis audit={stockAudit} isVisible={auditKpis.isVisible} />
+            {auditLevels}
           </div>
         )}
         {canSeeKpis && !sinMla && !auditoria && (
@@ -1542,6 +1562,7 @@ export default function PublicacionesML() {
 
       {auditoria && <AuditRateLine rate={stockAudit.data?.tipo_cambio} />}
       {auditoria && <StockAuditKpis audit={stockAudit} isVisible={auditKpis.isVisible} />}
+      {auditLevels}
 
       {canSeeKpis && !sinMla && !auditoria && (
         <PublicationKpiStrip

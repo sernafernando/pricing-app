@@ -175,3 +175,30 @@ def test_the_checklist_table_lists_every_filter():
     table = ui_filters.checklist_markdown(sorted(ui_filters.UI_FILTERS))
     rows = sum(max(1, len(entry.filters)) for entry in ui_filters.UI_FILTERS.values())
     assert table.count("✅") == rows
+
+
+def _schema_fields(name: str) -> set[str]:
+    return set(OPENAPI["components"]["schemas"][name]["properties"])
+
+
+def test_the_markup_with_sell_in_out_reaches_the_publicaciones_ml_tools():
+    """pubml-markup-siso S5: the tools return their endpoint's body as is, so the markup c/ SISO fields of every
+    view are in the tools' answers exactly when the endpoints' schemas declare them (nested fields: the top-level
+    check above does not see them), and the sort keys are in the `orden` arguments' descriptions."""
+    catalog = {spec.name: spec.path for spec in tools.CATALOG}
+    assert catalog["pubml_items"] == "/api/ml-publications/view/items"
+    assert "markup_siso" in _schema_fields("ItemRowOut")
+    assert {"min", "max", "worst", "pending", "applies"} == _schema_fields("SisoMarkupOut")
+    assert "markup_sell_30d" in _schema_fields("MetricsOut")  # the Publicaciones and Producto rows' metrics
+    assert {"markup_siso_min", "markup_siso_max"} <= _schema_fields("GroupNodeOut")
+    assert "markup_siso" in _schema_fields("StockAuditRowOut") and "markup_siso" in _schema_fields(
+        "StockAuditVariantOut"
+    )
+    orden = {
+        name: built.input_schema["properties"]["orden"]["description"]
+        for name, built in CATALOG_BUILT.items()
+        if "orden" in built.input_schema["properties"]
+    }
+    assert "markup_siso" in orden["pubml_items"] and "markup_sell_30d" in orden["pubml_items"]
+    assert "markup_sell_30d" in orden["pubml_products"]
+    assert "markup_siso" in orden["pubml_stock_audit"]

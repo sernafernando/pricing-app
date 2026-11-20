@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import MarkupCell from './MarkupCell';
+import MarkupCell, { SisoMarkupCell } from './MarkupCell';
 import { buildColumns } from './columns';
 
 const markup = (overrides) => ({ min: 12, max: 18, worst: 12, any_negative: false, reason: 'ok', partial: 0, ads: null, ...overrides });
@@ -85,5 +85,38 @@ describe('the markup column', () => {
     const columns = buildColumns({ eventsEnabled: true, canSeeMargin: true });
     expect(columns.map((column) => column.key).indexOf('markup')).toBe(columns.map((column) => column.key).indexOf('precio') + 1);
     expect(columns.find((column) => column.key === 'markup').sortable).toBe(true);
+  });
+});
+
+describe('SisoMarkupCell (Markup actual c/ SISO)', () => {
+  const siso = (overrides = {}) => ({ min: 20, max: 26, worst: 20, pending: 0, applies: true, ...overrides });
+
+  it('shows the range with sell in / sell out', () => {
+    render(<SisoMarkupCell siso={siso()} />);
+    expect(screen.getByText('20,0% – 26,0%')).toHaveAttribute('title', 'Con sell in / sell out al precio de hoy');
+  });
+
+  it('says it is the current markup where neither applies', () => {
+    render(<SisoMarkupCell siso={siso({ min: 15, max: 15, worst: 15, applies: false })} />);
+    expect(screen.getByText('15,0%')).toHaveAttribute('title', 'Sin sell in ni sell out: es el markup actual');
+  });
+
+  it('reads "Pendiente" when a unit cannot be priced and none has a value, as Precios', () => {
+    render(<SisoMarkupCell siso={siso({ min: null, max: null, worst: null, pending: 1 })} />);
+    expect(screen.getByText('Pendiente')).toHaveAttribute('title', 'Falta el tipo de cambio o la base para calcular el markup');
+  });
+
+  it('marks a range with pending units', () => {
+    render(<SisoMarkupCell siso={siso({ pending: 2 })} />);
+    expect(screen.getByText('(2 pendientes)')).toBeInTheDocument();
+  });
+
+  it('negative ranges are flagged like the plain markup, and no value reads "—"', () => {
+    const { rerender } = render(<SisoMarkupCell siso={siso({ min: -3, max: 5, worst: -3 })} />);
+    expect(screen.getByText('-3,0% – 5,0%')).toHaveAttribute('data-negative', '');
+    rerender(<SisoMarkupCell siso={siso({ min: null, max: null, worst: null, applies: false })} />);
+    expect(screen.getByText('—')).toBeInTheDocument();
+    rerender(<SisoMarkupCell siso={null} />);
+    expect(screen.getByText('—')).toBeInTheDocument();
   });
 });

@@ -287,3 +287,54 @@ class TestDetail:
         row = self.detail_row(client, admin_auth_headers, "MLA2")
         assert row["metrics"] is None
         assert row["sales_30d"] == {"units": 0, "gross": 0.0, "markup": None}
+
+
+class TestShippingSplit:
+    """auditoria-stock-niveles S3: `desglose_envio=true` adds each publication's 7d / 30d units by ERP and Full
+    (`metrics.envio`), the Auditoría de stock's publication rows. The split's own arithmetic is the Board's
+    (`test_board_envio_por_publicacion_postgres`); here it is faked."""
+
+    @pytest.fixture()
+    def split(self, monkeypatch) -> list[list[str]]:
+        from app.routers import ml_publications_view
+
+        seen: list[list[str]] = []
+
+        def fake(db, mlas):
+            seen.append(sorted(mlas))
+            return {
+                "MLA1": board_module.ShippingSplit(
+                    full_7d=2, full_30d=2, erp_7d=3, erp_30d=3, unknown_7d=1, unknown_30d=1
+                )
+            }
+
+        monkeypatch.setattr(ml_publications_view.row_metrics, "fulfillment_by_mla", fake)
+        return seen
+
+    def items(self, client, headers, **params) -> dict:
+        response = client.get(URL, headers=headers, params=params)
+        assert response.status_code == 200, response.text
+        return {row["item_id"]: row for row in response.json()["items"]}
+
+    def test_it_splits_the_units_into_erp_and_full(self, client, sold, db, rol_admin, admin_auth_headers, split):
+        grant(db, rol_admin, VER, METRICAS)
+        got = self.items(client, admin_auth_headers, desglose_envio="true")
+        metrics = got["MLA1"]["metrics"]
+        assert metrics["envio"] == {
+            "7d": {"erp": 3, "full": 2, "sin_envio": 1},
+            "30d": {"erp": 3, "full": 2, "sin_envio": 1},
+        }
+        assert metrics["envio"]["30d"]["erp"] + metrics["envio"]["30d"]["full"] == metrics["units_30d"]
+        assert split == [["MLA1", "MLA2", "MLA3"]]  # one read for the page
+
+    def test_without_it_there_is_no_split_nor_its_read(self, client, sold, db, rol_admin, admin_auth_headers, split):
+        grant(db, rol_admin, VER, METRICAS)
+        got = self.items(client, admin_auth_headers)
+        assert "envio" not in got["MLA1"]["metrics"]
+        assert split == []
+
+    def test_without_metricas_there_is_no_split(self, client, sold, db, rol_admin, admin_auth_headers, split):
+        grant(db, rol_admin, VER)
+        got = self.items(client, admin_auth_headers, desglose_envio="true")
+        assert got["MLA1"].get("metrics") is None
+        assert split == []

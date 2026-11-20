@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { formatAmount } from '../../utils/ventasMlFormat';
-import MarkupCell from './MarkupCell';
+import MarkupCell, { SisoMarkupCell } from './MarkupCell';
 import { costLabel, readVariation } from './variationRows';
 import { describeVariationsError, useVariations } from './useVariations';
 import cellStyles from './cells.module.css';
@@ -36,6 +36,8 @@ function VariationCell({ column, variation, canSeeMargin }) {
       );
     case 'markup':
       return canSeeMargin ? <MarkupCell markup={variation.markup} /> : null;
+    case 'markup_siso':
+      return canSeeMargin ? <SisoMarkupCell siso={variation.markupSiso} /> : null;
     case 'stock_erp':
     case 'stock_full':
     case 'stock_total':

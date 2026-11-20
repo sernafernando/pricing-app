@@ -31,7 +31,9 @@ from sqlalchemy.sql.functions import FunctionElement
 from app.models.venta_fuera_pdf import VentaFueraOperacion, VentaFueraOperacionLinea
 
 CANAL = "fuera"
-# Costo D: 'Precio Costo' x 1.065 (owner, L14: "Costo D (Precio Costo × 1,065)").
+# Costo D: 'Precio Costo' x 1.065 (owner, L14: "Costo D (Precio Costo × 1,065)"). The ONE backend constant
+# (board, list, manual costs, offsets); owner L3: management may switch it to VARIOS later, a one-line change here
+# and in the frontend's `utils/ventasFueraOperaciones.js`.
 COSTO_D_FACTOR = Decimal("1.065")
 
 _linea = VentaFueraOperacionLinea.__table__

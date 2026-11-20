@@ -12,6 +12,7 @@ import {
   GrossCell,
   LastSaleCell,
   MarkupRealCell,
+  MarkupRealSisoCell,
   MarkupTrendCell,
   TotalStockCell,
   TotalGaussCell,
@@ -77,6 +78,23 @@ describe('markup', () => {
     const { rerender } = render(<MarkupRealCell metrics={NO_SALES} />);
     expect(screen.getByText('—')).toBeInTheDocument();
     rerender(<MarkupRealCell metrics={null} />);
+    expect(screen.getByText('—')).toBeInTheDocument();
+  });
+
+  it('Real 30D c/ SISO shows the Board markup with sell in / sell out', () => {
+    render(<MarkupRealSisoCell metrics={{ ...METRICS, markup_sell_30d: 26.3 }} />);
+    expect(screen.getByText('26,3%')).toHaveAttribute('title', 'Con sell in / sell out de las ventas de 30 días');
+  });
+
+  it('Real 30D c/ SISO is the plain real markup where neither applies, never "—" for that', () => {
+    render(<MarkupRealSisoCell metrics={{ ...METRICS, markup_sell_30d: null }} />);
+    expect(screen.getByText('18,5%')).toHaveAttribute('title', 'Sin sell in ni sell out en las ventas de 30 días');
+  });
+
+  it('Real 30D c/ SISO reads "—" without sales or without a row', () => {
+    const { rerender } = render(<MarkupRealSisoCell metrics={NO_SALES} />);
+    expect(screen.getByText('—')).toBeInTheDocument();
+    rerender(<MarkupRealSisoCell metrics={null} />);
     expect(screen.getByText('—')).toBeInTheDocument();
   });
 

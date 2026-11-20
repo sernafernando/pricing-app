@@ -240,3 +240,88 @@
   font-size: 1.25em;
   line-height: 1;
 }
+
+/* "Ver por: Marca / Categoría / Producto" and the drill's way back (auditoria-stock-niveles S1). */
+.levelBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--spacing-sm);
+}
+
+.levelLabel {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-sm);
+}
+
+.crumb {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--cf-accent-blue);
+  cursor: pointer;
+}
+
+.crumb:hover {
+  text-decoration: underline;
+}
+
+.crumbSep {
+  color: var(--cf-text-tertiary);
+}
+
+.crumbCurrent {
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+/* A brand's or a category's name: the group's figures sum its products, its name reads a step above theirs. */
+.groupName {
+  font-weight: var(--font-semibold);
+}
+
+/* "Ver categorías" / "Ver productos" in a group's second line. */
+.drill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--cf-accent-blue);
+  cursor: pointer;
+}
+
+.drill:hover {
+  text-decoration: underline;
+}
+
+/* "ERP n · Full n" under the sales, coverage and rotation figures (auditoria-stock-niveles S3, S4). */
+.split {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-tertiary);
+  white-space: nowrap;
+}
+
+/* "N productos sin costo" beside a group's values. */
+.noCost {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--font-xs);
+  color: var(--tone-warning-fg);
+  white-space: nowrap;
+}

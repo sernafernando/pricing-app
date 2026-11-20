@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from app.models.producto import ProductoERP
 from app.services.combos.componentes import combos_que_contienen, componentes_de, exigir_combos_disponibles
+from app.services.combos.pcs import sin_pcs
 from app.services.pricing_calculator import obtener_tipo_cambio_actual
 
 CENT = Decimal("0.01")
@@ -40,16 +41,21 @@ class Parte:
     peso: Decimal  # its share of the combo's price and cost; the parts of a combo add up to 1
 
 
-def partes_de_combos(db: Session, item_ids: Iterable[int]) -> Dict[int, List[Parte]]:
+def partes_de_combos(db: Session, item_ids: Iterable[int], *, pc_entidad: bool = False) -> Dict[int, List[Parte]]:
     """`{combo: its parts, by component}` for every combo holding one of `item_ids`, and for the ones of `item_ids`
     that are combos themselves (so a reader can skip their own rows). A fixed number of queries. Raises
-    `CombosNoSincronizados` while the bill of materials is empty."""
+    `CombosNoSincronizados` while the bill of materials is empty.
+
+    `pc_entidad` leaves the PCs out (`combos.pcs`): a PC is then a plain product, its sales its own and never its
+    components'. Sell out, cost bonuses and the lots ask for it (the lots through `sell_in.costing.LOTES_PC_COMO_ENTIDAD`)."""
     ids = {int(i) for i in item_ids if i is not None}
     if not ids:
         return {}
     exigir_combos_disponibles(db)
     combos = set().union(*combos_que_contienen(db, ids).values()) | set(componentes_de(db, ids))
     composicion = componentes_de(db, combos)
+    if pc_entidad:
+        composicion = sin_pcs(db, composicion)
     costos = _costos_ars(db, {c for comps in composicion.values() for c in comps})
     return {combo: _partes(comps, costos) for combo, comps in sorted(composicion.items())}
 

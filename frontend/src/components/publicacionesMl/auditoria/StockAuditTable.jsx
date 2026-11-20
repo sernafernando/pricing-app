@@ -1,8 +1,8 @@
-import { ChevronDown, ChevronRight, Cpu, Tag, TriangleAlert } from 'lucide-react';
+import { ChevronDown, ChevronRight, CornerDownRight, Cpu, Tag, TriangleAlert } from 'lucide-react';
 import { TableShell } from '../../kit';
 import { buildColumns } from '../columns';
 import { BranchState, NodeSummary } from '../NodeCells';
-import MarkupCell from '../MarkupCell';
+import MarkupCell, { SisoMarkupCell } from '../MarkupCell';
 import {
   AgeingCell,
   GrossCell,
@@ -15,14 +15,15 @@ import {
   UnitsTrendCell,
 } from '../MetricsCells';
 import { formatRatio, formatUnits } from '../../../utils/metricasMlFormat';
-import { auditMarkup, auditMetrics, fromVariants, isPack, valueOf } from './stockAuditRows';
+import { auditMarkup, auditMetrics, drillOf, fromVariants, isPack, salesSplit, valueOf } from './stockAuditRows';
 import { AUDIT_GROUPS } from './auditOptions';
 import cellStyles from '../cells.module.css';
 import nodeStyles from '../NodeCells.module.css';
 import styles from './StockAudit.module.css';
 
 /**
- * The Auditoría de stock table (approved mock v2): product › variante › publicación, grouped columns Stock
+ * The Auditoría de stock table (approved mock v2): marca › categoría › product › variante › publicación
+ * (auditoria-stock-niveles S1, the table starting at the level the view asks), grouped columns Stock
  * (unidades), Valor stock (USD · ARS), Ventas (unidades), Markup con sell in / sell out, Resultado and Rotación. Every column
  * but the first can be hidden (`AUDIT_COLUMN_OPTIONS`, the page's picker); the sortable ones send their key as the
  * backend's `orden`. A publication row draws the list's own cells (`buildColumns`), so it reads like everywhere else.
@@ -33,24 +34,51 @@ const { STOCK, VALOR, VENTAS, MARKUP, RESULTADO, ROTACION } = AUDIT_GROUPS;
 const MONEY = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
 const dash = <span className={cellStyles.empty}>—</span>;
 
-/** A figure with an optional note under it ("12 de variantes", "25 packs"). */
-function Figure({ children, note, strong = false }) {
+/** "ERP n · Full n" under a sales figure (auditoria-stock-niveles S3): Full = shipped from ML's Full warehouse, ERP =
+ * the rest, out of the own stock: colecta, Flex, Turbo and retiro (a sale without shipping data is a pickup at the
+ * store, owner L3). Nothing without the split. */
+function SalesSplit({ split }) {
+  if (!split) return null;
+  return <span className={styles.split}>{`ERP ${formatUnits(split.erp)} · Full ${formatUnits(split.full)}`}</span>;
+}
+
+/** "ERP x · Full y" under Días de cobertura and Rotación (auditoria-stock-niveles S4), already formatted. */
+function OriginSplit({ erp, full }) {
+  return <span className={styles.split}>{`ERP ${erp} · Full ${full}`}</span>;
+}
+
+/** A figure with an optional note under it ("12 de variantes", "25 packs") and its ERP / Full split. */
+function Figure({ children, note, split, strong = false }) {
   return (
     <div className={`${cellStyles.stack} ${cellStyles.stackEnd}`}>
       <span className={strong ? styles.strong : undefined}>{children}</span>
       {note && <span className={styles.figureNote}>{note}</span>}
+      <SalesSplit split={split} />
     </div>
   );
 }
 
-/** A stock value: USD on the first line, ARS under it in the muted mono; "—" when unknown. */
-function Value({ money, strong = false }) {
+/** A stock value: USD on the first line, ARS under it in the muted mono; "—" when unknown. `note` goes under it. */
+function Value({ money, strong = false, note = null }) {
   if (!money || (money.usd == null && money.ars == null)) return dash;
   return (
     <div className={`${cellStyles.stack} ${cellStyles.stackEnd}`}>
       <span className={`${styles.usd} ${strong ? styles.strong : ''}`}>{money.usd == null ? '—' : MONEY.format(money.usd)}</span>
       <span className={styles.ars}>{money.ars == null ? '—' : `$ ${MONEY.format(money.ars)}`}</span>
+      {note}
     </div>
+  );
+}
+
+/** "N productos sin costo" beside a group's values (auditoria-stock-niveles S2): they are its costed products' only,
+ * as the KPI cards say. */
+function NoCostNote({ count }) {
+  if (!count) return null;
+  return (
+    <span className={styles.noCost}>
+      <TriangleAlert size={11} aria-hidden="true" />
+      {count} {count === 1 ? 'producto' : 'productos'} sin costo
+    </span>
   );
 }
 
@@ -119,6 +147,55 @@ function NodeTitleCell({ row, onToggle }) {
   );
 }
 
+const GROUP_KINDS = { marca: 'Marca', categoria: 'Categoría' };
+
+/** The first cell of a brand or a category: toggle, name, how many products, and the way into it. */
+function GroupTitleCell({ row, onToggle, onDrill }) {
+  const { node, expanded } = row;
+  const Icon = expanded ? ChevronDown : ChevronRight;
+  const target = node.tipo === 'marca' ? 'categorías' : 'productos';
+  return (
+    <div className={nodeStyles.node}>
+      <button
+        type="button"
+        className={cellStyles.toggle}
+        aria-expanded={expanded}
+        aria-label={`${expanded ? 'Cerrar' : 'Abrir'} ${node.descripcion}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggle(row);
+        }}
+      >
+        <Icon size={14} aria-hidden="true" />
+      </button>
+      <div className={nodeStyles.nodeText}>
+        <span className={`${nodeStyles.nodeLabel} ${styles.groupName}`} title={node.descripcion}>
+          {node.descripcion}
+        </span>
+        <span className={styles.nodeNote}>
+          <span>{GROUP_KINDS[node.tipo]}</span>
+          <span>· {plural(node.productos ?? 0, 'producto', 'productos')}</span>
+          {onDrill && (
+            <button
+              type="button"
+              className={styles.drill}
+              aria-label={`Ver ${target} de ${node.descripcion}`}
+              title={`Ver solo ${target} de ${node.descripcion}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onDrill(drillOf(node));
+              }}
+            >
+              <CornerDownRight size={11} aria-hidden="true" />
+              Ver {target}
+            </button>
+          )}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 /** Units sold in base units with "N packs" under a pack's (own count) figure. */
 function packNote(variant, count) {
   return isPack(variant) && count != null ? `${formatUnits(count)} packs` : null;
@@ -159,20 +236,35 @@ const STOCK_UNITS = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 })
 
 // The Rotación group is the whole product's whatever the filter (L2): every figure's tooltip says so.
 const WHOLE_PRODUCT = 'del producto completo, sin filtros';
+// What each figure is (auditoria-ventas-erp-full L2): its header's tooltip, the formula `stock_audit` computes.
+const COVERAGE_HINT =
+  'Días que alcanza el stock al ritmo de venta de los últimos 30 días: stock ÷ (vendidas en 30 días ÷ 30). ∞: hay stock y no hubo ventas.';
+const ROTATION_HINT =
+  'Veces que se vendió el stock en 30 días: vendidas en 30 días ÷ stock promedio de los días con foto del stock (sin fotos, el stock actual).';
+const COUNT = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
 
 /** Días de cobertura (rotacion S2): the stock now at the last 30 days' pace; "∞" with stock and no sale (L1 Q2). */
 function CoverageCell({ ventas }) {
+  const known = ventas?.stock_actual != null && ventas?.vendidas_30d != null;
   if (ventas?.cobertura_infinita) {
+    const title = known
+      ? `${COUNT.format(ventas.stock_actual)} en stock y ninguna venta en 30 días: no se agota al ritmo actual, ${WHOLE_PRODUCT}`
+      : `Con stock y sin ventas en 30 días, ${WHOLE_PRODUCT}`;
     return (
-      <span className={`${styles.rotationFigure} ${styles.infinite}`} aria-label="Días de cobertura" title={`Con stock y sin ventas en 30 días, ${WHOLE_PRODUCT}`}>
+      <span className={`${styles.rotationFigure} ${styles.infinite}`} aria-label="Días de cobertura" title={title}>
         ∞
       </span>
     );
   }
   if (ventas?.dias_cobertura == null) return dash;
+  const days = Math.round(ventas.dias_cobertura);
+  // A month is 30 days, the formula's own window.
+  const title = known
+    ? `Días que alcanza el stock al ritmo de venta de 30 días: ${COUNT.format(ventas.stock_actual)} ÷ (${COUNT.format(ventas.vendidas_30d)} ÷ 30) = ${COUNT.format(days)} días (≈ ${COUNT.format(Math.round(days / 30))} ${Math.round(days / 30) === 1 ? 'mes' : 'meses'}), ${WHOLE_PRODUCT}`
+    : `Ventas 30D, ${WHOLE_PRODUCT}`;
   return (
-    <span className={styles.rotationFigure} aria-label="Días de cobertura" title={`Ventas 30D, ${WHOLE_PRODUCT}`}>
-      {formatUnits(Math.round(ventas.dias_cobertura))}
+    <span className={styles.rotationFigure} aria-label="Días de cobertura" title={title}>
+      {`${formatUnits(days)} d`}
     </span>
   );
 }
@@ -184,36 +276,82 @@ function RotationCell({ ventas }) {
   const days = ventas.stock_promedio_dias;
   const stock = `${STOCK_UNITS.format(ventas.stock_promedio)} u.`;
   const approximate = !days;
-  const title = approximate
-    ? `Aproximado: sobre el stock actual (${stock}), todavía no hay fotos diarias del stock, ${WHOLE_PRODUCT}`
-    : `Ventas 30D sobre el stock promedio de ${formatUnits(days)} ${days === 1 ? 'día' : 'días'} (${stock}), ${WHOLE_PRODUCT}`;
+  const sold = ventas.vendidas_30d;
+  let title;
+  if (sold == null) {
+    title = approximate
+      ? `Aproximado: sobre el stock actual (${stock}), todavía no hay fotos diarias del stock, ${WHOLE_PRODUCT}`
+      : `Ventas 30D sobre el stock promedio de ${formatUnits(days)} ${days === 1 ? 'día' : 'días'} (${stock}), ${WHOLE_PRODUCT}`;
+  } else {
+    const base = approximate
+      ? `${STOCK_UNITS.format(ventas.stock_promedio)} de stock actual (aproximado: todavía no hay fotos diarias del stock)`
+      : `${STOCK_UNITS.format(ventas.stock_promedio)} de stock promedio (${formatUnits(days)} ${days === 1 ? 'día' : 'días'})`;
+    title = `Veces que se vendió el stock en 30 días: ${COUNT.format(sold)} vendidas ÷ ${base} = ${formatRatio(ventas.rotacion)}, ${WHOLE_PRODUCT}`;
+  }
   return (
     <span className={styles.rotationFigure} aria-label="Rotación (veces)" title={title}>
-      {approximate ? `≈ ${formatRatio(ventas.rotacion)}` : formatRatio(ventas.rotacion)}
+      {`${approximate ? '≈ ' : ''}${formatRatio(ventas.rotacion)}×/30d`}
     </span>
+  );
+}
+
+/** One origin's coverage (`ventas.por_origen.erp`): "∞" with stock and no sale, 0 with sales and no stock (out of
+ * stock), "—" only with neither. */
+const originCoverage = (origin) =>
+  origin?.cobertura_infinita ? '∞' : origin?.dias_cobertura == null ? '—' : formatUnits(Math.round(origin.dias_cobertura));
+/** One origin's rotation: "∞" when it sold with an average stock of 0 (out of stock: sold ÷ 0 has no number). */
+const originRotation = (origin) =>
+  origin?.rotacion_infinita ? '∞' : origin?.rotacion == null ? '—' : formatRatio(origin.rotacion);
+
+/** A Rotación figure with its "ERP · Full" line under it, when the row has one. */
+function RotationFigure({ children, ventas, of }) {
+  const origin = ventas?.por_origen;
+  if (!origin) return children;
+  return (
+    <div className={`${cellStyles.stack} ${cellStyles.stackEnd}`}>
+      {children}
+      <OriginSplit erp={of(origin.erp)} full={of(origin.full)} />
+    </div>
   );
 }
 
 /** The Board's last sale and ageing of a product or variant, in the list cells' shape. */
 const lastSaleOf = (ventas) => (ventas ? { last_sale_at: ventas.ultima_venta, ageing_days: ventas.ageing_dias } : null);
 
-function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, isVisible, arrange }) {
+// The first column says the tree the level starts.
+const TREE_HEADERS = {
+  marca: 'Marca › Categoría › Producto',
+  categoria: 'Categoría › Producto › Variante',
+  producto: 'Producto › Variante › Publicación',
+};
+
+/** A state row of a category's products: the publications' (`BranchState`) but its own empty line. */
+function AuditBranchState({ row, onMore }) {
+  if (row.branchKind === 'products' && row.type === 'state' && row.state === 'empty') {
+    return <span className={cellStyles.note}>Sin productos con los filtros actuales</span>;
+  }
+  return <BranchState row={row} onMore={onMore} onRetry={onMore} />;
+}
+
+function buildAuditColumns({ canSeeSales, canSeeMargin, rate, nivel, onToggle, onDrill, onMore, arrange }) {
   // A publication draws the list's own cells (Tipo, Estado, sales, markups, Total Gauss).
   const list = Object.fromEntries(buildColumns({ eventsEnabled: false, canSeeSales, canSeeMargin }).map((column) => [column.key, column]));
   const item = (key, row) => list[key].render(row.item);
 
-  const metricsOf = (row) => {
-    if (row.type === 'product') return auditMetrics(row.node.ventas);
-    const factor = isPack(row.node) ? Number(row.node.cantidad) : 1;
-    return auditMetrics(row.node.ventas, factor);
-  };
+  // A pack's units in base units: its figures and its ERP / Full split alike, so ERP + Full is the total shown.
+  const factorOf = (row) => (row.type === 'variant' && isPack(row.node) ? Number(row.node.cantidad) : 1);
+  const metricsOf = (row) => auditMetrics(row.node.ventas, factorOf(row));
+  const splitOf = (row, window) =>
+    row.type === 'item' ? salesSplit(row.item.metrics?.envio?.[window]) : salesSplit(row.node.ventas?.envio?.[window], factorOf(row));
+  // A product's or a group's own figures (a group is its products' sum).
+  const own = (row) => row.type === 'product' || row.type === 'group';
   // A publication's Full value: its units at its node's cost.
   const itemFull = (row) => valueOf(row.item.stock?.full ?? null, row.owner, rate);
 
   const columns = [
     {
       key: 'descripcion',
-      header: 'Producto › Variante › Publicación',
+      header: TREE_HEADERS[nivel] ?? TREE_HEADERS.producto,
       label: 'Producto',
       width: 400,
       minWidth: 260,
@@ -222,9 +360,10 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, 
       resizeLabel: 'Producto',
       sortable: true,
       render: (row) => {
+        if (row.type === 'group') return <GroupTitleCell row={row} onToggle={onToggle} onDrill={onDrill} />;
         if (row.type === 'product' || row.type === 'variant') return <NodeTitleCell row={row} onToggle={onToggle} />;
         if (row.type === 'item') return item('titulo', row);
-        return <BranchState row={row} onMore={onMore} onRetry={onMore} />;
+        return <AuditBranchState row={row} onMore={onMore} />;
       },
     },
     {
@@ -249,7 +388,7 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, 
       sortable: true,
       align: 'center',
       fit: true,
-      render: (row) => (row.type === 'product' || row.type === 'variant' ? <PromoCounts counts={row.node.promo_counts} /> : null),
+      render: (row) => (row.node ? <PromoCounts counts={row.node.promo_counts} /> : null),
     },
     {
       key: 'unidades_erp',
@@ -260,7 +399,7 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, 
       sortable: true,
       align: 'center',
       fit: true,
-      render: (row) => (row.type === 'product' ? <StockQuantity value={row.node.erp.unidades} /> : row.node || row.item ? dash : null),
+      render: (row) => (own(row) ? <StockQuantity value={row.node.erp.unidades} /> : row.node || row.item ? dash : null),
     },
     {
       key: 'unidades_full',
@@ -272,6 +411,7 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, 
       align: 'center',
       fit: true,
       render: (row) => {
+        if (row.type === 'group') return units(row.node.full.unidades);
         if (row.type === 'product') {
           const { full, source } = fromVariants(row.node);
           return <Figure note={full > 0 ? `${formatUnits(full)} ${source}` : null}>{units(row.node.full.unidades)}</Figure>;
@@ -293,7 +433,7 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, 
       align: 'center',
       fit: true,
       render: (row) => {
-        if (row.type === 'product') return units(row.node.total.unidades, true);
+        if (own(row)) return units(row.node.total.unidades, true);
         if (row.type === 'variant') return units(row.node.full_unidades_base, true);
         return row.item ? dash : null;
       },
@@ -307,7 +447,7 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, 
       sortable: true,
       align: 'center',
       fit: true,
-      render: (row) => (row.type === 'product' ? <Value money={row.node.erp} /> : row.node || row.item ? dash : null),
+      render: (row) => (own(row) ? <Value money={row.node.erp} /> : row.node || row.item ? dash : null),
     },
     {
       key: 'valor_full',
@@ -319,7 +459,7 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, 
       align: 'center',
       fit: true,
       render: (row) => {
-        if (row.type === 'product' || row.type === 'variant') return <Value money={row.node.full} />;
+        if (row.node) return <Value money={row.node.full} />;
         if (row.type === 'item') return <Value money={itemFull(row)} />;
         return null;
       },
@@ -334,6 +474,7 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, 
       align: 'center',
       fit: true,
       render: (row) => {
+        if (row.type === 'group') return <Value money={row.node.total} strong note={<NoCostNote count={row.node.productos_sin_costo} />} />;
         if (row.type === 'product') return <Value money={row.node.total} strong />;
         if (row.type === 'variant') return <Value money={row.node.full} strong />;
         return row.item ? dash : null;
@@ -352,11 +493,21 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, 
         align: 'center',
         fit: true,
         render: (row) => {
-          if (row.type === 'item') return <Figure note={isPack(row.owner) ? 'packs' : null}>{item('unidades_7d', row)}</Figure>;
+          if (row.type === 'item') {
+            return (
+              <Figure note={isPack(row.owner) ? 'packs' : null} split={splitOf(row, '7d')}>
+                {item('unidades_7d', row)}
+              </Figure>
+            );
+          }
           if (!row.node) return null;
           const metrics = metricsOf(row);
           const note = row.type === 'variant' ? packNote(row.node, row.node.ventas?.unidades_7d) : null;
-          return <Figure note={note}>{<UnitsCell value={metrics?.units_7d} />}</Figure>;
+          return (
+            <Figure note={note} split={splitOf(row, '7d')}>
+              <UnitsCell value={metrics?.units_7d} />
+            </Figure>
+          );
         },
       },
       {
@@ -369,16 +520,21 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, 
         align: 'center',
         fit: true,
         render: (row) => {
-          if (row.type === 'item') return <Figure note={isPack(row.owner) ? 'packs' : null}>{item('unidades_30d', row)}</Figure>;
+          if (row.type === 'item') {
+            return (
+              <Figure note={isPack(row.owner) ? 'packs' : null} split={splitOf(row, '30d')}>
+                {item('unidades_30d', row)}
+              </Figure>
+            );
+          }
           if (!row.node) return null;
           const metrics = metricsOf(row);
-          let note = null;
-          if (row.type === 'variant') note = packNote(row.node, row.node.ventas?.unidades_30d);
-          else {
-            const { sold, source } = fromVariants(row.node);
-            note = sold > 0 ? `${formatUnits(sold)} ${source}` : null;
-          }
-          return <Figure note={note}>{<UnitsCell value={metrics?.units_30d} strong />}</Figure>;
+          const note = row.type === 'variant' ? packNote(row.node, row.node.ventas?.unidades_30d) : null;
+          return (
+            <Figure note={note} split={splitOf(row, '30d')}>
+              <UnitsCell value={metrics?.units_30d} strong />
+            </Figure>
+          );
         },
       },
       {
@@ -404,6 +560,23 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, 
       align: 'center',
       fit: true,
       render: (row) => (row.type === 'item' ? item('markup', row) : row.node ? <MarkupCell markup={auditMarkup(row.node.markup_actual)} /> : null),
+    });
+    columns.push({
+      key: 'markup_siso',
+      group: MARKUP,
+      header: 'Actual c/ SISO',
+      label: 'Markup actual c/ SISO',
+      width: 120,
+      sortable: true,
+      align: 'center',
+      fit: true,
+      // A row's range mixes publications with and without sell in / sell out: no claim either way (`applies` null).
+      render: (row) =>
+        row.type === 'item' ? (
+          item('markup_siso', row)
+        ) : row.node ? (
+          <SisoMarkupCell siso={row.node.markup_siso ? { ...row.node.markup_siso, pending: 0, applies: null } : null} />
+        ) : null,
     });
     if (canSeeSales) {
       columns.push(
@@ -485,38 +658,52 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, onToggle, onMore, 
       {
         key: 'cobertura',
         group: ROTACION,
-        header: 'Cobertura',
+        header: <span title={COVERAGE_HINT}>Cobertura</span>,
         label: 'Días de cobertura',
         width: 92,
         sortable: true,
         align: 'center',
         fit: true,
-        render: (row) => (row.node ? <CoverageCell ventas={row.node.ventas} /> : row.item ? dash : null),
+        render: (row) =>
+          row.node ? (
+            <RotationFigure ventas={row.node.ventas} of={originCoverage}>
+              <CoverageCell ventas={row.node.ventas} />
+            </RotationFigure>
+          ) : row.item ? (
+            dash
+          ) : null,
       },
       {
         key: 'rotacion',
         group: ROTACION,
-        header: 'Veces',
+        header: <span title={ROTATION_HINT}>Veces</span>,
         label: 'Rotación (veces)',
         width: 76,
         sortable: true,
         align: 'center',
         fit: true,
-        render: (row) => (row.node ? <RotationCell ventas={row.node.ventas} /> : row.item ? dash : null),
+        render: (row) =>
+          row.node ? (
+            <RotationFigure ventas={row.node.ventas} of={originRotation}>
+              <RotationCell ventas={row.node.ventas} />
+            </RotationFigure>
+          ) : row.item ? (
+            dash
+          ) : null,
       },
     );
   }
-  // `arrange` (the page's saved layout, pubml-columnas-presets S1-S2) picks and orders them; `isVisible` only picks.
-  if (arrange) return arrange(columns);
-  return columns.filter((column) => column.key === 'descripcion' || !isVisible || isVisible(column.key));
+  // `arrange` (the page's saved layout, pubml-columnas-presets S1-S2) picks and orders them.
+  return arrange(columns);
 }
 
 export default function StockAuditTable({
   audit,
   canSeeSales,
   canSeeMargin,
-  isVisible,
   arrange,
+  nivel,
+  onDrill,
   sort,
   onSort,
   onSelectItem,
@@ -530,9 +717,10 @@ export default function StockAuditTable({
     canSeeSales,
     canSeeMargin,
     rate: audit.data?.tipo_cambio ?? null,
+    nivel,
     onToggle: audit.toggle,
+    onDrill,
     onMore: audit.loadMore,
-    isVisible,
     arrange,
   });
   const selectedRowId = selectedKey ? audit.rows.find((row) => row.type === 'item' && row.item.item_id === selectedKey)?.id : undefined;
@@ -546,7 +734,9 @@ export default function StockAuditTable({
       onSort={onSort}
       onRowClick={(row, event) => {
         if (row.type === 'item') onSelectItem(row.item, event);
-        else if (row.type === 'product' || row.type === 'variant') audit.toggle(row);
+        // A brand or a category drills down (the next level, inside it); without a way down it opens.
+        else if (row.type === 'group' && onDrill) onDrill(drillOf(row.node));
+        else if (row.node) audit.toggle(row);
       }}
       selectedKey={selectedRowId}
       offset={offset}

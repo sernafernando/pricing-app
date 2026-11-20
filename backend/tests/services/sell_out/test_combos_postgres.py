@@ -37,6 +37,7 @@ def _clean(engine: Engine) -> Iterator[None]:
     w.clean(engine)
     w.execute(engine, "DELETE FROM combo_componentes WHERE combo_item_id <> 999999001")
     w.execute(engine, "UPDATE productos_erp SET costo = NULL, moneda_costo = NULL")
+    w.execute(engine, "DELETE FROM tb_item")
 
 
 def _combo(engine: Engine) -> None:
@@ -106,3 +107,53 @@ def test_a_combo_line_queues_the_campaigns_of_its_components(engine: Engine) -> 
 
     with sessionmaker(bind=engine)() as db:
         assert sell_out_queue.campanas_de_ventas(db, [("fuera", ref)]) == {cid}
+
+
+# L-owner-2 (2026-11-18): "hay que corregir que siso aplique a pcs como si fueran entidades como hicimos en auditoría,
+# porque al no aplicar a combos no están aplicando a las pcs". A combo of the PC category (Auditoría's rule) is its
+# own product for sell out: its sale counts for the PC's campaigns, never its components'. Other combos unchanged.
+
+
+def _categoria(engine: Engine, item_id: int, cat_id: int) -> None:
+    w.execute(
+        engine,
+        "INSERT INTO tb_item (comp_id, item_id, item_code, cat_id) VALUES (1, :i, :c, :k)",
+        i=item_id,
+        c=f"C{item_id}",
+        k=cat_id,
+    )
+
+
+def test_a_pc_sale_counts_for_the_pcs_own_campaign_and_not_its_components(engine: Engine) -> None:
+    _combo(engine)
+    _categoria(engine, COMBO, 47)  # a PC
+    de_la_pc = w.campana(engine, [w.grupo(engine, [{"item_id": COMBO}])])
+    del_componente = w.campana(engine, [w.grupo(engine, [{"item_id": NOTEBOOK}])])
+    ref = w.venta(engine, "fuera", COMBO, 1, DIA)
+
+    _recalcular(engine, de_la_pc, del_componente)
+
+    assert _filas(engine, de_la_pc) == [(ref, COMBO, 1, Decimal("10.00"))]
+    assert _filas(engine, del_componente) == []
+
+
+def test_a_pc_line_queues_the_pcs_own_campaigns(engine: Engine) -> None:
+    _combo(engine)
+    _categoria(engine, COMBO, 47)
+    de_la_pc = w.campana(engine, [w.grupo(engine, [{"item_id": COMBO}])])
+    w.campana(engine, [w.grupo(engine, [{"item_id": NOTEBOOK}])])
+    ref = w.venta(engine, "fuera", COMBO, 1, DIA)
+
+    with sessionmaker(bind=engine)() as db:
+        assert sell_out_queue.campanas_de_ventas(db, [("fuera", ref)]) == {de_la_pc}
+
+
+def test_a_combo_of_another_category_still_counts_for_its_components(engine: Engine) -> None:
+    _combo(engine)
+    _categoria(engine, COMBO, 5)
+    del_componente = w.campana(engine, [w.grupo(engine, [{"item_id": NOTEBOOK}])])
+    ref = w.venta(engine, "fuera", COMBO, 1, DIA)
+
+    _recalcular(engine, del_componente)
+
+    assert _filas(engine, del_componente) == [(ref, NOTEBOOK, 1, Decimal("10.00"))]

@@ -60,3 +60,16 @@ def metrics_by_mla(db: Session, mlas: Sequence[str], sell_in_out: bool = False) 
     with board.Board(db, f, scope_pairs=None) as b:
         rows = b.rows_for_keys(mlas, with_series=True)
     return {row.mla: row for row in rows}
+
+
+def fulfillment_by_mla(db: Session, mlas: Sequence[str]) -> Dict[str, board.ShippingSplit]:
+    """Each of `mlas`' 7d / 30d units split into Full and ERP (`board.Board.units_by_fulfillment`), over the SAME
+    Board window `metrics_by_mla` reads, so the split adds up to its rows' windows. An MLA without a sold line in the
+    30d window is absent (all its units, none, are ERP)."""
+    mlas = sorted(set(mlas))
+    if not mlas:
+        return {}
+    first, last = window(board.today_business())
+    f = board.BoardFilter(date_from=first, date_to=last, group_by="publication", mla_source=_mla_source(mlas))
+    with board.Board(db, f, scope_pairs=None) as b:
+        return b.units_by_fulfillment()
