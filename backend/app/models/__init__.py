@@ -222,6 +222,15 @@ from app.models.ml_publications import (
     MlUserProductFamily,
     MlUserProductStock,
 )
+from app.models.costo_si import (
+    CostoSiBackup,
+    CostoSiDirty,
+    CostoSiFacturaTc,
+    CostoSiFullCobertura,
+    CostoSiFullOperacion,
+    CostoSiPaso,
+    CostoSiStockDiario,
+)
 from app.models.sell_in import (
     SellInBonoConsumo,
     SellInBonoDirty,
@@ -582,4 +591,11 @@ __all__ = [
     "McpOAuthRequest",
     "McpToken",
     "McpToolCall",
+    "CostoSiBackup",
+    "CostoSiDirty",
+    "CostoSiFacturaTc",
+    "CostoSiFullCobertura",
+    "CostoSiFullOperacion",
+    "CostoSiPaso",
+    "CostoSiStockDiario",
 ]
