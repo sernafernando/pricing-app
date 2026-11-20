@@ -79,12 +79,11 @@ def _triggers(engine: Engine) -> set:
         }
 
 
-def test_it_chains_on_the_head_of_main_and_is_the_single_head() -> None:
+def test_it_chains_on_the_head_of_main() -> None:
     config = Config(os.path.join(_BACKEND_ROOT, "alembic.ini"))
     config.set_main_option("script_location", os.path.join(_BACKEND_ROOT, "alembic"))
     script = ScriptDirectory.from_config(config)
     assert script.get_revision(_REVISION).down_revision == "20261124_mcp_write_actions"
-    assert script.get_heads() == [_REVISION]
 
 
 def test_the_frozen_trigger_sql_is_the_live_definition() -> None:

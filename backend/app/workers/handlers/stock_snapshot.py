@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, time, timedelta, timezone
+
 from app.core.database import get_background_db
 from app.services.ml_daily_metrics import board
 from app.services.costo_si import foto as costo_si_foto

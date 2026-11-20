@@ -20,8 +20,6 @@ from app.models.costo_si import (
     CostoSiBackup,
     CostoSiDirty,
     CostoSiFacturaTc,
-    CostoSiFullCobertura,
-    CostoSiFullOperacion,
     CostoSiPaso,
     CostoSiStockDiario,
 )
@@ -82,8 +80,6 @@ TABLES = [
     CostoSiBackup.__table__,
     CostoSiDirty.__table__,
     CostoSiStockDiario.__table__,
-    CostoSiFullOperacion.__table__,
-    CostoSiFullCobertura.__table__,
     CostoSiFacturaTc.__table__,
 ]
 
@@ -131,8 +127,6 @@ def clean(engine: Engine) -> None:
             "costo_si_pasos",
             "costo_si_backups",
             "costo_si_stock_diario",
-            "costo_si_full_operaciones",
-            "costo_si_full_cobertura",
             "costo_si_factura_tc",
             "productos_erp",
         ):
@@ -376,20 +370,6 @@ def foto_ml(engine: Engine, item_id: int, fecha: date, stock_full: int) -> None:
         f=fecha,
         i=item_id,
         s=stock_full,
-    )
-
-
-def operacion_full(engine: Engine, inventory_id: str, cuando: datetime, tipo: str, delta: int, disponible: int) -> None:
-    run(
-        engine,
-        "INSERT INTO costo_si_full_operaciones (operation_id, inventory_id, date_created, tipo, delta, disponible) "
-        "VALUES (:id, :inv, :c, :t, :d, :r)",
-        id=next(_ids),
-        inv=inventory_id,
-        c=cuando,
-        t=tipo,
-        d=delta,
-        r=disponible,
     )
 
 

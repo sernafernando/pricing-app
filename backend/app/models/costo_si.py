@@ -1,4 +1,4 @@
-"""Costo SI storage (sell-in-costo-si T2, migration 20261125_costo_si).
+"""Costo SI storage (sell-in-costo-si T2, migrations 20261125_costo_si and 20261125_costo_si_drop_full).
 
 - `costo_si_pasos`: every product's history, one row per step (its start, then one per purchase invoice). The row is
   the average in force from `fecha` on, with its breakdown: net, each sell in %, net-net, stock before, average after
@@ -7,9 +7,6 @@
 - `costo_si_dirty`: the products to recompute and from which date; drained by `sell.drain`, no cron.
 - `costo_si_stock_diario`: the daily photo of AVAILABLE stock, principal (GBP) and Full (Mercado Libre), so the
   reconstruction is only needed for the past (S3 decision).
-- `costo_si_full_operaciones` / `costo_si_full_cobertura`: no longer written or read. They kept Mercado Libre's Full
-  stock operations; the Full is now rebuilt from the ML stock and sales the app already stores (`full_ml`, owner
-  L11). Dropping them needs a migration of its own.
 - `costo_si_factura_tc`: a PM's FX correction for one purchase invoice (S4, L4.5).
 """
 
@@ -95,27 +92,6 @@ class CostoSiStockDiario(Base):
     principal = Column(Integer, nullable=False)  # GBP depot 1 available
     full = Column(Integer, nullable=False)  # Mercado Libre Full available
     tomado_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-
-
-class CostoSiFullOperacion(Base):
-    __tablename__ = "costo_si_full_operaciones"
-    __table_args__ = (Index("ix_costo_si_full_operaciones_inv_fecha", "inventory_id", "date_created"),)
-
-    operation_id = Column(BigInteger, primary_key=True, autoincrement=False)
-    inventory_id = Column(Text, nullable=False)
-    date_created = Column(DateTime(timezone=True), nullable=False)
-    tipo = Column(Text, nullable=False)
-    delta = Column(Integer, nullable=False)  # detail.available_quantity
-    disponible = Column(Integer, nullable=False)  # result.available_quantity: available after it
-
-
-class CostoSiFullCobertura(Base):
-    __tablename__ = "costo_si_full_cobertura"
-
-    inventory_id = Column(Text, primary_key=True)
-    desde = Column(Date, nullable=False)  # operations fetched for [desde, hasta)
-    hasta = Column(Date, nullable=False)
-    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class CostoSiFacturaTc(Base):
