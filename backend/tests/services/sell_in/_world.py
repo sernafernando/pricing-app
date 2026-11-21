@@ -29,7 +29,10 @@ from sqlalchemy import Engine, text
 from app.models.tactical import Tactical
 from app.models.auditoria import Auditoria
 from app.models.combo_componente import ComboComponente
-from app.models.costo_si import CostoSiDirty
+from app.models.costo_si import CostoSiDirty, CostoSiPaso
+from app.models.item_cost_list_history import ItemCostListHistory
+from app.models.tipo_cambio import TipoCambio
+from app.models.ml_costo_si import MlCostoSiDirty
 from app.models.tb_item import TBItem
 from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_sale_line import MlSaleLine
@@ -75,6 +78,11 @@ TABLES = [
     MlSaleLine.__table__,
     SellDirty.__table__,
     CostoSiDirty.__table__,  # sell.drain also drains the costo SI queue (sell-in-costo-si T2)
+    MlCostoSiDirty.__table__,  # ... and then the ML sales it re-costs (T3 PR 7)
+    # What the resolved-cost reader reads (`costo_si.lote`): cost bonuses skip sales at costo SI (D2, T3 PR 7).
+    CostoSiPaso.__table__,
+    ItemCostListHistory.__table__,
+    TipoCambio.__table__,
     ComboComponente.__table__,  # combo sales count as their components' (combos in sell in / sell out)
     TBItem.__table__,  # a combo of the PC category is its own product (`combos.pcs`)
 ]

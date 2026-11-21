@@ -52,7 +52,9 @@ def _install(engine: Engine) -> None:
 def engine() -> Iterator[Engine]:
     with throwaway_schema(
         "cost_lines_tienda",
-        [*TABLES, MlTiendaOficial.__table__, TacticalTienda.__table__, ItemCostListHistory.__table__],
+        list(
+            dict.fromkeys([*TABLES, MlTiendaOficial.__table__, TacticalTienda.__table__, ItemCostListHistory.__table__])
+        ),
         STUBS,
         after=_install,
     ) as engine:

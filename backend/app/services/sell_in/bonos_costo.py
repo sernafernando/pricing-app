@@ -23,6 +23,9 @@ Owner: "agregá el de sell in, es para operaciones viejas que no tienen la factu
   sale (`resolver_objetivos`) and its stored rows are already net of it, so the FIFO's units plus the bonus's never
   exceed the sale's net units. A return whose sale the bonus does not count (outside its dates, unknown cost) frees
   nothing, like sell out.
+- D2 (sell-in-costo-si T3, L4.2): a sale whose product is at costo SI on its sale date (`_en_costo_si`, the
+  reader, every channel) takes no % or per-unit bonus: costo SI already discounts it from the purchase cost
+  (`costo_si.fuentes`). A `monto_total` split is not in costo SI and keeps applying.
 - Several cost bonuses on one sale stack, in id order, each unit's total never above the unit cost: a later bonus's
   amount per unit is cut to the cost minus what the earlier ones give the most loaded unit it may take
   (conservative when an earlier capped bonus holds only part of those units).
@@ -91,6 +94,7 @@ from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca, SellInBonoReparto, SellInConsumo
 from app.models.tactical import Tactical, TacticalCobranza
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA
+from app.services.costo_si import lote
 from app.services.sell_in import bono_queue
 from app.services.sell_in.costing import LOCK_SQL, LOCK_NAMESPACE
 from app.services.sell_out import alcance, reparto, tope
@@ -126,6 +130,22 @@ class CostoResult:
     bonos_fallidos: Dict[int, str] = field(default_factory=dict)
     # bono_id -> the products of its failed component(s)
     productos_fallidos: Dict[int, Set[int]] = field(default_factory=dict)
+
+
+# The cost-bonus kinds costo SI already discounts from the purchase cost (`costo_si.fuentes._BONOS_SQL`: a % or a
+# per-unit sale-cost bonus); a `monto_total` split is not in costo SI and keeps applying (orchestrator, PR 7 doubt 2).
+EN_COSTO_SI = ("porcentaje", "por_unidad")
+
+
+def _en_costo_si(db: Session, ventas: List[alcance.Venta]) -> Set[Tuple[int, date]]:
+    """D2 (sell-in-costo-si T3, L4.2): the (product, sale date) pairs whose sale is costed at costo SI, in every
+    channel (ML, fuera, TN), by THE reader (`lote.en_fechas`): costo SI already contains the sale-cost bonus, so
+    applying it again on the sale would count it twice. A product with no costo SI on that date (list cost, Q1) keeps
+    the bonus."""
+    if not ventas:
+        return set()
+    costos = lote.en_fechas(db, {(v.item_id, v.fecha) for v in ventas})
+    return {par for par, costo in costos.items() if costo.fuente == lote.FUENTE_COSTO_SI}
 
 
 def _activos(db: Session) -> Dict[int, SellInBonoMarca]:
@@ -247,9 +267,11 @@ def _componente(
     pendientes: Dict[int, int],
     repartos: Optional[Dict[int, Dict[int, Decimal]]] = None,
     tasa: Optional[Tasa] = None,
+    en_costo_si: Optional[Set[Tuple[int, date]]] = None,
 ) -> Dict[Tuple[int, str, int, int], _Fila]:
     """The desired rows of one component: its bonuses in id order over its sales (module docstring). `tasa` converts
-    a USD bonus's sales (`_tasador`); an ARS bonus never calls it."""
+    a USD bonus's sales (`_tasador`); an ARS bonus never calls it. `en_costo_si`: the (product, sale date) pairs
+    costed at costo SI, which a % / per-unit bonus skips (D2, `_en_costo_si`)."""
     deseadas: Dict[Tuple[int, str, int, int], _Fila] = {}
     # Per sale and unit number: what earlier bonuses give that unit.
     usado: Dict[Clave, Dict[int, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
@@ -267,6 +289,8 @@ def _componente(
         for v in sorted(ventas, key=lambda x: x.unidades < 0):  # sales first: a return checks its sale
             if v.item_id not in alcances[bono.id] or not (bono.fecha_desde <= v.fecha <= bono.fecha_hasta):
                 continue
+            if bono.tipo in EN_COSTO_SI and en_costo_si and (v.item_id, v.fecha) in en_costo_si:
+                continue  # D2: costo SI already carries this bonus; its return frees nothing either
             clave = (v.canal, v.venta_ref, v.item_id)
             if v.unidades > 0:
                 if v.costo_unit is None:
@@ -512,6 +536,7 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
 
     repartos = _repartos(db, activos)
     tasa = _tasador(db, activos, {v.fecha for v in ventas})
+    en_costo_si = _en_costo_si(db, ventas)
     deseadas: Dict[Tuple[int, str, int, int], _Fila] = {}
     fallidos: Set[int] = set()
     for componente in _componentes(activos, alcances, productos):
@@ -528,6 +553,7 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
                     result.pendientes,
                     repartos,
                     tasa,
+                    en_costo_si,
                 )
             )
         except ValueError as exc:
