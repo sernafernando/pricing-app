@@ -19,6 +19,7 @@ No hay que hacer nada. Cada venta toma el costo SI vigente en su fecha:
 
 ## A tener en cuenta
 
-- **Combos:** si la venta trae el desglose del combo (sus componentes como líneas), el combo no suma costo y lo ponen sus componentes. Si no lo trae, el combo cuesta lo que suman sus componentes.
+- **Combos:** si la venta trae el desglose del combo (**todos** sus componentes como líneas), el combo no suma costo y lo ponen sus componentes. Si no lo trae, o trae solo algunos componentes, el combo cuesta lo que suman sus componentes.
 - Cuando se corrige un sell in, un loyalty o una factura que cambia el costo SI de un producto, las operaciones por fuera de ese producto desde esa fecha se recalculan solas. Las correcciones manuales de costo siguen mandando.
 - Ventas por Fuera (anterior) y Tienda Nube se recalculan con su proceso de siempre (los últimos 30 días).
+- En **Tienda Nube → Detalle de Operaciones** la tabla entra completa en pantalla con el menú abierto: algunas columnas se ven de a dos (fecha y comprobante, sucursal y vendedor, categoría y subcategoría), el % de comisión va debajo del monto y el costo y el precio unitario se ven en pesos.

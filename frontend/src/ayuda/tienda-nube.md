@@ -22,7 +22,9 @@ Una marca sin ningún producto en stock no aparece en el filtro de marca, salvo 
 
 Filtros: fecha, vendedores y, en Detalle de Operaciones, solo sin costo.
 
-Columnas de operaciones: fecha, producto, cantidad, precios, costos, markup.
+Columnas de operaciones: fecha y comprobante, sucursal y vendedor, cliente, código, producto, marca, categoría y subcategoría, cantidad, precio unitario, IVA, total sin IVA, método de pago, comisión de Tienda Nube (con su % debajo), costo, ganancia y markup. Los montos se ven en pesos con separador de miles.
+
+El costo sale del costo SI del producto en el día de la venta (si no tiene, del costo de lista), pasado a pesos con el dólar de ese día, × 1,065. Si no hay costo (por ejemplo, falta el dólar del día), la columna Costo dice **Sin costo** y la ganancia y el markup se ven como **—**: no se pueden calcular.
 
 ## Botones y acciones
 
