@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
-import CostoSiCell, { costoSiTitle } from './CostoSiCell';
+import CostoSiCell from './CostoSiCell';
 
 // The Publicaciones ML format; Productos passes its own (`USD $17.04`).
 const format = (monto, moneda) => `${moneda} ${monto.toFixed(2).replace('.', ',')}`;
@@ -42,12 +42,13 @@ describe('CostoSiCell', () => {
     const sinTc = { ...USD_SI, tipo_cambio: null, tipo_cambio_fecha: null, costo_ars: null };
     const { container } = render(<CostoSiCell costoSi={sinTc} format={format} />);
     expect(cell(container)).toHaveTextContent(/^USD 16,43$/);
-    expect(costoSiTitle(sinTc, format)).toContain('Sin tipo de cambio: no se sabe en pesos');
+    expect(cell(container).getAttribute('title')).toContain('Sin tipo de cambio: no se sabe en pesos');
     expect(cell(container).getAttribute('title')).not.toMatch(/ARS 0/);
   });
 
   it('a rate without a date (the caller passed it) still shows, undated', () => {
-    expect(costoSiTitle({ ...USD_SI, tipo_cambio_fecha: null }, format)).toContain('En pesos: ARS 25789,76 (TC 1570)');
+    const { container } = render(<CostoSiCell costoSi={{ ...USD_SI, tipo_cambio_fecha: null }} format={format} />);
+    expect(cell(container).getAttribute('title')).toContain('En pesos: ARS 25789,76 (TC 1570)');
   });
 
   it('an unknown cost reads "—", never 0', () => {

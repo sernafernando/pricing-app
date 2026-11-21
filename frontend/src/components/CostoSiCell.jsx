@@ -8,7 +8,7 @@ const isBlank = (value) => value === null || value === undefined;
  * for a cost in another currency its pesos with the rate and that rate's date. A USD cost without a rate says its
  * pesos are unknown: never 0 (interfaz §7).
  */
-export function costoSiTitle(costoSi, format) {
+function costoSiTitle(costoSi, format) {
   const lines = [];
   if (costoSi.fuente === 'lista') {
     lines.push('Sin costo SI: es el costo de lista');
