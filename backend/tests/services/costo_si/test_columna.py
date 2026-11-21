@@ -56,6 +56,14 @@ def test_an_unknown_cost_has_no_payload_and_records_nothing() -> None:
         assert acc.payload() is None
 
 
+def test_a_zero_peso_cost_records_no_markup() -> None:
+    """A cost of 0 in pesos is no base for a markup (`calcular_markup` would answer 0): none, never a fake 0 %."""
+    acc = columna.CostoSiMarkups(Costo(5, D("0"), "ARS", FUENTE_COSTO_SI, date(2026, 10, 1), None, D("0")))
+    acc.record("clasica", 100.0)
+
+    assert acc.payload().markups == {}
+
+
 def test_without_pesos_the_cost_shows_but_no_markup_is_guessed() -> None:
     """A USD cost with no rate: the USD figure shows, its markups don't (never USD passed off as pesos)."""
     acc = columna.CostoSiMarkups(Costo(4, D("10"), "USD", FUENTE_COSTO_SI, date(2026, 10, 1), None, None))

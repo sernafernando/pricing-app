@@ -31,11 +31,12 @@ from app.main import app as fastapi_app
 from app.models.comision_versionada import ComisionBase, ComisionVersion
 from app.models.equipo import Equipo
 from app.models.item_cost_list_history import ItemCostListHistory
+from app.models.precio_ml import PrecioML
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.rol import Rol
 from app.models.tipo_cambio import TipoCambio
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
-from app.services.costo_ppp_service import PPP_KEY_CLASICA
+from app.services.costo_ppp_service import PPP_KEY_CLASICA, PPP_KEY_PVP_CLASICA, PPP_KEY_REBATE
 from tests.conftest import _PRISTINE_PG_COLUMN_TYPES
 from tests.services.sell._schema import throwaway_schema
 
@@ -168,7 +169,16 @@ def mundo(pg: Session) -> None:
                 activo=True,
             )
         )
-        db.add(ProductoPricing(item_id=item_id, precio_lista_ml=precio, markup_calculado=10.0))
+        db.add(
+            ProductoPricing(
+                item_id=item_id,
+                precio_lista_ml=precio,
+                markup_calculado=10.0,
+                # USD also has a rebate, so the rebate markup site records into the costo SI too
+                participa_rebate=item_id == USD,
+                porcentaje_rebate=5.0 if item_id == USD else None,
+            )
+        )
     db.add(
         ProductoERP(
             item_id=NADA,
@@ -197,6 +207,8 @@ def mundo(pg: Session) -> None:
         )
     )
     _paso(db, USD, date(2026, 10, 1), "25.00000")
+    # A PVP price for USD, so the listing's second (PVP) markup pass records into the costo SI too.
+    db.add(PrecioML(item_id=USD, pricelist_id=12, precio=70000.0))
     db.flush()
 
 
@@ -243,7 +255,7 @@ class TestListado:
         # The PPP of USD is 25 USD too: the same `limpio` on the same pesos gives the same markups, key by key.
         usd = _listado(client)[USD]
 
-        assert PPP_KEY_CLASICA in usd["costo_si"]["markups"]
+        assert {PPP_KEY_CLASICA, PPP_KEY_REBATE, PPP_KEY_PVP_CLASICA} <= set(usd["costo_si"]["markups"])
         assert usd["costo_si"]["markups"] == usd["ppp"]["markups"]
         assert _listado(client)[LISTA]["costo_si"]["markups"]  # an ARS list cost has pesos too
 
@@ -280,7 +292,7 @@ class TestTienda:
 
         assert productos[USD]["costo_si"]["costo_ars"] == 25000.0
         assert productos[USD]["costo_si"]["fuente"] == "costo_si"
-        assert productos[USD]["costo_si"]["markups"]
+        assert PPP_KEY_REBATE in productos[USD]["costo_si"]["markups"]
         assert productos[USD]["costo_si"]["markups"] == productos[USD]["ppp"]["markups"]
         assert productos[LISTA]["costo_si"]["fuente"] == "lista"
         assert productos[NADA]["costo_si"] is None
