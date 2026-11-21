@@ -124,6 +124,17 @@ describe('Tienda Nube operaciones (visual)', () => {
       expect(contenedor.scrollWidth).toBeLessThanOrEqual(contenedor.clientWidth + 1);
       expect(tabla.getBoundingClientRect().right).toBeLessThanOrEqual(1440);
       expect(document.body.textContent).toContain('2 operaciones');
+      // a stacked header keeps its "/" with the first word: the first line ends in "/", never a lone "/"
+      for (const th of [...tabla.querySelectorAll('th')].filter((h) => h.textContent.includes('/'))) {
+        const rango = document.createRange();
+        rango.selectNodeContents(th);
+        const tops = [...rango.getClientRects()].map((r) => Math.round(r.top));
+        const barra = document.createRange();
+        const nodo = th.firstChild;
+        barra.setStart(nodo, nodo.textContent.indexOf('/'));
+        barra.setEnd(nodo, nodo.textContent.indexOf('/') + 1);
+        expect(Math.round(barra.getClientRects()[0].top), th.textContent).toBe(Math.min(...tops));
+      }
       expect(document.body.textContent).not.toContain('operaciónes');
 
       const conCosto = fila('CON COSTO SI');

@@ -608,13 +608,13 @@ export default function DashboardTiendaNube() {
             <table className={`${styles.tableOperaciones} ${local.tablaCompacta}`}>
               <thead>
                 <tr>
-                  <th>Fecha / Comprobante</th>
-                  <th>Sucursal / Vendedor</th>
+                  <th>{'Fecha\u00a0/ Comprobante'}</th>
+                  <th>{'Sucursal\u00a0/ Vendedor'}</th>
                   <th>Cliente</th>
                   <th>Codigo</th>
                   <th>Producto</th>
                   <th>Marca</th>
-                  <th>Categoría / Subcategoría</th>
+                  <th>{'Categoría\u00a0/ Subcategoría'}</th>
                   <th>Cant</th>
                   <th>Precio Unit</th>
                   <th>IVA%</th>
