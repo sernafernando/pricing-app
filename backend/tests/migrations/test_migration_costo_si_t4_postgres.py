@@ -129,10 +129,12 @@ def _cola(engine: Engine) -> dict:
     return {r[0]: r[1:] for r in w.rows(engine, "SELECT item_id, desde, attempts, last_error FROM costo_si_dirty")}
 
 
-def test_upgrade_snapshots_every_re_costed_table_queues_the_scope_and_resets_its_steps(engine: Engine) -> None:
+def test_upgrade_snapshots_every_re_costed_table_queues_the_scope_and_invalidates_its_steps(engine: Engine) -> None:
     venta = tp._venta(engine, tp.P, datetime(2026, 10, 5, 12), 1, "99999")
     _historia(engine)
-    pasos = w.rows(engine, f"SELECT orden, fecha, promedio_usd FROM costo_si_pasos WHERE item_id = {tp.P} ORDER BY 1")
+    pasos = w.rows(
+        engine, f"SELECT orden, fecha, promedio_usd, fuente_tc FROM costo_si_pasos WHERE item_id = {tp.P} ORDER BY 1"
+    )
     assert pasos
     w.run(
         engine,
@@ -157,12 +159,17 @@ def test_upgrade_snapshots_every_re_costed_table_queues_the_scope_and_resets_its
     assert cola[tp.P] == (None, 0, None)  # the whole history, a fresh retry budget
     assert cola[OTRO] == (date(2026, 11, 1), 3, "x")
     assert set(cola) == alcance | {OTRO} and all(cola[i] == (None, 0, None) for i in alcance)
-    assert w.rows(engine, f"SELECT count(*) FROM costo_si_pasos WHERE item_id = {tp.P}") == [(0,)]
+    # the history stays readable (same cost); only its first step is marked, so the recompute always sees a change
+    assert w.rows(
+        engine, f"SELECT orden, fecha, promedio_usd, fuente_tc FROM costo_si_pasos WHERE item_id = {tp.P} ORDER BY 1"
+    ) == [(o, f, p, "t4_reset" if o == 0 else tc) for o, f, p, tc in pasos]
     (respaldo,) = w.rows(
         engine, f"SELECT desde, pasos FROM costo_si_backups WHERE item_id = {tp.P} AND motivo = 't4 reset'"
     )
     assert respaldo[0] == pasos[0][1]
-    assert [(p["orden"], p["fecha"]) for p in respaldo[1]] == [(o, f.isoformat()) for o, f, _ in pasos]
+    assert [(p["orden"], p["fecha"], p["fuente_tc"]) for p in respaldo[1]] == [
+        (o, f.isoformat(), tc) for o, f, _, tc in pasos
+    ]
     (marca,) = w.rows(engine, "SELECT valor FROM configuracion WHERE clave = 'costo_si_t4_encolado_at'")
     assert marca[0]
 
@@ -215,18 +222,29 @@ def test_downgrade_keeps_the_snapshots_and_the_queue(engine: Engine) -> None:
     assert _cola(engine) == cola
 
 
-def test_a_parked_product_gets_its_steps_back_from_the_reset_backup(engine: Engine) -> None:
-    """Option A deletes the steps before the drain: a product the drain cannot recompute (parked after MAX_ATTEMPTS)
-    would read its list cost. The migration's documented restore puts its pre-T4 steps back, only for it."""
+def test_a_parked_product_keeps_its_pre_t4_steps_and_cost(engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail-closed: a product the drain cannot recompute parks with its pre-T4 history (only the first step marked),
+    so every reader keeps its pre-T4 cost instead of the list cost."""
+    venta = tp._venta(engine, tp.P, datetime(2026, 10, 15, 12), 2, "40000")
     _historia(engine)
-    pasos = w.rows(engine, f"SELECT to_jsonb(p) FROM costo_si_pasos p WHERE item_id = {tp.P} ORDER BY orden")
+    pasos = w.rows(engine, f"SELECT orden, fecha, promedio_usd FROM costo_si_pasos WHERE item_id = {tp.P} ORDER BY 1")
+    guardado = tp._guardado(engine)[venta]
     _step(engine, "upgrade")
-    w.run(engine, f"UPDATE costo_si_dirty SET attempts = {queue.MAX_ATTEMPTS}, last_error = 'x' WHERE item_id = {tp.P}")
 
-    w.run(engine, _module().RESTAURAR_PASOS_SQL, item=tp.P)
-    w.run(engine, _module().RESTAURAR_PASOS_SQL, item=tp.P)  # a second run changes nothing
+    def falla(db, item_id, **kw):
+        raise RuntimeError("caido")
 
-    assert w.rows(engine, f"SELECT to_jsonb(p) FROM costo_si_pasos p WHERE item_id = {tp.P} ORDER BY orden") == pasos
+    monkeypatch.setattr(recompute, "recalcular", falla)
+    fabrica = sessionmaker(bind=engine, autoflush=False)
+    for _ in range(queue.MAX_ATTEMPTS):
+        queue.drenar(fabrica, datetime.now(UTC) + timedelta(minutes=1), is_transient=lambda e: False)
+
+    assert _cola(engine)[tp.P][1] == queue.MAX_ATTEMPTS
+    assert (
+        w.rows(engine, f"SELECT orden, fecha, promedio_usd FROM costo_si_pasos WHERE item_id = {tp.P} ORDER BY 1")
+        == pasos
+    )
+    assert tp._guardado(engine)[venta] == guardado
 
 
 # --- Independent verification of #2371 (handoffs/sell-in-costo-si-t4-verificacion.md): F1-F4 ---------------------
@@ -302,8 +320,8 @@ def test_f1_a_product_whose_sell_in_is_gone_gets_its_sales_back_to_list_cost(
 def test_f2_a_parked_product_re_queued_after_the_fix_re_freezes_the_sales_of_the_window(
     engine: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """F2: P parks, a sale is frozen meanwhile at list cost, the restore puts the steps back (stopgap), the cause is
-    fixed: `REENCOLAR_SQL` makes the drain re-dispatch from the first step, so the window sale gets its costo SI."""
+    """F2: P parks, a sale is frozen meanwhile at list cost, the cause is
+    fixed: `REENCOLAR_SQL` (also after the product was recomputed once) makes the drain re-dispatch from the first step, so the window sale gets its costo SI."""
     _con_recongelado(monkeypatch)
     tc._congelada(engine, tp.P, datetime(2026, 10, 15, 15, tzinfo=UTC), 1, "25000", "costo_si")
     _historia(engine)
@@ -322,7 +340,6 @@ def test_f2_a_parked_product_re_queued_after_the_fix_re_freezes_the_sales_of_the
         queue.drenar(fabrica, datetime.now(UTC) + timedelta(minutes=1), is_transient=lambda e: False)
     assert _cola(engine)[tp.P][1] == queue.MAX_ATTEMPTS
     ventana = tc._congelada(engine, tp.P, datetime(2026, 11, 3, 15, tzinfo=UTC), 1, "40000", "erp_publicacion")
-    w.run(engine, _module().RESTAURAR_PASOS_SQL, item=tp.P)
     monkeypatch.setattr(recompute, "recalcular", real)
 
     w.run(engine, _module().REENCOLAR_SQL, item=tp.P)
@@ -379,3 +396,56 @@ def test_f3_f4_the_rollback_sql_restores_every_re_costed_value_and_keeps_later_o
     previo = antes.pop("offset_grupo_resumen")
     assert restaurado == antes
     assert [(i, ars - 500, usd) for i, ars, usd in resumen] == previo
+
+
+@pytest.mark.parametrize(
+    "variante,esperado",
+    [
+        pytest.param("combo", None, id="became_a_combo"),  # in scope (bonus still active), entrada None
+        pytest.param("compra_sin_factura", D("50000.00"), id="sell_in_without_invoice"),
+    ],
+)
+def test_f1_recheck_a_product_in_scope_the_engine_cannot_compute_ends_as_without_t4(
+    engine: Engine, variante: str, esperado
+) -> None:
+    """Recheck of F1: a product with a live reason but no computable entrada (a combo; a Compras sell in whose
+    purchase has no invoice yet) and stale stored steps ends exactly as a plain drain without T4 leaves it."""
+    w.factura(engine, tp.P, date(2026, 10, 5), datetime(2026, 10, 5, 10), 10, "30", previo=0)
+    venta = tp._venta(engine, tp.P, datetime(2026, 10, 15, 12), 2, "40000")
+    _historia(engine)
+    con_si = tp._guardado(engine)[venta]
+    if variante == "combo":
+        w.run(
+            engine,
+            f"INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES ({tp.P}, {tp.Q}, 1)",
+        )
+    else:
+        w.run(engine, "DELETE FROM sell_in_bonos_marca")
+        w.run(engine, "INSERT INTO pedidos_compra (id, tipo_cambio) VALUES (987654, NULL)")
+        w.sell_in_compra(engine, tp.P, 987654, "5", date(2026, 11, 1))
+
+    _step(engine, "upgrade")
+    _drenar(engine)
+
+    assert con_si != esperado
+    assert tp._guardado(engine)[venta] == esperado
+
+
+def test_f2_reencolar_re_dispatches_a_product_already_recomputed_after_t4(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F2: `REENCOLAR_SQL` on a product whose current history the drain already stored (the T4 mark is gone) still
+    re-dispatches from its first step: a sale frozen at list cost meanwhile gets its costo SI."""
+    _con_recongelado(monkeypatch)
+    tc._congelada(engine, tp.P, datetime(2026, 10, 15, 15, tzinfo=UTC), 1, "25000", "costo_si")
+    _historia(engine)
+    _step(engine, "upgrade")
+    _drenar_todo(engine)
+    assert w.rows(engine, "SELECT count(*) FROM costo_si_pasos WHERE fuente_tc = 't4_reset'") == [(0,)]
+    ventana = tc._congelada(engine, tp.P, datetime(2026, 11, 3, 15, tzinfo=UTC), 1, "40000", "erp_publicacion")
+
+    w.run(engine, _module().REENCOLAR_SQL, item=tp.P)
+    _drenar_todo(engine)
+
+    (fila,) = w.rows(engine, f"SELECT fuente FROM ml_order_item_costos WHERE order_id = {ventana}")
+    assert fila[0] != "erp_publicacion"
