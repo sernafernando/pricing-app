@@ -37,6 +37,10 @@ from app.models.usuario import AuthProvider, RolUsuario, Usuario
 from app.services import ml_pxq_write_service as write_service
 from app.services.ml_webhook_client import MLWebhookClient
 from app.services.pxq_permissions_backfill import PXQ_ESCRIBIR_CODE
+from tests.costo_si_lista import costo_si_lista  # noqa: F401  (fixture)
+
+# Written before costo SI: on SQLite the cost reader answers the list cost ('lista', Q1).
+pytestmark = [*globals().get("pytestmark", []), pytest.mark.usefixtures("costo_si_lista")]
 
 
 @pytest.fixture()

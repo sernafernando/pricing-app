@@ -20,17 +20,11 @@ partial context and never a raised exception:
 * `product_data_missing`: what only PxQ refuses to guess (below), or an
   unexpected read error.
 
-`producto.moneda_costo`/`producto.iva` carry `default=` at the ORM level
-only (`ProductoERP`, `app/models/producto.py`) -- rows written by the ERP
-sync bypass that default entirely, so `moneda_costo IS NULL` and
-`iva IS NULL` are both reachable in production data. Handing a USD cost to
-`convertir_a_pesos` (`pricing_calculator.py`) without a resolved
-`tipo_cambio`, or an unrecognized/`None` currency, falls through to
-`return costo` UNCONVERTED -- silently fabricating a plausible-looking but
-wrong ARS figure instead of reporting an unresolved context. `producto.iva`
-being `None` would instead pass validation here and raise a `TypeError`
-later inside `calcular_markup_pxq`. Both are `product_data_missing` here,
-before either can happen.
+The cost is costo SI in pesos from the reader (`costo_si.lote.actuales`, S13; the list cost without one, Q1), in
+the product's cost currency (L18). An unknown cost is `sin_costo`; a USD cost the reader cannot convert (no rate) is
+`product_data_missing`, never a USD figure passed off as pesos. `producto.iva` has an ORM-only default, so ERP-synced
+rows can have `iva IS NULL`, which would raise later inside `calcular_markup_pxq`, and `moneda_costo IS NULL`, which
+PxQ refuses to read as ARS: both `product_data_missing`.
 
 Deliberately does NOT call `resolver_costo_envio`: that resolves the
 PER-UNIT `producto.envio` field, and feeding a per-unit shipping figure to a
@@ -53,11 +47,10 @@ from app.models.producto import ProductoERP
 from app.services.ml_publications.pricelist_resolver import resolve_pricelist
 from app.services.ml_publications.view.filters import LINK_ITEM_LEVEL
 from app.services.ml_publications.view.markup import REASON_SIN_COMISION, REASON_SIN_COSTO, REASON_SIN_VINCULO
+from app.services.costo_si import lote
 from app.services.pricing_calculator import (
-    convertir_a_pesos,
     obtener_comision_base,
     obtener_grupo_subcategoria,
-    obtener_tipo_cambio_actual,
 )
 
 logger = get_logger(__name__)
@@ -114,7 +107,7 @@ def resolve_pxq_pricing_context(db: Session, mla: str) -> Union[PxqPricingContex
             return PxqPricingUnavailable(REASON_SIN_VINCULO)
 
         producto = db.query(ProductoERP).filter(ProductoERP.item_id == producto_item_id).one_or_none()
-        if not producto or not producto.costo:
+        if not producto:
             return PxqPricingUnavailable(REASON_SIN_COSTO)
 
         resolution = resolve_pricelist(item.listing_type_id, item.tags or (), item.installments_campaign)
@@ -124,19 +117,17 @@ def resolve_pxq_pricing_context(db: Session, mla: str) -> Union[PxqPricingContex
         if producto.iva is None:
             return PxqPricingUnavailable(REASON_PRODUCT_DATA_MISSING)
 
-        tipo_cambio = None
-        if producto.moneda_costo == "USD":
-            tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
-            if tipo_cambio is None:
-                return PxqPricingUnavailable(REASON_PRODUCT_DATA_MISSING)
-        elif producto.moneda_costo != "ARS":
-            # Unrecognized/`None` currency (e.g. an ERP-synced row with
-            # `moneda_costo IS NULL`) -- `convertir_a_pesos` only special-
-            # cases the literal string "ARS", so anything else must NOT
-            # fall through to its unconverted-passthrough branch.
+        # The cost is costo SI in pesos (S13; list cost without one, Q1), in the product's currency (L18): the
+        # reader decides, never the list cost's own fields. Unknown cost -> sin_costo; a USD cost without a rate
+        # -> data missing (never USD passed off as pesos).
+        if producto.moneda_costo is None:
+            return PxqPricingUnavailable(REASON_PRODUCT_DATA_MISSING)  # as before: PxQ never assumes ARS for NULL
+        costo = lote.actuales(db, [producto.item_id]).get(producto.item_id)
+        if costo is None or costo.costo is None:
+            return PxqPricingUnavailable(REASON_SIN_COSTO)
+        if costo.costo_ars is None:
             return PxqPricingUnavailable(REASON_PRODUCT_DATA_MISSING)
-
-        costo_ars = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
+        costo_ars = float(costo.costo_ars)
         grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
         comision_base = obtener_comision_base(db, resolution.pricelist_id, grupo_id)
     except Exception as e:

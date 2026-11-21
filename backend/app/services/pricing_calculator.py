@@ -95,6 +95,46 @@ def convertir_a_pesos(costo: float, moneda: str, tipo_cambio: Optional[float]) -
     return costo
 
 
+SIN_COSTO_ERROR = "Sin costo en pesos (sin costo, o costo USD sin tipo de cambio): no se calcula"
+
+
+def costos_ars_actuales(db: Session, item_ids, tipo_cambio: Optional[float] = None) -> Dict[int, Optional[float]]:
+    """The current cost in pesos that every price and markup is computed with: costo SI (S13, "es el que van a usar
+    todas las partes de la empresa", L6), or the list cost when the product has none (`lote`'s 'lista' fallback, Q1),
+    in the product's cost currency converted at `tipo_cambio` (None: the latest USD rate). A USD cost is never
+    re-read as pesos (L18). One query for all ids. None when the cost is unknown (no cost, or a USD cost without a
+    rate): NULL stays NULL, never 0 (interfaz §7), and the ids are logged once per call."""
+    from app.services.costo_si import lote
+
+    costos = lote.actuales(db, item_ids, tipo_cambio=tipo_cambio)
+    ars = {i: float(c.costo_ars) if c.costo_ars is not None else None for i, c in costos.items()}
+    sin_costo = sorted(i for i, c in costos.items() if c.costo is None)
+    sin_tasa = sorted(i for i, c in costos.items() if c.costo is not None and c.costo_ars is None)
+    if sin_costo or sin_tasa:
+        logger.info("costo SI pricing: no cost in pesos (sin_costo %s, sin_tipo_cambio %s)", sin_costo, sin_tasa)
+    return ars
+
+
+def costo_ars_actual(db: Session, item_id: int, tipo_cambio: Optional[float] = None) -> Optional[float]:
+    """`costos_ars_actuales` for one product (None when unknown)."""
+    return costos_ars_actuales(db, [item_id], tipo_cambio).get(item_id)
+
+
+def markup_sobre_costo(limpio: float, costo_ars: Optional[float]) -> Optional[float]:
+    """`calcular_markup` (a ratio) over a resolved cost; None when the cost is unknown, never a made-up 0."""
+    return None if costo_ars is None else calcular_markup(limpio, costo_ars)
+
+
+def pct(ratio: Optional[float]) -> Optional[float]:
+    """A markup ratio as a percentage rounded to 2 decimals; None stays None."""
+    return None if ratio is None else round(ratio * 100, 2)
+
+
+def redondear(valor: Optional[float], decimales: int = 2) -> Optional[float]:
+    """`round`, with None staying None (an unknown cost in a response)."""
+    return None if valor is None else round(valor, decimales)
+
+
 def obtener_grupo_subcategoria(db: Session, subcategoria_id: int) -> int:
     """Obtiene el grupo al que pertenece una subcategoría. Si no existe, retorna grupo 1"""
     mapping = db.query(SubcategoriaGrupo).filter(SubcategoriaGrupo.subcat_id == subcategoria_id).first()
@@ -367,6 +407,7 @@ def calcular_markup_rebate(
     tipo_cambio=None,
     *,
     costo_envio: Optional[float] = None,
+    costo_ars: Optional[float] = None,
 ) -> Optional[float]:
     """Calcula el markup de rebate para un producto.
 
@@ -374,15 +415,18 @@ def calcular_markup_rebate(
         costo_envio: Pre-resolved shipping cost (with IVA). When provided, used
                      instead of calling resolver_costo_envio again, avoiding a
                      redundant cross-DB query.
+        costo_ars: Pre-resolved `costo_ars_actual` (costo SI in pesos). None: resolved here.
     """
-    if not pricing or not pricing.participa_rebate or not pricing.precio_lista_ml or not producto.costo:
+    if not pricing or not pricing.participa_rebate or not pricing.precio_lista_ml:
+        return None
+    costo_rebate = costo_ars if costo_ars is not None else costo_ars_actual(db, producto.item_id, tipo_cambio)
+    if not costo_rebate:
         return None
 
     try:
         porcentaje_rebate_val = float(pricing.porcentaje_rebate if pricing.porcentaje_rebate is not None else 3.8)
         precio_rebate = float(pricing.precio_lista_ml) / (1 - porcentaje_rebate_val / 100)
 
-        costo_rebate = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
         grupo_id_rebate = obtener_grupo_subcategoria(db, producto.subcategoria_id)
         comision_base_rebate = obtener_comision_base(db, 4, grupo_id_rebate)
 
@@ -411,14 +455,17 @@ def calcular_markup_oferta(
     tipo_cambio=None,
     *,
     costo_envio: Optional[float] = None,
+    costo_ars: Optional[float] = None,
 ) -> Optional[float]:
     """Calcula el markup de oferta vigente para un producto.
 
     Args:
         costo_envio: Pre-resolved shipping cost (with IVA). When provided, used
                      instead of calling resolver_costo_envio again.
+        costo_ars: Pre-resolved `costo_ars_actual` (costo SI in pesos). None: resolved here.
     """
-    if not producto.costo:
+    costo_oferta = costo_ars if costo_ars is not None else costo_ars_actual(db, producto.item_id, tipo_cambio)
+    if not costo_oferta:
         return None
 
     try:
@@ -455,7 +502,6 @@ def calcular_markup_oferta(
             mejor_oferta_pvp = float(mejor_oferta.pvp_seller) if mejor_oferta.pvp_seller else None
 
             if mejor_oferta_pvp and mejor_oferta_pvp > 0:
-                costo_oferta = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
                 grupo_id_oferta = obtener_grupo_subcategoria(db, producto.subcategoria_id)
                 comision_base_oferta = obtener_comision_base(db, mejor_pub.pricelist_id, grupo_id_oferta)
 
@@ -541,7 +587,7 @@ def precio_por_markup_goalseek(
 
 def calcular_precio_producto(
     db: Session,
-    costo: float,
+    costo: Optional[float],
     moneda_costo: str,
     iva: float,
     envio: float,
@@ -558,6 +604,8 @@ def calcular_precio_producto(
         grupo_id: Si se provee, se usa directamente. Sino se obtiene de subcategoria_id.
     """
 
+    if costo is None:  # an unknown cost (interfaz §7): no price is computed from it
+        return {"error": SIN_COSTO_ERROR, "costo_ars": None}
     costo_ars = convertir_a_pesos(costo, moneda_costo, tipo_cambio)
 
     # Obtener constantes de pricing de la BD

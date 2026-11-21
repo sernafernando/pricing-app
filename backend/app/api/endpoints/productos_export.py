@@ -1472,8 +1472,7 @@ def exportar_clasica(
         or con_oferta is not None
     ):
         from app.services.pricing_calculator import (
-            obtener_tipo_cambio_actual,
-            convertir_a_pesos,
+            costo_ars_actual,
             obtener_grupo_subcategoria,
             obtener_comision_base,
             calcular_comision_ml_total,
@@ -1518,13 +1517,11 @@ def exportar_clasica(
                         precio_rebate = float(producto_pricing.precio_lista_ml) * (
                             1 + float(producto_pricing.porcentaje_rebate or 3.8) / 100
                         )
-                        tipo_cambio = (
-                            obtener_tipo_cambio_actual(db, "USD") if producto_erp.moneda_costo == "USD" else None
-                        )
-                        costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio)
+                        # Over costo SI in pesos (S13, D1; list cost without one, Q1); 0 = unknown: excluded.
+                        costo_ars = costo_ars_actual(db, item_id)
                         grupo_id = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
                         comision_base = obtener_comision_base(db, 4, grupo_id)  # 4 = Clásica
-                        if comision_base:
+                        if comision_base and costo_ars:
                             comisiones = calcular_comision_ml_total(
                                 precio_rebate, comision_base, producto_erp.iva, db=db
                             )
