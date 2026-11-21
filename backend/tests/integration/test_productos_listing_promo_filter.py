@@ -28,9 +28,10 @@ from fastapi import HTTPException
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
 from app.api.endpoints.productos_listing import listar_productos
-from tests.costo_si_lista import costo_si_lista  # noqa: F401 -- Productos' sell in / sell out reads lote.actuales
+from tests.costo_si_lista import costo_si_lista  # noqa: F401  (fixture)
 
-pytestmark = pytest.mark.usefixtures("costo_si_lista")
+# Written before costo SI: on SQLite the cost reader answers the list cost ('lista', Q1).
+pytestmark = [*globals().get("pytestmark", []), pytest.mark.usefixtures("costo_si_lista")]
 
 
 _POSTGRES_ONLY_RAW_SQL_MARKERS = ("tienda_nube_productos", "v_ml_catalog_status_latest")

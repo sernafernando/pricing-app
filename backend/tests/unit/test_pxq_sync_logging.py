@@ -33,6 +33,9 @@ from app.models.publicacion_ml import PublicacionML
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 from app.services import ml_pxq_write_service as write_service
 from app.services.pxq_permissions_backfill import PXQ_ESCRIBIR_CODE
+from tests.costo_si_lista import costo_si_lista  # noqa: F401  (fixture)
+
+pytestmark = [*globals().get("pytestmark", []), pytest.mark.usefixtures("costo_si_lista")]
 
 
 @pytest.fixture()

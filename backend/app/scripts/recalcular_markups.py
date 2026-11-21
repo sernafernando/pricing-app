@@ -13,6 +13,7 @@ load_dotenv(dotenv_path=env_path)
 
 import psycopg2
 from app.core.config import settings
+from app.services.costo_si import lote
 
 # Parsear DATABASE_URL
 db_url = settings.DATABASE_URL.replace("postgresql://", "")
@@ -24,28 +25,27 @@ host, port = host_port.split(":")
 conn = psycopg2.connect(host=host, port=port, database=database, user=user, password=password)
 cursor = conn.cursor()
 
-# Obtener tipo de cambio USD
-cursor.execute("SELECT venta FROM tipo_cambio WHERE moneda = 'USD' ORDER BY fecha DESC LIMIT 1")
-tc_result = cursor.fetchone()
-tc_usd = tc_result[0] if tc_result else 1100
-
-# Obtener productos con precio
-cursor.execute("""
-    SELECT pp.id, pp.item_id, pp.precio_lista_ml, 
-           pe.costo, pe.moneda_costo, pe.subcategoria_id, pe.iva, COALESCE(pe.envio, 0) as envio
-    FROM productos_pricing pp
-    JOIN productos_erp pe ON pe.item_id = pp.item_id
-    WHERE pp.precio_lista_ml IS NOT NULL
+# Obtener productos con precio. The cost is costo SI in pesos (S13; list cost without one, Q1), today's FX:
+# the reader's own SQL, so this script and the app never disagree.
+cursor.execute(f"""
+    SELECT rm_pp.id, rm_pp.item_id, rm_pp.precio_lista_ml,
+           rm_cs.costo_si_ars, rm_pe.subcategoria_id, rm_pe.iva, COALESCE(rm_pe.envio, 0) as envio
+    FROM productos_pricing rm_pp
+    JOIN productos_erp rm_pe ON rm_pe.item_id = rm_pp.item_id
+    LEFT JOIN LATERAL ({lote.sql_en_fecha("rm_pp.item_id", "CURRENT_DATE")}) rm_cs ON true
+    WHERE rm_pp.precio_lista_ml IS NOT NULL
 """)
 
 actualizados = 0
 VARIOS_DEFAULT = {"impuestos": 0.03, "financiero": 0.02, "logistica": 0.01}
 
 for row in cursor.fetchall():
-    pricing_id, item_id, precio, costo, moneda, subcat_id, iva, envio = row
+    pricing_id, item_id, precio, costo_ars, subcat_id, iva, envio = row
 
     try:
-        costo_ars = costo if moneda == "ARS" else costo * tc_usd
+        if not costo_ars or costo_ars <= 0:
+            print(f"Sin costo en pesos para item_id {item_id}: markup no recalculado")
+            continue
 
         # Obtener comisión
         cursor.execute(
@@ -75,7 +75,7 @@ for row in cursor.fetchall():
         limpio = precio - iva_precio - envio - comision_total
 
         # Calcular markup
-        markup = ((limpio - costo_ars) / costo_ars) * 100 if costo_ars > 0 else 0
+        markup = ((limpio - costo_ars) / costo_ars) * 100
 
         # Actualizar
         cursor.execute(

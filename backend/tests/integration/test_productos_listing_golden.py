@@ -45,9 +45,10 @@ from app.models.pricing_constants import PricingConstants
 from app.models.producto import ProductoERP, ProductoPricing, TipoMoneda
 from app.models.publicacion_ml import PublicacionML
 from app.models.tipo_cambio import TipoCambio
-from tests.costo_si_lista import costo_si_lista  # noqa: F401 -- Productos' sell in / sell out reads lote.actuales
+from tests.costo_si_lista import costo_si_lista  # noqa: F401  (fixture)
 
-pytestmark = pytest.mark.usefixtures("costo_si_lista")
+# Written before costo SI: on SQLite the cost reader answers the list cost ('lista', Q1).
+pytestmark = [*globals().get("pytestmark", []), pytest.mark.usefixtures("costo_si_lista")]
 
 GOLDEN_PATH = Path(__file__).resolve().parent.parent / "fixtures" / "productos_listing_golden.json"
 UPDATE_ENV = "PRODUCTOS_GOLDEN_UPDATE"
@@ -303,10 +304,11 @@ class TestProductosListingGolden:
 # whatever its size: the current sell-in lots and the sell-out campaign reach. The manual cost mode (D6) adds one
 # more per page: the products' cost modes and manual blocks, read even for a product without purchase lines (a block
 # typed by hand is stock of its own). The PM's shipping choice (S7b) adds one more per page: the stored choices of the
-# page's products, read once by `resolver_costos_envio_batch` (never once per product). Costo SI (sell-in-costo-si T3
-# PR 5) adds the page's current costs for the sell in / sell out (`lote.actuales`): one statement on Postgres, two in
-# its SQLite stand-in (`tests/costo_si_lista.py`: the products, the USD rate).
-EXPECTED_DEFAULT_STATEMENTS = 24
+# page's products, read once by `resolver_costos_envio_batch` (never once per product). The live markups over costo
+# SI (Costo SI T3, S13) add one more per page: the page's costs read once by `lote.actuales` (never once per product).
+# The sell in / sell out on costo SI (T3 PR 5) reads them once more for its markups: one statement on Postgres, two in
+# the SQLite stand-in (`tests/costo_si_lista.py`: the products, then the USD rate, since this caller passes none).
+EXPECTED_DEFAULT_STATEMENTS = 25
 
 
 class TestProductosListingStatementCount:

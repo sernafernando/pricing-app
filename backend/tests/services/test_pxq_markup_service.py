@@ -23,6 +23,10 @@ from app.models.publicacion_ml import PublicacionML
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 from app.services.pxq_markup import ShipmentShippingCost, calcular_markup_pxq, resolve_order_cost
 from app.services.pxq_markup_service import TierMarkup, markup_for_tiers, markup_resolved
+from tests.costo_si_lista import costo_si_lista  # noqa: F401  (fixture)
+
+# Written before costo SI: on SQLite the cost reader answers the list cost ('lista', Q1).
+pytestmark = [*globals().get("pytestmark", []), pytest.mark.usefixtures("costo_si_lista")]
 
 
 @pytest.fixture()

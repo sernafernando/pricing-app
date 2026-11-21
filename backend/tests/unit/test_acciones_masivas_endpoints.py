@@ -15,6 +15,15 @@ from app.models.auditoria_precio import AuditoriaPrecio
 from app.models.auditoria import Auditoria
 
 
+@pytest.fixture(autouse=True)
+def _costo_en_pesos(monkeypatch):
+    """The db here is a mock: the costo SI reader (Postgres SQL) is stubbed with the cost these tests already assume
+    in pesos (the 10000 their `convertir_a_pesos` patch returns)."""
+    monkeypatch.setattr(
+        "app.api.endpoints.pricing.costos_ars_actuales", lambda db, ids, tipo_cambio=None: dict.fromkeys(ids, 10000.0)
+    )
+
+
 def _db_for_models(producto=None, pricing=None):
     db = MagicMock()
 

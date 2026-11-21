@@ -657,8 +657,7 @@ def obtener_ofertas_vigentes(
     from app.models.publicacion_ml import PublicacionML
     from app.models.oferta_ml import OfertaML
     from app.services.pricing_calculator import (
-        obtener_tipo_cambio_actual,
-        convertir_a_pesos,
+        costo_ars_actual,
         obtener_grupo_subcategoria,
         obtener_comision_base,
         calcular_comision_ml_total,
@@ -670,10 +669,8 @@ def obtener_ofertas_vigentes(
     if not producto:
         return {"item_id": item_id, "publicaciones": []}
 
-    tipo_cambio = None
-    if producto.moneda_costo == "USD":
-        tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
-    costo_ars = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
+    # The offer markup is over costo SI in pesos (S13, D1; list cost without one, Q1); 0 = unknown: no markup.
+    costo_ars = costo_ars_actual(db, item_id)
 
     # Resolve shipping cost once via central resolver (mlwebhook first, ERP fallback)
     costo_envio_oferta = resolver_costo_envio(db, producto)
@@ -697,7 +694,7 @@ def obtener_ofertas_vigentes(
             grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
             comision_base = obtener_comision_base(db, pub.pricelist_id, grupo_id)
 
-            if comision_base:
+            if comision_base and costo_ars:
                 comisiones = calcular_comision_ml_total(oferta.pvp_seller, comision_base, producto.iva, db=db)
                 limpio = calcular_limpio(
                     oferta.pvp_seller,

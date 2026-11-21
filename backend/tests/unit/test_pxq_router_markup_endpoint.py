@@ -40,6 +40,9 @@ from app.models.usuario import AuthProvider, RolUsuario, Usuario
 from app.services import pxq_markup_service
 from app.routers import pxq as pxq_router
 from app.routers.pxq import obtener_markup_pxq
+from tests.costo_si_lista import costo_si_lista  # noqa: F401  (fixture)
+
+pytestmark = [*globals().get("pytestmark", []), pytest.mark.usefixtures("costo_si_lista")]
 
 
 @pytest.fixture()

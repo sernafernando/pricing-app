@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from app.models.auditoria_precio import AuditoriaPrecio
 from app.api.deps import get_current_user, require_permiso
 from app.services.envio_real_service import resolver_costos_envio_batch
+from app.services.pricing_calculator import SIN_COSTO_ERROR, markup_sobre_costo, pct
 import logging
 
 from app.api.endpoints.productos_shared import (  # noqa: F401
@@ -179,7 +180,7 @@ def actualizar_web_transferencia(
         calcular_precio_web_transferencia,
         obtener_constantes_pricing,
         obtener_tipo_cambio_actual,
-        convertir_a_pesos,
+        costo_ars_actual,
     )
     from app.services.auditoria_service import registrar_auditoria
     from app.models.auditoria import TipoAccion
@@ -224,7 +225,9 @@ def actualizar_web_transferencia(
         if producto_erp.moneda_costo == "USD":
             tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
 
-        costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio)
+        costo_ars = costo_ars_actual(db, producto_erp.item_id, tipo_cambio)
+        if costo_ars is None:  # unknown cost (interfaz §7): no web price from a made-up one (D4)
+            raise HTTPException(status_code=400, detail=SIN_COSTO_ERROR)
 
         if pricing.markup_calculado is not None and pricing.precio_lista_ml is not None:
             markup_clasica = pricing.markup_calculado / 100
@@ -294,7 +297,7 @@ def calcular_web_masivo(
         calcular_precio_web_transferencia,
         obtener_constantes_pricing,
         obtener_tipo_cambio_actual,
-        convertir_a_pesos,
+        costos_ars_actuales,
     )
 
     constantes = obtener_constantes_pricing(db)
@@ -541,6 +544,8 @@ def calcular_web_masivo(
     query = aplicar_filtros_cross_db_masivo(query, db, request.filtros)
 
     productos = query.all()
+    tipo_cambio_usd = obtener_tipo_cambio_actual(db, "USD")
+    costos = costos_ars_actuales(db, [p.item_id for p, _ in productos], tipo_cambio_usd)  # one query for the set
 
     procesados = 0
 
@@ -562,11 +567,10 @@ def calcular_web_masivo(
         markup_objetivo = markup_base + (porcentaje_adicional / 100)
 
         # Calcular precio
-        tipo_cambio = None
-        if producto_erp.moneda_costo == "USD":
-            tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
-
-        costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio)
+        costo_ars = costos.get(producto_erp.item_id)
+        if costo_ars is None:  # unknown cost (no cost, or USD without a rate): no price from a made-up cost (D4)
+            logger.warning("calcular-web-masivo: item %s skipped: sin_costo", producto_erp.item_id)
+            continue
 
         resultado = calcular_precio_web_transferencia(
             costo_ars=costo_ars,
@@ -624,7 +628,11 @@ def calcular_pvp_masivo(
     request: CalculoPVPMasivoRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Calcula precios PVP masivamente (clásica + cuotas con markup convergente)"""
-    from app.services.pricing_calculator import calcular_precio_producto, obtener_tipo_cambio_actual
+    from app.services.pricing_calculator import (
+        calcular_precio_producto,
+        costos_ars_actuales,
+        obtener_tipo_cambio_actual,
+    )
 
     # Obtener productos base
     layer_activo = resolver_layer_activo(coerce_equipo_id(request.filtros), current_user, db)
@@ -729,6 +737,7 @@ def calcular_pvp_masivo(
     # Items absent from the dict fall back to ProductoERP.envio (ERP value).
     pvp_masivo_item_ids = [p_erp.item_id for p_erp, _ in productos]
     envio_real_by_item: dict[int, float] = resolver_costos_envio_batch(db, pvp_masivo_item_ids)
+    costos = costos_ars_actuales(db, pvp_masivo_item_ids, obtener_tipo_cambio_actual(db, "USD"))
 
     procesados = 0
     tipo_cambio_cache = {}
@@ -744,6 +753,11 @@ def calcular_pvp_masivo(
                 if not tipo_cambio:
                     continue  # Saltar este producto si no hay tipo de cambio
 
+            costo_ars = costos.get(producto_erp.item_id)
+            if costo_ars is None:  # unknown cost (interfaz §7): nothing priced or written for it (D4)
+                logger.warning("calcular-pvp-masivo: item %s skipped: sin_costo", producto_erp.item_id)
+                continue
+
             # Crear pricing si no existe
             if not producto_pricing:
                 producto_pricing = ProductoPricing(item_id=producto_erp.item_id, usuario_id=current_user.id)
@@ -757,8 +771,8 @@ def calcular_pvp_masivo(
             # Calcular PVP CLÁSICA (pricelist_id=12)
             resultado_clasica = calcular_precio_producto(
                 db=db,
-                costo=producto_erp.costo,
-                moneda_costo=producto_erp.moneda_costo,
+                costo=costo_ars,
+                moneda_costo="ARS",
                 iva=producto_erp.iva,
                 envio=costo_envio_pvp,
                 subcategoria_id=producto_erp.subcategoria_id,
@@ -778,8 +792,8 @@ def calcular_pvp_masivo(
             # 3 cuotas (pricelist_id=18)
             resultado_3 = calcular_precio_producto(
                 db=db,
-                costo=producto_erp.costo,
-                moneda_costo=producto_erp.moneda_costo,
+                costo=costo_ars,
+                moneda_costo="ARS",
                 iva=producto_erp.iva,
                 envio=costo_envio_pvp,
                 subcategoria_id=producto_erp.subcategoria_id,
@@ -796,8 +810,8 @@ def calcular_pvp_masivo(
             # 6 cuotas (pricelist_id=19)
             resultado_6 = calcular_precio_producto(
                 db=db,
-                costo=producto_erp.costo,
-                moneda_costo=producto_erp.moneda_costo,
+                costo=costo_ars,
+                moneda_costo="ARS",
                 iva=producto_erp.iva,
                 envio=costo_envio_pvp,
                 subcategoria_id=producto_erp.subcategoria_id,
@@ -814,8 +828,8 @@ def calcular_pvp_masivo(
             # 9 cuotas (pricelist_id=20)
             resultado_9 = calcular_precio_producto(
                 db=db,
-                costo=producto_erp.costo,
-                moneda_costo=producto_erp.moneda_costo,
+                costo=costo_ars,
+                moneda_costo="ARS",
                 iva=producto_erp.iva,
                 envio=costo_envio_pvp,
                 subcategoria_id=producto_erp.subcategoria_id,
@@ -832,8 +846,8 @@ def calcular_pvp_masivo(
             # 12 cuotas (pricelist_id=21)
             resultado_12 = calcular_precio_producto(
                 db=db,
-                costo=producto_erp.costo,
-                moneda_costo=producto_erp.moneda_costo,
+                costo=costo_ars,
+                moneda_costo="ARS",
                 iva=producto_erp.iva,
                 envio=costo_envio_pvp,
                 subcategoria_id=producto_erp.subcategoria_id,
@@ -900,12 +914,11 @@ def recalcular_cuotas_masivo(
     from app.services.pricing_calculator import (
         calcular_precio_producto,
         obtener_tipo_cambio_actual,
-        convertir_a_pesos,
+        costos_ars_actuales,
         obtener_grupo_subcategoria,
         obtener_comision_base,
         calcular_comision_ml_total,
         calcular_limpio,
-        calcular_markup,
     )
     from app.api.endpoints.pricing import obtener_markup_adicional_cuotas
 
@@ -1024,6 +1037,7 @@ def recalcular_cuotas_masivo(
     # Items absent from the dict fall back to ProductoERP.envio (ERP value).
     cuotas_masivo_item_ids = [p_erp.item_id for p_erp, _ in productos]
     envio_real_by_item: dict[int, float] = resolver_costos_envio_batch(db, cuotas_masivo_item_ids)
+    costos = costos_ars_actuales(db, cuotas_masivo_item_ids, obtener_tipo_cambio_actual(db, "USD"))
 
     # Markup adicional global (fallback si el producto no tiene custom)
     markup_adicional_global = obtener_markup_adicional_cuotas(db)
@@ -1071,7 +1085,10 @@ def recalcular_cuotas_masivo(
                 if not tipo_cambio:
                     continue
 
-            costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio)
+            costo_ars = costos.get(producto_erp.item_id)
+            if costo_ars is None:  # unknown cost (interfaz §7): nothing priced or written for it (D4)
+                logger.warning("recalcular-cuotas-masivo: item %s skipped: sin_costo", producto_erp.item_id)
+                continue
             grupo_id = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
 
             # Resolve real shipping cost: batch resolver takes priority over ERP envio.
@@ -1093,8 +1110,7 @@ def recalcular_cuotas_masivo(
                 db=db,
                 grupo_id=grupo_id,
             )
-            markup = calcular_markup(limpio, costo_ars)
-            markup_porcentaje = round(markup * 100, 2)
+            markup_porcentaje = pct(markup_sobre_costo(limpio, costo_ars))
 
             # Markup adicional: custom del producto > global
             if lista_tipo == "pvp":
@@ -1115,8 +1131,8 @@ def recalcular_cuotas_masivo(
                 try:
                     resultado = calcular_precio_producto(
                         db=db,
-                        costo=producto_erp.costo,
-                        moneda_costo=producto_erp.moneda_costo,
+                        costo=costo_ars,
+                        moneda_costo="ARS",
                         iva=producto_erp.iva,
                         envio=costo_envio_cuotas,
                         subcategoria_id=producto_erp.subcategoria_id,
@@ -1145,7 +1161,7 @@ def recalcular_cuotas_masivo(
                                     db=db,
                                     grupo_id=grupo_id,
                                 )
-                                markup_cuota = round(calcular_markup(limpio_cuota, costo_ars) * 100, 2)
+                                markup_cuota = pct(markup_sobre_costo(limpio_cuota, costo_ars))
                                 setattr(producto_pricing, nombre_markup, markup_cuota)
                             else:
                                 setattr(producto_pricing, nombre_markup, None)

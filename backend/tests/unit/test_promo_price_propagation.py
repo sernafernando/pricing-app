@@ -27,6 +27,10 @@ from app.models.producto import ProductoERP, ProductoPricing, TipoMoneda
 from app.models.producto_precio_origen import ProductoPrecioOrigen
 from app.models.publicacion_ml import PublicacionML
 from app.services.promo_price_propagation import recompute_item
+from tests.costo_si_lista import costo_si_lista  # noqa: F401  (fixture)
+
+# Written before costo SI: on SQLite the cost reader answers the list cost ('lista', Q1).
+pytestmark = [*globals().get("pytestmark", []), pytest.mark.usefixtures("costo_si_lista")]
 
 
 def _make_producto(db, item_id: int = 2001) -> ProductoERP:

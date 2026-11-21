@@ -21,6 +21,10 @@ import pytest
 from app.models.permiso import Permiso, RolPermisoBase
 from app.models.producto import ProductoERP, ProductoPricing, TipoMoneda
 from app.models.tipo_cambio import TipoCambio
+from tests.costo_si_lista import costo_si_lista  # noqa: F401  (fixture)
+
+# Written before costo SI: on SQLite the cost reader answers the list cost ('lista', Q1).
+pytestmark = [*globals().get("pytestmark", []), pytest.mark.usefixtures("costo_si_lista")]
 
 ITEM_ID = 3101
 
@@ -194,10 +198,12 @@ def test_error_inside_markup_chain_saves_rebate_with_null_markup(client, auth_he
 
 
 def test_usd_product_without_any_exchange_rate_still_saves(client, auth_headers, db) -> None:
-    """No TipoCambio row: like pricing.py, convertir_a_pesos keeps the cost unconverted."""
+    """No TipoCambio row: the rebate still saves, but without a markup. The cost in pesos is unknown, and the costo SI
+    reader never reads a USD cost as pesos (handoffs/sell-in-costo-si-interfaz.md §1, L18). Before T3 the USD number
+    was used unconverted, which gave a made-up markup."""
     _seed(db, participa_rebate=False, costo=1000.0, moneda=TipoMoneda.USD)
 
     response = _patch_rebate(client, auth_headers, True, 3.8)
 
     assert response.status_code == 200, response.text
-    assert _stored_markup_rebate(db) is not None
+    assert _stored_markup_rebate(db) is None
