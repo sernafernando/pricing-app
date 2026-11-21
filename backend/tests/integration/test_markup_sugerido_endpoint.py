@@ -28,7 +28,9 @@ import pytest
 from app.api.endpoints.productos_shared import computar_precio_sugerido
 from app.models.markup_tienda import MarkupTiendaProducto, MarkupTiendaBrand
 from app.models.producto import ProductoERP, ProductoPricing
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 (the costo SI reader's SQLite stand-in)
 
+pytestmark = pytest.mark.usefixtures("costo_si_lista")
 
 # ==========================================================================
 # Permission fixtures (same pattern as test_compras_endpoints.py)

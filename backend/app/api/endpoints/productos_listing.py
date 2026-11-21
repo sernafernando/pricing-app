@@ -171,14 +171,16 @@ def construir_orden_precios_derivados(varios_porcentaje: float, tipo_cambio_usd:
     `frontend/src/pages/Tienda.jsx`), so IVA — the only genuinely per-row
     factor of the `_con_iva` variants — never enters the sort key.
 
-    Every input is either a plain DB column or a REQUEST-LEVEL SCALAR:
+    Every input is a plain DB column, a REQUEST-LEVEL SCALAR or the cost:
 
     - `varios_porcentaje` comes from `obtener_constantes_pricing(db)`: one row
       for the whole request, identical for every product.
     - `tipo_cambio_usd` comes from `obtener_tipo_cambio_actual(db, "USD")`:
-      also one scalar for the whole request. `convertir_a_pesos` only branches
-      on `moneda_costo`, which IS a column, so the conversion is a plain CASE
-      with the rate bound as a literal — it does NOT vary per row.
+      also one scalar for the whole request, bound as a literal.
+    - the cost is costo SI in pesos (owner L20), the reader's own SQL
+      (`costo_si_columna.costos_ars_conjunto`, one set-based read joined on
+      item_id): the same number `lote.actuales` gives the Python path, so they
+      cannot disagree.
 
     Therefore no step needs Python: the whole thing is expressible over the
     already-filtered query, and the endpoint can keep paginating in SQL
@@ -197,6 +199,9 @@ def construir_orden_precios_derivados(varios_porcentaje: float, tipo_cambio_usd:
     3. the brand subquery — built with GROUP BY, so it is unique on `marca`
        by construction, then joined back to `markups_tienda_brand` on its
        PRIMARY KEY.
+    4. the costo SI subquery — one row per DISTINCT `item_id` of
+       `productos_erp` (`lote.sql_actual_conjunto`; combos aggregated per
+       combo).
 
     ── Tie-break, and why it matches the Python path exactly ───────────────
     `markups_tienda_brand` is unique on (comp_id, brand_id), NOT on brand_id
@@ -215,9 +220,9 @@ def construir_orden_precios_derivados(varios_porcentaje: float, tipo_cambio_usd:
 
     Args:
         varios_porcentaje: Operating-cost percentage for this request (e.g. 6.5).
-        tipo_cambio_usd: USD→ARS rate for this request, or None when no rate
-            is available (in which case `convertir_a_pesos` leaves the cost
-            untouched — mirrored here).
+        tipo_cambio_usd: USD→ARS rate for this request (the one the page's
+            `lote.actuales` read uses), or None: then the reader's latest rate,
+            and a USD cost without any rate has no pesos (NULL, no price).
 
     Returns:
         Tuple `(joins, expresiones)` where `joins` is a list of
@@ -229,7 +234,6 @@ def construir_orden_precios_derivados(varios_porcentaje: float, tipo_cambio_usd:
 
     from app.models.markup_tienda import MarkupTiendaBrand, MarkupTiendaProducto
     from app.models.precio_gremio_override import PrecioGremioOverride
-    from app.models.producto import TipoMoneda
     from app.models.tb_brand import TBBrand
 
     # brand_desc → a single brand_id (greatest wins, see docstring).
@@ -290,17 +294,12 @@ def construir_orden_precios_derivados(varios_porcentaje: float, tipo_cambio_usd:
         (marca_markups, marca_markups.c.marca == ProductoERP.marca),
     ]
 
-    # `convertir_a_pesos(costo, moneda_costo, tipo_cambio)`: ARS passes
-    # through, anything else (including NULL `moneda_costo`, which is not
-    # equal to 'ARS' in Python either) is multiplied by the rate — but only
-    # when a rate exists, otherwise the raw cost is returned untouched.
-    if tipo_cambio_usd:
-        costo_ars = case(
-            (ProductoERP.moneda_costo == TipoMoneda.ARS, ProductoERP.costo),
-            else_=ProductoERP.costo * float(tipo_cambio_usd),
-        )
-    else:
-        costo_ars = ProductoERP.costo
+    # The price base: costo SI in pesos at the request's rate (owner L20), the very number `lote.actuales` gives the
+    # Python path; NULL when unknown, so the row has no price and sorts like one without it (§7). One set-based read
+    # of the reader joined on item_id (at most one row per item_id), not a correlated subquery per row and per use.
+    costos = costo_si_columna.costos_ars_conjunto(tipo_cambio_usd)
+    joins.append((costos, costos.c.item_id == ProductoERP.item_id))
+    costo_ars = costos.c.costo_si_ars
 
     factor_varios = 1.0 + varios_porcentaje / 100.0
 
@@ -2141,6 +2140,9 @@ def listar_productos_tienda(
 
     orden_aplicado = False
     expresiones_derivadas = None
+    # The total, counted before the sort: the sort's joins are at most one row per product
+    # (`construir_orden_precios_derivados`), so they never change it, and the count need not compute the costo SI.
+    query_total = query
     if orden_campos and orden_direcciones:
         campos = orden_campos.split(",")
         direcciones = orden_direcciones.split(",")
@@ -2240,7 +2242,7 @@ def listar_productos_tienda(
         # ausentes al paginar. `item_id` es la PK de productos_erp.
         query = query.order_by(ProductoERP.item_id.asc())
 
-    total = query.order_by(None).count()  # the ORDER BY never changes the total (a costo SI sort would run twice)
+    total = query_total.order_by(None).count()
     offset = (page - 1) * page_size
     results = query.offset(offset).limit(page_size).all()
 
@@ -2425,9 +2427,11 @@ def listar_productos_tienda(
 
     # ── Batch-resolve PPP (ERP weighted-average cost, informational only) ────
     ppp_by_item_t = resolver_ppp_batch(db, item_ids_results)
-    # The costo SI column beside the list cost (display only), at the rate the PPP markups use.
+    # Costo SI, read once for the page at the rate the markups use: the column beside the list cost, and in pesos the
+    # base of Tienda's markups (S13, D1; the list cost without a costo SI step, Q1). None = unknown (a USD cost without
+    # a rate, or no cost): no markup, never 0 or a USD figure taken as pesos (interfaz §7).
     costo_si_by_item_t = costo_si_lote.actuales(db, item_ids_results, tipo_cambio=tipo_cambio_usd_t)
-    costo_si_ars_t = costos_ars_de(costo_si_by_item_t)  # in pesos; None = unknown, no stored markup shown
+    costo_si_ars_t = costos_ars_de(costo_si_by_item_t)
     # Sell in / sell out per channel context (gremio / sugerido: off-ML; web_transf: Tienda Nube), one read.
     sell_in_out_batches_t = resolver_tienda_batches(db, item_ids_results, hoy, costos=costo_si_by_item_t)
 
@@ -2460,6 +2464,7 @@ def listar_productos_tienda(
     for producto_erp, producto_pricing in results:
         # Calcular costo en ARS
         costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_usd_t)
+        costo_si_ars = costo_si_ars_t.get(producto_erp.item_id)
 
         # T-4: Resolve grupo_id once per product
         grupo_id = subcat_to_grupo_t.get(producto_erp.subcategoria_id, GRUPO_DEFAULT)
@@ -2527,19 +2532,20 @@ def listar_productos_tienda(
             precio_gremio_sin_iva = float(override.precio_gremio_sin_iva_manual)
             precio_gremio_con_iva = float(override.precio_gremio_con_iva_manual)
             tiene_override_gremio = True
-            # Calcular markup basado en el precio manual
-            if costo_ars and costo_ars > 0:
-                # Markup = ((Precio / (1 + varios%)) / Costo) - 1
+            # The manual price stays as stored (D4); its markup is over costo SI.
+            if costo_si_ars:
+                # Markup = ((Precio / (1 + varios%)) / costo SI) - 1
                 precio_base = precio_gremio_sin_iva / (1 + varios_porcentaje / 100)
-                markup_gremio = ((precio_base / costo_ars) - 1) * 100
+                markup_gremio = ((precio_base / costo_si_ars) - 1) * 100
         else:
             # Calcular automáticamente según reglas de marca/producto
             if producto_erp.item_id in markups_producto_dict:
                 markup_gremio = markups_producto_dict[producto_erp.item_id]
             elif producto_erp.marca and producto_erp.marca in markups_marca_dict:
                 markup_gremio = markups_marca_dict[producto_erp.marca]
-            if markup_gremio is not None and costo_ars and costo_ars > 0:
-                precio_gremio_sin_iva = costo_ars * (1 + varios_porcentaje / 100) * (1 + markup_gremio / 100)
+            # Over costo SI in pesos (owner L20); unknown cost = no price (§7), logged by `costos_ars_de`.
+            if markup_gremio is not None and costo_si_ars and costo_si_ars > 0:
+                precio_gremio_sin_iva = costo_si_ars * (1 + varios_porcentaje / 100) * (1 + markup_gremio / 100)
                 iva_producto = producto_erp.iva if producto_erp.iva else 21.0
                 precio_gremio_con_iva = precio_gremio_sin_iva * (1 + iva_producto / 100)
 
@@ -2557,7 +2563,7 @@ def listar_productos_tienda(
         markup_clasica = producto_pricing.markup_calculado if producto_pricing else None
         iva_producto = producto_erp.iva if producto_erp.iva else 21.0
         precio_sugerido_sin_iva, precio_sugerido_con_iva, markup_sugerido_total = computar_precio_sugerido(
-            costo_ars=costo_ars,
+            costo_ars=costo_si_ars,  # costo SI (L20); None = unknown, no price
             iva=iva_producto,
             markup_clasica=markup_clasica,
             markup_sugerido_valor=markup_sugerido_valor,
@@ -2567,11 +2573,10 @@ def listar_productos_tienda(
         # Markups cuotas
         markup_3_cuotas, markup_6_cuotas, markup_9_cuotas, markup_12_cuotas = None, None, None, None
         if producto_pricing:
-            tc_cuota = tipo_cambio_usd_t if producto_erp.moneda_costo == "USD" else None
-            cc = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tc_cuota)
+            cc = costo_si_ars
 
             for precio_cuota, pricelist_id, nombre in ml_cuota_prices(producto_pricing):
-                if precio_cuota and float(precio_cuota) > 0:
+                if cc and precio_cuota and float(precio_cuota) > 0:
                     try:
                         cb = _lookup_comision_t(pricelist_id, grupo_id)
                         if cb:

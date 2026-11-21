@@ -9,9 +9,11 @@ One rule, written once as SQL (`sql_en_fecha`, `actual`) and run by the Python r
   writes 0 for a missing one). Current = `productos_erp.costo` in
   `moneda_costo`; on a date = the last list 1 history row created before the end of that day (`curr_id` 1/NULL ARS,
   else USD), else the current one.
-- A combo that is not a PC (S11, L4.9, L7.1) = its components x quantity, each resolved the same way on the same date;
+- A combo (S11, L4.9, L7.1; a PC too, L22) = its components x quantity, each resolved the same way on the same date;
   costo SI only when every component is; unknown when any component is (logged). A PC (cat 47) is a combo here (L22:
-  "las pcs son la suma de sus componentes el costo"); one without a bill of materials keeps its list cost.
+  "las pcs son la suma de sus componentes el costo"); one without a bill of materials keeps its list cost. A component
+  with no `productos_erp` row (the ERP sync skips categories such as 72 PRODUCCIÓN; the bill of materials does not)
+  takes GBP's current list 1 cost (`tb_item_cost_list`, first company) where `productos_erp.costo` would be (#2373).
 - Pesos: ARS as is; USD x the USD rate (`tipo_cambio`, venta > 0, the last one on or before the date, else the ERP's
   USD -> ARS `tb_cur_exch_history`, like the metrics crons; current: the latest, or the caller's). Without a rate the
   peso value is unknown (NULL, logged by the Python readers): never 0, never the USD number.
@@ -105,9 +107,24 @@ def _es_combo(item: str) -> str:
     return f"(EXISTS (SELECT 1 FROM combo_componentes csi_x WHERE csi_x.combo_item_id = {item}))"
 
 
-def _propio(item: str, fecha: Optional[str]) -> str:
-    """One product's own cost: (costo, moneda, fuente, desde), at most one row. `fecha` None = current."""
+def _lista_gbp(item: str) -> str:
+    """GBP's current list 1 cost of a COMBO COMPONENT that has no `productos_erp` row (the ERP sync skips some
+    categories, e.g. 72 PRODUCCIÓN, but the combo bill of materials does not): the source `productos_erp.costo` itself
+    is synced from, first company, `curr_id` 1/NULL ARS else USD. Orchestrator decision on #2373."""
+    return f"""
+            (SELECT csi_gl.coslis_price::numeric, CASE WHEN COALESCE(csi_gl.curr_id, 1) = 1 THEN 'ARS' ELSE 'USD' END,
+                    '{FUENTE_LISTA}', NULL::date, 4
+             FROM tb_item_cost_list csi_gl
+             WHERE csi_gl.item_id = {item} AND csi_gl.coslis_id = 1
+               AND NOT EXISTS (SELECT 1 FROM productos_erp csi_pg WHERE csi_pg.item_id = {item})
+             ORDER BY csi_gl.comp_id LIMIT 1)"""
+
+
+def _propio(item: str, fecha: Optional[str], *, componente: bool = False) -> str:
+    """One product's own cost: (costo, moneda, fuente, desde), at most one row. `fecha` None = current. `componente`:
+    a combo component, which falls back last to GBP's list cost when it has no `productos_erp` row (`_lista_gbp`)."""
     hasta = "" if fecha is None else f" AND csi_p.fecha <= ({fecha})"
+    gbp = f"\n            UNION ALL{_lista_gbp(item)}" if componente else ""
     historia = (
         ""
         if fecha is None
@@ -129,7 +146,7 @@ def _propio(item: str, fecha: Optional[str]) -> str:
                     CASE WHEN upper(btrim(COALESCE(csi_pe.moneda_costo, ''))) IN ('', 'ARS') THEN 'ARS'
                          ELSE upper(btrim(csi_pe.moneda_costo)) END,
                     '{FUENTE_LISTA}', NULL::date, 3
-             FROM productos_erp csi_pe WHERE csi_pe.item_id = {item})
+             FROM productos_erp csi_pe WHERE csi_pe.item_id = {item}){gbp}
         ) csi_o(costo, moneda, fuente, desde, prioridad)
         WHERE csi_o.costo IS NOT NULL AND (csi_o.prioridad = 1 OR csi_o.costo > 0)
         ORDER BY csi_o.prioridad LIMIT 1"""
@@ -154,7 +171,7 @@ def _fragmento(item: str, fecha: Optional[str], tc: str) -> str:
                CASE WHEN bool_and(csi_b.fuente = '{FUENTE_COSTO_SI}') THEN '{FUENTE_COSTO_SI}' ELSE '{FUENTE_LISTA}' END,
                NULL::date
         FROM combo_componentes csi_cc
-        LEFT JOIN LATERAL ({_propio("csi_cc.componente_item_id", fecha)}) csi_b ON true
+        LEFT JOIN LATERAL ({_propio("csi_cc.componente_item_id", fecha, componente=True)}) csi_b ON true
         WHERE csi_cc.combo_item_id = {item} AND {_es_combo(item)}
         HAVING count(*) > 0 AND count(csi_b.costo) = count(*) AND (count(DISTINCT csi_b.moneda) = 1 OR csi_fx.tc IS NOT NULL)
     ) csi_r ON true"""
@@ -362,9 +379,10 @@ def sql_actual_conjunto(ids: str, tipo_cambio: str = "NULL::numeric") -> str:
     ars = "CASE WHEN csi_b.moneda = 'ARS' THEN csi_b.costo ELSE csi_b.costo * csi_fx.tc END"
     return f"""
     WITH csi_q AS (SELECT DISTINCT csi_i.item_id FROM ({ids}) csi_i WHERE csi_i.item_id IS NOT NULL),
-    csi_combo AS (
+    -- the ids with parts (a hash join): combos and PCs alike (L22)
+    csi_combo AS MATERIALIZED (
         SELECT csi_q.item_id FROM csi_q
-        WHERE EXISTS (SELECT 1 FROM combo_componentes csi_x WHERE csi_x.combo_item_id = csi_q.item_id)
+        WHERE csi_q.item_id IN (SELECT csi_x.combo_item_id FROM combo_componentes csi_x)
     ),
     csi_necesarios AS (
         SELECT csi_q.item_id FROM csi_q WHERE csi_q.item_id NOT IN (SELECT item_id FROM csi_combo)
@@ -373,6 +391,25 @@ def sql_actual_conjunto(ids: str, tipo_cambio: str = "NULL::numeric") -> str:
         WHERE csi_cc.combo_item_id IN (SELECT item_id FROM csi_combo)
     ),
     csi_propio AS ({propio}),
+    -- a combo component with no `productos_erp` row: GBP's list cost (`_lista_gbp`)
+    csi_gbp AS (
+        SELECT DISTINCT ON (csi_gl.item_id) csi_gl.item_id, csi_gl.coslis_price::numeric AS costo,
+               CASE WHEN COALESCE(csi_gl.curr_id, 1) = 1 THEN 'ARS' ELSE 'USD' END AS moneda
+        FROM tb_item_cost_list csi_gl
+        WHERE csi_gl.coslis_id = 1
+          AND csi_gl.item_id IN (SELECT csi_cc.componente_item_id FROM combo_componentes csi_cc
+                                 WHERE csi_cc.combo_item_id IN (SELECT item_id FROM csi_combo))
+          AND NOT EXISTS (SELECT 1 FROM productos_erp csi_pg WHERE csi_pg.item_id = csi_gl.item_id)
+        ORDER BY csi_gl.item_id, csi_gl.comp_id
+    ),
+    csi_componente AS (
+        SELECT csi_o.item_id,
+               CASE WHEN csi_o.costo IS NOT NULL THEN csi_o.costo WHEN csi_g.costo > 0 THEN csi_g.costo END AS costo,
+               CASE WHEN csi_o.costo IS NOT NULL THEN csi_o.moneda WHEN csi_g.costo > 0 THEN csi_g.moneda END AS moneda,
+               CASE WHEN csi_o.costo IS NOT NULL THEN csi_o.fuente WHEN csi_g.costo > 0 THEN '{FUENTE_LISTA}' END
+                   AS fuente
+        FROM csi_propio csi_o LEFT JOIN csi_gbp csi_g ON csi_g.item_id = csi_o.item_id
+    ),
     csi_fx AS ({tc}),
     csi_r AS (
         SELECT csi_q.item_id, csi_o.costo, csi_o.moneda, csi_o.fuente, csi_o.desde
@@ -387,7 +424,7 @@ def sql_actual_conjunto(ids: str, tipo_cambio: str = "NULL::numeric") -> str:
                NULL::date
         FROM combo_componentes csi_cc
         CROSS JOIN csi_fx
-        LEFT JOIN csi_propio csi_b ON csi_b.item_id = csi_cc.componente_item_id
+        LEFT JOIN csi_componente csi_b ON csi_b.item_id = csi_cc.componente_item_id
         WHERE csi_cc.combo_item_id IN (SELECT item_id FROM csi_combo)
         GROUP BY csi_cc.combo_item_id, csi_fx.tc
         HAVING count(*) > 0 AND count(csi_b.costo) = count(*) AND (count(DISTINCT csi_b.moneda) = 1 OR csi_fx.tc IS NOT NULL)

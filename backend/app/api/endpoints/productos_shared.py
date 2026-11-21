@@ -232,7 +232,7 @@ class ProductoTiendaListResponse(BaseModel):
 
 
 def computar_precio_sugerido(
-    costo_ars: float,
+    costo_ars: Optional[float],
     iva: float,
     markup_clasica: Optional[float],
     markup_sugerido_valor: Optional[float],
@@ -253,7 +253,8 @@ def computar_precio_sugerido(
         precio_sugerido_con_iva = precio_sugerido_sin_iva * (1 + iva / 100)
 
     Args:
-        costo_ars: Product cost in ARS (already converted from USD if applicable).
+        costo_ars: Product cost in ARS (already converted from USD if applicable): costo SI in pesos for every
+                   caller (owner L20); None = unknown, no price (interfaz §7).
         iva: IVA percentage (e.g. 21.0 for 21%).
         markup_clasica: The Clásica (gremio) markup % from producto_pricing.markup_calculado.
                         If None or costo_ars <= 0 the function returns (None, None, None).
