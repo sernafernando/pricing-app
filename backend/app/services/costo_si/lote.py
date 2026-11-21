@@ -45,19 +45,35 @@ COLUMNAS = (
     "costo_si_desde",
     "costo_si_tipo_cambio",
     "costo_si_ars",
+    "costo_si_tipo_cambio_fecha",
 )
 
 
-def _tc_en(fecha: str) -> str:
-    """The USD rate on the SQL date `fecha`, like the metrics crons: the last `tipo_cambio` venta > 0 dated on or
-    before it, else the ERP's last USD -> ARS `tb_cur_exch_history` rate > 0 created before the end of that day; NULL
-    without either (the peso value is then unknown, never 0)."""
+def _tc_en(fecha: str, *, propio: Optional[str] = None) -> str:
+    """The USD rate on the SQL date `fecha` and that rate's own date, as one row (`tc`, `tc_fecha`), like the metrics
+    crons: the last `tipo_cambio` venta > 0 dated on or before it, else the ERP's last USD -> ARS
+    `tb_cur_exch_history` rate > 0 created before the end of that day; NULLs without either (the peso value is then
+    unknown, never 0). `propio`: a rate the caller supplies (SQL), first when not NULL, dated by the latest
+    `tipo_cambio` row with that very rate (the screens pass `obtener_tipo_cambio_actual`), NULL when none has it."""
+    caller = (
+        ""
+        if propio is None
+        else (
+            f"(SELECT {propio}, (SELECT csi_tcp.fecha FROM tipo_cambio csi_tcp WHERE csi_tcp.moneda = 'USD'"
+            f" AND csi_tcp.venta = {propio} AND csi_tcp.fecha <= ({fecha}) ORDER BY csi_tcp.fecha DESC LIMIT 1), 0"
+            f" WHERE {propio} IS NOT NULL) UNION ALL "
+        )
+    )
     return (
-        "COALESCE((SELECT csi_tc.venta::numeric FROM tipo_cambio csi_tc WHERE csi_tc.moneda = 'USD'"
-        f" AND csi_tc.venta > 0 AND csi_tc.fecha <= ({fecha}) ORDER BY csi_tc.fecha DESC LIMIT 1),"
-        " (SELECT csi_ceh.ceh_exchange::numeric FROM tb_cur_exch_history csi_ceh WHERE csi_ceh.curr_id_1 = 2"
-        f" AND csi_ceh.curr_id_2 = 1 AND csi_ceh.ceh_exchange > 0 AND csi_ceh.ceh_cd < ({fecha})::date + 1"
-        " ORDER BY csi_ceh.ceh_cd DESC, csi_ceh.ceh_id DESC LIMIT 1))"
+        "SELECT csi_fq.tc, csi_fq.tc_fecha FROM ("
+        f"{caller}"
+        "(SELECT csi_tc.venta::numeric, csi_tc.fecha, 1 FROM tipo_cambio csi_tc WHERE csi_tc.moneda = 'USD'"
+        f" AND csi_tc.venta > 0 AND csi_tc.fecha <= ({fecha}) ORDER BY csi_tc.fecha DESC LIMIT 1)"
+        " UNION ALL (SELECT csi_ceh.ceh_exchange::numeric, csi_ceh.ceh_cd::date, 2 FROM tb_cur_exch_history csi_ceh"
+        " WHERE csi_ceh.curr_id_1 = 2 AND csi_ceh.curr_id_2 = 1 AND csi_ceh.ceh_exchange > 0"
+        f" AND csi_ceh.ceh_cd < ({fecha})::date + 1 ORDER BY csi_ceh.ceh_cd DESC, csi_ceh.ceh_id DESC LIMIT 1)"
+        " UNION ALL SELECT NULL::numeric, NULL::date, 3"
+        ") csi_fq(tc, tc_fecha, prioridad) ORDER BY csi_fq.prioridad LIMIT 1"
     )
 
 
@@ -109,8 +125,9 @@ def _fragmento(item: str, fecha: Optional[str], tc: str) -> str:
     SELECT csi_r.costo AS costo_si_costo, csi_r.moneda AS costo_si_moneda, csi_r.fuente AS costo_si_fuente,
            csi_r.desde AS costo_si_desde,
            CASE WHEN csi_r.moneda = 'USD' THEN csi_fx.tc END AS costo_si_tipo_cambio,
-           CASE WHEN csi_r.moneda = 'ARS' THEN csi_r.costo WHEN csi_fx.tc IS NOT NULL THEN csi_r.costo * csi_fx.tc END AS costo_si_ars
-    FROM (SELECT {tc} AS tc) csi_fx
+           CASE WHEN csi_r.moneda = 'ARS' THEN csi_r.costo WHEN csi_fx.tc IS NOT NULL THEN csi_r.costo * csi_fx.tc END AS costo_si_ars,
+           CASE WHEN csi_r.moneda = 'USD' THEN csi_fx.tc_fecha END AS costo_si_tipo_cambio_fecha
+    FROM ({tc}) csi_fx
     LEFT JOIN LATERAL (
         SELECT csi_d.costo, csi_d.moneda, csi_d.fuente, csi_d.desde FROM ({_propio(item, fecha)}) csi_d
         WHERE NOT {_es_combo(item)}
@@ -148,6 +165,7 @@ _TIPOS = dict(
     costo_si_desde=Date(),
     costo_si_tipo_cambio=Numeric(),
     costo_si_ars=Numeric(),
+    costo_si_tipo_cambio_fecha=Date(),
 )
 
 _PRODUCTOS = (
@@ -172,6 +190,8 @@ class Costo:
     costo_si_desde: Optional[date]  # the costo SI step in force; None for lista and combos
     tipo_cambio: Optional[Decimal]  # the USD rate of costo_ars; None for ARS or without a rate
     costo_ars: Optional[Decimal]  # in pesos; None when unknown
+    # the date of `tipo_cambio` (its `tipo_cambio` row, or the ERP rate's day); None with no rate or a caller's rate
+    tipo_cambio_fecha: Optional[date] = None
 
 
 def _costo(item_id: int, fila) -> Costo:
@@ -180,7 +200,7 @@ def _costo(item_id: int, fila) -> Costo:
 
 _ACTUALES_SQL = text(
     "SELECT q.item_id, cs.* FROM unnest(:ids) AS q(item_id) "
-    f"LEFT JOIN LATERAL ({_fragmento('q.item_id', None, f'COALESCE(CAST(:tc AS numeric), {_TC_ULTIMO})')}) cs ON true"
+    f"LEFT JOIN LATERAL ({_fragmento('q.item_id', None, _tc_en('CURRENT_DATE', propio='CAST(:tc AS numeric)'))}) cs ON true"
 ).bindparams(bindparam("ids", type_=ARRAY(Integer)), bindparam("tc", type_=Numeric()))
 
 _EN_FECHAS_SQL = text(

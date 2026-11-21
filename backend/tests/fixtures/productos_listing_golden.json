@@ -24,7 +24,8 @@
       "mejor_oferta": 0.22479338842975194
      },
      "moneda": "ARS",
-     "tipo_cambio": null
+     "tipo_cambio": null,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 1",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -108,7 +109,8 @@
       "rebate": 100.49
      },
      "moneda": "USD",
-     "tipo_cambio": 1000.0
+     "tipo_cambio": 1000.0,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 2",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -191,7 +193,8 @@
       "rebate": 431.25
      },
      "moneda": "ARS",
-     "tipo_cambio": null
+     "tipo_cambio": null,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 3",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -275,7 +278,8 @@
       "rebate": 270.76
      },
      "moneda": "ARS",
-     "tipo_cambio": null
+     "tipo_cambio": null,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 4",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -366,7 +370,8 @@
       "rebate": 158.0
      },
      "moneda": "ARS",
-     "tipo_cambio": null
+     "tipo_cambio": null,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 5",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -447,7 +452,8 @@
       "clasica": 70.66
      },
      "moneda": "ARS",
-     "tipo_cambio": null
+     "tipo_cambio": null,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 6",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -528,7 +534,8 @@
       "clasica": 65.41
      },
      "moneda": "ARS",
-     "tipo_cambio": null
+     "tipo_cambio": null,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 7",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -614,7 +621,8 @@
      "fuente": "lista",
      "markups": {},
      "moneda": "ARS",
-     "tipo_cambio": null
+     "tipo_cambio": null,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 1",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -693,7 +701,8 @@
      "fuente": "lista",
      "markups": {},
      "moneda": "USD",
-     "tipo_cambio": 1000.0
+     "tipo_cambio": 1000.0,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 2",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -772,7 +781,8 @@
      "fuente": "lista",
      "markups": {},
      "moneda": "ARS",
-     "tipo_cambio": null
+     "tipo_cambio": null,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 3",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -851,7 +861,8 @@
      "fuente": "lista",
      "markups": {},
      "moneda": "ARS",
-     "tipo_cambio": null
+     "tipo_cambio": null,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 4",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -930,7 +941,8 @@
      "fuente": "lista",
      "markups": {},
      "moneda": "ARS",
-     "tipo_cambio": null
+     "tipo_cambio": null,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 5",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -1009,7 +1021,8 @@
      "fuente": "lista",
      "markups": {},
      "moneda": "ARS",
-     "tipo_cambio": null
+     "tipo_cambio": null,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 6",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -1088,7 +1101,8 @@
      "fuente": "lista",
      "markups": {},
      "moneda": "ARS",
-     "tipo_cambio": null
+     "tipo_cambio": null,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 7",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -1177,7 +1191,8 @@
       "mejor_oferta": 0.22479338842975194
      },
      "moneda": "ARS",
-     "tipo_cambio": null
+     "tipo_cambio": null,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 1",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -1268,7 +1283,8 @@
       "rebate": 158.0
      },
      "moneda": "ARS",
-     "tipo_cambio": null
+     "tipo_cambio": null,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 5",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -1357,7 +1373,8 @@
       "mejor_oferta": 0.22479338842975194
      },
      "moneda": "ARS",
-     "tipo_cambio": null
+     "tipo_cambio": null,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 1",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -1441,7 +1458,8 @@
       "rebate": 100.49
      },
      "moneda": "USD",
-     "tipo_cambio": 1000.0
+     "tipo_cambio": 1000.0,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 2",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -1524,7 +1542,8 @@
       "rebate": 431.25
      },
      "moneda": "ARS",
-     "tipo_cambio": null
+     "tipo_cambio": null,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 3",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -1608,7 +1627,8 @@
       "rebate": 270.76
      },
      "moneda": "ARS",
-     "tipo_cambio": null
+     "tipo_cambio": null,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 4",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -1699,7 +1719,8 @@
       "rebate": 158.0
      },
      "moneda": "ARS",
-     "tipo_cambio": null
+     "tipo_cambio": null,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 5",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -1780,7 +1801,8 @@
       "clasica": 70.66
      },
      "moneda": "ARS",
-     "tipo_cambio": null
+     "tipo_cambio": null,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 6",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -1861,7 +1883,8 @@
       "clasica": 65.41
      },
      "moneda": "ARS",
-     "tipo_cambio": null
+     "tipo_cambio": null,
+     "tipo_cambio_fecha": null
     },
     "descripcion": "Golden 7",
     "fecha_modificacion": "2026-01-01T12:00:00",

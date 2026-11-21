@@ -116,19 +116,19 @@ def test_actuales_resolves_costo_si_then_list_cost_in_each_products_currency(eng
     with _db(engine) as db:
         got = lote.actuales(db, ids)
 
-    tc = D("1500")
+    tc, D10_10 = D("1500"), date(2026, 10, 10)
     assert got == {
-        A: Costo(A, D("23.08687"), "USD", SI, date(2026, 10, 10), tc, D("23.08687") * tc),
-        B: Costo(B, D("10.12345"), "USD", SI, date(2026, 10, 5), tc, D("10.12345") * tc),
-        SIN: Costo(SIN, D("40"), "USD", LISTA, None, tc, D("60000")),
+        A: Costo(A, D("23.08687"), "USD", SI, date(2026, 10, 10), tc, D("23.08687") * tc, D10_10),
+        B: Costo(B, D("10.12345"), "USD", SI, date(2026, 10, 5), tc, D("10.12345") * tc, D10_10),
+        SIN: Costo(SIN, D("40"), "USD", LISTA, None, tc, D("60000"), D10_10),
         ARSP: Costo(ARSP, D("15000"), "ARS", SI, date(2026, 10, 1), None, D("15000")),
         ARSLISTA: Costo(ARSLISTA, D("20000"), "ARS", LISTA, None, None, D("20000")),
         NADA: _nada(NADA),
-        COMBO: Costo(COMBO, D("56.29719"), "USD", SI, None, tc, D("56.29719") * tc),
-        COMBO_LISTA: Costo(COMBO_LISTA, D("63.08687"), "USD", LISTA, None, tc, D("63.08687") * tc),
+        COMBO: Costo(COMBO, D("56.29719"), "USD", SI, None, tc, D("56.29719") * tc, D10_10),
+        COMBO_LISTA: Costo(COMBO_LISTA, D("63.08687"), "USD", LISTA, None, tc, D("63.08687") * tc, D10_10),
         COMBO_MIX: Costo(COMBO_MIX, D("49630.30500"), "ARS", SI, None, None, D("49630.30500")),
         COMBO_INCOMPLETO: _nada(COMBO_INCOMPLETO),
-        PC: Costo(PC, D("300"), "USD", SI, date(2026, 10, 1), tc, D("450000")),
+        PC: Costo(PC, D("300"), "USD", SI, date(2026, 10, 1), tc, D("450000"), D10_10),
         999: _nada(999),
     }
 
@@ -166,22 +166,24 @@ def test_en_fechas_is_the_cost_in_force_that_day_at_that_days_rate(engine: Engin
     with _db(engine) as db:
         got = lote.en_fechas(db, pares)
 
-    mil = D("1000")
+    mil, D10_01 = D("1000"), date(2026, 10, 1)
     assert got == {
         (A, date(2026, 9, 30)): Costo(A, D("30"), "USD", LISTA, None, None, None),
-        (A, date(2026, 10, 9)): Costo(A, D("25"), "USD", SI, date(2026, 10, 1), mil, D("25000")),
-        (A, date(2026, 10, 10)): Costo(A, D("23.08687"), "USD", SI, date(2026, 10, 10), D("1500"), D("34630.30500")),
+        (A, date(2026, 10, 9)): Costo(A, D("25"), "USD", SI, date(2026, 10, 1), mil, D("25000"), D10_01),
+        (A, date(2026, 10, 10)): Costo(
+            A, D("23.08687"), "USD", SI, date(2026, 10, 10), D("1500"), D("34630.30500"), date(2026, 10, 10)
+        ),
         (SIN, date(2026, 9, 30)): Costo(SIN, D("40"), "USD", LISTA, None, None, None),
-        (SIN, date(2026, 10, 1)): Costo(SIN, D("35"), "USD", LISTA, None, mil, D("35000")),
-        (SIN, date(2026, 10, 7)): Costo(SIN, D("38"), "USD", LISTA, None, mil, D("38000")),
+        (SIN, date(2026, 10, 1)): Costo(SIN, D("35"), "USD", LISTA, None, mil, D("35000"), D10_01),
+        (SIN, date(2026, 10, 7)): Costo(SIN, D("38"), "USD", LISTA, None, mil, D("38000"), D10_01),
         (ARSP, date(2026, 10, 2)): Costo(ARSP, D("15000"), "ARS", SI, date(2026, 10, 1), None, D("15000")),
         (ARSLISTA, date(2026, 10, 2)): Costo(ARSLISTA, D("18000"), "ARS", LISTA, None, None, D("18000")),
-        (COMBO, date(2026, 10, 4)): Costo(COMBO, D("61"), "USD", LISTA, None, mil, D("61000")),
-        (COMBO, date(2026, 10, 7)): Costo(COMBO, D("60.12345"), "USD", SI, None, mil, D("60123.45")),
+        (COMBO, date(2026, 10, 4)): Costo(COMBO, D("61"), "USD", LISTA, None, mil, D("61000"), D10_01),
+        (COMBO, date(2026, 10, 7)): Costo(COMBO, D("60.12345"), "USD", SI, None, mil, D("60123.45"), D10_01),
         (COMBO_MIX, date(2026, 9, 30)): _nada(COMBO_MIX),
         (COMBO_MIX, date(2026, 10, 7)): Costo(COMBO_MIX, D("40000"), "ARS", SI, None, None, D("40000")),
         (COMBO_INCOMPLETO, date(2026, 10, 20)): _nada(COMBO_INCOMPLETO),
-        (PC, date(2026, 10, 2)): Costo(PC, D("300"), "USD", SI, date(2026, 10, 1), mil, D("300000")),
+        (PC, date(2026, 10, 2)): Costo(PC, D("300"), "USD", SI, date(2026, 10, 1), mil, D("300000"), D10_01),
     }
 
 
@@ -226,7 +228,7 @@ def test_the_sql_fragment_is_what_en_fechas_runs(engine: Engine) -> None:
     assert [f[2:] for f in filas] == [
         tuple(
             getattr(esperado[(f[0], f[1])], c)
-            for c in ("costo", "moneda", "fuente", "costo_si_desde", "tipo_cambio", "costo_ars")
+            for c in ("costo", "moneda", "fuente", "costo_si_desde", "tipo_cambio", "costo_ars", "tipo_cambio_fecha")
         )
         for f in filas
     ]
@@ -237,6 +239,7 @@ def test_the_sql_fragment_is_what_en_fechas_runs(engine: Engine) -> None:
         "costo_si_desde",
         "costo_si_tipo_cambio",
         "costo_si_ars",
+        "costo_si_tipo_cambio_fecha",
     ]
 
 
@@ -399,13 +402,47 @@ def test_without_tipo_cambio_the_erp_rate_history_gives_the_rate(engine: Engine)
         crudo = db.execute(text(sql), {"a": A, "d": dia}).one()
         actual = lote.actuales(db, [A])[A]
 
-    assert (en_fecha.tipo_cambio, en_fecha.costo_ars) == (D("1200"), D("25.00000") * 1200)
+    assert (en_fecha.tipo_cambio, en_fecha.tipo_cambio_fecha, en_fecha.costo_ars) == (
+        D("1200"),
+        date(2026, 10, 1),
+        D("25.00000") * 1200,
+    )
     assert tuple(crudo) == (D("1200"), D("25.00000") * 1200)
-    assert actual.tipo_cambio == D("1300")  # the latest ERP rate, today
+    assert (actual.tipo_cambio, actual.tipo_cambio_fecha) == (D("1300"), date(2026, 10, 8))  # the latest ERP rate
 
     w.tipo_cambio(engine, date(2026, 10, 5), 1000)
     with _db(engine) as db:
-        assert lote.en_fechas(db, [(A, dia)])[(A, dia)].tipo_cambio == D("1000")  # tipo_cambio first
+        primero = lote.en_fechas(db, [(A, dia)])[(A, dia)]
+    assert (primero.tipo_cambio, primero.tipo_cambio_fecha) == (D("1000"), date(2026, 10, 5))  # tipo_cambio first
+
+
+def test_the_rate_comes_with_its_own_date(engine: Engine) -> None:
+    """The rate's date travels with the rate (a frozen sale cost records it, `ml_order_item_costos.tipo_cambio_fecha`):
+    the `tipo_cambio` row's date in force, the latest one for the current cost; none for pesos, nor for a rate the
+    caller supplied that no `tipo_cambio` row has (the reader cannot date it)."""
+    _mundo(engine)
+    sql = (
+        "SELECT v.item_id, cs.costo_si_tipo_cambio, cs.costo_si_tipo_cambio_fecha FROM (VALUES (:a, DATE '2026-10-07'),"
+        f" (:c, DATE '2026-10-12')) v(item_id, fecha) LEFT JOIN LATERAL ({lote.sql_en_fecha('v.item_id', 'v.fecha')}) cs"
+        " ON true ORDER BY 1"
+    )
+
+    with _db(engine) as db:
+        en = lote.en_fechas(db, [(A, date(2026, 10, 7)), (A, date(2026, 10, 12)), (ARSP, date(2026, 10, 7))])
+        actual = lote.actuales(db, [A, ARSP])
+        propio = lote.actuales(db, [A], tipo_cambio=2000.0)[A]
+        de_una_fila = lote.actuales(db, [A], tipo_cambio=1000.0)[A]
+        crudo = db.execute(text(sql), {"a": A, "c": COMBO}).all()
+
+    assert en[(A, date(2026, 10, 7))].tipo_cambio_fecha == date(2026, 10, 1)
+    assert en[(A, date(2026, 10, 12))].tipo_cambio_fecha == date(2026, 10, 10)
+    assert en[(ARSP, date(2026, 10, 7))].tipo_cambio_fecha is None
+    assert (actual[A].tipo_cambio, actual[A].tipo_cambio_fecha) == (D("1500"), date(2026, 10, 10))
+    assert actual[ARSP].tipo_cambio_fecha is None
+    assert (propio.tipo_cambio, propio.tipo_cambio_fecha) == (D("2000.0"), None)  # no `tipo_cambio` row has it
+    # the screens pass `obtener_tipo_cambio_actual`: a `tipo_cambio` row's rate gets that row's date
+    assert (de_una_fila.tipo_cambio, de_una_fila.tipo_cambio_fecha) == (D("1000.0"), date(2026, 10, 1))
+    assert crudo == [(A, D("1000"), date(2026, 10, 1)), (COMBO, D("1500"), date(2026, 10, 10))]
 
 
 def test_combos_con_lists_the_combos_a_component_moves_but_not_pcs(engine: Engine) -> None:

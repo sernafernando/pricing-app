@@ -72,6 +72,7 @@ def expected_lines(linea: int, costo: float, ppp: float = 850.0) -> dict:
             "fuente": "lista",
             "desde": None,
             "tipo_cambio": None,
+            "tipo_cambio_fecha": None,
             "costo_ars": costo,
             "markups": {},
         },

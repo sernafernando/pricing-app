@@ -59,6 +59,7 @@ def usd_si_payload() -> dict:
         "fuente": "costo_si",
         "desde": date(2026, 10, 1),
         "tipo_cambio": 1000.0,
+        "tipo_cambio_fecha": date.today(),  # the rate row is dated CURRENT_DATE
         "costo_ars": 20500.0,
         "markups": {},
     }
@@ -71,6 +72,7 @@ def ars_lista_payload() -> dict:
         "fuente": "lista",
         "desde": None,
         "tipo_cambio": None,
+        "tipo_cambio_fecha": None,
         "costo_ars": 15000.0,
         "markups": {},
     }

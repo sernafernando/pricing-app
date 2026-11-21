@@ -51,6 +51,7 @@ class CostoSiMarkups:
             fuente=c.fuente,
             desde=c.costo_si_desde,
             tipo_cambio=_float(c.tipo_cambio),
+            tipo_cambio_fecha=c.tipo_cambio_fecha,
             costo_ars=_float(c.costo_ars),
             markups=dict(self._markups),
         )

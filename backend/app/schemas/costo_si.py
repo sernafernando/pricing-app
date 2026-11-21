@@ -13,7 +13,7 @@ class CostoSiPayload(BaseModel):
     `costo` is in `moneda`, the product's cost currency (owner L18), never converted for display. `fuente` is
     'costo_si', or 'lista' when the product has no costo SI and its list cost stands in (Q1). `desde` is the date of
     the costo SI step in force (None for a list cost or a combo). `costo_ars` is that cost in pesos at `tipo_cambio`
-    (USD only), None without a rate: never the USD number as pesos.
+    (USD only, dated `tipo_cambio_fecha`), None without a rate: never the USD number as pesos.
 
     `markups` uses the SAME keys as the product's main markups (`PPP_KEY_*`, `ppp_key_*()` in
     `app.services.costo_ppp_service`), each computed from the same `limpio` on `costo_ars`; empty without pesos.
@@ -26,5 +26,6 @@ class CostoSiPayload(BaseModel):
     fuente: str
     desde: Optional[date] = None
     tipo_cambio: Optional[float] = None
+    tipo_cambio_fecha: Optional[date] = None  # that rate's own date; None without a rate
     costo_ars: Optional[float] = None
     markups: dict[str, float] = Field(default_factory=dict)

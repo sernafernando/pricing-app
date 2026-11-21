@@ -16,7 +16,7 @@ from app.services.costo_si.lote import FUENTE_COSTO_SI, FUENTE_LISTA, Costo
 from app.services.productos_sell_in_out import MarkupCompanions
 
 D = Decimal
-USD_SI = Costo(1, D("10.5"), "USD", FUENTE_COSTO_SI, date(2026, 10, 1), D("1000"), D("10500"))
+USD_SI = Costo(1, D("10.5"), "USD", FUENTE_COSTO_SI, date(2026, 10, 1), D("1000"), D("10500"), date(2026, 11, 2))
 
 
 def test_the_payload_carries_the_cost_in_its_currency_its_source_and_pesos() -> None:
@@ -26,9 +26,17 @@ def test_the_payload_carries_the_cost_in_its_currency_its_source_and_pesos() -> 
         fuente="costo_si",
         desde=date(2026, 10, 1),
         tipo_cambio=1000.0,
+        tipo_cambio_fecha=date(2026, 11, 2),
         costo_ars=10500.0,
         markups={},
     )
+
+
+def test_the_payload_dates_its_rate() -> None:
+    """The rate's own date travels with it (the reader's `tipo_cambio_fecha`)."""
+    payload = columna.CostoSiMarkups(USD_SI).payload()
+
+    assert payload.model_dump()["tipo_cambio_fecha"] == date(2026, 11, 2)
 
 
 def test_each_markup_is_on_the_costo_si_in_pesos_keyed_like_the_main_one() -> None:
