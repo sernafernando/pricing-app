@@ -8,6 +8,10 @@ recorded in the PR, never asserted: a wall-clock bound would be flaky on a share
 p95 < 500 ms) is measured on production data with `scripts/measure_pubml_p5.py`; the markup sort/filter (the
 decision of P6b, p95 > 1 s) with `scripts/measure_pubml_p6.py`. Markup timings here use a hand-built pricing context
 and no real shipping batch (its cost is the cross-database lookup, only measurable on production).
+
+The markup list (`TestMarkupVolume`) and the tree (`TestGroupsVolume`, `TestGroupsMarkupVolume`) live in
+`test_view_markup_volume_postgres.py` and `test_view_groups_volume_postgres.py`, on this module's seed and helpers, so
+CI's volume job (`--dist loadfile`) runs the three on different workers.
 """
 
 from __future__ import annotations
@@ -24,14 +28,12 @@ from alembic.operations import Operations
 from sqlalchemy import event, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.services.envio_real_service import CostosEnvio
 from app.models.comision_config import SubcategoriaGrupo
-from app.services.ml_publications.view import groups, listing, markup_inputs, markup_service, products, stats
-from app.services.ml_publications.view.filters import MarkupFilter, build_base_select, parse_filter
+from app.services.ml_publications.view import listing, stats
+from app.services.ml_publications.view.filters import build_base_select, parse_filter
 from tests.services.ml_publications.conftest import module_env
 from tests.services.ml_publications.view import seed as view_seed
 from tests.services.ml_publications.view.test_listing_postgres import STORES_DDL
-from tests.services.ml_publications.view.test_unit_markup import BASE_BY_GRUPO, make_ctx
 
 pytestmark = [pytest.mark.postgres, pytest.mark.volume]
 
@@ -338,198 +340,3 @@ class TestVolume:
         print(explain(session, build_base_select(parse_filter(), listing.func.count())))
         print("\n--- sort by stock_full")
         print(explain(session, page_statement(parse_filter(), orden="stock_full")))
-
-
-PRICING_CTX = make_ctx(subcat_to_grupo={n: (1, 4, 6, 10)[n % 4] for n in range(1, 8)}, comision_base=BASE_BY_GRUPO)
-
-
-@pytest.fixture()
-def priced(monkeypatch):
-    """The pricing context is hand-built and the shipping batch is stubbed: the database cost of the markup is
-    what is measured here (the cross-database shipping lookup can only be measured on production)."""
-    monkeypatch.setattr(markup_service, "build_pricing_context", lambda db: PRICING_CTX)
-    monkeypatch.setattr(markup_service, "resolver_costos_envio_mlas", lambda db, ids, mlas, **k: CostosEnvio())
-
-
-def markup_page(session: Session, limit: int = 50, offset: int = 0, **params):
-    f = parse_filter(**{k: v for k, v in params.items() if k not in ("orden", "dir", "negative")})
-    sort = listing.parse_sort(params.get("orden"), params.get("dir"))
-    query = markup_service.MarkupQuery(session, MarkupFilter(negative=params.get("negative", False)))
-    return listing.list_items(session, f, sort, limit, offset, events=True, markup=query)
-
-
-class TestMarkupVolume:
-    def test_the_set_wide_markup_sort_prices_every_linked_publication(self, session, priced) -> None:
-        result = markup_page(session, orden="markup")
-        assert result.total == ITEMS - ITEMS // 50  # gone items are hidden
-        stats = result.markup_stats
-        unpriced = dict(stats.null_by_reason)
-        print(f"\nmarkup stats at 25k: computed={stats.computed} ms={stats.ms} null_by_reason={unpriced}")
-        assert stats.computed > 10_000  # the linked, priceable ones
-        assert {"sin_vinculo"} <= set(stats.null_by_reason)
-        worst = [row["markup"]["worst"] for row in result.items]
-        assert worst == sorted(worst)  # the page is the lowest markups, ascending
-
-    def test_the_statement_count_does_not_depend_on_the_page_size_with_markup(self, session, priced) -> None:
-        recorded: list[str] = []
-
-        def record(conn, cursor, statement, *rest) -> None:
-            recorded.append(statement)
-
-        engine = session.get_bind()
-        counts: dict[tuple, int] = {}
-        event.listen(engine, "before_cursor_execute", record)
-        try:
-            for label, params in (("page", {}), ("sort", {"orden": "markup"}), ("neg", {"negative": True})):
-                for limit in (10, 100):
-                    recorded.clear()
-                    assert len(markup_page(session, limit=limit, **params).items) == limit
-                    counts[(label, limit)] = len(recorded)
-        finally:
-            event.remove(engine, "before_cursor_execute", record)
-        print(f"\nstatements with markup: {counts}")
-        for label in ("page", "sort", "neg"):
-            assert counts[(label, 10)] == counts[(label, 100)]
-
-    def test_markup_timings(self, session, priced) -> None:
-        print("\n--- markup timings (service only, no HTTP, no shipping batch), 25k publications")
-        timed("page of 50 + markup (default sort)", lambda: markup_page(session))
-        timed("Todos page (limit 9999) + markup", lambda: markup_page(session, limit=9_999))
-        timed("orden=markup, page 1 (set-wide)", lambda: markup_page(session, orden="markup"))
-        timed("orden=markup, page 200 (offset 10k)", lambda: markup_page(session, orden="markup", offset=10_000))
-        timed("markup_neg=true, sort titulo (set-wide)", lambda: markup_page(session, negative=True, orden="titulo"))
-        timed(
-            "orden=markup + estado=active + tienda 2645",
-            lambda: markup_page(session, orden="markup", estado="active", tiendas="2645"),
-        )
-        timed(
-            "product-ids markup_neg=true (bulk resolver, set-wide)",
-            lambda: products.product_ids(
-                session, parse_filter(), markup_service.MarkupQuery(session, MarkupFilter(negative=True))
-            ),
-        )
-        timed("product-ids, no markup filter", lambda: products.product_ids(session, parse_filter()))
-        f = parse_filter()
-        timed("  stage: inputs of the whole set (3 statements)", lambda: markup_inputs.fetch_inputs(session, f=f))
-        inputs = markup_inputs.fetch_inputs(session, f=f)
-        timed(
-            "  stage: pricing loop over the whole set",
-            lambda: [markup_service.price_publication(PRICING_CTX, pub, {}) for pub in inputs.values()],
-        )
-
-
-def tree(session: Session, *path: str, familias: bool = False, **params):
-    return groups.list_groups(session, parse_filter(**params), list(path), familias=familias, limit=100, offset=0)
-
-
-class TestGroupsVolume:
-    """P7a: one level of the Agrupado tree at 25k publications (budget p95 < 400 ms, proposed; production is
-    measured with `scripts/measure_pubml_p7a.py`). Timings are printed and recorded in the PR, never asserted."""
-
-    def deepest(self, session: Session) -> list[str]:
-        """The path to the biggest products level: each step opens the biggest node of the level above."""
-        path: list[str] = []
-        for _ in range(3):
-            nodes = tree(session, *path).nodes
-            path.append(max((n for n in nodes if n.key != groups.NO_GROUP), key=lambda n: n.count).key)
-        return path
-
-    def test_the_levels_add_up_to_the_list_at_volume(self, session) -> None:
-        roots = tree(session)
-        assert roots.level == "marca" and roots.total == 6  # five brands and the publications with no product
-        assert sum(n.count for n in roots.nodes) == page(session).total
-        brand = max(roots.nodes, key=lambda n: n.count)
-        assert sum(n.count for n in tree(session, brand.key).nodes) == brand.count
-
-    def test_the_statement_count_is_fixed_at_every_level(self, session) -> None:
-        recorded: list[str] = []
-
-        def record(conn, cursor, statement, *rest) -> None:
-            recorded.append(statement)
-
-        path = self.deepest(session)
-        counts = {}
-        event.listen(session.get_bind(), "before_cursor_execute", record)
-        try:
-            for depth in range(4):
-                recorded.clear()
-                tree(session, *path[:depth], familias=True)
-                counts[depth] = len(recorded)
-        finally:
-            event.remove(session.get_bind(), "before_cursor_execute", record)
-        print(f"\nstatements per level: {counts}")
-        # The level's nodes, then their Tipo/Estado/Precio summaries: two statements, whatever the level.
-        assert set(counts.values()) == {2}
-
-    def test_timings(self, session) -> None:
-        path = self.deepest(session)
-        print(f"\n--- groups timings (service only, no HTTP), 25k publications, deepest path {path}")
-        timed("roots (brands)", lambda: tree(session))
-        timed("roots, store 2645", lambda: tree(session, tiendas="2645"))
-        timed("roots, search 'router'", lambda: tree(session, q="router"))
-        timed("categories of the biggest brand", lambda: tree(session, *path[:1]))
-        timed("subcategories", lambda: tree(session, *path[:2]))
-        timed("products (page of 100)", lambda: tree(session, *path))
-        timed("products, families on", lambda: tree(session, *path, familias=True))
-        timed("'Sin producto' products", lambda: tree(session, *[groups.NO_GROUP] * 3))
-        plan = explain(session, build_base_select(parse_filter(), listing.func.count()))
-        print("\n--- unfiltered count (what every level scans)\n" + plan)
-
-
-def tree_with_markup(session: Session, *path: str, familias: bool = False, **params):
-    query = markup_service.MarkupQuery(session)
-    return groups.list_groups(
-        session, parse_filter(**params), list(path), familias=familias, limit=100, offset=0, markup=query
-    )
-
-
-class TestGroupsMarkupVolume:
-    """P7b: one level of the tree WITH the node markup figures at 25k publications (budget p95 < 1 s, proposed; production
-    is measured with `scripts/measure_pubml_p7b.py`). Timings are printed and recorded in the PR, never asserted. The
-    pricing context is hand-built and the shipping batch stubbed, as in `TestMarkupVolume`."""
-
-    def test_the_figures_of_a_level_add_up_to_the_set_wide_markup(self, session, priced) -> None:
-        roots = tree_with_markup(session)
-        everything = markup_page(session, orden="markup", negative=True)
-        assert sum(n.negative_count for n in roots.nodes) == everything.total
-        assert all(n.negative_count is not None for n in roots.nodes)
-        lows = [n.markup_min for n in roots.nodes if n.markup_min is not None]
-        assert (
-            round(min(lows), 2) == markup_page(session, orden="markup").items[0]["markup"]["worst"]
-        )  # the list rounds
-
-    def test_the_statement_count_does_not_depend_on_the_level(self, session, priced) -> None:
-        recorded: list[str] = []
-
-        def record(conn, cursor, statement, *rest) -> None:
-            recorded.append(statement)
-
-        path: list[str] = []
-        for _ in range(3):
-            nodes = tree_with_markup(session, *path).nodes
-            path.append(max((n for n in nodes if n.key != groups.NO_GROUP), key=lambda n: n.count).key)
-        counts = {}
-        event.listen(session.get_bind(), "before_cursor_execute", record)
-        try:
-            for depth in range(4):
-                recorded.clear()
-                tree_with_markup(session, *path[:depth], familias=True)
-                counts[depth] = len(recorded)
-        finally:
-            event.remove(session.get_bind(), "before_cursor_execute", record)
-        print(f"\nstatements per level with markup: {counts}")
-        assert len(set(counts.values())) == 1
-
-    def test_timings(self, session, priced) -> None:
-        path: list[str] = []
-        for _ in range(3):
-            nodes = tree_with_markup(session, *path).nodes
-            path.append(max((n for n in nodes if n.key != groups.NO_GROUP), key=lambda n: n.count).key)
-        print(f"\n--- groups + markup timings (service only, no HTTP, no shipping batch), 25k, deepest path {path}")
-        timed("roots (brands) + markup", lambda: tree_with_markup(session))
-        timed("roots, store 2645 + markup", lambda: tree_with_markup(session, tiendas="2645"))
-        timed("categories of the biggest brand + markup", lambda: tree_with_markup(session, *path[:1]))
-        timed("subcategories + markup", lambda: tree_with_markup(session, *path[:2]))
-        timed("products (page of 100) + markup", lambda: tree_with_markup(session, *path))
-        timed("products, families on + markup", lambda: tree_with_markup(session, *path, familias=True))
-        timed("  baseline: the same roots WITHOUT markup", lambda: tree(session))
