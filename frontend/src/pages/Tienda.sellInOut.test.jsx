@@ -152,6 +152,14 @@ describe('Tienda sell in / sell out', () => {
     expect(headers[headers.findIndex((h) => h.startsWith('Costo')) + 1]).toMatch(/^Costo SI/);
   });
 
+  it('a priced row without a cost reads "—" for its markup, never a figure (§7)', async () => {
+    const fila = await renderFila({ ...SIN_SELL_IN_OUT, item_id: 6, descripcion: 'Sin costo SI', costo: 0, costo_si: null, markup: null, precio_lista_ml: 52000 });
+
+    const precio = within(fila).getByText('$52.000').closest('td');
+    expect(within(precio).getByText('—')).toHaveAttribute('title', 'Sin costo en pesos: no se calcula el markup');
+    expect(precio).not.toHaveTextContent(/\d%/);
+  });
+
   it('keeps a row without sell in or sell out as it was', async () => {
     const fila = await renderFila(SIN_SELL_IN_OUT);
 

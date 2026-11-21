@@ -1615,6 +1615,12 @@ export default function Tienda() {
                             {p.markup.toFixed(2)}%
                           </div>
                         )}
+                        {/* A price without a known cost: its markup is unknown, never a figure (§7). */}
+                        {(p.markup === null || p.markup === undefined) && p.precio_lista_ml ? (
+                          <div className="markup-display text-muted" title="Sin costo en pesos: no se calcula el markup">
+                            —
+                          </div>
+                        ) : null}
                         {/* Resumen de la columna Rebate (solo lectura) */}
                         {p.participa_rebate && p.precio_rebate ? (
                           <div className="clasica-rebate-resumen">

@@ -1849,6 +1849,12 @@ export default function Productos() {
                                   <SellInOutLine sellInOut={p.sell_in_out} markupKey="clasica" />
                                 </div>
                               )}
+                              {/* A price without a known cost: its markup is unknown, never a figure (§7). */}
+                              {(p.markup === null || p.markup === undefined) && p.precio_lista_ml ? (
+                                <div className="markup-display text-muted" title="Sin costo en pesos: no se calcula el markup">
+                                  —
+                                </div>
+                              ) : null}
                             </>
                           )}
                         </div>

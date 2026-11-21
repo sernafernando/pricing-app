@@ -327,6 +327,25 @@ class TestProducto:
         assert client.get(f"/api/productos/{NADA}").json()["costo_si"] is None
 
 
+@pytest.mark.parametrize("path", ["/api/productos", "/api/productos/tienda", "detalle"])
+def test_a_stored_markup_of_a_product_without_cost_is_not_shown_never_a_stale_figure(client, mundo, pg, path) -> None:
+    """Interfaz §7: the recompute never writes from an unknown cost, so a product that lost its cost keeps an old
+    `markup_calculado`; the screens show no markup for it ("—"), while a product with a cost keeps its own."""
+    pg.add(ProductoPricing(item_id=NADA, precio_lista_ml=50000.0, markup_calculado=12.0))
+    pg.flush()
+
+    if path == "detalle":
+        filas = {i: client.get(f"/api/productos/{i}").json() for i in (NADA, USD)}
+    else:
+        response = client.get(path, params={"page_size": 50})
+        assert response.status_code == 200, response.text
+        filas = {p["item_id"]: p for p in response.json()["productos"]}
+
+    assert filas[NADA]["markup"] is None
+    assert filas[NADA]["precio_lista_ml"] == 50000.0  # the price stays: only the markup is unknown
+    assert filas[USD]["markup"] == 10.0
+
+
 class TestTienda:
     def test_each_store_product_carries_its_costo_si(self, client, mundo) -> None:
         response = client.get("/api/productos/tienda", params={"page_size": 50})

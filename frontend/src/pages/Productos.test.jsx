@@ -1198,6 +1198,22 @@ describe('CS-13: sell in / sell out companion lines', () => {
     expect(screen.getByText('c/ SO: 25.25%')).toBeInTheDocument();
   });
 
+  it('a priced product without a cost reads "—" for its markup, never a figure, and no offset markup (§7, FE3)', async () => {
+    setupApiMocks({
+      productos: [makeProducto({ costo: 0, costo_ars: null, costo_si: null, markup: null, markup_clasica: null })],
+      total: 1,
+    });
+    await act(async () => {
+      renderWithRouter(<Productos />);
+    });
+    await waitFor(() => expect(screen.getByText('Producto Test')).toBeInTheDocument());
+    const precio = screen.getByText('$100').closest('td');
+    const sinMarkup = within(precio).getByText('—');
+    expect(sinMarkup).toHaveAttribute('title', 'Sin costo en pesos: no se calcula el markup');
+    expect(precio).not.toHaveTextContent('%');
+    expect(precio).not.toHaveTextContent('→');
+  });
+
   it('shows the costo SI in its own column right after the list cost, and sorts by it (S13 two columns)', async () => {
     setupApiMocks({
       productos: [

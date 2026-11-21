@@ -59,12 +59,41 @@ const producto = (id, codigo, overrides) => ({
   ...overrides,
 });
 
+// Each row's figures follow its own cost, as the endpoint returns them: `markup` is the stored markup over the costo SI,
+// null whenever the costo SI has no pesos (the backend pins that in
+// tests/integration/test_productos_costo_si_postgres.py::test_a_stored_markup_of_a_product_without_cost_is_not_shown_never_a_stale_figure);
+// Tienda's gremio / sugerido stay over the list cost in pesos, null without one (test_productos_tienda_orden.py).
+const sinCosto = {
+  costo: 0,
+  costo_ars: null,
+  markup: null,
+  precio_gremio_sin_iva: null,
+  precio_gremio_con_iva: null,
+  markup_gremio: null,
+  precio_sugerido_sin_iva: null,
+  precio_sugerido_con_iva: null,
+  markup_sugerido_total: null,
+};
+
 const PRODUCTOS = [
-  producto(9101, 'CONSI-USD', { costo_si: costoSi(25, 'USD', 'costo_si', 25000) }),
-  producto(9102, 'CONSI-ARS', { moneda_costo: 'ARS', costo: 64000, costo_si: costoSi(61000, 'ARS', 'costo_si', 61000) }),
-  producto(9103, 'LISTA', { costo_si: costoSi(30, 'USD', 'lista', 30000) }),
-  producto(9104, 'SIN-TC', { costo_si: costoSi(25, 'USD', 'costo_si', null) }),
-  producto(9105, 'SIN-COSTO', { costo_si: null }),
+  producto(9101, 'CONSI-USD', { costo_si: costoSi(25, 'USD', 'costo_si', 25000), markup: 51.27 }),
+  producto(9102, 'CONSI-ARS', {
+    moneda_costo: 'ARS',
+    costo: 64000,
+    costo_ars: 64000,
+    precio_lista_ml: 98000,
+    markup: 16.94,
+    precio_gremio_sin_iva: 81000,
+    precio_gremio_con_iva: 98010,
+    markup_gremio: 25,
+    precio_sugerido_sin_iva: 87500,
+    precio_sugerido_con_iva: 105875,
+    markup_sugerido_total: 35,
+    costo_si: costoSi(61000, 'ARS', 'costo_si', 61000),
+  }),
+  producto(9103, 'LISTA', { precio_lista_ml: 48000, markup: 16.36, costo_si: costoSi(30, 'USD', 'lista', 30000) }),
+  producto(9104, 'SIN-TC', { ...sinCosto, moneda_costo: 'USD', costo: 28, precio_lista_ml: 61000, costo_si: costoSi(25, 'USD', 'costo_si', null) }),
+  producto(9105, 'SIN-COSTO', { ...sinCosto, precio_lista_ml: 45000, costo_si: null }),
 ];
 
 beforeEach(() => {
@@ -134,6 +163,13 @@ describe.each([
       expect(costoSiCell('LISTA').textContent).toContain('lista');
       for (const codigo of ['CONSI-USD', 'CONSI-ARS', 'LISTA', 'SIN-TC', 'SIN-COSTO']) {
         expect(costoSiCell(codigo).textContent).not.toMatch(/(^|\D)0([.,]00)?$/);
+      }
+      // Each row's markup is its own; without a cost in pesos it reads "—" (§7).
+      const fila = (codigo) => [...document.querySelectorAll('tbody tr')].find((tr) => tr.textContent.includes(codigo));
+      expect(fila('CONSI-USD').textContent).toContain('51.27%');
+      expect(fila('LISTA').textContent).toContain('16.36%');
+      for (const codigo of ['SIN-TC', 'SIN-COSTO']) {
+        expect(fila(codigo).querySelector('[title="Sin costo en pesos: no se calcula el markup"]')).not.toBeNull();
       }
 
       await shot(`${name}-costo-si-1440-${theme}`);

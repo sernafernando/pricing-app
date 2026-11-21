@@ -1306,7 +1306,9 @@ def listar_productos(
             iva=producto_erp.iva,
             stock=producto_erp.stock,
             precio_lista_ml=producto_pricing.precio_lista_ml if producto_pricing else None,
-            markup=producto_pricing.markup_calculado if producto_pricing else None,
+            # The stored markup only while the cost is known: the recompute never overwrites it from an unknown
+            # cost, so without one it would be a stale figure (interfaz §7: unknown is "—").
+            markup=producto_pricing.markup_calculado if producto_pricing and costo_si_fila is not None else None,
             usuario_modifico=None,
             fecha_modificacion=producto_pricing.fecha_modificacion if producto_pricing else None,
             tiene_precio=producto_pricing.precio_lista_ml is not None if producto_pricing else False,
@@ -2321,6 +2323,7 @@ def listar_productos_tienda(
     from app.services.pricing_calculator import (
         obtener_tipo_cambio_actual,
         convertir_a_pesos,
+        costos_ars_de,
         calcular_comision_ml_total,
         calcular_limpio,
         calcular_markup,
@@ -2424,6 +2427,7 @@ def listar_productos_tienda(
     ppp_by_item_t = resolver_ppp_batch(db, item_ids_results)
     # The costo SI column beside the list cost (display only), at the rate the PPP markups use.
     costo_si_by_item_t = costo_si_lote.actuales(db, item_ids_results, tipo_cambio=tipo_cambio_usd_t)
+    costo_si_ars_t = costos_ars_de(costo_si_by_item_t)  # in pesos; None = unknown, no stored markup shown
     # Sell in / sell out per channel context (gremio / sugerido: off-ML; web_transf: Tienda Nube), one read.
     sell_in_out_batches_t = resolver_tienda_batches(db, item_ids_results, hoy, costos=costo_si_by_item_t)
 
@@ -2643,7 +2647,12 @@ def listar_productos_tienda(
                 iva=producto_erp.iva,
                 stock=producto_erp.stock,
                 precio_lista_ml=producto_pricing.precio_lista_ml if producto_pricing else None,
-                markup=producto_pricing.markup_calculado if producto_pricing else None,
+                # The stored markup only while the cost is known (interfaz §7), as in the Productos listing.
+                markup=(
+                    producto_pricing.markup_calculado
+                    if producto_pricing and costo_si_ars_t.get(producto_erp.item_id) is not None
+                    else None
+                ),
                 usuario_modifico=None,
                 fecha_modificacion=producto_pricing.fecha_modificacion if producto_pricing else None,
                 tiene_precio=producto_pricing.precio_lista_ml is not None if producto_pricing else False,
@@ -3011,7 +3020,12 @@ def obtener_producto(
         iva=producto_erp.iva,
         stock=producto_erp.stock,
         precio_lista_ml=producto_pricing.precio_lista_ml if producto_pricing else None,
-        markup=producto_pricing.markup_calculado if producto_pricing else None,
+        # The stored markup only while the cost is known (interfaz §7), as in the listings.
+        markup=(
+            producto_pricing.markup_calculado
+            if producto_pricing and costos_ars_de(costo_si_d).get(item_id) is not None
+            else None
+        ),
         usuario_modifico=None,
         fecha_modificacion=producto_pricing.fecha_modificacion if producto_pricing else None,
         tiene_precio=producto_pricing.precio_lista_ml is not None if producto_pricing else False,
