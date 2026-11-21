@@ -248,8 +248,10 @@ STOCK_SENTINEL: int = 99999999
 # has none (fuente 'lista'), in the product's cost currency. One LATERAL row per product; its alias must not start
 # with `csi_` (the reader's reserved prefix). The page keeps its own USD rate (:tc_venta, ADR-5) for both directions.
 # Unknown cost -> NULL valuation ("Sin costo"), never 0: the totals sum the costed products and count the rest apart.
+# `sql_actual_fila` is the CURRENT cost (= `lote.actuales`, as the stock audit and the ficha read it), never the list
+# history a dated read falls back to.
 
-_COSTO_SI_JOIN = f"LEFT JOIN LATERAL ({lote.sql_en_fecha('pe.item_id', 'CURRENT_DATE')}) cs10 ON TRUE"
+_COSTO_SI_JOIN = f"LEFT JOIN LATERAL ({lote.sql_actual_fila('pe.item_id', ':tc_venta')}) cs10 ON TRUE"
 
 
 def _valor_costo_sql() -> str:

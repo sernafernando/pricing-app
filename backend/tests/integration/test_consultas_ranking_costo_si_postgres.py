@@ -161,6 +161,24 @@ def test_the_stock_is_valued_at_costo_si_not_at_the_list_cost(pg: Engine, client
     assert grupo["productos_sin_costo"] == resumen["totales"]["productos_sin_costo"] == 0
 
 
+def test_without_costo_si_the_current_list_cost_stands_in_not_the_list_history(pg: Engine, client: TestClient) -> None:
+    """Q1 like every screen (`lote.actuales`): no costo SI, list USD 30 today, an older list history row of 25 -> the
+    valuation uses 30 (300 / 300000), never the history the dated reader falls back to."""
+    _producto(pg, CON_COSTO, stock=10, costo=30)
+    _run(
+        pg,
+        "INSERT INTO tb_item_cost_list_history (comp_id, iclh_id, item_id, coslis_id, iclh_price, curr_id, iclh_cd)"
+        " VALUES (1, 1, :i, 1, 25, 2, :f)",
+        i=CON_COSTO,
+        f=date(2026, 10, 1),
+    )
+    _dolar(pg, 1000)
+
+    fila = _fila(client, CON_COSTO)
+    assert (fila["valor_costo_ars"], fila["valor_costo_usd"]) == (300000, 300)
+    assert _get(client, "/kpis")["capital_costo_usd"] == 300
+
+
 def test_a_stocked_product_without_any_cost_is_counted_apart_never_summed_as_zero(
     pg: Engine, client: TestClient
 ) -> None:
