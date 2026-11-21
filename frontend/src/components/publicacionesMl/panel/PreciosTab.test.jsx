@@ -59,6 +59,9 @@ describe('PreciosTab (S2)', () => {
     ['without', false],
     ['with', true],
   ])('shows no price twice, %s permission to see the cost', async (_, canSeeMargin) => {
+    // A costo SI unlike the list cost: the two cost facts may legitimately match (fuente 'lista'), a price may not.
+    const costoSi = { ...PRODUCTO_CON_REBATE_Y_OFERTA.costo_si, costo: 61000, costo_ars: 61000 };
+    preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, costo_si: costoSi } });
     renderTab({ canSeeMargin, onCalculate: vi.fn() });
     await loaded();
     const amounts = document.body.textContent.match(/\$ ?[\d.]+,\d{2}/g) ?? [];

@@ -7,6 +7,10 @@ import { LINK_STATE_LABELS, label } from './labels';
 import styles from './panel.module.css';
 import LinkActions from './LinkActions';
 import { useProductLinks } from './useProductLinks';
+import CostoSiCell from '../../CostoSiCell';
+
+// The costo SI in its own currency, as the list's Costo SI column writes it (`USD 41,50`).
+const costoSiAmount = (monto, moneda) => `${moneda} ${amount(monto)}`;
 
 const PERMISO_VINCULAR = 'ml_publicaciones.vincular';
 
@@ -53,6 +57,9 @@ function CostSection({ product }) {
     <Section title="Costo">
       <Fields>
         <Field label="Costo">{product.costo == null ? null : [amount(product.costo), product.moneda_costo].filter(Boolean).join(' ')}</Field>
+        <Field label="Costo SI">
+          <CostoSiCell costoSi={product.costo_si} format={costoSiAmount} />
+        </Field>
         <Field label="IVA">{product.iva == null ? null : `${product.iva}%`}</Field>
       </Fields>
     </Section>

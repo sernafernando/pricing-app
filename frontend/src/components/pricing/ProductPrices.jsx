@@ -10,6 +10,7 @@ import { Empty, MarkupChip } from './PriceParts';
 import { formatRate, isBlank } from './priceFormat';
 import { LISTS, errorText, warningText, writePrice } from './priceWrites';
 import ProductToggles from './ProductToggles';
+import CostoSiCell from '../CostoSiCell';
 import styles from './ProductPrices.module.css';
 import { sellInOrigen } from '../../utils/sellInOrigen';
 
@@ -132,6 +133,28 @@ function SellInOutMarkup({ row, price, sellInOut }) {
  * Beside it, the cost with sell in and the sell out per unit, as the
  * backend computes them (`sell_in_out`). `action` (the panel's Calcular) closes the line.
  */
+const costoSiAmount = (monto, moneda) => (moneda === 'ARS' ? `$ ${formatAmount(monto)}` : `${moneda} ${formatAmount(monto)}`);
+
+/**
+ * The costo SI fact (S13 two columns): the cell the lists show, in its own currency, and for a USD one the pesos the
+ * backend sent as the same small secondary figure as the cost's. No pesos (no rate) shows no peso figure, never 0.
+ */
+function CostoSiFact({ costoSi }) {
+  if (!costoSi) return <Empty />;
+  const pesos = costoSi.moneda !== 'ARS' && !isBlank(costoSi.costo_ars);
+  return (
+    <>
+      <CostoSiCell costoSi={costoSi} format={costoSiAmount} />
+      {pesos && (
+        <>
+          {' '}
+          <span className={styles.muted}>$ {formatAmount(costoSi.costo_ars)}</span>
+        </>
+      )}
+    </>
+  );
+}
+
 function ProductFacts({ product, showCost, isUsd, rate, action }) {
 
   let cost = <Empty />;
@@ -162,6 +185,12 @@ function ProductFacts({ product, showCost, isUsd, rate, action }) {
             <div className={styles.fact}>
               <dt className={styles.factLabel}>Costo</dt>
               <dd className={styles.factValue}>{cost}</dd>
+            </div>
+            <div className={styles.fact}>
+              <dt className={styles.factLabel}>Costo SI</dt>
+              <dd className={styles.factValue}>
+                <CostoSiFact costoSi={product.costo_si} />
+              </dd>
             </div>
             <div className={styles.fact}>
               <dt className={styles.factLabel}>Costo c/ sell in</dt>
