@@ -137,14 +137,30 @@ class TestMigrationDdl:
                 assert self._valid(conn, module._INDEX)
 
     def test_the_planner_can_walk_the_index_for_the_default_order(self, mlpub_pg) -> None:  # noqa: F811
+        """The index alone serves the default order: with every other way to the first page switched off (a seq
+        scan, a bitmap scan, a sort), the plan is a walk of this index with no Sort. With only the seq scan off, the
+        planner was free to take a bitmap scan plus a sort of the live rows whenever the shared table's statistics
+        made that cheaper (flaky in CI); the table is seeded and analyzed into exactly that state, so the plan no
+        longer depends on what earlier tests left behind. A disabled sort is still chosen when nothing else gives
+        the order, so an index that could not serve it still fails here."""
         module = _migration()
         with mlpub_pg.connect() as conn:
             ctx = MigrationContext.configure(conn)
             with Operations.context(ctx), ctx.begin_transaction():
                 module.upgrade()
-                conn.exec_driver_sql("SET enable_seqscan = off")
+                # few live rows among many gone ones, in scattered order: a bitmap scan plus a sort looks cheaper
+                conn.exec_driver_sql(
+                    "INSERT INTO ml_items (item_id, last_trigger_received_at, gone_at)"
+                    " SELECT 'MLAPLAN' || g, TIMESTAMPTZ '2026-10-01' - mod(g * 7919, 3000) * INTERVAL '1 minute',"
+                    " CASE WHEN g > 66 THEN TIMESTAMPTZ '2026-10-02' END FROM generate_series(1, 3000) g"
+                )
+                conn.exec_driver_sql("ANALYZE ml_items")
+                planner = ("enable_seqscan", "enable_bitmapscan", "enable_sort")
+                for setting in planner:
+                    conn.exec_driver_sql(f"SET {setting} = off")
                 try:
                     plan = "\n".join(r[0] for r in conn.execute(text("EXPLAIN " + _DEFAULT_ORDER)))
                 finally:
-                    conn.exec_driver_sql("RESET enable_seqscan")
+                    for setting in planner:
+                        conn.exec_driver_sql(f"RESET {setting}")
         assert module._INDEX in plan and "Sort" not in plan, plan
