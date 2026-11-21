@@ -350,6 +350,64 @@ def test_the_fragments_never_capture_the_callers_alias(engine: Engine, alias: st
         }
 
 
+def _sin_tipo_cambio(engine: Engine) -> None:
+    w.run(engine, "DELETE FROM tipo_cambio")
+
+
+def test_without_any_usd_rate_the_pesos_are_unknown_never_zero(engine: Engine, caplog) -> None:
+    """No `tipo_cambio` and no ERP rate on or before the date: a USD cost has NO peso value (never 0: sales costed
+    at 0 were a past incident), and the readers log the item and the date."""
+    _mundo(engine)
+    _sin_tipo_cambio(engine)
+    dia = date(2026, 10, 7)
+    sql = (
+        "SELECT v.item_id, cs.costo_si_costo, cs.costo_si_tipo_cambio, cs.costo_si_ars FROM (VALUES (:a, :d), (:c, :d))"
+        f" v(item_id, fecha) LEFT JOIN LATERAL ({lote.sql_en_fecha('v.item_id', 'v.fecha')}) cs ON true ORDER BY 1"
+    )
+
+    with _db(engine) as db, caplog.at_level("WARNING", logger=lote.__name__):
+        actual = lote.actuales(db, [A, ARSP])
+        en_fecha = lote.en_fechas(db, [(A, dia)])[(A, dia)]
+        crudo = db.execute(text(sql), {"a": A, "c": COMBO_MIX, "d": dia}).all()
+
+    assert (actual[A].costo, actual[A].tipo_cambio, actual[A].costo_ars) == (D("23.08687"), None, None)
+    assert actual[ARSP].costo_ars == D("15000.00000")  # pesos need no rate
+    assert (en_fecha.costo, en_fecha.tipo_cambio, en_fecha.costo_ars) == (D("25.00000"), None, None)
+    assert crudo == [(A, D("25.00000"), None, None), (COMBO_MIX, None, None, None)]
+    avisos = [r.getMessage() for r in caplog.records]
+    assert any(str(A) in m and "2026-10-07" in m for m in avisos), avisos
+    assert any(str(A) in m and str(date.today()) in m for m in avisos), avisos
+
+
+def test_without_tipo_cambio_the_erp_rate_history_gives_the_rate(engine: Engine) -> None:
+    """Like the metrics crons: `tipo_cambio` first, else the ERP's `tb_cur_exch_history` (USD -> ARS, > 0, the last
+    one on or before the end of the day); never another currency pair."""
+    _mundo(engine)
+    _sin_tipo_cambio(engine)
+    w.cambio_erp(engine, datetime(2026, 10, 1, 9), 1200)
+    w.cambio_erp(engine, datetime(2026, 10, 7, 18), 0)  # a 0 rate is no rate
+    w.cambio_erp(engine, datetime(2026, 10, 7, 10), 900, desde=3)  # another currency
+    w.cambio_erp(engine, datetime(2026, 10, 8, 9), 1300)  # after the date
+    dia = date(2026, 10, 7)
+    sql = (
+        "SELECT cs.costo_si_tipo_cambio, cs.costo_si_ars FROM (VALUES (:a, :d)) v(item_id, fecha)"
+        f" LEFT JOIN LATERAL ({lote.sql_en_fecha('v.item_id', 'v.fecha')}) cs ON true"
+    )
+
+    with _db(engine) as db:
+        en_fecha = lote.en_fechas(db, [(A, dia)])[(A, dia)]
+        crudo = db.execute(text(sql), {"a": A, "d": dia}).one()
+        actual = lote.actuales(db, [A])[A]
+
+    assert (en_fecha.tipo_cambio, en_fecha.costo_ars) == (D("1200"), D("25.00000") * 1200)
+    assert tuple(crudo) == (D("1200"), D("25.00000") * 1200)
+    assert actual.tipo_cambio == D("1300")  # the latest ERP rate, today
+
+    w.tipo_cambio(engine, date(2026, 10, 5), 1000)
+    with _db(engine) as db:
+        assert lote.en_fechas(db, [(A, dia)])[(A, dia)].tipo_cambio == D("1000")  # tipo_cambio first
+
+
 def test_combos_con_lists_the_combos_a_component_moves_but_not_pcs(engine: Engine) -> None:
     _mundo(engine)
     with _db(engine) as db:

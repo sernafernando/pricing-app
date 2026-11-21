@@ -45,7 +45,10 @@ pytestmark = pytest.mark.postgres
 USD_SI, ARS_LISTA, SIN_COSTO = 9101, 9102, 9103
 PASOS_DDL = (
     "CREATE TABLE IF NOT EXISTS costo_si_pasos (item_id integer, orden integer, fecha date, promedio_usd numeric,"
-    " moneda varchar(3))"
+    " moneda varchar(3));"
+    # the reader's USD rate falls back to the ERP's rate history (one database with the store in production)
+    " CREATE TABLE IF NOT EXISTS tb_cur_exch_history (ceh_id bigint, comp_id integer, curr_id_1 integer,"
+    " curr_id_2 integer, ceh_cd timestamp, ceh_exchange numeric(18, 6))"
 )
 
 

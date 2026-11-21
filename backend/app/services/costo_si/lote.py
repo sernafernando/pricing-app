@@ -11,14 +11,16 @@ One rule, written once as SQL (`sql_en_fecha`, `actual`) and run by the Python r
   else USD), else the current one.
 - A combo that is not a PC (S11, L4.9, L7.1) = its components x quantity, each resolved the same way on the same date;
   costo SI only when every component is; unknown when any component is. A PC (cat 47) is its own product.
-- Pesos: ARS as is; USD x the USD rate (`tipo_cambio`, venta > 0, the last one on or before the date; current: the
-  latest, or the caller's). Without a rate the peso value is unknown: never the USD number.
+- Pesos: ARS as is; USD x the USD rate (`tipo_cambio`, venta > 0, the last one on or before the date, else the ERP's
+  USD -> ARS `tb_cur_exch_history`, like the metrics crons; current: the latest, or the caller's). Without a rate the
+  peso value is unknown (NULL, logged by the Python readers): never 0, never the USD number.
 
 Every column is named `costo_si_*` so the MCP strips it without `productos.ver_costos` (`mcp.tools._COST_KEY`, C12).
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -30,6 +32,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.selectable import Subquery
 
 from app.services.combos.pcs import CAT_PC, pcs_entre
+
+logger = logging.getLogger(__name__)
 
 FUENTE_COSTO_SI = "costo_si"
 FUENTE_LISTA = "lista"
@@ -43,17 +47,21 @@ COLUMNAS = (
     "costo_si_ars",
 )
 
-_TC_ULTIMO = (
-    "(SELECT tc.venta::numeric FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.venta > 0"
-    " AND tc.fecha <= CURRENT_DATE ORDER BY tc.fecha DESC LIMIT 1)"
-)
-
 
 def _tc_en(fecha: str) -> str:
+    """The USD rate on the SQL date `fecha`, like the metrics crons: the last `tipo_cambio` venta > 0 dated on or
+    before it, else the ERP's last USD -> ARS `tb_cur_exch_history` rate > 0 created before the end of that day; NULL
+    without either (the peso value is then unknown, never 0)."""
     return (
-        "(SELECT tc.venta::numeric FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.venta > 0"
-        f" AND tc.fecha <= ({fecha}) ORDER BY tc.fecha DESC LIMIT 1)"
+        "COALESCE((SELECT csi_tc.venta::numeric FROM tipo_cambio csi_tc WHERE csi_tc.moneda = 'USD'"
+        f" AND csi_tc.venta > 0 AND csi_tc.fecha <= ({fecha}) ORDER BY csi_tc.fecha DESC LIMIT 1),"
+        " (SELECT csi_ceh.ceh_exchange::numeric FROM tb_cur_exch_history csi_ceh WHERE csi_ceh.curr_id_1 = 2"
+        f" AND csi_ceh.curr_id_2 = 1 AND csi_ceh.ceh_exchange > 0 AND csi_ceh.ceh_cd < ({fecha})::date + 1"
+        " ORDER BY csi_ceh.ceh_cd DESC, csi_ceh.ceh_id DESC LIMIT 1))"
     )
+
+
+_TC_ULTIMO = _tc_en("CURRENT_DATE")
 
 
 def _es_combo(item: str) -> str:
@@ -181,6 +189,13 @@ _EN_FECHAS_SQL = text(
 ).bindparams(bindparam("items", type_=ARRAY(Integer)), bindparam("fechas", type_=ARRAY(Date)))
 
 
+def _avisar_sin_tc(costos) -> None:
+    """Log every USD cost left without pesos (no USD rate on or before its date): its peso value is unknown, never 0."""
+    for c, fecha in costos:
+        if c.moneda == "USD" and c.costo is not None and c.costo_ars is None:
+            logger.warning("costo SI: no USD rate for item %s on %s; its peso cost is unknown", c.item_id, fecha)
+
+
 def actuales(db: Session, item_ids: Iterable[int], *, tipo_cambio=None) -> Dict[int, Costo]:
     """The current cost of every id (one query; none for no ids). `tipo_cambio`: the caller's USD rate for
     `costo_ars`; None = the latest one."""
@@ -188,7 +203,9 @@ def actuales(db: Session, item_ids: Iterable[int], *, tipo_cambio=None) -> Dict[
     if not ids:
         return {}
     tc = Decimal(str(tipo_cambio)) if tipo_cambio else None
-    return {r[0]: _costo(r[0], r[1:]) for r in db.execute(_ACTUALES_SQL, {"ids": ids, "tc": tc})}
+    out = {r[0]: _costo(r[0], r[1:]) for r in db.execute(_ACTUALES_SQL, {"ids": ids, "tc": tc})}
+    _avisar_sin_tc((c, date.today()) for c in out.values())
+    return out
 
 
 def en_fechas(db: Session, pares: Iterable[Tuple[int, date]]) -> Dict[Tuple[int, date], Costo]:
@@ -200,7 +217,9 @@ def en_fechas(db: Session, pares: Iterable[Tuple[int, date]]) -> Dict[Tuple[int,
     if not lista:
         return {}
     filas = db.execute(_EN_FECHAS_SQL, {"items": [i for i, _ in lista], "fechas": [f for _, f in lista]})
-    return {(r[0], r[1]): _costo(r[0], r[2:]) for r in filas}
+    out = {(r[0], r[1]): _costo(r[0], r[2:]) for r in filas}
+    _avisar_sin_tc((c, f) for (_, f), c in out.items())
+    return out
 
 
 def en_pesos(costo: Optional[Decimal], moneda: Optional[str], tipo_cambio) -> Optional[Decimal]:
