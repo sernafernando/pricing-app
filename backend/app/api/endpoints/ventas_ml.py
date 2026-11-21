@@ -14,6 +14,7 @@ from app.core.database import get_db, get_async_db
 from app.models.venta_ml import VentaML
 from app.models.usuario import Usuario
 from app.models.marca_pm import MarcaPM
+from app.services.ml_ventas_metricas_costo import COSTO_SI_JOIN, COSTO_SIN_IVA_SQL
 from app.services.pm_scope import is_full_view
 from app.api.deps import get_current_user
 from pydantic import BaseModel, ConfigDict
@@ -539,6 +540,56 @@ class OperacionConMetricasResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# The cost SQL of a list other than 1 (TP-Link list 8, D3): that list's cost on the sale date x that date's rate.
+# List 1 is costo SI (`COSTO_SIN_IVA_SQL`, S13).
+_COSTO_LISTA_SQL = """COALESCE(
+                (
+                    SELECT CASE
+                        WHEN iclh.curr_id = 2 THEN  -- USD
+                            CASE
+                                WHEN iclh.iclh_price = 0 THEN ticl.coslis_price * COALESCE(
+                                    (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
+                                    (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
+                                )
+                                ELSE iclh.iclh_price * COALESCE(
+                                    (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
+                                    (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
+                                )
+                            END
+                        ELSE  -- ARS
+                            CASE
+                                WHEN iclh.iclh_price = 0 THEN ticl.coslis_price
+                                ELSE iclh.iclh_price
+                            END
+                    END
+                    FROM tb_item_cost_list_history iclh
+                    LEFT JOIN tb_item_cost_list ticl
+                        ON ticl.item_id = iclh.item_id
+                        AND ticl.coslis_id = %(coslis_id)s
+                    WHERE iclh.item_id = tmlod.item_id
+                      AND iclh.iclh_cd <= tmloh.mlo_cd
+                      AND iclh.coslis_id = %(coslis_id)s
+                    ORDER BY iclh.iclh_id DESC
+                    LIMIT 1
+                ),
+                (
+                    SELECT CASE
+                        WHEN ticl.curr_id = 2 THEN  -- USD
+                            ticl.coslis_price * COALESCE(
+                                (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
+                                (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
+                            )
+                        ELSE  -- ARS
+                            ticl.coslis_price
+                    END
+                    FROM tb_item_cost_list ticl
+                    WHERE ticl.item_id = tmlod.item_id
+                      AND ticl.coslis_id = %(coslis_id)s
+                ),
+                0
+            )"""
+
+
 def fetch_operaciones_con_metricas(
     db: Session,
     *,
@@ -596,52 +647,7 @@ def fetch_operaciones_con_metricas(
 
             -- Costo sin IVA en PESOS (convierte USD a ARS usando tipo de cambio)
             -- TC: Primero tipo_cambio, fallback tb_cur_exch_history
-            COALESCE(
-                (
-                    SELECT CASE
-                        WHEN iclh.curr_id = 2 THEN  -- USD
-                            CASE
-                                WHEN iclh.iclh_price = 0 THEN ticl.coslis_price * COALESCE(
-                                    (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
-                                    (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
-                                )
-                                ELSE iclh.iclh_price * COALESCE(
-                                    (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
-                                    (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
-                                )
-                            END
-                        ELSE  -- ARS
-                            CASE
-                                WHEN iclh.iclh_price = 0 THEN ticl.coslis_price
-                                ELSE iclh.iclh_price
-                            END
-                    END
-                    FROM tb_item_cost_list_history iclh
-                    LEFT JOIN tb_item_cost_list ticl
-                        ON ticl.item_id = iclh.item_id
-                        AND ticl.coslis_id = %(coslis_id)s
-                    WHERE iclh.item_id = tmlod.item_id
-                      AND iclh.iclh_cd <= tmloh.mlo_cd
-                      AND iclh.coslis_id = %(coslis_id)s
-                    ORDER BY iclh.iclh_id DESC
-                    LIMIT 1
-                ),
-                (
-                    SELECT CASE
-                        WHEN ticl.curr_id = 2 THEN  -- USD
-                            ticl.coslis_price * COALESCE(
-                                (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
-                                (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
-                            )
-                        ELSE  -- ARS
-                            ticl.coslis_price
-                    END
-                    FROM tb_item_cost_list ticl
-                    WHERE ticl.item_id = tmlod.item_id
-                      AND ticl.coslis_id = %(coslis_id)s
-                ),
-                0
-            ) as costo_sin_iva,
+            {costo_sin_iva_sql} as costo_sin_iva,
 
             -- IVA: SIEMPRE desde productos_erp (sin fallback que cause errores)
             pe.iva as iva,
@@ -768,7 +774,7 @@ def fetch_operaciones_con_metricas(
         LEFT JOIN tb_item_cost_list ticl
             ON ticl.comp_id = tmlod.comp_id
             AND ticl.item_id = tmlod.item_id
-            AND ticl.coslis_id = %(coslis_id)s
+            AND ticl.coslis_id = %(coslis_id)s{costo_si_join}
 
         WHERE tmlod.item_id NOT IN (460, 3042)
           AND tmloh.mlo_cd BETWEEN %(from_date)s AND %(to_date)s
@@ -829,7 +835,11 @@ def fetch_operaciones_con_metricas(
             OR pe.descripcion ILIKE %(search_pattern)s
         )"""
 
+    # List 1 = costo SI (S13); any other list (TP-Link list 8, D3) keeps its list-cost SQL.
+    es_costo_si = coslis_id == 1
     query_str = query_str.format(
+        costo_sin_iva_sql=COSTO_SIN_IVA_SQL if es_costo_si else _COSTO_LISTA_SQL,
+        costo_si_join=f"\n\n        {COSTO_SI_JOIN}" if es_costo_si else "",
         tienda_oficial_filter=tienda_oficial_filter,
         ml_id_filter=ml_id_filter,
         codigo_filter=codigo_filter,
@@ -1073,52 +1083,7 @@ def exportar_operaciones(
             tmlod.mlo_quantity as cantidad,
             tmlod.mlo_unit_price as monto_unitario,
             tmlod.mlo_unit_price * tmlod.mlo_quantity as monto_total,
-            COALESCE(
-                (
-                    SELECT CASE
-                        WHEN iclh.curr_id = 2 THEN
-                            CASE
-                                WHEN iclh.iclh_price = 0 THEN ticl.coslis_price * COALESCE(
-                                    (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
-                                    (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
-                                )
-                                ELSE iclh.iclh_price * COALESCE(
-                                    (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
-                                    (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
-                                )
-                            END
-                        ELSE
-                            CASE
-                                WHEN iclh.iclh_price = 0 THEN ticl.coslis_price
-                                ELSE iclh.iclh_price
-                            END
-                    END
-                    FROM tb_item_cost_list_history iclh
-                    LEFT JOIN tb_item_cost_list ticl
-                        ON ticl.item_id = iclh.item_id
-                        AND ticl.coslis_id = 1
-                    WHERE iclh.item_id = tmlod.item_id
-                      AND iclh.iclh_cd <= tmloh.mlo_cd
-                      AND iclh.coslis_id = 1
-                    ORDER BY iclh.iclh_id DESC
-                    LIMIT 1
-                ),
-                (
-                    SELECT CASE
-                        WHEN ticl.curr_id = 2 THEN
-                            ticl.coslis_price * COALESCE(
-                                (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
-                                (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
-                            )
-                        ELSE
-                            ticl.coslis_price
-                    END
-                    FROM tb_item_cost_list ticl
-                    WHERE ticl.item_id = tmlod.item_id
-                      AND ticl.coslis_id = 1
-                ),
-                0
-            ) as costo_sin_iva,
+            {costo_sin_iva_sql} as costo_sin_iva,
             pe.iva as iva,
             tmloh.ml_id,
             tmloh.ml_pack_id as pack_id,
@@ -1200,7 +1165,7 @@ def exportar_operaciones(
         LEFT JOIN tb_tax_name ttn
             ON ttn.comp_id = ti.comp_id AND ttn.tax_id = tit.tax_id
         LEFT JOIN tb_item_cost_list ticl
-            ON ticl.comp_id = tmlod.comp_id AND ticl.item_id = tmlod.item_id AND ticl.coslis_id = 1
+            ON ticl.comp_id = tmlod.comp_id AND ticl.item_id = tmlod.item_id AND ticl.coslis_id = 1{costo_si_join}
 
         WHERE tmlod.item_id NOT IN (460, 3042)
           AND tmloh.mlo_cd BETWEEN %(from_date)s AND %(to_date)s
@@ -1239,7 +1204,11 @@ def exportar_operaciones(
             categoria_filter = "AND (tc.cat_desc = ANY(%(categorias)s) OR pe.categoria = ANY(%(categorias)s))"
 
     query_str = query_str.format(
-        tienda_oficial_filter=tienda_oficial_filter, marca_filter=marca_filter, categoria_filter=categoria_filter
+        costo_sin_iva_sql=COSTO_SIN_IVA_SQL,
+        costo_si_join=f"\n        {COSTO_SI_JOIN}",
+        tienda_oficial_filter=tienda_oficial_filter,
+        marca_filter=marca_filter,
+        categoria_filter=categoria_filter,
     )
 
     params = {"from_date": from_date, "to_date": to_date_full}
