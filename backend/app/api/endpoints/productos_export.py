@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
+from app.services.costo_si import lote as costo_si_lote
 from fastapi.responses import Response
 import logging
 
@@ -44,6 +45,10 @@ PERMISOS_EXPORTAR = {
     "clasica": ("productos.exportar_clasica", "la lista de precios clásica"),
     "pvp": ("productos.exportar_pvp", "la lista PVP"),
 }
+
+
+# The "Fuente costo SI" cell of the vista-actual export: where the costo SI number comes from.
+_FUENTE_COSTO_SI = {costo_si_lote.FUENTE_COSTO_SI: "costo SI", costo_si_lote.FUENTE_LISTA: "lista"}
 
 
 def _requerir_permiso_exportar(db: Session, current_user: Usuario, tipo: str) -> None:
@@ -2037,6 +2042,13 @@ def exportar_vista_actual(
         # Batch-fetch colors for the active layer (T-color-layer).
         colores_activo_export = batch_colores(db, [p.item_id for p, _ in productos], layer_activo)
 
+        # The costo SI beside the list cost (sell-in-costo-si T3 PR 2, display only), one read for the sheet.
+        from app.services.pricing_calculator import obtener_tipo_cambio_actual
+
+        costo_si_export = costo_si_lote.actuales(
+            db, [p.item_id for p, _ in productos], tipo_cambio=obtener_tipo_cambio_actual(db, "USD")
+        )
+
         # Crear Excel
         wb = Workbook()
         ws = wb.active
@@ -2049,6 +2061,8 @@ def exportar_vista_actual(
             "Marca",
             "Stock",
             "Costo",
+            "Costo SI",
+            "Fuente costo SI",
             "Precio Clásica",
             "Markup Clásica (%)",
             "Precio Rebate",
@@ -2079,16 +2093,20 @@ def exportar_vista_actual(
             ws.cell(row=row_num, column=3, value=producto_erp.marca or "")
             ws.cell(row=row_num, column=4, value=producto_erp.stock or 0)
             ws.cell(row=row_num, column=5, value=float(producto_erp.costo) if producto_erp.costo else 0)
+            _costo_si = costo_si_export.get(producto_erp.item_id)
+            _con_costo_si = _costo_si is not None and _costo_si.costo is not None
+            ws.cell(row=row_num, column=6, value=float(_costo_si.costo) if _con_costo_si else None)
+            ws.cell(row=row_num, column=7, value=_FUENTE_COSTO_SI.get(_costo_si.fuente, "") if _con_costo_si else "")
 
             if producto_pricing:
                 ws.cell(
                     row=row_num,
-                    column=6,
+                    column=8,
                     value=float(producto_pricing.precio_lista_ml) if producto_pricing.precio_lista_ml else None,
                 )
                 ws.cell(
                     row=row_num,
-                    column=7,
+                    column=9,
                     value=float(producto_pricing.markup_calculado) if producto_pricing.markup_calculado else None,
                 )
 
@@ -2097,57 +2115,57 @@ def exportar_vista_actual(
                 if producto_pricing.participa_rebate and producto_pricing.precio_lista_ml:
                     porcentaje_rebate = float(producto_pricing.porcentaje_rebate or 3.8)
                     precio_rebate = float(producto_pricing.precio_lista_ml) / (1 - porcentaje_rebate / 100)
-                ws.cell(row=row_num, column=8, value=precio_rebate)
+                ws.cell(row=row_num, column=10, value=precio_rebate)
 
                 ws.cell(
                     row=row_num,
-                    column=9,
+                    column=11,
                     value=float(producto_pricing.markup_rebate) if producto_pricing.markup_rebate else None,
                 )
                 ws.cell(
                     row=row_num,
-                    column=10,
+                    column=12,
                     value=float(producto_pricing.precio_3_cuotas) if producto_pricing.precio_3_cuotas else None,
                 )
                 ws.cell(
                     row=row_num,
-                    column=11,
+                    column=13,
                     value=float(producto_pricing.markup_oferta) if producto_pricing.markup_oferta else None,
                 )
                 ws.cell(
                     row=row_num,
-                    column=12,
+                    column=14,
                     value=float(producto_pricing.precio_web_transferencia)
                     if producto_pricing.precio_web_transferencia
                     else None,
                 )
                 ws.cell(
                     row=row_num,
-                    column=13,
+                    column=15,
                     value=float(producto_pricing.markup_web_real) if producto_pricing.markup_web_real else None,
                 )
 
                 # Tienda Nube
                 ws.cell(
                     row=row_num,
-                    column=14,
+                    column=16,
                     value=float(producto_pricing.precio_tiendanube) if producto_pricing.precio_tiendanube else None,
                 )
                 ws.cell(
                     row=row_num,
-                    column=15,
+                    column=17,
                     value=float(producto_pricing.descuento_tiendanube)
                     if producto_pricing.descuento_tiendanube
                     else None,
                 )
-                ws.cell(row=row_num, column=16, value="Sí" if producto_pricing.publicado_tiendanube else "No")
+                ws.cell(row=row_num, column=18, value="Sí" if producto_pricing.publicado_tiendanube else "No")
 
-                ws.cell(row=row_num, column=17, value="Sí" if producto_pricing.out_of_cards else "No")
+                ws.cell(row=row_num, column=19, value="Sí" if producto_pricing.out_of_cards else "No")
 
             # Color lives in producto_color independently of productos_pricing (PR3),
             # so it must be written for every product regardless of pricing presence.
             _color_activo_row = colores_activo_export.get(producto_erp.item_id)
-            ws.cell(row=row_num, column=18, value=(_color_activo_row.color_ml if _color_activo_row else None) or "")
+            ws.cell(row=row_num, column=20, value=(_color_activo_row.color_ml if _color_activo_row else None) or "")
 
             row_num += 1
 

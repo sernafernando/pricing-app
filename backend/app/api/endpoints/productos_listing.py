@@ -17,6 +17,8 @@ from app.api.deps import get_current_user, require_algun_permiso
 from app.api.endpoints.pricing import PERMISOS_EDITAR_PRODUCTOS_O_TIENDA
 from app.services.envio_real_service import resolver_costos_envio_batch
 from app.services.productos_sell_in_out import MarkupCompanions, parse_contextos_query, resolver_sell_in_out_batch
+from app.services.costo_si import columna as costo_si_columna, lote as costo_si_lote
+from app.services.costo_si.columna import CostoSiMarkups
 from app.services.tienda_sell_in_out import (
     CLAVE_GREMIO,
     CLAVE_SUGERIDO,
@@ -985,6 +987,9 @@ def listar_productos(
                 col = ProductoERP.moneda_costo
             elif campo == "costo":
                 col = ProductoERP.costo
+            elif campo == "costo_si":
+                # The costo SI column (display only): its pesos, so USD and ARS costs compare as money.
+                col = costo_si_columna.orden(f"{ProductoERP.__tablename__}.item_id")
             elif campo == "stock":
                 col = ProductoERP.stock
             elif campo == "precio_lista_ml":
@@ -1059,6 +1064,8 @@ def listar_productos(
 
     # ── Batch-resolve PPP (ERP weighted-average cost, informational only) ────
     ppp_by_item = resolver_ppp_batch(db, all_item_ids_page)
+    # The costo SI column beside the list cost (display only), at the rate the PPP markups use.
+    costo_si_by_item = costo_si_lote.actuales(db, all_item_ids_page, tipo_cambio=tipo_cambio_usd)
     try:
         contextos_markup = parse_contextos_query(markup_contextos)
     except ValueError as exc:
@@ -1090,6 +1097,7 @@ def listar_productos(
                 precio_lista_ml=producto_pricing.precio_lista_ml if producto_pricing else None,
                 tipo_cambio=tipo_cambio_usd,
             ),
+            CostoSiMarkups(costo_si_by_item.get(producto_erp.item_id)),
         )
         ppp_markups_by_item[producto_erp.item_id] = ppp
 
@@ -1374,6 +1382,7 @@ def listar_productos(
             catalog_status=None,  # Se llenará después
             has_catalog=None,  # Se llenará después
             ppp=ppp.ppp.payload(),
+            costo_si=ppp.costo_si.payload(),
             sell_in_out=ppp.sell_in_out.payload(),
         )
 
@@ -1574,6 +1583,7 @@ def listar_productos(
                     _ppp_acc = ppp_markups_by_item.get(producto.item_id)
                     if _ppp_acc:
                         producto.ppp = _ppp_acc.ppp.payload()
+                        producto.costo_si = _ppp_acc.costo_si.payload()
                         producto.sell_in_out = _ppp_acc.sell_in_out.payload()
 
     # Si aplicamos ordenamiento dinámico, necesitamos paginar manualmente
@@ -2146,6 +2156,9 @@ def listar_productos_tienda(
                 col = ProductoERP.stock
             elif campo == "costo":
                 col = ProductoERP.costo
+            elif campo == "costo_si":
+                # The costo SI column (display only), as in `listar_productos`.
+                col = costo_si_columna.orden(f"{ProductoERP.__tablename__}.item_id")
             elif campo == "precio_clasica":
                 # Igual que en `listar_productos`: la columna "Precio Clásica"
                 # se ordena por markup, no por precio. La celda muestra precio
@@ -2403,6 +2416,8 @@ def listar_productos_tienda(
 
     # ── Batch-resolve PPP (ERP weighted-average cost, informational only) ────
     ppp_by_item_t = resolver_ppp_batch(db, item_ids_results)
+    # The costo SI column beside the list cost (display only), at the rate the PPP markups use.
+    costo_si_by_item_t = costo_si_lote.actuales(db, item_ids_results, tipo_cambio=tipo_cambio_usd_t)
     # Sell in / sell out per channel context (gremio / sugerido: off-ML; web_transf: Tienda Nube), one read.
     sell_in_out_batches_t = resolver_tienda_batches(db, item_ids_results, hoy)
 
@@ -2445,6 +2460,8 @@ def listar_productos_tienda(
         # the already-resolved rate, no extra lookup.
         _ppp_source_t = ppp_by_item_t.get(producto_erp.item_id)
         ppp_t = PppMarkups(_ppp_source_t, moneda_costo=producto_erp.moneda_costo, tipo_cambio=tipo_cambio_usd_t)
+        # The costo SI companion records every site the PPP records, with the same `limpio`.
+        costo_si_t = CostoSiMarkups(costo_si_by_item_t.get(producto_erp.item_id))
 
         # Best current offer and rebate: the computation shared with the
         # Productos listing and the product detail.
@@ -2452,11 +2469,13 @@ def listar_productos_tienda(
         oferta = calcular_mejor_oferta(ctx_t, producto_erp, pubs, ofertas_by_mla_t, grupo_id, _resolve_envio_t)
         if oferta.limpio is not None:
             ppp_t.record(PPP_KEY_MEJOR_OFERTA, oferta.limpio, percent=False)
+            costo_si_t.record(PPP_KEY_MEJOR_OFERTA, oferta.limpio, percent=False)
         rebate = calcular_rebate(ctx_t, producto_erp, producto_pricing, grupo_id, _resolve_envio_t)
         precio_rebate = rebate.precio
         markup_rebate = rebate.markup
         if rebate.limpio is not None:
             ppp_t.record(PPP_KEY_REBATE, rebate.limpio)
+            costo_si_t.record(PPP_KEY_REBATE, rebate.limpio)
 
         # PPP companion for the clásica (list-cost) markup (T2.6, reopened).
         # Same rationale as the listing block above.
@@ -2480,11 +2499,13 @@ def listar_productos_tienda(
                     constantes=constantes_t,
                 )
                 ppp_t.record(PPP_KEY_CLASICA, limpio_clasica_t)
+                costo_si_t.record(PPP_KEY_CLASICA, limpio_clasica_t)
 
         # Out of cards with a priced rebate: the rebate is the best offer.
         mejor = mejor_oferta_out_of_cards(oferta, rebate, producto_pricing)
         if mejor is not oferta and mejor.limpio is not None:
             ppp_t.record(PPP_KEY_MEJOR_OFERTA, mejor.limpio, percent=False)
+            costo_si_t.record(PPP_KEY_MEJOR_OFERTA, mejor.limpio, percent=False)
         mejor_oferta_precio = mejor.precio
         mejor_oferta_monto = mejor.monto_rebate
         mejor_oferta_pvp = mejor.pvp_seller
@@ -2565,6 +2586,7 @@ def listar_productos_tienda(
                             )
                             mc = calcular_markup(lim, cc) * 100
                             ppp_t.record(ppp_key_cuota_clasica(nombre), lim)
+                            costo_si_t.record(ppp_key_cuota_clasica(nombre), lim)
                             if nombre == "3":
                                 markup_3_cuotas = mc
                             elif nombre == "6":
@@ -2702,6 +2724,7 @@ def listar_productos_tienda(
                 catalog_status=None,
                 has_catalog=None,
                 ppp=ppp_t.payload(),
+                costo_si=costo_si_t.payload(),
                 sell_in_out=sell_in_out_t,
             )
         )
@@ -2836,6 +2859,8 @@ def obtener_producto(
             precio_lista_ml=producto_pricing.precio_lista_ml if producto_pricing else None,
             tipo_cambio=_tipo_cambio_ppp_d,
         ),
+        # The costo SI column beside the list cost (display only), at the rate the PPP markups use.
+        CostoSiMarkups(costo_si_lote.actuales(db, [item_id], tipo_cambio=_tipo_cambio_ppp_d).get(item_id)),
     )
 
     # Markups of the ML list (clásica: PPP companion only; instalments) and of
@@ -3041,6 +3066,7 @@ def obtener_producto(
         catalog_status=None,
         has_catalog=None,
         ppp=ppp_d.ppp.payload(),
+        costo_si=ppp_d.costo_si.payload(),
         sell_in_out=ppp_d.sell_in_out.payload(),
     )
 
