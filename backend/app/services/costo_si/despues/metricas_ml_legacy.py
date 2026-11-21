@@ -7,7 +7,8 @@ contains it (S11), with a sale date on or after the first changed date, with no 
 runs inline as ONE set-based statement (no queue, no cron, no migration), in the recompute's transaction:
 
 1. the rows whose cost changes, with the cost in force on their sale date (`lote.sql_en_fecha`, the crons' rule:
-   pesos at the sale date's rate, 0 when unknown);
+   pesos at the sale date's rate; an unknown cost (no cost, or a USD cost without a rate) is NULL, never 0 (interface
+   §7), and so are its ganancia and markup, its cost-percentage offset consumptions stay as they were, and it is logged;
 2. their previous values (and the offset consumptions that move) into `costo_si_backups`, motivo 'ml_ventas_metricas';
 3. the new cost, ganancia and markup (the formulas of `utils.ml_metrics_calculator`); price, commission, shipping and
    `monto_limpio` untouched (D4);
@@ -27,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from app.services.costo_si import lote
 from app.services.costo_si.despues import registrar
+from app.services.ml_ventas_metricas_costo import sin_costo
 
 MOTIVO = "ml_ventas_metricas"
 
@@ -42,7 +44,7 @@ _CONSUMOS = """
     FROM {tabla} c
     JOIN v ON v.id_operacion = c.id_operacion
     JOIN offsets_ganancia o ON o.id = c.offset_id
-    WHERE c.tipo_venta = 'ml' AND o.tipo_offset = 'porcentaje_costo'"""
+    WHERE c.tipo_venta = 'ml' AND o.tipo_offset = 'porcentaje_costo' AND v.total IS NOT NULL"""
 
 _RESUMEN = """
     UPDATE {tabla} r
@@ -56,14 +58,14 @@ _SQL = text(
     f"""
 WITH v AS (
     SELECT m.id, m.id_operacion, m.costo_unitario_sin_iva AS unitario_viejo, m.costo_total_sin_iva AS total_viejo,
-           m.ganancia AS ganancia_vieja, m.markup_porcentaje AS markup_viejo,
-           COALESCE(cs.costo_si_ars, 0) AS unitario,
-           COALESCE(cs.costo_si_ars, 0) * m.cantidad AS total
+           m.ganancia AS ganancia_vieja, m.markup_porcentaje AS markup_viejo, m.item_id, m.fecha_venta::date AS fecha,
+           cs.costo_si_ars AS unitario,
+           cs.costo_si_ars * m.cantidad AS total
     FROM ml_ventas_metricas m
     LEFT JOIN LATERAL ({lote.sql_en_fecha("m.item_id", "m.fecha_venta::date")}) cs ON true
     WHERE m.item_id = ANY(:items)
       AND m.fecha_venta::date >= :desde
-      AND m.costo_unitario_sin_iva IS DISTINCT FROM round(COALESCE(cs.costo_si_ars, 0), 6)
+      AND m.costo_unitario_sin_iva IS DISTINCT FROM round(cs.costo_si_ars, 6)
 ),
 cv AS (
     {_CONSUMOS.format(tabla="offset_grupo_consumo", clave="grupo_id")}
@@ -88,7 +90,7 @@ u AS (
     SET costo_unitario_sin_iva = v.unitario,
         costo_total_sin_iva = v.total,
         ganancia = m.monto_limpio - v.total,
-        markup_porcentaje = CASE WHEN v.total > 0
+        markup_porcentaje = CASE WHEN v.total IS NULL THEN NULL WHEN v.total > 0
             THEN LEAST(GREATEST((m.monto_limpio / v.total - 1) * 100, -{_MARKUP_MAX}), {_MARKUP_MAX}) ELSE 0 END,
         updated_at = now()
     FROM v
@@ -107,15 +109,17 @@ ic AS (
 ),
 gr AS ({_RESUMEN.format(tabla="offset_grupo_resumen", consumo="offset_grupo_consumo", clave="grupo_id")}),
 ir AS ({_RESUMEN.format(tabla="offset_individual_resumen", consumo="offset_individual_consumo", clave="offset_id")})
-SELECT (SELECT count(*) FROM u) AS ventas, (SELECT count(*) FROM gc) + (SELECT count(*) FROM ic) AS consumos
+SELECT v.item_id, v.fecha FROM v WHERE v.unitario IS NULL ORDER BY v.id
 """
 ).bindparams(bindparam("items", type_=ARRAY(Integer)))
 
 
 def recostear(db: Session, item_id: int, desde: date) -> None:
-    """Re-cost the stored ML sales of `item_id` and of the combos that contain it, sold on or after `desde`."""
+    """Re-cost the stored ML sales of `item_id` and of the combos that contain it, sold on or after `desde`; the
+    statement returns the sales left without a cost, which are logged."""
     items = [item_id, *lote.combos_con(db, [item_id]).get(item_id, [])]
-    db.execute(_SQL, {"items": items, "desde": desde, "item_id": item_id})
+    for sin_dato in db.execute(_SQL, {"items": items, "desde": desde, "item_id": item_id}):
+        sin_costo(sin_dato.item_id, sin_dato.fecha)
 
 
 registrar("metricas_ml_legacy", recostear)

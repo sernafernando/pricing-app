@@ -14,7 +14,7 @@ from app.core.database import get_db, get_async_db
 from app.models.venta_ml import VentaML
 from app.models.usuario import Usuario
 from app.models.marca_pm import MarcaPM
-from app.services.ml_ventas_metricas_costo import COSTO_SI_JOIN, COSTO_SIN_IVA_SQL
+from app.services.ml_ventas_metricas_costo import COSTO_SI_JOIN, COSTO_SIN_IVA_SQL, sin_costo
 from app.services.pm_scope import is_full_view
 from app.api.deps import get_current_user
 from pydantic import BaseModel, ConfigDict
@@ -523,15 +523,15 @@ class OperacionConMetricasResponse(BaseModel):
     tipo_publicacion: Optional[str]
 
     # Costos
-    costo_sin_iva: Decimal
-    costo_total: Decimal
+    costo_sin_iva: Optional[Decimal]  # None = unknown cost (costo SI interface §7), never 0
+    costo_total: Optional[Decimal]
 
     # Métricas calculadas
     comision_porcentaje: Decimal
     comision_pesos: Decimal
     costo_envio: Decimal
     monto_limpio: Decimal
-    markup_porcentaje: Decimal
+    markup_porcentaje: Optional[Decimal]
     offset_flex: Decimal = Decimal("0")
 
     # Estado: True = orden cancelada (se muestra grisada, no computa en métricas)
@@ -941,7 +941,10 @@ def fetch_operaciones_con_metricas(
         )
 
         # Costo total
-        costo_total = float(row.costo_sin_iva or 0) * float(row.cantidad or 1)
+        conocido = row.costo_sin_iva is not None  # unknown cost stays unknown (costo SI interface §7)
+        if not conocido:
+            sin_costo(row.item_id, row.fecha_venta)
+        costo_total = float(row.costo_sin_iva) * float(row.cantidad or 1) if conocido else None
 
         operaciones.append(
             {
@@ -961,16 +964,16 @@ def fetch_operaciones_con_metricas(
                 "iva": Decimal(str(row.iva or 0)),
                 "pricelist_id": row.pricelist_id,
                 "tipo_publicacion": tipo_publicacion,
-                "costo_sin_iva": Decimal(str(row.costo_sin_iva or 0)),
-                "costo_total": Decimal(str(costo_total)),
+                "costo_sin_iva": Decimal(str(row.costo_sin_iva)) if conocido else None,
+                "costo_total": Decimal(str(costo_total)) if conocido else None,
                 "comision_porcentaje": Decimal(str(row.comision_base_porcentaje or 0)),
                 "comision_pesos": Decimal(str(metricas["comision_ml"])),
                 "costo_envio": Decimal(str(metricas["costo_envio"])),
                 "monto_limpio": Decimal(str(metricas["monto_limpio"])),
-                "markup_porcentaje": Decimal(str(metricas["markup_porcentaje"])),
+                "markup_porcentaje": Decimal(str(metricas["markup_porcentaje"])) if conocido else None,
                 "offset_flex": Decimal(str(metricas["offset_flex"])),
                 # Ganancia ya calculada por el helper (monto_limpio - costo_total_sin_iva)
-                "ganancia": Decimal(str(metricas["ganancia"])),
+                "ganancia": Decimal(str(metricas["ganancia"])) if conocido else None,
                 # Tipo de logística crudo del ERP (self_service, fulfillment, etc.)
                 # Aditivo: el response model de ML lo ignora; lo usa el detalle TP-Link.
                 "ml_logistic_type": row.ml_logistic_type if hasattr(row, "ml_logistic_type") else None,
@@ -1283,7 +1286,10 @@ def exportar_operaciones(
             pricelist_names.get(row.pricelist_id, f"Lista {row.pricelist_id}") if row.pricelist_id else None
         )
 
-        costo_total = float(row.costo_sin_iva or 0) * float(row.cantidad or 1)
+        conocido = row.costo_sin_iva is not None  # unknown cost stays unknown (costo SI interface §7)
+        if not conocido:
+            sin_costo(row.item_id, row.fecha_venta)
+        costo_total = float(row.costo_sin_iva) * float(row.cantidad or 1) if conocido else None
 
         operaciones.append(
             {
@@ -1305,7 +1311,7 @@ def exportar_operaciones(
                 "comision_pesos": metricas["comision_ml"],
                 "costo_envio": metricas["costo_envio"],
                 "monto_limpio": metricas["monto_limpio"],
-                "markup_porcentaje": metricas["markup_porcentaje"],
+                "markup_porcentaje": metricas["markup_porcentaje"] if conocido else None,
                 "offset_flex": metricas["offset_flex"],
             }
         )
@@ -1364,14 +1370,19 @@ def exportar_operaciones(
         ws.cell(row=row_num, column=10, value=float(op["monto_total"]) if op["monto_total"] else 0)
         ws.cell(row=row_num, column=11, value=op["pricelist_id"])
         ws.cell(row=row_num, column=12, value=op["tipo_publicacion"])
-        ws.cell(row=row_num, column=13, value=float(op["costo_sin_iva"]))
-        ws.cell(row=row_num, column=14, value=float(op["costo_total"]))
+        # An unknown cost leaves its cells empty, never 0 (costo SI interface §7)
+        ws.cell(row=row_num, column=13, value=float(op["costo_sin_iva"]) if op["costo_sin_iva"] is not None else None)
+        ws.cell(row=row_num, column=14, value=float(op["costo_total"]) if op["costo_total"] is not None else None)
         ws.cell(row=row_num, column=15, value=float(op["comision_porcentaje"]))
         ws.cell(row=row_num, column=16, value=float(op["comision_pesos"]))
         ws.cell(row=row_num, column=17, value=float(op["costo_envio"]))
         ws.cell(row=row_num, column=18, value=float(op["monto_limpio"]))
         ws.cell(row=row_num, column=19, value=float(op["offset_flex"]))
-        ws.cell(row=row_num, column=20, value=float(op["markup_porcentaje"]))
+        ws.cell(
+            row=row_num,
+            column=20,
+            value=float(op["markup_porcentaje"]) if op["markup_porcentaje"] is not None else None,
+        )
 
     # Ajustar anchos de columna
     column_widths = [12, 20, 15, 20, 20, 15, 40, 8, 12, 12, 10, 12, 12, 12, 10, 12, 12, 12, 12, 10]

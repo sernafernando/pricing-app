@@ -42,6 +42,8 @@ from app.services.ml_ventas_metricas_costo import (
     COSTO_SIN_IVA_SQL,
     MONEDA_COSTO_SQL,
     costo_actual as costo_actual_producto,
+    sin_cifras_del_costo,
+    sin_costo,
 )
 
 
@@ -306,6 +308,8 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
     Crea una notificación si el markup real es NEGATIVO y está por debajo del markup_calculado
     Solo alerta ventas en pérdida que están peor de lo esperado
     """
+    if row.costo_sin_iva is None:  # no cost, no markup to compare (interface §7)
+        return False
     # Las ventas que forman parte de un paquete (pack_id no nulo) reparten costos/comisiones
     # entre los items del pack, por lo que el markup individual no es comparable y genera
     # falsos positivos. No notificar.
@@ -549,8 +553,8 @@ def registrar_consumo_grupo_offset(db: Session, row, es_nuevo: bool):
             .first()
         )
 
-        if not offset:
-            return False
+        if not offset or (offset.tipo_offset == "porcentaje_costo" and row.costo_sin_iva is None):
+            return False  # a cost percentage of an unknown cost is unknown: not recorded (interface §7)
 
         # Verificar si ya existe un registro de consumo para esta operación
         consumo_existente = (
@@ -755,6 +759,8 @@ def registrar_consumo_offset_individual(db: Session, row, es_nuevo: bool):
         consumos_registrados = 0
 
         for offset in offsets:
+            if offset.tipo_offset == "porcentaje_costo" and row.costo_sin_iva is None:
+                continue  # a cost percentage of an unknown cost is unknown: not recorded (interface §7)
             # Verificar si ya existe un registro de consumo para esta operación y offset
             consumo_existente = (
                 db.query(OffsetIndividualConsumo)
@@ -923,7 +929,7 @@ def process_and_insert(db: Session, rows):
                 "cantidad": row.cantidad,
                 "monto_unitario": Decimal(str(row.monto_unitario)) if row.monto_unitario else Decimal("0"),
                 "monto_total": Decimal(str(row.monto_total)) if row.monto_total else Decimal("0"),
-                "costo_unitario_sin_iva": Decimal(str(row.costo_sin_iva)) if row.costo_sin_iva else Decimal("0"),
+                "costo_unitario_sin_iva": Decimal(str(row.costo_sin_iva or 0)),
                 "costo_total_sin_iva": Decimal(str(metricas["costo_total_sin_iva"])),
                 "comision_ml": Decimal(str(metricas["comision_ml"])),
                 "costo_envio_ml": Decimal(str(metricas["costo_envio"])),
@@ -935,6 +941,9 @@ def process_and_insert(db: Session, rows):
                 "mlp_official_store_id": row.mlp_official_store_id if hasattr(row, "mlp_official_store_id") else None,
                 "offset_flex": Decimal(str(metricas["offset_flex"])),
             }
+            if row.costo_sin_iva is None:  # unknown cost (interface §7): no figure computed from it
+                sin_costo(row.item_id, row.fecha_venta)
+                data = sin_cifras_del_costo(data)
 
             if existente:
                 # Actualizar
