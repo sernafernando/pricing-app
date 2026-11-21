@@ -7,6 +7,7 @@ Ejecutar:
     python app/scripts/agregar_metricas_ml_incremental.py
 """
 
+import logging
 import sys
 from pathlib import Path
 
@@ -45,6 +46,8 @@ from app.services.ml_ventas_metricas_costo import (
     sin_cifras_del_costo,
     sin_costo,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
@@ -619,15 +622,18 @@ def registrar_consumo_grupo_offset(db: Session, row, es_nuevo: bool):
 
         return True
 
-    except Exception as e:
-        # No fallar el proceso principal por error en consumo
-        print(f"  ⚠️  Error registrando consumo offset para op {row.id_operacion}: {e}")
+    except Exception:
+        # No fallar el proceso principal por error en consumo, pero dejarlo registrado (antes solo se imprimía)
+        logger.exception("Error registrando consumo offset de grupo para op %s", row.id_operacion)
         return False
 
 
 def calcular_monto_offset(offset, cantidad, costo_sin_iva, cotizacion):
     """Calcula el monto del offset en ARS y USD"""
     costo = float(costo_sin_iva) if costo_sin_iva else 0
+    # The cron's quantity is mlo_quantity (Numeric -> Decimal): float * Decimal raised TypeError on every per-unit and
+    # cost-percentage offset, so none of them was ever recorded.
+    cantidad = float(cantidad or 0)
 
     if offset.tipo_offset == "monto_fijo":
         monto_offset = float(offset.monto or 0)
@@ -829,8 +835,9 @@ def registrar_consumo_offset_individual(db: Session, row, es_nuevo: bool):
 
         return consumos_registrados
 
-    except Exception as e:
-        print(f"  ⚠️  Error registrando consumo offset individual para op {row.id_operacion}: {e}")
+    except Exception:
+        # No fallar el proceso principal por error en consumo, pero dejarlo registrado (antes solo se imprimía)
+        logger.exception("Error registrando consumo offset individual para op %s", row.id_operacion)
         return 0
 
 

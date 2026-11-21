@@ -11,8 +11,7 @@ import io
 import logging
 from datetime import date, datetime
 from decimal import Decimal
-from types import SimpleNamespace
-from typing import Iterator, Optional
+from typing import Iterator
 
 import pytest
 from sqlalchemy import Engine
@@ -97,37 +96,10 @@ def test_cron_keeps_an_unknown_cost_unknown_and_logs_it(
     assert any(str(NADA) in a for a in avisos) and any(str(A) in a and "2026-08-15" in a for a in avisos)
 
 
-def _venta_fila(mlo_id: int, item_id: int, costo: Optional[str]) -> SimpleNamespace:
-    """A cron row. `cantidad` is an int here: the cron's real rows carry a Decimal quantity, which makes
-    `calcular_monto_offset` fail on every per-unit / cost-percentage offset (float * Decimal, swallowed by the cron;
-    pre-existing on main, reported separately), so the guard is tested on the offset functions directly."""
-    return SimpleNamespace(
-        id_operacion=mlo_id,
-        item_id=item_id,
-        fecha_venta=datetime(2026, 10, 5, 15),
-        cantidad=1,
-        costo_sin_iva=D(costo) if costo is not None else None,
-        cambio_momento=D("1000"),
-        mlp_official_store_id=None,
-        marca="MARCA DEMO",
-        categoria="CAMARAS",
-        subcat_id=None,
-    )
-
-
-@pytest.mark.parametrize(
-    ("registrar", "tabla"),
-    [
-        (incremental.registrar_consumo_grupo_offset, "offset_grupo_consumo"),
-        (incremental.registrar_consumo_offset_individual, "offset_individual_consumo"),
-    ],
-    ids=["grupo", "individual"],
-)
-def test_cron_records_no_cost_percentage_offset_for_an_unknown_cost(
-    engine: Engine, db: Session, registrar, tabla: str
-) -> None:
-    """A 10 %-of-cost offset needs the cost: with it unknown nothing is recorded (no 0 consumption). Control: the
-    same offset on a sale with a known cost (25000) records 2500."""
+@pytest.mark.parametrize("tabla", ["offset_grupo_consumo", "offset_individual_consumo"], ids=["grupo", "individual"])
+def test_cron_records_no_cost_percentage_offset_for_an_unknown_cost(engine: Engine, db: Session, tabla: str) -> None:
+    """A 10 %-of-cost offset needs the cost: with it unknown (NADA) nothing is recorded, no 0 consumption. Control:
+    the same offset on a sale with a known cost (A on 10-05: 25 x 1000) records 2500."""
     _mundo(engine)
     w.run(engine, "INSERT INTO offset_grupos (id, nombre, oculto) VALUES (1, 'G', false)")
     grupo = "1" if tabla == "offset_grupo_consumo" else "NULL"
@@ -139,13 +111,13 @@ def test_cron_records_no_cost_percentage_offset_for_an_unknown_cost(
         n=NADA,
         a=A,
     )
+    w.venta_ml(engine, NADA, datetime(2026, 10, 5, 15))
+    conocida = w.venta_ml(engine, A, datetime(2026, 10, 5, 15))
 
-    registrar(db, _venta_fila(1, NADA, None), True)
-    registrar(db, _venta_fila(2, A, "25000"), True)
-    db.commit()
+    _cron(db)
 
-    assert w.rows(engine, f"SELECT id_operacion, offset_id, monto_offset_aplicado FROM {tabla} ORDER BY id") == [
-        (2, 2, D("2500.00"))
+    assert w.rows(engine, f"SELECT id_operacion, offset_id, monto_offset_aplicado FROM {tabla}") == [
+        (conocida, 2, D("2500.00"))
     ]
 
 
