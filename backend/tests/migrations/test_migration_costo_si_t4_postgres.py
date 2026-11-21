@@ -205,3 +205,17 @@ def test_downgrade_keeps_the_snapshots_and_the_queue(engine: Engine) -> None:
 
     assert w.rows(engine, "SELECT count(*) FROM costo_si_t4_respaldo_productos_pricing") == [(3,)]
     assert _cola(engine) == cola
+
+
+def test_a_parked_product_gets_its_steps_back_from_the_reset_backup(engine: Engine) -> None:
+    """Option A deletes the steps before the drain: a product the drain cannot recompute (parked after MAX_ATTEMPTS)
+    would read its list cost. The migration's documented restore puts its pre-T4 steps back, only for it."""
+    _historia(engine)
+    pasos = w.rows(engine, f"SELECT to_jsonb(p) FROM costo_si_pasos p WHERE item_id = {tp.P} ORDER BY orden")
+    _step(engine, "upgrade")
+    w.run(engine, f"UPDATE costo_si_dirty SET attempts = {queue.MAX_ATTEMPTS}, last_error = 'x' WHERE item_id = {tp.P}")
+
+    w.run(engine, _module().RESTAURAR_PASOS_SQL, item=tp.P)
+    w.run(engine, _module().RESTAURAR_PASOS_SQL, item=tp.P)  # a second run changes nothing
+
+    assert w.rows(engine, f"SELECT to_jsonb(p) FROM costo_si_pasos p WHERE item_id = {tp.P} ORDER BY orden") == pasos
