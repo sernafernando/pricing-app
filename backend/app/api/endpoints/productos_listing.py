@@ -1,5 +1,4 @@
 import re
-from decimal import Decimal
 from functools import partial
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -17,7 +16,6 @@ from datetime import UTC, date
 from app.api.deps import get_current_user, require_algun_permiso
 from app.api.endpoints.pricing import PERMISOS_EDITAR_PRODUCTOS_O_TIENDA
 from app.services.envio_real_service import resolver_costos_envio_batch
-from app.services.costo_si import lote as costo_si_lote
 from app.services.productos_sell_in_out import MarkupCompanions, parse_contextos_query, resolver_sell_in_out_batch
 from app.services.tienda_sell_in_out import (
     CLAVE_GREMIO,
@@ -1708,15 +1706,6 @@ def listar_productos_con_precios_listas(
 # ========== ENDPOINT TIENDA ==========
 
 
-def _costos_si_ars(db: Session, item_ids, tipo_cambio_usd) -> dict[int, Optional[float]]:
-    """Each product's current costo SI in pesos (`lote.actuales` at the page's USD rate), None when unknown."""
-    tc = Decimal(str(tipo_cambio_usd)) if tipo_cambio_usd else None
-    return {
-        item_id: None if c.costo_ars is None or c.costo_ars <= 0 else float(c.costo_ars)
-        for item_id, c in costo_si_lote.actuales(db, item_ids, tipo_cambio=tc).items()
-    }
-
-
 def tienda_pricing_context(
     *,
     hoy: date,
@@ -2322,6 +2311,7 @@ def listar_productos_tienda(
         calcular_comision_ml_total,
         calcular_limpio,
         calcular_markup,
+        costos_ars_actuales,
         GRUPO_DEFAULT,
     )
     from app.models.comision_config import SubcategoriaGrupo
@@ -2422,7 +2412,7 @@ def listar_productos_tienda(
     ppp_by_item_t = resolver_ppp_batch(db, item_ids_results)
     # Tienda's markups are over costo SI in pesos (S13, D1; the list cost without a costo SI step, Q1). None = unknown
     # (a USD cost without a rate, or no cost): no markup, never 0 or a USD figure taken as pesos (interfaz §7).
-    costo_si_ars_t = _costos_si_ars(db, item_ids_results, tipo_cambio_usd_t)
+    costo_si_ars_t = costos_ars_actuales(db, item_ids_results, tipo_cambio_usd_t)
     # Sell in / sell out per channel context (gremio / sugerido: off-ML; web_transf: Tienda Nube), one read.
     sell_in_out_batches_t = resolver_tienda_batches(db, item_ids_results, hoy)
 
