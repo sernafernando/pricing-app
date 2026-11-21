@@ -1198,6 +1198,36 @@ describe('CS-13: sell in / sell out companion lines', () => {
     expect(screen.getByText('c/ sell in + sell out: 25.25%')).toBeInTheDocument();
   });
 
+  it('shows the costo SI in its own column right after the list cost, and sorts by it (S13 two columns)', async () => {
+    setupApiMocks({
+      productos: [
+        makeProducto({
+          costo_si: { costo: 8.5, moneda: 'USD', fuente: 'costo_si', desde: '2026-11-02', tipo_cambio: 1000, tipo_cambio_fecha: '2026-11-20', costo_ars: 8500 },
+        }),
+      ],
+      total: 1,
+    });
+
+    await act(async () => {
+      renderWithRouter(<Productos />);
+    });
+
+    await waitFor(() => expect(screen.getByText('Producto Test')).toBeInTheDocument());
+    const headers = screen.getAllByRole('columnheader').map((th) => th.textContent.trim());
+    expect(headers[headers.findIndex((h) => h.startsWith('Costo')) + 1]).toMatch(/^Costo SI/);
+    const celda = screen.getByText('USD $8.50');
+    expect(celda.getAttribute('title')).toBe('Costo SI desde 02/11/26\nEn pesos: ARS $8500.00 (TC 1000 del 20/11/26)');
+    // The list cost stays in its own column, unchanged.
+    expect(screen.getByText('USD $10.00')).toBeInTheDocument();
+
+    productosAPI.listar.mockClear();
+    await act(async () => {
+      screen.getByRole('columnheader', { name: /^Costo SI/ }).click();
+    });
+    await waitFor(() => expect(productosAPI.listar).toHaveBeenCalled());
+    expect(productosAPI.listar.mock.calls.at(-1)[0]).toMatchObject({ orden_campos: 'costo_si', orden_direcciones: 'asc' });
+  });
+
   it('renders a row without sell_in_out as before, with no sell in / sell out line', async () => {
     setupApiMocks({ productos: [makeProducto({ sell_in_out: null })], total: 1 });
 

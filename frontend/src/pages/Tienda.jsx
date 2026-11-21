@@ -24,6 +24,7 @@ import StatCard from '../components/StatCard';
 import SearchInput from '../components/SearchInput';
 import PrecioTransfHint from '../components/PrecioTransfHint';
 import CostoCell from '../components/CostoCell';
+import CostoSiCell from '../components/CostoSiCell';
 import SellInOutLine from '../components/SellInOutLine';
 import { tiendaSellInOutDe } from '../utils/tiendaSellInOut';
 import { DollarSign, BarChart3, Check, X, RotateCcw, Ban, CreditCard } from 'lucide-react';
@@ -1496,6 +1497,9 @@ export default function Tienda() {
                   <th onClick={(e) => handleOrdenar('costo', e)}>
                     Costo {getIconoOrden('costo')} {getNumeroOrden('costo') && <span>{getNumeroOrden('costo')}</span>}
                   </th>
+                  <th onClick={(e) => handleOrdenar('costo_si', e)}>
+                    Costo SI {getIconoOrden('costo_si')} {getNumeroOrden('costo_si') && <span>{getNumeroOrden('costo_si')}</span>}
+                  </th>
                   <th onClick={(e) => handleOrdenar('precio_clasica', e)}>
                     Precio Clásica {getIconoOrden('precio_clasica')} {getNumeroOrden('precio_clasica') && <span>{getNumeroOrden('precio_clasica')}</span>}
                   </th>
@@ -1596,6 +1600,9 @@ export default function Tienda() {
                       ) : (
                         <CostoCell monto={p.costo} moneda={p.moneda_costo} sellInOut={p.sell_in_out} format={formatCostoLista} />
                       )}
+                    </td>
+                    <td>
+                      <CostoSiCell costoSi={p.costo_si} format={formatCostoLista} />
                     </td>
                     <td className={isRowActive && celdaActiva?.colIndex === 0 ? 'keyboard-cell-active' : ''}>
                       {/* Precio solo lectura en Tienda */}

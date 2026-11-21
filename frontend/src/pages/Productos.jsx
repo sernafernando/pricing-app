@@ -34,6 +34,7 @@ import { useProductosOffsets } from '../hooks/useProductosOffsets';
 import PppLine from '../components/PppLine';
 import SellInOutLine from '../components/SellInOutLine';
 import CostoCell from '../components/CostoCell';
+import CostoSiCell from '../components/CostoSiCell';
 import MarkupContextoPicker from '../components/productos/MarkupContextoPicker';
 import { paramDesdeSeleccion, seleccionDesdeParam } from '../components/productos/markupContextos';
 import PrecioTransfHint from '../components/PrecioTransfHint';
@@ -431,7 +432,7 @@ export default function Productos() {
   });
 
   const TOTAL_COLS =
-    8 + // checkbox, codigo, descripcion, marca, stock, costo, precio_clasica, acciones
+    9 + // checkbox, codigo, descripcion, marca, stock, costo, costo_si, precio_clasica, acciones
     (modoVista === 'normal' ? 3 : 4) +
     1; // leading expand-toggle column
 
@@ -1624,6 +1625,9 @@ export default function Productos() {
                   <th onClick={(e) => handleOrdenar('costo', e)}>
                     Costo {getIconoOrden('costo')} {getNumeroOrden('costo') && <span>{getNumeroOrden('costo')}</span>}
                   </th>
+                  <th onClick={(e) => handleOrdenar('costo_si', e)}>
+                    Costo SI {getIconoOrden('costo_si')} {getNumeroOrden('costo_si') && <span>{getNumeroOrden('costo_si')}</span>}
+                  </th>
                   <th onClick={(e) => handleOrdenar('precio_clasica', e)}>
                     {modoVista === 'pvp' ? 'Precio PVP' : 'Precio Clásica'} {getIconoOrden('precio_clasica')} {getNumeroOrden('precio_clasica') && <span>{getNumeroOrden('precio_clasica')}</span>}
                   </th>
@@ -1765,6 +1769,9 @@ export default function Productos() {
                         sellInOut={p.sell_in_out}
                         format={formatCostoLista}
                       />
+                    </td>
+                    <td>
+                      <CostoSiCell costoSi={p.costo_si} format={formatCostoLista} />
                     </td>
                     <td className={isRowActive && celdaActiva?.colIndex === 0 ? 'keyboard-cell-active' : ''}>
                       {editandoPrecio === p.item_id ? (

@@ -10,6 +10,7 @@ import ActivityCell from './ActivityCell';
 import StoreCell from './StoreCell';
 import MarkupCell, { SisoMarkupCell } from './MarkupCell';
 import CostoCell from '../CostoCell';
+import CostoSiCell from '../CostoSiCell';
 import { priceColumns } from './priceColumns';
 import {
   AgeingCell,
@@ -76,7 +77,16 @@ const costCell = (item) => {
  * by, as in Productos.
  */
 export function defaultColumnVisibility() {
-  return { codigo: false, marca: false, costo: false, vinculo: false, tienda: false, actividad: false, evento: false };
+  return {
+    codigo: false,
+    marca: false,
+    costo: false,
+    costo_si: false,
+    vinculo: false,
+    tienda: false,
+    actividad: false,
+    evento: false,
+  };
 }
 
 /**
@@ -348,6 +358,16 @@ export function buildColumns({
     { key: 'marca', header: 'Marca', width: 130, sortable: true, render: (item) => orDash(item.link?.marca) },
     ...withMargin([
       { key: 'costo', header: 'Costo', width: 130, sortable: true, align: 'center', fit: true, render: costCell },
+      // The costo SI beside the list cost (S13 two columns): every markup is over it; sorted in pesos by the backend.
+      {
+        key: 'costo_si',
+        header: 'Costo SI',
+        width: 130,
+        sortable: true,
+        align: 'center',
+        fit: true,
+        render: (item) => <CostoSiCell costoSi={item.costo_si} format={costAmount} />,
+      },
     ]),
     { key: 'vinculo', header: 'Vínculo', width: 170, render: (item) => <LinkBadge link={item.link} /> },
     { key: 'tienda', header: 'Tienda', width: 140, render: (item) => <StoreCell item={item} /> },

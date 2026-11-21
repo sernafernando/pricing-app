@@ -140,6 +140,19 @@ describe('Tienda sell in / sell out', () => {
     expect(costo).toHaveTextContent(/^-$/);
   });
 
+  it('shows the costo SI in its own column right after the list cost (S13 two columns)', async () => {
+    const fila = await renderFila({
+      ...SIN_SELL_IN_OUT,
+      costo_si: { costo: 20000, moneda: 'ARS', fuente: 'lista', desde: null, tipo_cambio: null, tipo_cambio_fecha: null, costo_ars: 20000 },
+    });
+
+    const costo = within(fila).getByText('BRAND_X').closest('td').nextElementSibling.nextElementSibling;
+    expect(costo).toHaveTextContent('USD $10.00');
+    expect(costo.nextElementSibling).toHaveTextContent(/^ARS \$20000\.00 lista$/);
+    const headers = screen.getAllByRole('columnheader').map((th) => th.textContent.trim());
+    expect(headers[headers.findIndex((h) => h.startsWith('Costo')) + 1]).toMatch(/^Costo SI/);
+  });
+
   it('keeps a row without sell in or sell out as it was', async () => {
     const fila = await renderFila(SIN_SELL_IN_OUT);
 

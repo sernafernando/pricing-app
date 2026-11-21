@@ -213,6 +213,7 @@ export const DEFAULT_DIRECTION = {
   codigo: 'asc',
   marca: 'asc',
   costo: 'asc',
+  costo_si: 'asc',
   // Worst variation first: the most negative markup on top; with sell in / sell out alike.
   markup: 'asc',
   markup_siso: 'asc',
@@ -255,7 +256,7 @@ const SALES_SORTS = new Set([
   'cobertura',
   'rotacion',
 ]);
-const MARGIN_SORTS = new Set(['markup', 'markup_siso', 'markup_30d', 'markup_sell_30d', 'total_gauss_30d', 'costo', ...PRICE_MARKUP_SORTS]);
+const MARGIN_SORTS = new Set(['markup', 'markup_siso', 'markup_30d', 'markup_sell_30d', 'total_gauss_30d', 'costo', 'costo_si', ...PRICE_MARKUP_SORTS]);
 
 /** Métricas' default (Facturado 30D) for who sees the sales; the activity otherwise. */
 export const defaultSortFor = ({ canSeeSales = false } = {}) => (canSeeSales ? 'facturado_30d' : 'actividad');
