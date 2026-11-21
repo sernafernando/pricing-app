@@ -14,4 +14,5 @@ No hay que hacer nada. Al editar el Gremio por markup (Ctrl + clic), el precio s
 
 - Un producto con sell in tiene un costo SI más bajo que el de lista, así que su Gremio y su Sugerido bajan.
 - Un precio gremio cargado a mano no cambia.
+- Un combo con un componente que no figura como producto (por ejemplo, de la categoría PRODUCCIÓN) ahora toma el costo de lista de GBP de ese componente, así que esos combos vuelven a tener precio. Si el costo de ese componente es 0, el combo sigue sin precio.
 - Si el producto no tiene costo en pesos (no tiene costo, o está en dólares y no hay dólar cargado), no se muestra precio Gremio ni Sugerido, en vez de un número calculado sobre 0. Tampoco se puede cargar el Gremio por markup: cargá el precio.
