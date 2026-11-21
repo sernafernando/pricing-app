@@ -15,6 +15,7 @@ No hay que hacer nada. Cada venta toma el costo SI vigente en su fecha:
 - Si el producto se compra en dólares, el costo SI está en dólares y se pasa a pesos con el dólar del día de la venta.
 - Si el producto se compra en pesos, el costo SI ya está en pesos.
 - Si el producto todavía no tiene costo SI, se usa el costo de lista, como hasta ahora.
+- Si no se puede saber el costo (por ejemplo, un producto en dólares sin dólar cargado para ese día), la venta se muestra **Sin costo** y la ganancia y el markup quedan en **—**, en lugar de contar toda la venta como ganancia.
 
 ## A tener en cuenta
 

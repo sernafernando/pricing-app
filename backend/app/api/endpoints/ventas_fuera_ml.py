@@ -104,10 +104,10 @@ class OperacionFueraMLResponse(BaseModel):
     precio_final_sin_iva: float
     monto_iva: float
     precio_final_con_iva: float
-    costo_unitario: float
-    costo_pesos_sin_iva: float
+    costo_unitario: Optional[float]  # None = unknown cost (no costo SI / USD rate): shown as sin costo
+    costo_pesos_sin_iva: Optional[float]
     markup: Optional[float]
-    ganancia: float
+    ganancia: Optional[float]  # None when the cost is unknown
     signo: int
     # Sell in / sell out (sell-in-sell-out T14), always null since VPF T4: the engines credit the operations
     # loaded from the GBP PDF reports (canal `fuera` keyed by PDF line id), never these synced GBP rows, so
@@ -606,10 +606,10 @@ def get_operaciones_desde_metricas(
             "precio_final_sin_iva": float(r.precio_final_sin_iva) if r.precio_final_sin_iva else 0,
             "monto_iva": float(r.monto_iva) if r.monto_iva else 0,
             "precio_final_con_iva": float(r.precio_final_con_iva) if r.precio_final_con_iva else 0,
-            "costo_unitario": float(r.costo_unitario) if r.costo_unitario else 0,
-            "costo_pesos_sin_iva": float(r.costo_pesos_sin_iva) if r.costo_pesos_sin_iva else 0,
+            "costo_unitario": float(r.costo_unitario) if r.costo_unitario is not None else None,
+            "costo_pesos_sin_iva": float(r.costo_pesos_sin_iva) if r.costo_pesos_sin_iva is not None else None,
             "markup": float(r.markup) / 100 if r.markup else None,  # Convertir a decimal (0.15 en lugar de 15%)
-            "ganancia": float(r.ganancia) if r.ganancia else 0,
+            "ganancia": float(r.ganancia) if r.ganancia is not None else None,
             "signo": r.signo,
         }
         for r in result
@@ -1208,9 +1208,9 @@ def get_metrica_detalle(metrica_id: int, db: Session = Depends(get_db), current_
         "cantidad": float(metrica.cantidad) if metrica.cantidad else 0,
         "monto_unitario": float(metrica.monto_unitario) if metrica.monto_unitario else 0,
         "monto_total": float(metrica.monto_total) if metrica.monto_total else 0,
-        "costo_unitario": float(metrica.costo_unitario) if metrica.costo_unitario else 0,
-        "costo_total": float(metrica.costo_total) if metrica.costo_total else 0,
-        "ganancia": float(metrica.ganancia) if metrica.ganancia else 0,
+        "costo_unitario": float(metrica.costo_unitario) if metrica.costo_unitario is not None else None,
+        "costo_total": float(metrica.costo_total) if metrica.costo_total is not None else None,
+        "ganancia": float(metrica.ganancia) if metrica.ganancia is not None else None,
         "markup_porcentaje": float(metrica.markup_porcentaje) if metrica.markup_porcentaje else None,
         "moneda_costo": metrica.moneda_costo,
         "fecha_venta": metrica.fecha_venta.isoformat() if metrica.fecha_venta else None,

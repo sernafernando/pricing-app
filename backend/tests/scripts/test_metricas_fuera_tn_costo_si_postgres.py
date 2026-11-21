@@ -46,6 +46,7 @@ from app.models.tb_tax_number_type import TBTaxNumberType
 from app.models.tipo_cambio import TipoCambio
 from app.models.vendedor_excluido import VendedorExcluido
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
+from app.models.venta_override import VentaFueraMLOverride, VentaTiendaNubeOverride
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.scripts import agregar_metricas_fuera_ml as cron_fuera
 from app.scripts import agregar_metricas_tienda_nube as cron_tn
@@ -82,6 +83,8 @@ TABLAS = [
         PricingConstants,
         VentaFueraMLMetrica,
         VentaTiendaNubeMetrica,
+        VentaFueraMLOverride,
+        VentaTiendaNubeOverride,
     )
 ]
 STUBS = ["CREATE TABLE usuarios (id INTEGER PRIMARY KEY)"]
@@ -114,7 +117,8 @@ def db(engine: Engine) -> Iterator[Session]:
             text(
                 "TRUNCATE tb_item_transactions, tb_commercial_transactions, tb_item, productos_erp, tipo_cambio,"
                 " tb_item_cost_list_history, costo_si_pasos, combo_componentes, ventas_fuera_ml_metricas,"
-                " ventas_tienda_nube_metricas, tb_cur_exch_history"
+                " ventas_tienda_nube_metricas, tb_cur_exch_history, ventas_fuera_ml_override,"
+                " ventas_tienda_nube_override"
             )
         )
 
@@ -470,3 +474,78 @@ def _cron_nulos(db: Session, modulo) -> dict[int, Optional[Decimal]]:
     obtener = cron_fuera.obtener_ventas_fuera_ml if modulo is cron_fuera else cron_tn.obtener_ventas_tienda_nube
     filas = obtener(db, f"{DESDE} 00:00:00", f"{HASTA} 23:59:59")
     return {f.it_transaction: f.costo_total for f in filas}
+
+
+def _operaciones(db: Session, cron) -> tuple[list[dict], type]:
+    if cron is cron_fuera:
+        filas = ep_fuera.get_operaciones_desde_metricas(
+            from_date=DESDE,
+            to_date=HASTA,
+            sucursal=None,
+            vendedor=None,
+            marca=None,
+            solo_sin_costo=False,
+            search=None,
+            limit=1000,
+            offset=0,
+            db=db,
+            current_user={},
+        )
+        return filas, ep_fuera.OperacionFueraMLResponse
+    filas = ep_tn.get_operaciones_tn_desde_metricas(
+        from_date=DESDE,
+        to_date=HASTA,
+        sucursal=None,
+        vendedor=None,
+        marca=None,
+        solo_sin_costo=False,
+        search=None,
+        limit=1000,
+        offset=0,
+        db=db,
+        current_user={},
+    )
+    return filas, ep_tn.OperacionTiendaNubeResponse
+
+
+@pytest.mark.parametrize("cron,df_id", CANALES)
+def test_operations_list_and_detail_show_an_unknown_cost_as_unknown_not_0(
+    engine: Engine, db: Session, cron, df_id
+) -> None:
+    """The metrics-based list and detail return None for an unknown cost and its ganancia (the screen shows sin costo
+    / —), through the response schema; a known cost keeps its value."""
+    _run(engine, "DELETE FROM tipo_cambio")
+    (nb,) = _venta(engine, df_id, [{"item": NB, "precio": "20000"}])  # USD, no rate: unknown
+    (mouse,) = _venta(engine, df_id, [{"item": MOUSE, "precio": "20000"}])  # ARS: known
+    obtener = cron.obtener_ventas_fuera_ml if cron is cron_fuera else cron.obtener_ventas_tienda_nube
+    cron.process_and_insert(db, obtener(db, f"{DESDE} 00:00:00", f"{HASTA} 23:59:59"))
+
+    filas, esquema = _operaciones(db, cron)
+    por_id = {f["id_operacion"]: esquema.model_validate(f) for f in filas}
+
+    assert (por_id[nb].costo_unitario, por_id[nb].costo_pesos_sin_iva, por_id[nb].ganancia) == (None, None, None)
+    assert por_id[mouse].costo_pesos_sin_iva == pytest.approx(float(MOUSE_ARS * D))
+    assert por_id[mouse].ganancia is not None
+
+    tabla = "ventas_fuera_ml_metricas" if cron is cron_fuera else "ventas_tienda_nube_metricas"
+    (metrica_id,) = db.execute(text(f"SELECT id FROM {tabla} WHERE it_transaction = :i"), {"i": nb}).one()
+    detalle = (ep_fuera.get_metrica_detalle if cron is cron_fuera else ep_tn.get_metrica_detalle_tn)(
+        metrica_id=metrica_id, db=db, current_user={}
+    )
+    assert (detalle["costo_unitario"], detalle["costo_total"], detalle["ganancia"]) == (None, None, None)
+
+
+@pytest.mark.parametrize("cron,df_id", CANALES)
+def test_operations_list_keeps_a_stored_0_cost_as_0(engine: Engine, db: Session, cron, df_id) -> None:
+    """Rows stored before this change carry 0 for "sin costo": they still read 0 (the screen already shows it as sin
+    costo); only NULL reads as None."""
+    (mouse,) = _venta(engine, df_id, [{"item": MOUSE, "precio": "20000"}])
+    obtener = cron.obtener_ventas_fuera_ml if cron is cron_fuera else cron.obtener_ventas_tienda_nube
+    cron.process_and_insert(db, obtener(db, f"{DESDE} 00:00:00", f"{HASTA} 23:59:59"))
+    tabla = "ventas_fuera_ml_metricas" if cron is cron_fuera else "ventas_tienda_nube_metricas"
+    _run(engine, f"UPDATE {tabla} SET costo_unitario = 0, costo_total = 0 WHERE it_transaction = :i", i=mouse)
+
+    filas, _ = _operaciones(db, cron)
+
+    (fila,) = [f for f in filas if f["id_operacion"] == mouse]
+    assert (fila["costo_unitario"], fila["costo_pesos_sin_iva"]) == (0.0, 0.0)

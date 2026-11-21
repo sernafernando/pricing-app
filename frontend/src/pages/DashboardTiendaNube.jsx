@@ -8,6 +8,7 @@ import { useQueryFilters } from '../hooks/useQueryFilters';
 import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
 import { Star, DollarSign } from 'lucide-react';
+import { resultadoOperacionTN } from '../utils/resultadoOperacionTN';
 
 // Helper para obtener fechas por defecto
 const getDefaultFechaDesde = () => {
@@ -629,17 +630,16 @@ export default function DashboardTiendaNube() {
               </thead>
               <tbody>
                 {operacionesFiltradas.map((op, idx) => {
-                  const sinCosto = !op.costo_pesos_sin_iva || op.costo_pesos_sin_iva === 0;
                   const metodoPagoActual = metodosPago[op.id_operacion] || 'efectivo';
                   const comisionAplicada = metodoPagoActual === 'tarjeta' ? comisionTarjeta : comisionEfectivo;
 
-                  // Recalcular comisión, ganancia y markup basado en el método de pago actual
-                  const montoSinIva = parseFloat(op.precio_final_sin_iva) || 0;
-                  const costoSinIva = parseFloat(op.costo_pesos_sin_iva) || 0;
-                  const comisionCalculada = montoSinIva * (comisionAplicada / 100);
-                  const montoLimpio = montoSinIva - comisionCalculada;
-                  const gananciaCalculada = montoLimpio - costoSinIva;
-                  const markupCalculado = costoSinIva > 0 ? gananciaCalculada / costoSinIva : null;
+                  // Recalcular comisión, ganancia y markup basado en el método de pago actual (sin costo: ambos null)
+                  const {
+                    sinCosto,
+                    comision: comisionCalculada,
+                    ganancia: gananciaCalculada,
+                    markup: markupCalculado,
+                  } = resultadoOperacionTN(op, comisionAplicada);
 
                   // Valores efectivos (override o original)
                   const marcaEfectiva = getValorEfectivo(op, 'marca');
@@ -786,8 +786,11 @@ export default function DashboardTiendaNube() {
                           className={`${getClaseConOverride('costo_unitario') ? styles.hasOverride : ''} ${sinCosto && !tieneOverride?.costo_unitario ? styles.campoSinCostoInput : ''}`}
                         />
                       </td>
-                      <td className={`${styles.monto} ${gananciaCalculada >= 0 ? styles.valorPositivo : styles.valorNegativo}`}>
-                        {puedeVerGanancia ? formatearMoneda(gananciaCalculada) : '***'}
+                      <td
+                        className={`${styles.monto} ${gananciaCalculada === null ? '' : gananciaCalculada >= 0 ? styles.valorPositivo : styles.valorNegativo}`}
+                        title={gananciaCalculada === null ? 'Sin costo: la ganancia no se puede calcular' : undefined}
+                      >
+                        {!puedeVerGanancia ? '***' : gananciaCalculada === null ? '—' : formatearMoneda(gananciaCalculada)}
                       </td>
                       <td className={`${styles.centrado} ${markupCalculado !== null && markupCalculado < 0 ? styles.negativo : ''}`}>
                         {formatearPorcentaje(markupCalculado)}
