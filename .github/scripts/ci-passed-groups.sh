@@ -31,7 +31,7 @@ set -uo pipefail
 # Must match the `name:` of the jobs in ci.yml. A renamed job never matches,
 # so its group never skips (fail safe, but it silently stops saving minutes).
 # The Postgres jobs are matrix shards: one name per shard.
-BACKEND_JOBS='["Backend Lint","Backend Tests","Backend Tests (Postgres) 1/3","Backend Tests (Postgres) 2/3","Backend Tests (Postgres) 3/3","Backend Tests (Postgres volume) 1/3","Backend Tests (Postgres volume) 2/3","Backend Tests (Postgres volume) 3/3"]'
+BACKEND_JOBS='["Backend Lint","Backend Tests","Backend Tests (Postgres) 1/3","Backend Tests (Postgres) 2/3","Backend Tests (Postgres) 3/3","Backend Tests (Postgres volume) 1/4","Backend Tests (Postgres volume) 2/4","Backend Tests (Postgres volume) 3/4","Backend Tests (Postgres volume) 4/4"]'
 FRONTEND_JOBS='["Frontend Lint","Frontend Build","Frontend Tests","Frontend Visual Tests"]'
 
 # Earlier runs inspected, newest first. Bounds the API calls per run.
