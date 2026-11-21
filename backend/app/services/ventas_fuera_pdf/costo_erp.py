@@ -4,7 +4,7 @@ aplicar sobre costo si"), read through `app.services.costo_si.lote`, the one rea
 - unit cost = `lote.en_fechas` `costo_ars`: the costo SI in force on the sale date, in the product's cost currency
   (owner L18), in pesos at that date's USD rate; without costo SI the list cost (`fuente` 'lista', interface Q1);
   unknown (no cost, or a dollar cost without a rate) -> 0, as a line without cost always was;
-- a combo that is not a PC = its components x quantity (the reader, S11), UNLESS the same document brings its
+- a combo, a PC included (L22) = its components x quantity (the reader, S11), UNLESS the same document brings its
   breakdown (owner L19: "claro si el combo trae el desglose no tomarlo, si no lo trae sí"): when EVERY one of its
   components is also a line of that document, the combo line costs 0 and its components carry the cost; with only
   some of them the combo is costed whole and logged (`combos_desglosados`).

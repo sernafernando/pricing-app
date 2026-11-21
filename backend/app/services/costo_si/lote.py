@@ -112,12 +112,19 @@ def _es_combo(item: str) -> str:
 MAX_NIVELES = 7
 
 
+# `_arbol`'s columns, and the rows the guard stops (a cycle, or a component with parts deeper than MAX_NIVELES)
+_ARBOL = "csi_at(raiz, componente_item_id, cantidad, largo, hoja, ciclo)"
+_CORTE = f"(csi_at.ciclo OR (NOT csi_at.hoja AND csi_at.largo > {MAX_NIVELES}))"
+
+
 def _arbol(raices: str, con_bom: Optional[str] = None) -> str:
     """The recursive walk down the bills of materials of `raices` (an SQL query of `item_id`s): one row per path,
-    (raiz, componente_item_id, cantidad = the product of the quantities on the path, camino, hoja = has no bill of
-    materials, ciclo = the component is already on its path). A component with a bill of materials is followed into
-    its own components, never read as itself. `con_bom`: a relation of the `item_id`s with a bill of materials, joined
-    instead of a lookup per component (a set read: one pass, never per row)."""
+    (raiz, componente_item_id, cantidad = the product of the quantities on the path, largo = ids on the path, hoja =
+    has no bill of materials, ciclo = the path is back at its root). A component with a bill of materials is followed
+    into its own components, never read as itself. Any other cycle runs into the depth guard, so it is cut the same
+    way. Portable SQL (no arrays, no `%`): the one-product reader runs it on SQLite in tests too, and raw DBAPI
+    callers pass it with parameters. `con_bom`: a relation of the `item_id`s with a bill of
+    materials, joined instead of a lateral probe per component (a set read: one pass, never per row)."""
     hoja = "csi_ab.item_id IS NULL"
     if con_bom is None:  # one index probe per component, joined (never a per-row SubPlan)
         junta = (
@@ -127,25 +134,27 @@ def _arbol(raices: str, con_bom: Optional[str] = None) -> str:
     else:
         junta = f" LEFT JOIN {con_bom} csi_ab ON csi_ab.item_id = csi_ah.componente_item_id"
     return f"""
-        SELECT csi_ar.item_id, csi_ah.componente_item_id, csi_ah.cantidad::numeric,
-               ARRAY[csi_ar.item_id, csi_ah.componente_item_id]::integer[], {hoja},
-               csi_ah.componente_item_id = csi_ar.item_id
+        SELECT csi_ar.item_id, csi_ah.componente_item_id, CAST(csi_ah.cantidad AS NUMERIC),
+               2, {hoja}, csi_ah.componente_item_id = csi_ar.item_id
         FROM ({raices}) csi_ar JOIN combo_componentes csi_ah ON csi_ah.combo_item_id = csi_ar.item_id{junta}
         UNION ALL
         SELECT csi_at.raiz, csi_ah.componente_item_id, csi_at.cantidad * csi_ah.cantidad,
-               csi_at.camino || csi_ah.componente_item_id::integer, {hoja},
-               csi_ah.componente_item_id = ANY(csi_at.camino)
+               csi_at.largo + 1, {hoja}, csi_ah.componente_item_id = csi_at.raiz
         FROM csi_at JOIN combo_componentes csi_ah ON csi_ah.combo_item_id = csi_at.componente_item_id{junta}
-        WHERE NOT csi_at.hoja AND NOT csi_at.ciclo AND cardinality(csi_at.camino) <= {MAX_NIVELES}"""
+        WHERE NOT csi_at.hoja AND NOT csi_at.ciclo AND csi_at.largo <= {MAX_NIVELES}"""
 
 
-def _hojas(raices: str) -> str:
+def _hojas(raices: str, con_bom: Optional[str] = None) -> str:
     """What a combo sums (`_arbol`): (raiz, componente_item_id, cantidad, corte). Its leaves, plus a `corte` row for
     each path the guard stopped (a cycle, or deeper than `MAX_NIVELES`) that makes the sum unknown."""
     return f"""
-        WITH RECURSIVE csi_at(raiz, componente_item_id, cantidad, camino, hoja, ciclo) AS ({_arbol(raices)})
-        SELECT csi_at.raiz, csi_at.componente_item_id, csi_at.cantidad, NOT csi_at.hoja AS corte FROM csi_at
-        WHERE csi_at.hoja OR csi_at.ciclo OR cardinality(csi_at.camino) > {MAX_NIVELES}"""
+        WITH RECURSIVE {_ARBOL} AS ({_arbol(raices, con_bom)})
+        SELECT csi_at.raiz, csi_at.componente_item_id, csi_at.cantidad, {_CORTE} AS corte FROM csi_at
+        WHERE csi_at.hoja OR {_CORTE}"""
+
+
+# Every id with a bill of materials, as a relation `_hojas` can join (portable: the one-product reader's form).
+CON_BOM = "(SELECT DISTINCT csi_cb.combo_item_id AS item_id FROM combo_componentes csi_cb)"
 
 
 def _lista_gbp(item: str) -> str:
@@ -485,12 +494,10 @@ def sql_actual_conjunto(ids: str, tipo_cambio: str = "NULL::numeric") -> str:
     csi_combo AS MATERIALIZED (
         SELECT csi_q.item_id FROM csi_q WHERE csi_q.item_id IN (SELECT item_id FROM csi_con_bom)
     ),
-    csi_at(raiz, componente_item_id, cantidad, camino, hoja, ciclo) AS (
-        {_arbol("SELECT item_id FROM csi_combo", con_bom="csi_con_bom")}
-    ),
+    {_ARBOL} AS ({_arbol("SELECT item_id FROM csi_combo", con_bom="csi_con_bom")}),
     csi_hojas AS (
-        SELECT csi_at.raiz, csi_at.componente_item_id, csi_at.cantidad, NOT csi_at.hoja AS corte FROM csi_at
-        WHERE csi_at.hoja OR csi_at.ciclo OR cardinality(csi_at.camino) > {MAX_NIVELES}
+        SELECT csi_at.raiz, csi_at.componente_item_id, csi_at.cantidad, {_CORTE} AS corte FROM csi_at
+        WHERE csi_at.hoja OR {_CORTE}
     ),
     csi_necesarios AS (
         SELECT csi_q.item_id FROM csi_q WHERE csi_q.item_id NOT IN (SELECT item_id FROM csi_combo)

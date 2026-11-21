@@ -76,28 +76,17 @@ def vigente(db: Session, item_id: int, fecha: date) -> tuple[Optional[Decimal], 
     return valor, desde
 
 
-_PARTES_SQL = text("SELECT componente_item_id, cantidad FROM combo_componentes WHERE combo_item_id = :i ORDER BY 1")
+_HOJAS_SQL = text(
+    "SELECT csi_c.componente_item_id, sum(csi_c.cantidad), max(CASE WHEN csi_c.corte THEN 1 ELSE 0 END)"
+    f" FROM ({lote._hojas('SELECT CAST(:i AS INTEGER) AS item_id', lote.CON_BOM)}) csi_c GROUP BY 1 ORDER BY 1"
+)
 
 
 def _hojas(db: Session, item_id: int) -> tuple[Dict[int, Decimal], bool]:
     """The leaves of `item_id`'s bill of materials with their quantity (multiplied down the tree, summed over paths),
-    and whether the guard stopped a path: a cycle, or deeper than `lote.MAX_NIVELES` (same rule as `lote._hojas`)."""
-    hojas: Dict[int, Decimal] = {}
-    cortado = False
-    pendientes = [(item_id, Decimal(1), (item_id,))]
-    while pendientes:
-        combo, cantidad, camino = pendientes.pop()
-        for componente, q in db.execute(_PARTES_SQL, {"i": combo}).all():
-            subtotal, ruta = cantidad * Decimal(q), camino + (componente,)
-            if componente in camino:
-                cortado = True
-            elif db.execute(_PARTES_SQL, {"i": componente}).first() is None:
-                hojas[componente] = hojas.get(componente, Decimal(0)) + subtotal
-            elif len(ruta) > lote.MAX_NIVELES:
-                cortado = True
-            else:
-                pendientes.append((componente, subtotal, ruta))
-    return hojas, cortado
+    and whether the guard stopped a path: `lote._hojas`, the one rule, in one query."""
+    filas = db.execute(_HOJAS_SQL, {"i": item_id}).all()
+    return {c: Decimal(str(q)) for c, q, _ in filas}, any(corte for _, _, corte in filas)
 
 
 def leer(db: Session, item_id: int, fecha: date) -> CostoSi:
