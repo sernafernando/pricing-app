@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, text
 
+from app.services import offset_costo_desconocido
 from app.core.database import get_db
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
@@ -279,6 +280,8 @@ def recalcular_consumo_offset_individual(
 
     for venta in ventas:
         cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
+        if offset_costo_desconocido.omitir(offset, venta.costo_total_sin_iva, "ml", venta.id_operacion):
+            continue  # unknown cost: no cost-percentage consumption (costo SI interface §7)
         costo_unitario = (
             (float(venta.costo_total_sin_iva) / venta.cantidad) if venta.cantidad and venta.costo_total_sin_iva else 0
         )

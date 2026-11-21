@@ -21,6 +21,9 @@ from app.services import promo_price_recompute
 from app.workers import registry
 from app.workers.context import WorkerContext
 from app.workers.handlers.promo_price_recompute import recompute as handler
+from tests.costo_si_lista import costo_si_lista  # noqa: F401  (fixture)
+
+pytestmark = [*globals().get("pytestmark", []), pytest.mark.usefixtures("costo_si_lista")]
 
 ACTIVATION = datetime(2026, 1, 2, tzinfo=UTC)
 

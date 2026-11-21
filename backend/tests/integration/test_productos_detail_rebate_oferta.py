@@ -41,9 +41,10 @@ from tests.integration.test_productos_listing_golden import (
 import app.models.item_cost_list_history  # noqa: F401,E402
 import app.models.commercial_transaction  # noqa: F401,E402
 import app.models.tb_supplier  # noqa: F401,E402
-from tests.costo_si_lista import costo_si_lista  # noqa: F401 (the costo SI reader's SQLite stand-in)
+from tests.costo_si_lista import costo_si_lista  # noqa: F401  (fixture)
 
-pytestmark = pytest.mark.usefixtures("costo_si_lista")
+# Written before costo SI: on SQLite the cost reader answers the list cost ('lista', Q1).
+pytestmark = [*globals().get("pytestmark", []), pytest.mark.usefixtures("costo_si_lista")]
 
 REBATE_OFERTA_KEYS = (
     "precio_rebate",

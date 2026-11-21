@@ -1045,6 +1045,7 @@ def listar_productos(
         calcular_comision_ml_total,
         calcular_limpio,
         calcular_markup,
+        costos_ars_de,
     )
     from datetime import date
 
@@ -1065,8 +1066,10 @@ def listar_productos(
 
     # ── Batch-resolve PPP (ERP weighted-average cost, informational only) ────
     ppp_by_item = resolver_ppp_batch(db, all_item_ids_page)
-    # The costo SI column beside the list cost (display only), at the rate the PPP markups use.
+    # One read of the page's costs: the live markups are over costo SI in pesos (S13, D1; list cost without one, Q1;
+    # None = unknown: no markup), and the costo SI column beside the list cost shows them.
     costo_si_by_item = costo_si_lote.actuales(db, all_item_ids_page, tipo_cambio=tipo_cambio_usd)
+    costo_si_page = costos_ars_de(costo_si_by_item)
     try:
         contextos_markup = parse_contextos_query(markup_contextos)
     except ValueError as exc:
@@ -1105,10 +1108,13 @@ def listar_productos(
         # Best current offer and rebate: the shared computation the product
         # detail runs too (app/services/productos_pricing_view.py).
         pubs = pubs_by_item.get(producto_erp.item_id, [])
-        oferta = calcular_mejor_oferta(ctx, producto_erp, pubs, ofertas_by_mla, grupo_id, _resolve_envio)
+        costo_si_fila = costo_si_page.get(producto_erp.item_id)  # costo SI in pesos; None = unknown, no markup
+        oferta = calcular_mejor_oferta(
+            ctx, producto_erp, pubs, ofertas_by_mla, grupo_id, _resolve_envio, costo_ars=costo_si_fila
+        )
         if oferta.limpio is not None:
             ppp.record(PPP_KEY_MEJOR_OFERTA, oferta.limpio, percent=False)
-        rebate = calcular_rebate(ctx, producto_erp, producto_pricing, grupo_id, _resolve_envio)
+        rebate = calcular_rebate(ctx, producto_erp, producto_pricing, grupo_id, _resolve_envio, costo_ars=costo_si_fila)
         precio_rebate = rebate.precio
         markup_rebate = rebate.markup
         if rebate.limpio is not None:
@@ -1171,14 +1177,14 @@ def listar_productos(
                 for precio, pricelist_id, cuotas in ml_cuota_prices(producto_pricing)
             ]
 
-            costo_cuota = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
+            costo_cuota = costo_si_page.get(producto_erp.item_id)
 
             for precio_cuota, pricelist_id, nombre_cuota in cuotas_config:
                 if precio_cuota and float(precio_cuota) > 0:
                     try:
                         comision_base_cuota = ctx.comision(pricelist_id, grupo_id)
 
-                        if comision_base_cuota:
+                        if comision_base_cuota and costo_cuota:
                             comisiones_cuota = calcular_comision_ml_total(
                                 float(precio_cuota), comision_base_cuota, producto_erp.iva, constantes=constantes
                             )
@@ -1217,10 +1223,10 @@ def listar_productos(
             # Markup PVP clásica
             if producto_pricing.precio_pvp and float(producto_pricing.precio_pvp) > 0:
                 try:
-                    costo_pvp = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
+                    costo_pvp = costo_si_page.get(producto_erp.item_id)
                     comision_base_pvp = ctx.comision(12, grupo_id)
 
-                    if comision_base_pvp:
+                    if comision_base_pvp and costo_pvp:
                         pvp_precio = float(producto_pricing.precio_pvp)
                         comisiones_pvp = calcular_comision_ml_total(
                             pvp_precio, comision_base_pvp, producto_erp.iva, constantes=constantes
@@ -1248,14 +1254,14 @@ def listar_productos(
                 (producto_pricing.precio_pvp_12_cuotas, 21, "pvp_12_cuotas"),
             ]
 
-            costo_cuota_pvp = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
+            costo_cuota_pvp = costo_si_page.get(producto_erp.item_id)
 
             for precio_cuota_pvp, pricelist_id_pvp, nombre_cuota_pvp in cuotas_pvp_config:
                 if precio_cuota_pvp and float(precio_cuota_pvp) > 0:
                     try:
                         comision_base_cuota_pvp = ctx.comision(pricelist_id_pvp, grupo_id)
 
-                        if comision_base_cuota_pvp:
+                        if comision_base_cuota_pvp and costo_cuota_pvp:
                             pvp_cuota_val = float(precio_cuota_pvp)
                             comisiones_cuota_pvp = calcular_comision_ml_total(
                                 pvp_cuota_val, comision_base_cuota_pvp, producto_erp.iva, constantes=constantes
@@ -1515,7 +1521,7 @@ def listar_productos(
 
                 if producto_erp:
                     # Use prefetched tipo_cambio + grupo + comision
-                    costo_pvp = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
+                    costo_pvp = costo_si_page.get(producto_erp.item_id)
                     grupo_id_pvp = ctx.grupo_of(producto_erp.subcategoria_id)
 
                     pvp_configs = [
@@ -1531,7 +1537,7 @@ def listar_productos(
                             try:
                                 comision_base_pvp = ctx.comision(pricelist_id, grupo_id_pvp)
 
-                                if comision_base_pvp:
+                                if comision_base_pvp and costo_pvp:
                                     comisiones_pvp = calcular_comision_ml_total(
                                         precio_pvp, comision_base_pvp, producto_erp.iva, constantes=constantes
                                     )
@@ -2839,6 +2845,7 @@ def obtener_producto(
         calcular_comision_ml_total,
         calcular_limpio,
         calcular_markup,
+        costo_ars_actual,
     )
 
     # PPP accumulator for this product (informational only; None-safe).
@@ -2902,7 +2909,8 @@ def obtener_producto(
         try:
             ctx_markups = build_pricing_context(db)
             grupo_id_markups = ctx_markups.grupo_of(producto_erp.subcategoria_id)
-            costo_markups = ctx_markups.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
+            # Over costo SI in pesos (S13, D1; list cost without one, Q1); None = unknown: no markup.
+            costo_markups = costo_ars_actual(db, producto_erp.item_id, ctx_markups.tipo_cambio_usd)
             envio_real_markups = resolver_costos_envio_batch(db, [producto_erp.item_id], pubs_by_item=pubs_by_item_d)
         except Exception as exc:
             if rebate_u_oferta:
@@ -2922,9 +2930,17 @@ def obtener_producto(
         resolve_envio_d = partial(resolve_envio, ctx_markups, envio_real_markups)
         pubs_d = pubs_by_item_d.get(producto_erp.item_id, [])
         oferta_d = calcular_mejor_oferta(
-            ctx_markups, producto_erp, pubs_d, ofertas_by_mla_d, grupo_id_markups, resolve_envio_d
+            ctx_markups,
+            producto_erp,
+            pubs_d,
+            ofertas_by_mla_d,
+            grupo_id_markups,
+            resolve_envio_d,
+            costo_ars=costo_markups,
         )
-        rebate_d = calcular_rebate(ctx_markups, producto_erp, producto_pricing, grupo_id_markups, resolve_envio_d)
+        rebate_d = calcular_rebate(
+            ctx_markups, producto_erp, producto_pricing, grupo_id_markups, resolve_envio_d, costo_ars=costo_markups
+        )
     if oferta_d.limpio is not None:
         ppp_d.record(PPP_KEY_MEJOR_OFERTA, oferta_d.limpio, percent=False)
     if rebate_d.limpio is not None:
@@ -2962,7 +2978,9 @@ def obtener_producto(
                 )
                 # Rounded to 2 decimals like every markup this endpoint returns;
                 # the listing returns the raw ML instalment figure.
-                markup_redondeado = round(calcular_markup(limpio_markup, costo_markups) * 100, 2)
+                markup_redondeado = (
+                    round(calcular_markup(limpio_markup, costo_markups) * 100, 2) if costo_markups else None
+                )
             except Exception as exc:
                 # The markup stays empty, as before; leave a trace of why.
                 etiqueta = f"{cuota_ml} cuotas" if cuota_ml not in (None, "clasica") else f"lista {pricelist_id_markup}"

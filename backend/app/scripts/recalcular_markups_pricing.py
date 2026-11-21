@@ -27,7 +27,7 @@ from app.services.envio_real_service import resolver_costos_envio_batch
 from app.services.pricing_calculator import (
     obtener_constantes_pricing,
     obtener_tipo_cambio_actual,
-    convertir_a_pesos,
+    costos_ars_actuales,
     obtener_grupo_subcategoria,
     obtener_comision_base,
     calcular_comision_ml_total,
@@ -71,6 +71,7 @@ def main():
         # Items absent from the dict fall back to ProductoERP.envio (ERP value).
         script_item_ids = [p_erp.item_id for _, p_erp in productos]
         envio_real_by_item: dict[int, float] = resolver_costos_envio_batch(db, script_item_ids)
+        costos = costos_ars_actuales(db, script_item_ids, tc_usd)  # costo SI (S13), one query
 
         actualizados_web = 0
         actualizados_pvp = 0
@@ -81,15 +82,10 @@ def main():
         for pricing, producto_erp in productos:
             producto_tuvo_cambios = False
             try:
-                if not producto_erp.costo or producto_erp.costo <= 0:
+                costo_ars = costos.get(producto_erp.item_id)
+                if not costo_ars:  # unknown cost (interfaz §7): said, never a 0 % markup
+                    print(f"  Sin costo en pesos para item_id {producto_erp.item_id}: markups no recalculados")
                     continue
-
-                # Convertir costo a pesos
-                costo_ars = convertir_a_pesos(
-                    producto_erp.costo,
-                    producto_erp.moneda_costo,
-                    tc_usd if producto_erp.moneda_costo == "USD" else None,
-                )
 
                 # Obtener grupo
                 grupo_id = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)

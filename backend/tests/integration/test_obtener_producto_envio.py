@@ -32,9 +32,10 @@ from app.services.pricing_calculator import (
 import app.models.item_transaction  # noqa: F401
 import app.models.commercial_transaction  # noqa: F401
 import app.models.tb_supplier  # noqa: F401
-from tests.costo_si_lista import costo_si_lista  # noqa: F401 (the costo SI reader's SQLite stand-in)
+from tests.costo_si_lista import costo_si_lista  # noqa: F401  (fixture)
 
-pytestmark = pytest.mark.usefixtures("costo_si_lista")
+# Written before costo SI: on SQLite the cost reader answers the list cost ('lista', Q1).
+pytestmark = [*globals().get("pytestmark", []), pytest.mark.usefixtures("costo_si_lista")]
 
 
 @pytest.fixture(autouse=True)
