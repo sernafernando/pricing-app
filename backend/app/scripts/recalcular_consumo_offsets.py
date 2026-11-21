@@ -29,6 +29,7 @@ from datetime import datetime
 from sqlalchemy import or_, and_, text
 from decimal import Decimal
 
+from app.services import offset_costo_desconocido
 from app.core.database import SessionLocal
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
@@ -139,6 +140,8 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
                 continue
 
             cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
+            if offset_costo_desconocido.omitir(offset_aplicable, venta.costo_total_sin_iva, "ml", venta.id_operacion):
+                continue  # unknown cost: no cost-percentage consumption (costo SI interface §7)
             costo = float(venta.costo_total_sin_iva) if venta.costo_total_sin_iva else 0
 
             monto_offset_ars, monto_offset_usd = calcular_monto_offset(
@@ -325,6 +328,8 @@ def recalcular_offset_individual(db, offset: OffsetGanancia, cotizacion: float, 
 
     for venta in ventas:
         cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
+        if offset_costo_desconocido.omitir(offset, venta.costo_total_sin_iva, "ml", venta.id_operacion):
+            continue  # unknown cost: no cost-percentage consumption (costo SI interface §7)
         costo_unitario = (
             (float(venta.costo_total_sin_iva) / venta.cantidad) if venta.cantidad and venta.costo_total_sin_iva else 0
         )

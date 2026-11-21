@@ -42,6 +42,14 @@ from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario, RolUsuario
 from app.services.permisos_service import PermisosService
 from app.utils.ml_metrics_calculator import calcular_metricas_ml
+from app.services.ml_ventas_metricas_costo import (
+    COSTO_SI_JOIN,
+    COSTO_SIN_IVA_SQL,
+    MONEDA_COSTO_SQL,
+    costo_actual as costo_actual_producto,
+    sin_cifras_del_costo,
+    sin_costo,
+)
 
 PERMISO_RECIBIR_MARKUP = "reportes.recibir_notificaciones_markup"
 
@@ -56,7 +64,7 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
     print(f"   Rango: {from_date} a {to_date}")
 
     # Query complejo que replica la lógica del ERP
-    query = text("""
+    query = text(f"""
     WITH sales_data AS (
         SELECT DISTINCT ON (tmlod.mlo_id)
             tmlod.mlo_id as id_operacion,
@@ -72,68 +80,10 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
             tmlod.mlo_unit_price as monto_unitario,
             tmlod.mlo_unit_price * tmlod.mlo_quantity as monto_total,
 
-            -- Costo: Igual lógica que endpoint /operaciones-con-metricas (CORRECTO)
-            -- PRIMERO histórico, FALLBACK costo actual sin validar fecha
-            COALESCE(
-                -- Opción 1: Buscar en histórico el último costo antes/igual a la fecha de venta
-                (
-                    SELECT iclh.curr_id
-                    FROM tb_item_cost_list_history iclh
-                    WHERE iclh.item_id = tmlod.item_id
-                      AND iclh.iclh_cd <= tmloh.mlo_cd
-                      AND iclh.coslis_id = 1
-                    ORDER BY iclh.iclh_id DESC
-                    LIMIT 1
-                ),
-                -- Fallback: Si no hay histórico, usar costo actual (sin validar fecha)
-                (
-                    SELECT ticl.curr_id
-                    FROM tb_item_cost_list ticl
-                    WHERE ticl.item_id = tmlod.item_id
-                      AND ticl.coslis_id = 1
-                )
-            ) as moneda_costo,
-
-            -- Costo sin IVA en PESOS - Igual lógica que endpoint /operaciones-con-metricas
-            -- PRIMERO histórico (iclh_cd <= fecha_venta), FALLBACK costo actual
-            -- TC: Primero tipo_cambio, fallback tb_cur_exch_history
-            COALESCE(
-                -- Opción 1: Buscar en histórico el último costo antes/igual a la fecha de venta
-                (
-                    SELECT CASE
-                        WHEN iclh.curr_id = 2 THEN  -- USD
-                            iclh.iclh_price * COALESCE(
-                                (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
-                                (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
-                            )
-                        ELSE  -- ARS
-                            iclh.iclh_price
-                    END
-                    FROM tb_item_cost_list_history iclh
-                    WHERE iclh.item_id = tmlod.item_id
-                      AND iclh.iclh_cd <= tmloh.mlo_cd
-                      AND iclh.coslis_id = 1
-                      AND iclh.iclh_price > 0
-                    ORDER BY iclh.iclh_id DESC
-                    LIMIT 1
-                ),
-                -- Fallback: Si no hay histórico, usar costo actual (sin validar fecha)
-                (
-                    SELECT CASE
-                        WHEN ticl.curr_id = 2 THEN  -- USD
-                            ticl.coslis_price * COALESCE(
-                                (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
-                                (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
-                            )
-                        ELSE  -- ARS
-                            ticl.coslis_price
-                    END
-                    FROM tb_item_cost_list ticl
-                    WHERE ticl.item_id = tmlod.item_id
-                      AND ticl.coslis_id = 1
-                ),
-                0
-            ) as costo_sin_iva,
+            -- Costo: costo SI vigente a la fecha de venta (costo de lista si no tiene; combos = sus componentes),
+            -- en la moneda de costo del producto y en pesos al TC de esa fecha (app.services.ml_ventas_metricas_costo)
+            {MONEDA_COSTO_SQL} as moneda_costo,
+            {COSTO_SIN_IVA_SQL} as costo_sin_iva,
 
             -- IVA: SIEMPRE desde productos_erp (sin fallback que cause errores)
             pe.iva as iva,
@@ -266,6 +216,8 @@ def calcular_metricas_locales(db: Session, from_date: date, to_date: date):
             AND ticl.item_id = tmlod.item_id
             AND ticl.coslis_id = 1
 
+        {COSTO_SI_JOIN}
+
         WHERE tmlod.item_id NOT IN (460, 3042)
           AND tmloh.mlo_cd BETWEEN :from_date AND :to_date
           AND tmloh.mlo_status <> 'cancelled'
@@ -335,6 +287,8 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
     Crea una notificación si el markup real es NEGATIVO y está por debajo del markup_calculado
     Solo alerta ventas en pérdida que están peor de lo esperado
     """
+    if row.costo_sin_iva is None:  # no cost, no markup to compare (interface §7)
+        return False
     # Las ventas que forman parte de un paquete (pack_id no nulo) reparten costos/comisiones
     # entre los items del pack, por lo que el markup individual no es comparable y genera
     # falsos positivos. No notificar.
@@ -389,47 +343,19 @@ def crear_notificacion_markup_bajo(db: Session, row, metricas, producto_erp):
                 )
 
                 if not existe_notif:
-                    # Determinar si el costo está en USD (curr_id = 2)
-                    es_usd = row.moneda_costo is not None and int(row.moneda_costo) == 2
+                    # TC usado para la operación (cambio_momento de la query): solo si el costo está en USD
+                    es_usd = row.moneda_costo == "USD"
 
                     # Obtener TC usado para la operación (de cambio_momento de la query)
                     tc_operacion = None
                     if es_usd and row.cambio_momento:
                         tc_operacion = float(row.cambio_momento)
 
-                    # Obtener costo actual del producto desde ProductoERP
-                    costo_actual = None
-                    tc_actual = None
-                    try:
-                        producto_actual = db.query(ProductoERP).filter(ProductoERP.item_id == row.item_id).first()
-                        if producto_actual and producto_actual.costo is not None:
-                            # Convertir a ARS si está en USD (usar moneda de la query)
-                            if es_usd:
-                                # Usar tabla tipo_cambio (TC actual)
-                                from app.models.tipo_cambio import TipoCambio
-
-                                tc = (
-                                    db.query(TipoCambio)
-                                    .filter(TipoCambio.moneda == "USD")
-                                    .order_by(TipoCambio.fecha.desc())
-                                    .first()
-                                )
-                                if tc and tc.venta:
-                                    tc_actual = float(tc.venta)
-                                else:
-                                    # Fallback a tb_cur_exch_history
-                                    from sqlalchemy import text
-
-                                    tc_query = text(
-                                        "SELECT ceh_exchange FROM tb_cur_exch_history ORDER BY ceh_cd DESC LIMIT 1"
-                                    )
-                                    tc_result = db.execute(tc_query).fetchone()
-                                    tc_actual = float(tc_result[0]) if tc_result else 1.0
-                                costo_actual = float(producto_actual.costo) * tc_actual
-                            else:
-                                costo_actual = float(producto_actual.costo)
-                    except:
-                        pass
+                    # Costo actual del producto: su costo SI de hoy (costo de lista si no tiene), en pesos al TC de hoy
+                    producto_actual = db.query(ProductoERP).filter(ProductoERP.item_id == row.item_id).first()
+                    costo_hoy, tc_hoy = costo_actual_producto(db, row.item_id)
+                    costo_actual = float(costo_hoy) if costo_hoy is not None else None
+                    tc_actual = float(tc_hoy) if tc_hoy is not None else None
 
                     # Obtener precio_lista_ml del producto
                     precio_lista_ml = None
@@ -631,7 +557,7 @@ def process_and_insert(db: Session, rows):
                 "cantidad": row.cantidad,
                 "monto_unitario": Decimal(str(row.monto_unitario)) if row.monto_unitario else Decimal("0"),
                 "monto_total": Decimal(str(row.monto_total)) if row.monto_total else Decimal("0"),
-                "costo_unitario_sin_iva": Decimal(str(row.costo_sin_iva)) if row.costo_sin_iva else Decimal("0"),
+                "costo_unitario_sin_iva": Decimal(str(row.costo_sin_iva or 0)),
                 "costo_total_sin_iva": Decimal(str(metricas["costo_total_sin_iva"])),
                 "comision_ml": Decimal(str(metricas["comision_ml"])),
                 "costo_envio_ml": Decimal(str(metricas["costo_envio"])),
@@ -647,6 +573,9 @@ def process_and_insert(db: Session, rows):
                 "prli_id": row.pricelist_id,  # Agregar prli_id para referencia
                 "offset_flex": Decimal(str(metricas["offset_flex"])),
             }
+            if row.costo_sin_iva is None:  # unknown cost (interface §7): no figure computed from it
+                sin_costo(row.item_id, row.fecha_venta)
+                data = sin_cifras_del_costo(data)
 
             if existente:
                 # Actualizar

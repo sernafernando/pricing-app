@@ -14,6 +14,7 @@ from app.core.database import get_db, get_async_db
 from app.models.venta_ml import VentaML
 from app.models.usuario import Usuario
 from app.models.marca_pm import MarcaPM
+from app.services.ml_ventas_metricas_costo import COSTO_SI_JOIN, COSTO_SIN_IVA_SQL, sin_costo
 from app.services.pm_scope import is_full_view
 from app.api.deps import get_current_user
 from pydantic import BaseModel, ConfigDict
@@ -522,21 +523,71 @@ class OperacionConMetricasResponse(BaseModel):
     tipo_publicacion: Optional[str]
 
     # Costos
-    costo_sin_iva: Decimal
-    costo_total: Decimal
+    costo_sin_iva: Optional[Decimal]  # None = unknown cost (costo SI interface §7), never 0
+    costo_total: Optional[Decimal]
 
     # Métricas calculadas
     comision_porcentaje: Decimal
     comision_pesos: Decimal
     costo_envio: Decimal
     monto_limpio: Decimal
-    markup_porcentaje: Decimal
+    markup_porcentaje: Optional[Decimal]
     offset_flex: Decimal = Decimal("0")
 
     # Estado: True = orden cancelada (se muestra grisada, no computa en métricas)
     is_cancelled: bool = False
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# The cost SQL of a list other than 1 (TP-Link list 8, D3): that list's cost on the sale date x that date's rate.
+# List 1 is costo SI (`COSTO_SIN_IVA_SQL`, S13).
+_COSTO_LISTA_SQL = """COALESCE(
+                (
+                    SELECT CASE
+                        WHEN iclh.curr_id = 2 THEN  -- USD
+                            CASE
+                                WHEN iclh.iclh_price = 0 THEN ticl.coslis_price * COALESCE(
+                                    (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
+                                    (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
+                                )
+                                ELSE iclh.iclh_price * COALESCE(
+                                    (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
+                                    (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
+                                )
+                            END
+                        ELSE  -- ARS
+                            CASE
+                                WHEN iclh.iclh_price = 0 THEN ticl.coslis_price
+                                ELSE iclh.iclh_price
+                            END
+                    END
+                    FROM tb_item_cost_list_history iclh
+                    LEFT JOIN tb_item_cost_list ticl
+                        ON ticl.item_id = iclh.item_id
+                        AND ticl.coslis_id = %(coslis_id)s
+                    WHERE iclh.item_id = tmlod.item_id
+                      AND iclh.iclh_cd <= tmloh.mlo_cd
+                      AND iclh.coslis_id = %(coslis_id)s
+                    ORDER BY iclh.iclh_id DESC
+                    LIMIT 1
+                ),
+                (
+                    SELECT CASE
+                        WHEN ticl.curr_id = 2 THEN  -- USD
+                            ticl.coslis_price * COALESCE(
+                                (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
+                                (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
+                            )
+                        ELSE  -- ARS
+                            ticl.coslis_price
+                    END
+                    FROM tb_item_cost_list ticl
+                    WHERE ticl.item_id = tmlod.item_id
+                      AND ticl.coslis_id = %(coslis_id)s
+                ),
+                0
+            )"""
 
 
 def fetch_operaciones_con_metricas(
@@ -596,52 +647,7 @@ def fetch_operaciones_con_metricas(
 
             -- Costo sin IVA en PESOS (convierte USD a ARS usando tipo de cambio)
             -- TC: Primero tipo_cambio, fallback tb_cur_exch_history
-            COALESCE(
-                (
-                    SELECT CASE
-                        WHEN iclh.curr_id = 2 THEN  -- USD
-                            CASE
-                                WHEN iclh.iclh_price = 0 THEN ticl.coslis_price * COALESCE(
-                                    (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
-                                    (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
-                                )
-                                ELSE iclh.iclh_price * COALESCE(
-                                    (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
-                                    (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
-                                )
-                            END
-                        ELSE  -- ARS
-                            CASE
-                                WHEN iclh.iclh_price = 0 THEN ticl.coslis_price
-                                ELSE iclh.iclh_price
-                            END
-                    END
-                    FROM tb_item_cost_list_history iclh
-                    LEFT JOIN tb_item_cost_list ticl
-                        ON ticl.item_id = iclh.item_id
-                        AND ticl.coslis_id = %(coslis_id)s
-                    WHERE iclh.item_id = tmlod.item_id
-                      AND iclh.iclh_cd <= tmloh.mlo_cd
-                      AND iclh.coslis_id = %(coslis_id)s
-                    ORDER BY iclh.iclh_id DESC
-                    LIMIT 1
-                ),
-                (
-                    SELECT CASE
-                        WHEN ticl.curr_id = 2 THEN  -- USD
-                            ticl.coslis_price * COALESCE(
-                                (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
-                                (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
-                            )
-                        ELSE  -- ARS
-                            ticl.coslis_price
-                    END
-                    FROM tb_item_cost_list ticl
-                    WHERE ticl.item_id = tmlod.item_id
-                      AND ticl.coslis_id = %(coslis_id)s
-                ),
-                0
-            ) as costo_sin_iva,
+            {costo_sin_iva_sql} as costo_sin_iva,
 
             -- IVA: SIEMPRE desde productos_erp (sin fallback que cause errores)
             pe.iva as iva,
@@ -768,7 +774,7 @@ def fetch_operaciones_con_metricas(
         LEFT JOIN tb_item_cost_list ticl
             ON ticl.comp_id = tmlod.comp_id
             AND ticl.item_id = tmlod.item_id
-            AND ticl.coslis_id = %(coslis_id)s
+            AND ticl.coslis_id = %(coslis_id)s{costo_si_join}
 
         WHERE tmlod.item_id NOT IN (460, 3042)
           AND tmloh.mlo_cd BETWEEN %(from_date)s AND %(to_date)s
@@ -829,7 +835,11 @@ def fetch_operaciones_con_metricas(
             OR pe.descripcion ILIKE %(search_pattern)s
         )"""
 
+    # List 1 = costo SI (S13); any other list (TP-Link list 8, D3) keeps its list-cost SQL.
+    es_costo_si = coslis_id == 1
     query_str = query_str.format(
+        costo_sin_iva_sql=COSTO_SIN_IVA_SQL if es_costo_si else _COSTO_LISTA_SQL,
+        costo_si_join=f"\n\n        {COSTO_SI_JOIN}" if es_costo_si else "",
         tienda_oficial_filter=tienda_oficial_filter,
         ml_id_filter=ml_id_filter,
         codigo_filter=codigo_filter,
@@ -931,7 +941,10 @@ def fetch_operaciones_con_metricas(
         )
 
         # Costo total
-        costo_total = float(row.costo_sin_iva or 0) * float(row.cantidad or 1)
+        conocido = row.costo_sin_iva is not None  # unknown cost stays unknown (costo SI interface §7)
+        if not conocido:
+            sin_costo(row.item_id, row.fecha_venta)
+        costo_total = float(row.costo_sin_iva) * float(row.cantidad or 1) if conocido else None
 
         operaciones.append(
             {
@@ -951,16 +964,16 @@ def fetch_operaciones_con_metricas(
                 "iva": Decimal(str(row.iva or 0)),
                 "pricelist_id": row.pricelist_id,
                 "tipo_publicacion": tipo_publicacion,
-                "costo_sin_iva": Decimal(str(row.costo_sin_iva or 0)),
-                "costo_total": Decimal(str(costo_total)),
+                "costo_sin_iva": Decimal(str(row.costo_sin_iva)) if conocido else None,
+                "costo_total": Decimal(str(costo_total)) if conocido else None,
                 "comision_porcentaje": Decimal(str(row.comision_base_porcentaje or 0)),
                 "comision_pesos": Decimal(str(metricas["comision_ml"])),
                 "costo_envio": Decimal(str(metricas["costo_envio"])),
                 "monto_limpio": Decimal(str(metricas["monto_limpio"])),
-                "markup_porcentaje": Decimal(str(metricas["markup_porcentaje"])),
+                "markup_porcentaje": Decimal(str(metricas["markup_porcentaje"])) if conocido else None,
                 "offset_flex": Decimal(str(metricas["offset_flex"])),
                 # Ganancia ya calculada por el helper (monto_limpio - costo_total_sin_iva)
-                "ganancia": Decimal(str(metricas["ganancia"])),
+                "ganancia": Decimal(str(metricas["ganancia"])) if conocido else None,
                 # Tipo de logística crudo del ERP (self_service, fulfillment, etc.)
                 # Aditivo: el response model de ML lo ignora; lo usa el detalle TP-Link.
                 "ml_logistic_type": row.ml_logistic_type if hasattr(row, "ml_logistic_type") else None,
@@ -1073,52 +1086,7 @@ def exportar_operaciones(
             tmlod.mlo_quantity as cantidad,
             tmlod.mlo_unit_price as monto_unitario,
             tmlod.mlo_unit_price * tmlod.mlo_quantity as monto_total,
-            COALESCE(
-                (
-                    SELECT CASE
-                        WHEN iclh.curr_id = 2 THEN
-                            CASE
-                                WHEN iclh.iclh_price = 0 THEN ticl.coslis_price * COALESCE(
-                                    (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
-                                    (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
-                                )
-                                ELSE iclh.iclh_price * COALESCE(
-                                    (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
-                                    (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
-                                )
-                            END
-                        ELSE
-                            CASE
-                                WHEN iclh.iclh_price = 0 THEN ticl.coslis_price
-                                ELSE iclh.iclh_price
-                            END
-                    END
-                    FROM tb_item_cost_list_history iclh
-                    LEFT JOIN tb_item_cost_list ticl
-                        ON ticl.item_id = iclh.item_id
-                        AND ticl.coslis_id = 1
-                    WHERE iclh.item_id = tmlod.item_id
-                      AND iclh.iclh_cd <= tmloh.mlo_cd
-                      AND iclh.coslis_id = 1
-                    ORDER BY iclh.iclh_id DESC
-                    LIMIT 1
-                ),
-                (
-                    SELECT CASE
-                        WHEN ticl.curr_id = 2 THEN
-                            ticl.coslis_price * COALESCE(
-                                (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tmloh.mlo_cd::date ORDER BY tc.fecha DESC LIMIT 1),
-                                (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tmloh.mlo_cd ORDER BY ceh.ceh_cd DESC LIMIT 1)
-                            )
-                        ELSE
-                            ticl.coslis_price
-                    END
-                    FROM tb_item_cost_list ticl
-                    WHERE ticl.item_id = tmlod.item_id
-                      AND ticl.coslis_id = 1
-                ),
-                0
-            ) as costo_sin_iva,
+            {costo_sin_iva_sql} as costo_sin_iva,
             pe.iva as iva,
             tmloh.ml_id,
             tmloh.ml_pack_id as pack_id,
@@ -1200,7 +1168,7 @@ def exportar_operaciones(
         LEFT JOIN tb_tax_name ttn
             ON ttn.comp_id = ti.comp_id AND ttn.tax_id = tit.tax_id
         LEFT JOIN tb_item_cost_list ticl
-            ON ticl.comp_id = tmlod.comp_id AND ticl.item_id = tmlod.item_id AND ticl.coslis_id = 1
+            ON ticl.comp_id = tmlod.comp_id AND ticl.item_id = tmlod.item_id AND ticl.coslis_id = 1{costo_si_join}
 
         WHERE tmlod.item_id NOT IN (460, 3042)
           AND tmloh.mlo_cd BETWEEN %(from_date)s AND %(to_date)s
@@ -1239,7 +1207,11 @@ def exportar_operaciones(
             categoria_filter = "AND (tc.cat_desc = ANY(%(categorias)s) OR pe.categoria = ANY(%(categorias)s))"
 
     query_str = query_str.format(
-        tienda_oficial_filter=tienda_oficial_filter, marca_filter=marca_filter, categoria_filter=categoria_filter
+        costo_sin_iva_sql=COSTO_SIN_IVA_SQL,
+        costo_si_join=f"\n        {COSTO_SI_JOIN}",
+        tienda_oficial_filter=tienda_oficial_filter,
+        marca_filter=marca_filter,
+        categoria_filter=categoria_filter,
     )
 
     params = {"from_date": from_date, "to_date": to_date_full}
@@ -1314,7 +1286,10 @@ def exportar_operaciones(
             pricelist_names.get(row.pricelist_id, f"Lista {row.pricelist_id}") if row.pricelist_id else None
         )
 
-        costo_total = float(row.costo_sin_iva or 0) * float(row.cantidad or 1)
+        conocido = row.costo_sin_iva is not None  # unknown cost stays unknown (costo SI interface §7)
+        if not conocido:
+            sin_costo(row.item_id, row.fecha_venta)
+        costo_total = float(row.costo_sin_iva) * float(row.cantidad or 1) if conocido else None
 
         operaciones.append(
             {
@@ -1336,7 +1311,7 @@ def exportar_operaciones(
                 "comision_pesos": metricas["comision_ml"],
                 "costo_envio": metricas["costo_envio"],
                 "monto_limpio": metricas["monto_limpio"],
-                "markup_porcentaje": metricas["markup_porcentaje"],
+                "markup_porcentaje": metricas["markup_porcentaje"] if conocido else None,
                 "offset_flex": metricas["offset_flex"],
             }
         )
@@ -1395,14 +1370,19 @@ def exportar_operaciones(
         ws.cell(row=row_num, column=10, value=float(op["monto_total"]) if op["monto_total"] else 0)
         ws.cell(row=row_num, column=11, value=op["pricelist_id"])
         ws.cell(row=row_num, column=12, value=op["tipo_publicacion"])
-        ws.cell(row=row_num, column=13, value=float(op["costo_sin_iva"]))
-        ws.cell(row=row_num, column=14, value=float(op["costo_total"]))
+        # An unknown cost leaves its cells empty, never 0 (costo SI interface §7)
+        ws.cell(row=row_num, column=13, value=float(op["costo_sin_iva"]) if op["costo_sin_iva"] is not None else None)
+        ws.cell(row=row_num, column=14, value=float(op["costo_total"]) if op["costo_total"] is not None else None)
         ws.cell(row=row_num, column=15, value=float(op["comision_porcentaje"]))
         ws.cell(row=row_num, column=16, value=float(op["comision_pesos"]))
         ws.cell(row=row_num, column=17, value=float(op["costo_envio"]))
         ws.cell(row=row_num, column=18, value=float(op["monto_limpio"]))
         ws.cell(row=row_num, column=19, value=float(op["offset_flex"]))
-        ws.cell(row=row_num, column=20, value=float(op["markup_porcentaje"]))
+        ws.cell(
+            row=row_num,
+            column=20,
+            value=float(op["markup_porcentaje"]) if op["markup_porcentaje"] is not None else None,
+        )
 
     # Ajustar anchos de columna
     column_widths = [12, 20, 15, 20, 20, 15, 40, 8, 12, 12, 10, 12, 12, 12, 10, 12, 12, 12, 12, 10]

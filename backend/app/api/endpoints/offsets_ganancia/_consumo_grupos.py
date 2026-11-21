@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, text
 
+from app.services import offset_costo_desconocido
 from app.core.database import get_db
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
@@ -252,6 +253,8 @@ def recalcular_consumo_grupo(
                 continue
 
             cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
+            if offset_costo_desconocido.omitir(offset_aplicable, venta.costo_total_sin_iva, "ml", venta.id_operacion):
+                continue  # unknown cost: no cost-percentage consumption (costo SI interface §7)
             costo = float(venta.costo_total_sin_iva) if venta.costo_total_sin_iva else 0
             monto_offset_ars, monto_offset_usd = calcular_monto_offset(offset_aplicable, venta.cantidad, costo, cot)
 
@@ -327,6 +330,8 @@ def recalcular_consumo_grupo(
                     continue
 
                 cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
+                if offset_costo_desconocido.omitir(offset_ref, venta.costo_total_sin_iva, "ml", venta.id_operacion):
+                    continue  # unknown cost: no cost-percentage consumption (costo SI interface §7)
                 costo = float(venta.costo_total_sin_iva) if venta.costo_total_sin_iva else 0
                 monto_offset_ars, monto_offset_usd = calcular_monto_offset(offset_ref, venta.cantidad, costo, cot)
 
@@ -383,6 +388,8 @@ def recalcular_consumo_grupo(
                 continue
 
             cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
+            if offset_costo_desconocido.omitir(offset_aplicable, venta.costo_total, "fuera", venta.id):
+                continue  # unknown cost: no cost-percentage consumption (costo SI interface §7)
             costo = float(venta.costo_total) if venta.costo_total else 0
             cantidad = int(venta.cantidad)
             monto_offset_ars, monto_offset_usd = monto_offset_pdf(
@@ -462,6 +469,8 @@ def recalcular_consumo_grupo(
                     continue
 
                 cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
+                if offset_costo_desconocido.omitir(offset_ref, venta.costo_total, "fuera", venta.id):
+                    continue  # unknown cost: no cost-percentage consumption (costo SI interface §7)
                 costo = float(venta.costo_total) if venta.costo_total else 0
                 cantidad = int(venta.cantidad)
                 monto_offset_ars, monto_offset_usd = monto_offset_pdf(

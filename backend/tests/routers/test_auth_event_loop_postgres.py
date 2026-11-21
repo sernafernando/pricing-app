@@ -49,6 +49,8 @@ POOL_TIMEOUT_S = 3
 SLOW_HOLD_S = 6
 BURST = 4
 HEALTH_LIMIT_S = 1.0
+SCHEMA = "auth_event_loop"  # one per worker database
+IN_SCHEMA = {"options": f"-csearch_path={SCHEMA}"}
 
 
 def _fk_closure(*roots: Table) -> list[Table]:
@@ -80,13 +82,19 @@ def pg_schema() -> Iterator:
         UsuarioRolAdicional.__table__,
     )
     _restore_pristine_pg_types(tables)
-    admin = create_engine(POSTGRES_TEST_URL)
-    Base.metadata.drop_all(bind=admin, tables=tables)
+    # Its own schema, not `public`: the session-scoped `pg_tickets_engine` keeps `usuarios`/`roles` in `public`
+    # with `tickets` referencing them, so dropping those tables there fails (or, with CASCADE, would pull them
+    # from under the tickets tests) depending on which tests ran before on this worker.
+    with create_engine(POSTGRES_TEST_URL, isolation_level="AUTOCOMMIT").connect() as conn:
+        conn.execute(text(f"DROP SCHEMA IF EXISTS {SCHEMA} CASCADE"))
+        conn.execute(text(f"CREATE SCHEMA {SCHEMA}"))
+    admin = create_engine(POSTGRES_TEST_URL, connect_args=IN_SCHEMA)
     Base.metadata.create_all(bind=admin, tables=tables)
     _patch_pg_types_for_sqlite()
     yield admin
-    Base.metadata.drop_all(bind=admin, tables=tables)
     admin.dispose()
+    with create_engine(POSTGRES_TEST_URL, isolation_level="AUTOCOMMIT").connect() as conn:
+        conn.execute(text(f"DROP SCHEMA IF EXISTS {SCHEMA} CASCADE"))
 
 
 @pytest.fixture()
@@ -132,7 +140,13 @@ def _slow_router() -> APIRouter:
 @pytest.fixture()
 def live_server(pg_schema) -> Iterator[str]:
     """One real uvicorn worker on a small pool, wired like production (get_db + get_async_db)."""
-    engine = create_engine(POSTGRES_TEST_URL, pool_size=POOL_SIZE, max_overflow=0, pool_timeout=POOL_TIMEOUT_S)
+    engine = create_engine(
+        POSTGRES_TEST_URL,
+        connect_args=IN_SCHEMA,
+        pool_size=POOL_SIZE,
+        max_overflow=0,
+        pool_timeout=POOL_TIMEOUT_S,
+    )
     local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
     def _get_db() -> Iterator[Session]:
