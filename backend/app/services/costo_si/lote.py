@@ -241,10 +241,16 @@ _EN_FECHAS_SQL = text(
 
 
 def _avisar_sin_tc(costos) -> None:
-    """Log every USD cost left without pesos (no USD rate on or before its date): its peso value is unknown, never 0."""
+    """Log the USD costs left without pesos (no USD rate on or before their date): their peso value is unknown, never
+    0. One warning per date naming every item, so a page of USD products logs one line, not one per product."""
+    por_fecha: Dict[date, List[int]] = {}
     for c, fecha in costos:
         if c.moneda == "USD" and c.costo is not None and c.costo_ars is None:
-            logger.warning("costo SI: no USD rate for item %s on %s; its peso cost is unknown", c.item_id, fecha)
+            por_fecha.setdefault(fecha, []).append(c.item_id)
+    for fecha, items in sorted(por_fecha.items()):
+        logger.warning(
+            "costo SI: no USD rate on %s for %d items %s; their peso cost is unknown", fecha, len(items), sorted(items)
+        )
 
 
 def actuales(db: Session, item_ids: Iterable[int], *, tipo_cambio=None) -> Dict[int, Costo]:
