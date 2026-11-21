@@ -27,10 +27,10 @@
   gap: 16px;
   align-items: flex-end;
   flex-wrap: wrap;
-  background: #1a1a1a;
+  background: var(--bg-secondary);
   padding: 20px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-primary);
   overflow: visible;
 }
 
@@ -63,11 +63,11 @@
 .dateInput,
 .select {
   padding: 8px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-primary);
   border-radius: 6px;
   font-size: 13px;
   min-width: fit-content;
-  background: #0a0a0a;
+  background: var(--bg-primary);
   color: var(--text-primary);
   transition: all 0.2s;
   height: 38px;
@@ -83,15 +83,15 @@
 
 .dateInput:hover,
 .select:hover {
-  border-color: rgba(255, 255, 255, 0.2);
-  background: #000;
+  border-color: var(--border-secondary);
+  background: var(--bg-primary);
 }
 
 .dateInput:focus,
 .select:focus {
   outline: none;
   border-color: var(--brand-primary);
-  background: #000;
+  background: var(--bg-primary);
 }
 
 .dateInput {
@@ -114,9 +114,9 @@
   padding: 0;
   width: 36px;
   height: 36px;
-  background: #2a2a2a;
-  color: rgba(255, 255, 255, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-primary);
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
@@ -127,9 +127,9 @@
 }
 
 .btnRecargar:hover:not(:disabled) {
-  background: #333;
-  color: rgba(255, 255, 255, 0.8);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-secondary);
 }
 
 .btnRecargar:disabled {
@@ -375,6 +375,11 @@
   text-align: center;
 }
 
+.sinCosto {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
 .descripcion {
   max-width: 300px;
   white-space: nowrap;
@@ -512,6 +517,36 @@
 
 .tableOperaciones tbody tr:hover {
   background: var(--bg-hover);
+}
+
+/* Operations table of this page only: fits 1440 next to the expanded sidebar (sell-in-costo-si T3 PR 8). New
+   classes on top of the shared table styles, which the Tienda Nube / Ventas por fuera dashboards also use. */
+.opsCompacta th {
+  white-space: normal;
+  word-break: normal;
+  letter-spacing: 0;
+  padding: 10px 4px;
+  vertical-align: bottom;
+}
+
+.opsCompacta td {
+  padding: 8px 4px;
+  word-break: normal;
+}
+
+/* Amounts and percentages never break inside a number. */
+.opsCompacta td.opsImporte,
+.opsSinCorte {
+  white-space: nowrap;
+}
+
+/* A second value under the first in the same cell (ML ID under the date, % and list under the commission). */
+.opsSecundario {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  white-space: normal;
 }
 
 .negativo {
@@ -1374,9 +1409,9 @@
 
 .multiSelectHeader {
   padding: 8px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-primary);
   border-radius: 6px;
-  background: #0a0a0a;
+  background: var(--bg-primary);
   cursor: pointer;
   user-select: none;
   transition: all 0.2s;
@@ -1386,13 +1421,13 @@
 }
 
 .multiSelect:hover .multiSelectHeader {
-  border-color: rgba(255, 255, 255, 0.2);
-  background: #000;
+  border-color: var(--border-secondary);
+  background: var(--bg-primary);
 }
 
 .multiSelect:focus-within .multiSelectHeader {
   border-color: var(--brand-primary);
-  background: #000;
+  background: var(--bg-primary);
 }
 
 .multiSelectLabel {
@@ -1409,10 +1444,10 @@
   left: 0;
   min-width: 300px;
   max-width: 400px;
-  background: #1a1a1a;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-secondary);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
   z-index: 1001;
   max-height: 0;
   overflow: hidden;
@@ -1431,15 +1466,15 @@
   display: flex;
   gap: 8px;
   padding: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--border-primary);
 }
 
 .btnMultiSelectAction {
   flex: 1;
   padding: 8px 14px;
-  background: rgba(220, 38, 38, 0.2);
-  color: #fca5a5;
-  border: 1px solid rgba(220, 38, 38, 0.3);
+  background: var(--error-bg);
+  color: var(--error-text);
+  border: 1px solid var(--error);
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
@@ -1448,21 +1483,21 @@
 }
 
 .btnMultiSelectAction:hover {
-  background: rgba(220, 38, 38, 0.3);
-  color: #fef2f2;
-  border-color: rgba(220, 38, 38, 0.5);
+  background: var(--error-bg);
+  color: var(--error-text);
+  border-color: var(--error-hover);
 }
 
 .multiSelectSearch {
   padding: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--border-primary);
 }
 
 .multiSelectSearchInput {
   width: 100%;
   padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
   border-radius: 6px;
   color: var(--text-primary);
   font-size: 13px;
@@ -1471,12 +1506,12 @@
 
 .multiSelectSearchInput:focus {
   outline: none;
-  border-color: rgba(59, 130, 246, 0.5);
-  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--brand-primary);
+  background: var(--bg-primary);
 }
 
 .multiSelectSearchInput::placeholder {
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--text-secondary);
 }
 
 .multiSelectOptions {
@@ -1491,17 +1526,17 @@
 }
 
 .multiSelectOptions::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-secondary);
   border-radius: 3px;
 }
 
 .multiSelectOptions::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--border-secondary);
   border-radius: 3px;
 }
 
 .multiSelectOptions::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: var(--text-tertiary);
 }
 
 .multiSelectOption {
@@ -1515,7 +1550,7 @@
 }
 
 .multiSelectOption:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-hover);
 }
 
 .multiSelectOption input[type="checkbox"] {

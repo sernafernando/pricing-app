@@ -16,7 +16,9 @@ La barra de filtros permite elegir rango de fechas (filtros rápidos), marcas, c
 
 En **Resumen** se ven KPIs (Total Facturado, Ganancia Neta, Neto después de ML, Ticket Promedio, etc.), un gráfico de ventas por día, rankings de marcas y categorías, métricas por tipo de envío y rankings de top productos por unidades y por facturación (con selector Top 10/25/50).
 
-En **Detalle de Operaciones** se listan las operaciones con muchas columnas (fecha, ML ID, código, producto, marca, cantidad, precios, costos, comisiones, envío, limpio, offset flex, markup, lista) con paginación y exportación a Excel.
+En **Detalle de Operaciones** se listan las operaciones con paginación y exportación a Excel. Algunas columnas muestran dos datos, uno debajo del otro (por ejemplo, el ML ID debajo de la fecha), para que la tabla entre completa en pantalla con el menú lateral abierto.
+
+El costo de cada venta es el **costo SI** vigente el día de la venta (si el producto no tiene costo SI, su costo de lista). Si no se conoce el costo de una venta (no tiene costo SI ni de lista, o el costo es en dólares y no hay cotización de ese día), Costo Unit, Costo Total y Markup% muestran **—** (sin costo) y en la exportación a Excel esas celdas quedan vacías.
 
 En **Rentabilidad** se muestra la rentabilidad filtrada.
 
@@ -28,7 +30,7 @@ El filtro de marca ofrece las marcas que vendieron en el período elegido, aunqu
 
 Filtros: fecha, marcas, categorías, tiendas oficiales, PMs.
 
-Columnas de operaciones: Fecha, ML ID, Código, Producto, Marca, Cant, Precio Unit, Total, IVA%, Costo Unit, Costo Total, Comisión%, Comisión $, Envío s/IVA, Limpio, Offset Flex, Markup%, Lista.
+Columnas de operaciones: Fecha / ML ID, Producto / Código · Marca, Cant, Precio Unit, Total / IVA, Costo Unit, Costo Total, Comisión / % · Lista, Envío s/IVA, Limpio, Offset Flex, Markup%.
 
 ## Botones y acciones
 
@@ -43,3 +45,6 @@ Es la versión anterior del tablero; la nueva es **Métricas ML.
 
 ¿Por qué veo \*\*\* en la ganancia?**
 No tenés el permiso para ver ganancias.
+
+¿Por qué una venta muestra — en el costo y el markup?**
+No se conoce su costo: el producto no tiene costo SI ni costo de lista, o su costo es en dólares y no hay cotización de ese día. Esa venta no suma costo, ganancia ni markup.
