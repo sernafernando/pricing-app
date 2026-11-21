@@ -83,6 +83,20 @@ def test_the_start_cost_skips_a_same_day_typo_and_ignores_the_ppp(engine: Engine
     assert w.pasos(engine, P)[0][-1] == D("26.00000")
 
 
+@pytest.mark.parametrize("lista", ["0", "-1"])
+def test_a_zero_or_negative_start_list_cost_is_unknown_never_a_zero_cost(engine: Engine, lista: str) -> None:
+    """S2 (T4 dry-run, items 4576, 4745-4751): a list row <= 0 is no cost, like the reader: the start is unknown and
+    the first purchase starts the average at its own net-net instead of averaging it with 0."""
+    _l1(engine)
+    w.costo_lista(engine, P, datetime(2026, 10, 20, 9, 0), lista)
+
+    _recalcular(engine, P)
+
+    pasos = w.pasos(engine, P)
+    assert pasos[0] == ("inicio", date(2026, 11, 2), 200, 200, None, None)
+    assert pasos[1][-1] == D("21.45000")
+
+
 def test_loyalty_is_a_sell_in_on_every_invoice_of_the_brand_from_any_supplier(engine: Engine) -> None:
     """S5 + S6 + S7: loyalty 3.6 % reaches an invoice linked to Compras with a 5 % supplier sell in (100 -> 91.40) and
     an invoice from another supplier that is not in Compras (100 -> 96.40). Another brand gets nothing."""
