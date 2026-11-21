@@ -19,6 +19,10 @@ import app.models.item_cost_list_history  # noqa: F401
 import app.models.commercial_transaction  # noqa: F401
 import app.models.tb_supplier  # noqa: F401
 import app.models.precio_gremio_override  # noqa: F401
+from tests.costo_si_lista import costo_si_lista  # noqa: F401  (fixture)
+
+# Written before costo SI: on SQLite the cost reader answers the list cost ('lista', Q1).
+pytestmark = [*globals().get("pytestmark", []), pytest.mark.usefixtures("costo_si_lista")]
 
 IDS = (9401, 9402, 9403)
 

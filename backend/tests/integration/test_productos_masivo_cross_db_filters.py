@@ -25,6 +25,9 @@ from app.core.security import get_password_hash
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.publicacion_ml import PublicacionML
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
+from tests.costo_si_lista import costo_si_lista  # noqa: F401  (fixture)
+
+pytestmark = [*globals().get("pytestmark", []), pytest.mark.usefixtures("costo_si_lista")]
 
 _PXQ_READER = "app.api.endpoints.productos_shared.fetch_mlas_with_pxq_tiers"
 _PROMO_READER = "app.api.endpoints.productos_shared.fetch_mlas_with_active_promo_type"
