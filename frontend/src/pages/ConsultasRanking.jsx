@@ -333,6 +333,7 @@ function KpiCards({ data, loading }) {
         <span className={`${styles.kpiSub} ${isHighMuerto ? styles.kpiSubDanger : ''}`}>
           {pct != null ? `${pct.toFixed(1)}% del capital` : '—'}
         </span>
+        <NotaSinCosto cantidad={data.productos_muertos_sin_costo} />
       </div>
 
       {/* Card 3: SKUs */}

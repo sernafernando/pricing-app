@@ -58,6 +58,7 @@ const KPIS = {
   capital_muerto_ars: 0,
   pct_capital_muerto: 0,
   productos_sin_costo: 1,
+  productos_muertos_sin_costo: 1,
 };
 
 const grupo = (nombre, ars, usd, sinCosto) => ({
@@ -150,12 +151,16 @@ describe.each(['light', 'dark'])('Ranking de Productos, Sin costo (%s)', (theme)
     expect(conCosto.getByLabelText('Sin costo').elements()).toHaveLength(0);
 
     const kpis = page.getByRole('region', { name: 'KPIs de capital' });
-    await expect.element(kpis.getByText('1 producto sin costo')).toBeVisible();
-    const nota = kpis.getByText('1 producto sin costo').element();
-    expect(getComputedStyle(nota).color).toBe(tokenColor('--text-secondary'));
-    cabe(nota);
-    const tarjeta = nota.parentElement;
-    expect(nota.getBoundingClientRect().right).toBeLessThanOrEqual(tarjeta.getBoundingClientRect().right);
+    // Capital holdeado and Stock muerto each count the products left out of their own sum
+    await expect.element(kpis.getByText('1 producto sin costo').nth(1)).toBeVisible();
+    const notas = kpis.getByText('1 producto sin costo').elements();
+    expect(notas).toHaveLength(2);
+    for (const nota of notas) {
+      expect(getComputedStyle(nota).color).toBe(tokenColor('--text-secondary'));
+      cabe(nota);
+      const tarjeta = nota.parentElement;
+      expect(nota.getBoundingClientRect().right).toBeLessThanOrEqual(tarjeta.getBoundingClientRect().right);
+    }
 
     marca.scrollIntoView({ inline: 'end', block: 'nearest' }); // the review shot shows the cost column
     await shot(`consultas-ranking-detalle-sin-costo-1440-${theme}`);

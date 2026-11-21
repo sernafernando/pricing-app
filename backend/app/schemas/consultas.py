@@ -220,6 +220,9 @@ class KpisResponse(BaseModel):
     productos_sin_costo: int = Field(
         default=0, description="Productos con stock y sin costo conocido: no suman en capital_costo_ars/usd"
     )
+    productos_muertos_sin_costo: int = Field(
+        default=0, description="Los productos_sin_costo que son stock muerto: no suman en capital_muerto_ars"
+    )
     capital_muerto_ars: Optional[float] = Field(
         default=None,
         description=(

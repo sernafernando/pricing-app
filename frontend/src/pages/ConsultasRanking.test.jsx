@@ -49,6 +49,7 @@ const KPIS = {
   capital_muerto_ars: 0,
   pct_capital_muerto: 0,
   productos_sin_costo: 1,
+  productos_muertos_sin_costo: 0,
 };
 
 const grupo = (nombre, ars, usd, sinCosto) => ({
@@ -113,6 +114,17 @@ describe('ConsultasRanking — Sin costo', () => {
 
     const kpis = await screen.findByRole('region', { name: 'KPIs de capital' });
     expect(await within(kpis).findByText('1 producto sin costo')).toBeInTheDocument();
+  });
+
+  it('the dead stock KPI card says how many dead products are not in its sum', async () => {
+    service.getRankingKpis.mockResolvedValue({ ...KPIS, productos_sin_costo: 3, productos_muertos_sin_costo: 2 });
+    render(<ConsultasRanking />);
+
+    const kpis = await screen.findByRole('region', { name: 'KPIs de capital' });
+    const muerto = (await within(kpis).findByText('Stock muerto')).parentElement;
+    expect(within(muerto).getByText('2 productos sin costo')).toBeInTheDocument();
+    const capital = within(kpis).getByText('Capital holdeado').parentElement;
+    expect(within(capital).getByText('3 productos sin costo')).toBeInTheDocument();
   });
 
   it('the resumen counts the products without cost per group and in the totals', async () => {

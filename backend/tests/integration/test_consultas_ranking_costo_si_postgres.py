@@ -6,7 +6,7 @@ counts it apart (`productos_sin_costo`). Runs the real SQL on a throwaway Postgr
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from types import SimpleNamespace
 from typing import Iterator
 
@@ -201,6 +201,35 @@ def test_a_stocked_product_without_any_cost_is_counted_apart_never_summed_as_zer
     (grupo,) = resumen["items"]
     assert (grupo["valor_costo_ars"], grupo["productos_sin_costo"], grupo["num_productos"]) == (200000, 1, 2)
     assert (resumen["totales"]["valor_costo_ars"], resumen["totales"]["productos_sin_costo"]) == (200000, 1)
+
+
+def test_the_dead_stock_kpi_counts_its_own_products_without_cost(pg: Engine, client: TestClient) -> None:
+    """Stock muerto sums only known costs too, so it counts the dead products left out of its sum: here the never-sold
+    product without cost (dead), not the one without cost sold yesterday (alive)."""
+    _producto(pg, CON_COSTO, stock=10, costo=30)
+    _producto(pg, SIN_COSTO, stock=5)
+    _producto(pg, EN_PESOS, stock=2, moneda="ARS")
+    _run(
+        pg,
+        "INSERT INTO tb_commercial_transactions (ct_transaction, ct_date, sd_id, df_id) VALUES (:t, :f, :sd, :df)",
+        t=9101,
+        f=date.today() - timedelta(days=1),
+        sd=consultas.SD_VENTAS[0],
+        df=consultas.DF_VENTA_TODOS[0],
+    )
+    _run(
+        pg,
+        "INSERT INTO tb_item_transactions (it_transaction, ct_transaction, item_id, it_qty) VALUES (9101, 9101, :i, 1)",
+        i=EN_PESOS,
+    )
+    _dolar(pg, 1000)
+    try:
+        kpis = _get(client, "/kpis")
+    finally:
+        _run(pg, "DELETE FROM tb_item_transactions")
+        _run(pg, "DELETE FROM tb_commercial_transactions")
+
+    assert (kpis["productos_sin_costo"], kpis["productos_muertos_sin_costo"]) == (2, 1)
 
 
 def test_a_peso_costo_si_converts_to_dollars_at_the_page_rate(pg: Engine, client: TestClient) -> None:

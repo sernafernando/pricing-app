@@ -1202,6 +1202,8 @@ async def get_ranking_kpis(
             SUM(valor_costo_ars)                                        AS capital_costo_ars,
             SUM(valor_costo_usd)                                        AS capital_costo_usd,
             COUNT(*) FILTER (WHERE sin_costo)::INTEGER                  AS productos_sin_costo,
+            COUNT(*) FILTER (WHERE sin_costo AND (dias_sin_venta > 365 OR last_sale_date IS NULL))::INTEGER
+                                                                        AS productos_muertos_sin_costo,
             SUM(valor_venta)                                            AS capital_venta_ars,
             COALESCE(
                 SUM(valor_costo_ars)
@@ -1251,6 +1253,7 @@ async def get_ranking_kpis(
         capital_muerto_ars=float(row.capital_muerto_ars) if row.capital_muerto_ars is not None else None,
         pct_capital_muerto=float(row.pct_capital_muerto) if row.pct_capital_muerto is not None else None,
         productos_sin_costo=int(row.productos_sin_costo or 0),
+        productos_muertos_sin_costo=int(row.productos_muertos_sin_costo or 0),
     )
 
 
