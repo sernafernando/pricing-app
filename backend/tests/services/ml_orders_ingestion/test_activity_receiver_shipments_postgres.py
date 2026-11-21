@@ -29,7 +29,7 @@ UNKNOWN_SHIP = 48999999999
 @pytest.fixture(autouse=True)
 def _flag_on(monkeypatch):
     monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
-    monkeypatch.setattr(ingestion_service, "congelar", lambda db, order_id, items: None)
+    monkeypatch.setattr(ingestion_service, "congelar", lambda db, order_id, items, fecha_venta=None: None)
 
 
 def _seed(db):

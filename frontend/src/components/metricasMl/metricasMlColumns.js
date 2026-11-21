@@ -18,7 +18,7 @@ export const COLUMN_GROUPS = [
   { id: 'resultado', label: 'Resultado financiero' },
   { id: 'publicidad', label: 'Publicidad' },
   { id: 'rotacion', label: 'Rotación' },
-  { id: 'sellin', label: 'Sell-in / Sell-out' },
+  { id: 'sellin', label: 'Sell out' },
 ];
 
 export const MARGIN_COLUMNS = new Set([
@@ -32,8 +32,6 @@ export const MARGIN_COLUMNS = new Set([
   'total_tp',
   'ads_cost',
   'costo',
-  'costo_sell_in',
-  'sell_in',
   'sell_out',
   'total_gauss_sell',
   'markup_sell',
@@ -95,22 +93,21 @@ export function buildBoardColumns({
     { id: 'ageing', group: 'rotacion', header: 'Ageing' },
     // Real now (`productos_erp.stock`): out of the "coming soon" group.
     { id: 'stock', group: 'rotacion', header: 'Stock' },
-    // Sell in lowers the cost, sell out adds to profit: each figure next to the one without them. On the Gauss
-    // basis, so never for `tplink.solo` (the backend sends none).
+    // Costo SI T3 D1: the cost is costo SI (no sell in column, no cost with sell in); the sell out is added to the
+    // profit ("c/ SO"), next to the figures without it. On the Gauss basis, so never for `tplink.solo` (the backend
+    // sends none).
     ...(tpSolo
       ? []
       : [
           { id: 'costo', group: 'sellin', header: 'Costo' },
-          { id: 'costo_sell_in', group: 'sellin', header: 'Costo c/ sell in' },
-          { id: 'sell_in', group: 'sellin', header: 'Sell in' },
           { id: 'sell_out', group: 'sellin', header: 'Sell out' },
-          { id: 'total_gauss_sell', group: 'sellin', header: 'Total c/ sell in/out' },
-          // No such markup with "Costos TP" (the sell in is on the Gauss cost): shown empty, never a sort -- from
-          // the toggle's click (`costosTp`), not once the TP board answers (`tpOn`).
+          { id: 'total_gauss_sell', group: 'sellin', header: 'Total c/ SO' },
+          // No such markup with "Costos TP" (it is over the Gauss cost): shown empty, never a sort -- from the
+          // toggle's click (`costosTp`), not once the TP board answers (`tpOn`).
           {
             id: 'markup_sell',
             group: 'sellin',
-            header: 'Markup c/ sell in/out',
+            header: 'Markup c/ SO',
             ...(tpOn || costosTp ? { sortable: false } : {}),
           },
         ]),

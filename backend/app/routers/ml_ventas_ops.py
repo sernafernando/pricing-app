@@ -806,14 +806,12 @@ class SaleListItem(BaseModel):
     # pair here would silently pick one and lie about the rest. Empty list
     # (never `None`) when the order has no synced item row yet.
     items: List[OrderItemOpsSummary] = Field(default_factory=list)
-    # Métricas audit A7: the sell in / sell out the allocators credited to
-    # this order's item rows (`_sell_in_out_by_order`), so a Métricas ML sell
-    # figure can be traced to its sales. `None` when nothing applies.
-    sell_in_ars: Optional[float] = None
+    # Métricas audit A7: the sell out the allocator credited to this order's
+    # item rows (`_sell_in_out_by_order`), so a Métricas ML sell figure can be
+    # traced to its sales. `None` when nothing applies. No sell in (Costo SI
+    # T3 D1): the frozen cost is costo SI, the sell out is added to profit.
     sell_out_ars: Optional[float] = None
     sell_out_estimado: Optional[bool] = None
-    # Tactical sell in USD S10: a USD `al_cobro` cost bonus without its collection rate yet (today's BNA).
-    sell_in_estimado: Optional[bool] = None
     # Métricas audit B9: the old operations tab's Costo Total and Limpio,
     # read from the same stored `ml_order_metrics` row as `total_gauss`.
     costo_mercaderia: Optional[float] = None
@@ -875,12 +873,9 @@ class SaleGroup(BaseModel):
     neto_depositado: Optional[float] = None
     retenciones_recuperables: Optional[float] = None
     bonificacion_envio: Optional[float] = None
-    # Métricas audit A7: the members' sell in / sell out, `sell_in_out_ventas.sumar`'s rule.
-    sell_in_ars: Optional[float] = None
+    # Métricas audit A7: the members' sell out, `sell_in_out_ventas.sumar`'s rule (no sell in, Costo SI T3 D1).
     sell_out_ars: Optional[float] = None
     sell_out_estimado: Optional[bool] = None
-    # Tactical sell in USD S10: a USD `al_cobro` cost bonus without its collection rate yet (today's BNA).
-    sell_in_estimado: Optional[bool] = None
     # Métricas audit B9: the members' sums, all-or-nothing like `total_gauss` / `neto`.
     costo_mercaderia: Optional[float] = None
     neto_sin_iva: Optional[float] = None
@@ -1243,9 +1238,9 @@ def _items_by_order(db: Session, order_ids: List[int]) -> Dict[int, List[MlOrder
 
 
 def _sell_in_out_by_order(db: Session, items_by_order: Dict[int, List[MlOrderItemOps]]) -> Dict[int, MontosVenta]:
-    """Métricas audit A7: each order's sell in / sell out, the sum of what the
-    allocators credited to its item rows (canal 'ml', `venta_ref` =
-    `ml_order_items_ops.id`). Two queries for the page; an order with nothing
+    """Métricas audit A7: each order's sell out, the sum of what the allocator
+    credited to its item rows (canal 'ml', `venta_ref` =
+    `ml_order_items_ops.id`). One query for the page; an order with nothing
     applied is absent."""
     by_row = montos_por_venta(db, "ml", [item.id for items in items_by_order.values() for item in items])
     result: Dict[int, MontosVenta] = {}
@@ -1260,10 +1255,8 @@ def _sell_in_out_fields(montos: Optional[MontosVenta]) -> Dict[str, Any]:
     if montos is None:
         return {}
     return {
-        "sell_in_ars": float(montos.sell_in_ars) if montos.sell_in_ars is not None else None,
         "sell_out_ars": float(montos.sell_out_ars) if montos.sell_out_ars is not None else None,
         "sell_out_estimado": montos.sell_out_estimado,
-        "sell_in_estimado": montos.sell_in_estimado,
     }
 
 

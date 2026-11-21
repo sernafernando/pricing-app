@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildBoardColumns } from './metricasMlColumns';
+import { buildBoardColumns, COLUMN_GROUPS, MARGIN_COLUMNS } from './metricasMlColumns';
 
 const ids = (options) =>
   buildBoardColumns({ canSeeMargin: true, periodLabel: 'mes', groupBy: 'product', dimension: 'marca', ...options }).map(
@@ -70,8 +70,17 @@ describe('buildBoardColumns for a tplink.solo user', () => {
   });
 });
 
-describe('buildBoardColumns: sell in / sell out', () => {
-  const SELL = ['costo', 'costo_sell_in', 'sell_in', 'sell_out', 'total_gauss_sell', 'markup_sell'];
+describe('buildBoardColumns: sell out c/ SO (Costo SI T3 D1)', () => {
+  const SELL = ['costo', 'sell_out', 'total_gauss_sell', 'markup_sell'];
+
+  it('has no sell in column nor cost with sell in, and labels the figures c/ SO', () => {
+    const columns = buildBoardColumns({ canSeeMargin: true, periodLabel: 'mes', groupBy: 'product' });
+    const sell = columns.filter((col) => col.group === 'sellin');
+    expect(sell.map((col) => col.header)).toEqual(['Costo', 'Sell out', 'Total c/ SO', 'Markup c/ SO']);
+    expect(columns.some((col) => ['sell_in', 'costo_sell_in'].includes(col.id))).toBe(false);
+    expect([...MARGIN_COLUMNS].some((id) => ['sell_in', 'costo_sell_in'].includes(id))).toBe(false);
+    expect(COLUMN_GROUPS.find((g) => g.id === 'sellin').label).toBe('Sell out');
+  });
 
   it('fills its group with our figures, in place of the placeholders', () => {
     const columns = buildBoardColumns({ canSeeMargin: true, periodLabel: 'mes', groupBy: 'product' });

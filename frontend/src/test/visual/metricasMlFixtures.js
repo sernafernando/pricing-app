@@ -63,16 +63,15 @@ export const BOARD_ROWS = [
     last_sale_at: '2026-09-30T14:40:00Z',
     ageing_days: 0,
     stock: 128,
-    // The widest figures the sell-in group can show, with lines pending and estimated.
+    // The widest figures the sell out group can show, with lines pending and estimated (Costo SI T3 D1: the cost
+    // is costo SI, the sell out is added to the profit, no sell in).
     sell_in_out: {
-      sell_in: 3240000,
       sell_out: 1180000.5,
       sell_out_pendientes: 12,
       sell_out_estimados: 3,
       costo: 160181992.06,
-      costo_sell_in: 156941992.06,
-      total_gauss: 48551773.82,
-      markup_pct: 30.9,
+      total_gauss: 45311773.82,
+      markup_pct: 28.3,
     },
   }),
   product(4102, {
@@ -259,14 +258,12 @@ export const BOARD_RESPONSE = {
     ticket: { value: 29282.91, delta_pct: -1.4, series: unitSeries(29000, 300).slice(-30) },
     units_per_sale: { value: 1.18, delta_pct: 2.6 },
     sell_in_out: {
-      sell_in: 3240000,
       sell_out: 1180000.5,
       sell_out_pendientes: 12,
       sell_out_estimados: 3,
       costo: 65370000,
-      costo_sell_in: 62130000,
-      total_gauss: 18540900.6,
-      markup_pct: 29.8,
+      total_gauss: 15300900.6,
+      markup_pct: 23.4,
     },
   },
   facets: {

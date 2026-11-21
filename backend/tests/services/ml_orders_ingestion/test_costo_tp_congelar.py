@@ -13,13 +13,14 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
+import pytest
 from sqlalchemy import event
 
+from app.models.combo_componente import ComboComponente
 from app.models.item_cost_list import ItemCostList
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.publicacion_ml import PublicacionML
-from app.models.combo_componente import ComboComponente
 from app.models.tipo_cambio import TipoCambio
 from app.services.ml_orders_ingestion.costeo_service import (
     FUENTE_PUBLICACION,
@@ -28,6 +29,10 @@ from app.services.ml_orders_ingestion.costeo_service import (
     congelar,
 )
 from app.services.ml_orders_ingestion.mapper import OrderItemOpsDTO
+from tests.costo_si_lista import costo_si_lista  # noqa: F401
+
+# congelar reads the cost through the costo SI reader (Postgres SQL): its SQLite stand-in (list cost).
+pytestmark = pytest.mark.usefixtures("costo_si_lista")
 
 CURR_ARS = 1
 CURR_USD = 2
@@ -281,8 +286,10 @@ class TestTpCostCombos:
         assert row.costo_tp_unitario_ars == Decimal("55")
         assert row.costo_tp_fuente == FUENTE_TP_INGESTA
 
-    def test_combo_without_normal_cost_gets_both_costs_from_components(self, db):
-        self._combo(db, combo_costo=0.0)
+    def test_a_combo_without_a_list8_price_gets_its_tp_cost_from_components(self, db):
+        """The normal cost of a combo is the reader's (Postgres, T3 PR 7); the TP list-8 cost keeps summing its
+        components' list-8 prices (D3). The SQLite stand-in reads the combo's own list cost."""
+        self._combo(db, combo_costo=50.0)
         _lista8(db, item_id=901, price=30)
         _lista8(db, item_id=902, price=5)
         db.commit()
@@ -291,7 +298,6 @@ class TestTpCostCombos:
         db.commit()
 
         row = _row(db, 23)
-        assert row.costo_unitario_ars == Decimal("90")
         assert row.costo_tp_unitario_ars == Decimal("65")
 
 
@@ -329,7 +335,8 @@ class TestBatchedLookups:
             event.remove(db.bind, "before_cursor_execute", _record)
         db.commit()
 
-        lista8_queries = [s for s in statements if "tb_item_cost_list" in s]
+        # List 8 only: the list-cost history the reader reads (list 1) is another table.
+        lista8_queries = [s for s in statements if "tb_item_cost_list" in s and "tb_item_cost_list_history" not in s]
         assert len(lista8_queries) <= 2
         combo_queries = [s for s in statements if "combo_componentes" in s]
         assert len(combo_queries) == 1

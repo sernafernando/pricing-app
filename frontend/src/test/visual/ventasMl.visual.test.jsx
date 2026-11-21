@@ -135,22 +135,26 @@ const shot = async (name, { width, height } = {}) => {
 // The app shell around the page: a fixed 56px TopBar and the collapsed 48px
 // sidebar. Without them the page would lay out wider than it ever does for a
 // real operator, and the 1366 case would be a lie.
-const Shell = ({ children }) => (
+// `sidebar="open"`: the expanded 240px sidebar instead.
+const Shell = ({ children, sidebar = 'collapsed' }) => (
   <div
     data-shell
-    style={{ paddingTop: 'var(--cf-topbar-height)', paddingLeft: 'var(--cf-sidebar-width-collapsed)' }}
+    style={{
+      paddingTop: 'var(--cf-topbar-height)',
+      paddingLeft: sidebar === 'open' ? 'var(--cf-sidebar-width-expanded)' : 'var(--cf-sidebar-width-collapsed)',
+    }}
   >
     {children}
   </div>
 );
 
-const renderPage = async ({ width, height, theme, params = '' }) => {
+const renderPage = async ({ width, height, theme, params = '', sidebar }) => {
   router.params = params;
   await page.viewport(width, height);
   setTheme(theme);
   document.body.style.background = 'var(--cf-bg-app)';
   const screen = await render(
-    <Shell>
+    <Shell sidebar={sidebar}>
       <VentasML />
     </Shell>,
   );
@@ -324,6 +328,36 @@ describe('Ventas ML screen (visual)', () => {
       const header = table.querySelector('thead th').getBoundingClientRect();
       const firstRow = table.querySelector('tbody tr').getBoundingClientRect();
       expect(firstRow.top).toBeGreaterThanOrEqual(header.bottom - 0.5);
+      screen.unmount();
+    });
+  }
+
+  // Costo SI T3 D1/S13: the "Sell out" column (no sell in) and the sale panel naming the costo SI source, at 1440 with
+  // the sidebar open.
+  for (const theme of THEMES) {
+    it(`1440x900 ${theme} sidebar open: the Sell out column and the Costo SI source`, async () => {
+      const size = { width: 1440, height: 900 };
+      let screen = await renderPage({ ...size, theme, sidebar: 'open' });
+      const headers = [...document.querySelectorAll('thead th')];
+      const sellOut = headers.find((th) => th.textContent.trim() === 'Sell out');
+      expect(sellOut).toBeTruthy();
+      expect(headers.some((th) => /sell in/i.test(th.textContent))).toBe(false);
+      sellOut.scrollIntoView({ inline: 'center', block: 'nearest' });
+      await shot(`c-so-list-1440-${theme}`, size);
+      // Only the Sell out column: at 1440 with the sidebar open other columns (orden, importe, neto) are already
+      // squeezed, outside this change.
+      expect(overflowingCells(document.querySelector('table')).filter((c) => c.startsWith('sell_in_out:'))).toEqual([]);
+      screen.unmount();
+
+      screen = await renderPage({ ...size, theme, params: `orden=${EPSON_ORDER_ID}`, sidebar: 'open' });
+      await expect.element(screen.getByText('De dónde sale el neto')).toBeVisible();
+      const panel = document.querySelector('aside');
+      expect(panel.textContent).toContain('Costo SI (por SKU)');
+      if (SHOTS_DIR) {
+        await page.viewport(size.width, Math.max(size.height, panel.scrollHeight + 200));
+        await page.screenshot({ path: `${SHOTS_DIR}/c-so-panel-1440-${theme}.png`, element: panel });
+        await page.viewport(size.width, size.height);
+      }
       screen.unmount();
     });
   }

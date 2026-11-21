@@ -45,48 +45,44 @@ describe('Importe cell: ML coupon sub-line', () => {
   });
 });
 
-describe('Sell in / out cell (Métricas audit A7)', () => {
+describe('Sell out cell (Métricas audit A7, Costo SI T3 D1)', () => {
   const sell = COLUMNS.find((c) => c.id === 'sell_in_out');
   const renderSell = (ctx) => {
     const view = render(<div data-testid="sell">{sell.cell(ctx)}</div>);
     return Object.assign(screen.getByTestId('sell'), { unmount: view.unmount, tooltip: sell.cellProps(ctx).title });
   };
 
-  it('shows the sell in with the sell out on the sub-line, and names both in the tooltip', () => {
-    const cell = renderSell({ kind: 'member', order: order({ sell_in_ars: 1200.5, sell_out_ars: 300, sell_out_estimado: false }) });
-    expect(cell).toHaveTextContent('1.200,50');
-    expect(cell).toHaveTextContent('out $ 300,00');
-    expect(cell.tooltip).toBe('Sell in: $ 1.200,50 · Sell out: $ 300,00');
+  it('is the "Sell out" column', () => {
+    expect(sell.header).toBe('Sell out');
   });
 
-  it('a pack row reads the pack sums', () => {
-    const cell = renderSell({ kind: 'group', group: { sell_in_ars: 10, sell_out_ars: null, sell_out_estimado: null }, orders: [] });
+  it('shows the sell out and names it in the tooltip, never a sell in even if one were sent', () => {
+    const cell = renderSell({ kind: 'member', order: order({ sell_in_ars: 1200.5, sell_out_ars: 300, sell_out_estimado: false }) });
+    expect(cell).toHaveTextContent('$ 300,00');
+    expect(cell).not.toHaveTextContent('1.200,50');
+    expect(cell.tooltip).toBe('Sell out: $ 300,00');
+  });
+
+  it('a pack row reads the pack sum', () => {
+    const cell = renderSell({ kind: 'group', group: { sell_out_ars: 10, sell_out_estimado: false }, orders: [] });
     expect(cell).toHaveTextContent('10,00');
-    expect(cell).not.toHaveTextContent('out');
-    expect(cell.tooltip).toBe('Sell in: $ 10,00');
+    expect(cell.tooltip).toBe('Sell out: $ 10,00');
   });
 
   it('an estimated sell out is marked, an unknown one says it is not defined yet', () => {
     let cell = renderSell({ kind: 'member', order: order({ sell_out_ars: 50, sell_out_estimado: true }) });
-    expect(cell).toHaveTextContent('out ≈ $ 50,00');
+    expect(cell).toHaveTextContent('≈ $ 50,00');
     expect(cell.tooltip).toBe('Sell out: $ 50,00 (estimado: tipo de cambio a definir)');
     cell.unmount();
     cell = renderSell({ kind: 'member', order: order({ sell_out_ars: null, sell_out_estimado: true }) });
-    expect(cell).toHaveTextContent('out a definir');
+    expect(cell).toHaveTextContent('a definir');
+    expect(cell).not.toHaveTextContent('$ 0,00');
     expect(cell.tooltip).toBe('Sell out en USD sin tipo de cambio');
-  });
-
-  // Tactical sell in USD S10: an estimated sell in is marked like an estimated sell out.
-  it('an estimated sell in is marked', () => {
-    const cell = renderSell({ kind: 'member', order: order({ sell_in_ars: 1200.5, sell_in_estimado: true }) });
-    expect(cell).toHaveTextContent('≈ $ 1.200,50');
-    expect(cell.tooltip).toBe('Sell in: $ 1.200,50 (estimado: tipo de cambio a definir)');
   });
 
   it('a sale with nothing applied shows a dash and no tooltip', () => {
     const cell = renderSell({ kind: 'member', order: order() });
     expect(cell).toHaveTextContent('—');
-    expect(cell).not.toHaveTextContent('out');
     expect(cell.tooltip).toBeUndefined();
   });
 
