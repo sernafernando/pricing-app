@@ -241,7 +241,7 @@ const RATE = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumF
 function AuditRateLine({ rate }) {
   return (
     <p className={auditStyles.rateLine}>
-      <span>Valor a costo sin IVA</span>
+      <span>Valor a costo SI sin IVA</span>
       <span>·</span>
       <span>
         Dólar BNA de hoy <span className={auditStyles.rate}>{rate ? `$ ${RATE.format(rate)}` : '—'}</span>

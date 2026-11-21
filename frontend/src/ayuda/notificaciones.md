@@ -14,7 +14,7 @@ Arriba dice **Notificaciones**. Se muestra el total y la cantidad de no leídas.
 
 En la vista de lista las páginas se piden de a 20, así que con **Siguiente** llegás hasta la notificación más vieja. Las notificaciones de Compras muestran su propio título y mensaje (pedido, proveedor y factura), nunca un producto.
 
-Al expandir una notificación se marca como leída automáticamente y se ven más detalles (incluido el precio de venta seteado). También hay botones para marcar todas como leídas o no leídas, y acciones **Revisada**, **Ignorar**, **Resuelta** y **Eliminar**.
+Al expandir una notificación se marca como leída automáticamente y se ven más detalles (incluido el precio de venta seteado). En las de markup bajo, **Costo de la Venta** y **Costo Actual** son el costo SI (promedio con sell in) de ese momento; si el costo no se conocía dice **Sin costo**. También hay botones para marcar todas como leídas o no leídas, y acciones **Revisada**, **Ignorar**, **Resuelta** y **Eliminar**.
 
 En la vista agrupada, cada acción se aplica a todo el grupo de una sola vez, aunque tenga miles de notificaciones. **Ignorar** pide una confirmación y crea la regla para no volver a notificar ese producto con ese markup.
 

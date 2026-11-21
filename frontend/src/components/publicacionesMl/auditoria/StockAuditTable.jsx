@@ -345,7 +345,7 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, nivel, onToggle, o
     row.type === 'item' ? salesSplit(row.item.metrics?.envio?.[window]) : salesSplit(row.node.ventas?.envio?.[window], factorOf(row));
   // A product's or a group's own figures (a group is its products' sum).
   const own = (row) => row.type === 'product' || row.type === 'group';
-  // A publication's Full value: its units at its node's cost.
+  // A publication's Full value: its units at its node's costo SI.
   const itemFull = (row) => valueOf(row.item.stock?.full ?? null, row.owner, rate);
 
   const columns = [

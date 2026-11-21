@@ -10,7 +10,7 @@ Each row contains:
     in ADR-1: sd_id IN SD_VENTAS, df_id IN DF_VENTA_TODOS).
   - Last purchase data (puco_id=10, latest it_cd).
   - Stock total across selected depots (stock_por_deposito.stock — ERP real-time available stock).
-  - Monetary valuations in BOTH ARS and USD (valor_costo_ars, valor_costo_usd).
+  - Monetary valuations in BOTH ARS and USD (valor_costo_ars, valor_costo_usd) at costo SI.
   - valor_venta in ARS (price list clasica prli_id=4).
   - ERP-sourced ageing from productos_ageing (LEFT JOIN — null at launch).
 
@@ -39,6 +39,7 @@ from app.models.usuario import Usuario
 from app.api.deps import exigir_combos_sincronizados
 from app.services.marcas_visibles import filter_visible_brands
 from app.services.combos.componentes import sql_no_es_combo
+from app.services.costo_si import lote
 from app.services.permisos_service import PermisosService
 from app.services.pm_scope import scope_exists_sql
 from app.core.logging import get_logger
@@ -56,6 +57,7 @@ from app.schemas.consultas import (
 )
 
 logger = get_logger(__name__)
+
 
 router = APIRouter(prefix="/consultas", tags=["consultas"])
 
@@ -238,6 +240,53 @@ DIAS_MUERTO_UMBRAL: int = 365
 # Real stock tops out well below this (no legitimate values between max real stock
 # and the sentinel), so it is excluded from valuation to avoid inflating capital.
 STOCK_SENTINEL: int = 99999999
+
+# ---------------------------------------------------------------------------
+# Stock valuation at costo SI (sell-in-costo-si T3 PR 10; owner L4.7: the average is the cost every calculation uses)
+# ---------------------------------------------------------------------------
+# The current cost comes from the costo SI reader (interface §1): the moving average, or the list cost when the product
+# has none (fuente 'lista'), in the product's cost currency; its alias must not start with `csi_` (the reader's
+# reserved prefix). The page keeps its own USD rate (:tc_venta, ADR-5) for both directions.
+# Unknown cost -> NULL valuation ("Sin costo"), never 0: the totals sum the costed products and count the rest apart.
+# It is the CURRENT cost (= `lote.actuales`, as the stock audit and the ficha read it), never the list history a dated
+# read falls back to.
+# Set-based, read ONCE per query (`sql_actual_conjunto`: no per-product lateral before ORDER BY / LIMIT, which made
+# the ranking 6x slower on prod) and hash-joined by item_id; its set is the whole catalogue, a superset of any filter.
+_COSTO_SI_JOIN = (
+    f"LEFT JOIN ({lote.sql_actual_conjunto('SELECT item_id FROM productos_erp', ':tc_venta')}) cs10"
+    " ON cs10.item_id = pe.item_id"
+)
+
+
+def _valor_costo_sql() -> str:
+    """The `valor_costo_ars` and `valor_costo_usd` select items: stock x costo SI (NUMERIC for ROUND, ADR-5)."""
+    stock = "CAST(COALESCE(stk.total_stock, 0) AS NUMERIC)"
+    costo = "CAST(cs10.costo_si_costo AS NUMERIC)"
+    tc = "CAST(:tc_venta AS NUMERIC)"
+    conocido = "cs10.costo_si_costo IS NOT NULL AND COALESCE(stk.total_stock, 0) > 0"
+    ars = f"""CASE
+                WHEN {conocido}
+                THEN CASE cs10.costo_si_moneda
+                    WHEN 'USD' THEN
+                        CASE WHEN :tc_venta IS NOT NULL THEN ROUND(CAST({stock} * {costo} * {tc} AS NUMERIC), 2) END
+                    ELSE ROUND(CAST({stock} * {costo} AS NUMERIC), 2)
+                    END
+            END                                                AS valor_costo_ars"""
+    usd = f"""CASE
+                WHEN {conocido}
+                THEN CASE cs10.costo_si_moneda
+                    WHEN 'USD' THEN ROUND(CAST({stock} * {costo} AS NUMERIC), 2)
+                    ELSE
+                        CASE WHEN :tc_venta IS NOT NULL AND {tc} > 0
+                        THEN ROUND(CAST({stock} * {costo} / {tc} AS NUMERIC), 2) END
+                    END
+            END                                                AS valor_costo_usd"""
+    return f"{ars},\n            {usd}"
+
+
+_VALOR_COSTO_SQL = _valor_costo_sql()
+# A stocked product whose cost is unknown: its valuation is NULL and the totals count it (`productos_sin_costo`).
+_SIN_COSTO_SQL = "(cs10.costo_si_costo IS NULL AND COALESCE(stk.total_stock, 0) > 0)"
 
 
 # ---------------------------------------------------------------------------
@@ -458,8 +507,8 @@ async def get_ranking(
     Aggregates ERP transaction data to compute:
     - dias_sin_venta: days since last sale across all channels (unbounded).
     - total_stock: sum of stock_por_deposito.stock for selected depots (ERP real-time available stock).
-    - valor_costo_ars: stock × costo in ARS (FX applied when origin is USD).
-    - valor_costo_usd: stock × costo in USD (FX applied when origin is ARS).
+    - valor_costo_ars: stock × costo SI in ARS (null = "Sin costo") (FX applied when origin is USD).
+    - valor_costo_usd: stock × costo SI in USD (FX applied when origin is ARS).
     - valor_venta: total_stock × precio from tb_price_list_items (prli_id=4) in ARS.
     - erp_ageing_dias: ERP-computed ageing from productos_ageing (null at launch).
 
@@ -561,7 +610,7 @@ async def get_ranking(
             pe.descripcion,
             pe.marca,
             pe.categoria,
-            pe.moneda_costo,
+            cs10.costo_si_moneda                               AS moneda_costo,
             u_pm.nombre                                        AS pm,
             -- calculated ageing
             CASE
@@ -576,53 +625,8 @@ async def get_ranking(
             lp.last_purchase_qty,
             -- stock
             COALESCE(stk.total_stock, 0)                      AS total_stock,
-            -- valor_costo_ars: stock × costo in ARS (ADR-5)
-            -- CRITICAL: ROUND must receive NUMERIC, not double precision
-            CASE
-                WHEN pe.costo IS NOT NULL AND COALESCE(stk.total_stock, 0) > 0
-                THEN CASE pe.moneda_costo
-                    WHEN 'USD' THEN
-                        CASE WHEN :tc_venta IS NOT NULL
-                        THEN ROUND(
-                            CAST(
-                                CAST(COALESCE(stk.total_stock, 0) AS NUMERIC)
-                                * CAST(pe.costo AS NUMERIC)
-                                * CAST(:tc_venta AS NUMERIC)
-                            AS NUMERIC), 2)
-                        ELSE NULL
-                        END
-                    ELSE
-                        ROUND(
-                            CAST(
-                                CAST(COALESCE(stk.total_stock, 0) AS NUMERIC)
-                                * CAST(pe.costo AS NUMERIC)
-                            AS NUMERIC), 2)
-                    END
-                ELSE NULL
-            END                                                AS valor_costo_ars,
-            -- valor_costo_usd: stock × costo in USD (ADR-5)
-            CASE
-                WHEN pe.costo IS NOT NULL AND COALESCE(stk.total_stock, 0) > 0
-                THEN CASE pe.moneda_costo
-                    WHEN 'USD' THEN
-                        ROUND(
-                            CAST(
-                                CAST(COALESCE(stk.total_stock, 0) AS NUMERIC)
-                                * CAST(pe.costo AS NUMERIC)
-                            AS NUMERIC), 2)
-                    ELSE
-                        CASE WHEN :tc_venta IS NOT NULL AND CAST(:tc_venta AS NUMERIC) > 0
-                        THEN ROUND(
-                            CAST(
-                                CAST(COALESCE(stk.total_stock, 0) AS NUMERIC)
-                                * CAST(pe.costo AS NUMERIC)
-                                / CAST(:tc_venta AS NUMERIC)
-                            AS NUMERIC), 2)
-                        ELSE NULL
-                        END
-                    END
-                ELSE NULL
-            END                                                AS valor_costo_usd,
+            -- valor_costo_ars / valor_costo_usd: stock x costo SI (L4.7), NULL = "Sin costo"
+            {_VALOR_COSTO_SQL},
             -- valor_venta: stock × precio clasica in ARS
             CASE
                 WHEN prli.prli_price IS NOT NULL AND COALESCE(stk.total_stock, 0) > 0
@@ -670,6 +674,7 @@ async def get_ranking(
               AND stor_id = ANY(:stor_ids)
               AND stock < {STOCK_SENTINEL}
         ) stk ON TRUE
+        {_COSTO_SI_JOIN}
         -- Price list clasica (prli_id=4). comp_id is part of the PK
         -- (comp_id, prli_id, item_id) — without it the LEFT JOIN can multiply rows.
         LEFT JOIN tb_price_list_items prli
@@ -888,52 +893,9 @@ async def get_ranking_resumen(
                 u_pm.nombre                                             AS pm_nombre,
                 -- stock
                 COALESCE(stk.total_stock, 0)                           AS total_stock,
-                -- valor_costo_ars
-                CASE
-                    WHEN pe.costo IS NOT NULL AND COALESCE(stk.total_stock, 0) > 0
-                    THEN CASE pe.moneda_costo
-                        WHEN 'USD' THEN
-                            CASE WHEN :tc_venta IS NOT NULL
-                            THEN ROUND(
-                                CAST(
-                                    CAST(COALESCE(stk.total_stock, 0) AS NUMERIC)
-                                    * CAST(pe.costo AS NUMERIC)
-                                    * CAST(:tc_venta AS NUMERIC)
-                                AS NUMERIC), 2)
-                            ELSE NULL
-                            END
-                        ELSE
-                            ROUND(
-                                CAST(
-                                    CAST(COALESCE(stk.total_stock, 0) AS NUMERIC)
-                                    * CAST(pe.costo AS NUMERIC)
-                                AS NUMERIC), 2)
-                        END
-                    ELSE NULL
-                END                                                     AS valor_costo_ars,
-                -- valor_costo_usd
-                CASE
-                    WHEN pe.costo IS NOT NULL AND COALESCE(stk.total_stock, 0) > 0
-                    THEN CASE pe.moneda_costo
-                        WHEN 'USD' THEN
-                            ROUND(
-                                CAST(
-                                    CAST(COALESCE(stk.total_stock, 0) AS NUMERIC)
-                                    * CAST(pe.costo AS NUMERIC)
-                                AS NUMERIC), 2)
-                        ELSE
-                            CASE WHEN :tc_venta IS NOT NULL AND CAST(:tc_venta AS NUMERIC) > 0
-                            THEN ROUND(
-                                CAST(
-                                    CAST(COALESCE(stk.total_stock, 0) AS NUMERIC)
-                                    * CAST(pe.costo AS NUMERIC)
-                                    / CAST(:tc_venta AS NUMERIC)
-                                AS NUMERIC), 2)
-                            ELSE NULL
-                            END
-                        END
-                    ELSE NULL
-                END                                                     AS valor_costo_usd,
+                -- valor_costo_ars / valor_costo_usd: stock x costo SI (L4.7), NULL = "Sin costo"
+                {_VALOR_COSTO_SQL},
+                {_SIN_COSTO_SQL}        AS sin_costo,
                 -- valor_venta
                 CASE
                     WHEN prli.prli_price IS NOT NULL AND COALESCE(stk.total_stock, 0) > 0
@@ -951,6 +913,7 @@ async def get_ranking_resumen(
                   AND stor_id = ANY(:stor_ids)
                   AND stock < {STOCK_SENTINEL}
             ) stk ON TRUE
+            {_COSTO_SI_JOIN}
             LEFT JOIN tb_price_list_items prli
               ON prli.item_id = pe.item_id
              AND prli.prli_id = {PRLI_CLASICA}
@@ -990,7 +953,8 @@ async def get_ranking_resumen(
             COALESCE(SUM(total_stock), 0)::INTEGER      AS stock_total,
             SUM(valor_costo_ars)                        AS valor_costo_ars,
             SUM(valor_costo_usd)                        AS valor_costo_usd,
-            SUM(valor_venta)                            AS valor_venta
+            SUM(valor_venta)                            AS valor_venta,
+            COUNT(*) FILTER (WHERE sin_costo)::INTEGER  AS productos_sin_costo
         FROM per_product
         GROUP BY {group_expr}
         ORDER BY SUM(valor_costo_ars) DESC NULLS LAST
@@ -1005,7 +969,8 @@ async def get_ranking_resumen(
             COALESCE(SUM(total_stock), 0)::INTEGER      AS stock_total,
             SUM(valor_costo_ars)                        AS valor_costo_ars,
             SUM(valor_costo_usd)                        AS valor_costo_usd,
-            SUM(valor_venta)                            AS valor_venta
+            SUM(valor_venta)                            AS valor_venta,
+            COUNT(*) FILTER (WHERE sin_costo)::INTEGER  AS productos_sin_costo
         FROM per_product
     """
 
@@ -1028,6 +993,7 @@ async def get_ranking_resumen(
             valor_costo_ars=float(row.valor_costo_ars) if row.valor_costo_ars is not None else None,
             valor_costo_usd=float(row.valor_costo_usd) if row.valor_costo_usd is not None else None,
             valor_venta=float(row.valor_venta) if row.valor_venta is not None else None,
+            productos_sin_costo=int(row.productos_sin_costo or 0),
         )
         for row in rows
     ]
@@ -1044,6 +1010,7 @@ async def get_ranking_resumen(
             float(totales_row.valor_costo_usd) if totales_row and totales_row.valor_costo_usd is not None else None
         ),
         valor_venta=(float(totales_row.valor_venta) if totales_row and totales_row.valor_venta is not None else None),
+        productos_sin_costo=int(totales_row.productos_sin_costo or 0) if totales_row else 0,
     )
 
     return ResumenResponse(items=items, totales=totales)
@@ -1183,52 +1150,9 @@ async def get_ranking_kpis(
                 END                                                     AS dias_sin_venta,
                 -- stock
                 COALESCE(stk.total_stock, 0)                           AS total_stock,
-                -- valor_costo_ars (ADR-5)
-                CASE
-                    WHEN pe.costo IS NOT NULL AND COALESCE(stk.total_stock, 0) > 0
-                    THEN CASE pe.moneda_costo
-                        WHEN 'USD' THEN
-                            CASE WHEN :tc_venta IS NOT NULL
-                            THEN ROUND(
-                                CAST(
-                                    CAST(COALESCE(stk.total_stock, 0) AS NUMERIC)
-                                    * CAST(pe.costo AS NUMERIC)
-                                    * CAST(:tc_venta AS NUMERIC)
-                                AS NUMERIC), 2)
-                            ELSE NULL
-                            END
-                        ELSE
-                            ROUND(
-                                CAST(
-                                    CAST(COALESCE(stk.total_stock, 0) AS NUMERIC)
-                                    * CAST(pe.costo AS NUMERIC)
-                                AS NUMERIC), 2)
-                        END
-                    ELSE NULL
-                END                                                     AS valor_costo_ars,
-                -- valor_costo_usd (ADR-5)
-                CASE
-                    WHEN pe.costo IS NOT NULL AND COALESCE(stk.total_stock, 0) > 0
-                    THEN CASE pe.moneda_costo
-                        WHEN 'USD' THEN
-                            ROUND(
-                                CAST(
-                                    CAST(COALESCE(stk.total_stock, 0) AS NUMERIC)
-                                    * CAST(pe.costo AS NUMERIC)
-                                AS NUMERIC), 2)
-                        ELSE
-                            CASE WHEN :tc_venta IS NOT NULL AND CAST(:tc_venta AS NUMERIC) > 0
-                            THEN ROUND(
-                                CAST(
-                                    CAST(COALESCE(stk.total_stock, 0) AS NUMERIC)
-                                    * CAST(pe.costo AS NUMERIC)
-                                    / CAST(:tc_venta AS NUMERIC)
-                                AS NUMERIC), 2)
-                            ELSE NULL
-                            END
-                        END
-                    ELSE NULL
-                END                                                     AS valor_costo_usd,
+                -- valor_costo_ars / valor_costo_usd: stock x costo SI (L4.7), NULL = "Sin costo"
+                {_VALOR_COSTO_SQL},
+                {_SIN_COSTO_SQL}        AS sin_costo,
                 -- valor_venta
                 CASE
                     WHEN prli.prli_price IS NOT NULL AND COALESCE(stk.total_stock, 0) > 0
@@ -1259,6 +1183,7 @@ async def get_ranking_kpis(
                   AND stor_id = ANY(:stor_ids)
                   AND stock < {STOCK_SENTINEL}
             ) stk ON TRUE
+            {_COSTO_SI_JOIN}
             -- price list clasica
             LEFT JOIN tb_price_list_items prli
               ON prli.item_id = pe.item_id
@@ -1276,6 +1201,9 @@ async def get_ranking_kpis(
             COALESCE(SUM(total_stock), 0)::INTEGER                     AS stock_total,
             SUM(valor_costo_ars)                                        AS capital_costo_ars,
             SUM(valor_costo_usd)                                        AS capital_costo_usd,
+            COUNT(*) FILTER (WHERE sin_costo)::INTEGER                  AS productos_sin_costo,
+            COUNT(*) FILTER (WHERE sin_costo AND (dias_sin_venta > 365 OR last_sale_date IS NULL))::INTEGER
+                                                                        AS productos_muertos_sin_costo,
             SUM(valor_venta)                                            AS capital_venta_ars,
             COALESCE(
                 SUM(valor_costo_ars)
@@ -1324,6 +1252,8 @@ async def get_ranking_kpis(
         capital_venta_ars=float(row.capital_venta_ars) if row.capital_venta_ars is not None else None,
         capital_muerto_ars=float(row.capital_muerto_ars) if row.capital_muerto_ars is not None else None,
         pct_capital_muerto=float(row.pct_capital_muerto) if row.pct_capital_muerto is not None else None,
+        productos_sin_costo=int(row.productos_sin_costo or 0),
+        productos_muertos_sin_costo=int(row.productos_muertos_sin_costo or 0),
     )
 
 

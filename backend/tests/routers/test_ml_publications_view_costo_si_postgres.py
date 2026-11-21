@@ -281,14 +281,16 @@ class TestStockAuditExport:
 
         assert (by_code["C100"]["Costo SI"], by_code["C100"]["Moneda costo SI"]) == (900.0, "USD")
         assert (by_code["C100"]["Costo"], by_code["C100"]["Moneda costo"]) == (1000.0, "USD")  # unchanged
-        # a variant: the notebook combo 101 = 100 (costo SI 900) + 102 (list 50), as the costo SI rule sums it
-        assert (by_code["C101"]["Costo SI"], by_code["C101"]["Moneda costo SI"]) == (950.0, "USD")
+        # a variant: the notebook combo 101 = 100 (costo SI 900) + 102 (list 100), as the costo SI rule sums it
+        assert (by_code["C101"]["Costo SI"], by_code["C101"]["Moneda costo SI"]) == (1000.0, "USD")
         assert (by_code["C130"]["Costo SI"], by_code["C130"]["Moneda costo SI"]) == (300000.0, "ARS")  # list (Q1)
         assert (by_code["C110"]["Costo SI"], by_code["C110"]["Moneda costo SI"]) == (20.0, "USD")  # the pack
         assert len(asked) == 1  # one read for the whole file
         assert {100, 101, 110, 111, 130, 140} <= set(asked[0])
 
-    def test_the_valuation_does_not_change(self, client, audit_costo_si) -> None:
+    def test_the_valuation_is_at_costo_si(self, client, audit_costo_si) -> None:
+        """T3 PR 10 (O1, L4.7): the audit values the stock at costo SI, not at the list cost (5000 / 8 100 000)."""
         _, rows = sheet(client, audit_costo_si[0])
         notebook = {r["Código"]: r for r in rows}["C100"]
-        assert (notebook["Valor ERP USD"], notebook["Valor total ARS"]) == (5000.0, 8_100_000.0)
+        # ERP 5 x 900; total 7 units x 900 000 + the variant 101 at 1000 x 1000
+        assert (notebook["Valor ERP USD"], notebook["Valor total ARS"]) == (4500.0, 7_300_000.0)

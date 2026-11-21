@@ -898,6 +898,8 @@ class StockAuditVariantOut(BaseModel):
     cantidad: float
     costo: Optional[float] = None
     moneda_costo: str
+    costo_si: Optional[float] = None  # sell-in-costo-si: the cost the values use; None = unknown
+    costo_si_moneda: Optional[str] = None
     full: StockMoneyOut
     full_unidades_base: int
     sin_costo: bool = False  # its Full has no cost: its values are unknown (L9)
@@ -959,6 +961,8 @@ class StockAuditRowOut(BaseModel):
     marca: Optional[str] = None
     costo: Optional[float] = None
     moneda_costo: Optional[str] = None
+    costo_si: Optional[float] = None  # sell-in-costo-si: the cost the values use; None = unknown
+    costo_si_moneda: Optional[str] = None
     grupo: Optional[StockGroupOut] = None
     productos: Optional[int] = None
     productos_sin_costo: Optional[int] = None
@@ -2203,8 +2207,13 @@ def export_stock_audit(
     rows = [_stock_audit_out(read, r, orden, dir) for r in read.ordered]
     if read.nivel != stock_audit.PRODUCTO:
         _attach_group_products(read, rows, orden, dir)
-    # the costo SI columns (display only), one read for every product of the file, from the pricing database
-    costo_si = lote.actuales(auth_db, export.stock_audit_product_ids(rows), tipo_cambio=read.rate.usd_ars)
+    # the costo SI columns: the costs the stock was valued at (one read, `Audit.costos`); only a product the valuation
+    # did not read is read here, in one query for the file
+    ids = export.stock_audit_product_ids(rows)
+    costo_si = {i: read.audit.costos[i] for i in ids if i in read.audit.costos}
+    faltan = ids - costo_si.keys()
+    if faltan:
+        costo_si.update(lote.actuales(auth_db, faltan, tipo_cambio=read.rate.usd_ars))
     lines = export.stock_audit_lines(rows, sales=read.can_see_sales, margin=read.can_see_margin, costo_si=costo_si)
     filename = f"publicaciones-ml-auditoria-stock-{date.today().isoformat()}.xlsx"
     return Response(

@@ -12,7 +12,7 @@ Muestra las métricas de ventas de Tienda Nube: resumen con KPIs, detalle de ope
 
 Arriba dice **Tienda Nube** con tres pestañas: **Resumen**, **Detalle de Operaciones** y **Rentabilidad**.
 
-La barra de filtros permite elegir rango de fechas, filtrar por vendedores y recargar. En **Resumen** se ven KPIs y gráficos. En **Detalle de Operaciones** se listan las operaciones con búsqueda. En **Rentabilidad** se muestra la rentabilidad.
+La barra de filtros permite elegir rango de fechas, filtrar por vendedores y recargar. En **Resumen** se ven KPIs y gráficos. En **Detalle de Operaciones** se listan las operaciones con búsqueda. En **Rentabilidad** se muestra la rentabilidad. Las ventas de productos sin costo conocido suman al monto, la comisión y el monto limpio, pero no al costo, la ganancia ni el markup; la tarjeta (y el total) avisa cuántas son con «N ventas sin costo». Si ninguna venta de la tarjeta tiene costo, Costo, Ganancia y Markup dicen «Sin costo» en lugar de $0.
 
 Si hay productos sin costo, se muestra un aviso en la pestaña Resumen.
 
