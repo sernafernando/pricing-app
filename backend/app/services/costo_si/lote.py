@@ -80,6 +80,16 @@ def _tc_en(fecha: str, *, propio: Optional[str] = None) -> str:
 _TC_ULTIMO = _tc_en("CURRENT_DATE")
 
 
+def sql_tipo_cambio(fecha: str) -> str:
+    """The reader's USD rate on the SQL date `fecha`, public for raw SQL that stores the rate next to a cost: a SELECT
+    of one row, `costo_si_tipo_cambio` and `costo_si_tipo_cambio_fecha` (that rate's own date), NULLs without a rate
+    (interfaz §7). LATERAL-join it, or read the rate as a scalar: `(SELECT t.costo_si_tipo_cambio FROM (...) t)`."""
+    return (
+        "SELECT csi_tx.tc AS costo_si_tipo_cambio, csi_tx.tc_fecha AS costo_si_tipo_cambio_fecha"
+        f" FROM ({_tc_en(fecha)}) csi_tx"
+    )
+
+
 def _es_combo(item: str) -> str:
     """A combo that takes its components' sum: not of the PC category by its first company row (`pcs_entre`)."""
     return (

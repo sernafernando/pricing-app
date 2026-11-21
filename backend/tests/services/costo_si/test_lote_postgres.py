@@ -416,6 +416,34 @@ def test_without_tipo_cambio_the_erp_rate_history_gives_the_rate(engine: Engine)
     assert (primero.tipo_cambio, primero.tipo_cambio_fecha) == (D("1000"), date(2026, 10, 5))  # tipo_cambio first
 
 
+def test_the_public_rate_lookup_is_the_readers_rate_with_its_date(engine: Engine) -> None:
+    """`sql_tipo_cambio(fecha)`: the reader's USD rate on a SQL date and that rate's date, for raw SQL that stores the
+    rate next to the cost (PR 7's `cotizacion_dolar`, `ml_order_item_costos.tipo_cambio_fecha`): `tipo_cambio`
+    first, else the ERP history; NULLs without either."""
+    _mundo(engine)
+
+    def tasa(dia: date) -> tuple:
+        sql = f"SELECT csi_t.* FROM ({lote.sql_tipo_cambio(':d')}) csi_t"
+        with _db(engine) as db:
+            return tuple(db.execute(text(sql), {"d": dia}).one())
+
+    assert tasa(date(2026, 9, 30)) == (None, None)  # before any rate: unknown, never 0
+    assert tasa(date(2026, 10, 7)) == (D("1000"), date(2026, 10, 1))
+    with _db(engine) as db:
+        mismo = lote.en_fechas(db, [(A, date(2026, 10, 12))])[(A, date(2026, 10, 12))]
+    assert tasa(date(2026, 10, 12)) == (mismo.tipo_cambio, mismo.tipo_cambio_fecha) == (D("1500"), date(2026, 10, 10))
+
+    _sin_tipo_cambio(engine)
+    w.cambio_erp(engine, datetime(2026, 10, 1, 9), 1200)
+    assert tasa(date(2026, 10, 7)) == (D("1200"), date(2026, 10, 1))
+    with _db(engine) as db:
+        escalar = db.execute(
+            text(f"SELECT (SELECT csi_t.costo_si_tipo_cambio FROM ({lote.sql_tipo_cambio(':d')}) csi_t)"),
+            {"d": date(2026, 10, 7)},
+        ).scalar_one()
+    assert escalar == D("1200")  # usable as a scalar rate too
+
+
 def test_the_rate_comes_with_its_own_date(engine: Engine) -> None:
     """The rate's date travels with the rate (a frozen sale cost records it, `ml_order_item_costos.tipo_cambio_fecha`):
     the `tipo_cambio` row's date in force, the latest one for the current cost; none for pesos, nor for a rate the
