@@ -1,41 +1,21 @@
 /**
- * Tienda Nube — the operations tab in real Chromium with the app's CSS (sell-in-costo-si T3 PR 9). A sale whose cost is
- * unknown (the API sends a null cost: no costo SI or USD rate on its date) shows "Sin costo" and a "—" ganancia and
- * markup, never its whole clean amount as profit; a sale with a cost keeps its figures.
+ * Tienda Nube — the operations tab next to the real expanded sidebar, real CSS, real Chromium, invented data
+ * (sell-in-costo-si T3 PR 9). A sale whose cost is unknown (the API sends a null cost: no costo SI or USD rate on its
+ * date) shows "Sin costo" and a "—" ganancia and markup, never its whole clean amount as profit; a sale with a cost
+ * keeps its figures. At 1440 with the sidebar open the table fits with no horizontal scroll, every amount is formatted
+ * ($ 600.000) and stays on one line.
  *
- * Screenshots (a DEV aid, never a committed baseline) only when `VITE_TN_SIN_COSTO_SHOTS_DIR` is set.
+ *   VITE_TN_SIN_COSTO_SHOTS_DIR=<dir> run_tests.sh frontend src/test/visual/tiendaNubeSinCosto.visual.test.jsx
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
+import { MemoryRouter } from 'react-router-dom';
 import { setTheme } from './visualHelpers';
 import DashboardTiendaNube from '../../pages/DashboardTiendaNube';
+import Sidebar from '../../components/Sidebar';
+import layout from '../../components/AppLayout.module.css';
 import api from '../../services/api';
-
-vi.mock('react-router-dom', async () => ({
-  ...(await import('./searchParamsMock')),
-  useNavigate: () => () => {},
-  Link: ({ to, children, ...rest }) => (
-    <a href={to} {...rest}>
-      {children}
-    </a>
-  ),
-}));
-
-vi.mock('../../hooks/useQueryFilters', () => ({
-  useQueryFilters: (defaults) => ({
-    getFilter: (k) => ({ ...defaults, tab: 'operaciones', fecha_desde: '2026-11-01', fecha_hasta: '2026-11-20' })[k],
-    updateFilters: () => {},
-  }),
-}));
-
-vi.mock('../../services/api', () => ({
-  default: {
-    get: vi.fn(),
-    post: vi.fn(),
-    interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
-  },
-}));
 
 vi.mock('../../contexts/PermisosContext', () => ({
   usePermisos: () => ({ permisos: [], tienePermiso: () => true, tieneAlgunPermiso: () => true, cargandoPermisos: false }),
@@ -43,81 +23,121 @@ vi.mock('../../contexts/PermisosContext', () => ({
 }));
 
 const SHOTS_DIR = import.meta.env.VITE_TN_SIN_COSTO_SHOTS_DIR;
+const ROOT_ID = 'capturas-root';
 
-const venta = (id, descripcion, costo) => ({
+const venta = (id, descripcion, costo, over = {}) => ({
   id_operacion: id,
   metrica_id: id,
   fecha: '2026-11-18T12:00:00',
   sucursal: 'Sucursal Ejemplo',
-  cliente: 'Cliente Ejemplo',
+  cliente: 'Cliente Ejemplo SA',
   marca: 'MARCA EJEMPLO',
   categoria: 'Notebooks',
-  subcategoria: 'Notebooks',
-  codigo_item: `C${id}`,
+  subcategoria: 'Notebooks Gamer',
+  codigo_item: `NB-00${id}`,
   descripcion,
   cantidad: 1,
-  precio_unitario_sin_iva: 1000000,
+  precio_unitario_sin_iva: 1250000,
   iva_porcentaje: 21,
-  precio_final_sin_iva: 1000000,
-  monto_iva: 210000,
-  precio_final_con_iva: 1210000,
+  precio_final_sin_iva: 1250000,
+  monto_iva: 262500,
+  precio_final_con_iva: 1512500,
   costo_unitario: costo,
   costo_pesos_sin_iva: costo,
   comision_tn_porcentaje: 1,
-  comision_tn_pesos: 10000,
-  monto_limpio: 990000,
-  ganancia: costo == null ? null : 990000 - costo,
+  comision_tn_pesos: 12500,
+  monto_limpio: 1237500,
+  ganancia: costo == null ? null : 1237500 - costo,
   markup: null,
   vendedor: 'Vendedor Ejemplo',
   tipo_comprobante: 'Fc',
-  numero_comprobante: 'A-0001',
+  numero_comprobante: 'A-0001-00012345',
+  ...over,
 });
 
-const OPERACIONES = [venta(1, 'NOTEBOOK CON COSTO SI', 600000), venta(2, 'NOTEBOOK SIN COTIZACION DEL DIA', null)];
+const OPERACIONES = [
+  venta(1, 'NOTEBOOK EJEMPLO 15" 16GB 512GB CON COSTO SI', 860000),
+  venta(2, 'NOTEBOOK EJEMPLO 14" SIN COTIZACION DEL DIA', null),
+];
 
-// Fixed 56px TopBar + EXPANDED sidebar, as asked for the PR captures.
-const Shell = ({ children }) => (
-  <div style={{ paddingTop: 'var(--cf-topbar-height)', paddingLeft: 'var(--cf-sidebar-width-expanded)' }}>{children}</div>
-);
-
-describe('Tienda Nube operaciones sin costo (visual)', () => {
-  beforeEach(() => {
-    api.get.mockReset();
-    api.get.mockImplementation((url) => {
-      if (url === '/ventas-tienda-nube') return Promise.resolve({ data: OPERACIONES });
-      if (url === '/pricing-constants/actual') return Promise.resolve({ data: { comision_tienda_nube: 1 } });
-      if (url === '/ventas-tienda-nube/top-productos' || url === '/ventas-tienda-nube/por-marca') {
-        return Promise.resolve({ data: [] });
-      }
-      return Promise.resolve({ data: {} });
-    });
+beforeEach(() => {
+  vi.spyOn(api, 'get').mockImplementation((url) => {
+    if (url === '/ventas-tienda-nube') return Promise.resolve({ data: OPERACIONES });
+    if (url === '/pricing-constants/actual') return Promise.resolve({ data: { comision_tienda_nube: 1 } });
+    if (url === '/ventas-tienda-nube/top-productos' || url === '/ventas-tienda-nube/por-marca') {
+      return Promise.resolve({ data: [] });
+    }
+    return Promise.resolve({ data: url.startsWith('/ventas-tienda-nube') ? {} : [] });
   });
+});
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+// The app's own layout: sidebar + content offset by the expanded sidebar (AppLayout), without the top bar.
+const renderPage = () =>
+  render(
+    <MemoryRouter initialEntries={['/dashboard-tienda-nube?tab=operaciones&fecha_desde=2026-11-01&fecha_hasta=2026-11-20']}>
+      <div id={ROOT_ID} className={layout.appLayout} style={{ height: '100vh', overflow: 'hidden' }}>
+        <Sidebar />
+        <div className={layout.mainWrapper} data-sidebar-expanded="true" data-sidebar-hidden="false">
+          <main className={layout.mainContent} style={{ marginTop: 0 }}>
+            <DashboardTiendaNube />
+          </main>
+        </div>
+      </div>
+    </MemoryRouter>,
+  );
+
+const fila = (texto) => [...document.querySelectorAll('tbody tr')].find((tr) => tr.textContent.includes(texto));
+// Intl writes "$\u00a0860.000": compare with a plain space.
+const texto = (el) => el.textContent.replace(/\u00a0/g, ' ');
+// The lines an amount's own text takes (its text node only, not the cell's other content).
+const lineasDelImporte = (celda) => {
+  const walker = document.createTreeWalker(celda, NodeFilter.SHOW_TEXT);
+  for (let nodo = walker.nextNode(); nodo; nodo = walker.nextNode()) {
+    if (!/\$\s?[\d.]/.test(nodo.textContent.replace(/\u00a0/g, ' '))) continue;
+    const rango = document.createRange();
+    rango.selectNodeContents(nodo);
+    return new Set([...rango.getClientRects()].map((r) => Math.round(r.top))).size;
+  }
+  return 0;
+};
+
+describe('Tienda Nube operaciones (visual)', () => {
   for (const theme of ['light', 'dark']) {
-    it(`1440 ${theme}: an unknown cost shows sin costo and no ganancia, a known one keeps its figures`, async () => {
+    it(`1440 ${theme}: fits next to the open sidebar; sin costo shows a dash, amounts formatted on one line`, async () => {
       await page.viewport(1440, 900);
       setTheme(theme);
-      document.body.style.background = 'var(--cf-bg-app)';
-      const screen = await render(
-        <Shell>
-          <DashboardTiendaNube />
-        </Shell>,
-      );
-      await expect.element(screen.getByText('NOTEBOOK SIN COTIZACION DEL DIA')).toBeVisible();
-      // the cost / ganancia / markup columns sit at the right end of the table's own horizontal scroll
-      for (let el = document.querySelector('table'); el; el = el.parentElement) el.scrollLeft = el.scrollWidth;
-      window.scrollTo(document.documentElement.scrollWidth, 0);
-      if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/tn-sin-costo-1440-${theme}.png` });
+      renderPage();
+      await expect.element(page.getByText('NOTEBOOK EJEMPLO 14" SIN COTIZACION DEL DIA')).toBeVisible();
+      if (SHOTS_DIR) {
+        await page.screenshot({
+          path: `${SHOTS_DIR}/tn-operaciones-1440-${theme}.png`,
+          element: document.getElementById(ROOT_ID),
+        });
+      }
 
-      const fila = (texto) => [...document.querySelectorAll('tbody tr')].find((tr) => tr.textContent.includes(texto));
-      const sinCosto = fila('NOTEBOOK SIN COTIZACION DEL DIA');
-      const conCosto = fila('NOTEBOOK CON COSTO SI');
-      expect(sinCosto.textContent).toContain('Sin costo');
-      const gananciaSinCosto = sinCosto.querySelector('td[title="Sin costo: la ganancia no se puede calcular"]');
-      expect(gananciaSinCosto?.textContent).toBe('—');
-      expect(sinCosto.textContent).not.toContain('990.000');
-      expect(conCosto.textContent).toContain('390.000');
-      screen.unmount();
+      const tabla = document.querySelector('table');
+      const contenedor = tabla.parentElement;
+      expect(contenedor.scrollWidth).toBeLessThanOrEqual(contenedor.clientWidth + 1);
+      expect(tabla.getBoundingClientRect().right).toBeLessThanOrEqual(1440);
+      expect(document.body.textContent).toContain('2 operaciones');
+      expect(document.body.textContent).not.toContain('operaciónes');
+
+      const conCosto = fila('CON COSTO SI');
+      const sinCosto = fila('SIN COTIZACION DEL DIA');
+      expect(texto(conCosto)).toContain('$ 860.000');
+      expect(texto(conCosto)).toContain('$ 1.250.000');
+      expect(texto(conCosto)).toContain('$ 377.500');
+      expect(texto(sinCosto)).toContain('Sin costo');
+      expect(sinCosto.querySelector('td[title="Sin costo: la ganancia no se puede calcular"]')?.textContent).toBe('—');
+      expect(texto(sinCosto)).not.toContain('1.237.500');
+
+      for (const celda of document.querySelectorAll('tbody td')) {
+        if (/\$\s?[\d.]+/.test(texto(celda))) expect(lineasDelImporte(celda), texto(celda)).toBe(1);
+      }
     });
   }
 });
