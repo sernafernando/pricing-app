@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
+import dataclasses
 from typing import Iterator
 
 import pytest
@@ -241,6 +242,28 @@ def test_the_sql_fragment_is_what_en_fechas_runs(engine: Engine) -> None:
         "costo_si_ars",
         "costo_si_tipo_cambio_fecha",
     ]
+
+
+@pytest.mark.parametrize("tc", [None, 2000.0])
+def test_the_current_row_fragment_is_what_actuales_runs(engine: Engine, tc) -> None:
+    """T3 PR 10: raw SQL that needs the CURRENT cost per row (consultas ranking) joins `sql_actual_fila` and gets
+    exactly `actuales`, never the list history `sql_en_fecha(..., CURRENT_DATE)` falls back to first (SIN: list 40
+    today, history 38)."""
+    _mundo(engine)
+    ids = [A, SIN, ARSP, ARSLISTA, NADA, COMBO, COMBO_MIX, COMBO_INCOMPLETO, PC]
+    tasa = "NULL::numeric" if tc is None else "CAST(:tc AS numeric)"
+    sql = text(
+        "SELECT v.item_id, cs.* FROM unnest(CAST(:ids AS integer[])) v(item_id)"
+        f" LEFT JOIN LATERAL ({lote.sql_actual_fila('v.item_id', tasa)}) cs ON true ORDER BY 1"
+    )
+
+    with _db(engine) as db:
+        filas = {r[0]: tuple(r[1:]) for r in db.execute(sql, {"ids": ids, "tc": tc})}
+        esperado = lote.actuales(db, ids, tipo_cambio=tc)
+
+    campos = [f.name for f in dataclasses.fields(Costo)][1:]  # every field but item_id, in `COLUMNAS` order
+    assert filas == {i: tuple(getattr(esperado[i], c) for c in campos) for i in ids}
+    assert filas[SIN][:3] == (D("40"), "USD", LISTA)
 
 
 def test_actual_subquery_sorts_a_listing_by_the_peso_cost_in_sql(engine: Engine) -> None:

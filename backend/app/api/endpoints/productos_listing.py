@@ -2847,7 +2847,6 @@ def obtener_producto(
         calcular_comision_ml_total,
         calcular_limpio,
         calcular_markup,
-        costo_ars_actual,
     )
 
     # PPP accumulator for this product (informational only; None-safe).
@@ -2915,8 +2914,13 @@ def obtener_producto(
         try:
             ctx_markups = build_pricing_context(db)
             grupo_id_markups = ctx_markups.grupo_of(producto_erp.subcategoria_id)
-            # Over costo SI in pesos (S13, D1; list cost without one, Q1); None = unknown: no markup.
-            costo_markups = costo_ars_actual(db, producto_erp.item_id, ctx_markups.tipo_cambio_usd)
+            # Over costo SI in pesos (S13, D1; list cost without one, Q1); None = unknown: no markup. The detail's one
+            # costo SI read (`costo_si_d`), converted at the pricing context's rate: never read a second time.
+            costo_d = costo_si_d.get(producto_erp.item_id)
+            costo_markups_ars = (
+                costo_si_lote.en_pesos(costo_d.costo, costo_d.moneda, ctx_markups.tipo_cambio_usd) if costo_d else None
+            )
+            costo_markups = None if costo_markups_ars is None else float(costo_markups_ars)
             envio_real_markups = resolver_costos_envio_batch(db, [producto_erp.item_id], pubs_by_item=pubs_by_item_d)
         except Exception as exc:
             if rebate_u_oferta:

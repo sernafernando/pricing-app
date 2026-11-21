@@ -57,17 +57,19 @@ class CardRentabilidadFuera(BaseModel):
     tipo: str  # marca, categoria, subcategoria, producto
     identificador: Optional[str] = None
 
-    # Métricas
+    # Métricas. monto_venta and total_ventas cover every sale; costo, ganancia and markups only the sales with a
+    # known cost (None when the card has none). ventas_sin_costo counts the sale lines without a cost.
     total_ventas: int
     monto_venta: float
-    costo_total: float
-    ganancia: float
-    markup_promedio: float
+    costo_total: Optional[float] = None
+    ganancia: Optional[float] = None
+    markup_promedio: Optional[float] = None
+    ventas_sin_costo: int = 0
 
     # Offsets aplicados
     offset_total: float
-    ganancia_con_offset: float
-    markup_con_offset: float
+    ganancia_con_offset: Optional[float] = None
+    markup_con_offset: Optional[float] = None
 
     # Desglose de offsets aplicados
     desglose_offsets: Optional[List[DesgloseOffset]] = None
@@ -197,6 +199,8 @@ def get_base_ventas_query(grupo_by: str, filtros_extra: str = "", vendedores_exc
         group_by = "item_id, codigo, descripcion"
         where_not_null = "item_id IS NOT NULL"
 
+    # A line whose cost is NULL (unknown, costo SI) or 0 (legacy unknown: a real cost is never 0) is "sin costo":
+    # it counts in monto_venta, never in the cost figures (never COALESCE(costo, 0)).
     return f"""
     SELECT
         {select_campos},
@@ -204,8 +208,10 @@ def get_base_ventas_query(grupo_by: str, filtros_extra: str = "", vendedores_exc
         SUM(monto_total * signo) as monto_venta,
         SUM(costo_total * signo) as costo_total,
         SUM(ganancia * signo) as ganancia,
-        SUM(monto_total * signo) as monto_con_costo,
-        SUM(costo_total * signo) as costo_con_costo
+        SUM(monto_total * signo) FILTER (WHERE costo_total <> 0) as monto_con_costo,
+        SUM(costo_total * signo) FILTER (WHERE costo_total <> 0) as costo_con_costo,
+        COUNT(*) FILTER (WHERE costo_total <> 0) as lineas_con_costo,
+        COUNT(*) FILTER (WHERE costo_total IS NULL OR costo_total = 0) as ventas_sin_costo
     FROM ventas_fuera_ml_metricas
     WHERE fecha_venta BETWEEN :from_date AND :to_date
         AND {where_not_null}
@@ -590,7 +596,7 @@ def obtener_rentabilidad_fuera(
         query_ventas = f"""
         SELECT
             SUM(cantidad * signo) as cantidad,
-            SUM(costo_total * signo) as costo
+            SUM(costo_total * signo) FILTER (WHERE costo_total <> 0) as costo
         FROM ventas_fuera_ml_metricas
         WHERE fecha_venta >= :periodo_inicio AND fecha_venta < :periodo_fin
             {filtro_sql_extra}
@@ -752,25 +758,28 @@ def obtener_rentabilidad_fuera(
     total_costo = 0.0
     total_ganancia = 0.0
     total_offset = 0.0
+    total_sin_costo = 0
+    total_con_costo = False
     total_desglose_offsets = []
 
     for r in resultados:
         cantidad_vendida = r.total_ventas
-        costo_total_item = float(r.costo_con_costo or 0)
+        tiene_costo = r.lineas_con_costo > 0
+        # Only the sales with a known cost: an unknown one adds nothing to the cost (porcentaje_costo offsets too).
+        costo_con_costo = float(r.costo_con_costo) if tiene_costo else 0.0
 
         # Calcular offsets con desglose
         offset_aplicable, desglose_offsets = calcular_offsets_para_card(
-            r.nombre, r.identificador, cantidad_vendida, costo_total_item
+            r.nombre, r.identificador, cantidad_vendida, costo_con_costo
         )
 
-        monto_con_costo = float(r.monto_con_costo or 0)
-        costo_con_costo = float(r.costo_con_costo or 0)
-        ganancia_con_costo = monto_con_costo - costo_con_costo
-
-        markup_promedio = ((ganancia_con_costo / costo_con_costo) * 100) if costo_con_costo > 0 else 0
-
-        ganancia_con_offset = ganancia_con_costo + offset_aplicable
-        markup_con_offset = ((ganancia_con_offset / costo_con_costo) * 100) if costo_con_costo > 0 else 0
+        monto_venta = float(r.monto_venta or 0)
+        ganancia_con_costo = markup_promedio = ganancia_con_offset = markup_con_offset = None
+        if tiene_costo:
+            ganancia_con_costo = float(r.monto_con_costo) - costo_con_costo
+            markup_promedio = ((ganancia_con_costo / costo_con_costo) * 100) if costo_con_costo > 0 else 0
+            ganancia_con_offset = ganancia_con_costo + offset_aplicable
+            markup_con_offset = ((ganancia_con_offset / costo_con_costo) * 100) if costo_con_costo > 0 else 0
 
         cards.append(
             CardRentabilidadFuera(
@@ -778,10 +787,11 @@ def obtener_rentabilidad_fuera(
                 tipo=nivel,
                 identificador=str(r.identificador) if r.identificador else None,
                 total_ventas=r.total_ventas,
-                monto_venta=monto_con_costo,
-                costo_total=costo_con_costo,
+                monto_venta=monto_venta,
+                costo_total=costo_con_costo if tiene_costo else None,
                 ganancia=ganancia_con_costo,
                 markup_promedio=markup_promedio,
+                ventas_sin_costo=r.ventas_sin_costo,
                 offset_total=offset_aplicable,
                 ganancia_con_offset=ganancia_con_offset,
                 markup_con_offset=markup_con_offset,
@@ -790,9 +800,12 @@ def obtener_rentabilidad_fuera(
         )
 
         total_ventas += r.total_ventas
-        total_monto_venta += monto_con_costo
-        total_costo += costo_con_costo
-        total_ganancia += ganancia_con_costo
+        total_monto_venta += monto_venta
+        total_sin_costo += r.ventas_sin_costo
+        if tiene_costo:
+            total_con_costo = True
+            total_costo += costo_con_costo
+            total_ganancia += ganancia_con_costo
         total_offset += offset_aplicable
         if desglose_offsets:
             total_desglose_offsets.extend(desglose_offsets)
@@ -813,9 +826,11 @@ def obtener_rentabilidad_fuera(
             )
         desglose_totales_agrupado[key].monto += d.monto
 
-    total_markup = ((total_ganancia / total_costo) * 100) if total_costo > 0 else 0
-    total_ganancia_con_offset = total_ganancia + total_offset
-    total_markup_con_offset = ((total_ganancia_con_offset / total_costo) * 100) if total_costo > 0 else 0
+    total_markup = total_ganancia_con_offset = total_markup_con_offset = None
+    if total_con_costo:
+        total_markup = ((total_ganancia / total_costo) * 100) if total_costo > 0 else 0
+        total_ganancia_con_offset = total_ganancia + total_offset
+        total_markup_con_offset = ((total_ganancia_con_offset / total_costo) * 100) if total_costo > 0 else 0
 
     totales = CardRentabilidadFuera(
         nombre="TOTAL",
@@ -823,9 +838,10 @@ def obtener_rentabilidad_fuera(
         identificador=None,
         total_ventas=total_ventas,
         monto_venta=total_monto_venta,
-        costo_total=total_costo,
-        ganancia=total_ganancia,
+        costo_total=total_costo if total_con_costo else None,
+        ganancia=total_ganancia if total_con_costo else None,
         markup_promedio=total_markup,
+        ventas_sin_costo=total_sin_costo,
         offset_total=total_offset,
         ganancia_con_offset=total_ganancia_con_offset,
         markup_con_offset=total_markup_con_offset,

@@ -108,9 +108,9 @@ Promo aplicada: el renglón **Promo aplicada** (en todas las vistas) tiene **Tod
 
 Permiso: **Ver auditoría de stock** (ml_publicaciones.ver_auditoria_stock). Sin ese permiso la vista no aparece, y un link a ella abre **Publicaciones**.
 
-Es la última vista (**Auditoría de stock**; en el celular, **Auditoría**). Muestra cuánto vale el stock propio y el de Full, a costo sin IVA, producto por producto:
+Es la última vista (**Auditoría de stock**; en el celular, **Auditoría**). Muestra cuánto vale el stock propio y el de Full, a costo sin IVA, producto por producto. El costo es el **costo SI** (el promedio móvil con sell in); un producto sin costo SI usa el costo de lista, y un combo, la suma de sus componentes:
 
-- Debajo de la barra de acciones se lee la base del cálculo: **Valor a costo sin IVA · Dólar BNA de hoy $ X · Las variantes no suman su stock ERP a la base; sus unidades en Full sí**.
+- Debajo de la barra de acciones se lee la base del cálculo: **Valor a costo SI sin IVA · Dólar BNA de hoy $ X · Las variantes no suman su stock ERP a la base; sus unidades en Full sí**.
 - Indicadores: **Valor stock ERP**, **Valor stock Full** y **Valor stock total** (en dólares y, abajo, en pesos), **Unidades** (ERP, Full y total), **Con stock sin publicación activa** (cuántos productos y cuánto vale su stock) y **Productos con stock** con y sin promo aplicada. Cuentan todos los productos que dejan los filtros, no solo la página. El botón **Indicadores** elige cuáles se ven.
 - **Ver por** (arriba de la tabla) elige desde dónde arranca: **Marca** (al entrar), **Categoría** o **Producto**. Una marca se abre en sus categorías y una categoría en sus productos; de ahí para abajo es igual que antes. Un clic en una marca o una categoría (o en **Ver categorías** / **Ver productos**, debajo del nombre) baja un nivel mostrando solo esa marca o categoría; arriba aparece el camino (**Todas las marcas › DEMO**) para volver. El nivel, a dónde bajaste y las filas abiertas quedan al recargar, y el nivel y a dónde bajaste se guardan en los presets.
 - Una marca o una categoría muestra las mismas columnas que un producto, sumando sus productos con las mismas reglas (el stock en unidades del producto, sin contar dos veces variantes y combos; la cobertura y la rotación se calculan sobre los totales, no se promedian). Si alguno de sus productos no tiene costo, el valor es el de los que sí tienen y debajo dice cuántos faltan (**1 producto sin costo**), como en las tarjetas.
@@ -130,7 +130,7 @@ Es la última vista (**Auditoría de stock**; en el celular, **Auditoría**). Mu
 - Al hacer clic en un título se ordena por esa columna, de a una por vez, en cualquier nivel (también los productos que se abren dentro de una categoría). Arranca por **Valor total**, de mayor a menor.
 - Los filtros son los mismos que en las otras vistas.
 - **Exportar** descarga un Excel con todas las filas de la auditoría (no solo la página), con los filtros, el nivel de **Ver por**, a dónde bajaste y el orden de la pantalla: una fila por producto base y, debajo, una por cada variante o combo, con el stock, su valor en dólares y en pesos y, según tus permisos, las ventas, la última venta, el ageing, los días de cobertura, la rotación, el Total Gauss y el markup. **Acciones masivas** y **Pausar / activar** no están en esta vista.
-- Un producto con stock y sin costo no se valoriza como 0: su valor dice **—** y, debajo de las tarjetas de valor, una nota avisa cuántos hay (**1 producto sin costo**); los totales no incluyen ese stock. Si falta el dólar BNA del día, el valor en la otra moneda también dice **—**.
+- Un producto con stock y sin costo (sin costo SI ni costo de lista) no se valoriza como 0: su valor dice **—** y, debajo de las tarjetas de valor, una nota avisa cuántos hay (**1 producto sin costo**); los totales no incluyen ese stock. Si falta el dólar BNA del día, el valor en la otra moneda también dice **—**.
 
 ## Hay mejores ofertas
 

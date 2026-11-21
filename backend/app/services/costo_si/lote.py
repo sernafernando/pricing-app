@@ -301,3 +301,11 @@ def combos_con(db: Session, item_ids: Iterable[int]) -> Dict[int, List[int]]:
         if combo not in pcs:
             out.setdefault(componente, []).append(combo)
     return out
+
+
+def sql_actual_fila(item: str, tipo_cambio: str = "NULL::numeric") -> str:
+    """The CURRENT cost of the SQL expression `item` as one row with `COLUMNAS`: exactly what `actuales` answers (the
+    list cost from `productos_erp`, never the list history `sql_en_fecha` falls back to). `tipo_cambio`: an SQL
+    expression for the caller's USD rate; NULL = the latest one. Use it as
+    `LEFT JOIN LATERAL ({sql_actual_fila("p.item_id", ":tc")}) cs ON true` (sell-in-costo-si T3 PR 10)."""
+    return _fragmento(item, None, _tc_en("CURRENT_DATE", propio=f"CAST({tipo_cambio} AS numeric)"))

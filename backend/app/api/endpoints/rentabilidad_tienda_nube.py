@@ -96,13 +96,16 @@ class CardRentabilidad(BaseModel):
     monto_venta: float
     comision_tn: float  # Comisión de Tienda Nube
     monto_limpio: float  # Monto venta - comisión
-    costo_total: float
-    ganancia: float  # Monto limpio - costo
-    markup_promedio: float
+    # monto_venta, comisión, monto_limpio and total_ventas cover every sale; costo, ganancia and markups only the
+    # sales with a known cost (None when the card has none). ventas_sin_costo counts the sale lines without a cost.
+    costo_total: Optional[float] = None
+    ganancia: Optional[float] = None  # Monto limpio de las ventas con costo - costo
+    markup_promedio: Optional[float] = None
+    ventas_sin_costo: int = 0
 
     offset_total: float
-    ganancia_con_offset: float
-    markup_con_offset: float
+    ganancia_con_offset: Optional[float] = None
+    markup_con_offset: Optional[float] = None
 
     desglose_offsets: Optional[List[DesgloseOffset]] = None
     desglose_marcas: Optional[List[DesgloseMarca]] = None
@@ -136,7 +139,9 @@ def get_ventas_tienda_nube_base_query():
         costo_total * signo as costo_total,
         comision_monto * signo as comision_monto,
         ganancia * signo as ganancia,
-        signo
+        signo,
+        -- NULL (unknown, costo SI) or 0 (legacy unknown: a real cost is never 0) = "sin costo"
+        COALESCE(costo_total <> 0, false) as con_costo
     FROM ventas_tienda_nube_metricas
     WHERE fecha_venta BETWEEN :from_date AND :to_date
     """
@@ -239,7 +244,10 @@ def obtener_rentabilidad_tienda_nube(
         {select_identificador} as identificador,
         COUNT(*) as total_ventas,
         COALESCE(SUM(monto_total), 0) as monto_venta,
-        COALESCE(SUM(costo_total), 0) as costo_total,
+        SUM(monto_total) FILTER (WHERE con_costo) as monto_con_costo,
+        SUM(costo_total) FILTER (WHERE con_costo) as costo_total,
+        COUNT(*) FILTER (WHERE con_costo) as lineas_con_costo,
+        COUNT(*) FILTER (WHERE NOT con_costo) as ventas_sin_costo,
         COALESCE(SUM(cantidad), 0) as cantidad_total
     FROM ventas
     WHERE {select_nombre} IS NOT NULL {item_id_filter} {filtros_where}
@@ -507,7 +515,7 @@ def obtener_rentabilidad_tienda_nube(
             categoria,
             subcategoria,
             COUNT(*) as cantidad,
-            COALESCE(SUM(costo_total), 0) as costo
+            SUM(costo_total) FILTER (WHERE con_costo) as costo
         FROM ventas
         WHERE item_id IS NOT NULL {filtros_where}
         GROUP BY item_id, marca, categoria, subcategoria
@@ -756,27 +764,34 @@ def obtener_rentabilidad_tienda_nube(
     total_costo = 0.0
     total_ganancia = 0.0
     total_offset = 0.0
+    total_sin_costo = 0
+    total_con_costo = False
     total_desglose = []
 
     for r in resultados:
         cantidad_vendida = r.total_ventas
-        costo_total_item = float(r.costo_total or 0)
+        tiene_costo = r.lineas_con_costo > 0
+        # Only the sales with a known cost: an unknown one adds nothing to the cost (porcentaje_costo offsets too).
+        costo_total = float(r.costo_total) if tiene_costo else 0.0
 
         offset_aplicable, desglose_offsets = calcular_offsets_para_card(
-            r.nombre, r.identificador, cantidad_vendida, costo_total_item
+            r.nombre, r.identificador, cantidad_vendida, costo_total
         )
 
         monto_venta = float(r.monto_venta or 0)
-        costo_total = float(r.costo_total or 0)
 
-        # Calcular comisión de TN y monto limpio
+        # Calcular comisión de TN y monto limpio (de todas las ventas)
         comision_tn = monto_venta * (comision_tn_pct / 100)
         monto_limpio = monto_venta - comision_tn
-        ganancia = monto_limpio - costo_total
 
-        markup_promedio = ((ganancia / costo_total) * 100) if costo_total > 0 else 0
-        ganancia_con_offset = ganancia + offset_aplicable
-        markup_con_offset = ((ganancia_con_offset / costo_total) * 100) if costo_total > 0 else 0
+        ganancia = markup_promedio = ganancia_con_offset = markup_con_offset = None
+        if tiene_costo:
+            # The ganancia only covers the sales with a known cost: their monto limpio minus their cost.
+            monto_con_costo = float(r.monto_con_costo)
+            ganancia = monto_con_costo - monto_con_costo * (comision_tn_pct / 100) - costo_total
+            markup_promedio = ((ganancia / costo_total) * 100) if costo_total > 0 else 0
+            ganancia_con_offset = ganancia + offset_aplicable
+            markup_con_offset = ((ganancia_con_offset / costo_total) * 100) if costo_total > 0 else 0
 
         cards.append(
             CardRentabilidad(
@@ -787,9 +802,10 @@ def obtener_rentabilidad_tienda_nube(
                 monto_venta=monto_venta,
                 comision_tn=comision_tn,
                 monto_limpio=monto_limpio,
-                costo_total=costo_total,
+                costo_total=costo_total if tiene_costo else None,
                 ganancia=ganancia,
                 markup_promedio=markup_promedio,
+                ventas_sin_costo=r.ventas_sin_costo,
                 offset_total=offset_aplicable,
                 ganancia_con_offset=ganancia_con_offset,
                 markup_con_offset=markup_con_offset,
@@ -801,8 +817,11 @@ def obtener_rentabilidad_tienda_nube(
         total_monto_venta += monto_venta
         total_comision_tn += comision_tn
         total_monto_limpio += monto_limpio
-        total_costo += costo_total
-        total_ganancia += ganancia
+        total_sin_costo += r.ventas_sin_costo
+        if tiene_costo:
+            total_con_costo = True
+            total_costo += costo_total
+            total_ganancia += ganancia
         total_offset += offset_aplicable
         if desglose_offsets:
             total_desglose.extend(desglose_offsets)
@@ -844,9 +863,11 @@ def obtener_rentabilidad_tienda_nube(
                 )
 
     # Calcular totales
-    total_ganancia_con_offset = total_ganancia + total_offset
-    total_markup = ((total_ganancia / total_costo) * 100) if total_costo > 0 else 0
-    total_markup_con_offset = ((total_ganancia_con_offset / total_costo) * 100) if total_costo > 0 else 0
+    total_ganancia_con_offset = total_markup = total_markup_con_offset = None
+    if total_con_costo:
+        total_ganancia_con_offset = total_ganancia + total_offset
+        total_markup = ((total_ganancia / total_costo) * 100) if total_costo > 0 else 0
+        total_markup_con_offset = ((total_ganancia_con_offset / total_costo) * 100) if total_costo > 0 else 0
 
     # Agrupar desglose de offsets totales
     desglose_agrupado = {}
@@ -872,9 +893,10 @@ def obtener_rentabilidad_tienda_nube(
         monto_venta=total_monto_venta,
         comision_tn=total_comision_tn,
         monto_limpio=total_monto_limpio,
-        costo_total=total_costo,
-        ganancia=total_ganancia,
+        costo_total=total_costo if total_con_costo else None,
+        ganancia=total_ganancia if total_con_costo else None,
         markup_promedio=total_markup,
+        ventas_sin_costo=total_sin_costo,
         offset_total=total_offset,
         ganancia_con_offset=total_ganancia_con_offset,
         markup_con_offset=total_markup_con_offset,

@@ -288,6 +288,20 @@ function StockRefreshBar({ lastUpdated, syncing, syncMessage, onRefresh }) {
 }
 
 // ---------------------------------------------------------------------------
+// "Sin costo": products with stock and an unknown cost are never valued as 0
+// ---------------------------------------------------------------------------
+
+function NotaSinCosto({ cantidad }) {
+  if (!cantidad) return null;
+  const texto = `${cantidad.toLocaleString('es-AR')} ${cantidad === 1 ? 'producto sin costo' : 'productos sin costo'}`;
+  return (
+    <span className={styles.notaSinCosto} title="Tienen stock pero no tienen costo: no suman en el valor costo">
+      {texto}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // KPI cards row
 // ---------------------------------------------------------------------------
 
@@ -307,6 +321,7 @@ function KpiCards({ data, loading }) {
         <span className={styles.kpiLabel}>Capital holdeado</span>
         <span className={styles.kpiValue}>{formatARS(data.capital_costo_ars)}</span>
         <span className={styles.kpiSub}>{formatUSD(data.capital_costo_usd)}</span>
+        <NotaSinCosto cantidad={data.productos_sin_costo} />
       </div>
 
       {/* Card 2: Stock muerto */}
@@ -401,8 +416,15 @@ function DiasGauge({ dias }) {
 // Cost cell: dual-currency stacked display
 // ---------------------------------------------------------------------------
 
-function CostCell({ valorCostoArs, valorCostoUsd }) {
-  if (valorCostoArs == null && valorCostoUsd == null) return <span>—</span>;
+function CostCell({ valorCostoArs, valorCostoUsd, sinCosto = false, notaSinCosto = 0 }) {
+  if (valorCostoArs == null && valorCostoUsd == null) {
+    if (!sinCosto) return <span>—</span>;
+    return (
+      <span className={styles.sinCosto} aria-label="Sin costo" title="Sin costo">
+        Sin costo
+      </span>
+    );
+  }
   return (
     <span className={styles.costCell}>
       <span className={styles.costRowPrimary}>
@@ -413,6 +435,7 @@ function CostCell({ valorCostoArs, valorCostoUsd }) {
         <span className={styles.costTag}>ARS</span>
         <span className={styles.costAmountSecondary}>{formatARS(valorCostoArs)}</span>
       </span>
+      <NotaSinCosto cantidad={notaSinCosto} />
     </span>
   );
 }
@@ -847,7 +870,11 @@ function DetalleTable({ items, total, loading, error, ordenColumnas, handleOrden
                   {item.total_stock ?? 0}
                 </td>
                 <td className={`${styles.td} ${styles.tdRight}`}>
-                  <CostCell valorCostoArs={item.valor_costo_ars} valorCostoUsd={item.valor_costo_usd} />
+                  <CostCell
+                    valorCostoArs={item.valor_costo_ars}
+                    valorCostoUsd={item.valor_costo_usd}
+                    sinCosto={(item.total_stock ?? 0) > 0}
+                  />
                 </td>
                 <td className={`${styles.td} ${styles.tdRight} ${styles.tdMono}`}>
                   {formatARS(item.valor_venta)}
@@ -967,7 +994,12 @@ function ResumenTable({ groupBy, onGroupByChange, data, loading, error }) {
                   <td className={`${styles.td} ${styles.tdRight} ${styles.tdMono}`}>{row.num_productos?.toLocaleString('es-AR') ?? '—'}</td>
                   <td className={`${styles.td} ${styles.tdRight} ${styles.tdMono}`}>{row.stock_total?.toLocaleString('es-AR') ?? '—'}</td>
                   <td className={`${styles.td} ${styles.tdRight}`}>
-                    <CostCell valorCostoArs={row.valor_costo_ars} valorCostoUsd={row.valor_costo_usd} />
+                    <CostCell
+                      valorCostoArs={row.valor_costo_ars}
+                      valorCostoUsd={row.valor_costo_usd}
+                      sinCosto={row.productos_sin_costo > 0}
+                      notaSinCosto={row.productos_sin_costo}
+                    />
                   </td>
                   <td className={`${styles.td} ${styles.tdRight} ${styles.tdMono}`}>{formatARS(row.valor_venta)}</td>
                 </tr>
@@ -981,7 +1013,12 @@ function ResumenTable({ groupBy, onGroupByChange, data, loading, error }) {
                   <td className={`${styles.td} ${styles.tdRight} ${styles.tdMono} ${styles.resumenTotalValue}`}>{data.totales.num_productos?.toLocaleString('es-AR') ?? '—'}</td>
                   <td className={`${styles.td} ${styles.tdRight} ${styles.tdMono} ${styles.resumenTotalValue}`}>{data.totales.stock_total?.toLocaleString('es-AR') ?? '—'}</td>
                   <td className={`${styles.td} ${styles.tdRight} ${styles.resumenTotalValue}`}>
-                    <CostCell valorCostoArs={data.totales.valor_costo_ars} valorCostoUsd={data.totales.valor_costo_usd} />
+                    <CostCell
+                      valorCostoArs={data.totales.valor_costo_ars}
+                      valorCostoUsd={data.totales.valor_costo_usd}
+                      sinCosto={data.totales.productos_sin_costo > 0}
+                      notaSinCosto={data.totales.productos_sin_costo}
+                    />
                   </td>
                   <td className={`${styles.td} ${styles.tdRight} ${styles.tdMono} ${styles.resumenTotalValue}`}>{formatARS(data.totales.valor_venta)}</td>
                 </tr>

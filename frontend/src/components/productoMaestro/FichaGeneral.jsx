@@ -159,10 +159,19 @@ function Texto({ def, maestro, edits, editable, onTexto }) {
   );
 }
 
+/** The costo SI in its currency (sell-in-costo-si S13): marked when the list cost stands in for it, "Sin costo" when
+ * no cost is known (never 0). */
+function costoSi({ costo_si: costo, costo_si_moneda: codigo, costo_si_fuente: fuente }) {
+  if (costo === null || costo === undefined) return 'Sin costo';
+  const valor = moneda(codigo, costo);
+  return fuente === 'lista' ? `${valor} (de lista)` : valor;
+}
+
 function Lectura({ lectura, vinculo }) {
   const tn = vinculo?.tn;
   const filas = [
     ['Costo', moneda(lectura.moneda_costo, lectura.costo)],
+    ['Costo SI', costoSi(lectura)],
     ['IVA', lectura.iva != null ? `${numero(lectura.iva)} %` : '—'],
     ['Stock', numero(lectura.stock)],
     ['Precio lista ML', pesos(lectura.precio_lista_ml)],

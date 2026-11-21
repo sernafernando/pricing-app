@@ -24,7 +24,7 @@ Para notebooks y PCs tiene además las **Specs técnicas** (procesador, memoria,
 - **Unidades por caja** es el mismo dato que se carga en **Gestión Full**: cambiarlo acá lo cambia allá. Para editarlo hace falta el permiso de Depósitos de Gestión Full; sin él se ve pero no se puede cambiar.
 - **Tienda Nube**: el producto de Tienda Nube vinculado, con su nombre, id, SKU, precio y si está publicado. **Automático por SKU** quiere decir que lo vinculó la sincronización por SKU; **Manual**, que alguien lo eligió acá. **Cambiar** abre un buscador con sugeridos (**Mismo EAN** primero, después **Nombre parecido**) y la búsqueda por nombre o SKU; **Vincular** lo vincula al toque. **Desvincular** lo deja sin vínculo. Un vínculo manual no lo cambia la sincronización de TN.
 - **Títulos y descripciones**: **Título ML**, **Título web**, **Descripción ML** y **Descripción web**. En **Tomar de** elegís de dónde sale cada texto: la publicación ganadora de Mercado Libre, **Tienda Nube**, **GBP**, el **Nombre** del producto o **Texto propio**. Un texto tomado de otro lado lo sigue cuando cambia; si lo escribís a mano pasa a **Texto propio** y queda fijo.
-- **Precio, stock y canales · solo lectura**: costo, IVA, stock, precio de lista ML, proveedor, publicaciones vinculadas y si está publicado en Tienda Nube.
+- **Precio, stock y canales · solo lectura**: costo de lista, **Costo SI** (el promedio con sell in que usan los cálculos; si el producto no tiene costo SI muestra el de lista con "(de lista)", y **Sin costo** si no hay ninguno), IVA, stock, precio de lista ML, proveedor, publicaciones vinculadas y si está publicado en Tienda Nube.
 
 ### Pestaña Specs técnicas (notebooks y PCs)
 

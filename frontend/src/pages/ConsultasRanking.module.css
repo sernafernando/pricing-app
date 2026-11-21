@@ -803,6 +803,19 @@
   white-space: nowrap;
 }
 
+/* Unknown cost: never shown as 0 (costo SI, L4.7) */
+.sinCosto {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.notaSinCosto {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 /* ---------------------------------------------------------------------------
    Sin PM label
    --------------------------------------------------------------------------- */

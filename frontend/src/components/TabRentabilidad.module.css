@@ -1399,3 +1399,27 @@
 .btnAgregarFiltro:hover {
   background: #2563eb;
 }
+
+/* Unknown cost (costo SI): shown as text, never as $0. Specific enough to win over `.cardMetrica span:last-child`. */
+.sinCosto,
+.cardMetrica span.sinCosto {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.notaSinCosto {
+  margin-top: var(--spacing-xs);
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}
+
+/* The total card is light text on a dark gradient in both themes: read like its labels (white, 0.7). */
+.totalCard .sinCosto,
+.totalCard .notaSinCosto {
+  color: inherit;
+  opacity: 0.7;
+}
+
+.totalCard .notaSinCosto {
+  margin-top: var(--spacing-sm);
+}

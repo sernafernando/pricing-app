@@ -165,6 +165,9 @@ class ResumenRow(BaseModel):
     valor_costo_ars: Optional[float] = Field(default=None, description="Suma de valor_costo_ars del grupo")
     valor_costo_usd: Optional[float] = Field(default=None, description="Suma de valor_costo_usd del grupo")
     valor_venta: Optional[float] = Field(default=None, description="Suma de valor_venta del grupo")
+    productos_sin_costo: int = Field(
+        default=0, description="Productos con stock y sin costo conocido: no suman en valor_costo_ars/usd"
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -213,6 +216,9 @@ class KpisResponse(BaseModel):
     )
     capital_venta_ars: Optional[float] = Field(
         default=None, description="SUM(valor_venta) — total potential sell value in ARS"
+    )
+    productos_sin_costo: int = Field(
+        default=0, description="Productos con stock y sin costo conocido: no suman en capital_costo_ars/usd"
     )
     capital_muerto_ars: Optional[float] = Field(
         default=None,

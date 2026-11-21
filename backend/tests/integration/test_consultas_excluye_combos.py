@@ -110,7 +110,8 @@ def test_including_combos_does_not_filter_them(user_con_permiso, path: str) -> N
     assert response.status_code == 200, response.text
     _assert_shape(path, response.json())
     assert executed
-    assert not any("combo_componentes" in sql or "tb_item_association" in sql for sql in executed)
+    # No combo filter. The costo SI reader still reads `combo_componentes` to value a combo as its components (S11).
+    assert not any(sql_no_es_combo("pe.item_id") in sql or "tb_item_association" in sql for sql in executed)
 
 
 @pytest.mark.parametrize("path", [RANKING, RESUMEN, KPIS])
