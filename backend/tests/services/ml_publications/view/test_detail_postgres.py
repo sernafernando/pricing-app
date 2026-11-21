@@ -626,7 +626,8 @@ class TestStatements:
         assert len(small) == len(large), (small, large)
         # 9: the inputs' read of the active promos (`markup_inputs._promo_revenues`); the shipping batch is separate
         # (stubbed here) and is the +1. 11 with costo SI (sell-in-costo-si T3 PR 5): the inputs' cost of the linked
-        # products and the sell in / sell out's (`lote.actuales`, one each)
+        # products (`lote.actuales`), one statement on the real reader, two in the `costo_si_lista` stand-in this
+        # module runs with (the products, the USD rate); the real reader is pinned in test_markup_inputs_postgres
         assert len(small) <= 11, small
         assert len(detail_of(client, headers, "MLA31").json()["links"]) == 251
 
