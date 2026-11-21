@@ -27,6 +27,7 @@ from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo
 from sqlalchemy import update
 
 from app.models.sell_in import SellInCompra, SellInCompraItem
+from app.services.ml_publications.view import markup as markup_module
 from app.services.ml_publications.view import markup_service
 from app.services.ml_publications.view.markup import unit_breakdown
 from tests.routers.test_ml_publications_view_markup import (  # noqa: F401
@@ -185,6 +186,7 @@ class TestPayload:
         # No USD rate at all (neither today's nor the costo SI reader's): the cost in pesos is unknown (interfaz §7:
         # NULL stays NULL and is logged), so there is no markup, no breakdown and no sell in / sell out companion,
         # never one priced over the USD figure taken as pesos.
+        markup_module._log_no_rate.cache_clear()
         monkeypatch.setattr(markup_service, "build_pricing_context", lambda db: make_ctx(tipo_cambio_usd=None))
         with pg.begin() as conn:
             seed.add_cost(conn, 70, 40.0, moneda_costo="USD", iva=10.5, envio=120.0)

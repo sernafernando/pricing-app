@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import date
+from functools import lru_cache
 from typing import Mapping, Optional, Sequence
 
 from app.services.ml_publications.pricelist_resolver import resolve_pricelist
@@ -145,6 +147,15 @@ def usd_rate(ctx: PricingContext, inputs: UnitInputs) -> Optional[float]:
     return ctx.tipo_cambio_usd or inputs.tipo_cambio or None
 
 
+@lru_cache(maxsize=4096)
+def _log_no_rate(producto_item_id: Optional[int], item_id: str, day: date) -> None:
+    """Once per publication and day, not once per unit priced: a set-wide sort without any USD rate would log every
+    unit of every request."""
+    logger.warning(
+        "costo SI: no USD rate for item %s (publication %s): its cost in pesos is unknown", producto_item_id, item_id
+    )
+
+
 def costo_en_pesos(ctx: PricingContext, inputs: UnitInputs) -> Optional[float]:
     """The unit cost (costo SI in the product's currency, L18) in pesos; None when unknown: no cost, or a USD cost
     with no rate at all (interfaz §7: NULL stays NULL and is logged), never the USD figure taken as pesos."""
@@ -154,11 +165,7 @@ def costo_en_pesos(ctx: PricingContext, inputs: UnitInputs) -> Optional[float]:
         return float(inputs.costo)
     rate = usd_rate(ctx, inputs)
     if not rate:
-        logger.warning(
-            "costo SI: no USD rate for item %s (publication %s): its cost in pesos is unknown",
-            inputs.producto_item_id,
-            inputs.item_id,
-        )
+        _log_no_rate(inputs.producto_item_id, inputs.item_id, ctx.hoy)
         return None
     return float(inputs.costo) * float(rate)
 

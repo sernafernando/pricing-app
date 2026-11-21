@@ -31,11 +31,11 @@ METRIC_SORTS: dict[str, tuple[str, bool]] = {
     "unidades_30d": ("w30d", False),
     "markup_30d": ("markup", True),
     "total_gauss_30d": ("tg", True),
-    # Real 30D c/ SO (D1, `real_so.markup_so_sql` over the row's sell out), the plain markup where none applies
-    # (what the column shows, Auditoría's rule); its Board reads the sell out (`SELL_SORTS`)
-    "markup_sell_30d": ("markup_sell", True),
+    # Real 30D c/ SO (D1): not a Board column, `metric_figure` computes it (`real_so.markup_so_sql` over the row's
+    # sell out, the plain markup where none applies: what the column shows); its Board reads the sell out
+    "markup_sell_30d": ("", True),
 }
-# the keys whose figure needs the Board's sell in / sell out (`BoardFilter.sell_in_out`)
+# the keys whose figure needs the Board's sell out (`BoardFilter.sell_in_out`; its sell in is never read, D1)
 SELL_SORTS = frozenset({"markup_sell_30d"})
 
 
@@ -78,7 +78,7 @@ def ranked_page(
 
 def metric_figure(rows: Any, key: str) -> Any:
     """The figure `key` names, only for a publication that sold in the window (null otherwise: last in either way).
-    Real 30D c/ SISO falls back to the plain markup where neither sell in nor sell out applies (what it shows)."""
+    Real 30D c/ SO falls back to the plain markup where no sold line has a sell out (what it shows)."""
     if key in SELL_SORTS:  # D1: the markup c/ SO (`real_so`), never the Board's sell in figures
         column = func.coalesce(real_so.markup_so_sql(rows.c), rows.c.markup)
     else:

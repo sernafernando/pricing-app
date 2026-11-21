@@ -89,8 +89,8 @@ PRODUCT_SORTS: dict[str, tuple[str, bool, bool]] = {
     "unidades_30d": ("w30d", False, True),
     "markup_30d": ("markup", True, True),
     "total_gauss_30d": ("tg", True, True),
-    # Real 30D c/ SISO: the Board's `markup_sell` over the summed row, the plain markup where neither applies (what
-    # the column shows); only on a page read with the sell in / sell out (`sell`)
+    # Real 30D c/ SO (D1): `real_so.markup_so_sql` over the summed row's sell out, the plain markup where none applies
+    # (what the column shows); only on a page read with the Board's sell out (`sell`)
     "markup_sell_30d": ("markup_sell_shown", True, True),
     "titulo": ("name", False, False),
 }
@@ -318,7 +318,7 @@ def _row(r: Any, today: date) -> board.Row:
 
 def _sell_of(r: Any) -> dict[str, Any]:
     """The summed sell in / sell out of a row read with them (`SELL_SUMMED`), as the Board's rows carry them; none
-    otherwise (the row then has no `markup_sell`, as a Board row read without them)."""
+    otherwise (the row then has no markup c/ SO, as a Board row read without them)."""
     if "sell_out_lineas" not in r:
         return {}
     money = {name: board.cents(r[name]) for name in ("sell_out", "m_sell_out")}
@@ -437,7 +437,7 @@ def list_products(
     """The linked-product rows of the MLAs `f` selects at `[offset, offset + limit)`, in the order `orden` (then
     `then`) names. With `cost` (only for who sees the margin) each row's product cost too, and with `pricing_db` the
     PPP and sell in lines under it; without `cost`, none of them is even read. `sell` reads the sell in / sell out
-    of the Board (each row's `markup_sell`)."""
+    of the Board (each row's markup c/ SO, `real_so`; the Board's sell in is never read, D1)."""
     key = parse_sort(orden, then)
     if f.sin_mla:
         rows = _sin_mla_rows(db, f)

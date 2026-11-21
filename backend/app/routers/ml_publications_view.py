@@ -307,8 +307,8 @@ class MetricsOut(BaseModel):
     series_markup_90d: Optional[list[Optional[float]]] = None
     # with `desglose_envio` (auditoria-stock-niveles S3): "7d" / "30d" -> its units by ERP and Full
     envio: Optional[dict[str, StockEnvioWindowOut]] = None
-    # the Board's markup with sell in / sell out (`board.SellInOut.markup_sell`, Auditoría's Real 30D); null where
-    # neither applies (never a copy of `markup_30d`); with `ml_metricas.ver_ganancia` only
+    # Real 30D c/ SO (D1, `real_so.markup_so`: the sell out added to the profit over the plain cost, the Board's sell
+    # in never read); null where no sold line has a sell out (never a copy of `markup_30d`); ver_ganancia only
     markup_sell_30d: Optional[float] = None
 
 

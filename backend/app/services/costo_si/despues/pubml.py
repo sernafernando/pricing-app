@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.models.ml_publications import MlItemProductLink
 from app.services import catalog_competition_refresh_queue, ml_hay_mejores_pendientes
-from app.services.catalog_competition_target import mla_for_catalog_competition_refresh
+from app.services.catalog_competition_target import mlas_for_catalog_competition_refresh
 from app.services.costo_si import lote
 from app.services.costo_si.despues import registrar
 from app.services.ml_publications.links import STATUS_LINKED
@@ -53,7 +53,7 @@ def _on_costo_si(db: Session, item_id: int, desde: date) -> None:
     if not mlas:
         return
     ml_hay_mejores_pendientes.agregar(db, mlas)
-    targets = sorted({t for t in (mla_for_catalog_competition_refresh(db, mla) for mla in mlas) if t})
+    targets = sorted(mlas_for_catalog_competition_refresh(db, mlas))  # three statements, whatever the MLAs
     if targets:
         with db.begin_nested():
             catalog_competition_refresh_queue.enqueue(db, targets, datetime.now(UTC))

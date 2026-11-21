@@ -231,12 +231,15 @@ class TestUsdCostWithoutTheScreensRate:
     """Interfaz §7: a USD rate that is unknown stays unknown (NULL, logged), never coalesced; the unit cost of a USD
     product never reaches the markup as its USD figure taken as pesos."""
 
-    def test_with_no_rate_at_all_the_cost_is_unknown_and_logged(self, caplog):
+    def test_with_no_rate_at_all_the_cost_is_unknown_and_logged_once_a_day(self, caplog):
+        markup_module._log_no_rate.cache_clear()
         ctx = make_ctx(tipo_cambio_usd=None)
+        inputs = make_inputs(costo=40.0, moneda_costo="USD", tipo_cambio=None)
         with caplog.at_level("WARNING", logger=markup_module.__name__):
-            got = unit_markup(ctx, make_inputs(costo=40.0, moneda_costo="USD", tipo_cambio=None), {})
+            got = unit_markup(ctx, inputs, {})
+            unit_markup(ctx, inputs, {})  # a second pricing of the same unit the same day: no second line
         assert (got.value, got.reason, got.costo_ars) == (None, "sin_costo", None)
-        assert "costo SI: no USD rate for item 555 (publication MLA1854372829)" in caplog.text
+        assert caplog.text.count("costo SI: no USD rate for item 555 (publication MLA1854372829)") == 1
 
     def test_without_the_screens_rate_it_converts_at_the_costo_si_readers(self):
         ctx = make_ctx(tipo_cambio_usd=None)

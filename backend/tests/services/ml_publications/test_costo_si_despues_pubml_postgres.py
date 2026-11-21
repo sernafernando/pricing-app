@@ -12,12 +12,13 @@ from datetime import date
 from typing import Iterator
 
 import pytest
-from sqlalchemy import Engine
+from sqlalchemy import Engine, event
 from sqlalchemy.orm import sessionmaker
 
 from app.models.catalog_competition_refresh_pending import CatalogCompetitionRefreshPending
 from app.models.worker_job_state import WorkerJobState
 from app.services import ml_hay_mejores_pendientes as pendientes
+from app.services import catalog_competition_target as target
 from app.services.costo_si import despues
 from app.services.costo_si.despues import pubml
 from tests.services.costo_si import _world as w
@@ -42,7 +43,6 @@ def engine() -> Iterator[Engine]:
             table.create(bind=engine)
         # The ML columns the world's stand-ins leave out and these consumers read.
         w.run(engine, "ALTER TABLE ml_items ADD COLUMN catalog_listing BOOLEAN")
-        w.run(engine, "ALTER TABLE ml_item_product_links ADD COLUMN match_status TEXT DEFAULT 'linked'")
         yield engine
 
 
@@ -135,6 +135,29 @@ def test_enqueues_the_catalog_competition_refresh_of_the_catalog_listing(engine:
     _despachar(engine)
 
     assert w.rows(engine, "SELECT mla FROM catalog_competition_refresh_pending ORDER BY mla") == [("MLA11",)]
+
+
+def test_the_batch_target_is_the_one_mla_resolver_of_every_mla(engine: Engine) -> None:
+    """`mlas_for_catalog_competition_refresh` keeps `mla_for_catalog_competition_refresh`'s rule, in three
+    statements: a catalog listing is its own target, a plain one leads to its product's lowest catalog listing."""
+    _mundo(engine)
+    _publicacion(engine, "MLA13", P, catalogo=True)  # a second catalog listing of P: the lowest id wins
+    _publicacion(engine, "MLA41", OTRO)  # a plain listing of OTRO: its catalog sister MLA40
+    mlas = ["MLA10", "MLA11", "MLA12", "MLA13", "MLA20", "MLA30", "MLA41", "MLA99"]
+    with sessionmaker(bind=engine)() as db:
+        one_by_one = {t for t in (target.mla_for_catalog_competition_refresh(db, m) for m in mlas) if t}
+        statements: list[str] = []
+
+        def record(connection, cursor, statement, *rest) -> None:
+            statements.append(statement)
+
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            batch = target.mlas_for_catalog_competition_refresh(db, mlas)
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+    assert batch == one_by_one == {"MLA11", "MLA13", "MLA40"}
+    assert len(statements) == 3
 
 
 def test_a_product_without_publications_queues_nothing(engine: Engine) -> None:
