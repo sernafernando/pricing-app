@@ -452,9 +452,10 @@ def _resolve_cost_en_fecha(
     fecha_venta: date,
 ) -> Optional[_ResolvedCost]:
     """One item's cost snapshot at the sale date through the reader: the linkage (`_productos_por_item`) and a known
-    IVA rate (`tiene_iva_conocido`) as before costo SI, and the cost, currency, rate and pesos as `lote` gives them. Unknown (no cost, or a USD cost with no rate) -> `None`, no row (unknown is not
-    zero). `fuente`: costo SI -> `costo_si_pub` / `costo_si_sku` / `costo_si_combo`; list cost -> the linkage's
-    `erp_publicacion` / `erp_sku`, or `combo` for a summed combo -- the same rule `recongelar_costo_si` writes."""
+    IVA rate (`tiene_iva_conocido`) as before costo SI, and the cost, currency, rate and pesos as `lote` gives them.
+    Unknown (no cost, or a USD cost with no rate) -> `None`, no row (unknown is not zero). `fuente`: costo SI ->
+    `costo_si_pub` / `costo_si_sku` / `costo_si_combo`; list cost -> the linkage's `erp_publicacion` / `erp_sku`, or
+    `combo` for a summed combo -- the same rule `recongelar_costo_si` writes."""
     if resuelto is None:
         return None
     producto, vinculo = resuelto
