@@ -23,6 +23,9 @@ import app.models.tb_supplier  # noqa: F401
 
 from app.models.producto import ProductoERP
 from app.models.comision_versionada import ComisionVersion, ComisionBase
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 (the costo SI reader's SQLite stand-in)
+
+pytestmark = pytest.mark.usefixtures("costo_si_lista")
 
 
 MOCKED_ENVIO = 9999.0  # deliberately unusual value; must appear in both consumers
