@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Optional
+from typing import Iterable, Optional
 
 from sqlalchemy import and_, delete, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
@@ -90,17 +90,32 @@ def _automatico(linea: VentaFueraOperacionLinea, resolucion: Optional[Resolucion
 
 
 Costos = dict[tuple[int, date], Optional[Decimal]]
+Desglosados = dict[VentaFueraOperacion, set[int]]
 
 
-def _costo_erp(db: Session, linea: VentaFueraOperacionLinea, costos: Optional[Costos] = None) -> Decimal:
+def _desglosados(db: Session, lineas: Iterable[VentaFueraOperacionLinea]) -> Desglosados:
+    """The combos broken down in the documents of `lineas`, by operation, from their lines as they are now (owner L19,
+    `costo_erp.combos_desglosados`): one call for every document a loop touches. Keyed by the operation object, not
+    its id: a load re-applies its fixes before the new operations are flushed."""
+    hermanas = {linea.operacion: [otra.item_id for otra in linea.operacion.lineas] for linea in lineas}
+    return combos_desglosados(db, hermanas) if hermanas else {}
+
+
+def _costo_erp(
+    db: Session,
+    linea: VentaFueraOperacionLinea,
+    costos: Optional[Costos] = None,
+    desglosados: Optional[Desglosados] = None,
+) -> Decimal:
     """The line's Precio Costo from the costo SI of its current product and sale date (0 without product, and 0 for a
-    combo whose document brings its breakdown, owner L19: `costo_erp.combos_desglosados` on the document's lines as
-    they are now). `costos`: unit costs already fetched in one batch (`costos_unitarios`), so a loop does not query
-    the cost per line."""
+    combo whose document brings its breakdown, owner L19). `costos` and `desglosados`: unit costs
+    (`costos_unitarios`) and broken-down combos (`_desglosados`) already fetched in one batch, so a loop does not
+    query per line."""
     if linea.item_id is None:
         return precio_costo(None, linea.cantidad)
-    hermanas = {linea.operacion_id: [otra.item_id for otra in linea.operacion.lineas]}
-    if linea.item_id in combos_desglosados(db, hermanas)[linea.operacion_id]:
+    if desglosados is None:
+        desglosados = _desglosados(db, [linea])
+    if linea.item_id in desglosados.get(linea.operacion, set()):
         return precio_costo(None, linea.cantidad)
     if costos is None:
         return precio_costo_erp(db, linea.item_id, linea.operacion.fecha, linea.cantidad)
@@ -113,21 +128,28 @@ def aplicar(
     override: VentaFueraLineaOverride,
     resolucion: Optional[Resolucion],
     costos: Optional[Costos] = None,
+    desglosados: Optional[Desglosados] = None,
 ) -> None:
-    """Write the fix on the line (`resolucion`: the automatic product, used when the fix sets none; `costos`:
-    unit costs fetched in one batch, see `_costo_erp`)."""
+    """Write the fix on the line (`resolucion`: the automatic product, used when the fix sets none; `costos` and
+    `desglosados`: fetched in one batch, see `_costo_erp`)."""
     if linea.precio_costo_pdf is None:
         linea.precio_costo_pdf = linea.precio_costo
+    _producto(linea, override, resolucion)
+    linea.precio_costo = (
+        precio_costo_manual(override.costo_unitario, linea.cantidad)
+        if override.costo_unitario is not None
+        else _costo_erp(db, linea, costos, desglosados)
+    )
+    linea.override_estado = override.estado = APLICADO
+
+
+def _producto(
+    linea: VentaFueraOperacionLinea, override: VentaFueraLineaOverride, resolucion: Optional[Resolucion]
+) -> None:
     if override.item_id is not None:
         linea.item_id, linea.item_origen = override.item_id, ORIGEN_MANUAL
     else:
         _automatico(linea, resolucion)
-    linea.precio_costo = (
-        precio_costo_manual(override.costo_unitario, linea.cantidad)
-        if override.costo_unitario is not None
-        else _costo_erp(db, linea, costos)
-    )
-    linea.override_estado = override.estado = APLICADO
 
 
 def aplicar_en_carga(
@@ -165,18 +187,25 @@ def aplicar_en_carga(
             and (override.item_id is not None or linea.item_id is not None)
         ],
     )
-    aplicados = revisar = 0
+    aplicables = []
+    revisar = 0
     for override, linea in pares:
         if linea is not None and _snapshot_igual(override, linea):
             automatica = Resolucion(linea.item_id, linea.item_origen) if linea.item_id is not None else None
-            aplicar(db, linea, override, automatica, costos)
-            aplicados += 1
+            aplicables.append((override, linea, automatica))
         else:
             override.estado = REVISAR
             if linea is not None:
                 linea.override_estado = REVISAR
             revisar += 1
-    return aplicados, revisar
+    # Every fix's product first, then one breakdown check of their documents as they end up (a fix may change which
+    # combo a document breaks down).
+    for override, linea, automatica in aplicables:
+        _producto(linea, override, automatica)
+    desglosados = _desglosados(db, [linea for _, linea, _ in aplicables])
+    for override, linea, automatica in aplicables:
+        aplicar(db, linea, override, automatica, costos, desglosados)
+    return len(aplicables), revisar
 
 
 def _linea(db: Session, linea_id: int) -> VentaFueraOperacionLinea:
@@ -298,9 +327,11 @@ def _recordar(db: Session, linea: VentaFueraOperacionLinea, item_id: int, usuari
     costos = costos_unitarios(db, [(item_id, otra.operacion.fecha) for otra in otras])
     for otra in otras:
         otra.item_id, otra.item_origen = item_id, ORIGEN_MAPEO
+    desglosados = _desglosados(db, otras)
+    for otra in otras:
         # Only an APPLIED manual cost keeps the line's cost; one flagged 'revisar' is not on the line.
         if tuple(_clave(otra).values()) not in con_costo_manual:
-            otra.precio_costo = _costo_erp(db, otra, costos)
+            otra.precio_costo = _costo_erp(db, otra, costos, desglosados)
 
 
 def quitar(db: Session, linea_id: int) -> VentaFueraOperacionLinea:

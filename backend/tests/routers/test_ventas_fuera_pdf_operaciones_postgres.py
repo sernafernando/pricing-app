@@ -37,6 +37,7 @@ from app.core.database import get_async_db, get_db
 from app.models.sell_dirty import SellDirty
 from app.routers import ventas_fuera_pdf
 from app.services.sell import queue
+from app.services.ventas_fuera_pdf import overrides
 from tests.services.sell._schema import throwaway_schema
 from tests.services.ventas_fuera_pdf._mundo import (
     EMPRESA,
@@ -438,6 +439,49 @@ class TestOverrideProducto:
 
         assert response.status_code == 422
         assert lineas(engine)[(103, 1)]["item_id"] is None
+
+
+def _contar_desgloses(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Spy on the fixes' combo breakdown query: one entry (documents asked) per call."""
+    llamadas: list[int] = []
+    original = overrides.combos_desglosados
+
+    def espia(db, documentos, **kw):
+        llamadas.append(len(documentos))
+        return original(db, documentos, **kw)
+
+    monkeypatch.setattr(overrides, "combos_desglosados", espia)
+    return llamadas
+
+
+class TestDesgloseSinN1:
+    """The combo breakdown (owner L19) is checked once per batch of fixed lines, never once per line."""
+
+    def test_remembering_a_product_checks_every_sibling_document_in_one_query(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _subir(engine, monkeypatch, reporte(*(doc(n, [linea(CABLE, "C")]) for n in (201, 202, 203, 204))))
+        llamadas = _contar_desgloses(monkeypatch)
+
+        assert _put(engine, _linea_id(engine, 201, 1), {"item_id": 502, "recordar_mapeo": True}).status_code == 200
+
+        # the fixed line itself, then its three siblings together
+        assert llamadas == [1, 3]
+        assert {lineas(engine)[(n, 1)]["item_id"] for n in (202, 203, 204)} == {502}
+
+    def test_a_reupload_re_applies_its_fixes_with_one_breakdown_query(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cables = reporte(*(doc(n, [linea(CABLE, "C")]) for n in (201, 202, 203)))
+        _subir(engine, monkeypatch, cables)
+        for n in (201, 202, 203):
+            assert _put(engine, _linea_id(engine, n, 1), {"item_id": 502}).status_code == 200
+        llamadas = _contar_desgloses(monkeypatch)
+
+        resultado = _subir(engine, monkeypatch, cables)
+
+        assert (resultado["overrides_aplicados"], llamadas) == (3, [3])
+        assert {lineas(engine)[(n, 1)]["item_id"] for n in (201, 202, 203)} == {502}
 
 
 class TestQuitarYConfirmar:
