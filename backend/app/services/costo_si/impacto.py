@@ -12,9 +12,10 @@ from memory):
    `lote` reader's SQL, the same filters) -- `test_impacto_postgres.py` runs the real callbacks on the same world
    and requires every stored value to equal the prediction.
 
-Areas: `CANAL_ML_LEGACY` = `despues.metricas_ml_legacy` (`ml_ventas_metricas`) and the stored markups =
-`despues.pricing` (`productos_pricing`). The ML frozen cost (PR 7), ventas por fuera (PR 9) and the Tienda Nube /
-fuera GBP metrics join as their callbacks land.
+Areas: `CANAL_ML_LEGACY` = `despues.metricas_ml_legacy` (`ml_ventas_metricas`), `CANAL_ML_CONGELADO` = the ML
+sale costs frozen at the sale date (`despues.ml_ventas` -> `recongelar_costo_si`, `ml_order_item_costos`) and the
+stored markups = `despues.pricing` (`productos_pricing`). Ventas por fuera (PR 9) and the Tienda Nube / fuera GBP
+metrics join as their callbacks land.
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ from app.services.costo_si.simulacion import Simulacion
 logger = logging.getLogger(__name__)
 
 CANAL_ML_LEGACY = "ml_legacy"
+CANAL_ML_CONGELADO = "ml_congelado"
 LOTE = 50  # products per channel statement: the in-memory steps are scanned per sale row, keep them few
 
 
@@ -154,6 +156,55 @@ def ml_legacy(db: Session, sim: Simulacion, filas: List[dict], desdes: Dict[int,
     return out
 
 
+def _ml_congelado_sql():
+    """`recongelar_costo_si`'s rule (its `nuevos` + `cambiados` CTEs, built from its own SQL pieces): the rows of
+    the product sold (ART day) on or after the date whose cost, or was, costo SI, with a known cost on that date,
+    where any frozen value differs. Money = unit cost x the sale line's quantity (`ml_order_items_ops`; 1 when the
+    line is missing). A row the reader cannot cost on its date is kept as frozen by the re-freeze: not a change."""
+    from app.services.ml_orders_ingestion import recongelar_costo_si as rc
+
+    fecha = rc.FECHA_VENTA_SQL
+    return text(
+        f"""
+        SELECT c.id, c.producto_item_id AS item_id, {fecha} AS fecha, date_trunc('month', {fecha})::date AS mes,
+               c.costo_unitario_ars * COALESCE(q.cantidad, 1) AS antes,
+               round(cs.costo_si_ars, 4) * COALESCE(q.cantidad, 1) AS despues
+        FROM unnest(:items, :desdes) AS d(item_id, desde)
+        JOIN ml_order_item_costos c ON c.producto_item_id = d.item_id
+        JOIN ml_orders_ops o ON o.order_id = c.order_id AND o.date_created IS NOT NULL
+        LEFT JOIN LATERAL ({lote.sql_en_fecha("c.producto_item_id", fecha)}) cs ON true
+        LEFT JOIN LATERAL (
+            SELECT sum(oi.quantity) AS cantidad FROM ml_order_items_ops oi
+            WHERE oi.order_id = c.order_id AND oi.item_id = c.item_id
+              AND oi.variation_id IS NOT DISTINCT FROM c.variation_id
+        ) q ON true
+        WHERE {fecha} >= d.desde
+          AND cs.costo_si_ars > 0
+          AND (cs.costo_si_fuente = '{lote.FUENTE_COSTO_SI}' OR c.fuente IN :costo_si OR c.fuente = 'combo')
+          AND (c.costo_origen, c.moneda, c.tipo_cambio, c.tipo_cambio_fecha, c.costo_unitario_ars, c.fuente,
+               c.costo_fecha)
+              IS DISTINCT FROM
+              (round(cs.costo_si_costo, 4), cs.costo_si_moneda, round(cs.costo_si_tipo_cambio, 4),
+               CASE WHEN cs.costo_si_tipo_cambio IS NOT NULL THEN {rc.tc_fecha_sql(fecha)} END,
+               round(cs.costo_si_ars, 4), {rc._FUENTE_SQL}, {fecha})
+        ORDER BY c.id
+        """
+    ).bindparams(
+        bindparam("items", type_=ARRAY(Integer)),
+        bindparam("desdes", type_=ARRAY(Date)),
+        bindparam("costo_si", value=rc.FUENTES_COSTO_SI, expanding=True),
+    )
+
+
+def ml_congelado(db: Session, sim: Simulacion, filas: List[dict], desdes: Dict[int, date]) -> List[Cambio]:
+    sql = _ml_congelado_sql()
+    out: List[Cambio] = []
+    for items, fechas in _lotes(db, sim, filas, desdes):
+        for r in db.execute(sql, {"items": items, "desdes": fechas}):
+            out.append(Cambio(CANAL_ML_CONGELADO, r.item_id, r.id, r.fecha, r.mes, r.antes, r.despues))
+    return out
+
+
 def _como_guardado(campo: str, valor):
     """A markup as its column stores it (Float as is; Numeric(10, 2) to the cent), so before and after compare."""
     if valor is None:
@@ -198,6 +249,6 @@ def calcular(sim: Simulacion) -> Informe:
     alcance = queue.productos_vigentes(db)
     pasos = calcular_pasos(db, alcance)
     desdes = _con_combos(db, pasos.desdes)
-    cambios = ml_legacy(db, sim, pasos.filas, desdes)
+    cambios = ml_legacy(db, sim, pasos.filas, desdes) + ml_congelado(db, sim, pasos.filas, desdes)
     cambios_markup, omitidos = markups(db, sim, pasos.filas, pasos.desdes)
     return Informe(pasos, cambios, cambios_markup, omitidos, sim.sombra.sombras)

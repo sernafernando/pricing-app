@@ -48,7 +48,8 @@ _ML = [
 
 @pytest.fixture(scope="module")
 def engine() -> Iterator[Engine]:
-    with throwaway_schema("costo_si_impacto", [*w.TABLES, *_PRICING, *_ML], w.STUBS, after=w.install) as engine:
+    tablas = list({t.name: t for t in [*w.TABLES, *_PRICING, *_ML]}.values())  # the worlds share some tables
+    with throwaway_schema("costo_si_impacto", tablas, w.STUBS, after=w.install) as engine:
         yield engine
 
 
