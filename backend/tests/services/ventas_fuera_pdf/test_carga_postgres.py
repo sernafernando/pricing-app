@@ -17,6 +17,8 @@ import pytest
 from sqlalchemy import Engine, func, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.models.combo_componente import ComboComponente
+from app.models.costo_si import CostoSiPaso
 from app.models.cur_exch_history import CurExchHistory
 from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.marca_pm import MarcaPM
@@ -56,6 +58,9 @@ TABLAS = [
     CurExchHistory.__table__,
     ProductoERP.__table__,
     MarcaPM.__table__,
+    # The costo SI the load costs each line with since sell-in-costo-si T3 PR 9 (`costo_si.lote`); empty here.
+    CostoSiPaso.__table__,
+    ComboComponente.__table__,
 ]
 STUBS = [
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY, nombre VARCHAR(255) NOT NULL)",

@@ -2,12 +2,14 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import api from '../services/api';
 import { toLocalDateString } from '../utils/dateUtils';
 import styles from './DashboardMetricasML.module.css'; // Reutilizamos los estilos
+import local from './DashboardTiendaNube.module.css';
 import TabRentabilidadTiendaNube from '../components/TabRentabilidadTiendaNube';
 import EditableCell from '../components/EditableCell';
 import { useQueryFilters } from '../hooks/useQueryFilters';
 import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
 import { Star, DollarSign } from 'lucide-react';
+import { resultadoOperacionTN } from '../utils/resultadoOperacionTN';
 
 // Helper para obtener fechas por defecto
 const getDefaultFechaDesde = () => {
@@ -598,23 +600,21 @@ export default function DashboardTiendaNube() {
               className={styles.buscador}
             />
             <div className={styles.resultadosCount}>
-              {operacionesFiltradas.length} operación{operacionesFiltradas.length !== 1 ? 'es' : ''}
+              {operacionesFiltradas.length} {operacionesFiltradas.length === 1 ? 'operación' : 'operaciones'}
             </div>
           </div>
 
           <div className={styles.tableWrapper}>
-            <table className={styles.tableOperaciones}>
+            <table className={`${styles.tableOperaciones} ${local.tablaCompacta}`}>
               <thead>
                 <tr>
-                  <th>Fecha</th>
-                  <th>Sucursal</th>
+                  <th>{'Fecha\u00a0/ Comprobante'}</th>
+                  <th>{'Sucursal\u00a0/ Vendedor'}</th>
                   <th>Cliente</th>
-                  <th>Vendedor</th>
                   <th>Codigo</th>
                   <th>Producto</th>
                   <th>Marca</th>
-                  <th>Categoría</th>
-                  <th>Subcategoría</th>
+                  <th>{'Categoría\u00a0/ Subcategoría'}</th>
                   <th>Cant</th>
                   <th>Precio Unit</th>
                   <th>IVA%</th>
@@ -624,22 +624,20 @@ export default function DashboardTiendaNube() {
                   <th>Costo</th>
                   <th>Ganancia</th>
                   <th>Markup%</th>
-                  <th>Comprobante</th>
                 </tr>
               </thead>
               <tbody>
                 {operacionesFiltradas.map((op, idx) => {
-                  const sinCosto = !op.costo_pesos_sin_iva || op.costo_pesos_sin_iva === 0;
                   const metodoPagoActual = metodosPago[op.id_operacion] || 'efectivo';
                   const comisionAplicada = metodoPagoActual === 'tarjeta' ? comisionTarjeta : comisionEfectivo;
 
-                  // Recalcular comisión, ganancia y markup basado en el método de pago actual
-                  const montoSinIva = parseFloat(op.precio_final_sin_iva) || 0;
-                  const costoSinIva = parseFloat(op.costo_pesos_sin_iva) || 0;
-                  const comisionCalculada = montoSinIva * (comisionAplicada / 100);
-                  const montoLimpio = montoSinIva - comisionCalculada;
-                  const gananciaCalculada = montoLimpio - costoSinIva;
-                  const markupCalculado = costoSinIva > 0 ? gananciaCalculada / costoSinIva : null;
+                  // Recalcular comisión, ganancia y markup basado en el método de pago actual (sin costo: ambos null)
+                  const {
+                    sinCosto,
+                    comision: comisionCalculada,
+                    ganancia: gananciaCalculada,
+                    markup: markupCalculado,
+                  } = resultadoOperacionTN(op, comisionAplicada);
 
                   // Valores efectivos (override o original)
                   const marcaEfectiva = getValorEfectivo(op, 'marca');
@@ -657,8 +655,14 @@ export default function DashboardTiendaNube() {
 
                   return (
                     <tr key={`${op.id_operacion}-${idx}`} className={sinCosto ? styles.rowSinCosto : ''}>
-                      <td>{formatearFecha(op.fecha)}</td>
-                      <td>{op.sucursal || '-'}</td>
+                      <td>
+                        <div>{formatearFecha(op.fecha)}</div>
+                        <div className={local.secundario}>{op.tipo_comprobante} {op.numero_comprobante}</div>
+                      </td>
+                      <td>
+                        <div>{op.sucursal || '-'}</div>
+                        <div className={local.secundario}>{op.vendedor || '-'}</div>
+                      </td>
                       <td className={styles.descripcion}>
                         <EditableCell
                           type="text"
@@ -668,7 +672,6 @@ export default function DashboardTiendaNube() {
                           className={getClaseConOverride('cliente') ? styles.hasOverride : ''}
                         />
                       </td>
-                      <td>{op.vendedor || '-'}</td>
                       <td>
                         <EditableCell
                           type="text"
@@ -726,20 +729,20 @@ export default function DashboardTiendaNube() {
                           disabled={!marcaEfectiva}
                           className={getClaseConOverride('categoria') ? styles.hasOverride : ''}
                         />
-                      </td>
-                      <td>
-                        <EditableCell
-                          type="select"
-                          value={subcategoriaEfectiva}
-                          onChange={(val) => guardarOverride(op.id_operacion, 'subcategoria', val)}
-                          options={[
-                            ...getSubcategoriasParaCategoria(marcaEfectiva, categoriaEfectiva),
-                            ...(subcategoriaEfectiva && !getSubcategoriasParaCategoria(marcaEfectiva, categoriaEfectiva).includes(subcategoriaEfectiva) ? [subcategoriaEfectiva] : [])
-                          ]}
-                          placeholder={categoriaEfectiva ? 'Sin subcategoría' : 'Seleccione categoría primero'}
-                          disabled={!categoriaEfectiva}
-                          className={getClaseConOverride('subcategoria') ? styles.hasOverride : ''}
-                        />
+                        <div className={local.apilado}>
+                          <EditableCell
+                            type="select"
+                            value={subcategoriaEfectiva}
+                            onChange={(val) => guardarOverride(op.id_operacion, 'subcategoria', val)}
+                            options={[
+                              ...getSubcategoriasParaCategoria(marcaEfectiva, categoriaEfectiva),
+                              ...(subcategoriaEfectiva && !getSubcategoriasParaCategoria(marcaEfectiva, categoriaEfectiva).includes(subcategoriaEfectiva) ? [subcategoriaEfectiva] : [])
+                            ]}
+                            placeholder={categoriaEfectiva ? 'Sin subcategoría' : 'Seleccione categoría primero'}
+                            disabled={!categoriaEfectiva}
+                            className={getClaseConOverride('subcategoria') ? styles.hasOverride : ''}
+                          />
+                        </div>
                       </td>
                       <td className={styles.centrado}>
                         <EditableCell
@@ -750,9 +753,10 @@ export default function DashboardTiendaNube() {
                           className={getClaseConOverride('cantidad') ? styles.hasOverride : ''}
                         />
                       </td>
-                      <td className={styles.monto}>
+                      <td className={`${styles.monto} ${local.importe}`}>
                         <EditableCell
                           type="number"
+                          format={formatearMoneda}
                           value={getValorEfectivo(op, 'precio_unitario') || op.precio_unitario_sin_iva || ''}
                           onChange={(val) => guardarOverride(op.id_operacion, 'precio_unitario', val)}
                           step={0.01}
@@ -760,7 +764,7 @@ export default function DashboardTiendaNube() {
                         />
                       </td>
                       <td className={styles.centrado}>{op.iva_porcentaje}%</td>
-                      <td className={styles.monto}>{formatearMoneda(op.precio_final_sin_iva)}</td>
+                      <td className={`${styles.monto} ${local.importe}`}>{formatearMoneda(op.precio_final_sin_iva)}</td>
                       <td>
                         <EditableCell
                           type="select"
@@ -773,12 +777,14 @@ export default function DashboardTiendaNube() {
                           className={metodoPagoActual === 'tarjeta' ? styles.metodoPagoTarjeta : styles.metodoPagoEfectivo}
                         />
                       </td>
-                      <td className={`${styles.monto} ${styles.asteriscoModificado}`}>
-                        {formatearMoneda(comisionCalculada)} ({comisionAplicada}%)
+                      <td className={`${styles.monto} ${styles.asteriscoModificado} ${local.importe}`}>
+                        {formatearMoneda(comisionCalculada)}
+                        <div className={local.secundario}>{comisionAplicada}%</div>
                       </td>
-                      <td className={styles.monto}>
+                      <td className={`${styles.monto} ${local.importe}`}>
                         <EditableCell
                           type="number"
+                          format={formatearMoneda}
                           value={getValorEfectivo(op, 'costo_unitario') || op.costo_unitario || ''}
                           onChange={(val) => guardarOverride(op.id_operacion, 'costo_unitario', val)}
                           step={0.01}
@@ -786,13 +792,15 @@ export default function DashboardTiendaNube() {
                           className={`${getClaseConOverride('costo_unitario') ? styles.hasOverride : ''} ${sinCosto && !tieneOverride?.costo_unitario ? styles.campoSinCostoInput : ''}`}
                         />
                       </td>
-                      <td className={`${styles.monto} ${gananciaCalculada >= 0 ? styles.valorPositivo : styles.valorNegativo}`}>
-                        {puedeVerGanancia ? formatearMoneda(gananciaCalculada) : '***'}
+                      <td
+                        className={`${styles.monto} ${local.importe} ${gananciaCalculada === null ? '' : gananciaCalculada >= 0 ? styles.valorPositivo : styles.valorNegativo}`}
+                        title={gananciaCalculada === null ? 'Sin costo: la ganancia no se puede calcular' : undefined}
+                      >
+                        {!puedeVerGanancia ? '***' : gananciaCalculada === null ? '—' : formatearMoneda(gananciaCalculada)}
                       </td>
                       <td className={`${styles.centrado} ${markupCalculado !== null && markupCalculado < 0 ? styles.negativo : ''}`}>
                         {formatearPorcentaje(markupCalculado)}
                       </td>
-                      <td>{op.tipo_comprobante} {op.numero_comprobante}</td>
                     </tr>
                   );
                 })}

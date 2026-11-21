@@ -596,25 +596,6 @@ class TestConSo:
         assert values == sorted(values, reverse=descending)
         assert all(row.markup_so == _markup_con_so(row) for row in rows if row.markup_so is not None)
 
-    def test_publicaciones_siso_sort_column_keeps_the_sell_in_markup_it_shows(self, catalog) -> None:
-        """Publicaciones ML (Real 30D c/ SISO) still shows `SellInOut.markup_sell` (with sell in) and sorts by the
-        Board column `metrics_sort` names: that column must stay the same figure, row by row."""
-        from sqlalchemy import select
-
-        from app.services.ml_publications.view import metrics_sort
-
-        with board.Board(catalog, ON, scope_pairs=None) as b:
-            shown = {row.key: row.markup_sell for row in b.page(None)}
-            rows = b.rows()
-            column = rows.c[metrics_sort.METRIC_SORTS["markup_sell_30d"][0]]
-            sorted_by = {str(k): v for k, v in catalog.execute(select(rows.c.rk, column))}
-
-        assert any(v is not None for v in shown.values())
-        for key, value in shown.items():
-            expected = None if value is None else round(Decimal(value), 2)
-            got = None if sorted_by[key] is None else round(Decimal(sorted_by[key]), 2)
-            assert got == expected, key
-
     @pytest.mark.parametrize("descending", [True, False])
     def test_the_total_sort_follows_the_row_value(self, catalog, descending) -> None:
         f = dataclasses.replace(ON, sort="total_gauss_sell", sort_desc=descending)

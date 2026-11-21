@@ -55,7 +55,7 @@ from sqlalchemy.orm import Session
 from app.models.ml_publications import MlItemProductLink
 from app.services.ml_daily_metrics import board
 from app.services.ml_daily_metrics.sales import NO_PRODUCT
-from app.services.ml_publications.view import row_metrics
+from app.services.ml_publications.view import real_so, row_metrics
 from app.services.ml_publications.view.caps import MAX_EXPLICIT_PRODUCT_IDS
 from app.services.ml_publications.view.filters import (
     FilterError,
@@ -89,8 +89,8 @@ PRODUCT_SORTS: dict[str, tuple[str, bool, bool]] = {
     "unidades_30d": ("w30d", False, True),
     "markup_30d": ("markup", True, True),
     "total_gauss_30d": ("tg", True, True),
-    # Real 30D c/ SISO: the Board's `markup_sell` over the summed row, the plain markup where neither applies (what
-    # the column shows); only on a page read with the sell in / sell out (`sell`)
+    # Real 30D c/ SO (D1): `real_so.markup_so_sql` over the summed row's sell out, the plain markup where none applies
+    # (what the column shows); only on a page read with the Board's sell out (`sell`)
     "markup_sell_30d": ("markup_sell_shown", True, True),
     "titulo": ("name", False, False),
 }
@@ -102,7 +102,8 @@ NO_PRODUCT_LABEL = "Sin producto"
 # The Board's publication-row figures a product sums.
 SUMMED = ("units", "gross", "tg", "mtg", "costo", "prev_units", "prev_gross", "prev_tg", "prev_mtg", "prev_costo")
 # The sell in / sell out sums of a page read with them (`board.SellInOut` reads them off the product's `board.Row`).
-SELL_SUMMED = ("sell_in", "sell_out", "m_sell_in", "m_sell_out", "sell_in_lineas", "sell_out_lineas")
+# D1 (sell-in-costo-si): only the sell out of the Board's lines; their sell in is never read (`real_so`)
+SELL_SUMMED = ("sell_out", "m_sell_out", "sell_out_lineas")
 WINDOW_COLUMNS = {"3d": "w3d", "7d": "w7d", "15d": "w15d", "30d": "w30d"}
 
 
@@ -202,11 +203,8 @@ def _summed(members: Any, rows: Any) -> Any:
     )
     markup = case((g.c.costo > 0, g.c.mtg * 100 / g.c.costo), else_=None)
     shown = markup  # without the sell in / sell out read, the plain markup (its sort is refused before: margin)
-    if "sell_in_lineas" in g.c:  # the Board's `markup_sell` (`SellInOut`, `_sell_sort_columns`), else the plain one
-        cost = g.c.costo - g.c.m_sell_in
-        applies = or_(g.c.sell_in_lineas > 0, g.c.sell_out_lineas > 0)
-        sell = case((and_(applies, cost > 0), (g.c.mtg + g.c.m_sell_in + g.c.m_sell_out) * 100 / cost), else_=None)
-        shown = func.coalesce(sell, markup)
+    if "sell_out_lineas" in g.c:  # the markup c/ SO (D1, `real_so`), else the plain one
+        shown = func.coalesce(real_so.markup_so_sql(g.c), markup)
     # What the row shows (and its name sort): the description, else the code, else the link's id -- a product gone
     # from the catalog keeps a name of its own; "Sin producto" for the publications with no linked product.
     name = case(
@@ -320,11 +318,11 @@ def _row(r: Any, today: date) -> board.Row:
 
 def _sell_of(r: Any) -> dict[str, Any]:
     """The summed sell in / sell out of a row read with them (`SELL_SUMMED`), as the Board's rows carry them; none
-    otherwise (the row then has no `markup_sell`, as a Board row read without them)."""
-    if "sell_in_lineas" not in r:
+    otherwise (the row then has no markup c/ SO, as a Board row read without them)."""
+    if "sell_out_lineas" not in r:
         return {}
-    money = {name: board.cents(r[name]) for name in ("sell_in", "sell_out", "m_sell_in", "m_sell_out")}
-    return {**money, "sell_in_lineas": int(r["sell_in_lineas"] or 0), "sell_out_lineas": int(r["sell_out_lineas"] or 0)}
+    money = {name: board.cents(r[name]) for name in ("sell_out", "m_sell_out")}
+    return {**money, "sell_out_lineas": int(r["sell_out_lineas"] or 0)}
 
 
 def _series(b: board.Board, members: Any, by_key: dict[str, board.Row]) -> None:
@@ -439,7 +437,7 @@ def list_products(
     """The linked-product rows of the MLAs `f` selects at `[offset, offset + limit)`, in the order `orden` (then
     `then`) names. With `cost` (only for who sees the margin) each row's product cost too, and with `pricing_db` the
     PPP and sell in lines under it; without `cost`, none of them is even read. `sell` reads the sell in / sell out
-    of the Board (each row's `markup_sell`)."""
+    of the Board (each row's markup c/ SO, `real_so`; the Board's sell in is never read, D1)."""
     key = parse_sort(orden, then)
     if f.sin_mla:
         rows = _sin_mla_rows(db, f)

@@ -80,13 +80,13 @@ TABLES = [
     SellDirty.__table__,
     CostoSiDirty.__table__,  # sell.drain also drains the costo SI queue (sell-in-costo-si T2)
     MlCostoSiDirty.__table__,  # ... and then the ML sales it re-costs (T3 PR 7)
-    # What the resolved-cost reader reads (`costo_si.lote`): cost bonuses skip sales at costo SI (D2, T3 PR 7).
-    CostoSiPaso.__table__,
+    # The reader's dated list cost (`costo_si.lote`): cost bonuses skip sales at costo SI (D2, T3 PR 7).
     ItemCostListHistory.__table__,
-    TipoCambio.__table__,
-    CurExchHistory.__table__,  # the costo SI reader's ERP rate fallback (D2 reads `lote.en_fechas`)
     ComboComponente.__table__,  # combo sales count as their components' (combos in sell in / sell out)
     TBItem.__table__,  # a combo of the PC category is its own product (`combos.pcs`)
+    CostoSiPaso.__table__,  # the cost every sell in / sell out markup reads (`costo_si.lote`, T3 PR 5)
+    TipoCambio.__table__,  # `lote` prices a USD cost at the latest USD rate
+    CurExchHistory.__table__,  # ... else at the ERP's rate history (interfaz §7)
 ]
 _MODELS = {"gbp": VentaFueraMLMetrica, "tn": VentaTiendaNubeMetrica}
 _refs = itertools.count(600_000)

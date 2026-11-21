@@ -104,7 +104,7 @@ def test_a_product_without_sell_in_or_sell_out_keeps_its_row(client, auth_header
     assert producto["precio_web_transferencia"] == 1500.0
 
 
-def test_a_product_with_sell_in_shows_its_lower_cost_and_the_tienda_extra_profit(client, auth_headers, catalogo):
+def test_a_product_with_sell_in_shows_it_but_no_markup_off_the_cost(client, auth_headers, catalogo):
     producto = _listar(client, auth_headers)[CON_SELL_IN]
 
     sio = producto["sell_in_out"]
@@ -120,7 +120,7 @@ def test_a_product_with_sell_in_shows_its_lower_cost_and_the_tienda_extra_profit
         "descuento_unit_moneda": 100.0,
     }
     assert sio["sell_out"] == {}
-    assert sio["markups_sell_in"] == {"gremio": 33.33, "sugerido": 44.44, "web_transf": 27.12}
+    assert sio["markups_sell_in"] == {}  # D1 (owner L12): the sell in never comes off costo SI
     assert sio["markups_sell_in_out"] == {}
     # The plain figures stay as they were.
     assert (producto["costo"], producto["markup_gremio"]) == (1000.0, pytest.approx(20.0))
