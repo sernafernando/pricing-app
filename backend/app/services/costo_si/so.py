@@ -20,10 +20,10 @@ from typing import Dict, Optional, TypeVar
 N = TypeVar("N", float, Decimal)
 
 
-def base_sell_out(costo_si: Optional[Decimal], precio_neto: Optional[Decimal]) -> Dict[str, Optional[Decimal]]:
-    """The base each `sell_out_campanas.base_porcentaje` applies to: 'costo' = costo SI (same currency the caller
-    computes the sell out in), 'precio_neto' = the net price."""
-    return {"costo": costo_si, "precio_neto": precio_neto}
+def base_sell_out(costo_si_ars: Optional[Decimal], precio_neto: Optional[Decimal]) -> Dict[str, Optional[Decimal]]:
+    """The base each `sell_out_campanas.base_porcentaje` applies to, in pesos as the sell-out allocation computes:
+    'costo' = costo SI (`Costo.costo_ars`), 'precio_neto' = the net price."""
+    return {"costo": costo_si_ars, "precio_neto": precio_neto}
 
 
 def ganancia_con_so(limpio: Optional[N], sell_out: Optional[N], costo_si: Optional[N]) -> Optional[N]:

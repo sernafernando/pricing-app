@@ -5,7 +5,8 @@ One rule, written once as SQL (`sql_en_fecha`, `actual`) and run by the Python r
 
 - costo SI (S1, S10) on a date = the product's last `costo_si_pasos` row dated on or before it; current = its last row.
   It is in the row's `moneda`, the product's cost currency (owner L18).
-- No costo SI (Q1, L4.7: one cost everywhere): the list cost, `fuente` 'lista'. Current = `productos_erp.costo` in
+- No costo SI (Q1, L4.7: one cost everywhere): the list cost, `fuente` 'lista' (0 or less = no list cost: the ERP
+  writes 0 for a missing one). Current = `productos_erp.costo` in
   `moneda_costo`; on a date = the last list 1 history row created before the end of that day (`curr_id` 1/NULL ARS,
   else USD), else the current one.
 - A combo that is not a PC (S11, L4.9, L7.1) = its components x quantity, each resolved the same way on the same date;
@@ -19,7 +20,7 @@ Every column is named `costo_si_*` so the MCP strips it without `productos.ver_c
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -90,7 +91,7 @@ def _propio(item: str, fecha: Optional[str]) -> str:
                     '{FUENTE_LISTA}', NULL::date, 3
              FROM productos_erp pe WHERE pe.item_id = {item})
         ) o(costo, moneda, fuente, desde, prioridad)
-        WHERE o.costo IS NOT NULL
+        WHERE o.costo IS NOT NULL AND (o.prioridad = 1 OR o.costo > 0)
         ORDER BY o.prioridad LIMIT 1"""
 
 
@@ -184,8 +185,11 @@ def actuales(db: Session, item_ids: Iterable[int], *, tipo_cambio=None) -> Dict[
 
 
 def en_fechas(db: Session, pares: Iterable[Tuple[int, date]]) -> Dict[Tuple[int, date], Costo]:
-    """The cost in force on every (product, date), at that date's rate (one query; none for no pairs)."""
-    lista = sorted({(int(i), f) for i, f in pares if i is not None and f is not None})
+    """The cost in force on every (product, date), at that date's rate (one query; none for no pairs). A datetime
+    counts as its date, and the result is keyed by that date."""
+    lista = sorted(
+        {(int(i), f.date() if isinstance(f, datetime) else f) for i, f in pares if i is not None and f is not None}
+    )
     if not lista:
         return {}
     filas = db.execute(_EN_FECHAS_SQL, {"items": [i for i, _ in lista], "fechas": [f for _, f in lista]})

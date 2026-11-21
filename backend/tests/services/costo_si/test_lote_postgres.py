@@ -267,6 +267,46 @@ def test_actual_subquery_sorts_a_listing_by_the_peso_cost_in_sql(engine: Engine)
     ]
 
 
+def test_list_history_edge_cases(engine: Engine) -> None:
+    """Q1: a NULL `curr_id` is pesos; two corrections the same day, the later one wins (then the higher id); a list
+    cost of 0 is no cost (the ERP writes 0 for a missing one), so a combo with such a component is unknown; a
+    datetime asks for its date."""
+    w.producto(engine, ARSLISTA, moneda="ARS", costo="20000")
+    w.producto(engine, SIN, costo="0")
+    w.producto(engine, COMBO_LISTA)
+    w.run(
+        engine,
+        "INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (:c, :p, 1)",
+        c=COMBO_LISTA,
+        p=SIN,
+    )
+    w.run(
+        engine,
+        "INSERT INTO tb_item_cost_list_history (iclh_id, coslis_id, item_id, iclh_price, curr_id, iclh_cd) VALUES "
+        "(900001, 1, :i, 17000, NULL, '2026-10-01 09:00'), (900002, 1, :i, 17100, NULL, '2026-10-02 09:00'), "
+        "(900003, 1, :i, 17200, NULL, '2026-10-02 15:00')",
+        i=ARSLISTA,
+    )
+
+    with _db(engine) as db:
+        got = lote.en_fechas(
+            db,
+            [
+                (ARSLISTA, date(2026, 10, 1)),
+                (ARSLISTA, datetime(2026, 10, 2, 8)),
+                (SIN, date(2026, 10, 2)),
+                (COMBO_LISTA, date(2026, 10, 2)),
+            ],
+        )
+
+    assert got == {
+        (ARSLISTA, date(2026, 10, 1)): Costo(ARSLISTA, D("17000"), "ARS", LISTA, None, None, D("17000")),
+        (ARSLISTA, date(2026, 10, 2)): Costo(ARSLISTA, D("17200"), "ARS", LISTA, None, None, D("17200")),
+        (SIN, date(2026, 10, 2)): _nada(SIN),
+        (COMBO_LISTA, date(2026, 10, 2)): _nada(COMBO_LISTA),
+    }
+
+
 def test_combos_con_lists_the_combos_a_component_moves_but_not_pcs(engine: Engine) -> None:
     _mundo(engine)
     with _db(engine) as db:

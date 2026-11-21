@@ -40,3 +40,4 @@ def test_a_cost_based_sell_out_is_a_percentage_of_costo_si() -> None:
     """Q7: base 'costo' = costo SI (one cost everywhere, L4.7); base 'precio_neto' unchanged."""
     assert so.base_sell_out(D("20000"), D("35000")) == {"costo": D("20000"), "precio_neto": D("35000")}
     assert so.base_sell_out(None, None) == {"costo": None, "precio_neto": None}
+    assert so.base_sell_out(costo_si_ars=D("1"), precio_neto=D("2")) == {"costo": D("1"), "precio_neto": D("2")}
