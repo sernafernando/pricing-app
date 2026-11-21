@@ -9,6 +9,7 @@ Over the list cost the Gremio order is G3 < G2 < G1; over costo SI it is G1 < G3
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Iterator
 
@@ -94,6 +95,33 @@ def test_the_sort_follows_the_prices_the_page_shows(client, mundo, campo) -> Non
     assert [p["item_id"] for p in desc] == [G2, G3, G1]
     precios = [p[f"{campo}_sin_iva"] for p in asc]
     assert precios == sorted(precios)
+
+
+@pytest.mark.parametrize("campo", ["precio_gremio", "precio_sugerido"])
+def test_the_sort_reads_the_costo_si_once_and_never_in_the_count(client, mundo, pg, campo) -> None:  # noqa: F811
+    """The whole-catalogue costo SI read is the sort's cost (timed on prod, PR 6): one set-based read joined to the
+    page, and none in the total, which the sort's at-most-one-row joins never change."""
+    from sqlalchemy import event
+
+    sentencias: list[str] = []
+
+    def _anotar(conn, cursor, sentencia, *args) -> None:
+        sentencias.append(sentencia)
+
+    bind = pg.get_bind()
+    event.listen(bind, "before_cursor_execute", _anotar)
+    try:
+        response = client.get(
+            "/api/productos/tienda", params={"page_size": 2, "orden_campos": campo, "orden_direcciones": "asc"}
+        )
+    finally:
+        event.remove(bind, "before_cursor_execute", _anotar)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["total"] == 3
+    con_costo_si = [s for s in sentencias if "csi_tienda" in s]
+    assert len(con_costo_si) == 1
+    assert re.search(r"LIMIT %\(\w+\)s(\s+OFFSET %\(\w+\)s)?\s*$", con_costo_si[0])  # the page, not the count
 
 
 def test_the_clasica_markup_shown_is_over_each_products_own_cost(client, mundo, pg) -> None:  # noqa: F811

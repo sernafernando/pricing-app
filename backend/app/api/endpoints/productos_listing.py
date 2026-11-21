@@ -178,8 +178,9 @@ def construir_orden_precios_derivados(varios_porcentaje: float, tipo_cambio_usd:
     - `tipo_cambio_usd` comes from `obtener_tipo_cambio_actual(db, "USD")`:
       also one scalar for the whole request, bound as a literal.
     - the cost is costo SI in pesos (owner L20), the reader's own SQL
-      (`costo_si_columna.costo_ars_sql`, a scalar subquery per row): the same
-      number `lote.actuales` gives the Python path, so they cannot disagree.
+      (`costo_si_columna.costos_ars_conjunto`, one set-based read joined on
+      item_id): the same number `lote.actuales` gives the Python path, so they
+      cannot disagree.
 
     Therefore no step needs Python: the whole thing is expressible over the
     already-filtered query, and the endpoint can keep paginating in SQL
@@ -198,6 +199,9 @@ def construir_orden_precios_derivados(varios_porcentaje: float, tipo_cambio_usd:
     3. the brand subquery — built with GROUP BY, so it is unique on `marca`
        by construction, then joined back to `markups_tienda_brand` on its
        PRIMARY KEY.
+    4. the costo SI subquery — one row per DISTINCT `item_id` of
+       `productos_erp` (`lote.sql_actual_conjunto`; combos aggregated per
+       combo).
 
     ── Tie-break, and why it matches the Python path exactly ───────────────
     `markups_tienda_brand` is unique on (comp_id, brand_id), NOT on brand_id
@@ -291,8 +295,11 @@ def construir_orden_precios_derivados(varios_porcentaje: float, tipo_cambio_usd:
     ]
 
     # The price base: costo SI in pesos at the request's rate (owner L20), the very number `lote.actuales` gives the
-    # Python path; NULL when unknown, so the row has no price and sorts like one without it (§7).
-    costo_ars = costo_si_columna.costo_ars_sql(f"{ProductoERP.__tablename__}.item_id", tipo_cambio_usd)
+    # Python path; NULL when unknown, so the row has no price and sorts like one without it (§7). One set-based read
+    # of the reader joined on item_id (at most one row per item_id), not a correlated subquery per row and per use.
+    costos = costo_si_columna.costos_ars_conjunto(tipo_cambio_usd)
+    joins.append((costos, costos.c.item_id == ProductoERP.item_id))
+    costo_ars = costos.c.costo_si_ars
 
     factor_varios = 1.0 + varios_porcentaje / 100.0
 
@@ -2133,6 +2140,9 @@ def listar_productos_tienda(
 
     orden_aplicado = False
     expresiones_derivadas = None
+    # The total, counted before the sort: the sort's joins are at most one row per product
+    # (`construir_orden_precios_derivados`), so they never change it, and the count need not compute the costo SI.
+    query_total = query
     if orden_campos and orden_direcciones:
         campos = orden_campos.split(",")
         direcciones = orden_direcciones.split(",")
@@ -2232,7 +2242,7 @@ def listar_productos_tienda(
         # ausentes al paginar. `item_id` es la PK de productos_erp.
         query = query.order_by(ProductoERP.item_id.asc())
 
-    total = query.order_by(None).count()  # the ORDER BY never changes the total (a costo SI sort would run twice)
+    total = query_total.order_by(None).count()
     offset = (page - 1) * page_size
     results = query.offset(offset).limit(page_size).all()
 

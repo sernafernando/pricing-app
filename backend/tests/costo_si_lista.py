@@ -10,7 +10,7 @@ SQL, so tests that run on the in-memory SQLite `db` (written before costo SI) ge
   to `tipo_cambio_fecha` (USD only; a caller's rate is dated by the `tipo_cambio` row that has it, else None);
   without either the pesos are None, never 0.
 
-`columna.costo_ars_sql` (a cost in pesos as SQL, for a sort that matches those numbers) gets the same rule in SQL.
+`columna.costos_ars_conjunto` (costs in pesos as SQL, for a sort that matches those numbers) gets the same rule in SQL.
 SQLite has no `costo_si_pasos`, so 'lista' is all the real reader could answer there too; combos are not emulated
 (none of those tests has one). `lote.sql_en_fecha` is a Postgres SQL fragment and has no SQLite stand-in: a test of a
 raw-SQL path that embeds it runs on Postgres. Costo SI itself is tested on Postgres.
@@ -137,8 +137,8 @@ def en_fechas_lista(db, pares):
     return out
 
 
-def costo_ars_sql_lista(item, tipo_cambio):
-    """`columna.costo_ars_sql` as `actuales_lista` answers it, in SQL over `productos_erp` (the listing's main table,
+def _costo_ars_lista(tipo_cambio):
+    """A product's cost in pesos as `actuales_lista` answers it, in SQL over `productos_erp` (the listing's main table,
     so `item` is implied): a positive list cost, ARS (or none, `moneda_de`) as is, USD x the caller's rate; NULL
     without a rate. The caller always passes the page's rate here (the listings resolve it first)."""
     from sqlalchemy import and_, case, or_
@@ -153,10 +153,19 @@ def costo_ars_sql_lista(item, tipo_cambio):
     return case(*ramas)
 
 
+def costos_ars_conjunto_lista(tipo_cambio):
+    """`columna.costos_ars_conjunto` as `actuales_lista` answers it: `item_id` and `costo_si_ars` per product."""
+    from sqlalchemy import select
+
+    return select(ProductoERP.item_id.label("item_id"), _costo_ars_lista(tipo_cambio).label("costo_si_ars")).subquery(
+        "csi_tienda"
+    )
+
+
 @pytest.fixture
 def costo_si_lista(monkeypatch):
     from app.services.costo_si import columna
 
     monkeypatch.setattr(lote, "actuales", actuales_lista)
     monkeypatch.setattr(lote, "en_fechas", en_fechas_lista)
-    monkeypatch.setattr(columna, "costo_ars_sql", costo_ars_sql_lista)
+    monkeypatch.setattr(columna, "costos_ars_conjunto", costos_ars_conjunto_lista)

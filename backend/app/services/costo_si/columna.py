@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import literal_column
+from sqlalchemy import Integer, Numeric, column, literal_column, text
 
 from app.schemas.costo_si import CostoSiPayload
 from app.services.costo_si import lote
@@ -25,12 +25,19 @@ def orden_catalogo(item: str):
     return literal_column(lote.sql_actual_catalogo(item))
 
 
-def costo_ars_sql(item: str, tipo_cambio: Optional[float]):
-    """The current cost in pesos of the SQL expression `item` at the caller's USD rate (None: the latest), as a scalar
-    SQL expression: exactly `lote.actuales(...)[item].costo_ars`, NULL when unknown. For an ORDER BY that must match
-    the numbers a page computes in Python over that reader (Tienda's Gremio / Sugerido sort, T3 PR 6)."""
+def costos_ars_conjunto(tipo_cambio: Optional[float]):
+    """Every product's current cost in pesos at the caller's USD rate (None: the latest), for an ORDER BY that must
+    match the numbers a page computes in Python over `lote.actuales` (Tienda's Gremio / Sugerido sort, T3 PR 6):
+    ONE set-based read of the reader (`lote.sql_actual_conjunto`), as a subquery with `item_id` and `costo_si_ars`
+    (NULL when unknown), at most one row per `item_id`, to LEFT JOIN on it. Timed on prod: a correlated subquery per
+    row and per use made the sort ~4x slower than this."""
     tc = repr(float(tipo_cambio)) if tipo_cambio else "NULL"
-    return literal_column(f"(SELECT csi_cs.costo_si_ars FROM ({lote.sql_actual_fila(item, tc)}) csi_cs)")
+    conjunto = lote.sql_actual_conjunto("SELECT item_id FROM productos_erp", tc)
+    return (
+        text(f"SELECT csi_all.item_id, csi_all.costo_si_ars FROM ({conjunto}) csi_all")
+        .columns(column("item_id", Integer), column("costo_si_ars", Numeric))
+        .subquery("csi_tienda")
+    )
 
 
 def _float(valor) -> Optional[float]:
