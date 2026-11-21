@@ -82,7 +82,7 @@ class TestRetriesQuarantinedOrders:
     @pytest.fixture()
     def _session(self, monkeypatch, pg_quarantine_engine):
         monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
-        monkeypatch.setattr(ingestion_service, "congelar", lambda db, order_id, items: None)
+        monkeypatch.setattr(ingestion_service, "congelar", lambda db, order_id, items, fecha_venta=None: None)
         monkeypatch.setattr("app.core.database.SessionLocal", sessionmaker(bind=pg_quarantine_engine, autoflush=False))
         yield
         with Session(bind=pg_quarantine_engine) as session:

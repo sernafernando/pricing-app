@@ -580,8 +580,9 @@ class TestBatchFailure:
 
         detail = _drain()
 
-        # batch, retry, charge, then the costo SI queue check after the sale lines (sell-in-costo-si T2)
-        assert (detail["lines"], len(opened)) == (1, 4)
+        # batch, retry, charge, then the costo SI queue check after the sale lines (sell-in-costo-si T2) and the
+        # ML re-freeze queue check (T3 PR 7)
+        assert (detail["lines"], len(opened)) == (1, 5)
         assert w.queued(engine) == [("fuera", mala)]
         assert _attempts(engine, mala) == 0  # the fresh re-queue, not the failed version
 
