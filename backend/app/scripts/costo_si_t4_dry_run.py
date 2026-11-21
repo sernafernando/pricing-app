@@ -25,14 +25,14 @@ from app.services.costo_si import impacto, impacto_reporte, simulacion
 URL_ENV = "COSTO_SI_DRY_RUN_DATABASE_URL"
 
 
-def _controles(valores: List[str]) -> Dict[int, Decimal]:
+def _controles(parser: argparse.ArgumentParser, valores: List[str]) -> Dict[int, Decimal]:
     out: Dict[int, Decimal] = {}
     for valor in valores:
         item, _, promedio = valor.partition("=")
         try:
             out[int(item)] = Decimal(promedio)
-        except (ValueError, InvalidOperation) as exc:
-            raise argparse.ArgumentTypeError(f"--control expects ITEM=AVERAGE, got {valor!r}") from exc
+        except (ValueError, InvalidOperation):
+            parser.error(f"--control expects ITEM=AVERAGE, got {valor!r}")  # exits 2
     return out
 
 
@@ -42,11 +42,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--url-env", default=URL_ENV, help=f"env var holding the database URL (default {URL_ENV})")
     parser.add_argument("--control", action="append", default=[], help="ITEM=AVERAGE validated by hand (T1)")
     args = parser.parse_args(argv)
+    controles = _controles(parser, args.control)
     url = os.environ.get(args.url_env)
     if not url:
         print(f"costo_si_t4_dry_run: set {args.url_env} to the database URL", file=sys.stderr)
         return 2
-    controles = _controles(args.control)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     inicio = time.monotonic()
     motor = simulacion.motor_solo_lectura(url)

@@ -22,7 +22,9 @@ default stays off), so any write raises on the server, and the caller rolls back
 
 from __future__ import annotations
 
+import importlib
 import json
+import pkgutil
 import re
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -158,8 +160,12 @@ class Sombra:
 
 
 def _modelos() -> Dict[str, Table]:
-    import app.models  # noqa: F401  (every model registers its table on Base.metadata)
+    """Every model table: each module of `app.models` is imported, since `app.models` itself does not import them all
+    (e.g. the GBP metrics models), and a table only registers on `Base.metadata` once its module is imported."""
+    import app.models
 
+    for modulo in pkgutil.iter_modules(app.models.__path__):
+        importlib.import_module(f"app.models.{modulo.name}")
     return {t.name: t for t in Base.metadata.sorted_tables}
 
 
