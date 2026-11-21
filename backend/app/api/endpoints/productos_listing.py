@@ -1099,10 +1099,13 @@ def listar_productos(
         # Best current offer and rebate: the shared computation the product
         # detail runs too (app/services/productos_pricing_view.py).
         pubs = pubs_by_item.get(producto_erp.item_id, [])
-        oferta = calcular_mejor_oferta(ctx, producto_erp, pubs, ofertas_by_mla, grupo_id, _resolve_envio)
+        costo_si_fila = costo_si_page.get(producto_erp.item_id)  # costo SI in pesos; None = unknown, no markup
+        oferta = calcular_mejor_oferta(
+            ctx, producto_erp, pubs, ofertas_by_mla, grupo_id, _resolve_envio, costo_ars=costo_si_fila
+        )
         if oferta.limpio is not None:
             ppp.record(PPP_KEY_MEJOR_OFERTA, oferta.limpio, percent=False)
-        rebate = calcular_rebate(ctx, producto_erp, producto_pricing, grupo_id, _resolve_envio)
+        rebate = calcular_rebate(ctx, producto_erp, producto_pricing, grupo_id, _resolve_envio, costo_ars=costo_si_fila)
         precio_rebate = rebate.precio
         markup_rebate = rebate.markup
         if rebate.limpio is not None:
@@ -2880,7 +2883,7 @@ def obtener_producto(
         try:
             ctx_markups = build_pricing_context(db)
             grupo_id_markups = ctx_markups.grupo_of(producto_erp.subcategoria_id)
-            # Over costo SI in pesos (S13, D1; list cost without one, Q1); 0 = unknown: no markup.
+            # Over costo SI in pesos (S13, D1; list cost without one, Q1); None = unknown: no markup.
             costo_markups = costo_ars_actual(db, producto_erp.item_id, ctx_markups.tipo_cambio_usd)
             envio_real_markups = resolver_costos_envio_batch(db, [producto_erp.item_id], pubs_by_item=pubs_by_item_d)
         except Exception as exc:
@@ -2901,9 +2904,17 @@ def obtener_producto(
         resolve_envio_d = partial(resolve_envio, ctx_markups, envio_real_markups)
         pubs_d = pubs_by_item_d.get(producto_erp.item_id, [])
         oferta_d = calcular_mejor_oferta(
-            ctx_markups, producto_erp, pubs_d, ofertas_by_mla_d, grupo_id_markups, resolve_envio_d
+            ctx_markups,
+            producto_erp,
+            pubs_d,
+            ofertas_by_mla_d,
+            grupo_id_markups,
+            resolve_envio_d,
+            costo_ars=costo_markups,
         )
-        rebate_d = calcular_rebate(ctx_markups, producto_erp, producto_pricing, grupo_id_markups, resolve_envio_d)
+        rebate_d = calcular_rebate(
+            ctx_markups, producto_erp, producto_pricing, grupo_id_markups, resolve_envio_d, costo_ars=costo_markups
+        )
     if oferta_d.limpio is not None:
         ppp_d.record(PPP_KEY_MEJOR_OFERTA, oferta_d.limpio, percent=False)
     if rebate_d.limpio is not None:

@@ -753,3 +753,55 @@ def test_set_rapido_without_a_cost_keeps_the_web_transferencia_price_and_says_wh
         "precio_web_transferencia": 777.0,
     }
     assert any(str(T) in r.getMessage() and "web transferencia" in r.getMessage() for r in caplog.records)
+
+
+@pytest.fixture()
+def con_rebate_y_oferta(lector_productos):
+    """X and T participate in the rebate and each has one current offer (GGA: the live Rebate and Mejor Oferta)."""
+    from datetime import date, timedelta
+
+    from app.models.oferta_ml import OfertaML
+    from app.models.publicacion_ml import PublicacionML
+
+    db = lector_productos
+    db.query(ProductoPricing).filter(ProductoPricing.item_id.in_([X, T])).update(
+        {"participa_rebate": True, "porcentaje_rebate": 3.8}, synchronize_session=False
+    )
+    for i in (X, T):
+        mla = f"MLA{i}"
+        db.add(PublicacionML(mla=mla, item_id=i, pricelist_id=4, activo=True))
+        db.flush()
+        db.add(
+            OfertaML(
+                mla=mla,
+                fecha_desde=date.today() - timedelta(days=1),
+                fecha_hasta=date.today() + timedelta(days=1),
+                precio_final=PRECIO * 0.9,
+                pvp_seller=PRECIO,
+                aporte_meli_porcentaje=5.0,
+            )
+        )
+    db.flush()
+    return db
+
+
+_EN_VIVO = ("markup_rebate", "mejor_oferta_markup")
+
+
+def test_the_live_rebate_and_best_offer_markups_are_over_costo_si(client, auth_headers, con_rebate_y_oferta) -> None:
+    filas = client.get("/api/productos?page=1&page_size=50", headers=auth_headers).json()["productos"]
+    detalle = {i: client.get(f"/api/productos/{i}", headers=auth_headers).json() for i in (X, T)}
+    for x, t in ((next(f for f in filas if f["item_id"] == i) for i in (X, T)), (detalle[X], detalle[T])):
+        assert all(x[k] is not None for k in _EN_VIVO)
+        assert {k: x[k] for k in _EN_VIVO} == {k: t[k] for k in _EN_VIVO}
+
+
+def test_the_live_rebate_and_best_offer_markups_are_none_without_a_cost(
+    client, auth_headers, con_rebate_y_oferta
+) -> None:
+    con_rebate_y_oferta.query(ProductoERP).filter_by(item_id=T).update({"costo": 0})
+    con_rebate_y_oferta.flush()
+    filas = client.get("/api/productos?page=1&page_size=50", headers=auth_headers).json()["productos"]
+    t = next(f for f in filas if f["item_id"] == T)
+    detalle = client.get(f"/api/productos/{T}", headers=auth_headers).json()
+    assert {k: t[k] for k in _EN_VIVO} == {k: detalle[k] for k in _EN_VIVO} == dict.fromkeys(_EN_VIVO)

@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 from app.models.tipo_cambio import TipoCambio
 from app.models.comision_config import SubcategoriaGrupo, ComisionListaGrupo
 from app.models.comision_versionada import ComisionVersion, ComisionBase, ComisionAdicionalCuota
@@ -96,6 +96,11 @@ def convertir_a_pesos(costo: float, moneda: str, tipo_cambio: Optional[float]) -
 
 
 SIN_COSTO_ERROR = "Sin costo en pesos (sin costo, o costo USD sin tipo de cambio): no se calcula"
+
+
+# `costo_ars` default of the markup helpers: the caller has not resolved the cost (they read it). A resolved None is
+# an unknown cost and stays unknown, without asking the reader again.
+NO_RESUELTO: Any = object()
 
 
 def costos_ars_actuales(db: Session, item_ids, tipo_cambio: Optional[float] = None) -> Dict[int, Optional[float]]:
@@ -407,7 +412,7 @@ def calcular_markup_rebate(
     tipo_cambio=None,
     *,
     costo_envio: Optional[float] = None,
-    costo_ars: Optional[float] = None,
+    costo_ars: Optional[float] = NO_RESUELTO,
 ) -> Optional[float]:
     """Calcula el markup de rebate para un producto.
 
@@ -419,7 +424,7 @@ def calcular_markup_rebate(
     """
     if not pricing or not pricing.participa_rebate or not pricing.precio_lista_ml:
         return None
-    costo_rebate = costo_ars if costo_ars is not None else costo_ars_actual(db, producto.item_id, tipo_cambio)
+    costo_rebate = costo_ars if costo_ars is not NO_RESUELTO else costo_ars_actual(db, producto.item_id, tipo_cambio)
     if not costo_rebate:
         return None
 
@@ -455,7 +460,7 @@ def calcular_markup_oferta(
     tipo_cambio=None,
     *,
     costo_envio: Optional[float] = None,
-    costo_ars: Optional[float] = None,
+    costo_ars: Optional[float] = NO_RESUELTO,
 ) -> Optional[float]:
     """Calcula el markup de oferta vigente para un producto.
 
@@ -464,7 +469,7 @@ def calcular_markup_oferta(
                      instead of calling resolver_costo_envio again.
         costo_ars: Pre-resolved `costo_ars_actual` (costo SI in pesos). None: resolved here.
     """
-    costo_oferta = costo_ars if costo_ars is not None else costo_ars_actual(db, producto.item_id, tipo_cambio)
+    costo_oferta = costo_ars if costo_ars is not NO_RESUELTO else costo_ars_actual(db, producto.item_id, tipo_cambio)
     if not costo_oferta:
         return None
 
