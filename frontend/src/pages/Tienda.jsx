@@ -27,6 +27,7 @@ import CostoCell from '../components/CostoCell';
 import CostoSiCell from '../components/CostoSiCell';
 import SellInOutLine from '../components/SellInOutLine';
 import { tiendaSellInOutDe } from '../utils/tiendaSellInOut';
+import { costoSiArs } from '../utils/tiendaGremio';
 import { DollarSign, BarChart3, Check, X, RotateCcw, Ban, CreditCard } from 'lucide-react';
 
 // The list cost in its own currency, as Productos writes it (CostoCell adds the cost with sell in).
@@ -1705,7 +1706,7 @@ export default function Tienda() {
                         </div>
                       ) : (
                         <div className="text-muted">
-                          Sin config
+                          {costoSiArs(p) == null ? 'Sin costo en pesos: no se calcula' : 'Sin config'}
                         </div>
                       )}
                     </td>
@@ -1829,7 +1830,7 @@ export default function Tienda() {
                               
                               {/* Preview de precio calculado */}
                               {precioGremioTemp.markup !== '' && !isNaN(parseFloat(precioGremioTemp.markup.replace(',', '.'))) && (
-                                <div className="success-badge">
+                                <div className={calcularPrecioDesdeMarkup(p, precioGremioTemp.markup) ? 'success-badge' : 'warning-badge'}>
                                   {calcularPrecioDesdeMarkup(p, precioGremioTemp.markup)
                                     ? `Preview: $${calcularPrecioDesdeMarkup(p, precioGremioTemp.markup).sin_iva.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} s/IVA`
                                     : 'Sin costo SI en pesos: no se calcula'}
@@ -1901,7 +1902,8 @@ export default function Tienda() {
                             </div>
                           ) : (
                             <div className="text-muted">
-                              Sin markup
+                              {/* A markup with no price: the costo SI has no pesos (interfaz §7), never a price over 0. */}
+                              {p.markup_gremio != null ? 'Sin costo en pesos: no se calcula' : 'Sin markup'}
                             </div>
                           )}
                         </div>

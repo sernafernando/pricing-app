@@ -62,7 +62,8 @@ const producto = (id, codigo, overrides) => ({
 // Each row's figures follow its own cost, as the endpoint returns them: `markup` is the stored markup over the costo SI,
 // null whenever the costo SI has no pesos (the backend pins that in
 // tests/integration/test_productos_costo_si_postgres.py::test_a_stored_markup_of_a_product_without_cost_is_not_shown_never_a_stale_figure);
-// Tienda's gremio / sugerido stay over the list cost in pesos, null without one (test_productos_tienda_orden.py).
+// Tienda's gremio / sugerido are over the costo SI in pesos too (T3 PR 6, owner L20), null without one
+// (test_productos_tienda_costo_si.py).
 const sinCosto = {
   costo: 0,
   costo_ars: null,
