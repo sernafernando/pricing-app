@@ -101,7 +101,7 @@ describe('the cost (S59.2)', () => {
     const labels = within(section('Costo')).getAllByRole('term').map((dt) => dt.textContent);
     expect(labels).toEqual(['Costo', 'Costo SI', 'IVA']);
     expect(valueOf('Costo', 'Costo SI')).toHaveTextContent(/^USD 41,50$/);
-    expect(valueOf('Costo', 'Costo SI').firstChild.getAttribute('title')).toContain('En pesos: ARS 41.500,00 (TC 1000 del 20/11/26)');
+    expect(valueOf('Costo', 'Costo SI').firstChild.getAttribute('title')).toContain('En pesos: $ 41.500,00 (TC 1000 del 20/11/26)');
   });
 
   it('a product without a costo SI reads "—" in its fact, never 0', () => {

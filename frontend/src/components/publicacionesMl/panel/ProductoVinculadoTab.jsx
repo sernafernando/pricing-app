@@ -9,8 +9,8 @@ import LinkActions from './LinkActions';
 import { useProductLinks } from './useProductLinks';
 import CostoSiCell from '../../CostoSiCell';
 
-// The costo SI in its own currency, as the list's Costo SI column writes it (`USD 41,50`).
-const costoSiAmount = (monto, moneda) => `${moneda} ${amount(monto)}`;
+// The costo SI in its own currency (`USD 41,50`), pesos as `$ 41.500,00` like Productos and the product info.
+const costoSiAmount = (monto, moneda) => `${moneda === 'ARS' ? '$' : moneda} ${amount(monto)}`;
 
 const PERMISO_VINCULAR = 'ml_publicaciones.vincular';
 

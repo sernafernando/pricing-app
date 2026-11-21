@@ -88,10 +88,10 @@ function SellOutAmount({ sellOut }) {
 }
 
 /**
- * The row's markup with sell in and sell out when there is sell out, else with
- * sell in only; "-" when the product has neither. "Pendiente" when an amount
- * is unknown (a lot without an ARS cost, a sell out without its rate or base),
- * so it never reads like a row without price ("—").
+ * The row's "c/ SO" markup: the sell out added to the profit, over the costo SI
+ * (D1: the sell in is already inside the costo SI, so there is no markup with
+ * sell in). "-" without sell out; "Pendiente" when the sell out's amount is
+ * unknown (no rate or base), so it never reads like a row without price ("—").
  */
 function SellInOutMarkup({ row, price, sellInOut }) {
   if (!sellInOut) return <NoSellInOut title="Sin sell out" />;
@@ -100,29 +100,19 @@ function SellInOutMarkup({ row, price, sellInOut }) {
   const conSellOut = sellInOut.markups_sell_in_out?.[row.sellInOut];
   if (!isBlank(conSellOut)) {
     return (
-      <span title="Con sell in y sell out">
+      <span title="Con sell out">
         <MarkupChip value={conSellOut} />
       </span>
     );
   }
-  const sellOutPendiente = Boolean(sellInOut.sell_out) && isBlank(sellInOut.sell_out.monto_unit);
-  const conSellIn = sellInOut.markups_sell_in?.[row.sellInOut];
-  if (isBlank(conSellIn)) {
-    const costoPendiente = Boolean(sellInOut.sell_in) && isBlank(sellInOut.sell_in.costo);
-    if (costoPendiente || sellOutPendiente) {
-      return (
-        <span className={styles.muted} title="Falta el tipo de cambio o la base para calcular el markup">
-          Pendiente
-        </span>
-      );
-    }
-    return <Empty />;
+  if (sellInOut.sell_out && isBlank(sellInOut.sell_out.monto_unit)) {
+    return (
+      <span className={styles.muted} title="Falta el tipo de cambio o la base para calcular el markup">
+        Pendiente
+      </span>
+    );
   }
-  return (
-    <span title={sellOutPendiente ? 'Con sell in; el sell out está pendiente' : 'Con sell in'}>
-      <MarkupChip value={conSellIn} />
-    </span>
-  );
+  return <NoSellInOut title="Sin sell out" />;
 }
 
 const costoSiAmount = (monto, moneda) => (moneda === 'ARS' ? `$ ${formatAmount(monto)}` : `${moneda} ${formatAmount(monto)}`);
@@ -426,9 +416,14 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
   // with and the one the Costo line shows. Productos converts offsets with
   // /tipo-cambio-hoy instead (same latest venta, but with a CurExchHistory and
   // a 1000 fallback); here a missing rate is said, never assumed.
-  const needsRate = isUsd || Boolean(product && contexto && requiereTipoCambio(product, contexto));
-  const rate = useUsdRate(showCost && needsRate);
-  const costo = product && contexto && (!needsRate || rate) ? costoConOffset(product, { ...contexto, tipoCambio: needsRate ? rate : null }) : null;
+  // The offsets read the COST currency (costo_si, L18): an ARS costo SI, or one whose pesos the backend sent, needs no
+  // rate. The rate is still read for a USD list cost, to show its pesos in the facts.
+  const offsetNeedsRate = Boolean(product && contexto && requiereTipoCambio(product, contexto));
+  const rate = useUsdRate(showCost && (isUsd || offsetNeedsRate));
+  const costo =
+    product && contexto && (!offsetNeedsRate || rate)
+      ? costoConOffset(product, { ...contexto, tipoCambio: offsetNeedsRate ? rate : null })
+      : null;
 
   // After a write the stored prices and markups are the backend's: read them again.
   const isShown = (itemId) => shownItemRef.current === itemId;

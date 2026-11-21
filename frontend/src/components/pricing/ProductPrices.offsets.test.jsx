@@ -129,6 +129,27 @@ describe('cost and markup with offset', () => {
       expect(offsetCell(await priceOf('Clásica'))).toHaveTextContent('—');
     });
 
+    it('with an ARS costo SI the markup with offset needs no rate: it reads the COST currency, not the list one (L18)', async () => {
+      const arsCostoSi = { ...USD_PRODUCT, costo_si: { costo: 64000, moneda: 'ARS', fuente: 'costo_si', costo_ars: 64000 } };
+      preciosAPI.obtenerProducto.mockResolvedValue({ data: arsCostoSi });
+      preciosAPI.tipoCambioActual.mockResolvedValue({ data: { error: 'No hay tipo de cambio disponible' } });
+      offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [OFFSETS[0]] });
+      render(<ProductPrices productItemId={4101} showCost />);
+      const group = await facts();
+      // 64.000 minus 10% = 57.600, as with the rate above; the USD list cost still says it has no pesos.
+      await waitFor(async () => expect(offsetCell(await priceOf('Clásica'))).toHaveTextContent('31,56%'));
+      expect(group).toHaveTextContent('sin tipo de cambio');
+    });
+
+    it('with a USD costo SI whose pesos the backend sent, no rate is needed either', async () => {
+      const usdConPesos = { ...USD_PRODUCT, costo_si: { costo: 50, moneda: 'USD', fuente: 'costo_si', costo_ars: 64000 } };
+      preciosAPI.obtenerProducto.mockResolvedValue({ data: usdConPesos });
+      preciosAPI.tipoCambioActual.mockResolvedValue({ data: { error: 'No hay tipo de cambio disponible' } });
+      offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [OFFSETS[0]] });
+      render(<ProductPrices productItemId={4101} showCost />);
+      await waitFor(async () => expect(offsetCell(await priceOf('Clásica'))).toHaveTextContent('31,56%'));
+    });
+
     it('converts a USD per-unit offset with that same rate (venta) too', async () => {
       preciosAPI.obtenerProducto.mockResolvedValue({ data: USD_PRODUCT });
       preciosAPI.tipoCambioActual.mockResolvedValue({ data: { moneda: 'USD', compra: 1250, venta: 1280, fecha: '2026-10-14' } });

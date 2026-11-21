@@ -697,14 +697,14 @@ describe('header figures (S1)', () => {
       expect(figure('Precio')).toBe('$ 98.500,50Markup 26,5%c/ SO 32,8%');
     });
 
-    it('S9: with sell in only, the markup with sell in', async () => {
+    it('D1: with sell in only, no c/ SO line under the markup (the sell in is in the costo SI)', async () => {
       canSeeMargin = true;
       publicacionesMlAPI.detail.mockResolvedValue({
-        data: withCosts({ sell_in: SELL_IN, sell_out: null, markups_sell_in: { publicacion: 29.6 }, markups_sell_in_out: {} }),
+        data: withCosts({ sell_in: SELL_IN, sell_out: null, markups_sell_in: {}, markups_sell_in_out: {} }),
       });
       renderPanel({ tab: 'resumen' });
       await screen.findByRole('region', { name: 'Cifras de la publicación' });
-      expect(figure('Precio')).toBe('$ 98.500,50Markup 26,5%c/ SO 29,6%');
+      expect(figure('Precio')).toBe('$ 98.500,50Markup 26,5%');
     });
 
     it('S9: no sell in nor sell out today, no extra line under the markup', async () => {
@@ -730,7 +730,12 @@ describe('header figures (S1)', () => {
       canSeeMargin = true;
       publicacionesMlAPI.detail.mockResolvedValue({
         data: {
-          ...withCosts({ sell_in: SELL_IN, sell_out: null, markups_sell_in: { publicacion: 29.6 }, markups_sell_in_out: {} }),
+          ...withCosts({
+            sell_in: SELL_IN,
+            sell_out: { monto_unit: 2000, campana_ids: [3] },
+            markups_sell_in: {},
+            markups_sell_in_out: { publicacion: 32.8 },
+          }),
           markup_breakdown: { ...DETAIL_RESPONSE_MARGIN.markup_breakdown, variation_id: 77 },
         },
       });
