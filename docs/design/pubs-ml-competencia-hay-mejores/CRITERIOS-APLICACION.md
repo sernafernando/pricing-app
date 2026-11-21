@@ -66,7 +66,7 @@ Proposed grouping for design (not implementation order):
 | UX | Behavior |
 | --- | --- |
 | Rows | All competitors in the current catalog tramo / same bucket for the open MLA |
-| Columns (info) | Attributes the PM needs to judge: **Full**, **intl**, stock residual (if available), reputación, nombre visible, precio, etc. Missing ML fields → empty / “sin dato”, not a hidden filter |
+| Columns (info) | Attributes the PM needs to judge: **Full**, **intl**, stock residual (if available), reputación, nombre visible, precio, etc. Missing ML fields → empty / “sin dato”, not a hidden filter. **Full (2026-11-17):** from catalogCompetition `shipping_badges` containing `FULL` (no extra fetch). **Reputación (2026-11-17):** enrich via webhook `GET /users/{seller_id}` → `seller_reputation.level_id` + `power_seller_status`. **Batch rule:** unique sellers across the batch, **once per seller**, never once per publication. **Interactive refresh:** commit catalog (Full) immediately; stamp cache hits only; `/users` runs in a **background** thread and patches the snapshot (so the UI does not hang on ~100 sellers). Worker/tests may `wait_reputation=True` to enrich inline. Throttled; fail-open. **Stock residual / intl — NOT DONE (2026-11-17):** neither field appears on catalogCompetition `format=processed`; competitor MLAs are not in our `ml_items` mirror (single-seller sync); no official non-scrape source found for competitor stock or international listing flags. Columns stay “sin dato” until ML exposes them or we accept a new official API. |
 | Checkbox | **All checked by default** (= count as competitors). PM **unchecks** sellers to exclude them from effective ranking |
 | Persistence | Saved per MLA (unchecked set / inclusion flags). **New sellers** that appear on refresh → **checked by default**; previous unchecks kept |
 | R-AUTO / C2 / C6 | Use **only** the currently saved table state. If the PM left everyone checked, everyone counts |
@@ -123,7 +123,7 @@ Clarification (owner 2026-11-17): “2nd place” = among **checked** competitor
 | Criterion | Needs | If missing |
 | --- | --- | --- |
 | C2, C6 | Fresh catalog + **competitor table** state | Feature inert / no catalog path |
-| Table columns | Full / intl / stock / reputación when ML exposes them | Column empty; PM still checks/unchecks |
+| Table columns | Full (shipping_badges) + reputación (/users enrich) when available; **intl / stock competitor: blocked** (see Family 3 note) | Column empty / “?”; PM still checks/unchecks |
 
 ## Audit as-is (2026-11-17 — inventory for criterios design)
 
@@ -252,3 +252,6 @@ Recommendation: lean transition events + enroll enrich; never write when fingerp
 - **2026-11-17**: Bulk discard: Auto ON normally has no open suggestion; **Auto-fail** suggestions are **exempt** from bulk discard; dialog warns for Auto ON.
 - **2026-11-17**: Short edge rules OK (Auto+C6 sin promo; tabla vacía; asociación no-catálogo).
 - **2026-11-17**: Confirmed bucket bug on `MLA2126104891`: numeric `installments` → all Premium share `gold_pro|0`.
+- **2026-11-17**: Ranking columns — ship **Full** from `shipping_badges`; ship **reputación** via `/users/{seller_id}` enrich at refresh. **Stock residual + intl** for competitors: **documented as not feasible** without scrape / new ML surface (not in processed catalog; not in our single-seller `ml_items`).
+- **2026-11-17**: Reputation fetch must be **once per unique seller in the batch** (lista de competidores del catálogo / worker), **not** once per publication.
+- **2026-11-17**: Owner: **todas** las PRs del stack Criterios/Auto/ranking de hoy (fork #15–#29 + slice Full/reputación) hay que pasarlas a pricing upstream — inventario en `PLAN.md` §9. El fork es solo para smoke; cerrar = PRs en `sernafernando/pricing-app`.
