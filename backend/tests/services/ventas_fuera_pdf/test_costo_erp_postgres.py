@@ -149,11 +149,10 @@ class TestCargaCuestaConElErp:
 
         assert _costo(engine, 1) == Decimal("1500000.00")
 
-    def test_a_dollar_cost_without_a_tipo_cambio_rate_costs_0_never_dollars_as_pesos(
-        self, engine: Engine, db: Session, caplog: pytest.LogCaptureFixture
+    def test_without_a_tipo_cambio_rate_the_reader_falls_back_to_the_erp_rate(
+        self, engine: Engine, db: Session
     ) -> None:
-        """The reader's rate is `tipo_cambio` only: without one the peso cost is unknown -> 0 (before T3 PR 9 the ERP
-        rate, else x 1, so dollars were stored as pesos)."""
+        """The reader's rate rule (lote.sql_tipo_cambio, #2366): `tipo_cambio` first, else the ERP's USD -> ARS rate."""
         with engine.begin() as conn:
             producto(conn, 701, NB)
             costo_erp(conn, 701, "1000", datetime(2026, 10, 1))
@@ -163,6 +162,19 @@ class TestCargaCuestaConElErp:
                     "VALUES (1, 1, 2, 1, '2026-10-02 12:00', 1400)"
                 )
             )
+
+        _cargar(db, doc(1, [linea(NB, "NOTEBOOK EJEMPLO")], fecha=VENTA))
+
+        assert _costo(engine, 1) == Decimal("1400000.00")  # 1000 x 1,400
+
+    def test_a_dollar_cost_without_any_rate_costs_0_never_dollars_as_pesos(
+        self, engine: Engine, db: Session, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Neither a `tipo_cambio` nor an ERP rate: the peso cost is unknown -> 0 (before T3 PR 9 x 1, so dollars were
+        stored as pesos)."""
+        with engine.begin() as conn:
+            producto(conn, 701, NB)
+            costo_erp(conn, 701, "1000", datetime(2026, 10, 1))
 
         _cargar(db, doc(1, [linea(NB, "NOTEBOOK EJEMPLO")], fecha=VENTA))
 

@@ -44,9 +44,9 @@ def join(alias: str, item: str, fecha: str) -> str:
 
 
 def tipo_cambio_en(fecha: str) -> str:
-    """The USD rate the reader converts with on `fecha` (`tipo_cambio`, venta > 0, the last one on or before it; NULL
-    without one): what a row stores as its `cotizacion_dolar`, so the row's cost and its rate are the same rate."""
-    return lote._tc_en(fecha)
+    """The USD rate the reader converts with on `fecha` (`lote.sql_tipo_cambio`, NULL without one), as a scalar SQL
+    subquery: what a row stores as its `cotizacion_dolar`, so the row's cost and its rate are the same rate."""
+    return f"(SELECT t.costo_si_tipo_cambio FROM ({lote.sql_tipo_cambio(fecha)}) t)"
 
 
 def _desglosado(item: str, comp: str, ct: str, grupo: str, *, en_grupo: bool) -> str:
