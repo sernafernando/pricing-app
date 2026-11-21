@@ -19,8 +19,7 @@ from app.models.producto import ProductoERP, ProductoPricing
 from app.services.marcas_visibles import brand_visibility
 from app.services.permisos_service import verificar_permiso
 from app.services.pricing_calculator import (
-    convertir_a_pesos,
-    moneda_de,
+    costo_ars_actual,
     obtener_constantes_pricing,
     obtener_tipo_cambio_actual,
 )
@@ -568,20 +567,14 @@ def _resolver_markup_gremio(db: Session, marca: Optional[str]) -> float:
     return 0.0
 
 
-def _costo_lista_ars(db: Session, producto: ProductoERP) -> Optional[float]:
-    """The product's list cost in pesos, None when unknown (interfaz §7): no positive cost, or a USD cost without a
-    USD rate (never taken as pesos). Logged with the product id. Its cost base waits for the owner (PR 6 plan)."""
-    if producto.costo is None or producto.costo <= 0:
-        logger.warning("markup sugerido: no cost for item %s", producto.item_id)
+def _costo_si_ars(db: Session, producto: ProductoERP) -> Optional[float]:
+    """The product's costo SI in pesos, the Sugerido price base (owner L20, as the Tienda listing: its USD rate), None
+    when unknown (interfaz §7): no cost, or a USD cost without a USD rate (never taken as pesos). Logged with the id."""
+    costo = costo_ars_actual(db, producto.item_id, obtener_tipo_cambio_actual(db, "USD"))
+    if costo is None or costo <= 0:
+        logger.warning("markup sugerido: no cost in pesos for item %s", producto.item_id)
         return None
-    moneda = moneda_de(
-        producto.moneda_costo.value if hasattr(producto.moneda_costo, "value") else producto.moneda_costo
-    )
-    tipo_cambio_usd = obtener_tipo_cambio_actual(db, "USD") if moneda != "ARS" else None
-    if moneda != "ARS" and not tipo_cambio_usd:
-        logger.warning("markup sugerido: no USD rate for item %s", producto.item_id)
-        return None
-    return float(convertir_a_pesos(producto.costo, moneda, tipo_cambio_usd))
+    return costo
 
 
 def _build_markup_sugerido_response(
@@ -592,7 +585,7 @@ def _build_markup_sugerido_response(
     markup_sugerido_origen: Optional[str],
 ) -> MarkupSugeridoResponse:
     """Build the MarkupSugeridoResponse by recomputing precio_sugerido."""
-    costo_ars = _costo_lista_ars(db, producto)
+    costo_ars = _costo_si_ars(db, producto)
     constantes = obtener_constantes_pricing(db)
     varios_porcentaje = constantes.get("varios", 6.5)
 

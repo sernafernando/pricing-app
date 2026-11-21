@@ -1830,7 +1830,9 @@ export default function Tienda() {
                               {/* Preview de precio calculado */}
                               {precioGremioTemp.markup !== '' && !isNaN(parseFloat(precioGremioTemp.markup.replace(',', '.'))) && (
                                 <div className="success-badge">
-                                  Preview: ${calcularPrecioDesdeMarkup(p, precioGremioTemp.markup).sin_iva.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} s/IVA
+                                  {calcularPrecioDesdeMarkup(p, precioGremioTemp.markup)
+                                    ? `Preview: $${calcularPrecioDesdeMarkup(p, precioGremioTemp.markup).sin_iva.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} s/IVA`
+                                    : 'Sin costo SI en pesos: no se calcula'}
                                 </div>
                               )}
                               

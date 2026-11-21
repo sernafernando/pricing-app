@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { costoSiArs, markupGremioDesdePrecio } from './tiendaGremio';
+import { costoSiArs, markupGremioDesdePrecio, precioGremioDesdeMarkup } from './tiendaGremio';
 
 // Costo SI T3 PR 6 (S13, D1, interfaz §6/§7): the markup shown for a manual Gremio price is over costo SI in pesos
 // (`producto.costo_si.costo_ars`), never the list cost (`producto.costo_ars`). Invented data.
@@ -29,5 +29,28 @@ describe('markupGremioDesdePrecio', () => {
 
   it('is null without a cost', () => {
     expect(markupGremioDesdePrecio(null, 100000)).toBeNull();
+  });
+});
+
+// Owner L20 (option B): the Gremio price built from a markup is over costo SI in pesos too.
+describe('precioGremioDesdeMarkup', () => {
+  it('builds the price over costo SI, not the list cost', () => {
+    const precio = precioGremioDesdeMarkup(costoSiArs(conSi), 20, conSi.iva);
+    expect(precio.sin_iva).toBeCloseTo(80000 * 1.07 * 1.2, 6);
+    expect(precio.con_iva).toBeCloseTo(80000 * 1.07 * 1.2 * 1.21, 6);
+  });
+
+  it('round-trips with markupGremioDesdePrecio', () => {
+    const precio = precioGremioDesdeMarkup(80000, 35, 21);
+    expect(markupGremioDesdePrecio(80000, precio.sin_iva)).toBeCloseTo(35, 6);
+  });
+
+  it('is null without a cost: never a price of 0, never over the list cost', () => {
+    expect(precioGremioDesdeMarkup(costoSiArs({ costo_ars: 100000, iva: 21 }), 20, 21)).toBeNull();
+    expect(precioGremioDesdeMarkup(null, 20, 21)).toBeNull();
+  });
+
+  it('defaults the IVA to 21', () => {
+    expect(precioGremioDesdeMarkup(1000, 0, undefined).con_iva).toBeCloseTo(1000 * 1.07 * 1.21, 6);
   });
 });

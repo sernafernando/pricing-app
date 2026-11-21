@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import api from '../services/api';
-import { costoSiArs, markupGremioDesdePrecio } from '../utils/tiendaGremio';
+import { costoSiArs, markupGremioDesdePrecio, precioGremioDesdeMarkup } from '../utils/tiendaGremio';
 
 /**
  * Custom hook para manejar TODA la lógica de edición de precios en la vista Tienda.
@@ -169,25 +169,9 @@ export function useTiendaPricing({
 
   // === PRECIO GREMIO ===
 
-  const calcularPrecioDesdeMarkup = (producto, markupPorcentaje) => {
-    if (!producto.costo_ars || producto.costo_ars <= 0) {
-      return { sin_iva: 0, con_iva: 0 };
-    }
-
-    const costo_ars = parseFloat(producto.costo_ars);
-    const varios_porcentaje = 7; // Constante del sistema
-    const markup_decimal = parseFloat(markupPorcentaje) / 100;
-    const iva_decimal = (producto.iva || 21) / 100;
-
-    // Fórmula: Precio sin IVA = Costo × (1 + Varios%) × (1 + Markup%)
-    const precio_sin_iva = costo_ars * (1 + varios_porcentaje / 100) * (1 + markup_decimal);
-    const precio_con_iva = precio_sin_iva * (1 + iva_decimal);
-
-    return {
-      sin_iva: precio_sin_iva,
-      con_iva: precio_con_iva
-    };
-  };
+  // Over costo SI in pesos (owner L20); null without it: no price, never one over 0 or the list cost.
+  const calcularPrecioDesdeMarkup = (producto, markupPorcentaje) =>
+    precioGremioDesdeMarkup(costoSiArs(producto), parseFloat(String(markupPorcentaje).replace(',', '.')), producto.iva);
 
   const calcularMarkupDesdePrecios = (costoArs, precioSinIva) => {
     if (!costoArs || costoArs <= 0) return null;
@@ -254,6 +238,10 @@ export function useTiendaPricing({
         }
 
         const precios = calcularPrecioDesdeMarkup(producto, markup);
+        if (!precios) {
+          showToast('⚠️ Sin costo SI en pesos: cargá el precio, no el markup', 'error');
+          return;
+        }
         precioSinIva = precios.sin_iva;
         precioConIva = precios.con_iva;
       }

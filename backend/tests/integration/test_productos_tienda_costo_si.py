@@ -3,9 +3,9 @@ S13 ("costo SI is THE cost for everything"), D1 (markups over costo SI), D4 ("el
 las publicaciones"), owner L18 (costo SI in the product's cost currency) and the interface's §7 (an unknown cost is
 None, never 0 and never a USD figure taken as pesos).
 
-Scope of this file: the instalment markups and the markup of a manual Gremio price (an override stores the PRICE, so
-only its markup follows the cost). The base of the computed Gremio / Sugerido prices waits for the owner (plan
-handoffs/sell-in-costo-si-t3-pr6-plan.md), so no price is asserted here beyond "an override price stays as stored".
+Scope of this file: the instalment markups, the markup of a manual Gremio price (an override stores the PRICE, so
+only its markup follows the cost) and the computed Gremio / Sugerido prices, whose base is costo SI too (owner L20:
+"los precios de gremio y sugerido toman costo si"), in the listing and in both exports.
 
 Method: product X has list cost USD 100 and costo SI USD 80; its twin T has list cost USD 80 and no costo SI. Both are
 otherwise identical, so every markup of X must equal T's. Same for the ARS pair A (list 60000, costo SI 50000) and B
@@ -15,12 +15,16 @@ Q1) for the rest. Invented data."""
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 from decimal import Decimal
+from io import BytesIO
 
 import pytest
+from openpyxl import load_workbook
 
 from app.models.comision_versionada import ComisionBase, ComisionVersion
+from app.models.markup_tienda import MarkupTiendaProducto
 from app.models.precio_gremio_override import PrecioGremioOverride
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.tipo_cambio import TipoCambio
@@ -36,6 +40,8 @@ X, T, A, B, U = 9701, 9702, 9703, 9704, 9705
 TC = 1000.0
 CUOTAS = ("markup_3_cuotas", "markup_6_cuotas", "markup_9_cuotas", "markup_12_cuotas")
 GREMIO_MANUAL = (110_000.0, 133_100.0)  # sin / con IVA
+MARKUP_GREMIO, MARKUP_SUGERIDO, MARKUP_CLASICA = 20.0, 5.0, 30.0
+PRECIOS = ("precio_gremio_sin_iva", "precio_gremio_con_iva", "precio_sugerido_sin_iva", "precio_sugerido_con_iva")
 
 
 def _costo_si(item_id: int, costo: str, moneda: str, tc) -> lote.Costo:
@@ -64,6 +70,16 @@ def lector(monkeypatch):
 
 @pytest.fixture()
 def catalogo(db, lector):
+    _catalogo(db, override=True)
+
+
+@pytest.fixture()
+def calculado(db, lector):
+    """The same catalogue with no manual Gremio price: Gremio 20% and Sugerido 5% per product, clásica markup 30%."""
+    _catalogo(db, override=False)
+
+
+def _catalogo(db, *, override: bool) -> None:
     _guard_incompatible_raw_sql(db)
     for item_id, costo, moneda in (
         (X, 100, "USD"),
@@ -95,15 +111,23 @@ def catalogo(db, lector):
                 precio_6_cuotas=170_000.0,
                 precio_9_cuotas=180_000.0,
                 precio_12_cuotas=190_000.0,
+                markup_calculado=None if override else MARKUP_CLASICA,
             )
         )
-        db.add(
-            PrecioGremioOverride(
-                item_id=item_id,
-                precio_gremio_sin_iva_manual=GREMIO_MANUAL[0],
-                precio_gremio_con_iva_manual=GREMIO_MANUAL[1],
+        if override:
+            db.add(
+                PrecioGremioOverride(
+                    item_id=item_id,
+                    precio_gremio_sin_iva_manual=GREMIO_MANUAL[0],
+                    precio_gremio_con_iva_manual=GREMIO_MANUAL[1],
+                )
             )
-        )
+        else:
+            db.add(
+                MarkupTiendaProducto(
+                    item_id=item_id, markup_porcentaje=MARKUP_GREMIO, markup_sugerido=MARKUP_SUGERIDO, activo=True
+                )
+            )
     db.add(TipoCambio(fecha=date.today(), moneda="USD", compra=TC, venta=TC))
     version = ComisionVersion(nombre="Test", fecha_desde=date(2000, 1, 1), activo=True)
     db.add(version)
@@ -148,3 +172,63 @@ def test_a_costo_si_without_pesos_gives_no_markup(client, auth_headers, catalogo
     for campo in (*CUOTAS, "markup_gremio"):
         assert fila[campo] is None, campo
     assert (fila["precio_gremio_sin_iva"], fila["precio_gremio_con_iva"]) == GREMIO_MANUAL
+
+
+def _varios(db) -> float:
+    from app.services.pricing_calculator import obtener_constantes_pricing
+
+    return obtener_constantes_pricing(db).get("varios", 6.5)
+
+
+@pytest.mark.parametrize("con_si, gemelo, costo_ars", [(X, T, 80_000), (A, B, 50_000)], ids=["usd", "ars"])
+def test_computed_gremio_and_sugerido_prices_are_over_costo_si(
+    client, auth_headers, db, calculado, con_si, gemelo, costo_ars
+):
+    filas = _listar(client, auth_headers)
+    factor = 1 + _varios(db) / 100
+
+    # L20: costo SI x (1 + varios) x (1 + markup); the twin with that list cost and no costo SI prices the same
+    gremio = costo_ars * factor * (1 + MARKUP_GREMIO / 100)
+    sugerido = costo_ars * factor * (1 + (MARKUP_CLASICA + MARKUP_SUGERIDO) / 100)
+    for fila in (filas[con_si], filas[gemelo]):
+        assert fila["precio_gremio_sin_iva"] == pytest.approx(gremio)
+        assert fila["precio_gremio_con_iva"] == pytest.approx(gremio * 1.21)
+        assert fila["precio_sugerido_sin_iva"] == pytest.approx(sugerido)
+        assert fila["precio_sugerido_con_iva"] == pytest.approx(sugerido * 1.21)
+        assert fila["markup_gremio"] == pytest.approx(MARKUP_GREMIO)
+        assert fila["markup_sugerido_total"] == pytest.approx(MARKUP_CLASICA + MARKUP_SUGERIDO)
+        assert fila["tiene_override_gremio"] is False
+
+
+def test_a_costo_si_without_pesos_gives_no_gremio_or_sugerido_price(client, auth_headers, calculado, caplog):
+    with caplog.at_level(logging.INFO):
+        fila = _listar(client, auth_headers)[U]
+
+    # §7: USD 80 with no rate has no peso value: no price, never one over 80 pesos, 0 or the list cost
+    for campo in (*PRECIOS, "markup_sugerido_total"):
+        assert fila[campo] is None, campo
+    assert f"sin_tipo_cambio [{U}]" in caplog.text
+
+
+def _excel(client, auth_headers, path: str, col_precio: int) -> dict:
+    response = client.get(f"/api/{path}", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    ws = load_workbook(BytesIO(response.content)).active
+    filas = {r[3]: r for r in ws.iter_rows(min_row=2, values_only=True)}
+    return {item: filas[f"TCSI-{item}"][col_precio - 1 : col_precio + 1] for item in (X, T, A, B, U)}
+
+
+@pytest.mark.parametrize(
+    "path, col_precio, campo",
+    [("exportar-lista-gremio", 7, "precio_gremio"), ("exportar-lista-sugerido", 10, "precio_sugerido")],
+    ids=["gremio", "sugerido"],
+)
+def test_the_exports_price_over_costo_si_like_the_listing(client, auth_headers, calculado, path, col_precio, campo):
+    listado = _listar(client, auth_headers)
+    excel = _excel(client, auth_headers, path, col_precio)
+
+    for item in (X, T, A, B):
+        esperado = (listado[item][f"{campo}_sin_iva"], listado[item][f"{campo}_con_iva"])
+        assert excel[item] == pytest.approx(tuple(round(v, 2) for v in esperado), abs=0.01), item
+    assert excel[X] == excel[T] and excel[A] == excel[B]
+    assert excel[U] == (None, None)  # §7: unknown cost, no price

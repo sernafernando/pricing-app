@@ -25,6 +25,14 @@ def orden_catalogo(item: str):
     return literal_column(lote.sql_actual_catalogo(item))
 
 
+def costo_ars_sql(item: str, tipo_cambio: Optional[float]):
+    """The current cost in pesos of the SQL expression `item` at the caller's USD rate (None: the latest), as a scalar
+    SQL expression: exactly `lote.actuales(...)[item].costo_ars`, NULL when unknown. For an ORDER BY that must match
+    the numbers a page computes in Python over that reader (Tienda's Gremio / Sugerido sort, T3 PR 6)."""
+    tc = repr(float(tipo_cambio)) if tipo_cambio else "NULL"
+    return literal_column(f"(SELECT csi_cs.costo_si_ars FROM ({lote.sql_actual_fila(item, tc)}) csi_cs)")
+
+
 def _float(valor) -> Optional[float]:
     return None if valor is None else float(valor)
 
