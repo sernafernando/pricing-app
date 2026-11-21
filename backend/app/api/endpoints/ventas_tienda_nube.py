@@ -13,6 +13,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict
 from app.core.database import get_db
 from app.api.deps import get_current_user
+from app.services import ventas_gbp_costo_si as costo_si_gbp
 from app.models.pricing_constants import PricingConstants
 
 router = APIRouter()
@@ -182,6 +183,10 @@ class CountResponse(BaseModel):
 # ============================================================================
 
 
+# The GBP line's product, as every query of this module resolves it (costo SI reader, sell-in-costo-si T3 PR 9).
+_GBP_ITEM = costo_si_gbp.GBP_ITEM.format(t="tit")
+
+
 def get_ventas_tienda_nube_query():
     """
     Query principal para obtener ventas de Tienda Nube.
@@ -200,41 +205,15 @@ def get_ventas_tienda_nube_query():
             END as plusorminus,
             tct.ct_date,
             tct.bra_id,
-            (
-                COALESCE(
-                    (SELECT iclh.iclh_price
-                     FROM tb_item_cost_list_history iclh
-                     WHERE iclh.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
-                       AND iclh.iclh_cd <= tct.ct_date AND iclh.coslis_id = 1
-                     ORDER BY iclh.iclh_id DESC LIMIT 1),
-                    (SELECT ticl.coslis_price
-                     FROM tb_item_cost_list ticl
-                     WHERE ticl.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
-                       AND ticl.coslis_id = 1
-                     ORDER BY ticl.coslis_cd DESC LIMIT 1),
-                    0
-                ) *
-                CASE
-                    WHEN COALESCE(
-                        (SELECT iclh.curr_id FROM tb_item_cost_list_history iclh
-                         WHERE iclh.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
-                           AND iclh.iclh_cd <= tct.ct_date AND iclh.coslis_id = 1
-                         ORDER BY iclh.iclh_id DESC LIMIT 1),
-                        (SELECT ticl.curr_id FROM tb_item_cost_list ticl
-                         WHERE ticl.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
-                           AND ticl.coslis_id = 1
-                         ORDER BY ticl.coslis_cd DESC LIMIT 1),
-                        1
-                    ) = 1 THEN 1
-                    ELSE COALESCE(
-                        (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tct.ct_date::date ORDER BY tc.fecha DESC LIMIT 1),
-                        (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tct.ct_date ORDER BY ceh.ceh_cd DESC LIMIT 1),
-                        1
-                    )
-                END
-            ) * 1.065 AS costo_unitario
+            -- Costo SI en pesos de la fecha de venta (costo_si.lote), con Costo D (x 1.065) encima
+            {costo_si_gbp.costo_unitario_ars("cs", _GBP_ITEM, "tit.comp_id", "tit.ct_transaction", "tit.it_isassociationgroup")}
+            * 1.065 AS costo_unitario,
+            -- The same line inside its group's sum (owner L19: a combo broken down in the group costs 0)
+            {costo_si_gbp.costo_unitario_ars("cs", _GBP_ITEM, "tit.comp_id", "tit.ct_transaction", "tit.it_isassociationgroup", en_grupo=True)}
+            * 1.065 AS costo_unitario_grupo
         FROM tb_item_transactions tit
         LEFT JOIN tb_commercial_transactions tct ON tct.ct_transaction = tit.ct_transaction
+        {costo_si_gbp.join("cs", _GBP_ITEM, "tct.ct_date::date")}
         WHERE tct.ct_date BETWEEN :from_date AND :to_date
           AND tct.sd_id IN ({SD_IDS_STR})
           AND tct.df_id IN ({DF_IDS_STR})
@@ -269,7 +248,7 @@ def get_ventas_tienda_nube_query():
         SELECT
             tit.it_isassociationgroup AS group_id,
             tit.ct_transaction,
-            SUM(cc.costo_unitario * tit.it_qty) AS costo_combo
+            SUM(cc.costo_unitario_grupo * tit.it_qty) AS costo_combo
         FROM tb_item_transactions tit
         LEFT JOIN CostoCalculado cc ON cc.it_transaction = tit.it_transaction
         WHERE tit.it_isassociationgroup IS NOT NULL

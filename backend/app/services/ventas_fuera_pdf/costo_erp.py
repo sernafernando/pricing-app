@@ -1,14 +1,17 @@
-"""The cost of a PDF line from the ERP cost list (vpf-costo-d-erp, owner L3 fix B: "calcular desde la lista de costos
-del ERP"), exactly as Ventas por Fuera (anterior) computes it (`app/scripts/agregar_metricas_fuera_ml.py`):
+"""The cost of a PDF line: its product's costo SI on the sale date (sell-in-costo-si T3 PR 9; owner L6.2 "costo d va a
+aplicar sobre costo si"), read through `app.services.costo_si.lote`, the one reader every consumer uses:
 
-- unit cost = `iclh_price` of the item's last `tb_item_cost_list_history` row of list 1 (`coslis_id = 1`) created
-  on or before the sale date (`iclh_cd <= fecha`, highest `iclh_id`); none -> 0;
-- a cost in pesos (`curr_id` 1 or NULL) as is, any other currency x the USD rate of the sale date: `tipo_cambio`
-  (USD `venta`, the latest `fecha <= fecha`), else `tb_cur_exch_history` (latest `ceh_cd <= fecha`), else 1.
+- unit cost = `lote.en_fechas` `costo_ars`: the costo SI in force on the sale date, in the product's cost currency
+  (owner L18), in pesos at that date's USD rate; without costo SI the list cost (`fuente` 'lista', interface Q1);
+  unknown (no cost, or a dollar cost without a rate) -> 0, as a line without cost always was;
+- a combo that is not a PC = its components x quantity (the reader, S11), UNLESS the same document brings its
+  breakdown (owner L19: "claro si el combo trae el desglose no tomarlo, si no lo trae sí"): when one of its
+  components is also a line of that document, the combo line costs 0 and its components carry the cost
+  (`combos_desglosados`).
 
 The line's `precio_costo` = unit cost x `cantidad`, the Precio Costo WITHOUT the 6.5%: every screen applies Costo D
-(x `COSTO_D_FACTOR`) on top, as before. The PDF's "Precio Costo" is not a cost any more; it stays in
-`precio_costo_pdf` only as a reference. A line without product (`item_id` NULL) costs 0, like (anterior).
+(x `COSTO_D_FACTOR`) on top, as before. The PDF's "Precio Costo" is not a cost; it stays in `precio_costo_pdf` only as
+a reference. A line without product (`item_id` NULL) costs 0.
 """
 
 from __future__ import annotations
@@ -16,51 +19,45 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Callable, Iterable, Optional
+from typing import Callable, Iterable, Mapping, Optional, TypeVar
 
-from sqlalchemy import bindparam, select, text
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy import select
+from sqlalchemy import text
 from sqlalchemy.orm import Session
-from sqlalchemy.types import Date, Integer
 
 from app.models.venta_fuera_pdf import VentaFueraLineaOverride, VentaFueraOperacion, VentaFueraOperacionLinea
+from app.services.costo_si import lote
+
+K = TypeVar("K")
 
 CERO = Decimal("0")
 CENTAVO = Decimal("0.01")
 
-# One row per (item_id, fecha): the unit cost in pesos, the rules of the module docstring. The sale date compares as
-# midnight against the ERP timestamps, as (anterior) compares GBP's `ct_date` (always midnight).
-_COSTOS_SQL = text(
-    """
-    SELECT x.item_id, x.fecha,
-           COALESCE(h.iclh_price, 0)
-           * CASE WHEN COALESCE(h.curr_id, 1) = 1 THEN 1 ELSE COALESCE(fx.cotizacion, 1) END AS costo_unitario
-    FROM unnest(:items, :fechas) AS x(item_id, fecha)
-    LEFT JOIN LATERAL (
-        SELECT iclh_price, curr_id
-        FROM tb_item_cost_list_history
-        WHERE item_id = x.item_id AND coslis_id = 1 AND iclh_cd <= x.fecha
-        ORDER BY iclh_id DESC
-        LIMIT 1
-    ) h ON true
-    LEFT JOIN LATERAL (
-        SELECT COALESCE(
-            (SELECT tc.venta FROM tipo_cambio tc
-             WHERE tc.moneda = 'USD' AND tc.fecha <= x.fecha ORDER BY tc.fecha DESC LIMIT 1)::numeric,
-            (SELECT ceh_exchange FROM tb_cur_exch_history WHERE ceh_cd <= x.fecha ORDER BY ceh_cd DESC LIMIT 1)
-        ) AS cotizacion
-    ) fx ON true
-    """
-).bindparams(bindparam("items", type_=ARRAY(Integer)), bindparam("fechas", type_=ARRAY(Date)))
+
+def costos_unitarios(db: Session, pares: Iterable[tuple[int, date]]) -> dict[tuple[int, date], Optional[Decimal]]:
+    """The unit cost in pesos of each `(item_id, fecha)`, in one query: the reader's `costo_ars` (None = unknown)."""
+    return {clave: costo.costo_ars for clave, costo in lote.en_fechas(db, pares).items()}
 
 
-def costos_unitarios(db: Session, pares: Iterable[tuple[int, date]]) -> dict[tuple[int, date], Decimal]:
-    """The ERP unit cost in pesos of each `(item_id, fecha)`, in one query."""
-    unicos = sorted(set(pares))
-    if not unicos:
-        return {}
-    filas = db.execute(_COSTOS_SQL, {"items": [p[0] for p in unicos], "fechas": [p[1] for p in unicos]})
-    return {(f.item_id, f.fecha): Decimal(f.costo_unitario) for f in filas}
+def combos_desglosados(db: Session, documentos: Mapping[K, Iterable[Optional[int]]]) -> dict[K, set[int]]:
+    """Owner L19: for each document (its products), the combos among them whose breakdown it brings, i.e. EVERY one
+    of their components is another line of the same document (one loose unit of a component is not a breakdown).
+    Quantities are not compared. PCs are never combos here (`lote.combos_con`)."""
+    presentes = {k: {int(i) for i in items if i is not None} for k, items in documentos.items()}
+    contienen = lote.combos_con(db, set().union(*presentes.values())) if presentes else {}
+    candidatos = {combo for combos in contienen.values() for combo in combos}
+    partes: dict[int, set[int]] = {}
+    if candidatos:
+        filas = db.execute(
+            text("SELECT combo_item_id, componente_item_id FROM combo_componentes WHERE combo_item_id = ANY(:ids)"),
+            {"ids": sorted(candidatos)},
+        )
+        for combo, componente in filas:
+            partes.setdefault(int(combo), set()).add(int(componente))
+    return {
+        k: {combo for combo in items & candidatos if partes.get(combo) and partes[combo] <= items - {combo}}
+        for k, items in presentes.items()
+    }
 
 
 def precio_costo(costo_unitario: Optional[Decimal], cantidad: Decimal) -> Decimal:
@@ -70,9 +67,12 @@ def precio_costo(costo_unitario: Optional[Decimal], cantidad: Decimal) -> Decima
     return (Decimal(costo_unitario) * Decimal(cantidad)).quantize(CENTAVO, rounding=ROUND_HALF_UP)
 
 
-def precio_costo_erp(db: Session, item_id: Optional[int], fecha: date, cantidad: Decimal) -> Decimal:
-    """The Precio Costo of one line of product `item_id` sold on `fecha`; 0 without product."""
-    if item_id is None:
+def precio_costo_erp(
+    db: Session, item_id: Optional[int], fecha: date, cantidad: Decimal, *, desglosado: bool = False
+) -> Decimal:
+    """The Precio Costo of one line of product `item_id` sold on `fecha`; 0 without product, and 0 for a combo whose
+    document brings its breakdown (`desglosado`, owner L19)."""
+    if item_id is None or desglosado:
         return CERO
     return precio_costo(costos_unitarios(db, [(item_id, fecha)]).get((item_id, fecha)), cantidad)
 
@@ -96,12 +96,17 @@ def recostear(
     hasta: Optional[date] = None,
     aplicar: bool = False,
     respaldo: Optional[Callable[[list[Recosteo]], None]] = None,
+    *,
+    items: Optional[Iterable[int]] = None,
+    commit: bool = True,
 ) -> list[Recosteo]:
-    """The stored lines (sale date in `[desde, hasta]`, open ends allowed) whose `precio_costo` differs from the ERP
-    cost list's, skipping the lines with a manual cost applied (`ventas_fuera_linea_overrides.costo_unitario`).
-    `aplicar=False` (default) only reports. `aplicar=True` locks the lines (FOR UPDATE), hands the exact changes to
-    `respaldo` BEFORE writing (if it raises, nothing is written), then writes them and commits: T4's trigger on the
-    lines queues each one in `sell_dirty`, so offsets and sell in / sell out are recomputed (owner L3)."""
+    """The stored lines (sale date in `[desde, hasta]`, open ends allowed; of the products `items` when given) whose
+    `precio_costo` differs from their costo SI cost (module docstring), skipping the lines with a manual cost applied
+    (`ventas_fuera_linea_overrides.costo_unitario`). `aplicar=False` (default) only reports. `aplicar=True` locks the
+    lines (FOR UPDATE), hands the exact changes to `respaldo` BEFORE writing (if it raises, nothing is written), then
+    writes them; the trigger on the lines queues each one in `sell_dirty`, so offsets and sell in / sell out follow.
+    `commit=True` commits (and rolls back on failure); `commit=False` only flushes, inside the caller's transaction
+    (the costo SI follow-up, `costo_si.despues.ventas_fuera`), which then commits or rolls back everything."""
     LN, OP, OV = VentaFueraOperacionLinea, VentaFueraOperacion, VentaFueraLineaOverride
     manual = (
         select(OV.id)
@@ -122,13 +127,27 @@ def recostear(
         query = query.where(OP.fecha >= desde)
     if hasta is not None:
         query = query.where(OP.fecha <= hasta)
+    if items is not None:
+        query = query.where(LN.item_id.in_(sorted({int(i) for i in items})))
     if aplicar:
         query = query.with_for_update(of=LN)
     filas = db.execute(query).all()
     costos = costos_unitarios(db, [(ln.item_id, fecha) for ln, fecha in filas if ln.item_id is not None])
+    # L19: every product of each document involved (not only the selected lines) tells which combos come broken down.
+    operaciones = sorted({ln.operacion_id for ln, _ in filas})
+    por_operacion: dict[int, list[Optional[int]]] = {op: [] for op in operaciones}
+    if operaciones:
+        for operacion_id, item_id in db.execute(
+            select(LN.operacion_id, LN.item_id).where(LN.operacion_id.in_(operaciones))
+        ):
+            por_operacion[operacion_id].append(item_id)
+    desglosados = combos_desglosados(db, por_operacion)
     cambios = []
     for ln, fecha in filas:
-        despues = precio_costo(costos.get((ln.item_id, fecha)), ln.cantidad) if ln.item_id is not None else CERO
+        if ln.item_id is None or ln.item_id in desglosados[ln.operacion_id]:
+            despues = CERO
+        else:
+            despues = precio_costo(costos.get((ln.item_id, fecha)), ln.cantidad)
         if Decimal(ln.precio_costo) != despues:
             cambios.append(
                 Recosteo(
@@ -149,8 +168,12 @@ def recostear(
         por_id = {ln.id: ln for ln, _ in filas}
         for cambio in cambios:
             por_id[cambio.linea_id].precio_costo = cambio.despues
-        db.commit()
+        if commit:
+            db.commit()
+        else:
+            db.flush()
     except Exception:
-        db.rollback()
+        if commit:
+            db.rollback()
         raise
     return cambios

@@ -4,8 +4,8 @@ natural key + `renglon`).
 
 - Applying a fix writes the line: `item_id` (origin 'manual') and `precio_costo = costo_unitario x cantidad`: the
   cost saved (typed x (1 + the optional %), owner L4) is the line's Precio Costo, and Costo D (x COSTO_D_FACTOR)
-  applies on top like on any PDF line. Without a manual cost the line's Precio Costo is the ERP cost of its product
-  (`costo_erp`, vpf-costo-d-erp L3), also after a product is assigned, remembered or the fix removed;
+  applies on top like on any PDF line. Without a manual cost the line's Precio Costo is the costo SI cost of its
+  product (`costo_erp`, sell-in-costo-si T3 PR 9), also after a product is assigned, remembered or the fix removed;
   `precio_costo_pdf` keeps the PDF's only as a reference. T4's trigger on the lines queues the line for offsets and
   sell in / sell out; metrics read the lines, so they follow.
 - Owner L2: "hay que hacerle que se persista la data si cargan de nuevo un pdf que sobreescriba la venta". A
@@ -30,7 +30,12 @@ from app.models.venta_fuera_pdf import (
     VentaFueraOperacion,
     VentaFueraOperacionLinea,
 )
-from app.services.ventas_fuera_pdf.costo_erp import costos_unitarios, precio_costo, precio_costo_erp
+from app.services.ventas_fuera_pdf.costo_erp import (
+    combos_desglosados,
+    costos_unitarios,
+    precio_costo,
+    precio_costo_erp,
+)
 from app.services.ventas_fuera_pdf.resolucion import (
     ORIGEN_MANUAL,
     ORIGEN_MAPEO,
@@ -84,16 +89,21 @@ def _automatico(linea: VentaFueraOperacionLinea, resolucion: Optional[Resolucion
     linea.item_origen = resolucion.origen if resolucion else None
 
 
-Costos = dict[tuple[int, date], Decimal]
+Costos = dict[tuple[int, date], Optional[Decimal]]
 
 
 def _costo_erp(db: Session, linea: VentaFueraOperacionLinea, costos: Optional[Costos] = None) -> Decimal:
-    """The line's Precio Costo from the ERP cost list of its current product and sale date (0 without product).
-    `costos`: unit costs already fetched in one batch (`costos_unitarios`), so a loop does not query per line."""
-    if costos is None:
-        return precio_costo_erp(db, linea.item_id, linea.operacion.fecha, linea.cantidad)
+    """The line's Precio Costo from the costo SI of its current product and sale date (0 without product, and 0 for a
+    combo whose document brings its breakdown, owner L19: `costo_erp.combos_desglosados` on the document's lines as
+    they are now). `costos`: unit costs already fetched in one batch (`costos_unitarios`), so a loop does not query
+    the cost per line."""
     if linea.item_id is None:
         return precio_costo(None, linea.cantidad)
+    hermanas = {0: [otra.item_id for otra in linea.operacion.lineas]}
+    if linea.item_id in combos_desglosados(db, hermanas)[0]:
+        return precio_costo(None, linea.cantidad)
+    if costos is None:
+        return precio_costo_erp(db, linea.item_id, linea.operacion.fecha, linea.cantidad)
     return precio_costo(costos.get((linea.item_id, linea.operacion.fecha)), linea.cantidad)
 
 
@@ -104,7 +114,7 @@ def aplicar(
     resolucion: Optional[Resolucion],
     costos: Optional[Costos] = None,
 ) -> None:
-    """Write the fix on the line (`resolucion`: the automatic product, used when the fix sets none; `costos`: ERP
+    """Write the fix on the line (`resolucion`: the automatic product, used when the fix sets none; `costos`:
     unit costs fetched in one batch, see `_costo_erp`)."""
     if linea.precio_costo_pdf is None:
         linea.precio_costo_pdf = linea.precio_costo
@@ -144,7 +154,7 @@ def aplicar_en_carga(
         clave = (override.tipo, override.letra, override.punto_venta, override.numero)
         linea = next((ln for ln in lineas[clave] if ln.renglon == override.renglon), None)
         pares.append((override, linea))
-    # One query for the ERP cost of every line a fix re-applies without a manual cost (its product or the fix's).
+    # One query for the cost of every line a fix re-applies without a manual cost (its product or the fix's).
     costos = costos_unitarios(
         db,
         [
@@ -260,7 +270,7 @@ def _recordar(db: Session, linea: VentaFueraOperacionLinea, item_id: int, usuari
     )
     if not otras:
         return
-    # One query for their applied manual costs and one for their ERP costs, not two per line.
+    # One query for their applied manual costs and one for their costs, not two per line.
     con_costo_manual = {
         tuple(fila)
         for fila in db.execute(
@@ -294,7 +304,7 @@ def _recordar(db: Session, linea: VentaFueraOperacionLinea, item_id: int, usuari
 
 
 def quitar(db: Session, linea_id: int) -> VentaFueraOperacionLinea:
-    """Delete the fix: the line goes back to the automatic product and its ERP cost. Commits."""
+    """Delete the fix: the line goes back to the automatic product and its costo SI cost. Commits."""
     linea = _linea(db, linea_id)
     override = override_de(db, linea)
     if override is None:

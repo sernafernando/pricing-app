@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.core.database import SessionLocal
+from app.services import ventas_gbp_costo_si as costo_si_gbp
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 
 
@@ -100,7 +101,8 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
     vendedores_excluidos_str = get_vendedores_excluidos_str(db)
     vendedores_excluidos = [int(x) for x in vendedores_excluidos_str.split(",")]
 
-    query = text("""
+    item = costo_si_gbp.GBP_ITEM.format(t="tit")
+    query = text(f"""
     WITH combo_precios AS (
         -- Precio total del combo por transacción
         SELECT
@@ -121,30 +123,12 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
             tit.it_isassociationgroup AS group_id,
             tit.ct_transaction,
             SUM(
-                COALESCE(
-                    CASE
-                        WHEN COALESCE(iclh.curr_id, 1) = 1 THEN iclh.iclh_price
-                        ELSE iclh.iclh_price * COALESCE(ceh.ceh_exchange, 1)
-                    END,
-                    0
-                ) * 1.065 * tit.it_qty
+                {costo_si_gbp.costo_unitario_ars("csc", "tit.item_id", "tit.comp_id", "tit.ct_transaction", "tit.it_isassociationgroup", en_grupo=True)} * 1.065 * tit.it_qty
             ) AS costo_combo
         FROM tb_item_transactions tit
         INNER JOIN tb_commercial_transactions tct
             ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
-        LEFT JOIN LATERAL (
-            SELECT iclh_price, curr_id
-            FROM tb_item_cost_list_history
-            WHERE item_id = tit.item_id AND iclh_cd <= tct.ct_date AND coslis_id = 1
-            ORDER BY iclh_id DESC LIMIT 1
-        ) iclh ON true
-        LEFT JOIN LATERAL (
-            -- TC: Primero tipo_cambio, fallback tb_cur_exch_history
-            SELECT COALESCE(
-                (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tct.ct_date::date ORDER BY tc.fecha DESC LIMIT 1),
-                (SELECT ceh_exchange FROM tb_cur_exch_history WHERE ceh_cd <= tct.ct_date ORDER BY ceh_cd DESC LIMIT 1)
-            ) as ceh_exchange
-        ) ceh ON true
+        {costo_si_gbp.join("csc", "tit.item_id", "tct.ct_date::date")}
         WHERE tit.it_isassociationgroup IS NOT NULL
           AND tct.ct_date BETWEEN :from_date AND :to_date
         GROUP BY tit.it_isassociationgroup, tit.ct_transaction
@@ -197,29 +181,21 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
             ELSE tit.it_price * tit.it_qty
         END as monto_total,
 
-        -- Costo unitario (convertido a pesos, con multiplicador 1.065)
+        -- Costo unitario: costo SI en pesos (costo_si.lote), con Costo D (x 1.065) encima
         CASE
             WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN
                 COALESCE(ccb.costo_combo, 0) / NULLIF(tit.it_qty, 0)
-            ELSE
-                CASE
-                    WHEN COALESCE(iclh.curr_id, 1) = 1 THEN COALESCE(iclh.iclh_price, 0) * 1.065
-                    ELSE COALESCE(iclh.iclh_price, 0) * COALESCE(ceh.ceh_exchange, 1) * 1.065
-                END
+            ELSE {costo_si_gbp.costo_unitario_ars("cs", item, "tit.comp_id", "tit.ct_transaction", "tit.it_isassociationgroup")} * 1.065
         END as costo_unitario,
 
         -- Costo total (con multiplicador 1.065)
         CASE
             WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN COALESCE(ccb.costo_combo, 0)
-            ELSE
-                CASE
-                    WHEN COALESCE(iclh.curr_id, 1) = 1 THEN COALESCE(iclh.iclh_price, 0) * 1.065 * tit.it_qty
-                    ELSE COALESCE(iclh.iclh_price, 0) * COALESCE(ceh.ceh_exchange, 1) * 1.065 * tit.it_qty
-                END
+            ELSE {costo_si_gbp.costo_unitario_ars("cs", item, "tit.comp_id", "tit.ct_transaction", "tit.it_isassociationgroup")} * 1.065 * tit.it_qty
         END as costo_total,
 
-        -- Moneda y cotización
-        CASE WHEN COALESCE(iclh.curr_id, 1) = 2 THEN 'USD' ELSE 'ARS' END as moneda_costo,
+        -- Moneda del costo SI (owner L18) y cotización del día
+        COALESCE(cs.costo_si_moneda, 'ARS') as moneda_costo,
         ceh.ceh_exchange as cotizacion_dolar
 
     FROM tb_item_transactions tit
@@ -242,13 +218,7 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
     LEFT JOIN tb_tax_name ttn ON ttn.comp_id = tit.comp_id AND ttn.tax_id = titx.tax_id
     LEFT JOIN combo_precios cp ON cp.group_id = tit.it_isassociationgroup AND cp.ct_transaction = tit.ct_transaction
     LEFT JOIN combo_costos ccb ON ccb.group_id = tit.it_isassociationgroup AND ccb.ct_transaction = tit.ct_transaction
-    LEFT JOIN LATERAL (
-        SELECT iclh_price, curr_id
-        FROM tb_item_cost_list_history
-        WHERE item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
-          AND iclh_cd <= tct.ct_date AND coslis_id = 1
-        ORDER BY iclh_id DESC LIMIT 1
-    ) iclh ON true
+    {costo_si_gbp.join("cs", item, "tct.ct_date::date")}
     LEFT JOIN LATERAL (
         -- TC: Primero tipo_cambio, fallback tb_cur_exch_history
         SELECT COALESCE(
