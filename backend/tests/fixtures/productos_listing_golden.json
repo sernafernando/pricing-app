@@ -110,7 +110,7 @@
      },
      "moneda": "USD",
      "tipo_cambio": 1000.0,
-     "tipo_cambio_fecha": null
+     "tipo_cambio_fecha": "2020-01-01"
     },
     "descripcion": "Golden 2",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -702,7 +702,7 @@
      "markups": {},
      "moneda": "USD",
      "tipo_cambio": 1000.0,
-     "tipo_cambio_fecha": null
+     "tipo_cambio_fecha": "2020-01-01"
     },
     "descripcion": "Golden 2",
     "fecha_modificacion": "2026-01-01T12:00:00",
@@ -1459,7 +1459,7 @@
      },
      "moneda": "USD",
      "tipo_cambio": 1000.0,
-     "tipo_cambio_fecha": null
+     "tipo_cambio_fecha": "2020-01-01"
     },
     "descripcion": "Golden 2",
     "fecha_modificacion": "2026-01-01T12:00:00",

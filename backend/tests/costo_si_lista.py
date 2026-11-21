@@ -5,7 +5,10 @@ SQL, so tests that run on the in-memory SQLite `db` (written before costo SI) ge
 - current: `productos_erp.costo` in `moneda_costo` (0 or less = no list cost), pesos at the caller's USD rate or the
   latest one dated today or before;
 - on a date d: the last list 1 history row created before the end of d (`curr_id` 1/NULL = ARS, else USD; a 0 there
-  falls back like the reader does), else `productos_erp`; pesos at the last USD rate dated d or before.
+  falls back like the reader does), else `productos_erp`; pesos at the last USD rate dated d or before;
+- the USD rate (interfaz §7): `tipo_cambio` venta > 0, else the ERP's USD -> ARS `tb_cur_exch_history`; its date goes
+  to `tipo_cambio_fecha` (USD only; a caller's rate is dated by the `tipo_cambio` row that has it, else None);
+  without either the pesos are None, never 0.
 
 SQLite has no `costo_si_pasos`, so 'lista' is all the real reader could answer there too; combos are not emulated
 (none of those tests has one). `lote.sql_en_fecha` is a Postgres SQL fragment and has no SQLite stand-in: a test of a
@@ -19,6 +22,7 @@ from decimal import Decimal
 
 import pytest
 
+from app.models.cur_exch_history import CurExchHistory
 from app.models.item_cost_list_history import ItemCostListHistory as H
 from app.models.producto import ProductoERP
 from app.models.tipo_cambio import TipoCambio
@@ -29,20 +33,51 @@ _UN_DIA = timedelta(days=1)
 
 
 def _tc(db, hasta: date):
+    """The reader's USD rate on `hasta` and that rate's own date, `(tc, fecha)` (interfaz §7): the last `tipo_cambio`
+    venta > 0 dated on or before it, else the ERP's last USD -> ARS `tb_cur_exch_history` rate > 0 created before the
+    end of that day (its date: the day it was created); `(None, None)` without either."""
     fila = (
-        db.query(TipoCambio.venta)
+        db.query(TipoCambio.venta, TipoCambio.fecha)
         .filter(TipoCambio.moneda == "USD", TipoCambio.venta > 0, TipoCambio.fecha <= hasta)
         .order_by(TipoCambio.fecha.desc())
         .first()
     )
-    return Decimal(str(fila[0])) if fila else None
+    if fila is not None:
+        return Decimal(str(fila[0])), fila[1]
+    erp = (
+        db.query(CurExchHistory.ceh_exchange, CurExchHistory.ceh_cd)
+        .filter(
+            CurExchHistory.curr_id_1 == 2,
+            CurExchHistory.curr_id_2 == 1,
+            CurExchHistory.ceh_exchange > 0,
+            CurExchHistory.ceh_cd < datetime.combine(hasta, datetime.min.time()) + _UN_DIA,
+        )
+        .order_by(CurExchHistory.ceh_cd.desc(), CurExchHistory.ceh_id.desc())
+        .first()
+    )
+    if erp is not None:
+        return Decimal(str(erp[0])), erp[1].date() if isinstance(erp[1], datetime) else erp[1]
+    return None, None
+
+
+def _fecha_de(db, tipo_cambio):
+    """A caller's rate, dated like the reader does: the latest `tipo_cambio` row (today or before) with that rate."""
+    fila = (
+        db.query(TipoCambio.fecha)
+        .filter(TipoCambio.moneda == "USD", TipoCambio.venta == tipo_cambio, TipoCambio.fecha <= date.today())
+        .order_by(TipoCambio.fecha.desc())
+        .first()
+    )
+    return fila[0] if fila else None
 
 
 def _positivo(valor):
     return Decimal(str(valor)) if valor is not None and valor > 0 else None
 
 
-def _costo(item_id: int, costo, moneda, tc) -> lote.Costo:
+def _costo(item_id: int, costo, moneda, tasa) -> lote.Costo:
+    """`tasa`: `(tc, fecha)` as `_tc` returns it (a caller's rate: its `tipo_cambio` row's date, or None)."""
+    tc, tc_fecha = tasa
     moneda = moneda if costo is not None else None
     return lote.Costo(
         item_id=item_id,
@@ -52,6 +87,7 @@ def _costo(item_id: int, costo, moneda, tc) -> lote.Costo:
         costo_si_desde=None,
         tipo_cambio=tc if moneda == "USD" else None,
         costo_ars=lote.en_pesos(costo, moneda, tc),
+        tipo_cambio_fecha=tc_fecha if moneda == "USD" else None,
     )
 
 
@@ -64,13 +100,13 @@ def actuales_lista(db, item_ids, *, tipo_cambio=None):
     ids = sorted({int(i) for i in item_ids if i is not None})
     if not ids:
         return {}
-    tc = Decimal(str(tipo_cambio)) if tipo_cambio else _tc(db, date.today())
+    tasa = (Decimal(str(tipo_cambio)), _fecha_de(db, tipo_cambio)) if tipo_cambio else _tc(db, date.today())
     productos = _productos(db, ids)
     out = {}
     for i in ids:
         p = productos.get(i)
         costo = _positivo(p.costo) if p is not None else None
-        out[i] = _costo(i, costo, moneda_de(p.moneda_costo) if p is not None else None, tc)
+        out[i] = _costo(i, costo, moneda_de(p.moneda_costo) if p is not None else None, tasa)
     return out
 
 

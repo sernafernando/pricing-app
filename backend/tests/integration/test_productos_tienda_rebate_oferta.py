@@ -245,8 +245,9 @@ RECORDED_ROWS = json.loads(
 # Statements the tienda listing issued for this catalogue, recorded alongside; plus one per page for the PM's shipping
 # choices (S7b), read once by `resolver_costos_envio_batch`; plus three per page for the sell in / sell out of every
 # channel context (`resolver_tienda_batches`: FIFO lots, cost modes, campaigns and bonuses, read once for the page);
-# plus one per page for the costo SI column (`lote.actuales`, here its SQLite stand-in `costo_si_lista`).
-RECORDED_STATEMENTS = 31
+# plus one per page for the costo SI column (`lote.actuales`; its SQLite stand-in `costo_si_lista` issues two: the
+# products' list cost and the date of the page's USD rate).
+RECORDED_STATEMENTS = 32
 
 
 def _snapshot() -> dict:

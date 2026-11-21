@@ -304,8 +304,9 @@ class TestProductosListingGolden:
 # more per page: the products' cost modes and manual blocks, read even for a product without purchase lines (a block
 # typed by hand is stock of its own). The PM's shipping choice (S7b) adds one more per page: the stored choices of the
 # page's products, read once by `resolver_costos_envio_batch` (never once per product). The costo SI column (T3 PR 2)
-# adds one more per page: `lote.actuales` for every product of the page (here its SQLite stand-in, `costo_si_lista`).
-EXPECTED_DEFAULT_STATEMENTS = 23
+# adds one read per page, `lote.actuales` for every product of the page; here its SQLite stand-in (`costo_si_lista`)
+# issues two for it: the products' list cost and the date of the page's USD rate.
+EXPECTED_DEFAULT_STATEMENTS = 24
 
 
 class TestProductosListingStatementCount:
