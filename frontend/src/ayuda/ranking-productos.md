@@ -18,6 +18,8 @@ En **Resumen**, se agrupa por Marca o PM, mostrando cantidad de productos, stock
 
 La barra de herramientas permite filtrar por marca, categoría, PM (oculto para usuarios acotados), depósitos, sin stock, combos, solo stock muerto y búsqueda por texto. Las tarjetas KPI muestran Capital holdeado, Stock muerto (% del capital), SKUs con stock y Valor potencial venta.
 
+El **Valor costo** y el **Capital holdeado** usan el costo SI (el costo promedio con sell in); un producto sin costo SI usa su costo de lista. Un producto con stock y sin ningún costo dice **Sin costo**: no suma en los totales, y la nota "N productos sin costo" (en las tarjetas de capital y de stock muerto, y en el resumen) cuenta cuántos quedaron afuera de esa suma. Si el producto tiene costo en dólares pero no hay dólar cargado, el valor se ve como "—": el costo existe, solo falta el tipo de cambio.
+
 El botón **Actualizar stock** sincroniza el stock desde el ERP (mientras trabaja dice **Actualizando…**). Debajo se muestra la última fecha de actualización del stock.
 
 ## Filtros y columnas

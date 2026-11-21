@@ -11,6 +11,10 @@ const ITEMS_PER_PAGE = 20;
 const soloFiltrosActivos = (params) =>
   Object.fromEntries(Object.entries(params).filter(([, valor]) => valor !== null && valor !== undefined && valor !== ''));
 
+/** A notification's cost in pesos; "Sin costo" when unknown (null, or the 0 old notifications stored for it), never $0. */
+const formatearCosto = (valor) =>
+  valor ? `$${parseFloat(valor).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'Sin costo';
+
 export default function Notificaciones() {
   const [notificaciones, setNotificaciones] = useState([]);
   const [stats, setStats] = useState({ total: 0, no_leidas: 0, por_tipo: {} });
@@ -551,7 +555,7 @@ export default function Notificaciones() {
                           </div>
                           <div className={styles.detalleItem}>
                             <strong>Costo de la Venta:</strong>
-                            <span>${grupo.notificacion_reciente.costo_operacion ? parseFloat(grupo.notificacion_reciente.costo_operacion).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
+                            <span>{formatearCosto(grupo.notificacion_reciente.costo_operacion)}</span>
                           </div>
                           <div className={styles.detalleItem}>
                             <strong>Costo Envío s/IVA:</strong>
@@ -603,7 +607,7 @@ export default function Notificaciones() {
                           )}
                           <div className={styles.detalleItem}>
                             <strong>Costo Actual:</strong>
-                            <span>${grupo.notificacion_reciente.costo_actual ? parseFloat(grupo.notificacion_reciente.costo_actual).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
+                            <span>{formatearCosto(grupo.notificacion_reciente.costo_actual)}</span>
                           </div>
                         </div>
                       </>
@@ -765,7 +769,7 @@ export default function Notificaciones() {
                           </div>
                           <div className={styles.detalleItem}>
                             <strong>Costo de la Venta:</strong>
-                            <span>${notif.costo_operacion ? parseFloat(notif.costo_operacion).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
+                            <span>{formatearCosto(notif.costo_operacion)}</span>
                           </div>
                           <div className={styles.detalleItem}>
                             <strong>Costo Envío s/IVA:</strong>
@@ -817,7 +821,7 @@ export default function Notificaciones() {
                           )}
                           <div className={styles.detalleItem}>
                             <strong>Costo Actual:</strong>
-                            <span>${notif.costo_actual ? parseFloat(notif.costo_actual).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</span>
+                            <span>{formatearCosto(notif.costo_actual)}</span>
                           </div>
                         </div>
                       </>

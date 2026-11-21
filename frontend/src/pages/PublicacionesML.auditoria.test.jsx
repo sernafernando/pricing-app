@@ -274,7 +274,7 @@ describe('S3-S7: the view', () => {
     expect(t.getByText('Cartucho Demo 01 negro')).toBeInTheDocument();
     expect(t.getByText('Con stock sin publicación activa')).toBeInTheDocument();
     expect(screen.getByText('$ 1.450,00')).toBeInTheDocument();
-    expect(screen.getByText('Valor a costo sin IVA')).toBeInTheDocument();
+    expect(screen.getByText('Valor a costo SI sin IVA')).toBeInTheDocument();
     const kpis = within(screen.getByRole('region', { name: 'Indicadores de la auditoría de stock' }));
     expect(kpis.getByText('USD 24.247')).toBeInTheDocument();
     expect(kpis.getByText('Con promo aplicada')).toBeInTheDocument();

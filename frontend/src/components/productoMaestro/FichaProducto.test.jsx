@@ -60,6 +60,9 @@ const maestro = (over = {}) => ({
   lectura: {
     costo: 4.6606,
     moneda_costo: 'USD',
+    costo_si: 3.8,
+    costo_si_moneda: 'USD',
+    costo_si_fuente: 'costo_si',
     iva: 10.5,
     stock: 964,
     precio_lista_ml: 11999,
@@ -520,5 +523,35 @@ describe('Ficha: specs of notebooks and PCs', () => {
 
     expect(productoSpecsAPI.precargar).toHaveBeenCalledWith(4874);
     expect(await screen.findByRole('tab', { name: 'Specs técnicas 3 / 3' })).toBeInTheDocument();
+  });
+});
+
+describe('Ficha: costo SI next to the list cost (sell-in-costo-si T3 PR 10)', () => {
+  const lectura = (over) => ({ ...maestro().lectura, ...over });
+  const valorDe = async (etiqueta) => (await screen.findByText(etiqueta, { selector: 'dt' })).nextElementSibling;
+
+  it('shows the list cost and the costo SI, each in its currency', async () => {
+    render(<FichaProducto itemId={455} />);
+
+    expect((await valorDe('Costo')).textContent).toBe('USD 4,66');
+    expect((await valorDe('Costo SI')).textContent).toBe('USD 3,80');
+  });
+
+  it('marks a list cost standing in for a missing costo SI', async () => {
+    productoMaestroAPI.leer.mockResolvedValue({
+      data: maestro({ lectura: lectura({ costo_si: 4.6606, costo_si_fuente: 'lista' }) }),
+    });
+    render(<FichaProducto itemId={455} />);
+
+    expect((await valorDe('Costo SI')).textContent).toBe('USD 4,66 (de lista)');
+  });
+
+  it('says "Sin costo" when no cost is known, never 0', async () => {
+    productoMaestroAPI.leer.mockResolvedValue({
+      data: maestro({ lectura: lectura({ costo_si: null, costo_si_moneda: null, costo_si_fuente: null }) }),
+    });
+    render(<FichaProducto itemId={455} />);
+
+    expect((await valorDe('Costo SI')).textContent).toBe('Sin costo');
   });
 });

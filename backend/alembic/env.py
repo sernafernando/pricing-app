@@ -1,30 +1,34 @@
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
+from app.core.alembic_autogenerate import incluir
 from app.core.config import settings
 from app.core.database import Base
-from app.models import *  # Importar todos los modelos
+import app.models  # noqa: F401  (registers every model on Base.metadata, as the star import did)
 
 config = context.config
 # Alembic DEBE usar conexión directa a PostgreSQL (bypassing PgBouncer).
 # DDL + transaction pooling mode = problemas. Usar DATABASE_URL_DIRECT si existe.
-config.set_main_option('sqlalchemy.url', settings.DATABASE_URL_DIRECT or settings.DATABASE_URL)
+config.set_main_option("sqlalchemy.url", settings.DATABASE_URL_DIRECT or settings.DATABASE_URL)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
 
+
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
         target_metadata=target_metadata,
+        include_object=incluir,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
     with context.begin_transaction():
         context.run_migrations()
+
 
 def run_migrations_online() -> None:
     connectable = engine_from_config(
@@ -33,9 +37,10 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(connection=connection, target_metadata=target_metadata, include_object=incluir)
         with context.begin_transaction():
             context.run_migrations()
+
 
 if context.is_offline_mode():
     run_migrations_offline()

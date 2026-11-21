@@ -307,3 +307,84 @@ def combos_con(db: Session, item_ids: Iterable[int]) -> Dict[int, List[int]]:
         if combo not in pcs:
             out.setdefault(componente, []).append(combo)
     return out
+
+
+def sql_actual_fila(item: str, tipo_cambio: str = "NULL::numeric") -> str:
+    """The CURRENT cost of the SQL expression `item` as one row with `COLUMNAS`: exactly what `actuales` answers (the
+    list cost from `productos_erp`, never the list history `sql_en_fecha` falls back to). `tipo_cambio`: an SQL
+    expression for the caller's USD rate; NULL = the latest one. Use it as
+    `LEFT JOIN LATERAL ({sql_actual_fila("p.item_id", ":tc")}) cs ON true` (sell-in-costo-si T3 PR 10)."""
+    return _fragmento(item, None, _tc_en("CURRENT_DATE", propio=f"CAST({tipo_cambio} AS numeric)"))
+
+
+def sql_actual_conjunto(ids: str, tipo_cambio: str = "NULL::numeric") -> str:
+    """`sql_actual_fila` for a whole set at once, set-based (no per-row lateral): `item_id` plus `COLUMNAS` for every
+    id of the SQL query `ids` (one `item_id` column), exactly what `actuales` answers. The latest step of every product
+    is read in one `DISTINCT ON` pass, the list cost and the combos by joins, the rate once. For raw SQL over many rows
+    (a catalogue's totals): `LEFT JOIN ({sql_actual_conjunto("SELECT item_id FROM ...", ":tc")}) cs ON cs.item_id =
+    p.item_id`. Over a handful of rows `sql_actual_fila` is cheaper (sell-in-costo-si T3 PR 10)."""
+    tc = _tc_en("CURRENT_DATE", propio=f"CAST({tipo_cambio} AS numeric)")
+    lista_moneda = (
+        "CASE WHEN upper(btrim(COALESCE(csi_pe.moneda_costo, ''))) IN ('', 'ARS') THEN 'ARS'"
+        " ELSE upper(btrim(csi_pe.moneda_costo)) END"
+    )
+    # A product's own cost (`_propio`, current): its latest step when it has an average, else its list cost > 0.
+    propio = f"""
+        SELECT csi_n.item_id,
+               CASE WHEN csi_s.promedio_usd IS NOT NULL THEN csi_s.promedio_usd
+                    WHEN csi_pe.costo > 0 THEN csi_pe.costo::numeric END AS costo,
+               CASE WHEN csi_s.promedio_usd IS NOT NULL THEN csi_s.moneda
+                    WHEN csi_pe.costo > 0 THEN {lista_moneda} END AS moneda,
+               CASE WHEN csi_s.promedio_usd IS NOT NULL THEN '{FUENTE_COSTO_SI}'
+                    WHEN csi_pe.costo > 0 THEN '{FUENTE_LISTA}' END AS fuente,
+               CASE WHEN csi_s.promedio_usd IS NOT NULL THEN csi_s.fecha END AS desde
+        FROM csi_necesarios csi_n
+        LEFT JOIN (
+            SELECT DISTINCT ON (csi_p.item_id) csi_p.item_id, csi_p.promedio_usd, csi_p.moneda, csi_p.fecha
+            FROM costo_si_pasos csi_p WHERE csi_p.item_id IN (SELECT item_id FROM csi_necesarios)
+            ORDER BY csi_p.item_id, csi_p.fecha DESC, csi_p.orden DESC
+        ) csi_s ON csi_s.item_id = csi_n.item_id
+        LEFT JOIN productos_erp csi_pe ON csi_pe.item_id = csi_n.item_id"""
+    ars = "CASE WHEN csi_b.moneda = 'ARS' THEN csi_b.costo ELSE csi_b.costo * csi_fx.tc END"
+    return f"""
+    WITH csi_q AS (SELECT DISTINCT csi_i.item_id FROM ({ids}) csi_i WHERE csi_i.item_id IS NOT NULL),
+    csi_combo AS (
+        SELECT csi_q.item_id FROM csi_q
+        WHERE EXISTS (SELECT 1 FROM combo_componentes csi_x WHERE csi_x.combo_item_id = csi_q.item_id)
+          AND NOT EXISTS (SELECT 1 FROM (SELECT DISTINCT ON (csi_t.item_id) csi_t.cat_id FROM tb_item csi_t
+              WHERE csi_t.item_id = csi_q.item_id ORDER BY csi_t.item_id, csi_t.comp_id) csi_pt
+              WHERE csi_pt.cat_id = {CAT_PC})
+    ),
+    csi_necesarios AS (
+        SELECT csi_q.item_id FROM csi_q WHERE csi_q.item_id NOT IN (SELECT item_id FROM csi_combo)
+        UNION
+        SELECT csi_cc.componente_item_id FROM combo_componentes csi_cc
+        WHERE csi_cc.combo_item_id IN (SELECT item_id FROM csi_combo)
+    ),
+    csi_propio AS ({propio}),
+    csi_fx AS ({tc}),
+    csi_r AS (
+        SELECT csi_q.item_id, csi_o.costo, csi_o.moneda, csi_o.fuente, csi_o.desde
+        FROM csi_q JOIN csi_propio csi_o ON csi_o.item_id = csi_q.item_id
+        WHERE csi_q.item_id NOT IN (SELECT item_id FROM csi_combo)
+        UNION ALL
+        SELECT csi_cc.combo_item_id,
+               CASE WHEN count(DISTINCT csi_b.moneda) = 1 THEN round(sum(csi_cc.cantidad * csi_b.costo), 5)
+                    ELSE round(sum(csi_cc.cantidad * {ars}), 5) END,
+               CASE WHEN count(DISTINCT csi_b.moneda) = 1 THEN min(csi_b.moneda) ELSE 'ARS' END,
+               CASE WHEN bool_and(csi_b.fuente = '{FUENTE_COSTO_SI}') THEN '{FUENTE_COSTO_SI}' ELSE '{FUENTE_LISTA}' END,
+               NULL::date
+        FROM combo_componentes csi_cc
+        CROSS JOIN csi_fx
+        LEFT JOIN csi_propio csi_b ON csi_b.item_id = csi_cc.componente_item_id
+        WHERE csi_cc.combo_item_id IN (SELECT item_id FROM csi_combo)
+        GROUP BY csi_cc.combo_item_id, csi_fx.tc
+        HAVING count(*) > 0 AND count(csi_b.costo) = count(*) AND (count(DISTINCT csi_b.moneda) = 1 OR csi_fx.tc IS NOT NULL)
+    )
+    SELECT csi_q.item_id,
+           csi_r.costo AS costo_si_costo, csi_r.moneda AS costo_si_moneda, csi_r.fuente AS costo_si_fuente,
+           csi_r.desde AS costo_si_desde,
+           CASE WHEN csi_r.moneda = 'USD' THEN csi_fx.tc END AS costo_si_tipo_cambio,
+           CASE WHEN csi_r.moneda = 'ARS' THEN csi_r.costo WHEN csi_fx.tc IS NOT NULL THEN csi_r.costo * csi_fx.tc END AS costo_si_ars,
+           CASE WHEN csi_r.moneda = 'USD' THEN csi_fx.tc_fecha END AS costo_si_tipo_cambio_fecha
+    FROM csi_q CROSS JOIN csi_fx LEFT JOIN csi_r ON csi_r.item_id = csi_q.item_id"""
