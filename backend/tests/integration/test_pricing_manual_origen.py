@@ -19,6 +19,10 @@ import pytest
 from app.models.permiso import Permiso, RolPermisoBase
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.producto_precio_origen import ProductoPrecioOrigen
+from tests.costo_si_lista import costo_si_lista  # noqa: F401  (fixture)
+
+# Written before costo SI: on SQLite the cost reader answers the list cost ('lista', Q1).
+pytestmark = [*globals().get("pytestmark", []), pytest.mark.usefixtures("costo_si_lista")]
 
 
 @pytest.fixture(autouse=True)

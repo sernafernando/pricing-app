@@ -28,6 +28,10 @@ from app.models.auditoria import Auditoria
 from app.models.producto import ProductoPricing
 from app.services.ml_publications.view import products as products_service
 from tests.integration.test_productos_masivo_cross_db_filters import _seed
+from tests.costo_si_lista import costo_si_lista  # noqa: F401  (fixture)
+
+# Written before costo SI: on SQLite the cost reader answers the list cost ('lista', Q1).
+pytestmark = [*globals().get("pytestmark", []), pytest.mark.usefixtures("costo_si_lista")]
 
 WEB = {"porcentaje_con_precio": 6.0, "porcentaje_sin_precio": 6.0}
 PVP = {"markup_pvp_clasica": 10.0, "adicional_cuotas": 0.0}

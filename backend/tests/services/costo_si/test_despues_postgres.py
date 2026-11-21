@@ -5,6 +5,8 @@ Invented data."""
 
 from __future__ import annotations
 
+import pkgutil
+import sys
 import textwrap
 from datetime import UTC, date, datetime, timedelta
 from typing import Iterator
@@ -117,7 +119,11 @@ def test_registering_the_same_name_twice_keeps_one_callback(engine: Engine) -> N
 def test_every_module_of_the_package_is_loaded_on_the_first_dispatch(
     engine: Engine, tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Each PR adds its own file under `costo_si/despues/`: no shared registry to edit."""
+    """Each PR adds its own file under `costo_si/despues/`: no shared registry to edit. Real loading, on the conftest's
+    empty registry: every module of the package (the areas' and a probe) is imported and registers on the first
+    dispatch. The areas' callbacks need their own tables, which this world does not have (each is tested in its own
+    world), so they are registered as no-ops here; the probe's runs."""
+    paquete = list(despues.__path__)
     (tmp_path / "probe_area.py").write_text(
         textwrap.dedent("""
             from sqlalchemy import text
@@ -129,11 +135,23 @@ def test_every_module_of_the_package_is_loaded_on_the_first_dispatch(
             despues.registrar("probe_area", _cb)
         """)
     )
-    monkeypatch.setattr(despues, "__path__", [*despues.__path__, str(tmp_path)])
+    monkeypatch.setattr(despues, "__path__", [*paquete, str(tmp_path)])
     monkeypatch.setattr(despues, "_cargados", False)
-    monkeypatch.delitem(__import__("sys").modules, "app.services.costo_si.despues.probe_area", raising=False)
+    modulos = [m.name for m in pkgutil.iter_modules(paquete)]
+    for nombre in [*modulos, "probe_area"]:  # imported afresh, so each registration runs again
+        monkeypatch.delitem(sys.modules, f"{despues.__name__}.{nombre}", raising=False)
+        monkeypatch.delattr(despues, nombre, raising=False)
+    registrar = despues.registrar
+    registrados = []
+
+    def solo_la_sonda(nombre, fn):
+        registrados.append(nombre)
+        registrar(nombre, fn if nombre == "probe_area" else lambda *_: None)
+
+    monkeypatch.setattr(despues, "registrar", solo_la_sonda)
     _producto_con_sell_in(engine)
 
     _drenar(engine)
 
+    assert sorted(registrados) == sorted([*modulos, "probe_area"])
     assert w.rows(engine, "SELECT item_id, nombre FROM despues_probe") == [(P, "auto")]
