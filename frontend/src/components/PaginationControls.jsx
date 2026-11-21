@@ -85,14 +85,15 @@ function PaginationControls({
       <div className={styles.info}>
         {mode === 'infinite' ? (
           <>
-            <span className={styles.count}>
-              {totalItems > 0 ? `${totalItems} resultados cargados` : 'Cargando...'}
-            </span>
+            {/* Without a count endpoint totalItems stays 0: say "Cargando..." only while a page is loading */}
+            {totalItems > 0 && (
+              <span className={styles.count}>{totalItems} resultados cargados</span>
+            )}
             {hasMore && !loading && (
               <span className={styles.hasMore}>• Hay más resultados</span>
             )}
             {loading && (
-              <span className={styles.loadingText}>• Cargando...</span>
+              <span className={styles.loadingText}>{totalItems > 0 ? '• Cargando...' : 'Cargando...'}</span>
             )}
           </>
         ) : (

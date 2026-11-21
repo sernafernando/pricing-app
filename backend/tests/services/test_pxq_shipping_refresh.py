@@ -38,6 +38,9 @@ from app.models.publicacion_ml import PublicacionML
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 from app.services import pxq_markup_service
 from app.services.pxq_markup_service import markup_for_tiers, refresh_stale_tier_shipping
+from tests.costo_si_lista import costo_si_lista  # noqa: F401  (fixture)
+
+pytestmark = [*globals().get("pytestmark", []), pytest.mark.usefixtures("costo_si_lista")]
 
 
 # ── Fixtures shared with test_pxq_markup_service.py's conventions ─────────

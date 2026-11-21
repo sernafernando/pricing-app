@@ -27,6 +27,10 @@ logger = logging.getLogger(__name__)
 
 # Rebate percentage when the product has none stored.
 PORCENTAJE_REBATE_DEFAULT = 3.8
+
+# `costo_ars` not passed: the caller has not resolved the cost, so the list cost is converted here (Tienda, until its
+# own PR moves it to costo SI). Passed: costo SI in pesos from the reader; None = unknown, so no markup (interfaz §7).
+_COSTO_DE_LISTA: Any = object()
 # The rebate is priced on the ML clásica list.
 PRICELIST_CLASICA = 4
 
@@ -105,9 +109,10 @@ def calcular_mejor_oferta(
     ofertas_by_mla: dict[str, OfertaML],
     grupo_id: Optional[int],
     resolve_envio: ResolveEnvio,
+    costo_ars: Optional[float] = _COSTO_DE_LISTA,
 ) -> MejorOferta:
     """The current offer of the lowest-id publication that has one, with its
-    markup over the list cost."""
+    markup over `costo_ars` (see `_COSTO_DE_LISTA`)."""
     mejor_oferta = None
     mejor_pub = None
     for pub in sorted(pubs, key=lambda pub: pub.id):
@@ -126,7 +131,7 @@ def calcular_mejor_oferta(
     markup = None
     limpio = None
     if pvp and pvp > 0:
-        costo_calc = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
+        costo_calc = _costo(ctx, producto_erp, costo_ars)
         comision_base = ctx.comision(mejor_pub.pricelist_id, grupo_id)
         if comision_base:
             comisiones = calcular_comision_ml_total(pvp, comision_base, producto_erp.iva, constantes=ctx.constantes)
@@ -134,7 +139,7 @@ def calcular_mejor_oferta(
             limpio = calcular_limpio(
                 pvp, producto_erp.iva, costo_envio, comisiones["comision_total"], constantes=ctx.constantes
             )
-            markup = calcular_markup(limpio, costo_calc)
+            markup = calcular_markup(limpio, costo_calc) if costo_calc is not None else None
 
     return MejorOferta(
         precio=precio,
@@ -153,8 +158,10 @@ def calcular_rebate(
     producto_pricing: Any,
     grupo_id: Optional[int],
     resolve_envio: ResolveEnvio,
+    costo_ars: Optional[float] = _COSTO_DE_LISTA,
 ) -> Rebate:
-    """The ML list price grossed up by the rebate percentage, priced as a clásica."""
+    """The ML list price grossed up by the rebate percentage, priced as a clásica; markup over `costo_ars` (see
+    `_COSTO_DE_LISTA`)."""
     if not (producto_pricing and producto_pricing.precio_lista_ml and producto_pricing.participa_rebate):
         return Rebate()
     porcentaje = float(
@@ -171,7 +178,7 @@ def calcular_rebate(
         return Rebate()
     precio = float(producto_pricing.precio_lista_ml) / (1 - porcentaje / 100)
 
-    costo = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
+    costo = _costo(ctx, producto_erp, costo_ars)
     comision_base = ctx.comision(PRICELIST_CLASICA, grupo_id)
     if not (comision_base and precio > 0):
         return Rebate(precio=precio)
@@ -180,7 +187,14 @@ def calcular_rebate(
     limpio = calcular_limpio(
         precio, producto_erp.iva, costo_envio, comisiones["comision_total"], constantes=ctx.constantes
     )
-    return Rebate(precio=precio, markup=calcular_markup(limpio, costo) * 100, limpio=limpio)
+    markup = calcular_markup(limpio, costo) * 100 if costo is not None else None
+    return Rebate(precio=precio, markup=markup, limpio=limpio)
+
+
+def _costo(ctx: PricingContext, producto_erp: Any, costo_ars: Optional[float]) -> Optional[float]:
+    if costo_ars is _COSTO_DE_LISTA:
+        return ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
+    return costo_ars or None  # 0 from a caller is no cost either: never a made-up markup
 
 
 def mejor_oferta_out_of_cards(mejor_oferta: MejorOferta, rebate: Rebate, producto_pricing: Any) -> MejorOferta:

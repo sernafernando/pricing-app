@@ -56,6 +56,22 @@ def _publication(session, mlp_id: int, mla: str, store_id: int | None) -> None:
     )
 
 
+def _catalog_sized_statistics(session) -> None:
+    """Gives the planner statistics of a catalog-sized publications table (thousands of MLAs, most of them in a
+    store) for the plan assertions. Without this the plan follows whatever statistics the tables happen to have:
+    none on a fresh database, or the ones another test's `ANALYZE` left behind (rows it already deleted), and
+    with those the store index looks cheapest -- an order-dependent result."""
+    session.execute(
+        text(
+            "INSERT INTO tb_mercadolibre_items_publicados (mlp_id, mlp_publicationid, mlp_official_store_id) "
+            "SELECT 991000 + i, 'MLA99' || (100000 + i), 57997 FROM generate_series(1, 5000) AS i"
+        )
+    )
+    session.commit()
+    for table in ("ml_orders_ops", "ml_order_items_ops", "tb_mercadolibre_items_publicados"):
+        session.execute(text(f"ANALYZE {table}"))
+
+
 @pytest.fixture()
 def slate(pg_order_metrics_triggers_db, monkeypatch):
     from app.core.config import settings
@@ -99,7 +115,7 @@ def slate(pg_order_metrics_triggers_db, monkeypatch):
         "DELETE FROM ml_payments_ops WHERE order_id IN (SELECT order_id FROM ml_orders_ops WHERE seller_id = 999)",
         "DELETE FROM ml_order_items_ops WHERE order_id IN (SELECT order_id FROM ml_orders_ops WHERE seller_id = 999)",
         "DELETE FROM ml_orders_ops WHERE seller_id = 999",
-        "DELETE FROM tb_mercadolibre_items_publicados WHERE mlp_id BETWEEN 990001 AND 990099",
+        "DELETE FROM tb_mercadolibre_items_publicados WHERE mlp_id BETWEEN 990001 AND 999999",
         "DELETE FROM ml_order_item_costos WHERE producto_item_id = 990777",
         "DELETE FROM productos_erp WHERE item_id = 990777",
     ):
@@ -136,7 +152,7 @@ def slate(pg_order_metrics_triggers_db, monkeypatch):
         "DELETE FROM ml_payments_ops WHERE order_id IN (SELECT order_id FROM ml_orders_ops WHERE seller_id = 999)",
         "DELETE FROM ml_order_items_ops WHERE order_id IN (SELECT order_id FROM ml_orders_ops WHERE seller_id = 999)",
         "DELETE FROM ml_orders_ops WHERE seller_id = 999",
-        "DELETE FROM tb_mercadolibre_items_publicados WHERE mlp_id BETWEEN 990001 AND 990099",
+        "DELETE FROM tb_mercadolibre_items_publicados WHERE mlp_id BETWEEN 990001 AND 999999",
         "DELETE FROM ml_order_item_costos WHERE producto_item_id = 990777",
         "DELETE FROM productos_erp WHERE item_id = 990777",
     ):
@@ -193,6 +209,7 @@ class TestStoreFilterOnPostgres:
         scope = build_scope(slate, SalesFilter(stores=("57997", NO_STORE), **ALL_ON))
         query = scope.listing_query.with_entities(MlOrdersOps.order_id)
         compiled = query.statement.compile(dialect=slate.get_bind().dialect, compile_kwargs={"literal_binds": True})
+        _catalog_sized_statistics(slate)
         slate.execute(text("SET LOCAL enable_seqscan = off"))
         plan = "\n".join(row[0] for row in slate.execute(text(f"EXPLAIN {compiled}")))
         assert "mlp_publicationid" in plan
@@ -214,6 +231,7 @@ class TestStoreFilterOnPostgres:
         )
         query = scope.listing_query.with_entities(MlOrdersOps.order_id)
         compiled = query.statement.compile(dialect=slate.get_bind().dialect, compile_kwargs={"literal_binds": True})
+        _catalog_sized_statistics(slate)
         slate.execute(text("SET LOCAL enable_seqscan = off"))
         plan = "\n".join(row[0] for row in slate.execute(text(f"EXPLAIN {compiled}")))
 

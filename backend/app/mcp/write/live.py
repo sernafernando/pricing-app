@@ -116,7 +116,7 @@ def precio_por_markup(db: Session, item_id: int, markup_objetivo: float) -> floa
     """The ML Clásica price /precios/aplicar-markup-masivo would write for `markup_objetivo` (same calculator and
     inputs, rounded the same way), or None when it cannot be computed."""
     from app.services.envio_real_service import resolver_costo_envio
-    from app.services.pricing_calculator import calcular_precio_producto, obtener_tipo_cambio_actual
+    from app.services.pricing_calculator import calcular_precio_producto, costo_ars_actual, obtener_tipo_cambio_actual
 
     producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
     if producto is None:
@@ -128,8 +128,8 @@ def precio_por_markup(db: Session, item_id: int, markup_objetivo: float) -> floa
             return None
     calculo = calcular_precio_producto(
         db=db,
-        costo=producto.costo,
-        moneda_costo=producto.moneda_costo,
+        costo=costo_ars_actual(db, producto.item_id, tipo_cambio),  # costo SI (S13)
+        moneda_costo="ARS",
         iva=producto.iva,
         envio=resolver_costo_envio(db, producto),
         subcategoria_id=producto.subcategoria_id,

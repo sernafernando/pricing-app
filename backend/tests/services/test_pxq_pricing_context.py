@@ -22,6 +22,10 @@ from app.models.publicacion_ml import PublicacionML
 from app.models.tipo_cambio import TipoCambio
 from app.services.pxq_pricing_context import PxqPricingContext, PxqPricingUnavailable, resolve_pxq_pricing_context
 from tests.services.pxq_store import store_rows
+from tests.costo_si_lista import costo_si_lista  # noqa: F401  (fixture)
+
+# Written before costo SI: on SQLite the cost reader answers the list cost ('lista', Q1).
+pytestmark = [*globals().get("pytestmark", []), pytest.mark.usefixtures("costo_si_lista")]
 
 
 def _publish(db, mla: str, producto: ProductoERP, codigo: str) -> PublicacionML:

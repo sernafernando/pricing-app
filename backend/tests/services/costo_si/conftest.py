@@ -4,7 +4,9 @@
 callbacks they register (ML sale costs, legacy metrics, ventas por fuera...). Those callbacks read and write their own
 tables, which the engine's throwaway world (`_world.py`) does not have: the first area callback would make every drain
 test here fail. Each area tests its callback in its own world; the registry's own behaviour is tested in
-`test_despues_postgres.py`, which registers probes on this empty registry. Interface: handoffs/sell-in-costo-si-interfaz.md §3.
+`test_despues_postgres.py`, which registers probes on this empty registry. The test of the package loading there
+turns real loading back on (it re-imports every module of the package) and registers the areas' callbacks as no-ops,
+since they need tables this world does not have. Interface: handoffs/sell-in-costo-si-interfaz.md §3.
 """
 
 from __future__ import annotations

@@ -17,6 +17,15 @@ from app.workers.context import JobResult
 from app.workers.runtime import WorkerRuntime
 
 
+@pytest.fixture(autouse=True)
+def _empty_job_state(request) -> None:
+    """`pg_worker_engine` is module-scoped and some tests here leave their row `requested` (a failed run keeps the
+    flag for retry): every test starts from an empty `worker_job_state`, whatever order the tests run in."""
+    if "pg_worker_engine" in request.fixturenames:
+        with request.getfixturevalue("pg_worker_engine").begin() as conn:
+            conn.execute(text("DELETE FROM worker_job_state"))
+
+
 class _FakeHandler:
     def __init__(self, name: str) -> None:
         self.name = name

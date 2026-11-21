@@ -32,6 +32,10 @@ import app.models.precio_gremio_override  # noqa: F401
 
 from tests.integration.test_productos_listing_golden import _FETCH_LIST_COST
 from tests.integration.test_productos_tienda_orden import _guard_incompatible_raw_sql as _guard_tienda_raw_sql
+from tests.costo_si_lista import costo_si_lista  # noqa: F401  (fixture)
+
+# Written before costo SI: on SQLite the cost reader answers the list cost ('lista', Q1).
+pytestmark = [*globals().get("pytestmark", []), pytest.mark.usefixtures("costo_si_lista")]
 
 CUOTAS = ("3", "6", "9", "12")
 
