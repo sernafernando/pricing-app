@@ -15,7 +15,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.mcp import tools as mcp_tools
 from app.models.producto import ProductoERP
-from app.services.costo_si import columna, lectura, lote
+from app.services.costo_si import lectura, lote
 from app.services.costo_si.lote import Costo
 from tests.services.costo_si import _world as w
 
@@ -319,12 +319,6 @@ def test_sql_actual_is_the_current_cost_of_actuales_for_a_sort(engine: Engine) -
 
     assert got == esperado
     assert got[A] is not None and got[NADA] is None
-
-
-def test_columna_leer_is_actuales_on_postgres(engine: Engine) -> None:
-    _mundo(engine)
-    with _db(engine) as db:
-        assert columna.leer(db, [A, NADA], tipo_cambio=2000.0) == lote.actuales(db, [A, NADA], tipo_cambio=2000.0)
 
 
 def test_combos_con_lists_the_combos_a_component_moves_but_not_pcs(engine: Engine) -> None:

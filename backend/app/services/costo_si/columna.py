@@ -1,38 +1,18 @@
 """The costo SI column next to the list cost (sell-in-costo-si T3 PR 2, inventory §10, the PPP companion pattern C4):
-read for a page, then one accumulator per product records each markup site with that site's `limpio`.
-
-Display only: it changes no other number, so a failure to read it never fails the screen (the column is just absent).
+the page reads `lote.actuales` once, then one accumulator per product records each markup site with that site's
+`limpio`. Display only: it changes no other number.
 """
 
 from __future__ import annotations
 
-import logging
-from typing import Dict, Iterable, Optional
+from typing import Optional
 
 from sqlalchemy import literal_column
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
 
 from app.schemas.costo_si import CostoSiPayload
 from app.services.costo_si import lote
 from app.services.costo_si.lote import Costo
 from app.services.pricing_calculator import calcular_markup
-
-logger = logging.getLogger(__name__)
-
-
-def leer(db: Session, item_ids: Iterable[int], *, tipo_cambio=None) -> Dict[int, Costo]:
-    """`lote.actuales` for a screen (`tipo_cambio`: the rate the screen's own markups use). Its SQL is Postgres only:
-    elsewhere, or when the read fails (inside a savepoint, so the caller's transaction survives), nothing."""
-    ids = list(item_ids)
-    if not ids or db.get_bind().dialect.name != "postgresql":
-        return {}
-    try:
-        with db.begin_nested():
-            return lote.actuales(db, ids, tipo_cambio=tipo_cambio)
-    except SQLAlchemyError:
-        logger.exception("costo SI column could not be read for %d products", len(ids))
-        return {}
 
 
 def orden(item: str):

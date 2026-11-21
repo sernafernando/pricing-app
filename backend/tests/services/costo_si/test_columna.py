@@ -9,8 +9,6 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 from app.schemas.costo_si import CostoSiPayload
 from app.services.costo_si import columna
@@ -83,9 +81,3 @@ def test_the_companions_record_each_site_into_the_costo_si_too() -> None:
     assert ppp.got == siso.got == [("rebate", 13125.0, False)]
     assert costo_si.payload().markups == {"rebate": pytest.approx(0.25)}
     assert MarkupCompanions(ppp, siso).costo_si is None
-
-
-def test_off_postgres_the_reader_shows_nothing_instead_of_failing() -> None:
-    """The reader's SQL is Postgres only: elsewhere (SQLite) no costo SI, the listing unchanged."""
-    with sessionmaker(bind=create_engine("sqlite://"))() as db:
-        assert columna.leer(db, [1, 2]) == {}
