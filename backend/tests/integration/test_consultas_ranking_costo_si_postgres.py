@@ -22,6 +22,7 @@ from app.models.combo_componente import ComboComponente
 from app.models.commercial_transaction import CommercialTransaction
 from app.models.costo_si import CostoSiPaso
 from app.models.cur_exch_history import CurExchHistory
+from app.models.item_cost_list import ItemCostList
 from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.item_transaction import ItemTransaction
 from app.models.marca_pm import MarcaPM
@@ -45,6 +46,7 @@ TABLES = [
     ProductoERP.__table__,
     TBItem.__table__,
     ComboComponente.__table__,
+    ItemCostList.__table__,
     ItemCostListHistory.__table__,
     CostoSiPaso.__table__,
     TipoCambio.__table__,

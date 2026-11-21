@@ -25,6 +25,7 @@ from app.models.combo_componente import ComboComponente
 from app.models.commercial_transaction import CommercialTransaction
 from app.models.costo_si import CostoSiBackup, CostoSiPaso
 from app.models.cur_exch_history import CurExchHistory
+from app.models.item_cost_list import ItemCostList
 from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.item_transaction import ItemTransaction
 from app.models.item_transaction_detail import ItemTransactionDetail
@@ -78,6 +79,7 @@ TABLAS = [
         TBTaxNumberType,
         CurExchHistory,
         TipoCambio,
+        ItemCostList,
         ItemCostListHistory,
         CostoSiPaso,
         CostoSiBackup,

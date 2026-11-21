@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy import Engine, text
 
 from app.models.combo_componente import ComboComponente
+from app.models.item_cost_list import ItemCostList
 from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.producto import ProductoERP
 from app.models.tb_item import TBItem
@@ -30,7 +31,13 @@ STUBS = [
     "CREATE TABLE tipo_cambio (id SERIAL PRIMARY KEY, fecha DATE NOT NULL, moneda VARCHAR(3) NOT NULL,"
     " venta NUMERIC(18, 6), created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ, timestamp_actualizacion TIMESTAMPTZ)",
 ]
-TABLES = [ProductoERP.__table__, TBItem.__table__, ComboComponente.__table__, ItemCostListHistory.__table__]
+TABLES = [
+    ProductoERP.__table__,
+    TBItem.__table__,
+    ComboComponente.__table__,
+    ItemCostList.__table__,
+    ItemCostListHistory.__table__,
+]
 
 
 @pytest.fixture(scope="module")

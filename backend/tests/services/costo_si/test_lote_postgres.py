@@ -370,6 +370,19 @@ def test_a_combo_component_missing_from_productos_erp_takes_its_gbp_list_cost(en
     assert dia[(COMBO_GBP_ARS, date(2026, 10, 20))] == got[COMBO_GBP_ARS]
 
 
+def test_on_a_date_a_gbp_only_component_reads_its_list_history_first(engine: Engine) -> None:
+    """Dated priority: costo SI step > list history > `productos_erp` > GBP's current list cost. A component missing
+    from `productos_erp` with a history row before the date reads that row (USD 2), not GBP's current 1.51."""
+    _componentes_fuera_de_productos_erp(engine)
+    w.costo_lista(engine, G72, datetime(2026, 10, 5, 12), "2")
+    dia = date(2026, 10, 20)
+
+    with _db(engine) as db:
+        got = lote.en_fechas(db, [(COMBO_GBP, dia)])[(COMBO_GBP, dia)]
+
+    assert (got.costo, got.moneda, got.fuente) == (D("73.08687"), "USD", LISTA)  # 23.08687 + 25 x 2
+
+
 @pytest.mark.parametrize("tc", [None, 2000.0])
 def test_the_row_and_set_fragments_take_the_gbp_list_cost_of_a_component_too(engine: Engine, tc) -> None:
     _componentes_fuera_de_productos_erp(engine)
