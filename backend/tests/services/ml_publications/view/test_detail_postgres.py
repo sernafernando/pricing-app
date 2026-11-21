@@ -626,9 +626,10 @@ class TestStatements:
         assert len(small) == len(large), (small, large)
         # 9: the inputs' read of the active promos (`markup_inputs._promo_revenues`); the shipping batch is separate
         # (stubbed here) and is the +1. 11 with costo SI (sell-in-costo-si T3 PR 5): the inputs' cost of the linked
-        # products (`lote.actuales`), one statement on the real reader, two in the `costo_si_lista` stand-in this
-        # module runs with (the products, the USD rate); the real reader is pinned in test_markup_inputs_postgres
-        assert len(small) <= 11, small
+        # products (`lote.actuales`), one statement on the real reader, three in the `costo_si_lista` stand-in this
+        # module runs with (the products, the USD rate, and, with no `tipo_cambio` row here, the ERP's rate history:
+        # interfaz §7, #2366); the real reader is pinned in test_markup_inputs_postgres
+        assert len(small) <= 12, small
         assert len(detail_of(client, headers, "MLA31").json()["links"]) == 251
 
     def test_the_read_is_bounded_in_time_before_the_item_is_read(self, client, rows, pg, reader, pricing) -> None:

@@ -31,6 +31,7 @@ from app.models.auditoria import Auditoria
 from app.models.combo_componente import ComboComponente
 from app.models.costo_si import CostoSiDirty, CostoSiPaso
 from app.models.tb_item import TBItem
+from app.models.cur_exch_history import CurExchHistory
 from app.models.tipo_cambio import TipoCambio
 from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_sale_line import MlSaleLine
@@ -80,6 +81,7 @@ TABLES = [
     TBItem.__table__,  # a combo of the PC category is its own product (`combos.pcs`)
     CostoSiPaso.__table__,  # the cost every sell in / sell out markup reads (`costo_si.lote`, T3 PR 5)
     TipoCambio.__table__,  # `lote` prices a USD cost at the latest USD rate
+    CurExchHistory.__table__,  # ... else at the ERP's rate history (interfaz §7)
 ]
 _MODELS = {"gbp": VentaFueraMLMetrica, "tn": VentaTiendaNubeMetrica}
 _refs = itertools.count(600_000)

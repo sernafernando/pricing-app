@@ -170,15 +170,19 @@ class SellInOutMarkups:
 
 
 class MarkupCompanions:
-    """Records each markup site once into the PPP and the sell in / sell out accumulators."""
+    """Records each markup site once into the PPP, the sell in / sell out and (when given) the costo SI
+    (`costo_si.columna.CostoSiMarkups`) accumulators."""
 
-    def __init__(self, ppp, sell_in_out: SellInOutMarkups):
+    def __init__(self, ppp, sell_in_out: SellInOutMarkups, costo_si=None):
         self.ppp = ppp
         self.sell_in_out = sell_in_out
+        self.costo_si = costo_si
 
     def record(self, key: str, limpio: float, *, percent: bool = True) -> None:
         self.ppp.record(key, limpio, percent=percent)
         self.sell_in_out.record(key, limpio, percent=percent)
+        if self.costo_si is not None:
+            self.costo_si.record(key, limpio, percent=percent)
 
 
 def en_moneda_costo(sell_in: SellInProducto, moneda: object, tipo_cambio: Optional[float]) -> SellInProducto:
@@ -309,6 +313,7 @@ def resolver_sell_in_out_batch(
     *,
     sin_lotes: bool = False,
     contextos: Optional[Sequence[ContextoMarkup]] = None,
+    costos: Optional[Mapping[int, costo_si_lote.Costo]] = None,
 ) -> SellInOutBatch:
     """What `hoy`'s next sale of each product would get (module docstring), for a whole page. `sin_lotes` resolves it
     as if no FIFO lot had units left (what applies once they run out: the lot viewer's question).
@@ -317,8 +322,13 @@ def resolver_sell_in_out_batch(
     global read (Productos "Todas"). A non-empty list is a **union**: a tactical sell out campaign is included when it
     reaches any context (`tienda_scope.alcanza_alguno`); per-target caps (`tope_compartido=false`) stay active while
     any matching context still has room. Cost bonuses (sell in) are the same in every context.
+
+    `costos`: the page's `lote.actuales` when the caller already read them (Productos' live markups and costo SI
+    column), so the page reads its costs once; None reads them here.
     """
-    return resolver_sell_in_out_por_contexto(db, item_ids, hoy, {None: contextos}, sin_lotes=sin_lotes)[None]
+    return resolver_sell_in_out_por_contexto(db, item_ids, hoy, {None: contextos}, sin_lotes=sin_lotes, costos=costos)[
+        None
+    ]
 
 
 def resolver_sell_in_out_por_contexto(
@@ -328,6 +338,7 @@ def resolver_sell_in_out_por_contexto(
     contextos_por_clave: Mapping[Hashable, Optional[Sequence[ContextoMarkup]]],
     *,
     sin_lotes: bool = False,
+    costos: Optional[Mapping[int, costo_si_lote.Costo]] = None,
 ) -> Dict[Hashable, SellInOutBatch]:
     """`resolver_sell_in_out_batch` for several store contexts at once (one per key, e.g. each official store of a
     Publicaciones page): the database is read ONCE for every key, and only the scope and cap rules run per key."""
@@ -368,7 +379,10 @@ def resolver_sell_in_out_por_contexto(
     bna = None
     if any(x.campana.moneda == "USD" for cs in campanas_por_clave.values() for c in cs.values() for x in c):
         bna = tasas_bna_por_fecha(db, {hoy})[hoy]
-    costos = costo_si_lote.actuales(db, ids)  # the one cost of every markup here (D1, S13)
+    if costos is None:
+        costos = costo_si_lote.actuales(db, ids)  # the one cost of every markup here (D1, S13)
+    else:
+        costos = {i: costos[i] for i in ids if i in costos}  # the caller's read (`markups` converts at its rate)
     return {
         clave: SellInOutBatch(hoy, sell_in, campanas_por_clave[clave], bna, bonos, costos)
         for clave in contextos_por_clave

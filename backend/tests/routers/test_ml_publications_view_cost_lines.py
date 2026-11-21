@@ -11,6 +11,7 @@ pricing database. Same harness as `test_ml_publications_view_markup.py`.
 from __future__ import annotations
 
 from datetime import date, datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -27,7 +28,7 @@ from tests.routers.test_ml_publications_view_markup import (  # noqa: F401
     view_pg,
 )
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
-from tests.costo_si_lista import costo_si_lista  # noqa: F401 -- the SQLite pricing db reads lote.actuales
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 (the costo SI reader's SQLite stand-in)
 
 pytestmark = [pytest.mark.postgres, pytest.mark.usefixtures("costo_si_lista")]
 
@@ -63,7 +64,19 @@ def seed_lines(db, user, item_id: int, costo: float, ppp: float = 850.0, descuen
 
 
 def expected_lines(linea: int, costo: float, ppp: float = 850.0) -> dict:
+    """The lines of a product seeded by `seed_lines`: an ARS list cost and no costo SI step, so its costo SI is the
+    list cost with fuente 'lista' (Q1)."""
     return {
+        "costo_si": {
+            "costo": costo,
+            "moneda": "ARS",
+            "fuente": "lista",
+            "desde": None,
+            "tipo_cambio": None,
+            "tipo_cambio_fecha": None,
+            "costo_ars": costo,
+            "markups": {},
+        },
         "ppp": {"costo": ppp, "moneda": "ARS", "fecha": "2026-02-14", "markups": {}},
         "sell_in_out": {
             "sell_in": {
@@ -93,9 +106,10 @@ class TestListRow:
 
         rows = {row["item_id"]: row for row in get(client, analyst).json()["items"]}
 
-        assert {k: rows["MLA1"][k] for k in ("ppp", "sell_in_out")} == expected_lines(linea, 40000.0)
+        assert {k: rows["MLA1"][k] for k in ("ppp", "sell_in_out", "costo_si")} == expected_lines(linea, 40000.0)
         assert rows["MLA1"]["costo"] == {"amount": 40000.0, "currency": "ARS"}  # the cost stays as it was
         assert rows["MLA3"]["ppp"] is None and rows["MLA3"]["sell_in_out"] is None  # no product
+        assert rows["MLA3"]["costo_si"] is None
 
     def test_a_product_with_no_ppp_row_and_no_sell_in_carries_both_lines_as_null(
         self, client, pg, analyst, pricing, db, admin_user
@@ -114,7 +128,7 @@ class TestListRow:
 
         items = get(client, reader).json()["items"]
 
-        assert all("ppp" not in row and "sell_in_out" not in row for row in items)
+        assert all("ppp" not in row and "sell_in_out" not in row and "costo_si" not in row for row in items)
 
 
 class TestDetailRow:
@@ -126,12 +140,12 @@ class TestDetailRow:
 
         assert response.status_code == 200, response.text
         row = response.json()["row"]
-        assert {k: row[k] for k in ("ppp", "sell_in_out")} == expected_lines(linea, 40000.0)
+        assert {k: row[k] for k in ("ppp", "sell_in_out", "costo_si")} == expected_lines(linea, 40000.0)
 
 
 # A failing PPP, sell in or exchange-rate read: the list answers as before the lines existed (each row with its cost,
 # no line keys) and logs the failure; it never turns the whole page into a 500.
-FALLAS = ["resolver_ppp_batch", "resolver_sell_in_out_batch", "obtener_tipo_cambio_actual"]
+FALLAS = ["resolver_ppp_batch", "resolver_sell_in_out_batch", "obtener_tipo_cambio_actual", "actuales"]
 
 
 def falla(monkeypatch, nombre: str) -> None:
@@ -143,7 +157,10 @@ def falla(monkeypatch, nombre: str) -> None:
     def roto(*args, **kwargs):
         raise OperationalError("SELECT", {}, Exception(f"{nombre} down"))
 
-    monkeypatch.setattr(module, nombre, roto)
+    if nombre == "actuales":  # the cost lines' costo SI read only: the markups read the same reader on their own
+        monkeypatch.setattr(module, "lote", SimpleNamespace(actuales=roto))
+    else:
+        monkeypatch.setattr(module, nombre, roto)
     if nombre == "resolver_sell_in_out_batch":  # the publication rows read every store's sell in / out at once
         monkeypatch.setattr(module, "resolver_sell_in_out_por_contexto", roto)
 
@@ -163,7 +180,7 @@ class TestAFailingLineRead:
         assert response.status_code == 200, response.text
         rows = {row["item_id"]: row for row in response.json()["items"]}
         assert rows["MLA1"]["costo"] == {"amount": 40000.0, "currency": "ARS"}
-        assert all("ppp" not in row and "sell_in_out" not in row for row in rows.values())
+        assert all("ppp" not in row and "sell_in_out" not in row and "costo_si" not in row for row in rows.values())
         assert any(r.exc_info and f"{nombre} down" in str(r.exc_info[1]) for r in caplog.records)
 
     def test_the_detail_keeps_its_cost_without_the_lines(
@@ -178,4 +195,4 @@ class TestAFailingLineRead:
         assert response.status_code == 200, response.text
         row = response.json()["row"]
         assert row["costo"] == {"amount": 40000.0, "currency": "ARS"}
-        assert "ppp" not in row and "sell_in_out" not in row
+        assert "ppp" not in row and "sell_in_out" not in row and "costo_si" not in row

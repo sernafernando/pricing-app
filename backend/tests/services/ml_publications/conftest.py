@@ -153,6 +153,9 @@ COSTO_SI_READER_DDL = (
     _TB_ITEM_DDL,
     "CREATE TABLE IF NOT EXISTS tipo_cambio (id serial PRIMARY KEY, fecha date, moneda varchar(10), "
     "compra double precision, venta double precision, timestamp_actualizacion timestamptz DEFAULT now())",
+    # the reader's USD rate falls back to the ERP's rate history (interfaz §7)
+    "CREATE TABLE IF NOT EXISTS tb_cur_exch_history (ceh_id bigint PRIMARY KEY, comp_id integer, curr_id_1 integer, "
+    "curr_id_2 integer, ceh_cd timestamp, ceh_exchange numeric(18, 6))",
 )
 
 

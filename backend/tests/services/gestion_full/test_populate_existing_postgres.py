@@ -145,9 +145,7 @@ class TestPopulateExistingTwoSessions:
                 .order_by(GestionFullQtyExportAudit.id.desc())
                 .one()
             )
-            assert audit.old_qty == 2, (
-                "populate_existing missing: audit would keep stale identity-map old_qty=5"
-            )
+            assert audit.old_qty == 2, "populate_existing missing: audit would keep stale identity-map old_qty=5"
             assert audit.new_qty == 4
         finally:
             db_a.close()

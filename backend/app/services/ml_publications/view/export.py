@@ -301,7 +301,26 @@ def _shown(ventas: Optional[Mapping[str, Any]], sell: str, plain: str) -> Any:
     return ventas.get(sell) if ventas.get(sell) is not None else ventas.get(plain)
 
 
-def stock_audit_lines(rows: Sequence[Mapping[str, Any]], *, sales: bool, margin: bool) -> list[list[Any]]:
+def stock_audit_product_ids(rows: Sequence[Mapping[str, Any]]) -> set[int]:
+    """Every product id of the audit's rows (`stock_audit_lines`' input): base rows and their variants and packs, also
+    under the Marca / Categoría groups, so one costo SI read covers the whole file."""
+    ids: set[int] = set()
+    for row in rows:
+        if row["tipo"] in ("marca", "categoria"):
+            ids |= stock_audit_product_ids([*row.get("categorias", []), *row.get("filas", [])])
+            continue
+        ids.add(row["product_item_id"])
+        ids.update(v["product_item_id"] for v in row["variantes"])
+    return ids
+
+
+def stock_audit_lines(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    sales: bool,
+    margin: bool,
+    costo_si: Optional[Mapping[int, Any]] = None,
+) -> list[list[Any]]:
     """The audit's rows (`stock_audit.row_out`, in the view's order) as sheet lines: the header, then each base row
     followed by its variants and packs. A variant's ERP is the base's and stays empty; its Full and its sales are in
     base units (a pack's times its quantity), as the view shows them. Values the view reads "—" are empty cells,
@@ -309,8 +328,14 @@ def stock_audit_lines(rows: Sequence[Mapping[str, Any]], *, sales: bool, margin:
 
     At the Marca / Categoría levels (auditoria-stock-niveles S5) a row is a group (`stock_audit.group_out`) carrying
     its base rows in `filas` and, a brand, its categories in `categorias`: each group line is followed by its
-    categories' lines (each followed by its products) or its products."""
+    categories' lines (each followed by its products) or its products.
+
+    "Costo SI" and "Moneda costo SI" (sell-in-costo-si T3 PR 2, display only) are each product's current costo SI
+    (`costo_si`: product id -> `lote.Costo`) in its own currency, empty where "Costo" is empty or none is known; the
+    valuation still reads the list cost."""
+    costos = costo_si or {}
     header = ["Tipo", "Código", "Producto", "Producto base", "Cantidad", "Costo", "Moneda costo"]
+    header += ["Costo SI", "Moneda costo SI"]
     header += ["Stock ERP", "Stock Full", "Stock total"]
     header += [
         "Valor ERP USD",
@@ -361,12 +386,18 @@ def stock_audit_lines(rows: Sequence[Mapping[str, Any]], *, sales: bool, margin:
             out += [None, None] if siso is None else [siso["min"], siso["max"]]
         return out
 
+    def costo_si_cells(item_id: int, costo: Any) -> list[Any]:
+        found = None if costo is None else costos.get(item_id)
+        if found is None or found.costo is None:
+            return [None, None]
+        return [float(found.costo), found.moneda]
+
     lines: list[list[Any]] = [header]
 
     def group(row: Mapping[str, Any]) -> None:
         erp, full, total = row["erp"], row["full"], row["total"]
         lines.append(
-            [AUDIT_KINDS.get(row["tipo"], row["tipo"]), None, row["descripcion"], None, None, None, None]
+            [AUDIT_KINDS.get(row["tipo"], row["tipo"]), None, row["descripcion"], None, None, None, None, None, None]
             + [erp["unidades"], full["unidades"], total["unidades"]]
             + [erp["usd"], erp["ars"], full["usd"], full["ars"], total["usd"], total["ars"]]
             + [yes_no(row["sin_costo"]), row["publications_count"], yes_no(row["publicacion_activa"])]
@@ -385,7 +416,8 @@ def stock_audit_lines(rows: Sequence[Mapping[str, Any]], *, sales: bool, margin:
         erp, full, total = row["erp"], row["full"], row["total"]
         lines.append(
             [AUDIT_KINDS.get(row["tipo"], row["tipo"]), row["codigo"], row["descripcion"], None, 1, row["costo"]]
-            + [row["moneda_costo"], erp["unidades"], full["unidades"], total["unidades"]]
+            + [row["moneda_costo"], *costo_si_cells(row["product_item_id"], row["costo"])]
+            + [erp["unidades"], full["unidades"], total["unidades"]]
             + [erp["usd"], erp["ars"], full["usd"], full["ars"], total["usd"], total["ars"]]
             + [yes_no(row.get("sin_costo", False)), row["publications_count"], yes_no(row["publicacion_activa"])]
             + [yes_no(row["promo_aplicada"])]
@@ -395,7 +427,8 @@ def stock_audit_lines(rows: Sequence[Mapping[str, Any]], *, sales: bool, margin:
             vfull = v["full"]
             lines.append(
                 [AUDIT_KINDS.get(v["tipo"], v["tipo"]), v["codigo"], v["descripcion"], row["codigo"], v["cantidad"]]
-                + [v["costo"], v["moneda_costo"], None, v["full_unidades_base"], v["full_unidades_base"]]
+                + [v["costo"], v["moneda_costo"], *costo_si_cells(v["product_item_id"], v["costo"])]
+                + [None, v["full_unidades_base"], v["full_unidades_base"]]
                 + [None, None, vfull["usd"], vfull["ars"], vfull["usd"], vfull["ars"]]
                 + [yes_no(v.get("sin_costo", False)), v["publications_count"], None, None]
                 + figures(v["ventas"], v["cantidad"], v.get("markup_actual"), v.get("markup_siso"))

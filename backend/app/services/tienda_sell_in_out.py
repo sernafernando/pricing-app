@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from typing import Dict, Iterable, List, Mapping, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from sqlalchemy.orm import Session
 
@@ -54,9 +54,12 @@ def limpio_lista(precio_sin_iva: float, varios_porcentaje: float) -> float:
     return precio_sin_iva / (1 + varios_porcentaje / 100)
 
 
-def resolver_tienda_batches(db: Session, item_ids: Iterable[int], hoy: date) -> Dict[str, SellInOutBatch]:
-    """One batch per channel context, from ONE database read for the whole page."""
-    return resolver_sell_in_out_por_contexto(db, item_ids, hoy, CONTEXTOS_TIENDA)
+def resolver_tienda_batches(
+    db: Session, item_ids: Iterable[int], hoy: date, *, costos: Optional[Mapping[int, Any]] = None
+) -> Dict[str, SellInOutBatch]:
+    """One batch per channel context, from ONE database read for the whole page. `costos`: the page's
+    `lote.actuales` when the caller already read them (the costo SI column), so the page reads its costs once."""
+    return resolver_sell_in_out_por_contexto(db, item_ids, hoy, CONTEXTOS_TIENDA, costos=costos)
 
 
 @dataclass(frozen=True)

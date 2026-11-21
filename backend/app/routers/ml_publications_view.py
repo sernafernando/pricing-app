@@ -72,8 +72,10 @@ from app.core.database import get_background_db, get_db
 from app.core.exceptions import ErrorCode, api_error
 from app.models.usuario import Usuario
 from app.schemas.costo_ppp import PppPayload
+from app.schemas.costo_si import CostoSiPayload
 from app.schemas.ml_publications_view import OpcionesEnvioResponse
 from app.schemas.sell_in_out_producto import SellInOutProducto
+from app.services.costo_si import lote
 from app.services.ml_daily_metrics import board, kpi_strip
 from app.services.ml_daily_metrics.sales import NO_PRODUCT
 from app.services import envio_producto_eleccion as envio_producto
@@ -368,6 +370,7 @@ class ItemRowOut(BaseModel):
     costo: Optional[ItemCostOut] = None  # present only with ml_metricas.ver_ganancia; null without a product cost
     # the lines Productos draws under the cost (same gate as `costo`): null without a product or a PPP row / sell in
     ppp: Optional[PppPayload] = None
+    costo_si: Optional[CostoSiPayload] = None  # the costo SI next to the list cost (same gate)
     sell_in_out: Optional[SellInOutProducto] = None
     sales_30d: Optional[Sales30dOut] = None  # present only with ml_metricas.ver
     metrics: Optional[MetricsOut] = None  # present only with ml_metricas.ver; null when Métricas has no row
@@ -761,6 +764,7 @@ class ProductRowOut(BaseModel):
     stock: Optional[int] = None
     costo: Optional[ItemCostOut] = None  # present only with ml_metricas.ver_ganancia; null without a product cost
     ppp: Optional[PppPayload] = None  # the lines under the cost, as on a publication row (same gate)
+    costo_si: Optional[CostoSiPayload] = None  # the costo SI next to the list cost (same gate)
     sell_in_out: Optional[SellInOutProducto] = None
     params: dict[str, str]
     metrics: Optional[MetricsOut] = None
@@ -2199,7 +2203,9 @@ def export_stock_audit(
     rows = [_stock_audit_out(read, r, orden, dir) for r in read.ordered]
     if read.nivel != stock_audit.PRODUCTO:
         _attach_group_products(read, rows, orden, dir)
-    lines = export.stock_audit_lines(rows, sales=read.can_see_sales, margin=read.can_see_margin)
+    # the costo SI columns (display only), one read for every product of the file, from the pricing database
+    costo_si = lote.actuales(auth_db, export.stock_audit_product_ids(rows), tipo_cambio=read.rate.usd_ars)
+    lines = export.stock_audit_lines(rows, sales=read.can_see_sales, margin=read.can_see_margin, costo_si=costo_si)
     filename = f"publicaciones-ml-auditoria-stock-{date.today().isoformat()}.xlsx"
     return Response(
         export.workbook(lines, "Auditoría de stock"),

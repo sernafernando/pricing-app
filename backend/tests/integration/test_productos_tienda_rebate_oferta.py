@@ -39,7 +39,7 @@ import app.models.item_cost_list_history  # noqa: F401,E402
 import app.models.commercial_transaction  # noqa: F401,E402
 import app.models.tb_supplier  # noqa: F401,E402
 import app.models.precio_gremio_override  # noqa: F401,E402
-from tests.costo_si_lista import costo_si_lista  # noqa: F401 -- Productos' sell in / sell out reads lote.actuales
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 (the costo SI reader's SQLite stand-in)
 
 pytestmark = pytest.mark.usefixtures("costo_si_lista")
 
@@ -245,8 +245,8 @@ RECORDED_ROWS = json.loads(
 # Statements the tienda listing issued for this catalogue, recorded alongside; plus one per page for the PM's shipping
 # choices (S7b), read once by `resolver_costos_envio_batch`; plus three per page for the sell in / sell out of every
 # channel context (`resolver_tienda_batches`: FIFO lots, cost modes, campaigns and bonuses, read once for the page);
-# plus the products' costo SI (`lote.actuales`, sell-in-costo-si T3 PR 5): one statement on Postgres, two in its SQLite
-# stand-in (`tests/costo_si_lista.py`: the products, the USD rate).
+# plus one per page for the costo SI column (`lote.actuales`; its SQLite stand-in `costo_si_lista` issues two: the
+# products' list cost and the date of the page's USD rate).
 RECORDED_STATEMENTS = 32
 
 

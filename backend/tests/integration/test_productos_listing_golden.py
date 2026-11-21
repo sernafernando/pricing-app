@@ -304,11 +304,11 @@ class TestProductosListingGolden:
 # whatever its size: the current sell-in lots and the sell-out campaign reach. The manual cost mode (D6) adds one
 # more per page: the products' cost modes and manual blocks, read even for a product without purchase lines (a block
 # typed by hand is stock of its own). The PM's shipping choice (S7b) adds one more per page: the stored choices of the
-# page's products, read once by `resolver_costos_envio_batch` (never once per product). The live markups over costo
-# SI (Costo SI T3, S13) add one more per page: the page's costs read once by `lote.actuales` (never once per product).
-# The sell in / sell out on costo SI (T3 PR 5) reads them once more for its markups: one statement on Postgres, two in
-# the SQLite stand-in (`tests/costo_si_lista.py`: the products, then the USD rate, since this caller passes none).
-EXPECTED_DEFAULT_STATEMENTS = 25
+# page's products, read once by `resolver_costos_envio_batch` (never once per product). The page's costs are read
+# once by `lote.actuales` (never once per product), for the live markups over costo SI (Costo SI T3, S13) and the
+# costo SI column (T3 PR 2); here its SQLite stand-in (`costo_si_lista`) issues two for it: the products' list cost
+# and the date of the page's USD rate.
+EXPECTED_DEFAULT_STATEMENTS = 24
 
 
 class TestProductosListingStatementCount:
