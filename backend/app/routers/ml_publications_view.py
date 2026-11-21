@@ -893,6 +893,8 @@ class StockAuditVariantOut(BaseModel):
     cantidad: float
     costo: Optional[float] = None
     moneda_costo: str
+    costo_si: Optional[float] = None  # sell-in-costo-si: the cost the values use; None = unknown
+    costo_si_moneda: Optional[str] = None
     full: StockMoneyOut
     full_unidades_base: int
     sin_costo: bool = False  # its Full has no cost: its values are unknown (L9)
@@ -954,6 +956,8 @@ class StockAuditRowOut(BaseModel):
     marca: Optional[str] = None
     costo: Optional[float] = None
     moneda_costo: Optional[str] = None
+    costo_si: Optional[float] = None  # sell-in-costo-si: the cost the values use; None = unknown
+    costo_si_moneda: Optional[str] = None
     grupo: Optional[StockGroupOut] = None
     productos: Optional[int] = None
     productos_sin_costo: Optional[int] = None

@@ -3,7 +3,7 @@ document, not from the implementation. Invented data only.
 
 The world (rate 1000 ARS per USD):
 * notebook 200 (USD 1000, ERP 4): MLA200A and MLA200B share UP200 (Full 2, counted once);
-* 201 a warranty filed as a notebook (USD 100); variant 202 = 200 + 201 (USD 1200, ERP 9): base is 200 (L2 a),
+* 201 a warranty filed as a notebook (USD 200); variant 202 = 200 + 201 (USD 1200, ERP 9): base is 200 (L2 a),
   MLA202 / UP202 Full 1, its ERP never added nor shown;
 * 281 = 200 + mouse 205 (a variant with ERP 6 and no publication);
 * bag 203 (cat 46, accessory subcat 3908, USD 20, ERP 10) and kit 204 = 203 + mouse 205 (ERP 3): MLA204 / UP204
@@ -13,10 +13,12 @@ The world (rate 1000 ARS per USD):
 * PC 210 (cat 47, ARS 500000, ERP 2) = notebook 200 + mouse: its own row, never exploded; MLA210 paused, Full 1;
 * MLA300 has two variations linked to 220 (USD 50) and 221 (USD 70): UPV1 Full 3 and UPV2 Full 7, the item-level
   UPITEM Full 100 must not count; MLA301 (variation 1 also -> 220, UPV1) shares UPV1: counted once;
-* 230 (ARS 5000, ERP 0) and pack 231 = 2 x 230 (ARS 9000): MLA231 / UP231 Full 4 -> 8 units, ARS 36000;
+* 230 (ARS 4500, ERP 0) and pack 231 = 2 x 230 (ARS 9000): MLA231 / UP231 Full 4 -> 8 units, ARS 36000;
 * 240 has no cost (ERP 5); 250 ERP -3 with MLA250 and no Full; 251 ERP -2; 260 (USD 10, ERP 1) has no publication;
   270 (ERP 0, MLA270 without Full) has no stock.
 Started promotions: MLA202 and MLA300.
+Every combo's list cost is its components' sum: the stock is valued with the costo SI reader, which values a combo that
+is not a PC as its components (S11).
 """
 
 # ruff: noqa: F811 -- the imported fixtures are used by name
@@ -41,6 +43,7 @@ from tests.routers.test_ml_publications_view_stock_audit import (  # noqa: F401
     URL,
     board_row,
     combo,
+    costo_si_table,
     money,
     product,
     publication,
@@ -54,11 +57,12 @@ STARTED = {"MLA202", "MLA300"}
 def fill(conn) -> None:
     seed.create_presence_tables(conn)
     create_snapshot_table(conn)
+    costo_si_table(conn)
     for ddl in BOM_DDL:
         conn.execute(text(ddl))
     seed.add_usd_rate(conn, 1000.0, "2026-11-17")
     product(conn, 200, 1000, "USD", 4, 46, 3819)
-    product(conn, 201, 100, "USD", 0, 46, 3819)
+    product(conn, 201, 200, "USD", 0, 46, 3819)
     product(conn, 202, 1200, "USD", 9, 46, 3819)
     product(conn, 281, 1005, "USD", 6, 46, 3819)
     product(conn, 203, 20, "USD", 10, 46, 3908)
@@ -70,7 +74,7 @@ def fill(conn) -> None:
     product(conn, 210, 500000, "ARS", 2, 47)
     product(conn, 220, 50, "USD", 0, 60)
     product(conn, 221, 70, "USD", 0, 60)
-    product(conn, 230, 5000, "ARS", 0, 60)
+    product(conn, 230, 4500, "ARS", 0, 60)
     product(conn, 231, 9000, "ARS", 0, 60)
     product(conn, 240, 1, "USD", 5, 60)
     seed.add_cost(conn, 240, None, moneda_costo="USD")
@@ -257,6 +261,7 @@ class TestProbePermission:
 def no_rate_fill(conn) -> None:
     seed.create_presence_tables(conn)
     create_snapshot_table(conn)
+    costo_si_table(conn)
     for ddl in BOM_DDL:
         conn.execute(text(ddl))
     conn.execute(

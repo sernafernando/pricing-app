@@ -1,10 +1,14 @@
 """Auditoría de stock (S3-S8): `GET /ml-publications/view/stock-audit` lists one row per base product with what its
-ERP and Full stock is worth at cost, in USD and ARS at the day's BNA rate, its variants under it, and the KPI strip
+ERP and Full stock is worth at costo SI, in USD and ARS at the day's BNA rate, its variants under it, and the KPI strip
 over every row. Gated by `ml_publicaciones.ver_auditoria_stock`. Invented data only.
+
+The stock is valued with the costo SI reader (`lote.actuales`): without `costo_si_pasos` rows that is each product's
+list cost, and a combo that is not a PC is its components x quantity (S11), so every combo's own list cost below is
+its components' sum.
 
 The world (rate 1000 ARS per USD):
 * notebook 100 (USD 1000, ERP 5): MLA10 and MLA11 share user product UP10 (Full 2, counted once);
-* variant 101 = notebook 100 + RAM 102 (USD 1100, ERP 3 derived from the base): MLA12, UP12 Full 1;
+* variant 101 = notebook 100 + RAM 102 (RAM USD 100; USD 1100, ERP 3 derived from the base): MLA12, UP12 Full 1;
 * 103 = notebook 100 + its warranty 104 (both filed as notebooks): base is the expensive one, 100; no publication;
 * pack 110 = 10 x mouse 111 (mouse USD 2, ERP 100; pack USD 20): MLA20, UP20 Full 3 -> 30 mice;
 * kit 120 = keyboard 121 + mouse 111: MLA30, UP30 Full 4 -> not shown, counted nowhere;
@@ -82,15 +86,34 @@ def create_snapshot_table(conn) -> None:
         module.upgrade()
 
 
+def costo_si_table(conn) -> None:
+    """The costo SI steps the valuation reads (`lote.actuales`): no step = the product's list cost (Q1)."""
+    from app.models.costo_si import CostoSiPaso
+
+    CostoSiPaso.__table__.create(bind=conn, checkfirst=True)
+
+
+def costo_si_step(conn, item_id: int, promedio: float, moneda: str = "USD") -> None:
+    """One costo SI step in force since 2026-10-01: the product's moving average with sell in (S1)."""
+    conn.execute(
+        text(
+            "INSERT INTO costo_si_pasos (item_id, orden, tipo, fecha, cantidad, stock_antes, stock_base,"
+            " stock_despues, promedio_usd, moneda) VALUES (:i, 0, 'inicio', '2026-10-01', 0, 0, 0, 0, :p, :m)"
+        ),
+        {"i": item_id, "p": promedio, "m": moneda},
+    )
+
+
 def fill(conn) -> None:
     seed.create_presence_tables(conn)
     create_snapshot_table(conn)
+    costo_si_table(conn)
     for ddl in BOM_DDL:
         conn.execute(text(ddl))
     seed.add_usd_rate(conn, 1000.0, "2026-11-17")
     product(conn, 100, 1000, "USD", 5, 46, 3819)
     product(conn, 101, 1100, "USD", 3, 46, 3819)
-    product(conn, 102, 50, "USD", 0, 50)
+    product(conn, 102, 100, "USD", 0, 50)
     product(conn, 103, 1050, "USD", 0, 46, 3819)
     product(conn, 104, 50, "USD", 0, 46, 3819)
     product(conn, 110, 20, "USD", 0, 57)
@@ -607,8 +630,8 @@ class TestStockAuditMock:
 
 
 def fill_without_cost(conn, *, rate: bool = True) -> None:
-    """The world above, plus 160 (no cost, ERP 4) and notebook 170 (USD 100, ERP 2) whose variant 171 = 170 + RAM 102
-    has no cost and Full 1 through MLA70; `rate=False` drops the BNA rate."""
+    """The world above, plus 160 (no cost, ERP 4) and notebook 170 (USD 100, ERP 2) whose variant 171 = 170 + 172
+    (172 without cost) has no cost and Full 1 through MLA70; `rate=False` drops the BNA rate."""
     fill(conn)
     if not rate:
         conn.execute(text("DELETE FROM tipo_cambio"))
@@ -617,7 +640,9 @@ def fill_without_cost(conn, *, rate: bool = True) -> None:
     product(conn, 170, 100, "USD", 2, 46, 3819)
     product(conn, 171, 1, "USD", 0, 46, 3819)
     seed.add_cost(conn, 171, None, moneda_costo="USD")
-    combo(conn, 171, (170, 1), (102, 1))
+    product(conn, 172, 1, "USD", 0, 50)
+    seed.add_cost(conn, 172, None, moneda_costo="USD")
+    combo(conn, 171, (170, 1), (172, 1))
     publication(conn, "MLA70", 171, "UP70")
     seed.add_stock(conn, "UP70", full=1, own=0)
 
@@ -687,6 +712,52 @@ class TestStockWithoutCost:
         kpis = body["kpis"]
         assert (kpis["erp"]["usd"], kpis["erp"]["ars"]) == (None, None)  # USD and ARS costs mixed, no rate
         assert kpis["total"]["unidades"] == 148
+
+
+def fill_costo_si(conn) -> None:
+    """300: list USD 30, costo SI USD 20, ERP 10. 301: no list cost and no costo SI, ERP 3. Rate 1000."""
+    seed.create_presence_tables(conn)
+    create_snapshot_table(conn)
+    costo_si_table(conn)
+    for ddl in BOM_DDL:
+        conn.execute(text(ddl))
+    seed.add_usd_rate(conn, 1000.0, "2026-11-17")
+    product(conn, 300, 30, "USD", 10, 60)
+    costo_si_step(conn, 300, 20)
+    product(conn, 301, 1, "USD", 3, 60)
+    seed.add_cost(conn, 301, None, moneda_costo="USD")
+
+
+@pytest.fixture()
+def auditor_costo_si(client, pg, db, rol_admin, admin_auth_headers, started):
+    seed_rows(pg, fill_costo_si)
+    grant(db, rol_admin, PERMISO)
+    return admin_auth_headers
+
+
+@pytest.mark.postgres
+class TestStockAuditAtCostoSi:
+    """L4.7 ("El promedio es el que se va a mostrar y usar en todos los cálculos donde se use costo"): the stock is
+    valued at costo SI (`lote.actuales`), the list cost stays in `costo` / `moneda_costo`; no cost at all is
+    "sin costo", never 0 (L9)."""
+
+    def test_the_stock_is_valued_at_costo_si_not_at_the_list_cost(self, client, auditor_costo_si) -> None:
+        body = audit(client, auditor_costo_si)
+        row = next(r for r in body["rows"] if r["product_item_id"] == 300)
+        assert row["erp"] == money(10, 200.0, 200_000.0)
+        assert row["total"] == money(10, 200.0, 200_000.0)
+        assert (row["costo_si"], row["costo_si_moneda"]) == (20.0, "USD")
+        assert (row["costo"], row["moneda_costo"]) == (30.0, "USD")  # the list cost, as the export reads it
+        assert row["sin_costo"] is False
+
+    def test_a_product_without_any_cost_is_sin_costo_with_unknown_values(self, client, auditor_costo_si) -> None:
+        body = audit(client, auditor_costo_si)
+        row = next(r for r in body["rows"] if r["product_item_id"] == 301)
+        assert (row["erp"], row["total"]) == (money(3, None, None), money(3, None, None))
+        assert (row["costo_si"], row["costo_si_moneda"], row["sin_costo"]) == (None, None, True)
+        kpis = body["kpis"]
+        assert kpis["productos_sin_costo"] == 1
+        assert kpis["erp"] == money(13, 200.0, 200_000.0)  # 301's units counted, its value never summed as 0
 
 
 # --- L7: Exportar a Excel ----------------------------------------------------------------------------------------
