@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -76,22 +76,39 @@ def vigente(db: Session, item_id: int, fecha: date) -> tuple[Optional[Decimal], 
     return valor, desde
 
 
+_PARTES_SQL = text("SELECT componente_item_id, cantidad FROM combo_componentes WHERE combo_item_id = :i ORDER BY 1")
+
+
+def _hojas(db: Session, item_id: int) -> tuple[Dict[int, Decimal], bool]:
+    """The leaves of `item_id`'s bill of materials with their quantity (multiplied down the tree, summed over paths),
+    and whether the guard stopped a path: a cycle, or deeper than `lote.MAX_NIVELES` (same rule as `lote._hojas`)."""
+    hojas: Dict[int, Decimal] = {}
+    cortado = False
+    pendientes = [(item_id, Decimal(1), (item_id,))]
+    while pendientes:
+        combo, cantidad, camino = pendientes.pop()
+        for componente, q in db.execute(_PARTES_SQL, {"i": combo}).all():
+            subtotal, ruta = cantidad * Decimal(q), camino + (componente,)
+            if componente in camino:
+                cortado = True
+            elif db.execute(_PARTES_SQL, {"i": componente}).first() is None:
+                hojas[componente] = hojas.get(componente, Decimal(0)) + subtotal
+            elif len(ruta) > lote.MAX_NIVELES:
+                cortado = True
+            else:
+                pendientes.append((componente, subtotal, ruta))
+    return hojas, cortado
+
+
 def leer(db: Session, item_id: int, fecha: date) -> CostoSi:
     if fuentes.es_combo(db, item_id):
         # its leaves: a component with a bill of materials (a PC inside a PC) is its own components, quantities
         # multiplied; a cycle or a too deep one leaves it unknown (`lote.MAX_NIVELES`, L22)
-        partes = db.execute(
-            text(
-                f"SELECT csi_c.componente_item_id, sum(csi_c.cantidad), bool_or(csi_c.corte)"
-                f" FROM ({lote._hojas('SELECT CAST(:i AS integer) AS item_id')}) csi_c GROUP BY 1 ORDER BY 1"
-            ),
-            {"i": item_id},
-        ).all()
+        hojas, cortado = _hojas(db, item_id)
         componentes = []
-        for c, q, _ in partes:
+        for c, q in sorted(hojas.items()):
             valor, _, moneda = _vigente(db, c, fecha)
-            componentes.append(Componente(c, Decimal(q), valor, moneda))
-        cortado = any(corte for _, _, corte in partes)
+            componentes.append(Componente(c, q, valor, moneda))
         monedas = {c.moneda for c in componentes}
         known = (
             componentes and not cortado and all(c.costo_si_usd is not None for c in componentes) and len(monedas) == 1
