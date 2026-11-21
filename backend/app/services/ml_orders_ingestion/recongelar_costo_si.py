@@ -47,14 +47,6 @@ FUENTES_COSTO_SI = (FUENTE_COSTO_SI_PUB, FUENTE_COSTO_SI_SKU, FUENTE_COSTO_SI_CO
 FECHA_VENTA_SQL = f"(o.date_created AT TIME ZONE '{BUSINESS_TIMEZONE}')::date"
 
 
-def tc_fecha_sql(fecha: str) -> str:
-    """The date of the USD rate `lote` uses on `fecha` (its rule: the last `venta > 0` on or before it)."""
-    return (
-        "(SELECT tc.fecha FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.venta > 0"
-        f" AND tc.fecha <= ({fecha}) ORDER BY tc.fecha DESC LIMIT 1)"
-    )
-
-
 # The new `fuente` of a row: costo SI keeps the linkage it was found by (a combo, costo SI with no step date, is
 # `costo_si_combo`); list cost on a row that was costo SI goes back to the linkage's list fuente.
 _FUENTE_SQL = f"""
@@ -71,7 +63,7 @@ WITH nuevos AS (
     SELECT c.id, {FECHA_VENTA_SQL} AS fecha_venta,
            round(cs.costo_si_costo, 4) AS costo_origen, cs.costo_si_moneda AS moneda,
            round(cs.costo_si_tipo_cambio, 4) AS tipo_cambio,
-           CASE WHEN cs.costo_si_tipo_cambio IS NOT NULL THEN {tc_fecha_sql(FECHA_VENTA_SQL)} END AS tipo_cambio_fecha,
+           cs.costo_si_tipo_cambio_fecha AS tipo_cambio_fecha,
            round(cs.costo_si_ars, 4) AS costo_unitario_ars, {_FUENTE_SQL} AS fuente
     FROM ml_order_item_costos c
     JOIN ml_orders_ops o ON o.order_id = c.order_id AND o.date_created IS NOT NULL

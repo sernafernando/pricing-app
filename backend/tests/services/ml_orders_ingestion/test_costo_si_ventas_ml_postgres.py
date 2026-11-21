@@ -202,6 +202,25 @@ def test_a_usd_cost_with_no_rate_freezes_no_row_and_is_logged(engine: Engine, ca
     assert any("unknown cost" in r.getMessage() and str(A) in r.getMessage() for r in caplog.records)
 
 
+def test_a_rate_from_the_erp_history_is_frozen_with_that_rates_own_date(engine: Engine) -> None:
+    """With no `tipo_cambio` row the reader falls back to `tb_cur_exch_history` (T3 PR 2): `tipo_cambio_fecha` is
+    the reader's date of that rate (the day it was created), in the freeze and in the re-freeze alike."""
+    _mundo(engine)
+    w.run(engine, "DELETE FROM tipo_cambio")
+    w.cambio_erp(engine, datetime(2026, 10, 8, 15), 1100)
+    order = _vender(engine, A, _art(2026, 10, 20, 10))
+
+    assert _fila(engine, order)[:6] == (
+        D("22.7570"),
+        "USD",
+        D("1100.0000"),
+        date(2026, 10, 8),
+        D("25032.7000"),
+        "costo_si_pub",
+    )
+    assert _recongelar(engine, A, None) == 0  # the SQL re-freeze takes the same rate and date
+
+
 def test_a_refreeze_with_no_rate_keeps_the_frozen_row_and_is_logged(engine: Engine, caplog) -> None:
     _mundo(engine)
     order = _vender(engine, A, _art(2026, 10, 20, 10))

@@ -153,6 +153,7 @@ def clean(engine: Engine) -> None:
             "ml_costo_si_dirty",
             "publicaciones_ml",
             "tb_item_cost_list",
+            "tb_cur_exch_history",
             "productos_erp",
         ):
             conn.execute(text(f"DELETE FROM {table}"))

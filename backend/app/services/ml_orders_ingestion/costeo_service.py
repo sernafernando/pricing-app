@@ -49,7 +49,6 @@ from app.models.item_cost_list import ItemCostList
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
-from app.models.tipo_cambio import TipoCambio
 from app.services.combos.componentes import combos_disponibles, componentes_de
 from app.services.combos.pcs import pcs_entre
 from app.services.costo_si import lote
@@ -447,12 +446,10 @@ def _costos_en_fecha(db: Session, erp_ids: Sequence[int], fecha_venta: date) -> 
 
 
 def _resolve_cost_en_fecha(
-    db: Session,
     resuelto: Optional[tuple[ProductoERP, str]],
     costos: Dict[int, lote.Costo],
     combos: set,
     fecha_venta: date,
-    tc_fechas: Dict[date, Any],
 ) -> Optional[_ResolvedCost]:
     """One item's cost snapshot at the sale date through the reader: the linkage (`_productos_por_item`) and a known
     IVA rate (`tiene_iva_conocido`) as before costo SI, and the cost, currency, rate and pesos as `lote` gives them. Unknown (no cost, or a USD cost with no rate) -> `None`, no row (unknown is not
@@ -483,22 +480,11 @@ def _resolve_cost_en_fecha(
         fuente = FUENTE_COSTO_SI_COMBO if costo.costo_si_desde is None else _FUENTE_COSTO_SI_POR_VINCULO[vinculo]
     else:
         fuente = FUENTE_COMBO if producto.item_id in combos else vinculo
-    tipo_cambio_fecha = None
-    if costo.tipo_cambio is not None:
-        if fecha_venta not in tc_fechas:
-            # The date of the rate `lote` used: its rule, the last USD `venta > 0` dated on or before the sale date
-            # (`recongelar_costo_si.tc_fecha_sql` is the same rule in SQL).
-            tc_fechas[fecha_venta] = (
-                db.query(func.max(TipoCambio.fecha))
-                .filter(TipoCambio.moneda == "USD", TipoCambio.venta > 0, TipoCambio.fecha <= fecha_venta)
-                .scalar()
-            )
-        tipo_cambio_fecha = tc_fechas[fecha_venta]
     return _ResolvedCost(
         costo_origen=costo.costo,
         moneda=costo.moneda,
         tipo_cambio=costo.tipo_cambio,
-        tipo_cambio_fecha=tipo_cambio_fecha,
+        tipo_cambio_fecha=costo.tipo_cambio_fecha,  # the reader's own date of that rate (None without one)
         costo_unitario_ars=costo.costo_ars,
         iva_pct=iva_pct,
         fuente=fuente,
@@ -615,7 +601,6 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO], fecha
         fecha_venta = datetime.now(ZoneInfo(BUSINESS_TIMEZONE)).date()
     erp_ids = {producto.item_id for producto, _ in productos_por_indice.values()}
     costos_si = _costos_en_fecha(db, sorted(erp_ids), fecha_venta)
-    tc_fechas: Dict[date, Any] = {}
     # Every bill of materials of the batch in ONE query: the combos the reader summed (their `fuente`, the PCs out)
     # and the TP list-8 combo composition below.
     boms = componentes_de(db, erp_ids)
@@ -678,9 +663,7 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO], fecha
             # off it later) -- an item with no price is unknown, not zero.
             continue
 
-        resolved = _resolve_cost_en_fecha(
-            db, productos_por_indice.get(indice), costos_si, combos_si, fecha_venta, tc_fechas
-        )
+        resolved = _resolve_cost_en_fecha(productos_por_indice.get(indice), costos_si, combos_si, fecha_venta)
         if resolved is None:
             continue
 
