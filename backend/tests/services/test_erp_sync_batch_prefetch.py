@@ -20,6 +20,10 @@ from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario
 from app.services import erp_sync
 from app.services.erp_sync import sincronizar_erp
+from tests.costo_si_lista import costo_si_lista  # noqa: F401  (fixture)
+
+# Written before costo SI: on SQLite the cost reader answers the list cost ('lista', Q1).
+pytestmark = [*globals().get("pytestmark", []), pytest.mark.usefixtures("costo_si_lista")]
 
 
 def _producto(

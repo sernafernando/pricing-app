@@ -68,7 +68,7 @@ def _run_recalc(
         patch(f"{_PATCH_BASE}.calcular_comision_ml_total", return_value={"comision_total": 5000}),
         patch(f"{_PATCH_BASE}.calcular_markup", return_value=0.25),
         patch(f"{_PATCH_BASE}.obtener_tipo_cambio_actual", return_value=None),
-        patch(f"{_PATCH_BASE}.convertir_a_pesos", return_value=80_000.0),
+        patch(f"{_PATCH_BASE}.costos_ars_actuales", side_effect=lambda db, ids, tc=None: dict.fromkeys(ids, 80_000.0)),
         patch(f"{_PATCH_BASE}.obtener_grupo_subcategoria", return_value=1),
         patch(f"{_PATCH_BASE}.obtener_comision_base", return_value=MagicMock()),
     ):
@@ -110,7 +110,9 @@ class TestRecalcularMarkupsServiceUsesResolver:
             patch(f"{_PATCH_BASE}.calcular_comision_ml_total", return_value={"comision_total": 5000}),
             patch(f"{_PATCH_BASE}.calcular_markup", return_value=0.25),
             patch(f"{_PATCH_BASE}.obtener_tipo_cambio_actual", return_value=None),
-            patch(f"{_PATCH_BASE}.convertir_a_pesos", return_value=80_000.0),
+            patch(
+                f"{_PATCH_BASE}.costos_ars_actuales", side_effect=lambda db, ids, tc=None: dict.fromkeys(ids, 80_000.0)
+            ),
             patch(f"{_PATCH_BASE}.obtener_grupo_subcategoria", return_value=1),
             patch(f"{_PATCH_BASE}.obtener_comision_base", return_value=MagicMock()),
         ):
@@ -148,7 +150,9 @@ class TestRecalcularMarkupsServiceUsesResolver:
             patch(f"{_PATCH_BASE}.calcular_comision_ml_total", return_value={"comision_total": 5000}),
             patch(f"{_PATCH_BASE}.calcular_markup", return_value=0.25),
             patch(f"{_PATCH_BASE}.obtener_tipo_cambio_actual", return_value=None),
-            patch(f"{_PATCH_BASE}.convertir_a_pesos", return_value=80_000.0),
+            patch(
+                f"{_PATCH_BASE}.costos_ars_actuales", side_effect=lambda db, ids, tc=None: dict.fromkeys(ids, 80_000.0)
+            ),
             patch(f"{_PATCH_BASE}.obtener_grupo_subcategoria", return_value=1),
             patch(f"{_PATCH_BASE}.obtener_comision_base", return_value=MagicMock()),
         ):
@@ -188,7 +192,9 @@ class TestRecalcularMarkupsServiceUsesResolver:
             patch(f"{_PATCH_BASE}.calcular_comision_ml_total", return_value={"comision_total": 5000}),
             patch(f"{_PATCH_BASE}.calcular_markup", return_value=0.25),
             patch(f"{_PATCH_BASE}.obtener_tipo_cambio_actual", return_value=None),
-            patch(f"{_PATCH_BASE}.convertir_a_pesos", return_value=80_000.0),
+            patch(
+                f"{_PATCH_BASE}.costos_ars_actuales", side_effect=lambda db, ids, tc=None: dict.fromkeys(ids, 80_000.0)
+            ),
             patch(f"{_PATCH_BASE}.obtener_grupo_subcategoria", return_value=1),
             patch(f"{_PATCH_BASE}.obtener_comision_base", return_value=MagicMock()),
         ):
@@ -228,7 +234,9 @@ class TestRecalcularMarkupsServiceUsesResolver:
             patch(f"{_PATCH_BASE}.calcular_comision_ml_total", return_value={"comision_total": 5000}),
             patch(f"{_PATCH_BASE}.calcular_markup", return_value=0.25),
             patch(f"{_PATCH_BASE}.obtener_tipo_cambio_actual", return_value=None),
-            patch(f"{_PATCH_BASE}.convertir_a_pesos", return_value=80_000.0),
+            patch(
+                f"{_PATCH_BASE}.costos_ars_actuales", side_effect=lambda db, ids, tc=None: dict.fromkeys(ids, 80_000.0)
+            ),
             patch(f"{_PATCH_BASE}.obtener_grupo_subcategoria", return_value=1),
             patch(f"{_PATCH_BASE}.obtener_comision_base", return_value=MagicMock()),
         ):

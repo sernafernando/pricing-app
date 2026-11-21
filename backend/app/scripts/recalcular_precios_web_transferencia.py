@@ -32,7 +32,7 @@ from app.core.database import SessionLocal
 from app.models.producto import ProductoERP, ProductoPricing
 from app.services.pricing_calculator import (
     calcular_precio_web_transferencia,
-    convertir_a_pesos,
+    costos_ars_actuales,
     obtener_constantes_pricing,
     obtener_tipo_cambio_actual,
 )
@@ -64,6 +64,8 @@ def main() -> int:
             .all()
         )
         print(f"Productos a recalcular: {len(productos)}")
+        # Costo SI (S13), one query for the whole set; it stays a manual script (D4).
+        costos = costos_ars_actuales(db, [p.item_id for p, _ in productos], tipo_cambio_usd)
 
         actualizados = 0
         sin_cambios = 0
@@ -76,8 +78,9 @@ def main() -> int:
                     sin_porcentaje += 1
                     continue
 
-                tipo_cambio = tipo_cambio_usd if producto_erp.moneda_costo == "USD" else None
-                costo_ars = convertir_a_pesos(float(producto_erp.costo), producto_erp.moneda_costo, tipo_cambio)
+                costo_ars = costos.get(pricing.item_id)
+                if not costo_ars:
+                    raise ValueError("sin costo")
 
                 markup_clasica = (
                     float(pricing.markup_calculado) / 100
