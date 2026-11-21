@@ -26,7 +26,7 @@ from typing import Callable, Dict, List, Optional, Set
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.services.costo_si import recompute
+from app.services.costo_si import despues, recompute
 
 logger = logging.getLogger(__name__)
 
@@ -338,7 +338,8 @@ def drenar(
 ) -> Drenado:
     """Recomputes the queued products, one per transaction, until the queue is empty or the deadline passes. A product
     that fails is charged in its own transaction and not retried in this run; it parks after `MAX_ATTEMPTS` until a
-    new change re-queues it. A transient error charges nothing and stops the run."""
+    new change re-queues it. A transient error charges nothing and stops the run. A recompute that changed the history
+    calls `despues.despachar` before its commit (L15, Q3)."""
     out = Drenado()
     while datetime.now(timezone.utc) < deadline:
         item_id: Optional[int] = None
@@ -350,6 +351,8 @@ def drenar(
                 item_id, desde = int(fila[0]), fila[1]
                 motivo = f"recalculo desde {desde.isoformat()}" if desde else "recalculo completo"
                 resultado = recompute.recalcular(db, item_id, motivo=motivo)
+                if resultado.desde is not None:  # what follows the average (L15, Q3), in the same transaction
+                    despues.despachar(db, item_id, resultado.desde)
                 db.execute(text("DELETE FROM costo_si_dirty WHERE item_id = :i"), {"i": item_id})
                 db.commit()
             out.productos += 1
