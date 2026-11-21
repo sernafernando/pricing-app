@@ -8,7 +8,10 @@ SQL only extracts; the maths is `markup.unit_markup` (P2). For each publication 
    campaign tag is present (the tag wins, see `pricelist_resolver`). The `raw` body is never read: detoasting it
    for every item cost ~190 MB of buffer traffic on a set-wide request;
 2. its live variations;
-3. every `linked` unit (item level and per variation) with the linked product's cost fields;
+3. every `linked` unit (item level and per variation) with the linked product's cost fields. The cost is the
+   product's costo SI (sell-in-costo-si S13, L6.2: "es el que van a usar todas las partes de la empresa"), in its own
+   currency (L18), or its list cost when it has no costo SI step (Q1), as `costo_si.lote.actual` resolves it: one
+   LEFT JOIN on the same statement, so pricing a set still costs a fixed number of statements;
 4. only when some unit has no usable price (neither the sale price nor `ml_items.price`): the Productos list prices
    its fallback reads, for the products of those units. The big statements do not carry them.
 
@@ -41,6 +44,7 @@ from app.models.ml_publications import (
     MlItemVariation,
 )
 from app.models.producto import ProductoERP, ProductoPricing
+from app.services.costo_si import lote
 from app.services.ml_publications.pricelist_resolver import CAMPAIGN_TAGS
 from app.services.ml_publications.view.filters import (
     LINK_ITEM_LEVEL,
@@ -99,11 +103,12 @@ def _floats(value: Any) -> Optional[float]:
     return None if value is None else float(value)
 
 
-def _product_columns(product: Any) -> list[Any]:
-    """The cost fields of a linked product. The Productos list prices are NOT here: they are the last resort of the
-    price, needed by few units, and carrying ten more columns through every row of a big set costs more than the
-    rest of the row (`_fallback_rows` reads them for the units that need them)."""
-    return [product.costo, type_coerce(product.moneda_costo, Text), product.iva, product.envio, product.subcategoria_id]
+def _product_columns(product: Any, cost: Any) -> list[Any]:
+    """The cost fields of a linked product: its current cost (`cost`, a `lote.actual()` joined on the product) and
+    currency, then its own VAT, shipping and subcategory. The Productos list prices are NOT here: they are the last
+    resort of the price, needed by few units, and carrying ten more columns through every row of a big set costs more
+    than the rest of the row (`_fallback_rows` reads them for the units that need them)."""
+    return [cost.c.costo_si_costo, cost.c.costo_si_moneda, product.iva, product.envio, product.subcategoria_id]
 
 
 def _rows(db: Session, query: Any) -> list[Any]:
@@ -118,6 +123,7 @@ def _item_rows(db: Session, item_ids: Optional[Sequence[str]], f: Optional[Publi
     the list's own base select (one pass over the set, no second join to `ml_items`); explicit ids are the same
     joins over `ml_items` keyed by the id array. The item-level link is not filtered by `match_status`, like the
     list's: the table's CHECK constraint makes `producto_item_id` non-null exactly when the status is `linked`."""
+    cost = lote.actual()
     if f is not None:
         columns = [
             T.i.item_id,
@@ -127,9 +133,9 @@ def _item_rows(db: Session, item_ids: Optional[Sequence[str]], f: Optional[Publi
             cast(T.sp.amount, Float).label("sale_price"),
             _campaign(T.i).label("campaign"),
             T.l.producto_item_id,
-            *_product_columns(T.p),
+            *_product_columns(T.p, cost),
         ]
-        return _rows(db, build_base_select(f, *columns))
+        return _rows(db, build_base_select(f, *columns).outerjoin(cost, cost.c.item_id == T.p.item_id))
     item, sale, link, product = (
         aliased(MlItem, name="mi"),
         aliased(MlItemSalePrice, name="msp"),
@@ -152,6 +158,7 @@ def _item_rows(db: Session, item_ids: Optional[Sequence[str]], f: Optional[Publi
         product.item_id == link.producto_item_id,
         isouter=True,
     )
+    joins = orm_join(joins, cost, cost.c.item_id == product.item_id, isouter=True)
     query = (
         select(
             item.item_id,
@@ -161,7 +168,7 @@ def _item_rows(db: Session, item_ids: Optional[Sequence[str]], f: Optional[Publi
             cast(sale.amount, Float).label("sale_price"),
             _campaign(item).label("campaign"),
             link.producto_item_id,
-            *_product_columns(product),
+            *_product_columns(product, cost),
         )
         .select_from(joins)
         .where(item.item_id.in_(ids_param(item_ids or ())))
@@ -181,11 +188,17 @@ def _variation_rows(db: Session, ids: Sequence[str]) -> list[Any]:
 
 def _variation_link_rows(db: Session, ids: Sequence[str]) -> list[Any]:
     """The variation-level links (and their products) of the given publications, item level excluded."""
-    link, product = MlItemProductLink, ProductoERP
+    link, product, cost = MlItemProductLink, ProductoERP, lote.actual()
+    joined = orm_join(
+        orm_join(link, product, product.item_id == link.producto_item_id),
+        cost,
+        cost.c.item_id == product.item_id,
+        isouter=True,
+    )
     return _rows(
         db,
-        select(link.item_id, link.variation_id, link.producto_item_id, *_product_columns(product))
-        .select_from(orm_join(link, product, product.item_id == link.producto_item_id))
+        select(link.item_id, link.variation_id, link.producto_item_id, *_product_columns(product, cost))
+        .select_from(joined)
         .where(
             link.item_id.in_(ids_param(ids)), link.variation_id != LINK_ITEM_LEVEL, link.match_status == LINK_LINKED
         ),

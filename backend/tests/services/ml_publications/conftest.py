@@ -82,6 +82,9 @@ def _create_publication_map(target, connection, **kwargs) -> None:
         connection.execute(text(ddl))
     # Every brand option list reads the brands-without-stock exceptions (`app.services.marcas_visibles`).
     connection.execute(text(MARCAS_VISIBLES_DDL))
+    # The cost every markup reads is costo SI (`costo_si.lote.actual`), which reads these beside the catalog.
+    for ddl in COSTO_SI_READER_DDL:
+        connection.execute(text(ddl))
 
 
 BANLIST_DDL = (
@@ -90,6 +93,20 @@ BANLIST_DDL = (
     "fecha_creacion timestamptz DEFAULT now(), fecha_modificacion timestamptz)",
     "CREATE TABLE items_sin_mla_banlist (id serial PRIMARY KEY, item_id integer UNIQUE NOT NULL, motivo text, "
     "usuario_id integer, fecha_creacion timestamptz DEFAULT now())",
+)
+
+# The columns `costo_si.lote` reads (sell-in-costo-si T3 PR 1), same names and types as the real tables.
+COSTO_SI_READER_DDL = (
+    "CREATE TABLE IF NOT EXISTS costo_si_pasos (id bigserial PRIMARY KEY, item_id integer NOT NULL, orden integer NOT NULL, "
+    "fecha date NOT NULL, promedio_usd numeric(18, 5), moneda varchar(3) NOT NULL DEFAULT 'USD', "
+    "UNIQUE (item_id, orden))",
+    "CREATE TABLE IF NOT EXISTS combo_componentes (combo_item_id integer, componente_item_id integer, cantidad numeric(18, 4) "
+    "NOT NULL, PRIMARY KEY (combo_item_id, componente_item_id))",
+    # the columns the view tests that build `tb_item` themselves insert too (their IF NOT EXISTS then keeps this one)
+    "CREATE TABLE IF NOT EXISTS tb_item (comp_id integer, item_id integer, item_code varchar(100), item_desc "
+    "varchar(500), cat_id integer, subcat_id integer, brand_id integer, PRIMARY KEY (comp_id, item_id))",
+    "CREATE TABLE IF NOT EXISTS tipo_cambio (id serial PRIMARY KEY, fecha date, moneda varchar(10), "
+    "compra double precision, venta double precision, timestamp_actualizacion timestamptz DEFAULT now())",
 )
 
 

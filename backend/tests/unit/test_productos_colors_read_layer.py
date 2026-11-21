@@ -36,6 +36,9 @@ from app.core.security import get_password_hash
 # endpoint body; importing it here ensures its table is registered on
 # `Base.metadata` before the session-scoped `engine` fixture's create_all runs.
 from app.models.precio_gremio_override import PrecioGremioOverride  # noqa: F401
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 -- Productos' sell in / sell out reads lote.actuales
+
+pytestmark = pytest.mark.usefixtures("costo_si_lista")
 
 
 @pytest.fixture(autouse=True)

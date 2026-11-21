@@ -32,6 +32,9 @@ from app.services.pricing_calculator import (
 import app.models.item_transaction  # noqa: F401
 import app.models.commercial_transaction  # noqa: F401
 import app.models.tb_supplier  # noqa: F401
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 -- Productos' sell in / sell out reads lote.actuales
+
+pytestmark = pytest.mark.usefixtures("costo_si_lista")
 
 
 @pytest.fixture(autouse=True)

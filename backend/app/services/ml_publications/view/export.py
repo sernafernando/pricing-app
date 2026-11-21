@@ -22,6 +22,7 @@ from typing import Any, Callable, Iterator, Mapping, Optional, Sequence
 from app.services.ml_daily_metrics import board
 from app.services.ml_daily_metrics.kpi_strip import round_money, round_pp
 from app.services.ml_publications.listing_kind import kind_label
+from app.services.ml_publications.view import real_so
 from app.services.ml_publications.view.ads import AdsAvailability, AdsCostProvider
 from app.utils.csv_cells import csv_money, csv_text
 
@@ -88,9 +89,10 @@ def _siso_worst(item: Mapping[str, Any]) -> str:
 
 
 def _sell_shown(row: Any) -> Optional[float]:
-    """Markup real 30D c/ SISO as the views show it: the Board's `markup_sell`, the plain markup where neither
+    """Markup real 30D c/ SO as the views show it (D1, `real_so.markup_so`), the plain markup where no sell out
     applies (Auditoría's rule)."""
-    return round_pp(row.markup_sell if row.markup_sell is not None else row.markup)
+    shown = real_so.markup_so(row)
+    return round_pp(shown if shown is not None else row.markup)
 
 
 def _metric(read: Callable[[board.Row], Any]) -> Callable[[Any, Optional[board.Row]], Any]:

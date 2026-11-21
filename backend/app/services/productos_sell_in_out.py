@@ -29,14 +29,20 @@ existing cost and markup fields are never touched.
   campaign, when it has one, T22b) and turned into ARS at the campaign's rate.
   With money left under the unit credit, the unit gets what is left, as
   `tope.asignar` would. A percentage base is, per unit, the product's current
-  cost in ARS (`costo`) or its ML list price without VAT (`precio_neto`). A
+  costo SI in ARS (`costo`, Q7) or its ML list price without VAT (`precio_neto`). A
   missing rate, VAT rate or base leaves the amount unknown (None), never a
   partial sum.
 
 Markups (`SellInOutMarkups`, recorded at every site that records the PPP ones,
-same keys and scale): with sell in, `limpio` over the cost with sell in; with
-sell in + sell out, `limpio + sell out` over the cost with sell in, or the plain
-cost when there is no sell in.
+same keys and scale): with sell out, `costo_si.so.markup_con_so` = (limpio +
+sell out - cost) / cost, where the cost is the product's costo SI in pesos
+(`costo_si.lote.actuales`; its list cost when it has no costo SI step). D1 (owner
+L12): "el costo siso no existe, es costo SI y SO va en la venta, como ganancia
+adicional": the sell in (FIFO lot or cost bonus) is still resolved and shown, but
+it never comes off the cost of a markup, and there is no "with sell in" markup.
+Productos, Tienda, the Publicaciones ML panel and the promos all price on this one
+cost and formula (sell-in-costo-si T3 PR 5), whatever cost the caller's product
+carries.
 
 Batch: `resolver_sell_in_out_batch` reads a whole page in at most nine queries:
 seven for FIFO and sell out (the cost bonuses' scope rides on the campaigns'
@@ -66,7 +72,8 @@ from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca
 from app.models.sell_out import SellOutCampana, SellOutCampanaItem, SellOutConsumo
 from app.schemas.sell_in_out_producto import SellInOutProducto, SellInProducto, SellOutProducto
-from app.services.pricing_calculator import calcular_markup, convertir_a_pesos, moneda_de
+from app.services.costo_si import lote as costo_si_lote, so
+from app.services.pricing_calculator import convertir_a_pesos, moneda_de
 from app.services.sell_in import bonos_costo
 from app.services.sell_in.bonos import tasas_bna_por_fecha
 from app.services.sell_in.costing import LoteVigente, get_costing
@@ -130,12 +137,12 @@ class SellInOutMarkups:
     """Per-product accumulator, the `PppMarkups` interface: `.record()` per markup site, `.payload()`."""
 
     def __init__(self, sell_in: Optional[SellInProducto], sell_out: Optional[SellOutProducto], costo: Optional[float]):
+        """`costo`: the product's costo SI in pesos (None when unknown)."""
         self._sell_in = sell_in
         self._sell_out = sell_out
-        self._costo_sell_in = sell_in.costo if sell_in else None
-        self._costo_sell_out = self._costo_sell_in if sell_in else costo
+        self._costo = costo
         self._credito = sell_out.monto_unit if sell_out else None
-        self._markups_sell_in: Dict[str, float] = {}
+        self._markups_sell_in: Dict[str, float] = {}  # D1: never filled (no markup "with sell in"); the key stays
         self._markups_sell_in_out: Dict[str, float] = {}
 
     @staticmethod
@@ -143,10 +150,11 @@ class SellInOutMarkups:
         return round(raw * 100, 2) if percent else raw
 
     def record(self, key: str, limpio: float, *, percent: bool = True) -> None:
-        if self._costo_sell_in is not None:
-            self._markups_sell_in[key] = self._escala(calcular_markup(limpio, self._costo_sell_in), percent)
-        if self._credito is not None and self._costo_sell_out is not None:
-            raw = calcular_markup(limpio + self._credito, self._costo_sell_out)
+        """The markup with sell out at `limpio` (D1, `so.markup_con_so`); nothing without a known sell out or cost."""
+        if self._credito is None or self._costo is None:
+            return
+        raw = so.markup_con_so(float(limpio), float(self._credito), float(self._costo))
+        if raw is not None:
             self._markups_sell_in_out[key] = self._escala(raw, percent)
 
     def payload(self) -> Optional[SellInOutProducto]:
@@ -198,12 +206,23 @@ class SellInOutBatch:
     campanas: Dict[int, List[_Campana]]  # item_id -> campaigns with cap left, in id order
     bna: Optional[Decimal]
     bonos_costo: Dict[int, List[_BonoCosto]] = field(default_factory=dict)  # item_id -> cost bonuses, id order
+    costos: Dict[int, costo_si_lote.Costo] = field(
+        default_factory=dict
+    )  # item_id -> its current costo SI (`lote.actuales`)
 
     def markups(self, producto, *, precio_lista_ml=None, tipo_cambio: Optional[float] = None) -> SellInOutMarkups:
-        """`producto` is a `ProductoERP`; `tipo_cambio` the USD rate its cost converts at, as `PppMarkups`."""
+        """`producto` is a `ProductoERP`; `tipo_cambio` the USD rate its cost converts at, as `PppMarkups`. The cost
+        is the product's costo SI in pesos when the batch resolved it (every product it was asked for), else the
+        product's own cost (a product outside the batch)."""
         moneda = moneda_de(producto.moneda_costo)
         costo = None
-        if producto.costo is not None and (moneda == "ARS" or tipo_cambio):
+        resuelto = self.costos.get(producto.item_id)
+        if resuelto is not None:
+            # the caller's rate when it gives one (the rest of its screen converts at it), else the batch's latest
+            en_pesos = costo_si_lote.en_pesos(resuelto.costo, resuelto.moneda, tipo_cambio) if tipo_cambio else None
+            en_pesos = en_pesos if en_pesos is not None else resuelto.costo_ars
+            costo = None if en_pesos is None else float(en_pesos)
+        elif producto.costo is not None and (moneda == "ARS" or tipo_cambio):
             costo = float(convertir_a_pesos(producto.costo, moneda, tipo_cambio))
         lote = self.sell_in.get(producto.item_id)
         iva = Decimal(str(producto.iva)) if producto.iva is not None else None
@@ -348,7 +367,11 @@ def resolver_sell_in_out_por_contexto(
     bna = None
     if any(x.campana.moneda == "USD" for cs in campanas_por_clave.values() for c in cs.values() for x in c):
         bna = tasas_bna_por_fecha(db, {hoy})[hoy]
-    return {clave: SellInOutBatch(hoy, sell_in, campanas_por_clave[clave], bna, bonos) for clave in contextos_por_clave}
+    costos = costo_si_lote.actuales(db, ids)  # the one cost of every markup here (D1, S13)
+    return {
+        clave: SellInOutBatch(hoy, sell_in, campanas_por_clave[clave], bna, bonos, costos)
+        for clave in contextos_por_clave
+    }
 
 
 def _campanas_vigentes(

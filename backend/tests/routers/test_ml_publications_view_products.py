@@ -20,8 +20,9 @@ from tests.routers.test_ml_publications_view_cost_lines import expected_lines, f
 from tests.routers.test_ml_publications_view_kpis import METRICAS, _seller, pg, sell, view_pg  # noqa: F401
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 -- the SQLite pricing db reads lote.actuales
 
-pytestmark = pytest.mark.postgres
+pytestmark = [pytest.mark.postgres, pytest.mark.usefixtures("costo_si_lista")]
 
 URL = "/api/ml-publications/view/products"
 MARGIN = {"total_gauss_30d", "markup_30d", "markup_delta_pp", "series_markup_90d"}

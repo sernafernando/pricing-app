@@ -22,7 +22,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.services.ml_daily_metrics import board
-from app.services.ml_publications.view import row_metrics
+from app.services.ml_publications.view import real_so, row_metrics
 
 # `orden` -> (the Board row's column, whether it is a margin figure: `ml_metricas.ver_ganancia` only)
 METRIC_SORTS: dict[str, tuple[str, bool]] = {
@@ -31,8 +31,8 @@ METRIC_SORTS: dict[str, tuple[str, bool]] = {
     "unidades_30d": ("w30d", False),
     "markup_30d": ("markup", True),
     "total_gauss_30d": ("tg", True),
-    # Real 30D c/ SISO: the Board's `markup_sell`, the plain markup where neither applies (what the column shows,
-    # Auditoría's rule); its Board reads the sell in / sell out (`SELL_SORTS`)
+    # Real 30D c/ SO (D1, `real_so.markup_so_sql` over the row's sell out), the plain markup where none applies
+    # (what the column shows, Auditoría's rule); its Board reads the sell out (`SELL_SORTS`)
     "markup_sell_30d": ("markup_sell", True),
 }
 # the keys whose figure needs the Board's sell in / sell out (`BoardFilter.sell_in_out`)
@@ -79,9 +79,10 @@ def ranked_page(
 def metric_figure(rows: Any, key: str) -> Any:
     """The figure `key` names, only for a publication that sold in the window (null otherwise: last in either way).
     Real 30D c/ SISO falls back to the plain markup where neither sell in nor sell out applies (what it shows)."""
-    column = rows.c[METRIC_SORTS[key][0]]
-    if key in SELL_SORTS:
-        column = func.coalesce(column, rows.c.markup)
+    if key in SELL_SORTS:  # D1: the markup c/ SO (`real_so`), never the Board's sell in figures
+        column = func.coalesce(real_so.markup_so_sql(rows.c), rows.c.markup)
+    else:
+        column = rows.c[METRIC_SORTS[key][0]]
     return case((rows.c.units > 0, column), else_=None)
 
 

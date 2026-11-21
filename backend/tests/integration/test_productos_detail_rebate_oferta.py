@@ -41,6 +41,9 @@ from tests.integration.test_productos_listing_golden import (
 import app.models.item_cost_list_history  # noqa: F401,E402
 import app.models.commercial_transaction  # noqa: F401,E402
 import app.models.tb_supplier  # noqa: F401,E402
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 -- Productos' sell in / sell out reads lote.actuales
+
+pytestmark = pytest.mark.usefixtures("costo_si_lista")
 
 REBATE_OFERTA_KEYS = (
     "precio_rebate",
@@ -57,8 +60,9 @@ OUT_OF_CARDS_ITEM = 8
 
 # Upper bound for one GET /productos/{item_id} of a product with prices, a
 # rebate and an offer (21 when recorded): a guard against a per-row query
-# creeping in, not an exact pin.
-DETAIL_STATEMENTS_PRICED_MAX = 25
+# creeping in, not an exact pin. +1 for the product's costo SI read by its sell in / sell out (`lote.actuales`,
+# sell-in-costo-si T3 PR 5; its SQLite stand-in reads the USD rate apart only without the caller's rate).
+DETAIL_STATEMENTS_PRICED_MAX = 26
 
 
 @pytest.fixture(autouse=True)

@@ -91,6 +91,7 @@ from app.services.ml_publications.view import (
     listing,
     mejores_ofertas,
     products,
+    real_so,
     row_metrics,
     stats,
     status_block,
@@ -1437,8 +1438,8 @@ def _metrics_out(row: board.Row, with_margin: bool) -> dict[str, Any]:
         out["markup_30d"] = kpi_strip.round_pp(row.markup)
         out["markup_delta_pp"] = kpi_strip.round_pp(row.markup_delta)
         out["series_markup_90d"] = row.series_markup
-        if row.sell_in_lineas is not None:  # the Board read the sell in / sell out (`sell_in_out=True`)
-            out["markup_sell_30d"] = kpi_strip.round_pp(row.markup_sell)
+        if row.sell_out_lineas is not None:  # the Board read the sell in / sell out (`sell_in_out=True`)
+            out["markup_sell_30d"] = kpi_strip.round_pp(real_so.markup_so(row))  # D1: c/ SO
     return out
 
 

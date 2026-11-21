@@ -27,8 +27,9 @@ from tests.routers.test_ml_publications_view_markup import (  # noqa: F401
     view_pg,
 )
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 -- the SQLite pricing db reads lote.actuales
 
-pytestmark = pytest.mark.postgres
+pytestmark = [pytest.mark.postgres, pytest.mark.usefixtures("costo_si_lista")]
 
 DETAIL = "/api/ml-publications/view/items/{}"
 

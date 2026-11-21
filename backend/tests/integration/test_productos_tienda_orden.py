@@ -31,6 +31,9 @@ from app.models.markup_tienda import MarkupTiendaBrand, MarkupTiendaProducto
 from app.models.precio_gremio_override import PrecioGremioOverride
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.tb_brand import TBBrand
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 -- Productos' sell in / sell out reads lote.actuales
+
+pytestmark = pytest.mark.usefixtures("costo_si_lista")
 
 
 ENDPOINT = "/api/productos/tienda"

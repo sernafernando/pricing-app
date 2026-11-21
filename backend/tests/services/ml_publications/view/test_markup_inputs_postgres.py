@@ -349,3 +349,68 @@ class TestStatementCount:
         by_filter = self.count_statements(db, f=parse_filter())
         assert len(markup_inputs.fetch_inputs(db, item_ids=ids)) == 100
         assert by_ids[10] == by_ids[100] == by_filter == 4  # every unit has a price: no list prices to read
+
+
+class TestCostoSiIsTheCost:
+    """sell-in-costo-si S13 / L4.7 / L6.2: every markup uses costo SI ("es el que van a usar todas las partes de la
+    empresa"), in the product's cost currency (L18); without a costo SI step, the list cost (Q1, `lote.actual`)."""
+
+    @staticmethod
+    def _usd_product(conn, item_id: int, lista: float = 100.0) -> None:
+        seed.add_product(conn, item_id, f"P{item_id}", "Router")
+        seed.add_cost(conn, item_id, lista, moneda_costo="USD")
+
+    @pytest.mark.parametrize("scope", [{"item_ids": ["MLA1"]}, {"f": None}])
+    def test_item_and_variation_units_carry_the_costo_si_not_the_list_cost(self, conn, db, scope) -> None:
+        self._usd_product(conn, 70)
+        seed.add_costo_si(conn, 70, 80.0)
+        self._usd_product(conn, 71)
+        seed.add_costo_si(conn, 71, 55.5)
+        seed.add_item(conn, "MLA1", price=10)
+        seed.add_link(conn, "MLA1", 70)
+        seed.add_variation(conn, "MLA1", 1)
+        seed.add_link(conn, "MLA1", 71, variation_id=1)
+        kwargs = {"f": parse_filter()} if "f" in scope else scope
+        got = markup_inputs.fetch_inputs(db, **kwargs)["MLA1"]
+        assert (got.item_unit.costo, got.item_unit.moneda_costo) == (80.0, "USD")
+        assert (got.variation_units[0].costo, got.variation_units[0].moneda_costo) == (55.5, "USD")
+
+    def test_the_latest_step_is_the_current_cost(self, conn, db) -> None:
+        self._usd_product(conn, 70)
+        seed.add_costo_si(conn, 70, 90.0, fecha="2026-01-01")
+        seed.add_costo_si(conn, 70, 82.25, fecha="2026-02-01")
+        seed.add_item(conn, "MLA1", price=10)
+        seed.add_link(conn, "MLA1", 70)
+        assert markup_inputs.fetch_inputs(db, item_ids=["MLA1"])["MLA1"].item_unit.costo == 82.25
+
+    def test_without_a_costo_si_step_it_is_the_list_cost_in_its_currency(self, conn, db) -> None:
+        self._usd_product(conn, 70, lista=100.0)
+        seed.add_item(conn, "MLA1", price=10)
+        seed.add_link(conn, "MLA1", 70)
+        unit = markup_inputs.fetch_inputs(db, item_ids=["MLA1"])["MLA1"].item_unit
+        assert (unit.costo, unit.moneda_costo) == (100.0, "USD")
+
+    def test_an_ars_cost_product_carries_its_ars_costo_si(self, conn, db) -> None:
+        seed.add_product(conn, 70, "P70", "Cable")
+        seed.add_cost(conn, 70, 9000.0, moneda_costo="ARS")
+        seed.add_costo_si(conn, 70, 7500.0, moneda="ARS")
+        seed.add_item(conn, "MLA1", price=10)
+        seed.add_link(conn, "MLA1", 70)
+        unit = markup_inputs.fetch_inputs(db, item_ids=["MLA1"])["MLA1"].item_unit
+        assert (unit.costo, unit.moneda_costo) == (7500.0, "ARS")
+
+    def test_a_combo_of_usd_and_ars_components_is_priced_in_pesos(self, conn, db) -> None:
+        self._usd_product(conn, 70)
+        seed.add_costo_si(conn, 70, 80.0)
+        seed.add_product(conn, 71, "P71", "Cable")
+        seed.add_cost(conn, 71, 9000.0, moneda_costo="ARS")
+        seed.add_costo_si(conn, 71, 7500.0, moneda="ARS")
+        seed.add_product(conn, 90, "C90", "Combo")
+        seed.add_cost(conn, 90, 1.0, moneda_costo="USD")
+        seed.add_combo(conn, 90, 70, 2)
+        seed.add_combo(conn, 90, 71, 1)
+        seed.add_usd_rate(conn, 1000.0, "2026-01-01")
+        seed.add_item(conn, "MLA1", price=10)
+        seed.add_link(conn, "MLA1", 90)
+        unit = markup_inputs.fetch_inputs(db, item_ids=["MLA1"])["MLA1"].item_unit
+        assert (unit.costo, unit.moneda_costo) == (2 * 80.0 * 1000.0 + 7500.0, "ARS")
