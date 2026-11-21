@@ -44,85 +44,86 @@ COLUMNAS = (
 )
 
 _TC_ULTIMO = (
-    "(SELECT tc.venta::numeric FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.venta > 0"
-    " AND tc.fecha <= CURRENT_DATE ORDER BY tc.fecha DESC LIMIT 1)"
+    "(SELECT csi_tc.venta::numeric FROM tipo_cambio csi_tc WHERE csi_tc.moneda = 'USD' AND csi_tc.venta > 0"
+    " AND csi_tc.fecha <= CURRENT_DATE ORDER BY csi_tc.fecha DESC LIMIT 1)"
 )
 
 
 def _tc_en(fecha: str) -> str:
     return (
-        "(SELECT tc.venta::numeric FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.venta > 0"
-        f" AND tc.fecha <= ({fecha}) ORDER BY tc.fecha DESC LIMIT 1)"
+        "(SELECT csi_tc.venta::numeric FROM tipo_cambio csi_tc WHERE csi_tc.moneda = 'USD' AND csi_tc.venta > 0"
+        f" AND csi_tc.fecha <= ({fecha}) ORDER BY csi_tc.fecha DESC LIMIT 1)"
     )
 
 
 def _es_combo(item: str) -> str:
     """A combo that takes its components' sum: not of the PC category by its first company row (`pcs_entre`)."""
     return (
-        f"(EXISTS (SELECT 1 FROM combo_componentes x WHERE x.combo_item_id = {item})"
-        " AND NOT EXISTS (SELECT 1 FROM (SELECT DISTINCT ON (t.item_id) t.cat_id FROM tb_item t"
-        f" WHERE t.item_id = {item} ORDER BY t.item_id, t.comp_id) pt WHERE pt.cat_id = {CAT_PC}))"
+        f"(EXISTS (SELECT 1 FROM combo_componentes csi_x WHERE csi_x.combo_item_id = {item})"
+        " AND NOT EXISTS (SELECT 1 FROM (SELECT DISTINCT ON (csi_t.item_id) csi_t.cat_id FROM tb_item csi_t"
+        f" WHERE csi_t.item_id = {item} ORDER BY csi_t.item_id, csi_t.comp_id) csi_pt WHERE csi_pt.cat_id = {CAT_PC}))"
     )
 
 
 def _propio(item: str, fecha: Optional[str]) -> str:
     """One product's own cost: (costo, moneda, fuente, desde), at most one row. `fecha` None = current."""
-    hasta = "" if fecha is None else f" AND p.fecha <= ({fecha})"
+    hasta = "" if fecha is None else f" AND csi_p.fecha <= ({fecha})"
     historia = (
         ""
         if fecha is None
         else f"""
         UNION ALL
-        (SELECT h.iclh_price::numeric, CASE WHEN COALESCE(h.curr_id, 1) = 1 THEN 'ARS' ELSE 'USD' END,
+        (SELECT csi_h.iclh_price::numeric, CASE WHEN COALESCE(csi_h.curr_id, 1) = 1 THEN 'ARS' ELSE 'USD' END,
                 '{FUENTE_LISTA}', NULL::date, 2
-         FROM tb_item_cost_list_history h
-         WHERE h.item_id = {item} AND h.coslis_id = 1 AND h.iclh_cd < ({fecha})::date + 1
-         ORDER BY h.iclh_cd DESC, h.iclh_id DESC LIMIT 1)"""
+         FROM tb_item_cost_list_history csi_h
+         WHERE csi_h.item_id = {item} AND csi_h.coslis_id = 1 AND csi_h.iclh_cd < ({fecha})::date + 1
+         ORDER BY csi_h.iclh_cd DESC, csi_h.iclh_id DESC LIMIT 1)"""
     )
     return f"""
-        SELECT o.costo, o.moneda, o.fuente, o.desde FROM (
-            (SELECT p.promedio_usd, p.moneda, '{FUENTE_COSTO_SI}', p.fecha, 1
-             FROM costo_si_pasos p WHERE p.item_id = {item}{hasta}
-             ORDER BY p.fecha DESC, p.orden DESC LIMIT 1){historia}
+        SELECT csi_o.costo, csi_o.moneda, csi_o.fuente, csi_o.desde FROM (
+            (SELECT csi_p.promedio_usd, csi_p.moneda, '{FUENTE_COSTO_SI}', csi_p.fecha, 1
+             FROM costo_si_pasos csi_p WHERE csi_p.item_id = {item}{hasta}
+             ORDER BY csi_p.fecha DESC, csi_p.orden DESC LIMIT 1){historia}
             UNION ALL
-            (SELECT pe.costo::numeric,
-                    CASE WHEN upper(btrim(COALESCE(pe.moneda_costo, ''))) IN ('', 'ARS') THEN 'ARS'
-                         ELSE upper(btrim(pe.moneda_costo)) END,
+            (SELECT csi_pe.costo::numeric,
+                    CASE WHEN upper(btrim(COALESCE(csi_pe.moneda_costo, ''))) IN ('', 'ARS') THEN 'ARS'
+                         ELSE upper(btrim(csi_pe.moneda_costo)) END,
                     '{FUENTE_LISTA}', NULL::date, 3
-             FROM productos_erp pe WHERE pe.item_id = {item})
-        ) o(costo, moneda, fuente, desde, prioridad)
-        WHERE o.costo IS NOT NULL AND (o.prioridad = 1 OR o.costo > 0)
-        ORDER BY o.prioridad LIMIT 1"""
+             FROM productos_erp csi_pe WHERE csi_pe.item_id = {item})
+        ) csi_o(costo, moneda, fuente, desde, prioridad)
+        WHERE csi_o.costo IS NOT NULL AND (csi_o.prioridad = 1 OR csi_o.costo > 0)
+        ORDER BY csi_o.prioridad LIMIT 1"""
 
 
 def _fragmento(item: str, fecha: Optional[str], tc: str) -> str:
-    ars = "CASE WHEN b.moneda = 'ARS' THEN b.costo ELSE b.costo * fx.tc END"
+    ars = "CASE WHEN csi_b.moneda = 'ARS' THEN csi_b.costo ELSE csi_b.costo * csi_fx.tc END"
     return f"""
-    SELECT r.costo AS costo_si_costo, r.moneda AS costo_si_moneda, r.fuente AS costo_si_fuente,
-           r.desde AS costo_si_desde,
-           CASE WHEN r.moneda = 'USD' THEN fx.tc END AS costo_si_tipo_cambio,
-           CASE WHEN r.moneda = 'ARS' THEN r.costo WHEN fx.tc IS NOT NULL THEN r.costo * fx.tc END AS costo_si_ars
-    FROM (SELECT {tc} AS tc) fx
+    SELECT csi_r.costo AS costo_si_costo, csi_r.moneda AS costo_si_moneda, csi_r.fuente AS costo_si_fuente,
+           csi_r.desde AS costo_si_desde,
+           CASE WHEN csi_r.moneda = 'USD' THEN csi_fx.tc END AS costo_si_tipo_cambio,
+           CASE WHEN csi_r.moneda = 'ARS' THEN csi_r.costo WHEN csi_fx.tc IS NOT NULL THEN csi_r.costo * csi_fx.tc END AS costo_si_ars
+    FROM (SELECT {tc} AS tc) csi_fx
     LEFT JOIN LATERAL (
-        SELECT d.costo, d.moneda, d.fuente, d.desde FROM ({_propio(item, fecha)}) d
+        SELECT csi_d.costo, csi_d.moneda, csi_d.fuente, csi_d.desde FROM ({_propio(item, fecha)}) csi_d
         WHERE NOT {_es_combo(item)}
         UNION ALL
-        SELECT CASE WHEN count(DISTINCT b.moneda) = 1 THEN round(sum(cc.cantidad * b.costo), 5)
-                    ELSE round(sum(cc.cantidad * {ars}), 5) END,
-               CASE WHEN count(DISTINCT b.moneda) = 1 THEN min(b.moneda) ELSE 'ARS' END,
-               CASE WHEN bool_and(b.fuente = '{FUENTE_COSTO_SI}') THEN '{FUENTE_COSTO_SI}' ELSE '{FUENTE_LISTA}' END,
+        SELECT CASE WHEN count(DISTINCT csi_b.moneda) = 1 THEN round(sum(csi_cc.cantidad * csi_b.costo), 5)
+                    ELSE round(sum(csi_cc.cantidad * {ars}), 5) END,
+               CASE WHEN count(DISTINCT csi_b.moneda) = 1 THEN min(csi_b.moneda) ELSE 'ARS' END,
+               CASE WHEN bool_and(csi_b.fuente = '{FUENTE_COSTO_SI}') THEN '{FUENTE_COSTO_SI}' ELSE '{FUENTE_LISTA}' END,
                NULL::date
-        FROM combo_componentes cc
-        LEFT JOIN LATERAL ({_propio("cc.componente_item_id", fecha)}) b ON true
-        WHERE cc.combo_item_id = {item} AND {_es_combo(item)}
-        HAVING count(*) > 0 AND count(b.costo) = count(*) AND (count(DISTINCT b.moneda) = 1 OR fx.tc IS NOT NULL)
-    ) r ON true"""
+        FROM combo_componentes csi_cc
+        LEFT JOIN LATERAL ({_propio("csi_cc.componente_item_id", fecha)}) csi_b ON true
+        WHERE csi_cc.combo_item_id = {item} AND {_es_combo(item)}
+        HAVING count(*) > 0 AND count(csi_b.costo) = count(*) AND (count(DISTINCT csi_b.moneda) = 1 OR csi_fx.tc IS NOT NULL)
+    ) csi_r ON true"""
 
 
 def sql_en_fecha(item: str, fecha: str) -> str:
     """THE SQL fragment for raw SQL and crons: one row with `COLUMNAS` for the SQL expressions `item` (an item id) and
     `fecha` (a date), the cost in force that day at that day's rate. Use it as
-    `LEFT JOIN LATERAL ({sql_en_fecha("v.item_id", "v.fecha::date")}) cs ON true`."""
+    `LEFT JOIN LATERAL ({sql_en_fecha("v.item_id", "v.fecha::date")}) cs ON true`. Every name inside starts with `csi_`
+    so it never shadows the caller's aliases: don't give your own tables a `csi_` alias."""
     return _fragmento(item, fecha, _tc_en(fecha))
 
 
@@ -144,7 +145,7 @@ _PRODUCTOS = (
 def actual() -> Subquery:
     """The current cost as a joinable subquery: `item_id` plus `COLUMNAS`, one row per known product, for a LEFT JOIN
     that sorts or filters a listing in SQL (`costo_si_ars` orders products of both currencies together)."""
-    sql = f"SELECT ids.item_id, cs.* FROM ({_PRODUCTOS}) ids LEFT JOIN LATERAL ({_fragmento('ids.item_id', None, _TC_ULTIMO)}) cs ON true"
+    sql = f"SELECT csi_ids.item_id, csi_cs.* FROM ({_PRODUCTOS}) csi_ids LEFT JOIN LATERAL ({_fragmento('csi_ids.item_id', None, _TC_ULTIMO)}) csi_cs ON true"
     return text(sql).columns(item_id=Integer(), **_TIPOS).subquery("costo_si_actual")
 
 
