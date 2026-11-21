@@ -307,6 +307,30 @@ def test_list_history_edge_cases(engine: Engine) -> None:
     }
 
 
+@pytest.mark.parametrize(
+    "alias", ["p", "pe", "h", "o", "r", "d", "b", "cc", "fx", "cs", "x", "t", "pt", "tc", "q", "v"]
+)
+def test_the_fragment_never_captures_the_callers_alias(engine: Engine, alias: str) -> None:
+    """A caller whose own alias is one the fragment uses inside (e.g. a product table `p`, a rate table `tc`) still
+    reads ITS item on ITS date: the fragment's inner names never shadow the caller's, for either input."""
+    _mundo(engine)
+    ids = [A, B, SIN, ARSP, ARSLISTA, NADA, COMBO, COMBO_LISTA, COMBO_MIX, PC]
+    fechas = [date(2026, 10, 7)] * 5 + [date(2026, 10, 12)] * 5
+    sql = (
+        f"SELECT {alias}.item_id, {alias}.fecha, cs_.costo_si_costo, cs_.costo_si_tipo_cambio, cs_.costo_si_ars "
+        f"FROM unnest(CAST(:ids AS int[]), CAST(:fechas AS date[])) AS {alias}(item_id, fecha) "
+        f"LEFT JOIN LATERAL ({lote.sql_en_fecha(f'{alias}.item_id', f'{alias}.fecha')}) cs_ ON true"
+    )
+
+    with _db(engine) as db:
+        got = {(r[0], r[1]): tuple(r[2:]) for r in db.execute(text(sql), {"ids": ids, "fechas": fechas})}
+        esperado = {
+            k: (c.costo, c.tipo_cambio, c.costo_ars) for k, c in lote.en_fechas(db, list(zip(ids, fechas))).items()
+        }
+
+    assert got == esperado
+
+
 def test_combos_con_lists_the_combos_a_component_moves_but_not_pcs(engine: Engine) -> None:
     _mundo(engine)
     with _db(engine) as db:
