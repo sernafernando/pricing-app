@@ -15,19 +15,20 @@ from memory):
 Areas: `CANAL_ML_LEGACY` = `despues.metricas_ml_legacy` (`ml_ventas_metricas`), `CANAL_ML_CONGELADO` = the ML
 sale costs frozen at the sale date (`despues.ml_ventas` -> `recongelar_costo_si`, `ml_order_item_costos`) and the
 stored markups = `despues.pricing` (`productos_pricing`), `CANAL_FUERA` = the ventas por fuera PDF lines
-(`despues.ventas_fuera` -> `costo_erp.recostear`, called here in its report-only mode). The Tienda Nube / fuera GBP
-metrics join as their callbacks land.
+(`despues.ventas_fuera` -> `costo_erp.recostear`, called here in its report-only mode), `CANAL_TN` and
+`CANAL_FUERA_GBP` = the stored GBP metrics (`despues.ventas_tienda_nube_metricas` / `ventas_fuera_ml_metricas` ->
+`costo_si_metricas_gbp`: its own line selection and the cron's own query, compared as its UPDATE compares).
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Dict, Iterable, List, Optional, Sequence
 
-from sqlalchemy import Date, Float, Integer, bindparam, text
+from sqlalchemy import BigInteger, Date, Float, Integer, Numeric, String, bindparam, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -43,6 +44,8 @@ logger = logging.getLogger(__name__)
 CANAL_ML_LEGACY = "ml_legacy"
 CANAL_ML_CONGELADO = "ml_congelado"
 CANAL_FUERA = "fuera"
+CANAL_TN = "tienda_nube"
+CANAL_FUERA_GBP = "fuera_gbp"
 LOTE = 50  # products per channel statement: the in-memory steps are scanned per sale row, keep them few
 
 
@@ -182,12 +185,13 @@ def _ml_congelado_sql():
         ) q ON true
         WHERE {fecha} >= d.desde
           AND cs.costo_si_ars > 0
-          AND (cs.costo_si_fuente = '{lote.FUENTE_COSTO_SI}' OR c.fuente IN :costo_si OR c.fuente = 'combo')
+          AND (cs.costo_si_fuente = '{lote.FUENTE_COSTO_SI}' OR c.fuente IN :costo_si
+               OR c.fuente IN ('combo', 'hist_combo'))
           AND (c.costo_origen, c.moneda, c.tipo_cambio, c.tipo_cambio_fecha, c.costo_unitario_ars, c.fuente,
                c.costo_fecha)
               IS DISTINCT FROM
               (round(cs.costo_si_costo, 4), cs.costo_si_moneda, round(cs.costo_si_tipo_cambio, 4),
-               CASE WHEN cs.costo_si_tipo_cambio IS NOT NULL THEN {rc.tc_fecha_sql(fecha)} END,
+               cs.costo_si_tipo_cambio_fecha,
                round(cs.costo_si_ars, 4), {rc._FUENTE_SQL}, {fecha})
         ORDER BY c.id
         """
@@ -226,6 +230,85 @@ def ventas_fuera(db: Session, sim: Simulacion, filas: List[dict], desdes: Dict[i
                 CANAL_FUERA, c.item_id, c.linea_id, c.fecha, c.fecha.replace(day=1), c.antes, c.despues
             )
     return [out[k] for k in sorted(out)]
+
+
+# `costo_si_metricas_gbp._RECOSTEO`'s `v`: the stored rows whose cost, currency or rate differ from the cron's.
+_GBP_SQL = """
+WITH n AS (
+    SELECT * FROM unnest(:its, :unitarios, :totales, :monedas, :tcs) AS n(it, unitario, total, moneda, tc)
+)
+SELECT m.id, m.item_id, m.fecha_venta, m.costo_total, round(n.total, 2)
+FROM {tabla} m
+JOIN n ON n.it = m.it_transaction
+WHERE m.costo_unitario IS DISTINCT FROM round(n.unitario, 6)
+   OR m.costo_total IS DISTINCT FROM round(n.total, 2)
+   OR m.moneda_costo IS DISTINCT FROM n.moneda
+   OR m.cotizacion_dolar IS DISTINCT FROM round(NULLIF(n.tc, 0), 4)"""
+
+_ITEMS_DE_SQL = text(
+    "SELECT DISTINCT item_id FROM tb_item_transactions WHERE ct_transaction = ANY(:cts) AND item_id IS NOT NULL"
+).bindparams(bindparam("cts", type_=ARRAY(BigInteger)))
+
+
+def _gbp_sql(tabla: str):
+    return text(_GBP_SQL.format(tabla=tabla)).bindparams(
+        bindparam("its", type_=ARRAY(BigInteger)),
+        bindparam("unitarios", type_=ARRAY(Numeric)),
+        bindparam("totales", type_=ARRAY(Numeric)),
+        bindparam("monedas", type_=ARRAY(String)),
+        bindparam("tcs", type_=ARRAY(Numeric)),
+    )
+
+
+def ventas_gbp(db: Session, sim: Simulacion, filas: List[dict], desdes: Dict[int, date]) -> List[Cambio]:
+    """What `costo_si_metricas_gbp.recostear_tn` / `recostear_fuera` rewrite, product by product as the drain calls
+    them (the product and its combos, from its first step): their own line selection (`_SQL_LINEAS`), the cron's own
+    query over those invoices, and their UPDATE's comparison. The steps read are those of every product on the
+    invoices (and their components), so a GBP group costs as it will once the whole scope is recomputed. A row
+    reached from several products counts once. Costs are pesos (the crons store ARS, `costo_si_moneda` is a label)."""
+    from app.scripts import agregar_metricas_fuera_ml as cron_fuera
+    from app.scripts import agregar_metricas_tienda_nube as cron_tn
+    from app.services import costo_si_metricas_gbp as gbp
+
+    combos = lote.combos_con(db, desdes)
+    canales = (
+        (CANAL_TN, gbp.TN, cron_tn.obtener_ventas_tienda_nube),
+        (CANAL_FUERA_GBP, gbp.FUERA, cron_fuera.obtener_ventas_fuera_ml),
+    )
+    out: List[Cambio] = []
+    for canal, tabla, obtener in canales:
+        sql = _gbp_sql(tabla)
+        vistos: Dict[int, Cambio] = {}
+        for item_id, desde in sorted(desdes.items()):
+            items = [item_id, *combos.get(item_id, [])]
+            lineas = db.execute(gbp._SQL_LINEAS[tabla], {"desde": desde, "items": items}).all()
+            if not lineas:
+                continue
+            cts = sorted({ln.ct_transaction for ln in lineas})
+            its = {ln.it_transaction for ln in lineas}
+            leidos = set(items) | {r[0] for r in db.execute(_ITEMS_DE_SQL, {"cts": cts})}
+            for _combo, componente in db.execute(_COMPONENTES_SQL, {"ids": sorted(leidos)}):
+                leidos.add(componente)
+            sim.sombra.fijar_pasos([f for f in filas if f["item_id"] in leidos])
+            nuevas = [
+                f
+                for f in obtener(db, datetime.combine(desde, time.min), gbp._HASTA_SIEMPRE, cts)
+                if f.it_transaction in its
+            ]
+            if not nuevas:
+                continue
+            params = {
+                "its": [f.it_transaction for f in nuevas],
+                "unitarios": [f.costo_unitario for f in nuevas],
+                "totales": [f.costo_total for f in nuevas],
+                "monedas": [f.moneda_costo for f in nuevas],
+                "tcs": [f.cotizacion_dolar for f in nuevas],
+            }
+            for fila_id, item, fecha, antes, nuevo in db.execute(sql, params):
+                dia = fecha.date() if isinstance(fecha, datetime) else fecha
+                vistos[fila_id] = Cambio(canal, item, fila_id, dia, dia.replace(day=1), antes, nuevo)
+        out += [vistos[k] for k in sorted(vistos)]
+    return out
 
 
 def _como_guardado(campo: str, valor):
@@ -276,6 +359,7 @@ def calcular(sim: Simulacion) -> Informe:
         ml_legacy(db, sim, pasos.filas, desdes)
         + ml_congelado(db, sim, pasos.filas, desdes)
         + ventas_fuera(db, sim, pasos.filas, pasos.desdes)
+        + ventas_gbp(db, sim, pasos.filas, pasos.desdes)
     )
     cambios_markup, omitidos = markups(db, sim, pasos.filas, pasos.desdes)
     return Informe(pasos, cambios, cambios_markup, omitidos, sim.sombra.sombras)
