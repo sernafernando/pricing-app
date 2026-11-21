@@ -24,6 +24,7 @@ load_dotenv(dotenv_path=env_path)
 
 from datetime import datetime, date, timedelta
 from decimal import Decimal
+from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
@@ -94,14 +95,18 @@ def get_vendedores_excluidos_str(db: Session) -> str:
     return ",".join(map(str, sorted(todos_excluidos)))
 
 
-def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
+def obtener_ventas_fuera_ml(db: Session, from_date, to_date, transacciones: Optional[list[int]] = None):
     """
-    Obtiene todas las ventas fuera de ML con métricas ya calculadas
+    Obtiene todas las ventas fuera de ML con métricas ya calculadas.
+
+    `transacciones`: only these GBP transactions (`ct_transaction`), for the costo SI follow-up
+    (`costo_si.despues.metricas_fuera_tn`) that re-costs the stored rows of one product.
     """
     vendedores_excluidos_str = get_vendedores_excluidos_str(db)
     vendedores_excluidos = [int(x) for x in vendedores_excluidos_str.split(",")]
 
     item = costo_si_gbp.GBP_ITEM.format(t="tit")
+    filtro = " AND tct.ct_transaction = ANY(:cts)" if transacciones is not None else ""
     query = text(f"""
     WITH combo_precios AS (
         -- Precio total del combo por transacción
@@ -114,7 +119,7 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
             ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
         WHERE tit.it_isassociationgroup IS NOT NULL
           AND tit.it_price IS NOT NULL AND tit.it_price > 0
-          AND tct.ct_date BETWEEN :from_date AND :to_date
+          AND tct.ct_date BETWEEN :from_date AND :to_date{filtro}
         GROUP BY tit.it_isassociationgroup, tit.ct_transaction
     ),
     combo_costos AS (
@@ -135,7 +140,7 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
             ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
         {costo_si_gbp.join("csc", "tit.item_id", "tct.ct_date::date")}
         WHERE tit.it_isassociationgroup IS NOT NULL
-          AND tct.ct_date BETWEEN :from_date AND :to_date
+          AND tct.ct_date BETWEEN :from_date AND :to_date{filtro}
         GROUP BY tit.it_isassociationgroup, tit.ct_transaction
     )
     SELECT
@@ -233,7 +238,7 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
         SELECT {costo_si_gbp.tipo_cambio_en("tct.ct_date::date")} as ceh_exchange
     ) ceh ON true
 
-    WHERE tct.ct_date BETWEEN :from_date AND :to_date
+    WHERE tct.ct_date BETWEEN :from_date AND :to_date{filtro}
         AND tct.df_id = ANY(:df_ids)
         AND (tit.item_id != ALL(:items_excluidos) OR tit.item_id IS NULL)
         AND tct.cust_id != ALL(:clientes_excluidos)
@@ -267,6 +272,7 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
             "clientes_excluidos": CLIENTES_EXCLUIDOS,
             "vendedores_excluidos": vendedores_excluidos,
             "sd_ids": SD_TODOS,
+            "cts": transacciones or [],
         },
     )
 

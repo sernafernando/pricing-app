@@ -11,7 +11,7 @@ no item, price 0) plus its component lines; a standalone line has `it_isassociat
 from __future__ import annotations
 
 import itertools
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Iterator, Optional
 
@@ -23,7 +23,7 @@ from app.api.endpoints import ventas_fuera_ml as ep_fuera
 from app.api.endpoints import ventas_tienda_nube as ep_tn
 from app.models.combo_componente import ComboComponente
 from app.models.commercial_transaction import CommercialTransaction
-from app.models.costo_si import CostoSiPaso
+from app.models.costo_si import CostoSiBackup, CostoSiPaso
 from app.models.cur_exch_history import CurExchHistory
 from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.item_transaction import ItemTransaction
@@ -50,6 +50,8 @@ from app.models.venta_override import VentaFueraMLOverride, VentaTiendaNubeOverr
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.scripts import agregar_metricas_fuera_ml as cron_fuera
 from app.scripts import agregar_metricas_tienda_nube as cron_tn
+from app.services.costo_si import despues
+from app.services import costo_si_metricas_gbp as metricas_fuera_tn
 from tests.services.sell._schema import throwaway_schema
 
 pytestmark = pytest.mark.postgres
@@ -78,6 +80,7 @@ TABLAS = [
         TipoCambio,
         ItemCostListHistory,
         CostoSiPaso,
+        CostoSiBackup,
         ComboComponente,
         VendedorExcluido,
         PricingConstants,
@@ -116,7 +119,7 @@ def db(engine: Engine) -> Iterator[Session]:
         conn.execute(
             text(
                 "TRUNCATE tb_item_transactions, tb_commercial_transactions, tb_item, productos_erp, tipo_cambio,"
-                " tb_item_cost_list_history, costo_si_pasos, combo_componentes, ventas_fuera_ml_metricas,"
+                " tb_item_cost_list_history, costo_si_pasos, costo_si_backups, combo_componentes, ventas_fuera_ml_metricas,"
                 " ventas_tienda_nube_metricas, tb_cur_exch_history, ventas_fuera_ml_override,"
                 " ventas_tienda_nube_override"
             )
@@ -156,12 +159,14 @@ def _producto(engine: Engine, item_id: int, moneda: str, lista: Optional[str] = 
         )
 
 
-def _paso(engine: Engine, item_id: int, promedio: str, moneda: str) -> None:
+def _paso(engine: Engine, item_id: int, promedio: str, moneda: str, fecha: str = "2026-10-01", orden: int = 0) -> None:
     _run(
         engine,
         "INSERT INTO costo_si_pasos (item_id, orden, tipo, fecha, cantidad, stock_antes, stock_base, stock_despues,"
-        " promedio_usd, moneda) VALUES (:i, 0, 'inicio', '2026-10-01', 0, 0, 0, 0, :p, :m)",
+        " promedio_usd, moneda) VALUES (:i, :o, 'inicio', :f, 0, 0, 0, 0, :p, :m)",
         i=item_id,
+        o=orden,
+        f=fecha,
         p=Decimal(promedio),
         m=moneda,
     )
@@ -183,15 +188,15 @@ def _mundo(engine: Engine) -> None:
     _run(engine, "INSERT INTO tipo_cambio (fecha, moneda, compra, venta) VALUES ('2026-10-01', 'USD', 1000, 1000)")
 
 
-def _venta(engine: Engine, df_id: int, lineas: list[dict]) -> list[int]:
-    """One GBP invoice of `DIA` with `lineas` (`item`, `qty`, `precio`, `grupo`, `asoc`, `orden`); their it_transaction."""
+def _venta(engine: Engine, df_id: int, lineas: list[dict], dia: datetime = DIA) -> list[int]:
+    """One GBP invoice of `dia` (default `DIA`) with `lineas` (`item`, `qty`, `precio`, `grupo`, `asoc`, `orden`); their it_transaction."""
     ct = next(_ids)
     _run(
         engine,
         "INSERT INTO tb_commercial_transactions (comp_id, bra_id, ct_transaction, ct_date, cust_id, sm_id, df_id, sd_id,"
         " ct_docnumber) VALUES (1, 1, :ct, :d, 500, 50, :df, 1, 'A-0001')",
         ct=ct,
-        d=DIA,
+        d=dia,
         df=df_id,
     )
     ids = []
@@ -569,3 +574,138 @@ def test_operations_list_keeps_a_stored_0_cost_as_0(engine: Engine, db: Session,
 
     (fila,) = [f for f in filas if f["id_operacion"] == mouse]
     assert (fila["costo_unitario"], fila["costo_pesos_sin_iva"]) == (0.0, 0.0)
+
+
+# --- After a costo SI recompute (owner L15): the stored metrics of the product are re-costed from the changed date ---
+
+CAMBIO = date(2026, 10, 4)  # NB's costo SI goes from 10 to 20 USD on this date
+ANTES, DESPUES = datetime(2026, 10, 3), datetime(2026, 10, 5)
+
+
+def _tabla(cron) -> str:
+    return "ventas_fuera_ml_metricas" if cron is cron_fuera else "ventas_tienda_nube_metricas"
+
+
+def _guardar(db: Session, cron) -> None:
+    obtener = cron.obtener_ventas_fuera_ml if cron is cron_fuera else cron.obtener_ventas_tienda_nube
+    cron.process_and_insert(db, obtener(db, f"{DESDE} 00:00:00", f"{HASTA} 23:59:59"))
+
+
+def _fila(db: Session, cron, it: int):
+    return db.execute(
+        text(
+            "SELECT costo_unitario, costo_total, moneda_costo, cotizacion_dolar, ganancia, markup_porcentaje,"
+            f" monto_total, {'comision_monto' if cron is cron_tn else 'NULL'} AS comision FROM {_tabla(cron)}"
+            " WHERE it_transaction = :i"
+        ),
+        {"i": it},
+    ).one()
+
+
+def _backups(db: Session) -> list:
+    return db.execute(text("SELECT item_id, desde, motivo, pasos FROM costo_si_backups ORDER BY id")).all()
+
+
+def _recostear(db: Session, cron, item_id: int = NB, desde: date = CAMBIO) -> None:
+    fn = metricas_fuera_tn.recostear_fuera if cron is cron_fuera else metricas_fuera_tn.recostear_tn
+    fn(db, item_id, desde)
+    db.commit()
+
+
+def _esperado(cron, fila, costo_total: Decimal) -> tuple[Decimal, Decimal]:
+    """The cron's own ganancia and markup for `costo_total` (fuera: venta - costo; TN: minus its stored commission)."""
+    base = costo_total + (fila.comision or 0)
+    return (fila.monto_total - base).quantize(Decimal("0.01")), ((fila.monto_total / base - 1) * 100).quantize(
+        Decimal("0.01")
+    )
+
+
+@pytest.mark.parametrize("cron,df_id", CANALES)
+def test_despues_recosts_the_stored_metrics_of_the_product_from_the_changed_date(
+    engine: Engine, db: Session, cron, df_id
+) -> None:
+    (antes,) = _venta(engine, df_id, [{"item": NB, "precio": "30000"}], dia=ANTES)
+    (despues_,) = _venta(engine, df_id, [{"item": NB, "precio": "30000"}], dia=DESPUES)
+    (otro,) = _venta(engine, df_id, [{"item": MOUSE, "precio": "30000"}], dia=DESPUES)
+    _guardar(db, cron)
+    previa, del_otro = _fila(db, cron, despues_), _fila(db, cron, otro)
+    _paso(engine, NB, "20", "USD", fecha="2026-10-04", orden=1)
+    # a sentinel on the earlier sale: re-costing it would be visible
+    _run(engine, f"UPDATE {_tabla(cron)} SET costo_total = 1 WHERE it_transaction = :i", i=antes)
+
+    _recostear(db, cron)
+
+    nueva = _fila(db, cron, despues_)
+    costo = Decimal("20000") * D
+    assert (nueva.costo_unitario, nueva.costo_total, nueva.moneda_costo, nueva.cotizacion_dolar) == (
+        costo,
+        costo,
+        "USD",
+        Decimal("1000"),
+    )
+    assert (nueva.ganancia, nueva.markup_porcentaje) == _esperado(cron, nueva, costo)
+    # D4: the sale itself is untouched (price, commission)
+    assert (nueva.monto_total, nueva.comision) == (previa.monto_total, previa.comision)
+    # before the changed date, and another product: untouched
+    assert _fila(db, cron, antes).costo_total == Decimal("1.00")
+    assert tuple(_fila(db, cron, otro)) == tuple(del_otro)
+    # the previous values were backed up first
+    ((item_id, desde, motivo, pasos),) = _backups(db)
+    assert (item_id, desde, motivo) == (NB, CAMBIO, _tabla(cron))
+    assert [(p["it_transaction"], Decimal(str(p["costo_total"])), Decimal(str(p["ganancia"]))) for p in pasos] == [
+        (despues_, previa.costo_total, previa.ganancia)
+    ]
+
+
+@pytest.mark.parametrize("cron,df_id", CANALES)
+def test_despues_a_second_call_with_nothing_changed_writes_nothing(engine: Engine, db: Session, cron, df_id) -> None:
+    _venta(engine, df_id, [{"item": NB, "precio": "30000"}], dia=DESPUES)
+    _guardar(db, cron)
+    _paso(engine, NB, "20", "USD", fecha="2026-10-04", orden=1)
+    _recostear(db, cron)
+
+    _recostear(db, cron)
+
+    assert len(_backups(db)) == 1
+
+
+@pytest.mark.parametrize("cron,df_id", CANALES)
+def test_despues_recosts_the_combos_that_contain_the_product(engine: Engine, db: Session, cron, df_id) -> None:
+    """S11: a loose combo and a GBP group naming the combo are costed from NB's costo SI, so they move with it."""
+    (suelto,) = _venta(engine, df_id, [{"item": COMBO}], dia=DESPUES)
+    principal, *_ = _venta(engine, df_id, _grupo(COMBO, [(NB, "1"), (MOUSE, "2")]), dia=DESPUES)
+    _guardar(db, cron)
+    _paso(engine, NB, "20", "USD", fecha="2026-10-04", orden=1)
+
+    _recostear(db, cron)
+
+    # COMBO = NB (20 USD x 1,000) + 2 MOUSE (5,000 ARS), with Costo D
+    assert _fila(db, cron, suelto).costo_total == Decimal("30000") * D
+    assert _fila(db, cron, principal).costo_total == Decimal("30000") * D
+
+
+@pytest.mark.parametrize("cron,df_id", CANALES)
+def test_despues_an_unknown_new_cost_is_stored_null_never_0(engine: Engine, db: Session, cron, df_id) -> None:
+    """Interface §7: without a USD rate the new cost is unknown: NULL cost, ganancia and markup, not 0."""
+    (venta,) = _venta(engine, df_id, [{"item": NB, "precio": "30000"}], dia=DESPUES)
+    _guardar(db, cron)
+    _run(engine, "DELETE FROM tipo_cambio")
+
+    _recostear(db, cron)
+
+    fila = _fila(db, cron, venta)
+    assert (fila.costo_unitario, fila.costo_total, fila.cotizacion_dolar, fila.ganancia, fila.markup_porcentaje) == (
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    assert len(_backups(db)) == 1
+
+
+def test_despues_both_metrics_callbacks_are_registered() -> None:
+    despues._cargar()
+
+    assert despues._CALLBACKS["ventas_fuera_ml_metricas"] is metricas_fuera_tn.recostear_fuera
+    assert despues._CALLBACKS["ventas_tienda_nube_metricas"] is metricas_fuera_tn.recostear_tn
