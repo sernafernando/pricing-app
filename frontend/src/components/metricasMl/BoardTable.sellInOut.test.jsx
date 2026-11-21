@@ -4,15 +4,15 @@ import BoardTable from './BoardTable';
 import { buildBoardColumns } from './metricasMlColumns';
 import { formatSignedMoney } from '../../utils/ventasMlTone';
 
+// Costo SI T3 D1: the payload `sell_in_out` keeps its key; it carries the sell out added to the profit ("c/ SO") over
+// the frozen cost (costo SI), no sell in.
 const SELL = {
-  sell_in: 10,
   sell_out: 5,
   sell_out_pendientes: 0,
   sell_out_estimados: 0,
   costo: 100,
-  costo_sell_in: 90,
-  total_gauss: 45,
-  markup_pct: 50,
+  total_gauss: 35,
+  markup_pct: 35,
 };
 
 const row = (sellInOut) => ({
@@ -58,17 +58,27 @@ function renderRow(sellInOut) {
 
 const cell = (id) => document.querySelector(`td[data-col-id="${id}"]`);
 
-describe('BoardTable: sell in / sell out', () => {
-  it('shows cost, cost with sell in, both amounts, and Total Gauss and markup with them', () => {
+const headers = () => [...document.querySelectorAll('th')].map((th) => th.textContent);
+
+describe('BoardTable: sell out c/ SO', () => {
+  it('shows the cost, the sell out, and Total and markup c/ SO', () => {
     renderRow(SELL);
 
     expect(cell('costo')).toHaveTextContent(formatSignedMoney(100));
-    expect(cell('costo_sell_in')).toHaveTextContent(formatSignedMoney(90));
-    expect(cell('sell_in')).toHaveTextContent(formatSignedMoney(10));
     expect(cell('sell_out')).toHaveTextContent(formatSignedMoney(5));
-    expect(cell('total_gauss_sell')).toHaveTextContent(formatSignedMoney(45));
-    expect(cell('markup_sell')).toHaveTextContent('50,0%');
+    expect(cell('total_gauss_sell')).toHaveTextContent(formatSignedMoney(35));
+    expect(cell('markup_sell')).toHaveTextContent('35,0%');
     expect(screen.queryByText('Próximamente')).not.toBeInTheDocument();
+  });
+
+  it('has no sell in column nor cost with sell in, and labels the figures c/ SO', () => {
+    renderRow(SELL);
+
+    expect(cell('sell_in')).toBeNull();
+    expect(cell('costo_sell_in')).toBeNull();
+    const all = headers();
+    expect(all).toEqual(expect.arrayContaining(['Costo', 'Sell out', 'Total c/ SO', 'Markup c/ SO']));
+    expect(all.some((h) => /sell in/i.test(h))).toBe(false);
   });
 
   it('flags the sell out lines still without their rate, and the estimated ones', () => {
@@ -79,55 +89,31 @@ describe('BoardTable: sell in / sell out', () => {
     expect(within(sellOut).getByTitle(/1 venta con tipo de cambio estimado/)).toBeInTheDocument();
   });
 
-  // Tactical sell in USD S10: the sold lines whose sell in is still an estimate, flagged like the sell out's.
-  it('flags the sold lines whose sell in uses an estimated rate', () => {
-    renderRow({ ...SELL, sell_in_estimados: 1 });
-
-    expect(within(cell('sell_in')).getByTitle('1 venta con sell in a tipo de cambio estimado')).toHaveTextContent('≈ 1');
-  });
-
   // Owner: "en las filas que no aplica estaría bueno que directamente esté vacío así no hace ruido".
-  it('a row where sell in / sell out does not apply leaves those cells empty and keeps its cost', () => {
-    renderRow({
-      ...SELL,
-      sell_in: null,
-      sell_out: null,
-      costo_sell_in: null,
-      total_gauss: null,
-      markup_pct: null,
-    });
+  it('a row where no sell out applies leaves those cells empty and keeps its cost', () => {
+    renderRow({ ...SELL, sell_out: null, total_gauss: null, markup_pct: null });
 
     expect(cell('costo')).toHaveTextContent(formatSignedMoney(100));
-    for (const id of ['costo_sell_in', 'sell_in', 'sell_out', 'total_gauss_sell', 'markup_sell']) {
+    for (const id of ['sell_out', 'total_gauss_sell', 'markup_sell']) {
       expect(cell(id)).toHaveTextContent(/^$/);
     }
-  });
-
-  it('a row with sell out only leaves its sell in empty', () => {
-    renderRow({ ...SELL, sell_in: null, costo_sell_in: null });
-
-    expect(cell('sell_in')).toHaveTextContent(/^$/);
-    expect(cell('costo_sell_in')).toHaveTextContent(/^$/);
-    expect(cell('sell_out')).toHaveTextContent(formatSignedMoney(5));
   });
 
   it('a row without the figures shows dashes, never a made-up zero', () => {
     renderRow(null);
 
-    for (const id of ['costo', 'costo_sell_in', 'sell_in', 'sell_out', 'total_gauss_sell', 'markup_sell']) {
+    for (const id of ['costo', 'sell_out', 'total_gauss_sell', 'markup_sell']) {
       expect(cell(id)).toHaveTextContent(/^—$/);
     }
   });
 
-  it('with "Costos TP" shows a dash for the cost and the markup with them, and leaves the cost with sell in empty', () => {
-    // What the board sends with "Costos TP" on: no Gauss cost basis, so no cost nor markup with sell in.
-    renderRow({ ...SELL, costo: null, costo_sell_in: null, markup_pct: null });
+  it('with "Costos TP" shows a dash for the cost and the markup c/ SO', () => {
+    // What the board sends with "Costos TP" on: no Gauss cost basis, so no cost nor markup c/ SO.
+    renderRow({ ...SELL, costo: null, markup_pct: null });
 
     expect(cell('costo')).toHaveTextContent(/^—$/);
     expect(cell('markup_sell')).toHaveTextContent(/^—$/);
-    expect(cell('costo_sell_in')).toHaveTextContent(/^$/);
-    expect(cell('sell_in')).toHaveTextContent(formatSignedMoney(10));
     expect(cell('sell_out')).toHaveTextContent(formatSignedMoney(5));
-    expect(cell('total_gauss_sell')).toHaveTextContent(formatSignedMoney(45));
+    expect(cell('total_gauss_sell')).toHaveTextContent(formatSignedMoney(35));
   });
 });

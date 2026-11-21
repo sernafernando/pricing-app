@@ -8,6 +8,12 @@ never read as 0; one whose campaign rate is still an estimate is counted as esti
 
 With `BoardFilter.sell_in_out` OFF the board reports none of it. Both line sources are covered.
 
+Costo SI T3 D1 (owner L12): "el costo siso no existe, es costo SI y SO va en la venta, como ganancia adicional, si de
+ganancia tenés 1000 y le agregás 10% tenés 1100 de ganancia". What Métricas ML shows (its payload `sell_in_out`, its
+CSV and its sorts) is `board.ConSo`: total c/ SO = Total Gauss + sell out, markup c/ SO = `so.markup_con_so(limpio,
+sell out, costo)`, the sell in never read into it (`TestConSo`). The `SellInOut` figures WITH sell in stay on the rows
+for the readers that still use them (Publicaciones ML); the tests of those fields below are unchanged.
+
 The consumption tables are minimal TEMP tables (the real ones carry foreign keys to the purchases and campaigns,
 which the board never reads): the allocators' business is tested in `sell_in/` and `sell_out/`.
 """
@@ -24,8 +30,9 @@ from sqlalchemy import insert, select, text
 from app.core.config import settings
 from app.models.ml_order_metrics import MlOrderMetricsDirty
 from app.models.ml_sale_line import MlSaleLine
+from app.services.costo_si import so
 from app.services.ml_daily_metrics import board
-from app.services.ml_daily_metrics.kpi_strip import sell_in_out_of
+from app.services.ml_daily_metrics.kpi_strip import SellInOutFigures, sell_in_out_of
 from app.services.ml_daily_metrics.sales import sale_lines
 from app.services.order_metrics.sale_lines_store import STORED_COLUMNS
 from tests.services.ml_daily_metrics.test_board_postgres import _group, _order
@@ -182,7 +189,7 @@ class TestBoardSellInOut:
         assert (row.sell_in_lineas, row.sell_out_lineas) == (0, 0)
         assert (row.costo_sell_in, row.total_gauss_sell, row.markup_sell) == (None, None, None)
         figures = sell_in_out_of(row)
-        assert (figures.sell_in, figures.sell_out, figures.costo_sell_in) == (None, None, None)
+        assert figures.sell_out is None
         assert (figures.total_gauss, figures.markup_pct) == (None, None)
         # The cost is the row's own, not a sell in figure.
         assert figures.costo == 50.0
@@ -192,7 +199,6 @@ class TestBoardSellInOut:
 
         assert (row.sell_in_lineas, row.sell_out_lineas) == (0, 2)
         figures = sell_in_out_of(row)
-        assert (figures.sell_in, figures.costo_sell_in) == (None, None)
         assert (figures.sell_out, figures.total_gauss) == (4.0, 44.0)
 
     def test_a_line_outside_the_markup_adds_to_total_gauss_only(self, catalog) -> None:
@@ -210,21 +216,22 @@ class TestBoardSellInOut:
         assert (row.tg, row.sell_in, row.sell_in_lineas) == (_d("0"), _d("0"), 0)
         assert row.total_gauss_sell is None
 
-    def test_sorts_by_total_gauss_with_sell_in_out(self, catalog) -> None:
+    def test_sorts_by_total_gauss_with_sell_out(self, catalog) -> None:
+        # D1: Total Gauss + sell out (32: 44, 31: 25); 34 and 35 only have a sell in, so no figure: last.
         f = dataclasses.replace(ON, sort="total_gauss_sell", sort_desc=True)
         with board.Board(catalog, f, scope_pairs=None) as b:
             keys = [row.key for row in b.page(None)]
 
-        assert keys == ["32", "31", "34", "33", "35"]
+        assert keys[:2] == ["32", "31"]
+        assert set(keys[2:]) == {"33", "34", "35"}
 
     @pytest.mark.parametrize(
         "sort,filled",
         [
-            # 33 has no sell line, 35's is outside Total Gauss, 32 has only sell outs and 34 has no markup: each
-            # shows an empty cell in that column, so it sorts last, like any blank column (Stock, Total TP).
-            ("total_gauss_sell", ["34", "31", "32"]),
+            # 33 has no sell line and 34/35 only a sell in (not read, D1): each shows an empty cell in that
+            # column, so it sorts last, like any blank column (Stock, Total TP).
+            ("total_gauss_sell", ["31", "32"]),
             ("markup_sell", ["32", "31"]),
-            ("sell_in", ["34", "31"]),
             ("sell_out", ["32", "31"]),
         ],
     )
@@ -398,9 +405,9 @@ class TestCostBonusSellIn:
         assert (row.tg, row.costo) == (_d("10.00"), _d("50.00"))
         assert row.costo_sell_in == _d("44.00")
         assert row.total_gauss_sell == _d("16.00")
-        # Not empty (T17): the screen and the CSV read these figures.
+        # D1: Métricas ML shows no sell in, and this sale has no sell out: its figures c/ SO are empty.
         figures = sell_in_out_of(row)
-        assert (figures.sell_in, figures.costo_sell_in, figures.total_gauss) == (6.0, 44.0, 16.0)
+        assert (figures.sell_out, figures.total_gauss, figures.markup_pct) == (None, None, None)
 
     def test_an_invoice_and_a_cost_bonus_sell_in_add_up_on_one_sale(self, cost_bonus) -> None:
         row = _rows(cost_bonus, ON)["38"]
@@ -469,14 +476,138 @@ class TestEstimatedSellIn:
 
         assert (rows["39"].sell_in, rows["39"].sell_in_estimados) == (_d("16.00"), 1)
         assert (rows["40"].sell_in, rows["40"].sell_in_estimados) == (_d("13.50"), 0)
-        assert sell_in_out_of(rows["39"]).sell_in_estimados == 1
 
     def test_the_kpis_count_the_estimated_lines(self, usd_bonus) -> None:
         with board.Board(usd_bonus, ON, scope_pairs=None) as b:
             k = b.kpis()
 
         assert (k.sell_in, k.sell_in_estimados) == (_d("29.50"), 1)
-        assert sell_in_out_of(k).sell_in_estimados == 1
 
     def test_off_reports_no_estimate(self, usd_bonus) -> None:
         assert _rows(usd_bonus, OFF)["39"].sell_in_estimados is None
+
+
+# Costo SI T3 D1: what Métricas ML shows. No sell in figure reaches its payload, and the figures c/ SO add the sell out
+# to the profit, never take it off the cost.
+SELL_IN_KEYS = ("sell_in", "sell_in_estimados", "costo_sell_in")
+
+
+def _markup_con_so(row) -> Decimal:
+    """The row's markup c/ SO by the one shared rule: `limpio` = its markup profit plus its cost."""
+    return so.markup_con_so(row.mtg + row.costo, row.m_sell_out, row.costo) * 100
+
+
+@pytest.mark.postgres
+class TestConSo:
+    def test_the_payload_carries_no_sell_in_figure(self, catalog) -> None:
+        for name in SELL_IN_KEYS:
+            assert name not in SellInOutFigures.model_fields, name
+        assert "sell_in" not in board.SORTS
+
+    def test_cost_is_the_frozen_cost_and_sell_out_adds_to_profit(self, catalog) -> None:
+        row = _rows(catalog, ON)["31"]
+
+        # The $5 sell in of sale 1 is not read: the frozen cost is costo SI already.
+        assert (row.tg, row.costo, row.sell_out) == (_d("20.00"), _d("100.00"), _d("5.00"))
+        assert row.total_gauss_so == _d("25.00")
+        assert row.markup_so == _d("25") == _markup_con_so(row)
+        figures = sell_in_out_of(row)
+        assert (figures.costo, figures.sell_out, figures.total_gauss, figures.markup_pct) == (100.0, 5.0, 25.0, 25.0)
+        assert (figures.sell_out_pendientes, figures.sell_out_estimados) == (0, 0)
+
+    def test_a_pending_sell_out_still_shows_the_total_c_so(self, catalog) -> None:
+        row = _rows(catalog, ON)["32"]
+
+        assert row.total_gauss_so == _d("44.00")
+        assert row.markup_so == _d("44") * 100 / _d("200") == _markup_con_so(row)
+
+    def test_a_sale_with_a_sell_in_only_has_no_figure_c_so(self, catalog) -> None:
+        rows = _rows(catalog, ON)
+
+        for key in ("33", "34", "35"):
+            assert (rows[key].total_gauss_so, rows[key].markup_so) == (None, None), key
+            figures = sell_in_out_of(rows[key])
+            assert (figures.sell_out, figures.total_gauss, figures.markup_pct) == (None, None, None), key
+
+    @pytest.mark.parametrize("descending", [True, False])
+    def test_the_markup_sort_follows_the_row_value(self, catalog, descending) -> None:
+        # One formula: the SQL sort key `markup_sell` and the row's `markup_so` (`so.markup_con_so`) order alike.
+        f = dataclasses.replace(ON, sort="markup_sell", sort_desc=descending)
+        with board.Board(catalog, f, scope_pairs=None) as b:
+            rows = b.page(None)
+
+        values = [row.markup_so for row in rows if row.markup_so is not None]
+        assert [row.key for row in rows][: len(values)] == (["31", "32"] if descending else ["32", "31"])
+        assert values == sorted(values, reverse=descending)
+        assert all(row.markup_so == _markup_con_so(row) for row in rows if row.markup_so is not None)
+
+    @pytest.mark.parametrize("descending", [True, False])
+    def test_the_total_sort_follows_the_row_value(self, catalog, descending) -> None:
+        f = dataclasses.replace(ON, sort="total_gauss_sell", sort_desc=descending)
+        with board.Board(catalog, f, scope_pairs=None) as b:
+            rows = b.page(None)
+
+        values = [row.total_gauss_so for row in rows if row.total_gauss_so is not None]
+        assert len(values) == 2 and values == sorted(values, reverse=descending)
+
+    def test_kpis_sum_the_rows(self, catalog) -> None:
+        with board.Board(catalog, ON, scope_pairs=None) as b:
+            k = b.kpis()
+
+        assert k.total_gauss_so == k.tg + _d("9.00")
+        assert k.markup_so == _markup_con_so(k)
+
+    def test_the_group_view_sums_its_products(self, catalog) -> None:
+        f = dataclasses.replace(ON, group_by="group", dimension="marca")
+        with board.Board(catalog, f, scope_pairs=None) as b:
+            nodes = {row.key: row for row in b.group_page(None)}
+
+        # 60 of Total Gauss plus 9 of sell out; the $5 sell in of 31 is not read.
+        assert nodes["TP-LINK"].total_gauss_so == _d("69.00")
+
+    def test_costos_tp_leaves_the_markup_c_so_unknown(self, catalog) -> None:
+        f = dataclasses.replace(ON, costos_tp=True, tp_store_ids=TP_STORES)
+        row = _rows(catalog, f)["31"]
+
+        assert row.total_gauss_so == _d("25.00")
+        assert row.markup_so is None
+        assert sell_in_out_of(row).markup_pct is None
+
+
+def test_the_sell_out_is_never_taken_off_the_cost() -> None:
+    # D1's own example: a profit of 1000 on a cost of 1000 plus a sell out of 100 is 1100 of profit, 110%.
+    row = board.Row(key="1", product_item_id=1, mla=None, tg=_d("1000"), mtg=_d("1000"), costo=_d("1000"))
+    row.sell_in, row.m_sell_in, row.sell_in_lineas = _d("400"), _d("400"), 1
+    row.sell_out, row.m_sell_out, row.sell_out_lineas = _d("100"), _d("100"), 1
+
+    assert row.total_gauss_so == _d("1100")
+    assert row.markup_so == _d("110")
+
+
+def test_a_zero_cost_leaves_the_markup_c_so_unknown() -> None:
+    row = board.Row(key="1", product_item_id=1, mla=None, tg=_d("10"), mtg=_d("0"), costo=_d("0"))
+    row.sell_out, row.m_sell_out, row.sell_out_lineas = _d("3"), _d("0"), 1
+
+    assert row.total_gauss_so == _d("13")
+    assert row.markup_so is None
+
+
+def test_a_sale_with_a_total_gauss_of_exactly_zero_adds_its_sell_out_c_so(zero_tg) -> None:
+    row = _rows(zero_tg, ON)["36"]
+
+    assert row.total_gauss_so == _d("2.00")
+
+
+@pytest.mark.postgres
+class TestConSoIgnoresCostBonuses:
+    def test_a_cost_bonus_only_sale_has_no_figure_c_so(self, cost_bonus) -> None:
+        row = _rows(cost_bonus, ON)["37"]
+
+        assert (row.total_gauss_so, row.markup_so) == (None, None)
+
+    def test_the_kpis_c_so_ignore_the_cost_bonus_sell_in(self, cost_bonus) -> None:
+        with board.Board(cost_bonus, ON, scope_pairs=None) as b:
+            k = b.kpis()
+
+        assert (k.total_gauss_so, k.markup_so) == (None, None)
+        assert sell_in_out_of(k).total_gauss is None

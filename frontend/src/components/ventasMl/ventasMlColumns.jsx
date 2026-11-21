@@ -28,7 +28,7 @@ import {
   GOODS_STATUS_TONE,
   MODO_LOGISTICO_TONE,
 } from '../../utils/ventasMlTone';
-import { lineaSellOut, partesSellInOut } from '../../utils/sellInOutOperacion';
+import { partesSellInOut } from '../../utils/sellInOutOperacion';
 
 // Single source of truth for the Ventas ML table's columns
 // (ventas-ml-columnas): both the header (via `@tanstack/react-table`, used
@@ -390,28 +390,31 @@ export const COLUMNS = [
     },
   },
   {
-    // Métricas audit A7: what the allocators credited to the sale (a pack
-    // row shows its members' sum), so a Métricas ML sell figure can be traced
-    // to its sales. Always ARS; null when nothing applies.
+    // Métricas audit A7: the sell out the allocator credited to the sale (a
+    // pack row shows its members' sum), so a Métricas ML sell figure can be
+    // traced to its sales. Always ARS; null when nothing applies. No sell in
+    // (Costo SI T3 D1): the sale's cost is costo SI, the sell out is added to
+    // the profit. The column id stays so saved column choices keep working.
     id: 'sell_in_out',
-    header: 'Sell in / out',
+    header: 'Sell out',
     size: 125,
     minSize: 100,
     numeric: true,
     cell: (ctx) => {
       const entity = ctx.kind === 'group' ? ctx.group : ctx.order;
-      const sellOut = lineaSellOut(entity, sellMoney);
+      // A USD sell out without its rate yet: known to exist, amount still unknown (never a $0).
+      if (entity.sell_out_ars == null && entity.sell_out_estimado) return <span>a definir</span>;
       return (
         <>
-          {entity.sell_in_estimado && '≈ '}
-          <Money value={entity.sell_in_ars} currencyId="ARS" />
-          {sellOut && <span className={styles.subline}>{sellOut}</span>}
+          {entity.sell_out_estimado && '≈ '}
+          <Money value={entity.sell_out_ars} currencyId="ARS" />
         </>
       );
     },
     cellProps: (ctx) => {
       const entity = ctx.kind === 'group' ? ctx.group : ctx.order;
-      const partes = partesSellInOut(entity, sellMoney);
+      // Only the sell out part of the shared helper: Ventas ML shows no sell in (D1).
+      const partes = partesSellInOut({ sell_out_ars: entity.sell_out_ars, sell_out_estimado: entity.sell_out_estimado }, sellMoney);
       return { title: partes.join(' · ') || undefined };
     },
   },

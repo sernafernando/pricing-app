@@ -206,40 +206,35 @@ class KpiTp(BaseModel):
 
 
 class SellInOutFigures(BaseModel):
-    """Sell in / sell out of a board row or of the KPI strip (sell-in-sell-out T11, see `board.SellInOut`): what
-    they add (ARS), how many sold lines have a USD sell out without its rate yet (`sell_out` leaves them out, never
-    counts them as 0) or with an estimated one, and the figures WITH them next to the ones without. `costo` is the
-    markup's cost; it, the cost with sell in and the markup with them are null with "Costos TP" ON. A figure that
-    does not apply (no sold line with a sell in, or a sell out) is null: the cell shows empty, not 0."""
+    """Sell out of a board row or of the KPI strip (sell-in-sell-out T11, Costo SI T3 D1, see `board.ConSo`):
+    what it adds (ARS), how many sold lines have a USD sell out without its rate yet (`sell_out` leaves them out,
+    never counts them as 0) or with an estimated one, and the figures WITH it next to the ones without. No sell in nor
+    cost with sell in: `costo` is the frozen cost, costo SI. The keys keep their names (Q4), the meaning is D1's
+    (`board.ConSo`): `total_gauss` = Total Gauss + sell out ("Total Gauss c/ SO") and `markup_pct` = the markup c/ SO
+    (`so.markup_con_so`). `costo` and `markup_pct` are null with "Costos TP" ON (the markup's cost is then the TP
+    one). A figure that does not apply (no sold line with a sell out) is null: the cell shows empty, not 0."""
 
-    sell_in: Optional[float] = None
     sell_out: Optional[float] = None
     sell_out_pendientes: int
     sell_out_estimados: int
-    # Tactical sell in USD S10: sold lines whose sell in is a USD `al_cobro` cost bonus without its collection rate.
-    sell_in_estimados: int = 0
     costo: Optional[float] = None
-    costo_sell_in: Optional[float] = None
     total_gauss: Optional[float] = None
     markup_pct: Optional[float] = None
 
 
 def sell_in_out_of(x: Union[board.Row, board.Kpis]) -> Optional[SellInOutFigures]:
-    """The sell in / sell out figures of a row or the strip; None with `sell_in_out` OFF."""
-    if x.sell_in is None:
+    """The sell out figures of a row or the strip; None with `sell_in_out` OFF."""
+    if x.sell_out is None:
         return None
     return SellInOutFigures(
-        sell_in=round_money(x.sell_in) if x.sell_in_lineas else None,
         # A pending sell out has a line but no known ARS yet: it stays 0 next to its pending count. The strip's sell
         # out also applies with only a monto total campaign's amount no row carries (`board.Board.remanente`).
         sell_out=(round_money(x.sell_out) if x.sell_out_lineas or board.SellInOut.remanente(x) is not None else None),
         sell_out_pendientes=x.sell_out_pendientes,
         sell_out_estimados=x.sell_out_estimados,
-        sell_in_estimados=x.sell_in_estimados,
-        costo=None if x.m_sell_in is None else round_money(x.costo),
-        costo_sell_in=None if x.costo_sell_in is None else round_money(x.costo_sell_in),
-        total_gauss=None if x.total_gauss_sell is None else round_money(x.total_gauss_sell),
-        markup_pct=round_pp(x.markup_sell),
+        costo=None if x.m_sell_out is None else round_money(x.costo),
+        total_gauss=None if x.total_gauss_so is None else round_money(x.total_gauss_so),
+        markup_pct=round_pp(x.markup_so),
     )
 
 
