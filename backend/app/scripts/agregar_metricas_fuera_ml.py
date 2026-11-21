@@ -220,11 +220,8 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
     LEFT JOIN combo_costos ccb ON ccb.group_id = tit.it_isassociationgroup AND ccb.ct_transaction = tit.ct_transaction
     {costo_si_gbp.join("cs", item, "tct.ct_date::date")}
     LEFT JOIN LATERAL (
-        -- TC: Primero tipo_cambio, fallback tb_cur_exch_history
-        SELECT COALESCE(
-            (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tct.ct_date::date ORDER BY tc.fecha DESC LIMIT 1),
-            (SELECT ceh_exchange FROM tb_cur_exch_history WHERE ceh_cd <= tct.ct_date ORDER BY ceh_cd DESC LIMIT 1)
-        ) as ceh_exchange
+        -- TC: the costo SI reader's own rate rule (one rate per row: the cost and cotizacion_dolar)
+        SELECT {costo_si_gbp.tipo_cambio_en("tct.ct_date::date")} as ceh_exchange
     ) ceh ON true
 
     WHERE tct.ct_date BETWEEN :from_date AND :to_date

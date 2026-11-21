@@ -12,6 +12,7 @@ One SQL piece for the four raw queries that used to carry their own list-cost LA
   cost always was), and 0 for a combo whose breakdown the same sale brings (owner L19: "claro si el combo trae el
   desglose no tomarlo, si no lo trae sí"): every one of its components is another line of the same transaction that
   is costed too (`_desglosado`). A PC (cat 47) is its own product, as today;
+- `tipo_cambio_en(fecha)`: the reader's USD rate on that date, the one the crons store as `cotizacion_dolar`;
 - `avisar_combos_parciales(db, filas, origen)`: logs a combo sold with only part of its breakdown (group id =
   `ct_transaction`), never silently costed twice.
 
@@ -34,6 +35,12 @@ GBP_ITEM = "COALESCE({t}.item_id, {t}.it_item_id_origin, {t}.item_idfrompreinvoi
 def join(alias: str, item: str, fecha: str) -> str:
     """`LEFT JOIN LATERAL (<costo SI of item on fecha>) alias ON true`: columns `alias.costo_si_*`."""
     return f"LEFT JOIN LATERAL ({lote.sql_en_fecha(item, fecha)}) {alias} ON true"
+
+
+def tipo_cambio_en(fecha: str) -> str:
+    """The USD rate the reader converts with on `fecha` (`tipo_cambio`, venta > 0, the last one on or before it; NULL
+    without one): what a row stores as its `cotizacion_dolar`, so the row's cost and its rate are the same rate."""
+    return lote._tc_en(fecha)
 
 
 def _desglosado(item: str, comp: str, ct: str, grupo: str, *, en_grupo: bool) -> str:

@@ -114,7 +114,7 @@ def db(engine: Engine) -> Iterator[Session]:
             text(
                 "TRUNCATE tb_item_transactions, tb_commercial_transactions, tb_item, productos_erp, tipo_cambio,"
                 " tb_item_cost_list_history, costo_si_pasos, combo_componentes, ventas_fuera_ml_metricas,"
-                " ventas_tienda_nube_metricas"
+                " ventas_tienda_nube_metricas, tb_cur_exch_history"
             )
         )
 
@@ -392,3 +392,25 @@ def test_live_listing_costs_costo_si_with_costo_d_and_l19(engine: Engine, db: Se
     assert costos[principal] == (NB_ARS + 2 * MOUSE_ARS) * D  # group: the combo line is not added again
     assert costos[combo_suelto] == Decimal(0)  # its breakdown is in the same sale
     assert (costos[nb2], costos[mouse2]) == (NB_ARS * D, MOUSE_ARS * D * 2)
+
+
+@pytest.mark.parametrize("cron", [pytest.param(cron_fuera, id="fuera"), pytest.param(cron_tn, id="tienda_nube")])
+def test_cron_stores_the_same_rate_it_costs_with(engine: Engine, db: Session, cron) -> None:
+    """One rate per row: a later rate row with venta 0 is skipped by the cost AND by cotizacion_dolar; and without any
+    tipo_cambio row on or before the date there is no rate for either (tb_cur_exch_history is not read)."""
+    _run(engine, "INSERT INTO tipo_cambio (fecha, moneda, compra, venta) VALUES ('2026-10-04', 'USD', 0, 0)")
+    df_id = DF_FUERA if cron is cron_fuera else DF_TN
+    (nb,) = _venta(engine, df_id, [{"item": NB}])
+    obtener = cron.obtener_ventas_fuera_ml if cron is cron_fuera else cron.obtener_ventas_tienda_nube
+    (fila,) = [f for f in obtener(db, f"{DESDE} 00:00:00", f"{HASTA} 23:59:59") if f.it_transaction == nb]
+
+    assert (Decimal(fila.cotizacion_dolar), Decimal(fila.costo_unitario)) == (Decimal("1000"), NB_ARS * D)
+
+    _run(engine, "DELETE FROM tipo_cambio")
+    _run(
+        engine,
+        "INSERT INTO tb_cur_exch_history (ceh_id, curr_id_1, curr_id_2, ceh_cd, ceh_exchange) VALUES (1, 1, 2, '2026-10-01', 999)",
+    )
+    (fila,) = [f for f in obtener(db, f"{DESDE} 00:00:00", f"{HASTA} 23:59:59") if f.it_transaction == nb]
+
+    assert (fila.cotizacion_dolar, Decimal(fila.costo_unitario)) == (None, Decimal(0))
