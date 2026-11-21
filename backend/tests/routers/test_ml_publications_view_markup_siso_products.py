@@ -163,7 +163,7 @@ class TestProductRows:
 
         header, lines = read_csv(client.get(PRODUCTS_CSV, headers=admin_auth_headers))
 
-        by_code = dict(zip(column(header, lines, "Código"), column(header, lines, "Markup real 30D c/ SISO")))
+        by_code = dict(zip(column(header, lines, "Código"), column(header, lines, "Markup real 30D c/ SO")))
         assert by_code["R77"] == f"{rows['77']['metrics']['markup_sell_30d']:.2f}".replace(".", ",")
 
 
@@ -274,7 +274,7 @@ class TestAuditLevels:
         lines = sheet(client, margin_groups, nivel="marca", orden="valor_total", dir="desc")
         lenovo = next(line for line in lines if (line["Tipo"], line["Producto"]) == ("Marca", "Lenovo"))
         notebooks = next(line for line in lines if (line["Tipo"], line["Producto"]) == ("Categoría", "Notebooks"))
-        siso = ("Markup actual c/ SISO mín", "Markup actual c/ SISO máx")
+        siso = ("Markup actual c/ SO mín", "Markup actual c/ SO máx")
         assert tuple(lenovo[h] for h in siso) == (11.0, 32.0)  # the brand's range, as the screen shows it
         assert tuple(notebooks[h] for h in siso) == (11.0, 32.0)
 

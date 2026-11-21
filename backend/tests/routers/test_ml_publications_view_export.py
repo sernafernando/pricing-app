@@ -287,6 +287,7 @@ class TestItemsMarkup:
         header, rows = read_csv(client.get(ITEMS_CSV, headers=priced, params=params))
         assert expected and column(header, rows, "Publicación") == expected
         assert "Markup actual" in header
+        assert "Markup actual c/ SO" in header  # D1: c/ SO, no "c/ SISO" (the sell in is in costo SI)
 
     def test_the_markup_sort_with_no_bound_exports_every_row(self, client, priced, monkeypatch) -> None:
         """The markup order is cut in Python (`listing._markup_ids`): with no bound (`None`) it keeps every row, in
