@@ -1,5 +1,10 @@
-"""Tienda's Sugerido never pairs a costo SI with a clásica markup still over the list cost (sell-in-costo-si T3 PR 6,
-owner L20; orchestrator: "no transient wrong prices ... RED test for the post-deploy/pre-drain state").
+"""Tienda's Sugerido has no post-deploy/pre-drain window pairing a costo SI with a clásica markup still over the list
+cost (sell-in-costo-si T3 PR 6, owner L20; orchestrator: "no transient wrong prices ... RED test for the
+post-deploy/pre-drain state").
+
+Residual, outside this window: a product whose clásica the drain cannot rewrite (`recalcular_markups_guardados` skips
+it: no IVA, no ML price, no list 4 commission; logged) keeps its stored clásica over the list cost next to its new
+costo SI. `app.scripts.costo_si_tienda_estimacion` counts them (`clasica_sin_recalculo`): 0 on prod, 2026-11-22.
 
 Sugerido = cost x (1 + varios) x (1 + clásica + sugerido), with the cost from `lote` and the clásica from the stored
 `productos_pricing.markup_calculado`. The deploy's history recompute is the only writer of costo SI steps, and
