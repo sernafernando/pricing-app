@@ -38,6 +38,7 @@ const ALL = [
   'codigo',
   'marca',
   'costo',
+  'costo_si',
   'vinculo',
   'tienda',
   'actividad',
@@ -68,12 +69,12 @@ describe('layout', () => {
     expect(headers(['unidades_7d', 'unidades_30d', 'units_trend'])).toEqual(['7D', '30D', 'Tendencia']);
     expect(headers(['markup', 'markup_siso', 'markup_30d', 'markup_sell_30d', 'markup_trend'])).toEqual([
       'Actual',
-      'Actual c/ SISO',
+      'Actual c/ SO',
       'Real 30D',
-      'Real 30D c/ SISO',
+      'Real 30D c/ SO',
       'Tendencia',
     ]);
-    expect([columns.markup_siso.label, columns.markup_sell_30d.label]).toEqual(['Markup actual c/ SISO', 'Markup real 30D c/ SISO']);
+    expect([columns.markup_siso.label, columns.markup_sell_30d.label]).toEqual(['Markup actual c/ SO', 'Markup real 30D c/ SO']);
     expect(headers(['facturado_30d', 'total_gauss_30d', 'last_sale', 'ageing'])).toEqual(['Facturado 30D', 'Total Gauss 30D', 'Última venta', 'Ageing']);
     expect(headers(['stock_erp', 'stock_full', 'stock_total'])).toEqual(['ERP', 'Full', 'Total']);
     const labels = (list) => list.map((key) => columns[key].label);
@@ -111,6 +112,7 @@ describe('layout', () => {
       'codigo',
       'marca',
       'costo',
+      'costo_si',
       'actividad',
     ]);
     expect(DEFAULT_DIRECTION.stock_total).toBe('desc');
@@ -120,7 +122,7 @@ describe('layout', () => {
     for (const key of ['unidades_7d', 'unidades_30d', 'markup_30d', 'markup_sell_30d', 'facturado_30d', 'total_gauss_30d']) {
       expect(DEFAULT_DIRECTION[key]).toBe('desc');
     }
-    // the markup c/ SISO, like the plain one: the worst first
+    // the markup c/ SO, like the plain one: the worst first
     expect([DEFAULT_DIRECTION.markup, DEFAULT_DIRECTION.markup_siso]).toEqual(['asc', 'asc']);
   });
 });
@@ -215,6 +217,23 @@ describe('product columns', () => {
 
   it('sorts code and brand ascending and the cost cheapest first by default', () => {
     expect([DEFAULT_DIRECTION.codigo, DEFAULT_DIRECTION.marca, DEFAULT_DIRECTION.costo]).toEqual(['asc', 'asc', 'asc']);
+    expect(DEFAULT_DIRECTION.costo_si).toBe('asc');
+  });
+
+  it('shows the costo SI in its own sortable column next to the list cost (S13 two columns), hidden like it', () => {
+    const columns = byKey({ canSeeMargin: true });
+    expect(columns.costo_si).toMatchObject({ header: 'Costo SI', sortable: true });
+    expect(defaultColumnVisibility().costo_si).toBe(false);
+    const costoSi = { costo: 20.5, moneda: 'USD', fuente: 'costo_si', desde: '2026-10-01', tipo_cambio: 1000, tipo_cambio_fecha: '2026-11-20', costo_ars: 20500 };
+    const { container } = render(columns.costo_si.render({ costo: { amount: 30, currency: 'USD' }, costo_si: costoSi }));
+    expect(container.textContent).toBe('USD 20,50');
+    expect(container.firstChild.getAttribute('title')).toBe('Costo SI desde 01/10/26\nEn pesos: ARS 20.500,00 (TC 1000 del 20/11/26)');
+  });
+
+  it('a publication without a costo SI reads a dash, never 0; none at all without the margin permission', () => {
+    render(<>{byKey({ canSeeMargin: true }).costo_si.render({ costo_si: null })}</>);
+    expect(screen.getByText('—')).toBeInTheDocument();
+    expect(keys({ canSeeMargin: false })).not.toContain('costo_si');
   });
 });
 
@@ -230,7 +249,7 @@ describe('SKU divergence', () => {
 describe('permissions', () => {
   it('without ml_metricas.ver there are no Métricas figures; the current markup needs only ver_ganancia', () => {
     expect(keys({ canSeeMargin: true })).toEqual([
-      'titulo', 'tipo', 'estado', 'precio', 'markup', 'markup_siso', 'stock_erp', 'stock_full', 'stock_total', 'codigo', 'marca', 'costo', 'vinculo', 'tienda', 'actividad',
+      'titulo', 'tipo', 'estado', 'precio', 'markup', 'markup_siso', 'stock_erp', 'stock_full', 'stock_total', 'codigo', 'marca', 'costo', 'costo_si', 'vinculo', 'tienda', 'actividad',
     ]);
     // the cost, as in the panel, only with ver_ganancia
     expect(keys({})).toEqual(['titulo', 'tipo', 'estado', 'precio', 'stock_erp', 'stock_full', 'stock_total', 'codigo', 'marca', 'vinculo', 'tienda', 'actividad']);
@@ -269,6 +288,7 @@ describe('default visibility', () => {
       codigo: false,
       marca: false,
       costo: false,
+      costo_si: false,
       vinculo: false,
       tienda: false,
       actividad: false,

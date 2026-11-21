@@ -11,7 +11,7 @@ import userEvent from '@testing-library/user-event';
 import ProductoVinculadoTab from './ProductoVinculadoTab';
 import { readDetail } from './detailModel';
 import { publicacionesMlAPI } from '../../../services/api';
-import { ITEM_LINK, PRODUCT, PRODUCT_COST, VARIATION_LINK, makeDetail } from '../../../test/visual/publicacionesMlFixtures';
+import { ITEMS, ITEM_LINK, PRODUCT, PRODUCT_COST, VARIATION_LINK, makeDetail } from '../../../test/visual/publicacionesMlFixtures';
 
 vi.mock('../../../services/api', () => ({
   default: {
@@ -93,6 +93,20 @@ describe('the cost (S59.2)', () => {
     renderTab(LINKED, { canSeeMargin: true });
     expect(valueOf('Costo', 'Costo')).toHaveTextContent('64.000,00 ARS');
     expect(valueOf('Costo', 'IVA')).toHaveTextContent('21%');
+  });
+
+  it("shows the product's costo SI after the cost, from the row's cost lines (S13 two columns)", () => {
+    const costoSi = { costo: 41.5, moneda: 'USD', fuente: 'costo_si', desde: '2026-10-01', tipo_cambio: 1000, tipo_cambio_fecha: '2026-11-20', costo_ars: 41500 };
+    renderTab({ ...LINKED, row: { ...ITEMS[0], costo_si: costoSi } }, { canSeeMargin: true });
+    const labels = within(section('Costo')).getAllByRole('term').map((dt) => dt.textContent);
+    expect(labels).toEqual(['Costo', 'Costo SI', 'IVA']);
+    expect(valueOf('Costo', 'Costo SI')).toHaveTextContent(/^USD 41,50$/);
+    expect(valueOf('Costo', 'Costo SI').firstChild.getAttribute('title')).toContain('En pesos: $ 41.500,00 (TC 1000 del 20/11/26)');
+  });
+
+  it('a product without a costo SI reads "—" in its fact, never 0', () => {
+    renderTab({ ...LINKED, row: { ...ITEMS[0], costo_si: null } }, { canSeeMargin: true });
+    expect(valueOf('Costo', 'Costo SI')).toHaveTextContent(/^—$/);
   });
 
   it('is not in the page at all without it, even when the payload carried it', () => {

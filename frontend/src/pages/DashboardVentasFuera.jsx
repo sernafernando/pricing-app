@@ -734,7 +734,7 @@ export default function DashboardVentasFuera() {
                   <th>Costo</th>
                   <th>Markup%</th>
                   <th>Costo c/ sell in</th>
-                  <th>Markup c/ sell in/out</th>
+                  <th>Markup c/ SO</th>
                   <th>Comprobante</th>
                   <th></th>
                 </tr>

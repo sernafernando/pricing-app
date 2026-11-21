@@ -51,7 +51,7 @@ export function readVariation(raw, { canSeeMargin }) {
         }
       : null,
     negative: value != null && value < 0,
-    // Markup actual c/ SISO of this unit (`{value, reason}`), in SisoMarkupCell's shape; only with ver_ganancia.
+    // Markup actual c/ SO of this unit (`{value, reason}`), in SisoMarkupCell's shape; only with ver_ganancia.
     markupSiso: canSeeMargin && raw.markup_siso != null ? sisoOf(raw.markup_siso) : null,
   };
 }

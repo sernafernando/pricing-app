@@ -49,7 +49,7 @@ export function MarkupRealSisoCell({ metrics }) {
   const withSell = metrics.markup_sell_30d;
   const value = withSell ?? metrics.markup_30d;
   if (value == null) return <Empty />;
-  const title = withSell != null ? 'Con sell in / sell out de las ventas de 30 días' : 'Sin sell in ni sell out en las ventas de 30 días';
+  const title = withSell != null ? 'Con sell out de las ventas de 30 días' : 'Sin sell out en las ventas de 30 días';
   return (
     <span className={styles.markup} data-tone={markupTone(value)} title={title}>
       {formatPct(value)}

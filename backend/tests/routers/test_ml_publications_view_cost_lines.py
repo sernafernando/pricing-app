@@ -75,7 +75,6 @@ def expected_lines(linea: int, costo: float, ppp: float = 850.0) -> dict:
             "tipo_cambio": None,
             "tipo_cambio_fecha": None,
             "costo_ars": costo,
-            "markups": {},
         },
         "ppp": {"costo": ppp, "moneda": "ARS", "fecha": "2026-02-14", "markups": {}},
         "sell_in_out": {

@@ -8,7 +8,6 @@ export function tiendaSellInOutDe(sellInOut, key) {
   return {
     sell_in: sellInOut.sell_in ?? null,
     sell_out: sellInOut.sell_out?.[key] ?? null,
-    markups_sell_in: sellInOut.markups_sell_in ?? {},
     markups_sell_in_out: sellInOut.markups_sell_in_out ?? {},
   };
 }

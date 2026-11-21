@@ -1194,8 +1194,54 @@ describe('CS-13: sell in / sell out companion lines', () => {
     const costo = screen.getByText('c/ sell in USD $8.50').parentElement;
     expect(costo.textContent).toBe('USD $10.00 c/ sell in USD $8.50'); // one line, in the cost's currency (S10b)
     expect(costo.getAttribute('title')).toContain('c/ sell in en pesos: ARS $850.50');
-    expect(screen.getByText('c/ sell in: 20.50%')).toBeInTheDocument();
-    expect(screen.getByText('c/ sell in + sell out: 25.25%')).toBeInTheDocument();
+    expect(screen.queryByText('c/ sell in: 20.50%')).not.toBeInTheDocument(); // D1: no markup c/ sell in
+    expect(screen.getByText('c/ SO: 25.25%')).toBeInTheDocument();
+  });
+
+  it('a priced product without a cost reads "—" for its markup, never a figure, and no offset markup (§7, FE3)', async () => {
+    setupApiMocks({
+      productos: [makeProducto({ costo: 0, costo_ars: null, costo_si: null, markup: null, markup_clasica: null })],
+      total: 1,
+    });
+    await act(async () => {
+      renderWithRouter(<Productos />);
+    });
+    await waitFor(() => expect(screen.getByText('Producto Test')).toBeInTheDocument());
+    const precio = screen.getByText('$100').closest('td');
+    const sinMarkup = within(precio).getByText('—');
+    expect(sinMarkup).toHaveAttribute('title', 'Sin costo en pesos: no se calcula el markup');
+    expect(precio).not.toHaveTextContent('%');
+    expect(precio).not.toHaveTextContent('→');
+  });
+
+  it('shows the costo SI in its own column right after the list cost, and sorts by it (S13 two columns)', async () => {
+    setupApiMocks({
+      productos: [
+        makeProducto({
+          costo_si: { costo: 8.5, moneda: 'USD', fuente: 'costo_si', desde: '2026-11-02', tipo_cambio: 1000, tipo_cambio_fecha: '2026-11-20', costo_ars: 8500 },
+        }),
+      ],
+      total: 1,
+    });
+
+    await act(async () => {
+      renderWithRouter(<Productos />);
+    });
+
+    await waitFor(() => expect(screen.getByText('Producto Test')).toBeInTheDocument());
+    const headers = screen.getAllByRole('columnheader').map((th) => th.textContent.trim());
+    expect(headers[headers.findIndex((h) => h.startsWith('Costo')) + 1]).toMatch(/^Costo SI/);
+    const celda = screen.getByText('USD $8.50');
+    expect(celda.getAttribute('title')).toBe('Costo SI desde 02/11/26\nEn pesos: ARS $8500.00 (TC 1000 del 20/11/26)');
+    // The list cost stays in its own column, unchanged.
+    expect(screen.getByText('USD $10.00')).toBeInTheDocument();
+
+    productosAPI.listar.mockClear();
+    await act(async () => {
+      screen.getByRole('columnheader', { name: /^Costo SI/ }).click();
+    });
+    await waitFor(() => expect(productosAPI.listar).toHaveBeenCalled());
+    expect(productosAPI.listar.mock.calls.at(-1)[0]).toMatchObject({ orden_campos: 'costo_si', orden_direcciones: 'asc' });
   });
 
   it('renders a row without sell_in_out as before, with no sell in / sell out line', async () => {

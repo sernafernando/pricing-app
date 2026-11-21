@@ -12,9 +12,9 @@ El markup con sell in / sell out ahora suma solo el sell out a la ganancia, sobr
 
 No hay que hacer nada.
 
-- En **Publicaciones ML**, **Actual c/ SISO** y **Real 30D c/ SISO** muestran el markup con el sell out sumado a la ganancia. Una publicación con sell in y sin sell out muestra su markup de siempre.
-- En el encabezado del panel y en la pestaña **Promos**, **c/ sell in/out** es esa misma cuenta.
-- En **Productos** y **Tienda**, debajo de cada markup aparece **c/ sell out** (o **c/ sell in + sell out** si el producto también tiene sell in) cuando el producto tiene sell out hoy. Ya no aparece un markup «c/ sell in» aparte.
+- En **Publicaciones ML**, **Actual c/ SO** y **Real 30D c/ SO** muestran el markup con el sell out sumado a la ganancia. Una publicación con sell in y sin sell out muestra su markup de siempre.
+- En el encabezado del panel y en la pestaña **Promos**, **c/ SO** es esa misma cuenta.
+- En **Productos** y **Tienda**, debajo de cada markup aparece **c/ SO** cuando el producto tiene sell out hoy. Ya no aparece un markup «c/ sell in» aparte.
 - En **Exportar**, las columnas se llaman **Markup actual c/ SO** y **Markup real 30D c/ SO**.
 - Cuando cambia el costo SI de un producto, **Hay candidatas mejores** y la competencia de catálogo de sus publicaciones (y de los combos que lo incluyen) se recalculan solos.
 

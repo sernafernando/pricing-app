@@ -13,8 +13,12 @@ const PRODUCTO = {
   subcategoria_id: 55,
   moneda_costo: 'ARS',
   costo: 64000,
+  costo_si: { costo: 64000, moneda: 'ARS', fuente: 'costo_si', costo_ars: 64000 },
   markup: 18.4,
 };
+
+/** A product whose list cost and costo SI differ: FE3 bases every figure on `costo_si` (interfaz §6). */
+const conCostoSi = (costoSi, extra = {}) => ({ ...PRODUCTO, costo_si: costoSi, ...extra });
 
 const offset = (fields) => ({
   id: 1,
@@ -85,13 +89,46 @@ describe('costoConOffset', () => {
     expect(result.aplicados).toEqual([{ id: 8, descripcion: null, monto: 2400 }]);
   });
 
-  it('converts a USD cost to ARS before discounting', () => {
+  it('converts a USD costo SI without pesos at the rate before discounting', () => {
     const result = costoConOffset(
-      { ...PRODUCTO, moneda_costo: 'USD', costo: 50 },
+      conCostoSi({ costo: 50, moneda: 'USD', fuente: 'costo_si', costo_ars: null }, { moneda_costo: 'USD', costo: 70 }),
       ctx([offset({ categoria: 'ROUTERS', porcentaje: 20 })], { tipoCambio: 1000 }),
     );
     expect(result.costoARS).toBe(50000);
     expect(result.costoAjustado).toBe(40000);
+  });
+
+  it('bases the offset on the costo SI, never on the list cost (FE3)', () => {
+    // List USD 100, costo SI USD 80, TC 1000, offset 10 %.
+    const producto = conCostoSi(
+      { costo: 80, moneda: 'USD', fuente: 'costo_si', costo_ars: 80000 },
+      { moneda_costo: 'USD', costo: 100 },
+    );
+    const result = costoConOffset(producto, ctx([offset({ marca: 'TP-LINK', porcentaje: 10 })], { tipoCambio: 1000 }));
+    expect(result).toMatchObject({ costoARS: 80000, descuento: 8000, costoAjustado: 72000 });
+    // The markup's net price is rebuilt over the costo SI in pesos: (1.25 * 80000) / 72000 - 1.
+    expect(markupConOffset(25, result)).toBe(38.89);
+  });
+
+  it('never multiplies an ARS costo SI by a rate (L18)', () => {
+    const producto = conCostoSi({ costo: 50000, moneda: 'ARS', fuente: 'costo_si', costo_ars: null }, { costo: 1 });
+    for (const tipoCambio of [null, 1000, 1500]) {
+      expect(costoConOffset(producto, ctx([offset({ marca: 'TP-LINK', porcentaje: 10 })], { tipoCambio })).costoARS).toBe(50000);
+    }
+  });
+
+  it('is null without a costo SI or without its pesos, never the list cost instead', () => {
+    const diez = [offset({ marca: 'TP-LINK', porcentaje: 10 })];
+    expect(costoConOffset(conCostoSi(null), ctx(diez))).toBeNull();
+    expect(costoConOffset({ ...PRODUCTO, costo_si: undefined }, ctx(diez))).toBeNull();
+    const sinPesos = conCostoSi({ costo: 80, moneda: 'USD', fuente: 'costo_si', costo_ars: null }, { moneda_costo: 'USD' });
+    expect(costoConOffset(sinPesos, ctx(diez, { tipoCambio: null }))).toBeNull();
+    expect(requiereTipoCambio(sinPesos, ctx(diez, { tipoCambio: null }))).toBe(true);
+  });
+
+  it('takes a list cost that arrives inside costo_si (fuente lista, Q1)', () => {
+    const producto = conCostoSi({ costo: 30000, moneda: 'ARS', fuente: 'lista', costo_ars: 30000 }, { costo: 99 });
+    expect(costoConOffset(producto, ctx([offset({ marca: 'TP-LINK', porcentaje: 10 })])).costoARS).toBe(30000);
   });
 
   it('matches an individual offset by item, subcategory, category or brand', () => {
@@ -126,8 +163,8 @@ describe('costoConOffset', () => {
   });
 
   it('is null without a positive cost, without matching offsets, or when they add up to 0', () => {
-    expect(costoConOffset({ ...PRODUCTO, costo: 0 }, ctx([offset({ marca: 'TP-LINK', porcentaje: 10 })]))).toBeNull();
-    expect(costoConOffset({ ...PRODUCTO, costo: null }, ctx([offset({ marca: 'TP-LINK', porcentaje: 10 })]))).toBeNull();
+    const cero = conCostoSi({ costo: 0, moneda: 'ARS', fuente: 'costo_si', costo_ars: 0 });
+    expect(costoConOffset(cero, ctx([offset({ marca: 'TP-LINK', porcentaje: 10 })]))).toBeNull();
     expect(costoConOffset(PRODUCTO, ctx([]))).toBeNull();
     expect(costoConOffset(PRODUCTO, ctx([offset({ marca: 'TP-LINK', porcentaje: 0 })]))).toBeNull();
   });
@@ -151,8 +188,15 @@ describe('costoConOffset', () => {
 describe('requiereTipoCambio', () => {
   const usd = offset({ id: 2, item_id: 4101, tipo_offset: 'monto_por_unidad', monto: 2, moneda: 'USD' });
 
-  it('needs a rate for a USD cost', () => {
-    expect(requiereTipoCambio({ ...PRODUCTO, moneda_costo: 'USD' }, ctx([]))).toBe(true);
+  it('needs a rate for a USD costo SI without pesos, none once its pesos arrive', () => {
+    const usdSi = (costoArs) => conCostoSi({ costo: 80, moneda: 'USD', fuente: 'costo_si', costo_ars: costoArs });
+    expect(requiereTipoCambio(usdSi(null), ctx([]))).toBe(true);
+    expect(requiereTipoCambio(usdSi(80000), ctx([]))).toBe(false);
+  });
+
+  it('reads the costo SI currency, not the list one', () => {
+    // A USD list cost whose costo SI is ARS needs no rate.
+    expect(requiereTipoCambio({ ...PRODUCTO, moneda_costo: 'USD' }, ctx([]))).toBe(false);
   });
 
   it('needs a rate for a USD per-unit offset that reaches the product on the channel', () => {

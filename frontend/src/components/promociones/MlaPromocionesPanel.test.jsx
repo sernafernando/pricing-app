@@ -309,7 +309,7 @@ describe('MlaPromocionesPanel', () => {
 
     renderPanel();
     await waitFor(() => expect(screen.getByText('Smart promo')).toBeInTheDocument());
-    expect(getMarkupCell('18.5%c/ sell in/out 24.1%')).toBeInTheDocument();
+    expect(getMarkupCell('18.5%c/ SO 24.1%')).toBeInTheDocument();
   });
 
   it('shows no sell in / sell out figure in the row when the backend sends null', async () => {
@@ -332,7 +332,7 @@ describe('MlaPromocionesPanel', () => {
     renderPanel();
     await waitFor(() => expect(screen.getByText('Smart promo')).toBeInTheDocument());
     expect(getMarkupCell('18.5%')).toBeInTheDocument();
-    expect(screen.queryByText('c/ sell in/out')).not.toBeInTheDocument();
+    expect(screen.queryByText('c/ SO')).not.toBeInTheDocument();
   });
 
   it('shows an "Aplicada" badge on promo rows with application_status active', async () => {

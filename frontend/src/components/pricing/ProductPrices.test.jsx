@@ -196,6 +196,32 @@ describe('cost and IVA next to the prices', () => {
     expect(preciosAPI.tipoCambioActual).not.toHaveBeenCalled();
   });
 
+  it('shows the costo SI right after the cost, in its own currency with the pesos the backend sent (S13)', async () => {
+    const costoSi = { costo: 40, moneda: 'USD', fuente: 'costo_si', desde: '2026-11-02', tipo_cambio: 1280, tipo_cambio_fecha: '2026-11-20', costo_ars: 51200 };
+    preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...USD_PRODUCT, costo_si: costoSi } });
+    preciosAPI.tipoCambioActual.mockResolvedValue({ data: { moneda: 'USD', compra: 1250, venta: 1280, fecha: '2026-10-14' } });
+    render(<ProductPrices productItemId={4101} showCost />);
+    const group = await facts();
+    const labels = within(group).getAllByRole('term').map((dt) => dt.textContent);
+    expect(labels.slice(0, 2)).toEqual(['Costo', 'Costo SI']);
+    const valor = within(group).getByText('Costo SI').nextElementSibling;
+    expect(valor).toHaveTextContent('USD 40,00 $ 51.200,00');
+    expect(within(valor).getByText('USD 40,00').getAttribute('title')).toContain('Costo SI desde 02/11/26');
+  });
+
+  it('a costo SI without pesos keeps its dollars and shows no peso figure, never $ 0; none at all is "—"', async () => {
+    const sinPesos = { costo: 40, moneda: 'USD', fuente: 'costo_si', desde: null, tipo_cambio: null, tipo_cambio_fecha: null, costo_ars: null };
+    preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO, costo_si: sinPesos } });
+    const { unmount } = render(<ProductPrices productItemId={4101} showCost />);
+    let valor = within(await facts()).getByText('Costo SI').nextElementSibling;
+    expect(valor).toHaveTextContent(/^USD 40,00$/);
+    unmount();
+    preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO, costo_si: null } });
+    render(<ProductPrices productItemId={4101} showCost />);
+    valor = within(await facts()).getByText('Costo SI').nextElementSibling;
+    expect(valor).toHaveTextContent(/^—$/);
+  });
+
   it('a missing cost or IVA is "—", never 0', async () => {
     preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO, costo: null, costo_ars: null, iva: null } });
     render(<ProductPrices productItemId={4101} showCost />);

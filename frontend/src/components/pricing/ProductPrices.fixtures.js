@@ -10,6 +10,9 @@ export const PRODUCTO = {
   moneda_costo: 'ARS',
   costo: 64000,
   costo_ars: 64000,
+  // interfaz §6: the cost every markup (and the "markup con offsets", FE3) is over.
+  // Below the list cost, as a real costo SI usually is: the two cost figures never read as one price shown twice.
+  costo_si: { costo: 61000, moneda: 'ARS', fuente: 'costo_si', desde: '2026-10-01', tipo_cambio: null, tipo_cambio_fecha: null, costo_ars: 61000 },
   iva: 21,
   stock: 7,
   precio_lista_ml: 98500.5,
@@ -66,7 +69,7 @@ export const PRODUCTO_CON_REBATE_Y_OFERTA = {
 export const SELL_IN_OUT = {
   sell_in: { compra_item_id: 901, descuento_unit: 4000, costo: 60000, unidades_restantes: 12 },
   sell_out: { monto_unit: 1500, campana_ids: [3] },
-  markups_sell_in: { clasica: 26.3, cuota_clasica_3: 28.1, cuota_clasica_6: 30.4, cuota_clasica_12: 4.5, pvp_clasica: 27.5, pvp_cuota_3: 29.1 },
+  markups_sell_in: {}, // always empty since #2365 (D1: the sell in is inside the costo SI)
   markups_sell_in_out: { clasica: 28.8, cuota_clasica_3: 30.6, cuota_clasica_6: 32.9, cuota_clasica_12: 7, pvp_clasica: 30, pvp_cuota_3: 31.6 },
 };
 

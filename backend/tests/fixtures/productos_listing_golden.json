@@ -19,10 +19,6 @@
      "costo_ars": 10000.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {
-      "clasica": 15.79,
-      "mejor_oferta": 0.22479338842975194
-     },
      "moneda": "ARS",
      "tipo_cambio": null,
      "tipo_cambio_fecha": null
@@ -102,12 +98,6 @@
      "costo_ars": 20000.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {
-      "clasica": 92.56,
-      "cuota_clasica_3": 101.24,
-      "pvp_clasica": 126.03,
-      "rebate": 100.49
-     },
      "moneda": "USD",
      "tipo_cambio": 1000.0,
      "tipo_cambio_fecha": "2020-01-01"
@@ -187,11 +177,6 @@
      "costo_ars": 5000.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {
-      "clasica": 410.74,
-      "cuota_clasica_6": 401.98,
-      "rebate": 431.25
-     },
      "moneda": "ARS",
      "tipo_cambio": null,
      "tipo_cambio_fecha": null
@@ -271,12 +256,6 @@
      "costo_ars": 8000.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {
-      "clasica": 255.89,
-      "pvp_clasica": 272.62,
-      "pvp_cuota_3": 274.17,
-      "rebate": 270.76
-     },
      "moneda": "ARS",
      "tipo_cambio": null,
      "tipo_cambio_fecha": null
@@ -356,19 +335,6 @@
      "costo_ars": 7000.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {
-      "clasica": 147.01,
-      "cuota_clasica_12": 246.46,
-      "cuota_clasica_3": 197.41,
-      "cuota_clasica_6": 215.18,
-      "cuota_clasica_9": 231.53,
-      "pvp_clasica": 219.07,
-      "pvp_cuota_12": 279.29,
-      "pvp_cuota_3": 233.06,
-      "pvp_cuota_6": 249.89,
-      "pvp_cuota_9": 265.3,
-      "rebate": 158.0
-     },
      "moneda": "ARS",
      "tipo_cambio": null,
      "tipo_cambio_fecha": null
@@ -448,9 +414,6 @@
      "costo_ars": 3000.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {
-      "clasica": 70.66
-     },
      "moneda": "ARS",
      "tipo_cambio": null,
      "tipo_cambio_fecha": null
@@ -530,9 +493,6 @@
      "costo_ars": 3500.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {
-      "clasica": 65.41
-     },
      "moneda": "ARS",
      "tipo_cambio": null,
      "tipo_cambio_fecha": null
@@ -619,7 +579,6 @@
      "costo_ars": 10000.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {},
      "moneda": "ARS",
      "tipo_cambio": null,
      "tipo_cambio_fecha": null
@@ -699,7 +658,6 @@
      "costo_ars": 20000.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {},
      "moneda": "USD",
      "tipo_cambio": 1000.0,
      "tipo_cambio_fecha": "2020-01-01"
@@ -779,7 +737,6 @@
      "costo_ars": 5000.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {},
      "moneda": "ARS",
      "tipo_cambio": null,
      "tipo_cambio_fecha": null
@@ -859,7 +816,6 @@
      "costo_ars": 8000.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {},
      "moneda": "ARS",
      "tipo_cambio": null,
      "tipo_cambio_fecha": null
@@ -939,7 +895,6 @@
      "costo_ars": 7000.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {},
      "moneda": "ARS",
      "tipo_cambio": null,
      "tipo_cambio_fecha": null
@@ -1019,7 +974,6 @@
      "costo_ars": 3000.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {},
      "moneda": "ARS",
      "tipo_cambio": null,
      "tipo_cambio_fecha": null
@@ -1099,7 +1053,6 @@
      "costo_ars": 3500.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {},
      "moneda": "ARS",
      "tipo_cambio": null,
      "tipo_cambio_fecha": null
@@ -1186,10 +1139,6 @@
      "costo_ars": 10000.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {
-      "clasica": 15.79,
-      "mejor_oferta": 0.22479338842975194
-     },
      "moneda": "ARS",
      "tipo_cambio": null,
      "tipo_cambio_fecha": null
@@ -1269,19 +1218,6 @@
      "costo_ars": 7000.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {
-      "clasica": 147.01,
-      "cuota_clasica_12": 246.46,
-      "cuota_clasica_3": 197.41,
-      "cuota_clasica_6": 215.18,
-      "cuota_clasica_9": 231.53,
-      "pvp_clasica": 219.07,
-      "pvp_cuota_12": 279.29,
-      "pvp_cuota_3": 233.06,
-      "pvp_cuota_6": 249.89,
-      "pvp_cuota_9": 265.3,
-      "rebate": 158.0
-     },
      "moneda": "ARS",
      "tipo_cambio": null,
      "tipo_cambio_fecha": null
@@ -1368,10 +1304,6 @@
      "costo_ars": 10000.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {
-      "clasica": 15.79,
-      "mejor_oferta": 0.22479338842975194
-     },
      "moneda": "ARS",
      "tipo_cambio": null,
      "tipo_cambio_fecha": null
@@ -1451,12 +1383,6 @@
      "costo_ars": 20000.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {
-      "clasica": 92.56,
-      "cuota_clasica_3": 101.24,
-      "pvp_clasica": 126.03,
-      "rebate": 100.49
-     },
      "moneda": "USD",
      "tipo_cambio": 1000.0,
      "tipo_cambio_fecha": "2020-01-01"
@@ -1536,11 +1462,6 @@
      "costo_ars": 5000.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {
-      "clasica": 410.74,
-      "cuota_clasica_6": 401.98,
-      "rebate": 431.25
-     },
      "moneda": "ARS",
      "tipo_cambio": null,
      "tipo_cambio_fecha": null
@@ -1620,12 +1541,6 @@
      "costo_ars": 8000.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {
-      "clasica": 255.89,
-      "pvp_clasica": 272.62,
-      "pvp_cuota_3": 274.17,
-      "rebate": 270.76
-     },
      "moneda": "ARS",
      "tipo_cambio": null,
      "tipo_cambio_fecha": null
@@ -1705,19 +1620,6 @@
      "costo_ars": 7000.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {
-      "clasica": 147.01,
-      "cuota_clasica_12": 246.46,
-      "cuota_clasica_3": 197.41,
-      "cuota_clasica_6": 215.18,
-      "cuota_clasica_9": 231.53,
-      "pvp_clasica": 219.07,
-      "pvp_cuota_12": 279.29,
-      "pvp_cuota_3": 233.06,
-      "pvp_cuota_6": 249.89,
-      "pvp_cuota_9": 265.3,
-      "rebate": 158.0
-     },
      "moneda": "ARS",
      "tipo_cambio": null,
      "tipo_cambio_fecha": null
@@ -1797,9 +1699,6 @@
      "costo_ars": 3000.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {
-      "clasica": 70.66
-     },
      "moneda": "ARS",
      "tipo_cambio": null,
      "tipo_cambio_fecha": null
@@ -1879,9 +1778,6 @@
      "costo_ars": 3500.0,
      "desde": null,
      "fuente": "lista",
-     "markups": {
-      "clasica": 65.41
-     },
      "moneda": "ARS",
      "tipo_cambio": null,
      "tipo_cambio_fecha": null

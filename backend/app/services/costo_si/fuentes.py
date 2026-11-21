@@ -300,9 +300,9 @@ def moneda_de_producto(db: Session, item_id: int) -> str:
 
 def costo_lista(db: Session, item_id: int, dia: date, moneda: str = "USD") -> Optional[Decimal]:
     """The list 1 cost in force at 00:00 of `dia`, from the history rows in `moneda` only (S2 in the product's
-    currency: a row in the other currency is never converted)."""
+    currency: a row in the other currency is never converted). A row <= 0 is no cost (None), like the reader."""
     value = db.execute(_COSTO_LISTA_SQL, {"i": item_id, "t": inicio_del_dia(dia), "curr": CURRS[moneda]}).scalar()
-    return Decimal(value) if value is not None else None
+    return Decimal(value) if value is not None and value > 0 else None
 
 
 # ------------------------------------------------------------------------------------------------------ purchases

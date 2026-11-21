@@ -1,10 +1,10 @@
 """The costo SI column shown next to the list cost (sell-in-costo-si T3 PR 2). Built by
-`app.services.costo_si.columna.CostoSiMarkups`; read by `app.services.costo_si.lote`."""
+`app.services.costo_si.columna.payload`; read by `app.services.costo_si.lote`."""
 
 from datetime import date
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class CostoSiPayload(BaseModel):
@@ -15,8 +15,7 @@ class CostoSiPayload(BaseModel):
     the costo SI step in force (None for a list cost or a combo). `costo_ars` is that cost in pesos at `tipo_cambio`
     (USD only, dated `tipo_cambio_fecha`), None without a rate: never the USD number as pesos.
 
-    `markups` uses the SAME keys as the product's main markups (`PPP_KEY_*`, `ppp_key_*()` in
-    `app.services.costo_ppp_service`), each computed from the same `limpio` on `costo_ars`; empty without pesos.
+    No markups of its own: the product's main markups are already over this cost in pesos (S13), one source.
 
     The field that carries it is always named `costo_si`, so the MCP strips it without `productos.ver_costos` (C12).
     """
@@ -28,4 +27,3 @@ class CostoSiPayload(BaseModel):
     tipo_cambio: Optional[float] = None
     tipo_cambio_fecha: Optional[date] = None  # that rate's own date; None without a rate
     costo_ars: Optional[float] = None
-    markups: dict[str, float] = Field(default_factory=dict)

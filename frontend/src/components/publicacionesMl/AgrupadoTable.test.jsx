@@ -385,7 +385,7 @@ describe('node figures', () => {
     expect(within(row).getByText(/90 publicaciones/)).toBeInTheDocument();
     expect(within(row).getByText('4 con markup negativo')).toBeInTheDocument();
     expect(within(row).getByText(/-6,5%.*38,2%/)).toBeInTheDocument();
-    // Markup actual c/ SISO: the range of its publications' markup with sell in / sell out (S4)
+    // Markup actual c/ SO: the range of its publications' markup with sell out (S4)
     expect(within(row).getByText(/-2,5%.*41,7%/)).toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: /Negativos/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: /^Publicaciones$/ })).not.toBeInTheDocument();

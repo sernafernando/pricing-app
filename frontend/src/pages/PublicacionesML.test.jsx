@@ -565,7 +565,7 @@ describe('sorting and paging', () => {
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'unidades_7d', dir: 'desc' }));
     await sortBy(/^30D/);
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'unidades_30d', dir: 'desc' }));
-    await sortBy(/^Real 30D(?! c\/ SISO)/);
+    await sortBy(/^Real 30D(?! c\/ SO)/);
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'markup_30d', dir: 'desc' }));
     await sortBy(/^Total Gauss 30D/);
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'total_gauss_30d', dir: 'desc' }));
@@ -1246,7 +1246,7 @@ describe('markup (publicaciones-ml-vista P11b.T2)', () => {
     return page(entry);
   };
   // MARKUP's "Actual": the markup at today's price, the worst variation (what the sort and the filters use).
-  const WORST_HEADER = { name: /^Actual(?! c\/ SISO)/ }; // not its "Actual c/ SISO" neighbour
+  const WORST_HEADER = { name: /^Actual(?! c\/ SO)/ }; // not its "Actual c/ SO" neighbour
 
   it('without ver_ganancia there is no column, no controls, and no markup param (S68.1)', async () => {
     await page('/ml-publicaciones?markup_neg=1&markup_min=5&orden=markup');
@@ -2881,7 +2881,19 @@ describe("Productos' price columns (S11)", () => {
   it('with the margin permission the clásica markup carries Productos\' "markup con offsets" (Mercado Libre offsets)', async () => {
     canSeeMargin = true;
     productosAPI.listar.mockResolvedValue({
-      data: { productos: [{ ...PRICED[0], costo: 800, moneda_costo: 'ARS', marca: 'TP-LINK', markup: 25 }], total: 1 },
+      data: {
+        productos: [
+          {
+            ...PRICED[0],
+            costo: 800,
+            moneda_costo: 'ARS',
+            costo_si: { costo: 800, moneda: 'ARS', fuente: 'costo_si', costo_ars: 800 },
+            marca: 'TP-LINK',
+            markup: 25,
+          },
+        ],
+        total: 1,
+      },
     });
     offsetsGananciaAPI.vigentes.mockResolvedValueOnce({
       data: [{ id: 1, tipo_offset: 'porcentaje_costo', porcentaje: 10, marca: 'TP-LINK' }],

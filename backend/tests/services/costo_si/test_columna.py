@@ -1,5 +1,6 @@
-"""The costo SI column shown next to the list cost (sell-in-costo-si T3 PR 2, inventory §10, C4 pattern): its payload
-and its markups, keyed like the main ones, each on the costo SI in pesos. Display only: no number elsewhere moves.
+"""The costo SI column shown next to the list cost (sell-in-costo-si T3 PR 2, inventory §10, C4 pattern): its payload,
+the cost in its own currency and in pesos. No markups of its own: the main markups are already over costo SI in pesos
+(S13, #2363), so T3 PR 3 dropped the copy. Display only: no number elsewhere moves.
 Spec: handoffs/sell-in-costo-si-feature.md S10, S13 (show); plan handoffs/sell-in-costo-si-t3-inventario.md §10 PR 2.
 Invented data."""
 
@@ -7,8 +8,6 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-
-import pytest
 
 from app.schemas.costo_si import CostoSiPayload
 from app.services.costo_si import columna
@@ -20,7 +19,7 @@ USD_SI = Costo(1, D("10.5"), "USD", FUENTE_COSTO_SI, date(2026, 10, 1), D("1000"
 
 
 def test_the_payload_carries_the_cost_in_its_currency_its_source_and_pesos() -> None:
-    assert columna.CostoSiMarkups(USD_SI).payload() == CostoSiPayload(
+    assert columna.payload(USD_SI) == CostoSiPayload(
         costo=10.5,
         moneda="USD",
         fuente="costo_si",
@@ -28,61 +27,37 @@ def test_the_payload_carries_the_cost_in_its_currency_its_source_and_pesos() -> 
         tipo_cambio=1000.0,
         tipo_cambio_fecha=date(2026, 11, 2),
         costo_ars=10500.0,
-        markups={},
     )
 
 
-def test_the_payload_dates_its_rate() -> None:
-    """The rate's own date travels with it (the reader's `tipo_cambio_fecha`)."""
-    payload = columna.CostoSiMarkups(USD_SI).payload()
+def test_the_payload_dates_its_rate_and_carries_no_markups() -> None:
+    """The rate's own date travels with it (the reader's `tipo_cambio_fecha`); the main markups are the one source."""
+    dumped = columna.payload(USD_SI).model_dump()
 
-    assert payload.model_dump()["tipo_cambio_fecha"] == date(2026, 11, 2)
-
-
-def test_each_markup_is_on_the_costo_si_in_pesos_keyed_like_the_main_one() -> None:
-    acc = columna.CostoSiMarkups(USD_SI)
-    acc.record("clasica", 13125.0)
-    acc.record("mejor_oferta", 12600.0, percent=False)
-
-    assert acc.payload().markups == {"clasica": 25.0, "mejor_oferta": pytest.approx(0.2)}
+    assert dumped["tipo_cambio_fecha"] == date(2026, 11, 2)
+    assert "markups" not in dumped
 
 
-def test_a_list_cost_shows_with_its_source_and_its_markups() -> None:
+def test_a_list_cost_shows_with_its_source() -> None:
     """Q1: no costo SI = the list cost, marked 'lista'; still one cost everywhere."""
-    acc = columna.CostoSiMarkups(Costo(2, D("20000"), "ARS", FUENTE_LISTA, None, None, D("20000")))
-    acc.record("clasica", 25000.0)
-
-    assert acc.payload() == CostoSiPayload(
-        costo=20000.0, moneda="ARS", fuente="lista", costo_ars=20000.0, markups={"clasica": 25.0}
+    assert columna.payload(Costo(2, D("20000"), "ARS", FUENTE_LISTA, None, None, D("20000"))) == CostoSiPayload(
+        costo=20000.0, moneda="ARS", fuente="lista", costo_ars=20000.0
     )
 
 
-def test_an_unknown_cost_has_no_payload_and_records_nothing() -> None:
-    for costo in (None, Costo(3, None, None, None, None, None, None)):
-        acc = columna.CostoSiMarkups(costo)
-        acc.record("clasica", 100.0)
-        assert acc.payload() is None
+def test_an_unknown_cost_has_no_payload() -> None:
+    assert columna.payload(None) is None
+    assert columna.payload(Costo(3, None, None, None, None, None, None)) is None
 
 
-def test_a_zero_peso_cost_records_no_markup() -> None:
-    """A cost of 0 in pesos is no base for a markup (`calcular_markup` would answer 0): none, never a fake 0 %."""
-    acc = columna.CostoSiMarkups(Costo(5, D("0"), "ARS", FUENTE_COSTO_SI, date(2026, 10, 1), None, D("0")))
-    acc.record("clasica", 100.0)
-
-    assert acc.payload().markups == {}
-
-
-def test_without_pesos_the_cost_shows_but_no_markup_is_guessed() -> None:
-    """A USD cost with no rate: the USD figure shows, its markups don't (never USD passed off as pesos)."""
-    acc = columna.CostoSiMarkups(Costo(4, D("10"), "USD", FUENTE_COSTO_SI, date(2026, 10, 1), None, None))
-    acc.record("clasica", 100.0)
-
-    assert acc.payload() == CostoSiPayload(
-        costo=10.0, moneda="USD", fuente="costo_si", desde=date(2026, 10, 1), markups={}
+def test_without_pesos_the_cost_shows_and_its_pesos_stay_unknown() -> None:
+    """A USD cost with no rate: the USD figure shows, its pesos don't (never USD passed off as pesos, never 0)."""
+    assert columna.payload(Costo(4, D("10"), "USD", FUENTE_COSTO_SI, date(2026, 10, 1), None, None)) == CostoSiPayload(
+        costo=10.0, moneda="USD", fuente="costo_si", desde=date(2026, 10, 1)
     )
 
 
-def test_the_companions_record_each_site_into_the_costo_si_too() -> None:
+def test_the_companions_record_each_site_into_the_ppp_and_the_sell_in_out() -> None:
     class _Acc:
         def __init__(self) -> None:
             self.got = []
@@ -91,9 +66,6 @@ def test_the_companions_record_each_site_into_the_costo_si_too() -> None:
             self.got.append((key, limpio, percent))
 
     ppp, siso = _Acc(), _Acc()
-    costo_si = columna.CostoSiMarkups(USD_SI)
-    MarkupCompanions(ppp, siso, costo_si).record("rebate", 13125.0, percent=False)
+    MarkupCompanions(ppp, siso).record("rebate", 13125.0, percent=False)
 
     assert ppp.got == siso.got == [("rebate", 13125.0, False)]
-    assert costo_si.payload().markups == {"rebate": pytest.approx(0.25)}
-    assert MarkupCompanions(ppp, siso).costo_si is None

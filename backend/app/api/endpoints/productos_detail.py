@@ -18,8 +18,7 @@ from app.api.deps import get_current_user, require_algun_permiso
 from app.core.constants import PERMISOS_PUBLICACIONES_ML
 from app.services.permisos_service import PermisosService
 from app.services.envio_real_service import resolver_costo_envio
-from app.services.costo_si import lote as costo_si_lote
-from app.services.costo_si.columna import CostoSiMarkups
+from app.services.costo_si import columna as costo_si_columna, lote as costo_si_lote
 from app.services.ml_promotions_service import (
     fetch_mlas_with_active_promo_type,
     fetch_mlas_with_candidate_only,
@@ -146,7 +145,7 @@ def obtener_detalle_producto(
         # Costo de envío — resolved from mlwebhook DB (falls back to ERP on any error)
         costo_envio = resolver_costo_envio(db, producto)
         # The costo SI beside the list cost (display only), hidden exactly where `costo` is.
-        costo_si = CostoSiMarkups(costo_si_lote.actuales(db, [item_id], tipo_cambio=tipo_cambio).get(item_id)).payload()
+        costo_si = costo_si_columna.payload(costo_si_lote.actuales(db, [item_id], tipo_cambio=tipo_cambio).get(item_id))
 
         producto_out.update(
             {

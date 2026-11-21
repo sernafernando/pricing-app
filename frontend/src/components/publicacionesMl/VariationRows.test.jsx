@@ -203,14 +203,14 @@ describe('VariationRows', () => {
   });
 });
 
-describe('Markup actual c/ SISO of a variation (pubml-markup-siso)', () => {
+describe('Markup actual c/ SO of a variation (pubml-markup-siso)', () => {
   const withSiso = (siso) => ({ ...VARIATIONS_RESPONSE, variations: VARIATIONS_RESPONSE.variations.map((v, i) => (i === 0 ? { ...v, markup_siso: siso } : v)) });
   const sisoCell = () => {
     const index = buildColumns({ eventsEnabled: false, canSeeMargin: true }).findIndex((c) => c.key === 'markup_siso');
     return rowOf('Router Archer AX55 negro').children[index];
   };
 
-  it('shows the variation’s own value under Actual c/ SISO', async () => {
+  it('shows the variation’s own value under Actual c/ SO', async () => {
     publicacionesMlAPI.variations.mockResolvedValue({ data: withSiso({ value: 17.25, reason: 'ok' }) });
     mount();
     await screen.findByText('Router Archer AX55 negro');

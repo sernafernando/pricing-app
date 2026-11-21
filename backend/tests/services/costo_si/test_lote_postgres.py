@@ -429,6 +429,21 @@ def test_without_any_usd_rate_the_pesos_are_unknown_never_zero(engine: Engine, c
     assert any(str(A) in m and str(date.today()) in m for m in avisos), avisos
 
 
+def test_a_read_without_a_usd_rate_logs_one_warning_per_date_with_every_item(engine: Engine, caplog) -> None:
+    """Warning volume: a listing page reads dozens of USD products at once; a day without a USD rate logs ONE
+    warning per date naming the count and the items, never one per item."""
+    _mundo(engine)
+    _sin_tipo_cambio(engine)
+
+    with _db(engine) as db, caplog.at_level("WARNING", logger=lote.__name__):
+        lote.actuales(db, [A, B, SIN, ARSP])
+
+    avisos = [r.getMessage() for r in caplog.records if r.name == lote.__name__]
+    assert len(avisos) == 1, avisos
+    assert "3 items" in avisos[0] and all(str(i) in avisos[0] for i in (A, B, SIN)), avisos
+    assert str(ARSP) not in avisos[0] and str(date.today()) in avisos[0], avisos
+
+
 def test_without_tipo_cambio_the_erp_rate_history_gives_the_rate(engine: Engine) -> None:
     """Like the metrics crons: `tipo_cambio` first, else the ERP's `tb_cur_exch_history` (USD -> ARS, > 0, the last
     one on or before the end of the day); never another currency pair."""
