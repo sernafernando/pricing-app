@@ -328,7 +328,8 @@ class TestStatements:
         large = self.count(client, pg, headers, "MLA31")
         assert len(small) == len(large), (small, large)
         # SET LOCAL timeout + the sub-rows; with margins also the three statements of the markup inputs
-        assert len(small) <= (6 if margin else 2), small  # with margins, the markup inputs' four or five
+        # with margins, the markup inputs' four or five, plus the linked products' cost (`lote.actuales`, T3 PR 5)
+        assert len(small) <= (7 if margin else 2), small
         assert len(by_id(variations_of(client, headers, "MLA31"))) == 250
 
     def test_with_ads_the_count_is_constant_too(self, client, pg, analyst, pricing, provide, db) -> None:

@@ -1,7 +1,9 @@
-"""sell-in-sell-out T11: the sell in / sell out figures of `GET /api/ml-metricas/board`, its sub-rows and its CSV.
+"""The sell out figures of `GET /api/ml-metricas/board`, its sub-rows and its CSV (sell-in-sell-out T11, Costo SI
+T3 D1).
 
-Owner: "Always show both: cost and cost with sell in; markup and totals without and with sell out." They are profit
-figures: present only with `ml_metricas.ver_ganancia` (null without it, and sorting by them is refused like any
+D1 (owner L12): "el costo siso no existe, es costo SI y SO va en la venta, como ganancia adicional". The frozen cost
+is costo SI, so there is no sell in figure nor cost with sell in: total c/ SO = Total Gauss + sell out, markup c/ SO
+= (limpio + SO - costo) / costo. A sell in row the allocator wrote is never read. They are profit figures: present only with `ml_metricas.ver_ganancia` (null without it, and sorting by them is refused like any
 margin sort), and never for `tplink.solo` (they are on the Gauss basis). The figures without them never change.
 """
 
@@ -111,7 +113,7 @@ def _consumos(db, ref: int, sell_in=None, sell_out=()) -> None:
 
 @pytest.fixture()
 def sells(db, rol_admin, admin_user):
-    """11 (MLA1): tg 30 / c 100, sell in $10 and an ARS sell out of $5.
+    """11 (MLA1): tg 30 / c 100, a sell in of $10 (never read, D1) and an ARS sell out of $5.
     12 (MLA2): tg 40 / c 100, a USD sell out without its rate yet (pending)."""
     db.add_all(
         [
@@ -149,20 +151,18 @@ class TestWithTheProfitView:
         _grant(db, rol_admin, "ml_metricas.ver", "ml_metricas.ver_ganancia")
         db.commit()
 
-    def test_each_row_carries_its_figures_with_sell_in_and_sell_out(self, client, admin_auth_headers) -> None:
+    def test_each_row_carries_its_figures_with_sell_out(self, client, admin_auth_headers) -> None:
         rows = _by_key(_get(client, admin_auth_headers))
 
         assert rows["11"]["total_gauss"] == 30.0
+        # Same payload key (Q4), new meaning: cost = the frozen cost, sell out added to the profit.
         assert rows["11"]["sell_in_out"] == {
-            "sell_in": 10.0,
             "sell_out": 5.0,
             "sell_out_pendientes": 0,
             "sell_out_estimados": 0,
-            "sell_in_estimados": 0,
             "costo": 100.0,
-            "costo_sell_in": 90.0,
-            "total_gauss": 45.0,
-            "markup_pct": 50.0,
+            "total_gauss": 35.0,
+            "markup_pct": 35.0,
         }
         assert rows["12"]["sell_in_out"]["sell_out_pendientes"] == 1
         assert rows["12"]["sell_in_out"]["total_gauss"] == 40.0
@@ -170,14 +170,17 @@ class TestWithTheProfitView:
     def test_the_kpi_strip_sums_them(self, client, admin_auth_headers) -> None:
         kpis = _get(client, admin_auth_headers)["kpis"]
 
-        assert kpis["sell_in_out"]["sell_in"] == 10.0
-        assert kpis["sell_in_out"]["total_gauss"] == 85.0
+        assert "sell_in" not in kpis["sell_in_out"] and "costo_sell_in" not in kpis["sell_in_out"]
+        assert kpis["sell_in_out"]["sell_out"] == 5.0
+        assert kpis["sell_in_out"]["total_gauss"] == 75.0
         assert kpis["sell_in_out"]["sell_out_pendientes"] == 1
 
     def test_the_publications_carry_them_too(self, client, admin_auth_headers) -> None:
         body = _get(client, admin_auth_headers, "/products/11/publications")
 
-        assert body["rows"][0]["sell_in_out"]["sell_in"] == 10.0
+        figures = body["rows"][0]["sell_in_out"]
+        assert (figures["sell_out"], figures["total_gauss"], figures["markup_pct"]) == (5.0, 35.0, 35.0)
+        assert "sell_in" not in figures
 
     def test_the_csv_has_the_columns(self, client, admin_auth_headers) -> None:
         resp = client.get(URL + "/export", headers=admin_auth_headers)
@@ -185,18 +188,33 @@ class TestWithTheProfitView:
         header, *lines = list(csv.reader(io.StringIO(resp.text.lstrip("﻿")), delimiter=";"))
         row = dict(zip(header, next(line for line in lines if "Router AX55" in line)))
 
-        assert (row["Sell in"], row["Sell out"], row["Costo c/ sell in"]) == ("10,00", "5,00", "90,00")
-        assert (row["Total Gauss c/ sell in/out"], row["Markup c/ sell in/out %"]) == ("45,00", "50,00")
+        assert header[header.index("Variación pp") + 1 :][:4] == [
+            "Sell out",
+            "Sell out pendientes",
+            "Total Gauss c/ SO",
+            "Markup c/ SO %",
+        ]
+        assert not {"Sell in", "Costo c/ sell in"} & set(header)
+        assert (row["Sell out"], row["Total Gauss c/ SO"], row["Markup c/ SO %"]) == ("5,00", "35,00", "35,00")
 
-    def test_a_sell_in_that_does_not_apply_is_empty_on_screen_and_in_the_csv(self, client, admin_auth_headers) -> None:
+    def test_a_sale_with_only_a_sell_in_has_no_sell_figure_on_screen_nor_in_the_csv(
+        self, client, admin_auth_headers, db
+    ) -> None:
         # Owner: "en las filas que no aplica estaría bueno que directamente esté vacío así no hace ruido".
-        figures = _by_key(_get(client, admin_auth_headers))["12"]["sell_in_out"]
-        assert (figures["sell_in"], figures["costo_sell_in"], figures["costo"]) == (None, None, 100.0)
+        _producto(db, 13, "Hub", "TP-Link")
+        _consumos(db, _sale(db, 13, "MLA3", "20", "100"), sell_in="10")
+        db.commit()
 
-        resp = client.get(URL + "/export", headers=admin_auth_headers)
-        header, *lines = list(csv.reader(io.StringIO(resp.text.lstrip("﻿")), delimiter=";"))
-        row = dict(zip(header, next(line for line in lines if "Switch" in line)))
-        assert (row["Sell in"], row["Costo c/ sell in"], row["Total Gauss c/ sell in/out"]) == ("", "", "40,00")
+        figures = _by_key(_get(client, admin_auth_headers))["13"]["sell_in_out"]
+        assert (figures["sell_out"], figures["total_gauss"], figures["markup_pct"], figures["costo"]) == (
+            None,
+            None,
+            None,
+            100.0,
+        )
+        header, lines = _csv(client, admin_auth_headers)
+        row = dict(zip(header, next(line for line in lines if "Hub" in line)))
+        assert (row["Sell out"], row["Total Gauss c/ SO"], row["Markup c/ SO %"]) == ("", "", "")
 
     def test_the_pending_sell_out_count_is_empty_in_the_csv_where_no_sell_out_applies(
         self, client, admin_auth_headers, db
@@ -269,14 +287,14 @@ class TestMontoTotalRemainder:
         body = _get(client, admin_auth_headers)
 
         figures = body["kpis"]["sell_in_out"]
-        assert (figures["sell_out"], figures["total_gauss"], figures["sell_out_pendientes"]) == (105.0, 185.0, 1)
+        assert (figures["sell_out"], figures["total_gauss"], figures["sell_out_pendientes"]) == (105.0, 175.0, 1)
         rows = _by_key(body)
         assert (rows["11"]["sell_in_out"]["sell_out"], rows["12"]["sell_in_out"]["sell_out"]) == (5.0, 0.0)
 
     def test_a_negative_total_lowers_the_kpi(self, client, admin_auth_headers, db) -> None:
         _monto_total(db, "-30")
 
-        assert _get(client, admin_auth_headers)["kpis"]["sell_in_out"]["total_gauss"] == 55.0
+        assert _get(client, admin_auth_headers)["kpis"]["sell_in_out"]["total_gauss"] == 45.0
 
     def test_an_end_date_outside_the_period_does_not_count(self, client, admin_auth_headers, db) -> None:
         _monto_total(db, "100", fecha_hasta=date(2026, 10, 1))
@@ -397,12 +415,10 @@ def test_tplink_solo_never_gets_them(client, admin_auth_headers, db, rol_admin, 
 @pytest.mark.parametrize(
     ("sort", "expected", "ascending"),
     [
-        # 10 vs an empty cell (12 has no sell in: last both ways, never sorted as 0); 5 vs 0 (the pending sell out is
-        # left out); 45 vs 40; 50% vs 40% (without them: 30% vs 40%).
-        ("sell_in", ["11", "12"], ["11", "12"]),
+        # 5 vs 0 (the pending sell out is left out); 35 vs 40; 35% vs 40% (the $10 sell in of 11 is never read).
         ("sell_out", ["11", "12"], ["12", "11"]),
-        ("total_gauss_sell", ["11", "12"], ["12", "11"]),
-        ("markup_sell", ["11", "12"], ["12", "11"]),
+        ("total_gauss_sell", ["12", "11"], ["11", "12"]),
+        ("markup_sell", ["12", "11"], ["11", "12"]),
     ],
 )
 def test_sorts_by_the_sell_in_out_columns(
@@ -414,6 +430,15 @@ def test_sorts_by_the_sell_in_out_columns(
     for direction, order in (("desc", expected), ("asc", ascending)):
         body = _get(client, admin_auth_headers, sort=sort, sort_dir=direction)
         assert [row["key"] for row in body["rows"]] == order
+
+
+def test_there_is_no_sell_in_sort(client, admin_auth_headers, db, rol_admin, sells) -> None:
+    _grant(db, rol_admin, "ml_metricas.ver", "ml_metricas.ver_ganancia")
+    db.commit()
+
+    resp = client.get(URL, params={"sort": "sell_in"}, headers=admin_auth_headers)
+
+    assert resp.status_code == 422, resp.text
 
 
 def test_the_markup_with_sell_in_out_is_no_sort_with_costos_tp(

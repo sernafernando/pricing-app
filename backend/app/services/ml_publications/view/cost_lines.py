@@ -1,5 +1,5 @@
-"""The two lines Productos draws under a product's cost, for the Costo cell of Publicaciones ML (publication, detail
-and product rows): the PPP and the cost with sell in.
+"""The lines Productos draws under a product's cost, for the Costo cell of Publicaciones ML (publication, detail
+and product rows): the PPP, the cost with sell in, and the costo SI (sell-in-costo-si T3 PR 2, display only).
 
 Its own module because the sell in resolver is a catalog read (`productos_sell_in_out`), opened in this package only
 to the view extraction modules (`tests/services/ml_publications/test_resources.py`); the listing reaches it through
@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.schemas.sell_in_out_producto import SellInOutProducto
 from app.services.costo_ppp_service import PppMarkups, resolver_ppp_batch
+from app.services.costo_si import columna, lote
 from app.services.ml_publications.view.markup import PublicationMarkup, UnitMarkup, summarize
 from app.services.ml_publications.view.markup_inputs import product_ivas
 from app.services.ml_publications.view.markup_service import ItemMarkup
@@ -38,7 +39,7 @@ class _CostedProduct:
     iva: Optional[float]
 
 
-NO_COST_LINES: dict[str, Any] = {"ppp": None, "sell_in_out": None}
+NO_COST_LINES: dict[str, Any] = {"ppp": None, "sell_in_out": None, "costo_si": None}
 
 
 def cost_lines(
@@ -46,8 +47,9 @@ def cost_lines(
 ) -> Optional[dict[int, dict[str, Any]]]:
     """The two lines Productos draws under a product's cost, per product id of `products` (id -> cost, currency,
     VAT): `ppp` (`resolver_ppp_batch` + `PppMarkups`, null without a qualifying row) and `sell_in_out`
-    (`resolver_sell_in_out_batch`, null when neither applies). No markup is recorded: the cost cell shows neither.
-    Both resolvers read the pricing database, once for the whole page.
+    (`resolver_sell_in_out_batch`, null when neither applies), and `costo_si` (`lote.actuales` + `columna.payload`,
+    the list cost with fuente 'lista' without a costo SI, null without any cost). No markup is recorded: the cost
+    cell shows none. Every resolver reads the pricing database, once for the whole page.
 
     None when one of those reads fails (a database error, logged): the lines are informative, so the page answers as it did before they
     existed, each row with its cost and without the line keys, instead of failing whole. The reads run in a
@@ -68,7 +70,7 @@ def cost_lines_by_publication(pricing_db: Session, rows: Sequence[Any]) -> Optio
     `mlp_official_store_id` (`alcance.stores_por_mla`), the one the sell out and sell in allocators credit its sales
     under, so the row shows what the money would be; a publication without one is `("ml", None)`, which every
     all-stores tactical reaches. Every store of the page is resolved from ONE read (`resolver_sell_in_out_por_contexto`),
-    PPP and the rate once. None when a read fails, as `cost_lines`."""
+    PPP, the costo SI and the rate once. None when a read fails, as `cost_lines`."""
     linked = [r for r in rows if getattr(r, "producto_item_id", None)]
     if not linked:
         return {}
@@ -79,11 +81,14 @@ def cost_lines_by_publication(pricing_db: Session, rows: Sequence[Any]) -> Optio
             store_of = {str(r.item_id): stores.get(str(r.item_id)) for r in linked}
             contextos = {store: [("ml", store)] for store in set(store_of.values())}
             ids = sorted(products)
-            batches = resolver_sell_in_out_por_contexto(pricing_db, ids, date.today(), contextos)
             ppp = resolver_ppp_batch(pricing_db, ids)
             rate = obtener_tipo_cambio_actual(pricing_db, "USD")
+            costos = lote.actuales(pricing_db, ids, tipo_cambio=rate)  # one read: the column and the sell in / out
+            batches = resolver_sell_in_out_por_contexto(pricing_db, ids, date.today(), contextos, costos=costos)
             return {
-                str(r.item_id): _lines(r.producto_item_id, products, ppp, batches[store_of[str(r.item_id)]], rate)
+                str(r.item_id): _lines(
+                    r.producto_item_id, products, ppp, batches[store_of[str(r.item_id)]], rate, costos
+                )
                 for r in linked
             }
     except SQLAlchemyError:
@@ -94,20 +99,25 @@ def cost_lines_by_publication(pricing_db: Session, rows: Sequence[Any]) -> Optio
 def _cost_lines(pricing_db: Session, products: Mapping[int, tuple[Any, Any, Any]]) -> dict[int, dict[str, Any]]:
     ids = sorted(products)
     ppp = resolver_ppp_batch(pricing_db, ids)
-    sell_in_out = resolver_sell_in_out_batch(pricing_db, ids, date.today())
     rate = obtener_tipo_cambio_actual(pricing_db, "USD")
-    return {item_id: _lines(item_id, products, ppp, sell_in_out, rate) for item_id in ids}
+    costos = lote.actuales(pricing_db, ids, tipo_cambio=rate)  # one read: the column and the sell in / out
+    sell_in_out = resolver_sell_in_out_batch(pricing_db, ids, date.today(), costos=costos)
+    return {item_id: _lines(item_id, products, ppp, sell_in_out, rate, costos) for item_id in ids}
 
 
-def _lines(item_id: int, products: Mapping[int, tuple[Any, Any, Any]], ppp, sell_in_out, rate) -> dict[str, Any]:
+def _lines(
+    item_id: int, products: Mapping[int, tuple[Any, Any, Any]], ppp, sell_in_out, rate, costos
+) -> dict[str, Any]:
     costo, moneda, iva = products[item_id]
     moneda = getattr(moneda, "value", moneda) or "ARS"
     ppp_payload = PppMarkups(ppp.get(item_id), moneda_costo=moneda, tipo_cambio=rate).payload()
     product = _CostedProduct(item_id, _as_float(costo), moneda, _as_float(iva))
     sio_payload = sell_in_out.markups(product, tipo_cambio=rate).payload()
+    costo_si = columna.payload(costos.get(item_id))
     return {
         "ppp": None if ppp_payload is None else ppp_payload.model_dump(),
         "sell_in_out": None if sio_payload is None else sio_payload.model_dump(),
+        "costo_si": None if costo_si is None else costo_si.model_dump(),
     }
 
 

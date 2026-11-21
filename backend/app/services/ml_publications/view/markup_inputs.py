@@ -8,7 +8,10 @@ SQL only extracts; the maths is `markup.unit_markup` (P2). For each publication 
    campaign tag is present (the tag wins, see `pricelist_resolver`). The `raw` body is never read: detoasting it
    for every item cost ~190 MB of buffer traffic on a set-wide request;
 2. its live variations;
-3. every `linked` unit (item level and per variation) with the linked product's cost fields;
+3. every `linked` unit (item level and per variation) with the linked product's cost fields. The cost is the
+   product's costo SI (sell-in-costo-si S13, L6.2: "es el que van a usar todas las partes de la empresa"), in its own
+   currency (L18), or its list cost when it has no costo SI step (Q1), as `costo_si.lote.actuales` resolves it for
+   the linked products of the set: one statement, so pricing a set still costs a fixed number of statements;
 4. only when some unit has no usable price (neither the sale price nor `ml_items.price`): the Productos list prices
    its fallback reads, for the products of those units. The big statements do not carry them.
 
@@ -41,6 +44,7 @@ from app.models.ml_publications import (
     MlItemVariation,
 )
 from app.models.producto import ProductoERP, ProductoPricing
+from app.services.costo_si import lote
 from app.services.ml_publications.pricelist_resolver import CAMPAIGN_TAGS
 from app.services.ml_publications.view.filters import (
     LINK_ITEM_LEVEL,
@@ -100,10 +104,11 @@ def _floats(value: Any) -> Optional[float]:
 
 
 def _product_columns(product: Any) -> list[Any]:
-    """The cost fields of a linked product. The Productos list prices are NOT here: they are the last resort of the
-    price, needed by few units, and carrying ten more columns through every row of a big set costs more than the
-    rest of the row (`_fallback_rows` reads them for the units that need them)."""
-    return [product.costo, type_coerce(product.moneda_costo, Text), product.iva, product.envio, product.subcategoria_id]
+    """The fields of a linked product the rows carry: its VAT, shipping and subcategory. Its cost is NOT here: it is
+    read for the linked products only, in one statement (`lote.actuales`; a join to `lote.actual()` evaluates every
+    product of the catalog whatever the set, 127 ms for 3000 products and one publication). The Productos list prices
+    are not here either: they are the last resort of the price, needed by few units (`_fallback_rows`)."""
+    return [product.iva, product.envio, product.subcategoria_id]
 
 
 def _rows(db: Session, query: Any) -> list[Any]:
@@ -245,8 +250,8 @@ def fetch_inputs(
     db: Session, *, item_ids: Optional[Sequence[str]] = None, f: Optional[PublicationFilter] = None
 ) -> dict[str, PublicationInputs]:
     """Inputs of the given publications, or of every publication of a (PM-resolved) filter; ids that do not
-    exist are absent. Exactly one of `item_ids` / `f`. Four statements, five when some unit has no price of its own,
-    whatever the size of the set."""
+    exist are absent. Exactly one of `item_ids` / `f`. Four statements, plus one for the linked products' cost (none
+    without a linked product) and one when some unit has no price of its own, whatever the size of the set."""
     if (item_ids is None) == (f is None):
         raise ValueError("pass exactly one of `item_ids` or `f`")
     if item_ids is not None and not item_ids:
@@ -273,24 +278,31 @@ def fetch_inputs(
     for pid, *prices in _fallback_rows(db, sorted(needing)) if needing else ():
         fallbacks[pid] = {column: _floats(price) for column, price in zip(FALLBACK_COLUMNS, prices)}
 
-    # A product's fields converted once, however many publications link it: `(costo, moneda, iva, envio, subcat)`.
-    products: dict[int, tuple[Any, ...]] = {}
+    # The linked products' current cost, one statement for the set (S13: costo SI in its own currency, L18; the list
+    # cost without a step, Q1; combos as their components): costo SI is the cost of every markup of the view.
+    linked = {row[6] for row in items if row[6] is not None} | {row[2] for row in links.values()}
+    costos = lote.actuales(db, linked)
 
-    def product_of(pid: int, costo: Any, moneda: Any, iva: Any, envio: Any, subcategoria_id: Any) -> tuple[Any, ...]:
+    # A product's fields converted once, however many publications link it: `(costo, moneda, iva, envio, subcat)`,
+    # and the USD rate the cost reader found (interfaz §7, the fallback of the screen's).
+    products: dict[int, tuple[Any, ...]] = {}
+    rates: dict[int, Optional[float]] = {}
+
+    def product_of(pid: int, iva: Any, envio: Any, subcategoria_id: Any) -> tuple[Any, ...]:
+        cost = costos.get(pid)
+        rates[pid] = None if cost is None else _floats(cost.tipo_cambio)
         found = products[pid] = (
-            None if costo is None else float(costo),
-            getattr(moneda, "value", moneda),
+            None if cost is None else _floats(cost.costo),
+            None if cost is None else cost.moneda,
             DEFAULT_IVA if iva is None else float(iva),
             None if envio is None else float(envio),
             subcategoria_id,
         )
         return found
 
-    def variation_unit(
-        item: UnitInputs, pid: int, costo: Any, moneda: Any, iva: Any, envio: Any, subcat: Any
-    ) -> UnitInputs:
+    def variation_unit(item: UnitInputs, pid: int, iva: Any, envio: Any, subcat: Any) -> UnitInputs:
         """The unit of a variation with a link of its own: the publication's inputs and ITS product."""
-        found = products.get(pid) or product_of(pid, costo, moneda, iva, envio, subcat)
+        found = products.get(pid) or product_of(pid, iva, envio, subcat)
         return UnitInputs(
             item.item_id,
             item.listing_type_id,
@@ -302,6 +314,7 @@ def fetch_inputs(
             pid,
             *found,
             promo_revenue=item.promo_revenue,
+            tipo_cambio=rates[pid],
         )
 
     inputs: dict[str, PublicationInputs] = {}
@@ -313,8 +326,6 @@ def fetch_inputs(
         sale_price,
         campaign,
         pid,
-        costo,
-        moneda,
         iva,
         envio,
         subcat,
@@ -332,7 +343,7 @@ def fetch_inputs(
                 promo_revenue=promo_revenues.get(item_id),
             )
         else:
-            found = products.get(pid) or product_of(pid, costo, moneda, iva, envio, subcat)
+            found = products.get(pid) or product_of(pid, iva, envio, subcat)
             item_unit = UnitInputs(
                 item_id,
                 listing_type_id,
@@ -344,6 +355,7 @@ def fetch_inputs(
                 pid,
                 *found,
                 promo_revenue=promo_revenues.get(item_id),
+                tipo_cambio=rates[pid],
             )
         variation_ids = variations.get(item_id)
         if variation_ids is None:

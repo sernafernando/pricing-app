@@ -9,7 +9,7 @@ import { amount } from './format';
  * (Resumen) and the panel header show them: one rendering, so both always agree.
  */
 
-/** The key of this publication's markup in `sell_in_out.markups_sell_in[_out]` (backend `detail.SELL_IN_OUT_KEY`). */
+/** The key of this publication's markup in `sell_in_out.markups_sell_in_out` (backend `detail.SELL_IN_OUT_KEY`). */
 const SELL_IN_OUT_KEY = 'publicacion';
 
 const isBlank = (value) => value === null || value === undefined;
@@ -51,17 +51,17 @@ export function SellInCost({ sellIn, format = amount }) {
 }
 
 /**
- * The publication's markup with sell in and sell out when there is sell out, else with sell in only.
- * "Pendiente" when an amount is unknown (a lot without a cost in pesos, a sell out without its rate
- * or base): never a made-up figure.
+ * The publication's "c/ SO" markup: its sell out added to the profit, over the costo SI; nothing without sell out
+ * (D1: the sell in is already inside the costo SI). "Pendiente" when the sell out's amount is unknown (no rate or
+ * base): never a made-up figure.
  */
 export function SellInOutMarkup({ sellInOut }) {
   return sellInOutMarkup(sellInOut);
 }
 
 /**
- * `SellInOutMarkup` with its "c/ sell in/out" label, or nothing at all when there is nothing to show (no sell in nor
- * sell out today), so the label never stands alone.
+ * `SellInOutMarkup` with its "c/ SO" label, or nothing at all when there is nothing to show (no sell out
+ * today), so the label never stands alone.
  */
 export function SellInOutMarkupLine({ sellInOut, className, labelClassName, labelTitle }) {
   const value = sellInOutMarkup(sellInOut);
@@ -69,7 +69,7 @@ export function SellInOutMarkupLine({ sellInOut, className, labelClassName, labe
   return (
     <span className={className}>
       <span className={labelClassName} title={labelTitle}>
-        c/ sell in/out{' '}
+        c/ SO{' '}
       </span>
       {value}
     </span>
@@ -77,28 +77,18 @@ export function SellInOutMarkupLine({ sellInOut, className, labelClassName, labe
 }
 
 function sellInOutMarkup(sellInOut) {
-  if (!sellInOut) return null;
-  const { sell_in: sellIn, sell_out: sellOut } = sellInOut;
+  const sellOut = sellInOut?.sell_out;
+  if (!sellOut) return null; // D1: no markup with sell in, it is already inside the costo SI
   const conSellOut = sellInOut.markups_sell_in_out?.[SELL_IN_OUT_KEY];
   if (!isBlank(conSellOut)) {
     return (
-      <span title={`Con sell in y sell out (sell out: $ ${amount(sellOut.monto_unit)} por unidad, sin IVA)`}>
+      <span title={`Con sell out ($ ${amount(sellOut.monto_unit)} por unidad, sin IVA)`}>
         <MarkupValue value={conSellOut} />
       </span>
     );
   }
-  const sellOutPendiente = Boolean(sellOut) && isBlank(sellOut.monto_unit);
-  const conSellIn = sellInOut.markups_sell_in?.[SELL_IN_OUT_KEY];
-  if (isBlank(conSellIn)) {
-    const costoPendiente = Boolean(sellIn) && isBlank(sellIn.costo);
-    if (costoPendiente || sellOutPendiente) {
-      return <Muted title="Falta el tipo de cambio o la base para calcular el markup">Pendiente</Muted>;
-    }
-    return null;
+  if (isBlank(sellOut.monto_unit)) {
+    return <Muted title="Falta el tipo de cambio o la base para calcular el markup">Pendiente</Muted>;
   }
-  return (
-    <span title={sellOutPendiente ? 'Con sell in; el sell out está pendiente' : 'Con sell in'}>
-      <MarkupValue value={conSellIn} />
-    </span>
-  );
+  return null;
 }

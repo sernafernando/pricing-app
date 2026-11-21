@@ -113,7 +113,7 @@ function Details({ row, canSeeMargin, tpOn, tpSolo, now }) {
             <Pair label="Mín / Máx 90D">
               {row.markup_min_90d == null ? '—' : `${formatPct(row.markup_min_90d)} / ${formatPct(row.markup_max_90d)}`}
             </Pair>
-            {sell && sell.total_gauss != null && <Pair label="c/ sell in/out">{formatPct(sell.markup_pct)}</Pair>}
+            {sell && sell.total_gauss != null && <Pair label="c/ SO">{formatPct(sell.markup_pct)}</Pair>}
           </div>
         </>
       )}
@@ -134,7 +134,6 @@ function Details({ row, canSeeMargin, tpOn, tpSolo, now }) {
         {sell && sell.costo != null && (
           <Pair label="Costo del período">
             {formatSignedMoney(sell.costo)}
-            {sell.costo_sell_in != null && <span className={styles.small}> c/ sell in {formatSignedMoney(sell.costo_sell_in)}</span>}
           </Pair>
         )}
         <Pair label="Stock · Ageing">

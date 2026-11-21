@@ -26,6 +26,7 @@ from app.models.gestion_full_unidades_caja import GestionFullUnidadesCaja
 from app.models.producto_propio import FUENTE_PROPIA, ProductoPropio
 from app.models.usuario import Usuario
 from app.schemas.publication_data import MAX_TITULO_LENGTH
+from app.services.costo_si import lote
 from app.services.gestion_full.unidades_caja import clear_unidades_caja, upsert_unidades_caja
 from app.services.producto_propio_service import upsert_producto_propio
 from app.services.producto_specs.campos import NOTEBOOK, PC, SUBCATEGORIAS_EXCLUIDAS, campos_de
@@ -230,6 +231,9 @@ def leer(db: Session, item_id: int) -> Optional[dict[str, Any]]:
     ganadora = db.execute(_GANADORA_SQL, {"item_id": item_id}).first()
     tn = db.execute(_TN_SQL, {"item_id": item_id}).first()
     unidades = db.get(GestionFullUnidadesCaja, item_id)
+    # costo SI next to the list cost (sell-in-costo-si S13, L6.2), from the reader: 'lista' when there is no costo SI
+    # (Q1); unknown is None, never 0
+    costo_si = lote.actuales(db, [item_id])[item_id]
     return {
         "item_id": item_id,
         "codigo": gbp["codigo"],
@@ -241,6 +245,9 @@ def leer(db: Session, item_id: int) -> Optional[dict[str, Any]]:
         "lectura": {
             "costo": gbp["costo"],
             "moneda_costo": gbp["moneda_costo"],
+            "costo_si": float(costo_si.costo) if costo_si.costo is not None else None,
+            "costo_si_moneda": costo_si.moneda,
+            "costo_si_fuente": costo_si.fuente,
             "iva": gbp["iva"],
             "stock": gbp["stock"],
             "precio_lista_ml": gbp["precio_lista_ml"],

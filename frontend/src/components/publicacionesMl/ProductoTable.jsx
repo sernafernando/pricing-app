@@ -39,7 +39,7 @@ import CatalogStatusBadge from '../CatalogStatusBadge';
  */
 // The columns a product row fills from its own product, as Productos' rows carry it: drawn by the publications' own
 // cells over the product read in their shape (`productAsItem`).
-const PRODUCT_FIELDS = new Set(['codigo', 'marca', 'costo', 'stock_erp']);
+const PRODUCT_FIELDS = new Set(['codigo', 'marca', 'costo', 'costo_si', 'stock_erp']);
 
 // A product's Tipo, Estado and Precio: the summary of ALL its publications (S6); its count is its first cell's second
 // line.
@@ -59,6 +59,7 @@ function productAsItem(node) {
     costo: node.costo,
     ppp: node.ppp,
     sell_in_out: node.sellInOut,
+    costo_si: node.costoSi,
   };
 }
 

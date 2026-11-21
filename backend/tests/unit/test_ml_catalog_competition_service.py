@@ -343,9 +343,7 @@ class TestRefrescarCompetenciaCatalogo:
                     new_callable=AsyncMock,
                 ),
             ):
-                rows = _run(
-                    refrescar_competencia_catalogo(db, ["MLA_US", "MLA_CHEAPER"], wait_reputation=True)
-                )
+                rows = _run(refrescar_competencia_catalogo(db, ["MLA_US", "MLA_CHEAPER"], wait_reputation=True))
 
         assert len(rows) == 2
         assert client.get_catalog_competition.await_count == 2

@@ -274,7 +274,7 @@ describe('S3-S7: the view', () => {
     expect(t.getByText('Cartucho Demo 01 negro')).toBeInTheDocument();
     expect(t.getByText('Con stock sin publicación activa')).toBeInTheDocument();
     expect(screen.getByText('$ 1.450,00')).toBeInTheDocument();
-    expect(screen.getByText('Valor a costo sin IVA')).toBeInTheDocument();
+    expect(screen.getByText('Valor a costo SI sin IVA')).toBeInTheDocument();
     const kpis = within(screen.getByRole('region', { name: 'Indicadores de la auditoría de stock' }));
     expect(kpis.getByText('USD 24.247')).toBeInTheDocument();
     expect(kpis.getByText('Con promo aplicada')).toBeInTheDocument();
@@ -292,7 +292,7 @@ describe('S3-S7: the view', () => {
   it('groups the columns Stock / Valor stock / Ventas / Markup / Resultado, Tipo and Estado included', async () => {
     await audit();
     const all = headers();
-    for (const name of ['Stock (unidades)', 'Valor stock (USD · ARS)', 'Ventas (unidades)', 'Markup con sell in / sell out', 'Resultado', 'Tipo', 'Estado', 'Actual', 'Real 30D', 'Total Gauss 30D']) {
+    for (const name of ['Stock (unidades)', 'Valor stock (USD · ARS)', 'Ventas (unidades)', 'Markup c/ SO', 'Resultado', 'Tipo', 'Estado', 'Actual', 'Real 30D', 'Total Gauss 30D']) {
       expect(all.some((text) => text.includes(name))).toBe(true);
     }
   });

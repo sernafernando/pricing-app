@@ -176,7 +176,7 @@ describe('PromoApplyControl — LIGHTNING', () => {
     await vi.advanceTimersByTimeAsync(400);
 
     const card = screen.getByRole('group', { name: 'Aplicar LIGHTNING' });
-    await waitFor(() => expect(card).toHaveTextContent('c/ sell in/out 16.0%'));
+    await waitFor(() => expect(card).toHaveTextContent('c/ SO 16.0%'));
   });
 
   it('shows no sell in / sell out figure in the card when the backend sends null', async () => {

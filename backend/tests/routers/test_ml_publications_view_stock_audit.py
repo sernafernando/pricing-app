@@ -1,10 +1,14 @@
 """Auditoría de stock (S3-S8): `GET /ml-publications/view/stock-audit` lists one row per base product with what its
-ERP and Full stock is worth at cost, in USD and ARS at the day's BNA rate, its variants under it, and the KPI strip
+ERP and Full stock is worth at costo SI, in USD and ARS at the day's BNA rate, its variants under it, and the KPI strip
 over every row. Gated by `ml_publicaciones.ver_auditoria_stock`. Invented data only.
+
+The stock is valued with the costo SI reader (`lote.actuales`): without `costo_si_pasos` rows that is each product's
+list cost, and a combo that is not a PC is its components x quantity (S11), so every combo's own list cost below is
+its components' sum.
 
 The world (rate 1000 ARS per USD):
 * notebook 100 (USD 1000, ERP 5): MLA10 and MLA11 share user product UP10 (Full 2, counted once);
-* variant 101 = notebook 100 + RAM 102 (USD 1100, ERP 3 derived from the base): MLA12, UP12 Full 1;
+* variant 101 = notebook 100 + RAM 102 (RAM USD 100; USD 1100, ERP 3 derived from the base): MLA12, UP12 Full 1;
 * 103 = notebook 100 + its warranty 104 (both filed as notebooks): base is the expensive one, 100; no publication;
 * pack 110 = 10 x mouse 111 (mouse USD 2, ERP 100; pack USD 20): MLA20, UP20 Full 3 -> 30 mice;
 * kit 120 = keyboard 121 + mouse 111: MLA30, UP30 Full 4 -> not shown, counted nowhere;
@@ -26,6 +30,7 @@ import pytest
 from sqlalchemy import text
 
 from app.routers import ml_publications_view
+from app.services.costo_si import lote
 from app.services.ml_daily_metrics import board
 from app.services.ml_publications.view import stock_audit
 from app.services.ml_publications.view.markup import PublicationMarkup
@@ -36,6 +41,11 @@ from tests.routers.test_ml_publications_view import seed_rows
 from tests.routers.test_ml_publications_view_kpis import pg, view_pg  # noqa: F401
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 (the costo SI reader's SQLite stand-in)
+
+pytestmark = pytest.mark.usefixtures("costo_si_lista")
+
+REAL_ACTUALES = lote.actuales  # the Postgres reader, before `costo_si_lista` swaps it per test
 
 URL = "/api/ml-publications/view/stock-audit"
 PERMISO = "ml_publicaciones.ver_auditoria_stock"
@@ -82,15 +92,34 @@ def create_snapshot_table(conn) -> None:
         module.upgrade()
 
 
+def costo_si_table(conn) -> None:
+    """The costo SI steps the valuation reads (`lote.actuales`): no step = the product's list cost (Q1)."""
+    from tests.services.ml_publications.conftest import COSTO_SI_READER_DDL
+
+    for ddl in COSTO_SI_READER_DDL:
+        conn.execute(text(ddl))
+
+
+def costo_si_step(conn, item_id: int, promedio: float, moneda: str = "USD") -> None:
+    """One costo SI step in force since 2026-10-01: the product's moving average with sell in (S1)."""
+    conn.execute(
+        text(
+            "INSERT INTO costo_si_pasos (item_id, orden, fecha, promedio_usd, moneda) VALUES (:i, 0, '2026-10-01', :p, :m)"
+        ),
+        {"i": item_id, "p": promedio, "m": moneda},
+    )
+
+
 def fill(conn) -> None:
     seed.create_presence_tables(conn)
     create_snapshot_table(conn)
+    costo_si_table(conn)
     for ddl in BOM_DDL:
         conn.execute(text(ddl))
     seed.add_usd_rate(conn, 1000.0, "2026-11-17")
     product(conn, 100, 1000, "USD", 5, 46, 3819)
     product(conn, 101, 1100, "USD", 3, 46, 3819)
-    product(conn, 102, 50, "USD", 0, 50)
+    product(conn, 102, 100, "USD", 0, 50)
     product(conn, 103, 1050, "USD", 0, 46, 3819)
     product(conn, 104, 50, "USD", 0, 46, 3819)
     product(conn, 110, 20, "USD", 0, 57)
@@ -325,7 +354,7 @@ def board_row(mla: str, *, d7: int, d30: int, gross: float, tg: float, costo: fl
 
 
 FIGURES = {
-    # the notebook's own sales: a sell in of 50 on the cost
+    # the notebook's own sales: a sell in of 50 on the cost (D1: never read, `view.real_so`)
     "MLA10": board_row(
         "MLA10",
         d7=1,
@@ -433,9 +462,16 @@ class TestStockAuditSales:
         grant(db, rol_admin, "ml_metricas.ver", "ml_metricas.ver_ganancia")
         rows = {row["product_item_id"]: row for row in audit(client, auditor)["rows"]}
         notebook = rows[100]
-        # own 2 + variant 1; Total Gauss 300 over cost 2000 = 15 %; with sell in / out: (300 + 50 + 30) / (2000 - 50)
+        # own 2 + variant 1; Total Gauss 300 over cost 2000 = 15 %; D1 with sell out: Total Gauss 300 + 30 and
+        # (300 + 30) / 2000, the own sell in of 50 ignored (neither off the cost nor on the profit)
         assert plain(notebook["ventas"]) == sales(
-            1, 3, 3500.0, total_gauss_30d=300.0, markup_30d=15.0, total_gauss_sell_30d=380.0, markup_sell_30d=19.5
+            1,
+            3,
+            3500.0,
+            total_gauss_30d=300.0,
+            markup_30d=15.0,
+            total_gauss_sell_30d=300.0 + 30.0,
+            markup_sell_30d=round((300 + 30) / 2000 * 100, 1),
         )
         assert plain(notebook["variantes"][0]["ventas"]) == sales(
             0, 1, 1500.0, total_gauss_30d=100.0, markup_30d=10.0, total_gauss_sell_30d=130.0, markup_sell_30d=13.0
@@ -587,7 +623,7 @@ class TestStockAuditMock:
         self, client, auditor, db, rol_admin, board_calls, list_markups
     ) -> None:
         grant(db, rol_admin, "ml_metricas.ver", "ml_metricas.ver_ganancia")
-        # the notebook's markup with sell in / out 19.5; the mouse has none, so its plain 25.0 is the one shown
+        # the notebook's markup with sell out 16.5 (D1); the mouse has none, so its plain 25.0 is the one shown
         asc = audit(client, auditor, orden="markup_30d", dir="asc")
         assert [row["product_item_id"] for row in asc["rows"]] == [100, 111, 130, 140]
         current = audit(client, auditor, orden="markup", dir="desc")
@@ -607,8 +643,8 @@ class TestStockAuditMock:
 
 
 def fill_without_cost(conn, *, rate: bool = True) -> None:
-    """The world above, plus 160 (no cost, ERP 4) and notebook 170 (USD 100, ERP 2) whose variant 171 = 170 + RAM 102
-    has no cost and Full 1 through MLA70; `rate=False` drops the BNA rate."""
+    """The world above, plus 160 (no cost, ERP 4) and notebook 170 (USD 100, ERP 2) whose variant 171 = 170 + 172
+    (172 without cost) has no cost and Full 1 through MLA70; `rate=False` drops the BNA rate."""
     fill(conn)
     if not rate:
         conn.execute(text("DELETE FROM tipo_cambio"))
@@ -617,7 +653,9 @@ def fill_without_cost(conn, *, rate: bool = True) -> None:
     product(conn, 170, 100, "USD", 2, 46, 3819)
     product(conn, 171, 1, "USD", 0, 46, 3819)
     seed.add_cost(conn, 171, None, moneda_costo="USD")
-    combo(conn, 171, (170, 1), (102, 1))
+    product(conn, 172, 1, "USD", 0, 50)
+    seed.add_cost(conn, 172, None, moneda_costo="USD")
+    combo(conn, 171, (170, 1), (172, 1))
     publication(conn, "MLA70", 171, "UP70")
     seed.add_stock(conn, "UP70", full=1, own=0)
 
@@ -687,6 +725,54 @@ class TestStockWithoutCost:
         kpis = body["kpis"]
         assert (kpis["erp"]["usd"], kpis["erp"]["ars"]) == (None, None)  # USD and ARS costs mixed, no rate
         assert kpis["total"]["unidades"] == 148
+
+
+def fill_costo_si(conn) -> None:
+    """300: list USD 30, costo SI USD 20, ERP 10. 301: no list cost and no costo SI, ERP 3. Rate 1000."""
+    seed.create_presence_tables(conn)
+    create_snapshot_table(conn)
+    costo_si_table(conn)
+    for ddl in BOM_DDL:
+        conn.execute(text(ddl))
+    seed.add_usd_rate(conn, 1000.0, "2026-11-17")
+    product(conn, 300, 30, "USD", 10, 60)
+    costo_si_step(conn, 300, 20)
+    product(conn, 301, 1, "USD", 3, 60)
+    seed.add_cost(conn, 301, None, moneda_costo="USD")
+
+
+@pytest.fixture()
+def auditor_costo_si(client, pg, db, rol_admin, admin_auth_headers, started, costo_si_lista, monkeypatch):
+    # these tests read real costo SI steps on Postgres: the real reader, not the module's list-only stand-in
+    monkeypatch.setattr(lote, "actuales", REAL_ACTUALES)
+    seed_rows(pg, fill_costo_si)
+    grant(db, rol_admin, PERMISO)
+    return admin_auth_headers
+
+
+@pytest.mark.postgres
+class TestStockAuditAtCostoSi:
+    """L4.7 ("El promedio es el que se va a mostrar y usar en todos los cálculos donde se use costo"): the stock is
+    valued at costo SI (`lote.actuales`), the list cost stays in `costo` / `moneda_costo`; no cost at all is
+    "sin costo", never 0 (L9)."""
+
+    def test_the_stock_is_valued_at_costo_si_not_at_the_list_cost(self, client, auditor_costo_si) -> None:
+        body = audit(client, auditor_costo_si)
+        row = next(r for r in body["rows"] if r["product_item_id"] == 300)
+        assert row["erp"] == money(10, 200.0, 200_000.0)
+        assert row["total"] == money(10, 200.0, 200_000.0)
+        assert (row["costo_si"], row["costo_si_moneda"]) == (20.0, "USD")
+        assert (row["costo"], row["moneda_costo"]) == (30.0, "USD")  # the list cost, as the export reads it
+        assert row["sin_costo"] is False
+
+    def test_a_product_without_any_cost_is_sin_costo_with_unknown_values(self, client, auditor_costo_si) -> None:
+        body = audit(client, auditor_costo_si)
+        row = next(r for r in body["rows"] if r["product_item_id"] == 301)
+        assert (row["erp"], row["total"]) == (money(3, None, None), money(3, None, None))
+        assert (row["costo_si"], row["costo_si_moneda"], row["sin_costo"]) == (None, None, True)
+        kpis = body["kpis"]
+        assert kpis["productos_sin_costo"] == 1
+        assert kpis["erp"] == money(13, 200.0, 200_000.0)  # 301's units counted, its value never summed as 0
 
 
 # --- L7: Exportar a Excel ----------------------------------------------------------------------------------------
@@ -764,8 +850,9 @@ class TestStockAuditExport:
     def test_with_ganancia_the_profit_and_markups(self, client, auditor, db, rol_admin, board_calls) -> None:
         grant(db, rol_admin, "ml_metricas.ver", "ml_metricas.ver_ganancia")
         notebook = {r["Código"]: r for r in sheet(client, auditor)}["C100"]
-        # the sell in / out figures where they apply, as the view's Real 30D and Total Gauss
-        assert (notebook["Total Gauss 30D"], notebook["Markup real 30D"]) == (380.0, 19.5)
+        # the sell out figures where they apply, as the view's Real 30D and Total Gauss (D1: the sell in of 50 is not
+        # read): 300 + 30 and (300 + 30) / 2000
+        assert (notebook["Total Gauss 30D"], notebook["Markup real 30D"]) == (300.0 + 30.0, round(330 / 2000 * 100, 1))
 
     def test_a_product_without_cost_exports_blank_values_and_says_so(self, client, auditor_without_cost) -> None:
         row = {r["Código"]: r for r in sheet(client, auditor_without_cost)}["C160"]

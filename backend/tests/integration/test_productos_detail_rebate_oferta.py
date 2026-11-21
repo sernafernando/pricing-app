@@ -60,9 +60,11 @@ REBATE_OFERTA_KEYS = (
 OUT_OF_CARDS_ITEM = 8
 
 # Upper bound for one GET /productos/{item_id} of a product with prices, a
-# rebate and an offer (21 when recorded): a guard against a per-row query
+# rebate and an offer (21 when recorded; 26 with the one costo SI read, at the
+# PPP rate, that the column, the sell in / sell out and the live markups share,
+# two statements through the SQLite stand-in): a guard against a per-row query
 # creeping in, not an exact pin.
-DETAIL_STATEMENTS_PRICED_MAX = 25
+DETAIL_STATEMENTS_PRICED_MAX = 26
 
 
 @pytest.fixture(autouse=True)

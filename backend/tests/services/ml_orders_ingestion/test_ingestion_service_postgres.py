@@ -60,7 +60,7 @@ def _flag_on(monkeypatch):
     # not stand up `congelar`'s own dependency tables on purpose (ENUM
     # type collision with `pg_payments_engine`) -- no-op it instead of
     # testing the cost-snapshot seam this module is not about.
-    monkeypatch.setattr(ingestion_service, "congelar", lambda db, order_id, items: None)
+    monkeypatch.setattr(ingestion_service, "congelar", lambda db, order_id, items, fecha_venta=None: None)
 
 
 @pytest.mark.postgres

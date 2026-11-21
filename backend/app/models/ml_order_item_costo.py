@@ -1,9 +1,12 @@
 """Frozen per-item cost snapshot (ml-ventas-modo-logistico, PR3, design D4).
 
-Written ONLY by `services/ml_orders_ingestion/costeo_service.py::congelar()`,
+Written by `services/ml_orders_ingestion/costeo_service.py::congelar()`,
 INSERT-only via `ON CONFLICT DO NOTHING` (design D5) — a re-ingestion of the
 same order/item NEVER rewrites an already-frozen row, so a later ERP cost
-change can never leak into a sale that has already been costed. This keeps
+change can never leak into a sale that has already been costed. The one
+rewrite: a costo SI change re-freezes the product's sales from that date
+(`recongelar_costo_si`, sell-in-costo-si T3 PR 7, owner L15), backing each
+changed row up in `ml_order_item_costos_backups` first. This keeps
 the cost seam `MlOrderItemOps` already documents: ingestion of the order/
 item rows themselves never reads ERP, and this table is the ONLY place ERP
 cost data is joined in.
@@ -12,11 +15,11 @@ Nothing reads this table yet in this slice (PR3 is write-only by design —
 see the tasks artifact: "merges EARLY... write-only, nothing reads it yet").
 
 `costo_fecha` (added by backfill-costo-congelado-historico): the date the
-frozen `costo_origen` is attributable to. NULL for every row THIS module
-(`congelar`) writes — the live path reads the CURRENT `ProductoERP.costo`,
-which carries no date of its own; `congelado_at` records WHEN we read it,
-not what date the value belongs to. Only
-`app/scripts/backfill_costo_congelado.py` sets it, to the
+frozen `costo_origen` is attributable to. Since costo SI (T3 PR 7) `congelar`
+and the re-freeze set it to the SALE date (ART) the cost was resolved on;
+NULL on older live-frozen rows (they read the CURRENT `ProductoERP.costo`,
+which carries no date of its own). The backfill
+`app/scripts/backfill_costo_congelado.py` sets it to the
 `ItemCostListHistory.iclh_cd` of the dated row it actually used, so a
 future correction can target exactly the rows a bad backfilled cost came
 from instead of re-deriving that from `fuente` alone.
@@ -107,12 +110,14 @@ class MlOrderItemCosto(Base):
     iva_pct = Column(Numeric(5, 2), nullable=False)
     precio_unitario = Column(Numeric(14, 2), nullable=False)
 
-    # The date `costo_origen` is attributable to. NULL for a live-frozen
-    # row (no dated source); the `ItemCostListHistory.iclh_cd` used, for a
-    # row written by `app/scripts/backfill_costo_congelado.py`. See the
-    # module docstring.
+    # The date `costo_origen` is attributable to: the sale date (costo SI
+    # freeze and re-freeze), NULL on an older live-frozen row, the
+    # `ItemCostListHistory.iclh_cd` used by the backfill. See the module
+    # docstring.
     costo_fecha = Column(Date, nullable=True)
 
+    # erp_publicacion / erp_sku / combo (list cost), costo_si_pub /
+    # costo_si_sku / costo_si_combo (costo SI, T3 PR 7), hist_* (backfill).
     fuente = Column(String(20), nullable=False)
     producto_item_id = Column(Integer, nullable=False)
 

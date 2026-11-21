@@ -47,8 +47,9 @@ export function fromVariants(row) {
   return { full, source };
 }
 
-/** Units of `product` at its cost, in USD and ARS at `rate` (ARS per USD); null where unknown. */
-export function valueOf(units, { costo, moneda_costo: moneda }, rate) {
+/** Units of `product` at its costo SI (`costo_si` in `costo_si_moneda`, the cost the backend values the stock at;
+ * `costo` is the list cost, shown only), in USD and ARS at `rate` (ARS per USD); null where unknown. */
+export function valueOf(units, { costo_si: costo, costo_si_moneda: moneda }, rate) {
   if (units == null || costo == null) return { usd: null, ars: null };
   const amount = costo * units;
   if (moneda === 'USD') return { usd: amount, ars: rate ? amount * rate : null };

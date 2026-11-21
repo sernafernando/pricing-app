@@ -181,6 +181,16 @@ describe('the product rows', () => {
     expect(cell.getAttribute('title')).toContain('c/ sell in en pesos: ARS 63.000,00');
   });
 
+  it("fills the product row's costo SI column from the product's own costo_si", async () => {
+    const costoSi = { costo: 40.1, moneda: 'USD', fuente: 'costo_si', desde: '2026-10-01', tipo_cambio: 1000, tipo_cambio_fecha: null, costo_ars: 40100 };
+    publicacionesMlAPI.products.mockResolvedValue({
+      data: productsResponse([{ ...PRODUCT_ROWS[0], ...COST_LINES, costo_si: costoSi }, PRODUCT_ROWS[2]]),
+    });
+    render(<Harness />);
+    const row = (await screen.findByText('Router Archer AX55')).closest('tr');
+    expect(within(row).getByText('USD 40,10').getAttribute('title')).toBe('Costo SI desde 01/10/26\nEn pesos: ARS 40.100,00 (TC 1000)');
+  });
+
   it('has no cost on a product row without ver_ganancia', async () => {
     render(<Harness canSeeMargin={false} />);
     const row = (await screen.findByText('Router Archer AX55')).closest('tr');

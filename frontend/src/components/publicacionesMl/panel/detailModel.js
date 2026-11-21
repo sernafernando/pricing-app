@@ -34,13 +34,16 @@ function readReplenishment(raw) {
   };
 }
 
-function readProduct(raw, canSeeMargin) {
+/** The linked product; with the margin permission, its cost and the costo SI the row's cost lines carry (S13). */
+function readProduct(raw, canSeeMargin, costoSi) {
   if (raw == null) return null;
   const { costo, moneda_costo: costCurrency, iva, ...identity } = raw;
   return {
     ...identity,
     precios_lista: raw.precios_lista ?? {},
-    ...(canSeeMargin ? { costo: costo ?? null, moneda_costo: costCurrency ?? null, iva: iva ?? null } : {}),
+    ...(canSeeMargin
+      ? { costo: costo ?? null, moneda_costo: costCurrency ?? null, costo_si: costoSi ?? null, iva: iva ?? null }
+      : {}),
   };
 }
 
@@ -68,7 +71,7 @@ export function readDetail(raw, { canSeeMargin = false } = {}) {
     stockAsOf: raw.stock_as_of ?? null,
     replenishment: readReplenishment(raw.replenishment),
     links: raw.links ?? [],
-    product: readProduct(raw.product, canSeeMargin),
+    product: readProduct(raw.product, canSeeMargin, row.costo_si),
     markupBreakdown: canSeeMargin ? (raw.markup_breakdown ?? null) : null,
     // Sell in / sell out of the breakdown's unit today; its markups under the key `publicacion` (same gate).
     sellInOut: canSeeMargin ? (raw.sell_in_out ?? null) : null,

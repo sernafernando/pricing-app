@@ -35,14 +35,16 @@ ENDPOINTS = {
 # sha256 of each response body, recorded on the code BEFORE `canal` existed (origin/main 80c6dc9b5). A change to
 # what the ML board answers fails here, naming the endpoint. `board`, `board_group` and `publications` re-recorded
 # when `sell_in_out` gained `sell_in_estimados` (tactical sell in USD S10): removing that one key from those bodies
-# gives the previous digests byte for byte.
+# gives the previous digests byte for byte. `board`, `board_group`, `publications` and `export` re-recorded when Costo SI
+# T3 D1 dropped the sell in figures (`sell_in`, `sell_in_estimados`, `costo_sell_in`; the CSV's "Sell in" / "Costo c/
+# sell in" columns, the c/ sell in/out headers renamed c/ SO): the bodies differ from the previous ones only by those.
 BEFORE = {
-    "board": "4c61ba3168d8d9621f8a03dc723b81b05b2756c61114a7512d96df01ffba6d97",
-    "board_group": "645f6f9431867b312961f1a6bf8c865b3c30d9618c6ae080feea5fcdafc2f4af",
+    "board": "9f3a05ff1518dfebac6efeed6766b8e6a7c3354cc36e22d09ca60f0492562890",
+    "board_group": "3719d8c1ecf38cdf369a1595d9fd7aecd75c8766ded6f44a476c26eb77130b87",
     "group_nodes": "cb5d47e33dd725b7e6ce2a1fdb8b36f73ddbdb0683a900a92bed8603ca567c25",
     "envios": "07fa64de8c9f2a887da307a3a76750d838c85def276035384b301ec41d59cd79",
-    "export": "ad65039d33e507128b511bb5dd12ea4bb5decce5f36e6bb39b3c695136043f07",
-    "publications": "b781b4a0f85cc678c48b64c2b0d2233a4ab649308b00d7af1f1f3dc64f7e3936",
+    "export": "9131ce80a147a1cb81d6e81b8c31a9939fcd2a8370e1c439967066424e2af5a6",
+    "publications": "27c1268ad11a3ce6a00805016b1edf17614a3512e345dd472917e0c923fad3c3",
 }
 
 

@@ -7,6 +7,11 @@ import PublicationStatusPill from './publicacionesMl/PublicationStatusPill';
 import { Layers } from 'lucide-react';
 import SellInLotes from './sellIn/SellInLotes';
 import { canViewProductPrices } from './pricing/productPricePermissions';
+import CostoSiCell from './CostoSiCell';
+
+// The costo SI in its own currency, es-AR: `USD 25,00`, pesos `$ 25.000,00`.
+const formatCostoSi = (monto, moneda) =>
+  `${moneda === 'ARS' ? '$' : moneda} ${monto.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /** A section drawn like the modal's own (card and heading), for components that take their host's section. */
 function InfoSection({ title, children }) {
@@ -250,6 +255,15 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                     <span className="info-label">Costo ({detalle.producto.moneda_costo}):</span>
                     <span className="info-value highlight">
                       ${detalle.producto.costo.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="info-item">
+                    <span className="info-label">Costo SI:</span>
+                    <span className="info-value highlight">
+                      <CostoSiCell costoSi={detalle.producto.costo_si} format={formatCostoSi} />
+                      {detalle.producto.costo_si?.moneda !== 'ARS' && detalle.producto.costo_si?.costo_ars != null && (
+                        <> · {formatCostoSi(detalle.producto.costo_si.costo_ars, 'ARS')}</>
+                      )}
                     </span>
                   </div>
                   {detalle.producto.moneda_costo === 'USD' && (

@@ -161,6 +161,7 @@ vi.mock('../../services/api', () => ({
         data: {
           productos: [
             { item_id: 4101, descripcion: 'Router Archer AX55', marca: 'TP-LINK', categoria: 'REDES', stock: 12, costo: 95.5, moneda_costo: 'USD',
+              costo_si: { costo: 95.5, moneda: 'USD', fuente: 'costo_si', costo_ars: null },
               precio_lista_ml: 189999, markup: 24.3, participa_rebate: true, precio_rebate: 197911, markup_rebate: 21.1,
               precio_3_cuotas: 209999, markup_3_cuotas: 18.2, precio_6_cuotas: 229999, markup_6_cuotas: 15.4,
               precio_pvp: 239999, markup_pvp: 31.9, has_catalog: true, catalog_status: 'winning', catalog_winner_price: 189999,
@@ -595,7 +596,7 @@ const showColumn = (scroller, header) => {
 };
 
 // Publicaciones with markup and an expanded row (publicaciones-ml-vista P11b.T4). Every row has its own price, promo
-// (ML co-funding included in the priced amount) and sell in / sell out, so "Actual" and "Actual c/ SISO" differ per
+// (ML co-funding included in the priced amount) and sell in / sell out, so "Actual" and "Actual c/ SO" differ per
 // row (pubml-markup-siso, L-owner).
 const PROMOS = [null, 'SMART', 'DEAL', 'PRE_NEGOTIATED', null, 'PRICE_MATCHING'];
 const marginRow = (item, i) => {
@@ -624,7 +625,7 @@ const marginRow = (item, i) => {
     markup_siso: siso,
   };
 };
-// A PC (combo of the PC category): its own sell out campaign lifts its markup c/ SISO (L-owner-2).
+// A PC (combo of the PC category): its own sell out campaign lifts its markup c/ SO (L-owner-2).
 const PC_ROW = {
   ...marginRow(MANY[0], 1),
   item_id: 'MLA1100000299',
@@ -666,7 +667,7 @@ describe('Publicaciones ML with markup and an expanded row (visual)', () => {
         const screen = await renderMarginPage({ width, height, theme });
         const scroller = scrollerOf();
         const group = [...scroller.querySelectorAll('thead th[scope="colgroup"]')].find((th) => th.textContent === 'Markup');
-        expect(group.colSpan).toBe(5); // Actual, Actual c/ SISO, Real 30D, Real 30D c/ SISO, Tendencia
+        expect(group.colSpan).toBe(5); // Actual, Actual c/ SO, Real 30D, Real 30D c/ SO, Tendencia
         const header = scroller.querySelector('thead th[data-column="markup"]');
         expect(header.textContent).toBe('Actual');
         expect(wrapped([header.querySelector('button')])).toEqual([]);
@@ -685,23 +686,23 @@ describe('Publicaciones ML with markup and an expanded row (visual)', () => {
         screen.unmount();
       });
 
-      it(`${width}x${height} ${theme}: the markup c/ SISO columns read on one line inside their cells (pubml-markup-siso)`, async () => {
+      it(`${width}x${height} ${theme}: the markup c/ SO columns read on one line inside their cells (pubml-markup-siso)`, async () => {
         const screen = await renderMarginPage({ width, height, theme });
         const scroller = scrollerOf();
         const headers = ['markup_siso', 'markup_sell_30d'].map((key) => scroller.querySelector(`thead th[data-column="${key}"]`));
-        expect(headers.map((th) => th.textContent)).toEqual(['Actual c/ SISO', 'Real 30D c/ SISO']);
+        expect(headers.map((th) => th.textContent)).toEqual(['Actual c/ SO', 'Real 30D c/ SO']);
         expect(wrapped(headers.map((th) => th.querySelector('button')))).toEqual([]);
         await expect.element(screen.getByText('Pendiente').first()).toBeVisible();
         const cells = [...scroller.querySelectorAll('tbody td[data-column="markup_siso"] span')];
         expect(cells.length).toBeGreaterThan(0);
         expect(wrapped(cells.filter((el) => /%|Pendiente/.test(el.textContent)))).toEqual([]);
         expect(overflowingCells(scroller)).toEqual([]);
-        // Each row its own figures: the c/ SISO column is not one value repeated, and the PC shows it applied.
+        // Each row its own figures: the c/ SO column is not one value repeated, and the PC shows it applied.
         const shown = cells.map((el) => el.textContent).filter((text) => /%/.test(text));
         expect(new Set(shown).size).toBeGreaterThan(10);
         const pc = [...scroller.querySelectorAll('tbody tr')].find((tr) => tr.textContent.includes('MLA1100000299'));
         expect(pc.querySelector('td[data-column="markup_siso"]').textContent).toMatch(/31,6/);
-        // Actual and Actual c/ SISO side by side, right of the frozen column, and the PC's row in view.
+        // Actual and Actual c/ SO side by side, right of the frozen column, and the PC's row in view.
         const actual = scroller.querySelector('thead th[data-column="markup"]');
         const frozen = scroller.querySelector('thead th[data-column="publicacion"]') ?? scroller.querySelector('thead th');
         window.scrollTo(0, rect(scroller).top + window.scrollY - 16);
@@ -1135,11 +1136,11 @@ describe('Publicaciones ML Producto view (visual)', () => {
         screen.unmount();
       });
 
-      it(`${width}x${height} ${theme}: a product row reads its Real 30D c/ SISO on one line (pubml-markup-siso)`, async () => {
+      it(`${width}x${height} ${theme}: a product row reads its Real 30D c/ SO on one line (pubml-markup-siso)`, async () => {
         const screen = await renderProducts({ width, height, theme });
         const scroller = scrollerOf();
         const header = scroller.querySelector('thead th[data-column="markup_sell_30d"]');
-        expect(header.textContent).toBe('Real 30D c/ SISO');
+        expect(header.textContent).toBe('Real 30D c/ SO');
         await expect.element(screen.getByText('23,9%').first()).toBeVisible();
         const cells = [...scroller.querySelectorAll('tbody td[data-column="markup_sell_30d"] span')].filter((el) => /%/.test(el.textContent));
         expect(cells.length).toBeGreaterThan(0);
@@ -1208,7 +1209,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
       it(`${width}x${height} ${theme}: a product row fills its code, brand, cost and ERP stock inside their cells`, async () => {
         const screen = await renderProducts({ width, height, theme });
         await screen.getByRole('button', { name: 'Columnas' }).click();
-        for (const name of ['Código', 'Marca', 'Costo']) await screen.getByRole('checkbox', { name }).click();
+        for (const name of ['Código', 'Marca', 'Costo']) await screen.getByRole('checkbox', { name, exact: true }).click();
         await screen.getByRole('button', { name: 'Columnas' }).click();
         const row = rowWith(scrollerOf(), 'Router Archer AX55');
         for (const text of ['TP-LINK', 'USD 45,50', '12']) {
@@ -1228,7 +1229,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
       it(`${width}x${height} ${theme}: the cost cell of a product row is one line, as tall as a row without sell in (S10b)`, async () => {
         const showCost = async (screen) => {
           await screen.getByRole('button', { name: 'Columnas' }).click();
-          await screen.getByRole('checkbox', { name: 'Costo' }).click();
+          await screen.getByRole('checkbox', { name: 'Costo', exact: true }).click(); // not its "Costo SI" neighbour
           await screen.getByRole('button', { name: 'Columnas' }).click();
         };
         // The same row without PPP nor sell in first: the height the cost cell must not add to.
@@ -2005,7 +2006,7 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
         });
         const figures = screen.getByRole('region', { name: 'Cifras de la publicación' });
         await expect.element(figures.getByText('Costo', { exact: true })).toBeVisible();
-        await expect.element(figures.getByText('c/ sell in/out', { exact: false })).toBeVisible();
+        await expect.element(figures.getByText('c/ SO', { exact: false })).toBeVisible();
         const region = figures.element();
         const panel = panelOf();
         expect(rect(region).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
@@ -3666,7 +3667,7 @@ describe('Publicaciones ML panel, promo markups with sell in / sell out (visual)
 
   for (const theme of THEMES) {
     for (const variant of ['wide', 'default']) {
-      it(`1920x2700 ${theme} ${variant}: the c/ sell in/out figure sits under each markup and fits the panel`, async () => {
+      it(`1920x2700 ${theme} ${variant}: the c/ SO figure sits under each markup and fits the panel`, async () => {
         if (variant === 'wide') localStorage.setItem(widthKey, '1040');
         else localStorage.removeItem(widthKey);
         promocionesAPI.getMarkupParaPrecio.mockImplementation((_mla, price) => {
@@ -3684,15 +3685,15 @@ describe('Publicaciones ML panel, promo markups with sell in / sell out (visual)
           detailExtra: { can_resync: true, can_change_status: true },
         });
         await expect.element(screen.getByRole('button', { name: 'Aplicar sugerencia' }).first()).toBeVisible();
-        // Markup vigente comes from Activa ahora (S9 started @ 59999, -28.7) + its sell in/out (+6.4 → -22.3).
-        await expect.element(screen.getByText(/Markup vigente ~ -28,70% · c\/ sell in\/out -22,30%/)).toBeVisible();
+        // Markup vigente comes from Activa ahora (S9 started @ 59999, -28.7) + its sell out (+6.4 → -22.3).
+        await expect.element(screen.getByText(/Markup vigente ~ -28,70% · c\/ SO -22,30%/)).toBeVisible();
         const panel = panelOf();
         const section = panel.querySelector('section[aria-label="Disponibles para activar"]');
         const lightningRow = [...section.querySelectorAll('li')].find((li) => li.textContent.startsWith('LIGHTNING'));
         await userEvent.click([...lightningRow.querySelectorAll('button')].find((el) => el.textContent === 'Aplicar'));
         const card = screen.getByRole('group', { name: 'Aplicar LIGHTNING' });
         await expect.element(card).toBeVisible();
-        await expect.poll(() => card.element().textContent, { timeout: 3000 }).toContain('c/ sell in/out -17.7%');
+        await expect.poll(() => card.element().textContent, { timeout: 3000 }).toContain('c/ SO -17.7%');
         await frame();
         expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
         if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/s9-sell-in-out-${variant}-${theme}.png`, element: panel });

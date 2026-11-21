@@ -13,8 +13,11 @@ through `filters.erp_categories_select`):
 * a product that is not a combo is its own row.
 
 What a row is worth (owner, 2026-11-17: "Costo x Stock, en USD y en ARS al cambio BNA del día. Sobre los productos
-base, no me sumes las variantes como si fueran un producto adicional"): the catalog cost (no VAT) times the
-units. ERP: the base product's own ERP stock; a variant's ERP stock is derived from its base, so it is neither shown
+base, no me sumes las variantes como si fueran un producto adicional"): the costo SI (no VAT; L4.7: "El promedio es el
+que se va a mostrar y usar en todos los cálculos donde se use costo") times the units, read with `costo_si.lote.actuales`
+at the audit's BNA rate (a product without costo SI: its list cost, the reader's own fallback; a combo: its
+components). The list cost stays in the row's `costo` / `moneda_costo`, the costo SI goes next to it (`costo_si`,
+`costo_si_moneda`). ERP: the base product's own ERP stock; a variant's ERP stock is derived from its base, so it is neither shown
 nor added. Full: the units at ML's warehouse of the publications linked to the product, each user product counted
 once (a classic and a premium listing share one); a variant's Full units add to its base's, worth the variant's own
 cost, and in base units (a pack's units times its quantity). The variant row shows its own part.
@@ -58,10 +61,12 @@ from sqlalchemy import ARRAY, Integer, Text, bindparam, func, select, text
 from sqlalchemy.orm import Session
 
 from app.models.tipo_cambio import TipoCambio
+from app.services.costo_si import lote
 from app.services.ml_daily_metrics import board
 from app.services.ml_daily_metrics.groups import NO_GROUP, NO_LABELS, dimension_of
 from app.services.ml_daily_metrics.kpi_strip import round_money, round_pp
 from app.services.combos.pcs import CAT_PC  # the one PC rule, shared with sell out (`combos.pcs`)
+from app.services.ml_publications.view import real_so
 from app.services.ml_publications.view.cost_lines import siso_markups
 from app.services.ml_publications.view.filters import (
     T,
@@ -229,7 +234,13 @@ def _round(value: Optional[float]) -> Optional[float]:
     return None if value is None else round(value, 2)
 
 
-SELL_FIELDS = ("sell_in", "sell_out", "m_sell_in", "m_sell_out", "sell_in_lineas", "sell_out_lineas")
+def _unit(cost: Optional[Decimal]) -> Optional[float]:
+    """A unit cost as the payload's `costo` carries it (a float, unrounded); None stays unknown."""
+    return None if cost is None else float(cost)
+
+
+# D1 (sell-in-costo-si): only the sell out of the Board's lines; their sell in is never read (`real_so`)
+SELL_FIELDS = ("sell_out", "m_sell_out", "sell_out_lineas")
 
 
 NO_POINTS: tuple = ()  # a day of `Sales.series_markups` without any markup point
@@ -246,11 +257,8 @@ class Sales:
     mtg: Decimal = Decimal(0)
     costo: Decimal = Decimal(0)
     any_board_row: bool = False
-    sell_in: Optional[Decimal] = None
     sell_out: Optional[Decimal] = None
-    m_sell_in: Optional[Decimal] = None
     m_sell_out: Optional[Decimal] = None
-    sell_in_lineas: Optional[int] = None
     sell_out_lineas: Optional[int] = None
     series_units: list[Decimal] = field(default_factory=list)
     # per day: the (markup, units) of each publication with a markup that day
@@ -339,17 +347,17 @@ class Sales:
 
     @property
     def total_gauss_shown(self) -> Optional[Decimal]:
-        """The Total Gauss the view shows: with sell in / out applied where it applies, else the plain one."""
+        """The Total Gauss the view shows: with sell out added where it applies (D1, `real_so`), else the plain one."""
         if not self.any_board_row:
             return None
-        applied = board.SellInOut.total_gauss_sell(self)
+        applied = real_so.total_gauss_so(self)
         return self.tg if applied is None else applied
 
     @property
     def markup_shown(self) -> Optional[Decimal]:
         if not self.any_board_row:
             return None
-        applied = board.SellInOut.markup_sell(self)
+        applied = real_so.markup_so(self)
         return board.markup_of(self.mtg, self.costo) if applied is None else applied
 
     def add(
@@ -482,9 +490,9 @@ class Sales:
             known = self.any_board_row
             body["total_gauss_30d"] = round_money(self.tg) if known else None
             body["markup_30d"] = round_pp(board.markup_of(self.mtg, self.costo)) if known else None
-            # None where neither sell in nor sell out applies (never a copy of the figures without them)
-            body["total_gauss_sell_30d"] = round_money(board.SellInOut.total_gauss_sell(self))
-            body["markup_sell_30d"] = round_pp(board.SellInOut.markup_sell(self))
+            # None where no sell out applies (never a copy of the figures without it); D1: c/ SO (`real_so`)
+            body["total_gauss_sell_30d"] = round_money(real_so.total_gauss_so(self))
+            body["markup_sell_30d"] = round_pp(real_so.markup_so(self))
         return body
 
 
@@ -495,8 +503,10 @@ class Product:
     descripcion: Optional[str]
     marca: Optional[str]
     stock: Optional[int]
-    costo: Optional[float]
+    costo: Optional[float]  # the list cost (the catalog's `costo`), shown, never a valuation
     moneda: str
+    costo_si: Optional[Decimal] = None  # the cost the stock is valued at (`lote.actuales`); None = unknown
+    costo_si_moneda: Optional[str] = None
 
 
 @dataclass
@@ -579,11 +589,11 @@ def read_rate(db: Session) -> Rate:
 
 
 def value(product: Product, units: float, rate: Rate) -> tuple[Optional[float], Optional[float]]:
-    """`units` of `product` at its cost, in USD and in ARS (no cost: unknown; USD <-> ARS needs the rate)."""
-    if product.costo is None or not units:
-        return (0.0, 0.0) if product.costo is not None else (None, None)
-    amount = product.costo * units
-    if moneda_de(product.moneda) == "USD":
+    """`units` of `product` at its costo SI, in USD and in ARS (no cost: unknown; USD <-> ARS needs the rate)."""
+    if product.costo_si is None or not units:
+        return (0.0, 0.0) if product.costo_si is not None else (None, None)
+    amount = float(product.costo_si) * units
+    if product.costo_si_moneda == "USD":
         return amount, (amount * rate.usd_ars if rate.usd_ars else None)
     return (amount / rate.usd_ars if rate.usd_ars else None), amount
 
@@ -653,6 +663,8 @@ class Audit:
     rows: list[Row]
     rate: Rate
     active: frozenset[str]
+    # product id -> the `lote.Costo` the stock was valued at (one read): the export's costo SI columns reuse it
+    costos: dict[int, lote.Costo] = field(default_factory=dict)
 
 
 def build(db: Session, f: PublicationFilter, rate: Rate) -> Audit:
@@ -666,8 +678,11 @@ def build(db: Session, f: PublicationFilter, rate: Rate) -> Audit:
     return _assemble(db, pairs, stock_only, rate)
 
 
-def _assemble(db: Session, pairs: list[tuple[str, int]], stock_only: list[int], rate: Rate) -> Audit:
-    """The base rows of these (MLA, product) pairs and stock-only products, with their stock (S3-S6)."""
+def _assemble(
+    db: Session, pairs: list[tuple[str, int]], stock_only: list[int], rate: Rate, *, valued: bool = True
+) -> Audit:
+    """The base rows of these (MLA, product) pairs and stock-only products, with their stock (S3-S6); `valued`
+    False skips the cost read (the whole products of `_whole_products` give units only)."""
     components = _bom(db)
     linked = {product for _, product in pairs} | set(stock_only)
     combo_ids = [p for p in linked if p in components]
@@ -687,13 +702,19 @@ def _assemble(db: Session, pairs: list[tuple[str, int]], stock_only: list[int], 
 
     bases = {b[0] for p in linked if (b := base_of(p)) is not None}
     catalog = _products(db, bases | linked)
+    for item in bases | linked:
+        catalog.setdefault(item, Product(item, None, None, None, None, None, "ARS"))
+    costos: dict[int, lote.Costo] = {}
+    if valued:  # ONE read of every base and variant's costo SI, at the audit's rate
+        costos = lote.actuales(db, catalog, tipo_cambio=rate.usd_ars)
+        for item, found in costos.items():
+            catalog[item].costo_si, catalog[item].costo_si_moneda = found.costo, found.moneda
     full = _full_units(db, pairs)
     rows: dict[int, Row] = {}
 
     def row(base: int, kind: str) -> Optional[Row]:
         if base not in rows:
-            product = catalog.get(base) or Product(base, None, None, None, None, None, "ARS")
-            rows[base] = Row(product, PC if kind == PC else PRODUCTO)
+            rows[base] = Row(catalog[base], PC if kind == PC else PRODUCTO)
         return rows[base]
 
     paired = {product for _, product in pairs}
@@ -709,8 +730,7 @@ def _assemble(db: Session, pairs: list[tuple[str, int]], stock_only: list[int], 
         r = row(base, kind)
         if product == base:
             continue
-        variant_product = catalog.get(product) or Product(product, None, None, None, None, None, "ARS")
-        r.variants.setdefault(product, Variant(variant_product, kind, kinds[product].cantidad))
+        r.variants.setdefault(product, Variant(catalog[product], kind, kinds[product].cantidad))
 
     for mla, product in pairs:
         located = base_of(product)
@@ -726,21 +746,21 @@ def _assemble(db: Session, pairs: list[tuple[str, int]], stock_only: list[int], 
     for r in rows.values():
         stock = r.product.stock or 0
         if stock > 0:
-            r.erp.add_part(stock, *value(r.product, stock, rate), sin_costo=r.product.costo is None)
+            r.erp.add_part(stock, *value(r.product, stock, rate), sin_costo=r.product.costo_si is None)
         own_full = full.get(r.product.item_id, 0)
         if own_full:
-            r.full.add_part(own_full, *value(r.product, own_full, rate), sin_costo=r.product.costo is None)
+            r.full.add_part(own_full, *value(r.product, own_full, rate), sin_costo=r.product.costo_si is None)
         for v in r.variants.values():
             units = full.get(v.product.item_id, 0)
             if not units:
                 continue
             usd, ars = value(v.product, units, rate)
-            v.full.add_part(units, usd, ars, sin_costo=v.product.costo is None)
+            v.full.add_part(units, usd, ars, sin_costo=v.product.costo_si is None)
             v.full_unidades_base = int(units * v.cantidad)
-            r.full.add_part(v.full_unidades_base, usd, ars, sin_costo=v.product.costo is None)
+            r.full.add_part(v.full_unidades_base, usd, ars, sin_costo=v.product.costo_si is None)
 
     with_stock = [r for r in rows.values() if r.erp.unidades > 0 or r.full.unidades > 0]
-    return Audit(with_stock, rate, _active(db, {m for r in with_stock for m in r.publications}))
+    return Audit(with_stock, rate, _active(db, {m for r in with_stock for m in r.publications}), costos)
 
 
 def summed_from_rows(db: Session, members: list[tuple[str, str, Decimal]], sell_in_out: bool) -> SummedSales:
@@ -863,7 +883,7 @@ def _whole_products(db: Session, audit: "Audit") -> dict[int, Row]:
         return {}
     candidates = bases | {combo for combo, parts in _bom(db).items() if any(item in bases for item, _ in parts)}
     pairs = _pairs(db, PublicationFilter(), candidates)
-    whole = _assemble(db, pairs, sorted(bases), audit.rate)
+    whole = _assemble(db, pairs, sorted(bases), audit.rate, valued=False)
     return {w.product.item_id: w for w in whole.rows if w.product.item_id in bases}
 
 
@@ -1036,7 +1056,7 @@ def enrich(
 ) -> None:
     """The detail columns of `rows` (the page's, or every row): Tipo and Estado, sales and Rotación (`ml_metricas.ver`)
     and the current markup (`ml_metricas.ver_ganancia`), each with ONE read for all of them."""
-    part = Audit(list(rows), audit.rate, audit.active)
+    part = Audit(list(rows), audit.rate, audit.active, audit.costos)
     add_summaries(db, part)
     if sales:
         add_sales(db, part, sell_in_out=margin, today=today)
@@ -1138,7 +1158,7 @@ def restrict(audit: "Audit", marca: Optional[str], categoria: Optional[str]) -> 
         and (marca is None or r.group.marca == marca)
         and (categoria is None or r.group.categoria == categoria)
     ]
-    return Audit(rows, audit.rate, audit.active)
+    return Audit(rows, audit.rate, audit.active, audit.costos)
 
 
 @dataclass
@@ -1354,6 +1374,8 @@ def row_out(
         "marca": p.marca,
         "costo": p.costo,
         "moneda_costo": p.moneda,
+        "costo_si": _unit(p.costo_si),
+        "costo_si_moneda": p.costo_si_moneda,
         "erp": r.erp.out(),
         "full": r.full.out(),
         "total": r.total.out(),
@@ -1376,6 +1398,8 @@ def row_out(
                 "cantidad": float(v.cantidad),
                 "costo": v.product.costo,
                 "moneda_costo": v.product.moneda,
+                "costo_si": _unit(v.product.costo_si),
+                "costo_si_moneda": v.product.costo_si_moneda,
                 "full": v.full.out(),
                 "full_unidades_base": v.full_unidades_base,
                 "sin_costo": v.full.sin_costo,

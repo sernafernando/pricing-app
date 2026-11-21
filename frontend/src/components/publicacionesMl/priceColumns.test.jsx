@@ -394,7 +394,14 @@ describe('priceColumns', () => {
     });
   });
   describe("Productos' markup con offsets (the clásica markup over the cost the offsets discount)", () => {
-    const TP = { ...PRODUCT, costo: 800, moneda_costo: 'ARS', marca: 'TP-LINK' };
+    // The offsets discount the costo SI (FE3), never the list cost.
+    const TP = {
+      ...PRODUCT,
+      costo: 900,
+      moneda_costo: 'ARS',
+      marca: 'TP-LINK',
+      costo_si: { costo: 800, moneda: 'ARS', fuente: 'costo_si', costo_ars: 800 },
+    };
     const tenPercent = { id: 1, tipo_offset: 'porcentaje_costo', porcentaje: 10, marca: 'TP-LINK' };
     const offsets = (list = [tenPercent], tipoCambio = null) => ({ offsets: list, grupoFiltros: {}, canal: 'ml', tipoCambio });
     const clasicaOf = (product, options = {}) =>
@@ -435,9 +442,13 @@ describe('priceColumns', () => {
     });
 
     it('a USD cost needs the USD rate: none without it, never an assumed one', () => {
-      const usd = { ...TP, costo: 1, moneda_costo: 'USD' };
+      const usd = { ...TP, costo: 1, moneda_costo: 'USD', costo_si: { costo: 1, moneda: 'USD', fuente: 'costo_si', costo_ars: null } };
       expect(cell(clasicaOf(usd))).not.toContain('→');
       expect(cell(clasicaOf(usd, { offsets: offsets([tenPercent], 800) }))).toContain('→ 38,9%');
+    });
+
+    it('a row without the costo SI field shows no markup con offsets, never one from the list cost', () => {
+      expect(cell(clasicaOf({ ...TP, costo_si: undefined }))).not.toContain('→');
     });
   });
 });

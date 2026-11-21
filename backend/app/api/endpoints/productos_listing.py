@@ -17,6 +17,7 @@ from app.api.deps import get_current_user, require_algun_permiso
 from app.api.endpoints.pricing import PERMISOS_EDITAR_PRODUCTOS_O_TIENDA
 from app.services.envio_real_service import resolver_costos_envio_batch
 from app.services.productos_sell_in_out import MarkupCompanions, parse_contextos_query, resolver_sell_in_out_batch
+from app.services.costo_si import columna as costo_si_columna, lote as costo_si_lote
 from app.services.tienda_sell_in_out import (
     CLAVE_GREMIO,
     CLAVE_SUGERIDO,
@@ -985,6 +986,9 @@ def listar_productos(
                 col = ProductoERP.moneda_costo
             elif campo == "costo":
                 col = ProductoERP.costo
+            elif campo == "costo_si":
+                # The costo SI column (display only): its pesos, so USD and ARS costs compare as money.
+                col = costo_si_columna.orden(f"{ProductoERP.__tablename__}.item_id")
             elif campo == "stock":
                 col = ProductoERP.stock
             elif campo == "precio_lista_ml":
@@ -1013,7 +1017,8 @@ def listar_productos(
     # Los filtros de markup ahora se aplican en SQL, no necesitamos traer todo
     total_productos = None
     if not orden_requiere_calculo:
-        total_productos = query.count()
+        # without the ORDER BY: it never changes the total, and a computed sort (costo SI) would run twice
+        total_productos = query.order_by(None).count()
         offset = (page - 1) * page_size
         results = query.offset(offset).limit(page_size).all()
     else:
@@ -1039,7 +1044,7 @@ def listar_productos(
         calcular_comision_ml_total,
         calcular_limpio,
         calcular_markup,
-        costos_ars_actuales,
+        costos_ars_de,
     )
     from datetime import date
 
@@ -1060,13 +1065,17 @@ def listar_productos(
 
     # ── Batch-resolve PPP (ERP weighted-average cost, informational only) ────
     ppp_by_item = resolver_ppp_batch(db, all_item_ids_page)
-    # The live markups are over costo SI in pesos (S13, D1; list cost without one, Q1). 0 = unknown: no markup.
-    costo_si_page = costos_ars_actuales(db, all_item_ids_page, tipo_cambio_usd)
+    # One read of the page's costs: the live markups are over costo SI in pesos (S13, D1; list cost without one, Q1;
+    # None = unknown: no markup), and the costo SI column beside the list cost shows them.
+    costo_si_by_item = costo_si_lote.actuales(db, all_item_ids_page, tipo_cambio=tipo_cambio_usd)
+    costo_si_page = costos_ars_de(costo_si_by_item)
     try:
         contextos_markup = parse_contextos_query(markup_contextos)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    sell_in_out_batch = resolver_sell_in_out_batch(db, all_item_ids_page, hoy, contextos=contextos_markup)
+    sell_in_out_batch = resolver_sell_in_out_batch(
+        db, all_item_ids_page, hoy, contextos=contextos_markup, costos=costo_si_by_item
+    )
     ppp_markups_by_item: dict[int, MarkupCompanions] = {}
 
     _resolve_envio = partial(resolve_envio, ctx, envio_real_by_item)
@@ -1297,7 +1306,9 @@ def listar_productos(
             iva=producto_erp.iva,
             stock=producto_erp.stock,
             precio_lista_ml=producto_pricing.precio_lista_ml if producto_pricing else None,
-            markup=producto_pricing.markup_calculado if producto_pricing else None,
+            # The stored markup only while the cost is known: the recompute never overwrites it from an unknown
+            # cost, so without one it would be a stale figure (interfaz §7: unknown is "—").
+            markup=producto_pricing.markup_calculado if producto_pricing and costo_si_fila is not None else None,
             usuario_modifico=None,
             fecha_modificacion=producto_pricing.fecha_modificacion if producto_pricing else None,
             tiene_precio=producto_pricing.precio_lista_ml is not None if producto_pricing else False,
@@ -1380,6 +1391,7 @@ def listar_productos(
             catalog_status=None,  # Se llenará después
             has_catalog=None,  # Se llenará después
             ppp=ppp.ppp.payload(),
+            costo_si=costo_si_columna.payload(costo_si_by_item.get(producto_erp.item_id)),
             sell_in_out=ppp.sell_in_out.payload(),
         )
 
@@ -2152,6 +2164,9 @@ def listar_productos_tienda(
                 col = ProductoERP.stock
             elif campo == "costo":
                 col = ProductoERP.costo
+            elif campo == "costo_si":
+                # The costo SI column (display only), as in `listar_productos`.
+                col = costo_si_columna.orden(f"{ProductoERP.__tablename__}.item_id")
             elif campo == "precio_clasica":
                 # Igual que en `listar_productos`: la columna "Precio Clásica"
                 # se ordena por markup, no por precio. La celda muestra precio
@@ -2225,7 +2240,7 @@ def listar_productos_tienda(
         # ausentes al paginar. `item_id` es la PK de productos_erp.
         query = query.order_by(ProductoERP.item_id.asc())
 
-    total = query.count()
+    total = query.order_by(None).count()  # the ORDER BY never changes the total (a costo SI sort would run twice)
     offset = (page - 1) * page_size
     results = query.offset(offset).limit(page_size).all()
 
@@ -2308,10 +2323,10 @@ def listar_productos_tienda(
     from app.services.pricing_calculator import (
         obtener_tipo_cambio_actual,
         convertir_a_pesos,
+        costos_ars_de,
         calcular_comision_ml_total,
         calcular_limpio,
         calcular_markup,
-        costos_ars_actuales,
         GRUPO_DEFAULT,
     )
     from app.models.comision_config import SubcategoriaGrupo
@@ -2410,11 +2425,13 @@ def listar_productos_tienda(
 
     # ── Batch-resolve PPP (ERP weighted-average cost, informational only) ────
     ppp_by_item_t = resolver_ppp_batch(db, item_ids_results)
-    # Tienda's markups are over costo SI in pesos (S13, D1; the list cost without a costo SI step, Q1). None = unknown
-    # (a USD cost without a rate, or no cost): no markup, never 0 or a USD figure taken as pesos (interfaz §7).
-    costo_si_ars_t = costos_ars_actuales(db, item_ids_results, tipo_cambio_usd_t)
+    # Costo SI, read once for the page at the rate the markups use: the column beside the list cost, and in pesos the
+    # base of Tienda's markups (S13, D1; the list cost without a costo SI step, Q1). None = unknown (a USD cost without
+    # a rate, or no cost): no markup, never 0 or a USD figure taken as pesos (interfaz §7).
+    costo_si_by_item_t = costo_si_lote.actuales(db, item_ids_results, tipo_cambio=tipo_cambio_usd_t)
+    costo_si_ars_t = costos_ars_de(costo_si_by_item_t)
     # Sell in / sell out per channel context (gremio / sugerido: off-ML; web_transf: Tienda Nube), one read.
-    sell_in_out_batches_t = resolver_tienda_batches(db, item_ids_results, hoy)
+    sell_in_out_batches_t = resolver_tienda_batches(db, item_ids_results, hoy, costos=costo_si_by_item_t)
 
     def _resolve_envio_t(item_id: int, producto_envio: float, grupo_id: int, precio: float) -> float:
         # Real cost from mlwebhook DB (already resolved as batch)
@@ -2632,7 +2649,12 @@ def listar_productos_tienda(
                 iva=producto_erp.iva,
                 stock=producto_erp.stock,
                 precio_lista_ml=producto_pricing.precio_lista_ml if producto_pricing else None,
-                markup=producto_pricing.markup_calculado if producto_pricing else None,
+                # The stored markup only while the cost is known (interfaz §7), as in the Productos listing.
+                markup=(
+                    producto_pricing.markup_calculado
+                    if producto_pricing and costo_si_ars_t.get(producto_erp.item_id) is not None
+                    else None
+                ),
                 usuario_modifico=None,
                 fecha_modificacion=producto_pricing.fecha_modificacion if producto_pricing else None,
                 tiene_precio=producto_pricing.precio_lista_ml is not None if producto_pricing else False,
@@ -2712,6 +2734,7 @@ def listar_productos_tienda(
                 catalog_status=None,
                 has_catalog=None,
                 ppp=ppp_t.payload(),
+                costo_si=costo_si_columna.payload(costo_si_by_item_t.get(producto_erp.item_id)),
                 sell_in_out=sell_in_out_t,
             )
         )
@@ -2825,7 +2848,7 @@ def obtener_producto(
         calcular_comision_ml_total,
         calcular_limpio,
         calcular_markup,
-        costo_ars_actual,
+        costos_ars_de,
     )
 
     # PPP accumulator for this product (informational only; None-safe).
@@ -2840,9 +2863,14 @@ def obtener_producto(
         contextos_markup_d = parse_contextos_query(markup_contextos)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # ONE cost read for the costo SI column, the sell in / sell out and every markup below (S13): the rate is the
+    # current USD one, as the pricing context's (`build_pricing_context` reads the same `obtener_tipo_cambio_actual`).
+    costo_si_d = costo_si_lote.actuales(db, [item_id], tipo_cambio=_tipo_cambio_ppp_d)
     ppp_d = MarkupCompanions(
         PppMarkups(_ppp_source_d, moneda_costo=producto_erp.moneda_costo, tipo_cambio=_tipo_cambio_ppp_d),
-        resolver_sell_in_out_batch(db, [item_id], date.today(), contextos=contextos_markup_d).markups(
+        resolver_sell_in_out_batch(
+            db, [item_id], date.today(), contextos=contextos_markup_d, costos=costo_si_d
+        ).markups(
             producto_erp,
             precio_lista_ml=producto_pricing.precio_lista_ml if producto_pricing else None,
             tipo_cambio=_tipo_cambio_ppp_d,
@@ -2887,8 +2915,13 @@ def obtener_producto(
         try:
             ctx_markups = build_pricing_context(db)
             grupo_id_markups = ctx_markups.grupo_of(producto_erp.subcategoria_id)
-            # Over costo SI in pesos (S13, D1; list cost without one, Q1); None = unknown: no markup.
-            costo_markups = costo_ars_actual(db, producto_erp.item_id, ctx_markups.tipo_cambio_usd)
+            # Over costo SI in pesos (S13, D1; list cost without one, Q1); None = unknown: no markup. The detail's one
+            # costo SI read (`costo_si_d`), converted at the pricing context's rate: never read a second time.
+            costo_d = costo_si_d.get(producto_erp.item_id)
+            costo_markups_ars = (
+                costo_si_lote.en_pesos(costo_d.costo, costo_d.moneda, ctx_markups.tipo_cambio_usd) if costo_d else None
+            )
+            costo_markups = None if costo_markups_ars is None else float(costo_markups_ars)
             envio_real_markups = resolver_costos_envio_batch(db, [producto_erp.item_id], pubs_by_item=pubs_by_item_d)
         except Exception as exc:
             if rebate_u_oferta:
@@ -2994,7 +3027,12 @@ def obtener_producto(
         iva=producto_erp.iva,
         stock=producto_erp.stock,
         precio_lista_ml=producto_pricing.precio_lista_ml if producto_pricing else None,
-        markup=producto_pricing.markup_calculado if producto_pricing else None,
+        # The stored markup only while the cost is known (interfaz §7), as in the listings.
+        markup=(
+            producto_pricing.markup_calculado
+            if producto_pricing and costos_ars_de(costo_si_d).get(item_id) is not None
+            else None
+        ),
         usuario_modifico=None,
         fecha_modificacion=producto_pricing.fecha_modificacion if producto_pricing else None,
         tiene_precio=producto_pricing.precio_lista_ml is not None if producto_pricing else False,
@@ -3063,6 +3101,7 @@ def obtener_producto(
         catalog_status=None,
         has_catalog=None,
         ppp=ppp_d.ppp.payload(),
+        costo_si=costo_si_columna.payload(costo_si_d.get(item_id)),
         sell_in_out=ppp_d.sell_in_out.payload(),
     )
 

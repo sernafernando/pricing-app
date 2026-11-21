@@ -72,8 +72,10 @@ from app.core.database import get_background_db, get_db
 from app.core.exceptions import ErrorCode, api_error
 from app.models.usuario import Usuario
 from app.schemas.costo_ppp import PppPayload
+from app.schemas.costo_si import CostoSiPayload
 from app.schemas.ml_publications_view import OpcionesEnvioResponse
 from app.schemas.sell_in_out_producto import SellInOutProducto
+from app.services.costo_si import lote
 from app.services.ml_daily_metrics import board, kpi_strip
 from app.services.ml_daily_metrics.sales import NO_PRODUCT
 from app.services import envio_producto_eleccion as envio_producto
@@ -91,6 +93,7 @@ from app.services.ml_publications.view import (
     listing,
     mejores_ofertas,
     products,
+    real_so,
     row_metrics,
     stats,
     status_block,
@@ -306,8 +309,8 @@ class MetricsOut(BaseModel):
     series_markup_90d: Optional[list[Optional[float]]] = None
     # with `desglose_envio` (auditoria-stock-niveles S3): "7d" / "30d" -> its units by ERP and Full
     envio: Optional[dict[str, StockEnvioWindowOut]] = None
-    # the Board's markup with sell in / sell out (`board.SellInOut.markup_sell`, Auditoría's Real 30D); null where
-    # neither applies (never a copy of `markup_30d`); with `ml_metricas.ver_ganancia` only
+    # Real 30D c/ SO (D1, `real_so.markup_so`: the sell out added to the profit over the plain cost, the Board's sell
+    # in never read); null where no sold line has a sell out (never a copy of `markup_30d`); ver_ganancia only
     markup_sell_30d: Optional[float] = None
 
 
@@ -367,6 +370,7 @@ class ItemRowOut(BaseModel):
     costo: Optional[ItemCostOut] = None  # present only with ml_metricas.ver_ganancia; null without a product cost
     # the lines Productos draws under the cost (same gate as `costo`): null without a product or a PPP row / sell in
     ppp: Optional[PppPayload] = None
+    costo_si: Optional[CostoSiPayload] = None  # the costo SI next to the list cost (same gate)
     sell_in_out: Optional[SellInOutProducto] = None
     sales_30d: Optional[Sales30dOut] = None  # present only with ml_metricas.ver
     metrics: Optional[MetricsOut] = None  # present only with ml_metricas.ver; null when Métricas has no row
@@ -760,6 +764,7 @@ class ProductRowOut(BaseModel):
     stock: Optional[int] = None
     costo: Optional[ItemCostOut] = None  # present only with ml_metricas.ver_ganancia; null without a product cost
     ppp: Optional[PppPayload] = None  # the lines under the cost, as on a publication row (same gate)
+    costo_si: Optional[CostoSiPayload] = None  # the costo SI next to the list cost (same gate)
     sell_in_out: Optional[SellInOutProducto] = None
     params: dict[str, str]
     metrics: Optional[MetricsOut] = None
@@ -893,6 +898,8 @@ class StockAuditVariantOut(BaseModel):
     cantidad: float
     costo: Optional[float] = None
     moneda_costo: str
+    costo_si: Optional[float] = None  # sell-in-costo-si: the cost the values use; None = unknown
+    costo_si_moneda: Optional[str] = None
     full: StockMoneyOut
     full_unidades_base: int
     sin_costo: bool = False  # its Full has no cost: its values are unknown (L9)
@@ -954,6 +961,8 @@ class StockAuditRowOut(BaseModel):
     marca: Optional[str] = None
     costo: Optional[float] = None
     moneda_costo: Optional[str] = None
+    costo_si: Optional[float] = None  # sell-in-costo-si: the cost the values use; None = unknown
+    costo_si_moneda: Optional[str] = None
     grupo: Optional[StockGroupOut] = None
     productos: Optional[int] = None
     productos_sin_costo: Optional[int] = None
@@ -1437,8 +1446,8 @@ def _metrics_out(row: board.Row, with_margin: bool) -> dict[str, Any]:
         out["markup_30d"] = kpi_strip.round_pp(row.markup)
         out["markup_delta_pp"] = kpi_strip.round_pp(row.markup_delta)
         out["series_markup_90d"] = row.series_markup
-        if row.sell_in_lineas is not None:  # the Board read the sell in / sell out (`sell_in_out=True`)
-            out["markup_sell_30d"] = kpi_strip.round_pp(row.markup_sell)
+        if row.sell_out_lineas is not None:  # the Board read the sell in / sell out (`sell_in_out=True`)
+            out["markup_sell_30d"] = kpi_strip.round_pp(real_so.markup_so(row))  # D1: c/ SO
     return out
 
 
@@ -1514,9 +1523,9 @@ def items_ask(
         description=(
             "actividad (default), precio, titulo, stock_full, stock_erp, stock_total (ERP + Full), actualizado, codigo, marca, "
             "tipo (Clásica, 3, 6, 9, 12 cuotas), costo and the list headers lista_clasica, lista_rebate, "
-            "lista_oferta, lista_web (ver_ganancia), markup and markup_siso (Markup actual c/ SISO; ver_ganancia); "
+            "lista_oferta, lista_web (ver_ganancia), markup and markup_siso (Markup actual c/ SO; ver_ganancia); "
             "Métricas ML's figures over the whole filtered set (ml_metricas.ver): facturado_30d, "
-            "unidades_7d, unidades_30d, markup_30d, markup_sell_30d (Markup real 30D c/ SISO) and total_gauss_30d "
+            "unidades_7d, unidades_30d, markup_30d, markup_sell_30d (Markup real 30D c/ SO) and total_gauss_30d "
             "(the markups and Total Gauss also ver_ganancia). Several keys as csv "
             "(multi-column sort), any combination"
         ),
@@ -1954,7 +1963,7 @@ def products_ask(
         None,
         description=(
             "csv of: facturado_30d (default with ml_metricas.ver), unidades_7d, unidades_30d (ml_metricas.ver); "
-            "markup_30d, markup_sell_30d (Markup real 30D c/ SISO), total_gauss_30d (also ver_ganancia); titulo "
+            "markup_30d, markup_sell_30d (Markup real 30D c/ SO), total_gauss_30d (also ver_ganancia); titulo "
             "(the default without ml_metricas.ver)"
         ),
     ),
@@ -2198,7 +2207,14 @@ def export_stock_audit(
     rows = [_stock_audit_out(read, r, orden, dir) for r in read.ordered]
     if read.nivel != stock_audit.PRODUCTO:
         _attach_group_products(read, rows, orden, dir)
-    lines = export.stock_audit_lines(rows, sales=read.can_see_sales, margin=read.can_see_margin)
+    # the costo SI columns: the costs the stock was valued at (one read, `Audit.costos`); only a product the valuation
+    # did not read is read here, in one query for the file
+    ids = export.stock_audit_product_ids(rows)
+    costo_si = {i: read.audit.costos[i] for i in ids if i in read.audit.costos}
+    faltan = ids - costo_si.keys()
+    if faltan:
+        costo_si.update(lote.actuales(auth_db, faltan, tipo_cambio=read.rate.usd_ars))
+    lines = export.stock_audit_lines(rows, sales=read.can_see_sales, margin=read.can_see_margin, costo_si=costo_si)
     filename = f"publicaciones-ml-auditoria-stock-{date.today().isoformat()}.xlsx"
     return Response(
         export.workbook(lines, "Auditoría de stock"),

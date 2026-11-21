@@ -119,9 +119,9 @@ describe('MejoresCandidatasBlock', () => {
     render(<MejoresCandidatasBlock itemId="MLA2" baselinePrice={218299} />);
 
     const card = await screen.findByRole('group', { name: 'Promo sugerida SMART' });
-    expect(within(card).getByText((_, el) => el?.textContent === 'c/ sell in/out 4,25%')).toBeInTheDocument();
+    expect(within(card).getByText((_, el) => el?.textContent === 'c/ SO 4,25%')).toBeInTheDocument();
     expect(screen.getByText(/Markup vigente ~/).textContent).toBe(
-      'Hay candidatas mejores que el precio vigente en MeLi. Markup vigente ~ 0,35% · c/ sell in/out 3,20%.',
+      'Hay candidatas mejores que el precio vigente en MeLi. Markup vigente ~ 0,35% · c/ SO 3,20%.',
     );
   });
 
@@ -145,7 +145,7 @@ describe('MejoresCandidatasBlock', () => {
     render(<MejoresCandidatasBlock itemId="MLA2" baselinePrice={218299} />);
 
     await screen.findByRole('group', { name: 'Promo sugerida SMART' });
-    expect(screen.queryByText('c/ sell in/out')).not.toBeInTheDocument();
+    expect(screen.queryByText('c/ SO')).not.toBeInTheDocument();
     expect(screen.getByText(/Markup vigente ~/).textContent).toBe(
       'Hay candidatas mejores que el precio vigente en MeLi. Markup vigente ~ 0,35%.',
     );
@@ -209,7 +209,7 @@ describe('MejoresCandidatasBlock', () => {
     expect(onUnavailable).not.toHaveBeenCalled();
   });
 
-  it('suggests one card per writable MeLi type, each with its own c/ sell in/out', async () => {
+  it('suggests one card per writable MeLi type, each with its own c/ SO', async () => {
     promocionesAPI.getPromocionesItem.mockResolvedValue({
       data: {
         promotions: [
@@ -222,9 +222,9 @@ describe('MejoresCandidatasBlock', () => {
     render(<MejoresCandidatasBlock itemId="MLA-T" baselinePrice={100000} />);
     const preNegotiated = await screen.findByRole('group', { name: 'Promo sugerida PRE_NEGOTIATED' });
     expect(within(preNegotiated).getByText('PRE_NEGOTIATED')).toBeInTheDocument();
-    expect(within(preNegotiated).getByText((_, el) => el?.textContent === 'c/ sell in/out 6,50%')).toBeInTheDocument();
+    expect(within(preNegotiated).getByText((_, el) => el?.textContent === 'c/ SO 6,50%')).toBeInTheDocument();
     const priceMatching = screen.getByRole('group', { name: 'Promo sugerida PRICE_MATCHING' });
-    expect(within(priceMatching).queryByText(/sell in\/out/)).not.toBeInTheDocument();
+    expect(within(priceMatching).queryByText(/c\/ SO/)).not.toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Promo sugerida SMART' })).toBeInTheDocument();
   });
 

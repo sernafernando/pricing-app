@@ -1,11 +1,14 @@
-"""Sell in and sell out per sale in the Ventas ML listing (Métricas audit A7).
+"""Sell out per sale in the Ventas ML listing (Métricas audit A7, Costo SI T3 D1).
 
-Each order and each pack of `GET /sales` carries the sell in and sell out the
-allocators credited to its item rows (`sell_in_consumos` / `sell_out_consumos`,
-canal 'ml', `venta_ref` = `ml_order_items_ops.id`), read through
-`sell_in_out_ventas.montos_por_venta` like Ventas fuera ML. Nothing applies ->
-null, never zero. The consumption rows are written directly: which sale gets
-what is the allocators' business, tested in `tests/services/sell_in/` and
+Each order and each pack of `GET /sales` carries the sell out the allocator
+credited to its item rows (`sell_out_consumos`, canal 'ml', `venta_ref` =
+`ml_order_items_ops.id`), read through `sell_in_out_ventas.montos_por_venta`.
+Nothing applies -> null, never zero. D1 (owner L12): "el costo siso no existe,
+es costo SI y SO va en la venta, como ganancia adicional": the sale's frozen
+cost is costo SI, so no sell in is read nor sent (`sell_in_ars` /
+`sell_in_estimado` are gone); the sell in rows below are seeded on purpose.
+The consumption rows are written directly: which sale gets what is the
+allocators' business, tested in `tests/services/sell_in/` and
 `tests/services/sell_out/`.
 """
 
@@ -183,7 +186,13 @@ def _order(body: dict, order_id: int) -> dict:
     return next(o for g in body["sales"] for o in g["orders"] if o["order_id"] == order_id)
 
 
-SELL_FIELDS = ("sell_in_ars", "sell_out_ars", "sell_out_estimado", "sell_in_estimado")
+SELL_FIELDS = ("sell_out_ars", "sell_out_estimado")
+# D1: never sent, whatever sell in rows the sale has.
+SELL_IN_FIELDS = ("sell_in_ars", "sell_in_estimado")
+
+
+def _no_sell_in(row: dict) -> bool:
+    return not set(SELL_IN_FIELDS) & set(row)
 
 
 class TestPerOrder:
@@ -197,7 +206,7 @@ class TestPerOrder:
 
         order = _order(_listing(db, client, admin_auth_headers), 91001)
 
-        assert order["sell_in_ars"] == pytest.approx(120.75)
+        assert _no_sell_in(order)
         assert order["sell_out_ars"] == pytest.approx(42.00)
         assert order["sell_out_estimado"] is False
 
@@ -206,17 +215,17 @@ class TestPerOrder:
 
         order = _order(_listing(db, client, admin_auth_headers), 91002)
 
-        assert [order[f] for f in SELL_FIELDS] == [None, None, None, None]
+        assert [order[f] for f in SELL_FIELDS] == [None, None]
+        assert _no_sell_in(order)
 
-    def test_only_sell_in_leaves_the_sell_out_null(self, db, client, admin_auth_headers, ver):
+    def test_only_sell_in_is_no_sell_figure_at_all(self, db, client, admin_auth_headers, ver):
         refs = _venta(db, 91003)
         _sell_in(db, ver, refs[0], "15.00")
 
         order = _order(_listing(db, client, admin_auth_headers), 91003)
 
-        assert order["sell_in_ars"] == pytest.approx(15.00)
-        assert order["sell_out_ars"] is None
-        assert order["sell_out_estimado"] is None
+        assert _no_sell_in(order)
+        assert [order[f] for f in SELL_FIELDS] == [None, None]
 
     def test_a_usd_row_converts_at_its_rate_like_the_sell_out_screen(self, db, client, admin_auth_headers, ver):
         refs = _venta(db, 91004)
@@ -252,7 +261,7 @@ class TestPerOrder:
 
 class TestPerPack:
     def test_a_pack_sums_its_members_and_a_member_without_rows_adds_nothing(self, db, client, admin_auth_headers, ver):
-        """Unlike the neto, a member with no sell in is not unknown: nothing applies to it."""
+        """Unlike the neto, a member with no sell out is not unknown: nothing applies to it."""
         refs_a = _venta(db, 92001, pack_id=92500)
         _venta(db, 92002, pack_id=92500)
         refs_c = _venta(db, 92003, pack_id=92500)
@@ -262,7 +271,7 @@ class TestPerPack:
 
         group = _group_holding(_listing(db, client, admin_auth_headers), 92001)
 
-        assert group["sell_in_ars"] == pytest.approx(15.50)
+        assert _no_sell_in(group)
         assert group["sell_out_ars"] == pytest.approx(7.00)
         assert group["sell_out_estimado"] is False
 
@@ -283,15 +292,14 @@ class TestPerPack:
 
         group = _group_holding(_listing(db, client, admin_auth_headers), 92021)
 
-        assert [group[f] for f in SELL_FIELDS] == [None, None, None, None]
+        assert [group[f] for f in SELL_FIELDS] == [None, None]
+        assert _no_sell_in(group)
 
 
-class TestSellInEstimado:
-    """Option C (tactical sell in USD S10): "y marcar los montos como estimados en pantalla", like `sell_out_estimado`."""
+class TestCostBonusSellIn:
+    """The USD `al_cobro` cost bonus's sell in (tactical sell in USD S10) is inside costo SI too: never sent."""
 
-    def test_an_al_cobro_usd_cost_bonus_without_its_collection_rate_marks_the_order_and_its_pack(
-        self, db, client, admin_auth_headers, ver
-    ):
+    def test_an_estimated_cost_bonus_reaches_neither_the_order_nor_its_pack(self, db, client, admin_auth_headers, ver):
         refs_a = _venta(db, 93001, pack_id=93500)
         refs_b = _venta(db, 93002, pack_id=93500)
         _sell_in(db, ver, refs_a[0], "100.00")
@@ -299,16 +307,9 @@ class TestSellInEstimado:
 
         body = _listing(db, client, admin_auth_headers)
 
-        assert (_order(body, 93001)["sell_in_estimado"], _order(body, 93002)["sell_in_estimado"]) == (False, True)
-        assert _order(body, 93002)["sell_in_ars"] == pytest.approx(15000.00)
-        group = _group_holding(body, 93001)
-        assert (group["sell_in_ars"], group["sell_in_estimado"]) == (pytest.approx(15100.00), True)
-
-    def test_a_loaded_collection_rate_is_final(self, db, client, admin_auth_headers, ver):
-        refs = _venta(db, 93011)
-        _sell_in_usd(db, ver, refs[0], cobro="1350")
-
-        assert _order(_listing(db, client, admin_auth_headers), 93011)["sell_in_estimado"] is False
+        for row in (_order(body, 93001), _order(body, 93002), _group_holding(body, 93001)):
+            assert _no_sell_in(row)
+            assert [row[f] for f in SELL_FIELDS] == [None, None]
 
 
 class TestTplinkSolo:
@@ -329,4 +330,4 @@ class TestTplinkSolo:
         assert response.status_code == 200, response.text
         group = _group_holding(response.json(), 98002)
         for row in (group, _order(response.json(), 98002)):
-            assert not set(SELL_FIELDS) & set(row)
+            assert not set(SELL_FIELDS + SELL_IN_FIELDS) & set(row)

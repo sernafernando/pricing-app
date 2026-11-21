@@ -153,7 +153,7 @@ describe('cost with sell in and sell out per unit', () => {
     const group = await facts();
     expect(group).not.toHaveTextContent('Costo c/ sell in');
     expect(group).not.toHaveTextContent('Sell out por unidad');
-    expect(screen.queryByText('c/ sell in/out')).not.toBeInTheDocument();
+    expect(screen.queryByText('c/ SO')).not.toBeInTheDocument();
   });
 });
 
@@ -161,7 +161,8 @@ describe('markup with sell in and sell out', () => {
   it('shows each row the markup with sell in + sell out of its own key', async () => {
     render(<ProductPrices productItemId={4101} showCost />);
     await screen.findByRole('table', { name: 'Precios por plan' });
-    expect(screen.getAllByText('c/ sell in/out')).toHaveLength(10);
+    expect(screen.getAllByText('c/ SO')).toHaveLength(10);
+    expect(screen.queryByText('c/ sell in/out')).not.toBeInTheDocument();
     await waitFor(async () => expect(sellCell(await priceOf('Clásica'))).toHaveTextContent('28,80%'));
     expect(sellCell(await priceOf('3 cuotas'))).toHaveTextContent('30,60%');
     expect(sellCell(await priceOf('6 cuotas'))).toHaveTextContent('32,90%');
@@ -175,24 +176,35 @@ describe('markup with sell in and sell out', () => {
     expect((await priceOf('Clásica')).querySelector('[data-col="markup-offset"]')).toBeInTheDocument();
   });
 
-  it('without sell out shows the markup with sell in', async () => {
+  it('a product without sell out reads "-" with a tooltip naming only the sell out (D1)', async () => {
+    withSellInOut(null);
+    render(<ProductPrices productItemId={4101} showCost />);
+    await waitFor(async () => expect(sellCell(await priceOf('Clásica'))).toHaveTextContent('-'));
+    expect(sellCell(await priceOf('Clásica')).firstChild).toHaveAttribute('title', 'Sin sell out');
+  });
+
+  it('the c/ SO markup says in its tooltip that it is the one with sell out', async () => {
+    render(<ProductPrices productItemId={4101} showCost />);
+    await waitFor(async () => expect(sellCell(await priceOf('Clásica'))).toHaveTextContent('28,80%'));
+    expect(sellCell(await priceOf('Clásica')).firstChild).toHaveAttribute('title', 'Con sell out');
+  });
+
+  it('with sell in but no sell out shows "-", never a markup with sell in (D1: the sell in is in the costo SI)', async () => {
     withSellInOut({ ...SELL_IN_OUT, sell_out: null, markups_sell_in_out: {} });
     render(<ProductPrices productItemId={4101} showCost />);
-    await waitFor(async () => expect(sellCell(await priceOf('Clásica'))).toHaveTextContent('26,30%'));
-    expect(sellCell(await priceOf('PVP 3 cuotas'))).toHaveTextContent('29,10%');
+    await waitFor(async () => expect(sellCell(await priceOf('Clásica'))).toHaveTextContent(/^-$/));
+    expect(sellCell(await priceOf('Clásica')).firstChild).toHaveAttribute('title', 'Sin sell out');
+    expect(sellCell(await priceOf('PVP 3 cuotas'))).toHaveTextContent(/^-$/);
   });
 
-  it('with a pending sell out falls back to the markup with sell in', async () => {
+  it('a pending sell out reads "Pendiente" with why, never the markup with sell in', async () => {
     withSellInOut({ ...SELL_IN_OUT, sell_out: { monto_unit: null, campana_ids: [3] }, markups_sell_in_out: {} });
     render(<ProductPrices productItemId={4101} showCost />);
-    await waitFor(async () => expect(sellCell(await priceOf('12 cuotas'))).toHaveTextContent('4,50%'));
-  });
-
-  it('a pending sell out says so in the tooltip of the markup with sell in', async () => {
-    withSellInOut({ ...SELL_IN_OUT, sell_out: { monto_unit: null, campana_ids: [3] }, markups_sell_in_out: {} });
-    render(<ProductPrices productItemId={4101} showCost />);
-    await waitFor(async () => expect(sellCell(await priceOf('Clásica'))).toHaveTextContent('26,30%'));
-    expect(sellCell(await priceOf('Clásica')).firstChild).toHaveAttribute('title', 'Con sell in; el sell out está pendiente');
+    await waitFor(async () => expect(sellCell(await priceOf('12 cuotas'))).toHaveTextContent(/^Pendiente$/));
+    expect(sellCell(await priceOf('Clásica')).firstChild).toHaveAttribute(
+      'title',
+      'Falta el tipo de cambio o la base para calcular el markup',
+    );
   });
 
   it('with a pending sell out, a row without price still shows "—", never "Pendiente"', async () => {
@@ -213,15 +225,16 @@ describe('markup with sell in and sell out', () => {
     await waitFor(async () => expect(sellCell(await priceOf('9 cuotas'))).toHaveTextContent(/^—$/));
   });
 
-  it('a lot without an ARS cost leaves the markup pending, not as a row without price', async () => {
+  it('a lot without an ARS cost does not make the markup pending: its cost is the costo SI (D1)', async () => {
     withSellInOut({
       ...SELL_IN_OUT,
       sell_in: { ...SELL_IN_OUT.sell_in, costo: null },
+      sell_out: null,
       markups_sell_in: {},
       markups_sell_in_out: {},
     });
     render(<ProductPrices productItemId={4101} showCost />);
-    await waitFor(async () => expect(sellCell(await priceOf('Clásica'))).toHaveTextContent(/^Pendiente$/));
+    await waitFor(async () => expect(sellCell(await priceOf('Clásica'))).toHaveTextContent(/^-$/));
   });
 
   it('a product without sell_in_out shows "-" in every row', async () => {

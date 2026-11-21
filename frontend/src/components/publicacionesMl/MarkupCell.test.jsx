@@ -88,17 +88,17 @@ describe('the markup column', () => {
   });
 });
 
-describe('SisoMarkupCell (Markup actual c/ SISO)', () => {
+describe('SisoMarkupCell (Markup actual c/ SO)', () => {
   const siso = (overrides = {}) => ({ min: 20, max: 26, worst: 20, pending: 0, applies: true, ...overrides });
 
-  it('shows the range with sell in / sell out', () => {
+  it('shows the range with sell out', () => {
     render(<SisoMarkupCell siso={siso()} />);
-    expect(screen.getByText('20,0% – 26,0%')).toHaveAttribute('title', 'Con sell in / sell out al precio de hoy');
+    expect(screen.getByText('20,0% – 26,0%')).toHaveAttribute('title', 'Con sell out al precio de hoy');
   });
 
-  it('says it is the current markup where neither applies', () => {
+  it('says it is the current markup where no sell out applies', () => {
     render(<SisoMarkupCell siso={siso({ min: 15, max: 15, worst: 15, applies: false })} />);
-    expect(screen.getByText('15,0%')).toHaveAttribute('title', 'Sin sell in ni sell out: es el markup actual');
+    expect(screen.getByText('15,0%')).toHaveAttribute('title', 'Sin sell out: es el markup actual');
   });
 
   it('reads "Pendiente" when a unit cannot be priced and none has a value, as Precios', () => {

@@ -67,6 +67,38 @@ def keyed_sample(name: str) -> Any:
     return copy.deepcopy(load_fixture(KEYED_ARRAYS)[name])
 
 
+def _warm_view_aliases() -> None:
+    """Resolve every column of the view's module-level aliases (`filters.T`) once, with the real Postgres types.
+
+    SQLAlchemy keeps the column types an alias saw the first time each column was touched, and
+    `_restore_pristine_pg_types` cannot reach that copy. A test that touches `T` while the columns carry the SQLite
+    stand-ins (`_patch_pg_types_for_sqlite`, what every Postgres fixture's teardown leaves) would leave `sub_status`
+    / `tags` as JSON for the rest of its xdist worker, and every later `= ANY` / `&&` on them fails: CI on #2365, a
+    fixture-less `listing.row_columns()` test that happened to be its worker's first touch. Run at import (test
+    collection, before any fixture), the types are put back for it and left as they were found."""
+    from sqlalchemy import inspect
+    from sqlalchemy.orm.util import AliasedClass
+
+    from app.services.ml_publications.view.filters import T
+    from tests.conftest import _PRISTINE_PG_COLUMN_TYPES
+
+    aliases = [value for value in vars(T).values() if isinstance(value, AliasedClass)]
+    tables = {table for alias in aliases for table in inspect(alias).mapper.tables}
+    found = {column: column.type for table in tables for column in table.columns if column in _PRISTINE_PG_COLUMN_TYPES}
+    for column in found:
+        column.type = _PRISTINE_PG_COLUMN_TYPES[column]
+    try:
+        for alias in aliases:
+            for prop in inspect(alias).mapper.column_attrs:
+                getattr(alias, prop.key).__clause_element__()
+    finally:
+        for column, type_ in found.items():
+            column.type = type_
+
+
+_warm_view_aliases()
+
+
 # --- Postgres schema for the infrastructure tests (settings store, queue) -----------------
 
 
@@ -83,6 +115,9 @@ def _create_publication_map(target, connection, **kwargs) -> None:
         connection.execute(text(ddl))
     # Every brand option list reads the brands-without-stock exceptions (`app.services.marcas_visibles`).
     connection.execute(text(MARCAS_VISIBLES_DDL))
+    # The cost every markup reads is costo SI (`costo_si.lote.actual`), which reads these beside the catalog.
+    for ddl in COSTO_SI_READER_DDL:
+        connection.execute(text(ddl))
 
 
 BANLIST_DDL = (
@@ -91,6 +126,36 @@ BANLIST_DDL = (
     "fecha_creacion timestamptz DEFAULT now(), fecha_modificacion timestamptz)",
     "CREATE TABLE items_sin_mla_banlist (id serial PRIMARY KEY, item_id integer UNIQUE NOT NULL, motivo text, "
     "usuario_id integer, fecha_creacion timestamptz DEFAULT now())",
+)
+
+
+def _tb_item_ddl() -> str:
+    """`tb_item` with EVERY column of the model, all nullable but the key: the tests that build or fill `tb_item`
+    themselves (their IF NOT EXISTS / checkfirst then keeps this one) insert whatever columns they need (`raw`,
+    `item_weight`, `subcat_id`...), and a subset here broke them."""
+    from sqlalchemy.dialects import postgresql
+
+    from app.models.tb_item import TBItem
+
+    columns = ", ".join(f"{c.name} {c.type.compile(dialect=postgresql.dialect())}" for c in TBItem.__table__.columns)
+    return f"CREATE TABLE IF NOT EXISTS tb_item ({columns}, PRIMARY KEY (comp_id, item_id))"
+
+
+_TB_ITEM_DDL = _tb_item_ddl()
+
+# The columns `costo_si.lote` reads (sell-in-costo-si T3 PR 1), same names and types as the real tables.
+COSTO_SI_READER_DDL = (
+    "CREATE TABLE IF NOT EXISTS costo_si_pasos (id bigserial PRIMARY KEY, item_id integer NOT NULL, orden integer NOT NULL, "
+    "fecha date NOT NULL, promedio_usd numeric(18, 5), moneda varchar(3) NOT NULL DEFAULT 'USD', "
+    "UNIQUE (item_id, orden))",
+    "CREATE TABLE IF NOT EXISTS combo_componentes (combo_item_id integer, componente_item_id integer, cantidad numeric(18, 4) "
+    "NOT NULL, PRIMARY KEY (combo_item_id, componente_item_id))",
+    _TB_ITEM_DDL,
+    "CREATE TABLE IF NOT EXISTS tipo_cambio (id serial PRIMARY KEY, fecha date, moneda varchar(10), "
+    "compra double precision, venta double precision, timestamp_actualizacion timestamptz DEFAULT now())",
+    # the reader's USD rate falls back to the ERP's rate history (interfaz §7)
+    "CREATE TABLE IF NOT EXISTS tb_cur_exch_history (ceh_id bigint PRIMARY KEY, comp_id integer, curr_id_1 integer, "
+    "curr_id_2 integer, ceh_cd timestamp, ceh_exchange numeric(18, 6))",
 )
 
 

@@ -565,7 +565,7 @@ describe('sorting and paging', () => {
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'unidades_7d', dir: 'desc' }));
     await sortBy(/^30D/);
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'unidades_30d', dir: 'desc' }));
-    await sortBy(/^Real 30D(?! c\/ SISO)/);
+    await sortBy(/^Real 30D(?! c\/ SO)/);
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'markup_30d', dir: 'desc' }));
     await sortBy(/^Total Gauss 30D/);
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'total_gauss_30d', dir: 'desc' }));
@@ -716,10 +716,15 @@ describe('page size', () => {
 });
 
 describe('"Todos" in parts of 500 as the list scrolls (filtros S4)', () => {
-  // A part of the list: 500 asked, 101 answered (enough to render only the rows in view), out of 1200. The first part
-  // carries the fixture's rows, so the page shows MLA1100000001; the others, rows of their own offset.
+  // A part of the list: 500 asked, out of 1200. The first part answers 101 rows (with the fixture's, past
+  // VIRTUALIZE_FROM: only a virtualized table asks the next part) and carries the fixture's rows, so the page shows
+  // MLA1100000001; the others answer two rows of their own offset, enough to see each part appended. Every row is
+  // rendered here (`virtualView.all`), so a few hundred rows of the full table would make each part's render slow
+  // enough in jsdom to brush the test timeout on a loaded runner.
   const part = (offset, prefix = 'MLA13') =>
-    Array.from({ length: 101 }, (_, i) => makeItem({ item_id: `${prefix}${String(offset + i).padStart(8, '0')}` }));
+    Array.from({ length: offset === 0 ? 101 : 2 }, (_, i) =>
+      makeItem({ item_id: `${prefix}${String(offset + i).padStart(8, '0')}` }),
+    );
   const answer = (params) => ({
     data: {
       ...ITEMS_RESPONSE,
@@ -817,11 +822,12 @@ describe('"Todos" in parts of 500 as the list scrolls (filtros S4)', () => {
     expect(all).not.toBeChecked();
   });
 
+  // Legitimately long: past 9999 rows takes 22 parts, each asked only once the previous one renders, and that
+  // sequence is the rule under test. Its own wait already allowed 10 s, which the default 5 s test timeout cut short.
   it('has no 9999 cap: the parts go on until the whole total, in one page with no pager pages', async () => {
-    // Past the first part, two rows each: enough to see every part appended, light enough for jsdom.
     publicacionesMlAPI.items.mockImplementation((params) => {
       const { data } = answer(params);
-      return Promise.resolve({ data: { ...data, total: 10600, items: params.offset ? data.items.slice(0, 2) : data.items } });
+      return Promise.resolve({ data: { ...data, total: 10600 } });
     });
     await page('/ml-publicaciones?limite=9999');
     await waitFor(() => expect(calls()).toHaveLength(22), { timeout: 10000 });
@@ -833,7 +839,7 @@ describe('"Todos" in parts of 500 as the list scrolls (filtros S4)', () => {
     expect(screen.getByRole('button', { name: 'Siguiente' })).toBeDisabled();
     await act(async () => {});
     expect(calls()).toHaveLength(22);
-  });
+  }, 15000);
 
   it('a page number from an old "Todos" link is ignored: the list starts at its first row', async () => {
     await page('/ml-publicaciones?limite=9999&pagina=2');
@@ -1240,7 +1246,7 @@ describe('markup (publicaciones-ml-vista P11b.T2)', () => {
     return page(entry);
   };
   // MARKUP's "Actual": the markup at today's price, the worst variation (what the sort and the filters use).
-  const WORST_HEADER = { name: /^Actual(?! c\/ SISO)/ }; // not its "Actual c/ SISO" neighbour
+  const WORST_HEADER = { name: /^Actual(?! c\/ SO)/ }; // not its "Actual c/ SO" neighbour
 
   it('without ver_ganancia there is no column, no controls, and no markup param (S68.1)', async () => {
     await page('/ml-publicaciones?markup_neg=1&markup_min=5&orden=markup');
@@ -2875,7 +2881,19 @@ describe("Productos' price columns (S11)", () => {
   it('with the margin permission the clásica markup carries Productos\' "markup con offsets" (Mercado Libre offsets)', async () => {
     canSeeMargin = true;
     productosAPI.listar.mockResolvedValue({
-      data: { productos: [{ ...PRICED[0], costo: 800, moneda_costo: 'ARS', marca: 'TP-LINK', markup: 25 }], total: 1 },
+      data: {
+        productos: [
+          {
+            ...PRICED[0],
+            costo: 800,
+            moneda_costo: 'ARS',
+            costo_si: { costo: 800, moneda: 'ARS', fuente: 'costo_si', costo_ars: 800 },
+            marca: 'TP-LINK',
+            markup: 25,
+          },
+        ],
+        total: 1,
+      },
     });
     offsetsGananciaAPI.vigentes.mockResolvedValueOnce({
       data: [{ id: 1, tipo_offset: 'porcentaje_costo', porcentaje: 10, marca: 'TP-LINK' }],

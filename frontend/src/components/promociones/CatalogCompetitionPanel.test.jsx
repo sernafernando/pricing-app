@@ -237,7 +237,7 @@ describe('CatalogCompetitionPanel', () => {
     expect(screen.getByText('Caro')).toBeInTheDocument();
     expect(screen.queryByText(/Tu markup si igualás/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /actualizar competencia de catálogo/i })).toBeInTheDocument();
-    expect(screen.getAllByText(/c\/ sell in\/out/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/c\/ SO/).length).toBeGreaterThanOrEqual(1);
     expect(await screen.findByLabelText(/Contar a Barato/i)).toBeChecked();
   });
 

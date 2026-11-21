@@ -24,7 +24,7 @@ import styles from './StockAudit.module.css';
 /**
  * The Auditoría de stock table (approved mock v2): marca › categoría › product › variante › publicación
  * (auditoria-stock-niveles S1, the table starting at the level the view asks), grouped columns Stock
- * (unidades), Valor stock (USD · ARS), Ventas (unidades), Markup con sell in / sell out, Resultado and Rotación. Every column
+ * (unidades), Valor stock (USD · ARS), Ventas (unidades), Markup c/ SO, Resultado and Rotación. Every column
  * but the first can be hidden (`AUDIT_COLUMN_OPTIONS`, the page's picker); the sortable ones send their key as the
  * backend's `orden`. A publication row draws the list's own cells (`buildColumns`), so it reads like everywhere else.
  */
@@ -345,7 +345,7 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, nivel, onToggle, o
     row.type === 'item' ? salesSplit(row.item.metrics?.envio?.[window]) : salesSplit(row.node.ventas?.envio?.[window], factorOf(row));
   // A product's or a group's own figures (a group is its products' sum).
   const own = (row) => row.type === 'product' || row.type === 'group';
-  // A publication's Full value: its units at its node's cost.
+  // A publication's Full value: its units at its node's costo SI.
   const itemFull = (row) => valueOf(row.item.stock?.full ?? null, row.owner, rate);
 
   const columns = [
@@ -564,8 +564,8 @@ function buildAuditColumns({ canSeeSales, canSeeMargin, rate, nivel, onToggle, o
     columns.push({
       key: 'markup_siso',
       group: MARKUP,
-      header: 'Actual c/ SISO',
-      label: 'Markup actual c/ SISO',
+      header: 'Actual c/ SO',
+      label: 'Markup actual c/ SO',
       width: 120,
       sortable: true,
       align: 'center',

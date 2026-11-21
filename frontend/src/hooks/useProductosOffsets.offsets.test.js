@@ -34,11 +34,21 @@ describe('useProductosOffsets.calcularMarkupConOffset', () => {
     expect(result.current.tipoCambioUSD).toBe(1000);
     expect(result.current.offsetsVigentes.map((o) => o.id)).toEqual([1, 2]);
 
-    const producto = { item_id: 1, marca: 'TP-LINK', categoria: 'ROUTERS', moneda_costo: 'ARS', costo: 10000, markup: 20 };
-    // descuento = 1000 (10%) + 1000 (USD 1) -> costo ajustado 8000; 12000 / 8000 - 1 = 50%
+    const producto = {
+      item_id: 1,
+      marca: 'TP-LINK',
+      categoria: 'ROUTERS',
+      moneda_costo: 'ARS',
+      costo: 12500, // the list cost: never the base (FE3)
+      costo_si: { costo: 10000, moneda: 'ARS', fuente: 'costo_si', costo_ars: 10000 },
+      markup: 20,
+    };
+    // Over the costo SI: descuento = 1000 (10%) + 1000 (USD 1) -> costo ajustado 8000; 12000 / 8000 - 1 = 50%
     expect(result.current.calcularMarkupConOffset(producto)).toBe(50);
     expect(result.current.calcularMarkupConOffset({ ...producto, markup: null })).toBeNull();
     expect(result.current.calcularMarkupConOffset({ ...producto, marca: 'OTRA', categoria: 'OTRA' })).toBeNull();
+    // A row without the costo SI field shows no "markup con offsets", never one from the list cost.
+    expect(result.current.calcularMarkupConOffset({ ...producto, costo_si: undefined })).toBeNull();
   });
 
   it('is null until the offsets are read', () => {

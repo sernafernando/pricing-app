@@ -21,10 +21,13 @@ Si tenés acceso a Métricas ML también podés pasar a **ML** o a **Todo** (las
 
 ### De dónde sale el costo
 
-El Precio Costo de cada línea sale de la **lista de costos del ERP**, igual que en **Ventas por Fuera (anterior)**: el último costo del producto cargado hasta el día de la venta. Si está en dólares, se pasa a pesos con el dólar de ese día (el tipo de cambio de la app; si falta, el del ERP). El Costo D es ese Precio Costo × 1,065.
+El Precio Costo de cada línea sale del **costo SI** del producto en el día de la venta (el costo promedio que ya descuenta los sell in de cada factura de compra y el loyalty de la marca; si el producto todavía no tiene costo SI, el de la lista de costos del ERP). Si está en dólares, se pasa a pesos con el dólar de la app de ese día; si ese día no hay dólar cargado, la línea queda sin costo. El Costo D es ese Precio Costo × 1,065.
+
+- Cuando cambia el costo SI de un producto (por ejemplo, entra una compra con fecha anterior), el Precio Costo de sus ventas desde esa fecha se recalcula solo. Las líneas con costo manual no se tocan.
+- **Combos**: si el comprobante trae el combo y también **todos** sus componentes, el combo va con costo 0 y el costo lo llevan los componentes. Si trae el combo con solo algunos componentes, el combo se costea entero.
 
 - El "Precio Costo" que trae el PDF ya no se usa como costo: ya venía con un recargo y, con el × 1,065 encima, el margen quedaba más bajo de lo real. Se guarda solo como referencia.
-- Una línea sin producto, o con un producto sin costo en el ERP, queda sin costo y fuera del markup, como en la pantalla anterior. Para darle costo, corregila (ver abajo).
+- Una línea sin producto, o con un producto sin costo, queda sin costo y fuera del markup, como en la pantalla anterior. Para darle costo, corregila (ver abajo).
 
 ### Qué cambia en Por fuera
 
@@ -71,8 +74,8 @@ En cada línea sin producto se ve también su causa.
 Con el permiso ventas_fuera.subir_pdf, cada línea tiene sus botones:
 
 - **Costo**: abre la misma ventana de costo de la pantalla anterior (pesos o dólares con el tipo de cambio y la opción de armar el costo sumando productos del ERP). El **Markup Costo (%)** arranca en 0 y es opcional hasta que gerencia decida cómo se sobrescribe el costo: si lo cargás, se suma al costo. Lo que guardás pasa a ser el Precio Costo de la línea y el listado le suma el Costo D (× 1,065) encima. Debajo del campo ves en vivo "Se guarda … · Costo D …".
-- **Producto**: buscá el producto real y tocá **Asignar**. Si la línea no tiene costo manual, toma el costo del ERP de ese producto. Con **Recordar para próximas cargas** tildado, las próximas cargas con el mismo código (o el mismo artículo, si no tiene código) toman ese producto solas.
-- **Quitar corrección**: la línea vuelve al producto que encuentra el sistema y al costo del ERP de ese producto.
+- **Producto**: buscá el producto real y tocá **Asignar**. Si la línea no tiene costo manual, toma el costo SI de ese producto. Con **Recordar para próximas cargas** tildado, las próximas cargas con el mismo código (o el mismo artículo, si no tiene código) toman ese producto solas.
+- **Quitar corrección**: la línea vuelve al producto que encuentra el sistema y al costo SI de ese producto.
 - **Confirmar**: aparece en las líneas marcadas **Revisar** (ver abajo) y vuelve a aplicar la corrección.
 
 Las líneas corregidas se ven con la marca **Manual**. Al guardar, la lista se actualiza y también las métricas, los offsets y el sell in / sell out de esa línea.
@@ -95,7 +98,7 @@ Ahí también se ve qué falta subir: para cada empresa, vendedor y rango, si fa
 ## Preguntas frecuentes
 
 **¿Dónde quedó la pantalla vieja de Ventas por Fuera?**
-Volvió por un tiempo como **Reportes → Ventas por Fuera (anterior)** (`/dashboard-ventas-fuera`, pide ventas_fuera.ver_dashboard), con sus pestañas, la edición de costos y las correcciones de producto. Sus datos siguen saliendo del sync de GBP, no de los PDF, y las columnas de sell in / sell out quedan vacías. La lista de operaciones de los PDF ahora está en **Reportes → Operaciones por Fuera**.
+Volvió por un tiempo como **Reportes → Ventas por Fuera (anterior)** (`/dashboard-ventas-fuera`, pide ventas_fuera.ver_dashboard), con sus pestañas, la edición de costos y las correcciones de producto. Sus datos siguen saliendo del sync de GBP, no de los PDF, y las columnas de sell in / sell out quedan vacías. La lista de operaciones de los PDF ahora está en **Reportes → Operaciones por Fuera**. En su pestaña **Rentabilidad**, las ventas de productos sin costo conocido suman al monto vendido pero no al costo, la ganancia ni el markup; cada tarjeta (y el total) avisa cuántas son con «N ventas sin costo». Si ninguna venta de la tarjeta tiene costo, Costo, Ganancia y Markup dicen «Sin costo» en lugar de $0.
 
 **¿Por qué no veo el Total Gauss ni el markup?**
 Piden el permiso ventas_fuera.ver_ganancia (y en **Todo**, también ml_metricas.ver_ganancia).
