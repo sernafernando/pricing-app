@@ -519,6 +519,36 @@
   background: var(--bg-hover);
 }
 
+/* Operations table of this page only: fits 1440 next to the expanded sidebar (sell-in-costo-si T3 PR 8). New
+   classes on top of the shared table styles, which the Tienda Nube / Ventas por fuera dashboards also use. */
+.opsCompacta th {
+  white-space: normal;
+  word-break: normal;
+  letter-spacing: 0;
+  padding: 10px 4px;
+  vertical-align: bottom;
+}
+
+.opsCompacta td {
+  padding: 8px 4px;
+  word-break: normal;
+}
+
+/* Amounts and percentages never break inside a number. */
+.opsCompacta td.opsImporte,
+.opsSinCorte {
+  white-space: nowrap;
+}
+
+/* A second value under the first in the same cell (ML ID under the date, % and list under the commission). */
+.opsSecundario {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  white-space: normal;
+}
+
 .negativo {
   color: #ef4444 !important;
   font-weight: 700;
