@@ -35,6 +35,9 @@ from app.services.order_metrics.constants import CURRENT_FORMULA_VERSION
 from tests.conftest import make_access_token
 from tests.integration.test_ml_ventas_ops_sales_router import _grant_ml_ops_ver, _seed_order
 from tests.mcp.conftest import call_tool, connect, tool_text
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 (the costo SI reader's SQLite stand-in)
+
+pytestmark = pytest.mark.usefixtures("costo_si_lista")
 
 SEP_1 = datetime(2026, 9, 1, tzinfo=timezone.utc)
 
@@ -184,7 +187,8 @@ def test_without_ver_costos_only_cost_fields_are_missing(mcp_client, mcp_user, r
         )
     dropped = deep_keys(endpoint) - deep_keys(tool)
     assert dropped, "cost fields are present in the endpoint answer"
-    assert all(tools._COST_KEY.search(path.rsplit(".", 1)[1]) for path in dropped), sorted(dropped)
+    # a cost key goes whole: its children (e.g. `costo_si.moneda`) go with it, and nothing outside a cost key
+    assert all(any(tools._COST_KEY.search(key) for key in path.split(".")[1:]) for path in dropped), sorted(dropped)
 
 
 # ---------------------------------------------------------------- ventas por fuera
