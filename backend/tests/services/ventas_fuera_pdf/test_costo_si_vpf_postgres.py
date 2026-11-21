@@ -149,7 +149,7 @@ def test_a_combo_broken_down_in_its_document_costs_0_and_its_components_carry_th
 
 
 def test_a_combo_with_only_one_loose_component_in_its_document_is_not_broken_down(
-    engine: Engine, db: Session, mundo: None
+    engine: Engine, db: Session, mundo: None, caplog: pytest.LogCaptureFixture
 ) -> None:
     """L19: one extra mouse next to the combo is not its breakdown (the notebook is missing): the combo costs its
     components and the loose mouse its own."""
@@ -163,6 +163,9 @@ def test_a_combo_with_only_one_loose_component_in_its_document_is_not_broken_dow
     )
 
     assert [_costo(engine, 1, r) for r in (1, 2)] == [Decimal("1600000.00"), Decimal("50000.00")]
+    avisos = [r.getMessage() for r in caplog.records if "partially broken down" in r.getMessage()]
+    assert len(avisos) == 1 and f"combo {P_COMBO} partially broken down in group " in avisos[0]
+    assert f"(missing components [{P_NB}])" in avisos[0]
 
 
 def test_a_credit_note_line_keeps_its_negative_quantity_and_cost(engine: Engine, db: Session, mundo: None) -> None:

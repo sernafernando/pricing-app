@@ -16,19 +16,21 @@ a reference. A line without product (`item_id` NULL) costs 0.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Callable, Iterable, Mapping, Optional, TypeVar
 
-from sqlalchemy import select
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.models.venta_fuera_pdf import VentaFueraLineaOverride, VentaFueraOperacion, VentaFueraOperacionLinea
 from app.services.costo_si import lote
 
 K = TypeVar("K")
+
+logger = logging.getLogger(__name__)
 
 CERO = Decimal("0")
 CENTAVO = Decimal("0.01")
@@ -39,10 +41,16 @@ def costos_unitarios(db: Session, pares: Iterable[tuple[int, date]]) -> dict[tup
     return {clave: costo.costo_ars for clave, costo in lote.en_fechas(db, pares).items()}
 
 
-def combos_desglosados(db: Session, documentos: Mapping[K, Iterable[Optional[int]]]) -> dict[K, set[int]]:
-    """Owner L19: for each document (its products), the combos among them whose breakdown it brings, i.e. EVERY one
-    of their components is another line of the same document (one loose unit of a component is not a breakdown).
-    Quantities are not compared. PCs are never combos here (`lote.combos_con`)."""
+def combos_desglosados(
+    db: Session, documentos: Mapping[K, Iterable[Optional[int]]], *, origen: str = "ventas_fuera"
+) -> dict[K, set[int]]:
+    """Owner L19: for each document (its products, keyed by its group id), the combos among them whose breakdown it
+    brings, i.e. EVERY one of their components is another line of the same document (one loose unit of a component
+    is not a breakdown). Quantities are not compared. PCs are never combos here (`lote.combos_con`).
+
+    A combo with SOME but not all of its components as other lines (a partial breakdown) is costed whole and its
+    loose components too; that possible double count is logged with the group id and the missing components (owner
+    reply to the PR 9 doubt), never silent. One query for every document."""
     presentes = {k: {int(i) for i in items if i is not None} for k, items in documentos.items()}
     contienen = lote.combos_con(db, set().union(*presentes.values())) if presentes else {}
     candidatos = {combo for combos in contienen.values() for combo in combos}
@@ -54,10 +62,23 @@ def combos_desglosados(db: Session, documentos: Mapping[K, Iterable[Optional[int
         )
         for combo, componente in filas:
             partes.setdefault(int(combo), set()).add(int(componente))
-    return {
-        k: {combo for combo in items & candidatos if partes.get(combo) and partes[combo] <= items - {combo}}
-        for k, items in presentes.items()
-    }
+    desglosados: dict[K, set[int]] = {}
+    for k, items in presentes.items():
+        desglosados[k] = set()
+        for combo in sorted(items & candidatos):
+            faltan = partes.get(combo, set()) - (items - {combo})
+            if not faltan:
+                desglosados[k].add(combo)
+            elif faltan != partes.get(combo):
+                logger.warning(
+                    "%s: combo %s partially broken down in group %s (missing components %s): costed whole and its "
+                    "loose components too",
+                    origen,
+                    combo,
+                    k,
+                    sorted(faltan),
+                )
+    return desglosados
 
 
 def precio_costo(costo_unitario: Optional[Decimal], cantidad: Decimal) -> Decimal:

@@ -292,7 +292,7 @@ def test_cron_combo_line_with_its_breakdown_costs_0(engine: Engine, db: Session,
 
 @pytest.mark.parametrize("cron,df_id", CANALES)
 def test_cron_combo_line_with_only_one_loose_component_is_not_broken_down(
-    engine: Engine, db: Session, cron, df_id
+    engine: Engine, db: Session, cron, df_id, caplog: pytest.LogCaptureFixture
 ) -> None:
     """L19: one extra mouse sold next to the combo is not its breakdown: the combo keeps its components' cost."""
     combo, mouse = _venta(engine, df_id, [{"item": COMBO}, {"item": MOUSE}])
@@ -300,6 +300,27 @@ def test_cron_combo_line_with_only_one_loose_component_is_not_broken_down(
     costos = _cron(db, cron)
 
     assert (costos[combo][1], costos[mouse][1]) == (COMBO_ARS * D, MOUSE_ARS * D)
+    # the possible double count of the mouse is logged with the group (GBP transaction), never silent
+    (ct,) = db.execute(
+        text("SELECT ct_transaction FROM tb_item_transactions WHERE it_transaction = :i"), {"i": combo}
+    ).one()
+    avisos = [r.getMessage() for r in caplog.records if "partially broken down" in r.getMessage()]
+    assert avisos == [
+        f"{cron.__name__.split('.')[-1].replace('agregar_metricas_', 'ventas_')}: combo {COMBO} partially broken down"
+        f" in group {ct} (missing components [{NB}]): costed whole and its loose components too"
+    ]
+
+
+@pytest.mark.parametrize("cron,df_id", CANALES)
+def test_cron_a_full_breakdown_or_a_combo_alone_logs_nothing(
+    engine: Engine, db: Session, cron, df_id, caplog: pytest.LogCaptureFixture
+) -> None:
+    _venta(engine, df_id, [{"item": COMBO}, {"item": NB}, {"item": MOUSE, "qty": "2"}])
+    _venta(engine, df_id, [{"item": COMBO}])
+
+    _cron(db, cron)
+
+    assert [r for r in caplog.records if "partially broken down" in r.getMessage()] == []
 
 
 @pytest.mark.parametrize("cron,df_id", CANALES)

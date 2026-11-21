@@ -264,7 +264,9 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
         },
     )
 
-    return result.fetchall()
+    filas = result.fetchall()
+    costo_si_gbp.avisar_combos_parciales(db, filas, origen="ventas_fuera_ml")
+    return filas
 
 
 def process_and_insert(db: Session, rows):

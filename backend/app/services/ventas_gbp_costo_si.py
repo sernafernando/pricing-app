@@ -10,16 +10,23 @@ One SQL piece for the four raw queries that used to carry their own list-cost LA
   combo that is not a PC = its components x quantity (S11);
 - `costo_unitario_ars(alias, item, comp, ct, grupo)`: that cost in pesos, 0 when unknown (as a line without a list
   cost always was), and 0 for a combo whose breakdown the same sale brings (owner L19: "claro si el combo trae el
-  desglose no tomarlo, si no lo trae sí"): one of its components is another line of the same transaction that is
-  costed too (`_desglosado`). A PC (cat 47) is its own product, as today.
+  desglose no tomarlo, si no lo trae sí"): every one of its components is another line of the same transaction that
+  is costed too (`_desglosado`). A PC (cat 47) is its own product, as today;
+- `avisar_combos_parciales(db, filas, origen)`: logs a combo sold with only part of its breakdown (group id =
+  `ct_transaction`), never silently costed twice.
 
 Costo D (x 1.065) stays on top in each query, as before: only the base changed.
 """
 
 from __future__ import annotations
 
+from typing import Any, Iterable, Optional
+
+from sqlalchemy.orm import Session
+
 from app.services.combos.pcs import CAT_PC
 from app.services.costo_si import lote
+from app.services.ventas_fuera_pdf.costo_erp import combos_desglosados
 
 GBP_ITEM = "COALESCE({t}.item_id, {t}.it_item_id_origin, {t}.item_idfrompreinvoice)"
 
@@ -68,3 +75,14 @@ def costo_unitario_ars(alias: str, item: str, comp: str, ct: str, grupo: str, *,
     group, else for a listing row (see `_desglosado`)."""
     desglosado = _desglosado(item, comp, ct, grupo, en_grupo=en_grupo)
     return f"(CASE WHEN {desglosado} THEN 0 ELSE COALESCE({alias}.costo_si_ars, 0) END)"
+
+
+def avisar_combos_parciales(db: Session, filas: Iterable[Any], *, origen: str) -> None:
+    """Log every combo sold with only part of its breakdown, by GBP transaction (`ct_transaction` = the group id;
+    owner L19 doubt): the SQL above costs it whole and its loose components too. Same rule as the PDF
+    (`costo_erp.combos_desglosados`)."""
+    transacciones: dict[int, list[Optional[int]]] = {}
+    for fila in filas:
+        transacciones.setdefault(fila.ct_transaction, []).append(fila.item_id)
+    if transacciones:
+        combos_desglosados(db, transacciones, origen=origen)

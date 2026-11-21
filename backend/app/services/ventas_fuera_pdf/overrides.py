@@ -99,8 +99,8 @@ def _costo_erp(db: Session, linea: VentaFueraOperacionLinea, costos: Optional[Co
     the cost per line."""
     if linea.item_id is None:
         return precio_costo(None, linea.cantidad)
-    hermanas = {0: [otra.item_id for otra in linea.operacion.lineas]}
-    if linea.item_id in combos_desglosados(db, hermanas)[0]:
+    hermanas = {linea.operacion_id: [otra.item_id for otra in linea.operacion.lineas]}
+    if linea.item_id in combos_desglosados(db, hermanas)[linea.operacion_id]:
         return precio_costo(None, linea.cantidad)
     if costos is None:
         return precio_costo_erp(db, linea.item_id, linea.operacion.fecha, linea.cantidad)
