@@ -1,4 +1,5 @@
 import re
+from decimal import Decimal
 from functools import partial
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -16,6 +17,7 @@ from datetime import UTC, date
 from app.api.deps import get_current_user, require_algun_permiso
 from app.api.endpoints.pricing import PERMISOS_EDITAR_PRODUCTOS_O_TIENDA
 from app.services.envio_real_service import resolver_costos_envio_batch
+from app.services.costo_si import lote as costo_si_lote
 from app.services.productos_sell_in_out import MarkupCompanions, parse_contextos_query, resolver_sell_in_out_batch
 from app.services.tienda_sell_in_out import (
     CLAVE_GREMIO,
@@ -1700,6 +1702,15 @@ def listar_productos_con_precios_listas(
 # ========== ENDPOINT TIENDA ==========
 
 
+def _costos_si_ars(db: Session, item_ids, tipo_cambio_usd) -> dict[int, Optional[float]]:
+    """Each product's current costo SI in pesos (`lote.actuales` at the page's USD rate), None when unknown."""
+    tc = Decimal(str(tipo_cambio_usd)) if tipo_cambio_usd else None
+    return {
+        item_id: None if c.costo_ars is None or c.costo_ars <= 0 else float(c.costo_ars)
+        for item_id, c in costo_si_lote.actuales(db, item_ids, tipo_cambio=tc).items()
+    }
+
+
 def tienda_pricing_context(
     *,
     hoy: date,
@@ -2403,6 +2414,9 @@ def listar_productos_tienda(
 
     # ── Batch-resolve PPP (ERP weighted-average cost, informational only) ────
     ppp_by_item_t = resolver_ppp_batch(db, item_ids_results)
+    # Tienda's markups are over costo SI in pesos (S13, D1; the list cost without a costo SI step, Q1). None = unknown
+    # (a USD cost without a rate, or no cost): no markup, never 0 or a USD figure taken as pesos (interfaz §7).
+    costo_si_ars_t = _costos_si_ars(db, item_ids_results, tipo_cambio_usd_t)
     # Sell in / sell out per channel context (gremio / sugerido: off-ML; web_transf: Tienda Nube), one read.
     sell_in_out_batches_t = resolver_tienda_batches(db, item_ids_results, hoy)
 
@@ -2435,6 +2449,7 @@ def listar_productos_tienda(
     for producto_erp, producto_pricing in results:
         # Calcular costo en ARS
         costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_usd_t)
+        costo_si_ars = costo_si_ars_t.get(producto_erp.item_id)
 
         # T-4: Resolve grupo_id once per product
         grupo_id = subcat_to_grupo_t.get(producto_erp.subcategoria_id, GRUPO_DEFAULT)
@@ -2502,11 +2517,11 @@ def listar_productos_tienda(
             precio_gremio_sin_iva = float(override.precio_gremio_sin_iva_manual)
             precio_gremio_con_iva = float(override.precio_gremio_con_iva_manual)
             tiene_override_gremio = True
-            # Calcular markup basado en el precio manual
-            if costo_ars and costo_ars > 0:
-                # Markup = ((Precio / (1 + varios%)) / Costo) - 1
+            # The manual price stays as stored (D4); its markup is over costo SI.
+            if costo_si_ars:
+                # Markup = ((Precio / (1 + varios%)) / costo SI) - 1
                 precio_base = precio_gremio_sin_iva / (1 + varios_porcentaje / 100)
-                markup_gremio = ((precio_base / costo_ars) - 1) * 100
+                markup_gremio = ((precio_base / costo_si_ars) - 1) * 100
         else:
             # Calcular automáticamente según reglas de marca/producto
             if producto_erp.item_id in markups_producto_dict:
@@ -2542,11 +2557,10 @@ def listar_productos_tienda(
         # Markups cuotas
         markup_3_cuotas, markup_6_cuotas, markup_9_cuotas, markup_12_cuotas = None, None, None, None
         if producto_pricing:
-            tc_cuota = tipo_cambio_usd_t if producto_erp.moneda_costo == "USD" else None
-            cc = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tc_cuota)
+            cc = costo_si_ars
 
             for precio_cuota, pricelist_id, nombre in ml_cuota_prices(producto_pricing):
-                if precio_cuota and float(precio_cuota) > 0:
+                if cc and precio_cuota and float(precio_cuota) > 0:
                     try:
                         cb = _lookup_comision_t(pricelist_id, grupo_id)
                         if cb:

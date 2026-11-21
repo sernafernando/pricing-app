@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import api from '../services/api';
+import { costoSiArs, markupGremioDesdePrecio } from '../utils/tiendaGremio';
 
 /**
  * Custom hook para manejar TODA la lógica de edición de precios en la vista Tienda.
@@ -267,7 +268,8 @@ export function useTiendaPricing({
         null
       );
 
-      const markupCalculado = calcularMarkupDesdePrecios(producto.costo_ars, precioSinIva);
+      // The markup shown is over costo SI (S13, D1), as the listing computes it; null without it.
+      const markupCalculado = markupGremioDesdePrecio(costoSiArs(producto), precioSinIva);
 
       setProductos(prods => prods.map(p =>
         p.item_id === itemId
