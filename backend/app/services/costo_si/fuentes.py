@@ -39,6 +39,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.types import BigInteger
 
 from app.services.combos.pcs import pcs_entre
+from app.services.pricing_calculator import moneda_de
 from app.services.costo_si import full_ml
 from app.services.costo_si.engine import Compra, Inicio, SellIn
 
@@ -47,7 +48,8 @@ DEPOSITO_PRINCIPAL = 1
 CLIENTE_TRANSFERENCIA_FULL = 2849
 CURR_ARS = 1
 CURR_USD = 2
-MONEDAS = {CURR_ARS: "ARS", CURR_USD: "USD"}  # the purchase currencies costo SI knows how to bring to USD
+MONEDAS = {CURR_ARS: "ARS", CURR_USD: "USD"}  # the purchase currencies costo SI knows how to convert
+CURRS = {moneda: curr for curr, moneda in MONEDAS.items()}
 
 
 class MonedaNoSoportada(ValueError):
@@ -139,9 +141,11 @@ _PRIMERA_FACTURA_CON_SELL_IN_SQL = text("""
 
 _COSTO_LISTA_SQL = text("""
     SELECT iclh_price FROM tb_item_cost_list_history
-    WHERE item_id = :i AND coslis_id = 1 AND curr_id = 2 AND iclh_cd < :t
+    WHERE item_id = :i AND coslis_id = 1 AND COALESCE(curr_id, 1) = :curr AND iclh_cd < :t
     ORDER BY iclh_cd DESC, iclh_id DESC LIMIT 1
 """)
+
+_MONEDA_SQL = text("SELECT moneda_costo FROM productos_erp WHERE item_id = :i")
 
 
 @dataclass(frozen=True)
@@ -285,8 +289,19 @@ def primera_fecha_sell_in(db: Session, item_id: int, bonos: Sequence[Bono]) -> O
     return min(fechas) if fechas else None
 
 
-def costo_lista(db: Session, item_id: int, dia: date) -> Optional[Decimal]:
-    value = db.execute(_COSTO_LISTA_SQL, {"i": item_id, "t": inicio_del_dia(dia)}).scalar()
+def moneda_de_producto(db: Session, item_id: int) -> str:
+    """The product's cost currency, where its costo SI lives (L18): `moneda_costo` as the screens read it (blank or
+    missing is ARS, `pricing_calculator.moneda_de`)."""
+    moneda = moneda_de(db.execute(_MONEDA_SQL, {"i": item_id}).scalar())
+    if moneda not in CURRS:
+        raise MonedaNoSoportada(f"product {item_id}: cost currency {moneda}; costo SI knows {sorted(CURRS)}")
+    return moneda
+
+
+def costo_lista(db: Session, item_id: int, dia: date, moneda: str = "USD") -> Optional[Decimal]:
+    """The list 1 cost in force at 00:00 of `dia`, from the history rows in `moneda` only (S2 in the product's
+    currency: a row in the other currency is never converted)."""
+    value = db.execute(_COSTO_LISTA_SQL, {"i": item_id, "t": inicio_del_dia(dia), "curr": CURRS[moneda]}).scalar()
     return Decimal(value) if value is not None else None
 
 
@@ -378,9 +393,9 @@ class SellInCompras:
     pedidos: frozenset
 
 
-def tipos_de_cambio(db: Session, facturas: Sequence[Factura]) -> List[Tuple[date, Decimal]]:
-    """The USD rates the invoices' dates need, oldest first (one query for the whole entry)."""
-    fechas = [f.fecha for f in facturas if f.curr_id == CURR_ARS]
+def tipos_de_cambio(db: Session, facturas: Sequence[Factura], moneda: str = "USD") -> List[Tuple[date, Decimal]]:
+    """The USD rates the dates of the invoices not in `moneda` need, oldest first (one query for the whole entry)."""
+    fechas = [f.fecha for f in facturas if MONEDAS[f.curr_id] != moneda]
     if not fechas:
         return []
     filas = db.execute(_TC_FECHAS_SQL, {"desde": min(fechas), "hasta": max(fechas)})
@@ -388,11 +403,12 @@ def tipos_de_cambio(db: Session, facturas: Sequence[Factura]) -> List[Tuple[date
 
 
 def tipo_cambio_de(
-    f: Factura, manuales: Dict[int, Decimal], tasas: Sequence[Tuple[date, Decimal]]
+    f: Factura, manuales: Dict[int, Decimal], tasas: Sequence[Tuple[date, Decimal]], moneda: str = "USD"
 ) -> Tuple[Optional[Decimal], str]:
-    """S4 (L4.5): the PM's correction, else the Compras operation's TC, else the last rate on or before its date."""
-    if f.curr_id == CURR_USD:
-        return None, "usd"
+    """S4 (L4.5): an invoice in the product's currency (`moneda`, L18) needs none ('usd' / 'ars'); else the PM's
+    correction, else the Compras operation's TC, else the last rate on or before its date."""
+    if MONEDAS[f.curr_id] == moneda:
+        return None, moneda.lower()
     if f.ct_transaction in manuales:
         return manuales[f.ct_transaction], "manual"
     if f.tc_pedido is not None:
@@ -519,6 +535,7 @@ def inicio_de(db: Session, item_id: int) -> Optional[date]:
 class Entrada:
     inicio: Inicio
     compras: List[Compra]
+    moneda: str = "USD"  # the product's cost currency every amount is in (L18)
 
 
 def entrada(db: Session, item_id: int) -> Optional[Entrada]:
@@ -535,24 +552,33 @@ def entrada(db: Session, item_id: int) -> Optional[Entrada]:
     posteriores = [f for f in facturas if f.fecha >= inicio_fecha]
     # Invoiced before the start but entering stock after it: valued at the start cost, like the stock then.
     sin_entrar = sum(f.cantidad for f in previas if f.entrada is not None and f.entrada >= t0)
+    moneda = moneda_de_producto(db, item_id)
     inicio = Inicio(
-        inicio_fecha, disponible(db, item_id, inicio_fecha) + sin_entrar, costo_lista(db, item_id, inicio_fecha)
+        inicio_fecha,
+        disponible(db, item_id, inicio_fecha) + sin_entrar,
+        costo_lista(db, item_id, inicio_fecha, moneda),
     )
     manuales = {}
     if posteriores:
         manuales = {
             ct: Decimal(tc) for ct, tc in db.execute(_TC_MANUAL_SQL, {"cts": [f.ct_transaction for f in posteriores]})
         }
-    tasas = tipos_de_cambio(db, posteriores)
+    tasas = tipos_de_cambio(db, posteriores, moneda)
     del_compras = sell_ins_compras(db, item_id) if any(f.pedidos for f in posteriores) else []
     por_bono = porcentajes_de_bonos(db, item_id, bonos) if posteriores else {}
     compras = []
     # The stock before each invoice is a point-in-time reconstruction (its own instant): one read per invoice.
     for n, f in enumerate(posteriores):
-        tc, fuente = tipo_cambio_de(f, manuales, tasas)
-        if f.curr_id == CURR_ARS and not tc:
+        tc, fuente = tipo_cambio_de(f, manuales, tasas, moneda)
+        if MONEDAS[f.curr_id] != moneda and not tc:
             raise ValueError(f"invoice {f.ct_transaction}: no exchange rate for {f.fecha}")
-        neto = f.precio if f.curr_id == CURR_USD else f.precio / tc  # ARS (the only other one facturas_de admits)
+        # Into the product's currency (L18), at the invoice's own rate: never re-converted later.
+        if MONEDAS[f.curr_id] == moneda:
+            neto = f.precio
+        elif moneda == "USD":
+            neto = f.precio / tc
+        else:
+            neto = f.precio * tc
         compras.append(
             Compra(
                 fecha=f.fecha,
@@ -566,7 +592,7 @@ def entrada(db: Session, item_id: int) -> Optional[Entrada]:
                 en_compras=bool(f.pedidos),
             )
         )
-    return Entrada(inicio, compras)
+    return Entrada(inicio, compras, moneda)
 
 
 def _stock_antes(db: Session, item_id: int, f: Factura, antes: Sequence[Factura], despues: Sequence[Factura]) -> int:

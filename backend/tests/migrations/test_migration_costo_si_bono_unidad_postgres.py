@@ -31,12 +31,14 @@ def migrada() -> Iterator[Engine]:
         yield engine
 
 
-def test_it_chains_on_drop_full_and_is_the_single_head() -> None:
+def test_it_chains_on_drop_full_and_the_graph_has_one_head() -> None:
     config = Config(os.path.join(_BACKEND_ROOT, "alembic.ini"))
     config.set_main_option("script_location", os.path.join(_BACKEND_ROOT, "alembic"))
     script = ScriptDirectory.from_config(config)
     assert script.get_revision(_REVISION).down_revision == "20261125_costo_si_drop_full"
-    assert script.get_heads() == [_REVISION]
+    # Not `get_heads() == [this]`: 20261126_costo_si_moneda (and later revisions) chain on top.
+    (head,) = script.get_heads()
+    assert _REVISION in {r.revision for r in script.iterate_revisions(head, "base")}
 
 
 @pytest.mark.postgres

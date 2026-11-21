@@ -54,7 +54,7 @@ class Compra:
     sell_ins: Tuple[SellIn, ...]
     stock_antes: int  # available stock right before it (S3), as the source reconstructed it
     tipo_cambio: Optional[Decimal] = None
-    fuente_tc: Optional[str] = None  # 'usd' | 'manual' | 'pedido' | 'fecha_factura'
+    fuente_tc: Optional[str] = None  # 'usd' | 'ars' (in the product's currency) | 'manual' | 'pedido' | 'fecha_factura'
     en_compras: bool = False  # linked to a Compras operation (S7)
 
 

@@ -153,14 +153,26 @@ def rows(engine: Engine, sql: str, **params) -> list:
         return [tuple(r) for r in conn.execute(text(sql), params)]
 
 
-def producto(engine: Engine, item_id: int, marca: str = MARCA, categoria: str = "CAMARAS", cat_id: int = 3) -> None:
+def producto(
+    engine: Engine,
+    item_id: int,
+    marca: str = MARCA,
+    categoria: str = "CAMARAS",
+    cat_id: int = 3,
+    moneda: str = "USD",
+    costo: Optional[str] = None,
+) -> None:
+    """A product whose cost currency is `moneda` (costo SI lives in it, L18) and current list cost `costo`."""
     run(
         engine,
-        "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria) VALUES (:i, :c, 'Producto', :m, :cat)",
+        "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria, moneda_costo, costo) "
+        "VALUES (:i, :c, 'Producto', :m, :cat, :mon, :costo)",
         i=item_id,
         c=f"C{item_id}",
         m=marca,
         cat=categoria,
+        mon=moneda,
+        costo=float(costo) if costo is not None else None,
     )
     run(
         engine,
@@ -171,14 +183,15 @@ def producto(engine: Engine, item_id: int, marca: str = MARCA, categoria: str = 
     )
 
 
-def costo_lista(engine: Engine, item_id: int, cuando: datetime, precio: str) -> None:
+def costo_lista(engine: Engine, item_id: int, cuando: datetime, precio: str, curr_id: int = 2) -> None:
     run(
         engine,
         "INSERT INTO tb_item_cost_list_history (iclh_id, coslis_id, item_id, iclh_price, curr_id, iclh_cd) "
-        "VALUES (:id, 1, :i, :p, 2, :cd)",
+        "VALUES (:id, 1, :i, :p, :curr, :cd)",
         id=next(_ids),
         i=item_id,
         p=Decimal(precio),
+        curr=curr_id,
         cd=cuando,
     )
 

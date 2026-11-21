@@ -2,7 +2,7 @@
 
 - `costo_si_pasos`: every product's history, one row per step (its start, then one per purchase invoice). The row is
   the average in force from `fecha` on, with its breakdown: net, each sell in %, net-net, stock before, average after
-  (USD, 5 decimals, S10). The current costo SI is the product's last row.
+  (5 decimals, S10) in the product's cost currency, `moneda` (L18). The current costo SI is the product's last row.
 - `costo_si_backups`: the rows a recompute replaced, before it replaced them (S8, L2.5 / L4.8).
 - `costo_si_dirty`: the products to recompute and from which date; drained by `sell.drain`, no cron.
 - `costo_si_stock_diario`: the daily photo of AVAILABLE stock, principal (GBP) and Full (Mercado Libre), so the
@@ -58,6 +58,9 @@ class CostoSiPaso(Base):
     tipo_cambio = Column(Numeric(18, 6), nullable=True)
     fuente_tc = Column(String(16), nullable=True)
     en_compras = Column(Boolean, nullable=False, server_default=text("false"))
+    # The product's cost currency the step is in (owner L18, migration 20261126_costo_si_moneda): the `*_usd`
+    # columns kept their names and hold amounts in this currency.
+    moneda = Column(String(3), nullable=False, server_default=text("'USD'"))
     calculado_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 

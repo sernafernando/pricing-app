@@ -69,6 +69,8 @@ def test_returns_the_value_in_force_on_the_date_and_the_whole_breakdown(client, 
     body = client.get(f"{URL}/{PRODUCTO}", params={"fecha": "2026-11-20"}, headers=auth_headers).json()
 
     assert body["costo_si_usd"] == "23.81667"
+    assert body["costo_si_moneda"] == "USD"  # L18: the currency the value is in
+    assert {p["moneda"] for p in body["pasos"]} == {"USD"}
     assert body["vigente_desde"] == "2026-10-20"
     assert body["es_combo"] is False
     assert [(p["tipo"], p["promedio_usd"]) for p in body["pasos"]] == [("inicio", "25.00000"), ("compra", "23.81667")]
