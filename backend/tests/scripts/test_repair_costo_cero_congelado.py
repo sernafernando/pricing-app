@@ -14,18 +14,19 @@ docstring for why recongelar-ing it would destroy a correct historic cost.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import event
 
+from app.models.combo_componente import ComboComponente
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.publicacion_ml import PublicacionML
-from app.models.combo_componente import ComboComponente
-from app.services.combos.componentes import CombosNoSincronizados
 from app.scripts import repair_costo_cero_congelado as script
+from app.services.combos.componentes import CombosNoSincronizados
 from tests.costo_si_lista import costo_si_lista  # noqa: F401
 
 # congelar reads the cost through the costo SI reader (Postgres SQL): its SQLite stand-in (list cost).
@@ -417,6 +418,41 @@ class TestKeyIncludesOrderId:
 
         row_701 = db.query(MlOrderItemCosto).filter_by(order_id=701, item_id="MLA1").one()
         assert row_701.costo_unitario_ars == Decimal("0.0000")  # untouched
+
+
+class TestSaleDatesOneQuery:
+    def test_the_sale_dates_of_a_batch_are_read_in_one_query(self, db):
+        """No query per order: one set-based read of the batch's `date_created`, and each order still re-frozen
+        on its own sale date (the ART day)."""
+        for order_id, dia in ((800, 5), (801, 9)):
+            orden = _order(order_id)
+            orden.date_created = datetime(2026, 10, dia, 15, tzinfo=timezone.utc)
+            db.add(orden)
+            db.add(_item_ops(order_id))
+            _frozen_row(db, order_id=order_id, costo_unitario_ars=0.0, iva_pct=21.0)
+        _producto(db, costo=250.0, iva=21.0)
+        _publicacion(db)
+        db.commit()
+
+        lecturas = []
+
+        def _contar(conn, cursor, statement, *args):
+            if "ml_orders_ops.date_created" in statement and "ml_order_item_costos" not in statement:
+                lecturas.append(statement)
+
+        bind = db.get_bind()
+        event.listen(bind, "before_cursor_execute", _contar)
+        try:
+            result = script.run_repair(limit=None, dry_run=False)
+        finally:
+            event.remove(bind, "before_cursor_execute", _contar)
+
+        assert result.recongelados == 2
+        assert len(lecturas) == 1
+        fechas = {
+            r.order_id: r.costo_fecha for r in db.query(MlOrderItemCosto).filter(MlOrderItemCosto.order_id >= 800)
+        }
+        assert fechas == {800: date(2026, 10, 5), 801: date(2026, 10, 9)}
 
 
 class TestUncostableHoleIsVisible:

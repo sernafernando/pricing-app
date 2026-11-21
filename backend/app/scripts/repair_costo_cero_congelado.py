@@ -474,13 +474,18 @@ def run_repair(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_BA
             for order_id, item_id, variation_id in keys_to_recongelar:
                 recongelar_keys_by_order.setdefault(order_id, []).append((item_id, variation_id))
 
+            # Each order is re-frozen on its own sale date: the batch's dates in ONE read, not one query per order.
+            fechas = dict(
+                db.query(MlOrdersOps.order_id, MlOrdersOps.date_created)
+                .filter(MlOrdersOps.order_id.in_(list(recongelar_keys_by_order)))
+                .all()
+            )
             for order_id, keys in recongelar_keys_by_order.items():
                 dtos = [
                     _item_dto_from_ops(items_by_key[(order_id, item_id, variation_id)])
                     for item_id, variation_id in keys
                 ]
-                fecha = db.query(MlOrdersOps.date_created).filter(MlOrdersOps.order_id == order_id).scalar()
-                congelar(db, order_id=order_id, items=dtos, fecha_venta=fecha_venta_de(fecha))
+                congelar(db, order_id=order_id, items=dtos, fecha_venta=fecha_venta_de(fechas.get(order_id)))
             db.commit()
 
             # Which of the just-recongelado-attempted keys got a fresh row,

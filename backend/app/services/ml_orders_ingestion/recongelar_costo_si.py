@@ -71,9 +71,10 @@ WITH nuevos AS (
     WHERE c.producto_item_id = :item
       AND (CAST(:desde AS date) IS NULL OR {FECHA_VENTA_SQL} >= CAST(:desde AS date))
       AND cs.costo_si_ars > 0
-      -- A list-cost combo too: the reader labels a combo 'lista' when one component has no costo SI, yet its cost
-      -- carries the costo SI of the others (a combo is queued only when one of its components changes).
-      AND (cs.costo_si_fuente = '{lote.FUENTE_COSTO_SI}' OR c.fuente IN :costo_si OR c.fuente = 'combo')
+      -- A list-cost combo too, frozen live ('combo') or backfilled ('hist_combo', a dated list cost): the reader
+      -- labels a combo 'lista' when one component has no costo SI, yet its cost carries the costo SI of the others
+      -- (a combo is queued only when one of its components changes).
+      AND (cs.costo_si_fuente = '{lote.FUENTE_COSTO_SI}' OR c.fuente IN :costo_si OR c.fuente IN ('combo', 'hist_combo'))
 ),
 cambiados AS (
     SELECT n.* FROM nuevos n JOIN ml_order_item_costos c ON c.id = n.id
@@ -121,7 +122,7 @@ _DESCONOCIDAS_SQL = text(f"""
     WHERE c.producto_item_id = :item
       AND (CAST(:desde AS date) IS NULL OR {FECHA_VENTA_SQL} >= CAST(:desde AS date))
       AND (cs.costo_si_ars IS NULL OR cs.costo_si_ars <= 0)
-      AND (cs.costo_si_fuente = '{lote.FUENTE_COSTO_SI}' OR c.fuente IN :costo_si OR c.fuente = 'combo')
+      AND (cs.costo_si_fuente = '{lote.FUENTE_COSTO_SI}' OR c.fuente IN :costo_si OR c.fuente IN ('combo', 'hist_combo'))
 """).bindparams(bindparam("costo_si", value=FUENTES_COSTO_SI, expanding=True))
 
 

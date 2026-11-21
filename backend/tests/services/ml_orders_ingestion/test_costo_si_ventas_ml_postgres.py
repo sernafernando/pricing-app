@@ -316,11 +316,13 @@ def test_a_list_cost_row_that_stays_list_cost_is_left_as_frozen(engine: Engine) 
     assert _fila(engine, order)[0] == D("40.0000")
 
 
+@pytest.mark.parametrize("fuente", ["combo", "hist_combo"])
 def test_a_combo_part_costo_si_part_list_cost_is_refrozen_when_its_costo_si_component_changes(
-    engine: Engine,
+    engine: Engine, fuente: str
 ) -> None:
     """The reader labels such a combo 'lista' (one component has no costo SI), but its cost carries the costo SI of
-    the other: a change of that one re-costs it (L15). MIX = 1 x A + 1 x SIN."""
+    the other: a change of that one re-costs it (L15), whether the live freeze (`combo`) or the backfill
+    (`hist_combo`, a dated list cost, never today's) wrote the row. MIX = 1 x A + 1 x SIN."""
     mix = 7106
     _mundo(engine)
     w.run(engine, "DELETE FROM costo_si_pasos WHERE item_id = :i AND orden = 1", i=A)  # A: 23.817 only
@@ -340,10 +342,11 @@ def test_a_combo_part_costo_si_part_list_cost_is_refrozen_when_its_costo_si_comp
     finally:
         del MLA[mix]
     assert _fila(engine, order)[4] == D("76580.4000")  # (23.817 + 40) x 1200
+    w.run(engine, "UPDATE ml_order_item_costos SET fuente = :f WHERE order_id = :o", f=fuente, o=order)
     _paso(engine, A, 1, date(2026, 10, 13), "22.75700")  # a late invoice lowers A from 10-13
 
     assert _recongelar(engine, mix, date(2026, 10, 13)) == 1
-    assert _fila(engine, order)[4:6] == (D("75308.4000"), "combo")  # (22.757 + 40) x 1200, still list cost
+    assert _fila(engine, order)[4:6] == (D("75308.4000"), fuente)  # (22.757 + 40) x 1200, still list cost
     assert _recongelar(engine, mix, date(2026, 10, 13)) == 0
 
 

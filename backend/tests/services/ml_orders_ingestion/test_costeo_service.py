@@ -10,20 +10,19 @@ letting a `coalesce(..., 0)` stand in for "unknown").
 
 from __future__ import annotations
 
-from datetime import date
 import logging
+from datetime import date
 from decimal import Decimal
 
+import pytest
 
+from app.models.combo_componente import ComboComponente
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.publicacion_ml import PublicacionML
-from app.models.combo_componente import ComboComponente
 from app.models.tipo_cambio import TipoCambio
 from app.services.ml_orders_ingestion.costeo_service import FUENTE_PUBLICACION, FUENTE_SKU, congelar
 from app.services.ml_orders_ingestion.mapper import OrderItemOpsDTO
-import pytest
-
 from tests.costo_si_lista import costo_si_lista  # noqa: F401
 
 # congelar reads the cost through the costo SI reader (Postgres SQL): its SQLite stand-in (list cost).

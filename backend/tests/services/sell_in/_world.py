@@ -26,15 +26,12 @@ from typing import Iterator, List, Optional, Tuple
 
 from sqlalchemy import Engine, text
 
-from app.models.cur_exch_history import CurExchHistory
-from app.models.tactical import Tactical
 from app.models.auditoria import Auditoria
 from app.models.combo_componente import ComboComponente
 from app.models.costo_si import CostoSiDirty, CostoSiPaso
+from app.models.cur_exch_history import CurExchHistory
 from app.models.item_cost_list_history import ItemCostListHistory
-from app.models.tipo_cambio import TipoCambio
 from app.models.ml_costo_si import MlCostoSiDirty
-from app.models.tb_item import TBItem
 from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_sale_line import MlSaleLine
 from app.models.producto import ProductoERP
@@ -48,6 +45,9 @@ from app.models.sell_in import (
     SellInConsumo,
     SellInModoProducto,
 )
+from app.models.tactical import Tactical
+from app.models.tb_item import TBItem
+from app.models.tipo_cambio import TipoCambio
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.services.sell import queue
