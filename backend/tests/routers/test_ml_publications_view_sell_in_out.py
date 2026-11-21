@@ -179,11 +179,12 @@ class TestPayload:
         assert sell_in_usd["costo_moneda"] == pytest.approx((COST[70] - 150.0) / 1000)  # 39.85, not at 1500
         assert sell_in_usd["descuento_unit_moneda"] == pytest.approx(0.15)
 
-    def test_a_usd_cost_without_a_rate_says_so_and_has_no_cost_with_sell_in_in_usd(
-        self, client, rows, pg, analyst, pricing, db, admin_user, monkeypatch
+    def test_a_usd_cost_without_any_rate_has_no_markup_and_no_sell_in_out(
+        self, client, rows, pg, analyst, pricing, db, admin_user, monkeypatch, caplog
     ) -> None:
-        # No USD rate today: the breakdown says it (`tipo_cambio` null), so the panel never calls its cost "pesos";
-        # the cost with sell in has no USD figure (never a guess).
+        # No USD rate at all (neither today's nor the costo SI reader's): the cost in pesos is unknown (interfaz §7:
+        # NULL stays NULL and is logged), so there is no markup, no breakdown and no sell in / sell out companion,
+        # never one priced over the USD figure taken as pesos.
         monkeypatch.setattr(markup_service, "build_pricing_context", lambda db: make_ctx(tipo_cambio_usd=None))
         with pg.begin() as conn:
             seed.add_cost(conn, 70, 40.0, moneda_costo="USD", iva=10.5, envio=120.0)
@@ -191,10 +192,9 @@ class TestPayload:
 
         body = body_of(client, analyst, "MLA11")
 
-        assert (body["markup_breakdown"]["moneda_costo"], body["markup_breakdown"]["tipo_cambio"]) == ("USD", None)
-        sell_in_usd = body["sell_in_out"]["sell_in"]
-        assert (sell_in_usd["moneda_costo"], sell_in_usd["costo_moneda"]) == ("USD", None)
-        assert sell_in_usd["descuento_unit_moneda"] is None
+        assert body["markup_breakdown"] is None
+        assert body["sell_in_out"] is None
+        assert "costo SI: no USD rate for item 70 (publication MLA11)" in caplog.text
 
     def test_the_markup_with_sell_out_is_on_the_resumen_scale(
         self, client, rows, analyst, pricing, db, admin_user
