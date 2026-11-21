@@ -18,7 +18,7 @@ from typing import Iterator, Optional
 from unittest.mock import patch
 
 import pytest
-from sqlalchemy import Engine, event, select, text
+from sqlalchemy import Engine, event, text
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -141,17 +141,15 @@ HEADER_PRICE = 60500.0  # the publication's sale price: the header prices it, th
 def _store_inputs(db: Session, item_ids: Optional[list[str]] = None, f=None) -> dict[str, PublicationInputs]:
     """Stands in for the publication store read (`fetch_inputs`, S11): each `publicaciones_ml` row of this world is
     a classic-list publication of its product, at `HEADER_PRICE`, with the product's own ERP fields and, as
-    `fetch_inputs` (C1), its current cost from `costo_si.lote.actual()`: costo SI, or the list cost without a step."""
+    `fetch_inputs` (C1), its current cost from `costo_si.lote.actuales`: costo SI, or the list cost without a step."""
     out: dict[str, PublicationInputs] = {}
     for mla in item_ids or []:
         publicacion = db.query(PublicacionML).filter(PublicacionML.mla == mla).first()
         if publicacion is None:
             continue
         producto = db.query(ProductoERP).filter(ProductoERP.item_id == publicacion.item_id).first()
-        actual = lote.actual()
-        costo, moneda = db.execute(
-            select(actual.c.costo_si_costo, actual.c.costo_si_moneda).where(actual.c.item_id == producto.item_id)
-        ).one()
+        actual = lote.actuales(db, [producto.item_id])[producto.item_id]
+        costo, moneda = actual.costo, actual.moneda
         unit = UnitInputs(
             item_id=mla,
             listing_type_id="gold_special",

@@ -45,6 +45,9 @@ from app.models.pricing_constants import PricingConstants
 from app.models.producto import ProductoERP, ProductoPricing, TipoMoneda
 from app.models.publicacion_ml import PublicacionML
 from app.models.tipo_cambio import TipoCambio
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 -- Productos' sell in / sell out reads lote.actuales
+
+pytestmark = pytest.mark.usefixtures("costo_si_lista")
 
 GOLDEN_PATH = Path(__file__).resolve().parent.parent / "fixtures" / "productos_listing_golden.json"
 UPDATE_ENV = "PRODUCTOS_GOLDEN_UPDATE"
@@ -300,8 +303,10 @@ class TestProductosListingGolden:
 # whatever its size: the current sell-in lots and the sell-out campaign reach. The manual cost mode (D6) adds one
 # more per page: the products' cost modes and manual blocks, read even for a product without purchase lines (a block
 # typed by hand is stock of its own). The PM's shipping choice (S7b) adds one more per page: the stored choices of the
-# page's products, read once by `resolver_costos_envio_batch` (never once per product).
-EXPECTED_DEFAULT_STATEMENTS = 22
+# page's products, read once by `resolver_costos_envio_batch` (never once per product). Costo SI (sell-in-costo-si T3
+# PR 5) adds the page's current costs for the sell in / sell out (`lote.actuales`): one statement on Postgres, two in
+# its SQLite stand-in (`tests/costo_si_lista.py`: the products, the USD rate).
+EXPECTED_DEFAULT_STATEMENTS = 24
 
 
 class TestProductosListingStatementCount:

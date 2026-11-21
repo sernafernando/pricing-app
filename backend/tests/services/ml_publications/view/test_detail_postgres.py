@@ -22,6 +22,7 @@ from app.routers import ml_publications_admin, ml_publications_view
 from app.services.ml_publications import settings_store
 from app.services.ml_publications.view import detail
 from app.services.ml_publications.view.markup import unit_breakdown, unit_markup
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 -- the SQLite pricing db reads lote.actuales
 from tests.routers.test_ml_publications_links import grant
 from tests.routers.test_ml_publications_view import seed_rows
 from tests.routers.test_ml_publications_view_markup import (  # noqa: F401
@@ -36,7 +37,7 @@ from tests.services.ml_publications.conftest import bulk_item, mlpub_pg  # noqa:
 from tests.services.ml_publications.view import seed
 from tests.services.ml_publications.view.test_unit_markup import make_ctx, make_inputs
 
-pytestmark = pytest.mark.postgres
+pytestmark = [pytest.mark.postgres, pytest.mark.usefixtures("costo_si_lista")]
 
 BASE = "/api/ml-publications/view/items"
 GESTIONAR = "ml_ops.gestionar"
@@ -624,8 +625,9 @@ class TestStatements:
         large = self.count(client, pg, headers, "MLA31")
         assert len(small) == len(large), (small, large)
         # 9: the inputs' read of the active promos (`markup_inputs._promo_revenues`); the shipping batch is separate
-        # (stubbed here) and is the +1
-        assert len(small) <= 9, small
+        # (stubbed here) and is the +1. 11 with costo SI (sell-in-costo-si T3 PR 5): the inputs' cost of the linked
+        # products and the sell in / sell out's (`lote.actuales`, one each)
+        assert len(small) <= 11, small
         assert len(detail_of(client, headers, "MLA31").json()["links"]) == 251
 
     def test_the_read_is_bounded_in_time_before_the_item_is_read(self, client, rows, pg, reader, pricing) -> None:

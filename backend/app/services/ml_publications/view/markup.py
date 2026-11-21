@@ -22,6 +22,7 @@ The caller extracts `UnitInputs` (SQL) and the real shipping costs
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Mapping, Optional, Sequence
 
@@ -29,6 +30,8 @@ from app.services.ml_publications.pricelist_resolver import resolve_pricelist
 from app.services.pricing_calculator import calcular_comision_ml_total, calcular_limpio, calcular_markup, moneda_de
 from app.services.pricing_columns import campo_for_pricelist, cuotas_for_pricelist
 from app.services.pricing_context import ENVIO_REAL, PricingContext, resolve_envio, resolve_envio_source
+
+logger = logging.getLogger(__name__)
 
 REASON_OK = "ok"
 REASON_SIN_VINCULO = "sin_vinculo"
@@ -64,6 +67,9 @@ class UnitInputs:
     subcategoria_id: Optional[int] = None
     # Revenue of the promo ML applies now (offer price + ML co-funding, `ingreso_promo_activa`); None without one.
     promo_revenue: Optional[float] = None
+    # The USD rate the costo SI reader found for a USD cost (`costo_si_tipo_cambio`: `tipo_cambio`, else the ERP's,
+    # interfaz §7); None for ARS or when it found none. Used only when the screen's own rate is missing.
+    tipo_cambio: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -131,6 +137,32 @@ class UnitBreakdown:
     tipo_cambio: Optional[float] = None
 
 
+def usd_rate(ctx: PricingContext, inputs: UnitInputs) -> Optional[float]:
+    """The rate a USD unit cost converts at: the screen's (`ctx`, the rest of it converts at it), else the costo SI
+    reader's; None for an ARS cost or when neither has one."""
+    if moneda_de(inputs.moneda_costo) != "USD":
+        return None
+    return ctx.tipo_cambio_usd or inputs.tipo_cambio or None
+
+
+def costo_en_pesos(ctx: PricingContext, inputs: UnitInputs) -> Optional[float]:
+    """The unit cost (costo SI in the product's currency, L18) in pesos; None when unknown: no cost, or a USD cost
+    with no rate at all (interfaz §7: NULL stays NULL and is logged), never the USD figure taken as pesos."""
+    if inputs.costo is None:
+        return None
+    if moneda_de(inputs.moneda_costo) != "USD":
+        return float(inputs.costo)
+    rate = usd_rate(ctx, inputs)
+    if not rate:
+        logger.warning(
+            "costo SI: no USD rate for item %s (publication %s): its cost in pesos is unknown",
+            inputs.producto_item_id,
+            inputs.item_id,
+        )
+        return None
+    return float(inputs.costo) * float(rate)
+
+
 def _evaluate(
     ctx: PricingContext,
     inputs: UnitInputs,
@@ -163,7 +195,9 @@ def _evaluate(
     if price is None:
         return _unusable(REASON_SIN_PRECIO, pricelist_id=pricelist_id), None
 
-    costo_ars = ctx.costo_en_pesos(inputs.costo, inputs.moneda_costo)
+    costo_ars = costo_en_pesos(ctx, inputs)
+    if costo_ars is None:  # a USD cost with no rate: unknown in pesos (interfaz §7)
+        return _unusable(REASON_SIN_COSTO), None
     comisiones = calcular_comision_ml_total(price, comision_base, inputs.iva, constantes=ctx.constantes)
     if envio_propio is not None:  # the publication's own real cost
         costo_envio, envio_source = envio_propio, (ENVIO_REAL if detail else None)
@@ -197,7 +231,7 @@ def _evaluate(
         markup=value,
         costo=float(inputs.costo),
         moneda_costo=moneda_de(inputs.moneda_costo),
-        tipo_cambio=ctx.tipo_cambio_usd if moneda_de(inputs.moneda_costo) == "USD" else None,
+        tipo_cambio=usd_rate(ctx, inputs),
     )
     return unit, breakdown
 

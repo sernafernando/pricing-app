@@ -227,6 +227,37 @@ def test_usd_cost_is_converted_with_the_context_rate():
     assert got.value == value and got.limpio == limpio
 
 
+class TestUsdCostWithoutTheScreensRate:
+    """Interfaz §7: a USD rate that is unknown stays unknown (NULL, logged), never coalesced; the unit cost of a USD
+    product never reaches the markup as its USD figure taken as pesos."""
+
+    def test_with_no_rate_at_all_the_cost_is_unknown_and_logged(self, caplog):
+        ctx = make_ctx(tipo_cambio_usd=None)
+        with caplog.at_level("WARNING", logger=markup_module.__name__):
+            got = unit_markup(ctx, make_inputs(costo=40.0, moneda_costo="USD", tipo_cambio=None), {})
+        assert (got.value, got.reason, got.costo_ars) == (None, "sin_costo", None)
+        assert "costo SI: no USD rate for item 555 (publication MLA1854372829)" in caplog.text
+
+    def test_without_the_screens_rate_it_converts_at_the_costo_si_readers(self):
+        ctx = make_ctx(tipo_cambio_usd=None)
+        inputs = make_inputs(costo=40.0, moneda_costo="USD", tipo_cambio=1100.0)
+        got = unit_markup(ctx, inputs, {})
+        breakdown = markup_module.unit_breakdown(ctx, inputs, {})
+        assert got.costo_ars == breakdown.costo_ars == 44000.0 and breakdown.tipo_cambio == 1100.0
+        limpio, value = _expected(ctx, price=100000.0, pricelist=13, grupo=1, costo_ars=44000.0)
+        assert got.value == value and got.limpio == limpio
+
+    def test_the_screens_rate_wins_over_the_readers(self):
+        got = unit_markup(
+            make_ctx(tipo_cambio_usd=1200.0), make_inputs(costo=40.0, moneda_costo="USD", tipo_cambio=1100.0), {}
+        )
+        assert got.costo_ars == 48000.0
+
+    def test_an_ars_cost_needs_no_rate(self):
+        got = unit_markup(make_ctx(tipo_cambio_usd=None), make_inputs(costo=50000.0, moneda_costo="ARS"), {})
+        assert (got.reason, got.costo_ars) == ("ok", 50000.0)
+
+
 def test_real_shipping_cost_of_the_linked_product_is_used():
     ctx = make_ctx()
     got = unit_markup(ctx, make_inputs(sale_price=120000.0), {555: 7000.0})

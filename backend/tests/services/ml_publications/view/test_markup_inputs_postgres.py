@@ -16,6 +16,7 @@ from sqlalchemy import event, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
+from app.services.costo_si import lote
 from app.services.ml_publications.view import markup_inputs
 from app.services.ml_publications.view.filters import parse_filter
 from app.services.ml_publications.view.markup import UnitInputs
@@ -175,7 +176,7 @@ class TestListPricesFallback:
             markup_inputs.fetch_inputs(db, f=parse_filter())
         finally:
             event.remove(engine, "before_cursor_execute", record)
-        assert len(recorded) == 5
+        assert len(recorded) == 6  # + the linked products' cost (`lote.actuales`, sell-in-costo-si T3 PR 5)
         assert [s for s in recorded if "productos_pricing" in s] == [recorded[4]]
         assert "productos_pricing" in recorded[4]  # the last one is the dedicated read
 
@@ -197,6 +198,7 @@ class TestUnitInputsLayout:
             "envio",
             "subcategoria_id",
             "promo_revenue",
+            "tipo_cambio",
         )
 
 
@@ -348,7 +350,8 @@ class TestStatementCount:
         by_ids = {n: self.count_statements(db, item_ids=ids[:n]) for n in (10, 100)}
         by_filter = self.count_statements(db, f=parse_filter())
         assert len(markup_inputs.fetch_inputs(db, item_ids=ids)) == 100
-        assert by_ids[10] == by_ids[100] == by_filter == 4  # every unit has a price: no list prices to read
+        # every unit has a price: no list prices to read; the fifth is the linked products' cost (`lote.actuales`)
+        assert by_ids[10] == by_ids[100] == by_filter == 5
 
 
 class TestCostoSiIsTheCost:
@@ -374,6 +377,49 @@ class TestCostoSiIsTheCost:
         got = markup_inputs.fetch_inputs(db, **kwargs)["MLA1"]
         assert (got.item_unit.costo, got.item_unit.moneda_costo) == (80.0, "USD")
         assert (got.variation_units[0].costo, got.variation_units[0].moneda_costo) == (55.5, "USD")
+
+    def test_a_usd_unit_carries_the_readers_rate_and_an_ars_one_none(self, conn, db) -> None:
+        """Interfaz §7: the reader's rate travels with the unit, the fallback of the screen's (None for ARS)."""
+        self._usd_product(conn, 70)
+        seed.add_costo_si(conn, 70, 80.0)
+        seed.add_usd_rate(conn, 1150.0, "2026-01-02")
+        seed.add_product(conn, 71, "P71", "Cable")
+        seed.add_cost(conn, 71, 5000.0, moneda_costo="ARS")
+        seed.add_item(conn, "MLA1", price=10)
+        seed.add_link(conn, "MLA1", 70)
+        seed.add_item(conn, "MLA2", price=10)
+        seed.add_link(conn, "MLA2", 71)
+        got = markup_inputs.fetch_inputs(db, item_ids=["MLA1", "MLA2"])
+        assert got["MLA1"].item_unit.tipo_cambio == 1150.0
+        assert got["MLA2"].item_unit.tipo_cambio is None
+
+    def test_a_usd_unit_with_no_rate_carries_none_never_zero(self, conn, db) -> None:
+        self._usd_product(conn, 70)
+        seed.add_costo_si(conn, 70, 80.0)
+        seed.add_item(conn, "MLA1", price=10)
+        seed.add_link(conn, "MLA1", 70)
+        unit = markup_inputs.fetch_inputs(db, item_ids=["MLA1"])["MLA1"].item_unit
+        assert (unit.costo, unit.tipo_cambio) == (80.0, None)
+
+    def test_the_cost_is_read_for_the_linked_products_only(self, conn, db, monkeypatch) -> None:
+        """A join to `lote.actual()` evaluates the whole catalog for one publication (127 ms for 3000 products,
+        measured): the cost is read with `lote.actuales` for the set's linked products, item and variation level."""
+        for item_id in range(70, 80):
+            self._usd_product(conn, item_id)
+        seed.add_item(conn, "MLA1", price=10)
+        seed.add_link(conn, "MLA1", 70)
+        seed.add_variation(conn, "MLA1", 1)
+        seed.add_link(conn, "MLA1", 71, variation_id=1)
+        asked: list[set[int]] = []
+        real = lote.actuales
+
+        def spy(db_, ids, **kwargs):
+            asked.append(set(ids))
+            return real(db_, ids, **kwargs)
+
+        monkeypatch.setattr(lote, "actuales", spy)
+        markup_inputs.fetch_inputs(db, item_ids=["MLA1"])
+        assert asked == [{70, 71}]
 
     def test_the_latest_step_is_the_current_cost(self, conn, db) -> None:
         self._usd_product(conn, 70)
