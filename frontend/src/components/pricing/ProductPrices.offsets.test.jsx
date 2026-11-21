@@ -97,7 +97,13 @@ describe('cost and markup with offset', () => {
   });
 
   describe('a USD cost', () => {
-    const USD_PRODUCT = { ...PRODUCTO, moneda_costo: 'USD', costo: 50, costo_ars: null };
+    const USD_PRODUCT = {
+      ...PRODUCTO,
+      moneda_costo: 'USD',
+      costo: 50,
+      costo_ars: null,
+      costo_si: { costo: 50, moneda: 'USD', fuente: 'costo_si', costo_ars: null },
+    };
 
     it('converts the cost for the markup with offset with the SAME rate (venta), not the offsets one', async () => {
       preciosAPI.obtenerProducto.mockResolvedValue({ data: USD_PRODUCT });

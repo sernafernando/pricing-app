@@ -161,6 +161,7 @@ vi.mock('../../services/api', () => ({
         data: {
           productos: [
             { item_id: 4101, descripcion: 'Router Archer AX55', marca: 'TP-LINK', categoria: 'REDES', stock: 12, costo: 95.5, moneda_costo: 'USD',
+              costo_si: { costo: 95.5, moneda: 'USD', fuente: 'costo_si', costo_ars: null },
               precio_lista_ml: 189999, markup: 24.3, participa_rebate: true, precio_rebate: 197911, markup_rebate: 21.1,
               precio_3_cuotas: 209999, markup_3_cuotas: 18.2, precio_6_cuotas: 229999, markup_6_cuotas: 15.4,
               precio_pvp: 239999, markup_pvp: 31.9, has_catalog: true, catalog_status: 'winning', catalog_winner_price: 189999,

@@ -2875,7 +2875,19 @@ describe("Productos' price columns (S11)", () => {
   it('with the margin permission the clásica markup carries Productos\' "markup con offsets" (Mercado Libre offsets)', async () => {
     canSeeMargin = true;
     productosAPI.listar.mockResolvedValue({
-      data: { productos: [{ ...PRICED[0], costo: 800, moneda_costo: 'ARS', marca: 'TP-LINK', markup: 25 }], total: 1 },
+      data: {
+        productos: [
+          {
+            ...PRICED[0],
+            costo: 800,
+            moneda_costo: 'ARS',
+            costo_si: { costo: 800, moneda: 'ARS', fuente: 'costo_si', costo_ars: 800 },
+            marca: 'TP-LINK',
+            markup: 25,
+          },
+        ],
+        total: 1,
+      },
     });
     offsetsGananciaAPI.vigentes.mockResolvedValueOnce({
       data: [{ id: 1, tipo_offset: 'porcentaje_costo', porcentaje: 10, marca: 'TP-LINK' }],

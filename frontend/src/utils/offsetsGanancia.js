@@ -85,11 +85,27 @@ function offsetsQueAplican(producto, { offsets, grupoFiltros, canal }) {
 }
 
 /**
- * Whether the cost with offset needs a USD rate: a USD cost, or a USD
- * per-unit offset that reaches the product (on `canal`, when given).
+ * The product's costo SI in pesos (FE3, interfaz §6): `costo_si.costo_ars` when the backend sent it, else a USD
+ * costo SI at `tipoCambio` or an ARS one as is (never multiplied by a rate, L18). Null without `costo_si` or without
+ * pesos: never the list cost (`producto.costo`), which already arrives inside `costo_si` with fuente 'lista' (Q1).
+ */
+function costoSiEnPesos(producto, tipoCambio) {
+  const costoSi = producto?.costo_si;
+  if (!costoSi) return null;
+  if (costoSi.costo_ars !== null && costoSi.costo_ars !== undefined) return costoSi.costo_ars;
+  if (costoSi.moneda === 'ARS') return costoSi.costo;
+  if (costoSi.moneda === 'USD' && tipoCambio) return costoSi.costo * tipoCambio;
+  return null;
+}
+
+/**
+ * Whether the cost with offset needs a USD rate: a USD costo SI the backend
+ * sent without pesos, or a USD per-unit offset that reaches the product (on
+ * `canal`, when given).
  */
 export function requiereTipoCambio(producto, contexto) {
-  if (producto?.moneda_costo === 'USD') return true;
+  const costoSi = producto?.costo_si;
+  if (costoSi?.moneda === 'USD' && (costoSi.costo_ars === null || costoSi.costo_ars === undefined)) return true;
   return offsetsQueAplican(producto, contexto).some((o) => o.tipo_offset === 'monto_por_unidad' && o.moneda === 'USD');
 }
 
@@ -103,14 +119,16 @@ export function requiereTipoCambio(producto, contexto) {
  * is false is skipped (a missing flag applies, the backend default); without
  * it every offset counts, as Productos does.
  *
- * @param {object} producto `costo`, `moneda_costo` and the fields offsets match on.
+ * The cost is the costo SI in pesos (`costoSiEnPesos`, FE3); a `porcentaje_costo`
+ * offset is a % of that same cost (Q7) and stays a discount on top of it.
+ *
+ * @param {object} producto `costo_si` (interfaz §6) and the fields offsets match on.
  * @param {{ offsets: object[], grupoFiltros: object, tipoCambio: number|null, canal?: string }} contexto
  */
 export function costoConOffset(producto, { offsets, grupoFiltros, tipoCambio, canal }) {
-  if (!producto?.costo || producto.costo <= 0) return null;
+  const costoARS = costoSiEnPesos(producto, tipoCambio);
+  if (!costoARS || costoARS <= 0) return null;
   if (!offsets || offsets.length === 0) return null;
-
-  const costoARS = producto.moneda_costo === 'USD' && tipoCambio ? producto.costo * tipoCambio : producto.costo;
 
   const aplicados = [];
   let descuento = 0;
