@@ -8,6 +8,7 @@ from __future__ import annotations
 import importlib.util
 import os
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from typing import Iterator
 
 import pytest
@@ -17,12 +18,16 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import sessionmaker
 
 from app.models.configuracion import Configuracion
+from app.models.sell_in import SellInBonoConsumo
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_fuera_pdf import VentaFueraOperacion, VentaFueraOperacionLinea, VentaFueraPdfCarga
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
-from app.services.costo_si import queue
+from app.services.costo_si import despues, queue, recompute
+from app.services.costo_si.despues import ml_ventas
+from app.services.ml_orders_ingestion import recongelar_costo_si as rc
 from tests.services.costo_si import _world as w
+from tests.services.costo_si import test_impacto_ml_congelado_postgres as tc
 from tests.services.costo_si import test_impacto_postgres as tp
 from tests.services.sell._schema import throwaway_schema
 
@@ -30,6 +35,7 @@ pytestmark = pytest.mark.postgres
 
 _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _REVISION = "20261128_costo_si_t4_recalculo"
+D = Decimal
 _EXTRA = [
     MlOrderItemCosto.__table__,
     VentaFueraPdfCarga.__table__,
@@ -38,6 +44,7 @@ _EXTRA = [
     VentaTiendaNubeMetrica.__table__,
     VentaFueraMLMetrica.__table__,
     Configuracion.__table__,
+    SellInBonoConsumo.__table__,
 ]
 # Every table whose stored values the recalc re-costs (plan §1.5, orchestrator G4)
 RESPALDADAS = [
@@ -51,6 +58,7 @@ RESPALDADAS = [
     "ventas_fuera_operacion_lineas",
     "ventas_tienda_nube_metricas",
     "ventas_fuera_ml_metricas",
+    "sell_in_bono_consumos",  # D2 follows the cost: the re-freeze drain rewrites it (`_bonos_costo`)
 ]
 OTRO = 5799  # queued by a trigger before the deploy, outside the scope: left as it is
 
@@ -219,3 +227,155 @@ def test_a_parked_product_gets_its_steps_back_from_the_reset_backup(engine: Engi
     w.run(engine, _module().RESTAURAR_PASOS_SQL, item=tp.P)  # a second run changes nothing
 
     assert w.rows(engine, f"SELECT to_jsonb(p) FROM costo_si_pasos p WHERE item_id = {tp.P} ORDER BY orden") == pasos
+
+
+# --- Independent verification of #2371 (handoffs/sell-in-costo-si-t4-verificacion.md): F1-F4 ---------------------
+
+_FOTOS = {
+    "ml_ventas_metricas": "SELECT id, costo_unitario_sin_iva, costo_total_sin_iva, ganancia, markup_porcentaje"
+    " FROM ml_ventas_metricas ORDER BY id",
+    "productos_pricing": f"SELECT item_id, {', '.join(tp._CAMPOS)} FROM productos_pricing ORDER BY item_id",
+    "offset_grupo_consumo": "SELECT id, monto_offset_aplicado, monto_offset_usd FROM offset_grupo_consumo ORDER BY id",
+    "offset_grupo_resumen": "SELECT id, total_monto_ars, total_monto_usd FROM offset_grupo_resumen ORDER BY id",
+    "ml_order_item_costos": "SELECT id, costo_origen, moneda, tipo_cambio, tipo_cambio_fecha, costo_unitario_ars,"
+    " fuente, costo_fecha FROM ml_order_item_costos ORDER BY id",
+    "costo_si_pasos": "SELECT to_jsonb(p) - 'calculado_at' - 'id' FROM costo_si_pasos p ORDER BY item_id, orden",
+}
+
+
+def _fotos(engine: Engine) -> dict:
+    return {k: w.rows(engine, sql) for k, sql in _FOTOS.items()}
+
+
+def _con_recongelado(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ML re-freeze too (PR 7: `despues.ml_ventas` queues, `recongelar_costo_si.drenar` re-freezes); the D2
+    bonuses it recomputes are not this world's."""
+    despues.registrar("ml_ventas", ml_ventas.encolar)
+    monkeypatch.setattr(rc, "_bonos_costo", lambda db, item_id: None)
+
+
+def _drenar_todo(engine: Engine) -> None:
+    _drenar(engine)
+    hasta = datetime.now(UTC) + timedelta(minutes=1)
+    assert rc.drenar(sessionmaker(bind=engine, autoflush=False), hasta, is_transient=lambda e: False).fallidos == {}
+
+
+def _offsets(engine: Engine, id_operacion: int) -> None:
+    w.run(engine, "INSERT INTO offset_grupos (id, nombre) VALUES (1, 'g')")
+    w.run(
+        engine,
+        "INSERT INTO offsets_ganancia (id, tipo_offset, porcentaje, fecha_desde, grupo_id, aplica_ml)"
+        " VALUES (1, 'porcentaje_costo', 10, '2026-01-01', 1, true)",
+    )
+    w.run(
+        engine,
+        "INSERT INTO offset_grupo_consumo (id, grupo_id, id_operacion, tipo_venta, fecha_venta, item_id, cantidad,"
+        " offset_id, monto_offset_aplicado, monto_offset_usd, cotizacion_dolar)"
+        " VALUES (1, 1, :op, 'ml', '2026-10-15', :i, 2, 1, 8000, 8, 1000)",
+        op=id_operacion,
+        i=tp.P,
+    )
+    w.run(
+        engine,
+        "INSERT INTO offset_grupo_resumen (id, grupo_id, total_monto_ars, total_monto_usd) VALUES (1, 1, 8000, 8)",
+    )
+
+
+def test_f1_a_product_whose_sell_in_is_gone_gets_its_sales_back_to_list_cost(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F1: P has stored steps, then its bonus is deleted (the trigger queues it) before the drain ran. Its stored
+    steps must still trigger the callbacks (history gone = a change), as they would without T4."""
+    w.factura(engine, tp.P, date(2026, 10, 5), datetime(2026, 10, 5, 10), 10, "30", previo=0)
+    venta = tp._venta(engine, tp.P, datetime(2026, 10, 15, 12), 2, "40000")
+    _historia(engine)
+    con_si = tp._guardado(engine)[venta]
+    w.run(engine, "DELETE FROM sell_in_bonos_marca")
+
+    _step(engine, "upgrade")
+    _drenar(engine)
+
+    assert con_si != tp._guardado(engine)[venta] == D("50000.00")  # list 25 USD x 1000 x 2, as without T4
+    assert w.rows(engine, f"SELECT count(*) FROM costo_si_pasos WHERE item_id = {tp.P}") == [(0,)]
+
+
+def test_f2_a_parked_product_re_queued_after_the_fix_re_freezes_the_sales_of_the_window(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F2: P parks, a sale is frozen meanwhile at list cost, the restore puts the steps back (stopgap), the cause is
+    fixed: `REENCOLAR_SQL` makes the drain re-dispatch from the first step, so the window sale gets its costo SI."""
+    _con_recongelado(monkeypatch)
+    tc._congelada(engine, tp.P, datetime(2026, 10, 15, 15, tzinfo=UTC), 1, "25000", "costo_si")
+    _historia(engine)
+    _drenar_todo(engine)
+    _step(engine, "upgrade")
+    real = recompute.recalcular
+
+    def falla(db, item_id, **kw):
+        if item_id == tp.P:
+            raise RuntimeError("caido")
+        return real(db, item_id, **kw)
+
+    monkeypatch.setattr(recompute, "recalcular", falla)
+    fabrica = sessionmaker(bind=engine, autoflush=False)
+    for _ in range(queue.MAX_ATTEMPTS):
+        queue.drenar(fabrica, datetime.now(UTC) + timedelta(minutes=1), is_transient=lambda e: False)
+    assert _cola(engine)[tp.P][1] == queue.MAX_ATTEMPTS
+    ventana = tc._congelada(engine, tp.P, datetime(2026, 11, 3, 15, tzinfo=UTC), 1, "40000", "erp_publicacion")
+    w.run(engine, _module().RESTAURAR_PASOS_SQL, item=tp.P)
+    monkeypatch.setattr(recompute, "recalcular", real)
+
+    w.run(engine, _module().REENCOLAR_SQL, item=tp.P)
+    _drenar_todo(engine)
+
+    (fila,) = w.rows(engine, f"SELECT fuente FROM ml_order_item_costos WHERE order_id = {ventana}")
+    assert fila[0] != "erp_publicacion"
+    assert w.rows(engine, f"SELECT count(*) FROM costo_si_pasos WHERE item_id = {tp.P}") != [(0,)]
+    assert _cola(engine) == {}
+
+
+def test_f3_f4_the_rollback_sql_restores_every_re_costed_value_and_keeps_later_offset_increments(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F3/F4: `ROLLBACK_SQL` (the PR's documented rollback, in order) brings back every value the recalc rewrote,
+    the steps included; an offset resumen keeps what was added to it after the deploy."""
+    _con_recongelado(monkeypatch)
+    venta = tp._venta(engine, tp.P, datetime(2026, 10, 15, 12), 2, "40000")
+    tc._congelada(engine, tp.P, datetime(2026, 10, 15, 15, tzinfo=UTC), 2, "40000", "erp_publicacion")
+    _offsets(engine, venta)
+    _historia(engine)
+    # stale stored values the recalc rewrites (the history is already stored: only the reset makes callbacks fire)
+    w.run(
+        engine,
+        "UPDATE ml_ventas_metricas SET costo_unitario_sin_iva = 40000, costo_total_sin_iva = 80000"
+        f" WHERE id_operacion = {venta}",
+    )
+    w.run(engine, "UPDATE offset_grupo_consumo SET monto_offset_aplicado = 8000, monto_offset_usd = 8")
+    w.run(engine, "UPDATE offset_grupo_resumen SET total_monto_ars = 8000, total_monto_usd = 8")
+    w.run(
+        engine,
+        "UPDATE ml_order_item_costos SET costo_unitario_ars = 40000, costo_origen = 40, fuente = 'erp_publicacion',"
+        " costo_fecha = NULL",
+    )
+    w.run(engine, "UPDATE productos_pricing SET markup_calculado = 999")
+    antes = _fotos(engine)
+    _step(engine, "upgrade")
+    _drenar_todo(engine)
+    despues_ = _fotos(engine)
+    assert {k for k in antes if antes[k] != despues_[k]} >= {
+        "ml_ventas_metricas",
+        "productos_pricing",
+        "offset_grupo_consumo",
+        "offset_grupo_resumen",
+        "ml_order_item_costos",
+    }
+    w.run(engine, "UPDATE offset_grupo_resumen SET total_monto_ars = total_monto_ars + 500")  # a later sale
+
+    for sentencia in _module().ROLLBACK_SQL:
+        w.run(engine, sentencia)
+
+    restaurado = _fotos(engine)
+    resumen = restaurado.pop("offset_grupo_resumen")
+    previo = antes.pop("offset_grupo_resumen")
+    assert restaurado == antes
+    assert [(i, ars - 500, usd) for i, ars, usd in resumen] == previo
