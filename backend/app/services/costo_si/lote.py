@@ -119,6 +119,12 @@ def _fragmento(item: str, fecha: Optional[str], tc: str) -> str:
     ) r ON true"""
 
 
+def sql_actual(item: str) -> str:
+    """The current cost in pesos (`costo_si_ars` of `actual()`, latest rate) of the SQL expression `item`, as a scalar
+    subquery body: what a listing sorts the `costo_si` key by (`columna.orden`)."""
+    return f"SELECT cs.costo_si_ars FROM ({_fragmento(item, None, _TC_ULTIMO)}) cs"
+
+
 def sql_en_fecha(item: str, fecha: str) -> str:
     """THE SQL fragment for raw SQL and crons: one row with `COLUMNAS` for the SQL expressions `item` (an item id) and
     `fecha` (a date), the cost in force that day at that day's rate. Use it as

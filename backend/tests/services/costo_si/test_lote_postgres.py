@@ -15,7 +15,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.mcp import tools as mcp_tools
 from app.models.producto import ProductoERP
-from app.services.costo_si import lectura, lote
+from app.services.costo_si import columna, lectura, lote
 from app.services.costo_si.lote import Costo
 from tests.services.costo_si import _world as w
 
@@ -305,6 +305,26 @@ def test_list_history_edge_cases(engine: Engine) -> None:
         (SIN, date(2026, 10, 2)): _nada(SIN),
         (COMBO_LISTA, date(2026, 10, 2)): _nada(COMBO_LISTA),
     }
+
+
+def test_sql_actual_is_the_current_cost_of_actuales_for_a_sort(engine: Engine) -> None:
+    """PR 2 sort key `costo_si`: the correlated SQL a listing orders by is `actuales`' `costo_si_ars`, every case."""
+    _mundo(engine)
+    ids = [A, B, SIN, ARSP, ARSLISTA, NADA, COMBO, COMBO_LISTA, COMBO_MIX, COMBO_INCOMPLETO, PC]
+    sql = f"SELECT v.item_id, ({lote.sql_actual('v.item_id')}) FROM unnest(CAST(:ids AS int[])) AS v(item_id)"
+
+    with _db(engine) as db:
+        got = dict(db.execute(text(sql), {"ids": ids}).all())
+        esperado = {i: c.costo_ars for i, c in lote.actuales(db, ids).items()}
+
+    assert got == esperado
+    assert got[A] is not None and got[NADA] is None
+
+
+def test_columna_leer_is_actuales_on_postgres(engine: Engine) -> None:
+    _mundo(engine)
+    with _db(engine) as db:
+        assert columna.leer(db, [A, NADA], tipo_cambio=2000.0) == lote.actuales(db, [A, NADA], tipo_cambio=2000.0)
 
 
 def test_combos_con_lists_the_combos_a_component_moves_but_not_pcs(engine: Engine) -> None:
