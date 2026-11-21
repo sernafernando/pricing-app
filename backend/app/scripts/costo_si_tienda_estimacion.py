@@ -12,10 +12,13 @@ is computed in memory first (`impacto.calcular_pasos` over `queue.productos_vige
 Per active product, in pesos at the current USD rate:
 - Gremio (no manual price: a manual one is stored and does not move, D4): list cost vs costo SI, x (1 + varios) x
   (1 + the product's or the brand's Gremio markup).
-- Sugerido: before = list cost x (1 + varios) x (1 + clásica + sugerido). After, two moments: `ventana` with the
-  clásica markup still as stored (over the list cost: until T4's drain or the markups job rewrites it over costo SI),
-  and `despues` once rewritten, estimated as (1 + clásica over costo SI) = (1 + clásica) x list / costo SI, which
-  holds while the stored markup is up to date with the list cost (the ML price does not move, D4).
+- Sugerido: before = list cost x (1 + varios) x (1 + clásica + sugerido); after = costo SI x (1 + varios) x (1 +
+  clásica over costo SI + sugerido). The deploy's drain stores a product's costo SI steps and rewrites its clásica
+  markup over them in ONE transaction (`queue.drenar` -> `despues.pricing`), so the listing never pairs a costo SI
+  with a clásica still over the list cost; here the rewritten one is estimated as (1 + clásica over costo SI) = (1 +
+  clásica) x list / costo SI, which holds while the stored markup is up to date with the list cost (the ML price does
+  not move, D4). `clasica_sin_recalculo`: a costo SI product whose clásica the drain cannot rewrite (no ML price, no
+  list 4 commission for its group, no IVA), so its stored one would stay over the list cost.
 A product whose costo SI in pesos is unknown gets no price after (`sin_costo`). Brand markups are matched by
 `brand_desc` like the gremio export. Writes `tienda_estimacion.csv` and prints a summary.
 """
@@ -41,7 +44,9 @@ from app.services.costo_si import impacto, lote, queue, simulacion
 from app.services.pricing_calculator import (
     costos_ars_de,
     moneda_de,
+    obtener_comision_base,
     obtener_constantes_pricing,
+    obtener_grupo_subcategoria,
     obtener_tipo_cambio_actual,
 )
 
@@ -58,8 +63,8 @@ class Fila:
     gremio_antes: Optional[float] = None
     gremio_despues: Optional[float] = None
     sugerido_antes: Optional[float] = None
-    sugerido_ventana: Optional[float] = None
     sugerido_despues: Optional[float] = None
+    clasica_sin_recalculo: bool = False
 
 
 def _lista_ars(p: ProductoERP, tc: Optional[float]) -> Optional[float]:
@@ -92,6 +97,7 @@ def estimar(db: Session) -> List[Fila]:
         if m.brand_desc
     }
     manuales = {o.item_id for o in db.query(PrecioGremioOverride.item_id)}
+    comisiones: Dict[int, bool] = {}
     out: List[Fila] = []
     for p, pricing in productos:
         lista, si = _lista_ars(p, tc), si_ars.get(p.item_id)
@@ -108,11 +114,23 @@ def estimar(db: Session) -> List[Fila]:
         if clasica is not None:
             extra = sugerido or 0.0
             fila.sugerido_antes = _precio(lista, factor, clasica + extra)
-            fila.sugerido_ventana = _precio(si, factor, clasica + extra)
             if lista and si:
                 fila.sugerido_despues = _precio(si, factor, ((1 + clasica / 100) * lista / si - 1) * 100 + extra)
+            if fila.fuente == lote.FUENTE_COSTO_SI:
+                fila.clasica_sin_recalculo = not _recalculable(db, p, pricing, comisiones)
         out.append(fila)
     return out
+
+
+def _recalculable(db: Session, p: ProductoERP, pricing: ProductoPricing, comisiones: Dict[int, bool]) -> bool:
+    """Whether the drain's `recalcular_markups_guardados` can rewrite this clásica markup (`_markup_clasica`): an ML
+    price, an IVA and a list 4 commission for the product's group (cached per subcategory)."""
+    if not pricing.precio_lista_ml or pricing.precio_lista_ml <= 0 or p.iva is None:
+        return False
+    if p.subcategoria_id not in comisiones:
+        grupo = obtener_grupo_subcategoria(db, p.subcategoria_id)
+        comisiones[p.subcategoria_id] = bool(obtener_comision_base(db, 4, grupo))
+    return comisiones[p.subcategoria_id]
 
 
 def _resumen(filas: List[Fila], campo: str, antes: str = "antes") -> str:
@@ -141,8 +159,7 @@ def resumen(filas: List[Fila]) -> List[str]:
     for nombre, grupo in (("all", filas), ("with stock", con_stock)):
         out.append(f"[{nombre}] " + _resumen(grupo, "gremio"))
         out.append(f"[{nombre}] " + _resumen(grupo, "sugerido"))
-        ventana = [Fila(**{**asdict(f), "sugerido_despues": f.sugerido_ventana}) for f in grupo]
-        out.append(f"[{nombre}] (window, clásica not yet rewritten) " + _resumen(ventana, "sugerido"))
+        out.append(f"[{nombre}] clásica the drain cannot rewrite: {sum(f.clasica_sin_recalculo for f in grupo)}")
     return out
 
 

@@ -111,7 +111,7 @@ def test_the_deploy_estimate_measures_these_very_prices(client, mundo, pg) -> No
         f = filas[item]
         assert f.gremio_antes == pytest.approx(lista[item] * factor * (1 + GREMIO / 100)), item
         assert f.gremio_despues == pytest.approx(listado[item]["precio_gremio_sin_iva"]), item
-        assert f.sugerido_ventana == pytest.approx(listado[item]["precio_sugerido_sin_iva"]), item
+        assert f.clasica_sin_recalculo is (item != G2), item  # no ML price here: the drain cannot rewrite it
         caida = factor * SUGERIDO / 100 * (lista[item] - si)
         assert f.sugerido_antes - f.sugerido_despues == pytest.approx(caida), item
     assert (filas[G1].fuente, filas[G2].fuente) == ("costo_si", "lista")
