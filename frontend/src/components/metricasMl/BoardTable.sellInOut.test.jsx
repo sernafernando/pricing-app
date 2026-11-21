@@ -99,6 +99,17 @@ describe('BoardTable: sell out c/ SO', () => {
     }
   });
 
+  // Interfaz §7: a sell out that applies over an unknown cost leaves Total and markup c/ SO unknown: a dash, like
+  // every other unknown cell, never an empty cell (that one means "does not apply").
+  it('a row whose sell out applies but whose cost is unknown shows dashes for Total and markup c/ SO', () => {
+    renderRow({ ...SELL, costo: null, total_gauss: null, markup_pct: null });
+
+    expect(cell('costo')).toHaveTextContent(/^—$/);
+    expect(cell('sell_out')).toHaveTextContent(formatSignedMoney(5));
+    expect(cell('total_gauss_sell')).toHaveTextContent(/^—$/);
+    expect(cell('markup_sell')).toHaveTextContent(/^—$/);
+  });
+
   it('a row without the figures shows dashes, never a made-up zero', () => {
     renderRow(null);
 

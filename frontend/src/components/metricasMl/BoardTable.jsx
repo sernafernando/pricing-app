@@ -138,6 +138,10 @@ function SellOutCell({ figures }) {
   );
 }
 
+// The row has its figures but no sold line with a sell out: its c/ SO cells stay empty, they do not apply (the owner:
+// "en las filas que no aplica estaría bueno que directamente esté vacío"). The same rule `SellOutCell` follows.
+const sellOutNoAplica = (row) => Boolean(row.sell_in_out) && row.sell_in_out.sell_out == null;
+
 function SellMoneyCell({ value, strong = false }) {
   const tone = strong ? moneyTone(value) : null;
   return (
@@ -474,11 +478,12 @@ function renderCell(colId, row, ctx) {
     case 'sell_out':
       return <SellOutCell figures={row.sell_in_out} />;
     case 'total_gauss_sell':
-      if (row.sell_in_out && row.sell_in_out.total_gauss == null) return null;
+      if (sellOutNoAplica(row)) return null;
       return <SellMoneyCell value={row.sell_in_out?.total_gauss} strong />;
     case 'markup_sell': {
-      // Empty when nothing applies; a dash when it applies but leaves no markup (no cost, or "Costos TP").
-      if (row.sell_in_out && row.sell_in_out.total_gauss == null) return null;
+      // Empty when no sell out applies; a dash when it applies but leaves no figure (an unknown cost, interfaz §7,
+      // or "Costos TP").
+      if (sellOutNoAplica(row)) return null;
       const value = row.sell_in_out?.markup_pct ?? null;
       const tone = markupTone(value);
       return <span className={`${styles.markup} ${tone ? styles[`tone_${tone}`] : styles.muted}`}>{formatPct(value)}</span>;
