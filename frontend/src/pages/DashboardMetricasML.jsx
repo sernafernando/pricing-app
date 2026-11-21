@@ -231,6 +231,12 @@ export default function DashboardMetricasML() {
     }).format(monto || 0);
   };
 
+  // A sale whose cost is unknown comes with a null cost, costo total and markup: show it as "sin costo", never $0
+  const sinCosto = (valor) => valor === null || valor === undefined;
+  const celdaSinCosto = (
+    <span className={styles.sinCosto} title="Sin costo" aria-label="Sin costo">—</span>
+  );
+
   const formatearPorcentaje = (valor) => {
     return `${parseFloat(valor || 0).toFixed(2)}%`;
   };
@@ -615,7 +621,7 @@ export default function DashboardMetricasML() {
               className={styles.buscador}
             />
             <div className={styles.resultadosCount}>
-              {operacionesFiltradas.length} operación{operacionesFiltradas.length !== 1 ? 'es' : ''}
+              {operacionesFiltradas.length} {operacionesFiltradas.length === 1 ? 'operación' : 'operaciones'}
             </div>
             <button
               onClick={() => exportarOperaciones()}
@@ -631,57 +637,60 @@ export default function DashboardMetricasML() {
             onScroll={pagination.handleScroll}
             ref={pagination.scrollContainerRef}
           >
-            <table className={styles.tableOperaciones}>
+            {/* Fits 1440 next to the expanded sidebar: pairs share a column (the second value under the first) */}
+            <table className={`${styles.tableOperaciones} ${styles.opsCompacta}`}>
               <thead>
                 <tr>
-                  <th>Fecha</th>
-                  <th>ML ID</th>
-                  <th>Código</th>
-                  <th>Producto</th>
-                  <th>Marca</th>
+                  <th>{'Fecha\u00a0/ ML ID'}</th>
+                  <th>{'Producto\u00a0/ Código · Marca'}</th>
                   <th>Cant</th>
                   <th>Precio Unit</th>
-                  <th>Total</th>
-                  <th>IVA%</th>
+                  <th>{'Total\u00a0/ IVA'}</th>
                   <th>Costo Unit</th>
                   <th>Costo Total</th>
-                  <th>Comisión%</th>
-                  <th>Comisión $</th>
-                  <th>Envío s/IVA</th>
+                  <th>{'Comisión\u00a0/ % · Lista'}</th>
+                  <th>{'Envío\u00a0s/IVA'}</th>
                   <th>Limpio</th>
                   <th>Offset Flex</th>
                   <th>Markup%</th>
-                  <th>Lista</th>
                 </tr>
               </thead>
               <tbody>
                 {operacionesFiltradas.map((op) => (
                    <tr key={op.id_operacion} className={`${op.pack_id ? styles.rowPack : ''} ${op.is_cancelled ? styles.rowCancelada : ''}`}>
-                    <td>{formatearFecha(op.fecha_venta)}</td>
                     <td>
-                      {op.ml_id || '-'}
+                      <div className={styles.opsSinCorte}>{formatearFecha(op.fecha_venta)}</div>
+                      <div className={styles.opsSecundario}>{op.ml_id || '-'}</div>
                       {op.is_cancelled && <span className={styles.badgeCancelada}>Cancelada</span>}
                     </td>
-                    <td>{op.codigo || '-'}</td>
-                    <td className={styles.descripcion}>{op.descripcion || '-'}</td>
-                    <td>{op.marca || '-'}</td>
+                    <td className={styles.descripcion}>
+                      <div>{op.descripcion || '-'}</div>
+                      <div className={styles.opsSecundario}>
+                        <span>{op.codigo || '-'}</span> · <span>{op.marca || '-'}</span>
+                      </div>
+                    </td>
                     <td className={styles.centrado}>{op.cantidad}</td>
-                    <td className={styles.monto}>{formatearMoneda(op.monto_unitario)}</td>
-                    <td className={styles.monto}>{formatearMoneda(op.monto_total)}</td>
-                    <td className={styles.centrado}>{op.iva}%</td>
-                    <td className={styles.monto}>{formatearMoneda(op.costo_sin_iva)}</td>
-                    <td className={styles.monto}>{formatearMoneda(op.costo_total)}</td>
-                    <td className={styles.centrado}>{formatearPorcentaje(op.comision_porcentaje)}</td>
-                    <td className={styles.monto}>{formatearMoneda(op.comision_pesos)}</td>
-                    <td className={styles.monto}>{formatearMoneda(op.costo_envio)}</td>
-                    <td className={styles.monto}>{formatearMoneda(op.monto_limpio)}</td>
-                    <td className={styles.offsetFlex}>
+                    <td className={`${styles.monto} ${styles.opsImporte}`}>{formatearMoneda(op.monto_unitario)}</td>
+                    <td className={`${styles.monto} ${styles.opsImporte}`}>
+                      {formatearMoneda(op.monto_total)}
+                      <div className={styles.opsSecundario}>IVA {op.iva}%</div>
+                    </td>
+                    <td className={`${styles.monto} ${styles.opsImporte}`}>{sinCosto(op.costo_sin_iva) ? celdaSinCosto : formatearMoneda(op.costo_sin_iva)}</td>
+                    <td className={`${styles.monto} ${styles.opsImporte}`}>{sinCosto(op.costo_total) ? celdaSinCosto : formatearMoneda(op.costo_total)}</td>
+                    <td className={`${styles.monto} ${styles.opsImporte}`}>
+                      {formatearMoneda(op.comision_pesos)}
+                      <div className={styles.opsSecundario}>
+                        {formatearPorcentaje(op.comision_porcentaje)} · {op.tipo_publicacion || '-'}
+                      </div>
+                    </td>
+                    <td className={`${styles.monto} ${styles.opsImporte}`}>{formatearMoneda(op.costo_envio)}</td>
+                    <td className={`${styles.monto} ${styles.opsImporte}`}>{formatearMoneda(op.monto_limpio)}</td>
+                    <td className={`${styles.offsetFlex} ${styles.opsImporte}`}>
                       {parseFloat(op.offset_flex || 0) > 0 ? formatearMoneda(op.offset_flex) : '—'}
                     </td>
-                    <td className={`${styles.centrado} ${parseFloat(op.markup_porcentaje) < 0 ? styles.negativo : ''}`}>
-                      {formatearPorcentaje(op.markup_porcentaje)}
+                    <td className={`${styles.centrado} ${styles.opsImporte} ${parseFloat(op.markup_porcentaje) < 0 ? styles.negativo : ''}`}>
+                      {sinCosto(op.markup_porcentaje) ? celdaSinCosto : formatearPorcentaje(op.markup_porcentaje)}
                     </td>
-                    <td>{op.tipo_publicacion || '-'}</td>
                   </tr>
                 ))}
               </tbody>

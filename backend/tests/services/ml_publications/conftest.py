@@ -7,6 +7,7 @@ copy of a real payload by exactly one field and say so in their docstring.
 
 from __future__ import annotations
 
+import atexit
 import copy
 import json
 from contextlib import contextmanager
@@ -123,70 +124,72 @@ COSTO_SI_READER_DDL = (
 )
 
 
-@contextmanager
-def mlpub_schema(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
-    """Throwaway Postgres schema holding the REAL core, sub-resource and product-link migrations' tables, with
-    `get_background_db()` (what the store's primitives use) pointed at it.
+MLPUB_REVISIONS = (
+    "20261006_ml_publications_core",
+    "20261006_ml_publications_subresources",
+    "20261006_ml_publications_product_links",
+    "20261007_ml_publications_quality",
+    "20261010_ml_user_product_stock_locations",
+    "20261011_ml_user_product_replenishment",
+    "20261017_ml_items_installments_campaign",
+    "20261102_hay_mejores_ofertas",
+    "20261114_hay_mejores_excluido",
+    # Auto-aplicación / C2 paths call get_criterios; without this table listar fails in mlpub_pg.
+    "20261117_ml_hay_mejores_criterios",
+    # Boundaries prefetch_catalog_snapshots + flag_transition audit need these tables.
+    "20260731_ml_catalog_competition",
+    "20261117_ml_hay_mejores_audit",
+)
 
-    Yields the engine; every connection it hands out has the schema first on
-    its `search_path`, so concurrent sessions opened by the code under test
-    see the same tables.
-    """
+_MIGRATIONS: list[Any] = []
+
+
+def _migrations() -> list[Any]:
+    """The REAL revision modules of `MLPUB_REVISIONS`, loaded once per process."""
     import importlib.util
+
+    if not _MIGRATIONS:
+        versions = Path(__file__).resolve().parents[3] / "alembic" / "versions"
+        for revision in MLPUB_REVISIONS:
+            module_spec = importlib.util.spec_from_file_location(f"{revision}_for_tests", versions / f"{revision}.py")
+            migration = importlib.util.module_from_spec(module_spec)
+            module_spec.loader.exec_module(migration)
+            _MIGRATIONS.append(migration)
+    return _MIGRATIONS
+
+
+def _store_tables() -> list[Any]:
+    from app.models import ml_publications as models
+
+    return [
+        model.__table__ for model in vars(models).values() if hasattr(model, "__table__") and hasattr(model, "metadata")
+    ]
+
+
+def _build_schema() -> tuple[Any, str]:
+    """A new schema migrated with `MLPUB_REVISIONS` plus the reactivation queue; returns (engine, schema). Every
+    connection of the engine has the schema first on its `search_path`, so concurrent sessions opened by the code
+    under test see the same tables."""
     import uuid
 
     from alembic.operations import Operations
     from alembic.runtime.migration import MigrationContext
-    from sqlalchemy import create_engine, event, text
-    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy import create_engine, text
 
-    from app.models import ml_publications as models
-    from app.models.producto import ProductoERP
     from app.models.promo_refresh_reactivation import PromoRefreshReactivation
-    from tests.conftest import (
-        POSTGRES_TEST_URL,
-        _patch_pg_types_for_sqlite,
-        _postgres_reachable,
-        _restore_pristine_pg_types,
-    )
-
-    if not _postgres_reachable():
-        pytest.skip(f"PostgreSQL not reachable at {POSTGRES_TEST_URL}")
+    from tests.conftest import POSTGRES_TEST_URL, _restore_pristine_pg_types
 
     # The SQLite `engine` fixture rewrites the shared Column types (JSONB/ARRAY -> JSON, BigInteger PK ->
     # Integer) in place; the ORM writes of the store need the real Postgres types back, whatever ran before.
-    store_tables = [
-        model.__table__ for model in vars(models).values() if hasattr(model, "__table__") and hasattr(model, "metadata")
-    ]
-    _restore_pristine_pg_types(store_tables)
-
-    versions = Path(__file__).resolve().parents[3] / "alembic" / "versions"
-    migrations = []
-    for revision in (
-        "20261006_ml_publications_core",
-        "20261006_ml_publications_subresources",
-        "20261006_ml_publications_product_links",
-        "20261007_ml_publications_quality",
-        "20261010_ml_user_product_stock_locations",
-        "20261011_ml_user_product_replenishment",
-        "20261017_ml_items_installments_campaign",
-        "20261102_hay_mejores_ofertas",
-        "20261114_hay_mejores_excluido",
-        # Auto-aplicación / C2 paths call get_criterios; without this table listar fails in mlpub_pg.
-        "20261117_ml_hay_mejores_criterios",
-        # Boundaries prefetch_catalog_snapshots + flag_transition audit need these tables.
-        "20260731_ml_catalog_competition",
-        "20261117_ml_hay_mejores_audit",
-    ):
-        module_spec = importlib.util.spec_from_file_location(f"{revision}_for_tests", versions / f"{revision}.py")
-        migration = importlib.util.module_from_spec(module_spec)
-        module_spec.loader.exec_module(migration)
-        migrations.append(migration)
-
+    _restore_pristine_pg_types(_store_tables())
+    migrations = _migrations()
     schema = f"mlpub_t_{uuid.uuid4().hex[:8]}"
     admin = create_engine(POSTGRES_TEST_URL, isolation_level="AUTOCOMMIT")
-    with admin.connect() as conn:
-        conn.execute(text(f"CREATE SCHEMA {schema}"))
+    try:
+        with admin.connect() as conn:
+            conn.execute(text(f"CREATE SCHEMA {schema}"))
+    finally:
+        admin.dispose()
     eng = create_engine(
         POSTGRES_TEST_URL,
         connect_args={"options": f"-csearch_path={schema}"},
@@ -199,6 +202,35 @@ def mlpub_schema(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
                 migration.upgrade()
     # The reactivation queue (its own migration, 20261018) that `events_store.write_events` feeds.
     PromoRefreshReactivation.__table__.create(bind=eng)
+    return eng, schema
+
+
+def _drop_schema(eng: Any, schema: str) -> None:
+    from sqlalchemy import create_engine, text
+
+    from tests.conftest import POSTGRES_TEST_URL
+
+    eng.dispose()
+    admin = create_engine(POSTGRES_TEST_URL, isolation_level="AUTOCOMMIT")
+    try:
+        with admin.connect() as conn:
+            conn.execute(text("SET lock_timeout = '10s'"))  # a leaked connection must not hang the teardown
+            conn.execute(text(f"DROP SCHEMA IF EXISTS {schema} CASCADE"))
+    finally:
+        admin.dispose()
+
+
+@contextmanager
+def _bound(monkeypatch: pytest.MonkeyPatch, eng: Any) -> Iterator[Any]:
+    """`get_background_db()` (what the store's primitives use) pointed at `eng`, and the publication map built
+    wherever a test builds `productos_erp`, for as long as the context lives."""
+    from sqlalchemy import event
+    from sqlalchemy.orm import sessionmaker
+
+    from app.models.producto import ProductoERP
+    from tests.conftest import _patch_pg_types_for_sqlite, _restore_pristine_pg_types
+
+    _restore_pristine_pg_types(_store_tables())
     monkeypatch.setattr("app.core.database.SessionLocal", sessionmaker(bind=eng, autocommit=False, autoflush=False))
     # The linking module reads the ERP publication map beside the catalog (links first from the map), so wherever
     # a test builds `productos_erp` in this schema the map table is built with it, as both exist in production.
@@ -208,10 +240,232 @@ def mlpub_schema(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
     finally:
         event.remove(ProductoERP.__table__, "after_create", _create_publication_map)
         _patch_pg_types_for_sqlite()  # leave the shared columns as the SQLite fixture expects them
-        eng.dispose()
-        with admin.connect() as conn:
-            conn.execute(text(f"DROP SCHEMA {schema} CASCADE"))
-        admin.dispose()
+
+
+@contextmanager
+def mlpub_schema(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
+    """Throwaway Postgres schema holding the REAL core, sub-resource and product-link migrations' tables, with
+    `get_background_db()` (what the store's primitives use) pointed at it. Built and dropped on every use: the
+    volume modules (`module_env`) keep one for a whole module. `mlpub_pg` reuses one per worker instead
+    (`SharedSchema`).
+
+    Yields the engine; every connection it hands out has the schema first on
+    its `search_path`, so concurrent sessions opened by the code under test
+    see the same tables.
+    """
+    from tests.conftest import POSTGRES_TEST_URL, _postgres_reachable
+
+    if not _postgres_reachable():
+        pytest.skip(f"PostgreSQL not reachable at {POSTGRES_TEST_URL}")
+    eng, schema = _build_schema()
+    try:
+        with _bound(monkeypatch, eng):
+            yield eng
+    finally:
+        _drop_schema(eng, schema)
+
+
+# What a schema looks like to the code under test: its relations, columns, defaults, constraints, indexes, user
+# triggers, functions and types. Two schemas with the same fingerprint are interchangeable for the tests.
+_FINGERPRINT_SQL = """
+SELECT md5(concat_ws('|',
+  (SELECT string_agg(c.relname || ':' || c.relkind::text || ':' || coalesce(pg_get_viewdef(c.oid), ''), ',' ORDER BY c.relname)
+     FROM pg_class c WHERE c.relnamespace = to_regnamespace(:schema) AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')),
+  (SELECT string_agg(c.relname || '.' || a.attname || ':' || format_type(a.atttypid, a.atttypmod) || ':'
+                     || a.attnotnull::text || ':' || a.attgenerated::text || ':' || a.attidentity::text || ':'
+                     || coalesce(pg_get_expr(d.adbin, d.adrelid), ''), ',' ORDER BY c.relname, a.attnum)
+     FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
+     LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+     WHERE c.relnamespace = to_regnamespace(:schema) AND a.attnum > 0 AND NOT a.attisdropped),
+  (SELECT string_agg(conrelid::regclass::text || '.' || conname || ':' || pg_get_constraintdef(oid), ','
+                     ORDER BY conrelid::regclass::text, conname)
+     FROM pg_constraint WHERE connamespace = to_regnamespace(:schema)),
+  (SELECT string_agg(pg_get_indexdef(i.indexrelid), ',' ORDER BY pg_get_indexdef(i.indexrelid))
+     FROM pg_index i JOIN pg_class c ON c.oid = i.indrelid WHERE c.relnamespace = to_regnamespace(:schema)),
+  (SELECT string_agg(pg_get_triggerdef(t.oid), ',' ORDER BY pg_get_triggerdef(t.oid))
+     FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+     WHERE c.relnamespace = to_regnamespace(:schema) AND NOT t.tgisinternal),
+  (SELECT string_agg(p.proname || '(' || pg_get_function_identity_arguments(p.oid) || '):' || md5(p.prosrc), ','
+                     ORDER BY p.proname, pg_get_function_identity_arguments(p.oid))
+     FROM pg_proc p WHERE p.pronamespace = to_regnamespace(:schema)),
+  (SELECT string_agg(t.typname, ',' ORDER BY t.typname) FROM pg_type t
+     WHERE t.typnamespace = to_regnamespace(:schema) AND t.typtype IN ('e', 'd', 'c', 'r', 'm')
+       AND NOT EXISTS (SELECT 1 FROM pg_class c WHERE c.reltype = t.oid))
+))
+"""
+
+
+class SharedSchema:
+    """One migrated `mlpub` schema per worker process, reused by every `mlpub_pg` test.
+
+    Building it runs 12 real revisions (`MLPUB_REVISIONS`) plus the reactivation queue; before it was reused that
+    ran before EVERY test (~1,500 tests in `tests/services/ml_publications` alone). The code under test opens its
+    own sessions through `SessionLocal` and commits, so a test cannot be isolated by rolling back an outer
+    transaction. Isolation is a reset after each test instead:
+
+    1. every pooled connection is closed (their temp tables, `SET`s and locks go with them);
+    2. whatever the test created in the schema (tables such as `productos_erp` from `env`, views, sequences,
+       functions, types) is dropped;
+    3. if the schema still differs from the freshly built one (`_FINGERPRINT_SQL`: a column, index, constraint or
+       trigger added or changed by a test), it is DISCARDED and the next test gets a new one;
+    4. otherwise every table is truncated with `RESTART IDENTITY` (every sequence of these migrations belongs to a
+       serial/identity column) and the rows the migrations seeded are put back.
+
+    Any error during the reset discards the schema too: a test never gets a schema that was not proven clean.
+    """
+
+    def __init__(self) -> None:
+        self.engine: Any = None
+        self.schema: str | None = None
+        self.in_use = False
+        self.built = 0  # schemas built by this process (pins that reuse happens)
+        self._fingerprint: str | None = None
+        self._tables: list[str] = []
+        self._seeded: list[tuple[str, str]] = []  # (table, column list) restored from the snapshot schema
+        self._relations: set[tuple[str, str]] = set()
+        self._functions: set[str] = set()
+        self._types: set[str] = set()
+
+    @property
+    def _snapshot(self) -> str:
+        return f"{self.schema}_s"
+
+    def acquire(self) -> Any:
+        if self.engine is None:
+            self._build()
+        self.in_use = True
+        return self.engine
+
+    def release(self) -> None:
+        self.in_use = False
+        try:
+            self._reset()
+        except Exception:
+            self.discard()
+
+    def discard(self) -> None:
+        if self.engine is not None:
+            try:
+                _drop_schema(self.engine, self.schema)
+                _drop_schema(self.engine, self._snapshot)
+            except Exception:
+                pass  # left behind on a broken server; the per-worker database dies with the CI job
+        self.engine = None
+        self.schema = None
+
+    def _build(self) -> None:
+        from sqlalchemy import text
+
+        self.engine, self.schema = _build_schema()
+        self.built += 1
+        with self.engine.connect() as conn:
+            self._tables = list(
+                conn.execute(
+                    text(
+                        "SELECT quote_ident(relname) FROM pg_class WHERE relnamespace = to_regnamespace(:s) "
+                        "AND relkind IN ('r', 'p') ORDER BY relname"
+                    ),
+                    {"s": self.schema},
+                ).scalars()
+            )
+            conn.execute(text(f"CREATE SCHEMA {self._snapshot}"))
+            self._seeded = []
+            for table in self._tables:
+                if conn.execute(text(f"SELECT EXISTS (SELECT 1 FROM {table})")).scalar():
+                    columns = ", ".join(
+                        conn.execute(
+                            text(
+                                "SELECT quote_ident(attname) FROM pg_attribute WHERE attrelid = to_regclass(:t) "
+                                "AND attnum > 0 AND NOT attisdropped AND attgenerated = '' ORDER BY attnum"
+                            ),
+                            {"t": f"{self.schema}.{table}"},
+                        ).scalars()
+                    )
+                    conn.execute(text(f"CREATE TABLE {self._snapshot}.{table} AS SELECT {columns} FROM {table}"))
+                    self._seeded.append((table, columns))
+            self._relations, self._functions, self._types = self._objects(conn)
+            self._fingerprint = conn.execute(text(_FINGERPRINT_SQL), {"schema": self.schema}).scalar()
+            conn.commit()
+
+    def _objects(self, conn: Any) -> tuple[set[tuple[str, str]], set[str], set[str]]:
+        from sqlalchemy import text
+
+        relations = {
+            (row[0], row[1])
+            for row in conn.execute(
+                text(
+                    "SELECT quote_ident(relname), relkind FROM pg_class WHERE relnamespace = to_regnamespace(:s) "
+                    "AND relkind IN ('r', 'p', 'v', 'm', 'S', 'f')"
+                ),
+                {"s": self.schema},
+            )
+        }
+        functions = set(
+            conn.execute(
+                text(
+                    "SELECT p.oid::regprocedure::text FROM pg_proc p WHERE p.pronamespace = to_regnamespace(:s) "
+                    "AND p.prokind IN ('f', 'p')"
+                ),
+                {"s": self.schema},
+            ).scalars()
+        )
+        types = set(
+            conn.execute(
+                text(
+                    "SELECT quote_ident(t.typname) FROM pg_type t WHERE t.typnamespace = to_regnamespace(:s) "
+                    "AND t.typtype IN ('e', 'd', 'c', 'r', 'm') "
+                    "AND NOT EXISTS (SELECT 1 FROM pg_class c WHERE c.reltype = t.oid)"
+                ),
+                {"s": self.schema},
+            ).scalars()
+        )
+        return relations, functions, types
+
+    def _reset(self) -> None:
+        from sqlalchemy import text
+
+        if self.engine is None:
+            return
+        self.engine.dispose()
+        kinds = {
+            "r": "TABLE",
+            "p": "TABLE",
+            "f": "FOREIGN TABLE",
+            "v": "VIEW",
+            "m": "MATERIALIZED VIEW",
+            "S": "SEQUENCE",
+        }
+        with self.engine.connect() as conn:
+            # A connection a test leaked (checked out, never closed) may still hold locks: fail fast, then discard.
+            conn.execute(text("SET lock_timeout = '5s'"))
+            relations, functions, types = self._objects(conn)
+            # Views first, then tables, then sequences; CASCADE takes dependants along (and a dependant inside the
+            # baseline shows up in the fingerprint below).
+            order = {"v": 0, "m": 0, "r": 1, "p": 1, "f": 1, "S": 2}
+            for name, kind in sorted(relations - self._relations, key=lambda r: (order[r[1]], r[0])):
+                conn.execute(text(f"DROP {kinds[kind]} IF EXISTS {name} CASCADE"))
+            for function in functions - self._functions:
+                conn.execute(text(f"DROP ROUTINE IF EXISTS {function} CASCADE"))
+            for type_name in types - self._types:
+                conn.execute(text(f"DROP TYPE IF EXISTS {type_name} CASCADE"))
+            if conn.execute(text(_FINGERPRINT_SQL), {"schema": self.schema}).scalar() != self._fingerprint:
+                conn.rollback()
+                raise RuntimeError("the test changed the schema itself")
+            conn.execute(text(f"TRUNCATE {', '.join(self._tables)} RESTART IDENTITY CASCADE"))
+            for table, columns in self._seeded:
+                conn.execute(
+                    text(
+                        f"INSERT INTO {table} ({columns}) OVERRIDING SYSTEM VALUE "
+                        f"SELECT {columns} FROM {self._snapshot}.{table}"
+                    )
+                )
+            conn.commit()
+
+
+# One per process (each xdist worker is a process). A module-level holder rather than a session fixture: modules
+# outside this package import `mlpub_pg` by name, and a fixture it depended on would not be visible there.
+SHARED_SCHEMA = SharedSchema()
+atexit.register(SHARED_SCHEMA.discard)
 
 
 def create_env_tables(engine) -> Any:
@@ -232,9 +486,19 @@ def module_env() -> Iterator[Any]:
 
 @pytest.fixture()
 def mlpub_pg(monkeypatch):
-    """`mlpub_schema` for one test."""
-    with mlpub_schema(monkeypatch) as engine:
-        yield engine
+    """The worker's shared `mlpub` schema for one test, reset to its freshly built state afterwards
+    (`SharedSchema`)."""
+    from tests.conftest import POSTGRES_TEST_URL, _postgres_reachable
+
+    if not _postgres_reachable():
+        pytest.skip(f"PostgreSQL not reachable at {POSTGRES_TEST_URL}")
+    shared = SHARED_SCHEMA
+    engine = shared.acquire()
+    try:
+        with _bound(monkeypatch, engine):
+            yield engine
+    finally:
+        shared.release()
 
 
 @pytest.fixture()
