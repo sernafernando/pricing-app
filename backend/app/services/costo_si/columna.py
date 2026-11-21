@@ -21,6 +21,12 @@ def orden(item: str):
     return literal_column(f"({lote.sql_actual(item)})")
 
 
+def orden_catalogo(item: str):
+    """`orden` for a list with many rows per product (Publicaciones ML): each product's costo SI is computed once per
+    query, not once per row (`lote.sql_actual_catalogo`, measured on prod in #2366)."""
+    return literal_column(lote.sql_actual_catalogo(item))
+
+
 def _float(valor) -> Optional[float]:
     return None if valor is None else float(valor)
 

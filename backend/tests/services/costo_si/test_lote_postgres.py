@@ -444,6 +444,71 @@ def test_the_public_rate_lookup_is_the_readers_rate_with_its_date(engine: Engine
     assert escalar == D("1200")  # usable as a scalar rate too
 
 
+def _escaneos(plan: dict, tabla: str) -> list[int]:
+    """The `actual loops` of every scan of `tabla` in an EXPLAIN (ANALYZE, FORMAT JSON) plan (0 = never executed)."""
+    nodos, vistos = [plan], []
+    while nodos:
+        nodo = nodos.pop()
+        if nodo.get("Relation Name") == tabla:
+            vistos.append(nodo.get("Actual Loops", 0))
+        nodos.extend(nodo.get("Plans", []))
+    return vistos
+
+
+def test_a_sort_over_many_products_looks_the_rate_up_once(engine: Engine) -> None:
+    """Measured on prod (#2366): a rate looked up per product, ERP history included, made the full-catalogue costo SI
+    sort take seconds. The rate does not depend on the product: one `tipo_cambio` lookup per query, and the ERP
+    history is never read while `tipo_cambio` has a rate."""
+    _mundo(engine)
+    sql = (
+        "EXPLAIN (ANALYZE, FORMAT JSON) SELECT v.item_id FROM (VALUES (:a), (:b), (:c), (:d)) v(item_id)"
+        f" ORDER BY ({lote.sql_actual('v.item_id')}) NULLS LAST"
+    )
+
+    with _db(engine) as db:
+        plan = db.execute(text(sql), {"a": A, "b": B, "c": SIN, "d": ARSP}).scalar_one()[0]["Plan"]
+
+    assert _escaneos(plan, "tipo_cambio") and max(_escaneos(plan, "tipo_cambio")) == 1
+    assert max(_escaneos(plan, "tb_cur_exch_history"), default=0) == 0
+
+
+def _por_fila(plan: dict, tabla: str) -> bool:
+    """Whether `tabla` is scanned inside a correlated SubPlan (re-run per outer row) of an EXPLAIN JSON plan."""
+    pendientes = [(plan, False)]
+    while pendientes:
+        nodo, correlado = pendientes.pop()
+        correlado = correlado or nodo.get("Parent Relationship") == "SubPlan"
+        if correlado and nodo.get("Relation Name") == tabla:
+            return True
+        pendientes.extend((hijo, correlado) for hijo in nodo.get("Plans", []))
+    return False
+
+
+def test_the_catalogue_sort_key_is_the_current_cost_computed_once_per_product(engine: Engine) -> None:
+    """Measured on prod (#2366): Publicaciones ML has ~6 rows per product, so a per-row costo SI made its sort take
+    ~0.8 s. `sql_actual_catalogo(item)` is `sql_actual(item)` (pesos, NULL when unknown) computed once per product for
+    the whole query, then looked up per row."""
+    _mundo(engine)
+    ids = [A, B, SIN, ARSP, ARSLISTA, NADA, COMBO, COMBO_MIX, COMBO_INCOMPLETO, PC, 999]
+    valores = ", ".join(f"({i})" for i in ids + [A, A, B])
+    comparar = (
+        f"SELECT v.item_id, ({lote.sql_actual('v.item_id')}), {lote.sql_actual_catalogo('v.item_id')}"
+        f" FROM (VALUES {valores}) v(item_id)"
+    )
+    plan_sql = (
+        f"EXPLAIN (ANALYZE, FORMAT JSON) SELECT v.item_id FROM (VALUES {valores}) v(item_id)"
+        f" ORDER BY {lote.sql_actual_catalogo('v.item_id')} NULLS LAST"
+    )
+
+    with _db(engine) as db:
+        filas = db.execute(text(comparar)).all()
+        plan = db.execute(text(plan_sql)).scalar_one()[0]["Plan"]
+
+    assert [(i, por_fila) for i, por_fila, _ in filas] == [(i, catalogo) for i, _, catalogo in filas]
+    assert {i for i, por_fila, _ in filas if por_fila is not None} >= {A, B, SIN, ARSP, COMBO}
+    assert not _por_fila(plan, "productos_erp") and not _por_fila(plan, "combo_componentes")
+
+
 def test_the_rate_comes_with_its_own_date(engine: Engine) -> None:
     """The rate's date travels with the rate (a frozen sale cost records it, `ml_order_item_costos.tipo_cambio_fecha`):
     the `tipo_cambio` row's date in force, the latest one for the current cost; none for pesos, nor for a rate the

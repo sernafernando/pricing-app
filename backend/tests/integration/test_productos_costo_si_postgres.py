@@ -16,7 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pgvector.sqlalchemy import Vector
 from openpyxl import load_workbook
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
 
 # Register every model (and the ERP stubs only imported inside endpoint bodies) in Base.metadata.
@@ -222,6 +222,31 @@ def _orden(client: TestClient, path: str, campo: str, direccion: str) -> list[in
     response = client.get(path, params={"page_size": 50, "orden_campos": campo, "orden_direcciones": direccion})
     assert response.status_code == 200, response.text
     return [p["item_id"] for p in response.json()["productos"]]
+
+
+def _counts_of(client: TestClient, path: str) -> list[str]:
+    """The count statements a `costo_si` sort of `path` runs."""
+    vistos: list[str] = []
+
+    def grab(conn, cursor, statement, parameters, context, executemany) -> None:
+        if statement.lstrip().upper().startswith("SELECT COUNT("):
+            vistos.append(statement)
+
+    event.listen(Engine, "before_cursor_execute", grab)
+    try:
+        _orden(client, path, "costo_si", "asc")
+    finally:
+        event.remove(Engine, "before_cursor_execute", grab)
+    return vistos
+
+
+@pytest.mark.parametrize("path", ["/api/productos", "/api/productos/tienda"])
+def test_the_page_count_never_computes_the_costo_si_sort(client, mundo, path) -> None:
+    """Measured on prod (#2366): the total wrapped the ordered query, so a costo SI sort was computed twice, once only
+    to be thrown away by the count. Ordering never changes how many rows there are."""
+    counts = _counts_of(client, path)
+
+    assert counts and not any("csi_" in c or "ORDER BY" in c for c in counts)
 
 
 class TestListado:

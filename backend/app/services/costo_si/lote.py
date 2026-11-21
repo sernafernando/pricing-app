@@ -54,27 +54,37 @@ def _tc_en(fecha: str, *, propio: Optional[str] = None) -> str:
     crons: the last `tipo_cambio` venta > 0 dated on or before it, else the ERP's last USD -> ARS
     `tb_cur_exch_history` rate > 0 created before the end of that day; NULLs without either (the peso value is then
     unknown, never 0). `propio`: a rate the caller supplies (SQL), first when not NULL, dated by the latest
-    `tipo_cambio` row with that very rate (the screens pass `obtener_tipo_cambio_actual`), NULL when none has it."""
-    caller = (
-        ""
-        if propio is None
-        else (
-            f"(SELECT {propio}, (SELECT csi_tcp.fecha FROM tipo_cambio csi_tcp WHERE csi_tcp.moneda = 'USD'"
-            f" AND csi_tcp.venta = {propio} AND csi_tcp.fecha <= ({fecha}) ORDER BY csi_tcp.fecha DESC LIMIT 1), 0"
-            f" WHERE {propio} IS NOT NULL) UNION ALL "
+    `tipo_cambio` row with that very rate (the screens pass `obtener_tipo_cambio_actual`), NULL when none has it.
+
+    Scalar subqueries under COALESCE / CASE, never a UNION of the sources: a later source is read only when the earlier
+    ones have no rate, and with a constant `fecha` each lookup is evaluated once per query, not once per product (a
+    full-catalogue sort read the ERP history per row, #2366)."""
+
+    def tipo_cambio(columna: str) -> str:
+        return (
+            f"(SELECT csi_tc.{columna} FROM tipo_cambio csi_tc WHERE csi_tc.moneda = 'USD' AND csi_tc.venta > 0"
+            f" AND csi_tc.fecha <= ({fecha}) ORDER BY csi_tc.fecha DESC LIMIT 1)"
         )
+
+    def erp(columna: str) -> str:
+        return (
+            f"(SELECT csi_ceh.{columna} FROM tb_cur_exch_history csi_ceh WHERE csi_ceh.curr_id_1 = 2"
+            f" AND csi_ceh.curr_id_2 = 1 AND csi_ceh.ceh_exchange > 0 AND csi_ceh.ceh_cd < ({fecha})::date + 1"
+            " ORDER BY csi_ceh.ceh_cd DESC, csi_ceh.ceh_id DESC LIMIT 1)"
+        )
+
+    tc = f"COALESCE({tipo_cambio('venta')}::numeric, {erp('ceh_exchange')}::numeric)"
+    tc_fecha = (
+        f"CASE WHEN {tipo_cambio('venta')} IS NOT NULL THEN {tipo_cambio('fecha')} ELSE {erp('ceh_cd')}::date END"
     )
-    return (
-        "SELECT csi_fq.tc, csi_fq.tc_fecha FROM ("
-        f"{caller}"
-        "(SELECT csi_tc.venta::numeric, csi_tc.fecha, 1 FROM tipo_cambio csi_tc WHERE csi_tc.moneda = 'USD'"
-        f" AND csi_tc.venta > 0 AND csi_tc.fecha <= ({fecha}) ORDER BY csi_tc.fecha DESC LIMIT 1)"
-        " UNION ALL (SELECT csi_ceh.ceh_exchange::numeric, csi_ceh.ceh_cd::date, 2 FROM tb_cur_exch_history csi_ceh"
-        " WHERE csi_ceh.curr_id_1 = 2 AND csi_ceh.curr_id_2 = 1 AND csi_ceh.ceh_exchange > 0"
-        f" AND csi_ceh.ceh_cd < ({fecha})::date + 1 ORDER BY csi_ceh.ceh_cd DESC, csi_ceh.ceh_id DESC LIMIT 1)"
-        " UNION ALL SELECT NULL::numeric, NULL::date, 3"
-        ") csi_fq(tc, tc_fecha, prioridad) ORDER BY csi_fq.prioridad LIMIT 1"
-    )
+    if propio is not None:
+        del_propio = (
+            f"(SELECT csi_tcp.fecha FROM tipo_cambio csi_tcp WHERE csi_tcp.moneda = 'USD' AND csi_tcp.venta = {propio}"
+            f" AND csi_tcp.fecha <= ({fecha}) ORDER BY csi_tcp.fecha DESC LIMIT 1)"
+        )
+        tc = f"COALESCE({propio}, {tc})"
+        tc_fecha = f"CASE WHEN {propio} IS NOT NULL THEN {del_propio} ELSE {tc_fecha} END"
+    return f"SELECT {tc} AS tc, {tc_fecha} AS tc_fecha"
 
 
 _TC_ULTIMO = _tc_en("CURRENT_DATE")
@@ -189,6 +199,17 @@ def actual() -> Subquery:
     that sorts or filters a listing in SQL (`costo_si_ars` orders products of both currencies together)."""
     sql = f"SELECT csi_ids.item_id, csi_cs.* FROM ({_PRODUCTOS}) csi_ids LEFT JOIN LATERAL ({_fragmento('csi_ids.item_id', None, _TC_ULTIMO)}) csi_cs ON true"
     return text(sql).columns(item_id=Integer(), **_TIPOS).subquery("costo_si_actual")
+
+
+def sql_actual_catalogo(item: str) -> str:
+    """`sql_actual(item)` for a sort over many rows per product (Publicaciones ML has ~6 per product): the current
+    costo SI in pesos of every known product computed ONCE per query (an uncorrelated subquery: one InitPlan), then
+    looked up per row by the SQL expression `item`; NULL when unknown. Over a few rows `sql_actual` is cheaper."""
+    return (
+        "((SELECT jsonb_object_agg(csi_ids.item_id::text, csi_cs.costo_si_ars) FROM"
+        f" ({_PRODUCTOS}) csi_ids JOIN LATERAL ({_fragmento('csi_ids.item_id', None, _TC_ULTIMO)}) csi_cs"
+        f" ON csi_cs.costo_si_ars IS NOT NULL) ->> (({item})::text))::numeric"
+    )
 
 
 @dataclass(frozen=True)

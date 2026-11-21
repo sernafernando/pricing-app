@@ -1018,7 +1018,8 @@ def listar_productos(
     # Los filtros de markup ahora se aplican en SQL, no necesitamos traer todo
     total_productos = None
     if not orden_requiere_calculo:
-        total_productos = query.count()
+        # without the ORDER BY: it never changes the total, and a computed sort (costo SI) would run twice
+        total_productos = query.order_by(None).count()
         offset = (page - 1) * page_size
         results = query.offset(offset).limit(page_size).all()
     else:
@@ -2232,7 +2233,7 @@ def listar_productos_tienda(
         # ausentes al paginar. `item_id` es la PK de productos_erp.
         query = query.order_by(ProductoERP.item_id.asc())
 
-    total = query.count()
+    total = query.order_by(None).count()  # the ORDER BY never changes the total (a costo SI sort would run twice)
     offset = (page - 1) * page_size
     results = query.offset(offset).limit(page_size).all()
 

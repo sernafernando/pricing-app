@@ -229,9 +229,10 @@ def cost_in_pesos() -> Any:
 
 
 def costo_si_in_pesos() -> Any:
-    """The linked product's current costo SI in pesos (`columna.orden`, correlated on `T.p`, alias "p"): USD and ARS
-    costs compare as money, as `cost_in_pesos`; null without a cost or a rate, last."""
-    return columna.orden("p.item_id")
+    """The linked product's current costo SI in pesos (`columna.orden_catalogo` on `T.p`, alias "p"): USD and ARS
+    costs compare as money, as `cost_in_pesos`; null without a cost or a rate, last. Computed once per product, not
+    per row: the list has several rows per product (a per-row cost took ~0.8 s over the catalogue, #2366)."""
+    return columna.orden_catalogo("p.item_id")
 
 
 def unconverted_usd_cost() -> Any:
