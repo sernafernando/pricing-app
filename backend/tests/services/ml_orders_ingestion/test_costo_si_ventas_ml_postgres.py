@@ -328,8 +328,13 @@ def test_a_combo_part_costo_si_part_list_cost_is_refrozen_when_its_costo_si_comp
     assert _recongelar(engine, mix, date(2026, 10, 13)) == 0
 
 
-def test_after_a_recompute_the_product_and_its_combos_are_queued_then_refrozen(engine: Engine) -> None:
-    """End to end from the dispatch `costo_si.queue.drenar` makes (interface §3) to the drain step."""
+def test_after_a_recompute_the_product_and_its_combos_are_queued_then_refrozen(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End to end from the dispatch `costo_si.queue.drenar` makes (interface §3) to the drain step. Only this area's
+    callback is registered: each area tests its own in its own world (`tests/services/costo_si/conftest.py`)."""
+    monkeypatch.setattr(despues, "_CALLBACKS", {"ml_ventas": ml_ventas.encolar})
+    monkeypatch.setattr(despues, "_cargados", True)
     _mundo(engine)
     w.run(engine, "DELETE FROM costo_si_pasos WHERE item_id = :i AND orden = 1", i=A)
     venta_a = _vender(engine, A, _art(2026, 10, 20, 10))

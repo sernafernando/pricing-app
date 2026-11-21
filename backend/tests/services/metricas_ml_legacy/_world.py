@@ -25,6 +25,7 @@ from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.mercadolibre_order_detail import MercadoLibreOrderDetail
 from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
 from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
+from app.models.ml_costo_si import MlCostoSiDirty
 from app.models.ml_venta_metrica import MLVentaMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.models.notificacion import Notificacion
@@ -87,6 +88,7 @@ TABLES = [
     Notificacion.__table__,
     PricingConstants.__table__,
     MarcaPM.__table__,
+    MlCostoSiDirty.__table__,  # the ML sales callback (`despues/ml_ventas`) queues here on every dispatch
 ]
 
 _ids = itertools.count(700_000)

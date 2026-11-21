@@ -49,6 +49,11 @@ def throwaway_schema(
     empty one (`CombosNoSincronizados`), like ML costing."""
     if not _postgres_reachable():
         pytest.skip(f"PostgreSQL not reachable at {POSTGRES_TEST_URL}")
+    # Worlds are composed by concatenation (`[*w.TABLES, *_EXTRA]`): a table both lists hold is created once.
+    unicas: dict = {}
+    for table in tables:
+        unicas.setdefault(table.name, table)
+    tables = list(unicas.values())
     _restore_pristine_pg_types(tables)
     schema = f"{prefix}_{uuid.uuid4().hex[:8]}"
     admin = create_engine(POSTGRES_TEST_URL, isolation_level="AUTOCOMMIT")
