@@ -125,14 +125,6 @@ function SellInOutMarkup({ row, price, sellInOut }) {
   );
 }
 
-/**
- * What to keep in mind while setting a price: the product's IVA rate
- * (anyone who sees the prices) and, only for `showCost` (the caller's
- * ml_metricas.ver_ganancia), its cost in its own currency. A USD cost shows
- * its pesos at the current rate (`rate`, venta) as a small secondary figure.
- * Beside it, the cost with sell in and the sell out per unit, as the
- * backend computes them (`sell_in_out`). `action` (the panel's Calcular) closes the line.
- */
 const costoSiAmount = (monto, moneda) => (moneda === 'ARS' ? `$ ${formatAmount(monto)}` : `${moneda} ${formatAmount(monto)}`);
 
 /**
@@ -155,6 +147,14 @@ function CostoSiFact({ costoSi }) {
   );
 }
 
+/**
+ * What to keep in mind while setting a price: the product's IVA rate
+ * (anyone who sees the prices) and, only for `showCost` (the caller's
+ * ml_metricas.ver_ganancia), its cost in its own currency. A USD cost shows
+ * its pesos at the current rate (`rate`, venta) as a small secondary figure.
+ * Beside it, the costo SI, the cost with sell in and the sell out per unit, as the
+ * backend computes them (`costo_si`, `sell_in_out`). `action` (the panel's Calcular) closes the line.
+ */
 function ProductFacts({ product, showCost, isUsd, rate, action }) {
 
   let cost = <Empty />;

@@ -19,4 +19,5 @@ Los markups con sell out se llaman ahora **c/ SO** en todas las pantallas. Antes
 ## A tener en cuenta
 
 - **Costo c/ sell in** (el costo que deja el lote de sell in) sigue igual por ahora.
-- Los precios y los markups no cambian: solo se agrega la columna y cambian los nombres.
+- Los precios no cambian. El markup con offsets (el **→ X%** de la columna de markup) ahora se calcula sobre el costo SI, como los demás markups, así que puede moverse en los productos cuyo costo SI es distinto del costo de lista.
+- Ya no aparece un markup «c/ sell in» aparte: el sell in ya está dentro del costo SI.
