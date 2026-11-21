@@ -595,7 +595,7 @@ export default function TabRentabilidadFuera({ fechaDesde, fechaHasta, sucursal,
               </div>
               <div className={styles.totalItem}>
                 <span className={styles.totalLabel}>Ganancia</span>
-                <span className={styles.totalValor} style={{ color: puedeVerGanancia ? (rentabilidad.totales.ganancia >= 0 ? '#22c55e' : '#ef4444') : undefined }}>
+                <span className={styles.totalValor} style={{ color: puedeVerGanancia && rentabilidad.totales.ganancia != null ? (rentabilidad.totales.ganancia >= 0 ? '#22c55e' : '#ef4444') : undefined }}>
                   {puedeVerGanancia ? conCosto(rentabilidad.totales.ganancia, formatMoney) : '***'}
                 </span>
               </div>
@@ -660,7 +660,7 @@ export default function TabRentabilidadFuera({ fechaDesde, fechaHasta, sucursal,
                   </div>
                   <div className={styles.cardMetrica}>
                     <span>Ganancia:</span>
-                    <span style={{ color: puedeVerGanancia ? (card.ganancia >= 0 ? '#22c55e' : '#ef4444') : undefined }}>
+                    <span style={{ color: puedeVerGanancia && card.ganancia != null ? (card.ganancia >= 0 ? '#22c55e' : '#ef4444') : undefined }}>
                       {puedeVerGanancia ? conCosto(card.ganancia, formatMoney) : '***'}
                     </span>
                   </div>
@@ -695,7 +695,7 @@ export default function TabRentabilidadFuera({ fechaDesde, fechaHasta, sucursal,
                           <span className={styles.desgloseMarca}>{dm.marca}</span>
                           <div className={styles.desgloseValores}>
                             <span>{formatMoney(dm.monto_venta)}</span>
-                            <span style={{ color: puedeVerGanancia ? (dm.ganancia >= 0 ? '#22c55e' : '#ef4444') : undefined }}>
+                            <span style={{ color: puedeVerGanancia && dm.ganancia != null ? (dm.ganancia >= 0 ? '#22c55e' : '#ef4444') : undefined }}>
                               {puedeVerGanancia ? formatMoney(dm.ganancia) : '***'}
                             </span>
                             <span style={{ color: getMarkupColor(dm.markup_promedio) }}>

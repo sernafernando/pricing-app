@@ -141,7 +141,7 @@ def get_ventas_tienda_nube_base_query():
         ganancia * signo as ganancia,
         signo,
         -- NULL (unknown, costo SI) or 0 (legacy unknown: a real cost is never 0) = "sin costo"
-        COALESCE(costo_total > 0, false) as con_costo
+        COALESCE(costo_total <> 0, false) as con_costo
     FROM ventas_tienda_nube_metricas
     WHERE fecha_venta BETWEEN :from_date AND :to_date
     """

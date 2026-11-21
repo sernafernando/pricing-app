@@ -208,10 +208,10 @@ def get_base_ventas_query(grupo_by: str, filtros_extra: str = "", vendedores_exc
         SUM(monto_total * signo) as monto_venta,
         SUM(costo_total * signo) as costo_total,
         SUM(ganancia * signo) as ganancia,
-        SUM(monto_total * signo) FILTER (WHERE costo_total > 0) as monto_con_costo,
-        SUM(costo_total * signo) FILTER (WHERE costo_total > 0) as costo_con_costo,
-        COUNT(*) FILTER (WHERE costo_total > 0) as lineas_con_costo,
-        COUNT(*) FILTER (WHERE costo_total IS NULL OR costo_total <= 0) as ventas_sin_costo
+        SUM(monto_total * signo) FILTER (WHERE costo_total <> 0) as monto_con_costo,
+        SUM(costo_total * signo) FILTER (WHERE costo_total <> 0) as costo_con_costo,
+        COUNT(*) FILTER (WHERE costo_total <> 0) as lineas_con_costo,
+        COUNT(*) FILTER (WHERE costo_total IS NULL OR costo_total = 0) as ventas_sin_costo
     FROM ventas_fuera_ml_metricas
     WHERE fecha_venta BETWEEN :from_date AND :to_date
         AND {where_not_null}
@@ -596,7 +596,7 @@ def obtener_rentabilidad_fuera(
         query_ventas = f"""
         SELECT
             SUM(cantidad * signo) as cantidad,
-            SUM(costo_total * signo) FILTER (WHERE costo_total > 0) as costo
+            SUM(costo_total * signo) FILTER (WHERE costo_total <> 0) as costo
         FROM ventas_fuera_ml_metricas
         WHERE fecha_venta >= :periodo_inicio AND fecha_venta < :periodo_fin
             {filtro_sql_extra}

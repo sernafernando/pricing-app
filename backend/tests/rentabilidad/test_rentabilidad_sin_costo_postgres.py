@@ -290,3 +290,20 @@ def test_tn_totales_count_the_unknown_sales_apart(db: Session) -> None:
     }
     assert totales.ventas_sin_costo == 2
     assert totales.total_ventas == 6
+
+
+# ---------------------------------------------------------------------------
+# A line stored with a negative cost (e.g. a negative quantity) has a KNOWN cost: only NULL and 0 are unknown
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("tabla, leer", [("ventas_fuera_ml_metricas", _fuera), ("ventas_tienda_nube_metricas", _tn)])
+def test_a_negative_cost_is_a_known_cost_not_sin_costo(db: Session, tabla: str, leer) -> None:
+    _insert(db.connection(), tabla, 90, "NEGATIVO", 1000, 600, 1)
+    _insert(db.connection(), tabla, 91, "NEGATIVO", -500, -300, 1)
+
+    card = _card(leer(db), "NEGATIVO")
+
+    assert card.ventas_sin_costo == 0
+    assert card.costo_total == 300.0
+    assert card.monto_venta == 500.0
