@@ -5,6 +5,8 @@ A prod database before the Costo SI deploy has no `costo_si_pasos` (and may lack
 pending migrations add). A `Sombra` lets the code that will run after the deploy (the engine's inputs, the `lote`
 reader, the areas' report-only paths) run unchanged anyway: every statement sent through its connection that names a
 shadowed table gets a CTE of that name in front, and a CTE hides the table of the same name in the whole statement.
+Every stand-in is a MATERIALIZED CTE: computed once per statement and never inlined into the caller's plan. It lives
+only inside that statement: nothing is created on the server (no CREATE, no temporary table, no SET).
 
 - `costo_si_pasos` is always shadowed, by the steps the caller computed in memory (`fijar_pasos`): the history the
   recompute WILL store, never the one on the database.
@@ -117,15 +119,16 @@ class Sombra:
         if nombre == PASOS:
             columnas = ", ".join(f"{c.name} {_tipo(c)}" for c in tabla.columns)
             filas = json.dumps([{k: _json(v) for k, v in f.items()} for f in self._pasos])
-            return f"{nombre} AS (SELECT * FROM jsonb_to_recordset(CAST(%({param})s AS jsonb)) AS t({columnas}))", {
-                param: filas
-            }
+            return (
+                f"{nombre} AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(CAST(%({param})s AS jsonb)) AS t({columnas}))",
+                {param: filas},
+            )
         faltan = self._faltantes[nombre]
         if faltan is None:
             columnas = ", ".join(f"CAST(NULL AS {_tipo(c)}) AS {c.name}" for c in tabla.columns)
-            return f"{nombre} AS (SELECT {columnas} WHERE false)", {}
+            return f"{nombre} AS MATERIALIZED (SELECT {columnas} WHERE false)", {}
         extra = ", ".join(f"{_default(tabla.columns[c])} AS {c}" for c in faltan)
-        return f'{nombre} AS (SELECT t.*, {extra} FROM "{self._esquema}".{nombre} t)', {}
+        return f'{nombre} AS MATERIALIZED (SELECT t.*, {extra} FROM "{self._esquema}".{nombre} t)', {}
 
     def reescribir(self, sentencia: str, parametros):
         """`sentencia` with a CTE in front for every shadowed table it names (unchanged when it names none)."""

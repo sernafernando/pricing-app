@@ -208,3 +208,13 @@ def test_comments_in_front_do_not_hide_a_set(motor: Engine) -> None:
 def test_a_read_with_comments_in_front_goes_through(motor: Engine) -> None:
     with motor.connect() as conn:
         assert conn.execute(text("-- the reader's note\n  SELECT 1")).scalar() == 1
+
+
+def test_every_stand_in_is_a_materialized_cte(motor: Engine) -> None:
+    """Orchestrator: "stand-ins as MATERIALIZED CTEs, no CREATE/temp tables, no SET" — each stand-in is computed once
+    per statement, never inlined into the caller's plan, and lives only inside the statement."""
+    with simulacion.simular(motor, tablas=["tipo_cambio", "costo_si_factura_tc"]) as sim:
+        sql, _ = sim.sombra.reescribir("SELECT 1 FROM costo_si_pasos, costo_si_factura_tc, tipo_cambio", {})
+    for nombre in ("costo_si_pasos", "costo_si_factura_tc", "tipo_cambio"):
+        assert f"{nombre} AS MATERIALIZED (" in sql
+    assert " AS (" not in sql.replace("AS t(", "")
