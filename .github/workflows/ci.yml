@@ -325,23 +325,25 @@ jobs:
           if-no-files-found: warn
 
   backend-postgres-volume:
-    name: Backend Tests (Postgres volume) ${{ matrix.shard }}/3
+    name: Backend Tests (Postgres volume) ${{ matrix.shard }}/4
     needs: changes
     # `!cancelled()` so a failed `changes` job still runs this one (fail safe).
     if: ${{ !cancelled() && needs.changes.outputs.backend_needed != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Sharded by test file like `backend-postgres` (see there), in three.
+    # Sharded by test file like `backend-postgres` (see there), in four, so
+    # no shard holds more than 4 volume files: one file per xdist worker.
     # `--dist loadfile` hands each worker up to two files up front, ordered by
-    # test count rather than duration. Two shards of 6-7 files paired heavy
-    # files on one worker (499 s on one shard, 204 s on the other); with
-    # three, each shard holds 3-5 files on 4 workers. The volume durations
-    # come from the sharded run, because a file's time depends on which
-    # files share the database with it.
+    # test count rather than duration, and most of a volume file's time is
+    # its module seed, which runs ~25-50x slower on CI than alone (4 workers
+    # seeding one Postgres). With 5-7 files per shard two heavy files landed
+    # on one worker: 499 s against 204 s with two shards, 548 s against
+    # 309 s with three. The volume durations come from a sharded main run,
+    # because a file's time depends on what shares the database with it.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4]
     defaults:
       run:
         working-directory: backend
@@ -389,7 +391,7 @@ jobs:
 
       - name: Run tests (volume, one module per worker)
         run: |
-          python3 -I ../.github/scripts/pytest_shard.py select --shards 3 --index ${{ matrix.shard }} \
+          python3 -I ../.github/scripts/pytest_shard.py select --shards 4 --index ${{ matrix.shard }} \
             --durations ../.github/ci-durations/volume.json > shard-files.txt
           mapfile -t files < shard-files.txt
           [ "${#files[@]}" -gt 0 ]
