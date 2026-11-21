@@ -292,7 +292,7 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
         SELECT
             tit.it_isassociationgroup AS group_id,
             tit.ct_transaction,
-            SUM(cc.costo_unitario_grupo * tit.it_qty) AS costo_combo
+            {costo_si_gbp.suma_grupo("cc.costo_unitario_grupo * tit.it_qty")} AS costo_combo
         FROM tb_item_transactions tit
         LEFT JOIN CostoCalculado cc ON cc.it_transaction = tit.it_transaction
         WHERE tit.it_isassociationgroup IS NOT NULL
@@ -373,8 +373,8 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
 
         -- Costo en pesos sin IVA (solo usa costo_combo si el item NO tiene precio propio, es decir, es un combo)
         CASE
-            WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN COALESCE(ccb.costo_combo, 0)
-            ELSE COALESCE(cc.costo_unitario, 0) * tit.it_qty
+            WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN {costo_si_gbp.costo_grupo("ccb")}
+            ELSE cc.costo_unitario * tit.it_qty
         END * CASE
             WHEN tct.sd_id IN (1, 4, 21, 56) THEN 1
             WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1
@@ -384,7 +384,7 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
         -- Markup: (precio_venta / costo) - 1 (sin comisión porque es fuera de ML)
         CASE
             WHEN tct.sd_id IN (3, 6, 23, 66) THEN NULL  -- No calcular markup para devoluciones
-            WHEN (CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN COALESCE(ccb.costo_combo, 0) ELSE COALESCE(cc.costo_unitario, 0) * tit.it_qty END) = 0 THEN NULL
+            WHEN (CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN {costo_si_gbp.costo_grupo("ccb")} ELSE cc.costo_unitario * tit.it_qty END) = 0 THEN NULL
             ELSE (
                 CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN pv.precio_venta ELSE tit.it_price * tit.it_qty END
                 / CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN ccb.costo_combo ELSE cc.costo_unitario * tit.it_qty END

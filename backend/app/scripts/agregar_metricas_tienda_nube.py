@@ -94,9 +94,14 @@ def obtener_ventas_tienda_nube(db: Session, from_date, to_date):
         SELECT
             tit.it_isassociationgroup AS group_id,
             tit.ct_transaction,
-            SUM(
-                {costo_si_gbp.costo_unitario_ars("csc", "tit.item_id", "tit.comp_id", "tit.ct_transaction", "tit.it_isassociationgroup", en_grupo=True)} * 1.065 * tit.it_qty
-            ) AS costo_combo
+            {
+        costo_si_gbp.suma_grupo(
+            costo_si_gbp.costo_unitario_ars(
+                "csc", "tit.item_id", "tit.comp_id", "tit.ct_transaction", "tit.it_isassociationgroup", en_grupo=True
+            )
+            + " * 1.065 * tit.it_qty"
+        )
+    } AS costo_combo
         FROM tb_item_transactions tit
         INNER JOIN tb_commercial_transactions tct
             ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
@@ -158,14 +163,18 @@ def obtener_ventas_tienda_nube(db: Session, from_date, to_date):
         -- Costo unitario: costo SI en pesos (costo_si.lote), con Costo D (x 1.065) encima
         CASE
             WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN
-                COALESCE(ccb.costo_combo, 0) / NULLIF(tit.it_qty, 0)
-            ELSE {costo_si_gbp.costo_unitario_ars("cs", item, "tit.comp_id", "tit.ct_transaction", "tit.it_isassociationgroup")} * 1.065
+                {costo_si_gbp.costo_grupo("ccb")} / NULLIF(tit.it_qty, 0)
+            ELSE {
+        costo_si_gbp.costo_unitario_ars("cs", item, "tit.comp_id", "tit.ct_transaction", "tit.it_isassociationgroup")
+    } * 1.065
         END as costo_unitario,
 
         -- Costo total (con multiplicador 1.065)
         CASE
-            WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN COALESCE(ccb.costo_combo, 0)
-            ELSE {costo_si_gbp.costo_unitario_ars("cs", item, "tit.comp_id", "tit.ct_transaction", "tit.it_isassociationgroup")} * 1.065 * tit.it_qty
+            WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN {costo_si_gbp.costo_grupo("ccb")}
+            ELSE {
+        costo_si_gbp.costo_unitario_ars("cs", item, "tit.comp_id", "tit.ct_transaction", "tit.it_isassociationgroup")
+    } * 1.065 * tit.it_qty
         END as costo_total,
 
         -- Moneda del costo SI (owner L18) y cotización del día
@@ -235,6 +244,7 @@ def obtener_ventas_tienda_nube(db: Session, from_date, to_date):
 
     filas = result.fetchall()
     costo_si_gbp.avisar_combos_parciales(db, filas, origen="ventas_tienda_nube")
+    costo_si_gbp.avisar_costos_desconocidos(filas, origen="ventas_tienda_nube")
     return filas
 
 
@@ -291,7 +301,9 @@ def process_and_insert(db: Session, rows):
 
             # Calcular valores derivados
             monto_total = float(row.monto_total or 0)
-            costo_total = float(row.costo_total or 0)
+            # None = unknown cost (no costo SI / list cost or no USD rate, interface §7): stored NULL, with no
+            # ganancia or markup, never as 0 (logged by obtener_ventas_tienda_nube)
+            costo_total = None if row.costo_total is None else float(row.costo_total)
             iva_porcentaje = float(row.iva_porcentaje or 21)
             signo = row.signo
 
@@ -302,12 +314,12 @@ def process_and_insert(db: Session, rows):
             comision_monto = monto_total * (comision_tn_pct / 100)
 
             # Ganancia = monto - costo - comisión
-            ganancia = monto_total - costo_total - comision_monto
+            ganancia = None if costo_total is None else monto_total - costo_total - comision_monto
 
             # Markup = (monto / (costo + comisión)) - 1 (solo si hay costo)
             markup_porcentaje = None
-            base_costo = costo_total + comision_monto
-            if base_costo > 0 and signo > 0:  # Solo para ventas, no devoluciones
+            base_costo = None if costo_total is None else costo_total + comision_monto
+            if base_costo is not None and base_costo > 0 and signo > 0:  # Solo para ventas, no devoluciones
                 markup_porcentaje = ((monto_total / base_costo) - 1) * 100
                 # Limitar a rango válido
                 if markup_porcentaje > 99999999.99:
@@ -343,13 +355,13 @@ def process_and_insert(db: Session, rows):
                 "iva_porcentaje": Decimal(str(iva_porcentaje)),
                 "monto_iva": Decimal(str(monto_iva)),
                 "monto_con_iva": Decimal(str(monto_con_iva)),
-                "costo_unitario": Decimal(str(row.costo_unitario or 0)),
-                "costo_total": Decimal(str(costo_total)),
+                "costo_unitario": None if row.costo_unitario is None else Decimal(str(row.costo_unitario)),
+                "costo_total": None if costo_total is None else Decimal(str(costo_total)),
                 "moneda_costo": row.moneda_costo,
                 "cotizacion_dolar": Decimal(str(row.cotizacion_dolar)) if row.cotizacion_dolar else None,
                 "comision_porcentaje": Decimal(str(comision_tn_pct)),
                 "comision_monto": Decimal(str(comision_monto)),
-                "ganancia": Decimal(str(ganancia)),
+                "ganancia": None if ganancia is None else Decimal(str(ganancia)),
                 "markup_porcentaje": Decimal(str(markup_porcentaje)) if markup_porcentaje is not None else None,
                 "es_combo": bool(row.es_combo) if row.es_combo is not None else False,
                 "combo_group_id": int(row.combo_group_id) if row.combo_group_id else None,

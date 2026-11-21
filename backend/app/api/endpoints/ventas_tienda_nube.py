@@ -248,7 +248,7 @@ def get_ventas_tienda_nube_query():
         SELECT
             tit.it_isassociationgroup AS group_id,
             tit.ct_transaction,
-            SUM(cc.costo_unitario_grupo * tit.it_qty) AS costo_combo
+            {costo_si_gbp.suma_grupo("cc.costo_unitario_grupo * tit.it_qty")} AS costo_combo
         FROM tb_item_transactions tit
         LEFT JOIN CostoCalculado cc ON cc.it_transaction = tit.it_transaction
         WHERE tit.it_isassociationgroup IS NOT NULL
@@ -323,8 +323,8 @@ def get_ventas_tienda_nube_query():
         tsm.sm_name as vendedor,
 
         CASE
-            WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN COALESCE(ccb.costo_combo, 0)
-            ELSE COALESCE(cc.costo_unitario, 0) * tit.it_qty
+            WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN {costo_si_gbp.costo_grupo("ccb")}
+            ELSE cc.costo_unitario * tit.it_qty
         END * CASE
             WHEN tct.sd_id IN (1, 4, 21, 56) THEN 1
             WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1
@@ -333,7 +333,7 @@ def get_ventas_tienda_nube_query():
 
         CASE
             WHEN tct.sd_id IN (3, 6, 23, 66) THEN NULL  -- No calcular markup para devoluciones
-            WHEN (CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN COALESCE(ccb.costo_combo, 0) ELSE COALESCE(cc.costo_unitario, 0) * tit.it_qty END) = 0 THEN NULL
+            WHEN (CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN {costo_si_gbp.costo_grupo("ccb")} ELSE cc.costo_unitario * tit.it_qty END) = 0 THEN NULL
             ELSE (
                 CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN pv.precio_venta ELSE tit.it_price * tit.it_qty END
                 / CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN ccb.costo_combo ELSE cc.costo_unitario * tit.it_qty END
@@ -496,11 +496,11 @@ def get_ventas_tienda_nube(
 
         # Calcular comisión de TN y ganancia
         precio_final = float(row_dict.get("precio_final_sin_iva") or 0)
-        costo = float(row_dict.get("costo_pesos_sin_iva") or 0)
+        costo = row_dict.get("costo_pesos_sin_iva")  # None = unknown cost (interface §7): no ganancia either
 
         comision_tn_pesos = precio_final * (comision_tn_pct / 100)
         monto_limpio = precio_final - comision_tn_pesos
-        ganancia = monto_limpio - costo
+        ganancia = None if costo is None else monto_limpio - float(costo)
 
         row_dict["comision_tn_porcentaje"] = comision_tn_pct
         row_dict["comision_tn_pesos"] = comision_tn_pesos

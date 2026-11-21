@@ -37,8 +37,16 @@ CENTAVO = Decimal("0.01")
 
 
 def costos_unitarios(db: Session, pares: Iterable[tuple[int, date]]) -> dict[tuple[int, date], Optional[Decimal]]:
-    """The unit cost in pesos of each `(item_id, fecha)`, in one query: the reader's `costo_ars` (None = unknown)."""
-    return {clave: costo.costo_ars for clave, costo in lote.en_fechas(db, pares).items()}
+    """The unit cost in pesos of each `(item_id, fecha)`, in one query: the reader's `costo_ars` (None = unknown,
+    interface §7). An unknown cost is logged: the line's Precio Costo column is NOT NULL, so it is stored as 0, the
+    existing "sin costo" value the screens keep out of the markup (a NULL column needs a migration: orchestrator)."""
+    costos = {clave: costo.costo_ars for clave, costo in lote.en_fechas(db, pares).items()}
+    for (item_id, fecha), costo in sorted(costos.items()):
+        if costo is None:
+            logger.warning(
+                "ventas_fuera: unknown cost for item %s on %s: Precio Costo stays without cost", item_id, fecha
+            )
+    return costos
 
 
 def combos_desglosados(

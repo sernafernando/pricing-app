@@ -225,7 +225,7 @@ def _cron(db: Session, modulo) -> dict[int, tuple[Decimal, Decimal]]:
     return {f.it_transaction: (Decimal(f.costo_unitario or 0), Decimal(f.costo_total or 0)) for f in filas}
 
 
-def _listado(db: Session, endpoint) -> dict[int, Decimal]:
+def _filas_listado(db: Session, endpoint) -> dict[int, dict]:
     if endpoint is ep_fuera:
         filas = ep_fuera.get_ventas_fuera_ml(
             from_date=DESDE,
@@ -253,7 +253,11 @@ def _listado(db: Session, endpoint) -> dict[int, Decimal]:
             current_user={},
         )
     filas = [f if isinstance(f, dict) else f.model_dump() for f in filas]
-    return {int(f["id_operacion"]): Decimal(str(f["costo_pesos_sin_iva"])) for f in filas}
+    return {int(f["id_operacion"]): f for f in filas}
+
+
+def _listado(db: Session, endpoint) -> dict[int, Decimal]:
+    return {i: Decimal(str(f["costo_pesos_sin_iva"])) for i, f in _filas_listado(db, endpoint).items()}
 
 
 CANALES = [pytest.param(cron_fuera, DF_FUERA, id="fuera"), pytest.param(cron_tn, DF_TN, id="tienda_nube")]
@@ -396,8 +400,8 @@ def test_live_listing_costs_costo_si_with_costo_d_and_l19(engine: Engine, db: Se
 
 @pytest.mark.parametrize("cron", [pytest.param(cron_fuera, id="fuera"), pytest.param(cron_tn, id="tienda_nube")])
 def test_cron_stores_the_same_rate_it_costs_with(engine: Engine, db: Session, cron) -> None:
-    """One rate per row: a later rate row with venta 0 is skipped by the cost AND by cotizacion_dolar; and without any
-    tipo_cambio row on or before the date there is no rate for either (tb_cur_exch_history is not read)."""
+    """One rate per row: a later rate row with venta 0 is skipped by the cost AND by cotizacion_dolar; without any
+    rate on or before the date neither has one: the cost is unknown (NULL, interface §7), never 0."""
     _run(engine, "INSERT INTO tipo_cambio (fecha, moneda, compra, venta) VALUES ('2026-10-04', 'USD', 0, 0)")
     df_id = DF_FUERA if cron is cron_fuera else DF_TN
     (nb,) = _venta(engine, df_id, [{"item": NB}])
@@ -407,10 +411,62 @@ def test_cron_stores_the_same_rate_it_costs_with(engine: Engine, db: Session, cr
     assert (Decimal(fila.cotizacion_dolar), Decimal(fila.costo_unitario)) == (Decimal("1000"), NB_ARS * D)
 
     _run(engine, "DELETE FROM tipo_cambio")
-    _run(
-        engine,
-        "INSERT INTO tb_cur_exch_history (ceh_id, curr_id_1, curr_id_2, ceh_cd, ceh_exchange) VALUES (1, 1, 2, '2026-10-01', 999)",
-    )
     (fila,) = [f for f in obtener(db, f"{DESDE} 00:00:00", f"{HASTA} 23:59:59") if f.it_transaction == nb]
 
-    assert (fila.cotizacion_dolar, Decimal(fila.costo_unitario)) == (None, Decimal(0))
+    assert (fila.cotizacion_dolar, fila.costo_unitario, fila.costo_total) == (None, None, None)
+
+
+@pytest.mark.parametrize("cron,df_id", CANALES)
+def test_cron_an_unknown_cost_is_stored_null_without_ganancia_and_logged(
+    engine: Engine, db: Session, cron, df_id, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Interface §7: no USD rate on the sale date -> a USD product's cost is unknown: NULL cost, ganancia and markup in
+    the metrics row, a warning naming the line; never a 0 cost (which read as a 100% margin)."""
+    _run(engine, "DELETE FROM tipo_cambio")
+    (nb,) = _venta(engine, df_id, [{"item": NB, "precio": "20000"}])
+    tabla = "ventas_fuera_ml_metricas" if cron is cron_fuera else "ventas_tienda_nube_metricas"
+    obtener = cron.obtener_ventas_fuera_ml if cron is cron_fuera else cron.obtener_ventas_tienda_nube
+
+    cron.process_and_insert(db, obtener(db, f"{DESDE} 00:00:00", f"{HASTA} 23:59:59"))
+
+    fila = db.execute(
+        text(f"SELECT costo_unitario, costo_total, ganancia, markup_porcentaje FROM {tabla} WHERE it_transaction = :i"),
+        {"i": nb},
+    ).one()
+    assert tuple(fila) == (None, None, None, None)
+    assert any(
+        f"unknown cost for item {NB} in transaction" in r.getMessage() and f"(line {nb})" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+@pytest.mark.parametrize("cron,df_id", CANALES)
+def test_cron_a_group_with_one_unknown_component_has_an_unknown_cost_not_a_partial_sum(
+    engine: Engine, db: Session, cron, df_id
+) -> None:
+    """A group whose components are NB (USD, no rate now) and MOUSE (ARS, known): its cost is unknown, never the
+    mouse alone (the notebook passed as 0)."""
+    _run(engine, "DELETE FROM tipo_cambio")
+    principal, *_ = _venta(engine, df_id, _grupo(None, [(NB, "1"), (MOUSE, "2")]))
+
+    assert _cron_nulos(db, cron)[principal] is None
+
+
+@pytest.mark.parametrize("endpoint,df_id", LISTADOS)
+def test_live_listing_an_unknown_cost_stays_none(engine: Engine, db: Session, endpoint, df_id) -> None:
+    _run(engine, "DELETE FROM tipo_cambio")
+    (nb,) = _venta(engine, df_id, [{"item": NB}])
+    (mouse,) = _venta(engine, df_id, [{"item": MOUSE}])
+
+    filas = _filas_listado(db, endpoint)
+
+    assert filas[nb]["costo_pesos_sin_iva"] is None and filas[nb]["markup"] is None
+    assert Decimal(str(filas[mouse]["costo_pesos_sin_iva"])) == MOUSE_ARS * D  # ARS product: no rate needed (L18)
+    if endpoint is ep_tn:
+        assert filas[nb]["ganancia"] is None
+
+
+def _cron_nulos(db: Session, modulo) -> dict[int, Optional[Decimal]]:
+    obtener = cron_fuera.obtener_ventas_fuera_ml if modulo is cron_fuera else cron_tn.obtener_ventas_tienda_nube
+    filas = obtener(db, f"{DESDE} 00:00:00", f"{HASTA} 23:59:59")
+    return {f.it_transaction: f.costo_total for f in filas}

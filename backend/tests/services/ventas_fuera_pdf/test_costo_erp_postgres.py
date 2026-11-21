@@ -150,7 +150,7 @@ class TestCargaCuestaConElErp:
         assert _costo(engine, 1) == Decimal("1500000.00")
 
     def test_a_dollar_cost_without_a_tipo_cambio_rate_costs_0_never_dollars_as_pesos(
-        self, engine: Engine, db: Session
+        self, engine: Engine, db: Session, caplog: pytest.LogCaptureFixture
     ) -> None:
         """The reader's rate is `tipo_cambio` only: without one the peso cost is unknown -> 0 (before T3 PR 9 the ERP
         rate, else x 1, so dollars were stored as pesos)."""
@@ -166,7 +166,8 @@ class TestCargaCuestaConElErp:
 
         _cargar(db, doc(1, [linea(NB, "NOTEBOOK EJEMPLO")], fecha=VENTA))
 
-        assert _costo(engine, 1) == Decimal("0.00")
+        assert _costo(engine, 1) == Decimal("0.00")  # the column is NOT NULL: 0 = "sin costo", out of the markup
+        assert any("ventas_fuera: unknown cost for item 701 on " in r.getMessage() for r in caplog.records)
 
     def test_no_erp_cost_or_no_product_costs_0_and_the_pdf_cost_is_not_used(
         self, engine: Engine, db: Session, mundo: None
