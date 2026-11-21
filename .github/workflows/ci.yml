@@ -28,7 +28,12 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # One group per commit on main, one per ref elsewhere. GitHub keeps only ONE
+  # pending run per group: with a single `main` group, a third merge landing
+  # while a run is in progress REPLACES the pending run (it ends `cancelled`)
+  # even with `cancel-in-progress: false`, so that commit is never verified.
+  # 41 of 182 main push runs ended that way between 2026-11-06 and 11-20.
+  group: ci-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
   # Cancel superseded runs on branches, NEVER on main. On a branch the older
   # run is checking code nobody will merge, so killing it just saves minutes.
   # On main every commit is already merged: cancelling one means that commit
@@ -227,12 +232,22 @@ jobs:
           POSTGRES_TEST_URL: "postgresql+psycopg2://postgres:postgres@localhost:5432/pricing_test"
 
   backend-postgres:
-    name: Backend Tests (Postgres)
+    name: Backend Tests (Postgres) ${{ matrix.shard }}/3
     needs: changes
     # `!cancelled()` so a failed `changes` job still runs this one (fail safe).
     if: ${{ !cancelled() && needs.changes.outputs.backend_needed != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Sharded by test file (`.github/scripts/pytest_shard.py`): every shard
+    # computes the same split from the same checkout and the committed
+    # per-file durations (`.github/ci-durations/`), so each test file runs in
+    # exactly one shard. By 2026-11 this job had ~6,500 tests and ~12 min of
+    # pytest on one runner; three runners take a third each. `fail-fast:
+    # false` so one red shard does not cancel the others' results.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     defaults:
       run:
         working-directory: backend
@@ -281,7 +296,14 @@ jobs:
           pip install pytest pytest-xdist httpx
 
       - name: Run tests (postgres-only, parallel)
-        run: pytest tests/ -m "postgres and not volume" -n 4 -q --tb=short --durations=15
+        # The file list goes through a file, not `< <(...)`, so a failing
+        # split fails the step instead of running an empty or partial shard.
+        run: |
+          python3 -I ../.github/scripts/pytest_shard.py select --shards 3 --index ${{ matrix.shard }} \
+            --durations ../.github/ci-durations/postgres.json > shard-files.txt
+          mapfile -t files < shard-files.txt
+          [ "${#files[@]}" -gt 0 ]
+          pytest "${files[@]}" -m "postgres and not volume" -n 4 -q --tb=short --durations=50 --junitxml=junit-postgres.xml
         env:
           ENVIRONMENT: testing
           DATABASE_URL: "sqlite:///./test.db"
@@ -289,13 +311,39 @@ jobs:
           ERP_BASE_URL: "http://localhost:9999"
           POSTGRES_TEST_URL: "postgresql+psycopg2://postgres:postgres@localhost:5432/pricing_test"
 
+      # Per-test timings (setup + call + teardown) for every test, not only
+      # the 50 slowest in the log: the input for fixture work, and for
+      # refreshing `.github/ci-durations/` when the shards drift out of
+      # balance (`pytest_shard.py durations <the shards' junit files>`).
+      - name: Upload JUnit timings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-postgres-${{ matrix.shard }}
+          path: backend/junit-postgres.xml
+          retention-days: 14
+          if-no-files-found: warn
+
   backend-postgres-volume:
-    name: Backend Tests (Postgres volume)
+    name: Backend Tests (Postgres volume) ${{ matrix.shard }}/4
     needs: changes
     # `!cancelled()` so a failed `changes` job still runs this one (fail safe).
     if: ${{ !cancelled() && needs.changes.outputs.backend_needed != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Sharded by test file like `backend-postgres` (see there), in four, so
+    # no shard holds more than 4 volume files: one file per xdist worker.
+    # `--dist loadfile` hands each worker up to two files up front, ordered by
+    # test count rather than duration, and most of a volume file's time is
+    # its module seed, which runs ~25-50x slower on CI than alone (4 workers
+    # seeding one Postgres). With 5-7 files per shard two heavy files landed
+    # on one worker: 499 s against 204 s with two shards, 548 s against
+    # 309 s with three. The volume durations come from a sharded main run,
+    # because a file's time depends on what shares the database with it.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     defaults:
       run:
         working-directory: backend
@@ -342,13 +390,31 @@ jobs:
           pip install pytest pytest-xdist httpx
 
       - name: Run tests (volume, one module per worker)
-        run: pytest tests/ -m volume -n 4 --dist loadfile -q --tb=short --durations=15
+        run: |
+          python3 -I ../.github/scripts/pytest_shard.py select --shards 4 --index ${{ matrix.shard }} \
+            --durations ../.github/ci-durations/volume.json > shard-files.txt
+          mapfile -t files < shard-files.txt
+          [ "${#files[@]}" -gt 0 ]
+          pytest "${files[@]}" -m volume -n 4 --dist loadfile -q --tb=short --durations=50 --junitxml=junit-postgres-volume.xml
         env:
           ENVIRONMENT: testing
           DATABASE_URL: "sqlite:///./test.db"
           SECRET_KEY: "ci-test-secret-key-minimum-32-bytes!"
           ERP_BASE_URL: "http://localhost:9999"
           POSTGRES_TEST_URL: "postgresql+psycopg2://postgres:postgres@localhost:5432/pricing_test"
+
+      # Per-test timings (setup + call + teardown) for every test, not only
+      # the 50 slowest in the log: the input for fixture work, and for
+      # refreshing `.github/ci-durations/` when the shards drift out of
+      # balance (`pytest_shard.py durations <the shards' junit files>`).
+      - name: Upload JUnit timings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-postgres-volume-${{ matrix.shard }}
+          path: backend/junit-postgres-volume.xml
+          retention-days: 14
+          if-no-files-found: warn
 
   frontend-lint:
     name: Frontend Lint

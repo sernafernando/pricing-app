@@ -101,6 +101,7 @@ from app.routers import (
     sell_in_bonos,
     sell_in_compras,
     sell_in_lotes,
+    costo_si,
     sell_out_campanas,
     tacticals,
     ml_ads,
@@ -111,6 +112,7 @@ from app.routers import (
     prearmado,
     prearmado_stats,
     pxq,
+    mcp_admin_acciones,
     tiendas_oficiales,
     marcas_visibles,
     rrhh_empleados,
@@ -447,6 +449,7 @@ app.include_router(gestion_full.router, prefix="/api")
 app.include_router(sell_in_compras.router, prefix="/api")
 app.include_router(sell_in_bonos.router, prefix="/api")
 app.include_router(sell_in_lotes.router, prefix="/api")
+app.include_router(costo_si.router, prefix="/api")
 app.include_router(sell_out_campanas.router, prefix="/api")
 app.include_router(tacticals.router, prefix="/api")
 app.include_router(ml_publications_view.router, prefix="/api")
@@ -455,6 +458,7 @@ app.include_router(ml_publications_presets.router, prefix="/api")
 app.include_router(ml_publication_color.router, prefix="/api")
 app.include_router(ml_ads.router, prefix="/api")
 app.include_router(pxq.router, prefix="/api")
+app.include_router(mcp_admin_acciones.router, prefix="/api")
 app.include_router(tiendas_oficiales.router, prefix="/api")
 app.include_router(marcas_visibles.router, prefix="/api")
 app.include_router(document_templates.router, prefix="/api", tags=["document-templates"])

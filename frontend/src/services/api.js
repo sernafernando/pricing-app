@@ -1065,6 +1065,19 @@ export const mcpConexionesAPI = {
   revocar: (id) => api.delete(`/admin/mcp/connections/${id}`),
 };
 
+// "Acciones IA": audit of the MCP write actions, their undo (plan → confirm with
+// the single-use token) and the DB switch that allows AI writes. All need mcp.escribir.
+export const accionesIaAPI = {
+  // `params`: usuario_id, cliente, tool, resultado, plan_id, desde, hasta (YYYY-MM-DD), limit (≤100), offset.
+  list: (params) => api.get('/admin/mcp/acciones', { params }),
+  // `body`: `{ accion_ids: [..] }` or `{ plan_id }`, plus `motivo` (required).
+  planDeshacer: (body) => api.post('/admin/mcp/acciones/deshacer/plan', body),
+  aplicarDeshacer: (planId, confirmToken) =>
+    api.post('/admin/mcp/acciones/deshacer/aplicar', { plan_id: planId, confirm_token: confirmToken }),
+  getEscritura: () => api.get('/admin/mcp/escritura'),
+  setEscritura: (habilitado) => api.put('/admin/mcp/escritura', { habilitado }),
+};
+
 export const publicacionRepairAPI = {
   runs: (params, config) => api.get('/ml-publications/repair/runs', { params, ...config }),
   run: (runId, params, config) => api.get(`/ml-publications/repair/runs/${encodeURIComponent(runId)}`, { params, ...config }),

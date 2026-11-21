@@ -235,6 +235,9 @@ class Settings(BaseSettings):
     ML_PUB_LINKS_ENABLED: bool = False
     ML_PUB_VERIFY_ENABLED: bool = False
     ML_PUB_DIVERGENCE_ENABLED: bool = False
+    # MCP write tools (`mcp_write.enabled` in ml_pub_settings): the DB row decides, this is only the default when
+    # there is no row. OFF by default; `MCP_WRITE_KILL_SWITCH` and `ML_PUB_KILL_SWITCH` force it off.
+    ML_PUB_MCP_WRITE_ENABLED: bool = False
     # Items the divergence spot-check re-fetches per run (env-only; covers every status, never more than this).
     ML_PUB_DIVERGENCE_SAMPLE_SIZE: int = Field(default=50, ge=1, le=500)
     # Global ML budget (requests per second) and the stock sub-budget (ML
@@ -336,6 +339,10 @@ class Settings(BaseSettings):
     MCP_REFRESH_TOKEN_DAYS: int = 30
     MCP_RATE_LIMIT: str = "60/minute"  # tool calls per user
     MCP_TOOL_LOG_RETENTION_DAYS: int = 180
+    # Write tools (delivery 2): env kill switch that wins over the `mcp_write.enabled` DB flag, and the per-user
+    # limit of write applications (modo aplicar / undo apply).
+    MCP_WRITE_KILL_SWITCH: bool = False
+    MCP_WRITE_RATE_LIMIT: str = "10/minute"
 
     # GBP (ERP SOAP credentials)
     GBP_USERNAME: Optional[str] = None

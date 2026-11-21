@@ -121,6 +121,46 @@ describe('McpAutorizar', () => {
     expect(irA).not.toHaveBeenCalled();
   });
 
+  describe('write access (scope pricing.write)', () => {
+    const SIN_PERMISO_ESCRITURA = 'Solo lectura: no tenés permiso para modificar (mcp.escribir)';
+
+    it('says the app can read and MODIFY, with plan + confirmation and undo in Acciones IA, when the token will write', async () => {
+      api.get.mockResolvedValue({
+        data: { ...PEDIDO, scope: 'pricing.read pricing.write', escritura_pedida: true, escritura: true },
+      });
+      renderPagina();
+      expect(await screen.findByText(/quiere consultar y MODIFICAR Pricing como/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/promociones, precios de lista, precios en cuotas, precios mayoristas y pausar o activar publicaciones/)
+      ).toBeInTheDocument();
+      expect(screen.getByText(/Cada cambio necesita un plan y tu confirmación/)).toBeInTheDocument();
+      expect(screen.getByText(/Acciones IA/)).toBeInTheDocument();
+      expect(screen.getByText(/Deshacer/)).toBeInTheDocument();
+      expect(screen.queryByText(/solo lectura/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(SIN_PERMISO_ESCRITURA)).not.toBeInTheDocument();
+    });
+
+    it('keeps the read-only wording and explains the missing mcp.escribir when writing was asked but not granted', async () => {
+      api.get.mockResolvedValue({
+        data: { ...PEDIDO, scope: 'pricing.read pricing.write', escritura_pedida: true, escritura: false },
+      });
+      renderPagina();
+      expect(await screen.findByText(SIN_PERMISO_ESCRITURA)).toBeInTheDocument();
+      expect(screen.getByText(/quiere consultar Pricing como/)).toBeInTheDocument();
+      expect(screen.getByText(/Acceso de solo lectura: puede consultar, no puede modificar nada/)).toBeInTheDocument();
+      expect(screen.queryByText(/MODIFICAR/)).not.toBeInTheDocument();
+    });
+
+    it('keeps the plain read-only wording when writing was not asked', async () => {
+      api.get.mockResolvedValue({ data: { ...PEDIDO, escritura_pedida: false, escritura: false } });
+      renderPagina();
+      expect(await screen.findByText(/Acceso de solo lectura: puede consultar, no puede modificar nada/)).toBeInTheDocument();
+      expect(screen.queryByText(SIN_PERMISO_ESCRITURA)).not.toBeInTheDocument();
+      expect(screen.queryByText(/MODIFICAR/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Acciones IA/)).not.toBeInTheDocument();
+    });
+  });
+
   it('shows the expired message when the url has no req, without calling the API', async () => {
     renderPagina('/mcp/autorizar');
     expect(await screen.findByText(VENCIDO)).toBeInTheDocument();

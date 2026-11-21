@@ -8,6 +8,7 @@ duplicating a single permission check.
 
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 from typing import Any, Callable
 
@@ -31,6 +32,27 @@ def bind_app(getter: Callable[[], FastAPI]) -> None:
     _app_getter = getter
 
 
+def bound_app() -> FastAPI:
+    if _app_getter is None:
+        raise RuntimeError("loopback app not bound")
+    return _app_getter()
+
+
+# The only app routes a write tool may call (delivery 2): anything else is refused before reaching the app.
+WRITE_ROUTES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("POST", re.compile(r"^/api/promociones/item/[^/]+$")),
+    ("DELETE", re.compile(r"^/api/promociones/item/[^/]+$")),
+    ("POST", re.compile(r"^/api/ml-publications/items/[^/]+/status$")),
+    ("POST", re.compile(r"^/api/precios/(set-rapido|set-cuota|aplicar-markup-masivo)$")),
+    ("PATCH", re.compile(r"^/api/pxq/[^/]+/tiers/\d+$")),
+    ("POST", re.compile(r"^/api/pxq/[^/]+/sync$")),
+)
+
+
+def write_allowed(method: str, path: str) -> bool:
+    return any(method == m and pattern.match(path) for m, pattern in WRITE_ROUTES)
+
+
 def identity_headers(username: str) -> dict[str, str]:
     token = create_access_token({"sub": username, "via": "mcp"}, expires_delta=IDENTITY_TTL)
     return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
@@ -43,4 +65,16 @@ async def send_request(path: str, params: dict[str, Any], headers: dict[str, str
     transport = httpx.ASGITransport(app=_app_getter(), client=LOOPBACK_CLIENT)
     async with httpx.AsyncClient(transport=transport, base_url=settings.MCP_PUBLIC_BASE_URL or "http://localhost") as c:
         response = await c.get(path, params=params, headers=headers)
+    return response.status_code, response.content
+
+
+async def send_write(
+    method: str, path: str, params: dict[str, Any], body: Any, headers: dict[str, str]
+) -> tuple[int, bytes]:
+    """POST/PATCH/DELETE `path` on the app in process, only for the allowlisted write routes (`WRITE_ROUTES`)."""
+    if not write_allowed(method, path):
+        raise ValueError(f"write route not allowed: {method} {path}")
+    transport = httpx.ASGITransport(app=bound_app(), client=LOOPBACK_CLIENT)
+    async with httpx.AsyncClient(transport=transport, base_url=settings.MCP_PUBLIC_BASE_URL or "http://localhost") as c:
+        response = await c.request(method, path, params=params, json=body, headers=headers)
     return response.status_code, response.content

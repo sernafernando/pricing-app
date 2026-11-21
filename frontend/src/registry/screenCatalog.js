@@ -171,6 +171,7 @@ export const SCREENS = [
   },
   { path: '/admin', label: 'Admin', section: 'Gestión', permisos: ['admin.ver_panel'], scope: 'permiso' },
   { path: '/api-docs', label: 'API docs', section: 'Gestión', permisos: ['admin.ver_api_docs'], scope: 'permiso' },
+  { path: '/acciones-ia', label: 'Acciones IA', section: 'Gestión', permisos: ['mcp.escribir'], scope: 'permiso' },
   { path: '/gestion/alertas', label: 'Alertas', section: 'Gestión', permisos: ['alertas.gestionar'], scope: 'permiso' },
   { path: '/free-shipping-alerts', label: 'Envío Gratis', section: 'Gestión', permisos: ['alertas.ver_free_shipping'], scope: 'permiso' },
 

@@ -222,6 +222,13 @@ from app.models.ml_publications import (
     MlUserProductFamily,
     MlUserProductStock,
 )
+from app.models.costo_si import (
+    CostoSiBackup,
+    CostoSiDirty,
+    CostoSiFacturaTc,
+    CostoSiPaso,
+    CostoSiStockDiario,
+)
 from app.models.sell_in import (
     SellInBonoConsumo,
     SellInBonoDirty,
@@ -289,6 +296,7 @@ from app.models.ml_order_discounts import MlOrderDiscountLine, MlOrderDiscounts,
 
 # MCP server OAuth storage (app/mcp); registered for the same reason.
 from app.models.mcp_oauth import McpConnection, McpOAuthRequest, McpToken, McpToolCall
+from app.models.mcp_write import McpWriteAction, McpWritePlan
 
 __all__ = [
     "ProductoERP",
@@ -582,4 +590,11 @@ __all__ = [
     "McpOAuthRequest",
     "McpToken",
     "McpToolCall",
+    "CostoSiBackup",
+    "CostoSiDirty",
+    "CostoSiFacturaTc",
+    "CostoSiPaso",
+    "CostoSiStockDiario",
+    "McpWriteAction",
+    "McpWritePlan",
 ]

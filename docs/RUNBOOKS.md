@@ -1394,7 +1394,7 @@ longer exists; it has no FK, so this is expected.
 ## 9) MCP server (ChatGPT, Claude, Cursor, Gemini CLI)
 
 ### Overview
-`/api/mcp` lets an AI client (ChatGPT, Claude web/desktop, Claude Code, Cursor, Gemini CLI) query pricing **read-only, as the logged-in user, with that user's permissions** (role, extra roles and overrides; every tool runs the app's own endpoint in process). The client gets OAuth tokens through `/api/oauth/*`, which wraps the normal login screen: the user signs in as usual and approves on `/mcp/autorizar`. Approving needs the `mcp.conectar` permission (seeded to ADMIN). Tokens are opaque, stored hashed, short-lived (access 60 min, refresh 30 days, rotating). Every tool call is logged in `mcp_tool_calls` (user, tool, argument summary, status, size, duration); rows older than `MCP_TOOL_LOG_RETENTION_DAYS` (180) are pruned on token exchanges. Rate limit per user: `MCP_RATE_LIMIT` (60/minute). The OAuth endpoints are limited per IP: `/api/oauth/authorize`, `/token` and `/revoke` 30/minute, the consent decision 20/minute; `/authorize` also drops requests expired over a day ago.
+`/api/mcp` lets an AI client (ChatGPT, Claude web/desktop, Claude Code, Cursor, Gemini CLI) query pricing **read-only (writes: see "AI writes" below), as the logged-in user, with that user's permissions** (role, extra roles and overrides; every tool runs the app's own endpoint in process). The client gets OAuth tokens through `/api/oauth/*`, which wraps the normal login screen: the user signs in as usual and approves on `/mcp/autorizar`. Approving needs the `mcp.conectar` permission (seeded to ADMIN). Tokens are opaque, stored hashed, short-lived (access 60 min, refresh 30 days, rotating). Every tool call is logged in `mcp_tool_calls` (user, tool, argument summary, status, size, duration); rows older than `MCP_TOOL_LOG_RETENTION_DAYS` (180) are pruned on token exchanges. Rate limit per user: `MCP_RATE_LIMIT` (60/minute). The OAuth endpoints are limited per IP: `/api/oauth/authorize`, `/token` and `/revoke` 30/minute, the consent decision 20/minute; `/authorize` also drops requests expired over a day ago.
 
 ### Enabling it (deploy step)
 1. Set `MCP_PUBLIC_BASE_URL=https://<pricing domain>` in the backend environment (no trailing slash). Unset = every MCP/OAuth endpoint answers 404.
@@ -1457,6 +1457,22 @@ All clients are public (`token_endpoint_auth_method: none`), PKCE S256 is mandat
 
 ### Tools and parity
 Tools are derived from the Publicaciones ML / Métricas ML / promos endpoints (their query parameters become the tool arguments). `tests/mcp/test_mcp_parity.py` fails when one of those endpoints is added or gains a parameter or response field the MCP does not expose: add the endpoint to `CATALOG` (or to `EXCLUDED_ROUTES` with a reason) in `app/mcp/tools.py`.
+
+### AI writes (scope `pricing.write`)
+Writes through MCP need **both** the permission `mcp.escribir` (new, critical, seeded to ADMIN only; separate from `mcp.conectar`) and the OAuth scope `pricing.write` on the token. A user without `mcp.escribir` who connects a client that asks for `pricing.write` gets a read-only token (the consent card says "Solo lectura: no tenés permiso para modificar (mcp.escribir)"). Every write tool goes plan → confirm token (single use, 15 min) → apply, through the app's own endpoints as the user, so the endpoint permissions (`promos.escribir`, `ml_publicaciones.pausar`, price edit, `pxq.escribir`) and the per-action switches (`PROMOS_WRITE_ENABLED`, `ML_ITEM_STATUS_WRITE_ENABLED`, `PXQ_WRITE_ENABLED`) still apply underneath. Each order must carry its own limits (`max_items`, `max_cambio_pct` ≤ 10, `min_markup_pct`); the ±10% per price change is hard-coded. Every write and undo is a row in `mcp_write_actions`.
+
+#### Turning AI writes off
+- Normal path: Gestión → **Acciones IA** → "Escritura de la IA" switch → Apagada. Stored in `ml_pub_settings` key `mcp_write` (`enabled`; without a row the default is `ML_PUB_MCP_WRITE_ENABLED`, OFF), effective on the next call; API `PUT /api/admin/mcp/escritura {"habilitado": false}` (`mcp.escribir`).
+- Server override (wins over the DB switch, survives a broken settings table): set `MCP_WRITE_KILL_SWITCH=true` in the backend environment and restart. The page then shows the switch locked with "La escritura de la IA está bloqueada desde el servidor. No se puede encender desde acá." and `GET /api/admin/mcp/escritura` returns `"fuente": "kill_switch"`. `ML_PUB_KILL_SWITCH=true` also forces AI writes off, but it is the broader escape hatch of the ML publications store (it stops its workers too); use it only when everything ML-side must stop.
+- While writes are off, write tools and undo answer 503; reads keep working.
+
+#### Undoing an agent action
+- Normal path: Gestión → **Acciones IA** → **Deshacer** on the row (or **Deshacer plan** for every row of the same order) → motivo → **Preparar** → review the rows (**Lista** / **Bloqueada** with the reason) → **Confirmar**. The undo runs through the same guards (plan → token → apply, permissions, kill switch) and is logged as a new row with `undo_of_id`; the original shows as "Deshecha".
+- API: `POST /api/admin/mcp/acciones/deshacer/plan` (`{"accion_ids": [..]}` or `{"plan_id": ".."}` + `motivo`) then `POST /api/admin/mcp/acciones/deshacer/aplicar` (`plan_id` + `confirm_token`). 409 = used, expired or foreign token: prepare a new plan.
+- Not undoable (row comes back `bloqueada`): a promo ML no longer offers (cannot be re-enrolled), a price someone changed after the action (never overwritten), an action already undone. Fix those by hand from the normal screens.
+
+#### Removing `mcp.escribir` from a user
+Admin → Usuarios → the user → permissions: revoke `mcp.escribir` (user override `concedido = false`, or remove it from the role). Their next write is denied; their connections keep reading. To cut reading too, revoke the connection or `mcp.conectar` (see "Revoking a connection").
 
 ## 10) Read-only diagnostics against production (PgBouncer)
 
