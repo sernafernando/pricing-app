@@ -61,7 +61,9 @@ def throwaway_schema(
             for statement in statements:
                 conn.execute(text(statement))
             for table in tables:
-                table.create(bind=conn)
+                # checkfirst: worlds built from another world's list may name a table twice (`tipo_cambio`, read by
+                # every costo SI reader since sell-in-costo-si T3 PR 5); it is created once
+                table.create(bind=conn, checkfirst=True)
             if any(table.name == "combo_componentes" for table in tables):
                 conn.execute(text(SEMILLA_COMBOS))
         if after is not None:

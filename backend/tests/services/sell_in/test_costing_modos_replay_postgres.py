@@ -1,5 +1,5 @@
 """Sell-in cost modes on real tables (#2004 verification): a failed replay keeps the FIFO line, the viewer follows
-`en_pool`, nine queries at most, a refused recompute leaves the data alone, future rows, returns, repeated rows."""
+`en_pool`, ten queries at most, a refused recompute leaves the data alone, future rows, returns, repeated rows."""
 
 from __future__ import annotations
 
@@ -211,7 +211,7 @@ def test_a_mode_with_a_return_replays_idempotently_and_the_value_stands(engine: 
     assert vig.descuento_unit_ars == Decimal("9.000000")
 
 
-def test_the_batch_never_reads_more_than_nine_queries(engine: Engine) -> None:
+def test_the_batch_never_reads_more_than_ten_queries(engine: Engine) -> None:
     # Modes (the stored consumptions' read), a product without a lot reached by a cost bonus, a USD campaign.
     _dos_lotes(engine)
     si.venta(engine, "fuera", ROUTER, 10, D(2026, 10, 20))
@@ -229,7 +229,8 @@ def test_the_batch_never_reads_more_than_nine_queries(engine: Engine) -> None:
         batch = resolver_sell_in_out_batch(db, [ROUTER, SWITCH, 950], HOY)
     assert batch.sell_in[ROUTER].en_pool
     assert batch.bonos_costo, "the cost-bonus query must have run for the measure to mean anything"
-    assert len(statements) <= 9, "\n---\n".join(statements)
+    # 10: nine, plus the products' costo SI (`costo_si.lote.actuales`, sell-in-costo-si T3 PR 5)
+    assert len(statements) <= 10, "\n---\n".join(statements)
 
 
 def test_a_product_without_modes_reads_no_stored_rows(engine: Engine) -> None:

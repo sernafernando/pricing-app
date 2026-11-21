@@ -95,6 +95,21 @@ BANLIST_DDL = (
     "usuario_id integer, fecha_creacion timestamptz DEFAULT now())",
 )
 
+
+def _tb_item_ddl() -> str:
+    """`tb_item` with EVERY column of the model, all nullable but the key: the tests that build or fill `tb_item`
+    themselves (their IF NOT EXISTS / checkfirst then keeps this one) insert whatever columns they need (`raw`,
+    `item_weight`, `subcat_id`...), and a subset here broke them."""
+    from sqlalchemy.dialects import postgresql
+
+    from app.models.tb_item import TBItem
+
+    columns = ", ".join(f"{c.name} {c.type.compile(dialect=postgresql.dialect())}" for c in TBItem.__table__.columns)
+    return f"CREATE TABLE IF NOT EXISTS tb_item ({columns}, PRIMARY KEY (comp_id, item_id))"
+
+
+_TB_ITEM_DDL = _tb_item_ddl()
+
 # The columns `costo_si.lote` reads (sell-in-costo-si T3 PR 1), same names and types as the real tables.
 COSTO_SI_READER_DDL = (
     "CREATE TABLE IF NOT EXISTS costo_si_pasos (id bigserial PRIMARY KEY, item_id integer NOT NULL, orden integer NOT NULL, "
@@ -102,9 +117,7 @@ COSTO_SI_READER_DDL = (
     "UNIQUE (item_id, orden))",
     "CREATE TABLE IF NOT EXISTS combo_componentes (combo_item_id integer, componente_item_id integer, cantidad numeric(18, 4) "
     "NOT NULL, PRIMARY KEY (combo_item_id, componente_item_id))",
-    # the columns the view tests that build `tb_item` themselves insert too (their IF NOT EXISTS then keeps this one)
-    "CREATE TABLE IF NOT EXISTS tb_item (comp_id integer, item_id integer, item_code varchar(100), item_desc "
-    "varchar(500), cat_id integer, subcat_id integer, brand_id integer, PRIMARY KEY (comp_id, item_id))",
+    _TB_ITEM_DDL,
     "CREATE TABLE IF NOT EXISTS tipo_cambio (id serial PRIMARY KEY, fecha date, moneda varchar(10), "
     "compra double precision, venta double precision, timestamp_actualizacion timestamptz DEFAULT now())",
 )

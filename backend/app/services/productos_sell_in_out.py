@@ -44,9 +44,10 @@ Productos, Tienda, the Publicaciones ML panel and the promos all price on this o
 cost and formula (sell-in-costo-si T3 PR 5), whatever cost the caller's product
 carries.
 
-Batch: `resolver_sell_in_out_batch` reads a whole page in at most nine queries:
+Batch: `resolver_sell_in_out_batch` reads a whole page in at most ten queries:
 seven for FIFO and sell out (the cost bonuses' scope rides on the campaigns'
-query; one reads the products' cost modes), one more for the stored
+query; one reads the products' cost modes), one for the products' costo SI
+(`costo_si.lote.actuales`, the cost of every markup), one more for the stored
 consumptions only when a product has cost modes, and one for the reached cost
 bonuses' rows and caps, only when a product without a lot has one.
 
