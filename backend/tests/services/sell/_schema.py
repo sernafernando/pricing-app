@@ -49,6 +49,11 @@ def throwaway_schema(
     empty one (`CombosNoSincronizados`), like ML costing."""
     if not _postgres_reachable():
         pytest.skip(f"PostgreSQL not reachable at {POSTGRES_TEST_URL}")
+    # Worlds are composed by concatenation (`[*w.TABLES, *_EXTRA]`): a table both lists hold is created once.
+    unicas: dict = {}
+    for table in tables:
+        unicas.setdefault(table.name, table)
+    tables = list(unicas.values())
     _restore_pristine_pg_types(tables)
     schema = f"{prefix}_{uuid.uuid4().hex[:8]}"
     admin = create_engine(POSTGRES_TEST_URL, isolation_level="AUTOCOMMIT")
@@ -61,7 +66,9 @@ def throwaway_schema(
             for statement in statements:
                 conn.execute(text(statement))
             for table in tables:
-                table.create(bind=conn)
+                # checkfirst: worlds built from another world's list may name a table twice (`tipo_cambio`, read by
+                # every costo SI reader since sell-in-costo-si T3 PR 5); it is created once
+                table.create(bind=conn, checkfirst=True)
             if any(table.name == "combo_componentes" for table in tables):
                 conn.execute(text(SEMILLA_COMBOS))
         if after is not None:

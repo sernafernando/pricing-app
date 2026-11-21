@@ -3,8 +3,9 @@
 Owner: "las promos tienen que traer el % de ganancia con los sell in sell out aplicados como un % adicional".
 Every promo of the panel read (`enriquecer_markup_por_promo(..., sell_in_out=True)`) and the manual / baseline
 price read (`markup_para_precio_con_sell_in_out`) carry `markup_sell_in_out` next to `nuestro_markup`: the same
-`limpio` of that promo's revenue, over the product's cost with sell in, plus its sell out credit (the Precios tab
-rule: with sell in + sell out when there is sell out, else with sell in only). Null without sell in / sell out.
+`limpio` of that promo's revenue plus its sell out credit, over the product's costo SI. D1 (sell-in-costo-si T3 PR 5,
+owner L12: "el costo siso no existe, es costo SI y SO va en la venta, como ganancia adicional"): the sell in (FIFO
+lot) never comes off the cost, so without a sell out there is no figure (null) and next to one it changes nothing.
 `nuestro_markup` does not move. Postgres only, like the sell in / sell out resolver it reads.
 """
 
@@ -30,6 +31,7 @@ from app.models.publicacion_ml import PublicacionML
 from app.models.sell_in import SellInBonoItem
 from app.routers.ml_promotions import obtener_promociones_item
 from app.services import ml_promotions_hay_mejores as hay_mejores
+from app.services.costo_si import lote, so as costo_si_so
 from app.services.envio_real_service import CostosEnvio
 from app.services.ml_promotions_pricing import (
     MarkupsDePrecio,
@@ -40,6 +42,7 @@ from app.services.ml_promotions_pricing import (
 from app.services.ml_publications.view import detail, markup_service
 from app.services.ml_publications.view.markup import UnitInputs
 from app.services.ml_publications.view.markup_inputs import PublicationInputs
+from app.services.productos_sell_in_out import resolver_sell_in_out_batch
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _world as si
 from tests.services.sell_out import _world as so
@@ -137,13 +140,16 @@ HEADER_PRICE = 60500.0  # the publication's sale price: the header prices it, th
 
 def _store_inputs(db: Session, item_ids: Optional[list[str]] = None, f=None) -> dict[str, PublicationInputs]:
     """Stands in for the publication store read (`fetch_inputs`, S11): each `publicaciones_ml` row of this world is
-    a classic-list publication of its product, at `HEADER_PRICE`, with the product's own ERP fields."""
+    a classic-list publication of its product, at `HEADER_PRICE`, with the product's own ERP fields and, as
+    `fetch_inputs` (C1), its current cost from `costo_si.lote.actuales`: costo SI, or the list cost without a step."""
     out: dict[str, PublicationInputs] = {}
     for mla in item_ids or []:
         publicacion = db.query(PublicacionML).filter(PublicacionML.mla == mla).first()
         if publicacion is None:
             continue
         producto = db.query(ProductoERP).filter(ProductoERP.item_id == publicacion.item_id).first()
+        actual = lote.actuales(db, [producto.item_id])[producto.item_id]
+        costo, moneda = actual.costo, actual.moneda
         unit = UnitInputs(
             item_id=mla,
             listing_type_id="gold_special",
@@ -152,8 +158,8 @@ def _store_inputs(db: Session, item_ids: Optional[list[str]] = None, f=None) -> 
             sale_price=HEADER_PRICE,
             item_price=None,
             producto_item_id=producto.item_id,
-            costo=None if producto.costo is None else float(producto.costo),
-            moneda_costo=producto.moneda_costo,
+            costo=None if costo is None else float(costo),
+            moneda_costo=moneda,
             iva=float(producto.iva),
             envio=0.0,
             subcategoria_id=producto.subcategoria_id,
@@ -208,23 +214,22 @@ class TestPromoIgualAlHeader:
 
 
 class TestPromosDelPanel:
-    def test_with_sell_in_and_sell_out_each_promo_gets_its_markup_with_both(self, engine) -> None:
+    def test_with_sell_in_and_sell_out_each_promo_gets_its_sell_out_over_the_plain_cost(self, engine) -> None:
         _lote_y_campana(engine)
 
         promos = _enrich(engine)
 
-        for promo in promos:
-            esperado = round(((_limpio(promo["nuestro_markup"]) + 500) / (COSTO - 1000) - 1) * 100, 2)
+        for promo in promos:  # D1: (net + 500 - cost) / cost, the lot's 1000 per unit never off the cost
+            esperado = round((_limpio(promo["nuestro_markup"]) + 500 - COSTO) / COSTO * 100, 2)
             assert promo["markup_sell_in_out"] == pytest.approx(esperado, abs=0.01)
 
-    def test_with_sell_in_only_it_is_the_markup_over_the_cost_with_sell_in(self, engine) -> None:
+    def test_with_sell_in_only_there_is_no_markup_with_sell_out(self, engine) -> None:
         si.compra(engine, [(ROUTER, 2, "2000.00")], HOY - timedelta(days=30))
 
         promos = _enrich(engine)
 
-        for promo in promos:
-            esperado = round((_limpio(promo["nuestro_markup"]) / (COSTO - 1000) - 1) * 100, 2)
-            assert promo["markup_sell_in_out"] == pytest.approx(esperado, abs=0.01)
+        assert [p["markup_sell_in_out"] for p in promos] == [None, None]  # D1: a sell in alone adds nothing
+        assert all(p["nuestro_markup"] is not None for p in promos)
 
     def test_a_net_price_percentage_sell_out_is_on_the_same_revenue_as_the_promo_markup(self, engine) -> None:
         """Owner, 2026-11-06: "se calcula sobre lo que nos dejaría la promo como el mark up que se muestra hoy en
@@ -286,6 +291,68 @@ class TestPromosDelPanel:
         promos = _enrich(engine, sell_in_out=False)
 
         assert all("markup_sell_in_out" not in p for p in promos)
+
+
+COSTO_SI = 40000.0  # the router's costo SI in the agreement test: not its list cost (COSTO)
+
+
+class TestTodosIgual:
+    """Orchestrator (sell-in-costo-si T3 PR 5): "Pin with tests that Productos / pubml panel / promos all agree."
+    One product with a costo SI step (40000 ARS) below its list cost (50000), a FIFO lot (1000 per unit) and a sell
+    out (500 per unit): Productos, the Publicaciones ML panel's Resumen and the promos each price their own net as
+    `so.markup_con_so(limpio, 500, costo SI)`: the same cost (costo SI, never the list one) and the same formula, the
+    FIFO lot ignored."""
+
+    @pytest.fixture(autouse=True)
+    def _costo_si(self, engine: Engine) -> Iterator[None]:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO costo_si_pasos (item_id, orden, tipo, fecha, cantidad, stock_antes, stock_base, "
+                    "stock_despues, promedio_usd, moneda) VALUES (:i, 0, 'inicio', '2026-01-01', 0, 0, 0, 0, :p, 'ARS')"
+                ),
+                {"i": ROUTER, "p": str(COSTO_SI)},
+            )
+        yield
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM costo_si_pasos"))
+
+    @staticmethod
+    def _esperado(limpio: float) -> float:
+        return round(costo_si_so.markup_con_so(limpio, 500.0, COSTO_SI) * 100, 2)
+
+    def test_productos_the_panel_and_the_promos_price_on_costo_si_with_the_same_formula(self, engine) -> None:
+        _lote_y_campana(engine)
+        links = [SimpleNamespace(variation_id=0, product_id=ROUTER, iva=21.0, match_status="linked")]
+        with sessionmaker(bind=engine, autoflush=False)() as db, _tienda():
+            found = markup_service.compute_detail(db, db, MLA)
+            panel = detail._sell_in_out(db, links, found, mla=MLA)
+            promos = enriquecer_markup_por_promo(db, MLA, _promos(), sell_in_out=True)
+            productos_acc = resolver_sell_in_out_batch(db, [ROUTER], HOY).markups(db.get(ProductoERP, ROUTER))
+            productos_acc.record("clasica", found.breakdown.limpio)
+            productos = productos_acc.payload()
+
+        # the FIFO lot is there (shown), but none of them takes it off the cost
+        assert productos.sell_in is not None and productos.sell_in.descuento_unit == 1000.0
+        assert panel["sell_in"]["descuento_unit"] == 1000.0
+        assert productos.sell_out.monto_unit == panel["sell_out"]["monto_unit"] == 500.0
+        # (a) Productos and (b) the panel's Resumen, on the same net (the header's): one figure over costo SI
+        assert productos.markups_sell_in == panel["markups_sell_in"] == {}
+        assert productos.markups_sell_in_out["clasica"] == self._esperado(found.breakdown.limpio)
+        assert panel["markups_sell_in_out"][detail.SELL_IN_OUT_KEY] == self._esperado(found.breakdown.limpio)
+        # the panel's unit is priced on costo SI too (C1), so the plain markup and the c/ SO one share the cost
+        assert found.breakdown.costo_ars == COSTO_SI
+        # (c) every promo, on its own net (back from its plain markup over the same costo SI)
+        for promo in promos:
+            limpio = COSTO_SI * (1 + promo["nuestro_markup"] / 100)
+            assert promo["markup_sell_in_out"] == pytest.approx(self._esperado(limpio), abs=0.01)
+        # and the promo at the header's price is the panel's figure itself
+        assert promos[0]["price"] == HEADER_PRICE
+        assert promos[0]["markup_sell_in_out"] == pytest.approx(panel["markups_sell_in_out"][detail.SELL_IN_OUT_KEY])
+        # never over the list cost
+        assert promos[0]["markup_sell_in_out"] != pytest.approx(
+            round(costo_si_so.markup_con_so(found.breakdown.limpio, 500.0, COSTO) * 100, 2), abs=0.01
+        )
 
 
 def _resolver_que_falla(db, *args, **kwargs):
@@ -350,7 +417,7 @@ class TestFallaDelSellInOut:
 
 
 class TestPrecioManualYVigente:
-    def test_a_price_gets_its_markup_with_sell_in_and_sell_out(self, engine) -> None:
+    def test_a_price_gets_its_markup_with_sell_out_over_the_plain_cost(self, engine) -> None:
         _lote_y_campana(engine)
 
         with sessionmaker(bind=engine, autoflush=False)() as db:
@@ -358,8 +425,8 @@ class TestPrecioManualYVigente:
                 markups = markup_para_precio_con_sell_in_out(db, MLA, 60500.0)
 
         assert markups.nuestro_markup is not None
-        assert markups.markup_sell_in_out == pytest.approx(
-            round(((_limpio(markups.nuestro_markup) + 500) / (COSTO - 1000) - 1) * 100, 2),
+        assert markups.markup_sell_in_out == pytest.approx(  # D1: the lot's 1000 per unit never off the cost
+            round((_limpio(markups.nuestro_markup) + 500 - COSTO) / COSTO * 100, 2),
             abs=0.01,
         )
 

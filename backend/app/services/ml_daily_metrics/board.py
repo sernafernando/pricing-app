@@ -127,6 +127,7 @@ from app.models.ml_publications import MlItem
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInConsumo
 from app.models.sell_out import SellOutCampana, SellOutConsumo
+from app.services.costo_si import so
 from app.services.ml_ads.iva import ads_cost_net_of_iva
 from app.services.sell_in import bonos_costo
 from app.services.ml_ads.owner import ads_owner_select
@@ -193,8 +194,9 @@ PRODUCT_AXIS = "product"
 # cascade among themselves (`app.services.product_facets`).
 PAIR_AXES = ("stores", "pub_status", "pub_type", PRODUCT_AXIS)
 ROW_AXES = ("alerts", "stock", "ageing")
-# Sell in / sell out (sell-in-sell-out T11): only with `sell_in_out` on.
-SELL_SORTS = ("sell_in", "sell_out", "total_gauss_sell", "markup_sell")
+# Sell out (sell-in-sell-out T11): only with `sell_in_out` on. Costo SI T3 D1: no sell in sort (the screen has no sell in
+# column); the keys `total_gauss_sell` / `markup_sell` keep their names and sort by the figures c/ SO (`ConSo`).
+SELL_SORTS = ("sell_out", "total_gauss_sell", "markup_sell")
 SORTS = (
     "gross",
     "units",
@@ -599,6 +601,34 @@ class SellInOut:
         return markup_of(r.mtg + r.m_sell_in + r.m_sell_out, cost)
 
 
+class ConSo:
+    """The figures "c/ SO" of a `Row` or `Kpis` that Métricas ML shows (Costo SI T3 D1).
+
+    D1 (owner L12): "el costo siso no existe, es costo SI y SO va en la venta, como ganancia adicional, si de ganancia
+    tenés 1000 y le agregás 10% tenés 1100 de ganancia". The sale's frozen cost (`costo`) is costo SI, so the sell in
+    is never taken off it: total c/ SO = Total Gauss + sell out; markup c/ SO = `so.markup_con_so(limpio, m_sell_out,
+    costo)`, `limpio` = the markup population's profit plus its cost (`mtg + costo`), the one rule every area shares.
+    The sorts `total_gauss_sell` / `markup_sell` mirror these in SQL (`Board._sell_sort_columns`).
+
+    They apply where some sold line has a sell out (or, the KPIs, a monto total remainder): otherwise None, an empty
+    cell. `SellInOut` (with sell in) stays for the readers that still use it (Publicaciones ML)."""
+
+    @staticmethod
+    def applies(r: Any) -> bool:
+        return bool(r.sell_out_lineas or SellInOut.remanente(r) is not None)
+
+    @staticmethod
+    def total_gauss(r: Any) -> Optional[Decimal]:
+        return None if r.sell_out is None or not ConSo.applies(r) else r.tg + r.sell_out
+
+    @staticmethod
+    def markup(r: Any) -> Optional[Decimal]:
+        if not ConSo.applies(r):
+            return None
+        ratio = so.markup_con_so(r.mtg + r.costo, r.m_sell_out, r.costo)
+        return None if ratio is None else ratio * Decimal("100")
+
+
 @dataclass
 class Row:
     key: str
@@ -676,6 +706,8 @@ class Row:
     costo_sell_in = property(lambda self: SellInOut.costo_sell_in(self))
     total_gauss_sell = property(lambda self: SellInOut.total_gauss_sell(self))
     markup_sell = property(lambda self: SellInOut.markup_sell(self))
+    total_gauss_so = property(lambda self: ConSo.total_gauss(self))
+    markup_so = property(lambda self: ConSo.markup(self))
 
     def alerts(self) -> Set[str]:
         return set(self.flags)
@@ -730,6 +762,8 @@ class Kpis:
     costo_sell_in = property(lambda self: SellInOut.costo_sell_in(self))
     total_gauss_sell = property(lambda self: SellInOut.total_gauss_sell(self))
     markup_sell = property(lambda self: SellInOut.markup_sell(self))
+    total_gauss_so = property(lambda self: ConSo.total_gauss(self))
+    markup_so = property(lambda self: ConSo.markup(self))
 
 
 @dataclass
@@ -2086,23 +2120,23 @@ class Board:
         return q
 
     def _sell_sort_columns(self, g: Any) -> List[Any]:
-        """The sell in / sell out sort keys of a summed row (`SellInOut` in SQL): NULL wherever the screen shows an
-        empty cell, so those rows sort last both ways instead of as 0 among the real figures."""
+        """The sell out sort keys of a summed row (`ConSo` in SQL, Costo SI T3 D1): NULL wherever the screen shows an
+        empty cell, so those rows sort last both ways instead of as 0 among the real figures. `markup_sell` is
+        `so.markup_con_so(limpio, m_sell_out, costo)` written in SQL, `limpio` = `mtg + costo` (one formula; a test
+        pins `Row.markup_so` against this order). No sell in: the frozen cost is costo SI."""
         if not self.sell:
             return []
-        has_in, has_out = g.c.sell_in_lineas > 0, g.c.sell_out_lineas > 0
-        applies = or_(has_in, has_out)
+        applies = g.c.sell_out_lineas > 0
         columns = [
-            case((has_in, g.c.sell_in), else_=None).label("sell_in_sort"),
-            case((has_out, g.c.sell_out), else_=None).label("sell_out_sort"),
-            case((applies, g.c.tg + g.c.sell_in + g.c.sell_out), else_=None).label("total_gauss_sell"),
+            case((applies, g.c.sell_out), else_=None).label("sell_out_sort"),
+            case((applies, g.c.tg + g.c.sell_out), else_=None).label("total_gauss_sell"),
         ]
         if not self.tp:
-            cost = g.c.costo - g.c.m_sell_in
+            limpio, costo = g.c.mtg + g.c.costo, g.c.costo
             columns.append(
-                case(
-                    (and_(applies, cost > 0), (g.c.mtg + g.c.m_sell_in + g.c.m_sell_out) * 100 / cost), else_=None
-                ).label("markup_sell")
+                case((and_(applies, costo != 0), (limpio + g.c.m_sell_out - costo) * 100 / costo), else_=None).label(
+                    "markup_sell"
+                )
             )
         return columns
 
@@ -2206,7 +2240,6 @@ class Board:
             "stock": rows.c.stock,
             # An unknown Total TP (incomplete, or no TP-store sale) is NULL: last either way.
             "total_tp": rows.c.tg_tp if self.tp else None,
-            "sell_in": rows.c.sell_in_sort if self.sell else None,
             "sell_out": rows.c.sell_out_sort if self.sell else None,
             "total_gauss_sell": rows.c.total_gauss_sell if self.sell else None,
             "markup_sell": rows.c.markup_sell if self.sell and not self.tp else None,
@@ -2219,8 +2252,8 @@ class Board:
             # The router answers 422 first; never a silent fallback to another order.
             raise ValueError("sort=total_tp needs costos_tp: there is no Total TP without it")
         if self.f.sort == "markup_sell" and self.tp:
-            # Same rule: the sell in lowers the Gauss cost, so "Costos TP" has no markup with sell in / sell out.
-            raise ValueError("sort=markup_sell has no markup with costos_tp: the sell in is on the Gauss cost")
+            # Same rule: the markup c/ SO is over the Gauss cost, so "Costos TP" has no such markup.
+            raise ValueError("sort=markup_sell has no markup with costos_tp: it is over the Gauss cost")
         if self.f.sort == "listing_kind":
             rank = rows.c.get("listing_rank")
             if rank is None:

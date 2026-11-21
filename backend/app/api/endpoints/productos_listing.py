@@ -1073,7 +1073,9 @@ def listar_productos(
         contextos_markup = parse_contextos_query(markup_contextos)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    sell_in_out_batch = resolver_sell_in_out_batch(db, all_item_ids_page, hoy, contextos=contextos_markup)
+    sell_in_out_batch = resolver_sell_in_out_batch(
+        db, all_item_ids_page, hoy, contextos=contextos_markup, costos=costo_si_by_item
+    )
     ppp_markups_by_item: dict[int, MarkupCompanions] = {}
 
     _resolve_envio = partial(resolve_envio, ctx, envio_real_by_item)
@@ -2423,7 +2425,7 @@ def listar_productos_tienda(
     # The costo SI column beside the list cost (display only), at the rate the PPP markups use.
     costo_si_by_item_t = costo_si_lote.actuales(db, item_ids_results, tipo_cambio=tipo_cambio_usd_t)
     # Sell in / sell out per channel context (gremio / sugerido: off-ML; web_transf: Tienda Nube), one read.
-    sell_in_out_batches_t = resolver_tienda_batches(db, item_ids_results, hoy)
+    sell_in_out_batches_t = resolver_tienda_batches(db, item_ids_results, hoy, costos=costo_si_by_item_t)
 
     def _resolve_envio_t(item_id: int, producto_envio: float, grupo_id: int, precio: float) -> float:
         # Real cost from mlwebhook DB (already resolved as batch)
@@ -2850,17 +2852,19 @@ def obtener_producto(
         contextos_markup_d = parse_contextos_query(markup_contextos)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # ONE cost read for the costo SI column, the sell in / sell out and every markup below (S13): the rate is the
+    # current USD one, as the pricing context's (`build_pricing_context` reads the same `obtener_tipo_cambio_actual`).
+    costo_si_d = costo_si_lote.actuales(db, [item_id], tipo_cambio=_tipo_cambio_ppp_d)
     ppp_d = MarkupCompanions(
         PppMarkups(_ppp_source_d, moneda_costo=producto_erp.moneda_costo, tipo_cambio=_tipo_cambio_ppp_d),
-        resolver_sell_in_out_batch(db, [item_id], date.today(), contextos=contextos_markup_d).markups(
+        resolver_sell_in_out_batch(
+            db, [item_id], date.today(), contextos=contextos_markup_d, costos=costo_si_d
+        ).markups(
             producto_erp,
             precio_lista_ml=producto_pricing.precio_lista_ml if producto_pricing else None,
             tipo_cambio=_tipo_cambio_ppp_d,
         ),
     )
-    # ONE cost read for the costo SI column and every markup below (S13): the rate is the current USD one, as the
-    # pricing context's (`build_pricing_context` reads the same `obtener_tipo_cambio_actual`).
-    costo_si_d = costo_si_lote.actuales(db, [item_id], tipo_cambio=_tipo_cambio_ppp_d)
 
     # Markups of the ML list (clásica: PPP companion only; instalments) and of
     # the PVP prices, with the listing's inputs -- pricing context, shipping

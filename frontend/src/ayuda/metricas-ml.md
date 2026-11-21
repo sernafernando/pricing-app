@@ -57,6 +57,8 @@ Las tarjetas KPI muestran los totales del conjunto filtrado. El **Sell out** del
 
 Con publicidad restada, arriba de las tarjetas aparece **Publicidad restada**: lo que se le restó al Total Gauss y al markup, línea por línea y sin IVA. Primero los **Product Ads de publicaciones** y, sin filtros, los **Product Ads sin producto**; después, en verde, los **Aportes de marcas (Product Ads)** que las marcas nos devuelven, y el subtotal **Product Ads neto**. Sin filtros también se ven **Display** (menos sus aportes de marcas) y **Brand Ads**: con **Restar toda la publicidad** dicen **Restado** y suman al total; con **Restar Ads de publicaciones** dicen **No restado** y no suman. Abajo, **= Publicidad restada** es el total que se restó. Si parte de los Product Ads es de anuncios sin campaña, la tarjeta lo dice: ningún aporte puede cubrirlos. **Ver aportes** abre la página de aportes. En el bloque de ads, **Inversión (bruta)** es lo gastado antes de restar aportes; la columna **Publicidad restada (neta de aportes)** muestra lo que se le restó a cada fila.
 
+**Costo y sell out (c/ SO).** El costo de cada venta es el **costo SI** vigente el día de la venta, que ya tiene descontado el sell in: por eso no hay columna de sell in ni de costo con sell in. El sell out se **suma a la ganancia**, nunca se resta del costo: si de ganancia tenés $ 1.000 y el sell out suma 10 %, tenés $ 1.100. Con permiso de ganancia, el grupo de columnas **Sell out** muestra **Costo**, **Sell out**, **Total c/ SO** (Total Gauss + sell out) y **Markup c/ SO** ((ganancia + sell out) / costo); las tarjetas **Total Gauss** y **Markup promedio** muestran debajo la línea **C/ SO**, y la tarjeta **Sell out** el sell out del período y el costo. Donde una fila no tiene sell out, esas celdas quedan vacías. Con **Costos TP** no hay Markup c/ SO (el costo es el de TP).
+
 La tabla lista los productos/publicaciones con sus métricas; al expandir una fila se ven sus publicaciones o el siguiente nivel (en vista agrupada). Al bajar por la tabla, las cabeceras de columnas quedan fijas dentro del tablero (los filtros y los indicadores de arriba pueden ocultarse). La paginación está abajo.
 
 Si un filtro es rechazado por el tablero, aparece un aviso con el motivo.
@@ -69,7 +71,7 @@ En una pantalla angosta (celular, hasta 768 px de ancho) Métricas ML tiene su p
 - **Filtros** abre los filtros desde abajo: Agrupar por, Tienda, Stock y ventas, Ageing y Alertas a la vista, y **Producto**, **Publicación** y **Cálculo** (Publicidad, Costos TP, Comparar con) plegados, se abren con un toque. Cada filtro se aplica al tocarlo; **Ver N productos** cierra la hoja y **Limpiar** vuelve a los valores por defecto. El número de **Filtros** dice cuántos hay activos, y debajo se ven como etiquetas.
 - El botón de orden (por ejemplo **Facturado ↓**) elige por qué ordenar y en qué sentido.
 - Las tarjetas KPI van de a dos por fila.
-- Cada producto es una tarjeta: nombre, SKU · marca · publicaciones, **Unid. período**, **Markup** y **Facturado**, y al pie stock, ageing, última venta y la tendencia (o **Sin stock**). Al tocarla se abre con las ventas de 24H a 30D, el markup (vs anterior, mín / máx 90D, con sell in/out), Total Gauss, **Costo del período** (el costo de lo vendido en el período, en pesos, como la columna Costo de la computadora; no es el costo unitario), stock, ageing y última venta; **Ver sus n publicaciones** las lista debajo y **Menos datos** la cierra.
+- Cada producto es una tarjeta: nombre, SKU · marca · publicaciones, **Unid. período**, **Markup** y **Facturado**, y al pie stock, ageing, última venta y la tendencia (o **Sin stock**). Al tocarla se abre con las ventas de 24H a 30D, el markup (vs anterior, mín / máx 90D, c/ SO), Total Gauss, **Costo del período** (el costo de lo vendido en el período, en pesos, como la columna Costo de la computadora; no es el costo unitario), stock, ageing y última venta; **Ver sus n publicaciones** las lista debajo y **Menos datos** la cierra.
 - Se muestran 20 tarjetas; **Cargar 20 más** trae las siguientes con los mismos filtros.
 
 ## Filtros y columnas
@@ -82,7 +84,7 @@ Columnas: definidas por el selector de columnas (incluye métricas de ventas, ma
 
 ## Botones y acciones
 
-- **Exportar CSV**: descarga el tablero filtrado. Si alguna campaña de **Monto total** termina en el período, el archivo cierra con una línea **Sell out de montos totales sin producto (Sin asignar y Asignado sin ventas)** con ese monto en la columna **Sell out**.
+- **Exportar CSV**: descarga el tablero filtrado; con permiso de ganancia trae **Sell out**, **Sell out pendientes**, **Total Gauss c/ SO** y **Markup c/ SO %** (no hay columna de sell in). Si alguna campaña de **Monto total** termina en el período, el archivo cierra con una línea **Sell out de montos totales sin producto (Sin asignar y Asignado sin ventas)** con ese monto en la columna **Sell out**.
 - **Exportar a Sheets**: crea una hoja de Google Sheets (si está habilitado).
 - Selector de columnas: elige qué columnas mostrar.
 - **Indicadores**: elige qué tarjetas de KPI mostrar (todas visibles por defecto). Lista solo las que se ven en la pantalla; ocultar una no cambia ningún número. La elección queda guardada en este navegador.
@@ -103,6 +105,9 @@ Piden el permiso ml_metricas.ver_ganancia.
 
 **¿Qué hace "Costos TP"?**
 Muestra el Total TP junto al Total Gauss; el markup usa el costo TP en las operaciones de la tienda TP-Link.
+
+**¿Dónde quedó el sell in?**
+Adentro del costo: el costo de cada venta es el **costo SI**, que ya tiene descontado el sell in. Por eso no se muestra aparte ni se resta otra vez. El sell out sí se ve aparte y se suma a la ganancia (**c/ SO**).
 
 **¿Por qué el Sell out del KPI no coincide con la suma de las filas?**
 Porque también suma lo que una campaña de **Monto total** dejó sin asignar a un producto, o asignó a productos sin ventas, en la fecha de fin de la campaña. Ese monto no es de ningún producto, por eso no está en las filas.

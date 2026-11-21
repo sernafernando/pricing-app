@@ -109,10 +109,7 @@ class TestSellIn:
         assert payload.sell_in.costo == 49800.0
         assert payload.sell_in.unidades_restantes == 4
         assert payload.sell_out is None
-        assert payload.markups_sell_in == {
-            "clasica": round((60000 / 49800 - 1) * 100, 2),
-            "mejor_oferta": 60000 / 49800 - 1,
-        }
+        assert payload.markups_sell_in == {}  # D1: the lot never comes off the cost of a markup
         assert payload.markups_sell_in_out == {}
 
     def test_a_lot_dated_after_today_is_not_current(self, engine):
@@ -168,7 +165,7 @@ class TestSellIn:
         assert sell_in.moneda_costo == "USD"
         assert sell_in.costo_moneda == pytest.approx(36.0)
         assert sell_in.descuento_unit_moneda == pytest.approx(4.0)
-        assert con_tasa.markups_sell_in["clasica"] == round((60000 / 45000 - 1) * 100, 2)  # markups unchanged
+        assert con_tasa.markups_sell_in == {}  # D1: no markup "with sell in"
         # No rate: no ARS cost, so no cost with sell in in any currency, never a guess.
         assert (sin_tasa.sell_in.costo, sin_tasa.sell_in.costo_moneda) == (None, None)
         assert sin_tasa.sell_in.moneda_costo == "USD"
@@ -232,7 +229,7 @@ class TestCostBonus:
             "costo_moneda": 48500.0,
             "descuento_unit_moneda": 1500.0,
         }
-        assert payload.markups_sell_in["clasica"] == round((60000 / 48500 - 1) * 100, 2)
+        assert payload.markups_sell_in == {}  # D1: shown, never off the cost of a markup
 
     def test_a_brand_bonus_of_another_category_does_not_reach_the_product(self, engine):
         """SISO S3: a brand bonus with a category reaches only that brand's products of it (ROUTER is Routers)."""
@@ -557,14 +554,75 @@ class TestSellOut:
         assert payload.markups_sell_in == {}
         assert payload.markups_sell_in_out["clasica"] == round((61000 / 50000 - 1) * 100, 2)
 
-    def test_sell_out_adds_to_profit_over_the_cost_with_sell_in(self, engine):
-        si.compra(engine, [(ROUTER, 2, "2000.00")], D(2026, 10, 1))  # 1000 per unit
+    def test_sell_out_adds_to_profit_and_a_fifo_lot_never_comes_off_the_cost(self, engine):
+        # D1 (owner L12): "el costo siso no existe, es costo SI y SO va en la venta, como ganancia adicional".
+        si.compra(engine, [(ROUTER, 2, "2000.00")], D(2026, 10, 1))  # a FIFO lot of 1000 per unit
         gid = so.grupo(engine, [{"item_id": ROUTER}])
         so.campana(engine, [gid], monto_unit="500.00")
 
         payload = _payload(engine)
 
-        assert payload.markups_sell_in_out["clasica"] == round((60500 / 49000 - 1) * 100, 2)
+        assert payload.markups_sell_in == {}  # no "c/ sell in" figure on top of costo SI
+        assert payload.markups_sell_in_out["clasica"] == round((60000 + 500 - 50000) / 50000 * 100, 2)
+        assert payload.markups_sell_in_out["mejor_oferta"] == (60000 + 500 - 50000) / 50000
+
+
+class TestCostoSi:
+    """sell-in-costo-si S13 / D1: the cost of every sell in / sell out markup is costo SI (`lote.actuales`), whatever
+    cost the caller's product carries: Productos, Tienda, the Publicaciones panel and the promos price on the same."""
+
+    @staticmethod
+    def _costo_si(engine, item_id: int, promedio: str, moneda: str = "ARS") -> None:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO costo_si_pasos (item_id, orden, tipo, fecha, cantidad, stock_antes, stock_base, "
+                    "stock_despues, promedio_usd, moneda) VALUES (:i, 0, 'inicio', '2026-01-01', 0, 0, 0, 0, :p, :m)"
+                ),
+                {"i": item_id, "p": promedio, "m": moneda},
+            )
+
+    @pytest.fixture(autouse=True)
+    def _clean_costo_si(self, engine):
+        yield
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM costo_si_pasos"))
+
+    def test_the_sell_out_markup_is_over_costo_si_not_the_list_cost(self, engine):
+        self._costo_si(engine, ROUTER, "40000")
+        gid = so.grupo(engine, [{"item_id": ROUTER}])
+        so.campana(engine, [gid], monto_unit="500.00")
+
+        payload = _payload(engine)  # the product still carries its list cost 50000
+
+        assert payload.markups_sell_in_out["clasica"] == round((60000 + 500 - 40000) / 40000 * 100, 2)
+
+    def test_a_cost_based_sell_out_is_a_percentage_of_costo_si(self, engine):
+        # Q7 (orchestrator): base='costo' = % of costo SI (L4.7, one cost everywhere).
+        self._costo_si(engine, ROUTER, "40000")
+        gid = so.grupo(engine, [{"item_id": ROUTER}])
+        so.campana(engine, [gid], tipo="porcentaje", monto_unit=None, porcentaje="2", base_porcentaje="costo")
+
+        payload = _payload(engine)
+
+        assert payload.sell_out.monto_unit == 800.0  # 2% of 40000, not of the list 50000
+        assert payload.markups_sell_in_out["clasica"] == round((60000 + 800 - 40000) / 40000 * 100, 2)
+
+    def test_a_usd_costo_si_is_priced_at_the_latest_usd_rate(self, engine):
+        self._costo_si(engine, ROUTER, "40", moneda="USD")
+        with engine.begin() as conn:
+            conn.execute(
+                text("INSERT INTO tipo_cambio (fecha, moneda, compra, venta) VALUES ('2026-01-02', 'USD', 1, 1000)")
+            )
+        gid = so.grupo(engine, [{"item_id": ROUTER}])
+        so.campana(engine, [gid], monto_unit="500.00")
+        try:
+            payload = _payload(engine)
+        finally:
+            with engine.begin() as conn:
+                conn.execute(text("DELETE FROM tipo_cambio"))
+
+        assert payload.markups_sell_in_out["clasica"] == round((60000 + 500 - 40000) / 40000 * 100, 2)
 
     def test_usd_per_unit_campaign_with_vat_converts_at_its_rate(self, engine):
         gid = so.grupo(engine, [{"item_id": ROUTER}])
@@ -660,5 +718,6 @@ class TestNoData:
             event.listen(conn, "before_cursor_execute", lambda *a: statements.append(a[2]))
             resolver_sell_in_out_batch(db, [ROUTER, SWITCH, 950], HOY)
 
-        # No cost bonus active: the T25 lookup costs no statement. The sell-in cost modes add one fixed read.
-        assert len(statements) <= 7
+        # No cost bonus active: the T25 lookup costs no statement. The sell-in cost modes add one fixed read, and
+        # the products' costo SI one more (`lote.actuales`, sell-in-costo-si T3 PR 5).
+        assert len(statements) <= 8

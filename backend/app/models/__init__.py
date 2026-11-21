@@ -229,6 +229,7 @@ from app.models.costo_si import (
     CostoSiPaso,
     CostoSiStockDiario,
 )
+from app.models.ml_costo_si import MlCostoSiDirty, MlOrderItemCostoBackup
 from app.models.sell_in import (
     SellInBonoConsumo,
     SellInBonoDirty,
@@ -592,6 +593,8 @@ __all__ = [
     "McpToolCall",
     "CostoSiBackup",
     "CostoSiDirty",
+    "MlCostoSiDirty",
+    "MlOrderItemCostoBackup",
     "CostoSiFacturaTc",
     "CostoSiPaso",
     "CostoSiStockDiario",

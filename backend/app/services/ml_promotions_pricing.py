@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 
 from app.services.sell_out import alcance
 from app.core.logging import get_logger
-from app.services.ml_publications.view.markup import UnitInputs, UnitMarkup, unit_markup
+from app.services.ml_publications.view.markup import UnitInputs, UnitMarkup, costo_en_pesos, unit_markup
 from app.services.ml_publications.view.markup_inputs import fetch_inputs
 from app.services.ml_publications.view import markup_service
 from app.services.ml_publications.view.markup_service import detail_unit
@@ -179,7 +179,7 @@ class _ProductoEnPesos:
     product (`view.detail._PricedProduct`), so both price the companion on the same cost."""
 
     item_id: int
-    costo: float
+    costo: Optional[float]  # None: unknown in pesos (a USD cost with no rate)
     iva: Optional[float]
     moneda_costo: str = "ARS"
 
@@ -198,8 +198,9 @@ class _PricingContext:
     envio_propio: Optional[float]
 
     @property
-    def costo_ars(self) -> float:
-        return self.ctx.costo_en_pesos(self.unit.costo, self.unit.moneda_costo)
+    def costo_ars(self) -> Optional[float]:
+        """The header unit's cost in pesos, as its markup prices it; None when unknown (interfaz §7)."""
+        return costo_en_pesos(self.ctx, self.unit)
 
     @property
     def producto(self) -> _ProductoEnPesos:

@@ -18,6 +18,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.models.ml_publications import MlItemSalePrice, MlItemSellerPromotions
 from app.models.worker_job_state import WorkerJobState
+from app.services import ml_hay_mejores_pendientes as pendientes
 from app.services import ml_promotions_hay_mejores as hay_mejores
 from app.workers.context import WorkerContext
 from app.workers.handlers import ml_hay_mejores as module
@@ -271,6 +272,92 @@ class TestBoundariesHandler:
         clock = _Clock(T0)
         result = _handler(clock).run(_ctx(clock))
         assert result.success is False and "db down" in result.error
+
+
+class TestPendingIds:
+    """Costo SI changed (owner L15, orchestrator Q8 (a)): the drain appends the MLAs to `pending_ids`; the next tick
+    recomputes them in either branch and removes only what it processed."""
+
+    def _settle(self, db, clock: _Clock) -> None:
+        assert _handler(clock).run(_ctx(clock)).detail["catchup"] is True
+
+    def _agregar(self, db, ids: List[str]) -> None:
+        pendientes.agregar(db, ids)
+        db.commit()
+
+    def _pending(self, db) -> List[str]:
+        db.expire_all()
+        return pendientes.pendientes(db)
+
+    def test_a_pending_mla_is_recomputed_on_the_next_tick_and_removed(self, db) -> None:
+        """Not flagged, no date crossing: only the costo SI change brings it to the recompute."""
+        _add(db, "MLA1", [{"id": "C-1", "type": "SMART"}])
+        _add(db, "MLA2", [{"id": "C-2", "type": "SMART"}])
+        clock = _Clock(T0)
+        self._settle(db, clock)
+        assert _flag(db, "MLA1") is False
+
+        self._agregar(db, ["MLA1"])
+        clock.now += timedelta(minutes=5)
+        result = _handler(clock).run(_ctx(clock))
+        assert result.detail == {"recomputed": 1, "changed": 1, "catchup": False}
+        assert (_flag(db, "MLA1"), _flag(db, "MLA2")) == (True, False)
+        assert self._pending(db) == []
+
+    def test_the_catch_up_also_takes_the_pending_mlas(self, db) -> None:
+        _add(db, "MLA1", [{"id": "C-1", "type": "SMART"}])
+        self._agregar(db, ["MLA1"])
+        clock = _Clock(T0)
+        assert _handler(clock).run(_ctx(clock)).detail == {"recomputed": 1, "changed": 1, "catchup": True}
+        assert _flag(db, "MLA1") is True
+        assert self._pending(db) == []
+
+    def test_a_pending_id_before_a_resumed_cursor_stays_pending_until_processed(self, db) -> None:
+        _add(db, "MLA1", [{"id": "C-1", "type": "SMART"}])
+        _add(db, "MLA7", [{"id": "C-7", "type": "SMART"}])
+        clock = _Clock(T0)
+        self._settle(db, clock)
+        # A window stopped by its deadline after MLA5; both MLAs became pending meanwhile.
+        module._write_state(db, {"window_until": (T0 + timedelta(minutes=5)).isoformat(), "cursor": "MLA5"})
+        self._agregar(db, ["MLA1", "MLA7"])
+
+        clock.now += timedelta(minutes=10)
+        assert _handler(clock).run(_ctx(clock)).detail == {"recomputed": 1, "changed": 1, "catchup": False}
+        assert (_flag(db, "MLA1"), _flag(db, "MLA7")) == (False, True)
+        assert self._pending(db) == ["MLA1"]
+
+        clock.now += timedelta(minutes=5)
+        _handler(clock).run(_ctx(clock))
+        assert _flag(db, "MLA1") is True
+        assert self._pending(db) == []
+
+    def test_an_id_appended_during_the_run_stays_pending(self, db, mlpub_pg, monkeypatch) -> None:
+        monkeypatch.setattr(module, "BATCH", 1)
+        for item_id in ("MLA1", "MLA2", "MLA9"):
+            _add(db, item_id, [{"id": f"C-{item_id}", "type": "SMART"}])
+        clock = _Clock(T0)
+        self._settle(db, clock)
+        self._agregar(db, ["MLA1", "MLA2"])
+        calls = {"n": 0}
+
+        def drain_between_chunks() -> bool:
+            """Called before each chunk, outside its transaction: a costo SI drain commits MLA9 there."""
+            calls["n"] += 1
+            if calls["n"] == 2:
+                with sessionmaker(bind=mlpub_pg)() as other:
+                    pendientes.agregar(other, ["MLA9"])
+                    other.commit()
+            return False
+
+        clock.now += timedelta(minutes=5)
+        ctx = WorkerContext(deadline=clock.now + timedelta(minutes=2), stop_requested=drain_between_chunks)
+        assert _handler(clock).run(ctx).detail == {"recomputed": 2, "changed": 2, "catchup": False}
+        assert self._pending(db) == ["MLA9"]
+        assert _flag(db, "MLA9") is False  # waits for the next tick
+
+        clock.now += timedelta(minutes=5)
+        _handler(clock).run(_ctx(clock))
+        assert _flag(db, "MLA9") is True and self._pending(db) == []
 
 
 class TestCrossingSelection:

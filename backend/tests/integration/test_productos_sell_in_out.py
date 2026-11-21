@@ -106,7 +106,7 @@ class TestNoData:
 
 
 class TestPayload:
-    def test_detail_shows_cost_with_sell_in_and_its_markups(self, client, auth_headers, db, comision, active_user):
+    def test_detail_shows_the_sell_in_but_no_markup_off_the_cost(self, client, auth_headers, db, comision, active_user):
         _producto(db, 9511)
         linea = _sell_in(db, active_user, 9511)
         db.commit()
@@ -125,7 +125,8 @@ class TestPayload:
             "descuento_unit_moneda": 100.0,
         }
         assert sio["sell_out"] is None
-        assert "clasica" in sio["markups_sell_in"]
+        # D1 (owner L12): costo SI is the cost; a FIFO lot never comes off it, so there is no markup "with sell in"
+        assert sio["markups_sell_in"] == {}
         assert sio["markups_sell_in_out"] == {}
 
     def test_list_shows_the_same_payload_as_the_detail(self, client, auth_headers, db, comision, active_user):
@@ -138,7 +139,8 @@ class TestPayload:
         detalle = client.get("/api/productos/9512", headers=auth_headers).json()["sell_in_out"]
 
         assert listado["sell_in"] == detalle["sell_in"]
-        assert listado["markups_sell_in"]["clasica"] == detalle["markups_sell_in"]["clasica"]
+        assert listado["markups_sell_in"] == detalle["markups_sell_in"] == {}  # D1: none
+        assert listado["markups_sell_in_out"] == detalle["markups_sell_in_out"]
 
 
 class TestQueryCount:

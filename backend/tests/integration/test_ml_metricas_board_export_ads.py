@@ -67,7 +67,7 @@ def _money(value) -> str:
 PRE_ADS_HEADER = (
     "Producto;SKU;Marca;MLA;Unidades;24h;3d;7d;15d;30d;Facturado;"
     "Total Gauss;Markup %;Markup anterior %;Variación pp;"
-    "Sell in;Sell out;Sell out pendientes;Costo c/ sell in;Total Gauss c/ sell in/out;Markup c/ sell in/out %;"
+    "Sell out;Sell out pendientes;Total Gauss c/ SO;Markup c/ SO %;"
     "Última venta;Ageing (días);Stock"
 )
 

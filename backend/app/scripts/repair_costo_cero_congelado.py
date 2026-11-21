@@ -122,7 +122,7 @@ from sqlalchemy.orm import Session  # noqa: E402
 
 from app.core.database import SessionLocal  # noqa: E402
 from app.models.ml_order_item_costo import MlOrderItemCosto  # noqa: E402
-from app.models.ml_orders_ops import MlOrderItemOps  # noqa: E402
+from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps  # noqa: E402
 from app.models.producto import ProductoERP  # noqa: E402
 from app.services.combos.componentes import CombosNoSincronizados, exigir_combos_disponibles  # noqa: E402
 from app.services.ml_orders_ingestion.costeo_service import (  # noqa: E402
@@ -132,10 +132,12 @@ from app.services.ml_orders_ingestion.costeo_service import (  # noqa: E402
     _productos_por_item,
     componentes_por_combo,
     congelar,
+    fecha_venta_de,
     tiene_costo_propio,
     tiene_iva_conocido,
 )
 from app.services.ml_orders_ingestion.mapper import OrderItemOpsDTO  # noqa: E402
+from app.services.ml_orders_ingestion.recongelar_costo_si import FUENTES_COSTO_SI  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -147,10 +149,10 @@ MOTIVO_COSTO_CERO = "costo_congelado_cero"
 # -- exactly the constants `congelar()` itself stamps on the live path. A
 # row with any other `fuente` (the `hist_*`/backfill family) is out of
 # scope by construction -- see the module docstring.
-FUENTES_EN_VIVO = frozenset({FUENTE_PUBLICACION, FUENTE_SKU, FUENTE_COMBO})
+FUENTES_EN_VIVO = frozenset({FUENTE_PUBLICACION, FUENTE_SKU, FUENTE_COMBO, *FUENTES_COSTO_SI})
 
 # Post-correction hole reasons, best-effort (a real second pass through
-# `_resolve_cost` is private on purpose -- these are the same public
+# `_resolve_cost_en_fecha` is private on purpose -- these are the same public
 # predicates `congelar()` itself uses, read back to explain a hole this
 # script observes rather than to duplicate its resolution logic).
 HUECO_SIN_VINCULACION = "hueco_sin_vinculacion_erp"
@@ -252,7 +254,7 @@ def _diagnose_hueco(
     combos = componentes_por_combo(db, erp_ids_sin_costo)
 
     # A combo declaration alone does not mean the combo can be COSTED --
-    # `_resolve_cost` (`costeo_service`) only accepts it when EVERY
+    # the costo SI reader (`costo_si.lote`) only sums it when EVERY
     # component itself has a real cost. Fetching the components' own
     # `ProductoERP` rows here (one bulk query, never per item) is what lets
     # this diagnosis tell "no combo declared" apart from "combo declared but
@@ -368,7 +370,7 @@ def run_repair(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_BA
             # deletes either (defect 3), so the number the operator sees
             # matches what a real run would actually remove. It deliberately
             # does NOT simulate the re-`congelar()` outcome: that would mean
-            # duplicating `_resolve_cost`'s private resolution logic just to
+            # duplicating `_resolve_cost_en_fecha`'s private resolution logic just to
             # predict its answer without writing, which risks the exact "two
             # paths that can disagree" this whole module refuses elsewhere.
             # Run with `--apply` to see real recongelado/hueco counts.
@@ -472,12 +474,18 @@ def run_repair(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_BA
             for order_id, item_id, variation_id in keys_to_recongelar:
                 recongelar_keys_by_order.setdefault(order_id, []).append((item_id, variation_id))
 
+            # Each order is re-frozen on its own sale date: the batch's dates in ONE read, not one query per order.
+            fechas = dict(
+                db.query(MlOrdersOps.order_id, MlOrdersOps.date_created)
+                .filter(MlOrdersOps.order_id.in_(list(recongelar_keys_by_order)))
+                .all()
+            )
             for order_id, keys in recongelar_keys_by_order.items():
                 dtos = [
                     _item_dto_from_ops(items_by_key[(order_id, item_id, variation_id)])
                     for item_id, variation_id in keys
                 ]
-                congelar(db, order_id=order_id, items=dtos)
+                congelar(db, order_id=order_id, items=dtos, fecha_venta=fecha_venta_de(fechas.get(order_id)))
             db.commit()
 
             # Which of the just-recongelado-attempted keys got a fresh row,

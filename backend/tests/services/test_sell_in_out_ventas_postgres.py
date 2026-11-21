@@ -1,7 +1,10 @@
-"""Sell in and sell out credited to each sale of a page (sell-in-sell-out T14).
+"""Sell out credited to each sale of a page (sell-in-sell-out T14, Costo SI T3 D1).
 
-`sell_in_out_ventas.montos_por_venta` reads what the allocators already wrote
-(`sell_in_consumos`, `sell_out_consumos`) for the page's sales only. The
+`sell_in_out_ventas.montos_por_venta` reads what the sell-out allocator already
+wrote (`sell_out_consumos`) for the page's sales only. D1 (owner L12): "el
+costo siso no existe, es costo SI y SO va en la venta": the sale's frozen cost
+is costo SI, so no sell in is read (`sell_in_consumos` and `sell_in_bono_consumos`
+rows below are seeded on purpose). The
 consumption rows are written directly here: which sale gets what is the
 allocators' business, tested in `sell_in/` and `sell_out/`. Postgres only
 (`round(numeric)`, grouping by a campaign's primary key).
@@ -227,75 +230,24 @@ def _montos(engine: Engine, refs: List[int], canal: str = "fuera") -> dict:
         return sell_in_out_ventas.montos_por_venta(db, canal, refs)
 
 
-class TestSellInEstimado:
-    """Option C (tactical sell in USD S10): "y marcar los montos como estimados en pantalla". A USD cost bonus of an
-    `al_cobro` tactical whose collection has no rate yet converts at today's BNA: its sales' sell in is estimated,
-    like sell out's `al_cobro` campaign without its rate."""
-
-    def test_an_al_cobro_usd_cost_bonus_without_its_collection_rate_is_estimated(self, engine: Engine) -> None:
-        ref = venta(engine)
-        sell_in(engine, compra_item(engine), ref, "100.00")
-        sell_in_costo_usd(engine, bono_costo_usd(engine), ref)
-
-        m = _montos(engine, [ref])[ref]
-
-        assert (m.sell_in_ars, m.sell_in_estimado) == (Decimal("15100.00"), True)
-        assert m.credito_ars == Decimal("15100.00")  # an estimate is a known amount, unlike an unknown sell out
-
-    @pytest.mark.parametrize(
-        "bono",
-        [
-            pytest.param(lambda e: bono_costo_usd(e, cobro="1350"), id="collection_rate_loaded"),
-            pytest.param(lambda e: bono_costo_usd(e, tc_modo="fijo"), id="fijo"),
-            pytest.param(lambda e: bono_costo_usd(e, tc_modo="dia_venta"), id="dia_venta"),
-        ],
-    )
-    def test_a_final_rate_is_not_estimated(self, engine: Engine, bono) -> None:
-        ref = venta(engine)
-        sell_in_costo_usd(engine, bono(engine), ref)
-
-        assert _montos(engine, [ref])[ref].sell_in_estimado is False
-
-    def test_ars_sell_in_is_not_estimated_and_no_sell_in_is_none(self, engine: Engine) -> None:
-        ref, solo_out = venta(engine), venta(engine)
-        sell_in(engine, compra_item(engine), ref, "100.00")
-        sell_in_costo(engine, bono_costo(engine), ref, "9.75")
-        sell_out(engine, campana(engine), solo_out, "20.00")
-
-        m = _montos(engine, [ref, solo_out])
-
-        assert (m[ref].sell_in_estimado, m[solo_out].sell_in_estimado) == (False, None)
-
-
 class TestMontosPorVenta:
-    def test_sell_in_only_sums_the_discounts_and_leaves_sell_out_empty(self, engine: Engine) -> None:
-        ref = venta(engine)
-        item = compra_item(engine)
-        sell_in(engine, item, ref, "150.25")
-        sell_in(engine, compra_item(engine), ref, "49.75")
-
-        m = _montos(engine, [ref])[ref]
-
-        assert (m.sell_in_ars, m.sell_out_ars, m.sell_out_estimado) == (Decimal("200.00"), None, None)
-        assert m.credito_ars == Decimal("200.00")
-
-    def test_a_cost_bonus_only_sale_has_its_sell_in(self, engine: Engine) -> None:
-        # T25 (S31): a % of cost bonus reaches the operations lists like invoice sell in.
-        ref = venta(engine)
-        sell_in_costo(engine, bono_costo(engine), ref, "30.00")
-        sell_in_costo(engine, bono_costo(engine), ref, "99.00", canal="tn")  # another channel's sale
-
-        m = _montos(engine, [ref])[ref]
-
-        assert (m.sell_in_ars, m.sell_out_ars, m.sell_out_estimado) == (Decimal("30.00"), None, None)
-        assert m.credito_ars == Decimal("30.00")
-
-    def test_an_invoice_and_a_cost_bonus_sell_in_add_up(self, engine: Engine) -> None:
+    def test_sell_in_rows_alone_are_no_entry(self, engine: Engine) -> None:
+        # Invoice sell in, a % of cost bonus (T25) and a USD al_cobro one (tactical sell in USD S10): all inside costo SI.
         ref = venta(engine)
         sell_in(engine, compra_item(engine), ref, "150.25")
         sell_in_costo(engine, bono_costo(engine), ref, "9.75")
+        sell_in_costo_usd(engine, bono_costo_usd(engine), ref)
 
-        assert _montos(engine, [ref])[ref].sell_in_ars == Decimal("160.00")
+        assert _montos(engine, [ref]) == {}
+
+    def test_a_sale_with_sell_in_and_sell_out_carries_only_the_sell_out(self, engine: Engine) -> None:
+        ref = venta(engine)
+        sell_in(engine, compra_item(engine), ref, "100.00")
+        sell_out(engine, campana(engine), ref, "20.00")
+
+        assert _montos(engine, [ref])[ref] == sell_in_out_ventas.MontosVenta(
+            sell_out_ars=Decimal("20.00"), sell_out_estimado=False
+        )
 
     def test_an_ars_sell_out_is_its_amount(self, engine: Engine) -> None:
         ref = venta(engine)
@@ -303,8 +255,7 @@ class TestMontosPorVenta:
 
         m = _montos(engine, [ref])[ref]
 
-        assert (m.sell_in_ars, m.sell_out_ars, m.sell_out_estimado) == (None, Decimal("20.00"), False)
-        assert m.credito_ars == Decimal("20.00")
+        assert (m.sell_out_ars, m.sell_out_estimado) == (Decimal("20.00"), False)
 
     def test_a_usd_sell_out_converts_at_the_row_rate_rounded_to_cents(self, engine: Engine) -> None:
         ref = venta(engine)
@@ -324,8 +275,7 @@ class TestMontosPorVenta:
 
         m = _montos(engine, [ref])[ref]
 
-        assert (m.sell_in_ars, m.sell_out_ars, m.sell_out_estimado) == (Decimal("100.00"), None, True)
-        assert m.credito_ars is None
+        assert (m.sell_out_ars, m.sell_out_estimado) == (None, True)
 
     def test_an_al_cobro_campaign_without_its_rate_is_estimated(self, engine: Engine) -> None:
         ref = venta(engine)
@@ -354,7 +304,7 @@ class TestMontosPorVenta:
         sell_in(engine, compra_item(engine), ref, "5.00", canal="tn")
 
         assert set(_montos(engine, [ref, sin_nada])) == {ref}
-        assert _montos(engine, [ref], canal="tn")[ref].sell_out_ars is None
+        assert _montos(engine, [ref], canal="tn") == {}
         assert _montos(engine, []) == {}
 
     def test_the_query_count_does_not_grow_with_the_page(self, engine: Engine) -> None:
@@ -377,4 +327,5 @@ class TestMontosPorVenta:
                 event.remove(engine, "before_cursor_execute", listener)
             return sum(1 for s in statements if "_consumos" in s)
 
-        assert contar(refs[:1]) == contar(refs) == 2
+        # One statement: the sell out rows (no sell in read, D1).
+        assert contar(refs[:1]) == contar(refs) == 1

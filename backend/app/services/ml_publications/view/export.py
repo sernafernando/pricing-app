@@ -22,6 +22,7 @@ from typing import Any, Callable, Iterator, Mapping, Optional, Sequence
 from app.services.ml_daily_metrics import board
 from app.services.ml_daily_metrics.kpi_strip import round_money, round_pp
 from app.services.ml_publications.listing_kind import kind_label
+from app.services.ml_publications.view import real_so
 from app.services.ml_publications.view.ads import AdsAvailability, AdsCostProvider
 from app.utils.csv_cells import csv_money, csv_text
 
@@ -79,8 +80,8 @@ def _worst(item: Mapping[str, Any]) -> str:
 
 
 def _siso_worst(item: Mapping[str, Any]) -> str:
-    """Markup actual c/ SISO: its worst variation, "Pendiente" when it has no value because a unit's sell in / sell
-    out could not be priced (as the list says), empty otherwise."""
+    """Markup actual c/ SO: its worst variation, "Pendiente" when it has no value because a unit's sell out could
+    not be priced (as the list says), empty otherwise."""
     siso = item.get("markup_siso") or {}
     if siso.get("worst") is None and siso.get("pending"):
         return "Pendiente"
@@ -88,9 +89,10 @@ def _siso_worst(item: Mapping[str, Any]) -> str:
 
 
 def _sell_shown(row: Any) -> Optional[float]:
-    """Markup real 30D c/ SISO as the views show it: the Board's `markup_sell`, the plain markup where neither
+    """Markup real 30D c/ SO as the views show it (D1, `real_so.markup_so`), the plain markup where no sell out
     applies (Auditoría's rule)."""
-    return round_pp(row.markup_sell if row.markup_sell is not None else row.markup)
+    shown = real_so.markup_so(row)
+    return round_pp(shown if shown is not None else row.markup)
 
 
 def _metric(read: Callable[[board.Row], Any]) -> Callable[[Any, Optional[board.Row]], Any]:
@@ -114,11 +116,11 @@ ITEM_COLUMNS: tuple[Column, ...] = (
     Column("SKU distinto", lambda i, m: _divergence(i)),
     Column("Precio", lambda i, m: _money(i["price"]["amount"])),
     Column("Markup actual", lambda i, m: _worst(i), margin=True),
-    Column("Markup actual c/ SISO", lambda i, m: _siso_worst(i), margin=True),
+    Column("Markup actual c/ SO", lambda i, m: _siso_worst(i), margin=True),
     Column("Ventas 7D", _metric(lambda m: m.windows["7d"]), sales=True),
     Column("Ventas 30D", _metric(lambda m: m.windows["30d"]), sales=True),
     Column("Markup real 30D", _metric(lambda m: _money(round_pp(m.markup))), sales=True, margin=True),
-    Column("Markup real 30D c/ SISO", _metric(lambda m: _money(_sell_shown(m))), sales=True, margin=True),
+    Column("Markup real 30D c/ SO", _metric(lambda m: _money(_sell_shown(m))), sales=True, margin=True),
     Column("Facturado 30D", _metric(lambda m: _money(round_money(m.gross))), sales=True),
     Column("Total Gauss 30D", _metric(lambda m: _money(round_money(m.tg))), sales=True, margin=True),
     Column("Última venta", _metric(lambda m: _iso(m.last_sale_at)), sales=True),
@@ -139,7 +141,7 @@ PRODUCT_COLUMNS: tuple[Column, ...] = (
     Column("Ventas 7D", lambda r, has: r.windows["7d"] if has else "", sales=True),
     Column("Ventas 30D", lambda r, has: r.windows["30d"] if has else "", sales=True),
     Column("Markup real 30D", lambda r, has: _money(round_pp(r.markup)) if has else "", sales=True, margin=True),
-    Column("Markup real 30D c/ SISO", lambda r, has: _money(_sell_shown(r)) if has else "", sales=True, margin=True),
+    Column("Markup real 30D c/ SO", lambda r, has: _money(_sell_shown(r)) if has else "", sales=True, margin=True),
     Column("Facturado 30D", lambda r, has: _money(round_money(r.gross)) if has else "", sales=True),
     Column("Total Gauss 30D", lambda r, has: _money(round_money(r.tg)) if has else "", sales=True, margin=True),
     Column("Última venta", lambda r, has: _iso(r.last_sale_at) if has else "", sales=True),
@@ -357,7 +359,7 @@ def stock_audit_lines(
         header += ["Días de cobertura ERP", "Días de cobertura Full", "Rotación ERP", "Rotación Full"]
         if margin:
             header += ["Total Gauss 30D", "Markup real 30D", "Markup actual mín", "Markup actual máx"]
-            header += ["Markup actual c/ SISO mín", "Markup actual c/ SISO máx"]
+            header += ["Markup actual c/ SO mín", "Markup actual c/ SO máx"]
 
     def yes_no(value: Optional[bool]) -> Optional[str]:
         return None if value is None else ("Sí" if value else "No")

@@ -21,7 +21,9 @@ Afiná con los filtros:
 
 Mirá las tarjetas de totales: cantidad de ventas, facturado bruto, neto de ML, Total Gauss, markup promedio y las ventas que todavía no tienen Total Gauss utilizable. Las ventas sin cobro efectivo se cuentan aparte.
 
-En la tabla, cada fila muestra el producto (con SKU y MLA; si hay varios, un cartel +N productos), la orden, el comprador, el estado, el envío, el importe, el neto y el Total Gauss.
+En la tabla, cada fila muestra el producto (con SKU y MLA; si hay varios, un cartel +N productos), la orden, el comprador, el estado, el envío, el importe, el neto y el Total Gauss. La columna **Sell out** muestra el sell out que se le asignó a la venta (≈ si el tipo de cambio todavía es estimado, "a definir" si no tiene); en un pack, la suma de sus ventas. No hay columna de sell in: el costo de la venta es el **costo SI**, que ya lo tiene descontado, y el sell out se suma a la ganancia.
+
+En el panel de una venta, el detalle del **costo de mercadería** dice de dónde salió el costo de cada producto: **Costo SI (por publicación)**, **Costo SI (por SKU)** o **Costo SI (combo)** cuando es el costo SI vigente el día de la venta; **ERP** o **Histórico** en las ventas que todavía tienen el costo anterior.
 
 **Limpiar filtros** vuelve al punto de partida.
 

@@ -25,6 +25,7 @@ from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.mercadolibre_order_detail import MercadoLibreOrderDetail
 from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
 from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
+from app.models.ml_costo_si import MlCostoSiDirty
 from app.models.ml_venta_metrica import MLVentaMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.models.notificacion import Notificacion
@@ -46,7 +47,13 @@ from app.models.tipo_cambio import TipoCambio
 from app.models.usuario import Usuario
 from tests.services.sell._schema import throwaway_schema
 
-STUBS = ["CREATE TABLE roles (id INTEGER PRIMARY KEY)"]
+STUBS = [
+    "CREATE TABLE roles (id INTEGER PRIMARY KEY)",
+    # `despues.despachar` runs every area's callback; the ML publications one (`despues/pubml.py`) reads the links
+    # first and stops when the product has none, as here.
+    "CREATE TABLE ml_item_product_links (item_id TEXT, variation_id BIGINT DEFAULT 0, producto_item_id INTEGER,"
+    " match_status TEXT DEFAULT 'linked', PRIMARY KEY (item_id, variation_id))",
+]
 
 TABLES = [
     Usuario.__table__,
@@ -87,6 +94,7 @@ TABLES = [
     Notificacion.__table__,
     PricingConstants.__table__,
     MarcaPM.__table__,
+    MlCostoSiDirty.__table__,  # the ML sales callback (`despues/ml_ventas`) queues here on every dispatch
 ]
 
 _ids = itertools.count(700_000)

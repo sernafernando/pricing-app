@@ -81,10 +81,10 @@ def cost_lines_by_publication(pricing_db: Session, rows: Sequence[Any]) -> Optio
             store_of = {str(r.item_id): stores.get(str(r.item_id)) for r in linked}
             contextos = {store: [("ml", store)] for store in set(store_of.values())}
             ids = sorted(products)
-            batches = resolver_sell_in_out_por_contexto(pricing_db, ids, date.today(), contextos)
             ppp = resolver_ppp_batch(pricing_db, ids)
             rate = obtener_tipo_cambio_actual(pricing_db, "USD")
-            costos = lote.actuales(pricing_db, ids, tipo_cambio=rate)
+            costos = lote.actuales(pricing_db, ids, tipo_cambio=rate)  # one read: the column and the sell in / out
+            batches = resolver_sell_in_out_por_contexto(pricing_db, ids, date.today(), contextos, costos=costos)
             return {
                 str(r.item_id): _lines(
                     r.producto_item_id, products, ppp, batches[store_of[str(r.item_id)]], rate, costos
@@ -99,9 +99,9 @@ def cost_lines_by_publication(pricing_db: Session, rows: Sequence[Any]) -> Optio
 def _cost_lines(pricing_db: Session, products: Mapping[int, tuple[Any, Any, Any]]) -> dict[int, dict[str, Any]]:
     ids = sorted(products)
     ppp = resolver_ppp_batch(pricing_db, ids)
-    sell_in_out = resolver_sell_in_out_batch(pricing_db, ids, date.today())
     rate = obtener_tipo_cambio_actual(pricing_db, "USD")
-    costos = lote.actuales(pricing_db, ids, tipo_cambio=rate)
+    costos = lote.actuales(pricing_db, ids, tipo_cambio=rate)  # one read: the column and the sell in / out
+    sell_in_out = resolver_sell_in_out_batch(pricing_db, ids, date.today(), costos=costos)
     return {item_id: _lines(item_id, products, ppp, sell_in_out, rate, costos) for item_id in ids}
 
 

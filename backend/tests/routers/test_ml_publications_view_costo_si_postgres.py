@@ -123,9 +123,11 @@ class _NoSellIn:
 
 @pytest.fixture(autouse=True)
 def no_sell_in(monkeypatch) -> None:
-    monkeypatch.setattr(module, "resolver_sell_in_out_batch", lambda db, ids, hoy: _NoSellIn())
+    monkeypatch.setattr(module, "resolver_sell_in_out_batch", lambda db, ids, hoy, **_: _NoSellIn())
     monkeypatch.setattr(
-        module, "resolver_sell_in_out_por_contexto", lambda db, ids, hoy, contextos: {k: _NoSellIn() for k in contextos}
+        module,
+        "resolver_sell_in_out_por_contexto",
+        lambda db, ids, hoy, contextos, **_: {k: _NoSellIn() for k in contextos},
     )
 
 
@@ -178,7 +180,11 @@ def fill_sort(conn) -> None:
     for item_id, costo, moneda in ((80, 10, "USD"), (81, 15000, "ARS"), (82, 20, "USD"), (83, None, "USD")):
         seed.add_product(conn, item_id, f"C{item_id}", f"Producto {item_id}")
         seed.add_cost(conn, item_id, costo, moneda_costo=moneda)
-    conn.execute(text("INSERT INTO costo_si_pasos VALUES (80, 0, '2026-10-01', 30, 'USD')"))
+    conn.execute(
+        text(
+            "INSERT INTO costo_si_pasos (item_id, orden, fecha, promedio_usd, moneda) VALUES (80, 0, '2026-10-01', 30, 'USD')"
+        )
+    )
     for number in range(1, 6):
         seed.add_item(conn, f"MLA{number}", title=f"Item {number}")
     for mla, product in (("MLA1", 80), ("MLA2", 81), ("MLA3", 82), ("MLA4", 83)):
@@ -233,7 +239,11 @@ def audit_costo_si(client, pg, db, rol_admin, admin_auth_headers, started, monke
     seed_rows(pg, audit_fill)
     with pg.begin() as conn:
         conn.execute(text(PASOS_DDL))
-        conn.execute(text("INSERT INTO costo_si_pasos VALUES (100, 0, '2026-10-01', 900, 'USD')"))
+        conn.execute(
+            text(
+                "INSERT INTO costo_si_pasos (item_id, orden, fecha, promedio_usd, moneda) VALUES (100, 0, '2026-10-01', 900, 'USD')"
+            )
+        )
     grant(db, rol_admin, PERMISO)
     real = lote.actuales
     asked: list[list[int]] = []

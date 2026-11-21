@@ -11,6 +11,7 @@ pricing database. Same harness as `test_ml_publications_view_markup.py`.
 from __future__ import annotations
 
 from datetime import date, datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -155,7 +156,10 @@ def falla(monkeypatch, nombre: str) -> None:
     def roto(*args, **kwargs):
         raise OperationalError("SELECT", {}, Exception(f"{nombre} down"))
 
-    monkeypatch.setattr(module.lote if nombre == "actuales" else module, nombre, roto)  # the costo SI reader
+    if nombre == "actuales":  # the cost lines' costo SI read only: the markups read the same reader on their own
+        monkeypatch.setattr(module, "lote", SimpleNamespace(actuales=roto))
+    else:
+        monkeypatch.setattr(module, nombre, roto)
     if nombre == "resolver_sell_in_out_batch":  # the publication rows read every store's sell in / out at once
         monkeypatch.setattr(module, "resolver_sell_in_out_por_contexto", roto)
 
