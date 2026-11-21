@@ -2,9 +2,10 @@
 `costo_si.despues.ventas_tienda_nube_metricas` (one module per registered name). After a costo SI recompute: re-cost the stored ventas fuera ML and Tienda Nube metrics of the product from that date
 on (owner L15: "se tienen que recalcular todos los costos posteriores"; sell-in-costo-si T3 PR 9).
 
-The metrics crons only re-read their window; this callback re-costs every stored row (`ventas_fuera_ml_metricas`,
-`ventas_tienda_nube_metricas`) of a GBP sale dated on or after the first changed date whose lines hold the product or
-a combo that contains it (`lote.combos_con`, S11), with no window. It runs inline in the recompute's transaction (like
+The metrics crons only re-read their window; this callback re-costs the stored rows (`ventas_fuera_ml_metricas`,
+`ventas_tienda_nube_metricas`) of GBP sales dated on or after the first changed date whose line is the product or a
+combo that contains it (`lote.combos_con`, S11), or belongs to a GBP group holding one, with no window. Other products
+of the same invoice keep their stored cost (a manual one included). It runs inline in the recompute's transaction (like
 the legacy ML metrics of T3 PR 8, `metricas_ml_legacy`):
 
 1. the new cost of those sales comes from the cron's own query (`obtener_*` restricted to their transactions), so
@@ -52,11 +53,18 @@ _FORMULAS = {
     ),
 }
 
-_TRANSACCIONES = """
-SELECT DISTINCT m.ct_transaction FROM {tabla} m
+# The stored lines whose cost depends on the product: its own lines (or a combo of it), and every line of a GBP group
+# (the crons' group: `it_isassociationgroup` lines of one transaction) holding one. Other products of the same invoice
+# keep their stored cost, a manual one included.
+_LINEAS = """
+SELECT m.ct_transaction, m.it_transaction FROM {tabla} m
+JOIN tb_item_transactions tit ON tit.it_transaction = m.it_transaction
 WHERE m.fecha_venta >= :desde
-  AND EXISTS (SELECT 1 FROM tb_item_transactions tit
-              WHERE tit.ct_transaction = m.ct_transaction AND {item} = ANY(:items))"""
+  AND ({item} = ANY(:items)
+       OR (tit.it_isassociationgroup IS TRUE
+           AND EXISTS (SELECT 1 FROM tb_item_transactions g
+                       WHERE g.ct_transaction = tit.ct_transaction AND g.it_isassociationgroup IS TRUE
+                         AND {item_g} = ANY(:items))))"""
 
 _RECOSTEO = """
 WITH n AS (
@@ -101,20 +109,28 @@ def _sql(tabla: str):
 
 
 _SQL = {tabla: _sql(tabla) for tabla in (FUERA, TN)}
-_SQL_TRANSACCIONES = {
-    tabla: text(_TRANSACCIONES.format(tabla=tabla, item=costo_si_gbp.GBP_ITEM.format(t="tit"))).bindparams(
-        bindparam("items", type_=ARRAY(BigInteger))
-    )
+_SQL_LINEAS = {
+    tabla: text(
+        _LINEAS.format(
+            tabla=tabla, item=costo_si_gbp.GBP_ITEM.format(t="tit"), item_g=costo_si_gbp.GBP_ITEM.format(t="g")
+        )
+    ).bindparams(bindparam("items", type_=ARRAY(BigInteger)))
     for tabla in (FUERA, TN)
 }
 
 
 def _recostear(db: Session, item_id: int, desde: date, *, tabla: str, obtener: Callable[..., Sequence[Any]]) -> None:
     items = [item_id, *lote.combos_con(db, [item_id]).get(item_id, [])]
-    cts = list(db.execute(_SQL_TRANSACCIONES[tabla], {"desde": desde, "items": items}).scalars())
-    if not cts:
+    lineas = db.execute(_SQL_LINEAS[tabla], {"desde": desde, "items": items}).all()
+    if not lineas:
         return
-    nuevas = {fila.it_transaction: fila for fila in obtener(db, datetime.combine(desde, time.min), _HASTA_SIEMPRE, cts)}
+    cts = sorted({ln.ct_transaction for ln in lineas})
+    its = {ln.it_transaction for ln in lineas}
+    nuevas = {
+        fila.it_transaction: fila
+        for fila in obtener(db, datetime.combine(desde, time.min), _HASTA_SIEMPRE, cts)
+        if fila.it_transaction in its
+    }
     if not nuevas:
         return
     filas = list(nuevas.values())

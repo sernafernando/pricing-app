@@ -24,7 +24,7 @@ Filtros: fecha, vendedores y, en Detalle de Operaciones, solo sin costo.
 
 Columnas de operaciones: fecha y comprobante, sucursal y vendedor, cliente, código, producto, marca, categoría y subcategoría, cantidad, precio unitario, IVA, total sin IVA, método de pago, comisión de Tienda Nube (con su % debajo), costo, ganancia y markup. Los montos se ven en pesos con separador de miles.
 
-El costo sale del costo SI del producto en el día de la venta (si no tiene, del costo de lista), pasado a pesos con el dólar de ese día, × 1,065. Si no hay costo (por ejemplo, falta el dólar del día), la columna Costo dice **Sin costo** y la ganancia y el markup se ven como **—**: no se pueden calcular. Si después cambia el costo SI de un producto (por ejemplo, se corrige un sell in o una factura de compra), las operaciones de ese producto desde esa fecha se recalculan solas.
+El costo sale del costo SI del producto en el día de la venta (si no tiene, del costo de lista), pasado a pesos con el dólar de ese día, × 1,065. Si no hay costo (por ejemplo, falta el dólar del día), la columna Costo dice **Sin costo** y la ganancia y el markup se ven como **—**: no se pueden calcular. Si después cambia el costo SI de un producto (por ejemplo, se corrige un sell in o una factura de compra), las operaciones de ese producto desde esa fecha se recalculan solas (los demás productos de la misma venta no se tocan; un costo cargado a mano en las líneas de ese producto se reemplaza por el recalculado).
 
 ## Botones y acciones
 

@@ -658,6 +658,30 @@ def test_despues_recosts_the_stored_metrics_of_the_product_from_the_changed_date
 
 
 @pytest.mark.parametrize("cron,df_id", CANALES)
+def test_despues_recosts_only_the_product_lines_of_a_shared_invoice(engine: Engine, db: Session, cron, df_id) -> None:
+    """Another product on the same invoice keeps its stored cost (a manual one included); a GBP group whose
+    components include the product is re-costed, even when its principal is not a combo of it."""
+    nb, otro, principal, *_ = _venta(
+        engine,
+        df_id,
+        [{"item": NB, "precio": "30000"}, {"item": MOUSE, "precio": "30000"}] + _grupo(None, [(NB, "1"), (MOUSE, "2")]),
+        dia=DESPUES,
+    )
+    _guardar(db, cron)
+    _run(engine, f"UPDATE {_tabla(cron)} SET costo_total = 7 WHERE it_transaction = :i", i=otro)  # a manual cost
+    del_otro = _fila(db, cron, otro)
+    _paso(engine, NB, "20", "USD", fecha="2026-10-04", orden=1)
+
+    _recostear(db, cron)
+
+    assert tuple(_fila(db, cron, otro)) == tuple(del_otro)
+    assert _fila(db, cron, nb).costo_total == Decimal("20000") * D
+    assert _fila(db, cron, principal).costo_total == _cron(db, cron)[principal][1].quantize(Decimal("0.01"))
+    ((_, _, _, pasos),) = _backups(db)
+    assert otro not in {p["it_transaction"] for p in pasos}
+
+
+@pytest.mark.parametrize("cron,df_id", CANALES)
 def test_despues_a_second_call_with_nothing_changed_writes_nothing(engine: Engine, db: Session, cron, df_id) -> None:
     _venta(engine, df_id, [{"item": NB, "precio": "30000"}], dia=DESPUES)
     _guardar(db, cron)
