@@ -28,7 +28,7 @@ La columna **Costo SI**, al lado de **Costo**, muestra el costo SI del producto 
 
 La columna **Costo** ocupa una sola línea: el costo en su moneda y, si el producto tiene sell in hoy, al lado y más chico **c/ sell in** con el costo que queda, en la misma moneda (con el mouse encima, el costo con sell in en pesos, el descuento por unidad y de dónde sale). Debajo del markup de **Sugerido**, **Gremio** y **Web Transf.** aparece el markup **c/ SO** si el producto tiene sell out hoy: el sell out sumado a la ganancia, sobre el **costo SI** del producto. El sell in no se resta del costo (ya está dentro del costo SI), así que no hay markup «c/ sell in» aparte. Se calcula con el neto de cada precio de Tienda, no con el de Mercado Libre: en Sugerido y Gremio, el precio sin IVA sin el % de varios; en Web Transf., el precio sin IVA menos la comisión de Tienda Nube y el % de varios. El sell out de Sugerido y Gremio sale de los tacticals que aplican a ventas por fuera, y el de Web Transf. de los que aplican a Tienda Nube; un tactical solo para tiendas oficiales de Mercado Libre no suma acá. Un sell out que es un % del precio usa el precio con IVA de esa columna.
 
-Los markups de las cuotas y el markup de un precio gremio cargado a mano se calculan sobre el **costo SI** en pesos (el costo promedio con sell in; si el producto no tiene, su costo de lista). El precio gremio cargado a mano no cambia. Si el costo SI está en dólares y no hay tipo de cambio, esos markups quedan vacíos: nunca se calculan sobre el costo de lista ni sobre 0.
+Los precios **Gremio** y **Sugerido**, los markups de las cuotas y el markup de un precio gremio cargado a mano se calculan sobre el **costo SI** en pesos (el costo promedio con sell in; si el producto no tiene, su costo de lista). Gremio = costo SI × (1 + varios) × (1 + markup gremio); Sugerido = costo SI × (1 + varios) × (1 + markup clásica + markup sugerido). Ordenar por Gremio o Sugerido usa esos mismos precios, y **Exportar** (Lista Gremio y Lista Sugerido) da los mismos números. El precio gremio cargado a mano no cambia. Si el costo SI está en dólares y no hay tipo de cambio, o el producto no tiene costo, no hay precio Gremio ni Sugerido y esos markups quedan vacíos: nunca se calculan sobre el costo de lista ni sobre 0.
 
 Filtros avanzados: presencia (Rebate, Mejor Oferta, Web Transferencia, Tienda Nube, Out of Cards), markup y estado. Filtro de auditoría por usuario, tipo y rango de fechas.
 
@@ -37,7 +37,7 @@ Filtros avanzados: presencia (Rebate, Mejor Oferta, Web Transferencia, Tienda Nu
 - **Exportar**: exporta el listado.
 - **Calcular Web Transf.**: cálculo masivo (si tenés permiso).
 - **Resetear Precios Gremio**: elimina todos los precios gremio manuales (si tenés permiso).
-- Editar en línea: precios gremio, cuotas, web/transferencia, markup sugerido; ✓ guarda, ✗ cancela.
+- Editar en línea: precios gremio, cuotas, web/transferencia, markup sugerido; ✓ guarda, ✗ cancela. Con Ctrl + clic en el Gremio se carga un markup y el precio se arma sobre el costo SI; sin costo SI en pesos no se puede, cargá el precio.
 - **Toggle Rebate**, **Toggle Web Transferencia**, **Toggle Out of Cards**.
 - Asignar color a un producto o a varios seleccionados.
 - Configurar cuotas individuales desde el ícono de configuración.
