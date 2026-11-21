@@ -152,7 +152,7 @@ MOTIVO_COSTO_CERO = "costo_congelado_cero"
 FUENTES_EN_VIVO = frozenset({FUENTE_PUBLICACION, FUENTE_SKU, FUENTE_COMBO, *FUENTES_COSTO_SI})
 
 # Post-correction hole reasons, best-effort (a real second pass through
-# `_resolve_cost` is private on purpose -- these are the same public
+# `_resolve_cost_en_fecha` is private on purpose -- these are the same public
 # predicates `congelar()` itself uses, read back to explain a hole this
 # script observes rather than to duplicate its resolution logic).
 HUECO_SIN_VINCULACION = "hueco_sin_vinculacion_erp"
@@ -254,7 +254,7 @@ def _diagnose_hueco(
     combos = componentes_por_combo(db, erp_ids_sin_costo)
 
     # A combo declaration alone does not mean the combo can be COSTED --
-    # `_resolve_cost` (`costeo_service`) only accepts it when EVERY
+    # the costo SI reader (`costo_si.lote`) only sums it when EVERY
     # component itself has a real cost. Fetching the components' own
     # `ProductoERP` rows here (one bulk query, never per item) is what lets
     # this diagnosis tell "no combo declared" apart from "combo declared but
@@ -370,7 +370,7 @@ def run_repair(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_BA
             # deletes either (defect 3), so the number the operator sees
             # matches what a real run would actually remove. It deliberately
             # does NOT simulate the re-`congelar()` outcome: that would mean
-            # duplicating `_resolve_cost`'s private resolution logic just to
+            # duplicating `_resolve_cost_en_fecha`'s private resolution logic just to
             # predict its answer without writing, which risks the exact "two
             # paths that can disagree" this whole module refuses elsewhere.
             # Run with `--apply` to see real recongelado/hueco counts.
