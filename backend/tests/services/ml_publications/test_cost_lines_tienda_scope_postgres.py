@@ -19,12 +19,14 @@ from app.models.tactical import TacticalTienda
 from app.services import ml_promotions_pricing
 from app.services.ml_publications.view import detail, listing
 from app.services.ml_publications.view.detail import LINK_ITEM_LEVEL
+from app.models.cur_exch_history import CurExchHistory
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _world as si
 from tests.services.sell_out import _world as so
 from tests.services.test_productos_sell_in_out_postgres import STUBS, TABLES, _install as _install_base
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 (the costo SI reader's SQLite stand-in)
 
-pytestmark = pytest.mark.postgres
+pytestmark = [pytest.mark.postgres, pytest.mark.usefixtures("costo_si_lista")]
 
 ROUTER = 2964  # cost 50000 ARS, VAT 21
 GAUSS, TPLINK = 57997, 2645
@@ -52,9 +54,13 @@ def _install(engine: Engine) -> None:
 def engine() -> Iterator[Engine]:
     with throwaway_schema(
         "cost_lines_tienda",
-        list(
-            dict.fromkeys([*TABLES, MlTiendaOficial.__table__, TacticalTienda.__table__, ItemCostListHistory.__table__])
-        ),
+        [
+            *TABLES,
+            MlTiendaOficial.__table__,
+            TacticalTienda.__table__,
+            ItemCostListHistory.__table__,
+            CurExchHistory.__table__,  # the costo SI reader's ERP rate fallback
+        ],
         STUBS,
         after=_install,
     ) as engine:
