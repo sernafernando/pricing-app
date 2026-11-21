@@ -5,9 +5,9 @@ aplicar sobre costo si"), read through `app.services.costo_si.lote`, the one rea
   (owner L18), in pesos at that date's USD rate; without costo SI the list cost (`fuente` 'lista', interface Q1);
   unknown (no cost, or a dollar cost without a rate) -> 0, as a line without cost always was;
 - a combo that is not a PC = its components x quantity (the reader, S11), UNLESS the same document brings its
-  breakdown (owner L19: "claro si el combo trae el desglose no tomarlo, si no lo trae sí"): when one of its
-  components is also a line of that document, the combo line costs 0 and its components carry the cost
-  (`combos_desglosados`).
+  breakdown (owner L19: "claro si el combo trae el desglose no tomarlo, si no lo trae sí"): when EVERY one of its
+  components is also a line of that document, the combo line costs 0 and its components carry the cost; with only
+  some of them the combo is costed whole and logged (`combos_desglosados`).
 
 The line's `precio_costo` = unit cost x `cantidad`, the Precio Costo WITHOUT the 6.5%: every screen applies Costo D
 (x `COSTO_D_FACTOR`) on top, as before. The PDF's "Precio Costo" is not a cost; it stays in `precio_costo_pdf` only as

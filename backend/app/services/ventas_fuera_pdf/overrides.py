@@ -22,7 +22,7 @@ from typing import Iterable, Optional
 
 from sqlalchemy import and_, delete, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.venta_fuera_pdf import (
     VentaFueraCodigoMapeo,
@@ -288,7 +288,10 @@ def _recordar(db: Session, linea: VentaFueraOperacionLinea, item_id: int, usuari
     )
     otras = (
         db.execute(
-            select(VentaFueraOperacionLinea).where(
+            select(VentaFueraOperacionLinea)
+            # their documents and all their lines in two queries: the breakdown check reads them (`_desglosados`)
+            .options(selectinload(VentaFueraOperacionLinea.operacion).selectinload(VentaFueraOperacion.lineas))
+            .where(
                 VentaFueraOperacionLinea.item_id.is_(None),
                 VentaFueraOperacionLinea.id != linea.id,
                 clave_mapeo_sql(VentaFueraOperacionLinea.codigo, VentaFueraOperacionLinea.articulo) == clave,
