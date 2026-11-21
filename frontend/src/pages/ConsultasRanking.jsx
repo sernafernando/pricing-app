@@ -873,7 +873,9 @@ function DetalleTable({ items, total, loading, error, ordenColumnas, handleOrden
                   <CostCell
                     valorCostoArs={item.valor_costo_ars}
                     valorCostoUsd={item.valor_costo_usd}
-                    sinCosto={(item.total_stock ?? 0) > 0}
+                    // Unknown cost only (`moneda_costo` null), as `productos_sin_costo` counts it; a known USD cost
+                    // without the page rate has no valuation but is not "Sin costo"
+                    sinCosto={(item.total_stock ?? 0) > 0 && item.moneda_costo == null}
                   />
                 </td>
                 <td className={`${styles.td} ${styles.tdRight} ${styles.tdMono}`}>

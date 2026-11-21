@@ -89,4 +89,21 @@ describe('TabRentabilidadTiendaNube with sales without cost', () => {
     expect(texto(full)).toContain('$ 650');
     expect(texto(full)).toContain('67.54%');
   });
+
+  it('totals without any costed sale colour no ganancia green: null is not a profit', async () => {
+    const sinCosto = { costo_total: null, ganancia: null, markup_promedio: null, ganancia_con_offset: null, markup_con_offset: null, offset_total: -100 };
+    vi.mocked(api.get).mockImplementation((url) =>
+      Promise.resolve({
+        data: url.endsWith('/filtros')
+          ? { marcas: [], categorias: [], subcategorias: [] }
+          : { ...RESPUESTA, totales: { ...RESPUESTA.totales, ...sinCosto } },
+      }),
+    );
+    renderTab();
+
+    for (const etiqueta of ['Ganancia', 'Ganancia c/Offset']) {
+      const valor = (await screen.findByText(etiqueta, { selector: 'span' })).nextElementSibling;
+      expect(valor.style.color).toBe('');
+    }
+  });
 });

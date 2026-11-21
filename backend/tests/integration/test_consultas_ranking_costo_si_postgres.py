@@ -1,7 +1,7 @@
 """Consultas > Ranking values the stock at costo SI (sell-in-costo-si T3 PR 10, unit B; owner L4.7: "El promedio es el
 que se va a mostrar y usar en todos los cálculos donde se use costo"). `/consultas/ranking`, `/ranking/resumen` and
-`/ranking/kpis` read the cost through the reader (`services/costo_si/lote.sql_en_fecha`), at the page's own USD rate;
-a stocked product without any cost is "Sin costo": its valuation stays null, it is never summed as 0 and every total
+`/ranking/kpis` read the current cost through the reader (`services/costo_si/lote.sql_actual_fila`, as `lote.actuales`
+reads it), at the page's own USD rate; a stocked product without any cost is "Sin costo": its valuation stays null, it is never summed as 0 and every total
 counts it apart (`productos_sin_costo`). Runs the real SQL on a throwaway Postgres schema. Invented data only."""
 
 from __future__ import annotations

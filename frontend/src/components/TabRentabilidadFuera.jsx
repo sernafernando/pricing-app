@@ -615,7 +615,7 @@ export default function TabRentabilidadFuera({ fechaDesde, fechaHasta, sucursal,
                   </div>
                   <div className={styles.totalItem}>
                     <span className={styles.totalLabel}>Ganancia c/Offset</span>
-                    <span className={styles.totalValor} style={{ color: puedeVerGanancia ? (rentabilidad.totales.ganancia_con_offset >= 0 ? '#22c55e' : '#ef4444') : undefined }}>
+                    <span className={styles.totalValor} style={{ color: puedeVerGanancia && rentabilidad.totales.ganancia_con_offset != null ? (rentabilidad.totales.ganancia_con_offset >= 0 ? '#22c55e' : '#ef4444') : undefined }}>
                       {puedeVerGanancia ? conCosto(rentabilidad.totales.ganancia_con_offset, formatMoney) : '***'}
                     </span>
                   </div>

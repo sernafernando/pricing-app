@@ -94,6 +94,20 @@ describe('ConsultasRanking — Sin costo', () => {
     expect(within(conCosto).queryByLabelText('Sin costo')).toBeNull();
   });
 
+  it('a known USD cost without the page rate is not "Sin costo", like the backend count', async () => {
+    // valuation null (no tc_venta) but the cost is known: `productos_sin_costo` does not count it either
+    service.getRanking.mockResolvedValue({
+      items: [{ ...fila(4, 'SINTASA', 5, null, null), moneda_costo: 'USD' }],
+      total: 1,
+      page: 1,
+      page_size: 50,
+    });
+    render(<ConsultasRanking />);
+
+    const sinTasa = (await screen.findByText('SINTASA')).closest('tr');
+    expect(within(sinTasa).queryByLabelText('Sin costo')).toBeNull();
+  });
+
   it('the capital KPI card says how many products are not in its sum', async () => {
     render(<ConsultasRanking />);
 
