@@ -7,11 +7,11 @@ One SQL piece for the four raw queries that used to carry their own list-cost LA
 
 - `join(alias, item, fecha)`: `LEFT JOIN LATERAL` of `costo_si.lote.sql_en_fecha`, the cost in force on the sale date
   in the product's currency (owner L18) at that date's rate, list cost when there is no costo SI (interface Q1), a
-  combo that is not a PC = its components x quantity (S11);
+  combo = its components x quantity (S11; a PC too, L22);
 - `costo_unitario_ars(alias, item, comp, ct, grupo)`: that cost in pesos, NULL when unknown (no costo SI or list
   cost, or no USD rate: interface §7, never 0), 0 for a line without a product (as before), and 0 for a combo whose breakdown the same sale brings (owner L19: "claro si el combo trae el
   desglose no tomarlo, si no lo trae sí"): every one of its components is another line of the same transaction that
-  is costed too (`_desglosado`). A PC (cat 47) is its own product, as today;
+  is costed too (`_desglosado`), a PC included (L22: "las pcs son la suma de sus componentes el costo");
 - `suma_grupo(costo)` / `costo_grupo(alias)`: an association group's cost, NULL when any of its lines is unknown;
 - `tipo_cambio_en(fecha)`: the reader's USD rate on that date, the one the crons store as `cotizacion_dolar`;
 - `avisar_costos_desconocidos(filas, origen)`: logs a row whose cost is unknown (stored NULL);
@@ -29,7 +29,6 @@ from typing import Any, Iterable, Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.services.combos.pcs import CAT_PC
 from app.services.costo_si import lote
 from app.services.ventas_fuera_pdf.costo_erp import combos_desglosados
 
@@ -74,11 +73,6 @@ def _desglosado(item: str, comp: str, ct: str, grupo: str, *, en_grupo: bool) ->
                   WHERE d.comp_id = {comp} AND d.ct_transaction = {ct} AND {alcance}
                     AND {otra} = cc.componente_item_id
               )
-        )
-        AND NOT EXISTS (
-            SELECT 1 FROM (SELECT DISTINCT ON (t.item_id) t.cat_id FROM tb_item t
-                           WHERE t.item_id = {item} ORDER BY t.item_id, t.comp_id) pc
-            WHERE pc.cat_id = {CAT_PC}
         )
     )"""
 

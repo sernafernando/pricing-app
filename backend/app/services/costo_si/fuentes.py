@@ -72,9 +72,16 @@ def inicio_del_dia(dia: date) -> datetime:
 
 
 def es_combo(db: Session, item_id: int) -> bool:
-    """A combo that is not a PC: no costo SI of its own (S11)."""
+    """A combo, a PC included: its costo SI is its components' sum, read at read time (S11; L22 "las pcs son la suma
+    de sus componentes el costo")."""
     combo = db.execute(text("SELECT 1 FROM combo_componentes WHERE combo_item_id = :i LIMIT 1"), {"i": item_id}).first()
-    return combo is not None and item_id not in pcs_entre(db, [item_id])
+    return combo is not None
+
+
+def sin_historia(db: Session, item_id: int) -> bool:
+    """No history of its own: a combo, or a PC even without a bill of materials (L22: a PC's cost is never its own
+    average, never frozen at L21's start)."""
+    return es_combo(db, item_id) or bool(pcs_entre(db, [item_id]))
 
 
 # ---------------------------------------------------------------------------------------------------------- start
@@ -528,8 +535,8 @@ def disponible(db: Session, item_id: int, dia: date) -> int:
 
 def inicio_de(db: Session, item_id: int) -> Optional[date]:
     """The product's start: its first sell-in date, `INICIO_SIN_SELL_IN` when no sell in reaches it (L21), None for
-    a combo (S11)."""
-    if es_combo(db, item_id):
+    a combo or a PC (S11, L22)."""
+    if sin_historia(db, item_id):
         return None
     return primera_fecha_sell_in(db, item_id, bonos_de(db, item_id)) or INICIO_SIN_SELL_IN
 
@@ -545,9 +552,9 @@ class Entrada:
 
 
 def entrada(db: Session, item_id: int) -> Optional[Entrada]:
-    """The engine's input for `item_id`, None for a combo (S11). The start is the first sell in's date (S2), or
+    """The engine's input for `item_id`, None for a combo or a PC (S11, L22). The start is the first sell in's date (S2), or
     `INICIO_SIN_SELL_IN` for a product no sell in reaches (L21): no bonus then, so no invoice carries a discount."""
-    if es_combo(db, item_id):
+    if sin_historia(db, item_id):
         return None
     bonos = bonos_de(db, item_id)
     inicio_fecha = primera_fecha_sell_in(db, item_id, bonos) or INICIO_SIN_SELL_IN

@@ -10,7 +10,8 @@ One rule, written once as SQL (`sql_en_fecha`, `actual`) and run by the Python r
   `moneda_costo`; on a date = the last list 1 history row created before the end of that day (`curr_id` 1/NULL ARS,
   else USD), else the current one.
 - A combo that is not a PC (S11, L4.9, L7.1) = its components x quantity, each resolved the same way on the same date;
-  costo SI only when every component is; unknown when any component is. A PC (cat 47) is its own product.
+  costo SI only when every component is; unknown when any component is (logged). A PC (cat 47) is a combo here (L22:
+  "las pcs son la suma de sus componentes el costo"); one without a bill of materials keeps its list cost.
 - Pesos: ARS as is; USD x the USD rate (`tipo_cambio`, venta > 0, the last one on or before the date, else the ERP's
   USD -> ARS `tb_cur_exch_history`, like the metrics crons; current: the latest, or the caller's). Without a rate the
   peso value is unknown (NULL, logged by the Python readers): never 0, never the USD number.
@@ -31,7 +32,6 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.selectable import Subquery
 
-from app.services.combos.pcs import CAT_PC, pcs_entre
 
 logger = logging.getLogger(__name__)
 
@@ -101,12 +101,8 @@ def sql_tipo_cambio(fecha: str) -> str:
 
 
 def _es_combo(item: str) -> str:
-    """A combo that takes its components' sum: not of the PC category by its first company row (`pcs_entre`)."""
-    return (
-        f"(EXISTS (SELECT 1 FROM combo_componentes csi_x WHERE csi_x.combo_item_id = {item})"
-        " AND NOT EXISTS (SELECT 1 FROM (SELECT DISTINCT ON (csi_t.item_id) csi_t.cat_id FROM tb_item csi_t"
-        f" WHERE csi_t.item_id = {item} ORDER BY csi_t.item_id, csi_t.comp_id) csi_pt WHERE csi_pt.cat_id = {CAT_PC}))"
-    )
+    """A combo that takes its components' sum, a PC included (L22)."""
+    return f"(EXISTS (SELECT 1 FROM combo_componentes csi_x WHERE csi_x.combo_item_id = {item}))"
 
 
 def _propio(item: str, fecha: Optional[str]) -> str:
@@ -253,6 +249,31 @@ def _avisar_sin_tc(costos) -> None:
         )
 
 
+_COMBOS_ENTRE_SQL = text(
+    "SELECT DISTINCT combo_item_id FROM combo_componentes WHERE combo_item_id = ANY(:ids)"
+).bindparams(bindparam("ids", type_=ARRAY(Integer)))
+
+
+def _avisar_combos_desconocidos(db: Session, costos) -> None:
+    """Log the combos and PCs left without a cost (interfaz §7, L22): a component without one makes the sum unknown,
+    never a partial sum or 0. One warning per date naming every item; no query when every cost is known."""
+    sin = [(c.item_id, fecha) for c, fecha in costos if c.costo is None]
+    if not sin:
+        return
+    combos = {r[0] for r in db.execute(_COMBOS_ENTRE_SQL, {"ids": sorted({i for i, _ in sin})})}
+    por_fecha: Dict[date, List[int]] = {}
+    for item_id, fecha in sin:
+        if item_id in combos:
+            por_fecha.setdefault(fecha, []).append(item_id)
+    for fecha, items in sorted(por_fecha.items()):
+        logger.warning(
+            "costo SI: on %s %d combos/PCs have a component without a cost; their cost is unknown %s",
+            fecha,
+            len(items),
+            sorted(items),
+        )
+
+
 def actuales(db: Session, item_ids: Iterable[int], *, tipo_cambio=None) -> Dict[int, Costo]:
     """The current cost of every id (one query; none for no ids). `tipo_cambio`: the caller's USD rate for
     `costo_ars`; None = the latest one."""
@@ -262,6 +283,7 @@ def actuales(db: Session, item_ids: Iterable[int], *, tipo_cambio=None) -> Dict[
     tc = Decimal(str(tipo_cambio)) if tipo_cambio else None
     out = {r[0]: _costo(r[0], r[1:]) for r in db.execute(_ACTUALES_SQL, {"ids": ids, "tc": tc})}
     _avisar_sin_tc((c, date.today()) for c in out.values())
+    _avisar_combos_desconocidos(db, [(c, date.today()) for c in out.values()])
     return out
 
 
@@ -276,6 +298,7 @@ def en_fechas(db: Session, pares: Iterable[Tuple[int, date]]) -> Dict[Tuple[int,
     filas = db.execute(_EN_FECHAS_SQL, {"items": [i for i, _ in lista], "fechas": [f for _, f in lista]})
     out = {(r[0], r[1]): _costo(r[0], r[2:]) for r in filas}
     _avisar_sin_tc((c, f) for (_, f), c in out.items())
+    _avisar_combos_desconocidos(db, [(c, f) for (_, f), c in out.items()])
     return out
 
 
@@ -296,16 +319,13 @@ _COMBOS_CON_SQL = text(
 
 
 def combos_con(db: Session, item_ids: Iterable[int]) -> Dict[int, List[int]]:
-    """Component -> the combos (not PCs) that contain it: what a change to the component's cost also moves."""
+    """Component -> the combos (PCs included, L22) that contain it: what a change to the component's cost also moves."""
     ids = sorted({int(i) for i in item_ids if i is not None})
     if not ids:
         return {}
-    filas = list(db.execute(_COMBOS_CON_SQL, {"ids": ids}))
-    pcs = pcs_entre(db, {combo for _, combo in filas})
     out: Dict[int, List[int]] = {}
-    for componente, combo in filas:
-        if combo not in pcs:
-            out.setdefault(componente, []).append(combo)
+    for componente, combo in db.execute(_COMBOS_CON_SQL, {"ids": ids}):
+        out.setdefault(componente, []).append(combo)
     return out
 
 
@@ -351,9 +371,6 @@ def sql_actual_conjunto(ids: str, tipo_cambio: str = "NULL::numeric") -> str:
     csi_combo AS (
         SELECT csi_q.item_id FROM csi_q
         WHERE EXISTS (SELECT 1 FROM combo_componentes csi_x WHERE csi_x.combo_item_id = csi_q.item_id)
-          AND NOT EXISTS (SELECT 1 FROM (SELECT DISTINCT ON (csi_t.item_id) csi_t.cat_id FROM tb_item csi_t
-              WHERE csi_t.item_id = csi_q.item_id ORDER BY csi_t.item_id, csi_t.comp_id) csi_pt
-              WHERE csi_pt.cat_id = {CAT_PC})
     ),
     csi_necesarios AS (
         SELECT csi_q.item_id FROM csi_q WHERE csi_q.item_id NOT IN (SELECT item_id FROM csi_combo)

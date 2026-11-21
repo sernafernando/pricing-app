@@ -58,7 +58,7 @@ def _mundo(engine: Engine) -> None:
     """A (USD): three steps, two on 10-10 (the later `orden` wins), list cost 30. B (USD): one step from 10-05, list
     cost 11. SIN (USD): no costo SI, list 40 today, history 35 (10-01 09:00) and 38 (10-05). ARSP (ARS): costo SI
     15000 from 10-01, list 14000. ARSLISTA (ARS): list 20000. NADA: no cost at all. Combos: COMBO = 2 A + B,
-    COMBO_LISTA = A + SIN, COMBO_MIX = A + ARSP, COMBO_INCOMPLETO = A + NADA. PC (cat 47, contains A): its own 300.
+    COMBO_LISTA = A + SIN, COMBO_MIX = A + ARSP, COMBO_INCOMPLETO = A + NADA. PC (cat 47, contains A): A's cost (L22), never its own stored 300.
     USD rate 1000 from 10-01, 1500 from 10-10."""
     w.producto(engine, A, costo="30")
     w.producto(engine, B, costo="11")
@@ -129,7 +129,7 @@ def test_actuales_resolves_costo_si_then_list_cost_in_each_products_currency(eng
         COMBO_LISTA: Costo(COMBO_LISTA, D("63.08687"), "USD", LISTA, None, tc, D("63.08687") * tc, D10_10),
         COMBO_MIX: Costo(COMBO_MIX, D("49630.30500"), "ARS", SI, None, None, D("49630.30500")),
         COMBO_INCOMPLETO: _nada(COMBO_INCOMPLETO),
-        PC: Costo(PC, D("300"), "USD", SI, date(2026, 10, 1), tc, D("450000"), D10_10),
+        PC: Costo(PC, D("23.08687"), "USD", SI, None, tc, D("23.08687") * tc, D10_10),  # L22: the sum of its components
         999: _nada(999),
     }
 
@@ -184,7 +184,7 @@ def test_en_fechas_is_the_cost_in_force_that_day_at_that_days_rate(engine: Engin
         (COMBO_MIX, date(2026, 9, 30)): _nada(COMBO_MIX),
         (COMBO_MIX, date(2026, 10, 7)): Costo(COMBO_MIX, D("40000"), "ARS", SI, None, None, D("40000")),
         (COMBO_INCOMPLETO, date(2026, 10, 20)): _nada(COMBO_INCOMPLETO),
-        (PC, date(2026, 10, 2)): Costo(PC, D("300"), "USD", SI, date(2026, 10, 1), mil, D("300000"), D10_01),
+        (PC, date(2026, 10, 2)): Costo(PC, D("25"), "USD", SI, None, mil, D("25000"), D10_01),  # L22: A on 10-02
     }
 
 
@@ -303,12 +303,12 @@ def test_actual_subquery_sorts_a_listing_by_the_peso_cost_in_sql(engine: Engine)
         ).all()
 
     assert [tuple(r) for r in rows] == [
-        (PC, SI, D("450000")),
         (COMBO_LISTA, LISTA, D("94630.30500")),
         (COMBO, SI, D("84445.78500")),
         (SIN, LISTA, D("60000")),
         (COMBO_MIX, SI, D("49630.30500")),
         (A, SI, D("34630.30500")),
+        (PC, SI, D("34630.30500")),  # L22: A x 1
         (ARSLISTA, LISTA, D("20000")),
         (B, SI, D("15185.17500")),
         (ARSP, SI, D("15000")),
@@ -624,11 +624,11 @@ def test_the_fragment_never_captures_the_callers_alias(engine: Engine, alias: st
     assert got == esperado
 
 
-def test_combos_con_lists_the_combos_a_component_moves_but_not_pcs(engine: Engine) -> None:
+def test_combos_con_lists_the_combos_and_pcs_a_component_moves(engine: Engine) -> None:
     _mundo(engine)
     with _db(engine) as db:
         assert lote.combos_con(db, [A, SIN, ARSLISTA]) == {
-            A: [COMBO, COMBO_LISTA, COMBO_MIX, COMBO_INCOMPLETO],
+            A: [COMBO, COMBO_LISTA, COMBO_MIX, COMBO_INCOMPLETO, PC],  # L22: a PC moves with its components
             SIN: [COMBO_LISTA],
         }
         assert lote.combos_con(db, []) == {}
@@ -647,3 +647,41 @@ def test_every_column_stays_behind_the_cost_permission() -> None:
     """C12: the MCP tools strip every `costo*` key without `productos.ver_costos`."""
     for key in (*lote.COLUMNAS, "costo_si", "costo_si_moneda", "costo_si_fuente"):
         assert mcp_tools._COST_KEY.search(key), key
+
+
+# --- L22: a PC costs the sum of its components ("las pcs son la suma de sus componentes el costo") -----------------
+
+PC_SIN_BOM, PC_INCOMPLETA = 5216, 5217
+
+
+def test_l22_a_pc_with_an_unknown_component_is_unknown_and_logged_never_its_own_cost(engine: Engine, caplog) -> None:
+    """Interfaz §7: one component without a cost makes the PC's cost unknown (never its own list cost, never 0), and
+    the read says so in the log."""
+    _mundo(engine)
+    w.producto(engine, PC_INCOMPLETA, cat_id=47, costo="500")
+    for componente in (A, NADA):
+        w.run(
+            engine,
+            "INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (:c, :p, 1)",
+            c=PC_INCOMPLETA,
+            p=componente,
+        )
+
+    with _db(engine) as db, caplog.at_level("WARNING"):
+        actual = lote.actuales(db, [PC_INCOMPLETA])[PC_INCOMPLETA]
+        en_fecha = lote.en_fechas(db, [(PC_INCOMPLETA, date(2026, 10, 20))])[(PC_INCOMPLETA, date(2026, 10, 20))]
+
+    assert actual == _nada(PC_INCOMPLETA) and en_fecha == _nada(PC_INCOMPLETA)
+    assert any(str(PC_INCOMPLETA) in r.getMessage() and "component" in r.getMessage() for r in caplog.records)
+
+
+def test_l22_a_pc_without_a_bill_of_materials_reads_its_list_cost(engine: Engine) -> None:
+    """No components to add up: no costo SI of its own either (the engine never computes one for a PC), so the
+    reader keeps its list cost, as before L21."""
+    _mundo(engine)
+    w.producto(engine, PC_SIN_BOM, cat_id=47, costo="500")
+
+    with _db(engine) as db:
+        got = lote.actuales(db, [PC_SIN_BOM])[PC_SIN_BOM]
+
+    assert (got.costo, got.moneda, got.fuente) == (D("500"), "USD", LISTA)

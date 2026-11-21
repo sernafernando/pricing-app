@@ -278,7 +278,8 @@ def test_full_is_walked_back_from_the_next_daily_photo_not_from_today(engine: En
 
 def test_combos_never_add_their_stock_to_the_components_and_have_no_history(engine: Engine) -> None:
     """S11 (L7.1): "No tenés que sumar stock del combo x cantidad": the combo's own Full publication (10 x 2 units)
-    stays out of the component's stock; the combo gets no costo SI rows of its own; a PC is its own product."""
+    stays out of the component's stock; neither the combo nor the PC gets costo SI rows of its own (L22: a PC is the
+    sum of its components, like a combo)."""
     w.producto(engine, P)
     w.producto(engine, COMBO)
     w.producto(engine, PC, cat_id=47)
@@ -300,7 +301,7 @@ def test_combos_never_add_their_stock_to_the_components_and_have_no_history(engi
 
     assert w.pasos(engine, P)[0][2] == 50
     assert w.pasos(engine, COMBO) == []
-    assert w.pasos(engine, PC)[0][-1] == D("300.00000")
+    assert w.pasos(engine, PC) == []
 
 
 def test_a_late_sell_in_recomputes_from_its_date_and_backs_up_what_it_replaces(engine: Engine) -> None:
@@ -1019,3 +1020,56 @@ def test_l21_an_invoice_dated_before_11_01_entering_after_it_counts_as_start_sto
     _recalcular(engine, SIN_SELL_IN)
 
     assert w.pasos(engine, SIN_SELL_IN) == [("inicio", date(2026, 11, 1), 200, 200, D("25.00000"), D("25.00000"))]
+
+
+# --- L22: a PC never has a history of its own; its cost is its components' sum, read at read time ------------------
+
+PC_L22, PC_L22_SIN_BOM = 5106, 5107
+
+
+def test_l22_the_engine_never_computes_a_pc_history_with_or_without_components(engine: Engine) -> None:
+    """With a bill of materials or without one, no sell in and a list cost on 11-01: no history of its own (L21's
+    start would freeze it at the 11-01 list), and the components keep theirs."""
+    _sin_sell_in(engine)
+    for pc in (PC_L22, PC_L22_SIN_BOM):
+        w.producto(engine, pc, cat_id=47)
+        w.costo_lista(engine, pc, datetime(2026, 10, 15, 9, 0), "360")
+    w.run(
+        engine,
+        "INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (:c, :p, 2)",
+        c=PC_L22,
+        p=SIN_SELL_IN,
+    )
+
+    for item in (SIN_SELL_IN, PC_L22, PC_L22_SIN_BOM):
+        _recalcular(engine, item)
+
+    assert w.pasos(engine, PC_L22) == [] and w.pasos(engine, PC_L22_SIN_BOM) == []
+    assert w.pasos(engine, SIN_SELL_IN)[-1][5] == D("24.00000")
+    with sessionmaker(bind=engine)() as db:
+        assert fuentes.inicio_de(db, PC_L22) is None and fuentes.inicio_de(db, PC_L22_SIN_BOM) is None
+        assert lectura_costo(db, PC_L22) == (D("48.00000"), "USD")  # 2 x 24, at read time
+
+
+def lectura_costo(db, item_id: int):
+    from app.services.costo_si import lectura
+
+    leido = lectura.leer(db, item_id, HOY)
+    return leido.costo_si_usd, leido.moneda
+
+
+def test_l22_a_component_change_re_costs_the_pcs_that_contain_it(engine: Engine) -> None:
+    """The callbacks re-cost a combo when a component's cost changes (`lote.combos_con`): a PC now too."""
+    from app.services.costo_si import lote
+
+    w.producto(engine, SIN_SELL_IN)
+    w.producto(engine, PC_L22, cat_id=47)
+    w.run(
+        engine,
+        "INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (:c, :p, 1)",
+        c=PC_L22,
+        p=SIN_SELL_IN,
+    )
+
+    with sessionmaker(bind=engine)() as db:
+        assert lote.combos_con(db, [SIN_SELL_IN]) == {SIN_SELL_IN: [PC_L22]}

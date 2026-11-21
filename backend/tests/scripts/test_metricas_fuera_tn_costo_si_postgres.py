@@ -96,7 +96,8 @@ DIA = datetime(2026, 10, 5)
 DESDE, HASTA = "2026-10-01", "2026-10-31"
 DF_FUERA, DF_TN = 1, 113
 # NB (USD) costo SI 10 USD, list 12; MOUSE (ARS product, L18) costo SI 5,000 ARS; SIN_SI (USD) list 3 only;
-# COMBO = NB + 2 MOUSE (= 20,000 ARS); PC (cat 47) = NB + MOUSE, its own list cost 50 USD. USD at 1,000.
+# COMBO = NB + 2 MOUSE (= 20,000 ARS); PC (cat 47) = NB + MOUSE (= 15,000 ARS, L22; its own list 50 USD unused).
+# USD at 1,000.
 NB, MOUSE, SIN_SI, COMBO, PC = 801, 802, 803, 810, 811
 NB_ARS, MOUSE_ARS, COMBO_ARS = Decimal("10000"), Decimal("5000"), Decimal("20000")
 D = Decimal("1.065")
@@ -384,19 +385,24 @@ def test_cron_group_total_without_costo_si_stays_what_it_was(engine: Engine, db:
 
 
 @pytest.mark.parametrize("cron,df_id", CANALES)
-def test_cron_a_pc_keeps_its_own_cost_as_today(engine: Engine, db: Session, cron, df_id) -> None:
-    """A PC (cat 47) is its own product: never its components, never skipped (as before)."""
+def test_cron_a_pc_costs_the_sum_of_its_components(engine: Engine, db: Session, cron, df_id) -> None:
+    """L22 ("las pcs son la suma de sus componentes el costo"): a PC sold as one line costs NB + MOUSE, never its own
+    list cost (50 USD)."""
     (pc,) = _venta(engine, df_id, [{"item": PC}])
 
-    assert _cron(db, cron)[pc][1] == Decimal("50000") * D
+    assert _cron(db, cron)[pc][1] == (NB_ARS + MOUSE_ARS) * D
 
 
 @pytest.mark.parametrize("cron,df_id", CANALES)
-def test_cron_a_pc_sold_with_its_parts_still_keeps_its_own_cost(engine: Engine, db: Session, cron, df_id) -> None:
-    """L19 is for combos: a PC's own line is never dropped, even when its parts are lines of the same sale."""
-    pc, *_ = _venta(engine, df_id, [{"item": PC}, {"item": NB}, {"item": MOUSE}])
+def test_cron_a_pc_sold_with_its_parts_costs_0_like_a_combo(engine: Engine, db: Session, cron, df_id) -> None:
+    """L22 + L19: a PC is costed like a combo, so with its parts as lines of the same sale its own line costs 0 and
+    the parts carry the cost: never counted twice."""
+    pc, nb, mouse = _venta(engine, df_id, [{"item": PC}, {"item": NB}, {"item": MOUSE}])
 
-    assert _cron(db, cron)[pc][1] == Decimal("50000") * D
+    costos = _cron(db, cron)
+
+    assert costos[pc] == (Decimal(0), Decimal(0))
+    assert (costos[nb][1], costos[mouse][1]) == (NB_ARS * D, MOUSE_ARS * D)
 
 
 def test_cron_stores_the_costo_si_cost_and_currency(engine: Engine, db: Session) -> None:
