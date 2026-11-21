@@ -486,8 +486,10 @@ describe('MetricasML page', () => {
     await screen.findByText('Impresora Multifunción Epson EcoTank L3250 Color Negro');
 
     expect(screen.queryByText('Próximamente')).not.toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: /Costo c\/ sell in/ })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: /Markup c\/ sell in\/out/ })).toBeInTheDocument();
+    // Costo SI T3 D1: the group is the sell out added to the profit ("c/ SO") over costo SI, no sell in column.
+    expect(screen.getByRole('columnheader', { name: /Total c\/ SO/ })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /Markup c\/ SO/ })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /sell in/i })).not.toBeInTheDocument();
   });
 });
 
