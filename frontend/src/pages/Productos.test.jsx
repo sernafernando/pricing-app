@@ -1194,8 +1194,8 @@ describe('CS-13: sell in / sell out companion lines', () => {
     const costo = screen.getByText('c/ sell in USD $8.50').parentElement;
     expect(costo.textContent).toBe('USD $10.00 c/ sell in USD $8.50'); // one line, in the cost's currency (S10b)
     expect(costo.getAttribute('title')).toContain('c/ sell in en pesos: ARS $850.50');
-    expect(screen.getByText('c/ sell in: 20.50%')).toBeInTheDocument();
-    expect(screen.getByText('c/ sell in + sell out: 25.25%')).toBeInTheDocument();
+    expect(screen.queryByText('c/ sell in: 20.50%')).not.toBeInTheDocument(); // D1: no markup c/ sell in
+    expect(screen.getByText('c/ SO: 25.25%')).toBeInTheDocument();
   });
 
   it('shows the costo SI in its own column right after the list cost, and sorts by it (S13 two columns)', async () => {

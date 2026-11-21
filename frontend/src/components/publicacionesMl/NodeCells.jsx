@@ -198,7 +198,7 @@ export function NodeSummary({ column, node }) {
   return null;
 }
 
-/** Markup actual c/ SISO range of the node's publications: the list's cell. */
+/** Markup actual c/ SO range of the node's publications: the list's cell. */
 export function NodeSisoMarkup({ node }) {
   if (node.markupSiso == null) return <SisoMarkupCell siso={null} />;
   return <SisoMarkupCell siso={{ ...node.markupSiso, pending: 0, applies: null }} />;

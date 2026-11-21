@@ -60,7 +60,7 @@ export function SellInOutMarkup({ sellInOut }) {
 }
 
 /**
- * `SellInOutMarkup` with its "c/ sell in/out" label, or nothing at all when there is nothing to show (no sell in nor
+ * `SellInOutMarkup` with its "c/ SO" label, or nothing at all when there is nothing to show (no sell in nor
  * sell out today), so the label never stands alone.
  */
 export function SellInOutMarkupLine({ sellInOut, className, labelClassName, labelTitle }) {
@@ -69,7 +69,7 @@ export function SellInOutMarkupLine({ sellInOut, className, labelClassName, labe
   return (
     <span className={className}>
       <span className={labelClassName} title={labelTitle}>
-        c/ sell in/out{' '}
+        c/ SO{' '}
       </span>
       {value}
     </span>

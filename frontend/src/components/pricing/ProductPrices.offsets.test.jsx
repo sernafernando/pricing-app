@@ -11,7 +11,10 @@ import ProductPrices from './ProductPrices';
 import { priceOf } from './priceTestUtils';
 import { pricePermissions } from './productPricePermissions';
 import { offsetsGananciaAPI, preciosAPI } from '../../services/api';
-import { PRODUCTO } from './ProductPrices.fixtures';
+import { PRODUCTO as FIXTURE } from './ProductPrices.fixtures';
+
+// The offsets apply over the costo SI (FE3): here it equals the list cost, 64.000, so the figures below read on it.
+const PRODUCTO = { ...FIXTURE, costo_si: { ...FIXTURE.costo_si, costo: 64000, costo_ars: 64000 } };
 
 vi.mock('../../services/api', () => ({
   preciosAPI: {

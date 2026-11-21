@@ -579,7 +579,7 @@ describe('PromoApplyControl', () => {
       await user.type(input, '850');
       await vi.advanceTimersByTimeAsync(400);
 
-      expect(await screen.findByText('Tu markup: 22.5% · c/ sell in/out 26.0%')).toBeInTheDocument();
+      expect(await screen.findByText('Tu markup: 22.5% · c/ SO 26.0%')).toBeInTheDocument();
     });
 
     it('shows no sell in / sell out figure when the backend sends null', async () => {
@@ -596,7 +596,7 @@ describe('PromoApplyControl', () => {
       await vi.advanceTimersByTimeAsync(400);
 
       expect(await screen.findByText('Tu markup: 22.5%')).toBeInTheDocument();
-      expect(screen.queryByText(/sell in\/out/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/c\/ SO/)).not.toBeInTheDocument();
     });
 
     it('sends the entered deal_price on confirm', async () => {

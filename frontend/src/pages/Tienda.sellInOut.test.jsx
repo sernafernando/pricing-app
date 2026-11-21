@@ -83,16 +83,15 @@ describe('Tienda sell in / sell out', () => {
   it('shows the extra profit per key, with sell out only where that key has one', async () => {
     const fila = await renderFila(CON_SELL_IN_OUT);
 
-    expect(within(fila).getByText('c/ sell in: 33.33%')).toBeInTheDocument();
-    expect(within(fila).getByText('c/ sell in + sell out: 38.89%')).toBeInTheDocument();
-    expect(within(fila).getByText('c/ sell in: 44.44%')).toBeInTheDocument();
-    expect(within(fila).getByText('c/ sell in + sell out: 50.00%')).toBeInTheDocument();
-    expect(within(fila).getByText('c/ sell in: 27.12%')).toBeInTheDocument();
-    // web_transf has no sell out: only two "sell in + sell out" lines in the row.
-    expect(within(fila).getAllByText(/c\/ sell in \+ sell out/)).toHaveLength(2);
+    expect(within(fila).getByText('c/ SO: 38.89%')).toBeInTheDocument();
+    expect(within(fila).getByText('c/ SO: 50.00%')).toBeInTheDocument();
+    // D1: no markup c/ sell in line, and web_transf has no sell out: only two "c/ SO" lines in the row.
+    expect(within(fila).queryByText(/^c\/ sell in:/)).not.toBeInTheDocument();
+    expect(within(fila).queryByText(/27\.12%/)).not.toBeInTheDocument();
+    expect(within(fila).getAllByText(/c\/ SO/)).toHaveLength(2);
   });
 
-  it('labels the markup "c/ sell out" when the row has sell out but no sell in', async () => {
+  it('labels the markup "c/ SO" when the row has sell out but no sell in', async () => {
     const fila = await renderFila({
       ...BASE,
       item_id: 3,
@@ -106,7 +105,7 @@ describe('Tienda sell in / sell out', () => {
       },
     });
 
-    expect(within(fila).getByText('c/ sell out: 25.50%')).toBeInTheDocument();
+    expect(within(fila).getByText('c/ SO: 25.50%')).toBeInTheDocument();
     expect(within(fila).queryByText(/c\/ sell in/)).not.toBeInTheDocument();
     expect(within(fila).getByText('USD $10.00')).toBeInTheDocument();
   });
@@ -125,9 +124,9 @@ describe('Tienda sell in / sell out', () => {
       },
     });
 
-    const lineas = within(fila).getAllByText(/c\/ sell out/);
+    const lineas = within(fila).getAllByText(/c\/ SO/);
     expect(lineas).toHaveLength(1);
-    expect(lineas[0]).toHaveTextContent('c/ sell out: 26.50%');
+    expect(lineas[0]).toHaveTextContent('c/ SO: 26.50%');
     expect(lineas[0].closest('.web-transf-info')).not.toBeNull();
   });
 

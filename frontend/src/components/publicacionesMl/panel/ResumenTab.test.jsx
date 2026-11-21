@@ -38,7 +38,7 @@ const MORE_ML = 'Más datos de Mercado Libre';
 const openMoreMl = () => fireEvent.click(screen.getByRole('button', { name: /Más datos de Mercado Libre/ }));
 /** The sell in parts of the Rentabilidad: the cost line after Costo, the markup line after Markup. */
 const sellInCost = () => within(valueOf('Rentabilidad', 'Costo')).getByText(/c\/ sell in/);
-const sellInOutMarkup = () => within(valueOf('Rentabilidad', 'Markup')).getByText('c/ sell in/out').parentElement;
+const sellInOutMarkup = () => within(valueOf('Rentabilidad', 'Markup')).getByText('c/ SO').parentElement;
 const attention = () => screen.queryByRole('region', { name: 'Atención' });
 const attentionItems = () => within(attention()).getAllByRole('listitem').map((li) => li.textContent);
 

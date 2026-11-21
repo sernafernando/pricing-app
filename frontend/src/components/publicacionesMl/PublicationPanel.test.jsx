@@ -694,7 +694,7 @@ describe('header figures (S1)', () => {
       });
       renderPanel({ tab: 'resumen' });
       await screen.findByRole('region', { name: 'Cifras de la publicación' });
-      expect(figure('Precio')).toBe('$ 98.500,50Markup 26,5%c/ sell in/out 32,8%');
+      expect(figure('Precio')).toBe('$ 98.500,50Markup 26,5%c/ SO 32,8%');
     });
 
     it('S9: with sell in only, the markup with sell in', async () => {
@@ -704,7 +704,7 @@ describe('header figures (S1)', () => {
       });
       renderPanel({ tab: 'resumen' });
       await screen.findByRole('region', { name: 'Cifras de la publicación' });
-      expect(figure('Precio')).toBe('$ 98.500,50Markup 26,5%c/ sell in/out 29,6%');
+      expect(figure('Precio')).toBe('$ 98.500,50Markup 26,5%c/ SO 29,6%');
     });
 
     it('S9: no sell in nor sell out today, no extra line under the markup', async () => {
@@ -738,7 +738,7 @@ describe('header figures (S1)', () => {
       await screen.findByRole('region', { name: 'Cifras de la publicación' });
       const hint = 'Unidad calculada: variación 77, la de peor markup';
       expect(within(figures()).getByText('$ 64.000,00')).toHaveAttribute('title', `Costo del producto en pesos. ${hint}`);
-      expect(within(figures()).getByText('c/ sell in/out', { exact: false })).toHaveAttribute('title', hint);
+      expect(within(figures()).getByText('c/ SO', { exact: false })).toHaveAttribute('title', hint);
     });
 
     it("S10: a USD cost reads in USD, its cost with sell in in USD too, the pesos only in the cost's tooltip", async () => {

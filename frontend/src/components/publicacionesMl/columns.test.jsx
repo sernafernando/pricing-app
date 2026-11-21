@@ -69,12 +69,12 @@ describe('layout', () => {
     expect(headers(['unidades_7d', 'unidades_30d', 'units_trend'])).toEqual(['7D', '30D', 'Tendencia']);
     expect(headers(['markup', 'markup_siso', 'markup_30d', 'markup_sell_30d', 'markup_trend'])).toEqual([
       'Actual',
-      'Actual c/ SISO',
+      'Actual c/ SO',
       'Real 30D',
-      'Real 30D c/ SISO',
+      'Real 30D c/ SO',
       'Tendencia',
     ]);
-    expect([columns.markup_siso.label, columns.markup_sell_30d.label]).toEqual(['Markup actual c/ SISO', 'Markup real 30D c/ SISO']);
+    expect([columns.markup_siso.label, columns.markup_sell_30d.label]).toEqual(['Markup actual c/ SO', 'Markup real 30D c/ SO']);
     expect(headers(['facturado_30d', 'total_gauss_30d', 'last_sale', 'ageing'])).toEqual(['Facturado 30D', 'Total Gauss 30D', 'Última venta', 'Ageing']);
     expect(headers(['stock_erp', 'stock_full', 'stock_total'])).toEqual(['ERP', 'Full', 'Total']);
     const labels = (list) => list.map((key) => columns[key].label);
@@ -122,7 +122,7 @@ describe('layout', () => {
     for (const key of ['unidades_7d', 'unidades_30d', 'markup_30d', 'markup_sell_30d', 'facturado_30d', 'total_gauss_30d']) {
       expect(DEFAULT_DIRECTION[key]).toBe('desc');
     }
-    // the markup c/ SISO, like the plain one: the worst first
+    // the markup c/ SO, like the plain one: the worst first
     expect([DEFAULT_DIRECTION.markup, DEFAULT_DIRECTION.markup_siso]).toEqual(['asc', 'asc']);
   });
 });

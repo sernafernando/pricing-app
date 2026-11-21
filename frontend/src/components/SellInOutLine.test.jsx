@@ -5,7 +5,7 @@ import SellInOutLine from './SellInOutLine';
 const SELL_IN = { compra_item_id: 7, descuento_unit: 150, costo: 850.5, unidades_restantes: 12 };
 const SELL_OUT = { monto_unit: 40, campana_ids: [3, 5] };
 
-describe('SellInOutLine — sell in / sell out companion line', () => {
+describe('SellInOutLine — sell out markup companion line (D1: markups over costo SI)', () => {
   it('renders nothing when sell_in_out is null (row unchanged)', () => {
     const { container } = render(<SellInOutLine sellInOut={null} />);
     expect(container.innerHTML).toBe('');
@@ -17,7 +17,7 @@ describe('SellInOutLine — sell in / sell out companion line', () => {
   });
 
   describe('markup mode', () => {
-    it('shows the markup with sell in and with sell in + sell out for the key', () => {
+    it('shows only the markup c/ SO for the key, never a "c/ sell in" markup', () => {
       render(
         <SellInOutLine
           sellInOut={{
@@ -29,12 +29,13 @@ describe('SellInOutLine — sell in / sell out companion line', () => {
           markupKey="clasica"
         />
       );
-      expect(screen.getByText('c/ sell in: 20.50%')).toBeTruthy();
-      expect(screen.getByText('c/ sell in + sell out: 25.25%')).toBeTruthy();
+      expect(screen.getByText('c/ SO: 25.25%')).toBeTruthy();
+      expect(screen.queryByText(/c\/ sell in/)).toBeNull();
+      expect(screen.queryByText(/20\.50%/)).toBeNull();
       expect(screen.queryByText(/99\.00%/)).toBeNull();
     });
 
-    it('labels the combined markup "c/ sell out" when there is no sell in', () => {
+    it('labels the markup "c/ SO" when there is no sell in', () => {
       render(
         <SellInOutLine
           sellInOut={{
@@ -46,8 +47,8 @@ describe('SellInOutLine — sell in / sell out companion line', () => {
           markupKey="pvp_cuota_6"
         />
       );
-      expect(screen.getByText('c/ sell out: 12.00%')).toBeTruthy();
-      expect(screen.queryByText(/c\/ sell in/)).toBeNull();
+      expect(screen.getByText('c/ SO: 12.00%')).toBeTruthy();
+      expect(screen.queryByText(/c\/ sell/)).toBeNull();
     });
 
     it('scales the raw-ratio mejor_oferta key by x100', () => {
@@ -62,8 +63,8 @@ describe('SellInOutLine — sell in / sell out companion line', () => {
           markupKey="mejor_oferta"
         />
       );
-      expect(screen.getByText('c/ sell in: 30.00%')).toBeTruthy();
-      expect(screen.getByText('c/ sell in + sell out: 35.50%')).toBeTruthy();
+      expect(screen.getByText('c/ SO: 35.50%')).toBeTruthy();
+      expect(screen.queryByText(/30\.00%/)).toBeNull();
     });
 
     it('shows sell out as pending when its amount is unknown, never a fake number', () => {
@@ -78,11 +79,11 @@ describe('SellInOutLine — sell in / sell out companion line', () => {
           markupKey="clasica"
         />
       );
-      expect(screen.getByText('c/ sell in: 20.50%')).toBeTruthy();
-      const pendiente = screen.getByText('c/ sell in + sell out: pendiente');
+      const pendiente = screen.getByText('c/ SO: pendiente');
       expect(pendiente.getAttribute('title')).toBe(
         'Monto de sell out pendiente: falta el tipo de cambio o la base de la campaña'
       );
+      expect(screen.queryByText(/c\/ sell in/)).toBeNull();
     });
 
     it('names the sell out amount per unit and its campaigns in the tooltip', () => {
@@ -97,13 +98,23 @@ describe('SellInOutLine — sell in / sell out companion line', () => {
           markupKey="clasica"
         />
       );
-      expect(screen.getByText('c/ sell out: 12.00%').getAttribute('title')).toBe(
+      expect(screen.getByText('c/ SO: 12.00%').getAttribute('title')).toBe(
         'Sell out por unidad: ARS $40.00 · Campañas: #3, #5'
       );
     });
 
-    it('shows the markup with sell in as pending when the cost with sell in has no ARS value', () => {
-      render(
+    it('renders nothing for a sell in without sell out, even with a recorded markup', () => {
+      const { container } = render(
+        <SellInOutLine
+          sellInOut={{ sell_in: SELL_IN, sell_out: null, markups_sell_in: { clasica: 20.5 }, markups_sell_in_out: {} }}
+          markupKey="clasica"
+        />
+      );
+      expect(container.innerHTML).toBe('');
+    });
+
+    it('renders nothing for a sell in without ARS cost and no sell out (no pending markup c/ sell in)', () => {
+      const { container } = render(
         <SellInOutLine
           sellInOut={{
             sell_in: { ...SELL_IN, costo: null },
@@ -114,36 +125,23 @@ describe('SellInOutLine — sell in / sell out companion line', () => {
           markupKey="clasica"
         />
       );
-      expect(screen.getByText('c/ sell in: pendiente')).toBeTruthy();
+      expect(container.innerHTML).toBe('');
     });
 
-    it('shows sell in + sell out as pending when the cost with sell in has no ARS value', () => {
+    it('does not mark the sell out markup pending only because the sell in lot has no ARS cost', () => {
       render(
         <SellInOutLine
           sellInOut={{
             sell_in: { ...SELL_IN, costo: null },
             sell_out: SELL_OUT,
             markups_sell_in: {},
-            markups_sell_in_out: {},
+            markups_sell_in_out: { clasica: 14 },
           }}
           markupKey="clasica"
         />
       );
-      expect(screen.getByText('c/ sell in: pendiente')).toBeTruthy();
-      expect(screen.getByText('c/ sell in + sell out: pendiente')).toBeTruthy();
-    });
-
-    it("names the sell in discount in the cost's currency, the pesos beside it, for a USD cost (S10)", () => {
-      const usd = { ...SELL_IN, moneda_costo: 'USD', costo_moneda: 8.5, descuento_unit_moneda: 1.5 };
-      render(
-        <SellInOutLine
-          sellInOut={{ sell_in: usd, sell_out: null, markups_sell_in: { clasica: 20.5 }, markups_sell_in_out: {} }}
-          markupKey="clasica"
-        />
-      );
-      expect(screen.getByText('c/ sell in: 20.50%').getAttribute('title')).toBe(
-        'Descuento de sell in por unidad: USD $1.50 (ARS $150.00) · Unidades restantes del lote: 12'
-      );
+      expect(screen.getByText('c/ SO: 14.00%')).toBeTruthy();
+      expect(screen.queryByText(/pendiente/)).toBeNull();
     });
 
     it('omits a figure whose key was not recorded, without falling back to a sibling key', () => {

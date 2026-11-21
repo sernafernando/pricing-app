@@ -34,7 +34,7 @@ function readAggregates(raw, canSeeMargin) {
   return {
     negativeCount: numberOrNull(raw.negative_count),
     markup: hasRange ? { min: numberOrNull(raw.markup_min), max: numberOrNull(raw.markup_max) } : null,
-    // Markup actual c/ SISO: the range of the node's publications, with the plain markup's rule.
+    // Markup actual c/ SO: the range of the node's publications, with the plain markup's rule.
     markupSiso: hasSiso ? { min: numberOrNull(raw.markup_siso_min), max: numberOrNull(raw.markup_siso_max) } : null,
   };
 }

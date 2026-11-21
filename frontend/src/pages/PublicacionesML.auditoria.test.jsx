@@ -292,7 +292,7 @@ describe('S3-S7: the view', () => {
   it('groups the columns Stock / Valor stock / Ventas / Markup / Resultado, Tipo and Estado included', async () => {
     await audit();
     const all = headers();
-    for (const name of ['Stock (unidades)', 'Valor stock (USD · ARS)', 'Ventas (unidades)', 'Markup con sell in / sell out', 'Resultado', 'Tipo', 'Estado', 'Actual', 'Real 30D', 'Total Gauss 30D']) {
+    for (const name of ['Stock (unidades)', 'Valor stock (USD · ARS)', 'Ventas (unidades)', 'Markup c/ SO', 'Resultado', 'Tipo', 'Estado', 'Actual', 'Real 30D', 'Total Gauss 30D']) {
       expect(all.some((text) => text.includes(name))).toBe(true);
     }
   });

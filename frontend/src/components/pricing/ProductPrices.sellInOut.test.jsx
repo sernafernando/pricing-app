@@ -153,7 +153,7 @@ describe('cost with sell in and sell out per unit', () => {
     const group = await facts();
     expect(group).not.toHaveTextContent('Costo c/ sell in');
     expect(group).not.toHaveTextContent('Sell out por unidad');
-    expect(screen.queryByText('c/ sell in/out')).not.toBeInTheDocument();
+    expect(screen.queryByText('c/ SO')).not.toBeInTheDocument();
   });
 });
 
@@ -161,7 +161,8 @@ describe('markup with sell in and sell out', () => {
   it('shows each row the markup with sell in + sell out of its own key', async () => {
     render(<ProductPrices productItemId={4101} showCost />);
     await screen.findByRole('table', { name: 'Precios por plan' });
-    expect(screen.getAllByText('c/ sell in/out')).toHaveLength(10);
+    expect(screen.getAllByText('c/ SO')).toHaveLength(10);
+    expect(screen.queryByText('c/ sell in/out')).not.toBeInTheDocument();
     await waitFor(async () => expect(sellCell(await priceOf('Clásica'))).toHaveTextContent('28,80%'));
     expect(sellCell(await priceOf('3 cuotas'))).toHaveTextContent('30,60%');
     expect(sellCell(await priceOf('6 cuotas'))).toHaveTextContent('32,90%');
@@ -173,6 +174,13 @@ describe('markup with sell in and sell out', () => {
     // The plain markup and the legacy offset column stay.
     expect((await priceOf('Clásica')).querySelector('[data-col="markup"]')).toHaveTextContent('18,40%');
     expect((await priceOf('Clásica')).querySelector('[data-col="markup-offset"]')).toBeInTheDocument();
+  });
+
+  it('a product without sell out reads "-" with a tooltip naming only the sell out (D1)', async () => {
+    withSellInOut(null);
+    render(<ProductPrices productItemId={4101} showCost />);
+    await waitFor(async () => expect(sellCell(await priceOf('Clásica'))).toHaveTextContent('-'));
+    expect(sellCell(await priceOf('Clásica')).firstChild).toHaveAttribute('title', 'Sin sell out');
   });
 
   it('without sell out shows the markup with sell in', async () => {

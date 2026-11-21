@@ -1428,7 +1428,7 @@
 }
 
 /* The markup with today's sell in / sell out, an extra figure under or next to a promo markup
-   (promos-markup-sell-in-out). Same small secondary label as the Precios tab's "c/ sell in/out". */
+   (promos-markup-sell-in-out). Same small secondary label as the Precios tab's "c/ SO". */
 .sellInOutExtra {
   display: block;
   font-size: 11px;

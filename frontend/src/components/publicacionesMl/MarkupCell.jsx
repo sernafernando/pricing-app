@@ -2,11 +2,11 @@ import { MARKUP_REASONS, UNKNOWN_REASON } from './markupReasons';
 import { formatMarkupRange, partialRangeTitle } from './markupRange';
 import styles from './cells.module.css';
 
-const SISO_TITLE = { true: 'Con sell in / sell out al precio de hoy', false: 'Sin sell in ni sell out: es el markup actual' };
+const SISO_TITLE = { true: 'Con sell out al precio de hoy', false: 'Sin sell out: es el markup actual' };
 
 /**
- * Markup actual c/ SISO of a publication or a group (`markup_siso`: `{min, max, worst, pending, applies}`, only with
- * `ml_metricas.ver_ganancia`): today's price with the sell in / sell out the panel gives each unit. "Pendiente", as
+ * Markup actual c/ SO of a publication or a group (`markup_siso`: `{min, max, worst, pending, applies}`, only with
+ * `ml_metricas.ver_ganancia`): today's price with the sell out the panel gives each unit. "Pendiente", as
  * Precios, when a unit cannot be priced (a missing rate or campaign base) and none has a value.
  */
 export function SisoMarkupCell({ siso }) {

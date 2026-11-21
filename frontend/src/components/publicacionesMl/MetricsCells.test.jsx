@@ -81,17 +81,17 @@ describe('markup', () => {
     expect(screen.getByText('—')).toBeInTheDocument();
   });
 
-  it('Real 30D c/ SISO shows the Board markup with sell in / sell out', () => {
+  it('Real 30D c/ SO shows the Board markup with sell out', () => {
     render(<MarkupRealSisoCell metrics={{ ...METRICS, markup_sell_30d: 26.3 }} />);
-    expect(screen.getByText('26,3%')).toHaveAttribute('title', 'Con sell in / sell out de las ventas de 30 días');
+    expect(screen.getByText('26,3%')).toHaveAttribute('title', 'Con sell out de las ventas de 30 días');
   });
 
-  it('Real 30D c/ SISO is the plain real markup where neither applies, never "—" for that', () => {
+  it('Real 30D c/ SO is the plain real markup where no sell out applies, never "—" for that', () => {
     render(<MarkupRealSisoCell metrics={{ ...METRICS, markup_sell_30d: null }} />);
-    expect(screen.getByText('18,5%')).toHaveAttribute('title', 'Sin sell in ni sell out en las ventas de 30 días');
+    expect(screen.getByText('18,5%')).toHaveAttribute('title', 'Sin sell out en las ventas de 30 días');
   });
 
-  it('Real 30D c/ SISO reads "—" without sales or without a row', () => {
+  it('Real 30D c/ SO reads "—" without sales or without a row', () => {
     const { rerender } = render(<MarkupRealSisoCell metrics={NO_SALES} />);
     expect(screen.getByText('—')).toBeInTheDocument();
     rerender(<MarkupRealSisoCell metrics={null} />);

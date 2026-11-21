@@ -94,7 +94,7 @@ function SellOutAmount({ sellOut }) {
  * so it never reads like a row without price ("—").
  */
 function SellInOutMarkup({ row, price, sellInOut }) {
-  if (!sellInOut) return <NoSellInOut title="Sin sell in ni sell out" />;
+  if (!sellInOut) return <NoSellInOut title="Sin sell out" />;
   // A row without price has no markup at all: nothing is pending there.
   if (isBlank(price)) return <Empty />;
   const conSellOut = sellInOut.markups_sell_in_out?.[row.sellInOut];
@@ -218,7 +218,7 @@ function ProductFacts({ product, showCost, isUsd, rate, action }) {
 
 /**
  * One price of a plan (S2): the amount and its markup under it, then -- for `showCost` -- the markup with offset and
- * with sell in/out, each with its own small label. The amount never wraps. Its editor replaces the amount in place.
+ * with sell out ("c/ SO"), each with its own small label. The amount never wraps. Its editor replaces the amount in place.
  */
 function PriceEntry({ row, product, costo, showCost, canEdit, editing, saving, onStart, onChange, onToggleMode, onSave, onCancel }) {
   const price = product[row.precio];
@@ -316,7 +316,7 @@ function PriceEntry({ row, product, costo, showCost, canEdit, editing, saving, o
       )}
       {showCost && (
         <div className={styles.markupExtra}>
-          <span className={styles.extraLabel}>c/ sell in/out</span>
+          <span className={styles.extraLabel}>c/ SO</span>
           <span data-col="markup-sell-in-out">
             <SellInOutMarkup row={row} price={price} sellInOut={product.sell_in_out} />
           </span>

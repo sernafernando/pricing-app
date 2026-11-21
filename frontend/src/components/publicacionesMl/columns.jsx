@@ -250,8 +250,8 @@ export function buildColumns({
       {
         key: 'markup_siso',
         group: MARKUP,
-        header: 'Actual c/ SISO',
-        label: 'Markup actual c/ SISO',
+        header: 'Actual c/ SO',
+        label: 'Markup actual c/ SO',
         width: 120,
         sortable: true,
         align: 'center',
@@ -273,8 +273,8 @@ export function buildColumns({
         {
           key: 'markup_sell_30d',
           group: MARKUP,
-          header: 'Real 30D c/ SISO',
-          label: 'Markup real 30D c/ SISO',
+          header: 'Real 30D c/ SO',
+          label: 'Markup real 30D c/ SO',
           width: 96,
           sortable: true,
           align: 'center',

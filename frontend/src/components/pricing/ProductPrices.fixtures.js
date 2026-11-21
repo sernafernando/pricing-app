@@ -11,7 +11,8 @@ export const PRODUCTO = {
   costo: 64000,
   costo_ars: 64000,
   // interfaz §6: the cost every markup (and the "markup con offsets", FE3) is over.
-  costo_si: { costo: 64000, moneda: 'ARS', fuente: 'costo_si', desde: '2026-10-01', tipo_cambio: null, tipo_cambio_fecha: null, costo_ars: 64000 },
+  // Below the list cost, as a real costo SI usually is: the two cost figures never read as one price shown twice.
+  costo_si: { costo: 61000, moneda: 'ARS', fuente: 'costo_si', desde: '2026-10-01', tipo_cambio: null, tipo_cambio_fecha: null, costo_ars: 61000 },
   iva: 21,
   stock: 7,
   precio_lista_ml: 98500.5,
