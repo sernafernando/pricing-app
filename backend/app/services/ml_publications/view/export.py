@@ -22,6 +22,7 @@ from typing import Any, Callable, Iterator, Mapping, Optional, Sequence
 from app.services.ml_daily_metrics import board
 from app.services.ml_daily_metrics.kpi_strip import round_money, round_pp
 from app.services.ml_publications.listing_kind import kind_label
+from app.services.ml_publications.view import real_so
 from app.services.ml_publications.view.ads import AdsAvailability, AdsCostProvider
 from app.utils.csv_cells import csv_money, csv_text
 
@@ -79,8 +80,8 @@ def _worst(item: Mapping[str, Any]) -> str:
 
 
 def _siso_worst(item: Mapping[str, Any]) -> str:
-    """Markup actual c/ SISO: its worst variation, "Pendiente" when it has no value because a unit's sell in / sell
-    out could not be priced (as the list says), empty otherwise."""
+    """Markup actual c/ SO: its worst variation, "Pendiente" when it has no value because a unit's sell out could
+    not be priced (as the list says), empty otherwise."""
     siso = item.get("markup_siso") or {}
     if siso.get("worst") is None and siso.get("pending"):
         return "Pendiente"
@@ -88,9 +89,10 @@ def _siso_worst(item: Mapping[str, Any]) -> str:
 
 
 def _sell_shown(row: Any) -> Optional[float]:
-    """Markup real 30D c/ SISO as the views show it: the Board's `markup_sell`, the plain markup where neither
+    """Markup real 30D c/ SO as the views show it (D1, `real_so.markup_so`), the plain markup where no sell out
     applies (Auditoría's rule)."""
-    return round_pp(row.markup_sell if row.markup_sell is not None else row.markup)
+    shown = real_so.markup_so(row)
+    return round_pp(shown if shown is not None else row.markup)
 
 
 def _metric(read: Callable[[board.Row], Any]) -> Callable[[Any, Optional[board.Row]], Any]:
@@ -114,11 +116,11 @@ ITEM_COLUMNS: tuple[Column, ...] = (
     Column("SKU distinto", lambda i, m: _divergence(i)),
     Column("Precio", lambda i, m: _money(i["price"]["amount"])),
     Column("Markup actual", lambda i, m: _worst(i), margin=True),
-    Column("Markup actual c/ SISO", lambda i, m: _siso_worst(i), margin=True),
+    Column("Markup actual c/ SO", lambda i, m: _siso_worst(i), margin=True),
     Column("Ventas 7D", _metric(lambda m: m.windows["7d"]), sales=True),
     Column("Ventas 30D", _metric(lambda m: m.windows["30d"]), sales=True),
     Column("Markup real 30D", _metric(lambda m: _money(round_pp(m.markup))), sales=True, margin=True),
-    Column("Markup real 30D c/ SISO", _metric(lambda m: _money(_sell_shown(m))), sales=True, margin=True),
+    Column("Markup real 30D c/ SO", _metric(lambda m: _money(_sell_shown(m))), sales=True, margin=True),
     Column("Facturado 30D", _metric(lambda m: _money(round_money(m.gross))), sales=True),
     Column("Total Gauss 30D", _metric(lambda m: _money(round_money(m.tg))), sales=True, margin=True),
     Column("Última venta", _metric(lambda m: _iso(m.last_sale_at)), sales=True),
@@ -139,7 +141,7 @@ PRODUCT_COLUMNS: tuple[Column, ...] = (
     Column("Ventas 7D", lambda r, has: r.windows["7d"] if has else "", sales=True),
     Column("Ventas 30D", lambda r, has: r.windows["30d"] if has else "", sales=True),
     Column("Markup real 30D", lambda r, has: _money(round_pp(r.markup)) if has else "", sales=True, margin=True),
-    Column("Markup real 30D c/ SISO", lambda r, has: _money(_sell_shown(r)) if has else "", sales=True, margin=True),
+    Column("Markup real 30D c/ SO", lambda r, has: _money(_sell_shown(r)) if has else "", sales=True, margin=True),
     Column("Facturado 30D", lambda r, has: _money(round_money(r.gross)) if has else "", sales=True),
     Column("Total Gauss 30D", lambda r, has: _money(round_money(r.tg)) if has else "", sales=True, margin=True),
     Column("Última venta", lambda r, has: _iso(r.last_sale_at) if has else "", sales=True),
@@ -299,7 +301,26 @@ def _shown(ventas: Optional[Mapping[str, Any]], sell: str, plain: str) -> Any:
     return ventas.get(sell) if ventas.get(sell) is not None else ventas.get(plain)
 
 
-def stock_audit_lines(rows: Sequence[Mapping[str, Any]], *, sales: bool, margin: bool) -> list[list[Any]]:
+def stock_audit_product_ids(rows: Sequence[Mapping[str, Any]]) -> set[int]:
+    """Every product id of the audit's rows (`stock_audit_lines`' input): base rows and their variants and packs, also
+    under the Marca / Categoría groups, so one costo SI read covers the whole file."""
+    ids: set[int] = set()
+    for row in rows:
+        if row["tipo"] in ("marca", "categoria"):
+            ids |= stock_audit_product_ids([*row.get("categorias", []), *row.get("filas", [])])
+            continue
+        ids.add(row["product_item_id"])
+        ids.update(v["product_item_id"] for v in row["variantes"])
+    return ids
+
+
+def stock_audit_lines(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    sales: bool,
+    margin: bool,
+    costo_si: Optional[Mapping[int, Any]] = None,
+) -> list[list[Any]]:
     """The audit's rows (`stock_audit.row_out`, in the view's order) as sheet lines: the header, then each base row
     followed by its variants and packs. A variant's ERP is the base's and stays empty; its Full and its sales are in
     base units (a pack's times its quantity), as the view shows them. Values the view reads "—" are empty cells,
@@ -307,8 +328,14 @@ def stock_audit_lines(rows: Sequence[Mapping[str, Any]], *, sales: bool, margin:
 
     At the Marca / Categoría levels (auditoria-stock-niveles S5) a row is a group (`stock_audit.group_out`) carrying
     its base rows in `filas` and, a brand, its categories in `categorias`: each group line is followed by its
-    categories' lines (each followed by its products) or its products."""
+    categories' lines (each followed by its products) or its products.
+
+    "Costo SI" and "Moneda costo SI" (sell-in-costo-si T3 PR 2, display only) are each product's current costo SI
+    (`costo_si`: product id -> `lote.Costo`) in its own currency, empty where "Costo" is empty or none is known; the
+    valuation still reads the list cost."""
+    costos = costo_si or {}
     header = ["Tipo", "Código", "Producto", "Producto base", "Cantidad", "Costo", "Moneda costo"]
+    header += ["Costo SI", "Moneda costo SI"]
     header += ["Stock ERP", "Stock Full", "Stock total"]
     header += [
         "Valor ERP USD",
@@ -332,7 +359,7 @@ def stock_audit_lines(rows: Sequence[Mapping[str, Any]], *, sales: bool, margin:
         header += ["Días de cobertura ERP", "Días de cobertura Full", "Rotación ERP", "Rotación Full"]
         if margin:
             header += ["Total Gauss 30D", "Markup real 30D", "Markup actual mín", "Markup actual máx"]
-            header += ["Markup actual c/ SISO mín", "Markup actual c/ SISO máx"]
+            header += ["Markup actual c/ SO mín", "Markup actual c/ SO máx"]
 
     def yes_no(value: Optional[bool]) -> Optional[str]:
         return None if value is None else ("Sí" if value else "No")
@@ -359,12 +386,18 @@ def stock_audit_lines(rows: Sequence[Mapping[str, Any]], *, sales: bool, margin:
             out += [None, None] if siso is None else [siso["min"], siso["max"]]
         return out
 
+    def costo_si_cells(item_id: int, costo: Any) -> list[Any]:
+        found = None if costo is None else costos.get(item_id)
+        if found is None or found.costo is None:
+            return [None, None]
+        return [float(found.costo), found.moneda]
+
     lines: list[list[Any]] = [header]
 
     def group(row: Mapping[str, Any]) -> None:
         erp, full, total = row["erp"], row["full"], row["total"]
         lines.append(
-            [AUDIT_KINDS.get(row["tipo"], row["tipo"]), None, row["descripcion"], None, None, None, None]
+            [AUDIT_KINDS.get(row["tipo"], row["tipo"]), None, row["descripcion"], None, None, None, None, None, None]
             + [erp["unidades"], full["unidades"], total["unidades"]]
             + [erp["usd"], erp["ars"], full["usd"], full["ars"], total["usd"], total["ars"]]
             + [yes_no(row["sin_costo"]), row["publications_count"], yes_no(row["publicacion_activa"])]
@@ -383,7 +416,8 @@ def stock_audit_lines(rows: Sequence[Mapping[str, Any]], *, sales: bool, margin:
         erp, full, total = row["erp"], row["full"], row["total"]
         lines.append(
             [AUDIT_KINDS.get(row["tipo"], row["tipo"]), row["codigo"], row["descripcion"], None, 1, row["costo"]]
-            + [row["moneda_costo"], erp["unidades"], full["unidades"], total["unidades"]]
+            + [row["moneda_costo"], *costo_si_cells(row["product_item_id"], row["costo"])]
+            + [erp["unidades"], full["unidades"], total["unidades"]]
             + [erp["usd"], erp["ars"], full["usd"], full["ars"], total["usd"], total["ars"]]
             + [yes_no(row.get("sin_costo", False)), row["publications_count"], yes_no(row["publicacion_activa"])]
             + [yes_no(row["promo_aplicada"])]
@@ -393,7 +427,8 @@ def stock_audit_lines(rows: Sequence[Mapping[str, Any]], *, sales: bool, margin:
             vfull = v["full"]
             lines.append(
                 [AUDIT_KINDS.get(v["tipo"], v["tipo"]), v["codigo"], v["descripcion"], row["codigo"], v["cantidad"]]
-                + [v["costo"], v["moneda_costo"], None, v["full_unidades_base"], v["full_unidades_base"]]
+                + [v["costo"], v["moneda_costo"], *costo_si_cells(v["product_item_id"], v["costo"])]
+                + [None, v["full_unidades_base"], v["full_unidades_base"]]
                 + [None, None, vfull["usd"], vfull["ars"], vfull["usd"], vfull["ars"]]
                 + [yes_no(v.get("sin_costo", False)), v["publications_count"], None, None]
                 + figures(v["ventas"], v["cantidad"], v.get("markup_actual"), v.get("markup_siso"))

@@ -116,19 +116,19 @@ def test_actuales_resolves_costo_si_then_list_cost_in_each_products_currency(eng
     with _db(engine) as db:
         got = lote.actuales(db, ids)
 
-    tc = D("1500")
+    tc, D10_10 = D("1500"), date(2026, 10, 10)
     assert got == {
-        A: Costo(A, D("23.08687"), "USD", SI, date(2026, 10, 10), tc, D("23.08687") * tc),
-        B: Costo(B, D("10.12345"), "USD", SI, date(2026, 10, 5), tc, D("10.12345") * tc),
-        SIN: Costo(SIN, D("40"), "USD", LISTA, None, tc, D("60000")),
+        A: Costo(A, D("23.08687"), "USD", SI, date(2026, 10, 10), tc, D("23.08687") * tc, D10_10),
+        B: Costo(B, D("10.12345"), "USD", SI, date(2026, 10, 5), tc, D("10.12345") * tc, D10_10),
+        SIN: Costo(SIN, D("40"), "USD", LISTA, None, tc, D("60000"), D10_10),
         ARSP: Costo(ARSP, D("15000"), "ARS", SI, date(2026, 10, 1), None, D("15000")),
         ARSLISTA: Costo(ARSLISTA, D("20000"), "ARS", LISTA, None, None, D("20000")),
         NADA: _nada(NADA),
-        COMBO: Costo(COMBO, D("56.29719"), "USD", SI, None, tc, D("56.29719") * tc),
-        COMBO_LISTA: Costo(COMBO_LISTA, D("63.08687"), "USD", LISTA, None, tc, D("63.08687") * tc),
+        COMBO: Costo(COMBO, D("56.29719"), "USD", SI, None, tc, D("56.29719") * tc, D10_10),
+        COMBO_LISTA: Costo(COMBO_LISTA, D("63.08687"), "USD", LISTA, None, tc, D("63.08687") * tc, D10_10),
         COMBO_MIX: Costo(COMBO_MIX, D("49630.30500"), "ARS", SI, None, None, D("49630.30500")),
         COMBO_INCOMPLETO: _nada(COMBO_INCOMPLETO),
-        PC: Costo(PC, D("300"), "USD", SI, date(2026, 10, 1), tc, D("450000")),
+        PC: Costo(PC, D("300"), "USD", SI, date(2026, 10, 1), tc, D("450000"), D10_10),
         999: _nada(999),
     }
 
@@ -166,22 +166,24 @@ def test_en_fechas_is_the_cost_in_force_that_day_at_that_days_rate(engine: Engin
     with _db(engine) as db:
         got = lote.en_fechas(db, pares)
 
-    mil = D("1000")
+    mil, D10_01 = D("1000"), date(2026, 10, 1)
     assert got == {
         (A, date(2026, 9, 30)): Costo(A, D("30"), "USD", LISTA, None, None, None),
-        (A, date(2026, 10, 9)): Costo(A, D("25"), "USD", SI, date(2026, 10, 1), mil, D("25000")),
-        (A, date(2026, 10, 10)): Costo(A, D("23.08687"), "USD", SI, date(2026, 10, 10), D("1500"), D("34630.30500")),
+        (A, date(2026, 10, 9)): Costo(A, D("25"), "USD", SI, date(2026, 10, 1), mil, D("25000"), D10_01),
+        (A, date(2026, 10, 10)): Costo(
+            A, D("23.08687"), "USD", SI, date(2026, 10, 10), D("1500"), D("34630.30500"), date(2026, 10, 10)
+        ),
         (SIN, date(2026, 9, 30)): Costo(SIN, D("40"), "USD", LISTA, None, None, None),
-        (SIN, date(2026, 10, 1)): Costo(SIN, D("35"), "USD", LISTA, None, mil, D("35000")),
-        (SIN, date(2026, 10, 7)): Costo(SIN, D("38"), "USD", LISTA, None, mil, D("38000")),
+        (SIN, date(2026, 10, 1)): Costo(SIN, D("35"), "USD", LISTA, None, mil, D("35000"), D10_01),
+        (SIN, date(2026, 10, 7)): Costo(SIN, D("38"), "USD", LISTA, None, mil, D("38000"), D10_01),
         (ARSP, date(2026, 10, 2)): Costo(ARSP, D("15000"), "ARS", SI, date(2026, 10, 1), None, D("15000")),
         (ARSLISTA, date(2026, 10, 2)): Costo(ARSLISTA, D("18000"), "ARS", LISTA, None, None, D("18000")),
-        (COMBO, date(2026, 10, 4)): Costo(COMBO, D("61"), "USD", LISTA, None, mil, D("61000")),
-        (COMBO, date(2026, 10, 7)): Costo(COMBO, D("60.12345"), "USD", SI, None, mil, D("60123.45")),
+        (COMBO, date(2026, 10, 4)): Costo(COMBO, D("61"), "USD", LISTA, None, mil, D("61000"), D10_01),
+        (COMBO, date(2026, 10, 7)): Costo(COMBO, D("60.12345"), "USD", SI, None, mil, D("60123.45"), D10_01),
         (COMBO_MIX, date(2026, 9, 30)): _nada(COMBO_MIX),
         (COMBO_MIX, date(2026, 10, 7)): Costo(COMBO_MIX, D("40000"), "ARS", SI, None, None, D("40000")),
         (COMBO_INCOMPLETO, date(2026, 10, 20)): _nada(COMBO_INCOMPLETO),
-        (PC, date(2026, 10, 2)): Costo(PC, D("300"), "USD", SI, date(2026, 10, 1), mil, D("300000")),
+        (PC, date(2026, 10, 2)): Costo(PC, D("300"), "USD", SI, date(2026, 10, 1), mil, D("300000"), D10_01),
     }
 
 
@@ -226,7 +228,7 @@ def test_the_sql_fragment_is_what_en_fechas_runs(engine: Engine) -> None:
     assert [f[2:] for f in filas] == [
         tuple(
             getattr(esperado[(f[0], f[1])], c)
-            for c in ("costo", "moneda", "fuente", "costo_si_desde", "tipo_cambio", "costo_ars")
+            for c in ("costo", "moneda", "fuente", "costo_si_desde", "tipo_cambio", "costo_ars", "tipo_cambio_fecha")
         )
         for f in filas
     ]
@@ -237,6 +239,7 @@ def test_the_sql_fragment_is_what_en_fechas_runs(engine: Engine) -> None:
         "costo_si_desde",
         "costo_si_tipo_cambio",
         "costo_si_ars",
+        "costo_si_tipo_cambio_fecha",
     ]
 
 
@@ -327,6 +330,234 @@ def test_list_history_edge_cases(engine: Engine) -> None:
         (SIN, date(2026, 10, 2)): _nada(SIN),
         (COMBO_LISTA, date(2026, 10, 2)): _nada(COMBO_LISTA),
     }
+
+
+def test_sql_actual_is_the_current_cost_of_actuales_for_a_sort(engine: Engine) -> None:
+    """PR 2 sort key `costo_si`: the correlated SQL a listing orders by is `actuales`' `costo_si_ars`, every case."""
+    _mundo(engine)
+    ids = [A, B, SIN, ARSP, ARSLISTA, NADA, COMBO, COMBO_LISTA, COMBO_MIX, COMBO_INCOMPLETO, PC]
+    sql = f"SELECT v.item_id, ({lote.sql_actual('v.item_id')}) FROM unnest(CAST(:ids AS int[])) AS v(item_id)"
+
+    with _db(engine) as db:
+        got = dict(db.execute(text(sql), {"ids": ids}).all())
+        esperado = {i: c.costo_ars for i, c in lote.actuales(db, ids).items()}
+
+    assert got == esperado
+    assert got[A] is not None and got[NADA] is None
+
+
+@pytest.mark.parametrize(
+    "alias", ["p", "pe", "h", "o", "r", "d", "b", "cc", "fx", "cs", "x", "t", "pt", "q", "ids", "v"]
+)
+def test_the_fragments_never_capture_the_callers_alias(engine: Engine, alias: str) -> None:
+    """A caller whose own alias is one the fragment uses inside (e.g. a product table `p`) still reads ITS item: the
+    fragment's inner names never shadow the caller's."""
+    _mundo(engine)
+    ids = [A, B, SIN, ARSP, ARSLISTA, NADA, COMBO, COMBO_LISTA, COMBO_MIX, PC]
+    fecha = date(2026, 10, 7)
+    dia = f"DATE '{fecha}'"
+    actual = (
+        f"SELECT {alias}.item_id, ({lote.sql_actual(f'{alias}.item_id')}) "
+        f"FROM unnest(CAST(:ids AS int[])) AS {alias}(item_id)"
+    )
+    en_fecha = (
+        f"SELECT {alias}.item_id, cs_.costo_si_costo, cs_.costo_si_ars "
+        f"FROM unnest(CAST(:ids AS int[])) AS {alias}(item_id) "
+        f"LEFT JOIN LATERAL ({lote.sql_en_fecha(f'{alias}.item_id', dia)}) cs_ ON true"
+    )
+
+    with _db(engine) as db:
+        assert dict(db.execute(text(actual), {"ids": ids}).all()) == {
+            i: c.costo_ars for i, c in lote.actuales(db, ids).items()
+        }
+        assert {r[0]: (r[1], r[2]) for r in db.execute(text(en_fecha), {"ids": ids})} == {
+            i: (c.costo, c.costo_ars) for (i, _), c in lote.en_fechas(db, [(i, fecha) for i in ids]).items()
+        }
+
+
+def _sin_tipo_cambio(engine: Engine) -> None:
+    w.run(engine, "DELETE FROM tipo_cambio")
+
+
+def test_without_any_usd_rate_the_pesos_are_unknown_never_zero(engine: Engine, caplog) -> None:
+    """No `tipo_cambio` and no ERP rate on or before the date: a USD cost has NO peso value (never 0: sales costed
+    at 0 were a past incident), and the readers log the item and the date."""
+    _mundo(engine)
+    _sin_tipo_cambio(engine)
+    dia = date(2026, 10, 7)
+    sql = (
+        "SELECT v.item_id, cs.costo_si_costo, cs.costo_si_tipo_cambio, cs.costo_si_ars FROM (VALUES (:a, :d), (:c, :d))"
+        f" v(item_id, fecha) LEFT JOIN LATERAL ({lote.sql_en_fecha('v.item_id', 'v.fecha')}) cs ON true ORDER BY 1"
+    )
+
+    with _db(engine) as db, caplog.at_level("WARNING", logger=lote.__name__):
+        actual = lote.actuales(db, [A, ARSP])
+        en_fecha = lote.en_fechas(db, [(A, dia)])[(A, dia)]
+        crudo = db.execute(text(sql), {"a": A, "c": COMBO_MIX, "d": dia}).all()
+
+    assert (actual[A].costo, actual[A].tipo_cambio, actual[A].costo_ars) == (D("23.08687"), None, None)
+    assert actual[ARSP].costo_ars == D("15000.00000")  # pesos need no rate
+    assert (en_fecha.costo, en_fecha.tipo_cambio, en_fecha.costo_ars) == (D("25.00000"), None, None)
+    assert crudo == [(A, D("25.00000"), None, None), (COMBO_MIX, None, None, None)]
+    avisos = [r.getMessage() for r in caplog.records]
+    assert any(str(A) in m and "2026-10-07" in m for m in avisos), avisos
+    assert any(str(A) in m and str(date.today()) in m for m in avisos), avisos
+
+
+def test_without_tipo_cambio_the_erp_rate_history_gives_the_rate(engine: Engine) -> None:
+    """Like the metrics crons: `tipo_cambio` first, else the ERP's `tb_cur_exch_history` (USD -> ARS, > 0, the last
+    one on or before the end of the day); never another currency pair."""
+    _mundo(engine)
+    _sin_tipo_cambio(engine)
+    w.cambio_erp(engine, datetime(2026, 10, 1, 9), 1200)
+    w.cambio_erp(engine, datetime(2026, 10, 7, 18), 0)  # a 0 rate is no rate
+    w.cambio_erp(engine, datetime(2026, 10, 7, 10), 900, desde=3)  # another currency
+    w.cambio_erp(engine, datetime(2026, 10, 8, 9), 1300)  # after the date
+    dia = date(2026, 10, 7)
+    sql = (
+        "SELECT cs.costo_si_tipo_cambio, cs.costo_si_ars FROM (VALUES (:a, :d)) v(item_id, fecha)"
+        f" LEFT JOIN LATERAL ({lote.sql_en_fecha('v.item_id', 'v.fecha')}) cs ON true"
+    )
+
+    with _db(engine) as db:
+        en_fecha = lote.en_fechas(db, [(A, dia)])[(A, dia)]
+        crudo = db.execute(text(sql), {"a": A, "d": dia}).one()
+        actual = lote.actuales(db, [A])[A]
+
+    assert (en_fecha.tipo_cambio, en_fecha.tipo_cambio_fecha, en_fecha.costo_ars) == (
+        D("1200"),
+        date(2026, 10, 1),
+        D("25.00000") * 1200,
+    )
+    assert tuple(crudo) == (D("1200"), D("25.00000") * 1200)
+    assert (actual.tipo_cambio, actual.tipo_cambio_fecha) == (D("1300"), date(2026, 10, 8))  # the latest ERP rate
+
+    w.tipo_cambio(engine, date(2026, 10, 5), 1000)
+    with _db(engine) as db:
+        primero = lote.en_fechas(db, [(A, dia)])[(A, dia)]
+    assert (primero.tipo_cambio, primero.tipo_cambio_fecha) == (D("1000"), date(2026, 10, 5))  # tipo_cambio first
+
+
+def test_the_public_rate_lookup_is_the_readers_rate_with_its_date(engine: Engine) -> None:
+    """`sql_tipo_cambio(fecha)`: the reader's USD rate on a SQL date and that rate's date, for raw SQL that stores the
+    rate next to the cost (PR 7's `cotizacion_dolar`, `ml_order_item_costos.tipo_cambio_fecha`): `tipo_cambio`
+    first, else the ERP history; NULLs without either."""
+    _mundo(engine)
+
+    def tasa(dia: date) -> tuple:
+        sql = f"SELECT csi_t.* FROM ({lote.sql_tipo_cambio(':d')}) csi_t"
+        with _db(engine) as db:
+            return tuple(db.execute(text(sql), {"d": dia}).one())
+
+    assert tasa(date(2026, 9, 30)) == (None, None)  # before any rate: unknown, never 0
+    assert tasa(date(2026, 10, 7)) == (D("1000"), date(2026, 10, 1))
+    with _db(engine) as db:
+        mismo = lote.en_fechas(db, [(A, date(2026, 10, 12))])[(A, date(2026, 10, 12))]
+    assert tasa(date(2026, 10, 12)) == (mismo.tipo_cambio, mismo.tipo_cambio_fecha) == (D("1500"), date(2026, 10, 10))
+
+    _sin_tipo_cambio(engine)
+    w.cambio_erp(engine, datetime(2026, 10, 1, 9), 1200)
+    assert tasa(date(2026, 10, 7)) == (D("1200"), date(2026, 10, 1))
+    with _db(engine) as db:
+        escalar = db.execute(
+            text(f"SELECT (SELECT csi_t.costo_si_tipo_cambio FROM ({lote.sql_tipo_cambio(':d')}) csi_t)"),
+            {"d": date(2026, 10, 7)},
+        ).scalar_one()
+    assert escalar == D("1200")  # usable as a scalar rate too
+
+
+def _escaneos(plan: dict, tabla: str) -> list[int]:
+    """The `actual loops` of every scan of `tabla` in an EXPLAIN (ANALYZE, FORMAT JSON) plan (0 = never executed)."""
+    nodos, vistos = [plan], []
+    while nodos:
+        nodo = nodos.pop()
+        if nodo.get("Relation Name") == tabla:
+            vistos.append(nodo.get("Actual Loops", 0))
+        nodos.extend(nodo.get("Plans", []))
+    return vistos
+
+
+def test_a_sort_over_many_products_looks_the_rate_up_once(engine: Engine) -> None:
+    """Measured on prod (#2366): a rate looked up per product, ERP history included, made the full-catalogue costo SI
+    sort take seconds. The rate does not depend on the product: one `tipo_cambio` lookup per query, and the ERP
+    history is never read while `tipo_cambio` has a rate."""
+    _mundo(engine)
+    sql = (
+        "EXPLAIN (ANALYZE, FORMAT JSON) SELECT v.item_id FROM (VALUES (:a), (:b), (:c), (:d)) v(item_id)"
+        f" ORDER BY ({lote.sql_actual('v.item_id')}) NULLS LAST"
+    )
+
+    with _db(engine) as db:
+        plan = db.execute(text(sql), {"a": A, "b": B, "c": SIN, "d": ARSP}).scalar_one()[0]["Plan"]
+
+    assert _escaneos(plan, "tipo_cambio") and max(_escaneos(plan, "tipo_cambio")) == 1
+    assert max(_escaneos(plan, "tb_cur_exch_history"), default=0) == 0
+
+
+def _por_fila(plan: dict, tabla: str) -> bool:
+    """Whether `tabla` is scanned inside a correlated SubPlan (re-run per outer row) of an EXPLAIN JSON plan."""
+    pendientes = [(plan, False)]
+    while pendientes:
+        nodo, correlado = pendientes.pop()
+        correlado = correlado or nodo.get("Parent Relationship") == "SubPlan"
+        if correlado and nodo.get("Relation Name") == tabla:
+            return True
+        pendientes.extend((hijo, correlado) for hijo in nodo.get("Plans", []))
+    return False
+
+
+def test_the_catalogue_sort_key_is_the_current_cost_computed_once_per_product(engine: Engine) -> None:
+    """Measured on prod (#2366): Publicaciones ML has ~6 rows per product, so a per-row costo SI made its sort take
+    ~0.8 s. `sql_actual_catalogo(item)` is `sql_actual(item)` (pesos, NULL when unknown) computed once per product for
+    the whole query, then looked up per row."""
+    _mundo(engine)
+    ids = [A, B, SIN, ARSP, ARSLISTA, NADA, COMBO, COMBO_MIX, COMBO_INCOMPLETO, PC, 999]
+    valores = ", ".join(f"({i})" for i in ids + [A, A, B])
+    comparar = (
+        f"SELECT v.item_id, ({lote.sql_actual('v.item_id')}), {lote.sql_actual_catalogo('v.item_id')}"
+        f" FROM (VALUES {valores}) v(item_id)"
+    )
+    plan_sql = (
+        f"EXPLAIN (ANALYZE, FORMAT JSON) SELECT v.item_id FROM (VALUES {valores}) v(item_id)"
+        f" ORDER BY {lote.sql_actual_catalogo('v.item_id')} NULLS LAST"
+    )
+
+    with _db(engine) as db:
+        filas = db.execute(text(comparar)).all()
+        plan = db.execute(text(plan_sql)).scalar_one()[0]["Plan"]
+
+    assert [(i, por_fila) for i, por_fila, _ in filas] == [(i, catalogo) for i, _, catalogo in filas]
+    assert {i for i, por_fila, _ in filas if por_fila is not None} >= {A, B, SIN, ARSP, COMBO}
+    assert not _por_fila(plan, "productos_erp") and not _por_fila(plan, "combo_componentes")
+
+
+def test_the_rate_comes_with_its_own_date(engine: Engine) -> None:
+    """The rate's date travels with the rate (a frozen sale cost records it, `ml_order_item_costos.tipo_cambio_fecha`):
+    the `tipo_cambio` row's date in force, the latest one for the current cost; none for pesos, nor for a rate the
+    caller supplied that no `tipo_cambio` row has (the reader cannot date it)."""
+    _mundo(engine)
+    sql = (
+        "SELECT v.item_id, cs.costo_si_tipo_cambio, cs.costo_si_tipo_cambio_fecha FROM (VALUES (:a, DATE '2026-10-07'),"
+        f" (:c, DATE '2026-10-12')) v(item_id, fecha) LEFT JOIN LATERAL ({lote.sql_en_fecha('v.item_id', 'v.fecha')}) cs"
+        " ON true ORDER BY 1"
+    )
+
+    with _db(engine) as db:
+        en = lote.en_fechas(db, [(A, date(2026, 10, 7)), (A, date(2026, 10, 12)), (ARSP, date(2026, 10, 7))])
+        actual = lote.actuales(db, [A, ARSP])
+        propio = lote.actuales(db, [A], tipo_cambio=2000.0)[A]
+        de_una_fila = lote.actuales(db, [A], tipo_cambio=1000.0)[A]
+        crudo = db.execute(text(sql), {"a": A, "c": COMBO}).all()
+
+    assert en[(A, date(2026, 10, 7))].tipo_cambio_fecha == date(2026, 10, 1)
+    assert en[(A, date(2026, 10, 12))].tipo_cambio_fecha == date(2026, 10, 10)
+    assert en[(ARSP, date(2026, 10, 7))].tipo_cambio_fecha is None
+    assert (actual[A].tipo_cambio, actual[A].tipo_cambio_fecha) == (D("1500"), date(2026, 10, 10))
+    assert actual[ARSP].tipo_cambio_fecha is None
+    assert (propio.tipo_cambio, propio.tipo_cambio_fecha) == (D("2000.0"), None)  # no `tipo_cambio` row has it
+    # the screens pass `obtener_tipo_cambio_actual`: a `tipo_cambio` row's rate gets that row's date
+    assert (de_una_fila.tipo_cambio, de_una_fila.tipo_cambio_fecha) == (D("1000.0"), date(2026, 10, 1))
+    assert crudo == [(A, D("1000"), date(2026, 10, 1)), (COMBO, D("1500"), date(2026, 10, 10))]
 
 
 @pytest.mark.parametrize(

@@ -36,6 +36,9 @@ from tests.routers.test_ml_publications_view_stock_audit import (  # noqa: F401
     started,
 )
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 (the costo SI reader's SQLite stand-in)
+
+pytestmark = pytest.mark.usefixtures("costo_si_lista")
 
 LENOVO, LOGI, NONE = "LENOVO", "LOGI", "__none__"
 

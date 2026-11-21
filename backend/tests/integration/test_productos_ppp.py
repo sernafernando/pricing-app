@@ -262,6 +262,8 @@ class TestNoDataGoldenNoRegression:
             "pxq_precio_desde",
             # Sell in / sell out figures (sell-in-sell-out T9): None without either.
             "sell_in_out",
+            # The costo SI column (sell-in-costo-si T3 PR 2): None without a cost.
+            "costo_si",
         }
 
         assert pre_existing_keys == expected_pre_existing_keys

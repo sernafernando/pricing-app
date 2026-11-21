@@ -11,6 +11,8 @@ from typing import Optional, Sequence
 from sqlalchemy import text
 from sqlalchemy.engine import Connection, Engine
 
+from app.models.combo_componente import ComboComponente
+from app.models.costo_si import CostoSiPaso
 from app.models.cur_exch_history import CurExchHistory
 from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.marca_pm import MarcaPM
@@ -50,6 +52,10 @@ TABLAS = [
     ItemCostListHistory.__table__,
     TipoCambio.__table__,
     CurExchHistory.__table__,
+    # Costo SI (sell-in-costo-si T3 PR 9): the line's cost is the product's costo SI on the sale date, list cost when
+    # it has none (`costo_si.lote`), a combo the sum of its components.
+    CostoSiPaso.__table__,
+    ComboComponente.__table__,
 ]
 STUBS = [
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY, nombre VARCHAR(255) NOT NULL)",
@@ -59,7 +65,7 @@ TRUNCATE = (
     "TRUNCATE ventas_fuera_pdf_resumen_documentos, ventas_fuera_pdf_alcances, ventas_fuera_operacion_lineas, "
     "ventas_fuera_operaciones, ventas_fuera_pdf_cargas, ventas_fuera_linea_overrides, ventas_fuera_codigo_mapeos, "
     "productos_erp, tb_item, marcas_pm, vendedores_excluidos, tb_item_cost_list_history, tipo_cambio, "
-    "tb_cur_exch_history"
+    "tb_cur_exch_history, costo_si_pasos, combo_componentes"
 )
 
 
@@ -113,13 +119,23 @@ def reporte(*documentos: DocumentoDetallado) -> ReporteDetallado:
     )
 
 
-def producto(conn: Connection, item_id: int, codigo: str, descripcion: str = "Producto Ejemplo") -> None:
+def producto(
+    conn: Connection,
+    item_id: int,
+    codigo: str,
+    descripcion: str = "Producto Ejemplo",
+    *,
+    costo: Optional[str] = None,
+    moneda_costo: Optional[str] = None,
+) -> None:
+    """A product of productos_erp; `costo` / `moneda_costo` = its current list cost and cost currency (none by
+    default, as the load tests always had)."""
     conn.execute(
         text(
-            "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria, iva) "
-            "VALUES (:i, :c, :d, 'MarcaEjemplo', 'CategoriaEjemplo', 21)"
+            "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria, iva, costo, moneda_costo) "
+            "VALUES (:i, :c, :d, 'MarcaEjemplo', 'CategoriaEjemplo', 21, :costo, :moneda)"
         ),
-        {"i": item_id, "c": codigo, "d": descripcion},
+        {"i": item_id, "c": codigo, "d": descripcion, "costo": costo, "moneda": moneda_costo},
     )
 
 
@@ -156,6 +172,26 @@ def cambio(conn: Connection, fecha: date, venta: float) -> None:
     conn.execute(
         text("INSERT INTO tipo_cambio (fecha, moneda, compra, venta) VALUES (:f, 'USD', :v, :v)"),
         {"f": fecha, "v": venta},
+    )
+
+
+def paso(conn: Connection, item_id: int, fecha: date, promedio: str, *, moneda: str = "USD", orden: int = 0) -> None:
+    """A costo SI step of `item_id` in force from `fecha`: the average `promedio` in `moneda` (owner L18)."""
+    conn.execute(
+        text(
+            "INSERT INTO costo_si_pasos (item_id, orden, tipo, fecha, cantidad, stock_antes, stock_base, stock_despues,"
+            " promedio_usd, moneda) VALUES (:i, :o, CASE WHEN :o = 0 THEN 'inicio' ELSE 'compra' END, :f, 0, 0, 0, 0,"
+            " :p, :m)"
+        ),
+        {"i": item_id, "o": orden, "f": fecha, "p": Decimal(promedio), "m": moneda},
+    )
+
+
+def componente(conn: Connection, combo_item_id: int, componente_item_id: int, cantidad: str = "1") -> None:
+    """A line of a combo's bill of materials (`combo_componentes`)."""
+    conn.execute(
+        text("INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (:c, :i, :q)"),
+        {"c": combo_item_id, "i": componente_item_id, "q": Decimal(cantidad)},
     )
 
 

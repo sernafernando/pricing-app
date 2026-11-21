@@ -24,6 +24,9 @@ from app.models.permiso import Permiso, UsuarioPermisoOverride
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.tb_supplier import TBSupplier
 from tests.conftest import make_access_token
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 (the costo SI reader's SQLite stand-in)
+
+pytestmark = pytest.mark.usefixtures("costo_si_lista")
 
 BASICA = "productos.ver_info_basica"
 PRICING = "productos.ver_info_pricing"

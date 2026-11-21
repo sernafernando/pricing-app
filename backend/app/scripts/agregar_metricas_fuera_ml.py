@@ -24,10 +24,12 @@ load_dotenv(dotenv_path=env_path)
 
 from datetime import datetime, date, timedelta
 from decimal import Decimal
+from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.core.database import SessionLocal
+from app.services import ventas_gbp_costo_si as costo_si_gbp
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 
 
@@ -93,14 +95,19 @@ def get_vendedores_excluidos_str(db: Session) -> str:
     return ",".join(map(str, sorted(todos_excluidos)))
 
 
-def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
+def obtener_ventas_fuera_ml(db: Session, from_date, to_date, transacciones: Optional[list[int]] = None):
     """
-    Obtiene todas las ventas fuera de ML con métricas ya calculadas
+    Obtiene todas las ventas fuera de ML con métricas ya calculadas.
+
+    `transacciones`: only these GBP transactions (`ct_transaction`), for the costo SI follow-up
+    (`costo_si.despues.metricas_fuera_tn`) that re-costs the stored rows of one product.
     """
     vendedores_excluidos_str = get_vendedores_excluidos_str(db)
     vendedores_excluidos = [int(x) for x in vendedores_excluidos_str.split(",")]
 
-    query = text("""
+    item = costo_si_gbp.GBP_ITEM.format(t="tit")
+    filtro = " AND tct.ct_transaction = ANY(:cts)" if transacciones is not None else ""
+    query = text(f"""
     WITH combo_precios AS (
         -- Precio total del combo por transacción
         SELECT
@@ -112,7 +119,7 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
             ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
         WHERE tit.it_isassociationgroup IS NOT NULL
           AND tit.it_price IS NOT NULL AND tit.it_price > 0
-          AND tct.ct_date BETWEEN :from_date AND :to_date
+          AND tct.ct_date BETWEEN :from_date AND :to_date{filtro}
         GROUP BY tit.it_isassociationgroup, tit.ct_transaction
     ),
     combo_costos AS (
@@ -120,33 +127,20 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
         SELECT
             tit.it_isassociationgroup AS group_id,
             tit.ct_transaction,
-            SUM(
-                COALESCE(
-                    CASE
-                        WHEN COALESCE(iclh.curr_id, 1) = 1 THEN iclh.iclh_price
-                        ELSE iclh.iclh_price * COALESCE(ceh.ceh_exchange, 1)
-                    END,
-                    0
-                ) * 1.065 * tit.it_qty
-            ) AS costo_combo
+            {
+        costo_si_gbp.suma_grupo(
+            costo_si_gbp.costo_unitario_ars(
+                "csc", "tit.item_id", "tit.comp_id", "tit.ct_transaction", "tit.it_isassociationgroup", en_grupo=True
+            )
+            + " * 1.065 * tit.it_qty"
+        )
+    } AS costo_combo
         FROM tb_item_transactions tit
         INNER JOIN tb_commercial_transactions tct
             ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
-        LEFT JOIN LATERAL (
-            SELECT iclh_price, curr_id
-            FROM tb_item_cost_list_history
-            WHERE item_id = tit.item_id AND iclh_cd <= tct.ct_date AND coslis_id = 1
-            ORDER BY iclh_id DESC LIMIT 1
-        ) iclh ON true
-        LEFT JOIN LATERAL (
-            -- TC: Primero tipo_cambio, fallback tb_cur_exch_history
-            SELECT COALESCE(
-                (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tct.ct_date::date ORDER BY tc.fecha DESC LIMIT 1),
-                (SELECT ceh_exchange FROM tb_cur_exch_history WHERE ceh_cd <= tct.ct_date ORDER BY ceh_cd DESC LIMIT 1)
-            ) as ceh_exchange
-        ) ceh ON true
+        {costo_si_gbp.join("csc", "tit.item_id", "tct.ct_date::date")}
         WHERE tit.it_isassociationgroup IS NOT NULL
-          AND tct.ct_date BETWEEN :from_date AND :to_date
+          AND tct.ct_date BETWEEN :from_date AND :to_date{filtro}
         GROUP BY tit.it_isassociationgroup, tit.ct_transaction
     )
     SELECT
@@ -197,29 +191,25 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
             ELSE tit.it_price * tit.it_qty
         END as monto_total,
 
-        -- Costo unitario (convertido a pesos, con multiplicador 1.065)
+        -- Costo unitario: costo SI en pesos (costo_si.lote), con Costo D (x 1.065) encima
         CASE
             WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN
-                COALESCE(ccb.costo_combo, 0) / NULLIF(tit.it_qty, 0)
-            ELSE
-                CASE
-                    WHEN COALESCE(iclh.curr_id, 1) = 1 THEN COALESCE(iclh.iclh_price, 0) * 1.065
-                    ELSE COALESCE(iclh.iclh_price, 0) * COALESCE(ceh.ceh_exchange, 1) * 1.065
-                END
+                {costo_si_gbp.costo_grupo("ccb")} / NULLIF(tit.it_qty, 0)
+            ELSE {
+        costo_si_gbp.costo_unitario_ars("cs", item, "tit.comp_id", "tit.ct_transaction", "tit.it_isassociationgroup")
+    } * 1.065
         END as costo_unitario,
 
         -- Costo total (con multiplicador 1.065)
         CASE
-            WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN COALESCE(ccb.costo_combo, 0)
-            ELSE
-                CASE
-                    WHEN COALESCE(iclh.curr_id, 1) = 1 THEN COALESCE(iclh.iclh_price, 0) * 1.065 * tit.it_qty
-                    ELSE COALESCE(iclh.iclh_price, 0) * COALESCE(ceh.ceh_exchange, 1) * 1.065 * tit.it_qty
-                END
+            WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN {costo_si_gbp.costo_grupo("ccb")}
+            ELSE {
+        costo_si_gbp.costo_unitario_ars("cs", item, "tit.comp_id", "tit.ct_transaction", "tit.it_isassociationgroup")
+    } * 1.065 * tit.it_qty
         END as costo_total,
 
-        -- Moneda y cotización
-        CASE WHEN COALESCE(iclh.curr_id, 1) = 2 THEN 'USD' ELSE 'ARS' END as moneda_costo,
+        -- Moneda del costo SI (owner L18) y cotización del día
+        COALESCE(cs.costo_si_moneda, 'ARS') as moneda_costo,
         ceh.ceh_exchange as cotizacion_dolar
 
     FROM tb_item_transactions tit
@@ -242,22 +232,13 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
     LEFT JOIN tb_tax_name ttn ON ttn.comp_id = tit.comp_id AND ttn.tax_id = titx.tax_id
     LEFT JOIN combo_precios cp ON cp.group_id = tit.it_isassociationgroup AND cp.ct_transaction = tit.ct_transaction
     LEFT JOIN combo_costos ccb ON ccb.group_id = tit.it_isassociationgroup AND ccb.ct_transaction = tit.ct_transaction
+    {costo_si_gbp.join("cs", item, "tct.ct_date::date")}
     LEFT JOIN LATERAL (
-        SELECT iclh_price, curr_id
-        FROM tb_item_cost_list_history
-        WHERE item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
-          AND iclh_cd <= tct.ct_date AND coslis_id = 1
-        ORDER BY iclh_id DESC LIMIT 1
-    ) iclh ON true
-    LEFT JOIN LATERAL (
-        -- TC: Primero tipo_cambio, fallback tb_cur_exch_history
-        SELECT COALESCE(
-            (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tct.ct_date::date ORDER BY tc.fecha DESC LIMIT 1),
-            (SELECT ceh_exchange FROM tb_cur_exch_history WHERE ceh_cd <= tct.ct_date ORDER BY ceh_cd DESC LIMIT 1)
-        ) as ceh_exchange
+        -- TC: the costo SI reader's own rate rule (one rate per row: the cost and cotizacion_dolar)
+        SELECT {costo_si_gbp.tipo_cambio_en("tct.ct_date::date")} as ceh_exchange
     ) ceh ON true
 
-    WHERE tct.ct_date BETWEEN :from_date AND :to_date
+    WHERE tct.ct_date BETWEEN :from_date AND :to_date{filtro}
         AND tct.df_id = ANY(:df_ids)
         AND (tit.item_id != ALL(:items_excluidos) OR tit.item_id IS NULL)
         AND tct.cust_id != ALL(:clientes_excluidos)
@@ -291,10 +272,14 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date):
             "clientes_excluidos": CLIENTES_EXCLUIDOS,
             "vendedores_excluidos": vendedores_excluidos,
             "sd_ids": SD_TODOS,
+            "cts": transacciones or [],
         },
     )
 
-    return result.fetchall()
+    filas = result.fetchall()
+    costo_si_gbp.avisar_combos_parciales(db, filas, origen="ventas_fuera_ml")
+    costo_si_gbp.avisar_costos_desconocidos(filas, origen="ventas_fuera_ml")
+    return filas
 
 
 def process_and_insert(db: Session, rows):
@@ -344,17 +329,19 @@ def process_and_insert(db: Session, rows):
 
             # Calcular valores derivados
             monto_total = float(row.monto_total or 0)
-            costo_total = float(row.costo_total or 0)
+            # None = unknown cost (no costo SI / list cost or no USD rate, interface §7): stored NULL, with no
+            # ganancia or markup, never as 0 (logged by obtener_ventas_fuera_ml)
+            costo_total = None if row.costo_total is None else float(row.costo_total)
             iva_porcentaje = float(row.iva_porcentaje or 21)
             signo = row.signo
 
             monto_iva = monto_total * (iva_porcentaje / 100)
             monto_con_iva = monto_total * (1 + iva_porcentaje / 100)
-            ganancia = monto_total - costo_total
+            ganancia = None if costo_total is None else monto_total - costo_total
 
             # Markup = (monto / costo) - 1 (solo si hay costo)
             markup_porcentaje = None
-            if costo_total > 0:
+            if costo_total is not None and costo_total > 0:
                 markup_porcentaje = ((monto_total / costo_total) - 1) * 100
                 # Limitar a rango válido
                 if markup_porcentaje > 99999999.99:
@@ -390,11 +377,11 @@ def process_and_insert(db: Session, rows):
                 "iva_porcentaje": Decimal(str(iva_porcentaje)),
                 "monto_iva": Decimal(str(monto_iva)),
                 "monto_con_iva": Decimal(str(monto_con_iva)),
-                "costo_unitario": Decimal(str(row.costo_unitario or 0)),
-                "costo_total": Decimal(str(costo_total)),
+                "costo_unitario": None if row.costo_unitario is None else Decimal(str(row.costo_unitario)),
+                "costo_total": None if costo_total is None else Decimal(str(costo_total)),
                 "moneda_costo": row.moneda_costo,
                 "cotizacion_dolar": Decimal(str(row.cotizacion_dolar)) if row.cotizacion_dolar else None,
-                "ganancia": Decimal(str(ganancia)),
+                "ganancia": None if ganancia is None else Decimal(str(ganancia)),
                 "markup_porcentaje": Decimal(str(markup_porcentaje)) if markup_porcentaje is not None else None,
                 "es_combo": bool(row.es_combo) if row.es_combo is not None else False,
                 "combo_group_id": int(row.combo_group_id) if row.combo_group_id else None,

@@ -3,9 +3,11 @@
 Owner L3 (fix B): "calcular desde la lista de costos del ERP": Costo D = ERP cost list x FX x 1.065, exactly like
 Ventas por Fuera (anterior); the PDF "Precio Costo" is NOT used as cost (keep it only as reference if shown) ... and
 the manual cost override keeps working.
-Rule of (anterior) (`scripts/agregar_metricas_fuera_ml.py`): the item's last cost of list 1 created on or before the
-sale date; pesos as is, dollars x `tipo_cambio` USD venta of the sale date (else `tb_cur_exch_history`, else 1); no
-cost -> 0. The line stores `precio_costo` = that x cantidad; the screens add Costo D (x 1.065) on top.
+Since sell-in-costo-si T3 PR 9 the cost is the product's costo SI read through `costo_si.lote`, and these tests cover
+the products WITHOUT costo SI: the reader's list cost (interface Q1): the item's last cost of list 1 created before the
+end of the sale date; pesos as is, dollars x `tipo_cambio` USD venta of the sale date; no cost, or a dollar cost
+without a rate -> 0. The line stores `precio_costo` = that x cantidad; the screens add Costo D (x 1.065) on top.
+Costo SI itself: `test_costo_si_vpf_postgres.py`.
 
 Real Postgres, documents built in code; every code, article and amount is INVENTED.
 """
@@ -101,30 +103,32 @@ class TestCargaCuestaConElErp:
         }
         assert costo_d_unitario[1] == costo_d_unitario[2] == Decimal("1597500")
 
-    def test_a_cost_created_after_the_sale_date_even_the_same_day_is_not_used(
+    def test_a_cost_corrected_later_the_same_day_counts_but_not_one_of_the_next_day(
         self, engine: Engine, db: Session, mundo: None
     ) -> None:
+        """The reader's list rule (interface Q1): the day's last correction wins (before T3 PR 9 the same-day row was
+        ignored because the date compared as midnight)."""
         with engine.begin() as conn:
             costo_erp(conn, 701, "2000", datetime(2026, 10, 5, 10, 0))  # same day, after midnight
             costo_erp(conn, 701, "3000", datetime(2026, 10, 6))
 
         _cargar(db, doc(1, [linea(NB, "NOTEBOOK EJEMPLO")], fecha=VENTA))
 
-        assert _costo(engine, 1) == Decimal("1500000.00")
+        assert _costo(engine, 1) == Decimal("3000000.00")  # 2,000 x 1,500
 
-    def test_the_highest_iclh_id_on_or_before_the_date_of_list_1_wins(self, engine: Engine, db: Session) -> None:
+    def test_the_latest_list_1_row_by_date_wins_whatever_its_id(self, engine: Engine, db: Session) -> None:
+        """The reader's list rule (interface Q1): the last row by creation date, ties by id (before T3 PR 9 the
+        highest id won, like (anterior))."""
         with engine.begin() as conn:
             producto(conn, 701, NB)
             cambio(conn, date(2026, 10, 4), 1500)
             costo_erp(conn, 701, "900", datetime(2026, 10, 2), iclh_id=20)
-            costo_erp(
-                conn, 701, "800", datetime(2026, 10, 3), iclh_id=10
-            )  # later date, lower id: (anterior) orders by id
+            costo_erp(conn, 701, "800", datetime(2026, 10, 3), iclh_id=10)  # later date, lower id: it wins now
             costo_erp(conn, 701, "5", datetime(2026, 10, 3), iclh_id=30, coslis_id=2)  # another cost list
 
         _cargar(db, doc(1, [linea(NB, "NOTEBOOK EJEMPLO")], fecha=VENTA))
 
-        assert _costo(engine, 1) == Decimal("1350000.00")  # 900 x 1,500
+        assert _costo(engine, 1) == Decimal("1200000.00")  # 800 x 1,500
 
     @pytest.mark.parametrize("curr_id", [1, None])
     def test_a_cost_in_pesos_is_not_converted(self, engine: Engine, db: Session, curr_id) -> None:
@@ -145,25 +149,37 @@ class TestCargaCuestaConElErp:
 
         assert _costo(engine, 1) == Decimal("1500000.00")
 
-    def test_without_tipo_cambio_the_erp_rate_is_used_and_without_any_rate_1(self, engine: Engine, db: Session) -> None:
+    def test_without_a_tipo_cambio_rate_the_reader_falls_back_to_the_erp_rate(
+        self, engine: Engine, db: Session
+    ) -> None:
+        """The reader's rate rule (lote.sql_tipo_cambio, #2366): `tipo_cambio` first, else the ERP's USD -> ARS rate."""
         with engine.begin() as conn:
             producto(conn, 701, NB)
             costo_erp(conn, 701, "1000", datetime(2026, 10, 1))
             conn.execute(
                 text(
                     "INSERT INTO tb_cur_exch_history (ceh_id, comp_id, curr_id_1, curr_id_2, ceh_cd, ceh_exchange) "
-                    "VALUES (1, 1, 2, 1, '2026-10-02 12:00', 1400), (2, 1, 2, 1, '2026-10-05 12:00', 9999)"
+                    "VALUES (1, 1, 2, 1, '2026-10-02 12:00', 1400)"
                 )
             )
 
-        _cargar(
-            db,
-            doc(1, [linea(NB, "NOTEBOOK EJEMPLO")], fecha=VENTA),
-            doc(2, [linea(NB, "NOTEBOOK EJEMPLO")], fecha=date(2026, 10, 1)),
-        )
+        _cargar(db, doc(1, [linea(NB, "NOTEBOOK EJEMPLO")], fecha=VENTA))
 
-        assert _costo(engine, 1) == Decimal("1400000.00")
-        assert _costo(engine, 2) == Decimal("1000.00")  # no rate on or before 2026-10-01: x 1, like (anterior)
+        assert _costo(engine, 1) == Decimal("1400000.00")  # 1000 x 1,400
+
+    def test_a_dollar_cost_without_any_rate_costs_0_never_dollars_as_pesos(
+        self, engine: Engine, db: Session, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Neither a `tipo_cambio` nor an ERP rate: the peso cost is unknown -> 0 (before T3 PR 9 x 1, so dollars were
+        stored as pesos)."""
+        with engine.begin() as conn:
+            producto(conn, 701, NB)
+            costo_erp(conn, 701, "1000", datetime(2026, 10, 1))
+
+        _cargar(db, doc(1, [linea(NB, "NOTEBOOK EJEMPLO")], fecha=VENTA))
+
+        assert _costo(engine, 1) == Decimal("0.00")  # the column is NOT NULL: 0 = "sin costo", out of the markup
+        assert any("ventas_fuera: unknown cost for item 701 on " in r.getMessage() for r in caplog.records)
 
     def test_no_erp_cost_or_no_product_costs_0_and_the_pdf_cost_is_not_used(
         self, engine: Engine, db: Session, mundo: None

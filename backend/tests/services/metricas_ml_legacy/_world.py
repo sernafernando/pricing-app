@@ -46,7 +46,13 @@ from app.models.tipo_cambio import TipoCambio
 from app.models.usuario import Usuario
 from tests.services.sell._schema import throwaway_schema
 
-STUBS = ["CREATE TABLE roles (id INTEGER PRIMARY KEY)"]
+STUBS = [
+    "CREATE TABLE roles (id INTEGER PRIMARY KEY)",
+    # `despues.despachar` runs every area's callback; the ML publications one (`despues/pubml.py`) reads the links
+    # first and stops when the product has none, as here.
+    "CREATE TABLE ml_item_product_links (item_id TEXT, variation_id BIGINT DEFAULT 0, producto_item_id INTEGER,"
+    " match_status TEXT DEFAULT 'linked', PRIMARY KEY (item_id, variation_id))",
+]
 
 TABLES = [
     Usuario.__table__,

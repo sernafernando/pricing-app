@@ -6,8 +6,11 @@ es sobre ml." Orchestrator decisions: sell out scope per key (gremio / sugerido:
 default-reach campaign applies to every key, an ML-stores-only one to none); a percentage of price campaign takes
 each key's OWN price with VAT as its base.
 
-The router (TP-LINK, VAT 21%) costs 50000 ARS. A lot of 2 units for 10000 ARS gives 5000 ARS per unit, so its cost
-with sell in is 45000 ARS. Varios 6.5%, Tienda Nube commission 1%.
+The router (TP-LINK, VAT 21%) costs 50000 ARS (no costo SI step: its costo SI is that list cost). A lot of 2 units
+for 10000 ARS gives 5000 ARS per unit, so its cost with sell in is 45000 ARS, shown but, under D1 (sell-in-costo-si
+T3 PR 5, owner L12: "el costo siso no existe, es costo SI y SO va en la venta, como ganancia adicional"), never the
+cost of a markup: the markup with sell out is (net + sell out - 50000) / 50000. Varios 6.5%, Tienda Nube
+commission 1%.
 
 - gremio: 20% markup, 50000 x 1.065 x 1.2 = 63900 without VAT (77319 with VAT); net 63900 / 1.065 = 60000.
 - sugerido: 30% markup, 50000 x 1.065 x 1.3 = 69225 without VAT (83762.25 with VAT); net 65000.
@@ -161,13 +164,19 @@ def test_each_key_reads_the_campaigns_of_its_channel_with_its_own_price_as_base(
     }
 
 
+COSTO = 50000.0  # the router's costo SI (its list cost: no costo SI step)
+SELL_OUT = {CLAVE_GREMIO: 4195.0, CLAVE_SUGERIDO: 4461.25, CLAVE_WEB_TRANSF: 7611.57}  # the module docstring's
+
+
 def test_the_extra_profit_uses_the_tienda_net_never_the_ml_one(engine, mundo):
     sio = _sell_in_out(engine)
 
-    # net / 45000 - 1
-    assert sio.markups_sell_in == {CLAVE_GREMIO: 33.33, CLAVE_SUGERIDO: 44.44, CLAVE_WEB_TRANSF: 35.6}
-    # (net + sell out) / 45000 - 1: 64195, 69461.25, 68629.75...
-    assert sio.markups_sell_in_out == {CLAVE_GREMIO: 42.66, CLAVE_SUGERIDO: 54.36, CLAVE_WEB_TRANSF: 52.51}
+    # D1: no markup "with sell in" (the lot never comes off the cost)
+    assert sio.markups_sell_in == {}
+    # (net + sell out - costo SI) / costo SI: 28.39, 38.92, 37.26 with nets 60000, 65000, 61018.18...
+    assert sio.markups_sell_in_out == {
+        clave: round((precio.limpio + SELL_OUT[clave] - COSTO) / COSTO * 100, 2) for clave, precio in PRECIOS.items()
+    }
 
 
 def test_a_key_without_a_price_has_no_markup_and_no_sell_out(engine, mundo):

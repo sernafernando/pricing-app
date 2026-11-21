@@ -1,6 +1,9 @@
 """Markup real 30D c/ SISO on the Producto view and the exports, and the markup c/ SISO's range on Auditoría de stock
 (pubml-markup-siso S1, S3, S4). The Producto rows read the Board with its sell in / sell out (`sell_in_out=True`,
-margin readers only): `markup_sell_30d` is the Board's `markup_sell` over the summed row, null where neither applies.
+margin readers only): `markup_sell_30d` is (mtg + m_sell_out) / costo over the summed row (`view.real_so`), null
+where no sold line has a sell out. D1 (sell-in-costo-si T3 PR 5, owner L12: "SO va en la venta, como ganancia
+adicional"): the Board's sell in is never read, so a sell in alone gives no figure and next to a sell out changes
+nothing.
 """
 
 # ruff: noqa: F811 -- the imported fixtures are used by name
@@ -12,6 +15,7 @@ from decimal import Decimal
 from typing import Optional
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.ml_orders_ops import MlOrderItemOps
@@ -36,8 +40,9 @@ from tests.routers.test_ml_publications_view_stock_audit import (  # noqa: F401
 )
 from tests.routers.test_ml_publications_view_stock_audit_niveles import LENOVO, fill_groups, splits  # noqa: F401
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 (the costo SI reader's SQLite stand-in)
 
-pytestmark = pytest.mark.postgres
+pytestmark = [pytest.mark.postgres, pytest.mark.usefixtures("costo_si_lista")]
 
 
 def sell_in_on_order(engine, order_id: int, descuento: str) -> None:
@@ -60,8 +65,56 @@ def sell_in_on_order(engine, order_id: int, descuento: str) -> None:
     session.close()
 
 
+def sell_out_on_order(engine, order_id: int, monto: str) -> None:
+    """A sell out of `monto` ARS on the (one) line of `order_id`, as the allocator books it (an ARS campaign, channel
+    'ml', `venta_ref` = the line's id)."""
+    session = sessionmaker(bind=engine)()
+    line = session.query(MlOrderItemOps).filter(MlOrderItemOps.order_id == order_id).one()
+    campana = session.execute(
+        text(
+            "INSERT INTO sell_out_campanas (nombre, fecha_desde, fecha_hasta, tipo, monto_unit, base_porcentaje, "
+            "moneda, acumulable, monto_incluye_iva, estado, usuario_id) VALUES ('SO', :d, :d, 'por_unidad', :m, "
+            "'costo', 'ARS', true, false, 'activa', 7) RETURNING id"
+        ),
+        {"d": date.today(), "m": Decimal(monto)},
+    ).scalar_one()
+    session.execute(
+        text(
+            "INSERT INTO sell_out_consumos (campana_id, canal, venta_ref, item_id, fecha_venta, unidades, monto) "
+            "VALUES (:c, 'ml', :v, 77, :d, 1, :m)"
+        ),
+        {"c": campana, "v": line.id, "d": date.today(), "m": Decimal(monto)},
+    )
+    session.commit()
+    session.close()
+
+
 class TestProductRows:
-    def test_with_ver_ganancia_a_product_row_carries_its_markup_with_sell_in_out(
+    def test_with_ver_ganancia_a_product_row_carries_its_markup_with_sell_out(
+        self, client, sold, db, rol_admin, admin_auth_headers
+    ) -> None:
+        grant(db, rol_admin, VER, METRICAS, GANANCIA)
+        sell_out_on_order(sold, 1, "0.50")
+
+        rows = by_key(body(client, admin_auth_headers)["rows"])
+
+        plain, with_sell = rows["77"]["metrics"]["markup_30d"], rows["77"]["metrics"]["markup_sell_30d"]
+        assert with_sell is not None and with_sell > plain  # a sell out adds to the profit: the markup goes up
+        assert rows["0"]["metrics"]["markup_sell_30d"] is None  # "Sin producto": no sell out, never a copy
+
+    def test_a_sell_in_next_to_the_sell_out_changes_nothing(
+        self, client, sold, db, rol_admin, admin_auth_headers
+    ) -> None:
+        grant(db, rol_admin, VER, METRICAS, GANANCIA)
+        sell_out_on_order(sold, 1, "0.50")
+        sin_sell_in = by_key(body(client, admin_auth_headers)["rows"])["77"]["metrics"]["markup_sell_30d"]
+        sell_in_on_order(sold, 1, "0.50")
+
+        rows = by_key(body(client, admin_auth_headers)["rows"])
+
+        assert sin_sell_in is not None and rows["77"]["metrics"]["markup_sell_30d"] == sin_sell_in
+
+    def test_a_sell_in_alone_gives_no_markup_with_sell_out(
         self, client, sold, db, rol_admin, admin_auth_headers
     ) -> None:
         grant(db, rol_admin, VER, METRICAS, GANANCIA)
@@ -69,9 +122,8 @@ class TestProductRows:
 
         rows = by_key(body(client, admin_auth_headers)["rows"])
 
-        plain, with_sell = rows["77"]["metrics"]["markup_30d"], rows["77"]["metrics"]["markup_sell_30d"]
-        assert with_sell is not None and with_sell > plain  # a sell in lowers the cost: the markup goes up
-        assert rows["0"]["metrics"]["markup_sell_30d"] is None  # "Sin producto": neither applies, never a copy
+        assert rows["77"]["metrics"]["markup_30d"] is not None
+        assert rows["77"]["metrics"]["markup_sell_30d"] is None  # D1: the sell in never lowers the cost
 
     def test_without_ver_ganancia_there_is_no_markup_with_sell_in_out(
         self, client, sold, db, rol_admin, admin_auth_headers
@@ -82,7 +134,7 @@ class TestProductRows:
 
     def test_sorting_by_it_puts_the_shown_value_in_order(self, client, sold, db, rol_admin, admin_auth_headers) -> None:
         grant(db, rol_admin, VER, METRICAS, GANANCIA)
-        sell_in_on_order(sold, 1, "0.50")
+        sell_out_on_order(sold, 1, "0.50")
 
         found = body(client, admin_auth_headers, orden="markup_sell_30d", dir="desc")["rows"]
 
@@ -106,12 +158,12 @@ class TestProductRows:
 
     def test_the_export_has_the_column_with_ver_ganancia(self, client, sold, db, rol_admin, admin_auth_headers) -> None:
         grant(db, rol_admin, VER, METRICAS, GANANCIA)
-        sell_in_on_order(sold, 1, "0.50")
+        sell_out_on_order(sold, 1, "0.50")
         rows = by_key(body(client, admin_auth_headers)["rows"])
 
         header, lines = read_csv(client.get(PRODUCTS_CSV, headers=admin_auth_headers))
 
-        by_code = dict(zip(column(header, lines, "Código"), column(header, lines, "Markup real 30D c/ SISO")))
+        by_code = dict(zip(column(header, lines, "Código"), column(header, lines, "Markup real 30D c/ SO")))
         assert by_code["R77"] == f"{rows['77']['metrics']['markup_sell_30d']:.2f}".replace(".", ",")
 
 
@@ -222,7 +274,7 @@ class TestAuditLevels:
         lines = sheet(client, margin_groups, nivel="marca", orden="valor_total", dir="desc")
         lenovo = next(line for line in lines if (line["Tipo"], line["Producto"]) == ("Marca", "Lenovo"))
         notebooks = next(line for line in lines if (line["Tipo"], line["Producto"]) == ("Categoría", "Notebooks"))
-        siso = ("Markup actual c/ SISO mín", "Markup actual c/ SISO máx")
+        siso = ("Markup actual c/ SO mín", "Markup actual c/ SO máx")
         assert tuple(lenovo[h] for h in siso) == (11.0, 32.0)  # the brand's range, as the screen shows it
         assert tuple(notebooks[h] for h in siso) == (11.0, 32.0)
 

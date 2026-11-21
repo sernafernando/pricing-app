@@ -18,6 +18,9 @@ of its own for its whole length and skips the tick when another process (or a ma
 
 State (merged into `worker_job_state.detail`, every other key kept):
     {rules_version, checked_until, window_until, cursor, catchup_started_at}
+plus `pending_ids`, owned by `app.services.ml_hay_mejores_pendientes`: MLAs whose costo SI changed (owner L15), added
+by the costo SI drain. Every run recomputes them too (both branches, same cursor) and removes only the ids it
+processed; the state write above never carries that key, so it never clobbers it.
 A run stopped by its deadline keeps `cursor` (the last item id done) and its window, and the next run resumes there;
 the recompute is idempotent, so a window done twice changes nothing.
 """
@@ -35,6 +38,7 @@ from sqlalchemy.orm import Session
 from app.core import database
 from app.models.ml_publications import MlItemSellerPromotions
 from app.models.worker_job_state import WorkerJobState
+from app.services import ml_hay_mejores_pendientes as pendientes
 from app.services import ml_promotions_hay_mejores as hay_mejores
 from app.services.ml_catalog_competition_service import prefetch_catalog_snapshots
 from app.services.ml_hay_mejores_criterios_service import prefetch_criterios
@@ -43,7 +47,7 @@ from app.workers.context import JobResult, WorkerContext
 
 logger = logging.getLogger(__name__)
 
-HANDLER_NAME = "ml_promotions.hay_mejores_boundaries"
+HANDLER_NAME = pendientes.HANDLER_NAME  # "ml_promotions.hay_mejores_boundaries"
 # Bump when the rules of the flag change: the next run recomputes the flags that can change, once.
 # 1 = applicable-now rule (writable type, started, not finished, SELLER_CAMPAIGN Premium of the month).
 RULES_VERSION = 1
@@ -179,19 +183,23 @@ class HayMejoresBoundariesHandler:
         now = self._now()
         with self._session() as db:
             state = _read_state(db)
+            pending = set(pendientes.pendientes(db))
             catchup = state.get("rules_version") != RULES_VERSION or _parse(state.get("checked_until")) is None
             if catchup:
                 started = _parse(state.get("catchup_started_at"))
                 # A cursor belongs to the catch-up only when one is under way (never to an unfinished window).
-                ids = _catchup_ids(db, state.get("cursor") if started is not None else None)
+                after = state.get("cursor") if started is not None else None
+                ids = sorted(set(_catchup_ids(db, after)) | {i for i in pending if not after or i > after})
                 started = started or now
                 window: Dict[str, Any] = {"catchup_started_at": started.isoformat()}
             else:
                 since = _parse(state["checked_until"])
                 until = _parse(state.get("window_until")) or now
                 cursor = state.get("cursor")
-                # Date crossings (may turn a flag ON) ∪ currently flagged (may turn a stale flag OFF).
-                ids = sorted(set(hay_mejores.items_con_candidatas_que_cruzan(db, since, until)) | set(_flagged_ids(db)))
+                # Date crossings (may turn a flag ON) ∪ currently flagged (may turn a stale flag OFF) ∪ costo SI pending.
+                ids = sorted(
+                    set(hay_mejores.items_con_candidatas_que_cruzan(db, since, until)) | set(_flagged_ids(db)) | pending
+                )
                 if cursor:
                     ids = [i for i in ids if i > cursor]
                 window = {"window_until": until.isoformat()}
@@ -203,6 +211,10 @@ class HayMejoresBoundariesHandler:
                 return self._stopped(window, ids[start - 1] if start else state.get("cursor"), done, changed, catchup)
             chunk = ids[start : start + BATCH]
             with self._session() as db:
+                # Removed FIRST, in the chunk's transaction: its row lock makes a costo SI drain that re-adds one of
+                # these ids wait for this commit (so it stays pending for the next tick), and a drain that committed
+                # before is already visible to the recompute below (READ COMMITTED).
+                pendientes.quitar(db, [i for i in chunk if i in pending])
                 changed += _recompute(db, chunk, self._now())
                 _write_state(db, {**window, "cursor": chunk[-1]})
                 db.commit()

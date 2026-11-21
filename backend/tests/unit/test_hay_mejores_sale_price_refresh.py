@@ -25,9 +25,7 @@ def test_sale_price_write_recomputes_without_raw_promotions(monkeypatch) -> None
         "app.services.ml_promotions_hay_mejores.actualizar_hay_mejores_ofertas",
         lambda db, item_id, **kwargs: calls.append((item_id, kwargs)),
     )
-    _refresh_hay_mejores_after_write(
-        MagicMock(), SimpleNamespace(name="sale_price"), "MLA1", {"amount": 999}
-    )
+    _refresh_hay_mejores_after_write(MagicMock(), SimpleNamespace(name="sale_price"), "MLA1", {"amount": 999})
     assert calls == [("MLA1", {})]
 
 

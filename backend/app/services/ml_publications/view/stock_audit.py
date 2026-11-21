@@ -66,6 +66,7 @@ from app.services.ml_daily_metrics import board
 from app.services.ml_daily_metrics.groups import NO_GROUP, NO_LABELS, dimension_of
 from app.services.ml_daily_metrics.kpi_strip import round_money, round_pp
 from app.services.combos.pcs import CAT_PC  # the one PC rule, shared with sell out (`combos.pcs`)
+from app.services.ml_publications.view import real_so
 from app.services.ml_publications.view.cost_lines import siso_markups
 from app.services.ml_publications.view.filters import (
     T,
@@ -238,7 +239,8 @@ def _unit(cost: Optional[Decimal]) -> Optional[float]:
     return None if cost is None else float(cost)
 
 
-SELL_FIELDS = ("sell_in", "sell_out", "m_sell_in", "m_sell_out", "sell_in_lineas", "sell_out_lineas")
+# D1 (sell-in-costo-si): only the sell out of the Board's lines; their sell in is never read (`real_so`)
+SELL_FIELDS = ("sell_out", "m_sell_out", "sell_out_lineas")
 
 
 NO_POINTS: tuple = ()  # a day of `Sales.series_markups` without any markup point
@@ -255,11 +257,8 @@ class Sales:
     mtg: Decimal = Decimal(0)
     costo: Decimal = Decimal(0)
     any_board_row: bool = False
-    sell_in: Optional[Decimal] = None
     sell_out: Optional[Decimal] = None
-    m_sell_in: Optional[Decimal] = None
     m_sell_out: Optional[Decimal] = None
-    sell_in_lineas: Optional[int] = None
     sell_out_lineas: Optional[int] = None
     series_units: list[Decimal] = field(default_factory=list)
     # per day: the (markup, units) of each publication with a markup that day
@@ -348,17 +347,17 @@ class Sales:
 
     @property
     def total_gauss_shown(self) -> Optional[Decimal]:
-        """The Total Gauss the view shows: with sell in / out applied where it applies, else the plain one."""
+        """The Total Gauss the view shows: with sell out added where it applies (D1, `real_so`), else the plain one."""
         if not self.any_board_row:
             return None
-        applied = board.SellInOut.total_gauss_sell(self)
+        applied = real_so.total_gauss_so(self)
         return self.tg if applied is None else applied
 
     @property
     def markup_shown(self) -> Optional[Decimal]:
         if not self.any_board_row:
             return None
-        applied = board.SellInOut.markup_sell(self)
+        applied = real_so.markup_so(self)
         return board.markup_of(self.mtg, self.costo) if applied is None else applied
 
     def add(
@@ -491,9 +490,9 @@ class Sales:
             known = self.any_board_row
             body["total_gauss_30d"] = round_money(self.tg) if known else None
             body["markup_30d"] = round_pp(board.markup_of(self.mtg, self.costo)) if known else None
-            # None where neither sell in nor sell out applies (never a copy of the figures without them)
-            body["total_gauss_sell_30d"] = round_money(board.SellInOut.total_gauss_sell(self))
-            body["markup_sell_30d"] = round_pp(board.SellInOut.markup_sell(self))
+            # None where no sell out applies (never a copy of the figures without it); D1: c/ SO (`real_so`)
+            body["total_gauss_sell_30d"] = round_money(real_so.total_gauss_so(self))
+            body["markup_sell_30d"] = round_pp(real_so.markup_so(self))
         return body
 
 

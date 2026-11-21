@@ -138,6 +138,17 @@ def test_every_module_of_the_package_is_loaded_on_the_first_dispatch(
     monkeypatch.setattr(despues, "__path__", [*paquete, str(tmp_path)])
     monkeypatch.setattr(despues, "_cargados", False)
     modulos = [m.name for m in pkgutil.iter_modules(paquete)]
+    nuevos = [
+        f"{despues.__name__}.{nombre}"
+        for nombre in [*modulos, "probe_area"]
+        if f"{despues.__name__}.{nombre}" not in sys.modules
+    ]
+    # The modules this test imports for the first time must not outlive it: they registered no-ops into the conftest's
+    # empty registry, so a later test's real loading would find them imported and never register the real callbacks
+    # (the legacy metrics hook test failed after this one in CI, #2366).
+    for clave in nuevos:
+        monkeypatch.setitem(sys.modules, clave, None)
+        monkeypatch.delitem(sys.modules, clave)
     for nombre in [*modulos, "probe_area"]:  # imported afresh, so each registration runs again
         monkeypatch.delitem(sys.modules, f"{despues.__name__}.{nombre}", raising=False)
         monkeypatch.delattr(despues, nombre, raising=False)
