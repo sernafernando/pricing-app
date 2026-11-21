@@ -52,9 +52,7 @@ def test_two_simultaneous_auto_runs_schedule_one_enroll(mlpub_pg, monkeypatch) -
         )
 
     monkeypatch.setattr(hm, "evaluar_mejores_candidatas", slow_eval)
-    monkeypatch.setattr(
-        hm, "get_criterios", lambda *_a, **_k: replace(default_criterios("MLA1"), auto_aplicacion=True)
-    )
+    monkeypatch.setattr(hm, "get_criterios", lambda *_a, **_k: replace(default_criterios("MLA1"), auto_aplicacion=True))
     monkeypatch.setattr(hm, "record_flag_transition", lambda *_a, **_k: None)
     monkeypatch.setattr(hm, "_enqueue_catalog_competition_refresh", lambda *_a, **_k: None)
     monkeypatch.setattr(hm, "notify_hay_mejores_changed", lambda *_a, **_k: None)

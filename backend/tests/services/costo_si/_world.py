@@ -33,6 +33,7 @@ from app.models.sale_order_header_history import SaleOrderHeaderHistory
 from app.models.sell_in import SellInBonoItem, SellInBonoMarca, SellInCompra, SellInCompraItem, SellInCompraPedido
 from app.models.tactical import Tactical
 from app.models.tb_item import TBItem
+from app.models.cur_exch_history import CurExchHistory
 from app.models.tipo_cambio import TipoCambio
 from app.services.costo_si import queue
 from tests.services.sell._schema import throwaway_schema
@@ -75,6 +76,7 @@ TABLES = [
     SellInCompraItem.__table__,
     SellInCompraPedido.__table__,
     TipoCambio.__table__,
+    CurExchHistory.__table__,
     CommercialTransaction.__table__,
     ItemTransaction.__table__,
     SaleOrderHeader.__table__,
@@ -408,6 +410,20 @@ def sell_out_tactical(engine: Engine, tactical_id: int, porcentaje: str, desde: 
 
 def tipo_cambio(engine: Engine, fecha: date, venta: float) -> None:
     run(engine, "INSERT INTO tipo_cambio (fecha, moneda, compra, venta) VALUES (:f, 'USD', :v, :v)", f=fecha, v=venta)
+
+
+def cambio_erp(engine: Engine, cuando: datetime, valor: float, desde: int = 2, hacia: int = 1) -> None:
+    """A `tb_cur_exch_history` row (the ERP's rate history): `desde` -> `hacia` currency ids, 2 = USD, 1 = ARS."""
+    run(
+        engine,
+        "INSERT INTO tb_cur_exch_history (ceh_id, comp_id, curr_id_1, curr_id_2, ceh_cd, ceh_exchange)"
+        " VALUES (:i, 1, :d, :h, :c, :v)",
+        i=next(_ids),
+        d=desde,
+        h=hacia,
+        c=cuando,
+        v=valor,
+    )
 
 
 def publicacion_full(engine: Engine, mla: str, producto_item_id: int, inventory_id: str, full_hoy: int) -> None:

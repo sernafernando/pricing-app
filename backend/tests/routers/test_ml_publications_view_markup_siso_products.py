@@ -36,8 +36,9 @@ from tests.routers.test_ml_publications_view_stock_audit import (  # noqa: F401
 )
 from tests.routers.test_ml_publications_view_stock_audit_niveles import LENOVO, fill_groups, splits  # noqa: F401
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 (the costo SI reader's SQLite stand-in)
 
-pytestmark = pytest.mark.postgres
+pytestmark = [pytest.mark.postgres, pytest.mark.usefixtures("costo_si_lista")]
 
 
 def sell_in_on_order(engine, order_id: int, descuento: str) -> None:

@@ -161,15 +161,19 @@ class SellInOutMarkups:
 
 
 class MarkupCompanions:
-    """Records each markup site once into the PPP and the sell in / sell out accumulators."""
+    """Records each markup site once into the PPP, the sell in / sell out and (when given) the costo SI
+    (`costo_si.columna.CostoSiMarkups`) accumulators."""
 
-    def __init__(self, ppp, sell_in_out: SellInOutMarkups):
+    def __init__(self, ppp, sell_in_out: SellInOutMarkups, costo_si=None):
         self.ppp = ppp
         self.sell_in_out = sell_in_out
+        self.costo_si = costo_si
 
     def record(self, key: str, limpio: float, *, percent: bool = True) -> None:
         self.ppp.record(key, limpio, percent=percent)
         self.sell_in_out.record(key, limpio, percent=percent)
+        if self.costo_si is not None:
+            self.costo_si.record(key, limpio, percent=percent)
 
 
 def en_moneda_costo(sell_in: SellInProducto, moneda: object, tipo_cambio: Optional[float]) -> SellInProducto:

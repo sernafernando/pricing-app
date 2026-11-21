@@ -40,9 +40,9 @@ def test_actualizar_keeps_flag_false_while_excluido(monkeypatch) -> None:
     monkeypatch.setattr(
         hay_mejores,
         "evaluar_mejores_candidatas",
-        lambda *a, **k: called.__setitem__("evaluar", called["evaluar"] + 1)
-        or hay_mejores.MejoresEvaluacion(
-            mejores=[("C-1", 900.0)], status_quo={}, candidatas=[], criterios={}
+        lambda *a, **k: (
+            called.__setitem__("evaluar", called["evaluar"] + 1)
+            or hay_mejores.MejoresEvaluacion(mejores=[("C-1", 900.0)], status_quo={}, candidatas=[], criterios={})
         ),
     )
     monkeypatch.setattr(hay_mejores, "_enqueue_catalog_competition_refresh", lambda *_a, **_k: None)
