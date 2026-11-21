@@ -12,9 +12,10 @@ shadowed table gets a CTE of that name in front, and a CTE hides the table of th
   table plus those columns at their server default (else NULL). Every one is listed in `sombras` so the report says
   which figures rest on a stand-in (a data backfill inside a pending migration is NOT reproduced).
 
-`solo_lectura(url)` opens its own connection (no pool, none of the app engine's checkout `SET`s): psycopg2 opens every
-transaction with `BEGIN READ ONLY` (the connection's `readonly` attribute, not a SET statement), so any write raises on
-the server, and the caller rolls back at the end.
+`motor_solo_lectura(url)` opens its own connection (no pool, none of the app engine's checkout `SET`s): psycopg2 opens
+every transaction with `BEGIN READ ONLY` (the connection's `readonly` attribute, not a SET statement: the session
+default stays off), so any write raises on the server, and the caller rolls back at the end. On top of that, only the
+`PERMITIDAS` statements leave the process: anything else, a SET above all, raises `SentenciaNoPermitida` first.
 """
 
 from __future__ import annotations
@@ -41,6 +42,23 @@ _DIALECTO = postgresql.dialect()
 # What may come before a statement's first keyword: blanks and `--` comment lines.
 _INICIO = re.compile(r"^(?:\s+|--[^\n]*\n)*", re.S)
 _WITH = re.compile(r"WITH(?:\s+RECURSIVE)?\s", re.I)
+
+
+# The only statements the read-only engine sends: reads, and the savepoints `begin_nested` uses. Anything else (a SET
+# above all: through PgBouncer a session SET leaks to the next client) raises before it reaches the server.
+PERMITIDAS = ("SELECT", "WITH", "SHOW", "SAVEPOINT", "RELEASE", "ROLLBACK")
+_PRIMERA = re.compile(r"[A-Za-z]+")
+
+
+class SentenciaNoPermitida(RuntimeError):
+    """A statement other than a read reached the read-only engine."""
+
+
+def _verificar(sentencia: str) -> None:
+    cuerpo = sentencia[_INICIO.match(sentencia).end() :]
+    palabra = _PRIMERA.match(cuerpo)
+    if palabra is None or palabra.group(0).upper() not in PERMITIDAS:
+        raise SentenciaNoPermitida(f"read-only dry-run refused: {cuerpo[:80]!r}")
 
 
 @dataclass(frozen=True)
@@ -176,6 +194,10 @@ def motor_solo_lectura(url: str, **opciones) -> Engine:
     @event.listens_for(motor, "connect")
     def _solo_lectura(dbapi_conn, _registro):
         dbapi_conn.readonly = True
+
+    @event.listens_for(motor, "before_cursor_execute")
+    def _solo_lecturas(conn, cursor, sentencia, parametros, contexto, executemany):
+        _verificar(sentencia)
 
     return motor
 

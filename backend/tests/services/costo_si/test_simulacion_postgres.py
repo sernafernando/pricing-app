@@ -8,9 +8,9 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Iterator
 
+import psycopg2.errors
 import pytest
 from sqlalchemy import Engine, text
-from sqlalchemy.exc import InternalError, OperationalError
 
 from app.models.combo_componente import ComboComponente
 from app.models.item_cost_list_history import ItemCostListHistory
@@ -140,11 +140,20 @@ def test_the_steps_hide_the_ones_the_database_has(engine: Engine, motor: Engine)
 
 
 def test_nothing_can_be_written_and_nothing_is(engine: Engine, motor: Engine) -> None:
-    with pytest.raises((InternalError, OperationalError), match="read-only transaction"):
+    with pytest.raises(simulacion.SentenciaNoPermitida):
         with simulacion.simular(motor) as sim:
             sim.db.execute(text("UPDATE productos_erp SET costo = 1 WHERE item_id = :i"), {"i": P})
     with engine.connect() as conn:
         assert conn.execute(text("SELECT costo FROM productos_erp WHERE item_id = :i"), {"i": P}).scalar() == 30
+
+
+def test_a_write_that_skipped_the_filter_is_refused_by_the_server(motor: Engine) -> None:
+    """The second layer: even a statement sent straight through the driver runs in a READ ONLY transaction."""
+    with motor.connect() as conn:
+        cursor = conn.connection.dbapi_connection.cursor()
+        with pytest.raises(psycopg2.errors.ReadOnlySqlTransaction):
+            cursor.execute("UPDATE productos_erp SET costo = 1")
+        conn.rollback()
 
 
 def test_a_list_cost_on_the_date_still_comes_from_the_history(engine: Engine, motor: Engine) -> None:
@@ -163,3 +172,39 @@ def test_a_list_cost_on_the_date_still_comes_from_the_history(engine: Engine, mo
     finally:
         with engine.begin() as conn:
             conn.execute(text("DELETE FROM tb_item_cost_list_history"))
+
+
+def test_read_only_comes_from_begin_and_never_from_a_session_set(motor: Engine) -> None:
+    """psycopg2's `readonly` opens each transaction with BEGIN READ ONLY: the transaction is read-only while the
+    session default stays off (a `SET SESSION CHARACTERISTICS` would have turned the default on, and through
+    PgBouncer it would leak to the next client)."""
+    with motor.connect() as conn:
+        assert conn.execute(text("SELECT current_setting('transaction_read_only')")).scalar() == "on"
+        assert conn.execute(text("SELECT current_setting('default_transaction_read_only')")).scalar() == "off"
+        conn.rollback()
+
+
+@pytest.mark.parametrize(
+    "sentencia",
+    [
+        "SET statement_timeout = '1s'",
+        "set search_path = public",
+        "UPDATE productos_erp SET costo = 1",
+        "DO $$ BEGIN END $$",
+    ],
+)
+def test_only_reads_reach_the_server(motor: Engine, sentencia: str) -> None:
+    with pytest.raises(simulacion.SentenciaNoPermitida):
+        with motor.connect() as conn:
+            conn.execute(text(sentencia))
+
+
+def test_comments_in_front_do_not_hide_a_set(motor: Engine) -> None:
+    with pytest.raises(simulacion.SentenciaNoPermitida):
+        with motor.connect() as conn:
+            conn.execute(text("-- harmless\n  SET work_mem = '1GB'"))
+
+
+def test_a_read_with_comments_in_front_goes_through(motor: Engine) -> None:
+    with motor.connect() as conn:
+        assert conn.execute(text("-- the reader's note\n  SELECT 1")).scalar() == 1
