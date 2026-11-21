@@ -276,13 +276,13 @@ class TestListado:
         assert (productos[USD]["costo"], productos[USD]["costo_ars"]) == (30.0, None)
         assert productos[LISTA]["costo"] == 20000.0
 
-    def test_its_markups_are_the_ppp_markups_on_the_costo_si_in_pesos(self, client, mundo) -> None:
-        # The PPP of USD is 25 USD too: the same `limpio` on the same pesos gives the same markups, key by key.
-        usd = _listado(client)[USD]
+    def test_the_costo_si_carries_no_markups_of_its_own_the_main_ones_are_over_it(self, client, mundo) -> None:
+        """#2363 moved the main markups onto costo SI in pesos (S13): a `costo_si.markups` copy was the same numbers
+        twice, so the main markups are the one source. The PPP keeps its own companion markups."""
+        productos = _listado(client)
 
-        assert {PPP_KEY_CLASICA, PPP_KEY_REBATE, PPP_KEY_PVP_CLASICA} <= set(usd["costo_si"]["markups"])
-        assert usd["costo_si"]["markups"] == usd["ppp"]["markups"]
-        assert _listado(client)[LISTA]["costo_si"]["markups"]  # an ARS list cost has pesos too
+        assert all("markups" not in productos[i]["costo_si"] for i in (USD, LISTA))
+        assert {PPP_KEY_CLASICA, PPP_KEY_REBATE, PPP_KEY_PVP_CLASICA} <= set(productos[USD]["ppp"]["markups"])
 
     def test_orden_costo_si_sorts_by_the_costo_si_in_pesos_with_unknown_last(self, client, mundo) -> None:
         assert _orden(client, "/api/productos", "costo_si", "asc") == [LISTA, USD, NADA]
@@ -302,8 +302,26 @@ class TestProducto:
 
         assert body["costo_si"]["costo"] == 25.0 and body["costo_si"]["fuente"] == "costo_si"
         assert body["costo_si"]["costo_ars"] == 25000.0
-        assert body["costo_si"]["markups"] and body["costo_si"]["markups"] == body["ppp"]["markups"]
+        assert "markups" not in body["costo_si"] and body["ppp"]["markups"]
         assert body["costo"] == 30.0
+
+    def test_the_product_reads_its_cost_once_for_the_column_and_the_markups(self, client, mundo, monkeypatch) -> None:
+        """One `lote.actuales` read feeds both the costo SI column and the markups (they were two reads, at two rate
+        lookups, and a day without a rate logged the product twice)."""
+        from app.services.costo_si import lote
+
+        lecturas = []
+        real = lote.actuales
+
+        def _contar(db, ids, **kw):
+            lecturas.append(sorted(ids))
+            return real(db, ids, **kw)
+
+        monkeypatch.setattr(lote, "actuales", _contar)
+        body = client.get(f"/api/productos/{USD}").json()
+
+        assert lecturas == [[USD]]
+        assert body["costo_si"]["costo_ars"] == 25000.0 and body["markup"] is not None
 
     def test_a_product_without_cost_has_no_costo_si(self, client, mundo) -> None:
         assert client.get(f"/api/productos/{NADA}").json()["costo_si"] is None
@@ -317,8 +335,7 @@ class TestTienda:
 
         assert productos[USD]["costo_si"]["costo_ars"] == 25000.0
         assert productos[USD]["costo_si"]["fuente"] == "costo_si"
-        assert PPP_KEY_REBATE in productos[USD]["costo_si"]["markups"]
-        assert productos[USD]["costo_si"]["markups"] == productos[USD]["ppp"]["markups"]
+        assert "markups" not in productos[USD]["costo_si"] and PPP_KEY_REBATE in productos[USD]["ppp"]["markups"]
         assert productos[LISTA]["costo_si"]["fuente"] == "lista"
         assert productos[NADA]["costo_si"] is None
         assert productos[USD]["costo"] == 30.0

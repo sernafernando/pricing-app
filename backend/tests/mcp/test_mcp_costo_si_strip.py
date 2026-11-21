@@ -18,7 +18,7 @@ def _detalle() -> dict[str, Any]:
     """A /productos/{id}/detalle answer as the endpoint shapes it, every field filled."""
     producto = {field: 1 for field in _DETALLE_PRODUCTO_FIELDS}
     producto["costo_si"] = CostoSiPayload(
-        costo=25.0, moneda="USD", fuente="costo_si", tipo_cambio=1000.0, costo_ars=25000.0, markups={"clasica": 10.0}
+        costo=25.0, moneda="USD", fuente="costo_si", tipo_cambio=1000.0, costo_ars=25000.0
     ).model_dump(mode="json")
     return {"producto": producto, "pricing": dict.fromkeys(_DETALLE_PRICING_FIELDS), "ultimas_compras": []}
 

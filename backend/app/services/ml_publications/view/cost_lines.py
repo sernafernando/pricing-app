@@ -18,8 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.schemas.sell_in_out_producto import SellInOutProducto
 from app.services.costo_ppp_service import PppMarkups, resolver_ppp_batch
-from app.services.costo_si import lote
-from app.services.costo_si.columna import CostoSiMarkups
+from app.services.costo_si import columna, lote
 from app.services.ml_publications.view.markup import PublicationMarkup, UnitMarkup, summarize
 from app.services.ml_publications.view.markup_inputs import product_ivas
 from app.services.ml_publications.view.markup_service import ItemMarkup
@@ -48,7 +47,7 @@ def cost_lines(
 ) -> Optional[dict[int, dict[str, Any]]]:
     """The two lines Productos draws under a product's cost, per product id of `products` (id -> cost, currency,
     VAT): `ppp` (`resolver_ppp_batch` + `PppMarkups`, null without a qualifying row) and `sell_in_out`
-    (`resolver_sell_in_out_batch`, null when neither applies), and `costo_si` (`lote.actuales` + `CostoSiMarkups`,
+    (`resolver_sell_in_out_batch`, null when neither applies), and `costo_si` (`lote.actuales` + `columna.payload`,
     the list cost with fuente 'lista' without a costo SI, null without any cost). No markup is recorded: the cost
     cell shows none. Every resolver reads the pricing database, once for the whole page.
 
@@ -114,7 +113,7 @@ def _lines(
     ppp_payload = PppMarkups(ppp.get(item_id), moneda_costo=moneda, tipo_cambio=rate).payload()
     product = _CostedProduct(item_id, _as_float(costo), moneda, _as_float(iva))
     sio_payload = sell_in_out.markups(product, tipo_cambio=rate).payload()
-    costo_si = CostoSiMarkups(costos.get(item_id)).payload()  # no markup recorded, as the PPP's
+    costo_si = columna.payload(costos.get(item_id))
     return {
         "ppp": None if ppp_payload is None else ppp_payload.model_dump(),
         "sell_in_out": None if sio_payload is None else sio_payload.model_dump(),
