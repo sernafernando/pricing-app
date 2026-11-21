@@ -26,6 +26,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Iterable, Optional
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.services.combos.pcs import CAT_PC
@@ -102,14 +103,24 @@ def costo_grupo(alias: str) -> str:
 
 
 def avisar_combos_parciales(db: Session, filas: Iterable[Any], *, origen: str) -> None:
-    """Log every combo sold with only part of its breakdown, by GBP transaction (`ct_transaction` = the group id;
-    owner L19 doubt): the SQL above costs it whole and its loose components too. Same rule as the PDF
-    (`costo_erp.combos_desglosados`)."""
-    transacciones: dict[int, list[Optional[int]]] = {}
-    for fila in filas:
-        transacciones.setdefault(fila.ct_transaction, []).append(fila.item_id)
-    if transacciones:
-        combos_desglosados(db, transacciones, origen=origen)
+    """Log every combo sold with only part of its breakdown (owner L19 doubt): the SQL above costs it whole and its
+    loose components too. The group id is the GBP transaction `(comp_id, ct_transaction)`, and EVERY line of it
+    counts, also the components hidden under an association group's principal line that are not listing rows. Same
+    rule as the PDF (`costo_erp.combos_desglosados`)."""
+    transacciones = sorted({fila.ct_transaction for fila in filas})
+    if not transacciones:
+        return
+    lineas = db.execute(
+        text(
+            f"SELECT tit.comp_id, tit.ct_transaction, {GBP_ITEM.format(t='tit')} FROM tb_item_transactions tit"
+            " WHERE tit.ct_transaction = ANY(:cts)"
+        ),
+        {"cts": transacciones},
+    )
+    grupos: dict[tuple[int, int], list[Optional[int]]] = {}
+    for comp_id, ct, item_id in lineas:
+        grupos.setdefault((comp_id, ct), []).append(item_id)
+    combos_desglosados(db, grupos, origen=origen)
 
 
 def avisar_costos_desconocidos(filas: Iterable[Any], *, origen: str) -> None:

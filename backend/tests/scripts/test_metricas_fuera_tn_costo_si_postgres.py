@@ -315,8 +315,28 @@ def test_cron_combo_line_with_only_one_loose_component_is_not_broken_down(
     avisos = [r.getMessage() for r in caplog.records if "partially broken down" in r.getMessage()]
     assert avisos == [
         f"{cron.__name__.split('.')[-1].replace('agregar_metricas_', 'ventas_')}: combo {COMBO} partially broken down"
-        f" in group {ct} (missing components [{NB}]): costed whole and its loose components too"
+        f" in group (1, {ct}) (missing components [{NB}]): costed whole and its loose components too"
     ]
+
+
+@pytest.mark.parametrize("cron,df_id", CANALES)
+def test_cron_an_association_group_with_part_of_the_combo_is_logged(
+    engine: Engine, db: Session, cron, df_id, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The group's components are hidden under its principal line (not listing rows): they still count, so a group
+    naming the combo with only the notebook is logged with its group, never silent."""
+    principal, *_ = _venta(engine, df_id, _grupo(COMBO, [(NB, "1")]))
+    (ct,) = db.execute(
+        text("SELECT ct_transaction FROM tb_item_transactions WHERE it_transaction = :i"), {"i": principal}
+    ).one()
+
+    _cron(db, cron)
+
+    avisos = [r.getMessage() for r in caplog.records if "partially broken down" in r.getMessage()]
+    assert (
+        len(avisos) == 1
+        and f"combo {COMBO} partially broken down in group (1, {ct}) (missing components [{MOUSE}])" in avisos[0]
+    )
 
 
 @pytest.mark.parametrize("cron,df_id", CANALES)
