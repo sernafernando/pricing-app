@@ -93,6 +93,7 @@ from app.services.ml_publications.view import (
     listing,
     mejores_ofertas,
     products,
+    real_so,
     row_metrics,
     stats,
     status_block,
@@ -308,8 +309,8 @@ class MetricsOut(BaseModel):
     series_markup_90d: Optional[list[Optional[float]]] = None
     # with `desglose_envio` (auditoria-stock-niveles S3): "7d" / "30d" -> its units by ERP and Full
     envio: Optional[dict[str, StockEnvioWindowOut]] = None
-    # the Board's markup with sell in / sell out (`board.SellInOut.markup_sell`, Auditoría's Real 30D); null where
-    # neither applies (never a copy of `markup_30d`); with `ml_metricas.ver_ganancia` only
+    # Real 30D c/ SO (D1, `real_so.markup_so`: the sell out added to the profit over the plain cost, the Board's sell
+    # in never read); null where no sold line has a sell out (never a copy of `markup_30d`); ver_ganancia only
     markup_sell_30d: Optional[float] = None
 
 
@@ -1441,8 +1442,8 @@ def _metrics_out(row: board.Row, with_margin: bool) -> dict[str, Any]:
         out["markup_30d"] = kpi_strip.round_pp(row.markup)
         out["markup_delta_pp"] = kpi_strip.round_pp(row.markup_delta)
         out["series_markup_90d"] = row.series_markup
-        if row.sell_in_lineas is not None:  # the Board read the sell in / sell out (`sell_in_out=True`)
-            out["markup_sell_30d"] = kpi_strip.round_pp(row.markup_sell)
+        if row.sell_out_lineas is not None:  # the Board read the sell in / sell out (`sell_in_out=True`)
+            out["markup_sell_30d"] = kpi_strip.round_pp(real_so.markup_so(row))  # D1: c/ SO
     return out
 
 
@@ -1518,9 +1519,9 @@ def items_ask(
         description=(
             "actividad (default), precio, titulo, stock_full, stock_erp, stock_total (ERP + Full), actualizado, codigo, marca, "
             "tipo (Clásica, 3, 6, 9, 12 cuotas), costo and the list headers lista_clasica, lista_rebate, "
-            "lista_oferta, lista_web (ver_ganancia), markup and markup_siso (Markup actual c/ SISO; ver_ganancia); "
+            "lista_oferta, lista_web (ver_ganancia), markup and markup_siso (Markup actual c/ SO; ver_ganancia); "
             "Métricas ML's figures over the whole filtered set (ml_metricas.ver): facturado_30d, "
-            "unidades_7d, unidades_30d, markup_30d, markup_sell_30d (Markup real 30D c/ SISO) and total_gauss_30d "
+            "unidades_7d, unidades_30d, markup_30d, markup_sell_30d (Markup real 30D c/ SO) and total_gauss_30d "
             "(the markups and Total Gauss also ver_ganancia). Several keys as csv "
             "(multi-column sort), any combination"
         ),
@@ -1958,7 +1959,7 @@ def products_ask(
         None,
         description=(
             "csv of: facturado_30d (default with ml_metricas.ver), unidades_7d, unidades_30d (ml_metricas.ver); "
-            "markup_30d, markup_sell_30d (Markup real 30D c/ SISO), total_gauss_30d (also ver_ganancia); titulo "
+            "markup_30d, markup_sell_30d (Markup real 30D c/ SO), total_gauss_30d (also ver_ganancia); titulo "
             "(the default without ml_metricas.ver)"
         ),
     ),

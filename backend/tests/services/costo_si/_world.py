@@ -48,8 +48,9 @@ STUBS = [
     # The view of live purchase invoices, as a plain table: the engine only reads `clasificacion`.
     "CREATE TABLE v_facturas_compra_vigentes (ct_transaction BIGINT PRIMARY KEY, clasificacion TEXT, ct_docnumber TEXT)",
     "CREATE TABLE ml_items (item_id TEXT PRIMARY KEY, inventory_id TEXT, user_product_id TEXT)",
+    # `match_status`: the ML publications callback (`despues/pubml.py`) reads the linked links only.
     "CREATE TABLE ml_item_product_links (item_id TEXT, variation_id BIGINT DEFAULT 0, producto_item_id INTEGER,"
-    " PRIMARY KEY (item_id, variation_id))",
+    " match_status TEXT DEFAULT 'linked', PRIMARY KEY (item_id, variation_id))",
     "CREATE TABLE ml_user_product_stock (user_product_id TEXT PRIMARY KEY, full_quantity INTEGER)",
     "CREATE TABLE ml_item_variations (item_id TEXT, variation_id BIGINT, user_product_id TEXT, gone_at TIMESTAMPTZ,"
     " PRIMARY KEY (item_id, variation_id))",
