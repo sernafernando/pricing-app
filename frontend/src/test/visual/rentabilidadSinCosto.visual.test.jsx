@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
+import { createElement } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { setTheme, tokenColor, contrastRatio, rgba } from './visualHelpers';
 import api from '../../services/api';
@@ -64,14 +65,14 @@ const shot = async (name) => {
   await page.screenshot({ path: `${SHOTS_DIR}/${name}.png`, element: document.getElementById(ROOT_ID) });
 };
 
-const renderTab = (Tab) =>
+const renderTab = (tab) =>
   render(
     <MemoryRouter>
       <div id={ROOT_ID} className={layout.appLayout} style={{ height: '100vh', overflow: 'hidden' }}>
         <Sidebar />
         <div className={layout.mainWrapper} data-sidebar-expanded="true" data-sidebar-hidden="false">
           <main className={layout.mainContent} style={{ marginTop: 0 }}>
-            <Tab fechaDesde="2026-01-01" fechaHasta="2026-01-31" />
+            {createElement(tab, { fechaDesde: '2026-01-01', fechaHasta: '2026-01-31' })}
           </main>
         </div>
       </div>
@@ -118,7 +119,7 @@ describe.each(['light', 'dark'])('Rentabilidad, sales without cost (%s)', (theme
         expect(getComputedStyle(marca).color).toBe(tokenColor('--text-secondary'));
         expect(contrastRatio(getComputedStyle(marca).color, fondoOpaco(marca))).toBeGreaterThanOrEqual(4.5);
       }
-      expect(sinCosto.textContent.replace(/ /g, ' ')).not.toMatch(/\$ ?0(?![\d.])/);
+      expect(sinCosto.textContent.replace(/\u00a0/g, ' ')).not.toMatch(/\$ ?0(?![\d.])/);
 
       const notas = page.getByText('1 venta sin costo: no suman al costo ni a la ganancia').elements();
       expect(notas).toHaveLength(2);

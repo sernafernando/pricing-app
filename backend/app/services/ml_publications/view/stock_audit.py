@@ -503,7 +503,7 @@ class Product:
     descripcion: Optional[str]
     marca: Optional[str]
     stock: Optional[int]
-    costo: Optional[float]  # the list cost (`productos_erp.costo`), shown, never a valuation
+    costo: Optional[float]  # the list cost (the catalog's `costo`), shown, never a valuation
     moneda: str
     costo_si: Optional[Decimal] = None  # the cost the stock is valued at (`lote.actuales`); None = unknown
     costo_si_moneda: Optional[str] = None
