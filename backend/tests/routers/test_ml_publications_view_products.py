@@ -168,7 +168,7 @@ class TestRows:
             seed.add_cost(conn, 77, 50.0, moneda_costo="USD")
         grant(db, rol_admin, VER, METRICAS)
         rows = body(client, admin_auth_headers, estado="active")["rows"]
-        assert all(not {"costo", "ppp", "sell_in_out"} & set(row) for row in rows)
+        assert all(not {"costo", "ppp", "sell_in_out", "costo_si"} & set(row) for row in rows)
 
     def test_with_ver_ganancia_a_product_row_carries_the_ppp_and_sell_in_lines(
         self, client, sold, db, rol_admin, admin_auth_headers, admin_user
@@ -178,8 +178,9 @@ class TestRows:
         linea = seed_lines(db, admin_user, 77, 40000.0)
         grant(db, rol_admin, VER, GANANCIA)
         rows = by_key(body(client, admin_auth_headers, estado="active")["rows"])
-        assert {k: rows["77"][k] for k in ("ppp", "sell_in_out")} == expected_lines(linea, 40000.0)
+        assert {k: rows["77"][k] for k in ("ppp", "sell_in_out", "costo_si")} == expected_lines(linea, 40000.0)
         assert rows["0"]["ppp"] is None and rows["0"]["sell_in_out"] is None  # "Sin producto"
+        assert rows["0"]["costo_si"] is None
 
     def test_a_failing_line_read_keeps_each_product_cost_without_the_lines(
         self, client, sold, db, rol_admin, admin_auth_headers, admin_user, monkeypatch
@@ -191,7 +192,7 @@ class TestRows:
         grant(db, rol_admin, VER, GANANCIA)
         rows = by_key(body(client, admin_auth_headers, estado="active")["rows"])
         assert rows["77"]["costo"] == {"amount": 40000.0, "currency": "ARS"}
-        assert all(not {"ppp", "sell_in_out"} & set(row) for row in rows.values())
+        assert all(not {"ppp", "sell_in_out", "costo_si"} & set(row) for row in rows.values())
 
 
 class TestPaging:
