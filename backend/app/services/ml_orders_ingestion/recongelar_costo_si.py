@@ -98,26 +98,45 @@ RETURNING c.id
 """).bindparams(bindparam("costo_si", value=FUENTES_COSTO_SI, expanding=True))
 
 
-def recongelar(db: Session, producto_item_id: int, desde: Optional[date], motivo: str = "costo SI") -> int:
+def recongelar(
+    db: Session,
+    producto_item_id: int,
+    desde: Optional[date],
+    motivo: str = "costo SI",
+    *,
+    desconocidas: Optional[list[str]] = None,
+) -> int:
     """Re-freezes the ML sales of `producto_item_id` dated (ART) on or after `desde` (None: all of them) at the cost
-    in force on each sale date, backing up every changed row first. Returns how many rows changed. Does not commit."""
+    in force on each sale date, backing up every changed row first. Returns how many rows changed. Does not commit.
+
+    Unknown stays unknown (interface §7): a row the reader cannot cost keeps what it froze, never 0, and it is said
+    with its product and sale date: appended to `desconocidas` for the caller's one warning of the run (`drenar`),
+    or logged here in one warning when no list is given."""
     filas = db.execute(_RECONGELAR_SQL, {"item": producto_item_id, "desde": desde, "motivo": motivo})
     cambiadas = len(filas.fetchall())
-    desconocidas = db.execute(_DESCONOCIDAS_SQL, {"item": producto_item_id, "desde": desde}).scalar()
-    if desconocidas:
-        # Unknown stays unknown (interface §7): the row keeps what it froze, never 0, and it is said.
-        logger.warning(
-            "recongelar_costo_si: unknown cost for producto_item_id=%s on %s sale row(s) from %s: kept as frozen",
-            producto_item_id,
-            desconocidas,
-            desde,
-        )
+    propias = [
+        f"{producto_item_id} on {fecha.isoformat()} ({n} row(s))"
+        for fecha, n in db.execute(_DESCONOCIDAS_SQL, {"item": producto_item_id, "desde": desde})
+    ]
+    if desconocidas is not None:
+        desconocidas.extend(propias)
+    else:
+        _avisar_desconocidas(propias)
     return cambiadas
+
+
+def _avisar_desconocidas(desconocidas: list[str]) -> None:
+    if desconocidas:
+        logger.warning(
+            "recongelar_costo_si: unknown cost, kept as frozen, for %s product sale date(s): %s",
+            len(desconocidas),
+            "; ".join(desconocidas),
+        )
 
 
 # The rows the re-freeze would cover but the reader cannot cost on their date (no cost, or a USD one with no rate).
 _DESCONOCIDAS_SQL = text(f"""
-    SELECT count(*)
+    SELECT {FECHA_VENTA_SQL} AS fecha, count(*)
     FROM ml_order_item_costos c
     JOIN ml_orders_ops o ON o.order_id = c.order_id AND o.date_created IS NOT NULL
     LEFT JOIN LATERAL ({lote.sql_en_fecha("c.producto_item_id", FECHA_VENTA_SQL)}) cs ON true
@@ -126,6 +145,8 @@ _DESCONOCIDAS_SQL = text(f"""
       AND (cs.costo_si_ars IS NULL OR cs.costo_si_ars <= 0)
       AND (cs.costo_si_fuente = '{lote.FUENTE_COSTO_SI}' OR c.fuente IN :costo_si
            OR c.fuente IN ('combo', 'hist_combo'))
+    GROUP BY 1
+    ORDER BY 1
 """).bindparams(bindparam("costo_si", value=FUENTES_COSTO_SI, expanding=True))
 
 
@@ -205,6 +226,7 @@ def drenar(
     transaction and not retried in this run; it parks after `MAX_ATTEMPTS` until a new costo SI change re-queues it.
     A transient error charges nothing and stops the run. Same contract as `costo_si.queue.drenar`."""
     out = Drenado()
+    desconocidas: list[str] = []  # the run's unknown costs, logged once at its end
     while out.productos + len(out.fallidos) < limite and datetime.now(timezone.utc) < deadline:
         item_id: Optional[int] = None
         try:
@@ -214,12 +236,14 @@ def drenar(
                     break
                 item_id, desde = int(fila[0]), fila[1]
                 motivo = f"costo SI desde {desde.isoformat()}" if desde else "costo SI completo"
-                cambiadas = recongelar(db, item_id, desde, motivo)
+                suyas: list[str] = []
+                cambiadas = recongelar(db, item_id, desde, motivo, desconocidas=suyas)
                 _bonos_costo(db, item_id)
                 db.execute(text("DELETE FROM ml_costo_si_dirty WHERE producto_item_id = :i"), {"i": item_id})
                 db.commit()
             out.productos += 1
             out.filas += cambiadas
+            desconocidas.extend(suyas)  # only a committed product's
         except Exception as exc:
             if item_id is None:
                 raise  # nothing was claimed: not a product's fault
@@ -235,4 +259,5 @@ def drenar(
                 db.commit()
             if attempts >= MAX_ATTEMPTS:
                 logger.error("ml costo SI: product %s parked after %s attempts: %s", item_id, attempts, exc)
+    _avisar_desconocidas(desconocidas)
     return out

@@ -202,6 +202,55 @@ def test_a_usd_cost_with_no_rate_freezes_no_row_and_is_logged(engine: Engine, ca
     assert any("unknown cost" in r.getMessage() and str(A) in r.getMessage() for r in caplog.records)
 
 
+def _avisos(caplog, logger: str) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.name == logger and "unknown cost" in r.getMessage()]
+
+
+def test_an_order_with_several_unknown_costs_logs_one_warning_listing_each_item_and_date(
+    engine: Engine, caplog
+) -> None:
+    """Interface §7 (logged) without one line per item: ONE warning per order (the freeze's batch), every unknown
+    item with its sale date in it."""
+    _mundo(engine)
+    w.run(engine, "DELETE FROM tipo_cambio")
+    order_id = next(_orders)
+    cuando = _art(2026, 10, 20, 10)
+    w.run(
+        engine,
+        "INSERT INTO ml_orders_ops (order_id, status, date_created) VALUES (:o, 'paid', :c)",
+        o=order_id,
+        c=cuando,
+    )
+    logger = "app.services.ml_orders_ingestion.costeo_service"
+    with caplog.at_level(logging.WARNING, logger=logger), sessionmaker(bind=engine)() as db:
+        congelar(db, order_id, [_item(A), _item(OTRO)], fecha_venta_de(cuando))
+        db.commit()
+
+    avisos = _avisos(caplog, logger)
+    assert len(avisos) == 1
+    assert f"{A} on 2026-10-20" in avisos[0] and f"{OTRO} on 2026-10-20" in avisos[0]
+
+
+def test_a_drain_run_logs_one_unknown_cost_warning_listing_each_product_and_sale_date(engine: Engine, caplog) -> None:
+    """The re-freeze's run is its batch: ONE warning for the whole drain, each product with each sale date it kept."""
+    _mundo(engine)
+    _vender(engine, A, _art(2026, 10, 20, 10))
+    _vender(engine, OTRO, _art(2026, 10, 21, 10))
+    w.run(engine, "DELETE FROM tipo_cambio")
+    factory = sessionmaker(bind=engine)
+    with factory() as db:
+        rc.encolar(db, [A, OTRO], None)
+        db.commit()
+    logger = "app.services.ml_orders_ingestion.recongelar_costo_si"
+    with caplog.at_level(logging.WARNING, logger=logger):
+        drenado = rc.drenar(factory, datetime.now(UTC) + timedelta(seconds=30), is_transient=lambda e: False)
+
+    assert drenado.productos == 2
+    avisos = _avisos(caplog, logger)
+    assert len(avisos) == 1
+    assert f"{A} on 2026-10-20" in avisos[0] and f"{OTRO} on 2026-10-21" in avisos[0]
+
+
 def test_a_rate_from_the_erp_history_is_frozen_with_that_rates_own_date(engine: Engine) -> None:
     """With no `tipo_cambio` row the reader falls back to `tb_cur_exch_history` (T3 PR 2): `tipo_cambio_fecha` is
     the reader's date of that rate (the day it was created), in the freeze and in the re-freeze alike."""
@@ -420,10 +469,10 @@ def test_a_failing_product_is_charged_and_the_others_are_refrozen(engine: Engine
         db.commit()
     real = rc.recongelar
 
-    def roto(db, item_id, desde, motivo="costo SI"):
+    def roto(db, item_id, desde, motivo="costo SI", **kwargs):
         if item_id == A:
             raise RuntimeError("boom")
-        return real(db, item_id, desde, motivo)
+        return real(db, item_id, desde, motivo, **kwargs)
 
     monkeypatch.setattr(rc, "recongelar", roto)
 

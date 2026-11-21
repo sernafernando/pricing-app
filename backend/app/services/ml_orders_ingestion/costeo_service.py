@@ -450,12 +450,14 @@ def _resolve_cost_en_fecha(
     costos: Dict[int, lote.Costo],
     combos: set,
     fecha_venta: date,
+    desconocidos: list[str],
 ) -> Optional[_ResolvedCost]:
     """One item's cost snapshot at the sale date through the reader: the linkage (`_productos_por_item`) and a known
     IVA rate (`tiene_iva_conocido`) as before costo SI, and the cost, currency, rate and pesos as `lote` gives them.
     Unknown (no cost, or a USD cost with no rate) -> `None`, no row (unknown is not zero). `fuente`: costo SI ->
     `costo_si_pub` / `costo_si_sku` / `costo_si_combo`; list cost -> the linkage's `erp_publicacion` / `erp_sku`, or
-    `combo` for a summed combo -- the same rule `recongelar_costo_si` writes."""
+    `combo` for a summed combo -- the same rule `recongelar_costo_si` writes. An unknown cost is appended to
+    `desconocidos` (item, date, cost and rate) for the caller's one warning of the batch."""
     if resuelto is None:
         return None
     producto, vinculo = resuelto
@@ -468,13 +470,10 @@ def _resolve_cost_en_fecha(
         return None
     costo = costos.get(producto.item_id)
     if costo is None or costo.costo is None or costo.costo_ars is None or costo.costo_ars <= 0:
-        # Unknown stays unknown: no row, never 0 (interface §7), and said so.
-        logger.warning(
-            "costeo_service: unknown cost for producto_item_id=%s on %s (cost %s, rate %s): not frozen",
-            producto.item_id,
-            fecha_venta,
-            costo.costo if costo is not None else None,
-            costo.tipo_cambio if costo is not None else None,
+        # Unknown stays unknown: no row, never 0 (interface §7), and said so (by the caller, once per batch).
+        desconocidos.append(
+            f"{producto.item_id} on {fecha_venta.isoformat()} (cost {costo.costo if costo is not None else None},"
+            f" rate {costo.tipo_cambio if costo is not None else None})"
         )
         return None
     if costo.fuente == lote.FUENTE_COSTO_SI:
@@ -655,6 +654,8 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO], fecha
         )
     }
 
+    # Interface §7 (an unknown cost is logged with its item and date) in ONE warning per call, not one per item.
+    desconocidos: list[str] = []
     for indice, item in enumerate(items):
         if (item.item_id, item.variation_id) in ya_congelados:
             continue
@@ -664,7 +665,9 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO], fecha
             # off it later) -- an item with no price is unknown, not zero.
             continue
 
-        resolved = _resolve_cost_en_fecha(productos_por_indice.get(indice), costos_si, combos_si, fecha_venta)
+        resolved = _resolve_cost_en_fecha(
+            productos_por_indice.get(indice), costos_si, combos_si, fecha_venta, desconocidos
+        )
         if resolved is None:
             continue
 
@@ -705,3 +708,10 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO], fecha
             index_elements=["order_id", "item_id", "variation_id"],
         )
         db.execute(stmt)
+    if desconocidos:
+        logger.warning(
+            "costeo_service: unknown cost, not frozen, for %s item(s) of order %s: %s",
+            len(desconocidos),
+            order_id,
+            "; ".join(desconocidos),
+        )
