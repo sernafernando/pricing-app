@@ -67,6 +67,38 @@ def keyed_sample(name: str) -> Any:
     return copy.deepcopy(load_fixture(KEYED_ARRAYS)[name])
 
 
+def _warm_view_aliases() -> None:
+    """Resolve every column of the view's module-level aliases (`filters.T`) once, with the real Postgres types.
+
+    SQLAlchemy keeps the column types an alias saw the first time each column was touched, and
+    `_restore_pristine_pg_types` cannot reach that copy. A test that touches `T` while the columns carry the SQLite
+    stand-ins (`_patch_pg_types_for_sqlite`, what every Postgres fixture's teardown leaves) would leave `sub_status`
+    / `tags` as JSON for the rest of its xdist worker, and every later `= ANY` / `&&` on them fails: CI on #2365, a
+    fixture-less `listing.row_columns()` test that happened to be its worker's first touch. Run at import (test
+    collection, before any fixture), the types are put back for it and left as they were found."""
+    from sqlalchemy import inspect
+    from sqlalchemy.orm.util import AliasedClass
+
+    from app.services.ml_publications.view.filters import T
+    from tests.conftest import _PRISTINE_PG_COLUMN_TYPES
+
+    aliases = [value for value in vars(T).values() if isinstance(value, AliasedClass)]
+    tables = {table for alias in aliases for table in inspect(alias).mapper.tables}
+    found = {column: column.type for table in tables for column in table.columns if column in _PRISTINE_PG_COLUMN_TYPES}
+    for column in found:
+        column.type = _PRISTINE_PG_COLUMN_TYPES[column]
+    try:
+        for alias in aliases:
+            for prop in inspect(alias).mapper.column_attrs:
+                getattr(alias, prop.key).__clause_element__()
+    finally:
+        for column, type_ in found.items():
+            column.type = type_
+
+
+_warm_view_aliases()
+
+
 # --- Postgres schema for the infrastructure tests (settings store, queue) -----------------
 
 
