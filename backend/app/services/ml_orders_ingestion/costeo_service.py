@@ -40,7 +40,6 @@ from zoneinfo import ZoneInfo
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from sqlalchemy import text
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
@@ -50,6 +49,7 @@ from app.models.item_cost_list import ItemCostList
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
+from app.models.tipo_cambio import TipoCambio
 from app.services.combos.componentes import combos_disponibles, componentes_de
 from app.services.combos.pcs import pcs_entre
 from app.services.costo_si import lote
@@ -58,7 +58,6 @@ from app.services.ml_orders_ingestion.recongelar_costo_si import (
     FUENTE_COSTO_SI_COMBO,
     FUENTE_COSTO_SI_PUB,
     FUENTE_COSTO_SI_SKU,
-    tc_fecha_sql,
 )
 from app.services.tn_publish_core.resolve import (
     latest_usd_rate_with_date,
@@ -479,7 +478,13 @@ def _resolve_cost_en_fecha(
     tipo_cambio_fecha = None
     if costo.tipo_cambio is not None:
         if fecha_venta not in tc_fechas:
-            tc_fechas[fecha_venta] = db.execute(text(f"SELECT {tc_fecha_sql(':f')}"), {"f": fecha_venta}).scalar()
+            # The date of the rate `lote` used: its rule, the last USD `venta > 0` dated on or before the sale date
+            # (`recongelar_costo_si.tc_fecha_sql` is the same rule in SQL).
+            tc_fechas[fecha_venta] = (
+                db.query(func.max(TipoCambio.fecha))
+                .filter(TipoCambio.moneda == "USD", TipoCambio.venta > 0, TipoCambio.fecha <= fecha_venta)
+                .scalar()
+            )
         tipo_cambio_fecha = tc_fechas[fecha_venta]
     return _ResolvedCost(
         costo_origen=costo.costo,
@@ -600,16 +605,14 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO], fecha
     productos_por_indice = _productos_por_item(db, items)
     if fecha_venta is None:
         fecha_venta = datetime.now(ZoneInfo(BUSINESS_TIMEZONE)).date()
-    costos_si = _costos_en_fecha(db, sorted({p.item_id for p, _ in productos_por_indice.values()}), fecha_venta)
-    combos_si = set()
-    if costos_si:
-        con_componentes = set(componentes_de(db, list(costos_si)))
-        combos_si = con_componentes - pcs_entre(db, con_componentes)
-    tc_fechas: Dict[date, Any] = {}
-
-    # TP list-8 combo composition for the whole batch, in ONE query (the
-    # normal cost's combos are summed by the reader, `_costos_en_fecha`).
     erp_ids = {producto.item_id for producto, _ in productos_por_indice.values()}
+    costos_si = _costos_en_fecha(db, sorted(erp_ids), fecha_venta)
+    tc_fechas: Dict[date, Any] = {}
+    # Every bill of materials of the batch in ONE query: the combos the reader summed (their `fuente`, the PCs out)
+    # and the TP list-8 combo composition below.
+    boms = componentes_de(db, erp_ids)
+    combos_si = set(boms) - pcs_entre(db, boms)
+
     precios_lista8, rechazados_lista8 = _precios_lista8(db, erp_ids)
     # Products with no cost of their own or no list-8 price of their own,
     # whose TP cost may still come from their components (a REJECTED own
@@ -620,7 +623,7 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO], fecha
         if not tiene_costo_propio(producto)
         or (producto.item_id not in precios_lista8 and producto.item_id not in rechazados_lista8)
     }
-    combos = componentes_por_combo(db, erp_ids_sin_costo)
+    combos = {combo: sorted(boms[combo].items()) for combo in erp_ids_sin_costo if combo in boms}
     if erp_ids_sin_costo and not combos and not combos_disponibles(db):
         # Not synced yet is not "no combos". Nothing extra to do: with no
         # components a combo already freezes no normal cost and a NULL TP

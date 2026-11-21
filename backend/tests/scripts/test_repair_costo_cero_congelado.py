@@ -26,6 +26,10 @@ from app.models.publicacion_ml import PublicacionML
 from app.models.combo_componente import ComboComponente
 from app.services.combos.componentes import CombosNoSincronizados
 from app.scripts import repair_costo_cero_congelado as script
+from tests.costo_si_lista import costo_si_lista  # noqa: F401
+
+# congelar reads the cost through the costo SI reader (Postgres SQL): its SQLite stand-in (list cost).
+pytestmark = pytest.mark.usefixtures("costo_si_lista")
 
 
 @pytest.fixture(autouse=True)
