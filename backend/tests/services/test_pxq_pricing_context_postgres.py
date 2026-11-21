@@ -21,6 +21,7 @@ from app.models.comision_config import SubcategoriaGrupo
 from app.models.combo_componente import ComboComponente
 from app.models.comision_versionada import ComisionAdicionalCuota, ComisionBase, ComisionVersion
 from app.models.costo_si import CostoSiPaso
+from app.models.cur_exch_history import CurExchHistory
 from app.models.tb_item import TBItem
 from app.models.tipo_cambio import TipoCambio
 from app.services.pxq_pricing_context import PxqPricingContext, PxqPricingUnavailable, resolve_pxq_pricing_context
@@ -40,7 +41,7 @@ def conn(env):  # noqa: F811
     for model in (ComisionVersion, ComisionBase, ComisionAdicionalCuota, SubcategoriaGrupo):
         model.__table__.create(bind=env)
     # What the costo SI reader reads (the cost is costo SI, else the list cost: sell-in-costo-si T3 PR 4).
-    for model in (CostoSiPaso, ComboComponente, TBItem, TipoCambio):
+    for model in (CostoSiPaso, ComboComponente, TBItem, TipoCambio, CurExchHistory):  # + the ERP rate fallback
         model.__table__.create(bind=env, checkfirst=True)
     with env.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
         yield connection
