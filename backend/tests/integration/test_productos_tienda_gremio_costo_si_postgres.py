@@ -96,6 +96,26 @@ def test_the_sort_follows_the_prices_the_page_shows(client, mundo, campo) -> Non
     assert precios == sorted(precios)
 
 
+def test_the_clasica_markup_shown_is_over_each_products_own_cost(client, mundo, pg) -> None:  # noqa: F811
+    """Same ML price, different cost: after the pricing recompute (`recalcular_markups_guardados`, what the drain's
+    `despues.pricing` runs) the listing's clásica `markup` differs, each over its own costo SI (or list cost, Q1),
+    and both give the same ML net: cost x (1 + markup) is one number."""
+    from app.services import recalcular_markups_service as rms
+
+    for item in (G1, G2):
+        pg.query(ProductoPricing).filter_by(item_id=item).update({"precio_lista_ml": 150_000.0})
+    pg.flush()
+    assert rms.recalcular_markups_guardados(pg, [G1, G2]) == []
+    pg.flush()
+
+    filas = {p["item_id"]: p for p in _tienda(client)}
+    m1, m2 = filas[G1]["markup"], filas[G2]["markup"]
+
+    assert m1 is not None and m2 is not None
+    assert m1 > m2  # costo SI 40000 vs list 90000 at the same price
+    assert COSTO_SI_ARS[G1] * (1 + m1 / 100) == pytest.approx(COSTO_SI_ARS[G2] * (1 + m2 / 100), rel=1e-3)
+
+
 def test_the_deploy_estimate_measures_these_very_prices(client, mundo, pg) -> None:  # noqa: F811
     """`app.scripts.costo_si_tienda_estimacion` (the read-only prod estimate) prices exactly as the listing: before
     over the list cost, after over costo SI; Sugerido after the clásica markup is rewritten over costo SI keeps the

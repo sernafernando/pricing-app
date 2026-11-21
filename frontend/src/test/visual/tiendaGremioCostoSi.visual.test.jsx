@@ -36,8 +36,18 @@ const costoSi = (costo, moneda, fuente, costoArs) => ({
   costo_ars: costoArs,
 });
 
-// As `/productos/tienda` returns them: Gremio = costo SI x 1.065 x (1 + 20%), Sugerido x (1 + 30%).
-const producto = (id, codigo, costoSiArs, overrides) => ({
+// As `/productos/tienda` returns them, after the drain: the clásica `markup` is over each product's own costo SI,
+// from the same ML net (36750 = the 22.5% over the 30000 list cost), so it differs per cost
+// (test_productos_tienda_gremio_costo_si_postgres.py). Gremio = costo SI x 1.065 x (1 + 20%);
+// Sugerido = costo SI x 1.065 x (1 + clásica + 5%).
+const NETO_ML = 36750;
+const SUGERIDO_PCT = 5;
+const producto = (id, codigo, costoSiArs, overrides) => {
+  const clasica = costoSiArs ? Math.round((NETO_ML / costoSiArs - 1) * 10000) / 100 : null;
+  const sugerido = clasica == null ? null : costoSiArs * 1.065 * (1 + (clasica + SUGERIDO_PCT) / 100);
+  return productoBase(id, codigo, costoSiArs, clasica, sugerido, overrides);
+};
+const productoBase = (id, codigo, costoSiArs, clasica, sugerido, overrides) => ({
   item_id: id,
   codigo,
   descripcion: `Cámara IP Demo Domo 4MP Exterior ${codigo}`,
@@ -50,13 +60,13 @@ const producto = (id, codigo, costoSiArs, overrides) => ({
   costo_ars: 30000,
   tipo_cambio: 1000,
   precio_lista_ml: 52000,
-  markup: 22.5,
+  markup: clasica,
   precio_gremio_sin_iva: costoSiArs * 1.065 * 1.2,
   precio_gremio_con_iva: costoSiArs * 1.065 * 1.2 * 1.21,
   markup_gremio: 20,
-  precio_sugerido_sin_iva: costoSiArs * 1.065 * 1.3,
-  precio_sugerido_con_iva: costoSiArs * 1.065 * 1.3 * 1.21,
-  markup_sugerido_total: 30,
+  precio_sugerido_sin_iva: sugerido,
+  precio_sugerido_con_iva: sugerido == null ? null : sugerido * 1.21,
+  markup_sugerido_total: clasica == null ? null : clasica + SUGERIDO_PCT,
   tiene_override_gremio: false,
   sell_in_out: null,
   iva: 21,
@@ -128,6 +138,9 @@ describe.each(['light', 'dark'])('Tienda Gremio / Sugerido over costo SI, %s the
 
     expect(fila('CONSI-USD').textContent).toContain('31.950,00'); // 25000 x 1.065 x 1.2
     expect(fila('LISTA').textContent).toContain('38.340,00'); // the list cost without a costo SI step (Q1)
+    // the clásica markup over each own cost, same ML net: 36750 / 25000 - 1 and 36750 / 30000 - 1
+    expect(fila('CONSI-USD').textContent).toContain('47.00%');
+    expect(fila('LISTA').textContent).toContain('22.50%');
     const sinTc = fila('SIN-TC').textContent;
     expect(sinTc).toContain('Sin costo en pesos: no se calcula');
     expect(sinTc).not.toMatch(/\$\s?0,00/);
