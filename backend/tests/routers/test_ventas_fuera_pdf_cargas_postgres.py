@@ -22,6 +22,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.deps import get_current_user
 from app.core.database import get_async_db, get_db
+from app.models.combo_componente import ComboComponente
+from app.models.costo_si import CostoSiPaso
 from app.models.cur_exch_history import CurExchHistory
 from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.marca_pm import MarcaPM
@@ -71,6 +73,9 @@ def engine() -> Iterator[Engine]:
         CurExchHistory.__table__,
         ProductoERP.__table__,
         MarcaPM.__table__,
+        # The costo SI the load costs each line with since sell-in-costo-si T3 PR 9 (`costo_si.lote`); empty here.
+        CostoSiPaso.__table__,
+        ComboComponente.__table__,
         VendedorExcluido.__table__,
     ]
     stubs = [

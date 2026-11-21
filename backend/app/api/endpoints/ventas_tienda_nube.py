@@ -13,6 +13,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict
 from app.core.database import get_db
 from app.api.deps import get_current_user
+from app.services import ventas_gbp_costo_si as costo_si_gbp
 from app.models.pricing_constants import PricingConstants
 
 router = APIRouter()
@@ -162,12 +163,12 @@ class OperacionTiendaNubeResponse(BaseModel):
     precio_final_sin_iva: float
     monto_iva: float
     precio_final_con_iva: float
-    costo_unitario: float
-    costo_pesos_sin_iva: float
+    costo_unitario: Optional[float]  # None = unknown cost (no costo SI / USD rate): shown as sin costo
+    costo_pesos_sin_iva: Optional[float]
     comision_tn_porcentaje: float
     comision_tn_pesos: float
     markup: Optional[float]
-    ganancia: float
+    ganancia: Optional[float]  # None when the cost is unknown
     signo: int
 
 
@@ -180,6 +181,10 @@ class CountResponse(BaseModel):
 # ============================================================================
 # Helpers
 # ============================================================================
+
+
+# The GBP line's product, as every query of this module resolves it (costo SI reader, sell-in-costo-si T3 PR 9).
+_GBP_ITEM = costo_si_gbp.GBP_ITEM.format(t="tit")
 
 
 def get_ventas_tienda_nube_query():
@@ -200,41 +205,15 @@ def get_ventas_tienda_nube_query():
             END as plusorminus,
             tct.ct_date,
             tct.bra_id,
-            (
-                COALESCE(
-                    (SELECT iclh.iclh_price
-                     FROM tb_item_cost_list_history iclh
-                     WHERE iclh.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
-                       AND iclh.iclh_cd <= tct.ct_date AND iclh.coslis_id = 1
-                     ORDER BY iclh.iclh_id DESC LIMIT 1),
-                    (SELECT ticl.coslis_price
-                     FROM tb_item_cost_list ticl
-                     WHERE ticl.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
-                       AND ticl.coslis_id = 1
-                     ORDER BY ticl.coslis_cd DESC LIMIT 1),
-                    0
-                ) *
-                CASE
-                    WHEN COALESCE(
-                        (SELECT iclh.curr_id FROM tb_item_cost_list_history iclh
-                         WHERE iclh.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
-                           AND iclh.iclh_cd <= tct.ct_date AND iclh.coslis_id = 1
-                         ORDER BY iclh.iclh_id DESC LIMIT 1),
-                        (SELECT ticl.curr_id FROM tb_item_cost_list ticl
-                         WHERE ticl.item_id = COALESCE(tit.item_id, tit.it_item_id_origin, tit.item_idfrompreinvoice)
-                           AND ticl.coslis_id = 1
-                         ORDER BY ticl.coslis_cd DESC LIMIT 1),
-                        1
-                    ) = 1 THEN 1
-                    ELSE COALESCE(
-                        (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.fecha <= tct.ct_date::date ORDER BY tc.fecha DESC LIMIT 1),
-                        (SELECT ceh.ceh_exchange FROM tb_cur_exch_history ceh WHERE ceh.ceh_cd <= tct.ct_date ORDER BY ceh.ceh_cd DESC LIMIT 1),
-                        1
-                    )
-                END
-            ) * 1.065 AS costo_unitario
+            -- Costo SI en pesos de la fecha de venta (costo_si.lote), con Costo D (x 1.065) encima
+            {costo_si_gbp.costo_unitario_ars("cs", _GBP_ITEM, "tit.comp_id", "tit.ct_transaction", "tit.it_isassociationgroup")}
+            * 1.065 AS costo_unitario,
+            -- The same line inside its group's sum (owner L19: a combo broken down in the group costs 0)
+            {costo_si_gbp.costo_unitario_ars("cs", _GBP_ITEM, "tit.comp_id", "tit.ct_transaction", "tit.it_isassociationgroup", en_grupo=True)}
+            * 1.065 AS costo_unitario_grupo
         FROM tb_item_transactions tit
         LEFT JOIN tb_commercial_transactions tct ON tct.ct_transaction = tit.ct_transaction
+        {costo_si_gbp.join("cs", _GBP_ITEM, "tct.ct_date::date")}
         WHERE tct.ct_date BETWEEN :from_date AND :to_date
           AND tct.sd_id IN ({SD_IDS_STR})
           AND tct.df_id IN ({DF_IDS_STR})
@@ -269,7 +248,7 @@ def get_ventas_tienda_nube_query():
         SELECT
             tit.it_isassociationgroup AS group_id,
             tit.ct_transaction,
-            SUM(cc.costo_unitario * tit.it_qty) AS costo_combo
+            {costo_si_gbp.suma_grupo("cc.costo_unitario_grupo * tit.it_qty")} AS costo_combo
         FROM tb_item_transactions tit
         LEFT JOIN CostoCalculado cc ON cc.it_transaction = tit.it_transaction
         WHERE tit.it_isassociationgroup IS NOT NULL
@@ -344,8 +323,8 @@ def get_ventas_tienda_nube_query():
         tsm.sm_name as vendedor,
 
         CASE
-            WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN COALESCE(ccb.costo_combo, 0)
-            ELSE COALESCE(cc.costo_unitario, 0) * tit.it_qty
+            WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN {costo_si_gbp.costo_grupo("ccb")}
+            ELSE cc.costo_unitario * tit.it_qty
         END * CASE
             WHEN tct.sd_id IN (1, 4, 21, 56) THEN 1
             WHEN tct.sd_id IN (3, 6, 23, 66) THEN -1
@@ -354,7 +333,7 @@ def get_ventas_tienda_nube_query():
 
         CASE
             WHEN tct.sd_id IN (3, 6, 23, 66) THEN NULL  -- No calcular markup para devoluciones
-            WHEN (CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN COALESCE(ccb.costo_combo, 0) ELSE COALESCE(cc.costo_unitario, 0) * tit.it_qty END) = 0 THEN NULL
+            WHEN (CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN {costo_si_gbp.costo_grupo("ccb")} ELSE cc.costo_unitario * tit.it_qty END) = 0 THEN NULL
             ELSE (
                 CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN pv.precio_venta ELSE tit.it_price * tit.it_qty END
                 / CASE WHEN tit.it_price IS NULL OR tit.it_price = 0 THEN ccb.costo_combo ELSE cc.costo_unitario * tit.it_qty END
@@ -517,11 +496,11 @@ def get_ventas_tienda_nube(
 
         # Calcular comisión de TN y ganancia
         precio_final = float(row_dict.get("precio_final_sin_iva") or 0)
-        costo = float(row_dict.get("costo_pesos_sin_iva") or 0)
+        costo = row_dict.get("costo_pesos_sin_iva")  # None = unknown cost (interface §7): no ganancia either
 
         comision_tn_pesos = precio_final * (comision_tn_pct / 100)
         monto_limpio = precio_final - comision_tn_pesos
-        ganancia = monto_limpio - costo
+        ganancia = None if costo is None else monto_limpio - float(costo)
 
         row_dict["comision_tn_porcentaje"] = comision_tn_pct
         row_dict["comision_tn_pesos"] = comision_tn_pesos
@@ -803,12 +782,12 @@ def get_operaciones_tn_desde_metricas(
             "precio_final_sin_iva": float(r.precio_final_sin_iva) if r.precio_final_sin_iva else 0,
             "monto_iva": float(r.monto_iva) if r.monto_iva else 0,
             "precio_final_con_iva": float(r.precio_final_con_iva) if r.precio_final_con_iva else 0,
-            "costo_unitario": float(r.costo_unitario) if r.costo_unitario else 0,
-            "costo_pesos_sin_iva": float(r.costo_pesos_sin_iva) if r.costo_pesos_sin_iva else 0,
+            "costo_unitario": float(r.costo_unitario) if r.costo_unitario is not None else None,
+            "costo_pesos_sin_iva": float(r.costo_pesos_sin_iva) if r.costo_pesos_sin_iva is not None else None,
             "comision_tn_porcentaje": float(r.comision_porcentaje) if r.comision_porcentaje else 0,
             "comision_tn_pesos": float(r.comision_monto) if r.comision_monto else 0,
             "markup": float(r.markup) / 100 if r.markup else None,  # Convertir a decimal (0.15 en lugar de 15%)
-            "ganancia": float(r.ganancia) if r.ganancia else 0,
+            "ganancia": float(r.ganancia) if r.ganancia is not None else None,
             "signo": r.signo,
         }
         for r in result
@@ -1311,11 +1290,11 @@ def get_metrica_detalle_tn(
         "cantidad": float(metrica.cantidad) if metrica.cantidad else 0,
         "monto_unitario": float(metrica.monto_unitario) if metrica.monto_unitario else 0,
         "monto_total": float(metrica.monto_total) if metrica.monto_total else 0,
-        "costo_unitario": float(metrica.costo_unitario) if metrica.costo_unitario else 0,
-        "costo_total": float(metrica.costo_total) if metrica.costo_total else 0,
+        "costo_unitario": float(metrica.costo_unitario) if metrica.costo_unitario is not None else None,
+        "costo_total": float(metrica.costo_total) if metrica.costo_total is not None else None,
         "comision_porcentaje": float(metrica.comision_porcentaje) if metrica.comision_porcentaje else 0,
         "comision_monto": float(metrica.comision_monto) if metrica.comision_monto else 0,
-        "ganancia": float(metrica.ganancia) if metrica.ganancia else 0,
+        "ganancia": float(metrica.ganancia) if metrica.ganancia is not None else None,
         "markup_porcentaje": float(metrica.markup_porcentaje) if metrica.markup_porcentaje else None,
         "moneda_costo": metrica.moneda_costo,
         "fecha_venta": metrica.fecha_venta.isoformat() if metrica.fecha_venta else None,

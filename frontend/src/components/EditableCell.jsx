@@ -17,6 +17,7 @@ import styles from './EditableCell.module.css';
  * - max: Valor máximo para números
  * - readOnly: Si es solo lectura (no editable)
  * - style: Estilos inline adicionales
+ * - format: Función opcional para mostrar el valor (ej. moneda) cuando no se está editando; no cambia lo que se edita
  */
 export default function EditableCell({
   value = '',
@@ -30,7 +31,8 @@ export default function EditableCell({
   min,
   max,
   readOnly = false,
-  style = {}
+  style = {},
+  format
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [localValue, setLocalValue] = useState(value);
@@ -90,6 +92,7 @@ export default function EditableCell({
       }
       return value || placeholder;
     }
+    if (format && value !== '' && value !== null && value !== undefined) return format(value);
     return value || placeholder;
   };
 
