@@ -663,6 +663,8 @@ class Audit:
     rows: list[Row]
     rate: Rate
     active: frozenset[str]
+    # product id -> the `lote.Costo` the stock was valued at (one read): the export's costo SI columns reuse it
+    costos: dict[int, lote.Costo] = field(default_factory=dict)
 
 
 def build(db: Session, f: PublicationFilter, rate: Rate) -> Audit:
@@ -702,8 +704,10 @@ def _assemble(
     catalog = _products(db, bases | linked)
     for item in bases | linked:
         catalog.setdefault(item, Product(item, None, None, None, None, None, "ARS"))
+    costos: dict[int, lote.Costo] = {}
     if valued:  # ONE read of every base and variant's costo SI, at the audit's rate
-        for item, found in lote.actuales(db, catalog, tipo_cambio=rate.usd_ars).items():
+        costos = lote.actuales(db, catalog, tipo_cambio=rate.usd_ars)
+        for item, found in costos.items():
             catalog[item].costo_si, catalog[item].costo_si_moneda = found.costo, found.moneda
     full = _full_units(db, pairs)
     rows: dict[int, Row] = {}
@@ -756,7 +760,7 @@ def _assemble(
             r.full.add_part(v.full_unidades_base, usd, ars, sin_costo=v.product.costo_si is None)
 
     with_stock = [r for r in rows.values() if r.erp.unidades > 0 or r.full.unidades > 0]
-    return Audit(with_stock, rate, _active(db, {m for r in with_stock for m in r.publications}))
+    return Audit(with_stock, rate, _active(db, {m for r in with_stock for m in r.publications}), costos)
 
 
 def summed_from_rows(db: Session, members: list[tuple[str, str, Decimal]], sell_in_out: bool) -> SummedSales:
@@ -1052,7 +1056,7 @@ def enrich(
 ) -> None:
     """The detail columns of `rows` (the page's, or every row): Tipo and Estado, sales and Rotación (`ml_metricas.ver`)
     and the current markup (`ml_metricas.ver_ganancia`), each with ONE read for all of them."""
-    part = Audit(list(rows), audit.rate, audit.active)
+    part = Audit(list(rows), audit.rate, audit.active, audit.costos)
     add_summaries(db, part)
     if sales:
         add_sales(db, part, sell_in_out=margin, today=today)
@@ -1154,7 +1158,7 @@ def restrict(audit: "Audit", marca: Optional[str], categoria: Optional[str]) -> 
         and (marca is None or r.group.marca == marca)
         and (categoria is None or r.group.categoria == categoria)
     ]
-    return Audit(rows, audit.rate, audit.active)
+    return Audit(rows, audit.rate, audit.active, audit.costos)
 
 
 @dataclass

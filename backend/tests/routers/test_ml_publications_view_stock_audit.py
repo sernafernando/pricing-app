@@ -30,6 +30,7 @@ import pytest
 from sqlalchemy import text
 
 from app.routers import ml_publications_view
+from app.services.costo_si import lote
 from app.services.ml_daily_metrics import board
 from app.services.ml_publications.view import stock_audit
 from app.services.ml_publications.view.markup import PublicationMarkup
@@ -43,6 +44,8 @@ from tests.services.ml_publications.view import seed
 from tests.costo_si_lista import costo_si_lista  # noqa: F401 (the costo SI reader's SQLite stand-in)
 
 pytestmark = pytest.mark.usefixtures("costo_si_lista")
+
+REAL_ACTUALES = lote.actuales  # the Postgres reader, before `costo_si_lista` swaps it per test
 
 URL = "/api/ml-publications/view/stock-audit"
 PERMISO = "ml_publicaciones.ver_auditoria_stock"
@@ -91,17 +94,17 @@ def create_snapshot_table(conn) -> None:
 
 def costo_si_table(conn) -> None:
     """The costo SI steps the valuation reads (`lote.actuales`): no step = the product's list cost (Q1)."""
-    from app.models.costo_si import CostoSiPaso
+    from tests.services.ml_publications.conftest import COSTO_SI_READER_DDL
 
-    CostoSiPaso.__table__.create(bind=conn, checkfirst=True)
+    for ddl in COSTO_SI_READER_DDL:
+        conn.execute(text(ddl))
 
 
 def costo_si_step(conn, item_id: int, promedio: float, moneda: str = "USD") -> None:
     """One costo SI step in force since 2026-10-01: the product's moving average with sell in (S1)."""
     conn.execute(
         text(
-            "INSERT INTO costo_si_pasos (item_id, orden, tipo, fecha, cantidad, stock_antes, stock_base,"
-            " stock_despues, promedio_usd, moneda) VALUES (:i, 0, 'inicio', '2026-10-01', 0, 0, 0, 0, :p, :m)"
+            "INSERT INTO costo_si_pasos (item_id, orden, fecha, promedio_usd, moneda) VALUES (:i, 0, '2026-10-01', :p, :m)"
         ),
         {"i": item_id, "p": promedio, "m": moneda},
     )
@@ -739,7 +742,9 @@ def fill_costo_si(conn) -> None:
 
 
 @pytest.fixture()
-def auditor_costo_si(client, pg, db, rol_admin, admin_auth_headers, started):
+def auditor_costo_si(client, pg, db, rol_admin, admin_auth_headers, started, costo_si_lista, monkeypatch):
+    # these tests read real costo SI steps on Postgres: the real reader, not the module's list-only stand-in
+    monkeypatch.setattr(lote, "actuales", REAL_ACTUALES)
     seed_rows(pg, fill_costo_si)
     grant(db, rol_admin, PERMISO)
     return admin_auth_headers

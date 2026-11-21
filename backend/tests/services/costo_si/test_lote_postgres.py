@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
+import dataclasses
 from typing import Iterator
 
 import pytest
@@ -260,7 +261,7 @@ def test_the_current_row_fragment_is_what_actuales_runs(engine: Engine, tc) -> N
         filas = {r[0]: tuple(r[1:]) for r in db.execute(sql, {"ids": ids, "tc": tc})}
         esperado = lote.actuales(db, ids, tipo_cambio=tc)
 
-    campos = ("costo", "moneda", "fuente", "costo_si_desde", "tipo_cambio", "costo_ars")
+    campos = [f.name for f in dataclasses.fields(Costo)][1:]  # every field but item_id, in `COLUMNAS` order
     assert filas == {i: tuple(getattr(esperado[i], c) for c in campos) for i in ids}
     assert filas[SIN][:3] == (D("40"), "USD", LISTA)
 

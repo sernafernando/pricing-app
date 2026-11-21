@@ -21,6 +21,7 @@ from app.core.database import get_db
 from app.models.combo_componente import ComboComponente
 from app.models.commercial_transaction import CommercialTransaction
 from app.models.costo_si import CostoSiPaso
+from app.models.cur_exch_history import CurExchHistory
 from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.item_transaction import ItemTransaction
 from app.models.marca_pm import MarcaPM
@@ -47,6 +48,7 @@ TABLES = [
     ItemCostListHistory.__table__,
     CostoSiPaso.__table__,
     TipoCambio.__table__,
+    CurExchHistory.__table__,  # the reader falls back to the ERP rate history
     CommercialTransaction.__table__,
     ItemTransaction.__table__,
     StockPorDeposito.__table__,

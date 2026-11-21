@@ -2207,8 +2207,13 @@ def export_stock_audit(
     rows = [_stock_audit_out(read, r, orden, dir) for r in read.ordered]
     if read.nivel != stock_audit.PRODUCTO:
         _attach_group_products(read, rows, orden, dir)
-    # the costo SI columns (display only), one read for every product of the file, from the pricing database
-    costo_si = lote.actuales(auth_db, export.stock_audit_product_ids(rows), tipo_cambio=read.rate.usd_ars)
+    # the costo SI columns: the costs the stock was valued at (one read, `Audit.costos`); only a product the valuation
+    # did not read is read here, in one query for the file
+    ids = export.stock_audit_product_ids(rows)
+    costo_si = {i: read.audit.costos[i] for i in ids if i in read.audit.costos}
+    faltan = ids - costo_si.keys()
+    if faltan:
+        costo_si.update(lote.actuales(auth_db, faltan, tipo_cambio=read.rate.usd_ars))
     lines = export.stock_audit_lines(rows, sales=read.can_see_sales, margin=read.can_see_margin, costo_si=costo_si)
     filename = f"publicaciones-ml-auditoria-stock-{date.today().isoformat()}.xlsx"
     return Response(

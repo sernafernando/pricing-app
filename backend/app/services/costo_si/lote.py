@@ -308,4 +308,4 @@ def sql_actual_fila(item: str, tipo_cambio: str = "NULL::numeric") -> str:
     list cost from `productos_erp`, never the list history `sql_en_fecha` falls back to). `tipo_cambio`: an SQL
     expression for the caller's USD rate; NULL = the latest one. Use it as
     `LEFT JOIN LATERAL ({sql_actual_fila("p.item_id", ":tc")}) cs ON true` (sell-in-costo-si T3 PR 10)."""
-    return _fragmento(item, None, f"COALESCE(CAST({tipo_cambio} AS numeric), {_TC_ULTIMO})")
+    return _fragmento(item, None, _tc_en("CURRENT_DATE", propio=f"CAST({tipo_cambio} AS numeric)"))

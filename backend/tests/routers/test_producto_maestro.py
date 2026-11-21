@@ -22,7 +22,6 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.main import app
 from app.models.auditoria import Auditoria
 from app.models.combo_componente import ComboComponente
-from app.models.costo_si import CostoSiPaso
 from app.models.gestion_full_unidades_caja import GestionFullUnidadesCaja
 from app.models.producto import ProductoERP
 from app.models.producto_propio import ProductoPropio
@@ -71,8 +70,7 @@ def pg(client, request, admin_user):
         ProductoSpec,
         GestionFullUnidadesCaja,
         Auditoria,
-        CostoSiPaso,  # the costo SI reader's tables (sell-in-costo-si T3 PR 10)
-        ComboComponente,
+        ComboComponente,  # with tipo_cambio, the costo SI reader's tables (its steps come with `mlpub_pg`)
         TipoCambio,
     ):
         model.__table__.create(bind=engine, checkfirst=True)
@@ -233,10 +231,7 @@ class TestRead:
 def costo_si_step(conn, item_id: int, promedio: float, *, moneda: str = "USD", fecha: str = "2026-11-01") -> None:
     """One costo SI step (the moving average in force from `fecha`), as the engine stores it."""
     conn.execute(
-        text(
-            "INSERT INTO costo_si_pasos (item_id, orden, tipo, fecha, cantidad, stock_antes, stock_base, "
-            "stock_despues, promedio_usd, moneda) VALUES (:i, 0, 'inicio', :f, 10, 0, 10, 10, :p, :m)"
-        ),
+        text("INSERT INTO costo_si_pasos (item_id, orden, fecha, promedio_usd, moneda) VALUES (:i, 0, :f, :p, :m)"),
         {"i": item_id, "f": fecha, "p": promedio, "m": moneda},
     )
 
