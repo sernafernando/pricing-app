@@ -231,6 +231,12 @@ export default function DashboardMetricasML() {
     }).format(monto || 0);
   };
 
+  // A sale whose cost is unknown comes with a null cost, costo total and markup: show it as "sin costo", never $0
+  const sinCosto = (valor) => valor === null || valor === undefined;
+  const celdaSinCosto = (
+    <span className={styles.sinCosto} title="Sin costo" aria-label="Sin costo">—</span>
+  );
+
   const formatearPorcentaje = (valor) => {
     return `${parseFloat(valor || 0).toFixed(2)}%`;
   };
@@ -669,8 +675,8 @@ export default function DashboardMetricasML() {
                     <td className={styles.monto}>{formatearMoneda(op.monto_unitario)}</td>
                     <td className={styles.monto}>{formatearMoneda(op.monto_total)}</td>
                     <td className={styles.centrado}>{op.iva}%</td>
-                    <td className={styles.monto}>{formatearMoneda(op.costo_sin_iva)}</td>
-                    <td className={styles.monto}>{formatearMoneda(op.costo_total)}</td>
+                    <td className={styles.monto}>{sinCosto(op.costo_sin_iva) ? celdaSinCosto : formatearMoneda(op.costo_sin_iva)}</td>
+                    <td className={styles.monto}>{sinCosto(op.costo_total) ? celdaSinCosto : formatearMoneda(op.costo_total)}</td>
                     <td className={styles.centrado}>{formatearPorcentaje(op.comision_porcentaje)}</td>
                     <td className={styles.monto}>{formatearMoneda(op.comision_pesos)}</td>
                     <td className={styles.monto}>{formatearMoneda(op.costo_envio)}</td>
@@ -679,7 +685,7 @@ export default function DashboardMetricasML() {
                       {parseFloat(op.offset_flex || 0) > 0 ? formatearMoneda(op.offset_flex) : '—'}
                     </td>
                     <td className={`${styles.centrado} ${parseFloat(op.markup_porcentaje) < 0 ? styles.negativo : ''}`}>
-                      {formatearPorcentaje(op.markup_porcentaje)}
+                      {sinCosto(op.markup_porcentaje) ? celdaSinCosto : formatearPorcentaje(op.markup_porcentaje)}
                     </td>
                     <td>{op.tipo_publicacion || '-'}</td>
                   </tr>

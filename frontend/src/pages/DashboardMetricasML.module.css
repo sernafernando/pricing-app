@@ -375,6 +375,11 @@
   text-align: center;
 }
 
+.sinCosto {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
 .descripcion {
   max-width: 300px;
   white-space: nowrap;
