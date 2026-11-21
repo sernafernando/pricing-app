@@ -54,7 +54,7 @@ def _no_real_side_fetch(monkeypatch):
 def _flag_on(monkeypatch):
     monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
     monkeypatch.setattr(settings, "ML_ORDERS_OPS_WINDOW_DAYS", 90)
-    monkeypatch.setattr(ingestion_service, "congelar", lambda db, order_id, items: None)
+    monkeypatch.setattr(ingestion_service, "congelar", lambda db, order_id, items, fecha_venta=None: None)
 
 
 def _order(order_id: int, age: timedelta = timedelta(days=1)) -> dict:

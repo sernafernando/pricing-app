@@ -32,6 +32,9 @@ from app.models.producto import ProductoERP, ProductoPricing
 from app.models.publicacion_ml import PublicacionML
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.api.endpoints import productos_export as export_mod
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 (the costo SI reader's SQLite stand-in)
+
+pytestmark = pytest.mark.usefixtures("costo_si_lista")
 
 
 def _current_user() -> SimpleNamespace:

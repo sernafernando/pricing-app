@@ -5,26 +5,27 @@ import { BOARD_RESPONSE } from '../../test/visual/metricasMlFixtures';
 
 // The board's KPIs with every toggle off (no publicidad, no "Costos TP"); each test sets its own sell figures.
 const OFF = BOARD_RESPONSE.kpis;
+// Costo SI T3 D1: the cost is costo SI; the sell out is added to the profit ("c/ SO"), no sell in.
 const SELL = {
-  sell_in: 120000,
   sell_out: 30000,
   sell_out_pendientes: 0,
   sell_out_estimados: 0,
   costo: 1000000,
-  costo_sell_in: 880000,
-  total_gauss: 14270900.1,
+  total_gauss: 14150900.1,
   markup_pct: 31.4,
 };
-const cardOf = (label) => screen.getByText(label, { selector: 'span' }).closest('div[class*="card"]');
+const EMPTY = { ...SELL, sell_out: null, total_gauss: null, markup_pct: null };
+// The card title is the first span with that text: the "Sell out" card also has a "Sell out" figure line.
+const cardOf = (label) => screen.getAllByText(label, { selector: 'span' })[0].closest('div[class*="card"]');
 const strip = (kpis, canSeeMargin = true) => render(<MetricasKpiStrip kpis={kpis} canSeeMargin={canSeeMargin} groupBy="product" />);
 
-describe('MetricasKpiStrip with sell in / sell out', () => {
-  it('shows Total Gauss and markup with them under the figures without them', () => {
+describe('MetricasKpiStrip with sell out c/ SO', () => {
+  it('shows Total Gauss and markup c/ SO under the figures without them', () => {
     strip({ ...OFF, sell_in_out: SELL });
 
     expect(within(cardOf('Total Gauss')).getByText('$ 14.120.900,10')).toBeInTheDocument();
-    expect(within(cardOf('Total Gauss')).getByTestId('kpi-sell-in-out')).toHaveTextContent('C/ sell in/out: $ 14.270.900,10');
-    expect(within(cardOf('Markup promedio')).getByTestId('kpi-sell-in-out')).toHaveTextContent('C/ sell in/out: 31,4%');
+    expect(within(cardOf('Total Gauss')).getByTestId('kpi-sell-in-out')).toHaveTextContent('C/ SO: $ 14.150.900,10');
+    expect(within(cardOf('Markup promedio')).getByTestId('kpi-sell-in-out')).toHaveTextContent('C/ SO: 31,4%');
   });
 
   it('warns how many sales still have a sell out without its rate', () => {
@@ -56,25 +57,15 @@ describe('MetricasKpiStrip with sell in / sell out', () => {
 
     const estimated = '3 ventas con tipo de cambio estimado';
     expect(within(cardOf('Total Gauss')).getByTitle(estimated)).toHaveTextContent('≈ 3');
-    expect(within(cardOf('Sell in / Sell out')).getByTitle(estimated)).toHaveTextContent('≈ 3');
+    expect(within(cardOf('Sell out')).getByTitle(estimated)).toHaveTextContent('≈ 3');
   });
 
   it('shows both flags side by side when some sell outs lack a rate and others use an estimate', () => {
     strip({ ...OFF, sell_in_out: { ...SELL, sell_out_pendientes: 2, sell_out_estimados: 3 } });
 
-    const sellOut = within(cardOf('Sell in / Sell out')).getByTestId('kpi-sell-out');
+    const sellOut = within(cardOf('Sell out')).getByTestId('kpi-sell-out');
     expect(within(sellOut).getByTitle('2 ventas con sell out en dólares sin tipo de cambio: no se suman')).toHaveTextContent('2');
     expect(within(sellOut).getByTitle('3 ventas con tipo de cambio estimado')).toHaveTextContent('≈ 3');
-  });
-
-  // Tactical sell in USD S10: an estimated sell in is flagged on the Sell in figure and the total that adds it.
-  it('flags the sales whose sell in uses an estimated rate', () => {
-    strip({ ...OFF, sell_in_out: { ...SELL, sell_in_estimados: 2 } });
-
-    const estimated = '2 ventas con sell in a tipo de cambio estimado';
-    const sellIn = within(cardOf('Sell in / Sell out')).getByTestId('kpi-sell-in');
-    expect(within(sellIn).getByTitle(estimated)).toHaveTextContent('≈ 2');
-    expect(within(cardOf('Total Gauss')).getByTitle(estimated)).toHaveTextContent('≈ 2');
   });
 
   it('shows no estimated-rate flag when every sell out has its final rate', () => {
@@ -83,49 +74,39 @@ describe('MetricasKpiStrip with sell in / sell out', () => {
     expect(screen.queryByText(/≈/)).not.toBeInTheDocument();
   });
 
-  it('shows nothing of it when no sale in the period has a sell in or a sell out', () => {
-    strip({ ...OFF, sell_in_out: { ...SELL, sell_in: null, sell_out: null, costo_sell_in: null, total_gauss: null, markup_pct: null } });
+  it('shows nothing of it when no sale in the period has a sell out', () => {
+    strip({ ...OFF, sell_in_out: EMPTY });
 
     expect(screen.queryByTestId('kpi-sell-in-out')).not.toBeInTheDocument();
   });
 
-  it('shows the sell in and sell out totals and the cost without and with sell in in their own card', () => {
+  it('shows the sell out and the cost in their own card, with no sell in nor cost with sell in', () => {
     strip({ ...OFF, sell_in_out: SELL });
 
-    const card = cardOf('Sell in / Sell out');
-    expect(within(card).getByTestId('kpi-sell-in')).toHaveTextContent('Sell in$ 120.000,00');
+    const card = cardOf('Sell out');
     expect(within(card).getByTestId('kpi-sell-out')).toHaveTextContent('Sell out$ 30.000,00');
     expect(within(card).getByTestId('kpi-costo')).toHaveTextContent('Costo$ 1.000.000,00');
-    expect(within(card).getByTestId('kpi-costo-sell-in')).toHaveTextContent('Costo c/ sell in$ 880.000,00');
+    expect(within(card).queryByTestId('kpi-sell-in')).not.toBeInTheDocument();
+    expect(within(card).queryByTestId('kpi-costo-sell-in')).not.toBeInTheDocument();
+    expect(screen.queryByText(/sell in/i)).not.toBeInTheDocument();
   });
 
   it('leaves out of the card the figures that do not apply', () => {
-    // Only a sell out in the period. The null costs stand in for the backend's "Costos TP" on response, which
-    // leaves out the cost and the cost with sell in.
-    strip({ ...OFF, sell_in_out: { ...SELL, sell_in: null, costo: null, costo_sell_in: null, sell_out_pendientes: 2 } });
+    // The null cost stands in for the backend's "Costos TP" on response, which leaves out the cost.
+    strip({ ...OFF, sell_in_out: { ...SELL, costo: null, sell_out_pendientes: 2 } });
 
-    const card = cardOf('Sell in / Sell out');
+    const card = cardOf('Sell out');
     expect(within(card).getByTestId('kpi-sell-out')).toHaveTextContent('Sell out$ 30.000,00');
     expect(within(card).getByTitle('2 ventas con sell out en dólares sin tipo de cambio: no se suman')).toBeInTheDocument();
-    expect(within(card).queryByTestId('kpi-sell-in')).not.toBeInTheDocument();
     expect(within(card).queryByTestId('kpi-costo')).not.toBeInTheDocument();
-    expect(within(card).queryByTestId('kpi-costo-sell-in')).not.toBeInTheDocument();
   });
 
-  it('shows the card with only a sell in in the period', () => {
-    strip({ ...OFF, sell_in_out: { ...SELL, sell_out: null } });
-
-    const card = cardOf('Sell in / Sell out');
-    expect(within(card).getByTestId('kpi-sell-in')).toHaveTextContent('Sell in$ 120.000,00');
-    expect(within(card).queryByTestId('kpi-sell-out')).not.toBeInTheDocument();
-  });
-
-  it('has no sell in / sell out card when no sale in the period has one, nor without the profit view', () => {
-    strip({ ...OFF, sell_in_out: { ...SELL, sell_in: null, sell_out: null, costo_sell_in: null, total_gauss: null, markup_pct: null } });
-    expect(screen.queryByText('Sell in / Sell out')).not.toBeInTheDocument();
+  it('has no sell out card when no sale in the period has one, nor without the profit view', () => {
+    strip({ ...OFF, sell_in_out: EMPTY });
+    expect(screen.queryByText('Sell out', { selector: 'span' })).not.toBeInTheDocument();
 
     strip({ ...OFF, sell_in_out: SELL }, false);
-    expect(screen.queryByText('Sell in / Sell out')).not.toBeInTheDocument();
+    expect(screen.queryByText('Sell out', { selector: 'span' })).not.toBeInTheDocument();
   });
 
   it('shows nothing of it without the figures', () => {

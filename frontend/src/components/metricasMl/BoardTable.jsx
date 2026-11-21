@@ -19,7 +19,7 @@ import { COLUMN_GROUPS } from './metricasMlColumns';
 import { LEVEL_LABELS, LEVEL_NOUNS, nodeId } from '../../utils/metricasMlLevels';
 import { ADS_ROW_BADGES, adsRowKind } from '../../utils/metricasMlAds';
 import { tpCellState, tpIncompleteTitle } from '../../utils/metricasMlTp';
-import { sellInEstimatedTitle, sellOutEstimatedTitle, sellOutPendingTitle } from '../../utils/metricasMlSell';
+import { sellOutEstimatedTitle, sellOutPendingTitle } from '../../utils/metricasMlSell';
 import { ROW_CANAL_LABELS, isSinProducto } from '../../utils/metricasMlCanal';
 import { useVirtualRows } from '../kit/useVirtualRows';
 import styles from './BoardTable.module.css';
@@ -62,7 +62,6 @@ const SORT_BY = {
   total_gauss: 'total_gauss',
   total_tp: 'total_tp',
   ads_cost: 'ads_cost',
-  sell_in: 'sell_in',
   sell_out: 'sell_out',
   total_gauss_sell: 'total_gauss_sell',
   markup_sell: 'markup_sell',
@@ -139,18 +138,9 @@ function SellOutCell({ figures }) {
   );
 }
 
-/** The row's sell in, flagging the sold lines whose sell in is still an estimate like `SellOutCell` does. */
-function SellInCell({ value, estimados = 0 }) {
-  if (!(estimados > 0)) return <SellMoneyCell value={value} />;
-  return (
-    <div className={styles.gaussCell}>
-      <SellMoneyCell value={value} />
-      <span className={styles.tpHint} title={sellInEstimatedTitle(estimados)}>
-        ≈ {formatUnits(estimados)}
-      </span>
-    </div>
-  );
-}
+// The row has its figures but no sold line with a sell out: its c/ SO cells stay empty, they do not apply (the owner:
+// "en las filas que no aplica estaría bueno que directamente esté vacío"). The same rule `SellOutCell` follows.
+const sellOutNoAplica = (row) => Boolean(row.sell_in_out) && row.sell_in_out.sell_out == null;
 
 function SellMoneyCell({ value, strong = false }) {
   const tone = strong ? moneyTone(value) : null;
@@ -480,24 +470,20 @@ function renderCell(colId, row, ctx) {
     case 'stock':
       // `productos_erp.stock` of the row's product; "—" when the ERP has none.
       return <StockCell value={row.stock} />;
-    // Sell in / sell out: null (dashes) when the backend sends none, never a made-up zero. A figure that does
-    // not apply to the row (no sold line with a sell in, or a sell out) is left empty so it does not add noise.
+    // Sell out (Costo SI T3 D1: the cost is costo SI, the sell out is added to the profit): null (dashes) when
+    // the backend sends none, never a made-up zero. A figure that does not apply to the row (no sold line with a
+    // sell out) is left empty so it does not add noise.
     case 'costo':
       return <SellMoneyCell value={row.sell_in_out?.costo} />;
-    case 'costo_sell_in':
-      if (row.sell_in_out && row.sell_in_out[colId] == null) return null;
-      return <SellMoneyCell value={row.sell_in_out?.[colId]} />;
-    case 'sell_in':
-      if (row.sell_in_out && row.sell_in_out.sell_in == null) return null;
-      return <SellInCell value={row.sell_in_out?.sell_in} estimados={row.sell_in_out?.sell_in_estimados} />;
     case 'sell_out':
       return <SellOutCell figures={row.sell_in_out} />;
     case 'total_gauss_sell':
-      if (row.sell_in_out && row.sell_in_out.total_gauss == null) return null;
+      if (sellOutNoAplica(row)) return null;
       return <SellMoneyCell value={row.sell_in_out?.total_gauss} strong />;
     case 'markup_sell': {
-      // Empty when nothing applies; a dash when it applies but leaves no markup (a sell in above the cost).
-      if (row.sell_in_out && row.sell_in_out.total_gauss == null) return null;
+      // Empty when no sell out applies; a dash when it applies but leaves no figure (an unknown cost, interfaz §7,
+      // or "Costos TP").
+      if (sellOutNoAplica(row)) return null;
       const value = row.sell_in_out?.markup_pct ?? null;
       const tone = markupTone(value);
       return <span className={`${styles.markup} ${tone ? styles[`tone_${tone}`] : styles.muted}`}>{formatPct(value)}</span>;
@@ -521,8 +507,6 @@ const NUMERIC = new Set([
   'total_tp',
   'ads_cost',
   'costo',
-  'costo_sell_in',
-  'sell_in',
   'sell_out',
   'total_gauss_sell',
   'markup_sell',

@@ -36,7 +36,8 @@ Step 3 also queues, set-based, the sell-out campaigns the lines can move
 blocks sell in (`_fan_out_sell_out`); `sell_out.drain` rebuilds them.
 After the sale lines, the same run drains the costo SI queue (`costo_si_dirty`, sell-in-costo-si T2: a sell in, a
 bonus or a purchase link changed), one product per transaction (`costo_si.queue.drenar`); its triggers notify this
-same channel. A costo SI failure is charged to its product and never to the sale lines. It never calls Mercado Libre
+same channel. A costo SI failure is charged to its product and never to the sale lines. Then the ML sales those costo SI
+changes re-cost (`ml_costo_si_dirty`, T3 PR 7), in bounded passes (`_drain_ml_costo_si`). It never calls Mercado Libre
 (this is the sales worker): costo SI's Full comes from the ML stock and sales the app already stores (`full_ml`).
 Wired like `tp_cost.fill`:
 `channels=("sell_dirty",)` with no `interval`/`run_at_local`, so
@@ -56,6 +57,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_background_db
 from app.services.combos.componentes import CombosNoSincronizados
 from app.services.costo_si import queue as costo_si_queue
+from app.services.ml_orders_ingestion import recongelar_costo_si
 from app.services.sell import queue
 from app.services.sell_in import bonos_costo
 from app.services.sell_in.costing import RecomputeResult, get_costing
@@ -144,6 +146,7 @@ class SellDrainHandler:
             logger.warning("sell.drain: run charged %s failed line(s)", detail["failed"])
         if not stopped:
             detail.update(_drain_costo_si(ctx))
+            detail.update(_drain_ml_costo_si(ctx))
         return JobResult(success=True, detail=detail)
 
 
@@ -169,6 +172,28 @@ def _drenar_costo_si(ctx: WorkerContext) -> dict:
         "costo_si": drenado.productos,
         "costo_si_cambiados": drenado.cambiados,
         "costo_si_fallidos": len(drenado.fallidos),
+    }
+
+
+def _drain_ml_costo_si(ctx: WorkerContext) -> dict:
+    """The ML sales a costo SI change re-costs (`ml_costo_si_dirty`, sell-in-costo-si T3 PR 7, L15), after the costo
+    SI pass that queued them: at most `recongelar_costo_si.LIMITE_POR_PASADA` products per run, the rest stays queued
+    for the next wake. It never fails the job, same as `_drain_costo_si`."""
+    try:
+        with get_background_db() as db:
+            if db.get_bind().dialect.name != "postgresql" or not recongelar_costo_si.hay_pendientes(db):
+                return {}
+        drenado = recongelar_costo_si.drenar(get_background_db, ctx.deadline, is_transient=is_transient)
+    except Exception as exc:  # the queue keeps the products; the next wake retries them
+        if is_transient(exc):
+            logger.warning("sell.drain: ML costo SI re-freeze stopped by a transient error: %s", exc)
+        else:
+            logger.exception("sell.drain: ML costo SI re-freeze failed")
+        return {"ml_costo_si_error": f"{type(exc).__name__}: {exc}"}
+    return {
+        "ml_costo_si": drenado.productos,
+        "ml_costo_si_filas": drenado.filas,
+        "ml_costo_si_fallidos": len(drenado.fallidos),
     }
 
 

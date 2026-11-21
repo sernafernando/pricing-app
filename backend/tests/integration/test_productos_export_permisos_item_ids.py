@@ -23,6 +23,9 @@ from app.models.precio_ml import PrecioML
 from app.models.publicacion_ml import PublicacionML
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 from app.services.ml_publications.view.caps import MAX_EXPLICIT_PRODUCT_IDS
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 (the costo SI reader's SQLite stand-in)
+
+pytestmark = pytest.mark.usefixtures("costo_si_lista")
 
 PERMISOS = {
     "vista_actual": "productos.exportar_vista_actual",

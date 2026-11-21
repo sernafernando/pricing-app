@@ -36,7 +36,7 @@ from app.models.ml_orders_ops import (
     MlOrdersOpsCuarentena,
     MlShipmentOps,
 )
-from app.services.ml_orders_ingestion.costeo_service import congelar
+from app.services.ml_orders_ingestion.costeo_service import congelar, fecha_venta_de
 from app.services.ml_orders_ingestion.mapper import (
     MappingError,
     OrderItemOpsDTO,
@@ -418,7 +418,7 @@ def upsert_order(db: Session, payload: Dict[str, Any], mapped: Optional[OrderOps
                 # after the item rows themselves, and never reads or writes
                 # `MlOrderItemOps` -- keeps the cost seam that model
                 # documents.
-                congelar(db, dto.order_id, dto.items)
+                congelar(db, dto.order_id, dto.items, fecha_venta_de(dto.date_created))
 
                 keep_keys = {(item.item_id, item.variation_id) for item in dto.items}
                 _delete_stale_items(db, dto.order_id, keep_keys)

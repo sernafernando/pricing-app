@@ -102,7 +102,9 @@ describe('MetricasML on a phone', () => {
     expect(within(card).getByText('Costo del período')).toBeInTheDocument();
     expect(within(card).queryByText('Costo')).not.toBeInTheDocument();
     expect(within(card).getByText('$ 160.181.992,06')).toBeInTheDocument();
-    expect(within(card).getByText('c/ sell in $ 156.941.992,06')).toBeInTheDocument();
+    // Costo SI T3 D1: no sell in, so no "c/ sell in" cost under it; the markup with the sell out added reads "c/ SO".
+    expect(within(card).queryByText(/sell in/i)).not.toBeInTheDocument();
+    expect(within(card).getByText('c/ SO').nextElementSibling).toHaveTextContent(/^28,3%$/);
 
     await userEvent.click(within(card).getByRole('button', { name: 'Ver sus 3 publicaciones' }));
     expect(await within(card).findByText(/MLA2060835678/)).toBeInTheDocument();

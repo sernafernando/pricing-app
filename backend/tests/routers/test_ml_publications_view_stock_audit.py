@@ -36,6 +36,9 @@ from tests.routers.test_ml_publications_view import seed_rows
 from tests.routers.test_ml_publications_view_kpis import pg, view_pg  # noqa: F401
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 (the costo SI reader's SQLite stand-in)
+
+pytestmark = pytest.mark.usefixtures("costo_si_lista")
 
 URL = "/api/ml-publications/view/stock-audit"
 PERMISO = "ml_publicaciones.ver_auditoria_stock"
@@ -325,7 +328,7 @@ def board_row(mla: str, *, d7: int, d30: int, gross: float, tg: float, costo: fl
 
 
 FIGURES = {
-    # the notebook's own sales: a sell in of 50 on the cost
+    # the notebook's own sales: a sell in of 50 on the cost (D1: never read, `view.real_so`)
     "MLA10": board_row(
         "MLA10",
         d7=1,
@@ -433,9 +436,16 @@ class TestStockAuditSales:
         grant(db, rol_admin, "ml_metricas.ver", "ml_metricas.ver_ganancia")
         rows = {row["product_item_id"]: row for row in audit(client, auditor)["rows"]}
         notebook = rows[100]
-        # own 2 + variant 1; Total Gauss 300 over cost 2000 = 15 %; with sell in / out: (300 + 50 + 30) / (2000 - 50)
+        # own 2 + variant 1; Total Gauss 300 over cost 2000 = 15 %; D1 with sell out: Total Gauss 300 + 30 and
+        # (300 + 30) / 2000, the own sell in of 50 ignored (neither off the cost nor on the profit)
         assert plain(notebook["ventas"]) == sales(
-            1, 3, 3500.0, total_gauss_30d=300.0, markup_30d=15.0, total_gauss_sell_30d=380.0, markup_sell_30d=19.5
+            1,
+            3,
+            3500.0,
+            total_gauss_30d=300.0,
+            markup_30d=15.0,
+            total_gauss_sell_30d=300.0 + 30.0,
+            markup_sell_30d=round((300 + 30) / 2000 * 100, 1),
         )
         assert plain(notebook["variantes"][0]["ventas"]) == sales(
             0, 1, 1500.0, total_gauss_30d=100.0, markup_30d=10.0, total_gauss_sell_30d=130.0, markup_sell_30d=13.0
@@ -587,7 +597,7 @@ class TestStockAuditMock:
         self, client, auditor, db, rol_admin, board_calls, list_markups
     ) -> None:
         grant(db, rol_admin, "ml_metricas.ver", "ml_metricas.ver_ganancia")
-        # the notebook's markup with sell in / out 19.5; the mouse has none, so its plain 25.0 is the one shown
+        # the notebook's markup with sell out 16.5 (D1); the mouse has none, so its plain 25.0 is the one shown
         asc = audit(client, auditor, orden="markup_30d", dir="asc")
         assert [row["product_item_id"] for row in asc["rows"]] == [100, 111, 130, 140]
         current = audit(client, auditor, orden="markup", dir="desc")
@@ -764,8 +774,9 @@ class TestStockAuditExport:
     def test_with_ganancia_the_profit_and_markups(self, client, auditor, db, rol_admin, board_calls) -> None:
         grant(db, rol_admin, "ml_metricas.ver", "ml_metricas.ver_ganancia")
         notebook = {r["Código"]: r for r in sheet(client, auditor)}["C100"]
-        # the sell in / out figures where they apply, as the view's Real 30D and Total Gauss
-        assert (notebook["Total Gauss 30D"], notebook["Markup real 30D"]) == (380.0, 19.5)
+        # the sell out figures where they apply, as the view's Real 30D and Total Gauss (D1: the sell in of 50 is not
+        # read): 300 + 30 and (300 + 30) / 2000
+        assert (notebook["Total Gauss 30D"], notebook["Markup real 30D"]) == (300.0 + 30.0, round(330 / 2000 * 100, 1))
 
     def test_a_product_without_cost_exports_blank_values_and_says_so(self, client, auditor_without_cost) -> None:
         row = {r["Código"]: r for r in sheet(client, auditor_without_cost)}["C160"]

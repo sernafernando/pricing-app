@@ -93,14 +93,13 @@ EXPORT_PAGE_SIZE = 500
 # `tplink.solo`: the one "Agrupado" dimension it may read, and the Gauss figures it never gets -- the response keys
 # (dropped at any depth by `_tp_solo_response`) and the CSV columns. Its markup fields carry Markup TP.
 TP_SOLO_DIMENSION = "tienda"
-# Sell in / sell out (sell-in-sell-out T11) are on the Gauss basis too.
+# Sell out (sell-in-sell-out T11) is on the Gauss basis too. No sell in (Costo SI T3 D1): the cost is costo SI and the
+# sell out is added to the profit ("c/ SO").
 SELL_CSV_HEADER = (
-    "Sell in",
     "Sell out",
     "Sell out pendientes",
-    "Costo c/ sell in",
-    "Total Gauss c/ sell in/out",
-    "Markup c/ sell in/out %",
+    "Total Gauss c/ SO",
+    "Markup c/ SO %",
 )
 TP_SOLO_DENY_KEYS = frozenset({"total_gauss", "sell_in_out"})
 TP_SOLO_DENY_CSV = frozenset({"Total Gauss", *SELL_CSV_HEADER})
@@ -617,7 +616,7 @@ def board_filter_tp(
             status_code=status.HTTP_403_FORBIDDEN, detail=f"Costos TP requiere {' y '.join(GANANCIA_CANAL[f.canal])}"
         )
     if f.sort == "markup_sell":
-        # The sell in lowers the Gauss cost: with "Costos TP" there is no markup with sell in / sell out to sort by.
+        # The markup c/ SO is over the Gauss cost: with "Costos TP" there is no such markup to sort by.
         raise HTTPException(status_code=422, detail="sort=markup_sell no está disponible con costos_tp=true")
     return replace(f, costos_tp=True, tp_store_ids=_tp_store_ids(db))
 
@@ -651,7 +650,7 @@ def _tp_solo_filter(db: Session, f: board.BoardFilter) -> board.BoardFilter:
     if f.group_by == "group" and f.dimension != TP_SOLO_DIMENSION:
         raise HTTPException(status_code=422, detail=f"tplink.solo: sólo se agrupa por {TP_SOLO_DIMENSION}")
     if f.sort == "total_gauss" or f.sort in board.SELL_SORTS:
-        raise HTTPException(status_code=422, detail="tplink.solo: no se ordena por Total Gauss ni por sell in/out")
+        raise HTTPException(status_code=422, detail="tplink.solo: no se ordena por Total Gauss ni por sell out")
     tp_ids = _tp_store_ids(db)
     return replace(
         f,
@@ -1171,14 +1170,12 @@ def _csv_line(
             _csv_money(round_pp(row.markup_delta)),
         ]
         if sell:
-            # The screen's figures: a sell in / sell out that does not apply to the row is an empty cell, not 0.
+            # The screen's figures: a sell out that does not apply to the row is an empty cell, not 0.
             figures = sell_in_out_of(row)
             line += [
-                _csv_money(figures.sell_in),
                 _csv_money(figures.sell_out),
                 # Its pending count goes with it: empty where no sell out applies, as on screen.
                 "" if figures.sell_out is None else row.sell_out_pendientes,
-                _csv_money(figures.costo_sell_in),
                 _csv_money(figures.total_gauss),
                 _csv_money(figures.markup_pct),
             ]

@@ -97,6 +97,25 @@ def add_cost(
     )
 
 
+def add_costo_si(conn, item_id: int, promedio: float, *, moneda: str = "USD", fecha: str = "2026-01-01") -> None:
+    """A costo SI step of a product (`costo_si_pasos`): its average in force from `fecha` on, in `moneda`."""
+    conn.execute(
+        text(
+            "INSERT INTO costo_si_pasos (item_id, orden, fecha, promedio_usd, moneda) "
+            "VALUES (:i, (SELECT COALESCE(max(orden), -1) + 1 FROM costo_si_pasos WHERE item_id = :i), :f, :p, :m)"
+        ),
+        {"i": item_id, "f": fecha, "p": promedio, "m": moneda},
+    )
+
+
+def add_combo(conn, combo_item_id: int, componente_item_id: int, cantidad: float) -> None:
+    """A component of a combo (`combo_componentes`): the combo's cost is its components' x quantity."""
+    conn.execute(
+        text("INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (:c, :i, :q)"),
+        {"c": combo_item_id, "i": componente_item_id, "q": cantidad},
+    )
+
+
 def add_usd_rate(conn, venta: float, fecha: str) -> None:
     """A `tipo_cambio` USD row (the table is built on first use, as the store schema does not hold it)."""
     conn.execute(

@@ -1038,6 +1038,43 @@ describe('Costo de mercadería per-item arithmetic (ml-ventas-desglose-costos)',
     expect(screen.getByText('$ 5.000,00')).toBeInTheDocument();
   });
 
+  // Costo SI T3 (S13): a sale frozen at the costo SI in force on its date names that source, per resolution path.
+  it.each([
+    ['costo_si_pub', 'Costo SI (por publicación)'],
+    ['costo_si_sku', 'Costo SI (por SKU)'],
+    ['costo_si_combo', 'Costo SI (combo)'],
+  ])('labels a %s frozen cost as costo SI', async (fuente, label) => {
+    mockDetail(1001, {
+      breakdown: BASE_BREAKDOWN,
+      iva_decomposicion: { componentes: [], neto_sin_iva: 100, reconcilia: true, diferencia: 0, razones: [] },
+      cadena_total_gauss: {
+        total_gauss: 900,
+        lineas: [{ code: 'costo_mercaderia', monto: 100 }],
+        markup: 900,
+        costo_mercaderia_items: [
+          {
+            item_id: 'MLA2',
+            title: 'Mouse Logitech',
+            quantity: 1,
+            conocido: true,
+            moneda: 'ARS',
+            costo_origen: 5000,
+            tipo_cambio: null,
+            tipo_cambio_fecha: null,
+            costo_unitario_ars: 5000,
+            fuente,
+            costo_fecha: '2026-11-20',
+          },
+        ],
+      },
+    });
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
+
+    expect(await screen.findByText(/mouse logitech/i)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`· ${label.replace(/[()]/g, '\\$&')}`))).toBeInTheDocument();
+    expect(screen.queryByText(new RegExp(fuente))).not.toBeInTheDocument();
+  });
+
   it('renders an item with no frozen cost row as unknown, never a $0', async () => {
     mockDetail(1001, {
       breakdown: BASE_BREAKDOWN,

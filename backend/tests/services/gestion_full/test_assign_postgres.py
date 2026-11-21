@@ -105,10 +105,7 @@ def _seed_product(
     stock: int = 50,
 ) -> None:
     db.execute(
-        text(
-            "INSERT INTO productos_erp (item_id, codigo, descripcion, stock) "
-            "VALUES (:id, :codigo, :desc, :stock)"
-        ),
+        text("INSERT INTO productos_erp (item_id, codigo, descripcion, stock) VALUES (:id, :codigo, :desc, :stock)"),
         {"id": item_id, "codigo": codigo, "desc": descripcion, "stock": stock},
     )
 
@@ -306,9 +303,7 @@ class TestSumarPostgres:
             db.commit()
             db.refresh(pkg)
 
-            out_pkg, touched = add_all_ready_lines_to_package(
-                db, usuario=SimpleNamespace(id=1)
-            )
+            out_pkg, touched = add_all_ready_lines_to_package(db, usuario=SimpleNamespace(id=1))
             assert touched == 1
             assert out_pkg.lines[0].qty_export == 3
         finally:
@@ -479,9 +474,7 @@ class TestSumarPostgres:
             db.commit()
             db.refresh(pkg)
 
-            out_pkg, touched = add_all_ready_lines_to_package(
-                db, usuario=SimpleNamespace(id=5)
-            )
+            out_pkg, touched = add_all_ready_lines_to_package(db, usuario=SimpleNamespace(id=5))
             db.refresh(out_pkg)
             assert touched == 2
             assert len(out_pkg.lines) == 2

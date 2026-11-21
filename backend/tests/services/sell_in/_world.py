@@ -26,11 +26,12 @@ from typing import Iterator, List, Optional, Tuple
 
 from sqlalchemy import Engine, text
 
-from app.models.tactical import Tactical
 from app.models.auditoria import Auditoria
 from app.models.combo_componente import ComboComponente
-from app.models.costo_si import CostoSiDirty
-from app.models.tb_item import TBItem
+from app.models.costo_si import CostoSiDirty, CostoSiPaso
+from app.models.cur_exch_history import CurExchHistory
+from app.models.item_cost_list_history import ItemCostListHistory
+from app.models.ml_costo_si import MlCostoSiDirty
 from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_sale_line import MlSaleLine
 from app.models.producto import ProductoERP
@@ -44,6 +45,9 @@ from app.models.sell_in import (
     SellInConsumo,
     SellInModoProducto,
 )
+from app.models.tactical import Tactical
+from app.models.tb_item import TBItem
+from app.models.tipo_cambio import TipoCambio
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.services.sell import queue
@@ -75,8 +79,14 @@ TABLES = [
     MlSaleLine.__table__,
     SellDirty.__table__,
     CostoSiDirty.__table__,  # sell.drain also drains the costo SI queue (sell-in-costo-si T2)
+    MlCostoSiDirty.__table__,  # ... and then the ML sales it re-costs (T3 PR 7)
+    # The reader's dated list cost (`costo_si.lote`): cost bonuses skip sales at costo SI (D2, T3 PR 7).
+    ItemCostListHistory.__table__,
     ComboComponente.__table__,  # combo sales count as their components' (combos in sell in / sell out)
     TBItem.__table__,  # a combo of the PC category is its own product (`combos.pcs`)
+    CostoSiPaso.__table__,  # the cost every sell in / sell out markup reads (`costo_si.lote`, T3 PR 5)
+    TipoCambio.__table__,  # `lote` prices a USD cost at the latest USD rate
+    CurExchHistory.__table__,  # ... else at the ERP's rate history (interfaz §7)
 ]
 _MODELS = {"gbp": VentaFueraMLMetrica, "tn": VentaTiendaNubeMetrica}
 _refs = itertools.count(600_000)

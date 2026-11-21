@@ -44,7 +44,7 @@ from app.models.venta_fuera_pdf import (
     VentaFueraPdfCarga,
     VentaFueraPdfResumenDocumento,
 )
-from app.services.ventas_fuera_pdf.costo_erp import costos_unitarios, precio_costo
+from app.services.ventas_fuera_pdf.costo_erp import combos_desglosados, costos_unitarios, precio_costo
 from app.services.ventas_fuera_pdf.overrides import aplicar_en_carga
 from app.services.ventas_fuera_pdf.parser import (
     DocumentoDetallado,
@@ -234,7 +234,7 @@ def _crear_operaciones(
     ).rowcount
     # The product of each line, for offsets and sell in / sell out (VPF T4); NULL "sin producto".
     productos = resolver(db, [(ln.codigo, ln.articulo[:255]) for doc in detallada.documentos for ln in doc.lineas])
-    # The ERP unit cost of each (product, sale date), in one query (vpf-costo-d-erp).
+    # The costo SI unit cost in pesos of each (product, sale date), in one query (costo_si.lote).
     costos = costos_unitarios(
         db,
         [
@@ -243,6 +243,14 @@ def _crear_operaciones(
             for ln in doc.lineas
             if (item_id := _item(productos[(ln.codigo, ln.articulo[:255])])) is not None
         ],
+    )
+    # Owner L19: a combo whose document brings its breakdown costs 0 (its component lines carry the cost).
+    desglosados = combos_desglosados(
+        db,
+        {
+            doc.clave: [_item(productos[(ln.codigo, ln.articulo[:255])]) for ln in doc.lineas]
+            for doc in detallada.documentos
+        },
     )
     por_doc: dict[tuple, list[VentaFueraOperacionLinea]] = {}
     for doc in detallada.documentos:
@@ -255,7 +263,10 @@ def _crear_operaciones(
                 moneda=linea.moneda,
                 precio=linea.precio,
                 precio_costo=precio_costo(
-                    costos.get((_item(productos[(linea.codigo, linea.articulo[:255])]), doc.fecha)), linea.cantidad
+                    None
+                    if _item(productos[(linea.codigo, linea.articulo[:255])]) in desglosados[doc.clave]
+                    else costos.get((_item(productos[(linea.codigo, linea.articulo[:255])]), doc.fecha)),
+                    linea.cantidad,
                 ),
                 precio_costo_pdf=linea.precio_costo,
                 precio_costo_pp=linea.precio_costo_pp,

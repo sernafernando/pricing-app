@@ -94,11 +94,12 @@ describe.each(['light', 'dark'])('Métricas ML Costos TP (%s)', (theme) => {
     await expect.element(screen.getByText('$ 3.125.400,50')).toBeVisible();
     await expect.element(screen.getByText('incompleto').first()).toBeVisible();
     expect(wrappedMoney()).toEqual([]);
-    // Eight cards on one row at this width: Total TP and the sell in / sell out card join it.
-    // The fixture carries sell in / sell out figures: without the card the row would be seven.
+    // Eight cards on one row at this width: Total TP and the sell out card join it (Costo SI T3 D1: sell out only,
+    // no sell in). The fixture carries sell out figures: without the card the row would be seven.
     const kpis = document.querySelector('section[aria-label="Indicadores del período"]');
     expect(kpis.textContent).toContain('Total TP');
-    expect(kpis.textContent).toContain('Sell in / Sell out');
+    expect(kpis.textContent).toContain('Sell out');
+    expect(kpis.textContent).not.toMatch(/sell in/i);
     const tops = [...kpis.children].map((card) => card.getBoundingClientRect().top);
     expect(tops).toHaveLength(8);
     expect(new Set(tops).size).toBe(1);

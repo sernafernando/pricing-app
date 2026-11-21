@@ -14,6 +14,9 @@ from app.models.proveedor import Proveedor
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
 from app.schemas.sell_in_out_producto import SellInProducto
 from app.services.sell_in import visor_lotes
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 -- Productos' sell in / sell out reads lote.actuales
+
+pytestmark = pytest.mark.usefixtures("costo_si_lista")
 
 BASE = "/api/sell-in/productos"
 
