@@ -31,9 +31,9 @@ METRIC_SORTS: dict[str, tuple[str, bool]] = {
     "unidades_30d": ("w30d", False),
     "markup_30d": ("markup", True),
     "total_gauss_30d": ("tg", True),
-    # Real 30D c/ SISO: the Board's `markup_sell`, the plain markup where neither applies (what the column shows,
-    # Auditoría's rule); its Board reads the sell in / sell out (`SELL_SORTS`)
-    "markup_sell_30d": ("markup_sell", True),
+    # Real 30D c/ SISO: the Board's `markup_siso` (`SellInOut.markup_sell` in SQL), the plain markup where neither
+    # applies (what the column shows, Auditoría's rule); its Board reads the sell in / sell out (`SELL_SORTS`)
+    "markup_sell_30d": ("markup_siso", True),
 }
 # the keys whose figure needs the Board's sell in / sell out (`BoardFilter.sell_in_out`)
 SELL_SORTS = frozenset({"markup_sell_30d"})

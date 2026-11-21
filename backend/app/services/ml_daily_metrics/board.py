@@ -2138,6 +2138,15 @@ class Board:
                     "markup_sell"
                 )
             )
+            # Publicaciones ML's Real 30D c/ SISO still shows `SellInOut.markup_sell` (with sell in) and sorts by this
+            # (`metrics_sort`); it goes with those fields when nothing reads them (orchestrator, PR 5 / PR 7).
+            siso = or_(g.c.sell_in_lineas > 0, g.c.sell_out_lineas > 0)
+            cost = g.c.costo - g.c.m_sell_in
+            columns.append(
+                case((and_(siso, cost > 0), (g.c.mtg + g.c.m_sell_in + g.c.m_sell_out) * 100 / cost), else_=None).label(
+                    "markup_siso"
+                )
+            )
         return columns
 
     def _has_activity(self, c: Any) -> Any:
