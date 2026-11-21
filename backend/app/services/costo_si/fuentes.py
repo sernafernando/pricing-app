@@ -21,7 +21,8 @@
   Full (`full_ml`, L11; no Mercado Libre call). A day with a costo SI photo (`costo_si_stock_diario`) reads it
   instead.
 - Combos (S11, L7.1) have no stock, purchases or sell ins of their own: the engine never computes one (`es_combo`);
-  their cost is their components' at read time. A combo of the PC category is its own product (L2.6).
+  their cost is their components' at read time. A PC (cat 47) too, with or without a bill of materials (L22:
+  "las pcs son la suma de sus componentes el costo", `sin_historia`).
 """
 
 from __future__ import annotations

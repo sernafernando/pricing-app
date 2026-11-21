@@ -137,6 +137,62 @@ def test_l21_the_deploy_queues_a_product_no_sell_in_reaches_too(engine: Engine) 
     assert _cola(engine)[tp.SIN_SELL_IN] == (None, 0, None)
 
 
+PC_T4, COMPONENTE_SIN_COSTO = 5706, 5707
+
+
+def _pc_con_venta(engine: Engine) -> int:
+    """A PC (cat 47) whose one component is in the ERP's items but not in `productos_erp` (as PCBASE01-05 on prod), so
+    the deploy queues it nowhere and no step changes for either; the PC's 11-05 sale was frozen at its own list cost
+    (500 USD), as before L22."""
+    w.producto(engine, COMPONENTE_SIN_COSTO)
+    w.run(engine, f"DELETE FROM productos_erp WHERE item_id = {COMPONENTE_SIN_COSTO}")
+    w.producto(engine, PC_T4, cat_id=47, costo="500")
+    w.run(
+        engine,
+        "INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (:c, :p, 1)",
+        c=PC_T4,
+        p=COMPONENTE_SIN_COSTO,
+    )
+    return tp._venta(engine, PC_T4, datetime(2026, 11, 5, 12), 1, "500000")
+
+
+def test_l22_the_deploy_re_costs_a_pc_whose_components_change_no_step(engine: Engine) -> None:
+    """L22 ("las pcs son la suma de sus componentes el costo") changes a PC's cost with no step changing anywhere:
+    the deploy still re-costs its sales from 11-01 (here unknown: a component without a cost, never its own 500 and
+    never 0), and leaves the PC without a history."""
+    venta = _pc_con_venta(engine)
+    assert tp._guardado(engine)[venta] == D("500000.00")
+
+    _step(engine, "upgrade")
+    _drenar(engine)
+
+    assert tp._guardado(engine)[venta] is None
+    assert w.rows(engine, f"SELECT count(*) FROM costo_si_pasos WHERE item_id = {PC_T4}") == [(0,)]
+
+
+def test_l22_until_the_drain_reaches_a_pc_its_deploy_marker_is_invisible_and_the_rollback_drops_it(
+    engine: Engine,
+) -> None:
+    """The marker that makes the drain re-cost a PC (a start step without an average) changes no read before the
+    drain gets there, and the documented rollback removes it."""
+    from app.services.costo_si import lote
+
+    _pc_con_venta(engine)
+    w.producto(engine, 5708, cat_id=47, costo="300")  # a PC without a bill of materials: its cost does not change
+
+    _step(engine, "upgrade")
+
+    with sessionmaker(bind=engine)() as db:
+        assert lote.actuales(db, [PC_T4])[PC_T4].costo is None
+        assert lote.actuales(db, [5708])[5708].costo == D("300")
+    assert _cola(engine)[PC_T4] == (None, 0, None)
+    assert w.rows(engine, "SELECT item_id FROM costo_si_pasos WHERE promedio_usd IS NULL ORDER BY 1") == [(PC_T4,)]
+    with engine.begin() as conn:
+        for sql in _module().ROLLBACK_SQL:
+            conn.exec_driver_sql(sql)
+    assert w.rows(engine, f"SELECT count(*) FROM costo_si_pasos WHERE item_id = {PC_T4}") == [(0,)]
+
+
 def test_upgrade_snapshots_every_re_costed_table_queues_the_scope_and_invalidates_its_steps(engine: Engine) -> None:
     venta = tp._venta(engine, tp.P, datetime(2026, 10, 5, 12), 1, "99999")
     _historia(engine)

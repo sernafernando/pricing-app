@@ -226,12 +226,12 @@ def _costo(item_id: int, fila) -> Costo:
 
 
 _ACTUALES_SQL = text(
-    "SELECT q.item_id, cs.* FROM unnest(:ids) AS q(item_id) "
+    f"SELECT q.item_id, cs.*, {_es_combo('q.item_id')} FROM unnest(:ids) AS q(item_id) "
     f"LEFT JOIN LATERAL ({_fragmento('q.item_id', None, _tc_en('CURRENT_DATE', propio='CAST(:tc AS numeric)'))}) cs ON true"
 ).bindparams(bindparam("ids", type_=ARRAY(Integer)), bindparam("tc", type_=Numeric()))
 
 _EN_FECHAS_SQL = text(
-    "SELECT q.item_id, q.fecha, cs.* FROM unnest(:items, :fechas) AS q(item_id, fecha) "
+    f"SELECT q.item_id, q.fecha, cs.*, {_es_combo('q.item_id')} FROM unnest(:items, :fechas) AS q(item_id, fecha) "
     f"LEFT JOIN LATERAL ({sql_en_fecha('q.item_id', 'q.fecha')}) cs ON true"
 ).bindparams(bindparam("items", type_=ARRAY(Integer)), bindparam("fechas", type_=ARRAY(Date)))
 
@@ -249,25 +249,17 @@ def _avisar_sin_tc(costos) -> None:
         )
 
 
-_COMBOS_ENTRE_SQL = text(
-    "SELECT DISTINCT combo_item_id FROM combo_componentes WHERE combo_item_id = ANY(:ids)"
-).bindparams(bindparam("ids", type_=ARRAY(Integer)))
-
-
-def _avisar_combos_desconocidos(db: Session, costos) -> None:
-    """Log the combos and PCs left without a cost (interfaz §7, L22): a component without one makes the sum unknown,
-    never a partial sum or 0. One warning per date naming every item; no query when every cost is known."""
-    sin = [(c.item_id, fecha) for c, fecha in costos if c.costo is None]
-    if not sin:
-        return
-    combos = {r[0] for r in db.execute(_COMBOS_ENTRE_SQL, {"ids": sorted({i for i, _ in sin})})}
+def _avisar_combos_desconocidos(costos) -> None:
+    """Log the combos and PCs left without a cost (interfaz §7, L22): a component without one (or, in mixed currencies,
+    without a USD rate) makes the sum unknown, never a partial sum or 0. `costos`: (cost, date, is a combo), read by
+    the same query; one warning per date naming every item."""
     por_fecha: Dict[date, List[int]] = {}
-    for item_id, fecha in sin:
-        if item_id in combos:
-            por_fecha.setdefault(fecha, []).append(item_id)
+    for c, fecha, es_combo in costos:
+        if es_combo and c.costo is None:
+            por_fecha.setdefault(fecha, []).append(c.item_id)
     for fecha, items in sorted(por_fecha.items()):
         logger.warning(
-            "costo SI: on %s %d combos/PCs have a component without a cost; their cost is unknown %s",
+            "costo SI: on %s %d combos/PCs have a component without a cost (or no USD rate); their cost is unknown %s",
             fecha,
             len(items),
             sorted(items),
@@ -281,9 +273,10 @@ def actuales(db: Session, item_ids: Iterable[int], *, tipo_cambio=None) -> Dict[
     if not ids:
         return {}
     tc = Decimal(str(tipo_cambio)) if tipo_cambio else None
-    out = {r[0]: _costo(r[0], r[1:]) for r in db.execute(_ACTUALES_SQL, {"ids": ids, "tc": tc})}
+    filas = [(_costo(r[0], r[1:-1]), r[-1]) for r in db.execute(_ACTUALES_SQL, {"ids": ids, "tc": tc})]
+    out = {c.item_id: c for c, _ in filas}
     _avisar_sin_tc((c, date.today()) for c in out.values())
-    _avisar_combos_desconocidos(db, [(c, date.today()) for c in out.values()])
+    _avisar_combos_desconocidos((c, date.today(), es_combo) for c, es_combo in filas)
     return out
 
 
@@ -296,9 +289,10 @@ def en_fechas(db: Session, pares: Iterable[Tuple[int, date]]) -> Dict[Tuple[int,
     if not lista:
         return {}
     filas = db.execute(_EN_FECHAS_SQL, {"items": [i for i, _ in lista], "fechas": [f for _, f in lista]})
-    out = {(r[0], r[1]): _costo(r[0], r[2:]) for r in filas}
+    leidas = [(r[1], _costo(r[0], r[2:-1]), r[-1]) for r in filas]
+    out = {(c.item_id, f): c for f, c, _ in leidas}
     _avisar_sin_tc((c, f) for (_, f), c in out.items())
-    _avisar_combos_desconocidos(db, [(c, f) for (_, f), c in out.items()])
+    _avisar_combos_desconocidos((c, f, es_combo) for f, c, es_combo in leidas)
     return out
 
 

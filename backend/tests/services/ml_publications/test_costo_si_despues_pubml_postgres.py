@@ -3,7 +3,7 @@ factura o loyalty o lo que fuera, se tienen que recalcular todos los costos post
 
 pubml markups are computed live; the two stored values that depend on the cost are the "hay mejores ofertas" flag
 and the catalog snapshot competitor markups. The `pubml` callback queues both for every MLA of the product and of
-every combo (not a PC) that contains it. Interface: handoffs/sell-in-costo-si-interfaz.md §1 and §3. Invented data."""
+every combo (a PC included, L22) that contains it. Interface: handoffs/sell-in-costo-si-interfaz.md §1 and §3. Invented data."""
 
 from __future__ import annotations
 
@@ -83,7 +83,7 @@ def _mundo(engine: Engine) -> None:
     _publicacion(engine, "MLA10", P)  # plain listing of P, no catalog sister
     _publicacion(engine, "MLA11", P, catalogo=True)  # P's catalog listing
     _publicacion(engine, "MLA20", COMBO)  # the combo's listing
-    _publicacion(engine, "MLA30", PC)  # a PC is its own product: its cost is not P's
+    _publicacion(engine, "MLA30", PC)  # a PC costs its components (L22): P's change moves it
     _publicacion(engine, "MLA40", OTRO, catalogo=True)  # unrelated
     _publicacion(engine, "MLA12", P, estado="unlinked")  # not linked: nobody prices it with P
 
@@ -110,7 +110,7 @@ def test_queues_the_mlas_of_the_product_and_of_its_combos_for_hay_mejores(engine
     _despachar(engine)
 
     with sessionmaker(bind=engine)() as db:
-        assert pendientes.pendientes(db) == ["MLA10", "MLA11", "MLA20"]
+        assert pendientes.pendientes(db) == ["MLA10", "MLA11", "MLA20", "MLA30"]
 
 
 def test_running_twice_keeps_one_entry_each(engine: Engine) -> None:
@@ -121,7 +121,7 @@ def test_running_twice_keeps_one_entry_each(engine: Engine) -> None:
     _despachar(engine)
 
     with sessionmaker(bind=engine)() as db:
-        assert pendientes.pendientes(db) == ["MLA10", "MLA11", "MLA20"]
+        assert pendientes.pendientes(db) == ["MLA10", "MLA11", "MLA20", "MLA30"]
     assert w.rows(engine, "SELECT mla, attempts FROM catalog_competition_refresh_pending ORDER BY mla") == [
         ("MLA11", 0)
     ]

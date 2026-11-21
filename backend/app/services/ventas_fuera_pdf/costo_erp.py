@@ -54,7 +54,7 @@ def combos_desglosados(
 ) -> dict[K, set[int]]:
     """Owner L19: for each document (its products, keyed by its group id), the combos among them whose breakdown it
     brings, i.e. EVERY one of their components is another line of the same document (one loose unit of a component
-    is not a breakdown). Quantities are not compared. PCs are never combos here (`lote.combos_con`).
+    is not a breakdown). Quantities are not compared. A PC is a combo here too (L22, `lote.combos_con`).
 
     A combo with SOME but not all of its components as other lines (a partial breakdown) is costed whole and its
     loose components too; that possible double count is logged with the group id and the missing components (owner

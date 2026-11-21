@@ -1,6 +1,6 @@
 """Reading a product's costo SI (S10, S11): the value in force on a date and its breakdown.
 
-A combo (not a PC) has no history of its own: its costo SI is the sum of its components' costo SI x their quantity in
+A combo (a PC included, L22) has no history of its own: its costo SI is the sum of its components' costo SI x their quantity in
 the combo ("el x2 es el costo de una unidad x la cantidad", L4.9); unknown when any component has none, or when they
 are in different currencies (each product's costo SI is in its own cost currency, L18: use `lote` for a value in pesos).
 """

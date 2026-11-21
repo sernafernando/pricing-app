@@ -117,7 +117,7 @@ _COMPONENTES_SQL = text(
 
 def _con_combos(db: Session, desdes: Dict[int, date]) -> Dict[int, date]:
     """Product -> the date its rows are re-costed from: each product from its own first step, and each combo that
-    contains it (not a PC, `lote.combos_con`) from the earliest one among its changed components."""
+    contains it (a PC included, `lote.combos_con`) from the earliest one among its changed components."""
     out = dict(desdes)
     for componente, combos in lote.combos_con(db, desdes).items():
         for combo in combos:
