@@ -239,7 +239,7 @@ export function useTiendaPricing({
 
         const precios = calcularPrecioDesdeMarkup(producto, markup);
         if (!precios) {
-          showToast('⚠️ Sin costo SI en pesos: cargá el precio, no el markup', 'error');
+          showToast('Sin costo SI en pesos: cargá el precio, no el markup', 'error');
           return;
         }
         precioSinIva = precios.sin_iva;
