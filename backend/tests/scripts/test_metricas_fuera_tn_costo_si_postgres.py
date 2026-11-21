@@ -682,6 +682,24 @@ def test_despues_recosts_only_the_product_lines_of_a_shared_invoice(engine: Engi
 
 
 @pytest.mark.parametrize("cron,df_id", CANALES)
+def test_despues_recosts_a_price_0_ungrouped_line_of_an_invoice_holding_the_product(
+    engine: Engine, db: Session, cron, df_id
+) -> None:
+    """The crons cost a price-0 line outside any GBP group as the sum of the invoice's ungrouped lines
+    (`combo_costos` of `it_isassociationgroup = false`): it moves with the product's cost too."""
+    _, cero = _venta(engine, df_id, [{"item": NB, "precio": "30000"}, {"item": MOUSE, "precio": "0"}], dia=DESPUES)
+    _guardar(db, cron)
+    antes = _fila(db, cron, cero).costo_total
+    _paso(engine, NB, "20", "USD", fecha="2026-10-04", orden=1)
+
+    _recostear(db, cron)
+
+    nuevo = _cron(db, cron)[cero][1].quantize(Decimal("0.01"))
+    assert nuevo != antes
+    assert _fila(db, cron, cero).costo_total == nuevo
+
+
+@pytest.mark.parametrize("cron,df_id", CANALES)
 def test_despues_a_second_call_with_nothing_changed_writes_nothing(engine: Engine, db: Session, cron, df_id) -> None:
     _venta(engine, df_id, [{"item": NB, "precio": "30000"}], dia=DESPUES)
     _guardar(db, cron)

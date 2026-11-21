@@ -4,7 +4,8 @@ on (owner L15: "se tienen que recalcular todos los costos posteriores"; sell-in-
 
 The metrics crons only re-read their window; this callback re-costs the stored rows (`ventas_fuera_ml_metricas`,
 `ventas_tienda_nube_metricas`) of GBP sales dated on or after the first changed date whose line is the product or a
-combo that contains it (`lote.combos_con`, S11), or belongs to a GBP group holding one, with no window. Other products
+combo that contains it (`lote.combos_con`, S11), belongs to a GBP group holding one, or is a price-0 ungrouped line
+of an invoice holding one (the crons cost it as the sum of the invoice's ungrouped lines), with no window. Other products
 of the same invoice keep their stored cost (a manual one included). It runs inline in the recompute's transaction (like
 the legacy ML metrics of T3 PR 8, `metricas_ml_legacy`):
 
@@ -53,17 +54,21 @@ _FORMULAS = {
     ),
 }
 
-# The stored lines whose cost depends on the product: its own lines (or a combo of it), and every line of a GBP group
-# (the crons' group: `it_isassociationgroup` lines of one transaction) holding one. Other products of the same invoice
-# keep their stored cost, a manual one included.
+# The stored lines whose cost depends on the product: its own lines (or a combo of it); every line of a GBP group
+# holding one; and a price-0 line outside any group of an invoice holding one, since the crons cost it as the sum of
+# the invoice's ungrouped lines. The crons' group key is (`ct_transaction`, `it_isassociationgroup`): `combo_costos`
+# for true and for false alike, read by every price-0 line. Other products of the same invoice keep their stored
+# cost, a manual one included.
 _LINEAS = """
 SELECT m.ct_transaction, m.it_transaction FROM {tabla} m
 JOIN tb_item_transactions tit ON tit.it_transaction = m.it_transaction
 WHERE m.fecha_venta >= :desde
   AND ({item} = ANY(:items)
-       OR (tit.it_isassociationgroup IS TRUE
+       OR (tit.it_isassociationgroup IS NOT NULL
+           AND (tit.it_isassociationgroup OR tit.it_price IS NULL OR tit.it_price = 0)
            AND EXISTS (SELECT 1 FROM tb_item_transactions g
-                       WHERE g.ct_transaction = tit.ct_transaction AND g.it_isassociationgroup IS TRUE
+                       WHERE g.ct_transaction = tit.ct_transaction
+                         AND g.it_isassociationgroup = tit.it_isassociationgroup
                          AND {item_g} = ANY(:items))))"""
 
 _RECOSTEO = """
