@@ -156,6 +156,10 @@ COSTO_SI_READER_DDL = (
     # the reader's USD rate falls back to the ERP's rate history (interfaz §7)
     "CREATE TABLE IF NOT EXISTS tb_cur_exch_history (ceh_id bigint PRIMARY KEY, comp_id integer, curr_id_1 integer, "
     "curr_id_2 integer, ceh_cd timestamp, ceh_exchange numeric(18, 6))",
+    # a combo component with no `productos_erp` row takes GBP's list cost (#2373)
+    "CREATE TABLE IF NOT EXISTS tb_item_cost_list (comp_id integer NOT NULL, coslis_id integer NOT NULL, "
+    "item_id integer NOT NULL, coslis_price numeric(18, 6), curr_id integer, coslis_cd timestamp, "
+    "PRIMARY KEY (comp_id, coslis_id, item_id))",
 )
 
 

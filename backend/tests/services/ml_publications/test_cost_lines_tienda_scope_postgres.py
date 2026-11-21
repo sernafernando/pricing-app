@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy import Engine, event, text
 from sqlalchemy.orm import sessionmaker
 
+from app.models.item_cost_list import ItemCostList
 from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.tactical import TacticalTienda
@@ -58,6 +59,7 @@ def engine() -> Iterator[Engine]:
             *TABLES,
             MlTiendaOficial.__table__,
             TacticalTienda.__table__,
+            ItemCostList.__table__,
             ItemCostListHistory.__table__,
             CurExchHistory.__table__,  # the costo SI reader's ERP rate fallback
         ],

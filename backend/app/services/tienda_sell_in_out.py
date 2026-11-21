@@ -11,8 +11,9 @@ ML one (no ML commission or shipping):
 - `gremio`, `sugerido`: `precio_sin_iva / (1 + varios%)`, the net their markups are built on.
 - `web_transf`: `pricing_calculator.limpio_web_transferencia`, the net its price is solved for.
 
-Markups (`SellInOutMarkups.record`): with sell in, `limpio / costo c/ sell in - 1`; with sell out,
-`(limpio + sell out) / (costo c/ sell in, or the plain cost) - 1`.
+Markups (sell-in-costo-si D1): every Tienda markup is over costo SI, the cost net of sell in, so the plain markup
+already is the "c/ sell in" one; with sell out, `(limpio + sell out - costo SI) / costo SI` (`so.markup_con_so`,
+the list cost when the product has no costo SI step, Q1).
 
 Store scope applies to sell OUT only (sell in ignores stores): each key reads the campaigns of the channel its price
 sells through, `gremio` and `sugerido` the off-ML one (`fuera`), `web_transf` Tienda Nube (`tn`). A campaign with

@@ -30,6 +30,7 @@ from app.models.auditoria import Auditoria
 from app.models.combo_componente import ComboComponente
 from app.models.costo_si import CostoSiDirty, CostoSiPaso
 from app.models.cur_exch_history import CurExchHistory
+from app.models.item_cost_list import ItemCostList
 from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.ml_costo_si import MlCostoSiDirty
 from app.models.ml_orders_ops import MlOrderItemOps
@@ -82,6 +83,7 @@ TABLES = [
     MlCostoSiDirty.__table__,  # ... and then the ML sales it re-costs (T3 PR 7)
     # The reader's dated list cost (`costo_si.lote`): cost bonuses skip sales at costo SI (D2, T3 PR 7).
     ItemCostListHistory.__table__,
+    ItemCostList.__table__,  # a combo component missing from productos_erp takes GBP's list cost (#2373)
     ComboComponente.__table__,  # combo sales count as their components' (combos in sell in / sell out)
     TBItem.__table__,  # a combo of the PC category is its own product (`combos.pcs`)
     CostoSiPaso.__table__,  # the cost every sell in / sell out markup reads (`costo_si.lote`, T3 PR 5)

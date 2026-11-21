@@ -17,6 +17,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api.deps import get_current_user
 from app.core.database import get_async_db, get_db
 from app.models.cur_exch_history import CurExchHistory
+from app.models.item_cost_list import ItemCostList
 from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.marca_pm import MarcaPM
 from app.models.producto import ProductoERP
@@ -64,6 +65,7 @@ def engine() -> Iterator[Engine]:
         VentaFueraCodigoMapeo.__table__,
         TBItem.__table__,
         # The ERP cost list and USD rates the load costs each line with (vpf-costo-d-erp); empty here.
+        ItemCostList.__table__,
         ItemCostListHistory.__table__,
         TipoCambio.__table__,
         CurExchHistory.__table__,

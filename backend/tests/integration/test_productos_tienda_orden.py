@@ -823,10 +823,11 @@ class TestDerivedPriceCurrencyConversion:
         con_valor = [p["item_id"] for p in response.json()["productos"] if p["precio_sugerido_sin_iva"] is not None]
         assert con_valor[-1] == 203
 
-    def test_without_an_exchange_rate_the_raw_cost_is_used(self, client, auth_headers, db, catalogo_derivado):
-        """No `tipo_cambio_usd` fixture => `obtener_tipo_cambio_actual` returns
-        None and `convertir_a_pesos` returns the cost untouched. The SQL side
-        must drop the CASE entirely, so 203 flips to first."""
+    def test_without_an_exchange_rate_a_usd_cost_has_no_price(self, client, auth_headers, db, catalogo_derivado):
+        """No `tipo_cambio_usd` fixture => no USD rate: 203's USD 1 has no peso
+        value (interfaz §7, sell-in-costo-si T3 PR 6). Before, the cost was
+        taken as 1 peso and 203 sorted first; now it has no price and sorts
+        with the rows without one, last, on both sides (Python and SQL)."""
         _guard_incompatible_raw_sql(db)
 
         response = _get(
@@ -834,8 +835,10 @@ class TestDerivedPriceCurrencyConversion:
         )
 
         assert response.status_code == 200, response.text
-        assert _ids(response)[0] == 203
-        assert _valores(response, "precio_sugerido_sin_iva")[0] == pytest.approx(1.0 * 1.065 * 1.10)
+        por_id = {p["item_id"]: p for p in response.json()["productos"]}
+        assert por_id[203]["precio_sugerido_sin_iva"] is None
+        valores = _valores(response, "precio_sugerido_sin_iva")
+        assert _ids(response).index(203) >= next(i for i, v in enumerate(valores) if v is None)
 
 
 class TestDerivedPriceNullHandling:

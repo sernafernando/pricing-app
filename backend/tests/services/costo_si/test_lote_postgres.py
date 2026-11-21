@@ -290,6 +290,122 @@ def test_the_set_fragment_is_what_actuales_runs_for_every_product(engine: Engine
     assert filas == {i: tuple(getattr(esperado[i], c) for c in campos) for i in ids}
 
 
+G72, G72_ARS, G72_CERO, G72_NADA, ERP_CERO = 5221, 5222, 5223, 5224, 5225
+COMBO_GBP, COMBO_GBP_ARS, COMBO_GBP_CERO, COMBO_GBP_NADA, COMBO_ERP_CERO = 5231, 5232, 5233, 5234, 5235
+
+
+def _componentes_fuera_de_productos_erp(engine: Engine) -> None:
+    """Combo components GBP has but `productos_erp` does not (category 72 PRODUCCIÓN, skipped by the ERP sync; prod:
+    items 15, 166, 360, 567): G72 USD 1.51 (a second company row says 99: the first company wins), G72_ARS ARS 500,
+    G72_CERO cost 0 (item 4772, a discount line), G72_NADA no GBP cost. ERP_CERO has a `productos_erp` row with cost
+    0 (item 4448). Each is in one combo with A (costo SI USD 23.08687 today)."""
+    _mundo(engine)
+    for item in (G72, G72_ARS, G72_CERO, G72_NADA):
+        w.run(
+            engine,
+            "INSERT INTO tb_item (comp_id, item_id, item_code, cat_id) VALUES (1, :i, :c, 72)",
+            i=item,
+            c=f"C{item}",
+        )
+    for comp, item, precio, curr in (
+        (1, G72, "1.51", 2),
+        (2, G72, "99", 2),
+        (1, G72_ARS, "500", 1),
+        (1, G72_CERO, "0", 2),
+    ):
+        w.run(
+            engine,
+            "INSERT INTO tb_item_cost_list (comp_id, coslis_id, item_id, coslis_price, curr_id) VALUES (:c, 1, :i, :p, :m)",
+            c=comp,
+            i=item,
+            p=D(precio),
+            m=curr,
+        )
+    w.producto(engine, ERP_CERO, costo="0")
+    w.run(
+        engine,
+        "INSERT INTO tb_item_cost_list (comp_id, coslis_id, item_id, coslis_price, curr_id) VALUES (1, 1, :i, 3, 2)",
+        i=ERP_CERO,
+    )
+    for combo, componente, cantidad in (
+        (COMBO_GBP, G72, 25),
+        (COMBO_GBP_ARS, G72_ARS, 2),
+        (COMBO_GBP_CERO, G72_CERO, 1),
+        (COMBO_GBP_NADA, G72_NADA, 1),
+        (COMBO_ERP_CERO, ERP_CERO, 5),
+    ):
+        w.producto(engine, combo)
+        for parte, q in ((A, 1), (componente, cantidad)):
+            w.run(
+                engine,
+                "INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (:c, :p, :q)",
+                c=combo,
+                p=parte,
+                q=q,
+            )
+
+
+def test_a_combo_component_missing_from_productos_erp_takes_its_gbp_list_cost(engine: Engine) -> None:
+    """Orchestrator (#2373): a combo component with no `productos_erp` row takes its list cost from GBP's
+    `tb_item_cost_list` (list 1, 'lista', its currency, the same rate rules). A GBP cost of 0 or none, and a
+    `productos_erp` cost of 0, stay unknown (§7) until the owner answers. Only as a component: the item read on its
+    own is still unknown."""
+    _componentes_fuera_de_productos_erp(engine)
+    combos = [COMBO_GBP, COMBO_GBP_ARS, COMBO_GBP_CERO, COMBO_GBP_NADA, COMBO_ERP_CERO]
+
+    with _db(engine) as db:
+        got = lote.actuales(db, [*combos, G72])
+        dia = lote.en_fechas(db, [(COMBO_GBP, date(2026, 10, 20)), (COMBO_GBP_ARS, date(2026, 10, 20))])
+
+    tc, D10_10 = D("1500"), date(2026, 10, 10)
+    assert got[COMBO_GBP] == Costo(COMBO_GBP, D("60.83687"), "USD", LISTA, None, tc, D("60.83687") * tc, D10_10)
+    # mixed currency: summed in pesos at the rate, 23.08687 x 1500 + 2 x 500
+    assert got[COMBO_GBP_ARS] == Costo(COMBO_GBP_ARS, D("35630.30500"), "ARS", LISTA, None, None, D("35630.30500"))
+    assert got[COMBO_GBP_CERO] == _nada(COMBO_GBP_CERO)
+    assert got[COMBO_GBP_NADA] == _nada(COMBO_GBP_NADA)
+    assert got[COMBO_ERP_CERO] == _nada(COMBO_ERP_CERO)
+    assert got[G72] == _nada(G72)
+    # on a date with no GBP list history the current GBP list cost stands in, as `productos_erp`'s would
+    assert dia[(COMBO_GBP, date(2026, 10, 20))] == got[COMBO_GBP]
+    assert dia[(COMBO_GBP_ARS, date(2026, 10, 20))] == got[COMBO_GBP_ARS]
+
+
+def test_on_a_date_a_gbp_only_component_reads_its_list_history_first(engine: Engine) -> None:
+    """Dated priority: costo SI step > list history > `productos_erp` > GBP's current list cost. A component missing
+    from `productos_erp` with a history row before the date reads that row (USD 2), not GBP's current 1.51."""
+    _componentes_fuera_de_productos_erp(engine)
+    w.costo_lista(engine, G72, datetime(2026, 10, 5, 12), "2")
+    dia = date(2026, 10, 20)
+
+    with _db(engine) as db:
+        got = lote.en_fechas(db, [(COMBO_GBP, dia)])[(COMBO_GBP, dia)]
+
+    assert (got.costo, got.moneda, got.fuente) == (D("73.08687"), "USD", LISTA)  # 23.08687 + 25 x 2
+
+
+@pytest.mark.parametrize("tc", [None, 2000.0])
+def test_the_row_and_set_fragments_take_the_gbp_list_cost_of_a_component_too(engine: Engine, tc) -> None:
+    _componentes_fuera_de_productos_erp(engine)
+    ids = [COMBO_GBP, COMBO_GBP_ARS, COMBO_GBP_CERO, COMBO_GBP_NADA, COMBO_ERP_CERO, G72, A]
+    tasa = "NULL::numeric" if tc is None else "CAST(:tc AS numeric)"
+    fila = text(
+        "SELECT v.item_id, cs.* FROM unnest(CAST(:ids AS integer[])) v(item_id)"
+        f" LEFT JOIN LATERAL ({lote.sql_actual_fila('v.item_id', tasa)}) cs ON true"
+    )
+    conjunto = text(
+        f"SELECT cs.* FROM ({lote.sql_actual_conjunto('SELECT unnest(CAST(:ids AS integer[])) AS item_id', tasa)}) cs"
+    )
+
+    with _db(engine) as db:
+        por_fila = {r[0]: tuple(r[1:]) for r in db.execute(fila, {"ids": ids, "tc": tc})}
+        por_conjunto = {r[0]: tuple(r[1:]) for r in db.execute(conjunto, {"ids": ids, "tc": tc})}
+        esperado = lote.actuales(db, ids, tipo_cambio=tc)
+
+    campos = [f.name for f in dataclasses.fields(Costo)][1:]
+    assert por_fila == por_conjunto == {i: tuple(getattr(esperado[i], c) for c in campos) for i in ids}
+    assert por_conjunto[COMBO_GBP][:3] == (D("60.83687"), "USD", LISTA)
+
+
 def test_actual_subquery_sorts_a_listing_by_the_peso_cost_in_sql(engine: Engine) -> None:
     """S13: a listing LEFT JOINs the current cost and sorts USD and ARS products together by `costo_si_ars`."""
     _mundo(engine)
@@ -532,6 +648,21 @@ def test_a_sort_over_many_products_looks_the_rate_up_once(engine: Engine) -> Non
 
     assert _escaneos(plan, "tipo_cambio") and max(_escaneos(plan, "tipo_cambio")) == 1
     assert max(_escaneos(plan, "tb_cur_exch_history"), default=0) == 0
+
+
+def test_the_set_fragment_checks_the_pc_category_only_for_ids_with_parts(engine: Engine) -> None:
+    """Timed on prod (#2373): the "not a PC" check read `tb_item` once per id of the whole catalogue (~15 of the ~50
+    ms of a Tienda sort). Only an id with parts in `combo_componentes` can be a combo, so only those are checked."""
+    _mundo(engine)
+    ids = [A, B, SIN, ARSP, ARSLISTA, NADA, COMBO, COMBO_LISTA, PC]  # 3 with parts: COMBO, COMBO_LISTA, PC
+    conjunto = lote.sql_actual_conjunto("SELECT unnest(CAST(:ids AS integer[])) AS item_id")
+
+    with _db(engine) as db:
+        plan = db.execute(
+            text(f"EXPLAIN (ANALYZE, FORMAT JSON) SELECT cs.item_id FROM ({conjunto}) cs"), {"ids": ids}
+        ).scalar_one()[0]["Plan"]
+
+    assert sum(_escaneos(plan, "tb_item")) == 3
 
 
 def _por_fila(plan: dict, tabla: str) -> bool:

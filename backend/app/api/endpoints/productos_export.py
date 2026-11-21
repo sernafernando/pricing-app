@@ -2227,7 +2227,11 @@ def exportar_lista_gremio(
     from fastapi.responses import StreamingResponse
     from sqlalchemy import text
     from app.models.markup_tienda import MarkupTiendaBrand, MarkupTiendaProducto
-    from app.services.pricing_calculator import obtener_constantes_pricing, obtener_tipo_cambio_actual
+    from app.services.pricing_calculator import (
+        costos_ars_actuales,
+        obtener_constantes_pricing,
+        obtener_tipo_cambio_actual,
+    )
 
     try:
         # Obtener constantes y tipo de cambio
@@ -2292,14 +2296,9 @@ def exportar_lista_gremio(
         # Ejecutar query
         results = query.order_by(ProductoERP.marca, ProductoERP.codigo).all()
 
-        # Función para convertir a pesos
-        def convertir_a_pesos(costo, moneda):
-            if costo is None:
-                return None
-            costo_float = float(costo)
-            if moneda and moneda.upper() == "USD" and tipo_cambio:
-                return costo_float * tipo_cambio
-            return costo_float
+        # Costo SI in pesos, the price base (owner L20, as the Tienda listing), one read for the whole export. None =
+        # unknown (no cost, or a USD cost without a rate): no price, logged, never 0 or USD taken as pesos (§7).
+        costos_si_ars = costos_ars_actuales(db, [p.item_id for p, _ in results], tipo_cambio)
 
         # Crear Excel
         wb = Workbook()
@@ -2331,7 +2330,7 @@ def exportar_lista_gremio(
         row_num = 2
         for producto_erp, producto_pricing in results:
             # Calcular costo en ARS
-            costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo)
+            costo_ars = costos_si_ars.get(producto_erp.item_id)
 
             # Calcular precio gremio - Verificar override manual primero
             precio_gremio_sin_iva = None
@@ -2431,7 +2430,11 @@ def exportar_lista_sugerido(
     from fastapi.responses import StreamingResponse
     from sqlalchemy import text
     from app.models.markup_tienda import MarkupTiendaBrand, MarkupTiendaProducto
-    from app.services.pricing_calculator import obtener_constantes_pricing, obtener_tipo_cambio_actual
+    from app.services.pricing_calculator import (
+        costos_ars_actuales,
+        obtener_constantes_pricing,
+        obtener_tipo_cambio_actual,
+    )
 
     try:
         # Obtener constantes y tipo de cambio
@@ -2495,14 +2498,8 @@ def exportar_lista_sugerido(
         # Ejecutar query
         results = query.order_by(ProductoERP.marca, ProductoERP.codigo).all()
 
-        # Función para convertir a pesos
-        def convertir_a_pesos(costo, moneda):
-            if costo is None:
-                return None
-            costo_float = float(costo)
-            if moneda and moneda.upper() == "USD" and tipo_cambio:
-                return costo_float * tipo_cambio
-            return costo_float
+        # Costo SI in pesos, the price base (owner L20), as in the gremio export.
+        costos_si_ars = costos_ars_actuales(db, [p.item_id for p, _ in results], tipo_cambio)
 
         # Crear Excel
         wb = Workbook()
@@ -2537,7 +2534,7 @@ def exportar_lista_sugerido(
         row_num = 2
         for producto_erp, producto_pricing in results:
             # Calcular costo en ARS
-            costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo)
+            costo_ars = costos_si_ars.get(producto_erp.item_id)
 
             # Resolver markup_sugerido (producto > marca)
             markup_sugerido_valor = None
