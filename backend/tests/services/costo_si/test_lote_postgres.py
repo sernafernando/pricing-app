@@ -321,6 +321,35 @@ def test_sql_actual_is_the_current_cost_of_actuales_for_a_sort(engine: Engine) -
     assert got[A] is not None and got[NADA] is None
 
 
+@pytest.mark.parametrize(
+    "alias", ["p", "pe", "h", "o", "r", "d", "b", "cc", "fx", "cs", "x", "t", "pt", "q", "ids", "v"]
+)
+def test_the_fragments_never_capture_the_callers_alias(engine: Engine, alias: str) -> None:
+    """A caller whose own alias is one the fragment uses inside (e.g. a product table `p`) still reads ITS item: the
+    fragment's inner names never shadow the caller's."""
+    _mundo(engine)
+    ids = [A, B, SIN, ARSP, ARSLISTA, NADA, COMBO, COMBO_LISTA, COMBO_MIX, PC]
+    fecha = date(2026, 10, 7)
+    dia = f"DATE '{fecha}'"
+    actual = (
+        f"SELECT {alias}.item_id, ({lote.sql_actual(f'{alias}.item_id')}) "
+        f"FROM unnest(CAST(:ids AS int[])) AS {alias}(item_id)"
+    )
+    en_fecha = (
+        f"SELECT {alias}.item_id, cs_.costo_si_costo, cs_.costo_si_ars "
+        f"FROM unnest(CAST(:ids AS int[])) AS {alias}(item_id) "
+        f"LEFT JOIN LATERAL ({lote.sql_en_fecha(f'{alias}.item_id', dia)}) cs_ ON true"
+    )
+
+    with _db(engine) as db:
+        assert dict(db.execute(text(actual), {"ids": ids}).all()) == {
+            i: c.costo_ars for i, c in lote.actuales(db, ids).items()
+        }
+        assert {r[0]: (r[1], r[2]) for r in db.execute(text(en_fecha), {"ids": ids})} == {
+            i: (c.costo, c.costo_ars) for (i, _), c in lote.en_fechas(db, [(i, fecha) for i in ids]).items()
+        }
+
+
 def test_combos_con_lists_the_combos_a_component_moves_but_not_pcs(engine: Engine) -> None:
     _mundo(engine)
     with _db(engine) as db:
