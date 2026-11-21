@@ -221,3 +221,27 @@ def test_a_product_the_engine_cannot_compute_is_reported_with_its_reason_and_the
 
     assert informe.pasos.fallidos == {P: "ValueError: invoice 1: no exchange rate for 2026-10-02"}
     assert informe.cambios == []
+
+
+def test_the_script_writes_the_report_from_the_url_in_the_environment(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    from app.scripts import costo_si_t4_dry_run as script
+
+    _mundo(engine)
+    _venta(engine, P, datetime(2026, 10, 15, 12), 1, "40000")
+    with engine.connect() as conn:
+        esquema = conn.execute(text("SELECT current_schema()")).scalar()
+    real = simulacion.motor_solo_lectura
+    monkeypatch.setattr(
+        simulacion,
+        "motor_solo_lectura",
+        lambda url: real(url, connect_args={"options": f"-csearch_path={esquema}"}),
+    )
+    monkeypatch.setenv("T4_URL", POSTGRES_TEST_URL)
+
+    assert script.main(["--out", str(tmp_path), "--url-env", "T4_URL"]) == 0
+
+    md = (tmp_path / "resumen.md").read_text()
+    assert "| ml_legacy | 2026-10 | 1 | 40000.00 | 25000.00 | -15000.00 | 0 | 0.00 |" in md
+    assert script.main(["--out", str(tmp_path), "--url-env", "NO_EXISTE_T4"]) == 2
