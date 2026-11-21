@@ -32,7 +32,7 @@ from tests.services.sell._schema import throwaway_schema
 pytestmark = pytest.mark.postgres
 
 D = Decimal
-P, COMBO, SIN_SELL_IN = 5701, 5702, 5703
+P, COMBO, SIN_SELL_IN, Q, COMBO_PQ = 5701, 5702, 5703, 5704, 5705
 PRECIO = 250_000.0
 _ML = [
     MLVentaMetrica.__table__,
@@ -156,13 +156,29 @@ def _deploy(engine: Engine) -> None:
 
 
 def test_the_dry_run_predicts_every_ml_sale_the_deploy_re_costs_and_writes_nothing(
-    engine: Engine, motor: Engine
+    engine: Engine, motor: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(impacto, "LOTE", 1)  # P and Q in different batches: a combo of both reads both
     _mundo(engine)
     antes_sep = _venta(engine, P, datetime(2026, 9, 20, 12), 1, "40000")  # before its costo SI: untouched
     oct_ = _venta(engine, P, datetime(2026, 10, 15, 12), 2, "40000")
     combo = _venta(engine, COMBO, datetime(2026, 11, 2, 12), 1, "90000")
     lista = _venta(engine, SIN_SELL_IN, datetime(2026, 10, 15, 12), 1, "10000")
+    # Q: same brand, list 20 on 09-01, so costo SI 20 from 10-01 too; COMBO_PQ = P + Q needs BOTH products' steps.
+    w.producto(engine, Q, costo="30")
+    w.costo_lista(engine, Q, datetime(2026, 9, 1), "20")
+    # A purchase on 10-05 with the brand loyalty: Q's costo SI becomes 30 x (1 - 0.036) = 28.92, not its list 20.
+    w.factura(engine, Q, date(2026, 10, 5), datetime(2026, 10, 5, 10), 10, "30", previo=0)
+    w.producto(engine, COMBO_PQ, costo="70")
+    w.run(engine, "UPDATE productos_erp SET iva = 21")
+    for componente in (P, Q):
+        w.run(
+            engine,
+            "INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (:c, :p, 1)",
+            c=COMBO_PQ,
+            p=componente,
+        )
+    pq = _venta(engine, COMBO_PQ, datetime(2026, 10, 25, 12), 1, "70000")
     ya_al_dia = _venta(engine, P, datetime(2026, 10, 20, 12), 1, "25000")  # already at its costo SI: not rewritten
     guardado = _guardado(engine)
 
@@ -171,9 +187,13 @@ def test_the_dry_run_predicts_every_ml_sale_the_deploy_re_costs_and_writes_nothi
 
     assert _guardado(engine) == guardado  # read-only
     assert informe.pasos.fallidos == {}
-    assert informe.pasos.desdes == {P: date(2026, 10, 1)}
+    assert informe.pasos.desdes == {P: date(2026, 10, 1), Q: date(2026, 10, 1)}
     prediccion = {c.fila_id: (c.antes, c.despues) for c in informe.cambios if c.canal == impacto.CANAL_ML_LEGACY}
-    assert prediccion == {oct_: (D("80000.00"), D("50000.00")), combo: (D("90000.00"), D("50000.00"))}
+    assert prediccion == {
+        oct_: (D("80000.00"), D("50000.00")),
+        combo: (D("90000.00"), D("50000.00")),
+        pq: (D("70000.00"), D("53920.00")),
+    }
     assert {c.mes for c in informe.cambios} == {date(2026, 10, 1), date(2026, 11, 1)}
 
     _deploy(engine)

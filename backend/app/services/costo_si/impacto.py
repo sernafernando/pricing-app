@@ -14,7 +14,8 @@ from memory):
 
 Areas: `CANAL_ML_LEGACY` = `despues.metricas_ml_legacy` (`ml_ventas_metricas`), `CANAL_ML_CONGELADO` = the ML
 sale costs frozen at the sale date (`despues.ml_ventas` -> `recongelar_costo_si`, `ml_order_item_costos`) and the
-stored markups = `despues.pricing` (`productos_pricing`). Ventas por fuera (PR 9) and the Tienda Nube / fuera GBP
+stored markups = `despues.pricing` (`productos_pricing`), `CANAL_FUERA` = the ventas por fuera PDF lines
+(`despues.ventas_fuera` -> `costo_erp.recostear`, called here in its report-only mode). The Tienda Nube / fuera GBP
 metrics join as their callbacks land.
 """
 
@@ -41,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 CANAL_ML_LEGACY = "ml_legacy"
 CANAL_ML_CONGELADO = "ml_congelado"
+CANAL_FUERA = "fuera"
 LOTE = 50  # products per channel statement: the in-memory steps are scanned per sale row, keep them few
 
 
@@ -205,6 +207,27 @@ def ml_congelado(db: Session, sim: Simulacion, filas: List[dict], desdes: Dict[i
     return out
 
 
+def ventas_fuera(db: Session, sim: Simulacion, filas: List[dict], desdes: Dict[int, date]) -> List[Cambio]:
+    """What `despues.ventas_fuera` rewrites, product by product as the drain calls it (the product and the combos
+    containing it, from its first step), through `costo_erp.recostear(aplicar=False)`: its own selection, manual
+    costs and broken-down combos (L19) included. A combo line reached from several components counts once."""
+    from app.services.ventas_fuera_pdf.costo_erp import recostear
+
+    combos = lote.combos_con(db, desdes)
+    out: Dict[int, Cambio] = {}
+    for item_id, desde in sorted(desdes.items()):
+        ids = {item_id, *combos.get(item_id, [])}
+        leidos = set(ids)
+        for _combo, componente in db.execute(_COMPONENTES_SQL, {"ids": sorted(ids)}):
+            leidos.add(componente)
+        sim.sombra.fijar_pasos([f for f in filas if f["item_id"] in leidos])
+        for c in recostear(db, desde=desde, items=ids, aplicar=False):
+            out[c.linea_id] = Cambio(
+                CANAL_FUERA, c.item_id, c.linea_id, c.fecha, c.fecha.replace(day=1), c.antes, c.despues
+            )
+    return [out[k] for k in sorted(out)]
+
+
 def _como_guardado(campo: str, valor):
     """A markup as its column stores it (Float as is; Numeric(10, 2) to the cent), so before and after compare."""
     if valor is None:
@@ -249,6 +272,10 @@ def calcular(sim: Simulacion) -> Informe:
     alcance = queue.productos_vigentes(db)
     pasos = calcular_pasos(db, alcance)
     desdes = _con_combos(db, pasos.desdes)
-    cambios = ml_legacy(db, sim, pasos.filas, desdes) + ml_congelado(db, sim, pasos.filas, desdes)
+    cambios = (
+        ml_legacy(db, sim, pasos.filas, desdes)
+        + ml_congelado(db, sim, pasos.filas, desdes)
+        + ventas_fuera(db, sim, pasos.filas, pasos.desdes)
+    )
     cambios_markup, omitidos = markups(db, sim, pasos.filas, pasos.desdes)
     return Informe(pasos, cambios, cambios_markup, omitidos, sim.sombra.sombras)
