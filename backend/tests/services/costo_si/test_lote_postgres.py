@@ -848,3 +848,96 @@ def test_l22_a_pc_component_missing_from_productos_erp_takes_its_gbp_list_cost_l
     assert got[PC_GBP] == Costo(PC_GBP, D("60.83687"), "USD", LISTA, None, tc, D("60.83687") * tc, D10_10)
     assert dia[(PC_GBP, date(2026, 10, 20))].costo == dia[(COMBO_GBP, date(2026, 10, 20))].costo == D("60.83687")
     assert tuple(conjunto) == (D("60.83687"), LISTA)
+
+
+# --- L22 nested: a PC inside a PC is its own components' sum too (prod: 468 contains 465) --------------------------
+
+PC_465, PC_468, CICLO_A, CICLO_B = 5465, 5468, 5471, 5472
+HONDO = list(range(5480, 5488))  # a chain of 8 bills of materials, deeper than the guard
+
+
+def _partes(engine: Engine, combo: int, partes: dict) -> None:
+    for parte, q in partes.items():
+        w.run(
+            engine,
+            "INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (:c, :p, :q)",
+            c=combo,
+            p=parte,
+            q=q,
+        )
+
+
+def _anidados(engine: Engine) -> None:
+    """PC_465 (cat 47, own list 999, never read) = A. PC_468 (cat 47, own list 888) = 2 PC_465 + B, so 2 A + B like
+    COMBO. CICLO_A = A + CICLO_B and CICLO_B = CICLO_A: a cycle. HONDO: each one contains the next, the last A."""
+    _mundo(engine)
+    w.producto(engine, PC_465, cat_id=47, costo="999")
+    w.producto(engine, PC_468, cat_id=47, costo="888")
+    _partes(engine, PC_465, {A: 1})
+    _partes(engine, PC_468, {PC_465: 2, B: 1})
+    for item in (CICLO_A, CICLO_B, *HONDO):
+        w.producto(engine, item, cat_id=47, costo="1")
+    _partes(engine, CICLO_A, {A: 1, CICLO_B: 1})
+    _partes(engine, CICLO_B, {CICLO_A: 1})
+    for padre, hijo in zip(HONDO, HONDO[1:]):
+        _partes(engine, padre, {hijo: 1})
+    _partes(engine, HONDO[-1], {A: 1})
+
+
+def test_l22_a_pc_inside_a_pc_counts_its_own_components_never_its_list_cost(engine: Engine) -> None:
+    """Owner on #2374: "recurse (L22 applies to the inner PC too)". 468 -> 465: PC_468 = 2 x (A) + B, quantities
+    multiplied down the tree, in every reader: current, on a date, the set fragment and the one-product reader."""
+    _anidados(engine)
+    actual = lote.actual()
+
+    with _db(engine) as db:
+        got = lote.actuales(db, [PC_468, COMBO])
+        dia = lote.en_fechas(db, [(PC_468, date(2026, 10, 7)), (COMBO, date(2026, 10, 7))])
+        conjunto = db.execute(
+            select(actual.c.costo_si_costo, actual.c.costo_si_fuente).where(actual.c.item_id == PC_468)
+        ).one()
+        uno = lectura.leer(db, PC_468, date(2026, 12, 31))
+
+    tc, D10_10 = D("1500"), date(2026, 10, 10)
+    assert got[PC_468] == Costo(PC_468, D("56.29719"), "USD", SI, None, tc, D("56.29719") * tc, D10_10)
+    assert got[PC_468].costo == got[COMBO].costo
+    assert dia[(PC_468, date(2026, 10, 7))].costo == dia[(COMBO, date(2026, 10, 7))].costo == D("60.12345")
+    assert tuple(conjunto) == (D("56.29719"), SI)
+    assert (uno.costo_si_usd, uno.moneda) == (D("56.29719"), "USD")
+
+
+def test_l22_a_cycle_or_a_too_deep_bill_of_materials_is_unknown_and_logged(engine: Engine, caplog) -> None:
+    """The recursion's guard: a bill of materials that contains itself, or one deeper than `lote.MAX_NIVELES`, has
+    no cost (never a partial sum, never 0), in every reader, and the read logs it as such."""
+    _anidados(engine)
+    items = [CICLO_A, CICLO_B, HONDO[0]]
+    actual = lote.actual()
+
+    with _db(engine) as db, caplog.at_level("WARNING"):
+        got = lote.actuales(db, items)
+        dia = lote.en_fechas(db, [(i, date(2026, 10, 20)) for i in items])
+        conjunto = db.execute(
+            select(actual.c.item_id, actual.c.costo_si_costo).where(actual.c.item_id.in_(items))
+        ).all()
+        uno = [lectura.leer(db, i, date(2026, 10, 20)).costo_si_usd for i in items]
+
+    assert got == {i: _nada(i) for i in items}
+    assert dia == {(i, date(2026, 10, 20)): _nada(i) for i in items}
+    assert sorted(conjunto) == [(i, None) for i in sorted(items)]
+    assert uno == [None, None, None]
+    ciclo = [r.getMessage() for r in caplog.records if "cycle" in r.getMessage()]
+    assert ciclo and all(str(i) in ciclo[0] for i in items)
+    # the chain one level shorter than the guard still sums
+    with _db(engine) as db:
+        assert lote.actuales(db, [HONDO[1]])[HONDO[1]].costo == D("23.08687")
+
+
+def test_l22_a_component_change_reaches_every_pc_above_it(engine: Engine) -> None:
+    """A's change re-costs PC_465 and PC_468 too (`combos_con` walks up the tree, cycle-safe)."""
+    _anidados(engine)
+    with _db(engine) as db:
+        arriba = lote.combos_con(db, [A, B])
+    assert {PC_465, PC_468, CICLO_A, CICLO_B, *HONDO[1:]} <= set(arriba[A])
+    assert HONDO[0] not in arriba[A]  # past the guard: unknown whatever A costs
+    assert PC_468 in arriba[B] and PC_465 not in arriba[B]
+    assert len(arriba[A]) == len(set(arriba[A]))

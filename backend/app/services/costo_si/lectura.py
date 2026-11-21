@@ -16,7 +16,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.models.costo_si import CostoSiPaso as P
-from app.services.costo_si import fuentes
+from app.services.costo_si import fuentes, lote
 from app.services.costo_si.engine import redondear
 
 _COLUMNAS = (
@@ -78,16 +78,24 @@ def vigente(db: Session, item_id: int, fecha: date) -> tuple[Optional[Decimal], 
 
 def leer(db: Session, item_id: int, fecha: date) -> CostoSi:
     if fuentes.es_combo(db, item_id):
+        # its leaves: a component with a bill of materials (a PC inside a PC) is its own components, quantities
+        # multiplied; a cycle or a too deep one leaves it unknown (`lote.MAX_NIVELES`, L22)
         partes = db.execute(
-            text("SELECT componente_item_id, cantidad FROM combo_componentes WHERE combo_item_id = :i ORDER BY 1"),
+            text(
+                f"SELECT csi_c.componente_item_id, sum(csi_c.cantidad), bool_or(csi_c.corte)"
+                f" FROM ({lote._hojas('SELECT CAST(:i AS integer) AS item_id')}) csi_c GROUP BY 1 ORDER BY 1"
+            ),
             {"i": item_id},
         ).all()
         componentes = []
-        for c, q in partes:
+        for c, q, _ in partes:
             valor, _, moneda = _vigente(db, c, fecha)
             componentes.append(Componente(c, Decimal(q), valor, moneda))
+        cortado = any(corte for _, _, corte in partes)
         monedas = {c.moneda for c in componentes}
-        known = componentes and all(c.costo_si_usd is not None for c in componentes) and len(monedas) == 1
+        known = (
+            componentes and not cortado and all(c.costo_si_usd is not None for c in componentes) and len(monedas) == 1
+        )
         total = redondear(sum((c.costo_si_usd * c.cantidad for c in componentes), Decimal(0))) if known else None
         return CostoSi(item_id, fecha, True, total, None, monedas.pop() if known else None, componentes=componentes)
     valor, desde, moneda = _vigente(db, item_id, fecha)

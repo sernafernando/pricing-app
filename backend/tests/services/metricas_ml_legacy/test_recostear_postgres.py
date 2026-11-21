@@ -341,7 +341,13 @@ def test_the_hook_is_one_set_based_statement_for_thousands_of_sales(engine: Engi
     assert len(escrituras) == 1
     lecturas = [s for s in sentencias if s not in escrituras]
     # the only other statements are the reader's combos lookup (lote.combos_con): read-only, independent of the rows
-    assert lecturas and all(s.lstrip().startswith("SELECT") and "ml_ventas_metricas" not in s for s in lecturas)
+    # (a WITH RECURSIVE since L22 nested: it walks up the bills of materials)
+    assert lecturas and all(
+        s.lstrip().startswith(("SELECT", "WITH"))
+        and not any(dml in s for dml in ("INSERT", "UPDATE", "DELETE"))
+        and "ml_ventas_metricas" not in s
+        for s in lecturas
+    )
     assert w.rows(
         engine, "SELECT count(*), min(costo_unitario_sin_iva), max(costo_unitario_sin_iva) FROM ml_ventas_metricas"
     ) == [(3000, D("20000.000000"), D("20000.000000"))]
