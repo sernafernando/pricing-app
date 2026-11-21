@@ -21,6 +21,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.main import app
 from app.models.auditoria import Auditoria
+from app.models.combo_componente import ComboComponente
+from app.models.costo_si import CostoSiPaso
 from app.models.gestion_full_unidades_caja import GestionFullUnidadesCaja
 from app.models.producto import ProductoERP
 from app.models.producto_propio import ProductoPropio
@@ -32,6 +34,7 @@ from app.models.tb_subcategory import TBSubCategory
 from app.models.tb_supplier import TBSupplier
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.tienda_nube_producto_texto import TiendaNubeProductoTexto
+from app.models.tipo_cambio import TipoCambio
 from app.routers import productos_propios
 from tests.routers.test_ml_publications_links import grant
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
@@ -68,6 +71,9 @@ def pg(client, request, admin_user):
         ProductoSpec,
         GestionFullUnidadesCaja,
         Auditoria,
+        CostoSiPaso,  # the costo SI reader's tables (sell-in-costo-si T3 PR 10)
+        ComboComponente,
+        TipoCambio,
     ):
         model.__table__.create(bind=engine, checkfirst=True)
     with engine.begin() as conn:
@@ -222,6 +228,53 @@ class TestRead:
         with pg.begin() as conn:
             product(conn)
         assert client.get(f"{BASE}/455/maestro", headers=admin_auth_headers).status_code == 403
+
+
+def costo_si_step(conn, item_id: int, promedio: float, *, moneda: str = "USD", fecha: str = "2026-11-01") -> None:
+    """One costo SI step (the moving average in force from `fecha`), as the engine stores it."""
+    conn.execute(
+        text(
+            "INSERT INTO costo_si_pasos (item_id, orden, tipo, fecha, cantidad, stock_antes, stock_base, "
+            "stock_despues, promedio_usd, moneda) VALUES (:i, 0, 'inicio', :f, 10, 0, 10, 10, :p, :m)"
+        ),
+        {"i": item_id, "f": fecha, "p": promedio, "m": moneda},
+    )
+
+
+class TestCostoSi:
+    """sell-in-costo-si T3 PR 10 (S13, L6.2): the read-only block shows the costo SI next to the list cost, read
+    through the costo SI reader; unknown is null (the screen says "Sin costo"), never 0."""
+
+    def test_the_costo_si_comes_next_to_the_list_cost(self, client, pg, reader):
+        with pg.begin() as conn:
+            product(conn)
+            costo_si_step(conn, 455, 3.8)
+            seed.add_usd_rate(conn, 1000, "2026-11-01")
+
+        lectura = read(client, reader)["lectura"]
+
+        assert lectura["costo"] == 4.6606 and lectura["moneda_costo"] == "USD"
+        assert lectura["costo_si"] == 3.8
+        assert lectura["costo_si_moneda"] == "USD" and lectura["costo_si_fuente"] == "costo_si"
+
+    def test_without_costo_si_the_list_cost_stands_in_marked_lista(self, client, pg, reader):
+        with pg.begin() as conn:
+            product(conn)
+
+        lectura = read(client, reader)["lectura"]
+
+        assert lectura["costo_si"] == 4.6606
+        assert lectura["costo_si_moneda"] == "USD" and lectura["costo_si_fuente"] == "lista"
+
+    def test_no_cost_at_all_is_null_never_0(self, client, pg, reader):
+        with pg.begin() as conn:
+            product(conn)
+            seed.add_cost(conn, 455, 0, moneda_costo="USD")  # the ERP writes 0 for a missing cost
+
+        lectura = read(client, reader)["lectura"]
+
+        assert lectura["costo_si"] is None
+        assert lectura["costo_si_moneda"] is None and lectura["costo_si_fuente"] is None
 
 
 class TestOverrides:
