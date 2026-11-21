@@ -192,9 +192,7 @@ class TestBoundariesHandler:
         monkeypatch.setattr(
             hay_mejores,
             "evaluar_mejores_candidatas",
-            lambda *_a, **_k: hay_mejores.MejoresEvaluacion(
-                mejores=[], status_quo={}, candidatas=[], criterios={}
-            ),
+            lambda *_a, **_k: hay_mejores.MejoresEvaluacion(mejores=[], status_quo={}, candidatas=[], criterios={}),
         )
         clock.now += timedelta(minutes=5)
         result = _handler(clock).run(_ctx(clock))

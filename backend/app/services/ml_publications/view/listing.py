@@ -39,6 +39,7 @@ from app.models.ml_publications import MlItemSellerPromotions
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.publicacion_ml import PublicacionML
 from app.models.tipo_cambio import TipoCambio
+from app.services.costo_si import columna
 from app.services.marcas_visibles import filter_visible_brands
 from app.services.ml_daily_metrics.groups import NO_GROUP, pm_pairs
 from app.services.ml_publications.links import DIVERGENCE_OTHER_PRODUCT, sku_key
@@ -177,6 +178,9 @@ SORT_COLUMNS: dict[str, tuple[Any, bool]] = {
     "codigo": (lambda: func.nullif(func.upper(T.p.codigo), ""), False),
     "marca": (lambda: func.nullif(normalized_text(T.p.marca), ""), False),
     "costo": (lambda: cost_in_pesos(), False),
+    # the linked product's current costo SI in pesos (the list cost without one, Q1), next to the list cost `costo`
+    # keeps sorting; a row without a product, or a USD cost without a rate, sorts last
+    "costo_si": (lambda: costo_si_in_pesos(), False),
     # Clásica, then 3, 6, 9 and 12 cuotas (owner, 2026-11-02); the page sends its tiebreak as the next key
     "tipo": (lambda: listing_rank(item_listing_kind()), False),
 }
@@ -200,7 +204,7 @@ SORT_COLUMNS.update(
     {key: ((lambda column=column: pricing_markup(column)), False) for key, column in PRICE_MARKUP_SORTS.items()}
 )
 # the cost and the markups are shown only with `ml_metricas.ver_ganancia`
-MARGIN_SORTS = frozenset({"costo", *PRICE_MARKUP_SORTS})
+MARGIN_SORTS = frozenset({"costo", "costo_si", *PRICE_MARKUP_SORTS})
 DIRECTIONS = ("asc", "desc")
 FACET_AXES = AXES
 FACET_MAX_BRANDS = 100
@@ -222,6 +226,13 @@ def cost_in_pesos() -> Any:
         .scalar_subquery()
     )
     return case((T.p.moneda_costo == "USD", T.p.costo * latest_usd), else_=T.p.costo)
+
+
+def costo_si_in_pesos() -> Any:
+    """The linked product's current costo SI in pesos (`columna.orden_catalogo` on `T.p`, alias "p"): USD and ARS
+    costs compare as money, as `cost_in_pesos`; null without a cost or a rate, last. Computed once per product, not
+    per row: the list has several rows per product (a per-row cost took ~0.8 s over the catalogue, #2366)."""
+    return columna.orden_catalogo("p.item_id")
 
 
 def unconverted_usd_cost() -> Any:

@@ -90,5 +90,3 @@ class TestCatalogWinAndC2:
 
     def test_c2_allows_negative_when_toggle_off(self) -> None:
         assert markup_pasa_c2(-5.0, c2_activo=True, c2_solo_markup_positivo=False)
-
-

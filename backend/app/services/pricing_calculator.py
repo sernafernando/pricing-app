@@ -111,7 +111,11 @@ def costos_ars_actuales(db: Session, item_ids, tipo_cambio: Optional[float] = No
     rate): NULL stays NULL, never 0 (interfaz §7), and the ids are logged once per call."""
     from app.services.costo_si import lote
 
-    costos = lote.actuales(db, item_ids, tipo_cambio=tipo_cambio)
+    return costos_ars_de(lote.actuales(db, item_ids, tipo_cambio=tipo_cambio))
+
+
+def costos_ars_de(costos) -> Dict[int, Optional[float]]:
+    """`costos_ars_actuales` over costs already read with `lote.actuales` (a page that also shows them reads once)."""
     ars = {i: float(c.costo_ars) if c.costo_ars is not None else None for i, c in costos.items()}
     sin_costo = sorted(i for i, c in costos.items() if c.costo is None)
     sin_tasa = sorted(i for i, c in costos.items() if c.costo is not None and c.costo_ars is None)

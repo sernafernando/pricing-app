@@ -36,6 +36,9 @@ from tests.routers.test_ml_publications_view import seed_rows
 from tests.routers.test_ml_publications_view_kpis import pg, view_pg  # noqa: F401
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 (the costo SI reader's SQLite stand-in)
+
+pytestmark = pytest.mark.usefixtures("costo_si_lista")
 
 URL = "/api/ml-publications/view/stock-audit"
 PERMISO = "ml_publicaciones.ver_auditoria_stock"

@@ -80,6 +80,46 @@ def test_the_stand_in_answers_what_the_reader_answers_on_a_date_without_costo_si
     assert real[(USD, date(2026, 10, 5))].costo_ars == Decimal("38") * 950
 
 
+@pytest.mark.postgres
+def test_the_stand_in_falls_back_to_the_erp_rate_history_like_the_reader(mundo: Engine) -> None:
+    """Interfaz §7: no `tipo_cambio` venta > 0 on or before the date -> the ERP's USD -> ARS `tb_cur_exch_history`
+    (created before the end of the day; never another currency pair), with that rate's date; without either the pesos
+    are None, never 0."""
+    engine = mundo
+    w.producto(engine, USD, moneda="USD", costo="100")
+    w.producto(engine, ARS, moneda="ARS", costo="50000")
+    w.tipo_cambio(engine, date(2026, 10, 6), 0)  # a 0 rate is no rate
+    w.cambio_erp(engine, datetime(2026, 10, 1, 10), 880)
+    w.cambio_erp(engine, datetime(2026, 10, 5, 23, 59), 910)
+    w.cambio_erp(engine, datetime(2026, 10, 7, 9), 930)  # created after the end of 10-06: not that day's rate
+    w.cambio_erp(engine, datetime(2026, 10, 5, 12), 7777, desde=3)  # another currency pair never counts
+    pares = [(i, f) for i in (USD, ARS) for f in (date(2026, 9, 30), date(2026, 10, 1), date(2026, 10, 6))]
+    try:
+        with sessionmaker(bind=engine)() as db:
+            real, stand_in = lote.en_fechas(db, pares), en_fechas_lista(db, pares)
+            actual_real, actual_stand_in = lote.actuales(db, [USD, ARS]), actuales_lista(db, [USD, ARS])
+            propio_real = lote.actuales(db, [USD], tipo_cambio=Decimal("1234.5"))
+            propio_stand_in = actuales_lista(db, [USD], tipo_cambio=Decimal("1234.5"))
+            w.tipo_cambio(engine, date(2026, 10, 3), 1234.5)
+            de_fila_real = lote.actuales(db, [USD], tipo_cambio=Decimal("1234.5"))
+            de_fila_stand_in = actuales_lista(db, [USD], tipo_cambio=Decimal("1234.5"))
+    finally:
+        w.run(engine, "DELETE FROM tb_cur_exch_history")
+        w.clean(engine)
+
+    assert stand_in == real
+    assert actual_stand_in == actual_real
+    assert propio_stand_in == propio_real
+    del6 = real[(USD, date(2026, 10, 6))]
+    assert (del6.costo_ars, del6.tipo_cambio_fecha) == (Decimal("100") * 910, date(2026, 10, 5))
+    assert real[(USD, date(2026, 9, 30))].costo_ars is None  # no rate at all: unknown, never 0
+    assert real[(ARS, date(2026, 10, 6))].tipo_cambio_fecha is None  # ARS uses no rate
+    assert (actual_real[USD].costo_ars, actual_real[USD].tipo_cambio_fecha) == (Decimal("100") * 930, date(2026, 10, 7))
+    assert propio_real[USD].tipo_cambio_fecha is None  # a caller's rate no `tipo_cambio` row has: undated
+    assert de_fila_stand_in == de_fila_real  # a caller's rate a `tipo_cambio` row has: that row's date
+    assert de_fila_real[USD].tipo_cambio_fecha == date(2026, 10, 3)
+
+
 @pytest.mark.usefixtures("costo_si_lista")
 def test_the_fixture_puts_the_stand_in_on_sqlite(db) -> None:
     db.add(ProductoERP(item_id=USD, codigo="C1", descripcion="P", costo=100, moneda_costo="USD"))
