@@ -46,7 +46,7 @@ def db(engine: Engine) -> Iterator[Session]:
 
 def _mundo(engine: Engine) -> None:
     """A (USD): costo SI 25 from 10-01. B (USD): costo SI 10 from 10-01. OTRO (USD): costo SI 40 from 10-01. COMBO =
-    2 A + B. PC (cat 47) contains A but has its own costo SI 300 from 10-01. USD rate 1000."""
+    2 A + B. PC (cat 47) = A, with a stale own step of 300 the reader never takes (L22). USD rate 1000."""
     for item in (A, B, OTRO, COMBO):
         w.producto(engine, item, costo="30")
     w.producto(engine, PC, cat_id=47)
@@ -109,16 +109,17 @@ def test_a_costo_si_change_recosts_the_stored_sales_from_its_date_on(engine: Eng
 
 
 def test_the_hook_recosts_the_combos_that_contain_the_product(engine: Engine, db: Session) -> None:
-    """S11: COMBO = 2 A + B follows A's change ((2 x 20 + 10) x 1000); the PC containing A keeps its own cost."""
+    """S11: COMBO = 2 A + B follows A's change ((2 x 20 + 10) x 1000); so does the PC = A (L22: "las pcs son la suma de
+    sus componentes el costo")."""
     _mundo(engine)
     combo = w.venta_ml(engine, COMBO, datetime(2026, 10, 5, 15))
     pc = w.venta_ml(engine, PC, datetime(2026, 10, 5, 15))
     _cron(db)
-    assert (_costo(engine, combo), _costo(engine, pc)) == (D("60000"), D("300000"))
+    assert (_costo(engine, combo), _costo(engine, pc)) == (D("60000"), D("25000"))
 
     _cambio(engine, db, A, date(2026, 10, 3), "20.00000")
 
-    assert (_costo(engine, combo), _costo(engine, pc)) == (D("50000"), D("300000"))
+    assert (_costo(engine, combo), _costo(engine, pc)) == (D("50000"), D("20000"))
 
 
 def test_the_hook_equals_a_cron_rerun(engine: Engine, db: Session) -> None:
@@ -340,7 +341,13 @@ def test_the_hook_is_one_set_based_statement_for_thousands_of_sales(engine: Engi
     assert len(escrituras) == 1
     lecturas = [s for s in sentencias if s not in escrituras]
     # the only other statements are the reader's combos lookup (lote.combos_con): read-only, independent of the rows
-    assert lecturas and all(s.lstrip().startswith("SELECT") and "ml_ventas_metricas" not in s for s in lecturas)
+    # (a WITH RECURSIVE since L22 nested: it walks up the bills of materials)
+    assert lecturas and all(
+        s.lstrip().startswith(("SELECT", "WITH"))
+        and not any(dml in s for dml in ("INSERT", "UPDATE", "DELETE"))
+        and "ml_ventas_metricas" not in s
+        for s in lecturas
+    )
     assert w.rows(
         engine, "SELECT count(*), min(costo_unitario_sin_iva), max(costo_unitario_sin_iva) FROM ml_ventas_metricas"
     ) == [(3000, D("20000.000000"), D("20000.000000"))]

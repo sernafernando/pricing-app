@@ -122,7 +122,8 @@ def test_loyalty_is_a_sell_in_on_every_invoice_of_the_brand_from_any_supplier(en
     assert [(n[0], n[1], n[2]) for n in netos] == [(D("91.40000"), D("8.6"), True), (D("96.40000"), D("3.6"), False)]
     assert [s["origen"] for s in netos[0][3]] == ["compra", "bono"]
     assert w.pasos(engine, P)[0][1] == date(2026, 10, 1)  # the bonus's fecha_desde is the first sell-in date
-    assert w.pasos(engine, OTRA_MARCA) == []  # no sell in ever applied to it: no costo SI
+    # no sell in ever applied to it: L21's start (11-01, list cost 100, the 10 in stock), no discount
+    assert w.pasos(engine, OTRA_MARCA) == [("inicio", date(2026, 11, 1), 10, 10, D("100.00000"), D("100.00000"))]
 
 
 def test_a_loyalty_loaded_through_a_tactical_is_a_sell_in_on_every_invoice_of_the_brand(engine: Engine) -> None:
@@ -277,7 +278,8 @@ def test_full_is_walked_back_from_the_next_daily_photo_not_from_today(engine: En
 
 def test_combos_never_add_their_stock_to_the_components_and_have_no_history(engine: Engine) -> None:
     """S11 (L7.1): "No tenés que sumar stock del combo x cantidad": the combo's own Full publication (10 x 2 units)
-    stays out of the component's stock; the combo gets no costo SI rows of its own; a PC is its own product."""
+    stays out of the component's stock; neither the combo nor the PC gets costo SI rows of its own (L22: a PC is the
+    sum of its components, like a combo)."""
     w.producto(engine, P)
     w.producto(engine, COMBO)
     w.producto(engine, PC, cat_id=47)
@@ -299,7 +301,7 @@ def test_combos_never_add_their_stock_to_the_components_and_have_no_history(engi
 
     assert w.pasos(engine, P)[0][2] == 50
     assert w.pasos(engine, COMBO) == []
-    assert w.pasos(engine, PC)[0][-1] == D("300.00000")
+    assert w.pasos(engine, PC) == []
 
 
 def test_a_late_sell_in_recomputes_from_its_date_and_backs_up_what_it_replaces(engine: Engine) -> None:
@@ -400,16 +402,16 @@ def test_the_daily_photo_is_read_instead_of_the_reconstruction(engine: Engine) -
         assert fuentes.disponible(db, P, date(2026, 11, 3)) == 286  # the photo, not the reconstruction
 
 
-def test_encolar_vigentes_queues_every_product_with_a_sell_in_or_a_costo_si(engine: Engine) -> None:
+def test_encolar_vigentes_queues_every_product_with_or_without_a_sell_in(engine: Engine) -> None:
     w.producto(engine, P)
     w.producto(engine, OTRA_MARCA, marca="OTRA")
     w.bono_marca(engine, "1", date(2026, 10, 1), date(2026, 12, 31))
     w.run(engine, "DELETE FROM costo_si_dirty")
 
     with sessionmaker(bind=engine)() as db:
-        assert queue.encolar_vigentes(db) == 1
+        assert queue.encolar_vigentes(db) == 2
         db.commit()
-    assert w.encolados(engine) == [(P, None)]
+    assert w.encolados(engine) == [(P, None), (OTRA_MARCA, None)]  # L21: a product without sell in too
 
 
 def test_sell_drain_recomputes_a_full_product_without_any_ml_call(engine: Engine) -> None:
@@ -919,3 +921,155 @@ def test_a_line_never_takes_more_than_the_purchase_and_a_money_cap_counts_only_w
     _recalcular(engine, P)
 
     assert _nn(engine, P) == [D("0.00000"), D("950.00000")]
+
+
+# --- L21: a product no sell in ever reached also gets a costo SI, from 2026-11-01 00:00 -----------------------------
+
+SIN_SELL_IN = 5105
+
+
+def _sin_sell_in(engine: Engine) -> None:
+    """No sell in, no bonus: list cost 25 since 10-15; an invoice at 30 on 10-20 (in stock by 11-01: 200 then) and,
+    since 11-01, one at 22 on 11-05 linked to a Compras order without any sell in."""
+    w.producto(engine, SIN_SELL_IN)
+    w.costo_lista(engine, SIN_SELL_IN, datetime(2026, 10, 15, 9, 0), "25")
+    w.factura(engine, SIN_SELL_IN, date(2026, 10, 20), datetime(2026, 10, 20, 10), 50, "30", previo=150)
+    w.factura(engine, SIN_SELL_IN, date(2026, 11, 5), datetime(2026, 11, 5, 10), 100, "22", previo=200, pedido=7)
+    w.run(engine, "DELETE FROM costo_si_dirty")
+
+
+def test_l21_a_product_without_sell_in_starts_on_11_01_and_averages_every_invoice_after_it(engine: Engine) -> None:
+    """L21: the start is 2026-11-01 00:00 at that instant's list cost and available stock (S2/S3); the invoice before
+    it only counts as stock; the one after it enters the average with no discount."""
+    _sin_sell_in(engine)
+
+    _recalcular(engine, SIN_SELL_IN)
+
+    assert w.pasos(engine, SIN_SELL_IN) == [
+        ("inicio", date(2026, 11, 1), 200, 200, D("25.00000"), D("25.00000")),
+        ("compra", date(2026, 11, 5), 100, 200, D("22.00000"), D("24.00000")),
+    ]
+    assert w.rows(
+        engine, "SELECT sell_in_pct, sell_ins FROM costo_si_pasos WHERE item_id = :i AND tipo = 'compra'", i=SIN_SELL_IN
+    ) == [(D("0"), [])]
+
+
+def test_l21_without_an_invoice_since_11_01_the_costo_si_is_the_start_cost(engine: Engine) -> None:
+    w.producto(engine, SIN_SELL_IN)
+    w.costo_lista(engine, SIN_SELL_IN, datetime(2026, 10, 15, 9, 0), "25")
+    w.factura(engine, SIN_SELL_IN, date(2026, 10, 20), datetime(2026, 10, 20, 10), 50, "30", previo=150)
+
+    _recalcular(engine, SIN_SELL_IN)
+
+    assert w.pasos(engine, SIN_SELL_IN) == [("inicio", date(2026, 11, 1), 200, 200, D("25.00000"), D("25.00000"))]
+
+
+def test_l21_the_reader_says_costo_si_for_a_product_without_sell_in(engine: Engine) -> None:
+    """S5: once computed, the reader's source is the costo SI (24 USD), no longer the list cost."""
+    from app.services.costo_si import lote
+
+    _sin_sell_in(engine)
+    _recalcular(engine, SIN_SELL_IN)
+
+    with sessionmaker(bind=engine)() as db:
+        costo = lote.actuales(db, [SIN_SELL_IN], tipo_cambio=1000)[SIN_SELL_IN]
+    assert (costo.fuente, costo.costo, costo.moneda, costo.costo_si_desde) == (
+        lote.FUENTE_COSTO_SI,
+        D("24.00000"),
+        "USD",
+        date(2026, 11, 5),
+    )
+
+
+def test_l21_without_a_list_cost_or_an_invoice_the_cost_stays_unknown_never_0(engine: Engine) -> None:
+    """Interfaz §7: no start cost and nothing bought since 11-01: no average is stored, the reader never says 0."""
+    from app.services.costo_si import lote
+
+    w.producto(engine, SIN_SELL_IN)
+
+    _recalcular(engine, SIN_SELL_IN)
+
+    assert [p[5] for p in w.pasos(engine, SIN_SELL_IN)] in ([], [None])
+    with sessionmaker(bind=engine)() as db:
+        costo = lote.actuales(db, [SIN_SELL_IN])[SIN_SELL_IN]
+    assert costo.fuente != lote.FUENTE_COSTO_SI and costo.costo is None and costo.costo_ars is None
+
+
+def test_l21_a_product_with_a_sell_in_keeps_its_own_start(engine: Engine) -> None:
+    """S2 unchanged: a first sell in before 11-01 (10-05) or after it (11-02, Alejandro's L1) stays the start."""
+    _l1(engine)
+    w.producto(engine, OTRA_MARCA, marca="OTRA")
+    w.costo_lista(engine, OTRA_MARCA, datetime(2026, 9, 1), "100")
+    w.factura(engine, OTRA_MARCA, date(2026, 10, 5), datetime(2026, 10, 5, 10), 10, "100", previo=0, pedido=11)
+    w.sell_in_compra(engine, OTRA_MARCA, 11, "5", date(2026, 10, 5))
+
+    _recalcular(engine, P)
+    _recalcular(engine, OTRA_MARCA)
+
+    assert w.pasos(engine, P)[0][:2] == ("inicio", date(2026, 11, 2))
+    assert w.pasos(engine, OTRA_MARCA)[0][:2] == ("inicio", date(2026, 10, 5))
+
+
+def test_l21_an_invoice_dated_before_11_01_entering_after_it_counts_as_start_stock(engine: Engine) -> None:
+    """S2/S3 at L21's start: invoiced on 10-25 but received on 11-03, its 50 are stock at the start cost, never a
+    purchase in the average (verifier probe A)."""
+    w.producto(engine, SIN_SELL_IN)
+    w.costo_lista(engine, SIN_SELL_IN, datetime(2026, 10, 15, 9, 0), "25")
+    w.factura(engine, SIN_SELL_IN, date(2026, 10, 25), datetime(2026, 11, 3, 10), 50, "30", previo=150)
+
+    _recalcular(engine, SIN_SELL_IN)
+
+    assert w.pasos(engine, SIN_SELL_IN) == [("inicio", date(2026, 11, 1), 200, 200, D("25.00000"), D("25.00000"))]
+
+
+# --- L22: a PC never has a history of its own; its cost is its components' sum, read at read time ------------------
+
+PC_L22, PC_L22_SIN_BOM = 5106, 5107
+
+
+def test_l22_the_engine_never_computes_a_pc_history_with_or_without_components(engine: Engine) -> None:
+    """With a bill of materials or without one, no sell in and a list cost on 11-01: no history of its own (L21's
+    start would freeze it at the 11-01 list), and the components keep theirs."""
+    _sin_sell_in(engine)
+    for pc in (PC_L22, PC_L22_SIN_BOM):
+        w.producto(engine, pc, cat_id=47)
+        w.costo_lista(engine, pc, datetime(2026, 10, 15, 9, 0), "360")
+    w.run(
+        engine,
+        "INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (:c, :p, 2)",
+        c=PC_L22,
+        p=SIN_SELL_IN,
+    )
+
+    for item in (SIN_SELL_IN, PC_L22, PC_L22_SIN_BOM):
+        _recalcular(engine, item)
+
+    assert w.pasos(engine, PC_L22) == [] and w.pasos(engine, PC_L22_SIN_BOM) == []
+    assert w.pasos(engine, SIN_SELL_IN)[-1][5] == D("24.00000")
+    with sessionmaker(bind=engine)() as db:
+        assert fuentes.inicio_de(db, PC_L22) is None and fuentes.inicio_de(db, PC_L22_SIN_BOM) is None
+        assert lectura_costo(db, PC_L22) == (D("48.00000"), "USD")  # 2 x 24, at read time
+
+
+def lectura_costo(db, item_id: int):
+    from app.services.costo_si import lectura
+
+    leido = lectura.leer(db, item_id, HOY)
+    return leido.costo_si_usd, leido.moneda
+
+
+def test_l22_a_component_change_re_costs_the_pcs_that_contain_it(engine: Engine) -> None:
+    """The callbacks re-cost a combo when a component's cost changes (`lote.combos_con`): a PC now too."""
+    from app.services.costo_si import lote
+
+    w.producto(engine, SIN_SELL_IN)
+    w.producto(engine, PC_L22, cat_id=47)
+    w.run(
+        engine,
+        "INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (:c, :p, 1)",
+        c=PC_L22,
+        p=SIN_SELL_IN,
+    )
+
+    with sessionmaker(bind=engine)() as db:
+        assert lote.combos_con(db, [SIN_SELL_IN]) == {SIN_SELL_IN: [PC_L22]}

@@ -4,7 +4,7 @@ los promedios claramente"; plan sell-in-costo-si-t3-pr5-plan.md §9, orchestrato
 pubml markups are computed live from the current costo SI, so they need nothing. Only two stored values depend on the
 cost: the `hay_mejores_ofertas` flag (the C1 markup bands of `ml_hay_mejores_criterios` are absolute, so a cost change
 can flip it) and the competitor markups of the catalog competition snapshots. For every MLA linked to the product or
-to a combo (not a PC) that contains it, this callback only ENQUEUES: the MLAs go to the hay-mejores handler's
+to a combo (a PC included, L22) that contains it, this callback only ENQUEUES: the MLAs go to the hay-mejores handler's
 `pending_ids` and their catalog listing to `catalog_competition_refresh_pending`. Both writes are idempotent.
 """
 

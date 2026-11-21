@@ -4,7 +4,7 @@ aplicar sobre costo si"), read through `app.services.costo_si.lote`, the one rea
 - unit cost = `lote.en_fechas` `costo_ars`: the costo SI in force on the sale date, in the product's cost currency
   (owner L18), in pesos at that date's USD rate; without costo SI the list cost (`fuente` 'lista', interface Q1);
   unknown (no cost, or a dollar cost without a rate) -> 0, as a line without cost always was;
-- a combo that is not a PC = its components x quantity (the reader, S11), UNLESS the same document brings its
+- a combo, a PC included (L22) = its components x quantity (the reader, S11), UNLESS the same document brings its
   breakdown (owner L19: "claro si el combo trae el desglose no tomarlo, si no lo trae sí"): when EVERY one of its
   components is also a line of that document, the combo line costs 0 and its components carry the cost; with only
   some of them the combo is costed whole and logged (`combos_desglosados`).
@@ -54,7 +54,7 @@ def combos_desglosados(
 ) -> dict[K, set[int]]:
     """Owner L19: for each document (its products, keyed by its group id), the combos among them whose breakdown it
     brings, i.e. EVERY one of their components is another line of the same document (one loose unit of a component
-    is not a breakdown). Quantities are not compared. PCs are never combos here (`lote.combos_con`).
+    is not a breakdown). Quantities are not compared. A PC is a combo here too (L22, `lote.combos_con`).
 
     A combo with SOME but not all of its components as other lines (a partial breakdown) is costed whole and its
     loose components too; that possible double count is logged with the group id and the missing components (owner

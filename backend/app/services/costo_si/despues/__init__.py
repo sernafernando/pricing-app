@@ -6,8 +6,8 @@ adds ITS OWN module to this package and calls `registrar(nombre, fn)` at import.
 after a recompute that changed the product's history, inside the product's transaction and before its commit: the
 new average and every follow-up commit together, or the product is rolled back and retried. So a callback must be
 cheap and idempotent: it ENQUEUES its area's work (its own queue), it never re-freezes inline. It receives the product
-whose average changed (never a combo: `lote.combos_con` gives the combos that contain it) and the first date whose
-value changed.
+whose average changed (a combo only when T4 marks a PC, L22: otherwise `lote.combos_con` gives the combos that
+contain it) and the first date whose value changed.
 """
 
 from __future__ import annotations

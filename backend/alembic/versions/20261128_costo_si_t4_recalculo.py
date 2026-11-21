@@ -13,7 +13,8 @@ Plan handoffs/sell-in-costo-si-t4-plan.md §1; orchestrator G3 (option A) and G4
    part (about 170 MB on prod by 2026-11-21 sizes) and takes that much disk until the snapshots are dropped by hand;
    `alembic.env` keeps them out of autogenerate (`app.core.alembic_autogenerate`).
 2. Queue the scope for a whole-history recompute: the products of `costo_si.queue.productos_vigentes` (SQL frozen
-   here as of this revision), `desde` NULL and a fresh retry budget. Rows already queued outside the scope stay.
+   here as of this revision): every product, sell in or not (L21), `desde` NULL and a fresh retry budget. Rows
+   already queued outside the scope stay.
 3. Option A (plan §1.3, G3), as an invalidation: the stored steps of every product that has them are backed up in
    `costo_si_backups` (motivo `t4 reset`) and the first step of each history gets `fuente_tc = 't4_reset'`, a value
    the engine never writes. The recompute compares `fuente_tc` (`recompute._COLUMNAS`), so it always sees a change
@@ -22,7 +23,12 @@ Plan handoffs/sell-in-costo-si-t4-plan.md §1; orchestrator G3 (option A) and G4
    invoice yet: the sales go back to list cost, exactly as without T4; verification F1). The readers of the cost
    (`lote`) read `promedio_usd`, `moneda`, `fecha` and `orden` only, so until the drain reaches a product it keeps
    showing its pre-T4 cost (no list-cost window).
-4. Marker `costo_si_t4_encolado_at` in `configuracion` (first run only) and `pg_notify('sell_dirty')`.
+4. PCs (L22, owner: "las pcs son la suma de sus componentes el costo"): a PC with a bill of materials now costs its
+   components' sum, a change no step shows (it never has a history, and a component missing from `productos_erp` is
+   never queued). Each one without steps gets a start step on 2026-11-01 with no average and `fuente_tc = 't4_reset'`
+   (the readers skip a step without an average) and is queued: the drain stores no history for it, sees that step go
+   and re-costs its sales from 11-01, like any product whose history changed.
+5. Marker `costo_si_t4_encolado_at` in `configuracion` (first run only) and `pg_notify('sell_dirty')`.
 
 Fail-closed note: a product the drain cannot recompute parks after `queue.MAX_ATTEMPTS` (logged `costo_si: product ...
 parked`) and keeps its pre-T4 steps and cost. Check after the drain: `SELECT item_id, last_error FROM costo_si_dirty
@@ -73,10 +79,24 @@ _ALCANCE_SQL = """
           WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo IN ('porcentaje', 'por_unidad')
     UNION SELECT bi.item_id FROM sell_in_bono_items bi JOIN sell_in_bonos_marca b ON b.id = bi.bono_id
           WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo IN ('porcentaje', 'por_unidad')
+    UNION SELECT item_id FROM productos_erp
 """
+# The last branch is L21 (owner: "pero costo si tiene que ponderar las facturas por mas que no tengan s8"): a product
+# no sell in reaches gets a costo SI from 2026-11-01, so the deploy re-costs every product. Added before this
+# revision ever ran on prod.
 
 # The invalidation of a stored history (option A): its first step gets a `fuente_tc` the engine never writes.
 INVALIDO = "t4_reset"
+
+# Step 4 (L22): the PCs (cat 47 by their first company row, `combos.pcs` as of this revision) with a bill of materials
+# and no steps, each marked with a start step without an average and queued for its whole history.
+_PCS_SQL = """
+    SELECT pc.item_id FROM (SELECT DISTINCT ON (t.item_id) t.item_id, t.cat_id FROM tb_item t
+                            ORDER BY t.item_id, t.comp_id) pc
+    WHERE pc.cat_id = 47
+      AND EXISTS (SELECT 1 FROM combo_componentes c WHERE c.combo_item_id = pc.item_id)
+      AND NOT EXISTS (SELECT 1 FROM costo_si_pasos p WHERE p.item_id = pc.item_id)
+"""
 
 
 # After a parked product's cause is fixed (`:item`): its history invalidated again and queued for its whole history,
@@ -146,6 +166,7 @@ def _resumen(resumen: str, consumo: str, clave: str) -> str:
 # The documented rollback, in order (see the module docstring).
 ROLLBACK_SQL = (
     "DELETE FROM costo_si_dirty",
+    f"DELETE FROM costo_si_pasos WHERE fuente_tc = '{INVALIDO}' AND promedio_usd IS NULL",  # step 4's PC markers
     _resumen("offset_grupo_resumen", "offset_grupo_consumo", "grupo_id"),
     _resumen("offset_individual_resumen", "offset_individual_consumo", "offset_id"),
     *(_restaurar(tabla) for tabla in _COSTOS),
@@ -175,6 +196,15 @@ def upgrade() -> None:
         GROUP BY p.item_id
     """)
     op.execute(f"UPDATE costo_si_pasos SET fuente_tc = '{INVALIDO}' WHERE orden = 0")
+    op.execute(f"""
+        WITH marcadas AS (
+            INSERT INTO costo_si_pasos (item_id, orden, tipo, fecha, cantidad, stock_antes, stock_base, stock_despues,
+                                        promedio_usd, fuente_tc)
+            SELECT item_id, 0, 'inicio', DATE '2026-11-01', 0, 0, 0, 0, NULL, '{INVALIDO}' FROM ({_PCS_SQL}) pcs
+            RETURNING item_id)
+        INSERT INTO costo_si_dirty (item_id, desde) SELECT item_id, NULL FROM marcadas
+        ON CONFLICT (item_id) DO UPDATE SET desde = NULL, enqueued_at = now(), attempts = 0, last_error = NULL
+    """)
     op.execute("""
         INSERT INTO configuracion (clave, valor, descripcion, tipo, fecha_modificacion)
         VALUES ('costo_si_t4_encolado_at', now()::text, 'Costo SI T4 history recalc queued (one-shot)', 'string', now())

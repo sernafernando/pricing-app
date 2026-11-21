@@ -9,8 +9,9 @@ One rule, written once as SQL (`sql_en_fecha`, `actual`) and run by the Python r
   writes 0 for a missing one). Current = `productos_erp.costo` in
   `moneda_costo`; on a date = the last list 1 history row created before the end of that day (`curr_id` 1/NULL ARS,
   else USD), else the current one.
-- A combo that is not a PC (S11, L4.9, L7.1) = its components x quantity, each resolved the same way on the same date;
-  costo SI only when every component is; unknown when any component is. A PC (cat 47) is its own product. A component
+- A combo (S11, L4.9, L7.1; a PC too, L22) = its components x quantity, each resolved the same way on the same date;
+  costo SI only when every component is; unknown when any component is (logged). A PC (cat 47) is a combo here (L22:
+  "las pcs son la suma de sus componentes el costo"); one without a bill of materials keeps its list cost. A component
   with no `productos_erp` row (the ERP sync skips categories such as 72 PRODUCCIÓN; the bill of materials does not)
   takes GBP's current list 1 cost (`tb_item_cost_list`, first company) where `productos_erp.costo` would be (#2373).
 - Pesos: ARS as is; USD x the USD rate (`tipo_cambio`, venta > 0, the last one on or before the date, else the ERP's
@@ -33,7 +34,6 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.selectable import Subquery
 
-from app.services.combos.pcs import CAT_PC, pcs_entre
 
 logger = logging.getLogger(__name__)
 
@@ -103,12 +103,58 @@ def sql_tipo_cambio(fecha: str) -> str:
 
 
 def _es_combo(item: str) -> str:
-    """A combo that takes its components' sum: not of the PC category by its first company row (`pcs_entre`)."""
-    return (
-        f"(EXISTS (SELECT 1 FROM combo_componentes csi_x WHERE csi_x.combo_item_id = {item})"
-        " AND NOT EXISTS (SELECT 1 FROM (SELECT DISTINCT ON (csi_t.item_id) csi_t.cat_id FROM tb_item csi_t"
-        f" WHERE csi_t.item_id = {item} ORDER BY csi_t.item_id, csi_t.comp_id) csi_pt WHERE csi_pt.cat_id = {CAT_PC}))"
-    )
+    """A combo that takes its components' sum, a PC included (L22)."""
+    return f"(EXISTS (SELECT 1 FROM combo_componentes csi_x WHERE csi_x.combo_item_id = {item}))"
+
+
+# The levels a bill of materials is followed down (L22 nested: "recurse (L22 applies to the inner PC too)"). Deeper,
+# or a bill of materials that contains itself, has no cost: never a partial sum (interfaz §7), logged by the readers.
+MAX_NIVELES = 7
+
+
+# `_arbol`'s columns, and the rows the guard stops (a cycle, or a component with parts deeper than MAX_NIVELES)
+_ARBOL = "csi_at(raiz, componente_item_id, cantidad, largo, hoja, ciclo)"
+_CORTE = f"(csi_at.ciclo OR (NOT csi_at.hoja AND csi_at.largo > {MAX_NIVELES}))"
+
+
+def _arbol(raices: str, con_bom: Optional[str] = None) -> str:
+    """The recursive walk down the bills of materials of `raices` (an SQL query of `item_id`s): one row per path,
+    (raiz, componente_item_id, cantidad = the product of the quantities on the path, largo = ids on the path, hoja =
+    has no bill of materials, ciclo = the path is back at its root). A component with a bill of materials is followed
+    into its own components, never read as itself. Any other cycle runs into the depth guard, so it is cut the same
+    way. Portable SQL (no arrays, no `%`): the one-product reader runs it on SQLite in tests too, and raw DBAPI
+    callers pass it with parameters. `con_bom`: a relation of the `item_id`s with a bill of
+    materials, joined instead of a lateral probe per component (a set read: one pass, never per row)."""
+    hoja = "csi_ab.item_id IS NULL"
+    if con_bom is None:  # one index probe per component, joined (never a per-row SubPlan)
+        junta = (
+            " LEFT JOIN LATERAL (SELECT csi_ay.combo_item_id AS item_id FROM combo_componentes csi_ay"
+            " WHERE csi_ay.combo_item_id = csi_ah.componente_item_id LIMIT 1) csi_ab ON true"
+        )
+    else:
+        junta = f" LEFT JOIN {con_bom} csi_ab ON csi_ab.item_id = csi_ah.componente_item_id"
+    return f"""
+        SELECT csi_ar.item_id, csi_ah.componente_item_id, CAST(csi_ah.cantidad AS NUMERIC),
+               2, {hoja}, csi_ah.componente_item_id = csi_ar.item_id
+        FROM ({raices}) csi_ar JOIN combo_componentes csi_ah ON csi_ah.combo_item_id = csi_ar.item_id{junta}
+        UNION ALL
+        SELECT csi_at.raiz, csi_ah.componente_item_id, csi_at.cantidad * csi_ah.cantidad,
+               csi_at.largo + 1, {hoja}, csi_ah.componente_item_id = csi_at.raiz
+        FROM csi_at JOIN combo_componentes csi_ah ON csi_ah.combo_item_id = csi_at.componente_item_id{junta}
+        WHERE NOT csi_at.hoja AND NOT csi_at.ciclo AND csi_at.largo <= {MAX_NIVELES}"""
+
+
+def _hojas(raices: str, con_bom: Optional[str] = None) -> str:
+    """What a combo sums (`_arbol`): (raiz, componente_item_id, cantidad, corte). Its leaves, plus a `corte` row for
+    each path the guard stopped (a cycle, or deeper than `MAX_NIVELES`) that makes the sum unknown."""
+    return f"""
+        WITH RECURSIVE {_ARBOL} AS ({_arbol(raices, con_bom)})
+        SELECT csi_at.raiz, csi_at.componente_item_id, csi_at.cantidad, {_CORTE} AS corte FROM csi_at
+        WHERE csi_at.hoja OR {_CORTE}"""
+
+
+# Every id with a bill of materials, as a relation `_hojas` can join (portable: the one-product reader's form).
+CON_BOM = "(SELECT DISTINCT csi_cb.combo_item_id AS item_id FROM combo_componentes csi_cb)"
 
 
 def _lista_gbp(item: str) -> str:
@@ -156,6 +202,25 @@ def _propio(item: str, fecha: Optional[str], *, componente: bool = False) -> str
         ORDER BY csi_o.prioridad LIMIT 1"""
 
 
+def _anidado(item: str) -> str:
+    """The combo `item` contains another combo or PC (a component with its own bill of materials)."""
+    return (
+        "EXISTS (SELECT 1 FROM combo_componentes csi_n1 JOIN combo_componentes csi_n2"
+        f" ON csi_n2.combo_item_id = csi_n1.componente_item_id WHERE csi_n1.combo_item_id = {item})"
+    )
+
+
+def _partes(item: str) -> str:
+    """What the combo `item` sums, as `_hojas` rows: its direct components when none has a bill of materials (every
+    combo on prod but one: no recursion), else the recursive walk (`_hojas`)."""
+    return f"""
+            SELECT csi_p1.componente_item_id, csi_p1.cantidad::numeric AS cantidad, false AS corte
+            FROM combo_componentes csi_p1 WHERE csi_p1.combo_item_id = {item} AND NOT {_anidado(item)}
+            UNION ALL
+            SELECT csi_p2.componente_item_id, csi_p2.cantidad, csi_p2.corte
+            FROM ({_hojas(f"SELECT {item} AS item_id")}) csi_p2 WHERE {_anidado(item)}"""
+
+
 def _fragmento(item: str, fecha: Optional[str], tc: str) -> str:
     ars = "CASE WHEN csi_b.moneda = 'ARS' THEN csi_b.costo ELSE csi_b.costo * csi_fx.tc END"
     return f"""
@@ -174,10 +239,11 @@ def _fragmento(item: str, fecha: Optional[str], tc: str) -> str:
                CASE WHEN count(DISTINCT csi_b.moneda) = 1 THEN min(csi_b.moneda) ELSE 'ARS' END,
                CASE WHEN bool_and(csi_b.fuente = '{FUENTE_COSTO_SI}') THEN '{FUENTE_COSTO_SI}' ELSE '{FUENTE_LISTA}' END,
                NULL::date
-        FROM combo_componentes csi_cc
+        FROM ({_partes(item)}) csi_cc
         LEFT JOIN LATERAL ({_propio("csi_cc.componente_item_id", fecha, componente=True)}) csi_b ON true
-        WHERE csi_cc.combo_item_id = {item} AND {_es_combo(item)}
-        HAVING count(*) > 0 AND count(csi_b.costo) = count(*) AND (count(DISTINCT csi_b.moneda) = 1 OR csi_fx.tc IS NOT NULL)
+        WHERE {_es_combo(item)}
+        HAVING count(*) > 0 AND count(csi_b.costo) = count(*) AND NOT bool_or(csi_cc.corte)
+           AND (count(DISTINCT csi_b.moneda) = 1 OR csi_fx.tc IS NOT NULL)
     ) csi_r ON true"""
 
 
@@ -247,12 +313,12 @@ def _costo(item_id: int, fila) -> Costo:
 
 
 _ACTUALES_SQL = text(
-    "SELECT q.item_id, cs.* FROM unnest(:ids) AS q(item_id) "
+    f"SELECT q.item_id, cs.*, {_es_combo('q.item_id')} FROM unnest(:ids) AS q(item_id) "
     f"LEFT JOIN LATERAL ({_fragmento('q.item_id', None, _tc_en('CURRENT_DATE', propio='CAST(:tc AS numeric)'))}) cs ON true"
 ).bindparams(bindparam("ids", type_=ARRAY(Integer)), bindparam("tc", type_=Numeric()))
 
 _EN_FECHAS_SQL = text(
-    "SELECT q.item_id, q.fecha, cs.* FROM unnest(:items, :fechas) AS q(item_id, fecha) "
+    f"SELECT q.item_id, q.fecha, cs.*, {_es_combo('q.item_id')} FROM unnest(:items, :fechas) AS q(item_id, fecha) "
     f"LEFT JOIN LATERAL ({sql_en_fecha('q.item_id', 'q.fecha')}) cs ON true"
 ).bindparams(bindparam("items", type_=ARRAY(Integer)), bindparam("fechas", type_=ARRAY(Date)))
 
@@ -270,6 +336,51 @@ def _avisar_sin_tc(costos) -> None:
         )
 
 
+_CORTADOS_SQL = text(
+    f"SELECT DISTINCT csi_c.raiz FROM ({_hojas('SELECT unnest(CAST(:ids AS integer[])) AS item_id')}) csi_c"
+    " WHERE csi_c.corte"
+).bindparams(bindparam("ids", type_=ARRAY(Integer)))
+
+
+def cortados(db: Session, item_ids: Iterable[int]) -> set:
+    """The ids whose bill of materials the recursion's guard stopped: it contains itself, or it is deeper than
+    `MAX_NIVELES` levels. Their cost is unknown."""
+    ids = sorted({int(i) for i in item_ids if i is not None})
+    return {r[0] for r in db.execute(_CORTADOS_SQL, {"ids": ids})} if ids else set()
+
+
+def _avisar_combos_desconocidos(db: Session, costos) -> None:
+    """Log the combos and PCs left without a cost (interfaz §7, L22): a component without one (or, in mixed currencies,
+    without a USD rate), or a cyclic or too deep bill of materials, makes the sum unknown, never a partial sum or 0.
+    `costos`: (cost, date, is a combo), read by the same query; one warning per date naming every item. The guard is
+    looked up (one query) only when a combo is unknown."""
+    por_fecha: Dict[date, List[int]] = {}
+    for c, fecha, es_combo in costos:
+        if es_combo and c.costo is None:
+            por_fecha.setdefault(fecha, []).append(c.item_id)
+    if not por_fecha:
+        return
+    cortes = cortados(db, {i for items in por_fecha.values() for i in items})
+    if cortes:
+        logger.warning(
+            "costo SI: %d combos/PCs have a cycle in their bill of materials or one deeper than %d levels; their cost "
+            "is unknown %s",
+            len(cortes),
+            MAX_NIVELES,
+            sorted(cortes),
+        )
+    for fecha, items in sorted(por_fecha.items()):
+        items = [i for i in items if i not in cortes]
+        if not items:
+            continue
+        logger.warning(
+            "costo SI: on %s %d combos/PCs have a component without a cost (or no USD rate); their cost is unknown %s",
+            fecha,
+            len(items),
+            sorted(items),
+        )
+
+
 def actuales(db: Session, item_ids: Iterable[int], *, tipo_cambio=None) -> Dict[int, Costo]:
     """The current cost of every id (one query; none for no ids). `tipo_cambio`: the caller's USD rate for
     `costo_ars`; None = the latest one."""
@@ -277,8 +388,10 @@ def actuales(db: Session, item_ids: Iterable[int], *, tipo_cambio=None) -> Dict[
     if not ids:
         return {}
     tc = Decimal(str(tipo_cambio)) if tipo_cambio else None
-    out = {r[0]: _costo(r[0], r[1:]) for r in db.execute(_ACTUALES_SQL, {"ids": ids, "tc": tc})}
+    filas = [(_costo(r[0], r[1:-1]), r[-1]) for r in db.execute(_ACTUALES_SQL, {"ids": ids, "tc": tc})]
+    out = {c.item_id: c for c, _ in filas}
     _avisar_sin_tc((c, date.today()) for c in out.values())
+    _avisar_combos_desconocidos(db, [(c, date.today(), es_combo) for c, es_combo in filas])
     return out
 
 
@@ -291,8 +404,10 @@ def en_fechas(db: Session, pares: Iterable[Tuple[int, date]]) -> Dict[Tuple[int,
     if not lista:
         return {}
     filas = db.execute(_EN_FECHAS_SQL, {"items": [i for i, _ in lista], "fechas": [f for _, f in lista]})
-    out = {(r[0], r[1]): _costo(r[0], r[2:]) for r in filas}
+    leidas = [(r[1], _costo(r[0], r[2:-1]), r[-1]) for r in filas]
+    out = {(c.item_id, f): c for f, c, _ in leidas}
     _avisar_sin_tc((c, f) for (_, f), c in out.items())
+    _avisar_combos_desconocidos(db, [(c, f, es_combo) for f, c, es_combo in leidas])
     return out
 
 
@@ -307,22 +422,30 @@ def en_pesos(costo: Optional[Decimal], moneda: Optional[str], tipo_cambio) -> Op
     return Decimal(costo) * Decimal(str(tipo_cambio))
 
 
+# Up the tree: every combo above a component, at any level (a cycle stops at the first repeat, the depth at MAX_NIVELES).
 _COMBOS_CON_SQL = text(
-    "SELECT componente_item_id, combo_item_id FROM combo_componentes WHERE componente_item_id = ANY(:ids) ORDER BY 1, 2"
+    """
+    WITH RECURSIVE csi_up(componente, combo, camino) AS (
+        SELECT componente_item_id, combo_item_id, ARRAY[componente_item_id, combo_item_id]::integer[]
+        FROM combo_componentes WHERE componente_item_id = ANY(:ids)
+        UNION ALL
+        SELECT csi_up.componente, csi_cc.combo_item_id, csi_up.camino || csi_cc.combo_item_id::integer
+        FROM csi_up JOIN combo_componentes csi_cc ON csi_cc.componente_item_id = csi_up.combo
+        WHERE NOT csi_cc.combo_item_id = ANY(csi_up.camino) AND cardinality(csi_up.camino) <= :niveles
+    )
+    SELECT DISTINCT componente, combo FROM csi_up ORDER BY 1, 2"""
 ).bindparams(bindparam("ids", type_=ARRAY(Integer)))
 
 
 def combos_con(db: Session, item_ids: Iterable[int]) -> Dict[int, List[int]]:
-    """Component -> the combos (not PCs) that contain it: what a change to the component's cost also moves."""
+    """Component -> the combos (PCs included, L22) that contain it at any level (a PC inside a PC too): what a change
+    to the component's cost also moves."""
     ids = sorted({int(i) for i in item_ids if i is not None})
     if not ids:
         return {}
-    filas = list(db.execute(_COMBOS_CON_SQL, {"ids": ids}))
-    pcs = pcs_entre(db, {combo for _, combo in filas})
     out: Dict[int, List[int]] = {}
-    for componente, combo in filas:
-        if combo not in pcs:
-            out.setdefault(componente, []).append(combo)
+    for componente, combo in db.execute(_COMBOS_CON_SQL, {"ids": ids, "niveles": MAX_NIVELES}):
+        out.setdefault(componente, []).append(combo)
     return out
 
 
@@ -364,23 +487,22 @@ def sql_actual_conjunto(ids: str, tipo_cambio: str = "NULL::numeric") -> str:
         LEFT JOIN productos_erp csi_pe ON csi_pe.item_id = csi_n.item_id"""
     ars = "CASE WHEN csi_b.moneda = 'ARS' THEN csi_b.costo ELSE csi_b.costo * csi_fx.tc END"
     return f"""
-    WITH csi_q AS (SELECT DISTINCT csi_i.item_id FROM ({ids}) csi_i WHERE csi_i.item_id IS NOT NULL),
-    -- the ids with parts first (a hash join), so the PC check below reads `tb_item` for those only, not every id
-    csi_con_partes AS MATERIALIZED (
-        SELECT csi_q.item_id FROM csi_q
-        WHERE csi_q.item_id IN (SELECT csi_x.combo_item_id FROM combo_componentes csi_x)
+    WITH RECURSIVE csi_q AS (SELECT DISTINCT csi_i.item_id FROM ({ids}) csi_i WHERE csi_i.item_id IS NOT NULL),
+    -- every id with a bill of materials, once: the combos asked for, and the nested ones the walk goes into
+    csi_con_bom AS MATERIALIZED (SELECT DISTINCT csi_x.combo_item_id AS item_id FROM combo_componentes csi_x),
+    -- the ids with parts (a hash join): combos and PCs alike (L22)
+    csi_combo AS MATERIALIZED (
+        SELECT csi_q.item_id FROM csi_q WHERE csi_q.item_id IN (SELECT item_id FROM csi_con_bom)
     ),
-    csi_combo AS (
-        SELECT csi_cp.item_id FROM csi_con_partes csi_cp
-        WHERE NOT EXISTS (SELECT 1 FROM (SELECT DISTINCT ON (csi_t.item_id) csi_t.cat_id FROM tb_item csi_t
-              WHERE csi_t.item_id = csi_cp.item_id ORDER BY csi_t.item_id, csi_t.comp_id) csi_pt
-              WHERE csi_pt.cat_id = {CAT_PC})
+    {_ARBOL} AS ({_arbol("SELECT item_id FROM csi_combo", con_bom="csi_con_bom")}),
+    csi_hojas AS (
+        SELECT csi_at.raiz, csi_at.componente_item_id, csi_at.cantidad, {_CORTE} AS corte FROM csi_at
+        WHERE csi_at.hoja OR {_CORTE}
     ),
     csi_necesarios AS (
         SELECT csi_q.item_id FROM csi_q WHERE csi_q.item_id NOT IN (SELECT item_id FROM csi_combo)
         UNION
-        SELECT csi_cc.componente_item_id FROM combo_componentes csi_cc
-        WHERE csi_cc.combo_item_id IN (SELECT item_id FROM csi_combo)
+        SELECT csi_h.componente_item_id FROM csi_hojas csi_h
     ),
     csi_propio AS ({propio}),
     -- a combo component with no `productos_erp` row: GBP's list cost (`_lista_gbp`)
@@ -389,8 +511,7 @@ def sql_actual_conjunto(ids: str, tipo_cambio: str = "NULL::numeric") -> str:
                CASE WHEN COALESCE(csi_gl.curr_id, 1) = 1 THEN 'ARS' ELSE 'USD' END AS moneda
         FROM tb_item_cost_list csi_gl
         WHERE csi_gl.coslis_id = 1
-          AND csi_gl.item_id IN (SELECT csi_cc.componente_item_id FROM combo_componentes csi_cc
-                                 WHERE csi_cc.combo_item_id IN (SELECT item_id FROM csi_combo))
+          AND csi_gl.item_id IN (SELECT csi_h.componente_item_id FROM csi_hojas csi_h)
           AND NOT EXISTS (SELECT 1 FROM productos_erp csi_pg WHERE csi_pg.item_id = csi_gl.item_id)
         ORDER BY csi_gl.item_id, csi_gl.comp_id
     ),
@@ -408,18 +529,18 @@ def sql_actual_conjunto(ids: str, tipo_cambio: str = "NULL::numeric") -> str:
         FROM csi_q JOIN csi_propio csi_o ON csi_o.item_id = csi_q.item_id
         WHERE csi_q.item_id NOT IN (SELECT item_id FROM csi_combo)
         UNION ALL
-        SELECT csi_cc.combo_item_id,
+        SELECT csi_cc.raiz,
                CASE WHEN count(DISTINCT csi_b.moneda) = 1 THEN round(sum(csi_cc.cantidad * csi_b.costo), 5)
                     ELSE round(sum(csi_cc.cantidad * {ars}), 5) END,
                CASE WHEN count(DISTINCT csi_b.moneda) = 1 THEN min(csi_b.moneda) ELSE 'ARS' END,
                CASE WHEN bool_and(csi_b.fuente = '{FUENTE_COSTO_SI}') THEN '{FUENTE_COSTO_SI}' ELSE '{FUENTE_LISTA}' END,
                NULL::date
-        FROM combo_componentes csi_cc
+        FROM csi_hojas csi_cc
         CROSS JOIN csi_fx
         LEFT JOIN csi_componente csi_b ON csi_b.item_id = csi_cc.componente_item_id
-        WHERE csi_cc.combo_item_id IN (SELECT item_id FROM csi_combo)
-        GROUP BY csi_cc.combo_item_id, csi_fx.tc
-        HAVING count(*) > 0 AND count(csi_b.costo) = count(*) AND (count(DISTINCT csi_b.moneda) = 1 OR csi_fx.tc IS NOT NULL)
+        GROUP BY csi_cc.raiz, csi_fx.tc
+        HAVING count(*) > 0 AND count(csi_b.costo) = count(*) AND NOT bool_or(csi_cc.corte)
+           AND (count(DISTINCT csi_b.moneda) = 1 OR csi_fx.tc IS NOT NULL)
     )
     SELECT csi_q.item_id,
            csi_r.costo AS costo_si_costo, csi_r.moneda AS costo_si_moneda, csi_r.fuente AS costo_si_fuente,

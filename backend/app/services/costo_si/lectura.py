@@ -1,6 +1,6 @@
 """Reading a product's costo SI (S10, S11): the value in force on a date and its breakdown.
 
-A combo (not a PC) has no history of its own: its costo SI is the sum of its components' costo SI x their quantity in
+A combo (a PC included, L22) has no history of its own: its costo SI is the sum of its components' costo SI x their quantity in
 the combo ("el x2 es el costo de una unidad x la cantidad", L4.9); unknown when any component has none, or when they
 are in different currencies (each product's costo SI is in its own cost currency, L18: use `lote` for a value in pesos).
 """
@@ -10,13 +10,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.models.costo_si import CostoSiPaso as P
-from app.services.costo_si import fuentes
+from app.services.costo_si import fuentes, lote
 from app.services.costo_si.engine import redondear
 
 _COLUMNAS = (
@@ -76,18 +76,32 @@ def vigente(db: Session, item_id: int, fecha: date) -> tuple[Optional[Decimal], 
     return valor, desde
 
 
+_HOJAS_SQL = text(
+    "SELECT csi_c.componente_item_id, sum(csi_c.cantidad), max(CASE WHEN csi_c.corte THEN 1 ELSE 0 END)"
+    f" FROM ({lote._hojas('SELECT CAST(:i AS INTEGER) AS item_id', lote.CON_BOM)}) csi_c GROUP BY 1 ORDER BY 1"
+)
+
+
+def _hojas(db: Session, item_id: int) -> tuple[Dict[int, Decimal], bool]:
+    """The leaves of `item_id`'s bill of materials with their quantity (multiplied down the tree, summed over paths),
+    and whether the guard stopped a path: `lote._hojas`, the one rule, in one query."""
+    filas = db.execute(_HOJAS_SQL, {"i": item_id}).all()
+    return {c: Decimal(str(q)) for c, q, _ in filas}, any(corte for _, _, corte in filas)
+
+
 def leer(db: Session, item_id: int, fecha: date) -> CostoSi:
     if fuentes.es_combo(db, item_id):
-        partes = db.execute(
-            text("SELECT componente_item_id, cantidad FROM combo_componentes WHERE combo_item_id = :i ORDER BY 1"),
-            {"i": item_id},
-        ).all()
+        # its leaves: a component with a bill of materials (a PC inside a PC) is its own components, quantities
+        # multiplied; a cycle or a too deep one leaves it unknown (`lote.MAX_NIVELES`, L22)
+        hojas, cortado = _hojas(db, item_id)
         componentes = []
-        for c, q in partes:
+        for c, q in sorted(hojas.items()):
             valor, _, moneda = _vigente(db, c, fecha)
-            componentes.append(Componente(c, Decimal(q), valor, moneda))
+            componentes.append(Componente(c, q, valor, moneda))
         monedas = {c.moneda for c in componentes}
-        known = componentes and all(c.costo_si_usd is not None for c in componentes) and len(monedas) == 1
+        known = (
+            componentes and not cortado and all(c.costo_si_usd is not None for c in componentes) and len(monedas) == 1
+        )
         total = redondear(sum((c.costo_si_usd * c.cantidad for c in componentes), Decimal(0))) if known else None
         return CostoSi(item_id, fecha, True, total, None, monedas.pop() if known else None, componentes=componentes)
     valor, desde, moneda = _vigente(db, item_id, fecha)

@@ -21,7 +21,8 @@
   Full (`full_ml`, L11; no Mercado Libre call). A day with a costo SI photo (`costo_si_stock_diario`) reads it
   instead.
 - Combos (S11, L7.1) have no stock, purchases or sell ins of their own: the engine never computes one (`es_combo`);
-  their cost is their components' at read time. A combo of the PC category is its own product (L2.6).
+  their cost is their components' at read time. A PC (cat 47) too, with or without a bill of materials (L22:
+  "las pcs son la suma de sus componentes el costo", `sin_historia`).
 """
 
 from __future__ import annotations
@@ -60,6 +61,11 @@ class MonedaNoSoportada(ValueError):
 # Invoices dated before the start can still be entering stock after it (GBP loads them up to ~2 weeks late).
 VENTANA_PREVIAS = timedelta(days=90)
 
+# L21 (owner: "pero costo si tiene que ponderar las facturas por mas que no tengan s8" / "arranquemos desde el 01/11 y
+# listo"): a product no sell in ever reached starts its average here, 00:00, with that instant's list cost and
+# available stock (S2/S3), then every purchase invoice (S4) with no discount. A product with a sell in keeps its own.
+INICIO_SIN_SELL_IN = date(2026, 11, 1)
+
 
 def inicio_del_dia(dia: date) -> datetime:
     """00:00 of `dia`, naive, as GBP's mirror stores its timestamps (local time)."""
@@ -67,9 +73,16 @@ def inicio_del_dia(dia: date) -> datetime:
 
 
 def es_combo(db: Session, item_id: int) -> bool:
-    """A combo that is not a PC: no costo SI of its own (S11)."""
+    """A combo, a PC included: its costo SI is its components' sum, read at read time (S11; L22 "las pcs son la suma
+    de sus componentes el costo")."""
     combo = db.execute(text("SELECT 1 FROM combo_componentes WHERE combo_item_id = :i LIMIT 1"), {"i": item_id}).first()
-    return combo is not None and item_id not in pcs_entre(db, [item_id])
+    return combo is not None
+
+
+def sin_historia(db: Session, item_id: int) -> bool:
+    """No history of its own: a combo, or a PC even without a bill of materials (L22: a PC's cost is never its own
+    average, never frozen at L21's start)."""
+    return es_combo(db, item_id) or bool(pcs_entre(db, [item_id]))
 
 
 # ---------------------------------------------------------------------------------------------------------- start
@@ -522,10 +535,11 @@ def disponible(db: Session, item_id: int, dia: date) -> int:
 
 
 def inicio_de(db: Session, item_id: int) -> Optional[date]:
-    """The product's first sell-in date, None for a combo or a product no sell in reaches."""
-    if es_combo(db, item_id):
+    """The product's start: its first sell-in date, `INICIO_SIN_SELL_IN` when no sell in reaches it (L21), None for
+    a combo or a PC (S11, L22)."""
+    if sin_historia(db, item_id):
         return None
-    return primera_fecha_sell_in(db, item_id, bonos_de(db, item_id))
+    return primera_fecha_sell_in(db, item_id, bonos_de(db, item_id)) or INICIO_SIN_SELL_IN
 
 
 # --------------------------------------------------------------------------------------------------------- inputs
@@ -539,13 +553,12 @@ class Entrada:
 
 
 def entrada(db: Session, item_id: int) -> Optional[Entrada]:
-    """The engine's input for `item_id`, None when no sell in applies to it or it is a combo (S11)."""
-    if es_combo(db, item_id):
+    """The engine's input for `item_id`, None for a combo or a PC (S11, L22). The start is the first sell in's date (S2), or
+    `INICIO_SIN_SELL_IN` for a product no sell in reaches (L21): no bonus then, so no invoice carries a discount."""
+    if sin_historia(db, item_id):
         return None
     bonos = bonos_de(db, item_id)
-    inicio_fecha = primera_fecha_sell_in(db, item_id, bonos)
-    if inicio_fecha is None:
-        return None
+    inicio_fecha = primera_fecha_sell_in(db, item_id, bonos) or INICIO_SIN_SELL_IN
     t0 = inicio_del_dia(inicio_fecha)
     facturas = facturas_de(db, item_id, inicio_fecha - VENTANA_PREVIAS)
     previas = [f for f in facturas if f.fecha < inicio_fecha]

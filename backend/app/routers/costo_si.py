@@ -74,7 +74,8 @@ def costo_si(
     db: Session = Depends(get_db),
 ) -> CostoSiOut:
     """The product's costo SI on `fecha` and its breakdown (net, each sell in %, net-net, stock before, average
-    after). `costo_si_usd` is null when no sell in ever applied to the product."""
+    after). `costo_si_usd` is null before the product's start (its first sell in, or 2026-11-01 without one: L21),
+    for a combo, or without a start cost and a purchase since."""
     found = lectura.leer(db, item_id, fecha or board.today_business())
     return CostoSiOut(
         item_id=found.item_id,

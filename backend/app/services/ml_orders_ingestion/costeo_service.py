@@ -50,7 +50,6 @@ from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
 from app.services.combos.componentes import combos_disponibles, componentes_de
-from app.services.combos.pcs import pcs_entre
 from app.services.costo_si import lote
 from app.services.ml_orders_ingestion.mapper import OrderItemOpsDTO
 from app.services.ml_orders_ingestion.recongelar_costo_si import (
@@ -601,10 +600,10 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO], fecha
         fecha_venta = datetime.now(ZoneInfo(BUSINESS_TIMEZONE)).date()
     erp_ids = {producto.item_id for producto, _ in productos_por_indice.values()}
     costos_si = _costos_en_fecha(db, sorted(erp_ids), fecha_venta)
-    # Every bill of materials of the batch in ONE query: the combos the reader summed (their `fuente`, the PCs out)
-    # and the TP list-8 combo composition below.
+    # Every bill of materials of the batch in ONE query: the combos the reader summed (their `fuente`; a PC is one
+    # too, L22) and the TP list-8 combo composition below.
     boms = componentes_de(db, erp_ids)
-    combos_si = set(boms) - pcs_entre(db, boms)
+    combos_si = set(boms)
 
     precios_lista8, rechazados_lista8 = _precios_lista8(db, erp_ids)
     # Products with no cost of their own or no list-8 price of their own,

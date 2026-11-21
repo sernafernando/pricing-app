@@ -58,7 +58,7 @@ def _mundo(engine: Engine) -> None:
     """A (USD): three steps, two on 10-10 (the later `orden` wins), list cost 30. B (USD): one step from 10-05, list
     cost 11. SIN (USD): no costo SI, list 40 today, history 35 (10-01 09:00) and 38 (10-05). ARSP (ARS): costo SI
     15000 from 10-01, list 14000. ARSLISTA (ARS): list 20000. NADA: no cost at all. Combos: COMBO = 2 A + B,
-    COMBO_LISTA = A + SIN, COMBO_MIX = A + ARSP, COMBO_INCOMPLETO = A + NADA. PC (cat 47, contains A): its own 300.
+    COMBO_LISTA = A + SIN, COMBO_MIX = A + ARSP, COMBO_INCOMPLETO = A + NADA. PC (cat 47, contains A): A's cost (L22), never its own stored 300.
     USD rate 1000 from 10-01, 1500 from 10-10."""
     w.producto(engine, A, costo="30")
     w.producto(engine, B, costo="11")
@@ -129,7 +129,7 @@ def test_actuales_resolves_costo_si_then_list_cost_in_each_products_currency(eng
         COMBO_LISTA: Costo(COMBO_LISTA, D("63.08687"), "USD", LISTA, None, tc, D("63.08687") * tc, D10_10),
         COMBO_MIX: Costo(COMBO_MIX, D("49630.30500"), "ARS", SI, None, None, D("49630.30500")),
         COMBO_INCOMPLETO: _nada(COMBO_INCOMPLETO),
-        PC: Costo(PC, D("300"), "USD", SI, date(2026, 10, 1), tc, D("450000"), D10_10),
+        PC: Costo(PC, D("23.08687"), "USD", SI, None, tc, D("23.08687") * tc, D10_10),  # L22: the sum of its components
         999: _nada(999),
     }
 
@@ -184,7 +184,7 @@ def test_en_fechas_is_the_cost_in_force_that_day_at_that_days_rate(engine: Engin
         (COMBO_MIX, date(2026, 9, 30)): _nada(COMBO_MIX),
         (COMBO_MIX, date(2026, 10, 7)): Costo(COMBO_MIX, D("40000"), "ARS", SI, None, None, D("40000")),
         (COMBO_INCOMPLETO, date(2026, 10, 20)): _nada(COMBO_INCOMPLETO),
-        (PC, date(2026, 10, 2)): Costo(PC, D("300"), "USD", SI, date(2026, 10, 1), mil, D("300000"), D10_01),
+        (PC, date(2026, 10, 2)): Costo(PC, D("25"), "USD", SI, None, mil, D("25000"), D10_01),  # L22: A on 10-02
     }
 
 
@@ -419,12 +419,12 @@ def test_actual_subquery_sorts_a_listing_by_the_peso_cost_in_sql(engine: Engine)
         ).all()
 
     assert [tuple(r) for r in rows] == [
-        (PC, SI, D("450000")),
         (COMBO_LISTA, LISTA, D("94630.30500")),
         (COMBO, SI, D("84445.78500")),
         (SIN, LISTA, D("60000")),
         (COMBO_MIX, SI, D("49630.30500")),
         (A, SI, D("34630.30500")),
+        (PC, SI, D("34630.30500")),  # L22: A x 1
         (ARSLISTA, LISTA, D("20000")),
         (B, SI, D("15185.17500")),
         (ARSP, SI, D("15000")),
@@ -650,9 +650,9 @@ def test_a_sort_over_many_products_looks_the_rate_up_once(engine: Engine) -> Non
     assert max(_escaneos(plan, "tb_cur_exch_history"), default=0) == 0
 
 
-def test_the_set_fragment_checks_the_pc_category_only_for_ids_with_parts(engine: Engine) -> None:
+def test_the_set_fragment_never_reads_the_pc_category(engine: Engine) -> None:
     """Timed on prod (#2373): the "not a PC" check read `tb_item` once per id of the whole catalogue (~15 of the ~50
-    ms of a Tienda sort). Only an id with parts in `combo_componentes` can be a combo, so only those are checked."""
+    ms of a Tienda sort). Since L22 a PC is a combo like any other, so the set fragment has no category check at all."""
     _mundo(engine)
     ids = [A, B, SIN, ARSP, ARSLISTA, NADA, COMBO, COMBO_LISTA, PC]  # 3 with parts: COMBO, COMBO_LISTA, PC
     conjunto = lote.sql_actual_conjunto("SELECT unnest(CAST(:ids AS integer[])) AS item_id")
@@ -662,7 +662,7 @@ def test_the_set_fragment_checks_the_pc_category_only_for_ids_with_parts(engine:
             text(f"EXPLAIN (ANALYZE, FORMAT JSON) SELECT cs.item_id FROM ({conjunto}) cs"), {"ids": ids}
         ).scalar_one()[0]["Plan"]
 
-    assert sum(_escaneos(plan, "tb_item")) == 3
+    assert sum(_escaneos(plan, "tb_item")) == 0
 
 
 def _por_fila(plan: dict, tabla: str) -> bool:
@@ -755,11 +755,11 @@ def test_the_fragment_never_captures_the_callers_alias(engine: Engine, alias: st
     assert got == esperado
 
 
-def test_combos_con_lists_the_combos_a_component_moves_but_not_pcs(engine: Engine) -> None:
+def test_combos_con_lists_the_combos_and_pcs_a_component_moves(engine: Engine) -> None:
     _mundo(engine)
     with _db(engine) as db:
         assert lote.combos_con(db, [A, SIN, ARSLISTA]) == {
-            A: [COMBO, COMBO_LISTA, COMBO_MIX, COMBO_INCOMPLETO],
+            A: [COMBO, COMBO_LISTA, COMBO_MIX, COMBO_INCOMPLETO, PC],  # L22: a PC moves with its components
             SIN: [COMBO_LISTA],
         }
         assert lote.combos_con(db, []) == {}
@@ -778,3 +778,166 @@ def test_every_column_stays_behind_the_cost_permission() -> None:
     """C12: the MCP tools strip every `costo*` key without `productos.ver_costos`."""
     for key in (*lote.COLUMNAS, "costo_si", "costo_si_moneda", "costo_si_fuente"):
         assert mcp_tools._COST_KEY.search(key), key
+
+
+# --- L22: a PC costs the sum of its components ("las pcs son la suma de sus componentes el costo") -----------------
+
+PC_SIN_BOM, PC_INCOMPLETA = 5216, 5217
+
+
+def test_l22_a_pc_with_an_unknown_component_is_unknown_and_logged_never_its_own_cost(engine: Engine, caplog) -> None:
+    """Interfaz §7: one component without a cost makes the PC's cost unknown (never its own list cost, never 0), and
+    the read says so in the log."""
+    _mundo(engine)
+    w.producto(engine, PC_INCOMPLETA, cat_id=47, costo="500")
+    for componente in (A, NADA):
+        w.run(
+            engine,
+            "INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (:c, :p, 1)",
+            c=PC_INCOMPLETA,
+            p=componente,
+        )
+
+    with _db(engine) as db, caplog.at_level("WARNING"):
+        actual = lote.actuales(db, [PC_INCOMPLETA])[PC_INCOMPLETA]
+        en_fecha = lote.en_fechas(db, [(PC_INCOMPLETA, date(2026, 10, 20))])[(PC_INCOMPLETA, date(2026, 10, 20))]
+
+    assert actual == _nada(PC_INCOMPLETA) and en_fecha == _nada(PC_INCOMPLETA)
+    assert any(str(PC_INCOMPLETA) in r.getMessage() and "component" in r.getMessage() for r in caplog.records)
+
+
+def test_l22_a_pc_without_a_bill_of_materials_reads_its_list_cost(engine: Engine) -> None:
+    """No components to add up: no costo SI of its own either (the engine never computes one for a PC), so the
+    reader keeps its list cost, as before L21."""
+    _mundo(engine)
+    w.producto(engine, PC_SIN_BOM, cat_id=47, costo="500")
+
+    with _db(engine) as db:
+        got = lote.actuales(db, [PC_SIN_BOM])[PC_SIN_BOM]
+
+    assert (got.costo, got.moneda, got.fuente) == (D("500"), "USD", LISTA)
+
+
+PC_GBP = 5218
+
+
+def test_l22_a_pc_component_missing_from_productos_erp_takes_its_gbp_list_cost_like_a_combos(engine: Engine) -> None:
+    """L22 + #2373: a PC sums its components through the same lookup a combo does, GBP's list cost included for a
+    component without a `productos_erp` row (prod: PCBASE01-05, PC256): PC_GBP = A + 25 G72 = COMBO_GBP, in every
+    reader (current, on a date, and the set fragment a listing sorts by)."""
+    _componentes_fuera_de_productos_erp(engine)
+    w.producto(engine, PC_GBP, cat_id=47, costo="999")
+    for parte, q in ((A, 1), (G72, 25)):
+        w.run(
+            engine,
+            "INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (:c, :p, :q)",
+            c=PC_GBP,
+            p=parte,
+            q=q,
+        )
+    actual = lote.actual()
+
+    with _db(engine) as db:
+        got = lote.actuales(db, [PC_GBP, COMBO_GBP])
+        dia = lote.en_fechas(db, [(PC_GBP, date(2026, 10, 20)), (COMBO_GBP, date(2026, 10, 20))])
+        conjunto = db.execute(
+            select(actual.c.costo_si_costo, actual.c.costo_si_fuente).where(actual.c.item_id == PC_GBP)
+        ).one()
+
+    tc, D10_10 = D("1500"), date(2026, 10, 10)
+    assert got[PC_GBP] == Costo(PC_GBP, D("60.83687"), "USD", LISTA, None, tc, D("60.83687") * tc, D10_10)
+    assert dia[(PC_GBP, date(2026, 10, 20))].costo == dia[(COMBO_GBP, date(2026, 10, 20))].costo == D("60.83687")
+    assert tuple(conjunto) == (D("60.83687"), LISTA)
+
+
+# --- L22 nested: a PC inside a PC is its own components' sum too (prod: 468 contains 465) --------------------------
+
+PC_465, PC_468, CICLO_A, CICLO_B = 5465, 5468, 5471, 5472
+HONDO = list(range(5480, 5488))  # a chain of 8 bills of materials, deeper than the guard
+
+
+def _partes(engine: Engine, combo: int, partes: dict) -> None:
+    for parte, q in partes.items():
+        w.run(
+            engine,
+            "INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (:c, :p, :q)",
+            c=combo,
+            p=parte,
+            q=q,
+        )
+
+
+def _anidados(engine: Engine) -> None:
+    """PC_465 (cat 47, own list 999, never read) = A. PC_468 (cat 47, own list 888) = 2 PC_465 + B, so 2 A + B like
+    COMBO. CICLO_A = A + CICLO_B and CICLO_B = CICLO_A: a cycle. HONDO: each one contains the next, the last A."""
+    _mundo(engine)
+    w.producto(engine, PC_465, cat_id=47, costo="999")
+    w.producto(engine, PC_468, cat_id=47, costo="888")
+    _partes(engine, PC_465, {A: 1})
+    _partes(engine, PC_468, {PC_465: 2, B: 1})
+    for item in (CICLO_A, CICLO_B, *HONDO):
+        w.producto(engine, item, cat_id=47, costo="1")
+    _partes(engine, CICLO_A, {A: 1, CICLO_B: 1})
+    _partes(engine, CICLO_B, {CICLO_A: 1})
+    for padre, hijo in zip(HONDO, HONDO[1:]):
+        _partes(engine, padre, {hijo: 1})
+    _partes(engine, HONDO[-1], {A: 1})
+
+
+def test_l22_a_pc_inside_a_pc_counts_its_own_components_never_its_list_cost(engine: Engine) -> None:
+    """Owner on #2374: "recurse (L22 applies to the inner PC too)". 468 -> 465: PC_468 = 2 x (A) + B, quantities
+    multiplied down the tree, in every reader: current, on a date, the set fragment and the one-product reader."""
+    _anidados(engine)
+    actual = lote.actual()
+
+    with _db(engine) as db:
+        got = lote.actuales(db, [PC_468, COMBO])
+        dia = lote.en_fechas(db, [(PC_468, date(2026, 10, 7)), (COMBO, date(2026, 10, 7))])
+        conjunto = db.execute(
+            select(actual.c.costo_si_costo, actual.c.costo_si_fuente).where(actual.c.item_id == PC_468)
+        ).one()
+        uno = lectura.leer(db, PC_468, date(2026, 12, 31))
+
+    tc, D10_10 = D("1500"), date(2026, 10, 10)
+    assert got[PC_468] == Costo(PC_468, D("56.29719"), "USD", SI, None, tc, D("56.29719") * tc, D10_10)
+    assert got[PC_468].costo == got[COMBO].costo
+    assert dia[(PC_468, date(2026, 10, 7))].costo == dia[(COMBO, date(2026, 10, 7))].costo == D("60.12345")
+    assert tuple(conjunto) == (D("56.29719"), SI)
+    assert (uno.costo_si_usd, uno.moneda) == (D("56.29719"), "USD")
+
+
+def test_l22_a_cycle_or_a_too_deep_bill_of_materials_is_unknown_and_logged(engine: Engine, caplog) -> None:
+    """The recursion's guard: a bill of materials that contains itself, or one deeper than `lote.MAX_NIVELES`, has
+    no cost (never a partial sum, never 0), in every reader, and the read logs it as such."""
+    _anidados(engine)
+    items = [CICLO_A, CICLO_B, HONDO[0]]
+    actual = lote.actual()
+
+    with _db(engine) as db, caplog.at_level("WARNING"):
+        got = lote.actuales(db, items)
+        dia = lote.en_fechas(db, [(i, date(2026, 10, 20)) for i in items])
+        conjunto = db.execute(
+            select(actual.c.item_id, actual.c.costo_si_costo).where(actual.c.item_id.in_(items))
+        ).all()
+        uno = [lectura.leer(db, i, date(2026, 10, 20)).costo_si_usd for i in items]
+
+    assert got == {i: _nada(i) for i in items}
+    assert dia == {(i, date(2026, 10, 20)): _nada(i) for i in items}
+    assert sorted(conjunto) == [(i, None) for i in sorted(items)]
+    assert uno == [None, None, None]
+    ciclo = [r.getMessage() for r in caplog.records if "cycle" in r.getMessage()]
+    assert ciclo and all(str(i) in ciclo[0] for i in items)
+    # the chain one level shorter than the guard still sums
+    with _db(engine) as db:
+        assert lote.actuales(db, [HONDO[1]])[HONDO[1]].costo == D("23.08687")
+
+
+def test_l22_a_component_change_reaches_every_pc_above_it(engine: Engine) -> None:
+    """A's change re-costs PC_465 and PC_468 too (`combos_con` walks up the tree, cycle-safe)."""
+    _anidados(engine)
+    with _db(engine) as db:
+        arriba = lote.combos_con(db, [A, B])
+    assert {PC_465, PC_468, CICLO_A, CICLO_B, *HONDO[1:]} <= set(arriba[A])
+    assert HONDO[0] not in arriba[A]  # past the guard: unknown whatever A costs
+    assert PC_468 in arriba[B] and PC_465 not in arriba[B]
+    assert len(arriba[A]) == len(set(arriba[A]))
