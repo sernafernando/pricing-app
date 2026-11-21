@@ -266,6 +266,30 @@ def test_the_current_row_fragment_is_what_actuales_runs(engine: Engine, tc) -> N
     assert filas[SIN][:3] == (D("40"), "USD", LISTA)
 
 
+@pytest.mark.parametrize("tc", [None, 2000.0])
+def test_the_set_fragment_is_what_actuales_runs_for_every_product(engine: Engine, tc) -> None:
+    """T3 PR 10 perf: raw SQL over a whole catalogue (consultas ranking / kpis) joins `sql_actual_conjunto` ONCE (no
+    per-row lateral) and gets exactly `actuales` for every product: costo SI, list fallback, a list cost of 0, combos
+    of one and of mixed currency, an incomplete combo, a PC and a product with no cost at all."""
+    _mundo(engine)
+    w.producto(engine, 5299, costo="0")  # a list cost of 0 is no cost
+    w.producto(engine, 5298, costo="10")
+    _paso(engine, 5298, 0, date(2026, 10, 1), "0.00000")  # an average of 0 is a costo SI
+    w.producto(engine, 5297, costo="12")
+    _paso(engine, 5297, 0, date(2026, 10, 1), None)  # a step without an average falls back to the list cost
+    ids = [A, B, SIN, ARSP, ARSLISTA, NADA, COMBO, COMBO_LISTA, COMBO_MIX, COMBO_INCOMPLETO, PC, 5299, 5298, 5297, 999]
+    tasa = "NULL::numeric" if tc is None else "CAST(:tc AS numeric)"
+    conjunto = lote.sql_actual_conjunto("SELECT unnest(CAST(:ids AS integer[])) AS item_id", tasa)
+    sql = text(f"SELECT cs.* FROM ({conjunto}) cs ORDER BY cs.item_id")
+
+    with _db(engine) as db:
+        filas = {r[0]: tuple(r[1:]) for r in db.execute(sql, {"ids": ids, "tc": tc})}
+        esperado = lote.actuales(db, ids, tipo_cambio=tc)
+
+    campos = [f.name for f in dataclasses.fields(Costo)][1:]
+    assert filas == {i: tuple(getattr(esperado[i], c) for c in campos) for i in ids}
+
+
 def test_actual_subquery_sorts_a_listing_by_the_peso_cost_in_sql(engine: Engine) -> None:
     """S13: a listing LEFT JOINs the current cost and sorts USD and ARS products together by `costo_si_ars`."""
     _mundo(engine)

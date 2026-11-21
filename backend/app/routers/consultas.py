@@ -245,13 +245,17 @@ STOCK_SENTINEL: int = 99999999
 # Stock valuation at costo SI (sell-in-costo-si T3 PR 10; owner L4.7: the average is the cost every calculation uses)
 # ---------------------------------------------------------------------------
 # The current cost comes from the costo SI reader (interface §1): the moving average, or the list cost when the product
-# has none (fuente 'lista'), in the product's cost currency. One LATERAL row per product; its alias must not start
-# with `csi_` (the reader's reserved prefix). The page keeps its own USD rate (:tc_venta, ADR-5) for both directions.
+# has none (fuente 'lista'), in the product's cost currency; its alias must not start with `csi_` (the reader's
+# reserved prefix). The page keeps its own USD rate (:tc_venta, ADR-5) for both directions.
 # Unknown cost -> NULL valuation ("Sin costo"), never 0: the totals sum the costed products and count the rest apart.
-# `sql_actual_fila` is the CURRENT cost (= `lote.actuales`, as the stock audit and the ficha read it), never the list
-# history a dated read falls back to.
-
-_COSTO_SI_JOIN = f"LEFT JOIN LATERAL ({lote.sql_actual_fila('pe.item_id', ':tc_venta')}) cs10 ON TRUE"
+# It is the CURRENT cost (= `lote.actuales`, as the stock audit and the ficha read it), never the list history a dated
+# read falls back to.
+# Set-based, read ONCE per query (`sql_actual_conjunto`: no per-product lateral before ORDER BY / LIMIT, which made
+# the ranking 6x slower on prod) and hash-joined by item_id; its set is the whole catalogue, a superset of any filter.
+_COSTO_SI_JOIN = (
+    f"LEFT JOIN ({lote.sql_actual_conjunto('SELECT item_id FROM productos_erp', ':tc_venta')}) cs10"
+    " ON cs10.item_id = pe.item_id"
+)
 
 
 def _valor_costo_sql() -> str:
