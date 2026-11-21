@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { MemoryRouter } from 'react-router-dom';
-import { setTheme, tokenColor } from './visualHelpers';
+import { setTheme, tokenColor, contrastRatio, rgba } from './visualHelpers';
 import api from '../../services/api';
 import DashboardMetricasML from '../../pages/DashboardMetricasML';
 import Sidebar from '../../components/Sidebar';
@@ -112,6 +112,15 @@ const contenedorDe = (tabla) => {
   return document.documentElement;
 };
 
+// The first ancestor (or the element itself) that paints an opaque background: what the text is read against.
+const fondoOpaco = (el) => {
+  for (let nodo = el; nodo; nodo = nodo.parentElement) {
+    const fondo = getComputedStyle(nodo).backgroundColor;
+    if (rgba(fondo)[3] === 1) return fondo;
+  }
+  return 'rgb(255, 255, 255)';
+};
+
 describe.each(['light', 'dark'])('Dashboard Métricas ML, sale without cost (%s)', (theme) => {
   beforeEach(async () => {
     await page.viewport(1440, 900);
@@ -166,5 +175,28 @@ describe.each(['light', 'dark'])('Dashboard Métricas ML, sale without cost (%s)
     for (const celda of document.querySelectorAll('tbody td')) {
       if (/\$\s?[\d.]+/.test(texto(celda))) expect(lineasDelImporte(celda), texto(celda)).toBe(1);
     }
+  });
+
+  it('the filter panel follows the theme: token backgrounds, readable labels and placeholders', async () => {
+    renderPage();
+    await expect.element(page.getByText('Todas las marcas')).toBeInTheDocument();
+    const etiqueta = page.getByText('Todas las marcas').element();
+    const header = etiqueta.parentElement;
+    const panel = header.closest('[class*="filtros"]');
+    expect(getComputedStyle(panel).backgroundColor).toBe(tokenColor('--bg-secondary'));
+    expect(getComputedStyle(header).backgroundColor).toBe(tokenColor('--bg-primary'));
+    expect(contrastRatio(getComputedStyle(etiqueta).color, fondoOpaco(header))).toBeGreaterThanOrEqual(4.5);
+    const buscador = header.parentElement.querySelector('input[type="text"]');
+    expect(getComputedStyle(buscador.closest('[class*="multiSelectDropdown"]')).backgroundColor).toBe(
+      tokenColor('--bg-primary'),
+    );
+    const placeholder = getComputedStyle(buscador, '::placeholder').color;
+    expect(contrastRatio(placeholder, fondoOpaco(buscador))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('with every result loaded the pagination bar no longer says "Cargando..."', async () => {
+    renderPage();
+    await expect.element(page.getByText('Todos los resultados cargados')).toBeVisible();
+    expect(document.body.textContent).not.toContain('Cargando');
   });
 });
