@@ -26,9 +26,11 @@ from app.models.mercadolibre_order_detail import MercadoLibreOrderDetail
 from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
 from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
 from app.models.ml_venta_metrica import MLVentaMetrica
+from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.models.notificacion import Notificacion
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
+from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
 from app.models.offset_individual_consumo import OffsetIndividualConsumo, OffsetIndividualResumen
 from app.models.pricing_constants import PricingConstants
@@ -74,7 +76,9 @@ TABLES = [
     ComisionBase.__table__,
     ComisionAdicionalCuota.__table__,
     MLVentaMetrica.__table__,
+    VentaTiendaNubeMetrica.__table__,
     OffsetGrupo.__table__,
+    OffsetGrupoFiltro.__table__,
     OffsetGanancia.__table__,
     OffsetGrupoConsumo.__table__,
     OffsetGrupoResumen.__table__,

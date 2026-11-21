@@ -31,6 +31,7 @@ from datetime import datetime, date
 from sqlalchemy import or_, text
 from decimal import Decimal
 
+from app.services import offset_costo_desconocido
 from app.core.database import SessionLocal
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
@@ -262,6 +263,10 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
                     continue
 
                 cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
+                if offset_costo_desconocido.omitir(
+                    offset_aplicable, venta.costo_total_sin_iva, "ml", venta.id_operacion
+                ):
+                    continue  # unknown cost: no cost-percentage consumption (costo SI interface §7)
                 costo = float(venta.costo_total_sin_iva) if venta.costo_total_sin_iva else 0
                 monto_offset_ars, monto_offset_usd = calcular_monto_offset(offset_aplicable, venta.cantidad, costo, cot)
 
@@ -341,6 +346,8 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
                     continue
 
                 cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
+                if offset_costo_desconocido.omitir(offset_aplicable, venta.costo_total, "fuera", venta.id):
+                    continue  # unknown cost: no cost-percentage consumption (costo SI interface §7)
                 costo = float(venta.costo_total) if venta.costo_total else 0
                 cantidad = int(venta.cantidad) if venta.cantidad else 0
                 monto_offset_ars, monto_offset_usd = monto_offset_pdf(
@@ -424,6 +431,8 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
                     continue
 
                 cot = float(venta.cotizacion_dolar) if venta.cotizacion_dolar else cotizacion
+                if offset_costo_desconocido.omitir(offset_aplicable, venta.costo_total, "tienda_nube", venta.id):
+                    continue  # unknown cost: no cost-percentage consumption (costo SI interface §7)
                 costo = float(venta.costo_total) if venta.costo_total else 0
                 cantidad = int(venta.cantidad) if venta.cantidad else 0
                 monto_offset_ars, monto_offset_usd = calcular_monto_offset(offset_aplicable, cantidad, costo, cot)
