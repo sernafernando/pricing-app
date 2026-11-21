@@ -23,9 +23,13 @@ from app.models.costo_si import (
     CostoSiPaso,
     CostoSiStockDiario,
 )
+from app.models.item_cost_list import ItemCostList
 from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.item_transaction import ItemTransaction
+from app.models.ml_costo_si import MlCostoSiDirty, MlOrderItemCostoBackup
+from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.producto import ProductoERP
+from app.models.publicacion_ml import PublicacionML
 from app.models.sale_order_detail import SaleOrderDetail
 from app.models.sale_order_detail_history import SaleOrderDetailHistory
 from app.models.sale_order_header import SaleOrderHeader
@@ -90,6 +94,12 @@ TABLES = [
     CostoSiDirty.__table__,
     CostoSiStockDiario.__table__,
     CostoSiFacturaTc.__table__,
+    # What follows a recompute (`costo_si.despues`): the ML sale costs it re-freezes (T3 PR 7).
+    PublicacionML.__table__,
+    ItemCostList.__table__,
+    MlOrderItemCosto.__table__,
+    MlCostoSiDirty.__table__,
+    MlOrderItemCostoBackup.__table__,
 ]
 
 MARCA = "MARCA DEMO"
@@ -139,6 +149,12 @@ def clean(engine: Engine) -> None:
             "costo_si_backups",
             "costo_si_stock_diario",
             "costo_si_factura_tc",
+            "ml_order_item_costos",
+            "ml_order_item_costos_backups",
+            "ml_costo_si_dirty",
+            "publicaciones_ml",
+            "tb_item_cost_list",
+            "tb_cur_exch_history",
             "productos_erp",
         ):
             conn.execute(text(f"DELETE FROM {table}"))

@@ -20,36 +20,44 @@ with a fallback when no publication links that MLA:
     item.seller_sku -> ProductoERP.codigo
     item.seller_sku -> ProductoERP.item_id   (numeric SKU, only if no code matched)
 
-Absence at any step means UNKNOWN -- no row is written for that item. So
-does a cost that is not a REAL cost once a product IS found: `NULL` OR
-`<= 0`, because `erp_sync` reads the cost with a `0` default and never
-writes `NULL` there (see `tiene_costo_propio`). A product with no cost row
-in the ERP -- a pack/combo/kit is the dominant case -- arrives as `0.0`,
-and freezing that zero would report the goods as free. Such a product is
-costed from its components instead when its bill of materials is known
-(`componentes_por_combo`), and left uncosted when it does not.
-`Decimal(str(...))` conversion
-happens HERE, at the first read of `ProductoERP.costo`/`.iva` (both `Float`
-columns) -- never later in the chain (money-path Decimal discipline).
+Absence at any step means UNKNOWN -- no row is written for that item.
+
+The normal cost (sell-in-costo-si T3 PR 7, S13) is the cost in force on the
+SALE date as THE reader resolves it (`costo_si.lote.en_fechas`): costo SI,
+or the list cost when the product has none (Q1; 0 or less is no cost, never
+free goods), in the product's cost currency at that date's USD rate (L18),
+a combo as its components x quantity (S11, L19). An unknown cost writes no
+row. The TP list-8 cost keeps its own current-price path (D3). A later
+costo SI change re-freezes the row (`recongelar_costo_si`).
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 
+from app.core.constants import BUSINESS_TIMEZONE
 from app.models.item_cost_list import ItemCostList
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
 from app.services.combos.componentes import combos_disponibles, componentes_de
+from app.services.combos.pcs import pcs_entre
+from app.services.costo_si import lote
 from app.services.ml_orders_ingestion.mapper import OrderItemOpsDTO
+from app.services.ml_orders_ingestion.recongelar_costo_si import (
+    FUENTE_COSTO_SI_COMBO,
+    FUENTE_COSTO_SI_PUB,
+    FUENTE_COSTO_SI_SKU,
+)
 from app.services.tn_publish_core.resolve import (
     latest_usd_rate_with_date,
 )
@@ -169,7 +177,7 @@ class _ResolvedCost:
 
     There is no partially-resolved variant on purpose. When the linkage,
     the cost, the IVA rate or the exchange rate cannot be resolved,
-    `_resolve_cost` returns `None` for the item as a whole and no row is
+    `_resolve_cost_en_fecha` returns `None` for the item as a whole and no row is
     written at all -- "unknown is not zero", and never a half-frozen row
     that reads like a real one."""
 
@@ -415,75 +423,44 @@ def _convertir_a_ars(
     return costo_origen, None, None
 
 
-def _moneda_de(producto: ProductoERP) -> str:
-    moneda = (producto.moneda_costo.value if producto.moneda_costo is not None else "ARS") or "ARS"
-    return str(moneda).upper()
+def fecha_venta_de(date_created: Optional[datetime]) -> Optional[date]:
+    """A sale's date for its cost: the ART calendar day of the order's `date_created` (an order at 22:00 ART is that
+    day, not the next UTC one) -- the same day `recongelar_costo_si.FECHA_VENTA_SQL` computes in SQL."""
+    if date_created is None:
+        return None
+    if date_created.tzinfo is None:
+        date_created = date_created.replace(tzinfo=timezone.utc)
+    return date_created.astimezone(ZoneInfo(BUSINESS_TIMEZONE)).date()
 
 
-def _resolver_combo_vivo(
-    db: Session,
-    componentes: Sequence[Tuple[int, Decimal]],
-    productos_componentes: Dict[int, ProductoERP],
-    usd_rate_cache: Dict[str, Any],
-) -> Optional[Tuple[Decimal, Optional[Decimal], Optional[Any]]]:
-    """A pack/combo/kit's cost, live: the sum of its CURRENT components'
-    `ProductoERP.costo`, each converted to ARS, times how many go in.
-
-    ALL OR NOTHING, same discipline the backfill's `_resolver_combo`
-    documents: one component that does not resolve to a `ProductoERP`, or
-    whose own `costo` is unknown (per `tiene_costo_propio` -- `NULL` or
-    `<= 0`, the sync never distinguishes "no cost row" from `0.0`), or
-    whose currency cannot be converted, sinks the WHOLE combo -- never a
-    partial sum.
-
-    NO RECURSION: a component that is itself a combo (no `costo` of its
-    own) is NOT resolved by summing ITS components -- it is treated the
-    same as any other component with an unknown cost, and the whole combo
-    fails closed. The backfill's `_resolver_combo` has the identical gap
-    (it looks up a component's dated history row directly, never recurses
-    into `_componentes_por_combo` for it); this mirrors that rather than
-    silently doing more than the backfill's already-shipped behaviour."""
-    total = Decimal("0")
-    tipo_cambio: Optional[Decimal] = None
-    tipo_cambio_fecha = None
-
-    for componente_id, qty in componentes:
-        componente = productos_componentes.get(componente_id)
-        if componente is None or not tiene_costo_propio(componente):
-            return None
-        try:
-            costo_componente = Decimal(str(componente.costo))
-        except InvalidOperation:
-            return None
-        moneda_componente = _moneda_de(componente)
-        convertido = _convertir_a_ars(db, costo_componente, moneda_componente, componente.item_id, usd_rate_cache)
-        if convertido is None:
-            return None
-        valor_ars, tc, tc_fecha = convertido
-        total += valor_ars * qty
-        if tc is not None:
-            tipo_cambio = tc
-            tipo_cambio_fecha = tc_fecha
-
-    return total, tipo_cambio, tipo_cambio_fecha
+_FUENTE_COSTO_SI_POR_VINCULO = {FUENTE_PUBLICACION: FUENTE_COSTO_SI_PUB, FUENTE_SKU: FUENTE_COSTO_SI_SKU}
 
 
-def _resolve_cost(
-    db: Session,
+def _costos_en_fecha(db: Session, erp_ids: Sequence[int], fecha_venta: date) -> Dict[int, lote.Costo]:
+    """The cost in force on the sale date of every product, from THE reader (`lote.en_fechas`, sell-in-costo-si T3
+    PR 7, S13): costo SI when the product has one, else its list cost on that date (Q1), in its cost currency (L18),
+    combos as their components (S11, L19: an ML combo sale is one line, costed as components x quantity), in pesos at
+    that date's rate. One query for the whole order."""
+    costos = lote.en_fechas(db, [(erp_id, fecha_venta) for erp_id in erp_ids])
+    return {item_id: costo for (item_id, _), costo in costos.items()}
+
+
+def _resolve_cost_en_fecha(
     resuelto: Optional[tuple[ProductoERP, str]],
-    usd_rate_cache: Dict[str, Any],
-    componentes_por_combo: Optional[Dict[int, List[Tuple[int, Decimal]]]] = None,
-    productos_componentes: Optional[Dict[int, ProductoERP]] = None,
+    costos: Dict[int, lote.Costo],
+    combos: set,
+    fecha_venta: date,
+    desconocidos: list[str],
 ) -> Optional[_ResolvedCost]:
-    """Resolves one item's cost snapshot, or `None` on any unknown step:
-    no linked product, missing `costo` (and no costable combo composition),
-    missing `iva`, or (for a USD-costed product/component) no exchange rate
-    available. `usd_rate_cache` is populated at most once per `congelar()`
-    call (design: FX resolved once per batch, never per item)."""
+    """One item's cost snapshot at the sale date through the reader: the linkage (`_productos_por_item`) and a known
+    IVA rate (`tiene_iva_conocido`) as before costo SI, and the cost, currency, rate and pesos as `lote` gives them.
+    Unknown (no cost, or a USD cost with no rate) -> `None`, no row (unknown is not zero). `fuente`: costo SI ->
+    `costo_si_pub` / `costo_si_sku` / `costo_si_combo`; list cost -> the linkage's `erp_publicacion` / `erp_sku`, or
+    `combo` for a summed combo -- the same rule `recongelar_costo_si` writes. An unknown cost is appended to
+    `desconocidos` (item, date, cost and rate) for the caller's one warning of the batch."""
     if resuelto is None:
         return None
-    producto, fuente = resuelto
-
+    producto, vinculo = resuelto
     if not tiene_iva_conocido(producto):
         return None
     try:
@@ -491,59 +468,26 @@ def _resolve_cost(
     except InvalidOperation:
         logger.warning("costeo_service: unparseable iva for producto_item_id=%s", producto.item_id)
         return None
-
-    if tiene_costo_propio(producto):
-        # The product's OWN cost comes first, even if it also happens to
-        # have `combo_componentes` rows -- a product the ERP actually
-        # prices is costed with that figure, never with a derived sum
-        # (same order-of-preference the backfill's `_resolve_backfill_cost`
-        # documents).
-        try:
-            costo_origen = Decimal(str(producto.costo))
-        except InvalidOperation:
-            logger.warning("costeo_service: unparseable costo for producto_item_id=%s", producto.item_id)
-            return None
-        moneda = _moneda_de(producto)
-        convertido = _convertir_a_ars(db, costo_origen, moneda, producto.item_id, usd_rate_cache)
-        if convertido is None:
-            return None
-        costo_unitario_ars, tipo_cambio, tipo_cambio_fecha = convertido
-        return _ResolvedCost(
-            costo_origen=costo_origen,
-            moneda=moneda,
-            tipo_cambio=tipo_cambio,
-            tipo_cambio_fecha=tipo_cambio_fecha,
-            costo_unitario_ars=costo_unitario_ars,
-            iva_pct=iva_pct,
-            fuente=fuente,
-            producto_item_id=producto.item_id,
+    costo = costos.get(producto.item_id)
+    if costo is None or costo.costo is None or costo.costo_ars is None or costo.costo_ars <= 0:
+        # Unknown stays unknown: no row, never 0 (interface §7), and said so (by the caller, once per batch).
+        desconocidos.append(
+            f"{producto.item_id} on {fecha_venta.isoformat()} (cost {costo.costo if costo is not None else None},"
+            f" rate {costo.tipo_cambio if costo is not None else None})"
         )
-
-    # No cost of its own -- the only remaining honest answer is "unknown",
-    # unless the ERP knows this item's bill of materials (design item: a
-    # pack/combo/kit has no purchase cost because nobody buys a pack).
-    componentes = (componentes_por_combo or {}).get(producto.item_id)
-    if not componentes:
         return None
-
-    resuelto_combo = _resolver_combo_vivo(db, componentes, productos_componentes or {}, usd_rate_cache)
-    if resuelto_combo is None:
-        return None
-    total_ars, tipo_cambio, tipo_cambio_fecha = resuelto_combo
-    if total_ars <= 0:
-        return None
-
+    if costo.fuente == lote.FUENTE_COSTO_SI:
+        fuente = FUENTE_COSTO_SI_COMBO if costo.costo_si_desde is None else _FUENTE_COSTO_SI_POR_VINCULO[vinculo]
+    else:
+        fuente = FUENTE_COMBO if producto.item_id in combos else vinculo
     return _ResolvedCost(
-        # Already summed IN ARS: a combo can mix an ARS component with a
-        # USD one, so there is no single source currency to report --
-        # same reasoning the backfill's `_resolver_combo` documents.
-        costo_origen=total_ars,
-        moneda="ARS",
-        tipo_cambio=tipo_cambio,
-        tipo_cambio_fecha=tipo_cambio_fecha,
-        costo_unitario_ars=total_ars,
+        costo_origen=costo.costo,
+        moneda=costo.moneda,
+        tipo_cambio=costo.tipo_cambio,
+        tipo_cambio_fecha=costo.tipo_cambio_fecha,  # the reader's own date of that rate (None without one)
+        costo_unitario_ars=costo.costo_ars,
         iva_pct=iva_pct,
-        fuente=FUENTE_COMBO,
+        fuente=fuente,
         producto_item_id=producto.item_id,
     )
 
@@ -556,10 +500,10 @@ def _resolve_tp_cost(
     combos: Dict[int, List[Tuple[int, Decimal]]],
     usd_rate_cache: Dict[str, Any],
 ) -> Optional[_ResolvedTpCost]:
-    """The TP-Link cost for one product, mirroring `_resolve_cost`: the
+    """The TP-Link cost for one product (D3: unchanged by costo SI): the
     product's OWN list-8 price first; failing that, for a combo, the sum of
     its components' list-8 prices -- ALL OR NOTHING and NO RECURSION, same
-    as `_resolver_combo_vivo`. Converted with the same `_convertir_a_ars`
+    as the pre-costo-SI normal-cost combo sum was. Converted with the same `_convertir_a_ars`
     and the same once-per-call USD rate as the normal cost.
 
     Independent of the normal cost's own path: a combo the ERP prices
@@ -606,7 +550,7 @@ def _resolve_tp_cost(
     if total <= 0:
         return None
     return _ResolvedTpCost(
-        # Summed in ARS: components can mix currencies (see `_resolve_cost`).
+        # Summed in ARS: components can mix currencies (lote sums mixed currencies in pesos too).
         costo_origen=total,
         moneda="ARS",
         tipo_cambio=None,
@@ -615,7 +559,7 @@ def _resolve_tp_cost(
     )
 
 
-def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> None:
+def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO], fecha_venta: Optional[date] = None) -> None:
     """Freezes a cost/IVA/exchange-rate snapshot for every item in `items`
     that resolves completely (design D6/D7). Called once per order, AFTER
     `_upsert_item_row` for all of the order's items.
@@ -645,28 +589,34 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
     later moves to the TP store must still have it. It never decides
     whether a row is written: no normal cost, no row; no list-8 cost, the
     row is written with every `costo_tp_*` column NULL.
+
+    The normal cost (sell-in-costo-si T3 PR 7, S13): the cost in force on `fecha_venta` (the sale's date in ART) as
+    THE reader resolves it (`_costos_en_fecha`): costo SI, or the list cost when the product has none, in its own
+    currency at that date's USD rate; `costo_fecha` = the sale date. A later costo SI change re-freezes the row
+    (`recongelar_costo_si`), so INSERT-only here still holds. `fecha_venta` None = today (ART).
     """
     usd_rate_cache: Dict[str, Any] = {}
     productos_por_indice = _productos_por_item(db, items)
-
-    # Combo composition for the whole batch, in ONE query -- only for
-    # products that have no cost of their own, since a product the ERP
-    # actually prices is never treated as a combo (see `_resolve_cost`).
-    # Component products are fetched in a SECOND bulk query, same
-    # discipline `run_backfill` follows: never one round-trip per combo.
+    if fecha_venta is None:
+        fecha_venta = datetime.now(ZoneInfo(BUSINESS_TIMEZONE)).date()
     erp_ids = {producto.item_id for producto, _ in productos_por_indice.values()}
+    costos_si = _costos_en_fecha(db, sorted(erp_ids), fecha_venta)
+    # Every bill of materials of the batch in ONE query: the combos the reader summed (their `fuente`, the PCs out)
+    # and the TP list-8 combo composition below.
+    boms = componentes_de(db, erp_ids)
+    combos_si = set(boms) - pcs_entre(db, boms)
+
     precios_lista8, rechazados_lista8 = _precios_lista8(db, erp_ids)
-    # Combos for BOTH costs in the same single query: products with no
-    # normal cost of their own, plus products with no list-8 price of their
-    # own (whose TP cost may still come from their components; a REJECTED
-    # own price never falls back, see `_resolve_tp_cost`).
+    # Products with no cost of their own or no list-8 price of their own,
+    # whose TP cost may still come from their components (a REJECTED own
+    # price never falls back, see `_resolve_tp_cost`).
     erp_ids_sin_costo = {
         producto.item_id
         for producto, _ in productos_por_indice.values()
         if not tiene_costo_propio(producto)
         or (producto.item_id not in precios_lista8 and producto.item_id not in rechazados_lista8)
     }
-    combos = componentes_por_combo(db, erp_ids_sin_costo)
+    combos = {combo: sorted(boms[combo].items()) for combo in erp_ids_sin_costo if combo in boms}
     if erp_ids_sin_costo and not combos and not combos_disponibles(db):
         # Not synced yet is not "no combos". Nothing extra to do: with no
         # components a combo already freezes no normal cost and a NULL TP
@@ -679,12 +629,6 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
             order_id,
         )
     componente_ids = {componente_id for componentes in combos.values() for componente_id, _ in componentes}
-    productos_componentes: Dict[int, ProductoERP] = {}
-    if componente_ids:
-        productos_componentes = {
-            producto.item_id: producto
-            for producto in db.query(ProductoERP).filter(ProductoERP.item_id.in_(sorted(componente_ids)))
-        }
     precios_componentes, rechazados_componentes = _precios_lista8(
         db, componente_ids - precios_lista8.keys() - rechazados_lista8
     )
@@ -710,6 +654,8 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
         )
     }
 
+    # Interface §7 (an unknown cost is logged with its item and date) in ONE warning per call, not one per item.
+    desconocidos: list[str] = []
     for indice, item in enumerate(items):
         if (item.item_id, item.variation_id) in ya_congelados:
             continue
@@ -719,7 +665,9 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
             # off it later) -- an item with no price is unknown, not zero.
             continue
 
-        resolved = _resolve_cost(db, productos_por_indice.get(indice), usd_rate_cache, combos, productos_componentes)
+        resolved = _resolve_cost_en_fecha(
+            productos_por_indice.get(indice), costos_si, combos_si, fecha_venta, desconocidos
+        )
         if resolved is None:
             continue
 
@@ -741,6 +689,7 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
             "precio_unitario": precio_unitario,
             "fuente": resolved.fuente,
             "producto_item_id": resolved.producto_item_id,
+            "costo_fecha": fecha_venta,
         }
         tp = _resolve_tp_cost(db, resolved.producto_item_id, precios_lista8, rechazados_lista8, combos, usd_rate_cache)
         if tp is not None:
@@ -759,3 +708,10 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
             index_elements=["order_id", "item_id", "variation_id"],
         )
         db.execute(stmt)
+    if desconocidos:
+        logger.warning(
+            "costeo_service: unknown cost, not frozen, for %s item(s) of order %s: %s",
+            len(desconocidos),
+            order_id,
+            "; ".join(desconocidos),
+        )

@@ -156,7 +156,8 @@ const ITEM_LINES_RAZON_LABELS = {
 // `fuente` values are deliberately distinct (see `MlOrderItemCosto`'s
 // module docstring): `erp_*` is the CURRENT ERP cost, `hist_*` a DATED
 // historical cost from the backfill, `hist_combo` a combo/kit's cost
-// SUMMED from its components. Flattening these into one generic "ERP"
+// SUMMED from its components, `costo_si_*` the costo SI in force on the
+// sale date (Costo SI T3 S13), per publication, SKU or combo. Flattening these into one generic "ERP"
 // label would hide exactly the distinction an operator needs to trust
 // (or distrust) the figure.
 const FUENTE_LABELS = {
@@ -165,6 +166,9 @@ const FUENTE_LABELS = {
   hist_publicacion: 'Histórico (por publicación)',
   hist_sku: 'Histórico (por SKU)',
   hist_combo: 'Histórico (combo)',
+  costo_si_pub: 'Costo SI (por publicación)',
+  costo_si_sku: 'Costo SI (por SKU)',
+  costo_si_combo: 'Costo SI (combo)',
 };
 
 function formatCostoFecha(value) {

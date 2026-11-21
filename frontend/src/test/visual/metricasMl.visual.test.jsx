@@ -86,21 +86,25 @@ const shot = async (name, { width, height }) => {
 };
 
 // Fixed 56px TopBar + collapsed 48px sidebar, as the operator sees it.
-const Shell = ({ children }) => (
+// `sidebar="open"`: the expanded 240px sidebar instead.
+const Shell = ({ children, sidebar = 'collapsed' }) => (
   <div
     data-shell
-    style={{ paddingTop: 'var(--cf-topbar-height)', paddingLeft: 'var(--cf-sidebar-width-collapsed)' }}
+    style={{
+      paddingTop: 'var(--cf-topbar-height)',
+      paddingLeft: sidebar === 'open' ? 'var(--cf-sidebar-width-expanded)' : 'var(--cf-sidebar-width-collapsed)',
+    }}
   >
     {children}
   </div>
 );
 
-const renderPage = async ({ width, height, theme }) => {
+const renderPage = async ({ width, height, theme, sidebar }) => {
   await page.viewport(width, height);
   setTheme(theme);
   document.body.style.background = 'var(--cf-bg-app)';
   const screen = await render(
-    <Shell>
+    <Shell sidebar={sidebar}>
       <MetricasML />
     </Shell>,
   );
@@ -254,9 +258,9 @@ describe('Métricas ML board (visual)', () => {
         expect(wrapped(table.querySelectorAll('[data-money]'))).toEqual([]);
         const kpis = document.querySelector('section[aria-label="Indicadores del período"]');
         expect(wrapped(kpis.querySelectorAll('[data-kpi-value]'))).toEqual([]);
-        // Sell in / sell out without "Costos TP": seven cards on one row, the sell card among them.
+        // Sell out without "Costos TP": seven cards on one row, the sell out card among them.
         expect(kpis.textContent).not.toContain('Total TP');
-        expect(kpis.textContent).toContain('Sell in / Sell out');
+        expect(kpis.textContent).toContain('Sell out');
         const tops = [...kpis.children].map((card) => card.getBoundingClientRect().top);
         expect(tops).toHaveLength(7);
         expect(new Set(tops).size).toBe(1);
@@ -582,4 +586,31 @@ describe('Métricas ML "Filas finas" (visual, vistas-tipo-publicacion S5)', () =
     await shot('board-dense-grouped-1366-light', { width: 1366, height: 768 });
     screen.unmount();
   });
+});
+
+// Costo SI T3 D1: the sell out group ("Costo", "Sell out", "Total c/ SO", "Markup c/ SO") and the KPI lines "C/ SO", at
+// 1440 with the sidebar open. No sell in column nor cost with sell in anywhere.
+describe('Métricas ML board c/ SO (visual)', () => {
+  beforeEach(() => {
+    api.get.mockReset();
+    api.get.mockImplementation((url) => Promise.resolve(routeGet(url)));
+  });
+
+  for (const theme of THEMES) {
+    it(`1440x900 ${theme} sidebar open: the c/ SO columns and KPI lines, no sell in`, async () => {
+      const size = { width: 1440, height: 900 };
+      const screen = await renderPage({ ...size, theme, sidebar: 'open' });
+      await shot(`board-c-so-1440-${theme}-kpis`, size);
+      const headers = [...document.querySelectorAll('thead th')].map((th) => th.textContent.trim());
+      expect(headers).toEqual(expect.arrayContaining(['Sell out', 'Total c/ SO', 'Markup c/ SO']));
+      expect(document.body.textContent).not.toMatch(/sell in/i);
+      expect(screen.getByTestId('kpi-sell-in-out').first()).toHaveTextContent(/^C\/ SO:/);
+      // The sell out group sits at the far right of the table: scroll the card there for the shot.
+      const scroller = document.querySelector('[data-table-scroll]');
+      scroller.scrollLeft = scroller.scrollWidth;
+      await shot(`board-c-so-1440-${theme}-columns`, size);
+      expect(overflowingCells(document.querySelector('table'))).toEqual([]);
+      screen.unmount();
+    });
+  }
 });

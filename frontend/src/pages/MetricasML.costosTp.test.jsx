@@ -169,25 +169,25 @@ describe('MetricasML Costos TP toggle', () => {
     expect(lastBoardParams()).toMatchObject({ sort: 'listing_kind', sort_dir: 'asc' });
   });
 
-  it('turning it on while sorted by Markup c/ sell in/out falls back to Facturado, and that header stops sorting', async () => {
+  it('turning it on while sorted by Markup c/ SO falls back to Facturado, and that header stops sorting', async () => {
     // The sell in lowers the Gauss cost: with "Costos TP" there is no such markup (the backend answers 422).
     await renderWithRouter(<MetricasML />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Markup c/ sell in/out' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Markup c/ SO' }));
     await waitFor(() => expect(lastBoardParams().sort).toBe('markup_sell'));
     await turnOn();
     await waitFor(() => expect(lastBoardParams().costos_tp).toBe(true));
     expect(lastBoardParams().sort).toBe('gross');
     expect(boardCalls().filter(([, config]) => config.params.costos_tp).map(([, c]) => c.params.sort)).not.toContain('markup_sell');
-    expect(screen.queryByRole('button', { name: 'Markup c/ sell in/out' })).toBeNull();
-    expect(screen.getByRole('columnheader', { name: 'Markup c/ sell in/out' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Markup c/ SO' })).toBeNull();
+    expect(screen.getByRole('columnheader', { name: 'Markup c/ SO' })).toBeInTheDocument();
   });
 
-  it('the Markup c/ sell in/out header stops sorting as soon as it is turned on, before the TP board answers', async () => {
+  it('the Markup c/ SO header stops sorting as soon as it is turned on, before the TP board answers', async () => {
     tpHangs = true;
     await renderWithRouter(<MetricasML />);
-    await screen.findByRole('button', { name: 'Markup c/ sell in/out' });
+    await screen.findByRole('button', { name: 'Markup c/ SO' });
     await turnOn();
-    expect(screen.queryByRole('button', { name: 'Markup c/ sell in/out' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Markup c/ SO' })).toBeNull();
   });
 
   it('a TP refusal while sorted by Total TP also falls back to Facturado', async () => {
