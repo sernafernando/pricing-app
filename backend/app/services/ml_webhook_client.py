@@ -3,7 +3,7 @@ import re
 import httpx
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Dict, Optional, List, Union
+from typing import Any, Dict, Optional, List, Union
 import logging
 
 from app.core.config import settings
@@ -362,6 +362,37 @@ class MLWebhookClient:
 
         except Exception as e:
             logger.error(f"Error obteniendo item completo {mla_id}: {_describe_exc(e)}")
+            return None
+
+    async def get_seller(self, seller_id: Any) -> Optional[Dict]:
+        """Seller public profile via the ml-webhook `render` proxy.
+
+        Used to enrich catalog-competition snapshots with reputation
+        (`seller_reputation.level_id` / `power_seller_status`) without
+        scraping. Fail-closed: returns None on any transport/HTTP/parse
+        error so a single seller never aborts a refresh batch.
+        """
+        if seller_id is None or seller_id == "" or isinstance(seller_id, bool):
+            return None
+        try:
+            sid = int(seller_id)
+        except (TypeError, ValueError):
+            return None
+        if sid <= 0:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"{self.base_url}/api/ml/render",
+                    params={"resource": f"/users/{sid}", "format": "json"},
+                )
+                if response.status_code == 404:
+                    return None
+                response.raise_for_status()
+                data = response.json()
+                return data if isinstance(data, dict) else None
+        except Exception as e:
+            logger.error(f"Error obteniendo vendedor {seller_id}: {_describe_exc(e)}")
             return None
 
     async def get_catalog_competition(self, mla_id: str) -> Dict:

@@ -356,6 +356,11 @@ class CatalogCompetitorPrice(BaseModel):
     markup: Optional[float] = None
     markup_sell_in_out: Optional[float] = None
     shipping_free: Optional[bool] = None
+    # From catalogCompetition `shipping_badges` containing FULL; None = sin dato.
+    is_full: Optional[bool] = None
+    # From webhook GET /users/{seller_id} at refresh (unique sellers in batch).
+    reputation_level: Optional[str] = None
+    power_seller_status: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -25,7 +25,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.ml_catalog_competition_service import (
     _bucket_key,
+    _clear_seller_rep_cache,
     _normalize_installments,
+    _reputation_fields_from_seller,
     _to_ars,
     obtener_ultimo_snapshot,
     refrescar_competencia_catalogo,
@@ -41,6 +43,13 @@ def _pricing_context_patches(context_return=None, tc_return=None, markup_return=
     """Shared patches for refrescar_* unit tests — includes sell-in/out
     companions so MagicMock sessions never hit the real resolver."""
     with ExitStack() as stack:
+        # Interactive refresh schedules a daemon thread; unit tests must not
+        # open real DB sessions or race MagicMock clients.
+        stack.enter_context(
+            patch(
+                "app.services.ml_catalog_competition_service._schedule_background_reputation_enrich",
+            )
+        )
         stack.enter_context(
             patch(
                 "app.services.ml_catalog_competition_service._resolve_pricing_context",
@@ -183,6 +192,7 @@ PAYLOAD_OK = {
             "listing_type_id": "gold_special",
             "listing_label": "Clásica",
             "installments": None,
+            "shipping_badges": ["FULL"],
         },
         {
             "item_id": "MLA_CHEAPER",
@@ -193,6 +203,7 @@ PAYLOAD_OK = {
             "listing_type_id": "gold_special",
             "listing_label": "Clásica",
             "installments": None,
+            "shipping_badges": ["ENCOMIENDA"],
         },
         {
             "item_id": "MLA_USD_NO_TC",
@@ -203,6 +214,7 @@ PAYLOAD_OK = {
             "listing_type_id": "gold_special",
             "listing_label": "Clásica",
             "installments": None,
+            # Missing badges → is_full None (sin dato), not false.
         },
     ],
 }
@@ -229,15 +241,134 @@ class TestRefrescarCompetenciaCatalogo:
         competitors_by_id = {c["item_id"]: c for c in row.competitors}
         assert competitors_by_id["MLA_CHEAPER"]["is_cheaper_than_us"] is True
         assert competitors_by_id["MLA_CHEAPER"]["same_bucket"] is True
+        assert competitors_by_id["MLA_US"]["is_full"] is True
+        assert competitors_by_id["MLA_CHEAPER"]["is_full"] is False
+        assert competitors_by_id["MLA_CHEAPER"]["shipping_badges"] == ["ENCOMIENDA"]
         # Unconvertible USD competitor: excluded from comparison, never hidden.
         usd_entry = competitors_by_id["MLA_USD_NO_TC"]
         assert usd_entry["price_ars"] is None
         assert usd_entry["currency_unconvertible"] is True
         assert usd_entry["is_cheaper_than_us"] is None
         assert usd_entry["markup"] is None
+        assert usd_entry["is_full"] is None
+        # Without get_seller mock, enrich fails open → reputation stays None.
+        assert competitors_by_id["MLA_US"]["reputation_level"] is None
+        assert competitors_by_id["MLA_US"]["power_seller_status"] is None
 
         db.add.assert_called_once()
         db.commit.assert_called_once()
+
+    def test_ok_payload_enriches_reputation_from_get_seller_once_per_seller(self) -> None:
+        _clear_seller_rep_cache()
+        db = MagicMock()
+        context = MagicMock()
+        client = MagicMock()
+        client.get_catalog_competition = AsyncMock(return_value={"status": "ok", "payload": PAYLOAD_OK})
+
+        async def _seller(seller_id):
+            if str(seller_id) == "111":
+                return {
+                    "seller_reputation": {
+                        "level_id": "5_green",
+                        "power_seller_status": "platinum",
+                    }
+                }
+            if str(seller_id) == "222":
+                return {"seller_reputation": {"level_id": "3_yellow", "power_seller_status": None}}
+            return None
+
+        client.get_seller = AsyncMock(side_effect=_seller)
+
+        with _pricing_context_patches(context, tc_return=None):
+            with (
+                patch("app.services.ml_catalog_competition_service.ml_webhook_client", client),
+                patch(
+                    "app.services.ml_catalog_competition_service.asyncio.sleep",
+                    new_callable=AsyncMock,
+                ),
+            ):
+                rows = _run(refrescar_competencia_catalogo(db, ["MLA_US"], wait_reputation=True))
+
+        competitors_by_id = {c["item_id"]: c for c in rows[0].competitors}
+        assert competitors_by_id["MLA_US"]["reputation_level"] == "5_green"
+        assert competitors_by_id["MLA_US"]["power_seller_status"] == "platinum"
+        assert competitors_by_id["MLA_CHEAPER"]["reputation_level"] == "3_yellow"
+        assert competitors_by_id["MLA_CHEAPER"]["power_seller_status"] is None
+        # Unique sellers in the payload (111, 222, 333) — one fetch each.
+        assert client.get_seller.await_count == 3
+
+    def test_interactive_refresh_does_not_block_on_seller_http(self) -> None:
+        """UI refresh must commit catalog (Full) without awaiting N×/users."""
+        _clear_seller_rep_cache()
+        db = MagicMock()
+        context = MagicMock()
+        client = MagicMock()
+        client.get_catalog_competition = AsyncMock(return_value={"status": "ok", "payload": PAYLOAD_OK})
+        client.get_seller = AsyncMock(
+            return_value={"seller_reputation": {"level_id": "5_green", "power_seller_status": "platinum"}}
+        )
+        scheduled: list = []
+
+        with _pricing_context_patches(context, tc_return=None):
+            with (
+                patch("app.services.ml_catalog_competition_service.ml_webhook_client", client),
+                patch(
+                    "app.services.ml_catalog_competition_service._schedule_background_reputation_enrich",
+                    side_effect=lambda ids: scheduled.append(list(ids)),
+                ),
+            ):
+                rows = _run(refrescar_competencia_catalogo(db, ["MLA_US"]))
+
+        assert client.get_seller.await_count == 0
+        assert len(scheduled) == 1
+        assert rows[0].competitors[0]["reputation_level"] is None
+
+    def test_batch_refresh_fetches_each_seller_once_across_publications(self) -> None:
+        """Worker / multi-MLA refresh must NOT call /users once per publication."""
+        _clear_seller_rep_cache()
+        db = MagicMock()
+        context = MagicMock()
+        client = MagicMock()
+        # Two MLAs share sellers 111 and 222; second adds no new sellers.
+        client.get_catalog_competition = AsyncMock(return_value={"status": "ok", "payload": PAYLOAD_OK})
+        client.get_seller = AsyncMock(
+            return_value={"seller_reputation": {"level_id": "5_green", "power_seller_status": "platinum"}}
+        )
+
+        with _pricing_context_patches(context, tc_return=None):
+            with (
+                patch("app.services.ml_catalog_competition_service.ml_webhook_client", client),
+                patch(
+                    "app.services.ml_catalog_competition_service.asyncio.sleep",
+                    new_callable=AsyncMock,
+                ),
+            ):
+                rows = _run(
+                    refrescar_competencia_catalogo(db, ["MLA_US", "MLA_CHEAPER"], wait_reputation=True)
+                )
+
+        assert len(rows) == 2
+        assert client.get_catalog_competition.await_count == 2
+        # 3 unique sellers in PAYLOAD_OK — not 3×2 publications.
+        assert client.get_seller.await_count == 3
+        for row in rows:
+            for competitor in row.competitors:
+                assert competitor["reputation_level"] == "5_green"
+                assert competitor["power_seller_status"] == "platinum"
+
+    def test_reputation_fields_from_seller_fail_open(self) -> None:
+        assert _reputation_fields_from_seller(None) == {
+            "reputation_level": None,
+            "power_seller_status": None,
+        }
+        assert _reputation_fields_from_seller({}) == {
+            "reputation_level": None,
+            "power_seller_status": None,
+        }
+        assert _reputation_fields_from_seller({"seller_reputation": "nope"}) == {
+            "reputation_level": None,
+            "power_seller_status": None,
+        }
 
     def test_pricing_context_resolved_exactly_once_per_mla(self) -> None:
         """Decision #8 regression guard: N competitors must not trigger N
