@@ -39,6 +39,7 @@ _COLUMNAS = (
     "tipo_cambio",
     "fuente_tc",
     "en_compras",
+    "moneda",
 )
 
 _GUARDADOS_SQL = text(
@@ -59,7 +60,7 @@ class Resultado:
     desde: Optional[date]  # first date whose value changed; None: nothing changed
 
 
-def _fila(paso: Paso) -> dict:
+def _fila(paso: Paso, moneda: str) -> dict:
     return {
         "tipo": paso.tipo,
         "fecha": paso.fecha,
@@ -76,6 +77,7 @@ def _fila(paso: Paso) -> dict:
         "tipo_cambio": paso.tipo_cambio,
         "fuente_tc": paso.fuente_tc,
         "en_compras": paso.en_compras,
+        "moneda": moneda,
     }
 
 
@@ -96,11 +98,12 @@ def _json(fila: dict) -> dict:
     return {k: (str(v) if isinstance(v, (Decimal, date)) else v) for k, v in fila.items()}
 
 
-def guardar(db: Session, item_id: int, pasos: Sequence[Paso], motivo: str) -> Resultado:
-    """Stores `pasos` as the product's history, replacing (after backing them up) only the steps that changed."""
+def guardar(db: Session, item_id: int, pasos: Sequence[Paso], motivo: str, moneda: str = "USD") -> Resultado:
+    """Stores `pasos` (amounts in `moneda`, the product's cost currency, L18) as the product's history, replacing
+    (after backing them up) only the steps that changed: a currency change rewrites every step."""
     db.execute(text("SELECT pg_advisory_xact_lock(:c, :i)"), {"c": LOCK_CLASS, "i": item_id})
     guardados = [dict(r._mapping) for r in db.execute(_GUARDADOS_SQL, {"i": item_id})]
-    nuevos = [_fila(p) for p in pasos]
+    nuevos = [_fila(p, moneda) for p in pasos]
     k = 0
     while k < len(guardados) and k < len(nuevos) and _clave(guardados[k]) == _clave(nuevos[k]):
         k += 1
@@ -133,5 +136,6 @@ def recalcular(db: Session, item_id: int, *, motivo: str = "recalculo") -> Resul
     """Recompute `item_id` from its first sell-in date and store it. Reads only the app's own data (Full included:
     `full_ml`). Does not commit."""
     entrada = fuentes.entrada(db, item_id)
-    pasos = calcular(entrada.inicio, entrada.compras) if entrada is not None else []
-    return guardar(db, item_id, pasos, motivo)
+    if entrada is None:
+        return guardar(db, item_id, [], motivo)
+    return guardar(db, item_id, calcular(entrada.inicio, entrada.compras), motivo, entrada.moneda)

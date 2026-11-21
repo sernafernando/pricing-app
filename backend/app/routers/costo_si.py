@@ -46,19 +46,22 @@ class PasoOut(BaseModel):
     tipo_cambio: Optional[Decimal]
     fuente_tc: Optional[str]
     en_compras: bool
+    moneda: str  # the currency the step's amounts are in: the product's cost currency (L18)
 
 
 class ComponenteOut(BaseModel):
     item_id: int
     cantidad: Decimal
     costo_si_usd: Optional[Decimal]
+    moneda: Optional[str]
 
 
 class CostoSiOut(BaseModel):
     item_id: int
     fecha: date
     es_combo: bool
-    costo_si_usd: Optional[Decimal]
+    costo_si_usd: Optional[Decimal]  # in `costo_si_moneda` (the name predates L18)
+    costo_si_moneda: Optional[str]
     vigente_desde: Optional[date]
     pasos: List[PasoOut]
     componentes: List[ComponenteOut]
@@ -78,6 +81,7 @@ def costo_si(
         fecha=found.fecha,
         es_combo=found.es_combo,
         costo_si_usd=found.costo_si_usd,
+        costo_si_moneda=found.moneda,
         vigente_desde=found.vigente_desde,
         pasos=[PasoOut(**p) for p in found.pasos],
         componentes=[ComponenteOut(**vars(c)) for c in found.componentes],
