@@ -1472,7 +1472,7 @@ def exportar_clasica(
         or con_oferta is not None
     ):
         from app.services.pricing_calculator import (
-            costo_ars_actual,
+            costos_ars_actuales,
             obtener_grupo_subcategoria,
             obtener_comision_base,
             calcular_comision_ml_total,
@@ -1485,6 +1485,8 @@ def exportar_clasica(
 
         productos_filtrados = []
         hoy = date.today()
+        # The rebate filter's cost, read once for every product (not per product)
+        costos_rebate = costos_ars_actuales(db, [p[0] for p in productos]) if markup_rebate_positivo is not None else {}
 
         for producto in productos:
             item_id = producto[0]
@@ -1517,8 +1519,8 @@ def exportar_clasica(
                         precio_rebate = float(producto_pricing.precio_lista_ml) * (
                             1 + float(producto_pricing.porcentaje_rebate or 3.8) / 100
                         )
-                        # Over costo SI in pesos (S13, D1; list cost without one, Q1); 0 = unknown: excluded.
-                        costo_ars = costo_ars_actual(db, item_id)
+                        # Over costo SI in pesos (S13, D1; list cost without one, Q1); None = unknown: excluded.
+                        costo_ars = costos_rebate.get(item_id)
                         grupo_id = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
                         comision_base = obtener_comision_base(db, 4, grupo_id)  # 4 = Clásica
                         if comision_base and costo_ars:

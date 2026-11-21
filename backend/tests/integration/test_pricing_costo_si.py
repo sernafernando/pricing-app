@@ -599,10 +599,6 @@ def test_a_markup_read_without_a_cost_is_none_never_zero(mundo, active_user, lec
     _sin_costo(mundo, lector)
     r = ep.calcular_markup_get(precio=PRECIO, item_id=T, db=mundo, current_user=active_user)
     assert (r["costo_ars"], r["markup"]) == (None, None)
-    r = ep.calcular_por_precio(
-        ep.CalcularPorPrecioRequest(item_id=T, pricelist_id=4, precio_manual=PRECIO), db=mundo, current_user=active_user
-    )
-    assert (r["costo_ars"], r["markup_resultante"]) == (None, None)
 
 
 @pytest.mark.parametrize(
@@ -619,6 +615,12 @@ def test_a_markup_read_without_a_cost_is_none_never_zero(mundo, active_user, lec
                 ep.CalcularPreciosCompletosRequest(item_id=T, markup_objetivo=30.0), db=db, current_user=u
             ),
             id="calcular_completo",
+        ),
+        pytest.param(
+            lambda db, u: ep.calcular_por_precio(
+                ep.CalcularPorPrecioRequest(item_id=T, pricelist_id=4, precio_manual=PRECIO), db=db, current_user=u
+            ),
+            id="calcular_por_precio",
         ),
         pytest.param(
             lambda db, u: ep.variantes_envio(item_id=T, precio=PRECIO, pricelist_id=4, db=db, current_user=u),

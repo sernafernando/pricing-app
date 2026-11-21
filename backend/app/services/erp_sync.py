@@ -339,6 +339,19 @@ async def sincronizar_erp(db: Session) -> Dict:
             pricing_dict = {
                 pr.item_id: pr for pr in db.query(ProductoPricing).filter(ProductoPricing.item_id.in_(batch_ids)).all()
             }
+            # The costo SI of the products whose new ERP price gets a markup below: one read per batch, not per product.
+            from app.services.costo_si import lote
+
+            con_precio_nuevo = {
+                iid
+                for producto_data in batch
+                if (iid := convertir_a_entero(producto_data.get("Item_ID")))
+                and (convertir_a_numero(producto_data.get("Precio_Publicado"), None) or 0) > 0
+            }
+            sin_precio = [
+                i for i in con_precio_nuevo if (pr := pricing_dict.get(i)) is None or pr.precio_lista_ml is None
+            ]
+            costos_si_batch = lote.actuales(db, sin_precio) if sin_precio else {}
 
             for producto_data in batch:
                 try:
@@ -426,9 +439,7 @@ async def sincronizar_erp(db: Session) -> Dict:
 
                             # Costo SI when the product has one (S13); otherwise the list cost this sync is
                             # writing, which is the reader's 'lista' fallback (Q1) before it is flushed.
-                            from app.services.costo_si import lote
-
-                            vigente = lote.actuales(db, [item_id], tipo_cambio=tipo_cambio).get(item_id)
+                            vigente = costos_si_batch.get(item_id)
                             if vigente and vigente.fuente == lote.FUENTE_COSTO_SI and vigente.costo_ars is not None:
                                 costo_ars = float(vigente.costo_ars)
                             elif not costo or costo <= 0 or (moneda_de(moneda_costo) != "ARS" and not tipo_cambio):

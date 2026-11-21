@@ -285,6 +285,8 @@ def calcular_por_precio(
 
     # Convertir costo a pesos
     costo_ars = costo_ars_actual(db, producto.item_id, tipo_cambio)
+    if costo_ars is None:  # unknown cost (interfaz §7): no markup to report, nor cuotas to price from it
+        raise HTTPException(status_code=400, detail=SIN_COSTO_ERROR)
 
     # Obtener grupo y comisión
     grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
@@ -381,13 +383,13 @@ def setear_precio(request: SetPrecioRequest, db: Session = Depends(get_db), curr
     # Si al menos uno es None, calcular todos automáticamente
     cuotas_conservadas = set()
     if any(v is None for v in precios_cuotas_calculados.values()):
-        if markup_calculado is None:
+        if costo_ars is None:
             # Unknown cost (interfaz §7): no markup to price the omitted cuotas from; the stored ones stay (D4)
             cuotas_conservadas = {campo for campo, valor in precios_cuotas_calculados.items() if valor is None}
             logger.warning(
                 "precios/set: item %s cuotas %s kept: sin costo en pesos", request.item_id, sorted(cuotas_conservadas)
             )
-        else:
+        elif markup_calculado is not None:
             # Usar la misma función que usa el modal: calcular_precio_producto
             # markup_calculado ya está en porcentaje (ej: 35.5)
 
@@ -987,11 +989,7 @@ def setear_precio_rapido(
         for precio_cuota, pricelist_id, nombre_markup in cuotas_pricelists:
             if precio_cuota and float(precio_cuota) > 0:
                 try:
-                    tipo_cambio_cuota = None
-                    if producto.moneda_costo == "USD":
-                        tipo_cambio_cuota = obtener_tipo_cambio_actual(db, "USD")
-
-                    costo_cuota = costo_ars_actual(db, producto.item_id, tipo_cambio_cuota)
+                    costo_cuota = costo_ars  # the same product's cost, resolved once above
                     grupo_id_cuota = obtener_grupo_subcategoria(db, producto.subcategoria_id)
                     comision_base_cuota = obtener_comision_base(db, pricelist_id, grupo_id_cuota)
 
