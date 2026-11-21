@@ -396,6 +396,61 @@ def cost_bonus(request, board_pg, monkeypatch):
     return db
 
 
+@pytest.fixture(params=["live", "persisted"])
+def negative_cost(request, board_pg, monkeypatch):
+    """41: tg20/c100 with an ARS sell out of $5. 42: tg10 on a NEGATIVE cost (-50) with a sell out of $3. 43: tg4/c40
+    with a sell out of $2. The SQL sort `markup_sell` guards only `costo != 0`, like `so.markup_con_so`."""
+    db = board_pg
+    db.execute(
+        text(
+            "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria, subcategoria_id, stock) "
+            "VALUES (41, 'S41', 'Router', 'TP-Link', 'Redes', 1, 1), (42, 'S42', 'Switch', 'TP-Link', 'Redes', 1, 1), "
+            "(43, 'S43', 'Hub', 'TP-Link', 'Redes', 1, 1);"
+            "INSERT INTO ml_tiendas_oficiales (store_id, nombre, clave, orden, activa) VALUES "
+            "(57997, 'Gauss', NULL, 1, true);"
+            "INSERT INTO tb_mercadolibre_items_publicados (mlp_id, mlp_publicationid, item_id, mlp_official_store_id) "
+            "VALUES (9141, 'MLA941', 41, 57997), (9142, 'MLA942', 42, 57997), (9143, 'MLA943', 43, 57997)"
+        )
+    )
+    refs = {}
+    for product, tg, costo in ((41, "20", "100"), (42, "10", "-50"), (43, "4", "40")):
+        order_id = 2000012345679000 + product
+        _order(db, order_id, [(product, f"MLA9{product}", 1, Decimal(costo))], tg=tg, costo=costo)
+        _group(db, f"o:{order_id}", [order_id], NOW - timedelta(hours=3))
+        refs[product] = _line(db, order_id)
+    db.execute(text(CONSUMPTION_DDL))
+    db.execute(
+        text(
+            "INSERT INTO sell_out_consumos VALUES (1, 'ml', :s41, 5, NULL), (1, 'ml', :s42, 3, NULL), (1, 'ml', :s43, 2, NULL)"
+        ),
+        {"s41": refs[41], "s42": refs[42], "s43": refs[43]},
+    )
+    db.flush()
+    if request.param == "persisted":
+        lines = sale_lines(sqlite=False, queue=False, keyed=True, tp=True)
+        db.execute(
+            insert(MlSaleLine.__table__).from_select(
+                list(STORED_COLUMNS), select(*(lines.c[n] for n in STORED_COLUMNS))
+            )
+        )
+        monkeypatch.setattr(settings, "METRICAS_SALE_LINES_ENABLED", True)
+        db.flush()
+    return db
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize("descending", [True, False])
+def test_the_markup_sort_follows_the_row_value_on_a_negative_cost(negative_cost, descending) -> None:
+    f = dataclasses.replace(ON, sort="markup_sell", sort_desc=descending)
+    with board.Board(negative_cost, f, scope_pairs=None) as b:
+        rows = b.page(None)
+
+    assert {row.key for row in rows} == {"41", "42", "43"}
+    assert all(row.markup_so is not None and row.markup_so == _markup_con_so(row) for row in rows)
+    values = [row.markup_so for row in rows]
+    assert values == sorted(values, reverse=descending)
+
+
 @pytest.mark.postgres
 class TestCostBonusSellIn:
     def test_a_sale_with_only_a_cost_bonus_is_a_sell_in_line(self, cost_bonus) -> None:

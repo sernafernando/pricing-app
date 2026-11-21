@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 
 from app.core.constants import BUSINESS_TIMEZONE
 from app.services.costo_si import lote
+from app.services.sell import queue as sell_queue
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +141,7 @@ def encolar(db: Session, item_ids: Iterable[int], desde: Optional[date]) -> None
     ids = sorted({int(i) for i in item_ids})
     if ids:
         db.execute(_ENCOLAR_SQL, {"ids": ids, "desde": desde})
-        db.execute(text("SELECT pg_notify('sell_dirty', '')"))
+        db.execute(text("SELECT pg_notify(:canal, '')"), {"canal": sell_queue.CHANNEL})  # wakes `sell.drain`
 
 
 def hay_pendientes(db: Session) -> bool:
