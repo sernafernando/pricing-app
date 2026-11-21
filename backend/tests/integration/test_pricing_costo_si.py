@@ -710,3 +710,44 @@ def test_erp_sync_keeps_a_new_price_without_a_markup_when_the_usd_cost_has_no_ra
         "markup_calculado": None,
     }
     assert any(str(T) in r.getMessage() and "sin costo en pesos" in r.getMessage() for r in caplog.records)
+
+
+def test_precios_set_without_a_cost_saves_the_price_and_keeps_the_stored_cuotas(
+    mundo, active_user, lector, caplog
+) -> None:
+    """No markup to price the omitted cuotas from: the stored ones stay (never wiped to NULL) and it is said."""
+    cuotas = {"precio_3_cuotas": 1.0, "precio_6_cuotas": 2.0, "precio_9_cuotas": 3.0, "precio_12_cuotas": 4.0}
+    _pricing(mundo, T, precio_lista_ml=PRECIO, **cuotas)
+    _sin_costo(mundo, lector)
+    with caplog.at_level("WARNING"):
+        ep.setear_precio(
+            ep.SetPrecioRequest(item_id=T, precio_lista_ml=PRECIO * 2, precio_3_cuotas=9.0),
+            db=mundo,
+            current_user=active_user,
+        )
+    fila = _fila(mundo, T, ("precio_lista_ml", "markup_calculado", *cuotas))
+    assert fila == {**cuotas, "precio_lista_ml": PRECIO * 2, "markup_calculado": None, "precio_3_cuotas": 9.0}
+    assert any(str(T) in r.getMessage() and "sin costo en pesos" in r.getMessage() for r in caplog.records)
+
+
+def test_set_rapido_without_a_cost_keeps_the_web_transferencia_price_and_says_why(
+    mundo, active_user, lector, caplog
+) -> None:
+    _pricing(
+        mundo,
+        T,
+        precio_lista_ml=PRECIO,
+        participa_web_transferencia=True,
+        porcentaje_markup_web=5,
+        precio_web_transferencia=777.0,
+    )
+    _sin_costo(mundo, lector)
+    with caplog.at_level("WARNING"):
+        ep.setear_precio_rapido(
+            item_id=T, precio=PRECIO * 2, recalcular_cuotas=False, lista_tipo="web", db=mundo, current_user=active_user
+        )
+    assert _fila(mundo, T, ("precio_lista_ml", "precio_web_transferencia")) == {
+        "precio_lista_ml": PRECIO * 2,
+        "precio_web_transferencia": 777.0,
+    }
+    assert any(str(T) in r.getMessage() and "web transferencia" in r.getMessage() for r in caplog.records)

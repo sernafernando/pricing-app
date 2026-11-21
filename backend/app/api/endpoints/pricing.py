@@ -379,8 +379,15 @@ def setear_precio(request: SetPrecioRequest, db: Session = Depends(get_db), curr
     }
 
     # Si al menos uno es None, calcular todos automáticamente
+    cuotas_conservadas = set()
     if any(v is None for v in precios_cuotas_calculados.values()):
-        if markup_calculado is not None:
+        if markup_calculado is None:
+            # Unknown cost (interfaz §7): no markup to price the omitted cuotas from; the stored ones stay (D4)
+            cuotas_conservadas = {campo for campo, valor in precios_cuotas_calculados.items() if valor is None}
+            logger.warning(
+                "precios/set: item %s cuotas %s kept: sin costo en pesos", request.item_id, sorted(cuotas_conservadas)
+            )
+        else:
             # Usar la misma función que usa el modal: calcular_precio_producto
             # markup_calculado ya está en porcentaje (ej: 35.5)
 
@@ -456,10 +463,9 @@ def setear_precio(request: SetPrecioRequest, db: Session = Depends(get_db), curr
         pricing.participa_rebate = request.participa_rebate
         pricing.porcentaje_rebate = request.porcentaje_rebate
         # Actualizar precios con cuotas (usar los calculados si no se proporcionaron)
-        pricing.precio_3_cuotas = precios_cuotas_calculados["precio_3_cuotas"]
-        pricing.precio_6_cuotas = precios_cuotas_calculados["precio_6_cuotas"]
-        pricing.precio_9_cuotas = precios_cuotas_calculados["precio_9_cuotas"]
-        pricing.precio_12_cuotas = precios_cuotas_calculados["precio_12_cuotas"]
+        for campo, valor in precios_cuotas_calculados.items():
+            if campo not in cuotas_conservadas:
+                setattr(pricing, campo, valor)
 
         # Calcular y actualizar markup_rebate y markup_oferta
         pricing.markup_rebate = calcular_markup_rebate(
@@ -889,7 +895,10 @@ def setear_precio_rapido(
     # Recalcular web transferencia si está activo (solo para web)
     # NO hacer refresh aquí porque sobrescribe los valores asignados antes del commit
 
-    if lista_tipo == "web" and pricing.participa_web_transferencia and pricing.porcentaje_markup_web:
+    if lista_tipo == "web" and pricing.participa_web_transferencia and pricing.porcentaje_markup_web and markup is None:
+        # Unknown cost (interfaz §7): the stored web transferencia price stays, never one from a made-up markup (D4)
+        logger.warning("set-rapido: item %s web transferencia not recalculated: sin costo en pesos", item_id)
+    elif lista_tipo == "web" and pricing.participa_web_transferencia and pricing.porcentaje_markup_web:
         from app.services.pricing_calculator import (
             calcular_precio_web_transferencia,
             obtener_constantes_pricing,
