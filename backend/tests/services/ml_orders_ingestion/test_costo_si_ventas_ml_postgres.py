@@ -5,6 +5,8 @@ its combos included, with a backup first (L15, §12), in bounded `sell.drain` pa
 
 from __future__ import annotations
 
+import logging
+
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Iterator, Optional
@@ -189,6 +191,29 @@ def test_a_combo_sale_freezes_its_components_costo_si_times_quantity(engine: Eng
     assert _recongelar(engine, COMBO, None) == 0
 
 
+def test_a_usd_cost_with_no_rate_freezes_no_row_and_is_logged(engine: Engine, caplog) -> None:
+    """Interface §7: unknown stays unknown (no row, never 0) and is logged."""
+    _mundo(engine)
+    w.run(engine, "DELETE FROM tipo_cambio")
+    with caplog.at_level(logging.WARNING, logger="app.services.ml_orders_ingestion.costeo_service"):
+        order = _vender(engine, A, _art(2026, 10, 20, 10))
+
+    assert _fila(engine, order) is None
+    assert any("unknown cost" in r.getMessage() and str(A) in r.getMessage() for r in caplog.records)
+
+
+def test_a_refreeze_with_no_rate_keeps_the_frozen_row_and_is_logged(engine: Engine, caplog) -> None:
+    _mundo(engine)
+    order = _vender(engine, A, _art(2026, 10, 20, 10))
+    antes = _fila(engine, order)
+    w.run(engine, "DELETE FROM tipo_cambio")
+    with caplog.at_level(logging.WARNING, logger="app.services.ml_orders_ingestion.recongelar_costo_si"):
+        assert _recongelar(engine, A, None) == 0
+
+    assert _fila(engine, order) == antes
+    assert any("unknown cost" in r.getMessage() and str(A) in r.getMessage() for r in caplog.records)
+
+
 def test_a_reingestion_never_rewrites_a_frozen_row(engine: Engine) -> None:
     _mundo(engine)
     cuando = _art(2026, 10, 12, 10)
@@ -270,6 +295,37 @@ def test_a_list_cost_row_that_stays_list_cost_is_left_as_frozen(engine: Engine) 
 
     assert _recongelar(engine, SIN, None) == 0
     assert _fila(engine, order)[0] == D("40.0000")
+
+
+def test_a_combo_part_costo_si_part_list_cost_is_refrozen_when_its_costo_si_component_changes(
+    engine: Engine,
+) -> None:
+    """The reader labels such a combo 'lista' (one component has no costo SI), but its cost carries the costo SI of
+    the other: a change of that one re-costs it (L15). MIX = 1 x A + 1 x SIN."""
+    mix = 7106
+    _mundo(engine)
+    w.run(engine, "DELETE FROM costo_si_pasos WHERE item_id = :i AND orden = 1", i=A)  # A: 23.817 only
+    w.producto(engine, mix, costo="0")
+    w.run(engine, "UPDATE productos_erp SET iva = 21")
+    w.run(engine, "INSERT INTO publicaciones_ml (mla, item_id, activo) VALUES ('MLA7106', :i, true)", i=mix)
+    w.run(
+        engine,
+        "INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (:c, :a, 1), (:c, :s, 1)",
+        c=mix,
+        a=A,
+        s=SIN,
+    )
+    MLA[mix] = "MLA7106"
+    try:
+        order = _vender(engine, mix, _art(2026, 10, 20, 10))
+    finally:
+        del MLA[mix]
+    assert _fila(engine, order)[4] == D("76580.4000")  # (23.817 + 40) x 1200
+    _paso(engine, A, 1, date(2026, 10, 13), "22.75700")  # a late invoice lowers A from 10-13
+
+    assert _recongelar(engine, mix, date(2026, 10, 13)) == 1
+    assert _fila(engine, order)[4:6] == (D("75308.4000"), "combo")  # (22.757 + 40) x 1200, still list cost
+    assert _recongelar(engine, mix, date(2026, 10, 13)) == 0
 
 
 def test_after_a_recompute_the_product_and_its_combos_are_queued_then_refrozen(engine: Engine) -> None:

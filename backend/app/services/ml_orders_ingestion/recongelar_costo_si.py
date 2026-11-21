@@ -79,7 +79,9 @@ WITH nuevos AS (
     WHERE c.producto_item_id = :item
       AND (CAST(:desde AS date) IS NULL OR {FECHA_VENTA_SQL} >= CAST(:desde AS date))
       AND cs.costo_si_ars > 0
-      AND (cs.costo_si_fuente = '{lote.FUENTE_COSTO_SI}' OR c.fuente IN :costo_si)
+      -- A list-cost combo too: the reader labels a combo 'lista' when one component has no costo SI, yet its cost
+      -- carries the costo SI of the others (a combo is queued only when one of its components changes).
+      AND (cs.costo_si_fuente = '{lote.FUENTE_COSTO_SI}' OR c.fuente IN :costo_si OR c.fuente = 'combo')
 ),
 cambiados AS (
     SELECT n.* FROM nuevos n JOIN ml_order_item_costos c ON c.id = n.id
@@ -105,7 +107,30 @@ def recongelar(db: Session, producto_item_id: int, desde: Optional[date], motivo
     """Re-freezes the ML sales of `producto_item_id` dated (ART) on or after `desde` (None: all of them) at the cost
     in force on each sale date, backing up every changed row first. Returns how many rows changed. Does not commit."""
     filas = db.execute(_RECONGELAR_SQL, {"item": producto_item_id, "desde": desde, "motivo": motivo})
-    return len(filas.fetchall())
+    cambiadas = len(filas.fetchall())
+    desconocidas = db.execute(_DESCONOCIDAS_SQL, {"item": producto_item_id, "desde": desde}).scalar()
+    if desconocidas:
+        # Unknown stays unknown (interface §7): the row keeps what it froze, never 0, and it is said.
+        logger.warning(
+            "recongelar_costo_si: unknown cost for producto_item_id=%s on %s sale row(s) from %s: kept as frozen",
+            producto_item_id,
+            desconocidas,
+            desde,
+        )
+    return cambiadas
+
+
+# The rows the re-freeze would cover but the reader cannot cost on their date (no cost, or a USD one with no rate).
+_DESCONOCIDAS_SQL = text(f"""
+    SELECT count(*)
+    FROM ml_order_item_costos c
+    JOIN ml_orders_ops o ON o.order_id = c.order_id AND o.date_created IS NOT NULL
+    LEFT JOIN LATERAL ({lote.sql_en_fecha("c.producto_item_id", FECHA_VENTA_SQL)}) cs ON true
+    WHERE c.producto_item_id = :item
+      AND (CAST(:desde AS date) IS NULL OR {FECHA_VENTA_SQL} >= CAST(:desde AS date))
+      AND (cs.costo_si_ars IS NULL OR cs.costo_si_ars <= 0)
+      AND (cs.costo_si_fuente = '{lote.FUENTE_COSTO_SI}' OR c.fuente IN :costo_si OR c.fuente = 'combo')
+""").bindparams(bindparam("costo_si", value=FUENTES_COSTO_SI, expanding=True))
 
 
 _ENCOLAR_SQL = text("""

@@ -120,6 +120,17 @@ class TestD2:
 
         assert _filas(engine) == []
 
+    def test_a_return_dated_after_the_costo_si_start_frees_its_sale_made_before_it(self, engine: Engine) -> None:
+        """The skip is the sale's: a return carries its own date, and its sale (list cost) took the bonus."""
+        bono = b.bono_costo(engine, "3.00")
+        venta = _venta(engine, "fuera", EN_SI, D(2026, 10, 5), unidades=3)
+        w.venta(engine, "fuera", EN_SI, 1, D(2026, 10, 7), signo=-1)
+        _costo_si(engine, EN_SI, D(2026, 10, 6))
+
+        _recalcular(engine, EN_SI)
+
+        assert [(r[0], r[2], r[3], r[5]) for r in b.bono_consumos(engine)] == [(bono, venta, EN_SI, 2)]
+
     def test_a_total_bonus_keeps_applying_on_a_sale_at_costo_si(self, db: Session, engine: Engine) -> None:
         total = _crear(db, reparto_criterio="unidades")
         db.commit()

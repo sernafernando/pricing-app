@@ -470,6 +470,14 @@ def _resolve_cost_en_fecha(
         return None
     costo = costos.get(producto.item_id)
     if costo is None or costo.costo is None or costo.costo_ars is None or costo.costo_ars <= 0:
+        # Unknown stays unknown: no row, never 0 (interface §7), and said so.
+        logger.warning(
+            "costeo_service: unknown cost for producto_item_id=%s on %s (cost %s, rate %s): not frozen",
+            producto.item_id,
+            fecha_venta,
+            costo.costo if costo is not None else None,
+            costo.tipo_cambio if costo is not None else None,
+        )
         return None
     if costo.fuente == lote.FUENTE_COSTO_SI:
         fuente = FUENTE_COSTO_SI_COMBO if costo.costo_si_desde is None else _FUENTE_COSTO_SI_POR_VINCULO[vinculo]

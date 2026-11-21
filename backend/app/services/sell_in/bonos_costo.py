@@ -289,8 +289,15 @@ def _componente(
         for v in sorted(ventas, key=lambda x: x.unidades < 0):  # sales first: a return checks its sale
             if v.item_id not in alcances[bono.id] or not (bono.fecha_desde <= v.fecha <= bono.fecha_hasta):
                 continue
-            if bono.tipo in EN_COSTO_SI and en_costo_si and (v.item_id, v.fecha) in en_costo_si:
-                continue  # D2: costo SI already carries this bonus; its return frees nothing either
+            # D2: costo SI already carries this bonus. The skip is the SALE's date: a linked return follows its sale
+            # (below, `objetivo not in unitarios`), so one dated after the costo SI start still frees an earlier sale.
+            if (
+                bono.tipo in EN_COSTO_SI
+                and en_costo_si
+                and (v.unidades > 0 or v.objetivo is None)
+                and (v.item_id, v.fecha) in en_costo_si
+            ):
+                continue
             clave = (v.canal, v.venta_ref, v.item_id)
             if v.unidades > 0:
                 if v.costo_unit is None:
