@@ -8,7 +8,7 @@ same run (`services.ml_publications.view.stock_snapshot`). A failure commits not
 
 Costo SI (sell-in-costo-si T2) rides on the same run, after the photo committed, so it can never cost the Auditoría
 its photo, and reads its Full from that photo (`costo_si.full_ml`): first the day's available-stock photo of every
-product with a costo SI (`costo_si.foto`), then every product with a costo SI or a sell in queued for `sell.drain`
+product with a costo SI (`costo_si.foto`), then every product, sell in or not (L21), queued for `sell.drain`
 (`encolar_vigentes`), which brings the purchase invoices the GBP sync loaded into the average. It calls no Mercado
 Libre endpoint. A failure there is logged and reported in the detail; the job still succeeds.
 """

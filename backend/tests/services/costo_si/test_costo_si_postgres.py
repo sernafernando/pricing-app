@@ -1007,3 +1007,15 @@ def test_l21_a_product_with_a_sell_in_keeps_its_own_start(engine: Engine) -> Non
 
     assert w.pasos(engine, P)[0][:2] == ("inicio", date(2026, 11, 2))
     assert w.pasos(engine, OTRA_MARCA)[0][:2] == ("inicio", date(2026, 10, 5))
+
+
+def test_l21_an_invoice_dated_before_11_01_entering_after_it_counts_as_start_stock(engine: Engine) -> None:
+    """S2/S3 at L21's start: invoiced on 10-25 but received on 11-03, its 50 are stock at the start cost, never a
+    purchase in the average (verifier probe A)."""
+    w.producto(engine, SIN_SELL_IN)
+    w.costo_lista(engine, SIN_SELL_IN, datetime(2026, 10, 15, 9, 0), "25")
+    w.factura(engine, SIN_SELL_IN, date(2026, 10, 25), datetime(2026, 11, 3, 10), 50, "30", previo=150)
+
+    _recalcular(engine, SIN_SELL_IN)
+
+    assert w.pasos(engine, SIN_SELL_IN) == [("inicio", date(2026, 11, 1), 200, 200, D("25.00000"), D("25.00000"))]

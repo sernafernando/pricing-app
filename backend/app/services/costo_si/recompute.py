@@ -133,7 +133,7 @@ def guardar(db: Session, item_id: int, pasos: Sequence[Paso], motivo: str, moned
 
 
 def recalcular(db: Session, item_id: int, *, motivo: str = "recalculo") -> Resultado:
-    """Recompute `item_id` from its first sell-in date and store it. Reads only the app's own data (Full included:
+    """Recompute `item_id` from its start (its first sell-in date, or 2026-11-01 without one: L21) and store it. Reads only the app's own data (Full included:
     `full_ml`). Does not commit."""
     entrada = fuentes.entrada(db, item_id)
     if entrada is None:
