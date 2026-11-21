@@ -13,7 +13,8 @@ Plan handoffs/sell-in-costo-si-t4-plan.md §1; orchestrator G3 (option A) and G4
    part (about 170 MB on prod by 2026-11-21 sizes) and takes that much disk until the snapshots are dropped by hand;
    `alembic.env` keeps them out of autogenerate (`app.core.alembic_autogenerate`).
 2. Queue the scope for a whole-history recompute: the products of `costo_si.queue.productos_vigentes` (SQL frozen
-   here as of this revision), `desde` NULL and a fresh retry budget. Rows already queued outside the scope stay.
+   here as of this revision): every product, sell in or not (L21), `desde` NULL and a fresh retry budget. Rows
+   already queued outside the scope stay.
 3. Option A (plan §1.3, G3), as an invalidation: the stored steps of every product that has them are backed up in
    `costo_si_backups` (motivo `t4 reset`) and the first step of each history gets `fuente_tc = 't4_reset'`, a value
    the engine never writes. The recompute compares `fuente_tc` (`recompute._COLUMNAS`), so it always sees a change
@@ -73,7 +74,11 @@ _ALCANCE_SQL = """
           WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo IN ('porcentaje', 'por_unidad')
     UNION SELECT bi.item_id FROM sell_in_bono_items bi JOIN sell_in_bonos_marca b ON b.id = bi.bono_id
           WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo IN ('porcentaje', 'por_unidad')
+    UNION SELECT item_id FROM productos_erp
 """
+# The last branch is L21 (owner: "pero costo si tiene que ponderar las facturas por mas que no tengan s8"): a product
+# no sell in reaches gets a costo SI from 2026-11-01, so the deploy re-costs every product. Added before this
+# revision ever ran on prod.
 
 # The invalidation of a stored history (option A): its first step gets a `fuente_tc` the engine never writes.
 INVALIDO = "t4_reset"

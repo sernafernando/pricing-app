@@ -187,7 +187,8 @@ def test_the_dry_run_predicts_every_ml_sale_the_deploy_re_costs_and_writes_nothi
 
     assert _guardado(engine) == guardado  # read-only
     assert informe.pasos.fallidos == {}
-    assert informe.pasos.desdes == {P: date(2026, 10, 1), Q: date(2026, 10, 1)}
+    # L21: SIN_SELL_IN starts on 11-01 (no list history: no average), after its 10-15 sale, which keeps its cost
+    assert informe.pasos.desdes == {P: date(2026, 10, 1), Q: date(2026, 10, 1), SIN_SELL_IN: date(2026, 11, 1)}
     prediccion = {c.fila_id: (c.antes, c.despues) for c in informe.cambios if c.canal == impacto.CANAL_ML_LEGACY}
     assert prediccion == {
         oct_: (D("80000.00"), D("50000.00")),
@@ -214,7 +215,8 @@ def test_the_dry_run_predicts_the_stored_markups_the_deploy_rewrites(engine: Eng
     assert _markups(engine) == guardado  # read-only
     prediccion = {(m.item_id, m.campo): (m.antes, m.despues) for m in informe.markups}
     assert {(P, "markup_calculado"), (COMBO, "markup_calculado")} <= set(prediccion)
-    assert {item for item, _ in prediccion} == {P, COMBO}  # no sell in: SIN_SELL_IN is not recomputed
+    # L21: SIN_SELL_IN is recomputed too; its stale stored 999 is rewritten over the cost the reader gives (list 10)
+    assert {item for item, _ in prediccion} == {P, COMBO, SIN_SELL_IN}
 
     _deploy(engine)
 

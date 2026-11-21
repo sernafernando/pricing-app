@@ -267,11 +267,15 @@ _VIGENTES_SQL = """
           WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo IN ('porcentaje', 'por_unidad')
     UNION SELECT bi.item_id FROM sell_in_bono_items bi JOIN sell_in_bonos_marca b ON b.id = bi.bono_id
           WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo IN ('porcentaje', 'por_unidad')
+    UNION SELECT item_id FROM productos_erp
 """
+# The last branch is L21: a product no sell in reaches has a costo SI too (from `fuentes.INICIO_SIN_SELL_IN`), and
+# its purchase invoices outside Compras queue nothing, so the daily pass brings them in for every product. A combo
+# is queued as well and the recompute stores nothing for it (S11).
 
 
 def productos_vigentes(db: Session) -> List[int]:
-    """Every product with a costo SI, a Compras sell in or a sale-cost % bonus."""
+    """Every product: with a costo SI, a Compras sell in, a sale-cost % bonus, or none of them (L21)."""
     return sorted(int(r[0]) for r in db.execute(text(_VIGENTES_SQL)))
 
 

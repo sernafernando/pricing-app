@@ -122,7 +122,8 @@ def test_loyalty_is_a_sell_in_on_every_invoice_of_the_brand_from_any_supplier(en
     assert [(n[0], n[1], n[2]) for n in netos] == [(D("91.40000"), D("8.6"), True), (D("96.40000"), D("3.6"), False)]
     assert [s["origen"] for s in netos[0][3]] == ["compra", "bono"]
     assert w.pasos(engine, P)[0][1] == date(2026, 10, 1)  # the bonus's fecha_desde is the first sell-in date
-    assert w.pasos(engine, OTRA_MARCA) == []  # no sell in ever applied to it: no costo SI
+    # no sell in ever applied to it: L21's start (11-01, list cost 100, the 10 in stock), no discount
+    assert w.pasos(engine, OTRA_MARCA) == [("inicio", date(2026, 11, 1), 10, 10, D("100.00000"), D("100.00000"))]
 
 
 def test_a_loyalty_loaded_through_a_tactical_is_a_sell_in_on_every_invoice_of_the_brand(engine: Engine) -> None:
@@ -400,16 +401,16 @@ def test_the_daily_photo_is_read_instead_of_the_reconstruction(engine: Engine) -
         assert fuentes.disponible(db, P, date(2026, 11, 3)) == 286  # the photo, not the reconstruction
 
 
-def test_encolar_vigentes_queues_every_product_with_a_sell_in_or_a_costo_si(engine: Engine) -> None:
+def test_encolar_vigentes_queues_every_product_with_or_without_a_sell_in(engine: Engine) -> None:
     w.producto(engine, P)
     w.producto(engine, OTRA_MARCA, marca="OTRA")
     w.bono_marca(engine, "1", date(2026, 10, 1), date(2026, 12, 31))
     w.run(engine, "DELETE FROM costo_si_dirty")
 
     with sessionmaker(bind=engine)() as db:
-        assert queue.encolar_vigentes(db) == 1
+        assert queue.encolar_vigentes(db) == 2
         db.commit()
-    assert w.encolados(engine) == [(P, None)]
+    assert w.encolados(engine) == [(P, None), (OTRA_MARCA, None)]  # L21: a product without sell in too
 
 
 def test_sell_drain_recomputes_a_full_product_without_any_ml_call(engine: Engine) -> None:
@@ -919,3 +920,90 @@ def test_a_line_never_takes_more_than_the_purchase_and_a_money_cap_counts_only_w
     _recalcular(engine, P)
 
     assert _nn(engine, P) == [D("0.00000"), D("950.00000")]
+
+
+# --- L21: a product no sell in ever reached also gets a costo SI, from 2026-11-01 00:00 -----------------------------
+
+SIN_SELL_IN = 5105
+
+
+def _sin_sell_in(engine: Engine) -> None:
+    """No sell in, no bonus: list cost 25 since 10-15; an invoice at 30 on 10-20 (in stock by 11-01: 200 then) and,
+    since 11-01, one at 22 on 11-05 linked to a Compras order without any sell in."""
+    w.producto(engine, SIN_SELL_IN)
+    w.costo_lista(engine, SIN_SELL_IN, datetime(2026, 10, 15, 9, 0), "25")
+    w.factura(engine, SIN_SELL_IN, date(2026, 10, 20), datetime(2026, 10, 20, 10), 50, "30", previo=150)
+    w.factura(engine, SIN_SELL_IN, date(2026, 11, 5), datetime(2026, 11, 5, 10), 100, "22", previo=200, pedido=7)
+    w.run(engine, "DELETE FROM costo_si_dirty")
+
+
+def test_l21_a_product_without_sell_in_starts_on_11_01_and_averages_every_invoice_after_it(engine: Engine) -> None:
+    """L21: the start is 2026-11-01 00:00 at that instant's list cost and available stock (S2/S3); the invoice before
+    it only counts as stock; the one after it enters the average with no discount."""
+    _sin_sell_in(engine)
+
+    _recalcular(engine, SIN_SELL_IN)
+
+    assert w.pasos(engine, SIN_SELL_IN) == [
+        ("inicio", date(2026, 11, 1), 200, 200, D("25.00000"), D("25.00000")),
+        ("compra", date(2026, 11, 5), 100, 200, D("22.00000"), D("24.00000")),
+    ]
+    assert w.rows(
+        engine, "SELECT sell_in_pct, sell_ins FROM costo_si_pasos WHERE item_id = :i AND tipo = 'compra'", i=SIN_SELL_IN
+    ) == [(D("0"), [])]
+
+
+def test_l21_without_an_invoice_since_11_01_the_costo_si_is_the_start_cost(engine: Engine) -> None:
+    w.producto(engine, SIN_SELL_IN)
+    w.costo_lista(engine, SIN_SELL_IN, datetime(2026, 10, 15, 9, 0), "25")
+    w.factura(engine, SIN_SELL_IN, date(2026, 10, 20), datetime(2026, 10, 20, 10), 50, "30", previo=150)
+
+    _recalcular(engine, SIN_SELL_IN)
+
+    assert w.pasos(engine, SIN_SELL_IN) == [("inicio", date(2026, 11, 1), 200, 200, D("25.00000"), D("25.00000"))]
+
+
+def test_l21_the_reader_says_costo_si_for_a_product_without_sell_in(engine: Engine) -> None:
+    """S5: once computed, the reader's source is the costo SI (24 USD), no longer the list cost."""
+    from app.services.costo_si import lote
+
+    _sin_sell_in(engine)
+    _recalcular(engine, SIN_SELL_IN)
+
+    with sessionmaker(bind=engine)() as db:
+        costo = lote.actuales(db, [SIN_SELL_IN], tipo_cambio=1000)[SIN_SELL_IN]
+    assert (costo.fuente, costo.costo, costo.moneda, costo.costo_si_desde) == (
+        lote.FUENTE_COSTO_SI,
+        D("24.00000"),
+        "USD",
+        date(2026, 11, 5),
+    )
+
+
+def test_l21_without_a_list_cost_or_an_invoice_the_cost_stays_unknown_never_0(engine: Engine) -> None:
+    """Interfaz §7: no start cost and nothing bought since 11-01: no average is stored, the reader never says 0."""
+    from app.services.costo_si import lote
+
+    w.producto(engine, SIN_SELL_IN)
+
+    _recalcular(engine, SIN_SELL_IN)
+
+    assert [p[5] for p in w.pasos(engine, SIN_SELL_IN)] in ([], [None])
+    with sessionmaker(bind=engine)() as db:
+        costo = lote.actuales(db, [SIN_SELL_IN])[SIN_SELL_IN]
+    assert costo.fuente != lote.FUENTE_COSTO_SI and costo.costo is None and costo.costo_ars is None
+
+
+def test_l21_a_product_with_a_sell_in_keeps_its_own_start(engine: Engine) -> None:
+    """S2 unchanged: a first sell in before 11-01 (10-05) or after it (11-02, Alejandro's L1) stays the start."""
+    _l1(engine)
+    w.producto(engine, OTRA_MARCA, marca="OTRA")
+    w.costo_lista(engine, OTRA_MARCA, datetime(2026, 9, 1), "100")
+    w.factura(engine, OTRA_MARCA, date(2026, 10, 5), datetime(2026, 10, 5, 10), 10, "100", previo=0, pedido=11)
+    w.sell_in_compra(engine, OTRA_MARCA, 11, "5", date(2026, 10, 5))
+
+    _recalcular(engine, P)
+    _recalcular(engine, OTRA_MARCA)
+
+    assert w.pasos(engine, P)[0][:2] == ("inicio", date(2026, 11, 2))
+    assert w.pasos(engine, OTRA_MARCA)[0][:2] == ("inicio", date(2026, 10, 5))
