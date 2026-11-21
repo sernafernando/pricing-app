@@ -94,3 +94,33 @@ def test_the_sort_follows_the_prices_the_page_shows(client, mundo, campo) -> Non
     assert [p["item_id"] for p in desc] == [G2, G3, G1]
     precios = [p[f"{campo}_sin_iva"] for p in asc]
     assert precios == sorted(precios)
+
+
+def test_the_deploy_estimate_measures_these_very_prices(client, mundo, pg) -> None:  # noqa: F811
+    """`app.scripts.costo_si_tienda_estimacion` (the read-only prod estimate) prices exactly as the listing: before
+    over the list cost, after over costo SI; Sugerido after the clásica markup is rewritten over costo SI keeps the
+    ML price, so only the extra Sugerido % moves: varios x Sugerido% x (list - costo SI)."""
+    from app.scripts.costo_si_tienda_estimacion import estimar
+
+    factor = 1 + obtener_constantes_pricing(pg).get("varios", 6.5) / 100
+    listado = {p["item_id"]: p for p in _tienda(client)}
+    lista = {G1: 100_000.0, G2: 90_000.0, G3: 60_000.0}
+    filas = {f.item_id: f for f in estimar(pg)}
+
+    for item, si in COSTO_SI_ARS.items():
+        f = filas[item]
+        assert f.gremio_antes == pytest.approx(lista[item] * factor * (1 + GREMIO / 100)), item
+        assert f.gremio_despues == pytest.approx(listado[item]["precio_gremio_sin_iva"]), item
+        assert f.sugerido_ventana == pytest.approx(listado[item]["precio_sugerido_sin_iva"]), item
+        caida = factor * SUGERIDO / 100 * (lista[item] - si)
+        assert f.sugerido_antes - f.sugerido_despues == pytest.approx(caida), item
+    assert (filas[G1].fuente, filas[G2].fuente) == ("costo_si", "lista")
+
+
+def test_the_estimate_needs_its_url_and_never_runs_without_it(tmp_path, monkeypatch, capsys) -> None:
+    from app.scripts import costo_si_tienda_estimacion as script
+
+    monkeypatch.delenv(script.URL_ENV, raising=False)
+
+    assert script.main(["--out", str(tmp_path)]) == 2
+    assert script.URL_ENV in capsys.readouterr().err
