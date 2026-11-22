@@ -108,3 +108,37 @@ def test_an_edit_of_an_offset_loaded_before_approval_existed_sends_it_back(clien
     resp = client.put(f"{BASE}/{viejo.id}", json={"monto": 20}, headers=admin_auth_headers)
 
     assert (resp.status_code, resp.json()["estado"]) == (200, "pendiente")
+
+
+# --- production sessions do not autoflush (`app/core/database.py`: SessionLocal(autoflush=False)) ----------------------
+
+
+def test_a_money_edit_is_stored_without_autoflush(client, db, aprobador) -> None:
+    """The verifier's probe (S10, B1): the send-back reloads the row locked; the edit must be flushed before, or the
+    new amount is thrown away and only `pendiente` is stored."""
+    creado = _crear(client, aprobador)
+    assert client.post(f"{BASE}/{creado['id']}/aprobar", headers=aprobador).status_code == 200
+    db.autoflush = False  # as SessionLocal in production
+
+    resp = client.put(f"{BASE}/{creado['id']}", json={"monto": 80}, headers=aprobador)
+
+    assert resp.status_code == 200
+    assert (resp.json()["estado"], resp.json()["monto"]) == ("pendiente", 80)
+    db.expire_all()
+    guardado = db.get(OffsetGanancia, creado["id"])
+    assert (guardado.estado, guardado.monto) == ("pendiente", 80)
+
+
+def test_a_description_edit_without_autoflush_keeps_it_approved(client, db, aprobador) -> None:
+    creado = _crear(client, aprobador)
+    client.post(f"{BASE}/{creado['id']}/aprobar", headers=aprobador)
+    db.autoflush = False
+
+    resp = client.put(f"{BASE}/{creado['id']}", json={"descripcion": "X"}, headers=aprobador)
+
+    assert (resp.json()["estado"], resp.json()["descripcion"], resp.json()["monto"]) == ("activa", "X", 50)
+    db.expire_all()
+    assert (db.get(OffsetGanancia, creado["id"]).descripcion, db.get(OffsetGanancia, creado["id"]).estado) == (
+        "X",
+        "activa",
+    )

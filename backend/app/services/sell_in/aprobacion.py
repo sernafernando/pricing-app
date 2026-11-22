@@ -121,6 +121,9 @@ def cambiar_lineas(
     from app.services.sell_in.costing import get_costing  # noqa: PLC0415
     from app.services.sell_out import campanas  # noqa: PLC0415 - campanas imports this module
 
+    # The rows are reloaded locked (`populate_existing`): an edit the caller has not flushed would be thrown away, and
+    # production sessions do not autoflush.
+    db.flush()
     # `offset_ids` only when offsets were given: a tactical's audit rows keep their three kinds.
     movidas: dict[str, list[int]] = {"bono_ids": [], "compra_ids": [], "campana_ids": []}
     for modelo, ids, clave in (

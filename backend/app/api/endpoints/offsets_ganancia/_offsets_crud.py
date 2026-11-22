@@ -333,7 +333,9 @@ def actualizar_offset(
     `pendiente` (tacticals approval S10)."""
     if not verificar_permiso(db, current_user, "config.editar_constantes"):
         raise HTTPException(status_code=403, detail="No tienes permiso para gestionar offsets de ganancia")
-    offset = db.query(OffsetGanancia).filter(OffsetGanancia.id == offset_id).first()
+    # Locked: an approval running at the same time waits for this edit (and sees it), instead of approving the old
+    # values the edit then overwrites (S10).
+    offset = db.query(OffsetGanancia).filter(OffsetGanancia.id == offset_id).with_for_update().first()
 
     if not offset:
         raise HTTPException(404, "Offset no encontrado")
@@ -407,6 +409,9 @@ def actualizar_offset(
     _validar_offset_negativo_sin_limite(
         offset.tipo_offset, offset.monto, offset.porcentaje, offset.max_unidades, offset.max_monto_usd
     )
+    # Flushed first: the send-back reloads the row locked (`populate_existing`), and production sessions do not
+    # autoflush, so an unflushed edit would be thrown away and only `pendiente` stored.
+    db.flush()
     aprobacion.a_pendiente_si_cambia(db, offset, antes, _dinero(offset), (), current_user.id)
 
     db.commit()
