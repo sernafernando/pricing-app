@@ -182,3 +182,37 @@ def test_the_count_needs_the_filter_permission_and_a_visible_group(client, db, a
     db.commit()
     assert client.get(f"/api/offset-grupos/{oculto.id}/aprobadas-afectadas", headers=aprobador).status_code == 404
     assert client.get("/api/offset-grupos/999999/aprobadas-afectadas", headers=aprobador).status_code == 404
+
+
+class _Deadlock(Exception):
+    pgcode = "40P01"  # deadlock_detected: Postgres aborted this transaction to break a lock cycle
+
+
+@pytest.mark.parametrize("motivo", ["deadlock", "recalculando"])
+def test_a_busy_campaign_or_a_deadlock_is_a_409_and_nothing_is_stored(
+    client, db, aprobador, grupo, monkeypatch, motivo
+) -> None:
+    """A campaign being rebuilt by the sell out drain, or a deadlock with another approval or edit, refuses the filter
+    edit with a 409 to retry: the filter is not stored and the campaign keeps its approval."""
+    from sqlalchemy.exc import DBAPIError
+
+    from app.services.sell_in import aprobacion
+    from app.services.sell_out import campanas
+
+    campana_id = _campana(client, aprobador, grupo.id)
+    filtros_antes = db.query(OffsetGrupoFiltro).filter(OffsetGrupoFiltro.grupo_id == grupo.id).count()
+
+    def _ocupado(db_, *_args, **_kwargs):
+        if motivo == "deadlock":
+            raise DBAPIError("SELECT ... FOR UPDATE", {}, _Deadlock())
+        db_.rollback()
+        raise campanas.SellOutRecalculando(campanas.OCUPADA)
+
+    monkeypatch.setattr(aprobacion, "a_pendiente_el_grupo", _ocupado)
+
+    resp = client.post(f"/api/offset-grupos/{grupo.id}/filtros", json={"marca": "EPSON"}, headers=aprobador)
+
+    assert resp.status_code == 409, resp.text
+    db.expire_all()
+    assert db.query(OffsetGrupoFiltro).filter(OffsetGrupoFiltro.grupo_id == grupo.id).count() == filtros_antes
+    assert _estado(db, campana_id) == "activa"
