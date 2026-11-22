@@ -55,7 +55,10 @@ describe.each([
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(2026, 10, 12, 10));
-    tacticalsAPI.listar.mockResolvedValue({ data: { ...pagina([PENDIENTE, APROBADO]), kpis: KPIS_COBRANZA } });
+    // Like the backend: the pending filter returns the pending tacticals only.
+    tacticalsAPI.listar.mockImplementation(async (p) => ({
+      data: { ...pagina(p?.estado === 'pendientes_aprobacion' ? [PENDIENTE] : [PENDIENTE, APROBADO]), kpis: KPIS_COBRANZA },
+    }));
   });
 
   const abrir = async () => {
@@ -73,17 +76,18 @@ describe.each([
 
   it('filters the pending ones: the pending pill and the approver fit their cell', async () => {
     const screen = await abrir();
-    await screen.getByRole('button', { name: 'Pendientes de aprobación' }).click();
-    await expect.poll(() => tacticalsAPI.listar.mock.calls.some(([p]) => p.estado === 'pendientes_aprobacion')).toBe(true);
-
-    const fila = screen.getByRole('row', { name: /Tacticals BPS Noviembre Q1FY27/ });
-    await expect.element(fila.getByText('Pendiente de aprobación')).toBeVisible();
     const aprobado = screen.getByText('Aprobado por Alejandro el 10/11/2026');
     await expect.element(aprobado).toBeVisible();
     // The approver line stays inside its cell: no overflow over the Cobranza column.
     const texto = aprobado.element().getBoundingClientRect();
     const celda = aprobado.element().closest('td').getBoundingClientRect();
     expect(texto.right).toBeLessThanOrEqual(celda.right + 0.5);
+
+    await screen.getByRole('button', { name: 'Pendientes de aprobación' }).click();
+    await expect.poll(() => tacticalsAPI.listar.mock.calls.some(([p]) => p.estado === 'pendientes_aprobacion')).toBe(true);
+    const fila = screen.getByRole('row', { name: /Tacticals BPS Noviembre Q1FY27/ });
+    await expect.element(fila.getByText('Pendiente de aprobación')).toBeVisible();
+    await expect.element(screen.getByText('Rebate HP Q1FY27')).not.toBeInTheDocument();
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
     if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/tacticals-pendientes-${theme}-${width}.png` });
   });
