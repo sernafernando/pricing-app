@@ -1,7 +1,7 @@
 """tacticals approval: the 'pendiente' state on tacticals and their line engines, who approved, tacticals.aprobar
 
 Revision ID: 20261122_tacticals_aprobacion
-Revises: 20261128_costo_si_t4_recalculo
+Revises: 20261129_costo_si_compras_sospechosas
 Create Date: 2026-11-22
 
 Owner (L30): "también hay que hacer un sistema de validación para las cargas de los tacticals, tienen que quedar con
@@ -31,7 +31,7 @@ from typing import List, Sequence, Union
 from alembic import op
 
 revision: str = "20261122_tacticals_aprobacion"
-down_revision: Union[str, None] = "20261128_costo_si_t4_recalculo"
+down_revision: Union[str, None] = "20261129_costo_si_compras_sospechosas"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

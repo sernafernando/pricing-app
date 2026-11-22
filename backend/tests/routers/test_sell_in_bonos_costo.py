@@ -262,6 +262,7 @@ def test_an_invoice_bonus_response_is_unchanged(client, gestor, productos, admin
         "descripcion": "Acuerdo Q4",
         "estado": "activa",
         "usuario_id": admin_user.id,
+        "tactical_id": None,  # added by tacticals approval (S6): a standalone bonus has no tactical
         "compras_activas": 1,
         "unidades": 4,
         "monto_generado": "10.00",

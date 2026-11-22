@@ -81,7 +81,7 @@ def test_this_revision_chains_on_the_single_previous_head() -> None:
     script = ScriptDirectory.from_config(config)
     revision = script.get_revision(_REVISION)
     assert revision is not None
-    assert revision.down_revision == "20261128_costo_si_t4_recalculo"
+    assert revision.down_revision == "20261129_costo_si_compras_sospechosas"
     assert len(script.get_heads()) == 1
     assert len(_REVISION) <= 64
 
