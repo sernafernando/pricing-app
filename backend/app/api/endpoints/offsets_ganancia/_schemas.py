@@ -56,6 +56,13 @@ class AlcancePrevio(BaseModel):
     despues: int
 
 
+class AprobadasAfectadas(BaseModel):
+    """The approved campaigns and offsets a filter edit of the group sends back to pending (tacticals approval S14)."""
+
+    campanas: int
+    offsets: int
+
+
 class GruposEliminarIn(BaseModel):
     """The groups to delete at once (the Grupos tab's "Borrar seleccionados")."""
 

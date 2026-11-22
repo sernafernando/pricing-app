@@ -81,3 +81,21 @@
 .casilla {
   width: 1%;
 }
+
+/* What a filter change sends back to pending (tacticals approval S14). */
+.aPendiente {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  color: var(--tone-warning-fg);
+  background: var(--tone-warning-bg);
+  border: 1px solid var(--tone-warning-border);
+  border-radius: var(--radius-md);
+}
+
+.aPendienteTexto {
+  margin: 0;
+  font-size: var(--font-sm);
+  font-weight: 600;
+}

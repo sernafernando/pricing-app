@@ -35,7 +35,7 @@ from sqlalchemy.orm import Session
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.sell_in import SellInBonoMarca, SellInCompra, SellInCompraItem
-from app.models.sell_out import SellOutCampana
+from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo
 
 ACTIVA = "activa"
 PENDIENTE = "pendiente"
@@ -236,3 +236,49 @@ def aprobar_linea(db: Session, modelo: type, fila_id: int, usuario_id: int) -> O
         raise
     db.refresh(fila)
     return fila
+
+
+def _aprobadas_del_grupo(db: Session, grupo_id: int) -> tuple[list[tuple[int, Optional[int]]], list[int]]:
+    """The approved campaigns using the group, as `(campana_id, tactical_id)`, and its approved offsets, by id."""
+    campanas = (
+        db.query(SellOutCampana.id, SellOutCampana.tactical_id)
+        .join(SellOutCampanaGrupo, SellOutCampanaGrupo.campana_id == SellOutCampana.id)
+        .filter(SellOutCampanaGrupo.grupo_id == grupo_id, SellOutCampana.estado == ACTIVA)
+        .distinct()
+        .order_by(SellOutCampana.id)
+        .all()
+    )
+    offsets = [
+        i
+        for (i,) in db.query(OffsetGanancia.id)
+        .filter(OffsetGanancia.grupo_id == grupo_id, OffsetGanancia.estado == ACTIVA)
+        .order_by(OffsetGanancia.id)
+    ]
+    return [(c, t) for c, t in campanas], offsets
+
+
+def aprobadas_del_grupo(db: Session, grupo_id: int) -> dict[str, int]:
+    """How many approved campaigns and offsets a filter edit of the group would send back to pending (S14): the
+    edit screen's warning. Read-only."""
+    campanas, offsets = _aprobadas_del_grupo(db, grupo_id)
+    return {"campanas": len(campanas), "offsets": len(offsets)}
+
+
+def a_pendiente_el_grupo(db: Session, grupo_id: int, usuario_id: int) -> None:
+    """A group's filters are the scope of its offsets and of every campaign using it, and scope is money (S5, S10,
+    S14): its approved offsets and campaigns go back to `pendiente`, one audit row each; a tactical's campaign takes
+    its whole tactical back (`tacticals.a_pendiente`, which locks the tactical first, as every tactical writer does).
+    Pending ones stay as they are. Flushes the caller's filter edit first; does not commit."""
+    from app.services import tacticals  # noqa: PLC0415 - tacticals imports the engines that import this
+
+    db.flush()  # production sessions do not autoflush: the filter edit must be stored before the rows are reloaded
+    campanas, offsets = _aprobadas_del_grupo(db, grupo_id)
+    motivo = f"Se editaron los filtros del grupo {grupo_id}"
+    for tactical_id in sorted({t for _, t in campanas if t is not None}):
+        tacticals.a_pendiente(db, tactical_id, usuario_id, motivo)
+    movidas = cambiar_lineas(
+        db, campana_ids=[c for c, t in campanas if t is None], offset_ids=offsets, de=ACTIVA, a=PENDIENTE
+    )
+    for clave, ids in (("campana_id", movidas["campana_ids"]), ("offset_id", movidas.get("offset_ids", []))):
+        for fila_id in ids:
+            auditar(db, TipoAccion.TACTICAL_A_PENDIENTE, usuario_id, {clave: fila_id}, motivo)

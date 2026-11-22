@@ -5,18 +5,26 @@ import { offsetGruposAPI } from '../../services/offsetGruposAPI';
 import { apiErrorMessage } from '../../utils/apiErrorMessage';
 import SellInBuscador from '../sellIn/SellInBuscador';
 import { buscarProductos } from '../sellOut/sellOutBuscar';
-import { NOTA_ALCANCE, productosTexto, resumenFiltro } from './grupoFormat';
+import { NOTA_ALCANCE, NOTA_A_PENDIENTE, aPendienteTextos, productosTexto, resumenFiltro } from './grupoFormat';
 import styles from '../sellIn/SellInPanel.module.css';
 import own from './Grupos.module.css';
 
 const FILTRO_VACIO = { marca: '', categoria: '', subcategoria_id: '', producto: null };
+const ESTADO_CAMPANA = {
+  activa: { tone: 'success', texto: 'Activa' },
+  pendiente: { tone: 'warning', texto: 'Pendiente de aprobación' },
+  anulada: { tone: 'danger', texto: 'Anulada' },
+};
 
 /**
  * One offset group in the side panel: name and description, its filter rows (add / remove), the products it
  * reaches and the campaigns using it, and delete. `grupo` null is a new group: "Crear grupo" calls `onCreado`.
  * Every change calls `onCambio` (the list and the preview are asked again). While an active campaign uses the
  * group, a filter change re-queues its money: the panel asks first, naming the campaigns and showing the products
- * reached before -> after (`alcancePrevio`, the same rule, nothing saved); without one it saves at once.
+ * reached before -> after (`alcancePrevio`, the same rule, nothing saved). A filter change also sends the group's
+ * approved campaigns and offsets back to pending (tacticals approval S14): the panel asks for their count first
+ * (`aprobadasAfectadas`) and, when there is any, warns "N campañas aprobadas vuelven a pendiente" before saving.
+ * With neither it saves at once.
  */
 export default function GrupoPanel({ grupo, opciones, subcategorias, onClose, onCreado, onCambio, onEliminado }) {
   const id = useId();
@@ -27,7 +35,7 @@ export default function GrupoPanel({ grupo, opciones, subcategorias, onClose, on
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [confirmando, setConfirmando] = useState(false);
-  // `{ cambio, guardar, antes, despues }`: a filter change waiting for "Confirmar cambio".
+  // `{ guardar, antes, despues, aPendiente }`: a filter change waiting for "Confirmar cambio".
   const [pendiente, setPendiente] = useState(null);
   const activas = (grupo?.campanas ?? []).filter((c) => c.estado === 'activa');
 
@@ -55,13 +63,25 @@ export default function GrupoPanel({ grupo, opciones, subcategorias, onClose, on
       }
     }, 'No se pudo guardar el grupo.');
 
-  // Without an active campaign `guardar` runs at once; with one, the preview is asked and the change waits.
-  const cambiarFiltros = (cambio, guardar) => {
-    if (activas.length === 0) return guardar();
-    return correr(async () => {
-      const { data } = await offsetGruposAPI.alcancePrevio(grupo.id, cambio);
-      setPendiente({ guardar, antes: data.antes, despues: data.despues });
+  // The approved loads the change sends back are asked always; the products preview only with an active campaign.
+  // With neither an active campaign nor an approved load `guardar` runs at once; else the change waits.
+  const cambiarFiltros = async (cambio, guardar) => {
+    let espera = null;
+    await correr(async () => {
+      const [{ data: afectadas }, previo] = await Promise.all([
+        offsetGruposAPI.aprobadasAfectadas(grupo.id),
+        activas.length > 0 ? offsetGruposAPI.alcancePrevio(grupo.id, cambio) : null,
+      ]);
+      const aPendiente = aPendienteTextos(afectadas);
+      if (previo || aPendiente.length > 0) {
+        espera = { guardar, antes: previo?.data.antes, despues: previo?.data.despues, aPendiente };
+      } else {
+        espera = { guardar: null };
+      }
     }, 'No se pudo calcular el alcance del cambio.');
+    if (espera?.guardar === null) return guardar();
+    if (espera) setPendiente(espera);
+    return undefined;
   };
 
   const confirmarCambio = () => {
@@ -220,8 +240,22 @@ export default function GrupoPanel({ grupo, opciones, subcategorias, onClose, on
               </div>
               {pendiente && (
                 <div className={styles.confirm} role="group" aria-label="Confirmar cambio de filtros">
-                  <p>{recalcula}</p>
-                  <p>{`Productos alcanzados: ${pendiente.antes} → ${pendiente.despues}.`}</p>
+                  {pendiente.antes !== undefined && (
+                    <>
+                      <p>{recalcula}</p>
+                      <p>{`Productos alcanzados: ${pendiente.antes} → ${pendiente.despues}.`}</p>
+                    </>
+                  )}
+                  {pendiente.aPendiente.length > 0 && (
+                    <div className={own.aPendiente}>
+                      {pendiente.aPendiente.map((texto) => (
+                        <p key={texto} className={own.aPendienteTexto}>
+                          {`${texto}.`}
+                        </p>
+                      ))}
+                      <p className={own.nota}>{NOTA_A_PENDIENTE}</p>
+                    </div>
+                  )}
                   <div className={styles.confirmActions}>
                     <button type="button" className="btn-tesla outline sm" onClick={() => setPendiente(null)} disabled={busy}>
                       Cancelar
@@ -246,7 +280,7 @@ export default function GrupoPanel({ grupo, opciones, subcategorias, onClose, on
                   {grupo.campanas.map((c) => (
                     <li key={c.id} className={own.fila}>
                       <span>{c.nombre}</span>
-                      <StatusPill tone={c.estado === 'activa' ? 'success' : 'danger'}>{c.estado === 'activa' ? 'Activa' : 'Anulada'}</StatusPill>
+                      <StatusPill tone={ESTADO_CAMPANA[c.estado]?.tone}>{ESTADO_CAMPANA[c.estado]?.texto ?? c.estado}</StatusPill>
                     </li>
                   ))}
                 </ul>

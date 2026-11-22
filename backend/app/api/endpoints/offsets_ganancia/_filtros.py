@@ -1,40 +1,55 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 from typing import List
 
 from app.core.database import get_db
-from app.models.auditoria import TipoAccion
-from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
 from app.services.permisos_service import verificar_permiso
 from app.services.sell_in import aprobacion
+from app.services.sell_out import campanas
 
-from ._schemas import OffsetGrupoFiltroCreate
+from ._schemas import AprobadasAfectadas, OffsetGrupoFiltroCreate
 
 router = APIRouter()
 
 
 def _a_pendiente_el_grupo(db: Session, grupo_id: int, usuario_id: int) -> None:
-    """A group's filters are its offsets' scope, and scope is money (tacticals approval S5, S10): its approved
-    offsets go back to `pendiente`, one audit row each. Pending ones stay as they are. Does not commit."""
-    ids = [
-        i
-        for (i,) in db.query(OffsetGanancia.id).filter(
-            OffsetGanancia.grupo_id == grupo_id, OffsetGanancia.estado == aprobacion.ACTIVA
-        )
-    ]
-    movidas = aprobacion.cambiar_lineas(db, offset_ids=ids, de=aprobacion.ACTIVA, a=aprobacion.PENDIENTE)
-    for offset_id in movidas.get("offset_ids", []):
-        aprobacion.auditar(
-            db,
-            TipoAccion.TACTICAL_A_PENDIENTE,
-            usuario_id,
-            {"offset_id": offset_id},
-            f"Se editaron los filtros del grupo {grupo_id}",
-        )
+    """The group's approved offsets and campaigns go back to pending (`aprobacion.a_pendiente_el_grupo`, S10, S14).
+    A campaign being rebuilt by `sell_out.drain`, or a deadlock with another approval or edit, is a 409 with nothing
+    stored (retry). Does not commit."""
+    try:
+        aprobacion.a_pendiente_el_grupo(db, grupo_id, usuario_id)
+    except campanas.SellOutRecalculando as exc:  # `_encolar` already rolled back
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except DBAPIError as exc:
+        if not aprobacion.es_deadlock(exc):
+            raise
+        db.rollback()
+        raise HTTPException(status_code=409, detail=aprobacion.OCUPADA) from exc
+
+
+def _grupo_visible(db: Session, grupo_id: int) -> OffsetGrupo:
+    # A tactical line's hidden group: its filters are the line's scope, changed only by the tactical.
+    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id, OffsetGrupo.oculto.is_(False)).first()
+    if not grupo:
+        raise HTTPException(404, "Grupo no encontrado")
+    return grupo
+
+
+@router.get("/offset-grupos/{grupo_id}/aprobadas-afectadas", response_model=AprobadasAfectadas)
+def aprobadas_afectadas(
+    grupo_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+) -> AprobadasAfectadas:
+    """How many approved campaigns and offsets a filter edit of this group sends back to pending (S14): the group
+    edit screen warns before saving. Behind the filter endpoints' permission."""
+    if not verificar_permiso(db, current_user, "config.editar_constantes"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar offsets de ganancia")
+    _grupo_visible(db, grupo_id)
+    return AprobadasAfectadas(**aprobacion.aprobadas_del_grupo(db, grupo_id))
 
 
 def _clave_filtro(f) -> tuple:
