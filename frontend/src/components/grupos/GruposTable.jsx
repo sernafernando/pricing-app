@@ -3,6 +3,7 @@ import styles from '../sellIn/SellInTable.module.css';
 import own from './Grupos.module.css';
 
 const anuladasTexto = (n) => (n === 1 ? '1 anulada' : `${n} anuladas`);
+const pendientesTexto = (n) => `${n} ${n === 1 ? 'pendiente' : 'pendientes'} de aprobación`;
 
 /**
  * The offset groups (`useGrupos`): name and description, one line per filter row (a group reaches a product
@@ -47,7 +48,8 @@ export default function GruposTable({ grupos, subcategorias, selectedId, onSelec
           )}
           {grupos.map((grupo) => {
             const activas = grupo.campanas.filter((c) => c.estado === 'activa');
-            const anuladas = grupo.campanas.length - activas.length;
+            const anuladas = grupo.campanas.filter((c) => c.estado === 'anulada').length;
+            const pendientes = grupo.campanas.filter((c) => c.estado === 'pendiente').length;
             return (
               <tr key={grupo.id} className={selectedId === grupo.id ? styles.rowSelected : ''}>
                 {editable && (
@@ -76,6 +78,7 @@ export default function GruposTable({ grupos, subcategorias, selectedId, onSelec
                   {activas.map((c) => (
                     <div key={c.id}>{c.nombre}</div>
                   ))}
+                  {pendientes > 0 && <div className={styles.sub}>{pendientesTexto(pendientes)}</div>}
                   {anuladas > 0 && <div className={styles.sub}>{anuladasTexto(anuladas)}</div>}
                   {grupo.campanas.length === 0 && <div className={styles.sub}>Ninguna</div>}
                 </td>

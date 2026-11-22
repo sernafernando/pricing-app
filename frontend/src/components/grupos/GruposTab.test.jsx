@@ -422,6 +422,16 @@ describe('GruposTab — approved loads go back to pending', () => {
     expect(offsetGruposAPI.agregarFiltro).not.toHaveBeenCalled();
   });
 
+  it('the list counts a campaign waiting for approval apart, never as voided', async () => {
+    offsetGruposAPI.alcance.mockResolvedValue({
+      data: [{ ...ALCANCE[0], campanas: [...ALCANCE[0].campanas, { id: 7, nombre: 'Diciembre TP-Link', estado: 'pendiente' }] }, ALCANCE[1]],
+    });
+    renderWithRouter(<GruposTab puedeEditar />);
+    const tplink = await fila('TP-Link redes');
+    expect(within(tplink).getByText('1 anulada')).toBeInTheDocument();
+    expect(within(tplink).getByText('1 pendiente de aprobación')).toBeInTheDocument();
+  });
+
   it('a campaign waiting for approval reads "Pendiente de aprobación" in the panel', async () => {
     const user = userEvent.setup();
     offsetGruposAPI.alcance.mockResolvedValue({

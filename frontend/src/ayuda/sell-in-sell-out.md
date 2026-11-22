@@ -40,7 +40,7 @@ Si falta algo, un aviso arriba dice qué (por ejemplo, «Hay 1 línea sin produc
 
 ### Grupos de productos
 
-Las campañas de sell out alcanzan productos a través de **grupos**. En la pestaña **Grupos** se listan todos, con su descripción, sus filtros, cuántos productos alcanzan hoy y qué campañas los usan (las anuladas se cuentan aparte).
+Las campañas de sell out alcanzan productos a través de **grupos**. En la pestaña **Grupos** se listan todos, con su descripción, sus filtros, cuántos productos alcanzan hoy y qué campañas los usan (las anuladas y las pendientes de aprobación se cuentan aparte).
 
 - **Nuevo grupo** pide nombre y descripción; después se le agregan filtros.
 - **Editar** abre el panel lateral: ahí se cambia el nombre o la descripción (**Guardar nombre**), se agregan filtros y se quitan.
