@@ -676,7 +676,7 @@ The output with 2 workers is byte-identical to vite's default.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `BUILD_MIN_FREE_MB` | `6600` | `MemAvailable` needed to build: the smallest working heap (3072 MB) plus the reserve |
+| `BUILD_MIN_FREE_MB` | `6600` | `MemAvailable` needed to build. Never lower than the reserve plus the smallest working heap (3072 MB): a lower value is raised to that |
 | `BUILD_MAX_HEAP_MB` | `4096` | Cap of Node's `--max-old-space-size` for the build |
 | `BUILD_MEM_RESERVE_MB` | `3500` | Available memory left out of the heap: ~2.8 GB the build uses outside it, plus a margin |
 | `BUILD_TERSER_WORKERS` | `2` | Terser workers; unset when building by hand, so vite keeps its default |

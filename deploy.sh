@@ -68,6 +68,7 @@ HEALTHCHECK_TIMEOUT="${HEALTHCHECK_TIMEOUT:-120}"
 BUILD_MIN_FREE_MB="${BUILD_MIN_FREE_MB:-6600}"
 BUILD_MAX_HEAP_MB="${BUILD_MAX_HEAP_MB:-4096}"
 BUILD_MEM_RESERVE_MB="${BUILD_MEM_RESERVE_MB:-3500}"
+BUILD_MIN_HEAP_MB=3072
 # Cada worker de terser es un thread con su heap propio, y vite pone uno por CPU menos uno: ese
 # pool es el que se come la RAM. Con 2 el resultado es idéntico byte a byte (vite.config.js).
 BUILD_TERSER_WORKERS="${BUILD_TERSER_WORKERS:-2}"
@@ -110,7 +111,13 @@ build_memory_ok() {
     BUILD_HEAP_MB=$BUILD_MAX_HEAP_MB
     return 0
   fi
-  [ "$AVAIL_MB" -ge "$BUILD_MIN_FREE_MB" ] || return 1
+  # Nunca menos que la reserva más el heap más chico con el que el build anda: con menos muere igual,
+  # y un heap negativo Node lo ignora en silencio (usa su default). Pasa si alguien baja
+  # BUILD_MIN_FREE_MB por debajo de la reserva.
+  BUILD_NEED_MB=$BUILD_MIN_FREE_MB
+  [ "$BUILD_NEED_MB" -ge $((BUILD_MEM_RESERVE_MB + BUILD_MIN_HEAP_MB)) ] ||
+    BUILD_NEED_MB=$((BUILD_MEM_RESERVE_MB + BUILD_MIN_HEAP_MB))
+  [ "$AVAIL_MB" -ge "$BUILD_NEED_MB" ] || return 1
   BUILD_HEAP_MB=$((AVAIL_MB - BUILD_MEM_RESERVE_MB))
   [ "$BUILD_HEAP_MB" -le "$BUILD_MAX_HEAP_MB" ] || BUILD_HEAP_MB=$BUILD_MAX_HEAP_MB
   return 0
@@ -130,10 +137,16 @@ publish_dist() {
   if [ ! -d "$dist" ]; then
     mv "$new" "$dist"
   elif mv -T --exchange "$new" "$dist" 2>/dev/null; then
-    mv "$new" "$prev"
+    # Ya está publicado: si guardar el anterior falla, es un aviso, no un deploy fallido.
+    DIST_PUBLISHED=yes
+    mv "$new" "$prev" || warn "El build nuevo ya está publicado, pero el anterior no se pudo guardar en $prev (quedó en $new)"
   else
+    # Entre los dos renames dist no existe: un Ctrl+C o un TERM justo ahí cortaría el deploy con
+    # el sitio sin frontend. Las señales se ignoran solo durante estos dos mv.
+    trap '' INT TERM
     mv "$dist" "$prev"
-    mv "$new" "$dist" || { mv "$prev" "$dist"; return 1; }
+    mv "$new" "$dist" || { mv "$prev" "$dist"; trap on_failure INT TERM; return 1; }
+    trap on_failure INT TERM
   fi
 }
 
@@ -232,13 +245,13 @@ Avisamos cuando lo reprogramemos."
 abort_low_memory() {
   trap - ERR INT TERM
 
-  err "Memoria insuficiente para buildear el frontend: hay ${AVAIL_MB} MB disponibles y hacen falta ${BUILD_MIN_FREE_MB} MB."
+  err "Memoria insuficiente para buildear el frontend: hay ${AVAIL_MB} MB disponibles y hacen falta ${BUILD_NEED_MB} MB."
   err "Lo que más memoria ocupa:"
   top_memory >&2
   err "Liberá memoria (servicios viejos o colgados) y volvé a correr el deploy. No se tocó nada."
   notify "Pricing App - deploy cancelado
 
-No hay memoria libre suficiente en el servidor para buildear el frontend (${AVAIL_MB} MB disponibles, hacen falta ${BUILD_MIN_FREE_MB} MB). No se tocó nada, la app sigue funcionando normalmente.
+No hay memoria libre suficiente en el servidor para buildear el frontend (${AVAIL_MB} MB disponibles, hacen falta ${BUILD_NEED_MB} MB). No se tocó nada, la app sigue funcionando normalmente.
 
 Avisamos cuando lo reprogramemos."
 
@@ -405,7 +418,7 @@ fi
 if [ "$SKIP_BUILD" = false ]; then
   CURRENT_STEP="chequeo de memoria para el build"
   build_memory_ok || abort_low_memory
-  log "Memoria disponible: ${AVAIL_MB:-?} MB (mínimo para el build: ${BUILD_MIN_FREE_MB} MB)"
+  log "Memoria disponible: ${AVAIL_MB:-?} MB (mínimo para el build: ${BUILD_NEED_MB:-$BUILD_MIN_FREE_MB} MB)"
 fi
 
 # 1) Aviso de inicio
@@ -491,7 +504,7 @@ if [ "$SKIP_BUILD" = false ]; then
   # La memoria puede haber bajado durante pip y las migraciones: se vuelve a mirar con dist intacto.
   CURRENT_STEP="chequeo de memoria para el build"
   if ! build_memory_ok; then
-    err "Memoria insuficiente para buildear el frontend: hay ${AVAIL_MB} MB disponibles y hacen falta ${BUILD_MIN_FREE_MB} MB."
+    err "Memoria insuficiente para buildear el frontend: hay ${AVAIL_MB} MB disponibles y hacen falta ${BUILD_NEED_MB} MB."
     err "Lo que más memoria ocupa:"
     top_memory >&2
     false

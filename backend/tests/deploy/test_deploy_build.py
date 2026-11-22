@@ -42,6 +42,22 @@ exit 0
 """
 
 # A `mv` without `--exchange` (coreutils < 9.5): the swap falls back to two renames.
+# A `mv` that swaps fine but cannot move the old build out of the way afterwards (e.g. a full disk).
+FAILING_PREV_MV_STUB = """#!/usr/bin/env bash
+dest="${@: -1}"
+[ "${dest##*/}" = "dist.prev" ] && { echo "mv: cannot move to $dest" >&2; exit 1; }
+exec /usr/bin/mv "$@"
+"""
+
+# No `--exchange`, and a Ctrl+C reaches the deploy right while dist is being moved to dist.prev: the moment in
+# the two-rename swap when dist does not exist.
+INTERRUPTED_MV_STUB = """#!/usr/bin/env bash
+for a in "$@"; do [ "$a" = "--exchange" ] && exit 1; done
+dest="${@: -1}"
+[ "${dest##*/}" = "dist.prev" ] && kill -INT "$PPID"
+exec /usr/bin/mv "$@"
+"""
+
 OLD_MV_STUB = """#!/usr/bin/env bash
 for a in "$@"; do [ "$a" = "--exchange" ] && { echo "mv: unrecognized option '--exchange'" >&2; exit 1; }; done
 exec /usr/bin/mv "$@"
@@ -81,7 +97,7 @@ class Build(Env):
             *args,
             extra_env={
                 "MEMINFO_FILE": str(self.meminfo),
-                "BUILD_MIN_FREE_MB": "3000",
+                "BUILD_MIN_FREE_MB": "5000",
                 "BUILD_MAX_HEAP_MB": "4096",
                 "BUILD_MEM_RESERVE_MB": "1024",
                 **(extra_env or {}),
@@ -153,6 +169,29 @@ class TestASuccessfulBuildIsSwappedIn:
         assert env.tree(env.frontend / "dist.prev") == OLD_DIST
         assert not (env.frontend / "dist.new").exists()
 
+    def test_a_failure_to_keep_the_old_build_after_the_swap_is_only_a_warning(self, env) -> None:
+        """Verifier finding: after the exchange the new build is live; failing to move the old one to dist.prev must
+        not report a failed deploy that "did not touch" the frontend."""
+        env._write(env.stub / "bin" / "mv", FAILING_PREV_MV_STUB)
+
+        result = env.build_deploy()
+
+        assert result.returncode == 0, output(result)
+        assert env.tree(env.dist)["index.html"] == "new"
+        assert "El build nuevo ya está publicado, pero el anterior no se pudo guardar" in output(result)
+        assert env.notifications()[-1].startswith("Pricing App - deploy terminado")
+
+    def test_a_ctrl_c_between_the_two_renames_never_leaves_the_site_without_dist(self, env) -> None:
+        """Verifier finding: on coreutils < 9.5 the swap is two renames; a signal between them used to run the trap
+        and exit with dist missing. The signals are ignored for those two `mv` only."""
+        env._write(env.stub / "bin" / "mv", INTERRUPTED_MV_STUB)
+
+        result = env.build_deploy()
+
+        assert env.dist.is_dir(), output(result)
+        assert env.tree(env.dist)["index.html"] == "new"
+        assert env.tree(env.frontend / "dist.prev") == OLD_DIST
+
     def test_a_first_deploy_without_dist_publishes_the_build(self, env) -> None:
         subprocess.run(["rm", "-rf", str(env.dist)], check=True)
 
@@ -172,11 +211,11 @@ class TestASuccessfulBuildIsSwappedIn:
 
 class TestTheNodeHeapFollowsTheFreeMemory:
     def test_the_heap_is_free_memory_minus_the_reserve(self, env) -> None:
-        env.memory(4500)
+        env.memory(5000)
 
         env.build_deploy()
 
-        assert env.builds()[0].endswith("NODE_OPTIONS=--max-old-space-size=3476")
+        assert env.builds()[0].endswith("NODE_OPTIONS=--max-old-space-size=3976")
 
     def test_the_heap_is_capped(self, env) -> None:
         env.memory(12000)
@@ -219,11 +258,11 @@ class TestLowMemoryFailsEarly:
         assert result.returncode == 1
         assert env.pnpm_calls() == []
         assert env.tree(env.dist) == OLD_DIST
-        assert "hay 2000 MB disponibles y hacen falta 3000 MB" in output(result)
+        assert "hay 2000 MB disponibles y hacen falta 5000 MB" in output(result)
         assert "Lo que más memoria ocupa" in output(result)
         (aviso,) = env.notifications()  # no "arranca el deploy" before it
         assert aviso.startswith("Pricing App - deploy cancelado")
-        assert "2000 MB disponibles, hacen falta 3000 MB" in aviso
+        assert "2000 MB disponibles, hacen falta 5000 MB" in aviso
         assert "No se tocó nada" in aviso
 
     def test_memory_that_drops_during_the_deploy_stops_it_before_the_build(self, env) -> None:
@@ -234,10 +273,21 @@ class TestLowMemoryFailsEarly:
         assert result.returncode != 0
         assert env.builds() == []
         assert env.tree(env.dist) == OLD_DIST
-        assert "hay 500 MB disponibles y hacen falta 3000 MB" in output(result)
+        assert "hay 500 MB disponibles y hacen falta 5000 MB" in output(result)
         fallo = env.notifications()[-1]
         assert "Se cortó en: chequeo de memoria para el build" in fallo
         assert "El frontend publicado no se tocó" in fallo
+
+    def test_a_minimum_below_the_reserve_plus_the_smallest_heap_is_raised_to_it(self, env) -> None:
+        """BUILD_MIN_FREE_MB=3000 with a 1024 MB reserve would give a 2476 MB heap, below the 3072 MB the build needs
+        (a negative one Node silently ignores): the real floor, 1024 + 3072, is what is required and reported."""
+        env.memory(3500)
+
+        result = env.build_deploy(extra_env={"BUILD_MIN_FREE_MB": "3000"})
+
+        assert result.returncode == 1
+        assert env.pnpm_calls() == []
+        assert "hay 3500 MB disponibles y hacen falta 4096 MB" in output(result)
 
     def test_skip_build_never_checks_memory(self, env) -> None:
         env.memory(100)
