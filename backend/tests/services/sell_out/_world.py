@@ -45,7 +45,9 @@ STUBS = [
     PUBLICADOS,
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
     "INSERT INTO usuarios VALUES (7)",
-    "CREATE TABLE offsets_ganancia (id INTEGER PRIMARY KEY)",  # `sell_out_campanas.offset_origen_id` (T15)
+    # `sell_out_campanas.offset_origen_id` (T15); a group's filter edit sends its approved offsets back (S10).
+    "CREATE TABLE offsets_ganancia (id INTEGER PRIMARY KEY, grupo_id INTEGER, "
+    "estado VARCHAR(16) NOT NULL DEFAULT 'activa')",
 ]
 TABLES = [
     ProductoERP.__table__,

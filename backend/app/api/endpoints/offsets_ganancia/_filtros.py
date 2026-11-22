@@ -3,15 +3,42 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from app.core.database import get_db
+from app.models.auditoria import TipoAccion
+from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
 from app.services.permisos_service import verificar_permiso
+from app.services.sell_in import aprobacion
 
 from ._schemas import OffsetGrupoFiltroCreate
 
 router = APIRouter()
+
+
+def _a_pendiente_el_grupo(db: Session, grupo_id: int, usuario_id: int) -> None:
+    """A group's filters are its offsets' scope, and scope is money (tacticals approval S5, S10): its approved
+    offsets go back to `pendiente`, one audit row each. Pending ones stay as they are. Does not commit."""
+    ids = [
+        i
+        for (i,) in db.query(OffsetGanancia.id).filter(
+            OffsetGanancia.grupo_id == grupo_id, OffsetGanancia.estado == aprobacion.ACTIVA
+        )
+    ]
+    movidas = aprobacion.cambiar_lineas(db, offset_ids=ids, de=aprobacion.ACTIVA, a=aprobacion.PENDIENTE)
+    for offset_id in movidas.get("offset_ids", []):
+        aprobacion.auditar(
+            db,
+            TipoAccion.TACTICAL_A_PENDIENTE,
+            usuario_id,
+            {"offset_id": offset_id},
+            f"Se editaron los filtros del grupo {grupo_id}",
+        )
+
+
+def _clave_filtro(f) -> tuple:
+    return (f.marca, f.categoria, f.subcategoria_id, f.item_id)
 
 
 @router.post("/offset-grupos/{grupo_id}/filtros")
@@ -41,6 +68,8 @@ def agregar_filtro_a_grupo(
         item_id=filtro.item_id,
     )
     db.add(nuevo_filtro)
+    db.flush()
+    _a_pendiente_el_grupo(db, grupo_id, current_user.id)
     db.commit()
     db.refresh(nuevo_filtro)
 
@@ -75,6 +104,8 @@ def eliminar_filtro_de_grupo(
         raise HTTPException(404, "Filtro no encontrado")
 
     db.delete(filtro)
+    db.flush()
+    _a_pendiente_el_grupo(db, grupo_id, current_user.id)
     db.commit()
     return {"mensaje": "Filtro eliminado"}
 
@@ -93,6 +124,11 @@ def actualizar_filtros_grupo(
     grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id, OffsetGrupo.oculto.is_(False)).first()
     if not grupo:
         raise HTTPException(404, "Grupo no encontrado")
+
+    antes = sorted(
+        (_clave_filtro(f) for f in db.query(OffsetGrupoFiltro).filter(OffsetGrupoFiltro.grupo_id == grupo_id)),
+        key=repr,
+    )
 
     # Eliminar filtros existentes
     db.query(OffsetGrupoFiltro).filter(OffsetGrupoFiltro.grupo_id == grupo_id).delete()
@@ -113,6 +149,9 @@ def actualizar_filtros_grupo(
         db.add(nuevo_filtro)
         filtros_creados.append(nuevo_filtro)
 
+    db.flush()
+    if sorted((_clave_filtro(f) for f in filtros_creados), key=repr) != antes:  # the same filters change nothing
+        _a_pendiente_el_grupo(db, grupo_id, current_user.id)
     db.commit()
 
     # Refrescar para obtener las relaciones
