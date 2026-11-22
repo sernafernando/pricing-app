@@ -86,3 +86,42 @@ def test_an_edit_of_a_pending_bonus_keeps_it_pending(client, gestor, productos) 
     resp = client.put(f"{BASE}/{bono['id']}", json=_body(monto_unit="3.00"), headers=gestor)
 
     assert (resp.status_code, resp.json()["estado"]) == (200, "pendiente")
+
+
+class _Deadlock(Exception):
+    pgcode = "40P01"  # deadlock_detected: Postgres aborted this transaction to break a lock cycle
+
+
+def _en_deadlock(*_args, **_kwargs):
+    from sqlalchemy.exc import DBAPIError
+
+    raise DBAPIError("SELECT ... FOR UPDATE", {}, _Deadlock())
+
+
+def test_a_deadlock_while_approving_is_a_409_to_retry_and_nothing_changes(
+    client, db, aprobador, productos, monkeypatch
+) -> None:
+    """An approve racing a tactical's approve or edit (they lock the other way round) is a busy refusal, not a 500."""
+    from app.services.sell_in import aprobacion
+
+    bono = _crear(client, aprobador)
+    monkeypatch.setattr(aprobacion, "cambiar_lineas", _en_deadlock)
+
+    resp = client.post(f"{BASE}/{bono['id']}/aprobar", headers=aprobador)
+
+    assert resp.status_code == 409, resp.text
+    assert "Reintentar en unos segundos" in _message(resp)
+    db.expire_all()
+    assert db.get(SellInBonoMarca, bono["id"]).estado == "pendiente"
+
+
+def test_a_deadlock_while_editing_is_a_409_to_retry(client, aprobador, productos, monkeypatch) -> None:
+    from app.services.sell_in import bonos_crud
+
+    bono = _crear(client, aprobador)
+    monkeypatch.setattr(bonos_crud, "editar_bono_sin_commit", _en_deadlock)
+
+    resp = client.put(f"{BASE}/{bono['id']}", json=_body(), headers=aprobador)
+
+    assert resp.status_code == 409, resp.text
+    assert "Reintentar en unos segundos" in _message(resp)

@@ -24,6 +24,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Iterable, Optional, Union
 
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
@@ -57,6 +58,20 @@ class DeUnTactical(AprobacionError):
 
 class Anulada(AprobacionError):
     pass
+
+
+class Ocupada(AprobacionError):
+    """Postgres picked this write as a deadlock victim (another approve or edit locks the tactical and its lines in
+    the other order): rolled back with nothing stored, retry."""
+
+
+DEADLOCK = "40P01"  # deadlock_detected: Postgres aborted the transaction to break a lock cycle with another writer
+OCUPADA = "Otra operación lo está modificando en este momento. Reintentar en unos segundos."
+
+
+def es_deadlock(exc: BaseException) -> bool:
+    """A `DBAPIError` raised because Postgres aborted this transaction to break a lock cycle."""
+    return isinstance(exc, DBAPIError) and getattr(exc.orig, "pgcode", None) == DEADLOCK
 
 
 def estado_de_linea(estado_tactical: Optional[str]) -> str:
@@ -192,8 +207,10 @@ def aprobar_linea(db: Session, modelo: type, fila_id: int, usuario_id: int) -> O
         cambiar_lineas(db, **_ids(fila), de=PENDIENTE, a=ACTIVA)
         auditar(db, TipoAccion.TACTICAL_APROBADO, usuario_id, {_CLAVE[modelo]: fila_id})
         db.commit()
-    except Exception:
+    except Exception as exc:
         db.rollback()
+        if es_deadlock(exc):
+            raise Ocupada(OCUPADA) from exc
         raise
     db.refresh(fila)
     return fila

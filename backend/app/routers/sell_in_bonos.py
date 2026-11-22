@@ -35,6 +35,7 @@ from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -59,7 +60,7 @@ from app.schemas.sell_in_bonos import (
     SellInBonoListOut,
     SellInBonoOut,
 )
-from app.services.sell_in import anular_masivo, bonos_alcance
+from app.services.sell_in import anular_masivo, aprobacion, bonos_alcance
 from app.services.sell_in import bonos_crud as service
 
 router = APIRouter(prefix="/sell-in/bonos", tags=["Sell in"])
@@ -159,6 +160,13 @@ def editar_bono(
     except service.SellInBonoYaAnulado as exc:
         db.rollback()
         raise _conflict(exc) from exc
+    except DBAPIError as exc:
+        # A tactical's line takes its tactical back to pending: it locks the line, then the tactical, the other
+        # order of a tactical's approve or edit. A deadlock there is a busy refusal, never a raw 500.
+        db.rollback()
+        if not aprobacion.es_deadlock(exc):
+            raise
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=aprobacion.OCUPADA) from exc
     except service.SellInBonoError as exc:
         db.rollback()
         raise _unprocessable(exc) from exc
