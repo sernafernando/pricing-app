@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { sellInAPI } from '../../services/sellInAPI';
 import { formatDateOnly } from '../../utils/dateUtils';
 import { StatusPill } from '../kit';
+import AprobacionCarga from './AprobacionCarga';
 import SellInLineas from './SellInLineas';
 import { FORMULA_LABELS, apiMessage, formatEntero, formatMonto, formatNumero, formatPorcentaje } from './sellInFormat';
 import styles from './SellInPanel.module.css';
@@ -17,7 +18,13 @@ const CUENTA_DESDE = { compra: 'Fecha de compra', ingreso: 'Fecha de ingreso' };
  * One a brand bonus generated (`origen = 'bono_marca'`) only changes through its
  * bonus: it links to it (`onVerBono`) and offers no void (the backend answers 409).
  */
-export default function SellInDetailPanel({ compraId, puedeGestionar, onChanged, onClose, onVerBono }) {
+const ESTADO_PILL = {
+  activa: { tono: 'success', texto: 'Activa' },
+  pendiente: { tono: 'warning', texto: 'Pendiente de aprobación' },
+  anulada: { tono: 'danger', texto: 'Anulada' },
+};
+
+export default function SellInDetailPanel({ compraId, puedeGestionar, puedeAprobar = false, onChanged, onClose, onVerBono }) {
   const id = useId();
   const [compra, setCompra] = useState(null);
   const [error, setError] = useState(null);
@@ -100,12 +107,23 @@ export default function SellInDetailPanel({ compraId, puedeGestionar, onChanged,
         {compra && (
           <>
             <div className={styles.pills}>
-              <StatusPill tone={compra.estado === 'activa' ? 'success' : 'danger'}>
-                {compra.estado === 'activa' ? 'Activa' : 'Anulada'}
+              <StatusPill tone={ESTADO_PILL[compra.estado]?.tono ?? 'danger'}>
+                {ESTADO_PILL[compra.estado]?.texto ?? 'Anulada'}
               </StatusPill>
               <StatusPill tone={compra.aplica ? 'success' : 'neutral'}>{compra.aplica ? 'Aplica' : 'No aplica'}</StatusPill>
               {generada && <StatusPill tone="purple">Bono de marca</StatusPill>}
             </div>
+            {/* A purchase a bonus generated is never pending: it follows its bonus. */}
+            <AprobacionCarga
+              estado={compra.estado}
+              tacticalId={compra.tactical_id}
+              puedeAprobar={puedeAprobar}
+              onAprobar={async () => {
+                const { data } = await sellInAPI.aprobar(compraId);
+                onChanged(data);
+                if (actualRef.current === compraId) setCompra(data);
+              }}
+            />
             {generada && (
               <p className={styles.hint}>
                 La generó un bono de marca: se actualiza sola y se anula desde su bono.{' '}
@@ -129,7 +147,7 @@ export default function SellInDetailPanel({ compraId, puedeGestionar, onChanged,
         )}
       </div>
 
-      {compra && puedeGestionar && compra.estado === 'activa' && !generada && (
+      {compra && puedeGestionar && compra.estado !== 'anulada' && !generada && (
         <footer className={styles.panelFooter}>
           {confirmando ? (
             <div className={styles.confirm}>

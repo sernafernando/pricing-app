@@ -4,6 +4,7 @@ import { usePermisos } from '../../contexts/PermisosContext';
 import { sellOutAPI } from '../../services/sellOutAPI';
 import { formatDateOnly } from '../../utils/dateUtils';
 import { StatusPill } from '../kit';
+import AprobacionCarga from '../sellIn/AprobacionCarga';
 import { apiMessage, formatEntero, formatMonto } from '../sellIn/sellInFormat';
 import SellOutCampanaForm from './SellOutCampanaForm';
 import SellOutConsumos from './SellOutConsumos';
@@ -47,7 +48,13 @@ function topes(campana) {
  * nothing is saved until "Guardar campaña", which creates the copy (shares included); the original is never edited.
  * `renovarAlAbrir` (a row's "Renovar") does that as soon as the campaign is read.
  */
-export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGestionar = false, renovarAlAbrir = false, onSaved, onClose }) {
+const ESTADO_PILL = {
+  activa: { tono: 'success', texto: 'Activa' },
+  pendiente: { tono: 'warning', texto: 'Pendiente de aprobación' },
+  anulada: { tono: 'danger', texto: 'Anulada' },
+};
+
+export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGestionar = false, puedeAprobar = false, renovarAlAbrir = false, onSaved, onClose }) {
   const id = useId();
   // The campaign a renewal copies (its name), while its draft is in the form.
   const [renovando, setRenovando] = useState(null);
@@ -153,9 +160,11 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
     }
   };
 
-  const editable = puedeGestionar && (nuevo || campana?.estado === 'activa');
+  // A pending load is edited (and split) like an active one: it is fixed before it is approved (tacticals approval S6).
+  const viva = campana?.estado === 'activa' || campana?.estado === 'pendiente';
+  const editable = puedeGestionar && (nuevo || viva);
   const montoTotal = campana?.tipo === 'monto_total';
-  const repartible = montoTotal && campana.estado === 'activa' && (puedeGestionar || tienePermiso('sell_out.repartir'));
+  const repartible = montoTotal && viva && (puedeGestionar || tienePermiso('sell_out.repartir'));
   // S6: splitting by criterion reaches every brand's products, so only a user without brand restriction gets it.
   const repartePorCriterio = repartible && (puedeGestionar || tienePermiso('sell_out.gestionar'));
   // Editing shows the form; what the form does not hold (origin, recalculation, caps left) stays below it.
@@ -224,10 +233,20 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
         {campana && renovando === null && (
           <>
             <div className={panelStyles.pills}>
-              <StatusPill tone={campana.estado === 'activa' ? 'success' : 'danger'}>
-                {campana.estado === 'activa' ? 'Activa' : 'Anulada'}
+              <StatusPill tone={ESTADO_PILL[campana.estado]?.tono ?? 'danger'}>
+                {ESTADO_PILL[campana.estado]?.texto ?? 'Anulada'}
               </StatusPill>
             </div>
+            <AprobacionCarga
+              estado={campana.estado}
+              tacticalId={campana.tactical_id}
+              puedeAprobar={puedeAprobar}
+              onAprobar={async () => {
+                const { data } = await sellOutAPI.aprobar(campanaId);
+                mostrar(data);
+                onSaved(data);
+              }}
+            />
             {!editable && campana.descripcion && <p className={panelStyles.hint}>{campana.descripcion}</p>}
             <dl className={panelStyles.campos}>
               {visibles.map(([label, value]) => (

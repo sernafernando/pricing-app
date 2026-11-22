@@ -7,7 +7,7 @@ import { ALCANCE, ALCANCE_VACIO, BONO, BONO_ANULADO, operacionesFake, PRODUCTOS 
 import SellInBonoPanel from './SellInBonoPanel';
 
 vi.mock('../../services/sellInAPI', () => ({
-  sellInBonosAPI: { detalle: vi.fn(), alcance: vi.fn(), crear: vi.fn(), editar: vi.fn(), anular: vi.fn() },
+  sellInBonosAPI: { detalle: vi.fn(), alcance: vi.fn(), crear: vi.fn(), editar: vi.fn(), anular: vi.fn(), aprobar: vi.fn() },
   sellInAPI: { operaciones: vi.fn(), operacionProductos: vi.fn() },
 }));
 
@@ -402,5 +402,36 @@ describe('SellInBonoPanel — existing bonus', () => {
     expect(sellInBonosAPI.detalle).toHaveBeenCalledTimes(2);
     expect(screen.getByLabelText('Monto por unidad')).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Guardar cambios' })).not.toBeInTheDocument();
+  });
+});
+
+describe('SellInBonoPanel — approval (tacticals approval S6, S8)', () => {
+  it('an active bonus still reads Activo, with nothing to approve', async () => {
+    renderPanel({ puedeAprobar: true });
+    expect(await screen.findByText('Activo')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Aprobar' })).not.toBeInTheDocument();
+  });
+
+  it('a pending bonus loaded on its own is approved after a confirmation, and the panel shows it active', async () => {
+    const user = userEvent.setup();
+    sellInBonosAPI.detalle.mockResolvedValue({ data: { ...BONO, estado: 'pendiente', tactical_id: null } });
+    sellInBonosAPI.aprobar.mockResolvedValue({ data: { ...BONO, estado: 'activa' } });
+    const { onSaved } = renderPanel({ puedeAprobar: true });
+
+    expect(await screen.findByText('Pendiente de aprobación')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Aprobar' }));
+    await user.click(screen.getByRole('button', { name: 'Confirmar aprobación' }));
+
+    expect(sellInBonosAPI.aprobar).toHaveBeenCalledWith(3);
+    expect(await screen.findByText('Activo')).toBeInTheDocument();
+    expect(onSaved).toHaveBeenCalled();
+  });
+
+  it("a pending tactical's line says it is approved from its tactical", async () => {
+    sellInBonosAPI.detalle.mockResolvedValue({ data: { ...BONO, estado: 'pendiente', tactical_id: 4 } });
+    renderPanel({ puedeAprobar: true, puedeGestionar: false });
+
+    expect(await screen.findByRole('note')).toHaveTextContent('Se aprueba desde su tactical.');
+    expect(screen.queryByRole('button', { name: 'Aprobar' })).not.toBeInTheDocument();
   });
 });

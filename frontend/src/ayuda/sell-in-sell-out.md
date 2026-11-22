@@ -163,6 +163,10 @@ Lo sin asignar (y lo asignado a productos sin ventas) no se pierde: suma en los 
 
 Un **tactical** es un programa de una marca: sell in baja el costo, sell out suma a la ganancia. Cada tactical tiene una o varias marcas adjuntas para poder filtrarlo por marca, y una o más líneas (productos, una marca, una categoría o, en sell in, una factura) con su monto y sus topes.
 
+- **Aprobación**: todo tactical nuevo queda **Pendiente de aprobación** y no aplica a ninguna venta (no baja costos ni suma a la ganancia) hasta que alguien con el permiso **Aprobar tacticals** (tacticals.aprobar) lo aprueba. Ese permiso no viene con ningún rol: se da por usuario. Quien lo cargó también lo puede aprobar si tiene el permiso. Al aprobarlo se aplican todas sus líneas juntas, también a lo ya vendido dentro de sus fechas, y queda registrado quién lo aprobó y cuándo.
+  - Si editás un tactical aprobado y cambiás montos, porcentajes, topes, fechas, alcance o base, vuelve a **Pendiente de aprobación** y deja de aplicar hasta que lo aprueben de nuevo. Cambiar solo el nombre, la nota o la cobranza no lo saca de aprobado.
+  - Los tacticals que ya existían antes de la aprobación quedan aprobados, sin aprobador.
+  - Los bonos, compras y campañas que se cargan sueltos (fuera de un tactical) siguen la misma regla. Su panel dice «Pendiente de aprobación» y, con el permiso, tiene **Aprobar**. Una línea de un tactical se aprueba desde su tactical.
 - La pestaña **Tacticals** la ve todo el que entra a la página, salvo que el servidor todavía no tenga tacticals o que no tengas permiso para ver ninguno. Al lado del nombre dice cuántos tacticals vigentes hay.
 - **Nuevo tactical** (arriba a la derecha, en la pestaña Tacticals) abre la pantalla **Nuevo tactical**, donde elegís si es sell in o sell out. Aparece si podés gestionar sell in o sell out (sell_in.gestionar o sell_out.gestionar). Al crear o cancelar volvés a la pestaña Tacticals.
 - Filtros:
@@ -170,7 +174,7 @@ Un **tactical** es un programa de una marca: sell in baja el costo, sell out sum
   - **Marca**: muestra los tacticals que tienen esa marca entre las suyas.
   - **Moneda**: ARS o USD, la moneda del tactical.
   - **Contiene**: Todas (al abrir), Productos, Marca, Categoría o Factura. Muestra los tacticals que tienen al menos una línea de ese tipo; un tactical con líneas de varios tipos aparece en cada uno.
-  - **Estado**: Vigentes (al abrir), Vencidos o Anulados.
+  - **Estado**: Vigentes (al abrir), Vencidos, Anulados o **Pendientes de aprobación** (los que esperan que alguien los apruebe). Vigentes no incluye los pendientes.
   - **Cobranza**: Todos (al abrir), Pendientes (sin cobro cargado) o Cobrados.
   - **Vigencia**: Desde y Hasta.
   - **Buscar**: por nombre o referencia.
@@ -181,7 +185,7 @@ Un **tactical** es un programa de una marca: sell in baja el costo, sell out sum
   - **Nombre**, con la referencia debajo.
   - **Tipo**, **Marca** (todas las del tactical, separadas por coma), **Vigencia** y **Líneas**.
   - **Avance**: unidades usadas sobre la suma de los topes de unidades de sus líneas, con la barra, y debajo el monto usado. El monto dice «de» el total solo cuando todas las líneas tienen tope de monto.
-  - **Estado**: Vigente, «Vence en N días» (cuando faltan 7 días o menos), «Vence hoy» (el último día), Vencido o Anulado.
+  - **Estado**: Pendiente de aprobación, Vigente, «Vence en N días» (cuando faltan 7 días o menos), «Vence hoy» (el último día), Vencido o Anulado. Un tactical aprobado dice debajo «Aprobado por … el dd/mm/aaaa».
   - **Cobranza**: «Pendiente», o «Cobrado» con la fecha en que se cobró.
   - Un tactical con todas sus líneas por factura dice «Por factura» en **Vigencia** y queda Vigente hasta que se anule.
   - Un tactical con una línea por factura que todavía espera su factura dice «Esperando factura» en **Estado** hasta que Compras la vincula.
@@ -197,6 +201,7 @@ Un **tactical** es un programa de una marca: sell in baja el costo, sell out sum
   - **Observaciones**: texto libre.
   - **Tipo de cambio del cobro** (solo en un sell in en USD con tipo de cambio **Al cobro** y alguna línea en USD): obligatorio; es el tipo de cambio al que pagó la marca, en pesos por dólar (por ejemplo 1.350,5). Al guardarlo, las ventas de esas líneas se recalculan a ese tipo de cambio; **Deshacer cobro** las vuelve al último BNA. Si falta, el aviso dice «Falta el tipo de cambio del cobro (pesos por dólar).».
   - **Guardar** lo marca «Cobrado» con esa fecha. **Deshacer cobro** borra el cobro y el tactical vuelve a «Pendiente». **Cancelar** (o Escape) cierra sin guardar.
+- Con el permiso **Aprobar tacticals**, un tactical pendiente tiene **Aprobar** en el botón de acciones (⋮), aunque no puedas gestionar ese tipo. Pide confirmación y, al aprobarlo, el tactical y todas sus líneas empiezan a aplicar.
 - Si podés gestionar ese tipo de tactical (sell_in.gestionar o sell_out.gestionar), cada fila tiene el botón de acciones (⋮) al final:
   - **Editar** (en tacticals no anulados) abre **Editar tactical**: la misma pantalla de **Nuevo tactical**, con todo cargado (tipo, datos, fechas, líneas, montos, topes y facturas). Podés cambiar cualquier cosa, también el tipo: si se cargó un sell out y era sell in, se corrige ahí. **Guardar cambios** pide confirmación: el tactical se vuelve a cargar como si lo crearas de cero y lo que ya aplicó (el cuadro dice cuánto y en cuántas unidades) se recalcula con los datos nuevos, también lo ya vendido. Si cambiás el tipo, la moneda o el tipo de cambio de un sell out con el tipo de cambio al cobro ya cargado, ese tipo de cambio se descarta y hay que cargarlo de nuevo. Una fecha hasta que no cambiás puede quedar en el pasado; si la cambiás, no puede quedar antes de hoy. Una línea de factura con monto total que no cambia conserva su compra; si su compra ya se usó en un modo de costo manual, esa línea no se puede cambiar ni quitar. El cambio queda en la auditoría.
   - En un tactical **Cobrado**, **Editar** cambia solo el nombre, la nota, la fecha hasta y los topes de cada línea (para cambiar montos o líneas, primero **Deshacer cobro**). La fecha hasta no puede quedar antes de hoy ni antes de la fecha desde, y un tope no puede quedar debajo de lo que la línea ya usó (cada línea muestra «Ya usó N u · monto»); con un tope por tienda, debajo de lo que usó la tienda o canal que más usó. Un tope vacío lo saca. Una línea de monto total no lleva topes. Un tactical por factura no tiene fecha hasta para editar, y en uno mixto la fecha hasta no mueve las líneas por factura. El cambio pasa a las campañas y bonos del tactical y queda en la auditoría.
@@ -214,6 +219,7 @@ Tacticals: tipo, marca, moneda, contiene (tipo de línea), estado, cobranza, vig
 - **Nuevo tactical** (pestaña Tacticals): abre **Nuevo tactical** (según permiso).
 - **Nuevo grupo**: crea un grupo (según permiso).
 - **Crear tactical**: crea el tactical con todas sus líneas; **Cancelar** lo descarta después de confirmar.
+- **Aprobar** (acciones de una fila pendiente de Tacticals, o en el panel de un bono, compra o campaña cargados sueltos): después de confirmar, empieza a aplicar (permiso tacticals.aprobar).
 - **Editar** (acciones de una fila de Tacticals): abre **Editar tactical** con todo cargado; **Guardar cambios** lo vuelve a cargar con los datos nuevos, después de confirmar. En un tactical cobrado cambia solo nombre, nota, fecha hasta y topes.
 - **Renovar** (acciones de una fila de Tacticals): abre **Nuevo tactical** cargado con ese tactical, con fechas nuevas por elegir, sus tiendas y su modo de tope.
 - **Anular** (acciones de una fila de Tacticals): anula el tactical con todas sus líneas, después de confirmar.

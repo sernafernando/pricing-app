@@ -3,6 +3,7 @@ import { Settings2, X } from 'lucide-react';
 import { sellInBonosAPI } from '../../services/sellInAPI';
 import { formatDateOnly } from '../../utils/dateUtils';
 import { StatusPill } from '../kit';
+import AprobacionCarga from './AprobacionCarga';
 import SellInBonoAlcance from './SellInBonoAlcance';
 import SellInBonoForm from './SellInBonoForm';
 import {
@@ -75,7 +76,7 @@ function RepartoDelTotal({ bono }) {
  * (422/409/404) show inline. The worker applies the bonus by itself, so what
  * it reaches is read again after every save.
  */
-export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar, onSaved, onClose, onVerCompra, modoSwitch = null }) {
+export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar, puedeAprobar = false, onSaved, onClose, onVerCompra, modoSwitch = null }) {
   const id = useId();
   const nuevo = bonoId === null;
   const [bono, setBono] = useState(null);
@@ -176,8 +177,10 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
   };
 
   const activo = bono?.estado === 'activa';
+  const pendiente = bono?.estado === 'pendiente';
   const restante = bono ? restanteDeTope(bono, formatEntero, formatMonto) : null;
-  const editable = puedeGestionar && (nuevo || activo);
+  // A pending load is edited like an active one: it is fixed before someone approves it (tacticals approval S6).
+  const editable = puedeGestionar && (nuevo || activo || pendiente);
   const costo = bono ? esBonoCosto(bono) : false;
   const origen = bono ? origenDeBono(bono) : null;
   const titulo = nuevo ? 'Nuevo sell in · Línea por marca' : bono ? bono.descripcion || `Línea · ${alcanceDeBono(bono)}` : 'Línea por marca';
@@ -189,7 +192,9 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
           {bono && (
             <div className={styles.pills}>
               <StatusPill tone="purple">Línea por marca</StatusPill>
-              <StatusPill tone={activo ? 'success' : 'danger'}>{activo ? 'Activo' : 'Anulado'}</StatusPill>
+              <StatusPill tone={activo ? 'success' : pendiente ? 'warning' : 'danger'}>
+                {activo ? 'Activo' : pendiente ? 'Pendiente de aprobación' : 'Anulado'}
+              </StatusPill>
             </div>
           )}
           <h2>{titulo}</h2>
@@ -204,6 +209,14 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
       {modoSwitch}
 
       <div className={styles.panelBody}>
+        {bono && (
+          <AprobacionCarga
+            estado={bono.estado}
+            tacticalId={bono.tactical_id}
+            puedeAprobar={puedeAprobar}
+            onAprobar={async () => aplicar((await sellInBonosAPI.aprobar(bonoId)).data)}
+          />
+        )}
         {error && (
           <p className={styles.error} role="alert">
             {error}
