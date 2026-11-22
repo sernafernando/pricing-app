@@ -15,7 +15,7 @@ El primer caso es la factura 00128199 del producto 23: 312 unidades a ARS 15,14 
   - el producto y la factura;
   - el precio por unidad tal como figura en la factura, en rojo, y debajo el mismo precio convertido con el tipo de cambio de ese día;
   - la referencia: el costo SI de antes de la factura, o el costo de lista si no había costo SI;
-  - el **Desvío**.
+  - cuánto se aparta el precio de la referencia, por ejemplo "1/1.395 de la referencia".
 - **Aceptar**: el precio es real. La compra entra al promedio y se recalculan el costo, las ventas y los markups del producto desde esa factura.
 - **Mantener excluida**: el precio es un error. El costo sigue sin esa compra.
 - Las dos piden confirmar y aceptan una nota.

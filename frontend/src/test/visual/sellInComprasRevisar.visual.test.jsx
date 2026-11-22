@@ -1,7 +1,7 @@
 /**
  * "Compras a revisar" (owner L29), the Sell in / Sell out page's tab of purchases held out of costo SI for a
  * suspicious price, with prod's item 23 / invoice 00128199 case. At 1440 px in light and dark:
- * - the table fits its card with no horizontal scroll;
+ * - the table fits its card with no horizontal scroll, with the sidebar open (240 px);
  * - the suspicious price and the deviation chip are painted with the danger and warning tokens;
  * - "Aceptar" opens the confirmation.
  * Real CSS in real Chromium.
@@ -77,7 +77,7 @@ beforeEach(() => {
 });
 
 const Shell = ({ children }) => (
-  <div style={{ paddingTop: 'var(--cf-topbar-height)', paddingLeft: 'var(--cf-sidebar-width-collapsed)' }}>{children}</div>
+  <div style={{ paddingTop: 'var(--cf-topbar-height)', paddingLeft: 'var(--cf-sidebar-width-expanded)' }}>{children}</div>
 );
 
 describe.each([

@@ -136,7 +136,6 @@ export default function SellInComprasRevisar({ puedeRevisar, onDecidido, version
                   <th scope="col" className={styles.num}>
                     Referencia
                   </th>
-                  <th scope="col">Desvío</th>
                   <th scope="col">Estado</th>
                   <th scope="col" className={styles.acciones}>
                     <span className={styles.srOnly}>Acciones</span>
@@ -146,7 +145,7 @@ export default function SellInComprasRevisar({ puedeRevisar, onDecidido, version
               <tbody>
                 {read.filas.map((fila) => (
                   <tr key={fila.id}>
-                    <td>
+                    <td className={styles.producto}>
                       <span className={styles.apilado}>
                         <span className={styles.nombre}>{fila.descripcion ?? `Producto ${fila.item_id}`}</span>
                         <span className={styles.codigo}>{fila.codigo ?? fila.item_id}</span>
@@ -170,11 +169,9 @@ export default function SellInComprasRevisar({ puedeRevisar, onDecidido, version
                       <span className={styles.apilado}>
                         <span>{precio(fila.referencia, fila.moneda)}</span>
                         <span className={styles.secundario}>{FUENTE_LABEL[fila.fuente_ref] ?? fila.fuente_ref}</span>
-                      </span>
-                    </td>
-                    <td>
-                      <span className={styles.desvio}>
-                        <AlertTriangle size={12} aria-hidden="true" /> {ratioLabel(fila.ratio)}
+                        <span className={styles.desvio}>
+                          <AlertTriangle size={12} aria-hidden="true" /> {ratioLabel(fila.ratio)}
+                        </span>
                       </span>
                     </td>
                     <td>
