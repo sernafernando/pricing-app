@@ -24,6 +24,8 @@ const ESTADO_CAMPANA = {
  * reached before -> after (`alcancePrevio`, the same rule, nothing saved). A filter change also sends the group's
  * approved campaigns and offsets back to pending (tacticals approval S14): the panel asks for their count first
  * (`aprobadasAfectadas`) and, when there is any, warns "N campañas aprobadas vuelven a pendiente" before saving.
+ * Then it says only that (they stop applying until approved again): the "recalcula" sentence is for a change that
+ * sends nothing back (S16).
  * With neither it saves at once.
  */
 export default function GrupoPanel({ grupo, opciones, subcategorias, onClose, onCreado, onCambio, onEliminado }) {
@@ -240,12 +242,9 @@ export default function GrupoPanel({ grupo, opciones, subcategorias, onClose, on
               </div>
               {pendiente && (
                 <div className={styles.confirm} role="group" aria-label="Confirmar cambio de filtros">
-                  {pendiente.antes !== undefined && (
-                    <>
-                      <p>{recalcula}</p>
-                      <p>{`Productos alcanzados: ${pendiente.antes} → ${pendiente.despues}.`}</p>
-                    </>
-                  )}
+                  {/* S16: when loads go back to pending that is the whole story; "recalcula" only when none does. */}
+                  {pendiente.antes !== undefined && pendiente.aPendiente.length === 0 && <p>{recalcula}</p>}
+                  {pendiente.antes !== undefined && <p>{`Productos alcanzados: ${pendiente.antes} → ${pendiente.despues}.`}</p>}
                   {pendiente.aPendiente.length > 0 && (
                     <div className={own.aPendiente}>
                       {pendiente.aPendiente.map((texto) => (

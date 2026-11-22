@@ -302,6 +302,8 @@ describe('GruposTab — filters and preview', () => {
     });
     expect(aviso).toHaveTextContent('Este cambio recalcula la campaña de sell out activa «Noviembre TP-Link».');
     expect(aviso).toHaveTextContent('Productos alcanzados: 42 → 50.');
+    // S16: nothing goes back to pending, so only the recalculation is said.
+    expect(aviso).not.toHaveTextContent('pendiente');
     expect(offsetGruposAPI.agregarFiltro).not.toHaveBeenCalled();
     await user.click(within(aviso).getByRole('button', { name: 'Confirmar cambio' }));
     expect(offsetGruposAPI.agregarFiltro).toHaveBeenCalledWith(1, { marca: 'MERCUSYS', categoria: null, subcategoria_id: null, item_id: null });
@@ -378,6 +380,10 @@ describe('GruposTab — approved loads go back to pending', () => {
     expect(offsetGruposAPI.aprobadasAfectadas).toHaveBeenCalledWith(1);
     expect(aviso).toHaveTextContent('2 campañas aprobadas vuelven a pendiente');
     expect(aviso).not.toHaveTextContent('offset');
+    // S16: going back to pending is the whole story, never "recalcula" next to it.
+    expect(aviso).not.toHaveTextContent('recalcula');
+    expect(aviso).toHaveTextContent('Dejan de aplicar hasta que se aprueben de nuevo.');
+    expect(aviso).toHaveTextContent('Productos alcanzados: 42 → 50.');
     expect(offsetGruposAPI.agregarFiltro).not.toHaveBeenCalled();
     await user.click(within(aviso).getByRole('button', { name: 'Confirmar cambio' }));
     expect(offsetGruposAPI.agregarFiltro).toHaveBeenCalledWith(1, { marca: 'MERCUSYS', categoria: null, subcategoria_id: null, item_id: null });
