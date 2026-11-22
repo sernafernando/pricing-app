@@ -82,7 +82,7 @@ def test_the_sql_sums_are_the_rows_added_one_by_one(world, monkeypatch, sell_in_
         for name, value in expected.items():
             assert sql.sums[key][name] == value, (key, name)
     if sell_in_out:
-        assert any(sums["sell_in"] for sums in sql.sums.values())  # the sell in above was read
+        assert all("sell_in" not in sums for sums in sql.sums.values())  # costo SI T5: the stored sell in is ignored
     assert rows.sums["f"]["tg"] == Decimal("99.99")  # each row to the cent first, then added
     assert sql.splits == rows.splits and sql.splits  # MLA1, MLA3, MLA5-7 sold in the 30d window
     assert "MLA9" not in rows.found

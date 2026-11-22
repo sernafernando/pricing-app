@@ -88,7 +88,7 @@ def metrics_by_mla(
     db: Union[Session, PageBoard], mlas: Sequence[str], sell_in_out: bool = False
 ) -> Dict[str, board.Row]:
     """The Board's publication row of each of `mlas` over the last 30 business days; an MLA without one is absent.
-    `sell_in_out` adds each row's sell in / sell out (`board.SellInOut`; `ml_metricas.ver_ganancia` callers only).
+    `sell_in_out` adds each row's sell out (`board.ConSo`; `ml_metricas.ver_ganancia` callers only).
 
     The period ends on the Board's own business day (`board.today_business`, from `board.now_utc`): the clock its
     windows, series and ageing count from, so the two can never disagree."""

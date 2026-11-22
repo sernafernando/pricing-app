@@ -248,7 +248,7 @@ NO_POINTS: tuple = ()  # a day of `Sales.series_markups` without any markup poin
 
 @dataclass
 class Sales:
-    """A row's Board figures summed (`board.SellInOut` reads the sell fields by name, as on a Board row)."""
+    """A row's Board figures summed (`real_so` reads the sell fields by name, as on a Board row)."""
 
     units_7d: Decimal = Decimal(0)
     units_30d: Decimal = Decimal(0)

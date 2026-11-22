@@ -125,11 +125,9 @@ from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrderItemOps, MlOrdersOps, MlShipmentOps
 from app.models.ml_publications import MlItem
 from app.models.producto import ProductoERP
-from app.models.sell_in import SellInBonoConsumo, SellInConsumo
 from app.models.sell_out import SellOutCampana, SellOutConsumo
 from app.services.costo_si import so
 from app.services.ml_ads.iva import ads_cost_net_of_iva
-from app.services.sell_in import bonos_costo
 from app.services.ml_ads.owner import ads_owner_select
 from app.services.ml_daily_metrics import fuera
 from app.services.ml_daily_metrics import groups as grouping
@@ -194,8 +192,8 @@ PRODUCT_AXIS = "product"
 # cascade among themselves (`app.services.product_facets`).
 PAIR_AXES = ("stores", "pub_status", "pub_type", PRODUCT_AXIS)
 ROW_AXES = ("alerts", "stock", "ageing")
-# Sell out (sell-in-sell-out T11): only with `sell_in_out` on. Costo SI T3 D1: no sell in sort (the screen has no sell in
-# column); the keys `total_gauss_sell` / `markup_sell` keep their names and sort by the figures c/ SO (`ConSo`).
+# Sell out (sell-in-sell-out T11): only with `sell_in_out` on. Costo SI T3 D1 / T5 PR B: the board has no sell in; the
+# keys `total_gauss_sell` / `markup_sell` keep their names and are the figures c/ SO (`ConSo`).
 SELL_SORTS = ("sell_out", "total_gauss_sell", "markup_sell")
 SORTS = (
     "gross",
@@ -391,9 +389,9 @@ class BoardFilter:
     # stores are untouched. OFF by default; OFF emits the very same SQL as before the field existed.
     costos_tp: bool = False
     tp_store_ids: Tuple[int, ...] = ()
-    # Sell in / sell out (sell-in-sell-out T11): each sold line's sell in (a purchase discount, lowering its cost)
-    # and sell out (a campaign credit, added to its profit), from what the allocators wrote for it. Reported NEXT
-    # TO the figures without them, which never change. The router sets it for `ml_metricas.ver_ganancia` only.
+    # Sell out (sell-in-sell-out T11; the field keeps its name): each sold line's sell out (a campaign credit, added
+    # to its profit), from what the allocator wrote for it. No sell in (Costo SI T5 PR B). Reported NEXT TO the
+    # figures without it, which never change. The router sets it for `ml_metricas.ver_ganancia` only.
     # OFF emits the very same SQL as before the field existed.
     sell_in_out: bool = False
     # The sales read (vpf-metricas-canal S1): "ml" (default: the board as it always was, the very same SQL), "fuera"
@@ -556,51 +554,6 @@ class Pub:
     thumbnail: Optional[str] = None
 
 
-class SellInOut:
-    """The figures WITH sell in and sell out of a `Row` or `Kpis` (sell-in-sell-out T11). Owner: "Always show both:
-    cost and cost with sell in; markup and totals without and with sell out."
-
-    `sell_in`/`sell_out` are the ARS of every sold line (what Total Gauss gains); `m_sell_in`/`m_sell_out` only
-    the lines inside the markup population (`mtg`/`costo`), None with "Costos TP" ON: the markup's cost basis is
-    then the TP cost, and a purchase discount on the Gauss cost does not apply to it. `sell_out` sums the KNOWN
-    sell out only: `sell_out_pendientes` lines have a USD sell out without its rate yet (never read as 0) and
-    `sell_out_estimados` lines one whose campaign rate is still an estimate; `sell_in_estimados` lines whose sell in
-    has a USD cost bonus of an `al_cobro` tactical without its collection rate yet (today's BNA, tactical sell in USD
-    S10).
-
-    A figure that does not apply is None, not 0 nor a copy of the one without (owner: "en las filas que no aplica
-    estaría bueno que directamente esté vacío así no hace ruido"): no sold line with a sell in (`sell_in_lineas`)
-    leaves the cost with sell in empty, and neither sell in nor sell out leaves the totals with them empty."""
-
-    @staticmethod
-    def remanente(r: Any) -> Optional[Decimal]:
-        """The part of a `Kpis` sell out no sale row carries (`Kpis.sell_out_remanente`); always None for a `Row`,
-        which has no such field (rows never carry it, and their shape is pinned)."""
-        return getattr(r, "sell_out_remanente", None)
-
-    @staticmethod
-    def applies(r: Any) -> bool:
-        return bool(r.sell_in_lineas or r.sell_out_lineas or SellInOut.remanente(r) is not None)
-
-    @staticmethod
-    def costo_sell_in(r: Any) -> Optional[Decimal]:
-        return None if r.m_sell_in is None or not r.sell_in_lineas else r.costo - r.m_sell_in
-
-    @staticmethod
-    def total_gauss_sell(r: Any) -> Optional[Decimal]:
-        return None if r.sell_in is None or not SellInOut.applies(r) else r.tg + r.sell_in + r.sell_out
-
-    @staticmethod
-    def markup_sell(r: Any) -> Optional[Decimal]:
-        if not SellInOut.applies(r):
-            return None
-        cost = None if r.m_sell_in is None else r.costo - r.m_sell_in
-        # A sell in above the cost leaves no markup, as the sort reads it (`_sell_sort_columns`).
-        if cost is None or cost <= 0:
-            return None
-        return markup_of(r.mtg + r.m_sell_in + r.m_sell_out, cost)
-
-
 class ConSo:
     """The figures "c/ SO" of a `Row` or `Kpis` that Métricas ML shows (Costo SI T3 D1).
 
@@ -611,11 +564,22 @@ class ConSo:
     The sorts `total_gauss_sell` / `markup_sell` mirror these in SQL (`Board._sell_sort_columns`).
 
     They apply where some sold line has a sell out (or, the KPIs, a monto total remainder): otherwise None, an empty
-    cell. `SellInOut` (with sell in) stays for the readers that still use it (Publicaciones ML)."""
+    cell (owner: "en las filas que no aplica estaría bueno que directamente esté vacío así no hace ruido"). `sell_out`
+    sums the KNOWN sell out only: `sell_out_pendientes` lines have a USD sell out without its rate yet (never read as
+    0) and `sell_out_estimados` lines one whose campaign rate is still an estimate. `m_sell_out` keeps only the lines
+    inside the markup population, None with "Costos TP" ON (the markup's cost basis is then the TP cost).
+
+    No sell in (Costo SI T5 PR B, owner L24: "no podemos descontarselo dos veces"): costo SI already holds it."""
+
+    @staticmethod
+    def remanente(r: Any) -> Optional[Decimal]:
+        """The part of a `Kpis` sell out no sale row carries (`Kpis.sell_out_remanente`); always None for a `Row`,
+        which has no such field (rows never carry it, and their shape is pinned)."""
+        return getattr(r, "sell_out_remanente", None)
 
     @staticmethod
     def applies(r: Any) -> bool:
-        return bool(r.sell_out_lineas or SellInOut.remanente(r) is not None)
+        return bool(r.sell_out_lineas or ConSo.remanente(r) is not None)
 
     @staticmethod
     def total_gauss(r: Any) -> Optional[Decimal]:
@@ -664,16 +628,12 @@ class Row:
     # has none with a TP cost) and how many of its TP-store sold lines lack one (incomplete, never read as 0).
     total_tp: Optional[Decimal] = None
     tp_incompletos: Optional[int] = None
-    # `sell_in_out` ON only (all None when OFF, see `SellInOut`).
-    sell_in: Optional[Decimal] = None
+    # `sell_in_out` ON only (all None when OFF, see `ConSo`).
     sell_out: Optional[Decimal] = None
-    m_sell_in: Optional[Decimal] = None
     m_sell_out: Optional[Decimal] = None
     sell_out_pendientes: Optional[int] = None
     sell_out_estimados: Optional[int] = None
-    sell_in_estimados: Optional[int] = None
-    # How many sold lines carry a sell in / a sell out (`SellInOut.applies`).
-    sell_in_lineas: Optional[int] = None
+    # How many sold lines carry a sell out (`ConSo.applies`).
     sell_out_lineas: Optional[int] = None
     windows: Dict[str, int] = field(default_factory=dict)
     units_24h: int = 0
@@ -703,9 +663,9 @@ class Row:
             return None
         return self.markup - self.markup_prev
 
-    costo_sell_in = property(lambda self: SellInOut.costo_sell_in(self))
-    total_gauss_sell = property(lambda self: SellInOut.total_gauss_sell(self))
-    markup_sell = property(lambda self: SellInOut.markup_sell(self))
+    # The sort keys `total_gauss_sell` / `markup_sell` are the figures c/ SO (`Board._sell_sort_columns`).
+    total_gauss_sell = property(lambda self: ConSo.total_gauss(self))
+    markup_sell = property(lambda self: ConSo.markup(self))
     total_gauss_so = property(lambda self: ConSo.total_gauss(self))
     markup_so = property(lambda self: ConSo.markup(self))
 
@@ -745,23 +705,19 @@ class Kpis:
     total_tp: Optional[Decimal] = None
     tp_incompletos: Optional[int] = None
     # Only with `sell_in_out` ON (see `Row`).
-    sell_in: Optional[Decimal] = None
     sell_out: Optional[Decimal] = None
-    m_sell_in: Optional[Decimal] = None
     m_sell_out: Optional[Decimal] = None
     sell_out_pendientes: Optional[int] = None
     sell_out_estimados: Optional[int] = None
-    sell_in_estimados: Optional[int] = None
-    # How many sold lines carry a sell in / a sell out (`SellInOut.applies`).
-    sell_in_lineas: Optional[int] = None
+    # How many sold lines carry a sell out (`ConSo.applies`).
     sell_out_lineas: Optional[int] = None
     # The part of `sell_out` no sale row carries: the monto total campaigns ending in the period (`Board.remanente`);
     # None when none adds anything.
     sell_out_remanente: Optional[Decimal] = None
 
-    costo_sell_in = property(lambda self: SellInOut.costo_sell_in(self))
-    total_gauss_sell = property(lambda self: SellInOut.total_gauss_sell(self))
-    markup_sell = property(lambda self: SellInOut.markup_sell(self))
+    # The sort keys `total_gauss_sell` / `markup_sell` are the figures c/ SO (`Board._sell_sort_columns`).
+    total_gauss_sell = property(lambda self: ConSo.total_gauss(self))
+    markup_sell = property(lambda self: ConSo.markup(self))
     total_gauss_so = property(lambda self: ConSo.total_gauss(self))
     markup_so = property(lambda self: ConSo.markup(self))
 
@@ -988,7 +944,7 @@ class Board:
         self.ads = f.restar_publicidad and self.canal != "fuera"
         # "Costos TP": the TP store group's operations take the TP cost. OFF changes nothing.
         self.tp = f.costos_tp
-        # Sell in / sell out next to the figures without them. OFF changes nothing.
+        # Sell out next to the figures without it. OFF changes nothing.
         self.sell = f.sell_in_out
         self.product_item_id = product_item_id
         self.scope = tuple(scope)
@@ -1325,34 +1281,14 @@ class Board:
         return canal_of(r["c_ml_sold"], r["c_fuera_sold"], r["c_ml"], r["c_fuera"])
 
     def _sell_line_sums(self, lines: Any) -> Tuple[Any, List[Any]]:
-        """Sell in / sell out per sold line (`venta_ref` = its `item_row_id`, channel 'ml'): `(the lines joined to
-        them, their sums)`. A line's sell in is its invoice one plus its % of cost bonuses' (T25). A line's sell out is in ARS like the sell-out screen (`resumen.ARS_FILA`); a USD row
-        without its rate leaves the line's sell out unknown (pending, never partial nor 0), a campaign whose rate
-        is still an estimate makes it estimated. Only the lines inside Total Gauss count (a line whose Total Gauss
-        is not known yet, or being recomputed, reads 0 in both line sources): its sell in would read as profit
-        without the sale's. `m_*` keep only the lines inside the markup population."""
+        """Sell out per sold line (`venta_ref` = its `item_row_id`, channel 'ml'): `(the lines joined to it, its
+        sums)`. A line's sell out is in ARS like the sell-out screen (`resumen.ARS_FILA`); a USD row without its rate
+        leaves the line's sell out unknown (pending, never partial nor 0), a campaign whose rate is still an estimate
+        makes it estimated. Only the lines inside Total Gauss count (a line whose Total Gauss is not known yet, or
+        being recomputed, reads 0 in both line sources): its sell out would read as profit without the sale's.
+        `m_sell_out` keeps only the lines inside the markup population. No sell in (Costo SI T5 PR B, L24): costo SI
+        already holds it, so the per-sale `sell_in_consumos` / `sell_in_bono_consumos` rows are never read."""
         so, campana = SellOutConsumo, SellOutCampana
-        # Invoice sell in plus the % of cost bonuses' (T25, S31): disjoint units of the sale, so they add up.
-        # A cost bonus row is an estimate while its USD `al_cobro` tactical has no collection rate (S10).
-        # On Postgres `bono_id = ANY(<array>)`, the array built ONCE by an InitPlan (`_is_survivor`'s form): no
-        # extra statement, no per-row subplan nor nested loop (`test_board_filter_plans_postgres`).
-        bono, ids = SellInBonoConsumo, select(bonos_costo.bonos_estimados().subquery().c.id)
-        es_estimado = bono.bono_id.in_(ids) if self.sqlite else bono.bono_id == any_(func.array(ids.scalar_subquery()))
-        rows = union_all(
-            select(SellInConsumo.venta_ref, SellInConsumo.descuento_ars, literal(0).label("estimado")).where(
-                SellInConsumo.canal == "ml"
-            ),
-            select(bono.venta_ref, bono.descuento_ars, case((es_estimado, 1), else_=0)).where(bono.canal == "ml"),
-        ).subquery("line_sell_in_rows")
-        sell_in = (
-            select(
-                rows.c.venta_ref,
-                func.sum(rows.c.descuento_ars).label("ars"),
-                func.max(rows.c.estimado).label("estimados"),
-            )
-            .group_by(rows.c.venta_ref)
-            .subquery("line_sell_in")
-        )
         sin_tasa = func.sum(case((and_(campana.moneda != "ARS", so.tc_venta.is_(None)), 1), else_=0))
         estimado = and_(campana.moneda == "USD", campana.tc_modo == "al_cobro", campana.tipo_cambio.is_(None))
         sell_out = (
@@ -1369,24 +1305,17 @@ class Board:
             .group_by(so.venta_ref)
             .subquery("line_sell_out")
         )
-        joined = lines.outerjoin(sell_in, sell_in.c.venta_ref == lines.c.item_row_id).outerjoin(
-            sell_out, sell_out.c.venta_ref == lines.c.item_row_id
-        )
-        # A line with a KNOWN Total Gauss -- a real 0 included -- takes its sell in / sell out (audit A3).
+        joined = lines.outerjoin(sell_out, sell_out.c.venta_ref == lines.c.item_row_id)
+        # A line with a KNOWN Total Gauss -- a real 0 included -- takes its sell out (audit A3).
         in_gauss, in_markup = lines.c.tg_known, lines.c.mcosto > 0
-        sell_in_ars = func.coalesce(sell_in.c.ars, 0)
         sell_out_ars = func.coalesce(sell_out.c.ars, 0)
         return joined, [
-            func.sum(case((in_gauss, sell_in_ars), else_=0)).label("sell_in"),
             func.sum(case((in_gauss, sell_out_ars), else_=0)).label("sell_out"),
-            func.sum(case((in_markup, sell_in_ars), else_=0)).label("m_sell_in"),
             func.sum(case((in_markup, sell_out_ars), else_=0)).label("m_sell_out"),
             func.sum(case((and_(in_gauss, sell_out.c.sin_tasa > 0), 1), else_=0)).label("sell_out_pendientes"),
             func.sum(case((and_(in_gauss, sell_out.c.sin_tasa == 0, sell_out.c.estimados > 0), 1), else_=0)).label(
                 "sell_out_estimados"
             ),
-            func.sum(case((and_(in_gauss, sell_in.c.estimados > 0), 1), else_=0)).label("sell_in_estimados"),
-            func.sum(case((and_(in_gauss, sell_in.c.venta_ref.isnot(None)), 1), else_=0)).label("sell_in_lineas"),
             func.sum(case((and_(in_gauss, sell_out.c.venta_ref.isnot(None)), 1), else_=0)).label("sell_out_lineas"),
         ]
 
@@ -2123,7 +2052,7 @@ class Board:
         """The sell out sort keys of a summed row (`ConSo` in SQL, Costo SI T3 D1): NULL wherever the screen shows an
         empty cell, so those rows sort last both ways instead of as 0 among the real figures. `markup_sell` is
         `so.markup_con_so(limpio, m_sell_out, costo)` written in SQL, `limpio` = `mtg + costo` (one formula; a test
-        pins `Row.markup_so` against this order). No sell in: the frozen cost is costo SI."""
+        pins `Row.markup_sell` against this order). No sell in: the frozen cost is costo SI."""
         if not self.sell:
             return []
         applies = g.c.sell_out_lineas > 0
@@ -2269,7 +2198,7 @@ class Board:
             )
         column = sort_cols[self.f.sort]
         if column is None:
-            # A sell in / sell out column with `sell_in_out` OFF: every row ties and the unique key orders them,
+            # A sell out column with `sell_in_out` OFF: every row ties and the unique key orders them,
             # like the ads cost with its toggle OFF.
             return (rows.c.rk.asc(),)
         descending = self.f.sort_desc if self.f.sort != "ageing" else not self.f.sort_desc
@@ -2334,7 +2263,7 @@ class Board:
         times the factor. A group without any row on the board is absent.
 
         Keys: `rows` (how many rows added), `units_7d`, `units_30d`, `gross`, `tg`, `mtg`, `costo`, the
-        `SellInOut` fields (None without `sell_in_out`; the markup ones None with "Costos TP"), `last_sale_at`
+        `ConSo` sell out fields (None without `sell_in_out`; `m_sell_out` None with "Costos TP"), `last_sale_at`
         (the latest), `ageing_sold` (the least ageing of the rows that sold) and `ageing_unsold` (the most of the
         ones that never did, never below 0)."""
         if not members:
@@ -2364,11 +2293,8 @@ class Board:
         ]
         if self.sell:
             columns += [
-                money(R.sell_in).label("sell_in"),
                 money(R.sell_out).label("sell_out"),
-                money(R.m_sell_in).label("m_sell_in"),
                 money(R.m_sell_out).label("m_sell_out"),
-                count(R.sell_in_lineas).label("sell_in_lineas"),
                 count(R.sell_out_lineas).label("sell_out_lineas"),
             ]
         q = select(*columns).select_from(m.join(rows, R.rk == m.c.rk)).group_by(m.c.gk)
@@ -2387,13 +2313,10 @@ class Board:
                 "ageing_sold": (self.today - sold).days if sold else None,
                 "ageing_unsold": max((self.today - unsold).days, 0) if unsold else None,
             }
-            sell = {name: None for name in ("sell_in", "sell_out", "m_sell_in", "m_sell_out")}
-            sell.update(sell_in_lineas=None, sell_out_lineas=None)
+            sell = {"sell_out": None, "m_sell_out": None, "sell_out_lineas": None}
             if self.sell:
-                sell.update({name: r[name] for name in sell})
-                sell.update(sell_in_lineas=int(r["sell_in_lineas"]), sell_out_lineas=int(r["sell_out_lineas"]))
-                if self.tp:
-                    sell.update(m_sell_in=None, m_sell_out=None)
+                sell.update(sell_out=r["sell_out"], m_sell_out=None if self.tp else r["m_sell_out"])
+                sell.update(sell_out_lineas=int(r["sell_out_lineas"]))
             out[str(r["gk"])] = {**sums, **sell}
         return out
 
@@ -2725,21 +2648,17 @@ class Board:
         return dict(total_tp=_nullable_cents(r["tg_tp"]), tp_incompletos=int(r["tp_incompletos"] or 0))
 
     def _sell_of(self, r: Any, remanente: Optional[Remanente] = None) -> Dict[str, Any]:
-        """The `Row`/`Kpis` sell in / sell out fields of a summed row: none with `sell_in_out` OFF, and no markup
-        population with "Costos TP" ON (see `SellInOut`). `remanente` (the KPIs only, `remanente`): added to the
+        """The `Row`/`Kpis` sell out fields of a summed row: none with `sell_in_out` OFF, and no markup
+        population with "Costos TP" ON (see `ConSo`). `remanente` (the KPIs only, `remanente`): added to the
         sell out and its pending / estimated counts, never to the markup population (it has no sold line, so no
         cost); `sell_out_remanente` says how much of the sell out it is."""
         if not self.sell:
             return {}
         sell = dict(
-            sell_in=cents(r["sell_in"]),
             sell_out=cents(r["sell_out"]),
-            m_sell_in=None if self.tp else cents(r["m_sell_in"]),
             m_sell_out=None if self.tp else cents(r["m_sell_out"]),
             sell_out_pendientes=int(r["sell_out_pendientes"] or 0),
             sell_out_estimados=int(r["sell_out_estimados"] or 0),
-            sell_in_estimados=int(r["sell_in_estimados"] or 0),
-            sell_in_lineas=int(r["sell_in_lineas"] or 0),
             sell_out_lineas=int(r["sell_out_lineas"] or 0),
         )
         if remanente is not None and remanente.suma:

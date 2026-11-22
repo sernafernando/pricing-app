@@ -338,7 +338,7 @@ class TestStockAudit:
 
 
 def board_row(mla: str, *, d7: int, d30: int, gross: float, tg: float, costo: float, **sell) -> board.Row:
-    """A Board publication row (30 business days) with its figures; `sell` = the sell in / out fields."""
+    """A Board publication row (30 business days) with its figures; `sell` = the sell out fields."""
     return board.Row(
         key=mla,
         product_item_id=0,
@@ -354,7 +354,7 @@ def board_row(mla: str, *, d7: int, d30: int, gross: float, tg: float, costo: fl
 
 
 FIGURES = {
-    # the notebook's own sales: a sell in of 50 on the cost (D1: never read, `view.real_so`)
+    # the notebook's own sales: no sell out (the Board has no sell in, Costo SI T5 PR B)
     "MLA10": board_row(
         "MLA10",
         d7=1,
@@ -362,11 +362,8 @@ FIGURES = {
         gross=2000.0,
         tg=200.0,
         costo=1000.0,
-        sell_in=50.0,
         sell_out=0.0,
-        m_sell_in=50.0,
         m_sell_out=0.0,
-        sell_in_lineas=1,
         sell_out_lineas=0,
     ),
     # variant 101: a sell out of 30
@@ -377,14 +374,11 @@ FIGURES = {
         gross=1500.0,
         tg=100.0,
         costo=1000.0,
-        sell_in=0.0,
         sell_out=30.0,
-        m_sell_in=0.0,
         m_sell_out=30.0,
-        sell_in_lineas=0,
         sell_out_lineas=1,
     ),
-    # pack 110: 2 packs of 10 mice, no sell in / out
+    # pack 110: 2 packs of 10 mice, no sell out
     "MLA20": board_row(
         "MLA20",
         d7=1,
@@ -392,11 +386,8 @@ FIGURES = {
         gross=100.0,
         tg=10.0,
         costo=40.0,
-        sell_in=0.0,
         sell_out=0.0,
-        m_sell_in=0.0,
         m_sell_out=0.0,
-        sell_in_lineas=0,
         sell_out_lineas=0,
     ),
 }

@@ -38,7 +38,6 @@ def row(rng: random.Random, n: int) -> board.Row:
         tg=Decimal(rng.randint(-(10**5), 10**5)) / 100,
         mtg=Decimal(rng.randint(-(10**5), 10**5)) / 100,
         costo=Decimal(rng.randint(0, 10**6)) / 100,
-        sell_in=rng.choice([None, Decimal(rng.randint(0, 9999)) / 100]),
         sell_out=rng.choice([None, Decimal(rng.randint(0, 9999)) / 100]),
         series_units=units,
         series_markup=markup,
