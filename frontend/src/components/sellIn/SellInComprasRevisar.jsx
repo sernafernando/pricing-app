@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import ModalTesla from '../ModalTesla';
 import { costoSiSospechasAPI } from '../../services/sellInAPI';
-import { formatEntero } from './sellInFormat';
+import { formatEntero, ratioLabel } from './sellInFormat';
 import styles from './SellInComprasRevisar.module.css';
 
 /** The state filter: pending first (what needs a decision), then the decided ones and every row. */
@@ -32,7 +32,6 @@ const ACCIONES = {
 
 // A suspicious price can be a fraction of a cent: up to 5 decimals (the stored precision), at least 2.
 const PRECIO = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 5 });
-const RATIO = new Intl.NumberFormat('es-AR', { maximumSignificantDigits: 2 });
 
 const TC = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 });
 
@@ -44,12 +43,6 @@ const fecha = (iso) => {
   const [y, m, d] = String(iso).slice(0, 10).split('-');
   return `${d}/${m}/${y}`;
 };
-/** "0,00072×" reads badly: below 1 it is "1/1.394 de la referencia", above it "12× la referencia". */
-export function ratioLabel(ratio) {
-  const r = Number(ratio);
-  if (!(r > 0)) return '—';
-  return r < 1 ? `1/${formatEntero(Math.round(1 / r))} de la referencia` : `${RATIO.format(r)}× la referencia`;
-}
 
 /**
  * "Compras a revisar" (owner L29): the purchases held out of costo SI because their unit price is below 1/10 or above

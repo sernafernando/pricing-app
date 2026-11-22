@@ -6,7 +6,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { costoSiSospechasAPI } from '../../services/sellInAPI';
-import SellInComprasRevisar, { ratioLabel } from './SellInComprasRevisar';
+import SellInComprasRevisar from './SellInComprasRevisar';
+import { ratioLabel } from './sellInFormat';
 
 vi.mock('../../services/sellInAPI', () => ({
   costoSiSospechasAPI: { listar: vi.fn(), resumen: vi.fn(), aceptar: vi.fn(), excluir: vi.fn() },
