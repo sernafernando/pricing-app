@@ -47,7 +47,17 @@ export default function CargasPendientes({ tipo = 'todos', version = 0, puedeApr
     const params = { ...(tipo === 'todos' ? {} : { tipo }), page: offset / PAGE_SIZE + 1, page_size: PAGE_SIZE };
     tacticalsAPI
       .cargasPendientes(params)
-      .then(({ data }) => activo && setRespuesta({ tipo, version, offset, items: data.items, total: data.total ?? data.items.length }))
+      .then(({ data }) => {
+        if (!activo) return;
+        const total = data.total ?? data.items.length;
+        // Approving the last load of the last page empties it: go back to the last page that has loads, so the rest
+        // stays reachable (S11) instead of the whole section disappearing.
+        if (!data.items.length && offset > 0 && total > 0) {
+          setPagina({ tipo, offset: Math.floor((total - 1) / PAGE_SIZE) * PAGE_SIZE });
+          return;
+        }
+        setRespuesta({ tipo, version, offset, items: data.items, total });
+      })
       .catch(() => activo && setRespuesta({ tipo, version, offset, error: true }));
     return () => {
       activo = false;

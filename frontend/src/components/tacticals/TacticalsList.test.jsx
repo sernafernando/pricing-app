@@ -687,6 +687,28 @@ describe('TacticalsList approval inbox (handoffs/tacticals-aprobacion-plan.md S1
     expect(within(sueltas()).getByText('mostrando 51-51 de 51 cargas')).toBeInTheDocument();
   });
 
+  it('approving the only load of the last page goes back a page: the rest stays reachable (S11, verifier A2)', async () => {
+    const muchas = Array.from({ length: 50 }, (_, i) => ({ ...CARGA_OFFSET, id: 1000 - i, nombre: `Offset ${1000 - i}` }));
+    let aprobado = false;
+    tacticalsAPI.aprobarOffset.mockImplementation(async () => {
+      aprobado = true;
+      return { data: { ...CARGA_OFFSET, estado: 'activa' } };
+    });
+    tacticalsAPI.cargasPendientes.mockImplementation(async ({ page }) => {
+      if (aprobado) return { data: page === 1 ? { items: muchas, total: 50, page: 1, page_size: 50 } : { items: [], total: 50, page, page_size: 50 } };
+      return { data: page === 1 ? { items: muchas, total: 51, page: 1, page_size: 50 } : { items: [CARGA_OFFSET], total: 51, page: 2, page_size: 50 } };
+    });
+    render(<TacticalsList marcas={MARCAS} puedeAprobar />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Pendientes de aprobación' }));
+    const region = await screen.findByRole('region', { name: 'Cargas sueltas pendientes de aprobación' });
+    await userEvent.click(await within(region).findByRole('button', { name: 'Página 2' }));
+    await userEvent.click(await within(sueltas()).findByRole('button', { name: 'Aprobar Offset Epson' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Aprobar offset' }));
+
+    await waitFor(() => expect(tacticalsAPI.cargasPendientes).toHaveBeenLastCalledWith({ page: 1, page_size: 50 }));
+    expect(await within(sueltas()).findByRole('row', { name: /Offset 1000/ })).toBeInTheDocument();
+  });
+
   it('one page of pending loads shows no pager', async () => {
     tacticalsAPI.cargasPendientes.mockResolvedValue({ data: { items: CARGAS_PENDIENTES, total: 4, page: 1, page_size: 50 } });
     render(<TacticalsList marcas={MARCAS} />);
