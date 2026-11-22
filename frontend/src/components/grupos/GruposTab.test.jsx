@@ -84,6 +84,16 @@ describe('GruposTab — list', () => {
     expect(within(vacio).getByText('Ninguna')).toBeInTheDocument();
   });
 
+  it('the scope note says a filter change sends the approved campaigns back to pending, never that they recalculate', async () => {
+    renderWithRouter(<GruposTab puedeEditar />);
+    await fila('TP-Link redes');
+    const nota =
+      'Cambiar los filtros de un grupo cambia los productos que alcanzan las campañas de sell out que lo usan: ' +
+      'las aprobadas vuelven a pendiente de aprobación y dejan de aplicar hasta que las aprueben de nuevo.';
+    expect(screen.getByText(nota)).toBeInTheDocument();
+    expect(screen.queryByText(/se recalculan solas/)).not.toBeInTheDocument();
+  });
+
   it('says it is loading while the groups and their reach are asked, and never together with the error', async () => {
     let responder;
     offsetGruposAPI.alcance.mockReturnValue(new Promise((resolve) => (responder = resolve)));
@@ -159,7 +169,7 @@ describe('GruposTab — list', () => {
   it('warns that changing a group changes which products its campaigns reach', async () => {
     renderWithRouter(<GruposTab puedeEditar />);
     await fila('TP-Link redes');
-    expect(screen.getByText(/Cambiar un grupo cambia los productos que alcanzan las campañas de sell out que lo usan/)).toBeInTheDocument();
+    expect(screen.getByText(/Cambiar los filtros de un grupo cambia los productos que alcanzan las campañas de sell out que lo usan/)).toBeInTheDocument();
   });
 });
 
@@ -228,7 +238,7 @@ describe('GruposTab — filters and preview', () => {
     const panel = await abrir(user, 'TP-Link redes');
     expect(within(panel).getByText('Alcanza 42 productos.')).toBeInTheDocument();
     expect(within(panel).getByText('Noviembre TP-Link')).toBeInTheDocument();
-    expect(within(panel).getByText(/Cambiar un grupo cambia los productos que alcanzan/)).toBeInTheDocument();
+    expect(within(panel).getByText(/Cambiar los filtros de un grupo cambia los productos que alcanzan/)).toBeInTheDocument();
   });
 
   it('adds a filter row with brand and category, then the preview refreshes', async () => {

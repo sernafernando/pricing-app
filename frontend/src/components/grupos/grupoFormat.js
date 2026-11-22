@@ -11,8 +11,10 @@ export function resumenFiltro(filtro, subcategorias = {}) {
 /** `{ id: nombre }` of the subcategories `GET /offset-filtros-opciones` lists. */
 export const nombresDeSubcategorias = (opciones) => Object.fromEntries((opciones?.subcategorias ?? []).map((s) => [s.id, s.nombre]));
 
+// The group's filters are the scope of the campaigns using it, and scope is money (tacticals approval S14).
 export const NOTA_ALCANCE =
-  'Cambiar un grupo cambia los productos que alcanzan las campañas de sell out que lo usan: se recalculan solas.';
+  'Cambiar los filtros de un grupo cambia los productos que alcanzan las campañas de sell out que lo usan: ' +
+  'las aprobadas vuelven a pendiente de aprobación y dejan de aplicar hasta que las aprueben de nuevo.';
 
 export const productosTexto = (n) => (n === 1 ? 'Alcanza 1 producto.' : `Alcanza ${(n ?? 0).toLocaleString('es-AR')} productos.`);
 
