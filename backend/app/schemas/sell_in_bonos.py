@@ -194,8 +194,8 @@ class SellInBonoOut(BaseModel):
     tope_monto: Optional[Decimal]
     tope_unidades_restantes: Optional[int]
     tope_monto_restante: Optional[Decimal]
-    # T25d: a 'costo_venta' bonus's `unidades` / `monto_generado` (ARS) are what its sales got
-    # (`sell_in_bono_consumos`), and `compras_activas` is 0.
+    # T25d: a 'costo_venta' bonus's `unidades` / `monto_generado` (in its currency) are what costo SI took off the
+    # invoices of its period (T5 PR B, L26), and `compras_activas` is 0.
     base: BaseBono
     incluye_iva: bool
     acumulable: bool

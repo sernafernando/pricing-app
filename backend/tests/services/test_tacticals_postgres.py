@@ -3,6 +3,7 @@ engines, all or nothing; the read gives one line per child with what it used; vo
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from decimal import Decimal
 from typing import Iterator
@@ -12,10 +13,11 @@ from sqlalchemy import Engine, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.models.costo_si import CostoSiPaso
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.offset_grupo import OffsetGrupo
-from app.models.pedido_compra import PedidoCompra
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
+from app.models.pedido_compra import PedidoCompra
 from app.models.sell_out import (
     SellOutCampana,
     SellOutCampanaGrupo,
@@ -54,6 +56,7 @@ TABLES = [
     SellOutCampanaItem.__table__,
     SellOutConsumo.__table__,
     SellOutDirty.__table__,
+    CostoSiPaso.__table__,  # what a sell in line used: the costo SI purchase steps that carry it (T5 PR B, L26)
 ]
 # Every column of a legacy offset with no foreign key: the approval inbox reads them (tacticals approval S10/S11), and
 # campaigns point at its id.
@@ -82,6 +85,29 @@ def _install(engine: Engine) -> None:
                 tipo = columna.type.compile(dialect=engine.dialect)
                 conn.execute(text(f"ALTER TABLE pedidos_compra ADD COLUMN {columna.name} {tipo}"))
         conn.execute(text("UPDATE productos_erp SET categoria = 'Routers', iva = 21"))
+
+
+def paso(engine: Engine, item_id: int, orden: int, cantidad: int, costo: str, sell_ins: list, **otros) -> None:
+    """A costo SI purchase step of `item_id` (its cost currency, `moneda` USD unless given): `cantidad` units at net
+    `costo` each, and the sell ins `(origen, ref, porcentaje)` it got: what a sell in line used (T5 PR B, L26)."""
+    fila = {"fecha": date(2026, 11, 3), "tipo_cambio": None, "moneda": "USD", **otros}
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO costo_si_pasos (item_id, orden, tipo, fecha, ct_transaction, cantidad, costo_neto_usd, "
+                "sell_ins, stock_antes, stock_base, stock_despues, tipo_cambio, moneda) VALUES (:i, :o, 'compra', "
+                ":fecha, :ct, :q, :c, CAST(:s AS jsonb), 0, 0, :q, :tipo_cambio, :moneda)"
+            ),
+            {
+                "i": item_id,
+                "o": orden,
+                "ct": 90000 + orden,
+                "q": cantidad,
+                "c": costo,
+                "s": json.dumps([{"origen": o, "ref": r, "porcentaje": pct} for o, r, pct in sell_ins]),
+                **fila,
+            },
+        )
 
 
 @pytest.fixture(scope="module")

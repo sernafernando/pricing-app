@@ -17,12 +17,11 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.schemas.tacticals import TacticalCobranzaIn
 from app.services import tacticals as service
-from app.services.sell_in import bonos_costo
 from tests.services._aprobacion import aprobar_siempre  # noqa: F401 - the fixture, by name
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _bono_world as bw
 from tests.services.sell_in import _world as w
-from tests.services.test_tacticals_postgres import STUBS, TABLES, USUARIO, _install, _tactical
+from tests.services.test_tacticals_postgres import STUBS, TABLES, USUARIO, _install, _tactical, paso
 
 # Written before tacticals approval: every load is approved right away (`_aprobacion.aprobar_siempre`).
 pytestmark = [pytest.mark.postgres, pytest.mark.usefixtures("aprobar_siempre")]
@@ -50,7 +49,7 @@ def db(engine: Engine) -> Iterator[Session]:
                 "sell_out_campanas",
                 "offset_grupos",
                 "auditoria",
-                "sell_in_bono_consumos",
+                "costo_si_pasos",
             ):
                 conn.execute(text(f"DELETE FROM {table}"))
             for table in ("tactical_cobranzas", "tactical_tiendas", "tactical_marcas"):
@@ -261,35 +260,10 @@ def _segun_las_lineas(db: Session, filtros: service.Filtros) -> dict:
     return salida
 
 
-def _compras_de(engine: Engine, tactical_id: int) -> list[int]:
+def _compra_de(engine: Engine, tactical_id: int) -> int:
+    """The invoice total's purchase (`sell_in_compras.id`): the `ref` of a 'compra' sell in on a costo SI step."""
     with engine.connect() as conn:
-        return list(conn.execute(text("SELECT id FROM sell_in_compra_items WHERE compra_id IN "
-                                      "(SELECT id FROM sell_in_compras WHERE tactical_id = :t) ORDER BY id"),
-                                 {"t": tactical_id}).scalars())  # fmt: skip
-
-
-def _consumo_compra(engine: Engine, compra_item_id: int, ars: str) -> None:
-    with engine.begin() as conn:
-        conn.execute(
-            text(
-                "INSERT INTO sell_in_consumos (compra_item_id, canal, venta_ref, item_id, fecha_venta, unidades, "
-                "descuento_ars) VALUES (:c, 'fuera', :c, 2964, '2026-11-03', 1, :m)"
-            ),
-            {"c": compra_item_id, "m": ars},
-        )
-
-
-def _consumo_bono(engine: Engine, bono_id: int, *ventas: tuple[int, int, str]) -> None:
-    """Sales `(venta_ref, unidades, descuento_ars)` a cost bonus lowered."""
-    with engine.begin() as conn:
-        for ref, unidades, ars in ventas:
-            conn.execute(
-                text(
-                    "INSERT INTO sell_in_bono_consumos (bono_id, canal, venta_ref, item_id, fecha_venta, unidades, "
-                    "descuento_ars) VALUES (:b, 'fuera', :r, 2964, '2026-11-03', :u, :m)"
-                ),
-                {"b": bono_id, "r": ref, "u": unidades, "m": ars},
-            )
+        return conn.execute(text("SELECT id FROM sell_in_compras WHERE tactical_id = :t"), {"t": tactical_id}).scalar()
 
 
 def _bono_de(engine: Engine, tactical_id: int) -> int:
@@ -341,8 +315,7 @@ class TestKpisEnSql:
                          "WHERE id = (SELECT compra_id FROM sell_in_compra_items WHERE id = :i)"),
                     {"b": bono, "i": item},
                 )  # fmt: skip
-        # Sell in invoice fixed total in USD at a fixed rate: its sales took ARS, shown in USD at its own rate
-        # (ARS 2.501,25 / 1.000,5 = USD 2,50).
+        # Sell in invoice fixed total in USD: what costo SI took off its invoice, in USD.
         total = total_usd("Total USD", bw.pedido(engine, {2270: 5}, date(2026, 10, 12)))
         # Caps (S6): a sell out line with a money cap. (A sell in cost total can no longer be loaded: T5 PR A, L25.)
         service.crear(db, _tactical(nombre="Tope", lineas=[{"alcance": "marca", "marca": bw.TPLINK,
@@ -356,14 +329,14 @@ class TestKpisEnSql:
         total_anulado = total_usd("Total USD anulado", bw.pedido(engine, {2964: 3}, date(2026, 10, 14)))
         for anulado in (campana_anulada, costo_anulado, total_anulado):
             service.anular(db, anulado.id, USUARIO, None)
-        # The sell in usage rows stand in for what the FIFO drain wrote; they go in after the voids, since voiding a
-        # bonus or a purchase queues a recompute that rebuilds them (to nothing here, with no real sales).
-        _consumo_bono(engine, _bono_de(engine, costo.id), (1, 2, "72.10"), (2, 1, "36.05"))
-        _consumo_bono(engine, _bono_de(engine, costo_anulado.id), (3, 1, "20.20"))
-        [compra_item] = _compras_de(engine, total.id)
-        _consumo_compra(engine, compra_item, "2501.25")
-        [compra_item] = _compras_de(engine, total_anulado.id)
-        _consumo_compra(engine, compra_item, "500.25")  # USD 0,50
+        # What each sell in line used: the costo SI purchase steps that carry it (T5 PR B, L26). The cost bonus is
+        # ARS on a USD product, at each ARS invoice's own rate: 2 x 3.605 x 1% x 1000 + 1 x 3.605 x 1% x 1000.
+        bono = _bono_de(engine, costo.id)
+        paso(engine, 2964, 1, 2, "3.605", [("bono", bono, "1.0000")], tipo_cambio=1000)
+        paso(engine, 2964, 2, 1, "3.605", [("bono", bono, "1.0000")], tipo_cambio=1000)
+        paso(engine, 2964, 3, 1, "2.02", [("bono", _bono_de(engine, costo_anulado.id), "1.0000")], tipo_cambio=1000)
+        paso(engine, 2964, 4, 1, "2.50", [("compra", _compra_de(engine, total.id), "100.0000")])
+        paso(engine, 2964, 5, 1, "0.50", [("compra", _compra_de(engine, total_anulado.id), "100.0000")])
         service.cobrar(db, costo.id, _cobro(), USUARIO)
         service.cobrar(db, total.id, _cobro(), USUARIO)
         service.cobrar(db, total_anulado.id, _cobro(), USUARIO)
@@ -493,20 +466,22 @@ class TestTipoDeCambioDelCobro:
         service.cobrar(db, tactical.id, _cobro(), USUARIO)
         assert _leido(db, tactical.id)["cobranza"]["tipo_cambio"] is None
 
-    def test_the_line_and_the_kpis_show_the_usd_used_at_the_collection_rate(self, db, engine) -> None:
+    def test_the_line_and_the_kpis_show_what_costo_si_took_off_its_invoices_whatever_the_collection_rate(
+        self, db, engine
+    ) -> None:
+        """T5 PR B, L26: a USD cost line used what costo SI took off the invoices of its period, in USD; the rate the
+        brand paid at converts nothing any more."""
         tactical = _usd(db)
-        ref = w.venta(engine, "fuera", 2964, 2, date(2026, 11, 3))
-        w.update_venta(engine, "fuera", ref, costo_total=Decimal("100000.00"))
+        # USD 10.91 a unit on 2 units of USD 41.50: the step's % is 10.91 / 41.50.
+        paso(engine, 2964, 1, 2, "41.50", [("bono", _bono_de(engine, tactical.id), "26.2892")])
         bw.tipo_cambio(engine, date(2026, 11, 1), 1200)
         service.cobrar(db, tactical.id, _cobro(tipo_cambio=Decimal("1350")), USUARIO)
-        with sessionmaker(bind=engine)() as otra:
-            bonos_costo.recalcular(otra, bono_ids=[_bono_de(engine, tactical.id)])
-            otra.commit()
 
         linea = _leido(db, tactical.id)["lineas"][0]
         kpis = service.kpis(db, service.Filtros(tipos=TODOS), hoy=HOY)
 
         assert (linea["moneda"], linea["unidades_usadas"], linea["monto_usado"]) == ("USD", 2, Decimal("21.82"))
+        assert linea["monto_estimado"] is False
         assert kpis["cobrados"]["montos"] == [
             {"moneda": "USD", "monto": Decimal("21.82"), "tope": None, "tope_parcial": False, "estimado": False}
         ]
@@ -522,74 +497,29 @@ def _bonos_de(engine: Engine, tactical_id: int) -> list[int]:
         )
 
 
-def _recalcular(engine: Engine, bono_ids: list[int]) -> None:
-    with sessionmaker(bind=engine)() as otra:
-        bonos_costo.recalcular(otra, bono_ids=bono_ids)
-        otra.commit()
-
-
-class TestMontoEstimado:
-    """Option C (tactical sell in USD S10): "y marcar los montos como estimados en pantalla". A USD line whose USD
-    comes from an ARS amount over today's BNA (a % line, or a per-unit amount cut to the unit cost) moves with each
-    BNA until the collection rate is loaded: the list marks it and the KPIs say so. A per-unit amount itself is exact."""
+class TestNadaEstimado:
+    """T5 PR B, L26: what a line used is read off its invoices at each invoice's own rate, so no amount waits for the
+    collection rate any more (tactical sell in USD S10's "estimado" is never set)."""
 
     _PORCENTAJE = {"alcance": "productos", "item_ids": [950], "modo_monto": "porcentaje", "valor": "3",
                    "tope_monto": "100"}  # fmt: skip
 
-    def _ventas(self, engine: Engine) -> None:
-        for item in (2964, 950):
-            ref = w.venta(engine, "fuera", item, 2, date(2026, 11, 3))
-            w.update_venta(engine, "fuera", ref, costo_total=Decimal("100000.00"))
-        bw.tipo_cambio(engine, date(2026, 11, 1), 1200)
-
-    def test_a_percentage_line_is_estimated_until_the_collection_rate_and_a_per_unit_one_is_not(
+    def test_a_usd_percentage_line_with_usage_is_not_an_estimate_before_or_after_the_collection(
         self, db, engine
     ) -> None:
         tactical = _usd(db, lineas=[self._PORCENTAJE, _POR_UNIDAD_USD])
-        self._ventas(engine)
-        _recalcular(engine, _bonos_de(engine, tactical.id))
+        porcentaje, por_unidad = _bonos_de(engine, tactical.id)
+        # An ARS invoice of 950 (USD product) at its own rate 1200, and a USD one of 2964.
+        paso(engine, 950, 1, 2, "9.90", [("bono", porcentaje, "3.0000")], tipo_cambio=1200)
+        paso(engine, 2964, 1, 2, "41.50", [("bono", por_unidad, "26.2892")])
 
-        lineas = sorted(_leido(db, tactical.id)["lineas"], key=lambda x: x["linea"])
-        pendientes = service.kpis(db, service.Filtros(tipos=TODOS), hoy=HOY)["pendientes"]["montos"]
-
-        assert [(x["modo_monto"], x["monto_estimado"]) for x in lineas] == [
-            ("porcentaje", True),
-            ("por_unidad", False),
-        ]
-        assert [(m["moneda"], m["estimado"]) for m in pendientes] == [("USD", True)]
-        assert service.kpis(db, service.Filtros(tipos=TODOS), hoy=HOY) == _segun_las_lineas(
-            db, service.Filtros(tipos=TODOS)
-        )
-
-        service.cobrar(db, tactical.id, _cobro(tipo_cambio=Decimal("1350")), USUARIO)
-        _recalcular(engine, _bonos_de(engine, tactical.id))
-
-        assert [x["monto_estimado"] for x in _leido(db, tactical.id)["lineas"]] == [False, False]
-        cobrados = service.kpis(db, service.Filtros(tipos=TODOS), hoy=HOY)["cobrados"]["montos"]
-        assert [(m["moneda"], m["estimado"]) for m in cobrados] == [("USD", False)]
-
-    def test_a_percentage_line_without_sales_has_nothing_estimated(self, db, engine) -> None:
-        tactical = _usd(db, lineas=[self._PORCENTAJE])
-        _recalcular(engine, _bonos_de(engine, tactical.id))
-
-        kpis = service.kpis(db, service.Filtros(tipos=TODOS), hoy=HOY)
-
-        assert [x["monto_estimado"] for x in _leido(db, tactical.id)["lineas"]] == [False]
-        assert all(not m["estimado"] for m in kpis["pendientes"]["montos"])
-        assert kpis == _segun_las_lineas(db, service.Filtros(tipos=TODOS))
-
-    def test_a_per_unit_amount_cut_to_the_unit_cost_is_estimated(self, db, engine) -> None:
-        caro = {**_POR_UNIDAD_USD, "valor": "100"}  # USD 100 x 1200 > the ARS 50.000 unit cost: cut, then / BNA
-        tactical = _usd(db, lineas=[caro])
-        self._ventas(engine)
-        _recalcular(engine, _bonos_de(engine, tactical.id))
-
-        assert [x["monto_estimado"] for x in _leido(db, tactical.id)["lineas"]] == [True]
-
-    @pytest.mark.parametrize("tc", [{"tc_modo": "fijo", "tipo_cambio": "1400"}, {"tc_modo": "dia_venta"}])
-    def test_a_final_rate_is_never_estimated(self, db, engine, tc) -> None:
-        tactical = service.crear(db, _tactical("sell_in", [self._PORCENTAJE], moneda="USD", **tc), USUARIO)
-        self._ventas(engine)
-        _recalcular(engine, _bonos_de(engine, tactical.id))
-
-        assert [x["monto_estimado"] for x in _leido(db, tactical.id)["lineas"]] == [False]
+        for _ in ("before", "after"):
+            lineas = sorted(_leido(db, tactical.id)["lineas"], key=lambda x: x["linea"])
+            kpis = service.kpis(db, service.Filtros(tipos=TODOS), hoy=HOY)
+            assert [(x["monto_usado"], x["monto_estimado"]) for x in lineas] == [
+                (Decimal("0.59"), False),
+                (Decimal("21.82"), False),
+            ]
+            assert all(not m["estimado"] for grupo in kpis.values() for m in grupo["montos"])
+            assert kpis == _segun_las_lineas(db, service.Filtros(tipos=TODOS))
+            service.cobrar(db, tactical.id, _cobro(tipo_cambio=Decimal("1350")), USUARIO)

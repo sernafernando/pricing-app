@@ -17,7 +17,7 @@ from app.services import tacticals as service
 from tests.services._aprobacion import aprobar_siempre  # noqa: F401 - the fixture, by name
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _bono_world as bw
-from tests.services.test_tacticals_postgres import STUBS, TABLES, USUARIO, _contar, _install, _tactical
+from tests.services.test_tacticals_postgres import STUBS, TABLES, USUARIO, _contar, _install, _tactical, paso
 
 # Written before tacticals approval: every load is approved right away (`_aprobacion.aprobar_siempre`).
 pytestmark = [pytest.mark.postgres, pytest.mark.usefixtures("aprobar_siempre")]
@@ -41,7 +41,7 @@ def db(engine: Engine) -> Iterator[Session]:
     finally:
         session.close()
         with engine.begin() as conn:
-            for table in ("sell_out_consumos", "sell_out_campanas", "offset_grupos", "auditoria"):
+            for table in ("sell_out_consumos", "sell_out_campanas", "offset_grupos", "auditoria", "costo_si_pasos"):
                 conn.execute(text(f"DELETE FROM {table}"))
         bw.clean(engine)
         with engine.begin() as conn:
@@ -229,20 +229,19 @@ class TestSellIn:
         ]  # fmt: skip
         assert _contar(engine, "auditoria", "tipo_accion = 'SELL_IN_BONO_EDITADO'") == 1
 
-    def test_a_cost_bonus_cap_is_checked_against_everything_it_used_even_with_a_per_store_flag(
+    def test_a_cost_bonus_cap_is_checked_against_what_costo_si_used_even_with_a_per_store_flag(
         self, db, engine
     ) -> None:
-        """S5: sell in has one cap over every store and channel, whatever cap mode its tactical stored."""
+        """S5: sell in has one cap over every store and channel, whatever cap mode its tactical stored. What it used is
+        what costo SI took off its invoices (T5 PR B, L26)."""
         linea = {"alcance": "productos", "item_ids": [2964], "modo_monto": "por_unidad", "valor": "10",
                  "tope_unidades": 10}  # fmt: skip
         tactical = service.crear(db, _tactical("sell_in", [linea]), USUARIO)
         with engine.begin() as conn:
             conn.execute(text(f"UPDATE tacticals SET tope_compartido = false WHERE id = {tactical.id}"))
-            conn.execute(text(
-                "INSERT INTO sell_in_bono_consumos (bono_id, canal, venta_ref, item_id, fecha_venta, unidades, "
-                "descuento_ars) SELECT id, 'fuera', 1, 2964, DATE '2026-11-03', 5, 50 FROM sell_in_bonos_marca "
-                "UNION ALL SELECT id, 'tn', 2, 2964, DATE '2026-11-04', 3, 30 FROM sell_in_bonos_marca"
-            ))  # fmt: skip
+            bono = conn.execute(text("SELECT id FROM sell_in_bonos_marca")).scalar()
+        paso(engine, 2964, 1, 5, "41.50", [("bono", bono, "24.0964")])
+        paso(engine, 2964, 2, 3, "41.50", [("bono", bono, "24.0964")])
 
         with pytest.raises(service.TacticalError) as exc:
             _editar(db, tactical.id, lineas=[{"linea": 1, "tope_unidades": 6}])  # above each store, below the total
