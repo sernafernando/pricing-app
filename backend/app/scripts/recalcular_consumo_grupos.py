@@ -33,7 +33,7 @@ from decimal import Decimal
 
 from app.services import offset_costo_desconocido
 from app.core.database import SessionLocal
-from app.models.offset_ganancia import OffsetGanancia
+from app.models.offset_ganancia import OFFSET_APLICA, OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
@@ -160,7 +160,7 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
         print(f"  - Consumos anteriores eliminados: {eliminados}")
 
     # Obtener offsets del grupo
-    offsets_grupo = db.query(OffsetGanancia).filter(OffsetGanancia.grupo_id == grupo_id).all()
+    offsets_grupo = db.query(OffsetGanancia).filter(OffsetGanancia.grupo_id == grupo_id, OFFSET_APLICA).all()
 
     # Obtener filtros del grupo
     filtros_grupo = db.query(OffsetGrupoFiltro).filter(OffsetGrupoFiltro.grupo_id == grupo_id).all()

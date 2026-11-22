@@ -31,7 +31,7 @@ from app.models.notificacion import Notificacion
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario, RolUsuario
 from app.services.permisos_service import PermisosService
-from app.models.offset_ganancia import OffsetGanancia
+from app.models.offset_ganancia import OFFSET_APLICA, OffsetGanancia
 
 PERMISO_RECIBIR_MARKUP = "reportes.recibir_notificaciones_markup"
 from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
@@ -542,6 +542,7 @@ def registrar_consumo_grupo_offset(db: Session, row, es_nuevo: bool):
                 OffsetGanancia.item_id == row.item_id,
                 OffsetGanancia.grupo_id.isnot(None),
                 OffsetGanancia.aplica_ml == True,
+                OFFSET_APLICA,
                 OffsetGanancia.fecha_desde <= row.fecha_venta.date()
                 if hasattr(row.fecha_venta, "date")
                 else row.fecha_venta,
@@ -732,6 +733,7 @@ def registrar_consumo_offset_individual(db: Session, row, es_nuevo: bool):
             .filter(
                 OffsetGanancia.grupo_id.is_(None),  # Sin grupo
                 OffsetGanancia.aplica_ml == True,
+                OFFSET_APLICA,
                 OffsetGanancia.fecha_desde <= fecha_venta,
                 or_(OffsetGanancia.fecha_hasta.is_(None), OffsetGanancia.fecha_hasta >= fecha_venta),
                 or_(OffsetGanancia.max_unidades.isnot(None), OffsetGanancia.max_monto_usd.isnot(None)),

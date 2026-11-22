@@ -17,6 +17,11 @@ markups never see it. This module flips rows between `pendiente` and `activa` an
 A tactical's lines follow their tactical (`app.services.tacticals.aprobar` / `a_pendiente`); a standalone row (no
 `tactical_id`) is approved alone (`aprobar_linea`). A purchase a bonus generated (`origen = 'bono_marca'`) is not a
 load: the reconcile creates it `activa` from an active bonus and voids it when the bonus stops being active.
+
+A legacy profit offset (`offsets_ganancia`, S10) follows the same flow standalone: `POST /offsets-ganancia` stores it
+`pendiente`, a money edit sends it back, and its readers (rentabilidad, the consumption cron and recalculations) take
+only `activa`. Nothing is queued when it moves: its readers compute at read time (rentabilidad) or record consumption
+for the sales that come next (the cron), as when an offset is created.
 """
 
 from __future__ import annotations
@@ -28,6 +33,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
+from app.models.offset_ganancia import OffsetGanancia
 from app.models.sell_in import SellInBonoMarca, SellInCompra, SellInCompraItem
 from app.models.sell_out import SellOutCampana
 
@@ -38,10 +44,21 @@ ANULADA = "anulada"
 VIVAS = (ACTIVA, PENDIENTE)
 PERMISO = "tacticals.aprobar"
 
-Linea = Union[SellInBonoMarca, SellInCompra, SellOutCampana]
+Linea = Union[SellInBonoMarca, SellInCompra, SellOutCampana, OffsetGanancia]
 # How each kind is named in the audit values and in a message.
-_CLAVE = {SellInBonoMarca: "bono_id", SellInCompra: "compra_id", SellOutCampana: "campana_id"}
-NOMBRE = {SellInBonoMarca: "El bono", SellInCompra: "La compra", SellOutCampana: "La campaña"}
+_CLAVE = {
+    SellInBonoMarca: "bono_id",
+    SellInCompra: "compra_id",
+    SellOutCampana: "campana_id",
+    OffsetGanancia: "offset_id",
+}
+NOMBRE = {
+    SellInBonoMarca: "El bono",
+    SellInCompra: "La compra",
+    SellOutCampana: "La campaña",
+    OffsetGanancia: "El offset",
+}
+_MASCULINO = (SellInBonoMarca, OffsetGanancia)
 
 
 class AprobacionError(ValueError):
@@ -93,21 +110,24 @@ def cambiar_lineas(
     bono_ids: Iterable[int] = (),
     compra_ids: Iterable[int] = (),
     campana_ids: Iterable[int] = (),
+    offset_ids: Iterable[int] = (),
     de: str,
     a: str,
 ) -> dict[str, list[int]]:
     """Move the given rows that are in `de` to `a` (`pendiente` <-> `activa`), locking them in id order, and trigger
     what follows (module docstring). Rows in another state are left as they are. Does not commit. Returns the ids
-    moved per kind."""
+    moved per kind (an offset is never a tactical's line: its key is there only when offsets were given)."""
     from app.services.sell_in import bonos_costo  # noqa: PLC0415 - bonos_costo imports the engines that import this
     from app.services.sell_in.costing import get_costing  # noqa: PLC0415
     from app.services.sell_out import campanas  # noqa: PLC0415 - campanas imports this module
 
+    # `offset_ids` only when offsets were given: a tactical's audit rows keep their three kinds.
     movidas: dict[str, list[int]] = {"bono_ids": [], "compra_ids": [], "campana_ids": []}
     for modelo, ids, clave in (
         (SellInBonoMarca, bono_ids, "bono_ids"),
         (SellInCompra, compra_ids, "compra_ids"),
         (SellOutCampana, campana_ids, "campana_ids"),
+        (OffsetGanancia, offset_ids, "offset_ids"),
     ):
         ids = sorted(set(ids))
         if not ids:
@@ -161,6 +181,7 @@ def _ids(fila: Linea) -> dict:
         "bono_ids": [fila.id] if tipo is SellInBonoMarca else [],
         "compra_ids": [fila.id] if tipo is SellInCompra else [],
         "campana_ids": [fila.id] if tipo is SellOutCampana else [],
+        "offset_ids": [fila.id] if tipo is OffsetGanancia else [],
     }
 
 
@@ -172,7 +193,7 @@ def a_pendiente_si_cambia(
     went back. A pending row stays pending; a name or description edit keeps it approved."""
     if fila.estado != ACTIVA or not cambio_de_dinero(antes, despues, sin):
         return False
-    if fila.tactical_id is not None:
+    if getattr(fila, "tactical_id", None) is not None:  # an offset is never a tactical's line
         from app.services import tacticals  # noqa: PLC0415 - tacticals imports the engines that import this
 
         tacticals.a_pendiente(db, fila.tactical_id, usuario_id, f"{NOMBRE[type(fila)]} {fila.id} se editó")
@@ -184,7 +205,7 @@ def a_pendiente_si_cambia(
 
 def aprobar_linea(db: Session, modelo: type, fila_id: int, usuario_id: int) -> Optional[Linea]:
     """Approve one standalone pending row (`POST /sell-in/bonos/{id}/aprobar`, `/sell-in/compras/{id}/aprobar`,
-    `/sell-out/campanas/{id}/aprobar`) and commit: it starts applying. None when it does not exist; `DeUnTactical`
+    `/sell-out/campanas/{id}/aprobar`, `/offsets-ganancia/{id}/aprobar`) and commit: it starts applying. None when it does not exist; `DeUnTactical`
     for a tactical's line (approved with its tactical); `Anulada` / `YaAprobada` otherwise. Self-approval is allowed
     (L31)."""
     try:
@@ -192,18 +213,16 @@ def aprobar_linea(db: Session, modelo: type, fila_id: int, usuario_id: int) -> O
         if fila is None:
             return None
         nombre = NOMBRE[modelo]
-        if fila.tactical_id is not None:
+        if getattr(fila, "tactical_id", None) is not None:
             raise DeUnTactical(
                 f"{nombre} {fila_id} es una línea del tactical {fila.tactical_id}: se aprueba desde el tactical"
             )
         if fila.estado == ANULADA:
             raise Anulada(
-                f"{nombre} {fila_id} está anulada"
-                if modelo is not SellInBonoMarca
-                else f"El bono {fila_id} está anulado"
+                f"{nombre} {fila_id} está anulada" if modelo not in _MASCULINO else f"{nombre} {fila_id} está anulado"
             )
         if fila.estado == ACTIVA:
-            raise YaAprobada(f"{nombre} {fila_id} ya está aprobad{'o' if modelo is SellInBonoMarca else 'a'}")
+            raise YaAprobada(f"{nombre} {fila_id} ya está aprobad{'o' if modelo in _MASCULINO else 'a'}")
         cambiar_lineas(db, **_ids(fila), de=PENDIENTE, a=ACTIVA)
         auditar(db, TipoAccion.TACTICAL_APROBADO, usuario_id, {_CLAVE[modelo]: fila_id})
         db.commit()

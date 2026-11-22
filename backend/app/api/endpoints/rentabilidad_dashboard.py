@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 
 from app.core.database import get_db
 from app.models.ml_venta_metrica import MLVentaMetrica
-from app.models.offset_ganancia import OffsetGanancia
+from app.models.offset_ganancia import OFFSET_APLICA, OffsetGanancia
 from app.models.offset_grupo_consumo import OffsetGrupoConsumo
 from app.models.offset_individual_consumo import OffsetIndividualConsumo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
@@ -163,6 +163,7 @@ def obtener_rentabilidad(
             OffsetGanancia.fecha_desde <= fecha_hasta,
             or_(OffsetGanancia.fecha_hasta.is_(None), OffsetGanancia.fecha_hasta >= fecha_desde),
             OffsetGanancia.aplica_ml == True,
+            OFFSET_APLICA,
         )
         .all()
     )

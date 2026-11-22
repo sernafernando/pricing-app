@@ -18,7 +18,7 @@ from typing import Iterable
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.models.offset_ganancia import OffsetGanancia
+from app.models.offset_ganancia import OFFSET_APLICA, OffsetGanancia
 from app.models.offset_grupo_consumo import OffsetGrupoResumen
 from app.models.offset_individual_consumo import OffsetIndividualResumen
 
@@ -80,6 +80,7 @@ def fetch_offsets_limite_por_grupo(db: Session, grupo_ids: Iterable[int]) -> dic
         db.query(OffsetGanancia)
         .filter(
             OffsetGanancia.grupo_id.in_(ids),
+            OFFSET_APLICA,
             or_(
                 OffsetGanancia.max_unidades.isnot(None),
                 OffsetGanancia.max_monto_usd.isnot(None),

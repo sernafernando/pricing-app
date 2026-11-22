@@ -13,6 +13,9 @@ load starts `pendiente` and applies to nothing until it is approved (`app.servic
   its state and reads as approved before approval existed (S7).
 - `sell_in_bonos_marca`, `sell_in_compras` and `sell_out_campanas`: the `estado` CHECK gains `'pendiente'`. Every
   money reader already takes only `estado = 'activa'`, so a pending line applies to nothing. No row changes.
+- `offsets_ganancia` (S10: "offsets POST ... create 'pendiente'") gains `estado` (NOT NULL DEFAULT 'activa', CHECK
+  `ck_offsets_ganancia_estado` IN ('activa', 'pendiente')): every existing offset is `activa` and keeps applying; a
+  new one from the API waits for approval, and every reader that applies an offset takes only `activa`.
 - Permission `tacticals.aprobar`, seeded like `compras_022_permiso_aprobar_nc`: granted to NO role. It is opt-in
   (`permisos_service.OPT_IN_PERMISSION_CODES`): a SUPERADMIN gets it only through a per-user override (L31: "lo más
   probable es que el permiso se lo de a alejandro solo"). The migration does not touch users.
@@ -20,7 +23,7 @@ load starts `pendiente` and applies to nothing until it is approved (`app.servic
 DOWNGRADE refuses (RAISE, nothing changed) while a pending tactical or line exists: the restored CHECKs would reject
 it. Otherwise it removes the permission (with its grants and overrides), the columns and puts the CHECKs back.
 
-LOCK NOTE: each CHECK swap (validated against the table's rows) and the ADD COLUMN with its FK take an ACCESS
+LOCK NOTE: the ADD COLUMN with a constant default on `offsets_ganancia` is metadata only (Postgres 11+). Each CHECK swap (validated against the table's rows) and the ADD COLUMN with its FK take an ACCESS
 EXCLUSIVE lock on their table, which the `sell_out.drain` and `sell_in.bono` workers read, for as long as the
 validation scan takes (a few thousand rows). Upgrade and downgrade run with `lock_timeout = '5s'` and the deploy is
 retried; the previous value is saved and restored (same pattern as 20261105_tacticals). Every step is idempotent.
@@ -42,6 +45,7 @@ ESTADO_TACTICAL = "estado IN ('activo', 'anulado', 'pendiente')"
 ESTADO_TACTICAL_PREVIO = "estado IN ('activo', 'anulado')"
 ESTADO_LINEA = "estado IN ('activa', 'anulada', 'pendiente')"
 ESTADO_LINEA_PREVIO = "estado IN ('activa', 'anulada')"
+ESTADO_OFFSET = "estado IN ('activa', 'pendiente')"
 LINEAS = ("sell_in_bonos_marca", "sell_in_compras", "sell_out_campanas")
 
 CODIGO = "tacticals.aprobar"
@@ -77,6 +81,18 @@ $fk$;
 CREATE INDEX IF NOT EXISTS ix_tacticals_aprobado_por ON tacticals (aprobado_por)
 """
 
+# `IF EXISTS` on the table: the schema tests that run this chain over stub tables have no offsets.
+UPGRADE_OFFSETS = (
+    "ALTER TABLE IF EXISTS offsets_ganancia ADD COLUMN IF NOT EXISTS estado VARCHAR(16) NOT NULL DEFAULT 'activa'; "
+    "ALTER TABLE IF EXISTS offsets_ganancia DROP CONSTRAINT IF EXISTS ck_offsets_ganancia_estado; "
+    f"ALTER TABLE IF EXISTS offsets_ganancia ADD CONSTRAINT ck_offsets_ganancia_estado CHECK ({ESTADO_OFFSET})"
+)
+
+DOWNGRADE_OFFSETS = (
+    "ALTER TABLE IF EXISTS offsets_ganancia DROP CONSTRAINT IF EXISTS ck_offsets_ganancia_estado; "
+    "ALTER TABLE IF EXISTS offsets_ganancia DROP COLUMN IF EXISTS estado"
+)
+
 UPGRADE_PERMISO = f"""
 INSERT INTO permisos (codigo, nombre, descripcion, categoria, orden, es_critico, created_at)
 VALUES ('{CODIGO}', '{PERMISO["nombre"]}', '{PERMISO["descripcion"]}', 'productos', 85, true, NOW())
@@ -85,12 +101,23 @@ ON CONFLICT (codigo) DO NOTHING
 
 DOWNGRADE_GUARD = f"""
 DO $guard$
+DECLARE
+  pendiente BOOLEAN;
 BEGIN
   IF EXISTS (SELECT 1 FROM tacticals WHERE estado = 'pendiente')
      OR EXISTS (SELECT 1 FROM sell_in_bonos_marca WHERE estado = 'pendiente')
      OR EXISTS (SELECT 1 FROM sell_in_compras WHERE estado = 'pendiente')
      OR EXISTS (SELECT 1 FROM sell_out_campanas WHERE estado = 'pendiente') THEN
     RAISE EXCEPTION 'downgrade of {revision} refused: loads pending approval exist';
+  END IF;
+  IF to_regclass('offsets_ganancia') IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+               AND table_name = 'offsets_ganancia' AND column_name = 'estado') THEN
+      EXECUTE 'SELECT EXISTS (SELECT 1 FROM offsets_ganancia WHERE estado = ''pendiente'')' INTO pendiente;
+      IF pendiente THEN
+        RAISE EXCEPTION 'downgrade of {revision} refused: loads pending approval exist';
+      END IF;
+    END IF;
   END IF;
 END
 $guard$
@@ -124,6 +151,7 @@ def upgrade() -> None:
             _check("tacticals", "ck_tacticals_estado", ESTADO_TACTICAL),
             UPGRADE_TACTICALS,
             *(_check(tabla, f"ck_{tabla}_estado", ESTADO_LINEA) for tabla in LINEAS),
+            UPGRADE_OFFSETS,
             UPGRADE_PERMISO,
         ]
     )
@@ -134,6 +162,7 @@ def downgrade() -> None:
         [
             DOWNGRADE_GUARD,
             *DOWNGRADE_PERMISO,
+            DOWNGRADE_OFFSETS,
             *(_check(tabla, f"ck_{tabla}_estado", ESTADO_LINEA_PREVIO) for tabla in LINEAS),
             DOWNGRADE_TACTICALS,
             _check("tacticals", "ck_tacticals_estado", ESTADO_TACTICAL_PREVIO),

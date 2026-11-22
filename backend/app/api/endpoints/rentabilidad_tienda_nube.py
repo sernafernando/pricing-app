@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta
 from pydantic import BaseModel
 
 from app.core.database import get_db
-from app.models.offset_ganancia import OffsetGanancia
+from app.models.offset_ganancia import OFFSET_APLICA, OffsetGanancia
 from app.models.offset_grupo_consumo import OffsetGrupoConsumo
 from app.models.offset_individual_consumo import OffsetIndividualConsumo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
@@ -271,6 +271,7 @@ def obtener_rentabilidad_tienda_nube(
             OffsetGanancia.fecha_desde <= fecha_hasta,
             or_(OffsetGanancia.fecha_hasta.is_(None), OffsetGanancia.fecha_hasta >= fecha_desde),
             OffsetGanancia.aplica_tienda_nube == True,
+            OFFSET_APLICA,
         )
         .all()
     )

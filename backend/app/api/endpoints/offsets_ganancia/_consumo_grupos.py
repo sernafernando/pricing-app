@@ -4,7 +4,7 @@ from sqlalchemy import or_, text
 
 from app.services import offset_costo_desconocido
 from app.core.database import get_db
-from app.models.offset_ganancia import OffsetGanancia
+from app.models.offset_ganancia import OFFSET_APLICA, OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
@@ -154,7 +154,7 @@ def recalcular_consumo_grupo(
     db.query(OffsetGrupoConsumo).filter(OffsetGrupoConsumo.grupo_id == grupo_id).delete()
 
     # Obtener offsets del grupo
-    offsets_grupo = db.query(OffsetGanancia).filter(OffsetGanancia.grupo_id == grupo_id).all()
+    offsets_grupo = db.query(OffsetGanancia).filter(OffsetGanancia.grupo_id == grupo_id, OFFSET_APLICA).all()
 
     if not offsets_grupo:
         return {"mensaje": "No hay offsets en este grupo", "consumos_creados": 0}

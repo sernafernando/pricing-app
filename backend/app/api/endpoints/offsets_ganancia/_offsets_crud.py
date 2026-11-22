@@ -10,7 +10,9 @@ from app.models.offset_grupo import OffsetGrupo
 from app.models.sell_out import SellOutCampana
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
+from app.routers.sell_in_compras import aprobar_o_409, requiere_aprobar
 from app.services.permisos_service import verificar_permiso
+from app.services.sell_in import aprobacion
 
 from ._schemas import OffsetGananciaCreate, OffsetGananciaUpdate, OffsetGananciaResponse
 
@@ -50,6 +52,62 @@ def _validar_offset_negativo_sin_limite(
                 "negativos se aplican siempre en su totalidad."
             ),
         )
+
+
+# What an offset applies (tacticals approval S10): an edit of any of these sends an approved offset back to
+# `pendiente`; the description alone does not.
+_DINERO = (
+    "marca",
+    "categoria",
+    "subcategoria_id",
+    "item_id",
+    "tipo_offset",
+    "monto",
+    "moneda",
+    "tipo_cambio",
+    "porcentaje",
+    "fecha_desde",
+    "fecha_hasta",
+    "grupo_id",
+    "max_unidades",
+    "max_monto_usd",
+    "aplica_ml",
+    "aplica_fuera",
+    "aplica_tienda_nube",
+)
+
+
+def _dinero(offset: OffsetGanancia) -> dict:
+    return {campo: getattr(offset, campo) for campo in _DINERO}
+
+
+def _respuesta(db: Session, o: OffsetGanancia) -> OffsetGananciaResponse:
+    return OffsetGananciaResponse(
+        id=o.id,
+        marca=o.marca,
+        categoria=o.categoria,
+        subcategoria_id=o.subcategoria_id,
+        item_id=o.item_id,
+        tipo_offset=o.tipo_offset or "monto_fijo",
+        monto=o.monto,
+        moneda=o.moneda or "ARS",
+        tipo_cambio=o.tipo_cambio,
+        porcentaje=o.porcentaje,
+        descripcion=o.descripcion,
+        fecha_desde=o.fecha_desde,
+        fecha_hasta=o.fecha_hasta,
+        usuario_nombre=o.usuario.nombre if o.usuario else None,
+        grupo_id=o.grupo_id,
+        grupo_nombre=o.grupo.nombre if o.grupo else None,
+        max_unidades=o.max_unidades,
+        max_monto_usd=o.max_monto_usd,
+        monto_consumido=o.monto_consumido,
+        aplica_ml=o.aplica_ml if o.aplica_ml is not None else True,
+        aplica_fuera=o.aplica_fuera if o.aplica_fuera is not None else True,
+        aplica_tienda_nube=o.aplica_tienda_nube if o.aplica_tienda_nube is not None else True,
+        campana_id=_campanas_por_offset(db, [o.id]).get(o.id),
+        estado=o.estado,
+    )
 
 
 def _campanas_por_offset(db: Session, offset_ids: List[int]) -> dict:
@@ -92,10 +150,11 @@ def listar_offsets(
     if solo_vigentes:
         hoy = date.today()
         query = query.filter(
+            OffsetGanancia.estado == aprobacion.ACTIVA,  # a pending offset applies to nothing (S10)
             and_(
                 OffsetGanancia.fecha_desde <= hoy,
                 or_(OffsetGanancia.fecha_hasta.is_(None), OffsetGanancia.fecha_hasta >= hoy),
-            )
+            ),
         )
 
     offsets = query.order_by(OffsetGanancia.fecha_creacion.desc()).all()
@@ -126,6 +185,7 @@ def listar_offsets(
             aplica_fuera=o.aplica_fuera if o.aplica_fuera is not None else True,
             aplica_tienda_nube=o.aplica_tienda_nube if o.aplica_tienda_nube is not None else True,
             campana_id=campanas.get(o.id),
+            estado=o.estado,
         )
         for o in offsets
     ]
@@ -135,7 +195,8 @@ def listar_offsets(
 def crear_offset(
     offset: OffsetGananciaCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
-    """Crea un nuevo offset de ganancia. Si se pasan múltiples item_ids, crea uno por cada producto."""
+    """Crea un nuevo offset de ganancia. Si se pasan múltiples item_ids, crea uno por cada producto. Queda
+    `pendiente` (tacticals approval S10): no aplica a nada hasta que se aprueba (`POST .../{id}/aprobar`)."""
     if not verificar_permiso(db, current_user, "config.editar_constantes"):
         raise HTTPException(status_code=403, detail="No tienes permiso para gestionar offsets de ganancia")
     # Validar tipo de offset
@@ -177,6 +238,7 @@ def crear_offset(
                 aplica_fuera=offset.aplica_fuera,
                 aplica_tienda_nube=offset.aplica_tienda_nube,
                 usuario_id=current_user.id,
+                estado=aprobacion.PENDIENTE,
             )
             db.add(nuevo_offset)
             offsets_creados.append(nuevo_offset)
@@ -226,6 +288,7 @@ def crear_offset(
         aplica_fuera=offset.aplica_fuera,
         aplica_tienda_nube=offset.aplica_tienda_nube,
         usuario_id=current_user.id,
+        estado=aprobacion.PENDIENTE,
     )
 
     db.add(nuevo_offset)
@@ -255,6 +318,7 @@ def crear_offset(
         aplica_ml=nuevo_offset.aplica_ml if nuevo_offset.aplica_ml is not None else True,
         aplica_fuera=nuevo_offset.aplica_fuera if nuevo_offset.aplica_fuera is not None else True,
         aplica_tienda_nube=nuevo_offset.aplica_tienda_nube if nuevo_offset.aplica_tienda_nube is not None else True,
+        estado=nuevo_offset.estado,
     )
 
 
@@ -265,13 +329,15 @@ def actualizar_offset(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    """Actualiza un offset existente"""
+    """Actualiza un offset existente. Si cambia lo que aplica (todo menos la descripción) y estaba aprobado, vuelve a
+    `pendiente` (tacticals approval S10)."""
     if not verificar_permiso(db, current_user, "config.editar_constantes"):
         raise HTTPException(status_code=403, detail="No tienes permiso para gestionar offsets de ganancia")
     offset = db.query(OffsetGanancia).filter(OffsetGanancia.id == offset_id).first()
 
     if not offset:
         raise HTTPException(404, "Offset no encontrado")
+    antes = _dinero(offset)
 
     # Si se actualiza el nivel de aplicación, limpiar los otros niveles
     # Solo uno debe tener valor a la vez
@@ -341,6 +407,7 @@ def actualizar_offset(
     _validar_offset_negativo_sin_limite(
         offset.tipo_offset, offset.monto, offset.porcentaje, offset.max_unidades, offset.max_monto_usd
     )
+    aprobacion.a_pendiente_si_cambia(db, offset, antes, _dinero(offset), (), current_user.id)
 
     db.commit()
     db.refresh(offset)
@@ -369,7 +436,15 @@ def actualizar_offset(
         aplica_fuera=offset.aplica_fuera if offset.aplica_fuera is not None else True,
         aplica_tienda_nube=offset.aplica_tienda_nube if offset.aplica_tienda_nube is not None else True,
         campana_id=_campanas_por_offset(db, [offset.id]).get(offset.id),
+        estado=offset.estado,
     )
+
+
+@router.post("/offsets-ganancia/{offset_id}/aprobar", response_model=OffsetGananciaResponse)
+def aprobar_offset(offset_id: int, user: Usuario = Depends(requiere_aprobar), db: Session = Depends(get_db)):
+    """Approve a pending offset (tacticals approval S10): it starts applying to rentabilidad and to the consumption
+    of the sales that come next. `tacticals.aprobar`; 409 when it is already approved."""
+    return _respuesta(db, aprobar_o_409(db, OffsetGanancia, offset_id, user.id))
 
 
 @router.delete("/offsets-ganancia/{offset_id}")

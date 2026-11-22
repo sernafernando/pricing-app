@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Date, ForeignKey, Boolean
+from sqlalchemy import Boolean, CheckConstraint, Column, Date, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -11,6 +11,10 @@ class OffsetGanancia(Base):
     """
 
     __tablename__ = "offsets_ganancia"
+    __table_args__ = (
+        # Also declared by alembic `20261122_tacticals_aprobacion` (ESTADO_OFFSET).
+        CheckConstraint("estado IN ('activa', 'pendiente')", name="ck_offsets_ganancia_estado"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
 
@@ -57,6 +61,11 @@ class OffsetGanancia(Base):
     aplica_fuera = Column(Boolean, default=True)  # Aplica a Ventas por Fuera de ML
     aplica_tienda_nube = Column(Boolean, default=True)  # Aplica a Tienda Nube
 
+    # Tacticals approval S10: a new offset is `pendiente` (POST) and applies to nothing (no rentabilidad, no
+    # consumption) until someone with `tacticals.aprobar` approves it; a money edit sends it back. Every reader that
+    # applies an offset takes only `activa`, the state of every offset loaded before approval existed.
+    estado = Column(String(16), nullable=False, default="activa", server_default="activa")
+
     # Auditoría
     usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
     fecha_creacion = Column(DateTime(timezone=True), server_default=func.now())
@@ -66,3 +75,7 @@ class OffsetGanancia(Base):
     usuario = relationship("Usuario", foreign_keys=[usuario_id])
     producto = relationship("ProductoERP", foreign_keys=[item_id])
     grupo = relationship("OffsetGrupo", back_populates="offsets")
+
+
+# The filter every reader that applies an offset adds (tacticals approval S10): a pending offset applies to nothing.
+OFFSET_APLICA = OffsetGanancia.estado == "activa"
