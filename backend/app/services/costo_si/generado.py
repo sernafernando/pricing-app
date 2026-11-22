@@ -8,11 +8,14 @@ from the stored purchase steps (`costo_si_pasos`, type `compra`): each step list
 
 - Amount of one sell in on one step: `cantidad x costo_neto x porcentaje / 100`, in the step's currency (the
   product's cost currency, L18).
-- In the sell in's own currency: as it is when they match; otherwise at the invoice's own rate (`tipo_cambio`, set when
-  the invoice was in the other currency), else the last USD selling rate on or before the step's date, as costo SI
-  does for an invoice without one. A step with no rate at all adds no amount, never a 0 taken as real (§7).
-- Units: the step's units. A units cap that ran out inside an invoice covers only part of it, so a sell in's units
-  never go above its `tope_unidades`.
+- In the sell in's own currency: as it is when they match; otherwise at the invoice's rate as the line's caps used it
+  (`fuentes.sql_tc_factura`: the PM's correction, the Compras operation's TC, the last rate on or before its date), so
+  what is left of a money cap never drifts from what costo SI used up. A step with no rate at all adds no amount,
+  never a 0 taken as real (§7).
+- Units: a Compras sell in, the step's units. A brand bonus, the units its amount covered: the step's units x the %
+  it got / the % it would get uncapped (its own or its model's %, or its amount per unit over the unit price; net of
+  the product's VAT when it includes it; never over the purchase itself), so a cap (units or money) that ran out
+  inside an invoice counts only the units it covered, and never more than its `tope_unidades`.
 
 Both dialects: Postgres expands the JSONB list with `jsonb_array_elements`, SQLite (the router tests) with
 `json_each`.
@@ -23,21 +26,22 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Iterable
 
-from sqlalchemy import Integer, Numeric, Select, and_, case, cast, func, literal, select, true
+from sqlalchemy import Integer, Numeric, Select, and_, case, cast, func, literal, literal_column, select, true
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.costo_si import CostoSiPaso
-from app.models.sell_in import SellInBonoMarca, SellInCompra
-from app.models.tipo_cambio import TipoCambio
+from app.models.producto import ProductoERP
+from app.models.sell_in import SellInBonoItem, SellInBonoMarca, SellInCompra
+from app.services.costo_si.fuentes import sql_tc_factura
 
 BONO = "bono"
 COMPRA = "compra"
 
 
 def _sell_ins(dialect: str):
-    """One row per (purchase step, sell in it got): `origen`, `ref`, `unidades`, `monto` (in the step's currency),
-    `moneda` (the step's), `tc` (ARS per USD to change it)."""
+    """One row per (purchase step, sell in it got): `origen`, `ref`, `item_id`, `unidades`, `porcentaje`, `precio` and
+    `monto` (in the step's currency), `moneda` (the step's), `tc` (ARS per USD to change it)."""
     p = CostoSiPaso
     if dialect == "postgresql":
         s = func.jsonb_array_elements(p.sell_ins).table_valued("value").alias("s")
@@ -51,23 +55,22 @@ def _sell_ins(dialect: str):
         def campo(clave: str) -> ColumnElement:
             return func.json_extract(s.c.value, f"$.{clave}")
 
-    tasa = (
-        select(TipoCambio.venta)
-        .where(TipoCambio.moneda == "USD", TipoCambio.venta > 0, TipoCambio.fecha <= p.fecha)
-        .order_by(TipoCambio.fecha.desc())
-        .limit(1)
-        .scalar_subquery()
-    )
+    tabla = p.__tablename__
+    tasa = literal_column(sql_tc_factura(f"{tabla}.ct_transaction", f"{tabla}.fecha"))
     porcentaje = cast(campo("porcentaje"), Numeric(9, 4))
+    precio = func.coalesce(p.costo_neto_usd, literal(0))
     return (
         select(
             campo("origen").label("origen"),
             cast(campo("ref"), Integer).label("ref"),
+            p.item_id.label("item_id"),
             p.cantidad.label("unidades"),
-            (p.cantidad * func.coalesce(p.costo_neto_usd, literal(0)) * porcentaje / 100).label("monto"),
+            porcentaje.label("porcentaje"),
+            precio.label("precio"),
+            (p.cantidad * precio * porcentaje / 100).label("monto"),
             p.moneda.label("moneda"),
             # `tipo_cambio.venta` is a float: Numeric, so the amounts stay exact decimals.
-            cast(func.coalesce(p.tipo_cambio, tasa), Numeric(18, 6)).label("tc"),
+            cast(tasa, Numeric(18, 6)).label("tc"),
         )
         .select_from(p)
         .join(s, true())
@@ -76,13 +79,34 @@ def _sell_ins(dialect: str):
     )
 
 
-def _en(filas, moneda: ColumnElement) -> ColumnElement:
-    """A row's amount in `moneda`: NULL (left out of a sum) when it needs a rate and has none."""
+def _en(filas, moneda: ColumnElement, valor: ColumnElement | None = None) -> ColumnElement:
+    """A row's amount (or `valor`, in the step's currency) in `moneda`: NULL (left out of a sum) when it needs a rate
+    and has none."""
+    valor = filas.c.monto if valor is None else valor
     return case(
-        (filas.c.moneda == moneda, filas.c.monto),
-        (moneda == "USD", filas.c.monto / filas.c.tc),
-        else_=filas.c.monto * filas.c.tc,
+        (filas.c.moneda == moneda, valor),
+        (moneda == "USD", valor / filas.c.tc),
+        else_=valor * filas.c.tc,
     )
+
+
+def _unidades_de_bono(filas) -> ColumnElement:
+    """The units of a step a brand bonus's amount covered (see the module docstring); the whole step when its uncapped
+    % cannot be told (a unit price with no rate)."""
+    b = SellInBonoMarca
+    sin_iva = case(
+        (b.incluye_iva.is_(True), 1 + cast(func.coalesce(ProductoERP.iva, 0), Numeric(9, 4)) / 100), else_=literal(1)
+    )
+    precio = _en(filas, b.moneda, filas.c.precio)
+    entero = case(
+        (b.tipo == "porcentaje", func.coalesce(SellInBonoItem.porcentaje, b.porcentaje) / sin_iva),
+        (
+            and_(b.tipo == "por_unidad", precio > 0),
+            func.coalesce(SellInBonoItem.monto_unit, b.monto_unit) / sin_iva / precio * 100,
+        ),
+    )
+    entero = case((entero > 100, literal(100)), else_=entero)
+    return case((entero > 0, func.round(filas.c.unidades * filas.c.porcentaje / entero)), else_=filas.c.unidades)
 
 
 def _dialecto(db: Session) -> str:
@@ -92,7 +116,7 @@ def _dialecto(db: Session) -> str:
 def por_bono(dialect: str) -> Select:
     """`(bono_id, unidades, monto)` per brand bonus some step got, the amount in the bonus's currency (unrounded)."""
     filas = _sell_ins(dialect)
-    unidades = func.sum(filas.c.unidades)
+    unidades = func.sum(_unidades_de_bono(filas))
     tope = SellInBonoMarca.tope_unidades
     return (
         select(
@@ -101,6 +125,11 @@ def por_bono(dialect: str) -> Select:
             func.sum(_en(filas, SellInBonoMarca.moneda)).label("monto"),
         )
         .join(filas, and_(filas.c.origen == BONO, filas.c.ref == SellInBonoMarca.id))
+        .outerjoin(
+            SellInBonoItem,
+            and_(SellInBonoItem.bono_id == SellInBonoMarca.id, SellInBonoItem.item_id == filas.c.item_id),
+        )
+        .outerjoin(ProductoERP, ProductoERP.item_id == filas.c.item_id)
         .group_by(SellInBonoMarca.id, tope)
     )
 

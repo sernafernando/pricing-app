@@ -13,7 +13,7 @@ from sqlalchemy import Engine, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models.costo_si import CostoSiPaso
+from app.models.costo_si import CostoSiFacturaTc, CostoSiPaso
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
@@ -57,6 +57,7 @@ TABLES = [
     SellOutConsumo.__table__,
     SellOutDirty.__table__,
     CostoSiPaso.__table__,  # what a sell in line used: the costo SI purchase steps that carry it (T5 PR B, L26)
+    CostoSiFacturaTc.__table__,  # an invoice's own rate, first in the one its steps are valued at (`sql_tc_factura`)
 ]
 # Every column of a legacy offset with no foreign key: the approval inbox reads them (tacticals approval S10/S11), and
 # campaigns point at its id.
@@ -89,9 +90,18 @@ def _install(engine: Engine) -> None:
 
 def paso(engine: Engine, item_id: int, orden: int, cantidad: int, costo: str, sell_ins: list, **otros) -> None:
     """A costo SI purchase step of `item_id` (its cost currency, `moneda` USD unless given): `cantidad` units at net
-    `costo` each, and the sell ins `(origen, ref, porcentaje)` it got: what a sell in line used (T5 PR B, L26)."""
+    `costo` each, and the sell ins `(origen, ref, porcentaje)` it got: what a sell in line used (T5 PR B, L26).
+    A `tipo_cambio` is the invoice's own rate, also stored where costo SI and its caps read it (a PM correction)."""
     fila = {"fecha": date(2026, 11, 3), "tipo_cambio": None, "moneda": "USD", **otros}
     with engine.begin() as conn:
+        if fila["tipo_cambio"] is not None:
+            conn.execute(
+                text(
+                    "INSERT INTO costo_si_factura_tc (ct_transaction, tipo_cambio) VALUES (:ct, :tc) "
+                    "ON CONFLICT (ct_transaction) DO NOTHING"
+                ),
+                {"ct": 90000 + orden, "tc": fila["tipo_cambio"]},
+            )
         conn.execute(
             text(
                 "INSERT INTO costo_si_pasos (item_id, orden, tipo, fecha, ct_transaction, cantidad, costo_neto_usd, "

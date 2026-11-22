@@ -106,10 +106,26 @@ _BONOS_SQL = text("""
     ORDER BY b.id
 """)
 
+
+def sql_tc_factura(ct: str, fecha: str) -> str:
+    """The rate (ARS per USD) of the purchase invoice `ct` dated `fecha` (SQL expressions), in S4 order: the PM's
+    correction, the Compras operation's TC, the last rate on or before its date. The one source for what a line's caps
+    used (`_LINEAS_SQL`) and what reading its amounts back uses (`generado`), so a cap left never drifts. Plain SQL
+    both Postgres and SQLite run."""
+    return f"""COALESCE(
+             (SELECT m.tipo_cambio FROM costo_si_factura_tc m WHERE m.ct_transaction = {ct}),
+             (SELECT COALESCE(pc.tipo_cambio_manual, pc.tipo_cambio) FROM pedido_compra_facturas pf
+              JOIN pedidos_compra pc ON pc.id = pf.pedido_id
+              WHERE pf.ct_transaction_id = {ct} AND COALESCE(pc.tipo_cambio_manual, pc.tipo_cambio) > 0
+              ORDER BY pf.pedido_id LIMIT 1),
+             (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.venta > 0
+              AND tc.fecha <= {fecha} ORDER BY tc.fecha DESC LIMIT 1))"""
+
+
 # The purchase lines a capped or per-unit line walks, oldest first: every invoice of its scope (`:solo` NULL) or of
-# one product, dated in its range, with its own value per model, the product's VAT and the invoice's rate (S4 order:
-# the PM's correction, the Compras operation's TC, the last rate on or before its date).
-_LINEAS_SQL = text("""
+# one product, dated in its range, with its own value per model, the product's VAT and the invoice's rate
+# (`sql_tc_factura`).
+_LINEAS_SQL = text(f"""
     WITH alcance AS (
         SELECT p.item_id, COALESCE(bi.porcentaje, b.porcentaje) AS pct, COALESCE(bi.monto_unit, b.monto_unit) AS unit,
                p.iva
@@ -125,14 +141,7 @@ _LINEAS_SQL = text("""
     SELECT ct.ct_transaction, it.item_id, sum(it.it_qty) AS cantidad,
            sum(it.it_qty * it.it_price) / NULLIF(sum(it.it_qty), 0) AS precio, min(it.curr_id) AS curr_id,
            a.pct, a.unit, a.iva,
-           COALESCE(
-             (SELECT m.tipo_cambio FROM costo_si_factura_tc m WHERE m.ct_transaction = ct.ct_transaction),
-             (SELECT COALESCE(pc.tipo_cambio_manual, pc.tipo_cambio) FROM pedido_compra_facturas pf
-              JOIN pedidos_compra pc ON pc.id = pf.pedido_id
-              WHERE pf.ct_transaction_id = ct.ct_transaction AND COALESCE(pc.tipo_cambio_manual, pc.tipo_cambio) > 0
-              ORDER BY pf.pedido_id LIMIT 1),
-             (SELECT tc.venta FROM tipo_cambio tc WHERE tc.moneda = 'USD' AND tc.venta > 0
-              AND tc.fecha <= ct.ct_date::date ORDER BY tc.fecha DESC LIMIT 1)) AS tc
+           {sql_tc_factura("ct.ct_transaction", "ct.ct_date::date")} AS tc
     FROM alcance a
     JOIN tb_item_transactions it ON it.item_id = a.item_id
     JOIN tb_commercial_transactions ct ON ct.ct_transaction = it.ct_transaction
