@@ -21,4 +21,14 @@ describe('tacticalsAPI', () => {
     tacticalsAPI.listar({ estado: 'pendientes_aprobacion', page: 1 });
     expect(api.get).toHaveBeenCalledWith('/tacticals', { params: { estado: 'pendientes_aprobacion', page: 1 } });
   });
+
+  it('lists the standalone loads waiting for approval, by kind (tacticals approval S11)', () => {
+    tacticalsAPI.cargasPendientes({ tipo: 'sell_in' });
+    expect(api.get).toHaveBeenCalledWith('/tacticals/cargas-pendientes', { params: { tipo: 'sell_in' } });
+  });
+
+  it('still reads one tactical by its id (previous behaviour)', () => {
+    tacticalsAPI.detalle(12);
+    expect(api.get).toHaveBeenCalledWith('/tacticals/12');
+  });
 });

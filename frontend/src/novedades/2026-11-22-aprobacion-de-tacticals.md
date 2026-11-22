@@ -12,6 +12,8 @@ Los tacticals ya no aplican apenas se cargan. Todo tactical nuevo queda **Pendie
 2. En **Sell in / Sell out → Tacticals**, en **Estado**, elegí **Pendientes de aprobación** para ver los que esperan revisión. La columna **Estado** dice «Pendiente de aprobación».
 3. Quien tiene el permiso abre el botón de acciones (⋮) de la fila y elige **Aprobar**. Después de confirmar, el tactical y todas sus líneas empiezan a aplicar, también a lo ya vendido dentro de sus fechas.
 4. Un tactical aprobado dice debajo del estado «Aprobado por … el dd/mm/aaaa».
+5. Arriba de la lista, **N pendientes de aprobación** dice cuántas cargas esperan revisión; tocalo para ir directo al filtro. Los montos de **Pendientes** y **Cobrados** ya no cuentan lo que está pendiente de aprobación.
+6. Con el filtro **Pendientes de aprobación**, debajo de los tacticals aparece **Cargas sueltas pendientes de aprobación**: los bonos, compras y campañas cargados fuera de un tactical. **Aprobar** abre su panel para aprobarlos ahí.
 
 ## A tener en cuenta
 
@@ -19,3 +21,4 @@ Los tacticals ya no aplican apenas se cargan. Todo tactical nuevo queda **Pendie
 - Quien cargó el tactical también lo puede aprobar, si tiene el permiso.
 - Editar un tactical aprobado y cambiar montos, porcentajes, topes, fechas, alcance o base lo vuelve a pendiente, y deja de aplicar hasta que lo aprueben de nuevo. Al editarlo, la pantalla te lo avisa. Cambiar solo el nombre, la nota o la cobranza no lo saca de aprobado.
 - Los bonos, compras y campañas cargados sueltos siguen la misma regla: su panel dice «Pendiente de aprobación» y, con el permiso, tiene **Aprobar**.
+- Lo que la migración de offsets pase a campañas o bonos de ahora en más también queda pendiente de aprobación. Lo que ya se había migrado no cambia.

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import SearchInput from '../SearchInput';
 import { Pagination, SegmentedControl } from '../kit';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
+import CargasPendientes from './CargasPendientes';
 import TacticalAnular from './TacticalAnular';
 import TacticalAprobar from './TacticalAprobar';
 import TacticalEditar from './TacticalEditar';
@@ -39,9 +40,13 @@ const FILAS_POR_PAGINA = 50;
 
 const cantidadDe = (n) => `${n} ${n === 1 ? 'tactical' : 'tacticals'}`;
 
-/** Pendientes and Cobrados over every tactical the other filters match (tactical cobranza S4): count, generated of
- * cap per currency and how many have no money cap (S6). */
-function KpisCobranza({ kpis }) {
+const pendientesDe = (n) => `${n} ${n === 1 ? 'pendiente' : 'pendientes'} de aprobación`;
+
+/** Pendientes and Cobrados over every approved tactical the other filters match (tactical cobranza S4): count,
+ * generated of cap per currency and how many have no money cap (S6). What waits for approval applies no money, so it
+ * is counted apart (`pendientesAprobacion`, tacticals approval S12: the pending tacticals plus the standalone loads);
+ * the count selects the pending filter (`onVerPendientes`). */
+function KpisCobranza({ kpis, pendientesAprobacion, onVerPendientes }) {
   return (
     <section className={styles.kpis} aria-label="Cobranza de los tacticals">
       {[
@@ -55,7 +60,16 @@ function KpisCobranza({ kpis }) {
           {grupo.sin_tope > 0 && <div className={styles.kpiSinTope}>{grupo.sin_tope} sin tope</div>}
         </div>
       ))}
-      <p className={styles.kpiNota}>Monto: lo que generaron las líneas de cada tactical de su tope, por moneda.</p>
+      {typeof pendientesAprobacion === 'number' && (
+        <div className={styles.kpiPendientes}>
+          <button type="button" className={styles.kpiPendientesBoton} onClick={onVerPendientes}>
+            {pendientesDe(pendientesAprobacion)}
+          </button>
+        </div>
+      )}
+      <p className={styles.kpiNota}>
+        Monto: lo que generaron las líneas de cada tactical de su tope, por moneda. Sin los pendientes de aprobación.
+      </p>
     </section>
   );
 }
@@ -75,6 +89,10 @@ function KpisCobranza({ kpis }) {
  * Cobranza (handoffs/tactical-cobranza-tarea.md S3, S4): a Cobranza filter (Todos | Pendientes | Cobrados), the
  * Pendientes / Cobrados KPIs the list answers over the other filters, and on each row a Pendiente / Cobrado pill; a
  * row the user manages opens its Cobranza box under it (one at a time), and a save or an undo asks the list again.
+ *
+ * Approval inbox (tacticals approval S11, S12): the money KPIs leave pending tacticals out, and a separate "N
+ * pendientes de aprobación" count selects the pending filter; under it, the bonuses, purchases and campaigns loaded
+ * on their own that wait for approval (`CargasPendientes`) each open their record through `onVerLinea`.
  */
 export default function TacticalsList({ marcas = [], version = 0, puedeGestionar = () => false, puedeAprobar = false, onRenovar, onEditar, onCambio, onVerLinea, tipoInicial = 'todos' }) {
   const [filtros, setFiltros] = useState(() => ({ ...FILTROS_VACIOS, tipo: tipoInicial }));
@@ -226,7 +244,13 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
         </div>
       )}
       {!error && !datos && <div className={styles.aviso}>Cargando tacticals…</div>}
-      {!error && datos?.kpis && <KpisCobranza kpis={datos.kpis} />}
+      {!error && datos?.kpis && (
+        <KpisCobranza
+          kpis={datos.kpis}
+          pendientesAprobacion={datos.pendientes_aprobacion}
+          onVerPendientes={() => filtrar({ estado: 'pendientes_aprobacion' })}
+        />
+      )}
       {!error && datos && (
         <div className={styles.lista}>
           <div className={styles.scroller}>
@@ -297,6 +321,9 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
             }
           />
         </div>
+      )}
+      {filtros.estado === 'pendientes_aprobacion' && (
+        <CargasPendientes tipo={filtros.tipo} version={version + guardados} puedeAprobar={puedeAprobar} onVer={onVerLinea} />
       )}
       {aprobando && (
         <TacticalAprobar

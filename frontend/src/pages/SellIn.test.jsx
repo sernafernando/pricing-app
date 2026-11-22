@@ -14,7 +14,7 @@ import { ALCANCE, BONO } from '../components/sellIn/sellInFixtures';
 import { sellOutAPI } from '../services/sellOutAPI';
 import { offsetGruposAPI } from '../services/offsetGruposAPI';
 import { tacticalsAPI } from '../services/tacticalsAPI';
-import { TACTICAL_REBATE, TACTICAL_BPS, pagina } from '../components/tacticals/tacticalsFixtures';
+import { CARGA_BONO, TACTICAL_REBATE, TACTICAL_BPS, pagina } from '../components/tacticals/tacticalsFixtures';
 import { CAMPANA_MIGRADA, CONSUMOS_USD } from '../components/sellOut/sellOutFixtures';
 import SellIn from './SellIn';
 
@@ -40,7 +40,7 @@ function renderConNuevoTactical(entrada) {
 
 vi.mock('../services/sellInAPI', () => ({
   sellInAPI: { listar: vi.fn(), resumen: vi.fn(), detalle: vi.fn() },
-  sellInBonosAPI: { listar: vi.fn(), detalle: vi.fn(), alcance: vi.fn() },
+  sellInBonosAPI: { listar: vi.fn(), detalle: vi.fn(), alcance: vi.fn(), aprobar: vi.fn() },
   sellInLotesAPI: { productos: vi.fn(), lotes: vi.fn(), consumos: vi.fn(), modos: vi.fn(), modoPorDefecto: vi.fn() },
 }));
 
@@ -48,7 +48,9 @@ vi.mock('../services/sellOutAPI', () => ({
   sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), grupos: vi.fn(), consumos: vi.fn() },
 }));
 
-vi.mock('../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn(), anular: vi.fn(), aprobar: vi.fn() } }));
+vi.mock('../services/tacticalsAPI', () => ({
+  tacticalsAPI: { listar: vi.fn(), cargasPendientes: vi.fn(), anular: vi.fn(), aprobar: vi.fn() },
+}));
 
 vi.mock('../services/offsetGruposAPI', () => ({
   offsetGruposAPI: { listar: vi.fn(), alcance: vi.fn(), opciones: vi.fn(), crear: vi.fn() },
@@ -300,6 +302,26 @@ describe('SellIn page — Tacticals tab', () => {
     renderWithRouter(<SellIn />);
     await user.click(await screen.findByRole('button', { name: 'Acciones de Rebate TP-Link noviembre' }));
     expect(screen.getByRole('menuitem', { name: 'Aprobar' })).toBeInTheDocument();
+  });
+
+  it('a standalone pending bonus under the pending filter opens its panel, is approved there and leaves the list (S11)', async () => {
+    const user = userEvent.setup();
+    const pendiente = { ...BONO, id: CARGA_BONO.id, estado: 'pendiente', tactical_id: null };
+    sellInBonosAPI.detalle.mockResolvedValue({ data: pendiente });
+    sellInBonosAPI.aprobar.mockResolvedValue({ data: { ...pendiente, estado: 'activa' } });
+    tacticalsAPI.cargasPendientes.mockResolvedValue({ data: { items: [CARGA_BONO] } });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in'] });
+    await user.click(await screen.findByRole('button', { name: 'Pendientes de aprobación' }));
+
+    await user.click(await screen.findByRole('button', { name: `Aprobar ${CARGA_BONO.nombre}` }));
+    const panel = await screen.findByRole('complementary', { name: 'Bono de marca' });
+    await waitFor(() => expect(sellInBonosAPI.detalle).toHaveBeenCalledWith(CARGA_BONO.id));
+    tacticalsAPI.cargasPendientes.mockResolvedValue({ data: { items: [] } });
+    await user.click(await within(panel).findByRole('button', { name: 'Aprobar' }));
+    await user.click(within(panel).getByRole('button', { name: 'Confirmar aprobación' }));
+
+    expect(sellInBonosAPI.aprobar).toHaveBeenCalledWith(CARGA_BONO.id);
+    await waitFor(() => expect(screen.queryByRole('button', { name: `Aprobar ${CARGA_BONO.nombre}` })).not.toBeInTheDocument());
   });
 
   it("Ver ventas on a tactical's line opens that line's record in the side panel, read only", async () => {

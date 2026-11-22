@@ -8,6 +8,11 @@ const TACTICALS = '/tacticals';
  * sell-in and sell-out engines.
  * - `listar(params)`: takes tipo, marca, moneda (`ARS` | `USD`), estado (`vigentes` | `vencidos` | `anulados` | `pendientes_aprobacion`), desde,
  *   hasta, q, page and page_size, and answers `{ items, total }`, each tactical with its lines and their usage.
+ * - `listar` also answers `pendientes_aprobacion`: how many loads wait for approval (the pending tacticals the other
+ *   filters match plus the standalone pending loads); its `kpis` leave pending tacticals out.
+ * - `cargasPendientes(params)`: `GET /tacticals/cargas-pendientes` (`tipo` optional), the bonuses, purchases and
+ *   campaigns loaded on their own that wait for approval: `{ items: [{ origen, id, nombre, marca, moneda,
+ *   fecha_desde, fecha_hasta, usuario_id, usuario_nombre, created_at }] }`, newest first.
  * - `detalle(id)`: `GET /tacticals/{id}`, one tactical with its lines (Renovar prefills Nuevo tactical from it).
  * - `crear(body)`: `POST /tacticals`, a header with its lines at once, all or nothing; a 422 `{error: {message}}`
  *   names the line ("Línea 3: …").
@@ -27,6 +32,7 @@ const TACTICALS = '/tacticals';
  */
 export const tacticalsAPI = {
   listar: (params) => api.get(TACTICALS, { params }),
+  cargasPendientes: (params) => api.get(`${TACTICALS}/cargas-pendientes`, { params }),
   detalle: (id) => api.get(`${TACTICALS}/${id}`),
   crear: (body) => api.post(TACTICALS, body),
   editar: (id, body) => api.patch(`${TACTICALS}/${id}`, body),

@@ -165,3 +165,72 @@
   font-size: var(--font-xs);
   color: var(--cf-text-tertiary);
 }
+
+/* Tacticals approval S12: what waits for approval, apart from the money KPIs; it selects the pending filter. */
+.kpiPendientes {
+  composes: kpi;
+  justify-content: center;
+  min-width: 0;
+  border-color: var(--tone-warning-border);
+  background: var(--tone-warning-bg);
+}
+
+.kpiPendientesBoton {
+  padding: 0;
+  font: inherit;
+  font-size: var(--font-base);
+  font-weight: var(--font-semibold);
+  color: var(--tone-warning-fg);
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.kpiPendientesBoton:hover {
+  text-decoration: underline;
+}
+
+.kpiPendientesBoton:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Tacticals approval S11: the standalone loads waiting for approval, under the pending tacticals. */
+.sueltas {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-6);
+}
+
+.sueltasTitulo {
+  margin: 0;
+  font-size: var(--font-base);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.sueltasNota {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.sueltaNombre {
+  font-weight: var(--font-medium);
+  text-align: left;
+}
+
+.sueltaVigencia {
+  white-space: nowrap;
+}
+
+.sueltaAprobar {
+  composes: btn-tesla primary sm from '../../styles/buttons-tesla.css';
+}
+
+.sueltaVer {
+  composes: btn-tesla outline sm from '../../styles/buttons-tesla.css';
+}
