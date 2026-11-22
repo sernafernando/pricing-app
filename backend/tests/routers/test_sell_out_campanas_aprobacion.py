@@ -59,3 +59,16 @@ def test_a_voided_campaign_is_a_409(client, aprobador, grupos) -> None:
     client.post(f"{BASE}/{campana['id']}/anular", headers=aprobador)
 
     assert client.post(f"{BASE}/{campana['id']}/aprobar", headers=aprobador).status_code == 409
+
+
+def test_changing_the_split_criterion_in_an_edit_sends_an_approved_campaign_back(client, aprobador, grupos) -> None:
+    """`iguales` and `unidades` store no shares, so only the criterion tells the edit apart: it moves money (S5)."""
+    ids = _ids(grupos)
+    total = {"tipo": "monto_total", "monto_unit": None, "monto_total": "2000000.00", "moneda": "ARS"}
+    campana = _crear(client, aprobador, ids, reparto_criterio="iguales", **total)
+    client.post(f"{BASE}/{campana['id']}/aprobar", headers=aprobador)
+
+    resp = client.put(f"{BASE}/{campana['id']}", json=_body(ids, reparto_criterio="unidades", **total),
+                      headers=aprobador)  # fmt: skip
+
+    assert (resp.status_code, resp.json()["estado"]) == (200, "pendiente")

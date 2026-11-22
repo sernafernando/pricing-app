@@ -719,13 +719,14 @@ def editar_campana_sin_commit(
     data = _con_grupos_ocultos(data, ocultos)
     grupo_ids = validar(db, data, campana, ocultos=ocultos)
     antes = _valores(campana, grupo_ids_de(db, campana_id), items_de(db, [campana_id])[campana_id])
+    criterio_antes = campana.reparto_criterio  # not in the audit values, but a change of it moves money (S5)
     if compartian is None:
         compartian = asignacion.vinculadas(db, [campana_id])  # before the edit unlinks them
     _asignar(db, campana, data, grupo_ids)
     despues = _valores(campana, grupo_ids, items_de(db, [campana_id])[campana_id])
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, despues, masivo=es_masivo)
     if a_pendiente_si_cambia:
-        aprobacion.a_pendiente_si_cambia(db, campana, antes, despues, SIN_DINERO, usuario_id)
+        _a_pendiente_si_reparte(db, campana, antes, despues, criterio_antes, usuario_id)
     _encolar(db, [campana_id, *compartian])
     return campana
 
@@ -919,7 +920,8 @@ SOLO_TODAS_LAS_MARCAS = (
 def _a_pendiente_si_reparte(
     db: Session, campana: SellOutCampana, antes: dict, despues: dict, criterio_antes: Optional[str], usuario_id: int
 ) -> None:
-    """A split is money: an approved campaign whose shares or criterion changed goes back to pending (S4)."""
+    """A split is money: an approved campaign whose money, shares or criterion changed goes back to pending (S4, S5).
+    Used by the edit and the split, so a criterion change sends it back through either."""
     aprobacion.a_pendiente_si_cambia(
         db,
         campana,
