@@ -15,7 +15,7 @@ Los productos con sell in siguen igual: su costo SI arranca el día de su primer
 
 ## A tener en cuenta
 
-- Si el producto no compró nada desde el 1/11/2026, su costo SI es el costo de lista de ese día, aunque la lista haya cambiado después.
+- Si el costo de lista de un producto sin sell in cambia, su costo SI pasa a ser el nuevo costo de lista desde las 00:00 del día siguiente al cambio, aunque no haya ninguna factura. Las facturas posteriores promedian desde ese valor. En los productos con sell in, el costo de lista no mueve el costo SI.
 - Los markups, los costos de las ventas desde el 1/11/2026 y las métricas de esos productos se recalculan sobre el costo SI. Las ventas anteriores al 1/11/2026 no cambian.
 - Sin costo de lista ese día y sin facturas desde entonces, no hay costo SI: se sigue viendo el costo de lista actual, o «—» si no hay ninguno. Nunca 0.
 - Si un componente de una PC o de un combo no tiene costo, la PC o el combo queda sin costo («—»), nunca una suma parcial ni 0. Lo mismo si su lista de componentes se incluye a sí misma. Una PC sin componentes cargados sigue con su costo de lista.

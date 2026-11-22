@@ -8,7 +8,8 @@ in that applies to it, all as a % of that same net and added up: 100 x (1 - 0.05
 
 Sales, returns and adjustments never change the average: they only move the stock, which the caller reads before each
 purchase (`Compra.stock_antes`). A stock of zero or less counts as zero, so the average restarts at that purchase's
-net-net (S9, L4.6). Averages are kept with 5 decimals (S10); each step uses the stored, rounded value, so the history
+net-net (S9, L4.6). A product no sell in reaches (L21) also re-anchors at every change of its list cost (`Lista`,
+L23): from that day the average is the new list cost, and later purchases average from it. Averages are kept with 5 decimals (S10); each step uses the stored, rounded value, so the history
 can be re-derived from the stored rows alone.
 """
 
@@ -46,6 +47,15 @@ class Inicio:
 
 
 @dataclass(frozen=True)
+class Lista:
+    """A list-cost change of a product without sell in (L23): from 00:00 of `fecha` the average is `costo_usd`."""
+
+    fecha: date
+    costo_usd: Decimal
+    stock: int  # available stock at that instant
+
+
+@dataclass(frozen=True)
 class Compra:
     fecha: date  # supplier invoice date (S4, L4.4)
     ct_transaction: int
@@ -62,7 +72,7 @@ class Compra:
 class Paso:
     """One step of a product's history: the average in force from `fecha` on, with its breakdown."""
 
-    tipo: str  # 'inicio' | 'compra'
+    tipo: str  # 'inicio' | 'compra' | 'lista' (L23)
     fecha: date
     ct_transaction: Optional[int]
     cantidad: int
@@ -85,8 +95,29 @@ def neto_neto(neto: Decimal, sell_ins: Iterable[SellIn]) -> Tuple[Decimal, Decim
     return pct, redondear(max(neto * (1 - pct / CIEN), Decimal(0)))
 
 
-def calcular(inicio: Inicio, compras: Iterable[Compra]) -> List[Paso]:
-    """The product's history: its start, then one step per purchase, in the given order."""
+def _anclaje(lista: Lista) -> Paso:
+    costo = redondear(lista.costo_usd)
+    base = max(lista.stock, 0)
+    return Paso(
+        tipo="lista",
+        fecha=lista.fecha,
+        ct_transaction=None,
+        cantidad=lista.stock,
+        costo_neto_usd=costo,
+        sell_ins=(),
+        sell_in_pct=Decimal(0),
+        costo_neto_neto_usd=costo,
+        stock_antes=lista.stock,
+        stock_base=base,
+        stock_despues=base,
+        promedio_usd=costo,
+    )
+
+
+def calcular(inicio: Inicio, compras: Iterable[Compra], listas: Iterable[Lista] = ()) -> List[Paso]:
+    """The product's history: its start, then one step per purchase in the given order, with every list-cost
+    re-anchor (L23) placed before the purchases of its own day (it is in force from 00:00)."""
+    pendientes = sorted(listas, key=lambda x: x.fecha)
     promedio = redondear(inicio.costo_usd) if inicio.costo_usd is not None else None
     base_inicio = max(inicio.stock, 0)
     pasos = [
@@ -106,6 +137,9 @@ def calcular(inicio: Inicio, compras: Iterable[Compra]) -> List[Paso]:
         )
     ]
     for c in compras:
+        while pendientes and pendientes[0].fecha <= c.fecha:
+            pasos.append(_anclaje(pendientes.pop(0)))
+            promedio = pasos[-1].promedio_usd
         if c.cantidad <= 0:
             continue
         pct, nn = neto_neto(c.costo_neto_usd, c.sell_ins)
@@ -133,4 +167,5 @@ def calcular(inicio: Inicio, compras: Iterable[Compra]) -> List[Paso]:
                 en_compras=c.en_compras,
             )
         )
+    pasos.extend(_anclaje(x) for x in pendientes)
     return pasos
