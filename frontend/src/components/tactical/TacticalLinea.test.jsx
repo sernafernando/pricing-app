@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TacticalLinea from './TacticalLinea';
-import { nuevaLinea } from './tacticalLineas';
+import { alcanceDeLinea, MONTO_TOTAL_RETIRADO, nuevaLinea } from './tacticalLineas';
 import api, { productosAPI } from '../../services/api';
 import { CATALOGO, OPERACIONES } from './tacticalFixtures';
 
@@ -36,6 +36,8 @@ function Holder({ tipo, moneda = 'USD', tcModo = 'al_cobro', inicial = {} }) {
 }
 
 const fila = () => screen.getByRole('group', { name: 'Línea 1' });
+/** A line an edit loaded from a stored sell in lump sum (`edicionDe`): it may stay one while its scope stays. */
+const guardada = (cambios) => ({ ...cambios, totalGuardado: alcanceDeLinea({ ...nuevaLinea(), ...cambios }) });
 const monitores = CATALOGO.filter((p) => [201, 202, 203].includes(p.item_id));
 
 beforeEach(() => {
@@ -115,9 +117,33 @@ describe('TacticalLinea', () => {
     expect(within(picker).queryByText(/Operación OC-8 · Esperando factura/)).not.toBeInTheDocument();
   });
 
-  it.each(['productos', 'marca', 'categoria'])('a sell in total amount over %s asks how to split it and drops the caps (S4)', async (alcance) => {
+  it.each(['productos', 'marca', 'categoria'])('a new sell in line over %s offers no total amount: per unit or % only (T5 PR A)', (alcance) => {
+    render(<Holder tipo="sell_in" moneda="ARS" inicial={{ alcance, productos: monitores, marca: 'HP', categoria: 'Redes' }} />);
+    const modo = within(fila()).getByRole('group', { name: 'Unidad del monto, línea 1' });
+    expect(within(modo).getAllByRole('button').map((b) => b.textContent)).toEqual(['por unidad', '%']);
+  });
+
+  it('a stored sell in total moved to another brand is no longer one: it shows, off, with the reason (T5 PR A)', async () => {
     const user = userEvent.setup();
-    render(<Holder tipo="sell_in" moneda="ARS" inicial={{ alcance, productos: monitores, topeUnidades: '300' }} />);
+    render(<Holder tipo="sell_in" moneda="ARS" inicial={{ ...guardada({ alcance: 'marca', marca: 'HP' }), modo: 'monto_total' }} />);
+    expect(within(fila()).getByRole('button', { name: 'monto total' })).toBeEnabled();
+    await user.selectOptions(within(fila()).getByLabelText('Marca de la línea'), 'TP-Link');
+    const total = within(fila()).getByRole('button', { name: 'monto total' });
+    expect(total).toBeDisabled();
+    expect(total).toHaveAttribute('title', `${MONTO_TOTAL_RETIRADO}.`);
+    await user.click(within(fila()).getByRole('button', { name: '%' }));
+    expect(within(fila()).queryByRole('button', { name: 'monto total' })).not.toBeInTheDocument();
+  });
+
+  it.each(['productos', 'marca', 'categoria'])('a stored sell in total amount over %s asks how to split it and drops the caps (S4)', async (alcance) => {
+    const user = userEvent.setup();
+    render(
+      <Holder
+        tipo="sell_in"
+        moneda="ARS"
+        inicial={{ ...guardada({ alcance, productos: monitores, marca: 'HP', categoria: 'Redes' }), topeUnidades: '300' }}
+      />,
+    );
     await user.click(within(fila()).getByRole('button', { name: 'monto total' }));
     const reparto = within(fila()).getByLabelText('Reparto del monto total, línea 1');
     expect(within(reparto).getAllByRole('option').map((o) => o.value)).toEqual(['', 'iguales', 'unidades', 'costo']);
@@ -127,13 +153,14 @@ describe('TacticalLinea', () => {
     expect(within(fila()).queryByLabelText('Tope de monto en ARS, línea 1')).not.toBeInTheDocument();
   });
 
-  it('a sell in total amount in USD needs a fixed exchange rate, and says so (S4)', () => {
-    const { unmount } = render(<Holder tipo="sell_in" moneda="USD" tcModo="al_cobro" />);
+  it('a stored sell in total amount in USD needs a fixed exchange rate, and says so (S4)', () => {
+    const marca = guardada({ alcance: 'marca', marca: 'HP' });
+    const { unmount } = render(<Holder tipo="sell_in" moneda="USD" tcModo="al_cobro" inicial={marca} />);
     const total = within(fila()).getByRole('button', { name: 'monto total' });
     expect(total).toBeDisabled();
     expect(total).toHaveAttribute('title', 'Un monto total en USD necesita tipo de cambio fijo.');
     unmount();
-    render(<Holder tipo="sell_in" moneda="USD" tcModo="fijo" />);
+    render(<Holder tipo="sell_in" moneda="USD" tcModo="fijo" inicial={marca} />);
     expect(within(fila()).getByRole('button', { name: 'monto total' })).toBeEnabled();
     expect(within(fila()).getByRole('button', { name: 'monto total' })).not.toHaveAttribute('title');
   });

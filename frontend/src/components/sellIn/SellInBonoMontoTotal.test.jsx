@@ -3,7 +3,7 @@
  * criterion, with no caps; the panel shows its fixed shares (iguales / costo) or says it follows units sold.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { productosAPI } from '../../services/api';
 import { sellInBonosAPI } from '../../services/sellInAPI';

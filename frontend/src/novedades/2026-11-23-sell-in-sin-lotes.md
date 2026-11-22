@@ -23,4 +23,4 @@ Lo que ya estaba guardado (lotes, ventas consumidas, bonos) queda igual, solo pa
 
 ## A tener en cuenta
 
-- En un tactical, una línea de sell in nueva por monto total sobre productos, marca o categoría no se guarda: el panel dice «Un bono de sell in por monto total no se puede cargar por ahora: si es sobre las ventas, cargalo como sell out». Una línea de factura por monto total sigue igual.
+- En un tactical, una línea de sell in nueva sobre productos, marca o categoría ofrece solo **por unidad** y **%**: un monto total nuevo no se puede cargar por ahora (si es sobre las ventas, va como sell out). Al editar, una línea que ya era por monto total lo sigue siendo mientras alcance a lo mismo. Una línea de factura por monto total sigue igual.
