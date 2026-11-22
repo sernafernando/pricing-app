@@ -1,5 +1,5 @@
 """T5 (sell-in-costo-si) PR A: costo SI replaced the per-product cost modes (S14), so a mode change is refused with
-410 and writes no mode row; the history still reads."""
+410 and writes no mode row, and so is a change of the default mode; the history still reads."""
 
 from __future__ import annotations
 
@@ -47,3 +47,17 @@ def test_the_mode_history_still_reads(client, ponderador, producto) -> None:
 
     assert resp.status_code == 200
     assert resp.json()["historial"] == []
+
+
+def test_the_default_mode_is_no_longer_changed_nor_audited(client, db, ponderador) -> None:
+    """The default only preselected the retired mode selector: a change is refused like the others (410)."""
+    from app.models.auditoria import Auditoria
+    from app.models.configuracion import Configuracion
+
+    resp = client.put(f"{BASE}/modo-por-defecto", json={"modo": "ponderado"}, headers=ponderador)
+
+    assert resp.status_code == 410
+    assert resp.json()["error"]["message"] == MENSAJE
+    assert db.query(Configuracion).filter(Configuracion.clave == "sell_in_modo_por_defecto").count() == 0
+    assert db.query(Auditoria).count() == 0
+    assert client.get(f"{BASE}/modo-por-defecto", headers=ponderador).json() == {"modo": "fifo"}

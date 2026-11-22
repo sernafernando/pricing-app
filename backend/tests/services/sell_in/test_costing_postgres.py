@@ -17,7 +17,6 @@ from typing import Iterator
 
 import pytest
 from sqlalchemy import Engine, text
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.sell_in import SellInCompra, SellInCompraItem
@@ -398,14 +397,6 @@ def _always_failing(lotes, ventas, periodos=()):
 def _rows(engine: Engine, table: str) -> int:
     with engine.connect() as conn:
         return conn.execute(text(f"SELECT count(*) FROM {table}")).scalar()
-
-
-def _db_failing_escribir(db, item_id, deseados, guardados):
-    db.execute(text("SELECT 1 / 0"))  # a database error: the transaction is aborted
-
-
-def _integrity_failing_escribir(db, item_id, deseados, guardados):
-    raise IntegrityError("INSERT INTO sell_in_consumos ...", {}, Exception("duplicate key"))
 
 
 @pytest.mark.postgres

@@ -28,6 +28,7 @@ from app.services.sell_in import modos, productos_costo, visor_lotes
 
 # Who sold each lot (supplier, invoices) is purchase information: Productos' "Últimas compras" permission.
 VER_COMPRAS = "productos.ver_info_compras"
+MODOS_RETIRADOS = "El modo de costo ya no se puede cambiar: el costo es el costo SI"
 
 router = APIRouter(
     prefix="/sell-in/productos",
@@ -40,8 +41,8 @@ router = APIRouter(
     "/modo-por-defecto", response_model=ModoPorDefectoOut, dependencies=[Depends(require_permiso("sell_in.ver"))]
 )
 def modo_por_defecto(db: Session = Depends(get_db)) -> dict:
-    """The cost mode the panel's selector opens preselected with (FIFO when unset). It never changes costing: a
-    product without a mode row stays FIFO, and the selector still offers only the modes the user may set."""
+    """The stored default cost mode (FIFO when unset). It only preselected the mode selector, retired with the cost
+    modes (sell-in-costo-si T5 PR A): it reads, it no longer changes."""
     return {"modo": modos.modo_por_defecto(db)}
 
 
@@ -50,11 +51,9 @@ def modo_por_defecto(db: Session = Depends(get_db)) -> dict:
     response_model=ModoPorDefectoOut,
     dependencies=[Depends(require_permiso("sell_in.ver"))],
 )
-def fijar_modo_por_defecto(
-    body: ModoPorDefectoIn, db: Session = Depends(get_db), admin: Usuario = Depends(get_current_admin)
-) -> dict:
-    """Admins only: change the selector's preselected mode (audited). Nothing is recomputed."""
-    return {"modo": modos.fijar_modo_por_defecto(db, body.modo, admin.id)}
+def fijar_modo_por_defecto(body: ModoPorDefectoIn, admin: Usuario = Depends(get_current_admin)) -> dict:
+    """Admins only, and retired like the mode changes (T5 PR A): 410, nothing stored or audited."""
+    raise HTTPException(status.HTTP_410_GONE, MODOS_RETIRADOS)
 
 
 @router.get("/costos", response_model=ProductosCostoOut, dependencies=[Depends(require_permiso("sell_in.ver"))])
@@ -109,9 +108,6 @@ def modos_de_producto(item_id: int, db: Session = Depends(get_db)) -> dict:
     """The product's sell-in cost modes, newest first, and the one governing today (none: FIFO, the default)."""
     historial = modos.historial(db, item_id)
     return {"item_id": item_id, "vigente": modos.vigente(historial, date.today()), "historial": historial}
-
-
-MODOS_RETIRADOS = "El modo de costo ya no se puede cambiar: el costo es el costo SI"
 
 
 @router.post(

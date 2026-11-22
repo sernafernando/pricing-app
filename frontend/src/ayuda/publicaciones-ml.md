@@ -204,5 +204,5 @@ Dependen de permisos (editar precios, marcar color, acciones masivas).
 **¿Qué es la vista Agrupado?**
 Agrupa las publicaciones por marca, categoría, subcategoría, etc., en un árbol expandible.
 
-**¿Cómo sé qué lote de sell in va a aplicar en la próxima venta?**
-En el panel del producto (pestaña Resumen) el bloque **Compras y sell in** muestra arriba qué descuenta la próxima venta según el modo de costo del producto (FIFO, ponderado o último precio); debajo, las **Últimas compras** y los **Lotes sell in** (en orden FIFO, con su estado: Vigente, En cola, Agotado, Desde dd/mm); y al final **Modo de costo**, cerrado en una línea con el modo actual: **Cambiar** (o **Ver**, sin permisos de modo de costo) abre la sección para cambiarlo con su vista previa y su historial; **Ocultar** la vuelve a cerrar. Ver **Sell in / Sell out → Lotes de un producto** y **Modo de costo de un producto**.
+**¿Dónde veo los lotes de sell in de un producto?**
+En el panel del producto (pestaña Resumen), el bloque **Compras y sell in** muestra las **Últimas compras** y el **Historial de lotes sell in**: los lotes en orden FIFO con su estado (Agotado, Reemplazado o Cerrado), solo para consulta. Los lotes ya no descuentan ventas: el sell in baja el costo SI a través de sus facturas. Al final está **Modo de costo**, cerrado en una línea con el modo actual: **Ver** abre el modo y su historial, y **Ocultar** lo vuelve a cerrar. Ver **Sell in / Sell out → Lotes de un producto** y **Modo de costo de un producto**.

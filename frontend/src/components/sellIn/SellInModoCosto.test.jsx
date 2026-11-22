@@ -16,8 +16,6 @@ vi.mock('../../services/sellInAPI', () => ({
     modos: vi.fn(),
     vistaPrevia: vi.fn(),
     confirmarModo: vi.fn(),
-    modoPorDefecto: vi.fn(),
-    fijarModoPorDefecto: vi.fn(),
   },
 }));
 
@@ -82,8 +80,6 @@ beforeEach(() => {
   sellInLotesAPI.lotes.mockResolvedValue({ data: LOTES });
   sellInLotesAPI.modos.mockResolvedValue({ data: { item_id: 950, vigente: null, historial: [] } });
   sellInLotesAPI.vistaPrevia.mockResolvedValue({ data: PREVIEW });
-  sellInLotesAPI.modoPorDefecto.mockResolvedValue({ data: { modo: 'fifo' } });
-  sellInLotesAPI.fijarModoPorDefecto.mockImplementation((modo) => Promise.resolve({ data: { modo } }));
   sellInLotesAPI.confirmarModo.mockResolvedValue({ data: fila({ id: 8, modo: 'ponderado', desde: '2026-11-04' }) });
 });
 
@@ -141,12 +137,11 @@ describe('changing the mode', () => {
 });
 
 /**
- * The mode the selector opens preselected with, a global setting only an admin changes. Owner: "podemos hacer un
- * modal donde un admin pueda elegir cuál es el por defecto?" ... "ponele que hoy trabajamos con FIFO, pero deciden que
- * empecemos a trabajar con PPP para evitar cagadas eligen que por defecto el modal abra en PPP".
+ * The default mode only preselected the retired mode selector (T5 PR A): nobody is offered to change it, an admin
+ * included.
  */
 describe('the default mode', () => {
-  it.each(['VENTAS', 'PRICING_MANAGER', undefined])('is not offered to change to a non-admin (%s)', async (r) => {
+  it.each(['VENTAS', 'ADMIN', 'SUPERADMIN', undefined])('is not offered to change, to %s either', async (r) => {
     rol = r;
     renderPanel();
     const region = await panel();

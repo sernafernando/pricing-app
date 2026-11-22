@@ -18,7 +18,8 @@ Lo que ya estaba guardado (lotes, ventas consumidas, bonos) queda igual, solo pa
 
 - Cargá y anulá compras como siempre: el costo SI del producto se recalcula solo.
 - Un monto que se reparte sobre las ventas cargalo como campaña de **sell out**.
-- En **Lotes sell in**, la sección **Modo de costo** muestra el modo actual y el historial, sin opción de cambiarlo.
+- Los lotes de un producto se ven como **Historial de lotes sell in**: ya no dicen qué descontaría la próxima venta, y un lote al que le quedaban unidades figura **Cerrado**.
+- La sección **Modo de costo** muestra el modo actual y el historial, sin opción de cambiarlo. El **Modo por defecto** ya no se muestra ni se cambia.
 - Un bono nuevo sobre el costo de la venta va siempre como **% del costo de la venta**; un bono que ya era por monto total se sigue editando.
 
 ## A tener en cuenta

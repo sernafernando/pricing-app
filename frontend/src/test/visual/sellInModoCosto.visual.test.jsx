@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render } from 'vitest-browser-react';
-import { page, userEvent } from 'vitest/browser';
+import { page } from 'vitest/browser';
 import { setTheme } from './visualHelpers';
 import SellInLotes from '../../components/sellIn/SellInLotes';
 
@@ -43,8 +43,6 @@ vi.mock('../../services/sellInAPI', () => ({
     ),
     vistaPrevia: vi.fn(),
     confirmarModo: vi.fn(),
-    modoPorDefecto: vi.fn(() => Promise.resolve({ data: { modo: 'ponderado' } })),
-    fijarModoPorDefecto: vi.fn(),
   },
 }));
 vi.mock('../../contexts/PermisosContext', () => ({ usePermisos: () => ({ tienePermiso: () => true, rol: 'ADMIN' }) }));
@@ -74,26 +72,5 @@ describe('SellInModoCosto in the lot viewer (visual)', () => {
         if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/modo-costo-${theme}${highContrast ? '-hc' : ''}.png` });
       });
     }
-  }
-
-  for (const theme of ['light', 'dark']) {
-    it(`the admin's default-mode modal fits a phone-width screen, ${theme}`, async () => {
-      await page.viewport(390, 844);
-      setTheme(theme);
-      document.body.style.background = 'var(--cf-bg-app)';
-      const screen = await render(
-        <div style={{ padding: 16, background: 'var(--cf-bg-card)' }}>
-          <SellInLotes productItemId={950} />
-        </div>,
-      );
-      await userEvent.click(screen.getByRole('button', { name: 'Modo por defecto' }));
-      const grupo = page.getByRole('group', { name: 'Modo por defecto' });
-      await expect.element(grupo).toBeVisible();
-      await userEvent.click(grupo.getByRole('button', { name: 'Último precio' }));
-      const modal = document.querySelector('.modal-tesla');
-      expect(modal.scrollWidth).toBeLessThanOrEqual(modal.clientWidth + 1);
-      expect(modal.getBoundingClientRect().right).toBeLessThanOrEqual(390);
-      if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/modo-por-defecto-${theme}.png` });
-    });
   }
 });

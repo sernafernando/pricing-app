@@ -74,12 +74,11 @@ Al crear un bono de marca, **Base del bono** define cómo se calcula. Se elige u
 
 ### Lotes de un producto
 
-Desde el retiro de los lotes (costo SI), las ventas nuevas ya no toman unidades de ningún lote y los bonos sobre el costo de la venta ya no se aplican a cada venta: el sell in baja el costo SI a través de sus facturas. Los lotes y lo que cada venta ya consumió quedan como estaban, solo para consulta. Lo que sigue describe cómo funcionaban los lotes hasta entonces: lo que el visor dice de la «próxima venta», el bono de costo que aplicaría al terminarse los lotes y las unidades que le «quedan» a una compra nueva (que ya no se consume) ya no se aplican a ninguna venta. Esas pantallas se actualizan en un próximo cambio.
+Desde el retiro de los lotes (costo SI), las ventas nuevas ya no toman unidades de ningún lote y los bonos sobre el costo de la venta ya no se aplican a cada venta: el sell in baja el costo SI a través de sus facturas. Los lotes y lo que cada venta ya consumió quedan como estaban, solo para consulta: la sección se llama **Historial de lotes sell in** y arriba dice «Historial: los lotes ya no descuentan ventas. El sell in baja el costo SI a través de sus facturas.». Ya no dice qué descontaría la próxima venta ni qué bono de costo aplicaría. Un lote al que le quedaban unidades figura **Cerrado**. Lo que sigue describe cómo funcionaban los lotes hasta entonces.
 
-Cada venta toma las unidades del lote más viejo que todavía tiene (orden FIFO). Lo que descuenta por unidad depende del modo de costo del producto: por defecto es FIFO, y cada unidad descuenta el valor de su lote; con **ponderado** todas las unidades que quedan descuentan el promedio ponderado de los lotes, con **último precio** descuentan el valor del lote más nuevo, y con **manual** las unidades que quedan se reemplazan por una cantidad y un costo cargados a mano. Ponderado y último precio cambian el valor, nunca el orden en que se usan las unidades. Para ver cómo van a aplicar los lotes de un producto, abrí la sección **Lotes sell in** en el panel del producto de **Publicaciones ML** (pestaña Resumen) o en la ficha de información del producto de **Productos** (pestaña **Lotes sell in**).
+Cada venta toma las unidades del lote más viejo que todavía tiene (orden FIFO). Lo que descuenta por unidad depende del modo de costo del producto: por defecto es FIFO, y cada unidad descuenta el valor de su lote; con **ponderado** todas las unidades que quedan descuentan el promedio ponderado de los lotes, con **último precio** descuentan el valor del lote más nuevo, y con **manual** las unidades que quedan se reemplazan por una cantidad y un costo cargados a mano. Ponderado y último precio cambian el valor, nunca el orden en que se usan las unidades. Para ver los lotes de un producto, abrí la sección **Historial de lotes sell in** en el panel del producto de **Publicaciones ML** (pestaña Resumen) o en la ficha de información del producto de **Productos** (pestaña **Historial de lotes sell in**).
 
-- Arriba dice qué descuenta la próxima venta, por ejemplo: "La próxima venta descuenta $ 33,33 por unidad (lote 2); quedan 2 unidades a ese valor, después $ 10,00". Si ningún lote tiene unidades hoy, dice que el costo vuelve al normal (y hasta cuándo, si queda un lote con fecha futura) y si aplica un bono de costo en su lugar; si el lote vigente es el último, dice qué aplica cuando se termine.
-- Debajo, los lotes en el orden en que se consumen, cada uno con su número, el estado, el descuento por unidad en pesos (una compra en USD, a su propio tipo de cambio), las unidades que quedan y las usadas, la fecha desde la que cuenta y la compra (#, proveedor, facturas; el proveedor y las facturas solo con el permiso de ver compras, el mismo de **Últimas compras**). Los estados son **Vigente** (el que toma la próxima venta), **En cola**, **Agotado**, **Desde dd/mm** (cuenta desde una fecha futura) o **Reemplazado** (una carga manual reemplazó las unidades que le quedaban). Una carga manual aparece como un lote más, **Carga manual #n**, con la cantidad y el valor por unidad cargados.
+- Debajo, los lotes en el orden en que se consumen, cada uno con su número, el estado, el descuento por unidad en pesos (una compra en USD, a su propio tipo de cambio), las unidades que quedan y las usadas, la fecha desde la que cuenta y la compra (#, proveedor, facturas; el proveedor y las facturas solo con el permiso de ver compras, el mismo de **Últimas compras**). Los estados son **Agotado**, **Reemplazado** (una carga manual reemplazó las unidades que le quedaban) o **Cerrado** (le quedaban unidades cuando se retiraron los lotes). Una carga manual aparece como un lote más, **Carga manual #n**, con la cantidad y el valor por unidad cargados.
 - **Ver ventas** en un lote muestra las ventas que lo consumieron (canal, venta, fecha, unidades y descuento); **Ver más ventas** trae las siguientes.
 
 **Combos:** la venta de un combo (por ejemplo una notebook con -WH) descuenta de los lotes de cada uno de sus componentes, como si se hubiera vendido cada uno por separado: la cantidad vendida por la cantidad de ese componente en el combo. El combo no usa lotes propios (salvo las PCs, que son un producto propio: ver **PCs en sell in y sell out**). La composición sale del catálogo de combos de la app; si todavía no está sincronizado, el sell in no se calcula y se reintenta solo cuando se sincroniza.
@@ -96,21 +95,20 @@ Arriba de la lista hay una barra:
 - **Marca**: muestra solo los productos de esa marca. Ofrece las marcas que aparecen en la lista.
 - **Modo de costo**: muestra solo los productos con ese modo. **FIFO (por defecto)** son los que nunca cambiaron de modo; **FIFO** son los que alguien pasó a FIFO a propósito.
 - **Limpiar filtros**: vuelve a mostrar todos los productos.
-- **Modo por defecto: …** muestra con qué modo abre el selector de modo de costo (ver más abajo). Un administrador ve al lado **Cambiar**, que abre el mismo modal **Modo por defecto** que está en el panel de cada producto.
 
 El total de unidades de abajo suma solo los productos que se ven. Si ningún producto cumple los filtros, la lista lo dice.
 
 Tocá el título de una columna (**Producto**, **Modo de costo**, **Unidades**, **Sell in por unidad** o **Últ. compra**) para ordenar por ella; un segundo toque invierte el orden. Los productos sin **Sell in por unidad** van siempre al final.
 
-**Ver lotes**, al final de cada fila, abre el **Costo de sell in** del producto: sus lotes y la sección **Modo de costo**, donde se cambia el modo. Al confirmar un cambio, la lista se actualiza sola.
+**Ver lotes**, al final de cada fila, abre el **Costo de sell in** del producto: el historial de sus lotes y la sección **Modo de costo**, solo para consulta.
 
 ### Modo de costo de un producto
 
 El modo de costo ya no se puede cambiar: el costo es el costo SI. La sección muestra el modo actual, el aviso «El modo de costo ya no se puede cambiar: el costo es el costo SI.» y el historial, sin el selector **Cambiar a** ni **Ver cómo queda**. En el panel del producto el botón dice **Ver**.
 
-La sección **Modo de costo**, dentro de **Lotes sell in**, muestra con qué modo descuentan hoy las unidades del producto ("Modo actual": **FIFO (por defecto)** si nunca se cambió, o el modo y desde qué fecha) y el **Historial** de cambios, el más nuevo primero, con quién lo hizo. En el panel de un producto de **Publicaciones ML** la sección empieza cerrada, en una línea con el modo actual: **Cambiar** (o **Ver**) la abre y **Ocultar** la cierra.
+La sección **Modo de costo**, dentro de **Historial de lotes sell in**, muestra con qué modo descontaban las unidades del producto ("Modo actual": **FIFO (por defecto)** si nunca se cambió, o el modo y desde qué fecha) y el **Historial** de cambios, el más nuevo primero, con quién lo hizo. En el panel de un producto de **Publicaciones ML** la sección empieza cerrada, en una línea con el modo actual: **Ver** la abre y **Ocultar** la cierra.
 
-Para cambiarlo:
+Hasta el retiro, el modo se cambiaba así (ya no se puede):
 
 1. En **Cambiar a**, elegí **FIFO**, **Ponderado (PPP)**, **Último precio** o **Manual**.
 2. En **Desde**, la fecha desde la que rige. Por defecto es hoy.
@@ -122,7 +120,7 @@ Para cambiarlo:
 
 Permisos: **Ponderado (PPP)** necesita `sell_in.costo_ponderado`, **Último precio** `sell_in.costo_ultimo` y **Manual** `sell_in.costo_manual`; volver a **FIFO** se puede con cualquiera de los permisos de modo. Una fecha pasada necesita además `sell_in.costo_retroactivo` y recalcula las ventas registradas desde ese día. Sin ningún permiso de modo se ve el modo actual y el historial, sin poder cambiarlo.
 
-**Modo por defecto**: **Cambiar a** abre ya elegido el modo por defecto. Si nadie lo cambió, es **FIFO**. Un administrador lo cambia con **Cambiar**, al lado de **Modo por defecto** en la barra de la pestaña **Productos**, o con el botón **Modo por defecto** de esta sección: elige **FIFO**, **Ponderado (PPP)** o **Último precio** en **Abrir en** (**Manual** no, porque necesita la cantidad y el costo de cada producto) y toca **Guardar**. El cambio vale para todos los productos. Solo elige con qué modo abre el selector: no recalcula nada, y los productos sin modo propio siguen en FIFO. Si el usuario no tiene permiso para el modo por defecto, el selector abre en **FIFO**.
+**Modo por defecto**: ya no se muestra ni se cambia. Solo elegía con qué modo abría el selector de modo de costo, que ya no está; cambiarlo devuelve «El modo de costo ya no se puede cambiar: el costo es el costo SI».
 
 ### Campañas de sell out: tipos
 
@@ -223,8 +221,7 @@ Tacticals: tipo, marca, moneda, contiene (tipo de línea), estado, cobranza, vig
 - **Anular** (acciones de una fila de Tacticals): anula el tactical con todas sus líneas, después de confirmar.
 - **Cargar cobro** / **Editar cobro** (columna Cobranza de una fila de Tacticals): abre el cuadro **Cobranza**; **Guardar** lo marca cobrado y **Deshacer cobro** lo vuelve a pendiente (según permiso).
 - **Ver ventas** (en cada línea de un tactical): abre al costado lo que cargó esa línea, solo para mirar.
-- **Ver lotes** (pestaña Productos, en cada fila): abre los lotes y el modo de costo del producto.
-- **Cambiar** (pestaña Productos, al lado de **Modo por defecto**; solo administradores): cambia con qué modo abre el selector de modo de costo.
+- **Ver lotes** (pestaña Productos, en cada fila): abre el historial de lotes y el modo de costo del producto.
 - **Actualizar**: recarga datos.
 
 ## Preguntas frecuentes

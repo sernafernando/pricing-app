@@ -4,7 +4,7 @@ lock error from another writer, which answers a 409 to retry instead of a raw 50
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 
 import pytest
 
@@ -12,13 +12,7 @@ from app.models.producto import ProductoERP, TipoMoneda
 
 BASE = "/api/sell-in/productos"
 HOY = date.today()
-AYER = HOY - timedelta(days=1)
-PONDERADO, ULTIMO, MANUAL, RETRO = (
-    "sell_in.costo_ponderado",
-    "sell_in.costo_ultimo",
-    "sell_in.costo_manual",
-    "sell_in.costo_retroactivo",
-)
+PONDERADO, RETRO = "sell_in.costo_ponderado", "sell_in.costo_retroactivo"
 
 
 @pytest.fixture()
@@ -37,18 +31,6 @@ def producto(db) -> int:
 
 def _cuerpo(modo, desde, **extra) -> dict:
     return {"modo": modo, "desde": desde.isoformat(), **extra}
-
-
-CASOS = [
-    ("ponderado", HOY, [], PONDERADO),
-    ("ponderado", HOY, [ULTIMO, MANUAL, RETRO], PONDERADO),
-    ("ultimo", HOY, [PONDERADO, MANUAL, RETRO], ULTIMO),
-    ("ponderado", AYER, [PONDERADO], RETRO),
-    ("ponderado", AYER, [RETRO], PONDERADO),
-    ("ultimo", AYER, [ULTIMO], RETRO),
-    ("fifo", HOY, [RETRO], f"{PONDERADO} | {ULTIMO} | {MANUAL}"),
-    ("fifo", AYER, [ULTIMO], RETRO),
-]
 
 
 @pytest.mark.parametrize("ruta", ["modos/vista-previa", "modos"])

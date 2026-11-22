@@ -1,6 +1,6 @@
 """The cost mode the panel's selector opens preselected with: a global setting (`configuracion` key
-`sell_in_modo_por_defecto`) that anyone who sees the panel reads and only an admin changes. It never changes costing:
-a product without a mode row stays FIFO in the engine."""
+`sell_in_modo_por_defecto`) that anyone who sees the panel reads. Since T5 PR A nobody changes it (the selector it preselected is retired):
+`test_sell_in_modos_retirados.py`."""
 
 from __future__ import annotations
 
@@ -30,17 +30,6 @@ def test_reading_needs_the_panel_permissions(client, rol_ventas, grant_permiso, 
     assert client.get(URL, headers=auth_headers).status_code == 403
 
 
-def test_an_admin_sets_it_and_everyone_reads_it(client, db, ven_panel, admin_auth_headers, auth_headers) -> None:
-    resp = client.put(URL, json={"modo": "ponderado"}, headers=admin_auth_headers)
-    assert resp.status_code == 200
-    assert resp.json() == {"modo": "ponderado"}
-    assert db.query(Configuracion).filter(Configuracion.clave == CLAVE).one().valor == "ponderado"
-    assert client.get(URL, headers=auth_headers).json() == {"modo": "ponderado"}
-
-    assert client.put(URL, json={"modo": "ultimo"}, headers=admin_auth_headers).json() == {"modo": "ultimo"}
-    assert db.query(Configuracion).filter(Configuracion.clave == CLAVE).count() == 1
-
-
 def test_a_non_admin_cannot_change_it(client, db, ven_panel, auth_headers) -> None:
     assert client.put(URL, json={"modo": "ponderado"}, headers=auth_headers).status_code == 403
     assert db.query(Configuracion).filter(Configuracion.clave == CLAVE).count() == 0
@@ -65,25 +54,6 @@ def test_the_product_mode_routes_still_answer(client, ven_panel, auth_headers) -
     resp = client.get("/api/sell-in/productos/999999/modos", headers=auth_headers)
     assert resp.status_code == 200
     assert resp.json()["item_id"] == 999999
-
-
-def test_each_change_is_audited_with_who_before_and_after(
-    client, db, ven_panel, admin_user, admin_auth_headers
-) -> None:
-    from app.models.auditoria import Auditoria, TipoAccion
-
-    client.put(URL, json={"modo": "ponderado"}, headers=admin_auth_headers)
-    client.put(URL, json={"modo": "ultimo"}, headers=admin_auth_headers)
-    filas = (
-        db.query(Auditoria)
-        .filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_MODO_POR_DEFECTO)
-        .order_by(Auditoria.id)
-        .all()
-    )
-    assert [(f.usuario_id, f.item_id, f.valores_anteriores, f.valores_nuevos) for f in filas] == [
-        (admin_user.id, None, {"modo": "fifo"}, {"modo": "ponderado"}),
-        (admin_user.id, None, {"modo": "ponderado"}, {"modo": "ultimo"}),
-    ]
 
 
 def test_a_refused_change_is_not_audited(client, db, ven_panel, auth_headers, admin_auth_headers) -> None:
