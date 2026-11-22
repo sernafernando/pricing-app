@@ -365,6 +365,91 @@ def test_a_list_cost_row_that_stays_list_cost_is_left_as_frozen(engine: Engine) 
     assert _fila(engine, order)[0] == D("40.0000")
 
 
+PC = 7107
+
+
+def _pc(engine: Engine) -> None:
+    """PC (cat 47) = 1 x A + 1 x SIN, with a list cost of its own (USD 500) that L22 never uses: its cost is the sum
+    of its components. SIN has no costo SI, so the reader labels the PC 'lista', as most PCs in production."""
+    w.producto(engine, PC, cat_id=47, costo="500")
+    w.run(engine, "UPDATE productos_erp SET iva = 21")
+    w.run(engine, "INSERT INTO publicaciones_ml (mla, item_id, activo) VALUES ('MLA7107', :i, true)", i=PC)
+    w.run(
+        engine,
+        "INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (:c, :a, 1), (:c, :s, 1)",
+        c=PC,
+        a=A,
+        s=SIN,
+    )
+
+
+def _venta_pc_vieja(engine: Engine, cuando: datetime) -> int:
+    """A PC sale as frozen before T3 PR 7: at the PC's own list cost (500 x 1200), linkage fuente 'erp_publicacion'
+    (today `congelar` freezes a PC at its components' sum, fuente 'combo')."""
+    MLA[PC] = "MLA7107"
+    try:
+        order = _vender(engine, PC, cuando)
+    finally:
+        del MLA[PC]
+    w.run(
+        engine,
+        "UPDATE ml_order_item_costos SET costo_origen = 500, costo_unitario_ars = 600000, fuente = 'erp_publicacion'"
+        " WHERE order_id = :o",
+        o=order,
+    )
+    return order
+
+
+def test_a_pc_sale_frozen_at_its_own_list_cost_is_refrozen_at_the_sum_of_its_components(engine: Engine) -> None:
+    """L22 ("las pcs son la suma de sus componentes el costo"), L15/L17 (the history follows): a PC sale frozen before
+    costo SI at the PC's own list cost re-freezes to the sum of its components, labelled 'combo' as `congelar` writes
+    a PC today, even when the reader calls it list cost (SIN has no costo SI)."""
+    _mundo(engine)
+    _pc(engine)
+    order = _venta_pc_vieja(engine, _art(2026, 10, 20, 10))
+
+    assert _recongelar(engine, PC, None) == 1
+    assert _fila(engine, order)[:6] == (
+        D("62.7570"),
+        "USD",
+        D("1200.0000"),
+        date(2026, 10, 12),
+        D("75308.4000"),  # (22.757 + 40) x 1200
+        "combo",
+    )
+    assert len(w.rows(engine, "SELECT 1 FROM ml_order_item_costos_backups")) == 1
+    assert _recongelar(engine, PC, None) == 0  # idempotent
+
+
+def test_an_old_pc_sale_is_refrozen_when_one_of_its_components_changes(engine: Engine) -> None:
+    """A component's costo SI change (a late invoice of A) queues the PCs that contain it (`lote.combos_con`) and the
+    drain re-costs their sales at the new sum, an old one frozen at the PC's own list cost too."""
+    _mundo(engine)
+    _pc(engine)
+    order = _venta_pc_vieja(engine, _art(2026, 10, 20, 10))
+    _paso(engine, A, 2, date(2026, 10, 15), "20.75700")
+    factory = sessionmaker(bind=engine)
+    with factory() as db:
+        ml_ventas.encolar(db, A, date(2026, 10, 15))
+        db.commit()
+
+    rc.drenar(factory, datetime.now(UTC) + timedelta(seconds=30), is_transient=lambda e: False)
+
+    assert _fila(engine, order)[4:6] == (D("72908.4000"), "combo")  # (20.757 + 40) x 1200
+
+
+def test_an_unknown_pc_cost_keeps_its_old_frozen_row(engine: Engine) -> None:
+    """Interface §7: a PC whose component has no cost at all keeps what it froze (never 0, never a partial sum)."""
+    _mundo(engine)
+    _pc(engine)
+    order = _venta_pc_vieja(engine, _art(2026, 10, 20, 10))
+    w.run(engine, "UPDATE productos_erp SET costo = NULL WHERE item_id = :i", i=SIN)
+    w.run(engine, "DELETE FROM tb_item_cost_list_history WHERE item_id = :i", i=SIN)
+
+    assert _recongelar(engine, PC, None) == 0
+    assert _fila(engine, order)[4:6] == (D("600000.0000"), "erp_publicacion")
+
+
 @pytest.mark.parametrize("fuente", ["combo", "hist_combo"])
 def test_a_combo_part_costo_si_part_list_cost_is_refrozen_when_its_costo_si_component_changes(
     engine: Engine, fuente: str

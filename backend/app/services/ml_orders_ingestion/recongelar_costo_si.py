@@ -48,16 +48,30 @@ FUENTES_COSTO_SI = (FUENTE_COSTO_SI_PUB, FUENTE_COSTO_SI_SKU, FUENTE_COSTO_SI_CO
 FECHA_VENTA_SQL = f"(o.date_created AT TIME ZONE '{BUSINESS_TIMEZONE}')::date"
 
 
+# A product the reader costs as its components' sum: a combo, or a PC with a bill of materials (L22).
+_SUMA_SQL = lote.sql_suma_componentes("c.producto_item_id")
+
 # The new `fuente` of a row: costo SI keeps the linkage it was found by (a combo, costo SI with no step date, is
-# `costo_si_combo`); list cost on a row that was costo SI goes back to the linkage's list fuente.
+# `costo_si_combo`); list cost on a row that was costo SI goes back to the linkage's list fuente; a summed list cost
+# is 'combo' as `congelar` writes it (a PC frozen at its own list cost before L22 had its linkage's), and a backfilled
+# 'hist_combo' keeps its label.
 _FUENTE_SQL = f"""
     CASE WHEN cs.costo_si_fuente = '{lote.FUENTE_COSTO_SI}' THEN
         CASE WHEN cs.costo_si_desde IS NULL THEN '{FUENTE_COSTO_SI_COMBO}'
              WHEN c.fuente IN ('erp_sku', 'hist_sku', '{FUENTE_COSTO_SI_SKU}') THEN '{FUENTE_COSTO_SI_SKU}'
              ELSE '{FUENTE_COSTO_SI_PUB}' END
     ELSE CASE c.fuente WHEN '{FUENTE_COSTO_SI_SKU}' THEN 'erp_sku' WHEN '{FUENTE_COSTO_SI_COMBO}' THEN 'combo'
-                       WHEN '{FUENTE_COSTO_SI_PUB}' THEN 'erp_publicacion' ELSE c.fuente END
+                       WHEN '{FUENTE_COSTO_SI_PUB}' THEN 'erp_publicacion'
+                       ELSE CASE WHEN {_SUMA_SQL} AND c.fuente <> 'hist_combo' THEN 'combo' ELSE c.fuente END END
     END"""
+
+# The frozen rows the re-freeze rewrites (over `c` = ml_order_item_costos and `cs` = the reader on the sale date,
+# `:costo_si` bound to FUENTES_COSTO_SI): costo SI now or before, and a list-cost combo or PC too, whatever it was
+# frozen as ('combo' live, 'hist_combo' backfilled, or a PC at its own list cost before L22). The reader labels such
+# a sum 'lista' when one component has no costo SI, yet it carries the costo SI of the others (it is queued only when
+# a component changes). `costo_si.impacto` predicts with this same predicate.
+ELEGIBLE_SQL = f"""(cs.costo_si_fuente = '{lote.FUENTE_COSTO_SI}' OR c.fuente IN :costo_si
+           OR c.fuente IN ('combo', 'hist_combo') OR {_SUMA_SQL})"""
 
 _RECONGELAR_SQL = text(f"""
 WITH nuevos AS (
@@ -72,11 +86,7 @@ WITH nuevos AS (
     WHERE c.producto_item_id = :item
       AND (CAST(:desde AS date) IS NULL OR {FECHA_VENTA_SQL} >= CAST(:desde AS date))
       AND cs.costo_si_ars > 0
-      -- A list-cost combo too, frozen live ('combo') or backfilled ('hist_combo', a dated list cost): the reader
-      -- labels a combo 'lista' when one component has no costo SI, yet its cost carries the costo SI of the others
-      -- (a combo is queued only when one of its components changes).
-      AND (cs.costo_si_fuente = '{lote.FUENTE_COSTO_SI}' OR c.fuente IN :costo_si
-           OR c.fuente IN ('combo', 'hist_combo'))
+      AND {ELEGIBLE_SQL}
 ),
 cambiados AS (
     SELECT n.* FROM nuevos n JOIN ml_order_item_costos c ON c.id = n.id
@@ -143,8 +153,7 @@ _DESCONOCIDAS_SQL = text(f"""
     WHERE c.producto_item_id = :item
       AND (CAST(:desde AS date) IS NULL OR {FECHA_VENTA_SQL} >= CAST(:desde AS date))
       AND (cs.costo_si_ars IS NULL OR cs.costo_si_ars <= 0)
-      AND (cs.costo_si_fuente = '{lote.FUENTE_COSTO_SI}' OR c.fuente IN :costo_si
-           OR c.fuente IN ('combo', 'hist_combo'))
+      AND {ELEGIBLE_SQL}
     GROUP BY 1
     ORDER BY 1
 """).bindparams(bindparam("costo_si", value=FUENTES_COSTO_SI, expanding=True))

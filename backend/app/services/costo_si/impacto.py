@@ -185,8 +185,7 @@ def _ml_congelado_sql():
         ) q ON true
         WHERE {fecha} >= d.desde
           AND cs.costo_si_ars > 0
-          AND (cs.costo_si_fuente = '{lote.FUENTE_COSTO_SI}' OR c.fuente IN :costo_si
-               OR c.fuente IN ('combo', 'hist_combo'))
+          AND {rc.ELEGIBLE_SQL}
           AND (c.costo_origen, c.moneda, c.tipo_cambio, c.tipo_cambio_fecha, c.costo_unitario_ars, c.fuente,
                c.costo_fecha)
               IS DISTINCT FROM
