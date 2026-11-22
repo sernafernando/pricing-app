@@ -28,6 +28,15 @@ const renderPanel = (props = {}) => {
 };
 
 describe('SellInDetailPanel', () => {
+  it('shows no consumed or remaining units: the invoice sell in is wholly inside costo SI', async () => {
+    renderPanel();
+    expect(await screen.findByRole('heading', { name: 'Bonificación Q4 switches' })).toBeInTheDocument();
+    expect(screen.queryByText(/consumidas|restantes/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Consumidas' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/vuelve al normal/)).not.toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Costo después' })).toBeInTheDocument();
+  });
+
   it('loads the purchase and shows its data and lines', async () => {
     renderPanel();
     expect(await screen.findByRole('heading', { name: 'Bonificación Q4 switches' })).toBeInTheDocument();

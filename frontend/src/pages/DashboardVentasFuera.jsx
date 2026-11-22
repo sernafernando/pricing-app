@@ -5,7 +5,6 @@ import styles from './DashboardMetricasML.module.css'; // Reutilizamos los estil
 import TabRentabilidadFuera from '../components/TabRentabilidadFuera';
 import TabAdminVentasFuera from '../components/TabAdminVentasFuera';
 import ModalEditarCosto from '../components/ModalEditarCosto';
-import { celdasSellInOut } from '../utils/sellInOutOperacion';
 import PaginationControls from '../components/PaginationControls';
 import { useAuthStore } from '../store/authStore';
 import { useQueryFilters } from '../hooks/useQueryFilters';
@@ -733,8 +732,6 @@ export default function DashboardVentasFuera() {
                   <th>Total c/IVA</th>
                   <th>Costo</th>
                   <th>Markup%</th>
-                  <th>Costo c/ sell in</th>
-                  <th>Markup c/ SO</th>
                   <th>Comprobante</th>
                   <th></th>
                 </tr>
@@ -742,7 +739,6 @@ export default function DashboardVentasFuera() {
               <tbody>
                 {operacionesFiltradas.map((op, idx) => {
                   const sinCosto = !op.costo_pesos_sin_iva || op.costo_pesos_sin_iva === 0;
-                  const sellInOut = celdasSellInOut(op, { moneda: formatearMoneda, porcentaje: formatearPorcentaje });
                   const override = overrides[op.id_operacion];
                   const filaModificada = override && Object.values(override).some(v => v !== null && v !== undefined && v !== '');
 
@@ -908,10 +904,6 @@ export default function DashboardVentasFuera() {
                       </td>
                       <td className={`${styles.centrado} ${op.markup !== null && parseFloat(op.markup) < 0 ? styles.negativo : ''}`}>
                         {formatearPorcentaje(op.markup)}
-                      </td>
-                      <td className={styles.monto} title={sellInOut.costo.title}>{sellInOut.costo.texto}</td>
-                      <td className={`${styles.centrado} ${sellInOut.markup.negativo ? styles.negativo : ''}`} title={sellInOut.markup.title}>
-                        {sellInOut.markup.texto}
                       </td>
                       <td>{op.tipo_comprobante} {op.numero_comprobante}</td>
                       <td>

@@ -113,8 +113,6 @@ class SellInPreviewOut(BaseModel):
 
 class SellInCompraItemOut(SellInPreviewLinea):
     id: int
-    unidades_consumidas: int
-    unidades_restantes: int
 
 
 class SellInCompraOut(BaseModel):
@@ -146,8 +144,6 @@ class SellInCompraOut(BaseModel):
     # Whether the sell in applies, by `services.sell_in.compras.aplica_condicion` (the one rule).
     aplica: bool
     unidades_total: int
-    unidades_consumidas: int
-    unidades_restantes: int
     items: list[SellInCompraItemOut]
 
 

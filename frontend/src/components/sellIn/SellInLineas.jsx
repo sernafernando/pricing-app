@@ -14,7 +14,6 @@ export default function SellInLineas({ compra }) {
             <th className={styles.num}>Monto asignado</th>
             <th className={styles.num}>Costo antes</th>
             <th className={styles.num}>Costo después</th>
-            <th className={styles.num}>Consumidas</th>
           </tr>
         </thead>
         <tbody>
@@ -27,13 +26,12 @@ export default function SellInLineas({ compra }) {
               <td className={styles.num}>{formatMonto(linea.monto_asignado, moneda)}</td>
               <td className={`${styles.num} ${styles.before}`}>{formatMonto(linea.costo_base_unit, moneda)}</td>
               <td className={`${styles.num} ${styles.after}`}>{formatMonto(linea.costo_con_sell_in_unit, moneda)}</td>
-              <td className={styles.num}>{formatEntero(linea.unidades_consumidas)}</td>
             </tr>
           ))}
         </tbody>
       </table>
       <p className={styles.note}>
-        {FORMULA_LABELS[compra.formula] ?? compra.formula} · al consumirse las unidades el costo vuelve al normal.
+        {FORMULA_LABELS[compra.formula] ?? compra.formula} · el costo después entra en el costo SI del producto.
       </p>
     </div>
   );

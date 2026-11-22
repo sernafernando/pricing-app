@@ -1,7 +1,7 @@
-"""`GET /ventas-fuera-ml/operaciones` (the synced GBP rows) no longer shows sell in / sell out (VPF T4).
+"""`GET /ventas-fuera-ml/operaciones` (the synced GBP rows) carries no sell in / sell out fields (VPF T4, costo SI T5 PR B).
 
 Since VPF T4 the engines credit the operations loaded from the GBP PDF reports, under canal `fuera` keyed by the PDF
-line id (orchestrator, L20), so this screen leaves its sell in / sell out fields null instead of matching a synced
+line id (orchestrator, L20), so this screen has no sell in / sell out fields (null since VPF T4, removed in costo SI T5 PR B) instead of matching a synced
 `it_transaction` against an unrelated PDF line. Postgres world from `tests.services.test_sell_in_out_ventas_postgres`.
 Invented data only (the repo is public).
 """
@@ -24,7 +24,7 @@ from tests.services.sell_in import _world as w_in
 
 pytestmark = pytest.mark.postgres
 
-NUEVOS = (
+RETIRADOS = (
     "sell_in_ars",
     "sell_out_ars",
     "sell_out_estimado",
@@ -84,4 +84,4 @@ def test_a_synced_row_never_shows_the_sell_in_out_of_the_pdf_line_with_its_id(
     op = _operaciones(client)[pdf]
 
     assert (op["costo_pesos_sin_iva"], op["ganancia"], op["markup"]) == (1000, 500, 0.5)
-    assert {k: op[k] for k in NUEVOS} == dict.fromkeys(NUEVOS)
+    assert not any(k in op for k in RETIRADOS)
