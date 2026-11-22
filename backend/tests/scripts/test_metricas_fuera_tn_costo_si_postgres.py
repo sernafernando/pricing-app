@@ -100,7 +100,8 @@ DF_FUERA, DF_TN = 1, 113
 # NB (USD) costo SI 10 USD, list 12; MOUSE (ARS product, L18) costo SI 5,000 ARS; SIN_SI (USD) list 3 only;
 # COMBO = NB + 2 MOUSE (= 20,000 ARS); PC (cat 47) = NB + MOUSE (= 15,000 ARS, L22; its own list 50 USD unused).
 # USD at 1,000.
-NB, MOUSE, SIN_SI, COMBO, PC = 801, 802, 803, 810, 811
+# PC_SIN = NB + SIN_ERP, a component with no `productos_erp` row (unknown cost), like prod PC 4879.
+NB, MOUSE, SIN_SI, COMBO, PC, PC_SIN, SIN_ERP = 801, 802, 803, 810, 811, 812, 899
 NB_ARS, MOUSE_ARS, COMBO_ARS = Decimal("10000"), Decimal("5000"), Decimal("20000")
 D = Decimal("1.065")
 
@@ -181,18 +182,21 @@ def _mundo(engine: Engine) -> None:
     _producto(engine, SIN_SI, "USD", "3")
     _producto(engine, COMBO, "USD")
     _producto(engine, PC, "USD", "50", cat_id=47)
+    _producto(engine, PC_SIN, "USD", "50", cat_id=47)
     _paso(engine, NB, "10", "USD")
     _paso(engine, MOUSE, "5000", "ARS")
     _run(
         engine,
         "INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES"
-        f" ({COMBO}, {NB}, 1), ({COMBO}, {MOUSE}, 2), ({PC}, {NB}, 1), ({PC}, {MOUSE}, 1)",
+        f" ({COMBO}, {NB}, 1), ({COMBO}, {MOUSE}, 2), ({PC}, {NB}, 1), ({PC}, {MOUSE}, 1),"
+        f" ({PC_SIN}, {NB}, 1), ({PC_SIN}, {SIN_ERP}, 1)",
     )
     _run(engine, "INSERT INTO tipo_cambio (fecha, moneda, compra, venta) VALUES ('2026-10-01', 'USD', 1000, 1000)")
 
 
 def _venta(engine: Engine, df_id: int, lineas: list[dict], dia: datetime = DIA) -> list[int]:
-    """One GBP invoice of `dia` (default `DIA`) with `lineas` (`item`, `qty`, `precio`, `grupo`, `asoc`, `orden`); their it_transaction."""
+    """One GBP invoice of `dia` (default `DIA`) with `lineas` (`item`, `origen`, `qty`, `precio`, `grupo`, `asoc`,
+    `orden`; `origen` = the product in `it_item_id_origin`); their it_transaction."""
     ct = next(_ids)
     _run(
         engine,
@@ -207,11 +211,13 @@ def _venta(engine: Engine, df_id: int, lineas: list[dict], dia: datetime = DIA) 
         it = next(_ids)
         _run(
             engine,
-            "INSERT INTO tb_item_transactions (comp_id, bra_id, it_transaction, ct_transaction, item_id, it_qty,"
-            " it_price, it_isassociationgroup, it_isassociation, it_order) VALUES (1, 1, :it, :ct, :i, :q, :p, :g, :a, :o)",
+            "INSERT INTO tb_item_transactions (comp_id, bra_id, it_transaction, ct_transaction, item_id, it_item_id_origin,"
+            " it_qty, it_price, it_isassociationgroup, it_isassociation, it_order)"
+            " VALUES (1, 1, :it, :ct, :i, :origen, :q, :p, :g, :a, :o)",
             it=it,
             ct=ct,
             i=ln.get("item"),
+            origen=ln.get("origen"),
             q=Decimal(ln.get("qty", "1")),
             p=Decimal(ln.get("precio", "100000")),
             g=ln.get("grupo", False),
@@ -229,6 +235,11 @@ def _grupo(combo: Optional[int], partes: list[tuple[int, str]]) -> list[dict]:
         {"item": i, "qty": q, "precio": "50000", "grupo": True, "asoc": True, "orden": n}
         for n, (i, q) in enumerate(partes, start=2)
     ]
+
+
+def _desde_origen(lineas: list[dict]) -> list[dict]:
+    """The same lines as GBP sends them in prod (e.g. ct 938097): `item_id` NULL, the product in `it_item_id_origin`."""
+    return [{**ln, "item": None, "origen": ln.get("item")} for ln in lineas]
 
 
 def _cron(db: Session, modulo) -> dict[int, tuple[Decimal, Decimal]]:
@@ -405,6 +416,28 @@ def test_cron_a_pc_sold_with_its_parts_costs_0_like_a_combo(engine: Engine, db: 
 
     assert costos[pc] == (Decimal(0), Decimal(0))
     assert (costos[nb][1], costos[mouse][1]) == (NB_ARS * D, MOUSE_ARS * D)
+
+
+@pytest.mark.parametrize("cron,df_id", CANALES)
+def test_cron_group_whose_lines_carry_the_product_only_in_it_item_id_origin_costs_its_components(
+    engine: Engine, db: Session, cron, df_id
+) -> None:
+    """Prod shape (T4 final dry-run, 5 fuera sales costed 0): every line of the group has `item_id` NULL and its
+    product in `it_item_id_origin`; the group still costs its components' costo SI, never 0."""
+    principal, *_ = _venta(engine, df_id, _desde_origen(_grupo(COMBO, [(NB, "1"), (MOUSE, "2")])))
+
+    assert _cron(db, cron)[principal][1] == (NB_ARS + 2 * MOUSE_ARS) * D
+
+
+@pytest.mark.parametrize("cron,df_id", CANALES)
+def test_cron_pc_group_from_it_item_id_origin_with_an_unknown_component_is_unknown_never_0(
+    engine: Engine, db: Session, cron, df_id
+) -> None:
+    """Prod PC 4879: a PC whose parts come as lines of its group from `it_item_id_origin`, one part with no cost
+    anywhere: the group's cost is unknown (NULL), never 0 and never the known part alone."""
+    principal, *_ = _venta(engine, df_id, _desde_origen(_grupo(PC_SIN, [(NB, "1"), (SIN_ERP, "1")])))
+
+    assert _cron_nulos(db, cron)[principal] is None
 
 
 def test_cron_stores_the_costo_si_cost_and_currency(engine: Engine, db: Session) -> None:
@@ -731,6 +764,21 @@ def test_despues_recosts_the_combos_that_contain_the_product(engine: Engine, db:
 
     # COMBO = NB (20 USD x 1,000) + 2 MOUSE (5,000 ARS), with Costo D
     assert _fila(db, cron, suelto).costo_total == Decimal("30000") * D
+    assert _fila(db, cron, principal).costo_total == Decimal("30000") * D
+
+
+@pytest.mark.parametrize("cron,df_id", CANALES)
+def test_despues_recosts_a_group_from_it_item_id_origin_to_its_components_never_0(
+    engine: Engine, db: Session, cron, df_id
+) -> None:
+    """What the T4 deploy does to prod's 5 fuera sales: a stored group whose lines carry the product only in
+    `it_item_id_origin` is re-costed to its components' new costo SI, not overwritten with 0."""
+    principal, *_ = _venta(engine, df_id, _desde_origen(_grupo(COMBO, [(NB, "1"), (MOUSE, "2")])), dia=DESPUES)
+    _guardar(db, cron)
+    _paso(engine, NB, "20", "USD", fecha="2026-10-04", orden=1)
+
+    _recostear(db, cron)
+
     assert _fila(db, cron, principal).costo_total == Decimal("30000") * D
 
 
