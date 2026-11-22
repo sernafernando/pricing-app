@@ -9,8 +9,10 @@ force on its sale date, through THE reader's SQL fragment (`lote.sql_en_fecha`),
 (`costeo_service.congelar`, which reads the same rule through `lote.en_fechas`) and this re-freeze never disagree.
 
 What is rewritten: `costo_origen`, `moneda`, `tipo_cambio`, `tipo_cambio_fecha`, `costo_unitario_ars`, `fuente`,
-`costo_fecha` -- only on a row whose cost is, or was, costo SI (a list-cost row that stays list cost is left as it was
-frozen), only when a value actually changes (a second run is a no-op), and each changed row is copied whole to
+`costo_fecha` -- only on a row whose cost is, or was, costo SI, or of a product with a bill of materials (a combo or
+a PC, S11/L22: always its components' sum, even when that sum is list cost and the row was frozen at the product's own
+list cost); any other list-cost row that stays list cost is left as it was frozen (`ELEGIBLE_SQL`); only when a value
+actually changes (a second run is a no-op), and each changed row is copied whole to
 `ml_order_item_costos_backups` first (same statement). Never the sale price (D4) nor the TP list-8 cost (D3); a sale
 whose cost is unknown on its date keeps its row. The `UPDATE OF costo_unitario_ars` trigger re-queues the order's
 metrics (`order_metrics`), which rewrites `ml_sale_lines.mcosto` and wakes sell in. In the same transaction the
