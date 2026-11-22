@@ -70,7 +70,7 @@ class DecisionInvalida(ValueError):
 
 
 class PrecioCambiado(ValueError):
-    """The row changed (its price, quantity or state) since the reviewer saw it."""
+    """The row's price changed since the reviewer saw it (a corrected invoice is a new review)."""
 
 
 @dataclass(frozen=True)
@@ -160,8 +160,8 @@ def reconciliar(db: Session, item_id: int, pasos: Sequence[Paso], moneda: str) -
                 paso.fuente_ref,
             )
         elif (g.cantidad, g.precio) != (paso.cantidad, paso.costo_neto_usd):
-            # A corrected invoice: a new review. Going back to 'pendiente' requeues once more (harmless: the engine
-            # already left it out, since `aceptadas` only keeps an unchanged accepted row).
+            # A corrected invoice: a new review. The engine already left it out (`aceptadas` only keeps an unchanged
+            # accepted row); the trigger's requeue lands in this recompute's own queue row, which the drain deletes.
             db.execute(
                 text(
                     "UPDATE costo_si_compras_sospechosas SET fecha = :fecha, cantidad = :cantidad, precio = :precio, "
@@ -263,6 +263,13 @@ def decidir(
     if decision not in DECISIONES:
         raise DecisionInvalida(decision)
     s = CostoSiCompraSospechosa
+    if db.get_bind().dialect.name == "postgresql":
+        # The drain locks the product's queue row and then this review row (`reconciliar`): queue the product first
+        # so this takes them in the same order, never a deadlock. An unknown or stale row rolls it back with the rest.
+        db.execute(
+            text("SELECT costo_si_encolar(item_id, fecha) FROM costo_si_compras_sospechosas WHERE id = :id"),
+            {"id": sospecha_id},
+        )
     fila = db.query(s).filter(s.id == sospecha_id).with_for_update().one_or_none()
     if fila is None:
         return None

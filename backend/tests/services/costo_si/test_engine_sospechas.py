@@ -128,3 +128,18 @@ def test_the_check_uses_the_net_before_sell_ins_and_a_list_reanchor_of_the_same_
         ("lista", D("8.00000"), None),
         ("compra", D("6.25000"), None),  # 9 vs 8 is not suspicious; net-net 4.5 averages in
     ]
+
+
+def test_a_price_that_rounds_to_exactly_a_tenth_still_enters() -> None:
+    """The check runs on the 5-decimal price the step stores: 0.999996 is 1.00000, exactly 1/10 of 10."""
+    pasos = calcular(Inicio(date(2026, 10, 1), 10, D("10")), [Compra(date(2026, 10, 2), 1, 5, D("0.999996"), (), 10)])
+
+    assert pasos[-1].tipo == "compra"
+
+
+def test_an_excluded_first_purchase_without_an_average_starts_at_the_list_cost() -> None:
+    compra = Compra(date(2026, 10, 2), 1, 5, D("0.5"), (), 0, referencia_lista=D("10"))
+
+    paso = calcular(Inicio(date(2026, 10, 1), 0, None), [compra])[-1]
+
+    assert (paso.tipo, paso.promedio_usd, paso.fuente_ref) == ("excluido", D("10.00000"), "lista")

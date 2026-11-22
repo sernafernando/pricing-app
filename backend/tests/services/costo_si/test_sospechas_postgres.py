@@ -210,3 +210,56 @@ def test_an_invoice_that_leaves_the_valid_ones_drops_its_row(engine: Engine) -> 
 
     assert [p[0] for p in _pasos(engine)] == ["inicio"]
     assert _revision(engine) == []
+
+
+def test_an_excluded_row_whose_price_changes_goes_back_to_review_and_the_queue_drains(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ct = _caso_item_23(engine)
+    _recalcular(engine)
+    _decidir(engine, sospechas.EXCLUIDA)
+    _drenar(engine, monkeypatch)
+
+    w.run(engine, "UPDATE tb_item_transactions SET it_price = 16.38 WHERE ct_transaction = :c", c=ct)
+    w.run(engine, "SELECT costo_si_encolar(:i, NULL)", i=ITEM)
+    _drenar(engine, monkeypatch)
+
+    assert _revision(engine)[0][8:] == ("pendiente", None)
+    assert w.encolados(engine) == []  # the reset's requeue lands in the drained row: no loop
+    assert _pasos(engine)[1][0] == "excluido"
+
+
+def test_decidir_refuses_a_stale_price_and_requeues_the_product_on_accept(engine: Engine) -> None:
+    _caso_item_23(engine)
+    _recalcular(engine)
+    w.run(
+        engine,
+        "INSERT INTO usuarios (id, nombre) VALUES (7, 'Revisor') ON CONFLICT (id) DO UPDATE SET nombre = 'Revisor'",
+    )
+    (sid,) = w.rows(engine, "SELECT id FROM costo_si_compras_sospechosas WHERE item_id = :i", i=ITEM)[0]
+
+    with sessionmaker(bind=engine, autoflush=False)() as db:
+        with pytest.raises(sospechas.PrecioCambiado):
+            sospechas.decidir(db, sid, sospechas.ACEPTADA, 7, D("0.0098"))
+        db.rollback()
+        assert sospechas.decidir(db, 999_999, sospechas.ACEPTADA, 7, D("1")) is None
+        db.rollback()
+        fila = sospechas.decidir(db, sid, sospechas.ACEPTADA, 7, D("0.009710"), "ok")
+        db.commit()
+
+    assert (fila["estado"], fila["revisor"], fila["nota"]) == ("aceptada", "Revisor", "ok")
+    assert w.encolados(engine) == [(ITEM, date(2026, 10, 27))]
+
+
+def test_an_excluded_row_corrected_to_a_normal_price_is_dropped_without_a_requeue(engine: Engine) -> None:
+    ct = _caso_item_23(engine)
+    _recalcular(engine)
+    _decidir(engine, sospechas.EXCLUIDA)
+    w.run(engine, "DELETE FROM costo_si_dirty")
+
+    w.run(engine, "UPDATE tb_item_transactions SET it_price = 21114.80 WHERE ct_transaction = :c", c=ct)
+    _recalcular(engine)
+
+    assert _revision(engine) == []
+    assert _pasos(engine)[1][0] == "compra"
+    assert w.encolados(engine) == []

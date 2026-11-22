@@ -96,7 +96,7 @@ describe('SellInComprasRevisar', () => {
     await waitFor(() => expect(costoSiSospechasAPI.excluir).toHaveBeenCalledWith(1, '0.00971', ''));
   });
 
-  it('explains a corrected invoice (409) and keeps the dialog open', async () => {
+  it('explains a corrected invoice (409), keeps the dialog open and reads the list again on closing', async () => {
     const user = userEvent.setup();
     costoSiSospechasAPI.aceptar.mockRejectedValue({ response: { status: 409 } });
     render(<SellInComprasRevisar puedeRevisar />);
@@ -106,6 +106,22 @@ describe('SellInComprasRevisar', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('La factura se corrigió desde que se cargó la lista');
     expect(screen.getByRole('heading', { name: 'Aceptar la compra' })).toBeInTheDocument();
+ 
+    expect(costoSiSospechasAPI.listar).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+    await waitFor(() => expect(costoSiSospechasAPI.listar).toHaveBeenCalledTimes(2));
+  });
+
+  it('does not read the list again when a dialog is just cancelled', async () => {
+    const user = userEvent.setup();
+    render(<SellInComprasRevisar puedeRevisar />);
+
+    await user.click(await screen.findByRole('button', { name: /^Aceptar la compra/ }));
+    await user.click((await modal('Aceptar la compra')).getByRole('button', { name: 'Cancelar' }));
+
+    expect(screen.queryByRole('heading', { name: 'Aceptar la compra' })).not.toBeInTheDocument();
+    expect(costoSiSospechasAPI.listar).toHaveBeenCalledTimes(1);
   });
 
   it('is read only without costo_si.revisar', async () => {

@@ -44,7 +44,7 @@ from app.services.costo_si import queue, sospechas
 from tests.services.sell._schema import throwaway_schema
 
 STUBS = [
-    "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
+    "CREATE TABLE usuarios (id INTEGER PRIMARY KEY, nombre TEXT)",
     "INSERT INTO usuarios VALUES (7)",
     "CREATE TABLE proveedores (id INTEGER PRIMARY KEY, nombre TEXT)",
     "CREATE TABLE pedidos_compra (id BIGINT PRIMARY KEY, tipo_cambio NUMERIC(18, 6), tipo_cambio_manual NUMERIC(18, 6))",

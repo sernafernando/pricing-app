@@ -212,7 +212,16 @@ export default function SellInComprasRevisar({ puedeRevisar, onDecidido, version
         )}
       </section>
 
-      {accion && <Confirmar accion={accion} onClose={() => setAccion(null)} onDone={decidido} />}
+      {accion && (
+        <Confirmar
+          accion={accion}
+          onClose={(vencida) => {
+            setAccion(null);
+            if (vencida) setAttempt((a) => a + 1); // a corrected invoice: show its new price before a new decision
+          }}
+          onDone={decidido}
+        />
+      )}
     </>
   );
 }
@@ -223,6 +232,8 @@ function Confirmar({ accion, onClose, onDone }) {
   const [nota, setNota] = useState(fila.nota ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [vencida, setVencida] = useState(false); // a 409: the row changed, the list must be read again
+  const cerrar = () => onClose(vencida);
 
   const confirmar = async () => {
     setSaving(true);
@@ -232,9 +243,10 @@ function Confirmar({ accion, onClose, onDone }) {
       onDone();
     } catch (err) {
       const status = err?.response?.status;
+      if (status === 409) setVencida(true);
       setError(
         status === 409
-          ? 'La factura se corrigió desde que se cargó la lista. Cerrá y volvé a revisarla.'
+          ? 'La factura se corrigió desde que se cargó la lista. Al cerrar se recarga con el precio nuevo.'
           : status === 403
             ? 'No tenés permiso para revisar compras.'
             : 'No se pudo guardar la decisión. Probá de nuevo.',
@@ -246,13 +258,13 @@ function Confirmar({ accion, onClose, onDone }) {
   return (
     <ModalTesla
       isOpen
-      onClose={onClose}
+      onClose={cerrar}
       title={textos.titulo}
       subtitle={`${fila.descripcion ?? `Producto ${fila.item_id}`} · factura ${fila.factura ?? fila.ct_transaction}`}
       size="sm"
       footer={
         <div className={styles.modalAcciones}>
-          <button type="button" className="btn-tesla outline sm" onClick={onClose} disabled={saving}>
+          <button type="button" className="btn-tesla outline sm" onClick={cerrar} disabled={saving}>
             Cancelar
           </button>
           <button type="button" className={`btn-tesla ${textos.clase} sm`} onClick={confirmar} disabled={saving}>
