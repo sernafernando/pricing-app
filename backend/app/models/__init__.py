@@ -224,6 +224,7 @@ from app.models.ml_publications import (
 )
 from app.models.costo_si import (
     CostoSiBackup,
+    CostoSiCompraSospechosa,
     CostoSiDirty,
     CostoSiFacturaTc,
     CostoSiPaso,
@@ -596,6 +597,7 @@ __all__ = [
     "MlCostoSiDirty",
     "MlOrderItemCostoBackup",
     "CostoSiFacturaTc",
+    "CostoSiCompraSospechosa",
     "CostoSiPaso",
     "CostoSiStockDiario",
     "McpWriteAction",

@@ -1,0 +1,248 @@
+/* Sell in's "Compras a revisar" (owner L29): the Productos tab's dense table and filter card
+   (SellInProductosCosto.module.css), with the suspicious price in the danger color, the deviation as a warning chip
+   and the state as a pill. Design tokens only, so light and dark follow the theme. */
+
+.filtros {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3) var(--space-4);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.label {
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cf-text-secondary);
+}
+
+.control {
+  min-height: 32px;
+  padding: 4px 8px;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.control:focus-visible,
+.textarea:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+}
+
+.ayuda {
+  flex: 1 1 360px;
+  max-width: 720px;
+  margin: 0;
+  font-size: var(--font-sm);
+  line-height: 1.45;
+  color: var(--cf-text-secondary);
+}
+
+.card {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.scroller {
+  position: relative;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 960px;
+  border-collapse: collapse;
+  font-size: 13px;
+  color: var(--cf-text-primary);
+}
+
+.table th {
+  padding: 10px 16px;
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--cf-text-secondary);
+  background: var(--cf-bg-hover);
+}
+
+.table td {
+  padding: 10px 16px;
+  vertical-align: middle;
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.table tbody tr:hover {
+  background: var(--cf-bg-hover);
+}
+
+.num,
+.table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.apilado {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.num .apilado {
+  align-items: flex-end;
+}
+
+.nombre {
+  font-weight: var(--font-medium);
+}
+
+.codigo,
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.codigo,
+.secundario {
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+}
+
+.secundario {
+  margin: 0;
+}
+
+.precio {
+  font-weight: var(--font-semibold);
+  color: var(--cf-danger);
+}
+
+.desvio {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--cf-warning);
+  background: color-mix(in srgb, var(--cf-warning) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cf-warning) 40%, transparent);
+  border-radius: 999px;
+}
+
+.estado {
+  display: inline-block;
+  width: fit-content;
+  padding: 2px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--cf-text-secondary);
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-default);
+  border-radius: 999px;
+}
+
+.pendiente {
+  color: var(--cf-warning);
+  border-color: color-mix(in srgb, var(--cf-warning) 40%, transparent);
+}
+
+.excluida {
+  color: var(--cf-danger);
+  border-color: color-mix(in srgb, var(--cf-danger) 40%, transparent);
+}
+
+.aceptada {
+  color: var(--cf-text-primary);
+}
+
+.acciones {
+  width: 1%;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.botones {
+  display: inline-flex;
+  gap: var(--space-2);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.nota {
+  margin: 0;
+  padding: var(--spacing-md);
+  color: var(--cf-text-secondary);
+}
+
+.error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--spacing-md);
+  color: var(--cf-danger);
+}
+
+.modal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.resumen {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.textarea {
+  padding: 6px 8px;
+  font: inherit;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-strong);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+}
+
+.errorTexto {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-danger);
+}
+
+.modalAcciones {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}

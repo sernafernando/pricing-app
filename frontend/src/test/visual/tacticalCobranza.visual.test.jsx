@@ -42,6 +42,8 @@ vi.mock('../../services/sellInAPI', () => ({
   sellInLotesAPI: { productos: vi.fn(() => new Promise(() => {})) },
   sellInAPI: { listar: vi.fn(), resumen: vi.fn(), detalle: vi.fn() },
   sellInBonosAPI: { listar: vi.fn(), detalle: vi.fn() },
+  // The Compras a revisar tab's count; its list is never opened here.
+  costoSiSospechasAPI: { resumen: vi.fn(() => Promise.resolve({ data: { pendientes: 1 } })), listar: vi.fn() },
 }));
 
 vi.mock('../../services/sellOutAPI', () => ({
