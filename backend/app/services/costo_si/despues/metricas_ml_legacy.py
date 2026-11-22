@@ -13,7 +13,9 @@ runs inline as ONE set-based statement (no queue, no cron, no migration), in the
 3. the new cost, ganancia and markup (the formulas of `utils.ml_metrics_calculator`); price, commission, shipping and
    `monto_limpio` untouched (D4);
 4. the `porcentaje_costo` offset consumptions of those sales (the only offset type that depends on the cost), rounded
-   to the cent as their columns store them, and their group / individual summaries, by the same difference.
+   to the cent as their columns store them, and their group / individual summaries, by the same difference. Only
+   approved offsets (`estado = 'activa'`, tacticals approval S10): a pending one applies to nothing, so its
+   consumptions are not re-priced with its pending values.
 
 A second call with nothing changed matches no row: it writes nothing, no backup either.
 """
@@ -44,7 +46,8 @@ _CONSUMOS = """
     FROM {tabla} c
     JOIN v ON v.id_operacion = c.id_operacion
     JOIN offsets_ganancia o ON o.id = c.offset_id
-    WHERE c.tipo_venta = 'ml' AND o.tipo_offset = 'porcentaje_costo' AND v.total IS NOT NULL"""
+    WHERE c.tipo_venta = 'ml' AND o.tipo_offset = 'porcentaje_costo' AND v.total IS NOT NULL
+      AND o.estado = 'activa'"""
 
 _RESUMEN = """
     UPDATE {tabla} r
