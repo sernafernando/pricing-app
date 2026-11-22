@@ -3,9 +3,11 @@
 Owner: "Los offsets hay que migrar todo, lo que no se pueda migrar directo haceme
 un detalle y guardamelo en una tabla". Each offset of type `monto_por_unidad`
 with a positive amount becomes a `por_unidad` campaign, loaded through the
-campaigns service (`app.services.sell_out.campanas`: the same validation, audit
-row and `sell_out.drain` queueing as a campaign loaded from the screen) and
-stamped with `offset_origen_id`:
+campaigns service (`app.services.sell_out.campanas`: the same validation and
+audit row as a campaign loaded from the screen) and stamped with
+`offset_origen_id`. It is created `pendiente` (tacticals approval S10): it
+applies to nothing and is not queued for `sell_out.drain` until it is approved
+from the "Pendientes de aprobación" filter:
 
 - an offset without a group gets a new `offset_grupos` row with one
   `offset_grupo_filtros` row per non-null scope field (marca / categoria /
@@ -39,8 +41,8 @@ legacy offset's exact equivalent (a % of each sale's cost without VAT, by sale
 date). It takes the offset's STORED `porcentaje` as is with 'incluye IVA'
 UNTICKED (S33: the stored value is already net of VAT), and is loaded with the
 bonus service's own steps (`app.services.sell_in.bonos_crud`: `validar`, the
-same fields, the audit row; its table's triggers queue it for the worker like a
-bonus loaded from the screen). The API never takes `offset_origen_id` (T25d:
+same fields, the audit row). It is created `pendiente` too, like a bonus loaded
+from the screen: its triggers queue it for the worker when it is approved. The API never takes `offset_origen_id` (T25d:
 read-only), so the script passes it to `crear_bono` as a keyword argument:
 
 - a brand alone -> `alcance='marca'`; a category alone -> 'categoria'; a product
@@ -145,10 +147,14 @@ from app.models.sell_out import SellOutCampana, SellOutCampanaItem
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, MODELOS_MAX, SellInBonoIn, SellInBonoModeloIn
 from app.schemas.sell_out import ITEMS_MAX, NOMBRE_MAX, SellOutCampanaIn
 from app.services.sell_in import bonos_crud
+from app.services.sell_in.aprobacion import PENDIENTE
 from app.services.sell_out import alcance, campanas
 from app.utils.csv_cells import csv_money, csv_text
 
 logger = logging.getLogger(__name__)
+# Tacticals approval S10: every campaign and bonus this script creates waits for approval like any other load
+# (`app.services.sell_in.aprobacion`): it applies to nothing until approved, one by one, from the Pendientes de
+# aprobación filter. Rows an earlier run stored keep their state.
 
 FECHA_HASTA_DEFAULT = date(2026, 12, 31)
 ARGENTINA = ZoneInfo("America/Argentina/Buenos_Aires")
@@ -802,7 +808,7 @@ def _uno(db: Session, offset: OffsetGanancia, plan: _Plan, apply: bool) -> tuple
             campanas.validar_campos(plan.data)  # its group does not exist yet
             return _fila(offset, MIGRARIA, avisos=plan.avisos), None
         plan.data.grupo_ids = [_nuevo_grupo(db, offset, plan.usuario_id)]
-        campana = campanas.crear_campana(db, plan.data, plan.usuario_id, offset_origen_id=offset.id)
+        campana = campanas.crear_campana(db, plan.data, plan.usuario_id, offset_origen_id=offset.id, estado=PENDIENTE)
         return _fila(offset, MIGRADO, campana.id, avisos=plan.avisos), None
     except campanas.SellOutError as exc:
         db.rollback()  # drops the new group too
@@ -837,7 +843,7 @@ def _uno_bono(
         if not apply:
             bonos_crud.validar(db, plan.bono)
             return _fila(offset, BONO_MIGRARIA, avisos=plan.avisos), None, None
-        bono = bonos_crud.crear_bono(db, plan.bono, plan.usuario_id, offset_origen_id=offset.id)
+        bono = bonos_crud.crear_bono(db, plan.bono, plan.usuario_id, offset_origen_id=offset.id, estado=PENDIENTE)
         return _fila(offset, BONO_MIGRADO.format(bono.id), avisos=plan.avisos), None, bono.id
     except bonos_crud.SellInBonoError as exc:
         db.rollback()
@@ -1087,7 +1093,9 @@ def _grupo(
         if apply:
             if fuera:
                 plan.data.grupo_ids = [grupo_id, _grupo_de_productos(db, grupo_id, fuera, plan.usuario_id)]
-            campana_id = campanas.crear_campana(db, plan.data, plan.usuario_id, offset_origen_id=offsets[0].id).id
+            campana_id = campanas.crear_campana(
+                db, plan.data, plan.usuario_id, offset_origen_id=offsets[0].id, estado=PENDIENTE
+            ).id
         else:
             campanas.validar(db, plan.data)  # the group exists: its id is checked too
     except (campanas.SellOutError, SQLAlchemyError) as exc:
