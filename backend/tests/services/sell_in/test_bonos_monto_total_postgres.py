@@ -114,6 +114,19 @@ class TestCrear:
 
 
 class TestEditar:
+    def test_turning_another_bonus_into_a_lump_sum_is_refused_and_changes_nothing(self, db) -> None:
+        """sell-in-costo-si T5 PR A, L25: only a bonus that already was a lump sum edits as one."""
+        porcentaje = {"tipo": "porcentaje", "porcentaje": "3", "monto_total": None, "reparto_criterio": None}
+        bono_id = bonos_crud.crear_bono(db, _entrada(**porcentaje), 7).id
+
+        with pytest.raises(bonos_crud.SellInBonoError) as exc:
+            bonos_crud.editar_bono(db, bono_id, _entrada(), 7)
+
+        assert str(exc.value) == bonos_crud.MONTO_TOTAL_RETIRADO
+        db.rollback()
+        bono = db.get(bonos_crud.SellInBonoMarca, bono_id)
+        assert (bono.tipo, bono.monto_total, _repartos(db, bono_id)) == ("porcentaje", None, {})
+
     def test_a_new_total_resplits_the_shares_and_queues_the_bonus(self, db, engine) -> None:
         bono_id = _crear(db)
         b.clear_queue(engine)

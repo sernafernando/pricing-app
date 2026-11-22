@@ -1180,6 +1180,7 @@ def reemplazar(
         hijos = serializar(db, [tactical])[0]["lineas"]
         antes = {**_cabecera(tactical), "tactical_id": tactical.id, "lineas": _definicion_de(hijos)}
         conservadas = _conservables(tactical, data, hijos)
+        heredadas = _heredadas(tactical, data, hijos)  # before the children are voided
         _validar_topes_usados(db, tactical, data, [h for h in hijos if h["linea"] not in conservadas])
         _sin_modo_manual(db, [h for h in hijos if h["linea"] not in conservadas])
         tasas = _tasas_al_cobro(db, tactical, data)
@@ -1187,7 +1188,7 @@ def reemplazar(
         facturas_elegidas.borrar(db, tactical_id)  # every line stores its pick again (`_crear_hijos`)
         _aplicar_cabecera(db, tactical, data)
         db.flush()
-        _crear_hijos(db, tactical, data, usuario_id, frozenset(conservadas), _heredadas(hijos))
+        _crear_hijos(db, tactical, data, usuario_id, frozenset(conservadas), heredadas)
         _poner_tasas(db, tactical_id, tasas)
         despues = {
             **_cabecera(tactical),
@@ -1222,14 +1223,30 @@ def _definicion_de(hijos: list[dict]) -> list[dict]:
     ]
 
 
-def _heredadas(hijos: list[dict]) -> frozenset[int]:
-    """The lines whose active children include a sell in lump-sum bonus: a full edit creates them again, which is not
-    loading a new lump sum (`bonos_crud.validar`'s `nuevo`, sell-in-costo-si T5 PR A, L25)."""
-    return frozenset(
-        h["linea"]
-        for h in hijos
-        if h["estado"] == "activa" and h["origen"] == "sell_in_bono" and h["modo_monto"] == "monto_total"
-    )
+def _heredadas(tactical: Tactical, data: TacticalIn, hijos: list[dict]) -> frozenset[int]:
+    """The new lines that repeat a stored sell in lump-sum bonus line: a full edit creates them again, which is not
+    loading a new lump sum (`bonos_crud.validar`'s `nuevo`, sell-in-costo-si T5 PR A, L25). A new line is paired
+    with the old line of the same scope whatever its number (L18, like `_validar_topes_usados`)."""
+    if data.tipo != "sell_in" or tactical.tipo != "sell_in":
+        return frozenset()
+    por_linea: dict[int, list[dict]] = defaultdict(list)
+    for h in hijos:
+        if h["estado"] == "activa":
+            por_linea[h["linea"]].append(h)
+    totales = {
+        n: actuales
+        for n, actuales in por_linea.items()
+        if all(h["origen"] == "sell_in_bono" and h["modo_monto"] == "monto_total" for h in actuales)
+    }
+    heredadas = set()
+    for numero, linea in enumerate(data.lineas, start=1):
+        if linea.modo_monto != "monto_total" or linea.alcance == "factura":
+            continue
+        viejo = next((n for n, actuales in totales.items() if _mismo_alcance(linea, actuales)), None)
+        if viejo is not None:
+            totales.pop(viejo)
+            heredadas.add(numero)
+    return frozenset(heredadas)
 
 
 def _conservables(tactical: Tactical, data: TacticalIn, hijos: list[dict]) -> set[int]:

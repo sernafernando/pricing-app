@@ -824,6 +824,19 @@ class TestSellInMontoTotal:
             service.reemplazar(db, tactical.id, _tactical("sell_in", [self._linea(), self._linea(valor="5")]),
                                USUARIO, hoy=date(2026, 11, 6))  # fmt: skip
 
+    def test_a_stored_total_line_is_paired_by_scope_when_it_changes_number(self, db, engine, monkeypatch) -> None:
+        por_unidad = {"alcance": "productos", "item_ids": [2964], "modo_monto": "por_unidad", "valor": "36"}
+        tactical = self._cargada_antes(db, monkeypatch, [por_unidad, self._linea()])
+
+        # Line 1 deleted: the stored total is now line 1, still the same scope, so it is not a new one.
+        service.reemplazar(db, tactical.id, _tactical("sell_in", [self._linea()]), USUARIO, hoy=date(2026, 11, 6))
+        assert self._bono(engine, tactical.id)[2:6] == ("monto_total", "ARS", Decimal("1200.00"), "iguales")
+
+        # Another scope is a new lump sum.
+        otro = self._linea(alcance="productos", marca=None, item_ids=[2964, 2270])
+        with pytest.raises(service.TacticalError, match="Línea 1: un bono de sell in por monto total"):
+            service.reemplazar(db, tactical.id, _tactical("sell_in", [otro]), USUARIO, hoy=date(2026, 11, 6))
+
 
 class TestStoreScope:
     def test_scoped_create_persists_targets_and_shared_cap(self, db, engine) -> None:

@@ -13,8 +13,8 @@ What is rewritten: `costo_origen`, `moneda`, `tipo_cambio`, `tipo_cambio_fecha`,
 frozen), only when a value actually changes (a second run is a no-op), and each changed row is copied whole to
 `ml_order_item_costos_backups` first (same statement). Never the sale price (D4) nor the TP list-8 cost (D3); a sale
 whose cost is unknown on its date keeps its row. The `UPDATE OF costo_unitario_ars` trigger re-queues the order's
-metrics (`order_metrics`), which rewrites `ml_sale_lines.mcosto` and wakes sell in. In the same transaction the
-product's sale-cost bonuses are recomputed (D2: a sale at costo SI no longer takes a % / per-unit bonus, any channel).
+metrics (`order_metrics`), which rewrites `ml_sale_lines.mcosto` and wakes sell in. A sale-cost bonus is no longer
+applied per sale (sell-in-costo-si T5 PR A, L24), so nothing else is recomputed.
 """
 
 from __future__ import annotations

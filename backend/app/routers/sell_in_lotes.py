@@ -3,7 +3,6 @@ consumed by, and the product's dated cost modes, plus the preview and confirm of
 of the product panel, which already shows the sell-in figures; the modes, which carry typed and frozen unit costs, also
 need `sell_in.ver`, and a change the mode's own permission (D7)."""
 
-import logging
 from dataclasses import replace
 from datetime import date
 
@@ -26,12 +25,6 @@ from app.schemas.sell_in_modos import (
 )
 from app.services.permisos_service import verificar_permiso
 from app.services.sell_in import modos, productos_costo, visor_lotes
-
-logger = logging.getLogger(__name__)
-
-# Another writer held the product: deadlock_detected, lock_not_available, query_canceled (a statement_timeout while
-# waiting for the product's lock). Nothing was saved; the same request can be retried. A 57014 can also be a slow
-# recompute or an operator's cancel, so every mapped error is logged with its code.
 
 # Who sold each lot (supplier, invoices) is purchase information: Productos' "Últimas compras" permission.
 VER_COMPRAS = "productos.ver_info_compras"

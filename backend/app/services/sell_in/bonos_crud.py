@@ -551,7 +551,9 @@ def editar_bono_sin_commit(db: Session, bono_id: int, data: SellInBonoIn, usuari
             "La base del bono no se puede cambiar: lo que ya generó se contaría dos veces; anulalo y cargá otro"
         )
     incluye_iva = data.incluye_iva if "incluye_iva" in data.model_fields_set else bono.incluye_iva
-    campos = validar(db, data, bono.base, incluye_iva, de_tactical=bono.tactical_id is not None, nuevo=False)
+    campos = validar(
+        db, data, bono.base, incluye_iva, de_tactical=bono.tactical_id is not None, nuevo=bono.tipo != MONTO_TOTAL
+    )
     if data.moneda != bono.moneda and bono.tope_monto is not None and "tope_monto" not in data.model_fields_set:
         # The stored money cap is in the old currency: kept as is it would silently mean another amount.
         raise SellInBonoError("Al cambiar la moneda hay que volver a indicar el tope de monto")
