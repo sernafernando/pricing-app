@@ -159,12 +159,13 @@ _COSTO_LISTA_SQL = text("""
 """)
 
 # L23: every day a new list 1 cost comes in force (00:00 after the row, the S2 rule) since `t0`, up to `hoy`, with the
-# cost in force at that day's 00:00 in Buenos Aires: the same row `_COSTO_LISTA_SQL` would pick for that day.
+# cost in force at that day's 00:00, naive local time like GBP's timestamps (`inicio_del_dia`): the same row
+# `_COSTO_LISTA_SQL` would pick for that day.
 _CAMBIOS_LISTA_SQL = text("""
     SELECT d.dia, (
         SELECT h.iclh_price FROM tb_item_cost_list_history h
         WHERE h.item_id = :i AND h.coslis_id = 1 AND COALESCE(h.curr_id, 1) = :curr
-          AND h.iclh_cd < (CAST(d.dia AS timestamp) AT TIME ZONE 'America/Argentina/Buenos_Aires')
+          AND h.iclh_cd < CAST(d.dia AS timestamp)
         ORDER BY h.iclh_cd DESC, h.iclh_id DESC LIMIT 1
     )
     FROM (

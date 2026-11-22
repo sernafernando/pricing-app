@@ -1052,6 +1052,23 @@ def test_l23_a_list_change_without_an_invoice_re_anchors_the_costo_si_from_that_
     )
 
 
+def test_l23_a_change_after_midnight_is_in_force_the_next_day_only(engine: Engine) -> None:
+    """The S2 cut is 00:00 local, naive like GBP's timestamps: a change at 01:00 of 11-11 is in force on 11-12, never
+    on 11-11 itself (a timezone-aware cut would move it to 03:00 under a UTC session)."""
+    w.producto(engine, SIN_SELL_IN)
+    w.costo_lista(engine, SIN_SELL_IN, datetime(2026, 10, 15, 9, 0), "1014")
+    w.costo_lista(engine, SIN_SELL_IN, datetime(2026, 11, 10, 9, 0), "1260")
+    w.costo_lista(engine, SIN_SELL_IN, datetime(2026, 11, 11, 1, 0), "1300")
+
+    _recalcular(engine, SIN_SELL_IN)
+
+    assert [(p[0], p[1], p[5]) for p in w.pasos(engine, SIN_SELL_IN)] == [
+        ("inicio", date(2026, 11, 1), D("1014.00000")),
+        ("lista", date(2026, 11, 11), D("1260.00000")),
+        ("lista", date(2026, 11, 12), D("1300.00000")),
+    ]
+
+
 def test_l23_an_invoice_after_a_list_change_averages_from_the_re_anchored_cost(engine: Engine) -> None:
     """S4 after L23: list 25 -> 40 on 11-03 10:00 (in force 11-04), then 100 at 22 on 11-05 over the 200 in stock:
     (200 x 40 + 100 x 22) / 300 = 34."""
