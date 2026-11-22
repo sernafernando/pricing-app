@@ -127,7 +127,8 @@ La pestaña **Compras a revisar** lista las compras cuyo precio por unidad parec
 Cada fila muestra:
 
 - el producto y la factura, con su fecha y cantidad;
-- el precio por unidad y la referencia (**costo SI** o **costo de lista**);
+- el precio por unidad tal como figura en la factura (por ejemplo, ARS 15,14) y, debajo, convertido a la moneda del costo con el tipo de cambio de la factura (USD 0,00971 a TC 1.560);
+- la referencia (**costo SI** o **costo de lista**);
 - el **Desvío**, por ejemplo "1/1.395 de la referencia";
 - el **Estado**: **Pendiente**, **Excluida** o **Aceptada**, con quién la revisó y cuándo.
 

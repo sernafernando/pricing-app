@@ -57,6 +57,9 @@ const FILAS = [
     cantidad: 312,
     precio: '0.00971',
     moneda: 'USD',
+    precio_factura: '15.140000',
+    moneda_factura: 'ARS',
+    tipo_cambio: '1560.000000',
     referencia: '13.53550',
     fuente_ref: 'costo_si',
     ratio: '0.000717',
@@ -98,7 +101,7 @@ describe.each([
     const tabla = screen.getByRole('table', { name: 'Compras con precio sospechoso' }).element();
     expect(tabla.parentElement.scrollWidth).toBeLessThanOrEqual(tabla.parentElement.clientWidth + 1);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
-    const precio = screen.getByText('USD 0,00971').element();
+    const precio = screen.getByText('ARS 15,14').element();
     expect(getComputedStyle(precio).color).toBe(tokenColor('--cf-danger'));
     const desvio = screen.getByText(/1\/1\.395 de la referencia/).element();
     expect(getComputedStyle(desvio).color).toBe(tokenColor('--cf-warning'));

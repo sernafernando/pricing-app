@@ -23,6 +23,9 @@ const ITEM_23 = {
   cantidad: 312,
   precio: '0.00971',
   moneda: 'USD',
+  precio_factura: '15.140000',
+  moneda_factura: 'ARS',
+  tipo_cambio: '1560.000000',
   referencia: '13.53550',
   fuente_ref: 'costo_si',
   ratio: '0.000717',
@@ -49,7 +52,9 @@ describe('SellInComprasRevisar', () => {
     expect(within(fila).getByText('EXTENSOR DE RANGO WIFI TP LINK TL-WA850RE 300MBPS')).toBeInTheDocument();
     expect(within(fila).getByText('27/10/2026')).toBeInTheDocument();
     expect(within(fila).getByText('312 u')).toBeInTheDocument();
-    expect(within(fila).getByText('USD 0,00971')).toBeInTheDocument();
+    // The price as loaded on the invoice (what Compras looks for), and under it the converted one at that day's rate.
+    expect(within(fila).getByText('ARS 15,14')).toBeInTheDocument();
+    expect(within(fila).getByText('USD 0,00971 a TC 1.560')).toBeInTheDocument();
     expect(within(fila).getByText('USD 13,5355')).toBeInTheDocument();
     expect(within(fila).getByText('costo SI')).toBeInTheDocument();
     expect(within(fila).getByText(/1\/1\.395 de la referencia/)).toBeInTheDocument();
@@ -76,6 +81,8 @@ describe('SellInComprasRevisar', () => {
     await user.click(await screen.findByRole('button', { name: /^Aceptar la compra de EXTENSOR/ }));
     const dialogo = await modal('Aceptar la compra');
     expect(dialogo.getByText(/se recalcula la historia del producto/)).toBeInTheDocument();
+    expect(dialogo.getByText('ARS 15,14')).toBeInTheDocument();
+    expect(dialogo.getByText(/USD 0,00971 a TC 1\.560 del 27\/10\/2026/)).toBeInTheDocument();
     await user.type(dialogo.getByRole('textbox', { name: 'Nota (opcional)' }), 'Precio verificado');
     await user.click(dialogo.getByRole('button', { name: 'Aceptar' }));
 
@@ -122,6 +129,17 @@ describe('SellInComprasRevisar', () => {
 
     expect(screen.queryByRole('heading', { name: 'Aceptar la compra' })).not.toBeInTheDocument();
     expect(costoSiSospechasAPI.listar).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a single price when the invoice is in the product currency', async () => {
+    costoSiSospechasAPI.listar.mockResolvedValue({
+      data: [{ ...ITEM_23, precio_factura: '0.009710', moneda_factura: 'USD', tipo_cambio: null }],
+    });
+    render(<SellInComprasRevisar puedeRevisar />);
+
+    const fila = (await screen.findByText('00128199')).closest('tr');
+    expect(within(fila).getByText('USD 0,00971')).toBeInTheDocument();
+    expect(within(fila).queryByText(/a TC/)).not.toBeInTheDocument();
   });
 
   it('is read only without costo_si.revisar', async () => {

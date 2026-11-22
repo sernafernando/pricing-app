@@ -34,7 +34,12 @@ const ACCIONES = {
 const PRECIO = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 5 });
 const RATIO = new Intl.NumberFormat('es-AR', { maximumSignificantDigits: 2 });
 
-const precio = (valor, moneda) => `${moneda === 'USD' ? 'USD' : '$'} ${PRECIO.format(Number(valor))}`;
+const TC = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 });
+
+const precio = (valor, moneda) => `${moneda} ${PRECIO.format(Number(valor))}`;
+/** The invoice's price is converted when it is in another currency than the product's cost, at the invoice's rate. */
+const convertida = (fila) => fila.moneda_factura !== fila.moneda && fila.tipo_cambio != null;
+const conversion = (fila) => `${precio(fila.precio, fila.moneda)} a TC ${TC.format(Number(fila.tipo_cambio))}`;
 const fecha = (iso) => {
   const [y, m, d] = String(iso).slice(0, 10).split('-');
   return `${d}/${m}/${y}`;
@@ -154,7 +159,13 @@ export default function SellInComprasRevisar({ puedeRevisar, onDecidido, version
                       </span>
                     </td>
                     <td className={styles.num}>{formatEntero(fila.cantidad)} u</td>
-                    <td className={`${styles.num} ${styles.precio}`}>{precio(fila.precio, fila.moneda)}</td>
+                    <td className={styles.num}>
+                      {/* As loaded on the invoice (what Compras looks for), and under it what the cost uses. */}
+                      <span className={styles.apilado}>
+                        <span className={styles.precio}>{precio(fila.precio_factura, fila.moneda_factura)}</span>
+                        {convertida(fila) && <span className={styles.secundario}>{conversion(fila)}</span>}
+                      </span>
+                    </td>
                     <td className={styles.num}>
                       <span className={styles.apilado}>
                         <span>{precio(fila.referencia, fila.moneda)}</span>
@@ -275,7 +286,8 @@ function Confirmar({ accion, onClose, onDone }) {
     >
       <div className={styles.modal}>
         <p className={styles.resumen}>
-          {formatEntero(fila.cantidad)} u a <strong>{precio(fila.precio, fila.moneda)}</strong> contra{' '}
+          {formatEntero(fila.cantidad)} u a <strong>{precio(fila.precio_factura, fila.moneda_factura)}</strong>
+          {convertida(fila) && ` (${conversion(fila)} del ${fecha(fila.fecha)})`} contra{' '}
           {precio(fila.referencia, fila.moneda)} de {FUENTE_LABEL[fila.fuente_ref] ?? fila.fuente_ref} (
           {ratioLabel(fila.ratio)}).
         </p>

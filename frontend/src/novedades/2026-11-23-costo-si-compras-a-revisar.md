@@ -13,7 +13,7 @@ El primer caso es la factura 00128199 del producto 23: 312 unidades a ARS 15,14 
 - Entrá a **Sell in / Sell out** y abrí la pestaña **Compras a revisar**. El número al lado del nombre son las compras pendientes.
 - Cada fila muestra:
   - el producto y la factura;
-  - el precio por unidad, en rojo;
+  - el precio por unidad tal como figura en la factura, en rojo, y debajo el mismo precio convertido con el tipo de cambio de ese día;
   - la referencia: el costo SI de antes de la factura, o el costo de lista si no había costo SI;
   - el **Desvío**.
 - **Aceptar**: el precio es real. La compra entra al promedio y se recalculan el costo, las ventas y los markups del producto desde esa factura.

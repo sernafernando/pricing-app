@@ -86,6 +86,9 @@ class SospechosaOut(BaseModel):
     cantidad: int
     precio: Decimal  # net unit price in `moneda`, before sell ins
     moneda: str
+    precio_factura: Decimal  # the unit price as loaded on the invoice, in `moneda_factura`
+    moneda_factura: str
+    tipo_cambio: Optional[Decimal]  # the rate it was converted at; None when the invoice is in `moneda`
     referencia: Decimal  # the cost it was checked against
     fuente_ref: str  # 'costo_si' | 'lista'
     ratio: Decimal  # precio / referencia

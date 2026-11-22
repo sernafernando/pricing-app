@@ -77,6 +77,9 @@ class Compra:
     fuente_tc: Optional[str] = None  # 'usd' | 'ars' (in the product's currency) | 'manual' | 'pedido' | 'fecha_factura'
     en_compras: bool = False  # linked to a Compras operation (S7)
     referencia_lista: Optional[Decimal] = None  # list cost on its date: the L29 reference when there is no average
+    # The unit price as loaded on the invoice, in its own currency (L29: what a reviewer looks for on the invoice).
+    precio_factura: Optional[Decimal] = None
+    moneda_factura: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -102,6 +105,8 @@ class Paso:
     # ('costo_si' | 'lista'). Not stored in the steps: the review table keeps it.
     referencia: Optional[Decimal] = None
     fuente_ref: Optional[str] = None
+    precio_factura: Optional[Decimal] = None  # the invoice's own unit price and currency, set with `referencia`
+    moneda_factura: Optional[str] = None
 
 
 def sospechoso(precio: Decimal, referencia: Optional[Decimal]) -> bool:
@@ -204,6 +209,8 @@ def calcular(
                 en_compras=c.en_compras,
                 referencia=referencia,
                 fuente_ref=fuente_ref,
+                precio_factura=c.precio_factura if referencia is not None else None,
+                moneda_factura=c.moneda_factura if referencia is not None else None,
             )
         )
     pasos.extend(_anclaje(x) for x in pendientes)

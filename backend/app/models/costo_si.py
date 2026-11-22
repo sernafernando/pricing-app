@@ -133,6 +133,9 @@ class CostoSiCompraSospechosa(Base):
     cantidad = Column(Integer, nullable=False)
     precio = Column(USD, nullable=False)  # net unit price in `moneda`, before sell ins, as evaluated
     moneda = Column(String(3), nullable=False)  # the product's cost currency (L18)
+    precio_factura = Column(Numeric(18, 6), nullable=False)  # the unit price as loaded on the invoice
+    moneda_factura = Column(String(3), nullable=False)  # the invoice's currency
+    tipo_cambio = Column(Numeric(18, 6), nullable=True)  # the rate `precio_factura` was converted at; None if same
     referencia = Column(USD, nullable=False)  # the cost it was checked against
     fuente_ref = Column(String(8), nullable=False)  # 'costo_si' | 'lista'
     ratio = Column(Numeric(18, 6), nullable=False)  # precio / referencia

@@ -139,7 +139,8 @@ def test_a_change_of_state_requeues_the_product_from_the_invoice_date(engine: En
         conn.execute(
             text(
                 "INSERT INTO costo_si_compras_sospechosas (item_id, ct_transaction, fecha, cantidad, precio, moneda, "
-                "referencia, fuente_ref, ratio) VALUES (23, 901, '2026-10-27', 312, 0.00971, 'USD', 13.5355, "
+                "precio_factura, moneda_factura, tipo_cambio, referencia, fuente_ref, ratio) "
+                "VALUES (23, 901, '2026-10-27', 312, 0.00971, 'USD', 15.14, 'ARS', 1560, 13.5355, "
                 "'costo_si', 0.000717)"
             )
         )
@@ -160,7 +161,8 @@ def test_an_unknown_state_is_refused(engine: Engine) -> None:
             conn.execute(
                 text(
                     "INSERT INTO costo_si_compras_sospechosas (item_id, ct_transaction, fecha, cantidad, precio, "
-                    "moneda, referencia, fuente_ref, ratio, estado) VALUES (23, 901, '2026-10-27', 1, 1, 'USD', 1, "
+                    "moneda, precio_factura, moneda_factura, referencia, fuente_ref, ratio, estado) "
+                    "VALUES (23, 901, '2026-10-27', 1, 1, 'USD', 1, 'USD', 1, "
                     "'costo_si', 1, 'otro')"
                 )
             )

@@ -646,6 +646,8 @@ def entrada(db: Session, item_id: int) -> Optional[Entrada]:
                 en_compras=bool(f.pedidos),
                 # L29: the reference when there is no average yet, only needed while the start has no cost.
                 referencia_lista=costo_lista(db, item_id, f.fecha, moneda) if inicio.costo_usd is None else None,
+                precio_factura=f.precio,
+                moneda_factura=MONEDAS[f.curr_id],
             )
         )
     listas = cambios_de_lista(db, item_id, inicio, moneda) if primera is None else []

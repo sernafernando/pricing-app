@@ -127,6 +127,7 @@ def reconciliar(db: Session, item_id: int, pasos: Sequence[Paso], moneda: str) -
                     g.estado,
                 )
     for ct, paso in sospechas.items():
+        convertida = paso.moneda_factura != moneda and paso.tipo_cambio is not None
         datos = {
             "i": item_id,
             "ct": ct,
@@ -134,6 +135,9 @@ def reconciliar(db: Session, item_id: int, pasos: Sequence[Paso], moneda: str) -
             "cantidad": paso.cantidad,
             "precio": paso.costo_neto_usd,
             "moneda": moneda,
+            "pf": Decimal(paso.precio_factura).quantize(RATIO),
+            "mf": paso.moneda_factura,
+            "tc": Decimal(paso.tipo_cambio).quantize(RATIO) if convertida else None,
             "ref": paso.referencia,
             "fuente": paso.fuente_ref,
             "ratio": _ratio(paso),
@@ -143,19 +147,23 @@ def reconciliar(db: Session, item_id: int, pasos: Sequence[Paso], moneda: str) -
             db.execute(
                 text(
                     "INSERT INTO costo_si_compras_sospechosas "
-                    "(item_id, ct_transaction, fecha, cantidad, precio, moneda, referencia, fuente_ref, ratio) "
-                    "VALUES (:i, :ct, :fecha, :cantidad, :precio, :moneda, :ref, :fuente, :ratio)"
+                    "(item_id, ct_transaction, fecha, cantidad, precio, moneda, precio_factura, moneda_factura, tipo_cambio, "
+                    "referencia, fuente_ref, ratio) "
+                    "VALUES (:i, :ct, :fecha, :cantidad, :precio, :moneda, :pf, :mf, :tc, :ref, :fuente, :ratio)"
                 ),
                 datos,
             )
             logger.warning(
                 "costo SI: suspicious purchase held out of the average: item %s invoice %s date %s price %s %s "
-                "reference %s (%s)",
+                "(invoice %s %s at %s) reference %s (%s)",
                 item_id,
                 ct,
                 paso.fecha,
                 paso.costo_neto_usd,
                 moneda,
+                datos["mf"],
+                datos["pf"],
+                datos["tc"],
                 paso.referencia,
                 paso.fuente_ref,
             )
@@ -165,7 +173,7 @@ def reconciliar(db: Session, item_id: int, pasos: Sequence[Paso], moneda: str) -
             db.execute(
                 text(
                     "UPDATE costo_si_compras_sospechosas SET fecha = :fecha, cantidad = :cantidad, precio = :precio, "
-                    "moneda = :moneda, referencia = :ref, fuente_ref = :fuente, ratio = :ratio, estado = 'pendiente', "
+                    "moneda = :moneda, precio_factura = :pf, moneda_factura = :mf, tipo_cambio = :tc, referencia = :ref, fuente_ref = :fuente, ratio = :ratio, estado = 'pendiente', "
                     "revisado_por = NULL, revisado_at = NULL, detectada_at = now() WHERE id = :id"
                 ),
                 {**datos, "id": g.id},
@@ -185,9 +193,11 @@ def reconciliar(db: Session, item_id: int, pasos: Sequence[Paso], moneda: str) -
         else:
             db.execute(
                 text(
-                    "UPDATE costo_si_compras_sospechosas SET fecha = :fecha, moneda = :moneda, referencia = :ref, "
-                    "fuente_ref = :fuente, ratio = :ratio WHERE id = :id AND (fecha, moneda, referencia, fuente_ref, "
-                    "ratio) IS DISTINCT FROM (:fecha, :moneda, :ref, :fuente, :ratio)"
+                    "UPDATE costo_si_compras_sospechosas SET fecha = :fecha, moneda = :moneda, precio_factura = :pf, "
+                    "moneda_factura = :mf, tipo_cambio = :tc, referencia = :ref, fuente_ref = :fuente, ratio = :ratio "
+                    "WHERE id = :id AND (fecha, moneda, precio_factura, moneda_factura, tipo_cambio, referencia, "
+                    "fuente_ref, ratio) IS DISTINCT FROM (:fecha, :moneda, CAST(:pf AS NUMERIC), :mf, "
+                    "CAST(:tc AS NUMERIC), :ref, :fuente, :ratio)"
                 ),
                 {**datos, "id": g.id},
             )

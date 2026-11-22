@@ -114,9 +114,35 @@ def test_the_item_23_invoice_is_held_out_listed_and_logged(engine: Engine, caplo
     mensajes = [r.getMessage() for r in caplog.records]
     assert mensajes == [
         f"costo SI: suspicious purchase held out of the average: item {ITEM} invoice {ct} date 2026-10-27 "
-        "price 0.00971 USD reference 13.53550 (costo_si)"
+        "price 0.00971 USD (invoice ARS 15.140000 at 1560.000000) reference 13.53550 (costo_si)"
     ]
     assert w.encolados(engine) == []  # inserting the row does not requeue the product
+
+
+def test_the_review_row_keeps_the_price_as_loaded_on_the_invoice_and_its_rate(engine: Engine) -> None:
+    """Compras looks for ARS 15,14 on invoice 00128199, not for the USD 0.00971 it converts to at that day's rate."""
+    ct = _caso_item_23(engine)
+    _recalcular(engine)
+
+    assert w.rows(
+        engine,
+        "SELECT precio_factura, moneda_factura, tipo_cambio FROM costo_si_compras_sospechosas WHERE ct_transaction = :c",
+        c=ct,
+    ) == [(D("15.140000"), "ARS", D("1560.000000"))]
+
+
+def test_a_corrected_invoice_price_is_kept_as_loaded_too(engine: Engine) -> None:
+    ct = _caso_item_23(engine)
+    _recalcular(engine)
+
+    w.run(engine, "UPDATE tb_item_transactions SET it_price = 16.38 WHERE ct_transaction = :c", c=ct)
+    _recalcular(engine)
+
+    assert w.rows(
+        engine,
+        "SELECT precio_factura, moneda_factura, precio FROM costo_si_compras_sospechosas WHERE item_id = :i",
+        i=ITEM,
+    ) == [(D("16.380000"), "ARS", D("0.01050"))]
 
 
 def test_a_second_recompute_changes_nothing(engine: Engine, caplog: pytest.LogCaptureFixture) -> None:
