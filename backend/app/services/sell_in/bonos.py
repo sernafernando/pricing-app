@@ -79,9 +79,9 @@ Writes, set against what is stored:
 - otherwise nothing: a re-run writes nothing. A line's `costo_base_unit` is the
   product's cost frozen when the line is first written, never refreshed.
 
-Every product a write touches is recomputed through the active
-`SellInCosting` in the same transaction, the way loading or voiding a manual
-purchase does, so the consumptions (`sell_in_consumos`) always match. Manual
+A write no longer allocates sales to the purchases (sell-in-costo-si T5 PR A:
+costo SI replaced the FIFO lots, S14); costo SI's triggers queue the products
+it touches. Manual
 purchases (`origen = 'manual'`) are never read nor written here. A generated
 purchase whose operation was deleted (`bono_pedido_id` set NULL by its FK) is
 voided by any call.
@@ -837,7 +837,7 @@ def _motivo(pedido: Optional[_Pedido], bono: Optional[SellInBonoMarca]) -> str:
     return f"{_etiqueta(bono)}: el pedido ya no está alcanzado por el bono"
 
 
-def _crear(db: Session, bono: SellInBonoMarca, pedido_id: int, deseada: _Deseada, lineas: List[_Linea]) -> Set[int]:
+def _crear(db: Session, bono: SellInBonoMarca, pedido_id: int, deseada: _Deseada, lineas: List[_Linea]) -> None:
     compra = SellInCompra(
         **deseada.cabecera,
         cuenta_desde="compra",
@@ -862,7 +862,6 @@ def _crear(db: Session, bono: SellInBonoMarca, pedido_id: int, deseada: _Deseada
     db.add_all(items)
     db.flush()
     audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_CREADA, compra.usuario_id)
-    return set(deseada.lineas)
 
 
 def _actualizar(

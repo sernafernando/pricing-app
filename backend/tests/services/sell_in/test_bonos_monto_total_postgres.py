@@ -67,7 +67,10 @@ def _entrada(**overrides) -> SellInBonoIn:
 
 
 def _crear(db: Session, **overrides) -> int:
-    return bonos_crud.crear_bono(db, _entrada(**overrides), 7).id
+    """A lump-sum bonus loaded before sell-in-costo-si T5 PR A: a new one is refused (L25), a stored one still edits."""
+    bono = bonos_crud.crear_bono_sin_commit(db, _entrada(**overrides), 7, heredado=True)
+    db.commit()
+    return bono.id
 
 
 def _repartos(db: Session, bono_id: int) -> dict[int, Decimal]:
@@ -108,3 +111,56 @@ class TestCrear:
             _crear(db, **overrides)
 
         assert str(exc.value) == mensaje
+
+
+class TestEditar:
+    def test_a_new_total_resplits_the_shares_and_queues_the_bonus(self, db, engine) -> None:
+        bono_id = _crear(db)
+        b.clear_queue(engine)
+
+        bonos_crud.editar_bono(db, bono_id, _entrada(monto_total="600.00"), 7)
+
+        assert _repartos(db, bono_id) == {2270: Decimal("300.00"), 2964: Decimal("300.00")}
+        assert b.queued(engine) == [("bono", bono_id)]
+
+    def test_an_edit_that_keeps_total_criterion_and_reach_keeps_the_shares(self, db, engine) -> None:
+        """Shares are fixed when saved: a date or text edit does not split again with today's costs and rate."""
+        b.tipo_cambio(engine, D(2026, 10, 1), 1000)
+        bono_id = _crear(db, monto_total="10000.00", reparto_criterio="costo")
+        b.tipo_cambio(engine, D(2026, 10, 2), 2000)  # 2964 now ARS 83000: a resplit would move its share
+        b.clear_queue(engine)
+
+        bonos_crud.editar_bono(
+            db, bono_id, _entrada(monto_total="10000.00", reparto_criterio="costo", fecha_hasta=D(2026, 11, 30)), 7
+        )
+
+        assert _repartos(db, bono_id) == {2270: Decimal("2242.99"), 2964: Decimal("7757.01")}
+        # Queued once, by its row trigger: the new dates change which sales it credits, its shares stay.
+        assert b.queued(engine) == [("bono", bono_id)]
+
+    def test_a_new_reach_resplits_the_shares(self, db) -> None:
+        bono_id = _crear(db, alcance="modelos", marca=None, modelos=[2964, 950], monto_total="90.00")
+
+        bonos_crud.editar_bono(
+            db, bono_id, _entrada(alcance="modelos", marca=None, modelos=[2964, 950, 2270], monto_total="90.00"), 7
+        )
+
+        assert _repartos(db, bono_id) == {950: Decimal("30.00"), 2270: Decimal("30.00"), 2964: Decimal("30.00")}
+
+    def test_switching_to_units_drops_the_shares(self, db) -> None:
+        bono_id = _crear(db)
+
+        bonos_crud.editar_bono(db, bono_id, _entrada(reparto_criterio="unidades"), 7)
+
+        assert _repartos(db, bono_id) == {}
+
+    def test_the_stored_entry_keeps_the_total_and_its_criterion(self, db, engine) -> None:
+        b.tipo_cambio(engine, D(2026, 10, 1), 1000)
+        bono_id = _crear(db, reparto_criterio="costo", monto_total="10.00")
+        entrada = bonos_crud.entrada_guardada(db, db.get(bonos_crud.SellInBonoMarca, bono_id))
+
+        assert (entrada.tipo, entrada.monto_total, entrada.reparto_criterio) == (
+            "monto_total",
+            Decimal("10.00"),
+            "costo",
+        )

@@ -103,7 +103,6 @@
  "tests/routers/test_productos_propios_fuente.py": 5.73,
  "tests/routers/test_publicaciones_ml_screen_access.py": 15.47,
  "tests/routers/test_rrhh_horas_extras_recalcular_lock.py": 0.09,
- "tests/routers/test_sell_in_modos_escritura_postgres.py": 2.68,
  "tests/routers/test_ventas_fuera_pdf_cargas_bordes_postgres.py": 28.85,
  "tests/routers/test_ventas_fuera_pdf_cargas_postgres.py": 35.77,
  "tests/routers/test_ventas_fuera_pdf_operaciones_postgres.py": 7.9,

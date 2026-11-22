@@ -346,9 +346,8 @@ def crear_compra(db: Session, data: SellInCompraCreate, usuario_id: int) -> Sell
     """Recompute the split, freeze each line's cost and save the purchase with its audit rows (one transaction).
 
     A reference that disappears between the checks and the write (a concurrent delete) surfaces as a
-    foreign-key violation: the transaction is rolled back and it becomes a `SellInError` too. Any
-    failure of the recompute that follows (an `IntegrityError` included) is rolled back and raised
-    as itself: it says nothing about the purchase's references.
+    foreign-key violation: the transaction is rolled back and it becomes a `SellInError` too. No sale
+    is allocated to it any more (sell-in-costo-si T5 PR A).
     """
     compra = crear_compra_sin_commit(db, data, usuario_id)
     try:
@@ -502,7 +501,7 @@ def anular_compra_sin_commit(
     db: Session, compra_id: int, usuario_id: int, motivo: Optional[str], es_masivo: bool = False
 ) -> Optional[SellInCompra]:
     """THE void step, without committing (the single void and the bulk one, `anular_masivo`, commit): voids the
-    purchase, audits each line (`es_masivo` on the bulk one) and releases its units. None when it does not exist;
+    purchase, audits each line (`es_masivo` on the bulk one); the consumptions already stored stay frozen (T5 PR A). None when it does not exist;
     `SellInYaAnulada` / `SellInGenerada` before any change when it cannot be voided."""
     compra = db.query(SellInCompra).filter(SellInCompra.id == compra_id).with_for_update().first()
     if compra is None:
@@ -529,8 +528,8 @@ def repartir_compra_sin_commit(
     """Re-split an active `monto` purchase over new lines `[(item_id, cantidad)]`, in place: same id, header and
     total, its lines rewritten (sell in varias facturas S2: a tactical's invoice total re-split when another invoice
     of its operation links). A line it already had keeps its stored unit cost; a new one takes the product's current
-    cost, converted at the purchase's own rate. Audits the new lines (`SELL_IN_COMPRA_REPARTIDA`) and recomputes the
-    sales of every product it touched, like a load or a void. Does not commit. None, with nothing changed, when the
+    cost, converted at the purchase's own rate. Audits the new lines (`SELL_IN_COMPRA_REPARTIDA`); no sale is
+    allocated any more (T5 PR A). Does not commit. None, with nothing changed, when the
     purchase is not active, not `monto`, or already has exactly those units."""
     compra = db.query(SellInCompra).filter(SellInCompra.id == compra_id).with_for_update().first()
     if compra is None or compra.estado != "activa" or compra.tipo != "monto":

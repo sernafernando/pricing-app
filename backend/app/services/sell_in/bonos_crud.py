@@ -198,13 +198,15 @@ def validar(
     base: Optional[str] = None,
     incluye_iva: Optional[bool] = None,
     de_tactical: bool = False,
+    nuevo: bool = True,
 ) -> Campos:
     """The rules the operator can break, in one readable message each; returns the normalized fields.
     `base` / `incluye_iva`: the effective ones (an edit's stored ones); None: the body's. `de_tactical`: the bonus is
-    (or will be) a tactical's line."""
-    if data.tipo == MONTO_TOTAL:
-        # sell-in-costo-si T5 PR A, L25: a lump sum is no longer split over sales. A sell-in one will be divided by an
-        # established quantity on the invoices (PR E); one over sales is sell out.
+    (or will be) a tactical's line. `nuevo`: a lump sum being loaded, refused for now (sell-in-costo-si T5 PR A,
+    L25: a lump sum is no longer split over sales; a sell-in one will be divided by an established quantity on the
+    invoices, PR E, and one over sales is sell out). An edit, or a tactical line that already was one, is not new:
+    what is stored keeps working as before."""
+    if data.tipo == MONTO_TOTAL and nuevo:
         raise SellInBonoError(MONTO_TOTAL_RETIRADO)
     base = data.base if base is None else base
     incluye_iva = data.incluye_iva if incluye_iva is None else incluye_iva
@@ -215,7 +217,9 @@ def validar(
             raise SellInBonoError("Solo un bono por monto total lleva monto total")
         if data.reparto_criterio is not None:
             raise SellInBonoError("El reparto es solo para un bono por monto total")
-    if data.tipo == "por_unidad":
+    if data.tipo == MONTO_TOTAL:
+        _validar_total(data, base)
+    elif data.tipo == "por_unidad":
         if data.porcentaje is not None:
             raise SellInBonoError("Un bono por unidad no lleva porcentaje")
         if data.monto_unit is None:
@@ -251,6 +255,26 @@ def validar(
         monto_total=data.monto_total.quantize(Decimal("0.01")) if data.monto_total is not None else None,
         reparto_criterio=data.reparto_criterio,
     )
+
+
+def _validar_total(data: SellInBonoIn, base: str) -> None:
+    """A total split across products: a cost bonus, ARS (`_validar_base`), a positive total, a criterion, no value per
+    unit, no cap (the total is its cap) and no model's own value (DB CHECK `ck_sell_in_bonos_marca_monto_total`)."""
+    if base != BASE_COSTO_VENTA:
+        raise SellInBonoError("Un bono por monto total es solo sobre el costo de la venta")
+    if data.monto_unit is not None or data.porcentaje is not None:
+        raise SellInBonoError("Un bono por monto total no lleva monto por unidad ni porcentaje")
+    if data.monto_total is None:
+        raise SellInBonoError("Falta el monto total del bono")
+    if data.monto_total <= 0:
+        raise SellInBonoError("El monto total debe ser mayor que cero: en sell in no se descuenta un monto negativo")
+    if data.reparto_criterio is None:
+        raise SellInBonoError("Elegí cómo repartir el monto total")
+    if data.tope_unidades is not None or data.tope_monto is not None:
+        raise SellInBonoError("Un monto total no lleva topes: el total es su tope")
+    if any(isinstance(m, SellInBonoModeloIn) and (m.monto_unit is not None or m.porcentaje is not None)
+           for m in data.modelos):  # fmt: skip
+        raise SellInBonoError("Un bono por monto total no lleva valor propio por modelo")
 
 
 def _validar_valores_modelos(data: SellInBonoIn) -> dict[int, tuple[Optional[Decimal], Optional[Decimal]]]:
@@ -470,11 +494,13 @@ def crear_bono_sin_commit(
     *,
     offset_origen_id: Optional[int] = None,
     tactical: Optional[tuple[int, int]] = None,
+    heredado: bool = False,
 ) -> SellInBonoMarca:
     """The create step without committing: validation, the row, its models and one audit row. Shared by the single
     create and a tactical's lines (`app.services.tacticals`, several in one transaction). `tactical`: the
-    `(tactical_id, tactical_linea)` it is a line of, set before the first flush."""
-    campos = validar(db, data, de_tactical=tactical is not None)
+    `(tactical_id, tactical_linea)` it is a line of, set before the first flush. `heredado`: a tactical line created
+    again by a full edit that already was a lump sum (`validar`'s `nuevo`)."""
+    campos = validar(db, data, de_tactical=tactical is not None, nuevo=not heredado)
     tactical_id, tactical_linea = tactical or (None, None)
     bono = SellInBonoMarca(
         usuario_id=usuario_id,
@@ -525,7 +551,7 @@ def editar_bono_sin_commit(db: Session, bono_id: int, data: SellInBonoIn, usuari
             "La base del bono no se puede cambiar: lo que ya generó se contaría dos veces; anulalo y cargá otro"
         )
     incluye_iva = data.incluye_iva if "incluye_iva" in data.model_fields_set else bono.incluye_iva
-    campos = validar(db, data, bono.base, incluye_iva, de_tactical=bono.tactical_id is not None)
+    campos = validar(db, data, bono.base, incluye_iva, de_tactical=bono.tactical_id is not None, nuevo=False)
     if data.moneda != bono.moneda and bono.tope_monto is not None and "tope_monto" not in data.model_fields_set:
         # The stored money cap is in the old currency: kept as is it would silently mean another amount.
         raise SellInBonoError("Al cambiar la moneda hay que volver a indicar el tope de monto")

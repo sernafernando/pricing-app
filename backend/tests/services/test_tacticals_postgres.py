@@ -28,7 +28,7 @@ from app.models.tactical import TacticalMarca, TacticalTienda
 from app.schemas.sell_out import SellOutCampanaIn
 from app.schemas.tacticals import TacticalIn
 from app.services import tacticals as service
-from app.services.sell_in import bonos
+from app.services.sell_in import bonos, bonos_crud
 from app.services.sell_in.facturas_elegidas import Facturado, facturado_elegido, nc_del_pedido_para_eleccion
 from app.services.sell_out import edicion_masiva, renovacion
 from tests.services.sell._schema import throwaway_schema
@@ -785,6 +785,44 @@ class TestSellInMontoTotal:
         ]
         assert _contar(engine, "sell_in_bonos_marca", "monto_total IS NULL AND reparto_criterio IS NULL") == 2
         assert self._repartos(engine) == []
+
+    # sell-in-costo-si T5 PR A, L25: a new lump sum over products, a brand or a category is refused; one loaded
+    # before keeps working when its tactical is edited.
+    def _cargada_antes(self, db, monkeypatch: pytest.MonkeyPatch, lineas: list) -> service.Tactical:
+        original = bonos_crud.validar
+        with monkeypatch.context() as m:
+            m.setattr(bonos_crud, "validar", lambda *a, **k: original(*a, **{**k, "nuevo": False}))
+            return service.crear(db, _tactical("sell_in", lineas), USUARIO)
+
+    def test_a_new_lump_sum_line_is_refused_and_writes_nothing(self, db, engine) -> None:
+        with pytest.raises(service.TacticalError) as exc:
+            service.crear(db, _tactical("sell_in", [self._linea()]), USUARIO)
+
+        assert str(exc.value) == (
+            "Línea 1: un bono de sell in por monto total no se puede cargar por ahora: si es sobre las ventas, "
+            "cargalo como sell out"
+        )
+        assert (_contar(engine, "tacticals"), _contar(engine, "sell_in_bonos_marca")) == (0, 0)
+
+    def test_editing_a_total_line_s_end_date_keeps_its_split(self, db, engine, monkeypatch) -> None:
+        tactical = self._cargada_antes(db, monkeypatch, [self._linea()])
+
+        service.editar(db, tactical.id, service.TacticalEditarIn(fecha_hasta=date(2026, 12, 15)), USUARIO,
+                       hoy=date(2026, 11, 6))  # fmt: skip
+
+        assert self._bono(engine, tactical.id)[4:6] == (Decimal("1200.00"), "iguales")
+        assert self._repartos(engine) == [(2270, Decimal("600.00")), (2964, Decimal("600.00"))]
+
+    def test_a_full_edit_creates_a_stored_total_line_again_but_refuses_a_new_one(self, db, engine, monkeypatch) -> None:
+        tactical = self._cargada_antes(db, monkeypatch, [self._linea()])
+
+        service.reemplazar(db, tactical.id, _tactical("sell_in", [self._linea()], nombre="Otro nombre"), USUARIO,
+                           hoy=date(2026, 11, 6))  # fmt: skip
+        assert self._bono(engine, tactical.id)[2:6] == ("monto_total", "ARS", Decimal("1200.00"), "iguales")
+
+        with pytest.raises(service.TacticalError, match="Línea 2: un bono de sell in por monto total"):
+            service.reemplazar(db, tactical.id, _tactical("sell_in", [self._linea(), self._linea(valor="5")]),
+                               USUARIO, hoy=date(2026, 11, 6))  # fmt: skip
 
 
 class TestStoreScope:
