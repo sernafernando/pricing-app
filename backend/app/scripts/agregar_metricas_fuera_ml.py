@@ -32,6 +32,11 @@ from app.core.database import SessionLocal
 from app.services import ventas_gbp_costo_si as costo_si_gbp
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 
+# A group line's product: GBP may leave `item_id` NULL and send it in `it_item_id_origin` (prod ct 938097), so the
+# group's cost reads the same coalesced item as every other join of the query; with `tit.item_id` each such line
+# counted as "a line without a product" (0) and the group was stored at cost 0.
+_ITEM_GRUPO = costo_si_gbp.GBP_ITEM.format(t="tit")
+
 
 # Constantes de filtrado (igual que en ventas_fuera_ml.py)
 SD_VENTAS = [1, 4, 21, 56]
@@ -130,7 +135,7 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date, transacciones: Opti
             {
         costo_si_gbp.suma_grupo(
             costo_si_gbp.costo_unitario_ars(
-                "csc", "tit.item_id", "tit.comp_id", "tit.ct_transaction", "tit.it_isassociationgroup", en_grupo=True
+                "csc", _ITEM_GRUPO, "tit.comp_id", "tit.ct_transaction", "tit.it_isassociationgroup", en_grupo=True
             )
             + " * 1.065 * tit.it_qty"
         )
@@ -138,7 +143,7 @@ def obtener_ventas_fuera_ml(db: Session, from_date, to_date, transacciones: Opti
         FROM tb_item_transactions tit
         INNER JOIN tb_commercial_transactions tct
             ON tct.comp_id = tit.comp_id AND tct.ct_transaction = tit.ct_transaction
-        {costo_si_gbp.join("csc", "tit.item_id", "tct.ct_date::date")}
+        {costo_si_gbp.join("csc", _ITEM_GRUPO, "tct.ct_date::date")}
         WHERE tit.it_isassociationgroup IS NOT NULL
           AND tct.ct_date BETWEEN :from_date AND :to_date{filtro}
         GROUP BY tit.it_isassociationgroup, tit.ct_transaction
