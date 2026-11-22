@@ -218,9 +218,17 @@
   color: var(--cf-text-secondary);
 }
 
-.sueltaNombre {
+/* A row header (its name names the row), read as a cell: not the column headers' small capitals. */
+.sueltas .sueltaNombre {
+  vertical-align: top;
+  padding: 11px 12px;
+  font-size: var(--font-sm);
   font-weight: var(--font-medium);
+  letter-spacing: normal;
   text-align: left;
+  text-transform: none;
+  white-space: normal;
+  color: var(--cf-text-primary);
 }
 
 .sueltaVigencia {
