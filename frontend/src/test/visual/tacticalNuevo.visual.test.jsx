@@ -127,3 +127,45 @@ describe.each([
     }
   });
 });
+
+// With the sidebar open the lines get ~1150px at 1440: less than a line needs. Before, the table spilled past its card
+// (the Tope pill cut, Máximo a cobrar and the actions out of sight) because only a viewport media query scrolled it.
+const ShellAbierto = ({ children }) => (
+  <div style={{ paddingTop: 'var(--cf-topbar-height)', paddingLeft: 'var(--cf-sidebar-width-expanded)' }}>{children}</div>
+);
+
+describe.each(['light', 'dark'])('Nuevo tactical at 1440 px with the sidebar open, %s', (theme) => {
+  it.each(['sell_out', 'sell_in'])('%s: the lines scroll inside their card, every column reachable', async (tipo) => {
+    await page.viewport(1440, 900);
+    setTheme(theme);
+    document.body.style.background = 'var(--cf-bg-app)';
+    const screen = await render(
+      <MemoryRouter initialEntries={[`/sell-in/tactical/nuevo?tipo=${tipo}`]}>
+        <ShellAbierto>
+          <Routes>
+            <Route path="/sell-in/tactical/nuevo" element={<TacticalNuevo />} />
+          </Routes>
+        </ShellAbierto>
+      </MemoryRouter>,
+    );
+    await expect.element(screen.getByRole('heading', { name: 'Nuevo tactical' })).toBeVisible();
+    await screen.getByRole('group', { name: 'Línea 1', exact: true }).getByRole('button', { name: 'Marca' }).click();
+
+    const card = screen.getByRole('heading', { name: 'Líneas' }).element().closest('section');
+    const linea = document.querySelector('[role="group"][aria-label="Línea 1"]');
+    let scroller = linea.parentElement;
+    while (scroller !== card && getComputedStyle(scroller).overflowX !== 'auto') scroller = scroller.parentElement;
+    expect(scroller).not.toBe(card);
+    const borde = card.getBoundingClientRect().right;
+    expect(scroller.getBoundingClientRect().right).toBeLessThanOrEqual(borde + 0.5);
+
+    // Scrolled to its end, the last column (the line's actions) and the Tope pill sit inside the card.
+    scroller.scrollLeft = scroller.scrollWidth;
+    const celdas = [...linea.children];
+    expect(celdas.at(-1).getBoundingClientRect().right).toBeLessThanOrEqual(borde + 0.5);
+    const pill = screen.getByRole('button', { name: 'Por producto' }).element().getBoundingClientRect();
+    expect(pill.right).toBeLessThanOrEqual(borde + 0.5);
+    expect(pill.left).toBeGreaterThanOrEqual(card.getBoundingClientRect().left - 0.5);
+    if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/tactical-${tipo}-${theme}-1440-sidebar.png` });
+  });
+});
