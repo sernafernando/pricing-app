@@ -22,7 +22,7 @@ Moneda = Literal["ARS", "USD"]
 TcModo = Literal["al_cobro", "fijo", "dia_venta"]
 # `sell_in_factura_pendiente`: an invoice total still waiting for its invoice (`TacticalFacturaPendiente`).
 Origen = Literal["sell_out_campana", "sell_in_bono", "sell_in_compra", "sell_in_factura_pendiente"]
-EstadoFiltro = Literal["vigentes", "vencidos", "anulados"]
+EstadoFiltro = Literal["vigentes", "vencidos", "anulados", "pendientes_aprobacion"]
 TipoTienda = Literal["oficial", "fuera", "tienda_nube"]
 MedioCobro = Literal["nota_credito", "fondo_distribuidor", "otro"]
 CobranzaFiltro = Literal["cobrados", "pendientes"]
@@ -157,7 +157,7 @@ class TacticalLineaOut(BaseModel):
     id: int  # the child row's id (campaign, bonus or purchase)
     linea: int  # its 1-based line in the tactical; the children of a per-product line share it
     origen: Origen
-    estado: Literal["activa", "anulada"]
+    estado: Literal["activa", "anulada", "pendiente"]
     alcance: Alcance
     productos: list[TacticalProductoOut]
     marca: Optional[str]
@@ -250,8 +250,11 @@ class TacticalOut(BaseModel):
     tope_compartido: bool
     tiendas: list[TacticalTiendaOut]
     nota: Optional[str]
-    estado: Literal["activo", "anulado"]
+    estado: Literal["activo", "anulado", "pendiente"]  # `pendiente`: waits for approval, applies to nothing
     usuario_id: int
+    aprobado_por: Optional[int] = None  # NULL on a pending tactical and on one approved before approval existed
+    aprobado_at: Optional[datetime] = None
+    aprobado_por_nombre: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     # Every line is an invoice line: no dates of its own (each applies until its invoice's units are sold).

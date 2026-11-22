@@ -40,7 +40,13 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.sell_in import SellInBonoMarca
 from app.models.usuario import Usuario
-from app.routers.sell_in_compras import rechazo_masivo, requiere_gestionar, requiere_ver
+from app.routers.sell_in_compras import (
+    aprobar_o_409,
+    rechazo_masivo,
+    requiere_aprobar,
+    requiere_gestionar,
+    requiere_ver,
+)
 from app.schemas.sell_in import SellInAnularMasivoIn, SellInAnularMasivoOut
 from app.schemas.sell_in_bonos import (
     ALCANCE_LIMITE,
@@ -73,8 +79,9 @@ def _conflict(exc: service.SellInBonoError) -> HTTPException:
 
 @router.post("", response_model=SellInBonoOut, status_code=status.HTTP_201_CREATED)
 def crear_bono(data: SellInBonoIn, user: Usuario = Depends(requiere_gestionar), db: Session = Depends(get_db)) -> dict:
+    """Load a brand bonus. It starts `pendiente` (tacticals approval S6): it applies to nothing until approved."""
     try:
-        bono = service.crear_bono(db, data, user.id)
+        bono = service.crear_bono(db, data, user.id, estado="pendiente")
     except service.SellInBonoError as exc:
         db.rollback()
         raise _unprocessable(exc) from exc
@@ -182,6 +189,14 @@ def anular_bonos(
     except anular_masivo.AnulacionRechazada as exc:
         raise rechazo_masivo(exc, "ninguno", "el bono", "estos bonos") from exc
     return {"anuladas": anuladas, "ya_anuladas": ya_anuladas}
+
+
+@router.post("/{bono_id}/aprobar", response_model=SellInBonoOut)
+def aprobar_bono(bono_id: int, user: Usuario = Depends(requiere_aprobar), db: Session = Depends(get_db)) -> dict:
+    """Approve a pending bonus loaded on its own (tacticals approval S6): its triggers queue what it applies. 409
+    when it is already approved, voided, or a tactical's line (approved with its tactical)."""
+    bono = aprobar_o_409(db, SellInBonoMarca, bono_id, user.id)
+    return service.serializar(db, [bono])[0]
 
 
 @router.post("/{bono_id}/anular", response_model=SellInBonoOut)

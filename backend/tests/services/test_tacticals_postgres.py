@@ -31,11 +31,13 @@ from app.services import tacticals as service
 from app.services.sell_in import bonos
 from app.services.sell_in.facturas_elegidas import Facturado, facturado_elegido, nc_del_pedido_para_eleccion
 from app.services.sell_out import edicion_masiva, renovacion
+from tests.services._aprobacion import aprobar_siempre  # noqa: F401 - the fixture, by name
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _bono_world as bw
 from tests.services.sell_in import _world as w
 
-pytestmark = pytest.mark.postgres
+# Written before tacticals approval: every load is approved right away (`_aprobacion.aprobar_siempre`).
+pytestmark = [pytest.mark.postgres, pytest.mark.usefixtures("aprobar_siempre")]
 
 USUARIO = 7
 TPLINK = bw.TPLINK

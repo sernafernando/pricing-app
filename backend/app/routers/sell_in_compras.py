@@ -63,7 +63,7 @@ from app.schemas.sell_in import (
     SellInPreviewOut,
 )
 from app.services.permisos_service import verificar_permiso
-from app.services.sell_in import anular_masivo
+from app.services.sell_in import anular_masivo, aprobacion
 from app.services.sell_in import compras as service
 from app.services.sell_in import operaciones as operaciones_service
 from app.services.sell_in import prefill as prefill_service
@@ -104,14 +104,35 @@ def preview_compra(
         raise _unprocessable(exc) from exc
 
 
+def requiere_aprobar(current_user: Usuario = Depends(get_current_user), db: Session = Depends(get_db)) -> Usuario:
+    """`tacticals.aprobar` (tacticals approval S3/S6): opt-in, a SUPERADMIN needs it as a per-user override too."""
+    if not verificar_permiso(db, current_user, aprobacion.PERMISO):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tenés permiso para aprobar cargas")
+    return current_user
+
+
+def aprobar_o_409(db: Session, modelo: type, fila_id: int, usuario_id: int):
+    """`aprobacion.aprobar_linea` with its refusals as a 409 and a missing row as a 404."""
+    try:
+        fila = aprobacion.aprobar_linea(db, modelo, fila_id, usuario_id)
+    except aprobacion.AprobacionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if fila is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"{aprobacion.NOMBRE[modelo]} {fila_id} no existe"
+        )
+    return fila
+
+
 @router.post("", response_model=SellInCompraOut, status_code=status.HTTP_201_CREATED)
 def crear_compra(
     data: SellInCompraCreate,
     user: Usuario = Depends(requiere_gestionar),
     db: Session = Depends(get_db),
 ) -> dict:
+    """Load a purchase. It starts `pendiente` (tacticals approval S6): it applies to nothing until approved."""
     try:
-        compra = service.crear_compra(db, data, user.id)
+        compra = service.crear_compra(db, data, user.id, estado=aprobacion.PENDIENTE)
     except service.SellInError as exc:
         db.rollback()
         raise _unprocessable(exc) from exc
@@ -267,6 +288,14 @@ def anular_compras(
     except anular_masivo.AnulacionRechazada as exc:
         raise rechazo_masivo(exc, "ninguna", "la compra", "estas compras") from exc
     return {"anuladas": anuladas, "ya_anuladas": ya_anuladas}
+
+
+@router.post("/{compra_id}/aprobar", response_model=SellInCompraOut)
+def aprobar_compra(compra_id: int, user: Usuario = Depends(requiere_aprobar), db: Session = Depends(get_db)) -> dict:
+    """Approve a pending purchase loaded on its own (tacticals approval S6): its FIFO and costo SI apply from now.
+    409 when it is already approved, voided, or a tactical's line (approved with its tactical)."""
+    compra = aprobar_o_409(db, SellInCompra, compra_id, user.id)
+    return service.serializar(db, [compra])[0]
 
 
 @router.post("/{compra_id}/anular", response_model=SellInCompraOut)

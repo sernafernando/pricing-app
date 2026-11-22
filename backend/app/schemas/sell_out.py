@@ -37,7 +37,7 @@ RepartoCriterio = Literal["iguales", "unidades", "costo"]
 BasePorcentaje = Literal["costo", "precio_neto"]
 Moneda = Literal["ARS", "USD"]
 TcModo = Literal["al_cobro", "fijo", "dia_venta"]
-Estado = Literal["activa", "anulada"]
+Estado = Literal["activa", "anulada", "pendiente"]  # `pendiente`: waits for approval (tacticals approval)
 Canal = Literal["ml", "fuera", "tn"]
 EstadoRecalculo = Literal["al_dia", "en_cola", "recalculando", "fallida"]
 

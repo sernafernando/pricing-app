@@ -102,7 +102,9 @@ def _editar_una(db: Session, campana: SellOutCampana, cambios: dict, usuario_id:
             f"antes que la fecha desde ({_fecha(desde)})"
         )
     data = base.entrada_guardada(db, campana).model_copy(update=cambios)
-    base.editar_campana_sin_commit(db, campana.id, data, usuario_id, es_masivo=True, compartian=compartian)
+    base.editar_campana_sin_commit(
+        db, campana.id, data, usuario_id, es_masivo=True, compartian=compartian, a_pendiente_si_cambia=True
+    )
     return True
 
 

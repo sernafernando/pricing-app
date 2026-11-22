@@ -19,7 +19,7 @@ Formula = Literal["proporcional", "por_unidad", "manual"]
 CuentaDesde = Literal["compra", "ingreso"]
 # 'monto': the operator types the total. 'porcentaje': each line is that % of its invoiced net.
 TipoCompra = Literal["monto", "porcentaje"]
-Estado = Literal["activa", "anulada"]
+Estado = Literal["activa", "anulada", "pendiente"]  # `pendiente`: waits for approval (tacticals approval)
 Aplica = Literal["si", "no", "todas"]
 
 MOTIVO_MAX = 500  # `auditoria.comentario` is VARCHAR(500)
@@ -136,6 +136,7 @@ class SellInCompraOut(BaseModel):
     estado: Estado
     descripcion: Optional[str]
     usuario_id: int
+    tactical_id: Optional[int] = None  # a tactical's line: approved with its tactical, never alone
     # 'manual', or 'bono_marca' with the bonus that generated it (only that bonus changes it).
     origen: Literal["manual", "bono_marca"] = "manual"
     bono_id: Optional[int] = None

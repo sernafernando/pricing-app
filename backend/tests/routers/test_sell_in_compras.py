@@ -20,6 +20,10 @@ from app.models.producto import ProductoERP, TipoMoneda
 from app.models.proveedor import Proveedor
 from app.models.sell_in import SellInBonoMarca, SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
 from app.services.sell_in import compras as compras_service
+from tests.services._aprobacion import cargas_aprobadas  # noqa: F401 - the fixture, by name
+
+# Written before tacticals approval: a load is approved right away (`_aprobacion.cargas_aprobadas`).
+pytestmark = pytest.mark.usefixtures("cargas_aprobadas")
 
 BASE = "/api/sell-in/compras"
 VER = "sell_in.ver"

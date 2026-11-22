@@ -21,9 +21,10 @@ from app.services.sell_out import criterio as criterio_service
 from app.services.sell_out import queue
 from app.services.sell_out import resumen
 from app.services.sell_out.asignacion import recalcular
+from tests.services._aprobacion import ediciones_aprobadas  # noqa: F401 - the fixture
 from tests.services.sell_out import _world as w
 
-pytestmark = pytest.mark.postgres
+pytestmark = [pytest.mark.postgres, pytest.mark.usefixtures("ediciones_aprobadas")]
 
 USUARIO = 7
 TP_LINK = {"marca": "TP-LINK"}

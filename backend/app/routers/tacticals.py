@@ -47,6 +47,7 @@ from app.schemas.tacticals import (
     TipoTactical,
 )
 from app.services import tacticals as service
+from app.services.sell_in import aprobacion
 from app.services.permisos_service import verificar_permiso
 
 router = APIRouter(prefix="/tacticals", tags=["Tacticals"])
@@ -62,9 +63,15 @@ def _exigir(db: Session, user: Usuario, tipo: str, accion: str) -> None:
 
 
 def _error(exc: service.TacticalError) -> HTTPException:
-    if isinstance(exc, (service.TacticalOcupado, service.TacticalYaAnulado, service.TacticalCobrado)):
+    if isinstance(
+        exc, (service.TacticalOcupado, service.TacticalYaAnulado, service.TacticalCobrado, service.TacticalYaAprobado)
+    ):
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
+
+
+def _serializar(db: Session, tacticals: list) -> list[dict]:
+    return service.con_aprobadores(db, service.serializar(db, tacticals))
 
 
 def _buscar(db: Session, user: Usuario, tactical_id: int, accion: str) -> Tactical:
@@ -82,7 +89,7 @@ def crear_tactical(data: TacticalIn, user: Usuario = Depends(get_current_user), 
         tactical = service.crear(db, data, user.id)
     except service.TacticalError as exc:
         raise _error(exc) from exc
-    return service.serializar(db, [tactical])[0]
+    return _serializar(db, [tactical])[0]
 
 
 @router.get("", response_model=TacticalListOut)
@@ -127,7 +134,7 @@ def listar_tacticals(
         "total": total,
         "page": page,
         "page_size": page_size,
-        "items": service.serializar(db, filas),
+        "items": _serializar(db, filas),
         "kpis": service.kpis(db, filtros),
     }
 
@@ -136,7 +143,7 @@ def listar_tacticals(
 def detalle_tactical(
     tactical_id: int, user: Usuario = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> dict:
-    return service.serializar(db, [_buscar(db, user, tactical_id, "ver")])[0]
+    return _serializar(db, [_buscar(db, user, tactical_id, "ver")])[0]
 
 
 @router.patch("/{tactical_id}", response_model=TacticalOut)
@@ -155,7 +162,7 @@ def editar_tactical(
         raise _error(exc) from exc
     if tactical is None:  # gone between the check and the lock
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"El tactical {tactical_id} no existe")
-    return service.serializar(db, [tactical])[0]
+    return _serializar(db, [tactical])[0]
 
 
 @router.put("/{tactical_id}", response_model=TacticalOut)
@@ -176,7 +183,7 @@ def reemplazar_tactical(
         raise _error(exc) from exc
     if tactical is None:  # gone between the check and the lock
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"El tactical {tactical_id} no existe")
-    return service.serializar(db, [tactical])[0]
+    return _serializar(db, [tactical])[0]
 
 
 @router.post("/{tactical_id}/anular", response_model=TacticalOut)
@@ -194,7 +201,30 @@ def anular_tactical(
         raise _error(exc) from exc
     if tactical is None:  # gone between the check and the lock
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"El tactical {tactical_id} no existe")
-    return service.serializar(db, [tactical])[0]
+    return _serializar(db, [tactical])[0]
+
+
+@router.post("/{tactical_id}/aprobar", response_model=TacticalOut)
+def aprobar_tactical(
+    tactical_id: int,
+    user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Approve a pending tactical (tacticals approval S3): it and its lines start applying, with who approved and
+    when. Only with `tacticals.aprobar` (opt-in: a SUPERADMIN needs it as a per-user override too); its author may
+    approve it (L31). 409 when it is already approved or voided."""
+    tactical = db.get(Tactical, tactical_id)
+    if tactical is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"El tactical {tactical_id} no existe")
+    if not verificar_permiso(db, user, aprobacion.PERMISO):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tenés permiso para aprobar tacticals")
+    try:
+        tactical = service.aprobar(db, tactical_id, user.id)
+    except service.TacticalError as exc:
+        raise _error(exc) from exc
+    if tactical is None:  # gone between the check and the lock
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"El tactical {tactical_id} no existe")
+    return _serializar(db, [tactical])[0]
 
 
 @router.put("/{tactical_id}/cobranza", response_model=TacticalOut)
@@ -215,7 +245,7 @@ def cobrar_tactical(
         raise _error(exc) from exc
     if tactical is None:  # gone between the check and the lock
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"El tactical {tactical_id} no existe")
-    return service.serializar(db, [tactical])[0]
+    return _serializar(db, [tactical])[0]
 
 
 @router.delete(
@@ -231,4 +261,4 @@ def deshacer_cobro_tactical(
     tactical = _buscar(db, user, tactical_id, "gestionar")
     if not service.deshacer_cobro(db, tactical_id):
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-    return service.serializar(db, [tactical])[0]
+    return _serializar(db, [tactical])[0]

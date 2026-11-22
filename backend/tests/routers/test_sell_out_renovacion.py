@@ -17,6 +17,10 @@ from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutCampanaItem, SellOutPrograma
 from app.schemas.sell_out import SellOutCampanaIn
+from tests.services._aprobacion import cargas_aprobadas  # noqa: F401 - the fixture, by name
+
+# Written before tacticals approval: a load is approved right away (`_aprobacion.cargas_aprobadas`).
+pytestmark = pytest.mark.usefixtures("cargas_aprobadas")
 
 BASE = "/api/sell-out/campanas"
 ROUTER, SWITCH, TINTA = 2964, 2270, 3001

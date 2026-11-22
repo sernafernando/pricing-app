@@ -17,6 +17,10 @@ from sqlalchemy import event
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.sell_in import SellInBonoMarca, SellInCompra, SellInCompraItem
+from tests.services._aprobacion import cargas_aprobadas  # noqa: F401 - the fixture, by name
+
+# Written before tacticals approval: a load is approved right away (`_aprobacion.cargas_aprobadas`).
+pytestmark = pytest.mark.usefixtures("cargas_aprobadas")
 
 BASE = "/api/sell-in/bonos"
 VER = "sell_in.ver"

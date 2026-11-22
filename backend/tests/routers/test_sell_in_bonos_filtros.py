@@ -14,6 +14,10 @@ from __future__ import annotations
 import pytest
 
 from app.models.producto import ProductoERP, TipoMoneda
+from tests.services._aprobacion import cargas_aprobadas  # noqa: F401 - the fixture, by name
+
+# Written before tacticals approval: a load is approved right away (`_aprobacion.cargas_aprobadas`).
+pytestmark = pytest.mark.usefixtures("cargas_aprobadas")
 
 BASE = "/api/sell-in/bonos"
 
