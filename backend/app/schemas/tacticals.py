@@ -294,3 +294,29 @@ class TacticalListOut(BaseModel):
     items: list[TacticalOut]
     # Over every tactical the other filters match (not only this page, not the collection filter): S4.
     kpis: TacticalKpisOut
+    # What waits for approval (tacticals approval S12): the pending tacticals the other filters match, whatever the
+    # estado filter, plus the standalone pending loads (`GET /tacticals/cargas-pendientes`). The KPIs leave them out.
+    pendientes_aprobacion: int = 0
+
+
+OrigenCarga = Literal["sell_in_bono", "sell_in_compra", "sell_out_campana"]
+
+
+class CargaPendienteOut(BaseModel):
+    """A bonus, purchase or campaign loaded on its own that waits for approval (tacticals approval S11). `origen` is
+    a tactical line's: the screen opens that record's panel, where it is approved."""
+
+    origen: OrigenCarga
+    id: int
+    nombre: str
+    marca: Optional[str] = None
+    moneda: Moneda
+    fecha_desde: date
+    fecha_hasta: date
+    usuario_id: Optional[int] = None
+    usuario_nombre: Optional[str] = None
+    created_at: datetime
+
+
+class CargasPendientesOut(BaseModel):
+    items: list[CargaPendienteOut]  # newest first, at most 200

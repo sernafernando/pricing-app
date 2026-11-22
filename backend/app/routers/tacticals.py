@@ -14,7 +14,10 @@ build against is `handoffs/tactical-tarea.md` "Contrato final".
 - Collection (tactical cobranza S2): `PUT /{id}/cobranza` saves the one record (only `fecha_cobro` required, 422
   without it), `DELETE /{id}/cobranza` undoes it (204 when there is nothing to undo); both need `<tipo>.gestionar`.
   The list filters by `cobranza` (cobrados | pendientes) and returns `kpis` (Pendientes / Cobrados: count and money
-  used per currency) over the other filters.
+  used per currency) over the other filters, leaving pending tacticals and lines out, and `pendientes_aprobacion`
+  (tacticals approval S12): how many loads wait for approval.
+- `GET /cargas-pendientes` (tacticals approval S11): the bonuses, purchases and campaigns loaded on their own that
+  wait for approval, of the kinds the caller may read.
 - A broken rule is a 422 with one Spanish message ("Línea N: ..." when a line broke it); a campaign being
   recomputed is a 409 (retry; nothing stored); voiding twice is a 409; an unknown tactical is a 404.
 """
@@ -34,6 +37,7 @@ from app.models.usuario import Usuario
 from app.schemas.tacticals import (
     MARCA_MAX,
     NOMBRE_MAX,
+    CargasPendientesOut,
     CobranzaFiltro,
     ContieneFiltro,
     EstadoFiltro,
@@ -60,6 +64,15 @@ def _exigir(db: Session, user: Usuario, tipo: str, accion: str) -> None:
     codigo = f"{tipo}.{accion}"
     if not verificar_permiso(db, user, codigo):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Falta el permiso {codigo}")
+
+
+def _tipos_legibles(db: Session, user: Usuario, tipo: Optional[str]) -> list[str]:
+    """The kinds asked for (`tipo`, or both) that the caller may read; a 403 naming the permission when none."""
+    pedidos = [tipo] if tipo else list(TIPOS)
+    tipos = [t for t in pedidos if verificar_permiso(db, user, f"{t}.ver")]
+    if not tipos:
+        _exigir(db, user, pedidos[0], "ver")  # raises the 403 naming the missing permission
+    return tipos
 
 
 def _error(exc: service.TacticalError) -> HTTPException:
@@ -109,10 +122,7 @@ def listar_tacticals(
     user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    pedidos = [tipo] if tipo else list(TIPOS)
-    tipos = [t for t in pedidos if verificar_permiso(db, user, f"{t}.ver")]
-    if not tipos:
-        _exigir(db, user, pedidos[0], "ver")  # raises the 403 naming the missing permission
+    tipos = _tipos_legibles(db, user, tipo)
     if desde is not None and hasta is not None and hasta < desde:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="La fecha hasta no puede ser anterior a desde"
@@ -136,7 +146,21 @@ def listar_tacticals(
         "page_size": page_size,
         "items": _serializar(db, filas),
         "kpis": service.kpis(db, filtros),
+        "pendientes_aprobacion": service.contar_pendientes_aprobacion(db, filtros),
     }
+
+
+@router.get("/cargas-pendientes", response_model=CargasPendientesOut)
+def listar_cargas_pendientes(
+    tipo: Optional[TipoTactical] = None,
+    user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """The bonuses, purchases and campaigns loaded on their own that wait for approval (tacticals approval S11), of
+    the kinds the caller may read (403 when none): the "Pendientes de aprobación" filter lists them under the pending
+    tacticals, and each opens its record's panel, where it is approved."""
+    tipos = _tipos_legibles(db, user, tipo)
+    return {"items": service.con_autores(db, service.cargas_pendientes(db, tipos))}
 
 
 @router.get("/{tactical_id}", response_model=TacticalOut)

@@ -38,7 +38,7 @@ import logging
 
 import functools
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterable, Optional
@@ -1663,7 +1663,8 @@ def _usado_por_linea(ids: Select) -> Subquery:
     `bonos_crud.serializar`, `_lineas_compras`), rounded to cents per child. A child that used nothing is a 0 row.
     `estimado` is 1 when some of a USD cost bonus's amount is still an estimate (S10, `bonos_costo.fila_usd_estimada`).
     `tope` is its money cap in that same currency (S6): its `tope_monto`, or the total of a Monto total child (the
-    total is its cap; a cost bonus keeps it in ARS, converted at the tactical's fixed rate); NULL without one."""
+    total is its cap; a cost bonus keeps it in ARS, converted at the tactical's fixed rate); NULL without one. A pending
+    child applies nothing, so it is left out (tacticals approval S12)."""
     cero = literal(0)
 
     def tope(modelo):
@@ -1679,7 +1680,7 @@ def _usado_por_linea(ids: Select) -> Subquery:
         )
         .select_from(SellOutCampana)
         .outerjoin(SellOutConsumo, SellOutConsumo.campana_id == SellOutCampana.id)
-        .where(SellOutCampana.tactical_id.in_(ids))
+        .where(SellOutCampana.tactical_id.in_(ids), SellOutCampana.estado != aprobacion.PENDIENTE)
         .group_by(SellOutCampana.id)
     )
     # A cost bonus: what its sales got in the bonus's own currency, as `monto_generado`: ARS, or a USD bonus's USD.
@@ -1701,7 +1702,7 @@ def _usado_por_linea(ids: Select) -> Subquery:
         )
         .select_from(SellInBonoMarca)
         .outerjoin(SellInBonoConsumo, SellInBonoConsumo.bono_id == SellInBonoMarca.id)
-        .where(SellInBonoMarca.tactical_id.in_(ids), costo)
+        .where(SellInBonoMarca.tactical_id.in_(ids), costo, SellInBonoMarca.estado != aprobacion.PENDIENTE)
         .group_by(SellInBonoMarca.id)
     )
     # Any other bonus: its active purchases' assigned amounts in the bonus's own currency (another one is not added).
@@ -1723,7 +1724,7 @@ def _usado_por_linea(ids: Select) -> Subquery:
             ),
         )
         .outerjoin(SellInCompraItem, SellInCompraItem.compra_id == SellInCompra.id)
-        .where(SellInBonoMarca.tactical_id.in_(ids), ~costo)
+        .where(SellInBonoMarca.tactical_id.in_(ids), ~costo, SellInBonoMarca.estado != aprobacion.PENDIENTE)
         .group_by(SellInBonoMarca.id)
     )
     # An invoice total: what its sales took (ARS), in a USD purchase's currency at its own rate.
@@ -1740,7 +1741,7 @@ def _usado_por_linea(ids: Select) -> Subquery:
         .select_from(SellInCompra)
         .outerjoin(SellInCompraItem, SellInCompraItem.compra_id == SellInCompra.id)
         .outerjoin(SellInConsumo, SellInConsumo.compra_item_id == SellInCompraItem.id)
-        .where(SellInCompra.tactical_id.in_(ids))
+        .where(SellInCompra.tactical_id.in_(ids), SellInCompra.estado != aprobacion.PENDIENTE)
         .group_by(SellInCompra.id)
     )
     return union_all(campanas_, bonos_costo_, bonos_compras, compras_).subquery()
@@ -1756,6 +1757,9 @@ def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
     cobrado = exists().where(TacticalCobranza.tactical_id == Tactical.id)
     base = (
         _consulta(db, filtros, hoy or date.today())
+        # Money KPIs count only what applies (tacticals approval S12): a pending tactical is counted apart
+        # (`contar_pendientes_aprobacion`), whatever the estado filter.
+        .filter(Tactical.estado != aprobacion.PENDIENTE)
         .order_by(None)
         .with_entities(Tactical.id.label("id"), cobrado.label("cobrado"))
         .subquery()
@@ -1803,6 +1807,83 @@ def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
         }
         for clave, cobrados in (("pendientes", False), ("cobrados", True))
     }
+
+
+# --- approval inbox (tacticals approval S11, S12) ---------------------------------------------------------------------
+
+CARGAS_PENDIENTES_MAX = 200
+
+
+def _sueltas(modelo):
+    """Its standalone rows waiting for approval: `pendiente` and of no tactical (a tactical's line is approved with
+    its tactical)."""
+    return and_(modelo.estado == aprobacion.PENDIENTE, modelo.tactical_id.is_(None))
+
+
+def _consultas_sueltas(db: Session, tipos: list[str]) -> list[tuple[str, Any, Query]]:
+    """`(origen, model, query)` per kind of standalone load the caller may read: a sell in bonus or purchase, a sell
+    out campaign. A purchase a bonus generated (`origen = 'bono_marca'`) follows its bonus and is never a load."""
+    salida: list[tuple[str, Any, Query]] = []
+    if "sell_in" in tipos:
+        salida.append(("sell_in_bono", SellInBonoMarca, db.query(SellInBonoMarca).filter(_sueltas(SellInBonoMarca))))
+        compras_ = db.query(SellInCompra).filter(_sueltas(SellInCompra), SellInCompra.origen == "manual")
+        salida.append(("sell_in_compra", SellInCompra, compras_))
+    if "sell_out" in tipos:
+        salida.append(("sell_out_campana", SellOutCampana, db.query(SellOutCampana).filter(_sueltas(SellOutCampana))))
+    return salida
+
+
+def _carga(origen: str, fila: Any) -> dict:
+    if origen == "sell_in_bono":
+        nombre = fila.descripcion or f"Bono {fila.marca or fila.categoria or f'#{fila.id}'}"
+        desde, hasta, marca = fila.fecha_desde, fila.fecha_hasta, fila.marca
+    elif origen == "sell_in_compra":
+        nombre = fila.descripcion or f"Compra #{fila.id}"
+        desde = hasta = fila.fecha_compra
+        marca = None
+    else:
+        nombre, desde, hasta, marca = fila.nombre, fila.fecha_desde, fila.fecha_hasta, None
+    return {
+        "origen": origen,
+        "id": fila.id,
+        "nombre": nombre,
+        "marca": marca,
+        "moneda": fila.moneda,
+        "fecha_desde": desde,
+        "fecha_hasta": hasta,
+        "usuario_id": fila.usuario_id,
+        "created_at": fila.created_at,
+    }
+
+
+def cargas_pendientes(db: Session, tipos: list[str]) -> list[dict]:
+    """The standalone loads waiting for approval (S11: "no pending item may be unreachable from the UI"), of the
+    kinds in `tipos`, newest first, at most `CARGAS_PENDIENTES_MAX`. Each is `{origen, id, ...}` with the same
+    `origen` as a tactical's line, so the screen opens its record's panel, where it is approved."""
+    filas = []
+    for origen, modelo, query in _consultas_sueltas(db, tipos):
+        recientes = query.order_by(modelo.created_at.desc(), modelo.id.desc()).limit(CARGAS_PENDIENTES_MAX)
+        filas += [_carga(origen, fila) for fila in recientes]
+    filas.sort(key=lambda c: (c["created_at"], c["id"]), reverse=True)
+    return filas[:CARGAS_PENDIENTES_MAX]
+
+
+def con_autores(db: Session, cargas: list[dict]) -> list[dict]:
+    """`cargas_pendientes` with who loaded each one (`usuario_nombre`), for the API: one query."""
+    ids = {c["usuario_id"] for c in cargas} - {None}
+    nombres = dict(db.query(Usuario.id, Usuario.nombre).filter(Usuario.id.in_(ids))) if ids else {}
+    for c in cargas:
+        c["usuario_nombre"] = nombres.get(c["usuario_id"])
+    return cargas
+
+
+def contar_pendientes_aprobacion(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> int:
+    """How many loads wait for approval (S12: "a separate 'N pendientes de aprobación' count"): the pending
+    tacticals the other filters match (whatever the estado filter asks) plus every standalone pending load of the
+    kinds in `filtros.tipos`. That is what the "Pendientes de aprobación" filter shows."""
+    pendientes = replace(filtros, estado="pendientes_aprobacion")
+    tacticals_ = _consulta(db, pendientes, hoy or date.today()).order_by(None).count()
+    return tacticals_ + sum(query.order_by(None).count() for _, _, query in _consultas_sueltas(db, filtros.tipos))
 
 
 # --- collection (tactical cobranza S1, S2) ----------------------------------------------------------------------------

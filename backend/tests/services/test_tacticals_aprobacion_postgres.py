@@ -7,6 +7,7 @@ Invented data, the world of `test_tacticals_postgres.py` (WITHOUT its auto-appro
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from typing import Iterator
 
 import pytest
@@ -20,6 +21,7 @@ from app.services.sell_out import asignacion
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _bono_world as bw
 from tests.services.sell_in import _world as w
+from tests.services.test_tactical_cobranza_postgres import _usado
 from tests.services.test_tacticals_postgres import STUBS, TABLES, USUARIO, _contar, _install, _sql, _tactical
 
 pytestmark = pytest.mark.postgres
@@ -334,3 +336,132 @@ class TestListado:
             ]
             is None
         )
+
+
+# --- S11, S12: the standalone pending loads and the KPIs ---------------------------------------------------------
+
+
+def _insertar(engine: Engine, sql: str, **valores) -> int:
+    with engine.begin() as conn:
+        return conn.execute(text(sql), valores).scalar_one()
+
+
+def _campana_suelta(engine: Engine, nombre: str, estado: str = "pendiente") -> int:
+    return _insertar(
+        engine,
+        "INSERT INTO sell_out_campanas (nombre, fecha_desde, fecha_hasta, tipo, monto_unit, moneda, estado, "
+        "usuario_id) VALUES (:n, '2026-11-01', '2026-11-30', 'por_unidad', 5, 'ARS', :e, 7) RETURNING id",
+        n=nombre,
+        e=estado,
+    )
+
+
+def _compra_suelta(engine: Engine, estado: str = "pendiente", **derivada) -> int:
+    columnas = ", origen, bono_id" if derivada else ""
+    valores = ", 'bono_marca', :b" if derivada else ""
+    return _insertar(
+        engine,
+        f"INSERT INTO sell_in_compras (fecha_compra, cuenta_desde, moneda, monto_total, estado, usuario_id, "
+        f"descripcion{columnas}) VALUES ('2026-11-05', 'compra', 'ARS', 1000, :e, 7, 'NC Epson'{valores}) RETURNING id",
+        e=estado,
+        **({"b": derivada["bono_id"]} if derivada else {}),
+    )
+
+
+def _sueltas(db: Session, tipos=("sell_in", "sell_out")) -> list[tuple[str, int]]:
+    return [(c["origen"], c["id"]) for c in service.cargas_pendientes(db, list(tipos))]
+
+
+class TestCargasSueltas:
+    def test_the_pending_loads_of_no_tactical_are_listed_newest_first(self, db, engine) -> None:
+        bono = bw.bono(engine, estado="pendiente")
+        compra = _compra_suelta(engine)
+        campana = _campana_suelta(engine, "Campaña suelta")
+
+        assert _sueltas(db) == [("sell_out_campana", campana), ("sell_in_compra", compra), ("sell_in_bono", bono)]
+        [c, k, b] = service.cargas_pendientes(db, ["sell_in", "sell_out"])
+        assert (c["nombre"], c["moneda"], c["fecha_desde"], c["fecha_hasta"]) == (
+            "Campaña suelta", "ARS", date(2026, 11, 1), date(2026, 11, 30),
+        )  # fmt: skip
+        assert (k["nombre"], k["fecha_desde"], k["fecha_hasta"]) == ("NC Epson", date(2026, 11, 5), date(2026, 11, 5))
+        assert (b["nombre"], b["marca"], b["moneda"]) == (f"Bono {bw.TPLINK}", bw.TPLINK, "USD")
+        assert {x["usuario_id"] for x in (c, k, b)} == {USUARIO}
+
+    def test_approved_voided_derived_and_tactical_rows_are_not_listed(self, db, engine) -> None:
+        activo = bw.bono(engine)
+        bw.bono(engine, estado="anulada")
+        _campana_suelta(engine, "Aprobada", estado="activa")
+        _compra_suelta(engine, bono_id=activo)  # a bonus's purchase follows its bonus: not a load
+        service.crear(db, _tactical(), USUARIO)  # its line is approved with the tactical, from its row
+
+        assert _sueltas(db) == []
+
+    def test_only_the_kinds_the_caller_may_read(self, db, engine) -> None:
+        bono = bw.bono(engine, estado="pendiente")
+        campana = _campana_suelta(engine, "Suelta")
+
+        assert _sueltas(db, ["sell_in"]) == [("sell_in_bono", bono)]
+        assert _sueltas(db, ["sell_out"]) == [("sell_out_campana", campana)]
+        assert _sueltas(db, []) == []
+
+
+class TestKpisSinPendientes:
+    def _kpis(self, db, **filtros) -> dict:
+        return service.kpis(db, service.Filtros(tipos=["sell_in", "sell_out"], **filtros), hoy=HOY)
+
+    def test_the_money_kpis_leave_pending_tacticals_out_with_or_without_an_estado_filter(self, db, engine) -> None:
+        aprobado = service.crear(db, _tactical(nombre="Aprobado"), USUARIO)
+        service.aprobar(db, aprobado.id, APROBADOR)
+        pendiente = service.crear(db, _tactical(nombre="Pendiente"), USUARIO)
+        _usado(engine, aprobado.id, "50")
+        _usado(engine, pendiente.id, "30")  # left over from before it went back to pending
+
+        sin_filtro = self._kpis(db)
+        assert (sin_filtro["pendientes"]["cantidad"], sin_filtro["pendientes"]["sin_tope"]) == (1, 1)
+        assert [m["monto"] for m in sin_filtro["pendientes"]["montos"]] == [Decimal("50.00")]
+        solo_pendientes = self._kpis(db, estado="pendientes_aprobacion")
+        assert solo_pendientes["pendientes"] == {"cantidad": 0, "sin_tope": 0, "montos": []}
+
+    def test_a_pending_line_adds_no_money(self, db, engine) -> None:
+        aprobado = service.crear(db, _tactical(nombre="Aprobado"), USUARIO)
+        service.aprobar(db, aprobado.id, APROBADOR)
+        _usado(engine, aprobado.id, "50")
+        with engine.begin() as conn:
+            conn.execute(text(f"UPDATE sell_out_campanas SET estado = 'pendiente' WHERE tactical_id = {aprobado.id}"))
+
+        assert self._kpis(db)["pendientes"]["montos"] == []
+
+    def test_approved_tacticals_keep_counting_as_before(self, db, engine) -> None:
+        a = service.crear(db, _tactical(nombre="A"), USUARIO)
+        b = service.crear(db, _tactical(nombre="B", moneda="USD", tc_modo="al_cobro"), USUARIO)
+        for t in (a, b):
+            service.aprobar(db, t.id, APROBADOR)
+        _usado(engine, a.id, "20.5")
+        _usado(engine, b.id, "7")
+
+        assert self._kpis(db)["pendientes"] == {
+            "cantidad": 2,
+            "sin_tope": 2,
+            "montos": [
+                {"moneda": "ARS", "monto": Decimal("20.50"), "tope": None, "tope_parcial": False, "estimado": False},
+                {"moneda": "USD", "monto": Decimal("7.00"), "tope": None, "tope_parcial": False, "estimado": False},
+            ],
+        }
+
+
+class TestConteoPendientes:
+    def test_it_counts_pending_tacticals_under_the_other_filters_plus_the_standalone_loads(self, db, engine) -> None:
+        service.crear(db, _tactical(nombre="Hot sale"), USUARIO)
+        service.crear(db, _tactical(nombre="Otro"), USUARIO)
+        aprobado = service.crear(db, _tactical(nombre="Hot aprobado"), USUARIO)
+        service.aprobar(db, aprobado.id, APROBADOR)
+        bw.bono(engine, estado="pendiente")
+        _campana_suelta(engine, "Suelta")
+
+        def contar(tipos=("sell_in", "sell_out"), **filtros) -> int:
+            return service.contar_pendientes_aprobacion(db, service.Filtros(tipos=list(tipos), **filtros), hoy=HOY)
+
+        assert contar() == 4  # two tacticals, one bonus, one campaign
+        assert contar(estado="vigentes") == 4  # the estado filter does not hide what waits for approval
+        assert contar(q="hot") == 3  # the other filters narrow the tacticals; the standalone loads always show
+        assert contar(tipos=["sell_in"]) == 1  # only the bonus: both tacticals are sell out
