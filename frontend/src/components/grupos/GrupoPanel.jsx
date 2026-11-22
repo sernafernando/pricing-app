@@ -20,12 +20,11 @@ const ESTADO_CAMPANA = {
  * One offset group in the side panel: name and description, its filter rows (add / remove), the products it
  * reaches and the campaigns using it, and delete. `grupo` null is a new group: "Crear grupo" calls `onCreado`.
  * Every change calls `onCambio` (the list and the preview are asked again). While an active campaign uses the
- * group, a filter change re-queues its money: the panel asks first, naming the campaigns and showing the products
- * reached before -> after (`alcancePrevio`, the same rule, nothing saved). A filter change also sends the group's
- * approved campaigns and offsets back to pending (tacticals approval S14): the panel asks for their count first
- * (`aprobadasAfectadas`) and, when there is any, warns "N campañas aprobadas vuelven a pendiente" before saving.
- * Then it says only that (they stop applying until approved again): the "recalcula" sentence is for a change that
- * sends nothing back (S16).
+ * group, a filter change changes its scope: the panel asks first, showing the products reached before -> after
+ * (`alcancePrevio`, the same rule, nothing saved). A filter change sends the group's approved campaigns and offsets
+ * back to pending (tacticals approval S14): the panel asks for their count first (`aprobadasAfectadas`) and, when
+ * there is any, warns "N campañas aprobadas vuelven a pendiente" before saving, and that they stop applying until
+ * approved again (S16). An active campaign is an approved one, so there is no separate "recalcula" sentence (L12).
  * With neither it saves at once.
  */
 export default function GrupoPanel({ grupo, opciones, subcategorias, onClose, onCreado, onCambio, onEliminado }) {
@@ -115,12 +114,6 @@ export default function GrupoPanel({ grupo, opciones, subcategorias, onClose, on
         await onCambio();
       }, 'No se pudo quitar el filtro.'),
     );
-
-  const nombresActivas = activas.map((c) => `«${c.nombre}»`).join(', ');
-  const recalcula =
-    activas.length === 1
-      ? `Este cambio recalcula la campaña de sell out activa ${nombresActivas}.`
-      : `Este cambio recalcula las campañas de sell out activas ${nombresActivas}.`;
 
   const eliminar = () =>
     correr(async () => {
@@ -242,8 +235,6 @@ export default function GrupoPanel({ grupo, opciones, subcategorias, onClose, on
               </div>
               {pendiente && (
                 <div className={styles.confirm} role="group" aria-label="Confirmar cambio de filtros">
-                  {/* S16: when loads go back to pending that is the whole story; "recalcula" only when none does. */}
-                  {pendiente.antes !== undefined && pendiente.aPendiente.length === 0 && <p>{recalcula}</p>}
                   {pendiente.antes !== undefined && <p>{`Productos alcanzados: ${pendiente.antes} → ${pendiente.despues}.`}</p>}
                   {pendiente.aPendiente.length > 0 && (
                     <div className={own.aPendiente}>

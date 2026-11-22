@@ -238,7 +238,9 @@ describe.each([
     // Tacticals approval S16: "a tactical pending approval must not offer 'Cargar cobro' (disabled with tooltip 'Se
     // aprueba antes de cobrar')" and "rename that KPI 'Pendientes de cobro'".
     const screen = await abrir();
-    await expect.element(screen.getByText('Pendientes de cobro', { exact: true })).toBeVisible();
+    // The KPI box (the Cobranza filter segment reads the same since L12).
+    const kpis = screen.getByRole('region', { name: 'Cobranza de los tacticals' });
+    await expect.element(kpis.getByText('Pendientes de cobro', { exact: true })).toBeVisible();
     await screen.getByRole('button', { name: 'Pendientes de aprobación', exact: true }).click();
     const fila = screen.getByRole('row', { name: /Tacticals BPS Noviembre Q1FY27/ });
     const boton = fila.getByRole('button', { name: /Cargar cobro/ });

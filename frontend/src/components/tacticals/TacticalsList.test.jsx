@@ -453,7 +453,7 @@ describe('TacticalsList Cobranza (handoffs/tactical-cobranza-tarea.md S3, S4)', 
 
     await userEvent.click(within(cobranza).getByRole('button', { name: 'Cobrados' }));
     await waitFor(() => expect(ultimaConsulta()).toMatchObject({ cobranza: 'cobrados' }));
-    await userEvent.click(within(cobranza).getByRole('button', { name: 'Pendientes' }));
+    await userEvent.click(within(cobranza).getByRole('button', { name: 'Pendientes de cobro' }));
     await waitFor(() => expect(ultimaConsulta()).toMatchObject({ cobranza: 'pendientes' }));
     await userEvent.click(screen.getByRole('button', { name: 'Limpiar filtros' }));
     await waitFor(() => expect(ultimaConsulta()).toEqual({ estado: 'vigentes', page: 1, page_size: 50 }));

@@ -289,7 +289,7 @@ describe('GruposTab — filters and preview', () => {
     expect(within(panel).getByRole('button', { name: 'Quitar Marca TP-LINK · Categoría Routers' })).toBeEnabled();
   });
 
-  it('with an active campaign, adding a filter asks first naming it and showing the products before -> after', async () => {
+  it('with an active campaign, adding a filter asks first showing the products before -> after, never "recalcula"', async () => {
     const user = userEvent.setup();
     offsetGruposAPI.agregarFiltro.mockResolvedValue({ data: { id: 13 } });
     renderWithRouter(<GruposTab puedeEditar />);
@@ -300,10 +300,10 @@ describe('GruposTab — filters and preview', () => {
     expect(offsetGruposAPI.alcancePrevio).toHaveBeenCalledWith(1, {
       agregar: { marca: 'MERCUSYS', categoria: null, subcategoria_id: null, item_id: null },
     });
-    expect(aviso).toHaveTextContent('Este cambio recalcula la campaña de sell out activa «Noviembre TP-Link».');
     expect(aviso).toHaveTextContent('Productos alcanzados: 42 → 50.');
-    // S16: nothing goes back to pending, so only the recalculation is said.
-    expect(aviso).not.toHaveTextContent('pendiente');
+    // L12: an active campaign is an approved one, so a filter change always sends it back to pending; the
+    // "recalcula" sentence was for an impossible state and is gone.
+    expect(aviso).not.toHaveTextContent('recalcula');
     expect(offsetGruposAPI.agregarFiltro).not.toHaveBeenCalled();
     await user.click(within(aviso).getByRole('button', { name: 'Confirmar cambio' }));
     expect(offsetGruposAPI.agregarFiltro).toHaveBeenCalledWith(1, { marca: 'MERCUSYS', categoria: null, subcategoria_id: null, item_id: null });

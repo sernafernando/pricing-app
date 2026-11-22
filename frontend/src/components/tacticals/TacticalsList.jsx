@@ -26,7 +26,7 @@ const ESTADOS = [
 ];
 const COBRANZAS = [
   { value: 'todos', label: 'Todos' },
-  { value: 'pendientes', label: 'Pendientes' },
+  { value: 'pendientes', label: 'Pendientes de cobro' },
   { value: 'cobrados', label: 'Cobrados' },
 ];
 // The kind of line a tactical holds (SISO S1): the list keeps the tacticals with at least one line of that kind.
