@@ -2301,3 +2301,61 @@ def test_a_rerun_leaves_what_an_earlier_run_stored_as_it_is(engine, correr) -> N
     assert filas[offset_id]["resultado"] == "ya migrado"
     assert (summary["migrados"], summary["bonos_creados"]) == (0, 0)
     assert pct_id in filas
+
+
+# --- S10: an offset pending approval waits ---------------------------------------------------------------------------
+
+PENDIENTE_APROBACION = "pendiente de aprobación: se migra en una corrida posterior, una vez aprobado"
+
+
+def _aprobar(engine: Engine, *ids: int) -> None:
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE offsets_ganancia SET estado = 'activa' WHERE id = ANY(:i)"), {"i": list(ids)})
+
+
+def test_an_offset_pending_approval_is_reported_and_migrates_once_approved(engine, correr) -> None:
+    # Tacticals approval S10: migrating it now would leave two pending items for one load (it and its campaign).
+    offset_id = _offset(engine, marca="EPSON", estado="pendiente")
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    assert (filas[offset_id]["resultado"], filas[offset_id]["motivo"]) == ("no migrado", PENDIENTE_APROBACION)
+    assert _campanas(engine) == [] and _count(engine, "sell_in_bonos_marca") == 0
+    assert (summary["no_migrados"], summary["pendientes"], summary["con_error"]) == (1, 0, [])
+    assert offset_id not in _pendientes(engine)  # nothing to review by hand: approving it is enough
+
+    _aprobar(engine, offset_id)
+    _, summary, filas = correr("--apply")
+
+    assert filas[offset_id]["resultado"] == "migrado"
+    [campana] = _campanas(engine)
+    assert (campana["offset_origen_id"], campana["estado"], summary["migrados"]) == (offset_id, "pendiente", 1)
+
+
+def test_an_approved_offset_still_migrates_as_before(engine, correr) -> None:
+    offset_id = _offset(engine, marca="EPSON", estado="activa")
+
+    _, summary, filas = correr("--apply")
+
+    assert (filas[offset_id]["resultado"], filas[offset_id]["motivo"]) == ("migrado", "")
+    assert summary["migrados"] == 1 and len(_campanas(engine)) == 1
+
+
+def test_a_group_with_an_offset_pending_approval_waits_whole(engine, correr) -> None:
+    _, (ref, o2, o3) = _grupo_tplink(engine)
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE offsets_ganancia SET estado = 'pendiente' WHERE id = :i"), {"i": o2})
+
+    _, summary, filas = correr("--apply")
+
+    assert _campanas(engine) == []
+    assert filas[o2]["motivo"] == PENDIENTE_APROBACION
+    for otro in (ref, o3):
+        assert filas[otro]["resultado"] == "no migrado"
+        assert filas[otro]["motivo"].endswith(f"el offset #{o2} del grupo está pendiente de aprobación")
+    assert summary["pendientes"] == 0
+
+    _aprobar(engine, o2)
+    _, summary, filas = correr("--apply")
+    assert {filas[i]["resultado"] for i in (ref, o2, o3)} == {"migrado"} and len(_campanas(engine)) == 1

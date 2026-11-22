@@ -7,7 +7,10 @@ campaigns service (`app.services.sell_out.campanas`: the same validation and
 audit row as a campaign loaded from the screen) and stamped with
 `offset_origen_id`. It is created `pendiente` (tacticals approval S10): it
 applies to nothing and is not queued for `sell_out.drain` until it is approved
-from the "Pendientes de aprobación" filter:
+from the "Pendientes de aprobación" filter. An offset that is itself pending approval
+(new offsets are, since S10) is not migrated: it is reported "pendiente de aprobación"
+and migrates on a later run once approved (a group waits whole while one of its
+offsets is pending), so one load never yields two pending items:
 
 - an offset without a group gets a new `offset_grupos` row with one
   `offset_grupo_filtros` row per non-null scope field (marca / categoria /
@@ -175,6 +178,9 @@ COLUMNAS = [
 MIGRADO, NO_MIGRADO, YA_MIGRADO, MIGRARIA = "migrado", "no migrado", "ya migrado", "migraría (dry-run)"
 BONO_MIGRADO, BONO_YA_MIGRADO, BONO_MIGRARIA = "migrado a bono #{}", "ya migrado a bono #{}", "se migraría a bono"
 BONO = "un bono sobre el costo"  # how `_irrepresentable` names a cost bonus
+# Tacticals approval S10: an offset pending approval is not migrated yet (its campaign or bonus would be a second
+# pending item for the same load); once approved, the next run migrates it. It is not a review-table row.
+PENDIENTE_APROBACION = "pendiente de aprobación: se migra en una corrida posterior, una vez aprobado"
 # Scope fields as (column, CSV label), in the order the filter rows are created.
 _ALCANCE = (
     ("marca", "marca"),
@@ -866,6 +872,8 @@ def _suelto(
     if bono is not None:
         fila = _fila(offset, BONO_YA_MIGRADO.format(bono.id), avisos=_anulado(bono))
         return [_Resultado(fila, offset, cuenta="ya_migrados", bono_id=bono.id)]
+    if offset.estado == PENDIENTE:
+        return [_Resultado(_fila(offset, NO_MIGRADO, motivo=PENDIENTE_APROBACION), offset)]
     plan = _planear(offset, hoy, default, usuario_id, bonos)
     if plan.bono is not None:
         fila, error, bono_id = _uno_bono(db, offset, plan, apply)
@@ -1037,6 +1045,16 @@ def _grupo_bono(
     ]
 
 
+def _grupo_pendiente(grupo_id: int, offsets: list[OffsetGanancia], esperan: list[int]) -> list[_Resultado]:
+    """A group with an offset pending approval waits whole (S10): a group migrates as one campaign or not at all.
+    Nothing goes to the review table: approving the offset is enough, the next run migrates the group."""
+    nombres = ", ".join(f"#{i}" for i in esperan)
+    otros = f"Grupo #{grupo_id}: el offset {nombres} del grupo está pendiente de aprobación"
+    return [
+        _Resultado(_fila(o, NO_MIGRADO, motivo=PENDIENTE_APROBACION if o.id in esperan else otros), o) for o in offsets
+    ]
+
+
 def _grupo(
     db: Session, offsets: list[OffsetGanancia], hoy, default, usuario_id, apply: bool, bonos: _Bonos = ()
 ) -> list[_Resultado]:
@@ -1059,6 +1077,9 @@ def _grupo(
         if campana.tipo == "monto_total":
             return _grupo_fijo_migrado(grupo_id, offsets, campana)
         return _grupo_migrado(db, grupo_id, offsets, ya[0])
+    esperan = [o.id for o in offsets if o.estado == PENDIENTE]
+    if esperan:
+        return _grupo_pendiente(grupo_id, offsets, esperan)
     if all(o.tipo_offset == "monto_fijo" for o in offsets):
         plan = _planear_grupo_fijo(grupo_id, offsets, hoy, default, usuario_id)
     else:
