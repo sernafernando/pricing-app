@@ -16,7 +16,7 @@ from app.models.usuario_rol_adicional import UsuarioRolAdicional
 # a SUPERADMIN gets one only through an explicit per-user override. Everyone else
 # gets them through roles/overrides as usual. Mirrored in
 # frontend/src/constants/permisosOptIn.js (a test keeps both lists equal).
-OPT_IN_PERMISSION_CODES = frozenset({"tplink.tema", "tplink.solo"})
+OPT_IN_PERMISSION_CODES = frozenset({"tplink.tema", "tplink.solo", "tacticals.aprobar"})
 
 
 class PermisosService:

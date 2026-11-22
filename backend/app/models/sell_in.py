@@ -36,7 +36,7 @@ from sqlalchemy import (
 from sqlalchemy.sql import func, text
 
 from app.core.database import Base
-from app.models.tactical import TACTICAL_LINEA
+from app.models.tactical import ESTADO_LINEA, TACTICAL_LINEA
 
 
 class SellInBonoMarca(Base):
@@ -53,7 +53,7 @@ class SellInBonoMarca(Base):
     __table_args__ = (
         CheckConstraint("moneda IN ('ARS', 'USD')", name="ck_sell_in_bonos_marca_moneda"),
         CheckConstraint("fecha_desde <= fecha_hasta", name="ck_sell_in_bonos_marca_rango"),
-        CheckConstraint("estado IN ('activa', 'anulada')", name="ck_sell_in_bonos_marca_estado"),
+        CheckConstraint(ESTADO_LINEA, name="ck_sell_in_bonos_marca_estado"),
         CheckConstraint(
             "alcance IN ('marca', 'categoria', 'modelos', 'factura')", name="ck_sell_in_bonos_marca_alcance"
         ),
@@ -234,7 +234,7 @@ class SellInCompra(Base):
         CheckConstraint("moneda <> 'USD' OR tipo_cambio IS NOT NULL", name="ck_sell_in_compras_usd_con_tc"),
         CheckConstraint("tipo_cambio IS NULL OR tipo_cambio > 0", name="ck_sell_in_compras_tc_positivo"),
         CheckConstraint("formula IN ('proporcional', 'por_unidad', 'manual')", name="ck_sell_in_compras_formula"),
-        CheckConstraint("estado IN ('activa', 'anulada')", name="ck_sell_in_compras_estado"),
+        CheckConstraint(ESTADO_LINEA, name="ck_sell_in_compras_estado"),
         CheckConstraint("tipo IN ('monto', 'porcentaje')", name="ck_sell_in_compras_tipo"),
         CheckConstraint(
             "(tipo = 'monto' AND porcentaje IS NULL) "

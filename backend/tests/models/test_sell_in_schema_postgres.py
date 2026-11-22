@@ -52,6 +52,7 @@ _MIGRATIONS = [
         "20261111_sell_in_bono_marca_categoria",  # SISO S3: a brand bonus may carry a category
         "20261110_tactical_cobranza",  # the collection table the next one alters
         "20261120_tactical_sell_in_usd",  # a tactical's cost bonus in USD, its rows' USD amount and rate
+        "20261122_tacticals_aprobacion",  # the 'pendiente' state of the lines (tacticals approval)
     )
 ]
 TABLES = {"sell_in_compras", "sell_in_compra_items", "sell_in_consumos", "sell_in_modos_producto"}
@@ -73,7 +74,8 @@ _STUBS = [
     "CREATE TABLE pedido_compra_lineas_facturadas (id BIGSERIAL PRIMARY KEY, pedido_id BIGINT, item_id INTEGER, "
     "cantidad INTEGER, importe_neto NUMERIC(18, 2), moneda VARCHAR(3))",
     # What `20261105_tacticals` also alters on the sell-out side, and the trigger function it reuses.
-    "CREATE TABLE sell_out_campanas (id BIGINT PRIMARY KEY)",
+    # `estado`: what `20261122_tacticals_aprobacion` widens on the sell-out side.
+    "CREATE TABLE sell_out_campanas (id BIGINT PRIMARY KEY, estado VARCHAR(16) NOT NULL DEFAULT 'activa')",
     "CREATE TABLE offset_grupos (id INTEGER PRIMARY KEY)",
     "CREATE FUNCTION sell_out_set_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$",
     # What `20261106_combo_consumos_item` also widens on the sell-out side.
@@ -83,6 +85,14 @@ _STUBS = [
     "INSERT INTO proveedores VALUES (3)",
     "INSERT INTO pedidos_compra (id) VALUES (900)",
     "INSERT INTO productos_erp VALUES (4512), (4513)",
+]
+# Where `20261122_tacticals_aprobacion` seeds its permission. Apart from `_STUBS`, which other tests reuse with the
+# real permission tables.
+_STUBS_PERMISOS = [
+    "CREATE TABLE permisos (id SERIAL PRIMARY KEY, codigo VARCHAR(100) UNIQUE, nombre TEXT, descripcion TEXT, "
+    "categoria TEXT, orden INTEGER, es_critico BOOLEAN, created_at TIMESTAMP)",
+    "CREATE TABLE roles_permisos_base (rol_id INTEGER, permiso_id INTEGER)",
+    "CREATE TABLE usuarios_permisos_override (usuario_id INTEGER, permiso_id INTEGER)",
 ]
 
 _INSERT_COMPRA = (
@@ -135,7 +145,7 @@ def _throwaway_schema(prefix: str, build):
     eng = create_engine(POSTGRES_TEST_URL, connect_args={"options": f"-csearch_path={schema}"})
     try:
         with eng.begin() as conn:
-            for statement in _STUBS:
+            for statement in _STUBS + _STUBS_PERMISOS:
                 conn.execute(text(statement))
         build(eng)
         yield eng

@@ -30,7 +30,11 @@ from app.core.database import Base
 
 # Also declared by migration `20261105_tacticals` (the schema parity test compares them).
 TIPO = "tipo IN ('sell_in', 'sell_out')"
-ESTADO = "estado IN ('activo', 'anulado')"
+# `pendiente`: loaded or money-edited, waiting for approval (tacticals approval S1, S4): nothing of it applies.
+ESTADO = "estado IN ('activo', 'anulado', 'pendiente')"
+# Every line engine's `estado` (`ck_<table>_estado`): `pendiente` waits for approval and applies to nothing (every money
+# reader takes only `activa`), tacticals approval S1/S6. Migration `20261122_tacticals_aprobacion`.
+ESTADO_LINEA = "estado IN ('activa', 'anulada', 'pendiente')"
 # The CHECK each line engine's table carries (`ck_<table>_tactical_linea`).
 TACTICAL_LINEA = "(tactical_id IS NULL AND tactical_linea IS NULL) OR (tactical_id IS NOT NULL AND tactical_linea IS NOT NULL AND tactical_linea >= 1)"
 TC_MODO = (
@@ -54,6 +58,7 @@ class Tactical(Base):
         CheckConstraint("tipo_cambio IS NULL OR tipo_cambio > 0", name="ck_tacticals_tc_positivo"),
         Index("ix_tacticals_marca", "marca"),
         Index("ix_tacticals_fechas", "fecha_desde", "fecha_hasta"),
+        Index("ix_tacticals_aprobado_por", "aprobado_por"),
     )
 
     id = Column(BigInteger, primary_key=True)
@@ -75,6 +80,10 @@ class Tactical(Base):
     nota = Column(Text, nullable=True)
     estado = Column(String(16), nullable=False, default="activo", server_default="activo")
     usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=False)
+    # Who approved it and when (migration `20261122_tacticals_aprobacion`); both NULL on a pending one and on one
+    # approved before approval existed (S7). A money edit clears them (S4).
+    aprobado_por = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=True)
+    aprobado_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     # Also kept current by the `tacticals_updated_at` trigger.
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

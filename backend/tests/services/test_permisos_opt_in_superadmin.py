@@ -20,6 +20,7 @@ from app.services.permisos_service import OPT_IN_PERMISSION_CODES, PermisosServi
 NORMAL = "productos.ver"
 TEMA = "tplink.tema"
 SOLO = "tplink.solo"
+APROBAR = "tacticals.aprobar"  # tacticals approval S3, L31: given to one user, not to every SUPERADMIN
 
 
 def _permiso(db, codigo: str) -> Permiso:
@@ -78,8 +79,17 @@ def superadmin(db, catalogo) -> Usuario:
     return _usuario(db, _rol(db, "SUPERADMIN"), "owner_opt_in")
 
 
-def test_opt_in_codes_are_the_tplink_ones() -> None:
-    assert OPT_IN_PERMISSION_CODES == frozenset({TEMA, SOLO})
+def test_opt_in_codes_are_the_tplink_ones_and_the_tactical_approval() -> None:
+    assert OPT_IN_PERMISSION_CODES == frozenset({TEMA, SOLO, APROBAR})
+
+
+def test_a_superadmin_approves_tacticals_only_with_the_override(db, superadmin) -> None:
+    _permiso(db, APROBAR)
+    assert verificar_permiso(db, superadmin, APROBAR) is False
+
+    _override(db, superadmin, APROBAR, True)
+
+    assert verificar_permiso(db, superadmin, APROBAR) is True
 
 
 class TestSuperadminWithoutOverride:
