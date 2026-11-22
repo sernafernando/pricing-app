@@ -50,6 +50,11 @@
   white-space: nowrap;
 }
 
+/* Tipo cell: "Sell in" / "Sell out" stay on one line (the pill itself wraps by default). */
+.tipo > span {
+  white-space: nowrap;
+}
+
 .twisty {
   width: 32px;
 }
@@ -257,5 +262,7 @@
 .aprobado {
   font-size: var(--font-xs);
   color: var(--cf-text-tertiary);
-  white-space: nowrap;
+  /* Wraps under the pill: a long approver name must not widen the column and squeeze Tipo and Cobranza. */
+  white-space: normal;
+  max-width: 22ch;
 }

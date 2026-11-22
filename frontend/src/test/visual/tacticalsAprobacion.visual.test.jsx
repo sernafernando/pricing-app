@@ -164,6 +164,35 @@ describe.each([
     );
   };
 
+  it('with the sidebar open, a long approver name wraps in its cell: the type pill and Cobranza keep their room', async () => {
+    // Seen in the real capture: a sell out tactical approved by "Alejandro Aprobador" at 1440 with the sidebar open.
+    const largo = { ...APROBADO, tipo: 'sell_out', aprobado_por_nombre: 'Alejandro Aprobador' };
+    TACTICALS.splice(1, 1, largo);
+    try {
+      await page.viewport(width, height);
+      setTheme(theme);
+      document.body.style.background = 'var(--cf-bg-app)';
+      const screen = await render(
+        <MemoryRouter initialEntries={['/sell-in?tab=tacticals']}>
+          <div style={{ paddingTop: 'var(--cf-topbar-height)', paddingLeft: 'var(--cf-sidebar-width-expanded)' }}>
+            <SellIn />
+          </div>
+        </MemoryRouter>,
+      );
+      const fila = screen.getByRole('row', { name: /Rebate HP Q1FY27/ });
+      await expect.element(fila.getByText('Aprobado por Alejandro Aprobador el 10/11/2026')).toBeVisible();
+      // The type pill stays on one line (it was squeezed to one letter per line).
+      const pill = fila.getByText('Sell out', { exact: true }).element().getBoundingClientRect();
+      expect(pill.height).toBeLessThan(30);
+      // Cargar cobro stays inside the table, not cut at its edge.
+      const cobro = fila.getByRole('button', { name: /Cargar cobro/ }).element().getBoundingClientRect();
+      const tabla = fila.element().closest('table').parentElement.getBoundingClientRect();
+      expect(cobro.right).toBeLessThanOrEqual(tabla.right + 0.5);
+    } finally {
+      TACTICALS.splice(1, 1, APROBADO);
+    }
+  });
+
   it('counts what waits for approval beside the money KPIs, which leave it out', async () => {
     const screen = await abrir();
     const kpis = screen.getByRole('region', { name: 'Cobranza de los tacticals' });

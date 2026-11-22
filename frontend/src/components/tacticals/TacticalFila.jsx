@@ -166,7 +166,7 @@ export default function TacticalFila({ tactical, abierto, onAlternar, acciones =
           <span className={styles.nombre}>{tactical.nombre}</span>
           {tactical.referencia && <small className={styles.referencia}>{tactical.referencia}</small>}
         </td>
-        <td>
+        <td className={styles.tipo}>
           <StatusPill tone={tipo.tono} variant="soft">
             {tipo.texto}
           </StatusPill>
