@@ -12,9 +12,10 @@ const TACTICALS = '/tacticals';
  *   filters match plus the standalone pending loads); its `kpis` leave pending tacticals out.
  * - `aprobarOffset(id)`: `POST /offsets-ganancia/{id}/aprobar` (tacticals approval S10), a legacy profit offset of the
  *   inbox, which has no record panel to approve it from.
- * - `cargasPendientes(params)`: `GET /tacticals/cargas-pendientes` (`tipo` optional), the bonuses, purchases and
- *   campaigns loaded on their own that wait for approval: `{ items: [{ origen, id, nombre, marca, moneda,
- *   fecha_desde, fecha_hasta, usuario_id, usuario_nombre, created_at }] }`, newest first.
+ * - `cargasPendientes(params)`: `GET /tacticals/cargas-pendientes` (`tipo` optional; `page`, `page_size` up to 200),
+ *   one page of the bonuses, purchases, campaigns and profit offsets loaded on their own that wait for approval:
+ *   `{ items: [{ origen, id, nombre, marca, moneda, fecha_desde, fecha_hasta, usuario_id, usuario_nombre,
+ *   created_at }], total, page, page_size }`, newest first.
  * - `detalle(id)`: `GET /tacticals/{id}`, one tactical with its lines (Renovar prefills Nuevo tactical from it).
  * - `crear(body)`: `POST /tacticals`, a header with its lines at once, all or nothing; a 422 `{error: {message}}`
  *   names the line ("Línea 3: …").

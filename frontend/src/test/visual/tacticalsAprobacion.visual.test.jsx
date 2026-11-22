@@ -49,7 +49,9 @@ const PENDIENTE = {
   ...TACTICAL_BPS,
   ...SIN_APROBAR,
   estado: 'pendiente',
-  lineas: TACTICAL_BPS.lineas.map((l) => ({ ...l, estado: 'pendiente' })),
+  // A pending tactical applied nothing yet: its lines have no usage (verifier A4; the backend counts no consumption
+  // for a line that never applied).
+  lineas: TACTICAL_BPS.lineas.map((l) => ({ ...l, estado: 'pendiente', unidades_usadas: 0, monto_usado: '0' })),
 };
 const APROBADO = { ...TACTICAL_REBATE, ...SIN_APROBAR, aprobado_por: 9, aprobado_por_nombre: 'Alejandro', aprobado_at: '2026-11-10T15:00:00Z' };
 const TACTICALS = [PENDIENTE, APROBADO];
@@ -105,7 +107,11 @@ const TIPO_DE_ORIGEN = { offset_ganancia: 'sell_out' };
 const delTipo = (tipo) => (origen) => !tipo || (TIPO_DE_ORIGEN[origen] ?? origen.split('_').slice(0, 2).join('_')) === tipo;
 
 /** `GET /tacticals/cargas-pendientes` (`CargasPendientesOut`): the standalone loads of the kind asked for. */
-const cargasPendientes = ({ tipo } = {}) => ({ items: CARGAS_PENDIENTES.filter((c) => delTipo(tipo)(c.origen)) });
+/** `CargasPendientesOut`: one page (`page`, `page_size`) of the loads of the kind, with `total`. */
+const cargasPendientes = ({ tipo, page = 1, page_size: pageSize = 50 } = {}) => {
+  const todas = CARGAS_PENDIENTES.filter((c) => delTipo(tipo)(c.origen));
+  return { items: todas.slice((page - 1) * pageSize, page * pageSize), total: todas.length, page, page_size: pageSize };
+};
 
 /** `GET /tacticals` (`TacticalListOut`). */
 function listar({ tipo, estado, page = 1, page_size: pageSize = 50 } = {}) {
@@ -118,7 +124,7 @@ function listar({ tipo, estado, page = 1, page_size: pageSize = 50 } = {}) {
     items: filtrados.slice((page - 1) * pageSize, page * pageSize),
     kpis: kpisDe(filtrados),
     // The pending tacticals under the other filters, whatever the estado one, plus the standalone loads.
-    pendientes_aprobacion: otros.filter(CUMPLE_ESTADO.pendientes_aprobacion).length + cargasPendientes({ tipo }).items.length,
+    pendientes_aprobacion: otros.filter(CUMPLE_ESTADO.pendientes_aprobacion).length + cargasPendientes({ tipo }).total,
   };
 }
 
@@ -184,6 +190,8 @@ describe.each([
     await expect.poll(() => pedidas('/tacticals/cargas-pendientes')).toBe(true);
     const fila = screen.getByRole('row', { name: /Tacticals BPS Noviembre Q1FY27/ });
     await expect.element(fila.getByText('Pendiente de aprobación')).toBeVisible();
+    // A pending tactical applied nothing: no usage on its row (the backend counts none for a pending line).
+    expect(fila.element().textContent).not.toMatch(/252|20\.544/);
     await expect.element(screen.getByText('Rebate HP Q1FY27')).not.toBeInTheDocument();
     const sueltas = screen.getByRole('region', { name: 'Cargas sueltas pendientes de aprobación' });
     await expect.element(sueltas).toBeVisible();

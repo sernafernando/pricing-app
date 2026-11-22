@@ -83,3 +83,31 @@ def test_an_offset_loaded_on_its_own_is_listed_until_it_is_approved(
     assert client.post(f"/api/offsets-ganancia/{offset['id']}/aprobar", headers=sell_out).status_code == 200
     assert client.get(PENDIENTES, headers=sell_out).json()["items"] == []
     assert client.get(BASE, headers=sell_out).json()["pendientes_aprobacion"] == 0
+
+
+def test_every_pending_load_is_reachable_by_pages(client, db, sell_out, admin_user) -> None:
+    """S11: "no pending item may be unreachable from the UI" (verifier A2): past one page the rest is on the next
+    ones, and `total` counts them all."""
+    from datetime import date as _date
+
+    from app.models.offset_ganancia import OffsetGanancia
+
+    db.add_all(
+        OffsetGanancia(
+            marca="EPSON", tipo_offset="monto_fijo", monto=i, fecha_desde=_date(2026, 11, 1), estado="pendiente",
+            usuario_id=admin_user.id,
+        )
+        for i in range(1, 202)
+    )  # fmt: skip
+    db.commit()
+
+    primera = client.get(PENDIENTES, params={"page_size": 200}, headers=sell_out).json()
+    segunda = client.get(PENDIENTES, params={"page": 2, "page_size": 200}, headers=sell_out).json()
+
+    assert (len(primera["items"]), primera["total"], primera["page"], primera["page_size"]) == (200, 201, 1, 200)
+    assert (len(segunda["items"]), segunda["total"]) == (1, 201)
+    ids = [c["id"] for c in primera["items"] + segunda["items"]]
+    assert len(set(ids)) == 201 and ids == sorted(ids, reverse=True)  # newest first, each once
+    porDefecto = client.get(PENDIENTES, headers=sell_out).json()
+    assert (len(porDefecto["items"]), porDefecto["total"], porDefecto["page_size"]) == (50, 201, 50)
+    assert client.get(PENDIENTES, params={"page_size": 201}, headers=sell_out).status_code == 422

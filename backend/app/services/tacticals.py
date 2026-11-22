@@ -1812,7 +1812,7 @@ def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
 
 # --- approval inbox (tacticals approval S11, S12) ---------------------------------------------------------------------
 
-CARGAS_PENDIENTES_MAX = 200
+CARGAS_PENDIENTES_MAX = 200  # the largest page of the approval inbox
 
 
 def _sueltas(modelo):
@@ -1869,16 +1869,25 @@ def _carga(origen: str, fila: Any) -> dict:
     }
 
 
-def cargas_pendientes(db: Session, tipos: list[str]) -> list[dict]:
-    """The standalone loads waiting for approval (S11: "no pending item may be unreachable from the UI"), of the
-    kinds in `tipos`, newest first, at most `CARGAS_PENDIENTES_MAX`. Each is `{origen, id, ...}` with the same
-    `origen` as a tactical's line, so the screen opens its record's panel, where it is approved."""
+def cargas_pendientes(
+    db: Session, tipos: list[str], page: int = 1, page_size: int = CARGAS_PENDIENTES_MAX
+) -> list[dict]:
+    """One page of the standalone loads waiting for approval (S11: "no pending item may be unreachable from the UI"),
+    of the kinds in `tipos`, newest first across kinds; `contar_cargas_pendientes` counts them all. Each is
+    `{origen, id, ...}` with the same `origen` as a tactical's line, so the screen opens its record's panel, where it
+    is approved (an offset is approved from the inbox itself)."""
+    hasta = page * page_size  # every kind's first `hasta` rows hold the first `hasta` of the merged order
     filas = []
     for origen, modelo, query in _consultas_sueltas(db, tipos):
-        recientes = query.order_by(_creada(modelo).desc(), modelo.id.desc()).limit(CARGAS_PENDIENTES_MAX)
+        recientes = query.order_by(_creada(modelo).desc(), modelo.id.desc()).limit(hasta)
         filas += [_carga(origen, fila) for fila in recientes]
     filas.sort(key=lambda c: (c["created_at"], c["id"]), reverse=True)
-    return filas[:CARGAS_PENDIENTES_MAX]
+    return filas[hasta - page_size : hasta]
+
+
+def contar_cargas_pendientes(db: Session, tipos: list[str]) -> int:
+    """How many standalone loads of the kinds in `tipos` wait for approval (the pages of `cargas_pendientes`)."""
+    return sum(query.order_by(None).count() for _, _, query in _consultas_sueltas(db, tipos))
 
 
 def con_autores(db: Session, cargas: list[dict]) -> list[dict]:
@@ -1896,7 +1905,7 @@ def contar_pendientes_aprobacion(db: Session, filtros: Filtros, hoy: Optional[da
     kinds in `filtros.tipos`. That is what the "Pendientes de aprobación" filter shows."""
     pendientes = replace(filtros, estado="pendientes_aprobacion")
     tacticals_ = _consulta(db, pendientes, hoy or date.today()).order_by(None).count()
-    return tacticals_ + sum(query.order_by(None).count() for _, _, query in _consultas_sueltas(db, filtros.tipos))
+    return tacticals_ + contar_cargas_pendientes(db, filtros.tipos)
 
 
 # --- collection (tactical cobranza S1, S2) ----------------------------------------------------------------------------

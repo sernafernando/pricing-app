@@ -320,4 +320,7 @@ class CargaPendienteOut(BaseModel):
 
 
 class CargasPendientesOut(BaseModel):
-    items: list[CargaPendienteOut]  # newest first, at most 200
+    items: list[CargaPendienteOut]  # one page, newest first
+    total: int = 0  # every pending load of those kinds: the pages reach them all (S11)
+    page: int = 1
+    page_size: int = 50

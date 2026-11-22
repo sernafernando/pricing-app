@@ -417,6 +417,23 @@ class TestCargasSueltas:
         assert _sueltas(db, []) == []
 
 
+class TestPaginasSueltas:
+    def test_the_pages_follow_one_order_across_kinds(self, db, engine) -> None:
+        bono = bw.bono(engine, estado="pendiente")
+        compra = _compra_suelta(engine)
+        campana = _campana_suelta(engine, "Suelta")
+        offset = _offset(engine)
+
+        paginas = [service.cargas_pendientes(db, ["sell_in", "sell_out"], page=p, page_size=3) for p in (1, 2)]
+
+        assert [[(c["origen"], c["id"]) for c in pagina] for pagina in paginas] == [
+            [("offset_ganancia", offset), ("sell_out_campana", campana), ("sell_in_compra", compra)],
+            [("sell_in_bono", bono)],
+        ]
+        assert service.contar_cargas_pendientes(db, ["sell_in", "sell_out"]) == 4
+        assert service.contar_cargas_pendientes(db, ["sell_in"]) == 2
+
+
 class TestOffsetsSueltos:
     """S10 + S11: a legacy profit offset waiting for approval is a sell out load of its own in the inbox."""
 

@@ -600,7 +600,7 @@ describe('TacticalsList approval inbox (handoffs/tacticals-aprobacion-plan.md S1
 
     await userEvent.click(screen.getByRole('button', { name: 'Pendientes de aprobación' }));
 
-    await waitFor(() => expect(tacticalsAPI.cargasPendientes).toHaveBeenCalledWith({}));
+    await waitFor(() => expect(tacticalsAPI.cargasPendientes).toHaveBeenCalledWith({ page: 1, page_size: 50 }));
     const region = await screen.findByRole('region', { name: 'Cargas sueltas pendientes de aprobación' });
     const bono = within(region).getByRole('row', { name: /Bono TP-Link/ });
     expect(bono).toHaveTextContent('Bono sell in');
@@ -670,10 +670,36 @@ describe('TacticalsList approval inbox (handoffs/tacticals-aprobacion-plan.md S1
     expect(within(offset).queryByRole('button')).not.toBeInTheDocument();
   });
 
+  it('past one page the rest of the pending loads is on the next pages (S11, verifier A2)', async () => {
+    const muchas = Array.from({ length: 50 }, (_, i) => ({ ...CARGA_OFFSET, id: 1000 - i, nombre: `Offset ${1000 - i}` }));
+    tacticalsAPI.cargasPendientes.mockImplementation(async ({ page }) => ({
+      data: page === 1 ? { items: muchas, total: 51, page: 1, page_size: 50 } : { items: [CARGA_OFFSET], total: 51, page: 2, page_size: 50 },
+    }));
+    render(<TacticalsList marcas={MARCAS} puedeAprobar />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Pendientes de aprobación' }));
+    const region = await screen.findByRole('region', { name: 'Cargas sueltas pendientes de aprobación' });
+    expect(await within(region).findByText('mostrando 1-50 de 51 cargas')).toBeInTheDocument();
+
+    await userEvent.click(within(region).getByRole('button', { name: 'Página 2' }));
+
+    await waitFor(() => expect(tacticalsAPI.cargasPendientes).toHaveBeenLastCalledWith({ page: 2, page_size: 50 }));
+    expect(await within(sueltas()).findByRole('row', { name: /Offset Epson/ })).toBeInTheDocument();
+    expect(within(sueltas()).getByText('mostrando 51-51 de 51 cargas')).toBeInTheDocument();
+  });
+
+  it('one page of pending loads shows no pager', async () => {
+    tacticalsAPI.cargasPendientes.mockResolvedValue({ data: { items: CARGAS_PENDIENTES, total: 4, page: 1, page_size: 50 } });
+    render(<TacticalsList marcas={MARCAS} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Pendientes de aprobación' }));
+    const region = await screen.findByRole('region', { name: 'Cargas sueltas pendientes de aprobación' });
+    await within(region).findByRole('row', { name: /Offset Epson/ });
+    expect(within(region).queryByText(/^mostrando/)).not.toBeInTheDocument();
+  });
+
   it('asks only the kind of the Tipo filter, again on a reload, and shows nothing when none waits', async () => {
     const { rerender } = render(<TacticalsList marcas={MARCAS} tipoInicial="sell_in" />);
     await userEvent.click(await screen.findByRole('button', { name: 'Pendientes de aprobación' }));
-    await waitFor(() => expect(tacticalsAPI.cargasPendientes).toHaveBeenCalledWith({ tipo: 'sell_in' }));
+    await waitFor(() => expect(tacticalsAPI.cargasPendientes).toHaveBeenCalledWith({ tipo: 'sell_in', page: 1, page_size: 50 }));
 
     tacticalsAPI.cargasPendientes.mockResolvedValue({ data: { items: [] } });
     rerender(<TacticalsList marcas={MARCAS} tipoInicial="sell_in" version={1} />);

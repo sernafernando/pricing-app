@@ -16,8 +16,9 @@ build against is `handoffs/tactical-tarea.md` "Contrato final".
   The list filters by `cobranza` (cobrados | pendientes) and returns `kpis` (Pendientes / Cobrados: count and money
   used per currency) over the other filters, leaving pending tacticals and lines out, and `pendientes_aprobacion`
   (tacticals approval S12): how many loads wait for approval.
-- `GET /cargas-pendientes` (tacticals approval S11): the bonuses, purchases and campaigns loaded on their own that
-  wait for approval, of the kinds the caller may read.
+- `GET /cargas-pendientes` (tacticals approval S10, S11): the bonuses, purchases, campaigns and profit offsets
+  loaded on their own that wait for approval, of the kinds the caller may read, by pages (`page`, `page_size` up to
+  200, with `total`): every one is reachable.
 - A broken rule is a 422 with one Spanish message ("Línea N: ..." when a line broke it); a campaign being
   recomputed is a 409 (retry; nothing stored); voiding twice is a 409; an unknown tactical is a 404.
 """
@@ -153,6 +154,8 @@ def listar_tacticals(
 @router.get("/cargas-pendientes", response_model=CargasPendientesOut)
 def listar_cargas_pendientes(
     tipo: Optional[TipoTactical] = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=service.CARGAS_PENDIENTES_MAX),
     user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -160,7 +163,13 @@ def listar_cargas_pendientes(
     the kinds the caller may read (403 when none): the "Pendientes de aprobación" filter lists them under the pending
     tacticals, and each opens its record's panel, where it is approved."""
     tipos = _tipos_legibles(db, user, tipo)
-    return {"items": service.con_autores(db, service.cargas_pendientes(db, tipos))}
+    cargas = service.cargas_pendientes(db, tipos, page, page_size)
+    return {
+        "items": service.con_autores(db, cargas),
+        "total": service.contar_cargas_pendientes(db, tipos),
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 @router.get("/{tactical_id}", response_model=TacticalOut)

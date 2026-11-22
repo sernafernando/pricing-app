@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { StatusPill } from '../kit';
+import { Pagination, StatusPill } from '../kit';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
 import { formatDateOnly } from '../../utils/dateUtils';
 import { vigenciaDe } from './tacticalsFormat';
@@ -13,6 +13,9 @@ const TIPO_DE_ORIGEN = {
   sell_out_campana: { texto: 'Campaña sell out', tono: 'info' },
   offset_ganancia: { texto: 'Offset de ganancia', tono: 'info' },
 };
+
+/** One page of the inbox; past it, a pager reaches the rest (S11: no pending load may be unreachable). */
+const PAGE_SIZE = 50;
 
 /** A legacy profit offset (S10) has no record panel: it is approved right from its row. */
 const OFFSET = 'offset_ganancia';
@@ -36,20 +39,23 @@ const vigencia = (carga) =>
  */
 export default function CargasPendientes({ tipo = 'todos', version = 0, puedeAprobar = false, onVer, onAprobarOffset }) {
   const [respuesta, setRespuesta] = useState(null);
+  // The page belongs to its Tipo: another kind starts on the first page.
+  const [pagina, setPagina] = useState({ tipo, offset: 0 });
+  const offset = pagina.tipo === tipo ? pagina.offset : 0;
   useEffect(() => {
     let activo = true;
-    const params = tipo === 'todos' ? {} : { tipo };
+    const params = { ...(tipo === 'todos' ? {} : { tipo }), page: offset / PAGE_SIZE + 1, page_size: PAGE_SIZE };
     tacticalsAPI
       .cargasPendientes(params)
-      .then(({ data }) => activo && setRespuesta({ tipo, version, items: data.items }))
-      .catch(() => activo && setRespuesta({ tipo, version, error: true }));
+      .then(({ data }) => activo && setRespuesta({ tipo, version, offset, items: data.items, total: data.total ?? data.items.length }))
+      .catch(() => activo && setRespuesta({ tipo, version, offset, error: true }));
     return () => {
       activo = false;
     };
-  }, [tipo, version]);
+  }, [tipo, version, offset]);
 
-  // Only the answer to the current query: an older one would list loads of another kind.
-  const actual = respuesta?.tipo === tipo && respuesta?.version === version ? respuesta : null;
+  // Only the answer to the current query: an older one would list loads of another kind or page.
+  const actual = respuesta?.tipo === tipo && respuesta?.version === version && respuesta?.offset === offset ? respuesta : null;
   if (actual?.error) {
     return (
       <div className={styles.aviso} role="alert">
@@ -118,6 +124,21 @@ export default function CargasPendientes({ tipo = 'todos', version = 0, puedeApr
             </tbody>
           </table>
         </div>
+        {actual.total > PAGE_SIZE && (
+          <Pagination
+            total={actual.total}
+            offset={offset}
+            pageSize={PAGE_SIZE}
+            onOffsetChange={(nuevo) => setPagina({ tipo, offset: nuevo })}
+            onPageSizeChange={() => {}}
+            pageSizeOptions={[PAGE_SIZE]}
+            summary={
+              <span>
+                mostrando {offset + 1}-{Math.min(offset + PAGE_SIZE, actual.total)} de {actual.total} cargas
+              </span>
+            }
+          />
+        )}
       </div>
     </section>
   );
