@@ -29,19 +29,8 @@
 }
 
 .control {
-  min-height: 32px;
-  padding: 4px 8px;
-  font-size: var(--font-sm);
-  color: var(--cf-text-primary);
-  background: var(--cf-bg-card);
-  border: 1px solid var(--cf-border-strong);
-  border-radius: var(--radius-sm);
-}
-
-.control:focus-visible,
-.textarea:focus-visible {
-  outline: 2px solid var(--cf-accent-blue);
-  outline-offset: 1px;
+  composes: select selectSm from '../../styles/forms-tesla.css';
+  width: auto;
 }
 
 .ayuda {
@@ -232,14 +221,7 @@
 }
 
 .textarea {
-  padding: 6px 8px;
-  font: inherit;
-  font-size: var(--font-sm);
-  color: var(--cf-text-primary);
-  background: var(--cf-bg-card);
-  border: 1px solid var(--cf-border-strong);
-  border-radius: var(--radius-sm);
-  resize: vertical;
+  composes: textarea textareaSm from '../../styles/forms-tesla.css';
 }
 
 .errorTexto {
