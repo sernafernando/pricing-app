@@ -128,137 +128,16 @@ describe('changing the mode', () => {
     expect(within(region).queryByRole('button', { name: 'Ver cómo queda' })).not.toBeInTheDocument();
   });
 
-  it('enables each mode only with its own permission; FIFO with any of them', async () => {
-    permisos = new Set(['sell_in.costo_ponderado']);
-    renderPanel();
-    const modos = within(await panel()).getByRole('group', { name: 'Cambiar a' });
-    expect(within(modos).getByRole('button', { name: 'FIFO' })).toBeEnabled();
-    expect(within(modos).getByRole('button', { name: 'Ponderado (PPP)' })).toBeEnabled();
-    expect(within(modos).getByRole('button', { name: 'Último precio' })).toBeDisabled();
-    expect(within(modos).getByRole('button', { name: 'Manual' })).toBeDisabled();
-  });
-
-  it("shows the server's reason when a preview cannot be made", async () => {
-    sellInLotesAPI.vistaPrevia.mockRejectedValue(
-      Object.assign(new Error('HTTP 422'), {
-        response: { status: 422, data: { error: { message: 'The history cannot be replayed' } } },
-      }),
-    );
-    const user = userEvent.setup();
+  // sell-in-costo-si T5 PR A: the server answers 410 to any change, so the card never offers one.
+  it('with every mode permission offers no change either, and says the cost is costo SI', async () => {
+    permisos = new Set(['sell_in.costo_ponderado', 'sell_in.costo_ultimo', 'sell_in.costo_manual', 'sell_in.costo_retroactivo']);
     renderPanel();
     const region = await panel();
-    await user.click(within(region).getByRole('button', { name: 'Ponderado (PPP)' }));
-    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
-
-    expect(await within(region).findByRole('alert')).toHaveTextContent(
-      'No se pudo calcular la vista previa: The history cannot be replayed',
-    );
-  });
-
-  it('previews the change from today and confirms it with the fingerprint, then reloads the modes and the lots', async () => {
-    const user = userEvent.setup();
-    renderPanel();
-    const region = await panel();
-    await user.click(within(region).getByRole('button', { name: 'Ponderado (PPP)' }));
-    expect(region).toHaveTextContent('Ponderado (PPP): todas las unidades quedan a un mismo descuento de sell in por unidad.');
-    expect(within(region).getByLabelText('Desde')).toHaveValue('2026-11-04');
-    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
-
-    expect(sellInLotesAPI.vistaPrevia).toHaveBeenCalledWith(950, { modo: 'ponderado', desde: '2026-11-04' });
-    const preview = await screen.findByRole('region', { name: 'Así queda' });
-    expect(preview).toHaveTextContent('Ventas ya registradas que cambian: 0');
-    expect(preview).toHaveTextContent('Diferencia total: $ 0,00');
-    expect(preview).toHaveTextContent('Quedan 140 u a $ 5.382,00 de sell in c/u');
-    const proxima = within(preview).getByRole('row', { name: /Próxima unidad/ });
-    expect(proxima).toHaveTextContent('$ 5.472,00$ 5.382,00');
-
-    sellInLotesAPI.modos.mockResolvedValue({ data: { item_id: 950, vigente: fila({ id: 8, modo: 'ponderado', desde: '2026-11-04' }), historial: [fila({ id: 8, modo: 'ponderado', desde: '2026-11-04' })] } });
-    await user.click(within(preview).getByRole('button', { name: 'Confirmar cambio' }));
-    expect(sellInLotesAPI.confirmarModo).toHaveBeenCalledWith(950, { modo: 'ponderado', desde: '2026-11-04', huella: 'a'.repeat(64) });
-    await waitFor(() => expect(within(region).getByText('Modo actual').parentElement).toHaveTextContent('Ponderado (PPP) desde 04/11/2026'));
-    expect(screen.queryByRole('region', { name: 'Así queda' })).not.toBeInTheDocument();
-    expect(sellInLotesAPI.lotes).toHaveBeenCalledTimes(2);
-  });
-
-  it('a past date needs the backdating permission; with it the preview counts the recorded sales that change', async () => {
-    const user = userEvent.setup();
-    const { unmount } = renderPanel();
-    expect(within(await panel()).getByLabelText('Desde')).toHaveAttribute('min', '2026-11-04');
-    unmount();
-
-    permisos.add('sell_in.costo_retroactivo');
-    sellInLotesAPI.vistaPrevia.mockResolvedValue({ data: { ...PREVIEW, ventas_cambian: 6, diferencia_ars: '-18240.50' } });
-    renderPanel();
-    const region = await panel();
-    const desde = within(region).getByLabelText('Desde');
-    expect(desde).not.toHaveAttribute('min');
-    await user.click(within(region).getByRole('button', { name: 'Último precio' }));
-    await user.clear(desde);
-    await user.type(desde, '2026-10-20');
-    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
-    expect(sellInLotesAPI.vistaPrevia).toHaveBeenCalledWith(950, { modo: 'ultimo', desde: '2026-10-20' });
-    const preview = await screen.findByRole('region', { name: 'Así queda' });
-    expect(preview).toHaveTextContent('Ventas ya registradas que cambian: 6');
-    expect(preview).toHaveTextContent('Diferencia total: -$ 18.240,50');
-  });
-
-  it('shows the ARS the last price leaves unassigned or hands out beyond the lots, never hides it', async () => {
-    const user = userEvent.setup();
-    sellInLotesAPI.vistaPrevia.mockResolvedValue({ data: { ...PREVIEW, sin_asignar_despues: '200.00' } });
-    renderPanel();
-    const region = await panel();
-    await user.click(within(region).getByRole('button', { name: 'Último precio' }));
-    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
-    expect(await screen.findByRole('region', { name: 'Así queda' })).toHaveTextContent(
-      'Con este modo $ 200,00 de los lotes quedan sin asignar a ninguna unidad.',
-    );
-  });
-
-  it('a mode or date change after the preview drops it, so nothing is confirmed that was not previewed', async () => {
-    const user = userEvent.setup();
-    renderPanel();
-    const region = await panel();
-    await user.click(within(region).getByRole('button', { name: 'Ponderado (PPP)' }));
-    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
-    await screen.findByRole('region', { name: 'Así queda' });
-    await user.click(within(region).getByRole('button', { name: 'Último precio' }));
-    expect(screen.queryByRole('region', { name: 'Así queda' })).not.toBeInTheDocument();
-  });
-
-  it('while the preview is computing the mode and the date are locked, so it never shows under another mode', async () => {
-    sellInLotesAPI.vistaPrevia.mockReturnValue(new Promise(() => {}));
-    const user = userEvent.setup();
-    renderPanel();
-    const region = await panel();
-    await user.click(within(region).getByRole('button', { name: 'Ponderado (PPP)' }));
-    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
-    expect(within(region).getByRole('button', { name: 'Último precio' })).toBeDisabled();
-    expect(within(region).getByLabelText('Desde')).toBeDisabled();
-  });
-
-  it('when the product moved since the preview (409) says to preview again and drops the preview', async () => {
-    const user = userEvent.setup();
-    sellInLotesAPI.confirmarModo.mockRejectedValue(httpError(409));
-    renderPanel();
-    const region = await panel();
-    await user.click(within(region).getByRole('button', { name: 'Ponderado (PPP)' }));
-    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
-    await user.click(within(await screen.findByRole('region', { name: 'Así queda' })).getByRole('button', { name: 'Confirmar cambio' }));
-    expect(await within(region).findByRole('alert')).toHaveTextContent(
-      'El producto cambió desde la vista previa (o alguien lo está modificando). Tocá «Ver cómo queda» de nuevo.',
-    );
-    expect(screen.queryByRole('region', { name: 'Así queda' })).not.toBeInTheDocument();
-  });
-
-  it('cancel drops the preview and saves nothing', async () => {
-    const user = userEvent.setup();
-    renderPanel();
-    const region = await panel();
-    await user.click(within(region).getByRole('button', { name: 'Ponderado (PPP)' }));
-    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
-    await user.click(within(await screen.findByRole('region', { name: 'Así queda' })).getByRole('button', { name: 'Cancelar' }));
-    expect(screen.queryByRole('region', { name: 'Así queda' })).not.toBeInTheDocument();
-    expect(sellInLotesAPI.confirmarModo).not.toHaveBeenCalled();
+    expect(within(region).queryByRole('group', { name: 'Cambiar a' })).not.toBeInTheDocument();
+    expect(within(region).queryByRole('button', { name: 'Ver cómo queda' })).not.toBeInTheDocument();
+    expect(within(region).queryByRole('button', { name: 'Manual' })).not.toBeInTheDocument();
+    expect(within(region).getByText('El modo de costo ya no se puede cambiar: el costo es el costo SI.')).toBeInTheDocument();
+    expect(sellInLotesAPI.vistaPrevia).not.toHaveBeenCalled();
   });
 });
 
@@ -268,119 +147,11 @@ describe('changing the mode', () => {
  * empecemos a trabajar con PPP para evitar cagadas eligen que por defecto el modal abra en PPP".
  */
 describe('the default mode', () => {
-  const elegido = (region) =>
-    within(within(region).getByRole('group', { name: 'Cambiar a' }))
-      .getAllByRole('button')
-      .filter((b) => b.getAttribute('aria-pressed') === 'true')
-      .map((b) => b.textContent);
-
-  it('opens the selector on the default mode', async () => {
-    sellInLotesAPI.modoPorDefecto.mockResolvedValue({ data: { modo: 'ponderado' } });
-    renderPanel();
-    const region = await panel();
-    await waitFor(() => expect(elegido(region)).toEqual(['Ponderado (PPP)']));
-    expect(within(region).getByRole('button', { name: 'Ver cómo queda' })).toBeEnabled();
-  });
-
-  it('falls back to FIFO when the user may not set the default mode', async () => {
-    permisos = new Set(['sell_in.costo_ponderado']);
-    sellInLotesAPI.modoPorDefecto.mockResolvedValue({ data: { modo: 'ultimo' } });
-    renderPanel();
-    const region = await panel();
-    await waitFor(() => expect(sellInLotesAPI.modoPorDefecto).toHaveBeenCalled());
-    expect(elegido(region)).toEqual(['FIFO']);
-  });
-
-  it('falls back to FIFO for Manual, never a default (it needs its own figures), and when the setting cannot be read', async () => {
-    permisos.add('sell_in.costo_manual');
-    sellInLotesAPI.modoPorDefecto.mockResolvedValue({ data: { modo: 'manual' } });
-    const { unmount } = renderPanel();
-    expect(elegido(await panel())).toEqual(['FIFO']);
-    unmount();
-
-    sellInLotesAPI.modoPorDefecto.mockRejectedValue(httpError(500));
-    renderPanel();
-    expect(elegido(await panel())).toEqual(['FIFO']);
-  });
-
   it.each(['VENTAS', 'PRICING_MANAGER', undefined])('is not offered to change to a non-admin (%s)', async (r) => {
     rol = r;
     renderPanel();
     const region = await panel();
     expect(within(region).queryByRole('button', { name: 'Modo por defecto' })).not.toBeInTheDocument();
-  });
-
-  it('an admin changes it in a modal and the selector opens on the new one', async () => {
-    rol = 'ADMIN';
-    const user = userEvent.setup();
-    renderPanel();
-    const region = await panel();
-    await user.click(within(region).getByRole('button', { name: 'Modo por defecto' }));
-    expect(await screen.findByRole('heading', { name: 'Modo por defecto' })).toBeInTheDocument();
-    expect(screen.getByText(/No recalcula nada/)).toBeInTheDocument();
-    const grupo = screen.getByRole('group', { name: 'Modo por defecto' });
-    expect(within(grupo).getByRole('button', { name: 'FIFO' })).toHaveAttribute('aria-pressed', 'true');
-    // Manual would fall back to FIFO for everyone, so it is not offered.
-    expect(within(grupo).getAllByRole('button').map((b) => b.textContent)).toEqual(['FIFO', 'Ponderado (PPP)', 'Último precio']);
-    await user.click(within(grupo).getByRole('button', { name: 'Último precio' }));
-    await user.click(screen.getByRole('button', { name: 'Guardar' }));
-    expect(sellInLotesAPI.fijarModoPorDefecto).toHaveBeenCalledWith('ultimo');
-    await waitFor(() => expect(screen.queryByRole('group', { name: 'Modo por defecto' })).not.toBeInTheDocument());
-    expect(elegido(region)).toEqual(['Último precio']);
-  });
-
-  it('a default saved while a preview is open does not change the previewed mode', async () => {
-    rol = 'ADMIN';
-    sellInLotesAPI.modoPorDefecto.mockResolvedValue({ data: { modo: 'ponderado' } });
-    const user = userEvent.setup();
-    renderPanel();
-    const region = await panel();
-    await waitFor(() => expect(elegido(region)).toEqual(['Ponderado (PPP)']));
-    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
-    await screen.findByRole('region', { name: 'Así queda' });
-
-    await user.click(within(region).getByRole('button', { name: 'Modo por defecto' }));
-    await user.click(within(screen.getByRole('group', { name: 'Modo por defecto' })).getByRole('button', { name: 'Último precio' }));
-    await user.click(screen.getByRole('button', { name: 'Guardar' }));
-    await waitFor(() => expect(screen.queryByRole('group', { name: 'Modo por defecto' })).not.toBeInTheDocument());
-
-    expect(elegido(region)).toEqual(['Ponderado (PPP)']);
-    const preview = screen.getByRole('region', { name: 'Así queda' });
-    expect(preview).toHaveTextContent('Después (Ponderado (PPP))');
-    await user.click(within(preview).getByRole('button', { name: 'Confirmar cambio' }));
-    expect(sellInLotesAPI.confirmarModo).toHaveBeenCalledWith(950, expect.objectContaining({ modo: 'ponderado' }));
-  });
-
-  it('after a failed preview the selector follows the default again', async () => {
-    rol = 'ADMIN';
-    sellInLotesAPI.modoPorDefecto.mockResolvedValue({ data: { modo: 'ponderado' } });
-    sellInLotesAPI.vistaPrevia.mockRejectedValue(httpError(500));
-    const user = userEvent.setup();
-    renderPanel();
-    const region = await panel();
-    await waitFor(() => expect(elegido(region)).toEqual(['Ponderado (PPP)']));
-    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
-    await within(region).findByRole('alert');
-
-    await user.click(within(region).getByRole('button', { name: 'Modo por defecto' }));
-    await user.click(within(screen.getByRole('group', { name: 'Modo por defecto' })).getByRole('button', { name: 'Último precio' }));
-    await user.click(screen.getByRole('button', { name: 'Guardar' }));
-    await waitFor(() => expect(screen.queryByRole('group', { name: 'Modo por defecto' })).not.toBeInTheDocument());
-    expect(elegido(region)).toEqual(['Último precio']);
-  });
-
-  it('a failed save keeps the modal open and says so', async () => {
-    rol = 'SUPERADMIN';
-    sellInLotesAPI.fijarModoPorDefecto.mockRejectedValue(httpError(403));
-    const user = userEvent.setup();
-    renderPanel();
-    const region = await panel();
-    await user.click(within(region).getByRole('button', { name: 'Modo por defecto' }));
-    await user.click(within(screen.getByRole('group', { name: 'Modo por defecto' })).getByRole('button', { name: 'Ponderado (PPP)' }));
-    await user.click(screen.getByRole('button', { name: 'Guardar' }));
-    expect(await screen.findByText('No tenés permiso para ese cambio.')).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: 'Modo por defecto' })).toBeInTheDocument();
-    expect(elegido(region)).toEqual(['FIFO']);
   });
 });
 
@@ -399,163 +170,9 @@ describe('the manual mode', () => {
     del_bloque: true,
   };
 
-  async function elegirManual(user) {
-    const region = await panel();
-    await user.click(within(region).getByRole('button', { name: 'Manual' }));
-    return region;
-  }
-
   beforeEach(() => {
     permisos = new Set(['sell_in.costo_manual']);
     sellInLotesAPI.vistaPrevia.mockResolvedValue({ data: MANUAL });
-  });
-
-  it('is offered only with its own permission', async () => {
-    permisos = new Set(['sell_in.costo_ponderado', 'sell_in.costo_ultimo']);
-    const { unmount } = renderPanel();
-    expect(within(within(await panel()).getByRole('group', { name: 'Cambiar a' })).getByRole('button', { name: 'Manual' })).toBeDisabled();
-    unmount();
-
-    permisos = new Set(['sell_in.costo_manual']);
-    renderPanel();
-    expect(within(within(await panel()).getByRole('group', { name: 'Cambiar a' })).getByRole('button', { name: 'Manual' })).toBeEnabled();
-  });
-
-  it('asks for the quantity and unit cost, and previews only with both', async () => {
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    renderPanel();
-    expect(within(await panel()).queryByLabelText('Cantidad')).not.toBeInTheDocument();
-    const region = await elegirManual(user);
-    const ver = within(region).getByRole('button', { name: 'Ver cómo queda' });
-    expect(ver).toBeDisabled();
-    await user.type(within(region).getByLabelText('Cantidad'), '30');
-    expect(ver).toBeDisabled();
-    await user.type(within(region).getByLabelText('Costo unitario'), '52000');
-    expect(ver).toBeEnabled();
-    await user.clear(within(region).getByLabelText('Cantidad'));
-    await user.type(within(region).getByLabelText('Cantidad'), '0');
-    expect(ver).toBeDisabled();
-  });
-
-  it('previews and confirms with the typed figures, showing the frozen cost and the surcharge', async () => {
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    renderPanel();
-    const region = await elegirManual(user);
-    await user.type(within(region).getByLabelText('Cantidad'), '30');
-    await user.type(within(region).getByLabelText('Costo unitario'), '52000');
-    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
-
-    const cuerpo = { modo: 'manual', desde: '2026-11-04', cantidad: 30, costo_unit: '52000' };
-    expect(sellInLotesAPI.vistaPrevia).toHaveBeenCalledWith(950, cuerpo);
-    const vista = await screen.findByRole('region', { name: 'Así queda' });
-    expect(vista).toHaveTextContent('Quedan 30 u a $ 52.000,00 c/u (manual)');
-    expect(vista).toHaveTextContent('Costo del producto congelado: $ 50.000,00');
-    expect(vista).toHaveTextContent('Cada unidad suma $ 2.000,00 al costo (recargo de sell in)');
-
-    await user.click(within(vista).getByRole('button', { name: 'Confirmar cambio' }));
-    expect(sellInLotesAPI.confirmarModo).toHaveBeenCalledWith(950, { ...cuerpo, huella: 'a'.repeat(64) });
-  });
-
-  it('a typed cost below the frozen one is a discount per unit', async () => {
-    sellInLotesAPI.vistaPrevia.mockResolvedValue({ data: { ...MANUAL, descuento_unit: '1500.000000' } });
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    renderPanel();
-    const region = await elegirManual(user);
-    await user.type(within(region).getByLabelText('Cantidad'), '30');
-    await user.type(within(region).getByLabelText('Costo unitario'), '48500');
-    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
-
-    expect(await screen.findByRole('region', { name: 'Así queda' })).toHaveTextContent(
-      'Cada unidad descuenta $ 1.500,00 del costo (sell in)',
-    );
-  });
-
-  it('when recorded sales already used the block up, the units left are not said to be at the typed cost', async () => {
-    // A past `desde`: the next sale takes a later purchase, not the manual block, even at the block's own value.
-    sellInLotesAPI.vistaPrevia.mockResolvedValue({
-      data: { ...MANUAL, unidades_restantes: 100, descuento_unit: '-2000.000000', del_bloque: false },
-    });
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    renderPanel();
-    const region = await elegirManual(user);
-    await user.type(within(region).getByLabelText('Cantidad'), '30');
-    await user.type(within(region).getByLabelText('Costo unitario'), '52000');
-    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
-
-    const vista = await screen.findByRole('region', { name: 'Así queda' });
-    expect(vista).toHaveTextContent('Quedan 100 u a -$ 2.000,00 de sell in c/u');
-    expect(vista).not.toHaveTextContent('(manual)');
-  });
-
-  it.each([
-    ['The product has no cost to freeze', 'No se pudo calcular la vista previa: el producto no tiene costo cargado para congelar.'],
-    [
-      "There is no USD rate to freeze the product's cost in pesos",
-      'No se pudo calcular la vista previa: no hay tipo de cambio USD para pasar el costo del producto a pesos.',
-    ],
-  ])('says why it cannot freeze the product cost (%s)', async (mensaje, texto) => {
-    sellInLotesAPI.vistaPrevia.mockRejectedValue(
-      Object.assign(new Error('HTTP 422'), { response: { status: 422, data: { error: { message: mensaje } } } }),
-    );
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    renderPanel();
-    const region = await elegirManual(user);
-    await user.type(within(region).getByLabelText('Cantidad'), '30');
-    await user.type(within(region).getByLabelText('Costo unitario'), '52000');
-    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
-
-    expect(await within(region).findByRole('alert')).toHaveTextContent(texto);
-  });
-
-  it('shows any other server reason as it comes', async () => {
-    sellInLotesAPI.vistaPrevia.mockRejectedValue(
-      Object.assign(new Error('HTTP 422'), {
-        response: { status: 422, data: { error: { message: 'The history cannot be replayed' } } },
-      }),
-    );
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    renderPanel();
-    const region = await elegirManual(user);
-    await user.type(within(region).getByLabelText('Cantidad'), '30');
-    await user.type(within(region).getByLabelText('Costo unitario'), '52000');
-    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
-
-    expect(await within(region).findByRole('alert')).toHaveTextContent(
-      'No se pudo calcular la vista previa: The history cannot be replayed',
-    );
-  });
-
-  it('waits for a quantity the server can store', async () => {
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    renderPanel();
-    const region = await elegirManual(user);
-    await user.type(within(region).getByLabelText('Cantidad'), '2147483648');
-    await user.type(within(region).getByLabelText('Costo unitario'), '52000');
-
-    expect(within(region).getByRole('button', { name: 'Ver cómo queda' })).toBeDisabled();
-  });
-
-  it.each(['1.0000001', '1234567890123'])('waits for a unit cost the server can store (%s)', async (costo) => {
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    renderPanel();
-    const region = await elegirManual(user);
-    await user.type(within(region).getByLabelText('Cantidad'), '30');
-    await user.type(within(region).getByLabelText('Costo unitario'), costo);
-
-    expect(within(region).getByRole('button', { name: 'Ver cómo queda' })).toBeDisabled();
-  });
-
-  it('changing a figure drops the preview', async () => {
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    renderPanel();
-    const region = await elegirManual(user);
-    await user.type(within(region).getByLabelText('Cantidad'), '30');
-    await user.type(within(region).getByLabelText('Costo unitario'), '52000');
-    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
-    await screen.findByRole('region', { name: 'Así queda' });
-
-    await user.type(within(region).getByLabelText('Cantidad'), '1');
-    expect(screen.queryByRole('region', { name: 'Así queda' })).not.toBeInTheDocument();
   });
 
   it('the history shows a manual row with its figures', async () => {
@@ -573,21 +190,13 @@ describe('the manual mode', () => {
 describe('collapsed behind its current mode (product panel, S5)', () => {
   const renderCollapsed = () => render(<SellInLotes productItemId={950} collapseModo />);
 
-  it('starts as one line with the current mode and "Cambiar", which opens the card and "Ocultar" closes it', async () => {
-    sellInLotesAPI.modos.mockResolvedValue({ data: { item_id: 950, vigente: fila(), historial: [fila()] } });
+  it('says "Ver", never "Cambiar", even with every mode permission (T5 PR A)', async () => {
+    permisos = new Set(['sell_in.costo_ponderado', 'sell_in.costo_ultimo', 'sell_in.costo_manual']);
     renderCollapsed();
     const region = await screen.findByRole('region', { name: 'Modo de costo' });
-    await within(region).findByText('Último precio desde 01/11/2026');
-    expect(within(region).queryByRole('group', { name: 'Cambiar a' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Historial' })).not.toBeInTheDocument();
-    const open = within(region).getByRole('button', { name: 'Cambiar' });
-    expect(open).toHaveAttribute('aria-expanded', 'false');
-    open.click();
-    const card = await panel();
-    expect(within(card).getByRole('group', { name: 'Cambiar a' })).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Historial' })).toBeInTheDocument();
-    within(card).getByRole('button', { name: 'Ocultar' }).click();
-    await waitFor(() => expect(screen.queryByRole('group', { name: 'Cambiar a' })).not.toBeInTheDocument());
+    await within(region).findByText('FIFO (por defecto)');
+    expect(within(region).getByRole('button', { name: 'Ver' })).toBeInTheDocument();
+    expect(within(region).queryByRole('button', { name: 'Cambiar' })).not.toBeInTheDocument();
   });
 
   it('says "Ver" instead of "Cambiar" without a mode permission', async () => {
@@ -596,30 +205,6 @@ describe('collapsed behind its current mode (product panel, S5)', () => {
     const region = await screen.findByRole('region', { name: 'Modo de costo' });
     await within(region).findByText('FIFO (por defecto)');
     expect(within(region).getByRole('button', { name: 'Ver' })).toBeInTheDocument();
-  });
-
-  it('a failed preview keeps the card open with its error: no "Ocultar" hides it', async () => {
-    sellInLotesAPI.vistaPrevia.mockRejectedValue(httpError(500));
-    const user = userEvent.setup();
-    renderCollapsed();
-    const line = await screen.findByRole('region', { name: 'Modo de costo' });
-    await user.click(await within(line).findByRole('button', { name: 'Cambiar' }));
-    const region = await panel();
-    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
-    await within(region).findByRole('alert');
-    expect(within(region).queryByRole('button', { name: 'Ocultar' })).not.toBeInTheDocument();
-  });
-
-  it('a pending preview keeps the card open: no "Ocultar" while it waits for its confirmation', async () => {
-    const user = userEvent.setup();
-    renderCollapsed();
-    const line = await screen.findByRole('region', { name: 'Modo de costo' });
-    await user.click(await within(line).findByRole('button', { name: 'Cambiar' }));
-    const region = await panel();
-    expect(within(region).getByRole('button', { name: 'Ocultar' })).toBeInTheDocument();
-    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
-    await waitFor(() => expect(sellInLotesAPI.vistaPrevia).toHaveBeenCalled());
-    await waitFor(() => expect(within(region).queryByRole('button', { name: 'Ocultar' })).not.toBeInTheDocument());
   });
 
   it('a load error keeps the card open with its retry', async () => {

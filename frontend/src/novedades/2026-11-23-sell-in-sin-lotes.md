@@ -9,6 +9,7 @@ El sell in ya no se reparte por lotes ni se descuenta venta por venta. Lo descue
 - una compra nueva ya no asigna ventas a sus lotes;
 - un bono sobre el costo de la venta ya no se aplica a cada venta (así el sell in no se descuenta dos veces);
 - el modo de costo de un producto ya no se puede cambiar;
+- el cobro de un tactical en USD al cobro ya no pide el tipo de cambio del cobro;
 - por ahora no se puede cargar un sell in por **monto total** sobre productos, marca o categoría.
 
 Lo que ya estaba guardado (lotes, ventas consumidas, bonos) queda igual, solo para consulta.
@@ -17,8 +18,9 @@ Lo que ya estaba guardado (lotes, ventas consumidas, bonos) queda igual, solo pa
 
 - Cargá y anulá compras como siempre: el costo SI del producto se recalcula solo.
 - Un monto que se reparte sobre las ventas cargalo como campaña de **sell out**.
-- En **Lotes sell in**, la sección **Modo de costo** muestra el historial, pero no deja cambiar el modo.
+- En **Lotes sell in**, la sección **Modo de costo** muestra el modo actual y el historial, sin opción de cambiarlo.
+- Un bono nuevo sobre el costo de la venta va siempre como **% del costo de la venta**; un bono que ya era por monto total se sigue editando.
 
 ## A tener en cuenta
 
-- Al cargar un sell in por monto total sobre productos, marca o categoría, el panel dice «Un bono de sell in por monto total no se puede cargar por ahora: si es sobre las ventas, cargalo como sell out». Una línea de factura por monto total sigue igual.
+- En un tactical, una línea de sell in nueva por monto total sobre productos, marca o categoría no se guarda: el panel dice «Un bono de sell in por monto total no se puede cargar por ahora: si es sobre las ventas, cargalo como sell out». Una línea de factura por monto total sigue igual.

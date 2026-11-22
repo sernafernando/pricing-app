@@ -1722,16 +1722,17 @@ def cobrar(db: Session, tactical_id: int, data: TacticalCobranzaIn, usuario_id: 
         if tactical is None:
             return None
         cobranza = db.query(TacticalCobranza).filter(TacticalCobranza.tactical_id == tactical_id).first()
-        usd = _bonos_al_cobro(db, tactical)
-        if usd and data.tipo_cambio is None:
-            raise TacticalError(SIN_TC_COBRO)
-        if not usd and data.tipo_cambio is not None:
+        # The collection rate is no longer required (sell-in-costo-si T5 PR A, L24): it only converted the per-sale
+        # cost bonuses, and nothing applies them any more. Still accepted where a USD cost line exists, and a stored
+        # one is kept when a save leaves it out, so the stored usage rows keep reading as they did.
+        if data.tipo_cambio is not None and not _bonos_al_cobro(db, tactical):
             raise TacticalError(TC_COBRO_SIN_USD)
         if cobranza is None:
             cobranza = TacticalCobranza(tactical_id=tactical_id)
             db.add(cobranza)
         cobranza.fecha_cobro = data.fecha_cobro
-        cobranza.tipo_cambio = data.tipo_cambio
+        if data.tipo_cambio is not None:
+            cobranza.tipo_cambio = data.tipo_cambio
         cobranza.medio = data.medio
         for campo in _COBRANZA_TEXTOS:
             setattr(cobranza, campo, _texto(getattr(data, campo)))
@@ -1744,18 +1745,14 @@ def cobrar(db: Session, tactical_id: int, data: TacticalCobranzaIn, usuario_id: 
     return tactical
 
 
-SIN_TC_COBRO = (
-    "Falta el tipo de cambio del cobro: con tipo de cambio al cobro, las líneas en USD se pasan a pesos al tipo de "
-    "cambio al que cobraste"
-)
 TC_COBRO_SIN_USD = (
     "Solo un tactical de sell in en USD con tipo de cambio al cobro y una línea en USD lleva tipo de cambio del cobro"
 )
 
 
 def _bonos_al_cobro(db: Session, tactical: Tactical) -> list[int]:
-    """The active USD cost bonuses of a sell in USD `al_cobro` tactical: they convert at the collection's rate
-    (`bonos_costo`), so its collection asks for it (`pide_tc_cobro`)."""
+    """The active USD cost bonuses of a sell in USD `al_cobro` tactical: the only ones a collection rate was ever
+    for (`cobrar`)."""
     if (tactical.tipo, tactical.moneda, tactical.tc_modo) != ("sell_in", "USD", "al_cobro"):
         return []
     b = SellInBonoMarca
@@ -2091,15 +2088,8 @@ def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
             "esperando_factura": any(h["esperando_factura"] and h["estado"] == "activa" for h in de_tactical[t.id]),
             "lineas": de_tactical[t.id],
             "cobranza": _cobranza(t.cobranza),
-            "pide_tc_cobro": (t.tipo, t.moneda, t.tc_modo) == ("sell_in", "USD", "al_cobro")
-            and any(
-                # The rule of `_bonos_al_cobro`: an invoice line discounts the invoice, not each sale's cost.
-                h["origen"] == "sell_in_bono"
-                and h["alcance"] != "factura"
-                and h["moneda"] == "USD"
-                and h["estado"] == "activa"
-                for h in de_tactical[t.id]
-            ),
+            # Never asked any more (sell-in-costo-si T5 PR A, L24): no cost bonus is converted per sale (`cobrar`).
+            "pide_tc_cobro": False,
         }
         for t in tacticals
     ]

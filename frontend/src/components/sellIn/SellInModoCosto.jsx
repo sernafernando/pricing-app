@@ -40,6 +40,8 @@ const MODOS = {
   manual: { label: 'Manual', nota: 'Manual: cargás la cantidad y el costo unitario que quedan.' },
 };
 const ORDEN = ['fifo', 'ponderado', 'ultimo', 'manual'];
+const MODOS_RETIRADOS = true;
+const AVISO_RETIRADO = 'El modo de costo ya no se puede cambiar: el costo es el costo SI.';
 const ADMINS = ['ADMIN', 'SUPERADMIN'];
 
 /** What the preview says about ARS the lots hold that no unit hands out (positive) or handed beyond them (negative). */
@@ -231,7 +233,9 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
     ultimo: tienePermiso(PERMISO.ultimo),
     manual: tienePermiso(PERMISO.manual),
   };
-  const puedeCambiar = puede.ponderado || puede.ultimo || puede.manual;
+  // Cost modes are retired (sell-in-costo-si T5 PR A): the server answers 410 to a change, so none is offered; the
+  // current mode and the history still read.
+  const puedeCambiar = !MODOS_RETIRADOS && (puede.ponderado || puede.ultimo || puede.manual);
   const retroactivo = tienePermiso(RETROACTIVO);
   // Each mode needs its permission, FIFO any of them.
   const permitido = (value) => (value === 'fifo' ? puedeCambiar : puede[value]);
@@ -345,6 +349,8 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
             {actual}
           </StatusPill>
         </div>
+
+        {MODOS_RETIRADOS && <p className={styles.hint}>{AVISO_RETIRADO}</p>}
 
         {puedeCambiar && (
           <>
@@ -516,7 +522,9 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
             <h4 id={headingId} className={styles.title}>
               Modo de costo
             </h4>
-            <p className={styles.hint}>Define con qué descuento de sell in salen las unidades cuando vendés.</p>
+            <p className={styles.hint}>
+              {MODOS_RETIRADOS ? 'Con qué descuento de sell in salían las unidades.' : 'Define con qué descuento de sell in salen las unidades cuando vendés.'}
+            </p>
           </div>
           {esAdmin && (
             <button type="button" className="btn-tesla outline sm" onClick={() => setEditandoDefecto(true)}>

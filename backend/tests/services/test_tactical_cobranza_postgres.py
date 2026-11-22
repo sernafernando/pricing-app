@@ -443,20 +443,24 @@ class TestTipoDeCambioDelCobro:
     """Owner: "Ponelo donde se carga el cobro." The rate the brand paid at is loaded with the collection; it is what
     a USD `al_cobro` cost line converts at from then on (tactical sell in USD S2, S8)."""
 
-    def test_a_usd_al_cobro_sell_in_asks_for_it_and_stores_it(self, db, engine) -> None:
+    # sell-in-costo-si T5 PR A, L24: nothing converts a cost bonus per sale any more, so no collection asks for it.
+    def test_a_usd_al_cobro_sell_in_no_longer_asks_for_it_but_still_stores_one_given(self, db, engine) -> None:
         tactical = _usd(db)
-        assert _leido(db, tactical.id)["pide_tc_cobro"] is True
+        assert _leido(db, tactical.id)["pide_tc_cobro"] is False
 
         service.cobrar(db, tactical.id, _cobro(tipo_cambio=Decimal("1350.5")), USUARIO)
 
         assert _leido(db, tactical.id)["cobranza"]["tipo_cambio"] == Decimal("1350.500000")
 
-    def test_without_it_the_collection_is_refused_and_nothing_is_stored(self, db, engine) -> None:
+    def test_without_it_the_collection_is_saved_and_a_stored_rate_is_kept(self, db, engine) -> None:
         tactical = _usd(db)
 
-        with pytest.raises(service.TacticalError, match="^Falta el tipo de cambio del cobro"):
-            service.cobrar(db, tactical.id, _cobro(), USUARIO)
-        assert _leido(db, tactical.id)["cobranza"] is None
+        service.cobrar(db, tactical.id, _cobro(), USUARIO)
+        assert _leido(db, tactical.id)["cobranza"]["tipo_cambio"] is None
+
+        service.cobrar(db, tactical.id, _cobro(tipo_cambio=Decimal("1350")), USUARIO)
+        service.cobrar(db, tactical.id, _cobro(), USUARIO)
+        assert _leido(db, tactical.id)["cobranza"]["tipo_cambio"] == Decimal("1350.000000")
 
     @pytest.mark.parametrize(
         "kind",

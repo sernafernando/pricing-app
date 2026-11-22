@@ -215,7 +215,14 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
             <h3>
               <Settings2 size={14} aria-hidden /> Definición
             </h3>
-            <SellInBonoForm valores={valores} onChange={setValores} marcas={marcas} disabled={!editable} baseEditable={nuevo} />
+            <SellInBonoForm
+              valores={valores}
+              onChange={setValores}
+              marcas={marcas}
+              disabled={!editable}
+              baseEditable={nuevo}
+              montoTotal={bono?.tipo === 'monto_total'}
+            />
             {bono && costo && (
               <p className={styles.hint}>
                 <strong>{`${formatEntero(bono.unidades)} u vendidas · ${formatMonto(bono.monto_generado, bono.moneda)} aplicados en ventas`}</strong>
