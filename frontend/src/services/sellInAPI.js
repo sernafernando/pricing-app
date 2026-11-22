@@ -44,25 +44,6 @@ export const sellInBonosAPI = {
   anularMasivo: (ids, motivo) => api.post(`${BONOS}/anular-masivo`, { ids, motivo: motivo?.trim() || null }),
 };
 
-const PRODUCTOS = '/sell-in/productos';
-
-/**
- * Sell-in lot viewer per product (`backend/app/routers/sell_in_lotes.py`), read only, behind the permission of the
- * product panel: a product's lots in FIFO order with their status, and each lot's consumptions, paginated.
- */
-export const sellInLotesAPI = {
-  // Sell in's Productos list (`sell_in.ver`): every product with units left in its lots, its cost mode, units, the
-  // next sale's sell in per unit and latest purchase, in one request.
-  productos: () => api.get(`${PRODUCTOS}/costos`),
-  lotes: (itemId) => api.get(`${PRODUCTOS}/${itemId}/lotes`),
-  consumos: (itemId, compraItemId, params) => api.get(`${PRODUCTOS}/${itemId}/lotes/${compraItemId}/consumos`, { params }),
-  // The product's cost modes (`sell_in.ver`): the history and the one governing today; a change is always previewed
-  // first (`{ modo, desde }`) and confirmed with the preview's `huella` (409: the product moved, preview again).
-  modos: (itemId) => api.get(`${PRODUCTOS}/${itemId}/modos`),
-  vistaPrevia: (itemId, body) => api.post(`${PRODUCTOS}/${itemId}/modos/vista-previa`, body),
-  confirmarModo: (itemId, body) => api.post(`${PRODUCTOS}/${itemId}/modos`, body),
-};
-
 const SOSPECHOSAS = '/costo-si/sospechosas';
 
 /**

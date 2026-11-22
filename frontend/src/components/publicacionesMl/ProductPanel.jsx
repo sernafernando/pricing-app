@@ -25,7 +25,6 @@ import ProductIdentity from './panel/ProductIdentity';
 import ProductPrearmadas from './panel/ProductPrearmadas';
 import ProductPromos from './panel/ProductPromos';
 import ProductPurchases from './panel/ProductPurchases';
-import SellInLotes from '../sellIn/SellInLotes';
 import ProductPxq from './panel/ProductPxq';
 import { Block, Card } from './panel/ResumenParts';
 import { amount, units } from './panel/format';
@@ -67,31 +66,16 @@ function ProductFigureTiles({ figures, metrics }) {
 }
 
 /**
- * Compras y sell in (S5): what the next sale discounts, the last purchases beside the sell-in lots, then the cost
- * mode collapsed behind its current mode. Each part keeps its own permission; with neither, nothing is drawn.
+ * Compras (S5): the product's last purchases, only with their permission (`productos.ver_info_compras`); without it
+ * nothing is drawn. The sell-in lots and cost mode it used to hold were retired with costo SI (T5 PR B).
  */
-function ComprasYSellIn({ productItemId }) {
+function Compras({ productItemId }) {
   const { tienePermiso } = usePermisos();
-  const canSeePurchases = tienePermiso('productos.ver_info_compras');
+  if (!tienePermiso('productos.ver_info_compras')) return null;
   return (
-    <SellInLotes
-      productItemId={productItemId}
-      collapseModo
-      // Without the purchases permission, nothing is drawn until the lots answer: a viewer who may see neither never
-      // sees the block flash while they load.
-      layout={({ nextSale, lots, modo, status }) =>
-        canSeePurchases || status === 'ready' || status === 'error' ? (
-          <Block title="Compras y sell in">
-            {nextSale}
-            <div className={resumenStyles.pairWide}>
-              <ProductPurchases productItemId={productItemId} container={Card} />
-              {lots && <Card title="Historial de lotes sell in">{lots}</Card>}
-            </div>
-            {modo}
-          </Block>
-        ) : null
-      }
-    />
+    <Block title="Compras">
+      <ProductPurchases productItemId={productItemId} container={Card} />
+    </Block>
   );
 }
 
@@ -168,8 +152,7 @@ const CAMBIOS = { key: 'cambios', label: 'Cambios' };
  * what ProductoTable hides: nothing without `canSeeSales`, no markup or Total Gauss without `canSeeMargin`.
  *
  * Those go under the Resumen tab, after the product's SKU and EAN (`ProductIdentity`, editable with
- * `ml_publicaciones.editar_producto`), its last purchases (`ProductPurchases`, `productos.ver_info_compras`) and its
- * sell-in lots in FIFO order (`SellInLotes`, hidden when the API refuses it), and after the publications comes
+ * `ml_publicaciones.editar_producto`), its last purchases (`ProductPurchases`, `productos.ver_info_compras`), and after the publications comes
  * the product's ban (`ProductBanAction`, gated by itself). The tree there shows the publications alone
  * (`publicationsOnly`): what belongs to each publication's promotions and wholesale prices has its own tab.
  * Promos (`promos.ver`) lists the publications' promotions, one entry each opening the publication panel's Promos
@@ -319,7 +302,7 @@ export default function ProductPanel({
             <>
               {productItemId != null && <ProductIdentity key={`identity-${productItemId}`} productItemId={productItemId} publications={items} />}
               {figures.length > 0 && <ProductFigureTiles figures={figures} metrics={summary.metrics} />}
-              {productItemId != null && <ComprasYSellIn key={`compras-${productItemId}`} productItemId={productItemId} />}
+              {productItemId != null && <Compras key={`compras-${productItemId}`} productItemId={productItemId} />}
 
               <Block title="Publicaciones">
                 {productItemId != null ? (

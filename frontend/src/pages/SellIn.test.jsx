@@ -9,7 +9,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation, useSearchParams } from 'react-router-dom';
 import { renderWithRouter } from '../test/renderWithRouter';
 import { productosAPI } from '../services/api';
-import { costoSiSospechasAPI, sellInAPI, sellInBonosAPI, sellInLotesAPI } from '../services/sellInAPI';
+import { costoSiSospechasAPI, sellInAPI, sellInBonosAPI } from '../services/sellInAPI';
 import { ALCANCE, BONO } from '../components/sellIn/sellInFixtures';
 import { sellOutAPI } from '../services/sellOutAPI';
 import { offsetGruposAPI } from '../services/offsetGruposAPI';
@@ -41,7 +41,6 @@ function renderConNuevoTactical(entrada) {
 vi.mock('../services/sellInAPI', () => ({
   sellInAPI: { listar: vi.fn(), resumen: vi.fn(), detalle: vi.fn() },
   sellInBonosAPI: { listar: vi.fn(), detalle: vi.fn(), alcance: vi.fn(), aprobar: vi.fn() },
-  sellInLotesAPI: { productos: vi.fn(), lotes: vi.fn(), consumos: vi.fn(), modos: vi.fn() },
   costoSiSospechasAPI: { listar: vi.fn(), resumen: vi.fn(), aceptar: vi.fn(), excluir: vi.fn() },
 }));
 
@@ -71,7 +70,6 @@ beforeEach(() => {
   sellInBonosAPI.alcance.mockResolvedValue({ data: ALCANCE });
   sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MIGRADA });
   sellOutAPI.consumos.mockResolvedValue({ data: CONSUMOS_USD });
-  sellInLotesAPI.productos.mockResolvedValue({ data: { productos: [] } });
   offsetGruposAPI.listar.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }] });
   offsetGruposAPI.alcance.mockResolvedValue({ data: [{ grupo_id: 1, productos: 3, campanas: [] }] });
   offsetGruposAPI.opciones.mockResolvedValue({ data: { marcas: [], categorias: [], subcategorias: [] } });
@@ -91,7 +89,7 @@ describe('SellIn page — one view: Tacticals and Grupos', () => {
     renderWithRouter(<SellIn />);
     await screen.findByText('Rebate TP-Link noviembre');
 
-    expect(screen.getAllByRole('tab').map((t) => t.textContent.replace(/\s+/g, ' ').trim())).toEqual(['Tacticals · 1', 'Grupos', 'Productos', 'Compras a revisar · 2']);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent.replace(/\s+/g, ' ').trim())).toEqual(['Tacticals · 1', 'Grupos', 'Compras a revisar · 2']);
     expect(sellInAPI.listar).not.toHaveBeenCalled();
     expect(sellInAPI.resumen).not.toHaveBeenCalled();
     expect(sellInBonosAPI.listar).not.toHaveBeenCalled();
@@ -394,61 +392,26 @@ describe('SellIn page — Tacticals tab', () => {
   });
 });
 
-// F3: the approved cost-mode design's list, "Costo de sell in por producto. Entrá a un producto para ver sus lotes y
-// su modo de costo."
-describe('SellIn page — Productos tab', () => {
-  const PRODUCTO = {
-    item_id: 4512,
-    codigo: 'TPL-AX55',
-    descripcion: 'Router TP-Link Archer AX55',
-    marca: 'TP-LINK',
-    modo: 'ponderado',
-    unidades: 200,
-    sell_in_unit: '5472.000000',
-    ultima_compra: '2026-11-02',
-  };
-
-  beforeEach(() => {
-    sellInLotesAPI.productos.mockResolvedValue({ data: { productos: [PRODUCTO] } });
-    sellInLotesAPI.lotes.mockResolvedValue({
-      data: { item_id: 4512, lotes: [], proxima: null, bono_costo: null, compra_visible: false },
-    });
-    sellInLotesAPI.modos.mockResolvedValue({ data: { item_id: 4512, vigente: null, historial: [] } });
-  });
-
-  it('lists the products with their cost mode and a row opens its lots and cost mode', async () => {
-    const user = userEvent.setup();
+// Costo SI T5 PR B: costo SI replaced the FIFO lots and the cost modes, so the Productos tab (lots, cost mode) is gone.
+describe('SellIn page — no Productos tab', () => {
+  it('shows no Productos tab, and an old ?tab=productos link opens Tacticals', async () => {
     renderWithRouter(
       <>
         <SellIn />
         <Ubicacion />
       </>,
+      { initialEntries: ['/sell-in?tab=productos'] },
     );
 
-    await user.click(await screen.findByRole('tab', { name: 'Productos' }));
-
-    const panel = screen.getByRole('tabpanel', { name: 'Productos' });
-    const tabla = await within(panel).findByRole('table', { name: 'Productos con lotes de sell in' });
-    expect(within(tabla).getByText('Ponderado (PPP)')).toBeInTheDocument();
-    expect(screen.getByTestId('ubicacion')).toHaveTextContent('tab=productos');
-
-    await user.click(within(tabla).getByRole('button', { name: 'Ver lotes y modo de costo de Router TP-Link Archer AX55' }));
-
-    expect(await screen.findByRole('heading', { name: 'Costo de sell in · Router TP-Link Archer AX55' })).toBeInTheDocument();
-    expect(screen.getByText('TPL-AX55 · 200 unidades en stock')).toBeInTheDocument();
-    expect(sellInLotesAPI.lotes).toHaveBeenCalledWith(4512);
+    expect(await screen.findByRole('tab', { name: /^Tacticals/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('tab', { name: 'Productos' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('tabpanel', { name: /^Tacticals/ })).toBeInTheDocument();
   });
 
-  it('needs a permission that shows products: without one there is no Productos tab', async () => {
-    const VER_PRODUCTO = ['productos.ver', 'productos.editar_precio_clasica', 'productos.editar_precio_cuotas',
-      'productos.toggle_rebate', 'productos.toggle_web_transferencia', 'tienda.editar_precio_gremio',
-      'tienda.editar_precio_web_transf'];
-    mockTienePermiso.mockImplementation((codigo) => !VER_PRODUCTO.includes(codigo));
-    renderWithRouter(<SellIn />);
+  it('the Grupos tab still renders', async () => {
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=grupos'] });
 
-    expect(await screen.findByRole('tab', { name: /^Tacticals/ })).toBeInTheDocument();
-    expect(screen.queryByRole('tab', { name: 'Productos' })).not.toBeInTheDocument();
-    expect(sellInLotesAPI.productos).not.toHaveBeenCalled();
+    expect(await screen.findByRole('tabpanel', { name: 'Grupos' })).toBeInTheDocument();
   });
 });
 
