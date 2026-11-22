@@ -48,6 +48,7 @@ def db(engine: Engine) -> Iterator[Session]:
             for table in (
                 "sell_out_consumos",
                 "sell_out_campanas",
+                "offsets_ganancia",
                 "offset_grupos",
                 "auditoria",
                 "sell_in_bono_consumos",
@@ -368,6 +369,17 @@ def _compra_suelta(engine: Engine, estado: str = "pendiente", **derivada) -> int
     )
 
 
+def _offset(engine: Engine, estado: str = "pendiente", **valores) -> int:
+    fila = {"marca": "EPSON", "descripcion": None, "moneda": "USD", "fecha_hasta": "2026-12-31", **valores}
+    return _insertar(
+        engine,
+        "INSERT INTO offsets_ganancia (marca, descripcion, moneda, fecha_desde, fecha_hasta, estado, usuario_id) "
+        "VALUES (:marca, :descripcion, :moneda, '2026-11-01', :fecha_hasta, :e, 7) RETURNING id",
+        e=estado,
+        **fila,
+    )
+
+
 def _sueltas(db: Session, tipos=("sell_in", "sell_out")) -> list[tuple[str, int]]:
     return [(c["origen"], c["id"]) for c in service.cargas_pendientes(db, list(tipos))]
 
@@ -403,6 +415,32 @@ class TestCargasSueltas:
         assert _sueltas(db, ["sell_in"]) == [("sell_in_bono", bono)]
         assert _sueltas(db, ["sell_out"]) == [("sell_out_campana", campana)]
         assert _sueltas(db, []) == []
+
+
+class TestOffsetsSueltos:
+    """S10 + S11: a legacy profit offset waiting for approval is a sell out load of its own in the inbox."""
+
+    def test_a_pending_offset_is_listed_with_the_sell_out_loads(self, db, engine) -> None:
+        _offset(engine, estado="activa")  # approved (every offset loaded before approval existed): not listed
+        offset = _offset(engine)
+        sin_fin = _offset(engine, marca=None, descripcion="Rebate Q4", moneda=None, fecha_hasta=None)
+
+        assert _sueltas(db, ["sell_out"]) == [("offset_ganancia", sin_fin), ("offset_ganancia", offset)]
+        assert _sueltas(db, ["sell_in"]) == []
+        [s, o] = service.cargas_pendientes(db, ["sell_out"])
+        assert (o["nombre"], o["marca"], o["moneda"], o["fecha_desde"], o["fecha_hasta"], o["usuario_id"]) == (
+            "Offset EPSON", "EPSON", "USD", date(2026, 11, 1), date(2026, 12, 31), USUARIO,
+        )  # fmt: skip
+        assert (s["nombre"], s["marca"], s["moneda"], s["fecha_hasta"]) == ("Rebate Q4", None, "ARS", None)
+
+    def test_the_count_adds_the_pending_offsets(self, db, engine) -> None:
+        _offset(engine)
+        _offset(engine, estado="activa")
+        _campana_suelta(engine, "Suelta")
+
+        filtros = service.Filtros(tipos=["sell_out"])
+        assert service.contar_pendientes_aprobacion(db, filtros, hoy=HOY) == 2
+        assert service.contar_pendientes_aprobacion(db, service.Filtros(tipos=["sell_in"]), hoy=HOY) == 0
 
 
 class TestKpisSinPendientes:

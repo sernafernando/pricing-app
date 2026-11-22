@@ -27,6 +27,11 @@ describe('tacticalsAPI', () => {
     expect(api.get).toHaveBeenCalledWith('/tacticals/cargas-pendientes', { params: { tipo: 'sell_in' } });
   });
 
+  it('approves a legacy profit offset waiting in the inbox (tacticals approval S10)', () => {
+    tacticalsAPI.aprobarOffset(905);
+    expect(api.post).toHaveBeenCalledWith('/offsets-ganancia/905/aprobar');
+  });
+
   it('still reads one tactical by its id (previous behaviour)', () => {
     tacticalsAPI.detalle(12);
     expect(api.get).toHaveBeenCalledWith('/tacticals/12');

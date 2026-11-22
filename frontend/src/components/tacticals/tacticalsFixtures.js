@@ -176,4 +176,17 @@ export const CARGA_COMPRA = {
   usuario_nombre: null,
   created_at: '2026-11-09T18:00:00Z',
 };
-export const CARGAS_PENDIENTES = [CARGA_CAMPANA, CARGA_BONO, CARGA_COMPRA];
+/** A legacy profit offset loaded from Offsets (tacticals approval S10): approved from the inbox itself. */
+export const CARGA_OFFSET = {
+  origen: 'offset_ganancia',
+  id: 905,
+  nombre: 'Offset Epson',
+  marca: 'Epson',
+  moneda: 'ARS',
+  fecha_desde: '2026-11-01',
+  fecha_hasta: null,
+  usuario_id: 3,
+  usuario_nombre: 'Martina',
+  created_at: '2026-11-08T11:00:00Z',
+};
+export const CARGAS_PENDIENTES = [CARGA_CAMPANA, CARGA_BONO, CARGA_COMPRA, CARGA_OFFSET];

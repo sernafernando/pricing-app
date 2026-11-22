@@ -56,7 +56,18 @@ TABLES = [
     SellOutConsumo.__table__,
     SellOutDirty.__table__,
 ]
-STUBS = [*bw.STUBS, "CREATE TABLE offsets_ganancia (id INTEGER PRIMARY KEY)"]
+# Every column of a legacy offset with no foreign key: the approval inbox reads them (tacticals approval S10/S11), and
+# campaigns point at its id.
+STUBS = [
+    *bw.STUBS,
+    "CREATE TABLE offsets_ganancia (id SERIAL PRIMARY KEY, marca VARCHAR(100), categoria VARCHAR(100), "
+    "subcategoria_id INTEGER, item_id INTEGER, monto DOUBLE PRECISION, tipo_offset VARCHAR(20), moneda VARCHAR(3), "
+    "tipo_cambio DOUBLE PRECISION, porcentaje DOUBLE PRECISION, descripcion VARCHAR(255), "
+    "fecha_desde DATE NOT NULL DEFAULT '2026-11-01', fecha_hasta DATE, grupo_id INTEGER, max_unidades INTEGER, "
+    "max_monto_usd DOUBLE PRECISION, monto_consumido DOUBLE PRECISION, aplica_ml BOOLEAN, aplica_fuera BOOLEAN, "
+    "aplica_tienda_nube BOOLEAN, estado VARCHAR(16) NOT NULL DEFAULT 'activa', usuario_id INTEGER, "
+    "fecha_creacion TIMESTAMPTZ DEFAULT now(), fecha_modificacion TIMESTAMPTZ)",
+]
 
 
 def _install(engine: Engine) -> None:

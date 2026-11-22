@@ -4,6 +4,7 @@ import { Pagination, SegmentedControl } from '../kit';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
 import CargasPendientes from './CargasPendientes';
 import TacticalAnular from './TacticalAnular';
+import OffsetAprobar from './OffsetAprobar';
 import TacticalAprobar from './TacticalAprobar';
 import TacticalEditar from './TacticalEditar';
 import TacticalFila from './TacticalFila';
@@ -105,6 +106,7 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
   const [editando, setEditando] = useState(null);
   const [anulando, setAnulando] = useState(null);
   const [aprobando, setAprobando] = useState(null);
+  const [aprobandoOffset, setAprobandoOffset] = useState(null);
   const [guardados, setGuardados] = useState(0);
   // The tactical whose Cobranza box is open under its row (one at a time), or null.
   const [cobrando, setCobrando] = useState(null);
@@ -323,7 +325,13 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
         </div>
       )}
       {filtros.estado === 'pendientes_aprobacion' && (
-        <CargasPendientes tipo={filtros.tipo} version={version + guardados} puedeAprobar={puedeAprobar} onVer={onVerLinea} />
+        <CargasPendientes
+          tipo={filtros.tipo}
+          version={version + guardados}
+          puedeAprobar={puedeAprobar}
+          onVer={onVerLinea}
+          onAprobarOffset={setAprobandoOffset}
+        />
       )}
       {aprobando && (
         <TacticalAprobar
@@ -331,6 +339,17 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
           onCerrar={() => setAprobando(null)}
           onAprobado={() => {
             setAprobando(null);
+            setGuardados((n) => n + 1);
+            onCambio?.();
+          }}
+        />
+      )}
+      {aprobandoOffset && (
+        <OffsetAprobar
+          offset={aprobandoOffset}
+          onCerrar={() => setAprobandoOffset(null)}
+          onAprobado={() => {
+            setAprobandoOffset(null);
             setGuardados((n) => n + 1);
             onCambio?.();
           }}

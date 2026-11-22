@@ -299,12 +299,13 @@ class TacticalListOut(BaseModel):
     pendientes_aprobacion: int = 0
 
 
-OrigenCarga = Literal["sell_in_bono", "sell_in_compra", "sell_out_campana"]
+OrigenCarga = Literal["sell_in_bono", "sell_in_compra", "sell_out_campana", "offset_ganancia"]
 
 
 class CargaPendienteOut(BaseModel):
-    """A bonus, purchase or campaign loaded on its own that waits for approval (tacticals approval S11). `origen` is
-    a tactical line's: the screen opens that record's panel, where it is approved."""
+    """A bonus, purchase, campaign or legacy profit offset loaded on its own that waits for approval (tacticals
+    approval S10, S11). `origen` is a tactical line's, so the screen opens that record's panel, where it is approved;
+    an offset (`offset_ganancia`) has no panel and is approved from the inbox (`POST /offsets-ganancia/{id}/aprobar`)."""
 
     origen: OrigenCarga
     id: int
@@ -312,7 +313,7 @@ class CargaPendienteOut(BaseModel):
     marca: Optional[str] = None
     moneda: Moneda
     fecha_desde: date
-    fecha_hasta: date
+    fecha_hasta: Optional[date] = None  # a legacy offset may have no end
     usuario_id: Optional[int] = None
     usuario_nombre: Optional[str] = None
     created_at: datetime

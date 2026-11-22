@@ -8,7 +8,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TacticalsList from './TacticalsList';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
-import { CARGAS_PENDIENTES, COBRANZA_FONDO, KPIS_COBRANZA, TACTICAL_BPS, TACTICAL_REBATE, pagina } from './tacticalsFixtures';
+import { CARGA_OFFSET, CARGAS_PENDIENTES, COBRANZA_FONDO, KPIS_COBRANZA, TACTICAL_BPS, TACTICAL_REBATE, pagina } from './tacticalsFixtures';
 
 vi.mock('../../services/tacticalsAPI', () => ({
   tacticalsAPI: {
@@ -17,6 +17,7 @@ vi.mock('../../services/tacticalsAPI', () => ({
     editar: vi.fn(),
     anular: vi.fn(),
     aprobar: vi.fn(),
+    aprobarOffset: vi.fn(),
     cobrar: vi.fn(),
     deshacerCobro: vi.fn(),
   },
@@ -620,6 +621,53 @@ describe('TacticalsList approval inbox (handoffs/tacticals-aprobacion-plan.md S1
     expect(within(sueltas()).queryByRole('button', { name: /^Aprobar/ })).not.toBeInTheDocument();
     await userEvent.click(within(sueltas()).getByRole('button', { name: 'Ver SP Epson noviembre' }));
     expect(onVerLinea).toHaveBeenCalledWith(CARGAS_PENDIENTES[0]);
+  });
+
+  it('a pending offset has no record to open: Aprobar asks here, approves it and asks the inbox again (S10)', async () => {
+    const onVerLinea = vi.fn();
+    const onCambio = vi.fn();
+    tacticalsAPI.aprobarOffset.mockResolvedValue({ data: { ...CARGA_OFFSET, estado: 'activa' } });
+    render(<TacticalsList marcas={MARCAS} puedeAprobar onVerLinea={onVerLinea} onCambio={onCambio} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Pendientes de aprobación' }));
+    const offset = await within(await screen.findByRole('region', { name: 'Cargas sueltas pendientes de aprobación' })).findByRole('row', {
+      name: /Offset Epson/,
+    });
+    expect(offset).toHaveTextContent('Offset de ganancia');
+    expect(offset).toHaveTextContent('Desde 01/11/2026');
+
+    await userEvent.click(within(offset).getByRole('button', { name: 'Aprobar Offset Epson' }));
+    const dialogo = screen.getByRole('dialog', { name: '¿Aprobar Offset Epson?' });
+    expect(dialogo).toHaveTextContent('Empieza a aplicar en la rentabilidad desde ahora');
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Aprobar offset' }));
+
+    expect(tacticalsAPI.aprobarOffset).toHaveBeenCalledWith(905);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(tacticalsAPI.cargasPendientes).toHaveBeenCalledTimes(2);
+    expect(onCambio).toHaveBeenCalled();
+    expect(onVerLinea).not.toHaveBeenCalled();
+  });
+
+  it('a refused offset approval says why inside the dialog, and Cancelar closes it', async () => {
+    tacticalsAPI.aprobarOffset.mockRejectedValue({ response: { data: { detail: 'El offset 905 ya está aprobado' } } });
+    render(<TacticalsList marcas={MARCAS} puedeAprobar />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Pendientes de aprobación' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Aprobar Offset Epson' }));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Aprobar offset' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('El offset 905 ya está aprobado');
+    await userEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('without the permission a pending offset is listed with nothing to open', async () => {
+    render(<TacticalsList marcas={MARCAS} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Pendientes de aprobación' }));
+
+    const offset = await within(await screen.findByRole('region', { name: 'Cargas sueltas pendientes de aprobación' })).findByRole('row', {
+      name: /Offset Epson/,
+    });
+    expect(within(offset).queryByRole('button')).not.toBeInTheDocument();
   });
 
   it('asks only the kind of the Tipo filter, again on a reload, and shows nothing when none waits', async () => {

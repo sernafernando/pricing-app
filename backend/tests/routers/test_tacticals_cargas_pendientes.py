@@ -61,3 +61,25 @@ def test_a_tactical_is_still_read_by_its_id(client, productos, sell_out) -> None
     creado = client.post(BASE, json=_body(), headers=sell_out).json()
 
     assert client.get(f"{BASE}/{creado['id']}", headers=sell_out).json()["id"] == creado["id"]
+
+
+def test_an_offset_loaded_on_its_own_is_listed_until_it_is_approved(
+    client, db, sell_out, rol_admin, grant_permiso, admin_user
+) -> None:
+    """S10 + S11: `POST /offsets-ganancia` stores it pending; it waits in the inbox, with the sell out loads."""
+    grant_permiso(rol_admin, "config.editar_constantes")
+    oferta = {"marca": "EPSON", "fecha_desde": "2026-11-01", "tipo_offset": "monto_fijo", "monto": 50}
+    offset = client.post("/api/offsets-ganancia", json=oferta, headers=sell_out).json()
+
+    [carga] = client.get(PENDIENTES, headers=sell_out).json()["items"]
+
+    assert (carga["origen"], carga["id"], carga["nombre"], carga["marca"]) == (
+        "offset_ganancia", offset["id"], "Offset EPSON", "EPSON",
+    )  # fmt: skip
+    assert (carga["moneda"], carga["fecha_desde"], carga["fecha_hasta"]) == ("ARS", "2026-11-01", None)
+    assert (carga["usuario_id"], carga["usuario_nombre"]) == (admin_user.id, admin_user.nombre)
+    assert client.get(BASE, headers=sell_out).json()["pendientes_aprobacion"] == 1
+    grant_permiso(rol_admin, "tacticals.aprobar")
+    assert client.post(f"/api/offsets-ganancia/{offset['id']}/aprobar", headers=sell_out).status_code == 200
+    assert client.get(PENDIENTES, headers=sell_out).json()["items"] == []
+    assert client.get(BASE, headers=sell_out).json()["pendientes_aprobacion"] == 0

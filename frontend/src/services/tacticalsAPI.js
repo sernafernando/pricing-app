@@ -10,6 +10,8 @@ const TACTICALS = '/tacticals';
  *   hasta, q, page and page_size, and answers `{ items, total }`, each tactical with its lines and their usage.
  * - `listar` also answers `pendientes_aprobacion`: how many loads wait for approval (the pending tacticals the other
  *   filters match plus the standalone pending loads); its `kpis` leave pending tacticals out.
+ * - `aprobarOffset(id)`: `POST /offsets-ganancia/{id}/aprobar` (tacticals approval S10), a legacy profit offset of the
+ *   inbox, which has no record panel to approve it from.
  * - `cargasPendientes(params)`: `GET /tacticals/cargas-pendientes` (`tipo` optional), the bonuses, purchases and
  *   campaigns loaded on their own that wait for approval: `{ items: [{ origen, id, nombre, marca, moneda,
  *   fecha_desde, fecha_hasta, usuario_id, usuario_nombre, created_at }] }`, newest first.
@@ -33,6 +35,7 @@ const TACTICALS = '/tacticals';
 export const tacticalsAPI = {
   listar: (params) => api.get(TACTICALS, { params }),
   cargasPendientes: (params) => api.get(`${TACTICALS}/cargas-pendientes`, { params }),
+  aprobarOffset: (id) => api.post(`/offsets-ganancia/${id}/aprobar`),
   detalle: (id) => api.get(`${TACTICALS}/${id}`),
   crear: (body) => api.post(TACTICALS, body),
   editar: (id, body) => api.patch(`${TACTICALS}/${id}`, body),

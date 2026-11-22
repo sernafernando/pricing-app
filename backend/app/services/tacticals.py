@@ -49,6 +49,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Query, Session, selectinload
 
 from app.models.auditoria import Auditoria, TipoAccion
+from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.pedido_compra import PedidoCompra
@@ -1822,7 +1823,8 @@ def _sueltas(modelo):
 
 def _consultas_sueltas(db: Session, tipos: list[str]) -> list[tuple[str, Any, Query]]:
     """`(origen, model, query)` per kind of standalone load the caller may read: a sell in bonus or purchase, a sell
-    out campaign. A purchase a bonus generated (`origen = 'bono_marca'`) follows its bonus and is never a load."""
+    out campaign or a legacy profit offset (S10: a sell out discount on profit, never a tactical's line). A purchase a
+    bonus generated (`origen = 'bono_marca'`) follows its bonus and is never a load."""
     salida: list[tuple[str, Any, Query]] = []
     if "sell_in" in tipos:
         salida.append(("sell_in_bono", SellInBonoMarca, db.query(SellInBonoMarca).filter(_sueltas(SellInBonoMarca))))
@@ -1830,7 +1832,14 @@ def _consultas_sueltas(db: Session, tipos: list[str]) -> list[tuple[str, Any, Qu
         salida.append(("sell_in_compra", SellInCompra, compras_))
     if "sell_out" in tipos:
         salida.append(("sell_out_campana", SellOutCampana, db.query(SellOutCampana).filter(_sueltas(SellOutCampana))))
+        offsets = db.query(OffsetGanancia).filter(OffsetGanancia.estado == aprobacion.PENDIENTE)
+        salida.append(("offset_ganancia", OffsetGanancia, offsets))
     return salida
+
+
+def _creada(modelo):
+    """When the load was stored: a legacy offset names it `fecha_creacion`."""
+    return modelo.fecha_creacion if modelo is OffsetGanancia else modelo.created_at
 
 
 def _carga(origen: str, fila: Any) -> dict:
@@ -1841,6 +1850,10 @@ def _carga(origen: str, fila: Any) -> dict:
         nombre = fila.descripcion or f"Compra #{fila.id}"
         desde = hasta = fila.fecha_compra
         marca = None
+    elif origen == "offset_ganancia":
+        alcance = fila.marca or fila.categoria or (f"producto {fila.item_id}" if fila.item_id else None)
+        nombre = fila.descripcion or f"Offset {alcance or f'#{fila.id}'}"
+        desde, hasta, marca = fila.fecha_desde, fila.fecha_hasta, fila.marca
     else:
         nombre, desde, hasta, marca = fila.nombre, fila.fecha_desde, fila.fecha_hasta, None
     return {
@@ -1848,11 +1861,11 @@ def _carga(origen: str, fila: Any) -> dict:
         "id": fila.id,
         "nombre": nombre,
         "marca": marca,
-        "moneda": fila.moneda,
+        "moneda": fila.moneda or "ARS",  # an offset may have none: it reads ARS, as its API answers
         "fecha_desde": desde,
         "fecha_hasta": hasta,
         "usuario_id": fila.usuario_id,
-        "created_at": fila.created_at,
+        "created_at": fila.fecha_creacion if origen == "offset_ganancia" else fila.created_at,
     }
 
 
@@ -1862,7 +1875,7 @@ def cargas_pendientes(db: Session, tipos: list[str]) -> list[dict]:
     `origen` as a tactical's line, so the screen opens its record's panel, where it is approved."""
     filas = []
     for origen, modelo, query in _consultas_sueltas(db, tipos):
-        recientes = query.order_by(modelo.created_at.desc(), modelo.id.desc()).limit(CARGAS_PENDIENTES_MAX)
+        recientes = query.order_by(_creada(modelo).desc(), modelo.id.desc()).limit(CARGAS_PENDIENTES_MAX)
         filas += [_carga(origen, fila) for fila in recientes]
     filas.sort(key=lambda c: (c["created_at"], c["id"]), reverse=True)
     return filas[:CARGAS_PENDIENTES_MAX]

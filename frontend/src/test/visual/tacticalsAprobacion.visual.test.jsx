@@ -2,7 +2,7 @@
  * Tacticals approval (handoffs/tacticals-aprobacion-plan.md S8, S11, S12) -- real CSS, real Chromium: the Tacticals
  * tab with the "N pendientes de aprobación" count beside the money KPIs, the "Pendientes de aprobación" filter with a
  * pending tactical and the standalone pending loads under it, an approved row naming its approver under the state, and
- * the Aprobar confirmation, inside the window at 1440, light and dark.
+ * the Aprobar confirmations of a tactical and of a legacy profit offset (S10), inside the window at 1440, light and dark.
  *
  * The screen talks to the real `tacticalsAPI`; only the HTTP client is faked. Each fake endpoint answers in its
  * backend schema's shape (`TacticalListOut`, `CargasPendientesOut`) and honors its parameters the way the endpoint
@@ -100,7 +100,9 @@ function kpisDe(tacticals) {
   return { pendientes: grupo(false), cobrados: grupo(true) };
 }
 
-const delTipo = (tipo) => (origen) => !tipo || origen.startsWith(`${tipo}_`);
+// A legacy profit offset (S10) is a sell out load, as `tacticals._consultas_sueltas` lists it.
+const TIPO_DE_ORIGEN = { offset_ganancia: 'sell_out' };
+const delTipo = (tipo) => (origen) => !tipo || (TIPO_DE_ORIGEN[origen] ?? origen.split('_').slice(0, 2).join('_')) === tipo;
 
 /** `GET /tacticals/cargas-pendientes` (`CargasPendientesOut`): the standalone loads of the kind asked for. */
 const cargasPendientes = ({ tipo } = {}) => ({ items: CARGAS_PENDIENTES.filter((c) => delTipo(tipo)(c.origen)) });
@@ -160,8 +162,8 @@ describe.each([
     const screen = await abrir();
     const kpis = screen.getByRole('region', { name: 'Cobranza de los tacticals' });
 
-    // Vigentes: the approved tactical only. The count: the pending tactical plus three standalone loads.
-    const contador = kpis.getByRole('button', { name: '4 pendientes de aprobación' });
+    // Vigentes: the approved tactical only. The count: the pending tactical plus four standalone loads.
+    const contador = kpis.getByRole('button', { name: '5 pendientes de aprobación' });
     await expect.element(contador).toBeVisible();
     await expect.element(kpis.getByText('1 tactical', { exact: true })).toBeVisible();
     const aprobado = screen.getByText('Aprobado por Alejandro el 10/11/2026');
@@ -176,7 +178,7 @@ describe.each([
 
   it('the count opens the pending filter: the pending tactical and, under it, the standalone loads', async () => {
     const screen = await abrir();
-    await screen.getByRole('button', { name: '4 pendientes de aprobación' }).click();
+    await screen.getByRole('button', { name: '5 pendientes de aprobación' }).click();
 
     await expect.poll(() => pedidas('/tacticals', 'pendientes_aprobacion')).toBe(true);
     await expect.poll(() => pedidas('/tacticals/cargas-pendientes')).toBe(true);
@@ -209,5 +211,24 @@ describe.each([
     expect(caja.right).toBeLessThanOrEqual(width + 0.5);
     expect(caja.bottom).toBeLessThanOrEqual(height + 0.5);
     if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/tacticals-aprobar-${theme}-${width}.png` });
+  });
+
+  it('a pending profit offset is approved from its own row, inside the window (S10)', async () => {
+    const screen = await abrir();
+    await screen.getByRole('button', { name: 'Pendientes de aprobación', exact: true }).click();
+    const sueltas = screen.getByRole('region', { name: 'Cargas sueltas pendientes de aprobación' });
+    const fila = sueltas.getByRole('row', { name: /Offset Epson/ });
+    await expect.element(fila.getByText('Offset de ganancia')).toBeVisible();
+    await expect.element(fila.getByText('Desde 01/11/2026')).toBeVisible();
+    await fila.getByRole('button', { name: 'Aprobar Offset Epson' }).click();
+
+    const dialogo = screen.getByRole('dialog', { name: '¿Aprobar Offset Epson?' });
+    await expect.element(dialogo).toBeVisible();
+    await expect.element(dialogo.getByRole('button', { name: 'Aprobar offset' })).toBeVisible();
+    const caja = dialogo.element().getBoundingClientRect();
+    expect(caja.top).toBeGreaterThanOrEqual(0);
+    expect(caja.right).toBeLessThanOrEqual(width + 0.5);
+    expect(caja.bottom).toBeLessThanOrEqual(height + 0.5);
+    if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/tacticals-aprobar-offset-${theme}-${width}.png` });
   });
 });
