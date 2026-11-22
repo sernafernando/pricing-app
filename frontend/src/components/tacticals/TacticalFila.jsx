@@ -3,6 +3,7 @@ import { StatusPill } from '../kit';
 import {
   COLUMNAS_TACTICAL,
   alcanceDe,
+  aprobadoDe,
   avanceDeLinea,
   avanceDeTactical,
   estadoDe,
@@ -143,6 +144,7 @@ export default function TacticalFila({ tactical, abierto, onAlternar, acciones =
   const accionCobro = tactical.cobranza ? 'Editar cobro' : 'Cargar cobro';
   const tipo = TIPO_PILL[tactical.tipo] ?? { texto: tactical.tipo, tono: 'neutral' };
   const estado = estadoDe(tactical);
+  const aprobado = aprobadoDe(tactical);
   const { unidades, monto } = avanceDeTactical(tactical.lineas);
   const Chevron = abierto ? ChevronDown : ChevronRight;
   return (
@@ -188,9 +190,12 @@ export default function TacticalFila({ tactical, abierto, onAlternar, acciones =
           </div>
         </td>
         <td>
-          <StatusPill tone={estado.tono} variant="soft">
-            {estado.texto}
-          </StatusPill>
+          <div className={styles.estado}>
+            <StatusPill tone={estado.tono} variant="soft">
+              {estado.texto}
+            </StatusPill>
+            {aprobado && <span className={styles.aprobado}>{aprobado}</span>}
+          </div>
         </td>
         <td>
           <div className={styles.cobranza}>

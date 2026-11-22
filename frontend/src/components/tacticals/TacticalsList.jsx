@@ -3,6 +3,7 @@ import SearchInput from '../SearchInput';
 import { Pagination, SegmentedControl } from '../kit';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
 import TacticalAnular from './TacticalAnular';
+import TacticalAprobar from './TacticalAprobar';
 import TacticalEditar from './TacticalEditar';
 import TacticalFila from './TacticalFila';
 import { COLUMNAS_TACTICAL, FILTROS_VACIOS, formatMontosKpi, paramsDeFiltros } from './tacticalsFormat';
@@ -18,6 +19,8 @@ const ESTADOS = [
   { value: 'vigentes', label: 'Vigentes' },
   { value: 'vencidos', label: 'Vencidos' },
   { value: 'anulados', label: 'Anulados' },
+  // Loads that apply nothing until someone with `tacticals.aprobar` approves them (tacticals approval S8).
+  { value: 'pendientes_aprobacion', label: 'Pendientes de aprobación' },
 ];
 const COBRANZAS = [
   { value: 'todos', label: 'Todos' },
@@ -61,7 +64,8 @@ function KpisCobranza({ kpis }) {
  * The Tacticals tab (S7): the brands' programs filtered by tipo, brand, currency, state, dates and a search, one row per
  * tactical with its overall progress; expanding a row shows its lines with their caps and usage. A new `version`
  * (the page's "Actualizar") asks the list again. A row of a kind the user manages (`puedeGestionar(tipo)`) has an
- * actions menu (tacticals F1): Editar, on a tactical that is not voided, hands it to `onEditar` (the full edit, S8);
+ * actions menu (tacticals F1): Aprobar, on a pending tactical for a user with `tacticals.aprobar` (`puedeAprobar`,
+ * even without the kind's gestionar; tacticals approval S8), asks for confirmation and approves it; Editar, on a tactical that is not voided, hands it to `onEditar` (the full edit, S8);
  * a collected one (or without `onEditar`) opens the Editar dialog instead (only name, note, end date and caps) and
  * asks the list again after saving; Renovar hands the tactical to `onRenovar`; Anular, on a tactical that is not voided, asks for
  * confirmation, voids it and its children, asks the list again and tells `onCambio` (the page's tab count). An
@@ -72,7 +76,7 @@ function KpisCobranza({ kpis }) {
  * Pendientes / Cobrados KPIs the list answers over the other filters, and on each row a Pendiente / Cobrado pill; a
  * row the user manages opens its Cobranza box under it (one at a time), and a save or an undo asks the list again.
  */
-export default function TacticalsList({ marcas = [], version = 0, puedeGestionar = () => false, onRenovar, onEditar, onCambio, onVerLinea, tipoInicial = 'todos' }) {
+export default function TacticalsList({ marcas = [], version = 0, puedeGestionar = () => false, puedeAprobar = false, onRenovar, onEditar, onCambio, onVerLinea, tipoInicial = 'todos' }) {
   const [filtros, setFiltros] = useState(() => ({ ...FILTROS_VACIOS, tipo: tipoInicial }));
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(FILAS_POR_PAGINA);
@@ -82,6 +86,7 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
   const [abiertos, setAbiertos] = useState(() => new Set());
   const [editando, setEditando] = useState(null);
   const [anulando, setAnulando] = useState(null);
+  const [aprobando, setAprobando] = useState(null);
   const [guardados, setGuardados] = useState(0);
   // The tactical whose Cobranza box is open under its row (one at a time), or null.
   const [cobrando, setCobrando] = useState(null);
@@ -127,8 +132,10 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
     });
 
   const accionesDe = (tactical) => {
-    if (!puedeGestionar(tactical.tipo)) return [];
-    const acciones = [];
+    // Approving needs only `tacticals.aprobar` (self-approval is allowed), not the kind's gestionar.
+    const aprobar = puedeAprobar && tactical.estado === 'pendiente' ? [{ label: 'Aprobar', onSelect: () => setAprobando(tactical) }] : [];
+    if (!puedeGestionar(tactical.tipo)) return aprobar;
+    const acciones = [...aprobar];
     // A collected tactical changes no money until its collection is undone (S8, D1): only the safe fields' dialog.
     const editar = () => (onEditar && !tactical.cobranza ? onEditar(tactical) : setEditando(tactical));
     if (tactical.estado !== 'anulado') acciones.push({ label: 'Editar', onSelect: editar });
@@ -290,6 +297,17 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
             }
           />
         </div>
+      )}
+      {aprobando && (
+        <TacticalAprobar
+          tactical={aprobando}
+          onCerrar={() => setAprobando(null)}
+          onAprobado={() => {
+            setAprobando(null);
+            setGuardados((n) => n + 1);
+            onCambio?.();
+          }}
+        />
       )}
       {anulando && (
         <TacticalAnular

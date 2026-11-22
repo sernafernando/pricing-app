@@ -45,7 +45,7 @@ export const vigenciaDe = (desde, hasta, porFactura = false) =>
   porFactura ? 'Por factura' : `${formatDateOnly(desde, DIA_MES_ANIO).slice(0, 5)} al ${formatDateOnly(hasta, DIA_MES_ANIO)}`;
 
 /**
- * The state pill: Anulado, Esperando factura (an invoice line saved before Compras linked its invoice: it applies
+ * The state pill: Anulado, Pendiente de aprobación, Esperando factura (an invoice line saved before Compras linked its invoice: it applies
  * nothing until then), Vencido, Vence hoy / en N días, or Vigente (an all-invoice tactical never ends).
  */
 export function estadoDe(
@@ -53,6 +53,8 @@ export function estadoDe(
   hoy = new Date(),
 ) {
   if (estado === 'anulado') return { texto: 'Anulado', tono: 'neutral' };
+  // A load applies to nothing until it is approved (tacticals approval S2), whatever its dates say.
+  if (estado === 'pendiente') return { texto: 'Pendiente de aprobación', tono: 'warning' };
   if (esperandoFactura) return { texto: 'Esperando factura', tono: 'warning' };
   if (porFactura) return { texto: 'Vigente', tono: 'success' };
   const fin = parseDateOnly(hasta);
@@ -62,6 +64,15 @@ export function estadoDe(
   if (restan < 0) return { texto: 'Vencido', tono: 'neutral' };
   if (restan === 0) return { texto: 'Vence hoy', tono: 'warning' };
   return { texto: `Vence en ${restan} ${restan === 1 ? 'día' : 'días'}`, tono: 'warning' };
+}
+
+/**
+ * Who approved the tactical and on which local day, or null: a tactical approved before approval existed has no
+ * approver (tacticals approval S7).
+ */
+export function aprobadoDe({ aprobado_por_nombre: nombre, aprobado_at: cuando }) {
+  if (!nombre || !cuando) return null;
+  return `Aprobado por ${nombre} el ${formatDateOnly(cuando, DIA_MES_ANIO)}`;
 }
 
 /** An invoice of a Compras operation by its ERP number, or by its CT id when the mirror has no number. */

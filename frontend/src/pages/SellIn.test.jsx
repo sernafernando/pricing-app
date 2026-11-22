@@ -48,7 +48,7 @@ vi.mock('../services/sellOutAPI', () => ({
   sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), grupos: vi.fn(), consumos: vi.fn() },
 }));
 
-vi.mock('../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn(), anular: vi.fn() } }));
+vi.mock('../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn(), anular: vi.fn(), aprobar: vi.fn() } }));
 
 vi.mock('../services/offsetGruposAPI', () => ({
   offsetGruposAPI: { listar: vi.fn(), alcance: vi.fn(), opciones: vi.fn(), crear: vi.fn() },
@@ -285,6 +285,21 @@ describe('SellIn page — Tacticals tab', () => {
     await user.click(screen.getByRole('button', { name: 'Anular tactical' }));
 
     await waitFor(() => expect(conteos()).toBeGreaterThan(antes));
+  });
+
+  it('offers Aprobar on a pending tactical only with tacticals.aprobar (tacticals approval S8)', async () => {
+    const user = userEvent.setup();
+    tacticalsAPI.listar.mockResolvedValue({ data: pagina([{ ...TACTICAL, estado: 'pendiente' }]) });
+    mockTienePermiso.mockImplementation((codigo) => codigo !== 'tacticals.aprobar');
+    const { unmount } = renderWithRouter(<SellIn />);
+    await user.click(await screen.findByRole('button', { name: 'Acciones de Rebate TP-Link noviembre' }));
+    expect(screen.queryByRole('menuitem', { name: 'Aprobar' })).not.toBeInTheDocument();
+    unmount();
+
+    mockTienePermiso.mockReturnValue(true);
+    renderWithRouter(<SellIn />);
+    await user.click(await screen.findByRole('button', { name: 'Acciones de Rebate TP-Link noviembre' }));
+    expect(screen.getByRole('menuitem', { name: 'Aprobar' })).toBeInTheDocument();
   });
 
   it("Ver ventas on a tactical's line opens that line's record in the side panel, read only", async () => {

@@ -245,3 +245,17 @@
   gap: 2px;
   white-space: nowrap;
 }
+
+/* State cell (tacticals approval S8): the state pill and, under it, who approved the tactical and when. */
+.estado {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.aprobado {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  white-space: nowrap;
+}

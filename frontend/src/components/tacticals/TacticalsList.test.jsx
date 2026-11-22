@@ -11,7 +11,7 @@ import { tacticalsAPI } from '../../services/tacticalsAPI';
 import { COBRANZA_FONDO, KPIS_COBRANZA, TACTICAL_BPS, TACTICAL_REBATE, pagina } from './tacticalsFixtures';
 
 vi.mock('../../services/tacticalsAPI', () => ({
-  tacticalsAPI: { listar: vi.fn(), editar: vi.fn(), anular: vi.fn(), cobrar: vi.fn(), deshacerCobro: vi.fn() },
+  tacticalsAPI: { listar: vi.fn(), editar: vi.fn(), anular: vi.fn(), aprobar: vi.fn(), cobrar: vi.fn(), deshacerCobro: vi.fn() },
 }));
 
 const BPS = TACTICAL_BPS;
@@ -488,5 +488,87 @@ describe('TacticalsList Cobranza (handoffs/tactical-cobranza-tarea.md S3, S4)', 
     expect(screen.getByLabelText('Distribuidor')).toHaveValue('Grupo Núcleo');
     await userEvent.click(boton);
     expect(screen.queryByRole('form', { name: /Cobranza de/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('TacticalsList approval (handoffs/tacticals-aprobacion-plan.md S8)', () => {
+  const PENDIENTE = { ...BPS, estado: 'pendiente', lineas: BPS.lineas.map((l) => ({ ...l, estado: 'pendiente' })) };
+  const APROBADO = { ...REBATE, aprobado_por: 9, aprobado_por_nombre: 'Alejandro', aprobado_at: '2026-11-10T15:00:00Z' };
+
+  it('filters the tacticals pending approval', async () => {
+    render(<TacticalsList marcas={MARCAS} />);
+    await screen.findByText('Tacticals BPS Noviembre Q1FY27');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Pendientes de aprobación' }));
+
+    await waitFor(() => expect(ultimaConsulta()).toMatchObject({ estado: 'pendientes_aprobacion' }));
+  });
+
+  it('a pending tactical reads so, and an approved one says who approved it and when', async () => {
+    tacticalsAPI.listar.mockResolvedValue({ data: pagina([PENDIENTE, APROBADO]) });
+    render(<TacticalsList marcas={MARCAS} />);
+
+    await screen.findByText('Tacticals BPS Noviembre Q1FY27');
+    expect(within(filaDe('Tacticals BPS Noviembre Q1FY27')).getByText('Pendiente de aprobación')).toBeInTheDocument();
+    expect(within(filaDe('Rebate HP Q1FY27')).getByText('Aprobado por Alejandro el 10/11/2026')).toBeInTheDocument();
+  });
+
+  it('offers Aprobar only with the permission and only on a pending tactical', async () => {
+    tacticalsAPI.listar.mockResolvedValue({ data: pagina([PENDIENTE, APROBADO]) });
+    const { unmount } = render(<TacticalsList marcas={MARCAS} puedeGestionar={() => true} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Acciones de Tacticals BPS Noviembre Q1FY27' }));
+    expect(screen.queryByRole('menuitem', { name: 'Aprobar' })).not.toBeInTheDocument();
+    unmount();
+
+    render(<TacticalsList marcas={MARCAS} puedeGestionar={() => true} puedeAprobar />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Acciones de Tacticals BPS Noviembre Q1FY27' }));
+    expect(screen.getByRole('menuitem', { name: 'Aprobar' })).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+    await userEvent.click(screen.getByRole('button', { name: 'Acciones de Rebate HP Q1FY27' }));
+    expect(screen.queryByRole('menuitem', { name: 'Aprobar' })).not.toBeInTheDocument();
+  });
+
+  it('an approver who does not manage the kind still gets Aprobar', async () => {
+    tacticalsAPI.listar.mockResolvedValue({ data: pagina([PENDIENTE]) });
+    render(<TacticalsList marcas={MARCAS} puedeAprobar />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Acciones de Tacticals BPS Noviembre Q1FY27' }));
+
+    expect(screen.getByRole('menuitem', { name: 'Aprobar' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Anular' })).not.toBeInTheDocument();
+  });
+
+  it('asks for confirmation, approves and asks the list again', async () => {
+    tacticalsAPI.listar.mockResolvedValue({ data: pagina([PENDIENTE]) });
+    tacticalsAPI.aprobar.mockResolvedValue({ data: { ...PENDIENTE, estado: 'activo' } });
+    const onCambio = vi.fn();
+    render(<TacticalsList marcas={MARCAS} puedeAprobar onCambio={onCambio} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Acciones de Tacticals BPS Noviembre Q1FY27' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Aprobar' }));
+
+    const dialogo = screen.getByRole('dialog', { name: '¿Aprobar Tacticals BPS Noviembre Q1FY27?' });
+    expect(dialogo).toHaveTextContent('Sus 3 líneas empiezan a aplicar');
+    expect(tacticalsAPI.aprobar).not.toHaveBeenCalled();
+    const pedidas = tacticalsAPI.listar.mock.calls.length;
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Aprobar tactical' }));
+
+    expect(tacticalsAPI.aprobar).toHaveBeenCalledWith(1);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(tacticalsAPI.listar.mock.calls.length).toBeGreaterThan(pedidas);
+    expect(onCambio).toHaveBeenCalled();
+  });
+
+  it("shows the server's refusal inside the dialog; Cancelar approves nothing", async () => {
+    tacticalsAPI.listar.mockResolvedValue({ data: pagina([PENDIENTE]) });
+    tacticalsAPI.aprobar.mockRejectedValue({ response: { status: 409, data: { error: { message: 'El tactical 1 ya está aprobado' } } } });
+    render(<TacticalsList marcas={MARCAS} puedeAprobar />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Acciones de Tacticals BPS Noviembre Q1FY27' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Aprobar' }));
+    const dialogo = screen.getByRole('dialog');
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Aprobar tactical' }));
+
+    expect(await within(dialogo).findByRole('alert')).toHaveTextContent('El tactical 1 ya está aprobado');
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Cancelar' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });

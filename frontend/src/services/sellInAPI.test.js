@@ -60,4 +60,11 @@ describe('sellInAPI', () => {
     expect(api.post).toHaveBeenCalledWith('/sell-in/bonos/3/anular', { motivo: 'mal cargado' });
     expect(api.post).toHaveBeenCalledWith('/sell-in/bonos/4/anular', { motivo: null });
   });
+
+  it('approves a purchase and a bonus loaded on their own (tacticals approval S6)', () => {
+    sellInAPI.aprobar(5);
+    sellInBonosAPI.aprobar(3);
+    expect(api.post).toHaveBeenCalledWith('/sell-in/compras/5/aprobar');
+    expect(api.post).toHaveBeenCalledWith('/sell-in/bonos/3/aprobar');
+  });
 });

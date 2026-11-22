@@ -6,7 +6,7 @@ const TACTICALS = '/tacticals';
 /**
  * Tacticals (`/api/tacticals`, handoffs/tactical-tarea.md, "Contrato final"): a brand program whose lines live in the
  * sell-in and sell-out engines.
- * - `listar(params)`: takes tipo, marca, moneda (`ARS` | `USD`), estado (`vigentes` | `vencidos` | `anulados`), desde,
+ * - `listar(params)`: takes tipo, marca, moneda (`ARS` | `USD`), estado (`vigentes` | `vencidos` | `anulados` | `pendientes_aprobacion`), desde,
  *   hasta, q, page and page_size, and answers `{ items, total }`, each tactical with its lines and their usage.
  * - `detalle(id)`: `GET /tacticals/{id}`, one tactical with its lines (Renovar prefills Nuevo tactical from it).
  * - `crear(body)`: `POST /tacticals`, a header with its lines at once, all or nothing; a 422 `{error: {message}}`
@@ -32,6 +32,8 @@ export const tacticalsAPI = {
   editar: (id, body) => api.patch(`${TACTICALS}/${id}`, body),
   reemplazar: (id, body) => api.put(`${TACTICALS}/${id}`, body),
   anular: (id, motivo) => api.post(`${TACTICALS}/${id}/anular`, { motivo }),
+  // A pending tactical starts applying with all its lines; needs `tacticals.aprobar` (409 when not pending).
+  aprobar: (id) => api.post(`${TACTICALS}/${id}/aprobar`),
   cobrar: (id, body) => api.put(`${TACTICALS}/${id}/cobranza`, body),
   deshacerCobro: (id) => api.delete(`${TACTICALS}/${id}/cobranza`),
   buscarProductos: (q) => api.get('/buscar-productos-catalogo', { params: { q } }).then((r) => r.data ?? []),

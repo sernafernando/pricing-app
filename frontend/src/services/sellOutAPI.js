@@ -17,6 +17,8 @@ export const sellOutAPI = {
   // The renewal draft of a campaign, active or voided: a NEW campaign in the shape `crear` takes. It writes nothing.
   renovacion: (id) => api.get(`${CAMPANAS}/${id}/renovacion`),
   anular: (id, motivo) => api.post(`${CAMPANAS}/${id}/anular`, { motivo: motivo?.trim() || null }),
+  // A pending campaign loaded on its own starts applying (`tacticals.aprobar`); a tactical's is approved with it.
+  aprobar: (id) => api.post(`${CAMPANAS}/${id}/aprobar`),
   // Bulk void, all or nothing: `{ anuladas, omitidas }`; a refusal is a 422 with `error.rechazadas: [{ id, motivo }]`.
   anularVarias: (ids, motivo) => api.post(`${CAMPANAS}/anular`, { ids, motivo: motivo?.trim() || null }),
   // The rate the brand paid at, for an `al_cobro` campaign; also after it ended, and it can be changed.

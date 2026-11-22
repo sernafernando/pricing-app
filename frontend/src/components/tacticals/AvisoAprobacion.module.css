@@ -1,0 +1,10 @@
+/* The approval notice of the tactical form (tacticals approval S8): warning tone, from the design tokens. */
+.aviso {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  font-size: var(--font-sm);
+  color: var(--tone-warning-fg);
+  background: var(--tone-warning-bg);
+  border: 1px solid var(--tone-warning-border);
+  border-radius: var(--radius-md);
+}
