@@ -1291,6 +1291,17 @@ def test_a_cost_percentage_already_loaded_by_hand_as_a_bono_is_reported_with_it(
     assert (pendiente["motivo"], pendiente["avisos"], pendiente["porcentaje"]) == (fila["motivo"], None, 4.0)
 
 
+def test_a_bono_loaded_by_hand_and_still_pending_approval_counts_as_loaded(engine, correr) -> None:
+    # Tacticals approval S10: a pending bonus is a load waiting for approval, not a missing one; migrating the offset
+    # would leave two bonuses for the same scope once both are approved.
+    bono = _bono(engine, estado="pendiente")
+
+    _, code, fila, pendiente = _porcentaje(engine, correr)
+
+    assert code == 0
+    assert fila["motivo"] == pendiente["motivo"] == f"ya cargado a mano como bono #{bono}"
+
+
 def test_a_bono_with_another_percentage_is_reported_with_a_warning(engine, correr) -> None:
     bono = _bono(engine, porcentaje="3.5")
 

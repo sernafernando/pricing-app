@@ -59,7 +59,7 @@ read-only), so the script passes it to `crear_bono` as a keyword argument:
   channel goes to review) and the expired / open-ended warnings are the
   campaigns' (an expired one changes the historical cost with sell in in
   Métricas ML: `bonos_vencidos_migrados` and stderr);
-- an offset (or group) matching a sell-in % bonus loaded BY HAND (active, no
+- an offset (or group) matching a sell-in % bonus loaded BY HAND (active or pending approval, no
   `offset_origen_id`, overlapping dates, the same scope: the same brand or
   category, or a 'modelos' bonus covering its product or any product of the
   group's reach) is never migrated: it stays in review as "ya cargado a mano
@@ -147,7 +147,7 @@ from app.models.sell_out import SellOutCampana, SellOutCampanaItem
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, MODELOS_MAX, SellInBonoIn, SellInBonoModeloIn
 from app.schemas.sell_out import ITEMS_MAX, NOMBRE_MAX, SellOutCampanaIn
 from app.services.sell_in import bonos_crud
-from app.services.sell_in.aprobacion import PENDIENTE
+from app.services.sell_in.aprobacion import PENDIENTE, VIVAS
 from app.services.sell_out import alcance, campanas
 from app.utils.csv_cells import csv_money, csv_text
 
@@ -291,15 +291,16 @@ def _clave(marca: str) -> str:
 
 
 def _bonos(db: Session) -> _Bonos:
-    """The active sell-in % bonuses by brand, category or models loaded BY HAND (no `offset_origen_id`), by id: the 4
-    brand % offsets were loaded as these (2026-10-23), with no link back to the offset."""
+    """The live sell-in % bonuses by brand, category or models loaded BY HAND (no `offset_origen_id`), by id: the 4
+    brand % offsets were loaded as these (2026-10-23), with no link back to the offset. Live is active or pending
+    approval (tacticals approval S10): a pending one is already loaded, so migrating the offset would duplicate it."""
     b, t = SellInBonoMarca, SellInBonoItem
     rows = (
         db.query(b.id, b.alcance, b.marca, b.categoria, b.porcentaje, b.fecha_desde, b.fecha_hasta)
         .filter(
             b.tipo == "porcentaje",
             b.alcance.in_(("marca", "categoria", "modelos")),
-            b.estado == "activa",
+            b.estado.in_(VIVAS),
             b.offset_origen_id.is_(None),
         )
         .order_by(b.id)
