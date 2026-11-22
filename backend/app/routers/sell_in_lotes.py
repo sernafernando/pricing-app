@@ -6,7 +6,7 @@ need `sell_in.ver`, and a change the mode's own permission (D7)."""
 import logging
 from dataclasses import replace
 from datetime import date
-from typing import Optional
+from typing import NoReturn, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import DBAPIError
@@ -15,7 +15,6 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_admin, get_current_user, require_algun_permiso, require_permiso
 from app.api.endpoints.productos_listing import PERMISOS_VER_PRODUCTO
 from app.core.database import get_db
-from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
 from app.schemas.sell_in_lotes import ConsumosLoteOut, LotesProductoOut, ProductosCostoOut
 from app.schemas.sell_in_modos import (
@@ -122,15 +121,13 @@ def modos_de_producto(item_id: int, db: Session = Depends(get_db)) -> dict:
     return {"item_id": item_id, "vigente": modos.vigente(historial, date.today()), "historial": historial}
 
 
-def _validar_cambio(db: Session, usuario: Usuario, item_id: int, body: ModoIn, hoy: date) -> None:
-    """422 for a mode not written here, 403 naming the permission missing (D7), 404 for an unknown product."""
-    if body.modo not in modos.MODOS_ESCRITOS:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Cost mode '{body.modo}' cannot be set here")
-    falta = modos.permiso_faltante(body.modo, body.desde, hoy, lambda codigo: verificar_permiso(db, usuario, codigo))
-    if falta is not None:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, f"Missing permission: {falta}")
-    if db.query(ProductoERP.item_id).filter(ProductoERP.item_id == item_id).first() is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
+MODOS_RETIRADOS = "El modo de costo ya no se puede cambiar: el costo es el costo SI"
+
+
+def _validar_cambio(db: Session, usuario: Usuario, item_id: int, body: ModoIn, hoy: date) -> NoReturn:
+    """410 always (T5, sell-in-costo-si PR A): costo SI replaced the per-product cost modes (S14), so no mode is
+    previewed or written any more; the history still reads. The endpoints themselves go in PR B."""
+    raise HTTPException(status.HTTP_410_GONE, MODOS_RETIRADOS)
 
 
 def _manual(body: ModoIn) -> Optional[modos.Manual]:

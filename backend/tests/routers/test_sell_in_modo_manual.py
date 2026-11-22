@@ -10,9 +10,7 @@ from datetime import date
 
 import pytest
 
-from app.models.auditoria import Auditoria
 from app.models.producto import ProductoERP, TipoMoneda
-from app.models.tipo_cambio import TipoCambio
 
 BASE = "/api/sell-in/productos"
 HOY = date.today()
@@ -35,87 +33,6 @@ def _cuerpo(**extra) -> dict:
     return {"modo": "manual", "desde": HOY.isoformat(), "cantidad": 30, "costo_unit": "52000", **extra}
 
 
-def test_preview_shows_the_frozen_cost_and_confirm_saves_the_block(client, db, manualista) -> None:
-    _producto(db, 50000.0)
-
-    vista = client.post(f"{BASE}/4512/modos/vista-previa", json=_cuerpo(), headers=manualista)
-    assert vista.status_code == 200, vista.text
-    datos = vista.json()
-    # 30 units typed at 52 000 against 50 000 frozen: each raises the cost by 2 000; the next sale takes the block.
-    assert (datos["costo_base_unit"], datos["unidades_restantes"], datos["descuento_unit"], datos["del_bloque"]) == (
-        "50000.000000",
-        30,
-        "-2000.000000",
-        True,
-    )
-
-    resp = client.post(f"{BASE}/4512/modos", json=_cuerpo(huella=datos["huella"]), headers=manualista)
-
-    assert resp.status_code == 201, resp.text
-    fila = resp.json()
-    assert (fila["modo"], fila["cantidad"], fila["costo_unit"], fila["costo_base_unit"]) == (
-        "manual",
-        30,
-        "52000.000000",
-        "50000.000000",
-    )
-    auditoria = db.query(Auditoria).one()
-    assert {k: auditoria.valores_nuevos[k] for k in ("modo", "cantidad", "costo_unit", "costo_base_unit")} == {
-        "modo": "manual",
-        "cantidad": 30,
-        "costo_unit": "52000.000000",
-        "costo_base_unit": "50000.000000",
-    }
-
-
-def test_a_usd_cost_is_frozen_in_pesos_at_todays_rate(client, db, manualista) -> None:
-    _producto(db, 100.0, TipoMoneda.USD)
-    db.add(TipoCambio(fecha=HOY, moneda="USD", compra=990.0, venta=1000.0))
-    db.commit()
-
-    vista = client.post(f"{BASE}/4512/modos/vista-previa", json=_cuerpo(), headers=manualista)
-
-    assert vista.status_code == 200, vista.text
-    assert vista.json()["costo_base_unit"] == "100000.000000"
-
-
-@pytest.mark.parametrize(
-    ("costo", "moneda", "mensaje"),
-    [
-        (None, TipoMoneda.ARS, "The product has no cost to freeze"),
-        (100.0, TipoMoneda.USD, "There is no USD rate to freeze the product's cost in pesos"),
-    ],
-)
-def test_without_a_cost_to_freeze_it_is_422(client, db, manualista, costo, moneda, mensaje) -> None:
-    _producto(db, costo, moneda)
-
-    resp = client.post(f"{BASE}/4512/modos/vista-previa", json=_cuerpo(), headers=manualista)
-
-    assert resp.status_code == 422
-    assert resp.json()["error"]["message"] == mensaje
-
-
-def test_a_confirm_with_another_quantity_or_cost_than_previewed_is_409(client, db, manualista) -> None:
-    _producto(db, 50000.0)
-    huella = client.post(f"{BASE}/4512/modos/vista-previa", json=_cuerpo(), headers=manualista).json()["huella"]
-
-    for cambio in ({"cantidad": 31}, {"costo_unit": "51000"}):
-        resp = client.post(f"{BASE}/4512/modos", json=_cuerpo(huella=huella, **cambio), headers=manualista)
-        assert resp.status_code == 409, resp.text
-    assert client.get(f"{BASE}/4512/modos", headers=manualista).json()["historial"] == []
-
-
-def test_a_confirm_after_the_product_cost_moved_is_409(client, db, manualista) -> None:
-    producto = db.get(ProductoERP, _producto(db, 50000.0))
-    huella = client.post(f"{BASE}/4512/modos/vista-previa", json=_cuerpo(), headers=manualista).json()["huella"]
-    producto.costo = 51000.0
-    db.commit()
-
-    resp = client.post(f"{BASE}/4512/modos", json=_cuerpo(huella=huella), headers=manualista)
-
-    assert resp.status_code == 409, resp.text
-
-
 @pytest.mark.parametrize(
     "cuerpo",
     [
@@ -135,14 +52,3 @@ def test_manual_needs_a_positive_quantity_and_unit_cost(client, db, manualista, 
     _producto(db, 50000.0)
 
     assert client.post(f"{BASE}/4512/modos/vista-previa", json=cuerpo, headers=manualista).status_code == 422
-
-
-def test_manual_needs_its_own_permission(client, db, rol_admin, admin_auth_headers, grant_permiso) -> None:
-    _producto(db, 50000.0)
-    for permiso in ("productos.ver", "sell_in.ver", "sell_in.costo_ponderado", "sell_in.costo_ultimo"):
-        grant_permiso(rol_admin, permiso)
-
-    resp = client.post(f"{BASE}/4512/modos/vista-previa", json=_cuerpo(), headers=admin_auth_headers)
-
-    assert resp.status_code == 403
-    assert resp.json()["error"]["message"] == "Missing permission: sell_in.costo_manual"

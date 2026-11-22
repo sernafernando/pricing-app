@@ -33,7 +33,6 @@ from app.services.sell_in.facturas_elegidas import Facturado, facturado_elegido,
 from app.services.sell_out import edicion_masiva, renovacion
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _bono_world as bw
-from tests.services.sell_in import _world as w
 
 pytestmark = pytest.mark.postgres
 
@@ -337,20 +336,6 @@ class TestSellIn:
             )
         assert fechas[factura.id] == (date(2026, 3, 10), date(2026, 12, 5))
         assert fechas[mixto.id] == (date(2026, 11, 1), date(2026, 11, 30))
-
-    def test_the_invoice_units_get_the_rebate_whenever_they_are_sold_until_they_run_out(self, db, engine) -> None:
-        pedido = bw.pedido(engine, {2964: 700}, date(2026, 10, 10))
-        linea = {"alcance": "factura", "pedido_compra_id": pedido, "modo_monto": "por_unidad", "valor": "2"}
-        service.crear(db, _tactical("sell_in", [linea], fecha_desde=None, fecha_hasta=None), USUARIO)
-        primera = w.venta(engine, "fuera", 2964, 500, date(2027, 6, 1))
-        segunda = w.venta(engine, "fuera", 2964, 300, date(2028, 1, 15))
-        tercera = w.venta(engine, "fuera", 2964, 10, date(2028, 2, 1))
-
-        bonos.reconciliar(db, pedido_ids=[pedido])
-        db.commit()
-
-        assert [(c[2], c[4]) for c in w.consumos(engine)] == [(primera, 500), (segunda, 200)]
-        assert tercera not in [c[2] for c in w.consumos(engine)]
 
     def test_an_invoice_percentage_is_an_invoice_bonus(self, db, engine) -> None:
         pedido = bw.pedido(engine, {2964: 10}, date(2026, 11, 10), moneda="ARS", tipo_cambio=None)
@@ -738,44 +723,6 @@ class TestSellInMontoTotal:
         with engine.connect() as conn:
             return [tuple(r) for r in conn.execute(text("SELECT item_id, monto FROM sell_in_bono_repartos ORDER BY 1"))]
 
-    def test_a_brand_line_is_one_cost_bonus_split_in_equal_parts(self, db, engine) -> None:
-        tactical = service.crear(db, _tactical("sell_in", [self._linea()]), USUARIO)
-
-        assert self._bono(engine, tactical.id) == (
-            "costo_venta", "marca", "monto_total", "ARS", Decimal("1200.00"), "iguales", None, None, None, None,
-        )  # fmt: skip
-        assert self._repartos(engine) == [(2270, Decimal("600.00")), (2964, Decimal("600.00"))]
-        [salida] = service.serializar(db, [tactical])[0]["lineas"]
-        assert (salida["origen"], salida["modo_monto"], salida["valor"], salida["reparto_criterio"]) == (
-            "sell_in_bono", "monto_total", Decimal("1200.00"), "iguales",
-        )  # fmt: skip
-
-    def test_a_products_line_by_units_stores_its_models_and_no_share(self, db, engine) -> None:
-        linea = self._linea(alcance="productos", marca=None, item_ids=[2964, 950], reparto_criterio="unidades")
-
-        tactical = service.crear(db, _tactical("sell_in", [linea]), USUARIO)
-
-        assert self._bono(engine, tactical.id)[1:6] == (
-            "modelos", "monto_total", "ARS", Decimal("1200.00"), "unidades",
-        )  # fmt: skip
-        assert self._repartos(engine) == []
-        [salida] = service.serializar(db, [tactical])[0]["lineas"]
-        assert [p["item_id"] for p in salida["productos"]] == [950, 2964]
-
-    def test_a_category_line_by_cost_splits_by_each_product_s_cost(self, db, engine) -> None:
-        bw.tipo_cambio(engine, date(2026, 10, 1), 1000)
-        tactical = service.crear(
-            db, _tactical("sell_in", [self._linea(alcance="categoria", marca=None, categoria="Routers",
-                                                  reparto_criterio="costo", valor="10000")]), USUARIO
-        )  # fmt: skip
-
-        assert self._bono(engine, tactical.id)[1] == "categoria"
-        # ARS costs: 2964 41.50 USD x 1000 = 41500, 2270 12000, 950 9.90 USD x 1000 = 9900; total weight 63400.
-        assert self._repartos(engine) == [
-            (950, Decimal("1561.51")), (2270, Decimal("1892.74")), (2964, Decimal("6545.75")),
-        ]  # fmt: skip
-        assert sum(m for _, m in self._repartos(engine)) == Decimal("10000.00")
-
     def test_without_a_criterion_it_is_refused(self, db, engine) -> None:
         with pytest.raises(service.TacticalError, match="^Línea 1: elegí cómo repartir el monto total$"):
             service.crear(db, _tactical("sell_in", [self._linea(reparto_criterio=None)]), USUARIO)
@@ -794,25 +741,6 @@ class TestSellInMontoTotal:
         with pytest.raises(service.TacticalError, match="^Línea 1: un monto total se reparte entre los productos"):
             service.crear(db, _tactical("sell_in", [linea]), USUARIO)
 
-    def test_in_usd_with_a_fixed_rate_it_is_split_in_pesos_to_the_cent(self, db, engine) -> None:
-        data = _tactical("sell_in", [self._linea(valor="1200.01")], moneda="USD", tc_modo="fijo", tipo_cambio="1000.5")
-
-        tactical = service.crear(db, data, USUARIO)
-
-        # USD 1200.01 x 1000.5 = 1200610.005 -> ARS 1200610.01, split in two equal parts.
-        assert self._bono(engine, tactical.id)[2:6] == ("monto_total", "ARS", Decimal("1200610.01"), "iguales")
-        repartos = self._repartos(engine)
-        assert sorted(m for _, m in repartos) == [Decimal("600305.00"), Decimal("600305.01")]
-        assert sum(m for _, m in repartos) == Decimal("1200610.01")
-        salida = service.serializar(db, [tactical])[0]
-        [linea] = salida["lineas"]
-        assert (linea["valor"], linea["moneda"], linea["valor_usd"]) == (
-            Decimal("1200610.01"),
-            "ARS",
-            Decimal("1200.01"),
-        )
-        assert (salida["moneda"], salida["tipo_cambio"]) == ("USD", Decimal("1000.5"))
-
     def test_in_usd_without_a_fixed_rate_it_is_refused(self, db, engine) -> None:
         data = _tactical("sell_in", [self._linea()], moneda="USD", tc_modo="al_cobro")
         with pytest.raises(
@@ -820,11 +748,6 @@ class TestSellInMontoTotal:
         ):
             service.crear(db, data, USUARIO)
         assert _contar(engine, "tacticals") == 0
-
-    def test_in_pesos_it_carries_no_usd_amount(self, db) -> None:
-        tactical = service.crear(db, _tactical("sell_in", [self._linea()]), USUARIO)
-        [linea] = service.serializar(db, [tactical])[0]["lineas"]
-        assert linea["valor_usd"] is None
 
     def test_a_negative_total_is_refused(self, db) -> None:
         with pytest.raises(service.TacticalError, match="^Línea 1: el monto tiene que ser mayor a 0$"):
@@ -862,15 +785,6 @@ class TestSellInMontoTotal:
         ]
         assert _contar(engine, "sell_in_bonos_marca", "monto_total IS NULL AND reparto_criterio IS NULL") == 2
         assert self._repartos(engine) == []
-
-    def test_editing_a_total_line_s_end_date_keeps_its_split(self, db, engine) -> None:
-        tactical = service.crear(db, _tactical("sell_in", [self._linea()]), USUARIO)
-
-        service.editar(db, tactical.id, service.TacticalEditarIn(fecha_hasta=date(2026, 12, 15)), USUARIO,
-                       hoy=date(2026, 11, 6))  # fmt: skip
-
-        assert self._bono(engine, tactical.id)[4:6] == (Decimal("1200.00"), "iguales")
-        assert self._repartos(engine) == [(2270, Decimal("600.00")), (2964, Decimal("600.00"))]
 
 
 class TestStoreScope:
@@ -939,22 +853,6 @@ class TestMarcaYCategoria:
 
         campana = db.query(SellOutCampana).one()
         assert set(alcance.productos(db, [campana.id])[campana.id]) == {2964}
-        [salida] = service.serializar(db, [tactical])[0]["lineas"]
-        assert (salida["alcance"], salida["marca"], salida["categoria"]) == ("marca", TPLINK, "Routers")
-
-    def test_a_sell_in_total_line_splits_only_among_the_brand_s_products_of_the_category(self, db, engine) -> None:
-        linea = self._linea(modo_monto="monto_total", valor="1200", reparto_criterio="iguales")
-
-        tactical = service.crear(db, _tactical("sell_in", [linea]), USUARIO)
-
-        with engine.connect() as conn:
-            bono = conn.execute(
-                text("SELECT alcance, marca, categoria FROM sell_in_bonos_marca WHERE tactical_id = :t"),
-                {"t": tactical.id},
-            ).one()
-            repartos = [tuple(r) for r in conn.execute(text("SELECT item_id, monto FROM sell_in_bono_repartos"))]
-        assert tuple(bono) == ("marca", TPLINK, "Routers")
-        assert repartos == [(2964, Decimal("1200.00"))]
         [salida] = service.serializar(db, [tactical])[0]["lineas"]
         assert (salida["alcance"], salida["marca"], salida["categoria"]) == ("marca", TPLINK, "Routers")
 

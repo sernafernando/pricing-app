@@ -16,11 +16,10 @@ in the body), already in the purchase currency.
 
 A load freezes that cost on every line. A purchase is never edited nor deleted:
 it can only be voided (`anulada`), once; the reason goes to the audit rows.
-Loading and voiding recompute the allocation of the purchase's products in the
-same transaction (`costing.get_costing()`): a load is consumed by the sales
-already made since it counts, a void releases its units to later purchases.
-The list and the detail report each line's consumed units (the sum of its
-`sell_in_consumos`) and the units still left, the supplier's name and whether
+Loading and voiding no longer allocate sales to the purchase (sell-in-costo-si
+T5 PR A: costo SI replaced the FIFO lots, S14); costo SI's triggers queue its
+products. The list and the detail still report each line's consumed units (the
+sum of its frozen `sell_in_consumos`) and the units still left, the supplier's name and whether
 the purchase applies (`aplica_condicion`, the single rule for it). The list and
 its summary (`resumir_compras`) share the same filters (`FiltrosCompras`).
 """
@@ -43,8 +42,7 @@ from app.models.producto import ProductoERP
 from app.models.proveedor import Proveedor
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
 from app.schemas.sell_in import SellInCompraCreate, SellInLineaIn, SellInPreviewIn
-from app.services.sell_in import bonos_costo
-from app.services.sell_in.costing import LOCK_NAMESPACE, LOCK_SQL, get_costing
+from app.services.sell_in.costing import LOCK_NAMESPACE, LOCK_SQL
 from app.services.sell_in.split import CENT, UNIT_PRECISION, Line, SellInSplitError, preview, unit_discount
 
 
@@ -390,13 +388,7 @@ def crear_compra_sin_commit(
     except Exception:
         db.rollback()  # never leave the caller's session aborted
         raise
-    try:
-        # The sales already made since the purchase counts consume it in the same transaction.
-        get_costing().recompute(db, [item.item_id for item in items], isolate_failures=False)
-        bonos_costo.seguir_fifo(db, [item.item_id for item in items])  # T25b: they take what the FIFO leaves
-    except Exception:
-        db.rollback()  # a failed recompute takes the purchase with it; never leave the session aborted
-        raise
+    # T5 PR A: no FIFO allocation any more (costo SI replaced the lots, S14); costo SI's triggers queue the products.
     return compra
 
 
@@ -527,9 +519,7 @@ def anular_compra_sin_commit(
     )
     audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_ANULADA, usuario_id, motivo=motivo, es_masivo=es_masivo)
     db.flush()
-    # Its units are released in the same transaction: later purchases take those sales over.
-    get_costing().recompute(db, [item.item_id for item in items], isolate_failures=False)
-    bonos_costo.seguir_fifo(db, [item.item_id for item in items])  # T25b: they take what the FIFO leaves
+    # T5 PR A: no FIFO allocation any more (costo SI replaced the lots, S14); costo SI's triggers queue the products.
     return compra
 
 
@@ -584,9 +574,7 @@ def repartir_compra_sin_commit(
     db.flush()
     audit(db, compra, nuevos, TipoAccion.SELL_IN_COMPRA_REPARTIDA, usuario_id)
     db.flush()
-    tocados = sorted(set(tenidos) | set(deseadas))
-    get_costing().recompute(db, tocados, isolate_failures=False)
-    bonos_costo.seguir_fifo(db, tocados)
+    # T5 PR A: no FIFO allocation any more (costo SI replaced the lots, S14); costo SI's triggers queue the products.
     return compra
 
 

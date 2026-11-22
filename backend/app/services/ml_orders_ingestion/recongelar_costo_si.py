@@ -198,15 +198,6 @@ def _cobrar(db: Session, item_id: int, error: str) -> int:
     )
 
 
-def _bonos_costo(db: Session, item_id: int) -> None:
-    """D2 follows the cost: the product's sale-cost bonuses in every channel, now that its sales may be (or stop being)
-    at costo SI (`bonos_costo._en_costo_si`), in the product's transaction. A bonus that cannot be computed is
-    logged by `bonos_costo`, never charged to the re-freeze."""
-    from app.services.sell_in import bonos_costo  # imported here: sell_in reaches ML ingestion through its readers
-
-    bonos_costo.registrar_fallidos(bonos_costo.recalcular(db, [item_id]), "ml costo SI")
-
-
 @dataclass
 class Drenado:
     productos: int = 0
@@ -238,7 +229,6 @@ def drenar(
                 motivo = f"costo SI desde {desde.isoformat()}" if desde else "costo SI completo"
                 suyas: list[str] = []
                 cambiadas = recongelar(db, item_id, desde, motivo, desconocidas=suyas)
-                _bonos_costo(db, item_id)
                 db.execute(text("DELETE FROM ml_costo_si_dirty WHERE producto_item_id = :i"), {"i": item_id})
                 db.commit()
             out.productos += 1

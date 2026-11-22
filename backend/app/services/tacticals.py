@@ -1694,14 +1694,11 @@ def cobrar(db: Session, tactical_id: int, data: TacticalCobranzaIn, usuario_id: 
             raise TacticalError(SIN_TC_COBRO)
         if not usd and data.tipo_cambio is not None:
             raise TacticalError(TC_COBRO_SIN_USD)
-        antes = cobranza.tipo_cambio if cobranza is not None else None
         if cobranza is None:
             cobranza = TacticalCobranza(tactical_id=tactical_id)
             db.add(cobranza)
         cobranza.fecha_cobro = data.fecha_cobro
         cobranza.tipo_cambio = data.tipo_cambio
-        if antes is None or data.tipo_cambio is None or Decimal(antes) != data.tipo_cambio:
-            bonos_costo.encolar_bonos(db, usd)  # they convert at the new rate (only when it changed)
         cobranza.medio = data.medio
         for campo in _COBRANZA_TEXTOS:
             setattr(cobranza, campo, _texto(getattr(data, campo)))
@@ -1741,9 +1738,6 @@ def deshacer_cobro(db: Session, tactical_id: int) -> bool:
     """Undo: delete the tactical's collection record, so it reads "Pendiente" again. False when it had none. A USD
     `al_cobro` cost line goes back to the latest BNA: its bonuses are queued."""
     try:
-        tactical = db.get(Tactical, tactical_id)
-        if tactical is not None:
-            bonos_costo.encolar_bonos(db, _bonos_al_cobro(db, tactical))
         borradas = db.query(TacticalCobranza).filter(TacticalCobranza.tactical_id == tactical_id).delete()
         db.commit()
     except Exception:

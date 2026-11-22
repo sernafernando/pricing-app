@@ -64,6 +64,9 @@ from app.services.sell_in.compras import contiene
 from app.services.sell_out import criterio as criterio_reparto
 
 MONTO_TOTAL = "monto_total"
+MONTO_TOTAL_RETIRADO = (
+    "Un bono de sell in por monto total no se puede cargar por ahora: si es sobre las ventas, cargalo como sell out"
+)
 _TEXTOS_BONO = criterio_reparto.Textos(
     sin_alcance="El bono no alcanza ningún producto: no hay entre quiénes repartir",
     sin_costo="Ningún producto del bono tiene costo cargado: no se puede repartir por costo",
@@ -199,6 +202,10 @@ def validar(
     """The rules the operator can break, in one readable message each; returns the normalized fields.
     `base` / `incluye_iva`: the effective ones (an edit's stored ones); None: the body's. `de_tactical`: the bonus is
     (or will be) a tactical's line."""
+    if data.tipo == MONTO_TOTAL:
+        # sell-in-costo-si T5 PR A, L25: a lump sum is no longer split over sales. A sell-in one will be divided by an
+        # established quantity on the invoices (PR E); one over sales is sell out.
+        raise SellInBonoError(MONTO_TOTAL_RETIRADO)
     base = data.base if base is None else base
     incluye_iva = data.incluye_iva if incluye_iva is None else incluye_iva
     _validar_base(data, base, incluye_iva, de_tactical)
@@ -208,9 +215,7 @@ def validar(
             raise SellInBonoError("Solo un bono por monto total lleva monto total")
         if data.reparto_criterio is not None:
             raise SellInBonoError("El reparto es solo para un bono por monto total")
-    if data.tipo == MONTO_TOTAL:
-        _validar_total(data, base)
-    elif data.tipo == "por_unidad":
+    if data.tipo == "por_unidad":
         if data.porcentaje is not None:
             raise SellInBonoError("Un bono por unidad no lleva porcentaje")
         if data.monto_unit is None:
@@ -246,26 +251,6 @@ def validar(
         monto_total=data.monto_total.quantize(Decimal("0.01")) if data.monto_total is not None else None,
         reparto_criterio=data.reparto_criterio,
     )
-
-
-def _validar_total(data: SellInBonoIn, base: str) -> None:
-    """A total split across products: a cost bonus, ARS (`_validar_base`), a positive total, a criterion, no value per
-    unit, no cap (the total is its cap) and no model's own value (DB CHECK `ck_sell_in_bonos_marca_monto_total`)."""
-    if base != BASE_COSTO_VENTA:
-        raise SellInBonoError("Un bono por monto total es solo sobre el costo de la venta")
-    if data.monto_unit is not None or data.porcentaje is not None:
-        raise SellInBonoError("Un bono por monto total no lleva monto por unidad ni porcentaje")
-    if data.monto_total is None:
-        raise SellInBonoError("Falta el monto total del bono")
-    if data.monto_total <= 0:
-        raise SellInBonoError("El monto total debe ser mayor que cero: en sell in no se descuenta un monto negativo")
-    if data.reparto_criterio is None:
-        raise SellInBonoError("Elegí cómo repartir el monto total")
-    if data.tope_unidades is not None or data.tope_monto is not None:
-        raise SellInBonoError("Un monto total no lleva topes: el total es su tope")
-    if any(isinstance(m, SellInBonoModeloIn) and (m.monto_unit is not None or m.porcentaje is not None)
-           for m in data.modelos):  # fmt: skip
-        raise SellInBonoError("Un bono por monto total no lleva valor propio por modelo")
 
 
 def _validar_valores_modelos(data: SellInBonoIn) -> dict[int, tuple[Optional[Decimal], Optional[Decimal]]]:

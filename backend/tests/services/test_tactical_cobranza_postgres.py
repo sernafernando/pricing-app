@@ -342,18 +342,10 @@ class TestKpisEnSql:
         # Sell in invoice fixed total in USD at a fixed rate: its sales took ARS, shown in USD at its own rate
         # (ARS 2.501,25 / 1.000,5 = USD 2,50).
         total = total_usd("Total USD", bw.pedido(engine, {2270: 5}, date(2026, 10, 12)))
-        # Caps (S6): a sell out line with a money cap, and a sell in cost total loaded in USD, whose bonus keeps the
-        # ARS total at the fixed rate (USD 2 x 1.000,5 = ARS 2.001), so its cap counts in ARS as its usage does.
+        # Caps (S6): a sell out line with a money cap. (A sell in cost total can no longer be loaded: T5 PR A, L25.)
         service.crear(db, _tactical(nombre="Tope", lineas=[{"alcance": "marca", "marca": bw.TPLINK,
                                                            "modo_monto": "por_unidad", "valor": "10", "tope_monto": "500"}]),
                       USUARIO)  # fmt: skip
-        service.crear(
-            db,
-            _tactical("sell_in", [{"alcance": "productos", "item_ids": [2964], "modo_monto": "monto_total", "valor": "2",
-                                   "reparto_criterio": "iguales"}], nombre="Costo total USD", moneda="USD",
-                      tc_modo="fijo", tipo_cambio="1000.5"),
-            USUARIO,
-        )  # fmt: skip
         # Voided after they were used: a campaign, a cost bonus and an invoice total. The list still shows what each
         # used, so the KPIs count it too.
         campana_anulada = service.crear(db, _tactical(nombre="Campaña anulada"), USUARIO)
@@ -381,9 +373,9 @@ class TestKpisEnSql:
         assert kpis == _segun_las_lineas(db, filtros)
         assert kpis == {
             # Campaña 131,00 + Factura % 40,50 + Campaña anulada 10,10 + Costo anulado 20,20; Sin uso USD 0. Caps:
-            # Tope 500 + Costo total USD 2.001; the other 5 have none.
-            "pendientes": {"cantidad": 7, "sin_tope": 5,
-                           "montos": [{"moneda": "ARS", "monto": Decimal("201.80"), "tope": Decimal("2501.00"),
+            # Tope 500; the other 5 have none.
+            "pendientes": {"cantidad": 6, "sin_tope": 5,
+                           "montos": [{"moneda": "ARS", "monto": Decimal("201.80"), "tope": Decimal("500.00"),
                                        "tope_parcial": True, "estimado": False},
                                       {"moneda": "USD", "monto": Decimal("0.00"), "tope": None, "tope_parcial": False, "estimado": False}]},
             # Costo 108,15; Total USD 2,50 + Total USD anulado 0,50, each capped by its USD 300 total; Costo has none.
@@ -494,27 +486,6 @@ class TestTipoDeCambioDelCobro:
             service.cobrar(db, tactical.id, _cobro(tipo_cambio=Decimal("1350")), USUARIO)
         service.cobrar(db, tactical.id, _cobro(), USUARIO)
         assert _leido(db, tactical.id)["cobranza"]["tipo_cambio"] is None
-
-    def test_loading_changing_and_undoing_it_queue_the_usd_lines_again(self, db, engine) -> None:
-        tactical = _usd(db)
-        bono = _bono_de(engine, tactical.id)
-        bw.clear_queue(engine)
-
-        service.cobrar(db, tactical.id, _cobro(tipo_cambio=Decimal("1350")), USUARIO)
-        assert bw.queued(engine) == [("bono", bono)]
-        bw.clear_queue(engine)
-
-        service.cobrar(
-            db, tactical.id, _cobro(tipo_cambio=Decimal("1350"), observaciones="Sin cambio de tasa"), USUARIO
-        )
-        assert bw.queued(engine) == []
-
-        service.cobrar(db, tactical.id, _cobro(tipo_cambio=Decimal("1400")), USUARIO)
-        assert bw.queued(engine) == [("bono", bono)]
-        bw.clear_queue(engine)
-
-        service.deshacer_cobro(db, tactical.id)
-        assert bw.queued(engine) == [("bono", bono)]
 
     def test_the_line_and_the_kpis_show_the_usd_used_at_the_collection_rate(self, db, engine) -> None:
         tactical = _usd(db)

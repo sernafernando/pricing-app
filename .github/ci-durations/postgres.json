@@ -110,7 +110,6 @@
  "tests/routers/test_ventas_fuera_pdf_operaciones_regresion_postgres.py": 1.49,
  "tests/routers/test_ventas_fuera_pdf_postgres.py": 51.51,
  "tests/scripts/test_backfill_group_date_accreditation.py": 0.34,
- "tests/scripts/test_backfill_sell_in_consumos.py": 1.58,
  "tests/scripts/test_backfill_sell_out_consumos.py": 0.8,
  "tests/scripts/test_borrar_sell_in_sin_tactical_postgres.py": 0.24,
  "tests/scripts/test_fresh_start_sell_out_postgres.py": 1.69,
