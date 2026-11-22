@@ -106,7 +106,7 @@ describe('SellInComprasRevisar', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('La factura se corrigió desde que se cargó la lista');
     expect(screen.getByRole('heading', { name: 'Aceptar la compra' })).toBeInTheDocument();
- 
+
     expect(costoSiSospechasAPI.listar).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole('button', { name: 'Cancelar' }));
