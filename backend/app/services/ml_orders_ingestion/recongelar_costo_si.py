@@ -55,8 +55,8 @@ _SUMA_SQL = lote.sql_suma_componentes("c.producto_item_id")
 
 # The new `fuente` of a row: costo SI keeps the linkage it was found by (a combo, costo SI with no step date, is
 # `costo_si_combo`); list cost on a row that was costo SI goes back to the linkage's list fuente; a summed list cost
-# is 'combo' as `congelar` writes it (a PC frozen at its own list cost before L22 had its linkage's), and a backfilled
-# 'hist_combo' keeps its label.
+# is 'combo' as `congelar` writes it (a PC frozen at its own list cost before L22 had its linkage's), or 'hist_combo'
+# on a row the backfill wrote ('hist_*'), so where the row came from stays readable.
 _FUENTE_SQL = f"""
     CASE WHEN cs.costo_si_fuente = '{lote.FUENTE_COSTO_SI}' THEN
         CASE WHEN cs.costo_si_desde IS NULL THEN '{FUENTE_COSTO_SI_COMBO}'
@@ -64,7 +64,8 @@ _FUENTE_SQL = f"""
              ELSE '{FUENTE_COSTO_SI_PUB}' END
     ELSE CASE c.fuente WHEN '{FUENTE_COSTO_SI_SKU}' THEN 'erp_sku' WHEN '{FUENTE_COSTO_SI_COMBO}' THEN 'combo'
                        WHEN '{FUENTE_COSTO_SI_PUB}' THEN 'erp_publicacion'
-                       ELSE CASE WHEN {_SUMA_SQL} AND c.fuente <> 'hist_combo' THEN 'combo' ELSE c.fuente END END
+                       ELSE CASE WHEN NOT {_SUMA_SQL} THEN c.fuente
+                                 WHEN c.fuente LIKE 'hist\\_%' THEN 'hist_combo' ELSE 'combo' END END
     END"""
 
 # The frozen rows the re-freeze rewrites (over `c` = ml_order_item_costos and `cs` = the reader on the sale date,

@@ -421,6 +421,19 @@ def test_a_pc_sale_frozen_at_its_own_list_cost_is_refrozen_at_the_sum_of_its_com
     assert _recongelar(engine, PC, None) == 0  # idempotent
 
 
+@pytest.mark.parametrize(("antes", "despues"), [("hist_publicacion", "hist_combo"), ("hist_sku", "hist_combo")])
+def test_a_backfilled_pc_sale_keeps_its_backfill_mark_when_refrozen(engine: Engine, antes: str, despues: str) -> None:
+    """A row the backfill wrote (`hist_*`, a dated list cost) re-freezes at the sum labelled 'hist_combo', the
+    backfill's own label for a summed cost: where the row came from stays readable."""
+    _mundo(engine)
+    _pc(engine)
+    order = _venta_pc_vieja(engine, _art(2026, 10, 20, 10))
+    w.run(engine, "UPDATE ml_order_item_costos SET fuente = :f WHERE order_id = :o", f=antes, o=order)
+
+    assert _recongelar(engine, PC, None) == 1
+    assert _fila(engine, order)[4:6] == (D("75308.4000"), despues)
+
+
 def test_an_old_pc_sale_is_refrozen_when_one_of_its_components_changes(engine: Engine) -> None:
     """A component's costo SI change (a late invoice of A) queues the PCs that contain it (`lote.combos_con`) and the
     drain re-costs their sales at the new sum, an old one frozen at the PC's own list cost too."""

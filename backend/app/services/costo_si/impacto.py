@@ -163,7 +163,8 @@ def ml_legacy(db: Session, sim: Simulacion, filas: List[dict], desdes: Dict[int,
 
 def _ml_congelado_sql():
     """`recongelar_costo_si`'s rule (its `nuevos` + `cambiados` CTEs, built from its own SQL pieces): the rows of
-    the product sold (ART day) on or after the date whose cost, or was, costo SI, with a known cost on that date,
+    the product sold (ART day) on or after the date whose cost is, or was, costo SI, or of a product with a bill of
+    materials (a combo or PC, always its components' sum: `rc.ELEGIBLE_SQL`), with a known cost on that date,
     where any frozen value differs. Money = unit cost x the sale line's quantity (`ml_order_items_ops`; 1 when the
     line is missing). A row the reader cannot cost on its date is kept as frozen by the re-freeze: not a change."""
     from app.services.ml_orders_ingestion import recongelar_costo_si as rc
