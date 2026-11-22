@@ -12,7 +12,7 @@ Los tacticals ya no aplican apenas se cargan. Todo tactical nuevo queda **Pendie
 2. En **Sell in / Sell out → Tacticals**, en **Estado**, elegí **Pendientes de aprobación** para ver los que esperan revisión. La columna **Estado** dice «Pendiente de aprobación».
 3. Quien tiene el permiso abre el botón de acciones (⋮) de la fila y elige **Aprobar**. Después de confirmar, el tactical y todas sus líneas empiezan a aplicar, también a lo ya vendido dentro de sus fechas.
 4. Un tactical aprobado dice debajo del estado «Aprobado por … el dd/mm/aaaa».
-5. Arriba de la lista, **N pendientes de aprobación** dice cuántas cargas esperan revisión; tocalo para ir directo al filtro. Los montos de **Pendientes** y **Cobrados** ya no cuentan lo que está pendiente de aprobación.
+5. Arriba de la lista, **N pendientes de aprobación** dice cuántas cargas esperan revisión; tocalo para ir directo al filtro. Los montos de **Pendientes de cobro** y **Cobrados** ya no cuentan lo que está pendiente de aprobación.
 6. Con el filtro **Pendientes de aprobación**, debajo de los tacticals aparece **Cargas sueltas pendientes de aprobación**: los bonos, compras, campañas y offsets de ganancia cargados fuera de un tactical. **Aprobar** abre su panel para aprobarlos ahí (un offset se aprueba desde la misma fila).
 
 ## A tener en cuenta
@@ -25,3 +25,4 @@ Los tacticals ya no aplican apenas se cargan. Todo tactical nuevo queda **Pendie
 - Los offsets de ganancia nuevos también quedan pendientes: no suman a la rentabilidad ni registran consumo de topes hasta que los aprueben. Aparecen en **Cargas sueltas pendientes de aprobación** como **Offset de ganancia**, y **Aprobar** pide confirmación ahí mismo. Cambiarle a un offset aprobado el monto, el porcentaje, las fechas, los topes, los canales o el alcance lo vuelve a pendiente. Los offsets que ya existían siguen aplicando. En la pantalla de offsets, los pendientes muestran **Pendiente de aprobación**, y el formulario avisa al crear y al editar uno aprobado.
 - La migración de offsets no migra un offset que todavía está pendiente de aprobación: lo informa así y lo migra en una corrida posterior, una vez aprobado.
 - Cambiar los filtros de un grupo (en **Sell in / Sell out → Grupos**) cambia el alcance de las campañas y los offsets que lo usan: las campañas y los offsets aprobados que usan el grupo vuelven a pendiente de aprobación (si la campaña es de un tactical, vuelve el tactical entero). Antes de guardar, el panel avisa, por ejemplo, «2 campañas aprobadas vuelven a pendiente», y espera que confirmes.
+- Un tactical pendiente de aprobación no se cobra: **Cargar cobro** aparece deshabilitado y dice «Se aprueba antes de cobrar». Primero hay que aprobarlo.

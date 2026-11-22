@@ -1915,11 +1915,15 @@ _COBRANZA_TEXTOS = ("nc_numero", "distribuidor", "otro_detalle", "observaciones"
 
 def cobrar(db: Session, tactical_id: int, data: TacticalCobranzaIn, usuario_id: int) -> Optional[Tactical]:
     """Save the tactical's one collection record (create or replace every field): it reads "Cobrado". None when the
-    tactical does not exist. The tactical row is locked so two saves never race into a duplicate."""
+    tactical does not exist; `TacticalPendienteDeCobro` (a 409) while it waits for approval (tacticals approval S16:
+    it is approved before it is collected; undoing a record it kept from before stays allowed, `deshacer_cobro`). The
+    tactical row is locked so two saves never race into a duplicate."""
     try:
         tactical = db.query(Tactical).filter(Tactical.id == tactical_id).populate_existing().with_for_update().first()
         if tactical is None:
             return None
+        if tactical.estado == "pendiente":
+            raise TacticalPendienteDeCobro(SIN_APROBAR_COBRO)
         cobranza = db.query(TacticalCobranza).filter(TacticalCobranza.tactical_id == tactical_id).first()
         usd = _bonos_al_cobro(db, tactical)
         if usd and data.tipo_cambio is None:
@@ -1945,6 +1949,12 @@ def cobrar(db: Session, tactical_id: int, data: TacticalCobranzaIn, usuario_id: 
     db.refresh(tactical)
     return tactical
 
+
+class TacticalPendienteDeCobro(TacticalError):
+    """A tactical waiting for approval is not collected (S16); the message is the screen's tooltip."""
+
+
+SIN_APROBAR_COBRO = "Se aprueba antes de cobrar"
 
 SIN_TC_COBRO = (
     "Falta el tipo de cambio del cobro: con tipo de cambio al cobro, las líneas en USD se pasan a pesos al tipo de "

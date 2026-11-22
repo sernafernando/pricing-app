@@ -422,12 +422,14 @@ describe('TacticalsList Cobranza (handoffs/tactical-cobranza-tarea.md S3, S4)', 
     tacticalsAPI.cobrar.mockResolvedValue({ data: COBRADO });
   });
 
-  it('shows Pendientes and Cobrados with their count, generated of cap per currency and how many have no cap', async () => {
+  it('shows Pendientes de cobro and Cobrados with their count, generated of cap per currency and how many have no cap', async () => {
     render(<TacticalsList marcas={MARCAS} />);
 
     const kpis = await screen.findByRole('region', { name: 'Cobranza de los tacticals' });
-    expect(within(kpis).getByText('Pendientes').closest('div')).toHaveTextContent(
-      'Pendientes12 tacticalsARS 4.380.250 de 6.000.000 · USD 1.920 · tope 800 (líneas con tope)3 sin tope',
+    // Tacticals approval S16: "Pendientes" alone read like the approval count beside it.
+    expect(within(kpis).queryByText('Pendientes')).not.toBeInTheDocument();
+    expect(within(kpis).getByText('Pendientes de cobro').closest('div')).toHaveTextContent(
+      'Pendientes de cobro12 tacticalsARS 4.380.250 de 6.000.000 · USD 1.920 · tope 800 (líneas con tope)3 sin tope',
     );
     expect(within(kpis).getByText('Cobrados').closest('div')).toHaveTextContent(
       /^Cobrados7 tacticalsARS 2\.115\.000 de 2\.500\.000 · USD 640 de 800$/,
@@ -441,7 +443,7 @@ describe('TacticalsList Cobranza (handoffs/tactical-cobranza-tarea.md S3, S4)', 
     render(<TacticalsList marcas={MARCAS} />);
 
     const region = await screen.findByRole('region', { name: 'Cobranza de los tacticals' });
-    expect(within(region).getByText('Pendientes').closest('div')).toHaveTextContent('Pendientes1 tactical—');
+    expect(within(region).getByText('Pendientes de cobro').closest('div')).toHaveTextContent('Pendientes de cobro1 tactical—');
   });
 
   it('filters Pendientes / Cobrados / Todos, and Limpiar filtros goes back to Todos', async () => {
@@ -480,6 +482,35 @@ describe('TacticalsList Cobranza (handoffs/tactical-cobranza-tarea.md S3, S4)', 
     expect(tacticalsAPI.cobrar).toHaveBeenCalledWith(1, expect.objectContaining({ fecha_cobro: '2026-11-09' }));
     await waitFor(() => expect(tacticalsAPI.listar.mock.calls.length).toBeGreaterThan(pedidos));
     expect(screen.queryByRole('form', { name: /Cobranza de/ })).not.toBeInTheDocument();
+  });
+
+  // Tacticals approval S16: "a tactical pending approval must not offer 'Cargar cobro' (disabled with tooltip 'Se aprueba
+  // antes de cobrar')".
+  it('a tactical waiting for approval shows Cargar cobro disabled with the tooltip, and it opens nothing', async () => {
+    const pendiente = { ...BPS, estado: 'pendiente', cobranza: null };
+    tacticalsAPI.listar.mockResolvedValue({ data: { ...pagina([pendiente, COBRADO], 2), kpis: KPIS_COBRANZA } });
+    render(<TacticalsList marcas={MARCAS} puedeGestionar={() => true} />);
+    await screen.findByText('Tacticals BPS Noviembre Q1FY27');
+
+    const boton = screen.getByRole('button', { name: 'Cargar cobro de Tacticals BPS Noviembre Q1FY27' });
+    expect(boton).toHaveAttribute('aria-disabled', 'true');
+    expect(boton).toHaveAttribute('title', 'Se aprueba antes de cobrar');
+    expect(boton).toHaveAccessibleDescription('Se aprueba antes de cobrar');
+    await userEvent.click(boton);
+    expect(screen.queryByRole('form', { name: /Cobranza de/ })).not.toBeInTheDocument();
+    expect(boton).toHaveAttribute('aria-expanded', 'false');
+    // An approved row keeps its working button.
+    expect(screen.getByRole('button', { name: 'Editar cobro de Rebate HP Q1FY27' })).not.toHaveAttribute('aria-disabled');
+  });
+
+  it('a tactical back to pending that kept its record shows Editar cobro disabled too', async () => {
+    const pendiente = { ...COBRADO, estado: 'pendiente' };
+    tacticalsAPI.listar.mockResolvedValue({ data: { ...pagina([pendiente], 1), kpis: KPIS_COBRANZA } });
+    render(<TacticalsList marcas={MARCAS} puedeGestionar={() => true} />);
+
+    const boton = await screen.findByRole('button', { name: 'Editar cobro de Rebate HP Q1FY27' });
+    expect(boton).toHaveAttribute('aria-disabled', 'true');
+    expect(boton).toHaveAttribute('title', 'Se aprueba antes de cobrar');
   });
 
   it('a collected row offers Editar cobro, and the box toggles closed', async () => {
@@ -742,7 +773,7 @@ describe('TacticalsList approval inbox (handoffs/tacticals-aprobacion-plan.md S1
     render(<TacticalsList marcas={MARCAS} />);
     const kpis = await screen.findByRole('region', { name: 'Cobranza de los tacticals' });
 
-    expect(within(kpis).getByText('Pendientes').closest('div')).toHaveTextContent(/^Pendientes12 tacticals/);
+    expect(within(kpis).getByText('Pendientes de cobro').closest('div')).toHaveTextContent(/^Pendientes de cobro12 tacticals/);
     expect(kpis).toHaveTextContent('Sin los pendientes de aprobación.');
     await userEvent.click(within(kpis).getByRole('button', { name: '4 pendientes de aprobación' }));
 

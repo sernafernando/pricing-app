@@ -266,3 +266,10 @@
   white-space: normal;
   max-width: 22ch;
 }
+
+/* Cargar / Editar cobro of a tactical waiting for approval (tacticals approval S16): it looks disabled but keeps its
+   pointer events, so its tooltip «Se aprueba antes de cobrar» shows on hover. */
+.cobranza :global(.btn-tesla).cobroSinAprobar {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

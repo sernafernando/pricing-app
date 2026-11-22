@@ -234,6 +234,25 @@ describe.each([
     if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/tacticals-pendientes-${theme}-${width}.png` });
   });
 
+  it('a pending tactical shows Cargar cobro disabled but hoverable, with its tooltip, and the KPI says de cobro', async () => {
+    // Tacticals approval S16: "a tactical pending approval must not offer 'Cargar cobro' (disabled with tooltip 'Se
+    // aprueba antes de cobrar')" and "rename that KPI 'Pendientes de cobro'".
+    const screen = await abrir();
+    await expect.element(screen.getByText('Pendientes de cobro', { exact: true })).toBeVisible();
+    await screen.getByRole('button', { name: 'Pendientes de aprobación', exact: true }).click();
+    const fila = screen.getByRole('row', { name: /Tacticals BPS Noviembre Q1FY27/ });
+    const boton = fila.getByRole('button', { name: /Cargar cobro/ });
+    await expect.element(boton).toBeVisible();
+    await expect.element(boton).toHaveAttribute('aria-disabled', 'true');
+    await expect.element(boton).toHaveAttribute('title', 'Se aprueba antes de cobrar');
+    const estilo = getComputedStyle(boton.element());
+    expect(Number(estilo.opacity)).toBeLessThan(1);
+    expect(estilo.pointerEvents).not.toBe('none'); // the tooltip needs the hover
+    expect(estilo.cursor).toBe('not-allowed');
+    boton.element().click(); // the browser's actionability check would refuse an aria-disabled button
+    await expect.element(screen.getByRole('form', { name: /Cobranza de/ })).not.toBeInTheDocument();
+  });
+
   it('Aprobar opens its confirmation inside the window', async () => {
     const screen = await abrir();
     await screen.getByRole('button', { name: 'Pendientes de aprobación', exact: true }).click();

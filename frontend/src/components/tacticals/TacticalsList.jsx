@@ -43,7 +43,7 @@ const cantidadDe = (n) => `${n} ${n === 1 ? 'tactical' : 'tacticals'}`;
 
 const pendientesDe = (n) => `${n} ${n === 1 ? 'pendiente' : 'pendientes'} de aprobación`;
 
-/** Pendientes and Cobrados over every approved tactical the other filters match (tactical cobranza S4): count,
+/** Pendientes de cobro and Cobrados over every approved tactical the other filters match (tactical cobranza S4): count,
  * generated of cap per currency and how many have no money cap (S6). What waits for approval applies no money, so it
  * is counted apart (`pendientesAprobacion`, tacticals approval S12: the pending tacticals plus the standalone loads);
  * the count selects the pending filter (`onVerPendientes`). */
@@ -51,7 +51,8 @@ function KpisCobranza({ kpis, pendientesAprobacion, onVerPendientes }) {
   return (
     <section className={styles.kpis} aria-label="Cobranza de los tacticals">
       {[
-        ['Pendientes', kpis.pendientes],
+        // "de cobro": beside "N pendientes de aprobación", "Pendientes" alone read as the approval count (S16).
+        ['Pendientes de cobro', kpis.pendientes],
         ['Cobrados', kpis.cobrados],
       ].map(([titulo, grupo]) => (
         <div key={titulo} className={styles.kpi}>

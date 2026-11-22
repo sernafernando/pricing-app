@@ -78,7 +78,14 @@ def _tipos_legibles(db: Session, user: Usuario, tipo: Optional[str]) -> list[str
 
 def _error(exc: service.TacticalError) -> HTTPException:
     if isinstance(
-        exc, (service.TacticalOcupado, service.TacticalYaAnulado, service.TacticalCobrado, service.TacticalYaAprobado)
+        exc,
+        (
+            service.TacticalOcupado,
+            service.TacticalYaAnulado,
+            service.TacticalCobrado,
+            service.TacticalYaAprobado,
+            service.TacticalPendienteDeCobro,
+        ),
     ):
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
@@ -268,7 +275,8 @@ def cobrar_tactical(
     db: Session = Depends(get_db),
 ) -> dict:
     """Save (create or replace) the tactical's collection record: it reads "Cobrado" (tactical cobranza S2). Only
-    `fecha_cobro` is required (422 without it). A sell in USD `al_cobro` with a USD line also requires `tipo_cambio`,
+    `fecha_cobro` is required (422 without it). A tactical waiting for approval is a 409 «Se aprueba antes de cobrar»
+    (tacticals approval S16). A sell in USD `al_cobro` with a USD line also requires `tipo_cambio`,
     the rate the brand paid at, which any other tactical refuses (422, tactical sell in USD S8). Same permission as
     editing the tactical: `<tipo>.gestionar`."""
     _buscar(db, user, tactical_id, "gestionar")
