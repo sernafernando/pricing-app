@@ -11,7 +11,8 @@ channel `sell.drain` already listens on; the drain recomputes them after the sal
   FX correction `costo_si_factura_tc`; the invoice's products, from its date.
 
 A new purchase invoice arrives through the GBP sync, which has no trigger: the daily `stock.snapshot` job queues every
-product, sell in or not (L21) (`encolar_vigentes`), so it enters the average within a day.
+product, sell in or not (L21) (`encolar_vigentes`), so it enters the average within a day. A list-cost change has no
+trigger either: the same daily pass re-anchors a product without sell in (L23).
 
 `UPGRADE_SQL`/`DOWNGRADE_SQL` are the live definition; the migration `20261125_costo_si` carries a frozen copy.
 """

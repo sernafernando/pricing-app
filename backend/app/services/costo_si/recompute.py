@@ -138,4 +138,4 @@ def recalcular(db: Session, item_id: int, *, motivo: str = "recalculo") -> Resul
     entrada = fuentes.entrada(db, item_id)
     if entrada is None:
         return guardar(db, item_id, [], motivo)
-    return guardar(db, item_id, calcular(entrada.inicio, entrada.compras), motivo, entrada.moneda)
+    return guardar(db, item_id, calcular(entrada.inicio, entrada.compras, entrada.listas), motivo, entrada.moneda)

@@ -43,7 +43,7 @@ class CostoSiPaso(Base):
     id = Column(BigInteger, primary_key=True)
     item_id = Column(Integer, nullable=False)
     orden = Column(Integer, nullable=False)  # 0 = the start, then the purchases in order
-    tipo = Column(String(8), nullable=False)  # 'inicio' | 'compra'
+    tipo = Column(String(8), nullable=False)  # 'inicio' | 'compra' | 'lista' (L23)
     fecha = Column(Date, nullable=False)  # in force from this date on
     ct_transaction = Column(BigInteger, nullable=True)  # the purchase invoice; NULL on the start
     cantidad = Column(Integer, nullable=False)

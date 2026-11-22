@@ -42,7 +42,7 @@ from sqlalchemy.types import BigInteger
 from app.services.combos.pcs import pcs_entre
 from app.services.pricing_calculator import moneda_de
 from app.services.costo_si import full_ml
-from app.services.costo_si.engine import Compra, Inicio, SellIn
+from app.services.costo_si.engine import Compra, Inicio, Lista, SellIn
 
 ZONA = ZoneInfo("America/Argentina/Buenos_Aires")
 DEPOSITO_PRINCIPAL = 1
@@ -156,6 +156,23 @@ _COSTO_LISTA_SQL = text("""
     SELECT iclh_price FROM tb_item_cost_list_history
     WHERE item_id = :i AND coslis_id = 1 AND COALESCE(curr_id, 1) = :curr AND iclh_cd < :t
     ORDER BY iclh_cd DESC, iclh_id DESC LIMIT 1
+""")
+
+# L23: every day a new list 1 cost comes in force (00:00 after the row, the S2 rule) since `t0`, up to `hoy`, with the
+# cost in force at that day's 00:00 in Buenos Aires: the same row `_COSTO_LISTA_SQL` would pick for that day.
+_CAMBIOS_LISTA_SQL = text("""
+    SELECT d.dia, (
+        SELECT h.iclh_price FROM tb_item_cost_list_history h
+        WHERE h.item_id = :i AND h.coslis_id = 1 AND COALESCE(h.curr_id, 1) = :curr
+          AND h.iclh_cd < (CAST(d.dia AS timestamp) AT TIME ZONE 'America/Argentina/Buenos_Aires')
+        ORDER BY h.iclh_cd DESC, h.iclh_id DESC LIMIT 1
+    )
+    FROM (
+        SELECT DISTINCT CAST(iclh_cd AS date) + 1 AS dia FROM tb_item_cost_list_history
+        WHERE item_id = :i AND coslis_id = 1 AND COALESCE(curr_id, 1) = :curr AND iclh_cd >= :t0
+    ) d
+    WHERE d.dia <= :hoy
+    ORDER BY d.dia
 """)
 
 _MONEDA_SQL = text("SELECT moneda_costo FROM productos_erp WHERE item_id = :i")
@@ -316,6 +333,24 @@ def costo_lista(db: Session, item_id: int, dia: date, moneda: str = "USD") -> Op
     currency: a row in the other currency is never converted). A row <= 0 is no cost (None), like the reader."""
     value = db.execute(_COSTO_LISTA_SQL, {"i": item_id, "t": inicio_del_dia(dia), "curr": CURRS[moneda]}).scalar()
     return Decimal(value) if value is not None and value > 0 else None
+
+
+def cambios_de_lista(db: Session, item_id: int, inicio: Inicio, moneda: str, hoy: Optional[date] = None) -> List[Lista]:
+    """L23, for a product no sell in reaches: every list-cost change after its start re-anchors the costo SI, from
+    00:00 of the day it is in force (S2), in the product's currency only. A row repeating the cost in force, or one
+    <= 0 (no cost), moves nothing. A change in force tomorrow waits for tomorrow's daily recompute."""
+    hoy = hoy or datetime.now(ZONA).date()
+    previo = inicio.costo_usd
+    listas = []
+    params = {"i": item_id, "curr": CURRS[moneda], "t0": inicio_del_dia(inicio.fecha), "hoy": hoy}
+    for dia, valor in db.execute(_CAMBIOS_LISTA_SQL, params):
+        costo = Decimal(valor) if valor is not None and valor > 0 else None
+        if costo is None or costo == previo:
+            continue
+        # The stock at that instant is a point-in-time reconstruction, like an invoice's: one read per change.
+        listas.append(Lista(dia, costo, disponible(db, item_id, dia)))
+        previo = costo
+    return listas
 
 
 # ------------------------------------------------------------------------------------------------------ purchases
@@ -550,15 +585,18 @@ class Entrada:
     inicio: Inicio
     compras: List[Compra]
     moneda: str = "USD"  # the product's cost currency every amount is in (L18)
+    listas: List[Lista] = field(default_factory=list)  # list-cost re-anchors, no-sell-in products only (L23)
 
 
 def entrada(db: Session, item_id: int) -> Optional[Entrada]:
     """The engine's input for `item_id`, None for a combo or a PC (S11, L22). The start is the first sell in's date (S2), or
-    `INICIO_SIN_SELL_IN` for a product no sell in reaches (L21): no bonus then, so no invoice carries a discount."""
+    `INICIO_SIN_SELL_IN` for a product no sell in reaches (L21): no bonus then, so no invoice carries a discount, and
+    every later list-cost change re-anchors it (L23)."""
     if sin_historia(db, item_id):
         return None
     bonos = bonos_de(db, item_id)
-    inicio_fecha = primera_fecha_sell_in(db, item_id, bonos) or INICIO_SIN_SELL_IN
+    primera = primera_fecha_sell_in(db, item_id, bonos)
+    inicio_fecha = primera or INICIO_SIN_SELL_IN
     t0 = inicio_del_dia(inicio_fecha)
     facturas = facturas_de(db, item_id, inicio_fecha - VENTANA_PREVIAS)
     previas = [f for f in facturas if f.fecha < inicio_fecha]
@@ -605,7 +643,8 @@ def entrada(db: Session, item_id: int) -> Optional[Entrada]:
                 en_compras=bool(f.pedidos),
             )
         )
-    return Entrada(inicio, compras, moneda)
+    listas = cambios_de_lista(db, item_id, inicio, moneda) if primera is None else []
+    return Entrada(inicio, compras, moneda, listas)
 
 
 def _stock_antes(db: Session, item_id: int, f: Factura, antes: Sequence[Factura], despues: Sequence[Factura]) -> int:

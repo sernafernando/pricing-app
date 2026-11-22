@@ -1022,6 +1022,108 @@ def test_l21_an_invoice_dated_before_11_01_entering_after_it_counts_as_start_sto
     assert w.pasos(engine, SIN_SELL_IN) == [("inicio", date(2026, 11, 1), 200, 200, D("25.00000"), D("25.00000"))]
 
 
+# --- L23: without any sell in, every list-cost change re-anchors the costo SI at 00:00 of the day it is in force -----
+
+
+def test_l23_a_list_change_without_an_invoice_re_anchors_the_costo_si_from_that_day(engine: Engine) -> None:
+    """L23 (4766): list 1014 on 11-01, then 1260 from 11-10 09:00 with no invoice: costo SI 1260 from 00:00 of
+    11-11 (the S2 rule: the list in force at 00:00). A row repeating the price in force moves nothing."""
+    from app.services.costo_si import lote
+
+    w.producto(engine, SIN_SELL_IN)
+    w.costo_lista(engine, SIN_SELL_IN, datetime(2026, 10, 15, 9, 0), "1014")
+    w.factura(engine, SIN_SELL_IN, date(2026, 10, 20), datetime(2026, 10, 20, 10), 50, "900", previo=150)
+    w.costo_lista(engine, SIN_SELL_IN, datetime(2026, 11, 5, 9, 0), "1014")
+    w.costo_lista(engine, SIN_SELL_IN, datetime(2026, 11, 10, 9, 0), "1260")
+
+    resultado = _recalcular(engine, SIN_SELL_IN)
+
+    assert w.pasos(engine, SIN_SELL_IN) == [
+        ("inicio", date(2026, 11, 1), 200, 200, D("1014.00000"), D("1014.00000")),
+        ("lista", date(2026, 11, 11), 200, 200, D("1260.00000"), D("1260.00000")),
+    ]
+    assert resultado.desde == date(2026, 11, 1)
+    with sessionmaker(bind=engine)() as db:
+        costo = lote.actuales(db, [SIN_SELL_IN], tipo_cambio=1000)[SIN_SELL_IN]
+    assert (costo.fuente, costo.costo, costo.costo_si_desde) == (
+        lote.FUENTE_COSTO_SI,
+        D("1260.00000"),
+        date(2026, 11, 11),
+    )
+
+
+def test_l23_an_invoice_after_a_list_change_averages_from_the_re_anchored_cost(engine: Engine) -> None:
+    """S4 after L23: list 25 -> 40 on 11-03 10:00 (in force 11-04), then 100 at 22 on 11-05 over the 200 in stock:
+    (200 x 40 + 100 x 22) / 300 = 34."""
+    _sin_sell_in(engine)
+    w.costo_lista(engine, SIN_SELL_IN, datetime(2026, 11, 3, 10, 0), "40")
+
+    _recalcular(engine, SIN_SELL_IN)
+
+    assert w.pasos(engine, SIN_SELL_IN) == [
+        ("inicio", date(2026, 11, 1), 200, 200, D("25.00000"), D("25.00000")),
+        ("lista", date(2026, 11, 4), 200, 200, D("40.00000"), D("40.00000")),
+        ("compra", date(2026, 11, 5), 100, 200, D("22.00000"), D("34.00000")),
+    ]
+
+
+def test_l23_a_list_change_after_the_invoice_resets_its_average(engine: Engine) -> None:
+    """The re-anchor wins over the average before it: invoice on 11-05 (average 24), list 30 from 11-08."""
+    _sin_sell_in(engine)
+    w.costo_lista(engine, SIN_SELL_IN, datetime(2026, 11, 7, 18, 0), "30")
+
+    _recalcular(engine, SIN_SELL_IN)
+
+    assert [(p[0], p[1], p[5]) for p in w.pasos(engine, SIN_SELL_IN)] == [
+        ("inicio", date(2026, 11, 1), D("25.00000")),
+        ("compra", date(2026, 11, 5), D("24.00000")),
+        ("lista", date(2026, 11, 8), D("30.00000")),
+    ]
+
+
+def test_l23_the_daily_pass_picks_up_a_list_change_and_re_costs_what_follows_from_its_day(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No new cron: the daily `encolar_vigentes` queues the product, the drain stores the re-anchor and hands what
+    follows the average (`despues`) the day it is in force."""
+    w.producto(engine, SIN_SELL_IN)
+    w.costo_lista(engine, SIN_SELL_IN, datetime(2026, 10, 15, 9, 0), "1014")
+    w.factura(engine, SIN_SELL_IN, date(2026, 10, 20), datetime(2026, 10, 20, 10), 50, "900", previo=150)
+    _recalcular(engine, SIN_SELL_IN)
+    w.costo_lista(engine, SIN_SELL_IN, datetime(2026, 11, 10, 9, 0), "1260")
+    despachados = []
+    monkeypatch.setattr(queue.despues, "despachar", lambda db, item_id, desde: despachados.append((item_id, desde)))
+    with sessionmaker(bind=engine)() as db:
+        queue.encolar_vigentes(db)
+        db.commit()
+
+    queue.drenar(
+        sessionmaker(bind=engine, autoflush=False),
+        datetime.now(UTC) + timedelta(minutes=1),
+        is_transient=lambda exc: False,
+    )
+
+    assert [p[:2] for p in w.pasos(engine, SIN_SELL_IN)] == [
+        ("inicio", date(2026, 11, 1)),
+        ("lista", date(2026, 11, 11)),
+    ]
+    assert (SIN_SELL_IN, date(2026, 11, 11)) in despachados
+
+
+def test_l23_a_product_with_a_sell_in_ignores_every_list_change(engine: Engine) -> None:
+    """L23 is the no-sell-in scope only: a product with a sell in keeps averaging its invoices whatever its list does."""
+    w.producto(engine, OTRA_MARCA, marca="OTRA")
+    w.costo_lista(engine, OTRA_MARCA, datetime(2026, 9, 1), "100")
+    w.factura(engine, OTRA_MARCA, date(2026, 10, 5), datetime(2026, 10, 5, 10), 10, "100", previo=0, pedido=11)
+    w.sell_in_compra(engine, OTRA_MARCA, 11, "5", date(2026, 10, 5))
+    w.costo_lista(engine, OTRA_MARCA, datetime(2026, 10, 20, 9, 0), "200")
+    w.costo_lista(engine, OTRA_MARCA, datetime(2026, 11, 10, 9, 0), "300")
+
+    _recalcular(engine, OTRA_MARCA)
+
+    assert [p[0] for p in w.pasos(engine, OTRA_MARCA)] == ["inicio", "compra"]
+
+
 # --- L22: a PC never has a history of its own; its cost is its components' sum, read at read time ------------------
 
 PC_L22, PC_L22_SIN_BOM = 5106, 5107
