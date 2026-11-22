@@ -39,4 +39,8 @@ describe('opt-in permission codes', () => {
     expect(esPermisoOptIn(PERMISO_TPLINK_TEMA)).toBe(true);
     expect(esPermisoOptIn(PERMISO_TPLINK_SOLO)).toBe(true);
   });
+
+  it('includes the tactical approval: a SUPERADMIN approves only when granted it', () => {
+    expect(esPermisoOptIn('tacticals.aprobar')).toBe(true);
+  });
 });
