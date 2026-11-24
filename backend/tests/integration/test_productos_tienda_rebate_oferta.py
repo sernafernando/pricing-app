@@ -246,8 +246,10 @@ RECORDED_ROWS = json.loads(
 # choices (S7b), read once by `resolver_costos_envio_batch`; plus three per page for the sell in / sell out of every
 # channel context (`resolver_tienda_batches`: FIFO lots, cost modes, campaigns and bonuses, read once for the page);
 # plus one per page for the costo SI column (`lote.actuales`; its SQLite stand-in `costo_si_lista` issues two: the
-# products' list cost and the date of the page's USD rate).
-RECORDED_STATEMENTS = 32
+# products' list cost and the date of the page's USD rate). Costo SI T5 PR B3c dropped two of those sell in / sell out
+# statements: the payload no longer reads the sell in (`get_costing().vigentes` and the cost bonuses), which is inside
+# costo SI.
+RECORDED_STATEMENTS = 30
 
 
 def _snapshot() -> dict:
