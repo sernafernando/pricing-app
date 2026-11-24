@@ -76,8 +76,14 @@ Writes, set against what is stored:
   supplier or estado → updated IN PLACE (a voided one is reactivated: the pair
   keeps one purchase for good), lines added, changed or removed, and one audit
   row with the lines before and after (`SELL_IN_COMPRA_BONO_ACTUALIZADA`);
-- otherwise nothing: a re-run writes nothing. A line's `costo_base_unit` is the
-  product's cost frozen when the line is first written, never refreshed.
+- otherwise nothing: a re-run writes nothing.
+
+A line's `costo_base_unit` (the screen's "Costo antes") is the invoice unit price (owner L38, sell in incident
+2026-11-24: "te entran 200 unidades con un descuento del 1% son 200 unidades con un costo más barato que el de la
+factura"): the line's invoiced net over its invoiced units, in the purchase currency (converted at the pair's rate
+when the invoice is in the other one), so "Costo después" (`compras.serializar`) is that price less the line's unit
+sell in. A line with no single-currency invoiced net yet takes the product's cost, frozen. It is set when a line is
+written or changed; a line that stays is never rewritten (stored rows are fixed only by a reviewed data fix).
 
 A write no longer allocates sales to the purchases (sell-in-costo-si T5 PR A:
 costo SI replaced the FIFO lots, S14); costo SI's triggers queue the products
@@ -431,13 +437,24 @@ def _propio(modelos: Mapping[int, Optional[Decimal]], linea: _Linea, del_bono) -
     return Decimal(propio if propio is not None else del_bono)
 
 
-def _costo(costo, moneda_costo, moneda_compra: str, tasa: Optional[Decimal]) -> Decimal:
-    """The product's cost frozen on a new line, in the purchase currency; 0 when it has none or it
-    cannot be converted (informational only: the bonus amount never depends on it)."""
-    if costo is None:
+def _precio_factura(linea: _Linea) -> bool:
+    """Whether the line has an invoice unit price: a single-currency invoiced net over its units."""
+    return linea.importe_neto is not None and linea.moneda is not None and linea.cantidad > 0
+
+
+def _costo(linea: _Linea, moneda_compra: str, tasa: Optional[Decimal]) -> Decimal:
+    """A written line's "cost before" (`costo_base_unit`), in the purchase currency: the invoice unit price (the
+    line's invoiced net over its invoiced units, owner L38: "un costo más barato que el de la factura"), else, while
+    the line has no single-currency invoiced net, the product's cost as before. 0 when neither can be had or
+    converted (informational only: the bonus amount never depends on it)."""
+    if _precio_factura(linea):
+        costo, moneda_costo = Decimal(str(linea.importe_neto)) / linea.cantidad, linea.moneda
+    elif linea.costo is not None:
+        costo, moneda_costo = Decimal(str(linea.costo)), moneda(linea.moneda_costo)
+    else:
         return Decimal("0")
     try:
-        return costo_en_moneda(Decimal(str(costo)), moneda(moneda_costo), moneda_compra, tasa)
+        return costo_en_moneda(costo, moneda_costo, moneda_compra, tasa)
     except SellInError:
         return Decimal("0")
 
@@ -848,13 +865,13 @@ def _crear(db: Session, bono: SellInBonoMarca, pedido_id: int, deseada: _Deseada
     db.add(compra)
     db.flush()
     db.add(SellInCompraPedido(compra_id=compra.id, pedido_compra_id=pedido_id))
-    costos = {linea.item_id: (linea.costo, linea.moneda_costo) for linea in lineas}
+    por_item = {linea.item_id: linea for linea in lineas}
     items = [
         SellInCompraItem(
             compra_id=compra.id,
             item_id=item_id,
             cantidad=cantidad,
-            costo_base_unit=_costo(*costos[item_id], compra.moneda, compra.tipo_cambio),
+            costo_base_unit=_costo(por_item[item_id], compra.moneda, compra.tipo_cambio),
             monto_asignado=monto,
         )
         for item_id, (cantidad, monto) in sorted(deseada.lineas.items())
@@ -875,12 +892,17 @@ def _actualizar(
     antes = _foto(compra, antes_lineas)
     for k, v in deseada.cabecera.items():
         setattr(compra, k, v)
-    costos = {linea.item_id: (linea.costo, linea.moneda_costo) for linea in lineas}
+    por_item = {linea.item_id: linea for linea in lineas}
     for item in actuales:
         if item.item_id not in deseada.lineas:
             db.delete(item)
-        else:
+        elif antes_lineas[item.item_id] != deseada.lineas[item.item_id]:
+            # A changed line with an invoice price takes it; a line that stays keeps its stored cost (fixing stored
+            # rows is a reviewed data fix, never a side effect of a reconcile), and so does one with no invoice
+            # price (the product's cost stays frozen).
             item.cantidad, item.monto_asignado = deseada.lineas[item.item_id]
+            if _precio_factura(por_item[item.item_id]):
+                item.costo_base_unit = _costo(por_item[item.item_id], compra.moneda, compra.tipo_cambio)
     for item_id, (cantidad, monto) in sorted(deseada.lineas.items()):
         if item_id not in antes_lineas:
             db.add(
@@ -888,7 +910,7 @@ def _actualizar(
                     compra_id=compra.id,
                     item_id=item_id,
                     cantidad=cantidad,
-                    costo_base_unit=_costo(*costos[item_id], compra.moneda, compra.tipo_cambio),
+                    costo_base_unit=_costo(por_item[item_id], compra.moneda, compra.tipo_cambio),
                     monto_asignado=monto,
                 )
             )
