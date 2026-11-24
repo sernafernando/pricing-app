@@ -18,6 +18,8 @@ Los botones **Actualizar** y **Sincronizar ERP** recargan los datos. **🚫 Banl
 
 Las pestañas **Envíos Flex** y **Pistoleado** piden identificación del operador con PIN.
 
+La lista de **Envíos Flex** se actualiza sola cuando cambian las etiquetas o llega un envío de MercadoLibre: como mucho una vez cada 5 segundos, aunque lleguen muchos cambios juntos. Si la pestaña del navegador está oculta, no se actualiza hasta que volvés a ella.
+
 ## Filtros y columnas
 
 Preparación: tipo de envío y búsqueda por código/descripción. Vista lista o cards. Vista producción filtra EAN con guion y notebooks/PC armada.

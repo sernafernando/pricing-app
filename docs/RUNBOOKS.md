@@ -729,6 +729,16 @@ fix. These limits are only the safety net under it.
     CPU), and FastAPI runs sync endpoints in a 40-thread pool, so each worker keeps many half-empty
     arenas after heavy requests.
   - `Restart=always`, which the live units already had.
+- **pricing-api also sets `MALLOC_MMAP_THRESHOLD_=1048576`** (same `Environment=` line).
+  - **Why:** each time glibc frees a large block it raises its mmap threshold, up to 32 MB. The next
+    multi-MB buffers, such as a full Envíos Flex list or an export, then land in the per-thread heaps
+    and stay there.
+  - **What the fixed 1 MB threshold does:** every block above 1 MB comes from mmap and goes back to the
+    OS when it is freed.
+  - **Measured on the real endpoint:** 4 concurrent 17 MB `GET /api/etiquetas-envio` on a prod copy
+    kept +58 MB with `MALLOC_ARENA_MAX=2` alone, and +19 MB with the fixed threshold.
+  - **The workers do not get it:** there is no measured gain for them, and their memory plateaus
+    instead of growing.
 
 **How they are applied.**
 - **Every deploy that restarts the backend** (not `--skip-backend`):
@@ -788,6 +798,19 @@ is the summed RSS of the workers:
 - **`=4`** keeps more memory and is no faster on this load.
 - **After the deploy**, still compare the API's p95 with the week before. The real endpoints mix DB
   waits and CPU differently from this test.
+
+**Adding `MALLOC_MMAP_THRESHOLD_=1048576`** (same load, interleaved, 3 runs each, both with
+`MALLOC_ARENA_MAX=2`):
+
+| Setting | p50 (3 runs) | p95 (3 runs) | req/s (3 runs) | Mean p95 | Mean req/s | RSS at the end |
+| --- | --- | --- | --- | --- | --- | --- |
+| `MALLOC_ARENA_MAX=2` | 13.99 / 12.93 / 13.49 s | 18.40 / 16.67 / 17.79 s | 2.32 / 2.54 / 2.37 | 17.62 s | 2.41 | 495-669 MB |
+| + `MALLOC_MMAP_THRESHOLD_=1048576` | 13.22 / 12.80 / 14.14 s | 18.07 / 16.37 / 17.01 s | 2.33 / 2.41 / 2.40 | 17.15 s (-3%) | 2.38 (-1%) | 392-411 MB |
+
+- **Cost:** p95 and req/s stay within run-to-run noise, far from the 10% threshold.
+- **Memory:** the workers end about 25% lower, and they vary less between runs.
+- **Absolute times:** they are lower than in the table above because this was a different session on
+  the same machine. Compare the rows of each table with each other, not across tables.
 
 ### First Deploy After `deploy.sh` Itself Changed
 

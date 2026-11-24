@@ -9,6 +9,7 @@ import SearchInput from './SearchInput';
 import { toLocalDateString } from '../utils/dateUtils';
 import { computeStats } from '../utils/envioStats';
 import { useSSEChannel } from '../hooks/useSSEChannel';
+import { useCoalescedReload } from '../hooks/useCoalescedReload';
 import { useSSE } from '../contexts/SSEContext';
 import { usePermisos } from '../contexts/PermisosContext';
 import styles from './EnviosVistaFlag.module.css';
@@ -225,8 +226,10 @@ export default function EnviosVistaFlag() {
     }
   }, [showFlagModal, buildFilterParams]);
 
-  useSSEChannel('etiquetas:changed', silentReload);
-  useSSEChannel('shipments:webhook', silentReload);
+  // One reload per few seconds at most, none while the page is hidden: each event used to reload the whole list.
+  const pedirRecarga = useCoalescedReload(silentReload);
+  useSSEChannel('etiquetas:changed', pedirRecarga);
+  useSSEChannel('shipments:webhook', pedirRecarga);
 
   // Fallback polling: re-activate 60s polling when SSE is degraded
   useEffect(() => {

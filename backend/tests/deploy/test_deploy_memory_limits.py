@@ -49,8 +49,21 @@ def size(value: str) -> float:
 class TestTheLimits:
     @pytest.mark.parametrize("unit", UNITS)
     def test_every_service_gets_malloc_arena_max_2_and_restart_always(self, unit) -> None:
-        assert service(unit)["Environment"] == "MALLOC_ARENA_MAX=2"
+        assert "MALLOC_ARENA_MAX=2" in service(unit)["Environment"].split()
         assert service(unit)["Restart"] == "always"
+
+    def test_only_the_api_gets_a_fixed_mmap_threshold(self) -> None:
+        # pricing-api: 4 concurrent 17 MB replies kept +209 MB with glibc's defaults, +58 MB with
+        # MALLOC_ARENA_MAX=2 and +19 MB adding a fixed 1M mmap threshold (p95 and req/s unchanged on
+        # #2384's synthetic load).
+        # The workers have no measured gain, so they keep glibc's default.
+        envs = {unit: service(unit)["Environment"].split() for unit in UNITS}
+
+        assert envs == {
+            "pricing-api": ["MALLOC_ARENA_MAX=2", "MALLOC_MMAP_THRESHOLD_=1048576"],
+            "pricing-worker": ["MALLOC_ARENA_MAX=2"],
+            "pricing-worker-ml": ["MALLOC_ARENA_MAX=2"],
+        }
 
     @pytest.mark.parametrize("unit", ["pricing-worker", "pricing-worker-ml"])
     def test_a_worker_soft_limit_is_well_above_its_real_peak_and_below_the_hard_one(self, unit) -> None:

@@ -24,6 +24,7 @@ import { printZpl } from '../services/zebraPrint';
 import { usePermisos } from '../contexts/PermisosContext';
 import { useToast } from '../hooks/useToast';
 import { useSSEChannel } from '../hooks/useSSEChannel';
+import { useCoalescedReload } from '../hooks/useCoalescedReload';
 import { useSSE } from '../contexts/SSEContext';
 import Toast from './Toast';
 import SearchInput from './SearchInput';
@@ -517,8 +518,10 @@ export default function TabEnviosFlex({ operador = null }) {
     bulkActualizando, buildFilterParams,
   ]);
 
-  useSSEChannel('etiquetas:changed', silentReload);
-  useSSEChannel('shipments:webhook', silentReload);
+  // One reload per few seconds at most, none while the page is hidden: each event used to reload the whole list.
+  const pedirRecarga = useCoalescedReload(silentReload);
+  useSSEChannel('etiquetas:changed', pedirRecarga);
+  useSSEChannel('shipments:webhook', pedirRecarga);
   useRecargarAlCerrar(Boolean(historialShippingId), silentReload);
   useRecargarAlCerrar(Boolean(deshacerSeleccionIds), silentReload);
   useRecargarAlCerrar(showOperacionesMasivas, silentReload);
