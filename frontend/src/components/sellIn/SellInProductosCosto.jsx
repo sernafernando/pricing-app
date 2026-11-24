@@ -1,18 +1,12 @@
 import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import SearchInput from '../SearchInput';
-import { usePermisos } from '../../contexts/PermisosContext';
 import { sellInLotesAPI } from '../../services/sellInAPI';
 import { formatEntero, formatMonto } from './sellInFormat';
-import SellInModoPorDefecto from './SellInModoPorDefecto';
 import styles from './SellInProductosCosto.module.css';
 
 /** The labels the cost-mode panel (`SellInModoCosto`) uses; no mode row is FIFO, the default. */
 const MODOS = { fifo: 'FIFO', ponderado: 'Ponderado (PPP)', ultimo: 'Último precio', manual: 'Manual' };
-// The modes a default may be (never Manual: it needs its own figures), in the panel selector's order.
-const MODOS_DEFECTO = ['fifo', 'ponderado', 'ultimo'].map((value) => ({ value, label: MODOS[value] }));
-// Only an admin changes the default (the endpoint asks for one), as in the product panel.
-const ADMINS = ['ADMIN', 'SUPERADMIN'];
 // The Modo filter: "FIFO (por defecto)" is a product without a mode of its own, "FIFO" one set to FIFO.
 const SIN_MODO = 'sin-modo';
 const FILTROS_VACIOS = { q: '', marca: '', modo: '' };
@@ -70,42 +64,23 @@ function ordenar(productos, orden) {
   });
 }
 
-/** The saved default mode, read on mount and with each `version`; null while unread or when it cannot be read. */
-function useModoPorDefecto(version) {
-  const [modo, setModo] = useState(null);
-  useEffect(() => {
-    let current = true;
-    sellInLotesAPI
-      .modoPorDefecto()
-      .then(({ data }) => current && setModo(data.modo))
-      .catch(() => current && setModo(null));
-    return () => {
-      current = false;
-    };
-  }, [version]);
-  return [modo, setModo];
-}
-
 /**
  * Sell in's Productos list (`GET /sell-in/productos/costos`, one request for the whole list): every product with
  * units left in its lots, with its "Modo de costo", units, what the next sale takes per unit and its latest purchase,
  * and the total units under it. A toolbar searches by código/descripción and filters by Marca and Modo de costo,
  * client side: the endpoint already computes the whole list in a fixed number of queries, so a server filter would not
- * save it work. The headers sort; "Ver lotes" opens a product's lots and cost mode (`onVer(fila)`). The toolbar also
- * shows the default mode and, for an admin, "Cambiar" opens its modal. A new `version` reads both again.
+ * save it work. The headers sort; "Ver lotes" opens a product's lots and cost mode (`onVer(fila)`). The default mode is not
+ * shown: it only preselected the retired mode selector (T5 PR A). A new `version` reads the list again.
  *
  * @param {object} props
  * @param {(fila: object) => void} props.onVer
  * @param {number} [props.version]
  */
 export default function SellInProductosCosto({ onVer, version = 0 }) {
-  const { rol } = usePermisos();
   const [read, setRead] = useState({ status: 'loading', productos: [] });
   const [attempt, setAttempt] = useState(0);
   const [filtros, setFiltros] = useState(FILTROS_VACIOS);
   const [orden, setOrden] = useState(null); // null: the server's order (description, then code)
-  const [porDefecto, setPorDefecto] = useModoPorDefecto(version);
-  const [editandoDefecto, setEditandoDefecto] = useState(false);
 
   useEffect(() => {
     let current = true;
@@ -193,23 +168,6 @@ export default function SellInProductosCosto({ onVer, version = 0 }) {
         <button type="button" className={styles.limpiar} onClick={() => setFiltros(FILTROS_VACIOS)}>
           Limpiar filtros
         </button>
-        {porDefecto && (
-          <div className={styles.defecto}>
-            <span className={styles.defectoTexto}>
-              <span>Modo por defecto:</span> <strong>{MODOS[porDefecto] ?? porDefecto}</strong>
-            </span>
-            {ADMINS.includes(rol) && (
-              <button
-                type="button"
-                className="btn-tesla outline sm"
-                aria-label="Cambiar modo por defecto"
-                onClick={() => setEditandoDefecto(true)}
-              >
-                Cambiar
-              </button>
-            )}
-          </div>
-        )}
       </section>
 
       <section className={styles.card}>
@@ -280,17 +238,6 @@ export default function SellInProductosCosto({ onVer, version = 0 }) {
         )}
       </section>
 
-      {editandoDefecto && (
-        <SellInModoPorDefecto
-          actual={porDefecto}
-          options={MODOS_DEFECTO}
-          onClose={() => setEditandoDefecto(false)}
-          onSaved={(value) => {
-            setPorDefecto(value);
-            setEditandoDefecto(false);
-          }}
-        />
-      )}
     </>
   );
 }

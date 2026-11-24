@@ -38,8 +38,6 @@ const PRODUCTOS = [
 vi.mock('../../services/sellInAPI', () => ({
   sellInLotesAPI: {
     productos: vi.fn(() => Promise.resolve({ data: { productos: PRODUCTOS } })),
-    modoPorDefecto: vi.fn(() => Promise.resolve({ data: { modo: 'fifo' } })),
-    fijarModoPorDefecto: vi.fn((modo) => Promise.resolve({ data: { modo } })),
   },
 }));
 
@@ -62,21 +60,16 @@ describe('SellInProductosCosto (visual)', () => {
       );
       await expect.element(screen.getByRole('table')).toBeVisible();
 
-      const cambiar = screen.getByRole('button', { name: 'Cambiar modo por defecto' });
-      await expect.element(cambiar).toBeVisible();
+      // T5 PR A: no default mode in the toolbar.
+      expect(screen.getByRole('button', { name: 'Cambiar modo por defecto' }).query()).toBeNull();
+      const limpiar = screen.getByRole('button', { name: 'Limpiar filtros' });
 
       const tabla = screen.getByRole('table').element();
       expect(tabla.parentElement.scrollWidth).toBeLessThanOrEqual(tabla.parentElement.clientWidth + 1);
-      // One toolbar row: the search and "Cambiar" share a bottom edge, and the toolbar sits above the table.
-      const buscar = box(screen.getByPlaceholder('Buscar por código o descripción').element());
-      expect(Math.abs(box(cambiar.element()).bottom - buscar.bottom)).toBeLessThan(2);
-      expect(box(cambiar.element()).bottom).toBeLessThan(box(tabla).top);
+      // The toolbar sits above the table.
+      expect(box(limpiar.element()).bottom).toBeLessThan(box(tabla).top);
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1366);
       if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/productos-${theme}-1366.png` });
-
-      await cambiar.click();
-      await expect.element(screen.getByRole('heading', { name: 'Modo por defecto' })).toBeVisible();
-      if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/productos-modo-por-defecto-${theme}-1366.png` });
     });
   }
 

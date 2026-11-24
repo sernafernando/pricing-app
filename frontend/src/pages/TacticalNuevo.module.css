@@ -84,15 +84,32 @@
   color: var(--cf-text-tertiary);
 }
 
+/*
+ * The lines scroll sideways whenever their card is narrower than a line, whatever makes it narrow (a small screen or
+ * the open sidebar): a viewport media query missed the sidebar, and the table spilled past its card. Each min-width is
+ * what a line takes: its columns, the 8 gaps of 10px and the 16px side paddings.
+ */
+.linesScroll {
+  overflow-x: auto;
+}
+
+/* An open product/invoice picker hangs below its line: a scrolling box would clip it, so it scrolls only when closed. */
+.linesScroll:has([role='dialog']) {
+  overflow: visible;
+}
+
 .tbl {
   --cols: 34px 184px minmax(220px, 1fr) 148px 104px 126px 128px 128px 66px;
 
+  min-width: 1250px;
   font-size: var(--font-sm);
 }
 
 /* Sell in has a fourth scope (Factura) and a third amount kind (monto total): wider columns, as the design. */
 .tblSellin {
   --cols: 34px 250px minmax(250px, 1fr) 160px 104px 126px 128px 128px 66px;
+
+  min-width: 1358px;
 }
 
 .tblHead {
@@ -182,18 +199,6 @@
 @media (width <= 1180px) {
   .shell {
     padding: 16px 16px 96px;
-  }
-
-  .linesScroll {
-    overflow-x: auto;
-  }
-
-  .tbl {
-    min-width: 1140px;
-  }
-
-  .tblSellin {
-    min-width: 1258px;
   }
 }
 

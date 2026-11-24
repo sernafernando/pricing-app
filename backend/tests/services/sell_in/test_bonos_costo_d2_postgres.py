@@ -16,7 +16,6 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.services.sell_in import bonos_costo
 from tests.services.sell_in import _bono_world as b
 from tests.services.sell_in import _world as w
-from tests.services.sell_in.test_bonos_monto_total_postgres import _crear
 
 D = date
 EN_SI, SIN_SI = 2964, 2270  # both TP-LINK: the brand bonuses reach them
@@ -130,13 +129,3 @@ class TestD2:
         _recalcular(engine, EN_SI)
 
         assert [(r[0], r[2], r[3], r[5]) for r in b.bono_consumos(engine)] == [(bono, venta, EN_SI, 2)]
-
-    def test_a_total_bonus_keeps_applying_on_a_sale_at_costo_si(self, db: Session, engine: Engine) -> None:
-        total = _crear(db, reparto_criterio="unidades")
-        db.commit()
-        _costo_si(engine, EN_SI, D(2026, 10, 1))
-        ref = _venta(engine, "fuera", EN_SI, D(2026, 10, 5))
-
-        _recalcular(engine, EN_SI)
-
-        assert _filas(engine) == [(total, ref, EN_SI)]

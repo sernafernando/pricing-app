@@ -347,7 +347,7 @@ describe('ProductPanel', () => {
     granted = new Set(['productos.ver_info_compras']);
     renderPanel();
     const titles = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
-    const order = ['Cifras', 'Compras y sell in', 'Últimas compras', 'Lotes sell in', 'Publicaciones'].map((title) => titles.indexOf(title));
+    const order = ['Cifras', 'Compras y sell in', 'Últimas compras', 'Historial de lotes sell in', 'Publicaciones'].map((title) => titles.indexOf(title));
     expect(order.every((index) => index >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     const compras = screen.getByRole('region', { name: 'Compras y sell in' });

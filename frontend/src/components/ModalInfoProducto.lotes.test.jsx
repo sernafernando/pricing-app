@@ -13,7 +13,7 @@ vi.mock('./sellIn/SellInLotes', () => ({
   default: ({ productItemId, container }) => {
     const Container = container;
     return (
-      <Container title="Lotes sell in">
+      <Container title="Historial de lotes sell in">
         <div data-testid="sell-in-lotes">{`lotes of ${productItemId}`}</div>
       </Container>
     );
@@ -35,11 +35,11 @@ describe('ModalInfoProducto - sell-in lots tab', () => {
     granted = new Set(['productos.ver', 'productos.ver_info_basica']);
     render(<ModalInfoProducto isOpen onClose={() => {}} itemId={950} />);
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Lotes sell in' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Historial de lotes sell in' }));
 
     expect(screen.getByTestId('sell-in-lotes')).toHaveTextContent('lotes of 950');
     // Drawn as the modal's other sections (its card and heading).
-    expect(screen.getByRole('heading', { name: 'Lotes sell in' }).closest('section')).toHaveClass('info-section');
+    expect(screen.getByRole('heading', { name: 'Historial de lotes sell in' }).closest('section')).toHaveClass('info-section');
   });
 
   it('starts on the lots when it is the only tab allowed', async () => {
@@ -53,7 +53,7 @@ describe('ModalInfoProducto - sell-in lots tab', () => {
     granted = new Set(['productos.ver_info_basica', 'productos.editar_precio_clasica']);
     render(<ModalInfoProducto isOpen onClose={() => {}} itemId={950} />);
 
-    expect(await screen.findByRole('button', { name: 'Lotes sell in' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Historial de lotes sell in' })).toBeInTheDocument();
   });
 
   it('has no lots tab without a permission that shows the product', async () => {
@@ -61,6 +61,6 @@ describe('ModalInfoProducto - sell-in lots tab', () => {
     render(<ModalInfoProducto isOpen onClose={() => {}} itemId={950} />);
 
     expect(await screen.findByRole('button', { name: '📦 Información' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Lotes sell in' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Historial de lotes sell in' })).not.toBeInTheDocument();
   });
 });

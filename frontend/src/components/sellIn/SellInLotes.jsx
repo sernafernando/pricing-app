@@ -4,7 +4,7 @@ import SellInModoCosto from './SellInModoCosto';
 import { money } from './money';
 import styles from './SellInLotes.module.css';
 
-const TITLE = 'Lotes sell in';
+const TITLE = 'Historial de lotes sell in';
 const PAGE_SIZE = 20;
 
 const CHANNELS = { ml: 'ML', fuera: 'Fuera de ML', tn: 'Tienda Nube' };
@@ -16,17 +16,14 @@ function day(value, { year = true } = {}) {
   return year ? `${match[3]}/${match[2]}/${match[1]}` : `${match[3]}/${match[2]}`;
 }
 
-const units = (n) => (n === 1 ? 'queda 1 unidad' : `quedan ${n} unidades`);
 
+// The lots are history (sell-in-costo-si T5 PR A, L24): one still holding units is closed, never current, queued or
+// due on a date.
 function statusLabel(lote) {
-  if (lote.estado === 'vigente') return 'Vigente';
-  if (lote.estado === 'en_cola') return 'En cola';
   if (lote.estado === 'agotado') return 'Agotado';
   if (lote.estado === 'reemplazado') return 'Reemplazado';
-  return `Desde ${day(lote.fecha_desde, { year: false })}`;
+  return 'Cerrado';
 }
-
-const bonoLabel = (bono) => bono.bono_ids.map((id) => `#${id}`).join(', ');
 
 function unitsLabel(lote) {
   const usadas = lote.consumidas === 1 ? '1 usada' : `${lote.consumidas} usadas`;
@@ -41,39 +38,11 @@ function purchaseLabel(lote, compraVisible) {
   return [`#${lote.compra_id}`, lote.proveedor || 'Sin proveedor', ...lote.facturas].join(' · ');
 }
 
-/** S3: what the next sale gets, or, with no lot having units today, that the cost is back to normal (until when, if
- * a future lot has units) and the cost bonus if any. */
-function NextSale({ proxima, bonoCosto, lotes }) {
-  if (proxima) {
-    const { siguiente } = proxima;
-    // What applies when the current lot runs out and no lot has units yet: the cost bonus, or the plain cost.
-    const sinLotes = bonoCosto
-      ? `aplica el bono de costo ${bonoLabel(bonoCosto)}: ${money(bonoCosto.descuento_unit)} por unidad`
-      : 'el costo vuelve al normal';
-    let despues = sinLotes;
-    if (siguiente?.estado === 'desde') {
-      despues = `${sinLotes} hasta el ${day(siguiente.fecha_desde, { year: false })} y desde entonces ${money(siguiente.descuento_unit)}`;
-    } else if (siguiente) {
-      despues = money(siguiente.descuento_unit);
-    }
-    return (
-      <p className={styles.next}>
-        {`La próxima venta descuenta ${money(proxima.descuento_unit)} por unidad (lote ${proxima.numero}); ${units(proxima.restantes)} a ese valor, después ${despues}`}
-      </p>
-    );
-  }
-  // No lot has units today; the first one left in FIFO order, if any, counts from a future date.
-  const futuro = lotes.find((lote) => lote.restantes > 0);
-  let sinLote = 'Este producto no tiene lotes de sell in.';
-  if (futuro) {
-    sinLote = `Ningún lote tiene unidades hoy: el costo vuelve al normal hasta el ${day(futuro.fecha_desde, { year: false })} (lote ${futuro.numero}, ${money(futuro.descuento_unit)} por unidad).`;
-  } else if (lotes.length > 0) {
-    sinLote = 'No quedan lotes con unidades: el costo vuelve al normal.';
-  }
-  const bono = bonoCosto
-    ? `Aplica el bono de costo ${bonoLabel(bonoCosto)}: descuenta ${money(bonoCosto.descuento_unit)} por unidad.`
-    : 'Ningún bono de costo aplica.';
-  return <p className={styles.next}>{`${sinLote} ${bono}`}</p>;
+/** The lots no longer discount sales (T5 PR A, L24): what stays is their history, and costo SI holds the sell in. */
+const HISTORIAL = 'Historial: los lotes ya no descuentan ventas. El sell in baja el costo SI a través de sus facturas.';
+
+function LotsHistory({ lotes }) {
+  return <p className={styles.next}>{lotes.length > 0 ? HISTORIAL : 'Este producto no tiene lotes de sell in.'}</p>;
 }
 
 /** S4: the sales that consumed one lot, oldest first, a page at a time. */
@@ -232,8 +201,8 @@ export default function SellInLotes({ productItemId, container = DefaultSection,
       </div>
     );
   } else {
-    const { lotes = [], proxima = null, bono_costo: bonoCosto = null, compra_visible: compraVisible = false } = read.data ?? {};
-    nextSale = <NextSale proxima={proxima} bonoCosto={bonoCosto} lotes={lotes} />;
+    const { lotes = [], proxima = null, compra_visible: compraVisible = false } = read.data ?? {};
+    nextSale = <LotsHistory lotes={lotes} />;
     lots =
       lotes.length > 0 ? (
         <ol className={styles.lots} aria-label="Lotes en orden FIFO">

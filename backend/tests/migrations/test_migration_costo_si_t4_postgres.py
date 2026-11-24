@@ -333,10 +333,8 @@ def _fotos(engine: Engine) -> dict:
 
 
 def _con_recongelado(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The ML re-freeze too (PR 7: `despues.ml_ventas` queues, `recongelar_costo_si.drenar` re-freezes); the D2
-    bonuses it recomputes are not this world's."""
+    """The ML re-freeze too (PR 7: `despues.ml_ventas` queues, `recongelar_costo_si.drenar` re-freezes)."""
     despues.registrar("ml_ventas", ml_ventas.encolar)
-    monkeypatch.setattr(rc, "_bonos_costo", lambda db, item_id: None)
 
 
 def _drenar_todo(engine: Engine) -> None:

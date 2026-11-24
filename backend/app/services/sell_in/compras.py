@@ -16,11 +16,10 @@ in the body), already in the purchase currency.
 
 A load freezes that cost on every line. A purchase is never edited nor deleted:
 it can only be voided (`anulada`), once; the reason goes to the audit rows.
-Loading and voiding recompute the allocation of the purchase's products in the
-same transaction (`costing.get_costing()`): a load is consumed by the sales
-already made since it counts, a void releases its units to later purchases.
-The list and the detail report each line's consumed units (the sum of its
-`sell_in_consumos`) and the units still left, the supplier's name and whether
+Loading and voiding no longer allocate sales to the purchase (sell-in-costo-si
+T5 PR A: costo SI replaced the FIFO lots, S14); costo SI's triggers queue its
+products. The list and the detail still report each line's consumed units (the
+sum of its frozen `sell_in_consumos`) and the units still left, the supplier's name and whether
 the purchase applies (`aplica_condicion`, the single rule for it). The list and
 its summary (`resumir_compras`) share the same filters (`FiltrosCompras`).
 """
@@ -43,8 +42,7 @@ from app.models.producto import ProductoERP
 from app.models.proveedor import Proveedor
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
 from app.schemas.sell_in import SellInCompraCreate, SellInLineaIn, SellInPreviewIn
-from app.services.sell_in import bonos_costo
-from app.services.sell_in.costing import LOCK_NAMESPACE, LOCK_SQL, get_costing
+from app.services.sell_in.costing import LOCK_NAMESPACE, LOCK_SQL
 from app.services.sell_in.split import CENT, UNIT_PRECISION, Line, SellInSplitError, preview, unit_discount
 
 
@@ -348,9 +346,8 @@ def crear_compra(db: Session, data: SellInCompraCreate, usuario_id: int) -> Sell
     """Recompute the split, freeze each line's cost and save the purchase with its audit rows (one transaction).
 
     A reference that disappears between the checks and the write (a concurrent delete) surfaces as a
-    foreign-key violation: the transaction is rolled back and it becomes a `SellInError` too. Any
-    failure of the recompute that follows (an `IntegrityError` included) is rolled back and raised
-    as itself: it says nothing about the purchase's references.
+    foreign-key violation: the transaction is rolled back and it becomes a `SellInError` too. No sale
+    is allocated to it any more (sell-in-costo-si T5 PR A).
     """
     compra = crear_compra_sin_commit(db, data, usuario_id)
     try:
@@ -390,13 +387,7 @@ def crear_compra_sin_commit(
     except Exception:
         db.rollback()  # never leave the caller's session aborted
         raise
-    try:
-        # The sales already made since the purchase counts consume it in the same transaction.
-        get_costing().recompute(db, [item.item_id for item in items], isolate_failures=False)
-        bonos_costo.seguir_fifo(db, [item.item_id for item in items])  # T25b: they take what the FIFO leaves
-    except Exception:
-        db.rollback()  # a failed recompute takes the purchase with it; never leave the session aborted
-        raise
+    # T5 PR A: no FIFO allocation any more (costo SI replaced the lots, S14); costo SI's triggers queue the products.
     return compra
 
 
@@ -510,7 +501,7 @@ def anular_compra_sin_commit(
     db: Session, compra_id: int, usuario_id: int, motivo: Optional[str], es_masivo: bool = False
 ) -> Optional[SellInCompra]:
     """THE void step, without committing (the single void and the bulk one, `anular_masivo`, commit): voids the
-    purchase, audits each line (`es_masivo` on the bulk one) and releases its units. None when it does not exist;
+    purchase, audits each line (`es_masivo` on the bulk one); the consumptions already stored stay frozen (T5 PR A). None when it does not exist;
     `SellInYaAnulada` / `SellInGenerada` before any change when it cannot be voided."""
     compra = db.query(SellInCompra).filter(SellInCompra.id == compra_id).with_for_update().first()
     if compra is None:
@@ -527,9 +518,7 @@ def anular_compra_sin_commit(
     )
     audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_ANULADA, usuario_id, motivo=motivo, es_masivo=es_masivo)
     db.flush()
-    # Its units are released in the same transaction: later purchases take those sales over.
-    get_costing().recompute(db, [item.item_id for item in items], isolate_failures=False)
-    bonos_costo.seguir_fifo(db, [item.item_id for item in items])  # T25b: they take what the FIFO leaves
+    # T5 PR A: no FIFO allocation any more (costo SI replaced the lots, S14); costo SI's triggers queue the products.
     return compra
 
 
@@ -539,8 +528,8 @@ def repartir_compra_sin_commit(
     """Re-split an active `monto` purchase over new lines `[(item_id, cantidad)]`, in place: same id, header and
     total, its lines rewritten (sell in varias facturas S2: a tactical's invoice total re-split when another invoice
     of its operation links). A line it already had keeps its stored unit cost; a new one takes the product's current
-    cost, converted at the purchase's own rate. Audits the new lines (`SELL_IN_COMPRA_REPARTIDA`) and recomputes the
-    sales of every product it touched, like a load or a void. Does not commit. None, with nothing changed, when the
+    cost, converted at the purchase's own rate. Audits the new lines (`SELL_IN_COMPRA_REPARTIDA`); no sale is
+    allocated any more (T5 PR A). Does not commit. None, with nothing changed, when the
     purchase is not active, not `monto`, or already has exactly those units."""
     compra = db.query(SellInCompra).filter(SellInCompra.id == compra_id).with_for_update().first()
     if compra is None or compra.estado != "activa" or compra.tipo != "monto":
@@ -584,9 +573,7 @@ def repartir_compra_sin_commit(
     db.flush()
     audit(db, compra, nuevos, TipoAccion.SELL_IN_COMPRA_REPARTIDA, usuario_id)
     db.flush()
-    tocados = sorted(set(tenidos) | set(deseadas))
-    get_costing().recompute(db, tocados, isolate_failures=False)
-    bonos_costo.seguir_fifo(db, tocados)
+    # T5 PR A: no FIFO allocation any more (costo SI replaced the lots, S14); costo SI's triggers queue the products.
     return compra
 
 
