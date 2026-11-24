@@ -56,11 +56,15 @@ logger = logging.getLogger(__name__)
 BONO = "bono"
 COMPRA = "compra"
 
+# Ids of the sell ins asked for: a list, or a select of them.
+Refs = Iterable[int] | Select
 
-def _sell_ins():
-    """One row per (purchase step, sell in it got): `origen`, `ref`, `item_id`, `fecha`, `unidades`, `porcentaje`,
-    `precio` and `monto` (in the step's currency; NULL when its cost is unknown), `moneda` (the step's), `tc` (ARS per
-    USD to change it)."""
+
+def _sell_ins(bonos: Refs | None = None, compras: Refs | None = None):
+    """One row per (purchase step, sell in it got) of the brand bonuses in `bonos` and the Compras sell ins in
+    `compras` (ids, or a select of them): `origen`, `ref`, `item_id`, `fecha`, `unidades`, `porcentaje`, `precio` and
+    `monto` (in the step's currency; NULL when its cost is unknown), `moneda` (the step's), `tc` (ARS per USD to change
+    it). The filter sits inside, so each step's rate (`sql_tc_factura`) is looked up only for the rows asked for."""
     p = CostoSiPaso
     s = func.jsonb_array_elements(p.sell_ins).table_valued("value").alias("s")
 
@@ -72,10 +76,12 @@ def _sell_ins():
     porcentaje = cast(campo("porcentaje"), Numeric(9, 4))
     # An unknown cost stays NULL, so the step's amount is left out of every sum (§7).
     precio = p.costo_neto_usd
+    origen, ref = campo("origen"), cast(campo("ref"), Integer)
+    pedidos = [and_(origen == o, ref.in_(ids)) for o, ids in ((BONO, bonos), (COMPRA, compras)) if ids is not None]
     return (
         select(
-            campo("origen").label("origen"),
-            cast(campo("ref"), Integer).label("ref"),
+            origen.label("origen"),
+            ref.label("ref"),
             p.item_id.label("item_id"),
             p.fecha.label("fecha"),
             p.cantidad.label("unidades"),
@@ -88,7 +94,7 @@ def _sell_ins():
         )
         .select_from(p)
         .join(s, true())
-        .where(p.tipo == "compra")
+        .where(p.tipo == "compra", or_(*pedidos))
         .subquery("sell_ins_de_pasos")
     )
 
@@ -135,10 +141,10 @@ def _avisar(origen: str, ref: int, pasos) -> None:
         logger.warning("costo SI: %s %s got a step with no cost (%s); its amount is left out", origen, ref, paso)
 
 
-def por_bono() -> Select:
-    """`(bono_id, unidades, monto, sin_costo)` per brand bonus some step got, the amount in the bonus's currency
-    (unrounded)."""
-    filas = _sell_ins()
+def por_bono(bonos: Refs) -> Select:
+    """`(bono_id, unidades, monto, sin_costo)` per brand bonus in `bonos` some step got, the amount in the bonus's
+    currency (unrounded)."""
+    filas = _sell_ins(bonos=bonos)
     unidades = func.sum(_unidades_de_bono(filas))
     tope = SellInBonoMarca.tope_unidades
     return (
@@ -158,10 +164,10 @@ def por_bono() -> Select:
     )
 
 
-def por_compra() -> Select:
-    """`(compra_id, unidades, monto, sin_costo)` per Compras sell in some step got, the amount in the purchase's
-    currency."""
-    filas = _sell_ins()
+def por_compra(compras: Refs) -> Select:
+    """`(compra_id, unidades, monto, sin_costo)` per Compras sell in in `compras` some step got, the amount in the
+    purchase's currency."""
+    filas = _sell_ins(compras=compras)
     return (
         select(
             SellInCompra.id.label("compra_id"),
@@ -174,12 +180,9 @@ def por_compra() -> Select:
     )
 
 
-def _leer(db: Session, consulta: Select, columna, ids: Iterable[int], origen: str) -> dict[int, tuple[int, Decimal]]:
-    ids = list(ids)
-    if not ids:
-        return {}
+def _leer(db: Session, consulta: Select, origen: str) -> dict[int, tuple[int, Decimal]]:
     salida = {}
-    for ref, unidades, monto, sin_costo in db.execute(consulta.where(columna.in_(ids))):
+    for ref, unidades, monto, sin_costo in db.execute(consulta):
         _avisar(origen, ref, sin_costo)
         salida[ref] = (int(unidades or 0), Decimal(str(monto or 0)))
     return salida
@@ -187,30 +190,33 @@ def _leer(db: Session, consulta: Select, columna, ids: Iterable[int], origen: st
 
 def de_bonos(db: Session, ids: Iterable[int]) -> dict[int, tuple[int, Decimal]]:
     """`{bono id: (units, amount in its currency)}`; a bonus no step got is left out. A step with no cost is logged."""
-    return _leer(db, por_bono(), SellInBonoMarca.id, ids, BONO)
+    ids = list(ids)
+    return _leer(db, por_bono(ids), BONO) if ids else {}
 
 
 def de_compras(db: Session, ids: Iterable[int]) -> dict[int, tuple[int, Decimal]]:
     """`{sell_in_compras id: (units, amount in its currency)}`; a purchase no step got is left out. A step with no cost
     is logged."""
-    return _leer(db, por_compra(), SellInCompra.id, ids, COMPRA)
+    ids = list(ids)
+    return _leer(db, por_compra(ids), COMPRA) if ids else {}
+
+
+def de_tacticals(tacticals: Select) -> tuple[Select, Select]:
+    """The ids of the brand bonuses and of the Compras sell ins of the tacticals in `tacticals` (a select of ids)."""
+    return (
+        select(SellInBonoMarca.id).where(SellInBonoMarca.tactical_id.in_(tacticals)),
+        select(SellInCompra.id).where(SellInCompra.tactical_id.in_(tacticals)),
+    )
 
 
 def avisar_sin_costo(db: Session, tacticals: Select) -> None:
     """Log each step with no cost that a sell in of the tacticals in `tacticals` (a select of their ids) got, whose
     amount a sum over them (the KPIs) leaves out: one query."""
-    filas = _sell_ins()
-    bonos = select(SellInBonoMarca.id).where(SellInBonoMarca.tactical_id.in_(tacticals))
-    compras = select(SellInCompra.id).where(SellInCompra.tactical_id.in_(tacticals))
+    bonos, compras = de_tacticals(tacticals)
+    filas = _sell_ins(bonos=bonos, compras=compras)
     consulta = (
         select(filas.c.origen, filas.c.ref, _sin_costo(filas))
-        .where(
-            filas.c.precio.is_(None),
-            or_(
-                and_(filas.c.origen == BONO, filas.c.ref.in_(bonos)),
-                and_(filas.c.origen == COMPRA, filas.c.ref.in_(compras)),
-            ),
-        )
+        .where(filas.c.precio.is_(None))
         .group_by(filas.c.origen, filas.c.ref)
     )
     for origen, ref, pasos in db.execute(consulta):

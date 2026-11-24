@@ -179,10 +179,10 @@ def _validar_alcance(db: Session, data: SellInBonoIn) -> tuple[Optional[str], Op
 
 
 def _validar_base(data: SellInBonoIn, base: str, incluye_iva: bool, de_tactical: bool = False) -> None:
-    """A cost bonus is a % of the sale's cost, or an amount per unit (tacticals T1), over a brand, category or models
-    (the DB CHECK `ck_sell_in_bonos_marca_costo_venta`), in ARS, or in USD when it is a tactical's line that is not a
-    total (tactical sell in USD: `bonos_costo` converts each sale at the tactical's rate type); only it may take its
-    value with VAT included (S33)."""
+    """A cost bonus is a % of the product's costo SI, or an amount per unit (tacticals T1), over a brand, category or
+    models (the DB CHECK `ck_sell_in_bonos_marca_costo_venta`), in ARS, or in USD when it is a tactical's line that is
+    not a total (tactical sell in USD: costo SI values each purchase invoice at its own rate, `costo_si.generado`); only
+    it may take its value with VAT included (S33)."""
     if base == BASE_COSTO_VENTA:
         if data.moneda != "ARS" and not (de_tactical and data.moneda == "USD" and data.tipo != MONTO_TOTAL):
             raise SellInBonoError("Un bono sobre el costo va en pesos (ARS)")

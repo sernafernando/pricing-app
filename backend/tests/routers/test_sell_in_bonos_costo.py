@@ -1,10 +1,10 @@
 """Router: a sell-in bonus over the sale's cost (`base='costo_venta'`), sell-in-sell-out T25d (S30, S33).
 
-Owner, 2026-10-29: "es para operaciones viejas que no tienen la factura cargada". A cost bonus is a % of the cost
-recorded on each sale (ARS, brand / category / models, no purchase or invoice); `incluye_iva` (S33) only exists on
-it. `base` never changes on an edit. Its generated amount and cap come from the costo SI purchase steps that carry it
-(sell-in-costo-si T5 PR B, owner L26 "recalculalo"), not from purchases. SQLite test database, like
-`test_sell_in_bonos.py`.
+Owner, 2026-10-29: "es para operaciones viejas que no tienen la factura cargada". A cost bonus is a % of the
+product's costo SI (brand / category / models, no purchase of its own); `incluye_iva` (S33) only exists on it.
+`base` never changes on an edit. Its generated amount and cap come from the costo SI purchase steps that carry it
+(sell-in-costo-si T5 PR B, owner L26 "recalculalo"), not from purchases. Postgres test database (`_pg_app`): that
+read is Postgres-only SQL.
 """
 
 from __future__ import annotations

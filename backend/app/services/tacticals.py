@@ -466,9 +466,9 @@ def _sell_in(db, tactical, data, linea, numero, parte, codigos, usuario_id, here
 
 def moneda_de_costo(moneda: str, modo_monto: str, tope_monto: Optional[Decimal]) -> str:
     """A cost bonus's currency (tactical sell in USD, owner: "vos elegís un tipo de moneda para el sell in y un tipo de
-    cambio"): a USD tactical's per-unit amount, or money cap, is USD (P2 = A: the cap counts USD), converted per sale by
-    `bonos_costo` at the tactical's rate type; a % without a money cap is a % of the ARS cost, the rate does not
-    matter; a total is ARS at the fixed rate (`_total_en_pesos`)."""
+    cambio"): a USD tactical's per-unit amount, or money cap, is USD (P2 = A: the cap counts USD); costo SI values what
+    it took off each purchase invoice at that invoice's rate (`costo_si.generado`, T5 PR B); a % without a money cap
+    is a % of the cost, the rate does not matter; a total is ARS at the fixed rate (`_total_en_pesos`)."""
     if moneda == "USD" and modo_monto != "monto_total" and (modo_monto == "por_unidad" or tope_monto is not None):
         return "USD"
     return "ARS"
@@ -480,7 +480,7 @@ def _fecha_de_factura(pedido: Any) -> date:
 
 
 def _total_en_pesos(linea, data, parte) -> Optional[Decimal]:
-    """A cost bonus's total is ARS (each sale's cost is in pesos): a USD line is converted at the tactical's fixed
+    """A cost bonus's total is stored in ARS: a USD line is converted at the tactical's fixed
     rate (`_sell_in` already refused USD without one) and the bonus stores the ARS total. An invoice total is a
     purchase in its own currency (`_total_de_factura`), not converted here."""
     if parte.pedido is not None or data.moneda != "USD":
@@ -1724,7 +1724,8 @@ def _usado_por_linea(ids: Select) -> Subquery:
     )
     # A cost bonus: what costo SI took off its invoices, in the bonus's own currency, as `monto_generado`.
     costo = SellInBonoMarca.base == BASE_COSTO_VENTA
-    por_bono = generado.por_bono().subquery()
+    de_bonos, de_compras = generado.de_tacticals(ids)
+    por_bono = generado.por_bono(de_bonos).subquery()
     bonos_costo_ = (
         select(
             SellInBonoMarca.tactical_id,
@@ -1760,7 +1761,7 @@ def _usado_por_linea(ids: Select) -> Subquery:
         .group_by(SellInBonoMarca.id)
     )
     # An invoice total: what costo SI took off its invoices, in the purchase's own currency.
-    por_compra = generado.por_compra().subquery()
+    por_compra = generado.por_compra(de_compras).subquery()
     compras_ = (
         select(
             SellInCompra.tactical_id,
