@@ -58,3 +58,17 @@ export const sellInLotesAPI = {
   vistaPrevia: (itemId, body) => api.post(`${PRODUCTOS}/${itemId}/modos/vista-previa`, body),
   confirmarModo: (itemId, body) => api.post(`${PRODUCTOS}/${itemId}/modos`, body),
 };
+
+const SOSPECHOSAS = '/costo-si/sospechosas';
+
+/**
+ * Purchases held out of costo SI for a suspicious price (`backend/app/routers/costo_si.py`, owner L29): a price below
+ * 1/10 or above 10x the costo SI right before the invoice. Reading needs `sell_in.ver`; a decision also needs
+ * `costo_si.revisar` and sends the price the reviewer saw (409: the invoice was corrected since, read the list again).
+ */
+export const costoSiSospechasAPI = {
+  listar: (params) => api.get(SOSPECHOSAS, { params }),
+  resumen: () => api.get(`${SOSPECHOSAS}/resumen`),
+  aceptar: (id, precio, nota) => api.post(`${SOSPECHOSAS}/${id}/aceptar`, { precio, nota: nota?.trim() || null }),
+  excluir: (id, precio, nota) => api.post(`${SOSPECHOSAS}/${id}/excluir`, { precio, nota: nota?.trim() || null }),
+};

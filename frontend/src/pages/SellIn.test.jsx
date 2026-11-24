@@ -9,7 +9,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation, useSearchParams } from 'react-router-dom';
 import { renderWithRouter } from '../test/renderWithRouter';
 import { productosAPI } from '../services/api';
-import { sellInAPI, sellInBonosAPI, sellInLotesAPI } from '../services/sellInAPI';
+import { costoSiSospechasAPI, sellInAPI, sellInBonosAPI, sellInLotesAPI } from '../services/sellInAPI';
 import { ALCANCE, BONO } from '../components/sellIn/sellInFixtures';
 import { sellOutAPI } from '../services/sellOutAPI';
 import { offsetGruposAPI } from '../services/offsetGruposAPI';
@@ -42,6 +42,7 @@ vi.mock('../services/sellInAPI', () => ({
   sellInAPI: { listar: vi.fn(), resumen: vi.fn(), detalle: vi.fn() },
   sellInBonosAPI: { listar: vi.fn(), detalle: vi.fn(), alcance: vi.fn() },
   sellInLotesAPI: { productos: vi.fn(), lotes: vi.fn(), consumos: vi.fn(), modos: vi.fn() },
+  costoSiSospechasAPI: { listar: vi.fn(), resumen: vi.fn(), aceptar: vi.fn(), excluir: vi.fn() },
 }));
 
 vi.mock('../services/sellOutAPI', () => ({
@@ -73,6 +74,8 @@ beforeEach(() => {
   offsetGruposAPI.alcance.mockResolvedValue({ data: [{ grupo_id: 1, productos: 3, campanas: [] }] });
   offsetGruposAPI.opciones.mockResolvedValue({ data: { marcas: [], categorias: [], subcategorias: [] } });
   tacticalsAPI.listar.mockResolvedValue({ data: pagina([TACTICAL]) });
+  costoSiSospechasAPI.resumen.mockResolvedValue({ data: { pendientes: 2 } });
+  costoSiSospechasAPI.listar.mockResolvedValue({ data: [] });
 });
 
 /** Prints where the router is, so a test can read the tab the URL keeps. */
@@ -86,7 +89,7 @@ describe('SellIn page — one view: Tacticals and Grupos', () => {
     renderWithRouter(<SellIn />);
     await screen.findByText('Rebate TP-Link noviembre');
 
-    expect(screen.getAllByRole('tab').map((t) => t.textContent.replace(/\s+/g, ' ').trim())).toEqual(['Tacticals · 1', 'Grupos', 'Productos']);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent.replace(/\s+/g, ' ').trim())).toEqual(['Tacticals · 1', 'Grupos', 'Productos', 'Compras a revisar · 2']);
     expect(sellInAPI.listar).not.toHaveBeenCalled();
     expect(sellInAPI.resumen).not.toHaveBeenCalled();
     expect(sellInBonosAPI.listar).not.toHaveBeenCalled();
@@ -139,7 +142,7 @@ describe('SellIn page — one view: Tacticals and Grupos', () => {
     await user.keyboard('{ArrowRight}');
     expect(screen.getByRole('tab', { name: 'Grupos' })).toHaveFocus();
     await user.keyboard('{End}');
-    expect(screen.getByRole('tab', { name: 'Productos' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /Compras a revisar/ })).toHaveAttribute('aria-selected', 'true');
     await user.keyboard('{ArrowRight}');
     expect(screen.getByRole('tab', { name: /Tacticals/ })).toHaveFocus();
   });
@@ -409,5 +412,52 @@ describe('SellIn page — Productos tab', () => {
     expect(await screen.findByRole('tab', { name: /^Tacticals/ })).toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Productos' })).not.toBeInTheDocument();
     expect(sellInLotesAPI.productos).not.toHaveBeenCalled();
+  });
+});
+
+describe('SellIn page — Compras a revisar (owner L29)', () => {
+  it('shows the pending count on the tab and opens the list from ?tab=revision', async () => {
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=revision'] });
+
+    expect(await screen.findByRole('tab', { name: /Compras a revisar/ })).toHaveAttribute('aria-selected', 'true');
+    await waitFor(() => expect(costoSiSospechasAPI.listar).toHaveBeenCalledWith({ estado: 'pendiente' }));
+    expect(screen.getByRole('tab', { name: /Compras a revisar/ })).toHaveTextContent('2');
+  });
+
+  it('shows "—" on the tab when the count cannot be read', async () => {
+    costoSiSospechasAPI.resumen.mockRejectedValue(new Error('boom'));
+    renderWithRouter(<SellIn />);
+
+    await waitFor(() => expect(screen.getByRole('tab', { name: /Compras a revisar/ })).toHaveTextContent('—'));
+  });
+
+  it('gives the list its review buttons only with costo_si.revisar', async () => {
+    costoSiSospechasAPI.listar.mockResolvedValue({
+      data: [
+        {
+          id: 1,
+          item_id: 23,
+          codigo: 'TL-WA850RE',
+          descripcion: 'Extensor TP-Link',
+          ct_transaction: 935025,
+          factura: '00128199',
+          fecha: '2026-10-27',
+          cantidad: 312,
+          precio: '0.00971',
+          moneda: 'USD',
+          referencia: '13.53550',
+          fuente_ref: 'costo_si',
+          ratio: '0.000717',
+          estado: 'pendiente',
+          revisor: null,
+        },
+      ],
+    });
+    mockTienePermiso.mockImplementation((codigo) => codigo !== 'costo_si.revisar');
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=revision'] });
+
+    expect(await screen.findByText('00128199')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Aceptar/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Mantener excluida/ })).not.toBeInTheDocument();
   });
 });

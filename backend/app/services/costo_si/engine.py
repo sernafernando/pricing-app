@@ -11,6 +11,13 @@ purchase (`Compra.stock_antes`). A stock of zero or less counts as zero, so the 
 net-net (S9, L4.6). A product no sell in reaches (L21) also re-anchors at every change of its list cost (`Lista`,
 L23): from that day the average is the new list cost, and later purchases average from it. Averages are kept with 5 decimals (S10); each step uses the stored, rounded value, so the history
 can be re-derived from the stored rows alone.
+
+A suspicious purchase (owner L29) does not enter the average until a reviewer accepts it: its net unit price, before
+sell ins, is below 1/10 or above 10x the reference, the average in force right before it (after a same-day list
+re-anchor), or, with no average yet, the list cost on its date (`Compra.referencia_lista`). Without any reference it
+is not checked. It becomes an 'excluido' step: its units are valued at the average in force, which carries forward
+(at the reference when there was no average). Accepted (`aceptadas`), it averages in like any purchase. Either way
+the step carries its reference, so the caller can list it for review.
 """
 
 from __future__ import annotations
@@ -18,10 +25,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Iterable, List, Optional, Tuple
+from typing import AbstractSet, Iterable, List, Optional, Tuple
 
 DECIMALS = Decimal("0.00001")
 CIEN = Decimal(100)
+SOSPECHA_FACTOR = Decimal(10)  # L29: below 1/10 or above 10x the reference
+FUENTE_REF_COSTO_SI = "costo_si"
+FUENTE_REF_LISTA = "lista"
 
 
 def redondear(value: Decimal) -> Decimal:
@@ -66,13 +76,17 @@ class Compra:
     tipo_cambio: Optional[Decimal] = None
     fuente_tc: Optional[str] = None  # 'usd' | 'ars' (in the product's currency) | 'manual' | 'pedido' | 'fecha_factura'
     en_compras: bool = False  # linked to a Compras operation (S7)
+    referencia_lista: Optional[Decimal] = None  # list cost on its date: the L29 reference when there is no average
+    # The unit price as loaded on the invoice, in its own currency (L29: what a reviewer looks for on the invoice).
+    precio_factura: Optional[Decimal] = None
+    moneda_factura: Optional[str] = None
 
 
 @dataclass(frozen=True)
 class Paso:
     """One step of a product's history: the average in force from `fecha` on, with its breakdown."""
 
-    tipo: str  # 'inicio' | 'compra' | 'lista' (L23)
+    tipo: str  # 'inicio' | 'compra' | 'lista' (L23) | 'excluido' (L29)
     fecha: date
     ct_transaction: Optional[int]
     cantidad: int
@@ -87,6 +101,19 @@ class Paso:
     tipo_cambio: Optional[Decimal] = None
     fuente_tc: Optional[str] = None
     en_compras: bool = False
+    # A suspicious purchase (L29), excluded or accepted: the cost it was checked against, and where it came from
+    # ('costo_si' | 'lista'). Not stored in the steps: the review table keeps it.
+    referencia: Optional[Decimal] = None
+    fuente_ref: Optional[str] = None
+    precio_factura: Optional[Decimal] = None  # the invoice's own unit price and currency, set with `referencia`
+    moneda_factura: Optional[str] = None
+
+
+def sospechoso(precio: Decimal, referencia: Optional[Decimal]) -> bool:
+    """L29: below 1/10 or above 10x a positive reference; exactly 1/10 or 10x is not suspicious."""
+    if referencia is None or referencia <= 0:
+        return False
+    return precio * SOSPECHA_FACTOR < referencia or precio > referencia * SOSPECHA_FACTOR
 
 
 def neto_neto(neto: Decimal, sell_ins: Iterable[SellIn]) -> Tuple[Decimal, Decimal]:
@@ -114,9 +141,15 @@ def _anclaje(lista: Lista) -> Paso:
     )
 
 
-def calcular(inicio: Inicio, compras: Iterable[Compra], listas: Iterable[Lista] = ()) -> List[Paso]:
+def calcular(
+    inicio: Inicio,
+    compras: Iterable[Compra],
+    listas: Iterable[Lista] = (),
+    aceptadas: AbstractSet[int] = frozenset(),
+) -> List[Paso]:
     """The product's history: its start, then one step per purchase in the given order, with every list-cost
-    re-anchor (L23) placed before the purchases of its own day (it is in force from 00:00)."""
+    re-anchor (L23) placed before the purchases of its own day (it is in force from 00:00). A suspicious purchase
+    (L29) whose invoice is not in `aceptadas` is an 'excluido' step that leaves the average as it was."""
     pendientes = sorted(listas, key=lambda x: x.fecha)
     promedio = redondear(inicio.costo_usd) if inicio.costo_usd is not None else None
     base_inicio = max(inicio.stock, 0)
@@ -144,17 +177,26 @@ def calcular(inicio: Inicio, compras: Iterable[Compra], listas: Iterable[Lista] 
             continue
         pct, nn = neto_neto(c.costo_neto_usd, c.sell_ins)
         base = max(c.stock_antes, 0)
-        if base == 0 or promedio is None:
+        precio = redondear(c.costo_neto_usd)
+        referencia, fuente_ref = (promedio, FUENTE_REF_COSTO_SI) if promedio is not None else (None, None)
+        if referencia is None and c.referencia_lista is not None:
+            referencia, fuente_ref = redondear(c.referencia_lista), FUENTE_REF_LISTA
+        if not sospechoso(precio, referencia):
+            referencia = fuente_ref = None
+        excluida = referencia is not None and c.ct_transaction not in aceptadas
+        if excluida:
+            promedio = promedio if promedio is not None else referencia
+        elif base == 0 or promedio is None:
             promedio = nn
         else:
             promedio = redondear((base * promedio + c.cantidad * nn) / (base + c.cantidad))
         pasos.append(
             Paso(
-                tipo="compra",
+                tipo="excluido" if excluida else "compra",
                 fecha=c.fecha,
                 ct_transaction=c.ct_transaction,
                 cantidad=c.cantidad,
-                costo_neto_usd=redondear(c.costo_neto_usd),
+                costo_neto_usd=precio,
                 sell_ins=c.sell_ins,
                 sell_in_pct=pct,
                 costo_neto_neto_usd=nn,
@@ -165,6 +207,10 @@ def calcular(inicio: Inicio, compras: Iterable[Compra], listas: Iterable[Lista] 
                 tipo_cambio=c.tipo_cambio,
                 fuente_tc=c.fuente_tc,
                 en_compras=c.en_compras,
+                referencia=referencia,
+                fuente_ref=fuente_ref,
+                precio_factura=c.precio_factura if referencia is not None else None,
+                moneda_factura=c.moneda_factura if referencia is not None else None,
             )
         )
     pasos.extend(_anclaje(x) for x in pendientes)

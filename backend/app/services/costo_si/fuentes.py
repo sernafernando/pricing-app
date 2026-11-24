@@ -27,11 +27,12 @@
 
 from __future__ import annotations
 
+import logging
 from bisect import bisect_right
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, FrozenSet, List, Optional, Sequence, Tuple
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import bindparam, text
@@ -42,7 +43,10 @@ from sqlalchemy.types import BigInteger
 from app.services.combos.pcs import pcs_entre
 from app.services.pricing_calculator import moneda_de
 from app.services.costo_si import full_ml
+from app.services.costo_si import sospechas
 from app.services.costo_si.engine import Compra, Inicio, Lista, SellIn
+
+logger = logging.getLogger(__name__)
 
 ZONA = ZoneInfo("America/Argentina/Buenos_Aires")
 DEPOSITO_PRINCIPAL = 1
@@ -174,6 +178,13 @@ _CAMBIOS_LISTA_SQL = text("""
     ) d
     WHERE d.dia <= :hoy
     ORDER BY d.dia
+""")
+
+# §7 at the start: the first list 1 cost > 0 on or after `t` (00:00 of the start), in the product's currency.
+_PRIMER_COSTO_LISTA_SQL = text("""
+    SELECT iclh_price FROM tb_item_cost_list_history
+    WHERE item_id = :i AND coslis_id = 1 AND COALESCE(curr_id, 1) = :curr AND iclh_cd >= :t AND iclh_price > 0
+    ORDER BY iclh_cd, iclh_id LIMIT 1
 """)
 
 _MONEDA_SQL = text("SELECT moneda_costo FROM productos_erp WHERE item_id = :i")
@@ -352,6 +363,24 @@ def cambios_de_lista(db: Session, item_id: int, inicio: Inicio, moneda: str, hoy
         listas.append(Lista(dia, costo, disponible(db, item_id, dia)))
         previo = costo
     return listas
+
+
+def costo_de_inicio(db: Session, item_id: int, dia: date, moneda: str = "USD") -> Optional[Decimal]:
+    """The start cost (S2): the list 1 cost in force at 00:00 of `dia`. When that row is <= 0 or missing (§7: 0 is
+    never a cost), the first list cost > 0 on or after `dia`, for sell-in and no-sell-in products alike. None when
+    there is none yet: the start stays unknown and is logged, so someone loads a cost."""
+    costo = costo_lista(db, item_id, dia, moneda)
+    if costo is not None:
+        return costo
+    value = db.execute(
+        _PRIMER_COSTO_LISTA_SQL, {"i": item_id, "t": inicio_del_dia(dia), "curr": CURRS[moneda]}
+    ).scalar()
+    if value is None:
+        logger.warning(
+            "costo SI: product %s has no list cost > 0 on or after its start %s: start unknown", item_id, dia
+        )
+        return None
+    return Decimal(value)
 
 
 # ------------------------------------------------------------------------------------------------------ purchases
@@ -587,6 +616,7 @@ class Entrada:
     compras: List[Compra]
     moneda: str = "USD"  # the product's cost currency every amount is in (L18)
     listas: List[Lista] = field(default_factory=list)  # list-cost re-anchors, no-sell-in products only (L23)
+    aceptadas: FrozenSet[int] = frozenset()  # suspicious purchases a reviewer let in (L29), by invoice
 
 
 def entrada(db: Session, item_id: int) -> Optional[Entrada]:
@@ -608,7 +638,7 @@ def entrada(db: Session, item_id: int) -> Optional[Entrada]:
     inicio = Inicio(
         inicio_fecha,
         disponible(db, item_id, inicio_fecha) + sin_entrar,
-        costo_lista(db, item_id, inicio_fecha, moneda),
+        costo_de_inicio(db, item_id, inicio_fecha, moneda),
     )
     manuales = {}
     if posteriores:
@@ -642,10 +672,14 @@ def entrada(db: Session, item_id: int) -> Optional[Entrada]:
                 tipo_cambio=tc,
                 fuente_tc=fuente,
                 en_compras=bool(f.pedidos),
+                # L29: the reference when there is no average yet, only needed while the start has no cost.
+                referencia_lista=costo_lista(db, item_id, f.fecha, moneda) if inicio.costo_usd is None else None,
+                precio_factura=f.precio,
+                moneda_factura=MONEDAS[f.curr_id],
             )
         )
     listas = cambios_de_lista(db, item_id, inicio, moneda) if primera is None else []
-    return Entrada(inicio, compras, moneda, listas)
+    return Entrada(inicio, compras, moneda, listas, sospechas.aceptadas(db, item_id, compras))
 
 
 def _stock_antes(db: Session, item_id: int, f: Factura, antes: Sequence[Factura], despues: Sequence[Factura]) -> int:

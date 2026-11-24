@@ -1,4 +1,5 @@
 import path from 'node:path'
+import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defineConfig, configDefaults } from 'vitest/config'
 import react from '@vitejs/plugin-react'
@@ -183,6 +184,10 @@ export default defineConfig({
     },
     minify: 'terser',
     terserOptions: {
+      // Each terser worker is a thread with its own heap. Vite's default is one per CPU minus one,
+      // and on the deploy server that pool is what exhausts the RAM (OOM kill, exit 137, 2026-11-22).
+      // deploy.sh sizes it to the free memory with BUILD_TERSER_WORKERS; unset keeps vite's default.
+      maxWorkers: Number(process.env.BUILD_TERSER_WORKERS) || undefined,
       compress: {
         drop_console: true,
         drop_debugger: true,

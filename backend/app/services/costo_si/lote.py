@@ -107,6 +107,12 @@ def _es_combo(item: str) -> str:
     return f"(EXISTS (SELECT 1 FROM combo_componentes csi_x WHERE csi_x.combo_item_id = {item}))"
 
 
+def sql_suma_componentes(item: str) -> str:
+    """SQL predicate: the reader costs `item` as the sum of its components (a combo or a PC with a bill of materials,
+    L22), whatever its source label ('lista' or costo SI)."""
+    return _es_combo(item)
+
+
 # The levels a bill of materials is followed down (L22 nested: "recurse (L22 applies to the inner PC too)"). Deeper,
 # or a bill of materials that contains itself, has no cost: never a partial sum (interfaz §7), logged by the readers.
 MAX_NIVELES = 7

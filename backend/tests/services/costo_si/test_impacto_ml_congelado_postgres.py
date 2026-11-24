@@ -23,7 +23,7 @@ from tests.services.sell._schema import throwaway_schema
 pytestmark = pytest.mark.postgres
 
 D = Decimal
-P, COMBO, SIN_SELL_IN, SIN_COSTO, COMBO_SIN_COSTO = 5801, 5802, 5803, 5804, 5805
+P, COMBO, SIN_SELL_IN, SIN_COSTO, COMBO_SIN_COSTO, PC = 5801, 5802, 5803, 5804, 5805, 5806
 _ids = iter(range(830_000, 840_000))
 
 
@@ -53,15 +53,18 @@ def _callbacks_del_deploy(engine: Engine, monkeypatch: pytest.MonkeyPatch) -> It
 
 def _mundo(engine: Engine) -> None:
     """P: list cost USD 40 today, 25 when its first sell in (a brand bonus from 10-01) applies: costo SI 25 from
-    10-01. COMBO = 2 x P. SIN_SELL_IN: list cost only. USD rate 1000 from 09-01."""
+    10-01. COMBO = 2 x P. SIN_SELL_IN: list cost only. PC (cat 47, own list cost USD 300) = 1 x P + 1 x SIN_SELL_IN,
+    the reader's 'lista' sum (L22). USD rate 1000 from 09-01."""
     w.producto(engine, P, costo="40")
     w.costo_lista(engine, P, datetime(2026, 9, 1), "25")
     w.producto(engine, COMBO, costo="90")
     w.producto(engine, SIN_SELL_IN, marca="OTRA", costo="10")
     w.producto(engine, SIN_COSTO, marca="OTRA", costo="0")  # no cost anywhere
     w.producto(engine, COMBO_SIN_COSTO, costo="0")
+    w.producto(engine, PC, cat_id=47, costo="300")
     w.run(engine, "UPDATE productos_erp SET iva = 21")
-    for combo, componente, cantidad in ((COMBO, P, 2), (COMBO_SIN_COSTO, P, 1), (COMBO_SIN_COSTO, SIN_COSTO, 1)):
+    partes = ((COMBO, P, 2), (COMBO_SIN_COSTO, P, 1), (COMBO_SIN_COSTO, SIN_COSTO, 1), (PC, P, 1), (PC, SIN_SELL_IN, 1))
+    for combo, componente, cantidad in partes:
         w.run(
             engine,
             "INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (:c, :p, :q)",
@@ -131,6 +134,8 @@ def test_the_dry_run_predicts_every_ml_sale_the_deploy_re_freezes(engine: Engine
     combo_antes = _congelada(engine, COMBO, datetime(2026, 9, 20, 15, tzinfo=UTC), 1, "80000", "combo")
     # A combo with a component that has no cost: unknown on its date, the re-freeze keeps what it froze.
     desconocido = _congelada(engine, COMBO_SIN_COSTO, datetime(2026, 10, 20, 15, tzinfo=UTC), 1, "40000", "combo")
+    # A PC frozen before L22 at its own list cost (300 x 1000): the deploy re-freezes it to its components' sum.
+    pc = _congelada(engine, PC, datetime(2026, 11, 2, 15, tzinfo=UTC), 1, "300000", "erp_publicacion")
     guardado = _guardado(engine)
 
     with simulacion.simular(motor) as sim:
@@ -139,13 +144,15 @@ def test_the_dry_run_predicts_every_ml_sale_the_deploy_re_freezes(engine: Engine
     assert _guardado(engine) == guardado  # read-only
     prediccion = {c.fila_id: (c.antes, c.despues) for c in informe.cambios if c.canal == impacto.CANAL_ML_CONGELADO}
     filas = {r[0]: r[1] for r in w.rows(engine, "SELECT id, order_id FROM ml_order_item_costos")}
-    assert {filas[i] for i in prediccion} == {oct_, combo}
+    assert {filas[i] for i in prediccion} == {oct_, combo, pc}
     assert prediccion[next(i for i, o in filas.items() if o == oct_)] == (D("80000.0000"), D("50000.0000"))
+    assert prediccion[next(i for i, o in filas.items() if o == pc)] == (D("300000.0000"), D("35000.0000"))  # 25 + 10
 
     _deploy(engine)
 
     despues_ = _guardado(engine)
-    assert {o for o in despues_ if despues_[o] != guardado[o]} == {oct_, combo}
+    assert {o for o in despues_ if despues_[o] != guardado[o]} == {oct_, combo, pc}
+    assert despues_[pc] == (D("35000.0000"), "combo")
     for fila_id, (antes_, despues_total) in prediccion.items():
         order_id = filas[fila_id]
         cantidad = 2 if order_id == oct_ else 1

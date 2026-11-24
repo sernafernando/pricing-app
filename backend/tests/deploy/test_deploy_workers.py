@@ -133,6 +133,13 @@ class Env:
         log = self.stub / "notify.log"
         return [m.strip() for m in log.read_text().split("----\n") if m.strip()] if log.exists() else []
 
+    def _meminfo(self) -> Path:
+        """A /proc/meminfo with plenty of free memory (64 GB), unless a test wrote its own."""
+        path = self.root / "meminfo"
+        if not path.exists():
+            path.write_text("MemTotal: 67108864 kB\nMemAvailable: 67108864 kB\n")
+        return path
+
     def run(self, script: Path, *args: str, extra_env: dict | None = None) -> subprocess.CompletedProcess:
         env = {
             "PATH": f"{self.stub / 'bin'}:/usr/bin:/bin",
@@ -145,6 +152,8 @@ class Env:
             "HOME": str(self.root),
             # never pick up a real /opt/node24 on the test host
             "FRONTEND_NODE_DIR": str(self.root / "no-node"),
+            # the build's memory check reads this instead of the test host's real /proc/meminfo
+            "MEMINFO_FILE": str(self._meminfo()),
             **(extra_env or {}),
         }
         return subprocess.run(
@@ -373,7 +382,14 @@ class TestDeployIntegration:
 PNPM_STUB = """#!/usr/bin/env bash
 echo "pnpm {label} $*" >> "$STUB_DIR/calls.log"
 echo "${{COREPACK_ENABLE_DOWNLOAD_PROMPT:-unset}}" >> "$STUB_DIR/corepack_prompt.log"
+# a build writes its outDir (deploy.sh only publishes a build that left an index.html)
+if [ "$1" = run ]; then
+  while [ $# -gt 0 ]; do [ "$1" = "--outDir" ] && {{ mkdir -p "$2"; echo built > "$2/index.html"; }}; shift; done
+fi
+exit 0
 """
+
+BUILD_ARGS = "run build --outDir {out} --emptyOutDir"
 
 
 class TestFrontendBuildNode:
@@ -393,6 +409,9 @@ class TestFrontendBuildNode:
     def pnpm_calls(self, env) -> list[str]:
         return [c for c in env.calls() if c.startswith("pnpm ")]
 
+    def build(self, env) -> str:
+        return BUILD_ARGS.format(out=env.project / "frontend" / "dist.new")
+
     def test_the_build_uses_the_separate_node_when_it_is_installed(self, env) -> None:
         node_dir = self.setup_build(env)
         env._write(node_dir / "bin" / "node", "#!/usr/bin/env bash\necho v24.22.1\n")
@@ -400,7 +419,7 @@ class TestFrontendBuildNode:
         result = env.run(DEPLOY_SCRIPT, "--skip-pull", extra_env={"FRONTEND_NODE_DIR": str(node_dir)})
 
         assert result.returncode == 0, result.stderr
-        assert self.pnpm_calls(env) == ["pnpm node24 install --frozen-lockfile", "pnpm node24 run build"]
+        assert self.pnpm_calls(env) == ["pnpm node24 install --frozen-lockfile", f"pnpm node24 {self.build(env)}"]
         assert "Node v24.22.1" in result.stdout
         assert "No está" not in result.stdout
         # corepack must never stop a deploy without a terminal to ask before downloading pnpm
@@ -413,7 +432,7 @@ class TestFrontendBuildNode:
         result = env.run(DEPLOY_SCRIPT, "--skip-pull", extra_env={"FRONTEND_NODE_DIR": str(missing)})
 
         assert result.returncode == 0, result.stderr
-        assert self.pnpm_calls(env) == ["pnpm system install --frozen-lockfile", "pnpm system run build"]
+        assert self.pnpm_calls(env) == ["pnpm system install --frozen-lockfile", f"pnpm system {self.build(env)}"]
         assert f"No está {missing}/bin/node" in result.stdout
 
     def test_a_node_dir_without_a_node_binary_falls_back_to_the_node_on_path(self, env) -> None:
@@ -422,7 +441,7 @@ class TestFrontendBuildNode:
         result = env.run(DEPLOY_SCRIPT, "--skip-pull", extra_env={"FRONTEND_NODE_DIR": str(node_dir)})
 
         assert result.returncode == 0, result.stderr
-        assert self.pnpm_calls(env) == ["pnpm system install --frozen-lockfile", "pnpm system run build"]
+        assert self.pnpm_calls(env) == ["pnpm system install --frozen-lockfile", f"pnpm system {self.build(env)}"]
         assert f"No está {node_dir}/bin/node" in result.stdout
 
 
