@@ -16,8 +16,6 @@ vi.mock('../../services/sellInAPI', () => ({
     lotes: vi.fn(),
     consumos: vi.fn(),
     modos: vi.fn(() => Promise.reject(Object.assign(new Error('HTTP 403'), { response: { status: 403 } }))),
-    modoPorDefecto: vi.fn(() => Promise.reject(Object.assign(new Error('HTTP 403'), { response: { status: 403 } }))),
-    fijarModoPorDefecto: vi.fn(),
   },
 }));
 vi.mock('../../contexts/PermisosContext', () => ({ usePermisos: () => ({ tienePermiso: () => false }) }));
@@ -73,7 +71,8 @@ beforeEach(() => {
 });
 
 describe('the lots', () => {
-  it('come in FIFO order, each with its status, unit discount, units, the date it counts from and its purchase', async () => {
+  // T5 PR A: the lots are history. One still holding units is closed, never current, queued or due on a date.
+  it('come in FIFO order, each with its status, unit discount, units, the date it counted from and its purchase', async () => {
     renderLotes();
     const lista = await screen.findByRole('list', { name: 'Lotes en orden FIFO' });
     const lotes = [...lista.children].map((item) => item.textContent);
@@ -85,95 +84,25 @@ describe('the lots', () => {
     expect(lotes[0]).toContain('$ 100,00 por unidad');
     expect(lotes[0]).toContain('Quedan 0 de 2 · 2 usadas · desde 01/10/2026');
     expect(lotes[0]).toContain('#41 · Gauss SA · A-0001-1');
-    expect(lotes[1]).toContain('Vigente');
+    expect(lotes[1]).toContain('Cerrado');
     expect(lotes[1]).toContain('$ 33,33 por unidad');
     expect(lotes[1]).toContain('Quedan 2 de 3 · 1 usada');
-    expect(lotes[2]).toContain('En cola');
+    expect(lotes[2]).toContain('Cerrado');
     // A USD purchase's discount is already in ARS (its own rate); the currency is said.
     expect(lotes[2]).toContain('$ 10.000,00 por unidad (compra en USD)');
     expect(lotes[2]).toContain('#43 · Sin proveedor');
-    expect(lotes[3]).toContain('Desde 03/11');
+    expect(lotes[3]).toContain('Cerrado');
+    expect(lista.textContent).not.toMatch(/Vigente|En cola|Desde 03\/11/);
   });
 
-  it('say what the next sale gets: the current lot, its units left at that value, then the next one', async () => {
+  it('say they are history: no next sale discount, no cost bonus (T5 PR A, L24)', async () => {
+    sellInLotesAPI.lotes.mockResolvedValue(respuesta({ bono_costo: { bono_ids: [7], descuento_unit: 1500 } }));
     renderLotes();
 
-    expect(
-      await screen.findByText('La próxima venta descuenta $ 33,33 por unidad (lote 2); quedan 2 unidades a ese valor, después $ 10.000,00'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('Historial: los lotes ya no descuentan ventas. El sell in baja el costo SI a través de sus facturas.')).toBeInTheDocument();
+    expect(screen.queryByText(/próxima venta/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/bono de costo|vuelve al normal/)).not.toBeInTheDocument();
   });
-
-  it('with no next lot after the current one, the cost goes back to normal after it', async () => {
-    sellInLotesAPI.lotes.mockResolvedValue(
-      respuesta({ proxima: { numero: 2, compra_item_id: 502, descuento_unit: '33.333333', restantes: 1, siguiente: null } }),
-    );
-    renderLotes();
-
-    expect(
-      await screen.findByText(
-        'La próxima venta descuenta $ 33,33 por unidad (lote 2); queda 1 unidad a ese valor, después el costo vuelve al normal',
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it('with no next lot but a cost bonus, says the bonus applies after the current lot', async () => {
-    sellInLotesAPI.lotes.mockResolvedValue(
-      respuesta({
-        proxima: { numero: 2, compra_item_id: 502, descuento_unit: '33.333333', restantes: 2, siguiente: null },
-        bono_costo: { bono_ids: [7], descuento_unit: 1500 },
-      }),
-    );
-    renderLotes();
-
-    expect(
-      await screen.findByText(
-        'La próxima venta descuenta $ 33,33 por unidad (lote 2); quedan 2 unidades a ese valor, después aplica el bono de costo #7: $ 1.500,00 por unidad',
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it('a future next lot says from when it counts', async () => {
-    sellInLotesAPI.lotes.mockResolvedValue(
-      respuesta({
-        proxima: {
-          numero: 2,
-          compra_item_id: 502,
-          descuento_unit: '33.333333',
-          restantes: 2,
-          siguiente: { numero: 4, descuento_unit: '10.000000', fecha_desde: '2026-11-03', estado: 'desde' },
-        },
-      }),
-    );
-    renderLotes();
-
-    expect(
-      await screen.findByText(
-        'La próxima venta descuenta $ 33,33 por unidad (lote 2); quedan 2 unidades a ese valor, después el costo vuelve al normal hasta el 03/11 y desde entonces $ 10,00',
-      ),
-    ).toBeInTheDocument();
-  });
-});
-
-it('until a future next lot counts, names the cost bonus that applies in between', async () => {
-  sellInLotesAPI.lotes.mockResolvedValue(
-    respuesta({
-      proxima: {
-        numero: 2,
-        compra_item_id: 502,
-        descuento_unit: '33.333333',
-        restantes: 2,
-        siguiente: { numero: 4, descuento_unit: '10.000000', fecha_desde: '2026-11-03', estado: 'desde' },
-      },
-      bono_costo: { bono_ids: [7], descuento_unit: 1500 },
-    }),
-  );
-  renderLotes();
-
-  expect(
-    await screen.findByText(
-      'La próxima venta descuenta $ 33,33 por unidad (lote 2); quedan 2 unidades a ese valor, después aplica el bono de costo #7: $ 1.500,00 por unidad hasta el 03/11 y desde entonces $ 10,00',
-    ),
-  ).toBeInTheDocument();
 });
 
 it('without the purchases permission, a lot names only its purchase number, never "Sin proveedor"', async () => {
@@ -203,51 +132,21 @@ describe('a manual cost block', () => {
     const [reemplazado, bloque] = [...lista.children].map((item) => item.textContent);
 
     expect(reemplazado).toContain('Reemplazado');
-    expect(bloque).toContain('Vigente');
+    expect(bloque).toContain('Cerrado');
     expect(bloque).toContain('-$ 2.000,00 por unidad');
     expect(bloque).toContain('Carga manual #7001');
     expect(bloque).not.toContain('Sin proveedor');
   });
 });
 
-describe('with no lot left', () => {
-  it('says the cost goes back to normal and that no cost bonus applies', async () => {
-    sellInLotesAPI.lotes.mockResolvedValue(respuesta({ lotes: [lote()], proxima: null }));
-    renderLotes();
-
-    expect(await screen.findByText('No quedan lotes con unidades: el costo vuelve al normal. Ningún bono de costo aplica.')).toBeInTheDocument();
-  });
-
-  it('names the cost bonus that applies instead, as Productos decides it', async () => {
-    sellInLotesAPI.lotes.mockResolvedValue(
-      respuesta({ lotes: [lote()], proxima: null, bono_costo: { bono_ids: [7, 9], descuento_unit: 1500 } }),
-    );
-    renderLotes();
-
-    expect(
-      await screen.findByText(
-        'No quedan lotes con unidades: el costo vuelve al normal. Aplica el bono de costo #7, #9: descuenta $ 1.500,00 por unidad.',
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it('with only a future lot left, says the cost is normal until that lot counts', async () => {
-    sellInLotesAPI.lotes.mockResolvedValue(respuesta({ lotes: [lote(), LOTES[3]], proxima: null }));
-    renderLotes();
-
-    expect(
-      await screen.findByText(
-        'Ningún lote tiene unidades hoy: el costo vuelve al normal hasta el 03/11 (lote 4, $ 10,00 por unidad). Ningún bono de costo aplica.',
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it('a product that never had a lot says so', async () => {
+describe('with no lot', () => {
+  it('a product that never had a lot says so, and nothing about a discount', async () => {
     sellInLotesAPI.lotes.mockResolvedValue(respuesta({ lotes: [], proxima: null }));
     renderLotes();
 
-    expect(await screen.findByText('Este producto no tiene lotes de sell in. Ningún bono de costo aplica.')).toBeInTheDocument();
+    expect(await screen.findByText('Este producto no tiene lotes de sell in.')).toBeInTheDocument();
     expect(screen.queryByRole('list', { name: 'Lotes en orden FIFO' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/bono de costo|vuelve al normal/)).not.toBeInTheDocument();
   });
 });
 

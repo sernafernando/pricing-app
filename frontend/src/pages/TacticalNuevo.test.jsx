@@ -10,7 +10,7 @@ import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import TacticalNuevo from './TacticalNuevo';
 import api, { productosAPI } from '../services/api';
 import { CATALOGO, OPERACIONES } from '../components/tactical/tacticalFixtures';
-import { TACTICAL_BPS } from '../components/tacticals/tacticalsFixtures';
+import { TACTICAL_BPS, TACTICAL_REBATE } from '../components/tacticals/tacticalsFixtures';
 
 const mockTienePermiso = vi.fn();
 vi.mock('../contexts/PermisosContext', () => ({
@@ -117,19 +117,19 @@ describe('the header', () => {
     );
     expect(screen.queryByLabelText('Tipo de cambio')).not.toBeInTheDocument();
     expect(within(linea(1)).getByRole('button', { name: 'Factura' })).toBeInTheDocument();
-    // In ARS a total amount is offered on products, a brand or a category too, split by a criterion (S4).
-    expect(within(linea(1)).getByRole('button', { name: 'monto total' })).toBeEnabled();
+    // A new total amount over products, a brand or a category is not offered (T5 PR A, L25); an invoice line is one.
+    expect(within(linea(1)).queryByRole('button', { name: 'monto total' })).not.toBeInTheDocument();
   });
 
-  it('on sell in in USD offers a total amount over products only with a fixed exchange rate (S4)', async () => {
+  it('on sell in in USD offers no new total amount over products, whatever the exchange rate (T5 PR A)', async () => {
     const user = userEvent.setup();
     renderAt('/sell-in/tactical/nuevo?tipo=sell_in');
     await user.click(within(screen.getByRole('group', { name: 'Moneda' })).getByRole('button', { name: 'USD' }));
     await user.click(within(linea(1)).getByRole('button', { name: 'Productos' }));
-    expect(within(linea(1)).getByRole('button', { name: 'monto total' })).toBeDisabled();
+    expect(within(linea(1)).queryByRole('button', { name: 'monto total' })).not.toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText('Tipo de cambio'), 'fijo');
-    expect(within(linea(1)).getByRole('button', { name: 'monto total' })).toBeEnabled();
+    expect(within(linea(1)).queryByRole('button', { name: 'monto total' })).not.toBeInTheDocument();
   });
 
   it('offers only the type the user can manage', async () => {
@@ -324,35 +324,6 @@ describe('creating a tactical', () => {
       },
       factura(9001),
       factura(9002),
-    ]);
-  });
-
-  it('posts a sell in total amount split among the line\'s products by the chosen criterion (S4)', async () => {
-    const user = userEvent.setup();
-    renderAt('/sell-in/tactical/nuevo?tipo=sell_in');
-    await fillHeader(user);
-    await pickProducts(user, 1, 'notebook hp', ['Notebook HP 250RG10', 'Notebook HP 255r G10']);
-    await user.click(within(linea(1)).getByRole('button', { name: 'monto total' }));
-    await user.type(within(linea(1)).getByLabelText('Monto de la línea 1'), '1.200.000');
-
-    await user.click(crear());
-    expect(await screen.findByText('Hay 1 línea sin reparto del monto total. Completala o eliminala.')).toBeInTheDocument();
-    expect(api.post).not.toHaveBeenCalled();
-
-    await user.selectOptions(within(linea(1)).getByLabelText('Reparto del monto total, línea 1'), 'unidades');
-    await user.click(crear());
-    await waitFor(() => expect(api.post).toHaveBeenCalled());
-    expect(api.post.mock.calls[0][1]).toEqual(expect.objectContaining({ tipo: 'sell_in', moneda: 'ARS' }));
-    expect(api.post.mock.calls[0][1].lineas).toEqual([
-      {
-        alcance: 'productos',
-        item_ids: [103, 104],
-        modo_monto: 'monto_total',
-        valor: 1200000,
-        tope_unidades: null,
-        tope_monto: null,
-        reparto_criterio: 'unidades',
-      },
     ]);
   });
 
@@ -568,6 +539,24 @@ describe('Editar (SISO S8)', () => {
     expect(body).toMatchObject({ tipo: 'sell_out', fecha_desde: '2026-11-01', fecha_hasta: '2026-11-30' });
     expect(api.post).not.toHaveBeenCalled();
     expect(await screen.findByText('Listado de sell in?tab=tacticals')).toBeInTheDocument();
+  });
+
+  it('a stored sell in total amount stays one: it saves as a total with its split (T5 PR A)', async () => {
+    const user = userEvent.setup();
+    const total = { ...TACTICAL_REBATE.lineas[0], modo_monto: 'monto_total', valor: '300000', reparto_criterio: 'iguales' };
+    conDetalle({ ...TACTICAL_REBATE, lineas: [total] });
+    api.put.mockResolvedValue({ data: TACTICAL_REBATE });
+    renderAt('/sell-in/tactical/nuevo?tipo=sell_in&editar=1');
+
+    expect(await screen.findByDisplayValue(TACTICAL_REBATE.nombre)).toBeInTheDocument();
+    expect(within(linea(1)).getByRole('button', { name: 'monto total' })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(guardar());
+    await user.click(within(screen.getByRole('dialog', { name: '¿Guardar los cambios?' })).getByRole('button', { name: 'Guardar cambios' }));
+
+    await waitFor(() => expect(api.put).toHaveBeenCalledTimes(1));
+    expect(api.put.mock.calls[0][1].lineas).toEqual([
+      expect.objectContaining({ alcance: 'marca', marca: 'HP', modo_monto: 'monto_total', valor: 300000, reparto_criterio: 'iguales' }),
+    ]);
   });
 
   it('a sell out loaded by mistake is saved as sell in, warning that the set al_cobro rate is discarded', async () => {

@@ -1031,46 +1031,6 @@ def test_bulk_void_is_all_or_nothing_and_names_each_refused_purchase(client, ges
     assert db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_COMPRA_ANULADA).count() == 0
 
 
-def test_bulk_void_releases_the_units_exactly_like_the_single_void(client, gestor, productos, db, monkeypatch):
-    """The bulk action runs the single void per purchase: same recompute and FIFO calls, in the same order."""
-    llamadas = []
-
-    class Costing:
-        def recompute(self, _db, item_ids, isolate_failures):
-            llamadas.append(("recompute", sorted(item_ids), isolate_failures))
-
-    monkeypatch.setattr(compras_service, "get_costing", lambda: Costing())
-    monkeypatch.setattr(
-        compras_service.bonos_costo, "seguir_fifo", lambda _db, ids: llamadas.append(("fifo", sorted(ids)))
-    )
-    a = _crear(client, gestor)
-    b = _crear(client, gestor, lineas=[{"item_id": 4513, "cantidad": 2}])
-    llamadas.clear()
-    client.post(f"{BASE}/{a['id']}/anular", json={}, headers=gestor)
-    client.post(f"{BASE}/{b['id']}/anular", json={}, headers=gestor)
-    individual = list(llamadas)
-    a2 = _crear(client, gestor)
-    b2 = _crear(client, gestor, lineas=[{"item_id": 4513, "cantidad": 2}])
-    llamadas.clear()
-
-    assert client.post(MASIVO, json={"ids": [a2["id"], b2["id"]]}, headers=gestor).status_code == 200
-
-    assert llamadas == individual
-
-
 @pytest.mark.parametrize("ids", [[], list(range(1, 502))])
 def test_bulk_void_needs_between_1_and_500_ids(client, gestor, ids):
     assert client.post(MASIVO, json={"ids": ids}, headers=gestor).status_code == 422
-
-
-def test_with_the_combo_bill_of_materials_unsynced_a_purchase_is_refused_with_503(client, gestor, productos, db):
-    # Combos count as their components in sell in: an empty bill of materials cannot tell them apart.
-    from app.models.combo_componente import ComboComponente
-
-    db.query(ComboComponente).delete()
-    db.commit()
-
-    resp = client.post(BASE, json=_create_body(), headers=gestor)
-
-    assert resp.status_code == 503, resp.text
-    assert resp.json()["error"]["code"] == "COMBOS_NOT_SYNCED"

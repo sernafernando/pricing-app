@@ -4,6 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
+  alcanceDeLinea,
   alternarFactura,
   conAlcance,
   conLineaDeLaPantalla,
@@ -165,8 +166,9 @@ describe('what stops a save, first thing only', () => {
     [{}, [{ ...lista, modo: 'monto_total', monto: '1200' }], 'Hay 1 línea sin reparto del monto total. Completala o eliminala.'],
   ])('%j with %#', (cambios, lineas, mensaje) => expect(problemaDe({ ...FORM, ...cambios }, lineas)).toBe(mensaje));
 
-  it('a sell in total over products in USD needs a fixed rate, as the backend says (S4)', () => {
-    const total = { ...lista, modo: 'monto_total', monto: '1200', reparto: 'iguales' };
+  it('a stored sell in total over products in USD needs a fixed rate, as the backend says (S4)', () => {
+    // A stored lump sum an edit loaded: a new one is stopped before (T5 PR A, tacticalRenovar.test.js).
+    const total = { ...lista, modo: 'monto_total', monto: '1200', reparto: 'iguales', totalGuardado: alcanceDeLinea(lista) };
     const sellIn = { ...FORM, tipo: 'sell_in', moneda: 'USD' };
     expect(problemaDe({ ...sellIn, tcModo: 'al_cobro' }, [total])).toBe(
       'Hay 1 línea con un monto total en USD sin tipo de cambio fijo. Corregila o elegí tipo de cambio fijo.',

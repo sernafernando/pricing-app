@@ -3,14 +3,13 @@ que alejandro los revise y los apruebe y que no apliquen de una porque suelen ha
 
 A line row of the engines (`sell_in_bonos_marca`, `sell_in_compras`, `sell_out_campanas`) is `pendiente` from its load
 until it is approved, and again after a money-changing edit (S4, S5). Every money reader takes only `estado =
-'activa'`, so a pending row applies to nothing: costo SI, FIFO, the per-sale bonuses, the bonus reconcile, sell out and
-markups never see it. This module flips rows between `pendiente` and `activa` and triggers what follows:
+'activa'`, so a pending row applies to nothing: costo SI, the bonus reconcile, sell out and markups never see it. This module flips rows between `pendiente` and `activa` and triggers what follows:
 
 - a bonus: its own triggers (`bono_queue`: an UPDATE of `estado` while it is or was active; `costo_si.queue`: any
-  UPDATE) queue the `sell_in.bono` reconcile, the per-sale cost bonuses and costo SI, whose drain runs the L15
+  UPDATE) queue the `sell_in.bono` reconcile and costo SI, whose drain runs the L15
   callbacks with their backups (`costo_si.despues`);
-- a purchase: the `sell_in_compras` UPDATE trigger queues costo SI; the FIFO has no trigger, so it is recomputed here
-  with its cost bonuses (`costing.get_costing().recompute` + `bonos_costo.seguir_fifo`, as a load or a void does);
+- a purchase: the `sell_in_compras` UPDATE trigger queues costo SI (no sale is allocated to a purchase any more,
+  sell-in-costo-si T5 PR A);
 - a campaign: no trigger either, so it is queued for `sell_out.drain` (`campanas._encolar`), whose rebuild drops or
   takes its rows and rebuilds the campaigns sharing its products (as a void does).
 
@@ -34,7 +33,7 @@ from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.offset_ganancia import OffsetGanancia
-from app.models.sell_in import SellInBonoMarca, SellInCompra, SellInCompraItem
+from app.models.sell_in import SellInBonoMarca, SellInCompra
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo
 
 ACTIVA = "activa"
@@ -117,8 +116,6 @@ def cambiar_lineas(
     """Move the given rows that are in `de` to `a` (`pendiente` <-> `activa`), locking them in id order, and trigger
     what follows (module docstring). Rows in another state are left as they are. Does not commit. Returns the ids
     moved per kind (an offset is never a tactical's line: its key is there only when offsets were given)."""
-    from app.services.sell_in import bonos_costo  # noqa: PLC0415 - bonos_costo imports the engines that import this
-    from app.services.sell_in.costing import get_costing  # noqa: PLC0415
     from app.services.sell_out import campanas  # noqa: PLC0415 - campanas imports this module
 
     # The rows are reloaded locked (`populate_existing`): an edit the caller has not flushed would be thrown away, and
@@ -147,17 +144,6 @@ def cambiar_lineas(
             fila.estado = a
         movidas[clave] = [fila.id for fila in filas]
     db.flush()
-    if movidas["compra_ids"]:
-        items = sorted(
-            {
-                i
-                for (i,) in db.query(SellInCompraItem.item_id).filter(
-                    SellInCompraItem.compra_id.in_(movidas["compra_ids"])
-                )
-            }
-        )
-        get_costing().recompute(db, items, isolate_failures=False)
-        bonos_costo.seguir_fifo(db, items)
     if movidas["campana_ids"]:
         campanas._encolar(db, movidas["campana_ids"])
     return movidas

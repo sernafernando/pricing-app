@@ -64,6 +64,9 @@ from app.services.sell_in.compras import contiene
 from app.services.sell_out import criterio as criterio_reparto
 
 MONTO_TOTAL = "monto_total"
+MONTO_TOTAL_RETIRADO = (
+    "Un bono de sell in por monto total no se puede cargar por ahora: si es sobre las ventas, cargalo como sell out"
+)
 _TEXTOS_BONO = criterio_reparto.Textos(
     sin_alcance="El bono no alcanza ningún producto: no hay entre quiénes repartir",
     sin_costo="Ningún producto del bono tiene costo cargado: no se puede repartir por costo",
@@ -195,10 +198,16 @@ def validar(
     base: Optional[str] = None,
     incluye_iva: Optional[bool] = None,
     de_tactical: bool = False,
+    nuevo: bool = True,
 ) -> Campos:
     """The rules the operator can break, in one readable message each; returns the normalized fields.
     `base` / `incluye_iva`: the effective ones (an edit's stored ones); None: the body's. `de_tactical`: the bonus is
-    (or will be) a tactical's line."""
+    (or will be) a tactical's line. `nuevo`: a lump sum being loaded, refused for now (sell-in-costo-si T5 PR A,
+    L25: a lump sum is no longer split over sales; a sell-in one will be divided by an established quantity on the
+    invoices, PR E, and one over sales is sell out). An edit, or a tactical line that already was one, is not new:
+    what is stored keeps working as before."""
+    if data.tipo == MONTO_TOTAL and nuevo:
+        raise SellInBonoError(MONTO_TOTAL_RETIRADO)
     base = data.base if base is None else base
     incluye_iva = data.incluye_iva if incluye_iva is None else incluye_iva
     _validar_base(data, base, incluye_iva, de_tactical)
@@ -492,13 +501,15 @@ def crear_bono_sin_commit(
     offset_origen_id: Optional[int] = None,
     tactical: Optional[tuple[int, int]] = None,
     estado: str = "activa",
+    heredado: bool = False,
 ) -> SellInBonoMarca:
     """The create step without committing: validation, the row, its models and one audit row. Shared by the single
     create and a tactical's lines (`app.services.tacticals`, several in one transaction). `tactical`: the
     `(tactical_id, tactical_linea)` it is a line of, set before the first flush. `estado`: `pendiente` for a load
     waiting for approval (`app.services.sell_in.aprobacion`): its INSERT queues no reconcile (`bono_queue` fires on
-    an active bonus only) and every money reader skips it."""
-    campos = validar(db, data, de_tactical=tactical is not None)
+    an active bonus only) and every money reader skips it. `heredado`: a tactical line created again by a full edit
+    that already was a lump sum (`validar`'s `nuevo`)."""
+    campos = validar(db, data, de_tactical=tactical is not None, nuevo=not heredado)
     tactical_id, tactical_linea = tactical or (None, None)
     bono = SellInBonoMarca(
         usuario_id=usuario_id,
@@ -554,7 +565,9 @@ def editar_bono_sin_commit(
             "La base del bono no se puede cambiar: lo que ya generó se contaría dos veces; anulalo y cargá otro"
         )
     incluye_iva = data.incluye_iva if "incluye_iva" in data.model_fields_set else bono.incluye_iva
-    campos = validar(db, data, bono.base, incluye_iva, de_tactical=bono.tactical_id is not None)
+    campos = validar(
+        db, data, bono.base, incluye_iva, de_tactical=bono.tactical_id is not None, nuevo=bono.tipo != MONTO_TOTAL
+    )
     if data.moneda != bono.moneda and bono.tope_monto is not None and "tope_monto" not in data.model_fields_set:
         # The stored money cap is in the old currency: kept as is it would silently mean another amount.
         raise SellInBonoError("Al cambiar la moneda hay que volver a indicar el tope de monto")

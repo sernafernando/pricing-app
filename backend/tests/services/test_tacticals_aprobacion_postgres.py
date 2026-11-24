@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.schemas.tacticals import TacticalCobranzaIn, TacticalEditarIn
 from app.services import tacticals as service
-from app.services.sell_in import bonos, bonos_costo
+from app.services.sell_in import bonos
 from app.services.sell_out import asignacion
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _bono_world as bw
@@ -76,12 +76,6 @@ def _auditadas(engine: Engine) -> list[str]:
     ]
 
 
-def _recalcular_bonos(engine: Engine, bono_ids: list[int]) -> None:
-    with sessionmaker(bind=engine)() as otra:
-        bonos_costo.recalcular(otra, bono_ids=bono_ids)
-        otra.commit()
-
-
 def _bonos_de(engine: Engine, tactical_id: int) -> list[int]:
     return [r[0] for r in _sql(engine, f"SELECT id FROM sell_in_bonos_marca WHERE tactical_id = {tactical_id}")]
 
@@ -115,7 +109,7 @@ class TestCarga:
         tactical = service.crear(db, _tactical("sell_in", [linea], fecha_desde=None, fecha_hasta=None), USUARIO)
 
         assert _estados(engine, tactical.id)["sell_in_compras"] == ["pendiente"]
-        assert w.consumos(engine) == []  # FIFO: a pending purchase discounts no sale
+        assert w.consumos(engine) == []
 
 
 class TestAprobar:
@@ -148,19 +142,6 @@ class TestAprobar:
             service.aprobar(db, otro.id, APROBADOR)
         assert service.aprobar(db, 999999, APROBADOR) is None
 
-    def test_a_cost_bonus_gives_nothing_until_approved(self, db, engine) -> None:
-        """Per-sale cost bonuses (`bonos_costo`): a pending line takes no sale; approved, it does."""
-        tactical = service.crear(db, _tactical("sell_in", [POR_UNIDAD]), USUARIO)
-        w.venta(engine, "fuera", 2964, 3, date(2026, 11, 10))
-        bono_ids = _bonos_de(engine, tactical.id)
-
-        _recalcular_bonos(engine, bono_ids)
-        assert bw.bono_consumos(engine) == []
-
-        service.aprobar(db, tactical.id, APROBADOR)
-        _recalcular_bonos(engine, bono_ids)
-        assert [(c[0], c[5]) for c in bw.bono_consumos(engine)] == [(bono_ids[0], 3)]
-
     def test_an_invoice_bonus_generates_its_purchases_only_once_approved(self, db, engine) -> None:
         """The bonus reconcile (and the purchases it derives, `origen = 'bono_marca'`) follow the bonus."""
         pedido = bw.pedido(engine, {2964: 10}, date(2026, 10, 10))
@@ -183,8 +164,9 @@ class TestAprobar:
         db.commit()
         assert [g[2] for g in bw.generadas(engine)] == ["anulada"]  # back to pending: what it derived is voided
 
-    def test_an_invoice_total_starts_consuming_once_approved(self, db, engine) -> None:
-        """FIFO: the approval recomputes the purchase's products in the same transaction."""
+    def test_an_approved_invoice_total_is_active_and_allocates_no_sale(self, db, engine) -> None:
+        """No sale is allocated to a purchase any more (sell-in-costo-si T5 PR A): the approval only makes it active,
+        and costo SI's trigger queues its products (`costo_si/test_aprobacion_pendiente_postgres.py`)."""
         pedido = bw.pedido(engine, {2964: 10}, date(2026, 10, 10), moneda="ARS")
         linea = {"alcance": "factura", "pedido_compra_id": pedido, "modo_monto": "monto_total", "valor": "15000"}
         w.venta(engine, "fuera", 2964, 3, date(2026, 10, 20))
@@ -192,7 +174,8 @@ class TestAprobar:
 
         service.aprobar(db, tactical.id, APROBADOR)
 
-        assert [c[4] for c in w.consumos(engine)] == [3]
+        assert _estados(engine, tactical.id)["sell_in_compras"] == ["activa"]
+        assert w.consumos(engine) == []
 
     def test_a_waiting_invoice_total_follows_its_tactical(self, db, engine) -> None:
         """The purchase a waiting total becomes when its invoice arrives is pending under a pending tactical and

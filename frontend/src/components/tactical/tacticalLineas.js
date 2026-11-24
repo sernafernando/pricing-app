@@ -44,6 +44,8 @@ export const nuevaLinea = (marca = '') => ({
   topeMonto: '',
   compartido: false,
   reparto: '',
+  // The scope of the stored sell in lump sum an edit loaded this line from (`alcanceDeLinea`), or null.
+  totalGuardado: null,
 });
 
 const PRODUCTOS_A_NOMBRAR = 2;
@@ -76,9 +78,11 @@ export function topesDeLineas(lineas, moneda) {
   });
 }
 
+// A copy is a new line: a stored lump sum pairs with one line only.
 export const copiarLinea = (linea) => ({
   ...linea,
   id: ++siguienteId,
+  totalGuardado: null,
   productos: [...linea.productos],
   facturas: [...linea.facturas],
 });
@@ -158,6 +162,29 @@ const totalSinTipoDeCambio = (tipo, alcance, moneda, tcModo) =>
 /** Why a sell in total amount in USD is off, in the backend's words. */
 export const TOTAL_USD_SIN_TC_FIJO = 'Un monto total en USD necesita tipo de cambio fijo.';
 
+/** The backend's words for a new sell in lump sum (`bonos_crud.MONTO_TOTAL_RETIRADO`, sell-in-costo-si T5 PR A, L25). */
+export const MONTO_TOTAL_RETIRADO =
+  'Un bono de sell in por monto total no se puede cargar por ahora: si es sobre las ventas, cargalo como sell out';
+
+/**
+ * What a line targets, compared the way the backend pairs an edited line with a stored one (`tacticals._mismo_alcance`):
+ * the scope and, by scope, the brand and category, the category, or the set of products.
+ */
+export const alcanceDeLinea = (linea) =>
+  JSON.stringify([
+    linea.alcance,
+    linea.alcance === 'marca' ? linea.marca : '',
+    linea.alcance === 'marca' || linea.alcance === 'categoria' ? linea.categoria || '' : '',
+    linea.alcance === 'productos' ? linea.productos.map((p) => p.item_id).sort((a, b) => a - b) : [],
+  ]);
+
+/**
+ * Whether a sell in line over products, a brand or a category cannot be a total amount (T5 PR A, L25): only a stored
+ * lump sum an edit loaded, still on the same scope, stays one. An invoice line keeps its total.
+ */
+export const totalRetirado = (tipo, linea) =>
+  tipo === 'sell_in' && linea.alcance !== 'factura' && linea.totalGuardado !== alcanceDeLinea(linea);
+
 /** The amount kinds a line shows but cannot use: a sell in total amount in USD without a fixed rate (S4). */
 export const modosNoDisponibles = (tipo, alcance, moneda, tcModo) =>
   totalSinTipoDeCambio(tipo, alcance, moneda, tcModo) ? ['monto_total'] : [];
@@ -226,6 +253,7 @@ export function problemaDe(form, lineas) {
     const n = lineas.filter(falla).length;
     return n ? `Hay ${cuantas(n, 'línea', 'líneas')} con ${que}. ${n === 1 ? 'Corregila' : 'Corregilas'}${arreglo}.` : null;
   };
+  const retiradas = (n) => (n ? `${MONTO_TOTAL_RETIRADO}. Cambiá ${n === 1 ? 'la línea' : 'las líneas'} a por unidad o %.` : null);
   const ilegible = (texto) => String(texto ?? '').trim() !== '' && numeroDe(texto) == null;
   return (
     faltan((l) => l.alcance === 'productos' && !l.productos.length, 'productos') ||
@@ -233,6 +261,7 @@ export function problemaDe(form, lineas) {
     faltan((l) => l.alcance === 'marca' && !l.marca, 'marca') ||
     faltan((l) => l.alcance === 'categoria' && !l.categoria, 'categoría') ||
     faltan((l) => !(numeroDe(l.monto) > 0), 'monto') ||
+    retiradas(lineas.filter((l) => l.modo === 'monto_total' && totalRetirado(form.tipo, l)).length) ||
     faltan((l) => repartePorCriterio(l) && !l.reparto, 'reparto del monto total') ||
     mal(
       (l) => repartePorCriterio(l) && totalSinTipoDeCambio(form.tipo, l.alcance, form.moneda, form.tcModo),

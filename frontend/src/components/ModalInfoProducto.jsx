@@ -191,7 +191,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                 className={`tab-button ${tabActiva === 'lotes' ? 'active' : ''}`}
                 onClick={() => setTabActiva('lotes')}
               >
-                <Layers size={14} aria-hidden="true" /> Lotes sell in
+                <Layers size={14} aria-hidden="true" /> Historial de lotes sell in
               </button>
             )}
           </div>

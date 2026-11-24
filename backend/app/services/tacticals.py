@@ -384,7 +384,7 @@ def _grupo_oculto(db: Session, tactical: Tactical, nombre: str, parte: _Alcance,
     return grupo.id
 
 
-def _sell_out(db, tactical, data, linea, numero, parte, codigos, usuario_id) -> None:
+def _sell_out(db, tactical, data, linea, numero, parte, codigos, usuario_id, heredada=False) -> None:
     nombre = _nombre(tactical, numero, parte, codigos, CAMPANA_NOMBRE_MAX)
     grupo_id = _grupo_oculto(db, tactical, nombre, parte, usuario_id)
     valor = {"por_unidad": "monto_unit", "porcentaje": "porcentaje", "monto_total": "monto_total"}[linea.modo_monto]
@@ -410,7 +410,7 @@ def _sell_out(db, tactical, data, linea, numero, parte, codigos, usuario_id) -> 
     )
 
 
-def _sell_in(db, tactical, data, linea, numero, parte, codigos, usuario_id) -> None:
+def _sell_in(db, tactical, data, linea, numero, parte, codigos, usuario_id, heredada=False) -> None:
     descripcion = _nombre(tactical, numero, parte, codigos, CAMPANA_NOMBRE_MAX)
     if parte.pedido is not None and linea.modo_monto == "monto_total":
         _total_de_factura(db, tactical, data, linea, numero, parte.pedido, descripcion, usuario_id)
@@ -456,7 +456,12 @@ def _sell_in(db, tactical, data, linea, numero, parte, codigos, usuario_id) -> N
         acumulable=data.acumulable,
     )
     bonos_crud.crear_bono_sin_commit(
-        db, entrada, usuario_id, tactical=(tactical.id, numero), estado=aprobacion.estado_de_linea(tactical.estado)
+        db,
+        entrada,
+        usuario_id,
+        tactical=(tactical.id, numero),
+        estado=aprobacion.estado_de_linea(tactical.estado),
+        heredado=heredada,
     )
 
 
@@ -806,10 +811,16 @@ def _crear(db: Session, data: TacticalIn, usuario_id: int) -> Tactical:
 
 
 def _crear_hijos(
-    db: Session, tactical: Tactical, data: TacticalIn, usuario_id: int, conservadas: frozenset[int] = frozenset()
+    db: Session,
+    tactical: Tactical,
+    data: TacticalIn,
+    usuario_id: int,
+    conservadas: frozenset[int] = frozenset(),
+    heredadas: frozenset[int] = frozenset(),
 ) -> None:
     """Every line's children through the engines' create steps; a line in `conservadas` keeps the child it has (an
-    edit's unchanged invoice total, `_conservables`)."""
+    edit's unchanged invoice total, `_conservables`), and one in `heredadas` already was a sell in lump-sum bonus
+    (`_heredadas`), so it is not a new one."""
     todos = {i for linea in data.lineas for i in linea.item_ids}
     codigos = dict(db.query(ProductoERP.item_id, ProductoERP.codigo).filter(ProductoERP.item_id.in_(todos)))
     crear_hijo = _sell_out if data.tipo == "sell_out" else _sell_in
@@ -825,7 +836,7 @@ def _crear_hijos(
             # total right away (`_compra_de_factura`). None stored: every invoice.
             facturas_elegidas.guardar(db, tactical.id, numero, linea.facturas_ct)
             for parte in _partes(linea, alcance):
-                crear_hijo(db, tactical, data, linea, numero, parte, codigos, usuario_id)
+                crear_hijo(db, tactical, data, linea, numero, parte, codigos, usuario_id, numero in heredadas)
         except campanas.SellOutRecalculando as exc:
             raise TacticalOcupado(f"Línea {numero}: {exc}") from exc
         except ValidationError as exc:  # an engine's input schema refused a value the tactical's own did not check
@@ -1299,6 +1310,7 @@ def reemplazar(
         dinero = _dinero(db, tactical)
         antes = {**_cabecera(tactical), "tactical_id": tactical.id, "lineas": _definicion_de(hijos)}
         conservadas = _conservables(tactical, data, hijos)
+        heredadas = _heredadas(tactical, data, hijos)  # before the children are voided
         _validar_topes_usados(db, tactical, data, [h for h in hijos if h["linea"] not in conservadas])
         _sin_modo_manual(db, [h for h in hijos if h["linea"] not in conservadas])
         tasas = _tasas_al_cobro(db, tactical, data)
@@ -1306,7 +1318,7 @@ def reemplazar(
         facturas_elegidas.borrar(db, tactical_id)  # every line stores its pick again (`_crear_hijos`)
         _aplicar_cabecera(db, tactical, data)
         db.flush()
-        _crear_hijos(db, tactical, data, usuario_id, frozenset(conservadas))
+        _crear_hijos(db, tactical, data, usuario_id, frozenset(conservadas), heredadas)
         _poner_tasas(db, tactical_id, tasas)
         despues = {
             **_cabecera(tactical),
@@ -1340,6 +1352,32 @@ def _definicion_de(hijos: list[dict]) -> list[dict]:
         }
         for h in hijos
     ]
+
+
+def _heredadas(tactical: Tactical, data: TacticalIn, hijos: list[dict]) -> frozenset[int]:
+    """The new lines that repeat a stored sell in lump-sum bonus line: a full edit creates them again, which is not
+    loading a new lump sum (`bonos_crud.validar`'s `nuevo`, sell-in-costo-si T5 PR A, L25). A new line is paired
+    with the old line of the same scope whatever its number (L18, like `_validar_topes_usados`)."""
+    if data.tipo != "sell_in" or tactical.tipo != "sell_in":
+        return frozenset()
+    por_linea: dict[int, list[dict]] = defaultdict(list)
+    for h in hijos:
+        if h["estado"] == "activa":
+            por_linea[h["linea"]].append(h)
+    totales = {
+        n: actuales
+        for n, actuales in por_linea.items()
+        if all(h["origen"] == "sell_in_bono" and h["modo_monto"] == "monto_total" for h in actuales)
+    }
+    heredadas = set()
+    for numero, linea in enumerate(data.lineas, start=1):
+        if linea.modo_monto != "monto_total" or linea.alcance == "factura":
+            continue
+        viejo = next((n for n, actuales in totales.items() if _mismo_alcance(linea, actuales)), None)
+        if viejo is not None:
+            totales.pop(viejo)
+            heredadas.add(numero)
+    return frozenset(heredadas)
 
 
 def _conservables(tactical: Tactical, data: TacticalIn, hijos: list[dict]) -> set[int]:
@@ -1925,19 +1963,17 @@ def cobrar(db: Session, tactical_id: int, data: TacticalCobranzaIn, usuario_id: 
         if tactical.estado == "pendiente":
             raise TacticalPendienteDeCobro(SIN_APROBAR_COBRO)
         cobranza = db.query(TacticalCobranza).filter(TacticalCobranza.tactical_id == tactical_id).first()
-        usd = _bonos_al_cobro(db, tactical)
-        if usd and data.tipo_cambio is None:
-            raise TacticalError(SIN_TC_COBRO)
-        if not usd and data.tipo_cambio is not None:
+        # The collection rate is no longer required (sell-in-costo-si T5 PR A, L24): it only converted the per-sale
+        # cost bonuses, and nothing applies them any more. Still accepted where a USD cost line exists, and a stored
+        # one is kept when a save leaves it out, so the stored usage rows keep reading as they did.
+        if data.tipo_cambio is not None and not _bonos_al_cobro(db, tactical):
             raise TacticalError(TC_COBRO_SIN_USD)
-        antes = cobranza.tipo_cambio if cobranza is not None else None
         if cobranza is None:
             cobranza = TacticalCobranza(tactical_id=tactical_id)
             db.add(cobranza)
         cobranza.fecha_cobro = data.fecha_cobro
-        cobranza.tipo_cambio = data.tipo_cambio
-        if antes is None or data.tipo_cambio is None or Decimal(antes) != data.tipo_cambio:
-            bonos_costo.encolar_bonos(db, usd)  # they convert at the new rate (only when it changed)
+        if data.tipo_cambio is not None:
+            cobranza.tipo_cambio = data.tipo_cambio
         cobranza.medio = data.medio
         for campo in _COBRANZA_TEXTOS:
             setattr(cobranza, campo, _texto(getattr(data, campo)))
@@ -1955,19 +1991,14 @@ class TacticalPendienteDeCobro(TacticalError):
 
 
 SIN_APROBAR_COBRO = "Se aprueba antes de cobrar"
-
-SIN_TC_COBRO = (
-    "Falta el tipo de cambio del cobro: con tipo de cambio al cobro, las líneas en USD se pasan a pesos al tipo de "
-    "cambio al que cobraste"
-)
 TC_COBRO_SIN_USD = (
     "Solo un tactical de sell in en USD con tipo de cambio al cobro y una línea en USD lleva tipo de cambio del cobro"
 )
 
 
 def _bonos_al_cobro(db: Session, tactical: Tactical) -> list[int]:
-    """The active USD cost bonuses of a sell in USD `al_cobro` tactical: they convert at the collection's rate
-    (`bonos_costo`), so its collection asks for it (`pide_tc_cobro`)."""
+    """The active USD cost bonuses of a sell in USD `al_cobro` tactical: the only ones a collection rate was ever
+    for (`cobrar`)."""
     if (tactical.tipo, tactical.moneda, tactical.tc_modo) != ("sell_in", "USD", "al_cobro"):
         return []
     b = SellInBonoMarca
@@ -1981,11 +2012,9 @@ def _bonos_al_cobro(db: Session, tactical: Tactical) -> list[int]:
 
 def deshacer_cobro(db: Session, tactical_id: int) -> bool:
     """Undo: delete the tactical's collection record, so it reads "Pendiente" again. False when it had none. A USD
-    `al_cobro` cost line goes back to the latest BNA: its bonuses are queued."""
+    `al_cobro` cost line goes back to the latest BNA (a cost bonus is no longer applied per sale, L24: nothing to
+    queue)."""
     try:
-        tactical = db.get(Tactical, tactical_id)
-        if tactical is not None:
-            bonos_costo.encolar_bonos(db, _bonos_al_cobro(db, tactical))
         borradas = db.query(TacticalCobranza).filter(TacticalCobranza.tactical_id == tactical_id).delete()
         db.commit()
     except Exception:
@@ -2319,15 +2348,8 @@ def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
             ),
             "lineas": de_tactical[t.id],
             "cobranza": _cobranza(t.cobranza),
-            "pide_tc_cobro": (t.tipo, t.moneda, t.tc_modo) == ("sell_in", "USD", "al_cobro")
-            and any(
-                # The rule of `_bonos_al_cobro`: an invoice line discounts the invoice, not each sale's cost.
-                h["origen"] == "sell_in_bono"
-                and h["alcance"] != "factura"
-                and h["moneda"] == "USD"
-                and h["estado"] in aprobacion.VIVAS
-                for h in de_tactical[t.id]
-            ),
+            # Never asked any more (sell-in-costo-si T5 PR A, L24): no cost bonus is converted per sale (`cobrar`).
+            "pide_tc_cobro": False,
         }
         for t in tacticals
     ]

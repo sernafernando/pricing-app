@@ -23,6 +23,8 @@ import {
   maximoACobrar,
   modosDe,
   modosNoDisponibles,
+  MONTO_TOTAL_RETIRADO,
+  totalRetirado,
   puedeCompartir,
   repartePorCriterio,
 } from './tacticalLineas';
@@ -296,6 +298,8 @@ export default function TacticalLinea({
   const max = maximoACobrar(linea, contadores);
   const compartible = puedeCompartir(linea);
   const compartida = esCompartida(linea);
+  // No new sell in lump sum over products, a brand or a category (T5 PR A, L25): only a stored one stays one.
+  const retirado = totalRetirado(tipo, linea);
   const porCriterio = repartePorCriterio(linea);
 
   return (
@@ -345,10 +349,12 @@ export default function TacticalLinea({
         <Seg
           size="xxs"
           label={`Unidad del monto, línea ${n}`}
-          options={modosDe(tipo).map((value) => ({ value, label: MODOS[value] }))}
+          options={modosDe(tipo)
+            .filter((value) => value !== 'monto_total' || !retirado || linea.modo === 'monto_total')
+            .map((value) => ({ value, label: MODOS[value] }))}
           value={linea.modo}
-          disabled={modosNoDisponibles(tipo, linea.alcance, moneda, tcModo)}
-          motivo={TOTAL_USD_SIN_TC_FIJO}
+          disabled={retirado ? ['monto_total'] : modosNoDisponibles(tipo, linea.alcance, moneda, tcModo)}
+          motivo={retirado ? `${MONTO_TOTAL_RETIRADO}.` : TOTAL_USD_SIN_TC_FIJO}
           onChange={(modo) => onCambiar(conModo(linea, modo))}
         />
       </div>
