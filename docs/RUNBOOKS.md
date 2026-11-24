@@ -706,18 +706,23 @@ fix. These limits are only the safety net under it.
 
 | Service | Real peak seen | `MemoryHigh` | `MemoryMax` | On OOM kill |
 | --- | --- | --- | --- | --- |
-| pricing-api | 6.5G (76 h up); 4.2-4.3G after 7-43 h | 7G | 8G | one worker dies, uvicorn starts a new one (`OOMPolicy=continue`) |
+| pricing-api | 6.5G (76 h up); 4.2-4.3G after 7-43 h | none, on purpose | 8G | one worker dies, uvicorn starts a new one (`OOMPolicy=continue`) |
 | pricing-worker-ml | 2.4-2.7G in every run | 3.5G | 4G | the process dies, `Restart=always` starts it |
 | pricing-worker | 0.33-0.35G | 1G | 1.25G | the process dies, `Restart=always` starts it |
 
 - **Peaks:** they come from the "memory peak" line systemd logs when it stops a service
   (`journalctl _PID=1 | grep "memory peak"`) and from the cgroup's `memory.peak`.
-- **The rule:** a limit that kills the API under normal load is worse than none. So `MemoryHigh` sits
-  above the highest real peak and `MemoryMax` above that.
+- **The rule:** a limit that kills or stalls the API under normal load is worse than none. Every limit
+  sits above the highest real peak: pricing-api's `MemoryMax` is 1.5G above it, and the workers' `MemoryHigh`
+  is at least 25% above theirs.
 - **Budget:** the three `MemoryMax` add up to 13.25G. The other services on the CT peaked at about
-  2.4G (journald 1.3G, ml-webhook, gbs), so the total still fits the 16G CT.
-- **`MemoryHigh`:** above it the kernel throttles the service. There is no swap, so allocations stall:
-  the service gets slow, but it is not killed.
+  2.4G (journald 1.3G, ml-webhook, gbs), so the total fits the 16G CT. That holds outside a deploy:
+  the frontend build (about 5.8G) needs its own room, and the build's memory check covers it
+  ("Frontend Build: Memory and the `dist` Swap").
+- **`MemoryHigh`:** above it the kernel throttles **every** process of the service. There is no swap,
+  so memory the service keeps cannot be reclaimed, and the service can stay slow for a long time
+  without being killed. That is why pricing-api has none: there, losing one worker at `MemoryMax`
+  is the better failure. For the workers, which run in the background, being slow is acceptable.
 - **`MemoryMax`:** above it the kernel OOM-kills the largest process of the service.
 - **Every drop-in also sets:**
   - `Environment=MALLOC_ARENA_MAX=2`. glibc gives allocating threads their own heap arena (up to 8 per

@@ -52,12 +52,18 @@ class TestTheLimits:
         assert service(unit)["Environment"] == "MALLOC_ARENA_MAX=2"
         assert service(unit)["Restart"] == "always"
 
-    @pytest.mark.parametrize("unit", UNITS)
-    def test_the_soft_limit_is_above_the_real_peak_and_below_the_hard_one(self, unit) -> None:
+    @pytest.mark.parametrize("unit", ["pricing-worker", "pricing-worker-ml"])
+    def test_a_worker_soft_limit_is_well_above_its_real_peak_and_below_the_hard_one(self, unit) -> None:
         high, hard = size(service(unit)["MemoryHigh"]), size(service(unit)["MemoryMax"])
-        # MemoryHigh throttles (no swap here, so it stalls allocations): never under a real peak.
-        assert high >= MEASURED_PEAK[unit] * 1.07, f"{unit}: MemoryHigh too close to the measured peak"
+        # MemoryHigh throttles (no swap here, so it stalls allocations): never near a real peak.
+        assert high >= MEASURED_PEAK[unit] * 1.25, f"{unit}: MemoryHigh too close to the measured peak"
         assert hard > high
+
+    def test_the_api_is_never_throttled_and_its_kill_limit_is_well_above_the_real_peak(self) -> None:
+        # MemoryHigh would throttle all four workers at once and, with no swap, could keep the whole API
+        # slow for hours without killing anything: losing one worker at MemoryMax is the better failure.
+        assert "MemoryHigh" not in service("pricing-api")
+        assert size(service("pricing-api")["MemoryMax"]) >= MEASURED_PEAK["pricing-api"] + 1.5 * GIB
 
     def test_together_the_hard_limits_leave_room_for_the_rest_of_the_ct(self) -> None:
         total = sum(size(service(unit)["MemoryMax"]) for unit in UNITS)
@@ -126,10 +132,35 @@ class TestTheDeployInstallsThem:
         live = deploy.etc / "pricing-api.service.d" / "memory.conf"
         live.write_text("[Service]\nMemoryMax=1G\n")
 
+        reloads = deploy.reloads()
+
         result = deploy.go()
 
+        assert result.returncode == 0, output(result)
         assert live.read_text() == dropin("pricing-api").read_text()
         assert f"instalado {live}" in result.stdout
+        assert deploy.reloads() == reloads + 1
+
+    def test_the_installed_dropins_are_readable_root_files_not_executable(self, deploy) -> None:
+        deploy.go()
+
+        modes = {p.name: p.stat().st_mode & 0o777 for p in deploy.etc.rglob("*.conf")}
+        assert set(modes.values()) == {0o644}
+
+    def test_a_failed_daemon_reload_only_warns_and_the_deploy_finishes(self, deploy) -> None:
+        real = deploy.stub / "bin" / "systemctl"
+        real.rename(deploy.stub / "systemctl.real")
+        deploy._write(
+            real,
+            '#!/usr/bin/env bash\n[ "$1" = daemon-reload ] && { echo "systemctl $*" >> "$STUB_DIR/calls.log"; exit 1; }\n'
+            'exec "$STUB_DIR/systemctl.real" "$@"\n',
+        )
+
+        result = deploy.go()
+
+        assert result.returncode == 0, output(result)
+        assert "Falló systemctl daemon-reload" in result.stdout
+        assert deploy.notifications()[-1].startswith("Pricing App - deploy terminado")
 
     def test_a_unit_missing_on_this_server_only_warns_and_gets_nothing(self, deploy) -> None:
         (deploy.stub / "state" / "installed" / "pricing-worker-ml").unlink()
