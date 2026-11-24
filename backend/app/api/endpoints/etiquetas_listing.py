@@ -6,14 +6,16 @@ Incluye:
 - GET /etiquetas-envio/check-updates (smart polling ligero)
 """
 
+import io
 from datetime import date
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import and_, case, cast, func, Numeric, or_
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy.engine import Row
+from sqlalchemy.orm import Query as OrmQuery, Session, aliased
 
 from app.core.database import get_db
 from app.api.deps import get_current_user
@@ -62,6 +64,92 @@ class ItemEnvioFlexResponse(BaseModel):
 
 
 router = APIRouter()
+
+LOTE_LISTA = 500  # rows read from the cursor at a time by the plain list
+
+
+def _etiqueta_response(row: Row) -> EtiquetaEnvioResponse:
+    """One listing row as the label the grid shows."""
+    return EtiquetaEnvioResponse(
+        shipping_id=row.shipping_id,
+        sender_id=row.sender_id,
+        nombre_archivo=row.nombre_archivo,
+        upload_batch_id=row.upload_batch_id,
+        fecha_envio=row.fecha_envio,
+        logistica_id=row.logistica_id,
+        logistica_nombre=row.logistica_nombre,
+        logistica_color=row.logistica_color,
+        mluser_nickname=row.mluser_nickname,
+        mlreceiver_name=row.mlreceiver_name,
+        mlstreet_name=row.mlstreet_name,
+        mlstreet_number=row.mlstreet_number,
+        mlzip_code=row.mlzip_code,
+        mlcity_name=row.mlcity_name,
+        mlstatus=row.mlstatus,
+        mlsubstatus=row.mlsubstatus,
+        cordon=row.cordon,
+        latitud=row.latitud,
+        longitud=row.longitud,
+        direccion_completa=row.direccion_completa,
+        direccion_comentario=row.direccion_comentario,
+        ssos_id=row.ssos_id,
+        ssos_name=row.ssos_name,
+        ssos_color=row.ssos_color,
+        pistoleado_at=str(row.pistoleado_at) if row.pistoleado_at else None,
+        pistoleado_caja=row.pistoleado_caja,
+        pistoleado_operador_nombre=row.pistoleado_operador_nombre,
+        costo_envio=float(row.costo_envio) if row.costo_envio is not None else None,
+        costo_override=float(row.costo_override) if row.costo_override is not None else None,
+        es_manual=row.es_manual,
+        manual_bra_id=row.manual_bra_id,
+        manual_soh_id=row.manual_soh_id,
+        manual_cust_id=row.manual_cust_id,
+        manual_comment=row.manual_comment,
+        manual_phone=row.manual_phone,
+        deposito_mensaje=row.manual_deposito_mensaje,
+        es_outlet=row.es_outlet,
+        es_turbo=row.es_turbo,
+        ml_date_delivered=str(row.ml_date_delivered) if row.ml_date_delivered else None,
+        ml_estimated_delivery_time_date=str(row.ml_estimated_delivery_time_date)
+        if row.ml_estimated_delivery_time_date
+        else None,
+        es_lluvia=row.es_lluvia,
+        flag_envio=row.flag_envio,
+        flag_envio_motivo=row.flag_envio_motivo,
+        flag_envio_at=str(row.flag_envio_at) if row.flag_envio_at else None,
+        flag_envio_usuario_nombre=row.flag_envio_usuario_nombre,
+        retornado=row.retornado,
+        retornado_at=str(row.retornado_at) if row.retornado_at else None,
+        retornado_usuario_nombre=row.retornado_usuario_nombre,
+        creado_por_usuario_nombre=row.creado_por_usuario_nombre,
+        transporte_id=row.transporte_id,
+        transporte_nombre=row.transporte_nombre,
+        transporte_color=row.transporte_color,
+        transporte_direccion=row.transporte_direccion,
+        transporte_cp=row.transporte_cp,
+        transporte_localidad=row.transporte_localidad,
+        transporte_telefono=row.transporte_telefono,
+        transporte_horario=row.transporte_horario,
+    )
+
+
+def _lista_completa(query: OrmQuery) -> Response:
+    """Every label of the query as one JSON list, encoded while the rows are read.
+
+    A date range can hold tens of thousands of labels (an 84 MB reply seen on prod). Building it the usual way keeps
+    the rows, one model per row and three encoder copies alive at once, about 8x the reply, and the worker keeps that
+    memory afterwards (handoffs/drain-diagnostico.md). Here the rows come in batches of `LOTE_LISTA` from a server
+    cursor and each label is written to one buffer as soon as it is read, so only the reply itself is held. The JSON
+    is the same the response model would produce.
+    """
+    buffer = io.BytesIO()
+    buffer.write(b"[")
+    for n, row in enumerate(query.yield_per(LOTE_LISTA)):
+        if n:
+            buffer.write(b",")
+        buffer.write(_etiqueta_response(row).model_dump_json().encode())
+    buffer.write(b"]")
+    return Response(content=buffer.getvalue(), media_type="application/json")
 
 
 @router.get(
@@ -513,82 +601,17 @@ def listar_etiquetas(
         offset = (page - 1) * page_size
         query = query.limit(page_size).offset(offset)
 
-    rows = query.all()
+    if page is None:
+        return _lista_completa(query)
 
-    items = [
-        EtiquetaEnvioResponse(
-            shipping_id=row.shipping_id,
-            sender_id=row.sender_id,
-            nombre_archivo=row.nombre_archivo,
-            upload_batch_id=row.upload_batch_id,
-            fecha_envio=row.fecha_envio,
-            logistica_id=row.logistica_id,
-            logistica_nombre=row.logistica_nombre,
-            logistica_color=row.logistica_color,
-            mluser_nickname=row.mluser_nickname,
-            mlreceiver_name=row.mlreceiver_name,
-            mlstreet_name=row.mlstreet_name,
-            mlstreet_number=row.mlstreet_number,
-            mlzip_code=row.mlzip_code,
-            mlcity_name=row.mlcity_name,
-            mlstatus=row.mlstatus,
-            mlsubstatus=row.mlsubstatus,
-            cordon=row.cordon,
-            latitud=row.latitud,
-            longitud=row.longitud,
-            direccion_completa=row.direccion_completa,
-            direccion_comentario=row.direccion_comentario,
-            ssos_id=row.ssos_id,
-            ssos_name=row.ssos_name,
-            ssos_color=row.ssos_color,
-            pistoleado_at=str(row.pistoleado_at) if row.pistoleado_at else None,
-            pistoleado_caja=row.pistoleado_caja,
-            pistoleado_operador_nombre=row.pistoleado_operador_nombre,
-            costo_envio=float(row.costo_envio) if row.costo_envio is not None else None,
-            costo_override=float(row.costo_override) if row.costo_override is not None else None,
-            es_manual=row.es_manual,
-            manual_bra_id=row.manual_bra_id,
-            manual_soh_id=row.manual_soh_id,
-            manual_cust_id=row.manual_cust_id,
-            manual_comment=row.manual_comment,
-            manual_phone=row.manual_phone,
-            deposito_mensaje=row.manual_deposito_mensaje,
-            es_outlet=row.es_outlet,
-            es_turbo=row.es_turbo,
-            ml_date_delivered=str(row.ml_date_delivered) if row.ml_date_delivered else None,
-            ml_estimated_delivery_time_date=str(row.ml_estimated_delivery_time_date)
-            if row.ml_estimated_delivery_time_date
-            else None,
-            es_lluvia=row.es_lluvia,
-            flag_envio=row.flag_envio,
-            flag_envio_motivo=row.flag_envio_motivo,
-            flag_envio_at=str(row.flag_envio_at) if row.flag_envio_at else None,
-            flag_envio_usuario_nombre=row.flag_envio_usuario_nombre,
-            retornado=row.retornado,
-            retornado_at=str(row.retornado_at) if row.retornado_at else None,
-            retornado_usuario_nombre=row.retornado_usuario_nombre,
-            creado_por_usuario_nombre=row.creado_por_usuario_nombre,
-            transporte_id=row.transporte_id,
-            transporte_nombre=row.transporte_nombre,
-            transporte_color=row.transporte_color,
-            transporte_direccion=row.transporte_direccion,
-            transporte_cp=row.transporte_cp,
-            transporte_localidad=row.transporte_localidad,
-            transporte_telefono=row.transporte_telefono,
-            transporte_horario=row.transporte_horario,
-        )
-        for row in rows
-    ]
+    items = [_etiqueta_response(row) for row in query.all()]
 
-    if page is not None:
-        return EtiquetaPaginatedResponse(
-            items=items,
-            total=total_count,
-            page=page,
-            page_size=page_size,
-        )
-
-    return items
+    return EtiquetaPaginatedResponse(
+        items=items,
+        total=total_count,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get(
