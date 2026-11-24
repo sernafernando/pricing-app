@@ -28,8 +28,8 @@ running drain holds is `TacticalOcupado` (retry). Voiding a tactical voids every
 own void step, in one transaction.
 
 The read returns one line per child (T5: a per-product line is one line per product), each with what it used: a
-campaign's consumptions, a cost bonus's sales rows (ARS), what an invoice bonus generated, and the sales that
-consumed an invoice total (converted to its currency at its own rate).
+campaign's consumptions, what an invoice bonus generated, and what costo SI took off the purchase invoices for a cost
+bonus or an invoice total (`costo_si.generado`, in the line's own currency at each invoice's rate).
 """
 
 from __future__ import annotations
@@ -1778,8 +1778,8 @@ def _usado_por_linea(ids: Select, dialect: str) -> Subquery:
 
 def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
     """Pendientes and Cobrados over every tactical the other filters match (S4): how many, and the money they used
-    per currency, the sum of their lines' `monto_usado` exactly as the list's Avance column shows it (a USD
-    tactical's cost-reduction lines count in ARS), next to the sum of their money caps in that currency (S6, None
+    per currency, the sum of their lines' `monto_usado` exactly as the list's Avance column shows it (each line in
+    its own currency), next to the sum of their money caps in that currency (S6, None
     when no line there has one; `tope_parcial` when only some lines there have one), and how many have no money cap
     on any line. Three SQL aggregates, whatever the
     number of tacticals. ARS first, then USD; a currency with no line is left out."""
@@ -1815,7 +1815,7 @@ def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
             "tope": None if tope is None else _cents(tope),
             # The cap covers only some of the lines `monto` sums: comparing them would read "900 of 500".
             "tope_parcial": 0 < con_tope_ < lineas_,
-            # Some line here is still an estimate (tactical sell in USD S10): the list marks the amount.
+            # Kept for the client: always False since costo SI values each invoice at its own rate (T5 PR B, L26).
             "estimado": bool(estimado),
         }
     con_tope = (

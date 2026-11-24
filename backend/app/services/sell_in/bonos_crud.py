@@ -20,7 +20,7 @@ updates or voids what it generates. The detail reports what it generated so
 far (active purchases, their units and amount).
 
 A bonus's `base` (T25d) is set on create and never changes: a cost bonus
-('costo_venta', a % of each sale's cost or an amount per unit, ARS, brand/category/models) turned
+('costo_venta', a % of the product's costo SI or an amount per unit, brand/category/models) turned
 into an invoice bonus would keep the sales rows it generated
 (`sell_in_bono_consumos`) and count them twice. What a cost bonus generated, and
 its cap, come from the costo SI purchase steps that carry it (T5 PR B, L26); `incluye_iva` exists only on it.
@@ -56,8 +56,8 @@ from app.models.sell_in import (
 )
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, BASE_FACTURA, SellInBonoIn, SellInBonoModeloIn
 from app.services.combos.componentes import componentes_de
-from app.services.costo_si import generado
 from app.services.combos.pcs import sin_pcs
+from app.services.costo_si import generado
 from app.services.sell_in import aprobacion, bono_queue
 from app.services.sell_in.bonos_alcance import alcanza_marcas, del_alcance
 from app.services.sell_in.compras import contiene
@@ -684,7 +684,8 @@ def listar_bonos(
 
 def serializar(db: Session, bonos: list[SellInBonoMarca]) -> list[dict]:
     """Bonuses with their models (code and description), operation number and what they generated (active
-    purchases, units, amount per currency; a cost bonus's from its sales rows): at most 6 queries per page."""
+    purchases, units, amount per currency; a cost bonus's from what costo SI took off its invoices,
+    `costo_si.generado`): at most 6 queries per page."""
     if not bonos:
         return []
     ids = [b.id for b in bonos]

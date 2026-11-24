@@ -21,8 +21,9 @@ does not know about caps never drops one. The response adds what is left of
 each cap (never below zero; None without that cap).
 
 `base` (T25d) is 'factura' (invoiced purchases, by invoice date) or
-'costo_venta' (a % of the cost recorded on each sale, or an ARS amount per
-sold unit never above it, by sale date, ARS, no purchase); it is set on create
+'costo_venta' (a % of the product's costo SI, or an amount per unit never
+above it, taken off the purchase invoices of its period; no purchase of its
+own); it is set on create
 and never changes. `incluye_iva` (S33) only exists on a cost bonus; left out
 on an edit, the stored one stays.
 `offset_origen_id` is read-only (set by the offsets migration script).
