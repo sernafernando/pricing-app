@@ -74,6 +74,8 @@ BUILD_MIN_HEAP_MB=3072
 BUILD_TERSER_WORKERS="${BUILD_TERSER_WORKERS:-2}"
 # Overridable para los tests.
 MEMINFO_FILE="${MEMINFO_FILE:-/proc/meminfo}"
+# Adonde van los drop-ins de deploy/systemd/<unit>.service.d/ (overridable para los tests).
+SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 
 # Colores
 GREEN='\033[0;32m'
@@ -148,6 +150,39 @@ publish_dist() {
     mv "$new" "$dist" || { mv "$prev" "$dist"; trap on_failure INT TERM; return 1; }
     trap on_failure INT TERM
   fi
+}
+
+# Instala los drop-ins de systemd versionados en deploy/systemd/<unit>.service.d/*.conf (límites de
+# memoria y MALLOC_ARENA_MAX) en $SYSTEMD_DIR/<unit>.service.d/. Son drop-ins y no units enteras a
+# propósito: las units de prod no son idénticas a las del repo (rutas, TZ), y un drop-in solo pisa las
+# claves que define. Copia solo lo que cambió y, si copió algo, hace daemon-reload; el restart que viene
+# después es el que aplica los valores. Warn, no fail: sin límites el backend anda igual que antes.
+# A una unit que no existe en este server no se le instala nada (el deploy nunca crea units).
+install_unit_dropins() {
+  local dir unit conf dest changed=no
+  for dir in "$PROJECT_DIR/deploy/systemd"/*.service.d; do
+    [ -d "$dir" ] || continue
+    unit=$(basename "$dir" .service.d)
+    if ! systemctl cat "$unit" >/dev/null 2>&1; then
+      warn "No existe $unit en este server: no se le instalan sus límites de memoria"
+      continue
+    fi
+    for conf in "$dir"/*.conf; do
+      [ -f "$conf" ] || continue
+      dest="$SYSTEMD_DIR/$unit.service.d/$(basename "$conf")"
+      cmp -s "$conf" "$dest" && continue
+      if as_root install -D -m 0644 "$conf" "$dest"; then
+        log "  instalado $dest"
+        changed=yes
+      else
+        warn "No se pudo instalar $dest: $unit sigue con la configuración anterior"
+      fi
+    done
+  done
+  if [ "$changed" = yes ]; then
+    as_root systemctl daemon-reload || warn "Falló systemctl daemon-reload: los drop-ins nuevos no se aplican hasta que se recargue systemd"
+  fi
+  return 0
 }
 
 # ponytail (docs/tech-debt-ledger.md): todo el cuerpo ejecutable vive adentro de
@@ -543,6 +578,11 @@ fi
 # 6) Restart backend
 BACKEND_STATUS="no reiniciado"
 if [ "$SKIP_BACKEND" = false ]; then
+  # Antes de los restarts (backend acá, workers en 6b), que son los que aplican los valores nuevos.
+  CURRENT_STEP="límites de memoria de los servicios"
+  log "Revisando los drop-ins de systemd (deploy/systemd/*.service.d)..."
+  install_unit_dropins
+
   CURRENT_STEP="restart del backend"
   log "Reiniciando backend..."
   as_root systemctl restart pricing-api 2>/dev/null || warn "No se pudo reiniciar el servicio (¿existe pricing-api.service?)"
