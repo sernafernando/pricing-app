@@ -63,11 +63,10 @@ export const PRODUCTO_CON_REBATE_Y_OFERTA = {
 };
 
 // The `sell_in_out` block of the same response (sell-in-sell-out T9,
-// backend/app/schemas/sell_in_out_producto.py): a purchase lot with a 4.000
-// discount per unit (12 units left) and a campaign crediting 1.500 per unit.
-// Markups are keyed like the PPP ones; rows without a price have no key.
+// backend/app/schemas/sell_in_out_producto.py): a campaign crediting 1.500 per
+// unit. No sell in (costo SI T5 PR B: it is inside the costo SI). Markups are
+// keyed like the PPP ones; rows without a price have no key.
 export const SELL_IN_OUT = {
-  sell_in: { compra_item_id: 901, descuento_unit: 4000, costo: 60000, unidades_restantes: 12 },
   sell_out: { monto_unit: 1500, campana_ids: [3] },
   markups_sell_in: {}, // always empty since #2365 (D1: the sell in is inside the costo SI)
   markups_sell_in_out: { clasica: 28.8, cuota_clasica_3: 30.6, cuota_clasica_6: 32.9, cuota_clasica_12: 7, pvp_clasica: 30, pvp_cuota_3: 31.6 },

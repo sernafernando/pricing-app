@@ -38,8 +38,8 @@ beforeEach(() => {
 });
 
 describe('sell out per unit, no cost with sell in', () => {
-  // costo SI T5 PR B: costo SI replaced the FIFO lots and the per-sale cost bonuses, so there is no
-  // "Costo c/ sell in" fact any more, even when an older payload still carries a `sell_in` (the fixture's lot).
+  // costo SI T5 PR B: costo SI replaced the FIFO lots and the per-sale cost bonuses, so the payload has no
+  // sell in and there is no "Costo c/ sell in" fact any more.
   it('shows no "Costo c/ sell in" fact, the cost, the costo SI and the sell out beside each other', async () => {
     render(<ProductPrices productItemId={4101} showCost />);
     const group = await facts();
@@ -133,21 +133,9 @@ describe('markup with sell in and sell out', () => {
     expect(sellCell(await priceOf('PVP 6 cuotas'))).toHaveTextContent(/^—$/);
   });
 
-  it('a lot without an ARS cost leaves the row without price as "—"', async () => {
+  it('a block with no sell out leaves the c/ SO markup as "-", never pending', async () => {
     withSellInOut({
       ...SELL_IN_OUT,
-      sell_in: { ...SELL_IN_OUT.sell_in, costo: null },
-      markups_sell_in: {},
-      markups_sell_in_out: {},
-    });
-    render(<ProductPrices productItemId={4101} showCost />);
-    await waitFor(async () => expect(sellCell(await priceOf('9 cuotas'))).toHaveTextContent(/^—$/));
-  });
-
-  it('a lot without an ARS cost does not make the markup pending: its cost is the costo SI (D1)', async () => {
-    withSellInOut({
-      ...SELL_IN_OUT,
-      sell_in: { ...SELL_IN_OUT.sell_in, costo: null },
       sell_out: null,
       markups_sell_in: {},
       markups_sell_in_out: {},

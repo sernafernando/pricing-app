@@ -172,7 +172,6 @@ describe('the product rows', () => {
   });
 
   it("shows the product's cost alone in its currency, the PPP in its tooltip, never a cost with sell in", async () => {
-    // COST_LINES still carries an older payload's sell in (costo SI T5 PR B): never rendered.
     publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse([{ ...PRODUCT_ROWS[0], ...COST_LINES }, PRODUCT_ROWS[2]]) });
     render(<Harness />);
     const row = (await screen.findByText('Router Archer AX55')).closest('tr');
