@@ -47,7 +47,6 @@ def _callbacks_del_deploy(engine: Engine, monkeypatch: pytest.MonkeyPatch) -> It
     monkeypatch.setattr(despues, "_CALLBACKS", {})
     monkeypatch.setattr(despues, "_cargados", True)
     despues.registrar("ml_ventas", ml_ventas.encolar)
-    monkeypatch.setattr(rc, "_bonos_costo", lambda db, item_id: None)  # D2 bonuses: not what this measures
     yield
     w.clean(engine)
 

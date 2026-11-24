@@ -3,7 +3,6 @@ import { sellInLotesAPI } from '../../services/sellInAPI';
 import { usePermisos } from '../../contexts/PermisosContext';
 import SegmentedControl from '../kit/SegmentedControl';
 import StatusPill from '../kit/StatusPill';
-import SellInModoPorDefecto from './SellInModoPorDefecto';
 import { money } from './money';
 import styles from './SellInModoCosto.module.css';
 
@@ -40,7 +39,9 @@ const MODOS = {
   manual: { label: 'Manual', nota: 'Manual: cargás la cantidad y el costo unitario que quedan.' },
 };
 const ORDEN = ['fifo', 'ponderado', 'ultimo', 'manual'];
-const ADMINS = ['ADMIN', 'SUPERADMIN'];
+// Retired (T5 PR A). The selector, preview and Manual code below it never renders; PR C deletes it with the backend.
+const MODOS_RETIRADOS = true;
+const AVISO_RETIRADO = 'El modo de costo ya no se puede cambiar: el costo es el costo SI.';
 
 /** What the preview says about ARS the lots hold that no unit hands out (positive) or handed beyond them (negative). */
 function SinAsignar({ valor }) {
@@ -177,7 +178,7 @@ function errorText(error, accion) {
  * @param {boolean} [props.collapsible] Starts as one line (the current mode and "Cambiar") that opens the card.
  */
 export default function SellInModoCosto({ productItemId, lotes, proxima, onChanged, collapsible = false }) {
-  const { tienePermiso, rol } = usePermisos();
+  const { tienePermiso } = usePermisos();
   const headingId = useId();
   const desdeId = useId();
   const cantidadId = useId();
@@ -187,8 +188,6 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
   const [read, setRead] = useState({ status: 'loading', data: null });
   const [attempt, setAttempt] = useState(0);
   const [modo, setModo] = useState(null); // null: not picked, the selector shows the preselected mode
-  const [porDefecto, setPorDefecto] = useState('fifo');
-  const [editandoDefecto, setEditandoDefecto] = useState(false);
   const [desde, setDesde] = useState(today);
   const [cantidad, setCantidad] = useState('');
   const [costoUnit, setCostoUnit] = useState('');
@@ -209,17 +208,6 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
     };
   }, [productItemId, attempt]);
 
-  useEffect(() => {
-    let current = true;
-    // Unreadable: the selector just opens on FIFO.
-    sellInLotesAPI
-      .modoPorDefecto()
-      .then(({ data }) => current && setPorDefecto(data.modo))
-      .catch(() => {});
-    return () => {
-      current = false;
-    };
-  }, []);
 
   if (read.status === 'forbidden') return null;
 
@@ -231,12 +219,14 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
     ultimo: tienePermiso(PERMISO.ultimo),
     manual: tienePermiso(PERMISO.manual),
   };
-  const puedeCambiar = puede.ponderado || puede.ultimo || puede.manual;
+  // Cost modes are retired (sell-in-costo-si T5 PR A): the server answers 410 to a change, so none is offered; the
+  // current mode and the history still read.
+  const puedeCambiar = !MODOS_RETIRADOS && (puede.ponderado || puede.ultimo || puede.manual);
   const retroactivo = tienePermiso(RETROACTIVO);
   // Each mode needs its permission, FIFO any of them.
   const permitido = (value) => (value === 'fifo' ? puedeCambiar : puede[value]);
-  // The admin's default opens preselected only when this user may set it (never Manual: it needs its own figures).
-  const seleccion = modo ?? (porDefecto !== 'manual' && permitido(porDefecto) ? porDefecto : 'fifo');
+  // The selector is retired (T5 PR A): it would open on FIFO.
+  const seleccion = modo ?? 'fifo';
   const esManual = seleccion === 'manual';
   const manualOk =
     Number.isInteger(Number(cantidad)) &&
@@ -244,7 +234,6 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
     Number(cantidad) <= CANTIDAD_MAX &&
     COSTO_UNIT.test(costoUnit) &&
     Number(costoUnit) > 0;
-  const esAdmin = ADMINS.includes(rol);
   const hoy = today();
 
   const drop = () => {
@@ -345,6 +334,8 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
             {actual}
           </StatusPill>
         </div>
+
+        {MODOS_RETIRADOS && <p className={styles.hint}>{AVISO_RETIRADO}</p>}
 
         {puedeCambiar && (
           <>
@@ -516,13 +507,10 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
             <h4 id={headingId} className={styles.title}>
               Modo de costo
             </h4>
-            <p className={styles.hint}>Define con qué descuento de sell in salen las unidades cuando vendés.</p>
+            <p className={styles.hint}>
+              {MODOS_RETIRADOS ? 'Con qué descuento de sell in salían las unidades.' : 'Define con qué descuento de sell in salen las unidades cuando vendés.'}
+            </p>
           </div>
-          {esAdmin && (
-            <button type="button" className="btn-tesla outline sm" onClick={() => setEditandoDefecto(true)}>
-              Modo por defecto
-            </button>
-          )}
           {/* Only when it can close: a pending preview or an error keeps the card open. */}
           {collapsible && error == null && vista == null && (
             <button type="button" className="btn-tesla outline sm" aria-expanded="true" onClick={() => setExpanded(false)} disabled={busy != null}>
@@ -534,17 +522,6 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
       </section>
       {previewCard}
       {historyCard}
-      {editandoDefecto && (
-        <SellInModoPorDefecto
-          actual={porDefecto}
-          options={ORDEN.filter((value) => value !== 'manual').map((value) => ({ value, label: MODOS[value].label }))}
-          onClose={() => setEditandoDefecto(false)}
-          onSaved={(value) => {
-            setPorDefecto(value);
-            setEditandoDefecto(false);
-          }}
-        />
-      )}
     </>
   );
 }

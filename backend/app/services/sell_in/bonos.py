@@ -79,9 +79,9 @@ Writes, set against what is stored:
 - otherwise nothing: a re-run writes nothing. A line's `costo_base_unit` is the
   product's cost frozen when the line is first written, never refreshed.
 
-Every product a write touches is recomputed through the active
-`SellInCosting` in the same transaction, the way loading or voiding a manual
-purchase does, so the consumptions (`sell_in_consumos`) always match. Manual
+A write no longer allocates sales to the purchases (sell-in-costo-si T5 PR A:
+costo SI replaced the FIFO lots, S14); costo SI's triggers queue the products
+it touches. Manual
 purchases (`origen = 'manual'`) are never read nor written here. A generated
 purchase whose operation was deleted (`bono_pedido_id` set NULL by its FK) is
 voided by any call.
@@ -117,9 +117,8 @@ from app.models.sell_in import SellInBonoItem, SellInBonoMarca, SellInCompra, Se
 from app.models.tactical import Tactical
 from app.models.tipo_cambio import TipoCambio
 from app.schemas.sell_in_bonos import BASE_FACTURA
-from app.services.sell_in import bonos_costo, facturas_elegidas
+from app.services.sell_in import facturas_elegidas
 from app.services.sell_in.compras import SellInError, audit, costo_en_moneda, moneda
-from app.services.sell_in.costing import get_costing
 from app.services.sell_in.split import CENT
 from app.services.sell_out import tope
 
@@ -587,7 +586,6 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
 
     _cabeceras_por_factura(db, _seguir_factura(bonos.values(), pedidos))
 
-    tocados: Set[int] = set()
     tasas_bna = tasas_bna_por_fecha(
         db, {p.fecha_factura for p in pedidos.values() if p.tipo_cambio is None and p.fecha_factura is not None}
     )
@@ -602,7 +600,6 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
             compra.usuario_id,
             _motivo(None, bonos.get(compra.bono_id)),
         )
-        tocados |= {i.item_id for i in actuales}
         result.anuladas += 1
     deseadas: Dict[Par, Optional[_Deseada]] = {}
     for par in sorted(pares):
@@ -621,7 +618,7 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
         compra = existentes.get(par)
         actuales = items_por_compra.get(compra.id, []) if compra is not None else []
         if compra is None and deseada is not None:
-            tocados |= _crear(db, bonos[bono_id], pedido_id, deseada, lineas_del_par(par))
+            _crear(db, bonos[bono_id], pedido_id, deseada, lineas_del_par(par))
             result.creadas += 1
         elif compra is not None and deseada is None:
             if compra.estado == "activa":
@@ -634,19 +631,13 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
                     compra.usuario_id,
                     _motivo(pedido, bonos[bono_id]),
                 )
-                tocados |= {i.item_id for i in actuales}
                 result.anuladas += 1
         elif compra is not None and deseada is not None:
             cambiados = _actualizar(db, compra, actuales, deseada, lineas_del_par(par))
             if cambiados:
-                tocados |= cambiados
                 result.actualizadas += 1
     db.flush()
-    if tocados:
-        # Same transaction, like loading or voiding a manual purchase: the consumptions follow at once.
-        get_costing().recompute(db, tocados, isolate_failures=False)
-        # The % of cost bonuses (T25b) take only the units the FIFO leaves: they follow at once too.
-        bonos_costo.seguir_fifo(db, tocados)
+    # T5 PR A: no FIFO allocation any more (costo SI replaced the lots, S14); costo SI's triggers queue the products.
     return result
 
 
@@ -846,7 +837,7 @@ def _motivo(pedido: Optional[_Pedido], bono: Optional[SellInBonoMarca]) -> str:
     return f"{_etiqueta(bono)}: el pedido ya no está alcanzado por el bono"
 
 
-def _crear(db: Session, bono: SellInBonoMarca, pedido_id: int, deseada: _Deseada, lineas: List[_Linea]) -> Set[int]:
+def _crear(db: Session, bono: SellInBonoMarca, pedido_id: int, deseada: _Deseada, lineas: List[_Linea]) -> None:
     compra = SellInCompra(
         **deseada.cabecera,
         cuenta_desde="compra",
@@ -871,7 +862,6 @@ def _crear(db: Session, bono: SellInBonoMarca, pedido_id: int, deseada: _Deseada
     db.add_all(items)
     db.flush()
     audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_CREADA, compra.usuario_id)
-    return set(deseada.lineas)
 
 
 def _actualizar(

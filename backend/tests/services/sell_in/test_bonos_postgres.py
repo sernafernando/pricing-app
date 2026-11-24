@@ -496,55 +496,6 @@ def _wait_for_lock_waiter(engine: Engine, bono_id: int) -> None:
 
 
 @pytest.mark.postgres
-class TestConsumption:
-    def test_sales_after_the_invoice_consume_the_bonus_and_a_void_releases_them(self, engine: Engine) -> None:
-        bono = b.bono(engine, monto="2.00", moneda="USD")
-        b.pedido(engine, {2964: 10}, D(2026, 10, 10), tipo_cambio="1000.000000")
-        antes = w.venta(engine, "fuera", 2964, 1, D(2026, 10, 9))  # before the invoice date: nothing
-        despues = w.venta(engine, "fuera", 2964, 3, D(2026, 10, 15))
-
-        _reconciliar(engine, bono_ids=[bono])
-
-        assert [(c[2], c[4], c[5]) for c in w.consumos(engine)] == [(despues, 3, Decimal("6000.00"))]
-        assert antes not in [c[2] for c in w.consumos(engine)]
-
-        b.update_bono(engine, bono, estado="anulada")
-        _reconciliar(engine, bono_ids=[bono])
-
-        assert w.consumos(engine) == []
-
-    def test_a_deleted_operation_releases_what_its_orphan_purchase_consumed(self, engine: Engine) -> None:
-        """Deleting the operation SET NULLs `bono_pedido_id` before the worker runs: the
-        `('pedido', id)` key no longer finds the purchase, the orphan sweep voids it and
-        the sales it fed are recomputed in the same transaction."""
-        bono = b.bono(engine, monto="2.00", moneda="USD")
-        pedido = b.pedido(engine, {2964: 10}, D(2026, 10, 10), tipo_cambio="1000.000000")
-        w.venta(engine, "fuera", 2964, 3, D(2026, 10, 15))
-        _reconciliar(engine, bono_ids=[bono])
-        assert [c[4] for c in w.consumos(engine)] == [3]
-
-        with engine.begin() as conn:
-            conn.execute(text("DELETE FROM pedidos_compra WHERE id = :p"), {"p": pedido})
-        result = _reconciliar(engine, pedido_ids=[pedido])
-
-        assert _counts(result) == (0, 0, 1)
-        assert [g[2] for g in b.generadas(engine)] == ["anulada"]
-        assert w.consumos(engine) == []
-
-    def test_fewer_invoiced_units_shrink_what_sales_can_consume(self, engine: Engine) -> None:
-        bono = b.bono(engine, monto="1.00", moneda="ARS")
-        pedido = b.pedido(engine, {2270: 5}, moneda="ARS", tipo_cambio=None)
-        w.venta(engine, "fuera", 2270, 4, D(2026, 10, 15))
-        _reconciliar(engine, bono_ids=[bono])
-        assert [c[4] for c in w.consumos(engine)] == [4]
-
-        b.set_lineas(engine, pedido, {2270: 2})
-        _reconciliar(engine, pedido_ids=[pedido])
-
-        assert [(c[4], c[5]) for c in w.consumos(engine)] == [(2, Decimal("2.00"))]
-
-
-@pytest.mark.postgres
 class TestManualVoidRefused:
     def test_a_generated_purchase_cannot_be_voided_by_hand(self, engine: Engine) -> None:
         bono = b.bono(engine)
@@ -871,15 +822,3 @@ class TestInvoiceBonusFollowsItsInvoice:
 
         assert _counts(result) == (0, 0, 1)
         assert _fecha_compra(engine, bono, pedido)[0] == "anulada"
-
-    def test_the_invoice_units_feed_sales_of_any_later_date_until_they_run_out(self, engine: Engine) -> None:
-        pedido = b.pedido(engine, {2964: 4}, D(2026, 10, 10))
-        bono = b.bono_alcance(engine, "factura", pedido_id=pedido, desde=D(2026, 10, 10), hasta=D(2026, 10, 10))
-        primera = w.venta(engine, "fuera", 2964, 3, D(2027, 3, 1))
-        segunda = w.venta(engine, "fuera", 2964, 3, D(2027, 4, 1))
-        tercera = w.venta(engine, "fuera", 2964, 2, D(2027, 5, 1))
-
-        _reconciliar(engine, bono_ids=[bono])
-
-        assert [(c[2], c[4]) for c in w.consumos(engine)] == [(primera, 3), (segunda, 1)]
-        assert tercera not in [c[2] for c in w.consumos(engine)]

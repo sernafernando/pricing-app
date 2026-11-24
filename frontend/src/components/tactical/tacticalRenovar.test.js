@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { TACTICAL_BPS, TACTICAL_REBATE } from '../tacticals/tacticalsFixtures';
-import { cuerpoDe, problemaDe } from './tacticalLineas';
+import { copiarLinea, cuerpoDe, MONTO_TOTAL_RETIRADO, problemaDe, totalRetirado } from './tacticalLineas';
 import { conFacturas, edicionDe, impactoDe, renovacionDe } from './tacticalRenovar';
 
 describe('renovacionDe', () => {
@@ -49,6 +49,7 @@ describe('renovacionDe', () => {
         topeMonto: '',
         compartido: false,
         reparto: '',
+        totalGuardado: null,
       },
       {
         alcance: 'productos',
@@ -65,6 +66,7 @@ describe('renovacionDe', () => {
         topeMonto: '3000',
         compartido: true,
         reparto: '',
+        totalGuardado: null,
       },
     ]);
   });
@@ -207,5 +209,34 @@ describe('impactoDe (S8)', () => {
     expect(impactoDe(conTasa, form({ moneda: 'ARS' })).tcDescartado).toBe(1450);
     expect(impactoDe(conTasa, form({ tcModo: 'fijo' })).tcDescartado).toBe(1450);
     expect(impactoDe(conTasa, form({ tipo: 'sell_in' })).tcDescartado).toBe(1450);
+  });
+});
+
+// sell-in-costo-si T5 PR A, L25: no new sell in lump sum over products, a brand or a category. Only a stored one, edited
+// with the same scope, stays a lump sum (the backend pairs it by scope: `tacticals._heredadas`).
+describe('a stored sell in lump sum (T5 PR A)', () => {
+  const total = { ...TACTICAL_REBATE.lineas[0], modo_monto: 'monto_total', valor: '300000', reparto_criterio: 'iguales' };
+  const tactical = { ...TACTICAL_REBATE, lineas: [total] };
+
+  it('an edit keeps it a lump sum, and saving it is not stopped', () => {
+    const { form, lineas } = edicionDe(tactical);
+
+    expect(totalRetirado(form.tipo, lineas[0])).toBe(false);
+    expect(problemaDe(form, lineas)).toBeNull();
+  });
+
+  it('a renewal is a new tactical: its lump sum is a new one, and saving it is stopped with the reason', () => {
+    const { form, lineas } = renovacionDe(tactical);
+    const conFechas = { ...form, fechaDesde: '2026-12-01', fechaHasta: '2026-12-31' };
+
+    expect(totalRetirado(form.tipo, lineas[0])).toBe(true);
+    expect(problemaDe(conFechas, lineas)).toBe(`${MONTO_TOTAL_RETIRADO}. Cambiá la línea a por unidad o %.`);
+  });
+
+  it('an edit that moves it to another brand makes it a new lump sum, and a copy of it is one too', () => {
+    const { form, lineas } = edicionDe(tactical);
+
+    expect(totalRetirado(form.tipo, { ...lineas[0], marca: 'OTRA' })).toBe(true);
+    expect(totalRetirado(form.tipo, copiarLinea(lineas[0]))).toBe(true);
   });
 });

@@ -3,19 +3,15 @@ consumed by, and the product's dated cost modes, plus the preview and confirm of
 of the product panel, which already shows the sell-in figures; the modes, which carry typed and frozen unit costs, also
 need `sell_in.ver`, and a change the mode's own permission (D7)."""
 
-import logging
 from dataclasses import replace
 from datetime import date
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_admin, get_current_user, require_algun_permiso, require_permiso
 from app.api.endpoints.productos_listing import PERMISOS_VER_PRODUCTO
 from app.core.database import get_db
-from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
 from app.schemas.sell_in_lotes import ConsumosLoteOut, LotesProductoOut, ProductosCostoOut
 from app.schemas.sell_in_modos import (
@@ -30,15 +26,9 @@ from app.schemas.sell_in_modos import (
 from app.services.permisos_service import verificar_permiso
 from app.services.sell_in import modos, productos_costo, visor_lotes
 
-logger = logging.getLogger(__name__)
-
-# Another writer held the product: deadlock_detected, lock_not_available, query_canceled (a statement_timeout while
-# waiting for the product's lock). Nothing was saved; the same request can be retried. A 57014 can also be a slow
-# recompute or an operator's cancel, so every mapped error is logged with its code.
-OCUPADO = frozenset({"40P01", "55P03", "57014"})
-
 # Who sold each lot (supplier, invoices) is purchase information: Productos' "Últimas compras" permission.
 VER_COMPRAS = "productos.ver_info_compras"
+MODOS_RETIRADOS = "El modo de costo ya no se puede cambiar: el costo es el costo SI"
 
 router = APIRouter(
     prefix="/sell-in/productos",
@@ -51,8 +41,8 @@ router = APIRouter(
     "/modo-por-defecto", response_model=ModoPorDefectoOut, dependencies=[Depends(require_permiso("sell_in.ver"))]
 )
 def modo_por_defecto(db: Session = Depends(get_db)) -> dict:
-    """The cost mode the panel's selector opens preselected with (FIFO when unset). It never changes costing: a
-    product without a mode row stays FIFO, and the selector still offers only the modes the user may set."""
+    """The stored default cost mode (FIFO when unset). It only preselected the mode selector, retired with the cost
+    modes (sell-in-costo-si T5 PR A): it reads, it no longer changes."""
     return {"modo": modos.modo_por_defecto(db)}
 
 
@@ -61,11 +51,9 @@ def modo_por_defecto(db: Session = Depends(get_db)) -> dict:
     response_model=ModoPorDefectoOut,
     dependencies=[Depends(require_permiso("sell_in.ver"))],
 )
-def fijar_modo_por_defecto(
-    body: ModoPorDefectoIn, db: Session = Depends(get_db), admin: Usuario = Depends(get_current_admin)
-) -> dict:
-    """Admins only: change the selector's preselected mode (audited). Nothing is recomputed."""
-    return {"modo": modos.fijar_modo_por_defecto(db, body.modo, admin.id)}
+def fijar_modo_por_defecto(body: ModoPorDefectoIn, admin: Usuario = Depends(get_current_admin)) -> dict:
+    """Admins only, and retired like the mode changes (T5 PR A): 410, nothing stored or audited."""
+    raise HTTPException(status.HTTP_410_GONE, MODOS_RETIRADOS)
 
 
 @router.get("/costos", response_model=ProductosCostoOut, dependencies=[Depends(require_permiso("sell_in.ver"))])
@@ -122,34 +110,6 @@ def modos_de_producto(item_id: int, db: Session = Depends(get_db)) -> dict:
     return {"item_id": item_id, "vigente": modos.vigente(historial, date.today()), "historial": historial}
 
 
-def _validar_cambio(db: Session, usuario: Usuario, item_id: int, body: ModoIn, hoy: date) -> None:
-    """422 for a mode not written here, 403 naming the permission missing (D7), 404 for an unknown product."""
-    if body.modo not in modos.MODOS_ESCRITOS:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Cost mode '{body.modo}' cannot be set here")
-    falta = modos.permiso_faltante(body.modo, body.desde, hoy, lambda codigo: verificar_permiso(db, usuario, codigo))
-    if falta is not None:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, f"Missing permission: {falta}")
-    if db.query(ProductoERP.item_id).filter(ProductoERP.item_id == item_id).first() is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
-
-
-def _manual(body: ModoIn) -> Optional[modos.Manual]:
-    """A manual change's typed quantity and unit cost (the schema requires both for `manual` only)."""
-    return modos.Manual(body.cantidad, body.costo_unit) if body.modo == "manual" else None
-
-
-def _ocupado(db: Session, exc: DBAPIError) -> HTTPException:
-    """409 to retry when another writer held the product (`OCUPADO`); any other database error goes on as it was."""
-    db.rollback()
-    codigo = getattr(exc.orig, "pgcode", None)
-    if codigo not in OCUPADO:
-        raise exc
-    logger.warning("sell in: a cost mode change met a busy product (%s), answered 409 to retry: %s", codigo, exc.orig)
-    return HTTPException(
-        status.HTTP_409_CONFLICT, "Another operation is changing the product right now: try again in a few seconds"
-    )
-
-
 @router.post(
     "/{item_id}/modos/vista-previa",
     response_model=VistaPreviaOut,
@@ -158,20 +118,9 @@ def _ocupado(db: Session, exc: DBAPIError) -> HTTPException:
 def vista_previa_modo(
     item_id: int, body: ModoIn, db: Session = Depends(get_db), usuario: Usuario = Depends(get_current_user)
 ) -> modos.VistaPrevia:
-    """The mandatory preview of a mode change (D2): the recorded sales whose sell in changes and by how much, the
-    units and unit value left, and the ARS the lots hold that no unit hands out. Nothing is saved; the fingerprint
-    goes back with the confirm. 409 to retry when another writer held the product."""
-    hoy = date.today()
-    _validar_cambio(db, usuario, item_id, body, hoy)
-    try:
-        vista = modos.vista_previa(db, item_id, body.modo, body.desde, hoy, usuario.id, _manual(body))
-    except ValueError as exc:  # no cost to freeze for a manual block, or a history that cannot be replayed
-        db.rollback()
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
-    except DBAPIError as exc:
-        raise _ocupado(db, exc) from exc
-    db.rollback()  # nothing to keep: the preview's savepoint was already rolled back
-    return vista
+    """410 always (sell-in-costo-si T5 PR A): costo SI replaced the per-product cost modes (S14), so no mode is
+    previewed any more; the history still reads."""
+    raise HTTPException(status.HTTP_410_GONE, MODOS_RETIRADOS)
 
 
 @router.post(
@@ -183,20 +132,6 @@ def vista_previa_modo(
 def confirmar_modo(
     item_id: int, body: ModoConfirmarIn, db: Session = Depends(get_db), usuario: Usuario = Depends(get_current_user)
 ) -> modos.ModoProducto:
-    """Saves the mode change the preview showed, recomputes the product and audits it. 409 when anything moved since
-    the preview (a sale, a purchase, another mode row, a new day): preview again; also 409, to retry, when another
-    writer held the product."""
-    hoy = date.today()
-    _validar_cambio(db, usuario, item_id, body, hoy)
-    try:
-        modo_id = modos.confirmar(db, item_id, body.modo, body.desde, hoy, usuario.id, body.huella, _manual(body))
-    except modos.HuellaVencida as exc:
-        db.rollback()
-        raise HTTPException(status.HTTP_409_CONFLICT, "The product changed since the preview: preview again") from exc
-    except ValueError as exc:
-        db.rollback()
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
-    except DBAPIError as exc:
-        raise _ocupado(db, exc) from exc
-    db.commit()
-    return next(fila for fila in modos.historial(db, item_id) if fila.id == modo_id)
+    """410 always (sell-in-costo-si T5 PR A): costo SI replaced the per-product cost modes (S14), so no mode is
+    written any more; the history still reads."""
+    raise HTTPException(status.HTTP_410_GONE, MODOS_RETIRADOS)

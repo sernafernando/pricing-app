@@ -85,7 +85,7 @@ function ComprasYSellIn({ productItemId }) {
             {nextSale}
             <div className={resumenStyles.pairWide}>
               <ProductPurchases productItemId={productItemId} container={Card} />
-              {lots && <Card title="Lotes sell in">{lots}</Card>}
+              {lots && <Card title="Historial de lotes sell in">{lots}</Card>}
             </div>
             {modo}
           </Block>
