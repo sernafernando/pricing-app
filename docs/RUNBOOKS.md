@@ -772,8 +772,22 @@ is the summed RSS of the workers:
   the same.
 - **What this does not show:** the workload is synthetic, so it says nothing about how much the
   real endpoints keep.
-- **Throughput cost:** fewer arenas means more lock contention between threads. On this test it was
-  not measured as a separate number; watch p95 latency after the deploy.
+- **Latency and throughput:** fewer arenas means more lock contention between allocating threads, so
+  this was measured with the same load. The runs were interleaved (default, 2, 4, then again), 3 per
+  value. Each run is 240 requests: 6 rounds of 40 concurrent requests on 2 workers, so the requests
+  queue, and the latency includes that wait.
+
+| `MALLOC_ARENA_MAX` | p50 (3 runs) | p95 (3 runs) | req/s (3 runs) | Mean p95 | Mean req/s | RSS at the end |
+| --- | --- | --- | --- | --- | --- | --- |
+| unset (default) | 16.81 / 17.17 / 20.77 s | 24.58 / 23.51 / 30.21 s | 1.98 / 1.90 / 1.59 | 26.10 s | 1.82 | 1737-1848 MB |
+| 2 | 16.63 / 16.24 / 20.46 s | 23.97 / 26.72 / 26.96 s | 2.00 / 1.98 / 1.69 | 25.88 s (-1%) | 1.89 (+4%) | 586-638 MB |
+| 4 | 21.97 / 17.32 / 19.58 s | 28.19 / 27.10 / 28.13 s | 1.67 / 1.89 / 1.72 | 27.81 s (+7%) | 1.76 (-3%) | 792-914 MB |
+
+- **`MALLOC_ARENA_MAX=2`** costs nothing measurable: p95 and req/s stay within run-to-run noise (the
+  third round of every value was slower, from the machine). Memory drops to about a third.
+- **`=4`** keeps more memory and is no faster on this load.
+- **After the deploy**, still compare the API's p95 with the week before. The real endpoints mix DB
+  waits and CPU differently from this test.
 
 ### First Deploy After `deploy.sh` Itself Changed
 
