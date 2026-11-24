@@ -229,7 +229,7 @@ def sell_in_out_of(x: Union[board.Row, board.Kpis]) -> Optional[SellInOutFigures
     return SellInOutFigures(
         # A pending sell out has a line but no known ARS yet: it stays 0 next to its pending count. The strip's sell
         # out also applies with only a monto total campaign's amount no row carries (`board.Board.remanente`).
-        sell_out=(round_money(x.sell_out) if x.sell_out_lineas or board.SellInOut.remanente(x) is not None else None),
+        sell_out=(round_money(x.sell_out) if x.sell_out_lineas or board.ConSo.remanente(x) is not None else None),
         sell_out_pendientes=x.sell_out_pendientes,
         sell_out_estimados=x.sell_out_estimados,
         costo=None if x.m_sell_out is None else round_money(x.costo),
@@ -240,7 +240,7 @@ def sell_in_out_of(x: Union[board.Row, board.Kpis]) -> Optional[SellInOutFigures
 
 class BoardKpisWithAds(BoardKpis):
     """The Métricas board's strip: the shared one plus the ads block (null with the toggle OFF), Total TP (null
-    with "Costos TP" OFF) and sell in / sell out (null without the profit view). Publicaciones keeps `BoardKpis`,
+    with "Costos TP" OFF) and sell out (null without the profit view). Publicaciones keeps `BoardKpis`,
     so its strip never carries those fields."""
 
     ads: Optional[KpiAds] = None

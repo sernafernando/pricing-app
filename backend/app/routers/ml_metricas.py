@@ -189,7 +189,7 @@ class BoardRow(BaseModel):
     # its TP-store sold lines without a TP cost.
     total_tp: Optional[float] = None
     tp_incompletos: Optional[int] = None
-    # Sell in / sell out (sell-in-sell-out T11): only with `ml_metricas.ver_ganancia`.
+    # Sell out (sell-in-sell-out T11; no sell in, Costo SI T5 PR B): only with `ml_metricas.ver_ganancia`.
     sell_in_out: Optional[SellInOutFigures] = None
     last_sale_at: Optional[datetime] = None
     ageing_days: Optional[int] = None
@@ -662,8 +662,8 @@ def _tp_solo_filter(db: Session, f: board.BoardFilter) -> board.BoardFilter:
 
 
 def _margin_gate(f: board.BoardFilter, can_see_margin: bool) -> board.BoardFilter:
-    """403 for a margin sort, filter or toggle without the canal's profit view (S6); the filter with the sell in /
-    sell out figures (profit figures too) read only with it."""
+    """403 for a margin sort, filter or toggle without the canal's profit view (S6); the filter with the sell out
+    figures (profit figures too) read only with it."""
     if can_see_margin:
         return replace(f, sell_in_out=True)
     if f.restar_publicidad or f.sort in board.MARGIN_SORTS or "margen_cayendo" in f.alerts:
@@ -1149,7 +1149,7 @@ def _csv_line(
     off, margin allowed): the row's ads cost right after Total Gauss, which
     already has it subtracted -- the board's column order and figures. `tp`
     ("Costos TP"): Total TP and the incomplete count after them (Total TP is
-    net of the same ads). `sell`: the sell in / sell out figures after the
+    net of the same ads). `sell`: the sell out figures after the
     markups (`SELL_CSV_HEADER`)."""
     line = layout.head_of(row) + [
         row.units,

@@ -126,25 +126,21 @@ SUM_COLUMNS = (
 TP_SUM_COLUMNS = ("tg_tp", "tp_incompletos")
 
 
-# The per-pair sums `sell_in_out` adds (sell-in-sell-out T11, see `board.SellInOut`).
+# The per-pair sums `sell_in_out` adds (sell-in-sell-out T11, see `board.ConSo`): sell out only (Costo SI T5 PR B).
 SELL_SUM_COLUMNS = (
-    "sell_in",
     "sell_out",
-    "m_sell_in",
     "m_sell_out",
     "sell_out_pendientes",
     "sell_out_estimados",
-    "sell_in_estimados",
-    "sell_in_lineas",
     "sell_out_lineas",
 )
 
 
 def sum_columns(pairs: Any) -> tuple:
     """`SUM_COLUMNS` plus the ads cost (net, and ML's gross that "solo con ventas" reads), the TP sums and the sell
-    in / sell out sums when the pair table carries them (their toggles ON)."""
+    out sums when the pair table carries them (their toggles ON)."""
     ads = ("ads_cost", "ads_cost_api") if "ads_cost" in pairs.c else ()
-    sell = SELL_SUM_COLUMNS if "sell_in" in pairs.c else ()
+    sell = SELL_SUM_COLUMNS if "sell_out" in pairs.c else ()
     return SUM_COLUMNS + ads + (TP_SUM_COLUMNS if "tg_tp" in pairs.c else ()) + sell
 
 

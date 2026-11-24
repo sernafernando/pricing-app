@@ -390,6 +390,12 @@ class TestBoardOnVolume:
         assert any(row.units_24h for row in rows)
 
     def test_the_lines_are_reached_through_the_group_date_index(self, volume_session) -> None:
+        """The index serves the period's lines: with the seq scan switched off for this session only, the plan
+        reaches `ml_group_metrics` through it. With the seq scan on, a seq scan and a bitmap scan of the index cost
+        about the same at this volume, so the planner picked either one depending on what other tests left in the
+        shared tables (flaky); the table is analyzed first, so the plan no longer depends on stale statistics. An
+        index that could not serve the period still fails here: a disabled seq scan is still chosen when nothing
+        else reaches the rows."""
         f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY)
         b = board.Board(volume_session, f, scope_pairs=None)
         source = b._lines_source()
@@ -397,8 +403,13 @@ class TestBoardOnVolume:
             dialect=volume_session.get_bind().dialect, compile_kwargs={"render_postcompile": True}
         )
         cursor = volume_session.connection().connection.cursor()
-        cursor.execute("EXPLAIN " + str(compiled), compiled.params)
-        plan = "\n".join(row[0] for row in cursor.fetchall())
+        cursor.execute("ANALYZE ml_group_metrics")
+        cursor.execute("SET enable_seqscan = off")
+        try:
+            cursor.execute("EXPLAIN " + str(compiled), compiled.params)
+            plan = "\n".join(row[0] for row in cursor.fetchall())
+        finally:
+            cursor.execute("RESET enable_seqscan")
         print("\n" + plan)
 
         assert "ix_ml_group_metrics_group_date" in plan, plan

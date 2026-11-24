@@ -171,13 +171,13 @@ class TestOnlyThePage:
             part = row_metrics.metrics_by_mla(sold, subset, sell_in_out=sell_in_out)
             assert set(part) == set(subset)
             for mla in subset:
-                for name in (*FIGURES, "sell_in", "sell_out", "m_sell_in", "m_sell_out"):
+                for name in (*FIGURES, "sell_out", "m_sell_out"):
                     assert getattr(part[mla], name) == getattr(everything[mla], name), (subset, mla, name)
 
     def test_the_sell_in_out_read_never_changes_the_units_rotation_and_ageing(self, sold) -> None:
         # pubml-lentitud L4: the stock audit now reads its whole products' extra MLAs in the same Board read as the
-        # rows, WITH sell in / sell out when the viewer sees margins (before: a second read without). Rotación,
-        # Cobertura, the units and the ageing must not move; only the sell in / out columns are added.
+        # rows, WITH sell out when the viewer sees margins (before: a second read without). Rotación,
+        # Cobertura, the units and the ageing must not move; only the sell out columns are added; a stored sell in is never read (costo SI T5).
         sold.execute(text(CONSUMPTION_DDL))
         line = sold.execute(
             text(
@@ -192,7 +192,9 @@ class TestOnlyThePage:
         plain = row_metrics.metrics_by_mla(sold, mlas, sell_in_out=False)
         with_sell = row_metrics.metrics_by_mla(sold, mlas, sell_in_out=True)
         assert set(plain) == set(with_sell)
-        assert any(with_sell[mla].sell_in for mla in with_sell)  # the sell in above was read
+        assert not any(
+            hasattr(with_sell[mla], "sell_in") for mla in with_sell
+        )  # costo SI T5: the stored sell in is ignored
         for mla in plain:
             for name in ("units", "windows", "series_units", "last_sale_at", "ageing_days"):
                 assert getattr(with_sell[mla], name) == getattr(plain[mla], name), (mla, name)
@@ -222,7 +224,7 @@ class TestOnlyThePage:
         assert shared_splits == splits
         assert set(shared_rows) == set(rows)
         for mla in rows:
-            for name in (*FIGURES, "sell_in", "sell_out", "m_sell_in", "m_sell_out"):
+            for name in (*FIGURES, "sell_out", "m_sell_out"):
                 assert getattr(shared_rows[mla], name) == getattr(rows[mla], name), (mla, name)
 
     def test_a_page_board_refuses_other_mlas_or_another_sell_in_out(self, sold) -> None:

@@ -24,11 +24,11 @@ def row(**kw):
 
 class TestMarkup:
     def test_sell_out_adds_to_the_profit_over_the_plain_cost(self) -> None:
-        r = row(sell_out=D("250"), m_sell_out=D("200"), sell_out_lineas=3, m_sell_in=D("999"), sell_in_lineas=5)
-        assert real_so.markup_so(r) == (D("800") + D("200")) / D("4000") * 100  # 25, the sell in is ignored
+        r = row(sell_out=D("250"), m_sell_out=D("200"), sell_out_lineas=3)
+        assert real_so.markup_so(r) == (D("800") + D("200")) / D("4000") * 100  # 25
 
     def test_without_sell_out_it_does_not_apply(self) -> None:
-        assert real_so.markup_so(row(m_sell_in=D("500"), sell_in_lineas=4)) is None
+        assert real_so.markup_so(row()) is None
 
     def test_an_unknown_sell_out_or_no_cost_has_no_value(self) -> None:
         assert real_so.markup_so(row(sell_out_lineas=2, m_sell_out=None)) is None
@@ -36,12 +36,12 @@ class TestMarkup:
 
 
 class TestTotalGauss:
-    def test_sell_out_adds_to_the_total_and_sell_in_does_not(self) -> None:
-        r = row(sell_out=D("250"), m_sell_out=D("200"), sell_out_lineas=3, sell_in=D("999"), sell_in_lineas=5)
+    def test_sell_out_adds_to_the_total(self) -> None:
+        r = row(sell_out=D("250"), m_sell_out=D("200"), sell_out_lineas=3)
         assert real_so.total_gauss_so(r) == D("1250")
 
     def test_without_sell_out_it_does_not_apply(self) -> None:
-        assert real_so.total_gauss_so(row(sell_in=D("500"), sell_in_lineas=4)) is None
+        assert real_so.total_gauss_so(row()) is None
 
 
 def test_the_sql_figure_is_the_python_one() -> None:

@@ -166,8 +166,8 @@ class TestPendingUnit:
 
 @pytest.fixture()
 def board_calls(monkeypatch) -> list[bool]:
-    """The page's Board read, faked: MLA11 sold with a sell in of 50 and a sell out of 30 over a cost of 1000 (Total
-    Gauss 200); D1 reads only the sell out."""
+    """The page's Board read, faked: MLA11 sold with a sell out of 30 over a cost of 1000 (Total Gauss 200); the
+    Board has no sell in (Costo SI T5 PR B)."""
     seen: list[bool] = []
     figures = {
         "MLA11": board_row(
@@ -177,11 +177,8 @@ def board_calls(monkeypatch) -> list[bool]:
             gross=2000.0,
             tg=200.0,
             costo=1000.0,
-            sell_in=50.0,
             sell_out=30.0,
-            m_sell_in=50.0,
             m_sell_out=30.0,
-            sell_in_lineas=1,
             sell_out_lineas=1,
         ),
         "MLA10": board_row(
@@ -191,11 +188,8 @@ def board_calls(monkeypatch) -> list[bool]:
             gross=500.0,
             tg=50.0,
             costo=400.0,
-            sell_in=0.0,
             sell_out=0.0,
-            m_sell_in=0.0,
             m_sell_out=0.0,
-            sell_in_lineas=0,
             sell_out_lineas=0,
         ),
     }
