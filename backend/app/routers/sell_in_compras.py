@@ -12,8 +12,8 @@ lowers the cost of THAT purchase's units only. The math lives in
 - `GET ""` is paginated, newest purchase date first, filtered by item,
   supplier, estado, an inclusive purchase-date range, `aplica`, free text
   (`q`), item brands (`marcas`, CSV, exact) and currency. Every purchase carries
-  its supplier name, its `aplica` flag and its lines with consumed and remaining
-  units (from `sell_in_consumos`).
+  its supplier name, its `aplica` flag (active: its sell in is inside costo SI
+  once the invoice enters) and its lines.
 - A purchase may come from several Compras operations (`pedido_compra_ids`; the
   legacy single `pedido_compra_id` still works): they must exist and share the
   supplier and currency, which the purchase must match. `GET /prefill` (needs
