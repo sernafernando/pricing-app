@@ -1766,7 +1766,6 @@ export default function Productos() {
                         monto={p.costo}
                         moneda={p.moneda_costo}
                         ppp={p.ppp}
-                        sellInOut={p.sell_in_out}
                         format={formatCostoLista}
                       />
                     </td>

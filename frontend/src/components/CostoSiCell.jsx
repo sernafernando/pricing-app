@@ -38,7 +38,7 @@ export default function CostoSiCell({ costoSi, format }) {
   return (
     <span className={styles.cell} title={costoSiTitle(costoSi, format)}>
       {format(costoSi.costo, costoSi.moneda)}
-      {costoSi.fuente === 'lista' && <span className={styles.sellIn}> lista</span>}
+      {costoSi.fuente === 'lista' && <span className={styles.tag}> lista</span>}
     </span>
   );
 }

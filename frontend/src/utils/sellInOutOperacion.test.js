@@ -18,6 +18,12 @@ describe('partesSellInOut', () => {
     ]);
     expect(partesSellInOut({ sell_out_ars: null, sell_out_estimado: false }, moneda)).toEqual([]);
   });
+
+  it('never names a sell in: it is inside the costo SI (costo SI T5 PR B)', () => {
+    expect(partesSellInOut({ sell_in_ars: 30, sell_in_estimado: true, sell_out_ars: 50 }, moneda)).toEqual([
+      'Sell out: $ 50',
+    ]);
+  });
 });
 
 describe('lineaSellOut', () => {

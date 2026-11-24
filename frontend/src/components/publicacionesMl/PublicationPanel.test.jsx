@@ -671,7 +671,8 @@ describe('header figures (S1)', () => {
     expect(within(figures()).getByTitle('Markup')).not.toHaveAttribute('data-negative');
   });
 
-  describe('cost and markup with sell in / sell out (S6, S9: ver_ganancia only)', () => {
+  describe('cost and markup with sell out (S6, S9: ver_ganancia only)', () => {
+    // The retired sell in an older payload may still carry (costo SI T5 PR B): never rendered.
     const SELL_IN = { compra_item_id: 7, descuento_unit: 1500, costo: 62500, unidades_restantes: 12 };
     // One consistent set (L11): the unit of the breakdown (limpio 81.002,93, costo 64.000) is the publication's only
     // one, so the range is its 26,5%; with sell in the cost is 62.500 (+29,6%), and a 2.000 sell out raises it (+32,8%).
@@ -715,7 +716,7 @@ describe('header figures (S1)', () => {
       expect(figure('Precio')).toBe('$ 98.500,50Markup 26,5%');
     });
 
-    it('S6: a Costo card after Precio with the cost in pesos and the cost with sell in under it', async () => {
+    it('S6: a Costo card after Precio with the cost in pesos alone, never a cost with sell in (costo SI T5 PR B)', async () => {
       canSeeMargin = true;
       publicacionesMlAPI.detail.mockResolvedValue({
         data: withCosts({ sell_in: SELL_IN, sell_out: null, markups_sell_in: { publicacion: 29.6 }, markups_sell_in_out: {} }),
@@ -723,7 +724,7 @@ describe('header figures (S1)', () => {
       renderPanel({ tab: 'resumen' });
       await screen.findByRole('region', { name: 'Cifras de la publicación' });
       expect(labels()).toEqual(['Precio', 'Costo', 'Stock', 'Ventas 30 días']);
-      expect(figure('Costo')).toBe('$ 64.000,00c/ sell in $ 62.500,00');
+      expect(figure('Costo')).toBe('$ 64.000,00');
     });
 
     it('L11: the Costo card and the sell in/out line name the unit they come from, as Rentabilidad does', async () => {
@@ -746,8 +747,8 @@ describe('header figures (S1)', () => {
       expect(within(figures()).getByText('c/ SO', { exact: false })).toHaveAttribute('title', hint);
     });
 
-    it("S10: a USD cost reads in USD, its cost with sell in in USD too, the pesos only in the cost's tooltip", async () => {
-      // 40 USD at 1600 = the breakdown's 64.000 ARS; the backend's sell in in USD at that same rate.
+    it("S10: a USD cost reads in USD, no cost with sell in, the pesos only in the cost's tooltip", async () => {
+      // 40 USD at 1600 = the breakdown's 64.000 ARS; an older payload's sell in in USD is never rendered.
       const sellInUsd = { ...SELL_IN, moneda_costo: 'USD', costo_moneda: 39.0625, descuento_unit_moneda: 0.9375 };
       canSeeMargin = true;
       publicacionesMlAPI.detail.mockResolvedValue({
@@ -758,14 +759,14 @@ describe('header figures (S1)', () => {
       });
       renderPanel({ tab: 'resumen' });
       await screen.findByRole('region', { name: 'Cifras de la publicación' });
-      expect(figure('Costo')).toBe('USD 40,00c/ sell in USD 39,06');
+      expect(figure('Costo')).toBe('USD 40,00');
       expect(within(figures()).getByText('USD 40,00')).toHaveAttribute(
         'title',
         'Costo del producto en USD (en pesos: $ 64.000,00). Unidad calculada: la publicación',
       );
     });
 
-    it('S10: a USD cost without a rate today never calls its figure pesos, and its cost with sell in says so', async () => {
+    it('S10: a USD cost without a rate today never calls its figure pesos, and shows no cost with sell in', async () => {
       const sellInSinTasa = { ...SELL_IN, costo: 38.5, moneda_costo: 'USD', costo_moneda: null, descuento_unit_moneda: null };
       canSeeMargin = true;
       publicacionesMlAPI.detail.mockResolvedValue({
@@ -776,7 +777,7 @@ describe('header figures (S1)', () => {
       });
       renderPanel({ tab: 'resumen' });
       await screen.findByRole('region', { name: 'Cifras de la publicación' });
-      expect(figure('Costo')).toBe('USD 40,00c/ sell in Sin tipo de cambio');
+      expect(figure('Costo')).toBe('USD 40,00');
       expect(within(figures()).getByText('USD 40,00')).toHaveAttribute(
         'title',
         'Costo del producto en USD (sin tipo de cambio). Unidad calculada: la publicación',

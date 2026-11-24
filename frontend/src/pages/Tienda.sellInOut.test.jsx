@@ -73,11 +73,12 @@ async function renderFila(producto) {
 }
 
 describe('Tienda sell in / sell out', () => {
-  it('shows the cost with sell in in the cost currency, on the cost line', async () => {
+  it('shows the cost alone on its line, never a cost with sell in (costo SI T5 PR B)', async () => {
+    // CON_SELL_IN_OUT still carries an older payload's sell in: never rendered.
     const fila = await renderFila(CON_SELL_IN_OUT);
 
-    expect(within(fila).getByText('c/ sell in USD $9.00', { exact: false })).toBeInTheDocument();
-    expect(within(fila).getByText('USD $10.00', { exact: false })).toBeInTheDocument();
+    expect(within(fila).queryByText(/c\/ sell in/)).not.toBeInTheDocument();
+    expect(within(fila).getByText('USD $10.00').textContent).toBe('USD $10.00');
   });
 
   it('shows the extra profit per key, with sell out only where that key has one', async () => {

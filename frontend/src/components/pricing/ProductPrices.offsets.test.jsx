@@ -49,13 +49,13 @@ beforeEach(() => {
 });
 
 describe('cost and markup with offset', () => {
-  it('no longer shows a "Costo con offset" fact (the cost with sell in replaced it)', async () => {
+  it('no longer shows a "Costo con offset" fact (nor the retired cost with sell in)', async () => {
     render(<ProductPrices productItemId={4101} showCost />);
     const group = await facts();
     await waitFor(async () => expect(offsetCell(await priceOf('Clásica'))).toHaveTextContent('32,94%'));
     expect(group).not.toHaveTextContent('Costo con offset');
     expect(within(group).queryByRole('list', { name: 'Offsets aplicados' })).not.toBeInTheDocument();
-    expect(group).toHaveTextContent('Costo c/ sell in');
+    expect(group).not.toHaveTextContent('Costo c/ sell in');
     expect(offsetsGananciaAPI.vigentes).toHaveBeenCalled();
   });
 

@@ -615,21 +615,8 @@ export const makeProductRow = (overrides = {}) => ({
 /** The lines under a product's cost (`ppp`, `sell_in_out`), as `/view/products` sends them with ver_ganancia. */
 export const COST_LINES = {
   ppp: { costo: 41.2, moneda: 'USD', fecha: '2026-09-30', markups: {} },
-  sell_in_out: {
-    // A USD cost (45,50): the backend also sends the sell in in USD at the rate it converted the cost with (S10).
-    sell_in: {
-      compra_item_id: 7,
-      descuento_unit: 3250,
-      costo: 63000,
-      unidades_restantes: 140,
-      moneda_costo: 'USD',
-      costo_moneda: 43.2679,
-      descuento_unit_moneda: 2.2321,
-    },
-    sell_out: null,
-    markups_sell_in: {},
-    markups_sell_in_out: {},
-  },
+  // No sell out: the backend sends no block (costo SI T5 PR B: there is no sell in part any more).
+  sell_in_out: null,
 };
 
 export const PRODUCT_ROWS = [

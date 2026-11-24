@@ -1243,9 +1243,9 @@ describe('Publicaciones ML Producto view (visual)', () => {
         await showCost(screen);
         const row = rowWith(scrollerOf(), 'Router Archer AX55');
         const cell = [...row.querySelectorAll('td')].find((td) => td.textContent.includes('USD 45,50'));
-        // The owner's case: a USD cost, its cost with sell in in USD too, inline; the PPP and pesos in the tooltip.
-        expect(cell.textContent).toBe('USD 45,50 c/ sell in USD 43,27');
-        // The whole line shows: the cell is as wide as its content, no ellipsis cuts the cost with sell in.
+        // The owner's case: a USD cost in USD, the PPP in the tooltip; no cost with sell in (costo SI T5 PR B).
+        expect(cell.textContent).toBe('USD 45,50');
+        // The whole line shows: the cell is as wide as its content, no ellipsis cuts the cost.
         const content = cell.firstElementChild.getBoundingClientRect();
         const box = cell.getBoundingClientRect();
         const padding = parseFloat(getComputedStyle(cell).paddingLeft);
@@ -2509,16 +2509,17 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
           // The offsets load after the prices: wait for the markup with offset before measuring.
           await expect.poll(() => chip('Clásica', 'markup-offset')?.textContent).toBe('31,56%');
           expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
-          // The "Costo con offset" fact is gone; the cost with sell in stays.
+          // The "Costo con offset" fact is gone, and so is the cost with sell in (costo SI T5 PR B).
           expect(facts).not.toHaveTextContent('Costo con offset');
-          expect(facts).toHaveTextContent('Costo c/ sell in');
+          expect(facts).not.toHaveTextContent('Costo c/ sell in');
 
           expect(getComputedStyle(chip('Clásica', 'markup')).color).toBe(tokenColor('--tone-success-fg'));
           expect(getComputedStyle(chip('12 cuotas', 'markup')).color).toBe(tokenColor('--tone-danger-fg'));
           expect(getComputedStyle(chip('12 cuotas', 'markup')).backgroundColor).toBe(tokenColor('--tone-danger-bg'));
           expect(chip('Clásica', 'markup-offset').textContent).toBe('31,56%');
           expect(chip('Clásica', 'markup-sell-in-out').textContent).toBe('28,80%');
-          expect(facts).toHaveTextContent('$ 60.000,00');
+          expect(facts).not.toHaveTextContent('$ 60.000,00'); // the retired cost with sell in
+          expect(facts).toHaveTextContent('$ 1.500,00'); // the sell out per unit
           // Readable on the panel in both themes: the table paints nothing of its own.
           let backdrop = table;
           while (getComputedStyle(backdrop).backgroundColor === 'rgba(0, 0, 0, 0)') backdrop = backdrop.parentElement;
