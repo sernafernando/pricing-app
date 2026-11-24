@@ -1,30 +1,13 @@
-"""Sell in and sell out of a product today, as the Productos screens show them (sell-in-sell-out T9).
+"""Sell out of a product today, as the Productos screens show it (sell-in-sell-out T9; costo SI T5 PR B).
 
-Owner rule: "Always show both: cost and cost with sell in; markup and totals
-without and with sell out." Display-only and additive: the existing cost and
-markup fields stay as they are; see `app.services.productos_sell_in_out`.
+Display-only and additive: the existing cost and markup fields stay as they are; see
+`app.services.productos_sell_in_out`. There is no sell in part: costo SI replaced the FIFO lots and the per-sale cost
+bonuses, so a product's sell in is already inside its costo SI and the screens show only the sell out ("c/ SO").
 """
 
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel
-
-
-class SellInProducto(BaseModel):
-    """Where the next sale takes its sell in from: the purchase line (option A, FIFO), or, with no lot left, the
-    active % of cost bonuses (T25; rule 5, a FIFO lot's units go first)."""
-
-    compra_item_id: Optional[int] = None  # the FIFO lot; None for a cost bonus
-    bono_id: Optional[int] = None  # the first cost bonus (id order) of the stack; None for a FIFO lot
-    bono_ids: List[int] = []  # every cost bonus giving part of `descuento_unit`, in id order; empty for a FIFO lot
-    descuento_unit: float  # ARS per unit
-    costo: Optional[float]  # ARS per unit with sell in; None when the cost has no ARS value (no rate)
-    unidades_restantes: Optional[int] = None  # the lot's units left; None for a cost bonus (no stock)
-    # S10: the same two figures in the product's cost currency, converted back at the very rate the cost was turned
-    # into ARS with (never another one), for display only; equal to the ARS ones for an ARS cost, None without it.
-    moneda_costo: str = "ARS"
-    costo_moneda: Optional[float] = None
-    descuento_unit_moneda: Optional[float] = None
 
 
 class SellOutProducto(BaseModel):
@@ -35,23 +18,20 @@ class SellOutProducto(BaseModel):
 
 
 class SellInOutProducto(BaseModel):
-    """Null as a whole when neither applies. Markups use the keys of `PppPayload.markups`:
-    `markups_sell_in` only when sell in applies (cost with sell in), `markups_sell_in_out` only
-    when sell out applies (that cost, or the plain one, plus the credit added to the net)."""
+    """Null as a whole when no sell out applies. Markups use the keys of `PppPayload.markups`:
+    `markups_sell_in_out` only when sell out applies (the plain cost plus the credit added to the net);
+    `markups_sell_in` is never filled (D1: no markup "with sell in"), kept for the callers that read it."""
 
-    sell_in: Optional[SellInProducto] = None
     sell_out: Optional[SellOutProducto] = None
     markups_sell_in: Dict[str, float] = {}
     markups_sell_in_out: Dict[str, float] = {}
 
 
 class SellInOutTienda(BaseModel):
-    """The Tienda listing's sell in / sell out (`app.services.tienda_sell_in_out`). Sell in ignores stores, so it is
-    one figure; sell out depends on the channel each price sells through, so it is one per markup key (`gremio`,
-    `sugerido`: off-ML; `web_transf`: Tienda Nube), each with its own price as the percentage base. Null as a whole
-    when neither applies."""
+    """The Tienda listing's sell out (`app.services.tienda_sell_in_out`): it depends on the channel each price sells
+    through, so it is one per markup key (`gremio`, `sugerido`: off-ML; `web_transf`: Tienda Nube), each with its own
+    price as the percentage base. Null as a whole when none applies."""
 
-    sell_in: Optional[SellInProducto] = None
     sell_out: Dict[str, SellOutProducto] = {}
     markups_sell_in: Dict[str, float] = {}
     markups_sell_in_out: Dict[str, float] = {}

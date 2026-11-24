@@ -292,7 +292,7 @@ def markups_comparables(
 
 def _sin_sell_in_out() -> SellInOutBatch:
     """An empty sell in / sell out read: what both sides use when the shared read failed, so neither retries it."""
-    return SellInOutBatch(hoy=date.today(), sell_in={}, campanas={}, bna=None)
+    return SellInOutBatch(hoy=date.today(), campanas={}, bna=None)
 
 
 def _format_fingerprint_price(price: float) -> str:

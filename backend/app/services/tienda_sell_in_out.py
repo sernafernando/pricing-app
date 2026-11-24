@@ -1,11 +1,11 @@
-"""Sell in and sell out on the Tienda listing (`GET /productos/tienda`), display only.
+"""Sell out on the Tienda listing (`GET /productos/tienda`), display only.
 
 Owner (2026-11-12): "en tienda tienen que aplicar los sell in y sell out igual que en el resto de las cosas, tienen
 que figurarle los costos más bajos y el plus de ganancia, acordate que tienda no usa las mismas fórmulas porque no
 es sobre ml."
 
-The sources are the Productos ones (`app.services.productos_sell_in_out`: the same FIFO lots, cost bonuses and
-campaigns, the cost converted at the same rate). Only the net they are measured against is Tienda's own, never the
+The sources are the Productos ones (`app.services.productos_sell_in_out`: the same campaigns, the cost converted at
+the same rate; no sell in part since costo SI T5 PR B, costo SI already holds it). Only the net they are measured against is Tienda's own, never the
 ML one (no ML commission or shipping):
 
 - `gremio`, `sugerido`: `precio_sin_iva / (1 + varios%)`, the net their markups are built on.
@@ -15,7 +15,7 @@ Markups (sell-in-costo-si D1): every Tienda markup is over costo SI, the cost ne
 already is the "c/ sell in" one; with sell out, `(limpio + sell out - costo SI) / costo SI` (`so.markup_con_so`,
 the list cost when the product has no costo SI step, Q1).
 
-Store scope applies to sell OUT only (sell in ignores stores): each key reads the campaigns of the channel its price
+Store scope: each key reads the campaigns of the channel its price
 sells through, `gremio` and `sugerido` the off-ML one (`fuera`), `web_transf` Tienda Nube (`tn`). A campaign with
 the default reach (every channel) applies to every key; one narrowed to ML stores applies to none. A percentage of
 price campaign takes each key's OWN price with VAT as its base, never a shared one.
@@ -86,8 +86,6 @@ def sell_in_out_tienda(
     price formula used (the product's, or its default when the product has none): the percentage of price base
     and the VAT-loaded amounts read that SAME rate, never the product's raw empty one."""
     producto = _ProductoConIva(producto.item_id, producto.costo, producto.moneda_costo, iva)
-    base = batches[_FUERA].markups(producto, tipo_cambio=tipo_cambio).payload()
-    sell_in = base.sell_in if base else None
     sell_out: Dict[str, SellOutProducto] = {}
     markups_sell_in: Dict[str, float] = {}
     markups_sell_in_out: Dict[str, float] = {}
@@ -105,10 +103,9 @@ def sell_in_out_tienda(
             sell_out[clave] = payload.sell_out
         markups_sell_in.update(payload.markups_sell_in)
         markups_sell_in_out.update(payload.markups_sell_in_out)
-    if sell_in is None and not sell_out:
+    if not sell_out:
         return None
     return SellInOutTienda(
-        sell_in=sell_in,
         sell_out=sell_out,
         markups_sell_in=markups_sell_in,
         markups_sell_in_out=markups_sell_in_out,

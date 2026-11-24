@@ -1,4 +1,4 @@
-"""Tactical store scope in the screens' sell in / sell out resolver, against real tables: several store contexts
+"""Tactical store scope in the screens' sell out resolver, against real tables: several store contexts
 (one per official store of a page) are resolved from ONE database read, each with the same result as resolving it
 alone. Postgres only, like the allocators it reads after."""
 
@@ -12,6 +12,7 @@ from sqlalchemy import Engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.ml_tienda_oficial import MlTiendaOficial
+from app.models.producto import ProductoERP
 from app.models.tactical import TacticalTienda
 from app.services.productos_sell_in_out import resolver_sell_in_out_batch, resolver_sell_in_out_por_contexto
 from app.services.sell_out import asignacion
@@ -118,10 +119,6 @@ def _bono_solo_gauss(engine: Engine, tope_unidades: int) -> int:
     return bono
 
 
-def _bonos(batch) -> list:
-    return [x.bono.id for x in batch.bonos_costo.get(ROUTER, [])]
-
-
 def _campanas(batch) -> list:
     return [c.campana.id for c in batch.campanas.get(ROUTER, [])]
 
@@ -159,16 +156,18 @@ class TestPorContexto:
         assert _statements(engine, CONTEXTOS) == _statements(engine, {GAUSS: [("ml", GAUSS)]})
 
 
-class TestSellInIgnoresStores:
-    """Owner, 2026-11-10: "lo de tiendas no aplica a sell in, es solo para sell out". A cost bonus is the same in
-    every store context, its cap counted over everything it gave, whatever scope its tactical row holds."""
+class TestNoSellInInAnyStore:
+    """costo SI T5 PR B: a cost bonus gives no sell in any more, in no store context, whatever scope its tactical row
+    holds or what its cap has left; only the sell out depends on the store."""
 
-    @pytest.mark.parametrize("tope, activo", [(2, True), (1, False)], ids=["cap_left", "cap_used_up"])
-    def test_a_cost_bonus_is_the_same_in_every_store_context(self, engine: Engine, tope: int, activo: bool) -> None:
+    @pytest.mark.parametrize("tope", [2, 1], ids=["cap_left", "cap_used_up"])
+    def test_a_cost_bonus_gives_nothing_in_every_store_context(self, engine: Engine, tope: int) -> None:
         bono = _bono_solo_gauss(engine, tope_unidades=tope)
         _consumido(engine, bono, 1, "1500.00")  # one unit already given to a sale por fuera
 
         with sessionmaker(bind=engine, autoflush=False)() as db:
+            producto = db.get(ProductoERP, ROUTER)
             juntos = resolver_sell_in_out_por_contexto(db, [ROUTER], HOY, CONTEXTOS)
+            payloads = {k: b.markups(producto).payload() for k, b in juntos.items()}
 
-        assert {k: _bonos(b) for k, b in juntos.items()} == {k: [bono] if activo else [] for k in CONTEXTOS}
+        assert payloads == {k: None for k in CONTEXTOS}

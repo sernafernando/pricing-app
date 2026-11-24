@@ -332,9 +332,8 @@ class TestTodosIgual:
             productos_acc.record("clasica", found.breakdown.limpio)
             productos = productos_acc.payload()
 
-        # the FIFO lot is there (shown), but none of them takes it off the cost
-        assert productos.sell_in is not None and productos.sell_in.descuento_unit == 1000.0
-        assert panel["sell_in"]["descuento_unit"] == 1000.0
+        # the FIFO lot gives no sell in part any more (costo SI T5 PR B), and none of them takes it off the cost
+        assert "sell_in" not in productos.model_dump() and "sell_in" not in panel
         assert productos.sell_out.monto_unit == panel["sell_out"]["monto_unit"] == 500.0
         # (a) Productos and (b) the panel's Resumen, on the same net (the header's): one figure over costo SI
         assert productos.markups_sell_in == panel["markups_sell_in"] == {}

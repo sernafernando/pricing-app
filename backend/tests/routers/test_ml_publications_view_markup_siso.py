@@ -23,7 +23,7 @@ import pytest
 from app.routers import ml_publications_view
 from app.services.ml_publications.view import cost_lines
 from app.services.ml_publications.view.markup import UnitMarkup
-from app.schemas.sell_in_out_producto import SellInOutProducto, SellInProducto, SellOutProducto
+from app.schemas.sell_in_out_producto import SellInOutProducto, SellOutProducto
 from tests.routers.test_ml_publications_links import grant
 from tests.routers.test_ml_publications_view import get as get_items
 from tests.routers.test_ml_publications_view_groups import get as get_groups
@@ -141,18 +141,16 @@ class TestPendingUnit:
 
     UNIT = UnitMarkup(10.0, "ok", 1100.0, 1000.0, 2000.0, "item_price", 4)
 
-    def test_sell_in_and_sell_out_win(self) -> None:
+    def test_the_markup_with_sell_out_wins(self) -> None:
         payload = SellInOutProducto(
-            sell_in=SellInProducto.model_construct(costo=900.0),
             sell_out=SellOutProducto(monto_unit=50.0, campana_ids=[1]),
             markups_sell_in={"u": 22.22},
             markups_sell_in_out={"u": 27.78},
         )
         assert cost_lines.siso_unit_value(self.UNIT, payload, "u") == (27.78, True, False)
 
-    def test_sell_in_alone_when_the_sell_out_is_pending(self) -> None:
+    def test_a_markups_sell_in_value_when_the_sell_out_is_pending(self) -> None:
         payload = SellInOutProducto(
-            sell_in=SellInProducto.model_construct(costo=900.0),
             sell_out=SellOutProducto(monto_unit=None, campana_ids=[1]),
             markups_sell_in={"u": 22.22},
         )
