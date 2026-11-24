@@ -32,7 +32,7 @@ publication at all are rows too (`filters.product_select`, the "Sin MLA" product
 Sales (owner, 2026-11-17, L3): each publication's Board row over the last 30 business days (`row_metrics`, what
 `/items` shows for it), summed per row as the Producto view sums them: a variant's units in base units on its base row
 (a pack's times its quantity), money summed, the markups the Board's ratio of the sums (`board.markup_of`,
-`board.SellInOut`), never an average of percentages. Nothing is written.
+`board.ConSo`), never an average of percentages. Nothing is written.
 
 The 90-day trends (L6): the units summed day by day like the sales (base units on a base row); a day's markup is the
 average of its publications' markups weighted by their units that day (the Board hands each publication's daily

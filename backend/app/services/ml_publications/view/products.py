@@ -101,7 +101,7 @@ NO_PRODUCT_LABEL = "Sin producto"
 
 # The Board's publication-row figures a product sums.
 SUMMED = ("units", "gross", "tg", "mtg", "costo", "prev_units", "prev_gross", "prev_tg", "prev_mtg", "prev_costo")
-# The sell in / sell out sums of a page read with them (`board.SellInOut` reads them off the product's `board.Row`).
+# The sell out sums of a page read with them (`board.ConSo` reads them off the product's `board.Row`).
 # D1 (sell-in-costo-si): only the sell out of the Board's lines; their sell in is never read (`real_so`)
 SELL_SUMMED = ("sell_out", "m_sell_out", "sell_out_lineas")
 WINDOW_COLUMNS = {"3d": "w3d", "7d": "w7d", "15d": "w15d", "30d": "w30d"}
