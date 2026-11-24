@@ -16,7 +16,7 @@ from sqlalchemy import Engine, text
 
 import app.main  # noqa: F401 - registers every model in Base.metadata
 from app.core.database import Base
-from tests.conftest import _PRISTINE_PG_COLUMN_TYPES
+from tests.conftest import _PRISTINE_PG_COLUMN_TYPES, _patch_pg_types_for_sqlite
 from tests.services.sell._schema import throwaway_schema
 
 
@@ -36,5 +36,11 @@ def _sin_semilla(engine: Engine) -> None:
 
 @pytest.fixture(scope="module")
 def engine() -> Iterator[Engine]:
-    with throwaway_schema("routers_pg", _tables(), after=_sin_semilla) as eng:
-        yield eng
+    """`throwaway_schema` puts the real Postgres types back on every app column (`_restore_pristine_pg_types`); they
+    stay for this module's tests and are patched for SQLite again after it, or the session's SQLite `engine` would
+    bind a list to a Postgres ARRAY in every later module (`ml_group_metrics.member_order_ids`)."""
+    try:
+        with throwaway_schema("routers_pg", _tables(), after=_sin_semilla) as eng:
+            yield eng
+    finally:
+        _patch_pg_types_for_sqlite()
