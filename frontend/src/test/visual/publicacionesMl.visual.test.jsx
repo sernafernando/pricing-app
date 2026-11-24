@@ -1415,7 +1415,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
         const screen = await renderProducts({ width, height, theme });
         await openProductResumen(screen);
         const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
-        const next = aside.getByText(/^La próxima venta descuenta \$ 980,33 por unidad \(lote 2\)/);
+        const next = aside.getByText(/^Historial: los lotes ya no descuentan ventas/);
         await expect.element(next).toBeVisible();
         const panel = document.querySelector('[data-split-panel]');
         const section = next.element().closest('section');
@@ -1435,7 +1435,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
       const screen = await renderProducts({ width: 1440, height: 2600, theme });
       await openProductResumen(screen);
       const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
-      await expect.element(aside.getByText(/^La próxima venta descuenta/)).toBeVisible();
+      await expect.element(aside.getByText(/^Historial: los lotes ya no descuentan ventas/)).toBeVisible();
       await expect.element(aside.getByText('Distribuidora Norte')).toBeVisible();
       const panel = document.querySelector('[data-split-panel]');
       const modo = aside.getByRole('region', { name: 'Modo de costo' });

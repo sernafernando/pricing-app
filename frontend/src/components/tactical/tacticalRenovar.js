@@ -10,7 +10,7 @@
  * Editar (S8) loads the same values with `edicionDe`: the dates and each invoice line's invoice are kept, since saving
  * replaces this same tactical (`PUT /tacticals/{id}`). `impactoDe` is what the confirmation tells before that save.
  */
-import { nuevaLinea } from './tacticalLineas';
+import { alcanceDeLinea, nuevaLinea } from './tacticalLineas';
 import { seleccionDesdeDetalle } from './tacticalTiendas';
 
 /** A decimal from the API ("220.00", "3.5") as the screen types it ("220", "3,5"); empty when null. */
@@ -22,10 +22,10 @@ const elegidasDe = (linea) =>
     ? { facturasCt: [...linea.facturas_ct], facturasElegidas: linea.facturas_elegidas ?? null }
     : {};
 
-function lineaDe(hijos, conservar) {
+function lineaDe(hijos, conservar, tipo) {
   const [primero] = hijos;
   const productos = hijos.flatMap((h) => h.productos ?? []);
-  return {
+  const linea = {
     ...nuevaLinea(),
     alcance: primero.alcance,
     productos: primero.alcance === 'productos' ? productos : [],
@@ -47,6 +47,9 @@ function lineaDe(hijos, conservar) {
         ? [{ id: primero.pedido_compra_id, numero: primero.pedido_numero, ...elegidasDe(primero) }]
         : [],
   };
+  // An edit of a stored sell in lump sum may keep it while its scope stays (T5 PR A, L25); a renewal is a new one.
+  const guardado = conservar && tipo === 'sell_in' && primero.modo_monto === 'monto_total' && primero.alcance !== 'factura';
+  return { ...linea, totalGuardado: guardado ? alcanceDeLinea(linea) : null };
 }
 
 function valoresDe(tactical, gruposTiendas, conservar) {
@@ -73,7 +76,7 @@ function valoresDe(tactical, gruposTiendas, conservar) {
       tiendaKeys: seleccionDesdeDetalle(tactical, gruposTiendas),
       nota: tactical.nota ?? '',
     },
-    lineas: [...porLinea.values()].map((hijos) => lineaDe(hijos, conservar)),
+    lineas: [...porLinea.values()].map((hijos) => lineaDe(hijos, conservar, tactical.tipo)),
   };
 }
 

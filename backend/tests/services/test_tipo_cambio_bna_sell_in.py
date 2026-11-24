@@ -1,13 +1,10 @@
-"""A BNA update queues the USD sell-in cost bonuses it can move (tactical sell in USD S2, S5), in the transaction that
-stores the rate, like sell out's campaigns: an `al_cobro` one whose collection has no rate yet ("estimated at today's
-BNA, recomputed daily until the collection rate is loaded") and a `dia_venta` one still running. No new cron: the
-daily BNA update queues them and the existing `sell_in.bono` worker recomputes them.
+"""A BNA update no longer queues the USD sell-in cost bonuses (tactical sell in USD S2, S5): since sell-in-costo-si T5
+PR A (L24) a cost bonus is never applied per sale, so there is nothing to re-convert.
 
 Postgres only (the queue). Exercises the storing half of the update (`guardar_cotizacion_bna`)."""
 
 from __future__ import annotations
 
-import logging
 from datetime import date, timedelta
 from typing import Iterator, Optional
 
@@ -79,43 +76,15 @@ def _actualizar(engine: Engine, venta: float = 1450.0) -> None:
         tipo_cambio_service.guardar_cotizacion_bna(db, 1400.0, venta)
 
 
-def test_a_new_rate_queues_the_usd_cost_bonuses_it_can_move(engine: Engine) -> None:
-    sin_tasa = _bono(engine, "al_cobro")
-    corriendo = _bono(engine, "dia_venta")
-    _bono(engine, "al_cobro", cobro="1350")  # its collection rate is final
-    _bono(engine, "dia_venta", hasta=HOY - timedelta(days=1))  # ended: its sales' dates already have their BNA
-    _bono(engine, "fijo", tipo_cambio="1400")
-    _bono(engine, "al_cobro", moneda="ARS")  # a % of the ARS cost of a USD tactical: no rate
+def test_a_new_rate_queues_no_sell_in_cost_bonus(engine: Engine) -> None:
+    """sell-in-costo-si T5 PR A, L24 ("no podemos descontarselo dos veces"): a cost bonus is never applied per sale any
+    more (costo SI holds the loyalty through its invoices), so a BNA update has nothing of sell in to re-convert."""
+    _bono(engine, "al_cobro")
+    _bono(engine, "dia_venta")
     b.clear_queue(engine)
 
     _actualizar(engine)
 
-    assert b.queued(engine) == sorted([("bono", sin_tasa), ("bono", corriendo)])
-
-
-def test_the_same_rate_again_queues_nothing(engine: Engine) -> None:
-    bono = _bono(engine, "al_cobro")
-    _actualizar(engine)
-    b.clear_queue(engine)
-
-    _actualizar(engine)
     assert b.queued(engine) == []
-
-    _actualizar(engine, 1460.0)
-    assert b.queued(engine) == [("bono", bono)]
-
-
-def test_the_rate_is_stored_even_when_queueing_the_cost_bonuses_fails(
-    engine: Engine, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    def _rota(db, fecha):
-        db.execute(text("SELECT * FROM tabla_que_no_existe"))  # aborts the transaction without a savepoint
-
-    monkeypatch.setattr(tipo_cambio_service.bonos_costo, "encolar_por_bna", _rota)
-
-    with caplog.at_level(logging.ERROR, logger=tipo_cambio_service.__name__):
-        _actualizar(engine)
-
     with engine.connect() as conn:
         assert conn.execute(text("SELECT venta FROM tipo_cambio WHERE moneda = 'USD'")).scalars().all() == [1450.0]
-    assert any("sell-in" in r.getMessage() for r in caplog.records)

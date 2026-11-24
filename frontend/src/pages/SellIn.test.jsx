@@ -41,7 +41,7 @@ function renderConNuevoTactical(entrada) {
 vi.mock('../services/sellInAPI', () => ({
   sellInAPI: { listar: vi.fn(), resumen: vi.fn(), detalle: vi.fn() },
   sellInBonosAPI: { listar: vi.fn(), detalle: vi.fn(), alcance: vi.fn() },
-  sellInLotesAPI: { productos: vi.fn(), lotes: vi.fn(), consumos: vi.fn(), modos: vi.fn(), modoPorDefecto: vi.fn() },
+  sellInLotesAPI: { productos: vi.fn(), lotes: vi.fn(), consumos: vi.fn(), modos: vi.fn() },
   costoSiSospechasAPI: { listar: vi.fn(), resumen: vi.fn(), aceptar: vi.fn(), excluir: vi.fn() },
 }));
 
@@ -70,7 +70,6 @@ beforeEach(() => {
   sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MIGRADA });
   sellOutAPI.consumos.mockResolvedValue({ data: CONSUMOS_USD });
   sellInLotesAPI.productos.mockResolvedValue({ data: { productos: [] } });
-  sellInLotesAPI.modoPorDefecto.mockResolvedValue({ data: { modo: 'fifo' } });
   offsetGruposAPI.listar.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }] });
   offsetGruposAPI.alcance.mockResolvedValue({ data: [{ grupo_id: 1, productos: 3, campanas: [] }] });
   offsetGruposAPI.opciones.mockResolvedValue({ data: { marcas: [], categorias: [], subcategorias: [] } });
@@ -378,7 +377,6 @@ describe('SellIn page — Productos tab', () => {
       data: { item_id: 4512, lotes: [], proxima: null, bono_costo: null, compra_visible: false },
     });
     sellInLotesAPI.modos.mockResolvedValue({ data: { item_id: 4512, vigente: null, historial: [] } });
-    sellInLotesAPI.modoPorDefecto.mockResolvedValue({ data: { modo: 'fifo' } });
   });
 
   it('lists the products with their cost mode and a row opens its lots and cost mode', async () => {

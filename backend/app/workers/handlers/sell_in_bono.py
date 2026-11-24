@@ -7,7 +7,8 @@ Each batch is ONE short `get_background_db()` transaction:
 1. claim up to `bono_queue.BATCH_SIZE` keys (`FOR UPDATE SKIP LOCKED`, so
    concurrent drains split the queue);
 2. reconcile the claimed bonuses and operations together (the reconcile takes
-   its own per-bonus and per-product locks and recomputes the consumptions);
+   its own per-bonus and per-product locks); a cost bonus is no longer applied
+   per sale (sell-in-costo-si T5 PR A, L24);
 3. ack the keys; a key involved in a pair that failed (no rate to convert a USD
    bonus) is charged (`attempts`/`last_error`) instead, is not claimed again in
    this run and parks after `bono_queue.MAX_ATTEMPTS` until a new change
@@ -34,7 +35,7 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 from sqlalchemy.orm import Session
 
 from app.core.database import get_background_db
-from app.services.sell_in import bono_queue, bonos, bonos_costo
+from app.services.sell_in import bono_queue, bonos
 from app.services import tacticals
 from app.workers.context import JobResult, WorkerContext
 from app.workers.handlers.sell_drain import is_transient
@@ -62,11 +63,9 @@ def _reconciliar(db: Session, keys: Sequence[Key]) -> Tuple[bonos.ReconcileResul
         bono_ids=[ref for tipo, ref in keys if tipo == "bono"],
         pedido_ids=[ref for tipo, ref in keys if tipo == "pedido"],
     )
-    # T25b: a % of cost bonus never generates a purchase (the reconcile skips it); its sales are recomputed here,
-    # a voided or edited one included. A bonus whose recompute fails charges its key.
-    costo = bonos_costo.recalcular(db, bono_ids=[ref for tipo, ref in keys if tipo == "bono"])
-    failed: Dict[Key, str] = {("bono", bono_id): error for bono_id, error in costo.bonos_fallidos.items()}
-    failed = {key: error for key, error in failed.items() if key in keys}
+    # A cost bonus (T25b) is no longer applied per sale (sell-in-costo-si T5 PR A, L24): costo SI holds the loyalty
+    # through its invoices, so only the purchases the reconcile generates remain.
+    failed: Dict[Key, str] = {}
     for (bono_id, pedido_id), error in result.fallidas.items():
         for key in (("bono", bono_id), ("pedido", pedido_id)):
             if key in keys:

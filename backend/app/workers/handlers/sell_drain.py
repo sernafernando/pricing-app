@@ -8,9 +8,10 @@ Each batch is ONE short `get_background_db()` transaction:
 2. collect their products: the queued product plus the products the line's
    stored consumptions are filed under (a fuera / TN line moved to another
    product is queued under the NEW one only; its OLD product is found here);
-3. recompute those products through the active `SellInCosting` strategy
-   (per-product advisory lock, writes only the difference), then their % of
-   cost bonuses (`bonos_costo`, T25b), which take only the units the FIFO left;
+3. nothing per product any more: the FIFO lot allocation and the % of cost
+   bonuses (`bonos_costo`, T25b) are retired (sell-in-costo-si T5 PR A: costo
+   SI replaced the lots, S14, and holds the loyalty, L24); their stored rows
+   stay as they were;
 4. ack the lines whose products all succeeded; charge the rest
    (`attempts`/`last_error`). A charged line is not claimed again in this run,
    and is parked after `queue.MAX_ATTEMPTS` until a new change re-queues it.
@@ -59,8 +60,7 @@ from app.services.combos.componentes import CombosNoSincronizados
 from app.services.costo_si import queue as costo_si_queue
 from app.services.ml_orders_ingestion import recongelar_costo_si
 from app.services.sell import queue
-from app.services.sell_in import bonos_costo
-from app.services.sell_in.costing import RecomputeResult, get_costing
+from app.services.sell_in.costing import RecomputeResult
 from app.services.sell_out import queue as sell_out_queue
 from app.workers.context import JobResult, WorkerContext
 
@@ -206,11 +206,10 @@ def _recompute_and_settle(
     the caller does, once its transaction committed."""
     products = queue.products_of(db, claimed)
     items = set().union(*products.values())
-    result = get_costing().recompute(db, items)
-    # T25b: the % of cost bonuses take the units the FIFO just left, under the same product locks. A product whose
-    # FIFO failed keeps its rows (its line is charged anyway). A cost bonus that cannot be computed (a missing VAT
-    # rate) is logged at ERROR and counted, never charged to the lines: their FIFO succeeded and they are acked.
-    result.bonos_costo_fallidos = _recompute_cost_bonuses(db, items - result.failed.keys())
+    # T5 PR A (sell-in-costo-si): no FIFO allocation and no per-sale cost bonus any more. Costo SI replaced the lots
+    # (S14) and holds the loyalty through its invoices (L24: "no podemos descontarselo dos veces"), so nothing is
+    # inserted or deleted and no product fails here.
+    result = RecomputeResult(products=len(items))
     _fan_out_sell_out(db, list(products))
     failed: Dict[queue.Line, str] = {
         line: "; ".join(f"item {item}: {result.failed[item]}" for item in sorted(suyos & result.failed.keys()))
@@ -219,23 +218,6 @@ def _recompute_and_settle(
     }
     parked = queue.settle(db, [line for line in products if line not in failed], failed)
     return result, failed, parked
-
-
-def _recompute_cost_bonuses(db: Session, items: Set[int]) -> int:
-    """T25b: the % of cost bonuses of `items`, in a savepoint so they never cost the FIFO's batch. A bonus that
-    cannot be computed (a missing VAT rate) is logged and counted by `bonos_costo`; any other non-transient error
-    rolls back only the savepoint, is logged and counts as one failure, and the lines are still acked. A transient
-    error raises: the whole batch rolls back uncharged and the next wake retries. Returns the failures."""
-    try:
-        with db.begin_nested():
-            costo = bonos_costo.recalcular(db, items)
-    except Exception as exc:
-        if is_transient(exc):
-            raise
-        logger.exception("sell.drain: cost bonuses not recomputed for products %s", sorted(items))
-        return 1
-    bonos_costo.registrar_fallidos(costo, "sell.drain")
-    return len(costo.bonos_fallidos)
 
 
 def _fan_out_sell_out(db: Session, lines: List[queue.Line]) -> None:

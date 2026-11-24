@@ -3,7 +3,7 @@
  * criterion, with no caps; the panel shows its fixed shares (iguales / costo) or says it follows units sold.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { productosAPI } from '../../services/api';
 import { sellInBonosAPI } from '../../services/sellInAPI';
@@ -37,107 +37,36 @@ const renderPanel = (props = {}) => {
 
 const forma = () => screen.getByRole('group', { name: 'Forma del monto' });
 
-async function nuevoTotal(user) {
-  renderPanel();
-  await user.click(within(screen.getByRole('group', { name: 'Base del bono' })).getByRole('button', { name: 'Sobre el costo de la venta' }));
-  await user.click(within(forma()).getByRole('button', { name: 'Monto total' }));
-  await user.selectOptions(screen.getByLabelText('Marca'), 'HP');
-  await user.type(screen.getByLabelText('Venta desde'), '2026-11-01');
-  await user.type(screen.getByLabelText('Venta hasta'), '2026-11-30');
-}
-
 describe('SellInBonoForm — a cost bonus by total amount (S4)', () => {
-  it('offers Monto total on the cost base only, with the split selector and no caps', async () => {
+  // sell-in-costo-si T5 PR A, L25: the server refuses a new lump sum, so the form only offers it to a stored one.
+  it('never offers Monto total on a new cost bonus: its form is the % of the sale cost', async () => {
     const user = userEvent.setup();
     renderPanel();
-    expect(within(forma()).queryByRole('button', { name: 'Monto total' })).not.toBeInTheDocument();
     await user.click(within(screen.getByRole('group', { name: 'Base del bono' })).getByRole('button', { name: 'Sobre el costo de la venta' }));
-    expect(within(forma()).getAllByRole('button').map((b) => b.textContent)).toEqual(['% del costo de la venta', 'Monto total']);
-    await user.click(within(forma()).getByRole('button', { name: 'Monto total' }));
-
-    expect(screen.getByLabelText('Monto total (ARS)')).toBeInTheDocument();
-    const criterio = screen.getByLabelText('Repartir el monto total');
-    expect(within(criterio).getAllByRole('option').map((o) => o.textContent)).toEqual([
-      'Elegí cómo repartir',
-      'Partes iguales por modelo',
-      'Según unidades vendidas',
-      'Proporcional al costo',
-    ]);
-    expect(screen.queryByLabelText('Porcentaje')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Tope de unidades (opcional)')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Tope de monto en ARS (opcional)')).not.toBeInTheDocument();
-    await user.selectOptions(criterio, 'unidades');
-    expect(screen.getByText(/sigue las ventas y devoluciones/)).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Forma del monto' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Monto total' })).not.toBeInTheDocument();
+    expect(screen.getByText('% del costo de la venta')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Monto total (ARS)')).not.toBeInTheDocument();
   });
 
-  it('creates it with the total and the criterion, in ARS, without caps', async () => {
-    const user = userEvent.setup();
-    const { onSaved } = renderPanel();
-    await user.click(within(screen.getByRole('group', { name: 'Base del bono' })).getByRole('button', { name: 'Sobre el costo de la venta' }));
-    await user.click(within(forma()).getByRole('button', { name: 'Monto total' }));
-    await user.selectOptions(screen.getByLabelText('Marca'), 'HP');
-    await user.type(screen.getByLabelText('Monto total (ARS)'), '1200000');
-    await user.selectOptions(screen.getByLabelText('Repartir el monto total'), 'iguales');
-    await user.type(screen.getByLabelText('Venta desde'), '2026-11-01');
-    await user.type(screen.getByLabelText('Venta hasta'), '2026-11-30');
-    await user.click(screen.getByRole('button', { name: 'Guardar línea' }));
-
-    expect(sellInBonosAPI.crear).toHaveBeenCalledWith({
-      alcance: 'marca',
-      marca: 'HP',
-      tipo: 'monto_total',
-      monto_total: '1200000',
-      reparto_criterio: 'iguales',
-      moneda: 'ARS',
-      fecha_desde: '2026-11-01',
-      fecha_hasta: '2026-11-30',
-      descripcion: null,
-      tope_unidades: null,
-      tope_monto: null,
-      acumulable: true,
-      base: 'costo_venta',
-      incluye_iva: false,
+  it('never offers Monto total when editing a stored % cost bonus', async () => {
+    sellInBonosAPI.detalle.mockResolvedValue({
+      data: { ...BONO_MONTO_TOTAL, tipo: 'porcentaje', porcentaje: '3.0000', monto_total: null, reparto_criterio: null, repartos: [] },
     });
-    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(BONO_MONTO_TOTAL));
+    renderPanel({ bonoId: 21 });
+    await screen.findByRole('button', { name: 'Guardar cambios' });
+    expect(screen.queryByRole('button', { name: 'Monto total' })).not.toBeInTheDocument();
+    expect(screen.getByText('% del costo de la venta')).toBeInTheDocument();
   });
 
-  it('keeps the Incluye IVA box visible on a total, so a ticked one is never sent unseen', async () => {
-    const user = userEvent.setup();
-    renderPanel();
-    await user.click(within(screen.getByRole('group', { name: 'Base del bono' })).getByRole('button', { name: 'Sobre el costo de la venta' }));
-    await user.click(screen.getByRole('checkbox', { name: 'Incluye IVA' }));
-    await user.click(within(forma()).getByRole('button', { name: 'Monto total' }));
-
-    expect(screen.getByRole('checkbox', { name: 'Incluye IVA' })).toBeChecked();
-    expect(screen.getByText(/el monto total cargado incluye IVA/)).toBeInTheDocument();
-    await user.selectOptions(screen.getByLabelText('Marca'), 'HP');
-    await user.type(screen.getByLabelText('Monto total (ARS)'), '1210000');
-    await user.selectOptions(screen.getByLabelText('Repartir el monto total'), 'iguales');
-    await user.type(screen.getByLabelText('Venta desde'), '2026-11-01');
-    await user.type(screen.getByLabelText('Venta hasta'), '2026-11-30');
-    await user.click(screen.getByRole('button', { name: 'Guardar línea' }));
-    expect(sellInBonosAPI.crear).toHaveBeenCalledWith(expect.objectContaining({ tipo: 'monto_total', incluye_iva: true }));
-  });
-
-  it.each(['-500', '0'])('a total of %s goes to the backend and its message shows', async (monto) => {
-    const user = userEvent.setup();
-    const mensaje = 'El monto total debe ser mayor que cero: en sell in no se descuenta un monto negativo';
-    sellInBonosAPI.crear.mockRejectedValue({ response: { status: 422, data: { detail: mensaje } } });
-    await nuevoTotal(user);
-    await user.type(screen.getByLabelText('Monto total (ARS)'), monto);
-    await user.selectOptions(screen.getByLabelText('Repartir el monto total'), 'costo');
-    await user.click(screen.getByRole('button', { name: 'Guardar línea' }));
-
-    expect(sellInBonosAPI.crear).toHaveBeenCalledWith(expect.objectContaining({ tipo: 'monto_total', monto_total: monto }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(mensaje);
-  });
-
-  it('asks for the total and the criterion before sending', async () => {
-    const user = userEvent.setup();
-    await nuevoTotal(user);
-    await user.click(screen.getByRole('button', { name: 'Guardar línea' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Faltan datos: marca, monto total, cómo repartirlo y fechas de venta.');
-    expect(sellInBonosAPI.crear).not.toHaveBeenCalled();
+  it('a stored lump sum still edits as one, and may switch to a %', async () => {
+    renderPanel({ bonoId: 21 });
+    await screen.findByLabelText('Monto total (ARS)');
+    const opciones = within(forma()).getAllByRole('button').map((b) => [b.textContent, b.getAttribute('aria-pressed')]);
+    expect(opciones).toEqual([
+      ['% del costo de la venta', 'false'],
+      ['Monto total', 'true'],
+    ]);
   });
 
   it('a models bonus by total sends its models without values of their own', async () => {

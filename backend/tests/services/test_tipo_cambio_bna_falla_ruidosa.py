@@ -53,7 +53,6 @@ def bna_ok(monkeypatch: pytest.MonkeyPatch) -> None:
         tipo_cambio_service.requests, "post", lambda *a, **k: SimpleNamespace(content=BILLETES_HTML, status_code=200)
     )
     monkeypatch.setattr(tipo_cambio_service.sell_out_queue, "enqueue_por_bna", lambda db, hoy: None)
-    monkeypatch.setattr(tipo_cambio_service.bonos_costo, "encolar_por_bna", lambda db, hoy: None)
 
 
 def _estado(db: Session) -> dict[str, Any]:

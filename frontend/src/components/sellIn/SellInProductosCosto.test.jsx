@@ -12,7 +12,7 @@ import SellInProductosCosto from './SellInProductosCosto';
 import { sellInLotesAPI } from '../../services/sellInAPI';
 
 vi.mock('../../services/sellInAPI', () => ({
-  sellInLotesAPI: { productos: vi.fn(), modoPorDefecto: vi.fn(), fijarModoPorDefecto: vi.fn() },
+  sellInLotesAPI: { productos: vi.fn() },
 }));
 
 let rol = 'VENTAS';
@@ -63,8 +63,6 @@ describe('SellInProductosCosto', () => {
     vi.clearAllMocks();
     rol = 'VENTAS';
     sellInLotesAPI.productos.mockResolvedValue({ data: { productos: PRODUCTOS } });
-    sellInLotesAPI.modoPorDefecto.mockResolvedValue({ data: { modo: 'fifo' } });
-    sellInLotesAPI.fijarModoPorDefecto.mockImplementation((modo) => Promise.resolve({ data: { modo } }));
   });
 
   it('shows each product with its cost mode, units, sell in per unit and latest purchase, from one request', async () => {
@@ -190,41 +188,14 @@ describe('SellInProductosCosto', () => {
     });
   });
 
-  describe('the default mode', () => {
-    it('shows the current default to everyone, without "Cambiar" for a non-admin', async () => {
-      sellInLotesAPI.modoPorDefecto.mockResolvedValue({ data: { modo: 'ponderado' } });
-      render(<SellInProductosCosto onVer={vi.fn()} />);
+  // T5 PR A: the default only preselected the retired mode selector; the list neither shows nor changes it.
+  it.each(['VENTAS', 'ADMIN', 'SUPERADMIN'])('neither shows nor offers to change the default mode, to %s', async (r) => {
+    rol = r;
+    render(<SellInProductosCosto onVer={vi.fn()} />);
 
-      expect(await screen.findByText('Ponderado (PPP)', { selector: 'strong' })).toBeInTheDocument();
-      expect(screen.getByText('Modo por defecto:')).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Cambiar modo por defecto' })).not.toBeInTheDocument();
-    });
-
-    it.each(['ADMIN', 'SUPERADMIN'])('lets an %s change it in the modal, and the toolbar shows the new one', async (r) => {
-      rol = r;
-      const user = userEvent.setup();
-      render(<SellInProductosCosto onVer={vi.fn()} />);
-      await screen.findByText('FIFO', { selector: 'strong' });
-
-      await user.click(screen.getByRole('button', { name: 'Cambiar modo por defecto' }));
-      expect(await screen.findByRole('heading', { name: 'Modo por defecto' })).toBeInTheDocument();
-      await user.click(screen.getByRole('button', { name: 'Último precio' }));
-      await user.click(screen.getByRole('button', { name: 'Guardar' }));
-
-      expect(sellInLotesAPI.fijarModoPorDefecto).toHaveBeenCalledWith('ultimo');
-      expect(await screen.findByText('Último precio', { selector: 'strong' })).toBeInTheDocument();
-      expect(screen.queryByRole('heading', { name: 'Modo por defecto' })).not.toBeInTheDocument();
-    });
-
-    it('hides the default when it cannot be read, and the list still works', async () => {
-      rol = 'ADMIN';
-      sellInLotesAPI.modoPorDefecto.mockRejectedValue(new Error('HTTP 500'));
-      render(<SellInProductosCosto onVer={vi.fn()} />);
-
-      await tabla();
-      await waitFor(() => expect(sellInLotesAPI.modoPorDefecto).toHaveBeenCalled());
-      expect(screen.queryByText('Modo por defecto:')).not.toBeInTheDocument();
-    });
+    await tabla();
+    expect(screen.queryByText('Modo por defecto:')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cambiar modo por defecto' })).not.toBeInTheDocument();
   });
 
   it('reads the list again when its version changes', async () => {

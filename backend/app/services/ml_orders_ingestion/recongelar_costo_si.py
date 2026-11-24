@@ -15,8 +15,8 @@ list cost); any other list-cost row that stays list cost is left as it was froze
 actually changes (a second run is a no-op), and each changed row is copied whole to
 `ml_order_item_costos_backups` first (same statement). Never the sale price (D4) nor the TP list-8 cost (D3); a sale
 whose cost is unknown on its date keeps its row. The `UPDATE OF costo_unitario_ars` trigger re-queues the order's
-metrics (`order_metrics`), which rewrites `ml_sale_lines.mcosto` and wakes sell in. In the same transaction the
-product's sale-cost bonuses are recomputed (D2: a sale at costo SI no longer takes a % / per-unit bonus, any channel).
+metrics (`order_metrics`), which rewrites `ml_sale_lines.mcosto` and wakes sell in. A sale-cost bonus is no longer
+applied per sale (sell-in-costo-si T5 PR A, L24), so nothing else is recomputed.
 """
 
 from __future__ import annotations
@@ -210,15 +210,6 @@ def _cobrar(db: Session, item_id: int, error: str) -> int:
     )
 
 
-def _bonos_costo(db: Session, item_id: int) -> None:
-    """D2 follows the cost: the product's sale-cost bonuses in every channel, now that its sales may be (or stop being)
-    at costo SI (`bonos_costo._en_costo_si`), in the product's transaction. A bonus that cannot be computed is
-    logged by `bonos_costo`, never charged to the re-freeze."""
-    from app.services.sell_in import bonos_costo  # imported here: sell_in reaches ML ingestion through its readers
-
-    bonos_costo.registrar_fallidos(bonos_costo.recalcular(db, [item_id]), "ml costo SI")
-
-
 @dataclass
 class Drenado:
     productos: int = 0
@@ -250,7 +241,6 @@ def drenar(
                 motivo = f"costo SI desde {desde.isoformat()}" if desde else "costo SI completo"
                 suyas: list[str] = []
                 cambiadas = recongelar(db, item_id, desde, motivo, desconocidas=suyas)
-                _bonos_costo(db, item_id)
                 db.execute(text("DELETE FROM ml_costo_si_dirty WHERE producto_item_id = :i"), {"i": item_id})
                 db.commit()
             out.productos += 1

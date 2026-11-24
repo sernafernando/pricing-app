@@ -208,7 +208,7 @@ class TacticalCobranzaIn(BaseModel):
     otro_detalle: Optional[str] = Field(default=None, max_length=500)
     observaciones: Optional[str] = Field(default=None, max_length=NOTA_MAX)
     # The rate (ARS per USD) the brand paid at (tactical sell in USD S8, owner: "Ponelo donde se carga el cobro"):
-    # required exactly when the tactical asks for it (`TacticalOut.pide_tc_cobro`), refused otherwise.
+    # optional since sell-in-costo-si T5 PR A (L24), accepted only on a tactical with a USD cost line, refused otherwise.
     tipo_cambio: Optional[Decimal] = Field(default=None, gt=0, max_digits=18, decimal_places=6)
 
     @model_validator(mode="after")
@@ -261,7 +261,8 @@ class TacticalOut(BaseModel):
     lineas: list[TacticalLineaOut]
     # The collection record (tactical cobranza S1): None = "Pendiente", a record = "Cobrado".
     cobranza: Optional[TacticalCobranzaOut] = None
-    # Its collection takes the rate the brand paid at: a sell in in USD `al_cobro` with an active USD cost line.
+    # Always False since sell-in-costo-si T5 PR A (L24): no collection asks for a rate any more. Kept in the response
+    # so a client that reads it keeps working.
     pide_tc_cobro: bool = False
 
 

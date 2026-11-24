@@ -148,7 +148,9 @@ function Base({ valores, editable, onChange }) {
  * invoice scope and an "Incluye IVA" flag. Controlled; `disabled` makes it read-only; `baseEditable` (a new bonus) lets
  * the base be chosen.
  */
-export default function SellInBonoForm({ valores, onChange, marcas, disabled = false, baseEditable = true }) {
+// `montoTotal`: the bonus may be a lump sum. Only a stored one that already is (sell-in-costo-si T5 PR A, L25): a new
+// lump sum is refused by the server, so the form never offers it.
+export default function SellInBonoForm({ valores, onChange, marcas, disabled = false, baseEditable = true, montoTotal = false }) {
   const id = useId();
   const set = (patch) => onChange({ ...valores, ...patch });
   const categorias = useCategorias(valores.alcance === 'categoria' && !disabled);
@@ -157,8 +159,10 @@ export default function SellInBonoForm({ valores, onChange, marcas, disabled = f
   const total = costo && valores.tipo === MONTO_TOTAL;
   // A cost bonus is always a % in ARS (the backend refuses the rest), so its kind and currency are fixed.
   const fijo = disabled || costo;
-  // An editable cost bonus picks a % or a total (S4); one of another kind (per unit, from a tactical) stays as it is.
-  const eligeCosto = costo && !disabled && TIPOS_COSTO.some((t) => t.value === valores.tipo);
+  // An editable cost bonus picks a % or a total (S4) when it may be a total; one of another kind (per unit, from a
+  // tactical) stays as it is.
+  const tiposCosto = montoTotal ? TIPOS_COSTO : TIPOS_COSTO.filter((t) => t.value !== MONTO_TOTAL);
+  const eligeCosto = costo && !disabled && tiposCosto.length > 1 && tiposCosto.some((t) => t.value === valores.tipo);
   const alcances = costo ? ALCANCES.filter((a) => a.value !== 'factura') : ALCANCES;
   const fechas = costo ? 'Venta' : 'Factura';
 
@@ -223,7 +227,7 @@ export default function SellInBonoForm({ valores, onChange, marcas, disabled = f
         {fijo && !eligeCosto ? (
           <span>{costo ? (total ? 'Monto total' : '% del costo de la venta') : TIPOS.find((t) => t.value === valores.tipo)?.label}</span>
         ) : (
-          <SegmentedControl label="Forma del monto" options={costo ? TIPOS_COSTO : TIPOS} value={valores.tipo} onChange={(tipo) => set({ tipo })} />
+          <SegmentedControl label="Forma del monto" options={costo ? tiposCosto : TIPOS} value={valores.tipo} onChange={(tipo) => set({ tipo })} />
         )}
       </div>
       {total && (
