@@ -27,6 +27,7 @@
 
 from __future__ import annotations
 
+import logging
 from bisect import bisect_right
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
@@ -43,6 +44,8 @@ from app.services.combos.pcs import pcs_entre
 from app.services.pricing_calculator import moneda_de
 from app.services.costo_si import full_ml
 from app.services.costo_si.engine import Compra, Inicio, Lista, SellIn
+
+logger = logging.getLogger(__name__)
 
 ZONA = ZoneInfo("America/Argentina/Buenos_Aires")
 DEPOSITO_PRINCIPAL = 1
@@ -174,6 +177,13 @@ _CAMBIOS_LISTA_SQL = text("""
     ) d
     WHERE d.dia <= :hoy
     ORDER BY d.dia
+""")
+
+# §7 at the start: the first list 1 cost > 0 on or after `t` (00:00 of the start), in the product's currency.
+_PRIMER_COSTO_LISTA_SQL = text("""
+    SELECT iclh_price FROM tb_item_cost_list_history
+    WHERE item_id = :i AND coslis_id = 1 AND COALESCE(curr_id, 1) = :curr AND iclh_cd >= :t AND iclh_price > 0
+    ORDER BY iclh_cd, iclh_id LIMIT 1
 """)
 
 _MONEDA_SQL = text("SELECT moneda_costo FROM productos_erp WHERE item_id = :i")
@@ -352,6 +362,24 @@ def cambios_de_lista(db: Session, item_id: int, inicio: Inicio, moneda: str, hoy
         listas.append(Lista(dia, costo, disponible(db, item_id, dia)))
         previo = costo
     return listas
+
+
+def costo_de_inicio(db: Session, item_id: int, dia: date, moneda: str = "USD") -> Optional[Decimal]:
+    """The start cost (S2): the list 1 cost in force at 00:00 of `dia`. When that row is <= 0 or missing (§7: 0 is
+    never a cost), the first list cost > 0 on or after `dia`, for sell-in and no-sell-in products alike. None when
+    there is none yet: the start stays unknown and is logged, so someone loads a cost."""
+    costo = costo_lista(db, item_id, dia, moneda)
+    if costo is not None:
+        return costo
+    value = db.execute(
+        _PRIMER_COSTO_LISTA_SQL, {"i": item_id, "t": inicio_del_dia(dia), "curr": CURRS[moneda]}
+    ).scalar()
+    if value is None:
+        logger.warning(
+            "costo SI: product %s has no list cost > 0 on or after its start %s: start unknown", item_id, dia
+        )
+        return None
+    return Decimal(value)
 
 
 # ------------------------------------------------------------------------------------------------------ purchases
@@ -608,7 +636,7 @@ def entrada(db: Session, item_id: int) -> Optional[Entrada]:
     inicio = Inicio(
         inicio_fecha,
         disponible(db, item_id, inicio_fecha) + sin_entrar,
-        costo_lista(db, item_id, inicio_fecha, moneda),
+        costo_de_inicio(db, item_id, inicio_fecha, moneda),
     )
     manuales = {}
     if posteriores:

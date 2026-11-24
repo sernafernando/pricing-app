@@ -1141,6 +1141,57 @@ def test_l23_a_product_with_a_sell_in_ignores_every_list_change(engine: Engine) 
     assert [p[0] for p in w.pasos(engine, OTRA_MARCA)] == ["inicio", "compra"]
 
 
+# --- §7 at the start: a list row <= 0 is never a cost; the start takes the first list cost > 0 on or after it -------
+
+TAPO = 5108
+
+
+def test_a_start_at_a_zero_list_row_takes_the_first_positive_list_cost_after_it(engine: Engine) -> None:
+    """The Tapo case (L24 check, items 4745-4751): a loyalty from 10-01 starts the product there, the list in force at
+    that 00:00 is a 0.00 row and the real price (74.95) comes on 10-13, with no invoice: the start is 74.95, never
+    unknown, never 0."""
+    w.producto(engine, TAPO)
+    w.costo_lista(engine, TAPO, datetime(2026, 9, 30, 9, 0), "0")
+    w.costo_lista(engine, TAPO, datetime(2026, 10, 13, 9, 0), "74.95")
+    w.costo_lista(engine, TAPO, datetime(2026, 10, 20, 9, 0), "76.8667")
+    w.factura(engine, TAPO, date(2026, 9, 25), datetime(2026, 9, 25, 10), 40, "70", previo=0)
+    w.bono_marca(engine, "3", date(2026, 10, 1), date(2026, 12, 31))
+
+    _recalcular(engine, TAPO)
+
+    assert w.pasos(engine, TAPO) == [("inicio", date(2026, 10, 1), 40, 40, D("74.95000"), D("74.95000"))]
+
+
+def test_a_no_sell_in_start_at_a_zero_list_row_takes_the_first_positive_list_cost_too(engine: Engine) -> None:
+    """Same rule without sell in (L21): 0.00 in force on 11-01, 1014 from 11-05; the re-anchor (L23) to that same
+    price adds no step."""
+    w.producto(engine, SIN_SELL_IN)
+    w.costo_lista(engine, SIN_SELL_IN, datetime(2026, 10, 15, 9, 0), "0")
+    w.costo_lista(engine, SIN_SELL_IN, datetime(2026, 11, 5, 9, 0), "1014")
+
+    _recalcular(engine, SIN_SELL_IN)
+
+    assert [(p[0], p[1], p[5]) for p in w.pasos(engine, SIN_SELL_IN)] == [
+        ("inicio", date(2026, 11, 1), D("1014.00000"))
+    ]
+
+
+def test_a_start_with_no_positive_list_cost_yet_stays_unknown_and_is_logged(
+    engine: Engine, caplog: pytest.LogCaptureFixture
+) -> None:
+    """§7: only 0.00 rows and no invoice: no average (never 0), and the product is logged so someone loads a cost."""
+    w.producto(engine, TAPO)
+    w.costo_lista(engine, TAPO, datetime(2026, 9, 30, 9, 0), "0")
+    w.costo_lista(engine, TAPO, datetime(2026, 10, 13, 9, 0), "0")
+    w.bono_marca(engine, "3", date(2026, 10, 1), date(2026, 12, 31))
+
+    with caplog.at_level("WARNING", logger="app.services.costo_si.fuentes"):
+        _recalcular(engine, TAPO)
+
+    assert [p[5] for p in w.pasos(engine, TAPO)] in ([], [None])
+    assert any(str(TAPO) in r.getMessage() and "no list cost" in r.getMessage() for r in caplog.records)
+
+
 # --- L22: a PC never has a history of its own; its cost is its components' sum, read at read time ------------------
 
 PC_L22, PC_L22_SIN_BOM = 5106, 5107
