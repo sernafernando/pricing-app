@@ -647,6 +647,54 @@ report a permanent false outage.
 Use `./deploy.sh --no-notify` for test or repeated deploys so the group is not
 spammed.
 
+### Frontend Build: Memory and the `dist` Swap
+
+**Incident, 2026-11-22 (04:31-05:33 UTC):**
+- The OOM killer killed `vite build` twice: exit 137, after `rendering chunks...`.
+- Old services were holding ~9 of the server's 16 GB.
+- Vite empties its `outDir` when it starts, and the `outDir` was the published `frontend/dist`, so the site was down until a build finished.
+
+**How the deploy builds now:**
+
+- **Build into `dist.new`, publish only on success.** `dist` keeps serving the previous version during the whole build. After a build that exits 0 and leaves `dist.new/index.html`, `dist.new` and `dist` are swapped atomically with `mv --exchange` (coreutils >= 9.5). Older coreutils fall back to two renames in a row. The previous build stays in `dist.prev`.
+- **A failed build never touches `dist`.** On an OOM, a heap error or Ctrl+C, the failure message says "El frontend publicado no se tocó". Whatever the build left is in `dist.new`, and the next build empties it.
+- **Check memory first.** `MemAvailable` is checked before the start notice, i.e. before `git pull`, migrations or `dist`:
+  - Below `BUILD_MIN_FREE_MB`, the deploy is cancelled. The group is told "No se tocó nada", and the terminal lists the five biggest processes by RSS.
+  - It is checked again right before the build, because memory can drop during `pip` or migrations. A failure there stops before the build, with `dist` intact.
+- **Smaller peak.** The build runs with 2 terser workers (`BUILD_TERSER_WORKERS`, read by `vite.config.js`). Vite's default is one per CPU minus one, each a thread with its own heap. Node's heap is set to the free memory minus a reserve.
+
+**Measured peaks.** These are summed RSS of the whole process tree, on Node 24.22.1 with the same lockfile.
+
+| Terser workers | Node heap | Peak RSS | Time |
+| --- | --- | --- | --- |
+| 11 (vite default on 12 CPUs) | default (~4288 MB) | ~8.0 GB | 76 s |
+| 4 | default | ~6.1 GB | 72 s |
+| 2 | 3072 or 4096 MB | ~5.8 GB | 83 s |
+| 2 | 2560 MB or less | build dies: heap out of memory | — |
+
+The output with 2 workers is byte-identical to vite's default.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `BUILD_MIN_FREE_MB` | `6600` | `MemAvailable` needed to build. Never lower than the reserve plus the smallest working heap (3072 MB): a lower value is raised to that |
+| `BUILD_MAX_HEAP_MB` | `4096` | Cap of Node's `--max-old-space-size` for the build |
+| `BUILD_MEM_RESERVE_MB` | `3500` | Available memory left out of the heap: ~2.8 GB the build uses outside it, plus a margin |
+| `BUILD_TERSER_WORKERS` | `2` | Terser workers; unset when building by hand, so vite keeps its default |
+
+**If the deploy is cancelled for memory:**
+1. Look at the listed processes: old or hung services, stale `vite` or `node` processes.
+2. Free the memory.
+3. Run `./deploy.sh` again.
+
+Lowering `BUILD_MIN_FREE_MB` only moves the failure into the build, and `dist` stays safe there too.
+
+**To roll the frontend back by hand:**
+
+```bash
+cd frontend && mv -T --exchange dist.prev dist
+# coreutils < 9.5 (no --exchange): mv dist dist.bad && mv dist.prev dist
+```
+
 ### First Deploy After `deploy.sh` Itself Changed
 
 `deploy.sh` runs `git pull` on itself while bash is still reading it, so the

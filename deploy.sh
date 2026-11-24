@@ -23,6 +23,12 @@
 #   WABOT_TOKEN         token del servicio; si falta, el helper no manda nada
 #   FRONTEND_NODE_DIR   Node con el que se buildea el frontend (default /opt/node24);
 #                       si no está instalado se usa el node del PATH
+#   BUILD_MIN_FREE_MB   memoria disponible (MemAvailable) mínima para buildear el
+#                       frontend; con menos, el deploy se cancela antes de tocar nada
+#   BUILD_MAX_HEAP_MB   tope del heap de Node para el build (--max-old-space-size)
+#   BUILD_MEM_RESERVE_MB memoria disponible que no va al heap de Node: lo que el build usa
+#                       fuera del heap (esbuild, workers de terser) más margen para el server
+#   BUILD_TERSER_WORKERS workers de terser del build (default 2; vite usaría uno por CPU)
 
 # -E propaga el trap ERR a las funciones; sin eso un fallo adentro de una
 # función no dispararía el aviso de deploy fallido.
@@ -48,6 +54,27 @@ DEPLOY_ETA_MIN="${DEPLOY_ETA_MIN:-5}"
 HEALTHCHECK_URL="${HEALTHCHECK_URL:-https://pricing.gaussonline.com.ar/health}"
 HEALTHCHECK_TIMEOUT="${HEALTHCHECK_TIMEOUT:-120}"
 
+# Memoria del build del frontend. El 22/11 el OOM killer mató el build dos veces (exit 137) con
+# servicios viejos ocupando ~9 de 16 GB, y como vite ya había vaciado dist el sitio quedó caído una
+# hora. Ahora el build va a dist.new y solo se publica si terminó bien, y antes de arrancar se mira
+# la memoria: sin suficiente, se corta con un mensaje claro en vez de morir a mitad del build.
+#
+# Medido (Node 24.22.1, mismo lockfile, RSS sumado de todo el árbol de procesos): con el default de
+# vite (11 workers de terser en 12 CPUs) el pico es ~8,0 GB; con 2 workers ~5,8 GB, igual con heap de
+# 3072 o 4096 MB. Con heap de 2560 MB o menos el build muere por heap. De ahí:
+#   - heap = disponible - reserva, tope 4096 (el default de Node 24 es ~4288);
+#   - reserva 3500: ~2,8 GB que el build usa fuera del heap, más margen para el resto del server;
+#   - mínimo 6600 = el heap más chico que anda (3072) + la reserva.
+BUILD_MIN_FREE_MB="${BUILD_MIN_FREE_MB:-6600}"
+BUILD_MAX_HEAP_MB="${BUILD_MAX_HEAP_MB:-4096}"
+BUILD_MEM_RESERVE_MB="${BUILD_MEM_RESERVE_MB:-3500}"
+BUILD_MIN_HEAP_MB=3072
+# Cada worker de terser es un thread con su heap propio, y vite pone uno por CPU menos uno: ese
+# pool es el que se come la RAM. Con 2 el resultado es idéntico byte a byte (vite.config.js).
+BUILD_TERSER_WORKERS="${BUILD_TERSER_WORKERS:-2}"
+# Overridable para los tests.
+MEMINFO_FILE="${MEMINFO_FILE:-/proc/meminfo}"
+
 # Colores
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -65,6 +92,61 @@ as_root() {
     "$@"
   else
     sudo "$@"
+  fi
+}
+
+# MemAvailable en MB: lo libre más la caché que el kernel puede soltar, que es lo que de verdad
+# puede usar el build. Sale distinto de 0 si no se puede leer.
+mem_available_mb() {
+  awk '/^MemAvailable:/ { printf "%d\n", $2 / 1024; ok = 1 } END { exit !ok }' "$MEMINFO_FILE" 2>/dev/null
+}
+
+# Mira si hay memoria para el build y deja en BUILD_HEAP_MB el heap que puede usar Node: lo
+# disponible menos la reserva, con el tope BUILD_MAX_HEAP_MB. Sale 1 si no alcanza (deja en
+# AVAIL_MB lo que hay). Si no se puede leer la memoria, avisa y sigue con el tope: no saber no es
+# motivo para frenar un deploy.
+build_memory_ok() {
+  if ! AVAIL_MB=$(mem_available_mb); then
+    warn "No se pudo leer la memoria disponible ($MEMINFO_FILE): se buildea con heap de ${BUILD_MAX_HEAP_MB} MB sin chequear"
+    BUILD_HEAP_MB=$BUILD_MAX_HEAP_MB
+    return 0
+  fi
+  # Nunca menos que la reserva más el heap más chico con el que el build anda: con menos muere igual,
+  # y un heap negativo Node lo ignora en silencio (usa su default). Pasa si alguien baja
+  # BUILD_MIN_FREE_MB por debajo de la reserva.
+  BUILD_NEED_MB=$BUILD_MIN_FREE_MB
+  [ "$BUILD_NEED_MB" -ge $((BUILD_MEM_RESERVE_MB + BUILD_MIN_HEAP_MB)) ] ||
+    BUILD_NEED_MB=$((BUILD_MEM_RESERVE_MB + BUILD_MIN_HEAP_MB))
+  [ "$AVAIL_MB" -ge "$BUILD_NEED_MB" ] || return 1
+  BUILD_HEAP_MB=$((AVAIL_MB - BUILD_MEM_RESERVE_MB))
+  [ "$BUILD_HEAP_MB" -le "$BUILD_MAX_HEAP_MB" ] || BUILD_HEAP_MB=$BUILD_MAX_HEAP_MB
+  return 0
+}
+
+# Lo que más memoria ocupa, para que el mensaje diga a quién hay que mirar.
+top_memory() {
+  ps -eo rss=,comm= --sort=-rss 2>/dev/null | head -5 | awk '{ printf "  %6d MB  %s\n", $1 / 1024, $2 }'
+}
+
+# Publica el build nuevo: dist pasa a dist.prev (queda para volver atrás a mano) y dist.new a dist.
+# Con `mv --exchange` (coreutils >= 9.5) el cambio es atómico; si no está, son dos renames
+# seguidos y dist falta solo entre uno y otro. Nunca queda dist vacío ni a medio escribir.
+publish_dist() {
+  local dist=$1 new=$2 prev=$3
+  rm -rf "$prev"
+  if [ ! -d "$dist" ]; then
+    mv "$new" "$dist"
+  elif mv -T --exchange "$new" "$dist" 2>/dev/null; then
+    # Ya está publicado: si guardar el anterior falla, es un aviso, no un deploy fallido.
+    DIST_PUBLISHED=yes
+    mv "$new" "$prev" || warn "El build nuevo ya está publicado, pero el anterior no se pudo guardar en $prev (quedó en $new)"
+  else
+    # Entre los dos renames dist no existe: un Ctrl+C o un TERM justo ahí cortaría el deploy con
+    # el sitio sin frontend. Las señales se ignoran solo durante estos dos mv.
+    trap '' INT TERM
+    mv "$dist" "$prev"
+    mv "$new" "$dist" || { mv "$prev" "$dist"; trap on_failure INT TERM; return 1; }
+    trap on_failure INT TERM
   fi
 }
 
@@ -116,6 +198,8 @@ fi
 
 # Paso actual, para poder decir en qué se cortó si el deploy falla.
 CURRENT_STEP="inicio"
+# "no" mientras el build está en curso y el dist publicado sigue siendo el anterior.
+DIST_PUBLISHED=""
 
 # Manda un aviso por WhatsApp. El helper siempre sale 0, pero el `|| true`
 # deja explícito que un fallo de notificación jamás corta el deploy.
@@ -154,6 +238,24 @@ Lo frenó ${quien} desde el grupo. No se tocó nada, la app sigue funcionando no
 Avisamos cuando lo reprogramemos."
 
   exit 75
+}
+
+# No hay memoria para buildear el frontend. Se corta ANTES de tocar nada (ni pull, ni
+# migraciones, ni dist): igual que un veto, no es un deploy fallido a medias.
+abort_low_memory() {
+  trap - ERR INT TERM
+
+  err "Memoria insuficiente para buildear el frontend: hay ${AVAIL_MB} MB disponibles y hacen falta ${BUILD_NEED_MB} MB."
+  err "Lo que más memoria ocupa:"
+  top_memory >&2
+  err "Liberá memoria (servicios viejos o colgados) y volvé a correr el deploy. No se tocó nada."
+  notify "Pricing App - deploy cancelado
+
+No hay memoria libre suficiente en el servidor para buildear el frontend (${AVAIL_MB} MB disponibles, hacen falta ${BUILD_NEED_MB} MB). No se tocó nada, la app sigue funcionando normalmente.
+
+Avisamos cuando lo reprogramemos."
+
+  exit 1
 }
 
 # Se imprime en CADA poll fallido, no una sola vez. Si el preaviso salió bien y
@@ -205,12 +307,22 @@ Avisamos cuando lo reprogramemos."
     exit "$exit_code"
   fi
 
+  # Un build que se cae no toca el frontend publicado: va a dist.new y solo se cambia por dist
+  # si terminó bien. Decirlo evita que el equipo crea que la app quedó sin frontend.
+  local dist_note=""
+  if [ "$DIST_PUBLISHED" = no ]; then
+    dist_note="
+
+El frontend publicado no se tocó: la app sigue con la versión anterior."
+    err "dist no se tocó: sigue publicado el frontend anterior (lo que haya dejado el build está en dist.new)"
+  fi
+
   notify "Pricing App - EL DEPLOY FALLÓ
 
 Se cortó en: ${CURRENT_STEP}
 Duración hasta el corte: $(fmt_duration "$SECONDS")
 
-El sistema puede haber quedado a medias. Revisar el log del deploy antes de usar la app."
+El sistema puede haber quedado a medias. Revisar el log del deploy antes de usar la app.${dist_note}"
 
   exit "$exit_code"
 }
@@ -301,6 +413,14 @@ Avisamos cuando arranque y nuevamente cuando esté todo arriba."
   fi
 fi
 
+# 0b) Memoria para el build: se mira antes de avisar y de tocar nada, así un servidor sin memoria
+# cancela el deploy limpio en vez de dejarlo a medias. Se vuelve a mirar justo antes del build.
+if [ "$SKIP_BUILD" = false ]; then
+  CURRENT_STEP="chequeo de memoria para el build"
+  build_memory_ok || abort_low_memory
+  log "Memoria disponible: ${AVAIL_MB:-?} MB (mínimo para el build: ${BUILD_NEED_MB:-$BUILD_MIN_FREE_MB} MB)"
+fi
+
 # 1) Aviso de inicio
 if [ "$SKIP_BACKEND" = false ]; then
   notify "Pricing App - arranca el deploy
@@ -373,9 +493,38 @@ if [ "$SKIP_BUILD" = false ]; then
   cd "$FRONTEND_DIR"
   frontend_pnpm install --frozen-lockfile
 
+  # Se buildea en dist.new y dist sigue sirviendo la versión anterior hasta el swap: un build que
+  # muere (OOM, exit 137) ya no puede dejar el sitio sin frontend, porque vite vacía su outDir al
+  # arrancar y ese outDir ya no es el publicado.
+  DIST_DIR="$FRONTEND_DIR/dist"
+  DIST_NEW="$FRONTEND_DIR/dist.new"
+  DIST_PREV="$FRONTEND_DIR/dist.prev"
+  DIST_PUBLISHED=no
+
+  # La memoria puede haber bajado durante pip y las migraciones: se vuelve a mirar con dist intacto.
+  CURRENT_STEP="chequeo de memoria para el build"
+  if ! build_memory_ok; then
+    err "Memoria insuficiente para buildear el frontend: hay ${AVAIL_MB} MB disponibles y hacen falta ${BUILD_NEED_MB} MB."
+    err "Lo que más memoria ocupa:"
+    top_memory >&2
+    false
+  fi
+
   CURRENT_STEP="build del frontend"
   log "Building frontend..."
-  frontend_pnpm run build
+  log "  en dist.new con heap de Node de ${BUILD_HEAP_MB} MB y ${BUILD_TERSER_WORKERS} workers de terser (dist sigue publicado hasta que termine bien)"
+  NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--max-old-space-size=${BUILD_HEAP_MB}" \
+    BUILD_TERSER_WORKERS="$BUILD_TERSER_WORKERS" \
+    frontend_pnpm run build --outDir "$DIST_NEW" --emptyOutDir
+
+  CURRENT_STEP="publicación del build (dist.new -> dist)"
+  if [ ! -s "$DIST_NEW/index.html" ]; then
+    err "El build terminó pero no dejó $DIST_NEW/index.html: no se publica"
+    false
+  fi
+  publish_dist "$DIST_DIR" "$DIST_NEW" "$DIST_PREV"
+  DIST_PUBLISHED=yes
+  log "Build publicado en dist (la versión anterior quedó en dist.prev)"
 else
   warn "Skipping frontend build"
 fi
