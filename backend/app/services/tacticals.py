@@ -6,8 +6,9 @@ their own create steps (same validation, audit rows and queueing), so allocation
 - sell out (productos | marca | categoria): one `SellOutCampana` over its own hidden group (`OffsetGrupo.oculto`)
   whose filter rows carry the line's scope. `tope_por_producto`: one campaign and group per product.
 - sell in over productos | marca | categoria: one cost bonus (`SellInBonoMarca`, `base = 'costo_venta'`, ARS), a %
-  or an amount per unit of each sale's cost by sale date, or a total split across the line's products by its
-  `reparto_criterio` (tactical monto total S4, `tipo = 'monto_total'`). `tope_por_producto`: one bonus per product.
+  or an amount per unit that costo SI takes off the purchase invoices of its period, or a total split across the
+  line's products by its `reparto_criterio` (tactical monto total S4, `tipo = 'monto_total'`).
+  `tope_por_producto`: one bonus per product.
 - sell in `factura` with % or per unit: one invoice bonus (`alcance = base = 'factura'`) on that operation.
 - sell in `factura` with a fixed total: one sell-in purchase (`SellInCompra`, monto, proporcional) over the invoice's
   invoiced lines.

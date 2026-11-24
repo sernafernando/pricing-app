@@ -657,8 +657,8 @@ def listar_bonos(
 ) -> tuple[list[SellInBonoMarca], int]:
     """One page of bonuses, newest first.
 
-    The period keeps a bonus whose `fecha_desde`..`fecha_hasta` (invoice dates; sale dates on a 'costo_venta'
-    bonus) overlaps it, bounds included; one bound alone keeps those that reach past it. `marcas` keeps the
+    The period keeps a bonus whose `fecha_desde`..`fecha_hasta` (purchase invoice dates, a 'costo_venta'
+    bonus too) overlaps it, bounds included; one bound alone keeps those that reach past it. `marcas` keeps the
     bonuses whose scope reaches a product of those brands, whatever the scope (`bonos_alcance.alcanza_marcas`);
     the exact `marca` stays the bonus's own brand."""
     query = db.query(SellInBonoMarca)
