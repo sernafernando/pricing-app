@@ -70,7 +70,7 @@ async def promos(ctx: WriteContext, mla: str) -> list[dict[str, Any]]:
 
 
 async def markup_promo_precio(ctx: WriteContext, mla: str, precio: float) -> float | None:
-    """Markup with sell in (else plain) of `mla` sold at `precio` (the panel's manual price input)."""
+    """Markup c/ SO, with sell out (else plain), of `mla` sold at `precio` (the panel's manual price input)."""
     data = await read(ctx, f"/api/promociones/item/{tools._path_value('mla', mla)}/markup", {"price": precio}) or {}
     value = data.get("markup_sell_in_out")
     return value if value is not None else data.get("nuestro_markup")

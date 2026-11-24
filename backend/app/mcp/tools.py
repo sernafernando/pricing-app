@@ -217,7 +217,7 @@ CATALOG: tuple[ToolSpec, ...] = (
         "promos_item_markup",
         "/api/promociones/item/{mla_id}/markup",
         "Publicación: markup a un precio",
-        "Markup (with sell in/out) of a publication at a given price.",
+        "Markup (with sell out, c/ SO) of a publication at a given price.",
     ),
     ToolSpec(
         "promos_item_confirmacion_ml",
