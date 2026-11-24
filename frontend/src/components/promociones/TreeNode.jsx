@@ -75,6 +75,16 @@ const KIND_ROW_CLASS = {
   vinculada: styles.rowTintVinculada,
 };
 
+/** A node's chips as one group (`grouped`), or loose in their cell as Productos lays them out. */
+function ChipGroup({ grouped, children }) {
+  if (!grouped) return children;
+  return (
+    <span className={styles.treeNodeChips} data-tree-chips="">
+      {children}
+    </span>
+  );
+}
+
 /**
  * Recursive tree node — generalizes `ExpandableRow` for the productos catalog
  * /family publication tree (any variable depth, per `kind`:
@@ -101,16 +111,6 @@ const KIND_ROW_CLASS = {
  * row with the publication alone: no promo summary, promo refresh, promos, catalog competition or wholesale prices
  * (the Publicaciones ML product panel shows those on its own tabs). Without it, the rows carry them all.
  */
-/** A node's chips as one group (`grouped`), or loose in their cell as Productos lays them out. */
-function ChipGroup({ grouped, children }) {
-  if (!grouped) return children;
-  return (
-    <span className={styles.treeNodeChips} data-tree-chips="">
-      {children}
-    </span>
-  );
-}
-
 function TreeNode({
   node,
   colSpan,
