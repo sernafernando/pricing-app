@@ -53,8 +53,9 @@ class TestTheLimits:
         assert service(unit)["Restart"] == "always"
 
     def test_only_the_api_gets_a_fixed_mmap_threshold(self) -> None:
-        # pricing-api: multi-MB replies under concurrency kept +209 MB per worker with glibc's moving
-        # threshold, +19 MB with a fixed 1M one (p95 and req/s unchanged on #2384's synthetic load).
+        # pricing-api: 4 concurrent 17 MB replies kept +209 MB with glibc's defaults, +58 MB with
+        # MALLOC_ARENA_MAX=2 and +19 MB adding a fixed 1M mmap threshold (p95 and req/s unchanged on
+        # #2384's synthetic load).
         # The workers have no measured gain, so they keep glibc's default.
         envs = {unit: service(unit)["Environment"].split() for unit in UNITS}
 
