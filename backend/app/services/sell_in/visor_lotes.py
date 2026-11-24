@@ -28,12 +28,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.pedido_compra import PedidoCompra
-from app.models.producto import ProductoERP
 from app.models.proveedor import Proveedor
 from app.models.sell_in import SellInCompra, SellInCompraPedido, SellInConsumo
-from app.schemas.sell_in_out_producto import SellInProducto
-from app.services.pricing_calculator import obtener_tipo_cambio_actual
-from app.services.productos_sell_in_out import resolver_sell_in_out_batch
 from app.services.sell_in.costing import LoteVigente, de_lotes, get_costing
 from app.services.sell_in.costing import reemplazados as costing_reemplazados
 from app.services.sell_in.split import unit_discount
@@ -135,21 +131,6 @@ def lotes_de_producto(db: Session, item_id: int, hoy: date) -> VisorLotes:
             )
         )
     return VisorLotes(filas, _proxima(filas, vigente if vigente is not None and vigente.en_pool else None))
-
-
-def bono_costo(db: Session, item_id: int, hoy: date) -> Optional[SellInProducto]:
-    """The % of cost bonuses a sale gets once no lot has units, decided exactly as the Productos screens decide it for
-    a product without lots (`productos_sell_in_out`, the product's cost in ARS at today's rate); None when none
-    applies. With a current lot the screens still show the lot (rule 5): this is what follows it."""
-    producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
-    if producto is None:
-        return None
-    moneda = getattr(producto.moneda_costo, "value", producto.moneda_costo)
-    tipo_cambio = obtener_tipo_cambio_actual(db, "USD") if moneda == "USD" else None
-    batch = resolver_sell_in_out_batch(db, [item_id], hoy, sin_lotes=True)
-    payload = batch.markups(producto, tipo_cambio=tipo_cambio).payload()
-    sell_in = payload.sell_in if payload is not None else None
-    return sell_in if sell_in is not None and sell_in.bono_id is not None else None
 
 
 def _proxima(filas: List[LoteVisor], pool: Optional[LoteVigente] = None) -> Optional[ProximaVenta]:

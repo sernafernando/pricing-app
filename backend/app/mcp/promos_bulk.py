@@ -179,7 +179,8 @@ async def run(tool: BuiltTool, args: dict[str, Any], username: str) -> Any:
         "rule": (
             "current = promo ML applies now (else the sale price and its markup); suggested = per type, the "
             "candidates applicable today that beat it (Sugerida of the panel); best = the suggestion with the "
-            "highest markup with sell in / sell out; improvement = best minus current, in points and % of current."
+            "highest markup c/ SO (with sell out; the sell in is inside the cost); improvement = best minus current, "
+            "in points and % of current."
         ),
     }
     if pm_info:

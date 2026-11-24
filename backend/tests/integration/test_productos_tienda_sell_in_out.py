@@ -104,23 +104,11 @@ def test_a_product_without_sell_in_or_sell_out_keeps_its_row(client, auth_header
     assert producto["precio_web_transferencia"] == 1500.0
 
 
-def test_a_product_with_sell_in_shows_it_but_no_markup_off_the_cost(client, auth_headers, catalogo):
+def test_a_product_with_only_a_lot_has_no_sell_in_out(client, auth_headers, catalogo):
+    # costo SI T5 PR B: the FIFO lot is no "c/ sell in" figure any more; without sell out nothing applies, and under
+    # D1 (owner L12) it never came off costo SI.
     producto = _listar(client, auth_headers)[CON_SELL_IN]
 
-    sio = producto["sell_in_out"]
-    assert sio["sell_in"] == {
-        "compra_item_id": catalogo,
-        "bono_id": None,
-        "bono_ids": [],
-        "descuento_unit": 100.0,
-        "costo": 900.0,
-        "unidades_restantes": 2,
-        "moneda_costo": "ARS",
-        "costo_moneda": 900.0,
-        "descuento_unit_moneda": 100.0,
-    }
-    assert sio["sell_out"] == {}
-    assert sio["markups_sell_in"] == {}  # D1 (owner L12): the sell in never comes off costo SI
-    assert sio["markups_sell_in_out"] == {}
+    assert producto["sell_in_out"] is None
     # The plain figures stay as they were.
     assert (producto["costo"], producto["markup_gremio"]) == (1000.0, pytest.approx(20.0))

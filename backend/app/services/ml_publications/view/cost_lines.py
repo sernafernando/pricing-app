@@ -1,5 +1,5 @@
 """The lines Productos draws under a product's cost, for the Costo cell of Publicaciones ML (publication, detail
-and product rows): the PPP, the cost with sell in, and the costo SI (sell-in-costo-si T3 PR 2, display only).
+and product rows): the PPP, the sell out ("c/ SO"), and the costo SI (sell-in-costo-si T3 PR 2, display only).
 
 Its own module because the sell in resolver is a catalog read (`productos_sell_in_out`), opened in this package only
 to the view extraction modules (`tests/services/ml_publications/test_resources.py`); the listing reaches it through
@@ -162,16 +162,14 @@ class _PricedUnit:
 def siso_unit_value(
     unit: UnitMarkup, payload: Optional[SellInOutProducto], key: str
 ) -> tuple[Optional[float], bool, bool]:
-    """`(value, applies, pending)` of one priced unit, the panel's rule (`SellInOutMarkup`): with sell in and sell out,
-    else with sell in alone (a pending sell out included), else pending when an amount could not be priced; where
-    neither applies, the plain markup of the unit's net over its cost (before Ads, as the panel and Precios)."""
+    """`(value, applies, pending)` of one priced unit, the panel's rule (`SellInOutMarkup`): with sell out, else a
+    `markups_sell_in` value (never filled since D1), else pending when the sell out could not be priced; where none
+    applies, the plain markup of the unit's net over its cost (before Ads, as the panel and Precios)."""
     if payload is not None:
         value = payload.markups_sell_in_out.get(key, payload.markups_sell_in.get(key))
         if value is not None:
             return value, True, False
-        sin_costo = payload.sell_in is not None and payload.sell_in.costo is None
-        sin_credito = payload.sell_out is not None and payload.sell_out.monto_unit is None
-        if sin_costo or sin_credito:
+        if payload.sell_out is not None and payload.sell_out.monto_unit is None:
             return None, True, True
     return round(calcular_markup(unit.limpio, unit.costo_ars) * 100, 2), False, False
 

@@ -1,26 +1,9 @@
-"""Sell in and sell out of a product TODAY, for the Productos screens (sell-in-sell-out T9).
+"""Sell out of a product TODAY, for the Productos screens (sell-in-sell-out T9; costo SI T5 PR B).
 
-Owner rule: "Always show both: cost and cost with sell in; markup and totals
-without and with sell out." Display-only: nothing here is stored, and the
-existing cost and markup fields are never touched.
+Display-only: nothing here is stored, and the existing cost and markup fields are never touched. There is no sell in
+part any more: costo SI replaced the FIFO lots and the per-sale cost bonuses (owner L24: no per-sale loyalty ever), so
+a product's sell in is already inside its costo SI, and the screens show only the sell out ("c/ SO").
 
-- Sell in (option A, `SellInCosting.vigentes`): the purchase line the next sale
-  would consume, FIFO, with the units the stored consumptions left. Its
-  discount per unit is in ARS (a USD purchase at its own rate). A product whose
-  lines are used up has none: its cost is back to normal.
-- Sell in from a % of cost bonus (T25, S31): only when no lot has units left
-  (rule 5, exclusive per unit: the next sale takes FIFO units first). The
-  active `costo_venta` bonuses reaching the product today whose cap is not
-  used up (after `sell_in_bono_consumos`), in id order, each giving its % (the
-  model's own one, when set) of the product's current cost in ARS (`costo`),
-  or its ARS amount per unit on a `por_unidad` bonus (tacticals T1),
-  divided by (1 + the product's VAT rate) when loaded with VAT
-  (`bonos_costo.unitario`, the allocator's rule); they stack up to the cost,
-  with the allocator's precedence (T27b: a bonus does not stack with an
-  earlier one that gave something when either is not `acumulable`),
-  and a money cap with less left than the unit amount gives what is left. A
-  cost without an ARS value, or a VAT-loaded bonus on a product without a VAT
-  rate (the allocator refuses it too), leaves no sell in, never a guess.
 - Sell out: the active campaigns reaching the product today whose cap is not
   used up (units or money left after the allocator's `sell_out_consumos`),
   taken in id order with the allocator's precedence (a non-`acumulable`
@@ -38,25 +21,22 @@ same keys and scale): with sell out, `costo_si.so.markup_con_so` = (limpio +
 sell out - cost) / cost, where the cost is the product's costo SI in pesos
 (`costo_si.lote.actuales`; its list cost when it has no costo SI step). D1 (owner
 L12): "el costo siso no existe, es costo SI y SO va en la venta, como ganancia
-adicional": the sell in (FIFO lot or cost bonus) is still resolved and shown, but
-it never comes off the cost of a markup, and there is no "with sell in" markup.
+adicional": there is no "with sell in" markup (`markups_sell_in` stays empty).
 Productos, Tienda, the Publicaciones ML panel and the promos all price on this one
 cost and formula (sell-in-costo-si T3 PR 5), whatever cost the caller's product
 carries.
 
-Batch: `resolver_sell_in_out_batch` reads a whole page in at most ten queries:
-seven for FIFO and sell out (the cost bonuses' scope rides on the campaigns'
-query; one reads the products' cost modes), one for the products' costo SI
-(`costo_si.lote.actuales`, the cost of every markup), one more for the stored
-consumptions only when a product has cost modes, and one for the reached cost
-bonuses' rows and caps, only when a product without a lot has one.
+Batch: `resolver_sell_in_out_batch` reads a whole page in at most five queries: the
+campaigns reaching its products, and only when there is one, their consumptions and
+their rows (with the products' own amounts), plus today's BNA rate only when one is
+in USD; and one for the products' costo SI (`costo_si.lote.actuales`, the cost of
+every markup) unless the caller already read it. A store context adds the
+campaigns' scopes and, with a per-target cap, their use per store.
 
 Store scope (`contextos`): when the caller passes `(canal, store_id)` pairs, tactical
 sell out campaigns are filtered with `tienda_scope.alcanza_alguno` (union) and
 per-target caps (`tope_compartido=false`) stay active while any matching context
 still has room. `contextos=None` is the pre-scope global read (Productos "Todas").
-Sell in cost bonuses ignore stores (owner, 2026-11-10: stores are only for sell
-out): the same in every context, their cap counted over everything they gave.
 """
 
 from __future__ import annotations
@@ -66,18 +46,14 @@ from datetime import date
 from decimal import Decimal
 from typing import Dict, Hashable, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
-from sqlalchemy import Numeric, and_, case, cast, func, literal, null, or_, select, true, union_all
+from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
-from app.models.producto import ProductoERP
-from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca
 from app.models.sell_out import SellOutCampana, SellOutCampanaItem, SellOutConsumo
-from app.schemas.sell_in_out_producto import SellInOutProducto, SellInProducto, SellOutProducto
+from app.schemas.sell_in_out_producto import SellInOutProducto, SellOutProducto
 from app.services.costo_si import lote as costo_si_lote, so
 from app.services.pricing_calculator import convertir_a_pesos, moneda_de
-from app.services.sell_in import bonos_costo
 from app.services.sell_in.bonos import tasas_bna_por_fecha
-from app.services.sell_in.costing import LoteVigente, get_costing
 from app.services.sell_out import alcance, asignacion
 from app.services.sell_out.tienda_scope import (
     Scope,
@@ -126,20 +102,11 @@ class _Campana:
     montos_item: Dict[int, Decimal]  # item_id -> its own amount per unit in the campaign (T22b)
 
 
-@dataclass(frozen=True)
-class _BonoCosto:
-    bono: SellInBonoMarca
-    valor: Decimal  # the product's own % (or amount per unit, in the bonus currency) in the bonus, or the bonus's
-    monto_libre: Optional[Decimal]  # money cap left, in the bonus currency; None: no money cap
-    tasa: Optional[Decimal] = None  # a USD bonus's rate for a sale today (`bonos_costo.tasas_de_hoy`); None on ARS
-
-
 class SellInOutMarkups:
     """Per-product accumulator, the `PppMarkups` interface: `.record()` per markup site, `.payload()`."""
 
-    def __init__(self, sell_in: Optional[SellInProducto], sell_out: Optional[SellOutProducto], costo: Optional[float]):
+    def __init__(self, sell_out: Optional[SellOutProducto], costo: Optional[float]):
         """`costo`: the product's costo SI in pesos (None when unknown)."""
-        self._sell_in = sell_in
         self._sell_out = sell_out
         self._costo = costo
         self._credito = sell_out.monto_unit if sell_out else None
@@ -159,10 +126,9 @@ class SellInOutMarkups:
             self._markups_sell_in_out[key] = self._escala(raw, percent)
 
     def payload(self) -> Optional[SellInOutProducto]:
-        if self._sell_in is None and self._sell_out is None:
+        if self._sell_out is None:
             return None
         return SellInOutProducto(
-            sell_in=self._sell_in,
             sell_out=self._sell_out,
             markups_sell_in=dict(self._markups_sell_in),
             markups_sell_in_out=dict(self._markups_sell_in_out),
@@ -181,32 +147,11 @@ class MarkupCompanions:
         self.sell_in_out.record(key, limpio, percent=percent)
 
 
-def en_moneda_costo(sell_in: SellInProducto, moneda: object, tipo_cambio: Optional[float]) -> SellInProducto:
-    """`sell_in` with its cost and discount also in the product's cost currency (S10, display only): divided by
-    `tipo_cambio`, the rate its cost was converted to ARS with, for a USD cost; the ARS figures for an ARS cost
-    (`moneda_de`: none, blank or `ars` is ARS). Without the ARS figure or the rate, None: never a guess. The ARS
-    fields and every markup stay as they are."""
-    moneda = moneda_de(moneda)
-    if moneda == "ARS":
-        costo, descuento = sell_in.costo, sell_in.descuento_unit
-    elif tipo_cambio:
-        tasa = Decimal(str(tipo_cambio))
-        costo = None if sell_in.costo is None else float(Decimal(str(sell_in.costo)) / tasa)
-        descuento = float(Decimal(str(sell_in.descuento_unit)) / tasa)
-    else:
-        costo, descuento = None, None
-    return sell_in.model_copy(
-        update={"moneda_costo": moneda, "costo_moneda": costo, "descuento_unit_moneda": descuento}
-    )
-
-
 @dataclass(frozen=True)
 class SellInOutBatch:
     hoy: date
-    sell_in: Dict[int, LoteVigente]
     campanas: Dict[int, List[_Campana]]  # item_id -> campaigns with cap left, in id order
     bna: Optional[Decimal]
-    bonos_costo: Dict[int, List[_BonoCosto]] = field(default_factory=dict)  # item_id -> cost bonuses, id order
     costos: Dict[int, costo_si_lote.Costo] = field(
         default_factory=dict
     )  # item_id -> its current costo SI (`lote.actuales`)
@@ -225,55 +170,13 @@ class SellInOutBatch:
             costo = None if en_pesos is None else float(en_pesos)
         elif producto.costo is not None and (moneda == "ARS" or tipo_cambio):
             costo = float(convertir_a_pesos(producto.costo, moneda, tipo_cambio))
-        lote = self.sell_in.get(producto.item_id)
         iva = Decimal(str(producto.iva)) if producto.iva is not None else None
-        sell_in = None
-        if lote is not None:
-            sell_in = SellInProducto(
-                compra_item_id=lote.compra_item_id,
-                descuento_unit=float(lote.descuento_unit_ars),
-                costo=None if costo is None else float(Decimal(str(costo)) - lote.descuento_unit_ars),
-                unidades_restantes=lote.unidades_restantes,
-            )
-        elif costo is not None:
-            sell_in = self._sell_in_costo(producto.item_id, Decimal(str(costo)), iva)
-        if sell_in is not None:
-            sell_in = en_moneda_costo(sell_in, moneda, tipo_cambio)
         neto = None
         if precio_lista_ml and iva is not None:
             neto = Decimal(str(precio_lista_ml)) / (1 + iva / 100)
         base = {"costo": None if costo is None else Decimal(str(costo)), "precio_neto": neto}
         sell_out = self._sell_out(producto.item_id, self.campanas.get(producto.item_id, []), iva, base)
-        return SellInOutMarkups(sell_in, sell_out, costo)
-
-    def _sell_in_costo(self, item_id: int, costo: Decimal, iva: Optional[Decimal]) -> Optional[SellInProducto]:
-        """The cost bonuses' sell in of the next unit (module docstring), None when none gives anything."""
-        total, tomados = Decimal(0), []
-        for x in self.bonos_costo.get(item_id, []):
-            if any(not (p.acumulable and x.bono.acumulable) for p in tomados):
-                continue  # an earlier bonus it does not stack with holds the unit (`bonos_costo`, T27b)
-            usd = x.bono.moneda == "USD"
-            if usd and x.tasa is None:
-                return None  # no rate: the allocator fails the product's whole component, so none is shown
-            try:
-                monto = bonos_costo.unitario(x.bono, x.valor, costo, item_id, iva, self.hoy)
-            except ValueError:
-                # A VAT-loaded bonus on a product without a VAT rate: the allocator (`bonos_costo.recalcular`) fails
-                # the product's whole component, every cost bonus of it, so none is shown either.
-                return None
-            libre = x.monto_libre
-            if usd:  # USD per unit and cap, in pesos at today's rate, as the allocator books a sale today
-                monto = monto * x.tasa if x.bono.tipo == "por_unidad" else monto
-                libre = None if libre is None else cents(libre * x.tasa)
-            unitario = min(monto, costo - total)
-            if unitario <= 0:
-                continue
-            total += cents(unitario) if libre is None else min(cents(unitario), libre)
-            tomados.append(x.bono)
-        if not tomados:
-            return None
-        ids = [b.id for b in tomados]
-        return SellInProducto(bono_id=ids[0], bono_ids=ids, descuento_unit=float(total), costo=float(costo - total))
+        return SellInOutMarkups(sell_out, costo)
 
     def _sell_out(
         self, item_id: int, campanas: List[_Campana], iva: Optional[Decimal], base: dict
@@ -307,24 +210,20 @@ def resolver_sell_in_out_batch(
     item_ids: Iterable[int],
     hoy: date,
     *,
-    sin_lotes: bool = False,
     contextos: Optional[Sequence[ContextoMarkup]] = None,
     costos: Optional[Mapping[int, costo_si_lote.Costo]] = None,
 ) -> SellInOutBatch:
-    """What `hoy`'s next sale of each product would get (module docstring), for a whole page. `sin_lotes` resolves it
-    as if no FIFO lot had units left (what applies once they run out: the lot viewer's question).
+    """What `hoy`'s next sale of each product would get (module docstring), for a whole page.
 
     `contextos`: optional (canal, store_id) selection the operator is pricing against. `None` keeps the pre-scope
     global read (Productos "Todas"). A non-empty list is a **union**: a tactical sell out campaign is included when it
     reaches any context (`tienda_scope.alcanza_alguno`); per-target caps (`tope_compartido=false`) stay active while
-    any matching context still has room. Cost bonuses (sell in) are the same in every context.
+    any matching context still has room.
 
     `costos`: the page's `lote.actuales` when the caller already read them (Productos' live markups and costo SI
     column), so the page reads its costs once; None reads them here.
     """
-    return resolver_sell_in_out_por_contexto(db, item_ids, hoy, {None: contextos}, sin_lotes=sin_lotes, costos=costos)[
-        None
-    ]
+    return resolver_sell_in_out_por_contexto(db, item_ids, hoy, {None: contextos}, costos=costos)[None]
 
 
 def resolver_sell_in_out_por_contexto(
@@ -333,15 +232,13 @@ def resolver_sell_in_out_por_contexto(
     hoy: date,
     contextos_por_clave: Mapping[Hashable, Optional[Sequence[ContextoMarkup]]],
     *,
-    sin_lotes: bool = False,
     costos: Optional[Mapping[int, costo_si_lote.Costo]] = None,
 ) -> Dict[Hashable, SellInOutBatch]:
     """`resolver_sell_in_out_batch` for several store contexts at once (one per key, e.g. each official store of a
     Publicaciones page): the database is read ONCE for every key, and only the scope and cap rules run per key."""
     ids = sorted({int(i) for i in item_ids if i is not None})
     con_scope = any(c is not None for c in contextos_por_clave.values())
-    sell_in = {} if sin_lotes else get_costing().vigentes(db, ids, hoy)
-    por_item, pares = _campanas_y_bonos(db, ids, [i for i in ids if i not in sell_in], hoy)
+    por_item = alcance.campanas_por_item(db, {(i, hoy) for i in ids})
     cids = sorted(set().union(*por_item.values())) if por_item else []
     filas: list = []
     usado_global: Dict[int, Tuple[int, Decimal]] = {}
@@ -367,7 +264,6 @@ def resolver_sell_in_out_por_contexto(
             scopes = scopes_de(db, list({c.id: c for c, _, _ in filas}.values()))
             if any(s is not None and not s.tope_compartido for s in scopes.values()):
                 usado_por_target = _uso_sell_out_por_target(db, cids)
-    bonos = _bonos_costo(db, pares, hoy)  # sell in ignores stores: one result for every key
     campanas_por_clave = {
         clave: _campanas_vigentes(filas, por_item, contextos, scopes, usado_global, usado_por_target)
         for clave, contextos in contextos_por_clave.items()
@@ -379,10 +275,7 @@ def resolver_sell_in_out_por_contexto(
         costos = costo_si_lote.actuales(db, ids)  # the one cost of every markup here (D1, S13)
     else:
         costos = {i: costos[i] for i in ids if i in costos}  # the caller's read (`markups` converts at its rate)
-    return {
-        clave: SellInOutBatch(hoy, sell_in, campanas_por_clave[clave], bna, bonos, costos)
-        for clave in contextos_por_clave
-    }
+    return {clave: SellInOutBatch(hoy, campanas_por_clave[clave], bna, costos) for clave in contextos_por_clave}
 
 
 def _campanas_vigentes(
@@ -412,100 +305,6 @@ def _campanas_vigentes(
         if c.id in vigentes and item_id is not None:
             vigentes[c.id].montos_item[item_id] = Decimal(monto_item)
     return {item: [vigentes[c] for c in sorted(cs) if c in vigentes] for item, cs in por_item.items()}
-
-
-_Par = Tuple[int, int, Optional[Decimal]]  # (bono_id, item_id, the product's own % or ARS per unit, or None)
-
-
-def _campanas_y_bonos(db: Session, ids: List[int], sin_lote: List[int], hoy: date):
-    """`(alcance.campanas_por_item of hoy, the (cost bonus, product) pairs of the products without a lot)` in ONE
-    query: the cost bonuses ride on the campaigns' (a UNION ALL), so a page with none active costs nothing more.
-    A pair is an active `costo_venta` bonus current on `hoy` reaching the product by the panel's scope rule
-    (`bonos_alcance.del_alcance`: brand, category, or a model listed in `sell_in_bono_items`; a NULL brand or
-    category matches nothing), set-based."""
-    ventas = {(i, hoy) for i in ids}
-    if not ventas:
-        return {}, []
-    campanas = alcance.consulta_campanas_por_item(db, ventas)
-    if not sin_lote:
-        return alcance.campanas_de_filas(campanas, ventas), []
-    b, i, p = SellInBonoMarca, SellInBonoItem, ProductoERP
-    bonos = (
-        # A model's own value of the bonus's kind, picked like the allocator (`bonos_costo.recalcular`).
-        select(
-            b.id,
-            p.item_id,
-            b.fecha_desde,
-            b.fecha_hasta,
-            literal("bono"),
-            case((b.tipo == "por_unidad", i.monto_unit), else_=i.porcentaje),
-        )
-        .select_from(p)
-        .join(b, true())
-        .outerjoin(i, and_(i.bono_id == b.id, i.item_id == p.item_id))
-        .where(
-            p.item_id.in_(sin_lote),
-            b.base == bonos_costo.BASE,
-            b.estado == "activa",
-            b.fecha_desde <= hoy,
-            b.fecha_hasta >= hoy,
-            or_(
-                and_(b.alcance == "marca", b.marca == p.marca, or_(b.categoria.is_(None), b.categoria == p.categoria)),
-                and_(b.alcance == "categoria", b.categoria == p.categoria),
-                and_(b.alcance == "modelos", i.item_id.isnot(None)),
-            ),
-        )
-    )
-    filas = db.execute(
-        union_all(campanas.add_columns(literal("campana"), cast(null(), Numeric)).statement, bonos)
-    ).all()
-    pares = [(int(r[0]), int(r[1]), r[5]) for r in filas if r[4] == "bono"]
-    return alcance.campanas_de_filas([r[:4] for r in filas if r[4] == "campana"], ventas), pares
-
-
-def _bonos_costo(db: Session, pares: List[_Par], hoy: date) -> Dict[int, List[_BonoCosto]]:
-    """`{item_id: cost bonuses}` from the (bonus, product) pairs, in id order, without the bonuses whose cap is used
-    up (after `sell_in_bono_consumos`; a USD bonus's money cap counts its rows' `monto_usd`, with today's rate in
-    `tasa`, tactical sell in USD S2-S3). One joined query, only when there is a pair. No store scope: sell in lowers
-    the cost of every sale (owner, 2026-11-10), so the cap counts everything the bonus gave."""
-    if not pares:
-        return {}
-    t = SellInBonoConsumo
-    usado = (
-        select(
-            t.bono_id,
-            func.sum(t.unidades).label("unidades"),
-            func.sum(t.descuento_ars).label("monto"),
-            func.sum(t.monto_usd).label("monto_usd"),
-        )
-        .group_by(t.bono_id)
-        .subquery()
-    )
-    activos: Dict[int, Tuple[SellInBonoMarca, Optional[Decimal]]] = {}
-    for bono, unidades, monto, monto_usd in (
-        db.query(SellInBonoMarca, usado.c.unidades, usado.c.monto, usado.c.monto_usd)
-        .outerjoin(usado, usado.c.bono_id == SellInBonoMarca.id)
-        .filter(SellInBonoMarca.id.in_(sorted({bid for bid, _, _ in pares})))
-    ):
-        activa, libre = _cap_restante(
-            tope_unidades=bono.tope_unidades,
-            tope_monto=None if bono.tope_monto is None else Decimal(bono.tope_monto),
-            scope=None,
-            contextos=None,
-            usado_global=(int(unidades or 0), Decimal((monto_usd if bono.moneda == "USD" else monto) or 0)),
-            usado_target={},
-        )
-        if activa:
-            activos[bono.id] = (bono, libre)
-    tasas = bonos_costo.tasas_de_hoy(db, [b for b, _ in activos.values()], hoy)
-    por_item: Dict[int, List[_BonoCosto]] = {}
-    for bid, item_id, propio in sorted(pares, key=lambda x: (x[1], x[0])):
-        if bid in activos:
-            bono, libre = activos[bid]
-            por_item.setdefault(item_id, []).append(
-                _BonoCosto(bono, bonos_costo.valor_del_bono(bono, propio), libre, tasas.get(bid))
-            )
-    return por_item
 
 
 def _cap_campana(

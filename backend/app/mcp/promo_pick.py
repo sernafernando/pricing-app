@@ -2,7 +2,8 @@
 
 Same rules, same names: the status quo (`baseline_promo`), the per-type suggestions among the candidates applicable
 now that beat it (`pick_mejores_candidatas`), plus the L9 choice the panel leaves to the operator: `best_suggestion`
-(the suggestion with the highest markup with sell in) and its `improvement` over the status quo.
+(the suggestion with the highest markup with sell out, "c/ SO"; the sell in is inside costo SI) and its
+`improvement` over the status quo.
 Both sides run `tests/fixtures/pick_mejores_candidatas_cases.json`: change one, change the other.
 """
 
@@ -108,7 +109,7 @@ def baseline_promo(promotions: Iterable[Promo] | None) -> Promo | None:
 
 
 def comparable_markups(candidate: Promo, baseline: Promo) -> tuple[float | None, float | None]:
-    """`comparableMarkups`: with sell in / sell out only when both sides have it, else both plain."""
+    """`comparableMarkups`: c/ SO (with sell out) only when both sides have it, else both plain."""
     candidate_sio = finite_or_none(candidate.get("markup_sell_in_out"))
     baseline_sio = finite_or_none(baseline.get("markup_sell_in_out"))
     candidate_plain = finite_or_none(candidate.get("nuestro_markup"))
@@ -136,7 +137,7 @@ def es_mejor_oferta(
 
 
 def best_by_markup(promos: Iterable[Promo]) -> Promo | None:
-    """`bestByMarkup`: one basis for the whole set (with sell in only when every candidate has it)."""
+    """`bestByMarkup`: one basis for the whole set (c/ SO only when every candidate has it)."""
     ranked = [p for p in promos if finite_or_none(p.get("nuestro_markup")) is not None]
     key = (
         "markup_sell_in_out"
@@ -213,7 +214,7 @@ def pick_mejores_candidatas(
 
 
 def best_suggestion(slots: Mapping[str, Promo | None]) -> Promo | None:
-    """L9 option A: the suggestion with the highest markup with sell in (plain markup when one lacks it, as
+    """L9 option A: the suggestion with the highest markup with sell out, "c/ SO" (plain markup when one lacks it, as
     `bestByMarkup`); a tie goes to the lower price."""
     picked = [p for p in slots.values() if p]
     ranked = [p for p in picked if finite_or_none(p.get("nuestro_markup")) is not None]

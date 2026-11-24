@@ -7,9 +7,9 @@ default-reach campaign applies to every key, an ML-stores-only one to none); a p
 each key's OWN price with VAT as its base.
 
 The router (TP-LINK, VAT 21%) costs 50000 ARS (no costo SI step: its costo SI is that list cost). A lot of 2 units
-for 10000 ARS gives 5000 ARS per unit, so its cost with sell in is 45000 ARS, shown but, under D1 (sell-in-costo-si
-T3 PR 5, owner L12: "el costo siso no existe, es costo SI y SO va en la venta, como ganancia adicional"), never the
-cost of a markup: the markup with sell out is (net + sell out - 50000) / 50000. Varios 6.5%, Tienda Nube
+for 10000 ARS is no "c/ sell in" figure any more (costo SI T5 PR B: costo SI replaced the lots) and, under D1
+(sell-in-costo-si T3 PR 5, owner L12: "el costo siso no existe, es costo SI y SO va en la venta, como ganancia
+adicional"), never the cost of a markup: the markup with sell out is (net + sell out - 50000) / 50000. Varios 6.5%, Tienda Nube
 commission 1%.
 
 - gremio: 20% markup, 50000 x 1.065 x 1.2 = 63900 without VAT (77319 with VAT); net 63900 / 1.065 = 60000.
@@ -146,11 +146,20 @@ def mundo(engine: Engine) -> dict:
     }
 
 
-def test_the_cost_with_sell_in_is_one_figure_in_the_cost_currency(engine, mundo):
+def test_the_router_fifo_lot_gives_no_sell_in_part(engine, mundo):
+    # costo SI T5 PR B: the lot of `mundo` is no "c/ sell in" figure any more; only the sell out per key stays.
     sio = _sell_in_out(engine)
 
-    assert (sio.sell_in.descuento_unit, sio.sell_in.costo) == (5000.0, 45000.0)
-    assert (sio.sell_in.moneda_costo, sio.sell_in.costo_moneda) == ("ARS", 45000.0)
+    assert set(sio.model_dump()) == {"sell_out", "markups_sell_in", "markups_sell_in_out"}
+
+
+def test_a_product_with_only_a_fifo_lot_has_none(engine, mundo):
+    si.compra(engine, [(SWITCH, 2, "10000.00")], date(2026, 10, 1))
+    with sessionmaker(bind=engine)() as db:
+        get_costing().recompute(db, [SWITCH], isolate_failures=False)
+        db.commit()
+
+    assert _sell_in_out(engine, SWITCH) is None
 
 
 def test_each_key_reads_the_campaigns_of_its_channel_with_its_own_price_as_base(engine, mundo):

@@ -13,7 +13,7 @@ What the panel shows, and where each piece comes from (a constant number of stat
 4. the freshness of every sub-resource that applies, in one `UNION ALL` by primary key;
 5. with margins: `markup_service.compute_detail` (the four or five statements of the markup inputs and one
    shipping batch), whose breakdown is the very `unit_markup` pipeline of the list;
-6. with a breakdown: the sell in / sell out of its unit's product today (`productos_sell_in_out`, the batch of
+6. with a breakdown: the sell out of its unit's product today (`productos_sell_in_out`, the batch of
    GET /productos, read from the pricing database), recorded as ONE markup, `publicacion`, from the breakdown's own
    net and cost (sell-in-sell-out T10).
 
@@ -45,7 +45,7 @@ from app.services.ml_publications.view.markup_service import MarkupQuery
 from app.services.ml_publications.view.variations import link_state_of
 from app.services.pricing_columns import PRICELIST_TO_CAMPO
 from app.services.sell_out import alcance
-from app.services.productos_sell_in_out import en_moneda_costo, resolver_sell_in_out_batch
+from app.services.productos_sell_in_out import resolver_sell_in_out_batch
 
 STATEMENT_TIMEOUT = "3s"
 # Not shown: the whole body (a whitelisted part of it is) and its hash, which is bytes with no meaning to a person.
@@ -443,8 +443,8 @@ SELL_IN_OUT_KEY = "publicacion"
 
 @dataclass(frozen=True)
 class _PricedProduct:
-    """What `SellInOutBatch.markups` reads of a product, with the breakdown's cost already in pesos (`ARS`), so the
-    cost with sell in is the Resumen's `Costo` minus the discount whatever the product's currency."""
+    """What `SellInOutBatch.markups` reads of a product, with the breakdown's cost already in pesos (`ARS`), the
+    Resumen's `Costo` whatever the product's currency."""
 
     item_id: int
     costo: float
@@ -476,7 +476,7 @@ def _sell_in_out(
     *,
     mla: str,
 ) -> Optional[dict]:
-    """The sell in / sell out of the breakdown's unit (module docstring, 6); None when nothing was priced or neither
+    """The sell out of the breakdown's unit (module docstring, 6); None when nothing was priced or no sell out
     applies. Tactical companions follow the publication's official store as the allocators credit it
     (`alcance.stores_por_mla`, `cost_lines_by_publication`); without one, `("ml", None)`."""
     b = None if found is None else found.breakdown
@@ -492,12 +492,7 @@ def _sell_in_out(
     ).markups(product, precio_lista_ml=b.price)
     accumulator.record(SELL_IN_OUT_KEY, b.limpio)
     payload = accumulator.payload()
-    if payload is None:
-        return None
-    if payload.sell_in is not None:  # S10: also in the cost's currency, at the rate `costo_ars` was converted with
-        sell_in = en_moneda_costo(payload.sell_in, b.moneda_costo, b.tipo_cambio)
-        payload = payload.model_copy(update={"sell_in": sell_in})
-    return payload.model_dump()
+    return None if payload is None else payload.model_dump()
 
 
 # ── entry point ──────────────────────────────────────────────────

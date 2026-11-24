@@ -171,7 +171,7 @@ class TestRows:
         rows = body(client, admin_auth_headers, estado="active")["rows"]
         assert all(not {"costo", "ppp", "sell_in_out", "costo_si"} & set(row) for row in rows)
 
-    def test_with_ver_ganancia_a_product_row_carries_the_ppp_and_sell_in_lines(
+    def test_with_ver_ganancia_a_product_row_carries_the_ppp_and_no_sell_in_line(
         self, client, sold, db, rol_admin, admin_auth_headers, admin_user
     ):
         with sold.begin() as conn:

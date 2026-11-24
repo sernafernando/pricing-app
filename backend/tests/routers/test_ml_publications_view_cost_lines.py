@@ -65,7 +65,7 @@ def seed_lines(db, user, item_id: int, costo: float, ppp: float = 850.0, descuen
 
 def expected_lines(linea: int, costo: float, ppp: float = 850.0) -> dict:
     """The lines of a product seeded by `seed_lines`: an ARS list cost and no costo SI step, so its costo SI is the
-    list cost with fuente 'lista' (Q1)."""
+    list cost with fuente 'lista' (Q1). `linea` is the seeded FIFO lot, which no line shows any more."""
     return {
         "costo_si": {
             "costo": costo,
@@ -77,27 +77,12 @@ def expected_lines(linea: int, costo: float, ppp: float = 850.0) -> dict:
             "costo_ars": costo,
         },
         "ppp": {"costo": ppp, "moneda": "ARS", "fecha": "2026-02-14", "markups": {}},
-        "sell_in_out": {
-            "sell_in": {
-                "compra_item_id": linea,
-                "bono_id": None,  # a FIFO lot (T25: a cost bonus fills it)
-                "bono_ids": [],
-                "descuento_unit": 100.0,
-                "costo": costo - 100.0,
-                "unidades_restantes": 2,
-                "moneda_costo": "ARS",
-                "costo_moneda": costo - 100.0,
-                "descuento_unit_moneda": 100.0,
-            },
-            "sell_out": None,
-            "markups_sell_in": {},
-            "markups_sell_in_out": {},
-        },
+        "sell_in_out": None,  # the seeded lot gives no sell in any more (costo SI T5 PR B), and there is no sell out
     }
 
 
 class TestListRow:
-    def test_with_ver_ganancia_a_row_carries_the_ppp_and_sell_in_of_its_product(
+    def test_with_ver_ganancia_a_row_carries_the_ppp_and_no_sell_in_of_its_product(
         self, client, pg, analyst, pricing, db, admin_user
     ) -> None:
         seed_rows(pg, fill)

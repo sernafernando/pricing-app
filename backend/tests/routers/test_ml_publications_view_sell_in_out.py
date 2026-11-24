@@ -3,10 +3,10 @@
 Owner rule: "Always show both: cost and cost with sell in; markup and totals without and with sell out." The field
 is additive and lives next to `markup_breakdown`: it explains the same unit (the worst one) of the same linked
 product, with one markup key, `publicacion`, recorded from the breakdown's own net. D1 (sell-in-costo-si T3 PR 5,
-owner L12: "el costo siso no existe, es costo SI y SO va en la venta, como ganancia adicional"): the sell in (FIFO
-lot) is still shown, but it never comes off the cost, so there is no markup "with sell in" (`markups_sell_in` is
-always empty); the markup with sell out is (net + sell out - costo SI) / costo SI. Here the SQLite pricing db has no
-costo SI steps, so costo SI is the list cost (`tests/costo_si_lista.py`). Null when neither sell in nor sell out
+owner L12: "el costo siso no existe, es costo SI y SO va en la venta, como ganancia adicional"): there is no markup
+"with sell in" (`markups_sell_in` is always empty), and since costo SI T5 PR B no sell in part either (a FIFO lot
+gives nothing); the markup with sell out is (net + sell out - costo SI) / costo SI. Here the SQLite pricing db has no
+costo SI steps, so costo SI is the list cost (`tests/costo_si_lista.py`). Null when no sell out
 applies or nothing can be priced; absent without `ml_metricas.ver_ganancia`. The resolver's money rules are pinned in
 `tests/services/test_productos_sell_in_out_postgres.py`; this file pins the wiring and the HTTP contract.
 """
@@ -24,7 +24,6 @@ from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo
-from sqlalchemy import update
 
 from app.models.sell_in import SellInCompra, SellInCompraItem
 from app.services.ml_publications.view import markup as markup_module
@@ -110,75 +109,32 @@ def limpio_of(product: int) -> float:
 
 
 class TestPayload:
-    def test_the_item_level_product_with_sell_in_shows_its_lot_and_no_markup_with_sell_in(
-        self, client, rows, analyst, pricing, db, admin_user
-    ) -> None:
-        linea = sell_in(db, admin_user, 70)
+    def test_a_lot_alone_gives_no_sell_in_out(self, client, rows, analyst, pricing, db, admin_user) -> None:
+        # costo SI T5 PR B: the FIFO lot is no "c/ sell in" figure any more; without sell out nothing applies.
+        sell_in(db, admin_user, 70)
 
         body = body_of(client, analyst, "MLA11")
 
-        assert body["sell_in_out"] == {
-            "sell_in": {
-                "compra_item_id": linea,
-                "bono_id": None,  # a FIFO lot (T25: a cost bonus fills it)
-                "bono_ids": [],
-                "descuento_unit": 100.0,
-                "costo": COST[70] - 100.0,
-                "unidades_restantes": 2,
-                "moneda_costo": "ARS",
-                "costo_moneda": COST[70] - 100.0,
-                "descuento_unit_moneda": 100.0,
-            },
-            "sell_out": None,
-            "markups_sell_in": {},  # D1: the lot never comes off the cost of a markup
-            "markups_sell_in_out": {},  # no sell out: nothing to add to the profit
-        }
+        assert body["sell_in_out"] is None
         assert body["markup_breakdown"]["costo_ars"] == COST[70]  # the plain cost stays as it was
 
-    def test_a_usd_cost_shows_the_cost_and_its_sell_in_in_usd_at_the_breakdowns_rate(
+    def test_a_usd_cost_with_a_lot_and_sell_out_shows_only_the_sell_out(
         self, client, rows, pg, analyst, pricing, db, admin_user
     ) -> None:
         # S10 (owner): "si son 17,04 USD, mostrame 17,04 USD". 40 USD at the context's 1000 ARS/USD is the same
-        # 40000 ARS the ARS case prices, so every ARS figure and markup is the ARS case's own.
+        # 40000 ARS the ARS case prices, so every ARS figure and markup is the ARS case's own; no sell in part.
         with pg.begin() as conn:
             seed.add_cost(conn, 70, 40.0, moneda_costo="USD", iva=10.5, envio=120.0)
-        linea = sell_in(db, admin_user, 70)
+        sell_in(db, admin_user, 70)
+        sell_out(db, admin_user, 70)
 
         body = body_of(client, analyst, "MLA11")
 
         breakdown = body["markup_breakdown"]
         assert (breakdown["costo_ars"], breakdown["costo"], breakdown["moneda_costo"]) == (COST[70], 40.0, "USD")
-        sell_in_usd = body["sell_in_out"]["sell_in"]
-        assert sell_in_usd["compra_item_id"] == linea
-        assert (sell_in_usd["costo"], sell_in_usd["descuento_unit"]) == (COST[70] - 100.0, 100.0)  # ARS, as before
-        assert sell_in_usd["moneda_costo"] == "USD"
-        assert sell_in_usd["costo_moneda"] == pytest.approx(39.9)  # 39900 ARS at the same 1000 ARS/USD
-        assert sell_in_usd["descuento_unit_moneda"] == pytest.approx(0.1)
+        assert set(body["sell_in_out"]) == {"sell_out", "markups_sell_in", "markups_sell_in_out"}
+        assert body["sell_in_out"]["sell_out"]["monto_unit"] == 500.0
         assert body["sell_in_out"]["markups_sell_in"] == {}  # D1: no markup "with sell in" in any currency
-
-    def test_a_usd_purchase_at_its_own_rate_still_reads_at_the_costs_one_rate(
-        self, client, rows, pg, analyst, pricing, db, admin_user
-    ) -> None:
-        # Review R3-detail-rate-overwrite: the lot's discount is in ARS at ITS purchase's rate (0.10 USD x 1500 = 150
-        # ARS per unit); the cost with sell in in USD is that ARS figure back at the COST's rate (the context's 1000),
-        # the one the breakdown's `costo_ars` used: one rate for the cost, never the purchase's.
-        with pg.begin() as conn:
-            seed.add_cost(conn, 70, 40.0, moneda_costo="USD", iva=10.5, envio=120.0)
-        linea = sell_in(db, admin_user, 70)
-        compra = db.get(SellInCompraItem, linea).compra_id
-        db.execute(
-            update(SellInCompra)
-            .where(SellInCompra.id == compra)
-            .values(moneda="USD", tipo_cambio=1500, monto_total=0.2)
-        )
-        db.execute(update(SellInCompraItem).where(SellInCompraItem.id == linea).values(monto_asignado=0.2))
-        db.commit()
-
-        sell_in_usd = body_of(client, analyst, "MLA11")["sell_in_out"]["sell_in"]
-
-        assert (sell_in_usd["costo"], sell_in_usd["descuento_unit"]) == (COST[70] - 150.0, 150.0)
-        assert sell_in_usd["costo_moneda"] == pytest.approx((COST[70] - 150.0) / 1000)  # 39.85, not at 1500
-        assert sell_in_usd["descuento_unit_moneda"] == pytest.approx(0.15)
 
     def test_a_usd_cost_without_any_rate_has_no_markup_and_no_sell_in_out(
         self, client, rows, pg, analyst, pricing, db, admin_user, monkeypatch, caplog
@@ -221,31 +177,31 @@ class TestPayload:
         assert found["markups_sell_in_out"] == {"publicacion": markup_with_sell_out(70, 500.0)}
         assert found["markups_sell_in"] == {}
 
-    def test_a_sell_in_next_to_the_sell_out_leaves_the_markup_as_without_it(
+    def test_a_lot_next_to_the_sell_out_leaves_the_payload_as_without_it(
         self, client, rows, analyst, pricing, db, admin_user
     ) -> None:
-        # D1: "SO va en la venta, como ganancia adicional"; the lot is shown but never lowers the cost
+        # D1: "SO va en la venta, como ganancia adicional"; the lot adds no sell in part and never lowers the cost
         sell_out(db, admin_user, 70)
-        sin_sell_in = body_of(client, analyst, "MLA11")["sell_in_out"]["markups_sell_in_out"]
+        sin_lote = body_of(client, analyst, "MLA11")["sell_in_out"]
         sell_in(db, admin_user, 70)
 
         found = body_of(client, analyst, "MLA11")["sell_in_out"]
 
-        assert found["sell_in"]["descuento_unit"] == 100.0  # the lot is there
-        assert found["markups_sell_in_out"] == sin_sell_in == {"publicacion": markup_with_sell_out(70, 500.0)}
-        assert found["markups_sell_in"] == {}
+        assert "sell_in" not in found
+        assert found == sin_lote
+        assert found["markups_sell_in_out"] == {"publicacion": markup_with_sell_out(70, 500.0)}
 
     def test_with_variations_it_follows_the_worst_units_product(
         self, client, rows, analyst, pricing, db, admin_user
     ) -> None:
-        sell_in(db, admin_user, 70)  # variation 11: not the unit the breakdown explains
-        linea = sell_in(db, admin_user, 71)  # variation 12: the worst one
+        sell_out(db, admin_user, 70, monto="100.00")  # variation 11: not the unit the breakdown explains
+        sell_out(db, admin_user, 71)  # variation 12: the worst one
 
         body = body_of(client, analyst, "MLA10")
 
         assert body["markup_breakdown"]["variation_id"] == 12
-        assert body["sell_in_out"]["sell_in"]["compra_item_id"] == linea
-        assert body["sell_in_out"]["sell_in"]["costo"] == COST[71] - 100.0
+        assert body["sell_in_out"]["sell_out"]["monto_unit"] == 500.0
+        assert body["sell_in_out"]["markups_sell_in_out"] == {"publicacion": markup_with_sell_out(71, 500.0)}
 
 
 class TestNull:
@@ -267,7 +223,7 @@ class TestNull:
         assert body["sell_in_out"] is None
 
     def test_without_ver_ganancia_it_is_absent(self, client, rows, reader, pricing, db, admin_user) -> None:
-        sell_in(db, admin_user, 70)
+        sell_out(db, admin_user, 70)
 
         body = body_of(client, reader, "MLA11")
 

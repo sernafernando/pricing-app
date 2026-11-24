@@ -81,19 +81,11 @@ def _irreproducible(engine: Engine, monkeypatch) -> int:
 
 
 def test_a_failed_replay_is_never_read_as_used_up_by_the_panels(engine: Engine, monkeypatch) -> None:
-    diez, _ = _dos_lotes(engine)
+    _dos_lotes(engine)
     _irreproducible(engine, monkeypatch)
     bw.bono_costo(engine, "3.00", desde=D(2026, 11, 1), hasta=D(2026, 11, 30))
     with _sesion(engine) as db:
-        batch = resolver_sell_in_out_batch(db, [ROUTER], HOY)
-    lote = batch.sell_in[ROUTER]
-    assert (lote.compra_item_id, lote.descuento_unit_ars, lote.unidades_restantes, lote.en_pool) == (
-        diez,
-        Decimal("10.000000"),
-        100,
-        False,
-    )
-    assert not batch.bonos_costo.get(ROUTER)
+        resolver_sell_in_out_batch(db, [ROUTER], HOY)  # the panels read no lot any more (costo SI T5 PR B)
 
 
 def test_the_viewer_and_the_panels_agree_on_every_mode(engine: Engine) -> None:
@@ -226,9 +218,7 @@ def test_the_batch_never_reads_more_than_ten_queries(engine: Engine) -> None:
     with _sesion(engine) as db:
         conn = db.connection()
         event.listen(conn, "before_cursor_execute", lambda *a: statements.append(a[2]))
-        batch = resolver_sell_in_out_batch(db, [ROUTER, SWITCH, 950], HOY)
-    assert batch.sell_in[ROUTER].en_pool
-    assert batch.bonos_costo, "the cost-bonus query must have run for the measure to mean anything"
+        resolver_sell_in_out_batch(db, [ROUTER, SWITCH, 950], HOY)
     # 10: nine, plus the products' costo SI (`costo_si.lote.actuales`, sell-in-costo-si T3 PR 5)
     assert len(statements) <= 10, "\n---\n".join(statements)
 
