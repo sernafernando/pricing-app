@@ -643,7 +643,8 @@ class TestPorcentaje:
         assert b.generadas(engine)[0][4] == Decimal("27.51")
         assert _cabecera(engine, bono, pedido)[:3] == ("porcentaje", Decimal("2.5000"), "manual")
 
-    def test_an_invoiced_net_in_the_other_currency_converts_at_the_operations_rate(self, engine: Engine) -> None:
+    def test_a_percentage_is_paid_in_the_invoices_currency_whatever_the_bonus_currency(self, engine: Engine) -> None:
+        # Sell in incident 2026-11-24 S3 (owner L38): a % has no currency; it was 2.00 USD (2900 ARS / 1450).
         usd = b.bono_alcance(engine, "factura", tipo="porcentaje", porcentaje="2", moneda="USD", pedido_id=None)
         pedido = b.pedido(engine, {2964: 4}, tipo_cambio="1450.000000")
         b.update_bono(engine, usd, pedido_id=pedido)
@@ -652,8 +653,12 @@ class TestPorcentaje:
 
         _reconciliar(engine, pedido_ids=[pedido])
 
-        assert b.items_de(engine, usd, pedido) == [(2964, 4, Decimal("2.00"))]  # 2900 ARS / 1450
+        assert b.items_de(engine, usd, pedido) == [(2964, 4, Decimal("2900.00"))]
         assert b.items_de(engine, ars, pedido) == [(2964, 4, Decimal("2900.00"))]
+        assert [(g[0], g[3], g[4]) for g in b.generadas(engine)] == [
+            (usd, "ARS", Decimal("2900.00")),
+            (ars, "ARS", Decimal("2900.00")),
+        ]
 
     def test_a_line_without_a_single_currency_fails_the_operation_and_writes_nothing(self, engine: Engine) -> None:
         bono = b.bono_alcance(engine, "modelos", modelos=(2964,), tipo="porcentaje", porcentaje="2")

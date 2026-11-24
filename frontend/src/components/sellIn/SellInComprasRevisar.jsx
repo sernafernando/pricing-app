@@ -3,6 +3,7 @@ import { AlertTriangle } from 'lucide-react';
 import ModalTesla from '../ModalTesla';
 import { costoSiSospechasAPI } from '../../services/sellInAPI';
 import { formatEntero, ratioLabel } from './sellInFormat';
+import { aTipoCambio, precio } from './sellInMoneda';
 import styles from './SellInComprasRevisar.module.css';
 
 /** The state filter: pending first (what needs a decision), then the decided ones and every row. */
@@ -30,15 +31,9 @@ const ACCIONES = {
   },
 };
 
-// A suspicious price can be a fraction of a cent: up to 5 decimals (the stored precision), at least 2.
-const PRECIO = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 5 });
-
-const TC = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 });
-
-const precio = (valor, moneda) => `${moneda} ${PRECIO.format(Number(valor))}`;
 /** The invoice's price is converted when it is in another currency than the product's cost, at the invoice's rate. */
 const convertida = (fila) => fila.moneda_factura !== fila.moneda && fila.tipo_cambio != null;
-const conversion = (fila) => `${precio(fila.precio, fila.moneda)} a TC ${TC.format(Number(fila.tipo_cambio))}`;
+const conversion = (fila) => aTipoCambio(precio(fila.precio, fila.moneda), fila.tipo_cambio);
 const fecha = (iso) => {
   const [y, m, d] = String(iso).slice(0, 10).split('-');
   return `${d}/${m}/${y}`;

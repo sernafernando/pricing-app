@@ -1,4 +1,5 @@
 import { FORMULA_LABELS, formatEntero, formatMonto } from './sellInFormat';
+import SellInCompraMonto from './SellInCompraMonto';
 import styles from './SellInLineas.module.css';
 
 /** The purchase's lines: what each one got and its unit cost before and after the sell in. */
@@ -23,7 +24,9 @@ export default function SellInLineas({ compra }) {
                 <span>{linea.descripcion}</span> <span className={styles.mono}>{linea.codigo}</span>
               </td>
               <td className={styles.num}>{formatEntero(linea.cantidad)}</td>
-              <td className={styles.num}>{formatMonto(linea.monto_asignado, moneda)}</td>
+              <td className={styles.num}>
+                <SellInCompraMonto monto={linea.monto_asignado} moneda={moneda} tipoCambio={compra.tipo_cambio} />
+              </td>
               <td className={`${styles.num} ${styles.before}`}>{formatMonto(linea.costo_base_unit, moneda)}</td>
               <td className={`${styles.num} ${styles.after}`}>{formatMonto(linea.costo_con_sell_in_unit, moneda)}</td>
             </tr>

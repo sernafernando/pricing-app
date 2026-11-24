@@ -31,18 +31,20 @@ Desired state of a pair, recomputed from scratch on every call:
   `monto_asignado` = units x `monto_unit` (`formula = 'por_unidad'`) or the %
   of the line's invoiced net, half up to cents (`tipo = 'porcentaje'`,
   `formula = 'manual'`, like a % sell in loaded by hand; a line whose share is
-  0 is left out), in the bonus's currency, dated the invoice date
+  0 is left out), in the bonus's currency for an amount per unit and in the invoice's currency for a %
+  (`_moneda_compra`: a % has no currency, owner L38; the bonus's when the lines mix currencies or the bonus has a
+  money cap), dated the invoice date
   (`cuenta_desde = 'compra'`), of the operation's supplier, linked to the
   operation (`sell_in_compra_pedidos`), authored by the
   bonus's author;
-- a USD bonus converts at the operation's own rate (`pedidos_compra.tipo_cambio`,
+- a USD purchase converts at the operation's own rate (`pedidos_compra.tipo_cambio`,
   the effective rate the Compras module keeps), like every sell in (owner
   2026-10-17: the purchase's own rate). An operation without one (an ARS
   operation) takes the BNA rate of its invoice date (`tipo_cambio`, USD venta,
   the latest on or before it). With no rate at all the pair FAILS
   (`ReconcileResult.fallidas`) and is left as it was: never a guessed rate.
-  A % line invoiced in the other currency converts its share at that same
-  rate; a line whose invoiced net mixes currencies (`importe_neto` NULL) fails
+  A % line invoiced in a currency other than the purchase's (lines that mix
+  currencies, a money cap) converts its share at that same rate; a line whose invoiced net mixes currencies (`importe_neto` NULL) fails
   the pair too.
 
 A bonus may carry ONE cap shared by every product and operation it reaches (T24, owner 2026-10-28: "muchos
@@ -332,23 +334,35 @@ def _alcanzadas(bono: SellInBonoMarca, pedido: _Pedido, lineas: List[_Linea], mo
 
 
 def _monto_porcentaje(
-    bono: SellInBonoMarca, pedido: _Pedido, linea: _Linea, tasa: Optional[Decimal], porcentaje: Decimal
+    moneda_compra: str, pedido: _Pedido, linea: _Linea, tasa: Optional[Decimal], porcentaje: Decimal
 ) -> Decimal:
-    """`porcentaje` (the bonus's, or the model's own) of the line's invoiced net, in the bonus's currency
-    (converted at the pair's rate when the invoice is in the other one), half up to cents."""
+    """`porcentaje` (the bonus's, or the model's own) of the line's invoiced net, in the purchase's currency
+    (`_moneda_compra`; converted at the pair's rate when the invoice is in the other one), half up to cents."""
     if linea.importe_neto is None or linea.moneda is None:
         raise SellInError(
             f"El facturado del item {linea.item_id} en el pedido {pedido.id} mezcla monedas: no sirve de base"
         )
     monto = Decimal(linea.importe_neto) * Decimal(porcentaje) / 100
-    if linea.moneda != bono.moneda:
+    if linea.moneda != moneda_compra:
         if tasa is None:
             raise SellInError(
-                f"El pedido {pedido.id} no tiene tipo de cambio para pasar a {bono.moneda} lo facturado del item "
+                f"El pedido {pedido.id} no tiene tipo de cambio para pasar a {moneda_compra} lo facturado del item "
                 f"{linea.item_id}"
             )
-        monto = monto / tasa if bono.moneda == "USD" else monto * tasa
+        monto = monto / tasa if moneda_compra == "USD" else monto * tasa
     return monto.quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def _moneda_compra(bono: SellInBonoMarca, lineas: List[_Linea]) -> str:
+    """The generated purchase's currency. A % has no currency of its own (owner L38: units x invoice unit price x %,
+    in the invoice's currency; sell in incident 2026-11-24 S3): a % bonus's purchase is in the currency its reached
+    lines were invoiced in. It keeps the bonus's currency when those lines are invoiced in more than one (each
+    converted at the pair's rate), when the bonus has a money cap (`tope_monto` is in the bonus's currency) and for
+    an amount per unit, which is in the bonus's currency."""
+    monedas = {linea.moneda for linea in lineas}
+    if bono.tipo != "porcentaje" or bono.tope_monto is not None or len(monedas) != 1 or None in monedas:
+        return bono.moneda
+    return monedas.pop()
 
 
 _ETIQUETAS = {"categoria": "Bono de categoría", "modelos": "Bono de modelos", "factura": "Bono de factura"}
@@ -393,13 +407,16 @@ def _deseada(
     tasa = pedido.tipo_cambio
     if tasa is None:
         tasa = tasas_bna.get(fecha)
-    if bono.moneda == "USD" and tasa is None:
+    moneda_compra = _moneda_compra(bono, propias)
+    if moneda_compra == "USD" and tasa is None:
         raise SellInError(
             f"El pedido {pedido.id} no tiene tipo de cambio y no hay cotización del dólar al {fecha.isoformat()}"
         )
     if bono.tipo == "porcentaje":
         montos = {
-            linea.item_id: _monto_porcentaje(bono, pedido, linea, tasa, _propio(modelos, linea, bono.porcentaje))
+            linea.item_id: _monto_porcentaje(
+                moneda_compra, pedido, linea, tasa, _propio(modelos, linea, bono.porcentaje)
+            )
             for linea in propias
         }
         # A share that rounds to nothing pays nothing; with no line left the bonus does not apply.
@@ -418,7 +435,7 @@ def _deseada(
         "estado": "activa",
         "proveedor_id": pedido.proveedor_id,
         "fecha_compra": fecha,
-        "moneda": bono.moneda,
+        "moneda": moneda_compra,
         "tipo_cambio": tasa.quantize(Decimal("0.000001")) if tasa is not None else None,
         "monto_total": sum((monto for _, monto in detalle.values()), Decimal("0")),
         # A % bonus is stored like a % sell in loaded by hand (T3g): each line's amount is given.
