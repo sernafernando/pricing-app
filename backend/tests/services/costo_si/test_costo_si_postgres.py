@@ -141,8 +141,67 @@ def test_a_loyalty_loaded_through_a_tactical_is_a_sell_in_on_every_invoice_of_th
     _recalcular(engine, P)
 
     assert w.pasos(engine, P) == [
-        ("inicio", date(2026, 10, 1), 0, 0, D("100.00000"), D("100.00000")),
+        # L39/L40: the start gets the loyalty in force that day too (no stock then, so it moves nothing)
+        ("inicio", date(2026, 10, 1), 0, 0, D("96.40000"), D("96.40000")),
         ("compra", date(2026, 10, 8), 10, 0, D("96.40000"), D("96.40000")),
+    ]
+
+
+# ------------------------------------------- the loyalty on the starting stock (owner L39 / L40, incident 2026-11-24)
+
+
+def _stock_al_inicio(engine: Engine) -> None:
+    """P has 10 units in stock on 10-01 at list cost 100 and buys 10 more at 100 on 10-08."""
+    w.producto(engine, P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "100")
+    w.factura(engine, P, date(2026, 9, 20), datetime(2026, 9, 20), 10, "100", previo=0, supp_id=19)
+    w.factura(engine, P, date(2026, 10, 8), datetime(2026, 10, 8), 10, "100", previo=10, supp_id=19)
+
+
+def test_the_loyalty_lowers_the_stock_on_hand_at_its_start_and_is_stored_on_the_start_step(engine: Engine) -> None:
+    """L39 "aplicaselo a todo el stock viejo", L40 "aplicá a todos los anteriores": the 10 units in stock when the
+    3.6 % loyalty starts enter at 100 x 0.964 = 96.40, like the 10 bought inside it; the start step keeps the
+    loyalty it got, so the screens can show it."""
+    _stock_al_inicio(engine)
+    bono = w.bono_marca(engine, "3.6", date(2026, 10, 1), date(2026, 12, 31))
+
+    _recalcular(engine, P)
+
+    assert w.pasos(engine, P) == [
+        ("inicio", date(2026, 10, 1), 10, 10, D("96.40000"), D("96.40000")),
+        ("compra", date(2026, 10, 8), 10, 10, D("96.40000"), D("96.40000")),
+    ]
+    (inicio,) = w.rows(
+        engine,
+        "SELECT costo_neto_usd, sell_in_pct, sell_ins FROM costo_si_pasos WHERE item_id = :i AND tipo = 'inicio'",
+        i=P,
+    )
+    assert inicio == (D("100.00000"), D("3.6000"), [{"origen": "bono", "ref": bono, "porcentaje": "3.6000"}])
+
+
+def test_a_loyalty_pending_approval_never_lowers_the_starting_stock(engine: Engine) -> None:
+    """#2383: a tactical line waiting for approval applies nothing, on the start either. Previous behavior kept."""
+    _stock_al_inicio(engine)
+    w.bono_marca(engine, "3.6", date(2026, 10, 1), date(2026, 12, 31))
+    pendiente = w.bono_marca(engine, "2", date(2026, 10, 1), date(2026, 12, 31))
+    w.run(engine, "UPDATE sell_in_bonos_marca SET estado = 'pendiente' WHERE id = :b", b=pendiente)
+
+    _recalcular(engine, P)
+
+    assert w.pasos(engine, P)[0][4:] == (D("96.40000"), D("96.40000"))
+
+
+def test_a_per_model_line_never_lowers_the_starting_stock(engine: Engine) -> None:
+    """Only the loyalty (a plain brand %) reaches the stock on hand: a per-model % line still applies only to the
+    purchases of its scope and range (previous behavior)."""
+    _stock_al_inicio(engine)
+    w.bono_modelos(engine, [P], "porcentaje", "5", date(2026, 10, 1), date(2026, 12, 31))
+
+    _recalcular(engine, P)
+
+    assert w.pasos(engine, P) == [
+        ("inicio", date(2026, 10, 1), 10, 10, D("100.00000"), D("100.00000")),
+        ("compra", date(2026, 10, 8), 10, 10, D("95.00000"), D("97.50000")),
     ]
 
 
@@ -186,7 +245,7 @@ def test_negative_stock_at_a_purchase_restarts_the_average(engine: Engine) -> No
     _recalcular(engine, P)
 
     assert w.pasos(engine, P) == [
-        ("inicio", date(2026, 10, 1), 2, 2, D("30.00000"), D("30.00000")),
+        ("inicio", date(2026, 10, 1), 2, 2, D("27.00000"), D("27.00000")),  # 30 less the 10 % loyalty (L39/L40)
         ("compra", date(2026, 10, 3), 40, -3, D("18.00000"), D("18.00000")),
     ]
 
@@ -1159,7 +1218,8 @@ def test_a_start_at_a_zero_list_row_takes_the_first_positive_list_cost_after_it(
 
     _recalcular(engine, TAPO)
 
-    assert w.pasos(engine, TAPO) == [("inicio", date(2026, 10, 1), 40, 40, D("74.95000"), D("74.95000"))]
+    # 74.95 less the 3 % loyalty in force on the start day (L39/L40)
+    assert w.pasos(engine, TAPO) == [("inicio", date(2026, 10, 1), 40, 40, D("72.70150"), D("72.70150"))]
 
 
 def test_a_no_sell_in_start_at_a_zero_list_row_takes_the_first_positive_list_cost_too(engine: Engine) -> None:

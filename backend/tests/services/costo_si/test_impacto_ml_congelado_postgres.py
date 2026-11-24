@@ -145,14 +145,14 @@ def test_the_dry_run_predicts_every_ml_sale_the_deploy_re_freezes(engine: Engine
     prediccion = {c.fila_id: (c.antes, c.despues) for c in informe.cambios if c.canal == impacto.CANAL_ML_CONGELADO}
     filas = {r[0]: r[1] for r in w.rows(engine, "SELECT id, order_id FROM ml_order_item_costos")}
     assert {filas[i] for i in prediccion} == {oct_, combo, pc}
-    assert prediccion[next(i for i, o in filas.items() if o == oct_)] == (D("80000.0000"), D("50000.0000"))
-    assert prediccion[next(i for i, o in filas.items() if o == pc)] == (D("300000.0000"), D("35000.0000"))  # 25 + 10
+    assert prediccion[next(i for i, o in filas.items() if o == oct_)] == (D("80000.0000"), D("48200.0000"))
+    assert prediccion[next(i for i, o in filas.items() if o == pc)] == (D("300000.0000"), D("34100.0000"))  # 24.1 + 10
 
     _deploy(engine)
 
     despues_ = _guardado(engine)
     assert {o for o in despues_ if despues_[o] != guardado[o]} == {oct_, combo, pc}
-    assert despues_[pc] == (D("35000.0000"), "combo")
+    assert despues_[pc] == (D("34100.0000"), "combo")
     for fila_id, (antes_, despues_total) in prediccion.items():
         order_id = filas[fila_id]
         cantidad = 2 if order_id == oct_ else 1

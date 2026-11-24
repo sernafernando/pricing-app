@@ -2,7 +2,8 @@
 
 - Start (S2): the first sell-in date: the earliest brand bonus that reaches the product (`fecha_desde`) or the earliest
   purchase invoice a Compras sell in reaches. Its cost: the `tb_item_cost_list_history` row (list 1, USD) in force at
-  00:00 of that day, i.e. the last row of an earlier day, so a same-day typo corrected minutes later never counts.
+  00:00 of that day, i.e. the last row of an earlier day, so a same-day typo corrected minutes later never counts,
+  less every brand loyalty in force that day (`loyalties_del_inicio`, owner L39/L40).
 - Purchases (S4): every purchase invoice (`v_facturas_compra_vigentes`, 'FACTURA') of the product, dated by the
   supplier invoice date `ct_date`, at its net unit price. FX for ARS: a PM correction (`costo_si_factura_tc`), else
   the linked Compras operation's TC (manual first), else `tipo_cambio.venta` on the invoice date (or the latest
@@ -95,7 +96,7 @@ def sin_historia(db: Session, item_id: int) -> bool:
 # the line's (`sell_in_bono_items`).
 _BONOS_SQL = text("""
     SELECT b.id, b.tipo, COALESCE(bi.porcentaje, b.porcentaje) AS pct, COALESCE(bi.monto_unit, b.monto_unit) AS unit,
-           b.fecha_desde, b.fecha_hasta, b.moneda, b.incluye_iva, b.tope_unidades, b.tope_monto, p.iva
+           b.fecha_desde, b.fecha_hasta, b.moneda, b.incluye_iva, b.tope_unidades, b.tope_monto, p.iva, b.alcance
     FROM sell_in_bonos_marca b
     JOIN productos_erp p ON p.item_id = :i
     LEFT JOIN sell_in_bono_items bi ON bi.bono_id = b.id AND bi.item_id = :i
@@ -210,11 +211,17 @@ class Bono:
     incluye_iva: bool = False
     tope_unidades: Optional[int] = None
     tope_monto: Optional[Decimal] = None  # in `moneda`
+    alcance: str = "marca"  # 'marca' | 'categoria' | 'modelos'
 
     @property
     def plano(self) -> bool:
         """The loyalty's shape: a % with no topes, the same % on every invoice."""
         return self.porcentaje is not None and self.tope_unidades is None and self.tope_monto is None
+
+    @property
+    def loyalty(self) -> bool:
+        """A brand loyalty (L5, L7.2): a plain % over the whole brand. Not a per-model or capped line."""
+        return self.plano and self.alcance == "marca"
 
 
 def sin_iva(valor: Decimal, iva: Optional[Decimal], bono_id: int, item_id: int) -> Decimal:
@@ -231,16 +238,16 @@ def _dec(value) -> Optional[Decimal]:
 
 def bonos_de(db: Session, item_id: int) -> List[Bono]:
     out = []
-    for bid, tipo, pct, unit, desde, hasta, moneda, iva, tope_u, tope_m, alicuota in db.execute(
+    for bid, tipo, pct, unit, desde, hasta, moneda, iva, tope_u, tope_m, alicuota, alcance in db.execute(
         _BONOS_SQL, {"i": item_id}
     ):
         if tipo == "porcentaje" and pct:
             pct = Decimal(pct)
             if iva and tope_u is None and tope_m is None:  # a plain line's % is used as it is: net of VAT here
                 pct = sin_iva(pct, _dec(alicuota), bid, item_id).quantize(Decimal("0.0001"))
-            out.append(Bono(bid, pct, desde, hasta, None, moneda, bool(iva), tope_u, _dec(tope_m)))
+            out.append(Bono(bid, pct, desde, hasta, None, moneda, bool(iva), tope_u, _dec(tope_m), alcance))
         elif tipo == "por_unidad" and unit:
-            out.append(Bono(bid, None, desde, hasta, Decimal(unit), moneda, bool(iva), tope_u, _dec(tope_m)))
+            out.append(Bono(bid, None, desde, hasta, Decimal(unit), moneda, bool(iva), tope_u, _dec(tope_m), alcance))
     return out
 
 
@@ -537,6 +544,13 @@ def sell_ins_de(
     return tuple(out)
 
 
+def loyalties_del_inicio(dia: date, bonos: Sequence[Bono]) -> Tuple[SellIn, ...]:
+    """The brand loyalties in force on the start day (owner L39 "aplicaselo a todo el stock viejo", L40 "aplicá a
+    todos los anteriores"): the stock on hand then gets their % too, every product, no exception. Only a loyalty (a
+    plain brand %, active, so approved): never a Compras sell in, a per-model or a capped line."""
+    return tuple(SellIn("bono", b.id, b.porcentaje) for b in bonos if b.loyalty and b.desde <= dia <= b.hasta)
+
+
 # --------------------------------------------------------------------------------------------------------- stock
 
 _FISICO_SQL = text("""
@@ -648,6 +662,7 @@ def entrada(db: Session, item_id: int) -> Optional[Entrada]:
         inicio_fecha,
         disponible(db, item_id, inicio_fecha) + sin_entrar,
         costo_de_inicio(db, item_id, inicio_fecha, moneda),
+        loyalties_del_inicio(inicio_fecha, bonos),
     )
     manuales = {}
     if posteriores:

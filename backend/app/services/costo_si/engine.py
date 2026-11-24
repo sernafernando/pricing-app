@@ -1,7 +1,7 @@
 """The costo SI arithmetic (S1, S5, S9, S10), pure: no database, no clock.
 
 A product starts at its first sell-in date with the stock it had then, valued at the historical list cost of that day
-(`Inicio`). Every purchase invoice after that enters in two steps (S5, L3): its stored NET unit cost, then every sell
+(`Inicio`), less every brand loyalty in force that day (owner L39/L40: the stock on hand gets the loyalty too). Every purchase invoice after that enters in two steps (S5, L3): its stored NET unit cost, then every sell
 in that applies to it, all as a % of that same net and added up: 100 x (1 - 0.05 - 0.036) = 91.40 (L5). Then
 
     new average = (stock before x average + qty x net-net) / (stock before + qty)            (S1)
@@ -54,6 +54,8 @@ class Inicio:
     fecha: date
     stock: int
     costo_usd: Optional[Decimal]  # historical list cost in force; None: there is none
+    # The brand loyalties in force on `fecha` (owner L39/L40): the starting stock gets them too, as a % of its cost.
+    sell_ins: Tuple[SellIn, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -151,7 +153,10 @@ def calcular(
     re-anchor (L23) placed before the purchases of its own day (it is in force from 00:00). A suspicious purchase
     (L29) whose invoice is not in `aceptadas` is an 'excluido' step that leaves the average as it was."""
     pendientes = sorted(listas, key=lambda x: x.fecha)
-    promedio = redondear(inicio.costo_usd) if inicio.costo_usd is not None else None
+    costo_inicio = redondear(inicio.costo_usd) if inicio.costo_usd is not None else None
+    pct_inicio = sum((s.porcentaje for s in inicio.sell_ins), Decimal(0))
+    # An unknown start cost stays unknown, loyalty or not: never a 0 (§7).
+    promedio = neto_neto(costo_inicio, inicio.sell_ins)[1] if costo_inicio is not None else None
     base_inicio = max(inicio.stock, 0)
     pasos = [
         Paso(
@@ -159,9 +164,9 @@ def calcular(
             fecha=inicio.fecha,
             ct_transaction=None,
             cantidad=inicio.stock,
-            costo_neto_usd=promedio,
-            sell_ins=(),
-            sell_in_pct=Decimal(0),
+            costo_neto_usd=costo_inicio,
+            sell_ins=inicio.sell_ins,
+            sell_in_pct=pct_inicio,
             costo_neto_neto_usd=promedio,
             stock_antes=inicio.stock,
             stock_base=base_inicio,

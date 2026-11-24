@@ -105,16 +105,17 @@ def test_the_item_23_invoice_is_held_out_listed_and_logged(engine: Engine, caplo
         _recalcular(engine)
 
     assert _pasos(engine) == [
-        ("inicio", None, 0, D("13.53550"), D("13.53550")),
-        ("excluido", ct, 312, D("0.00971"), D("13.53550")),
+        # the start: list 13.5355 less the 10 % loyalty in force that day (L39/L40)
+        ("inicio", None, 0, D("13.53550"), D("12.18195")),
+        ("excluido", ct, 312, D("0.00971"), D("12.18195")),
     ]
     assert _revision(engine) == [
-        (ct, date(2026, 10, 27), 312, D("0.00971"), "USD", D("13.53550"), "costo_si", D("0.000717"), "pendiente", None)
+        (ct, date(2026, 10, 27), 312, D("0.00971"), "USD", D("12.18195"), "costo_si", D("0.000797"), "pendiente", None)
     ]
     mensajes = [r.getMessage() for r in caplog.records]
     assert mensajes == [
         f"costo SI: suspicious purchase held out of the average: item {ITEM} invoice {ct} date 2026-10-27 "
-        "price 0.00971 USD (invoice ARS 15.140000 at 1560.000000) reference 13.53550 (costo_si)"
+        "price 0.00971 USD (invoice ARS 15.140000 at 1560.000000) reference 12.18195 (costo_si)"
     ]
     assert w.encolados(engine) == []  # inserting the row does not requeue the product
 
@@ -217,13 +218,13 @@ def test_a_corrected_price_on_an_accepted_row_needs_a_new_review(
     with caplog.at_level(logging.WARNING, logger="app.services.costo_si.sospechas"):
         _recalcular(engine)
 
-    assert _pasos(engine)[1] == ("excluido", ct, 312, D("0.01050"), D("13.53550"))
+    assert _pasos(engine)[1] == ("excluido", ct, 312, D("0.01050"), D("12.18195"))
     assert _revision(engine) == [
-        (ct, date(2026, 10, 27), 312, D("0.01050"), "USD", D("13.53550"), "costo_si", D("0.000776"), "pendiente", None)
+        (ct, date(2026, 10, 27), 312, D("0.01050"), "USD", D("12.18195"), "costo_si", D("0.000862"), "pendiente", None)
     ]
     assert [r.getMessage() for r in caplog.records] == [
         f"costo SI: suspicious purchase changed, back to review: item {ITEM} invoice {ct} date 2026-10-27 "
-        "price 0.00971 -> 0.01050 USD reference 13.53550 (costo_si)"
+        "price 0.00971 -> 0.01050 USD reference 12.18195 (costo_si)"
     ]
 
 

@@ -46,7 +46,8 @@ from tests.services.sell._schema import throwaway_schema
 pytestmark = pytest.mark.postgres
 
 IVA, VARIOS, SUGERIDO = 21.0, 6.5, 5.0
-LISTA_ARS, COSTO_SI_ARS = 40_000.0, 25_000.0
+# costo SI: the 25 start less the 3.6 % loyalty in force on its day (L39/L40) = 24.10, at 1000
+LISTA_ARS, COSTO_SI_ARS = 40_000.0, 24_100.0
 
 
 @pytest.fixture(scope="module")
@@ -100,4 +101,5 @@ def test_the_drain_moves_the_cost_and_the_clasica_together(engine: Engine) -> No
     assert COSTO_SI_ARS * (1 + clasica / 100) == pytest.approx(LISTA_ARS * (1 + clasica_lista / 100), rel=1e-4)
     # so Sugerido drops only by varios x sugerido% x (list - costo SI), never by the whole sell in
     caida = (1 + VARIOS / 100) * SUGERIDO / 100 * (LISTA_ARS - COSTO_SI_ARS)
-    assert sugerido_antes - sugerido == pytest.approx(caida, rel=1e-3)
+    # (within the 2-decimal rounding of the stored clásica, which a non-round costo SI such as 24.10 exposes)
+    assert sugerido_antes - sugerido == pytest.approx(caida, rel=2e-3)
