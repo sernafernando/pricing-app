@@ -1,5 +1,6 @@
 """API: a sell-in cost bonus over a total split across its products (`POST/PUT /api/sell-in/bonos`, tactical monto
-total S4). SQLite test database, like `tests/routers/test_sell_in_bonos_costo.py`."""
+total S4). Postgres test database (`tests/routers/_pg_app`), like `tests/routers/test_sell_in_bonos_costo.py`: a cost
+bonus reads what costo SI took off its invoices, Postgres-only SQL."""
 
 from __future__ import annotations
 
@@ -8,6 +9,9 @@ import pytest
 
 from app.models.producto import ProductoERP, TipoMoneda
 from app.schemas.sell_in_bonos import SellInBonoOut
+from tests.routers._pg_app import engine  # noqa: F401 - the fixture, by name
+
+pytestmark = pytest.mark.postgres
 
 BASE = "/api/sell-in/bonos"
 

@@ -1,9 +1,10 @@
 """Router: a sell-in bonus over the sale's cost (`base='costo_venta'`), sell-in-sell-out T25d (S30, S33).
 
-Owner, 2026-10-29: "es para operaciones viejas que no tienen la factura cargada". A cost bonus is a % of the cost
-recorded on each sale (ARS, brand / category / models, no purchase or invoice); `incluye_iva` (S33) only exists on
-it. `base` never changes on an edit: the sales rows a cost bonus generated would count twice. Its generated amount
-and cap come from `sell_in_bono_consumos`, not from purchases. SQLite test database, like `test_sell_in_bonos.py`.
+Owner, 2026-10-29: "es para operaciones viejas que no tienen la factura cargada". A cost bonus is a % of the
+product's costo SI (brand / category / models, no purchase of its own); `incluye_iva` (S33) only exists on it.
+`base` never changes on an edit. Its generated amount and cap come from the costo SI purchase steps that carry it
+(sell-in-costo-si T5 PR B, owner L26 "recalculalo"), not from purchases. Postgres test database (`_pg_app`): that
+read is Postgres-only SQL.
 """
 
 from __future__ import annotations
@@ -14,12 +15,16 @@ from decimal import Decimal
 import pytest
 
 from app.models.auditoria import Auditoria, TipoAccion
+from app.models.costo_si import CostoSiFacturaTc, CostoSiPaso
 from app.models.producto import ProductoERP, TipoMoneda
-from app.models.sell_in import SellInBonoConsumo, SellInBonoMarca, SellInCompra, SellInCompraItem
+from app.models.sell_in import SellInBonoMarca, SellInCompra, SellInCompraItem
+from app.models.tipo_cambio import TipoCambio
+from tests.routers._pg_app import engine  # noqa: F401 - the fixture, by name
 from tests.services._aprobacion import cargas_aprobadas  # noqa: F401 - the fixture, by name
 
+# Postgres (`_pg_app`): a cost bonus reads what costo SI took off its invoices, Postgres-only SQL.
 # Written before tacticals approval: a load is approved right away (`_aprobacion.cargas_aprobadas`).
-pytestmark = pytest.mark.usefixtures("cargas_aprobadas")
+pytestmark = [pytest.mark.postgres, pytest.mark.usefixtures("cargas_aprobadas")]
 
 BASE = "/api/sell-in/bonos"
 
@@ -75,16 +80,26 @@ def _crear(client, headers, body: dict) -> dict:
     return resp.json()
 
 
-def _consumo(db, bono_id: int, venta_ref: int, unidades: int, descuento: str) -> None:
+def _paso(db, orden: int, fecha: date, cantidad: int, costo: str, sell_ins: list, tc: str | None = None) -> None:
+    """A costo SI purchase step of the USD product 4512: `cantidad` units at net `costo` USD, the sell ins it got.
+    `tc` is the invoice's own rate, a PM correction (`costo_si_factura_tc`), where costo SI and its caps read it."""
+    if tc is not None:
+        db.add(CostoSiFacturaTc(ct_transaction=1000 + orden, tipo_cambio=Decimal(tc)))
     db.add(
-        SellInBonoConsumo(
-            bono_id=bono_id,
-            canal="ml",
-            venta_ref=venta_ref,
+        CostoSiPaso(
             item_id=4512,
-            fecha_venta=date(2026, 3, 1),
-            unidades=unidades,
-            descuento_ars=Decimal(descuento),
+            orden=orden,
+            tipo="compra",
+            fecha=fecha,
+            ct_transaction=1000 + orden,
+            cantidad=cantidad,
+            costo_neto_usd=Decimal(costo),
+            sell_ins=[{"origen": o, "ref": r, "porcentaje": p} for o, r, p in sell_ins],
+            stock_antes=0,
+            stock_base=0,
+            stock_despues=cantidad,
+            tipo_cambio=None if tc is None else Decimal(tc),
+            moneda="USD",
         )
     )
     db.flush()
@@ -190,13 +205,26 @@ def test_incluye_iva_on_an_invoice_bonus_edit_is_422(client, gestor, productos):
     assert "iva" in _message(resp).lower()
 
 
-def test_a_cost_bonus_reports_what_its_sales_got_and_its_cap(client, gestor, productos, db):
-    data = _crear(client, gestor, _costo(tope_unidades=10, tope_monto="500.00"))
-    _consumo(db, data["id"], 1, 3, "120.50")
-    _consumo(db, data["id"], 2, 4, "200.25")
+def test_a_cost_bonus_reports_what_its_invoices_got_in_costo_si_and_its_cap(client, gestor, productos, db):
+    """L26: what a cost bonus generated is what costo SI took off the invoices of its period, in its currency."""
+    data = _crear(client, gestor, _costo(porcentaje="2", tope_unidades=10, tope_monto="8000.00"))
+    otro = _crear(client, gestor, _costo(porcentaje="5"))
+    # An ARS invoice: 3 x USD 40 x 2% = USD 2.40, at the invoice's own rate 1000 = ARS 2400.
+    _paso(db, 1, date(2026, 3, 1), 3, "40", [("bono", data["id"], "2.0000"), ("bono", otro["id"], "5.0000")], tc="1000")
+    # A USD invoice has no rate of its own: 4 x USD 50 x 2% = USD 4, at the last rate on or before its date (1100).
+    _paso(db, 2, date(2026, 4, 1), 4, "50", [("bono", data["id"], "2.0000")])
+    db.add_all(
+        [
+            TipoCambio(fecha=date(2026, 3, 31), moneda="USD", compra=1050, venta=1100),
+            TipoCambio(fecha=date(2026, 4, 2), moneda="USD", compra=9000, venta=9999),
+        ]
+    )
+    # A Compras sell in with the same number, and an invoice only the other bonus reached, never count.
+    _paso(db, 3, date(2026, 5, 1), 9, "50", [("compra", data["id"], "10.0000"), ("bono", otro["id"], "5.0000")])
+    db.flush()
 
     got = client.get(f"{BASE}/{data['id']}", headers=gestor).json()
-    listed = client.get(BASE, headers=gestor).json()["items"][0]
+    [listed] = [f for f in client.get(BASE, headers=gestor).json()["items"] if f["id"] == data["id"]]
 
     for fila in (got, listed):
         assert {
@@ -212,11 +240,78 @@ def test_a_cost_bonus_reports_what_its_sales_got_and_its_cap(client, gestor, pro
         } == {
             "compras_activas": 0,
             "unidades": 7,
-            "monto_generado": "320.75",
-            "montos_generados": [{"moneda": "ARS", "monto": "320.75"}],
+            "monto_generado": "6800.00",
+            "montos_generados": [{"moneda": "ARS", "monto": "6800.00"}],
             "tope_unidades_restantes": 3,
-            "tope_monto_restante": "179.25",
+            "tope_monto_restante": "1200.00",
         }
+
+
+def test_a_units_cap_that_ran_out_inside_an_invoice_counts_only_its_cap(client, gestor, productos, db):
+    """Costo SI cut the cap inside the second invoice (its % covers only what was left): units stop at the cap."""
+    data = _crear(client, gestor, _costo(porcentaje="1", tope_unidades=4))
+    _paso(db, 1, date(2026, 3, 1), 3, "40", [("bono", data["id"], "1.0000")], tc="1000")
+    # 1 unit of 4 was left: 1% on a quarter of the invoice.
+    _paso(db, 2, date(2026, 4, 1), 4, "50", [("bono", data["id"], "0.2500")], tc="1000")
+
+    got = client.get(f"{BASE}/{data['id']}", headers=gestor).json()
+
+    # ARS 1200 + 4 x USD 50 x 0.25% x 1000 = ARS 500.
+    assert (got["unidades"], got["monto_generado"], got["tope_unidades_restantes"]) == (4, "1700.00", 0)
+
+
+def test_a_usd_invoice_is_valued_at_the_rate_its_caps_used_so_the_cap_left_does_not_drift(
+    client, gestor, productos, db
+):
+    """Review (1): a USD invoice of a USD product keeps no rate on its step, but the bonus's ARS cap was used up at the
+    invoice's own rate (the PM correction, `aplicar_topes`), not at the day's rate."""
+    data = _crear(client, gestor, _costo(porcentaje="2", tope_monto="10000.00"))
+    db.add_all(
+        [
+            CostoSiFacturaTc(ct_transaction=1001, tipo_cambio=Decimal("1200")),
+            TipoCambio(fecha=date(2026, 3, 31), moneda="USD", compra=1050, venta=1100),
+        ]
+    )
+    # 4 x USD 50 x 2% = USD 4, at the invoice's own 1200 = ARS 4800 (at the day's 1100 it would be ARS 4400).
+    _paso(db, 1, date(2026, 4, 1), 4, "50", [("bono", data["id"], "2.0000")])
+
+    got = client.get(f"{BASE}/{data['id']}", headers=gestor).json()
+
+    assert (got["monto_generado"], got["tope_monto_restante"]) == ("4800.00", "5200.00")
+
+
+def test_a_money_cap_that_ran_out_inside_an_invoice_counts_only_the_units_it_covered(client, gestor, productos, db):
+    """Review (2): ARS 600 of the cap was left for an invoice worth ARS 4000 of bonus: 0.6 of its 4 units."""
+    data = _crear(client, gestor, _costo(porcentaje="2", tope_monto="3000.00"))
+    # 3 x USD 40 x 2% x 1000 = ARS 2400.
+    _paso(db, 1, date(2026, 3, 1), 3, "40", [("bono", data["id"], "2.0000")], tc="1000")
+    # ARS 600 = USD 0.60 of a USD 200 invoice: 0.3%.
+    _paso(db, 2, date(2026, 4, 1), 4, "50", [("bono", data["id"], "0.3000")], tc="1000")
+
+    got = client.get(f"{BASE}/{data['id']}", headers=gestor).json()
+
+    assert (got["unidades"], got["monto_generado"], got["tope_monto_restante"]) == (4, "3000.00", "0.00")
+
+
+def test_a_per_unit_cost_bonus_counts_the_units_its_capped_amount_covered(client, gestor, productos, db):
+    """An ARS 100 per unit bonus capped at ARS 200, on 3 units of USD 50 at 1000: 2 of them."""
+    data = _crear(client, gestor, _costo(tipo="por_unidad", porcentaje=None, monto_unit="100", tope_monto="200.00"))
+    # ARS 200 of an ARS 150000 invoice.
+    _paso(db, 1, date(2026, 3, 1), 3, "50", [("bono", data["id"], "0.1333")], tc="1000")
+
+    got = client.get(f"{BASE}/{data['id']}", headers=gestor).json()
+
+    assert (got["unidades"], got["monto_generado"]) == (2, "199.95")
+
+
+def test_a_cost_bonus_with_vat_counts_every_unit_of_an_uncapped_invoice(client, gestor, productos, db):
+    """2.42% with VAT is 2% net of the product's 21%: an invoice that got 2% got it on all its units."""
+    data = _crear(client, gestor, _costo(porcentaje="2.42", incluye_iva=True, tope_unidades=10))
+    _paso(db, 1, date(2026, 3, 1), 3, "40", [("bono", data["id"], "2.0000")], tc="1000")
+
+    got = client.get(f"{BASE}/{data['id']}", headers=gestor).json()
+
+    assert (got["unidades"], got["tope_unidades_restantes"]) == (3, 7)
 
 
 def test_an_invoice_bonus_response_is_unchanged(client, gestor, productos, admin_user, db):
@@ -240,8 +335,8 @@ def test_an_invoice_bonus_response_is_unchanged(client, gestor, productos, admin
         )
     )
     db.flush()
-    # A stray sales row never counts for an invoice bonus.
-    _consumo(db, data["id"], 1, 50, "999.00")
+    # A costo SI step never counts for an invoice bonus: its purchases do.
+    _paso(db, 1, date(2026, 10, 15), 50, "10", [("bono", data["id"], "50.0000")], tc="1000")
 
     got = client.get(f"{BASE}/{data['id']}", headers=gestor).json()
 

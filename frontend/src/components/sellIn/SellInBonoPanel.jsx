@@ -238,7 +238,7 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
             />
             {bono && costo && (
               <p className={styles.hint}>
-                <strong>{`${formatEntero(bono.unidades)} u vendidas · ${formatMonto(bono.monto_generado, bono.moneda)} aplicados en ventas`}</strong>
+                <strong>{`${formatEntero(bono.unidades)} u en facturas · ${formatMonto(bono.monto_generado, bono.moneda)} descontados del costo SI`}</strong>
               </p>
             )}
             {bono && !costo && (
@@ -268,8 +268,8 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
         {bono && costo && (
           <section className={styles.section}>
             <p className={styles.hint}>
-              Se aplica a las ventas de su alcance cuya fecha de venta cae en el rango, sobre el costo de cada venta: no genera compras, así que no hay
-              compras para listar. Lo aplicado y el tope salen de esas ventas.
+              Baja el costo SI de las facturas de compra de su alcance cuya fecha cae en el rango: no genera compras, así que no hay compras para
+              listar. Lo descontado y el tope salen de esas facturas.
             </p>
           </section>
         )}

@@ -163,11 +163,17 @@ describe('SellInBonoPanel — a stored cost bonus', () => {
     expect(sellInBonosAPI.editar.mock.calls[0][1]).not.toHaveProperty('base');
   });
 
-  it('shows what its sales generated and explains its scope instead of empty purchase groups', async () => {
+  // T5 PR B, L26: costo SI applies it to the invoices of its period; what it generated is read off them.
+  it('shows what costo SI took off its invoices and explains its scope instead of empty purchase groups', async () => {
     renderPanel();
-    expect(await screen.findByText('250 u vendidas · $ 125.000,00 aplicados en ventas')).toBeInTheDocument();
+    expect(await screen.findByText('250 u en facturas · $ 125.000,00 descontados del costo SI')).toBeInTheDocument();
+    expect(screen.queryByText(/vendidas|aplicados en ventas/)).not.toBeInTheDocument();
     expect(screen.queryByText(/compras ·/)).not.toBeInTheDocument();
-    expect(await screen.findByText(/Se aplica a las ventas de su alcance/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        'Baja el costo SI de las facturas de compra de su alcance cuya fecha cae en el rango: no genera compras, así que no hay compras para listar. Lo descontado y el tope salen de esas facturas.',
+      ),
+    ).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: /Compras alcanzadas/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: /Pendientes de factura/ })).not.toBeInTheDocument();
   });

@@ -6,8 +6,9 @@ their own create steps (same validation, audit rows and queueing), so allocation
 - sell out (productos | marca | categoria): one `SellOutCampana` over its own hidden group (`OffsetGrupo.oculto`)
   whose filter rows carry the line's scope. `tope_por_producto`: one campaign and group per product.
 - sell in over productos | marca | categoria: one cost bonus (`SellInBonoMarca`, `base = 'costo_venta'`, ARS), a %
-  or an amount per unit of each sale's cost by sale date, or a total split across the line's products by its
-  `reparto_criterio` (tactical monto total S4, `tipo = 'monto_total'`). `tope_por_producto`: one bonus per product.
+  or an amount per unit that costo SI takes off the purchase invoices of its period, or a total split across the
+  line's products by its `reparto_criterio` (tactical monto total S4, `tipo = 'monto_total'`).
+  `tope_por_producto`: one bonus per product.
 - sell in `factura` with % or per unit: one invoice bonus (`alcance = base = 'factura'`) on that operation.
 - sell in `factura` with a fixed total: one sell-in purchase (`SellInCompra`, monto, proporcional) over the invoice's
   invoiced lines.
@@ -28,8 +29,8 @@ running drain holds is `TacticalOcupado` (retry). Voiding a tactical voids every
 own void step, in one transaction.
 
 The read returns one line per child (T5: a per-product line is one line per product), each with what it used: a
-campaign's consumptions, a cost bonus's sales rows (ARS), what an invoice bonus generated, and the sales that
-consumed an invoice total (converted to its currency at its own rate).
+campaign's consumptions, what an invoice bonus generated, and what costo SI took off the purchase invoices for a cost
+bonus or an invoice total (`costo_si.generado`, in the line's own currency at each invoice's rate).
 """
 
 from __future__ import annotations
@@ -56,13 +57,11 @@ from app.models.pedido_compra import PedidoCompra
 from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP
 from app.models.sell_in import (
-    SellInBonoConsumo,
     SellInBonoItem,
     SellInBonoMarca,
     SellInCompra,
     SellInCompraItem,
     SellInCompraPedido,
-    SellInConsumo,
     SellInModoProducto,
 )
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo
@@ -81,7 +80,8 @@ from app.schemas.tacticals import (
     TacticalLineaTopesIn,
     TacticalTiendaIn,
 )
-from app.services.sell_in import aprobacion, bono_queue, bonos, bonos_costo, bonos_crud, compras, facturas_elegidas
+from app.services.costo_si import generado
+from app.services.sell_in import aprobacion, bono_queue, bonos, bonos_crud, compras, facturas_elegidas
 from app.services.sell_in.compras import contiene
 from app.services.sell_out import alcance as sell_out_alcance, campanas, tienda_scope
 
@@ -467,9 +467,9 @@ def _sell_in(db, tactical, data, linea, numero, parte, codigos, usuario_id, here
 
 def moneda_de_costo(moneda: str, modo_monto: str, tope_monto: Optional[Decimal]) -> str:
     """A cost bonus's currency (tactical sell in USD, owner: "vos elegís un tipo de moneda para el sell in y un tipo de
-    cambio"): a USD tactical's per-unit amount, or money cap, is USD (P2 = A: the cap counts USD), converted per sale by
-    `bonos_costo` at the tactical's rate type; a % without a money cap is a % of the ARS cost, the rate does not
-    matter; a total is ARS at the fixed rate (`_total_en_pesos`)."""
+    cambio"): a USD tactical's per-unit amount, or money cap, is USD (P2 = A: the cap counts USD); costo SI values what
+    it took off each purchase invoice at that invoice's rate (`costo_si.generado`, T5 PR B); a % without a money cap
+    is a % of the cost, the rate does not matter; a total is ARS at the fixed rate (`_total_en_pesos`)."""
     if moneda == "USD" and modo_monto != "monto_total" and (modo_monto == "por_unidad" or tope_monto is not None):
         return "USD"
     return "ARS"
@@ -481,7 +481,7 @@ def _fecha_de_factura(pedido: Any) -> date:
 
 
 def _total_en_pesos(linea, data, parte) -> Optional[Decimal]:
-    """A cost bonus's total is ARS (each sale's cost is in pesos): a USD line is converted at the tactical's fixed
+    """A cost bonus's total is stored in ARS: a USD line is converted at the tactical's fixed
     rate (`_sell_in` already refused USD without one) and the bonus stores the ARS total. An invoice total is a
     purchase in its own currency (`_total_de_factura`), not converted here."""
     if parte.pedido is not None or data.moneda != "USD":
@@ -1700,7 +1700,8 @@ def _usado_por_linea(ids: Select) -> Subquery:
     """One row per child of the tacticals in `ids` (a subquery of ids): `(tactical_id, moneda, monto, tope)`, `monto`
     being its `monto_usado` exactly as `serializar` computes it (`_lineas_campanas`, `_lineas_bonos` through
     `bonos_crud.serializar`, `_lineas_compras`), rounded to cents per child. A child that used nothing is a 0 row.
-    `estimado` is 1 when some of a USD cost bonus's amount is still an estimate (S10, `bonos_costo.fila_usd_estimada`).
+    A cost bonus and an invoice total used what costo SI took off their invoices (T5 PR B, L26, `costo_si.generado`).
+    `estimado` is always 0: each invoice's amount is at its own rate, nothing waits for the collection rate.
     `tope` is its money cap in that same currency (S6): its `tope_monto`, or the total of a Monto total child (the
     total is its cap; a cost bonus keeps it in ARS, converted at the tactical's fixed rate); NULL without one. A pending
     child applies nothing, so it is left out (tacticals approval S12)."""
@@ -1722,27 +1723,21 @@ def _usado_por_linea(ids: Select) -> Subquery:
         .where(SellOutCampana.tactical_id.in_(ids), SellOutCampana.estado != aprobacion.PENDIENTE)
         .group_by(SellOutCampana.id)
     )
-    # A cost bonus: what its sales got in the bonus's own currency, as `monto_generado`: ARS, or a USD bonus's USD.
+    # A cost bonus: what costo SI took off its invoices, in the bonus's own currency, as `monto_generado`.
     costo = SellInBonoMarca.base == BASE_COSTO_VENTA
+    de_bonos, de_compras = generado.de_tacticals(ids)
+    por_bono = generado.por_bono(de_bonos).subquery()
     bonos_costo_ = (
         select(
             SellInBonoMarca.tactical_id,
             SellInBonoMarca.moneda,
-            case(
-                (
-                    SellInBonoMarca.moneda == "USD",
-                    func.round(func.coalesce(func.sum(SellInBonoConsumo.monto_usd), cero), 2),
-                ),
-                else_=func.round(func.coalesce(func.sum(SellInBonoConsumo.descuento_ars), cero), 2),
-            ),
+            func.round(func.coalesce(por_bono.c.monto, cero), 2),
             tope(SellInBonoMarca),
-            # 1 while some of its USD is still an estimate (tactical sell in USD S10).
-            func.max(case((bonos_costo.fila_usd_estimada(), 1), else_=0)),
+            cero,
         )
         .select_from(SellInBonoMarca)
-        .outerjoin(SellInBonoConsumo, SellInBonoConsumo.bono_id == SellInBonoMarca.id)
+        .outerjoin(por_bono, por_bono.c.bono_id == SellInBonoMarca.id)
         .where(SellInBonoMarca.tactical_id.in_(ids), costo, SellInBonoMarca.estado != aprobacion.PENDIENTE)
-        .group_by(SellInBonoMarca.id)
     )
     # Any other bonus: its active purchases' assigned amounts in the bonus's own currency (another one is not added).
     bonos_compras = (
@@ -1766,33 +1761,30 @@ def _usado_por_linea(ids: Select) -> Subquery:
         .where(SellInBonoMarca.tactical_id.in_(ids), ~costo, SellInBonoMarca.estado != aprobacion.PENDIENTE)
         .group_by(SellInBonoMarca.id)
     )
-    # An invoice total: what its sales took (ARS), in a USD purchase's currency at its own rate.
-    ars = func.coalesce(func.sum(SellInConsumo.descuento_ars), cero)
-    en_usd = and_(SellInCompra.moneda == "USD", SellInCompra.tipo_cambio.isnot(None))
+    # An invoice total: what costo SI took off its invoices, in the purchase's own currency.
+    por_compra = generado.por_compra(de_compras).subquery()
     compras_ = (
         select(
             SellInCompra.tactical_id,
             SellInCompra.moneda,
-            func.round(case((en_usd, ars / SellInCompra.tipo_cambio), else_=ars), 2),
+            func.round(func.coalesce(por_compra.c.monto, cero), 2),
             SellInCompra.monto_total,  # an invoice total: in the purchase's own currency, its own cap
             cero,
         )
         .select_from(SellInCompra)
-        .outerjoin(SellInCompraItem, SellInCompraItem.compra_id == SellInCompra.id)
-        .outerjoin(SellInConsumo, SellInConsumo.compra_item_id == SellInCompraItem.id)
+        .outerjoin(por_compra, por_compra.c.compra_id == SellInCompra.id)
         .where(SellInCompra.tactical_id.in_(ids), SellInCompra.estado != aprobacion.PENDIENTE)
-        .group_by(SellInCompra.id)
     )
     return union_all(campanas_, bonos_costo_, bonos_compras, compras_).subquery()
 
 
 def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
     """Pendientes and Cobrados over every tactical the other filters match (S4): how many, and the money they used
-    per currency, the sum of their lines' `monto_usado` exactly as the list's Avance column shows it (a USD
-    tactical's cost-reduction lines count in ARS), next to the sum of their money caps in that currency (S6, None
+    per currency, the sum of their lines' `monto_usado` exactly as the list's Avance column shows it (each line in
+    its own currency), next to the sum of their money caps in that currency (S6, None
     when no line there has one; `tope_parcial` when only some lines there have one), and how many have no money cap
-    on any line. Three SQL aggregates, whatever the
-    number of tacticals. ARS first, then USD; a currency with no line is left out."""
+    on any line. Three SQL aggregates and one query that logs the costo SI steps with no cost, whatever the number of
+    tacticals. ARS first, then USD; a currency with no line is left out."""
     cobrado = exists().where(TacticalCobranza.tactical_id == Tactical.id)
     base = (
         _consulta(db, filtros, hoy or date.today())
@@ -1805,6 +1797,8 @@ def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
     )
     cantidades = {bool(c): int(n) for c, n in db.query(base.c.cobrado, func.count()).group_by(base.c.cobrado)}
     lineas = _usado_por_linea(select(base.c.id))
+    # A costo SI step with no cost is left out of the sums below (§7): logged with its item and date.
+    generado.avisar_sin_costo(db, select(base.c.id))
     montos: dict[bool, dict[str, dict]] = defaultdict(dict)
     for c, moneda, monto, tope, con_tope_, lineas_, estimado in (
         db.query(
@@ -1825,7 +1819,7 @@ def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
             "tope": None if tope is None else _cents(tope),
             # The cap covers only some of the lines `monto` sums: comparing them would read "900 of 500".
             "tope_parcial": 0 < con_tope_ < lineas_,
-            # Some line here is still an estimate (tactical sell in USD S10): the list marks the amount.
+            # Kept for the client: always False since costo SI values each invoice at its own rate (T5 PR B, L26).
             "estimado": bool(estimado),
         }
     con_tope = (
@@ -2164,20 +2158,11 @@ def _lineas_compras(db: Session, ids: list[int]) -> list[dict]:
         .join(PedidoCompra, PedidoCompra.id == SellInCompraPedido.pedido_compra_id)
         .filter(SellInCompraPedido.compra_id.in_(cids))
     }
-    usado = {
-        cid: (int(u), Decimal(str(m or 0)))
-        for cid, u, m in db.query(
-            SellInCompraItem.compra_id, func.sum(SellInConsumo.unidades), func.sum(SellInConsumo.descuento_ars)
-        )
-        .join(SellInConsumo, SellInConsumo.compra_item_id == SellInCompraItem.id)
-        .filter(SellInCompraItem.compra_id.in_(cids))
-        .group_by(SellInCompraItem.compra_id)
-    }
+    # What costo SI took off its invoices, in the purchase's own currency (T5 PR B, L26).
+    usado = generado.de_compras(db, cids)
     salida = []
     for c in compras_:
-        unidades, ars = usado.get(c.id, (0, Decimal(0)))
-        # What the sales took is ARS; shown in the purchase's currency at its own rate (a USD purchase carries one).
-        monto = ars / Decimal(c.tipo_cambio) if c.moneda == "USD" and c.tipo_cambio else ars
+        unidades, monto = usado.get(c.id, (0, Decimal(0)))
         pedido_id, numero = pedidos.get(c.id, (None, None))
         salida.append(
             {
@@ -2268,21 +2253,6 @@ def _con_facturas_elegidas(db: Session, lineas: list[dict]) -> None:
         )
 
 
-def _bonos_estimados(db: Session, ids: list[int]) -> set[int]:
-    """The cost bonuses of the tacticals in `ids` whose used USD is still an estimate (tactical sell in USD S10, option
-    C "y marcar los montos como estimados en pantalla"): one query, none without tacticals."""
-    if not ids:
-        return set()
-    return set(
-        db.execute(
-            select(SellInBonoConsumo.bono_id)
-            .join(SellInBonoMarca, SellInBonoMarca.id == SellInBonoConsumo.bono_id)
-            .where(SellInBonoMarca.tactical_id.in_(ids), bonos_costo.fila_usd_estimada())
-            .distinct()
-        ).scalars()
-    )
-
-
 def con_aprobadores(db: Session, salida: list[dict]) -> list[dict]:
     """`serializar`'s tacticals with the approver's name (`aprobado_por_nombre`, S8: "Aprobado por X el ..."), for the
     API: one query, only when some was approved."""
@@ -2312,9 +2282,9 @@ def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
     por_linea: dict[tuple[int, int], int] = defaultdict(int)
     for linea in lineas:
         por_linea[(linea["tactical_id"], linea["linea"])] += 1
-    estimados = _bonos_estimados(db, ids)
     for linea in lineas:
-        linea["monto_estimado"] = linea["origen"] == "sell_in_bono" and linea["id"] in estimados
+        # Read off each invoice at its own rate (T5 PR B, L26): nothing is an estimate any more.
+        linea["monto_estimado"] = False
     _con_facturas_elegidas(db, lineas)
     de_tactical: dict[int, list[dict]] = defaultdict(list)
     for linea in sorted(lineas, key=lambda x: (x["linea"], x["id"])):

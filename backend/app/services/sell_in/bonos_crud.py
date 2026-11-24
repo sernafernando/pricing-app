@@ -20,10 +20,10 @@ updates or voids what it generates. The detail reports what it generated so
 far (active purchases, their units and amount).
 
 A bonus's `base` (T25d) is set on create and never changes: a cost bonus
-('costo_venta', a % of each sale's cost or an amount per unit, ARS, brand/category/models) turned
+('costo_venta', a % of the product's costo SI or an amount per unit, brand/category/models) turned
 into an invoice bonus would keep the sales rows it generated
 (`sell_in_bono_consumos`) and count them twice. What a cost bonus generated, and
-its cap, come from those sales rows; `incluye_iva` exists only on it.
+its cap, come from the costo SI purchase steps that carry it (T5 PR B, L26); `incluye_iva` exists only on it.
 
 A cost bonus may be a total split across its products (tactical monto total S4, `tipo = 'monto_total'`): an ARS
 total > 0 ("Negative total is rejected for sell in", `descuento_ars >= 0` stays), its `reparto_criterio`, no cap, no
@@ -48,7 +48,6 @@ from app.models.auditoria import Auditoria, TipoAccion
 from app.models.pedido_compra import PedidoCompra
 from app.models.producto import ProductoERP
 from app.models.sell_in import (
-    SellInBonoConsumo,
     SellInBonoItem,
     SellInBonoMarca,
     SellInBonoReparto,
@@ -58,6 +57,7 @@ from app.models.sell_in import (
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, BASE_FACTURA, SellInBonoIn, SellInBonoModeloIn
 from app.services.combos.componentes import componentes_de
 from app.services.combos.pcs import sin_pcs
+from app.services.costo_si import generado
 from app.services.sell_in import aprobacion, bono_queue
 from app.services.sell_in.bonos_alcance import alcanza_marcas, del_alcance
 from app.services.sell_in.compras import contiene
@@ -179,10 +179,10 @@ def _validar_alcance(db: Session, data: SellInBonoIn) -> tuple[Optional[str], Op
 
 
 def _validar_base(data: SellInBonoIn, base: str, incluye_iva: bool, de_tactical: bool = False) -> None:
-    """A cost bonus is a % of the sale's cost, or an amount per unit (tacticals T1), over a brand, category or models
-    (the DB CHECK `ck_sell_in_bonos_marca_costo_venta`), in ARS, or in USD when it is a tactical's line that is not a
-    total (tactical sell in USD: `bonos_costo` converts each sale at the tactical's rate type); only it may take its
-    value with VAT included (S33)."""
+    """A cost bonus is a % of the product's costo SI, or an amount per unit (tacticals T1), over a brand, category or
+    models (the DB CHECK `ck_sell_in_bonos_marca_costo_venta`), in ARS, or in USD when it is a tactical's line that is
+    not a total (tactical sell in USD: costo SI values each purchase invoice at its own rate, `costo_si.generado`); only
+    it may take its value with VAT included (S33)."""
     if base == BASE_COSTO_VENTA:
         if data.moneda != "ARS" and not (de_tactical and data.moneda == "USD" and data.tipo != MONTO_TOTAL):
             raise SellInBonoError("Un bono sobre el costo va en pesos (ARS)")
@@ -657,8 +657,8 @@ def listar_bonos(
 ) -> tuple[list[SellInBonoMarca], int]:
     """One page of bonuses, newest first.
 
-    The period keeps a bonus whose `fecha_desde`..`fecha_hasta` (invoice dates; sale dates on a 'costo_venta'
-    bonus) overlaps it, bounds included; one bound alone keeps those that reach past it. `marcas` keeps the
+    The period keeps a bonus whose `fecha_desde`..`fecha_hasta` (purchase invoice dates, a 'costo_venta'
+    bonus too) overlaps it, bounds included; one bound alone keeps those that reach past it. `marcas` keeps the
     bonuses whose scope reaches a product of those brands, whatever the scope (`bonos_alcance.alcanza_marcas`);
     the exact `marca` stays the bonus's own brand."""
     query = db.query(SellInBonoMarca)
@@ -684,7 +684,8 @@ def listar_bonos(
 
 def serializar(db: Session, bonos: list[SellInBonoMarca]) -> list[dict]:
     """Bonuses with their models (code and description), operation number and what they generated (active
-    purchases, units, amount per currency; a cost bonus's from its sales rows): at most 6 queries per page."""
+    purchases, units, amount per currency; a cost bonus's from what costo SI took off its invoices,
+    `costo_si.generado`): at most 6 queries per page."""
     if not bonos:
         return []
     ids = [b.id for b in bonos]
@@ -710,28 +711,17 @@ def serializar(db: Session, bonos: list[SellInBonoMarca]) -> list[dict]:
     ):
         unidades[bono_id] = unidades.get(bono_id, 0) + int(cantidad)
         montos.setdefault(bono_id, {})[moneda] = Decimal(str(monto)).quantize(Decimal("0.01"))
-    # A cost bonus generates no purchase: what its sales got (ARS), one query when the page has any.
-    # Set explicitly: none of its purchase numbers count, and without sales rows it generated nothing.
-    costo_ids = [b.id for b in bonos if b.base == BASE_COSTO_VENTA]
-    for bono_id in costo_ids:
+    # A cost bonus generates no purchase: what costo SI took off the invoices of its period, in its own currency
+    # (T5 PR B, L26), one query when the page has any. Set explicitly: none of its purchase numbers count, and an
+    # invoice no step got generated nothing.
+    costo = {b.id: b for b in bonos if b.base == BASE_COSTO_VENTA}
+    for bono_id in costo:
         compras[bono_id] = 0
         unidades[bono_id] = 0
         montos[bono_id] = {}
-    if costo_ids:
-        for bono_id, cantidad, monto, usd in (
-            db.query(
-                SellInBonoConsumo.bono_id,
-                func.coalesce(func.sum(SellInBonoConsumo.unidades), 0),
-                func.coalesce(func.sum(SellInBonoConsumo.descuento_ars), 0),
-                func.sum(SellInBonoConsumo.monto_usd),
-            )
-            .filter(SellInBonoConsumo.bono_id.in_(costo_ids))
-            .group_by(SellInBonoConsumo.bono_id)
-        ):
-            unidades[bono_id] = int(cantidad)
-            montos[bono_id] = {"ARS": Decimal(str(monto)).quantize(Decimal("0.01"))}
-            if usd is not None:  # a USD bonus (tactical sell in USD): its USD, what its cap counts, and the ARS
-                montos[bono_id]["USD"] = Decimal(str(usd)).quantize(Decimal("0.01"))
+    for bono_id, (cantidad, monto) in generado.de_bonos(db, costo).items():
+        unidades[bono_id] = cantidad
+        montos[bono_id] = {costo[bono_id].moneda: monto.quantize(Decimal("0.01"))}
     modelos = _modelos(db, ids)
     repartos = _repartos_de(db, [b.id for b in bonos if b.tipo == MONTO_TOTAL])
     productos = {

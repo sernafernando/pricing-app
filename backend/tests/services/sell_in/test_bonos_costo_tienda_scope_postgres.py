@@ -15,6 +15,7 @@ import pytest
 from sqlalchemy import Engine, event, text
 from sqlalchemy.orm import sessionmaker
 
+from app.models.costo_si import CostoSiFacturaTc
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.tactical import TacticalTienda
 from app.models.sell_in import SellInBonoMarca
@@ -33,7 +34,8 @@ GAUSS, TPLINK = 57997, 2645
 def engine() -> Iterator[Engine]:
     with throwaway_schema(
         "sell_in_bono_tienda",
-        [*b.TABLES, MlTiendaOficial.__table__, TacticalTienda.__table__],
+        # An invoice's own rate, first in the one the used amount is valued at (`sql_tc_factura`).
+        [*b.TABLES, MlTiendaOficial.__table__, TacticalTienda.__table__, CostoSiFacturaTc.__table__],
         b.STUBS,
         after=_install,
     ) as engine:
@@ -196,7 +198,8 @@ class TestSellInIgnoresStores:
         assert _filas(engine) == [(bono, "ml", gauss, 1, Decimal("10.00"))]
         with sessionmaker(bind=engine, autoflush=False)() as db:
             [fila] = bonos_crud.serializar(db, [db.get(SellInBonoMarca, bono)])
-        assert fila["tope_unidades_restantes"] == 0
+        # The cap left counts costo SI invoice steps (costo SI T5 PR B), never sales: no invoice here, cap untouched.
+        assert fila["tope_unidades_restantes"] == 1
         assert "tope_por_tienda" not in fila
 
 
