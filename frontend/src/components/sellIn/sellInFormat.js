@@ -70,3 +70,12 @@ export function apiMessage(err, fallback) {
   const message = data?.error?.message ?? data?.detail;
   return typeof message === 'string' && message ? message : fallback;
 }
+
+const RATIO = new Intl.NumberFormat('es-AR', { maximumSignificantDigits: 2 });
+
+/** "0,00072×" reads badly: below 1 it is "1/1.394 de la referencia", above it "12× la referencia". */
+export function ratioLabel(ratio) {
+  const r = Number(ratio);
+  if (!(r > 0)) return '—';
+  return r < 1 ? `1/${formatEntero(Math.round(1 / r))} de la referencia` : `${RATIO.format(r)}× la referencia`;
+}

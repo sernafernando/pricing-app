@@ -18,6 +18,7 @@ from app.models.combo_componente import ComboComponente
 from app.models.commercial_transaction import CommercialTransaction
 from app.models.costo_si import (
     CostoSiBackup,
+    CostoSiCompraSospechosa,
     CostoSiDirty,
     CostoSiFacturaTc,
     CostoSiPaso,
@@ -39,11 +40,11 @@ from app.models.tactical import Tactical
 from app.models.tb_item import TBItem
 from app.models.cur_exch_history import CurExchHistory
 from app.models.tipo_cambio import TipoCambio
-from app.services.costo_si import queue
+from app.services.costo_si import queue, sospechas
 from tests.services.sell._schema import throwaway_schema
 
 STUBS = [
-    "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
+    "CREATE TABLE usuarios (id INTEGER PRIMARY KEY, nombre TEXT)",
     "INSERT INTO usuarios VALUES (7)",
     "CREATE TABLE proveedores (id INTEGER PRIMARY KEY, nombre TEXT)",
     "CREATE TABLE pedidos_compra (id BIGINT PRIMARY KEY, tipo_cambio NUMERIC(18, 6), tipo_cambio_manual NUMERIC(18, 6))",
@@ -94,6 +95,7 @@ TABLES = [
     CostoSiDirty.__table__,
     CostoSiStockDiario.__table__,
     CostoSiFacturaTc.__table__,
+    CostoSiCompraSospechosa.__table__,
     # What follows a recompute (`costo_si.despues`): the ML sale costs it re-freezes (T3 PR 7).
     PublicacionML.__table__,
     ItemCostList.__table__,
@@ -108,7 +110,7 @@ _ids = itertools.count(500_000)
 
 def install(engine: Engine) -> None:
     with engine.begin() as conn:
-        for statement in queue.UPGRADE_SQL:
+        for statement in queue.UPGRADE_SQL + sospechas.UPGRADE_SQL:
             conn.execute(text(statement))
 
 
@@ -149,6 +151,7 @@ def clean(engine: Engine) -> None:
             "costo_si_backups",
             "costo_si_stock_diario",
             "costo_si_factura_tc",
+            "costo_si_compras_sospechosas",
             "ml_order_item_costos",
             "ml_order_item_costos_backups",
             "ml_costo_si_dirty",

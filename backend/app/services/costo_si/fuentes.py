@@ -32,7 +32,7 @@ from bisect import bisect_right
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, FrozenSet, List, Optional, Sequence, Tuple
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import bindparam, text
@@ -43,6 +43,7 @@ from sqlalchemy.types import BigInteger
 from app.services.combos.pcs import pcs_entre
 from app.services.pricing_calculator import moneda_de
 from app.services.costo_si import full_ml
+from app.services.costo_si import sospechas
 from app.services.costo_si.engine import Compra, Inicio, Lista, SellIn
 
 logger = logging.getLogger(__name__)
@@ -615,6 +616,7 @@ class Entrada:
     compras: List[Compra]
     moneda: str = "USD"  # the product's cost currency every amount is in (L18)
     listas: List[Lista] = field(default_factory=list)  # list-cost re-anchors, no-sell-in products only (L23)
+    aceptadas: FrozenSet[int] = frozenset()  # suspicious purchases a reviewer let in (L29), by invoice
 
 
 def entrada(db: Session, item_id: int) -> Optional[Entrada]:
@@ -670,10 +672,14 @@ def entrada(db: Session, item_id: int) -> Optional[Entrada]:
                 tipo_cambio=tc,
                 fuente_tc=fuente,
                 en_compras=bool(f.pedidos),
+                # L29: the reference when there is no average yet, only needed while the start has no cost.
+                referencia_lista=costo_lista(db, item_id, f.fecha, moneda) if inicio.costo_usd is None else None,
+                precio_factura=f.precio,
+                moneda_factura=MONEDAS[f.curr_id],
             )
         )
     listas = cambios_de_lista(db, item_id, inicio, moneda) if primera is None else []
-    return Entrada(inicio, compras, moneda, listas)
+    return Entrada(inicio, compras, moneda, listas, sospechas.aceptadas(db, item_id, compras))
 
 
 def _stock_antes(db: Session, item_id: int, f: Factura, antes: Sequence[Factura], despues: Sequence[Factura]) -> int:

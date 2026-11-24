@@ -120,6 +120,30 @@ Permisos: **Ponderado (PPP)** necesita `sell_in.costo_ponderado`, **Último prec
 
 **Modo por defecto**: **Cambiar a** abre ya elegido el modo por defecto. Si nadie lo cambió, es **FIFO**. Un administrador lo cambia con **Cambiar**, al lado de **Modo por defecto** en la barra de la pestaña **Productos**, o con el botón **Modo por defecto** de esta sección: elige **FIFO**, **Ponderado (PPP)** o **Último precio** en **Abrir en** (**Manual** no, porque necesita la cantidad y el costo de cada producto) y toca **Guardar**. El cambio vale para todos los productos. Solo elige con qué modo abre el selector: no recalcula nada, y los productos sin modo propio siguen en FIFO. Si el usuario no tiene permiso para el modo por defecto, el selector abre en **FIFO**.
 
+### Compras a revisar
+
+La pestaña **Compras a revisar** lista las compras cuyo precio por unidad parece un error de carga y por eso quedaron **fuera del costo SI**. Una compra queda fuera cuando su precio neto, en la moneda del costo del producto, es menor a 1/10 o mayor a 10 veces la referencia. La referencia es el costo SI del producto justo antes de esa factura, o su costo de lista si todavía no tiene costo SI. El número al lado del nombre de la pestaña cuenta las compras pendientes.
+
+Cada fila muestra:
+
+- el producto y la factura, con su fecha y cantidad;
+- el precio por unidad tal como figura en la factura (por ejemplo, ARS 15,14) y, debajo, convertido a la moneda del costo con el tipo de cambio de la factura (USD 0,00971 a TC 1.560);
+- la referencia (**costo SI** o **costo de lista**) y, debajo, cuánto se aparta el precio de ella, por ejemplo "1/1.395 de la referencia";
+- el **Estado**: **Pendiente**, **Excluida** o **Aceptada**, con quién la revisó y cuándo.
+
+Con **Estado**, arriba de la tabla, se elige qué compras ver: **Pendientes** (por defecto), **Excluidas**, **Aceptadas** o **Todas**.
+
+Mientras una compra está pendiente o excluida, el costo SI sigue con el promedio de antes, como si esa factura no existiera para el costo (el stock sí la cuenta). Para decidir:
+
+- **Aceptar**: el precio es real. La compra entra al promedio y se recalcula la historia del producto desde esa factura, con sus ventas y markups.
+- **Mantener excluida**: el precio es un error. La compra sigue fuera del promedio.
+
+Las dos piden confirmar y aceptan una nota opcional. Se puede cambiar de opinión después: una compra aceptada ofrece **Mantener excluida**, y una excluida ofrece **Aceptar**.
+
+Si la factura se corrige en el sistema de gestión, el costo SI la vuelve a evaluar solo en el próximo recálculo. Si el precio nuevo es normal, sale de la lista y entra al promedio. Si sigue fuera de rango, vuelve a **Pendiente** para una nueva revisión.
+
+Permisos: ver la pestaña pide `sell_in.ver`. Aceptar o mantener excluida pide además `costo_si.revisar`; sin ese permiso, la lista se ve sin los botones.
+
 ### Campañas de sell out: tipos
 
 Al crear o editar una campaña se elige el **Tipo**:
@@ -251,3 +275,9 @@ Lo que generaron las líneas de esos tacticals, por moneda: el mismo monto de la
 
 **¿Un tactical anulado puede marcarse cobrado?**
 Sí: la marca pudo haber pagado lo que se generó antes de anularlo. Con **Estado** en Anulados ves sus Pendientes y Cobrados.
+
+**¿Por qué una compra no entró al costo SI?**
+Su precio por unidad era menor a 1/10 o mayor a 10 veces el costo SI de ese momento, así que quedó en **Compras a revisar**. Si el precio es real, alguien con `costo_si.revisar` la acepta y entra al promedio.
+
+**Acepté una compra y me apareció otra en Compras a revisar. ¿Por qué?**
+Si la compra aceptada tenía un precio muy bajo, el costo SI baja mucho. Entonces la próxima compra, a precio normal, queda más de 10 veces por encima del costo nuevo y también va a revisión.

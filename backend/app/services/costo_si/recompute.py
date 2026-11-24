@@ -18,7 +18,7 @@ from typing import Any, List, Optional, Sequence
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.services.costo_si import fuentes
+from app.services.costo_si import fuentes, sospechas
 from app.services.costo_si.engine import Paso, calcular
 
 LOCK_CLASS = 2026_1125  # pg_advisory_xact_lock(class, item_id): one recompute per product at a time
@@ -134,8 +134,13 @@ def guardar(db: Session, item_id: int, pasos: Sequence[Paso], motivo: str, moned
 
 def recalcular(db: Session, item_id: int, *, motivo: str = "recalculo") -> Resultado:
     """Recompute `item_id` from its start (its first sell-in date, or 2026-11-01 without one: L21) and store it. Reads only the app's own data (Full included:
-    `full_ml`). Does not commit."""
+    `full_ml`). Keeps the suspicious-purchase review list in step (L29, `sospechas.reconciliar`). Does not commit."""
     entrada = fuentes.entrada(db, item_id)
     if entrada is None:
-        return guardar(db, item_id, [], motivo)
-    return guardar(db, item_id, calcular(entrada.inicio, entrada.compras, entrada.listas), motivo, entrada.moneda)
+        resultado = guardar(db, item_id, [], motivo)
+        sospechas.reconciliar(db, item_id, [], "USD")  # a combo or a PC has no purchases of its own to review
+        return resultado
+    pasos = calcular(entrada.inicio, entrada.compras, entrada.listas, entrada.aceptadas)
+    resultado = guardar(db, item_id, pasos, motivo, entrada.moneda)
+    sospechas.reconciliar(db, item_id, pasos, entrada.moneda)  # after the lock `guardar` takes
+    return resultado
