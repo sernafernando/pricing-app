@@ -12,21 +12,37 @@ from the stored purchase steps (`costo_si_pasos`, type `compra`): each step list
   (`fuentes.sql_tc_factura`: the PM's correction, the Compras operation's TC, the last rate on or before its date), so
   what is left of a money cap never drifts from what costo SI used up. A step with no rate at all adds no amount,
   never a 0 taken as real (§7).
+- A step whose cost is unknown has no amount either: NULL, left out of every sum, never a 0 (§7). Each one is logged
+  with its item and date, so the gap can be found.
 - Units: a Compras sell in, the step's units. A brand bonus, the units its amount covered: the step's units x the %
   it got / the % it would get uncapped (its own or its model's %, or its amount per unit over the unit price; net of
   the product's VAT when it includes it; never over the purchase itself), so a cap (units or money) that ran out
   inside an invoice counts only the units it covered, and never more than its `tope_unidades`.
 
-Both dialects: Postgres expands the JSONB list with `jsonb_array_elements`, SQLite (the router tests) with
-`json_each`.
+Postgres only: the JSONB list is expanded with `jsonb_array_elements`.
 """
 
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from typing import Iterable
 
-from sqlalchemy import Integer, Numeric, Select, and_, case, cast, func, literal, literal_column, select, true
+from sqlalchemy import (
+    Integer,
+    Numeric,
+    Select,
+    and_,
+    case,
+    cast,
+    distinct,
+    func,
+    literal,
+    literal_column,
+    or_,
+    select,
+    true,
+)
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -35,35 +51,33 @@ from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoItem, SellInBonoMarca, SellInCompra
 from app.services.costo_si.fuentes import sql_tc_factura
 
+logger = logging.getLogger(__name__)
+
 BONO = "bono"
 COMPRA = "compra"
 
 
-def _sell_ins(dialect: str):
-    """One row per (purchase step, sell in it got): `origen`, `ref`, `item_id`, `unidades`, `porcentaje`, `precio` and
-    `monto` (in the step's currency), `moneda` (the step's), `tc` (ARS per USD to change it)."""
+def _sell_ins():
+    """One row per (purchase step, sell in it got): `origen`, `ref`, `item_id`, `fecha`, `unidades`, `porcentaje`,
+    `precio` and `monto` (in the step's currency; NULL when its cost is unknown), `moneda` (the step's), `tc` (ARS per
+    USD to change it)."""
     p = CostoSiPaso
-    if dialect == "postgresql":
-        s = func.jsonb_array_elements(p.sell_ins).table_valued("value").alias("s")
+    s = func.jsonb_array_elements(p.sell_ins).table_valued("value").alias("s")
 
-        def campo(clave: str) -> ColumnElement:
-            return s.c.value.op("->>")(clave)
-
-    else:
-        s = func.json_each(p.sell_ins).table_valued("value").alias("s")
-
-        def campo(clave: str) -> ColumnElement:
-            return func.json_extract(s.c.value, f"$.{clave}")
+    def campo(clave: str) -> ColumnElement:
+        return s.c.value.op("->>")(clave)
 
     tabla = p.__tablename__
     tasa = literal_column(sql_tc_factura(f"{tabla}.ct_transaction", f"{tabla}.fecha"))
     porcentaje = cast(campo("porcentaje"), Numeric(9, 4))
-    precio = func.coalesce(p.costo_neto_usd, literal(0))
+    # An unknown cost stays NULL, so the step's amount is left out of every sum (§7).
+    precio = p.costo_neto_usd
     return (
         select(
             campo("origen").label("origen"),
             cast(campo("ref"), Integer).label("ref"),
             p.item_id.label("item_id"),
+            p.fecha.label("fecha"),
             p.cantidad.label("unidades"),
             porcentaje.label("porcentaje"),
             precio.label("precio"),
@@ -109,13 +123,22 @@ def _unidades_de_bono(filas) -> ColumnElement:
     return case((entero > 0, func.round(filas.c.unidades * filas.c.porcentaje / entero)), else_=filas.c.unidades)
 
 
-def _dialecto(db: Session) -> str:
-    return db.get_bind().dialect.name
+def _sin_costo(filas) -> ColumnElement:
+    """The steps with no cost among the grouped rows, as 'item N on YYYY-MM-DD' (a NULL entry stands for the rest)."""
+    return func.array_agg(
+        distinct(case((filas.c.precio.is_(None), func.concat("item ", filas.c.item_id, " on ", filas.c.fecha))))
+    ).label("sin_costo")
 
 
-def por_bono(dialect: str) -> Select:
-    """`(bono_id, unidades, monto)` per brand bonus some step got, the amount in the bonus's currency (unrounded)."""
-    filas = _sell_ins(dialect)
+def _avisar(origen: str, ref: int, pasos) -> None:
+    for paso in sorted(p for p in pasos or () if p):
+        logger.warning("costo SI: %s %s got a step with no cost (%s); its amount is left out", origen, ref, paso)
+
+
+def por_bono() -> Select:
+    """`(bono_id, unidades, monto, sin_costo)` per brand bonus some step got, the amount in the bonus's currency
+    (unrounded)."""
+    filas = _sell_ins()
     unidades = func.sum(_unidades_de_bono(filas))
     tope = SellInBonoMarca.tope_unidades
     return (
@@ -123,6 +146,7 @@ def por_bono(dialect: str) -> Select:
             SellInBonoMarca.id.label("bono_id"),
             case((and_(tope.isnot(None), unidades > tope), tope), else_=unidades).label("unidades"),
             func.sum(_en(filas, SellInBonoMarca.moneda)).label("monto"),
+            _sin_costo(filas),
         )
         .join(filas, and_(filas.c.origen == BONO, filas.c.ref == SellInBonoMarca.id))
         .outerjoin(
@@ -134,35 +158,60 @@ def por_bono(dialect: str) -> Select:
     )
 
 
-def por_compra(dialect: str) -> Select:
-    """`(compra_id, unidades, monto)` per Compras sell in some step got, the amount in the purchase's currency."""
-    filas = _sell_ins(dialect)
+def por_compra() -> Select:
+    """`(compra_id, unidades, monto, sin_costo)` per Compras sell in some step got, the amount in the purchase's
+    currency."""
+    filas = _sell_ins()
     return (
         select(
             SellInCompra.id.label("compra_id"),
             func.sum(filas.c.unidades).label("unidades"),
             func.sum(_en(filas, SellInCompra.moneda)).label("monto"),
+            _sin_costo(filas),
         )
         .join(filas, and_(filas.c.origen == COMPRA, filas.c.ref == SellInCompra.id))
         .group_by(SellInCompra.id)
     )
 
 
-def _leer(db: Session, consulta: Select, columna, ids: Iterable[int]) -> dict[int, tuple[int, Decimal]]:
+def _leer(db: Session, consulta: Select, columna, ids: Iterable[int], origen: str) -> dict[int, tuple[int, Decimal]]:
     ids = list(ids)
     if not ids:
         return {}
-    return {
-        ref: (int(unidades or 0), Decimal(str(monto or 0)))
-        for ref, unidades, monto in db.execute(consulta.where(columna.in_(ids)))
-    }
+    salida = {}
+    for ref, unidades, monto, sin_costo in db.execute(consulta.where(columna.in_(ids))):
+        _avisar(origen, ref, sin_costo)
+        salida[ref] = (int(unidades or 0), Decimal(str(monto or 0)))
+    return salida
 
 
 def de_bonos(db: Session, ids: Iterable[int]) -> dict[int, tuple[int, Decimal]]:
-    """`{bono id: (units, amount in its currency)}`; a bonus no step got is left out."""
-    return _leer(db, por_bono(_dialecto(db)), SellInBonoMarca.id, ids)
+    """`{bono id: (units, amount in its currency)}`; a bonus no step got is left out. A step with no cost is logged."""
+    return _leer(db, por_bono(), SellInBonoMarca.id, ids, BONO)
 
 
 def de_compras(db: Session, ids: Iterable[int]) -> dict[int, tuple[int, Decimal]]:
-    """`{sell_in_compras id: (units, amount in its currency)}`; a purchase no step got is left out."""
-    return _leer(db, por_compra(_dialecto(db)), SellInCompra.id, ids)
+    """`{sell_in_compras id: (units, amount in its currency)}`; a purchase no step got is left out. A step with no cost
+    is logged."""
+    return _leer(db, por_compra(), SellInCompra.id, ids, COMPRA)
+
+
+def avisar_sin_costo(db: Session, tacticals: Select) -> None:
+    """Log each step with no cost that a sell in of the tacticals in `tacticals` (a select of their ids) got, whose
+    amount a sum over them (the KPIs) leaves out: one query."""
+    filas = _sell_ins()
+    bonos = select(SellInBonoMarca.id).where(SellInBonoMarca.tactical_id.in_(tacticals))
+    compras = select(SellInCompra.id).where(SellInCompra.tactical_id.in_(tacticals))
+    consulta = (
+        select(filas.c.origen, filas.c.ref, _sin_costo(filas))
+        .where(
+            filas.c.precio.is_(None),
+            or_(
+                and_(filas.c.origen == BONO, filas.c.ref.in_(bonos)),
+                and_(filas.c.origen == COMPRA, filas.c.ref.in_(compras)),
+            ),
+        )
+        .group_by(filas.c.origen, filas.c.ref)
+    )
+    for origen, ref, pasos in db.execute(consulta):
+        _avisar(origen, ref, pasos)

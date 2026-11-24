@@ -7,6 +7,7 @@ cobrados."
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 from decimal import Decimal
 from typing import Iterator
@@ -28,6 +29,7 @@ pytestmark = [pytest.mark.postgres, pytest.mark.usefixtures("aprobar_siempre")]
 
 HOY = date(2026, 11, 5)
 TODOS = ["sell_in", "sell_out"]
+GENERADO = "app.services.costo_si.generado"
 
 
 @pytest.fixture(scope="module")
@@ -523,3 +525,25 @@ class TestNadaEstimado:
             assert all(not m["estimado"] for grupo in kpis.values() for m in grupo["montos"])
             assert kpis == _segun_las_lineas(db, service.Filtros(tipos=TODOS))
             service.cobrar(db, tactical.id, _cobro(tipo_cambio=Decimal("1350")), USUARIO)
+
+
+class TestPasoSinCosto:
+    """Interfaz §7: a costo SI step whose cost is unknown has no amount. It is left out of what the line used and of
+    the KPIs, never counted as 0, and logged with its item and date."""
+
+    def test_a_step_with_no_cost_is_left_out_of_the_line_and_the_kpis_and_logged(self, db, engine, caplog) -> None:
+        tactical = _usd(db)
+        bono = _bono_de(engine, tactical.id)
+        paso(engine, 2964, 1, 2, "41.50", [("bono", bono, "26.2892")])
+        paso(engine, 2964, 2, 3, None, [("bono", bono, "26.2892")], fecha=date(2026, 11, 4))
+
+        with caplog.at_level(logging.WARNING, logger=GENERADO):
+            linea = _leido(db, tactical.id)["lineas"][0]
+            kpis = service.kpis(db, service.Filtros(tipos=TODOS), hoy=HOY)
+
+        assert linea["monto_usado"] == Decimal("21.82")
+        assert [m["monto"] for m in kpis["pendientes"]["montos"]] == [Decimal("21.82")]
+        avisos = [r.getMessage() for r in caplog.records if r.name == GENERADO]
+        # One from the line (its bonus's reader), one from the KPIs' SQL.
+        assert len(avisos) == 2
+        assert all(f"bono {bono}" in a and "item 2964 on 2026-11-04" in a for a in avisos)

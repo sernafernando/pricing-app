@@ -1695,7 +1695,7 @@ def listar(db: Session, filtros: Filtros, page: int, page_size: int, hoy: Option
     return total, filas
 
 
-def _usado_por_linea(ids: Select, dialect: str) -> Subquery:
+def _usado_por_linea(ids: Select) -> Subquery:
     """One row per child of the tacticals in `ids` (a subquery of ids): `(tactical_id, moneda, monto, tope)`, `monto`
     being its `monto_usado` exactly as `serializar` computes it (`_lineas_campanas`, `_lineas_bonos` through
     `bonos_crud.serializar`, `_lineas_compras`), rounded to cents per child. A child that used nothing is a 0 row.
@@ -1724,7 +1724,7 @@ def _usado_por_linea(ids: Select, dialect: str) -> Subquery:
     )
     # A cost bonus: what costo SI took off its invoices, in the bonus's own currency, as `monto_generado`.
     costo = SellInBonoMarca.base == BASE_COSTO_VENTA
-    por_bono = generado.por_bono(dialect).subquery()
+    por_bono = generado.por_bono().subquery()
     bonos_costo_ = (
         select(
             SellInBonoMarca.tactical_id,
@@ -1760,7 +1760,7 @@ def _usado_por_linea(ids: Select, dialect: str) -> Subquery:
         .group_by(SellInBonoMarca.id)
     )
     # An invoice total: what costo SI took off its invoices, in the purchase's own currency.
-    por_compra = generado.por_compra(dialect).subquery()
+    por_compra = generado.por_compra().subquery()
     compras_ = (
         select(
             SellInCompra.tactical_id,
@@ -1781,8 +1781,8 @@ def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
     per currency, the sum of their lines' `monto_usado` exactly as the list's Avance column shows it (each line in
     its own currency), next to the sum of their money caps in that currency (S6, None
     when no line there has one; `tope_parcial` when only some lines there have one), and how many have no money cap
-    on any line. Three SQL aggregates, whatever the
-    number of tacticals. ARS first, then USD; a currency with no line is left out."""
+    on any line. Three SQL aggregates and one query that logs the costo SI steps with no cost, whatever the number of
+    tacticals. ARS first, then USD; a currency with no line is left out."""
     cobrado = exists().where(TacticalCobranza.tactical_id == Tactical.id)
     base = (
         _consulta(db, filtros, hoy or date.today())
@@ -1794,7 +1794,9 @@ def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
         .subquery()
     )
     cantidades = {bool(c): int(n) for c, n in db.query(base.c.cobrado, func.count()).group_by(base.c.cobrado)}
-    lineas = _usado_por_linea(select(base.c.id), db.get_bind().dialect.name)
+    lineas = _usado_por_linea(select(base.c.id))
+    # A costo SI step with no cost is left out of the sums below (§7): logged with its item and date.
+    generado.avisar_sin_costo(db, select(base.c.id))
     montos: dict[bool, dict[str, dict]] = defaultdict(dict)
     for c, moneda, monto, tope, con_tope_, lineas_, estimado in (
         db.query(

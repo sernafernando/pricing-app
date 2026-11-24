@@ -19,10 +19,12 @@ from app.models.costo_si import CostoSiFacturaTc, CostoSiPaso
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.sell_in import SellInBonoMarca, SellInCompra, SellInCompraItem
 from app.models.tipo_cambio import TipoCambio
+from tests.routers._pg_app import engine  # noqa: F401 - the fixture, by name
 from tests.services._aprobacion import cargas_aprobadas  # noqa: F401 - the fixture, by name
 
+# Postgres (`_pg_app`): a cost bonus reads what costo SI took off its invoices, Postgres-only SQL.
 # Written before tacticals approval: a load is approved right away (`_aprobacion.cargas_aprobadas`).
-pytestmark = pytest.mark.usefixtures("cargas_aprobadas")
+pytestmark = [pytest.mark.postgres, pytest.mark.usefixtures("cargas_aprobadas")]
 
 BASE = "/api/sell-in/bonos"
 

@@ -1,15 +1,17 @@
 """Router `/api/tacticals` (tacticals T1): permissions by the tactical's kind, status codes and the contract's shape.
-The engines' rules are proven on Postgres (`tests/services/test_tacticals_postgres.py`); SQLite test database."""
+The engines' rules are proven on Postgres (`tests/services/test_tacticals_postgres.py`). Postgres test database
+(`_pg_app`): the list reads what costo SI took off the invoices, Postgres-only SQL."""
 
 from __future__ import annotations
 
 import pytest
 
 from app.models.producto import ProductoERP
+from tests.routers._pg_app import engine  # noqa: F401 - the fixture, by name
 from tests.services._aprobacion import aprobar_siempre  # noqa: F401 - the fixture, by name
 
 # Written before tacticals approval: every load is approved right away (`_aprobacion.aprobar_siempre`).
-pytestmark = pytest.mark.usefixtures("aprobar_siempre")
+pytestmark = [pytest.mark.postgres, pytest.mark.usefixtures("aprobar_siempre")]
 
 BASE = "/api/tacticals"
 

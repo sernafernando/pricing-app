@@ -1,8 +1,9 @@
 # ruff: noqa: F811 - the fixtures imported from the neighbour test module are taken as parameters
 """`POST /api/tacticals/{id}/aprobar` (tacticals approval S3): only with `tacticals.aprobar`, which is opt-in (a
 SUPERADMIN without the per-user override is refused, L31: "lo más probable es que el permiso se lo de a alejandro
-solo"); its author may approve; a new tactical reads `pendiente`; the pending filter. SQLite test database; the
-engines' rules on Postgres (`tests/services/test_tacticals_aprobacion_postgres.py`)."""
+solo"); its author may approve; a new tactical reads `pendiente`; the pending filter. Postgres test database
+(`_pg_app`: the list reads what costo SI took off the invoices, Postgres-only SQL); the engines' rules in
+`tests/services/test_tacticals_aprobacion_postgres.py`."""
 
 from __future__ import annotations
 
@@ -10,7 +11,10 @@ import pytest
 
 from app.models.permiso import Permiso, UsuarioPermisoOverride
 from tests.conftest import make_access_token
+from tests.routers._pg_app import engine  # noqa: F401 - the fixture, by name
 from tests.routers.test_tacticals import BASE, _body, _message, productos, sell_out  # noqa: F401 - fixtures
+
+pytestmark = pytest.mark.postgres
 
 APROBAR = "tacticals.aprobar"
 

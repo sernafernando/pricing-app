@@ -1,16 +1,18 @@
 """Router `/api/tacticals/{id}/cobranza` (tactical cobranza S2): save, edit and undo a tactical's collection record,
-with the permission that edits the tactical (`<tipo>.gestionar`); the list carries the record, the filter and KPIs."""
+with the permission that edits the tactical (`<tipo>.gestionar`); the list carries the record, the filter and KPIs.
+Postgres test database (`_pg_app`): the KPIs read what costo SI took off the invoices, Postgres-only SQL."""
 
 from __future__ import annotations
 
 import pytest
 
 from app.models.producto import ProductoERP
+from tests.routers._pg_app import engine  # noqa: F401 - the fixture, by name
 from tests.routers.test_tacticals import BASE, _body, _message
 from tests.services._aprobacion import aprobar_siempre  # noqa: F401 - the fixture, by name
 
 # Written before tacticals approval: every load is approved right away (`_aprobacion.aprobar_siempre`).
-pytestmark = pytest.mark.usefixtures("aprobar_siempre")
+pytestmark = [pytest.mark.postgres, pytest.mark.usefixtures("aprobar_siempre")]
 
 
 @pytest.fixture()

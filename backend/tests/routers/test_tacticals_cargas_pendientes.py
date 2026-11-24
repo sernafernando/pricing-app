@@ -2,15 +2,20 @@
 """The approval inbox of the Tacticals list (tacticals approval S11, S12): `GET /api/tacticals/cargas-pendientes`
 lists the bonuses, purchases and campaigns loaded on their own that wait for approval (S11: "no pending item may be
 unreachable from the UI"), and `GET /api/tacticals` answers `pendientes_aprobacion`, the count of what waits for
-approval, next to KPIs that leave pending tacticals out (S12). SQLite; the queries on Postgres
-(`tests/services/test_tacticals_aprobacion_postgres.py`)."""
+approval, next to KPIs that leave pending tacticals out (S12). Postgres test database (`_pg_app`: the KPIs read what
+costo SI took off the invoices, Postgres-only SQL); the queries in `tests/services/test_tacticals_aprobacion_postgres.py`."""
 
 from __future__ import annotations
 
+import pytest
+
+from tests.routers._pg_app import engine  # noqa: F401 - the fixture, by name
 from tests.routers.test_sell_out_campanas import BASE as CAMPANAS
 from tests.routers.test_sell_out_campanas import _crear as crear_campana
 from tests.routers.test_sell_out_campanas import grupos  # noqa: F401 - fixture
 from tests.routers.test_tacticals import BASE, _body, productos, sell_out  # noqa: F401 - fixtures
+
+pytestmark = pytest.mark.postgres
 
 PENDIENTES = f"{BASE}/cargas-pendientes"
 
