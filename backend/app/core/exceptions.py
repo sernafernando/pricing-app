@@ -46,6 +46,7 @@ class ErrorCode:
     # Resources (4xx)
     NOT_FOUND = "NOT_FOUND"
     ALREADY_EXISTS = "ALREADY_EXISTS"
+    CONFLICT = "CONFLICT"
     VALIDATION_ERROR = "VALIDATION_ERROR"
 
     # Business logic

@@ -30,6 +30,12 @@ from app.services.ml_orders_ingestion.costeo_service import (
     FUENTE_BACKFILL_PUBLICACION,
     FUENTE_BACKFILL_SKU,
 )
+from tests.costo_si_lista import costo_si_lista  # noqa: F401 (the costo SI reader's SQLite stand-in)
+
+# The script asks THE reader for a costo SI first (`lote.en_fechas`, Postgres SQL): on SQLite the stand-in answers
+# 'lista' like the real reader without `costo_si_pasos`, so every case here takes the dated list-history path. The
+# costo SI and ART-day cases run on the real reader: test_backfill_costo_congelado_costo_si_postgres.py.
+pytestmark = pytest.mark.usefixtures("costo_si_lista")
 
 
 @pytest.fixture(autouse=True)

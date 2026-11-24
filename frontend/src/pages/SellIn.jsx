@@ -4,8 +4,10 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { usePermisos } from '../contexts/PermisosContext';
 import { productosAPI } from '../services/api';
 import { tacticalsAPI } from '../services/tacticalsAPI';
+import { costoSiSospechasAPI } from '../services/sellInAPI';
 import { SplitPanelLayout } from '../components/kit';
 import SellInBonoPanel from '../components/sellIn/SellInBonoPanel';
+import SellInComprasRevisar from '../components/sellIn/SellInComprasRevisar';
 import SellInDetailPanel from '../components/sellIn/SellInDetailPanel';
 import SellInProductoCostoPanel from '../components/sellIn/SellInProductoCostoPanel';
 import SellInProductosCosto from '../components/sellIn/SellInProductosCosto';
@@ -20,6 +22,9 @@ import styles from './SellIn.module.css';
 const TAB_TACTICALS = 'tacticals';
 const TAB_GRUPOS = 'grupos';
 const TAB_PRODUCTOS = 'productos';
+const TAB_REVISION = 'revision';
+/** Deciding on a suspicious purchase (owner L29); reading the list is `sell_in.ver`, like the page. */
+const PERMISO_REVISAR = 'costo_si.revisar';
 /**
  * The tabs the page had before Tacticals took them over: their links open Tacticals with that Tipo. Programas is gone
  * too (owner, 2026-11-06: "si ahora todo es tactical"); its links open Tacticals with every Tipo.
@@ -41,6 +46,23 @@ function useConteoTacticals(enabled, version) {
     tacticalsAPI
       .listar({ estado: 'vigentes', page: 1, page_size: 1 })
       .then(({ data }) => active && setEstado({ total: data.total, error: false }))
+      .catch(() => active && setEstado({ total: null, error: true }));
+    return () => {
+      active = false;
+    };
+  }, [enabled, version]);
+  return estado;
+}
+
+/** "Compras a revisar"'s count: the suspicious purchases pending a review; `error` on a failure (the tab shows "—"). */
+function useConteoRevision(enabled, version) {
+  const [estado, setEstado] = useState({ total: null, error: false });
+  useEffect(() => {
+    if (!enabled) return undefined;
+    let active = true;
+    costoSiSospechasAPI
+      .resumen()
+      .then(({ data }) => active && setEstado({ total: data.pendientes, error: false }))
       .catch(() => active && setEstado({ total: null, error: true }));
     return () => {
       active = false;
@@ -71,7 +93,9 @@ function useMarcas(enabled) {
  * programs of both kinds, with "Nuevo tactical", each tactical's lines and, per line, its record read only ("Ver
  * ventas"). Grupos (`grupos.ver`) holds the product groups, where `config.editar_constantes` also creates, edits and
  * deletes. The tab lives in the URL (`?tab=grupos`); the old `?tab=sell-in` / `?tab=sell-out` / `?tab=programas` links
- * open Tacticals with that Tipo. `sell_in.ver` reads the page.
+ * open Tacticals with that Tipo. "Compras a revisar" (`?tab=revision`, owner L29) lists the purchases held out of costo SI
+ * for a suspicious price, with the pending count on the tab; `costo_si.revisar` decides on them. `sell_in.ver` reads
+ * the page.
  */
 export default function SellIn() {
   const { tienePermiso } = usePermisos();
@@ -87,6 +111,8 @@ export default function SellIn() {
   const puedeVerProductos = puedeVer && canViewProductPrices(tienePermiso);
   const [versionProductos, setVersionProductos] = useState(0);
   const tacticals = useConteoTacticals(puedeVer, versionPagina);
+  const [versionRevision, setVersionRevision] = useState(0);
+  const revision = useConteoRevision(puedeVer, versionPagina + versionRevision);
 
   const tabUrl = searchParams.get('tab');
   // The Tipo an old link asked for, read once: the list keeps it after the URL is rewritten.
@@ -95,6 +121,7 @@ export default function SellIn() {
     TAB_TACTICALS,
     ...(puedeVerGrupos ? [TAB_GRUPOS] : []),
     ...(puedeVerProductos ? [TAB_PRODUCTOS] : []),
+    TAB_REVISION,
   ];
   const tab = tabsVisibles.includes(tabUrl) ? tabUrl : TAB_TACTICALS;
   // An old link is rewritten to the tab it opened, so a reload or a shared link does not depend on the old names.
@@ -225,6 +252,11 @@ export default function SellIn() {
         )}
         {puedeVerGrupos && pestana(TAB_GRUPOS, 'Grupos')}
         {puedeVerProductos && pestana(TAB_PRODUCTOS, 'Productos')}
+        {pestana(
+          TAB_REVISION,
+          'Compras a revisar',
+          revision.total != null ? revision.total.toLocaleString('es-AR') : revision.error ? '—' : '…',
+        )}
       </div>
 
       <SplitPanelLayout
@@ -274,7 +306,15 @@ export default function SellIn() {
           ) : null
         }
       >
-        {tab === TAB_PRODUCTOS ? (
+        {tab === TAB_REVISION ? (
+          <div role="tabpanel" id="revision-panel" aria-labelledby="revision-tab">
+            <SellInComprasRevisar
+              version={versionPagina}
+              puedeRevisar={tienePermiso(PERMISO_REVISAR)}
+              onDecidido={() => setVersionRevision((v) => v + 1)}
+            />
+          </div>
+        ) : tab === TAB_PRODUCTOS ? (
           <div role="tabpanel" id="productos-panel" aria-labelledby="productos-tab">
             <SellInProductosCosto
               version={versionPagina + versionProductos}

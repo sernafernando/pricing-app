@@ -42,6 +42,20 @@ A backfilled row is tellable from a live-frozen one two ways: `fuente`
 `FUENTE_PUBLICACION`/`FUENTE_SKU`) and `costo_fecha` (set to the history
 row's `iclh_cd`; a live-frozen row is always NULL there).
 
+COSTO SI (sell-in-costo-si T3 PR 7, S13): the live freeze (`costeo_service
+.congelar`) costs a sale through THE reader (`lote.en_fechas`) on the sale's
+ART calendar day (`fecha_venta_de`), and this backfill follows it: a product
+the reader has a costo SI for on that day is frozen at that costo SI, in its
+currency at that day's rate, with the live freeze's `costo_si_*` fuente and
+the sale date as `costo_fecha` -- exactly what `recongelar_costo_si` writes,
+so a later costo SI change re-freezes it like any live row. A costo SI with
+no rate on that day is unknown and SKIPPED, never replaced by the list cost.
+Where the reader says 'lista', the dated list-history rule above still
+applies, on the ART day too: the reader's own 'lista' falls back to TODAY's
+`productos_erp.costo` when there is no dated row, which is what this script
+must never write (measured on prod 2026-11-22: 690 skipped sales would have
+been frozen at today's list cost).
+
 Run:
     python -m app.scripts.backfill_costo_congelado --limit 5000
     python -m app.scripts.backfill_costo_congelado --limit 5000 --dry-run
@@ -77,6 +91,7 @@ from app.models.ml_order_item_costo import MlOrderItemCosto  # noqa: E402
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps  # noqa: E402
 from app.models.producto import ProductoERP  # noqa: E402
 from app.models.tipo_cambio import TipoCambio  # noqa: E402
+from app.services.costo_si import lote  # noqa: E402
 from app.services.combos.componentes import CombosNoSincronizados, exigir_combos_disponibles  # noqa: E402
 from app.services.ml_orders_ingestion.costeo_service import (  # noqa: E402
     FUENTE_BACKFILL_PUBLICACION,
@@ -84,11 +99,14 @@ from app.services.ml_orders_ingestion.costeo_service import (  # noqa: E402
     FUENTE_BACKFILL_SKU,
     FUENTE_PUBLICACION,
     FUENTE_SKU,
+    _FUENTE_COSTO_SI_POR_VINCULO,
     _insert_stmt,
     _productos_por_item,
     componentes_por_combo,
+    fecha_venta_de,
     tiene_iva_conocido,
 )
+from app.services.ml_orders_ingestion.recongelar_costo_si import FUENTE_COSTO_SI_COMBO  # noqa: E402
 from app.services.ml_orders_ingestion.list_history import (  # noqa: E402
     as_date,
     pick_fx_rate,
@@ -303,6 +321,31 @@ def _resolver_combo(
     )
 
 
+def _costo_si_snapshot(
+    costo: Optional[lote.Costo], fuente_live: str, order_date: date, result: BackfillResult
+) -> tuple[bool, Optional[Dict[str, Any]]]:
+    """`(applies, snapshot)`: whether THE reader has a costo SI for the product on the sale's ART day and, if so, the
+    row the live freeze would write (`costeo_service._resolve_cost_en_fecha`: the reader's cost, currency, rate and
+    pesos; `costo_si_combo` for a summed combo, else the linkage's `costo_si_*`; `costo_fecha` = the sale date, as
+    `recongelar_costo_si` writes). A costo SI with no peso value (a USD cost with no rate that day) applies but is
+    unknown: `(True, None)`, counted as `no_fx_rate` -- never the list cost instead."""
+    if costo is None or costo.fuente != lote.FUENTE_COSTO_SI or costo.costo is None:
+        return False, None
+    if costo.costo_ars is None or costo.costo_ars <= 0:
+        result.skipped[SKIP_NO_FX if costo.tipo_cambio is None else SKIP_ZERO_COST] += 1
+        return True, None
+    fuente = FUENTE_COSTO_SI_COMBO if costo.costo_si_desde is None else _FUENTE_COSTO_SI_POR_VINCULO[fuente_live]
+    return True, {
+        "costo_origen": costo.costo,
+        "moneda": costo.moneda,
+        "tipo_cambio": costo.tipo_cambio,
+        "tipo_cambio_fecha": costo.tipo_cambio_fecha,
+        "costo_unitario_ars": costo.costo_ars,
+        "costo_fecha": order_date,
+        "fuente": fuente,
+    }
+
+
 def _resolve_backfill_cost(
     producto: ProductoERP,
     fuente_live: str,
@@ -312,8 +355,11 @@ def _resolve_backfill_cost(
     usd_rates: Sequence[TipoCambio],
     order_date: date,
     result: BackfillResult,
+    costo_si: Optional[lote.Costo] = None,
 ) -> Optional[Dict[str, Any]]:
-    """One item's frozen snapshot, by whichever of TWO paths applies.
+    """One item's frozen snapshot: the costo SI THE reader has for it on the
+    sale's ART day (`costo_si`, `_costo_si_snapshot`) when it has one, else
+    by whichever of TWO dated list-history paths applies.
 
     The product's OWN dated cost comes first. Only when that is missing
     does the combo path run, and only for a product the ERP knows the
@@ -334,6 +380,13 @@ def _resolve_backfill_cost(
     except InvalidOperation:
         result.skipped[SKIP_UNPARSEABLE] += 1
         return None
+
+    applies, snapshot = _costo_si_snapshot(costo_si, fuente_live, order_date, result)
+    if applies:
+        if snapshot is not None:
+            snapshot["iva_pct"] = iva_pct
+            snapshot["producto_item_id"] = producto.item_id
+        return snapshot
 
     history_row = pick_history_row(history_rows, order_date)
 
@@ -409,6 +462,9 @@ def run_backfill(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_
             batch = rows[start : start + batch_size]
             items = [row[0] for row in batch]
             order_dates = {row[0].order_id: row[1] for row in batch}
+            # The sale's ART calendar day (an order at 22:00 ART is that day, not the next UTC one), as the live
+            # freeze and the re-freeze date it (`costeo_service.fecha_venta_de`).
+            fechas_venta = {order_id: fecha_venta_de(d) for order_id, d in order_dates.items()}
 
             # Bulk product linkage (reused UNCHANGED from costeo_service --
             # see its docstring for why this is 3 queries for the whole
@@ -427,17 +483,25 @@ def run_backfill(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_
                 item_ids_needed.extend(componente_id for componente_id, _ in componentes)
 
             history_by_item = _dated_history_rows(db, item_ids_needed)
-            dates_needed = [as_date(d) for d in order_dates.values() if d is not None]
+            dates_needed = [d for d in fechas_venta.values() if d is not None]
             usd_rates = usd_rates_by_date(db, dates_needed)
+            # THE reader on every (product, ART sale day) of the batch, in one query: its costo SI wins.
+            costos_si = lote.en_fechas(
+                db,
+                [
+                    (producto.item_id, fechas_venta[items[idx].order_id])
+                    for idx, (producto, _) in productos_por_indice.items()
+                    if fechas_venta.get(items[idx].order_id) is not None
+                ],
+            )
 
             values_to_insert: List[Dict[str, Any]] = []
 
             for idx, item in enumerate(items):
-                order_date_dt = order_dates.get(item.order_id)
-                if order_date_dt is None:
+                order_date = fechas_venta.get(item.order_id)
+                if order_date is None:
                     result.skipped[SKIP_NO_ORDER_DATE] += 1
                     continue
-                order_date = as_date(order_date_dt)
 
                 if item.unit_price is None:
                     result.skipped[SKIP_NO_PRICE] += 1
@@ -459,6 +523,7 @@ def run_backfill(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_
                     usd_rates,
                     order_date,
                     result,
+                    costos_si.get((producto.item_id, order_date)),
                 )
                 if resolved is None:
                     continue
