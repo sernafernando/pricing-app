@@ -16,14 +16,15 @@ async function run(s) {
     await s.reload();
   } finally {
     s.running = false;
+    if (s.pending) schedule(s);
   }
-  if (s.pending) schedule(s);
 }
 
 /** One timer at most: at the end of the interval since the last reload (now when it already passed). */
 function schedule(s) {
-  if (s.timer) return;
-  s.timer = setTimeout(() => run(s), Math.max(0, s.last + s.minIntervalMs - Date.now()));
+  if (s.timer || s.disposed) return;
+  // A failed reload reports itself (the caller's reload shows or swallows its own errors); the next event retries.
+  s.timer = setTimeout(() => run(s).catch(() => {}), Math.max(0, s.last + s.minIntervalMs - Date.now()));
 }
 
 function request(s) {
@@ -64,6 +65,7 @@ export function useCoalescedReload(reload, { minIntervalMs = RELOAD_MIN_INTERVAL
 
   useEffect(() => {
     const s = state.current;
+    s.disposed = false;
     const onVisible = () => {
       if (document.hidden || !s.hiddenPending) return;
       s.hiddenPending = false;
@@ -72,6 +74,7 @@ export function useCoalescedReload(reload, { minIntervalMs = RELOAD_MIN_INTERVAL
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
+      s.disposed = true;
       clearTimeout(s.timer);
       s.timer = null;
     };

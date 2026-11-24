@@ -118,4 +118,36 @@ describe('useCoalescedReload', () => {
     await advance(RELOAD_MIN_INTERVAL_MS * 2);
     expect(segundo).toHaveBeenCalledTimes(1);
   });
+
+  it('does not reload after unmounting, even with an event that arrived during the last reload', async () => {
+    let terminar;
+    const reload = vi.fn(() => new Promise((resolve) => (terminar = resolve)));
+    const { result, unmount } = renderHook(() => useCoalescedReload(reload));
+
+    act(() => result.current());
+    await advance(0);
+    act(() => result.current());
+    unmount();
+    await act(async () => terminar());
+    await advance(RELOAD_MIN_INTERVAL_MS * 2);
+
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an event that arrived during a reload that then fails', async () => {
+    let fallar;
+    const reload = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise((_, reject) => (fallar = reject)))
+      .mockResolvedValue();
+    const { result } = renderHook(() => useCoalescedReload(reload));
+
+    act(() => result.current());
+    await advance(0);
+    act(() => result.current());
+    await act(async () => fallar(new Error('red caída')));
+    await advance(RELOAD_MIN_INTERVAL_MS);
+
+    expect(reload).toHaveBeenCalledTimes(2);
+  });
 });
