@@ -1746,27 +1746,32 @@ def _usado_por_linea(ids: Select) -> Subquery:
         .outerjoin(por_bono, por_bono.c.bono_id == SellInBonoMarca.id)
         .where(SellInBonoMarca.tactical_id.in_(ids), costo, SellInBonoMarca.estado != aprobacion.PENDIENTE)
     )
-    # Any other bonus: its active purchases' assigned amounts in the bonus's own currency (another one is not added).
+    # Any other bonus: its active purchases' assigned amounts, one row per currency they are in (a % bonus's purchase
+    # is in its invoice's currency, sell in incident S3), as `bonos_crud.serializar` lists them; a 0 row in its own
+    # currency when it has none. Its money cap is in its own currency only.
+    asignado = (
+        select(
+            SellInCompra.bono_id.label("bono_id"),
+            SellInCompra.moneda.label("moneda"),
+            func.sum(SellInCompraItem.monto_asignado).label("monto"),
+        )
+        .join(SellInCompraItem, SellInCompraItem.compra_id == SellInCompra.id)
+        .where(SellInCompra.estado == "activa")
+        .group_by(SellInCompra.bono_id, SellInCompra.moneda)
+        .subquery("asignado_por_moneda")
+    )
+    moneda_compras = func.coalesce(asignado.c.moneda, SellInBonoMarca.moneda)
     bonos_compras = (
         select(
             SellInBonoMarca.tactical_id,
-            SellInBonoMarca.moneda,
-            func.round(func.coalesce(func.sum(SellInCompraItem.monto_asignado), cero), 2),
-            tope(SellInBonoMarca),
+            moneda_compras,
+            func.round(func.coalesce(asignado.c.monto, cero), 2),
+            case((moneda_compras == SellInBonoMarca.moneda, tope_de(SellInBonoMarca))),
             cero,
         )
         .select_from(SellInBonoMarca)
-        .outerjoin(
-            SellInCompra,
-            and_(
-                SellInCompra.bono_id == SellInBonoMarca.id,
-                SellInCompra.estado == "activa",
-                SellInCompra.moneda == SellInBonoMarca.moneda,
-            ),
-        )
-        .outerjoin(SellInCompraItem, SellInCompraItem.compra_id == SellInCompra.id)
+        .outerjoin(asignado, asignado.c.bono_id == SellInBonoMarca.id)
         .where(SellInBonoMarca.tactical_id.in_(ids), ~costo, SellInBonoMarca.estado != aprobacion.PENDIENTE)
-        .group_by(SellInBonoMarca.id)
     )
     # An invoice total: what costo SI took off its invoices, in the purchase's own currency.
     por_compra = generado.por_compra(de_compras).subquery()
@@ -2103,14 +2108,12 @@ def _valor_usd(bono: SellInBonoMarca, tasas: dict[int, Decimal]) -> Optional[Dec
 def _usado_de_bono(bono: SellInBonoMarca, fila: dict) -> tuple[str, Decimal, list[dict]]:
     """A bonus child's `(moneda, monto_usado, montos_usados)` from its `bonos_crud.serializar` row, as
     `_usado_por_linea` sums it. A cost bonus's uncapped % used what costo SI took off in its steps' currency (sell in
-    incident S1: "TP loyalty 18.18M ARS must read USD 11,648"): one entry per currency, and the line reads in the one
-    it used (a % with no money cap has no other amount in a currency). Any other bonus: its own currency, as before."""
+    incident S1: "TP loyalty 18.18M ARS must read USD 11,648"), and an invoice bonus's purchases are each in their
+    invoice's currency (S3): one entry per currency, never added. A % with no money cap (no amount of its own in a
+    currency) reads in the one currency it used; any other line, in its own (its value and cap are in it)."""
     por_moneda = {m["moneda"]: _cents(m["monto"]) for m in fila["montos_generados"]}
-    costo = bono.base == BASE_COSTO_VENTA
-    if not costo:
-        # An invoice bonus's line counts its purchases in its own currency only, as before.
-        por_moneda = {bono.moneda: por_moneda.get(bono.moneda, _cents(0))}
-    moneda = fila["moneda_generado"] if costo and bono.tipo == "porcentaje" and bono.tope_monto is None else bono.moneda
+    # An invoice bonus's purchase is in its invoice's currency (sell in incident S3), each one listed in its own.
+    moneda = fila["moneda_generado"] if bono.tipo == "porcentaje" and bono.tope_monto is None else bono.moneda
     por_moneda.setdefault(moneda, _cents(0))
     return moneda, por_moneda[moneda], [{"moneda": m, "monto": v} for m, v in sorted(por_moneda.items())]
 

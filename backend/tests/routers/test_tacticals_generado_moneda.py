@@ -461,3 +461,56 @@ def test_a_compras_sell_in_still_reads_in_its_own_currency(client, db, productos
     assert _kpis(client, sell_in)["pendientes"]["montos"] == [
         {**_monto("ARS", "53713.81"), "tope": "53713.80", "tope_parcial": True}
     ]
+
+
+def test_a_usd_invoice_percentage_line_reads_its_purchase_in_the_invoice_s_currency(
+    client, db, productos, sell_in, admin_user
+) -> None:
+    """S1/S3 seam (tactical 47 "DESC AIR TP", bono 84, 2.5 %): S3 stores a % bonus's purchase in its invoice's
+    currency, so compra 25 is ARS 393,467.14 (470 u) on an ARS invoice. The tactical line reads it in ARS, as the Sell
+    in list does, not "USD 0" with the ARS left out of the totals."""
+    tactical = _loyalty(client, sell_in)
+    factura = SellInBonoMarca(
+        alcance="marca",
+        marca=TPLINK,
+        tipo="porcentaje",
+        porcentaje=Decimal("2.5"),
+        moneda="USD",
+        base="factura",
+        fecha_desde=date(2026, 10, 1),
+        fecha_hasta=date(2026, 12, 31),
+        descripcion="DESC AIR TP",
+        estado="activa",
+        usuario_id=admin_user.id,
+        tactical_id=tactical["id"],
+        tactical_linea=2,
+    )
+    db.add(factura)
+    db.flush()
+    compra = SellInCompra(
+        fecha_compra=date(2026, 11, 3),
+        moneda="ARS",
+        monto_total=Decimal("393467.14"),
+        formula="proporcional",
+        estado="activa",
+        usuario_id=admin_user.id,
+        origen="bono_marca",
+        bono_id=factura.id,
+    )
+    db.add(compra)
+    db.flush()
+    db.add(
+        SellInCompraItem(
+            compra_id=compra.id, item_id=1986, cantidad=470, costo_base_unit=Decimal("33484.80"),
+            monto_asignado=Decimal("393467.14"),
+        )
+    )  # fmt: skip
+    db.flush()
+
+    lineas = client.get(f"{TACTICALS}/{tactical['id']}", headers=sell_in).json()["lineas"]
+    [linea] = [x for x in lineas if x["id"] == factura.id]
+
+    assert (linea["moneda"], linea["monto_usado"], linea["unidades_usadas"]) == ("ARS", "393467.14", 470)
+    assert linea["montos_usados"] == [{"moneda": "ARS", "monto": "393467.14"}]
+    # The cost line (stored ARS, nothing used yet) adds its ARS 0.
+    assert _kpis(client, sell_in)["pendientes"]["montos"] == [_monto("ARS", "393467.14")]
