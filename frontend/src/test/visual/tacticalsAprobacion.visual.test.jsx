@@ -35,7 +35,6 @@ vi.mock('../../services/api', () => ({
 }));
 
 vi.mock('../../services/sellInAPI', () => ({
-  sellInLotesAPI: { productos: vi.fn(() => new Promise(() => {})) },
   sellInAPI: { listar: vi.fn(), resumen: vi.fn(), detalle: vi.fn() },
   sellInBonosAPI: { listar: vi.fn(), detalle: vi.fn() },
   costoSiSospechasAPI: { resumen: vi.fn(() => Promise.resolve({ data: { pendientes: 0 } })), listar: vi.fn() },
