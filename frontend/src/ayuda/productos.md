@@ -71,4 +71,4 @@ Marca el producto como fuera de tarjetas; se puede tildar desde la columna de Re
 No se guardan al salir de la pantalla y se aplican al listado completo de productos, no solo a la página visible; podés limpiarlos con **Limpiar** o **Limpiar Todos**.
 
 **¿Dónde veo los lotes de sell in de un producto?**
-En la información detallada del producto (pestaña **Historial de lotes sell in**): los lotes en orden FIFO con su estado (Agotado, Reemplazado o Cerrado) y lo que consumió cada venta, solo para consulta. Los lotes ya no descuentan ventas: el sell in baja el costo SI a través de sus facturas. Debajo, la sección **Modo de costo** con el modo que tenía y su historial. Ver **Sell in / Sell out → Lotes de un producto** y **Modo de costo de un producto**.
+Ya no hay lotes: se retiraron junto con los modos de costo, y la información detallada del producto ya no tiene la pestaña **Historial de lotes sell in**. El costo es el **costo SI**: el sell in lo baja a través de las facturas de compra. Se ve en la columna **Costo SI** y en la fila **Costo SI** de la información detallada (ver **Filtros y columnas**).

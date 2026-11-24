@@ -613,14 +613,6 @@
   color: var(--cf-text-primary);
 }
 
-/* Compras y sell in: the purchases beside the lots; stacked when the panel is narrow. */
-.pairWide {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
-  gap: var(--spacing-md);
-  align-items: start;
-}
-
 /* Banlist last: a quiet danger action under a divider. */
 .dangerZone {
   display: flex;

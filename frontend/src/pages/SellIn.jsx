@@ -9,19 +9,15 @@ import { SplitPanelLayout } from '../components/kit';
 import SellInBonoPanel from '../components/sellIn/SellInBonoPanel';
 import SellInComprasRevisar from '../components/sellIn/SellInComprasRevisar';
 import SellInDetailPanel from '../components/sellIn/SellInDetailPanel';
-import SellInProductoCostoPanel from '../components/sellIn/SellInProductoCostoPanel';
-import SellInProductosCosto from '../components/sellIn/SellInProductosCosto';
 import SellOutCampanaPanel from '../components/sellOut/SellOutCampanaPanel';
 import GruposTab from '../components/grupos/GruposTab';
 import TacticalsList from '../components/tacticals/TacticalsList';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
-import { canViewProductPrices } from '../components/pricing/productPricePermissions';
 import styles from './SellIn.module.css';
 
 const TAB_TACTICALS = 'tacticals';
 const TAB_GRUPOS = 'grupos';
-const TAB_PRODUCTOS = 'productos';
 const TAB_REVISION = 'revision';
 /** Deciding on a suspicious purchase (owner L29); reading the list is `sell_in.ver`, like the page. */
 const PERMISO_REVISAR = 'costo_si.revisar';
@@ -32,7 +28,7 @@ const PERMISO_REVISAR = 'costo_si.revisar';
 const TIPO_DE_TAB_VIEJA = { 'sell-in': 'sell_in', 'sell-out': 'sell_out', programas: 'todos' };
 /** The panel a tactical line's record opens in, by the line's `origen`. */
 const PANEL_DE_ORIGEN = { sell_out_campana: 'campana', sell_in_bono: 'bono', sell_in_compra: 'detalle' };
-const PANEL_LABELS = { detalle: 'Detalle del sell in', bono: 'Bono de marca', campana: 'Campaña de sell out', producto: 'Costo de sell in' };
+const PANEL_LABELS = { detalle: 'Detalle del sell in', bono: 'Bono de marca', campana: 'Campaña de sell out' };
 
 /**
  * The Tacticals tab's count: the current tacticals (`GET /tacticals`, one row asked); `error` on a failure (the tab
@@ -107,9 +103,6 @@ export default function SellIn() {
   const [searchParams, setSearchParams] = useSearchParams();
   // "Actualizar" bumps it: every tab of the page asks its data again.
   const [versionPagina, setVersionPagina] = useState(0);
-  // The Productos list (the lot viewer's permission plus sell_in.ver, like its endpoint); a mode change reads it again.
-  const puedeVerProductos = puedeVer && canViewProductPrices(tienePermiso);
-  const [versionProductos, setVersionProductos] = useState(0);
   const tacticals = useConteoTacticals(puedeVer, versionPagina);
   const [versionRevision, setVersionRevision] = useState(0);
   const revision = useConteoRevision(puedeVer, versionPagina + versionRevision);
@@ -117,12 +110,7 @@ export default function SellIn() {
   const tabUrl = searchParams.get('tab');
   // The Tipo an old link asked for, read once: the list keeps it after the URL is rewritten.
   const [tipoDeEnlace] = useState(() => TIPO_DE_TAB_VIEJA[tabUrl] ?? 'todos');
-  const tabsVisibles = [
-    TAB_TACTICALS,
-    ...(puedeVerGrupos ? [TAB_GRUPOS] : []),
-    ...(puedeVerProductos ? [TAB_PRODUCTOS] : []),
-    TAB_REVISION,
-  ];
+  const tabsVisibles = [TAB_TACTICALS, ...(puedeVerGrupos ? [TAB_GRUPOS] : []), TAB_REVISION];
   const tab = tabsVisibles.includes(tabUrl) ? tabUrl : TAB_TACTICALS;
   // An old link is rewritten to the tab it opened, so a reload or a shared link does not depend on the old names.
   const esVieja = tabUrl in TIPO_DE_TAB_VIEJA;
@@ -251,7 +239,6 @@ export default function SellIn() {
           tacticals.total != null ? tacticals.total.toLocaleString('es-AR') : tacticals.error ? '—' : '…',
         )}
         {puedeVerGrupos && pestana(TAB_GRUPOS, 'Grupos')}
-        {puedeVerProductos && pestana(TAB_PRODUCTOS, 'Productos')}
         {pestana(
           TAB_REVISION,
           'Compras a revisar',
@@ -275,12 +262,6 @@ export default function SellIn() {
               puedeAprobar={tienePermiso('tacticals.aprobar')}
               onSaved={actualizar}
               onVerCompra={verCompra}
-              onClose={cerrarPanel}
-            />
-          ) : panel?.tipo === 'producto' ? (
-            <SellInProductoCostoPanel
-              producto={panel.producto}
-              onChanged={() => setVersionProductos((v) => v + 1)}
               onClose={cerrarPanel}
             />
           ) : panel?.tipo === 'campana' ? (
@@ -312,13 +293,6 @@ export default function SellIn() {
               version={versionPagina}
               puedeRevisar={tienePermiso(PERMISO_REVISAR)}
               onDecidido={() => setVersionRevision((v) => v + 1)}
-            />
-          </div>
-        ) : tab === TAB_PRODUCTOS ? (
-          <div role="tabpanel" id="productos-panel" aria-labelledby="productos-tab">
-            <SellInProductosCosto
-              version={versionPagina + versionProductos}
-              onVer={(producto) => setPanel({ tipo: 'producto', producto })}
             />
           </div>
         ) : tab === TAB_GRUPOS ? (
