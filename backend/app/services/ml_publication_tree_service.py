@@ -46,11 +46,13 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models.ml_item_relation import MlItemRelation
 from app.models.ml_publication_link import MlPublicationLink
+from app.models.ml_publications import MlItemProductLink
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.publicacion_ml import PublicacionML
 from app.schemas.productos_tree import ProductTreeResponse, SkippedEdge, TreeNode, TreeNodePromoSummary
@@ -120,8 +122,8 @@ def assemble_publication_tree(
             them from the store's links (`ml_item_product_links`, the
             Publicaciones ML panel) instead of the ERP map: they are the
             roots, in the given order, each with its `publicaciones_ml` list
-            when the map has one, and a related MLA among them is this
-            product's. `None` (Productos): the product's active
+            when the map has one, and a related MLA is this product's only
+            when the store links it to it (`ml_item_product_links`). `None` (Productos): the product's active
             `publicaciones_ml` rows, as before.
 
     Returns:
@@ -160,10 +162,11 @@ def assemble_publication_tree(
 
     links_by_mla = _load_links(db, mlas)
     edges_by_mla = _load_edges(db, mlas)
-    item_id_by_mla = _load_item_id_by_related_mla(db, edges_by_mla)
-    if linked_mlas is not None:
-        # The product's publications are the ones linked to it, whatever product the ERP map names.
-        item_id_by_mla.update({mla: item_id for mla in mlas})
+    if linked_mlas is None:
+        item_id_by_mla = _load_item_id_by_related_mla(db, edges_by_mla)
+    else:
+        # A related publication is the product's only when linked to it, whatever product the ERP map names.
+        item_id_by_mla = _load_linked_product_by_related_mla(db, edges_by_mla, item_id)
     lista_by_mla.update(_load_lista_by_related_mla(db, edges_by_mla))
 
     # `lista_by_mla` is now keyed by the FULL set of MLAs that can appear as
@@ -363,6 +366,31 @@ def _load_item_id_by_related_mla(db: Session, edges_by_mla: Dict[str, List[str]]
         db.query(PublicacionML.mla, PublicacionML.item_id).filter(PublicacionML.mla.in_(related_mlas)).all()
     )
     return {mla: iid for mla, iid in rows}
+
+
+def _load_linked_product_by_related_mla(
+    db: Session, edges_by_mla: Dict[str, List[str]], item_id: int
+) -> Dict[str, Optional[int]]:
+    """Resolves every related_mla referenced by `edges_by_mla` to the product the store links it to
+    (`ml_item_product_links`): `item_id` when any of its units is linked to it, else another linked product (a
+    publication linked to none is simply absent: unresolvable)."""
+    related_mlas: Set[str] = set()
+    for targets in edges_by_mla.values():
+        related_mlas.update(targets)
+
+    if not related_mlas:
+        return {}
+
+    link = MlItemProductLink.__table__.c
+    rows = db.execute(
+        select(link.item_id, link.producto_item_id).where(
+            link.item_id.in_(related_mlas), link.producto_item_id.is_not(None)
+        )
+    ).all()
+    products_by_mla: Dict[str, Set[int]] = {}
+    for mla, product in rows:
+        products_by_mla.setdefault(mla, set()).add(int(product))
+    return {mla: item_id if item_id in products else min(products) for mla, products in products_by_mla.items()}
 
 
 def _load_status_by_mla(db: Session, mla_ids: List[str]) -> Dict[str, MlPublicationStatus]:
