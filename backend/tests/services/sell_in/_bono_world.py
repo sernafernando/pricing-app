@@ -42,7 +42,7 @@ STUBS = [
     "CREATE TABLE proveedores (id INTEGER PRIMARY KEY, nombre TEXT)",
     "CREATE TABLE pedidos_compra (id BIGINT PRIMARY KEY, numero TEXT NOT NULL, proveedor_id INTEGER NOT NULL, "
     "moneda VARCHAR(3) NOT NULL, estado VARCHAR(24) NOT NULL DEFAULT 'aprobado', tipo_cambio NUMERIC(18, 6), "
-    "fecha_factura DATE, observaciones TEXT, numero_factura TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    "tipo_cambio_manual NUMERIC(18, 6), fecha_factura DATE, observaciones TEXT, numero_factura TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
     # What was received, for the bonus panel's pending / no-brand-line groups (`bonos_alcance`).
     "CREATE TABLE pedido_compra_ingresos (id BIGSERIAL PRIMARY KEY, pedido_id BIGINT NOT NULL, item_id INTEGER NOT NULL, "
     "cantidad_recibida NUMERIC(18, 6) NOT NULL)",
