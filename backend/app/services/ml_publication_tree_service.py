@@ -123,8 +123,9 @@ def assemble_publication_tree(
             Publicaciones ML panel) instead of the ERP map: they are the
             roots, in the given order, each with its `publicaciones_ml` list
             when the map has one, and a related MLA is this product's only
-            when the store links it to it (`ml_item_product_links`). `None` (Productos): the product's active
-            `publicaciones_ml` rows, as before.
+            when the store links it to it (`ml_item_product_links`).
+            `None` (Productos): the product's active `publicaciones_ml`
+            rows, as before.
 
     Returns:
         `ProductTreeResponse` with the root `producto` node, plus the
